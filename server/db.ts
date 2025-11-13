@@ -1,6 +1,14 @@
-import { eq } from "drizzle-orm";
+import { eq, and, desc } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/mysql2";
-import { InsertUser, users } from "../drizzle/schema";
+import { 
+  InsertUser, users,
+  draws, Draw, InsertDraw,
+  tickets, Ticket, InsertTicket,
+  utefBalances, UtefBalance, InsertUtefBalance,
+  utefTransactions, UtefTransaction, InsertUtefTransaction,
+  products, Product, InsertProduct,
+  productConversions, ProductConversion, InsertProductConversion
+} from "../drizzle/schema";
 import { ENV } from './_core/env';
 
 let _db: ReturnType<typeof drizzle> | null = null;
@@ -89,4 +97,136 @@ export async function getUserByOpenId(openId: string) {
   return result.length > 0 ? result[0] : undefined;
 }
 
-// TODO: add feature queries here as your schema grows.
+// ========== DRAWS ==========
+
+export async function getActiveDraws(): Promise<Draw[]> {
+  const db = await getDb();
+  if (!db) return [];
+  return db.select().from(draws).where(eq(draws.status, "active")).orderBy(desc(draws.createdAt));
+}
+
+export async function getDrawById(id: number): Promise<Draw | undefined> {
+  const db = await getDb();
+  if (!db) return undefined;
+  const result = await db.select().from(draws).where(eq(draws.id, id)).limit(1);
+  return result[0];
+}
+
+export async function createDraw(draw: InsertDraw): Promise<Draw> {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  const result = await db.insert(draws).values(draw);
+  return getDrawById(Number(result[0].insertId)) as Promise<Draw>;
+}
+
+export async function updateDraw(id: number, updates: Partial<InsertDraw>): Promise<void> {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  await db.update(draws).set(updates).where(eq(draws.id, id));
+}
+
+// ========== TICKETS ==========
+
+export async function createTicket(ticket: InsertTicket): Promise<Ticket> {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  const result = await db.insert(tickets).values(ticket);
+  const newTicket = await db.select().from(tickets).where(eq(tickets.id, Number(result[0].insertId))).limit(1);
+  return newTicket[0];
+}
+
+export async function getTicketsByUserId(userId: number): Promise<Ticket[]> {
+  const db = await getDb();
+  if (!db) return [];
+  return db.select().from(tickets).where(eq(tickets.userId, userId)).orderBy(desc(tickets.createdAt));
+}
+
+export async function getTicketsByDrawId(drawId: number): Promise<Ticket[]> {
+  const db = await getDb();
+  if (!db) return [];
+  return db.select().from(tickets).where(eq(tickets.drawId, drawId));
+}
+
+export async function updateTicket(id: number, updates: Partial<InsertTicket>): Promise<void> {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  await db.update(tickets).set(updates).where(eq(tickets.id, id));
+}
+
+// ========== UTEF BALANCES ==========
+
+export async function getUtefBalance(userId: number): Promise<UtefBalance | undefined> {
+  const db = await getDb();
+  if (!db) return undefined;
+  const result = await db.select().from(utefBalances).where(eq(utefBalances.userId, userId)).limit(1);
+  return result[0];
+}
+
+export async function createOrUpdateUtefBalance(userId: number, amount: number): Promise<void> {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  
+  const existing = await getUtefBalance(userId);
+  if (existing) {
+    await db.update(utefBalances).set({ balance: existing.balance + amount }).where(eq(utefBalances.userId, userId));
+  } else {
+    await db.insert(utefBalances).values({ userId, balance: amount });
+  }
+}
+
+// ========== UTEF TRANSACTIONS ==========
+
+export async function createUtefTransaction(transaction: InsertUtefTransaction): Promise<UtefTransaction> {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  const result = await db.insert(utefTransactions).values(transaction);
+  const newTransaction = await db.select().from(utefTransactions).where(eq(utefTransactions.id, Number(result[0].insertId))).limit(1);
+  return newTransaction[0];
+}
+
+export async function getUtefTransactionsByUserId(userId: number): Promise<UtefTransaction[]> {
+  const db = await getDb();
+  if (!db) return [];
+  return db.select().from(utefTransactions).where(eq(utefTransactions.userId, userId)).orderBy(desc(utefTransactions.createdAt));
+}
+
+// ========== PRODUCTS ==========
+
+export async function getProducts(category?: string): Promise<Product[]> {
+  const db = await getDb();
+  if (!db) return [];
+  if (category) {
+    return db.select().from(products).where(and(eq(products.category, category as any), eq(products.status, "available")));
+  }
+  return db.select().from(products).where(eq(products.status, "available"));
+}
+
+export async function getProductById(id: number): Promise<Product | undefined> {
+  const db = await getDb();
+  if (!db) return undefined;
+  const result = await db.select().from(products).where(eq(products.id, id)).limit(1);
+  return result[0];
+}
+
+export async function createProduct(product: InsertProduct): Promise<Product> {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  const result = await db.insert(products).values(product);
+  return getProductById(Number(result[0].insertId)) as Promise<Product>;
+}
+
+// ========== PRODUCT CONVERSIONS ==========
+
+export async function createProductConversion(conversion: InsertProductConversion): Promise<ProductConversion> {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  const result = await db.insert(productConversions).values(conversion);
+  const newConversion = await db.select().from(productConversions).where(eq(productConversions.id, Number(result[0].insertId))).limit(1);
+  return newConversion[0];
+}
+
+export async function getConversionsByUserId(userId: number): Promise<ProductConversion[]> {
+  const db = await getDb();
+  if (!db) return [];
+  return db.select().from(productConversions).where(eq(productConversions.userId, userId)).orderBy(desc(productConversions.createdAt));
+}
