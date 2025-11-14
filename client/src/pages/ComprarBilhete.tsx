@@ -21,6 +21,7 @@ export default function ComprarBilhete() {
   const [quantity, setQuantity] = useState(1);
   const [purchaseComplete, setPurchaseComplete] = useState(false);
   const [pixCode, setPixCode] = useState("");
+  const [pixQrCode, setPixQrCode] = useState("");
   const [ticketId, setTicketId] = useState<number | null>(null);
 
   const { data: draw, isLoading } = trpc.draws.getById.useQuery({ id: drawId });
@@ -28,6 +29,7 @@ export default function ComprarBilhete() {
   const purchaseMutation = trpc.tickets.purchase.useMutation({
     onSuccess: (data) => {
       setPixCode(data.pixCopyPaste);
+      setPixQrCode(data.pixQrCode);
       setTicketId(data.ticket.id);
       setPurchaseComplete(true);
       toast.success("Bilhete gerado com sucesso!");
@@ -195,6 +197,12 @@ export default function ComprarBilhete() {
                   </AlertDescription>
                 </Alert>
 
+                {pixQrCode && (
+                  <div className="flex justify-center p-6 bg-white rounded-lg">
+                    <img src={pixQrCode} alt="QR Code PIX" className="w-64 h-64" />
+                  </div>
+                )}
+
                 <div className="space-y-2">
                   <Label>Código PIX (Copia e Cola)</Label>
                   <div className="flex gap-2">
@@ -204,7 +212,7 @@ export default function ComprarBilhete() {
                     </Button>
                   </div>
                   <p className="text-sm text-muted-foreground">
-                    Copie o código acima e cole no app do seu banco para pagar via PIX
+                    Escaneie o QR Code acima ou copie o código e cole no app do seu banco
                   </p>
                 </div>
 

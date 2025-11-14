@@ -43,7 +43,7 @@
 }
 
 :root {
-  --primary: oklch(0.35 0.12 150); /* Verde escuro Efficaz */
+  --primary: oklch(0.42 0.18 155); /* Verde mais vibrante Efficaz */
   --primary-foreground: oklch(1 0 0);
   --sidebar-primary: oklch(0.35 0.12 150);
   --sidebar-primary-foreground: oklch(1 0 0);
@@ -63,8 +63,8 @@
   --secondary-foreground: oklch(0.4 0.015 65);
   --muted: oklch(0.967 0.001 286.375);
   --muted-foreground: oklch(0.552 0.016 285.938);
-  --accent: oklch(0.85 0.15 85); /* Dourado Efficaz */
-  --accent-foreground: oklch(0.35 0.12 150);
+  --accent: oklch(0.75 0.20 85); /* Dourado mais vibrante */
+  --accent-foreground: oklch(0.15 0.05 150);
   --destructive: oklch(0.577 0.245 27.325);
   --destructive-foreground: oklch(0.985 0 0);
   --border: oklch(0.92 0.004 286.32);
@@ -79,7 +79,7 @@
 }
 
 .dark {
-  --primary: oklch(0.35 0.12 150); /* Verde escuro Efficaz */
+  --primary: oklch(0.42 0.18 155); /* Verde mais vibrante Efficaz */
   --primary-foreground: oklch(1 0 0);
   --sidebar-primary: oklch(0.35 0.12 150);
   --sidebar-primary-foreground: oklch(1 0 0);

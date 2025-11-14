@@ -1,8 +1,8 @@
 import { COOKIE_NAME } from "@shared/const";
 import { getSessionCookieOptions } from "./_core/cookies";
 import { systemRouter } from "./_core/systemRouter";
-import { publicProcedure, protectedProcedure, router } from "./_core/trpc";
-import { z } from "zod";
+import { publicProcedure, protectedProcedure, router } from "./_core/trpc";import { z } from "zod";
+import QRCode from "qrcode";
 import * as db from "./db";
 import { TRPCError } from "@trpc/server";
 
@@ -11,10 +11,62 @@ function generateTicketNumber(): string {
   return `TKT${Date.now()}${Math.random().toString(36).substring(2, 9).toUpperCase()}`;
 }
 
-// Helper para gerar PIX simulado (copia e cola)
-function generatePixCode(amount: number, ticketNumber: string): string {
-  // Simulação de código PIX (em produção, integrar com gateway de pagamento)
-  return `00020126580014br.gov.bcb.pix0136${ticketNumber}520400005303986540${(amount / 100).toFixed(2)}5802BR5925EFFICAZ ORBIT6009SAO PAULO62070503***6304${Math.random().toString().substring(2, 6)}`;
+// Helper para gerar código PIX (BR Code)
+function generatePixBRCode(amount: number, pixKey: string, merchantName: string, merchantCity: string, txid: string): string {
+  const amountStr = (amount / 100).toFixed(2);
+  
+  // Formato PIX BR Code simplificado
+  const payload = [
+    { id: '00', value: '01' }, // Payload Format Indicator
+    { id: '26', value: `0014br.gov.bcb.pix01${pixKey.length.toString().padStart(2, '0')}${pixKey}` }, // Merchant Account Information
+    { id: '52', value: '0000' }, // Merchant Category Code
+    { id: '53', value: '986' }, // Transaction Currency (BRL)
+    { id: '54', value: amountStr }, // Transaction Amount
+    { id: '58', value: 'BR' }, // Country Code
+    { id: '59', value: merchantName.substring(0, 25) }, // Merchant Name
+    { id: '60', value: merchantCity.substring(0, 15) }, // Merchant City
+    { id: '62', value: `05${txid.length.toString().padStart(2, '0')}${txid}` }, // Additional Data Field
+  ];
+  
+  let brcode = '';
+  for (const item of payload) {
+    brcode += item.id + item.value.length.toString().padStart(2, '0') + item.value;
+  }
+  
+  // CRC16 simplificado (para produção, usar biblioteca adequada)
+  brcode += '6304';
+  const crc = calculateCRC16(brcode);
+  brcode += crc;
+  
+  return brcode;
+}
+
+// CRC16 CCITT-FALSE para PIX
+function calculateCRC16(str: string): string {
+  let crc = 0xFFFF;
+  for (let i = 0; i < str.length; i++) {
+    crc ^= str.charCodeAt(i) << 8;
+    for (let j = 0; j < 8; j++) {
+      if (crc & 0x8000) {
+        crc = (crc << 1) ^ 0x1021;
+      } else {
+        crc = crc << 1;
+      }
+    }
+  }
+  return (crc & 0xFFFF).toString(16).toUpperCase().padStart(4, '0');
+}
+
+// Helper para gerar PIX completo
+async function generatePixCode(amount: number, ticketNumber: string): Promise<{ pixCopyPaste: string; pixQrCode: string }> {
+  const pixKey = "atendimento@grupoefficaz.com.br";
+  const merchantName = "GRUPO EFFICAZ";
+  const merchantCity = "IMPERATRIZ";
+  
+  const pixCopyPaste = generatePixBRCode(amount, pixKey, merchantName, merchantCity, ticketNumber);
+  const pixQrCode = await QRCode.toDataURL(pixCopyPaste);
+  
+  return { pixCopyPaste, pixQrCode };
 }
 
 export const appRouter = router({
@@ -139,7 +191,7 @@ export const appRouter = router({
 
         const totalPaid = draw.ticketPrice * input.quantity;
         const ticketNumber = generateTicketNumber();
-        const pixCopyPaste = generatePixCode(totalPaid, ticketNumber);
+        const { pixCopyPaste, pixQrCode } = await generatePixCode(totalPaid, ticketNumber);
 
         const ticket = await db.createTicket({
           drawId: input.drawId,
@@ -150,11 +202,13 @@ export const appRouter = router({
           paymentStatus: "pending",
           paymentMethod: "pix",
           pixCopyPaste,
+          pixQrCode,
         });
 
         return {
           ticket,
           pixCopyPaste,
+          pixQrCode,
           totalPaid,
         };
       }),
