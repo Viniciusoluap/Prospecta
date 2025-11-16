@@ -301,6 +301,63 @@ export const appRouter = router({
     transactions: protectedProcedure.query(async ({ ctx }) => {
       return db.getUtefTransactionsByUserId(ctx.user.id);
     }),
+
+    purchase: protectedProcedure
+      .input(z.object({
+        amount: z.number().min(1),
+        paymentMethod: z.enum(["pix", "stripe"]).default("pix"),
+      }))
+      .mutation(async ({ input, ctx }) => {
+        // 1 UTEF = R$ 1,00 = 100 centavos
+        const totalPrice = input.amount * 100;
+        const txId = `UTEF${Date.now()}${Math.random().toString(36).substring(2, 9).toUpperCase()}`;
+        
+        // Se pagamento via Stripe
+        if (input.paymentMethod === "stripe") {
+          const session = await stripe.checkout.sessions.create({
+            payment_method_types: ["card"],
+            line_items: [
+              {
+                price_data: {
+                  currency: "brl",
+                  product_data: {
+                    name: `Compra de UTEFs`,
+                    description: `${input.amount.toLocaleString("pt-BR")} UTEFs (créditos internos Efficaz)`,
+                  },
+                  unit_amount: 100, // R$ 1,00 por UTEF
+                },
+                quantity: input.amount,
+              },
+            ],
+            mode: "payment",
+            success_url: `${ctx.req.headers.origin}/dashboard?utef_purchase=success`,
+            cancel_url: `${ctx.req.headers.origin}/comprar-utef`,
+            client_reference_id: ctx.user.id.toString(),
+            customer_email: ctx.user.email || undefined,
+            metadata: {
+              user_id: ctx.user.id.toString(),
+              utef_amount: input.amount.toString(),
+              transaction_type: "utef_purchase",
+              tx_id: txId,
+            },
+            allow_promotion_codes: true,
+          });
+
+          return {
+            checkoutUrl: session.url,
+            totalPrice,
+          };
+        }
+        
+        // Se pagamento via PIX
+        const { pixCopyPaste, pixQrCode } = await generatePixCode(totalPrice, txId);
+
+        return {
+          pixCopyPaste,
+          pixQrCode,
+          totalPrice,
+        };
+      }),
   }),
 
   // ========== PRODUCTS (PRODUTOS) ==========

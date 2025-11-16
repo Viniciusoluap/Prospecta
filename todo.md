@@ -152,3 +152,22 @@ Desenvolver o ecossistema digital do Grupo Efficaz com módulos de venda de bilh
 
 ### 18. Atualização do Código PIX Fixo
 - [x] Substituir geração dinâmica de PIX por código fixo fornecido pelo usuário
+
+
+### 19. Correção de Problemas Críticos Reportados pelo Usuário
+- [ ] Investigar e corrigir erro no fluxo de pagamento
+- [ ] Corrigir exibição das imagens dos produtos (não estão aparecendo)
+- [ ] Corrigir exibição do QR Code PIX na tela de pagamento
+- [ ] Testar fluxo completo de compra com PIX
+- [ ] Testar fluxo completo de compra com Stripe
+
+
+### 20. Implementação da Nova Regra de Conversão UTEF
+- [x] Atualizar conversão para 1 UTEF = R$ 1,00 em todo o sistema
+- [x] Criar funcionalidade de compra direta de UTEFs (sem sorteio)
+- [x] Adicionar página/rota para comprar UTEFs diretamente
+- [x] Implementar backend para compra de UTEFs com PIX e Stripe
+- [x] Ajustar preços dos produtos conforme nova conversão
+- [x] Atualizar textos explicativos sobre UTEF
+- [x] Atualizar função formatUtef() para mostrar equivalência em reais
+- [x] Testar fluxo completo de compra de UTEFs

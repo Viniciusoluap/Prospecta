@@ -11,7 +11,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { trpc } from "@/lib/trpc";
-import { User, LogOut, Ticket, Coins, ShoppingBag, Settings } from "lucide-react";
+import { User, LogOut, Ticket, Coins, ShoppingBag, Settings, Plus } from "lucide-react";
 
 export default function Navbar() {
   const { user, isAuthenticated } = useAuth();
@@ -43,6 +43,12 @@ export default function Navbar() {
             </Link>
             <Link href="/como-funciona" className="text-sm font-medium text-muted-foreground hover:text-foreground transition-colors">
               Como Funciona
+            </Link>
+            <Link href="/comprar-utef">
+              <Button variant="default" size="sm" className="gap-2">
+                <Plus className="h-4 w-4" />
+                Comprar UTEFs
+              </Button>
             </Link>
           </div>
         </div>
@@ -77,6 +83,12 @@ export default function Navbar() {
                     <DropdownMenuItem>
                       <Coins className="mr-2 h-4 w-4" />
                       Meu Saldo UTEF
+                    </DropdownMenuItem>
+                  </Link>
+                  <Link href="/comprar-utef">
+                    <DropdownMenuItem>
+                      <Plus className="mr-2 h-4 w-4" />
+                      Comprar UTEFs
                     </DropdownMenuItem>
                   </Link>
                   <Link href="/minhas-conversoes">

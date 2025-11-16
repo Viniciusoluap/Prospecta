@@ -1,0 +1,45 @@
+{
+  "query": "SELECT id, title, category, image_url, LENGTH(image_url) as url_length FROM products ORDER BY id;",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway02.us-east-1.prod.aws.tidbcloud.com --port 4000 --user QGkzyx9AEigNFY6.root --database XKiYeWQckm4y8ZFAdaZbRn --execute SELECT id, title, category, image_url, LENGTH(image_url) as url_length FROM products ORDER BY id;",
+  "rows": [
+    {
+      "id": "30001",
+      "title": "Casa Padrão 47m² - Prospecta Construções",
+      "category": "real_estate",
+      "image_url": "https://prospectaconstrucoes.com/wp-content/uploads/2024/01/planta-casa-150m2-1o-piso.jpg",
+      "url_length": "89"
+    },
+    {
+      "id": "30002",
+      "title": "Crédito UTEF 0,35% - Financiamento Habitacional",
+      "category": "financial",
+      "image_url": "https://images.unsplash.com/photo-1554224155-6726b3ff858f?w=800",
+      "url_length": "63"
+    },
+    {
+      "id": "30003",
+      "title": "Lancha Focker 215 Cabinada 150 HP - Compartilhamento",
+      "category": "nautical",
+      "image_url": "https://exclusiveclubitz.com/wp-content/uploads/2024/01/lancha-focker-215.jpg",
+      "url_length": "77"
+    },
+    {
+      "id": "30004",
+      "title": "Jetski Seadoo GTI 130 HP - Compartilhamento Anual",
+      "category": "nautical",
+      "image_url": "https://exclusiveclubitz.com/wp-content/uploads/2024/01/jetski-seadoo.jpg",
+      "url_length": "73"
+    },
+    {
+      "id": "30005",
+      "title": "PIPER SENECA IV - Compartilhamento de Aeronave",
+      "category": "nautical",
+      "image_url": "https://exclusiveclubitz.com/wp-content/uploads/2024/01/piper-seneca.jpg",
+      "url_length": "72"
+    }
+  ],
+  "messages": [],
+  "stdout": "id\ttitle\tcategory\timage_url\turl_length\n30001\tCasa Padrão 47m² - Prospecta Construções\treal_estate\thttps://prospectaconstrucoes.com/wp-content/uploads/2024/01/planta-casa-150m2-1o-piso.jpg\t89\n30002\tCrédito UTEF 0,35% - Financiamento Habitacional\tfinancial\thttps://images.unsplash.com/photo-1554224155-6726b3ff858f?w=800\t63\n30003\tLancha Focker 215 Cabinada 150 HP - Compartilhamento\tnautical\thttps://exclusiveclubitz.com/wp-content/uploads/2024/01/lancha-focker-215.jpg\t77\n30004\tJetski Seadoo GTI 130 HP - Compartilhamento Anual\tnautical\thttps://exclusiveclubitz.com/wp-content/uploads/2024/01/jetski-seadoo.jpg\t73\n30005\tPIPER SENECA IV - Compartilhamento de Aeronave\tnautical\thttps://exclusiveclubitz.com/wp-content/uploads/2024/01/piper-seneca.jpg\t72\n",
+  "stderr": "",
+  "execution_time_ms": 105
+}

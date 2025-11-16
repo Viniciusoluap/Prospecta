@@ -47,9 +47,14 @@ export function formatCurrency(cents: number): string {
   }).format(cents / 100);
 }
 
-// Format UTEF amount
-export function formatUtef(amount: number): string {
-  return `${amount.toLocaleString("pt-BR")} UTEF`;
+// Format UTEF amount (1 UTEF = R$ 1,00)
+export function formatUtef(amount: number, showEquivalent: boolean = true): string {
+  const formatted = `${amount.toLocaleString("pt-BR")} UTEF`;
+  if (showEquivalent) {
+    const reais = formatCurrency(amount * 100); // amount * 100 porque formatCurrency espera centavos
+    return `${formatted} (${reais})`;
+  }
+  return formatted;
 }
 
 // Format date

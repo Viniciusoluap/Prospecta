@@ -31,9 +31,15 @@ export default function Home() {
             </p>
             <div className="flex flex-col sm:flex-row gap-4 justify-center pt-4">
               <Button asChild size="lg" className="gap-2 shadow-lg shadow-primary/25 hover:shadow-xl hover:shadow-primary/30 transition-all">
+                <Link href="/comprar-utef">
+                  <Coins className="h-5 w-5" />
+                  Comprar UTEFs
+                </Link>
+              </Button>
+              <Button asChild size="lg" variant="outline" className="gap-2 border-2 hover:bg-primary/10">
                 <Link href="/sorteios">
                   <Ticket className="h-5 w-5" />
-                  Ver Sorteios Ativos
+                  Ver Sorteios
                 </Link>
               </Button>
               <Button asChild size="lg" variant="outline" className="gap-2 border-2 hover:bg-accent/10">
@@ -71,7 +77,7 @@ export default function Home() {
                   </div>
                   <CardTitle>2. Ganhe UTEFs</CardTitle>
                   <CardDescription>
-                    Participe do sorteio e ganhe 200.000 UTEFs (créditos internos)
+                    Participe do sorteio e ganhe 200.000 UTEFs ou compre diretamente (1 UTEF = R$ 1,00)
                   </CardDescription>
                 </CardHeader>
               </Card>
