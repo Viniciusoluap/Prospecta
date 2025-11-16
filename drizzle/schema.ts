@@ -53,19 +53,19 @@ export type InsertDraw = typeof draws.$inferInsert;
  */
 export const tickets = mysqlTable("tickets", {
   id: int("id").autoincrement().primaryKey(),
-  drawId: int("draw_id").notNull(),
-  userId: int("user_id").notNull(),
-  ticketNumber: varchar("ticket_number", { length: 20 }).notNull().unique(), // Número único do bilhete
+  drawId: int("drawId").notNull(),
+  userId: int("userId").notNull(),
+  ticketNumber: varchar("ticketNumber", { length: 20 }).notNull().unique(), // Número único do bilhete
   quantity: int("quantity").default(1).notNull(), // Quantidade de bilhetes comprados
-  totalPaid: int("total_paid").notNull(), // Valor pago em centavos
-  paymentStatus: mysqlEnum("payment_status", ["pending", "confirmed", "failed"]).default("pending").notNull(),
-  paymentMethod: varchar("payment_method", { length: 50 }).default("pix"),
-  pixQrCode: text("pix_qr_code"), // QR Code PIX gerado
-  pixCopyPaste: text("pix_copy_paste"), // Código PIX copia e cola
-  stripePaymentIntentId: varchar("stripe_payment_intent_id", { length: 255 }), // ID do Payment Intent do Stripe
-  stripeCheckoutSessionId: varchar("stripe_checkout_session_id", { length: 255 }), // ID da sessão de checkout do Stripe
-  createdAt: timestamp("created_at").defaultNow().notNull(),
-  updatedAt: timestamp("updated_at").defaultNow().onUpdateNow().notNull(),
+  totalPaid: int("totalPaid").notNull(), // Valor pago em centavos
+  paymentStatus: mysqlEnum("paymentStatus", ["pending", "confirmed", "failed"]).default("pending").notNull(),
+  paymentMethod: varchar("paymentMethod", { length: 50 }).default("pix"),
+  pixQrCode: text("pixQrCode"), // QR Code PIX gerado
+  pixCopyPaste: text("pixCopyPaste"), // Código PIX copia e cola
+  stripePaymentIntentId: varchar("stripePaymentIntentId", { length: 255 }), // ID do Payment Intent do Stripe
+  stripeCheckoutSessionId: varchar("stripeCheckoutSessionId", { length: 255 }), // ID da sessão de checkout do Stripe
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
 });
 
 export type Ticket = typeof tickets.$inferSelect;

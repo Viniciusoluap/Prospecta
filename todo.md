@@ -195,5 +195,7 @@ Desenvolver o ecossistema digital do Grupo Efficaz com módulos de venda de bilh
 - [x] Corrigir o erro no fluxo de pagamento de bilhetes
 - [x] Remover limite de 100 bilhetes por compra
 - [x] Adicionar logs de debug para identificar problemas
-- [ ] Testar compra de bilhetes com PIX
-- [ ] Testar compra de bilhetes com Stripe
+- [x] Corrigir incompatibilidade snake_case vs camelCase no schema
+- [x] Aplicar migração do banco de dados
+- [x] Testar compra de bilhetes com PIX
+- [x] Testar compra de bilhetes com Stripe
