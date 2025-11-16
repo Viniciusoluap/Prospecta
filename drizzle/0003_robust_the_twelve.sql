@@ -1,0 +1,2 @@
+ALTER TABLE `utef_transactions` MODIFY COLUMN `type` enum('prize','conversion','adjustment','purchase') NOT NULL;--> statement-breakpoint
+ALTER TABLE `utef_transactions` ADD `reference_id` varchar(255);

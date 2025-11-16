@@ -43,18 +43,49 @@ export function registerStripeWebhook(app: express.Application) {
             const session = event.data.object as any;
             console.log('[Stripe Webhook] Checkout completed:', session.id);
 
-            // Buscar o bilhete pelo session ID
-            const ticket = await db.getTicketByStripeSessionId(session.id);
-            if (ticket) {
-              // Atualizar status do bilhete para confirmado
-              await db.updateTicketPaymentStatus(ticket.id, 'confirmed');
+            // Verificar se é uma compra de UTEFs
+            if (session.metadata?.transaction_type === 'utef_purchase') {
+              const userId = parseInt(session.metadata.user_id);
+              const utefAmount = parseInt(session.metadata.utef_amount);
+              const txId = session.metadata.tx_id;
               
-              // Atualizar o sorteio (incrementar arrecadação e bilhetes vendidos)
-              await db.incrementDrawStats(ticket.drawId, ticket.totalPaid, ticket.quantity);
+              // Calcular bônus (10% para compras acima de 1000 UTEFs)
+              let bonusAmount = 0;
+              if (utefAmount >= 1000) {
+                bonusAmount = Math.floor(utefAmount * 0.1);
+              }
               
-              console.log('[Stripe Webhook] Ticket confirmed:', ticket.id);
+              const totalUtef = utefAmount + bonusAmount;
+              
+              // Creditar UTEFs na conta do usuário
+              await db.addUtefBalance(userId, totalUtef);
+              
+              // Registrar transação
+              await db.createUtefTransaction({
+                userId,
+                amount: totalUtef,
+                type: 'purchase',
+                description: bonusAmount > 0 
+                  ? `Compra de ${utefAmount} UTEFs + ${bonusAmount} bônus (10%)` 
+                  : `Compra de ${utefAmount} UTEFs`,
+                referenceId: txId,
+              });
+              
+              console.log(`[Stripe Webhook] UTEFs credited: ${totalUtef} (${utefAmount} + ${bonusAmount} bonus) for user ${userId}`);
             } else {
-              console.warn('[Stripe Webhook] Ticket not found for session:', session.id);
+              // Buscar o bilhete pelo session ID
+              const ticket = await db.getTicketByStripeSessionId(session.id);
+              if (ticket) {
+                // Atualizar status do bilhete para confirmado
+                await db.updateTicketPaymentStatus(ticket.id, 'confirmed');
+                
+                // Atualizar o sorteio (incrementar arrecadação e bilhetes vendidos)
+                await db.incrementDrawStats(ticket.drawId, ticket.totalPaid, ticket.quantity);
+                
+                console.log('[Stripe Webhook] Ticket confirmed:', ticket.id);
+              } else {
+                console.warn('[Stripe Webhook] Ticket not found for session:', session.id);
+              }
             }
             break;
           }

@@ -92,9 +92,10 @@ export const utefTransactions = mysqlTable("utef_transactions", {
   id: int("id").autoincrement().primaryKey(),
   userId: int("user_id").notNull(),
   amount: int("amount").notNull(), // Quantidade de UTEFs (positivo = crédito, negativo = débito)
-  type: mysqlEnum("type", ["prize", "conversion", "adjustment"]).notNull(),
+  type: mysqlEnum("type", ["prize", "conversion", "adjustment", "purchase"]).notNull(),
   description: text("description"),
   relatedId: int("related_id"), // ID relacionado (ex: drawId, productId)
+  referenceId: varchar("reference_id", { length: 255 }), // ID de referência externa (ex: txId do PIX, session do Stripe)
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 

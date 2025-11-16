@@ -60,6 +60,10 @@ export default function ComprarUtef() {
 
   // Preço em centavos (1 UTEF = R$ 1,00 = 100 centavos)
   const totalPrice = amount * 100;
+  
+  // Calcular bônus (10% para compras acima de 1000 UTEFs)
+  const bonusAmount = amount >= 1000 ? Math.floor(amount * 0.1) : 0;
+  const totalUtef = amount + bonusAmount;
 
   return (
     <div className="min-h-screen flex flex-col">
@@ -92,6 +96,13 @@ export default function ComprarUtef() {
                   <AlertDescription>
                     <strong>UTEF (Utility Token Efficaz)</strong> é o crédito interno do Grupo Efficaz. 
                     Você pode usá-lo para adquirir imóveis, serviços financeiros e embarcações.
+                  </AlertDescription>
+                </Alert>
+
+                <Alert className="bg-accent/10 border-accent">
+                  <Coins className="h-4 w-4 text-accent-foreground" />
+                  <AlertDescription>
+                    <strong>🎉 Bônus Especial:</strong> Compre 1.000 UTEFs ou mais e ganhe <strong>10% de bônus</strong> grátis!
                   </AlertDescription>
                 </Alert>
 
@@ -137,7 +148,19 @@ export default function ComprarUtef() {
                     <span className="text-sm text-muted-foreground">Quantidade:</span>
                     <span className="font-medium">{amount.toLocaleString("pt-BR")} UTEF</span>
                   </div>
-                  <div className="flex justify-between items-center">
+                  {bonusAmount > 0 && (
+                    <>
+                      <div className="flex justify-between items-center text-accent-foreground">
+                        <span className="text-sm font-medium">🎉 Bônus (10%):</span>
+                        <span className="font-bold">+{bonusAmount.toLocaleString("pt-BR")} UTEF</span>
+                      </div>
+                      <div className="flex justify-between items-center border-t pt-2">
+                        <span className="text-sm font-medium">Total de UTEFs:</span>
+                        <span className="font-bold text-accent-foreground">{totalUtef.toLocaleString("pt-BR")} UTEF</span>
+                      </div>
+                    </>
+                  )}
+                  <div className="flex justify-between items-center border-t pt-2">
                     <span className="text-lg font-medium">Total a Pagar:</span>
                     <span className="text-2xl font-bold text-primary">{formatCurrency(totalPrice)}</span>
                   </div>

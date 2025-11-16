@@ -7,7 +7,7 @@ import Navbar from "@/components/Navbar";
 import { trpc } from "@/lib/trpc";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { formatUtef, formatDate, getLoginUrl } from "@/const";
-import { Coins, TrendingUp, TrendingDown, Gift, ShoppingBag, Settings, AlertCircle } from "lucide-react";
+import { Coins, TrendingUp, TrendingDown, Gift, ShoppingBag, Settings, AlertCircle, Plus } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
 
 export default function MeuSaldo() {
@@ -61,6 +61,8 @@ export default function MeuSaldo() {
         return <ShoppingBag className="h-4 w-4 text-blue-600" />;
       case "adjustment":
         return <Settings className="h-4 w-4 text-gray-600" />;
+      case "purchase":
+        return <Coins className="h-4 w-4 text-accent-foreground" />;
       default:
         return <Coins className="h-4 w-4" />;
     }
@@ -74,6 +76,8 @@ export default function MeuSaldo() {
         return "Conversão";
       case "adjustment":
         return "Ajuste";
+      case "purchase":
+        return "Compra";
       default:
         return type;
     }
@@ -92,11 +96,19 @@ export default function MeuSaldo() {
                 Acompanhe seu saldo e histórico de transações
               </p>
             </div>
-            <Button asChild variant="outline">
-              <Link href="/produtos">
-                Ver Produtos
-              </Link>
-            </Button>
+            <div className="flex gap-2">
+              <Button asChild>
+                <Link href="/comprar-utef">
+                  <Plus className="h-4 w-4 mr-2" />
+                  Comprar UTEFs
+                </Link>
+              </Button>
+              <Button asChild variant="outline">
+                <Link href="/produtos">
+                  Ver Produtos
+                </Link>
+              </Button>
+            </div>
           </div>
 
           {/* Saldo Atual */}

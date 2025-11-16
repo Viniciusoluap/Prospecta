@@ -171,3 +171,13 @@ Desenvolver o ecossistema digital do Grupo Efficaz com módulos de venda de bilh
 - [x] Atualizar textos explicativos sobre UTEF
 - [x] Atualizar função formatUtef() para mostrar equivalência em reais
 - [x] Testar fluxo completo de compra de UTEFs
+
+
+### 21. Melhorias Finais Antes da Publicação
+- [x] Implementar webhook do Stripe para crédito automático de UTEFs
+- [x] Adicionar histórico de compras de UTEFs na página "Meu Saldo"
+- [x] Criar sistema de bônus (10% extra para compras acima de 1000 UTEFs)
+- [x] Atualizar interface da página Meu Saldo com histórico
+- [x] Testar webhook do Stripe
+- [x] Testar sistema de bônus
+- [x] Preparar para publicação

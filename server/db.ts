@@ -206,6 +206,9 @@ export async function createOrUpdateUtefBalance(userId: number, amount: number):
   }
 }
 
+// Alias para compatibilidade
+export const addUtefBalance = createOrUpdateUtefBalance;
+
 // ========== UTEF TRANSACTIONS ==========
 
 export async function createUtefTransaction(transaction: InsertUtefTransaction): Promise<UtefTransaction> {
