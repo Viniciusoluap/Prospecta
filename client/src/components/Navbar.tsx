@@ -29,28 +29,20 @@ export default function Navbar() {
     <nav className="border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60 sticky top-0 z-50">
       <div className="container flex h-16 items-center justify-between">
         <div className="flex items-center gap-6">
-          <Link href="/">
-            <a className="flex items-center gap-2 font-bold text-xl text-primary hover:opacity-80 transition-opacity">
-              <img src={APP_LOGO} alt={APP_TITLE} className="h-8 w-8" />
-              <span>{APP_TITLE}</span>
-            </a>
+          <Link href="/" className="flex items-center gap-2 font-bold text-xl text-primary hover:opacity-80 transition-opacity">
+            <img src={APP_LOGO} alt={APP_TITLE} className="h-8 w-8" />
+            <span>{APP_TITLE}</span>
           </Link>
           
           <div className="hidden md:flex items-center gap-4">
-            <Link href="/sorteios">
-              <a className="text-sm font-medium text-muted-foreground hover:text-foreground transition-colors">
-                Sorteios
-              </a>
+            <Link href="/sorteios" className="text-sm font-medium text-muted-foreground hover:text-foreground transition-colors">
+              Sorteios
             </Link>
-            <Link href="/produtos">
-              <a className="text-sm font-medium text-muted-foreground hover:text-foreground transition-colors">
-                Produtos
-              </a>
+            <Link href="/produtos" className="text-sm font-medium text-muted-foreground hover:text-foreground transition-colors">
+              Produtos
             </Link>
-            <Link href="/como-funciona">
-              <a className="text-sm font-medium text-muted-foreground hover:text-foreground transition-colors">
-                Como Funciona
-              </a>
+            <Link href="/como-funciona" className="text-sm font-medium text-muted-foreground hover:text-foreground transition-colors">
+              Como Funciona
             </Link>
           </div>
         </div>

@@ -106,3 +106,14 @@ Desenvolver o ecossistema digital do Grupo Efficaz com módulos de venda de bilh
 - [x] Melhorar cards de produtos
 - [ ] Melhorar página de sorteios
 - [ ] Melhorar página de compra de bilhetes
+
+
+### 12. Correção de Erro Crítico
+- [x] Corrigir tags <a> aninhadas no Navbar (erro de HTML)
+- [ ] Testar funcionalidade de compra de bilhetes
+- [ ] Testar funcionalidade de login
+- [ ] Testar funcionalidade de visualização de produtos
+
+### 13. Atualização de Chave PIX
+- [x] Alterar chave PIX para contato@grupoefficaz.com.br
+- [x] Alterar nome do recebedor para EFFICAZ PROMOÇÃO DE VENDAS

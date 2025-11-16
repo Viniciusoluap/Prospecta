@@ -59,8 +59,8 @@ function calculateCRC16(str: string): string {
 
 // Helper para gerar PIX completo
 async function generatePixCode(amount: number, ticketNumber: string): Promise<{ pixCopyPaste: string; pixQrCode: string }> {
-  const pixKey = "atendimento@grupoefficaz.com.br";
-  const merchantName = "GRUPO EFFICAZ";
+  const pixKey = "contato@grupoefficaz.com.br";
+  const merchantName = "EFFICAZ PROMOCAO DE VENDAS";
   const merchantCity = "IMPERATRIZ";
   
   const pixCopyPaste = generatePixBRCode(amount, pixKey, merchantName, merchantCity, ticketNumber);
