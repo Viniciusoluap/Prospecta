@@ -134,3 +134,21 @@ Desenvolver o ecossistema digital do Grupo Efficaz com módulos de venda de bilh
 - [x] Implementar frontend para checkout Stripe
 - [x] Testar pagamento com cartão de teste (pronto para teste)
 - [x] Configurar webhook para confirmação de pagamento
+
+
+### 16. Geração de Imagens de Produtos
+- [x] Gerar imagem da Casa Padrão 47m² (Construção Civil)
+- [x] Gerar imagem do Crédito UTEF 0,35% (Financeira)
+- [x] Gerar imagem da Lancha Focker 215 (Náutico)
+- [x] Gerar imagem do Jetski Seadoo GTI (Náutico)
+- [x] Gerar imagem do PIPER SENECA IV (Náutico)
+- [x] Fazer upload das imagens para S3
+- [x] Atualizar banco de dados com URLs das imagens
+
+
+### 17. Correção de Texto da Estrutura Legal
+- [x] Corrigir texto "Rússia" para "utilidade" na página Como Funciona
+
+
+### 18. Atualização do Código PIX Fixo
+- [x] Substituir geração dinâmica de PIX por código fixo fornecido pelo usuário

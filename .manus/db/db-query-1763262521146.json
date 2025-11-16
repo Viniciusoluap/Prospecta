@@ -1,0 +1,35 @@
+{
+  "query": "SELECT id, title, image_url FROM products ORDER BY id;",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway02.us-east-1.prod.aws.tidbcloud.com --port 4000 --user QGkzyx9AEigNFY6.root --database XKiYeWQckm4y8ZFAdaZbRn --execute SELECT id, title, image_url FROM products ORDER BY id;",
+  "rows": [
+    {
+      "id": "30001",
+      "title": "Casa Padrão 47m² - Prospecta Construções",
+      "image_url": "https://prospectaconstrucoes.com/wp-content/uploads/2024/01/planta-casa-150m2-1o-piso.jpg"
+    },
+    {
+      "id": "30002",
+      "title": "Crédito UTEF 0,35% - Financiamento Habitacional",
+      "image_url": "https://images.unsplash.com/photo-1554224155-6726b3ff858f?w=800"
+    },
+    {
+      "id": "30003",
+      "title": "Lancha Focker 215 Cabinada 150 HP - Compartilhamento",
+      "image_url": "https://exclusiveclubitz.com/wp-content/uploads/2024/01/lancha-focker-215.jpg"
+    },
+    {
+      "id": "30004",
+      "title": "Jetski Seadoo GTI 130 HP - Compartilhamento Anual",
+      "image_url": "https://exclusiveclubitz.com/wp-content/uploads/2024/01/jetski-seadoo.jpg"
+    },
+    {
+      "id": "30005",
+      "title": "PIPER SENECA IV - Compartilhamento de Aeronave",
+      "image_url": "https://exclusiveclubitz.com/wp-content/uploads/2024/01/piper-seneca.jpg"
+    }
+  ],
+  "messages": [],
+  "stdout": "id\ttitle\timage_url\n30001\tCasa Padrão 47m² - Prospecta Construções\thttps://prospectaconstrucoes.com/wp-content/uploads/2024/01/planta-casa-150m2-1o-piso.jpg\n30002\tCrédito UTEF 0,35% - Financiamento Habitacional\thttps://images.unsplash.com/photo-1554224155-6726b3ff858f?w=800\n30003\tLancha Focker 215 Cabinada 150 HP - Compartilhamento\thttps://exclusiveclubitz.com/wp-content/uploads/2024/01/lancha-focker-215.jpg\n30004\tJetski Seadoo GTI 130 HP - Compartilhamento Anual\thttps://exclusiveclubitz.com/wp-content/uploads/2024/01/jetski-seadoo.jpg\n30005\tPIPER SENECA IV - Compartilhamento de Aeronave\thttps://exclusiveclubitz.com/wp-content/uploads/2024/01/piper-seneca.jpg\n",
+  "stderr": "",
+  "execution_time_ms": 196
+}

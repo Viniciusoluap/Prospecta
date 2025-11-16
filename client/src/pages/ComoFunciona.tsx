@@ -169,7 +169,7 @@ export default function ComoFunciona() {
                 </CardHeader>
                 <CardContent>
                   <p className="text-sm text-muted-foreground">
-                    UTEF estruturado como crédito interno de utilidade, sem características de valor mobiliário
+                    UTEF estruturado como crédito interno de utilidade do Grupo Efficaz, sem características de valor mobiliário
                   </p>
                 </CardContent>
               </Card>

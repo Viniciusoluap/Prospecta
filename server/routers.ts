@@ -61,11 +61,8 @@ function calculateCRC16(str: string): string {
 
 // Helper para gerar PIX completo
 async function generatePixCode(amount: number, ticketNumber: string): Promise<{ pixCopyPaste: string; pixQrCode: string }> {
-  const pixKey = "contato@grupoefficaz.com.br";
-  const merchantName = "EFFICAZ PROMOCAO DE VENDAS";
-  const merchantCity = "IMPERATRIZ";
-  
-  const pixCopyPaste = generatePixBRCode(amount, pixKey, merchantName, merchantCity, ticketNumber);
+  // Código PIX fixo fornecido pelo usuário
+  const pixCopyPaste = '00020101021126490014br.gov.bcb.pix0127contato@grupoefficaz.com.br5204000053039865802BR5925EFFICAZ PROMOCAO DE VENDA6009SAO PAULO622905251KA59P2H5DDDDBZ38HJZQA2GV63043C89';
   const pixQrCode = await QRCode.toDataURL(pixCopyPaste);
   
   return { pixCopyPaste, pixQrCode };
