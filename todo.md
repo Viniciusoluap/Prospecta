@@ -181,3 +181,10 @@ Desenvolver o ecossistema digital do Grupo Efficaz com módulos de venda de bilh
 - [x] Testar webhook do Stripe
 - [x] Testar sistema de bônus
 - [x] Preparar para publicação
+
+
+### 22. Correção das Imagens dos Produtos
+- [x] Investigar por que as imagens não estão aparecendo na página de produtos
+- [x] Verificar se as URLs estão corretas no banco de dados
+- [x] Corrigir o problema de exibição das imagens
+- [x] Testar visualização das imagens na página de produtos
