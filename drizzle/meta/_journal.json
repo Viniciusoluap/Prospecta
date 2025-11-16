@@ -15,6 +15,13 @@
       "when": 1763031834299,
       "tag": "0001_premium_stranger",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "5",
+      "when": 1763261054401,
+      "tag": "0002_tough_stellaris",
+      "breakpoints": true
     }
   ]
 }

@@ -62,6 +62,8 @@ export const tickets = mysqlTable("tickets", {
   paymentMethod: varchar("payment_method", { length: 50 }).default("pix"),
   pixQrCode: text("pix_qr_code"), // QR Code PIX gerado
   pixCopyPaste: text("pix_copy_paste"), // Código PIX copia e cola
+  stripePaymentIntentId: varchar("stripe_payment_intent_id", { length: 255 }), // ID do Payment Intent do Stripe
+  stripeCheckoutSessionId: varchar("stripe_checkout_session_id", { length: 255 }), // ID da sessão de checkout do Stripe
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().onUpdateNow().notNull(),
 });

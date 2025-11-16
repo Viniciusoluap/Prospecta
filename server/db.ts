@@ -141,6 +141,38 @@ export async function getTicketsByUserId(userId: number): Promise<Ticket[]> {
   return db.select().from(tickets).where(eq(tickets.userId, userId)).orderBy(desc(tickets.createdAt));
 }
 
+export async function getTicketByStripeSessionId(sessionId: string) {
+  const db = await getDb();
+  if (!db) return null;
+  const result = await db.select().from(tickets).where(eq(tickets.stripeCheckoutSessionId, sessionId)).limit(1);
+  return result[0] || null;
+}
+
+export async function getTicketByStripePaymentIntentId(paymentIntentId: string) {
+  const db = await getDb();
+  if (!db) return null;
+  const result = await db.select().from(tickets).where(eq(tickets.stripePaymentIntentId, paymentIntentId)).limit(1);
+  return result[0] || null;
+}
+
+export async function updateTicketPaymentStatus(ticketId: number, status: 'pending' | 'confirmed' | 'failed') {
+  const db = await getDb();
+  if (!db) return;
+  await db.update(tickets).set({ paymentStatus: status }).where(eq(tickets.id, ticketId));
+}
+
+export async function incrementDrawStats(drawId: number, amount: number, ticketCount: number) {
+  const db = await getDb();
+  if (!db) return;
+  const draw = await getDrawById(drawId);
+  if (!draw) return;
+  
+  await db.update(draws).set({
+    currentAmount: draw.currentAmount + amount,
+    ticketsSold: draw.ticketsSold + ticketCount,
+  }).where(eq(draws.id, drawId));
+}
+
 export async function getTicketsByDrawId(drawId: number): Promise<Ticket[]> {
   const db = await getDb();
   if (!db) return [];

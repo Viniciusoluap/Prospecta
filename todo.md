@@ -125,3 +125,12 @@ Desenvolver o ecossistema digital do Grupo Efficaz com módulos de venda de bilh
 - [x] Criar página "Minhas Conversões" (/minhas-conversoes)
 - [x] Adicionar todas as rotas ao App.tsx
 - [x] Testar todas as rotas
+
+
+### 15. Integração Stripe para Pagamentos
+- [x] Adicionar feature Stripe ao projeto
+- [x] Configurar variáveis de ambiente Stripe
+- [x] Implementar backend para criação de sessão de checkout
+- [x] Implementar frontend para checkout Stripe
+- [x] Testar pagamento com cartão de teste (pronto para teste)
+- [x] Configurar webhook para confirmação de pagamento

@@ -20,19 +20,30 @@ export default function ComprarBilhete() {
   const { user, isAuthenticated } = useAuth();
   const [quantity, setQuantity] = useState(1);
   const [purchaseComplete, setPurchaseComplete] = useState(false);
-  const [pixCode, setPixCode] = useState("");
-  const [pixQrCode, setPixQrCode] = useState("");
+  const [pixCode, setPixCode] = useState<string>("");
+  const [pixQrCode, setPixQrCode] = useState<string>("");
+  const [paymentMethod, setPaymentMethod] = useState<"pix" | "stripe">("stripe");
   const [ticketId, setTicketId] = useState<number | null>(null);
 
   const { data: draw, isLoading } = trpc.draws.getById.useQuery({ id: drawId });
   
   const purchaseMutation = trpc.tickets.purchase.useMutation({
     onSuccess: (data) => {
-      setPixCode(data.pixCopyPaste);
-      setPixQrCode(data.pixQrCode);
-      setTicketId(data.ticket.id);
-      setPurchaseComplete(true);
-      toast.success("Bilhete gerado com sucesso!");
+      if (data.checkoutUrl) {
+        // Pagamento via Stripe - abrir checkout em nova aba
+        window.open(data.checkoutUrl, '_blank');
+        toast.success("Redirecionando para pagamento...");
+        setTimeout(() => {
+          window.location.href = "/meus-bilhetes";
+        }, 2000);
+      } else {
+        // Pagamento via PIX
+        setPixCode(data.pixCopyPaste || "");
+        setPixQrCode(data.pixQrCode || "");
+        setTicketId(data.ticket.id);
+        setPurchaseComplete(true);
+        toast.success("Bilhete gerado com sucesso!");
+      }
     },
     onError: (error) => {
       toast.error(error.message || "Erro ao gerar bilhete");
@@ -57,6 +68,7 @@ export default function ComprarBilhete() {
     purchaseMutation.mutate({
       drawId,
       quantity,
+      paymentMethod,
     });
   };
 
@@ -149,6 +161,28 @@ export default function ComprarBilhete() {
                   </p>
                 </div>
 
+                <div className="space-y-2">
+                  <Label>Método de Pagamento</Label>
+                  <div className="flex gap-4">
+                    <Button
+                      type="button"
+                      variant={paymentMethod === "stripe" ? "default" : "outline"}
+                      onClick={() => setPaymentMethod("stripe")}
+                      className="flex-1"
+                    >
+                      Cartão de Crédito
+                    </Button>
+                    <Button
+                      type="button"
+                      variant={paymentMethod === "pix" ? "default" : "outline"}
+                      onClick={() => setPaymentMethod("pix")}
+                      className="flex-1"
+                    >
+                      PIX
+                    </Button>
+                  </div>
+                </div>
+
                 <div className="p-4 bg-primary/10 rounded-lg">
                   <div className="flex justify-between items-center">
                     <span className="text-lg font-medium">Total a Pagar:</span>
@@ -173,7 +207,7 @@ export default function ComprarBilhete() {
                   className="w-full gap-2"
                 >
                   <Ticket className="h-4 w-4" />
-                  {purchaseMutation.isPending ? "Gerando..." : "Gerar PIX para Pagamento"}
+                  {purchaseMutation.isPending ? "Processando..." : paymentMethod === "stripe" ? "Pagar com Cartão" : "Gerar PIX para Pagamento"}
                 </Button>
               </CardFooter>
             </Card>

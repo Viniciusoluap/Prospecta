@@ -2,6 +2,8 @@ import { COOKIE_NAME } from "@shared/const";
 import { getSessionCookieOptions } from "./_core/cookies";
 import { systemRouter } from "./_core/systemRouter";
 import { publicProcedure, protectedProcedure, router } from "./_core/trpc";import { z } from "zod";
+import { stripe } from "./_core/stripe";
+import { ENV } from "./_core/env";
 import QRCode from "qrcode";
 import * as db from "./db";
 import { TRPCError } from "@trpc/server";
@@ -178,6 +180,7 @@ export const appRouter = router({
       .input(z.object({
         drawId: z.number(),
         quantity: z.number().min(1).max(100),
+        paymentMethod: z.enum(["pix", "stripe"]).default("stripe"),
       }))
       .mutation(async ({ input, ctx }) => {
         const draw = await db.getDrawById(input.drawId);
@@ -191,6 +194,57 @@ export const appRouter = router({
 
         const totalPaid = draw.ticketPrice * input.quantity;
         const ticketNumber = generateTicketNumber();
+        
+        // Se pagamento via Stripe
+        if (input.paymentMethod === "stripe") {
+          const session = await stripe.checkout.sessions.create({
+            payment_method_types: ["card"],
+            line_items: [
+              {
+                price_data: {
+                  currency: "brl",
+                  product_data: {
+                    name: `Bilhete(s) - ${draw.title}`,
+                    description: `${input.quantity} bilhete(s) para o sorteio ${draw.title}`,
+                  },
+                  unit_amount: draw.ticketPrice,
+                },
+                quantity: input.quantity,
+              },
+            ],
+            mode: "payment",
+            success_url: `${ctx.req.headers.origin}/meus-bilhetes?session_id={CHECKOUT_SESSION_ID}`,
+            cancel_url: `${ctx.req.headers.origin}/sorteios`,
+            client_reference_id: ctx.user.id.toString(),
+            customer_email: ctx.user.email || undefined,
+            metadata: {
+              user_id: ctx.user.id.toString(),
+              draw_id: input.drawId.toString(),
+              quantity: input.quantity.toString(),
+              ticket_number: ticketNumber,
+            },
+            allow_promotion_codes: true,
+          });
+
+          const ticket = await db.createTicket({
+            drawId: input.drawId,
+            userId: ctx.user.id,
+            ticketNumber,
+            quantity: input.quantity,
+            totalPaid,
+            paymentStatus: "pending",
+            paymentMethod: "stripe",
+            stripeCheckoutSessionId: session.id,
+          });
+
+          return {
+            ticket,
+            checkoutUrl: session.url,
+            totalPaid,
+          };
+        }
+        
+        // Se pagamento via PIX
         const { pixCopyPaste, pixQrCode } = await generatePixCode(totalPaid, ticketNumber);
 
         const ticket = await db.createTicket({
