@@ -190,7 +190,7 @@ Desenvolver o ecossistema digital do Grupo Efficaz com módulos de venda de bilh
 - [x] Testar visualização das imagens na página de produtos
 
 
-### 23. Correção do Pagamento de Bilhetes e Limite de Compra
+### 23. Correção do Pagamento de Bilhetes e Limite de Compra (REVERTENDO ABORDAGEM)
 - [x] Investigar por que o pagamento de bilhetes não está funcionando
 - [x] Corrigir o erro no fluxo de pagamento de bilhetes
 - [x] Remover limite de 100 bilhetes por compra
@@ -199,3 +199,10 @@ Desenvolver o ecossistema digital do Grupo Efficaz com módulos de venda de bilh
 - [x] Aplicar migração do banco de dados
 - [x] Testar compra de bilhetes com PIX
 - [x] Testar compra de bilhetes com Stripe
+
+
+### 24. Reversão para Snake Case (Solução Definitiva)
+- [x] Reverter schema da tabela tickets para snake_case
+- [x] Reverter colunas do banco de dados para snake_case
+- [x] Testar compra de bilhetes com schema revertido
+- [x] Confirmar que QR Code PIX aparece corretamente
