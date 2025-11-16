@@ -11,6 +11,9 @@ import Produtos from "./pages/Produtos";
 import MeusBilhetes from "./pages/MeusBilhetes";
 import MeuSaldo from "./pages/MeuSaldo";
 import Admin from "./pages/Admin";
+import ConverterProduto from "./pages/ConverterProduto";
+import ComoFunciona from "./pages/ComoFunciona";
+import MinhasConversoes from "./pages/MinhasConversoes";
 
 function Router() {
   // make sure to consider if you need authentication for certain routes
@@ -23,6 +26,9 @@ function Router() {
       <Route path="/meus-bilhetes" component={MeusBilhetes} />
       <Route path="/meu-saldo" component={MeuSaldo} />
       <Route path="/admin" component={Admin} />
+      <Route path="/converter-produto/:id" component={ConverterProduto} />
+      <Route path="/como-funciona" component={ComoFunciona} />
+      <Route path="/minhas-conversoes" component={MinhasConversoes} />
       <Route path={"/404"} component={NotFound} />
       {/* Final fallback route */}
       <Route component={NotFound} />

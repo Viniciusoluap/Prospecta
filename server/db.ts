@@ -225,8 +225,26 @@ export async function createProductConversion(conversion: InsertProductConversio
   return newConversion[0];
 }
 
-export async function getConversionsByUserId(userId: number): Promise<ProductConversion[]> {
+export async function getConversionsByUserId(userId: number) {
   const db = await getDb();
   if (!db) return [];
-  return db.select().from(productConversions).where(eq(productConversions.userId, userId)).orderBy(desc(productConversions.createdAt));
+  
+  const conversions = await db
+    .select({
+      id: productConversions.id,
+      userId: productConversions.userId,
+      productId: productConversions.productId,
+      utefAmount: productConversions.utefAmount,
+      status: productConversions.status,
+      notes: productConversions.notes,
+      createdAt: productConversions.createdAt,
+      updatedAt: productConversions.updatedAt,
+      product: products,
+    })
+    .from(productConversions)
+    .leftJoin(products, eq(productConversions.productId, products.id))
+    .where(eq(productConversions.userId, userId))
+    .orderBy(desc(productConversions.createdAt));
+  
+  return conversions;
 }

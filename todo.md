@@ -117,3 +117,11 @@ Desenvolver o ecossistema digital do Grupo Efficaz com módulos de venda de bilh
 ### 13. Atualização de Chave PIX
 - [x] Alterar chave PIX para contato@grupoefficaz.com.br
 - [x] Alterar nome do recebedor para EFFICAZ PROMOÇÃO DE VENDAS
+
+
+### 14. Correção de Rotas Faltantes (404)
+- [x] Criar página de conversão de produto (/converter-produto/:id)
+- [x] Criar página "Como Funciona" (/como-funciona)
+- [x] Criar página "Minhas Conversões" (/minhas-conversoes)
+- [x] Adicionar todas as rotas ao App.tsx
+- [x] Testar todas as rotas
