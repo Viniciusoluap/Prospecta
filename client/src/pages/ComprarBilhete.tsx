@@ -29,6 +29,7 @@ export default function ComprarBilhete() {
   
   const purchaseMutation = trpc.tickets.purchase.useMutation({
     onSuccess: (data) => {
+      console.log('Purchase success:', data);
       if (data.checkoutUrl) {
         // Pagamento via Stripe - abrir checkout em nova aba
         window.open(data.checkoutUrl, '_blank');
@@ -38,6 +39,11 @@ export default function ComprarBilhete() {
         }, 2000);
       } else {
         // Pagamento via PIX
+        console.log('Setting PIX data:', {
+          pixCopyPaste: data.pixCopyPaste?.substring(0, 50),
+          pixQrCode: data.pixQrCode?.substring(0, 50),
+          ticketId: data.ticket.id
+        });
         setPixCode(data.pixCopyPaste || "");
         setPixQrCode(data.pixQrCode || "");
         setTicketId(data.ticket.id);
@@ -46,6 +52,7 @@ export default function ComprarBilhete() {
       }
     },
     onError: (error) => {
+      console.error('Purchase error:', error);
       toast.error(error.message || "Erro ao gerar bilhete");
     },
   });
@@ -152,12 +159,11 @@ export default function ComprarBilhete() {
                     id="quantity"
                     type="number"
                     min="1"
-                    max="100"
                     value={quantity}
-                    onChange={(e) => setQuantity(Math.max(1, Math.min(100, parseInt(e.target.value) || 1)))}
+                    onChange={(e) => setQuantity(Math.max(1, parseInt(e.target.value) || 1))}
                   />
                   <p className="text-sm text-muted-foreground">
-                    Mínimo: 1 bilhete | Máximo: 100 bilhetes
+                    Mínimo: 1 bilhete | Sem limite máximo
                   </p>
                 </div>
 

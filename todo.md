@@ -188,3 +188,12 @@ Desenvolver o ecossistema digital do Grupo Efficaz com módulos de venda de bilh
 - [x] Verificar se as URLs estão corretas no banco de dados
 - [x] Corrigir o problema de exibição das imagens
 - [x] Testar visualização das imagens na página de produtos
+
+
+### 23. Correção do Pagamento de Bilhetes e Limite de Compra
+- [x] Investigar por que o pagamento de bilhetes não está funcionando
+- [x] Corrigir o erro no fluxo de pagamento de bilhetes
+- [x] Remover limite de 100 bilhetes por compra
+- [x] Adicionar logs de debug para identificar problemas
+- [ ] Testar compra de bilhetes com PIX
+- [ ] Testar compra de bilhetes com Stripe

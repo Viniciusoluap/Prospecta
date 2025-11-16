@@ -176,7 +176,7 @@ export const appRouter = router({
     purchase: protectedProcedure
       .input(z.object({
         drawId: z.number(),
-        quantity: z.number().min(1).max(100),
+        quantity: z.number().min(1),
         paymentMethod: z.enum(["pix", "stripe"]).default("stripe"),
       }))
       .mutation(async ({ input, ctx }) => {
