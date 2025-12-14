@@ -434,3 +434,9 @@ Desenvolver o ecossistema digital do Grupo Efficaz com módulos de venda de bilh
 ## 🔴 CORREÇÃO URGENTE - Botão Duplicado Mobile
 
 - [x] Remover botão de usuário duplicado no mobile (já existe no menu hambúrguer)
+
+
+## 🔴 CORREÇÃO URGENTE - Scroll Menu Lateral
+
+- [x] Adicionar scroll ao menu hambúrguer lateral para acessar todas as opções
+- [x] Garantir que botão "Sair" seja acessível em telas pequenas

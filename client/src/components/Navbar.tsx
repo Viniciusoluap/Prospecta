@@ -189,7 +189,7 @@ export default function Navbar() {
                 <Menu className="h-5 w-5" />
               </Button>
             </SheetTrigger>
-            <SheetContent side="left" className="w-80">
+            <SheetContent side="left" className="w-80 overflow-y-auto">
               <SheetHeader>
                 <SheetTitle className="flex items-center gap-2 text-primary">
                   <img src={APP_LOGO} alt={APP_TITLE} className="h-8 w-8" />
@@ -197,7 +197,7 @@ export default function Navbar() {
                 </SheetTitle>
               </SheetHeader>
               
-              <div className="mt-8 flex flex-col gap-4">
+              <div className="mt-8 flex flex-col gap-4 pb-8">
                 {/* Botão de Login/Conta */}
                 {isAuthenticated && user ? (
                   <div className="pb-4 border-b">
