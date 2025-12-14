@@ -11,7 +11,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { trpc } from "@/lib/trpc";
-import { User, LogOut, Ticket, Coins, ShoppingBag, Settings, Plus } from "lucide-react";
+import { User, LogOut, Ticket, Coins, ShoppingBag, Settings, Plus, Phone, MessageCircle, HardHat } from "lucide-react";
 
 export default function Navbar() {
   const { user, isAuthenticated } = useAuth();
@@ -38,6 +38,13 @@ export default function Navbar() {
             <Link href="/projetos-orcamentos" className="text-sm font-medium text-muted-foreground hover:text-foreground transition-colors">
               Projetos e Orçamentos
             </Link>
+            
+            {isAuthenticated && (
+              <Link href="/obras" className="text-sm font-medium text-muted-foreground hover:text-foreground transition-colors flex items-center gap-1">
+                <HardHat className="h-4 w-4" />
+                Obras
+              </Link>
+            )}
             
             <DropdownMenu>
               <DropdownMenuTrigger className="text-sm font-medium text-muted-foreground hover:text-foreground transition-colors">
@@ -72,7 +79,27 @@ export default function Navbar() {
           </div>
         </div>
 
-        <div className="flex items-center gap-4">
+        <div className="flex items-center gap-2">
+          {/* Telefones */}
+          <div className="hidden lg:flex items-center gap-3 mr-2 text-sm text-muted-foreground">
+            <a href="tel:+5599981392210" className="flex items-center gap-1 hover:text-primary transition-colors">
+              <Phone className="h-4 w-4" />
+              (99) 98139-2210
+            </a>
+            <span className="text-muted-foreground/50">|</span>
+            <a href="tel:+5594993044689" className="flex items-center gap-1 hover:text-primary transition-colors">
+              <Phone className="h-4 w-4" />
+              (94) 99304-4689
+            </a>
+          </div>
+          
+          {/* Botão Fale Conosco */}
+          <Button asChild size="sm" variant="outline" className="hidden md:flex gap-2 border-primary text-primary hover:bg-primary/10">
+            <a href="https://wa.me/5599981392210" target="_blank" rel="noopener noreferrer">
+              <MessageCircle className="h-4 w-4" />
+              Fale Conosco
+            </a>
+          </Button>
           {isAuthenticated && user ? (
             <>
               <Link href="/meus-bilhetes">

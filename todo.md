@@ -346,14 +346,14 @@ Desenvolver o ecossistema digital do Grupo Efficaz com módulos de venda de bilh
 - [x] Ajustar texto da Seção Dourada conforme prompt
 
 ### Navbar
-- [ ] Adicionar link "Obras" (🔒 para usuários logados)
-- [ ] Adicionar telefones no header
-- [ ] Adicionar botão "Fale Conosco"
+- [x] Adicionar link "Obras" (🔒 para usuários logados)
+- [x] Adicionar telefones no header
+- [x] Adicionar botão "Fale Conosco"
 
 ### Página Projetos e Orçamentos
 - [ ] Adicionar imagem da planta baixa 47m²
-- [ ] Adicionar embed 3D do RoomPlanner
-- [ ] Adicionar seção "Outros Projetos" (60m², 80m², 100m²)
+- [x] Adicionar embed 3D do RoomPlanner
+- [x] Adicionar seção "Outros Projetos" (60m², 80m², 100m²)
 
 ## 🟠 SISTEMA DE OBRAS - PRIORIDADE ALTA
 

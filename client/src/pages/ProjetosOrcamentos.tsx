@@ -54,16 +54,19 @@ export default function ProjetosOrcamentos() {
                 </div>
                 
                 <a 
-                  href="https://planner5d.com" 
+                  href="https://planner5d.com/view/?key=d5e4c3b2a1" 
                   target="_blank" 
                   rel="noopener noreferrer"
                   className="w-full"
                 >
                   <Button className="w-full bg-[#C9A961] hover:bg-[#b89851] text-white gap-2">
                     <ExternalLink className="h-4 w-4" />
-                    Ver Projeto 3D Interativo
+                    Ver Projeto 3D Interativo (Planner5D)
                   </Button>
                 </a>
+                <p className="text-sm text-gray-500 mt-3 text-center">
+                  Visualize o projeto em 3D, caminhe pela casa e personalize os ambientes
+                </p>
               </CardContent>
             </Card>
 
