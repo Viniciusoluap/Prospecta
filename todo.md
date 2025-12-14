@@ -315,3 +315,12 @@ Desenvolver o ecossistema digital do Grupo Efficaz com módulos de venda de bilh
 - [ ] Otimizar imagens (lazy loading, compressão)
 - [ ] Salvar checkpoint final
 - [ ] Documentar todas as mudanças
+
+
+### Atualização Credenciais Stripe (Nova Conta do Usuário)
+- [x] Atualizar STRIPE_SECRET_KEY com nova chave do usuário
+- [x] Atualizar VITE_STRIPE_PUBLISHABLE_KEY com nova chave do usuário
+- [ ] Configurar webhook endpoint no Stripe Dashboard
+- [ ] Testar fluxo de pagamento com as novas credenciais
+- [ ] Validar compra de bilhetes via Stripe
+- [ ] Validar compra de UTEFs via Stripe
