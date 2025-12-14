@@ -35,15 +35,15 @@ export default function Home() {
           {/* Content */}
           <div className="container relative z-10 text-center">
             <h1 className="text-5xl md:text-7xl font-bold mb-6 text-primary drop-shadow-lg">
-              Construindo Sonhos
+              Construímos a casa dos seus sonhos!
             </h1>
             <p className="text-xl md:text-2xl mb-8 max-w-3xl mx-auto text-white/90">
-              Transforme seu terreno em um lar com qualidade, segurança e financiamento facilitado
+              Financiamento desde o terreno até a construção
             </p>
             <div className="flex flex-col sm:flex-row gap-4 justify-center">
               <Button asChild size="lg" className="bg-accent hover:bg-accent/90 text-secondary font-semibold text-lg px-8">
                 <Link href="/projetos-orcamentos">
-                  Solicitar Orçamento
+                  Quero financiar minha casa
                   <ChevronRight className="ml-2 h-5 w-5" />
                 </Link>
               </Button>
@@ -61,13 +61,19 @@ export default function Home() {
           <div className="container">
             <div className="max-w-4xl mx-auto text-center">
               <h2 className="text-4xl md:text-5xl font-bold mb-6 text-secondary">
-                Investimento Imobiliário Inteligente
+                Invista no ramo imobiliário!
               </h2>
               <p className="text-xl text-foreground/80 mb-8 leading-relaxed">
-                Construa sua casa própria com a <span className="font-bold text-primary">Prospecta Construções</span>, 
-                referência em obras residenciais com mais de <span className="font-bold">500 casas entregues</span> no Maranhão.
-                Oferecemos financiamento pela Caixa Econômica Federal com as menores taxas do mercado.
+                Usando apenas seu <span className="font-bold text-primary">CPF</span> e um investimento mínimo de <span className="font-bold text-primary">5% do valor do imóvel</span>, risco zero!
               </p>
+              <div className="flex justify-center">
+                <Button asChild size="lg" className="bg-accent hover:bg-accent/90 text-secondary font-semibold text-lg px-8">
+                  <Link href="/projetos-orcamentos">
+                    Quero investir nesse ramo
+                    <ChevronRight className="ml-2 h-5 w-5" />
+                  </Link>
+                </Button>
+              </div>
               <div className="grid md:grid-cols-3 gap-6 mt-12">
                 <Card className="border-primary/30 hover:border-primary transition-colors">
                   <CardContent className="pt-6 text-center">
@@ -392,6 +398,139 @@ export default function Home() {
                 <Button asChild size="lg" variant="outline" className="border-2 border-primary hover:bg-primary/10 font-semibold text-lg px-8">
                   <a href="https://wa.me/5599981392210" target="_blank" rel="noopener noreferrer">
                     Falar no WhatsApp
+                  </a>
+                </Button>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        {/* Seção Portfólio */}
+        <section className="py-20 bg-background">
+          <div className="container">
+            <div className="text-center mb-12">
+              <h2 className="text-4xl md:text-5xl font-bold mb-4 text-secondary">
+                Conheça nosso portfólio
+              </h2>
+              <p className="text-xl text-muted-foreground max-w-3xl mx-auto">
+                Mais de 500 casas construídas com qualidade e excelência
+              </p>
+            </div>
+            <div className="grid md:grid-cols-2 lg:grid-cols-4 gap-6 max-w-7xl mx-auto">
+              {/* Imagem 1 */}
+              <div className="group relative aspect-square overflow-hidden rounded-lg border-2 border-primary/30 hover:border-primary transition-all">
+                <img 
+                  src="https://images.unsplash.com/photo-1600585154340-be6161a56a0c?w=500&h=500&fit=crop" 
+                  alt="Casa construída pela Prospecta" 
+                  className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-300"
+                />
+                <div className="absolute inset-0 bg-gradient-to-t from-secondary/80 to-transparent opacity-0 group-hover:opacity-100 transition-opacity flex items-end p-4">
+                  <p className="text-white font-semibold">Casa 47m² - Imperatriz</p>
+                </div>
+              </div>
+
+              {/* Imagem 2 */}
+              <div className="group relative aspect-square overflow-hidden rounded-lg border-2 border-primary/30 hover:border-primary transition-all">
+                <img 
+                  src="https://images.unsplash.com/photo-1600596542815-ffad4c1539a9?w=500&h=500&fit=crop" 
+                  alt="Casa construída pela Prospecta" 
+                  className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-300"
+                />
+                <div className="absolute inset-0 bg-gradient-to-t from-secondary/80 to-transparent opacity-0 group-hover:opacity-100 transition-opacity flex items-end p-4">
+                  <p className="text-white font-semibold">Casa 60m² - Canaã dos Carajás</p>
+                </div>
+              </div>
+
+              {/* Imagem 3 */}
+              <div className="group relative aspect-square overflow-hidden rounded-lg border-2 border-primary/30 hover:border-primary transition-all">
+                <img 
+                  src="https://images.unsplash.com/photo-1600607687939-ce8a6c25118c?w=500&h=500&fit=crop" 
+                  alt="Casa construída pela Prospecta" 
+                  className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-300"
+                />
+                <div className="absolute inset-0 bg-gradient-to-t from-secondary/80 to-transparent opacity-0 group-hover:opacity-100 transition-opacity flex items-end p-4">
+                  <p className="text-white font-semibold">Casa 80m² - Parauapebas</p>
+                </div>
+              </div>
+
+              {/* Imagem 4 */}
+              <div className="group relative aspect-square overflow-hidden rounded-lg border-2 border-primary/30 hover:border-primary transition-all">
+                <img 
+                  src="https://images.unsplash.com/photo-1600566753190-17f0baa2a6c3?w=500&h=500&fit=crop" 
+                  alt="Casa construída pela Prospecta" 
+                  className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-300"
+                />
+                <div className="absolute inset-0 bg-gradient-to-t from-secondary/80 to-transparent opacity-0 group-hover:opacity-100 transition-opacity flex items-end p-4">
+                  <p className="text-white font-semibold">Casa 100m² - Imperatriz</p>
+                </div>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        {/* Seção FAQ */}
+        <section className="py-20 bg-gradient-to-br from-primary/20 via-primary/10 to-background">
+          <div className="container">
+            <div className="max-w-4xl mx-auto">
+              <div className="text-center mb-12">
+                <h2 className="text-4xl md:text-5xl font-bold mb-4 text-secondary">
+                  Perguntas Frequentes
+                </h2>
+                <p className="text-xl text-muted-foreground">
+                  Tire suas dúvidas sobre financiamento e construção
+                </p>
+              </div>
+
+              <div className="space-y-4">
+                {/* Pergunta 1 */}
+                <details className="group bg-white border-2 border-primary/30 rounded-lg overflow-hidden hover:border-primary transition-colors">
+                  <summary className="cursor-pointer p-6 font-semibold text-lg text-secondary flex justify-between items-center">
+                    <span>Preciso ter terreno para construir minha casa?</span>
+                    <ChevronRight className="h-5 w-5 text-primary group-open:rotate-90 transition-transform" />
+                  </summary>
+                  <div className="px-6 pb-6 text-muted-foreground">
+                    <p>Não necessariamente! A Prospecta oferece financiamento completo que inclui a compra do terreno e a construção da casa. Você pode financiar tudo junto pela Caixa Econômica Federal.</p>
+                  </div>
+                </details>
+
+                {/* Pergunta 2 */}
+                <details className="group bg-white border-2 border-primary/30 rounded-lg overflow-hidden hover:border-primary transition-colors">
+                  <summary className="cursor-pointer p-6 font-semibold text-lg text-secondary flex justify-between items-center">
+                    <span>Preciso de DINHEIRO para construir minha casa?</span>
+                    <ChevronRight className="h-5 w-5 text-primary group-open:rotate-90 transition-transform" />
+                  </summary>
+                  <div className="px-6 pb-6 text-muted-foreground">
+                    <p>Você precisa apenas de 5% do valor total do imóvel como entrada. Esse valor pode ser parcelado ou pago com FGTS. O restante é financiado com taxas a partir de 4,5% ao ano.</p>
+                  </div>
+                </details>
+
+                {/* Pergunta 3 */}
+                <details className="group bg-white border-2 border-primary/30 rounded-lg overflow-hidden hover:border-primary transition-colors">
+                  <summary className="cursor-pointer p-6 font-semibold text-lg text-secondary flex justify-between items-center">
+                    <span>É possível ZERAR a entrada?</span>
+                    <ChevronRight className="h-5 w-5 text-primary group-open:rotate-90 transition-transform" />
+                  </summary>
+                  <div className="px-6 pb-6 text-muted-foreground">
+                    <p>Sim! Se você tiver saldo suficiente no FGTS, é possível utilizá-lo para cobrir toda a entrada. Assim você começa a construir sem desembolsar dinheiro do bolso.</p>
+                  </div>
+                </details>
+
+                {/* Pergunta 4 */}
+                <details className="group bg-white border-2 border-primary/30 rounded-lg overflow-hidden hover:border-primary transition-colors">
+                  <summary className="cursor-pointer p-6 font-semibold text-lg text-secondary flex justify-between items-center">
+                    <span>Os 20% de ENTRADA tem que ser pago ao banco?</span>
+                    <ChevronRight className="h-5 w-5 text-primary group-open:rotate-90 transition-transform" />
+                  </summary>
+                  <div className="px-6 pb-6 text-muted-foreground">
+                    <p>Não! Com a Prospecta você precisa de apenas 5% de entrada, não 20%. E esse valor pode ser pago diretamente para a construtora de forma parcelada ou com FGTS, facilitando ainda mais o processo.</p>
+                  </div>
+                </details>
+              </div>
+
+              <div className="text-center mt-12">
+                <Button asChild size="lg" className="bg-accent hover:bg-accent/90 text-secondary font-semibold text-lg px-8">
+                  <a href="https://wa.me/5599981392210" target="_blank" rel="noopener noreferrer">
+                    Ainda tem dúvidas? Fale conosco
                   </a>
                 </Button>
               </div>

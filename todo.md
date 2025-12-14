@@ -340,10 +340,10 @@ Desenvolver o ecossistema digital do Grupo Efficaz com módulos de venda de bilh
 - [x] Reorganizar footer em 4 colunas
 
 ### Home Page - Seções Faltantes
-- [ ] Adicionar seção "Portfólio" (carrossel de casas construídas)
-- [ ] Adicionar seção "FAQ" (accordion com 4 perguntas)
-- [ ] Ajustar texto da Hero Section conforme prompt
-- [ ] Ajustar texto da Seção Dourada conforme prompt
+- [x] Adicionar seção "Portfólio" (carrossel de casas construídas)
+- [x] Adicionar seção "FAQ" (accordion com 4 perguntas)
+- [x] Ajustar texto da Hero Section conforme prompt
+- [x] Ajustar texto da Seção Dourada conforme prompt
 
 ### Navbar
 - [ ] Adicionar link "Obras" (🔒 para usuários logados)
