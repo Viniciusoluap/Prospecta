@@ -462,3 +462,8 @@ Desenvolver o ecossistema digital do Grupo Efficaz com módulos de venda de bilh
 - [x] Adicionar rota /obras no App.tsx
 - [x] Adicionar rota /obras/:id no App.tsx
 - [x] Proteger rotas (apenas usuários logados)
+
+
+## 🔴 CORREÇÃO UX - Botão Voltar
+
+- [x] Adicionar botão "Voltar" no topo da página /obras

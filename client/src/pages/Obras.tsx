@@ -4,7 +4,7 @@ import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle }
 import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
 import { trpc } from "@/lib/trpc";
-import { HardHat, Plus, Calendar, MapPin, TrendingUp, Eye, AlertCircle } from "lucide-react";
+import { HardHat, Plus, Calendar, MapPin, TrendingUp, Eye, AlertCircle, ArrowLeft } from "lucide-react";
 import { Link, useLocation } from "wouter";
 import { getLoginUrl } from "@/const";
 
@@ -54,6 +54,15 @@ export default function Obras() {
       {/* Header */}
       <div className="bg-[#1A2332] border-b border-[#C9A961]/20">
         <div className="container mx-auto px-4 py-8">
+          <Button
+            variant="ghost"
+            className="text-[#C9A961] hover:text-[#B89851] hover:bg-[#C9A961]/10 mb-4"
+            onClick={() => setLocation("/")}
+          >
+            <ArrowLeft className="mr-2 h-4 w-4" />
+            Voltar para Início
+          </Button>
+          
           <div className="flex items-center justify-between">
             <div>
               <h1 className="text-3xl font-bold text-[#C9A961] flex items-center gap-3">
