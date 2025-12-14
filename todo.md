@@ -206,3 +206,112 @@ Desenvolver o ecossistema digital do Grupo Efficaz com módulos de venda de bilh
 - [x] Reverter colunas do banco de dados para snake_case
 - [x] Testar compra de bilhetes com schema revertido
 - [x] Confirmar que QR Code PIX aparece corretamente
+
+
+---
+
+## 🏗️ REDESIGN PROSPECTA CONSTRUÇÕES
+
+### Fase 1: Identidade Visual
+- [x] Copiar logo da Prospecta para client/public
+- [x] Atualizar favicon
+- [x] Atualizar paleta de cores no index.css (dourado #C9A961 + azul escuro #1A2332 + verde neon #00FF00)
+- [x] Atualizar tipografia (fonte Poppins ou Montserrat)
+- [x] Atualizar APP_TITLE para "Prospecta Construções" em const.ts
+- [x] Atualizar APP_LOGO em const.ts
+- [ ] Atualizar informações da empresa (CNPJ 41.865.900/0001-89, CRECI 4326)
+- [ ] Atualizar endereços (3 localizações)
+- [ ] Atualizar telefones ((99) 98139-2210 e (94) 99304-4689)
+- [ ] Atualizar meta tags (title, description, og:tags)
+
+### Fase 2: Redesign Home Page
+- [x] Criar Hero Section com imagem de fundo + overlay
+- [x] Criar Seção Dourada - Investimento Imobiliário
+- [x] Criar Seção Azul Escuro - Modelos de Plantas
+- [x] Criar Seção Branca - Casas na Planta (4 vantagens numeradas)
+- [x] Criar Seção Azul Escuro - Vantagens de Construção Financiada (4 cards)
+- [x] Criar Seção Branca - Parceiros (logo Caixa Econômica Federal)
+- [x] Criar Seção Azul Escuro - Depoimentos (3 cards: Bruna, Weeber, Madson)
+- [x] Atualizar Footer com informações completas da Prospecta
+- [x] Adicionar seção Ecossistema Efficaz
+
+### Fase 3: Redesign Ecossistema Efficaz
+- [x] Atualizar Navbar com dropdown "Ecossistema Efficaz"
+- [x] Aplicar novo design (cores Prospecta) em página Sorteios
+- [x] Aplicar novo design em página Produtos
+- [x] Aplicar novo design em página Como Funciona
+- [x] Aplicar novo design em página Comprar UTEFs
+- [ ] Aplicar novo design em página Meu Saldo
+- [ ] Aplicar novo design em página Comprar Bilhete
+- [ ] Testar TODAS as funcionalidades existentes (nada pode quebrar)
+
+### Fase 4: Nova Página - Projetos e Orçamentos
+- [ ] Criar tabela project_budget_requests no schema
+- [ ] Criar funções CRUD no server/db.ts
+- [ ] Criar rotas tRPC no server/routers.ts
+- [x] Criar página ProjetosOrcamentos.tsx
+- [ ] Implementar Hero Section
+- [ ] Implementar seção Planta Padrão 47m² (R$ 160.000 somente a obra)
+- [ ] Adicionar visualização 3D da planta (embed ou imagem)
+- [ ] Implementar formulário de orçamento (nome, email, telefone, cidade, tipo de projeto, tem terreno, mensagem)
+- [ ] Implementar salvamento no banco de dados
+- [ ] Implementar notificação para admin quando novo orçamento solicitado
+- [ ] Testar formulário completo
+
+### Fase 5: Sistema de Gestão de Obras
+#### Backend
+- [ ] Criar tabela construction_projects no schema
+- [ ] Criar tabela construction_stages no schema
+- [ ] Criar tabela construction_photos no schema
+- [ ] Criar funções CRUD para obras no server/db.ts
+- [ ] Criar funções CRUD para etapas no server/db.ts
+- [ ] Criar funções CRUD para fotos no server/db.ts
+- [ ] Criar rotas tRPC para obras (list, get, create, update, delete)
+- [ ] Criar rotas tRPC para etapas
+- [ ] Criar rotas tRPC para fotos (com upload)
+- [ ] Implementar geração de relatório PDF
+- [ ] Implementar geração de relatório XLSM
+- [ ] Implementar controle de acesso (usuário vê só suas obras, admin vê todas)
+
+#### Frontend - Usuário
+- [ ] Criar página MinhasObras.tsx
+- [ ] Implementar lista de obras do usuário
+- [ ] Implementar card de obra com progresso visual
+- [ ] Criar página DetalhesObra.tsx
+- [ ] Implementar seção Informações Gerais
+- [ ] Criar componente ProgressBar.tsx (barra de progresso com %)
+- [ ] Criar componente StageTimeline.tsx (timeline de etapas)
+- [ ] Criar componente PhotoGallery.tsx (galeria de fotos)
+- [ ] Implementar botão "Baixar Relatório PDF"
+- [ ] Implementar botão "Baixar Relatório XLSM"
+
+#### Frontend - Admin
+- [ ] Criar página admin/DashboardObras.tsx
+- [ ] Implementar tabela de todas as obras
+- [ ] Implementar filtros e busca
+- [ ] Implementar botão "Nova Obra"
+- [ ] Criar página admin/EditarObra.tsx
+- [ ] Implementar Aba 1: Informações Básicas
+- [ ] Implementar Aba 2: Valores e Custos (valor total, tipo contrato, pagamento empreiteiro, material, lote, comissão, extras, manutenção, seguro, saldo)
+- [ ] Implementar Aba 3: Medições e Progresso (9 etapas com % individual)
+- [ ] Implementar Aba 4: Galeria de Fotos (upload múltiplo)
+- [ ] Implementar Aba 5: Relatórios (botões gerar PDF/XLSM)
+- [ ] Implementar salvamento de obra
+- [ ] Implementar exclusão de obra (com confirmação)
+- [ ] Implementar upload de fotos para S3
+
+### Fase 6: Testes e Checkpoint Final
+- [ ] Testar todas as páginas sem erros 404
+- [ ] Testar navegação completa (todos os links funcionando)
+- [ ] Testar formulário de orçamento (salva no banco + notifica admin)
+- [ ] Testar CRUD de obras (criar, editar, excluir)
+- [ ] Testar upload de fotos de obras
+- [ ] Testar geração de relatório PDF
+- [ ] Testar geração de relatório XLSM
+- [ ] Testar permissões de acesso (usuário vs admin)
+- [ ] Testar responsividade mobile (todas as páginas)
+- [ ] Testar funcionalidades do Ecossistema Efficaz (sorteios, UTEFs, produtos, pagamentos)
+- [ ] Verificar meta tags e SEO
+- [ ] Otimizar imagens (lazy loading, compressão)
+- [ ] Salvar checkpoint final
+- [ ] Documentar todas as mudanças

@@ -1,8 +1,18 @@
 import { Link } from "wouter";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent } from "@/components/ui/card";
 import Navbar from "@/components/Navbar";
-import { Ticket, Coins, Building2, DollarSign, Anchor, ArrowRight } from "lucide-react";
+import { 
+  Home as HomeIcon, 
+  Building2, 
+  Shield, 
+  Clock, 
+  DollarSign,
+  CheckCircle2,
+  ChevronRight,
+  Star,
+  Quote
+} from "lucide-react";
 
 export default function Home() {
   return (
@@ -10,160 +20,351 @@ export default function Home() {
       <Navbar />
       
       <main className="flex-1">
-      {/* Hero Section */}
-      <section className="relative py-24 overflow-hidden">
-        {/* Gradient Background */}
-        <div className="absolute inset-0 bg-gradient-to-br from-primary/10 via-accent/5 to-background" />
-        <div className="absolute inset-0 bg-[radial-gradient(circle_at_30%_50%,rgba(34,197,94,0.1),transparent_50%)]" />
-        <div className="absolute inset-0 bg-[radial-gradient(circle_at_70%_50%,rgba(234,179,8,0.1),transparent_50%)]" />
-        
-        <div className="container relative">
-          <div className="max-w-4xl mx-auto text-center space-y-8">
-            <div className="inline-block px-4 py-2 bg-primary/10 border border-primary/20 rounded-full text-sm font-medium text-primary mb-4">
-              🌟 Ecossistema Integrado de Investimentos
-            </div>
-            <h1 className="text-5xl md:text-6xl font-bold bg-gradient-to-r from-primary via-primary to-accent bg-clip-text text-transparent leading-tight">
-              Bem-vindo ao Grupo Efficaz
+        {/* Hero Section - Imagem de fundo com overlay */}
+        <section className="relative h-[600px] flex items-center justify-center text-white overflow-hidden">
+          {/* Background Image com overlay escuro */}
+          <div 
+            className="absolute inset-0 bg-cover bg-center"
+            style={{
+              backgroundImage: "url('https://images.unsplash.com/photo-1600585154340-be6161a56a0c?w=1920&h=1080&fit=crop')",
+            }}
+          />
+          <div className="absolute inset-0 bg-gradient-to-r from-secondary/95 via-secondary/85 to-secondary/75" />
+          
+          {/* Content */}
+          <div className="container relative z-10 text-center">
+            <h1 className="text-5xl md:text-7xl font-bold mb-6 text-primary drop-shadow-lg">
+              Construindo Sonhos
             </h1>
-            <p className="text-xl text-muted-foreground max-w-2xl mx-auto leading-relaxed">
-              Participe de sorteios, ganhe <span className="font-semibold text-accent">UTEFs</span> e converta em produtos do nosso ecossistema:
-              Construção Civil, Financeira e Náutico.
+            <p className="text-xl md:text-2xl mb-8 max-w-3xl mx-auto text-white/90">
+              Transforme seu terreno em um lar com qualidade, segurança e financiamento facilitado
             </p>
-            <div className="flex flex-col sm:flex-row gap-4 justify-center pt-4">
-              <Button asChild size="lg" className="gap-2 shadow-lg shadow-primary/25 hover:shadow-xl hover:shadow-primary/30 transition-all">
-                <Link href="/comprar-utef">
-                  <Coins className="h-5 w-5" />
-                  Comprar UTEFs
+            <div className="flex flex-col sm:flex-row gap-4 justify-center">
+              <Button asChild size="lg" className="bg-accent hover:bg-accent/90 text-secondary font-semibold text-lg px-8">
+                <Link href="/projetos-orcamentos">
+                  Solicitar Orçamento
+                  <ChevronRight className="ml-2 h-5 w-5" />
                 </Link>
               </Button>
-              <Button asChild size="lg" variant="outline" className="gap-2 border-2 hover:bg-primary/10">
-                <Link href="/sorteios">
-                  <Ticket className="h-5 w-5" />
-                  Ver Sorteios
-                </Link>
-              </Button>
-              <Button asChild size="lg" variant="outline" className="gap-2 border-2 hover:bg-accent/10">
-                <Link href="/como-funciona">
-                  Saiba Como Funciona
-                  <ArrowRight className="h-5 w-5" />
+              <Button asChild size="lg" variant="outline" className="border-2 border-primary text-white hover:bg-primary/20 font-semibold text-lg px-8">
+                <Link href="/projetos-orcamentos">
+                  Ver Projetos
                 </Link>
               </Button>
             </div>
           </div>
-        </div>
-      </section>
+        </section>
 
-        {/* Como Funciona */}
-        <section className="py-16 bg-muted/30">
+        {/* Seção Dourada - Investimento Imobiliário */}
+        <section className="py-20 bg-gradient-to-br from-primary/20 via-primary/10 to-background">
           <div className="container">
-            <h2 className="text-3xl font-bold text-center mb-12">Como Funciona</h2>
-            <div className="grid md:grid-cols-3 gap-8 max-w-5xl mx-auto">
-              <Card>
-                <CardHeader>
-                  <div className="w-12 h-12 rounded-full bg-primary/10 flex items-center justify-center mb-4">
-                    <Ticket className="h-6 w-6 text-primary" />
+            <div className="max-w-4xl mx-auto text-center">
+              <h2 className="text-4xl md:text-5xl font-bold mb-6 text-secondary">
+                Investimento Imobiliário Inteligente
+              </h2>
+              <p className="text-xl text-foreground/80 mb-8 leading-relaxed">
+                Construa sua casa própria com a <span className="font-bold text-primary">Prospecta Construções</span>, 
+                referência em obras residenciais com mais de <span className="font-bold">500 casas entregues</span> no Maranhão.
+                Oferecemos financiamento pela Caixa Econômica Federal com as menores taxas do mercado.
+              </p>
+              <div className="grid md:grid-cols-3 gap-6 mt-12">
+                <Card className="border-primary/30 hover:border-primary transition-colors">
+                  <CardContent className="pt-6 text-center">
+                    <div className="w-16 h-16 rounded-full bg-primary/20 flex items-center justify-center mx-auto mb-4">
+                      <Building2 className="h-8 w-8 text-primary" />
+                    </div>
+                    <h3 className="font-bold text-lg mb-2">500+ Casas</h3>
+                    <p className="text-muted-foreground">Entregues em todo o Maranhão</p>
+                  </CardContent>
+                </Card>
+                <Card className="border-primary/30 hover:border-primary transition-colors">
+                  <CardContent className="pt-6 text-center">
+                    <div className="w-16 h-16 rounded-full bg-primary/20 flex items-center justify-center mx-auto mb-4">
+                      <Shield className="h-8 w-8 text-primary" />
+                    </div>
+                    <h3 className="font-bold text-lg mb-2">Garantia Total</h3>
+                    <p className="text-muted-foreground">Qualidade certificada e seguro</p>
+                  </CardContent>
+                </Card>
+                <Card className="border-primary/30 hover:border-primary transition-colors">
+                  <CardContent className="pt-6 text-center">
+                    <div className="w-16 h-16 rounded-full bg-primary/20 flex items-center justify-center mx-auto mb-4">
+                      <DollarSign className="h-8 w-8 text-primary" />
+                    </div>
+                    <h3 className="font-bold text-lg mb-2">Financiamento</h3>
+                    <p className="text-muted-foreground">Caixa Econômica Federal</p>
+                  </CardContent>
+                </Card>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        {/* Seção Azul Escuro - Modelos de Plantas */}
+        <section className="py-20 bg-secondary text-white">
+          <div className="container">
+            <div className="text-center mb-12">
+              <h2 className="text-4xl md:text-5xl font-bold mb-4 text-primary">
+                Modelos de Plantas
+              </h2>
+              <p className="text-xl text-white/80 max-w-3xl mx-auto">
+                Projetos modernos e funcionais, desenvolvidos por arquitetos especializados
+              </p>
+            </div>
+            <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-8 max-w-6xl mx-auto">
+              {/* Planta Padrão 47m² */}
+              <Card className="bg-white/10 border-primary/30 hover:border-primary transition-all hover:scale-105">
+                <CardContent className="p-6">
+                  <div className="aspect-video bg-white/5 rounded-lg mb-4 flex items-center justify-center">
+                    <HomeIcon className="h-16 w-16 text-primary" />
                   </div>
-                  <CardTitle>1. Compre Bilhetes</CardTitle>
-                  <CardDescription>
-                    Adquira bilhetes de participação por apenas R$ 2,00 cada
-                  </CardDescription>
-                </CardHeader>
+                  <h3 className="text-2xl font-bold mb-2 text-primary">Casa Padrão 47m²</h3>
+                  <p className="text-white/70 mb-4">2 quartos, sala, cozinha, banheiro</p>
+                  <p className="text-3xl font-bold text-accent mb-4">R$ 160.000</p>
+                  <Button asChild className="w-full bg-accent hover:bg-accent/90 text-secondary">
+                    <Link href="/projetos-orcamentos">
+                      Ver Detalhes
+                    </Link>
+                  </Button>
+                </CardContent>
               </Card>
 
-              <Card>
-                <CardHeader>
-                  <div className="w-12 h-12 rounded-full bg-accent/10 flex items-center justify-center mb-4">
-                    <Coins className="h-6 w-6 text-accent-foreground" />
+              {/* Placeholder para mais plantas */}
+              <Card className="bg-white/10 border-primary/30 hover:border-primary transition-all hover:scale-105">
+                <CardContent className="p-6">
+                  <div className="aspect-video bg-white/5 rounded-lg mb-4 flex items-center justify-center">
+                    <HomeIcon className="h-16 w-16 text-primary" />
                   </div>
-                  <CardTitle>2. Ganhe UTEFs</CardTitle>
-                  <CardDescription>
-                    Participe do sorteio e ganhe 200.000 UTEFs ou compre diretamente (1 UTEF = R$ 1,00)
-                  </CardDescription>
-                </CardHeader>
+                  <h3 className="text-2xl font-bold mb-2 text-primary">Casa 60m²</h3>
+                  <p className="text-white/70 mb-4">3 quartos, suíte, varanda</p>
+                  <p className="text-3xl font-bold text-accent mb-4">Sob Consulta</p>
+                  <Button asChild className="w-full bg-accent hover:bg-accent/90 text-secondary">
+                    <Link href="/projetos-orcamentos">
+                      Solicitar Orçamento
+                    </Link>
+                  </Button>
+                </CardContent>
               </Card>
 
-              <Card>
-                <CardHeader>
-                  <div className="w-12 h-12 rounded-full bg-primary/10 flex items-center justify-center mb-4">
-                    <Building2 className="h-6 w-6 text-primary" />
+              <Card className="bg-white/10 border-primary/30 hover:border-primary transition-all hover:scale-105">
+                <CardContent className="p-6">
+                  <div className="aspect-video bg-white/5 rounded-lg mb-4 flex items-center justify-center">
+                    <HomeIcon className="h-16 w-16 text-primary" />
                   </div>
-                  <CardTitle>3. Converta em Produtos</CardTitle>
-                  <CardDescription>
-                    Use seus UTEFs para adquirir imóveis, serviços financeiros ou embarcações
-                  </CardDescription>
-                </CardHeader>
+                  <h3 className="text-2xl font-bold mb-2 text-primary">Projeto Personalizado</h3>
+                  <p className="text-white/70 mb-4">Desenvolvemos o projeto dos seus sonhos</p>
+                  <p className="text-3xl font-bold text-accent mb-4">Sob Medida</p>
+                  <Button asChild className="w-full bg-accent hover:bg-accent/90 text-secondary">
+                    <Link href="/projetos-orcamentos">
+                      Fale Conosco
+                    </Link>
+                  </Button>
+                </CardContent>
               </Card>
             </div>
           </div>
         </section>
 
-      {/* Ecossistema */}
-      <section className="py-20 bg-gradient-to-b from-background to-muted/30">
-        <div className="container">
-          <div className="text-center mb-16">
-            <h2 className="text-4xl font-bold mb-4">Nosso Ecossistema</h2>
-            <p className="text-lg text-muted-foreground max-w-2xl mx-auto">
-              Conheça as empresas do Grupo Efficaz que compõem nosso ecossistema integrado
-            </p>
+        {/* Seção Branca - Casas na Planta (4 Vantagens) */}
+        <section className="py-20 bg-background">
+          <div className="container">
+            <div className="text-center mb-12">
+              <h2 className="text-4xl md:text-5xl font-bold mb-4 text-secondary">
+                Por Que Construir na Planta?
+              </h2>
+              <p className="text-xl text-muted-foreground max-w-3xl mx-auto">
+                Vantagens exclusivas para quem constrói com a Prospecta
+              </p>
+            </div>
+            <div className="grid md:grid-cols-2 lg:grid-cols-4 gap-8 max-w-6xl mx-auto">
+              <div className="text-center">
+                <div className="w-20 h-20 rounded-full bg-primary/20 flex items-center justify-center mx-auto mb-4">
+                  <span className="text-4xl font-bold text-primary">1</span>
+                </div>
+                <h3 className="text-xl font-bold mb-2 text-secondary">Preço Justo</h3>
+                <p className="text-muted-foreground">
+                  Valores competitivos e transparência total no orçamento
+                </p>
+              </div>
+              <div className="text-center">
+                <div className="w-20 h-20 rounded-full bg-primary/20 flex items-center justify-center mx-auto mb-4">
+                  <span className="text-4xl font-bold text-primary">2</span>
+                </div>
+                <h3 className="text-xl font-bold mb-2 text-secondary">Financiamento Facilitado</h3>
+                <p className="text-muted-foreground">
+                  Parceria com Caixa Econômica Federal - taxas a partir de 4,5% ao ano
+                </p>
+              </div>
+              <div className="text-center">
+                <div className="w-20 h-20 rounded-full bg-primary/20 flex items-center justify-center mx-auto mb-4">
+                  <span className="text-4xl font-bold text-primary">3</span>
+                </div>
+                <h3 className="text-xl font-bold mb-2 text-secondary">Acompanhamento Total</h3>
+                <p className="text-muted-foreground">
+                  Relatórios mensais com fotos e medições da evolução da obra
+                </p>
+              </div>
+              <div className="text-center">
+                <div className="w-20 h-20 rounded-full bg-primary/20 flex items-center justify-center mx-auto mb-4">
+                  <span className="text-4xl font-bold text-primary">4</span>
+                </div>
+                <h3 className="text-xl font-bold mb-2 text-secondary">Garantia de Qualidade</h3>
+                <p className="text-muted-foreground">
+                  Materiais de primeira linha e mão de obra qualificada
+                </p>
+              </div>
+            </div>
           </div>
-          <div className="grid md:grid-cols-3 gap-8 max-w-5xl mx-auto">
-            <Card className="hover:shadow-2xl hover:scale-105 transition-all duration-300 border-2 hover:border-primary/50 bg-gradient-to-br from-card to-primary/5">
-                <CardHeader>
-                  <Building2 className="h-12 w-12 text-primary mb-4" />
-                  <CardTitle>Construção Civil</CardTitle>
-                  <CardDescription>
-                    Imóveis e projetos imobiliários de alta qualidade
-                  </CardDescription>
-                  <a href="https://www.prospectaconstrucoes.com" target="_blank" rel="noopener noreferrer" className="text-xs text-primary hover:underline mt-2 block">
-                    → prospectaconstrucoes.com
-                  </a>
-                </CardHeader>
-                <CardContent>
-                  <Button asChild variant="outline" className="w-full">
-                    <Link href="/produtos?category=real_estate">
-                      Ver Imóveis
-                    </Link>
-                  </Button>
+        </section>
+
+        {/* Seção Azul Escuro - Vantagens de Construção Financiada */}
+        <section className="py-20 bg-secondary text-white">
+          <div className="container">
+            <div className="text-center mb-12">
+              <h2 className="text-4xl md:text-5xl font-bold mb-4 text-primary">
+                Vantagens de Construir Financiado
+              </h2>
+              <p className="text-xl text-white/80 max-w-3xl mx-auto">
+                Realize o sonho da casa própria sem comprometer seu orçamento
+              </p>
+            </div>
+            <div className="grid md:grid-cols-2 lg:grid-cols-4 gap-6 max-w-6xl mx-auto">
+              <Card className="bg-white/10 border-primary/30">
+                <CardContent className="pt-6">
+                  <CheckCircle2 className="h-12 w-12 text-accent mb-4" />
+                  <h3 className="text-xl font-bold mb-2 text-primary">Taxas Baixas</h3>
+                  <p className="text-white/70">
+                    A partir de 4,5% ao ano + TR, as menores do mercado
+                  </p>
+                </CardContent>
+              </Card>
+              <Card className="bg-white/10 border-primary/30">
+                <CardContent className="pt-6">
+                  <CheckCircle2 className="h-12 w-12 text-accent mb-4" />
+                  <h3 className="text-xl font-bold mb-2 text-primary">Prazo Longo</h3>
+                  <p className="text-white/70">
+                    Até 30 anos para pagar, com parcelas que cabem no bolso
+                  </p>
+                </CardContent>
+              </Card>
+              <Card className="bg-white/10 border-primary/30">
+                <CardContent className="pt-6">
+                  <CheckCircle2 className="h-12 w-12 text-accent mb-4" />
+                  <h3 className="text-xl font-bold mb-2 text-primary">Use FGTS</h3>
+                  <p className="text-white/70">
+                    Utilize seu FGTS como entrada ou para amortizar parcelas
+                  </p>
+                </CardContent>
+              </Card>
+              <Card className="bg-white/10 border-primary/30">
+                <CardContent className="pt-6">
+                  <CheckCircle2 className="h-12 w-12 text-accent mb-4" />
+                  <h3 className="text-xl font-bold mb-2 text-primary">Sem Burocracia</h3>
+                  <p className="text-white/70">
+                    Cuidamos de toda a documentação e aprovação do financiamento
+                  </p>
+                </CardContent>
+              </Card>
+            </div>
+          </div>
+        </section>
+
+        {/* Seção Branca - Parceiros */}
+        <section className="py-20 bg-background">
+          <div className="container">
+            <div className="text-center mb-12">
+              <h2 className="text-4xl md:text-5xl font-bold mb-4 text-secondary">
+                Nossos Parceiros
+              </h2>
+              <p className="text-xl text-muted-foreground">
+                Trabalhamos com as melhores instituições financeiras do país
+              </p>
+            </div>
+            <div className="flex justify-center items-center gap-12 flex-wrap">
+              {/* Logo Caixa */}
+              <div className="grayscale hover:grayscale-0 transition-all">
+                <img 
+                  src="https://upload.wikimedia.org/wikipedia/commons/thumb/5/5e/Caixa_Econ%C3%B4mica_Federal_logo.svg/320px-Caixa_Econ%C3%B4mica_Federal_logo.svg.png" 
+                  alt="Caixa Econômica Federal" 
+                  className="h-16 object-contain"
+                />
+              </div>
+            </div>
+          </div>
+        </section>
+
+        {/* Seção Azul Escuro - Depoimentos */}
+        <section className="py-20 bg-secondary text-white">
+          <div className="container">
+            <div className="text-center mb-12">
+              <h2 className="text-4xl md:text-5xl font-bold mb-4 text-primary">
+                O Que Nossos Clientes Dizem
+              </h2>
+              <p className="text-xl text-white/80">
+                Histórias reais de quem realizou o sonho da casa própria
+              </p>
+            </div>
+            <div className="grid md:grid-cols-3 gap-8 max-w-6xl mx-auto">
+              <Card className="bg-white/10 border-primary/30">
+                <CardContent className="pt-6">
+                  <Quote className="h-10 w-10 text-accent mb-4" />
+                  <p className="text-white/80 mb-4 italic">
+                    "A Prospecta realizou meu sonho! Construíram minha casa com qualidade e no prazo. 
+                    Recomendo de olhos fechados!"
+                  </p>
+                  <div className="flex items-center gap-2">
+                    <div className="flex text-accent">
+                      <Star className="h-4 w-4 fill-current" />
+                      <Star className="h-4 w-4 fill-current" />
+                      <Star className="h-4 w-4 fill-current" />
+                      <Star className="h-4 w-4 fill-current" />
+                      <Star className="h-4 w-4 fill-current" />
+                    </div>
+                  </div>
+                  <p className="font-bold text-primary mt-2">Bruna Silva</p>
+                  <p className="text-sm text-white/60">São Luís - MA</p>
                 </CardContent>
               </Card>
 
-            <Card className="hover:shadow-2xl hover:scale-105 transition-all duration-300 border-2 hover:border-accent/50 bg-gradient-to-br from-card to-accent/5">
-              <CardHeader>
-                <DollarSign className="h-12 w-12 text-accent mb-4" />
-                  <CardTitle>Financeira</CardTitle>
-                  <CardDescription>
-                    Serviços financeiros e crédito para realizar seus sonhos
-                  </CardDescription>
-                  <a href="https://www.grupoefficaz.com.br" target="_blank" rel="noopener noreferrer" className="text-xs text-primary hover:underline mt-2 block">
-                    → grupoefficaz.com.br
-                  </a>
-                </CardHeader>
-                <CardContent>
-                  <Button asChild variant="outline" className="w-full">
-                    <Link href="/produtos?category=financial">
-                      Ver Serviços
-                    </Link>
-                  </Button>
+              <Card className="bg-white/10 border-primary/30">
+                <CardContent className="pt-6">
+                  <Quote className="h-10 w-10 text-accent mb-4" />
+                  <p className="text-white/80 mb-4 italic">
+                    "Excelente atendimento desde o orçamento até a entrega das chaves. 
+                    Equipe profissional e comprometida!"
+                  </p>
+                  <div className="flex items-center gap-2">
+                    <div className="flex text-accent">
+                      <Star className="h-4 w-4 fill-current" />
+                      <Star className="h-4 w-4 fill-current" />
+                      <Star className="h-4 w-4 fill-current" />
+                      <Star className="h-4 w-4 fill-current" />
+                      <Star className="h-4 w-4 fill-current" />
+                    </div>
+                  </div>
+                  <p className="font-bold text-primary mt-2">Weeber Santos</p>
+                  <p className="text-sm text-white/60">Imperatriz - MA</p>
                 </CardContent>
               </Card>
 
-            <Card className="hover:shadow-2xl hover:scale-105 transition-all duration-300 border-2 hover:border-primary/50 bg-gradient-to-br from-card to-primary/5">
-              <CardHeader>
-                <Anchor className="h-12 w-12 text-primary mb-4" />
-                  <CardTitle>Náutico</CardTitle>
-                  <CardDescription>
-                    Embarcações e experiências náuticas exclusivas
-                  </CardDescription>
-                  <a href="https://www.exclusiveclubitz.com" target="_blank" rel="noopener noreferrer" className="text-xs text-primary hover:underline mt-2 block">
-                    → exclusiveclubitz.com
-                  </a>
-                </CardHeader>
-                <CardContent>
-                  <Button asChild variant="outline" className="w-full">
-                    <Link href="/produtos?category=nautical">
-                      Ver Embarcações
-                    </Link>
-                  </Button>
+              <Card className="bg-white/10 border-primary/30">
+                <CardContent className="pt-6">
+                  <Quote className="h-10 w-10 text-accent mb-4" />
+                  <p className="text-white/80 mb-4 italic">
+                    "Consegui financiar pela Caixa com a ajuda da Prospecta. 
+                    Hoje tenho minha casa própria e pago menos que aluguel!"
+                  </p>
+                  <div className="flex items-center gap-2">
+                    <div className="flex text-accent">
+                      <Star className="h-4 w-4 fill-current" />
+                      <Star className="h-4 w-4 fill-current" />
+                      <Star className="h-4 w-4 fill-current" />
+                      <Star className="h-4 w-4 fill-current" />
+                      <Star className="h-4 w-4 fill-current" />
+                    </div>
+                  </div>
+                  <p className="font-bold text-primary mt-2">Madson Oliveira</p>
+                  <p className="text-sm text-white/60">Açailândia - MA</p>
                 </CardContent>
               </Card>
             </div>
@@ -171,54 +372,146 @@ export default function Home() {
         </section>
 
         {/* CTA Final */}
-        <section className="relative py-24 overflow-hidden bg-gradient-to-br from-primary via-primary to-accent">
-          <div className="absolute inset-0 bg-[radial-gradient(circle_at_50%_50%,rgba(255,255,255,0.1),transparent_70%)]" />
-          
-          <div className="container relative text-center space-y-8 text-primary-foreground">
-            <h2 className="text-4xl md:text-5xl font-bold drop-shadow-lg">
-              Pronto para Participar?
-            </h2>
-            <p className="text-xl opacity-95 max-w-2xl mx-auto leading-relaxed drop-shadow">
-              Comece agora comprando seus bilhetes e concorra a <span className="font-bold">200.000 UTEFs</span>!
-            </p>
-            <Button asChild size="lg" variant="secondary" className="gap-2 shadow-2xl hover:scale-105 transition-all text-lg px-8 py-6">
-              <Link href="/sorteios">
-                <Ticket className="h-6 w-6" />
-                Participar Agora
-              </Link>
-            </Button>
+        <section className="py-20 bg-gradient-to-br from-primary/20 via-primary/10 to-background">
+          <div className="container">
+            <div className="max-w-4xl mx-auto text-center">
+              <h2 className="text-4xl md:text-5xl font-bold mb-6 text-secondary">
+                Pronto Para Construir Seu Sonho?
+              </h2>
+              <p className="text-xl text-muted-foreground mb-8">
+                Entre em contato e solicite um orçamento sem compromisso
+              </p>
+              <div className="flex flex-col sm:flex-row gap-4 justify-center">
+                <Button asChild size="lg" className="bg-accent hover:bg-accent/90 text-secondary font-semibold text-lg px-8">
+                  <Link href="/projetos-orcamentos">
+                    Solicitar Orçamento Grátis
+                    <ChevronRight className="ml-2 h-5 w-5" />
+                  </Link>
+                </Button>
+                <Button asChild size="lg" variant="outline" className="border-2 border-primary hover:bg-primary/10 font-semibold text-lg px-8">
+                  <a href="https://wa.me/5599981392210" target="_blank" rel="noopener noreferrer">
+                    Falar no WhatsApp
+                  </a>
+                </Button>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        {/* Seção Ecossistema Efficaz */}
+        <section className="py-20 bg-secondary text-white">
+          <div className="container">
+            <div className="text-center mb-12">
+              <h2 className="text-4xl md:text-5xl font-bold mb-4 text-primary">
+                Ecossistema Efficaz
+              </h2>
+              <p className="text-xl text-white/80 max-w-3xl mx-auto">
+                Além da construção, oferecemos um ecossistema completo de investimentos e benefícios
+              </p>
+            </div>
+            <div className="grid md:grid-cols-3 gap-8 max-w-5xl mx-auto">
+              <Card className="bg-white/10 border-primary/30 hover:border-primary transition-colors">
+                <CardContent className="pt-6 text-center">
+                  <div className="w-16 h-16 rounded-full bg-accent/20 flex items-center justify-center mx-auto mb-4">
+                    <DollarSign className="h-8 w-8 text-accent" />
+                  </div>
+                  <h3 className="text-xl font-bold mb-2 text-primary">Sorteios</h3>
+                  <p className="text-white/70 mb-4">
+                    Participe de sorteios e ganhe 200.000 UTEFs
+                  </p>
+                  <Button asChild variant="outline" className="border-primary text-white hover:bg-primary/20">
+                    <Link href="/sorteios">
+                      Ver Sorteios
+                    </Link>
+                  </Button>
+                </CardContent>
+              </Card>
+
+              <Card className="bg-white/10 border-primary/30 hover:border-primary transition-colors">
+                <CardContent className="pt-6 text-center">
+                  <div className="w-16 h-16 rounded-full bg-accent/20 flex items-center justify-center mx-auto mb-4">
+                    <Building2 className="h-8 w-8 text-accent" />
+                  </div>
+                  <h3 className="text-xl font-bold mb-2 text-primary">Produtos</h3>
+                  <p className="text-white/70 mb-4">
+                    Converta UTEFs em casas, serviços e embarcações
+                  </p>
+                  <Button asChild variant="outline" className="border-primary text-white hover:bg-primary/20">
+                    <Link href="/produtos">
+                      Ver Produtos
+                    </Link>
+                  </Button>
+                </CardContent>
+              </Card>
+
+              <Card className="bg-white/10 border-primary/30 hover:border-primary transition-colors">
+                <CardContent className="pt-6 text-center">
+                  <div className="w-16 h-16 rounded-full bg-accent/20 flex items-center justify-center mx-auto mb-4">
+                    <Clock className="h-8 w-8 text-accent" />
+                  </div>
+                  <h3 className="text-xl font-bold mb-2 text-primary">Como Funciona</h3>
+                  <p className="text-white/70 mb-4">
+                    Entenda o sistema de UTEFs e conversões
+                  </p>
+                  <Button asChild variant="outline" className="border-primary text-white hover:bg-primary/20">
+                    <Link href="/como-funciona">
+                      Saiba Mais
+                    </Link>
+                  </Button>
+                </CardContent>
+              </Card>
+            </div>
           </div>
         </section>
       </main>
 
       {/* Footer */}
-      <footer className="border-t py-8 bg-muted/30">
-        <div className="container text-center text-sm text-muted-foreground space-y-4">
-          <div>
-            <p className="font-semibold text-foreground mb-3">Conheça Nossas Empresas</p>
-            <div className="flex justify-center gap-6 flex-wrap">
-              <a href="https://www.prospectaconstrucoes.com" target="_blank" rel="noopener noreferrer" className="hover:text-primary transition-colors font-medium">
-                Prospecta Construções
-              </a>
-              <a href="https://www.exclusiveclubitz.com" target="_blank" rel="noopener noreferrer" className="hover:text-primary transition-colors font-medium">
-                Exclusive Clubitz
-              </a>
-              <a href="https://www.grupoefficaz.com.br" target="_blank" rel="noopener noreferrer" className="hover:text-primary transition-colors font-medium">
-                Grupo Efficaz
-              </a>
+      <footer className="bg-secondary text-white py-12">
+        <div className="container">
+          <div className="grid md:grid-cols-4 gap-8 mb-8">
+            <div>
+              <h3 className="font-bold text-primary mb-4">Prospecta Construções</h3>
+              <p className="text-white/70 text-sm">
+                CNPJ: 41.865.900/0001-89<br />
+                CRECI: 4326
+              </p>
+            </div>
+            <div>
+              <h3 className="font-bold text-primary mb-4">Contato</h3>
+              <p className="text-white/70 text-sm">
+                (99) 98139-2210<br />
+                (94) 99304-4689<br />
+                contato@prospectaconstrucoes.com
+              </p>
+            </div>
+            <div>
+              <h3 className="font-bold text-primary mb-4">Endereços</h3>
+              <p className="text-white/70 text-sm">
+                São Luís - MA<br />
+                Imperatriz - MA<br />
+                Açailândia - MA
+              </p>
+            </div>
+            <div>
+              <h3 className="font-bold text-primary mb-4">Links Úteis</h3>
+              <div className="flex flex-col gap-2">
+                <Link href="/projetos-orcamentos" className="text-white/70 hover:text-primary text-sm">
+                  Projetos e Orçamentos
+                </Link>
+                <Link href="/sorteios" className="text-white/70 hover:text-primary text-sm">
+                  Sorteios
+                </Link>
+                <Link href="/produtos" className="text-white/70 hover:text-primary text-sm">
+                  Produtos
+                </Link>
+                <Link href="/como-funciona" className="text-white/70 hover:text-primary text-sm">
+                  Como Funciona
+                </Link>
+              </div>
             </div>
           </div>
-          <p>&copy; {new Date().getFullYear()} Grupo Efficaz. Todos os direitos reservados.</p>
-          <div className="flex justify-center gap-4 mt-4">
-            <Link href="/termos">
-              <a className="hover:text-foreground transition-colors">Termos de Uso</a>
-            </Link>
-            <Link href="/privacidade">
-              <a className="hover:text-foreground transition-colors">Privacidade</a>
-            </Link>
-            <Link href="/regulamento">
-              <a className="hover:text-foreground transition-colors">Regulamento</a>
-            </Link>
+          <div className="border-t border-white/10 pt-8 text-center text-white/60 text-sm">
+            <p>&copy; 2025 Prospecta Construções. Todos os direitos reservados.</p>
           </div>
         </div>
       </footer>

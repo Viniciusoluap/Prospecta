@@ -43,8 +43,8 @@
 }
 
 :root {
-  --primary: oklch(0.42 0.18 155); /* Verde mais vibrante Efficaz */
-  --primary-foreground: oklch(1 0 0);
+  --primary: oklch(0.72 0.12 75); /* Dourado Prospecta #C9A961 */
+  --primary-foreground: oklch(0.2 0.02 250);
   --sidebar-primary: oklch(0.35 0.12 150);
   --sidebar-primary-foreground: oklch(1 0 0);
   --chart-1: var(--color-blue-300);
@@ -59,12 +59,12 @@
   --card-foreground: oklch(0.235 0.015 65);
   --popover: oklch(1 0 0);
   --popover-foreground: oklch(0.235 0.015 65);
-  --secondary: oklch(0.98 0.001 286.375);
-  --secondary-foreground: oklch(0.4 0.015 65);
+  --secondary: oklch(0.18 0.03 250); /* Azul escuro Prospecta #1A2332 */
+  --secondary-foreground: oklch(0.95 0.01 75);
   --muted: oklch(0.967 0.001 286.375);
   --muted-foreground: oklch(0.552 0.016 285.938);
-  --accent: oklch(0.75 0.20 85); /* Dourado mais vibrante */
-  --accent-foreground: oklch(0.15 0.05 150);
+  --accent: oklch(0.88 0.29 130); /* Verde neon #00FF00 */
+  --accent-foreground: oklch(0.15 0.02 250);
   --destructive: oklch(0.577 0.245 27.325);
   --destructive-foreground: oklch(0.985 0 0);
   --border: oklch(0.92 0.004 286.32);
@@ -79,8 +79,8 @@
 }
 
 .dark {
-  --primary: oklch(0.42 0.18 155); /* Verde mais vibrante Efficaz */
-  --primary-foreground: oklch(1 0 0);
+  --primary: oklch(0.72 0.12 75); /* Dourado Prospecta #C9A961 */
+  --primary-foreground: oklch(0.2 0.02 250);
   --sidebar-primary: oklch(0.35 0.12 150);
   --sidebar-primary-foreground: oklch(1 0 0);
   --background: oklch(0.141 0.005 285.823);
@@ -119,6 +119,7 @@
   }
   body {
     @apply bg-background text-foreground;
+    font-family: 'Poppins', sans-serif;
   }
   button:not(:disabled),
   [role="button"]:not([aria-disabled="true"]),

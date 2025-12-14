@@ -35,21 +35,40 @@ export default function Navbar() {
           </Link>
           
           <div className="hidden md:flex items-center gap-4">
-            <Link href="/sorteios" className="text-sm font-medium text-muted-foreground hover:text-foreground transition-colors">
-              Sorteios
+            <Link href="/projetos-orcamentos" className="text-sm font-medium text-muted-foreground hover:text-foreground transition-colors">
+              Projetos e Orçamentos
             </Link>
-            <Link href="/produtos" className="text-sm font-medium text-muted-foreground hover:text-foreground transition-colors">
-              Produtos
-            </Link>
-            <Link href="/como-funciona" className="text-sm font-medium text-muted-foreground hover:text-foreground transition-colors">
-              Como Funciona
-            </Link>
-            <Link href="/comprar-utef">
-              <Button variant="default" size="sm" className="gap-2">
-                <Plus className="h-4 w-4" />
-                Comprar UTEFs
-              </Button>
-            </Link>
+            
+            <DropdownMenu>
+              <DropdownMenuTrigger className="text-sm font-medium text-muted-foreground hover:text-foreground transition-colors">
+                Ecossistema Efficaz
+              </DropdownMenuTrigger>
+              <DropdownMenuContent>
+                <Link href="/sorteios">
+                  <DropdownMenuItem>
+                    <Ticket className="mr-2 h-4 w-4" />
+                    Sorteios
+                  </DropdownMenuItem>
+                </Link>
+                <Link href="/produtos">
+                  <DropdownMenuItem>
+                    <ShoppingBag className="mr-2 h-4 w-4" />
+                    Produtos
+                  </DropdownMenuItem>
+                </Link>
+                <Link href="/como-funciona">
+                  <DropdownMenuItem>
+                    Como Funciona
+                  </DropdownMenuItem>
+                </Link>
+                <Link href="/comprar-utef">
+                  <DropdownMenuItem>
+                    <Plus className="mr-2 h-4 w-4" />
+                    Comprar UTEFs
+                  </DropdownMenuItem>
+                </Link>
+              </DropdownMenuContent>
+            </DropdownMenu>
           </div>
         </div>
 

@@ -15,6 +15,7 @@ import ConverterProduto from "./pages/ConverterProduto";
 import ComoFunciona from "./pages/ComoFunciona";
 import MinhasConversoes from "./pages/MinhasConversoes";
 import ComprarUtef from "./pages/ComprarUtef";
+import ProjetosOrcamentos from "./pages/ProjetosOrcamentos";
 
 function Router() {
   // make sure to consider if you need authentication for certain routes
@@ -31,6 +32,7 @@ function Router() {
       <Route path="/como-funciona" component={ComoFunciona} />
       <Route path="/minhas-conversoes" component={MinhasConversoes} />
       <Route path="/comprar-utef" component={ComprarUtef} />
+      <Route path="/projetos-orcamentos" component={ProjetosOrcamentos} />
       <Route path={"/404"} component={NotFound} />
       {/* Final fallback route */}
       <Route component={NotFound} />
