@@ -122,8 +122,12 @@ export default function Home() {
               {/* Planta Padrão 47m² */}
               <Card className="bg-white/10 border-primary/30 hover:border-primary transition-all hover:scale-105">
                 <CardContent className="p-6">
-                  <div className="aspect-video bg-white/5 rounded-lg mb-4 flex items-center justify-center">
-                    <HomeIcon className="h-16 w-16 text-primary" />
+                  <div className="aspect-video rounded-lg mb-4 overflow-hidden">
+                    <img 
+                      src="https://images.unsplash.com/photo-1600585154340-be6161a56a0c?w=600&h=400&fit=crop" 
+                      alt="Casa Padrão 47m²" 
+                      className="w-full h-full object-cover"
+                    />
                   </div>
                   <h3 className="text-2xl font-bold mb-2 text-primary">Casa Padrão 47m²</h3>
                   <p className="text-white/70 mb-4">2 quartos, sala, cozinha, banheiro</p>
@@ -136,11 +140,15 @@ export default function Home() {
                 </CardContent>
               </Card>
 
-              {/* Placeholder para mais plantas */}
+              {/* Casa 60m² */}
               <Card className="bg-white/10 border-primary/30 hover:border-primary transition-all hover:scale-105">
                 <CardContent className="p-6">
-                  <div className="aspect-video bg-white/5 rounded-lg mb-4 flex items-center justify-center">
-                    <HomeIcon className="h-16 w-16 text-primary" />
+                  <div className="aspect-video rounded-lg mb-4 overflow-hidden">
+                    <img 
+                      src="https://images.unsplash.com/photo-1600596542815-ffad4c1539a9?w=600&h=400&fit=crop" 
+                      alt="Casa 60m²" 
+                      className="w-full h-full object-cover"
+                    />
                   </div>
                   <h3 className="text-2xl font-bold mb-2 text-primary">Casa 60m²</h3>
                   <p className="text-white/70 mb-4">3 quartos, suíte, varanda</p>
@@ -153,12 +161,17 @@ export default function Home() {
                 </CardContent>
               </Card>
 
+              {/* Casa 100m² */}
               <Card className="bg-white/10 border-primary/30 hover:border-primary transition-all hover:scale-105">
                 <CardContent className="p-6">
-                  <div className="aspect-video bg-white/5 rounded-lg mb-4 flex items-center justify-center">
-                    <HomeIcon className="h-16 w-16 text-primary" />
+                  <div className="aspect-video rounded-lg mb-4 overflow-hidden">
+                    <img 
+                      src="https://images.unsplash.com/photo-1600566753190-17f0baa2a6c3?w=600&h=400&fit=crop" 
+                      alt="Casa 100m²" 
+                      className="w-full h-full object-cover"
+                    />
                   </div>
-                  <h3 className="text-2xl font-bold mb-2 text-primary">Projeto Personalizado</h3>
+                  <h3 className="text-2xl font-bold mb-2 text-primary">Casa 100m²</h3>
                   <p className="text-white/70 mb-4">Desenvolvemos o projeto dos seus sonhos</p>
                   <p className="text-3xl font-bold text-accent mb-4">Sob Medida</p>
                   <Button asChild className="w-full bg-accent hover:bg-accent/90 text-secondary">

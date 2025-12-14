@@ -415,3 +415,17 @@ Desenvolver o ecossistema digital do Grupo Efficaz com módulos de venda de bilh
 - [ ] Redesenhar /meu-saldo (cores Prospecta)
 - [ ] Redesenhar /meus-bilhetes (cores Prospecta)
 - [ ] Redesenhar /comprar-bilhete/:id (cores Prospecta)
+
+
+## 🔴 CORREÇÕES URGENTES - Mobile
+
+### Navbar Mobile
+- [x] Implementar menu hambúrguer (sidebar) para mobile
+- [x] Adicionar todos os links no menu lateral (Projetos, Obras, Ecossistema)
+- [x] Melhorar visibilidade do botão de login no mobile
+
+### Seção Modelos de Plantas (Home)
+- [x] Adicionar imagens reais para Casa 47m²
+- [x] Adicionar imagens reais para Casa 60m²
+- [x] Adicionar imagens reais para Casa 100m²
+- [x] Remover ícones placeholder
