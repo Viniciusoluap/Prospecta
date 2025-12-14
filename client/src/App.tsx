@@ -17,6 +17,7 @@ import MinhasConversoes from "./pages/MinhasConversoes";
 import ComprarUtef from "./pages/ComprarUtef";
 import ProjetosOrcamentos from "./pages/ProjetosOrcamentos";
 import Obras from "./pages/Obras";
+import NovaObra from "./pages/NovaObra";
 import ObraDetalhes from "./pages/ObraDetalhes";
 
 function Router() {
@@ -36,6 +37,7 @@ function Router() {
       <Route path="/comprar-utef" component={ComprarUtef} />
       <Route path="/projetos-orcamentos" component={ProjetosOrcamentos} />
       <Route path="/obras" component={Obras} />
+      <Route path="/obras/nova" component={NovaObra} />
       <Route path="/obras/:id" component={ObraDetalhes} />
       <Route path={"/404"} component={NotFound} />
       {/* Final fallback route */}

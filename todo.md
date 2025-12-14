@@ -467,3 +467,10 @@ Desenvolver o ecossistema digital do Grupo Efficaz com módulos de venda de bilh
 ## 🔴 CORREÇÃO UX - Botão Voltar
 
 - [x] Adicionar botão "Voltar" no topo da página /obras
+
+
+## 🔴 BUG CRÍTICO - Cadastro de Obras
+
+- [x] Criar página /obras/nova com formulário de cadastro
+- [x] Adicionar rota /obras/nova no App.tsx
+- [x] Conectar formulário à mutation tRPC construction.createProject
