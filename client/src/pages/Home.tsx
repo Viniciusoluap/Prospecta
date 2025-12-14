@@ -2,6 +2,7 @@ import { Link } from "wouter";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import Navbar from "@/components/Navbar";
+import { APP_LOGO } from "@/const";
 import { 
   Home as HomeIcon, 
   Building2, 
@@ -469,47 +470,71 @@ export default function Home() {
       <footer className="bg-secondary text-white py-12">
         <div className="container">
           <div className="grid md:grid-cols-4 gap-8 mb-8">
+            {/* Coluna 1: Sobre a Prospecta */}
             <div>
-              <h3 className="font-bold text-primary mb-4">Prospecta Construções</h3>
+              <div className="mb-4">
+                <img src={APP_LOGO} alt="Prospecta Construções" className="h-12 mb-3" />
+              </div>
+              <h3 className="font-bold text-primary mb-2">PROSPECTA CONSTRUCOES E AVALIACAO IMOBILIARIA LTDA</h3>
               <p className="text-white/70 text-sm">
                 CNPJ: 41.865.900/0001-89<br />
                 CRECI: 4326
               </p>
             </div>
-            <div>
-              <h3 className="font-bold text-primary mb-4">Contato</h3>
-              <p className="text-white/70 text-sm">
-                (99) 98139-2210<br />
-                (94) 99304-4689<br />
-                contato@prospectaconstrucoes.com
-              </p>
-            </div>
+
+            {/* Coluna 2: Endereços */}
             <div>
               <h3 className="font-bold text-primary mb-4">Endereços</h3>
-              <p className="text-white/70 text-sm">
-                São Luís - MA<br />
-                Imperatriz - MA<br />
-                Açailândia - MA
+              <div className="text-white/70 text-sm space-y-3">
+                <p>
+                  📍 Leôncio Pires Dourado, 840A<br />
+                  Bacuri - Imperatriz - MA
+                </p>
+                <p>
+                  📍 Avenida JK, 103<br />
+                  Centro - Canaã dos Carajás
+                </p>
+                <p>
+                  📍 Rua F, 22<br />
+                  União - Parauapebas
+                </p>
+              </div>
+            </div>
+
+            {/* Coluna 3: Contato */}
+            <div>
+              <h3 className="font-bold text-primary mb-4">Contato</h3>
+              <p className="text-white/70 text-sm space-y-2">
+                <span className="block">📞 (99) 98139-2210</span>
+                <span className="block">📞 (94) 99304-4689</span>
+                <span className="block">📧 contato@prospectaconstrucoes.com</span>
               </p>
             </div>
+
+            {/* Coluna 4: Links Rápidos */}
             <div>
-              <h3 className="font-bold text-primary mb-4">Links Úteis</h3>
+              <h3 className="font-bold text-primary mb-4">Links Rápidos</h3>
               <div className="flex flex-col gap-2">
-                <Link href="/projetos-orcamentos" className="text-white/70 hover:text-primary text-sm">
+                <Link href="/" className="text-white/70 hover:text-primary text-sm transition-colors">
+                  Início
+                </Link>
+                <Link href="/projetos-orcamentos" className="text-white/70 hover:text-primary text-sm transition-colors">
                   Projetos e Orçamentos
                 </Link>
-                <Link href="/sorteios" className="text-white/70 hover:text-primary text-sm">
+                <Link href="/sorteios" className="text-white/70 hover:text-primary text-sm transition-colors">
                   Sorteios
                 </Link>
-                <Link href="/produtos" className="text-white/70 hover:text-primary text-sm">
+                <Link href="/produtos" className="text-white/70 hover:text-primary text-sm transition-colors">
                   Produtos
                 </Link>
-                <Link href="/como-funciona" className="text-white/70 hover:text-primary text-sm">
+                <Link href="/como-funciona" className="text-white/70 hover:text-primary text-sm transition-colors">
                   Como Funciona
                 </Link>
               </div>
             </div>
           </div>
+
+          {/* Copyright */}
           <div className="border-t border-white/10 pt-8 text-center text-white/60 text-sm">
             <p>&copy; 2025 Prospecta Construções. Todos os direitos reservados.</p>
           </div>

@@ -324,3 +324,94 @@ Desenvolver o ecossistema digital do Grupo Efficaz com módulos de venda de bilh
 - [ ] Testar fluxo de pagamento com as novas credenciais
 - [ ] Validar compra de bilhetes via Stripe
 - [ ] Validar compra de UTEFs via Stripe
+
+
+## 🔴 REVISÃO COMPLETA - PRIORIDADE CRÍTICA
+
+### Footer Completo
+- [x] Adicionar logo Prospecta no footer
+- [x] Adicionar razão social: PROSPECTA CONSTRUCOES E AVALIACAO IMOBILIARIA LTDA
+- [x] Corrigir endereços completos (3 localizações):
+  * Leôncio Pires Dourado, 840A, Bacuri - Imperatriz - MA
+  * Avenida JK, 103, Centro, Canaã dos Carajás
+  * Rua F, 22, União, Parauapebas
+- [x] Adicionar link "Início" nos links úteis
+- [x] Adicionar link "Ecossistema Efficaz" nos links úteis
+- [x] Reorganizar footer em 4 colunas
+
+### Home Page - Seções Faltantes
+- [ ] Adicionar seção "Portfólio" (carrossel de casas construídas)
+- [ ] Adicionar seção "FAQ" (accordion com 4 perguntas)
+- [ ] Ajustar texto da Hero Section conforme prompt
+- [ ] Ajustar texto da Seção Dourada conforme prompt
+
+### Navbar
+- [ ] Adicionar link "Obras" (🔒 para usuários logados)
+- [ ] Adicionar telefones no header
+- [ ] Adicionar botão "Fale Conosco"
+
+### Página Projetos e Orçamentos
+- [ ] Adicionar imagem da planta baixa 47m²
+- [ ] Adicionar embed 3D do RoomPlanner
+- [ ] Adicionar seção "Outros Projetos" (60m², 80m², 100m²)
+
+## 🟠 SISTEMA DE OBRAS - PRIORIDADE ALTA
+
+### Backend
+- [ ] Criar tabela `construction_projects`
+- [ ] Criar tabela `construction_stages`
+- [ ] Criar tabela `construction_photos`
+- [ ] Criar rotas tRPC para CRUD de obras
+- [ ] Criar rota tRPC para upload de fotos
+- [ ] Criar rota tRPC para gerar PDF
+- [ ] Criar rota tRPC para gerar XLSM
+- [ ] Implementar controle de acesso (usuário vê só suas obras)
+- [ ] Implementar cálculo automático de progresso
+- [ ] Implementar cálculo automático de custos totais
+
+### Frontend - Usuário
+- [ ] Criar página "Minhas Obras" (/minhas-obras)
+- [ ] Criar lista de obras do usuário
+- [ ] Criar card de obra com progresso visual
+- [ ] Criar página "Detalhes da Obra" (/obra/:id)
+- [ ] Criar seção Informações Gerais
+- [ ] Criar barra de progresso com %
+- [ ] Criar timeline de etapas (9 etapas)
+- [ ] Criar galeria de fotos
+- [ ] Criar botão "Baixar Relatório PDF"
+- [ ] Criar botão "Baixar Relatório XLSM"
+
+### Frontend - Admin
+- [ ] Criar página admin/DashboardObras
+- [ ] Criar tabela de todas as obras
+- [ ] Criar filtros e busca
+- [ ] Criar botão "Nova Obra"
+- [ ] Criar página admin/EditarObra
+- [ ] Criar Aba 1: Informações Básicas
+- [ ] Criar Aba 2: Valores e Custos (9 campos)
+- [ ] Criar Aba 3: Medições e Progresso (9 etapas)
+- [ ] Criar Aba 4: Galeria de Fotos
+- [ ] Criar Aba 5: Relatórios
+- [ ] Implementar upload de fotos
+- [ ] Implementar geração de PDF
+- [ ] Implementar geração de XLSM
+
+## 🟠 FORMULÁRIO DE ORÇAMENTO FUNCIONAL
+
+- [ ] Criar tabela `project_budget_requests`
+- [ ] Criar formulário integrado (não apenas Google Forms)
+- [ ] Implementar validação de campos
+- [ ] Implementar salvamento no banco
+- [ ] Implementar notificação para admin
+- [ ] Criar página de confirmação
+- [ ] Criar dashboard admin para ver orçamentos
+
+## 🟡 REDESIGN PÁGINAS ECOSSISTEMA
+
+- [ ] Redesenhar /sorteios (cores Prospecta)
+- [ ] Redesenhar /produtos (cores Prospecta)
+- [ ] Redesenhar /como-funciona (cores Prospecta)
+- [ ] Redesenhar /comprar-utef (cores Prospecta)
+- [ ] Redesenhar /meu-saldo (cores Prospecta)
+- [ ] Redesenhar /meus-bilhetes (cores Prospecta)
+- [ ] Redesenhar /comprar-bilhete/:id (cores Prospecta)
