@@ -283,3 +283,133 @@ export async function getConversionsByUserId(userId: number) {
   
   return conversions;
 }
+
+
+// ========== CONSTRUCTION PROJECTS ==========
+
+import {
+  constructionProjects, ConstructionProject, InsertConstructionProject,
+  constructionStages, ConstructionStage, InsertConstructionStage,
+  constructionPhotos, ConstructionPhoto, InsertConstructionPhoto
+} from "../drizzle/schema";
+
+export async function getProjectsByUserId(userId: number): Promise<ConstructionProject[]> {
+  const db = await getDb();
+  if (!db) return [];
+  return db.select().from(constructionProjects).where(eq(constructionProjects.userId, userId)).orderBy(desc(constructionProjects.createdAt));
+}
+
+export async function getProjectById(id: number): Promise<ConstructionProject | undefined> {
+  const db = await getDb();
+  if (!db) return undefined;
+  const result = await db.select().from(constructionProjects).where(eq(constructionProjects.id, id)).limit(1);
+  return result[0];
+}
+
+export async function createProject(project: InsertConstructionProject): Promise<ConstructionProject> {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  const result = await db.insert(constructionProjects).values(project);
+  return getProjectById(Number(result[0].insertId)) as Promise<ConstructionProject>;
+}
+
+export async function updateProject(id: number, updates: Partial<InsertConstructionProject>): Promise<void> {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  await db.update(constructionProjects).set(updates).where(eq(constructionProjects.id, id));
+}
+
+export async function deleteProject(id: number): Promise<void> {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  // Deletar fotos relacionadas
+  await db.delete(constructionPhotos).where(eq(constructionPhotos.projectId, id));
+  // Deletar etapas relacionadas
+  await db.delete(constructionStages).where(eq(constructionStages.projectId, id));
+  // Deletar projeto
+  await db.delete(constructionProjects).where(eq(constructionProjects.id, id));
+}
+
+// ========== CONSTRUCTION STAGES ==========
+
+export async function getStagesByProjectId(projectId: number): Promise<ConstructionStage[]> {
+  const db = await getDb();
+  if (!db) return [];
+  return db.select().from(constructionStages).where(eq(constructionStages.projectId, projectId)).orderBy(constructionStages.orderIndex);
+}
+
+export async function getStageById(id: number): Promise<ConstructionStage | undefined> {
+  const db = await getDb();
+  if (!db) return undefined;
+  const result = await db.select().from(constructionStages).where(eq(constructionStages.id, id)).limit(1);
+  return result[0];
+}
+
+export async function createStage(stage: InsertConstructionStage): Promise<ConstructionStage> {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  const result = await db.insert(constructionStages).values(stage);
+  return getStageById(Number(result[0].insertId)) as Promise<ConstructionStage>;
+}
+
+export async function updateStage(id: number, updates: Partial<InsertConstructionStage>): Promise<void> {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  await db.update(constructionStages).set(updates).where(eq(constructionStages.id, id));
+}
+
+export async function deleteStage(id: number): Promise<void> {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  // Deletar fotos relacionadas à etapa
+  await db.delete(constructionPhotos).where(eq(constructionPhotos.stageId, id));
+  // Deletar etapa
+  await db.delete(constructionStages).where(eq(constructionStages.id, id));
+}
+
+// ========== CONSTRUCTION PHOTOS ==========
+
+export async function getPhotosByProjectId(projectId: number): Promise<ConstructionPhoto[]> {
+  const db = await getDb();
+  if (!db) return [];
+  return db.select().from(constructionPhotos).where(eq(constructionPhotos.projectId, projectId)).orderBy(desc(constructionPhotos.takenAt));
+}
+
+export async function getPhotosByStageId(stageId: number): Promise<ConstructionPhoto[]> {
+  const db = await getDb();
+  if (!db) return [];
+  return db.select().from(constructionPhotos).where(eq(constructionPhotos.stageId, stageId)).orderBy(desc(constructionPhotos.takenAt));
+}
+
+export async function createPhoto(photo: InsertConstructionPhoto): Promise<ConstructionPhoto> {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  const result = await db.insert(constructionPhotos).values(photo);
+  const newPhoto = await db.select().from(constructionPhotos).where(eq(constructionPhotos.id, Number(result[0].insertId))).limit(1);
+  return newPhoto[0];
+}
+
+export async function deletePhoto(id: number): Promise<void> {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  await db.delete(constructionPhotos).where(eq(constructionPhotos.id, id));
+}
+
+// ========== HELPER: Get Project with Stages and Photos ==========
+
+export async function getProjectWithDetails(projectId: number) {
+  const db = await getDb();
+  if (!db) return null;
+  
+  const project = await getProjectById(projectId);
+  if (!project) return null;
+  
+  const stages = await getStagesByProjectId(projectId);
+  const photos = await getPhotosByProjectId(projectId);
+  
+  return {
+    ...project,
+    stages,
+    photos,
+  };
+}

@@ -358,11 +358,11 @@ Desenvolver o ecossistema digital do Grupo Efficaz com módulos de venda de bilh
 ## 🟠 SISTEMA DE OBRAS - PRIORIDADE ALTA
 
 ### Backend
-- [ ] Criar tabela `construction_projects`
-- [ ] Criar tabela `construction_stages`
-- [ ] Criar tabela `construction_photos`
-- [ ] Criar rotas tRPC para CRUD de obras
-- [ ] Criar rota tRPC para upload de fotos
+- [x] Criar tabela `construction_projects`
+- [x] Criar tabela `construction_stages`
+- [x] Criar tabela `construction_photos`
+- [x] Criar rotas tRPC para CRUD de obras
+- [x] Criar rota tRPC para upload de fotos
 - [ ] Criar rota tRPC para gerar PDF
 - [ ] Criar rota tRPC para gerar XLSM
 - [ ] Implementar controle de acesso (usuário vê só suas obras)

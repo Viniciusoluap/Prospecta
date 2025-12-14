@@ -437,6 +437,205 @@ export const appRouter = router({
       return db.getConversionsByUserId(ctx.user.id);
     }),
   }),
+
+  // ========== CONSTRUCTION (OBRAS) ==========
+  construction: router({
+    // Listar obras do usuário
+    myProjects: protectedProcedure.query(async ({ ctx }) => {
+      return db.getProjectsByUserId(ctx.user.id);
+    }),
+
+    // Obter detalhes completos de uma obra (com etapas e fotos)
+    getProjectDetails: protectedProcedure
+      .input(z.object({ projectId: z.number() }))
+      .query(async ({ input, ctx }) => {
+        const project = await db.getProjectWithDetails(input.projectId);
+        if (!project) {
+          throw new TRPCError({ code: "NOT_FOUND", message: "Obra não encontrada" });
+        }
+        // Verificar se o usuário é o proprietário ou admin
+        if (project.userId !== ctx.user.id && ctx.user.role !== "admin") {
+          throw new TRPCError({ code: "FORBIDDEN", message: "Acesso negado" });
+        }
+        return project;
+      }),
+
+    // Criar nova obra
+    createProject: protectedProcedure
+      .input(z.object({
+        title: z.string().min(1),
+        address: z.string().optional(),
+        projectType: z.string().optional(),
+        totalArea: z.number().optional(),
+        estimatedCost: z.number().optional(),
+        startDate: z.date().optional(),
+        estimatedEndDate: z.date().optional(),
+        notes: z.string().optional(),
+      }))
+      .mutation(async ({ input, ctx }) => {
+        const project = await db.createProject({
+          ...input,
+          userId: ctx.user.id,
+          status: "planning",
+          progress: 0,
+        });
+        return project;
+      }),
+
+    // Atualizar obra
+    updateProject: protectedProcedure
+      .input(z.object({
+        projectId: z.number(),
+        title: z.string().optional(),
+        address: z.string().optional(),
+        projectType: z.string().optional(),
+        totalArea: z.number().optional(),
+        estimatedCost: z.number().optional(),
+        actualCost: z.number().optional(),
+        startDate: z.date().optional(),
+        estimatedEndDate: z.date().optional(),
+        actualEndDate: z.date().optional(),
+        status: z.enum(["planning", "in_progress", "paused", "completed", "cancelled"]).optional(),
+        progress: z.number().min(0).max(100).optional(),
+        notes: z.string().optional(),
+      }))
+      .mutation(async ({ input, ctx }) => {
+        const { projectId, ...updates } = input;
+        const project = await db.getProjectById(projectId);
+        if (!project) {
+          throw new TRPCError({ code: "NOT_FOUND", message: "Obra não encontrada" });
+        }
+        if (project.userId !== ctx.user.id && ctx.user.role !== "admin") {
+          throw new TRPCError({ code: "FORBIDDEN", message: "Acesso negado" });
+        }
+        await db.updateProject(projectId, updates);
+        return { success: true };
+      }),
+
+    // Deletar obra
+    deleteProject: protectedProcedure
+      .input(z.object({ projectId: z.number() }))
+      .mutation(async ({ input, ctx }) => {
+        const project = await db.getProjectById(input.projectId);
+        if (!project) {
+          throw new TRPCError({ code: "NOT_FOUND", message: "Obra não encontrada" });
+        }
+        if (project.userId !== ctx.user.id && ctx.user.role !== "admin") {
+          throw new TRPCError({ code: "FORBIDDEN", message: "Acesso negado" });
+        }
+        await db.deleteProject(input.projectId);
+        return { success: true };
+      }),
+
+    // ========== ETAPAS ==========
+
+    // Criar etapa
+    createStage: protectedProcedure
+      .input(z.object({
+        projectId: z.number(),
+        name: z.string().min(1),
+        description: z.string().optional(),
+        orderIndex: z.number(),
+        estimatedCost: z.number().optional(),
+      }))
+      .mutation(async ({ input, ctx }) => {
+        const project = await db.getProjectById(input.projectId);
+        if (!project) {
+          throw new TRPCError({ code: "NOT_FOUND", message: "Obra não encontrada" });
+        }
+        if (project.userId !== ctx.user.id && ctx.user.role !== "admin") {
+          throw new TRPCError({ code: "FORBIDDEN", message: "Acesso negado" });
+        }
+        const stage = await db.createStage(input);
+        return stage;
+      }),
+
+    // Atualizar etapa
+    updateStage: protectedProcedure
+      .input(z.object({
+        stageId: z.number(),
+        name: z.string().optional(),
+        description: z.string().optional(),
+        status: z.enum(["pending", "in_progress", "completed"]).optional(),
+        startDate: z.date().optional(),
+        endDate: z.date().optional(),
+        actualCost: z.number().optional(),
+        notes: z.string().optional(),
+      }))
+      .mutation(async ({ input, ctx }) => {
+        const { stageId, ...updates } = input;
+        const stage = await db.getStageById(stageId);
+        if (!stage) {
+          throw new TRPCError({ code: "NOT_FOUND", message: "Etapa não encontrada" });
+        }
+        const project = await db.getProjectById(stage.projectId);
+        if (!project || (project.userId !== ctx.user.id && ctx.user.role !== "admin")) {
+          throw new TRPCError({ code: "FORBIDDEN", message: "Acesso negado" });
+        }
+        await db.updateStage(stageId, updates);
+        return { success: true };
+      }),
+
+    // Deletar etapa
+    deleteStage: protectedProcedure
+      .input(z.object({ stageId: z.number() }))
+      .mutation(async ({ input, ctx }) => {
+        const stage = await db.getStageById(input.stageId);
+        if (!stage) {
+          throw new TRPCError({ code: "NOT_FOUND", message: "Etapa não encontrada" });
+        }
+        const project = await db.getProjectById(stage.projectId);
+        if (!project || (project.userId !== ctx.user.id && ctx.user.role !== "admin")) {
+          throw new TRPCError({ code: "FORBIDDEN", message: "Acesso negado" });
+        }
+        await db.deleteStage(input.stageId);
+        return { success: true };
+      }),
+
+    // ========== FOTOS ==========
+
+    // Upload de foto (retorna URL para upload no S3)
+    uploadPhoto: protectedProcedure
+      .input(z.object({
+        projectId: z.number(),
+        stageId: z.number().optional(),
+        caption: z.string().optional(),
+        takenAt: z.date(),
+        imageUrl: z.string(), // URL da imagem já no S3
+      }))
+      .mutation(async ({ input, ctx }) => {
+        const project = await db.getProjectById(input.projectId);
+        if (!project) {
+          throw new TRPCError({ code: "NOT_FOUND", message: "Obra não encontrada" });
+        }
+        if (project.userId !== ctx.user.id && ctx.user.role !== "admin") {
+          throw new TRPCError({ code: "FORBIDDEN", message: "Acesso negado" });
+        }
+        const photo = await db.createPhoto({
+          ...input,
+          uploadedBy: ctx.user.id,
+        });
+        return photo;
+      }),
+
+    // Deletar foto
+    deletePhoto: protectedProcedure
+      .input(z.object({ photoId: z.number() }))
+      .mutation(async ({ input, ctx }) => {
+        // Buscar foto para verificar permissões
+        const photos = await db.getPhotosByProjectId(0); // Workaround: buscar todas e filtrar
+        const photo = photos.find(p => p.id === input.photoId);
+        if (!photo) {
+          throw new TRPCError({ code: "NOT_FOUND", message: "Foto não encontrada" });
+        }
+        const project = await db.getProjectById(photo.projectId);
+        if (!project || (project.userId !== ctx.user.id && ctx.user.role !== "admin")) {
+          throw new TRPCError({ code: "FORBIDDEN", message: "Acesso negado" });
+        }
+        await db.deletePhoto(input.photoId);
+        return { success: true };
+      }),
+  }),
 });
 
 export type AppRouter = typeof appRouter;

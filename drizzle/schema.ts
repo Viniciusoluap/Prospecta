@@ -137,3 +137,67 @@ export const productConversions = mysqlTable("product_conversions", {
 
 export type ProductConversion = typeof productConversions.$inferSelect;
 export type InsertProductConversion = typeof productConversions.$inferInsert;
+
+/**
+ * Projetos de construção (obras)
+ */
+export const constructionProjects = mysqlTable("construction_projects", {
+  id: int("id").autoincrement().primaryKey(),
+  userId: int("user_id").notNull(), // Proprietário da obra
+  title: varchar("title", { length: 255 }).notNull(), // Ex: "Minha Casa 47m²"
+  address: text("address"), // Endereço da obra
+  projectType: varchar("project_type", { length: 100 }), // Ex: "Casa 47m²", "Casa 60m²"
+  totalArea: int("total_area"), // Área total em m²
+  estimatedCost: int("estimated_cost"), // Custo estimado em centavos
+  actualCost: int("actual_cost").default(0), // Custo real em centavos
+  startDate: timestamp("start_date"), // Data de início da obra
+  estimatedEndDate: timestamp("estimated_end_date"), // Data prevista de conclusão
+  actualEndDate: timestamp("actual_end_date"), // Data real de conclusão
+  status: mysqlEnum("status", ["planning", "in_progress", "paused", "completed", "cancelled"]).default("planning").notNull(),
+  progress: int("progress").default(0).notNull(), // Progresso em % (0-100)
+  notes: text("notes"), // Observações gerais
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().onUpdateNow().notNull(),
+});
+
+export type ConstructionProject = typeof constructionProjects.$inferSelect;
+export type InsertConstructionProject = typeof constructionProjects.$inferInsert;
+
+/**
+ * Etapas da obra (fundação, estrutura, acabamento, etc.)
+ */
+export const constructionStages = mysqlTable("construction_stages", {
+  id: int("id").autoincrement().primaryKey(),
+  projectId: int("project_id").notNull(), // Referência ao projeto
+  name: varchar("name", { length: 255 }).notNull(), // Ex: "Fundação", "Alvenaria", "Acabamento"
+  description: text("description"), // Descrição da etapa
+  orderIndex: int("order_index").notNull(), // Ordem de execução (1, 2, 3...)
+  status: mysqlEnum("status", ["pending", "in_progress", "completed"]).default("pending").notNull(),
+  startDate: timestamp("start_date"), // Data de início da etapa
+  endDate: timestamp("end_date"), // Data de conclusão da etapa
+  estimatedCost: int("estimated_cost"), // Custo estimado em centavos
+  actualCost: int("actual_cost"), // Custo real em centavos
+  notes: text("notes"), // Observações da etapa
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().onUpdateNow().notNull(),
+});
+
+export type ConstructionStage = typeof constructionStages.$inferSelect;
+export type InsertConstructionStage = typeof constructionStages.$inferInsert;
+
+/**
+ * Fotos do progresso da obra
+ */
+export const constructionPhotos = mysqlTable("construction_photos", {
+  id: int("id").autoincrement().primaryKey(),
+  projectId: int("project_id").notNull(), // Referência ao projeto
+  stageId: int("stage_id"), // Referência à etapa (opcional)
+  imageUrl: text("image_url").notNull(), // URL da foto no S3
+  caption: text("caption"), // Legenda da foto
+  takenAt: timestamp("taken_at").notNull(), // Data em que a foto foi tirada
+  uploadedBy: int("uploaded_by"), // ID do usuário que fez upload (admin ou proprietário)
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export type ConstructionPhoto = typeof constructionPhotos.$inferSelect;
+export type InsertConstructionPhoto = typeof constructionPhotos.$inferInsert;
