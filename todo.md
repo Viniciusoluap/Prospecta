@@ -440,3 +440,25 @@ Desenvolver o ecossistema digital do Grupo Efficaz com módulos de venda de bilh
 
 - [x] Adicionar scroll ao menu hambúrguer lateral para acessar todas as opções
 - [x] Garantir que botão "Sair" seja acessível em telas pequenas
+
+
+## 🟠 FASE 5: FRONTEND SISTEMA DE OBRAS - USUÁRIO
+
+### Página /obras (Listagem)
+- [x] Criar componente Obras.tsx
+- [x] Listar projetos do usuário com cards
+- [x] Mostrar status, progresso e datas
+- [x] Botão "Nova Obra" (se necessário)
+- [x] Empty state quando não há obras
+
+### Página /obras/[id] (Detalhes)
+- [x] Criar componente ObraDetalhes.tsx
+- [x] Mostrar informações completas da obra
+- [x] Timeline de etapas com progresso
+- [x] Galeria de fotos organizada por etapa
+- [x] Botões de ação (editar, adicionar foto)
+
+### Rotas
+- [x] Adicionar rota /obras no App.tsx
+- [x] Adicionar rota /obras/:id no App.tsx
+- [x] Proteger rotas (apenas usuários logados)
