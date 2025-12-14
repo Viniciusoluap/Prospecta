@@ -125,9 +125,9 @@ export default function Navbar() {
               
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
-                  <Button variant="outline" size="sm" className="gap-2">
+                  <Button variant="outline" size="sm" className="hidden md:flex gap-2">
                     <User className="h-4 w-4" />
-                    <span className="hidden md:inline">{user.name || "Minha Conta"}</span>
+                    <span>{user.name || "Minha Conta"}</span>
                   </Button>
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="end" className="w-56">

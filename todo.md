@@ -429,3 +429,8 @@ Desenvolver o ecossistema digital do Grupo Efficaz com módulos de venda de bilh
 - [x] Adicionar imagens reais para Casa 60m²
 - [x] Adicionar imagens reais para Casa 100m²
 - [x] Remover ícones placeholder
+
+
+## 🔴 CORREÇÃO URGENTE - Botão Duplicado Mobile
+
+- [x] Remover botão de usuário duplicado no mobile (já existe no menu hambúrguer)
