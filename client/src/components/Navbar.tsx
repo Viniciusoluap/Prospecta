@@ -41,8 +41,8 @@ export default function Navbar() {
       <div className="container flex h-16 items-center justify-between">
         <div className="flex items-center gap-6">
           <Link href="/" className="flex items-center gap-2 font-bold text-xl text-primary hover:opacity-80 transition-opacity">
-            <img src={APP_LOGO} alt={APP_TITLE} className="h-8 w-8" />
-            <span className="hidden sm:inline">{APP_TITLE}</span>
+            <img src={APP_LOGO} alt={APP_TITLE} className="h-10 w-auto sm:h-8" />
+            <span className="hidden sm:inline text-base sm:text-xl">{APP_TITLE}</span>
           </Link>
           
           {/* Desktop Navigation */}
