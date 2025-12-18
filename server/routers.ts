@@ -1,7 +1,9 @@
 import { COOKIE_NAME } from "@shared/const";
 import { getSessionCookieOptions } from "./_core/cookies";
 import { systemRouter } from "./_core/systemRouter";
-import { publicProcedure, protectedProcedure, router } from "./_core/trpc";import { z } from "zod";
+import { publicProcedure, protectedProcedure, router } from "./_core/trpc";
+import { z } from "zod";
+import { notifyOwner } from "./_core/notification";
 import { stripe } from "./_core/stripe";
 import { ENV } from "./_core/env";
 import QRCode from "qrcode";
@@ -678,7 +680,10 @@ export const appRouter = router({
         });
         
         // Notificar admin sobre novo orçamento
-        // TODO: Implementar notificação
+        await notifyOwner({
+          title: "🏗️ Novo Orçamento Recebido",
+          content: `Nome: ${input.name}\nEmail: ${input.email}\nTelefone: ${input.phone || 'Não informado'}\nCidade: ${input.city || 'Não informada'}\nTipo: ${input.projectType || 'Não especificado'}\nPossui lote: ${input.hasLot === 'yes' ? 'Sim' : input.hasLot === 'no' ? 'Não' : 'Não tem certeza'}\n\nMensagem: ${input.message || 'Nenhuma mensagem adicional'}`
+        });
         
         return request;
       }),

@@ -585,3 +585,9 @@ Todas as 7 páginas do ecossistema foram redesenhadas com a paleta Prospecta:
 - Gradientes: from-[#1A2332] via-[#2C3E50] to-[#1A2332]
 
 **Resultado:** Interface moderna, coesa e profissional com identidade visual consistente em todo o ecossistema.
+
+
+## 🔔 NOTIFICAÇÃO AUTOMÁTICA DE ORÇAMENTOS
+
+- [x] Integrar notifyOwner ao criar orçamento
+- [x] Testar notificação ao submeter formulário
