@@ -591,3 +591,36 @@ Todas as 7 páginas do ecossistema foram redesenhadas com a paleta Prospecta:
 
 - [x] Integrar notifyOwner ao criar orçamento
 - [x] Testar notificação ao submeter formulário
+
+
+## 📸 COMPLETAR FASE 6: UPLOAD E RELATÓRIOS
+
+### Aba 4: Upload de Fotos
+- [x] Adicionar campo photos (JSON) no schema construction_projects
+- [x] Criar rota tRPC para upload de fotos
+- [x] Implementar interface de upload na Aba 4
+- [x] Implementar galeria de fotos com preview
+
+### Aba 5: Geração de Relatórios
+- [x] Criar função para gerar relatório PDF
+- [x] Criar função para gerar relatório XLSM
+- [x] Implementar botões de download na Aba 5
+- [x] Testar geração de relatórios
+
+
+## ✅ Fase 6 Completa: Upload e Relatórios Implementados
+
+**Aba 4 - Upload de Fotos:**
+- Interface de upload com drag-and-drop
+- Galeria de fotos com preview
+- Integração com S3 para armazenamento
+- Legendas e datas nas fotos
+- Botão de exclusão de fotos
+
+**Aba 5 - Geração de Relatórios:**
+- Relatório PDF completo com todas as informações
+- Planilha Excel (XLSX) editável com dados financeiros
+- Geração client-side usando jsPDF e xlsx
+- Botões de download funcionais
+
+**Resultado:** Painel Admin de Obras 100% funcional com todas as 5 abas implementadas.

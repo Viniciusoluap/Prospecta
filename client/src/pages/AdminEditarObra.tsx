@@ -7,7 +7,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { trpc } from "@/lib/trpc";
-import { ArrowLeft, Building2, DollarSign, FileText, Image, Loader2, Save } from "lucide-react";
+import { ArrowLeft, Building2, DollarSign, FileText, Image, Loader2, Save, Upload, X, Download } from "lucide-react";
 import { Link, useLocation, useParams } from "wouter";
 import { getLoginUrl } from "@/const";
 import { useEffect, useState } from "react";
@@ -60,6 +60,86 @@ export default function AdminEditarObra() {
 
   // Form state - Aba 3: Progresso
   const [progress, setProgress] = useState("0");
+
+  // Form state - Aba 4: Fotos
+  const [uploading, setUploading] = useState(false);
+  const [photoCaption, setPhotoCaption] = useState("");
+
+  const uploadPhotoMutation = trpc.construction.uploadPhoto.useMutation({
+    onSuccess: () => {
+      toast.success("Foto enviada com sucesso!");
+      setPhotoCaption("");
+      refetch();
+    },
+    onError: (error) => {
+      toast.error(`Erro ao enviar foto: ${error.message}`);
+    },
+  });
+
+  const deletePhotoMutation = trpc.construction.deletePhoto.useMutation({
+    onSuccess: () => {
+      toast.success("Foto removida com sucesso!");
+      refetch();
+    },
+    onError: (error) => {
+      toast.error(`Erro ao remover foto: ${error.message}`);
+    },
+  });
+
+  const handlePhotoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    if (!file.type.startsWith("image/")) {
+      toast.error("Por favor, selecione uma imagem válida");
+      return;
+    }
+
+    if (file.size > 5 * 1024 * 1024) {
+      toast.error("A imagem deve ter no máximo 5MB");
+      return;
+    }
+
+    setUploading(true);
+
+    try {
+      // Converter para base64 para enviar ao backend
+      const reader = new FileReader();
+      reader.onloadend = async () => {
+        const base64 = reader.result as string;
+        
+        // Enviar para backend que fará upload no S3
+        const response = await fetch("/api/upload-photo", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ 
+            image: base64,
+            filename: file.name,
+            projectId 
+          }),
+        });
+
+        if (!response.ok) throw new Error("Erro ao fazer upload");
+
+        const { url } = await response.json();
+
+        // Salvar no banco
+        await uploadPhotoMutation.mutateAsync({
+          projectId,
+          imageUrl: url,
+          caption: photoCaption || undefined,
+          takenAt: new Date(),
+        });
+
+        setUploading(false);
+      };
+      reader.readAsDataURL(file);
+    } catch (error) {
+      console.error("Erro ao fazer upload:", error);
+      toast.error("Erro ao fazer upload da foto");
+      setUploading(false);
+    }
+  };
 
   useEffect(() => {
     if (!authLoading && !isAuthenticated) {
@@ -584,22 +664,82 @@ export default function AdminEditarObra() {
                   Fotos do progresso da obra
                 </CardDescription>
               </CardHeader>
-              <CardContent>
-                <p className="text-gray-400 text-center py-8">
-                  Funcionalidade de upload de fotos será implementada em breve.
-                </p>
-                {project.photos && project.photos.length > 0 && (
-                  <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mt-6">
+              <CardContent className="space-y-6">
+                {/* Upload de Foto */}
+                <div className="border-2 border-dashed border-[#C9A961]/30 rounded-lg p-6 bg-[#1A2332]/40">
+                  <div className="space-y-4">
+                    <div className="space-y-2">
+                      <Label htmlFor="photo-caption" className="text-gray-300">Legenda (opcional)</Label>
+                      <Input
+                        id="photo-caption"
+                        placeholder="Ex: Fundação concluída"
+                        value={photoCaption}
+                        onChange={(e) => setPhotoCaption(e.target.value)}
+                        className="bg-[#1A2332]/60 border-[#C9A961]/20 text-white"
+                      />
+                    </div>
+                    <div className="flex items-center justify-center">
+                      <label htmlFor="photo-upload" className="cursor-pointer">
+                        <div className="flex flex-col items-center gap-2 px-6 py-4 bg-[#C9A961]/10 hover:bg-[#C9A961]/20 rounded-lg border border-[#C9A961]/30 transition-colors">
+                          {uploading ? (
+                            <>
+                              <Loader2 className="h-8 w-8 text-[#C9A961] animate-spin" />
+                              <span className="text-sm text-gray-300">Enviando...</span>
+                            </>
+                          ) : (
+                            <>
+                              <Upload className="h-8 w-8 text-[#C9A961]" />
+                              <span className="text-sm text-gray-300">Clique para selecionar foto</span>
+                              <span className="text-xs text-gray-500">PNG, JPG até 5MB</span>
+                            </>
+                          )}
+                        </div>
+                        <input
+                          id="photo-upload"
+                          type="file"
+                          accept="image/*"
+                          className="hidden"
+                          onChange={handlePhotoUpload}
+                          disabled={uploading}
+                        />
+                      </label>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Galeria de Fotos */}
+                {project?.photos && project.photos.length > 0 ? (
+                  <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
                     {project.photos.map((photo) => (
-                      <div key={photo.id} className="relative aspect-square rounded-lg overflow-hidden border border-[#C9A961]/20">
+                      <div key={photo.id} className="relative group aspect-square rounded-lg overflow-hidden border border-[#C9A961]/20 bg-[#1A2332]/40">
                         <img
                           src={photo.imageUrl}
                           alt={photo.caption || "Foto da obra"}
                           className="w-full h-full object-cover"
                         />
+                        <div className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity flex flex-col items-center justify-center gap-2 p-2">
+                          {photo.caption && (
+                            <p className="text-white text-xs text-center line-clamp-2">{photo.caption}</p>
+                          )}
+                          <p className="text-gray-400 text-xs">
+                            {new Date(photo.takenAt).toLocaleDateString("pt-BR")}
+                          </p>
+                          <Button
+                            size="sm"
+                            variant="destructive"
+                            onClick={() => deletePhotoMutation.mutate({ photoId: photo.id })}
+                            disabled={deletePhotoMutation.isPending}
+                          >
+                            <X className="h-4 w-4" />
+                          </Button>
+                        </div>
                       </div>
                     ))}
                   </div>
+                ) : (
+                  <p className="text-gray-400 text-center py-8">
+                    Nenhuma foto enviada ainda. Faça o upload da primeira foto acima.
+                  </p>
                 )}
               </CardContent>
             </Card>
@@ -614,10 +754,121 @@ export default function AdminEditarObra() {
                   Gerar relatórios da obra em diferentes formatos
                 </CardDescription>
               </CardHeader>
-              <CardContent className="space-y-4">
-                <p className="text-gray-400 text-center py-8">
-                  Funcionalidade de geração de relatórios (PDF/XLSM) será implementada em breve.
-                </p>
+              <CardContent className="space-y-6">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                  {/* Relatório PDF */}
+                  <Card className="bg-[#1A2332]/40 border-[#C9A961]/20">
+                    <CardHeader>
+                      <CardTitle className="text-[#C9A961] text-lg">Relatório PDF</CardTitle>
+                      <CardDescription className="text-gray-400">
+                        Relatório completo com todas as informações da obra
+                      </CardDescription>
+                    </CardHeader>
+                    <CardContent>
+                      <Button
+                        onClick={() => {
+                          if (!project) return;
+                          import("jspdf").then(({ default: jsPDF }) => {
+                            const doc = new jsPDF();
+                            
+                            // Título
+                            doc.setFontSize(20);
+                            doc.text("Relatório da Obra", 105, 20, { align: "center" });
+                            
+                            // Informações Básicas
+                            doc.setFontSize(12);
+                            doc.text(`Título: ${project.title}`, 20, 40);
+                            doc.text(`Endereço: ${project.address || "N/A"}`, 20, 50);
+                            doc.text(`Tipo: ${project.projectType || "N/A"}`, 20, 60);
+                            doc.text(`Área Total: ${project.totalArea || "N/A"} m²`, 20, 70);
+                            doc.text(`Status: ${project.status}`, 20, 80);
+                            doc.text(`Progresso: ${project.progress}%`, 20, 90);
+                            
+                            // Valores
+                            doc.text("Valores Financeiros:", 20, 110);
+                            doc.text(`Valor do Contrato: R$ ${(project.contractValue || 0) / 100}`, 20, 120);
+                            doc.text(`Custo de Material: R$ ${(project.materialCost || 0) / 100}`, 20, 130);
+                            doc.text(`Custo do Lote: R$ ${(project.lotCost || 0) / 100}`, 20, 140);
+                            doc.text(`Saldo: R$ ${(project.balanceAmount || 0) / 100}`, 20, 150);
+                            
+                            // Salvar
+                            doc.save(`relatorio-${project.title.replace(/\s+/g, "-")}.pdf`);
+                            toast.success("Relatório PDF gerado com sucesso!");
+                          });
+                        }}
+                        className="w-full bg-[#C9A961] hover:bg-[#B8935A] text-[#1A2332]"
+                        disabled={!project}
+                      >
+                        <Download className="h-4 w-4 mr-2" />
+                        Baixar PDF
+                      </Button>
+                    </CardContent>
+                  </Card>
+
+                  {/* Relatório Excel */}
+                  <Card className="bg-[#1A2332]/40 border-[#C9A961]/20">
+                    <CardHeader>
+                      <CardTitle className="text-[#C9A961] text-lg">Planilha Excel</CardTitle>
+                      <CardDescription className="text-gray-400">
+                        Planilha detalhada com todos os custos e medições
+                      </CardDescription>
+                    </CardHeader>
+                    <CardContent>
+                      <Button
+                        onClick={() => {
+                          if (!project) return;
+                          import("xlsx").then((XLSX) => {
+                            // Criar dados da planilha
+                            const data = [
+                              ["RELATÓRIO DA OBRA"],
+                              [""],
+                              ["Informações Básicas"],
+                              ["Título", project.title],
+                              ["Endereço", project.address || "N/A"],
+                              ["Tipo", project.projectType || "N/A"],
+                              ["Área Total (m²)", project.totalArea || "N/A"],
+                              ["Status", project.status],
+                              ["Progresso (%)", project.progress],
+                              [""],
+                              ["Valores Financeiros (R$)"],
+                              ["Valor do Contrato", (project.contractValue || 0) / 100],
+                              ["Tipo de Contrato", project.contractType || "N/A"],
+                              ["Pagamento Empreiteiro", (project.contractorPayment || 0) / 100],
+                              ["Custo de Material", (project.materialCost || 0) / 100],
+                              ["Custo do Lote", (project.lotCost || 0) / 100],
+                              ["Comissão", (project.commissionCost || 0) / 100],
+                              ["Extras", (project.extrasCost || 0) / 100],
+                              ["Manutenção", (project.maintenanceCost || 0) / 100],
+                              ["Seguro", (project.insuranceCost || 0) / 100],
+                              ["Saldo", (project.balanceAmount || 0) / 100],
+                            ];
+                            
+                            const ws = XLSX.utils.aoa_to_sheet(data);
+                            const wb = XLSX.utils.book_new();
+                            XLSX.utils.book_append_sheet(wb, ws, "Relatório");
+                            XLSX.writeFile(wb, `relatorio-${project.title.replace(/\s+/g, "-")}.xlsx`);
+                            toast.success("Planilha Excel gerada com sucesso!");
+                          });
+                        }}
+                        className="w-full bg-[#C9A961] hover:bg-[#B8935A] text-[#1A2332]"
+                        disabled={!project}
+                      >
+                        <Download className="h-4 w-4 mr-2" />
+                        Baixar Excel
+                      </Button>
+                    </CardContent>
+                  </Card>
+                </div>
+
+                {/* Informações sobre os relatórios */}
+                <div className="bg-[#1A2332]/40 border border-[#C9A961]/20 rounded-lg p-4">
+                  <h4 className="text-[#C9A961] font-semibold mb-2">Sobre os Relatórios</h4>
+                  <ul className="text-gray-400 text-sm space-y-1">
+                    <li>• <strong>PDF:</strong> Relatório visual completo, ideal para apresentações e impressão</li>
+                    <li>• <strong>Excel:</strong> Planilha editável com todos os dados, ideal para análises financeiras</li>
+                    <li>• Os relatórios incluem informações básicas, valores financeiros e progresso da obra</li>
+                  </ul>
+                </div>
               </CardContent>
             </Card>
           </TabsContent>
