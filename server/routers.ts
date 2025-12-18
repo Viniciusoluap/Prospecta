@@ -445,6 +445,14 @@ export const appRouter = router({
       return db.getProjectsByUserId(ctx.user.id);
     }),
 
+    // Listar TODAS as obras (apenas admin)
+    allProjects: protectedProcedure.query(async ({ ctx }) => {
+      if (ctx.user.role !== "admin") {
+        throw new TRPCError({ code: "FORBIDDEN", message: "Acesso negado" });
+      }
+      return db.getAllProjects();
+    }),
+
     // Obter detalhes completos de uma obra (com etapas e fotos)
     getProjectDetails: protectedProcedure
       .input(z.object({ projectId: z.number() }))
@@ -492,6 +500,18 @@ export const appRouter = router({
         totalArea: z.number().optional(),
         estimatedCost: z.number().optional(),
         actualCost: z.number().optional(),
+        // Campos financeiros detalhados
+        contractValue: z.number().optional(),
+        contractType: z.string().optional(),
+        contractorPayment: z.number().optional(),
+        materialCost: z.number().optional(),
+        lotCost: z.number().optional(),
+        commissionCost: z.number().optional(),
+        extrasCost: z.number().optional(),
+        maintenanceCost: z.number().optional(),
+        insuranceCost: z.number().optional(),
+        balanceAmount: z.number().optional(),
+        // Datas e status
         startDate: z.date().optional(),
         estimatedEndDate: z.date().optional(),
         actualEndDate: z.date().optional(),

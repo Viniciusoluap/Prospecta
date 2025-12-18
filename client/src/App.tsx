@@ -19,6 +19,8 @@ import ProjetosOrcamentos from "./pages/ProjetosOrcamentos";
 import Obras from "./pages/Obras";
 import NovaObra from "./pages/NovaObra";
 import ObraDetalhes from "./pages/ObraDetalhes";
+import AdminObras from "./pages/AdminObras";
+import AdminEditarObra from "./pages/AdminEditarObra";
 
 function Router() {
   // make sure to consider if you need authentication for certain routes
@@ -39,6 +41,8 @@ function Router() {
       <Route path="/obras" component={Obras} />
       <Route path="/obras/nova" component={NovaObra} />
       <Route path="/obras/:id" component={ObraDetalhes} />
+      <Route path="/admin/obras" component={AdminObras} />
+      <Route path="/admin/obras/editar/:id" component={AdminEditarObra} />
       <Route path={"/404"} component={NotFound} />
       {/* Final fallback route */}
       <Route component={NotFound} />

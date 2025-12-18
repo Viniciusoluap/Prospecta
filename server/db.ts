@@ -299,6 +299,12 @@ export async function getProjectsByUserId(userId: number): Promise<ConstructionP
   return db.select().from(constructionProjects).where(eq(constructionProjects.userId, userId)).orderBy(desc(constructionProjects.createdAt));
 }
 
+export async function getAllProjects(): Promise<ConstructionProject[]> {
+  const db = await getDb();
+  if (!db) return [];
+  return db.select().from(constructionProjects).orderBy(desc(constructionProjects.createdAt));
+}
+
 export async function getProjectById(id: number): Promise<ConstructionProject | undefined> {
   const db = await getDb();
   if (!db) return undefined;

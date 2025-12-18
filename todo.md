@@ -474,3 +474,38 @@ Desenvolver o ecossistema digital do Grupo Efficaz com módulos de venda de bilh
 - [x] Criar página /obras/nova com formulário de cadastro
 - [x] Adicionar rota /obras/nova no App.tsx
 - [x] Conectar formulário à mutation tRPC construction.createProject
+
+
+## ✅ FASE 6: PAINEL ADMIN DO SISTEMA DE OBRAS - CONCLUÍDO (PARCIAL)
+
+### Backend
+- [x] Adicionar campos financeiros detalhados ao schema (9 campos)
+- [x] Aplicar migração do banco de dados
+- [x] Criar função getAllProjects() para admin
+- [x] Criar rota tRPC allProjects (apenas admin)
+- [x] Atualizar schema de updateProject com novos campos
+
+### Frontend - Listagem
+- [x] Criar página /admin/obras com listagem de todas as obras
+- [x] Mostrar cards com informações resumidas
+- [x] Barra de progresso visual
+- [x] Botões "Editar Obra" e "Ver Detalhes"
+- [x] Empty state quando não há obras
+- [x] Proteção de rota (apenas admin)
+
+### Frontend - Formulário de Edição
+- [x] Criar página /admin/obras/editar/:id
+- [x] Implementar sistema de abas (5 abas)
+- [x] Aba 1: Informações Básicas (título, endereço, tipo, área, datas, status, observações)
+- [x] Aba 2: Valores e Custos (9 campos financeiros com conversão para centavos)
+- [x] Aba 3: Medições e Progresso (progresso geral + listagem de etapas)
+- [x] Aba 4: Galeria de Fotos (placeholder - implementação futura)
+- [x] Aba 5: Relatórios (placeholder - implementação futura)
+- [x] Botão "Salvar Alterações" funcional
+- [x] Feedback visual (toast de sucesso/erro)
+- [x] Proteção de rota (apenas admin)
+
+### Pendente para Próxima Fase
+- [ ] Implementar upload de fotos para S3 (Aba 4)
+- [ ] Implementar geração de relatório PDF (Aba 5)
+- [ ] Implementar geração de relatório XLSM (Aba 5)

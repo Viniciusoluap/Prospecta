@@ -150,6 +150,19 @@ export const constructionProjects = mysqlTable("construction_projects", {
   totalArea: int("total_area"), // Área total em m²
   estimatedCost: int("estimated_cost"), // Custo estimado em centavos
   actualCost: int("actual_cost").default(0), // Custo real em centavos
+  
+  // Campos financeiros detalhados (Aba 2: Valores e Custos)
+  contractValue: int("contract_value"), // Valor total do contrato em centavos
+  contractType: varchar("contract_type", { length: 100 }), // Ex: "Empreitada Global", "Administração"
+  contractorPayment: int("contractor_payment"), // Pagamento do empreiteiro em centavos
+  materialCost: int("material_cost"), // Custo de material em centavos
+  lotCost: int("lot_cost"), // Custo do lote/terreno em centavos
+  commissionCost: int("commission_cost"), // Comissão em centavos
+  extrasCost: int("extras_cost"), // Custos extras em centavos
+  maintenanceCost: int("maintenance_cost"), // Custo de manutenção em centavos
+  insuranceCost: int("insurance_cost"), // Custo de seguro em centavos
+  balanceAmount: int("balance_amount"), // Saldo restante em centavos
+  
   startDate: timestamp("start_date"), // Data de início da obra
   estimatedEndDate: timestamp("estimated_end_date"), // Data prevista de conclusão
   actualEndDate: timestamp("actual_end_date"), // Data real de conclusão
