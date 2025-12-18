@@ -686,9 +686,30 @@ export default function Home() {
             </div>
           </div>
 
-          {/* Copyright */}
-          <div className="border-t border-white/10 pt-8 text-center text-white/60 text-sm">
-            <p>&copy; 2025 Prospecta Construções. Todos os direitos reservados.</p>
+          {/* Copyright e Links Legais */}
+          <div className="border-t border-white/10 pt-8">
+            <div className="flex flex-col md:flex-row justify-between items-center gap-4 mb-4">
+              <div className="flex flex-wrap justify-center gap-4 text-sm">
+                <Link href="/regulamento" className="text-white/60 hover:text-primary transition-colors">
+                  Regulamento do Sorteio
+                </Link>
+                <span className="text-white/30">|</span>
+                <Link href="/termos-de-uso" className="text-white/60 hover:text-primary transition-colors">
+                  Termos de Uso
+                </Link>
+                <span className="text-white/30">|</span>
+                <Link href="/politica-de-privacidade" className="text-white/60 hover:text-primary transition-colors">
+                  Política de Privacidade
+                </Link>
+                <span className="text-white/30">|</span>
+                <Link href="/faq" className="text-white/60 hover:text-primary transition-colors">
+                  FAQ
+                </Link>
+              </div>
+            </div>
+            <div className="text-center text-white/60 text-sm">
+              <p>&copy; 2025 Prospecta Construções. Todos os direitos reservados.</p>
+            </div>
           </div>
         </div>
       </footer>

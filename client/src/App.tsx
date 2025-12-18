@@ -22,6 +22,10 @@ import ObraDetalhes from "./pages/ObraDetalhes";
 import AdminObras from "./pages/AdminObras";
 import AdminEditarObra from "./pages/AdminEditarObra";
 import AdminOrcamentos from "./pages/AdminOrcamentos";
+import Regulamento from "./pages/Regulamento";
+import TermosDeUso from "./pages/TermosDeUso";
+import PoliticaDePrivacidade from "./pages/PoliticaDePrivacidade";
+import FAQ from "./pages/FAQ";
 
 function Router() {
   // make sure to consider if you need authentication for certain routes
@@ -45,6 +49,10 @@ function Router() {
       <Route path="/admin/obras" component={AdminObras} />
       <Route path="/admin/obras/editar/:id" component={AdminEditarObra} />
       <Route path="/admin/orcamentos" component={AdminOrcamentos} />
+      <Route path="/regulamento" component={Regulamento} />
+      <Route path="/termos-de-uso" component={TermosDeUso} />
+      <Route path="/politica-de-privacidade" component={PoliticaDePrivacidade} />
+      <Route path="/faq" component={FAQ} />
       <Route path={"/404"} component={NotFound} />
       {/* Final fallback route */}
       <Route component={NotFound} />

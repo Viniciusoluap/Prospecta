@@ -624,3 +624,24 @@ Todas as 7 páginas do ecossistema foram redesenhadas com a paleta Prospecta:
 - Botões de download funcionais
 
 **Resultado:** Painel Admin de Obras 100% funcional com todas as 5 abas implementadas.
+
+
+## 📄 DOCUMENTAÇÃO LEGAL E COMPLIANCE
+
+- [x] Criar página de Regulamento do Sorteio (/regulamento)
+- [x] Criar página de Termos de Uso (/termos-de-uso)
+- [x] Criar página de Política de Privacidade (/politica-de-privacidade)
+- [x] Criar página de FAQ (/faq)
+- [x] Adicionar links no footer
+- [x] Testar todas as páginas
+
+
+## ✅ Documentação Legal Completa
+
+**Páginas Criadas:**
+- /regulamento - Regulamento completo do sorteio (mecânica, premiação, divulgação)
+- /termos-de-uso - Termos de uso da plataforma (UTEF, transações, propriedade intelectual)
+- /politica-de-privacidade - Política de privacidade em conformidade com LGPD
+- /faq - 18 perguntas frequentes com respostas detalhadas
+
+**Resultado:** Plataforma em conformidade legal com documentação completa e acessível via footer.
