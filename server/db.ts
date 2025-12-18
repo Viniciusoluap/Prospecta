@@ -419,3 +419,41 @@ export async function getProjectWithDetails(projectId: number) {
     photos,
   };
 }
+
+
+// ========== PROJECT BUDGET REQUESTS ==========
+
+import { projectBudgetRequests, ProjectBudgetRequest, InsertProjectBudgetRequest } from "../drizzle/schema";
+
+export async function createBudgetRequest(request: InsertProjectBudgetRequest): Promise<ProjectBudgetRequest> {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  const result = await db.insert(projectBudgetRequests).values(request);
+  const newRequest = await db.select().from(projectBudgetRequests).where(eq(projectBudgetRequests.id, Number(result[0].insertId))).limit(1);
+  return newRequest[0];
+}
+
+export async function getAllBudgetRequests(): Promise<ProjectBudgetRequest[]> {
+  const db = await getDb();
+  if (!db) return [];
+  return db.select().from(projectBudgetRequests).orderBy(desc(projectBudgetRequests.createdAt));
+}
+
+export async function getBudgetRequestById(id: number): Promise<ProjectBudgetRequest | undefined> {
+  const db = await getDb();
+  if (!db) return undefined;
+  const result = await db.select().from(projectBudgetRequests).where(eq(projectBudgetRequests.id, id)).limit(1);
+  return result[0];
+}
+
+export async function updateBudgetRequest(id: number, updates: Partial<InsertProjectBudgetRequest>): Promise<void> {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  await db.update(projectBudgetRequests).set(updates).where(eq(projectBudgetRequests.id, id));
+}
+
+export async function deleteBudgetRequest(id: number): Promise<void> {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  await db.delete(projectBudgetRequests).where(eq(projectBudgetRequests.id, id));
+}

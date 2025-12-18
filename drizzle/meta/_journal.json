@@ -43,6 +43,13 @@
       "when": 1766026192823,
       "tag": "0005_woozy_iron_man",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "5",
+      "when": 1766027757183,
+      "tag": "0006_fair_wong",
+      "breakpoints": true
     }
   ]
 }

@@ -214,3 +214,26 @@ export const constructionPhotos = mysqlTable("construction_photos", {
 
 export type ConstructionPhoto = typeof constructionPhotos.$inferSelect;
 export type InsertConstructionPhoto = typeof constructionPhotos.$inferInsert;
+
+
+/**
+ * Solicitações de orçamento de projetos
+ */
+export const projectBudgetRequests = mysqlTable("project_budget_requests", {
+  id: int("id").autoincrement().primaryKey(),
+  userId: int("user_id"), // ID do usuário (se logado)
+  name: varchar("name", { length: 255 }).notNull(), // Nome do solicitante
+  email: varchar("email", { length: 320 }).notNull(), // Email do solicitante
+  phone: varchar("phone", { length: 20 }), // Telefone
+  city: varchar("city", { length: 255 }), // Cidade
+  projectType: varchar("project_type", { length: 100 }), // Ex: "Casa 47m²", "Casa 60m²"
+  hasLot: mysqlEnum("has_lot", ["yes", "no", "not_sure"]), // Possui terreno?
+  message: text("message"), // Mensagem adicional
+  status: mysqlEnum("status", ["pending", "contacted", "in_negotiation", "converted", "cancelled"]).default("pending").notNull(),
+  adminNotes: text("admin_notes"), // Observações do admin
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().onUpdateNow().notNull(),
+});
+
+export type ProjectBudgetRequest = typeof projectBudgetRequests.$inferSelect;
+export type InsertProjectBudgetRequest = typeof projectBudgetRequests.$inferInsert;

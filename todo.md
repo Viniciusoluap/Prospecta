@@ -509,3 +509,41 @@ Desenvolver o ecossistema digital do Grupo Efficaz com módulos de venda de bilh
 - [ ] Implementar upload de fotos para S3 (Aba 4)
 - [ ] Implementar geração de relatório PDF (Aba 5)
 - [ ] Implementar geração de relatório XLSM (Aba 5)
+
+
+## ✅ FASE 7: FORMULÁRIO DE ORÇAMENTO FUNCIONAL - CONCLUÍDO
+
+### Backend
+- [x] Criar tabela project_budget_requests no schema
+- [x] Aplicar migração do banco (0006_fair_wong.sql)
+- [x] Criar funções CRUD no server/db.ts
+- [x] Criar router budgetRequests com 5 rotas tRPC
+- [x] Rota create (pública) para enviar orçamento
+- [x] Rota getAll (admin) para listar todos os orçamentos
+- [x] Rota getById (admin) para ver detalhes
+- [x] Rota update (admin) para atualizar status e observações
+- [x] Rota delete (admin) para deletar orçamento
+
+### Frontend - Formulário Público
+- [x] Integrar formulário da página /projetos-orcamentos ao backend
+- [x] Remover link do Google Forms
+- [x] Criar formulário funcional com 7 campos
+- [x] Campos: nome, email, telefone, cidade, tipo de projeto, possui terreno, mensagem
+- [x] Preencher automaticamente nome e email se usuário logado
+- [x] Validação de campos obrigatórios
+- [x] Feedback visual (toast de sucesso/erro)
+- [x] Limpar formulário após envio
+
+### Frontend - Dashboard Admin
+- [x] Criar página /admin/orcamentos
+- [x] Listagem de todos os orçamentos recebidos
+- [x] Cards informativos com dados do cliente
+- [x] Badge de status colorido (pendente, contatado, em negociação, convertido, cancelado)
+- [x] Exibir mensagem e observações do admin
+- [x] Dialog de gerenciamento para atualizar status e adicionar observações
+- [x] Botão de deletar orçamento
+- [x] Empty state quando não há orçamentos
+- [x] Proteção de rota (apenas admin)
+
+### Pendente
+- [ ] Implementar notificação automática para admin quando novo orçamento chegar

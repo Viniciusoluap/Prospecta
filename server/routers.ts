@@ -656,6 +656,82 @@ export const appRouter = router({
         return { success: true };
       }),
   }),
+
+  // ========== PROJECT BUDGET REQUESTS (ORÇAMENTOS) ==========
+  budgetRequests: router({
+    // Criar solicitação de orçamento (pública)
+    create: publicProcedure
+      .input(z.object({
+        userId: z.number().optional(),
+        name: z.string().min(1),
+        email: z.string().email(),
+        phone: z.string().optional(),
+        city: z.string().optional(),
+        projectType: z.string().optional(),
+        hasLot: z.enum(["yes", "no", "not_sure"]).optional(),
+        message: z.string().optional(),
+      }))
+      .mutation(async ({ input }) => {
+        const request = await db.createBudgetRequest({
+          ...input,
+          status: "pending",
+        });
+        
+        // Notificar admin sobre novo orçamento
+        // TODO: Implementar notificação
+        
+        return request;
+      }),
+
+    // Listar TODOS os orçamentos (apenas admin)
+    getAll: protectedProcedure.query(async ({ ctx }) => {
+      if (ctx.user.role !== "admin") {
+        throw new TRPCError({ code: "FORBIDDEN", message: "Acesso negado" });
+      }
+      return db.getAllBudgetRequests();
+    }),
+
+    // Obter orçamento por ID (apenas admin)
+    getById: protectedProcedure
+      .input(z.object({ id: z.number() }))
+      .query(async ({ input, ctx }) => {
+        if (ctx.user.role !== "admin") {
+          throw new TRPCError({ code: "FORBIDDEN", message: "Acesso negado" });
+        }
+        const request = await db.getBudgetRequestById(input.id);
+        if (!request) {
+          throw new TRPCError({ code: "NOT_FOUND", message: "Orçamento não encontrado" });
+        }
+        return request;
+      }),
+
+    // Atualizar orçamento (apenas admin)
+    update: protectedProcedure
+      .input(z.object({
+        id: z.number(),
+        status: z.enum(["pending", "contacted", "in_negotiation", "converted", "cancelled"]).optional(),
+        adminNotes: z.string().optional(),
+      }))
+      .mutation(async ({ input, ctx }) => {
+        if (ctx.user.role !== "admin") {
+          throw new TRPCError({ code: "FORBIDDEN", message: "Acesso negado" });
+        }
+        const { id, ...updates } = input;
+        await db.updateBudgetRequest(id, updates);
+        return { success: true };
+      }),
+
+    // Deletar orçamento (apenas admin)
+    delete: protectedProcedure
+      .input(z.object({ id: z.number() }))
+      .mutation(async ({ input, ctx }) => {
+        if (ctx.user.role !== "admin") {
+          throw new TRPCError({ code: "FORBIDDEN", message: "Acesso negado" });
+        }
+        await db.deleteBudgetRequest(input.id);
+        return { success: true };
+      }),
+  }),
 });
 
 export type AppRouter = typeof appRouter;
