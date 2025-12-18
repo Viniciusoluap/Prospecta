@@ -474,9 +474,3 @@ Desenvolver o ecossistema digital do Grupo Efficaz com módulos de venda de bilh
 - [x] Criar página /obras/nova com formulário de cadastro
 - [x] Adicionar rota /obras/nova no App.tsx
 - [x] Conectar formulário à mutation tRPC construction.createProject
-
-
-## 🔴 AJUSTE UX - Logo Mobile
-
-- [x] Aumentar tamanho da logo no mobile
-- [x] Melhorar visibilidade e proporção da logo
