@@ -4,6 +4,8 @@ import NotFound from "@/pages/NotFound";
 import { Route, Switch } from "wouter";
 import ErrorBoundary from "./components/ErrorBoundary";
 import { ThemeProvider } from "./contexts/ThemeContext";
+import { ProtectedRoute } from "./components/ProtectedRoute";
+import { AdminRoute } from "./components/AdminRoute";
 import Home from "./pages/Home";
 import Sorteios from "./pages/Sorteios";
 import ComprarBilhete from "./pages/ComprarBilhete";
@@ -38,23 +40,51 @@ function Router() {
       <Route path="/sorteios" component={Sorteios} />
       <Route path="/comprar-bilhete/:id" component={ComprarBilhete} />
       <Route path="/produtos" component={Produtos} />
-      <Route path="/meus-bilhetes" component={MeusBilhetes} />
-      <Route path="/meu-saldo" component={MeuSaldo} />
-      <Route path="/admin" component={Admin} />
-      <Route path="/converter-produto/:id" component={ConverterProduto} />
+      <Route path="/meus-bilhetes">
+        <ProtectedRoute><MeusBilhetes /></ProtectedRoute>
+      </Route>
+      <Route path="/meu-saldo">
+        <ProtectedRoute><MeuSaldo /></ProtectedRoute>
+      </Route>
+      <Route path="/admin">
+        <AdminRoute><Admin /></AdminRoute>
+      </Route>
+      <Route path="/converter-produto/:id">
+        <ProtectedRoute><ConverterProduto /></ProtectedRoute>
+      </Route>
       <Route path="/como-funciona" component={ComoFunciona} />
-      <Route path="/minhas-conversoes" component={MinhasConversoes} />
+      <Route path="/minhas-conversoes">
+        <ProtectedRoute><MinhasConversoes /></ProtectedRoute>
+      </Route>
       <Route path="/comprar-utef" component={ComprarUtef} />
       <Route path="/projetos-orcamentos" component={ProjetosOrcamentos} />
-      <Route path="/obras" component={Obras} />
-      <Route path="/obras/nova" component={NovaObra} />
-      <Route path="/obras/:id" component={ObraDetalhes} />
-      <Route path="/admin/obras" component={AdminObras} />
-      <Route path="/admin/obras/editar/:id" component={AdminEditarObra} />
-      <Route path="/admin/orcamentos" component={AdminOrcamentos} />
-      <Route path="/admin/dashboard" component={AdminDashboard} />
-      <Route path="/admin/emails" component={AdminEmails} />
-      <Route path="/notificacoes" component={Notificacoes} />
+      <Route path="/obras">
+        <ProtectedRoute><Obras /></ProtectedRoute>
+      </Route>
+      <Route path="/obras/nova">
+        <ProtectedRoute><NovaObra /></ProtectedRoute>
+      </Route>
+      <Route path="/obras/:id">
+        <ProtectedRoute><ObraDetalhes /></ProtectedRoute>
+      </Route>
+      <Route path="/admin/obras">
+        <AdminRoute><AdminObras /></AdminRoute>
+      </Route>
+      <Route path="/admin/obras/editar/:id">
+        <AdminRoute><AdminEditarObra /></AdminRoute>
+      </Route>
+      <Route path="/admin/orcamentos">
+        <AdminRoute><AdminOrcamentos /></AdminRoute>
+      </Route>
+      <Route path="/admin/dashboard">
+        <AdminRoute><AdminDashboard /></AdminRoute>
+      </Route>
+      <Route path="/admin/emails">
+        <AdminRoute><AdminEmails /></AdminRoute>
+      </Route>
+      <Route path="/notificacoes">
+        <ProtectedRoute><Notificacoes /></ProtectedRoute>
+      </Route>
       <Route path="/regulamento" component={Regulamento} />
       <Route path="/termos-de-uso" component={TermosDeUso} />
       <Route path="/politica-de-privacidade" component={PoliticaDePrivacidade} />

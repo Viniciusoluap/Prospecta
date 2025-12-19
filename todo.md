@@ -811,3 +811,11 @@ Todas as 7 páginas do ecossistema foram redesenhadas com a paleta Prospecta:
 - system: Notificação do sistema 📢
 
 **Resultado:** Sistema completo de engajamento de usuários com notificações em tempo real, badge visual no header, dropdown interativo e página dedicada de histórico. Usuários recebem feedback instantâneo sobre ações importantes na plataforma (conversões, sorteios, obras), aumentando retenção e satisfação.
+
+
+## 🔴 BUG CRÍTICO DETECTADO NOS TESTES: PROTEÇÃO DE ROTAS
+
+- [x] Criar componente ProtectedRoute para rotas autenticadas
+- [x] Criar componente AdminRoute para rotas administrativas  
+- [x] Atualizar App.tsx para proteger rotas sensíveis
+- [ ] Testar proteção de rotas (/meu-saldo, /admin, etc.)

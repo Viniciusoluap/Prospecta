@@ -1,4 +1,5 @@
 import { Link } from "wouter";
+import { useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -18,6 +19,13 @@ export default function MeuSaldo() {
   const { data: transactions, isLoading: transactionsLoading } = trpc.utef.transactions.useQuery(undefined, {
     enabled: isAuthenticated,
   });
+
+  // Força redirecionamento se não autenticado
+  useEffect(() => {
+    if (!authLoading && !isAuthenticated) {
+      window.location.href = getLoginUrl();
+    }
+  }, [authLoading, isAuthenticated]);
 
   if (authLoading) {
     return (
@@ -95,6 +103,7 @@ export default function MeuSaldo() {
               <p className="text-gray-300 mt-2 text-lg">
                 Acompanhe seu saldo e histórico de transações
               </p>
+
             </div>
             <div className="flex gap-2">
               <Button asChild className="bg-[#00FF00] hover:bg-[#00dd00] text-black font-bold gap-2">
