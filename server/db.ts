@@ -1,4 +1,4 @@
-import { eq, and, desc } from "drizzle-orm";
+import { eq, and, desc, sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/mysql2";
 import { 
   InsertUser, users,
@@ -456,4 +456,135 @@ export async function deleteBudgetRequest(id: number): Promise<void> {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
   await db.delete(projectBudgetRequests).where(eq(projectBudgetRequests.id, id));
+}
+
+
+// ========== ANALYTICS & STATISTICS ==========
+
+export async function getAnalyticsStats() {
+  const db = await getDb();
+  if (!db) return null;
+
+  // Estatísticas de Orçamentos
+  const totalBudgetRequests = await db.select({ count: sql<number>`count(*)` })
+    .from(projectBudgetRequests);
+  
+  const pendingBudgetRequests = await db.select({ count: sql<number>`count(*)` })
+    .from(projectBudgetRequests)
+    .where(eq(projectBudgetRequests.status, "pending"));
+  
+  const convertedBudgetRequests = await db.select({ count: sql<number>`count(*)` })
+    .from(projectBudgetRequests)
+    .where(eq(projectBudgetRequests.status, "converted"));
+
+  // Estatísticas de Obras
+  const totalProjects = await db.select({ count: sql<number>`count(*)` })
+    .from(constructionProjects);
+  
+  const activeProjects = await db.select({ count: sql<number>`count(*)` })
+    .from(constructionProjects)
+    .where(eq(constructionProjects.status, "in_progress"));
+  
+  const completedProjects = await db.select({ count: sql<number>`count(*)` })
+    .from(constructionProjects)
+    .where(eq(constructionProjects.status, "completed"));
+
+  // Estatísticas de Sorteios
+  const totalDraws = await db.select({ count: sql<number>`count(*)` })
+    .from(draws);
+  
+  const activeDraws = await db.select({ count: sql<number>`count(*)` })
+    .from(draws)
+    .where(eq(draws.status, "active"));
+
+  // Estatísticas de Bilhetes
+  const totalTickets = await db.select({ count: sql<number>`count(*)` })
+    .from(tickets);
+  
+  const totalTicketRevenue = await db.select({ sum: sql<number>`sum(price)` })
+    .from(tickets)
+    .where(eq(tickets.paymentStatus, "confirmed"));
+
+  // Estatísticas de UTEFs
+  const totalUtefBalance = await db.select({ sum: sql<number>`sum(balance)` })
+    .from(utefBalances);
+  
+  const totalUtefTransactions = await db.select({ count: sql<number>`count(*)` })
+    .from(utefTransactions);
+
+  // Estatísticas de Usuários
+  const totalUsers = await db.select({ count: sql<number>`count(*)` })
+    .from(users);
+
+  return {
+    budgetRequests: {
+      total: totalBudgetRequests[0]?.count || 0,
+      pending: pendingBudgetRequests[0]?.count || 0,
+      converted: convertedBudgetRequests[0]?.count || 0,
+      conversionRate: totalBudgetRequests[0]?.count > 0 
+        ? ((convertedBudgetRequests[0]?.count || 0) / totalBudgetRequests[0].count * 100).toFixed(1)
+        : "0.0"
+    },
+    projects: {
+      total: totalProjects[0]?.count || 0,
+      active: activeProjects[0]?.count || 0,
+      completed: completedProjects[0]?.count || 0
+    },
+    draws: {
+      total: totalDraws[0]?.count || 0,
+      active: activeDraws[0]?.count || 0
+    },
+    tickets: {
+      total: totalTickets[0]?.count || 0,
+      revenue: totalTicketRevenue[0]?.sum || 0
+    },
+    utef: {
+      totalBalance: totalUtefBalance[0]?.sum || 0,
+      totalTransactions: totalUtefTransactions[0]?.count || 0
+    },
+    users: {
+      total: totalUsers[0]?.count || 0
+    }
+  };
+}
+
+export async function getBudgetRequestsByStatus() {
+  const db = await getDb();
+  if (!db) return [];
+
+  const statusCounts = await db
+    .select({
+      status: projectBudgetRequests.status,
+      count: sql<number>`count(*)`
+    })
+    .from(projectBudgetRequests)
+    .groupBy(projectBudgetRequests.status);
+
+  return statusCounts;
+}
+
+export async function getProjectsByStatus() {
+  const db = await getDb();
+  if (!db) return [];
+
+  const statusCounts = await db
+    .select({
+      status: constructionProjects.status,
+      count: sql<number>`count(*)`
+    })
+    .from(constructionProjects)
+    .groupBy(constructionProjects.status);
+
+  return statusCounts;
+}
+
+export async function getRecentBudgetRequests(limit: number = 5) {
+  const db = await getDb();
+  if (!db) return [];
+
+  return db
+    .select()
+    .from(projectBudgetRequests)
+    .orderBy(desc(projectBudgetRequests.createdAt))
+    .limit(limit);
 }

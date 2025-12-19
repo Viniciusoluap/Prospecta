@@ -737,6 +737,46 @@ export const appRouter = router({
         return { success: true };
       }),
   }),
+
+  // Analytics Router
+  analytics: router({
+    // Obter estatísticas gerais (apenas admin)
+    getStats: protectedProcedure
+      .query(async ({ ctx }) => {
+        if (ctx.user.role !== "admin") {
+          throw new TRPCError({ code: "FORBIDDEN", message: "Acesso negado" });
+        }
+        return db.getAnalyticsStats();
+      }),
+
+    // Obter orçamentos por status (apenas admin)
+    getBudgetRequestsByStatus: protectedProcedure
+      .query(async ({ ctx }) => {
+        if (ctx.user.role !== "admin") {
+          throw new TRPCError({ code: "FORBIDDEN", message: "Acesso negado" });
+        }
+        return db.getBudgetRequestsByStatus();
+      }),
+
+    // Obter obras por status (apenas admin)
+    getProjectsByStatus: protectedProcedure
+      .query(async ({ ctx }) => {
+        if (ctx.user.role !== "admin") {
+          throw new TRPCError({ code: "FORBIDDEN", message: "Acesso negado" });
+        }
+        return db.getProjectsByStatus();
+      }),
+
+    // Obter orçamentos recentes (apenas admin)
+    getRecentBudgetRequests: protectedProcedure
+      .input(z.object({ limit: z.number().optional() }))
+      .query(async ({ input, ctx }) => {
+        if (ctx.user.role !== "admin") {
+          throw new TRPCError({ code: "FORBIDDEN", message: "Acesso negado" });
+        }
+        return db.getRecentBudgetRequests(input.limit);
+      }),
+  }),
 });
 
 export type AppRouter = typeof appRouter;

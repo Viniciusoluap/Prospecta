@@ -146,6 +146,36 @@ export default function Admin() {
             </div>
           </div>
 
+          {/* Links Rápidos */}
+          <Card>
+            <CardHeader>
+              <CardTitle>Links Rápidos</CardTitle>
+              <CardDescription>Acesso rápido às principais funcionalidades administrativas</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <Link href="/admin/dashboard">
+                  <Button variant="outline" className="w-full h-20 flex flex-col gap-2">
+                    <Settings className="h-5 w-5" />
+                    <span>Dashboard Analytics</span>
+                  </Button>
+                </Link>
+                <Link href="/admin/obras">
+                  <Button variant="outline" className="w-full h-20 flex flex-col gap-2">
+                    <Settings className="h-5 w-5" />
+                    <span>Gerenciar Obras</span>
+                  </Button>
+                </Link>
+                <Link href="/admin/orcamentos">
+                  <Button variant="outline" className="w-full h-20 flex flex-col gap-2">
+                    <Settings className="h-5 w-5" />
+                    <span>Gerenciar Orçamentos</span>
+                  </Button>
+                </Link>
+              </div>
+            </CardContent>
+          </Card>
+
           <Tabs defaultValue="draws" className="w-full">
             <TabsList className="grid w-full grid-cols-2">
               <TabsTrigger value="draws">Sorteios</TabsTrigger>
