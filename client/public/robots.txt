@@ -1,0 +1,12 @@
+# robots.txt for Efficaz Orbit (Prospecta Empreendimentos)
+
+User-agent: *
+Allow: /
+Disallow: /admin/
+Disallow: /api/
+
+# Sitemap
+Sitemap: https://efficazorbit.com/sitemap.xml
+
+# Crawl-delay for respectful crawling
+Crawl-delay: 1

@@ -4,6 +4,7 @@ import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle }
 import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
 import Navbar from "@/components/Navbar";
+import SEO from "@/components/SEO";
 import { trpc } from "@/lib/trpc";
 import { formatCurrency, formatUtef, formatDate } from "@/const";
 import { Ticket, Trophy, Calendar, Target, Loader2 } from "lucide-react";
@@ -14,6 +15,11 @@ export default function Sorteios() {
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-[#1A2332] via-[#2C3E50] to-[#1A2332]">
+      <SEO 
+        title="Sorteios"
+        description="Participe dos sorteios do Ecossistema Efficaz e concorra a prêmios em UTEFs. Sorteios baseados na Loteria Federal com total transparência. Compre seus bilhetes agora!"
+        keywords="sorteios, loteria, UTEFs, prêmios, bilhetes, Loteria Federal, Ecossistema Efficaz"
+      />
       <Navbar />
       
       <main className="flex-1 py-12">

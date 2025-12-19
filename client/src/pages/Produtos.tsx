@@ -5,6 +5,7 @@ import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle }
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
 import Navbar from "@/components/Navbar";
+import SEO from "@/components/SEO";
 import { trpc } from "@/lib/trpc";
 import { formatUtef, PRODUCT_CATEGORIES } from "@/const";
 import { Building2, DollarSign, Anchor, ShoppingBag } from "lucide-react";
@@ -14,6 +15,14 @@ export default function Produtos() {
   const [category, setCategory] = useState<"real_estate" | "financial" | "nautical" | undefined>(undefined);
   
   const { data: products, isLoading } = trpc.products.list.useQuery({ category });
+
+  const seoContent = (
+    <SEO 
+      title="Produtos"
+      description="Converta seus UTEFs em produtos exclusivos: imóveis, serviços financeiros e embarcações. Descubra oportunidades únicas no Ecossistema Efficaz."
+      keywords="produtos, imóveis, serviços financeiros, embarcações, UTEFs, conversão, Ecossistema Efficaz"
+    />
+  );
 
   const getCategoryIcon = (cat: string) => {
     switch (cat) {
@@ -30,6 +39,7 @@ export default function Produtos() {
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-[#1A2332] via-[#2C3E50] to-[#1A2332]">
+      {seoContent}
       <Navbar />
       
       <main className="flex-1 py-12">
