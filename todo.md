@@ -766,3 +766,48 @@ Todas as 7 páginas do ecossistema foram redesenhadas com a paleta Prospecta:
 - LocalBusiness schema: geolocalização, horário de funcionamento, faixa de preço
 
 **Resultado:** Plataforma otimizada para motores de busca com meta tags personalizadas, sitemap estruturado, controle de crawlers e rich snippets para melhor posicionamento no Google e aparência profissional ao compartilhar em redes sociais.
+
+
+## 🔔 SISTEMA DE NOTIFICAÇÕES IN-APP
+
+### Backend
+- [x] Criar tabela user_notifications no banco
+- [x] Criar funções CRUD para notificações
+- [x] Criar rotas tRPC (getAll, getUnread, markAsRead, markAllAsRead)
+- [x] Integrar criação de notificação ao converter produto (UTEF)
+- [ ] Integrar criação de notificação ao realizar sorteio (futuro)
+- [ ] Integrar criação de notificação ao atualizar status de obra (futuro)
+
+### Frontend
+- [x] Adicionar badge de contador no header/navbar
+- [x] Criar dropdown de notificações recentes
+- [x] Criar página de histórico completo (/notificacoes)
+- [x] Implementar marcação de leitura ao clicar
+- [x] Adicionar botão "Marcar todas como lidas"
+
+
+## ✅ Sistema de Notificações In-App Completo
+
+**Backend Implementado:**
+- Tabela user_notifications no banco (10 campos: id, userId, title, message, type, isRead, relatedId, actionUrl, createdAt, readAt)
+- 6 funções CRUD: createNotification, getUserNotifications, getUnreadNotifications, getUnreadNotificationCount, markNotificationAsRead, markAllNotificationsAsRead
+- 5 rotas tRPC: getAll, getUnread, getUnreadCount, markAsRead, markAllAsRead
+- Integração automática: notificação criada ao converter produto em UTEF
+
+**Frontend Implementado:**
+- Badge de contador no header (ícone de sino com badge vermelho mostrando quantidade de não lidas)
+- Dropdown de notificações recentes (mostra últimas 5 não lidas com scroll)
+- Página de histórico completo em /notificacoes (todas as notificações com filtro lidas/não lidas)
+- Marcação automática como lida ao clicar em notificação
+- Botão "Marcar todas como lidas" no dropdown e na página de histórico
+- Atualização automática a cada 30 segundos (refetchInterval)
+- Design integrado com paleta Prospecta (dourado, azul, verde neon)
+
+**Tipos de Notificação Suportados:**
+- draw_result: Resultado de sorteio 🎉
+- utef_update: Atualização de saldo UTEF 💰
+- construction_update: Atualização de obra 🏗️
+- promotional: Notificação promocional 🎁
+- system: Notificação do sistema 📢
+
+**Resultado:** Sistema completo de engajamento de usuários com notificações em tempo real, badge visual no header, dropdown interativo e página dedicada de histórico. Usuários recebem feedback instantâneo sobre ações importantes na plataforma (conversões, sorteios, obras), aumentando retenção e satisfação.

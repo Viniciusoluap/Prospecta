@@ -612,3 +612,99 @@ export async function getEmailLogById(id: number): Promise<EmailLog | undefined>
   const result = await db.select().from(emailLogs).where(eq(emailLogs.id, id)).limit(1);
   return result[0];
 }
+
+
+// ========== USER NOTIFICATIONS ==========
+
+import { userNotifications, UserNotification, InsertUserNotification } from "../drizzle/schema";
+
+export async function createNotification(notification: InsertUserNotification): Promise<UserNotification> {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  
+  const result = await db.insert(userNotifications).values(notification);
+  const insertedId = result[0].insertId;
+  
+  const inserted = await db
+    .select()
+    .from(userNotifications)
+    .where(eq(userNotifications.id, insertedId))
+    .limit(1);
+  
+  return inserted[0];
+}
+
+export async function getUserNotifications(userId: number): Promise<UserNotification[]> {
+  const db = await getDb();
+  if (!db) return [];
+  
+  return db
+    .select()
+    .from(userNotifications)
+    .where(eq(userNotifications.userId, userId))
+    .orderBy(desc(userNotifications.createdAt));
+}
+
+export async function getUnreadNotifications(userId: number): Promise<UserNotification[]> {
+  const db = await getDb();
+  if (!db) return [];
+  
+  return db
+    .select()
+    .from(userNotifications)
+    .where(
+      and(
+        eq(userNotifications.userId, userId),
+        eq(userNotifications.isRead, 0)
+      )
+    )
+    .orderBy(desc(userNotifications.createdAt));
+}
+
+export async function getUnreadNotificationCount(userId: number): Promise<number> {
+  const db = await getDb();
+  if (!db) return 0;
+  
+  const result = await db
+    .select({ count: sql<number>`count(*)` })
+    .from(userNotifications)
+    .where(
+      and(
+        eq(userNotifications.userId, userId),
+        eq(userNotifications.isRead, 0)
+      )
+    );
+  
+  return result[0]?.count || 0;
+}
+
+export async function markNotificationAsRead(notificationId: number): Promise<void> {
+  const db = await getDb();
+  if (!db) return;
+  
+  await db
+    .update(userNotifications)
+    .set({ 
+      isRead: 1,
+      readAt: new Date()
+    })
+    .where(eq(userNotifications.id, notificationId));
+}
+
+export async function markAllNotificationsAsRead(userId: number): Promise<void> {
+  const db = await getDb();
+  if (!db) return;
+  
+  await db
+    .update(userNotifications)
+    .set({ 
+      isRead: 1,
+      readAt: new Date()
+    })
+    .where(
+      and(
+        eq(userNotifications.userId, userId),
+        eq(userNotifications.isRead, 0)
+      )
+    );
+}

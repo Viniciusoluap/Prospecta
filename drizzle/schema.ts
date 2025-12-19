@@ -264,3 +264,29 @@ export const emailLogs = mysqlTable("email_logs", {
 
 export type EmailLog = typeof emailLogs.$inferSelect;
 export type InsertEmailLog = typeof emailLogs.$inferInsert;
+
+
+/**
+ * Notificações in-app para usuários
+ */
+export const userNotifications = mysqlTable("user_notifications", {
+  id: int("id").autoincrement().primaryKey(),
+  userId: int("user_id").notNull(), // ID do usuário destinatário
+  title: varchar("title", { length: 255 }).notNull(), // Título da notificação
+  message: text("message").notNull(), // Mensagem da notificação
+  type: mysqlEnum("type", [
+    "draw_result", // Resultado de sorteio
+    "utef_update", // Atualização de saldo UTEF
+    "construction_update", // Atualização de obra
+    "system", // Notificação do sistema
+    "promotional" // Notificação promocional
+  ]).notNull(),
+  isRead: int("is_read").default(0).notNull(), // 0 = não lida, 1 = lida
+  relatedId: int("related_id"), // ID relacionado (sorteio, obra, etc.)
+  actionUrl: varchar("action_url", { length: 500 }), // URL para ação (opcional)
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  readAt: timestamp("read_at"), // Data/hora de leitura
+});
+
+export type UserNotification = typeof userNotifications.$inferSelect;
+export type InsertUserNotification = typeof userNotifications.$inferInsert;

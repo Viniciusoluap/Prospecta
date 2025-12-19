@@ -10,8 +10,17 @@ import {
   SheetTrigger,
 } from "@/components/ui/sheet";
 import { trpc } from "@/lib/trpc";
-import { User, LogOut, Ticket, Coins, ShoppingBag, Settings, Plus, Phone, MessageCircle, HardHat, Menu, Home as HomeIcon, FileText, DollarSign, Gift, Building2 } from "lucide-react";
+import { User, LogOut, Ticket, Coins, ShoppingBag, Settings, Plus, Phone, MessageCircle, HardHat, Menu, Home as HomeIcon, FileText, DollarSign, Gift, Building2, Bell } from "lucide-react";
 import { useState } from "react";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
 
 export default function Navbar() {
@@ -199,14 +208,120 @@ export default function Navbar() {
           <span className="hidden sm:inline">{APP_TITLE}</span>
         </Link>
 
-        {/* Fale Conosco (Direita) */}
-        <Button variant="outline" size="sm" asChild className="border-primary text-primary hover:bg-primary hover:text-white">
-          <a href="https://wa.me/5599981392210" target="_blank" rel="noopener noreferrer" className="flex items-center gap-2">
-            <MessageCircle className="h-4 w-4" />
-            <span className="hidden sm:inline">Fale Conosco</span>
-          </a>
-        </Button>
+        {/* Notificações + Fale Conosco (Direita) */}
+        <div className="flex items-center gap-3">
+          {/* Badge de Notificações (apenas para usuários logados) */}
+          {isAuthenticated && <NotificationBell />}
+          
+          <Button variant="outline" size="sm" asChild className="border-primary text-primary hover:bg-primary hover:text-white">
+            <a href="https://wa.me/5599981392210" target="_blank" rel="noopener noreferrer" className="flex items-center gap-2">
+              <MessageCircle className="h-4 w-4" />
+              <span className="hidden sm:inline">Fale Conosco</span>
+            </a>
+          </Button>
+        </div>
       </div>
     </nav>
+  );
+}
+
+// Componente de Badge de Notificações
+function NotificationBell() {
+  const { data: unreadCount = 0 } = trpc.notifications.getUnreadCount.useQuery(undefined, {
+    refetchInterval: 30000, // Atualizar a cada 30 segundos
+  });
+  
+  const { data: unreadNotifications = [] } = trpc.notifications.getUnread.useQuery(undefined, {
+    refetchInterval: 30000,
+  });
+  
+  const markAsReadMutation = trpc.notifications.markAsRead.useMutation({
+    onSuccess: () => {
+      // Invalidar queries para atualizar contador
+      window.location.reload();
+    },
+  });
+  
+  const markAllAsReadMutation = trpc.notifications.markAllAsRead.useMutation({
+    onSuccess: () => {
+      window.location.reload();
+    },
+  });
+
+  const handleNotificationClick = (id: number, actionUrl?: string | null) => {
+    markAsReadMutation.mutate({ id });
+    if (actionUrl) {
+      window.location.href = actionUrl;
+    }
+  };
+
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <Button variant="ghost" size="icon" className="relative">
+          <Bell className="h-5 w-5" />
+          {unreadCount > 0 && (
+            <Badge 
+              variant="destructive" 
+              className="absolute -top-1 -right-1 h-5 w-5 flex items-center justify-center p-0 text-xs"
+            >
+              {unreadCount > 9 ? '9+' : unreadCount}
+            </Badge>
+          )}
+        </Button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end" className="w-80">
+        <DropdownMenuLabel className="flex items-center justify-between">
+          <span>Notificações</span>
+          {unreadCount > 0 && (
+            <Button 
+              variant="ghost" 
+              size="sm" 
+              className="h-auto p-1 text-xs"
+              onClick={() => markAllAsReadMutation.mutate()}
+            >
+              Marcar todas como lidas
+            </Button>
+          )}
+        </DropdownMenuLabel>
+        <DropdownMenuSeparator />
+        <ScrollArea className="h-[300px]">
+          {unreadNotifications.length === 0 ? (
+            <div className="p-4 text-center text-sm text-muted-foreground">
+              Nenhuma notificação nova
+            </div>
+          ) : (
+            unreadNotifications.slice(0, 5).map((notification) => (
+              <DropdownMenuItem
+                key={notification.id}
+                className="flex flex-col items-start p-3 cursor-pointer"
+                onClick={() => handleNotificationClick(notification.id, notification.actionUrl)}
+              >
+                <div className="font-medium text-sm">{notification.title}</div>
+                <div className="text-xs text-muted-foreground mt-1">{notification.message}</div>
+                <div className="text-xs text-muted-foreground mt-1">
+                  {new Date(notification.createdAt).toLocaleDateString('pt-BR', {
+                    day: '2-digit',
+                    month: '2-digit',
+                    hour: '2-digit',
+                    minute: '2-digit',
+                  })}
+                </div>
+              </DropdownMenuItem>
+            ))
+          )}
+        </ScrollArea>
+        {unreadNotifications.length > 0 && (
+          <>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem asChild>
+              <Link href="/notificacoes" className="w-full text-center text-sm text-primary">
+                Ver todas as notificações
+              </Link>
+            </DropdownMenuItem>
+          </>
+        )}
+      </DropdownMenuContent>
+    </DropdownMenu>
   );
 }

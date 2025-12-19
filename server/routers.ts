@@ -432,6 +432,16 @@ export const appRouter = router({
           status: "pending",
         });
 
+        // Criar notificação
+        await db.createNotification({
+          userId: ctx.user.id,
+          title: "Conversão Realizada",
+          message: `Você converteu ${product.priceUtef} UTEFs em: ${product.title}`,
+          type: "utef_update",
+          relatedId: conversion.id,
+          actionUrl: "/minhas-conversoes",
+        });
+
         return { success: true, conversion };
       }),
 
@@ -850,6 +860,46 @@ export const appRouter = router({
         }
         return email;
       }),
+  }),
+
+  // Notificações In-App
+  notifications: router({
+    // Listar todas as notificações do usuário
+    getAll: protectedProcedure.query(async ({ ctx }) => {
+      return db.getUserNotifications(ctx.user.id);
+    }),
+
+    // Listar notificações não lidas
+    getUnread: protectedProcedure.query(async ({ ctx }) => {
+      return db.getUnreadNotifications(ctx.user.id);
+    }),
+
+    // Contar notificações não lidas
+    getUnreadCount: protectedProcedure.query(async ({ ctx }) => {
+      return db.getUnreadNotificationCount(ctx.user.id);
+    }),
+
+    // Marcar notificação como lida
+    markAsRead: protectedProcedure
+      .input(z.object({ id: z.number() }))
+      .mutation(async ({ input, ctx }) => {
+        // Verificar se a notificação pertence ao usuário
+        const notifications = await db.getUserNotifications(ctx.user.id);
+        const notification = notifications.find(n => n.id === input.id);
+        
+        if (!notification) {
+          throw new TRPCError({ code: "NOT_FOUND", message: "Notificação não encontrada" });
+        }
+        
+        await db.markNotificationAsRead(input.id);
+        return { success: true };
+      }),
+
+    // Marcar todas as notificações como lidas
+    markAllAsRead: protectedProcedure.mutation(async ({ ctx }) => {
+      await db.markAllNotificationsAsRead(ctx.user.id);
+      return { success: true };
+    }),
   }),
 });
 

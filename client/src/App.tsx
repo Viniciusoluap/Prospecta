@@ -28,6 +28,7 @@ import PoliticaDePrivacidade from "./pages/PoliticaDePrivacidade";
 import FAQ from "./pages/FAQ";
 import AdminDashboard from "./pages/AdminDashboard";
 import AdminEmails from "./pages/AdminEmails";
+import Notificacoes from "./pages/Notificacoes";
 
 function Router() {
   // make sure to consider if you need authentication for certain routes
@@ -53,6 +54,7 @@ function Router() {
       <Route path="/admin/orcamentos" component={AdminOrcamentos} />
       <Route path="/admin/dashboard" component={AdminDashboard} />
       <Route path="/admin/emails" component={AdminEmails} />
+      <Route path="/notificacoes" component={Notificacoes} />
       <Route path="/regulamento" component={Regulamento} />
       <Route path="/termos-de-uso" component={TermosDeUso} />
       <Route path="/politica-de-privacidade" component={PoliticaDePrivacidade} />
