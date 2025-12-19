@@ -153,7 +153,7 @@ export default function Admin() {
               <CardDescription>Acesso rápido às principais funcionalidades administrativas</CardDescription>
             </CardHeader>
             <CardContent>
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
                 <Link href="/admin/dashboard">
                   <Button variant="outline" className="w-full h-20 flex flex-col gap-2">
                     <Settings className="h-5 w-5" />
@@ -170,6 +170,12 @@ export default function Admin() {
                   <Button variant="outline" className="w-full h-20 flex flex-col gap-2">
                     <Settings className="h-5 w-5" />
                     <span>Gerenciar Orçamentos</span>
+                  </Button>
+                </Link>
+                <Link href="/admin/emails">
+                  <Button variant="outline" className="w-full h-20 flex flex-col gap-2">
+                    <Settings className="h-5 w-5" />
+                    <span>Gerenciar Emails</span>
                   </Button>
                 </Link>
               </div>

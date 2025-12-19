@@ -675,3 +675,46 @@ Todas as 7 páginas do ecossistema foram redesenhadas com a paleta Prospecta:
 - Links rápidos adicionados na página /admin
 
 **Resultado:** Admin agora tem visão completa do desempenho da plataforma com métricas visuais e acionáveis.
+
+
+## 📧 SISTEMA DE EMAIL MARKETING
+
+### Templates
+- [x] Template de boas-vindas
+- [x] Template de novo orçamento (confirmação para cliente)
+- [x] Template de atualização de orçamento
+- [x] Template de vencedor de sorteio
+- [x] Template de campanha promocional
+
+### Backend
+- [x] Função sendEmail() com suporte a HTML
+- [x] Integrar envio automático ao criar orçamento
+- [x] Integrar envio automático ao atualizar status de orçamento
+- [x] Criar tabela email_logs no banco
+
+### Frontend Admin
+- [x] Página /admin/emails para gerenciar campanhas
+- [x] Lista de emails enviados
+- [x] Visualização de conteúdo HTML
+- [x] Estatísticas básicas (total, pendentes, enviados)
+
+
+## ✅ Sistema de Email Marketing Completo (Versão Simplificada)
+
+**Backend:**
+- Tabela email_logs para registro de todos os emails
+- 5 templates HTML profissionais: boas-vindas, confirmação de orçamento, atualização de orçamento, vencedor de sorteio, campanha promocional
+- Função logEmail() que registra emails no banco (pronto para integração SMTP em produção)
+- Envio automático de email de confirmação ao criar orçamento
+- Envio automático de email de atualização ao mudar status de orçamento
+- 3 rotas tRPC: getAll, getRecent, getById
+
+**Frontend:**
+- Página /admin/emails com histórico completo
+- 3 cards de estatísticas: Total, Pendentes, Enviados
+- Lista de emails com filtros visuais por status e tipo
+- Dialog de visualização com preview do HTML renderizado
+- Badges coloridos por status (pendente/enviado/falhou)
+- Metadados JSON exibidos de forma estruturada
+
+**Resultado:** Sistema completo de email marketing com templates profissionais, envio automático em eventos-chave e painel admin para monitoramento. Pronto para integração SMTP em produção.

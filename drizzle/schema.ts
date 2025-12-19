@@ -237,3 +237,30 @@ export const projectBudgetRequests = mysqlTable("project_budget_requests", {
 
 export type ProjectBudgetRequest = typeof projectBudgetRequests.$inferSelect;
 export type InsertProjectBudgetRequest = typeof projectBudgetRequests.$inferInsert;
+
+
+/**
+ * Log de emails enviados (ou agendados para envio)
+ */
+export const emailLogs = mysqlTable("email_logs", {
+  id: int("id").autoincrement().primaryKey(),
+  recipientEmail: varchar("recipient_email", { length: 320 }).notNull(),
+  recipientName: varchar("recipient_name", { length: 255 }),
+  subject: varchar("subject", { length: 500 }).notNull(),
+  templateType: mysqlEnum("template_type", [
+    "welcome",
+    "budget_confirmation",
+    "budget_update",
+    "draw_winner",
+    "promotional_campaign"
+  ]).notNull(),
+  htmlContent: text("html_content").notNull(),
+  status: mysqlEnum("status", ["pending", "sent", "failed"]).default("pending").notNull(),
+  sentAt: timestamp("sent_at"),
+  errorMessage: text("error_message"),
+  metadata: text("metadata"), // JSON com dados adicionais (ID do orçamento, sorteio, etc.)
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export type EmailLog = typeof emailLogs.$inferSelect;
+export type InsertEmailLog = typeof emailLogs.$inferInsert;

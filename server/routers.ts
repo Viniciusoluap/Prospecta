@@ -685,6 +685,16 @@ export const appRouter = router({
           content: `Nome: ${input.name}\nEmail: ${input.email}\nTelefone: ${input.phone || 'Não informado'}\nCidade: ${input.city || 'Não informada'}\nTipo: ${input.projectType || 'Não especificado'}\nPossui lote: ${input.hasLot === 'yes' ? 'Sim' : input.hasLot === 'no' ? 'Não' : 'Não tem certeza'}\n\nMensagem: ${input.message || 'Nenhuma mensagem adicional'}`
         });
         
+        // Enviar email de confirmação para o cliente
+        const { sendBudgetConfirmationEmail } = await import("./_core/email");
+        await sendBudgetConfirmationEmail({
+          name: input.name,
+          email: input.email,
+          projectType: input.projectType || "Projeto personalizado",
+          city: input.city || "Não informada",
+          budgetId: request.id
+        });
+        
         return request;
       }),
 
@@ -722,7 +732,35 @@ export const appRouter = router({
           throw new TRPCError({ code: "FORBIDDEN", message: "Acesso negado" });
         }
         const { id, ...updates } = input;
+        
+        // Buscar dados do orçamento antes de atualizar
+        const request = await db.getBudgetRequestById(id);
+        if (!request) {
+          throw new TRPCError({ code: "NOT_FOUND", message: "Orçamento não encontrado" });
+        }
+        
         await db.updateBudgetRequest(id, updates);
+        
+        // Enviar email de atualização se o status mudou
+        if (input.status && input.status !== request.status) {
+          const { sendBudgetUpdateEmail } = await import("./_core/email");
+          const statusLabels: Record<string, string> = {
+            pending: "Pendente",
+            contacted: "Contatado",
+            in_negotiation: "Em Negociação",
+            converted: "Convertido",
+            cancelled: "Cancelado"
+          };
+          
+          await sendBudgetUpdateEmail({
+            name: request.name,
+            email: request.email,
+            status: statusLabels[input.status] || input.status,
+            notes: input.adminNotes,
+            budgetId: id
+          });
+        }
+        
         return { success: true };
       }),
 
@@ -775,6 +813,42 @@ export const appRouter = router({
           throw new TRPCError({ code: "FORBIDDEN", message: "Acesso negado" });
         }
         return db.getRecentBudgetRequests(input.limit);
+      }),
+  }),
+
+  // Email Logs Router
+  emails: router({
+    // Listar todos os emails (apenas admin)
+    getAll: protectedProcedure
+      .query(async ({ ctx }) => {
+        if (ctx.user.role !== "admin") {
+          throw new TRPCError({ code: "FORBIDDEN", message: "Acesso negado" });
+        }
+        return db.getAllEmailLogs();
+      }),
+
+    // Listar emails recentes (apenas admin)
+    getRecent: protectedProcedure
+      .input(z.object({ limit: z.number().optional() }))
+      .query(async ({ input, ctx }) => {
+        if (ctx.user.role !== "admin") {
+          throw new TRPCError({ code: "FORBIDDEN", message: "Acesso negado" });
+        }
+        return db.getRecentEmailLogs(input.limit);
+      }),
+
+    // Obter email por ID (apenas admin)
+    getById: protectedProcedure
+      .input(z.object({ id: z.number() }))
+      .query(async ({ input, ctx }) => {
+        if (ctx.user.role !== "admin") {
+          throw new TRPCError({ code: "FORBIDDEN", message: "Acesso negado" });
+        }
+        const email = await db.getEmailLogById(input.id);
+        if (!email) {
+          throw new TRPCError({ code: "NOT_FOUND", message: "Email não encontrado" });
+        }
+        return email;
       }),
   }),
 });

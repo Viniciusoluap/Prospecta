@@ -588,3 +588,27 @@ export async function getRecentBudgetRequests(limit: number = 5) {
     .orderBy(desc(projectBudgetRequests.createdAt))
     .limit(limit);
 }
+
+
+// ========== EMAIL LOGS ==========
+
+import { emailLogs, EmailLog } from "../drizzle/schema";
+
+export async function getAllEmailLogs(): Promise<EmailLog[]> {
+  const db = await getDb();
+  if (!db) return [];
+  return db.select().from(emailLogs).orderBy(desc(emailLogs.createdAt));
+}
+
+export async function getRecentEmailLogs(limit: number = 20): Promise<EmailLog[]> {
+  const db = await getDb();
+  if (!db) return [];
+  return db.select().from(emailLogs).orderBy(desc(emailLogs.createdAt)).limit(limit);
+}
+
+export async function getEmailLogById(id: number): Promise<EmailLog | undefined> {
+  const db = await getDb();
+  if (!db) return undefined;
+  const result = await db.select().from(emailLogs).where(eq(emailLogs.id, id)).limit(1);
+  return result[0];
+}
