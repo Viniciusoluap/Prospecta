@@ -372,6 +372,108 @@ export default function Home() {
           </div>
         </section>
 
+        {/* Seção Redes Sociais - Portfólio Digital */}
+        <section className="py-16 bg-gradient-to-br from-background via-primary/5 to-background">
+          <div className="container">
+            <div className="text-center mb-10">
+              <h2 className="text-3xl md:text-4xl font-bold mb-3 text-secondary">
+                Veja Com Seus Próprios Olhos
+              </h2>
+              <p className="text-lg text-muted-foreground max-w-2xl mx-auto">
+                Mais de <span className="text-primary font-bold">100 casas entregues</span> documentadas em vídeo. 
+                Cada projeto conta uma história de transformação.
+              </p>
+            </div>
+            
+            <div className="max-w-5xl mx-auto">
+              {/* Texto PNL */}
+              <div className="text-center mb-8 px-4">
+                <p className="text-muted-foreground leading-relaxed">
+                  <span className="text-secondary font-semibold">Imagine</span> poder acompanhar cada etapa da construção, 
+                  ver os detalhes do acabamento e ouvir diretamente de quem já realizou o sonho da casa própria. 
+                  <span className="text-primary font-semibold">Agora você pode.</span>
+                </p>
+                <p className="text-muted-foreground mt-3">
+                  Nossos canais mostram <span className="font-semibold">tudo</span>: obras em andamento, casas finalizadas, 
+                  depoimentos reais e dicas exclusivas sobre financiamento. 
+                  <span className="text-secondary font-semibold">A transparência que você merece.</span>
+                </p>
+              </div>
+
+              {/* Cards das Redes Sociais */}
+              <div className="grid md:grid-cols-2 gap-6">
+                {/* YouTube */}
+                <a 
+                  href="https://youtube.com/@vinigfreitas" 
+                  target="_blank" 
+                  rel="noopener noreferrer"
+                  className="group block"
+                >
+                  <div className="bg-white rounded-xl border-2 border-red-500/30 hover:border-red-500 transition-all p-6 hover:shadow-lg hover:shadow-red-500/10">
+                    <div className="flex items-center gap-4 mb-4">
+                      <div className="w-14 h-14 bg-red-500 rounded-full flex items-center justify-center group-hover:scale-110 transition-transform">
+                        <svg className="w-7 h-7 text-white" fill="currentColor" viewBox="0 0 24 24">
+                          <path d="M23.498 6.186a3.016 3.016 0 0 0-2.122-2.136C19.505 3.545 12 3.545 12 3.545s-7.505 0-9.377.505A3.017 3.017 0 0 0 .502 6.186C0 8.07 0 12 0 12s0 3.93.502 5.814a3.016 3.016 0 0 0 2.122 2.136c1.871.505 9.376.505 9.376.505s7.505 0 9.377-.505a3.015 3.015 0 0 0 2.122-2.136C24 15.93 24 12 24 12s0-3.93-.502-5.814zM9.545 15.568V8.432L15.818 12l-6.273 3.568z"/>
+                        </svg>
+                      </div>
+                      <div>
+                        <h3 className="text-xl font-bold text-secondary group-hover:text-red-500 transition-colors">YouTube</h3>
+                        <p className="text-sm text-muted-foreground">@vinigfreitas</p>
+                      </div>
+                    </div>
+                    <p className="text-muted-foreground text-sm mb-4">
+                      <span className="font-semibold text-secondary">Vídeos completos</span> de todas as obras, 
+                      tours pelas casas finalizadas e conteúdo exclusivo sobre investimentos imobiliários.
+                    </p>
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs text-muted-foreground">Clique para conhecer o canal</span>
+                      <ChevronRight className="h-5 w-5 text-red-500 group-hover:translate-x-1 transition-transform" />
+                    </div>
+                  </div>
+                </a>
+
+                {/* Instagram */}
+                <a 
+                  href="https://www.instagram.com/imoveiscomvinifreitas" 
+                  target="_blank" 
+                  rel="noopener noreferrer"
+                  className="group block"
+                >
+                  <div className="bg-white rounded-xl border-2 border-pink-500/30 hover:border-pink-500 transition-all p-6 hover:shadow-lg hover:shadow-pink-500/10">
+                    <div className="flex items-center gap-4 mb-4">
+                      <div className="w-14 h-14 bg-gradient-to-br from-purple-500 via-pink-500 to-orange-400 rounded-full flex items-center justify-center group-hover:scale-110 transition-transform">
+                        <svg className="w-7 h-7 text-white" fill="currentColor" viewBox="0 0 24 24">
+                          <path d="M12 2.163c3.204 0 3.584.012 4.85.07 3.252.148 4.771 1.691 4.919 4.919.058 1.265.069 1.645.069 4.849 0 3.205-.012 3.584-.069 4.849-.149 3.225-1.664 4.771-4.919 4.919-1.266.058-1.644.07-4.85.07-3.204 0-3.584-.012-4.849-.07-3.26-.149-4.771-1.699-4.919-4.92-.058-1.265-.07-1.644-.07-4.849 0-3.204.013-3.583.07-4.849.149-3.227 1.664-4.771 4.919-4.919 1.266-.057 1.645-.069 4.849-.069zm0-2.163c-3.259 0-3.667.014-4.947.072-4.358.2-6.78 2.618-6.98 6.98-.059 1.281-.073 1.689-.073 4.948 0 3.259.014 3.668.072 4.948.2 4.358 2.618 6.78 6.98 6.98 1.281.058 1.689.072 4.948.072 3.259 0 3.668-.014 4.948-.072 4.354-.2 6.782-2.618 6.979-6.98.059-1.28.073-1.689.073-4.948 0-3.259-.014-3.667-.072-4.947-.196-4.354-2.617-6.78-6.979-6.98-1.281-.059-1.69-.073-4.949-.073zm0 5.838c-3.403 0-6.162 2.759-6.162 6.162s2.759 6.163 6.162 6.163 6.162-2.759 6.162-6.163c0-3.403-2.759-6.162-6.162-6.162zm0 10.162c-2.209 0-4-1.79-4-4 0-2.209 1.791-4 4-4s4 1.791 4 4c0 2.21-1.791 4-4 4zm6.406-11.845c-.796 0-1.441.645-1.441 1.44s.645 1.44 1.441 1.44c.795 0 1.439-.645 1.439-1.44s-.644-1.44-1.439-1.44z"/>
+                        </svg>
+                      </div>
+                      <div>
+                        <h3 className="text-xl font-bold text-secondary group-hover:text-pink-500 transition-colors">Instagram</h3>
+                        <p className="text-sm text-muted-foreground">@imoveiscomvinifreitas</p>
+                      </div>
+                    </div>
+                    <p className="text-muted-foreground text-sm mb-4">
+                      <span className="font-semibold text-secondary">Bastidores das obras</span>, 
+                      stories diários, reels com dicas rápidas e interação direta com nossa equipe.
+                    </p>
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs text-muted-foreground">Clique para seguir</span>
+                      <ChevronRight className="h-5 w-5 text-pink-500 group-hover:translate-x-1 transition-transform" />
+                    </div>
+                  </div>
+                </a>
+              </div>
+
+              {/* CTA Final */}
+              <div className="text-center mt-8">
+                <p className="text-sm text-muted-foreground">
+                  <span className="text-primary font-semibold">Dica:</span> Siga nossos canais para receber novidades em primeira mão 
+                  e não perder nenhuma oportunidade!
+                </p>
+              </div>
+            </div>
+          </div>
+        </section>
+
         {/* Seção Azul Escuro - Depoimentos */}
         <section className="py-20 bg-secondary text-white">
           <div className="container">
@@ -505,68 +607,7 @@ export default function Home() {
           </div>
         </section>
 
-        {/* Seção Portfólio */}
-        <section className="py-20 bg-background">
-          <div className="container">
-            <div className="text-center mb-12">
-              <h2 className="text-4xl md:text-5xl font-bold mb-4 text-secondary">
-                Conheça nosso portfólio
-              </h2>
-              <p className="text-xl text-muted-foreground max-w-3xl mx-auto">
-                Mais de 100 casas construídas com qualidade e excelência
-              </p>
-            </div>
-            <div className="grid md:grid-cols-2 lg:grid-cols-4 gap-6 max-w-7xl mx-auto">
-              {/* Imagem 1 */}
-              <div className="group relative aspect-square overflow-hidden rounded-lg border-2 border-primary/30 hover:border-primary transition-all">
-                <img 
-                  src="https://images.unsplash.com/photo-1600585154340-be6161a56a0c?w=500&h=500&fit=crop" 
-                  alt="Casa construída pela Prospecta" 
-                  className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-300"
-                />
-                <div className="absolute inset-0 bg-gradient-to-t from-secondary/80 to-transparent opacity-0 group-hover:opacity-100 transition-opacity flex items-end p-4">
-                  <p className="text-white font-semibold">Casa 47m² - Imperatriz</p>
-                </div>
-              </div>
 
-              {/* Imagem 2 */}
-              <div className="group relative aspect-square overflow-hidden rounded-lg border-2 border-primary/30 hover:border-primary transition-all">
-                <img 
-                  src="https://images.unsplash.com/photo-1600596542815-ffad4c1539a9?w=500&h=500&fit=crop" 
-                  alt="Casa construída pela Prospecta" 
-                  className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-300"
-                />
-                <div className="absolute inset-0 bg-gradient-to-t from-secondary/80 to-transparent opacity-0 group-hover:opacity-100 transition-opacity flex items-end p-4">
-                  <p className="text-white font-semibold">Casa 60m² - Canaã dos Carajás</p>
-                </div>
-              </div>
-
-              {/* Imagem 3 */}
-              <div className="group relative aspect-square overflow-hidden rounded-lg border-2 border-primary/30 hover:border-primary transition-all">
-                <img 
-                  src="https://images.unsplash.com/photo-1600607687939-ce8a6c25118c?w=500&h=500&fit=crop" 
-                  alt="Casa construída pela Prospecta" 
-                  className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-300"
-                />
-                <div className="absolute inset-0 bg-gradient-to-t from-secondary/80 to-transparent opacity-0 group-hover:opacity-100 transition-opacity flex items-end p-4">
-                  <p className="text-white font-semibold">Casa 80m² - Canaã dos Carajás</p>
-                </div>
-              </div>
-
-              {/* Imagem 4 */}
-              <div className="group relative aspect-square overflow-hidden rounded-lg border-2 border-primary/30 hover:border-primary transition-all">
-                <img 
-                  src="https://images.unsplash.com/photo-1600566753190-17f0baa2a6c3?w=500&h=500&fit=crop" 
-                  alt="Casa construída pela Prospecta" 
-                  className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-300"
-                />
-                <div className="absolute inset-0 bg-gradient-to-t from-secondary/80 to-transparent opacity-0 group-hover:opacity-100 transition-opacity flex items-end p-4">
-                  <p className="text-white font-semibold">Casa 100m² - Imperatriz</p>
-                </div>
-              </div>
-            </div>
-          </div>
-        </section>
 
         {/* Seção FAQ */}
         <section className="py-20 bg-gradient-to-br from-primary/20 via-primary/10 to-background">

@@ -1051,3 +1051,13 @@ Todas as 7 páginas do ecossistema foram redesenhadas com a paleta Prospecta:
 - [x] Depoimento 3: Atualizar texto para case de sucesso de investidor (ROI 78,5%)
 - [x] Depoimento 3: Adicionar vídeo YouTube https://youtube.com/shorts/5wQWuppuLwM
 - [x] Implementar pré-visualização dos vídeos do YouTube
+
+
+### 45. Seção de Redes Sociais (YouTube e Instagram)
+- [x] Remover fotos antigas do portfólio
+- [x] Criar nova seção com design slim e moderno
+- [x] Adicionar texto educativo com técnicas de PNL
+- [x] Incorporar pré-visualização do canal YouTube (@vinigfreitas)
+- [x] Incorporar pré-visualização do Instagram (@imoveiscomvinifreitas)
+- [x] Adicionar botões de acesso direto às redes sociais
+- [x] Testar responsividade em mobile e desktop
