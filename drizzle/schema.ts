@@ -253,7 +253,8 @@ export const emailLogs = mysqlTable("email_logs", {
     "budget_confirmation",
     "budget_update",
     "draw_winner",
-    "promotional_campaign"
+    "promotional_campaign",
+    "payment_confirmation"
   ]).notNull(),
   htmlContent: text("html_content").notNull(),
   status: mysqlEnum("status", ["pending", "sent", "failed"]).default("pending").notNull(),

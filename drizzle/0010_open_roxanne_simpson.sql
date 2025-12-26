@@ -1,0 +1,1 @@
+ALTER TABLE `email_logs` MODIFY COLUMN `template_type` enum('welcome','budget_confirmation','budget_update','draw_winner','promotional_campaign','payment_confirmation') NOT NULL;

@@ -947,3 +947,27 @@ Todas as 7 páginas do ecossistema foram redesenhadas com a paleta Prospecta:
 - [x] Testar sistema de obras (criar obra, enviar orçamento, aprovar/rejeitar)
 - [x] Testar painel administrativo (gerenciar sorteios, produtos, obras)
 - [ ] Fazer compra real de bilhete com PIX para validar fluxo completo
+
+
+## 📧 INTEGRAÇÃO DE EMAIL PROFISSIONAL
+
+- [x] Configurar credenciais SMTP Titan/Hostgator
+- [x] Criar módulo de envio de emails
+- [x] Implementar templates de email (orçamento, pagamento, obras)
+- [x] Testar envio de email real
+- [x] Integrar emails em notificações de orçamento
+- [x] Integrar emails em confirmações de pagamento
+- [ ] Integrar emails em atualizações de obras
+
+## 👤 PERFIL DO USUÁRIO
+
+- [ ] Criar página de perfil do usuário
+- [ ] Adicionar formulário de edição de CPF
+- [ ] Adicionar campos de telefone e endereço
+- [ ] Validar CPF no frontend e backend
+
+## 💳 TESTE REAL DE PAGAMENTO
+
+- [ ] Fazer compra de teste com PIX (R$ 5,00)
+- [ ] Validar recebimento de webhook
+- [ ] Validar crédito automático de bilhetes/UTEFs

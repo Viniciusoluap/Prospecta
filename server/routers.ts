@@ -674,13 +674,23 @@ export const appRouter = router({
         });
         
         // Enviar email de confirmação para o cliente
-        const { sendBudgetConfirmationEmail } = await import("./_core/email");
-        await sendBudgetConfirmationEmail({
+        const { sendEmail, budgetConfirmationTemplate } = await import("./_core/email-smtp");
+        const template = budgetConfirmationTemplate({
           name: input.name,
-          email: input.email,
-          projectType: input.projectType || "Projeto personalizado",
-          city: input.city || "Não informada",
-          budgetId: request.id
+          projectType: input.projectType,
+          city: input.city,
+        });
+        await sendEmail({
+          to: input.email,
+          subject: template.subject,
+          html: template.html,
+          recipientName: input.name,
+          templateType: 'budget_confirmation',
+          metadata: {
+            projectType: input.projectType || "Projeto personalizado",
+            city: input.city || "Não informada",
+            budgetId: request.id
+          }
         });
         
         return request;

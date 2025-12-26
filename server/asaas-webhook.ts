@@ -144,6 +144,26 @@ async function processTicketPurchase(
     .where(eq(tickets.paymentStatus, 'pending'));
 
   console.log('[Asaas Webhook] Ticket purchase processed successfully');
+
+  // Enviar email de confirmação
+  const user = await db.select().from(users).where(eq(users.id, userId)).limit(1);
+  if (user[0] && user[0].email) {
+    const { sendEmail, paymentConfirmedTemplate } = await import('./_core/email-smtp');
+    const template = paymentConfirmedTemplate({
+      name: user[0].name || 'Cliente',
+      amount: Math.floor(payment.value * 100), // Converter para centavos
+      type: 'bilhete',
+      quantity: existingTickets.length,
+    });
+    await sendEmail({
+      to: user[0].email,
+      subject: template.subject,
+      html: template.html,
+      recipientName: user[0].name,
+      templateType: 'payment_confirmation',
+      metadata: { paymentId: payment.id, drawId, userId },
+    });
+  }
 }
 
 /**
@@ -197,6 +217,25 @@ async function processUtefPurchase(
   });
 
   console.log('[Asaas Webhook] UTEF purchase processed successfully. Total UTEFs:', totalUtef);
+
+  // Enviar email de confirmação
+  if (user.email) {
+    const { sendEmail, paymentConfirmedTemplate } = await import('./_core/email-smtp');
+    const template = paymentConfirmedTemplate({
+      name: user.name || 'Cliente',
+      amount: Math.floor(payment.value * 100), // Converter para centavos
+      type: 'utef',
+      quantity: Math.floor(totalUtef),
+    });
+    await sendEmail({
+      to: user.email,
+      subject: template.subject,
+      html: template.html,
+      recipientName: user.name,
+      templateType: 'payment_confirmation',
+      metadata: { paymentId: payment.id, userId, utefAmount: totalUtef },
+    });
+  }
 }
 
 /**
