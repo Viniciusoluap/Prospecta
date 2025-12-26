@@ -1003,3 +1003,18 @@ Todas as 7 páginas do ecossistema foram redesenhadas com a paleta Prospecta:
 - [x] Conectar botão de câmera ao upload real
 - [x] Testar validação de CPF com CPFs válidos e inválidos
 - [ ] Testar upload de foto de perfil (requer imagem real)
+
+
+### 41. Alterações Visuais e de Conteúdo - Dezembro 2025
+- [x] Passo 1: Ajustar logo e nome "Prospecta Construções" no Navbar (legível, sem sobreposição, PC e mobile)
+- [x] Passo 2: Footer - Remover endereço de Parauapebas (Rua E, 22 - União)
+- [x] Passo 2: Footer - Corrigir email para atendimento@prospectaconstrucoes.com
+- [x] Passo 3: Remover botão WhatsApp do header
+- [x] Passo 3: Criar botão WhatsApp flutuante que acompanha scroll
+- [x] Passo 4: Alterar "500+ Casas" para "100+ Casas"
+- [x] Passo 4: Alterar "Entregues em todo o Maranhão" para "Entregues em todo o Maranhão e Pará"
+- [x] Passo 5: Alterar "Caixa Econômica Federal" para "Caixa Econômica Federal e todos os bancos"
+- [x] Passo 6: Casa 47m² - Trocar imagem para casa compacta
+- [x] Passo 6: Casa 47m² - Remover valor R$ 160.000
+- [x] Passo 6: Casa 47m² - Alterar nome para "Casa Compacta - Linha Smart"
+- [x] Passo 7: Casa 60m² - Alterar nome para "Casa Concept - Linha Plus"

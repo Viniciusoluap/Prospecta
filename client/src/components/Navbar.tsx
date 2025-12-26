@@ -203,22 +203,15 @@ export default function Navbar() {
         </Sheet>
 
         {/* Logo + Nome (Centro) */}
-        <Link href="/" className="flex items-center gap-2 font-bold text-xl text-primary hover:opacity-80 transition-opacity absolute left-1/2 transform -translate-x-1/2">
-          <img src={APP_LOGO} alt={APP_TITLE} className="h-8 w-8" />
-          <span className="hidden sm:inline">{APP_TITLE}</span>
+        <Link href="/" className="flex items-center gap-2 font-bold text-primary hover:opacity-80 transition-opacity absolute left-1/2 transform -translate-x-1/2">
+          <img src={APP_LOGO} alt={APP_TITLE} className="h-8 w-auto" />
+          <span className="hidden md:inline text-lg whitespace-nowrap">{APP_TITLE}</span>
         </Link>
 
-        {/* Notificações + Fale Conosco (Direita) */}
+        {/* Notificações (Direita) */}
         <div className="flex items-center gap-3">
           {/* Badge de Notificações (apenas para usuários logados) */}
           {isAuthenticated && <NotificationBell />}
-          
-          <Button variant="outline" size="sm" asChild className="border-primary text-primary hover:bg-primary hover:text-white">
-            <a href="https://wa.me/5599981392210" target="_blank" rel="noopener noreferrer" className="flex items-center gap-2">
-              <MessageCircle className="h-4 w-4" />
-              <span className="hidden sm:inline">Fale Conosco</span>
-            </a>
-          </Button>
         </div>
       </div>
     </nav>

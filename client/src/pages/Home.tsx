@@ -90,8 +90,8 @@ export default function Home() {
                     <div className="w-16 h-16 rounded-full bg-primary/20 flex items-center justify-center mx-auto mb-4">
                       <Building2 className="h-8 w-8 text-primary" />
                     </div>
-                    <h3 className="font-bold text-lg mb-2">500+ Casas</h3>
-                    <p className="text-muted-foreground">Entregues em todo o Maranhão</p>
+                    <h3 className="font-bold text-lg mb-2">100+ Casas</h3>
+                    <p className="text-muted-foreground">Entregues em todo o Maranhão e Pará</p>
                   </CardContent>
                 </Card>
                 <Card className="border-primary/30 hover:border-primary transition-colors">
@@ -109,7 +109,7 @@ export default function Home() {
                       <DollarSign className="h-8 w-8 text-primary" />
                     </div>
                     <h3 className="font-bold text-lg mb-2">Financiamento</h3>
-                    <p className="text-muted-foreground">Caixa Econômica Federal</p>
+                    <p className="text-muted-foreground">Caixa Econômica Federal e todos os bancos</p>
                   </CardContent>
                 </Card>
               </div>
@@ -129,19 +129,19 @@ export default function Home() {
               </p>
             </div>
             <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-8 max-w-6xl mx-auto">
-              {/* Planta Padrão 47m² */}
+              {/* Casa Compacta - Linha Smart */}
               <Card className="bg-white/10 border-primary/30 hover:border-primary transition-all hover:scale-105">
                 <CardContent className="p-6">
                   <div className="aspect-video rounded-lg mb-4 overflow-hidden">
                     <img 
-                      src="https://images.unsplash.com/photo-1600585154340-be6161a56a0c?w=600&h=400&fit=crop" 
-                      alt="Casa Padrão 47m²" 
+                      src="/casa-compacta-47m2.jpg" 
+                      alt="Casa Compacta - Linha Smart" 
                       className="w-full h-full object-cover"
                     />
                   </div>
-                  <h3 className="text-2xl font-bold mb-2 text-primary">Casa Padrão 47m²</h3>
+                  <h3 className="text-2xl font-bold mb-2 text-primary">Casa Compacta - Linha Smart</h3>
                   <p className="text-white/70 mb-4">2 quartos, sala, cozinha, banheiro</p>
-                  <p className="text-3xl font-bold text-accent mb-4">R$ 160.000</p>
+                  <p className="text-3xl font-bold text-accent mb-4">Sob Consulta</p>
                   <Button asChild className="w-full bg-accent hover:bg-accent/90 text-secondary">
                     <Link href="/projetos-orcamentos">
                       Ver Detalhes
@@ -150,17 +150,17 @@ export default function Home() {
                 </CardContent>
               </Card>
 
-              {/* Casa 60m² */}
+              {/* Casa Concept - Linha Plus */}
               <Card className="bg-white/10 border-primary/30 hover:border-primary transition-all hover:scale-105">
                 <CardContent className="p-6">
                   <div className="aspect-video rounded-lg mb-4 overflow-hidden">
                     <img 
                       src="https://images.unsplash.com/photo-1600596542815-ffad4c1539a9?w=600&h=400&fit=crop" 
-                      alt="Casa 60m²" 
+                      alt="Casa Concept - Linha Plus" 
                       className="w-full h-full object-cover"
                     />
                   </div>
-                  <h3 className="text-2xl font-bold mb-2 text-primary">Casa 60m²</h3>
+                  <h3 className="text-2xl font-bold mb-2 text-primary">Casa Concept - Linha Plus</h3>
                   <p className="text-white/70 mb-4">3 quartos, suíte, varanda</p>
                   <p className="text-3xl font-bold text-accent mb-4">Sob Consulta</p>
                   <Button asChild className="w-full bg-accent hover:bg-accent/90 text-secondary">
@@ -472,7 +472,7 @@ export default function Home() {
                   className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-300"
                 />
                 <div className="absolute inset-0 bg-gradient-to-t from-secondary/80 to-transparent opacity-0 group-hover:opacity-100 transition-opacity flex items-end p-4">
-                  <p className="text-white font-semibold">Casa 80m² - Parauapebas</p>
+                  <p className="text-white font-semibold">Casa 80m² - Canaã dos Carajás</p>
                 </div>
               </div>
 
@@ -656,10 +656,6 @@ export default function Home() {
                   📍 Avenida JK, 103<br />
                   Centro - Canaã dos Carajás
                 </p>
-                <p>
-                  📍 Rua F, 22<br />
-                  União - Parauapebas
-                </p>
               </div>
             </div>
 
@@ -669,7 +665,7 @@ export default function Home() {
               <p className="text-white/70 text-sm space-y-2">
                 <span className="block">📞 (99) 98139-2210</span>
                 <span className="block">📞 (94) 99304-4689</span>
-                <span className="block">📧 contato@prospectaconstrucoes.com</span>
+                <span className="block">📧 atendimento@prospectaconstrucoes.com</span>
               </p>
             </div>
 

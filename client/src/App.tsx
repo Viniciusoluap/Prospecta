@@ -33,6 +33,7 @@ import AdminEmails from "./pages/AdminEmails";
 import Notificacoes from "./pages/Notificacoes";
 import ConfiguracoesPagamento from "./pages/admin/ConfiguracoesPagamento";
 import Perfil from "./pages/Perfil";
+import WhatsAppFloat from "./components/WhatsAppFloat";
 
 function Router() {
   // make sure to consider if you need authentication for certain routes
@@ -119,6 +120,7 @@ function App() {
         <TooltipProvider>
           <Toaster />
           <Router />
+          <WhatsAppFloat />
         </TooltipProvider>
       </ThemeProvider>
     </ErrorBoundary>
