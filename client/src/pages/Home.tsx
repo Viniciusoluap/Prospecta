@@ -171,17 +171,17 @@ export default function Home() {
                 </CardContent>
               </Card>
 
-              {/* Casa 100m² */}
+              {/* Casa Luxo - Linha Premium */}
               <Card className="bg-white/10 border-primary/30 hover:border-primary transition-all hover:scale-105">
                 <CardContent className="p-6">
                   <div className="aspect-video rounded-lg mb-4 overflow-hidden">
                     <img 
                       src="https://images.unsplash.com/photo-1600566753190-17f0baa2a6c3?w=600&h=400&fit=crop" 
-                      alt="Casa 100m²" 
+                      alt="Casa Luxo - Linha Premium" 
                       className="w-full h-full object-cover"
                     />
                   </div>
-                  <h3 className="text-2xl font-bold mb-2 text-primary">Casa 100m²</h3>
+                  <h3 className="text-2xl font-bold mb-2 text-primary">Casa Luxo - Linha Premium</h3>
                   <p className="text-white/70 mb-4">Desenvolvemos o projeto dos seus sonhos</p>
                   <p className="text-3xl font-bold text-accent mb-4">Sob Medida</p>
                   <Button asChild className="w-full bg-accent hover:bg-accent/90 text-secondary">
@@ -273,7 +273,7 @@ export default function Home() {
                   <CheckCircle2 className="h-12 w-12 text-accent mb-4" />
                   <h3 className="text-xl font-bold mb-2 text-primary">Prazo Longo</h3>
                   <p className="text-white/70">
-                    Até 30 anos para pagar, com parcelas que cabem no bolso
+                    Até 35 anos ou 420 meses para pagar, com parcelas que cabem no bolso
                   </p>
                 </CardContent>
               </Card>
@@ -283,6 +283,15 @@ export default function Home() {
                   <h3 className="text-xl font-bold mb-2 text-primary">Use FGTS</h3>
                   <p className="text-white/70">
                     Utilize seu FGTS como entrada ou para amortizar parcelas
+                  </p>
+                </CardContent>
+              </Card>
+              <Card className="bg-white/10 border-primary/30">
+                <CardContent className="pt-6">
+                  <CheckCircle2 className="h-12 w-12 text-accent mb-4" />
+                  <h3 className="text-xl font-bold mb-2 text-primary">Subsídios</h3>
+                  <p className="text-white/70">
+                    Subsídios do MCMV podem chegar até R$ 55.000 e entram como entrada, reduzindo ou zerando seu investimento inicial
                   </p>
                 </CardContent>
               </Card>
@@ -310,14 +319,52 @@ export default function Home() {
                 Trabalhamos com as melhores instituições financeiras do país
               </p>
             </div>
-            <div className="flex justify-center items-center gap-12 flex-wrap">
+            <div className="flex justify-center items-center gap-8 md:gap-12 flex-wrap">
               {/* Logo Caixa */}
               <div className="grayscale hover:grayscale-0 transition-all">
                 <img 
-                  src="https://upload.wikimedia.org/wikipedia/commons/thumb/5/5e/Caixa_Econ%C3%B4mica_Federal_logo.svg/320px-Caixa_Econ%C3%B4mica_Federal_logo.svg.png" 
+                  src="/logo-caixa.png" 
                   alt="Caixa Econômica Federal" 
-                  className="h-16 object-contain"
+                  className="h-12 md:h-16 object-contain"
                 />
+              </div>
+              {/* Logo Inter */}
+              <div className="grayscale hover:grayscale-0 transition-all">
+                <img 
+                  src="/logo-inter.png" 
+                  alt="Banco Inter" 
+                  className="h-12 md:h-16 object-contain"
+                />
+              </div>
+              {/* Logo Bradesco */}
+              <div className="grayscale hover:grayscale-0 transition-all">
+                <img 
+                  src="/logo-bradesco.png" 
+                  alt="Bradesco" 
+                  className="h-12 md:h-16 object-contain"
+                />
+              </div>
+              {/* Logo Santander */}
+              <div className="grayscale hover:grayscale-0 transition-all">
+                <img 
+                  src="/logo-santander.png" 
+                  alt="Santander" 
+                  className="h-12 md:h-16 object-contain"
+                />
+              </div>
+              {/* Logo Itaú */}
+              <div className="grayscale hover:grayscale-0 transition-all">
+                <img 
+                  src="/logo-itau.png" 
+                  alt="Itaú" 
+                  className="h-12 md:h-16 object-contain"
+                />
+              </div>
+              {/* Logo Exclusive Club */}
+              <div className="grayscale hover:grayscale-0 transition-all flex items-center gap-2">
+                <div className="h-12 md:h-16 flex items-center justify-center px-4 bg-secondary rounded-lg">
+                  <span className="text-primary font-bold text-lg md:text-xl">Exclusive Club</span>
+                </div>
               </div>
             </div>
           </div>
@@ -436,7 +483,7 @@ export default function Home() {
                 Conheça nosso portfólio
               </h2>
               <p className="text-xl text-muted-foreground max-w-3xl mx-auto">
-                Mais de 500 casas construídas com qualidade e excelência
+                Mais de 100 casas construídas com qualidade e excelência
               </p>
             </div>
             <div className="grid md:grid-cols-2 lg:grid-cols-4 gap-6 max-w-7xl mx-auto">
@@ -534,20 +581,10 @@ export default function Home() {
                     <ChevronRight className="h-5 w-5 text-primary group-open:rotate-90 transition-transform" />
                   </summary>
                   <div className="px-6 pb-6 text-muted-foreground">
-                    <p>Sim! Se você tiver saldo suficiente no FGTS, é possível utilizá-lo para cobrir toda a entrada. Assim você começa a construir sem desembolsar dinheiro do bolso.</p>
+                    <p>Sim! Existem três situações que isso ocorre: a primeira é se você tiver saldo suficiente no FGTS, é possível utilizá-lo para cobrir toda a entrada; a segunda é se você for beneficiado com Subsídios do governo e esse valor cobrir toda sua entrada; e a terceira opção é se você já tiver um terreno quitado. Assim você começa a construir sem desembolsar dinheiro do bolso.</p>
                   </div>
                 </details>
 
-                {/* Pergunta 4 */}
-                <details className="group bg-white border-2 border-primary/30 rounded-lg overflow-hidden hover:border-primary transition-colors">
-                  <summary className="cursor-pointer p-6 font-semibold text-lg text-secondary flex justify-between items-center">
-                    <span>Os 20% de ENTRADA tem que ser pago ao banco?</span>
-                    <ChevronRight className="h-5 w-5 text-primary group-open:rotate-90 transition-transform" />
-                  </summary>
-                  <div className="px-6 pb-6 text-muted-foreground">
-                    <p>Não! Com a Prospecta você precisa de apenas 5% de entrada, não 20%. E esse valor pode ser pago diretamente para a construtora de forma parcelada ou com FGTS, facilitando ainda mais o processo.</p>
-                  </div>
-                </details>
               </div>
 
               <div className="text-center mt-12">

@@ -1018,3 +1018,14 @@ Todas as 7 páginas do ecossistema foram redesenhadas com a paleta Prospecta:
 - [x] Passo 6: Casa 47m² - Remover valor R$ 160.000
 - [x] Passo 6: Casa 47m² - Alterar nome para "Casa Compacta - Linha Smart"
 - [x] Passo 7: Casa 60m² - Alterar nome para "Casa Concept - Linha Plus"
+
+
+### 42. Alterações Visuais e de Conteúdo - Parte 2
+- [x] Passo 1: Trocar "Casa 100m²" para "Casa Luxo - Linha Premium"
+- [x] Passo 2: Trocar "30 anos" para "35 anos ou 420 meses"
+- [x] Passo 3: Adicionar card "Subsídios" após "Use FGTS" com info sobre MCMV
+- [x] Passo 4: Adicionar logos dos parceiros (Caixa, Inter, Bradesco, Santander, Itaú, Exclusive Club)
+- [x] Passo 5: Trocar "500 casas" para "100 casas" no portfólio
+- [x] Passo 6: Atualizar FAQ "É possível ZERAR a entrada?" com 3 situações
+- [x] Passo 7: Remover pergunta "Os 20% de ENTRADA tem que ser pago ao banco?"
+- [x] Passo 8: Trocar "Como Funciona o Efficaz Orbit" para "Como funciona o Ecossistema Efficaz"

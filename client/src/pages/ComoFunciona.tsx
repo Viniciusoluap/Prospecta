@@ -12,7 +12,7 @@ export default function ComoFunciona() {
         <section className="py-20">
           <div className="container">
             <h1 className="text-5xl md:text-6xl font-bold text-center mb-6 text-[#C9A961]">
-              Como Funciona o <span className="text-[#00FF00]">Efficaz Orbit</span>
+              Como funciona o <span className="text-[#00FF00]">Ecossistema Efficaz</span>
             </h1>
             <p className="text-xl text-center text-gray-300 max-w-3xl mx-auto">
               Entenda como participar dos sorteios, ganhar <span className="text-[#00FF00] font-semibold">UTEFs</span> e converter em produtos do ecossistema Grupo Efficaz
