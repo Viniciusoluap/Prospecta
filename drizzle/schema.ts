@@ -1,4 +1,4 @@
-import { int, mysqlEnum, mysqlTable, text, timestamp, varchar } from "drizzle-orm/mysql-core";
+import { int, mysqlEnum, mysqlTable, text, timestamp, varchar, longtext } from "drizzle-orm/mysql-core";
 
 /**
  * Core user table backing auth flow.
@@ -16,6 +16,12 @@ export const users = mysqlTable("users", {
   name: text("name"),
   email: varchar("email", { length: 320 }),
   cpf: varchar("cpf", { length: 14 }), // CPF do usuário (formato: 000.000.000-00)
+  phone: varchar("phone", { length: 20 }), // Telefone do usuário
+  address: text("address"), // Endereço completo
+  city: varchar("city", { length: 100 }), // Cidade
+  state: varchar("state", { length: 2 }), // Estado (UF)
+  zipCode: varchar("zipCode", { length: 10 }), // CEP
+  avatarUrl: text("avatarUrl"), // URL da foto de perfil
   loginMethod: varchar("loginMethod", { length: 64 }),
   role: mysqlEnum("role", ["user", "admin"]).default("user").notNull(),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
@@ -56,15 +62,15 @@ export const tickets = mysqlTable("tickets", {
   id: int("id").autoincrement().primaryKey(),
   drawId: int("draw_id").notNull(),
   userId: int("user_id").notNull(),
-  ticketNumber: varchar("ticket_number", { length: 20 }).notNull().unique(), // Número único do bilhete
+  ticketNumber: varchar("ticket_number", { length: 50 }).notNull().unique(), // Número único do bilhete
   quantity: int("quantity").default(1).notNull(), // Quantidade de bilhetes comprados
   totalPaid: int("total_paid").notNull(), // Valor pago em centavos
   paymentStatus: mysqlEnum("payment_status", ["pending", "confirmed", "failed"]).default("pending").notNull(),
   paymentMethod: varchar("payment_method", { length: 50 }).default("pix"),
-  pixQrCode: text("pix_qr_code"), // QR Code PIX gerado
-  pixCopyPaste: text("pix_copy_paste"), // Código PIX copia e cola
-  stripePaymentIntentId: varchar("stripe_payment_intent_id", { length: 255 }), // ID do Payment Intent do Stripe
-  stripeCheckoutSessionId: varchar("stripe_checkout_session_id", { length: 255 }), // ID da sessão de checkout do Stripe
+  pixQrCode: longtext("pix_qr_code"), // QR Code PIX gerado (base64 image)
+  pixCopyPaste: longtext("pix_copy_paste"), // Código PIX copia e cola
+  stripePaymentIntentId: varchar("stripe_payment_intent_id", { length: 255 }), // ID do Asaas Payment
+  stripeCheckoutSessionId: varchar("stripe_checkout_session_id", { length: 255 }), // Campo legado (não usado)
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().onUpdateNow().notNull(),
 });

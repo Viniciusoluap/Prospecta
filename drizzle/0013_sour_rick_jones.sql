@@ -1,0 +1,1 @@
+ALTER TABLE `tickets` MODIFY COLUMN `ticket_number` varchar(50) NOT NULL;

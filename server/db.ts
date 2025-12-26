@@ -97,6 +97,35 @@ export async function getUserByOpenId(openId: string) {
   return result.length > 0 ? result[0] : undefined;
 }
 
+export async function updateUserProfile(userId: number, profile: {
+  name?: string;
+  email?: string;
+  cpf?: string;
+  phone?: string;
+  address?: string;
+  city?: string;
+  state?: string;
+  zipCode?: string;
+}): Promise<void> {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  
+  const updateSet: Record<string, unknown> = {};
+  
+  if (profile.name !== undefined) updateSet.name = profile.name;
+  if (profile.email !== undefined) updateSet.email = profile.email;
+  if (profile.cpf !== undefined) updateSet.cpf = profile.cpf;
+  if (profile.phone !== undefined) updateSet.phone = profile.phone;
+  if (profile.address !== undefined) updateSet.address = profile.address;
+  if (profile.city !== undefined) updateSet.city = profile.city;
+  if (profile.state !== undefined) updateSet.state = profile.state;
+  if (profile.zipCode !== undefined) updateSet.zipCode = profile.zipCode;
+  
+  if (Object.keys(updateSet).length > 0) {
+    await db.update(users).set(updateSet).where(eq(users.id, userId));
+  }
+}
+
 // ========== DRAWS ==========
 
 export async function getActiveDraws(): Promise<Draw[]> {

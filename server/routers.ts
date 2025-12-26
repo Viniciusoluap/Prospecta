@@ -84,6 +84,25 @@ export const appRouter = router({
     }),
   }),
 
+  // ========== USER (USUÁRIO) ==========
+  user: router({
+    updateProfile: protectedProcedure
+      .input(z.object({
+        name: z.string().optional(),
+        email: z.string().email().optional(),
+        cpf: z.string().max(14).optional(),
+        phone: z.string().max(20).optional(),
+        address: z.string().optional(),
+        city: z.string().max(100).optional(),
+        state: z.string().max(2).optional(),
+        zipCode: z.string().max(10).optional(),
+      }))
+      .mutation(async ({ ctx, input }) => {
+        await db.updateUserProfile(ctx.user.id, input);
+        return { success: true };
+      }),
+  }),
+
   // ========== DRAWS (SORTEIOS) ==========
   draws: router({
     list: publicProcedure.query(async () => {
@@ -237,6 +256,7 @@ export const appRouter = router({
           pixQrCode,
           pixCopyPaste,
           stripePaymentIntentId: asaasPayment.id, // Reutilizar campo para armazenar ID do Asaas
+          stripeCheckoutSessionId: null, // Campo não usado com Asaas
         });
 
         return {

@@ -1,0 +1,26 @@
+{
+  "query": "SHOW COLUMNS FROM tickets WHERE Field IN ('pix_qr_code', 'pix_copy_paste');",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway02.us-east-1.prod.aws.tidbcloud.com --port 4000 --user QGkzyx9AEigNFY6.root --database XKiYeWQckm4y8ZFAdaZbRn --execute SHOW COLUMNS FROM tickets WHERE Field IN ('pix_qr_code', 'pix_copy_paste');",
+  "rows": [
+    {
+      "Field": "pix_qr_code",
+      "Type": "longtext",
+      "Null": "YES",
+      "Key": "",
+      "Default": "NULL",
+      "Extra": ""
+    },
+    {
+      "Field": "pix_copy_paste",
+      "Type": "longtext",
+      "Null": "YES",
+      "Key": "",
+      "Default": "NULL",
+      "Extra": ""
+    }
+  ],
+  "messages": [],
+  "stdout": "Field\tType\tNull\tKey\tDefault\tExtra\npix_qr_code\tlongtext\tYES\t\tNULL\t\npix_copy_paste\tlongtext\tYES\t\tNULL\t\n",
+  "stderr": "",
+  "execution_time_ms": 53
+}

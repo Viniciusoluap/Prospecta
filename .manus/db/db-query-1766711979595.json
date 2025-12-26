@@ -1,0 +1,52 @@
+{
+  "query": "SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_NAME = 'tickets' ORDER BY ORDINAL_POSITION;",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway02.us-east-1.prod.aws.tidbcloud.com --port 4000 --user QGkzyx9AEigNFY6.root --database XKiYeWQckm4y8ZFAdaZbRn --execute SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_NAME = 'tickets' ORDER BY ORDINAL_POSITION;",
+  "rows": [
+    {
+      "COLUMN_NAME": "id"
+    },
+    {
+      "COLUMN_NAME": "draw_id"
+    },
+    {
+      "COLUMN_NAME": "user_id"
+    },
+    {
+      "COLUMN_NAME": "ticket_number"
+    },
+    {
+      "COLUMN_NAME": "quantity"
+    },
+    {
+      "COLUMN_NAME": "total_paid"
+    },
+    {
+      "COLUMN_NAME": "payment_status"
+    },
+    {
+      "COLUMN_NAME": "payment_method"
+    },
+    {
+      "COLUMN_NAME": "pix_qr_code"
+    },
+    {
+      "COLUMN_NAME": "pix_copy_paste"
+    },
+    {
+      "COLUMN_NAME": "created_at"
+    },
+    {
+      "COLUMN_NAME": "updated_at"
+    },
+    {
+      "COLUMN_NAME": "stripe_payment_intent_id"
+    },
+    {
+      "COLUMN_NAME": "stripe_checkout_session_id"
+    }
+  ],
+  "messages": [],
+  "stdout": "COLUMN_NAME\nid\ndraw_id\nuser_id\nticket_number\nquantity\ntotal_paid\npayment_status\npayment_method\npix_qr_code\npix_copy_paste\ncreated_at\nupdated_at\nstripe_payment_intent_id\nstripe_checkout_session_id\n",
+  "stderr": "",
+  "execution_time_ms": 60
+}

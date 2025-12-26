@@ -1,0 +1,20 @@
+{
+  "query": "SELECT COLUMN_NAME, DATA_TYPE, CHARACTER_MAXIMUM_LENGTH FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_NAME = 'tickets' AND COLUMN_NAME IN ('pix_qr_code', 'pix_copy_paste');",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway02.us-east-1.prod.aws.tidbcloud.com --port 4000 --user QGkzyx9AEigNFY6.root --database XKiYeWQckm4y8ZFAdaZbRn --execute SELECT COLUMN_NAME, DATA_TYPE, CHARACTER_MAXIMUM_LENGTH FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_NAME = 'tickets' AND COLUMN_NAME IN ('pix_qr_code', 'pix_copy_paste');",
+  "rows": [
+    {
+      "COLUMN_NAME": "pix_qr_code",
+      "DATA_TYPE": "longtext",
+      "CHARACTER_MAXIMUM_LENGTH": "4294967295"
+    },
+    {
+      "COLUMN_NAME": "pix_copy_paste",
+      "DATA_TYPE": "longtext",
+      "CHARACTER_MAXIMUM_LENGTH": "4294967295"
+    }
+  ],
+  "messages": [],
+  "stdout": "COLUMN_NAME\tDATA_TYPE\tCHARACTER_MAXIMUM_LENGTH\npix_qr_code\tlongtext\t4294967295\npix_copy_paste\tlongtext\t4294967295\n",
+  "stderr": "",
+  "execution_time_ms": 52
+}

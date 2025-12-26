@@ -1,0 +1,32 @@
+{
+  "query": "SHOW CREATE TABLE tickets;",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway02.us-east-1.prod.aws.tidbcloud.com --port 4000 --user QGkzyx9AEigNFY6.root --database XKiYeWQckm4y8ZFAdaZbRn --execute SHOW CREATE TABLE tickets;",
+  "rows": [
+    {
+      "Table": "tickets",
+      "Create Table": "CREATE TABLE `tickets` ("
+    }
+  ],
+  "messages": [
+    "  `id` int(11) NOT NULL AUTO_INCREMENT,",
+    "  `draw_id` int(11) NOT NULL,",
+    "  `user_id` int(11) NOT NULL,",
+    "  `ticket_number` varchar(20) NOT NULL,",
+    "  `quantity` int(11) NOT NULL DEFAULT '1',",
+    "  `total_paid` int(11) NOT NULL,",
+    "  `payment_status` enum('pending','confirmed','failed') NOT NULL DEFAULT 'pending',",
+    "  `payment_method` varchar(50) DEFAULT 'pix',",
+    "  `pix_qr_code` longtext DEFAULT NULL,",
+    "  `pix_copy_paste` longtext DEFAULT NULL,",
+    "  `created_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,",
+    "  `updated_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,",
+    "  `stripe_payment_intent_id` varchar(255) DEFAULT NULL,",
+    "  `stripe_checkout_session_id` varchar(255) DEFAULT NULL,",
+    "  PRIMARY KEY (`id`) /*T![clustered_index] CLUSTERED */,",
+    "  UNIQUE KEY `tickets_ticket_number_unique` (`ticket_number`)",
+    ") ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_bin AUTO_INCREMENT=30001"
+  ],
+  "stdout": "Table\tCreate Table\ntickets\tCREATE TABLE `tickets` (\n  `id` int(11) NOT NULL AUTO_INCREMENT,\n  `draw_id` int(11) NOT NULL,\n  `user_id` int(11) NOT NULL,\n  `ticket_number` varchar(20) NOT NULL,\n  `quantity` int(11) NOT NULL DEFAULT '1',\n  `total_paid` int(11) NOT NULL,\n  `payment_status` enum('pending','confirmed','failed') NOT NULL DEFAULT 'pending',\n  `payment_method` varchar(50) DEFAULT 'pix',\n  `pix_qr_code` longtext DEFAULT NULL,\n  `pix_copy_paste` longtext DEFAULT NULL,\n  `created_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,\n  `updated_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,\n  `stripe_payment_intent_id` varchar(255) DEFAULT NULL,\n  `stripe_checkout_session_id` varchar(255) DEFAULT NULL,\n  PRIMARY KEY (`id`) /*T![clustered_index] CLUSTERED */,\n  UNIQUE KEY `tickets_ticket_number_unique` (`ticket_number`)\n) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_bin AUTO_INCREMENT=30001\n",
+  "stderr": "",
+  "execution_time_ms": 51
+}

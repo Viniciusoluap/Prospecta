@@ -32,6 +32,7 @@ import AdminDashboard from "./pages/AdminDashboard";
 import AdminEmails from "./pages/AdminEmails";
 import Notificacoes from "./pages/Notificacoes";
 import ConfiguracoesPagamento from "./pages/admin/ConfiguracoesPagamento";
+import Perfil from "./pages/Perfil";
 
 function Router() {
   // make sure to consider if you need authentication for certain routes
@@ -46,6 +47,9 @@ function Router() {
       </Route>
       <Route path="/meu-saldo">
         <ProtectedRoute><MeuSaldo /></ProtectedRoute>
+      </Route>
+      <Route path="/perfil">
+        <ProtectedRoute><Perfil /></ProtectedRoute>
       </Route>
       <Route path="/admin">
         <AdminRoute><Admin /></AdminRoute>

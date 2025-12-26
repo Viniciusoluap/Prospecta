@@ -250,7 +250,11 @@ export default function ComprarBilhete() {
 
                 {pixQrCode && (
                   <div className="flex justify-center p-6 bg-white rounded-lg border-2 border-[#C9A961]/30">
-                    <img src={pixQrCode} alt="QR Code PIX" className="w-64 h-64" />
+                    <img 
+                      src={pixQrCode.startsWith('data:') ? pixQrCode : `data:image/png;base64,${pixQrCode}`} 
+                      alt="QR Code PIX" 
+                      className="w-64 h-64" 
+                    />
                   </div>
                 )}
 

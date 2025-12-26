@@ -1,0 +1,9 @@
+{
+  "query": "ALTER TABLE tickets \n  MODIFY COLUMN stripe_payment_intent_id varchar(255) DEFAULT NULL AFTER pix_copy_paste,\n  MODIFY COLUMN stripe_checkout_session_id varchar(255) DEFAULT NULL AFTER stripe_payment_intent_id;",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway02.us-east-1.prod.aws.tidbcloud.com --port 4000 --user QGkzyx9AEigNFY6.root --database XKiYeWQckm4y8ZFAdaZbRn --execute ALTER TABLE tickets \n  MODIFY COLUMN stripe_payment_intent_id varchar(255) DEFAULT NULL AFTER pix_copy_paste,\n  MODIFY COLUMN stripe_checkout_session_id varchar(255) DEFAULT NULL AFTER stripe_payment_intent_id;",
+  "rows": [],
+  "messages": [],
+  "stdout": "",
+  "stderr": "",
+  "execution_time_ms": 208
+}

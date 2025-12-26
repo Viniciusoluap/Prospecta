@@ -936,6 +936,7 @@ Todas as 7 páginas do ecossistema foram redesenhadas com a paleta Prospecta:
 - [x] Testar criação de cobrança PIX
 - [x] Testar criação de cobrança Cartão de Crédito
 - [x] Testar webhook de pagamento configurado
+- [x] Testar compra real de bilhetes com PIX (SUCESSO!)
 
 
 ## 📋 CAMPO CPF E TESTES FASE 10
@@ -971,3 +972,22 @@ Todas as 7 páginas do ecossistema foram redesenhadas com a paleta Prospecta:
 - [ ] Fazer compra de teste com PIX (R$ 5,00)
 - [ ] Validar recebimento de webhook
 - [ ] Validar crédito automático de bilhetes/UTEFs
+
+
+## 👤 PÁGINA DE PERFIL DO USUÁRIO (CONCLUÍDO)
+
+- [x] Adicionar campos telefone e endereço no schema de usuários
+- [x] Aplicar migração no banco de dados
+- [x] Criar página de perfil do usuário
+- [x] Implementar edição de CPF, telefone e endereço
+- [ ] Implementar upload de foto de perfil (placeholder criado)
+- [x] Criar procedimentos tRPC para atualização de perfil
+- [x] Testar fluxo completo de edição de perfil
+
+## 🧪 TESTE DE COMPRA REAL COM PIX (PENDENTE)
+
+- [ ] Fazer compra de bilhete com PIX (R$ 5,00)
+- [ ] Validar geração de QR Code
+- [ ] Validar recebimento de webhook
+- [ ] Validar crédito automático de bilhetes
+- [ ] Validar envio de email de confirmação

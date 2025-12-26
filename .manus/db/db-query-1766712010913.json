@@ -1,0 +1,66 @@
+{
+  "query": "SELECT COLUMN_NAME, DATA_TYPE FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_NAME = 'tickets' AND TABLE_SCHEMA = DATABASE();",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway02.us-east-1.prod.aws.tidbcloud.com --port 4000 --user QGkzyx9AEigNFY6.root --database XKiYeWQckm4y8ZFAdaZbRn --execute SELECT COLUMN_NAME, DATA_TYPE FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_NAME = 'tickets' AND TABLE_SCHEMA = DATABASE();",
+  "rows": [
+    {
+      "COLUMN_NAME": "id",
+      "DATA_TYPE": "int"
+    },
+    {
+      "COLUMN_NAME": "draw_id",
+      "DATA_TYPE": "int"
+    },
+    {
+      "COLUMN_NAME": "user_id",
+      "DATA_TYPE": "int"
+    },
+    {
+      "COLUMN_NAME": "ticket_number",
+      "DATA_TYPE": "varchar"
+    },
+    {
+      "COLUMN_NAME": "quantity",
+      "DATA_TYPE": "int"
+    },
+    {
+      "COLUMN_NAME": "total_paid",
+      "DATA_TYPE": "int"
+    },
+    {
+      "COLUMN_NAME": "payment_status",
+      "DATA_TYPE": "enum"
+    },
+    {
+      "COLUMN_NAME": "payment_method",
+      "DATA_TYPE": "varchar"
+    },
+    {
+      "COLUMN_NAME": "pix_qr_code",
+      "DATA_TYPE": "longtext"
+    },
+    {
+      "COLUMN_NAME": "pix_copy_paste",
+      "DATA_TYPE": "longtext"
+    },
+    {
+      "COLUMN_NAME": "created_at",
+      "DATA_TYPE": "timestamp"
+    },
+    {
+      "COLUMN_NAME": "updated_at",
+      "DATA_TYPE": "timestamp"
+    },
+    {
+      "COLUMN_NAME": "stripe_payment_intent_id",
+      "DATA_TYPE": "varchar"
+    },
+    {
+      "COLUMN_NAME": "stripe_checkout_session_id",
+      "DATA_TYPE": "varchar"
+    }
+  ],
+  "messages": [],
+  "stdout": "COLUMN_NAME\tDATA_TYPE\nid\tint\ndraw_id\tint\nuser_id\tint\nticket_number\tvarchar\nquantity\tint\ntotal_paid\tint\npayment_status\tenum\npayment_method\tvarchar\npix_qr_code\tlongtext\npix_copy_paste\tlongtext\ncreated_at\ttimestamp\nupdated_at\ttimestamp\nstripe_payment_intent_id\tvarchar\nstripe_checkout_session_id\tvarchar\n",
+  "stderr": "",
+  "execution_time_ms": 57
+}

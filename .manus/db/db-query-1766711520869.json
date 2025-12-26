@@ -1,0 +1,18 @@
+{
+  "query": "SELECT id, name, cpf, phone, city, state FROM users WHERE id = 1;",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway02.us-east-1.prod.aws.tidbcloud.com --port 4000 --user QGkzyx9AEigNFY6.root --database XKiYeWQckm4y8ZFAdaZbRn --execute SELECT id, name, cpf, phone, city, state FROM users WHERE id = 1;",
+  "rows": [
+    {
+      "id": "1",
+      "name": "Vinicius Freitas",
+      "cpf": "123.456.789-00",
+      "phone": "(11) 99999-8888",
+      "city": "",
+      "state": ""
+    }
+  ],
+  "messages": [],
+  "stdout": "id\tname\tcpf\tphone\tcity\tstate\n1\tVinicius Freitas\t123.456.789-00\t(11) 99999-8888\t\t\n",
+  "stderr": "",
+  "execution_time_ms": 64
+}
