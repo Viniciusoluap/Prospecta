@@ -17,23 +17,23 @@ export default function ComprarUtef() {
   const [purchaseComplete, setPurchaseComplete] = useState(false);
   const [pixCode, setPixCode] = useState<string>("");
   const [pixQrCode, setPixQrCode] = useState<string>("");
-  const [paymentMethod, setPaymentMethod] = useState<"pix" | "stripe">("pix");
+  const [paymentMethod, setPaymentMethod] = useState<"pix" | "credit_card" | "boleto">("pix");
 
   const purchaseMutation = trpc.utef.purchase.useMutation({
     onSuccess: (data) => {
-      if (data.checkoutUrl) {
-        // Pagamento via Stripe
-        window.open(data.checkoutUrl, '_blank');
-        toast.success("Redirecionando para pagamento...");
-        setTimeout(() => {
-          window.location.href = "/dashboard";
-        }, 2000);
-      } else {
-        // Pagamento via PIX
+      // Pagamento via PIX
+      if (data.pixCopyPaste && data.pixQrCode) {
         setPixCode(data.pixCopyPaste || "");
         setPixQrCode(data.pixQrCode || "");
         setPurchaseComplete(true);
         toast.success("PIX gerado com sucesso!");
+      } else if (data.invoiceUrl) {
+        // Pagamento via Boleto ou Cartão
+        window.open(data.invoiceUrl, '_blank');
+        toast.success("Redirecionando para pagamento...");
+        setTimeout(() => {
+          window.location.href = "/dashboard";
+        }, 2000);
       }
     },
     onError: (error) => {
@@ -127,10 +127,10 @@ export default function ComprarUtef() {
                   <div className="grid grid-cols-2 gap-4">
                     <Button
                       type="button"
-                      variant={paymentMethod === "stripe" ? "default" : "outline"}
-                      onClick={() => setPaymentMethod("stripe")}
+                      variant={paymentMethod === "credit_card" ? "default" : "outline"}
+                      onClick={() => setPaymentMethod("credit_card")}
                       className={
-                        paymentMethod === "stripe"
+                        paymentMethod === "credit_card"
                           ? "bg-[#C9A961] hover:bg-[#B8985A] text-[#1A2332] font-bold h-14 gap-2"
                           : "bg-transparent border-[#C9A961]/30 text-gray-300 hover:bg-[#2C3E50] h-14 gap-2"
                       }
@@ -194,7 +194,7 @@ export default function ComprarUtef() {
                   className="w-full gap-2 bg-[#00FF00] hover:bg-[#00dd00] text-black font-bold text-lg py-6 h-auto"
                 >
                   <Coins className="h-5 w-5" />
-                  {purchaseMutation.isPending ? "Processando..." : paymentMethod === "stripe" ? "Pagar com Cartão" : "Gerar PIX para Pagamento"}
+                  {purchaseMutation.isPending ? "Processando..." : paymentMethod === "credit_card" ? "Pagar com Cartão" : paymentMethod === "boleto" ? "Gerar Boleto" : "Gerar PIX para Pagamento"}
                 </Button>
               </CardFooter>
             </Card>

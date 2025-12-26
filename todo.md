@@ -926,3 +926,13 @@ Todas as 7 páginas do ecossistema foram redesenhadas com a paleta Prospecta:
 - [ ] Testar webhook de pagamento cancelado
 - [ ] Testar fluxo completo de compra de bilhetes
 - [ ] Testar fluxo completo de compra de UTEFs
+
+
+## 🔥 FINALIZAÇÃO MIGRAÇÃO ASAAS - PRIORIDADE MÁXIMA
+
+- [x] Atualizar fluxo de compra de bilhetes para usar Asaas
+- [x] Atualizar fluxo de compra de UTEFs para usar Asaas
+- [x] Remover código Stripe dos fluxos de pagamento
+- [x] Testar criação de cobrança PIX
+- [x] Testar criação de cobrança Cartão de Crédito
+- [x] Testar webhook de pagamento configurado

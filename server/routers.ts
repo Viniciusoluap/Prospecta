@@ -5,6 +5,7 @@ import { publicProcedure, protectedProcedure, router } from "./_core/trpc";
 import { z } from "zod";
 import { notifyOwner } from "./_core/notification";
 import { stripe } from "./_core/stripe";
+import { createAsaasPayment, getAsaasPixQrCode, createOrUpdateAsaasCustomer } from "./_core/asaas";
 import { ENV } from "./_core/env";
 import QRCode from "qrcode";
 import * as db from "./db";
@@ -179,7 +180,7 @@ export const appRouter = router({
       .input(z.object({
         drawId: z.number(),
         quantity: z.number().min(1),
-        paymentMethod: z.enum(["pix", "stripe"]).default("stripe"),
+        paymentMethod: z.enum(["pix", "credit_card", "boleto"]).default("pix"),
       }))
       .mutation(async ({ input, ctx }) => {
         const draw = await db.getDrawById(input.drawId);
@@ -194,57 +195,35 @@ export const appRouter = router({
         const totalPaid = draw.ticketPrice * input.quantity;
         const ticketNumber = generateTicketNumber();
         
-        // Se pagamento via Stripe
-        if (input.paymentMethod === "stripe") {
-          const session = await stripe.checkout.sessions.create({
-            payment_method_types: ["card"],
-            line_items: [
-              {
-                price_data: {
-                  currency: "brl",
-                  product_data: {
-                    name: `Bilhete(s) - ${draw.title}`,
-                    description: `${input.quantity} bilhete(s) para o sorteio ${draw.title}`,
-                  },
-                  unit_amount: draw.ticketPrice,
-                },
-                quantity: input.quantity,
-              },
-            ],
-            mode: "payment",
-            success_url: `${ctx.req.headers.origin}/meus-bilhetes?session_id={CHECKOUT_SESSION_ID}`,
-            cancel_url: `${ctx.req.headers.origin}/sorteios`,
-            client_reference_id: ctx.user.id.toString(),
-            customer_email: ctx.user.email || undefined,
-            metadata: {
-              user_id: ctx.user.id.toString(),
-              draw_id: input.drawId.toString(),
-              quantity: input.quantity.toString(),
-              ticket_number: ticketNumber,
-            },
-            allow_promotion_codes: true,
-          });
-
-          const ticket = await db.createTicket({
-            drawId: input.drawId,
-            userId: ctx.user.id,
-            ticketNumber,
-            quantity: input.quantity,
-            totalPaid,
-            paymentStatus: "pending",
-            paymentMethod: "stripe",
-            stripeCheckoutSessionId: session.id,
-          });
-
-          return {
-            ticket,
-            checkoutUrl: session.url,
-            totalPaid,
-          };
-        }
+        // Criar ou buscar cliente no Asaas
+        const asaasCustomer = await createOrUpdateAsaasCustomer({
+          name: ctx.user.name || "Cliente",
+          email: ctx.user.email || undefined,
+          externalReference: `user_${ctx.user.id}`,
+        });
         
-        // Se pagamento via PIX
-        const { pixCopyPaste, pixQrCode } = await generatePixCode(totalPaid, ticketNumber);
+        // Criar cobrança no Asaas
+        const dueDate = new Date(Date.now() + 24 * 60 * 60 * 1000);
+        const dueDateStr = dueDate.toISOString().split('T')[0]; // YYYY-MM-DD
+        
+        const asaasPayment = await createAsaasPayment({
+          customer: asaasCustomer.id!,
+          billingType: input.paymentMethod === "pix" ? "PIX" : input.paymentMethod === "credit_card" ? "CREDIT_CARD" : "BOLETO",
+          value: totalPaid / 100, // Converter centavos para reais
+          dueDate: dueDateStr,
+          description: `${input.quantity} bilhete(s) - ${draw.title}`,
+          externalReference: `ticket_purchase_${input.drawId}_${ctx.user.id}_${ticketNumber}`,
+        });
+
+        // Se for PIX, buscar QR Code
+        let pixQrCode: string | undefined;
+        let pixCopyPaste: string | undefined;
+        
+        if (input.paymentMethod === "pix" && asaasPayment.id) {
+          const pixData = await getAsaasPixQrCode(asaasPayment.id);
+          pixQrCode = pixData.encodedImage;
+          pixCopyPaste = pixData.payload;
+        }
 
         const ticket = await db.createTicket({
           drawId: input.drawId,
@@ -253,15 +232,19 @@ export const appRouter = router({
           quantity: input.quantity,
           totalPaid,
           paymentStatus: "pending",
-          paymentMethod: "pix",
-          pixCopyPaste,
+          paymentMethod: input.paymentMethod,
           pixQrCode,
+          pixCopyPaste,
+          stripePaymentIntentId: asaasPayment.id, // Reutilizar campo para armazenar ID do Asaas
         });
 
         return {
           ticket,
-          pixCopyPaste,
+          asaasPaymentId: asaasPayment.id,
+          invoiceUrl: asaasPayment.invoiceUrl,
+          bankSlipUrl: asaasPayment.bankSlipUrl,
           pixQrCode,
+          pixCopyPaste,
           totalPaid,
         };
       }),
@@ -307,56 +290,49 @@ export const appRouter = router({
     purchase: protectedProcedure
       .input(z.object({
         amount: z.number().min(1),
-        paymentMethod: z.enum(["pix", "stripe"]).default("pix"),
+        paymentMethod: z.enum(["pix", "credit_card", "boleto"]).default("pix"),
       }))
       .mutation(async ({ input, ctx }) => {
-        // 1 UTEF = R$ 1,00 = 100 centavos
-        const totalPrice = input.amount * 100;
+        // 1 UTEF = R$ 1,00
+        const totalPrice = input.amount;
         const txId = `UTEF${Date.now()}${Math.random().toString(36).substring(2, 9).toUpperCase()}`;
         
-        // Se pagamento via Stripe
-        if (input.paymentMethod === "stripe") {
-          const session = await stripe.checkout.sessions.create({
-            payment_method_types: ["card"],
-            line_items: [
-              {
-                price_data: {
-                  currency: "brl",
-                  product_data: {
-                    name: `Compra de UTEFs`,
-                    description: `${input.amount.toLocaleString("pt-BR")} UTEFs (créditos internos Efficaz)`,
-                  },
-                  unit_amount: 100, // R$ 1,00 por UTEF
-                },
-                quantity: input.amount,
-              },
-            ],
-            mode: "payment",
-            success_url: `${ctx.req.headers.origin}/dashboard?utef_purchase=success`,
-            cancel_url: `${ctx.req.headers.origin}/comprar-utef`,
-            client_reference_id: ctx.user.id.toString(),
-            customer_email: ctx.user.email || undefined,
-            metadata: {
-              user_id: ctx.user.id.toString(),
-              utef_amount: input.amount.toString(),
-              transaction_type: "utef_purchase",
-              tx_id: txId,
-            },
-            allow_promotion_codes: true,
-          });
-
-          return {
-            checkoutUrl: session.url,
-            totalPrice,
-          };
-        }
+        // Criar ou buscar cliente no Asaas
+        const asaasCustomer = await createOrUpdateAsaasCustomer({
+          name: ctx.user.name || "Cliente",
+          email: ctx.user.email || undefined,
+          externalReference: `user_${ctx.user.id}`,
+        });
         
-        // Se pagamento via PIX
-        const { pixCopyPaste, pixQrCode } = await generatePixCode(totalPrice, txId);
+        // Criar cobrança no Asaas
+        const dueDate = new Date(Date.now() + 24 * 60 * 60 * 1000);
+        const dueDateStr = dueDate.toISOString().split('T')[0]; // YYYY-MM-DD
+        
+        const asaasPayment = await createAsaasPayment({
+          customer: asaasCustomer.id!,
+          billingType: input.paymentMethod === "pix" ? "PIX" : input.paymentMethod === "credit_card" ? "CREDIT_CARD" : "BOLETO",
+          value: totalPrice, // Já em reais
+          dueDate: dueDateStr,
+          description: `Compra de ${input.amount} UTEFs`,
+          externalReference: `utef_purchase_${ctx.user.id}_${txId}`,
+        });
+
+        // Se for PIX, buscar QR Code
+        let pixQrCode: string | undefined;
+        let pixCopyPaste: string | undefined;
+        
+        if (input.paymentMethod === "pix" && asaasPayment.id) {
+          const pixData = await getAsaasPixQrCode(asaasPayment.id);
+          pixQrCode = pixData.encodedImage;
+          pixCopyPaste = pixData.payload;
+        }
 
         return {
-          pixCopyPaste,
+          asaasPaymentId: asaasPayment.id,
+          invoiceUrl: asaasPayment.invoiceUrl,
+          bankSlipUrl: asaasPayment.bankSlipUrl,
           pixQrCode,
+          pixCopyPaste,
           totalPrice,
         };
       }),
