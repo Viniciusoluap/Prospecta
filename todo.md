@@ -1061,3 +1061,11 @@ Todas as 7 páginas do ecossistema foram redesenhadas com a paleta Prospecta:
 - [x] Incorporar pré-visualização do Instagram (@imoveiscomvinifreitas)
 - [x] Adicionar botões de acesso direto às redes sociais
 - [x] Testar responsividade em mobile e desktop
+
+
+### 46. Feed do Instagram e Vídeos em Destaque
+- [x] Buscar vídeos populares do canal YouTube @vinigfreitas
+- [x] Criar seção de vídeos em destaque com 4 thumbnails clicáveis
+- [x] Implementar feed do Instagram com 6 posts preview
+- [x] Integrar na seção de redes sociais existente
+- [x] Testar responsividade e funcionalidade
