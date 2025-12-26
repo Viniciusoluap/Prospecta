@@ -9,6 +9,7 @@ import { createContext } from "./context";
 import { serveStatic, setupVite } from "./vite";
 import { registerStripeWebhook } from "./stripeWebhook";
 import uploadPhotoRouter from "../routes/upload-photo";
+import { handleAsaasWebhook } from "../asaas-webhook";
 
 function isPortAvailable(port: number): Promise<boolean> {
   return new Promise(resolve => {
@@ -43,6 +44,8 @@ async function startServer() {
   registerOAuthRoutes(app);
   // Upload de fotos
   app.use("/api", uploadPhotoRouter);
+  // Asaas webhook
+  app.post("/api/asaas/webhook", handleAsaasWebhook);
   // tRPC API
   app.use(
     "/api/trpc",

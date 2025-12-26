@@ -819,3 +819,110 @@ Todas as 7 páginas do ecossistema foram redesenhadas com a paleta Prospecta:
 - [x] Criar componente AdminRoute para rotas administrativas  
 - [x] Atualizar App.tsx para proteger rotas sensíveis
 - [ ] Testar proteção de rotas (/meu-saldo, /admin, etc.)
+
+
+---
+
+## 💳 MIGRAÇÃO DE STRIPE PARA ASAAS
+
+### Fase 1: Planejamento e Preparação
+- [ ] Documentar API do Asaas (endpoints, autenticação, webhooks)
+- [ ] Mapear equivalências entre Stripe e Asaas
+- [ ] Planejar estrutura de dados para pagamentos Asaas
+- [ ] Criar tabela de configurações de pagamento no banco
+
+### Fase 2: Implementação Backend
+- [ ] Criar módulo de integração Asaas (server/_core/asaas.ts)
+- [ ] Implementar criação de cobrança PIX
+- [ ] Implementar criação de cobrança Cartão de Crédito
+- [ ] Implementar criação de cobrança Boleto
+- [ ] Criar funções de consulta de pagamento
+- [ ] Criar funções de cancelamento de pagamento
+
+### Fase 3: Painel de Configuração Admin
+- [ ] Criar página de configurações de pagamento no admin
+- [ ] Implementar formulário de credenciais Asaas
+- [ ] Criar rota tRPC para salvar configurações
+- [ ] Implementar validação de credenciais Asaas
+- [ ] Adicionar indicador de status da integração
+
+### Fase 4: Webhooks Asaas
+- [ ] Criar endpoint de webhook Asaas
+- [ ] Implementar validação de assinatura do webhook
+- [ ] Implementar processamento de pagamento confirmado
+- [ ] Implementar processamento de pagamento cancelado
+- [ ] Implementar processamento de pagamento expirado
+- [ ] Adicionar logs de webhook para debug
+
+### Fase 5: Atualização de Fluxos de Pagamento
+- [ ] Substituir Stripe por Asaas em compra de bilhetes
+- [ ] Substituir Stripe por Asaas em compra de UTEFs
+- [ ] Atualizar interface de pagamento (PIX, Cartão, Boleto)
+- [ ] Atualizar página de confirmação de pagamento
+- [ ] Remover código Stripe antigo
+
+### Fase 6: Testes
+- [ ] Testar criação de cobrança PIX
+- [ ] Testar criação de cobrança Cartão de Crédito
+- [ ] Testar criação de cobrança Boleto
+- [ ] Testar webhook de pagamento confirmado
+- [ ] Testar webhook de pagamento cancelado
+- [ ] Testar fluxo completo de compra de bilhetes
+- [ ] Testar fluxo completo de compra de UTEFs
+
+### Fase 7: Documentação e Entrega
+- [ ] Documentar integração Asaas
+- [ ] Criar guia de configuração para o usuário
+- [ ] Salvar checkpoint com migração completa
+- [ ] Entregar ao usuário
+
+
+---
+
+## ✅ PROGRESSO DA MIGRAÇÃO ASAAS (19/12/2025)
+
+### Fase 1: Planejamento e Preparação
+- [x] Documentar API do Asaas (endpoints, autenticação, webhooks)
+- [x] Mapear equivalências entre Stripe e Asaas
+- [x] Planejar estrutura de dados para pagamentos Asaas
+- [x] Criar tabela de configurações de pagamento no banco
+
+### Fase 2: Implementação Backend
+- [x] Criar módulo de integração Asaas (server/_core/asaas.ts)
+- [x] Implementar criação de cobrança PIX
+- [x] Implementar criação de cobrança Cartão de Crédito
+- [x] Implementar criação de cobrança Boleto
+- [x] Criar funções de consulta de pagamento
+- [x] Criar funções de cancelamento de pagamento
+- [x] Validar credenciais Asaas (teste passou!)
+
+### Fase 3: Painel de Configuração Admin
+- [x] Criar página de configurações de pagamento no admin
+- [x] Implementar formulário de credenciais Asaas
+- [x] Criar rota tRPC para salvar configurações
+- [ ] Implementar validação de credenciais Asaas (frontend)
+- [x] Adicionar indicador de status da integração
+
+### Fase 4: Webhooks Asaas
+- [x] Criar endpoint de webhook Asaas (/api/asaas/webhook)
+- [ ] Implementar validação de assinatura do webhook
+- [x] Implementar processamento de pagamento confirmado
+- [ ] Implementar processamento de pagamento cancelado
+- [ ] Implementar processamento de pagamento expirado
+- [x] Adicionar logs de webhook para debug
+
+### Fase 5: Atualização de Fluxos de Pagamento
+- [ ] Substituir Stripe por Asaas em compra de bilhetes
+- [ ] Substituir Stripe por Asaas em compra de UTEFs
+- [ ] Atualizar interface de pagamento (PIX, Cartão, Boleto)
+- [ ] Atualizar página de confirmação de pagamento
+- [ ] Remover código Stripe antigo
+
+### Fase 6: Testes
+- [ ] Testar criação de cobrança PIX
+- [ ] Testar criação de cobrança Cartão de Crédito
+- [ ] Testar criação de cobrança Boleto
+- [ ] Testar webhook de pagamento confirmado
+- [ ] Testar webhook de pagamento cancelado
+- [ ] Testar fluxo completo de compra de bilhetes
+- [ ] Testar fluxo completo de compra de UTEFs
