@@ -991,3 +991,15 @@ Todas as 7 páginas do ecossistema foram redesenhadas com a paleta Prospecta:
 - [ ] Validar recebimento de webhook
 - [ ] Validar crédito automático de bilhetes
 - [ ] Validar envio de email de confirmação
+
+
+### 40. Upload de Foto de Perfil e Validação de CPF
+- [x] Implementar função de validação de CPF com dígitos verificadores
+- [x] Adicionar validação de CPF no frontend (página de perfil)
+- [x] Adicionar validação de CPF no backend (rota de atualização)
+- [x] Implementar upload de foto de perfil para S3
+- [x] Criar rota tRPC para upload de avatar
+- [x] Adicionar coluna avatar_url na tabela users (já existia)
+- [x] Conectar botão de câmera ao upload real
+- [x] Testar validação de CPF com CPFs válidos e inválidos
+- [ ] Testar upload de foto de perfil (requer imagem real)

@@ -106,6 +106,7 @@ export async function updateUserProfile(userId: number, profile: {
   city?: string;
   state?: string;
   zipCode?: string;
+  avatarUrl?: string;
 }): Promise<void> {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
@@ -120,6 +121,7 @@ export async function updateUserProfile(userId: number, profile: {
   if (profile.city !== undefined) updateSet.city = profile.city;
   if (profile.state !== undefined) updateSet.state = profile.state;
   if (profile.zipCode !== undefined) updateSet.zipCode = profile.zipCode;
+  if (profile.avatarUrl !== undefined) updateSet.avatarUrl = profile.avatarUrl;
   
   if (Object.keys(updateSet).length > 0) {
     await db.update(users).set(updateSet).where(eq(users.id, userId));

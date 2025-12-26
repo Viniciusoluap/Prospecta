@@ -10,6 +10,7 @@ import { ENV } from "./_core/env";
 import QRCode from "qrcode";
 import * as db from "./db";
 import { TRPCError } from "@trpc/server";
+import { validateCPF, cleanCPF } from "../shared/cpf";
 
 // Helper para gerar número de bilhete único
 function generateTicketNumber(): string {
@@ -96,10 +97,48 @@ export const appRouter = router({
         city: z.string().max(100).optional(),
         state: z.string().max(2).optional(),
         zipCode: z.string().max(10).optional(),
+        avatarUrl: z.string().optional(),
       }))
       .mutation(async ({ ctx, input }) => {
+        // Validar CPF se fornecido
+        if (input.cpf && cleanCPF(input.cpf).length === 11) {
+          const cpfValidation = validateCPF(input.cpf);
+          if (!cpfValidation.valid) {
+            throw new TRPCError({ 
+              code: "BAD_REQUEST", 
+              message: cpfValidation.message 
+            });
+          }
+        }
+        
         await db.updateUserProfile(ctx.user.id, input);
         return { success: true };
+      }),
+      
+    // Upload de avatar
+    uploadAvatar: protectedProcedure
+      .input(z.object({
+        imageBase64: z.string(),
+        mimeType: z.string(),
+      }))
+      .mutation(async ({ ctx, input }) => {
+        const { storagePut } = await import("./storage");
+        
+        // Converter base64 para buffer
+        const base64Data = input.imageBase64.replace(/^data:image\/\w+;base64,/, "");
+        const buffer = Buffer.from(base64Data, "base64");
+        
+        // Gerar nome único para o arquivo
+        const extension = input.mimeType.split("/")[1] || "png";
+        const fileName = `avatars/${ctx.user.id}-${Date.now()}.${extension}`;
+        
+        // Upload para S3
+        const { url } = await storagePut(fileName, buffer, input.mimeType);
+        
+        // Atualizar URL no perfil do usuário
+        await db.updateUserProfile(ctx.user.id, { avatarUrl: url });
+        
+        return { success: true, avatarUrl: url };
       }),
   }),
 

@@ -7,9 +7,9 @@ import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { trpc } from "@/lib/trpc";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { toast } from "sonner";
-import { Loader2, User, Save, Camera } from "lucide-react";
+import { Loader2, User, Save, Camera, CheckCircle, XCircle } from "lucide-react";
 import { useLocation } from "wouter";
 import { getLoginUrl } from "@/const";
 
@@ -43,9 +43,60 @@ const ESTADOS_BRASIL = [
   { value: "TO", label: "Tocantins" },
 ];
 
+// Função de validação de CPF
+function cleanCPF(cpf: string): string {
+  return cpf.replace(/\D/g, "");
+}
+
+function validateCPF(cpf: string): { valid: boolean; message: string } {
+  const numbers = cleanCPF(cpf);
+  
+  if (numbers.length !== 11) {
+    return { valid: false, message: "CPF deve ter 11 dígitos" };
+  }
+  
+  const invalidSequences = [
+    "00000000000", "11111111111", "22222222222", "33333333333",
+    "44444444444", "55555555555", "66666666666", "77777777777",
+    "88888888888", "99999999999",
+  ];
+  
+  if (invalidSequences.includes(numbers)) {
+    return { valid: false, message: "CPF inválido" };
+  }
+  
+  // Primeiro dígito verificador
+  let sum = 0;
+  for (let i = 0; i < 9; i++) {
+    sum += parseInt(numbers[i]) * (10 - i);
+  }
+  let remainder = (sum * 10) % 11;
+  if (remainder === 10 || remainder === 11) remainder = 0;
+  
+  if (remainder !== parseInt(numbers[9])) {
+    return { valid: false, message: "CPF inválido" };
+  }
+  
+  // Segundo dígito verificador
+  sum = 0;
+  for (let i = 0; i < 10; i++) {
+    sum += parseInt(numbers[i]) * (11 - i);
+  }
+  remainder = (sum * 10) % 11;
+  if (remainder === 10 || remainder === 11) remainder = 0;
+  
+  if (remainder !== parseInt(numbers[10])) {
+    return { valid: false, message: "CPF inválido" };
+  }
+  
+  return { valid: true, message: "CPF válido" };
+}
+
 export default function Perfil() {
   const { user, loading: authLoading, isAuthenticated } = useAuth();
   const [, navigate] = useLocation();
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const utils = trpc.useUtils();
   
   const [formData, setFormData] = useState({
     name: "",
@@ -59,6 +110,9 @@ export default function Perfil() {
   });
   
   const [isSaving, setIsSaving] = useState(false);
+  const [isUploadingAvatar, setIsUploadingAvatar] = useState(false);
+  const [cpfValidation, setCpfValidation] = useState<{ valid: boolean; message: string } | null>(null);
+  const [avatarPreview, setAvatarPreview] = useState<string | null>(null);
 
   // Redirecionar se não autenticado
   useEffect(() => {
@@ -80,6 +134,11 @@ export default function Perfil() {
         state: user.state || "",
         zipCode: user.zipCode || "",
       });
+      
+      // Validar CPF existente
+      if (user.cpf && cleanCPF(user.cpf).length === 11) {
+        setCpfValidation(validateCPF(user.cpf));
+      }
     }
   }, [user]);
 
@@ -87,6 +146,7 @@ export default function Perfil() {
     onSuccess: () => {
       toast.success("Perfil atualizado com sucesso!");
       setIsSaving(false);
+      utils.auth.me.invalidate();
     },
     onError: (error: { message: string }) => {
       toast.error("Erro ao atualizar perfil: " + error.message);
@@ -94,8 +154,31 @@ export default function Perfil() {
     },
   });
 
+  const uploadAvatarMutation = trpc.user.uploadAvatar.useMutation({
+    onSuccess: (data) => {
+      toast.success("Foto de perfil atualizada!");
+      setIsUploadingAvatar(false);
+      setAvatarPreview(null);
+      utils.auth.me.invalidate();
+    },
+    onError: (error: { message: string }) => {
+      toast.error("Erro ao enviar foto: " + error.message);
+      setIsUploadingAvatar(false);
+    },
+  });
+
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
+    
+    // Validar CPF antes de enviar
+    if (formData.cpf && cleanCPF(formData.cpf).length === 11) {
+      const validation = validateCPF(formData.cpf);
+      if (!validation.valid) {
+        toast.error(validation.message);
+        return;
+      }
+    }
+    
     setIsSaving(true);
     updateProfileMutation.mutate(formData);
   };
@@ -104,13 +187,28 @@ export default function Perfil() {
     setFormData((prev) => ({ ...prev, [field]: value }));
   };
 
-  // Formatar CPF
+  // Formatar CPF e validar em tempo real
   const formatCPF = (value: string) => {
     const numbers = value.replace(/\D/g, "");
     if (numbers.length <= 3) return numbers;
     if (numbers.length <= 6) return `${numbers.slice(0, 3)}.${numbers.slice(3)}`;
     if (numbers.length <= 9) return `${numbers.slice(0, 3)}.${numbers.slice(3, 6)}.${numbers.slice(6)}`;
     return `${numbers.slice(0, 3)}.${numbers.slice(3, 6)}.${numbers.slice(6, 9)}-${numbers.slice(9, 11)}`;
+  };
+
+  const handleCPFChange = (value: string) => {
+    const formatted = formatCPF(value);
+    handleChange("cpf", formatted);
+    
+    // Validar quando tiver 11 dígitos
+    const numbers = cleanCPF(formatted);
+    if (numbers.length === 11) {
+      setCpfValidation(validateCPF(formatted));
+    } else if (numbers.length > 0) {
+      setCpfValidation(null);
+    } else {
+      setCpfValidation(null);
+    }
   };
 
   // Formatar telefone
@@ -127,6 +225,39 @@ export default function Perfil() {
     const numbers = value.replace(/\D/g, "");
     if (numbers.length <= 5) return numbers;
     return `${numbers.slice(0, 5)}-${numbers.slice(5, 8)}`;
+  };
+
+  // Handler para seleção de arquivo de avatar
+  const handleAvatarSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    
+    // Validar tipo de arquivo
+    if (!file.type.startsWith("image/")) {
+      toast.error("Por favor, selecione uma imagem válida");
+      return;
+    }
+    
+    // Validar tamanho (máx 5MB)
+    if (file.size > 5 * 1024 * 1024) {
+      toast.error("A imagem deve ter no máximo 5MB");
+      return;
+    }
+    
+    // Criar preview
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      const base64 = event.target?.result as string;
+      setAvatarPreview(base64);
+      
+      // Fazer upload automaticamente
+      setIsUploadingAvatar(true);
+      uploadAvatarMutation.mutate({
+        imageBase64: base64,
+        mimeType: file.type,
+      });
+    };
+    reader.readAsDataURL(file);
   };
 
   if (authLoading) {
@@ -156,21 +287,38 @@ export default function Perfil() {
             <div className="flex flex-col items-center gap-4">
               <div className="relative">
                 <Avatar className="w-24 h-24 border-4 border-[#C9A961]">
-                  <AvatarImage src={user?.avatarUrl || undefined} />
+                  <AvatarImage src={avatarPreview || user?.avatarUrl || undefined} />
                   <AvatarFallback className="bg-[#C9A961] text-[#1A2332] text-2xl font-bold">
                     {user?.name?.charAt(0)?.toUpperCase() || <User className="w-10 h-10" />}
                   </AvatarFallback>
                 </Avatar>
+                
+                {/* Input de arquivo oculto */}
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept="image/*"
+                  className="hidden"
+                  onChange={handleAvatarSelect}
+                />
+                
+                {/* Botão de câmera */}
                 <button 
-                  className="absolute bottom-0 right-0 bg-[#C9A961] p-2 rounded-full hover:bg-[#b8984f] transition-colors"
-                  onClick={() => toast.info("Upload de foto em breve!")}
+                  className="absolute bottom-0 right-0 bg-[#C9A961] p-2 rounded-full hover:bg-[#b8984f] transition-colors disabled:opacity-50"
+                  onClick={() => fileInputRef.current?.click()}
+                  disabled={isUploadingAvatar}
                 >
-                  <Camera className="w-4 h-4 text-[#1A2332]" />
+                  {isUploadingAvatar ? (
+                    <Loader2 className="w-4 h-4 text-[#1A2332] animate-spin" />
+                  ) : (
+                    <Camera className="w-4 h-4 text-[#1A2332]" />
+                  )}
                 </button>
               </div>
               <div className="text-center">
                 <h2 className="text-xl font-semibold text-white">{user?.name || "Usuário"}</h2>
                 <p className="text-gray-400 text-sm">{user?.email}</p>
+                <p className="text-xs text-gray-500 mt-1">Clique na câmera para alterar a foto</p>
               </div>
             </div>
           </CardContent>
@@ -215,15 +363,34 @@ export default function Perfil() {
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div className="space-y-2">
                   <Label htmlFor="cpf" className="text-gray-300">CPF</Label>
-                  <Input
-                    id="cpf"
-                    value={formData.cpf}
-                    onChange={(e) => handleChange("cpf", formatCPF(e.target.value))}
-                    placeholder="000.000.000-00"
-                    maxLength={14}
-                    className="bg-[#2a3a4a] border-[#3a4a5a] text-white placeholder:text-gray-500"
-                  />
-                  <p className="text-xs text-gray-500">Necessário para pagamentos</p>
+                  <div className="relative">
+                    <Input
+                      id="cpf"
+                      value={formData.cpf}
+                      onChange={(e) => handleCPFChange(e.target.value)}
+                      placeholder="000.000.000-00"
+                      maxLength={14}
+                      className={`bg-[#2a3a4a] border-[#3a4a5a] text-white placeholder:text-gray-500 pr-10 ${
+                        cpfValidation 
+                          ? cpfValidation.valid 
+                            ? "border-green-500" 
+                            : "border-red-500"
+                          : ""
+                      }`}
+                    />
+                    {cpfValidation && (
+                      <div className="absolute right-3 top-1/2 -translate-y-1/2">
+                        {cpfValidation.valid ? (
+                          <CheckCircle className="w-5 h-5 text-green-500" />
+                        ) : (
+                          <XCircle className="w-5 h-5 text-red-500" />
+                        )}
+                      </div>
+                    )}
+                  </div>
+                  <p className={`text-xs ${cpfValidation?.valid === false ? "text-red-400" : "text-gray-500"}`}>
+                    {cpfValidation?.valid === false ? cpfValidation.message : "Necessário para pagamentos"}
+                  </p>
                 </div>
                 <div className="space-y-2">
                   <Label htmlFor="phone" className="text-gray-300">Telefone</Label>
@@ -295,7 +462,7 @@ export default function Perfil() {
               <div className="flex justify-end pt-4">
                 <Button
                   type="submit"
-                  disabled={isSaving}
+                  disabled={isSaving || (cpfValidation?.valid === false)}
                   className="bg-[#C9A961] hover:bg-[#b8984f] text-[#1A2332] font-semibold px-8"
                 >
                   {isSaving ? (
