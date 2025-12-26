@@ -52,7 +52,7 @@ export default function Home() {
             </p>
             <div className="flex flex-col sm:flex-row gap-4 justify-center">
               <Button asChild size="lg" className="bg-accent hover:bg-accent/90 text-secondary font-semibold text-lg px-8">
-                <Link href="/projetos-orcamentos">
+                <Link href="/simulador">
                   Quero financiar minha casa
                   <ChevronRight className="ml-2 h-5 w-5" />
                 </Link>
@@ -362,9 +362,11 @@ export default function Home() {
               </div>
               {/* Logo Exclusive Club */}
               <div className="grayscale hover:grayscale-0 transition-all flex items-center gap-2">
-                <div className="h-12 md:h-16 flex items-center justify-center px-4 bg-secondary rounded-lg">
-                  <span className="text-primary font-bold text-lg md:text-xl">Exclusive Club</span>
-                </div>
+                <img 
+                  src="/exclusive-club-logo.png" 
+                  alt="Exclusive Club" 
+                  className="h-12 md:h-16 object-contain"
+                />
               </div>
             </div>
           </div>

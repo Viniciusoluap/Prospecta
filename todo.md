@@ -1029,3 +1029,14 @@ Todas as 7 páginas do ecossistema foram redesenhadas com a paleta Prospecta:
 - [x] Passo 6: Atualizar FAQ "É possível ZERAR a entrada?" com 3 situações
 - [x] Passo 7: Remover pergunta "Os 20% de ENTRADA tem que ser pago ao banco?"
 - [x] Passo 8: Trocar "Como Funciona o Efficaz Orbit" para "Como funciona o Ecossistema Efficaz"
+
+
+### 43. Logo Exclusive Club e Simulador de Financiamento
+- [x] Criar/buscar logo da Exclusive Club
+- [x] Substituir texto "Exclusive Club" por imagem/logo
+- [x] Pesquisar simulador da Caixa para entender a lógica
+- [x] Criar página de simulador de financiamento
+- [x] Implementar campos: valor do imóvel, renda familiar, entrada, prazo
+- [x] Implementar cálculo de parcelas e subsídios
+- [x] Adicionar rota no App.tsx
+- [x] Testar simulador com diferentes valores

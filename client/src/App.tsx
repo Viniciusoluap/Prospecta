@@ -33,6 +33,7 @@ import AdminEmails from "./pages/AdminEmails";
 import Notificacoes from "./pages/Notificacoes";
 import ConfiguracoesPagamento from "./pages/admin/ConfiguracoesPagamento";
 import Perfil from "./pages/Perfil";
+import SimuladorFinanciamento from "./pages/SimuladorFinanciamento";
 import WhatsAppFloat from "./components/WhatsAppFloat";
 
 function Router() {
@@ -98,6 +99,7 @@ function Router() {
       <Route path="/termos-de-uso" component={TermosDeUso} />
       <Route path="/politica-de-privacidade" component={PoliticaDePrivacidade} />
       <Route path="/faq" component={FAQ} />
+      <Route path="/simulador" component={SimuladorFinanciamento} />
       <Route path={"/404"} component={NotFound} />
       {/* Final fallback route */}
       <Route component={NotFound} />
