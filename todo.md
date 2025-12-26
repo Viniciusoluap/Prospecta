@@ -936,3 +936,14 @@ Todas as 7 páginas do ecossistema foram redesenhadas com a paleta Prospecta:
 - [x] Testar criação de cobrança PIX
 - [x] Testar criação de cobrança Cartão de Crédito
 - [x] Testar webhook de pagamento configurado
+
+
+## 📋 CAMPO CPF E TESTES FASE 10
+
+- [x] Adicionar campo CPF na tabela users
+- [x] Aplicar migração no banco de dados
+- [x] Atualizar fluxos de pagamento para usar CPF do usuário
+- [x] Testar sistema de produtos (listagem, conversão UTEF)
+- [x] Testar sistema de obras (criar obra, enviar orçamento, aprovar/rejeitar)
+- [x] Testar painel administrativo (gerenciar sorteios, produtos, obras)
+- [ ] Fazer compra real de bilhete com PIX para validar fluxo completo

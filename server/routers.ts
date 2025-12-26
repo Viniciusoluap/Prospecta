@@ -199,6 +199,7 @@ export const appRouter = router({
         const asaasCustomer = await createOrUpdateAsaasCustomer({
           name: ctx.user.name || "Cliente",
           email: ctx.user.email || undefined,
+          cpfCnpj: ctx.user.cpf || undefined,
           externalReference: `user_${ctx.user.id}`,
         });
         
@@ -301,6 +302,7 @@ export const appRouter = router({
         const asaasCustomer = await createOrUpdateAsaasCustomer({
           name: ctx.user.name || "Cliente",
           email: ctx.user.email || undefined,
+          cpfCnpj: ctx.user.cpf || undefined,
           externalReference: `user_${ctx.user.id}`,
         });
         

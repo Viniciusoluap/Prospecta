@@ -1,0 +1,1 @@
+ALTER TABLE `users` ADD `cpf` varchar(14);
