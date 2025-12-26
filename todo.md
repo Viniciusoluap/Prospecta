@@ -1040,3 +1040,14 @@ Todas as 7 páginas do ecossistema foram redesenhadas com a paleta Prospecta:
 - [x] Implementar cálculo de parcelas e subsídios
 - [x] Adicionar rota no App.tsx
 - [x] Testar simulador com diferentes valores
+
+
+### 44. Atualização da Seção de Depoimentos
+- [x] Depoimento 1: Trocar "Bruna Silva - São Luís - MA" para "Aberione Sousa - Imperatriz - MA"
+- [x] Depoimento 1: Adicionar vídeo YouTube https://youtube.com/shorts/sUKLiYMfFaE
+- [x] Depoimento 2: Trocar "Weeber Santos - Imperatriz - MA" para "Maysa Silva - Canaã dos Carajás - PA"
+- [x] Depoimento 2: Adicionar vídeo YouTube https://youtube.com/shorts/ILCOWiUJTBM
+- [x] Depoimento 3: Trocar "Madson Oliveira - Açailândia - MA" para "Guilherme Amorim - São Paulo - SP"
+- [x] Depoimento 3: Atualizar texto para case de sucesso de investidor (ROI 78,5%)
+- [x] Depoimento 3: Adicionar vídeo YouTube https://youtube.com/shorts/5wQWuppuLwM
+- [x] Implementar pré-visualização dos vídeos do YouTube

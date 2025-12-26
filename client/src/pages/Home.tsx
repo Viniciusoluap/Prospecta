@@ -384,10 +384,19 @@ export default function Home() {
               </p>
             </div>
             <div className="grid md:grid-cols-3 gap-8 max-w-6xl mx-auto">
+              {/* Depoimento 1 - Aberione Sousa */}
               <Card className="bg-white/10 border-primary/30">
                 <CardContent className="pt-6">
-                  <Quote className="h-10 w-10 text-accent mb-4" />
-                  <p className="text-white/80 mb-4 italic">
+                  <div className="mb-4 rounded-lg overflow-hidden aspect-[9/16] max-h-[280px]">
+                    <iframe
+                      src="https://www.youtube.com/embed/sUKLiYMfFaE"
+                      title="Depoimento Aberione Sousa"
+                      className="w-full h-full"
+                      allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                      allowFullScreen
+                    />
+                  </div>
+                  <p className="text-white/80 mb-4 italic text-sm">
                     "A Prospecta realizou meu sonho! Construíram minha casa com qualidade e no prazo. 
                     Recomendo de olhos fechados!"
                   </p>
@@ -400,15 +409,24 @@ export default function Home() {
                       <Star className="h-4 w-4 fill-current" />
                     </div>
                   </div>
-                  <p className="font-bold text-primary mt-2">Bruna Silva</p>
-                  <p className="text-sm text-white/60">São Luís - MA</p>
+                  <p className="font-bold text-primary mt-2">Aberione Sousa</p>
+                  <p className="text-sm text-white/60">Imperatriz - MA</p>
                 </CardContent>
               </Card>
 
+              {/* Depoimento 2 - Maysa Silva */}
               <Card className="bg-white/10 border-primary/30">
                 <CardContent className="pt-6">
-                  <Quote className="h-10 w-10 text-accent mb-4" />
-                  <p className="text-white/80 mb-4 italic">
+                  <div className="mb-4 rounded-lg overflow-hidden aspect-[9/16] max-h-[280px]">
+                    <iframe
+                      src="https://www.youtube.com/embed/ILCOWiUJTBM"
+                      title="Depoimento Maysa Silva"
+                      className="w-full h-full"
+                      allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                      allowFullScreen
+                    />
+                  </div>
+                  <p className="text-white/80 mb-4 italic text-sm">
                     "Excelente atendimento desde o orçamento até a entrega das chaves. 
                     Equipe profissional e comprometida!"
                   </p>
@@ -421,17 +439,27 @@ export default function Home() {
                       <Star className="h-4 w-4 fill-current" />
                     </div>
                   </div>
-                  <p className="font-bold text-primary mt-2">Weeber Santos</p>
-                  <p className="text-sm text-white/60">Imperatriz - MA</p>
+                  <p className="font-bold text-primary mt-2">Maysa Silva</p>
+                  <p className="text-sm text-white/60">Canaã dos Carajás - PA</p>
                 </CardContent>
               </Card>
 
+              {/* Depoimento 3 - Guilherme Amorim (Investidor) */}
               <Card className="bg-white/10 border-primary/30">
                 <CardContent className="pt-6">
-                  <Quote className="h-10 w-10 text-accent mb-4" />
-                  <p className="text-white/80 mb-4 italic">
-                    "Consegui financiar pela Caixa com a ajuda da Prospecta. 
-                    Hoje tenho minha casa própria e pago menos que aluguel!"
+                  <div className="mb-4 rounded-lg overflow-hidden aspect-[9/16] max-h-[280px]">
+                    <iframe
+                      src="https://www.youtube.com/embed/5wQWuppuLwM"
+                      title="Depoimento Guilherme Amorim"
+                      className="w-full h-full"
+                      allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                      allowFullScreen
+                    />
+                  </div>
+                  <p className="text-white/80 mb-4 italic text-sm">
+                    "Esse é um dos nossos investidores e um verdadeiro case de sucesso! Ele investiu R$ 7.750,00 e, 
+                    em apenas 5 meses, recebeu R$ 13.837,50! Isso representa um ROI de 78,5%, ou seja, 15,7% ao mês! 
+                    Utilizamos um modelo de investimento estrategicamente financiado pela Caixa, garantindo segurança e alta rentabilidade!"
                   </p>
                   <div className="flex items-center gap-2">
                     <div className="flex text-accent">
@@ -442,8 +470,8 @@ export default function Home() {
                       <Star className="h-4 w-4 fill-current" />
                     </div>
                   </div>
-                  <p className="font-bold text-primary mt-2">Madson Oliveira</p>
-                  <p className="text-sm text-white/60">Açailândia - MA</p>
+                  <p className="font-bold text-primary mt-2">Guilherme Amorim</p>
+                  <p className="text-sm text-white/60">São Paulo - SP</p>
                 </CardContent>
               </Card>
             </div>
