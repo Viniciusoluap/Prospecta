@@ -9,7 +9,7 @@ import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { trpc } from "@/lib/trpc";
 import { useState, useEffect, useRef } from "react";
 import { toast } from "sonner";
-import { Loader2, User, Save, Camera, CheckCircle, XCircle } from "lucide-react";
+import { Loader2, User, Save, Camera, CheckCircle, XCircle, ArrowLeft } from "lucide-react";
 import { useLocation } from "wouter";
 import { getLoginUrl } from "@/const";
 
@@ -275,6 +275,15 @@ export default function Perfil() {
   return (
     <div className="min-h-screen bg-gradient-to-b from-[#1A2332] to-[#0f1419] py-12">
       <div className="container max-w-2xl mx-auto px-4">
+        {/* Botão Voltar */}
+        <button
+          onClick={() => window.history.length > 1 ? window.history.back() : navigate("/")}
+          className="flex items-center gap-2 text-gray-400 hover:text-[#C9A961] transition-colors mb-6"
+        >
+          <ArrowLeft className="h-5 w-5" />
+          <span>Voltar</span>
+        </button>
+
         {/* Header */}
         <div className="text-center mb-8">
           <h1 className="text-3xl font-bold text-white mb-2">Meu Perfil</h1>

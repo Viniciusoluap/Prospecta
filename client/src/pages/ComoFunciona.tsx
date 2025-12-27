@@ -1,6 +1,7 @@
 import Navbar from "@/components/Navbar";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Ticket, Coins, ShoppingBag, Trophy, Shield, FileText } from "lucide-react";
+import { Ticket, Coins, ShoppingBag, Trophy, Shield, FileText, ArrowLeft } from "lucide-react";
+import { Link } from "wouter";
 
 export default function ComoFunciona() {
   return (
@@ -8,6 +9,14 @@ export default function ComoFunciona() {
       <Navbar />
       
       <main className="flex-1">
+        {/* Botão Voltar */}
+        <div className="container pt-6">
+          <Link href="/" className="inline-flex items-center gap-2 text-gray-400 hover:text-[#C9A961] transition-colors">
+            <ArrowLeft className="h-5 w-5" />
+            <span>Voltar</span>
+          </Link>
+        </div>
+
         {/* Hero */}
         <section className="py-20">
           <div className="container">

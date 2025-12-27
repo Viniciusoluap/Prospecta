@@ -7,7 +7,7 @@ import Navbar from "@/components/Navbar";
 import SEO from "@/components/SEO";
 import { trpc } from "@/lib/trpc";
 import { formatCurrency, formatUtef, formatDate } from "@/const";
-import { Ticket, Trophy, Calendar, Target, Loader2 } from "lucide-react";
+import { Ticket, Trophy, Calendar, Target, Loader2, ArrowLeft } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
 
 export default function Sorteios() {
@@ -24,6 +24,12 @@ export default function Sorteios() {
       
       <main className="flex-1 py-12">
         <div className="container">
+          {/* Botão Voltar */}
+          <Link href="/" className="inline-flex items-center gap-2 text-gray-400 hover:text-[#C9A961] transition-colors mb-6">
+            <ArrowLeft className="h-5 w-5" />
+            <span>Voltar</span>
+          </Link>
+
           <div className="max-w-6xl mx-auto space-y-8">
             {/* Header */}
             <div className="text-center space-y-4">

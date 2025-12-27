@@ -8,7 +8,7 @@ import Navbar from "@/components/Navbar";
 import { trpc } from "@/lib/trpc";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { formatUtef, formatDate, getLoginUrl } from "@/const";
-import { Coins, TrendingUp, TrendingDown, Gift, ShoppingBag, Settings, AlertCircle, Plus } from "lucide-react";
+import { Coins, TrendingUp, TrendingDown, Gift, ShoppingBag, Settings, AlertCircle, Plus, ArrowLeft } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
 
 export default function MeuSaldo() {
@@ -97,6 +97,12 @@ export default function MeuSaldo() {
       
       <main className="flex-1 py-12">
         <div className="container max-w-4xl space-y-6">
+          {/* Botão Voltar */}
+          <Link href="/" className="inline-flex items-center gap-2 text-gray-400 hover:text-[#C9A961] transition-colors">
+            <ArrowLeft className="h-5 w-5" />
+            <span>Voltar</span>
+          </Link>
+
           <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
             <div>
               <h1 className="text-4xl font-bold text-[#C9A961]">Meu Saldo UTEF</h1>

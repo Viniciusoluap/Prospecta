@@ -7,7 +7,7 @@ import Navbar from "@/components/Navbar";
 import { trpc } from "@/lib/trpc";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { formatCurrency, formatDate, getLoginUrl } from "@/const";
-import { Ticket, CheckCircle2, Clock, XCircle, AlertCircle } from "lucide-react";
+import { Ticket, CheckCircle2, Clock, XCircle, AlertCircle, ArrowLeft } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
 
 export default function MeusBilhetes() {
@@ -84,6 +84,12 @@ export default function MeusBilhetes() {
       
       <main className="flex-1 py-12">
         <div className="container max-w-4xl space-y-6">
+          {/* Botão Voltar */}
+          <Link href="/" className="inline-flex items-center gap-2 text-gray-400 hover:text-[#C9A961] transition-colors">
+            <ArrowLeft className="h-5 w-5" />
+            <span>Voltar</span>
+          </Link>
+
           <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
             <div>
               <h1 className="text-4xl font-bold text-[#C9A961]">Meus Bilhetes</h1>

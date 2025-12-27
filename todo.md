@@ -1069,3 +1069,16 @@ Todas as 7 páginas do ecossistema foram redesenhadas com a paleta Prospecta:
 - [x] Implementar feed do Instagram com 6 posts preview
 - [x] Integrar na seção de redes sociais existente
 - [x] Testar responsividade e funcionalidade
+
+
+### 47. Botões de Voltar em Todas as Páginas
+- [x] Identificar todas as páginas internas do site
+- [x] Criar componente reutilizável de botão voltar (BackButton.tsx)
+- [x] Adicionar botão voltar na página Simulador de Financiamento (já tinha)
+- [x] Adicionar botão voltar na página Perfil
+- [x] Adicionar botão voltar na página Como Funciona
+- [x] Adicionar botão voltar na página Sorteios
+- [x] Adicionar botão voltar na página Produtos
+- [x] Adicionar botão voltar na página Projetos e Orçamentos
+- [x] Adicionar botão voltar em outras páginas (MeuSaldo, MeusBilhetes, ComprarUtef, FAQ já tinha, ComprarBilhete já tinha)
+- [x] Testar navegação em todas as páginas

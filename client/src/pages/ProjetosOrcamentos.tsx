@@ -4,7 +4,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { ExternalLink, Home, Ruler, DollarSign, CheckCircle, Loader2, Send } from "lucide-react";
+import { ExternalLink, Home, Ruler, DollarSign, CheckCircle, Loader2, Send, ArrowLeft } from "lucide-react";
 import Navbar from "@/components/Navbar";
 import SEO from "@/components/SEO";
 import { trpc } from "@/lib/trpc";
@@ -61,6 +61,14 @@ export default function ProjetosOrcamentos() {
     <div className="min-h-screen bg-[#1A2332]">
       <Navbar />
       
+      {/* Botão Voltar */}
+      <div className="container mx-auto max-w-6xl pt-6 px-4">
+        <a href="/" className="inline-flex items-center gap-2 text-gray-400 hover:text-[#C9A961] transition-colors">
+          <ArrowLeft className="h-5 w-5" />
+          <span>Voltar</span>
+        </a>
+      </div>
+
       {/* Hero Section */}
       <section className="py-20 px-4 bg-gradient-to-br from-[#1A2332] to-[#0f1621]">
         <div className="container mx-auto max-w-6xl">

@@ -8,7 +8,8 @@ import Navbar from "@/components/Navbar";
 import { trpc } from "@/lib/trpc";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { formatCurrency, getLoginUrl } from "@/const";
-import { Coins, Copy, CheckCircle2, AlertCircle, Info, CreditCard, Smartphone } from "lucide-react";
+import { Coins, Copy, CheckCircle2, AlertCircle, Info, CreditCard, Smartphone, ArrowLeft } from "lucide-react";
+import { Link } from "wouter";
 import { toast } from "sonner";
 
 export default function ComprarUtef() {
@@ -71,6 +72,12 @@ export default function ComprarUtef() {
       
       <main className="flex-1 py-12">
         <div className="container max-w-2xl space-y-6">
+          {/* Botão Voltar */}
+          <Link href="/" className="inline-flex items-center gap-2 text-gray-400 hover:text-[#C9A961] transition-colors">
+            <ArrowLeft className="h-5 w-5" />
+            <span>Voltar</span>
+          </Link>
+
           <div className="text-center space-y-4">
             <h1 className="text-5xl font-bold text-[#C9A961]">Comprar UTEFs</h1>
             <p className="text-xl text-gray-300">
