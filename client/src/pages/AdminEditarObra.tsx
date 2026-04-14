@@ -7,7 +7,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { trpc } from "@/lib/trpc";
-import { ArrowLeft, Building2, DollarSign, FileText, Image, Loader2, Save, Upload, X, Download } from "lucide-react";
+import { ArrowLeft, Building2, DollarSign, FileText, Image, Loader2, Save, Upload, X, Download, BarChart3 } from "lucide-react";
 import { Link, useLocation, useParams } from "wouter";
 import { getLoginUrl } from "@/const";
 import { useEffect, useState } from "react";
@@ -57,6 +57,31 @@ export default function AdminEditarObra() {
   const [maintenanceCost, setMaintenanceCost] = useState("");
   const [insuranceCost, setInsuranceCost] = useState("");
   const [balanceAmount, setBalanceAmount] = useState("");
+
+  // Campos MCMV/CEF adicionais
+  const [vgv, setVgv] = useState("");
+  const [financedAmount, setFinancedAmount] = useState("");
+  const [fgtsAmount, setFgtsAmount] = useState("");
+  const [subsidyAmount, setSubsidyAmount] = useState("");
+  const [downPaymentTotal, setDownPaymentTotal] = useState("");
+  const [downPaymentPaid, setDownPaymentPaid] = useState("");
+  const [plsPercentage, setPlsPercentage] = useState("");
+  const [cefReceivedAmount, setCefReceivedAmount] = useState("");
+  const [constructionSpent, setConstructionSpent] = useState("");
+  const [brokerName, setBrokerName] = useState("");
+  const [brokerPaid, setBrokerPaid] = useState("false");
+  const [constructionCost, setConstructionCost] = useState("");
+  const [estimatedProfit, setEstimatedProfit] = useState("");
+  const [investorProfit, setInvestorProfit] = useState("");
+  const [prospectaProfit, setProspectaProfit] = useState("");
+  const [proSoluto, setProSoluto] = useState("");
+  const [installmentRate, setInstallmentRate] = useState("");
+  const [installmentQty, setInstallmentQty] = useState("");
+  const [installmentValue, setInstallmentValue] = useState("");
+  const [constructionDays, setConstructionDays] = useState("");
+  const [clientName, setClientName] = useState("");
+  const [cefTitle, setCefTitle] = useState("");
+  const [cefBranch, setCefBranch] = useState("");
 
   // Form state - Aba 3: Progresso
   const [progress, setProgress] = useState("0");
@@ -163,7 +188,7 @@ export default function AdminEditarObra() {
       setStartDate(project.startDate ? new Date(project.startDate).toISOString().split("T")[0] : "");
       setEstimatedEndDate(project.estimatedEndDate ? new Date(project.estimatedEndDate).toISOString().split("T")[0] : "");
       setActualEndDate(project.actualEndDate ? new Date(project.actualEndDate).toISOString().split("T")[0] : "");
-      setNotes(project.notes || "");
+      setNotes((project.notes || "").replace(/\n__MCMV_META__:[\s\S]+$/, ""));
       setProgress(project.progress?.toString() || "0");
 
       // Valores financeiros
@@ -177,6 +202,37 @@ export default function AdminEditarObra() {
       setMaintenanceCost(project.maintenanceCost ? (project.maintenanceCost / 100).toString() : "");
       setInsuranceCost(project.insuranceCost ? (project.insuranceCost / 100).toString() : "");
       setBalanceAmount(project.balanceAmount ? (project.balanceAmount / 100).toString() : "");
+
+      // Campos MCMV adicionais (stored appended to notes field)
+      const notesRaw = project.notes || "";
+      const metaMatch = notesRaw.match(/\n__MCMV_META__:([\s\S]+)$/);
+      let meta: Record<string, string> = {};
+      if (metaMatch) {
+        try { meta = JSON.parse(metaMatch[1]); } catch {}
+      }
+      setVgv(meta.vgv || "");
+      setFinancedAmount(meta.financedAmount || "");
+      setFgtsAmount(meta.fgtsAmount || "");
+      setSubsidyAmount(meta.subsidyAmount || "");
+      setDownPaymentTotal(meta.downPaymentTotal || "");
+      setDownPaymentPaid(meta.downPaymentPaid || "");
+      setPlsPercentage(meta.plsPercentage || "");
+      setCefReceivedAmount(meta.cefReceivedAmount || "");
+      setConstructionSpent(meta.constructionSpent || "");
+      setBrokerName(meta.brokerName || "");
+      setBrokerPaid(meta.brokerPaid || "false");
+      setConstructionCost(meta.constructionCost || "");
+      setEstimatedProfit(meta.estimatedProfit || "");
+      setInvestorProfit(meta.investorProfit || "");
+      setProspectaProfit(meta.prospectaProfit || "");
+      setProSoluto(meta.proSoluto || "");
+      setInstallmentRate(meta.installmentRate || "");
+      setInstallmentQty(meta.installmentQty || "");
+      setInstallmentValue(meta.installmentValue || "");
+      setConstructionDays(meta.constructionDays || "");
+      setClientName(meta.clientName || "");
+      setCefTitle(meta.cefTitle || "");
+      setCefBranch(meta.cefBranch || "");
     }
   }, [project]);
 
@@ -206,6 +262,19 @@ export default function AdminEditarObra() {
     if (maintenanceCost) updates.maintenanceCost = Math.round(parseFloat(maintenanceCost) * 100);
     if (insuranceCost) updates.insuranceCost = Math.round(parseFloat(insuranceCost) * 100);
     if (balanceAmount) updates.balanceAmount = Math.round(parseFloat(balanceAmount) * 100);
+
+    // Save MCMV/CEF metadata in notes field as JSON-like suffix
+    const mcmvMeta = {
+      vgv, financedAmount, fgtsAmount, subsidyAmount, downPaymentTotal, downPaymentPaid,
+      plsPercentage, cefReceivedAmount, constructionSpent, brokerName, brokerPaid,
+      constructionCost, estimatedProfit, investorProfit, prospectaProfit,
+      proSoluto, installmentRate, installmentQty, installmentValue,
+      constructionDays, clientName, cefTitle, cefBranch,
+    };
+    // Store MCMV data appended to notes as a parseable marker
+    const mcmvTag = `\n__MCMV_META__:${JSON.stringify(mcmvMeta)}`;
+    const baseNotes = notes.replace(/\n__MCMV_META__:.*$/s, "");
+    updates.notes = baseNotes + mcmvTag;
 
     updateMutation.mutate(updates);
   };
@@ -265,6 +334,13 @@ export default function AdminEditarObra() {
               <h1 className="text-3xl font-bold text-[#C9A961] mb-2">Editar Obra</h1>
               <p className="text-gray-400">{project.title}</p>
             </div>
+            <div className="flex items-center gap-3">
+              <Link href={`/admin/obras/${projectId}/medicoes`}>
+                <Button variant="outline" className="border-[#C9A961]/40 text-[#C9A961] hover:bg-[#C9A961]/10 gap-2">
+                  <BarChart3 className="h-4 w-4" />
+                  Ver Medições
+                </Button>
+              </Link>
             <Button
               onClick={handleSave}
               disabled={updateMutation.isPending}
@@ -282,6 +358,7 @@ export default function AdminEditarObra() {
                 </>
               )}
             </Button>
+            </div>
           </div>
         </div>
       </div>
@@ -289,26 +366,30 @@ export default function AdminEditarObra() {
       {/* Content */}
       <div className="container py-8">
         <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
-          <TabsList className="grid w-full grid-cols-5 bg-[#1A2332]/60 border border-[#C9A961]/20">
+          <TabsList className="grid w-full grid-cols-6 bg-[#1A2332]/60 border border-[#C9A961]/20">
             <TabsTrigger value="info" className="data-[state=active]:bg-[#C9A961] data-[state=active]:text-[#1A2332]">
-              <Building2 className="h-4 w-4 mr-2" />
-              Informações
+              <Building2 className="h-4 w-4 mr-1" />
+              <span className="hidden md:inline">Informações</span>
+            </TabsTrigger>
+            <TabsTrigger value="mcmv" className="data-[state=active]:bg-[#C9A961] data-[state=active]:text-[#1A2332]">
+              <DollarSign className="h-4 w-4 mr-1" />
+              <span className="hidden md:inline">MCMV/CEF</span>
             </TabsTrigger>
             <TabsTrigger value="valores" className="data-[state=active]:bg-[#C9A961] data-[state=active]:text-[#1A2332]">
-              <DollarSign className="h-4 w-4 mr-2" />
-              Valores
+              <DollarSign className="h-4 w-4 mr-1" />
+              <span className="hidden md:inline">Custos</span>
             </TabsTrigger>
             <TabsTrigger value="progresso" className="data-[state=active]:bg-[#C9A961] data-[state=active]:text-[#1A2332]">
-              <FileText className="h-4 w-4 mr-2" />
-              Progresso
+              <FileText className="h-4 w-4 mr-1" />
+              <span className="hidden md:inline">Progresso</span>
             </TabsTrigger>
             <TabsTrigger value="fotos" className="data-[state=active]:bg-[#C9A961] data-[state=active]:text-[#1A2332]">
-              <Image className="h-4 w-4 mr-2" />
-              Fotos
+              <Image className="h-4 w-4 mr-1" />
+              <span className="hidden md:inline">Fotos</span>
             </TabsTrigger>
             <TabsTrigger value="relatorios" className="data-[state=active]:bg-[#C9A961] data-[state=active]:text-[#1A2332]">
-              <FileText className="h-4 w-4 mr-2" />
-              Relatórios
+              <FileText className="h-4 w-4 mr-1" />
+              <span className="hidden md:inline">Relatórios</span>
             </TabsTrigger>
           </TabsList>
 
@@ -378,11 +459,33 @@ export default function AdminEditarObra() {
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent>
+                        {/* Status legados */}
                         <SelectItem value="planning">Planejamento</SelectItem>
                         <SelectItem value="in_progress">Em Andamento</SelectItem>
                         <SelectItem value="paused">Pausada</SelectItem>
                         <SelectItem value="completed">Concluída</SelectItem>
                         <SelectItem value="cancelled">Cancelada</SelectItem>
+                        {/* Etapas do processo CEF/MCMV */}
+                        <SelectItem value="atendimento">Atendimento</SelectItem>
+                        <SelectItem value="aprovacao">Aprovação</SelectItem>
+                        <SelectItem value="proposta">Proposta</SelectItem>
+                        <SelectItem value="contrato_prospecta">Contrato Prospecta</SelectItem>
+                        <SelectItem value="documentos">Documentos</SelectItem>
+                        <SelectItem value="vistoria_cef">Vistoria CEF</SelectItem>
+                        <SelectItem value="laudo_cef">Laudo CEF</SelectItem>
+                        <SelectItem value="assinaturas_fichas">Assinaturas Fichas</SelectItem>
+                        <SelectItem value="conformidade_cef">Conformidade CEF</SelectItem>
+                        <SelectItem value="assinatura_contrato_cef">Assinatura Contrato CEF</SelectItem>
+                        <SelectItem value="cartorio">Cartório</SelectItem>
+                        <SelectItem value="itbi">ITBI</SelectItem>
+                        <SelectItem value="segunda_conformidade">Segunda Conformidade</SelectItem>
+                        <SelectItem value="cef_libera_obra">CEF Libera Obra</SelectItem>
+                        <SelectItem value="medicoes">Medições</SelectItem>
+                        <SelectItem value="entrega">Entrega</SelectItem>
+                        <SelectItem value="cno_cnd">CNO/CND</SelectItem>
+                        <SelectItem value="habite_se">Habite-se</SelectItem>
+                        <SelectItem value="averbacao">Averbação</SelectItem>
+                        <SelectItem value="concluido">Concluído</SelectItem>
                       </SelectContent>
                     </Select>
                   </div>
@@ -433,6 +536,166 @@ export default function AdminEditarObra() {
                     placeholder="Anotações gerais sobre a obra"
                     rows={4}
                   />
+                </div>
+              </CardContent>
+            </Card>
+          </TabsContent>
+
+          {/* ABA MCMV/CEF */}
+          <TabsContent value="mcmv" className="mt-6">
+            <Card className="bg-[#1A2332]/60 border-[#C9A961]/20 backdrop-blur-sm">
+              <CardHeader>
+                <CardTitle className="text-[#C9A961]">Dados MCMV / Caixa Econômica Federal</CardTitle>
+                <CardDescription className="text-gray-400">
+                  Campos específicos do programa Minha Casa Minha Vida e CEF
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-6">
+                {/* Identificação CEF */}
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                  <div className="space-y-2">
+                    <Label className="text-gray-300">Nome do Cliente</Label>
+                    <Input value={clientName} onChange={(e) => setClientName(e.target.value)} className="bg-[#2C3E50] border-[#C9A961]/30 text-white" placeholder="Nome do beneficiário" />
+                  </div>
+                  <div className="space-y-2">
+                    <Label className="text-gray-300">Título CF (CEF)</Label>
+                    <Input value={cefTitle} onChange={(e) => setCefTitle(e.target.value)} className="bg-[#2C3E50] border-[#C9A961]/30 text-white" placeholder="Número do título" />
+                  </div>
+                  <div className="space-y-2">
+                    <Label className="text-gray-300">Escritório CF (Agência CEF)</Label>
+                    <Input value={cefBranch} onChange={(e) => setCefBranch(e.target.value)} className="bg-[#2C3E50] border-[#C9A961]/30 text-white" placeholder="Agência CEF" />
+                  </div>
+                </div>
+
+                {/* Valores CEF */}
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                  <div className="space-y-2">
+                    <Label className="text-gray-300">VGV - Valor Global de Venda (R$)</Label>
+                    <Input type="number" step="0.01" value={vgv} onChange={(e) => setVgv(e.target.value)} className="bg-[#2C3E50] border-[#C9A961]/30 text-white" placeholder="Ex: 153000.00" />
+                  </div>
+                  <div className="space-y-2">
+                    <Label className="text-gray-300">Valor Financiado CEF (R$)</Label>
+                    <Input type="number" step="0.01" value={financedAmount} onChange={(e) => setFinancedAmount(e.target.value)} className="bg-[#2C3E50] border-[#C9A961]/30 text-white" placeholder="Ex: 137700.00" />
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                  <div className="space-y-2">
+                    <Label className="text-gray-300">FGTS (R$)</Label>
+                    <Input type="number" step="0.01" value={fgtsAmount} onChange={(e) => setFgtsAmount(e.target.value)} className="bg-[#2C3E50] border-[#C9A961]/30 text-white" placeholder="Ex: 21850.00" />
+                  </div>
+                  <div className="space-y-2">
+                    <Label className="text-gray-300">Subsídio (R$)</Label>
+                    <Input type="number" step="0.01" value={subsidyAmount} onChange={(e) => setSubsidyAmount(e.target.value)} className="bg-[#2C3E50] border-[#C9A961]/30 text-white" placeholder="Ex: 55000.00" />
+                  </div>
+                  <div className="space-y-2">
+                    <Label className="text-gray-300">Valor Recebido CEF (R$)</Label>
+                    <Input type="number" step="0.01" value={cefReceivedAmount} onChange={(e) => setCefReceivedAmount(e.target.value)} className="bg-[#2C3E50] border-[#C9A961]/30 text-white" placeholder="Valor já recebido da CEF" />
+                  </div>
+                </div>
+
+                {/* Entrada */}
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                  <div className="space-y-2">
+                    <Label className="text-gray-300">Entrada Total (R$)</Label>
+                    <Input type="number" step="0.01" value={downPaymentTotal} onChange={(e) => setDownPaymentTotal(e.target.value)} className="bg-[#2C3E50] border-[#C9A961]/30 text-white" placeholder="Valor total de entrada" />
+                  </div>
+                  <div className="space-y-2">
+                    <Label className="text-gray-300">Entrada Paga (R$)</Label>
+                    <Input type="number" step="0.01" value={downPaymentPaid} onChange={(e) => setDownPaymentPaid(e.target.value)} className="bg-[#2C3E50] border-[#C9A961]/30 text-white" placeholder="Quanto já foi pago" />
+                  </div>
+                </div>
+
+                {/* Custos Construção */}
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                  <div className="space-y-2">
+                    <Label className="text-gray-300">Custo Construção (R$)</Label>
+                    <Input type="number" step="0.01" value={constructionCost} onChange={(e) => setConstructionCost(e.target.value)} className="bg-[#2C3E50] border-[#C9A961]/30 text-white" placeholder="Ex: 85000.00" />
+                  </div>
+                  <div className="space-y-2">
+                    <Label className="text-gray-300">Gasto Obra Realizado (R$)</Label>
+                    <Input type="number" step="0.01" value={constructionSpent} onChange={(e) => setConstructionSpent(e.target.value)} className="bg-[#2C3E50] border-[#C9A961]/30 text-white" placeholder="Quanto já foi gasto" />
+                  </div>
+                </div>
+
+                {/* Lucros */}
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                  <div className="space-y-2">
+                    <Label className="text-gray-300">Lucro Estimado (R$)</Label>
+                    <Input type="number" step="0.01" value={estimatedProfit} onChange={(e) => setEstimatedProfit(e.target.value)} className="bg-[#2C3E50] border-[#C9A961]/30 text-white" placeholder="Lucro estimado total" />
+                  </div>
+                  <div className="space-y-2">
+                    <Label className="text-gray-300">Lucro Investidor (R$)</Label>
+                    <Input type="number" step="0.01" value={investorProfit} onChange={(e) => setInvestorProfit(e.target.value)} className="bg-[#2C3E50] border-[#C9A961]/30 text-white" placeholder="Parcela do investidor" />
+                  </div>
+                  <div className="space-y-2">
+                    <Label className="text-gray-300">Lucro Prospecta (R$)</Label>
+                    <Input type="number" step="0.01" value={prospectaProfit} onChange={(e) => setProspectaProfit(e.target.value)} className="bg-[#2C3E50] border-[#C9A961]/30 text-white" placeholder="Parcela da Prospecta" />
+                  </div>
+                </div>
+
+                {/* Corretor */}
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                  <div className="space-y-2">
+                    <Label className="text-gray-300">Nome do Corretor</Label>
+                    <Input value={brokerName} onChange={(e) => setBrokerName(e.target.value)} className="bg-[#2C3E50] border-[#C9A961]/30 text-white" placeholder="Nome do corretor responsável" />
+                  </div>
+                  <div className="space-y-2">
+                    <Label className="text-gray-300">Corretor Pago?</Label>
+                    <Select value={brokerPaid} onValueChange={setBrokerPaid}>
+                      <SelectTrigger className="bg-[#2C3E50] border-[#C9A961]/30 text-white">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="false">Não</SelectItem>
+                        <SelectItem value="true">Sim</SelectItem>
+                        <SelectItem value="partial">Parcial</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </div>
+
+                {/* Pro-Soluto / Parcelas */}
+                <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
+                  <div className="space-y-2">
+                    <Label className="text-gray-300">Pro-Soluto</Label>
+                    <Input value={proSoluto} onChange={(e) => setProSoluto(e.target.value)} className="bg-[#2C3E50] border-[#C9A961]/30 text-white" placeholder="Tipo de parcelamento" />
+                  </div>
+                  <div className="space-y-2">
+                    <Label className="text-gray-300">Taxa (%)</Label>
+                    <Input type="number" step="0.01" value={installmentRate} onChange={(e) => setInstallmentRate(e.target.value)} className="bg-[#2C3E50] border-[#C9A961]/30 text-white" placeholder="Taxa mensal" />
+                  </div>
+                  <div className="space-y-2">
+                    <Label className="text-gray-300">Qtd Parcelas</Label>
+                    <Input type="number" value={installmentQty} onChange={(e) => setInstallmentQty(e.target.value)} className="bg-[#2C3E50] border-[#C9A961]/30 text-white" placeholder="Ex: 12" />
+                  </div>
+                  <div className="space-y-2">
+                    <Label className="text-gray-300">Valor Parcela (R$)</Label>
+                    <Input type="number" step="0.01" value={installmentValue} onChange={(e) => setInstallmentValue(e.target.value)} className="bg-[#2C3E50] border-[#C9A961]/30 text-white" placeholder="Valor de cada parcela" />
+                  </div>
+                </div>
+
+                {/* Dias de Obra e PLS% */}
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                  <div className="space-y-2">
+                    <Label className="text-gray-300">Dias de Obra (prazo)</Label>
+                    <Input type="number" value={constructionDays} onChange={(e) => setConstructionDays(e.target.value)} className="bg-[#2C3E50] border-[#C9A961]/30 text-white" placeholder="Ex: 90" />
+                  </div>
+                  <div className="space-y-2">
+                    <Label className="text-gray-300">PLS% (% Recebido)</Label>
+                    <Input type="number" step="0.01" value={plsPercentage} onChange={(e) => setPlsPercentage(e.target.value)} className="bg-[#2C3E50] border-[#C9A961]/30 text-white" placeholder="Ex: 30.00" />
+                  </div>
+                </div>
+
+                <div className="flex justify-end pt-2">
+                  <Button
+                    onClick={handleSave}
+                    disabled={updateMutation.isPending}
+                    className="bg-[#C9A961] hover:bg-[#B8985A] text-[#1A2332] gap-2"
+                  >
+                    {updateMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
+                    Salvar
+                  </Button>
                 </div>
               </CardContent>
             </Card>

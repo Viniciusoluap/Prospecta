@@ -21,7 +21,7 @@ export default function Home() {
     <div className="min-h-screen flex flex-col">
       <SEO 
         title="Início"
-        description="Prospecta Empreendimentos - Construímos a casa dos seus sonhos com financiamento desde o terreno até a construção. Participe do Ecossistema Efficaz com sorteios, UTEFs e produtos exclusivos em Imperatriz - MA."
+        description="VFX Capital / Prospecta Empreendimentos - Construímos a casa dos seus sonhos com financiamento desde o terreno até a construção. Participe do Ecossistema VFX Capital com sorteios, UTEFs e produtos exclusivos em Imperatriz - MA."
         keywords="construção civil, financiamento imobilário, projetos arquitetônicos, sorteios, UTEFs, imóveis, Imperatriz MA, Prospecta Empreendimentos, casa própria"
         schema={{
           "@context": "https://schema.org",
@@ -888,12 +888,12 @@ export default function Home() {
           </div>
         </section>
 
-        {/* Seção Ecossistema Efficaz */}
+        {/* Seção Ecossistema VFX Capital */}
         <section className="py-20 bg-secondary text-white">
           <div className="container">
             <div className="text-center mb-12">
               <h2 className="text-4xl md:text-5xl font-bold mb-4 text-primary">
-                Ecossistema Efficaz
+                Ecossistema VFX Capital
               </h2>
               <p className="text-xl text-white/80 max-w-3xl mx-auto">
                 Além da construção, oferecemos um ecossistema completo de investimentos e benefícios

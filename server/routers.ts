@@ -1457,6 +1457,122 @@ export const appRouter = router({
       }),
   }),
 
+  // ========== MEDIÇÕES DE OBRA ==========
+  obraMedicoes: router({
+    list: protectedProcedure
+      .input(z.object({ projectId: z.number() }))
+      .query(async ({ input, ctx }) => {
+        if (ctx.user.role !== "admin") throw new TRPCError({ code: "FORBIDDEN" });
+        const db = await import("./db").then(m => m.getDb());
+        if (!db) return [];
+        const { sql } = await import("drizzle-orm");
+        try {
+          const rows = await db.execute(sql`
+            SELECT * FROM obra_medicoes WHERE project_id = ${input.projectId} ORDER BY created_at ASC
+          `);
+          const arr = (rows as any)[0] || (Array.isArray(rows) ? rows : []);
+          return (Array.isArray(arr) ? arr : []).map((r: any) => ({
+            id: r.id,
+            projectId: r.project_id,
+            tipo: r.tipo || "pls",
+            dataPrevista: r.data_prevista ? new Date(r.data_prevista) : null,
+            dataRecebimentoCef: r.data_recebimento_cef ? new Date(r.data_recebimento_cef) : null,
+            valorCef: r.valor_cef ? Number(r.valor_cef) : null,
+            dataTransferencia: r.data_transferencia ? new Date(r.data_transferencia) : null,
+            valorTransferido: r.valor_transferido ? Number(r.valor_transferido) : null,
+            status: r.status || "pending",
+            empreiteiro: r.empreiteiro || null,
+            valorPagoEmpreiteiro: r.valor_pago_empreiteiro ? Number(r.valor_pago_empreiteiro) : null,
+            notes: r.notes || null,
+          }));
+        } catch {
+          return [];
+        }
+      }),
+
+    create: protectedProcedure
+      .input(z.object({
+        projectId: z.number(),
+        tipo: z.enum(["pls", "rae", "marco_30", "marco_85", "final", "repactuacao"]),
+        dataPrevista: z.date().optional(),
+        valorCef: z.number().optional(),
+        notes: z.string().optional(),
+      }))
+      .mutation(async ({ input, ctx }) => {
+        if (ctx.user.role !== "admin") throw new TRPCError({ code: "FORBIDDEN" });
+        const db = await import("./db").then(m => m.getDb());
+        if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB unavailable" });
+        const { sql } = await import("drizzle-orm");
+        await db.execute(sql`
+          INSERT INTO obra_medicoes (project_id, tipo, data_prevista, valor_cef, status, notes, created_at, updated_at)
+          VALUES (
+            ${input.projectId},
+            ${input.tipo},
+            ${input.dataPrevista ?? null},
+            ${input.valorCef ?? null},
+            'pending',
+            ${input.notes ?? null},
+            NOW(), NOW()
+          )
+        `);
+        return { success: true };
+      }),
+
+    confirmReceipt: protectedProcedure
+      .input(z.object({
+        id: z.number(),
+        cefPaid: z.boolean().optional(),
+        dataRecebimentoCef: z.date().optional(),
+        valorTransferido: z.number().optional(),
+        dataTransferencia: z.date().optional(),
+      }))
+      .mutation(async ({ input, ctx }) => {
+        if (ctx.user.role !== "admin") throw new TRPCError({ code: "FORBIDDEN" });
+        const db = await import("./db").then(m => m.getDb());
+        if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB unavailable" });
+        const { sql } = await import("drizzle-orm");
+        if (input.cefPaid) {
+          await db.execute(sql`
+            UPDATE obra_medicoes
+            SET status = 'cef_paid', data_recebimento_cef = ${input.dataRecebimentoCef ?? new Date()}, updated_at = NOW()
+            WHERE id = ${input.id}
+          `);
+        } else {
+          await db.execute(sql`
+            UPDATE obra_medicoes
+            SET status = 'received',
+                valor_transferido = ${input.valorTransferido ?? null},
+                data_transferencia = ${input.dataTransferencia ?? new Date()},
+                updated_at = NOW()
+            WHERE id = ${input.id}
+          `);
+        }
+        return { success: true };
+      }),
+
+    payContractor: protectedProcedure
+      .input(z.object({
+        id: z.number(),
+        valorPagoEmpreiteiro: z.number(),
+        empreiteiro: z.string().optional(),
+      }))
+      .mutation(async ({ input, ctx }) => {
+        if (ctx.user.role !== "admin") throw new TRPCError({ code: "FORBIDDEN" });
+        const db = await import("./db").then(m => m.getDb());
+        if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB unavailable" });
+        const { sql } = await import("drizzle-orm");
+        await db.execute(sql`
+          UPDATE obra_medicoes
+          SET status = 'contractor_paid',
+              valor_pago_empreiteiro = ${input.valorPagoEmpreiteiro},
+              empreiteiro = ${input.empreiteiro ?? null},
+              updated_at = NOW()
+          WHERE id = ${input.id}
+        `);
+        return { success: true };
+      }),
+  }),
+
   // ========== TRANSAÇÕES FINANCEIRAS ==========
   financialTransactions: router({
     list: protectedProcedure

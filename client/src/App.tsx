@@ -40,6 +40,7 @@ import AdminEmpreiteiros from "./pages/admin/AdminEmpreiteiros";
 import AdminLotes from "./pages/admin/AdminLotes";
 import AdminInvestidores from "./pages/admin/AdminInvestidores";
 import AdminCorretores from "./pages/admin/AdminCorretores";
+import AdminObraMedicoes from "./pages/admin/AdminObraMedicoes";
 import Perfil from "./pages/Perfil";
 import SimuladorFinanciamento from "./pages/SimuladorFinanciamento";
 import WhatsAppFloat from "./components/WhatsAppFloat";
@@ -87,6 +88,9 @@ function Router() {
       </Route>
       <Route path="/admin/obras/editar/:id">
         <AdminRoute><AdminEditarObra /></AdminRoute>
+      </Route>
+      <Route path="/admin/obras/:id/medicoes">
+        <AdminRoute><AdminObraMedicoes /></AdminRoute>
       </Route>
       <Route path="/admin/orcamentos">
         <AdminRoute><AdminOrcamentos /></AdminRoute>
