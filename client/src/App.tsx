@@ -32,6 +32,14 @@ import AdminDashboard from "./pages/AdminDashboard";
 import AdminEmails from "./pages/AdminEmails";
 import Notificacoes from "./pages/Notificacoes";
 import ConfiguracoesPagamento from "./pages/admin/ConfiguracoesPagamento";
+import AdminCRM from "./pages/admin/AdminCRM";
+import AdminLeadDetail from "./pages/admin/AdminLeadDetail";
+import AdminFinanceiro from "./pages/admin/AdminFinanceiro";
+import AdminTarefas from "./pages/admin/AdminTarefas";
+import AdminEmpreiteiros from "./pages/admin/AdminEmpreiteiros";
+import AdminLotes from "./pages/admin/AdminLotes";
+import AdminInvestidores from "./pages/admin/AdminInvestidores";
+import AdminCorretores from "./pages/admin/AdminCorretores";
 import Perfil from "./pages/Perfil";
 import SimuladorFinanciamento from "./pages/SimuladorFinanciamento";
 import WhatsAppFloat from "./components/WhatsAppFloat";
@@ -91,6 +99,30 @@ function Router() {
       </Route>
       <Route path="/admin/configuracoes-pagamento">
         <AdminRoute><ConfiguracoesPagamento /></AdminRoute>
+      </Route>
+      <Route path="/admin/crm/:id">
+        <AdminRoute><AdminLeadDetail /></AdminRoute>
+      </Route>
+      <Route path="/admin/crm">
+        <AdminRoute><AdminCRM /></AdminRoute>
+      </Route>
+      <Route path="/admin/financeiro">
+        <AdminRoute><AdminFinanceiro /></AdminRoute>
+      </Route>
+      <Route path="/admin/tarefas">
+        <AdminRoute><AdminTarefas /></AdminRoute>
+      </Route>
+      <Route path="/admin/empreiteiros">
+        <AdminRoute><AdminEmpreiteiros /></AdminRoute>
+      </Route>
+      <Route path="/admin/lotes">
+        <AdminRoute><AdminLotes /></AdminRoute>
+      </Route>
+      <Route path="/admin/investidores">
+        <AdminRoute><AdminInvestidores /></AdminRoute>
+      </Route>
+      <Route path="/admin/corretores">
+        <AdminRoute><AdminCorretores /></AdminRoute>
       </Route>
       <Route path="/notificacoes">
         <ProtectedRoute><Notificacoes /></ProtectedRoute>

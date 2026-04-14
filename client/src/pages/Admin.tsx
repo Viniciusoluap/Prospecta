@@ -11,7 +11,7 @@ import Navbar from "@/components/Navbar";
 import { trpc } from "@/lib/trpc";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { formatCurrency, formatUtef, getLoginUrl } from "@/const";
-import { Settings, Plus, Ticket, ShoppingBag, AlertCircle } from "lucide-react";
+import { Settings, Plus, Ticket, ShoppingBag, AlertCircle, Users, DollarSign, CheckSquare, HardHat, Map, TrendingUp, UserCheck } from "lucide-react";
 import { toast } from "sonner";
 import {
   Select,
@@ -146,36 +146,95 @@ export default function Admin() {
             </div>
           </div>
 
-          {/* Links Rápidos */}
+          {/* Links Rápidos — Prospecta */}
           <Card>
             <CardHeader>
-              <CardTitle>Links Rápidos</CardTitle>
-              <CardDescription>Acesso rápido às principais funcionalidades administrativas</CardDescription>
+              <CardTitle>Módulos Principais — VFX Capital / Prospecta</CardTitle>
+              <CardDescription>Acesso rápido às operações</CardDescription>
             </CardHeader>
             <CardContent>
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-                <Link href="/admin/dashboard">
-                  <Button variant="outline" className="w-full h-20 flex flex-col gap-2">
-                    <Settings className="h-5 w-5" />
-                    <span>Dashboard Analytics</span>
+              <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
+                <Link href="/admin/crm">
+                  <Button variant="outline" className="w-full h-20 flex flex-col gap-2 border-blue-500/30 hover:bg-blue-500/10">
+                    <Users className="h-5 w-5 text-blue-400" />
+                    <span>CRM / Pipeline</span>
                   </Button>
                 </Link>
                 <Link href="/admin/obras">
-                  <Button variant="outline" className="w-full h-20 flex flex-col gap-2">
-                    <Settings className="h-5 w-5" />
-                    <span>Gerenciar Obras</span>
+                  <Button variant="outline" className="w-full h-20 flex flex-col gap-2 border-orange-500/30 hover:bg-orange-500/10">
+                    <HardHat className="h-5 w-5 text-orange-400" />
+                    <span>Obras</span>
+                  </Button>
+                </Link>
+                <Link href="/admin/financeiro">
+                  <Button variant="outline" className="w-full h-20 flex flex-col gap-2 border-green-500/30 hover:bg-green-500/10">
+                    <DollarSign className="h-5 w-5 text-green-400" />
+                    <span>Financeiro</span>
+                  </Button>
+                </Link>
+                <Link href="/admin/tarefas">
+                  <Button variant="outline" className="w-full h-20 flex flex-col gap-2 border-purple-500/30 hover:bg-purple-500/10">
+                    <CheckSquare className="h-5 w-5 text-purple-400" />
+                    <span>Tarefas & SLA</span>
+                  </Button>
+                </Link>
+                <Link href="/admin/lotes">
+                  <Button variant="outline" className="w-full h-20 flex flex-col gap-2 border-yellow-500/30 hover:bg-yellow-500/10">
+                    <Map className="h-5 w-5 text-yellow-400" />
+                    <span>Lotes</span>
+                  </Button>
+                </Link>
+                <Link href="/admin/investidores">
+                  <Button variant="outline" className="w-full h-20 flex flex-col gap-2 border-teal-500/30 hover:bg-teal-500/10">
+                    <TrendingUp className="h-5 w-5 text-teal-400" />
+                    <span>Investidores</span>
+                  </Button>
+                </Link>
+                <Link href="/admin/corretores">
+                  <Button variant="outline" className="w-full h-20 flex flex-col gap-2 border-pink-500/30 hover:bg-pink-500/10">
+                    <UserCheck className="h-5 w-5 text-pink-400" />
+                    <span>Corretores</span>
+                  </Button>
+                </Link>
+                <Link href="/admin/empreiteiros">
+                  <Button variant="outline" className="w-full h-20 flex flex-col gap-2 border-gray-500/30 hover:bg-gray-500/10">
+                    <HardHat className="h-5 w-5 text-gray-400" />
+                    <span>Empreiteiros</span>
+                  </Button>
+                </Link>
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* Links Secundários */}
+          <Card>
+            <CardHeader>
+              <CardTitle>Outras Ferramentas</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                <Link href="/admin/dashboard">
+                  <Button variant="outline" className="w-full h-14 flex flex-col gap-1 text-sm">
+                    <Settings className="h-4 w-4" />
+                    <span>Dashboard</span>
                   </Button>
                 </Link>
                 <Link href="/admin/orcamentos">
-                  <Button variant="outline" className="w-full h-20 flex flex-col gap-2">
-                    <Settings className="h-5 w-5" />
-                    <span>Gerenciar Orçamentos</span>
+                  <Button variant="outline" className="w-full h-14 flex flex-col gap-1 text-sm">
+                    <Settings className="h-4 w-4" />
+                    <span>Orçamentos</span>
                   </Button>
                 </Link>
                 <Link href="/admin/emails">
-                  <Button variant="outline" className="w-full h-20 flex flex-col gap-2">
-                    <Settings className="h-5 w-5" />
-                    <span>Gerenciar Emails</span>
+                  <Button variant="outline" className="w-full h-14 flex flex-col gap-1 text-sm">
+                    <Settings className="h-4 w-4" />
+                    <span>Emails</span>
+                  </Button>
+                </Link>
+                <Link href="/admin/configuracoes-pagamento">
+                  <Button variant="outline" className="w-full h-14 flex flex-col gap-1 text-sm">
+                    <Settings className="h-4 w-4" />
+                    <span>Pagamentos</span>
                   </Button>
                 </Link>
               </div>
