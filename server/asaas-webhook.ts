@@ -1,5 +1,5 @@
 import { Request, Response } from 'express';
-import { getDb } from './db';
+import { getDb, createOrUpdateUtefBalance } from './db';
 import { utefTransactions, tickets, users } from '../drizzle/schema';
 import { eq } from 'drizzle-orm';
 import { getAsaasPayment } from './_core/asaas';
@@ -35,16 +35,19 @@ interface AsaasWebhookPayload {
 
 export async function handleAsaasWebhook(req: Request, res: Response) {
   try {
+    // Validar assinatura do webhook Asaas
+    const webhookToken = process.env.ASAAS_WEBHOOK_TOKEN;
+    if (webhookToken) {
+      const receivedToken = req.headers['asaas-access-token'];
+      if (!receivedToken || receivedToken !== webhookToken) {
+        return res.status(401).json({ error: 'Unauthorized: invalid webhook token' });
+      }
+    }
+
     const payload: AsaasWebhookPayload = req.body;
-    
-    console.log('[Asaas Webhook] Received event:', payload.event);
-    console.log('[Asaas Webhook] Payment ID:', payload.payment.id);
-    console.log('[Asaas Webhook] Status:', payload.payment.status);
-    console.log('[Asaas Webhook] External Reference:', payload.payment.externalReference);
 
     // Validar payload
     if (!payload.event || !payload.payment) {
-      console.error('[Asaas Webhook] Invalid payload');
       return res.status(400).json({ error: 'Invalid payload' });
     }
 
@@ -216,7 +219,8 @@ async function processUtefPurchase(
     createdAt: new Date(),
   });
 
-  console.log('[Asaas Webhook] UTEF purchase processed successfully. Total UTEFs:', totalUtef);
+  // Atualizar saldo de UTEF do usuário
+  await createOrUpdateUtefBalance(userId, Math.floor(totalUtef));
 
   // Enviar email de confirmação
   if (user.email) {

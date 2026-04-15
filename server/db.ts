@@ -1,4 +1,4 @@
-import { eq, and, desc, sql } from "drizzle-orm";
+import { eq, and, desc, sql, or, like } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/mysql2";
 import { 
   InsertUser, users,
@@ -725,10 +725,10 @@ export async function markNotificationAsRead(notificationId: number): Promise<vo
 export async function markAllNotificationsAsRead(userId: number): Promise<void> {
   const db = await getDb();
   if (!db) return;
-  
+
   await db
     .update(userNotifications)
-    .set({ 
+    .set({
       isRead: 1,
       readAt: new Date()
     })
@@ -738,4 +738,343 @@ export async function markAllNotificationsAsRead(userId: number): Promise<void> 
         eq(userNotifications.isRead, 0)
       )
     );
+}
+
+
+// ========== EMPREITEIROS (CONTRACTORS) ==========
+
+import { contractors, Contractor, InsertContractor } from "../drizzle/schema";
+
+export async function getAllContractors(): Promise<Contractor[]> {
+  const db = await getDb();
+  if (!db) return [];
+  return db.select().from(contractors).orderBy(contractors.name);
+}
+
+export async function getContractorById(id: number): Promise<Contractor | undefined> {
+  const db = await getDb();
+  if (!db) return undefined;
+  const result = await db.select().from(contractors).where(eq(contractors.id, id)).limit(1);
+  return result[0];
+}
+
+export async function createContractor(data: InsertContractor): Promise<Contractor> {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  const result = await db.insert(contractors).values(data);
+  const inserted = await db.select().from(contractors).where(eq(contractors.id, result[0].insertId)).limit(1);
+  return inserted[0];
+}
+
+export async function updateContractor(id: number, data: Partial<InsertContractor>): Promise<void> {
+  const db = await getDb();
+  if (!db) return;
+  await db.update(contractors).set({ ...data, updatedAt: new Date() }).where(eq(contractors.id, id));
+}
+
+
+// ========== CRM — LEADS ==========
+
+import { leads, Lead, InsertLead, leadActivities, LeadActivity, InsertLeadActivity, leadDocuments, LeadDocument, InsertLeadDocument, leadFollowUps, LeadFollowUp, InsertLeadFollowUp } from "../drizzle/schema";
+
+export async function getAllLeads(filters?: {
+  stage?: string;
+  responsible?: string;
+  temperature?: string;
+  city?: string;
+}): Promise<Lead[]> {
+  const db = await getDb();
+  if (!db) return [];
+
+  let query = db.select().from(leads).$dynamic();
+
+  const conditions = [];
+  if (filters?.stage) conditions.push(eq(leads.stage, filters.stage as any));
+  if (filters?.responsible) conditions.push(eq(leads.responsible, filters.responsible as any));
+  if (filters?.temperature) conditions.push(eq(leads.temperature, filters.temperature as any));
+  if (filters?.city) conditions.push(like(leads.city, `%${filters.city}%`));
+
+  if (conditions.length > 0) {
+    query = query.where(and(...conditions));
+  }
+
+  return query.orderBy(desc(leads.createdAt));
+}
+
+export async function getLeadById(id: number): Promise<Lead | undefined> {
+  const db = await getDb();
+  if (!db) return undefined;
+  const result = await db.select().from(leads).where(eq(leads.id, id)).limit(1);
+  return result[0];
+}
+
+export async function createLead(data: InsertLead): Promise<Lead> {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  const result = await db.insert(leads).values(data);
+  const inserted = await db.select().from(leads).where(eq(leads.id, result[0].insertId)).limit(1);
+  return inserted[0];
+}
+
+export async function updateLead(id: number, data: Partial<InsertLead>): Promise<void> {
+  const db = await getDb();
+  if (!db) return;
+  await db.update(leads).set({ ...data, updatedAt: new Date() }).where(eq(leads.id, id));
+}
+
+export async function getLeadActivities(leadId: number): Promise<LeadActivity[]> {
+  const db = await getDb();
+  if (!db) return [];
+  return db.select().from(leadActivities).where(eq(leadActivities.leadId, leadId)).orderBy(desc(leadActivities.createdAt));
+}
+
+export async function addLeadActivity(data: InsertLeadActivity): Promise<void> {
+  const db = await getDb();
+  if (!db) return;
+  await db.insert(leadActivities).values(data);
+}
+
+export async function getLeadDocuments(leadId: number): Promise<LeadDocument[]> {
+  const db = await getDb();
+  if (!db) return [];
+  return db.select().from(leadDocuments).where(eq(leadDocuments.leadId, leadId)).orderBy(desc(leadDocuments.createdAt));
+}
+
+export async function addLeadDocument(data: InsertLeadDocument): Promise<void> {
+  const db = await getDb();
+  if (!db) return;
+  await db.insert(leadDocuments).values(data);
+}
+
+export async function updateLeadDocument(id: number, data: Partial<InsertLeadDocument>): Promise<void> {
+  const db = await getDb();
+  if (!db) return;
+  await db.update(leadDocuments).set(data).where(eq(leadDocuments.id, id));
+}
+
+export async function getLeadFollowUps(leadId: number): Promise<LeadFollowUp[]> {
+  const db = await getDb();
+  if (!db) return [];
+  return db.select().from(leadFollowUps).where(eq(leadFollowUps.leadId, leadId)).orderBy(leadFollowUps.scheduledAt);
+}
+
+export async function createFollowUp(data: InsertLeadFollowUp): Promise<void> {
+  const db = await getDb();
+  if (!db) return;
+  await db.insert(leadFollowUps).values(data);
+}
+
+export async function getPendingFollowUps(): Promise<LeadFollowUp[]> {
+  const db = await getDb();
+  if (!db) return [];
+  return db.select().from(leadFollowUps)
+    .where(eq(leadFollowUps.status, "pending"))
+    .orderBy(leadFollowUps.scheduledAt);
+}
+
+export async function updateFollowUp(id: number, data: Partial<InsertLeadFollowUp>): Promise<void> {
+  const db = await getDb();
+  if (!db) return;
+  await db.update(leadFollowUps).set(data).where(eq(leadFollowUps.id, id));
+}
+
+export async function getLeadStats() {
+  const db = await getDb();
+  if (!db) return null;
+
+  const total = await db.select({ count: sql<number>`count(*)` }).from(leads);
+  const hot = await db.select({ count: sql<number>`count(*)` }).from(leads).where(eq(leads.temperature, "hot"));
+  const approved = await db.select({ count: sql<number>`count(*)` }).from(leads).where(eq(leads.stage, "approved"));
+  const rejected = await db.select({ count: sql<number>`count(*)` }).from(leads).where(eq(leads.stage, "rejected"));
+
+  return {
+    total: total[0]?.count || 0,
+    hot: hot[0]?.count || 0,
+    approved: approved[0]?.count || 0,
+    rejected: rejected[0]?.count || 0,
+  };
+}
+
+
+// ========== TAREFAS (TASKS) ==========
+
+import { tasks, Task, InsertTask } from "../drizzle/schema";
+
+export async function getAllTasks(assignedTo?: string): Promise<Task[]> {
+  const db = await getDb();
+  if (!db) return [];
+  if (assignedTo) {
+    return db.select().from(tasks).where(eq(tasks.assignedTo, assignedTo)).orderBy(desc(tasks.createdAt));
+  }
+  return db.select().from(tasks).orderBy(desc(tasks.createdAt));
+}
+
+export async function createTask(data: InsertTask): Promise<Task> {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  const result = await db.insert(tasks).values(data);
+  const inserted = await db.select().from(tasks).where(eq(tasks.id, result[0].insertId)).limit(1);
+  return inserted[0];
+}
+
+export async function updateTask(id: number, data: Partial<InsertTask>): Promise<void> {
+  const db = await getDb();
+  if (!db) return;
+  await db.update(tasks).set({ ...data, updatedAt: new Date() }).where(eq(tasks.id, id));
+}
+
+
+// ========== INVESTIDORES ==========
+
+import { investors, Investor, InsertInvestor, investorTransactions, InvestorTransaction, InsertInvestorTransaction } from "../drizzle/schema";
+
+export async function getAllInvestors(): Promise<Investor[]> {
+  const db = await getDb();
+  if (!db) return [];
+  return db.select().from(investors).orderBy(investors.name);
+}
+
+export async function createInvestor(data: InsertInvestor): Promise<Investor> {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  const result = await db.insert(investors).values(data);
+  const inserted = await db.select().from(investors).where(eq(investors.id, result[0].insertId)).limit(1);
+  return inserted[0];
+}
+
+export async function updateInvestor(id: number, data: Partial<InsertInvestor>): Promise<void> {
+  const db = await getDb();
+  if (!db) return;
+  await db.update(investors).set({ ...data, updatedAt: new Date() }).where(eq(investors.id, id));
+}
+
+export async function getInvestorTransactions(investorId: number): Promise<InvestorTransaction[]> {
+  const db = await getDb();
+  if (!db) return [];
+  return db.select().from(investorTransactions).where(eq(investorTransactions.investorId, investorId)).orderBy(desc(investorTransactions.date));
+}
+
+export async function addInvestorTransaction(data: InsertInvestorTransaction): Promise<void> {
+  const db = await getDb();
+  if (!db) return;
+  await db.insert(investorTransactions).values(data);
+}
+
+
+// ========== CONTROLE DE CORRETORES ==========
+
+import { brokerCommissions, BrokerCommission, InsertBrokerCommission } from "../drizzle/schema";
+
+export async function getAllBrokerCommissions(): Promise<BrokerCommission[]> {
+  const db = await getDb();
+  if (!db) return [];
+  return db.select().from(brokerCommissions).orderBy(desc(brokerCommissions.createdAt));
+}
+
+export async function createBrokerCommission(data: InsertBrokerCommission): Promise<BrokerCommission> {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  const result = await db.insert(brokerCommissions).values(data);
+  const inserted = await db.select().from(brokerCommissions).where(eq(brokerCommissions.id, result[0].insertId)).limit(1);
+  return inserted[0];
+}
+
+export async function updateBrokerCommission(id: number, data: Partial<InsertBrokerCommission>): Promise<void> {
+  const db = await getDb();
+  if (!db) return;
+  await db.update(brokerCommissions).set({ ...data, updatedAt: new Date() }).where(eq(brokerCommissions.id, id));
+}
+
+
+// ========== CONTROLE DE LOTES ==========
+
+import { lots, Lot, InsertLot } from "../drizzle/schema";
+
+export async function getAllLots(): Promise<Lot[]> {
+  const db = await getDb();
+  if (!db) return [];
+  return db.select().from(lots).orderBy(lots.development, lots.lotNumber);
+}
+
+export async function createLot(data: InsertLot): Promise<Lot> {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  const result = await db.insert(lots).values(data);
+  const inserted = await db.select().from(lots).where(eq(lots.id, result[0].insertId)).limit(1);
+  return inserted[0];
+}
+
+export async function updateLot(id: number, data: Partial<InsertLot>): Promise<void> {
+  const db = await getDb();
+  if (!db) return;
+  await db.update(lots).set({ ...data, updatedAt: new Date() }).where(eq(lots.id, id));
+}
+
+
+// ========== DISTRIBUIÇÃO DE SÓCIOS ==========
+
+import { partnerDistributions, PartnerDistribution, InsertPartnerDistribution } from "../drizzle/schema";
+
+export async function getAllPartnerDistributions(): Promise<PartnerDistribution[]> {
+  const db = await getDb();
+  if (!db) return [];
+  return db.select().from(partnerDistributions).orderBy(desc(partnerDistributions.createdAt));
+}
+
+export async function createPartnerDistribution(data: InsertPartnerDistribution): Promise<PartnerDistribution> {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  const result = await db.insert(partnerDistributions).values(data);
+  const inserted = await db.select().from(partnerDistributions).where(eq(partnerDistributions.id, result[0].insertId)).limit(1);
+  return inserted[0];
+}
+
+export async function updatePartnerDistribution(id: number, data: Partial<InsertPartnerDistribution>): Promise<void> {
+  const db = await getDb();
+  if (!db) return;
+  await db.update(partnerDistributions).set({ ...data, updatedAt: new Date() }).where(eq(partnerDistributions.id, id));
+}
+
+
+// ========== TRANSAÇÕES FINANCEIRAS ==========
+
+import { financialTransactions, FinancialTransaction, InsertFinancialTransaction } from "../drizzle/schema";
+
+export async function getAllFinancialTransactions(): Promise<FinancialTransaction[]> {
+  const db = await getDb();
+  if (!db) return [];
+  return db.select().from(financialTransactions).orderBy(desc(financialTransactions.createdAt));
+}
+
+export async function createFinancialTransaction(data: InsertFinancialTransaction): Promise<FinancialTransaction> {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  const result = await db.insert(financialTransactions).values(data);
+  const inserted = await db.select().from(financialTransactions).where(eq(financialTransactions.id, result[0].insertId)).limit(1);
+  return inserted[0];
+}
+
+
+// ========== TAXAS DE OBRA ==========
+
+import { obraFees, ObraFee, InsertObraFee } from "../drizzle/schema";
+
+export async function getObraFeesByProject(projectId: number): Promise<ObraFee[]> {
+  const db = await getDb();
+  if (!db) return [];
+  return db.select().from(obraFees).where(eq(obraFees.projectId, projectId));
+}
+
+export async function upsertObraFee(projectId: number, feeType: string, estimatedValue: string, paidValue: string): Promise<void> {
+  const db = await getDb();
+  if (!db) return;
+  const existing = await db.select().from(obraFees)
+    .where(and(eq(obraFees.projectId, projectId), eq(obraFees.feeType, feeType)))
+    .limit(1);
+  if (existing.length > 0) {
+    await db.update(obraFees).set({ estimatedValue, paidValue, updatedAt: new Date() })
+      .where(and(eq(obraFees.projectId, projectId), eq(obraFees.feeType, feeType)));
+  } else {
+    await db.insert(obraFees).values({ projectId, feeType, estimatedValue, paidValue });
+  }
 }

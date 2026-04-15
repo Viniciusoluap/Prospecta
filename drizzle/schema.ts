@@ -1,4 +1,4 @@
-import { int, mysqlEnum, mysqlTable, text, timestamp, varchar, longtext } from "drizzle-orm/mysql-core";
+import { int, mysqlEnum, mysqlTable, text, timestamp, varchar, longtext, decimal } from "drizzle-orm/mysql-core";
 
 /**
  * Core user table backing auth flow.
@@ -146,36 +146,100 @@ export type ProductConversion = typeof productConversions.$inferSelect;
 export type InsertProductConversion = typeof productConversions.$inferInsert;
 
 /**
- * Projetos de construção (obras)
+ * Empreiteiros (Contractors) — dinâmicos por obra/região
+ */
+export const contractors = mysqlTable("contractors", {
+  id: int("id").autoincrement().primaryKey(),
+  name: varchar("name", { length: 255 }).notNull(),
+  phone: varchar("phone", { length: 20 }),
+  city: varchar("city", { length: 100 }),
+  state: varchar("state", { length: 2 }),
+  specialties: text("specialties"), // JSON array
+  contractType: varchar("contract_type", { length: 100 }), // "mao_de_obra" | "completo" | "material_mao_de_obra"
+  status: mysqlEnum("status", ["active", "inactive"]).default("active").notNull(),
+  notes: text("notes"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().onUpdateNow().notNull(),
+});
+
+export type Contractor = typeof contractors.$inferSelect;
+export type InsertContractor = typeof contractors.$inferInsert;
+
+/**
+ * Projetos de construção (obras) — Planilha PROSPECTA CONSTRUÇÕES
  */
 export const constructionProjects = mysqlTable("construction_projects", {
   id: int("id").autoincrement().primaryKey(),
-  userId: int("user_id").notNull(), // Proprietário da obra
-  title: varchar("title", { length: 255 }).notNull(), // Ex: "Minha Casa 47m²"
-  address: text("address"), // Endereço da obra
-  projectType: varchar("project_type", { length: 100 }), // Ex: "Casa 47m²", "Casa 60m²"
-  totalArea: int("total_area"), // Área total em m²
-  estimatedCost: int("estimated_cost"), // Custo estimado em centavos
-  actualCost: int("actual_cost").default(0), // Custo real em centavos
-  
-  // Campos financeiros detalhados (Aba 2: Valores e Custos)
-  contractValue: int("contract_value"), // Valor total do contrato em centavos
-  contractType: varchar("contract_type", { length: 100 }), // Ex: "Empreitada Global", "Administração"
-  contractorPayment: int("contractor_payment"), // Pagamento do empreiteiro em centavos
-  materialCost: int("material_cost"), // Custo de material em centavos
-  lotCost: int("lot_cost"), // Custo do lote/terreno em centavos
-  commissionCost: int("commission_cost"), // Comissão em centavos
-  extrasCost: int("extras_cost"), // Custos extras em centavos
-  maintenanceCost: int("maintenance_cost"), // Custo de manutenção em centavos
-  insuranceCost: int("insurance_cost"), // Custo de seguro em centavos
-  balanceAmount: int("balance_amount"), // Saldo restante em centavos
-  
-  startDate: timestamp("start_date"), // Data de início da obra
-  estimatedEndDate: timestamp("estimated_end_date"), // Data prevista de conclusão
-  actualEndDate: timestamp("actual_end_date"), // Data real de conclusão
-  status: mysqlEnum("status", ["planning", "in_progress", "paused", "completed", "cancelled"]).default("planning").notNull(),
-  progress: int("progress").default(0).notNull(), // Progresso em % (0-100)
-  notes: text("notes"), // Observações gerais
+  userId: int("user_id").notNull(), // Cliente proprietário
+  contractorId: int("contractor_id"), // FK para contractors
+  title: varchar("title", { length: 255 }).notNull(),
+  address: text("address"),
+  city: varchar("city", { length: 100 }),
+  state: varchar("state", { length: 2 }),
+  projectType: varchar("project_type", { length: 100 }),
+  totalArea: int("total_area"),
+
+  // Planilha: Status ampliado
+  status: mysqlEnum("status", [
+    "planning",       // Planejamento
+    "alvara",         // Aguardando Alvará
+    "art",            // ART
+    "assinatura_cef", // Assinatura CEF
+    "vistoria_cef",   // Vistoria CEF
+    "laudo_ok",       // Laudo OK
+    "cartorio",       // Cartório
+    "in_progress",    // Em andamento
+    "casa_pronta",    // Casa Pronta
+    "disponivel",     // Disponível (lote sem cliente)
+    "reavaliar",      // Reavaliar
+    "distrato",       // Distrato
+    "paused",
+    "completed",
+    "cancelled"
+  ]).default("planning").notNull(),
+  progress: int("progress").default(0).notNull(), // % concluído
+
+  // Planilha: Financiamento CEF/MCMV
+  vgv: decimal("vgv", { precision: 15, scale: 2 }),                        // Valor Geral de Vendas
+  financedAmount: decimal("financed_amount", { precision: 15, scale: 2 }), // Vlr Financiado
+  fgtsAmount: decimal("fgts_amount", { precision: 15, scale: 2 }),         // FGTS
+  subsidyAmount: decimal("subsidy_amount", { precision: 15, scale: 2 }),   // Subsídio
+  downPaymentTotal: decimal("down_payment_total", { precision: 15, scale: 2 }),  // Entrada total
+  downPaymentPaid: decimal("down_payment_paid", { precision: 15, scale: 2 }),    // Entrada já paga
+  plsPercentage: decimal("pls_percentage", { precision: 7, scale: 4 }),          // % PLS CEF
+  realReceivedPercentage: decimal("real_received_pct", { precision: 7, scale: 4 }), // % Real Recebida
+  cefReceivedAmount: decimal("cef_received_amount", { precision: 15, scale: 2 }), // Vlr Recebido CEF
+  constructionSpent: decimal("construction_spent", { precision: 15, scale: 2 }),  // Vlr Gasto Obra
+  lotCost: decimal("lot_cost", { precision: 15, scale: 2 }),               // Custo do Lote
+
+  // Planilha: Corretor
+  brokerName: varchar("broker_name", { length: 255 }),
+  brokerPaid: decimal("broker_paid", { precision: 15, scale: 2 }).default("0"),
+
+  // Planilha: Custos e lucros
+  constructionCost: decimal("construction_cost", { precision: 15, scale: 2 }), // Custo de Obra
+  estimatedProfit: decimal("estimated_profit", { precision: 15, scale: 2 }),    // Lucro Estimado
+  investorProfit: decimal("investor_profit", { precision: 15, scale: 2 }),      // Lucro Investidor
+  prospectaProfit: decimal("prospecta_profit", { precision: 15, scale: 2 }),    // Lucro Prospecta
+
+  // Planilha: Pro Soluto / Parcelamento
+  proSoluto: decimal("pro_soluto", { precision: 15, scale: 2 }).default("0"),
+  installmentRate: decimal("installment_rate", { precision: 7, scale: 4 }),    // Taxa %
+  installmentQty: int("installment_qty"),                                       // Qtd pcl
+  installmentValue: decimal("installment_value", { precision: 15, scale: 2 }), // Vlr pcl
+
+  // Planilha: Datas
+  startDate: timestamp("start_date"),
+  constructionDays: int("construction_days"),
+  estimatedEndDate: timestamp("estimated_end_date"),
+  actualEndDate: timestamp("actual_end_date"),
+
+  // Campos legados mantidos
+  contractValue: decimal("contract_value", { precision: 15, scale: 2 }),
+  contractType: varchar("contract_type", { length: 100 }),
+  notes: text("notes"),
+  extraNotes: text("extra_notes"), // Observações extras (como "Ageu - Alessandra" na planilha)
+
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().onUpdateNow().notNull(),
 });
@@ -298,3 +362,338 @@ export const userNotifications = mysqlTable("user_notifications", {
 
 export type UserNotification = typeof userNotifications.$inferSelect;
 export type InsertUserNotification = typeof userNotifications.$inferInsert;
+
+// ============================================================
+// NOVOS MÓDULOS — VFX CAPITAL / PROSPECTA
+// ============================================================
+
+/**
+ * Taxas administrativas por obra — Planilha "Taxas de Obras"
+ * Ex: Projetos, PCI, ART, Alvará, Vistoria CEF, ITBI, Registro Cartório...
+ */
+export const obraFees = mysqlTable("obra_fees", {
+  id: int("id").autoincrement().primaryKey(),
+  projectId: int("project_id").notNull(),
+  feeType: varchar("fee_type", { length: 100 }).notNull(), // "projetos" | "pci" | "art" | "alvara" | etc.
+  estimatedValue: decimal("estimated_value", { precision: 15, scale: 2 }).default("0"),
+  paidValue: decimal("paid_value", { precision: 15, scale: 2 }).default("0"),
+  notes: text("notes"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().onUpdateNow().notNull(),
+});
+
+export type ObraFee = typeof obraFees.$inferSelect;
+export type InsertObraFee = typeof obraFees.$inferInsert;
+
+/**
+ * Medições por etapa/empreiteiro
+ */
+export const obraMeasurements = mysqlTable("obra_measurements", {
+  id: int("id").autoincrement().primaryKey(),
+  projectId: int("project_id").notNull(),
+  contractorId: int("contractor_id"),
+  stageId: int("stage_id"),
+  measurementDate: timestamp("measurement_date").notNull(),
+  value: decimal("value", { precision: 15, scale: 2 }).notNull(),
+  status: mysqlEnum("status", ["pending", "approved", "paid"]).default("pending").notNull(),
+  notes: text("notes"),
+  approvedBy: int("approved_by"),
+  approvedAt: timestamp("approved_at"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export type ObraMeasurement = typeof obraMeasurements.$inferSelect;
+export type InsertObraMeasurement = typeof obraMeasurements.$inferInsert;
+
+/**
+ * Controle de Lotes — Planilha "Compra de Lotes"
+ * Residencial Aurora, Morada do Bosque, Jet Reginaldo, etc.
+ */
+export const lots = mysqlTable("lots", {
+  id: int("id").autoincrement().primaryKey(),
+  lotNumber: varchar("lot_number", { length: 50 }).notNull(), // Ex: "LOTE 20"
+  development: varchar("development", { length: 255 }).notNull(), // Ex: "Residencial Aurora"
+  city: varchar("city", { length: 100 }),
+  state: varchar("state", { length: 2 }),
+  assessmentValue: decimal("assessment_value", { precision: 15, scale: 2 }),    // Valor de Avaliação
+  cefPaymentValue: decimal("cef_payment_value", { precision: 15, scale: 2 }),   // Valor Pago pela CEF
+  sellerCost: decimal("seller_cost", { precision: 15, scale: 2 }),              // Valor pago ao vendedor
+  sellerName: varchar("seller_name", { length: 255 }),                          // Ex: Edimar, Daniel, Exclusive
+  prospectaMargin: decimal("prospecta_margin", { precision: 15, scale: 2 }),    // Valor Prospecta (lucro)
+  status: mysqlEnum("status", ["available", "reserved", "sold"]).default("available").notNull(),
+  assignedProjectId: int("assigned_project_id"), // FK para constructionProjects
+  assignedClientName: varchar("assigned_client_name", { length: 255 }),
+  notes: text("notes"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().onUpdateNow().notNull(),
+});
+
+export type Lot = typeof lots.$inferSelect;
+export type InsertLot = typeof lots.$inferInsert;
+
+/**
+ * Investidores da Prospecta — Planilha "Investidores"
+ */
+export const investors = mysqlTable("investors", {
+  id: int("id").autoincrement().primaryKey(),
+  name: varchar("name", { length: 255 }).notNull(),
+  initialDate: timestamp("initial_date").notNull(),
+  initialAmount: decimal("initial_amount", { precision: 15, scale: 2 }).notNull(),
+  currentBalance: decimal("current_balance", { precision: 15, scale: 2 }).notNull(),
+  monthlyRate: decimal("monthly_rate", { precision: 7, scale: 4 }).default("0"), // Taxa % ao mês
+  status: mysqlEnum("status", ["active", "withdrawn", "extended"]).default("active").notNull(),
+  notes: text("notes"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().onUpdateNow().notNull(),
+});
+
+export type Investor = typeof investors.$inferSelect;
+export type InsertInvestor = typeof investors.$inferInsert;
+
+/**
+ * Transações dos investidores (prorrogações, saques, juros)
+ */
+export const investorTransactions = mysqlTable("investor_transactions", {
+  id: int("id").autoincrement().primaryKey(),
+  investorId: int("investor_id").notNull(),
+  type: mysqlEnum("type", ["deposit", "withdrawal", "interest", "extension"]).notNull(),
+  amount: decimal("amount", { precision: 15, scale: 2 }).notNull(),
+  date: timestamp("date").notNull(),
+  notes: text("notes"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export type InvestorTransaction = typeof investorTransactions.$inferSelect;
+export type InsertInvestorTransaction = typeof investorTransactions.$inferInsert;
+
+/**
+ * Controle de Corretores — Planilha "Corretores"
+ * Comissão paga em até 4 parcelas
+ */
+export const brokerCommissions = mysqlTable("broker_commissions", {
+  id: int("id").autoincrement().primaryKey(),
+  projectId: int("project_id"),
+  clientName: varchar("client_name", { length: 255 }).notNull(),
+  brokerName: varchar("broker_name", { length: 255 }).notNull(),
+  totalCommission: decimal("total_commission", { precision: 15, scale: 2 }).notNull(),
+  // Parcelas (até 4)
+  installment1Value: decimal("installment1_value", { precision: 15, scale: 2 }).default("0"),
+  installment1Paid: decimal("installment1_paid", { precision: 15, scale: 2 }).default("0"),
+  installment2Value: decimal("installment2_value", { precision: 15, scale: 2 }).default("0"),
+  installment2Paid: decimal("installment2_paid", { precision: 15, scale: 2 }).default("0"),
+  installment3Value: decimal("installment3_value", { precision: 15, scale: 2 }).default("0"),
+  installment3Paid: decimal("installment3_paid", { precision: 15, scale: 2 }).default("0"),
+  installment4Value: decimal("installment4_value", { precision: 15, scale: 2 }).default("0"),
+  installment4Paid: decimal("installment4_paid", { precision: 15, scale: 2 }).default("0"),
+  notes: text("notes"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().onUpdateNow().notNull(),
+});
+
+export type BrokerCommission = typeof brokerCommissions.$inferSelect;
+export type InsertBrokerCommission = typeof brokerCommissions.$inferInsert;
+
+/**
+ * CRM — Leads (substitui Trello)
+ * Pipeline completo de atendimento da Prospecta
+ */
+export const leads = mysqlTable("leads", {
+  id: int("id").autoincrement().primaryKey(),
+  name: varchar("name", { length: 255 }).notNull(),
+  phone: varchar("phone", { length: 20 }).notNull(),
+  email: varchar("email", { length: 320 }),
+  city: varchar("city", { length: 100 }),
+  state: varchar("state", { length: 2 }),
+
+  // Classificação
+  type: mysqlEnum("type", [
+    "new_lead",    // Lead novo (Fluxo A)
+    "in_process",  // Cliente em processo (Fluxo B)
+    "broker",      // Corretor (Fluxo C)
+    "employee",    // Funcionário interno (Fluxo D)
+    "supplier",    // Fornecedor/Empreiteiro (Fluxo E)
+    "vip"          // Cotista VIP (Fluxo F)
+  ]).default("new_lead").notNull(),
+  temperature: mysqlEnum("temperature", ["cold", "warm", "hot"]).default("cold").notNull(),
+
+  // Pipeline — 11 estágios (substitui Trello)
+  stage: mysqlEnum("stage", [
+    "lead_new",       // Lead Novo
+    "attending",      // Em Atendimento
+    "waiting_docs",   // Aguardando Documentação
+    "analysis",       // Em Análise / Simulação
+    "caixa_register", // Em Cadastro (Caixa)
+    "approval",       // Em Aprovação
+    "approved",       // Aprovado
+    "rejected",       // Reprovado
+    "followup",       // Follow-up
+    "in_process",     // Cliente em Processo
+    "done"            // Concluído
+  ]).default("lead_new").notNull(),
+
+  // Responsável (roteamento por cidade)
+  responsible: mysqlEnum("responsible", ["sarah", "vinicius", "bianca"]).default("sarah").notNull(),
+
+  // Qualificação financeira
+  income: decimal("income", { precision: 15, scale: 2 }),
+  incomeType: mysqlEnum("income_type", ["formal", "informal", "irpf"]),
+  fgtsAmount: decimal("fgts_amount", { precision: 15, scale: 2 }),
+  pisFgts: varchar("pis_fgts", { length: 20 }),
+  hasSpouse: int("has_spouse").default(0), // 0 = não, 1 = sim
+  spouseName: varchar("spouse_name", { length: 255 }),
+  incomeComposition: int("income_composition").default(0), // composição de renda
+
+  // Resultado da análise
+  cpfStatus: mysqlEnum("cpf_status", ["clean", "restricted", "unknown"]).default("unknown"),
+  simulationValue: decimal("simulation_value", { precision: 15, scale: 2 }),   // Valor simulação
+  approvedValue: decimal("approved_value", { precision: 15, scale: 2 }),       // Valor aprovado
+  contractType: mysqlEnum("contract_type", ["obra", "financing", "both"]),
+
+  // Canais e origem
+  sourceChannel: varchar("source_channel", { length: 100 }), // WhatsApp, site, indicação...
+  sourceCity: varchar("source_city", { length: 100 }),
+
+  // LGPD
+  lgpdConsent: int("lgpd_consent").default(0),
+  lgpdConsentAt: timestamp("lgpd_consent_at"),
+
+  // Follow-up
+  rejectionReason: text("rejection_reason"),
+  followupDate: timestamp("followup_date"), // Data do próximo follow-up (6 meses para reprovados)
+
+  notes: text("notes"),
+  adminNotes: text("admin_notes"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().onUpdateNow().notNull(),
+});
+
+export type Lead = typeof leads.$inferSelect;
+export type InsertLead = typeof leads.$inferInsert;
+
+/**
+ * Atividades/histórico do lead (timeline)
+ */
+export const leadActivities = mysqlTable("lead_activities", {
+  id: int("id").autoincrement().primaryKey(),
+  leadId: int("lead_id").notNull(),
+  type: mysqlEnum("type", [
+    "message", "call", "document", "status_change",
+    "note", "handoff", "follow_up", "simulation", "caixa_register"
+  ]).notNull(),
+  description: text("description").notNull(),
+  performedBy: varchar("performed_by", { length: 100 }), // "sarah" | "vinicius" | "bianca" | "dolores"
+  metadata: text("metadata"), // JSON extra
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export type LeadActivity = typeof leadActivities.$inferSelect;
+export type InsertLeadActivity = typeof leadActivities.$inferInsert;
+
+/**
+ * Documentos do lead (checklist MCMV)
+ */
+export const leadDocuments = mysqlTable("lead_documents", {
+  id: int("id").autoincrement().primaryKey(),
+  leadId: int("lead_id").notNull(),
+  type: mysqlEnum("type", [
+    "rg", "cnh", "address_proof", "income_proof_formal",
+    "income_proof_irpf", "fgts", "spouse_docs", "pis", "other"
+  ]).notNull(),
+  fileName: varchar("file_name", { length: 255 }),
+  fileUrl: text("file_url"),
+  status: mysqlEnum("status", ["pending", "received", "approved", "rejected"]).default("pending").notNull(),
+  notes: text("notes"),
+  uploadedAt: timestamp("uploaded_at"),
+  reviewedAt: timestamp("reviewed_at"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export type LeadDocument = typeof leadDocuments.$inferSelect;
+export type InsertLeadDocument = typeof leadDocuments.$inferInsert;
+
+/**
+ * Follow-ups automáticos (10 tentativas × 3 sub-tentativas)
+ */
+export const leadFollowUps = mysqlTable("lead_follow_ups", {
+  id: int("id").autoincrement().primaryKey(),
+  leadId: int("lead_id").notNull(),
+  attempt: int("attempt").notNull(),    // 1 a 10
+  subAttempt: int("sub_attempt").notNull(), // 1 a 3 (a cada 2h dentro do dia)
+  scheduledAt: timestamp("scheduled_at").notNull(),
+  executedAt: timestamp("executed_at"),
+  status: mysqlEnum("status", ["pending", "sent", "responded", "failed", "cancelled"]).default("pending").notNull(),
+  message: text("message"),  // Mensagem enviada
+  response: text("response"), // Resposta recebida (se houver)
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export type LeadFollowUp = typeof leadFollowUps.$inferSelect;
+export type InsertLeadFollowUp = typeof leadFollowUps.$inferInsert;
+
+/**
+ * Tarefas internas — SLA por nível (operacional 2h, técnico 6h, estratégico 24h)
+ */
+export const tasks = mysqlTable("tasks", {
+  id: int("id").autoincrement().primaryKey(),
+  title: varchar("title", { length: 255 }).notNull(),
+  description: text("description"),
+  assignedTo: varchar("assigned_to", { length: 100 }).notNull(), // "sarah" | "vinicius" | etc.
+  relatedType: mysqlEnum("related_type", ["lead", "obra", "budget", "financial", "general"]),
+  relatedId: int("related_id"),
+  priority: mysqlEnum("priority", ["low", "medium", "high", "critical"]).default("medium").notNull(),
+  status: mysqlEnum("status", ["pending", "in_progress", "done", "cancelled"]).default("pending").notNull(),
+  slaHours: int("sla_hours").default(24), // SLA em horas
+  dueAt: timestamp("due_at"),
+  completedAt: timestamp("completed_at"),
+  escalatedToVinicius: int("escalated_to_vinicius").default(0),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().onUpdateNow().notNull(),
+});
+
+export type Task = typeof tasks.$inferSelect;
+export type InsertTask = typeof tasks.$inferInsert;
+
+/**
+ * Distribuição de lucro para sócios
+ * Cleidson: 33% financeiro local, 50% obras locais
+ * Francisco: 33% financeiro local
+ */
+export const partnerDistributions = mysqlTable("partner_distributions", {
+  id: int("id").autoincrement().primaryKey(),
+  partnerName: varchar("partner_name", { length: 255 }).notNull(), // "Cleidson" | "Francisco"
+  referenceType: mysqlEnum("reference_type", ["obra", "financial", "other"]).notNull(),
+  referenceId: int("reference_id"), // projectId, leadId, etc.
+  referenceDescription: varchar("reference_description", { length: 255 }),
+  percentage: decimal("percentage", { precision: 5, scale: 2 }).notNull(),
+  grossAmount: decimal("gross_amount", { precision: 15, scale: 2 }).notNull(),   // Base de cálculo
+  distributionAmount: decimal("distribution_amount", { precision: 15, scale: 2 }).notNull(), // Valor a distribuir
+  status: mysqlEnum("status", ["pending", "paid"]).default("pending").notNull(),
+  paidAt: timestamp("paid_at"),
+  notes: text("notes"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().onUpdateNow().notNull(),
+});
+
+export type PartnerDistribution = typeof partnerDistributions.$inferSelect;
+export type InsertPartnerDistribution = typeof partnerDistributions.$inferInsert;
+
+/**
+ * Transações financeiras gerais (receitas, despesas, comissões)
+ */
+export const financialTransactions = mysqlTable("financial_transactions", {
+  id: int("id").autoincrement().primaryKey(),
+  type: mysqlEnum("type", ["income", "expense", "commission", "salary", "contractor_payment"]).notNull(),
+  amount: decimal("amount", { precision: 15, scale: 2 }).notNull(),
+  description: varchar("description", { length: 500 }).notNull(),
+  category: varchar("category", { length: 100 }),
+  responsible: varchar("responsible", { length: 100 }),
+  referenceId: int("reference_id"),
+  referenceType: varchar("reference_type", { length: 50 }),
+  paidAt: timestamp("paid_at"),
+  notes: text("notes"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().onUpdateNow().notNull(),
+});
+
+export type FinancialTransaction = typeof financialTransactions.$inferSelect;
+export type InsertFinancialTransaction = typeof financialTransactions.$inferInsert;

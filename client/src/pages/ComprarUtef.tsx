@@ -33,7 +33,7 @@ export default function ComprarUtef() {
         window.open(data.invoiceUrl, '_blank');
         toast.success("Redirecionando para pagamento...");
         setTimeout(() => {
-          window.location.href = "/dashboard";
+          window.location.href = "/meu-saldo";
         }, 2000);
       }
     },
@@ -267,7 +267,7 @@ export default function ComprarUtef() {
               
               <CardFooter>
                 <Button 
-                  onClick={() => window.location.href = "/dashboard"}
+                  onClick={() => window.location.href = "/meu-saldo"}
                   className="w-full bg-[#C9A961] hover:bg-[#B8985A] text-[#1A2332] font-bold text-lg py-6 h-auto"
                 >
                   Ir para Meu Painel

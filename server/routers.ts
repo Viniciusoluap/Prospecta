@@ -948,6 +948,667 @@ export const appRouter = router({
       return { success: true };
     }),
   }),
+
+  // ========== CRM — LEADS ==========
+  leads: router({
+    list: protectedProcedure
+      .input(z.object({
+        stage: z.string().optional(),
+        responsible: z.string().optional(),
+        temperature: z.string().optional(),
+        city: z.string().optional(),
+      }).optional())
+      .query(async ({ input, ctx }) => {
+        if (ctx.user.role !== "admin") throw new TRPCError({ code: "FORBIDDEN" });
+        return db.getAllLeads(input || {});
+      }),
+
+    getById: protectedProcedure
+      .input(z.object({ id: z.number() }))
+      .query(async ({ input, ctx }) => {
+        if (ctx.user.role !== "admin") throw new TRPCError({ code: "FORBIDDEN" });
+        const lead = await db.getLeadById(input.id);
+        if (!lead) throw new TRPCError({ code: "NOT_FOUND" });
+        const [activities, documents, followUps] = await Promise.all([
+          db.getLeadActivities(input.id),
+          db.getLeadDocuments(input.id),
+          db.getLeadFollowUps(input.id),
+        ]);
+        return { ...lead, activities, documents, followUps };
+      }),
+
+    create: protectedProcedure
+      .input(z.object({
+        name: z.string().min(2),
+        phone: z.string().min(8),
+        email: z.string().email().optional(),
+        city: z.string().optional(),
+        state: z.string().optional(),
+        type: z.enum(["new_lead","in_process","broker","employee","supplier","vip"]).optional(),
+        temperature: z.enum(["cold","warm","hot"]).optional(),
+        income: z.string().optional(),
+        incomeType: z.enum(["formal","informal","irpf"]).optional(),
+        fgtsAmount: z.string().optional(),
+        pisFgts: z.string().optional(),
+        hasSpouse: z.number().optional(),
+        spouseName: z.string().optional(),
+        sourceChannel: z.string().optional(),
+        notes: z.string().optional(),
+      }))
+      .mutation(async ({ input, ctx }) => {
+        if (ctx.user.role !== "admin") throw new TRPCError({ code: "FORBIDDEN" });
+        // Roteamento automático por cidade
+        let responsible: "sarah" | "vinicius" | "bianca" = "sarah";
+        const city = (input.city || "").toLowerCase();
+        if (city.includes("canaa") || city.includes("parauapebas")) responsible = "bianca";
+        const lead = await db.createLead({
+          ...input,
+          responsible,
+          stage: "lead_new",
+          temperature: input.temperature || "cold",
+          type: input.type || "new_lead",
+        } as any);
+        await db.addLeadActivity({
+          leadId: lead.id,
+          type: "status_change",
+          description: "Lead criado no sistema",
+          performedBy: "vinicius",
+        });
+        return lead;
+      }),
+
+    update: protectedProcedure
+      .input(z.object({
+        id: z.number(),
+        name: z.string().optional(),
+        phone: z.string().optional(),
+        email: z.string().optional(),
+        city: z.string().optional(),
+        state: z.string().optional(),
+        stage: z.string().optional(),
+        temperature: z.enum(["cold","warm","hot"]).optional(),
+        responsible: z.enum(["sarah","vinicius","bianca"]).optional(),
+        cpfStatus: z.enum(["clean","restricted","unknown"]).optional(),
+        simulationValue: z.union([z.string(), z.number()]).optional(),
+        approvedValue: z.union([z.string(), z.number()]).optional(),
+        contractType: z.enum(["obra","financing","both"]).optional(),
+        rejectionReason: z.string().optional(),
+        followupDate: z.string().optional(),
+        notes: z.string().optional(),
+        adminNotes: z.string().optional(),
+        income: z.union([z.string(), z.number()]).optional(),
+        incomeType: z.enum(["formal","informal","irpf"]).optional(),
+        fgtsAmount: z.string().optional(),
+        pisFgts: z.string().optional(),
+        fgts: z.boolean().optional(),
+        hasSpouse: z.union([z.boolean(), z.number()]).optional(),
+        spouseName: z.string().optional(),
+        incomeComposition: z.union([z.boolean(), z.number()]).optional(),
+        interest: z.enum(["house","lot","financing","construction"]).optional(),
+        type: z.string().optional(),
+        lgpdConsent: z.number().optional(),
+      }))
+      .mutation(async ({ input, ctx }) => {
+        if (ctx.user.role !== "admin") throw new TRPCError({ code: "FORBIDDEN" });
+        const { id, stage, ...data } = input;
+        const lead = await db.getLeadById(id);
+        if (!lead) throw new TRPCError({ code: "NOT_FOUND" });
+        // Convert number fields to string for decimal columns
+        const dbData: any = {
+          ...data,
+          stage: stage as any,
+          income: data.income !== undefined ? data.income.toString() : undefined,
+          simulationValue: data.simulationValue !== undefined ? data.simulationValue.toString() : undefined,
+          approvedValue: data.approvedValue !== undefined ? data.approvedValue.toString() : undefined,
+          hasSpouse: data.hasSpouse !== undefined ? (data.hasSpouse ? 1 : 0) : undefined,
+          fgts: data.fgts !== undefined ? (data.fgts ? 1 : 0) : undefined,
+          incomeComposition: data.incomeComposition !== undefined ? (data.incomeComposition ? 1 : 0) : undefined,
+          followupDate: data.followupDate ? new Date(data.followupDate) : undefined,
+        };
+        await db.updateLead(id, dbData);
+        if (stage && stage !== lead.stage) {
+          await db.addLeadActivity({
+            leadId: id,
+            type: "status_change",
+            description: `Estágio alterado de "${lead.stage}" para "${stage}"`,
+            performedBy: "vinicius",
+          });
+        }
+        return { success: true };
+      }),
+
+    addActivity: protectedProcedure
+      .input(z.object({
+        leadId: z.number(),
+        type: z.enum(["message","call","document","status_change","note","handoff","follow_up","simulation","caixa_register"]),
+        description: z.string(),
+        performedBy: z.string().optional(),
+      }))
+      .mutation(async ({ input, ctx }) => {
+        if (ctx.user.role !== "admin") throw new TRPCError({ code: "FORBIDDEN" });
+        await db.addLeadActivity({ ...input, performedBy: input.performedBy || "vinicius" });
+        return { success: true };
+      }),
+
+    addDocument: protectedProcedure
+      .input(z.object({
+        leadId: z.number(),
+        type: z.enum(["rg","cnh","address_proof","income_proof_formal","income_proof_irpf","fgts","spouse_docs","pis","other"]),
+        fileName: z.string().optional(),
+        fileUrl: z.string().optional(),
+        status: z.enum(["pending","received","approved","rejected"]).optional(),
+        notes: z.string().optional(),
+      }))
+      .mutation(async ({ input, ctx }) => {
+        if (ctx.user.role !== "admin") throw new TRPCError({ code: "FORBIDDEN" });
+        await db.addLeadDocument({ ...input, status: input.status || "received", uploadedAt: new Date() });
+        return { success: true };
+      }),
+
+    updateDocument: protectedProcedure
+      .input(z.object({
+        id: z.number(),
+        status: z.enum(["pending","received","approved","rejected"]).optional(),
+        notes: z.string().optional(),
+      }))
+      .mutation(async ({ input, ctx }) => {
+        if (ctx.user.role !== "admin") throw new TRPCError({ code: "FORBIDDEN" });
+        const { id, ...data } = input;
+        await db.updateLeadDocument(id, { ...data, reviewedAt: new Date() });
+        return { success: true };
+      }),
+
+    stats: protectedProcedure
+      .query(async ({ ctx }) => {
+        if (ctx.user.role !== "admin") throw new TRPCError({ code: "FORBIDDEN" });
+        return db.getLeadStats();
+      }),
+  }),
+
+  // ========== EMPREITEIROS ==========
+  contractors: router({
+    list: protectedProcedure
+      .query(async ({ ctx }) => {
+        if (ctx.user.role !== "admin") throw new TRPCError({ code: "FORBIDDEN" });
+        return db.getAllContractors();
+      }),
+
+    create: protectedProcedure
+      .input(z.object({
+        name: z.string().min(2),
+        phone: z.string().optional(),
+        city: z.string().optional(),
+        state: z.string().optional(),
+        specialties: z.string().optional(),
+        contractType: z.string().optional(),
+        notes: z.string().optional(),
+      }))
+      .mutation(async ({ input, ctx }) => {
+        if (ctx.user.role !== "admin") throw new TRPCError({ code: "FORBIDDEN" });
+        return db.createContractor(input as any);
+      }),
+
+    update: protectedProcedure
+      .input(z.object({
+        id: z.number(),
+        name: z.string().optional(),
+        phone: z.string().optional(),
+        city: z.string().optional(),
+        status: z.enum(["active","inactive"]).optional(),
+        notes: z.string().optional(),
+      }))
+      .mutation(async ({ input, ctx }) => {
+        if (ctx.user.role !== "admin") throw new TRPCError({ code: "FORBIDDEN" });
+        const { id, ...data } = input;
+        await db.updateContractor(id, data as any);
+        return { success: true };
+      }),
+  }),
+
+  // ========== TAREFAS ==========
+  tasks: router({
+    list: protectedProcedure
+      .input(z.object({
+        assignedTo: z.string().optional(),
+        status: z.string().optional(),
+      }).optional())
+      .query(async ({ input, ctx }) => {
+        if (ctx.user.role !== "admin") throw new TRPCError({ code: "FORBIDDEN" });
+        return db.getAllTasks(input?.assignedTo);
+      }),
+
+    create: protectedProcedure
+      .input(z.object({
+        title: z.string().min(2),
+        description: z.string().optional(),
+        assignedTo: z.string(),
+        relatedType: z.enum(["lead","obra","budget","financial","general"]).optional(),
+        relatedId: z.number().optional(),
+        priority: z.enum(["low","medium","high","critical"]).optional(),
+        slaHours: z.number().optional(),
+        dueAt: z.union([z.string(), z.date()]).optional(),
+      }))
+      .mutation(async ({ input, ctx }) => {
+        if (ctx.user.role !== "admin") throw new TRPCError({ code: "FORBIDDEN" });
+        return db.createTask({
+          ...input,
+          dueAt: input.dueAt ? new Date(input.dueAt) : undefined,
+          priority: input.priority || "medium",
+          status: "pending",
+        } as any);
+      }),
+
+    update: protectedProcedure
+      .input(z.object({
+        id: z.number(),
+        status: z.enum(["pending","in_progress","done","cancelled"]).optional(),
+        priority: z.enum(["low","medium","high","critical"]).optional(),
+        escalatedToVinicius: z.number().optional(),
+        dueAt: z.string().optional(),
+      }))
+      .mutation(async ({ input, ctx }) => {
+        if (ctx.user.role !== "admin") throw new TRPCError({ code: "FORBIDDEN" });
+        const { id, ...data } = input;
+        await db.updateTask(id, {
+          ...data,
+          dueAt: data.dueAt ? new Date(data.dueAt) : undefined,
+          completedAt: data.status === "done" ? new Date() : undefined,
+        } as any);
+        return { success: true };
+      }),
+  }),
+
+  // ========== INVESTIDORES ==========
+  investors: router({
+    list: protectedProcedure
+      .query(async ({ ctx }) => {
+        if (ctx.user.role !== "admin") throw new TRPCError({ code: "FORBIDDEN" });
+        return db.getAllInvestors();
+      }),
+
+    create: protectedProcedure
+      .input(z.object({
+        name: z.string().min(2),
+        phone: z.string().optional(),
+        email: z.string().optional(),
+        rate: z.number().optional(),
+        initialBalance: z.number().optional(),
+        notes: z.string().optional(),
+      }))
+      .mutation(async ({ input, ctx }) => {
+        if (ctx.user.role !== "admin") throw new TRPCError({ code: "FORBIDDEN" });
+        return db.createInvestor({
+          name: input.name,
+          phone: input.phone,
+          email: input.email,
+          monthlyRate: input.rate?.toString(),
+          currentBalance: input.initialBalance?.toString() || "0",
+          initialAmount: input.initialBalance?.toString() || "0",
+          initialDate: new Date(),
+          notes: input.notes,
+          status: "active",
+        } as any);
+      }),
+
+    update: protectedProcedure
+      .input(z.object({
+        id: z.number(),
+        currentBalance: z.string().optional(),
+        status: z.enum(["active","withdrawn","extended"]).optional(),
+        notes: z.string().optional(),
+      }))
+      .mutation(async ({ input, ctx }) => {
+        if (ctx.user.role !== "admin") throw new TRPCError({ code: "FORBIDDEN" });
+        const { id, ...data } = input;
+        await db.updateInvestor(id, data as any);
+        return { success: true };
+      }),
+
+    addTransaction: protectedProcedure
+      .input(z.object({
+        investorId: z.number(),
+        type: z.enum(["deposit","withdrawal","interest","extension","return"]),
+        amount: z.number(),
+        description: z.string().optional(),
+        dueAt: z.union([z.string(), z.date()]).optional(),
+        notes: z.string().optional(),
+      }))
+      .mutation(async ({ input, ctx }) => {
+        if (ctx.user.role !== "admin") throw new TRPCError({ code: "FORBIDDEN" });
+        const type = input.type === "return" ? "withdrawal" : input.type;
+        await db.addInvestorTransaction({
+          investorId: input.investorId,
+          type,
+          amount: input.amount.toString(),
+          notes: input.description || input.notes,
+          date: input.dueAt ? new Date(input.dueAt) : new Date(),
+        } as any);
+        return { success: true };
+      }),
+  }),
+
+  // ========== CORRETORES ==========
+  brokerCommissions: router({
+    list: protectedProcedure
+      .input(z.object({
+        brokerName: z.string().optional(),
+        status: z.string().optional(),
+      }).optional())
+      .query(async ({ ctx }) => {
+        if (ctx.user.role !== "admin") throw new TRPCError({ code: "FORBIDDEN" });
+        return db.getAllBrokerCommissions();
+      }),
+
+    create: protectedProcedure
+      .input(z.object({
+        brokerName: z.string(),
+        clientName: z.string(),
+        projectName: z.string().optional(),
+        totalAmount: z.number(),
+        installment1: z.number().optional(),
+        installment2: z.number().optional(),
+        installment3: z.number().optional(),
+        installment4: z.number().optional(),
+        dueDate1: z.union([z.string(), z.date()]).optional(),
+        dueDate2: z.union([z.string(), z.date()]).optional(),
+        dueDate3: z.union([z.string(), z.date()]).optional(),
+        dueDate4: z.union([z.string(), z.date()]).optional(),
+      }))
+      .mutation(async ({ input, ctx }) => {
+        if (ctx.user.role !== "admin") throw new TRPCError({ code: "FORBIDDEN" });
+        return db.createBrokerCommission({
+          brokerName: input.brokerName,
+          clientName: input.clientName,
+          projectName: input.projectName,
+          totalCommission: input.totalAmount.toString(),
+          installment1Value: input.installment1?.toString(),
+          installment2Value: input.installment2?.toString(),
+          installment3Value: input.installment3?.toString(),
+          installment4Value: input.installment4?.toString(),
+          installment1DueDate: input.dueDate1 ? new Date(input.dueDate1) : undefined,
+          installment2DueDate: input.dueDate2 ? new Date(input.dueDate2) : undefined,
+          installment3DueDate: input.dueDate3 ? new Date(input.dueDate3) : undefined,
+          installment4DueDate: input.dueDate4 ? new Date(input.dueDate4) : undefined,
+          status: "pending",
+        } as any);
+      }),
+
+    update: protectedProcedure
+      .input(z.object({
+        id: z.number(),
+        paidDate1: z.union([z.string(), z.date()]).optional(),
+        paidDate2: z.union([z.string(), z.date()]).optional(),
+        paidDate3: z.union([z.string(), z.date()]).optional(),
+        paidDate4: z.union([z.string(), z.date()]).optional(),
+        notes: z.string().optional(),
+      }))
+      .mutation(async ({ input, ctx }) => {
+        if (ctx.user.role !== "admin") throw new TRPCError({ code: "FORBIDDEN" });
+        const { id, notes, ...dates } = input;
+        const data: Record<string, any> = { notes };
+        if (dates.paidDate1) data.installment1Paid = new Date(dates.paidDate1);
+        if (dates.paidDate2) data.installment2Paid = new Date(dates.paidDate2);
+        if (dates.paidDate3) data.installment3Paid = new Date(dates.paidDate3);
+        if (dates.paidDate4) data.installment4Paid = new Date(dates.paidDate4);
+        await db.updateBrokerCommission(id, data as any);
+        return { success: true };
+      }),
+  }),
+
+  // ========== LOTES ==========
+  lots: router({
+    list: protectedProcedure
+      .input(z.object({
+        status: z.string().optional(),
+        loteamento: z.string().optional(),
+      }).optional())
+      .query(async ({ ctx }) => {
+        if (ctx.user.role !== "admin") throw new TRPCError({ code: "FORBIDDEN" });
+        return db.getAllLots();
+      }),
+
+    create: protectedProcedure
+      .input(z.object({
+        loteamento: z.string(),
+        block: z.string().optional(),
+        number: z.string(),
+        area: z.number().optional(),
+        price: z.number().optional(),
+        ownerName: z.string().optional(),
+        ownerPhone: z.string().optional(),
+        status: z.enum(["available","reserved","sold","construction"]).optional(),
+        notes: z.string().optional(),
+      }))
+      .mutation(async ({ input, ctx }) => {
+        if (ctx.user.role !== "admin") throw new TRPCError({ code: "FORBIDDEN" });
+        return db.createLot({
+          lotNumber: input.number,
+          development: input.loteamento,
+          block: input.block,
+          area: input.area?.toString(),
+          assessmentValue: input.price?.toString(),
+          assignedClientName: input.ownerName,
+          ownerPhone: input.ownerPhone,
+          status: input.status || "available",
+          notes: input.notes,
+        } as any);
+      }),
+
+    update: protectedProcedure
+      .input(z.object({
+        id: z.number(),
+        status: z.enum(["available","reserved","sold","construction"]).optional(),
+        assignedProjectId: z.number().optional(),
+        assignedClientName: z.string().optional(),
+        ownerPhone: z.string().optional(),
+        notes: z.string().optional(),
+      }))
+      .mutation(async ({ input, ctx }) => {
+        if (ctx.user.role !== "admin") throw new TRPCError({ code: "FORBIDDEN" });
+        const { id, ...data } = input;
+        await db.updateLot(id, data as any);
+        return { success: true };
+      }),
+  }),
+
+  // ========== DISTRIBUIÇÃO DE SÓCIOS ==========
+  partnerDistributions: router({
+    list: protectedProcedure
+      .input(z.object({
+        status: z.string().optional(),
+        type: z.string().optional(),
+      }).optional())
+      .query(async ({ ctx }) => {
+        if (ctx.user.role !== "admin") throw new TRPCError({ code: "FORBIDDEN" });
+        return db.getAllPartnerDistributions();
+      }),
+
+    create: protectedProcedure
+      .input(z.object({
+        partnerName: z.string().optional(),
+        type: z.enum(["financial","obra","other"]).optional(),
+        referenceType: z.enum(["obra","financial","other"]).optional(),
+        referenceId: z.number().optional(),
+        percentage: z.union([z.string(), z.number()]),
+        amount: z.union([z.string(), z.number()]).optional(),
+        grossAmount: z.string().optional(),
+        distributionAmount: z.string().optional(),
+        notes: z.string().optional(),
+      }))
+      .mutation(async ({ input, ctx }) => {
+        if (ctx.user.role !== "admin") throw new TRPCError({ code: "FORBIDDEN" });
+        return db.createPartnerDistribution({
+          partnerName: input.partnerName || "Sócio",
+          referenceType: input.referenceType || input.type || "financial",
+          percentage: input.percentage.toString(),
+          grossAmount: input.amount?.toString() || input.grossAmount || "0",
+          distributionAmount: input.amount?.toString() || input.distributionAmount || "0",
+          notes: input.notes,
+          status: "pending",
+        } as any);
+      }),
+
+    markPaid: protectedProcedure
+      .input(z.object({ id: z.number() }))
+      .mutation(async ({ input, ctx }) => {
+        if (ctx.user.role !== "admin") throw new TRPCError({ code: "FORBIDDEN" });
+        await db.updatePartnerDistribution(input.id, { status: "paid", paidAt: new Date() } as any);
+        return { success: true };
+      }),
+  }),
+
+  // ========== MEDIÇÕES DE OBRA ==========
+  obraMedicoes: router({
+    list: protectedProcedure
+      .input(z.object({ projectId: z.number() }))
+      .query(async ({ input, ctx }) => {
+        if (ctx.user.role !== "admin") throw new TRPCError({ code: "FORBIDDEN" });
+        const db = await import("./db").then(m => m.getDb());
+        if (!db) return [];
+        const { sql } = await import("drizzle-orm");
+        try {
+          const rows = await db.execute(sql`
+            SELECT * FROM obra_medicoes WHERE project_id = ${input.projectId} ORDER BY created_at ASC
+          `);
+          const arr = (rows as any)[0] || (Array.isArray(rows) ? rows : []);
+          return (Array.isArray(arr) ? arr : []).map((r: any) => ({
+            id: r.id,
+            projectId: r.project_id,
+            tipo: r.tipo || "pls",
+            dataPrevista: r.data_prevista ? new Date(r.data_prevista) : null,
+            dataRecebimentoCef: r.data_recebimento_cef ? new Date(r.data_recebimento_cef) : null,
+            valorCef: r.valor_cef ? Number(r.valor_cef) : null,
+            dataTransferencia: r.data_transferencia ? new Date(r.data_transferencia) : null,
+            valorTransferido: r.valor_transferido ? Number(r.valor_transferido) : null,
+            status: r.status || "pending",
+            empreiteiro: r.empreiteiro || null,
+            valorPagoEmpreiteiro: r.valor_pago_empreiteiro ? Number(r.valor_pago_empreiteiro) : null,
+            notes: r.notes || null,
+          }));
+        } catch {
+          return [];
+        }
+      }),
+
+    create: protectedProcedure
+      .input(z.object({
+        projectId: z.number(),
+        tipo: z.enum(["pls", "rae", "marco_30", "marco_85", "final", "repactuacao"]),
+        dataPrevista: z.date().optional(),
+        valorCef: z.number().optional(),
+        notes: z.string().optional(),
+      }))
+      .mutation(async ({ input, ctx }) => {
+        if (ctx.user.role !== "admin") throw new TRPCError({ code: "FORBIDDEN" });
+        const db = await import("./db").then(m => m.getDb());
+        if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB unavailable" });
+        const { sql } = await import("drizzle-orm");
+        await db.execute(sql`
+          INSERT INTO obra_medicoes (project_id, tipo, data_prevista, valor_cef, status, notes, created_at, updated_at)
+          VALUES (
+            ${input.projectId},
+            ${input.tipo},
+            ${input.dataPrevista ?? null},
+            ${input.valorCef ?? null},
+            'pending',
+            ${input.notes ?? null},
+            NOW(), NOW()
+          )
+        `);
+        return { success: true };
+      }),
+
+    confirmReceipt: protectedProcedure
+      .input(z.object({
+        id: z.number(),
+        cefPaid: z.boolean().optional(),
+        dataRecebimentoCef: z.date().optional(),
+        valorTransferido: z.number().optional(),
+        dataTransferencia: z.date().optional(),
+      }))
+      .mutation(async ({ input, ctx }) => {
+        if (ctx.user.role !== "admin") throw new TRPCError({ code: "FORBIDDEN" });
+        const db = await import("./db").then(m => m.getDb());
+        if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB unavailable" });
+        const { sql } = await import("drizzle-orm");
+        if (input.cefPaid) {
+          await db.execute(sql`
+            UPDATE obra_medicoes
+            SET status = 'cef_paid', data_recebimento_cef = ${input.dataRecebimentoCef ?? new Date()}, updated_at = NOW()
+            WHERE id = ${input.id}
+          `);
+        } else {
+          await db.execute(sql`
+            UPDATE obra_medicoes
+            SET status = 'received',
+                valor_transferido = ${input.valorTransferido ?? null},
+                data_transferencia = ${input.dataTransferencia ?? new Date()},
+                updated_at = NOW()
+            WHERE id = ${input.id}
+          `);
+        }
+        return { success: true };
+      }),
+
+    payContractor: protectedProcedure
+      .input(z.object({
+        id: z.number(),
+        valorPagoEmpreiteiro: z.number(),
+        empreiteiro: z.string().optional(),
+      }))
+      .mutation(async ({ input, ctx }) => {
+        if (ctx.user.role !== "admin") throw new TRPCError({ code: "FORBIDDEN" });
+        const db = await import("./db").then(m => m.getDb());
+        if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB unavailable" });
+        const { sql } = await import("drizzle-orm");
+        await db.execute(sql`
+          UPDATE obra_medicoes
+          SET status = 'contractor_paid',
+              valor_pago_empreiteiro = ${input.valorPagoEmpreiteiro},
+              empreiteiro = ${input.empreiteiro ?? null},
+              updated_at = NOW()
+          WHERE id = ${input.id}
+        `);
+        return { success: true };
+      }),
+  }),
+
+  // ========== TRANSAÇÕES FINANCEIRAS ==========
+  financialTransactions: router({
+    list: protectedProcedure
+      .input(z.object({
+        type: z.string().optional(),
+        responsible: z.string().optional(),
+      }).optional())
+      .query(async ({ ctx }) => {
+        if (ctx.user.role !== "admin") throw new TRPCError({ code: "FORBIDDEN" });
+        return db.getAllFinancialTransactions ? db.getAllFinancialTransactions() : [];
+      }),
+
+    create: protectedProcedure
+      .input(z.object({
+        type: z.enum(["income","expense","commission","salary","contractor_payment"]),
+        amount: z.number(),
+        description: z.string(),
+        category: z.string().optional(),
+        responsible: z.string().optional(),
+        paidAt: z.union([z.string(), z.date()]).optional(),
+        referenceId: z.number().optional(),
+        referenceType: z.string().optional(),
+        notes: z.string().optional(),
+      }))
+      .mutation(async ({ input, ctx }) => {
+        if (ctx.user.role !== "admin") throw new TRPCError({ code: "FORBIDDEN" });
+        if (db.createFinancialTransaction) {
+          return db.createFinancialTransaction({
+            ...input,
+            amount: input.amount.toString(),
+            paidAt: input.paidAt ? new Date(input.paidAt) : undefined,
+          } as any);
+        }
+        return { success: true };
+      }),
+  }),
 });
 
 export type AppRouter = typeof appRouter;

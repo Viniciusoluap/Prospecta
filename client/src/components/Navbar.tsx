@@ -84,9 +84,9 @@ export default function Navbar() {
                 {/* Divisor */}
                 <div className="border-t my-2" />
 
-                {/* Ecossistema Efficaz */}
+                {/* Ecossistema VFX Capital */}
                 <div className="px-3 py-2">
-                  <h3 className="text-sm font-semibold text-muted-foreground mb-3">Ecossistema Efficaz</h3>
+                  <h3 className="text-sm font-semibold text-muted-foreground mb-3">Ecossistema VFX Capital</h3>
                   <div className="flex flex-col gap-2">
                     <Link href="/sorteios" onClick={closeMobileMenu}>
                       <Button variant="ghost" className="w-full justify-start">

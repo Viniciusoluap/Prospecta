@@ -10,6 +10,7 @@ import { serveStatic, setupVite } from "./vite";
 import { registerStripeWebhook } from "./stripeWebhook";
 import uploadPhotoRouter from "../routes/upload-photo";
 import { handleAsaasWebhook } from "../asaas-webhook";
+import { startFollowUpScheduler } from "../follow-up-scheduler";
 
 function isPortAvailable(port: number): Promise<boolean> {
   return new Promise(resolve => {
@@ -70,6 +71,8 @@ async function startServer() {
 
   server.listen(port, () => {
     console.log(`Server running on http://localhost:${port}/`);
+    // Start background schedulers
+    startFollowUpScheduler();
   });
 }
 
