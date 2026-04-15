@@ -44,11 +44,13 @@ import AdminObraMedicoes from "./pages/admin/AdminObraMedicoes";
 import Perfil from "./pages/Perfil";
 import SimuladorFinanciamento from "./pages/SimuladorFinanciamento";
 import WhatsAppFloat from "./components/WhatsAppFloat";
+import Login from "./pages/Login";
 
 function Router() {
   // make sure to consider if you need authentication for certain routes
   return (
     <Switch>
+      <Route path="/login" component={Login} />
       <Route path={"/"} component={Home} />
       <Route path="/sorteios" component={Sorteios} />
       <Route path="/comprar-bilhete/:id" component={ComprarBilhete} />

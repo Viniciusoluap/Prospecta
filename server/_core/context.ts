@@ -1,6 +1,7 @@
 import type { CreateExpressContextOptions } from "@trpc/server/adapters/express";
 import type { User } from "../../drizzle/schema";
-import { sdk } from "./sdk";
+import { getTokenFromRequest, verifySessionToken } from "./auth-utils";
+import { getUserById } from "../db";
 
 export type TrpcContext = {
   req: CreateExpressContextOptions["req"];
@@ -14,9 +15,14 @@ export async function createContext(
   let user: User | null = null;
 
   try {
-    user = await sdk.authenticateRequest(opts.req);
-  } catch (error) {
-    // Authentication is optional for public procedures.
+    const token = getTokenFromRequest(opts.req);
+    if (token) {
+      const payload = await verifySessionToken(token);
+      if (payload) {
+        user = await getUserById(payload.userId);
+      }
+    }
+  } catch {
     user = null;
   }
 
