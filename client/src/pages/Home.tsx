@@ -363,7 +363,7 @@ export default function Home() {
               {/* Logo Exclusive Club */}
               <div className="grayscale hover:grayscale-0 transition-all flex items-center gap-2">
                 <img 
-                  src="/exclusive-club-logo.png" 
+                  src="https://d2xsxph8kpxj0f.cloudfront.net/310419663028705863/XKiYeWQckm4y8ZFAdaZbRn/exclusive-club-logo_7a4d7eae.png" 
                   alt="Exclusive Club" 
                   className="h-12 md:h-16 object-contain"
                 />

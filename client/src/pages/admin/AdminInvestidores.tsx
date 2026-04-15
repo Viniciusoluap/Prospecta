@@ -30,7 +30,7 @@ export default function AdminInvestidores() {
     type: "deposit" as any, amount: "", description: "", dueAt: "", notes: "",
   });
 
-  const { data: investors = [], refetch } = trpc.investors.list.useQuery({});
+  const { data: investors = [], refetch } = trpc.investors.list.useQuery(undefined);
 
   const createMutation = trpc.investors.create.useMutation({
     onSuccess: () => { toast.success("Investidor cadastrado!"); refetch(); setOpen(false); setForm({ name: "", phone: "", email: "", rate: "", initialBalance: "", notes: "" }); },

@@ -19,7 +19,7 @@ export default function AdminEmpreiteiros() {
     contractType: "labor" as any, notes: "",
   });
 
-  const { data: contractors = [], refetch } = trpc.contractors.list.useQuery({});
+  const { data: contractors = [], refetch } = trpc.contractors.list.useQuery(undefined);
 
   const createMutation = trpc.contractors.create.useMutation({
     onSuccess: () => { toast.success("Empreiteiro cadastrado!"); refetch(); setOpen(false); setForm({ name: "", phone: "", city: "", specialties: "", contractType: "labor", notes: "" }); },

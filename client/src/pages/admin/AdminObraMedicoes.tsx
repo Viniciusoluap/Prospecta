@@ -107,7 +107,7 @@ export default function AdminObraMedicoes() {
     .filter(m => m.status === "contractor_paid")
     .reduce((sum, m) => sum + (m.valorPagoEmpreiteiro || 0), 0);
   const saldoProspecta = totalRecebido - totalPagoEmpreiteiros;
-  const estimatedProfit = project ? (project.contractValue || 0) - (project.contractorPayment || 0) - (project.materialCost || 0) - (project.lotCost || 0) : 0;
+  const estimatedProfit = project ? parseFloat(project.contractValue || "0") - parseFloat((project as any).contractorPayment || "0") - parseFloat((project as any).materialCost || "0") - parseFloat(project.lotCost || "0") : 0;
 
   return (
     <div className="min-h-screen bg-[#1A2332] text-white">
@@ -221,13 +221,13 @@ export default function AdminObraMedicoes() {
             <Card className="bg-[#0F1923] border-[#C9A961]/20">
               <CardContent className="pt-4 pb-4">
                 <p className="text-gray-400 text-xs mb-1">VGV (Valor Global)</p>
-                <p className="text-[#C9A961] font-bold text-xl">{fmtBRL(project.contractValue)}</p>
+                <p className="text-[#C9A961] font-bold text-xl">{fmtBRL(parseFloat(project.contractValue || "0"))}</p>
               </CardContent>
             </Card>
             <Card className="bg-[#0F1923] border-[#C9A961]/20">
               <CardContent className="pt-4 pb-4">
                 <p className="text-gray-400 text-xs mb-1">Gasto Construção</p>
-                <p className="text-white font-bold text-xl">{fmtBRL(project.contractorPayment)}</p>
+                <p className="text-white font-bold text-xl">{fmtBRL(parseFloat((project as any).contractorPayment || "0"))}</p>
               </CardContent>
             </Card>
             <Card className="bg-[#0F1923] border-[#C9A961]/20">

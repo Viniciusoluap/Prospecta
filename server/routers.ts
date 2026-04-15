@@ -577,7 +577,15 @@ export const appRouter = router({
         if (project.userId !== ctx.user.id && ctx.user.role !== "admin") {
           throw new TRPCError({ code: "FORBIDDEN", message: "Acesso negado" });
         }
-        await db.updateProject(projectId, updates);
+        // Convert number fields to string for decimal columns in Drizzle
+        const decimalFields = ['estimatedCost', 'actualCost', 'contractValue', 'contractorPayment', 'materialCost', 'lotCost', 'commissionCost', 'extrasCost', 'maintenanceCost', 'insuranceCost', 'balanceAmount'] as const;
+        const converted: Record<string, any> = { ...updates };
+        for (const field of decimalFields) {
+          if (converted[field] !== undefined) {
+            converted[field] = String(converted[field]);
+          }
+        }
+        await db.updateProject(projectId, converted as any);
         return { success: true };
       }),
 

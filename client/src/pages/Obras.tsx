@@ -8,20 +8,40 @@ import { HardHat, Plus, Calendar, MapPin, TrendingUp, Eye, AlertCircle, ArrowLef
 import { Link, useLocation } from "wouter";
 import { getLoginUrl } from "@/const";
 
-const statusColors = {
+const statusColors: Record<string, string> = {
   planning: "bg-blue-500",
   in_progress: "bg-green-500",
   paused: "bg-yellow-500",
   completed: "bg-purple-500",
   cancelled: "bg-red-500",
+  alvara: "bg-cyan-500",
+  art: "bg-indigo-500",
+  assinatura_cef: "bg-orange-500",
+  vistoria_cef: "bg-teal-500",
+  laudo_ok: "bg-emerald-500",
+  cartorio: "bg-violet-500",
+  casa_pronta: "bg-green-600",
+  disponivel: "bg-lime-500",
+  reavaliar: "bg-amber-500",
+  distrato: "bg-rose-500",
 };
 
-const statusLabels = {
+const statusLabels: Record<string, string> = {
   planning: "Planejamento",
   in_progress: "Em Andamento",
   paused: "Pausada",
   completed: "Concluída",
   cancelled: "Cancelada",
+  alvara: "Alvará",
+  art: "ART",
+  assinatura_cef: "Assinatura CEF",
+  vistoria_cef: "Vistoria CEF",
+  laudo_ok: "Laudo OK",
+  cartorio: "Cartório",
+  casa_pronta: "Casa Pronta",
+  disponivel: "Disponível",
+  reavaliar: "Reavaliar",
+  distrato: "Distrato",
 };
 
 export default function Obras() {
@@ -167,14 +187,14 @@ export default function Obras() {
                         </p>
                       </div>
                     )}
-                    {project.estimatedCost && (
+                    {project.constructionCost && (
                       <div>
                         <p className="text-xs text-gray-500">Orçamento</p>
                         <p className="text-sm text-white font-medium">
                           {new Intl.NumberFormat("pt-BR", {
                             style: "currency",
                             currency: "BRL",
-                          }).format(project.estimatedCost)}
+                          }).format(parseFloat(project.constructionCost))}
                         </p>
                       </div>
                     )}

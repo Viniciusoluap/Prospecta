@@ -1082,3 +1082,14 @@ Todas as 7 páginas do ecossistema foram redesenhadas com a paleta Prospecta:
 - [x] Adicionar botão voltar na página Projetos e Orçamentos
 - [x] Adicionar botão voltar em outras páginas (MeuSaldo, MeusBilhetes, ComprarUtef, FAQ já tinha, ComprarBilhete já tinha)
 - [x] Testar navegação em todas as páginas
+
+
+### 48. Sincronização GitHub e Correção de Erros de TypeScript
+- [x] Sincronizar novos módulos do GitHub (CRM, Financeiro, Obras, Corretores, Empreiteiros, Investidores)
+- [x] Corrigir erros de TypeScript no AdminInvestidores.tsx (useQuery undefined)
+- [x] Corrigir erros de TypeScript no AdminLeadDetail.tsx (fgts, interest, onSuccess)
+- [x] Adicionar useEffect para substituir onSuccess deprecado no tRPC v11
+- [x] Aplicar migrações do banco de dados (20 statements executados com sucesso)
+- [x] Criar tabelas novas: leads, lead_activities, lead_documents, lead_follow_ups, lots, investors, investor_transactions, broker_commissions, tasks, partner_distributions, financial_transactions, contractors
+- [x] Adicionar colunas novas em construction_projects: contractor_id, city, state, vgv, financed_amount, fgts_amount, subsidy_amount, down_payment_total
+- [x] Reiniciar servidor e verificar 0 erros de TypeScript

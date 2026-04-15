@@ -40,7 +40,7 @@ export default function AdminEditarObra() {
   const [address, setAddress] = useState("");
   const [projectType, setProjectType] = useState("");
   const [totalArea, setTotalArea] = useState("");
-  const [status, setStatus] = useState<"planning" | "in_progress" | "paused" | "completed" | "cancelled">("planning");
+  const [status, setStatus] = useState<string>("planning");
   const [startDate, setStartDate] = useState("");
   const [estimatedEndDate, setEstimatedEndDate] = useState("");
   const [actualEndDate, setActualEndDate] = useState("");
@@ -192,16 +192,16 @@ export default function AdminEditarObra() {
       setProgress(project.progress?.toString() || "0");
 
       // Valores financeiros
-      setContractValue(project.contractValue ? (project.contractValue / 100).toString() : "");
+      setContractValue(project.contractValue || "");
       setContractType(project.contractType || "");
-      setContractorPayment(project.contractorPayment ? (project.contractorPayment / 100).toString() : "");
-      setMaterialCost(project.materialCost ? (project.materialCost / 100).toString() : "");
-      setLotCost(project.lotCost ? (project.lotCost / 100).toString() : "");
-      setCommissionCost(project.commissionCost ? (project.commissionCost / 100).toString() : "");
-      setExtrasCost(project.extrasCost ? (project.extrasCost / 100).toString() : "");
-      setMaintenanceCost(project.maintenanceCost ? (project.maintenanceCost / 100).toString() : "");
-      setInsuranceCost(project.insuranceCost ? (project.insuranceCost / 100).toString() : "");
-      setBalanceAmount(project.balanceAmount ? (project.balanceAmount / 100).toString() : "");
+      setContractorPayment((project as any).contractorPayment || "");
+      setMaterialCost((project as any).materialCost || "");
+      setLotCost(project.lotCost || "");
+      setCommissionCost((project as any).commissionCost || "");
+      setExtrasCost((project as any).extrasCost || "");
+      setMaintenanceCost((project as any).maintenanceCost || "");
+      setInsuranceCost((project as any).insuranceCost || "");
+      setBalanceAmount((project as any).balanceAmount || "");
 
       // Campos MCMV adicionais (stored appended to notes field)
       const notesRaw = project.notes || "";
@@ -210,12 +210,12 @@ export default function AdminEditarObra() {
       if (metaMatch) {
         try { meta = JSON.parse(metaMatch[1]); } catch {}
       }
-      setVgv(meta.vgv || "");
-      setFinancedAmount(meta.financedAmount || "");
-      setFgtsAmount(meta.fgtsAmount || "");
-      setSubsidyAmount(meta.subsidyAmount || "");
-      setDownPaymentTotal(meta.downPaymentTotal || "");
-      setDownPaymentPaid(meta.downPaymentPaid || "");
+      setVgv(project.vgv || meta.vgv || "");
+      setFinancedAmount(project.financedAmount || meta.financedAmount || "");
+      setFgtsAmount(project.fgtsAmount || meta.fgtsAmount || "");
+      setSubsidyAmount(project.subsidyAmount || meta.subsidyAmount || "");
+      setDownPaymentTotal(project.downPaymentTotal || meta.downPaymentTotal || "");
+      setDownPaymentPaid(project.downPaymentPaid || meta.downPaymentPaid || "");
       setPlsPercentage(meta.plsPercentage || "");
       setCefReceivedAmount(meta.cefReceivedAmount || "");
       setConstructionSpent(meta.constructionSpent || "");
@@ -251,17 +251,17 @@ export default function AdminEditarObra() {
       progress: parseInt(progress),
     };
 
-    // Adicionar valores financeiros (converter para centavos)
-    if (contractValue) updates.contractValue = Math.round(parseFloat(contractValue) * 100);
+    // Adicionar valores financeiros (decimal - sem conversão)
+    if (contractValue) updates.contractValue = parseFloat(contractValue);
     if (contractType) updates.contractType = contractType;
-    if (contractorPayment) updates.contractorPayment = Math.round(parseFloat(contractorPayment) * 100);
-    if (materialCost) updates.materialCost = Math.round(parseFloat(materialCost) * 100);
-    if (lotCost) updates.lotCost = Math.round(parseFloat(lotCost) * 100);
-    if (commissionCost) updates.commissionCost = Math.round(parseFloat(commissionCost) * 100);
-    if (extrasCost) updates.extrasCost = Math.round(parseFloat(extrasCost) * 100);
-    if (maintenanceCost) updates.maintenanceCost = Math.round(parseFloat(maintenanceCost) * 100);
-    if (insuranceCost) updates.insuranceCost = Math.round(parseFloat(insuranceCost) * 100);
-    if (balanceAmount) updates.balanceAmount = Math.round(parseFloat(balanceAmount) * 100);
+    if (contractorPayment) updates.contractorPayment = parseFloat(contractorPayment);
+    if (materialCost) updates.materialCost = parseFloat(materialCost);
+    if (lotCost) updates.lotCost = parseFloat(lotCost);
+    if (commissionCost) updates.commissionCost = parseFloat(commissionCost);
+    if (extrasCost) updates.extrasCost = parseFloat(extrasCost);
+    if (maintenanceCost) updates.maintenanceCost = parseFloat(maintenanceCost);
+    if (insuranceCost) updates.insuranceCost = parseFloat(insuranceCost);
+    if (balanceAmount) updates.balanceAmount = parseFloat(balanceAmount);
 
     // Save MCMV/CEF metadata in notes field as JSON-like suffix
     const mcmvMeta = {
@@ -273,8 +273,8 @@ export default function AdminEditarObra() {
     };
     // Store MCMV data appended to notes as a parseable marker
     const mcmvTag = `\n__MCMV_META__:${JSON.stringify(mcmvMeta)}`;
-    const baseNotes = notes.replace(/\n__MCMV_META__:.*$/s, "");
-    updates.notes = baseNotes + mcmvTag;
+    const baseNotes = notes.replace(/\n__MCMV_META__:[\s\S]*$/, "");
+    updates.notes = baseNotes.replace(/\n__MCMV_META__:[\s\S]*$/, "") ? baseNotes + mcmvTag : mcmvTag;
 
     updateMutation.mutate(updates);
   };
@@ -1049,10 +1049,10 @@ export default function AdminEditarObra() {
                             
                             // Valores
                             doc.text("Valores Financeiros:", 20, 110);
-                            doc.text(`Valor do Contrato: R$ ${(project.contractValue || 0) / 100}`, 20, 120);
-                            doc.text(`Custo de Material: R$ ${(project.materialCost || 0) / 100}`, 20, 130);
-                            doc.text(`Custo do Lote: R$ ${(project.lotCost || 0) / 100}`, 20, 140);
-                            doc.text(`Saldo: R$ ${(project.balanceAmount || 0) / 100}`, 20, 150);
+                            doc.text(`Valor do Contrato: R$ ${project.contractValue || "0"}`, 20, 120);
+                            doc.text(`Custo de Material: R$ ${(project as any).materialCost || "0"}`, 20, 130);
+                            doc.text(`Custo do Lote: R$ ${project.lotCost || "0"}`, 20, 140);
+                            doc.text(`Saldo: R$ ${(project as any).balanceAmount || "0"}`, 20, 150);
                             
                             // Salvar
                             doc.save(`relatorio-${project.title.replace(/\s+/g, "-")}.pdf`);
@@ -1094,16 +1094,16 @@ export default function AdminEditarObra() {
                               ["Progresso (%)", project.progress],
                               [""],
                               ["Valores Financeiros (R$)"],
-                              ["Valor do Contrato", (project.contractValue || 0) / 100],
+                              ["Valor do Contrato", parseFloat(project.contractValue || "0")],
                               ["Tipo de Contrato", project.contractType || "N/A"],
-                              ["Pagamento Empreiteiro", (project.contractorPayment || 0) / 100],
-                              ["Custo de Material", (project.materialCost || 0) / 100],
-                              ["Custo do Lote", (project.lotCost || 0) / 100],
-                              ["Comissão", (project.commissionCost || 0) / 100],
-                              ["Extras", (project.extrasCost || 0) / 100],
-                              ["Manutenção", (project.maintenanceCost || 0) / 100],
-                              ["Seguro", (project.insuranceCost || 0) / 100],
-                              ["Saldo", (project.balanceAmount || 0) / 100],
+                              ["Pagamento Empreiteiro", parseFloat((project as any).contractorPayment || "0")],
+                              ["Custo de Material", parseFloat((project as any).materialCost || "0")],
+                              ["Custo do Lote", parseFloat(project.lotCost || "0")],
+                              ["Comissão", parseFloat((project as any).commissionCost || "0")],
+                              ["Extras", parseFloat((project as any).extrasCost || "0")],
+                              ["Manutenção", parseFloat((project as any).maintenanceCost || "0")],
+                              ["Seguro", parseFloat((project as any).insuranceCost || "0")],
+                              ["Saldo", parseFloat((project as any).balanceAmount || "0")],
                             ];
                             
                             const ws = XLSX.utils.aoa_to_sheet(data);

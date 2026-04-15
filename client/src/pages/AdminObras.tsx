@@ -39,20 +39,40 @@ export default function AdminObras() {
     return null;
   }
 
-  const statusColors = {
+  const statusColors: Record<string, string> = {
     planning: "bg-blue-500/20 text-blue-300 border-blue-500/30",
     in_progress: "bg-yellow-500/20 text-yellow-300 border-yellow-500/30",
     paused: "bg-orange-500/20 text-orange-300 border-orange-500/30",
     completed: "bg-green-500/20 text-green-300 border-green-500/30",
     cancelled: "bg-red-500/20 text-red-300 border-red-500/30",
+    alvara: "bg-cyan-500/20 text-cyan-300 border-cyan-500/30",
+    art: "bg-indigo-500/20 text-indigo-300 border-indigo-500/30",
+    assinatura_cef: "bg-orange-500/20 text-orange-300 border-orange-500/30",
+    vistoria_cef: "bg-teal-500/20 text-teal-300 border-teal-500/30",
+    laudo_ok: "bg-emerald-500/20 text-emerald-300 border-emerald-500/30",
+    cartorio: "bg-violet-500/20 text-violet-300 border-violet-500/30",
+    casa_pronta: "bg-green-600/20 text-green-300 border-green-600/30",
+    disponivel: "bg-lime-500/20 text-lime-300 border-lime-500/30",
+    reavaliar: "bg-amber-500/20 text-amber-300 border-amber-500/30",
+    distrato: "bg-rose-500/20 text-rose-300 border-rose-500/30",
   };
 
-  const statusLabels = {
+  const statusLabels: Record<string, string> = {
     planning: "Planejamento",
     in_progress: "Em Andamento",
     paused: "Pausada",
     completed: "Concluída",
     cancelled: "Cancelada",
+    alvara: "Alvará",
+    art: "ART",
+    assinatura_cef: "Assinatura CEF",
+    vistoria_cef: "Vistoria CEF",
+    laudo_ok: "Laudo OK",
+    cartorio: "Cartório",
+    casa_pronta: "Casa Pronta",
+    disponivel: "Disponível",
+    reavaliar: "Reavaliar",
+    distrato: "Distrato",
   };
 
   return (
@@ -137,8 +157,8 @@ export default function AdminObras() {
                     <div className="flex items-center gap-2 text-gray-300">
                       <DollarSign className="h-4 w-4 text-[#C9A961]" />
                       <span className="text-sm">
-                        {project.estimatedCost
-                          ? `R$ ${(project.estimatedCost / 100).toLocaleString("pt-BR", { minimumFractionDigits: 2 })}`
+                        {project.constructionCost
+                          ? `R$ ${parseFloat(project.constructionCost).toLocaleString("pt-BR", { minimumFractionDigits: 2 })}`
                           : "Sem orçamento"}
                       </span>
                     </div>

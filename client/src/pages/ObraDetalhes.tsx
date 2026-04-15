@@ -20,20 +20,40 @@ import {
 import { Link, useParams, useLocation } from "wouter";
 import { getLoginUrl } from "@/const";
 
-const statusColors = {
+const statusColors: Record<string, string> = {
   planning: "bg-blue-500",
   in_progress: "bg-green-500",
   paused: "bg-yellow-500",
   completed: "bg-purple-500",
   cancelled: "bg-red-500",
+  alvara: "bg-cyan-500",
+  art: "bg-indigo-500",
+  assinatura_cef: "bg-orange-500",
+  vistoria_cef: "bg-teal-500",
+  laudo_ok: "bg-emerald-500",
+  cartorio: "bg-violet-500",
+  casa_pronta: "bg-green-600",
+  disponivel: "bg-lime-500",
+  reavaliar: "bg-amber-500",
+  distrato: "bg-rose-500",
 };
 
-const statusLabels = {
+const statusLabels: Record<string, string> = {
   planning: "Planejamento",
   in_progress: "Em Andamento",
   paused: "Pausada",
   completed: "Concluída",
   cancelled: "Cancelada",
+  alvara: "Alvará",
+  art: "ART",
+  assinatura_cef: "Assinatura CEF",
+  vistoria_cef: "Vistoria CEF",
+  laudo_ok: "Laudo OK",
+  cartorio: "Cartório",
+  casa_pronta: "Casa Pronta",
+  disponivel: "Disponível",
+  reavaliar: "Reavaliar",
+  distrato: "Distrato",
 };
 
 const stageStatusColors = {
@@ -344,25 +364,25 @@ export default function ObraDetalhes() {
                 </CardTitle>
               </CardHeader>
               <CardContent className="space-y-4">
-                {project.estimatedCost && (
+                {project.constructionCost && (
                   <div>
                     <p className="text-sm text-gray-500 mb-1">Orçamento Previsto</p>
                     <p className="text-2xl font-bold text-white">
                       {new Intl.NumberFormat("pt-BR", {
                         style: "currency",
                         currency: "BRL",
-                      }).format(project.estimatedCost)}
+                      }).format(parseFloat(project.constructionCost))}
                     </p>
                   </div>
                 )}
-                {project.actualCost && (
+                {project.constructionSpent && (
                   <div>
                     <p className="text-sm text-gray-500 mb-1">Custo Atual</p>
                     <p className="text-xl font-semibold text-[#C9A961]">
                       {new Intl.NumberFormat("pt-BR", {
                         style: "currency",
                         currency: "BRL",
-                      }).format(project.actualCost)}
+                      }).format(parseFloat(project.constructionSpent))}
                     </p>
                   </div>
                 )}

@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Link, useParams } from "wouter";
 import { trpc } from "@/lib/trpc";
 import { Button } from "@/components/ui/button";
@@ -107,24 +107,25 @@ export default function AdminLeadDetail() {
 
   const { data: lead, refetch } = trpc.leads.getById.useQuery({ id: leadId }, {
     enabled: !!leadId,
-    onSuccess: (data) => {
-      if (data && Object.keys(editForm).length === 0) {
-        setEditForm({
-          name: data.name, phone: data.phone, email: data.email || "",
-          city: data.city || "", state: data.state || "",
-          income: data.income || "", fgts: data.fgts || false,
-          pisFgts: data.pisFgts || "", hasSpouse: data.hasSpouse || false,
-          spouseName: data.spouseName || "", incomeComposition: data.incomeComposition || false,
-          cpfStatus: data.cpfStatus || "unknown",
-          temperature: data.temperature || "cold",
-          stage: data.stage, responsible: data.responsible,
-          notes: data.notes || "", adminNotes: data.adminNotes || "",
-          simulationValue: data.simulationValue || "", approvedValue: data.approvedValue || "",
-          interest: data.interest || "financing", type: data.type || "new_lead",
-        });
-      }
-    },
   });
+
+  useEffect(() => {
+    if (lead && Object.keys(editForm).length === 0) {
+      setEditForm({
+        name: lead.name, phone: lead.phone, email: lead.email || "",
+        city: lead.city || "", state: lead.state || "",
+        income: lead.income || "", fgts: (lead as any).fgts || false,
+        pisFgts: lead.pisFgts || "", hasSpouse: lead.hasSpouse || false,
+        spouseName: lead.spouseName || "", incomeComposition: lead.incomeComposition || false,
+        cpfStatus: lead.cpfStatus || "unknown",
+        temperature: lead.temperature || "cold",
+        stage: lead.stage, responsible: lead.responsible,
+        notes: lead.notes || "", adminNotes: lead.adminNotes || "",
+        simulationValue: lead.simulationValue || "", approvedValue: lead.approvedValue || "",
+        interest: (lead as any).interest || "financing", type: lead.type || "new_lead",
+      });
+    }
+  }, [lead]);
 
   const updateMutation = trpc.leads.update.useMutation({
     onSuccess: () => { toast.success("Lead atualizado!"); refetch(); setEditOpen(false); },
@@ -362,12 +363,12 @@ export default function AdminLeadDetail() {
             </CardHeader>
             <CardContent className="space-y-3 text-sm">
               <InfoRow label="Renda" value={formatCurrencyBR(lead.income)} />
-              <InfoRow label="FGTS" value={lead.fgts ? "Sim" : "Não"} />
+              <InfoRow label="FGTS" value={(lead as any).fgts ? "Sim" : "Não"} />
               <InfoRow label="PIS/FGTS" value={lead.pisFgts} />
               <InfoRow label="Cônjuge" value={lead.hasSpouse ? `Sim — ${lead.spouseName || ""}` : "Não"} />
               <InfoRow label="Composição de Renda" value={lead.incomeComposition ? "Sim" : "Não"} />
               <InfoRow label="CPF Status" value={lead.cpfStatus === "clean" ? "Limpo" : lead.cpfStatus === "restricted" ? "Restrito" : "Desconhecido"} />
-              <InfoRow label="Interesse" value={lead.interest === "house" ? "Casa" : lead.interest === "lot" ? "Lote" : lead.interest === "financing" ? "Financiamento" : "Obra"} />
+              <InfoRow label="Interesse" value={(lead as any).interest === "house" ? "Casa" : (lead as any).interest === "lot" ? "Lote" : (lead as any).interest === "financing" ? "Financiamento" : "Obra"} />
               <Separator className="bg-[#C9A961]/20" />
               <InfoRow label="Valor Simulação" value={formatCurrencyBR(lead.simulationValue)} highlight />
               <InfoRow label="Valor Aprovado" value={formatCurrencyBR(lead.approvedValue)} highlight />
