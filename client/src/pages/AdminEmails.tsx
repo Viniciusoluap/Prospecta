@@ -1,17 +1,23 @@
 import { useAuth } from "@/_core/hooks/useAuth";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
 import { trpc } from "@/lib/trpc";
 import { getLoginUrl } from "@/const";
 import { useEffect, useState } from "react";
 import { Link, useLocation } from "wouter";
-import { 
-  ArrowLeft, 
+import {
+  ArrowLeft,
   Mail,
   Loader2,
   Eye,
   CheckCircle,
   XCircle,
-  Clock
+  Clock,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
@@ -53,21 +59,23 @@ export default function AdminEmails() {
     const styles = {
       pending: "bg-yellow-500/20 text-yellow-400",
       sent: "bg-green-500/20 text-green-400",
-      failed: "bg-red-500/20 text-red-400"
+      failed: "bg-red-500/20 text-red-400",
     };
     const icons = {
       pending: <Clock className="h-3 w-3" />,
       sent: <CheckCircle className="h-3 w-3" />,
-      failed: <XCircle className="h-3 w-3" />
+      failed: <XCircle className="h-3 w-3" />,
     };
     const labels = {
       pending: "Pendente",
       sent: "Enviado",
-      failed: "Falhou"
+      failed: "Falhou",
     };
-    
+
     return (
-      <span className={`px-3 py-1 rounded-full text-xs font-semibold flex items-center gap-1 ${styles[status as keyof typeof styles] || styles.pending}`}>
+      <span
+        className={`px-3 py-1 rounded-full text-xs font-semibold flex items-center gap-1 ${styles[status as keyof typeof styles] || styles.pending}`}
+      >
         {icons[status as keyof typeof icons]}
         {labels[status as keyof typeof labels] || status}
       </span>
@@ -80,7 +88,7 @@ export default function AdminEmails() {
       budget_confirmation: "Confirmação de Orçamento",
       budget_update: "Atualização de Orçamento",
       draw_winner: "Vencedor de Sorteio",
-      promotional_campaign: "Campanha Promocional"
+      promotional_campaign: "Campanha Promocional",
     };
     return labels[type] || type;
   };
@@ -96,7 +104,9 @@ export default function AdminEmails() {
               Voltar para Admin
             </a>
           </Link>
-          <h1 className="text-2xl font-bold text-[#C9A961]">Gerenciar Emails</h1>
+          <h1 className="text-2xl font-bold text-[#C9A961]">
+            Gerenciar Emails
+          </h1>
         </div>
       </div>
 
@@ -106,16 +116,22 @@ export default function AdminEmails() {
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
           <Card className="bg-[#1A2332]/60 border-[#C9A961]/20">
             <CardHeader className="pb-3">
-              <CardTitle className="text-[#C9A961] text-lg">Total de Emails</CardTitle>
+              <CardTitle className="text-[#C9A961] text-lg">
+                Total de Emails
+              </CardTitle>
             </CardHeader>
             <CardContent>
-              <div className="text-3xl font-bold text-white">{emails?.length || 0}</div>
+              <div className="text-3xl font-bold text-white">
+                {emails?.length || 0}
+              </div>
             </CardContent>
           </Card>
 
           <Card className="bg-[#1A2332]/60 border-[#C9A961]/20">
             <CardHeader className="pb-3">
-              <CardTitle className="text-[#C9A961] text-lg">Pendentes</CardTitle>
+              <CardTitle className="text-[#C9A961] text-lg">
+                Pendentes
+              </CardTitle>
             </CardHeader>
             <CardContent>
               <div className="text-3xl font-bold text-yellow-400">
@@ -139,7 +155,9 @@ export default function AdminEmails() {
         {/* Lista de Emails */}
         <Card className="bg-[#1A2332]/60 border-[#C9A961]/20">
           <CardHeader>
-            <CardTitle className="text-[#C9A961]">Histórico de Emails</CardTitle>
+            <CardTitle className="text-[#C9A961]">
+              Histórico de Emails
+            </CardTitle>
             <CardDescription className="text-gray-400">
               Todos os emails registrados no sistema
             </CardDescription>
@@ -147,7 +165,7 @@ export default function AdminEmails() {
           <CardContent>
             {emails && emails.length > 0 ? (
               <div className="space-y-4">
-                {emails.map((email) => (
+                {emails.map(email => (
                   <div
                     key={email.id}
                     className="flex items-center justify-between p-4 bg-[#1A2332]/40 rounded-lg border border-[#C9A961]/10 hover:border-[#C9A961]/30 transition-colors"
@@ -155,17 +173,23 @@ export default function AdminEmails() {
                     <div className="flex-1">
                       <div className="flex items-center gap-3 mb-2">
                         <Mail className="h-5 w-5 text-[#C9A961]" />
-                        <h3 className="text-white font-semibold">{email.subject}</h3>
+                        <h3 className="text-white font-semibold">
+                          {email.subject}
+                        </h3>
                       </div>
                       <div className="text-sm text-gray-400 space-y-1">
                         <p>
-                          <strong>Para:</strong> {email.recipientName || email.recipientEmail} ({email.recipientEmail})
+                          <strong>Para:</strong>{" "}
+                          {email.recipientName || email.recipientEmail} (
+                          {email.recipientEmail})
                         </p>
                         <p>
-                          <strong>Tipo:</strong> {getTemplateLabel(email.templateType)}
+                          <strong>Tipo:</strong>{" "}
+                          {getTemplateLabel(email.templateType)}
                         </p>
                         <p>
-                          <strong>Data:</strong> {new Date(email.createdAt).toLocaleString("pt-BR")}
+                          <strong>Data:</strong>{" "}
+                          {new Date(email.createdAt).toLocaleString("pt-BR")}
                         </p>
                       </div>
                     </div>
@@ -185,14 +209,19 @@ export default function AdminEmails() {
                 ))}
               </div>
             ) : (
-              <p className="text-gray-400 text-center py-8">Nenhum email registrado ainda</p>
+              <p className="text-gray-400 text-center py-8">
+                Nenhum email registrado ainda
+              </p>
             )}
           </CardContent>
         </Card>
       </div>
 
       {/* Dialog de Visualização */}
-      <Dialog open={selectedEmail !== null} onOpenChange={() => setSelectedEmail(null)}>
+      <Dialog
+        open={selectedEmail !== null}
+        onOpenChange={() => setSelectedEmail(null)}
+      >
         <DialogContent className="max-w-3xl max-h-[80vh] overflow-y-auto bg-[#1A2332] border-[#C9A961]/20">
           <DialogHeader>
             <DialogTitle className="text-[#C9A961]">
@@ -200,27 +229,40 @@ export default function AdminEmails() {
             </DialogTitle>
             <DialogDescription className="text-gray-400">
               Enviado para {selectedEmailData?.recipientEmail} em{" "}
-              {selectedEmailData?.createdAt && new Date(selectedEmailData.createdAt).toLocaleString("pt-BR")}
+              {selectedEmailData?.createdAt &&
+                new Date(selectedEmailData.createdAt).toLocaleString("pt-BR")}
             </DialogDescription>
           </DialogHeader>
           {selectedEmailData && (
             <div className="space-y-4">
               <div>
-                <h3 className="text-sm font-semibold text-[#C9A961] mb-2">Status</h3>
+                <h3 className="text-sm font-semibold text-[#C9A961] mb-2">
+                  Status
+                </h3>
                 {getStatusBadge(selectedEmailData.status)}
               </div>
               <div>
-                <h3 className="text-sm font-semibold text-[#C9A961] mb-2">Conteúdo HTML</h3>
-                <div 
+                <h3 className="text-sm font-semibold text-[#C9A961] mb-2">
+                  Conteúdo HTML
+                </h3>
+                <div
                   className="bg-white p-4 rounded-lg"
-                  dangerouslySetInnerHTML={{ __html: selectedEmailData.htmlContent }}
+                  dangerouslySetInnerHTML={{
+                    __html: selectedEmailData.htmlContent,
+                  }}
                 />
               </div>
               {selectedEmailData.metadata && (
                 <div>
-                  <h3 className="text-sm font-semibold text-[#C9A961] mb-2">Metadados</h3>
+                  <h3 className="text-sm font-semibold text-[#C9A961] mb-2">
+                    Metadados
+                  </h3>
                   <pre className="bg-[#1A2332]/60 p-4 rounded-lg text-gray-300 text-xs overflow-x-auto">
-                    {JSON.stringify(JSON.parse(selectedEmailData.metadata), null, 2)}
+                    {JSON.stringify(
+                      JSON.parse(selectedEmailData.metadata),
+                      null,
+                      2
+                    )}
                   </pre>
                 </div>
               )}

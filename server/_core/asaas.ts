@@ -1,25 +1,30 @@
-import { ENV } from './env';
+import { ENV } from "./env";
 
 /**
  * Cliente Asaas para integração com gateway de pagamento brasileiro
  * Documentação: https://docs.asaas.com/
  */
 
-const ASAAS_API_URL = 'https://api.asaas.com/v3';
-const ASAAS_SANDBOX_URL = 'https://sandbox.asaas.com/api/v3';
+const ASAAS_API_URL = "https://api.asaas.com/v3";
+const ASAAS_SANDBOX_URL = "https://sandbox.asaas.com/api/v3";
 
 // Usar sandbox se a chave começar com $aact_test, produção se começar com $aact_prod
 // Fallback temporário enquanto a variável de ambiente não está carregando
-const FALLBACK_KEY = '$aact_prod_000MzkwODA2MWY2OGM3MWRlMDU2NWM3MzJlNzZmNGZhZGY6OmU5MTAxMjQyLTFiMTktNDYxYy1hYTY4LTg1ZTFkYzRiY2ZiNDo6JGFhY2hfZGZkYTVhNzAtYWI2MS00YTg1LThiMjQtMzU5MTc2ODQ0MjUy';
+const FALLBACK_KEY =
+  "$aact_prod_000MzkwODA2MWY2OGM3MWRlMDU2NWM3MzJlNzZmNGZhZGY6OmU5MTAxMjQyLTFiMTktNDYxYy1hYTY4LTg1ZTFkYzRiY2ZiNDo6JGFhY2hfZGZkYTVhNzAtYWI2MS00YTg1LThiMjQtMzU5MTc2ODQ0MjUy";
 const API_KEY = ENV.asaasApiKey || FALLBACK_KEY;
 
-const isProduction = API_KEY?.startsWith('$aact_prod');
+const isProduction = API_KEY?.startsWith("$aact_prod");
 const BASE_URL = isProduction ? ASAAS_API_URL : ASAAS_SANDBOX_URL;
 
 if (!API_KEY) {
-  console.warn('[Asaas] API key not configured. Payment features will not work.');
+  console.warn(
+    "[Asaas] API key not configured. Payment features will not work."
+  );
 } else {
-  console.log(`[Asaas] Using ${ENV.asaasApiKey ? 'environment' : 'fallback'} API key`);
+  console.log(
+    `[Asaas] Using ${ENV.asaasApiKey ? "environment" : "fallback"} API key`
+  );
 }
 
 /**
@@ -30,16 +35,16 @@ async function asaasRequest<T>(
   options: RequestInit = {}
 ): Promise<T> {
   if (!API_KEY) {
-    throw new Error('Asaas API key is not configured');
+    throw new Error("Asaas API key is not configured");
   }
 
   const url = `${BASE_URL}${endpoint}`;
-  
+
   const response = await fetch(url, {
     ...options,
     headers: {
-      'Content-Type': 'application/json',
-      'access_token': API_KEY,
+      "Content-Type": "application/json",
+      access_token: API_KEY,
       ...options.headers,
     },
   });
@@ -47,8 +52,10 @@ async function asaasRequest<T>(
   const data = await response.json();
 
   if (!response.ok) {
-    console.error('[Asaas] API Error:', data);
-    throw new Error(data.errors?.[0]?.description || 'Erro ao processar pagamento');
+    console.error("[Asaas] API Error:", data);
+    throw new Error(
+      data.errors?.[0]?.description || "Erro ao processar pagamento"
+    );
   }
 
   return data;
@@ -57,25 +64,25 @@ async function asaasRequest<T>(
 /**
  * Tipos de cobrança Asaas
  */
-export type AsaasBillingType = 'UNDEFINED' | 'BOLETO' | 'CREDIT_CARD' | 'PIX';
+export type AsaasBillingType = "UNDEFINED" | "BOLETO" | "CREDIT_CARD" | "PIX";
 
 /**
  * Status de pagamento Asaas
  */
-export type AsaasPaymentStatus = 
-  | 'PENDING'      // Aguardando pagamento
-  | 'RECEIVED'     // Pagamento confirmado
-  | 'CONFIRMED'    // Pagamento em análise (PIX pessoa física)
-  | 'OVERDUE'      // Vencida
-  | 'REFUNDED'     // Estornada
-  | 'RECEIVED_IN_CASH' // Recebido em dinheiro
-  | 'REFUND_REQUESTED' // Estorno solicitado
-  | 'CHARGEBACK_REQUESTED' // Chargeback solicitado
-  | 'CHARGEBACK_DISPUTE' // Disputa de chargeback
-  | 'AWAITING_CHARGEBACK_REVERSAL' // Aguardando reversão de chargeback
-  | 'DUNNING_REQUESTED' // Negativação solicitada
-  | 'DUNNING_RECEIVED' // Recuperado
-  | 'AWAITING_RISK_ANALYSIS'; // Aguardando análise de risco
+export type AsaasPaymentStatus =
+  | "PENDING" // Aguardando pagamento
+  | "RECEIVED" // Pagamento confirmado
+  | "CONFIRMED" // Pagamento em análise (PIX pessoa física)
+  | "OVERDUE" // Vencida
+  | "REFUNDED" // Estornada
+  | "RECEIVED_IN_CASH" // Recebido em dinheiro
+  | "REFUND_REQUESTED" // Estorno solicitado
+  | "CHARGEBACK_REQUESTED" // Chargeback solicitado
+  | "CHARGEBACK_DISPUTE" // Disputa de chargeback
+  | "AWAITING_CHARGEBACK_REVERSAL" // Aguardando reversão de chargeback
+  | "DUNNING_REQUESTED" // Negativação solicitada
+  | "DUNNING_RECEIVED" // Recuperado
+  | "AWAITING_RISK_ANALYSIS"; // Aguardando análise de risco
 
 /**
  * Interface para criar cliente no Asaas
@@ -116,15 +123,15 @@ export interface AsaasPaymentRequest {
   discount?: {
     value?: number;
     dueDateLimitDays?: number;
-    type?: 'FIXED' | 'PERCENTAGE';
+    type?: "FIXED" | "PERCENTAGE";
   };
   interest?: {
     value: number;
-    type?: 'PERCENTAGE';
+    type?: "PERCENTAGE";
   };
   fine?: {
     value: number;
-    type?: 'FIXED' | 'PERCENTAGE';
+    type?: "FIXED" | "PERCENTAGE";
   };
   postalService?: boolean;
   callback?: {
@@ -181,14 +188,14 @@ export async function createOrUpdateAsaasCustomer(
   // Se já tem ID, atualizar
   if (customer.id) {
     return asaasRequest<AsaasCustomer>(`/customers/${customer.id}`, {
-      method: 'PUT',
+      method: "PUT",
       body: JSON.stringify(customer),
     });
   }
 
   // Criar novo cliente
-  return asaasRequest<AsaasCustomer>('/customers', {
-    method: 'POST',
+  return asaasRequest<AsaasCustomer>("/customers", {
+    method: "POST",
     body: JSON.stringify(customer),
   });
 }
@@ -205,7 +212,7 @@ export async function getAsaasCustomerByCpfCnpj(
     );
     return response.data[0] || null;
   } catch (error) {
-    console.error('[Asaas] Error fetching customer:', error);
+    console.error("[Asaas] Error fetching customer:", error);
     return null;
   }
 }
@@ -216,8 +223,8 @@ export async function getAsaasCustomerByCpfCnpj(
 export async function createAsaasPayment(
   payment: AsaasPaymentRequest
 ): Promise<AsaasPayment> {
-  return asaasRequest<AsaasPayment>('/payments', {
-    method: 'POST',
+  return asaasRequest<AsaasPayment>("/payments", {
+    method: "POST",
     body: JSON.stringify(payment),
   });
 }
@@ -247,7 +254,7 @@ export async function deleteAsaasPayment(
   paymentId: string
 ): Promise<{ deleted: boolean; id: string }> {
   return asaasRequest(`/payments/${paymentId}`, {
-    method: 'DELETE',
+    method: "DELETE",
   });
 }
 
@@ -258,7 +265,7 @@ export async function restoreAsaasPayment(
   paymentId: string
 ): Promise<AsaasPayment> {
   return asaasRequest<AsaasPayment>(`/payments/${paymentId}/restore`, {
-    method: 'POST',
+    method: "POST",
   });
 }
 
@@ -276,9 +283,15 @@ export async function listAsaasPayments(filters?: {
   externalReference?: string;
   offset?: number;
   limit?: number;
-}): Promise<{ data: AsaasPayment[]; hasMore: boolean; totalCount: number; limit: number; offset: number }> {
+}): Promise<{
+  data: AsaasPayment[];
+  hasMore: boolean;
+  totalCount: number;
+  limit: number;
+  offset: number;
+}> {
   const params = new URLSearchParams();
-  
+
   if (filters) {
     Object.entries(filters).forEach(([key, value]) => {
       if (value !== undefined && value !== null) {
@@ -288,8 +301,8 @@ export async function listAsaasPayments(filters?: {
   }
 
   const queryString = params.toString();
-  const endpoint = queryString ? `/payments?${queryString}` : '/payments';
-  
+  const endpoint = queryString ? `/payments?${queryString}` : "/payments";
+
   return asaasRequest(endpoint);
 }
 
@@ -299,12 +312,14 @@ export async function listAsaasPayments(filters?: {
 export async function validateAsaasApiKey(): Promise<boolean> {
   try {
     // Tenta listar clientes (endpoint simples para validar credenciais)
-    await asaasRequest<{ data: AsaasCustomer[] }>('/customers?limit=1');
+    await asaasRequest<{ data: AsaasCustomer[] }>("/customers?limit=1");
     return true;
   } catch (error) {
-    console.error('[Asaas] API key validation failed:', error);
+    console.error("[Asaas] API key validation failed:", error);
     return false;
   }
 }
 
-console.log(`[Asaas] Initialized in ${isProduction ? 'PRODUCTION' : 'SANDBOX'} mode`);
+console.log(
+  `[Asaas] Initialized in ${isProduction ? "PRODUCTION" : "SANDBOX"} mode`
+);

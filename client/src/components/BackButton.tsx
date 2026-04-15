@@ -13,11 +13,11 @@ interface BackButtonProps {
   className?: string;
 }
 
-export function BackButton({ 
-  to, 
-  label = "Voltar", 
+export function BackButton({
+  to,
+  label = "Voltar",
   variant = "ghost",
-  className = ""
+  className = "",
 }: BackButtonProps) {
   const [, setLocation] = useLocation();
 

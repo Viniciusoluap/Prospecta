@@ -13,15 +13,19 @@ export function ProtectedRoute({ children }: ProtectedRouteProps) {
   const { loading, isAuthenticated, user } = useAuth();
 
   // Log para debug
-  console.log('[ProtectedRoute] Estado:', { loading, isAuthenticated, user });
+  console.log("[ProtectedRoute] Estado:", { loading, isAuthenticated, user });
 
   // Redirecionamento manual - não confiar apenas no useAuth
   useEffect(() => {
-    console.log('[ProtectedRoute] useEffect:', { loading, isAuthenticated, user });
-    
+    console.log("[ProtectedRoute] useEffect:", {
+      loading,
+      isAuthenticated,
+      user,
+    });
+
     // Se não está carregando E não está autenticado, redireciona
     if (!loading && !isAuthenticated) {
-      console.log('[ProtectedRoute] REDIRECIONANDO para login');
+      console.log("[ProtectedRoute] REDIRECIONANDO para login");
       const loginUrl = `https://api.manus.im/oauth/authorize?app_id=${import.meta.env.VITE_APP_ID}`;
       window.location.href = loginUrl;
     }

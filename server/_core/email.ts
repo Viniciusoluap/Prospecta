@@ -46,7 +46,7 @@ export const emailTemplates = {
           </div>
         </body>
       </html>
-    `
+    `,
   }),
 
   budgetConfirmation: (name: string, projectType: string, city: string) => ({
@@ -92,7 +92,7 @@ export const emailTemplates = {
           </div>
         </body>
       </html>
-    `
+    `,
   }),
 
   budgetUpdate: (name: string, status: string, notes: string) => ({
@@ -120,7 +120,7 @@ export const emailTemplates = {
               <p>Olá, <strong>${name}</strong>!</p>
               <p>Há uma atualização sobre o seu orçamento:</p>
               <p><span class="status-badge">${status}</span></p>
-              ${notes ? `<p><strong>Observações:</strong><br>${notes}</p>` : ''}
+              ${notes ? `<p><strong>Observações:</strong><br>${notes}</p>` : ""}
               <p>Para mais informações, entre em contato conosco.</p>
             </div>
             <div class="footer">
@@ -129,7 +129,7 @@ export const emailTemplates = {
           </div>
         </body>
       </html>
-    `
+    `,
   }),
 
   drawWinner: (name: string, drawTitle: string, prizeAmount: number) => ({
@@ -158,7 +158,7 @@ export const emailTemplates = {
               <p>Olá, <strong>${name}</strong>!</p>
               <p>Você foi sorteado(a) no sorteio:</p>
               <h2>${drawTitle}</h2>
-              <div class="prize">${prizeAmount.toLocaleString('pt-BR')} UTEFs</div>
+              <div class="prize">${prizeAmount.toLocaleString("pt-BR")} UTEFs</div>
               <p>Seu saldo já foi creditado e você pode convertê-lo em produtos incríveis!</p>
               <a href="https://efficazorbit.com/produtos" class="button">Ver Produtos Disponíveis</a>
               <p style="margin-top: 30px; font-size: 14px; color: #666;">
@@ -172,7 +172,7 @@ export const emailTemplates = {
           </div>
         </body>
       </html>
-    `
+    `,
   }),
 
   promotionalCampaign: (subject: string, content: string) => ({
@@ -205,8 +205,8 @@ export const emailTemplates = {
           </div>
         </body>
       </html>
-    `
-  })
+    `,
+  }),
 };
 
 /**
@@ -239,9 +239,11 @@ export async function logEmail(data: {
     };
 
     const result = await db.insert(emailLogs).values(emailLog);
-    
-    console.log(`[Email] Logged email to ${data.recipientEmail}: ${data.subject}`);
-    
+
+    console.log(
+      `[Email] Logged email to ${data.recipientEmail}: ${data.subject}`
+    );
+
     return result[0].insertId;
   } catch (error) {
     console.error("[Email] Failed to log email:", error);
@@ -259,15 +261,19 @@ export async function sendBudgetConfirmationEmail(data: {
   city: string;
   budgetId: number;
 }) {
-  const template = emailTemplates.budgetConfirmation(data.name, data.projectType, data.city);
-  
+  const template = emailTemplates.budgetConfirmation(
+    data.name,
+    data.projectType,
+    data.city
+  );
+
   return logEmail({
     recipientEmail: data.email,
     recipientName: data.name,
     templateType: "budget_confirmation",
     subject: template.subject,
     htmlContent: template.html,
-    metadata: { budgetId: data.budgetId }
+    metadata: { budgetId: data.budgetId },
   });
 }
 
@@ -281,15 +287,19 @@ export async function sendBudgetUpdateEmail(data: {
   notes?: string;
   budgetId: number;
 }) {
-  const template = emailTemplates.budgetUpdate(data.name, data.status, data.notes || "");
-  
+  const template = emailTemplates.budgetUpdate(
+    data.name,
+    data.status,
+    data.notes || ""
+  );
+
   return logEmail({
     recipientEmail: data.email,
     recipientName: data.name,
     templateType: "budget_update",
     subject: template.subject,
     htmlContent: template.html,
-    metadata: { budgetId: data.budgetId, status: data.status }
+    metadata: { budgetId: data.budgetId, status: data.status },
   });
 }
 
@@ -303,14 +313,18 @@ export async function sendDrawWinnerEmail(data: {
   prizeAmount: number;
   drawId: number;
 }) {
-  const template = emailTemplates.drawWinner(data.name, data.drawTitle, data.prizeAmount);
-  
+  const template = emailTemplates.drawWinner(
+    data.name,
+    data.drawTitle,
+    data.prizeAmount
+  );
+
   return logEmail({
     recipientEmail: data.email,
     recipientName: data.name,
     templateType: "draw_winner",
     subject: template.subject,
     htmlContent: template.html,
-    metadata: { drawId: data.drawId, prizeAmount: data.prizeAmount }
+    metadata: { drawId: data.drawId, prizeAmount: data.prizeAmount },
   });
 }

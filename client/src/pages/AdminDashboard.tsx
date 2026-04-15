@@ -1,20 +1,38 @@
 import { useAuth } from "@/_core/hooks/useAuth";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
 import { trpc } from "@/lib/trpc";
 import { getLoginUrl } from "@/const";
 import { useEffect } from "react";
 import { Link, useLocation } from "wouter";
-import { 
-  ArrowLeft, 
-  TrendingUp, 
-  FileText, 
-  Building2, 
-  Gift, 
-  Coins, 
+import {
+  ArrowLeft,
+  TrendingUp,
+  FileText,
+  Building2,
+  Gift,
+  Coins,
   Users,
-  Loader2 
+  Loader2,
 } from "lucide-react";
-import { PieChart, Pie, Cell, ResponsiveContainer, Legend, Tooltip, BarChart, Bar, XAxis, YAxis, CartesianGrid } from "recharts";
+import {
+  PieChart,
+  Pie,
+  Cell,
+  ResponsiveContainer,
+  Legend,
+  Tooltip,
+  BarChart,
+  Bar,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+} from "recharts";
 
 export default function AdminDashboard() {
   const [, setLocation] = useLocation();
@@ -28,10 +46,14 @@ export default function AdminDashboard() {
   }, [authLoading, isAuthenticated, user]);
 
   // Buscar estatísticas
-  const { data: stats, isLoading: statsLoading } = trpc.analytics.getStats.useQuery();
-  const { data: budgetsByStatus } = trpc.analytics.getBudgetRequestsByStatus.useQuery();
-  const { data: projectsByStatus } = trpc.analytics.getProjectsByStatus.useQuery();
-  const { data: recentBudgets } = trpc.analytics.getRecentBudgetRequests.useQuery({ limit: 5 });
+  const { data: stats, isLoading: statsLoading } =
+    trpc.analytics.getStats.useQuery();
+  const { data: budgetsByStatus } =
+    trpc.analytics.getBudgetRequestsByStatus.useQuery();
+  const { data: projectsByStatus } =
+    trpc.analytics.getProjectsByStatus.useQuery();
+  const { data: recentBudgets } =
+    trpc.analytics.getRecentBudgetRequests.useQuery({ limit: 5 });
 
   if (authLoading || statsLoading) {
     return (
@@ -53,29 +75,33 @@ export default function AdminDashboard() {
   const COLORS = ["#C9A961", "#00FF00", "#3B82F6", "#EF4444", "#8B5CF6"];
 
   // Dados para gráfico de orçamentos
-  const budgetChartData = budgetsByStatus?.map((item) => ({
-    name: {
-      pending: "Pendente",
-      contacted: "Contatado",
-      in_negotiation: "Em Negociação",
-      converted: "Convertido",
-      cancelled: "Cancelado"
-    }[item.status] || item.status,
-    value: Number(item.count)
-  })) || [];
+  const budgetChartData =
+    budgetsByStatus?.map(item => ({
+      name:
+        {
+          pending: "Pendente",
+          contacted: "Contatado",
+          in_negotiation: "Em Negociação",
+          converted: "Convertido",
+          cancelled: "Cancelado",
+        }[item.status] || item.status,
+      value: Number(item.count),
+    })) || [];
 
   // Dados para gráfico de obras
-  const projectChartData = projectsByStatus?.map((item) => ({
-    name: {
-      planning: "Planejamento",
-      in_progress: "Em Andamento",
-      completed: "Concluída",
-      on_hold: "Pausada",
-      cancelled: "Cancelada",
-      paused: "Pausada"
-    }[item.status as string] || item.status,
-    value: Number(item.count)
-  })) || [];
+  const projectChartData =
+    projectsByStatus?.map(item => ({
+      name:
+        {
+          planning: "Planejamento",
+          in_progress: "Em Andamento",
+          completed: "Concluída",
+          on_hold: "Pausada",
+          cancelled: "Cancelada",
+          paused: "Pausada",
+        }[item.status as string] || item.status,
+      value: Number(item.count),
+    })) || [];
 
   return (
     <div className="min-h-screen bg-gradient-to-b from-[#1A2332] via-[#2C3E50] to-[#1A2332]">
@@ -88,7 +114,9 @@ export default function AdminDashboard() {
               Voltar para Admin
             </a>
           </Link>
-          <h1 className="text-2xl font-bold text-[#C9A961]">Dashboard Analytics</h1>
+          <h1 className="text-2xl font-bold text-[#C9A961]">
+            Dashboard Analytics
+          </h1>
         </div>
       </div>
 
@@ -100,14 +128,19 @@ export default function AdminDashboard() {
           <Card className="bg-[#1A2332]/60 border-[#C9A961]/20">
             <CardHeader className="pb-3">
               <div className="flex items-center justify-between">
-                <CardTitle className="text-[#C9A961] text-lg">Orçamentos</CardTitle>
+                <CardTitle className="text-[#C9A961] text-lg">
+                  Orçamentos
+                </CardTitle>
                 <FileText className="h-5 w-5 text-[#C9A961]" />
               </div>
             </CardHeader>
             <CardContent>
-              <div className="text-3xl font-bold text-white mb-2">{stats.budgetRequests.total}</div>
+              <div className="text-3xl font-bold text-white mb-2">
+                {stats.budgetRequests.total}
+              </div>
               <div className="text-sm text-gray-400">
-                {stats.budgetRequests.pending} pendentes • {stats.budgetRequests.conversionRate}% conversão
+                {stats.budgetRequests.pending} pendentes •{" "}
+                {stats.budgetRequests.conversionRate}% conversão
               </div>
             </CardContent>
           </Card>
@@ -121,9 +154,12 @@ export default function AdminDashboard() {
               </div>
             </CardHeader>
             <CardContent>
-              <div className="text-3xl font-bold text-white mb-2">{stats.projects.total}</div>
+              <div className="text-3xl font-bold text-white mb-2">
+                {stats.projects.total}
+              </div>
               <div className="text-sm text-gray-400">
-                {stats.projects.active} ativas • {stats.projects.completed} concluídas
+                {stats.projects.active} ativas • {stats.projects.completed}{" "}
+                concluídas
               </div>
             </CardContent>
           </Card>
@@ -132,14 +168,19 @@ export default function AdminDashboard() {
           <Card className="bg-[#1A2332]/60 border-[#C9A961]/20">
             <CardHeader className="pb-3">
               <div className="flex items-center justify-between">
-                <CardTitle className="text-[#C9A961] text-lg">Sorteios</CardTitle>
+                <CardTitle className="text-[#C9A961] text-lg">
+                  Sorteios
+                </CardTitle>
                 <Gift className="h-5 w-5 text-[#C9A961]" />
               </div>
             </CardHeader>
             <CardContent>
-              <div className="text-3xl font-bold text-white mb-2">{stats.draws.total}</div>
+              <div className="text-3xl font-bold text-white mb-2">
+                {stats.draws.total}
+              </div>
               <div className="text-sm text-gray-400">
-                {stats.draws.active} ativos • {stats.tickets.total} bilhetes vendidos
+                {stats.draws.active} ativos • {stats.tickets.total} bilhetes
+                vendidos
               </div>
             </CardContent>
           </Card>
@@ -168,7 +209,9 @@ export default function AdminDashboard() {
           {/* Gráfico de Orçamentos */}
           <Card className="bg-[#1A2332]/60 border-[#C9A961]/20">
             <CardHeader>
-              <CardTitle className="text-[#C9A961]">Orçamentos por Status</CardTitle>
+              <CardTitle className="text-[#C9A961]">
+                Orçamentos por Status
+              </CardTitle>
               <CardDescription className="text-gray-400">
                 Distribuição de orçamentos por status atual
               </CardDescription>
@@ -181,13 +224,18 @@ export default function AdminDashboard() {
                     cx="50%"
                     cy="50%"
                     labelLine={false}
-                    label={({ name, percent }) => `${name}: ${(percent * 100).toFixed(0)}%`}
+                    label={({ name, percent }) =>
+                      `${name}: ${(percent * 100).toFixed(0)}%`
+                    }
                     outerRadius={80}
                     fill="#8884d8"
                     dataKey="value"
                   >
                     {budgetChartData.map((_, index) => (
-                      <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
+                      <Cell
+                        key={`cell-${index}`}
+                        fill={COLORS[index % COLORS.length]}
+                      />
                     ))}
                   </Pie>
                   <Tooltip />
@@ -207,15 +255,19 @@ export default function AdminDashboard() {
             <CardContent>
               <ResponsiveContainer width="100%" height={300}>
                 <BarChart data={projectChartData}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#C9A961" opacity={0.1} />
+                  <CartesianGrid
+                    strokeDasharray="3 3"
+                    stroke="#C9A961"
+                    opacity={0.1}
+                  />
                   <XAxis dataKey="name" stroke="#C9A961" />
                   <YAxis stroke="#C9A961" />
-                  <Tooltip 
-                    contentStyle={{ 
-                      backgroundColor: "#1A2332", 
+                  <Tooltip
+                    contentStyle={{
+                      backgroundColor: "#1A2332",
                       border: "1px solid #C9A961",
-                      borderRadius: "8px"
-                    }} 
+                      borderRadius: "8px",
+                    }}
                   />
                   <Bar dataKey="value" fill="#C9A961" />
                 </BarChart>
@@ -227,7 +279,9 @@ export default function AdminDashboard() {
         {/* Orçamentos Recentes */}
         <Card className="bg-[#1A2332]/60 border-[#C9A961]/20">
           <CardHeader>
-            <CardTitle className="text-[#C9A961]">Orçamentos Recentes</CardTitle>
+            <CardTitle className="text-[#C9A961]">
+              Orçamentos Recentes
+            </CardTitle>
             <CardDescription className="text-gray-400">
               Últimos 5 orçamentos solicitados
             </CardDescription>
@@ -235,28 +289,44 @@ export default function AdminDashboard() {
           <CardContent>
             <div className="space-y-4">
               {recentBudgets && recentBudgets.length > 0 ? (
-                recentBudgets.map((budget) => (
-                  <div key={budget.id} className="flex items-center justify-between p-4 bg-[#1A2332]/40 rounded-lg border border-[#C9A961]/10">
+                recentBudgets.map(budget => (
+                  <div
+                    key={budget.id}
+                    className="flex items-center justify-between p-4 bg-[#1A2332]/40 rounded-lg border border-[#C9A961]/10"
+                  >
                     <div>
                       <p className="text-white font-semibold">{budget.name}</p>
-                      <p className="text-sm text-gray-400">{budget.email} • {budget.phone}</p>
+                      <p className="text-sm text-gray-400">
+                        {budget.email} • {budget.phone}
+                      </p>
                       <p className="text-xs text-gray-500 mt-1">
-                        {budget.city} • {budget.projectType} • {budget.hasLot ? "Tem lote" : "Não tem lote"}
+                        {budget.city} • {budget.projectType} •{" "}
+                        {budget.hasLot ? "Tem lote" : "Não tem lote"}
                       </p>
                     </div>
                     <div className="text-right">
-                      <span className={`px-3 py-1 rounded-full text-xs font-semibold ${
-                        budget.status === "converted" ? "bg-green-500/20 text-green-400" :
-                        budget.status === "in_negotiation" ? "bg-blue-500/20 text-blue-400" :
-                        budget.status === "contacted" ? "bg-yellow-500/20 text-yellow-400" :
-                        budget.status === "cancelled" ? "bg-red-500/20 text-red-400" :
-                        "bg-gray-500/20 text-gray-400"
-                      }`}>
-                        {budget.status === "converted" ? "Convertido" :
-                         budget.status === "in_negotiation" ? "Em Negociação" :
-                         budget.status === "contacted" ? "Contatado" :
-                         budget.status === "cancelled" ? "Cancelado" :
-                         "Pendente"}
+                      <span
+                        className={`px-3 py-1 rounded-full text-xs font-semibold ${
+                          budget.status === "converted"
+                            ? "bg-green-500/20 text-green-400"
+                            : budget.status === "in_negotiation"
+                              ? "bg-blue-500/20 text-blue-400"
+                              : budget.status === "contacted"
+                                ? "bg-yellow-500/20 text-yellow-400"
+                                : budget.status === "cancelled"
+                                  ? "bg-red-500/20 text-red-400"
+                                  : "bg-gray-500/20 text-gray-400"
+                        }`}
+                      >
+                        {budget.status === "converted"
+                          ? "Convertido"
+                          : budget.status === "in_negotiation"
+                            ? "Em Negociação"
+                            : budget.status === "contacted"
+                              ? "Contatado"
+                              : budget.status === "cancelled"
+                                ? "Cancelado"
+                                : "Pendente"}
                       </span>
                       <p className="text-xs text-gray-500 mt-2">
                         {new Date(budget.createdAt).toLocaleDateString("pt-BR")}
@@ -265,7 +335,9 @@ export default function AdminDashboard() {
                   </div>
                 ))
               ) : (
-                <p className="text-gray-400 text-center py-8">Nenhum orçamento encontrado</p>
+                <p className="text-gray-400 text-center py-8">
+                  Nenhum orçamento encontrado
+                </p>
               )}
             </div>
           </CardContent>
@@ -276,7 +348,9 @@ export default function AdminDashboard() {
           <CardHeader>
             <div className="flex items-center justify-between">
               <div>
-                <CardTitle className="text-[#C9A961]">Usuários Cadastrados</CardTitle>
+                <CardTitle className="text-[#C9A961]">
+                  Usuários Cadastrados
+                </CardTitle>
                 <CardDescription className="text-gray-400">
                   Total de usuários na plataforma
                 </CardDescription>
@@ -285,7 +359,9 @@ export default function AdminDashboard() {
             </div>
           </CardHeader>
           <CardContent>
-            <div className="text-4xl font-bold text-white">{stats.users.total}</div>
+            <div className="text-4xl font-bold text-white">
+              {stats.users.total}
+            </div>
           </CardContent>
         </Card>
       </div>

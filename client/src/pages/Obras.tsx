@@ -1,10 +1,26 @@
 import { useAuth } from "@/_core/hooks/useAuth";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardFooter,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
 import { trpc } from "@/lib/trpc";
-import { HardHat, Plus, Calendar, MapPin, TrendingUp, Eye, AlertCircle, ArrowLeft } from "lucide-react";
+import {
+  HardHat,
+  Plus,
+  Calendar,
+  MapPin,
+  TrendingUp,
+  Eye,
+  AlertCircle,
+  ArrowLeft,
+} from "lucide-react";
 import { Link, useLocation } from "wouter";
 import { getLoginUrl } from "@/const";
 
@@ -48,9 +64,12 @@ export default function Obras() {
   const { user, loading: authLoading, isAuthenticated } = useAuth();
   const [, setLocation] = useLocation();
 
-  const { data: projects, isLoading } = trpc.construction.myProjects.useQuery(undefined, {
-    enabled: isAuthenticated,
-  });
+  const { data: projects, isLoading } = trpc.construction.myProjects.useQuery(
+    undefined,
+    {
+      enabled: isAuthenticated,
+    }
+  );
 
   // Redirect para login se não autenticado
   if (!authLoading && !isAuthenticated) {
@@ -82,7 +101,7 @@ export default function Obras() {
             <ArrowLeft className="mr-2 h-4 w-4" />
             Voltar para Início
           </Button>
-          
+
           <div className="flex items-center justify-between">
             <div>
               <h1 className="text-3xl font-bold text-[#C9A961] flex items-center gap-3">
@@ -114,9 +133,12 @@ export default function Obras() {
               <div className="w-20 h-20 rounded-full bg-[#C9A961]/10 flex items-center justify-center mb-6">
                 <HardHat className="h-10 w-10 text-[#C9A961]" />
               </div>
-              <h3 className="text-2xl font-bold text-white mb-2">Nenhuma obra cadastrada</h3>
+              <h3 className="text-2xl font-bold text-white mb-2">
+                Nenhuma obra cadastrada
+              </h3>
               <p className="text-gray-400 text-center max-w-md mb-6">
-                Você ainda não possui obras em andamento. Comece cadastrando sua primeira construção!
+                Você ainda não possui obras em andamento. Comece cadastrando sua
+                primeira construção!
               </p>
               <Button
                 size="lg"
@@ -131,7 +153,7 @@ export default function Obras() {
         ) : (
           // Projects Grid
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-            {projects.map((project) => (
+            {projects.map(project => (
               <Card
                 key={project.id}
                 className="bg-white/5 border-[#C9A961]/20 backdrop-blur-sm hover:bg-white/10 transition-all cursor-pointer group"
@@ -142,7 +164,9 @@ export default function Obras() {
                     <CardTitle className="text-xl text-white group-hover:text-[#C9A961] transition-colors">
                       {project.title}
                     </CardTitle>
-                    <Badge className={`${statusColors[project.status]} text-white border-0`}>
+                    <Badge
+                      className={`${statusColors[project.status]} text-white border-0`}
+                    >
                       {statusLabels[project.status]}
                     </Badge>
                   </div>
@@ -159,7 +183,9 @@ export default function Obras() {
                   <div>
                     <div className="flex items-center justify-between mb-2">
                       <span className="text-sm text-gray-400">Progresso</span>
-                      <span className="text-sm font-semibold text-[#C9A961]">{project.progress}%</span>
+                      <span className="text-sm font-semibold text-[#C9A961]">
+                        {project.progress}%
+                      </span>
                     </div>
                     <Progress value={project.progress} className="h-2" />
                   </div>
@@ -169,13 +195,17 @@ export default function Obras() {
                     {project.projectType && (
                       <div>
                         <p className="text-xs text-gray-500">Tipo</p>
-                        <p className="text-sm text-white font-medium">{project.projectType}</p>
+                        <p className="text-sm text-white font-medium">
+                          {project.projectType}
+                        </p>
                       </div>
                     )}
                     {project.totalArea && (
                       <div>
                         <p className="text-xs text-gray-500">Área</p>
-                        <p className="text-sm text-white font-medium">{project.totalArea}m²</p>
+                        <p className="text-sm text-white font-medium">
+                          {project.totalArea}m²
+                        </p>
                       </div>
                     )}
                     {project.startDate && (
@@ -183,7 +213,9 @@ export default function Obras() {
                         <p className="text-xs text-gray-500">Início</p>
                         <p className="text-sm text-white font-medium flex items-center gap-1">
                           <Calendar className="h-3 w-3" />
-                          {new Date(project.startDate).toLocaleDateString("pt-BR")}
+                          {new Date(project.startDate).toLocaleDateString(
+                            "pt-BR"
+                          )}
                         </p>
                       </div>
                     )}
@@ -205,7 +237,7 @@ export default function Obras() {
                   <Button
                     variant="ghost"
                     className="w-full text-[#C9A961] hover:text-[#B89851] hover:bg-[#C9A961]/10"
-                    onClick={(e) => {
+                    onClick={e => {
                       e.stopPropagation();
                       setLocation(`/obras/${project.id}`);
                     }}
@@ -225,10 +257,13 @@ export default function Obras() {
             <CardContent className="flex items-start gap-4 py-6">
               <AlertCircle className="h-6 w-6 text-[#C9A961] flex-shrink-0 mt-1" />
               <div>
-                <h4 className="text-white font-semibold mb-1">Acompanhamento em Tempo Real</h4>
+                <h4 className="text-white font-semibold mb-1">
+                  Acompanhamento em Tempo Real
+                </h4>
                 <p className="text-gray-300 text-sm">
-                  Receba atualizações automáticas sobre o progresso da sua obra. Fotos, relatórios e medições
-                  são adicionados pela equipe de construção regularmente.
+                  Receba atualizações automáticas sobre o progresso da sua obra.
+                  Fotos, relatórios e medições são adicionados pela equipe de
+                  construção regularmente.
                 </p>
               </div>
             </CardContent>

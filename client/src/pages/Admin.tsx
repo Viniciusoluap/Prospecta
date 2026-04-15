@@ -1,7 +1,13 @@
 import { useState } from "react";
 import { Link } from "wouter";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
@@ -11,7 +17,20 @@ import Navbar from "@/components/Navbar";
 import { trpc } from "@/lib/trpc";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { formatCurrency, formatUtef, getLoginUrl } from "@/const";
-import { Settings, Plus, Ticket, ShoppingBag, AlertCircle, Users, DollarSign, CheckSquare, HardHat, Map, TrendingUp, UserCheck } from "lucide-react";
+import {
+  Settings,
+  Plus,
+  Ticket,
+  ShoppingBag,
+  AlertCircle,
+  Users,
+  DollarSign,
+  CheckSquare,
+  HardHat,
+  Map,
+  TrendingUp,
+  UserCheck,
+} from "lucide-react";
 import { toast } from "sonner";
 import {
   Select,
@@ -52,7 +71,7 @@ export default function Admin() {
         drawDate: "",
       });
     },
-    onError: (error) => {
+    onError: error => {
       toast.error(error.message || "Erro ao criar sorteio");
     },
   });
@@ -68,7 +87,7 @@ export default function Admin() {
         imageUrl: "",
       });
     },
-    onError: (error) => {
+    onError: error => {
       toast.error(error.message || "Erro ao criar produto");
     },
   });
@@ -135,69 +154,97 @@ export default function Admin() {
   return (
     <div className="min-h-screen flex flex-col">
       <Navbar />
-      
+
       <main className="flex-1 py-12">
         <div className="container max-w-4xl space-y-6">
           <div className="flex items-center gap-3">
             <Settings className="h-8 w-8 text-primary" />
             <div>
               <h1 className="text-3xl font-bold">Painel Administrativo</h1>
-              <p className="text-muted-foreground">Gerencie sorteios e produtos do ecossistema</p>
+              <p className="text-muted-foreground">
+                Gerencie sorteios e produtos do ecossistema
+              </p>
             </div>
           </div>
 
           {/* Links Rápidos — Prospecta */}
           <Card>
             <CardHeader>
-              <CardTitle>Módulos Principais — VFX Capital / Prospecta</CardTitle>
+              <CardTitle>
+                Módulos Principais — VFX Capital / Prospecta
+              </CardTitle>
               <CardDescription>Acesso rápido às operações</CardDescription>
             </CardHeader>
             <CardContent>
               <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
                 <Link href="/admin/crm">
-                  <Button variant="outline" className="w-full h-20 flex flex-col gap-2 border-blue-500/30 hover:bg-blue-500/10">
+                  <Button
+                    variant="outline"
+                    className="w-full h-20 flex flex-col gap-2 border-blue-500/30 hover:bg-blue-500/10"
+                  >
                     <Users className="h-5 w-5 text-blue-400" />
                     <span>CRM / Pipeline</span>
                   </Button>
                 </Link>
                 <Link href="/admin/obras">
-                  <Button variant="outline" className="w-full h-20 flex flex-col gap-2 border-orange-500/30 hover:bg-orange-500/10">
+                  <Button
+                    variant="outline"
+                    className="w-full h-20 flex flex-col gap-2 border-orange-500/30 hover:bg-orange-500/10"
+                  >
                     <HardHat className="h-5 w-5 text-orange-400" />
                     <span>Obras</span>
                   </Button>
                 </Link>
                 <Link href="/admin/financeiro">
-                  <Button variant="outline" className="w-full h-20 flex flex-col gap-2 border-green-500/30 hover:bg-green-500/10">
+                  <Button
+                    variant="outline"
+                    className="w-full h-20 flex flex-col gap-2 border-green-500/30 hover:bg-green-500/10"
+                  >
                     <DollarSign className="h-5 w-5 text-green-400" />
                     <span>Financeiro</span>
                   </Button>
                 </Link>
                 <Link href="/admin/tarefas">
-                  <Button variant="outline" className="w-full h-20 flex flex-col gap-2 border-purple-500/30 hover:bg-purple-500/10">
+                  <Button
+                    variant="outline"
+                    className="w-full h-20 flex flex-col gap-2 border-purple-500/30 hover:bg-purple-500/10"
+                  >
                     <CheckSquare className="h-5 w-5 text-purple-400" />
                     <span>Tarefas & SLA</span>
                   </Button>
                 </Link>
                 <Link href="/admin/lotes">
-                  <Button variant="outline" className="w-full h-20 flex flex-col gap-2 border-yellow-500/30 hover:bg-yellow-500/10">
+                  <Button
+                    variant="outline"
+                    className="w-full h-20 flex flex-col gap-2 border-yellow-500/30 hover:bg-yellow-500/10"
+                  >
                     <Map className="h-5 w-5 text-yellow-400" />
                     <span>Lotes</span>
                   </Button>
                 </Link>
                 <Link href="/admin/investidores">
-                  <Button variant="outline" className="w-full h-20 flex flex-col gap-2 border-teal-500/30 hover:bg-teal-500/10">
+                  <Button
+                    variant="outline"
+                    className="w-full h-20 flex flex-col gap-2 border-teal-500/30 hover:bg-teal-500/10"
+                  >
                     <TrendingUp className="h-5 w-5 text-teal-400" />
                     <span>Investidores</span>
                   </Button>
                 </Link>
                 <Link href="/admin/corretores">
-                  <Button variant="outline" className="w-full h-20 flex flex-col gap-2 border-pink-500/30 hover:bg-pink-500/10">
+                  <Button
+                    variant="outline"
+                    className="w-full h-20 flex flex-col gap-2 border-pink-500/30 hover:bg-pink-500/10"
+                  >
                     <UserCheck className="h-5 w-5 text-pink-400" />
                     <span>Corretores</span>
                   </Button>
                 </Link>
                 <Link href="/admin/empreiteiros">
-                  <Button variant="outline" className="w-full h-20 flex flex-col gap-2 border-gray-500/30 hover:bg-gray-500/10">
+                  <Button
+                    variant="outline"
+                    className="w-full h-20 flex flex-col gap-2 border-gray-500/30 hover:bg-gray-500/10"
+                  >
                     <HardHat className="h-5 w-5 text-gray-400" />
                     <span>Empreiteiros</span>
                   </Button>
@@ -214,25 +261,37 @@ export default function Admin() {
             <CardContent>
               <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
                 <Link href="/admin/dashboard">
-                  <Button variant="outline" className="w-full h-14 flex flex-col gap-1 text-sm">
+                  <Button
+                    variant="outline"
+                    className="w-full h-14 flex flex-col gap-1 text-sm"
+                  >
                     <Settings className="h-4 w-4" />
                     <span>Dashboard</span>
                   </Button>
                 </Link>
                 <Link href="/admin/orcamentos">
-                  <Button variant="outline" className="w-full h-14 flex flex-col gap-1 text-sm">
+                  <Button
+                    variant="outline"
+                    className="w-full h-14 flex flex-col gap-1 text-sm"
+                  >
                     <Settings className="h-4 w-4" />
                     <span>Orçamentos</span>
                   </Button>
                 </Link>
                 <Link href="/admin/emails">
-                  <Button variant="outline" className="w-full h-14 flex flex-col gap-1 text-sm">
+                  <Button
+                    variant="outline"
+                    className="w-full h-14 flex flex-col gap-1 text-sm"
+                  >
                     <Settings className="h-4 w-4" />
                     <span>Emails</span>
                   </Button>
                 </Link>
                 <Link href="/admin/configuracoes-pagamento">
-                  <Button variant="outline" className="w-full h-14 flex flex-col gap-1 text-sm">
+                  <Button
+                    variant="outline"
+                    className="w-full h-14 flex flex-col gap-1 text-sm"
+                  >
                     <Settings className="h-4 w-4" />
                     <span>Pagamentos</span>
                   </Button>
@@ -266,7 +325,9 @@ export default function Admin() {
                       <Input
                         id="draw-title"
                         value={drawForm.title}
-                        onChange={(e) => setDrawForm({ ...drawForm, title: e.target.value })}
+                        onChange={e =>
+                          setDrawForm({ ...drawForm, title: e.target.value })
+                        }
                         placeholder="Ex: Sorteio Efficaz 2025"
                         required
                       />
@@ -277,7 +338,12 @@ export default function Admin() {
                       <Textarea
                         id="draw-description"
                         value={drawForm.description}
-                        onChange={(e) => setDrawForm({ ...drawForm, description: e.target.value })}
+                        onChange={e =>
+                          setDrawForm({
+                            ...drawForm,
+                            description: e.target.value,
+                          })
+                        }
                         placeholder="Descreva o sorteio..."
                         rows={3}
                       />
@@ -290,18 +356,30 @@ export default function Admin() {
                           id="prize-amount"
                           type="number"
                           value={drawForm.prizeAmount}
-                          onChange={(e) => setDrawForm({ ...drawForm, prizeAmount: e.target.value })}
+                          onChange={e =>
+                            setDrawForm({
+                              ...drawForm,
+                              prizeAmount: e.target.value,
+                            })
+                          }
                           required
                         />
                       </div>
 
                       <div className="space-y-2">
-                        <Label htmlFor="ticket-price">Preço do Bilhete (centavos)</Label>
+                        <Label htmlFor="ticket-price">
+                          Preço do Bilhete (centavos)
+                        </Label>
                         <Input
                           id="ticket-price"
                           type="number"
                           value={drawForm.ticketPrice}
-                          onChange={(e) => setDrawForm({ ...drawForm, ticketPrice: e.target.value })}
+                          onChange={e =>
+                            setDrawForm({
+                              ...drawForm,
+                              ticketPrice: e.target.value,
+                            })
+                          }
                           placeholder="200 = R$ 2,00"
                           required
                         />
@@ -310,12 +388,19 @@ export default function Admin() {
 
                     <div className="grid md:grid-cols-2 gap-4">
                       <div className="space-y-2">
-                        <Label htmlFor="target-amount">Meta de Arrecadação (centavos)</Label>
+                        <Label htmlFor="target-amount">
+                          Meta de Arrecadação (centavos)
+                        </Label>
                         <Input
                           id="target-amount"
                           type="number"
                           value={drawForm.targetAmount}
-                          onChange={(e) => setDrawForm({ ...drawForm, targetAmount: e.target.value })}
+                          onChange={e =>
+                            setDrawForm({
+                              ...drawForm,
+                              targetAmount: e.target.value,
+                            })
+                          }
                           required
                         />
                       </div>
@@ -326,14 +411,25 @@ export default function Admin() {
                           id="draw-date"
                           type="datetime-local"
                           value={drawForm.drawDate}
-                          onChange={(e) => setDrawForm({ ...drawForm, drawDate: e.target.value })}
+                          onChange={e =>
+                            setDrawForm({
+                              ...drawForm,
+                              drawDate: e.target.value,
+                            })
+                          }
                         />
                       </div>
                     </div>
 
-                    <Button type="submit" disabled={createDrawMutation.isPending} className="w-full">
+                    <Button
+                      type="submit"
+                      disabled={createDrawMutation.isPending}
+                      className="w-full"
+                    >
                       <Ticket className="h-4 w-4 mr-2" />
-                      {createDrawMutation.isPending ? "Criando..." : "Criar Sorteio"}
+                      {createDrawMutation.isPending
+                        ? "Criando..."
+                        : "Criar Sorteio"}
                     </Button>
                   </form>
                 </CardContent>
@@ -358,13 +454,17 @@ export default function Admin() {
                       <Label htmlFor="product-category">Categoria</Label>
                       <Select
                         value={productForm.category}
-                        onValueChange={(value: any) => setProductForm({ ...productForm, category: value })}
+                        onValueChange={(value: any) =>
+                          setProductForm({ ...productForm, category: value })
+                        }
                       >
                         <SelectTrigger>
                           <SelectValue />
                         </SelectTrigger>
                         <SelectContent>
-                          <SelectItem value="real_estate">Construção Civil</SelectItem>
+                          <SelectItem value="real_estate">
+                            Construção Civil
+                          </SelectItem>
                           <SelectItem value="financial">Financeira</SelectItem>
                           <SelectItem value="nautical">Náutico</SelectItem>
                         </SelectContent>
@@ -376,7 +476,12 @@ export default function Admin() {
                       <Input
                         id="product-title"
                         value={productForm.title}
-                        onChange={(e) => setProductForm({ ...productForm, title: e.target.value })}
+                        onChange={e =>
+                          setProductForm({
+                            ...productForm,
+                            title: e.target.value,
+                          })
+                        }
                         placeholder="Ex: Casa Térrea 53m²"
                         required
                       />
@@ -387,7 +492,12 @@ export default function Admin() {
                       <Textarea
                         id="product-description"
                         value={productForm.description}
-                        onChange={(e) => setProductForm({ ...productForm, description: e.target.value })}
+                        onChange={e =>
+                          setProductForm({
+                            ...productForm,
+                            description: e.target.value,
+                          })
+                        }
                         placeholder="Descreva o produto..."
                         rows={3}
                       />
@@ -400,7 +510,12 @@ export default function Admin() {
                           id="product-price"
                           type="number"
                           value={productForm.priceUtef}
-                          onChange={(e) => setProductForm({ ...productForm, priceUtef: e.target.value })}
+                          onChange={e =>
+                            setProductForm({
+                              ...productForm,
+                              priceUtef: e.target.value,
+                            })
+                          }
                           placeholder="Ex: 180000"
                           required
                         />
@@ -411,15 +526,26 @@ export default function Admin() {
                         <Input
                           id="product-image"
                           value={productForm.imageUrl}
-                          onChange={(e) => setProductForm({ ...productForm, imageUrl: e.target.value })}
+                          onChange={e =>
+                            setProductForm({
+                              ...productForm,
+                              imageUrl: e.target.value,
+                            })
+                          }
                           placeholder="https://..."
                         />
                       </div>
                     </div>
 
-                    <Button type="submit" disabled={createProductMutation.isPending} className="w-full">
+                    <Button
+                      type="submit"
+                      disabled={createProductMutation.isPending}
+                      className="w-full"
+                    >
                       <ShoppingBag className="h-4 w-4 mr-2" />
-                      {createProductMutation.isPending ? "Criando..." : "Criar Produto"}
+                      {createProductMutation.isPending
+                        ? "Criando..."
+                        : "Criar Produto"}
                     </Button>
                   </form>
                 </CardContent>

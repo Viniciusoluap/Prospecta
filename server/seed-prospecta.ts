@@ -201,17 +201,21 @@ async function seed() {
   ];
 
   const obras2026 = [
-    { clientName: "José Almeida",      city: "Parauapebas", lotCost: 15000 },
-    { clientName: "Maria Santos",      city: "Parauapebas", lotCost: 13000 },
-    { clientName: "Paulo Oliveira",    city: "Parauapebas", lotCost: 15000 },
-    { clientName: "Ana Lima",          city: "Canaã dos Carajás", lotCost: 12000 },
-    { clientName: "Carlos Souza",      city: "Parauapebas", lotCost: 14000 },
-    { clientName: "Juliana Costa",     city: "Parauapebas", lotCost: 15000 },
-    { clientName: "Fernando Rocha",    city: "Canaã dos Carajás", lotCost: 13000 },
-    { clientName: "Beatriz Nunes",     city: "Parauapebas", lotCost: 14000 },
-    { clientName: "Ricardo Pinto",     city: "Parauapebas", lotCost: 15000 },
-    { clientName: "Simone Carvalho",   city: "Canaã dos Carajás", lotCost: 12500 },
-  ].map((o) => ({
+    { clientName: "José Almeida", city: "Parauapebas", lotCost: 15000 },
+    { clientName: "Maria Santos", city: "Parauapebas", lotCost: 13000 },
+    { clientName: "Paulo Oliveira", city: "Parauapebas", lotCost: 15000 },
+    { clientName: "Ana Lima", city: "Canaã dos Carajás", lotCost: 12000 },
+    { clientName: "Carlos Souza", city: "Parauapebas", lotCost: 14000 },
+    { clientName: "Juliana Costa", city: "Parauapebas", lotCost: 15000 },
+    { clientName: "Fernando Rocha", city: "Canaã dos Carajás", lotCost: 13000 },
+    { clientName: "Beatriz Nunes", city: "Parauapebas", lotCost: 14000 },
+    { clientName: "Ricardo Pinto", city: "Parauapebas", lotCost: 15000 },
+    {
+      clientName: "Simone Carvalho",
+      city: "Canaã dos Carajás",
+      lotCost: 12500,
+    },
+  ].map(o => ({
     title: `Morada do Bosque 2026 - ${o.clientName}`,
     clientName: o.clientName,
     city: o.city,
@@ -273,7 +277,7 @@ async function seed() {
   process.exit(0);
 }
 
-seed().catch((err) => {
+seed().catch(err => {
   console.error("Seed failed:", err);
   process.exit(1);
 });

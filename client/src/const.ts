@@ -1,6 +1,7 @@
 export { COOKIE_NAME, ONE_YEAR_MS } from "@shared/const";
 
-export const APP_TITLE = import.meta.env.VITE_APP_TITLE || "Prospecta Construções";
+export const APP_TITLE =
+  import.meta.env.VITE_APP_TITLE || "Prospecta Construções";
 
 export const APP_LOGO = "/logo.webp";
 
@@ -48,7 +49,10 @@ export function formatCurrency(cents: number): string {
 }
 
 // Format UTEF amount (1 UTEF = R$ 1,00)
-export function formatUtef(amount: number, showEquivalent: boolean = true): string {
+export function formatUtef(
+  amount: number,
+  showEquivalent: boolean = true
+): string {
   const formatted = `${amount.toLocaleString("pt-BR")} UTEF`;
   if (showEquivalent) {
     const reais = formatCurrency(amount * 100); // amount * 100 porque formatCurrency espera centavos

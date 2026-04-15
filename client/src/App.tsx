@@ -6,6 +6,7 @@ import ErrorBoundary from "./components/ErrorBoundary";
 import { ThemeProvider } from "./contexts/ThemeContext";
 import { ProtectedRoute } from "./components/ProtectedRoute";
 import { AdminRoute } from "./components/AdminRoute";
+import { Analytics } from "@vercel/analytics/react";
 import Home from "./pages/Home";
 import Sorteios from "./pages/Sorteios";
 import ComprarBilhete from "./pages/ComprarBilhete";
@@ -54,86 +55,139 @@ function Router() {
       <Route path="/comprar-bilhete/:id" component={ComprarBilhete} />
       <Route path="/produtos" component={Produtos} />
       <Route path="/meus-bilhetes">
-        <ProtectedRoute><MeusBilhetes /></ProtectedRoute>
+        <ProtectedRoute>
+          <MeusBilhetes />
+        </ProtectedRoute>
       </Route>
       <Route path="/meu-saldo">
-        <ProtectedRoute><MeuSaldo /></ProtectedRoute>
+        <ProtectedRoute>
+          <MeuSaldo />
+        </ProtectedRoute>
       </Route>
       <Route path="/perfil">
-        <ProtectedRoute><Perfil /></ProtectedRoute>
+        <ProtectedRoute>
+          <Perfil />
+        </ProtectedRoute>
       </Route>
       <Route path="/admin">
-        <AdminRoute><Admin /></AdminRoute>
+        <AdminRoute>
+          <Admin />
+        </AdminRoute>
       </Route>
       <Route path="/converter-produto/:id">
-        <ProtectedRoute><ConverterProduto /></ProtectedRoute>
+        <ProtectedRoute>
+          <ConverterProduto />
+        </ProtectedRoute>
       </Route>
       <Route path="/como-funciona" component={ComoFunciona} />
       <Route path="/minhas-conversoes">
-        <ProtectedRoute><MinhasConversoes /></ProtectedRoute>
+        <ProtectedRoute>
+          <MinhasConversoes />
+        </ProtectedRoute>
       </Route>
       <Route path="/comprar-utef" component={ComprarUtef} />
       <Route path="/projetos-orcamentos" component={ProjetosOrcamentos} />
       <Route path="/obras">
-        <ProtectedRoute><Obras /></ProtectedRoute>
+        <ProtectedRoute>
+          <Obras />
+        </ProtectedRoute>
       </Route>
       <Route path="/obras/nova">
-        <ProtectedRoute><NovaObra /></ProtectedRoute>
+        <ProtectedRoute>
+          <NovaObra />
+        </ProtectedRoute>
       </Route>
       <Route path="/obras/:id">
-        <ProtectedRoute><ObraDetalhes /></ProtectedRoute>
+        <ProtectedRoute>
+          <ObraDetalhes />
+        </ProtectedRoute>
       </Route>
       <Route path="/admin/obras">
-        <AdminRoute><AdminObras /></AdminRoute>
+        <AdminRoute>
+          <AdminObras />
+        </AdminRoute>
       </Route>
       <Route path="/admin/obras/editar/:id">
-        <AdminRoute><AdminEditarObra /></AdminRoute>
+        <AdminRoute>
+          <AdminEditarObra />
+        </AdminRoute>
       </Route>
       <Route path="/admin/obras/:id/medicoes">
-        <AdminRoute><AdminObraMedicoes /></AdminRoute>
+        <AdminRoute>
+          <AdminObraMedicoes />
+        </AdminRoute>
       </Route>
       <Route path="/admin/orcamentos">
-        <AdminRoute><AdminOrcamentos /></AdminRoute>
+        <AdminRoute>
+          <AdminOrcamentos />
+        </AdminRoute>
       </Route>
       <Route path="/admin/dashboard">
-        <AdminRoute><AdminDashboard /></AdminRoute>
+        <AdminRoute>
+          <AdminDashboard />
+        </AdminRoute>
       </Route>
       <Route path="/admin/emails">
-        <AdminRoute><AdminEmails /></AdminRoute>
+        <AdminRoute>
+          <AdminEmails />
+        </AdminRoute>
       </Route>
       <Route path="/admin/configuracoes-pagamento">
-        <AdminRoute><ConfiguracoesPagamento /></AdminRoute>
+        <AdminRoute>
+          <ConfiguracoesPagamento />
+        </AdminRoute>
       </Route>
       <Route path="/admin/crm/:id">
-        <AdminRoute><AdminLeadDetail /></AdminRoute>
+        <AdminRoute>
+          <AdminLeadDetail />
+        </AdminRoute>
       </Route>
       <Route path="/admin/crm">
-        <AdminRoute><AdminCRM /></AdminRoute>
+        <AdminRoute>
+          <AdminCRM />
+        </AdminRoute>
       </Route>
       <Route path="/admin/financeiro">
-        <AdminRoute><AdminFinanceiro /></AdminRoute>
+        <AdminRoute>
+          <AdminFinanceiro />
+        </AdminRoute>
       </Route>
       <Route path="/admin/tarefas">
-        <AdminRoute><AdminTarefas /></AdminRoute>
+        <AdminRoute>
+          <AdminTarefas />
+        </AdminRoute>
       </Route>
       <Route path="/admin/empreiteiros">
-        <AdminRoute><AdminEmpreiteiros /></AdminRoute>
+        <AdminRoute>
+          <AdminEmpreiteiros />
+        </AdminRoute>
       </Route>
       <Route path="/admin/lotes">
-        <AdminRoute><AdminLotes /></AdminRoute>
+        <AdminRoute>
+          <AdminLotes />
+        </AdminRoute>
       </Route>
       <Route path="/admin/investidores">
-        <AdminRoute><AdminInvestidores /></AdminRoute>
+        <AdminRoute>
+          <AdminInvestidores />
+        </AdminRoute>
       </Route>
       <Route path="/admin/corretores">
-        <AdminRoute><AdminCorretores /></AdminRoute>
+        <AdminRoute>
+          <AdminCorretores />
+        </AdminRoute>
       </Route>
       <Route path="/notificacoes">
-        <ProtectedRoute><Notificacoes /></ProtectedRoute>
+        <ProtectedRoute>
+          <Notificacoes />
+        </ProtectedRoute>
       </Route>
       <Route path="/regulamento" component={Regulamento} />
       <Route path="/termos-de-uso" component={TermosDeUso} />
-      <Route path="/politica-de-privacidade" component={PoliticaDePrivacidade} />
+      <Route
+        path="/politica-de-privacidade"
+        component={PoliticaDePrivacidade}
+      />
       <Route path="/faq" component={FAQ} />
       <Route path="/simulador" component={SimuladorFinanciamento} />
       <Route path={"/404"} component={NotFound} />
@@ -159,6 +213,7 @@ function App() {
           <Toaster />
           <Router />
           <WhatsAppFloat />
+          <Analytics />
         </TooltipProvider>
       </ThemeProvider>
     </ErrorBoundary>

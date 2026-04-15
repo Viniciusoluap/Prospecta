@@ -6,8 +6,20 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from "@/components/ui/dialog";
 import { Textarea } from "@/components/ui/textarea";
 import { toast } from "sonner";
 import { ArrowLeft, Map, Plus } from "lucide-react";
@@ -15,7 +27,10 @@ import { ArrowLeft, Map, Plus } from "lucide-react";
 function formatCurrencyBR(value: number | string | null | undefined) {
   if (!value) return "—";
   const num = typeof value === "string" ? parseFloat(value) : value;
-  return new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(num);
+  return new Intl.NumberFormat("pt-BR", {
+    style: "currency",
+    currency: "BRL",
+  }).format(num);
 }
 
 const STATUS_COLORS: Record<string, string> = {
@@ -43,8 +58,14 @@ export default function AdminLotes() {
   const [filterStatus, setFilterStatus] = useState("all");
   const [filterLoteamento, setFilterLoteamento] = useState("all");
   const [form, setForm] = useState({
-    loteamento: "", block: "", number: "", area: "",
-    price: "", ownerName: "", ownerPhone: "", status: "available" as any,
+    loteamento: "",
+    block: "",
+    number: "",
+    area: "",
+    price: "",
+    ownerName: "",
+    ownerPhone: "",
+    status: "available" as any,
     notes: "",
   });
 
@@ -54,13 +75,31 @@ export default function AdminLotes() {
   });
 
   const createMutation = trpc.lots.create.useMutation({
-    onSuccess: () => { toast.success("Lote cadastrado!"); refetch(); setOpen(false); setForm({ loteamento: "", block: "", number: "", area: "", price: "", ownerName: "", ownerPhone: "", status: "available", notes: "" }); },
-    onError: (e) => toast.error(e.message),
+    onSuccess: () => {
+      toast.success("Lote cadastrado!");
+      refetch();
+      setOpen(false);
+      setForm({
+        loteamento: "",
+        block: "",
+        number: "",
+        area: "",
+        price: "",
+        ownerName: "",
+        ownerPhone: "",
+        status: "available",
+        notes: "",
+      });
+    },
+    onError: e => toast.error(e.message),
   });
 
   const updateMutation = trpc.lots.update.useMutation({
-    onSuccess: () => { toast.success("Atualizado!"); refetch(); },
-    onError: (e) => toast.error(e.message),
+    onSuccess: () => {
+      toast.success("Atualizado!");
+      refetch();
+    },
+    onError: e => toast.error(e.message),
   });
 
   const available = lots.filter(l => l.status === "available").length;
@@ -73,13 +112,21 @@ export default function AdminLotes() {
         <div className="max-w-7xl mx-auto flex items-center justify-between">
           <div className="flex items-center gap-4">
             <Link href="/admin">
-              <Button variant="ghost" size="icon" className="text-gray-400 hover:text-white">
+              <Button
+                variant="ghost"
+                size="icon"
+                className="text-gray-400 hover:text-white"
+              >
                 <ArrowLeft className="h-5 w-5" />
               </Button>
             </Link>
             <div>
-              <h1 className="text-2xl font-bold text-[#C9A961]">Controle de Lotes</h1>
-              <p className="text-gray-400 text-sm">Aurora, Morada do Bosque, Jet Reginaldo</p>
+              <h1 className="text-2xl font-bold text-[#C9A961]">
+                Controle de Lotes
+              </h1>
+              <p className="text-gray-400 text-sm">
+                Aurora, Morada do Bosque, Jet Reginaldo
+              </p>
             </div>
           </div>
           <Dialog open={open} onOpenChange={setOpen}>
@@ -90,40 +137,82 @@ export default function AdminLotes() {
             </DialogTrigger>
             <DialogContent className="bg-[#1A2332] border-[#C9A961]/20 text-white">
               <DialogHeader>
-                <DialogTitle className="text-[#C9A961]">Cadastrar Lote</DialogTitle>
+                <DialogTitle className="text-[#C9A961]">
+                  Cadastrar Lote
+                </DialogTitle>
               </DialogHeader>
               <div className="space-y-4 mt-4">
                 <div className="grid grid-cols-2 gap-4">
                   <div className="col-span-2">
                     <Label className="text-gray-300">Loteamento</Label>
-                    <Select value={form.loteamento} onValueChange={v => setForm(f => ({ ...f, loteamento: v }))}>
+                    <Select
+                      value={form.loteamento}
+                      onValueChange={v =>
+                        setForm(f => ({ ...f, loteamento: v }))
+                      }
+                    >
                       <SelectTrigger className="bg-[#2C3E50] border-[#C9A961]/30 text-white mt-1">
                         <SelectValue placeholder="Selecione..." />
                       </SelectTrigger>
                       <SelectContent>
-                        {LOTEAMENTOS.map(l => <SelectItem key={l} value={l}>{l}</SelectItem>)}
+                        {LOTEAMENTOS.map(l => (
+                          <SelectItem key={l} value={l}>
+                            {l}
+                          </SelectItem>
+                        ))}
                       </SelectContent>
                     </Select>
                   </div>
                   <div>
                     <Label className="text-gray-300">Quadra</Label>
-                    <Input value={form.block} onChange={e => setForm(f => ({ ...f, block: e.target.value }))} className="bg-[#2C3E50] border-[#C9A961]/30 text-white mt-1" placeholder="ex: Q01" />
+                    <Input
+                      value={form.block}
+                      onChange={e =>
+                        setForm(f => ({ ...f, block: e.target.value }))
+                      }
+                      className="bg-[#2C3E50] border-[#C9A961]/30 text-white mt-1"
+                      placeholder="ex: Q01"
+                    />
                   </div>
                   <div>
                     <Label className="text-gray-300">Lote</Label>
-                    <Input value={form.number} onChange={e => setForm(f => ({ ...f, number: e.target.value }))} className="bg-[#2C3E50] border-[#C9A961]/30 text-white mt-1" placeholder="ex: L05" />
+                    <Input
+                      value={form.number}
+                      onChange={e =>
+                        setForm(f => ({ ...f, number: e.target.value }))
+                      }
+                      className="bg-[#2C3E50] border-[#C9A961]/30 text-white mt-1"
+                      placeholder="ex: L05"
+                    />
                   </div>
                   <div>
                     <Label className="text-gray-300">Área (m²)</Label>
-                    <Input type="number" value={form.area} onChange={e => setForm(f => ({ ...f, area: e.target.value }))} className="bg-[#2C3E50] border-[#C9A961]/30 text-white mt-1" />
+                    <Input
+                      type="number"
+                      value={form.area}
+                      onChange={e =>
+                        setForm(f => ({ ...f, area: e.target.value }))
+                      }
+                      className="bg-[#2C3E50] border-[#C9A961]/30 text-white mt-1"
+                    />
                   </div>
                   <div>
                     <Label className="text-gray-300">Preço (R$)</Label>
-                    <Input type="number" value={form.price} onChange={e => setForm(f => ({ ...f, price: e.target.value }))} className="bg-[#2C3E50] border-[#C9A961]/30 text-white mt-1" />
+                    <Input
+                      type="number"
+                      value={form.price}
+                      onChange={e =>
+                        setForm(f => ({ ...f, price: e.target.value }))
+                      }
+                      className="bg-[#2C3E50] border-[#C9A961]/30 text-white mt-1"
+                    />
                   </div>
                   <div>
                     <Label className="text-gray-300">Status</Label>
-                    <Select value={form.status} onValueChange={v => setForm(f => ({ ...f, status: v }))}>
+                    <Select
+                      value={form.status}
+                      onValueChange={v => setForm(f => ({ ...f, status: v }))}
+                    >
                       <SelectTrigger className="bg-[#2C3E50] border-[#C9A961]/30 text-white mt-1">
                         <SelectValue />
                       </SelectTrigger>
@@ -136,21 +225,50 @@ export default function AdminLotes() {
                     </Select>
                   </div>
                   <div>
-                    <Label className="text-gray-300">Nome Proprietário/Cliente</Label>
-                    <Input value={form.ownerName} onChange={e => setForm(f => ({ ...f, ownerName: e.target.value }))} className="bg-[#2C3E50] border-[#C9A961]/30 text-white mt-1" />
+                    <Label className="text-gray-300">
+                      Nome Proprietário/Cliente
+                    </Label>
+                    <Input
+                      value={form.ownerName}
+                      onChange={e =>
+                        setForm(f => ({ ...f, ownerName: e.target.value }))
+                      }
+                      className="bg-[#2C3E50] border-[#C9A961]/30 text-white mt-1"
+                    />
                   </div>
                   <div>
                     <Label className="text-gray-300">Telefone</Label>
-                    <Input value={form.ownerPhone} onChange={e => setForm(f => ({ ...f, ownerPhone: e.target.value }))} className="bg-[#2C3E50] border-[#C9A961]/30 text-white mt-1" />
+                    <Input
+                      value={form.ownerPhone}
+                      onChange={e =>
+                        setForm(f => ({ ...f, ownerPhone: e.target.value }))
+                      }
+                      className="bg-[#2C3E50] border-[#C9A961]/30 text-white mt-1"
+                    />
                   </div>
                 </div>
                 <div>
                   <Label className="text-gray-300">Observações</Label>
-                  <Textarea value={form.notes} onChange={e => setForm(f => ({ ...f, notes: e.target.value }))} className="bg-[#2C3E50] border-[#C9A961]/30 text-white mt-1" rows={2} />
+                  <Textarea
+                    value={form.notes}
+                    onChange={e =>
+                      setForm(f => ({ ...f, notes: e.target.value }))
+                    }
+                    className="bg-[#2C3E50] border-[#C9A961]/30 text-white mt-1"
+                    rows={2}
+                  />
                 </div>
                 <Button
-                  onClick={() => createMutation.mutate({ ...form, area: form.area ? parseFloat(form.area) : undefined, price: form.price ? parseFloat(form.price) : undefined })}
-                  disabled={createMutation.isPending || !form.loteamento || !form.number}
+                  onClick={() =>
+                    createMutation.mutate({
+                      ...form,
+                      area: form.area ? parseFloat(form.area) : undefined,
+                      price: form.price ? parseFloat(form.price) : undefined,
+                    })
+                  }
+                  disabled={
+                    createMutation.isPending || !form.loteamento || !form.number
+                  }
                   className="w-full bg-[#C9A961] hover:bg-[#B8985A] text-[#1A2332] font-bold"
                 >
                   Cadastrar Lote
@@ -204,7 +322,11 @@ export default function AdminLotes() {
             </SelectTrigger>
             <SelectContent>
               <SelectItem value="all">Todos</SelectItem>
-              {LOTEAMENTOS.map(l => <SelectItem key={l} value={l}>{l}</SelectItem>)}
+              {LOTEAMENTOS.map(l => (
+                <SelectItem key={l} value={l}>
+                  {l}
+                </SelectItem>
+              ))}
             </SelectContent>
           </Select>
         </div>
@@ -220,22 +342,47 @@ export default function AdminLotes() {
         ) : (
           <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3">
             {lots.map((lot: any) => (
-              <Card key={lot.id} className={`bg-[#2C3E50] border-[#C9A961]/20 cursor-pointer hover:border-[#C9A961]/50 transition-all`}>
+              <Card
+                key={lot.id}
+                className={`bg-[#2C3E50] border-[#C9A961]/20 cursor-pointer hover:border-[#C9A961]/50 transition-all`}
+              >
                 <CardContent className="pt-3 pb-3 px-3">
                   <div className="flex items-center justify-between mb-2">
-                    <span className="font-bold text-white text-sm">{lot.block ? `${lot.block} ` : ""}{lot.number}</span>
-                    <Badge className={`${STATUS_COLORS[lot.status] || "bg-gray-600"} text-white text-xs`}>
+                    <span className="font-bold text-white text-sm">
+                      {lot.block ? `${lot.block} ` : ""}
+                      {lot.number}
+                    </span>
+                    <Badge
+                      className={`${STATUS_COLORS[lot.status] || "bg-gray-600"} text-white text-xs`}
+                    >
                       {STATUS_LABELS[lot.status] || lot.status}
                     </Badge>
                   </div>
-                  <p className="text-xs text-gray-400 truncate">{lot.loteamento}</p>
-                  {lot.area && <p className="text-xs text-gray-400">{lot.area}m²</p>}
-                  {lot.price && <p className="text-sm font-medium text-[#C9A961]">{formatCurrencyBR(lot.price)}</p>}
-                  {lot.ownerName && <p className="text-xs text-gray-500 mt-1 truncate">{lot.ownerName}</p>}
+                  <p className="text-xs text-gray-400 truncate">
+                    {lot.loteamento}
+                  </p>
+                  {lot.area && (
+                    <p className="text-xs text-gray-400">{lot.area}m²</p>
+                  )}
+                  {lot.price && (
+                    <p className="text-sm font-medium text-[#C9A961]">
+                      {formatCurrencyBR(lot.price)}
+                    </p>
+                  )}
+                  {lot.ownerName && (
+                    <p className="text-xs text-gray-500 mt-1 truncate">
+                      {lot.ownerName}
+                    </p>
+                  )}
                   {lot.status === "available" && (
                     <Button
                       size="sm"
-                      onClick={() => updateMutation.mutate({ id: lot.id, status: "reserved" })}
+                      onClick={() =>
+                        updateMutation.mutate({
+                          id: lot.id,
+                          status: "reserved",
+                        })
+                      }
                       className="w-full mt-2 bg-yellow-600 hover:bg-yellow-700 text-white h-6 text-xs"
                     >
                       Reservar

@@ -9,12 +9,20 @@ import { sql } from "drizzle-orm";
 export async function scheduleLeadFollowUps(leadId: number): Promise<void> {
   const db = await getDb();
   if (!db) {
-    console.warn("[FollowUpScheduler] Database not available, skipping scheduleLeadFollowUps");
+    console.warn(
+      "[FollowUpScheduler] Database not available, skipping scheduleLeadFollowUps"
+    );
     return;
   }
 
   try {
-    const rows: { leadId: number; attempt: number; subAttempt: number; scheduledAt: Date; status: string }[] = [];
+    const rows: {
+      leadId: number;
+      attempt: number;
+      subAttempt: number;
+      scheduledAt: Date;
+      status: string;
+    }[] = [];
 
     const tomorrow = new Date();
     tomorrow.setDate(tomorrow.getDate() + 1);
@@ -45,7 +53,9 @@ export async function scheduleLeadFollowUps(leadId: number): Promise<void> {
       `);
     }
 
-    console.log(`[FollowUpScheduler] Scheduled ${rows.length} follow-ups for lead ${leadId}`);
+    console.log(
+      `[FollowUpScheduler] Scheduled ${rows.length} follow-ups for lead ${leadId}`
+    );
   } catch (error) {
     console.error("[FollowUpScheduler] Error scheduling follow-ups:", error);
   }
@@ -71,7 +81,9 @@ async function processPendingFollowUps(): Promise<void> {
       LIMIT 100
     `);
 
-    const rows = (pending as any).rows || (Array.isArray(pending) ? pending : [pending?.[0] || []]);
+    const rows =
+      (pending as any).rows ||
+      (Array.isArray(pending) ? pending : [pending?.[0] || []]);
     const followUps: any[] = Array.isArray(rows) ? rows : [];
 
     for (const fu of followUps) {
@@ -83,7 +95,9 @@ async function processPendingFollowUps(): Promise<void> {
           WHERE id = ${fu.id}
         `);
 
-        console.log(`[FollowUpScheduler] Processed follow-up #${fu.id} for lead ${fu.lead_id} (attempt ${fu.attempt}.${fu.sub_attempt})`);
+        console.log(
+          `[FollowUpScheduler] Processed follow-up #${fu.id} for lead ${fu.lead_id} (attempt ${fu.attempt}.${fu.sub_attempt})`
+        );
 
         // If this is the 10th attempt (last one), escalate
         if (fu.attempt === 10 && fu.sub_attempt === 3) {
@@ -101,7 +115,9 @@ async function processPendingFollowUps(): Promise<void> {
               NOW()
             )
           `);
-          console.log(`[FollowUpScheduler] Escalation task created for lead ${fu.lead_id}`);
+          console.log(
+            `[FollowUpScheduler] Escalation task created for lead ${fu.lead_id}`
+          );
         }
 
         // If no response after any attempt, cool down the lead temperature
@@ -110,10 +126,15 @@ async function processPendingFollowUps(): Promise<void> {
             UPDATE leads SET temperature = 'cold', updated_at = NOW()
             WHERE id = ${fu.lead_id}
           `);
-          console.log(`[FollowUpScheduler] Lead ${fu.lead_id} temperature set to cold`);
+          console.log(
+            `[FollowUpScheduler] Lead ${fu.lead_id} temperature set to cold`
+          );
         }
       } catch (innerErr) {
-        console.error(`[FollowUpScheduler] Error processing follow-up #${fu.id}:`, innerErr);
+        console.error(
+          `[FollowUpScheduler] Error processing follow-up #${fu.id}:`,
+          innerErr
+        );
       }
     }
 
@@ -133,18 +154,30 @@ async function processPendingFollowUps(): Promise<void> {
         LIMIT 20
       `);
 
-      const rejectedRows = (oldRejected as any).rows || (Array.isArray(oldRejected) ? oldRejected : []);
-      const rejectedLeads: any[] = Array.isArray(rejectedRows) ? rejectedRows : [];
+      const rejectedRows =
+        (oldRejected as any).rows ||
+        (Array.isArray(oldRejected) ? oldRejected : []);
+      const rejectedLeads: any[] = Array.isArray(rejectedRows)
+        ? rejectedRows
+        : [];
 
       for (const lead of rejectedLeads) {
-        console.log(`[FollowUpScheduler] Re-scheduling follow-ups for rejected lead ${lead.id} after 6 months`);
+        console.log(
+          `[FollowUpScheduler] Re-scheduling follow-ups for rejected lead ${lead.id} after 6 months`
+        );
         await scheduleLeadFollowUps(lead.id);
       }
     } catch (err) {
-      console.error("[FollowUpScheduler] Error checking old rejected leads:", err);
+      console.error(
+        "[FollowUpScheduler] Error checking old rejected leads:",
+        err
+      );
     }
   } catch (error) {
-    console.error("[FollowUpScheduler] Error in processPendingFollowUps:", error);
+    console.error(
+      "[FollowUpScheduler] Error in processPendingFollowUps:",
+      error
+    );
   }
 }
 
@@ -154,16 +187,18 @@ async function processPendingFollowUps(): Promise<void> {
 export function startFollowUpScheduler(): void {
   const INTERVAL_MS = 15 * 60 * 1000; // 15 minutes
 
-  console.log("[FollowUpScheduler] Starting — will process follow-ups every 15 minutes");
+  console.log(
+    "[FollowUpScheduler] Starting — will process follow-ups every 15 minutes"
+  );
 
   // Run immediately on startup
-  processPendingFollowUps().catch((err) =>
+  processPendingFollowUps().catch(err =>
     console.error("[FollowUpScheduler] Initial run error:", err)
   );
 
   // Then run every 15 minutes
   setInterval(() => {
-    processPendingFollowUps().catch((err) =>
+    processPendingFollowUps().catch(err =>
       console.error("[FollowUpScheduler] Scheduled run error:", err)
     );
   }, INTERVAL_MS);

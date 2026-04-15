@@ -1,23 +1,23 @@
-import { describe, it, expect } from 'vitest';
-import { sendEmail, budgetConfirmationTemplate } from './_core/email-smtp';
+import { describe, it, expect } from "vitest";
+import { sendEmail, budgetConfirmationTemplate } from "./_core/email-smtp";
 
-describe('Email SMTP Integration', () => {
-  it('should send budget confirmation email successfully', async () => {
+describe("Email SMTP Integration", () => {
+  it("should send budget confirmation email successfully", async () => {
     const template = budgetConfirmationTemplate({
-      name: 'João Silva',
-      projectType: 'Casa 47m²',
-      city: 'Imperatriz - MA',
+      name: "João Silva",
+      projectType: "Casa 47m²",
+      city: "Imperatriz - MA",
     });
 
     const result = await sendEmail({
-      to: 'atendimento@prospectaconstrucoes.com', // Enviando para o próprio email para teste
+      to: "atendimento@prospectaconstrucoes.com", // Enviando para o próprio email para teste
       subject: template.subject,
       html: template.html,
-      recipientName: 'João Silva',
-      templateType: 'budget_confirmation',
+      recipientName: "João Silva",
+      templateType: "budget_confirmation",
       metadata: {
-        projectType: 'Casa 47m²',
-        city: 'Imperatriz - MA',
+        projectType: "Casa 47m²",
+        city: "Imperatriz - MA",
         budgetId: 999,
       },
     });

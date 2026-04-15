@@ -3,11 +3,13 @@
 ## 📋 Requisitos do Cliente
 
 ### Mobile
+
 - ✅ Menu hambúrguer à **ESQUERDA**
 - ✅ Logo à **DIREITA**
 - ✅ Todos os links dentro do menu hambúrguer
 
 ### Desktop
+
 - ✅ Layout simplificado com apenas **3 elementos** na sequência:
   1. **Menu hambúrguer** (à esquerda)
   2. **Logo + Nome da Empresa** (centro)
@@ -18,6 +20,7 @@
 ## 🎯 Estrutura do Menu Hambúrguer (Mobile e Desktop)
 
 O menu lateral contém:
+
 - Informações do usuário (se logado) ou botão "Entrar/Cadastrar"
 - **Navegação Principal:**
   - Início

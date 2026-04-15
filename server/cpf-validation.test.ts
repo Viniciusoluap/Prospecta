@@ -58,7 +58,9 @@ describe("CPF Validation", () => {
 
     it("should return appropriate messages", () => {
       expect(validateCPF("123").message).toBe("CPF deve ter 11 dígitos");
-      expect(validateCPF("111.111.111-11").message).toBe("CPF inválido (sequência repetida)");
+      expect(validateCPF("111.111.111-11").message).toBe(
+        "CPF inválido (sequência repetida)"
+      );
       expect(validateCPF("529.982.247-25").message).toBe("CPF válido");
     });
   });

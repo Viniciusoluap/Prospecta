@@ -17,7 +17,8 @@ export function formatCPF(cpf: string): string {
   const numbers = cleanCPF(cpf);
   if (numbers.length <= 3) return numbers;
   if (numbers.length <= 6) return `${numbers.slice(0, 3)}.${numbers.slice(3)}`;
-  if (numbers.length <= 9) return `${numbers.slice(0, 3)}.${numbers.slice(3, 6)}.${numbers.slice(6)}`;
+  if (numbers.length <= 9)
+    return `${numbers.slice(0, 3)}.${numbers.slice(3, 6)}.${numbers.slice(6)}`;
   return `${numbers.slice(0, 3)}.${numbers.slice(3, 6)}.${numbers.slice(6, 9)}-${numbers.slice(9, 11)}`;
 }
 
@@ -30,12 +31,12 @@ export function formatCPF(cpf: string): string {
  */
 export function validateCPF(cpf: string): { valid: boolean; message: string } {
   const numbers = cleanCPF(cpf);
-  
+
   // Verifica se tem 11 dígitos
   if (numbers.length !== 11) {
     return { valid: false, message: "CPF deve ter 11 dígitos" };
   }
-  
+
   // Verifica se não é uma sequência repetida (ex: 111.111.111-11)
   const invalidSequences = [
     "00000000000",
@@ -49,11 +50,11 @@ export function validateCPF(cpf: string): { valid: boolean; message: string } {
     "88888888888",
     "99999999999",
   ];
-  
+
   if (invalidSequences.includes(numbers)) {
     return { valid: false, message: "CPF inválido (sequência repetida)" };
   }
-  
+
   // Calcula o primeiro dígito verificador
   let sum = 0;
   for (let i = 0; i < 9; i++) {
@@ -61,11 +62,14 @@ export function validateCPF(cpf: string): { valid: boolean; message: string } {
   }
   let remainder = (sum * 10) % 11;
   if (remainder === 10 || remainder === 11) remainder = 0;
-  
+
   if (remainder !== parseInt(numbers[9])) {
-    return { valid: false, message: "CPF inválido (primeiro dígito verificador incorreto)" };
+    return {
+      valid: false,
+      message: "CPF inválido (primeiro dígito verificador incorreto)",
+    };
   }
-  
+
   // Calcula o segundo dígito verificador
   sum = 0;
   for (let i = 0; i < 10; i++) {
@@ -73,11 +77,14 @@ export function validateCPF(cpf: string): { valid: boolean; message: string } {
   }
   remainder = (sum * 10) % 11;
   if (remainder === 10 || remainder === 11) remainder = 0;
-  
+
   if (remainder !== parseInt(numbers[10])) {
-    return { valid: false, message: "CPF inválido (segundo dígito verificador incorreto)" };
+    return {
+      valid: false,
+      message: "CPF inválido (segundo dígito verificador incorreto)",
+    };
   }
-  
+
   return { valid: true, message: "CPF válido" };
 }
 

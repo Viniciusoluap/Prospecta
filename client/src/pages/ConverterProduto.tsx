@@ -3,7 +3,13 @@ import { trpc } from "@/lib/trpc";
 import { useAuth } from "@/_core/hooks/useAuth";
 import Navbar from "@/components/Navbar";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Loader2, CheckCircle2, AlertCircle, ArrowLeft } from "lucide-react";
 import { useState } from "react";
@@ -15,10 +21,8 @@ export default function ConverterProduto() {
   const { user, isAuthenticated, loading: authLoading } = useAuth();
   const [isConverting, setIsConverting] = useState(false);
 
-  const { data: product, isLoading: productLoading } = trpc.products.getById.useQuery(
-    { id: parseInt(id!) },
-    { enabled: !!id }
-  );
+  const { data: product, isLoading: productLoading } =
+    trpc.products.getById.useQuery({ id: parseInt(id!) }, { enabled: !!id });
 
   const { data: balance } = trpc.utef.balance.useQuery(undefined, {
     enabled: isAuthenticated,
@@ -29,7 +33,7 @@ export default function ConverterProduto() {
       toast.success("Conversão realizada com sucesso!");
       setLocation("/minhas-conversoes");
     },
-    onError: (error) => {
+    onError: error => {
       toast.error(error.message || "Erro ao converter UTEF");
       setIsConverting(false);
     },
@@ -37,7 +41,7 @@ export default function ConverterProduto() {
 
   const handleConvert = () => {
     if (!product) return;
-    
+
     setIsConverting(true);
     convertMutation.mutate({ productId: product.id });
   };
@@ -76,9 +80,7 @@ export default function ConverterProduto() {
         <main className="flex-1 container py-12">
           <Alert variant="destructive">
             <AlertCircle className="h-4 w-4" />
-            <AlertDescription>
-              Produto não encontrado.
-            </AlertDescription>
+            <AlertDescription>Produto não encontrado.</AlertDescription>
           </Alert>
         </main>
       </div>
@@ -90,7 +92,7 @@ export default function ConverterProduto() {
   return (
     <div className="min-h-screen flex flex-col">
       <Navbar />
-      
+
       <main className="flex-1 container py-12">
         <Button
           variant="ghost"
@@ -113,15 +115,21 @@ export default function ConverterProduto() {
               {/* Produto */}
               <div className="bg-muted/30 p-4 rounded-lg">
                 <h3 className="font-semibold text-lg mb-2">{product.title}</h3>
-                <p className="text-sm text-muted-foreground mb-4">{product.description}</p>
+                <p className="text-sm text-muted-foreground mb-4">
+                  {product.description}
+                </p>
                 <div className="flex items-center justify-between">
-                  <span className="text-sm text-muted-foreground">Categoria:</span>
-                  <span className="font-medium capitalize">{product.category}</span>
+                  <span className="text-sm text-muted-foreground">
+                    Categoria:
+                  </span>
+                  <span className="font-medium capitalize">
+                    {product.category}
+                  </span>
                 </div>
                 <div className="flex items-center justify-between mt-2">
                   <span className="text-sm text-muted-foreground">Preço:</span>
                   <span className="font-bold text-xl text-primary">
-                    {product.priceUtef.toLocaleString('pt-BR')} UTEF
+                    {product.priceUtef.toLocaleString("pt-BR")} UTEF
                   </span>
                 </div>
               </div>
@@ -129,15 +137,24 @@ export default function ConverterProduto() {
               {/* Saldo */}
               <div className="bg-accent/10 p-4 rounded-lg border border-accent/20">
                 <div className="flex items-center justify-between">
-                  <span className="text-sm text-muted-foreground">Seu Saldo Atual:</span>
+                  <span className="text-sm text-muted-foreground">
+                    Seu Saldo Atual:
+                  </span>
                   <span className="font-bold text-lg text-accent">
-                    {(balance || 0).toLocaleString('pt-BR')} UTEF
+                    {(balance || 0).toLocaleString("pt-BR")} UTEF
                   </span>
                 </div>
                 <div className="flex items-center justify-between mt-2">
-                  <span className="text-sm text-muted-foreground">Saldo Após Conversão:</span>
-                  <span className={`font-bold text-lg ${hasEnoughBalance ? 'text-primary' : 'text-destructive'}`}>
-                    {((balance || 0) - product.priceUtef).toLocaleString('pt-BR')} UTEF
+                  <span className="text-sm text-muted-foreground">
+                    Saldo Após Conversão:
+                  </span>
+                  <span
+                    className={`font-bold text-lg ${hasEnoughBalance ? "text-primary" : "text-destructive"}`}
+                  >
+                    {((balance || 0) - product.priceUtef).toLocaleString(
+                      "pt-BR"
+                    )}{" "}
+                    UTEF
                   </span>
                 </div>
               </div>
@@ -147,7 +164,9 @@ export default function ConverterProduto() {
                 <Alert variant="destructive">
                   <AlertCircle className="h-4 w-4" />
                   <AlertDescription>
-                    Saldo insuficiente. Você precisa de {product.priceUtef.toLocaleString('pt-BR')} UTEF para adquirir este produto.
+                    Saldo insuficiente. Você precisa de{" "}
+                    {product.priceUtef.toLocaleString("pt-BR")} UTEF para
+                    adquirir este produto.
                   </AlertDescription>
                 </Alert>
               )}

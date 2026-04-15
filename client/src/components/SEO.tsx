@@ -21,23 +21,31 @@ export default function SEO({
   schema,
 }: SEOProps) {
   const fullTitle = title ? `${title} | ${APP_TITLE}` : APP_TITLE;
-  const currentUrl = url || (typeof window !== "undefined" ? window.location.href : "https://efficazorbit.com");
+  const currentUrl =
+    url ||
+    (typeof window !== "undefined"
+      ? window.location.href
+      : "https://efficazorbit.com");
 
   useEffect(() => {
     // Update document title
     document.title = fullTitle;
 
     // Update or create meta tags
-    const updateMetaTag = (name: string, content: string, isProperty = false) => {
+    const updateMetaTag = (
+      name: string,
+      content: string,
+      isProperty = false
+    ) => {
       const attribute = isProperty ? "property" : "name";
       let element = document.querySelector(`meta[${attribute}="${name}"]`);
-      
+
       if (!element) {
         element = document.createElement("meta");
         element.setAttribute(attribute, name);
         document.head.appendChild(element);
       }
-      
+
       element.setAttribute("content", content);
     };
 
@@ -61,14 +69,16 @@ export default function SEO({
 
     // Schema.org JSON-LD
     if (schema) {
-      let scriptElement = document.querySelector('script[type="application/ld+json"]');
-      
+      let scriptElement = document.querySelector(
+        'script[type="application/ld+json"]'
+      );
+
       if (!scriptElement) {
         scriptElement = document.createElement("script");
         scriptElement.setAttribute("type", "application/ld+json");
         document.head.appendChild(scriptElement);
       }
-      
+
       scriptElement.textContent = JSON.stringify(schema);
     }
   }, [fullTitle, description, keywords, image, currentUrl, type, schema]);
@@ -90,7 +100,7 @@ export const organizationSchema = {
     telephone: "+55-99-98139-2210",
     contactType: "Customer Service",
     areaServed: "BR",
-    availableLanguage: "Portuguese"
+    availableLanguage: "Portuguese",
   },
   address: {
     "@type": "PostalAddress",
@@ -98,11 +108,9 @@ export const organizationSchema = {
     addressLocality: "Imperatriz",
     addressRegion: "MA",
     postalCode: "65900-000",
-    addressCountry: "BR"
+    addressCountry: "BR",
   },
-  sameAs: [
-    "https://www.instagram.com/prospecta.empreendimentos"
-  ]
+  sameAs: ["https://www.instagram.com/prospecta.empreendimentos"],
 };
 
 export const localBusinessSchema = {
@@ -120,23 +128,17 @@ export const localBusinessSchema = {
     addressLocality: "Imperatriz",
     addressRegion: "MA",
     postalCode: "65900-000",
-    addressCountry: "BR"
+    addressCountry: "BR",
   },
   geo: {
     "@type": "GeoCoordinates",
     latitude: -5.5263,
-    longitude: -47.4791
+    longitude: -47.4791,
   },
   openingHoursSpecification: {
     "@type": "OpeningHoursSpecification",
-    dayOfWeek: [
-      "Monday",
-      "Tuesday",
-      "Wednesday",
-      "Thursday",
-      "Friday"
-    ],
+    dayOfWeek: ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"],
     opens: "08:00",
-    closes: "18:00"
-  }
+    closes: "18:00",
+  },
 };
