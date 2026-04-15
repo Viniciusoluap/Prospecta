@@ -17,15 +17,15 @@ export function useAuth(options?: UseAuthOptions) {
     retry: false,
     refetchOnWindowFocus: false,
     staleTime: 0, // Nunca usar cache
-    refetchOnMount: 'always', // Sempre refetch ao montar
+    refetchOnMount: "always", // Sempre refetch ao montar
   });
 
   // Log para debug
-  console.log('[useAuth] meQuery:', {
+  console.log("[useAuth] meQuery:", {
     data: meQuery.data,
     isLoading: meQuery.isLoading,
     error: meQuery.error,
-    status: meQuery.status
+    status: meQuery.status,
   });
 
   const logoutMutation = trpc.auth.logout.useMutation({
@@ -47,7 +47,7 @@ export function useAuth(options?: UseAuthOptions) {
       throw error;
     } finally {
       // Limpa localStorage para evitar dados em cache
-      localStorage.removeItem('manus-runtime-user-info');
+      localStorage.removeItem("manus-runtime-user-info");
       utils.auth.me.setData(undefined, null);
       await utils.auth.me.invalidate();
     }
@@ -71,38 +71,38 @@ export function useAuth(options?: UseAuthOptions) {
   ]);
 
   useEffect(() => {
-    console.log('[useAuth] useEffect executado:', {
+    console.log("[useAuth] useEffect executado:", {
       redirectOnUnauthenticated,
       isLoading: meQuery.isLoading,
       isPending: logoutMutation.isPending,
       user: state.user,
       pathname: window?.location?.pathname,
-      redirectPath
+      redirectPath,
     });
 
     if (!redirectOnUnauthenticated) {
-      console.log('[useAuth] Redirecionamento desabilitado');
+      console.log("[useAuth] Redirecionamento desabilitado");
       return;
     }
     if (meQuery.isLoading || logoutMutation.isPending) {
-      console.log('[useAuth] Aguardando query/mutation...');
+      console.log("[useAuth] Aguardando query/mutation...");
       return;
     }
     if (state.user) {
-      console.log('[useAuth] Usuário autenticado:', state.user);
+      console.log("[useAuth] Usuário autenticado:", state.user);
       return;
     }
     if (typeof window === "undefined") {
-      console.log('[useAuth] Window não disponível (SSR)');
+      console.log("[useAuth] Window não disponível (SSR)");
       return;
     }
     if (window.location.pathname === redirectPath) {
-      console.log('[useAuth] Já está na página de login');
+      console.log("[useAuth] Já está na página de login");
       return;
     }
 
-    console.log('[useAuth] REDIRECIONANDO para:', redirectPath);
-    window.location.href = redirectPath
+    console.log("[useAuth] REDIRECIONANDO para:", redirectPath);
+    window.location.href = redirectPath;
   }, [
     redirectOnUnauthenticated,
     redirectPath,

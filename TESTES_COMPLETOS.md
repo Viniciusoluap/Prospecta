@@ -39,4 +39,3 @@ Acesse a plataforma Efficaz Orbit e realize os seguintes testes de navegação e
 ---
 
 [Continua com as outras 9 etapas...]
-

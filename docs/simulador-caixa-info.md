@@ -12,25 +12,30 @@
 ## Faixas de Renda MCMV
 
 ### Faixa 1
+
 - Renda até R$ 2.640/mês (urbano)
 - Renda até R$ 31.680/ano (rural)
 - Subsídios maiores
 
 ### Faixa 2
+
 - Renda de R$ 2.640,01 até R$ 4.400/mês
 - Subsídios intermediários
 
 ### Faixa 3
+
 - Renda de R$ 4.400,01 até R$ 8.000/mês
 - Subsídios menores
 
 ### Classe Média (Nova)
+
 - Renda de R$ 8.000,01 até R$ 12.000/mês
 - Sem subsídios, mas com taxas reduzidas
 
 ## Fórmula de Cálculo (Sistema SAC)
 
 Parcela = Amortização + Juros
+
 - Amortização = Valor Financiado / Número de Meses
 - Juros = Saldo Devedor × Taxa Mensal
 

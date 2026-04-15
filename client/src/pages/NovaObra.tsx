@@ -1,6 +1,12 @@
 import { useAuth } from "@/_core/hooks/useAuth";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
@@ -24,11 +30,11 @@ export default function NovaObra() {
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   const createMutation = trpc.construction.createProject.useMutation({
-    onSuccess: (data) => {
+    onSuccess: data => {
       toast.success("Obra cadastrada com sucesso!");
       setLocation(`/obras/${data.id}`);
     },
-    onError: (error) => {
+    onError: error => {
       toast.error(`Erro ao cadastrar obra: ${error.message}`);
       setIsSubmitting(false);
     },
@@ -63,12 +69,23 @@ export default function NovaObra() {
 
     const data = {
       title: formData.get("name") as string,
-      description: formData.get("description") as string || undefined,
+      description: (formData.get("description") as string) || undefined,
       address: fullAddress,
-      status: formData.get("status") as "planning" | "in_progress" | "paused" | "completed" | "cancelled",
-      estimatedCost: formData.get("totalBudget") ? parseFloat(formData.get("totalBudget") as string) : undefined,
-      startDate: formData.get("startDate") ? new Date(formData.get("startDate") as string) : undefined,
-      estimatedEndDate: formData.get("estimatedEndDate") ? new Date(formData.get("estimatedEndDate") as string) : undefined,
+      status: formData.get("status") as
+        | "planning"
+        | "in_progress"
+        | "paused"
+        | "completed"
+        | "cancelled",
+      estimatedCost: formData.get("totalBudget")
+        ? parseFloat(formData.get("totalBudget") as string)
+        : undefined,
+      startDate: formData.get("startDate")
+        ? new Date(formData.get("startDate") as string)
+        : undefined,
+      estimatedEndDate: formData.get("estimatedEndDate")
+        ? new Date(formData.get("estimatedEndDate") as string)
+        : undefined,
     };
 
     createMutation.mutate(data);
@@ -102,7 +119,9 @@ export default function NovaObra() {
       <div className="container mx-auto px-4 py-8">
         <Card className="bg-[#1A2332]/50 border-[#C9A961]/20 backdrop-blur-sm">
           <CardHeader>
-            <CardTitle className="text-[#C9A961]">Informações da Obra</CardTitle>
+            <CardTitle className="text-[#C9A961]">
+              Informações da Obra
+            </CardTitle>
             <CardDescription className="text-gray-400">
               Preencha todos os campos obrigatórios
             </CardDescription>

@@ -10,7 +10,25 @@ import {
   SheetTrigger,
 } from "@/components/ui/sheet";
 import { trpc } from "@/lib/trpc";
-import { User, LogOut, Ticket, Coins, ShoppingBag, Settings, Plus, Phone, MessageCircle, HardHat, Menu, Home as HomeIcon, FileText, DollarSign, Gift, Building2, Bell } from "lucide-react";
+import {
+  User,
+  LogOut,
+  Ticket,
+  Coins,
+  ShoppingBag,
+  Settings,
+  Plus,
+  Phone,
+  MessageCircle,
+  HardHat,
+  Menu,
+  Home as HomeIcon,
+  FileText,
+  DollarSign,
+  Gift,
+  Building2,
+  Bell,
+} from "lucide-react";
 import { useState } from "react";
 import {
   DropdownMenu,
@@ -44,7 +62,11 @@ export default function Navbar() {
         {/* Menu Hambúrguer (Esquerda) */}
         <Sheet open={mobileMenuOpen} onOpenChange={setMobileMenuOpen}>
           <SheetTrigger asChild>
-            <Button variant="ghost" size="icon" className="text-primary hover:bg-primary/10">
+            <Button
+              variant="ghost"
+              size="icon"
+              className="text-primary hover:bg-primary/10"
+            >
               <Menu className="h-6 w-6" />
               <span className="sr-only">Menu</span>
             </Button>
@@ -57,7 +79,10 @@ export default function Navbar() {
               <div className="flex flex-col gap-4">
                 {/* Início */}
                 <Link href="/" onClick={closeMobileMenu}>
-                  <Button variant="ghost" className="w-full justify-start text-base">
+                  <Button
+                    variant="ghost"
+                    className="w-full justify-start text-base"
+                  >
                     <HomeIcon className="mr-3 h-5 w-5" />
                     Início
                   </Button>
@@ -65,7 +90,10 @@ export default function Navbar() {
 
                 {/* Projetos e Orçamentos */}
                 <Link href="/projetos-orcamentos" onClick={closeMobileMenu}>
-                  <Button variant="ghost" className="w-full justify-start text-base">
+                  <Button
+                    variant="ghost"
+                    className="w-full justify-start text-base"
+                  >
                     <FileText className="mr-3 h-5 w-5" />
                     Projetos e Orçamentos
                   </Button>
@@ -74,7 +102,10 @@ export default function Navbar() {
                 {/* Obras (apenas autenticados) */}
                 {isAuthenticated && (
                   <Link href="/obras" onClick={closeMobileMenu}>
-                    <Button variant="ghost" className="w-full justify-start text-base">
+                    <Button
+                      variant="ghost"
+                      className="w-full justify-start text-base"
+                    >
                       <HardHat className="mr-3 h-5 w-5" />
                       Obras
                     </Button>
@@ -86,7 +117,9 @@ export default function Navbar() {
 
                 {/* Ecossistema VFX Capital */}
                 <div className="px-3 py-2">
-                  <h3 className="text-sm font-semibold text-muted-foreground mb-3">Ecossistema VFX Capital</h3>
+                  <h3 className="text-sm font-semibold text-muted-foreground mb-3">
+                    Ecossistema VFX Capital
+                  </h3>
                   <div className="flex flex-col gap-2">
                     <Link href="/sorteios" onClick={closeMobileMenu}>
                       <Button variant="ghost" className="w-full justify-start">
@@ -121,22 +154,33 @@ export default function Navbar() {
                 {/* Minha Conta */}
                 {isAuthenticated ? (
                   <div className="px-3 py-2">
-                    <h3 className="text-sm font-semibold text-muted-foreground mb-3">Minha Conta</h3>
+                    <h3 className="text-sm font-semibold text-muted-foreground mb-3">
+                      Minha Conta
+                    </h3>
                     <div className="flex flex-col gap-2">
                       <Link href="/meus-bilhetes" onClick={closeMobileMenu}>
-                        <Button variant="ghost" className="w-full justify-start">
+                        <Button
+                          variant="ghost"
+                          className="w-full justify-start"
+                        >
                           <Ticket className="mr-3 h-4 w-4" />
                           Meus Bilhetes
                         </Button>
                       </Link>
                       <Link href="/meu-saldo" onClick={closeMobileMenu}>
-                        <Button variant="ghost" className="w-full justify-start">
+                        <Button
+                          variant="ghost"
+                          className="w-full justify-start"
+                        >
                           <Coins className="mr-3 h-4 w-4" />
                           Meu Saldo UTEF
                         </Button>
                       </Link>
                       <Link href="/minhas-conversoes" onClick={closeMobileMenu}>
-                        <Button variant="ghost" className="w-full justify-start">
+                        <Button
+                          variant="ghost"
+                          className="w-full justify-start"
+                        >
                           <ShoppingBag className="mr-3 h-4 w-4" />
                           Minhas Conversões
                         </Button>
@@ -145,25 +189,43 @@ export default function Navbar() {
                         <>
                           <div className="border-t my-2" />
                           <Link href="/admin" onClick={closeMobileMenu}>
-                            <Button variant="ghost" className="w-full justify-start">
+                            <Button
+                              variant="ghost"
+                              className="w-full justify-start"
+                            >
                               <Settings className="mr-3 h-4 w-4" />
                               Painel Admin
                             </Button>
                           </Link>
-                          <Link href="/admin/dashboard" onClick={closeMobileMenu}>
-                            <Button variant="ghost" className="w-full justify-start">
+                          <Link
+                            href="/admin/dashboard"
+                            onClick={closeMobileMenu}
+                          >
+                            <Button
+                              variant="ghost"
+                              className="w-full justify-start"
+                            >
                               <Settings className="mr-3 h-4 w-4" />
                               Dashboard Analytics
                             </Button>
                           </Link>
                           <Link href="/admin/obras" onClick={closeMobileMenu}>
-                            <Button variant="ghost" className="w-full justify-start">
+                            <Button
+                              variant="ghost"
+                              className="w-full justify-start"
+                            >
                               <Building2 className="mr-3 h-4 w-4" />
                               Gerenciar Obras
                             </Button>
                           </Link>
-                          <Link href="/admin/orcamentos" onClick={closeMobileMenu}>
-                            <Button variant="ghost" className="w-full justify-start">
+                          <Link
+                            href="/admin/orcamentos"
+                            onClick={closeMobileMenu}
+                          >
+                            <Button
+                              variant="ghost"
+                              className="w-full justify-start"
+                            >
                               <FileText className="mr-3 h-4 w-4" />
                               Gerenciar Orçamentos
                             </Button>
@@ -203,9 +265,14 @@ export default function Navbar() {
         </Sheet>
 
         {/* Logo + Nome (Centro) */}
-        <Link href="/" className="flex items-center gap-2 font-bold text-primary hover:opacity-80 transition-opacity absolute left-1/2 transform -translate-x-1/2">
+        <Link
+          href="/"
+          className="flex items-center gap-2 font-bold text-primary hover:opacity-80 transition-opacity absolute left-1/2 transform -translate-x-1/2"
+        >
           <img src={APP_LOGO} alt={APP_TITLE} className="h-8 w-auto" />
-          <span className="hidden md:inline text-lg whitespace-nowrap">{APP_TITLE}</span>
+          <span className="hidden md:inline text-lg whitespace-nowrap">
+            {APP_TITLE}
+          </span>
         </Link>
 
         {/* Notificações (Direita) */}
@@ -220,21 +287,25 @@ export default function Navbar() {
 
 // Componente de Badge de Notificações
 function NotificationBell() {
-  const { data: unreadCount = 0 } = trpc.notifications.getUnreadCount.useQuery(undefined, {
-    refetchInterval: 30000, // Atualizar a cada 30 segundos
-  });
-  
-  const { data: unreadNotifications = [] } = trpc.notifications.getUnread.useQuery(undefined, {
-    refetchInterval: 30000,
-  });
-  
+  const { data: unreadCount = 0 } = trpc.notifications.getUnreadCount.useQuery(
+    undefined,
+    {
+      refetchInterval: 30000, // Atualizar a cada 30 segundos
+    }
+  );
+
+  const { data: unreadNotifications = [] } =
+    trpc.notifications.getUnread.useQuery(undefined, {
+      refetchInterval: 30000,
+    });
+
   const markAsReadMutation = trpc.notifications.markAsRead.useMutation({
     onSuccess: () => {
       // Invalidar queries para atualizar contador
       window.location.reload();
     },
   });
-  
+
   const markAllAsReadMutation = trpc.notifications.markAllAsRead.useMutation({
     onSuccess: () => {
       window.location.reload();
@@ -254,11 +325,11 @@ function NotificationBell() {
         <Button variant="ghost" size="icon" className="relative">
           <Bell className="h-5 w-5" />
           {unreadCount > 0 && (
-            <Badge 
-              variant="destructive" 
+            <Badge
+              variant="destructive"
               className="absolute -top-1 -right-1 h-5 w-5 flex items-center justify-center p-0 text-xs"
             >
-              {unreadCount > 9 ? '9+' : unreadCount}
+              {unreadCount > 9 ? "9+" : unreadCount}
             </Badge>
           )}
         </Button>
@@ -267,9 +338,9 @@ function NotificationBell() {
         <DropdownMenuLabel className="flex items-center justify-between">
           <span>Notificações</span>
           {unreadCount > 0 && (
-            <Button 
-              variant="ghost" 
-              size="sm" 
+            <Button
+              variant="ghost"
+              size="sm"
               className="h-auto p-1 text-xs"
               onClick={() => markAllAsReadMutation.mutate()}
             >
@@ -284,21 +355,31 @@ function NotificationBell() {
               Nenhuma notificação nova
             </div>
           ) : (
-            unreadNotifications.slice(0, 5).map((notification) => (
+            unreadNotifications.slice(0, 5).map(notification => (
               <DropdownMenuItem
                 key={notification.id}
                 className="flex flex-col items-start p-3 cursor-pointer"
-                onClick={() => handleNotificationClick(notification.id, notification.actionUrl)}
+                onClick={() =>
+                  handleNotificationClick(
+                    notification.id,
+                    notification.actionUrl
+                  )
+                }
               >
                 <div className="font-medium text-sm">{notification.title}</div>
-                <div className="text-xs text-muted-foreground mt-1">{notification.message}</div>
                 <div className="text-xs text-muted-foreground mt-1">
-                  {new Date(notification.createdAt).toLocaleDateString('pt-BR', {
-                    day: '2-digit',
-                    month: '2-digit',
-                    hour: '2-digit',
-                    minute: '2-digit',
-                  })}
+                  {notification.message}
+                </div>
+                <div className="text-xs text-muted-foreground mt-1">
+                  {new Date(notification.createdAt).toLocaleDateString(
+                    "pt-BR",
+                    {
+                      day: "2-digit",
+                      month: "2-digit",
+                      hour: "2-digit",
+                      minute: "2-digit",
+                    }
+                  )}
                 </div>
               </DropdownMenuItem>
             ))
@@ -308,7 +389,10 @@ function NotificationBell() {
           <>
             <DropdownMenuSeparator />
             <DropdownMenuItem asChild>
-              <Link href="/notificacoes" className="w-full text-center text-sm text-primary">
+              <Link
+                href="/notificacoes"
+                className="w-full text-center text-sm text-primary"
+              >
                 Ver todas as notificações
               </Link>
             </DropdownMenuItem>

@@ -9,7 +9,8 @@ import { getLoginUrl } from "@/const";
 
 export default function Notificacoes() {
   const { isAuthenticated, loading } = useAuth();
-  const { data: notifications = [], isLoading } = trpc.notifications.getAll.useQuery();
+  const { data: notifications = [], isLoading } =
+    trpc.notifications.getAll.useQuery();
   const markAsReadMutation = trpc.notifications.markAsRead.useMutation({
     onSuccess: () => {
       window.location.reload();
@@ -39,11 +40,18 @@ export default function Notificacoes() {
         <div className="container py-12">
           <Card className="max-w-md mx-auto bg-[#1A2332]/60 border-[#C9A961]/20 backdrop-blur-sm">
             <CardHeader>
-              <CardTitle className="text-[#C9A961] text-center">Acesso Restrito</CardTitle>
+              <CardTitle className="text-[#C9A961] text-center">
+                Acesso Restrito
+              </CardTitle>
             </CardHeader>
             <CardContent className="text-center space-y-4">
-              <p className="text-gray-300">Você precisa estar logado para ver suas notificações.</p>
-              <Button asChild className="bg-[#C9A961] hover:bg-[#B8935F] text-white">
+              <p className="text-gray-300">
+                Você precisa estar logado para ver suas notificações.
+              </p>
+              <Button
+                asChild
+                className="bg-[#C9A961] hover:bg-[#B8935F] text-white"
+              >
                 <a href={getLoginUrl()}>Fazer Login</a>
               </Button>
             </CardContent>
@@ -70,7 +78,11 @@ export default function Notificacoes() {
     }
   };
 
-  const handleNotificationClick = (id: number, isRead: number, actionUrl?: string | null) => {
+  const handleNotificationClick = (
+    id: number,
+    isRead: number,
+    actionUrl?: string | null
+  ) => {
     if (isRead === 0) {
       markAsReadMutation.mutate({ id });
     }
@@ -82,7 +94,7 @@ export default function Notificacoes() {
   return (
     <div className="min-h-screen bg-gradient-to-br from-[#1A2332] via-[#2C3E50] to-[#1A2332]">
       <Navbar />
-      
+
       <main className="container py-12">
         <div className="max-w-4xl mx-auto space-y-6">
           {/* Header */}
@@ -94,7 +106,13 @@ export default function Notificacoes() {
               </h1>
               <p className="text-gray-300 mt-2">
                 {unreadCount > 0 ? (
-                  <span>Você tem <span className="text-[#00FF00] font-semibold">{unreadCount}</span> notificação(ões) não lida(s)</span>
+                  <span>
+                    Você tem{" "}
+                    <span className="text-[#00FF00] font-semibold">
+                      {unreadCount}
+                    </span>{" "}
+                    notificação(ões) não lida(s)
+                  </span>
                 ) : (
                   <span>Você está em dia com suas notificações</span>
                 )}
@@ -131,16 +149,22 @@ export default function Notificacoes() {
             </Card>
           ) : (
             <div className="space-y-3">
-              {notifications.map((notification) => (
+              {notifications.map(notification => (
                 <Card
                   key={notification.id}
                   className={`
                     bg-[#1A2332]/60 border-[#C9A961]/20 backdrop-blur-sm
                     transition-all duration-200 cursor-pointer
-                    ${notification.isRead === 0 ? 'border-[#00FF00]/40 shadow-lg shadow-[#00FF00]/10' : ''}
+                    ${notification.isRead === 0 ? "border-[#00FF00]/40 shadow-lg shadow-[#00FF00]/10" : ""}
                     hover:border-[#C9A961]/40 hover:shadow-lg hover:shadow-[#C9A961]/10
                   `}
-                  onClick={() => handleNotificationClick(notification.id, notification.isRead, notification.actionUrl)}
+                  onClick={() =>
+                    handleNotificationClick(
+                      notification.id,
+                      notification.isRead,
+                      notification.actionUrl
+                    )
+                  }
                 >
                   <CardContent className="p-4">
                     <div className="flex items-start gap-4">
@@ -148,11 +172,13 @@ export default function Notificacoes() {
                       <div className="text-3xl flex-shrink-0">
                         {getNotificationIcon(notification.type)}
                       </div>
-                      
+
                       {/* Conteúdo */}
                       <div className="flex-1 min-w-0">
                         <div className="flex items-start justify-between gap-2">
-                          <h3 className={`font-semibold ${notification.isRead === 0 ? 'text-[#00FF00]' : 'text-[#C9A961]'}`}>
+                          <h3
+                            className={`font-semibold ${notification.isRead === 0 ? "text-[#00FF00]" : "text-[#C9A961]"}`}
+                          >
                             {notification.title}
                           </h3>
                           {notification.isRead === 0 && (
@@ -166,12 +192,14 @@ export default function Notificacoes() {
                         </p>
                         <div className="flex items-center gap-4 mt-2 text-xs text-gray-400">
                           <span>
-                            {new Date(notification.createdAt).toLocaleDateString('pt-BR', {
-                              day: '2-digit',
-                              month: 'long',
-                              year: 'numeric',
-                              hour: '2-digit',
-                              minute: '2-digit',
+                            {new Date(
+                              notification.createdAt
+                            ).toLocaleDateString("pt-BR", {
+                              day: "2-digit",
+                              month: "long",
+                              year: "numeric",
+                              hour: "2-digit",
+                              minute: "2-digit",
                             })}
                           </span>
                           {notification.isRead === 1 && notification.readAt && (

@@ -1,10 +1,31 @@
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { ExternalLink, Home, Ruler, DollarSign, CheckCircle, Loader2, Send, ArrowLeft } from "lucide-react";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import {
+  ExternalLink,
+  Home,
+  Ruler,
+  DollarSign,
+  CheckCircle,
+  Loader2,
+  Send,
+  ArrowLeft,
+} from "lucide-react";
 import Navbar from "@/components/Navbar";
 import SEO from "@/components/SEO";
 import { trpc } from "@/lib/trpc";
@@ -24,7 +45,9 @@ export default function ProjetosOrcamentos() {
 
   const createMutation = trpc.budgetRequests.create.useMutation({
     onSuccess: () => {
-      toast.success("Orçamento solicitado com sucesso! Entraremos em contato em breve.");
+      toast.success(
+        "Orçamento solicitado com sucesso! Entraremos em contato em breve."
+      );
       // Limpar formulário
       setName(user?.name || "");
       setEmail(user?.email || "");
@@ -34,7 +57,7 @@ export default function ProjetosOrcamentos() {
       setHasLot("not_sure");
       setMessage("");
     },
-    onError: (error) => {
+    onError: error => {
       toast.error(`Erro ao enviar orçamento: ${error.message}`);
     },
   });
@@ -60,10 +83,13 @@ export default function ProjetosOrcamentos() {
   return (
     <div className="min-h-screen bg-[#1A2332]">
       <Navbar />
-      
+
       {/* Botão Voltar */}
       <div className="container mx-auto max-w-6xl pt-6 px-4">
-        <a href="/" className="inline-flex items-center gap-2 text-gray-400 hover:text-[#C9A961] transition-colors">
+        <a
+          href="/"
+          className="inline-flex items-center gap-2 text-gray-400 hover:text-[#C9A961] transition-colors"
+        >
           <ArrowLeft className="h-5 w-5" />
           <span>Voltar</span>
         </a>
@@ -77,7 +103,8 @@ export default function ProjetosOrcamentos() {
               Projetos e <span className="text-[#C9A961]">Orçamentos</span>
             </h1>
             <p className="text-xl text-gray-300 max-w-3xl mx-auto">
-              Transforme seu terreno em um lar com qualidade, segurança e financiamento facilitado
+              Transforme seu terreno em um lar com qualidade, segurança e
+              financiamento facilitado
             </p>
           </div>
         </div>
@@ -99,24 +126,31 @@ export default function ProjetosOrcamentos() {
             {/* Planta Baixa */}
             <Card className="border-2 border-[#C9A961]">
               <CardHeader>
-                <CardTitle className="text-2xl text-[#1A2332]">Planta Baixa</CardTitle>
-                <CardDescription>Layout funcional e bem distribuído</CardDescription>
+                <CardTitle className="text-2xl text-[#1A2332]">
+                  Planta Baixa
+                </CardTitle>
+                <CardDescription>
+                  Layout funcional e bem distribuído
+                </CardDescription>
               </CardHeader>
               <CardContent>
                 <div className="aspect-square bg-gray-100 rounded-lg flex items-center justify-center mb-4">
                   <div className="text-center p-8">
                     <Home className="h-24 w-24 text-[#C9A961] mx-auto mb-4" />
-                    <p className="text-gray-600 font-medium">Planta Baixa 47m²</p>
+                    <p className="text-gray-600 font-medium">
+                      Planta Baixa 47m²
+                    </p>
                     <p className="text-sm text-gray-500 mt-2">
-                      2 quartos • 1 banheiro<br />
+                      2 quartos • 1 banheiro
+                      <br />
                       Sala • Cozinha • Área de serviço
                     </p>
                   </div>
                 </div>
-                
-                <a 
-                  href="https://planner5d.com/view/?key=d5e4c3b2a1" 
-                  target="_blank" 
+
+                <a
+                  href="https://planner5d.com/view/?key=d5e4c3b2a1"
+                  target="_blank"
                   rel="noopener noreferrer"
                   className="w-full"
                 >
@@ -126,7 +160,8 @@ export default function ProjetosOrcamentos() {
                   </Button>
                 </a>
                 <p className="text-sm text-gray-500 mt-3 text-center">
-                  Visualize o projeto em 3D, caminhe pela casa e personalize os ambientes
+                  Visualize o projeto em 3D, caminhe pela casa e personalize os
+                  ambientes
                 </p>
               </CardContent>
             </Card>
@@ -146,7 +181,10 @@ export default function ProjetosOrcamentos() {
                       R$ 160.000
                     </p>
                     <p className="text-gray-600">
-                      ou <span className="font-bold text-[#1A2332]">160.000 UTEFs</span>
+                      ou{" "}
+                      <span className="font-bold text-[#1A2332]">
+                        160.000 UTEFs
+                      </span>
                     </p>
                   </div>
                 </CardContent>
@@ -163,11 +201,15 @@ export default function ProjetosOrcamentos() {
                   <ul className="space-y-3">
                     <li className="flex items-start gap-2">
                       <CheckCircle className="h-5 w-5 text-[#00FF00] flex-shrink-0 mt-0.5" />
-                      <span className="text-gray-700">Área construída: 47m²</span>
+                      <span className="text-gray-700">
+                        Área construída: 47m²
+                      </span>
                     </li>
                     <li className="flex items-start gap-2">
                       <CheckCircle className="h-5 w-5 text-[#00FF00] flex-shrink-0 mt-0.5" />
-                      <span className="text-gray-700">2 quartos com armários embutidos</span>
+                      <span className="text-gray-700">
+                        2 quartos com armários embutidos
+                      </span>
                     </li>
                     <li className="flex items-start gap-2">
                       <CheckCircle className="h-5 w-5 text-[#00FF00] flex-shrink-0 mt-0.5" />
@@ -175,7 +217,9 @@ export default function ProjetosOrcamentos() {
                     </li>
                     <li className="flex items-start gap-2">
                       <CheckCircle className="h-5 w-5 text-[#00FF00] flex-shrink-0 mt-0.5" />
-                      <span className="text-gray-700">Sala de estar integrada</span>
+                      <span className="text-gray-700">
+                        Sala de estar integrada
+                      </span>
                     </li>
                     <li className="flex items-start gap-2">
                       <CheckCircle className="h-5 w-5 text-[#00FF00] flex-shrink-0 mt-0.5" />
@@ -187,11 +231,15 @@ export default function ProjetosOrcamentos() {
                     </li>
                     <li className="flex items-start gap-2">
                       <CheckCircle className="h-5 w-5 text-[#00FF00] flex-shrink-0 mt-0.5" />
-                      <span className="text-gray-700">Acabamento padrão de qualidade</span>
+                      <span className="text-gray-700">
+                        Acabamento padrão de qualidade
+                      </span>
                     </li>
                     <li className="flex items-start gap-2">
                       <CheckCircle className="h-5 w-5 text-[#00FF00] flex-shrink-0 mt-0.5" />
-                      <span className="text-gray-700">Instalações elétricas e hidráulicas completas</span>
+                      <span className="text-gray-700">
+                        Instalações elétricas e hidráulicas completas
+                      </span>
                     </li>
                   </ul>
                 </CardContent>
@@ -218,11 +266,13 @@ export default function ProjetosOrcamentos() {
               <form onSubmit={handleSubmit} className="space-y-6">
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                   <div className="space-y-2">
-                    <Label htmlFor="name" className="text-gray-700">Nome Completo *</Label>
+                    <Label htmlFor="name" className="text-gray-700">
+                      Nome Completo *
+                    </Label>
                     <Input
                       id="name"
                       value={name}
-                      onChange={(e) => setName(e.target.value)}
+                      onChange={e => setName(e.target.value)}
                       required
                       className="border-[#C9A961]/30"
                       placeholder="Seu nome"
@@ -230,12 +280,14 @@ export default function ProjetosOrcamentos() {
                   </div>
 
                   <div className="space-y-2">
-                    <Label htmlFor="email" className="text-gray-700">E-mail *</Label>
+                    <Label htmlFor="email" className="text-gray-700">
+                      E-mail *
+                    </Label>
                     <Input
                       id="email"
                       type="email"
                       value={email}
-                      onChange={(e) => setEmail(e.target.value)}
+                      onChange={e => setEmail(e.target.value)}
                       required
                       className="border-[#C9A961]/30"
                       placeholder="seu@email.com"
@@ -245,22 +297,26 @@ export default function ProjetosOrcamentos() {
 
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                   <div className="space-y-2">
-                    <Label htmlFor="phone" className="text-gray-700">Telefone/WhatsApp</Label>
+                    <Label htmlFor="phone" className="text-gray-700">
+                      Telefone/WhatsApp
+                    </Label>
                     <Input
                       id="phone"
                       value={phone}
-                      onChange={(e) => setPhone(e.target.value)}
+                      onChange={e => setPhone(e.target.value)}
                       className="border-[#C9A961]/30"
                       placeholder="(11) 98765-4321"
                     />
                   </div>
 
                   <div className="space-y-2">
-                    <Label htmlFor="city" className="text-gray-700">Cidade</Label>
+                    <Label htmlFor="city" className="text-gray-700">
+                      Cidade
+                    </Label>
                     <Input
                       id="city"
                       value={city}
-                      onChange={(e) => setCity(e.target.value)}
+                      onChange={e => setCity(e.target.value)}
                       className="border-[#C9A961]/30"
                       placeholder="Sua cidade"
                     />
@@ -269,7 +325,9 @@ export default function ProjetosOrcamentos() {
 
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                   <div className="space-y-2">
-                    <Label htmlFor="projectType" className="text-gray-700">Tipo de Projeto</Label>
+                    <Label htmlFor="projectType" className="text-gray-700">
+                      Tipo de Projeto
+                    </Label>
                     <Select value={projectType} onValueChange={setProjectType}>
                       <SelectTrigger className="border-[#C9A961]/30">
                         <SelectValue placeholder="Selecione..." />
@@ -279,32 +337,45 @@ export default function ProjetosOrcamentos() {
                         <SelectItem value="Casa 60m²">Casa 60m²</SelectItem>
                         <SelectItem value="Casa 80m²">Casa 80m²</SelectItem>
                         <SelectItem value="Casa 100m²">Casa 100m²</SelectItem>
-                        <SelectItem value="Personalizado">Projeto Personalizado</SelectItem>
+                        <SelectItem value="Personalizado">
+                          Projeto Personalizado
+                        </SelectItem>
                       </SelectContent>
                     </Select>
                   </div>
 
                   <div className="space-y-2">
-                    <Label htmlFor="hasLot" className="text-gray-700">Possui Terreno?</Label>
-                    <Select value={hasLot} onValueChange={(value: any) => setHasLot(value)}>
+                    <Label htmlFor="hasLot" className="text-gray-700">
+                      Possui Terreno?
+                    </Label>
+                    <Select
+                      value={hasLot}
+                      onValueChange={(value: any) => setHasLot(value)}
+                    >
                       <SelectTrigger className="border-[#C9A961]/30">
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="yes">Sim, já tenho terreno</SelectItem>
+                        <SelectItem value="yes">
+                          Sim, já tenho terreno
+                        </SelectItem>
                         <SelectItem value="no">Não, preciso comprar</SelectItem>
-                        <SelectItem value="not_sure">Não tenho certeza</SelectItem>
+                        <SelectItem value="not_sure">
+                          Não tenho certeza
+                        </SelectItem>
                       </SelectContent>
                     </Select>
                   </div>
                 </div>
 
                 <div className="space-y-2">
-                  <Label htmlFor="message" className="text-gray-700">Mensagem Adicional</Label>
+                  <Label htmlFor="message" className="text-gray-700">
+                    Mensagem Adicional
+                  </Label>
                   <Textarea
                     id="message"
                     value={message}
-                    onChange={(e) => setMessage(e.target.value)}
+                    onChange={e => setMessage(e.target.value)}
                     className="border-[#C9A961]/30"
                     placeholder="Conte-nos mais sobre seu projeto..."
                     rows={4}
@@ -332,9 +403,13 @@ export default function ProjetosOrcamentos() {
 
                 <div className="pt-6 border-t border-gray-200">
                   <p className="text-sm text-gray-500 text-center">
-                    Ou entre em contato diretamente:<br />
-                    <strong className="text-[#1A2332]">WhatsApp:</strong> (99) 98139-2210 | (94) 99304-4689<br />
-                    <strong className="text-[#1A2332]">E-mail:</strong> contato@prospectaempreendimentos.com
+                    Ou entre em contato diretamente:
+                    <br />
+                    <strong className="text-[#1A2332]">WhatsApp:</strong> (99)
+                    98139-2210 | (94) 99304-4689
+                    <br />
+                    <strong className="text-[#1A2332]">E-mail:</strong>{" "}
+                    contato@prospectaempreendimentos.com
                   </p>
                 </div>
               </form>
@@ -358,12 +433,19 @@ export default function ProjetosOrcamentos() {
           <div className="grid md:grid-cols-3 gap-6">
             <Card className="border-2 border-gray-200 hover:border-[#C9A961] transition-colors">
               <CardHeader>
-                <CardTitle className="text-xl text-[#1A2332]">Casa 60m²</CardTitle>
+                <CardTitle className="text-xl text-[#1A2332]">
+                  Casa 60m²
+                </CardTitle>
                 <CardDescription>3 quartos • 1 banheiro</CardDescription>
               </CardHeader>
               <CardContent>
-                <p className="text-3xl font-bold text-[#C9A961] mb-4">R$ 200.000</p>
-                <Button variant="outline" className="w-full border-[#C9A961] text-[#C9A961] hover:bg-[#C9A961] hover:text-white">
+                <p className="text-3xl font-bold text-[#C9A961] mb-4">
+                  R$ 200.000
+                </p>
+                <Button
+                  variant="outline"
+                  className="w-full border-[#C9A961] text-[#C9A961] hover:bg-[#C9A961] hover:text-white"
+                >
                   Ver Detalhes
                 </Button>
               </CardContent>
@@ -371,12 +453,19 @@ export default function ProjetosOrcamentos() {
 
             <Card className="border-2 border-gray-200 hover:border-[#C9A961] transition-colors">
               <CardHeader>
-                <CardTitle className="text-xl text-[#1A2332]">Casa 80m²</CardTitle>
+                <CardTitle className="text-xl text-[#1A2332]">
+                  Casa 80m²
+                </CardTitle>
                 <CardDescription>3 quartos • 2 banheiros</CardDescription>
               </CardHeader>
               <CardContent>
-                <p className="text-3xl font-bold text-[#C9A961] mb-4">R$ 280.000</p>
-                <Button variant="outline" className="w-full border-[#C9A961] text-[#C9A961] hover:bg-[#C9A961] hover:text-white">
+                <p className="text-3xl font-bold text-[#C9A961] mb-4">
+                  R$ 280.000
+                </p>
+                <Button
+                  variant="outline"
+                  className="w-full border-[#C9A961] text-[#C9A961] hover:bg-[#C9A961] hover:text-white"
+                >
                   Ver Detalhes
                 </Button>
               </CardContent>
@@ -384,12 +473,19 @@ export default function ProjetosOrcamentos() {
 
             <Card className="border-2 border-gray-200 hover:border-[#C9A961] transition-colors">
               <CardHeader>
-                <CardTitle className="text-xl text-[#1A2332]">Casa 100m²</CardTitle>
+                <CardTitle className="text-xl text-[#1A2332]">
+                  Casa 100m²
+                </CardTitle>
                 <CardDescription>4 quartos • 2 banheiros</CardDescription>
               </CardHeader>
               <CardContent>
-                <p className="text-3xl font-bold text-[#C9A961] mb-4">R$ 350.000</p>
-                <Button variant="outline" className="w-full border-[#C9A961] text-[#C9A961] hover:bg-[#C9A961] hover:text-white">
+                <p className="text-3xl font-bold text-[#C9A961] mb-4">
+                  R$ 350.000
+                </p>
+                <Button
+                  variant="outline"
+                  className="w-full border-[#C9A961] text-[#C9A961] hover:bg-[#C9A961] hover:text-white"
+                >
                   Ver Detalhes
                 </Button>
               </CardContent>

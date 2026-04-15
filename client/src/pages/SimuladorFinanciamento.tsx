@@ -1,36 +1,90 @@
 import { useState, useMemo } from "react";
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
+import {
+  Card,
+  CardContent,
+  CardHeader,
+  CardTitle,
+  CardDescription,
+} from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Slider } from "@/components/ui/slider";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Calculator, Home, DollarSign, Calendar, Percent, TrendingDown, Gift, ArrowLeft, Info, Building2, Wallet, Clock, CheckCircle2 } from "lucide-react";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import {
+  Calculator,
+  Home,
+  DollarSign,
+  Calendar,
+  Percent,
+  TrendingDown,
+  Gift,
+  ArrowLeft,
+  Info,
+  Building2,
+  Wallet,
+  Clock,
+  CheckCircle2,
+} from "lucide-react";
 import { Link } from "wouter";
 import { APP_LOGO } from "@/const";
-import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 
 // Faixas de renda MCMV com subsídios
 const FAIXAS_MCMV = [
-  { nome: "Faixa 1", rendaMin: 0, rendaMax: 2640, subsidioMax: 55000, taxaJuros: 4.0 },
-  { nome: "Faixa 2", rendaMin: 2640.01, rendaMax: 4400, subsidioMax: 29000, taxaJuros: 5.0 },
-  { nome: "Faixa 3", rendaMin: 4400.01, rendaMax: 8000, subsidioMax: 14000, taxaJuros: 7.66 },
-  { nome: "Classe Média", rendaMin: 8000.01, rendaMax: 12000, subsidioMax: 0, taxaJuros: 10.0 },
+  {
+    nome: "Faixa 1",
+    rendaMin: 0,
+    rendaMax: 2640,
+    subsidioMax: 55000,
+    taxaJuros: 4.0,
+  },
+  {
+    nome: "Faixa 2",
+    rendaMin: 2640.01,
+    rendaMax: 4400,
+    subsidioMax: 29000,
+    taxaJuros: 5.0,
+  },
+  {
+    nome: "Faixa 3",
+    rendaMin: 4400.01,
+    rendaMax: 8000,
+    subsidioMax: 14000,
+    taxaJuros: 7.66,
+  },
+  {
+    nome: "Classe Média",
+    rendaMin: 8000.01,
+    rendaMax: 12000,
+    subsidioMax: 0,
+    taxaJuros: 10.0,
+  },
 ];
 
 // Função para formatar valores em Real
 const formatCurrency = (value: number) => {
-  return new Intl.NumberFormat('pt-BR', {
-    style: 'currency',
-    currency: 'BRL',
+  return new Intl.NumberFormat("pt-BR", {
+    style: "currency",
+    currency: "BRL",
     minimumFractionDigits: 2,
-    maximumFractionDigits: 2
+    maximumFractionDigits: 2,
   }).format(value);
 };
 
 // Função para formatar número com separadores
 const formatNumber = (value: number) => {
-  return new Intl.NumberFormat('pt-BR').format(value);
+  return new Intl.NumberFormat("pt-BR").format(value);
 };
 
 export default function SimuladorFinanciamento() {
@@ -45,44 +99,53 @@ export default function SimuladorFinanciamento() {
 
   // Calcular a faixa de renda
   const faixaAtual = useMemo(() => {
-    return FAIXAS_MCMV.find(f => rendaFamiliar >= f.rendaMin && rendaFamiliar <= f.rendaMax) || FAIXAS_MCMV[3];
+    return (
+      FAIXAS_MCMV.find(
+        f => rendaFamiliar >= f.rendaMin && rendaFamiliar <= f.rendaMax
+      ) || FAIXAS_MCMV[3]
+    );
   }, [rendaFamiliar]);
 
   // Calcular subsídio estimado (proporcional à renda dentro da faixa)
   const subsidioEstimado = useMemo(() => {
     if (faixaAtual.subsidioMax === 0) return 0;
-    
+
     // Quanto menor a renda dentro da faixa, maior o subsídio
-    const proporcao = 1 - ((rendaFamiliar - faixaAtual.rendaMin) / (faixaAtual.rendaMax - faixaAtual.rendaMin));
+    const proporcao =
+      1 -
+      (rendaFamiliar - faixaAtual.rendaMin) /
+        (faixaAtual.rendaMax - faixaAtual.rendaMin);
     return Math.round(faixaAtual.subsidioMax * proporcao * 0.7); // 70% do máximo como estimativa conservadora
   }, [rendaFamiliar, faixaAtual]);
 
   // Calcular valor financiado
   const valorFinanciado = useMemo(() => {
-    const entradaTotal = valorEntrada + (usarFGTS ? valorFGTS : 0) + subsidioEstimado;
+    const entradaTotal =
+      valorEntrada + (usarFGTS ? valorFGTS : 0) + subsidioEstimado;
     return Math.max(0, valorImovel - entradaTotal);
   }, [valorImovel, valorEntrada, usarFGTS, valorFGTS, subsidioEstimado]);
 
   // Calcular parcela (Sistema SAC - primeira parcela)
   const parcelaSAC = useMemo(() => {
-    if (valorFinanciado <= 0 || prazoMeses <= 0) return { primeira: 0, ultima: 0, media: 0 };
-    
+    if (valorFinanciado <= 0 || prazoMeses <= 0)
+      return { primeira: 0, ultima: 0, media: 0 };
+
     const taxaMensal = faixaAtual.taxaJuros / 100 / 12;
     const amortizacao = valorFinanciado / prazoMeses;
-    
+
     // Primeira parcela (maior)
-    const primeiraParcela = amortizacao + (valorFinanciado * taxaMensal);
-    
+    const primeiraParcela = amortizacao + valorFinanciado * taxaMensal;
+
     // Última parcela (menor)
-    const ultimaParcela = amortizacao + (amortizacao * taxaMensal);
-    
+    const ultimaParcela = amortizacao + amortizacao * taxaMensal;
+
     // Parcela média
     const parcelaMedia = (primeiraParcela + ultimaParcela) / 2;
-    
+
     return {
       primeira: primeiraParcela,
       ultima: ultimaParcela,
-      media: parcelaMedia
+      media: parcelaMedia,
     };
   }, [valorFinanciado, prazoMeses, faixaAtual.taxaJuros]);
 
@@ -92,8 +155,9 @@ export default function SimuladorFinanciamento() {
   }, [parcelaSAC.primeira, rendaFamiliar]);
 
   // Entrada mínima necessária (20%)
-  const entradaMinima = valorImovel * 0.20;
-  const entradaAtual = valorEntrada + (usarFGTS ? valorFGTS : 0) + subsidioEstimado;
+  const entradaMinima = valorImovel * 0.2;
+  const entradaAtual =
+    valorEntrada + (usarFGTS ? valorFGTS : 0) + subsidioEstimado;
   const entradaSuficiente = entradaAtual >= entradaMinima;
 
   return (
@@ -102,14 +166,21 @@ export default function SimuladorFinanciamento() {
       <header className="bg-secondary/80 backdrop-blur-sm border-b border-primary/20 sticky top-0 z-50">
         <div className="container py-4">
           <div className="flex items-center justify-between">
-            <Link href="/" className="flex items-center gap-3 hover:opacity-80 transition-opacity">
+            <Link
+              href="/"
+              className="flex items-center gap-3 hover:opacity-80 transition-opacity"
+            >
               <ArrowLeft className="h-5 w-5 text-primary" />
               <img src={APP_LOGO} alt="Prospecta" className="h-10" />
-              <span className="text-primary font-semibold hidden sm:inline">Voltar ao Início</span>
+              <span className="text-primary font-semibold hidden sm:inline">
+                Voltar ao Início
+              </span>
             </Link>
             <div className="flex items-center gap-2 text-primary">
               <Calculator className="h-6 w-6" />
-              <span className="font-bold text-lg hidden sm:inline">Simulador de Financiamento</span>
+              <span className="font-bold text-lg hidden sm:inline">
+                Simulador de Financiamento
+              </span>
             </div>
           </div>
         </div>
@@ -122,8 +193,8 @@ export default function SimuladorFinanciamento() {
             Simule seu Financiamento
           </h1>
           <p className="text-white/70 max-w-2xl mx-auto">
-            Descubra o valor das parcelas e os benefícios do Minha Casa Minha Vida. 
-            Simulação baseada nas condições da Caixa Econômica Federal.
+            Descubra o valor das parcelas e os benefícios do Minha Casa Minha
+            Vida. Simulação baseada nas condições da Caixa Econômica Federal.
           </p>
         </div>
 
@@ -143,11 +214,13 @@ export default function SimuladorFinanciamento() {
                 <div className="space-y-3">
                   <div className="flex justify-between items-center">
                     <Label className="text-white">Valor do Imóvel</Label>
-                    <span className="text-primary font-bold text-lg">{formatCurrency(valorImovel)}</span>
+                    <span className="text-primary font-bold text-lg">
+                      {formatCurrency(valorImovel)}
+                    </span>
                   </div>
                   <Slider
                     value={[valorImovel]}
-                    onValueChange={(v) => setValorImovel(v[0])}
+                    onValueChange={v => setValorImovel(v[0])}
                     min={100000}
                     max={500000}
                     step={5000}
@@ -199,11 +272,13 @@ export default function SimuladorFinanciamento() {
                         </TooltipContent>
                       </Tooltip>
                     </div>
-                    <span className="text-primary font-bold text-lg">{formatCurrency(rendaFamiliar)}</span>
+                    <span className="text-primary font-bold text-lg">
+                      {formatCurrency(rendaFamiliar)}
+                    </span>
                   </div>
                   <Slider
                     value={[rendaFamiliar]}
-                    onValueChange={(v) => setRendaFamiliar(v[0])}
+                    onValueChange={v => setRendaFamiliar(v[0])}
                     min={1500}
                     max={12000}
                     step={100}
@@ -216,7 +291,9 @@ export default function SimuladorFinanciamento() {
                   {/* Faixa MCMV */}
                   <div className="bg-primary/20 rounded-lg p-3 flex items-center justify-between">
                     <span className="text-white/80 text-sm">Sua faixa:</span>
-                    <span className="text-primary font-bold">{faixaAtual.nome}</span>
+                    <span className="text-primary font-bold">
+                      {faixaAtual.nome}
+                    </span>
                   </div>
                 </div>
 
@@ -224,11 +301,13 @@ export default function SimuladorFinanciamento() {
                 <div className="space-y-3">
                   <div className="flex justify-between items-center">
                     <Label className="text-white">Valor da Entrada</Label>
-                    <span className="text-primary font-bold text-lg">{formatCurrency(valorEntrada)}</span>
+                    <span className="text-primary font-bold text-lg">
+                      {formatCurrency(valorEntrada)}
+                    </span>
                   </div>
                   <Slider
                     value={[valorEntrada]}
-                    onValueChange={(v) => setValorEntrada(v[0])}
+                    onValueChange={v => setValorEntrada(v[0])}
                     min={0}
                     max={valorImovel * 0.5}
                     step={1000}
@@ -247,20 +326,25 @@ export default function SimuladorFinanciamento() {
                       type="checkbox"
                       id="usarFGTS"
                       checked={usarFGTS}
-                      onChange={(e) => setUsarFGTS(e.target.checked)}
+                      onChange={e => setUsarFGTS(e.target.checked)}
                       className="w-5 h-5 rounded border-primary/30 bg-white/10 text-primary focus:ring-primary"
                     />
-                    <Label htmlFor="usarFGTS" className="text-white cursor-pointer">
+                    <Label
+                      htmlFor="usarFGTS"
+                      className="text-white cursor-pointer"
+                    >
                       Usar FGTS como entrada
                     </Label>
                   </div>
                   {usarFGTS && (
                     <div className="pl-8 space-y-2">
-                      <Label className="text-white/70 text-sm">Saldo do FGTS</Label>
+                      <Label className="text-white/70 text-sm">
+                        Saldo do FGTS
+                      </Label>
                       <Input
                         type="number"
                         value={valorFGTS}
-                        onChange={(e) => setValorFGTS(Number(e.target.value))}
+                        onChange={e => setValorFGTS(Number(e.target.value))}
                         className="bg-white/10 border-primary/30 text-white"
                         placeholder="Digite o valor do FGTS"
                       />
@@ -272,7 +356,9 @@ export default function SimuladorFinanciamento() {
                 <div className="space-y-3">
                   <div className="flex justify-between items-center">
                     <div className="flex items-center gap-2">
-                      <Label className="text-white">Prazo do Financiamento</Label>
+                      <Label className="text-white">
+                        Prazo do Financiamento
+                      </Label>
                     </div>
                     <span className="text-primary font-bold text-lg">
                       {Math.floor(prazoMeses / 12)} anos ({prazoMeses} meses)
@@ -280,7 +366,7 @@ export default function SimuladorFinanciamento() {
                   </div>
                   <Slider
                     value={[prazoMeses]}
-                    onValueChange={(v) => setPrazoMeses(v[0])}
+                    onValueChange={v => setPrazoMeses(v[0])}
                     min={60}
                     max={420}
                     step={12}
@@ -300,12 +386,16 @@ export default function SimuladorFinanciamento() {
             {/* Card: Resultado Principal */}
             <Card className="bg-gradient-to-br from-primary/20 to-primary/5 border-primary/50">
               <CardHeader>
-                <CardTitle className="text-primary text-center">Resultado da Simulação</CardTitle>
+                <CardTitle className="text-primary text-center">
+                  Resultado da Simulação
+                </CardTitle>
               </CardHeader>
               <CardContent className="space-y-4">
                 {/* Parcela */}
                 <div className="text-center py-4 bg-white/10 rounded-lg">
-                  <p className="text-white/70 text-sm mb-1">Primeira Parcela (SAC)</p>
+                  <p className="text-white/70 text-sm mb-1">
+                    Primeira Parcela (SAC)
+                  </p>
                   <p className="text-3xl font-bold text-primary">
                     {formatCurrency(parcelaSAC.primeira)}
                   </p>
@@ -317,23 +407,33 @@ export default function SimuladorFinanciamento() {
                 {/* Detalhes */}
                 <div className="space-y-3">
                   <div className="flex justify-between items-center py-2 border-b border-white/10">
-                    <span className="text-white/70 text-sm">Valor Financiado</span>
-                    <span className="text-white font-medium">{formatCurrency(valorFinanciado)}</span>
+                    <span className="text-white/70 text-sm">
+                      Valor Financiado
+                    </span>
+                    <span className="text-white font-medium">
+                      {formatCurrency(valorFinanciado)}
+                    </span>
                   </div>
                   <div className="flex justify-between items-center py-2 border-b border-white/10">
                     <span className="text-white/70 text-sm">Taxa de Juros</span>
-                    <span className="text-white font-medium">{faixaAtual.taxaJuros}% a.a.</span>
+                    <span className="text-white font-medium">
+                      {faixaAtual.taxaJuros}% a.a.
+                    </span>
                   </div>
                   <div className="flex justify-between items-center py-2 border-b border-white/10">
                     <span className="text-white/70 text-sm">Entrada Total</span>
-                    <span className="text-white font-medium">{formatCurrency(entradaAtual)}</span>
+                    <span className="text-white font-medium">
+                      {formatCurrency(entradaAtual)}
+                    </span>
                   </div>
                   {subsidioEstimado > 0 && (
                     <div className="flex justify-between items-center py-2 border-b border-white/10">
                       <span className="text-accent text-sm flex items-center gap-1">
                         <Gift className="h-4 w-4" /> Subsídio Estimado
                       </span>
-                      <span className="text-accent font-bold">{formatCurrency(subsidioEstimado)}</span>
+                      <span className="text-accent font-bold">
+                        {formatCurrency(subsidioEstimado)}
+                      </span>
                     </div>
                   )}
                 </div>
@@ -341,14 +441,18 @@ export default function SimuladorFinanciamento() {
                 {/* Alertas */}
                 <div className="space-y-2 pt-2">
                   {/* Comprometimento de renda */}
-                  <div className={`p-3 rounded-lg ${comprometimentoRenda <= 30 ? 'bg-green-500/20' : 'bg-red-500/20'}`}>
+                  <div
+                    className={`p-3 rounded-lg ${comprometimentoRenda <= 30 ? "bg-green-500/20" : "bg-red-500/20"}`}
+                  >
                     <div className="flex items-center gap-2">
                       {comprometimentoRenda <= 30 ? (
                         <CheckCircle2 className="h-5 w-5 text-green-400" />
                       ) : (
                         <Info className="h-5 w-5 text-red-400" />
                       )}
-                      <span className={`text-sm ${comprometimentoRenda <= 30 ? 'text-green-400' : 'text-red-400'}`}>
+                      <span
+                        className={`text-sm ${comprometimentoRenda <= 30 ? "text-green-400" : "text-red-400"}`}
+                      >
                         {comprometimentoRenda.toFixed(1)}% da renda comprometida
                       </span>
                     </div>
@@ -360,15 +464,21 @@ export default function SimuladorFinanciamento() {
                   </div>
 
                   {/* Entrada suficiente */}
-                  <div className={`p-3 rounded-lg ${entradaSuficiente ? 'bg-green-500/20' : 'bg-yellow-500/20'}`}>
+                  <div
+                    className={`p-3 rounded-lg ${entradaSuficiente ? "bg-green-500/20" : "bg-yellow-500/20"}`}
+                  >
                     <div className="flex items-center gap-2">
                       {entradaSuficiente ? (
                         <CheckCircle2 className="h-5 w-5 text-green-400" />
                       ) : (
                         <Info className="h-5 w-5 text-yellow-400" />
                       )}
-                      <span className={`text-sm ${entradaSuficiente ? 'text-green-400' : 'text-yellow-400'}`}>
-                        {entradaSuficiente ? 'Entrada suficiente (≥20%)' : `Faltam ${formatCurrency(entradaMinima - entradaAtual)} para entrada mínima`}
+                      <span
+                        className={`text-sm ${entradaSuficiente ? "text-green-400" : "text-yellow-400"}`}
+                      >
+                        {entradaSuficiente
+                          ? "Entrada suficiente (≥20%)"
+                          : `Faltam ${formatCurrency(entradaMinima - entradaAtual)} para entrada mínima`}
                       </span>
                     </div>
                   </div>
@@ -421,8 +531,9 @@ export default function SimuladorFinanciamento() {
 
             {/* Aviso Legal */}
             <p className="text-white/40 text-xs text-center">
-              * Simulação ilustrativa. Os valores reais podem variar de acordo com a análise de crédito 
-              e condições vigentes da Caixa Econômica Federal.
+              * Simulação ilustrativa. Os valores reais podem variar de acordo
+              com a análise de crédito e condições vigentes da Caixa Econômica
+              Federal.
             </p>
           </div>
         </div>

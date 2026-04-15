@@ -9,6 +9,7 @@ O webhook permite que o Stripe notifique automaticamente seu site quando um paga
 ## 📋 Passo a Passo
 
 ### 1. Acesse o Dashboard do Stripe
+
 - URL: https://dashboard.stripe.com/webhooks
 - Faça login com sua conta
 
@@ -17,6 +18,7 @@ O webhook permite que o Stripe notifique automaticamente seu site quando um paga
 ### 3. Configure o Endpoint
 
 **URL do Webhook:**
+
 ```
 https://3000-i2h2gdpjijbpsi7ji37na-fd0d8590.manusvm.computer/api/stripe/webhook
 ```
@@ -78,6 +80,7 @@ Quando publicar seu site com domínio definitivo:
 ## 📞 Suporte
 
 Se tiver problemas:
+
 - Verifique os logs do webhook no Dashboard do Stripe
 - Confirme que o Signing Secret está correto
 - Teste com o Stripe CLI: `stripe listen --forward-to localhost:3000/api/stripe/webhook`

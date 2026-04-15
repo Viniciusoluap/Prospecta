@@ -7,6 +7,7 @@
 **Problema:** O sistema estava gerando códigos PIX dinâmicos com valores variáveis.
 
 **Solução:** Substituímos a geração dinâmica de PIX pelo código fixo fornecido pelo usuário:
+
 ```
 00020101021126490014br.gov.bcb.pix0127contato@grupoefficaz.com.br5204000053039865802BR5925EFFICAZ PROMOCAO DE VENDA6009SAO PAULO622905251KA59P2H5DDDDBZ38HJZQA2GV63043C89
 ```
@@ -44,6 +45,7 @@
    - Descrição: Aeronave bimotor em pista ao pôr do sol
 
 **Arquivos modificados:**
+
 - Banco de dados: tabela `products`, coluna `image_url` atualizada via SQL
 - Imagens salvas em: `/home/ubuntu/efficaz_orbit/product_images/`
 
@@ -54,6 +56,7 @@
 ### ✅ 3. Verificação Visual
 
 **Teste realizado:** Acessamos a página de produtos (`/produtos`) e confirmamos que:
+
 - ✅ Apenas a imagem do produto "Crédito UTEF 0,35%" está sendo exibida corretamente
 - ⚠️ As demais imagens (Casa, Lancha, Jetski, Piper) ainda não aparecem na visualização
 

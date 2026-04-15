@@ -117,9 +117,7 @@
       "compositePrimaryKeys": {
         "draws_id": {
           "name": "draws_id",
-          "columns": [
-            "id"
-          ]
+          "columns": ["id"]
         }
       },
       "uniqueConstraints": {},
@@ -194,9 +192,7 @@
       "compositePrimaryKeys": {
         "product_conversions_id": {
           "name": "product_conversions_id",
-          "columns": [
-            "id"
-          ]
+          "columns": ["id"]
         }
       },
       "uniqueConstraints": {},
@@ -285,9 +281,7 @@
       "compositePrimaryKeys": {
         "products_id": {
           "name": "products_id",
-          "columns": [
-            "id"
-          ]
+          "columns": ["id"]
         }
       },
       "uniqueConstraints": {},
@@ -406,17 +400,13 @@
       "compositePrimaryKeys": {
         "tickets_id": {
           "name": "tickets_id",
-          "columns": [
-            "id"
-          ]
+          "columns": ["id"]
         }
       },
       "uniqueConstraints": {
         "tickets_ticket_number_unique": {
           "name": "tickets_ticket_number_unique",
-          "columns": [
-            "ticket_number"
-          ]
+          "columns": ["ticket_number"]
         }
       },
       "checkConstraint": {}
@@ -498,17 +488,13 @@
       "compositePrimaryKeys": {
         "users_id": {
           "name": "users_id",
-          "columns": [
-            "id"
-          ]
+          "columns": ["id"]
         }
       },
       "uniqueConstraints": {
         "users_openId_unique": {
           "name": "users_openId_unique",
-          "columns": [
-            "openId"
-          ]
+          "columns": ["openId"]
         }
       },
       "checkConstraint": {}
@@ -561,17 +547,13 @@
       "compositePrimaryKeys": {
         "utef_balances_id": {
           "name": "utef_balances_id",
-          "columns": [
-            "id"
-          ]
+          "columns": ["id"]
         }
       },
       "uniqueConstraints": {
         "utef_balances_user_id_unique": {
           "name": "utef_balances_user_id_unique",
-          "columns": [
-            "user_id"
-          ]
+          "columns": ["user_id"]
         }
       },
       "checkConstraint": {}
@@ -635,9 +617,7 @@
       "compositePrimaryKeys": {
         "utef_transactions_id": {
           "name": "utef_transactions_id",
-          "columns": [
-            "id"
-          ]
+          "columns": ["id"]
         }
       },
       "uniqueConstraints": {},

@@ -20,6 +20,7 @@
    - Precisa obter ID
 
 ## Shorts já usados nos depoimentos
+
 - sUKLiYMfFaE (Aberione - Casa 45m2 Imperatriz)
 - ILCOWiUJTBM (Maysa - Casa 50m2 Canaã)
 - 5wQWuppuLwM (Guilherme - Investidor ROI 78,5%)

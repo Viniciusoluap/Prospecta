@@ -2,7 +2,13 @@ import { useState } from "react";
 import { useLocation } from "wouter";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
@@ -40,20 +46,22 @@ export default function ConfiguracoesPagamento() {
 
     try {
       // Simular validação (implementar endpoint real depois)
-      await new Promise((resolve) => setTimeout(resolve, 1500));
-      
+      await new Promise(resolve => setTimeout(resolve, 1500));
+
       setValidationResult({
         success: true,
-        message: "Chave de API validada com sucesso! Integração Asaas está funcional.",
+        message:
+          "Chave de API validada com sucesso! Integração Asaas está funcional.",
       });
-      
+
       toast.success("Credenciais Asaas validadas!");
     } catch (error) {
       setValidationResult({
         success: false,
-        message: "Falha ao validar credenciais. Verifique se a chave está correta.",
+        message:
+          "Falha ao validar credenciais. Verifique se a chave está correta.",
       });
-      
+
       toast.error("Erro ao validar credenciais");
     } finally {
       setValidating(false);
@@ -114,11 +122,14 @@ export default function ConfiguracoesPagamento() {
           <CardContent>
             <RadioGroup
               value={provider}
-              onValueChange={(value) => setProvider(value as "asaas" | "stripe")}
+              onValueChange={value => setProvider(value as "asaas" | "stripe")}
             >
               <div className="flex items-center space-x-2 p-4 rounded-lg border border-white/10 bg-white/5">
                 <RadioGroupItem value="asaas" id="asaas" />
-                <Label htmlFor="asaas" className="flex-1 cursor-pointer text-white">
+                <Label
+                  htmlFor="asaas"
+                  className="flex-1 cursor-pointer text-white"
+                >
                   <div className="font-semibold">Asaas</div>
                   <div className="text-sm text-gray-400">
                     Gateway brasileiro com PIX, Cartão e Boleto
@@ -127,7 +138,10 @@ export default function ConfiguracoesPagamento() {
               </div>
               <div className="flex items-center space-x-2 p-4 rounded-lg border border-white/10 bg-white/5 opacity-50">
                 <RadioGroupItem value="stripe" id="stripe" disabled />
-                <Label htmlFor="stripe" className="flex-1 cursor-not-allowed text-white">
+                <Label
+                  htmlFor="stripe"
+                  className="flex-1 cursor-not-allowed text-white"
+                >
                   <div className="font-semibold">Stripe (Desabilitado)</div>
                   <div className="text-sm text-gray-400">
                     Gateway internacional - Em migração para Asaas
@@ -158,7 +172,7 @@ export default function ConfiguracoesPagamento() {
                   type="password"
                   placeholder="$aact_prod_..."
                   value={asaasApiKey}
-                  onChange={(e) => setAsaasApiKey(e.target.value)}
+                  onChange={e => setAsaasApiKey(e.target.value)}
                   className="bg-white/10 border-white/20 text-white placeholder:text-gray-500"
                 />
                 <p className="text-sm text-gray-400">
@@ -184,7 +198,7 @@ export default function ConfiguracoesPagamento() {
                   type="text"
                   placeholder="Token para validar webhooks"
                   value={asaasWebhookToken}
-                  onChange={(e) => setAsaasWebhookToken(e.target.value)}
+                  onChange={e => setAsaasWebhookToken(e.target.value)}
                   className="bg-white/10 border-white/20 text-white placeholder:text-gray-500"
                 />
                 <p className="text-sm text-gray-400">
@@ -202,7 +216,8 @@ export default function ConfiguracoesPagamento() {
                   </code>
                   <br />
                   <span className="text-sm text-gray-300">
-                    Configure esta URL no painel do Asaas para receber notificações de pagamento
+                    Configure esta URL no painel do Asaas para receber
+                    notificações de pagamento
                   </span>
                 </AlertDescription>
               </Alert>
