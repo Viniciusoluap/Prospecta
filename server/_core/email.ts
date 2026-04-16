@@ -221,11 +221,7 @@ export async function logEmail(data: {
   htmlContent: string;
   metadata?: Record<string, any>;
 }) {
-  const db = await getDb();
-  if (!db) {
-    console.error("[Email] Database not available");
-    return null;
-  }
+  const db = getDb();
 
   try {
     const emailLog: InsertEmailLog = {
@@ -238,11 +234,11 @@ export async function logEmail(data: {
       metadata: data.metadata ? JSON.stringify(data.metadata) : undefined,
     };
 
-    const result = await db.insert(emailLogs).values(emailLog);
-    
+    const result = await db.insert(emailLogs).values(emailLog).returning();
+
     console.log(`[Email] Logged email to ${data.recipientEmail}: ${data.subject}`);
-    
-    return result[0].insertId;
+
+    return result[0].id;
   } catch (error) {
     console.error("[Email] Failed to log email:", error);
     return null;

@@ -7,11 +7,7 @@ import { sql } from "drizzle-orm";
  * Sub-attempts within each day: 08:00, 10:00, 12:00.
  */
 export async function scheduleLeadFollowUps(leadId: number): Promise<void> {
-  const db = await getDb();
-  if (!db) {
-    console.warn("[FollowUpScheduler] Database not available, skipping scheduleLeadFollowUps");
-    return;
-  }
+  const db = getDb();
 
   try {
     const rows: { leadId: number; attempt: number; subAttempt: number; scheduledAt: Date; status: string }[] = [];
@@ -55,8 +51,7 @@ export async function scheduleLeadFollowUps(leadId: number): Promise<void> {
  * Process pending follow-ups that are due.
  */
 async function processPendingFollowUps(): Promise<void> {
-  const db = await getDb();
-  if (!db) return;
+  const db = getDb();
 
   try {
     // Get all pending follow-ups that are due

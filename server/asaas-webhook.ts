@@ -72,11 +72,7 @@ export async function handleAsaasWebhook(req: Request, res: Response) {
  * Processa pagamento recebido
  */
 async function processPaymentReceived(payment: AsaasWebhookPayload['payment']) {
-  const db = await getDb();
-  if (!db) {
-    console.error('[Asaas Webhook] Database not available');
-    return;
-  }
+  const db = getDb();
 
   try {
     // Buscar detalhes completos do pagamento
@@ -246,11 +242,7 @@ async function processUtefPurchase(
  * Processa pagamento estornado
  */
 async function processPaymentRefunded(payment: AsaasWebhookPayload['payment']) {
-  const db = await getDb();
-  if (!db) {
-    console.error('[Asaas Webhook] Database not available');
-    return;
-  }
+  const db = getDb();
 
   console.log('[Asaas Webhook] Processing refund for payment:', payment.id);
 

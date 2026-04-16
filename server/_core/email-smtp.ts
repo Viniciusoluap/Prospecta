@@ -28,11 +28,7 @@ export async function sendEmail(data: {
   templateType: InsertEmailLog["templateType"];
   metadata?: Record<string, any>;
 }): Promise<boolean> {
-  const db = await getDb();
-  if (!db) {
-    console.error("[Email] Database not available");
-    return false;
-  }
+  const db = getDb();
 
   try {
     // Registrar no banco
@@ -46,8 +42,8 @@ export async function sendEmail(data: {
       metadata: data.metadata ? JSON.stringify(data.metadata) : undefined,
     };
 
-    const result = await db.insert(emailLogs).values(emailLog);
-    const emailId = Number(result[0].insertId);
+    const result = await db.insert(emailLogs).values(emailLog).returning();
+    const emailId = result[0].id;
 
     // Enviar via SMTP
     const info = await transporter.sendMail({
