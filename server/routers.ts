@@ -808,7 +808,7 @@ export const appRouter = router({
         
         // Enviar email de atualização se o status mudou
         if (input.status && input.status !== request.status) {
-          const { sendBudgetUpdateEmail } = await import("./_core/email");
+          const { sendBudgetUpdateEmail } = await import("./_core/email-smtp");
           const statusLabels: Record<string, string> = {
             pending: "Pendente",
             contacted: "Contatado",

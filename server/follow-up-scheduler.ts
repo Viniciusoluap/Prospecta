@@ -66,7 +66,7 @@ async function processPendingFollowUps(): Promise<void> {
       LIMIT 100
     `);
 
-    const rows = (pending as any).rows || (Array.isArray(pending) ? pending : [pending?.[0] || []]);
+    const rows = (pending as any).rows || (Array.isArray(pending) ? pending : []);
     const followUps: any[] = Array.isArray(rows) ? rows : [];
 
     for (const fu of followUps) {

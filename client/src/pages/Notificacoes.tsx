@@ -53,7 +53,7 @@ export default function Notificacoes() {
     );
   }
 
-  const unreadCount = notifications.filter(n => n.isRead === 0).length;
+  const unreadCount = notifications.filter(n => !n.isRead).length;
 
   const getNotificationIcon = (type: string) => {
     switch (type) {
@@ -70,8 +70,8 @@ export default function Notificacoes() {
     }
   };
 
-  const handleNotificationClick = (id: number, isRead: number, actionUrl?: string | null) => {
-    if (isRead === 0) {
+  const handleNotificationClick = (id: number, isRead: boolean, actionUrl?: string | null) => {
+    if (!isRead) {
       markAsReadMutation.mutate({ id });
     }
     if (actionUrl) {
@@ -137,7 +137,7 @@ export default function Notificacoes() {
                   className={`
                     bg-[#1A2332]/60 border-[#C9A961]/20 backdrop-blur-sm
                     transition-all duration-200 cursor-pointer
-                    ${notification.isRead === 0 ? 'border-[#00FF00]/40 shadow-lg shadow-[#00FF00]/10' : ''}
+                    ${!notification.isRead ? 'border-[#00FF00]/40 shadow-lg shadow-[#00FF00]/10' : ''}
                     hover:border-[#C9A961]/40 hover:shadow-lg hover:shadow-[#C9A961]/10
                   `}
                   onClick={() => handleNotificationClick(notification.id, notification.isRead, notification.actionUrl)}
@@ -152,10 +152,10 @@ export default function Notificacoes() {
                       {/* Conteúdo */}
                       <div className="flex-1 min-w-0">
                         <div className="flex items-start justify-between gap-2">
-                          <h3 className={`font-semibold ${notification.isRead === 0 ? 'text-[#00FF00]' : 'text-[#C9A961]'}`}>
+                          <h3 className={`font-semibold ${!notification.isRead ? 'text-[#00FF00]' : 'text-[#C9A961]'}`}>
                             {notification.title}
                           </h3>
-                          {notification.isRead === 0 && (
+                          {!notification.isRead && (
                             <span className="flex-shrink-0 px-2 py-1 bg-[#00FF00]/20 text-[#00FF00] text-xs font-medium rounded">
                               Nova
                             </span>
@@ -174,7 +174,7 @@ export default function Notificacoes() {
                               minute: '2-digit',
                             })}
                           </span>
-                          {notification.isRead === 1 && notification.readAt && (
+                          {notification.isRead && notification.readAt && (
                             <span className="flex items-center gap-1">
                               <Check className="h-3 w-3" />
                               Lida

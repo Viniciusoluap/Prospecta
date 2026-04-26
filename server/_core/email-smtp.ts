@@ -216,3 +216,47 @@ export function paymentConfirmedTemplate(data: {
     `,
   };
 }
+
+export async function sendBudgetUpdateEmail(data: {
+  name: string;
+  email: string;
+  status: string;
+  notes?: string;
+  budgetId: number;
+}): Promise<boolean> {
+  return sendEmail({
+    to: data.email,
+    subject: `📋 Atualização do seu Orçamento - Prospecta Empreendimentos`,
+    html: `
+      <!DOCTYPE html>
+      <html>
+      <head><meta charset="utf-8">
+        <style>
+          body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
+          .container { max-width: 600px; margin: 0 auto; padding: 20px; }
+          .header { background: linear-gradient(135deg, #1A2332 0%, #C9A961 100%); color: white; padding: 30px; text-align: center; border-radius: 10px 10px 0 0; }
+          .content { background: #f9f9f9; padding: 30px; border-radius: 0 0 10px 10px; }
+          .status-badge { display: inline-block; background: #C9A961; color: white; padding: 8px 20px; border-radius: 20px; font-weight: bold; font-size: 16px; }
+          .footer { text-align: center; margin-top: 20px; color: #666; font-size: 13px; }
+        </style>
+      </head>
+      <body>
+        <div class="container">
+          <div class="header"><h1>📋 Atualização do seu Orçamento</h1></div>
+          <div class="content">
+            <p>Olá <strong>${data.name}</strong>,</p>
+            <p>Seu orçamento foi atualizado:</p>
+            <p><span class="status-badge">${data.status}</span></p>
+            ${data.notes ? `<p><strong>Observações:</strong><br>${data.notes}</p>` : ''}
+            <p>Dúvidas? WhatsApp: (99) 98139-2210 | (94) 99304-4689</p>
+          </div>
+          <div class="footer"><p>© 2025 Prospecta Empreendimentos - Grupo Efficaz</p></div>
+        </div>
+      </body>
+      </html>
+    `,
+    recipientName: data.name,
+    templateType: 'budget_update',
+    metadata: { budgetId: data.budgetId, status: data.status },
+  });
+}

@@ -37,7 +37,13 @@ let _db: DrizzleDb | null = null;
 
 export function getDb(): DrizzleDb {
   if (!_db) {
-    const connectionString = process.env.DATABASE_URL;
+    // Vercel + Neon integration may use any of these names
+    const connectionString =
+      process.env.DATABASE_URL ||
+      process.env.POSTGRES_URL ||
+      process.env.NEON_DATABASE_URL ||
+      process.env.DATABASE_URL_UNPOOLED ||
+      process.env.POSTGRES_URL_NON_POOLING;
     if (!connectionString) throw new Error("DATABASE_URL is not set");
     const sql = neon(connectionString);
     _db = drizzle(sql);
