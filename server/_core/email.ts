@@ -36,7 +36,7 @@ export const emailTemplates = {
                 <li>🏗️ <strong>Projetos e Obras</strong> personalizados</li>
               </ul>
               <p style="text-align: center;">
-                <a href="https://efficazorbit.com" class="button">Explorar Plataforma</a>
+                <a href="https://prospectaconstrucoes.com" class="button">Explorar Plataforma</a>
               </p>
             </div>
             <div class="footer">
@@ -160,7 +160,7 @@ export const emailTemplates = {
               <h2>${drawTitle}</h2>
               <div class="prize">${prizeAmount.toLocaleString('pt-BR')} UTEFs</div>
               <p>Seu saldo já foi creditado e você pode convertê-lo em produtos incríveis!</p>
-              <a href="https://efficazorbit.com/produtos" class="button">Ver Produtos Disponíveis</a>
+              <a href="https://prospectaconstrucoes.com/produtos" class="button">Ver Produtos Disponíveis</a>
               <p style="margin-top: 30px; font-size: 14px; color: #666;">
                 1 UTEF = R$ 1,00<br>
                 Confira o regulamento completo em nosso site.

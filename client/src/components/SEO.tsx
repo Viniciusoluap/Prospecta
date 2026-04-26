@@ -15,13 +15,13 @@ export default function SEO({
   title,
   description = "Prospecta Empreendimentos - Construímos a casa dos seus sonhos com financiamento desde o terreno até a construção. Participe do Ecossistema Efficaz com sorteios, UTEFs e produtos exclusivos.",
   keywords = "construção civil, financiamento imobiliário, projetos arquitetônicos, sorteios, UTEFs, imóveis, Imperatriz MA, Prospecta Empreendimentos",
-  image = "https://efficazorbit.com/og-image.jpg",
+  image = "https://prospectaconstrucoes.com/og-image.jpg",
   url,
   type = "website",
   schema,
 }: SEOProps) {
   const fullTitle = title ? `${title} | ${APP_TITLE}` : APP_TITLE;
-  const currentUrl = url || (typeof window !== "undefined" ? window.location.href : "https://efficazorbit.com");
+  const currentUrl = url || (typeof window !== "undefined" ? window.location.href : "https://prospectaconstrucoes.com");
 
   useEffect(() => {
     // Update document title
@@ -82,8 +82,8 @@ export const organizationSchema = {
   "@type": "Organization",
   name: "Prospecta Empreendimentos",
   legalName: "Prospecta Empreendimentos LTDA",
-  url: "https://efficazorbit.com",
-  logo: "https://efficazorbit.com/logo.png",
+  url: "https://prospectaconstrucoes.com",
+  logo: "https://prospectaconstrucoes.com/logo.png",
   foundingDate: "2020",
   contactPoint: {
     "@type": "ContactPoint",
@@ -109,9 +109,9 @@ export const localBusinessSchema = {
   "@context": "https://schema.org",
   "@type": "LocalBusiness",
   name: "Prospecta Empreendimentos",
-  image: "https://efficazorbit.com/logo.png",
-  "@id": "https://efficazorbit.com",
-  url: "https://efficazorbit.com",
+  image: "https://prospectaconstrucoes.com/logo.png",
+  "@id": "https://prospectaconstrucoes.com",
+  url: "https://prospectaconstrucoes.com",
   telephone: "+55-99-98139-2210",
   priceRange: "$$",
   address: {
