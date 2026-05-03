@@ -1,9 +1,9 @@
-import { Router } from "express";
+import { Router, Request, Response } from "express";
 import { storagePut } from "../storage";
 
 const router = Router();
 
-router.post("/upload-photo", async (req, res) => {
+router.post("/upload-photo", async (req: Request, res: Response) => {
   try {
     const { image, filename, projectId } = req.body;
 
