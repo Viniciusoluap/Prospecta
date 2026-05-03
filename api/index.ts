@@ -33,6 +33,18 @@ app.use((req, res, next) => {
 app.use(express.json({ limit: "50mb" }));
 app.use(express.urlencoded({ limit: "50mb", extended: true }));
 
+// ── Health check ─────────────────────────────
+app.get("/api/health", async (_req, res) => {
+  try {
+    const { getDb } = await import("../server/db");
+    const db = getDb();
+    await db.execute("SELECT 1" as any);
+    return res.json({ ok: true, db: "connected" });
+  } catch (err: any) {
+    return res.status(500).json({ ok: false, error: err?.message ?? String(err) });
+  }
+});
+
 // ── Auth ──────────────────────────────────────
 app.post("/api/auth/login", async (req, res) => {
   try {

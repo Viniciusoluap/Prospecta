@@ -27,7 +27,14 @@ export default function Login() {
         body: JSON.stringify({ email, password }),
       });
 
-      const data = await res.json();
+      const text = await res.text();
+      let data: { error?: string; id?: number; name?: string; email?: string; role?: string } = {};
+      try {
+        data = JSON.parse(text);
+      } catch {
+        setError(`Erro ${res.status}: servidor indisponível. Tente novamente.`);
+        return;
+      }
 
       if (!res.ok) {
         setError(data.error ?? "Erro ao fazer login");
