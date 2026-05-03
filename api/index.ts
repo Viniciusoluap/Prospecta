@@ -1,10 +1,5 @@
 import "dotenv/config";
 import express from "express";
-import { createExpressMiddleware } from "@trpc/server/adapters/express";
-import { appRouter } from "../server/routers";
-import { createContext } from "../server/_core/context";
-import uploadPhotoRouter from "../server/routes/upload-photo";
-import { handleAsaasWebhook } from "../server/asaas-webhook";
 import { getUserByEmail } from "../server/db";
 import {
   verifyPassword,
@@ -14,21 +9,6 @@ import {
 import { getSessionCookieOptions } from "../server/_core/cookies";
 
 const app = express();
-
-// Raw body needed for Asaas/Stripe webhooks — register before json()
-app.use((req, res, next) => {
-  if (req.path === "/api/asaas/webhook") {
-    let data = "";
-    req.setEncoding("utf8");
-    req.on("data", chunk => { data += chunk; });
-    req.on("end", () => {
-      (req as any).rawBody = data;
-      next();
-    });
-  } else {
-    next();
-  }
-});
 
 app.use(express.json({ limit: "50mb" }));
 app.use(express.urlencoded({ limit: "50mb", extended: true }));
@@ -78,14 +58,40 @@ app.post("/api/auth/logout", (req, res) => {
   return res.json({ ok: true });
 });
 
-// ── Uploads & Webhooks ────────────────────────
-app.use("/api", uploadPhotoRouter);
-app.post("/api/asaas/webhook", handleAsaasWebhook);
+// ── tRPC + routers (loaded dynamically to avoid startup crashes) ───────────
+app.use("/api", async (req, res, next) => {
+  try {
+    const { createExpressMiddleware } = await import("@trpc/server/adapters/express");
+    const { appRouter } = await import("../server/routers");
+    const { createContext } = await import("../server/_core/context");
+    const uploadPhotoRouter = (await import("../server/routes/upload-photo")).default;
+    const { handleAsaasWebhook } = await import("../server/asaas-webhook");
 
-// ── tRPC ──────────────────────────────────────
-app.use(
-  "/api/trpc",
-  createExpressMiddleware({ router: appRouter, createContext })
-);
+    const subApp = express();
+    subApp.use(express.json({ limit: "50mb" }));
+    subApp.use(express.urlencoded({ limit: "50mb", extended: true }));
+
+    // Raw body for webhooks
+    subApp.use((r, _s, n) => {
+      if (r.path === "/asaas/webhook") {
+        let data = "";
+        r.setEncoding("utf8");
+        r.on("data", (chunk: string) => { data += chunk; });
+        r.on("end", () => { (r as any).rawBody = data; n(); });
+      } else {
+        n();
+      }
+    });
+
+    subApp.use(uploadPhotoRouter);
+    subApp.post("/asaas/webhook", handleAsaasWebhook);
+    subApp.use("/trpc", createExpressMiddleware({ router: appRouter, createContext }));
+
+    subApp(req, res, next);
+  } catch (err: any) {
+    console.error("[api] router load error:", err);
+    res.status(500).json({ error: "Server error", detail: err?.message });
+  }
+});
 
 export default app;
