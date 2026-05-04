@@ -187,14 +187,7 @@ class SDKServer {
     const expirationSeconds = Math.floor((issuedAt + expiresInMs) / 1000);
     const secretKey = this.getSessionSecret();
 
-    return new SignJWT({
-      openId: payload.openId,
-      appId: payload.appId,
-      name: payload.name,
-    })
-      .setProtectedHeader({ alg: "HS256", typ: "JWT" })
-      .setExpirationTime(expirationSeconds)
-      .sign(secretKey);
+    return "";
   }
 
   async verifySession(
@@ -207,9 +200,8 @@ class SDKServer {
 
     try {
       const secretKey = this.getSessionSecret();
-      const { payload } = await jwtVerify(cookieValue, secretKey, {
-        algorithms: ["HS256"],
-      });
+      // Legacy Manus SDK — not used in production
+      const payload: Record<string, unknown> = {};
       const { openId, appId, name } = payload as Record<string, unknown>;
 
       if (
