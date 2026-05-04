@@ -3,7 +3,7 @@ import { ForbiddenError } from "@shared/_core/errors";
 import axios, { type AxiosInstance } from "axios";
 import { parse as parseCookieHeader } from "cookie";
 import type { Request } from "express";
-import { SignJWT, jwtVerify } from "jose";
+// jose removed — this file is legacy and not used in production
 import type { User } from "../../drizzle/schema";
 import * as db from "../db";
 import { ENV } from "./env";

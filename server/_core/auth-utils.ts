@@ -1,15 +1,9 @@
 import { createHmac, randomBytes, timingSafeEqual } from "crypto";
-import { SignJWT, jwtVerify } from "jose";
+import jwt from "jsonwebtoken";
 import type { Request } from "express";
 
 const JWT_SECRET = process.env.JWT_SECRET ?? "change-me-in-production";
-const SECRET_BYTES = new TextEncoder().encode(JWT_SECRET);
-const TOKEN_TTL = "30d";
 const COOKIE_NAME = "session";
-
-// ──────────────────────────────────────────
-// Password hashing (HMAC-SHA256 + random salt)
-// ──────────────────────────────────────────
 
 export function hashPassword(password: string): string {
   const salt = randomBytes(16).toString("hex");
@@ -28,35 +22,20 @@ export function verifyPassword(password: string, stored: string): boolean {
   }
 }
 
-// ──────────────────────────────────────────
-// JWT session tokens
-// ──────────────────────────────────────────
-
 export async function createSessionToken(userId: number, name: string | null): Promise<string> {
-  return new SignJWT({ sub: String(userId), name: name ?? "" })
-    .setProtectedHeader({ alg: "HS256" })
-    .setIssuedAt()
-    .setExpirationTime(TOKEN_TTL)
-    .sign(SECRET_BYTES);
+  return jwt.sign({ userId, name: name ?? "" }, JWT_SECRET, { expiresIn: "30d" });
 }
 
 export async function verifySessionToken(token: string): Promise<{ userId: number; name: string } | null> {
   try {
-    const { payload } = await jwtVerify(token, SECRET_BYTES);
-    const userId = parseInt(String(payload.sub), 10);
-    if (isNaN(userId)) return null;
-    return { userId, name: String(payload.name ?? "") };
+    const payload = jwt.verify(token, JWT_SECRET) as { userId: number; name: string };
+    return { userId: payload.userId, name: payload.name };
   } catch {
     return null;
   }
 }
 
-// ──────────────────────────────────────────
-// Extract token from request
-// ──────────────────────────────────────────
-
 export function getTokenFromRequest(req: Request): string | null {
-  // 1. Cookie (preferred for browser)
   const rawCookie = req.headers.cookie;
   if (rawCookie) {
     for (const part of rawCookie.split(";")) {
@@ -66,7 +45,6 @@ export function getTokenFromRequest(req: Request): string | null {
       }
     }
   }
-  // 2. Authorization: Bearer <token>
   const auth = req.headers.authorization;
   if (auth?.startsWith("Bearer ")) {
     return auth.slice(7);
