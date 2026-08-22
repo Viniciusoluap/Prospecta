@@ -581,3 +581,103 @@ export const financialTransactions = pgTable("financial_transactions", {
 
 export type FinancialTransaction = typeof financialTransactions.$inferSelect;
 export type InsertFinancialTransaction = typeof financialTransactions.$inferInsert;
+
+// ========== REGULARIZAÇÃO IMOBILIÁRIA ==========
+
+export const regularizacoes = pgTable("regularizacoes", {
+  id: serial("id").primaryKey(),
+  clientName: varchar("client_name", { length: 255 }).notNull(),
+  clientPhone: varchar("client_phone", { length: 30 }),
+  type: varchar("type", { length: 120 }).notNull(),
+  status: varchar("status", { length: 40 }).default("analysis").notNull(),
+  address: text("address").notNull(),
+  registration: varchar("registration", { length: 120 }),
+  registryOffice: varchar("registry_office", { length: 255 }),
+  responsible: varchar("responsible", { length: 120 }).notNull(),
+  leadId: integer("lead_id"),
+  serviceValue: decimal("service_value", { precision: 15, scale: 2 }).default("0").notNull(),
+  paidValue: decimal("paid_value", { precision: 15, scale: 2 }).default("0").notNull(),
+  expectedEndAt: timestamp("expected_end_at"),
+  description: text("description").default("").notNull(),
+  notes: text("notes"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+export type Regularizacao = typeof regularizacoes.$inferSelect;
+export type InsertRegularizacao = typeof regularizacoes.$inferInsert;
+
+export const regularizacaoDocuments = pgTable("regularizacao_documents", {
+  id: serial("id").primaryKey(),
+  regularizacaoId: integer("regularizacao_id").notNull(),
+  name: varchar("name", { length: 255 }).notNull(),
+  status: varchar("status", { length: 40 }).default("pending").notNull(),
+  observation: text("observation").default("").notNull(),
+  fileUrl: text("file_url"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+export type RegularizacaoDocument = typeof regularizacaoDocuments.$inferSelect;
+export type InsertRegularizacaoDocument = typeof regularizacaoDocuments.$inferInsert;
+
+// ========== INCORPORAÇÃO ==========
+
+export const incorporationStudies = pgTable("incorporation_studies", {
+  id: serial("id").primaryKey(),
+  name: varchar("name", { length: 255 }).notNull(),
+  city: varchar("city", { length: 120 }).notNull(),
+  state: varchar("state", { length: 2 }).default("MA").notNull(),
+  address: text("address"),
+  latitude: decimal("latitude", { precision: 10, scale: 7 }),
+  longitude: decimal("longitude", { precision: 10, scale: 7 }),
+  responsible: varchar("responsible", { length: 120 }),
+  status: varchar("status", { length: 40 }).default("draft").notNull(),
+  propertyRef: varchar("property_ref", { length: 180 }),
+  kmlUrl: text("kml_url"),
+  geojson: text("geojson"),
+  areaM2: decimal("area_m2", { precision: 15, scale: 2 }).default("0").notNull(),
+  perimeterM: decimal("perimeter_m", { precision: 15, scale: 2 }).default("0").notNull(),
+  appAreaM2: decimal("app_area_m2", { precision: 15, scale: 2 }),
+  appWidthM: decimal("app_width_m", { precision: 15, scale: 2 }),
+  appOrigin: varchar("app_origin", { length: 40 }),
+  elevationJson: text("elevation_json"),
+  surveyUrl: text("survey_url"),
+  cutFillJson: text("cut_fill_json"),
+  urbanParametersJson: text("urban_parameters_json"),
+  potentialJson: text("potential_json"),
+  urbanisticOpinion: text("urbanistic_opinion"),
+  cityResearchJson: text("city_research_json"),
+  marketStudyJson: text("market_study_json"),
+  comparablePricingJson: text("comparable_pricing_json"),
+  primaryResearchJson: text("primary_research_json"),
+  massScenariosJson: text("mass_scenarios_json"),
+  selectedScenarioId: varchar("selected_scenario_id", { length: 120 }),
+  areasBoardJson: text("areas_board_json"),
+  parameterizedBudgetJson: text("parameterized_budget_json"),
+  landNegotiationJson: text("land_negotiation_json"),
+  businessPlanJson: text("business_plan_json"),
+  designersJson: text("designers_json"),
+  projectApprovalJson: text("project_approval_json"),
+  incorporationRegistrationJson: text("incorporation_registration_json"),
+  preliminaryBudgetJson: text("preliminary_budget_json"),
+  launchPlanJson: text("launch_plan_json"),
+  launchSuppliersJson: text("launch_suppliers_json"),
+  marketingMaterialJson: text("marketing_material_json"),
+  realEstateLaunchJson: text("real_estate_launch_json"),
+  executiveProjectsJson: text("executive_projects_json"),
+  workBudgetJson: text("work_budget_json"),
+  physicalFinancialScheduleJson: text("physical_financial_schedule_json"),
+  customerServiceJson: text("customer_service_json"),
+  productMixJson: text("product_mix_json"),
+  feasibilityJson: text("feasibility_json"),
+  scheduleJson: text("schedule_json"),
+  aiOpinion: text("ai_opinion"),
+  lottingJson: text("lotting_json"),
+  reportsJson: text("reports_json").default("[]").notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+export type IncorporationStudy = typeof incorporationStudies.$inferSelect;
+export type InsertIncorporationStudy = typeof incorporationStudies.$inferInsert;

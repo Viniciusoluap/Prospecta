@@ -1,0 +1,543 @@
+{
+  "id": "8ecc017e-82a8-43f4-a84a-89aef1738379",
+  "prevId": "00000000-0000-0000-0000-000000000000",
+  "version": "7",
+  "dialect": "postgresql",
+  "tables": {
+    "public.incorporation_studies": {
+      "name": "incorporation_studies",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "serial",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "name": {
+          "name": "name",
+          "type": "varchar(255)",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "city": {
+          "name": "city",
+          "type": "varchar(120)",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "state": {
+          "name": "state",
+          "type": "varchar(2)",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'MA'"
+        },
+        "address": {
+          "name": "address",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "latitude": {
+          "name": "latitude",
+          "type": "numeric(10, 7)",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "longitude": {
+          "name": "longitude",
+          "type": "numeric(10, 7)",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "responsible": {
+          "name": "responsible",
+          "type": "varchar(120)",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "status": {
+          "name": "status",
+          "type": "varchar(40)",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'draft'"
+        },
+        "property_ref": {
+          "name": "property_ref",
+          "type": "varchar(180)",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "kml_url": {
+          "name": "kml_url",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "geojson": {
+          "name": "geojson",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "area_m2": {
+          "name": "area_m2",
+          "type": "numeric(15, 2)",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'0'"
+        },
+        "perimeter_m": {
+          "name": "perimeter_m",
+          "type": "numeric(15, 2)",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'0'"
+        },
+        "app_area_m2": {
+          "name": "app_area_m2",
+          "type": "numeric(15, 2)",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "app_width_m": {
+          "name": "app_width_m",
+          "type": "numeric(15, 2)",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "app_origin": {
+          "name": "app_origin",
+          "type": "varchar(40)",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "elevation_json": {
+          "name": "elevation_json",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "survey_url": {
+          "name": "survey_url",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "cut_fill_json": {
+          "name": "cut_fill_json",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "urban_parameters_json": {
+          "name": "urban_parameters_json",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "potential_json": {
+          "name": "potential_json",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "urbanistic_opinion": {
+          "name": "urbanistic_opinion",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "city_research_json": {
+          "name": "city_research_json",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "market_study_json": {
+          "name": "market_study_json",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "comparable_pricing_json": {
+          "name": "comparable_pricing_json",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "primary_research_json": {
+          "name": "primary_research_json",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "mass_scenarios_json": {
+          "name": "mass_scenarios_json",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "selected_scenario_id": {
+          "name": "selected_scenario_id",
+          "type": "varchar(120)",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "areas_board_json": {
+          "name": "areas_board_json",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "parameterized_budget_json": {
+          "name": "parameterized_budget_json",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "land_negotiation_json": {
+          "name": "land_negotiation_json",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "business_plan_json": {
+          "name": "business_plan_json",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "designers_json": {
+          "name": "designers_json",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "project_approval_json": {
+          "name": "project_approval_json",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "incorporation_registration_json": {
+          "name": "incorporation_registration_json",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "preliminary_budget_json": {
+          "name": "preliminary_budget_json",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "launch_plan_json": {
+          "name": "launch_plan_json",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "launch_suppliers_json": {
+          "name": "launch_suppliers_json",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "marketing_material_json": {
+          "name": "marketing_material_json",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "real_estate_launch_json": {
+          "name": "real_estate_launch_json",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "executive_projects_json": {
+          "name": "executive_projects_json",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "work_budget_json": {
+          "name": "work_budget_json",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "physical_financial_schedule_json": {
+          "name": "physical_financial_schedule_json",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "customer_service_json": {
+          "name": "customer_service_json",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "product_mix_json": {
+          "name": "product_mix_json",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "feasibility_json": {
+          "name": "feasibility_json",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "schedule_json": {
+          "name": "schedule_json",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "ai_opinion": {
+          "name": "ai_opinion",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "lotting_json": {
+          "name": "lotting_json",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "reports_json": {
+          "name": "reports_json",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'[]'"
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.regularizacao_documents": {
+      "name": "regularizacao_documents",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "serial",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "regularizacao_id": {
+          "name": "regularizacao_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "name": {
+          "name": "name",
+          "type": "varchar(255)",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "status": {
+          "name": "status",
+          "type": "varchar(40)",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'pending'"
+        },
+        "observation": {
+          "name": "observation",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "''"
+        },
+        "file_url": {
+          "name": "file_url",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.regularizacoes": {
+      "name": "regularizacoes",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "serial",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "client_name": {
+          "name": "client_name",
+          "type": "varchar(255)",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "client_phone": {
+          "name": "client_phone",
+          "type": "varchar(30)",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "type": {
+          "name": "type",
+          "type": "varchar(120)",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "status": {
+          "name": "status",
+          "type": "varchar(40)",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'analysis'"
+        },
+        "address": {
+          "name": "address",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "registration": {
+          "name": "registration",
+          "type": "varchar(120)",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "registry_office": {
+          "name": "registry_office",
+          "type": "varchar(255)",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "responsible": {
+          "name": "responsible",
+          "type": "varchar(120)",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "lead_id": {
+          "name": "lead_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "service_value": {
+          "name": "service_value",
+          "type": "numeric(15, 2)",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'0'"
+        },
+        "paid_value": {
+          "name": "paid_value",
+          "type": "numeric(15, 2)",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'0'"
+        },
+        "expected_end_at": {
+          "name": "expected_end_at",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "description": {
+          "name": "description",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "''"
+        },
+        "notes": {
+          "name": "notes",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    }
+  },
+  "enums": {},
+  "schemas": {},
+  "sequences": {},
+  "roles": {},
+  "policies": {},
+  "views": {},
+  "_meta": {
+    "columns": {},
+    "schemas": {},
+    "tables": {}
+  }
+}
