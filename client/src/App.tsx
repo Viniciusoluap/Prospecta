@@ -29,6 +29,7 @@ import TermosDeUso from "./pages/TermosDeUso";
 import PoliticaDePrivacidade from "./pages/PoliticaDePrivacidade";
 import FAQ from "./pages/FAQ";
 import AdminDashboard from "./pages/AdminDashboard";
+import AdminOperacao from "./pages/AdminOperacao";
 import AdminEmails from "./pages/AdminEmails";
 import Notificacoes from "./pages/Notificacoes";
 import ConfiguracoesPagamento from "./pages/admin/ConfiguracoesPagamento";
@@ -99,6 +100,9 @@ function Router() {
       </Route>
       <Route path="/admin/dashboard">
         <AdminRoute><AdminDashboard /></AdminRoute>
+      </Route>
+      <Route path="/admin/operacao">
+        <AdminRoute><AdminOperacao /></AdminRoute>
       </Route>
       <Route path="/admin/emails">
         <AdminRoute><AdminEmails /></AdminRoute>
