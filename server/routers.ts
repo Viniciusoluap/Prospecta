@@ -1617,6 +1617,15 @@ export const appRouter = router({
         return { success: true };
       }),
   }),
+
+  // ========== DOLORES 9A (SOMENTE LEITURA) ==========
+  dolores: router({
+    snapshot: protectedProcedure.query(async ({ ctx }) => {
+      if (ctx.user.role !== "admin") throw new TRPCError({ code: "FORBIDDEN" });
+      const { getProspectaDoloresSnapshot } = await import("./dolores/read-model");
+      return getProspectaDoloresSnapshot();
+    }),
+  }),
 });
 
 export type AppRouter = typeof appRouter;
