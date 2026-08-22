@@ -10,6 +10,8 @@ import { registerStripeWebhook } from "./stripeWebhook";
 import uploadPhotoRouter from "../routes/upload-photo";
 import { handleAsaasWebhook } from "../asaas-webhook";
 import { getUserByEmail } from "../db";
+import { getProspectaDoloresSnapshot } from "../dolores/read-model";
+import { getTecnoSpeedStatus } from "../dolores/tecnospeed";
 import {
   hashPassword,
   verifyPassword,
@@ -87,6 +89,35 @@ async function startServer() {
     const cookieOpts = getSessionCookieOptions(req);
     res.clearCookie(SESSION_COOKIE_NAME, cookieOpts);
     return res.json({ ok: true });
+  });
+
+  function authorizeDoloresRequest(req: express.Request) {
+    const expected = process.env.DOLORES_READ_TOKEN;
+    if (!expected) return process.env.NODE_ENV !== "production";
+    return req.header("x-dolores-token") === expected;
+  }
+
+  // Endpoints somente leitura da Dolores 9A. Não expõem mutações nem dados pessoais.
+  app.get("/api/dolores/health", (req, res) => {
+    if (!authorizeDoloresRequest(req)) return res.status(401).json({ error: "Não autorizado" });
+    return res.json({
+      center: "Centro de Operações da Dolores 9A",
+      sourceSystem: "prospecta",
+      companyCode: "PRS",
+      canonicalDatabase: "Neon: SiteProspecta",
+      mode: "read_only",
+      sourceWriteBack: false,
+      providers: { tecnospeed: getTecnoSpeedStatus() },
+    });
+  });
+
+  app.get("/api/dolores/snapshot", async (req, res) => {
+    if (!authorizeDoloresRequest(req)) return res.status(401).json({ error: "Não autorizado" });
+    try {
+      return res.json(await getProspectaDoloresSnapshot());
+    } catch {
+      return res.status(503).json({ error: "Snapshot temporariamente indisponível" });
+    }
   });
 
   // Upload de fotos
