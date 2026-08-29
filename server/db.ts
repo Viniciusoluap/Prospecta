@@ -30,6 +30,7 @@ import {
   financialTransactions, FinancialTransaction, InsertFinancialTransaction,
   obraFees, ObraFee, InsertObraFee,
   obraMeasurements, ObraMeasurement, InsertObraMeasurement,
+  paymentSettings, PaymentSetting, InsertPaymentSetting,
 } from "../drizzle/schema";
 
 type DrizzleDb = ReturnType<typeof drizzle>;
@@ -817,4 +818,20 @@ export async function createMeasurement(data: InsertObraMeasurement): Promise<Ob
 export async function updateMeasurement(id: number, data: Partial<InsertObraMeasurement>): Promise<void> {
   const db = getDb();
   await db.update(obraMeasurements).set(data).where(eq(obraMeasurements.id, id));
+}
+
+
+// Payment secrets are encrypted before reaching this isolated persistence boundary.
+export async function getPaymentSetting(): Promise<PaymentSetting | undefined> {
+  return (await getDb().select().from(paymentSettings).limit(1))[0];
+}
+
+export async function savePaymentSetting(input: InsertPaymentSetting): Promise<void> {
+  const database = getDb();
+  const current = await database.select().from(paymentSettings).limit(1);
+  if (current[0]) {
+    await database.update(paymentSettings).set({ ...input, updatedAt: new Date() }).where(eq(paymentSettings.id, current[0].id));
+  } else {
+    await database.insert(paymentSettings).values(input);
+  }
 }

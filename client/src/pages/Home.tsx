@@ -22,7 +22,7 @@ export default function Home() {
       <SEO 
         title="Início"
         description="VFX Capital / Prospecta Empreendimentos - Construímos a casa dos seus sonhos com financiamento desde o terreno até a construção. Participe do Ecossistema VFX Capital com sorteios, UTEFs e produtos exclusivos em Imperatriz - MA."
-        keywords="construção civil, financiamento imobilário, projetos arquitetônicos, sorteios, UTEFs, imóveis, Imperatriz MA, Prospecta Empreendimentos, casa própria"
+        keywords="construção civil, financiamento imobiliário, projetos arquitetônicos, sorteios, UTEFs, imóveis, Imperatriz MA, Prospecta Empreendimentos, casa própria"
         schema={{
           "@context": "https://schema.org",
           "@graph": [organizationSchema, localBusinessSchema]

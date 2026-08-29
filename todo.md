@@ -862,9 +862,12 @@ Todas as 7 páginas do ecossistema foram redesenhadas com a paleta Prospecta:
 - [ ] Remover código Stripe antigo
 
 ### Fase 6: Testes
-- [ ] Testar criação de cobrança PIX
-- [ ] Testar criação de cobrança Cartão de Crédito
+- [x] Testar criação de cobrança PIX localmente com mock
+- [x] Testar criação de cobrança Cartão de Crédito localmente com mock
 - [ ] Testar criação de cobrança Boleto
+- [x] Testar autenticação, serialização, erros e ambientes sem rede externa
+- [x] Testar autorização administrativa e persistência sem expor segredos
+- [ ] Executar testes externos opcionais somente no sandbox e fora de `pnpm test`
 - [ ] Testar webhook de pagamento confirmado
 - [ ] Testar webhook de pagamento cancelado
 - [ ] Testar fluxo completo de compra de bilhetes
@@ -894,14 +897,17 @@ Todas as 7 páginas do ecossistema foram redesenhadas com a paleta Prospecta:
 - [x] Implementar criação de cobrança Boleto
 - [x] Criar funções de consulta de pagamento
 - [x] Criar funções de cancelamento de pagamento
-- [x] Validar credenciais Asaas (teste passou!)
+- [x] Validar credenciais Asaas no servidor com testes unitários determinísticos
 
 ### Fase 3: Painel de Configuração Admin
 - [x] Criar página de configurações de pagamento no admin
 - [x] Implementar formulário de credenciais Asaas
 - [x] Criar rota tRPC para salvar configurações
-- [ ] Implementar validação de credenciais Asaas (frontend)
-- [x] Adicionar indicador de status da integração
+- [x] Implementar validação real de credenciais Asaas no frontend e servidor
+- [x] Persistir credenciais cifradas sem devolvê-las ao navegador
+- [x] Proteger consulta, validação e salvamento com autorização administrativa
+- [x] Adicionar consulta administrativa de status sem exposição do segredo
+- [x] Exibir sucesso somente após confirmação do servidor e tratar falhas
 
 ### Fase 4: Webhooks Asaas
 - [x] Criar endpoint de webhook Asaas (/api/asaas/webhook)
@@ -919,9 +925,12 @@ Todas as 7 páginas do ecossistema foram redesenhadas com a paleta Prospecta:
 - [ ] Remover código Stripe antigo
 
 ### Fase 6: Testes
-- [ ] Testar criação de cobrança PIX
-- [ ] Testar criação de cobrança Cartão de Crédito
+- [x] Testar criação de cobrança PIX localmente com mock
+- [x] Testar criação de cobrança Cartão de Crédito localmente com mock
 - [ ] Testar criação de cobrança Boleto
+- [x] Testar autenticação, serialização, erros e ambientes sem rede externa
+- [x] Testar autorização administrativa e persistência sem expor segredos
+- [ ] Executar testes externos opcionais somente no sandbox e fora de `pnpm test`
 - [ ] Testar webhook de pagamento confirmado
 - [ ] Testar webhook de pagamento cancelado
 - [ ] Testar fluxo completo de compra de bilhetes

@@ -1,37 +1,52 @@
-import nodemailer from 'nodemailer';
-import { eq } from 'drizzle-orm';
+import nodemailer from "nodemailer";
+import { eq } from "drizzle-orm";
 import { getDb } from "../db";
 import { emailLogs, InsertEmailLog } from "../../drizzle/schema";
+import { ENV } from "./env";
 
-/**
- * Configuração SMTP do Titan Email (Hostgator)
- * Email: atendimento@prospectaconstrucoes.com
- */
-const transporter = nodemailer.createTransport({
-  host: 'smtp.titan.email',
-  port: 465,
-  secure: true, // SSL/TLS
-  auth: {
-    user: 'atendimento@prospectaconstrucoes.com',
-    pass: 'Efficaz2010',
-  },
-});
-
-/**
- * Envia email real via SMTP e registra no banco
- */
-export async function sendEmail(data: {
+type EmailData = {
   to: string;
   subject: string;
   html: string;
   recipientName?: string;
   templateType: InsertEmailLog["templateType"];
-  metadata?: Record<string, any>;
-}): Promise<boolean> {
-  const db = getDb();
+  metadata?: Record<string, unknown>;
+};
 
+type EmailDependencies = {
+  db: ReturnType<typeof getDb>;
+  transport: Pick<ReturnType<typeof nodemailer.createTransport>, "sendMail">;
+};
+
+function defaultDependencies(): EmailDependencies {
+  if (!ENV.smtpHost || !ENV.smtpUser || !ENV.smtpPassword) {
+    throw new Error("Configuração SMTP ausente");
+  }
+  return {
+    db: getDb(),
+    transport: nodemailer.createTransport({
+      host: ENV.smtpHost,
+      port: ENV.smtpPort,
+      secure: ENV.smtpPort === 465,
+      auth: { user: ENV.smtpUser, pass: ENV.smtpPassword },
+    }),
+  };
+}
+
+/** Envia email e registra o resultado. Dependências são injetáveis para testes locais. */
+export async function sendEmail(
+  data: EmailData,
+  dependencies?: EmailDependencies
+): Promise<boolean> {
+  let deps: EmailDependencies;
   try {
-    // Registrar no banco
+    deps = dependencies ?? defaultDependencies();
+  } catch {
+    return false;
+  }
+
+  let emailId: number | undefined;
+  try {
     const emailLog: InsertEmailLog = {
       recipientEmail: data.to,
       recipientName: data.recipientName,
@@ -41,46 +56,33 @@ export async function sendEmail(data: {
       status: "pending",
       metadata: data.metadata ? JSON.stringify(data.metadata) : undefined,
     };
+    const result = await deps.db.insert(emailLogs).values(emailLog).returning();
+    emailId = result[0]?.id;
+    if (!emailId) return false;
 
-    const result = await db.insert(emailLogs).values(emailLog).returning();
-    const emailId = result[0].id;
-
-    // Enviar via SMTP
-    const info = await transporter.sendMail({
-      from: '"Prospecta Empreendimentos" <atendimento@prospectaconstrucoes.com>',
+    await deps.transport.sendMail({
+      from: `"Prospecta Empreendimentos" <${ENV.smtpUser || "no-reply@prospecta.local"}>`,
       to: data.to,
       subject: data.subject,
       html: data.html,
-      text: data.html.replace(/<[^>]*>/g, ''), // Fallback texto puro
+      text: data.html.replace(/<[^>]*>/g, ""),
     });
-
-    console.log('[Email] Enviado com sucesso:', info.messageId, 'para', data.to);
-
-    // Atualizar status no banco
-    await db.update(emailLogs)
-      .set({ status: 'sent', sentAt: new Date() })
+    await deps.db
+      .update(emailLogs)
+      .set({ status: "sent", sentAt: new Date() })
       .where(eq(emailLogs.id, emailId));
-
     return true;
-  } catch (error) {
-    console.error('[Email] Erro ao enviar para', data.to, ':', error);
-
-    // Tentar atualizar status para failed
-    try {
-      const failedLog = await db.select().from(emailLogs)
-        .where(eq(emailLogs.recipientEmail, data.to))
-        .orderBy(eq(emailLogs.createdAt, new Date()))
-        .limit(1);
-      
-      if (failedLog[0]) {
-        await db.update(emailLogs)
-          .set({ status: 'failed' })
-          .where(eq(emailLogs.id, failedLog[0].id));
+  } catch {
+    if (emailId) {
+      try {
+        await deps.db
+          .update(emailLogs)
+          .set({ status: "failed" })
+          .where(eq(emailLogs.id, emailId));
+      } catch {
+        // O erro de auditoria não deve ocultar a falha original do envio.
       }
-    } catch (updateError) {
-      console.error('[Email] Erro ao atualizar status:', updateError);
     }
-
     return false;
   }
 }
@@ -94,7 +96,7 @@ export function budgetConfirmationTemplate(data: {
   city?: string;
 }) {
   return {
-    subject: '🏗️ Orçamento Recebido - Prospecta Empreendimentos',
+    subject: "🏗️ Orçamento Recebido - Prospecta Empreendimentos",
     html: `
       <!DOCTYPE html>
       <html>
@@ -119,8 +121,8 @@ export function budgetConfirmationTemplate(data: {
             
             <p>Recebemos sua solicitação de orçamento e estamos muito felizes em poder ajudá-lo a realizar o sonho da casa própria!</p>
             
-            ${data.projectType ? `<p><strong>Tipo de Projeto:</strong> ${data.projectType}</p>` : ''}
-            ${data.city ? `<p><strong>Cidade:</strong> ${data.city}</p>` : ''}
+            ${data.projectType ? `<p><strong>Tipo de Projeto:</strong> ${data.projectType}</p>` : ""}
+            ${data.city ? `<p><strong>Cidade:</strong> ${data.city}</p>` : ""}
             
             <p>Nossa equipe está analisando sua solicitação e em breve entraremos em contato com uma proposta personalizada.</p>
             
@@ -158,11 +160,11 @@ export function budgetConfirmationTemplate(data: {
 export function paymentConfirmedTemplate(data: {
   name: string;
   amount: number;
-  type: 'bilhete' | 'utef';
+  type: "bilhete" | "utef";
   quantity?: number;
 }) {
   return {
-    subject: '✅ Pagamento Confirmado - Prospecta Empreendimentos',
+    subject: "✅ Pagamento Confirmado - Prospecta Empreendimentos",
     html: `
       <!DOCTYPE html>
       <html>
@@ -193,12 +195,13 @@ export function paymentConfirmedTemplate(data: {
             
             <p>Seu pagamento foi confirmado com sucesso!</p>
             
-            ${data.type === 'bilhete' 
-              ? `<p>Você recebeu <strong>${data.quantity} bilhete(s)</strong> para o sorteio. Boa sorte!</p>` 
-              : `<p>Você recebeu <strong>${data.quantity} UTEF(s)</strong> na sua carteira digital.</p>`
+            ${
+              data.type === "bilhete"
+                ? `<p>Você recebeu <strong>${data.quantity} bilhete(s)</strong> para o sorteio. Boa sorte!</p>`
+                : `<p>Você recebeu <strong>${data.quantity} UTEF(s)</strong> na sua carteira digital.</p>`
             }
             
-            <p>Acesse sua conta para ver seus ${data.type === 'bilhete' ? 'bilhetes' : 'UTEFs'}:</p>
+            <p>Acesse sua conta para ver seus ${data.type === "bilhete" ? "bilhetes" : "UTEFs"}:</p>
             <a href="https://prospectaconstrucoes.com/meu-saldo" class="button">Acessar Minha Conta</a>
             
             <p style="margin-top: 30px;">
@@ -247,7 +250,7 @@ export async function sendBudgetUpdateEmail(data: {
             <p>Olá <strong>${data.name}</strong>,</p>
             <p>Seu orçamento foi atualizado:</p>
             <p><span class="status-badge">${data.status}</span></p>
-            ${data.notes ? `<p><strong>Observações:</strong><br>${data.notes}</p>` : ''}
+            ${data.notes ? `<p><strong>Observações:</strong><br>${data.notes}</p>` : ""}
             <p>Dúvidas? WhatsApp: (99) 98139-2210 | (94) 99304-4689</p>
           </div>
           <div class="footer"><p>© 2025 Prospecta Empreendimentos - Grupo Efficaz</p></div>
@@ -256,7 +259,7 @@ export async function sendBudgetUpdateEmail(data: {
       </html>
     `,
     recipientName: data.name,
-    templateType: 'budget_update',
+    templateType: "budget_update",
     metadata: { budgetId: data.budgetId, status: data.status },
   });
 }

@@ -1,93 +1,205 @@
-import { describe, it, expect } from 'vitest';
-import { createAsaasPayment, getAsaasPixQrCode, createOrUpdateAsaasCustomer } from './_core/asaas';
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { ENV } from "./_core/env";
+import {
+  AsaasApiError,
+  AsaasConfigurationError,
+  createAsaasClient,
+  createAsaasPayment,
+  createOrUpdateAsaasCustomer,
+  getAsaasPixQrCode,
+} from "./_core/asaas";
 
-describe('Asaas Integration', () => {
-  it('should create customer successfully', async () => {
-    const customer = await createOrUpdateAsaasCustomer({
-      name: 'Cliente Teste',
-      email: 'teste@efficaz.com.br',
-      externalReference: 'test_user_123',
+const TEST_KEY = "$aact_test_fictitious_local_key";
+const PROD_KEY = "$aact_prod_fictitious_local_key";
+
+function jsonResponse(body: unknown, ok = true): Response {
+  return { ok, json: vi.fn().mockResolvedValue(body) } as unknown as Response;
+}
+
+describe("Asaas client", () => {
+  const originalKey = ENV.asaasApiKey;
+  const originalEnvironment = ENV.asaasEnvironment;
+
+  beforeEach(() => {
+    ENV.asaasApiKey = TEST_KEY;
+    ENV.asaasEnvironment = "sandbox";
+  });
+
+  afterEach(() => {
+    ENV.asaasApiKey = originalKey;
+    ENV.asaasEnvironment = originalEnvironment;
+    vi.unstubAllGlobals();
+    vi.restoreAllMocks();
+  });
+
+  it("falha sem credencial antes de acessar a rede", async () => {
+    const fetchImpl = vi.fn();
+    const client = createAsaasClient({
+      apiKey: "",
+      environment: "sandbox",
+      fetchImpl,
+    });
+    await expect(client.request("/customers")).rejects.toThrow(
+      AsaasConfigurationError
+    );
+    expect(fetchImpl).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ["sandbox", TEST_KEY, "https://sandbox.asaas.com/api/v3/customers"],
+    ["production", PROD_KEY, "https://api.asaas.com/v3/customers"],
+  ] as const)(
+    "usa explicitamente o ambiente %s",
+    async (environment, apiKey, expectedUrl) => {
+      const fetchImpl = vi.fn().mockResolvedValue(jsonResponse({ data: [] }));
+      const client = createAsaasClient({ apiKey, environment, fetchImpl });
+      await client.request("/customers");
+      expect(fetchImpl).toHaveBeenCalledWith(
+        expectedUrl,
+        expect.objectContaining({
+          headers: expect.objectContaining({ access_token: apiKey }),
+        })
+      );
+    }
+  );
+
+  it("rejeita combinações perigosas de chave e ambiente", async () => {
+    const fetchImpl = vi.fn();
+    await expect(
+      createAsaasClient({
+        apiKey: PROD_KEY,
+        environment: "sandbox",
+        fetchImpl,
+      }).request("/customers")
+    ).rejects.toThrow("produção não pode ser usada no sandbox");
+    await expect(
+      createAsaasClient({
+        apiKey: TEST_KEY,
+        environment: "production",
+        fetchImpl,
+      }).request("/customers")
+    ).rejects.toThrow("teste não pode ser usada em produção");
+    expect(fetchImpl).not.toHaveBeenCalled();
+  });
+
+  it("serializa a criação e atualização de cliente", async () => {
+    const fetchImpl = vi
+      .fn()
+      .mockResolvedValueOnce(jsonResponse({ id: "cus_1", name: "Cliente" }))
+      .mockResolvedValueOnce(
+        jsonResponse({ id: "cus_1", name: "Cliente Atualizado" })
+      );
+    vi.stubGlobal("fetch", fetchImpl);
+
+    await createOrUpdateAsaasCustomer({
+      name: "Cliente",
+      email: "local@example.test",
+    });
+    await createOrUpdateAsaasCustomer({
+      id: "cus_1",
+      name: "Cliente Atualizado",
     });
 
-    expect(customer).toBeDefined();
-    expect(customer.id).toBeDefined();
-    expect(customer.name).toBe('Cliente Teste');
-  }, 30000);
+    expect(fetchImpl).toHaveBeenNthCalledWith(
+      1,
+      "https://sandbox.asaas.com/api/v3/customers",
+      expect.objectContaining({
+        method: "POST",
+        body: JSON.stringify({ name: "Cliente", email: "local@example.test" }),
+      })
+    );
+    expect(fetchImpl).toHaveBeenNthCalledWith(
+      2,
+      "https://sandbox.asaas.com/api/v3/customers/cus_1",
+      expect.objectContaining({
+        method: "PUT",
+        body: JSON.stringify({ id: "cus_1", name: "Cliente Atualizado" }),
+      })
+    );
+  });
 
-  it('should create PIX payment successfully', async () => {
-    // Primeiro criar cliente com CPF
-    const customer = await createOrUpdateAsaasCustomer({
-      name: 'Cliente Teste PIX',
-      email: 'pix@efficaz.com.br',
-      cpfCnpj: '24971563792', // CPF válido de teste
-      externalReference: 'test_pix_user',
+  it.each(["PIX", "CREDIT_CARD"] as const)(
+    "cria cobrança %s sem rede externa",
+    async billingType => {
+      const fetchImpl = vi
+        .fn()
+        .mockResolvedValue(
+          jsonResponse({
+            id: "pay_1",
+            billingType,
+            status: "PENDING",
+            value: 5,
+          })
+        );
+      vi.stubGlobal("fetch", fetchImpl);
+      const payload = {
+        customer: "cus_1",
+        billingType,
+        value: 5,
+        dueDate: "2026-08-30",
+        externalReference: "fixed-reference",
+      };
+      await createAsaasPayment(payload);
+      expect(fetchImpl).toHaveBeenCalledWith(
+        "https://sandbox.asaas.com/api/v3/payments",
+        expect.objectContaining({
+          method: "POST",
+          body: JSON.stringify(payload),
+        })
+      );
+    }
+  );
+
+  it("obtém QR Code PIX", async () => {
+    const fetchImpl = vi
+      .fn()
+      .mockResolvedValue(
+        jsonResponse({ encodedImage: "image", payload: "payload" })
+      );
+    vi.stubGlobal("fetch", fetchImpl);
+    await expect(getAsaasPixQrCode("pay_1")).resolves.toEqual({
+      encodedImage: "image",
+      payload: "payload",
     });
+    expect(fetchImpl).toHaveBeenCalledWith(
+      "https://sandbox.asaas.com/api/v3/payments/pay_1/pixQrCode",
+      expect.anything()
+    );
+  });
 
-    // Criar cobrança PIX de R$ 5,00 (valor mínimo)
-    const payment = await createAsaasPayment({
-      customer: customer.id!,
-      billingType: 'PIX',
-      value: 5.00,
-      dueDate: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString().split('T')[0],
-      description: 'Teste de integração PIX',
-      externalReference: 'test_pix_payment_' + Date.now(),
+  it("converte erro HTTP em erro de domínio seguro", async () => {
+    const fetchImpl = vi
+      .fn()
+      .mockResolvedValue(
+        jsonResponse(
+          { errors: [{ description: "Credencial inválida" }] },
+          false
+        )
+      );
+    const client = createAsaasClient({
+      apiKey: TEST_KEY,
+      environment: "sandbox",
+      fetchImpl,
     });
+    await expect(client.request("/customers")).rejects.toEqual(
+      new AsaasApiError("Credencial inválida")
+    );
+  });
 
-    expect(payment).toBeDefined();
-    expect(payment.id).toBeDefined();
-    expect(payment.billingType).toBe('PIX');
-    expect(payment.value).toBe(5.00);
-    expect(payment.status).toBe('PENDING');
-  }, 30000);
-
-  it('should get PIX QR Code successfully', async () => {
-    // Criar cliente e pagamento primeiro
-    const customer = await createOrUpdateAsaasCustomer({
-      name: 'Cliente Teste QR Code',
-      email: 'qrcode@efficaz.com.br',
-      cpfCnpj: '24971563792', // CPF válido de teste
-      externalReference: 'test_qrcode_user',
+  it("rejeita resposta malformada", async () => {
+    const fetchImpl = vi
+      .fn()
+      .mockResolvedValue({
+        ok: true,
+        json: vi.fn().mockRejectedValue(new Error("invalid json")),
+      });
+    const client = createAsaasClient({
+      apiKey: TEST_KEY,
+      environment: "sandbox",
+      fetchImpl,
     });
-
-    const payment = await createAsaasPayment({
-      customer: customer.id!,
-      billingType: 'PIX',
-      value: 5.00,
-      dueDate: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString().split('T')[0],
-      description: 'Teste QR Code PIX',
-      externalReference: 'test_qrcode_' + Date.now(),
-    });
-
-    // Buscar QR Code
-    const pixData = await getAsaasPixQrCode(payment.id);
-
-    expect(pixData).toBeDefined();
-    expect(pixData.encodedImage).toBeDefined();
-    expect(pixData.payload).toBeDefined();
-    // O encodedImage vem como base64 puro, sem prefixo
-    expect(pixData.encodedImage.length).toBeGreaterThan(100);
-  }, 30000);
-
-  it('should create credit card payment successfully', async () => {
-    const customer = await createOrUpdateAsaasCustomer({
-      name: 'Cliente Teste Cartão',
-      email: 'cartao@efficaz.com.br',
-      cpfCnpj: '24971563792', // CPF válido de teste
-      externalReference: 'test_card_user',
-    });
-
-    const payment = await createAsaasPayment({
-      customer: customer.id!,
-      billingType: 'CREDIT_CARD',
-      value: 5.00, // Valor mínimo para cartão
-      dueDate: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString().split('T')[0],
-      description: 'Teste de integração Cartão',
-      externalReference: 'test_card_payment_' + Date.now(),
-    });
-
-    expect(payment).toBeDefined();
-    expect(payment.id).toBeDefined();
-    expect(payment.billingType).toBe('CREDIT_CARD');
-    expect(payment.invoiceUrl).toBeDefined();
-  }, 30000);
+    await expect(client.request("/customers")).rejects.toThrow(
+      "resposta inválida"
+    );
+  });
 });

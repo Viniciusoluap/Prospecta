@@ -11,6 +11,7 @@ import QRCode from "qrcode";
 import * as db from "./db";
 import { TRPCError } from "@trpc/server";
 import { validateCPF, cleanCPF } from "../shared/cpf";
+import { paymentSettingsRouter } from "./payment-settings-router";
 
 // Helper para gerar número de bilhete único
 function generateTicketNumber(): string {
@@ -74,6 +75,7 @@ async function generatePixCode(amount: number, ticketNumber: string): Promise<{ 
 
 export const appRouter = router({
   system: systemRouter,
+  paymentSettings: paymentSettingsRouter,
   auth: router({
     me: publicProcedure.query(opts => opts.ctx.user),
     logout: publicProcedure.mutation(({ ctx }) => {

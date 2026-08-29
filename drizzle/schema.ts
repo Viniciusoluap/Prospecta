@@ -581,3 +581,16 @@ export const financialTransactions = pgTable("financial_transactions", {
 
 export type FinancialTransaction = typeof financialTransactions.$inferSelect;
 export type InsertFinancialTransaction = typeof financialTransactions.$inferInsert;
+
+export const paymentSettings = pgTable("payment_settings", {
+  id: serial("id").primaryKey(),
+  provider: varchar("provider", { length: 50 }).default("asaas").notNull(),
+  asaasApiKeyEncrypted: text("asaas_api_key_encrypted").notNull(),
+  asaasWebhookTokenEncrypted: text("asaas_webhook_token_encrypted"),
+  asaasEnvironment: varchar("asaas_environment", { length: 20 }).default("sandbox").notNull(),
+  isActive: boolean("is_active").default(true).notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+export type PaymentSetting = typeof paymentSettings.$inferSelect;
+export type InsertPaymentSetting = typeof paymentSettings.$inferInsert;

@@ -1,39 +1,29 @@
-import { describe, it, expect } from 'vitest';
-import Stripe from 'stripe';
+import { describe, expect, it } from "vitest";
+import { isValidStripeKey } from "./_core/stripe";
 
-describe('Stripe Credentials Validation', () => {
-  it('should validate Stripe secret key by retrieving account info', async () => {
-    const secretKey = process.env.STRIPE_SECRET_KEY_NEW || process.env.STRIPE_SECRET_KEY;
-    
-    expect(secretKey).toBeDefined();
-    expect(secretKey).not.toBe('');
-    expect(secretKey).toMatch(/^sk_(test|live)_/);
-    
-    // Initialize Stripe client
-    const stripe = new Stripe(secretKey!, {
-      apiVersion: '2025-10-29.clover',
-    });
-    
-    // Validate by retrieving account information
-    const account = await stripe.account.retrieve();
-    
-    expect(account).toBeDefined();
-    expect(account.id).toBeDefined();
-    expect(account.object).toBe('account');
-    
-    console.log('✅ Stripe account validated:', account.id);
-    console.log('✅ Account email:', account.email);
-    console.log('✅ Charges enabled:', account.charges_enabled);
-    console.log('✅ Payouts enabled:', account.payouts_enabled);
-  }, 15000); // 15 second timeout for API call
-  
-  it('should validate Stripe publishable key format', () => {
-    const publishableKey = process.env.VITE_STRIPE_PUBLISHABLE_KEY_NEW || process.env.VITE_STRIPE_PUBLISHABLE_KEY;
-    
-    expect(publishableKey).toBeDefined();
-    expect(publishableKey).not.toBe('');
-    expect(publishableKey).toMatch(/^pk_(test|live)_/);
-    
-    console.log('✅ Publishable key format validated');
-  });
+describe("Stripe key format validation", () => {
+  it.each([undefined, "", "invalid", "pk_test_wrong_kind"])(
+    "rejeita secret inválida: %s",
+    key => {
+      expect(isValidStripeKey(key, "secret")).toBe(false);
+    }
+  );
+  it.each(["sk_test_fictitious", "sk_live_fictitious"])(
+    "aceita formato de secret: %s",
+    key => {
+      expect(isValidStripeKey(key, "secret")).toBe(true);
+    }
+  );
+  it.each([undefined, "", "invalid", "sk_test_wrong_kind"])(
+    "rejeita publishable inválida: %s",
+    key => {
+      expect(isValidStripeKey(key, "publishable")).toBe(false);
+    }
+  );
+  it.each(["pk_test_fictitious", "pk_live_fictitious"])(
+    "aceita formato publishable: %s",
+    key => {
+      expect(isValidStripeKey(key, "publishable")).toBe(true);
+    }
+  );
 });
