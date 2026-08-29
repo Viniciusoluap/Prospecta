@@ -2,7 +2,13 @@ import { useState } from "react";
 import { useLocation } from "wouter";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
@@ -17,11 +23,20 @@ export default function ConfiguracoesPagamento() {
   const [provider, setProvider] = useState<"asaas" | "stripe">("asaas");
   const [asaasApiKey, setAsaasApiKey] = useState("");
   const [asaasWebhookToken, setAsaasWebhookToken] = useState("");
-  const [validating, setValidating] = useState(false);
+  const [environment, setEnvironment] = useState<"sandbox" | "production">(
+    "sandbox"
+  );
   const [validationResult, setValidationResult] = useState<{
     success: boolean;
     message: string;
   } | null>(null);
+
+  const utils = trpc.useUtils();
+  const statusQuery = trpc.paymentSettings.status.useQuery(undefined, {
+    enabled: user?.role === "admin",
+  });
+  const validateMutation = trpc.paymentSettings.validate.useMutation();
+  const saveMutation = trpc.paymentSettings.save.useMutation();
 
   // Redirect if not admin
   if (!authLoading && user?.role !== "admin") {
@@ -30,47 +45,43 @@ export default function ConfiguracoesPagamento() {
   }
 
   const handleValidateAsaas = async () => {
-    if (!asaasApiKey) {
-      toast.error("Por favor, insira a chave de API do Asaas");
-      return;
-    }
-
-    setValidating(true);
     setValidationResult(null);
-
     try {
-      // Simular validação (implementar endpoint real depois)
-      await new Promise((resolve) => setTimeout(resolve, 1500));
-      
-      setValidationResult({
-        success: true,
-        message: "Chave de API validada com sucesso! Integração Asaas está funcional.",
+      const result = await validateMutation.mutateAsync({
+        apiKey: asaasApiKey,
+        environment,
       });
-      
-      toast.success("Credenciais Asaas validadas!");
-    } catch (error) {
+      setValidationResult({
+        success: result.valid,
+        message: result.valid
+          ? "Credencial Asaas válida."
+          : "Credencial Asaas inválida.",
+      });
+      if (result.valid) toast.success("Credencial Asaas validada!");
+      else toast.error("Credencial Asaas inválida");
+    } catch {
       setValidationResult({
         success: false,
-        message: "Falha ao validar credenciais. Verifique se a chave está correta.",
+        message: "Falha do servidor ao validar a credencial.",
       });
-      
-      toast.error("Erro ao validar credenciais");
-    } finally {
-      setValidating(false);
+      toast.error("Erro ao validar credencial");
     }
   };
 
   const handleSave = async () => {
-    if (!asaasApiKey) {
-      toast.error("Por favor, preencha a chave de API do Asaas");
-      return;
-    }
-
     try {
-      // TODO: Implementar endpoint de salvamento
+      await saveMutation.mutateAsync({
+        apiKey: asaasApiKey,
+        webhookToken: asaasWebhookToken || undefined,
+        environment,
+      });
+      await utils.paymentSettings.status.invalidate();
+      setAsaasApiKey("");
+      setAsaasWebhookToken("");
+      setValidationResult(null);
       toast.success("Configurações salvas com sucesso!");
-    } catch (error) {
-      toast.error("Erro ao salvar configurações");
+    } catch {
+      toast.error("Não foi possível salvar as configurações");
     }
   };
 
@@ -114,11 +125,14 @@ export default function ConfiguracoesPagamento() {
           <CardContent>
             <RadioGroup
               value={provider}
-              onValueChange={(value) => setProvider(value as "asaas" | "stripe")}
+              onValueChange={value => setProvider(value as "asaas" | "stripe")}
             >
               <div className="flex items-center space-x-2 p-4 rounded-lg border border-white/10 bg-white/5">
                 <RadioGroupItem value="asaas" id="asaas" />
-                <Label htmlFor="asaas" className="flex-1 cursor-pointer text-white">
+                <Label
+                  htmlFor="asaas"
+                  className="flex-1 cursor-pointer text-white"
+                >
                   <div className="font-semibold">Asaas</div>
                   <div className="text-sm text-gray-400">
                     Gateway brasileiro com PIX, Cartão e Boleto
@@ -127,7 +141,10 @@ export default function ConfiguracoesPagamento() {
               </div>
               <div className="flex items-center space-x-2 p-4 rounded-lg border border-white/10 bg-white/5 opacity-50">
                 <RadioGroupItem value="stripe" id="stripe" disabled />
-                <Label htmlFor="stripe" className="flex-1 cursor-not-allowed text-white">
+                <Label
+                  htmlFor="stripe"
+                  className="flex-1 cursor-not-allowed text-white"
+                >
                   <div className="font-semibold">Stripe (Desabilitado)</div>
                   <div className="text-sm text-gray-400">
                     Gateway internacional - Em migração para Asaas
@@ -158,9 +175,14 @@ export default function ConfiguracoesPagamento() {
                   type="password"
                   placeholder="$aact_prod_..."
                   value={asaasApiKey}
-                  onChange={(e) => setAsaasApiKey(e.target.value)}
+                  onChange={e => setAsaasApiKey(e.target.value)}
                   className="bg-white/10 border-white/20 text-white placeholder:text-gray-500"
                 />
+                <p className="text-sm text-gray-400">
+                  {statusQuery.data?.configured
+                    ? `Há uma credencial salva para ${statusQuery.data.environment}. Digite uma nova chave para substituí-la.`
+                    : "Nenhuma credencial salva."}
+                </p>
                 <p className="text-sm text-gray-400">
                   Encontre sua chave em:{" "}
                   <a
@@ -174,6 +196,26 @@ export default function ConfiguracoesPagamento() {
                 </p>
               </div>
 
+              <div className="space-y-2">
+                <Label htmlFor="asaas-environment" className="text-white">
+                  Ambiente
+                </Label>
+                <select
+                  id="asaas-environment"
+                  value={environment}
+                  onChange={event => {
+                    setEnvironment(
+                      event.target.value as "sandbox" | "production"
+                    );
+                    setValidationResult(null);
+                  }}
+                  className="w-full rounded-md border border-white/20 bg-[#1A2332] px-3 py-2 text-white"
+                >
+                  <option value="sandbox">Sandbox</option>
+                  <option value="production">Produção</option>
+                </select>
+              </div>
+
               {/* Webhook Token */}
               <div className="space-y-2">
                 <Label htmlFor="webhook-token" className="text-white">
@@ -181,10 +223,10 @@ export default function ConfiguracoesPagamento() {
                 </Label>
                 <Input
                   id="webhook-token"
-                  type="text"
+                  type="password"
                   placeholder="Token para validar webhooks"
                   value={asaasWebhookToken}
-                  onChange={(e) => setAsaasWebhookToken(e.target.value)}
+                  onChange={e => setAsaasWebhookToken(e.target.value)}
                   className="bg-white/10 border-white/20 text-white placeholder:text-gray-500"
                 />
                 <p className="text-sm text-gray-400">
@@ -202,7 +244,8 @@ export default function ConfiguracoesPagamento() {
                   </code>
                   <br />
                   <span className="text-sm text-gray-300">
-                    Configure esta URL no painel do Asaas para receber notificações de pagamento
+                    Configure esta URL no painel do Asaas para receber
+                    notificações de pagamento
                   </span>
                 </AlertDescription>
               </Alert>
@@ -233,11 +276,15 @@ export default function ConfiguracoesPagamento() {
               <div className="flex gap-3">
                 <Button
                   onClick={handleValidateAsaas}
-                  disabled={validating || !asaasApiKey}
+                  disabled={
+                    validateMutation.isPending ||
+                    saveMutation.isPending ||
+                    !asaasApiKey.trim()
+                  }
                   variant="outline"
                   className="border-[#C9A961] text-[#C9A961] hover:bg-[#C9A961] hover:text-white"
                 >
-                  {validating ? (
+                  {validateMutation.isPending ? (
                     <>
                       <Loader2 className="w-4 h-4 mr-2 animate-spin" />
                       Validando...
@@ -248,10 +295,22 @@ export default function ConfiguracoesPagamento() {
                 </Button>
                 <Button
                   onClick={handleSave}
-                  disabled={!asaasApiKey || !validationResult?.success}
+                  disabled={
+                    saveMutation.isPending ||
+                    validateMutation.isPending ||
+                    !asaasApiKey.trim() ||
+                    !validationResult?.success
+                  }
                   className="bg-[#C9A961] hover:bg-[#B8984E] text-white"
                 >
-                  Salvar Configurações
+                  {saveMutation.isPending ? (
+                    <>
+                      <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                      Salvando...
+                    </>
+                  ) : (
+                    "Salvar Configurações"
+                  )}
                 </Button>
               </div>
             </CardContent>
