@@ -1,0 +1,70 @@
+@import "tailwindcss";
+
+:root {
+  /* Brand Colors */
+  --brand-yellow: #C9A961;
+  --brand-yellow-dark: #A98B45;
+  --brand-yellow-light: #E5D09A;
+  --brand-dark: #1A2332;
+  --brand-dark-secondary: #0F1419;
+  --brand-accent: #00FF00;
+  --brand-gray: #6B7280;
+  --brand-gray-light: #F3F4F6;
+  --brand-white: #FFFFFF;
+
+  --background: var(--brand-white);
+  --foreground: var(--brand-dark);
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-brand-yellow: var(--brand-yellow);
+  --color-brand-yellow-dark: var(--brand-yellow-dark);
+  --color-brand-yellow-light: var(--brand-yellow-light);
+  --color-brand-dark: var(--brand-dark);
+  --color-brand-dark-secondary: var(--brand-dark-secondary);
+  --color-brand-gray: var(--brand-gray);
+  --color-brand-gray-light: var(--brand-gray-light);
+  --color-brand-accent: var(--brand-accent);
+  --color-primary: var(--brand-yellow);
+  --color-secondary: var(--brand-dark);
+  --color-accent: var(--brand-accent);
+  --color-muted-foreground: var(--brand-gray);
+  --color-border: #E5E7EB;
+  --color-card: var(--brand-white);
+  --font-sans: var(--font-inter);
+}
+
+body {
+  background: var(--background);
+  color: var(--foreground);
+  font-family: var(--font-inter), -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+.container {
+  width: 100%;
+  max-width: 80rem;
+  margin-inline: auto;
+  padding-inline: 1rem;
+}
+
+/* Scrollbar */
+::-webkit-scrollbar {
+  width: 6px;
+}
+::-webkit-scrollbar-track {
+  background: var(--brand-gray-light);
+}
+::-webkit-scrollbar-thumb {
+  background: var(--brand-yellow);
+  border-radius: 3px;
+}
+
+/* Selection */
+::selection {
+  background: var(--brand-yellow);
+  color: var(--brand-dark);
+}

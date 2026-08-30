@@ -1,0 +1,781 @@
+// Grupo Santa Fé — Schema completo
+// Database: SQLite (dev) / PostgreSQL (prod)
+
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// ─── IMÓVEIS ─────────────────────────────────────────────────────────────────
+
+model Imovel {
+  id              String               @id @default(cuid())
+  slug            String               @unique
+  tipo            String // casa, apartamento, lote, terreno, comercial, chacara
+  status          String // venda, locacao, lancamento, vendido, locado
+  titulo          String
+  descricao       String
+  preco           Float
+  precoNegociavel Boolean              @default(false)
+  condominio      Float?
+  iptu            Float?
+  area            Float
+  areaTotal       Float?
+  quartos         Int?
+  suites          Int?
+  banheiros       Int?
+  vagas           Int?
+  rua             String               @default("")
+  bairro          String
+  cidade          String               @default("Canaã dos Carajás")
+  estado          String               @default("PA")
+  cep             String?
+  latitude        Float?
+  longitude       Float?
+  features        String               @default("[]")
+  imagens         String               @default("[]")
+  destaque        Boolean              @default(false)
+  badge           String?
+  publicadoSite   Boolean              @default(true)
+  publicadoZap    Boolean              @default(false)
+  publicadoOlx    Boolean              @default(false)
+  publicadoViva   Boolean              @default(false)
+  corretorId      String?
+  corretor        Corretor?            @relation(fields: [corretorId], references: [id])
+  leads           Lead[]
+  contratos       Contrato[]
+  visitas         Visita[]
+  financiamentos  Financiamento[]      @relation("FinanciamentoImovel")
+  estudosIncorp   EstudoIncorporacao[]
+  criadoEm        DateTime             @default(now())
+  atualizadoEm    DateTime             @updatedAt
+
+  @@map("ops_imoveis")
+}
+
+// ─── LEADS / CRM ─────────────────────────────────────────────────────────────
+
+model Lead {
+  id                String          @id @default(cuid())
+  nome              String
+  telefone          String
+  email             String?
+  servico           String
+  status            String          @default("novo")
+  origem            String          @default("site")
+  corretorId        String?
+  corretor          Corretor?       @relation(fields: [corretorId], references: [id])
+  imovelInteresseId String?
+  imovelInteresse   Imovel?         @relation(fields: [imovelInteresseId], references: [id])
+  orcamento         Float?
+  notas             String          @default("")
+  senhaAcesso       String?
+  interacoes        Interacao[]
+  visitas           Visita[]
+  financiamentos    Financiamento[]
+  obras             Obra[]
+  projetos          Projeto[]       @relation("ProjetoLead")
+  regularizacoes    Regularizacao[] @relation("RegularizacaoLead")
+  avaliacoes        Avaliacao[]     @relation("AvaliacaoLead")
+  contratos         Contrato[]      @relation("ContratoLead")
+  chatMensagens     ChatMensagem[]  @relation("ChatLead")
+  criadoEm          DateTime        @default(now())
+  atualizadoEm      DateTime        @updatedAt
+
+  @@map("ops_leads")
+}
+
+model Interacao {
+  id        String   @id @default(cuid())
+  leadId    String
+  lead      Lead     @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  tipo      String
+  descricao String
+  criadoEm  DateTime @default(now())
+  criadoPor String
+
+  @@map("ops_interacoes")
+}
+
+// ─── AGENDA / VISITAS ─────────────────────────────────────────────────────────
+
+model Visita {
+  id              String    @id @default(cuid())
+  leadId          String?
+  lead            Lead?     @relation(fields: [leadId], references: [id])
+  imovelId        String?
+  imovel          Imovel?   @relation(fields: [imovelId], references: [id])
+  corretorId      String?
+  corretor        Corretor? @relation(fields: [corretorId], references: [id])
+  clienteNome     String
+  clienteTel      String
+  agendadaPara    DateTime
+  status          String    @default("agendada")
+  tipoVisita      String    @default("imovel")
+  colaboradorNome String?
+  notas           String    @default("")
+  criadoEm        DateTime  @default(now())
+  atualizadoEm    DateTime  @updatedAt
+
+  @@map("ops_visitas")
+}
+
+// ─── CORRETORES ──────────────────────────────────────────────────────────────
+
+model Corretor {
+  id             String          @id @default(cuid())
+  nome           String
+  email          String          @unique
+  telefone       String
+  creci          String
+  foto           String?
+  ativo          Boolean         @default(true)
+  especialidades String          @default("[]")
+  senhaAcesso    String?
+  imoveis        Imovel[]
+  leads          Lead[]
+  visitas        Visita[]
+  comissoes      Comissao[]
+  financiamentos Financiamento[]
+  criadoEm       DateTime        @default(now())
+  atualizadoEm   DateTime        @updatedAt
+
+  @@map("ops_corretores")
+}
+
+// ─── COMISSÕES ───────────────────────────────────────────────────────────────
+
+model Comissao {
+  id           String    @id @default(cuid())
+  beneficiario String    @default("corretor") // "empresa" | "corretor"
+  tipoNegocio  String    @default("venda_imovel")
+  corretorId   String?
+  corretor     Corretor? @relation(fields: [corretorId], references: [id])
+  contratoId   String?
+  contrato     Contrato? @relation(fields: [contratoId], references: [id])
+  imovel       String
+  valor        Float
+  percentual   Float     @default(6)
+  status       String    @default("pendente")
+  vencimento   DateTime
+  pagamentoEm  DateTime?
+  notas        String    @default("")
+  criadoEm     DateTime  @default(now())
+  atualizadoEm DateTime  @updatedAt
+
+  @@map("ops_comissoes")
+}
+
+// ─── FINANCIAMENTOS ──────────────────────────────────────────────────────────
+
+model Financiamento {
+  id                String          @id @default(cuid())
+  clienteNome       String
+  clienteCpf        String?
+  clienteTel        String
+  clienteEmail      String?
+  imovel            String
+  tipo              String
+  banco             String
+  valorImovel       Float
+  valorFinanciado   Float
+  entrada           Float
+  taxa              Float
+  prazo             Int
+  parcela           Float?
+  status            String          @default("analise_credito")
+  protocolo         String?
+  leadId            String?
+  leadVinculado     Lead?           @relation(fields: [leadId], references: [id], onDelete: SetNull)
+  imovelVinculadoId String?
+  imovelVinculado   Imovel?         @relation("FinanciamentoImovel", fields: [imovelVinculadoId], references: [id], onDelete: SetNull)
+  corretorId        String?
+  corretor          Corretor?       @relation(fields: [corretorId], references: [id])
+  checklist         ChecklistItem[]
+  criadoEm          DateTime        @default(now())
+  atualizadoEm      DateTime        @updatedAt
+
+  @@map("ops_financiamentos")
+}
+
+model ChecklistItem {
+  id              String        @id @default(cuid())
+  financiamentoId String
+  financiamento   Financiamento @relation(fields: [financiamentoId], references: [id], onDelete: Cascade)
+  grupo           String
+  item            String
+  concluido       Boolean       @default(false)
+  concluidoEm     DateTime?
+  notas           String        @default("")
+
+  @@map("ops_checklist_items")
+}
+
+// ─── OBRAS ───────────────────────────────────────────────────────────────────
+
+model Obra {
+  id              String       @id @default(cuid())
+  nome            String
+  tipo            String
+  status          String       @default("orcamento")
+  clienteNome     String
+  clienteTel      String
+  endereco        String
+  area            Float
+  valorTotal      Float
+  valorPago       Float        @default(0)
+  progresso       Int          @default(0)
+  engenheiroResp  String
+  dataInicio      DateTime?
+  dataPrevisaoFim DateTime?
+  dataConclusao   DateTime?
+  leadId          String?
+  leadVinculado   Lead?        @relation(fields: [leadId], references: [id], onDelete: SetNull)
+  latitude        Float?
+  longitude       Float?
+  descricao       String       @default("")
+  etapas          ObraEtapa[]
+  diario          ObraDiario[]
+  criadoEm        DateTime     @default(now())
+  atualizadoEm    DateTime     @updatedAt
+
+  @@map("ops_obras")
+}
+
+model ObraEtapa {
+  id         String   @id @default(cuid())
+  obraId     String
+  obra       Obra     @relation(fields: [obraId], references: [id], onDelete: Cascade)
+  nome       String
+  descricao  String   @default("")
+  status     String   @default("pendente")
+  percentual Float    @default(0)
+  ordem      Int      @default(0)
+  criadoEm   DateTime @default(now())
+
+  @@map("ops_obra_etapas")
+}
+
+model ObraDiario {
+  id          String   @id @default(cuid())
+  obraId      String
+  obra        Obra     @relation(fields: [obraId], references: [id], onDelete: Cascade)
+  data        DateTime @default(now())
+  descricao   String
+  fotos       String   @default("[]")
+  responsavel String
+  clima       String?
+  criadoEm    DateTime @default(now())
+
+  @@map("ops_obra_diario")
+}
+
+// ─── PROJETOS ────────────────────────────────────────────────────────────────
+
+model Projeto {
+  id            String    @id @default(cuid())
+  nome          String
+  tipo          String
+  status        String    @default("orcamento")
+  clienteNome   String
+  clienteTel    String
+  engenheiro    String
+  valorProjeto  Float
+  valorPago     Float     @default(0)
+  prazoEntrega  DateTime?
+  leadId        String?
+  leadVinculado Lead?     @relation("ProjetoLead", fields: [leadId], references: [id], onDelete: SetNull)
+  descricao     String    @default("")
+  arquivos      String    @default("[]")
+  checklist     String    @default("[]")
+  criadoEm      DateTime  @default(now())
+  atualizadoEm  DateTime  @updatedAt
+
+  @@map("ops_projetos")
+}
+
+// ─── REGULARIZAÇÃO ───────────────────────────────────────────────────────────
+
+model Regularizacao {
+  id            String         @id @default(cuid())
+  nome          String
+  tipo          String
+  status        String         @default("analise")
+  clienteNome   String
+  clienteTel    String
+  endereco      String
+  matricula     String?
+  cartorio      String?
+  responsavel   String
+  leadId        String?
+  leadVinculado Lead?          @relation("RegularizacaoLead", fields: [leadId], references: [id], onDelete: SetNull)
+  valorServico  Float
+  valorPago     Float          @default(0)
+  previsaoFim   DateTime?
+  descricao     String         @default("")
+  documentos    RegDocumento[]
+  criadoEm      DateTime       @default(now())
+  atualizadoEm  DateTime       @updatedAt
+
+  @@map("ops_regularizacoes")
+}
+
+model RegDocumento {
+  id              String        @id @default(cuid())
+  regularizacaoId String
+  regularizacao   Regularizacao @relation(fields: [regularizacaoId], references: [id], onDelete: Cascade)
+  nome            String
+  status          String        @default("pendente")
+  observacao      String        @default("")
+  criadoEm        DateTime      @default(now())
+  atualizadoEm    DateTime      @updatedAt
+
+  @@map("ops_reg_documentos")
+}
+
+// ─── CONTRATOS ────────────────────────────────────────────────────────────────
+
+model Contrato {
+  id                  String              @id @default(cuid())
+  numero              String              @unique
+  tipo                String
+  status              String              @default("rascunho")
+  parteA              String
+  parteADoc           String?
+  parteB              String
+  parteBDoc           String?
+  imovelId            String?
+  imovel              Imovel?             @relation(fields: [imovelId], references: [id])
+  leadId              String?
+  lead                Lead?               @relation("ContratoLead", fields: [leadId], references: [id], onDelete: SetNull)
+  valor               Float
+  vencimento          DateTime?
+  descricao           String              @default("")
+  clausulas           String              @default("")
+  contratoAssinadoUrl String?
+  assinaturaStatus    String              @default("pendente") // pendente|solicitado|assinado|rejeitado
+  assinaturaGovId     String?
+  comissoes           Comissao[]
+  documentos          ContratoDocumento[]
+  criadoEm            DateTime            @default(now())
+  atualizadoEm        DateTime            @updatedAt
+
+  @@map("ops_contratos")
+}
+
+model ContratoDocumento {
+  id         String   @id @default(cuid())
+  contratoId String
+  contrato   Contrato @relation(fields: [contratoId], references: [id], onDelete: Cascade)
+  nome       String
+  url        String
+  tipo       String // contrato_gerado | assinado | anexo
+  criadoEm   DateTime @default(now())
+
+  @@map("ops_contrato_documentos")
+}
+
+model ChatMensagem {
+  id        String   @id @default(cuid())
+  leadId    String
+  lead      Lead     @relation("ChatLead", fields: [leadId], references: [id], onDelete: Cascade)
+  remetente String // cliente | corretor | sistema
+  texto     String
+  lido      Boolean  @default(false)
+  criadoEm  DateTime @default(now())
+
+  @@map("ops_chat_mensagens")
+}
+
+// ─── AGREGADOR ────────────────────────────────────────────────────────────────
+
+model AgregadorImovel {
+  id            String   @id @default(cuid())
+  titulo        String
+  descricao     String?
+  preco         Float?
+  precoTexto    String?
+  area          Float?
+  tipo          String?
+  bairro        String?
+  cidade        String   @default("Canaã dos Carajás")
+  estado        String   @default("PA")
+  fonte         String
+  urlFonte      String?
+  imagens       String   @default("[]")
+  status        String   @default("pendente")
+  documentoTipo String   @default("nenhum")
+  documentoObs  String?
+  contatoNome   String?
+  contatoTel    String?
+  notas         String?
+  criadoEm      DateTime @default(now())
+  atualizadoEm  DateTime @updatedAt
+
+  @@map("ops_agregador_imoveis")
+}
+
+// ─── CONFIGURAÇÕES ────────────────────────────────────────────────────────────
+
+model Configuracao {
+  id    String @id @default(cuid())
+  chave String @unique
+  valor String
+  grupo String @default("geral")
+
+  @@map("ops_configuracoes")
+}
+
+// ─── BPO FINANCEIRO ───────────────────────────────────────────────────────────
+
+model BpoCliente {
+  id            String          @id @default(cuid())
+  razaoSocial   String
+  cnpj          String?
+  cpf           String?
+  responsavel   String
+  email         String?
+  telefone      String
+  servicos      String          @default("[]") // JSON: ["contas_pagar","contas_receber","folha","fiscal","conciliacao"]
+  status        String          @default("ativo") // ativo, pausado, encerrado
+  honorarios    Float
+  diaVencimento Int             @default(10)
+  dataInicio    DateTime
+  observacoes   String          @default("")
+  lancamentos   BpoLancamento[]
+  criadoEm      DateTime        @default(now())
+  atualizadoEm  DateTime        @updatedAt
+
+  @@map("ops_bpo_clientes")
+}
+
+model BpoLancamento {
+  id               String      @id @default(cuid())
+  clienteId        String?
+  cliente          BpoCliente? @relation(fields: [clienteId], references: [id], onDelete: SetNull)
+  clienteNomeLivre String? // nome do lead/cliente quando não há clienteId
+  tipo             String // honorario, despesa, reembolso
+  descricao        String
+  valor            Float
+  vencimento       DateTime
+  pago             Boolean     @default(false)
+  pagoEm           DateTime?
+  competencia      String // "2026-06"
+  centroCustos     String?
+  criadoEm         DateTime    @default(now())
+
+  @@map("ops_bpo_lancamentos")
+}
+
+// ─── AVALIAÇÃO DE IMÓVEIS ─────────────────────────────────────────────────────
+
+model Avaliacao {
+  id              String    @id @default(cuid())
+  numero          String    @unique
+  tipo            String // mercado, locacao, judicial, parecer_tecnico
+  finalidade      String // compra_venda, locacao, judicial, garantia, inventario
+  status          String    @default("solicitada") // solicitada, vistoria, elaboracao, revisao, entregue, cancelada
+  clienteNome     String
+  clienteCpf      String?
+  clienteTel      String
+  clienteEmail    String?
+  endereco        String
+  bairro          String
+  cidade          String    @default("Canaã dos Carajás")
+  estado          String    @default("PA")
+  areaConstruida  Float?
+  areaTerreno     Float?
+  quartos         Int?
+  banheiros       Int?
+  vagas           Int?
+  caracteristicas String    @default("")
+  metodologia     String    @default("comparativo") // comparativo, renda, custo
+  valorEstimado   Float?
+  avaliador       String
+  dataVistoria    DateTime?
+  prazoEntrega    DateTime?
+  dataEntrega     DateTime?
+  observacoes     String    @default("")
+  laudo           String?
+  documentos      String    @default("[]")
+  sugestaoJson    String?
+  valorServico    Float? // valor cobrado pelo serviço de avaliação
+  leadId          String?
+  lead            Lead?     @relation("AvaliacaoLead", fields: [leadId], references: [id], onDelete: SetNull)
+  criadoEm        DateTime  @default(now())
+  atualizadoEm    DateTime  @updatedAt
+
+  @@map("ops_avaliacoes")
+}
+
+// ─── USUÁRIOS DO SISTEMA ─────────────────────────────────────────────────────
+
+model Usuario {
+  id              String           @id @default(cuid())
+  nome            String
+  email           String           @unique
+  senha           String
+  papel           String           @default("colaborador") // admin | corretor | colaborador | cliente
+  ativo           Boolean          @default(true)
+  creci           String?
+  telefone        String?
+  foto            String?
+  permissoes      String           @default("[]")
+  criadoEm        DateTime         @default(now())
+  conexaoWhatsApp ConexaoWhatsApp?
+  atualizadoEm    DateTime         @updatedAt
+
+  @@map("ops_usuarios")
+}
+
+// ─── INTEGRAÇÃO BANCÁRIA ─────────────────────────────────────────────────────
+
+model ContaBancaria {
+  id                  String              @id @default(cuid())
+  banco               String
+  agencia             String?
+  conta               String
+  tipo                String              @default("corrente") // corrente, poupanca, pagamento, investimento
+  descricao           String?
+  saldoAtual          Float               @default(0)
+  ativo               Boolean             @default(true)
+  pluggyItemId        String?
+  pluggyAccountId     String?
+  webhookUrl          String?
+  ultimaSincronizacao DateTime?
+  transacoes          TransacaoBancaria[]
+  criadoEm            DateTime            @default(now())
+
+  @@map("ops_contas_bancarias")
+}
+
+model TransacaoBancaria {
+  id         String        @id @default(cuid())
+  contaId    String
+  conta      ContaBancaria @relation(fields: [contaId], references: [id], onDelete: Cascade)
+  data       DateTime
+  descricao  String
+  valor      Float
+  tipo       String // credito, debito
+  categoria  String?
+  status     String        @default("pendente") // pendente, conciliado, ignorado
+  externalId String?       @unique
+  criadoEm   DateTime      @default(now())
+
+  @@map("ops_transacoes_bancarias")
+}
+
+// ─── CONTABILIDADE ────────────────────────────────────────────────────────────
+
+model Lancamento {
+  id             String    @id @default(cuid())
+  tipo           String // receita, despesa
+  categoria      String // servicos, comissoes, imoveis, aluguel, folha, impostos, marketing, outros
+  descricao      String
+  valor          Float
+  data           DateTime
+  vencimento     DateTime?
+  status         String    @default("pendente") // pendente, pago, cancelado
+  formaPagamento String? // pix, transferencia, boleto, dinheiro, cartao
+  referencia     String?
+  competencia    String // "2026-06"
+  fornecedor     String?
+  observacoes    String    @default("")
+  criadoEm       DateTime  @default(now())
+  atualizadoEm   DateTime  @updatedAt
+
+  @@map("ops_lancamentos")
+}
+
+// ─── WHATSAPP ─────────────────────────────────────────────────────────────────
+
+model ConexaoWhatsApp {
+  id            String             @id @default(cuid())
+  usuarioId     String             @unique
+  usuario       Usuario            @relation(fields: [usuarioId], references: [id], onDelete: Cascade)
+  provedor      String             @default("evolution") // evolution | business
+  instancia     String?
+  token         String?
+  phoneNumberId String?
+  numero        String?
+  status        String             @default("desconectado") // desconectado | aguardando_qr | conectado
+  qrCode        String?
+  mensagens     MensagemWhatsapp[]
+  criadoEm      DateTime           @default(now())
+  atualizadoEm  DateTime           @updatedAt
+
+  @@map("ops_conexoes_whatsapp")
+}
+
+model MensagemWhatsapp {
+  id               String          @id @default(cuid())
+  conexaoId        String
+  conexao          ConexaoWhatsApp @relation(fields: [conexaoId], references: [id], onDelete: Cascade)
+  leadId           String?
+  destinatario     String
+  nomeDestinatario String?
+  mensagem         String
+  status           String          @default("enviada") // enviada | entregue | lida | falhou
+  externalId       String?
+  erroMsg          String?
+  enviadaEm        DateTime        @default(now())
+  atualizadoEm     DateTime        @updatedAt
+
+  @@map("ops_mensagens_whatsapp")
+}
+
+// ─── NOTIFICAÇÕES ─────────────────────────────────────────────────────────────
+
+model Notificacao {
+  id        String   @id @default(cuid())
+  usuarioId String
+  tipo      String
+  titulo    String
+  mensagem  String
+  link      String?
+  lida      Boolean  @default(false)
+  criadoEm  DateTime @default(now())
+
+  @@index([usuarioId, lida])
+  @@map("ops_notificacoes")
+}
+
+// ─── INCORPORAÇÃO (estudos de viabilidade / massa / topografia / urbanístico) ──
+
+model EstudoIncorporacao {
+  id          String  @id @default(cuid())
+  nome        String
+  municipio   String
+  estado      String  @default("PA")
+  endereco    String? // endereço/logradouro (opcional)
+  latitude    Float? // localização exata (Google Maps)
+  longitude   Float?
+  responsavel String?
+  status      String  @default("rascunho") // rascunho | em_estudo | concluido
+
+  // Terreno / geometria
+  imovelId   String?
+  imovel     Imovel? @relation(fields: [imovelId], references: [id], onDelete: SetNull)
+  kmlUrl     String?
+  geojson    String? // Feature<Polygon> serializado
+  areaM2     Float   @default(0)
+  perimetroM Float   @default(0)
+  centroLat  Float?
+  centroLng  Float?
+
+  // APP (área de preservação permanente) calculada automaticamente a partir do
+  // mapa (Overpass + Código Florestal ou largura manual) — nunca preenchida à mão.
+  appAreaM2   Float?
+  appLarguraM Float?
+  appOrigem   String? // "auto" (Código Florestal) | "30"|"50"|"100"|"200"|"500" (manual)
+
+  // Topografia
+  elevacaoJson    String? // grid de elevações amostrado
+  levantamentoUrl String?
+  corteAterroJson String?
+
+  // Urbanístico (Fase 2)
+  parametrosJson   String?
+  potencialJson    String?
+  urbanismoParecer String?
+
+  // Mercado (Fase 2)
+  pesquisaCidadeJson String?
+  estudoMercadoJson  String?
+
+  // Precificação por comparáveis ponderados (2.2 Inteligência de Mercado —
+  // separado do estudoMercadoJson da IA para não ser sobrescrito ao refazer a pesquisa)
+  precificacaoComparaveisJson String?
+
+  // Pesquisa primária com compradores (2.2 Inteligência de Mercado)
+  pesquisaPrimariaJson String?
+
+  // Massa generativo (Fase 3)
+  massaCenariosJson  String?
+  cenarioEscolhidoId String?
+
+  // Quadro de Áreas — NBR 12721 (2.3 Novos Negócios / 3.3 Incorporação e Produto)
+  quadroAreasJson String?
+
+  // Orçamento Parametrizado (2.4 Novos Negócios)
+  orcamentoParametrizadoJson String?
+
+  // Negociação do Terreno (2.7 Novos Negócios)
+  negociacaoTerrenoJson String?
+
+  // Business Plan e Investidores (2.6 Novos Negócios)
+  businessPlanJson String?
+
+  // Contratação de Projetistas (3.1 Incorporação e Produto)
+  projetistasJson String?
+
+  // Projeto Aprovado (3.2 Incorporação e Produto)
+  aprovacaoProjetoJson String?
+
+  // Registro da Incorporação (3.4 Incorporação e Produto)
+  registroIncorporacaoJson String?
+
+  // Orçamento Preliminar e EVE (3.5 Incorporação e Produto)
+  orcamentoPreliminarJson String?
+
+  // Planejamento do Lançamento (4.1 Lançamento, Marketing e Vendas)
+  planejamentoLancamentoJson String?
+
+  // Contratação de Fornecedores (4.2 Lançamento, Marketing e Vendas)
+  fornecedoresLancamentoJson String?
+
+  // Material Publicitário (4.3 Lançamento, Marketing e Vendas)
+  materialPublicitarioJson String?
+
+  // Lançamento Imobiliário (4.4 Lançamento, Marketing e Vendas)
+  lancamentoImobiliarioJson String?
+
+  // Projetos Executivos (5.1 Projetos Executivos e Obras)
+  projetosExecutivosJson String?
+
+  // Orçamentos (5.2 Projetos Executivos e Obras)
+  orcamentoObraJson String?
+
+  // Cronograma Físico-Financeiro (5.3 Projetos Executivos e Obras)
+  cronogramaObraJson String?
+
+  // Atendimento aos Clientes (5.4 Projetos Executivos e Obras)
+  atendimentoClientesJson String?
+
+  // Mix de produtos (Fase 3)
+  mixJson String?
+
+  // Viabilidade econômica (EVE — Fase 1)
+  viabilidadeJson String?
+  cronogramaJson  String?
+  parecerIa       String?
+
+  // Estudo de loteamento determinístico (premissas do motor, estilo Lotelytics)
+  loteamentoJson String?
+
+  // Relatórios gerados (URLs de PDF)
+  relatorios String @default("[]")
+
+  criadoEm     DateTime @default(now())
+  atualizadoEm DateTime @updatedAt
+
+  @@index([status])
+  @@map("ops_estudos_incorporacao")
+}
+
+// ─── ARQUIVOS (armazenamento no próprio banco — sem dependência de Blob) ───────
+
+model Arquivo {
+  id       String   @id @default(cuid())
+  nome     String
+  mime     String   @default("application/octet-stream")
+  tamanho  Int      @default(0)
+  dados    Bytes
+  criadoEm DateTime @default(now())
+
+  @@map("ops_arquivos")
+}
