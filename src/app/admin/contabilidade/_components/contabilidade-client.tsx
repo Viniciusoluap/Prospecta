@@ -192,7 +192,7 @@ export function ContabilidadeClient({ lancamentos }: ContabilidadeClientProps) {
         <div className="bg-gray-50 border border-dashed border-gray-200 p-12 text-center">
           <DollarSign size={32} className="text-gray-300 mx-auto mb-3" />
           <p className="text-gray-500 font-medium">Nenhum lançamento encontrado</p>
-          <p className="text-gray-400 text-sm mt-1">Use o botão "Novo Lançamento" para registrar.</p>
+          <p className="text-gray-400 text-sm mt-1">Use o botão &ldquo;Novo Lançamento&rdquo; para registrar.</p>
         </div>
       ) : (
         <div className="bg-white border border-gray-100 overflow-hidden">

@@ -87,8 +87,6 @@ export function NovoFinanciamentoForm({ leads, imoveis }: Props) {
     ? imoveis.filter((i) => i.titulo.toLowerCase().includes(imovelSearch.toLowerCase()) || i.bairro.toLowerCase().includes(imovelSearch.toLowerCase()))
     : [];
 
-  const imovelValue = imovelTipo === "existente" ? imovelManual : imovelManual;
-
   return (
     <div className="max-w-2xl space-y-5">
       <div className="flex items-center gap-3">

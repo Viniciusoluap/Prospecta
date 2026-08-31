@@ -267,6 +267,83 @@ function BpoRelatorios({ relatorios }: { relatorios: RelatoriosData }) {
   );
 }
 
+function LancamentoStatusBadge({ lancamento }: { lancamento: LancamentoComCliente }) {
+  if (lancamento.pago) {
+    return (
+      <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 bg-green-100 text-green-700 uppercase">
+        <CheckCircle2 size={10} /> Pago
+      </span>
+    );
+  }
+  if (isVencido(lancamento)) {
+    return (
+      <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 bg-red-100 text-red-700 uppercase">
+        <AlertCircle size={10} /> Vencido
+      </span>
+    );
+  }
+  return (
+    <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 bg-yellow-100 text-yellow-700 uppercase">
+      <Clock size={10} /> Pendente
+    </span>
+  );
+}
+
+function LancamentoTable({
+  items,
+  isPending,
+  onPagar,
+}: {
+  items: LancamentoComCliente[];
+  isPending: boolean;
+  onPagar: (id: string) => void;
+}) {
+  return (
+    <div className="bg-white border border-gray-100 overflow-hidden">
+      <div className="overflow-x-auto">
+        <table className="w-full text-sm">
+          <thead className="bg-[var(--brand-dark)]">
+            <tr>
+              <th className="px-4 py-3 text-left text-[10px] font-bold text-gray-400 uppercase tracking-wide">Cliente</th>
+              <th className="px-4 py-3 text-left text-[10px] font-bold text-gray-400 uppercase tracking-wide hidden md:table-cell">Descrição</th>
+              <th className="px-4 py-3 text-center text-[10px] font-bold text-gray-400 uppercase tracking-wide hidden sm:table-cell">Competência</th>
+              <th className="px-4 py-3 text-center text-[10px] font-bold text-gray-400 uppercase tracking-wide">Vencimento</th>
+              <th className="px-4 py-3 text-right text-[10px] font-bold text-gray-400 uppercase tracking-wide">Valor</th>
+              <th className="px-4 py-3 text-center text-[10px] font-bold text-gray-400 uppercase tracking-wide">Status</th>
+              <th className="px-4 py-3 text-center text-[10px] font-bold text-gray-400 uppercase tracking-wide">Ações</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-gray-50">
+            {items.length === 0 ? (
+              <tr><td colSpan={7} className="px-4 py-10 text-center text-sm text-gray-400">Nenhum lançamento encontrado.</td></tr>
+            ) : items.map((lancamento) => (
+              <tr key={lancamento.id} className="hover:bg-gray-50">
+                <td className="px-4 py-3"><p className="font-medium text-[var(--brand-dark)] text-xs">{lancamento.clienteNome}</p></td>
+                <td className="px-4 py-3 hidden md:table-cell"><p className="text-xs text-gray-600 max-w-xs truncate">{lancamento.descricao}</p></td>
+                <td className="px-4 py-3 text-center text-xs text-gray-500 hidden sm:table-cell">{lancamento.competencia}</td>
+                <td className="px-4 py-3 text-center text-xs text-gray-500">{new Date(lancamento.vencimento).toLocaleDateString("pt-BR")}</td>
+                <td className="px-4 py-3 text-right font-bold text-[var(--brand-dark)] text-xs">{formatCurrency(lancamento.valor)}</td>
+                <td className="px-4 py-3 text-center"><LancamentoStatusBadge lancamento={lancamento} /></td>
+                <td className="px-4 py-3 text-center">
+                  {!lancamento.pago ? (
+                    <button
+                      onClick={() => onPagar(lancamento.id)}
+                      disabled={isPending}
+                      className="text-xs font-bold text-[var(--brand-dark)] bg-[var(--brand-yellow)] hover:bg-[var(--brand-yellow-dark)] px-3 py-1 transition-colors disabled:opacity-50"
+                    >
+                      Pagar
+                    </button>
+                  ) : <span className="text-xs text-gray-400">—</span>}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
 export function BpoClient({ lancamentos, clientes, leads, contas: initialContas, relatorios }: Props) {
   const [aba, setAba] = useState<Aba>("cobracas");
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("todas");
@@ -438,56 +515,6 @@ export function BpoClient({ lancamentos, clientes, leads, contas: initialContas,
   const abaClass = (a: Aba) =>
     `px-5 py-2.5 text-sm font-bold uppercase tracking-wider border-b-2 transition-colors ${aba === a ? "border-[var(--brand-yellow)] text-[var(--brand-dark)]" : "border-transparent text-gray-400 hover:text-[var(--brand-dark)]"}`;
 
-  function getStatusBadge(l: LancamentoComCliente) {
-    if (l.pago) return <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 bg-green-100 text-green-700 uppercase"><CheckCircle2 size={10} /> Pago</span>;
-    if (isVencido(l)) return <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 bg-red-100 text-red-700 uppercase"><AlertCircle size={10} /> Vencido</span>;
-    return <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 bg-yellow-100 text-yellow-700 uppercase"><Clock size={10} /> Pendente</span>;
-  }
-
-  function LancamentoTable({ items }: { items: LancamentoComCliente[] }) {
-    return (
-      <div className="bg-white border border-gray-100 overflow-hidden">
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead className="bg-[var(--brand-dark)]">
-              <tr>
-                <th className="px-4 py-3 text-left text-[10px] font-bold text-gray-400 uppercase tracking-wide">Cliente</th>
-                <th className="px-4 py-3 text-left text-[10px] font-bold text-gray-400 uppercase tracking-wide hidden md:table-cell">Descrição</th>
-                <th className="px-4 py-3 text-center text-[10px] font-bold text-gray-400 uppercase tracking-wide hidden sm:table-cell">Competência</th>
-                <th className="px-4 py-3 text-center text-[10px] font-bold text-gray-400 uppercase tracking-wide">Vencimento</th>
-                <th className="px-4 py-3 text-right text-[10px] font-bold text-gray-400 uppercase tracking-wide">Valor</th>
-                <th className="px-4 py-3 text-center text-[10px] font-bold text-gray-400 uppercase tracking-wide">Status</th>
-                <th className="px-4 py-3 text-center text-[10px] font-bold text-gray-400 uppercase tracking-wide">Ações</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-gray-50">
-              {items.length === 0 ? (
-                <tr><td colSpan={7} className="px-4 py-10 text-center text-sm text-gray-400">Nenhum lançamento encontrado.</td></tr>
-              ) : items.map((l) => (
-                <tr key={l.id} className="hover:bg-gray-50">
-                  <td className="px-4 py-3"><p className="font-medium text-[var(--brand-dark)] text-xs">{l.clienteNome}</p></td>
-                  <td className="px-4 py-3 hidden md:table-cell"><p className="text-xs text-gray-600 max-w-xs truncate">{l.descricao}</p></td>
-                  <td className="px-4 py-3 text-center text-xs text-gray-500 hidden sm:table-cell">{l.competencia}</td>
-                  <td className="px-4 py-3 text-center text-xs text-gray-500">{new Date(l.vencimento).toLocaleDateString("pt-BR")}</td>
-                  <td className="px-4 py-3 text-right font-bold text-[var(--brand-dark)] text-xs">{formatCurrency(l.valor)}</td>
-                  <td className="px-4 py-3 text-center">{getStatusBadge(l)}</td>
-                  <td className="px-4 py-3 text-center">
-                    {!l.pago ? (
-                      <button onClick={() => handlePagar(l.id)} disabled={isPending}
-                        className="text-xs font-bold text-[var(--brand-dark)] bg-[var(--brand-yellow)] hover:bg-[var(--brand-yellow-dark)] px-3 py-1 transition-colors disabled:opacity-50">
-                        Pagar
-                      </button>
-                    ) : <span className="text-xs text-gray-400">—</span>}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      </div>
-    );
-  }
-
   return (
     <div className="space-y-5">
       {/* Header */}
@@ -633,7 +660,7 @@ export function BpoClient({ lancamentos, clientes, leads, contas: initialContas,
               {allAnos.map((a) => <option key={a} value={a}>{a}</option>)}
             </select>
           </div>
-          <LancamentoTable items={cobracasFiltered} />
+          <LancamentoTable items={cobracasFiltered} isPending={isPending} onPagar={handlePagar} />
         </div>
       )}
 
@@ -670,7 +697,7 @@ export function BpoClient({ lancamentos, clientes, leads, contas: initialContas,
               {allAnos.map((a) => <option key={a} value={a}>{a}</option>)}
             </select>
           </div>
-          <LancamentoTable items={despesasFiltered} />
+          <LancamentoTable items={despesasFiltered} isPending={isPending} onPagar={handlePagar} />
         </div>
       )}
 

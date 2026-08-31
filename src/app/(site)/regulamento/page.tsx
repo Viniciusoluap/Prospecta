@@ -24,7 +24,7 @@ export default function Regulamento() {
               <h2 className="text-2xl font-semibold text-[#C9A961] mb-4">1. Organizador</h2>
               <p>
                 O sorteio é promovido por <strong>EFFICAZ PROMOÇÃO DE VENDAS</strong>, CNPJ 41.865.900/0001-89, 
-                com sede em Imperatriz - MA, denominado simplesmente como "Organizador".
+                com sede em Imperatriz - MA, denominado simplesmente como &ldquo;Organizador&rdquo;.
               </p>
             </section>
 

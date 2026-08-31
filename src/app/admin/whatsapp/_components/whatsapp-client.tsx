@@ -86,7 +86,7 @@ export function WhatsAppClient({ leads, minhaConexao: initialConexao, conexoesCo
   const [businessPhoneId, setBusinessPhoneId] = useState("");
   const [businessNumero, setBusinessNumero] = useState("");
   const [desconectando, setDesconectando] = useState(false);
-  const [_isPending, startTransition] = useTransition();
+  const [, startTransition] = useTransition();
 
   const [selectedLeads, setSelectedLeads] = useState<string[]>([]);
   const [searchLead, setSearchLead] = useState("");

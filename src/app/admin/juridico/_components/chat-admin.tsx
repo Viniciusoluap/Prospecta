@@ -46,18 +46,26 @@ export function ChatAdmin({ leads }: Props) {
 
   useEffect(() => {
     if (!selectedLead) return;
-    lastTimestampRef.current = null;
-    setMensagens([]);
-    fetchMensagens(selectedLead.id, true);
+    const initialFetch = setTimeout(
+      () => void fetchMensagens(selectedLead.id, true),
+      0
+    );
 
     intervalRef.current = setInterval(() => {
       fetchMensagens(selectedLead.id);
     }, 4000);
 
     return () => {
+      clearTimeout(initialFetch);
       if (intervalRef.current) clearInterval(intervalRef.current);
     };
   }, [selectedLead, fetchMensagens]);
+
+  function handleSelectLead(lead: Lead) {
+    lastTimestampRef.current = null;
+    setMensagens([]);
+    setSelectedLead(lead);
+  }
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -111,7 +119,7 @@ export function ChatAdmin({ leads }: Props) {
           {leads.map((lead) => (
             <button
               key={lead.id}
-              onClick={() => setSelectedLead(lead)}
+              onClick={() => handleSelectLead(lead)}
               className={`w-full text-left px-4 py-3 border-b border-gray-50 transition-colors hover:bg-gray-50 ${
                 selectedLead?.id === lead.id ? "bg-[var(--brand-yellow)]/20 border-l-2 border-l-[var(--brand-yellow)]" : ""
               }`}

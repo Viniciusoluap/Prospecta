@@ -80,7 +80,7 @@ export default async function JuridicoPage({
           { label: "Ativos", value: ativos, color: "text-green-700", bg: "bg-green-100" },
           { label: "Rascunhos", value: rascunhos, color: "text-gray-600", bg: "bg-gray-100" },
           { label: "Valor em carteira", value: formatCurrency(valorTotal), color: "text-[var(--brand-dark)]", bg: "bg-blue-100" },
-        ].map(({ label, value, color, bg }) => (
+        ].map(({ label, value, color }) => (
           <div key={label} className="bg-white border border-gray-100 p-4">
             <p className={`font-black text-xl leading-none ${color}`}>{value}</p>
             <p className="text-gray-400 text-xs mt-1 uppercase tracking-wide">{label}</p>

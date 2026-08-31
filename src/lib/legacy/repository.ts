@@ -6,7 +6,7 @@ import {
   InsertUser, users, User,
   draws, Draw, InsertDraw,
   tickets, Ticket, InsertTicket,
-  utefBalances, UtefBalance, InsertUtefBalance,
+  utefBalances, UtefBalance,
   utefTransactions, UtefTransaction, InsertUtefTransaction,
   products, Product, InsertProduct,
   productConversions, ProductConversion, InsertProductConversion,
@@ -28,7 +28,7 @@ import {
   lots, Lot, InsertLot,
   partnerDistributions, PartnerDistribution, InsertPartnerDistribution,
   financialTransactions, FinancialTransaction, InsertFinancialTransaction,
-  obraFees, ObraFee, InsertObraFee,
+  obraFees, ObraFee,
   obraMeasurements, ObraMeasurement, InsertObraMeasurement,
   paymentSettings, PaymentSetting, InsertPaymentSetting,
 } from "./schema";
@@ -237,7 +237,7 @@ export async function getUtefTransactionsByUserId(userId: number): Promise<UtefT
 export async function getProducts(category?: string): Promise<Product[]> {
   const db = getDb();
   if (category) {
-    return db.select().from(products).where(and(eq(products.category, category as any), eq(products.status, "available")));
+    return db.select().from(products).where(and(eq(products.category, category as Product["category"]), eq(products.status, "available")));
   }
   return db.select().from(products).where(eq(products.status, "available"));
 }
@@ -578,9 +578,9 @@ export async function getAllLeads(filters?: {
   const db = getDb();
   let query = db.select().from(leads).$dynamic();
   const conditions = [];
-  if (filters?.stage) conditions.push(eq(leads.stage, filters.stage as any));
-  if (filters?.responsible) conditions.push(eq(leads.responsible, filters.responsible as any));
-  if (filters?.temperature) conditions.push(eq(leads.temperature, filters.temperature as any));
+  if (filters?.stage) conditions.push(eq(leads.stage, filters.stage as Lead["stage"]));
+  if (filters?.responsible) conditions.push(eq(leads.responsible, filters.responsible as Lead["responsible"]));
+  if (filters?.temperature) conditions.push(eq(leads.temperature, filters.temperature as Lead["temperature"]));
   if (filters?.city) conditions.push(like(leads.city, `%${filters.city}%`));
   if (conditions.length > 0) query = query.where(and(...conditions));
   return query.orderBy(desc(leads.createdAt));

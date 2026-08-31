@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { FileText, X, Download, ExternalLink } from "lucide-react";
+import { FileText, X, ExternalLink } from "lucide-react";
 
 interface Documento {
   id: string;

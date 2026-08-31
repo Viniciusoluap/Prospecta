@@ -2,15 +2,13 @@ import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { 
-  Home as HomeIcon, 
   Building2, 
   Shield, 
   Clock, 
   DollarSign,
   CheckCircle2,
   ChevronRight,
-  Star,
-  Quote
+  Star
 } from "lucide-react";
 
 export function ProspectaHome() {
@@ -704,8 +702,8 @@ export function ProspectaHome() {
                     />
                   </div>
                   <p className="text-white/80 mb-4 italic text-sm">
-                    "A Prospecta realizou meu sonho! Construíram minha casa com qualidade e no prazo. 
-                    Recomendo de olhos fechados!"
+                    &ldquo;A Prospecta realizou meu sonho! Construíram minha casa com qualidade e no prazo.
+                    Recomendo de olhos fechados!&rdquo;
                   </p>
                   <div className="flex items-center gap-2">
                     <div className="flex text-accent">
@@ -734,8 +732,8 @@ export function ProspectaHome() {
                     />
                   </div>
                   <p className="text-white/80 mb-4 italic text-sm">
-                    "Excelente atendimento desde o orçamento até a entrega das chaves. 
-                    Equipe profissional e comprometida!"
+                    &ldquo;Excelente atendimento desde o orçamento até a entrega das chaves.
+                    Equipe profissional e comprometida!&rdquo;
                   </p>
                   <div className="flex items-center gap-2">
                     <div className="flex text-accent">
@@ -764,9 +762,9 @@ export function ProspectaHome() {
                     />
                   </div>
                   <p className="text-white/80 mb-4 italic text-sm">
-                    "Esse é um dos nossos investidores e um verdadeiro case de sucesso! Ele investiu R$ 7.750,00 e, 
+                    &ldquo;Esse é um dos nossos investidores e um verdadeiro case de sucesso! Ele investiu R$ 7.750,00 e,
                     em apenas 5 meses, recebeu R$ 13.837,50! Isso representa um ROI de 78,5%, ou seja, 15,7% ao mês! 
-                    Utilizamos um modelo de investimento estrategicamente financiado pela Caixa, garantindo segurança e alta rentabilidade!"
+                    Utilizamos um modelo de investimento estrategicamente financiado pela Caixa, garantindo segurança e alta rentabilidade!&rdquo;
                   </p>
                   <div className="flex items-center gap-2">
                     <div className="flex text-accent">

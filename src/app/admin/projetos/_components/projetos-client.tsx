@@ -164,8 +164,6 @@ export function ProjetosClient({ projetos }: Props) {
             </thead>
             <tbody className="divide-y divide-gray-50">
               {filtered.map((p) => {
-                const statusKey = p.status as ProjetoStatus;
-                const cfg = PROJETO_STATUS_CONFIG[statusKey] ?? PROJETO_STATUS_CONFIG["solicitado"];
                 return (
                   <tr key={p.id} className="hover:bg-gray-50">
                     <td className="px-4 py-3">

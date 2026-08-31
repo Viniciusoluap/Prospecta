@@ -162,8 +162,6 @@ export function RegularizacaoClient({ regularizacoes }: Props) {
       {/* Cards */}
       <div className="space-y-3">
         {filtered.map((r) => {
-          const statusKey = r.status as RegStatus;
-          const cfg = REG_STATUS_CONFIG[statusKey] ?? REG_STATUS_CONFIG["analise_inicial"];
           const tipo = { icon: parseTipoIconReg(r.tipo), label: parseTiposLabelReg(r.tipo) };
           const docsOk = r.documentos.filter((d) => d.status === "aprovado" || d.status === "obtido").length;
           return (

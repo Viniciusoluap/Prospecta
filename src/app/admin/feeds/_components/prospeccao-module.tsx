@@ -44,7 +44,10 @@ export function ProspeccaoModule({ apiConfigurada }: { apiConfigurada: boolean }
     }
   }, []);
 
-  useEffect(() => { void fetchDrafts(); }, [fetchDrafts]);
+  useEffect(() => {
+    const initialFetch = setTimeout(() => void fetchDrafts(), 0);
+    return () => clearTimeout(initialFetch);
+  }, [fetchDrafts]);
 
   async function executarProspeccao() {
     setRunning(true);

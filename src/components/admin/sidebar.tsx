@@ -11,7 +11,6 @@ import {
   LogOut,
   ChevronRight,
   Settings,
-  FileText,
   Calculator,
   CalendarDays,
   BadgeDollarSign,
@@ -25,7 +24,6 @@ import {
   Scale,
   Briefcase,
   ClipboardList,
-  BookOpen,
   Mountain,
   Gift,
 } from "lucide-react";

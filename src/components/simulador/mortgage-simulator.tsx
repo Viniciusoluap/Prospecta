@@ -5,8 +5,6 @@ import {
   Calculator,
   Info,
   TrendingDown,
-  TrendingUp,
-  CircleDollarSign,
   ChevronDown,
   ChevronUp,
   FileDown,

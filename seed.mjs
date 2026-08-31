@@ -9,7 +9,7 @@ async function seed() {
   try {
     // Criar sorteio ativo
     console.log("📋 Criando sorteio de exemplo...");
-    const drawResult = await db.insert(draws).values({
+    await db.insert(draws).values({
       title: "Sorteio Efficaz 2025 - 200 Mil UTEFs",
       description: "Participe e concorra a 200.000 UTEFs para converter em imóveis, serviços financeiros ou embarcações do Grupo Efficaz!",
       prizeAmount: 200000,

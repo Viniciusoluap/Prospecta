@@ -16,7 +16,6 @@ import {
 import { prisma } from "@/lib/db";
 import { imovelToProperty } from "@/lib/data/properties";
 import { formatCurrency } from "@/lib/utils";
-import { Button } from "@/components/ui/button";
 import { PropertyGallery } from "./_components/property-gallery";
 import { PropertyMapViewer } from "./_components/property-map-viewer";
 

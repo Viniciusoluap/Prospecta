@@ -58,7 +58,6 @@ export function RelatoriosClient({
   propertyTypeData,
   leadFunnelData,
   corretorRanking,
-  serviceRevenue,
   avaliacoesPorStatus,
   fromDate,
   toDate,

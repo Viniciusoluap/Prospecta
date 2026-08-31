@@ -49,8 +49,9 @@ interface LeadsClientProps {
 export function LeadsClient({ leads }: LeadsClientProps) {
   const [view, setView] = useState<"kanban" | "list">("kanban");
   const [search, setSearch] = useState("");
+  const [referenceTime] = useState(() => Date.now());
 
-  const tenDaysAgo = new Date(Date.now() - 10 * 24 * 60 * 60 * 1000);
+  const tenDaysAgo = new Date(referenceTime - 10 * 24 * 60 * 60 * 1000);
   const followUp = leads
     .filter((l) => !["fechado", "perdido"].includes(l.status) && l.visitas.length > 0)
     .flatMap((l) => {
@@ -59,7 +60,7 @@ export function LeadsClient({ leads }: LeadsClientProps) {
       )[0];
       if (!lastVisit || new Date(lastVisit.agendadaPara) >= tenDaysAgo) return [];
       const days = Math.floor(
-        (Date.now() - new Date(lastVisit.agendadaPara).getTime()) / (1000 * 60 * 60 * 24)
+        (referenceTime - new Date(lastVisit.agendadaPara).getTime()) / (1000 * 60 * 60 * 24)
       );
       return [{ lead: l, lastVisit, days }];
     })

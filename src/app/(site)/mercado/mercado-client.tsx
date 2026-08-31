@@ -29,7 +29,7 @@ interface Props {
 }
 
 export function MercadoClient({ listings }: Props) {
-  const [search, setSearch] = useState("");
+  const search = "";
   const [sourceFilter, setSourceFilter] = useState<string>("todos");
   const [typeFilter, setTypeFilter] = useState<string>("todos");
   const [docFilter, setDocFilter] = useState<string>("todos");

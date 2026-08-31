@@ -15,6 +15,18 @@ interface NotificacaoItem {
   link: string | null;
   lida: boolean;
   criadoEm: string;
+  tempoRelativo?: string;
+}
+
+function formatTempoRelativo(dateStr: string, referenceTime: number) {
+  const diff = referenceTime - new Date(dateStr).getTime();
+  const min = Math.floor(diff / 60000);
+  const h = Math.floor(min / 60);
+  const d = Math.floor(h / 24);
+  if (d > 0) return `há ${d}d`;
+  if (h > 0) return `há ${h}h`;
+  if (min > 0) return `há ${min}min`;
+  return "agora";
 }
 
 export function AdminShell({ children }: { children: React.ReactNode }) {
@@ -47,16 +59,25 @@ export function AdminShell({ children }: { children: React.ReactNode }) {
     try {
       const res = await fetch("/api/notificacoes");
       const data = (await res.json()) as { notificacoes?: NotificacaoItem[] };
-      setNotificacoes(data.notificacoes ?? []);
+      const referenceTime = Date.now();
+      setNotificacoes(
+        (data.notificacoes ?? []).map((notificacao) => ({
+          ...notificacao,
+          tempoRelativo: formatTempoRelativo(notificacao.criadoEm, referenceTime),
+        }))
+      );
     } catch {
       /* ignore */
     }
   }, []);
 
   useEffect(() => {
-    fetchNotificacoes();
+    const initialFetch = setTimeout(() => void fetchNotificacoes(), 0);
     const interval = setInterval(fetchNotificacoes, 60000);
-    return () => clearInterval(interval);
+    return () => {
+      clearTimeout(initialFetch);
+      clearInterval(interval);
+    };
   }, [fetchNotificacoes]);
 
   async function handleMarcarLidas() {
@@ -126,17 +147,6 @@ export function AdminShell({ children }: { children: React.ReactNode }) {
     if (tipo === "cobranca_vencendo") return "💰";
     if (tipo === "prazo_obra") return "🏗️";
     return "🔔";
-  }
-
-  function tempoRelativo(dateStr: string) {
-    const diff = Date.now() - new Date(dateStr).getTime();
-    const min = Math.floor(diff / 60000);
-    const h = Math.floor(min / 60);
-    const d = Math.floor(h / 24);
-    if (d > 0) return `há ${d}d`;
-    if (h > 0) return `há ${h}h`;
-    if (min > 0) return `há ${min}min`;
-    return "agora";
   }
 
   return (
@@ -260,7 +270,7 @@ export function AdminShell({ children }: { children: React.ReactNode }) {
                               {n.mensagem}
                             </p>
                             <p className="text-[10px] text-gray-400 mt-1">
-                              {tempoRelativo(n.criadoEm)}
+                              {n.tempoRelativo ?? "agora"}
                             </p>
                           </div>
                           {n.link && (

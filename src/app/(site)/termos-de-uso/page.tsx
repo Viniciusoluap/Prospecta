@@ -123,7 +123,7 @@ export default function TermosDeUso() {
             <section>
               <h2 className="text-2xl font-semibold text-[#C9A961] mb-4">7. Limitação de Responsabilidade</h2>
               <p className="mb-4">
-                <strong>7.1.</strong> A Plataforma é fornecida "como está" e "conforme disponível", sem garantias de qualquer tipo.
+                <strong>7.1.</strong> A Plataforma é fornecida &ldquo;como está&rdquo; e &ldquo;conforme disponível&rdquo;, sem garantias de qualquer tipo.
               </p>
               <p className="mb-4">
                 <strong>7.2.</strong> O Grupo Efficaz não se responsabiliza por:
