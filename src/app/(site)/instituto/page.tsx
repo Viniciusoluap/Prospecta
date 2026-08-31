@@ -54,7 +54,7 @@ export default function InstitutoPage() {
           </p>
           <h1 className="text-white font-black text-4xl md:text-6xl uppercase leading-tight max-w-3xl">
             Instituto{" "}
-            <span className="text-[var(--brand-yellow)]">Santa Fé</span>
+            <span className="text-[var(--brand-yellow)]">Prospecta</span>
           </h1>
           <p className="text-gray-400 mt-4 max-w-xl">
             Transformando vidas e comunidades em Canaã dos Carajás - PA através
@@ -106,7 +106,7 @@ export default function InstitutoPage() {
               Nossas Ações Sociais
             </h2>
             <p className="text-gray-500 leading-relaxed mb-8">
-              O Instituto Santa Fé atua em diversas frentes para promover
+              O Instituto Prospecta atua em diversas frentes para promover
               desenvolvimento humano, preservação ambiental e qualidade de vida
               na comunidade de Canaã dos Carajás e região.
             </p>

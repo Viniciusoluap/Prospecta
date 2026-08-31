@@ -29,10 +29,10 @@ export async function gerarPdfContrato(contratoId: string) {
   doc.setTextColor(245, 196, 0);
   doc.setFontSize(14);
   doc.setFont("helvetica", "bold");
-  doc.text("GRUPO SANTA FÉ", 14, 12);
+  doc.text("PROSPECTA CONSTRUÇÕES", 14, 12);
   doc.setFontSize(8);
   doc.setTextColor(200, 200, 200);
-  doc.text("Soluções Imobiliárias", 14, 18);
+  doc.text("Construções e Soluções Imobiliárias", 14, 18);
   doc.setTextColor(180, 180, 180);
   doc.text(`Nº ${contrato.numero}`, pw - 14, 12, { align: "right" });
   doc.text(new Date().toLocaleDateString("pt-BR"), pw - 14, 18, { align: "right" });

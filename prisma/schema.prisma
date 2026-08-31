@@ -1,4 +1,4 @@
-// Grupo Santa Fé — Schema completo
+// Prospecta Construções — schema operacional
 // Database: SQLite (dev) / PostgreSQL (prod)
 
 generator client {

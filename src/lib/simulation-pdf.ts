@@ -28,7 +28,7 @@ function buildPdf(input: SimulationInput, result: SimulationResult, includeSched
   doc.setTextColor(...BRAND_YELLOW);
   doc.setFont("helvetica", "bold");
   doc.setFontSize(16);
-  doc.text("GRUPO SANTA FÉ", margin, 32);
+  doc.text("PROSPECTA CONSTRUÇÕES", margin, 32);
   doc.setTextColor(255, 255, 255);
   doc.setFont("helvetica", "normal");
   doc.setFontSize(10);
@@ -199,13 +199,13 @@ function buildPdf(input: SimulationInput, result: SimulationResult, includeSched
 export function generateSimulationPdf(input: SimulationInput, result: SimulationResult) {
   const dateStr = new Date().toLocaleDateString("pt-BR");
   buildPdf(input, result, false).save(
-    `simulacao-financiamento-grupo-santa-fe-${dateStr.replace(/\//g, "-")}.pdf`
+    `simulacao-financiamento-prospecta-${dateStr.replace(/\//g, "-")}.pdf`
   );
 }
 
 export function generateSimulationPdfWithSchedule(input: SimulationInput, result: SimulationResult) {
   const dateStr = new Date().toLocaleDateString("pt-BR");
   buildPdf(input, result, true).save(
-    `simulacao-completa-grupo-santa-fe-${dateStr.replace(/\//g, "-")}.pdf`
+    `simulacao-completa-prospecta-${dateStr.replace(/\//g, "-")}.pdf`
   );
 }

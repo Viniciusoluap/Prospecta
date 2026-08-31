@@ -228,7 +228,7 @@ export default async function BatchLaudosPage({ searchParams }: PageProps) {
               {/* Header */}
               <div className="border-b-2 border-[#1A1A1A] pb-4 flex items-start justify-between gap-4">
                 <div>
-                  <p className="text-xl font-black uppercase tracking-wide text-[#1A1A1A]">GRUPO SANTA FÉ</p>
+                  <p className="text-xl font-black uppercase tracking-wide text-[#1A1A1A]">PROSPECTA CONSTRUÇÕES</p>
                   <p className="text-xs text-gray-500 uppercase tracking-widest">Imóveis · Projetos · Avaliações</p>
                 </div>
                 <div className="text-right">
