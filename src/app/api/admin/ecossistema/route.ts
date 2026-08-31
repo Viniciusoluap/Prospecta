@@ -1,8 +1,9 @@
-import { and, eq, sql } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { z } from "zod";
 import { auth } from "@/auth";
 import { getDb } from "@/lib/legacy/repository";
-import { draws, productConversions, products, tickets, userNotifications, utefBalances, utefTransactions } from "@/lib/legacy/schema";
+import { adjustUtefBalance, performDraw, processConversion } from "@/lib/legacy/ecossistema-ledger";
+import { draws, products, tickets } from "@/lib/legacy/schema";
 
 const actionSchema = z.discriminatedUnion("action", [
   z.object({ action: z.literal("create_draw"), title: z.string().trim().min(3), description: z.string().trim().optional(), prizeAmount: z.number().int().positive(), ticketPrice: z.number().int().positive(), targetAmount: z.number().int().positive(), drawDate: z.string().optional() }),
@@ -44,12 +45,13 @@ export async function POST(request: Request) {
     const confirmed = await db.select().from(tickets).where(and(eq(tickets.drawId, draw.id), eq(tickets.paymentStatus, "confirmed")));
     if (!confirmed.length) return Response.json({ error: "Não há bilhetes confirmados." }, { status: 409 });
     const winner = confirmed[Number(input.lotteryResult.slice(-2)) % confirmed.length];
-    const updated = await db.update(draws).set({ status: "drawn", winnerUserId: winner.userId, lotteryResult: input.lotteryResult, updatedAt: new Date() })
-      .where(and(eq(draws.id, draw.id), eq(draws.status, "closed"))).returning({ id: draws.id });
-    if (!updated.length) return Response.json({ error: "Sorteio já processado." }, { status: 409 });
-    await db.insert(utefBalances).values({ userId: winner.userId, balance: draw.prizeAmount }).onConflictDoUpdate({ target: utefBalances.userId, set: { balance: sql`${utefBalances.balance} + ${draw.prizeAmount}`, updatedAt: new Date() } });
-    await db.insert(utefTransactions).values({ userId: winner.userId, amount: draw.prizeAmount, type: "prize", description: `Prêmio do sorteio: ${draw.title}`, relatedId: draw.id, referenceId: `draw:${draw.id}` });
-    await db.insert(userNotifications).values({ userId: winner.userId, title: "Você ganhou!", message: `Seu bilhete ${winner.ticketNumber} ganhou ${draw.prizeAmount} UTEFs em ${draw.title}.`, type: "draw_result", relatedId: draw.id, actionUrl: "/utef" });
+    const processed = await performDraw({
+      drawId: draw.id,
+      lotteryResult: input.lotteryResult,
+      winnerUserId: winner.userId,
+      winnerTicketNumber: winner.ticketNumber,
+    });
+    if (!processed) return Response.json({ error: "Sorteio já processado." }, { status: 409 });
     return Response.json({ success: true, winnerTicket: winner.ticketNumber });
   }
 
@@ -59,17 +61,11 @@ export async function POST(request: Request) {
   }
 
   if (input.action === "update_conversion") {
-    const [conversion] = await db.select().from(productConversions).where(eq(productConversions.id, input.conversionId)).limit(1);
-    if (!conversion || conversion.status !== "pending") return Response.json({ error: "Conversão já processada." }, { status: 409 });
-    await db.update(productConversions).set({ status: input.status, updatedAt: new Date() }).where(eq(productConversions.id, input.conversionId));
-    if (input.status === "cancelled") {
-      await db.update(utefBalances).set({ balance: sql`${utefBalances.balance} + ${conversion.utefAmount}`, updatedAt: new Date() }).where(eq(utefBalances.userId, conversion.userId));
-      await db.insert(utefTransactions).values({ userId: conversion.userId, amount: conversion.utefAmount, type: "adjustment", description: "Estorno de conversão cancelada", relatedId: conversion.id });
-    }
+    const processed = await processConversion({ conversionId: input.conversionId, status: input.status });
+    if (!processed) return Response.json({ error: "Conversão já processada." }, { status: 409 });
     return Response.json({ success: true });
   }
 
-  await db.insert(utefBalances).values({ userId: input.userId, balance: input.amount }).onConflictDoUpdate({ target: utefBalances.userId, set: { balance: sql`${utefBalances.balance} + ${input.amount}`, updatedAt: new Date() } });
-  await db.insert(utefTransactions).values({ userId: input.userId, amount: input.amount, type: "adjustment", description: input.description });
+  await adjustUtefBalance(input);
   return Response.json({ success: true });
 }

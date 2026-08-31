@@ -1,13 +1,7 @@
-import { and, eq, gte, sql } from "drizzle-orm";
 import { auth } from "@/auth";
-import { getProductById, getDb } from "@/lib/legacy/repository";
+import { getProductById } from "@/lib/legacy/repository";
 import { resolveLegacyUser } from "@/lib/legacy/session";
-import {
-  productConversions,
-  userNotifications,
-  utefBalances,
-  utefTransactions,
-} from "@/lib/legacy/schema";
+import { createProductConversion } from "@/lib/legacy/ecossistema-ledger";
 
 export async function POST(
   _request: Request,
@@ -25,48 +19,16 @@ export async function POST(
     return Response.json({ error: "Produto indisponível." }, { status: 404 });
   }
 
-  const db = getDb();
-  const debited = await db
-    .update(utefBalances)
-    .set({
-      balance: sql`${utefBalances.balance} - ${product.priceUtef}`,
-      updatedAt: new Date(),
-    })
-    .where(and(eq(utefBalances.userId, user.id), gte(utefBalances.balance, product.priceUtef)))
-    .returning({ id: utefBalances.id });
-
-  if (debited.length === 0) {
-    return Response.json({ error: "Saldo UTEF insuficiente." }, { status: 400 });
-  }
-
   try {
-    const [conversion] = await db.insert(productConversions).values({
+    const conversionId = await createProductConversion({
       userId: user.id,
       productId: product.id,
+      productTitle: product.title,
       utefAmount: product.priceUtef,
-      status: "pending",
-    }).returning();
-    await db.insert(utefTransactions).values({
-      userId: user.id,
-      amount: -product.priceUtef,
-      type: "conversion",
-      description: `Conversão em: ${product.title}`,
-      relatedId: product.id,
     });
-    await db.insert(userNotifications).values({
-      userId: user.id,
-      title: "Conversão realizada",
-      message: `Você converteu ${product.priceUtef} UTEFs em ${product.title}.`,
-      type: "utef_update",
-      relatedId: conversion.id,
-      actionUrl: "/minhas-conversoes",
-    });
+    if (!conversionId) return Response.json({ error: "Saldo UTEF insuficiente." }, { status: 400 });
     return Response.json({ message: "Conversão registrada com sucesso." });
   } catch (error) {
-    await db.update(utefBalances).set({
-      balance: sql`${utefBalances.balance} + ${product.priceUtef}`,
-      updatedAt: new Date(),
-    }).where(eq(utefBalances.userId, user.id));
     console.error("[Ecossistema] Falha ao converter UTEF", error);
     return Response.json({ error: "Não foi possível concluir a conversão." }, { status: 500 });
   }
