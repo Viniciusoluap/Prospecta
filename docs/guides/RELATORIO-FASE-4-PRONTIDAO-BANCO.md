@@ -1,7 +1,7 @@
 # Relatório da Fase 4 — prontidão para ensaio de banco
 
 - HEAD inicial: `8044571c9847f5ea9b2dea63f4620f514a9c4ad4`
-- Status: bloqueada antes de qualquer conexão ou alteração de banco.
+- Status: concluída por dispensa autorizada pelo proprietário em 1º de setembro de 2026.
 
 ## Escopo executado
 
@@ -18,11 +18,11 @@ Foi feita a pré-checagem estática do repositório e do ambiente de trabalho. N
 | Instruções destrutivas nos SQLs versionados | nenhuma (`DROP`, `TRUNCATE`, `DELETE` ou remoção de coluna) |
 | Credencial de banco no ambiente atual | ausente; nenhum valor foi exposto |
 
-## Pré-requisito faltante
+## Decisão do proprietário
 
-Esta fase requer acesso autorizado a **backup sanitizado ou staging isolado**. Não há `DATABASE_URL`, `POSTGRES_PRISMA_URL`, `POSTGRES_URL`, `NEON_DATABASE_URL`, `DATABASE_URL_UNPOOLED` ou `POSTGRES_URL_NON_POOLING` configurada neste ambiente; também não há `.env` nem `.env.local` no workspace.
+O proprietário confirmou que não há base ou dados a recuperar. Portanto, o ensaio de backup/restauração desta fase não é necessário neste momento e a execução pode prosseguir para a validação de interface.
 
-Por segurança, uma URL de produção não deve ser fornecida para este ensaio. É necessário um banco de staging restaurado de backup e uma credencial com permissão limitada a esse banco.
+Não há `DATABASE_URL`, `POSTGRES_PRISMA_URL`, `POSTGRES_URL`, `NEON_DATABASE_URL`, `DATABASE_URL_UNPOOLED` ou `POSTGRES_URL_NON_POOLING` configurada neste ambiente; também não há `.env` nem `.env.local` no workspace. Nenhuma migration foi aplicada.
 
 ## Ordem proposta para o ensaio (a confirmar no staging)
 
@@ -57,16 +57,15 @@ Os comandos de aplicação e restauração serão registrados com as URLs mascar
 ## Testes e resultados
 
 - Inspeção estática dos manifests de migration: concluída.
-- Não há validação de migration possível sem staging autorizado.
+- O ensaio de migration/restauração foi dispensado por não haver dados a recuperar.
 
 ## Riscos ou pendências
 
-- A baseline Prisma usa o mesmo schema `public`, mas os nomes `ops_*` foram verificados estaticamente; a ausência de colisões na base real ainda precisa ser comprovada.
-- A ordem e o conjunto de migrations legadas realmente pendentes dependem do histórico presente no backup/staging.
+- Quando um banco passar a ser criado para staging ou produção, a baseline Prisma e as migrations legadas deverão ser aplicadas somente depois de definir a estratégia de provisionamento inicial.
 
 ## Commit do checkpoint
 
-- A registrar neste checkpoint de prontidão.
+- `checkpoint/fase-4: waive database rehearsal without legacy data`
 
 ## Como reverter
 
@@ -74,4 +73,4 @@ Os comandos de aplicação e restauração serão registrados com as URLs mascar
 
 ## Próxima fase autorizada
 
-- Não. É necessário disponibilizar staging ou backup sanitizado autorizado para concluir a Fase 4.
+- Sim. Fase 5 — interface, responsividade e acessibilidade.
