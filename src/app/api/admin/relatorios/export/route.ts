@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/auth";
 import { prisma } from "@/lib/db";
+import { apiRoleError } from "@/lib/auth/rbac";
 
 function parseDate(raw: string | null, fallback: Date): Date {
   if (!raw) return fallback;
@@ -10,7 +11,8 @@ function parseDate(raw: string | null, fallback: Date): Date {
 
 export async function GET(req: NextRequest) {
   const session = await auth();
-  if (!session) return NextResponse.json({ error: "Não autorizado" }, { status: 401 });
+  const denied = apiRoleError(session, "admin");
+  if (denied) return denied;
 
   const { searchParams } = req.nextUrl;
   const now = new Date();

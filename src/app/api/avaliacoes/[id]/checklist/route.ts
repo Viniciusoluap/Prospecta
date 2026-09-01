@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
+import { auth } from "@/auth";
+import { apiRoleError } from "@/lib/auth/rbac";
 
 export const runtime = "nodejs";
 
@@ -9,10 +11,13 @@ export async function POST(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
+  const session = await auth();
+  const denied = apiRoleError(session, "admin", "corretor", "colaborador");
+  if (denied) return denied;
   const { id } = await params;
   const { dados } = (await req.json()) as { dados: string };
 
-  if (!id || !dados) {
+  if (!id || !dados || typeof dados !== "string" || dados.length > 9 * 1024 * 1024) {
     return NextResponse.json({ error: "Missing id or dados" }, { status: 400 });
   }
 

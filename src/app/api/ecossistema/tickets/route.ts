@@ -12,6 +12,7 @@ import {
   updateTicket,
 } from "@/lib/legacy/repository";
 import { resolveLegacyUser } from "@/lib/legacy/session";
+import { logOperationalError, requestId } from "@/lib/observability/logger";
 
 const payloadSchema = z.object({
   drawId: z.number().int().positive(),
@@ -20,6 +21,7 @@ const payloadSchema = z.object({
 });
 
 export async function POST(request: Request) {
+  const correlationId = requestId(request);
   const session = await auth();
   if (!session) return Response.json({ error: "Faça login para comprar bilhetes." }, { status: 401 });
 
@@ -93,7 +95,11 @@ export async function POST(request: Request) {
     });
   } catch (error) {
     await updateTicket(ticket.id, { paymentStatus: "failed" });
-    console.error("[Ecossistema] Falha ao criar cobrança de bilhete", error);
+    logOperationalError("payment.ticket.creation_failed", error, {
+      correlationId,
+      ticketId: ticket.id,
+      userId: user.id,
+    });
     return Response.json({ error: "Não foi possível gerar a cobrança. Tente novamente." }, { status: 502 });
   }
 }

@@ -1,6 +1,7 @@
 import { legacyPaymentEnv as ENV } from "./payment-secrets";
 import { getPaymentSetting } from "./repository";
 import { decryptSecret } from "./payment-secrets";
+import { logOperationalError } from "@/lib/observability/logger";
 
 const ASAAS_URLS = {
   sandbox: "https://sandbox.asaas.com/api/v3",
@@ -262,7 +263,7 @@ export async function getAsaasCustomerByCpfCnpj(
     );
     return response.data[0] || null;
   } catch (error) {
-    console.error("[Asaas] Error fetching customer:", error);
+    logOperationalError("asaas.customer_lookup_failed", error);
     return null;
   }
 }

@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/db";
+import { logOperationalError } from "@/lib/observability/logger";
 
 // Armazenamento de arquivos NO PRÓPRIO BANCO (tabela "arquivos").
 //
@@ -67,7 +68,7 @@ export async function uploadPublico(
     });
     return { url: `/api/arquivo/${arquivo.id}` };
   } catch (e) {
-    const raw = e instanceof Error ? e.message : String(e);
-    return { url: null, erro: `Falha ao salvar arquivo: ${raw}` };
+    logOperationalError("upload.database.failed", e);
+    return { url: null, erro: "Falha ao salvar arquivo." };
   }
 }

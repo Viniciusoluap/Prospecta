@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import * as cheerio from "cheerio";
 import { auth } from "@/auth";
 import { isSsrfUrl } from "@/lib/ssrf";
+import { apiRoleError } from "@/lib/auth/rbac";
+import { logOperationalError, requestId } from "@/lib/observability/logger";
 
 export interface ScrapedData {
   title?: string;
@@ -31,8 +33,10 @@ function detectSource(url: string): string {
 }
 
 export async function POST(req: NextRequest) {
+  const correlationId = requestId(req);
   const session = await auth();
-  if (!session) return NextResponse.json({ error: "Não autorizado" }, { status: 401 });
+  const denied = apiRoleError(session, "admin", "corretor", "colaborador");
+  if (denied) return denied;
 
   let url: string;
   try {
@@ -123,11 +127,11 @@ export async function POST(req: NextRequest) {
       siteName,
     });
   } catch (err) {
-    const msg = err instanceof Error ? err.message : "Erro desconhecido";
+    logOperationalError("scraper.fetch_failed", err, { correlationId });
     return NextResponse.json<ScrapedData>({
       url,
       images: [],
-      error: `Não foi possível acessar a URL: ${msg}. Preencha os dados manualmente.`,
+      error: "Não foi possível acessar a URL. Preencha os dados manualmente.",
     });
   }
 }

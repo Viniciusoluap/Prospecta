@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import Anthropic from "@anthropic-ai/sdk";
 import { auth } from "@/auth";
+import { logOperationalError, requestId } from "@/lib/observability/logger";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -166,6 +167,7 @@ O valor sugerido deve refletir o meio-termo entre mercado, documentação e cond
 }
 
 export async function POST(req: NextRequest) {
+  const correlationId = requestId(req);
   const session = await auth();
   if (!session) return NextResponse.json({ error: "Não autorizado" }, { status: 401 });
 
@@ -228,7 +230,7 @@ Preencha com no máximo 4 comparáveis. Todos os valores numéricos devem ser in
     const result = JSON.parse(jsonText.slice(start, end + 1)) as SugestaoResult;
     return NextResponse.json(result);
   } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    return NextResponse.json({ error: message }, { status: 500 });
+    logOperationalError("avaliacao.sugestao.failed", err, { correlationId });
+    return NextResponse.json({ error: "Não foi possível gerar a sugestão." }, { status: 500 });
   }
 }

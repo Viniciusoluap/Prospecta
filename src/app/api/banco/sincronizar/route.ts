@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { auth } from "@/auth";
+import { apiRoleError } from "@/lib/auth/rbac";
 
 const PLUGGY_API = "https://api.pluggy.ai";
 
@@ -21,7 +22,8 @@ async function getPluggyToken(): Promise<string | null> {
 
 export async function POST(req: NextRequest) {
   const session = await auth();
-  if (!session) return NextResponse.json({ error: "Não autorizado" }, { status: 401 });
+  const denied = apiRoleError(session, "admin");
+  if (denied) return denied;
 
   const { contaId } = await req.json() as { contaId: string };
 

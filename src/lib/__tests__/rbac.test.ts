@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import type { Session } from "next-auth";
-import { hasRole, requireActionRole } from "@/lib/auth/rbac";
+import { apiRoleError, canAccessAdminPath, getSessionRole, hasRole, requireActionRole } from "@/lib/auth/rbac";
 
 function makeSession(role: string): Session {
   return {
@@ -52,5 +52,29 @@ describe("requireActionRole", () => {
     expect(() =>
       requireActionRole(makeSession("cliente"), "admin", "corretor", "colaborador")
     ).toThrow("Não autorizado");
+  });
+});
+
+describe("RBAC de páginas e APIs", () => {
+  it("rejeita papéis desconhecidos", () => {
+    expect(getSessionRole(makeSession("superadmin"))).toBeNull();
+  });
+
+  it("permite equipe nas páginas operacionais", () => {
+    expect(canAccessAdminPath(makeSession("corretor"), "/admin/leads")).toBe(true);
+    expect(canAccessAdminPath(makeSession("colaborador"), "/admin/agenda")).toBe(true);
+  });
+
+  it("restringe páginas administrativas sensíveis ao admin", () => {
+    expect(canAccessAdminPath(makeSession("admin"), "/admin/configuracoes")).toBe(true);
+    expect(canAccessAdminPath(makeSession("corretor"), "/admin/configuracoes")).toBe(false);
+    expect(canAccessAdminPath(makeSession("colaborador"), "/admin/relatorios")).toBe(false);
+    expect(canAccessAdminPath(makeSession("cliente"), "/admin/leads")).toBe(false);
+  });
+
+  it("diferencia ausência de sessão e papel insuficiente nas APIs", async () => {
+    expect(apiRoleError(null, "admin")?.status).toBe(401);
+    expect(apiRoleError(makeSession("corretor"), "admin")?.status).toBe(403);
+    expect(apiRoleError(makeSession("admin"), "admin")).toBeNull();
   });
 });

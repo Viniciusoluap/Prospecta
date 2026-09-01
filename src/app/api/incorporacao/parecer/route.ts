@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import Anthropic from "@anthropic-ai/sdk";
 import { auth } from "@/auth";
+import { logOperationalError, requestId } from "@/lib/observability/logger";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -25,6 +26,7 @@ export interface ParecerInput {
 }
 
 export async function POST(req: NextRequest) {
+  const correlationId = requestId(req);
   const session = await auth();
   if (!session) return NextResponse.json({ error: "Não autorizado" }, { status: 401 });
 
@@ -80,7 +82,7 @@ Escreva um parecer técnico objetivo em português (máx. 4 parágrafos) analisa
     }
     return NextResponse.json({ parecer: texto.trim() });
   } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    return NextResponse.json({ error: message }, { status: 500 });
+    logOperationalError("incorporacao.parecer.failed", err, { correlationId });
+    return NextResponse.json({ error: "Não foi possível gerar o parecer." }, { status: 500 });
   }
 }

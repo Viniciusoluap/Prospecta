@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/auth";
 import { uploadPublico } from "@/lib/blob";
+import { apiRoleError } from "@/lib/auth/rbac";
+import { logOperationalError, requestId } from "@/lib/observability/logger";
 
 export const runtime = "nodejs";
 
@@ -20,7 +22,9 @@ const ALLOWED_TYPES = new Set([
 
 export async function POST(request: NextRequest) {
   const session = await auth();
-  if (!session) return NextResponse.json({ error: "Não autorizado" }, { status: 401 });
+  const denied = apiRoleError(session, "admin", "corretor", "colaborador");
+  if (denied) return denied;
+  const correlationId = requestId(request);
 
   try {
     const formData = await request.formData();
@@ -45,7 +49,7 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json({ url: blob.url });
   } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    return NextResponse.json({ error: message }, { status: 500 });
+    logOperationalError("upload.avaliacao.failed", err, { correlationId });
+    return NextResponse.json({ error: "Não foi possível salvar o arquivo." }, { status: 500 });
   }
 }

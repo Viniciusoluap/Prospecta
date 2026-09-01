@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import Anthropic from "@anthropic-ai/sdk";
 import { auth } from "@/auth";
+import { logOperationalError, requestId } from "@/lib/observability/logger";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -10,6 +11,7 @@ export const maxDuration = 60;
 // manualmente antes de usar (fidelidade garantida pela confirmação humana).
 
 export async function POST(req: NextRequest) {
+  const correlationId = requestId(req);
   const session = await auth();
   if (!session) return NextResponse.json({ error: "Não autorizado" }, { status: 401 });
 
@@ -68,7 +70,7 @@ Regras: taxaOcupacao e percentuais em fração (0..1); recuos/testada em metros;
     const result = JSON.parse(jsonText.slice(start, end + 1));
     return NextResponse.json(result);
   } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    return NextResponse.json({ error: message }, { status: 500 });
+    logOperationalError("incorporacao.urbanistico.failed", err, { correlationId });
+    return NextResponse.json({ error: "Não foi possível gerar a análise urbanística." }, { status: 500 });
   }
 }

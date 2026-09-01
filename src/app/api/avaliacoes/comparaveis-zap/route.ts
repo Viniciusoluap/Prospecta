@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import Anthropic from "@anthropic-ai/sdk";
 import { auth } from "@/auth";
+import { logOperationalError, requestId } from "@/lib/observability/logger";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -30,6 +31,7 @@ export interface ZapResult {
 }
 
 export async function POST(req: NextRequest) {
+  const correlationId = requestId(req);
   const session = await auth();
   if (!session) return NextResponse.json({ error: "Não autorizado" }, { status: 401 });
 
@@ -92,7 +94,7 @@ Regras:
 
     return NextResponse.json(result);
   } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    return NextResponse.json({ error: message }, { status: 500 });
+    logOperationalError("avaliacao.comparaveis.failed", err, { correlationId });
+    return NextResponse.json({ error: "Não foi possível buscar os comparáveis." }, { status: 500 });
   }
 }

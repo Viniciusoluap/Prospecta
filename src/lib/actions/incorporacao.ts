@@ -148,7 +148,16 @@ export async function uploadLevantamento(estudoId: string, formData: FormData) {
   requireActionRole(session, "admin");
   const file = formData.get("arquivo") as File | null;
   if (!file || file.size === 0) return { error: "Selecione um arquivo." };
-  const blob = await uploadPublico(`incorporacao/${estudoId}/levantamento-${Date.now()}-${file.name}`, file);
+  if (file.size > 10 * 1024 * 1024) return { error: "Arquivo muito grande (máx. 10 MB)." };
+  const extension = file.name.split(".").pop()?.toLowerCase();
+  if (!extension || !["csv", "txt", "kml", "xml"].includes(extension)) {
+    return { error: "Formato não permitido. Envie CSV, TXT, KML ou XML." };
+  }
+  const blob = await uploadPublico(
+    `incorporacao/${estudoId}/levantamento-${Date.now()}.${extension}`,
+    file,
+    file.type || undefined,
+  );
   if (!blob.url) return { error: blob.erro };
   await prisma.estudoIncorporacao.update({
     where: { id: estudoId },

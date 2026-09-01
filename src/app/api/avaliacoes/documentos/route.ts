@@ -2,6 +2,8 @@ import { handleUpload, type HandleUploadBody } from "@vercel/blob/client";
 import { list } from "@vercel/blob";
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/auth";
+import { apiRoleError } from "@/lib/auth/rbac";
+import { logOperationalError, requestId } from "@/lib/observability/logger";
 
 export const runtime = "nodejs";
 
@@ -9,7 +11,9 @@ export const runtime = "nodejs";
 // Client calls GET with the known blob path to retrieve the URL directly from storage.
 export async function GET(request: NextRequest) {
   const session = await auth();
-  if (!session) return NextResponse.json({ error: "Não autorizado" }, { status: 401 });
+  const denied = apiRoleError(session, "admin", "corretor", "colaborador");
+  if (denied) return denied;
+  const correlationId = requestId(request);
 
   const path = request.nextUrl.searchParams.get("path");
   if (!path || !path.startsWith("docs-avaliacao/")) {
@@ -20,14 +24,17 @@ export async function GET(request: NextRequest) {
     if (blobs.length > 0) return NextResponse.json({ url: blobs[0].url });
     return NextResponse.json({ error: "not found yet" }, { status: 404 });
   } catch (err) {
-    return NextResponse.json({ error: String(err) }, { status: 500 });
+    logOperationalError("upload.avaliacao.lookup_failed", err, { correlationId });
+    return NextResponse.json({ error: "Não foi possível consultar o arquivo." }, { status: 500 });
   }
 }
 
 // Token generation for client-side Vercel Blob upload
 export async function POST(request: NextRequest) {
   const session = await auth();
-  if (!session) return NextResponse.json({ error: "Não autorizado" }, { status: 401 });
+  const denied = apiRoleError(session, "admin", "corretor", "colaborador");
+  if (denied) return denied;
+  const correlationId = requestId(request);
 
   const body = (await request.json()) as HandleUploadBody;
 
@@ -58,7 +65,7 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json(jsonResponse);
   } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    return NextResponse.json({ error: message }, { status: 400 });
+    logOperationalError("upload.avaliacao.token_failed", err, { correlationId });
+    return NextResponse.json({ error: "Não foi possível autorizar o upload." }, { status: 400 });
   }
 }

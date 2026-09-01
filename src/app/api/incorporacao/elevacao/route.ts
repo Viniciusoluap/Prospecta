@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/auth";
+import { logOperationalError, requestId } from "@/lib/observability/logger";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -26,6 +27,7 @@ export interface GridElevacao {
 }
 
 export async function POST(req: NextRequest) {
+  const correlationId = requestId(req);
   const session = await auth();
   if (!session) return NextResponse.json({ error: "Não autorizado" }, { status: 401 });
 
@@ -42,8 +44,8 @@ export async function POST(req: NextRequest) {
       : await openTopoData(south, north, west, east);
     return NextResponse.json(grid);
   } catch (err) {
-    const msg = err instanceof Error ? err.message : "Erro ao obter elevação.";
-    return NextResponse.json({ error: msg }, { status: 502 });
+    logOperationalError("incorporacao.elevacao.failed", err, { correlationId });
+    return NextResponse.json({ error: "Não foi possível obter a elevação." }, { status: 502 });
   }
 }
 

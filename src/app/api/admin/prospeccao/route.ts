@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import Anthropic from "@anthropic-ai/sdk";
 import { prisma } from "@/lib/db";
 import { auth } from "@/auth";
+import { apiRoleError } from "@/lib/auth/rbac";
+import { logOperationalError } from "@/lib/observability/logger";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -133,7 +135,8 @@ Não invente imóveis: inclua apenas os que aparecem de fato nos resultados de b
 // GET — list pending prospection drafts (publicadoSite=false, slug starts with "rsc-")
 export async function GET() {
   const session = await auth();
-  if (!session) return NextResponse.json({ error: "Não autorizado" }, { status: 401 });
+  const denied = apiRoleError(session, "admin");
+  if (denied) return denied;
 
   try {
     const drafts = await prisma.imovel.findMany({
@@ -153,14 +156,16 @@ export async function GET() {
 
     return NextResponse.json({ drafts: parsed });
   } catch (err) {
-    return NextResponse.json({ error: String(err) }, { status: 500 });
+    logOperationalError("prospeccao.list_failed", err);
+    return NextResponse.json({ error: "Não foi possível listar os rascunhos." }, { status: 500 });
   }
 }
 
 // POST — run prospection search
 export async function POST() {
   const session = await auth();
-  if (!session) return NextResponse.json({ error: "Não autorizado" }, { status: 401 });
+  const denied = apiRoleError(session, "admin");
+  if (denied) return denied;
 
   if (!ANTHROPIC_API_KEY) {
     return NextResponse.json({ error: "ANTHROPIC_API_KEY não configurada nas variáveis de ambiente do Vercel." }, { status: 400 });
@@ -231,7 +236,7 @@ export async function POST() {
       {
         error: timeout
           ? "A busca demorou demais e foi interrompida antes de travar o servidor. Tente novamente — buscas mais curtas tendem a concluir mais rápido."
-          : String(err),
+          : "A busca falhou. Tente novamente mais tarde.",
       },
       { status: timeout ? 504 : 500 }
     );
@@ -241,7 +246,8 @@ export async function POST() {
 // PATCH — approve or discard a draft
 export async function PATCH(request: NextRequest) {
   const session = await auth();
-  if (!session) return NextResponse.json({ error: "Não autorizado" }, { status: 401 });
+  const denied = apiRoleError(session, "admin");
+  if (denied) return denied;
 
   const { id, action } = (await request.json()) as { id: string; action: "aprovar" | "descartar" };
 
@@ -263,6 +269,7 @@ export async function PATCH(request: NextRequest) {
     }
     return NextResponse.json({ ok: true });
   } catch (err) {
-    return NextResponse.json({ error: String(err) }, { status: 500 });
+    logOperationalError("prospeccao.review_failed", err);
+    return NextResponse.json({ error: "Não foi possível revisar o rascunho." }, { status: 500 });
   }
 }

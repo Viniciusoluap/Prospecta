@@ -9,6 +9,10 @@ import {
   type PaymentDetails,
 } from "@/lib/legacy/ecossistema-ledger";
 import { asaasWebhookEvents } from "@/lib/legacy/schema";
+import { secretsMatch } from "@/lib/security/secrets";
+import { logOperationalError, requestId } from "@/lib/observability/logger";
+
+const MAX_WEBHOOK_BYTES = 256 * 1024;
 
 type WebhookPayload = {
   event: string;
@@ -23,10 +27,19 @@ async function configuredWebhookToken() {
 }
 
 export async function POST(request: Request) {
+  const correlationId = requestId(request);
   const token = await configuredWebhookToken();
   if (!token) return Response.json({ error: "Webhook Asaas não configurado." }, { status: 503 });
-  if (request.headers.get("asaas-access-token") !== token) {
+  if (!secretsMatch(request.headers.get("asaas-access-token"), token)) {
     return Response.json({ error: "Token de webhook inválido." }, { status: 401 });
+  }
+
+  const contentLength = Number(request.headers.get("content-length") ?? 0);
+  if (Number.isFinite(contentLength) && contentLength > MAX_WEBHOOK_BYTES) {
+    return Response.json({ error: "Payload muito grande." }, { status: 413 });
+  }
+  if (!request.headers.get("content-type")?.toLowerCase().includes("application/json")) {
+    return Response.json({ error: "Content-Type inválido." }, { status: 415 });
   }
 
   const payload = (await request.json().catch(() => null)) as WebhookPayload | null;
@@ -62,7 +75,11 @@ export async function POST(request: Request) {
     await db.update(asaasWebhookEvents).set({ status: "completed", completedAt: new Date() }).where(eq(asaasWebhookEvents.eventKey, eventKey));
   } catch (error) {
     await db.update(asaasWebhookEvents).set({ status: "failed" }).where(eq(asaasWebhookEvents.eventKey, eventKey));
-    console.error("[Asaas webhook] Falha ao processar evento", error);
+    logOperationalError("asaas.webhook.processing_failed", error, {
+      correlationId,
+      webhookEvent: normalizedEvent,
+      paymentId: payload.payment.id,
+    });
     return Response.json({ error: "Falha ao processar evento." }, { status: 500 });
   }
   return Response.json({ received: true });

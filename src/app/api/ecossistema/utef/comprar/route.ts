@@ -3,6 +3,7 @@ import { z } from "zod";
 import { auth } from "@/auth";
 import { createAsaasPayment, createOrUpdateAsaasCustomer, getAsaasPixQrCode } from "@/lib/legacy/asaas";
 import { resolveLegacyUser } from "@/lib/legacy/session";
+import { logOperationalError, requestId } from "@/lib/observability/logger";
 
 const payloadSchema = z.object({
   amount: z.number().int().min(1).max(1_000_000),
@@ -10,6 +11,7 @@ const payloadSchema = z.object({
 });
 
 export async function POST(request: Request) {
+  const correlationId = requestId(request);
   const session = await auth();
   if (!session) return Response.json({ error: "Faça login para comprar UTEFs." }, { status: 401 });
   const parsed = payloadSchema.safeParse(await request.json().catch(() => null));
@@ -44,7 +46,10 @@ export async function POST(request: Request) {
     }
     return Response.json({ invoiceUrl: payment.invoiceUrl, bankSlipUrl: payment.bankSlipUrl, pixQrCode, pixCopyPaste });
   } catch (error) {
-    console.error("[Ecossistema] Falha ao criar cobrança UTEF", error);
+    logOperationalError("payment.utef.creation_failed", error, {
+      correlationId,
+      userId: user.id,
+    });
     return Response.json({ error: "Não foi possível gerar a cobrança. Tente novamente." }, { status: 502 });
   }
 }
