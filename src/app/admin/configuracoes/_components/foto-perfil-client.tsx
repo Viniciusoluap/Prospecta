@@ -1,5 +1,7 @@
 "use client";
 
+/* eslint-disable @next/next/no-img-element -- A foto pode ser uma data URL de preview ou um upload dinâmico do usuário. */
+
 import { useRef, useState, useEffect } from "react";
 import { Camera } from "lucide-react";
 

@@ -1,5 +1,7 @@
 "use client";
 
+/* eslint-disable @next/next/no-img-element -- A foto de perfil é um upload dinâmico sem host previsível. */
+
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { logoutAction } from "@/app/admin/logout-action";

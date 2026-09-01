@@ -35,6 +35,13 @@ const securityHeaders = [
 
 const nextConfig: NextConfig = {
   poweredByHeader: false,
+  images: {
+    remotePatterns: [
+      new URL("https://images.unsplash.com/**"),
+      new URL("https://img.youtube.com/**"),
+      new URL("https://d2xsxph8kpxj0f.cloudfront.net/**"),
+    ],
+  },
   experimental: {
     serverActions: {
       bodySizeLimit: "10mb",

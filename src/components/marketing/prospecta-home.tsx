@@ -1,6 +1,13 @@
 import Link from "next/link";
+import Image from "next/image";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
+import casaCompactaImage from "../../../client/public/casa-compacta-47m2.jpg";
+import caixaLogo from "../../../client/public/logo-caixa.png";
+import interLogo from "../../../client/public/logo-inter.png";
+import bradescoLogo from "../../../client/public/logo-bradesco.png";
+import santanderLogo from "../../../client/public/logo-santander.png";
+import itauLogo from "../../../client/public/logo-itau.png";
 import { 
   Building2, 
   Shield, 
@@ -116,10 +123,12 @@ export function ProspectaHome() {
               {/* Casa Compacta - Linha Smart */}
               <Card className="bg-white/10 border-primary/30 hover:border-primary transition-all hover:scale-105">
                 <CardContent className="p-6">
-                  <div className="aspect-video rounded-lg mb-4 overflow-hidden">
-                    <img 
-                      src="/casa-compacta-47m2.jpg" 
+                  <div className="relative aspect-video rounded-lg mb-4 overflow-hidden">
+                    <Image
+                      src={casaCompactaImage}
                       alt="Casa Compacta - Linha Smart" 
+                      fill
+                      sizes="(max-width: 768px) 100vw, (max-width: 1024px) 50vw, 33vw"
                       className="w-full h-full object-cover"
                     />
                   </div>
@@ -137,10 +146,12 @@ export function ProspectaHome() {
               {/* Casa Concept - Linha Plus */}
               <Card className="bg-white/10 border-primary/30 hover:border-primary transition-all hover:scale-105">
                 <CardContent className="p-6">
-                  <div className="aspect-video rounded-lg mb-4 overflow-hidden">
-                    <img 
+                  <div className="relative aspect-video rounded-lg mb-4 overflow-hidden">
+                    <Image
                       src="https://images.unsplash.com/photo-1600596542815-ffad4c1539a9?w=600&h=400&fit=crop" 
                       alt="Casa Concept - Linha Plus" 
+                      fill
+                      sizes="(max-width: 768px) 100vw, (max-width: 1024px) 50vw, 33vw"
                       className="w-full h-full object-cover"
                     />
                   </div>
@@ -158,10 +169,12 @@ export function ProspectaHome() {
               {/* Casa Luxo - Linha Premium */}
               <Card className="bg-white/10 border-primary/30 hover:border-primary transition-all hover:scale-105">
                 <CardContent className="p-6">
-                  <div className="aspect-video rounded-lg mb-4 overflow-hidden">
-                    <img 
+                  <div className="relative aspect-video rounded-lg mb-4 overflow-hidden">
+                    <Image
                       src="https://images.unsplash.com/photo-1600566753190-17f0baa2a6c3?w=600&h=400&fit=crop" 
                       alt="Casa Luxo - Linha Premium" 
+                      fill
+                      sizes="(max-width: 768px) 100vw, (max-width: 1024px) 50vw, 33vw"
                       className="w-full h-full object-cover"
                     />
                   </div>
@@ -306,50 +319,52 @@ export function ProspectaHome() {
             <div className="flex justify-center items-center gap-8 md:gap-12 flex-wrap">
               {/* Logo Caixa */}
               <div className="grayscale hover:grayscale-0 transition-all">
-                <img 
-                  src="/logo-caixa.png" 
+                <Image
+                  src={caixaLogo}
                   alt="Caixa Econômica Federal" 
-                  className="h-12 md:h-16 object-contain"
+                  className="h-12 md:h-16 w-auto object-contain"
                 />
               </div>
               {/* Logo Inter */}
               <div className="grayscale hover:grayscale-0 transition-all">
-                <img 
-                  src="/logo-inter.png" 
+                <Image
+                  src={interLogo}
                   alt="Banco Inter" 
-                  className="h-12 md:h-16 object-contain"
+                  className="h-12 md:h-16 w-auto object-contain"
                 />
               </div>
               {/* Logo Bradesco */}
               <div className="grayscale hover:grayscale-0 transition-all">
-                <img 
-                  src="/logo-bradesco.png" 
+                <Image
+                  src={bradescoLogo}
                   alt="Bradesco" 
-                  className="h-12 md:h-16 object-contain"
+                  className="h-12 md:h-16 w-auto object-contain"
                 />
               </div>
               {/* Logo Santander */}
               <div className="grayscale hover:grayscale-0 transition-all">
-                <img 
-                  src="/logo-santander.png" 
+                <Image
+                  src={santanderLogo}
                   alt="Santander" 
-                  className="h-12 md:h-16 object-contain"
+                  className="h-12 md:h-16 w-auto object-contain"
                 />
               </div>
               {/* Logo Itaú */}
               <div className="grayscale hover:grayscale-0 transition-all">
-                <img 
-                  src="/logo-itau.png" 
+                <Image
+                  src={itauLogo}
                   alt="Itaú" 
-                  className="h-12 md:h-16 object-contain"
+                  className="h-12 md:h-16 w-auto object-contain"
                 />
               </div>
               {/* Logo Exclusive Club */}
               <div className="grayscale hover:grayscale-0 transition-all flex items-center gap-2">
-                <img 
+                <Image
                   src="https://d2xsxph8kpxj0f.cloudfront.net/310419663028705863/XKiYeWQckm4y8ZFAdaZbRn/exclusive-club-logo_7a4d7eae.png" 
                   alt="Exclusive Club" 
-                  className="h-12 md:h-16 object-contain"
+                  width={180}
+                  height={64}
+                  className="h-12 md:h-16 w-auto object-contain"
                 />
               </div>
             </div>
@@ -460,9 +475,11 @@ export function ProspectaHome() {
                     rel="noopener noreferrer"
                     className="group relative aspect-video rounded-lg overflow-hidden shadow-md hover:shadow-xl transition-all"
                   >
-                    <img 
+                    <Image
                       src="https://img.youtube.com/vi/u2aKrBnq_dU/mqdefault.jpg" 
                       alt="Casa própria em Imperatriz" 
+                      fill
+                      sizes="(max-width: 768px) 100vw, 50vw"
                       className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
                     />
                     <div className="absolute inset-0 bg-black/40 group-hover:bg-black/20 transition-colors flex items-center justify-center">
@@ -485,9 +502,11 @@ export function ProspectaHome() {
                     rel="noopener noreferrer"
                     className="group relative aspect-video rounded-lg overflow-hidden shadow-md hover:shadow-xl transition-all"
                   >
-                    <img 
+                    <Image
                       src="https://img.youtube.com/vi/sUKLiYMfFaE/mqdefault.jpg" 
                       alt="Casa 45m² Imperatriz" 
+                      fill
+                      sizes="(max-width: 768px) 100vw, 50vw"
                       className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
                     />
                     <div className="absolute inset-0 bg-black/40 group-hover:bg-black/20 transition-colors flex items-center justify-center">
@@ -510,9 +529,11 @@ export function ProspectaHome() {
                     rel="noopener noreferrer"
                     className="group relative aspect-video rounded-lg overflow-hidden shadow-md hover:shadow-xl transition-all"
                   >
-                    <img 
+                    <Image
                       src="https://img.youtube.com/vi/ILCOWiUJTBM/mqdefault.jpg" 
                       alt="Casa 50m² Canaã" 
+                      fill
+                      sizes="(max-width: 768px) 100vw, 50vw"
                       className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
                     />
                     <div className="absolute inset-0 bg-black/40 group-hover:bg-black/20 transition-colors flex items-center justify-center">
@@ -535,9 +556,11 @@ export function ProspectaHome() {
                     rel="noopener noreferrer"
                     className="group relative aspect-video rounded-lg overflow-hidden shadow-md hover:shadow-xl transition-all"
                   >
-                    <img 
+                    <Image
                       src="https://img.youtube.com/vi/5wQWuppuLwM/mqdefault.jpg" 
                       alt="Investidor ROI 78,5%" 
+                      fill
+                      sizes="(max-width: 768px) 100vw, 50vw"
                       className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
                     />
                     <div className="absolute inset-0 bg-black/40 group-hover:bg-black/20 transition-colors flex items-center justify-center">
@@ -568,9 +591,11 @@ export function ProspectaHome() {
                     rel="noopener noreferrer"
                     className="group relative aspect-square rounded-lg overflow-hidden shadow-md hover:shadow-xl transition-all"
                   >
-                    <img 
+                    <Image
                       src="https://img.youtube.com/vi/sUKLiYMfFaE/mqdefault.jpg" 
                       alt="Post Instagram" 
+                      fill
+                      sizes="(max-width: 768px) 33vw, 16vw"
                       className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-300"
                     />
                     <div className="absolute inset-0 bg-black/0 group-hover:bg-black/30 transition-colors flex items-center justify-center opacity-0 group-hover:opacity-100">
@@ -586,9 +611,11 @@ export function ProspectaHome() {
                     rel="noopener noreferrer"
                     className="group relative aspect-square rounded-lg overflow-hidden shadow-md hover:shadow-xl transition-all"
                   >
-                    <img 
+                    <Image
                       src="https://img.youtube.com/vi/ILCOWiUJTBM/mqdefault.jpg" 
                       alt="Post Instagram" 
+                      fill
+                      sizes="(max-width: 768px) 33vw, 16vw"
                       className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-300"
                     />
                     <div className="absolute inset-0 bg-black/0 group-hover:bg-black/30 transition-colors flex items-center justify-center opacity-0 group-hover:opacity-100">
@@ -604,9 +631,11 @@ export function ProspectaHome() {
                     rel="noopener noreferrer"
                     className="group relative aspect-square rounded-lg overflow-hidden shadow-md hover:shadow-xl transition-all"
                   >
-                    <img 
+                    <Image
                       src="https://img.youtube.com/vi/5wQWuppuLwM/mqdefault.jpg" 
                       alt="Post Instagram" 
+                      fill
+                      sizes="(max-width: 768px) 33vw, 16vw"
                       className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-300"
                     />
                     <div className="absolute inset-0 bg-black/0 group-hover:bg-black/30 transition-colors flex items-center justify-center opacity-0 group-hover:opacity-100">
@@ -622,9 +651,11 @@ export function ProspectaHome() {
                     rel="noopener noreferrer"
                     className="group relative aspect-square rounded-lg overflow-hidden shadow-md hover:shadow-xl transition-all"
                   >
-                    <img 
+                    <Image
                       src="https://img.youtube.com/vi/u2aKrBnq_dU/mqdefault.jpg" 
                       alt="Post Instagram" 
+                      fill
+                      sizes="(max-width: 768px) 33vw, 16vw"
                       className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-300"
                     />
                     <div className="absolute inset-0 bg-black/0 group-hover:bg-black/30 transition-colors flex items-center justify-center opacity-0 group-hover:opacity-100">

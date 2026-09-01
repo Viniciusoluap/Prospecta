@@ -1,5 +1,7 @@
 "use client";
 
+/* eslint-disable @next/next/no-img-element -- O QR Code é uma data URL efêmera devolvida pelo provedor de pagamento. */
+
 import { useState } from "react";
 
 type Result = { error?: string; pixQrCode?: string; pixCopyPaste?: string; invoiceUrl?: string; bankSlipUrl?: string };

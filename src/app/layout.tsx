@@ -3,6 +3,8 @@ import { Inter } from "next/font/google";
 import { AdminSessionProvider } from "@/components/admin/session-provider";
 import "./globals.css";
 
+const siteUrl = process.env.NEXT_PUBLIC_SITE_URL ?? "https://prospectaconstrucoes.com";
+
 const inter = Inter({
   variable: "--font-inter",
   subsets: ["latin"],
@@ -10,6 +12,7 @@ const inter = Inter({
 });
 
 export const metadata: Metadata = {
+  metadataBase: new URL(siteUrl),
   title: {
     default: "Prospecta Construções | Construindo o seu futuro",
     template: "%s | Prospecta Construções",
@@ -31,6 +34,13 @@ export const metadata: Metadata = {
     type: "website",
     locale: "pt_BR",
     siteName: "Prospecta Construções",
+    url: "/",
+    images: [
+      {
+        url: "/prospecta-logo.webp",
+        alt: "Prospecta Construções",
+      },
+    ],
   },
 };
 

@@ -1,3 +1,4 @@
+/* eslint-disable @next/next/no-img-element -- URLs de produtos são cadastradas dinamicamente pelo administrador e não têm host previsível. */
 import { ProductConvertButton } from "@/components/ecossistema/product-convert-button";
 import { getProducts } from "@/lib/legacy/repository";
 

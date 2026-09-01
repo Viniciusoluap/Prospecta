@@ -1,5 +1,7 @@
 "use client";
 
+/* eslint-disable @next/next/no-img-element -- Fotos e previews podem ser data URLs ou uploads dinâmicos do usuário. */
+
 import { useState, useEffect, useCallback, useRef } from "react";
 import { useSession } from "next-auth/react";
 import { Menu, Bell, X, Camera, User, ChevronRight } from "lucide-react";
