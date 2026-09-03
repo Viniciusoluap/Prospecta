@@ -44,6 +44,9 @@ export async function runSmoke({ baseUrl, timeoutMs, fetchImpl = fetch }) {
   const session = await checkRoute(baseUrl, "/api/auth/session", timeoutMs, fetchImpl);
   routes.push({ ...session, ok: session.ok && session.status === 200 });
 
+  const health = await checkRoute(baseUrl, "/api/health", timeoutMs, fetchImpl);
+  routes.push({ ...health, ok: health.ok && health.status === 200 });
+
   const admin = await checkRoute(baseUrl, "/admin", timeoutMs, fetchImpl);
   routes.push({
     ...admin,
