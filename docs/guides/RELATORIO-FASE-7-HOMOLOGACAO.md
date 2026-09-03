@@ -74,14 +74,32 @@ O `npm audit` passou de 21 alertas, incluindo 2 críticos, para 4 alertas altos.
 | `npm run build` | aprovado; 58 páginas geradas com Next.js 16.3.4 e Prisma 7.10.0 |
 | `npm audit` | 0 crítico, 4 altos, 0 moderado e 0 baixo |
 
+## Homologação remota do checkpoint de segurança
+
+O commit remoto `e88cc2f39639b16b8f7b01324d2364ec0a82f462` gerou o deployment `dpl_AYNpTuh8MJ2VmUBikGR4V5gumpNS`, com estado `READY` e status Vercel `success` no GitHub.
+
+Foi criado acesso temporário restrito a esse preview, com expiração em 4 de setembro de 2026 às 04:20 UTC. A proteção permanente do projeto e a produção não foram alteradas.
+
+| Boundary | Resultado | Evidência |
+| --- | --- | --- |
+| Acesso ao preview | aprovado | landing respondeu no navegador após o acesso temporário |
+| Renderização da landing | aprovado | título `Início | Prospecta Construções`, conteúdo presente e nenhum overlay do framework |
+| Identidade Prospecta | aprovado | textos, navegação, telefone e módulos Prospecta renderizados |
+| Sessão Auth.js | reprovado | erro de configuração ao consultar a sessão |
+| Runtime de autenticação | reprovado | `MissingSecret: Please define a secret` em `/api/auth/[...nextauth]` e `/middleware` |
+| Banco exclusivo de staging | não confirmado | o conector não expõe o escopo/nomes das variáveis e não há autenticação local da CLI Vercel |
+| Asaas sandbox exclusivo | não confirmado | não foi possível auditar `ASAAS_ENVIRONMENT`, `ASAAS_API_KEY` e `ASAAS_WEBHOOK_TOKEN` do ambiente Preview |
+
+A verificação parou no primeiro boundary quebrado, antes de login, sorteios, UTEF ou pagamento. O preview precisa receber um `AUTH_SECRET` próprio e as variáveis de banco/Asaas devem ser confirmadas como `Preview`, preferencialmente limitadas à branch `codex/nextjs-santa-fe-unification`. Nenhuma credencial de produção deve ser reutilizada.
+
 ## Próximos gates
 
-1. Gerar um novo preview a partir do checkpoint atualizado.
-2. Conferir as variáveis de preview sem exibir valores.
-3. Liberar acesso de homologação ao preview ou fornecer uma sessão autorizada.
-4. Validar páginas públicas e mídia no domínio HTTPS.
-5. Com banco e credenciais exclusivos de staging, executar autenticação, RBAC, sorteios, UTEF e pagamento sandbox.
-6. Registrar erros de runtime e aceite antes de qualquer promoção.
+1. Criar um `AUTH_SECRET` exclusivo no ambiente Preview.
+2. Confirmar `DATABASE_URL`/`DATABASE_URL_UNPOOLED` exclusivos de staging.
+3. Confirmar Asaas sandbox no ambiente Preview e nunca usar chave de produção.
+4. Gerar novo deployment após a configuração das variáveis.
+5. Repetir autenticação, RBAC, sorteios, UTEF e pagamento sandbox.
+6. Registrar o aceite antes de qualquer promoção.
 
 ## Restrições
 
