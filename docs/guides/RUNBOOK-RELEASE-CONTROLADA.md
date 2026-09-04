@@ -70,6 +70,10 @@ npm run smoke:deployment -- --base-url=https://dominio-do-deployment
 
 O smoke reprova conteúdo vazio, erro HTTP, redirecionamento para origem externa, sessão Auth.js indisponível e rota administrativa sem redirecionamento para login.
 
+O workflow `.github/workflows/preview-smoke.yml` também executa esse comando quando um deployment de Preview termina com sucesso. Em previews protegidos, cadastrar `VERCEL_AUTOMATION_BYPASS_SECRET` somente no GitHub Secrets; o script envia o valor pelo header de automação e não o inclui no relatório. O workflow também aceita execução sob demanda com uma URL de Preview.
+
+O workflow `.github/workflows/quality-gate.yml` executa TypeScript, lint, testes e build em cada push e pull request. Ele valida o código, mas não publica nem promove deployments.
+
 ## 5. Critérios de interrupção
 
 Interromper ou reverter se ocorrer qualquer item:

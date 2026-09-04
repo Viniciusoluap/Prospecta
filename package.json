@@ -8,6 +8,7 @@
     "start": "next start",
     "lint": "eslint",
     "check": "tsc --noEmit",
+    "verify:quality": "npm run check && npm run lint && npm test && npm run build",
     "preflight:preview": "node scripts/release-preflight.mjs --target preview --profile full",
     "preflight:production": "node scripts/release-preflight.mjs --target production --profile full",
     "smoke:deployment": "node scripts/smoke-deployment.mjs",

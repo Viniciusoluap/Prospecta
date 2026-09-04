@@ -101,6 +101,16 @@ A verificação parou no primeiro boundary quebrado, antes de login, sorteios, U
 5. Repetir autenticação, RBAC, sorteios, UTEF e pagamento sandbox.
 6. Registrar o aceite antes de qualquer promoção.
 
+## Automação preparada após o bloqueio
+
+- `npm run verify:quality` concentra TypeScript, lint, testes e build em um único gate;
+- o workflow `Quality gate` executa esse gate em pushes e pull requests;
+- o workflow `Preview smoke` reage a deployments de Preview aprovados e também aceita execução sob demanda;
+- previews protegidos podem usar `VERCEL_AUTOMATION_BYPASS_SECRET` armazenado exclusivamente no GitHub Secrets;
+- nenhum dos workflows aplica migrations, promove produção ou altera aliases.
+
+Essas automações reduzem o trabalho manual após a configuração das credenciais, mas não substituem a UAT dos fluxos autenticados e financeiros.
+
 ## Restrições
 
 - Este checkpoint não promove deployment para produção.

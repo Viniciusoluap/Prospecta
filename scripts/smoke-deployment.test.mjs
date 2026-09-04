@@ -28,4 +28,22 @@ describe("deployment smoke", () => {
     expect(result.ok).toBe(false);
     expect(result.finalPath).toBe("EXTERNAL_REDIRECT");
   });
+
+  it("envia o bypass de automação sem colocá-lo no resultado", async () => {
+    let capturedHeaders;
+    const result = await checkRoute(
+      new URL("https://preview.example.com"),
+      "/api/health",
+      2_000,
+      async (_url, init) => {
+        capturedHeaders = init.headers;
+        return new Response("ok", { status: 200 });
+      },
+      "preview-bypass-secret",
+    );
+
+    expect(capturedHeaders["x-vercel-protection-bypass"]).toBe("preview-bypass-secret");
+    expect(capturedHeaders["x-vercel-set-bypass-cookie"]).toBe("true");
+    expect(JSON.stringify(result)).not.toContain("preview-bypass-secret");
+  });
 });

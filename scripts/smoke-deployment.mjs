@@ -14,12 +14,25 @@ function parseArguments(argv) {
   return { baseUrl: new URL(baseUrl), timeoutMs };
 }
 
-export async function checkRoute(baseUrl, route, timeoutMs, fetchImpl = fetch) {
+export async function checkRoute(
+  baseUrl,
+  route,
+  timeoutMs,
+  fetchImpl = fetch,
+  protectionBypassSecret = process.env.VERCEL_AUTOMATION_BYPASS_SECRET,
+) {
   const requested = new URL(route, baseUrl);
+  const headers = { "user-agent": "prospecta-release-smoke/1.0" };
+
+  if (protectionBypassSecret) {
+    headers["x-vercel-protection-bypass"] = protectionBypassSecret;
+    headers["x-vercel-set-bypass-cookie"] = "true";
+  }
+
   const response = await fetchImpl(requested, {
     redirect: "follow",
     signal: AbortSignal.timeout(timeoutMs),
-    headers: { "user-agent": "prospecta-release-smoke/1.0" },
+    headers,
   });
   const finalUrl = new URL(response.url || requested);
   const sameOrigin = finalUrl.origin === baseUrl.origin;
