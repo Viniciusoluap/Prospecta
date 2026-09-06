@@ -14,7 +14,6 @@ export const utefTransactionTypeEnum = pgEnum("utef_transaction_type", ["prize",
 export const productCategoryEnum = pgEnum("product_category", ["real_estate", "financial", "nautical"]);
 export const productStatusEnum = pgEnum("product_status", ["available", "unavailable"]);
 export const productConversionStatusEnum = pgEnum("product_conversion_status", ["pending", "completed", "cancelled"]);
-export const contractorStatusEnum = pgEnum("contractor_status", ["active", "inactive"]);
 export const constructionProjectStatusEnum = pgEnum("construction_project_status", [
   "planning", "alvara", "art", "assinatura_cef", "vistoria_cef",
   "laudo_ok", "cartorio", "in_progress", "casa_pronta", "disponivel",
@@ -32,9 +31,6 @@ export const notificationTypeEnum = pgEnum("notification_type", [
   "draw_result", "utef_update", "construction_update", "system", "promotional",
 ]);
 export const obraMeasurementStatusEnum = pgEnum("obra_measurement_status", ["pending", "approved", "paid"]);
-export const lotStatusEnum = pgEnum("lot_status", ["available", "reserved", "sold"]);
-export const investorStatusEnum = pgEnum("investor_status", ["active", "withdrawn", "extended"]);
-export const investorTransactionTypeEnum = pgEnum("investor_transaction_type", ["deposit", "withdrawal", "interest", "extension"]);
 export const leadTypeEnum = pgEnum("lead_type", ["new_lead", "in_process", "broker", "employee", "supplier", "vip"]);
 export const leadTemperatureEnum = pgEnum("lead_temperature", ["cold", "warm", "hot"]);
 export const leadStageEnum = pgEnum("lead_stage", [
@@ -59,8 +55,6 @@ export const followUpStatusEnum = pgEnum("follow_up_status", ["pending", "sent",
 export const taskRelatedTypeEnum = pgEnum("task_related_type", ["lead", "obra", "budget", "financial", "general"]);
 export const taskPriorityEnum = pgEnum("task_priority", ["low", "medium", "high", "critical"]);
 export const taskStatusEnum = pgEnum("task_status", ["pending", "in_progress", "done", "cancelled"]);
-export const partnerReferenceTypeEnum = pgEnum("partner_reference_type", ["obra", "financial", "other"]);
-export const partnerDistributionStatusEnum = pgEnum("partner_distribution_status", ["pending", "paid"]);
 export const financialTransactionTypeEnum = pgEnum("financial_transaction_type", [
   "income", "expense", "commission", "salary", "contractor_payment",
 ]);
@@ -189,27 +183,9 @@ export const productConversions = pgTable("product_conversions", {
 export type ProductConversion = typeof productConversions.$inferSelect;
 export type InsertProductConversion = typeof productConversions.$inferInsert;
 
-export const contractors = pgTable("contractors", {
-  id: serial("id").primaryKey(),
-  name: varchar("name", { length: 255 }).notNull(),
-  phone: varchar("phone", { length: 20 }),
-  city: varchar("city", { length: 100 }),
-  state: varchar("state", { length: 2 }),
-  specialties: text("specialties"),
-  contractType: varchar("contract_type", { length: 100 }),
-  status: contractorStatusEnum("status").default("active").notNull(),
-  notes: text("notes"),
-  createdAt: timestamp("created_at").defaultNow().notNull(),
-  updatedAt: timestamp("updated_at").defaultNow().notNull(),
-});
-
-export type Contractor = typeof contractors.$inferSelect;
-export type InsertContractor = typeof contractors.$inferInsert;
-
 export const constructionProjects = pgTable("construction_projects", {
   id: serial("id").primaryKey(),
   userId: integer("user_id").notNull(),
-  contractorId: integer("contractor_id"),
   title: varchar("title", { length: 255 }).notNull(),
   address: text("address"),
   city: varchar("city", { length: 100 }),
@@ -356,7 +332,6 @@ export type InsertObraFee = typeof obraFees.$inferInsert;
 export const obraMeasurements = pgTable("obra_measurements", {
   id: serial("id").primaryKey(),
   projectId: integer("project_id").notNull(),
-  contractorId: integer("contractor_id"),
   stageId: integer("stage_id"),
   measurementDate: timestamp("measurement_date").notNull(),
   value: decimal("value", { precision: 15, scale: 2 }).notNull(),
@@ -370,56 +345,6 @@ export const obraMeasurements = pgTable("obra_measurements", {
 export type ObraMeasurement = typeof obraMeasurements.$inferSelect;
 export type InsertObraMeasurement = typeof obraMeasurements.$inferInsert;
 
-export const lots = pgTable("lots", {
-  id: serial("id").primaryKey(),
-  lotNumber: varchar("lot_number", { length: 50 }).notNull(),
-  development: varchar("development", { length: 255 }).notNull(),
-  city: varchar("city", { length: 100 }),
-  state: varchar("state", { length: 2 }),
-  assessmentValue: decimal("assessment_value", { precision: 15, scale: 2 }),
-  cefPaymentValue: decimal("cef_payment_value", { precision: 15, scale: 2 }),
-  sellerCost: decimal("seller_cost", { precision: 15, scale: 2 }),
-  sellerName: varchar("seller_name", { length: 255 }),
-  prospectaMargin: decimal("prospecta_margin", { precision: 15, scale: 2 }),
-  status: lotStatusEnum("status").default("available").notNull(),
-  assignedProjectId: integer("assigned_project_id"),
-  assignedClientName: varchar("assigned_client_name", { length: 255 }),
-  notes: text("notes"),
-  createdAt: timestamp("created_at").defaultNow().notNull(),
-  updatedAt: timestamp("updated_at").defaultNow().notNull(),
-});
-
-export type Lot = typeof lots.$inferSelect;
-export type InsertLot = typeof lots.$inferInsert;
-
-export const investors = pgTable("investors", {
-  id: serial("id").primaryKey(),
-  name: varchar("name", { length: 255 }).notNull(),
-  initialDate: timestamp("initial_date").notNull(),
-  initialAmount: decimal("initial_amount", { precision: 15, scale: 2 }).notNull(),
-  currentBalance: decimal("current_balance", { precision: 15, scale: 2 }).notNull(),
-  monthlyRate: decimal("monthly_rate", { precision: 7, scale: 4 }).default("0"),
-  status: investorStatusEnum("status").default("active").notNull(),
-  notes: text("notes"),
-  createdAt: timestamp("created_at").defaultNow().notNull(),
-  updatedAt: timestamp("updated_at").defaultNow().notNull(),
-});
-
-export type Investor = typeof investors.$inferSelect;
-export type InsertInvestor = typeof investors.$inferInsert;
-
-export const investorTransactions = pgTable("investor_transactions", {
-  id: serial("id").primaryKey(),
-  investorId: integer("investor_id").notNull(),
-  type: investorTransactionTypeEnum("type").notNull(),
-  amount: decimal("amount", { precision: 15, scale: 2 }).notNull(),
-  date: timestamp("date").notNull(),
-  notes: text("notes"),
-  createdAt: timestamp("created_at").defaultNow().notNull(),
-});
-
-export type InvestorTransaction = typeof investorTransactions.$inferSelect;
-export type InsertInvestorTransaction = typeof investorTransactions.$inferInsert;
 
 export const brokerCommissions = pgTable("broker_commissions", {
   id: serial("id").primaryKey(),
@@ -544,25 +469,6 @@ export const tasks = pgTable("tasks", {
 
 export type Task = typeof tasks.$inferSelect;
 export type InsertTask = typeof tasks.$inferInsert;
-
-export const partnerDistributions = pgTable("partner_distributions", {
-  id: serial("id").primaryKey(),
-  partnerName: varchar("partner_name", { length: 255 }).notNull(),
-  referenceType: partnerReferenceTypeEnum("reference_type").notNull(),
-  referenceId: integer("reference_id"),
-  referenceDescription: varchar("reference_description", { length: 255 }),
-  percentage: decimal("percentage", { precision: 5, scale: 2 }).notNull(),
-  grossAmount: decimal("gross_amount", { precision: 15, scale: 2 }).notNull(),
-  distributionAmount: decimal("distribution_amount", { precision: 15, scale: 2 }).notNull(),
-  status: partnerDistributionStatusEnum("status").default("pending").notNull(),
-  paidAt: timestamp("paid_at"),
-  notes: text("notes"),
-  createdAt: timestamp("created_at").defaultNow().notNull(),
-  updatedAt: timestamp("updated_at").defaultNow().notNull(),
-});
-
-export type PartnerDistribution = typeof partnerDistributions.$inferSelect;
-export type InsertPartnerDistribution = typeof partnerDistributions.$inferInsert;
 
 export const financialTransactions = pgTable("financial_transactions", {
   id: serial("id").primaryKey(),

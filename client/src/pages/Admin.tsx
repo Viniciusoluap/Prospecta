@@ -11,7 +11,7 @@ import Navbar from "@/components/Navbar";
 import { trpc } from "@/lib/trpc";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { formatCurrency, formatUtef, getLoginUrl } from "@/const";
-import { Settings, Plus, Ticket, ShoppingBag, AlertCircle, Users, DollarSign, CheckSquare, HardHat, Map, TrendingUp, UserCheck } from "lucide-react";
+import { Settings, Plus, Ticket, ShoppingBag, AlertCircle, Users, DollarSign, CheckSquare, HardHat, UserCheck } from "lucide-react";
 import { toast } from "sonner";
 import {
   Select,
@@ -178,28 +178,10 @@ export default function Admin() {
                     <span>Tarefas & SLA</span>
                   </Button>
                 </Link>
-                <Link href="/admin/lotes">
-                  <Button variant="outline" className="w-full h-20 flex flex-col gap-2 border-yellow-500/30 hover:bg-yellow-500/10">
-                    <Map className="h-5 w-5 text-yellow-400" />
-                    <span>Lotes</span>
-                  </Button>
-                </Link>
-                <Link href="/admin/investidores">
-                  <Button variant="outline" className="w-full h-20 flex flex-col gap-2 border-teal-500/30 hover:bg-teal-500/10">
-                    <TrendingUp className="h-5 w-5 text-teal-400" />
-                    <span>Investidores</span>
-                  </Button>
-                </Link>
                 <Link href="/admin/corretores">
                   <Button variant="outline" className="w-full h-20 flex flex-col gap-2 border-pink-500/30 hover:bg-pink-500/10">
                     <UserCheck className="h-5 w-5 text-pink-400" />
                     <span>Corretores</span>
-                  </Button>
-                </Link>
-                <Link href="/admin/empreiteiros">
-                  <Button variant="outline" className="w-full h-20 flex flex-col gap-2 border-gray-500/30 hover:bg-gray-500/10">
-                    <HardHat className="h-5 w-5 text-gray-400" />
-                    <span>Empreiteiros</span>
                   </Button>
                 </Link>
               </div>

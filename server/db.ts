@@ -16,17 +16,12 @@ import {
   projectBudgetRequests, ProjectBudgetRequest, InsertProjectBudgetRequest,
   emailLogs, EmailLog,
   userNotifications, UserNotification, InsertUserNotification,
-  contractors, Contractor, InsertContractor,
   leads, Lead, InsertLead,
   leadActivities, LeadActivity, InsertLeadActivity,
   leadDocuments, LeadDocument, InsertLeadDocument,
   leadFollowUps, LeadFollowUp, InsertLeadFollowUp,
   tasks, Task, InsertTask,
-  investors, Investor, InsertInvestor,
-  investorTransactions, InvestorTransaction, InsertInvestorTransaction,
   brokerCommissions, BrokerCommission, InsertBrokerCommission,
-  lots, Lot, InsertLot,
-  partnerDistributions, PartnerDistribution, InsertPartnerDistribution,
   financialTransactions, FinancialTransaction, InsertFinancialTransaction,
   obraFees, ObraFee, InsertObraFee,
   obraMeasurements, ObraMeasurement, InsertObraMeasurement,
@@ -543,30 +538,6 @@ export async function markAllNotificationsAsRead(userId: number): Promise<void> 
     .where(and(eq(userNotifications.userId, userId), eq(userNotifications.isRead, false)));
 }
 
-// ========== EMPREITEIROS (CONTRACTORS) ==========
-
-export async function getAllContractors(): Promise<Contractor[]> {
-  const db = getDb();
-  return db.select().from(contractors).orderBy(contractors.name);
-}
-
-export async function getContractorById(id: number): Promise<Contractor | undefined> {
-  const db = getDb();
-  const result = await db.select().from(contractors).where(eq(contractors.id, id)).limit(1);
-  return result[0];
-}
-
-export async function createContractor(data: InsertContractor): Promise<Contractor> {
-  const db = getDb();
-  const result = await db.insert(contractors).values(data).returning();
-  return result[0];
-}
-
-export async function updateContractor(id: number, data: Partial<InsertContractor>): Promise<void> {
-  const db = getDb();
-  await db.update(contractors).set({ ...data, updatedAt: new Date() }).where(eq(contractors.id, id));
-}
-
 // ========== CRM — LEADS ==========
 
 export async function getAllLeads(filters?: {
@@ -687,34 +658,6 @@ export async function updateTask(id: number, data: Partial<InsertTask>): Promise
   await db.update(tasks).set({ ...data, updatedAt: new Date() }).where(eq(tasks.id, id));
 }
 
-// ========== INVESTIDORES ==========
-
-export async function getAllInvestors(): Promise<Investor[]> {
-  const db = getDb();
-  return db.select().from(investors).orderBy(investors.name);
-}
-
-export async function createInvestor(data: InsertInvestor): Promise<Investor> {
-  const db = getDb();
-  const result = await db.insert(investors).values(data).returning();
-  return result[0];
-}
-
-export async function updateInvestor(id: number, data: Partial<InsertInvestor>): Promise<void> {
-  const db = getDb();
-  await db.update(investors).set({ ...data, updatedAt: new Date() }).where(eq(investors.id, id));
-}
-
-export async function getInvestorTransactions(investorId: number): Promise<InvestorTransaction[]> {
-  const db = getDb();
-  return db.select().from(investorTransactions).where(eq(investorTransactions.investorId, investorId)).orderBy(desc(investorTransactions.date));
-}
-
-export async function addInvestorTransaction(data: InsertInvestorTransaction): Promise<void> {
-  const db = getDb();
-  await db.insert(investorTransactions).values(data);
-}
-
 // ========== CONTROLE DE CORRETORES ==========
 
 export async function getAllBrokerCommissions(): Promise<BrokerCommission[]> {
@@ -731,42 +674,6 @@ export async function createBrokerCommission(data: InsertBrokerCommission): Prom
 export async function updateBrokerCommission(id: number, data: Partial<InsertBrokerCommission>): Promise<void> {
   const db = getDb();
   await db.update(brokerCommissions).set({ ...data, updatedAt: new Date() }).where(eq(brokerCommissions.id, id));
-}
-
-// ========== CONTROLE DE LOTES ==========
-
-export async function getAllLots(): Promise<Lot[]> {
-  const db = getDb();
-  return db.select().from(lots).orderBy(lots.development, lots.lotNumber);
-}
-
-export async function createLot(data: InsertLot): Promise<Lot> {
-  const db = getDb();
-  const result = await db.insert(lots).values(data).returning();
-  return result[0];
-}
-
-export async function updateLot(id: number, data: Partial<InsertLot>): Promise<void> {
-  const db = getDb();
-  await db.update(lots).set({ ...data, updatedAt: new Date() }).where(eq(lots.id, id));
-}
-
-// ========== DISTRIBUIÇÃO DE SÓCIOS ==========
-
-export async function getAllPartnerDistributions(): Promise<PartnerDistribution[]> {
-  const db = getDb();
-  return db.select().from(partnerDistributions).orderBy(desc(partnerDistributions.createdAt));
-}
-
-export async function createPartnerDistribution(data: InsertPartnerDistribution): Promise<PartnerDistribution> {
-  const db = getDb();
-  const result = await db.insert(partnerDistributions).values(data).returning();
-  return result[0];
-}
-
-export async function updatePartnerDistribution(id: number, data: Partial<InsertPartnerDistribution>): Promise<void> {
-  const db = getDb();
-  await db.update(partnerDistributions).set({ ...data, updatedAt: new Date() }).where(eq(partnerDistributions.id, id));
 }
 
 // ========== TRANSAÇÕES FINANCEIRAS ==========

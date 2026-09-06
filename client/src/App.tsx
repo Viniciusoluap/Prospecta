@@ -36,9 +36,6 @@ import AdminCRM from "./pages/admin/AdminCRM";
 import AdminLeadDetail from "./pages/admin/AdminLeadDetail";
 import AdminFinanceiro from "./pages/admin/AdminFinanceiro";
 import AdminTarefas from "./pages/admin/AdminTarefas";
-import AdminEmpreiteiros from "./pages/admin/AdminEmpreiteiros";
-import AdminLotes from "./pages/admin/AdminLotes";
-import AdminInvestidores from "./pages/admin/AdminInvestidores";
 import AdminCorretores from "./pages/admin/AdminCorretores";
 import AdminObraMedicoes from "./pages/admin/AdminObraMedicoes";
 import Perfil from "./pages/Perfil";
@@ -117,15 +114,6 @@ function Router() {
       </Route>
       <Route path="/admin/tarefas">
         <AdminRoute><AdminTarefas /></AdminRoute>
-      </Route>
-      <Route path="/admin/empreiteiros">
-        <AdminRoute><AdminEmpreiteiros /></AdminRoute>
-      </Route>
-      <Route path="/admin/lotes">
-        <AdminRoute><AdminLotes /></AdminRoute>
-      </Route>
-      <Route path="/admin/investidores">
-        <AdminRoute><AdminInvestidores /></AdminRoute>
       </Route>
       <Route path="/admin/corretores">
         <AdminRoute><AdminCorretores /></AdminRoute>
