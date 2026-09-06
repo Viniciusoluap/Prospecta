@@ -1,11 +1,13 @@
 # EPIC-008: Incorporação
 
 **Epic Owner:** Claude
-**Status:** Done (S-01 a S-12) — S-13 (Estudo de Viabilidade Econômica) permanece em backlog, achado durante a implementação e fora do plano original
+**Status:** Done (S-01 a S-13) — epic 100% concluído
 
 **Atualização (06/09/2026, S-03):** a S-03 originalmente descrita como "Estudo urbanístico e de mercado" foi re-escopada para "Estudo de Mercado" apenas — os campos `urban_parameters_json`/`potential_json`/`urbanistic_opinion` (parâmetros urbanísticos e potencial construtivo) não têm aba própria no Santa Fé; são consumidos dentro da aba de Massa/Quadro de Áreas, então passam a fazer parte da S-04. Ver `S-03-estudo-mercado.md` para o raciocínio completo.
 
 **Atualização (06/09/2026, S-08):** durante a S-08 foi descoberto que o Grupo Santa Fé tem um módulo inteiro — "Estudo de Viabilidade Econômica" (motor de VGV/fluxo de caixa/VPL/TIR/payback/sensibilidade, `lib/finance/eve.ts` + `viabilidade-tab.tsx`, ~1.100 linhas de referência) — que nunca constou como story nesta trilha. É a fonte real do "VGV bruto"/"investimento total" que as stories S-05 e S-06 precisaram tornar campo manual. Adicionado como nova story de backlog (S-13) em vez de encaixado às pressas ou simulado. Ver `S-08-registro-orcamento-preliminar.md` para o raciocínio completo.
+
+**Atualização (06/09/2026, S-13):** a S-13 fechou o epic. Correção de referência: o motor real que a UI usa é `lib/finance/loteamento.ts` (que importa `vpl`/`tir`/`payback` de `eve.ts`, esse sim usado só internamente) — `eve.ts` isolado é código morto na origem. Reaproveitada a coluna `lotting_json` (já existente, nunca usada) em vez de migration nova. Ver `S-13-viabilidade-economica.md` para o raciocínio completo.
 
 ## Problem Statement
 
@@ -47,6 +49,6 @@ Deixado por último de propósito dado o tamanho. Modelo Prisma de referência: 
 | S-10 | Lançamento imobiliário e mix de produtos | Done |
 | S-11 | Projetos executivos, orçamento e cronograma físico-financeiro da obra | Done |
 | S-12 | Atendimento aos clientes e relatório executivo (PDF) | Done |
-| S-13 | Estudo de Viabilidade Econômica (EVE completo: VGV, fluxo de caixa, VPL/TIR/payback, sensibilidade) — achado durante a S-08, não fazia parte do plano original | Backlog |
+| S-13 | Estudo de Viabilidade Econômica (EVE completo: VGV, fluxo de caixa, VPL/TIR/payback, sensibilidade) — achado durante a S-08, não fazia parte do plano original | Done |
 
 _Cada story S-02+ implementa um módulo isolado, lendo/gravando apenas sua própria coluna `*_json` — baixo acoplamento entre stories, podem ser feitas em qualquer ordem após a S-01._

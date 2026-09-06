@@ -7,7 +7,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { toast } from "sonner";
-import { ArrowLeft, Construction } from "lucide-react";
+import { ArrowLeft } from "lucide-react";
 import { TerrenoTopografia } from "@/components/incorporacao/TerrenoTopografia";
 import { EstudoMercado } from "@/components/incorporacao/EstudoMercado";
 import { EstudoMassa } from "@/components/incorporacao/EstudoMassa";
@@ -19,6 +19,7 @@ import { LancamentoMarketing } from "@/components/incorporacao/LancamentoMarketi
 import { LancamentoImobiliario } from "@/components/incorporacao/LancamentoImobiliario";
 import { ObraExecutiva } from "@/components/incorporacao/ObraExecutiva";
 import { AtendimentoRelatorio } from "@/components/incorporacao/AtendimentoRelatorio";
+import { ViabilidadeEconomica } from "@/components/incorporacao/ViabilidadeEconomica";
 
 const STATUS_OPTIONS = [
   { value: "draft", label: "Rascunho" },
@@ -228,23 +229,13 @@ export default function AdminIncorporacaoDetail() {
           estudo={estudo}
         />
 
-        <Card className="bg-[#1A2332]/60 border-[#C9A961]/20 backdrop-blur-sm">
-          <CardHeader>
-            <CardTitle className="text-white text-lg flex items-center gap-2">
-              <Construction className="h-5 w-5 text-[#C9A961]" /> Nota sobre a Viabilidade Econômica
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <p className="text-gray-400 text-sm">
-              Todos os módulos operacionais do epic de Incorporação estão implementados. O único item ainda
-              pendente é o motor completo de Viabilidade Econômica (VGV, fluxo de caixa mês a mês, VPL, TIR,
-              payback, análise de sensibilidade) — descoberto durante a implementação como ausente do plano
-              original desta trilha e registrado como story de backlog própria. Alguns campos acima (VGV
-              bruto na negociação do terreno, investimento total no business plan, duração da obra no
-              cronograma) são informados manualmente até esse motor existir.
-            </p>
-          </CardContent>
-        </Card>
+        <ViabilidadeEconomica
+          estudoId={estudo.id}
+          areaM2={estudo.areaM2}
+          appAreaM2={estudo.appAreaM2}
+          productMixJson={estudo.productMixJson}
+          lottingJson={estudo.lottingJson}
+        />
       </div>
     </div>
   );
