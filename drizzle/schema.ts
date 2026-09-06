@@ -79,7 +79,7 @@ export const users = pgTable("users", {
   zipCode: varchar("zipCode", { length: 10 }),
   avatarUrl: text("avatarUrl"),
   loginMethod: varchar("loginMethod", { length: 64 }),
-  role: userRoleEnum("role").default("user").notNull(),
+  role: userRoleEnum("role").default("cliente").notNull(),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().notNull(),
   lastSignedIn: timestamp("lastSignedIn").defaultNow().notNull(),

@@ -19,8 +19,8 @@
     {
       "idx": 2,
       "version": "7",
-      "when": 1788718510945,
-      "tag": "0002_migrate_user_role_data",
+      "when": 1788720284044,
+      "tag": "0002_default_role_cliente",
       "breakpoints": true
     }
   ]
