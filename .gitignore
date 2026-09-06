@@ -105,3 +105,26 @@ temp/
 *.db
 *.sqlite
 *.sqlite3
+
+# Environment & Secrets (AIOX)
+.env.*.local
+*.key
+*.pem
+
+# Dependencies (AIOX)
+node_modules/
+node_modules
+
+# Build & Logs (AIOX)
+logs/
+
+# AIOX Local (AIOX)
+.aiox-core/local/
+.claude/settings.local.json
+.aiox/install-log.txt
+
+# AIOX core framework (reinstall with: npx --package=@aiox-squads/core aiox install --ci --yes --ide claude-code)
+.aiox-core/
+.cursor/
+.gemini/
+.kimi/
