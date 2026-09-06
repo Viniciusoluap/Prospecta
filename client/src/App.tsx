@@ -40,6 +40,8 @@ import AdminCorretores from "./pages/admin/AdminCorretores";
 import AdminObraMedicoes from "./pages/admin/AdminObraMedicoes";
 import AdminAvaliacoes from "./pages/admin/AdminAvaliacoes";
 import AdminAvaliacaoDetail from "./pages/admin/AdminAvaliacaoDetail";
+import Imoveis from "./pages/Imoveis";
+import ImovelDetalhes from "./pages/ImovelDetalhes";
 import Perfil from "./pages/Perfil";
 import SimuladorFinanciamento from "./pages/SimuladorFinanciamento";
 import WhatsAppFloat from "./components/WhatsAppFloat";
@@ -54,6 +56,8 @@ function Router() {
       <Route path="/sorteios" component={Sorteios} />
       <Route path="/comprar-bilhete/:id" component={ComprarBilhete} />
       <Route path="/produtos" component={Produtos} />
+      <Route path="/imoveis" component={Imoveis} />
+      <Route path="/imoveis/:slug" component={ImovelDetalhes} />
       <Route path="/meus-bilhetes">
         <ProtectedRoute><MeusBilhetes /></ProtectedRoute>
       </Route>

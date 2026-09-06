@@ -14,7 +14,7 @@
 | Epic | Nome | Owner | Status | Depende de |
 |------|------|-------|--------|------------|
 | EPIC-000 | Limpeza: remover contractors/investors/lots/partnerDistributions | Claude | Done | — |
-| EPIC-001 | Catálogo de Imóveis | Claude | In Progress (S-01 Done) | EPIC-000, EPIC-009 |
+| EPIC-001 | Catálogo de Imóveis | Claude | In Progress (S-01, S-02 Done) | EPIC-000, EPIC-009 |
 | EPIC-002 | Portal do Cliente | Codex | Draft | EPIC-009 |
 | EPIC-003 | Avaliações | Claude | Done (S-01, S-02, S-03, S-04) | EPIC-001 |
 | EPIC-004 | Regularização | Codex | Draft (schema já existe — reaproveitar) | EPIC-009 |
@@ -23,7 +23,7 @@
 | EPIC-007 | Financeiro avançado (Pluggy/BPO/Contabilidade) | Codex | Draft | Config de credenciais fica com o usuário |
 | EPIC-008 | Incorporação | A dividir | Backlog (schema já existe — reaproveitar) | EPIC-001, demais fecharem |
 | EPIC-009 | Alinhamento de papéis (admin/corretor/colaborador/cliente) | Claude | Done (S-01) | — |
-| EPIC-010 | Páginas institucionais (serviços/sobre/contato/mercado/cursos/instituto) | A dividir | Draft | — |
+| EPIC-010 | Páginas institucionais (serviços/sobre/contato/mercado/cursos/instituto) | Claude | Draft | — |
 
 ## Decisões do dono do produto (06/09/2026)
 
@@ -32,6 +32,7 @@
 3. **Páginas institucionais do Santa Fé** (`/servicos`, `/sobre`, `/contato`, `/mercado`, `/cursos`, `/instituto`) — **precisam existir no Prospecta também**. Só a landing page em si (`/`) e o ecossistema de sorteios ficam exclusivos/diferentes. Virou EPIC-010.
 4. **Papéis de usuário** — confirmado: alinhar `admin/user` (Prospecta) com `admin/corretor/colaborador/cliente` (Santa Fé). Vira EPIC-009, foundational — feito primeiro porque bloqueia o Portal do Cliente (EPIC-002, Codex) e o restante da minha trilha.
 5. **Sugestão de valor por IA (EPIC-003 S-03)** — decidido usar Anthropic direto + ferramenta `web_search` (paridade exata com o Santa Fé), em vez do gateway de LLM genérico já existente no Prospecta (`invokeLLM`/Gemini, que não suporta busca na web). Implica nova dependência (`@anthropic-ai/sdk`) e `ANTHROPIC_API_KEY` real a configurar no Vercel do Prospecta quando for validar em produção — mesmo padrão já adotado no Santa Fé.
+6. **EPIC-010 (páginas institucionais)** — atribuído diretamente à trilha Claude (antes "a dividir" com a trilha Codex), a ser feito após o restante do EPIC-001.
 
 ## Coordenação entre trilhas
 
