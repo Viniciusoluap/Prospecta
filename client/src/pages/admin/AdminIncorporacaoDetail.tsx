@@ -15,6 +15,7 @@ import { OrcamentoNegociacao } from "@/components/incorporacao/OrcamentoNegociac
 import { BusinessPlan } from "@/components/incorporacao/BusinessPlan";
 import { ProjetistasAprovacao } from "@/components/incorporacao/ProjetistasAprovacao";
 import { RegistroOrcamentoPreliminar } from "@/components/incorporacao/RegistroOrcamentoPreliminar";
+import { LancamentoMarketing } from "@/components/incorporacao/LancamentoMarketing";
 
 const STATUS_OPTIONS = [
   { value: "draft", label: "Rascunho" },
@@ -23,7 +24,7 @@ const STATUS_OPTIONS = [
 ];
 
 const FUTURE_MODULES = [
-  "Planejamento de lançamento, fornecedores e material publicitário",
+  "Lançamento imobiliário e mix de produtos",
   "Projetos executivos, orçamento e cronograma de obra",
   "Atendimento aos clientes",
 ];
@@ -201,6 +202,13 @@ export default function AdminIncorporacaoDetail() {
           incorporationRegistrationJson={estudo.incorporationRegistrationJson}
           preliminaryBudgetJson={estudo.preliminaryBudgetJson}
           parameterizedBudgetJson={estudo.parameterizedBudgetJson}
+        />
+
+        <LancamentoMarketing
+          estudoId={estudo.id}
+          launchPlanJson={estudo.launchPlanJson}
+          launchSuppliersJson={estudo.launchSuppliersJson}
+          marketingMaterialJson={estudo.marketingMaterialJson}
         />
 
         <Card className="bg-[#1A2332]/60 border-[#C9A961]/20 backdrop-blur-sm">

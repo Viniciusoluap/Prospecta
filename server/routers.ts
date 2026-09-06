@@ -2056,6 +2056,30 @@ export const appRouter = router({
         await db.updateIncorporationStudy(input.id, { preliminaryBudgetJson: input.dataJson });
         return { success: true };
       }),
+
+    savePlanejamentoLancamento: protectedProcedure
+      .input(z.object({ id: z.number(), dataJson: z.string().min(1) }))
+      .mutation(async ({ input, ctx }) => {
+        requireRole(ctx, ["admin"]);
+        await db.updateIncorporationStudy(input.id, { launchPlanJson: input.dataJson });
+        return { success: true };
+      }),
+
+    saveFornecedoresLancamento: protectedProcedure
+      .input(z.object({ id: z.number(), dataJson: z.string().min(1) }))
+      .mutation(async ({ input, ctx }) => {
+        requireRole(ctx, ["admin"]);
+        await db.updateIncorporationStudy(input.id, { launchSuppliersJson: input.dataJson });
+        return { success: true };
+      }),
+
+    saveMaterialPublicitario: protectedProcedure
+      .input(z.object({ id: z.number(), dataJson: z.string().min(1) }))
+      .mutation(async ({ input, ctx }) => {
+        requireRole(ctx, ["admin"]);
+        await db.updateIncorporationStudy(input.id, { marketingMaterialJson: input.dataJson });
+        return { success: true };
+      }),
   }),
 });
 

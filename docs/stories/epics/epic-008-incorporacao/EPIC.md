@@ -1,7 +1,7 @@
 # EPIC-008: Incorporação
 
 **Epic Owner:** Claude
-**Status:** In Progress (S-01 a S-08 Done)
+**Status:** In Progress (S-01 a S-09 Done)
 
 **Atualização (06/09/2026, S-03):** a S-03 originalmente descrita como "Estudo urbanístico e de mercado" foi re-escopada para "Estudo de Mercado" apenas — os campos `urban_parameters_json`/`potential_json`/`urbanistic_opinion` (parâmetros urbanísticos e potencial construtivo) não têm aba própria no Santa Fé; são consumidos dentro da aba de Massa/Quadro de Áreas, então passam a fazer parte da S-04. Ver `S-03-estudo-mercado.md` para o raciocínio completo.
 
@@ -43,7 +43,7 @@ Deixado por último de propósito dado o tamanho. Modelo Prisma de referência: 
 | S-06 | Business plan e investidores | Done |
 | S-07 | Contratação de projetistas e aprovação de projeto | Done |
 | S-08 | Registro da incorporação e orçamento preliminar (reconciliado com S-05) | Done |
-| S-09 | Planejamento de lançamento, fornecedores e material publicitário | Backlog |
+| S-09 | Planejamento de lançamento, fornecedores e material publicitário | Done |
 | S-10 | Lançamento imobiliário e mix de produtos | Backlog |
 | S-11 | Projetos executivos, orçamento e cronograma físico-financeiro da obra | Backlog |
 | S-12 | Atendimento aos clientes e relatórios (PDF) | Backlog |
