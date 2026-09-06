@@ -16,6 +16,7 @@
     "db:push": "drizzle-kit generate && drizzle-kit migrate"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.106.0",
     "@aws-sdk/client-s3": "^3.693.0",
     "@aws-sdk/s3-request-presigner": "^3.693.0",
     "@neondatabase/serverless": "^0.10.4",

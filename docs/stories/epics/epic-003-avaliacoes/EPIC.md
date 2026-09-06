@@ -28,5 +28,5 @@ O Grupo Santa Fé tem um módulo de avaliação de imóveis (laudos por metodolo
 |-------|-------|--------|
 | S-01 | Schema + router `avaliacoes` | Done |
 | S-02 | Checklist de vistoria | Done |
-| S-03 | Sugestão de valor via IA | Draft |
+| S-03 | Sugestão de valor via IA | Done |
 | S-04 | Tela admin | Draft |

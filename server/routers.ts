@@ -12,6 +12,7 @@ import * as db from "./db";
 import { TRPCError } from "@trpc/server";
 import { validateCPF, cleanCPF } from "../shared/cpf";
 import { getChecklistGroups, getEstadoGeralOptions, CHECKLIST_MAX_FOTOS } from "../shared/avaliacao-checklist";
+import { gerarSugestaoValor } from "./_core/avaliacao-ia";
 import { paymentSettingsRouter } from "./payment-settings-router";
 
 // Helper para gerar número de bilhete único
@@ -1671,6 +1672,32 @@ export const appRouter = router({
         const { id, ...checklist } = input;
         await db.updateAvaliacao(id, { caracteristicas: JSON.stringify(checklist) });
         return { success: true };
+      }),
+
+    sugerirValor: protectedProcedure
+      .input(z.object({ id: z.number() }))
+      .mutation(async ({ input, ctx }) => {
+        if (ctx.user.role !== "admin" && ctx.user.role !== "corretor" && ctx.user.role !== "colaborador") {
+          throw new TRPCError({ code: "FORBIDDEN" });
+        }
+        const avaliacao = await db.getAvaliacaoById(input.id);
+        if (!avaliacao) throw new TRPCError({ code: "NOT_FOUND" });
+
+        const sugestao = await gerarSugestaoValor({
+          endereco: avaliacao.endereco,
+          bairro: avaliacao.bairro,
+          cidade: avaliacao.cidade,
+          estado: avaliacao.estado,
+          tipo: avaliacao.tipo,
+          areaConstruida: avaliacao.areaConstruida ? Number(avaliacao.areaConstruida) : null,
+          areaTerreno: avaliacao.areaTerreno ? Number(avaliacao.areaTerreno) : null,
+          quartos: avaliacao.quartos,
+          banheiros: avaliacao.banheiros,
+          caracteristicas: avaliacao.caracteristicas,
+        });
+
+        await db.updateAvaliacao(input.id, { sugestaoJson: JSON.stringify(sugestao) });
+        return sugestao;
       }),
   }),
 });

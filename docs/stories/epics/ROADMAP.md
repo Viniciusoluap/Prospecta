@@ -16,7 +16,7 @@
 | EPIC-000 | Limpeza: remover contractors/investors/lots/partnerDistributions | Claude | Done | — |
 | EPIC-001 | Catálogo de Imóveis | Claude | In Progress (S-01 Done) | EPIC-000, EPIC-009 |
 | EPIC-002 | Portal do Cliente | Codex | Draft | EPIC-009 |
-| EPIC-003 | Avaliações | Claude | In Progress (S-01, S-02 Done) | EPIC-001 |
+| EPIC-003 | Avaliações | Claude | In Progress (S-01, S-02, S-03 Done) | EPIC-001 |
 | EPIC-004 | Regularização | Codex | Draft (schema já existe — reaproveitar) | EPIC-009 |
 | EPIC-005 | Agregador/Feeds | Claude | Draft | EPIC-001 |
 | EPIC-006 | WhatsApp (Evolution API) | Codex | Draft | — |
@@ -31,6 +31,7 @@
 2. **Credenciais Asaas (`payment_settings`)** — o usuário mesmo vai configurar a chave/token reais quando for a hora de conectar de verdade. Adiantar tudo o que não depende disso (schema, UI, criptografia) — não bloquear nem esperar a credencial real para avançar o resto.
 3. **Páginas institucionais do Santa Fé** (`/servicos`, `/sobre`, `/contato`, `/mercado`, `/cursos`, `/instituto`) — **precisam existir no Prospecta também**. Só a landing page em si (`/`) e o ecossistema de sorteios ficam exclusivos/diferentes. Virou EPIC-010.
 4. **Papéis de usuário** — confirmado: alinhar `admin/user` (Prospecta) com `admin/corretor/colaborador/cliente` (Santa Fé). Vira EPIC-009, foundational — feito primeiro porque bloqueia o Portal do Cliente (EPIC-002, Codex) e o restante da minha trilha.
+5. **Sugestão de valor por IA (EPIC-003 S-03)** — decidido usar Anthropic direto + ferramenta `web_search` (paridade exata com o Santa Fé), em vez do gateway de LLM genérico já existente no Prospecta (`invokeLLM`/Gemini, que não suporta busca na web). Implica nova dependência (`@anthropic-ai/sdk`) e `ANTHROPIC_API_KEY` real a configurar no Vercel do Prospecta quando for validar em produção — mesmo padrão já adotado no Santa Fé.
 
 ## Coordenação entre trilhas
 
