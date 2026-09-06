@@ -28,6 +28,7 @@ import {
   paymentSettings, PaymentSetting, InsertPaymentSetting,
   imoveis, Imovel, InsertImovel,
   avaliacoes, Avaliacao, InsertAvaliacao,
+  agregadorImoveis, AgregadorImovel, InsertAgregadorImovel,
 } from "../drizzle/schema";
 
 type DrizzleDb = ReturnType<typeof drizzle>;
@@ -824,4 +825,65 @@ export async function updateAvaliacao(id: number, data: Partial<InsertAvaliacao>
 export async function deleteAvaliacao(id: number): Promise<void> {
   const db = getDb();
   await db.delete(avaliacoes).where(eq(avaliacoes.id, id));
+}
+
+// ========== AGREGADOR (SCRAPER DE IMÓVEIS EXTERNOS) ==========
+
+export async function getAllAgregadorImoveis(filters?: { status?: string; fonte?: string }): Promise<AgregadorImovel[]> {
+  const db = getDb();
+  let query = db.select().from(agregadorImoveis).$dynamic();
+  const conditions = [];
+  if (filters?.status) conditions.push(eq(agregadorImoveis.status, filters.status as any));
+  if (filters?.fonte) conditions.push(eq(agregadorImoveis.fonte, filters.fonte as any));
+  if (conditions.length > 0) query = query.where(and(...conditions));
+  return query.orderBy(desc(agregadorImoveis.createdAt));
+}
+
+export async function getAgregadorImovelById(id: number): Promise<AgregadorImovel | undefined> {
+  const db = getDb();
+  const result = await db.select().from(agregadorImoveis).where(eq(agregadorImoveis.id, id)).limit(1);
+  return result[0];
+}
+
+export async function createAgregadorImovel(data: Omit<InsertAgregadorImovel, "status">): Promise<AgregadorImovel> {
+  const db = getDb();
+  const result = await db.insert(agregadorImoveis).values({ ...data, status: "pendente" }).returning();
+  return result[0];
+}
+
+export async function updateAgregadorImovel(id: number, data: Partial<InsertAgregadorImovel>): Promise<void> {
+  const db = getDb();
+  await db.update(agregadorImoveis).set({ ...data, updatedAt: new Date() }).where(eq(agregadorImoveis.id, id));
+}
+
+export async function importarAgregadorParaCatalogo(id: number): Promise<Imovel | undefined> {
+  const db = getDb();
+  const ag = await getAgregadorImovelById(id);
+  if (!ag) return undefined;
+
+  const slug = ag.titulo
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[̀-ͯ]/g, "")
+    .replace(/[^a-z0-9\s-]/g, "")
+    .replace(/\s+/g, "-")
+    .substring(0, 80)
+    + "-" + Date.now();
+
+  const novoImovel = await createImovel({
+    slug,
+    titulo: ag.titulo,
+    descricao: ag.descricao,
+    tipo: ag.tipo ?? "outro",
+    preco: ag.preco ?? "0",
+    areaM2: ag.areaM2 ?? undefined,
+    bairro: ag.bairro,
+    cidade: ag.cidade,
+    estado: ag.estado,
+    fotos: ag.imagens,
+    publicadoSite: false,
+  } as InsertImovel);
+
+  await updateAgregadorImovel(id, { status: "importado" });
+  return novoImovel;
 }

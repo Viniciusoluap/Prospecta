@@ -18,7 +18,7 @@
 | EPIC-002 | Portal do Cliente | Codex | Draft | EPIC-009 |
 | EPIC-003 | Avaliações | Claude | In Progress (S-01, S-02, S-03 Done) | EPIC-001 |
 | EPIC-004 | Regularização | Codex | Draft (schema já existe — reaproveitar) | EPIC-009 |
-| EPIC-005 | Agregador/Feeds | Claude | In Progress (S-01 Done) | EPIC-001 |
+| EPIC-005 | Agregador/Feeds | Claude | Done (S-01, S-02) | EPIC-001 |
 | EPIC-006 | WhatsApp (Evolution API) | Codex | Draft | — |
 | EPIC-007 | Financeiro avançado (Pluggy/BPO/Contabilidade) | Codex | Draft | Config de credenciais fica com o usuário |
 | EPIC-008 | Incorporação | A dividir | Backlog (schema já existe — reaproveitar) | EPIC-001, demais fecharem |
