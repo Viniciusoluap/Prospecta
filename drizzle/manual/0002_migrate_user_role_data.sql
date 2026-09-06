@@ -1,0 +1,15 @@
+-- EPIC-009 S-01: migra usuários existentes com role='user' para role='cliente'
+--
+-- ⚠️ SCRIPT MANUAL — NÃO faz parte do bundle automático do `drizzle-kit migrate`/`db:push`.
+-- Removido de propósito de drizzle/meta/_journal.json (achado do Codex/PR #6, P1):
+-- o migrator do Drizzle (PgDialect.migrate, versão instalada 0.31.4) envolve TODAS as
+-- migrations pendentes em UMA ÚNICA transação. Se este UPDATE ficasse junto de
+-- 0001_extend_user_role_enum.sql no journal, um `db:push`/`migrate` rodado do zero
+-- (banco novo, ex.: ambiente de staging/preview) tentaria usar o valor 'cliente' do
+-- enum na MESMA transação em que ele foi criado — o Postgres rejeita isso
+-- ("unsafe use of new value of enum type") e a migration inteira falha.
+--
+-- Como rodar: só depois que 0001 (ALTER TYPE ADD VALUE) já estiver commitada/aplicada
+-- de verdade no banco (via `drizzle-kit migrate` normal, ou manualmente), em uma
+-- SESSÃO/TRANSAÇÃO separada. Em produção (Neon), já foi aplicado em 2026-09-06.
+UPDATE "users" SET role = 'cliente' WHERE role = 'user';
