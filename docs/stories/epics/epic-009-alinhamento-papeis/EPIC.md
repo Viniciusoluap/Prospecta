@@ -1,7 +1,7 @@
 # EPIC-009: Alinhamento de Papéis de Usuário
 
 **Epic Owner:** Claude
-**Status:** In Progress
+**Status:** Done (S-01, S-02, S-03)
 **Prioridade:** Foundational — bloqueia EPIC-001, EPIC-002, EPIC-004
 
 ## Problem Statement
@@ -27,5 +27,6 @@ O Prospecta hoje só tem dois papéis (`admin`/`user`, enum `user_role` na tabel
 
 | Story | Title | Status |
 |-------|-------|--------|
-| S-01 | Estender enum de papel + migração de dados existentes | Draft |
-| S-02 | Helper RBAC + guards nos routers/rotas | Draft |
+| S-01 | Estender enum de papel + migração de dados existentes | Done |
+| S-02 | Correções de review externo (Codex bot) na S-01 | Done |
+| S-03 | Helper de RBAC reutilizável (`hasRole`/`requireRole`) | Done |

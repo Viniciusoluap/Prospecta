@@ -15,6 +15,7 @@ import { getChecklistGroups, getEstadoGeralOptions, CHECKLIST_MAX_FOTOS } from "
 import { gerarSugestaoValor } from "./_core/avaliacao-ia";
 import { scrapeUrl } from "./_core/imovel-scraper";
 import { paymentSettingsRouter } from "./payment-settings-router";
+import { requireRole, STAFF_ROLES } from "./_core/rbac";
 
 // Helper para gerar número de bilhete único
 function generateTicketNumber(): string {
@@ -174,9 +175,7 @@ export const appRouter = router({
       }))
       .mutation(async ({ input, ctx }) => {
         // Apenas admin pode criar sorteios
-        if (ctx.user.role !== "admin") {
-          throw new TRPCError({ code: "FORBIDDEN", message: "Acesso negado" });
-        }
+        requireRole(ctx, ["admin"]);
         return db.createDraw(input);
       }),
 
@@ -187,9 +186,7 @@ export const appRouter = router({
       }))
       .mutation(async ({ input, ctx }) => {
         // Apenas admin pode realizar sorteio
-        if (ctx.user.role !== "admin") {
-          throw new TRPCError({ code: "FORBIDDEN", message: "Acesso negado" });
-        }
+        requireRole(ctx, ["admin"]);
 
         const draw = await db.getDrawById(input.drawId);
         if (!draw) {
@@ -435,9 +432,7 @@ export const appRouter = router({
       }))
       .mutation(async ({ input, ctx }) => {
         // Apenas admin pode criar produtos
-        if (ctx.user.role !== "admin") {
-          throw new TRPCError({ code: "FORBIDDEN", message: "Acesso negado" });
-        }
+        requireRole(ctx, ["admin"]);
         return db.createProduct(input);
       }),
 
@@ -501,9 +496,7 @@ export const appRouter = router({
 
     // Listar TODAS as obras (apenas admin)
     allProjects: protectedProcedure.query(async ({ ctx }) => {
-      if (ctx.user.role !== "admin") {
-        throw new TRPCError({ code: "FORBIDDEN", message: "Acesso negado" });
-      }
+      requireRole(ctx, ["admin"]);
       return db.getAllProjects();
     }),
 
@@ -770,9 +763,7 @@ export const appRouter = router({
 
     // Listar TODOS os orçamentos (apenas admin)
     getAll: protectedProcedure.query(async ({ ctx }) => {
-      if (ctx.user.role !== "admin") {
-        throw new TRPCError({ code: "FORBIDDEN", message: "Acesso negado" });
-      }
+      requireRole(ctx, ["admin"]);
       return db.getAllBudgetRequests();
     }),
 
@@ -780,9 +771,7 @@ export const appRouter = router({
     getById: protectedProcedure
       .input(z.object({ id: z.number() }))
       .query(async ({ input, ctx }) => {
-        if (ctx.user.role !== "admin") {
-          throw new TRPCError({ code: "FORBIDDEN", message: "Acesso negado" });
-        }
+        requireRole(ctx, ["admin"]);
         const request = await db.getBudgetRequestById(input.id);
         if (!request) {
           throw new TRPCError({ code: "NOT_FOUND", message: "Orçamento não encontrado" });
@@ -798,9 +787,7 @@ export const appRouter = router({
         adminNotes: z.string().optional(),
       }))
       .mutation(async ({ input, ctx }) => {
-        if (ctx.user.role !== "admin") {
-          throw new TRPCError({ code: "FORBIDDEN", message: "Acesso negado" });
-        }
+        requireRole(ctx, ["admin"]);
         const { id, ...updates } = input;
         
         // Buscar dados do orçamento antes de atualizar
@@ -838,9 +825,7 @@ export const appRouter = router({
     delete: protectedProcedure
       .input(z.object({ id: z.number() }))
       .mutation(async ({ input, ctx }) => {
-        if (ctx.user.role !== "admin") {
-          throw new TRPCError({ code: "FORBIDDEN", message: "Acesso negado" });
-        }
+        requireRole(ctx, ["admin"]);
         await db.deleteBudgetRequest(input.id);
         return { success: true };
       }),
@@ -851,27 +836,21 @@ export const appRouter = router({
     // Obter estatísticas gerais (apenas admin)
     getStats: protectedProcedure
       .query(async ({ ctx }) => {
-        if (ctx.user.role !== "admin") {
-          throw new TRPCError({ code: "FORBIDDEN", message: "Acesso negado" });
-        }
+        requireRole(ctx, ["admin"]);
         return db.getAnalyticsStats();
       }),
 
     // Obter orçamentos por status (apenas admin)
     getBudgetRequestsByStatus: protectedProcedure
       .query(async ({ ctx }) => {
-        if (ctx.user.role !== "admin") {
-          throw new TRPCError({ code: "FORBIDDEN", message: "Acesso negado" });
-        }
+        requireRole(ctx, ["admin"]);
         return db.getBudgetRequestsByStatus();
       }),
 
     // Obter obras por status (apenas admin)
     getProjectsByStatus: protectedProcedure
       .query(async ({ ctx }) => {
-        if (ctx.user.role !== "admin") {
-          throw new TRPCError({ code: "FORBIDDEN", message: "Acesso negado" });
-        }
+        requireRole(ctx, ["admin"]);
         return db.getProjectsByStatus();
       }),
 
@@ -879,9 +858,7 @@ export const appRouter = router({
     getRecentBudgetRequests: protectedProcedure
       .input(z.object({ limit: z.number().optional() }))
       .query(async ({ input, ctx }) => {
-        if (ctx.user.role !== "admin") {
-          throw new TRPCError({ code: "FORBIDDEN", message: "Acesso negado" });
-        }
+        requireRole(ctx, ["admin"]);
         return db.getRecentBudgetRequests(input.limit);
       }),
   }),
@@ -891,9 +868,7 @@ export const appRouter = router({
     // Listar todos os emails (apenas admin)
     getAll: protectedProcedure
       .query(async ({ ctx }) => {
-        if (ctx.user.role !== "admin") {
-          throw new TRPCError({ code: "FORBIDDEN", message: "Acesso negado" });
-        }
+        requireRole(ctx, ["admin"]);
         return db.getAllEmailLogs();
       }),
 
@@ -901,9 +876,7 @@ export const appRouter = router({
     getRecent: protectedProcedure
       .input(z.object({ limit: z.number().optional() }))
       .query(async ({ input, ctx }) => {
-        if (ctx.user.role !== "admin") {
-          throw new TRPCError({ code: "FORBIDDEN", message: "Acesso negado" });
-        }
+        requireRole(ctx, ["admin"]);
         return db.getRecentEmailLogs(input.limit);
       }),
 
@@ -911,9 +884,7 @@ export const appRouter = router({
     getById: protectedProcedure
       .input(z.object({ id: z.number() }))
       .query(async ({ input, ctx }) => {
-        if (ctx.user.role !== "admin") {
-          throw new TRPCError({ code: "FORBIDDEN", message: "Acesso negado" });
-        }
+        requireRole(ctx, ["admin"]);
         const email = await db.getEmailLogById(input.id);
         if (!email) {
           throw new TRPCError({ code: "NOT_FOUND", message: "Email não encontrado" });
@@ -972,14 +943,14 @@ export const appRouter = router({
         city: z.string().optional(),
       }).optional())
       .query(async ({ input, ctx }) => {
-        if (ctx.user.role !== "admin") throw new TRPCError({ code: "FORBIDDEN" });
+        requireRole(ctx, ["admin"]);
         return db.getAllLeads(input || {});
       }),
 
     getById: protectedProcedure
       .input(z.object({ id: z.number() }))
       .query(async ({ input, ctx }) => {
-        if (ctx.user.role !== "admin") throw new TRPCError({ code: "FORBIDDEN" });
+        requireRole(ctx, ["admin"]);
         const lead = await db.getLeadById(input.id);
         if (!lead) throw new TRPCError({ code: "NOT_FOUND" });
         const [activities, documents, followUps] = await Promise.all([
@@ -1009,7 +980,7 @@ export const appRouter = router({
         notes: z.string().optional(),
       }))
       .mutation(async ({ input, ctx }) => {
-        if (ctx.user.role !== "admin") throw new TRPCError({ code: "FORBIDDEN" });
+        requireRole(ctx, ["admin"]);
         // Roteamento automático por cidade
         let responsible: "sarah" | "vinicius" | "bianca" = "sarah";
         const city = (input.city || "").toLowerCase();
@@ -1098,7 +1069,7 @@ export const appRouter = router({
         lgpdConsent: z.number().optional(),
       }))
       .mutation(async ({ input, ctx }) => {
-        if (ctx.user.role !== "admin") throw new TRPCError({ code: "FORBIDDEN" });
+        requireRole(ctx, ["admin"]);
         const { id, stage, ...data } = input;
         const lead = await db.getLeadById(id);
         if (!lead) throw new TRPCError({ code: "NOT_FOUND" });
@@ -1134,7 +1105,7 @@ export const appRouter = router({
         performedBy: z.string().optional(),
       }))
       .mutation(async ({ input, ctx }) => {
-        if (ctx.user.role !== "admin") throw new TRPCError({ code: "FORBIDDEN" });
+        requireRole(ctx, ["admin"]);
         await db.addLeadActivity({ ...input, performedBy: input.performedBy || "vinicius" });
         return { success: true };
       }),
@@ -1149,7 +1120,7 @@ export const appRouter = router({
         notes: z.string().optional(),
       }))
       .mutation(async ({ input, ctx }) => {
-        if (ctx.user.role !== "admin") throw new TRPCError({ code: "FORBIDDEN" });
+        requireRole(ctx, ["admin"]);
         await db.addLeadDocument({ ...input, status: input.status || "received", uploadedAt: new Date() });
         return { success: true };
       }),
@@ -1161,7 +1132,7 @@ export const appRouter = router({
         notes: z.string().optional(),
       }))
       .mutation(async ({ input, ctx }) => {
-        if (ctx.user.role !== "admin") throw new TRPCError({ code: "FORBIDDEN" });
+        requireRole(ctx, ["admin"]);
         const { id, ...data } = input;
         await db.updateLeadDocument(id, { ...data, reviewedAt: new Date() });
         return { success: true };
@@ -1169,7 +1140,7 @@ export const appRouter = router({
 
     stats: protectedProcedure
       .query(async ({ ctx }) => {
-        if (ctx.user.role !== "admin") throw new TRPCError({ code: "FORBIDDEN" });
+        requireRole(ctx, ["admin"]);
         return db.getLeadStats();
       }),
   }),
@@ -1183,7 +1154,7 @@ export const appRouter = router({
         status: z.string().optional(),
       }).optional())
       .query(async ({ input, ctx }) => {
-        if (ctx.user.role !== "admin") throw new TRPCError({ code: "FORBIDDEN" });
+        requireRole(ctx, ["admin"]);
         return db.getAllTasks(input?.assignedTo);
       }),
 
@@ -1199,7 +1170,7 @@ export const appRouter = router({
         dueAt: z.union([z.string(), z.date()]).optional(),
       }))
       .mutation(async ({ input, ctx }) => {
-        if (ctx.user.role !== "admin") throw new TRPCError({ code: "FORBIDDEN" });
+        requireRole(ctx, ["admin"]);
         return db.createTask({
           ...input,
           dueAt: input.dueAt ? new Date(input.dueAt) : undefined,
@@ -1217,7 +1188,7 @@ export const appRouter = router({
         dueAt: z.string().optional(),
       }))
       .mutation(async ({ input, ctx }) => {
-        if (ctx.user.role !== "admin") throw new TRPCError({ code: "FORBIDDEN" });
+        requireRole(ctx, ["admin"]);
         const { id, ...data } = input;
         await db.updateTask(id, {
           ...data,
@@ -1236,7 +1207,7 @@ export const appRouter = router({
         status: z.string().optional(),
       }).optional())
       .query(async ({ ctx }) => {
-        if (ctx.user.role !== "admin") throw new TRPCError({ code: "FORBIDDEN" });
+        requireRole(ctx, ["admin"]);
         return db.getAllBrokerCommissions();
       }),
 
@@ -1256,7 +1227,7 @@ export const appRouter = router({
         dueDate4: z.union([z.string(), z.date()]).optional(),
       }))
       .mutation(async ({ input, ctx }) => {
-        if (ctx.user.role !== "admin") throw new TRPCError({ code: "FORBIDDEN" });
+        requireRole(ctx, ["admin"]);
         return db.createBrokerCommission({
           brokerName: input.brokerName,
           clientName: input.clientName,
@@ -1284,7 +1255,7 @@ export const appRouter = router({
         notes: z.string().optional(),
       }))
       .mutation(async ({ input, ctx }) => {
-        if (ctx.user.role !== "admin") throw new TRPCError({ code: "FORBIDDEN" });
+        requireRole(ctx, ["admin"]);
         const { id, notes, ...dates } = input;
         const data: Record<string, any> = { notes };
         if (dates.paidDate1) data.installment1Paid = new Date(dates.paidDate1);
@@ -1302,7 +1273,7 @@ export const appRouter = router({
     list: protectedProcedure
       .input(z.object({ projectId: z.number() }))
       .query(async ({ input, ctx }) => {
-        if (ctx.user.role !== "admin") throw new TRPCError({ code: "FORBIDDEN" });
+        requireRole(ctx, ["admin"]);
         const db = await import("./db").then(m => m.getDb());
         if (!db) return [];
         const { sql } = await import("drizzle-orm");
@@ -1339,7 +1310,7 @@ export const appRouter = router({
         notes: z.string().optional(),
       }))
       .mutation(async ({ input, ctx }) => {
-        if (ctx.user.role !== "admin") throw new TRPCError({ code: "FORBIDDEN" });
+        requireRole(ctx, ["admin"]);
         const db = await import("./db").then(m => m.getDb());
         if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB unavailable" });
         const { sql } = await import("drizzle-orm");
@@ -1367,7 +1338,7 @@ export const appRouter = router({
         dataTransferencia: z.date().optional(),
       }))
       .mutation(async ({ input, ctx }) => {
-        if (ctx.user.role !== "admin") throw new TRPCError({ code: "FORBIDDEN" });
+        requireRole(ctx, ["admin"]);
         const db = await import("./db").then(m => m.getDb());
         if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB unavailable" });
         const { sql } = await import("drizzle-orm");
@@ -1397,7 +1368,7 @@ export const appRouter = router({
         empreiteiro: z.string().optional(),
       }))
       .mutation(async ({ input, ctx }) => {
-        if (ctx.user.role !== "admin") throw new TRPCError({ code: "FORBIDDEN" });
+        requireRole(ctx, ["admin"]);
         const db = await import("./db").then(m => m.getDb());
         if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB unavailable" });
         const { sql } = await import("drizzle-orm");
@@ -1421,7 +1392,7 @@ export const appRouter = router({
         responsible: z.string().optional(),
       }).optional())
       .query(async ({ ctx }) => {
-        if (ctx.user.role !== "admin") throw new TRPCError({ code: "FORBIDDEN" });
+        requireRole(ctx, ["admin"]);
         return db.getAllFinancialTransactions ? db.getAllFinancialTransactions() : [];
       }),
 
@@ -1438,7 +1409,7 @@ export const appRouter = router({
         notes: z.string().optional(),
       }))
       .mutation(async ({ input, ctx }) => {
-        if (ctx.user.role !== "admin") throw new TRPCError({ code: "FORBIDDEN" });
+        requireRole(ctx, ["admin"]);
         if (db.createFinancialTransaction) {
           return db.createFinancialTransaction({
             ...input,
@@ -1508,7 +1479,7 @@ export const appRouter = router({
         publicadoChavesNaMao: z.boolean().optional(),
       }))
       .mutation(async ({ input, ctx }) => {
-        if (ctx.user.role !== "admin") throw new TRPCError({ code: "FORBIDDEN" });
+        requireRole(ctx, ["admin"]);
         return db.createImovel({
           ...input,
           preco: input.preco.toString(),
@@ -1545,7 +1516,7 @@ export const appRouter = router({
         publicadoChavesNaMao: z.boolean().optional(),
       }))
       .mutation(async ({ input, ctx }) => {
-        if (ctx.user.role !== "admin") throw new TRPCError({ code: "FORBIDDEN" });
+        requireRole(ctx, ["admin"]);
         const { id, ...data } = input;
         await db.updateImovel(id, {
           ...data,
@@ -1566,18 +1537,14 @@ export const appRouter = router({
         cidade: z.string().optional(),
       }).optional())
       .query(async ({ input, ctx }) => {
-        if (ctx.user.role !== "admin" && ctx.user.role !== "corretor" && ctx.user.role !== "colaborador") {
-          throw new TRPCError({ code: "FORBIDDEN" });
-        }
+        requireRole(ctx, STAFF_ROLES);
         return db.getAllAvaliacoes(input);
       }),
 
     getById: protectedProcedure
       .input(z.object({ id: z.number() }))
       .query(async ({ input, ctx }) => {
-        if (ctx.user.role !== "admin" && ctx.user.role !== "corretor" && ctx.user.role !== "colaborador") {
-          throw new TRPCError({ code: "FORBIDDEN" });
-        }
+        requireRole(ctx, STAFF_ROLES);
         const avaliacao = await db.getAvaliacaoById(input.id);
         if (!avaliacao) throw new TRPCError({ code: "NOT_FOUND" });
         return avaliacao;
@@ -1609,9 +1576,7 @@ export const appRouter = router({
         leadId: z.number().optional(),
       }))
       .mutation(async ({ input, ctx }) => {
-        if (ctx.user.role !== "admin" && ctx.user.role !== "corretor" && ctx.user.role !== "colaborador") {
-          throw new TRPCError({ code: "FORBIDDEN" });
-        }
+        requireRole(ctx, STAFF_ROLES);
         return db.createAvaliacao({
           ...input,
           areaConstruida: input.areaConstruida?.toString(),
@@ -1655,9 +1620,7 @@ export const appRouter = router({
         leadId: z.number().optional(),
       }))
       .mutation(async ({ input, ctx }) => {
-        if (ctx.user.role !== "admin" && ctx.user.role !== "corretor" && ctx.user.role !== "colaborador") {
-          throw new TRPCError({ code: "FORBIDDEN" });
-        }
+        requireRole(ctx, STAFF_ROLES);
         const { id, ...data } = input;
         if (data.status === "entregue") {
           (data as any).dataEntrega = new Date();
@@ -1677,7 +1640,7 @@ export const appRouter = router({
     delete: protectedProcedure
       .input(z.object({ id: z.number() }))
       .mutation(async ({ input, ctx }) => {
-        if (ctx.user.role !== "admin") throw new TRPCError({ code: "FORBIDDEN" });
+        requireRole(ctx, ["admin"]);
         await db.deleteAvaliacao(input.id);
         return { success: true };
       }),
@@ -1703,9 +1666,7 @@ export const appRouter = router({
         fotos: z.array(z.string()).max(CHECKLIST_MAX_FOTOS),
       }))
       .mutation(async ({ input, ctx }) => {
-        if (ctx.user.role !== "admin" && ctx.user.role !== "corretor" && ctx.user.role !== "colaborador") {
-          throw new TRPCError({ code: "FORBIDDEN" });
-        }
+        requireRole(ctx, STAFF_ROLES);
         const { id, ...checklist } = input;
         await db.updateAvaliacao(id, { caracteristicas: JSON.stringify(checklist) });
         return { success: true };
@@ -1714,9 +1675,7 @@ export const appRouter = router({
     sugerirValor: protectedProcedure
       .input(z.object({ id: z.number() }))
       .mutation(async ({ input, ctx }) => {
-        if (ctx.user.role !== "admin" && ctx.user.role !== "corretor" && ctx.user.role !== "colaborador") {
-          throw new TRPCError({ code: "FORBIDDEN" });
-        }
+        requireRole(ctx, STAFF_ROLES);
         const avaliacao = await db.getAvaliacaoById(input.id);
         if (!avaliacao) throw new TRPCError({ code: "NOT_FOUND" });
 
@@ -1763,9 +1722,7 @@ export const appRouter = router({
     scrape: protectedProcedure
       .input(z.object({ url: z.string() }))
       .mutation(async ({ input, ctx }) => {
-        if (ctx.user.role !== "admin" && ctx.user.role !== "corretor" && ctx.user.role !== "colaborador") {
-          throw new TRPCError({ code: "FORBIDDEN" });
-        }
+        requireRole(ctx, STAFF_ROLES);
         return scrapeUrl(input.url);
       }),
 
@@ -1775,18 +1732,14 @@ export const appRouter = router({
         fonte: z.string().optional(),
       }).optional())
       .query(async ({ input, ctx }) => {
-        if (ctx.user.role !== "admin" && ctx.user.role !== "corretor" && ctx.user.role !== "colaborador") {
-          throw new TRPCError({ code: "FORBIDDEN" });
-        }
+        requireRole(ctx, STAFF_ROLES);
         return db.getAllAgregadorImoveis(input);
       }),
 
     getById: protectedProcedure
       .input(z.object({ id: z.number() }))
       .query(async ({ input, ctx }) => {
-        if (ctx.user.role !== "admin" && ctx.user.role !== "corretor" && ctx.user.role !== "colaborador") {
-          throw new TRPCError({ code: "FORBIDDEN" });
-        }
+        requireRole(ctx, STAFF_ROLES);
         const item = await db.getAgregadorImovelById(input.id);
         if (!item) throw new TRPCError({ code: "NOT_FOUND" });
         return item;
@@ -1813,9 +1766,7 @@ export const appRouter = router({
         notas: z.string().optional(),
       }))
       .mutation(async ({ input, ctx }) => {
-        if (ctx.user.role !== "admin" && ctx.user.role !== "corretor" && ctx.user.role !== "colaborador") {
-          throw new TRPCError({ code: "FORBIDDEN" });
-        }
+        requireRole(ctx, STAFF_ROLES);
         return db.createAgregadorImovel({
           ...input,
           preco: input.preco?.toString(),
@@ -1830,9 +1781,7 @@ export const appRouter = router({
         status: z.enum(["pendente", "verificado", "arquivado"]),
       }))
       .mutation(async ({ input, ctx }) => {
-        if (ctx.user.role !== "admin" && ctx.user.role !== "corretor" && ctx.user.role !== "colaborador") {
-          throw new TRPCError({ code: "FORBIDDEN" });
-        }
+        requireRole(ctx, STAFF_ROLES);
         await db.updateAgregadorImovel(input.id, { status: input.status });
         return { success: true };
       }),
@@ -1840,7 +1789,7 @@ export const appRouter = router({
     importarParaCatalogo: protectedProcedure
       .input(z.object({ id: z.number() }))
       .mutation(async ({ input, ctx }) => {
-        if (ctx.user.role !== "admin") throw new TRPCError({ code: "FORBIDDEN" });
+        requireRole(ctx, ["admin"]);
         const imovel = await db.importarAgregadorParaCatalogo(input.id);
         if (!imovel) throw new TRPCError({ code: "NOT_FOUND" });
         return imovel;
