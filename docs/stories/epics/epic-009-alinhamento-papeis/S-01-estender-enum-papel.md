@@ -1,6 +1,6 @@
 # Story S-01 — Estender enum de papel do usuário
 **Epic:** EPIC-009
-**Status:** InReview
+**Status:** Done
 **executor:** @data-engineer
 **quality_gate:** @dev
 **quality_gate_tools:** [tsc, drizzle-kit, manual-review]
@@ -14,7 +14,7 @@ O Prospecta hoje só tem dois papéis (`admin`/`user`, enum `user_role` na tabel
 - [ ] AC-01: Enum `user_role` no Drizzle (`drizzle/schema.ts`) passa a aceitar `admin | corretor | colaborador | cliente` (valores antigos `user`/`admin` continuam válidos até a migração de dados rodar)
 - [ ] AC-02: Migration SQL gerada via `drizzle-kit generate` (ALTER TYPE ADD VALUE, aditivo) + UPDATE que migra `role = 'user'` para `role = 'cliente'`
 - [ ] AC-03: `server/db.ts`/`server/routers.ts` — nenhuma verificação de `role !== "admin"` quebra (checagens continuam funcionando com os papéis novos coexistindo)
-- [ ] AC-04: Migration aplicada em produção (Neon, projeto SiteProspecta) — passo manual/explícito, não automático
+- [x] AC-04: Migration aplicada em produção (Neon, projeto SiteProspecta) — passo manual/explícito, não automático
 - [ ] AC-05: `tsc --noEmit` e `npm run build` passam limpos
 
 ## Tasks
@@ -23,7 +23,7 @@ O Prospecta hoje só tem dois papéis (`admin`/`user`, enum `user_role` na tabel
 - [x] Rodar `drizzle-kit generate` para a migration do ALTER TYPE (`0001_extend_user_role_enum.sql`)
 - [x] Escrever migration adicional (mesma pasta) com `UPDATE users SET role = 'cliente' WHERE role = 'user'` (`0002_migrate_user_role_data.sql`)
 - [x] Validar `tsc --noEmit` e `npm run build`
-- [ ] Aplicar as duas migrations em produção via Neon MCP — **pendente de confirmação explícita do usuário** (AC-04), não aplicado automaticamente
+- [x] Aplicar as duas migrations em produção via Neon MCP — autorizado e aplicado pelo usuário em 2026-09-06. Confirmado via `enum_range`: os 5 valores existem em produção. Tabela `drizzle.__drizzle_migrations` atualizada com os hashes das duas migrations.
 
 ## File List
 
@@ -49,7 +49,7 @@ CodeRabbit: desabilitado neste ambiente (`coderabbit_integration.enabled: false`
 6. Segurança — nenhum dado sensível exposto; `ALTER TYPE ADD VALUE` é operação segura e reversível (não remove nada). ✅
 7. Documentação — story atualizada com File List e Change Log. ✅
 
-**Verdict: CONCERNS** — código pronto e seguro, mas a story fica **InReview** (não Done) até a migration ser de fato aplicada em produção, já que AC-04 é parte do Definition of Done e ainda não foi executado. Reabrir para Done assim que a aplicação em produção for confirmada e executada.
+**Verdict: CONCERNS → DONE** — código pronto e seguro. AC-04 foi concluído em 2026-09-06 após autorização explícita do usuário (ver Change Log). Todas as ACs atendidas.
 
 ## Change Log
 
@@ -60,3 +60,4 @@ CodeRabbit: desabilitado neste ambiente (`coderabbit_integration.enabled: false`
 | 2026-09-06 | 0.3.0 | Dev started — Status: Ready → InProgress | @dev |
 | 2026-09-06 | 0.4.0 | Dev completo (schema + migrations geradas, typecheck/build OK) — Status: InProgress → InReview | @dev |
 | 2026-09-06 | 0.5.0 | QA: CONCERNS — código aprovado, AC-04 (aplicar em produção) pendente de confirmação do usuário — Status mantido InReview | @qa |
+| 2026-09-06 | 1.0.0 | Usuário autorizou aplicação em produção. Migrations 0001/0002 aplicadas no Neon (SiteProspecta) em transações separadas. `drizzle.__drizzle_migrations` atualizada. AC-04 concluído — Status: InReview → Done | @qa |
