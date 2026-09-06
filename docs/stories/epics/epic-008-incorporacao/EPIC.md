@@ -1,9 +1,11 @@
 # EPIC-008: Incorporação
 
 **Epic Owner:** Claude
-**Status:** In Progress (S-01 a S-07 Done)
+**Status:** In Progress (S-01 a S-08 Done)
 
 **Atualização (06/09/2026, S-03):** a S-03 originalmente descrita como "Estudo urbanístico e de mercado" foi re-escopada para "Estudo de Mercado" apenas — os campos `urban_parameters_json`/`potential_json`/`urbanistic_opinion` (parâmetros urbanísticos e potencial construtivo) não têm aba própria no Santa Fé; são consumidos dentro da aba de Massa/Quadro de Áreas, então passam a fazer parte da S-04. Ver `S-03-estudo-mercado.md` para o raciocínio completo.
+
+**Atualização (06/09/2026, S-08):** durante a S-08 foi descoberto que o Grupo Santa Fé tem um módulo inteiro — "Estudo de Viabilidade Econômica" (motor de VGV/fluxo de caixa/VPL/TIR/payback/sensibilidade, `lib/finance/eve.ts` + `viabilidade-tab.tsx`, ~1.100 linhas de referência) — que nunca constou como story nesta trilha. É a fonte real do "VGV bruto"/"investimento total" que as stories S-05 e S-06 precisaram tornar campo manual. Adicionado como nova story de backlog (S-13) em vez de encaixado às pressas ou simulado. Ver `S-08-registro-orcamento-preliminar.md` para o raciocínio completo.
 
 ## Problem Statement
 
@@ -40,10 +42,11 @@ Deixado por último de propósito dado o tamanho. Modelo Prisma de referência: 
 | S-05 | Orçamento parametrizado e negociação do terreno | Done |
 | S-06 | Business plan e investidores | Done |
 | S-07 | Contratação de projetistas e aprovação de projeto | Done |
-| S-08 | Registro da incorporação e orçamento preliminar (EVE) | Backlog |
+| S-08 | Registro da incorporação e orçamento preliminar (reconciliado com S-05) | Done |
 | S-09 | Planejamento de lançamento, fornecedores e material publicitário | Backlog |
 | S-10 | Lançamento imobiliário e mix de produtos | Backlog |
 | S-11 | Projetos executivos, orçamento e cronograma físico-financeiro da obra | Backlog |
 | S-12 | Atendimento aos clientes e relatórios (PDF) | Backlog |
+| S-13 | Estudo de Viabilidade Econômica (EVE completo: VGV, fluxo de caixa, VPL/TIR/payback, sensibilidade) — achado durante a S-08, não fazia parte do plano original | Backlog |
 
 _Cada story S-02+ implementa um módulo isolado, lendo/gravando apenas sua própria coluna `*_json` — baixo acoplamento entre stories, podem ser feitas em qualquer ordem após a S-01._

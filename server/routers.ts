@@ -2040,6 +2040,22 @@ export const appRouter = router({
         await db.updateIncorporationStudy(input.id, { projectApprovalJson: input.dataJson });
         return { success: true };
       }),
+
+    saveRegistroIncorporacao: protectedProcedure
+      .input(z.object({ id: z.number(), dataJson: z.string().min(1) }))
+      .mutation(async ({ input, ctx }) => {
+        requireRole(ctx, ["admin"]);
+        await db.updateIncorporationStudy(input.id, { incorporationRegistrationJson: input.dataJson });
+        return { success: true };
+      }),
+
+    saveOrcamentoPreliminar: protectedProcedure
+      .input(z.object({ id: z.number(), dataJson: z.string().min(1) }))
+      .mutation(async ({ input, ctx }) => {
+        requireRole(ctx, ["admin"]);
+        await db.updateIncorporationStudy(input.id, { preliminaryBudgetJson: input.dataJson });
+        return { success: true };
+      }),
   }),
 });
 
