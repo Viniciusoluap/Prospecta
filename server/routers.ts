@@ -1960,6 +1960,46 @@ export const appRouter = router({
         await db.updateIncorporationStudy(input.id, { primaryResearchJson: input.dataJson });
         return { success: true };
       }),
+
+    saveUrbanismo: protectedProcedure
+      .input(z.object({
+        id: z.number(),
+        parametrosJson: z.string().min(1),
+        potencialJson: z.string().optional(),
+        opiniao: z.string().optional(),
+      }))
+      .mutation(async ({ input, ctx }) => {
+        requireRole(ctx, ["admin"]);
+        await db.updateIncorporationStudy(input.id, {
+          urbanParametersJson: input.parametrosJson,
+          potentialJson: input.potencialJson,
+          urbanisticOpinion: input.opiniao,
+        });
+        return { success: true };
+      }),
+
+    saveMassa: protectedProcedure
+      .input(z.object({
+        id: z.number(),
+        dataJson: z.string().min(1),
+        selectedScenarioId: z.string().nullable(),
+      }))
+      .mutation(async ({ input, ctx }) => {
+        requireRole(ctx, ["admin"]);
+        await db.updateIncorporationStudy(input.id, {
+          massScenariosJson: input.dataJson,
+          selectedScenarioId: input.selectedScenarioId,
+        });
+        return { success: true };
+      }),
+
+    saveAreasBoard: protectedProcedure
+      .input(z.object({ id: z.number(), dataJson: z.string().min(1) }))
+      .mutation(async ({ input, ctx }) => {
+        requireRole(ctx, ["admin"]);
+        await db.updateIncorporationStudy(input.id, { areasBoardJson: input.dataJson });
+        return { success: true };
+      }),
   }),
 });
 
