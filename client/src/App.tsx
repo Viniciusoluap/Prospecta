@@ -38,6 +38,8 @@ import AdminFinanceiro from "./pages/admin/AdminFinanceiro";
 import AdminTarefas from "./pages/admin/AdminTarefas";
 import AdminCorretores from "./pages/admin/AdminCorretores";
 import AdminObraMedicoes from "./pages/admin/AdminObraMedicoes";
+import AdminAvaliacoes from "./pages/admin/AdminAvaliacoes";
+import AdminAvaliacaoDetail from "./pages/admin/AdminAvaliacaoDetail";
 import Perfil from "./pages/Perfil";
 import SimuladorFinanciamento from "./pages/SimuladorFinanciamento";
 import WhatsAppFloat from "./components/WhatsAppFloat";
@@ -117,6 +119,12 @@ function Router() {
       </Route>
       <Route path="/admin/corretores">
         <AdminRoute><AdminCorretores /></AdminRoute>
+      </Route>
+      <Route path="/admin/avaliacoes/:id">
+        <AdminRoute><AdminAvaliacaoDetail /></AdminRoute>
+      </Route>
+      <Route path="/admin/avaliacoes">
+        <AdminRoute><AdminAvaliacoes /></AdminRoute>
       </Route>
       <Route path="/notificacoes">
         <ProtectedRoute><Notificacoes /></ProtectedRoute>
