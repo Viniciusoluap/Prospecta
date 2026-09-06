@@ -500,3 +500,36 @@ export const paymentSettings = pgTable("payment_settings", {
 });
 export type PaymentSetting = typeof paymentSettings.$inferSelect;
 export type InsertPaymentSetting = typeof paymentSettings.$inferInsert;
+
+export const imovelStatusEnum = pgEnum("imovel_status", ["disponivel", "reservado", "vendido", "alugado"]);
+
+export const imoveis = pgTable("imoveis", {
+  id: serial("id").primaryKey(),
+  slug: varchar("slug", { length: 255 }).notNull().unique(),
+  titulo: varchar("titulo", { length: 255 }).notNull(),
+  descricao: text("descricao"),
+  tipo: varchar("tipo", { length: 100 }).notNull(),
+  status: imovelStatusEnum("status").default("disponivel").notNull(),
+  preco: decimal("preco", { precision: 15, scale: 2 }).notNull(),
+  quartos: integer("quartos"),
+  banheiros: integer("banheiros"),
+  vagas: integer("vagas"),
+  areaM2: decimal("area_m2", { precision: 10, scale: 2 }),
+  endereco: text("endereco"),
+  bairro: varchar("bairro", { length: 100 }),
+  cidade: varchar("cidade", { length: 100 }).notNull(),
+  estado: varchar("estado", { length: 2 }),
+  latitude: decimal("latitude", { precision: 10, scale: 7 }),
+  longitude: decimal("longitude", { precision: 10, scale: 7 }),
+  fotos: text("fotos"),
+  destaque: boolean("destaque").default(false).notNull(),
+  publicadoSite: boolean("publicado_site").default(true).notNull(),
+  publicadoZap: boolean("publicado_zap").default(false).notNull(),
+  publicadoOlx: boolean("publicado_olx").default(false).notNull(),
+  publicadoViva: boolean("publicado_viva").default(false).notNull(),
+  publicadoChavesNaMao: boolean("publicado_chaves_na_mao").default(false).notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+export type Imovel = typeof imoveis.$inferSelect;
+export type InsertImovel = typeof imoveis.$inferInsert;
