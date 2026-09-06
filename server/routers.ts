@@ -11,6 +11,7 @@ import QRCode from "qrcode";
 import * as db from "./db";
 import { TRPCError } from "@trpc/server";
 import { validateCPF, cleanCPF } from "../shared/cpf";
+import { getChecklistGroups, getEstadoGeralOptions, CHECKLIST_MAX_FOTOS } from "../shared/avaliacao-checklist";
 import { paymentSettingsRouter } from "./payment-settings-router";
 
 // Helper para gerar número de bilhete único
@@ -1640,6 +1641,35 @@ export const appRouter = router({
       .mutation(async ({ input, ctx }) => {
         if (ctx.user.role !== "admin") throw new TRPCError({ code: "FORBIDDEN" });
         await db.deleteAvaliacao(input.id);
+        return { success: true };
+      }),
+
+    getChecklistCatalog: protectedProcedure
+      .input(z.object({ tipo: z.enum(["imovel", "terreno"]) }))
+      .query(({ input }) => {
+        return {
+          groups: getChecklistGroups(input.tipo),
+          estadoGeralOptions: getEstadoGeralOptions(input.tipo),
+        };
+      }),
+
+    updateChecklist: protectedProcedure
+      .input(z.object({
+        id: z.number(),
+        tipoChecklist: z.enum(["imovel", "terreno"]),
+        estadoGeral: z.string().optional().default(""),
+        items: z.record(z.string(), z.object({
+          ok: z.boolean().nullable(),
+          nota: z.string(),
+        })),
+        fotos: z.array(z.string()).max(CHECKLIST_MAX_FOTOS),
+      }))
+      .mutation(async ({ input, ctx }) => {
+        if (ctx.user.role !== "admin" && ctx.user.role !== "corretor" && ctx.user.role !== "colaborador") {
+          throw new TRPCError({ code: "FORBIDDEN" });
+        }
+        const { id, ...checklist } = input;
+        await db.updateAvaliacao(id, { caracteristicas: JSON.stringify(checklist) });
         return { success: true };
       }),
   }),
