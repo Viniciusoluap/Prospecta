@@ -31,7 +31,6 @@ async function main() {
   await sql`CREATE TYPE IF NOT EXISTS product_category AS ENUM ('real_estate', 'financial', 'nautical')`;
   await sql`CREATE TYPE IF NOT EXISTS product_status AS ENUM ('available', 'unavailable')`;
   await sql`CREATE TYPE IF NOT EXISTS product_conversion_status AS ENUM ('pending', 'completed', 'cancelled')`;
-  await sql`CREATE TYPE IF NOT EXISTS contractor_status AS ENUM ('active', 'inactive')`;
   await sql`CREATE TYPE IF NOT EXISTS construction_project_status AS ENUM ('planning','alvara','art','assinatura_cef','vistoria_cef','laudo_ok','cartorio','in_progress','casa_pronta','disponivel','reavaliar','distrato','paused','completed','cancelled')`;
   await sql`CREATE TYPE IF NOT EXISTS construction_stage_status AS ENUM ('pending', 'in_progress', 'completed')`;
   await sql`CREATE TYPE IF NOT EXISTS budget_request_has_lot AS ENUM ('yes', 'no', 'not_sure')`;
@@ -40,9 +39,6 @@ async function main() {
   await sql`CREATE TYPE IF NOT EXISTS email_status AS ENUM ('pending', 'sent', 'failed')`;
   await sql`CREATE TYPE IF NOT EXISTS notification_type AS ENUM ('draw_result','utef_update','construction_update','system','promotional')`;
   await sql`CREATE TYPE IF NOT EXISTS obra_measurement_status AS ENUM ('pending', 'approved', 'paid')`;
-  await sql`CREATE TYPE IF NOT EXISTS lot_status AS ENUM ('available', 'reserved', 'sold')`;
-  await sql`CREATE TYPE IF NOT EXISTS investor_status AS ENUM ('active', 'withdrawn', 'extended')`;
-  await sql`CREATE TYPE IF NOT EXISTS investor_transaction_type AS ENUM ('deposit', 'withdrawal', 'interest', 'extension')`;
   await sql`CREATE TYPE IF NOT EXISTS lead_type AS ENUM ('new_lead','in_process','broker','employee','supplier','vip')`;
   await sql`CREATE TYPE IF NOT EXISTS lead_temperature AS ENUM ('cold', 'warm', 'hot')`;
   await sql`CREATE TYPE IF NOT EXISTS lead_stage AS ENUM ('lead_new','attending','waiting_docs','analysis','caixa_register','approval','approved','rejected','followup','in_process','done')`;
@@ -57,8 +53,6 @@ async function main() {
   await sql`CREATE TYPE IF NOT EXISTS task_related_type AS ENUM ('lead', 'obra', 'budget', 'financial', 'general')`;
   await sql`CREATE TYPE IF NOT EXISTS task_priority AS ENUM ('low', 'medium', 'high', 'critical')`;
   await sql`CREATE TYPE IF NOT EXISTS task_status AS ENUM ('pending', 'in_progress', 'done', 'cancelled')`;
-  await sql`CREATE TYPE IF NOT EXISTS partner_reference_type AS ENUM ('obra', 'financial', 'other')`;
-  await sql`CREATE TYPE IF NOT EXISTS partner_distribution_status AS ENUM ('pending', 'paid')`;
   await sql`CREATE TYPE IF NOT EXISTS financial_transaction_type AS ENUM ('income','expense','commission','salary','contractor_payment')`;
 
   console.log("✅  Enums criados");
@@ -169,25 +163,9 @@ async function main() {
     )`;
 
   await sql`
-    CREATE TABLE IF NOT EXISTS contractors (
-      id SERIAL PRIMARY KEY,
-      name VARCHAR(255) NOT NULL,
-      phone VARCHAR(20),
-      city VARCHAR(100),
-      state VARCHAR(2),
-      specialties TEXT,
-      contract_type VARCHAR(100),
-      status contractor_status NOT NULL DEFAULT 'active',
-      notes TEXT,
-      created_at TIMESTAMP NOT NULL DEFAULT NOW(),
-      updated_at TIMESTAMP NOT NULL DEFAULT NOW()
-    )`;
-
-  await sql`
     CREATE TABLE IF NOT EXISTS construction_projects (
       id SERIAL PRIMARY KEY,
       user_id INTEGER NOT NULL,
-      contractor_id INTEGER,
       title VARCHAR(255) NOT NULL,
       address TEXT,
       city VARCHAR(100),
@@ -320,7 +298,6 @@ async function main() {
     CREATE TABLE IF NOT EXISTS obra_measurements (
       id SERIAL PRIMARY KEY,
       project_id INTEGER NOT NULL,
-      contractor_id INTEGER,
       stage_id INTEGER,
       measurement_date TIMESTAMP NOT NULL,
       value DECIMAL(15,2) NOT NULL,
@@ -328,51 +305,6 @@ async function main() {
       notes TEXT,
       approved_by INTEGER,
       approved_at TIMESTAMP,
-      created_at TIMESTAMP NOT NULL DEFAULT NOW()
-    )`;
-
-  await sql`
-    CREATE TABLE IF NOT EXISTS lots (
-      id SERIAL PRIMARY KEY,
-      lot_number VARCHAR(50) NOT NULL,
-      development VARCHAR(255) NOT NULL,
-      city VARCHAR(100),
-      state VARCHAR(2),
-      assessment_value DECIMAL(15,2),
-      cef_payment_value DECIMAL(15,2),
-      seller_cost DECIMAL(15,2),
-      seller_name VARCHAR(255),
-      prospecta_margin DECIMAL(15,2),
-      status lot_status NOT NULL DEFAULT 'available',
-      assigned_project_id INTEGER,
-      assigned_client_name VARCHAR(255),
-      notes TEXT,
-      created_at TIMESTAMP NOT NULL DEFAULT NOW(),
-      updated_at TIMESTAMP NOT NULL DEFAULT NOW()
-    )`;
-
-  await sql`
-    CREATE TABLE IF NOT EXISTS investors (
-      id SERIAL PRIMARY KEY,
-      name VARCHAR(255) NOT NULL,
-      initial_date TIMESTAMP NOT NULL,
-      initial_amount DECIMAL(15,2) NOT NULL,
-      current_balance DECIMAL(15,2) NOT NULL,
-      monthly_rate DECIMAL(7,4) DEFAULT 0,
-      status investor_status NOT NULL DEFAULT 'active',
-      notes TEXT,
-      created_at TIMESTAMP NOT NULL DEFAULT NOW(),
-      updated_at TIMESTAMP NOT NULL DEFAULT NOW()
-    )`;
-
-  await sql`
-    CREATE TABLE IF NOT EXISTS investor_transactions (
-      id SERIAL PRIMARY KEY,
-      investor_id INTEGER NOT NULL,
-      type investor_transaction_type NOT NULL,
-      amount DECIMAL(15,2) NOT NULL,
-      date TIMESTAMP NOT NULL,
-      notes TEXT,
       created_at TIMESTAMP NOT NULL DEFAULT NOW()
     )`;
 
@@ -484,23 +416,6 @@ async function main() {
       due_at TIMESTAMP,
       completed_at TIMESTAMP,
       escalated_to_vinicius BOOLEAN DEFAULT FALSE,
-      created_at TIMESTAMP NOT NULL DEFAULT NOW(),
-      updated_at TIMESTAMP NOT NULL DEFAULT NOW()
-    )`;
-
-  await sql`
-    CREATE TABLE IF NOT EXISTS partner_distributions (
-      id SERIAL PRIMARY KEY,
-      partner_name VARCHAR(255) NOT NULL,
-      reference_type partner_reference_type NOT NULL,
-      reference_id INTEGER,
-      reference_description VARCHAR(255),
-      percentage DECIMAL(5,2) NOT NULL,
-      gross_amount DECIMAL(15,2) NOT NULL,
-      distribution_amount DECIMAL(15,2) NOT NULL,
-      status partner_distribution_status NOT NULL DEFAULT 'pending',
-      paid_at TIMESTAMP,
-      notes TEXT,
       created_at TIMESTAMP NOT NULL DEFAULT NOW(),
       updated_at TIMESTAMP NOT NULL DEFAULT NOW()
     )`;

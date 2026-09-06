@@ -10,7 +10,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Textarea } from "@/components/ui/textarea";
 import { toast } from "sonner";
-import { ArrowLeft, TrendingUp, TrendingDown, DollarSign, Plus, Users } from "lucide-react";
+import { ArrowLeft, TrendingUp, TrendingDown, DollarSign, Plus } from "lucide-react";
 
 function formatCurrencyBR(value: number | string | null | undefined) {
   if (!value) return "R$ 0,00";
@@ -45,13 +45,6 @@ export default function AdminFinanceiro() {
 
   const createMutation = trpc.financialTransactions.create.useMutation({
     onSuccess: () => { toast.success("Transação registrada!"); refetch(); setOpen(false); setForm({ type: "income", amount: "", description: "", category: "", paidAt: "", responsible: "", notes: "" }); },
-    onError: (e) => toast.error(e.message),
-  });
-
-  const { data: distributions = [], refetch: refetchDist } = trpc.partnerDistributions.list.useQuery({ status: "pending" });
-
-  const markPaidMutation = trpc.partnerDistributions.markPaid.useMutation({
-    onSuccess: () => { toast.success("Distribuição marcada como paga!"); refetchDist(); },
     onError: (e) => toast.error(e.message),
   });
 
@@ -172,36 +165,6 @@ export default function AdminFinanceiro() {
             </CardContent>
           </Card>
         </div>
-
-        {/* Pending Distributions */}
-        {distributions.length > 0 && (
-          <Card className="bg-[#2C3E50] border-[#C9A961]/20">
-            <CardHeader>
-              <CardTitle className="text-[#C9A961] flex items-center gap-2">
-                <Users className="h-5 w-5" /> Distribuições Pendentes para Sócios
-              </CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="space-y-3">
-                {distributions.map((dist: any) => (
-                  <div key={dist.id} className="flex items-center justify-between p-3 bg-[#1A2332] rounded-lg">
-                    <div>
-                      <p className="font-medium text-white">{dist.notes || `Distribuição #${dist.id}`}</p>
-                      <p className="text-sm text-gray-400">{dist.percentage}% • {formatCurrencyBR(dist.amount)}</p>
-                    </div>
-                    <Button
-                      size="sm"
-                      onClick={() => markPaidMutation.mutate({ id: dist.id })}
-                      className="bg-green-600 hover:bg-green-700 text-white"
-                    >
-                      Marcar Pago
-                    </Button>
-                  </div>
-                ))}
-              </div>
-            </CardContent>
-          </Card>
-        )}
 
         {/* Transactions List */}
         <Card className="bg-[#2C3E50] border-[#C9A961]/20">
