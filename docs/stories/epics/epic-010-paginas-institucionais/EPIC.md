@@ -1,7 +1,7 @@
 # EPIC-010: Páginas Institucionais
 
-**Epic Owner:** A dividir (Claude/Codex)
-**Status:** Draft
+**Epic Owner:** Claude
+**Status:** In Progress
 
 ## Problem Statement
 
@@ -27,4 +27,7 @@ O Grupo Santa Fé tem páginas públicas institucionais além da landing page: `
 
 ## Stories
 
-_A detalhar — candidata a dividir entre as duas trilhas por ser majoritariamente frontend/conteúdo, baixo acoplamento com o resto._
+| Story | Title | Status |
+|-------|-------|--------|
+| S-01 | Procedures públicos (contato + mercado) | Done |
+| S-02 | Seis páginas institucionais + navegação | Draft |

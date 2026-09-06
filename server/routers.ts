@@ -1030,6 +1030,42 @@ export const appRouter = router({
         return lead;
       }),
 
+    createPublic: publicProcedure
+      .input(z.object({
+        name: z.string().min(2),
+        phone: z.string().min(8),
+        email: z.string().email().optional(),
+        city: z.string().optional(),
+        state: z.string().optional(),
+        sourceChannel: z.string(),
+        notes: z.string().optional(),
+      }))
+      .mutation(async ({ input }) => {
+        let responsible: "sarah" | "vinicius" | "bianca" = "sarah";
+        const city = (input.city || "").toLowerCase();
+        if (city.includes("canaa") || city.includes("parauapebas")) responsible = "bianca";
+        const lead = await db.createLead({
+          name: input.name,
+          phone: input.phone,
+          email: input.email,
+          city: input.city,
+          state: input.state,
+          notes: input.notes,
+          sourceChannel: input.sourceChannel,
+          responsible,
+          stage: "lead_new",
+          temperature: "cold",
+          type: "new_lead",
+        } as any);
+        await db.addLeadActivity({
+          leadId: lead.id,
+          type: "status_change",
+          description: "Lead criado via formulário público do site",
+          performedBy: "site",
+        });
+        return { success: true };
+      }),
+
     update: protectedProcedure
       .input(z.object({
         id: z.number(),
@@ -1703,6 +1739,27 @@ export const appRouter = router({
   }),
 
   agregador: router({
+    listPublic: publicProcedure
+      .query(async () => {
+        const items = await db.getAllAgregadorImoveis({ status: "verificado" });
+        return items.map((i) => ({
+          id: i.id,
+          titulo: i.titulo,
+          descricao: i.descricao,
+          preco: i.preco,
+          precoTexto: i.precoTexto,
+          areaM2: i.areaM2,
+          tipo: i.tipo,
+          bairro: i.bairro,
+          cidade: i.cidade,
+          fonte: i.fonte,
+          urlFonte: i.urlFonte,
+          imagens: i.imagens,
+          documentoTipo: i.documentoTipo,
+          contatoTel: i.contatoTel,
+        }));
+      }),
+
     scrape: protectedProcedure
       .input(z.object({ url: z.string() }))
       .mutation(async ({ input, ctx }) => {
