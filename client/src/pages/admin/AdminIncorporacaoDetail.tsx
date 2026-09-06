@@ -18,15 +18,12 @@ import { RegistroOrcamentoPreliminar } from "@/components/incorporacao/RegistroO
 import { LancamentoMarketing } from "@/components/incorporacao/LancamentoMarketing";
 import { LancamentoImobiliario } from "@/components/incorporacao/LancamentoImobiliario";
 import { ObraExecutiva } from "@/components/incorporacao/ObraExecutiva";
+import { AtendimentoRelatorio } from "@/components/incorporacao/AtendimentoRelatorio";
 
 const STATUS_OPTIONS = [
   { value: "draft", label: "Rascunho" },
   { value: "in_study", label: "Em estudo" },
   { value: "completed", label: "Concluído" },
-];
-
-const FUTURE_MODULES = [
-  "Atendimento aos clientes",
 ];
 
 export default function AdminIncorporacaoDetail() {
@@ -225,26 +222,27 @@ export default function AdminIncorporacaoDetail() {
           preliminaryBudgetJson={estudo.preliminaryBudgetJson}
         />
 
+        <AtendimentoRelatorio
+          estudoId={estudo.id}
+          customerServiceJson={estudo.customerServiceJson}
+          estudo={estudo}
+        />
+
         <Card className="bg-[#1A2332]/60 border-[#C9A961]/20 backdrop-blur-sm">
           <CardHeader>
             <CardTitle className="text-white text-lg flex items-center gap-2">
-              <Construction className="h-5 w-5 text-[#C9A961]" /> Em construção
+              <Construction className="h-5 w-5 text-[#C9A961]" /> Nota sobre a Viabilidade Econômica
             </CardTitle>
           </CardHeader>
           <CardContent>
-            <p className="text-gray-400 text-sm mb-4">
-              Este estudo já está cadastrado no sistema. Os módulos abaixo (orçamentos, negociação,
-              business plan, projetistas, registro, lançamento, obra, atendimento) fazem parte do epic
-              de Incorporação e serão adicionados em stories futuras — o schema no banco já reserva o
-              espaço para todos eles.
+            <p className="text-gray-400 text-sm">
+              Todos os módulos operacionais do epic de Incorporação estão implementados. O único item ainda
+              pendente é o motor completo de Viabilidade Econômica (VGV, fluxo de caixa mês a mês, VPL, TIR,
+              payback, análise de sensibilidade) — descoberto durante a implementação como ausente do plano
+              original desta trilha e registrado como story de backlog própria. Alguns campos acima (VGV
+              bruto na negociação do terreno, investimento total no business plan, duração da obra no
+              cronograma) são informados manualmente até esse motor existir.
             </p>
-            <ul className="space-y-1.5">
-              {FUTURE_MODULES.map((m) => (
-                <li key={m} className="text-sm text-gray-500 flex items-start gap-2">
-                  <span className="text-[#C9A961]/60">—</span> {m}
-                </li>
-              ))}
-            </ul>
           </CardContent>
         </Card>
       </div>

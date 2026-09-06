@@ -1,7 +1,7 @@
 # EPIC-008: Incorporação
 
 **Epic Owner:** Claude
-**Status:** In Progress (S-01 a S-11 Done)
+**Status:** Done (S-01 a S-12) — S-13 (Estudo de Viabilidade Econômica) permanece em backlog, achado durante a implementação e fora do plano original
 
 **Atualização (06/09/2026, S-03):** a S-03 originalmente descrita como "Estudo urbanístico e de mercado" foi re-escopada para "Estudo de Mercado" apenas — os campos `urban_parameters_json`/`potential_json`/`urbanistic_opinion` (parâmetros urbanísticos e potencial construtivo) não têm aba própria no Santa Fé; são consumidos dentro da aba de Massa/Quadro de Áreas, então passam a fazer parte da S-04. Ver `S-03-estudo-mercado.md` para o raciocínio completo.
 
@@ -46,7 +46,7 @@ Deixado por último de propósito dado o tamanho. Modelo Prisma de referência: 
 | S-09 | Planejamento de lançamento, fornecedores e material publicitário | Done |
 | S-10 | Lançamento imobiliário e mix de produtos | Done |
 | S-11 | Projetos executivos, orçamento e cronograma físico-financeiro da obra | Done |
-| S-12 | Atendimento aos clientes e relatórios (PDF) | Backlog |
+| S-12 | Atendimento aos clientes e relatório executivo (PDF) | Done |
 | S-13 | Estudo de Viabilidade Econômica (EVE completo: VGV, fluxo de caixa, VPL/TIR/payback, sensibilidade) — achado durante a S-08, não fazia parte do plano original | Backlog |
 
 _Cada story S-02+ implementa um módulo isolado, lendo/gravando apenas sua própria coluna `*_json` — baixo acoplamento entre stories, podem ser feitas em qualquer ordem após a S-01._
