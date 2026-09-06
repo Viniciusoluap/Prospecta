@@ -533,3 +533,43 @@ export const imoveis = pgTable("imoveis", {
 });
 export type Imovel = typeof imoveis.$inferSelect;
 export type InsertImovel = typeof imoveis.$inferInsert;
+
+export const avaliacaoStatusEnum = pgEnum("avaliacao_status", ["solicitada", "vistoria", "elaboracao", "revisao", "entregue", "cancelada"]);
+
+export const avaliacoes = pgTable("avaliacoes", {
+  id: serial("id").primaryKey(),
+  numero: varchar("numero", { length: 30 }).notNull().unique(),
+  tipo: varchar("tipo", { length: 50 }).notNull(),
+  finalidade: varchar("finalidade", { length: 50 }).notNull(),
+  status: avaliacaoStatusEnum("status").default("solicitada").notNull(),
+  clienteNome: varchar("cliente_nome", { length: 255 }).notNull(),
+  clienteCpf: varchar("cliente_cpf", { length: 20 }),
+  clienteTel: varchar("cliente_tel", { length: 20 }).notNull(),
+  clienteEmail: varchar("cliente_email", { length: 320 }),
+  endereco: text("endereco").notNull(),
+  bairro: varchar("bairro", { length: 100 }).notNull(),
+  cidade: varchar("cidade", { length: 100 }).notNull(),
+  estado: varchar("estado", { length: 2 }).notNull(),
+  areaConstruida: decimal("area_construida", { precision: 10, scale: 2 }),
+  areaTerreno: decimal("area_terreno", { precision: 10, scale: 2 }),
+  quartos: integer("quartos"),
+  banheiros: integer("banheiros"),
+  vagas: integer("vagas"),
+  caracteristicas: text("caracteristicas").default("").notNull(),
+  metodologia: varchar("metodologia", { length: 50 }).default("comparativo").notNull(),
+  valorEstimado: decimal("valor_estimado", { precision: 15, scale: 2 }),
+  avaliador: varchar("avaliador", { length: 255 }).notNull(),
+  dataVistoria: timestamp("data_vistoria"),
+  prazoEntrega: timestamp("prazo_entrega"),
+  dataEntrega: timestamp("data_entrega"),
+  observacoes: text("observacoes").default("").notNull(),
+  laudo: text("laudo"),
+  documentos: text("documentos").default("[]").notNull(),
+  sugestaoJson: text("sugestao_json"),
+  valorServico: decimal("valor_servico", { precision: 15, scale: 2 }),
+  leadId: integer("lead_id").references(() => leads.id, { onDelete: "set null" }),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+export type Avaliacao = typeof avaliacoes.$inferSelect;
+export type InsertAvaliacao = typeof avaliacoes.$inferInsert;

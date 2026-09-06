@@ -1518,6 +1518,131 @@ export const appRouter = router({
         return { success: true };
       }),
   }),
+
+  avaliacoes: router({
+    list: protectedProcedure
+      .input(z.object({
+        status: z.string().optional(),
+        tipo: z.string().optional(),
+        cidade: z.string().optional(),
+      }).optional())
+      .query(async ({ input, ctx }) => {
+        if (ctx.user.role !== "admin" && ctx.user.role !== "corretor" && ctx.user.role !== "colaborador") {
+          throw new TRPCError({ code: "FORBIDDEN" });
+        }
+        return db.getAllAvaliacoes(input);
+      }),
+
+    getById: protectedProcedure
+      .input(z.object({ id: z.number() }))
+      .query(async ({ input, ctx }) => {
+        if (ctx.user.role !== "admin" && ctx.user.role !== "corretor" && ctx.user.role !== "colaborador") {
+          throw new TRPCError({ code: "FORBIDDEN" });
+        }
+        const avaliacao = await db.getAvaliacaoById(input.id);
+        if (!avaliacao) throw new TRPCError({ code: "NOT_FOUND" });
+        return avaliacao;
+      }),
+
+    create: protectedProcedure
+      .input(z.object({
+        tipo: z.string(),
+        finalidade: z.string(),
+        clienteNome: z.string(),
+        clienteCpf: z.string().optional(),
+        clienteTel: z.string(),
+        clienteEmail: z.string().optional(),
+        endereco: z.string(),
+        bairro: z.string(),
+        cidade: z.string(),
+        estado: z.string(),
+        areaConstruida: z.number().optional(),
+        areaTerreno: z.number().optional(),
+        quartos: z.number().optional(),
+        banheiros: z.number().optional(),
+        vagas: z.number().optional(),
+        metodologia: z.string().optional(),
+        avaliador: z.string(),
+        dataVistoria: z.string().optional(),
+        prazoEntrega: z.string().optional(),
+        observacoes: z.string().optional(),
+        valorServico: z.number().optional(),
+        leadId: z.number().optional(),
+      }))
+      .mutation(async ({ input, ctx }) => {
+        if (ctx.user.role !== "admin" && ctx.user.role !== "corretor" && ctx.user.role !== "colaborador") {
+          throw new TRPCError({ code: "FORBIDDEN" });
+        }
+        return db.createAvaliacao({
+          ...input,
+          areaConstruida: input.areaConstruida?.toString(),
+          areaTerreno: input.areaTerreno?.toString(),
+          valorServico: input.valorServico?.toString(),
+          dataVistoria: input.dataVistoria ? new Date(input.dataVistoria) : undefined,
+          prazoEntrega: input.prazoEntrega ? new Date(input.prazoEntrega) : undefined,
+        } as any);
+      }),
+
+    update: protectedProcedure
+      .input(z.object({
+        id: z.number(),
+        tipo: z.string().optional(),
+        finalidade: z.string().optional(),
+        status: z.enum(["solicitada", "vistoria", "elaboracao", "revisao", "entregue", "cancelada"]).optional(),
+        clienteNome: z.string().optional(),
+        clienteCpf: z.string().optional(),
+        clienteTel: z.string().optional(),
+        clienteEmail: z.string().optional(),
+        endereco: z.string().optional(),
+        bairro: z.string().optional(),
+        cidade: z.string().optional(),
+        estado: z.string().optional(),
+        areaConstruida: z.number().optional(),
+        areaTerreno: z.number().optional(),
+        quartos: z.number().optional(),
+        banheiros: z.number().optional(),
+        vagas: z.number().optional(),
+        caracteristicas: z.string().optional(),
+        metodologia: z.string().optional(),
+        valorEstimado: z.number().optional(),
+        avaliador: z.string().optional(),
+        dataVistoria: z.string().optional(),
+        prazoEntrega: z.string().optional(),
+        observacoes: z.string().optional(),
+        laudo: z.string().optional(),
+        documentos: z.string().optional(),
+        sugestaoJson: z.string().optional(),
+        valorServico: z.number().optional(),
+        leadId: z.number().optional(),
+      }))
+      .mutation(async ({ input, ctx }) => {
+        if (ctx.user.role !== "admin" && ctx.user.role !== "corretor" && ctx.user.role !== "colaborador") {
+          throw new TRPCError({ code: "FORBIDDEN" });
+        }
+        const { id, ...data } = input;
+        if (data.status === "entregue") {
+          (data as any).dataEntrega = new Date();
+        }
+        await db.updateAvaliacao(id, {
+          ...data,
+          areaConstruida: data.areaConstruida?.toString(),
+          areaTerreno: data.areaTerreno?.toString(),
+          valorEstimado: data.valorEstimado?.toString(),
+          valorServico: data.valorServico?.toString(),
+          dataVistoria: data.dataVistoria ? new Date(data.dataVistoria) : undefined,
+          prazoEntrega: data.prazoEntrega ? new Date(data.prazoEntrega) : undefined,
+        } as any);
+        return { success: true };
+      }),
+
+    delete: protectedProcedure
+      .input(z.object({ id: z.number() }))
+      .mutation(async ({ input, ctx }) => {
+        if (ctx.user.role !== "admin") throw new TRPCError({ code: "FORBIDDEN" });
+        await db.deleteAvaliacao(input.id);
+        return { success: true };
+      }),
+  }),
 });
 
 export type AppRouter = typeof appRouter;

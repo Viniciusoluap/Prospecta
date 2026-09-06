@@ -29,6 +29,13 @@
       "when": 1788721127603,
       "tag": "0003_create_imoveis",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1788721836378,
+      "tag": "0004_create_avaliacoes",
+      "breakpoints": true
     }
   ]
 }
