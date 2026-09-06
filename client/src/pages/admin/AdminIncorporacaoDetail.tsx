@@ -17,6 +17,7 @@ import { ProjetistasAprovacao } from "@/components/incorporacao/ProjetistasAprov
 import { RegistroOrcamentoPreliminar } from "@/components/incorporacao/RegistroOrcamentoPreliminar";
 import { LancamentoMarketing } from "@/components/incorporacao/LancamentoMarketing";
 import { LancamentoImobiliario } from "@/components/incorporacao/LancamentoImobiliario";
+import { ObraExecutiva } from "@/components/incorporacao/ObraExecutiva";
 
 const STATUS_OPTIONS = [
   { value: "draft", label: "Rascunho" },
@@ -25,7 +26,6 @@ const STATUS_OPTIONS = [
 ];
 
 const FUTURE_MODULES = [
-  "Projetos executivos, orçamento e cronograma de obra",
   "Atendimento aos clientes",
 ];
 
@@ -215,6 +215,14 @@ export default function AdminIncorporacaoDetail() {
           estudoId={estudo.id}
           productMixJson={estudo.productMixJson}
           realEstateLaunchJson={estudo.realEstateLaunchJson}
+        />
+
+        <ObraExecutiva
+          estudoId={estudo.id}
+          executiveProjectsJson={estudo.executiveProjectsJson}
+          workBudgetJson={estudo.workBudgetJson}
+          physicalFinancialScheduleJson={estudo.physicalFinancialScheduleJson}
+          preliminaryBudgetJson={estudo.preliminaryBudgetJson}
         />
 
         <Card className="bg-[#1A2332]/60 border-[#C9A961]/20 backdrop-blur-sm">
