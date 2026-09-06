@@ -44,6 +44,12 @@ import Imoveis from "./pages/Imoveis";
 import ImovelDetalhes from "./pages/ImovelDetalhes";
 import AdminImoveis from "./pages/admin/AdminImoveis";
 import AdminImovelForm from "./pages/admin/AdminImovelForm";
+import Servicos from "./pages/Servicos";
+import Sobre from "./pages/Sobre";
+import Contato from "./pages/Contato";
+import Mercado from "./pages/Mercado";
+import Cursos from "./pages/Cursos";
+import Instituto from "./pages/Instituto";
 import Perfil from "./pages/Perfil";
 import SimuladorFinanciamento from "./pages/SimuladorFinanciamento";
 import WhatsAppFloat from "./components/WhatsAppFloat";
@@ -60,6 +66,12 @@ function Router() {
       <Route path="/produtos" component={Produtos} />
       <Route path="/imoveis" component={Imoveis} />
       <Route path="/imoveis/:slug" component={ImovelDetalhes} />
+      <Route path="/servicos" component={Servicos} />
+      <Route path="/sobre" component={Sobre} />
+      <Route path="/contato" component={Contato} />
+      <Route path="/mercado" component={Mercado} />
+      <Route path="/cursos" component={Cursos} />
+      <Route path="/instituto" component={Instituto} />
       <Route path="/meus-bilhetes">
         <ProtectedRoute><MeusBilhetes /></ProtectedRoute>
       </Route>
