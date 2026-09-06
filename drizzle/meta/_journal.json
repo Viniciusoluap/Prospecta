@@ -43,6 +43,13 @@
       "when": 1788725444931,
       "tag": "0005_create_agregador_imoveis",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1788731461819,
+      "tag": "0006_create_incorporation_studies",
+      "breakpoints": true
     }
   ]
 }

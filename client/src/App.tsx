@@ -44,6 +44,8 @@ import Imoveis from "./pages/Imoveis";
 import ImovelDetalhes from "./pages/ImovelDetalhes";
 import AdminImoveis from "./pages/admin/AdminImoveis";
 import AdminImovelForm from "./pages/admin/AdminImovelForm";
+import AdminIncorporacao from "./pages/admin/AdminIncorporacao";
+import AdminIncorporacaoDetail from "./pages/admin/AdminIncorporacaoDetail";
 import Servicos from "./pages/Servicos";
 import Sobre from "./pages/Sobre";
 import Contato from "./pages/Contato";
@@ -152,6 +154,12 @@ function Router() {
       </Route>
       <Route path="/admin/imoveis">
         <AdminRoute><AdminImoveis /></AdminRoute>
+      </Route>
+      <Route path="/admin/incorporacao/:id">
+        <AdminRoute><AdminIncorporacaoDetail /></AdminRoute>
+      </Route>
+      <Route path="/admin/incorporacao">
+        <AdminRoute><AdminIncorporacao /></AdminRoute>
       </Route>
       <Route path="/notificacoes">
         <ProtectedRoute><Notificacoes /></ProtectedRoute>
