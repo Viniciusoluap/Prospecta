@@ -1,7 +1,7 @@
 # EPIC-008: Incorporação
 
 **Epic Owner:** Claude
-**Status:** In Progress (S-01 Done)
+**Status:** In Progress (S-01, S-02 Done)
 
 ## Problem Statement
 
@@ -32,7 +32,7 @@ Deixado por último de propósito dado o tamanho. Modelo Prisma de referência: 
 | Story | Title | Status |
 |-------|-------|--------|
 | S-01 | Schema (reconciliado com tabela já existente) + router CRUD básico + lista/detalhe admin | Done |
-| S-02 | Terreno e geometria (KML, área/perímetro, APP, topografia) | Backlog |
+| S-02 | Terreno e geometria (KML, área/perímetro, APP, topografia) | Done |
 | S-03 | Estudo urbanístico e de mercado (parâmetros, potencial construtivo, pesquisa de mercado/primária, precificação por comparáveis) | Backlog |
 | S-04 | Massa generativa e Quadro de Áreas (NBR 12721) | Backlog |
 | S-05 | Orçamento parametrizado e negociação do terreno | Backlog |

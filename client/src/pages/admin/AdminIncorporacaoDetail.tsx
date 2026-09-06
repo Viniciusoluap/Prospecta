@@ -8,6 +8,7 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { toast } from "sonner";
 import { ArrowLeft, Construction } from "lucide-react";
+import { TerrenoTopografia } from "@/components/incorporacao/TerrenoTopografia";
 
 const STATUS_OPTIONS = [
   { value: "draft", label: "Rascunho" },
@@ -16,7 +17,6 @@ const STATUS_OPTIONS = [
 ];
 
 const FUTURE_MODULES = [
-  "Terreno e geometria (KML/topografia)",
   "Estudo urbanístico e de mercado",
   "Massa e quadro de áreas (NBR 12721)",
   "Orçamento parametrizado e negociação do terreno",
@@ -151,6 +151,14 @@ export default function AdminIncorporacaoDetail() {
           </CardContent>
         </Card>
 
+        <TerrenoTopografia
+          estudoId={estudo.id}
+          geojson={estudo.geojson}
+          areaM2={estudo.areaM2}
+          perimeterM={estudo.perimeterM}
+          elevationJson={estudo.elevationJson}
+        />
+
         <Card className="bg-[#1A2332]/60 border-[#C9A961]/20 backdrop-blur-sm">
           <CardHeader>
             <CardTitle className="text-white text-lg flex items-center gap-2">
@@ -159,7 +167,7 @@ export default function AdminIncorporacaoDetail() {
           </CardHeader>
           <CardContent>
             <p className="text-gray-400 text-sm mb-4">
-              Este estudo já está cadastrado no sistema. Os módulos abaixo (viabilidade, terreno,
+              Este estudo já está cadastrado no sistema. Os módulos abaixo (viabilidade, urbanismo,
               massa, orçamentos, lançamento, obra) fazem parte do epic de Incorporação e serão
               adicionados em stories futuras — o schema no banco já reserva o espaço para todos eles.
             </p>
