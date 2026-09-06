@@ -71,6 +71,14 @@ export default function Navbar() {
                   </Button>
                 </Link>
 
+                {/* Imóveis */}
+                <Link href="/imoveis" onClick={closeMobileMenu}>
+                  <Button variant="ghost" className="w-full justify-start text-base">
+                    <Building2 className="mr-3 h-5 w-5" />
+                    Imóveis
+                  </Button>
+                </Link>
+
                 {/* Obras (apenas autenticados) */}
                 {isAuthenticated && (
                   <Link href="/obras" onClick={closeMobileMenu}>
