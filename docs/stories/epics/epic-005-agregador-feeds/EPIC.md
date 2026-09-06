@@ -1,7 +1,7 @@
 # EPIC-005: Agregador e Feeds para Portais Imobiliários
 
 **Epic Owner:** Claude
-**Status:** Draft
+**Status:** In Progress (S-01 Done)
 
 ## Problem Statement
 
@@ -26,5 +26,5 @@ O Grupo Santa Fé publica feeds XML de imóveis para ZAP, OLX, VivaReal e Chaves
 
 | Story | Title | Status |
 |-------|-------|--------|
-| S-01 | Flags de publicação + feeds XML | Draft |
+| S-01 | Flags de publicação + feeds XML | Done |
 | S-02 | Agregador/scraper com proteção SSRF | Draft |
