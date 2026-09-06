@@ -13,6 +13,7 @@ import { TRPCError } from "@trpc/server";
 import { validateCPF, cleanCPF } from "../shared/cpf";
 import { getChecklistGroups, getEstadoGeralOptions, CHECKLIST_MAX_FOTOS } from "../shared/avaliacao-checklist";
 import { gerarSugestaoValor } from "./_core/avaliacao-ia";
+import { scrapeUrl } from "./_core/imovel-scraper";
 import { paymentSettingsRouter } from "./payment-settings-router";
 
 // Helper para gerar número de bilhete único
@@ -1698,6 +1699,94 @@ export const appRouter = router({
 
         await db.updateAvaliacao(input.id, { sugestaoJson: JSON.stringify(sugestao) });
         return sugestao;
+      }),
+  }),
+
+  agregador: router({
+    scrape: protectedProcedure
+      .input(z.object({ url: z.string() }))
+      .mutation(async ({ input, ctx }) => {
+        if (ctx.user.role !== "admin" && ctx.user.role !== "corretor" && ctx.user.role !== "colaborador") {
+          throw new TRPCError({ code: "FORBIDDEN" });
+        }
+        return scrapeUrl(input.url);
+      }),
+
+    list: protectedProcedure
+      .input(z.object({
+        status: z.string().optional(),
+        fonte: z.string().optional(),
+      }).optional())
+      .query(async ({ input, ctx }) => {
+        if (ctx.user.role !== "admin" && ctx.user.role !== "corretor" && ctx.user.role !== "colaborador") {
+          throw new TRPCError({ code: "FORBIDDEN" });
+        }
+        return db.getAllAgregadorImoveis(input);
+      }),
+
+    getById: protectedProcedure
+      .input(z.object({ id: z.number() }))
+      .query(async ({ input, ctx }) => {
+        if (ctx.user.role !== "admin" && ctx.user.role !== "corretor" && ctx.user.role !== "colaborador") {
+          throw new TRPCError({ code: "FORBIDDEN" });
+        }
+        const item = await db.getAgregadorImovelById(input.id);
+        if (!item) throw new TRPCError({ code: "NOT_FOUND" });
+        return item;
+      }),
+
+    create: protectedProcedure
+      .input(z.object({
+        titulo: z.string(),
+        descricao: z.string().optional(),
+        preco: z.number().optional(),
+        precoTexto: z.string().optional(),
+        areaM2: z.number().optional(),
+        tipo: z.string().optional(),
+        bairro: z.string().optional(),
+        cidade: z.string(),
+        estado: z.string(),
+        fonte: z.enum(["olx", "zapimoveis", "vivareal", "facebook", "instagram", "google", "direto", "outro"]),
+        urlFonte: z.string().optional(),
+        imagens: z.array(z.string()).optional(),
+        documentoTipo: z.enum(["nenhum", "escritura", "contrato_gaveta", "inventario", "heranca", "financiado", "loteamento", "posse", "outros"]).optional(),
+        documentoObs: z.string().optional(),
+        contatoNome: z.string().optional(),
+        contatoTel: z.string().optional(),
+        notas: z.string().optional(),
+      }))
+      .mutation(async ({ input, ctx }) => {
+        if (ctx.user.role !== "admin" && ctx.user.role !== "corretor" && ctx.user.role !== "colaborador") {
+          throw new TRPCError({ code: "FORBIDDEN" });
+        }
+        return db.createAgregadorImovel({
+          ...input,
+          preco: input.preco?.toString(),
+          areaM2: input.areaM2?.toString(),
+          imagens: JSON.stringify(input.imagens ?? []),
+        } as any);
+      }),
+
+    updateStatus: protectedProcedure
+      .input(z.object({
+        id: z.number(),
+        status: z.enum(["pendente", "verificado", "arquivado"]),
+      }))
+      .mutation(async ({ input, ctx }) => {
+        if (ctx.user.role !== "admin" && ctx.user.role !== "corretor" && ctx.user.role !== "colaborador") {
+          throw new TRPCError({ code: "FORBIDDEN" });
+        }
+        await db.updateAgregadorImovel(input.id, { status: input.status });
+        return { success: true };
+      }),
+
+    importarParaCatalogo: protectedProcedure
+      .input(z.object({ id: z.number() }))
+      .mutation(async ({ input, ctx }) => {
+        if (ctx.user.role !== "admin") throw new TRPCError({ code: "FORBIDDEN" });
+        const imovel = await db.importarAgregadorParaCatalogo(input.id);
+        if (!imovel) throw new TRPCError({ code: "NOT_FOUND" });
+        return imovel;
       }),
   }),
 });

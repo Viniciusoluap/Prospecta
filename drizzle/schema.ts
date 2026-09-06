@@ -573,3 +573,33 @@ export const avaliacoes = pgTable("avaliacoes", {
 });
 export type Avaliacao = typeof avaliacoes.$inferSelect;
 export type InsertAvaliacao = typeof avaliacoes.$inferInsert;
+
+export const agregadorFonteEnum = pgEnum("agregador_fonte", ["olx", "zapimoveis", "vivareal", "facebook", "instagram", "google", "direto", "outro"]);
+export const agregadorStatusEnum = pgEnum("agregador_status", ["pendente", "verificado", "arquivado", "importado"]);
+export const agregadorDocumentoTipoEnum = pgEnum("agregador_documento_tipo", ["nenhum", "escritura", "contrato_gaveta", "inventario", "heranca", "financiado", "loteamento", "posse", "outros"]);
+
+export const agregadorImoveis = pgTable("agregador_imoveis", {
+  id: serial("id").primaryKey(),
+  titulo: varchar("titulo", { length: 255 }).notNull(),
+  descricao: text("descricao"),
+  preco: decimal("preco", { precision: 15, scale: 2 }),
+  precoTexto: varchar("preco_texto", { length: 50 }),
+  areaM2: decimal("area_m2", { precision: 10, scale: 2 }),
+  tipo: varchar("tipo", { length: 100 }),
+  bairro: varchar("bairro", { length: 100 }),
+  cidade: varchar("cidade", { length: 100 }).notNull(),
+  estado: varchar("estado", { length: 2 }).notNull(),
+  fonte: agregadorFonteEnum("fonte").notNull(),
+  urlFonte: text("url_fonte"),
+  imagens: text("imagens").default("[]").notNull(),
+  status: agregadorStatusEnum("status").default("pendente").notNull(),
+  documentoTipo: agregadorDocumentoTipoEnum("documento_tipo").default("nenhum").notNull(),
+  documentoObs: text("documento_obs"),
+  contatoNome: varchar("contato_nome", { length: 255 }),
+  contatoTel: varchar("contato_tel", { length: 20 }),
+  notas: text("notas"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+export type AgregadorImovel = typeof agregadorImoveis.$inferSelect;
+export type InsertAgregadorImovel = typeof agregadorImoveis.$inferInsert;
