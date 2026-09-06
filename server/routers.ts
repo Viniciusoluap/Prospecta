@@ -1410,6 +1410,114 @@ export const appRouter = router({
         return { success: true };
       }),
   }),
+
+  // ========== IMÓVEIS ==========
+  imoveis: router({
+    list: publicProcedure
+      .input(z.object({
+        status: z.string().optional(),
+        tipo: z.string().optional(),
+        cidade: z.string().optional(),
+        adminView: z.boolean().optional(),
+      }).optional())
+      .query(async ({ input, ctx }) => {
+        const isAdmin = ctx.user?.role === "admin";
+        return db.getAllImoveis({
+          status: input?.status,
+          tipo: input?.tipo,
+          cidade: input?.cidade,
+          publicadoOnly: !(input?.adminView && isAdmin),
+        });
+      }),
+
+    getById: publicProcedure
+      .input(z.object({ id: z.number() }))
+      .query(async ({ input }) => {
+        return db.getImovelById(input.id);
+      }),
+
+    getBySlug: publicProcedure
+      .input(z.object({ slug: z.string() }))
+      .query(async ({ input }) => {
+        return db.getImovelBySlug(input.slug);
+      }),
+
+    create: protectedProcedure
+      .input(z.object({
+        slug: z.string().min(1),
+        titulo: z.string().min(2),
+        descricao: z.string().optional(),
+        tipo: z.string().min(1),
+        status: z.enum(["disponivel", "reservado", "vendido", "alugado"]).optional(),
+        preco: z.number(),
+        quartos: z.number().optional(),
+        banheiros: z.number().optional(),
+        vagas: z.number().optional(),
+        areaM2: z.number().optional(),
+        endereco: z.string().optional(),
+        bairro: z.string().optional(),
+        cidade: z.string().min(1),
+        estado: z.string().optional(),
+        latitude: z.number().optional(),
+        longitude: z.number().optional(),
+        fotos: z.string().optional(),
+        destaque: z.boolean().optional(),
+        publicadoSite: z.boolean().optional(),
+        publicadoZap: z.boolean().optional(),
+        publicadoOlx: z.boolean().optional(),
+        publicadoViva: z.boolean().optional(),
+        publicadoChavesNaMao: z.boolean().optional(),
+      }))
+      .mutation(async ({ input, ctx }) => {
+        if (ctx.user.role !== "admin") throw new TRPCError({ code: "FORBIDDEN" });
+        return db.createImovel({
+          ...input,
+          preco: input.preco.toString(),
+          areaM2: input.areaM2?.toString(),
+          latitude: input.latitude?.toString(),
+          longitude: input.longitude?.toString(),
+        } as any);
+      }),
+
+    update: protectedProcedure
+      .input(z.object({
+        id: z.number(),
+        titulo: z.string().optional(),
+        descricao: z.string().optional(),
+        tipo: z.string().optional(),
+        status: z.enum(["disponivel", "reservado", "vendido", "alugado"]).optional(),
+        preco: z.number().optional(),
+        quartos: z.number().optional(),
+        banheiros: z.number().optional(),
+        vagas: z.number().optional(),
+        areaM2: z.number().optional(),
+        endereco: z.string().optional(),
+        bairro: z.string().optional(),
+        cidade: z.string().optional(),
+        estado: z.string().optional(),
+        latitude: z.number().optional(),
+        longitude: z.number().optional(),
+        fotos: z.string().optional(),
+        destaque: z.boolean().optional(),
+        publicadoSite: z.boolean().optional(),
+        publicadoZap: z.boolean().optional(),
+        publicadoOlx: z.boolean().optional(),
+        publicadoViva: z.boolean().optional(),
+        publicadoChavesNaMao: z.boolean().optional(),
+      }))
+      .mutation(async ({ input, ctx }) => {
+        if (ctx.user.role !== "admin") throw new TRPCError({ code: "FORBIDDEN" });
+        const { id, ...data } = input;
+        await db.updateImovel(id, {
+          ...data,
+          preco: data.preco?.toString(),
+          areaM2: data.areaM2?.toString(),
+          latitude: data.latitude?.toString(),
+          longitude: data.longitude?.toString(),
+        } as any);
+        return { success: true };
+      }),
+  }),
 });
 
 export type AppRouter = typeof appRouter;

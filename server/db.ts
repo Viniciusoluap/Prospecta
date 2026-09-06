@@ -26,6 +26,7 @@ import {
   obraFees, ObraFee, InsertObraFee,
   obraMeasurements, ObraMeasurement, InsertObraMeasurement,
   paymentSettings, PaymentSetting, InsertPaymentSetting,
+  imoveis, Imovel, InsertImovel,
 } from "../drizzle/schema";
 
 type DrizzleDb = ReturnType<typeof drizzle>;
@@ -741,4 +742,41 @@ export async function savePaymentSetting(input: InsertPaymentSetting): Promise<v
   } else {
     await database.insert(paymentSettings).values(input);
   }
+}
+
+// ========== IMÓVEIS ==========
+
+export async function getAllImoveis(filters?: { status?: string; tipo?: string; cidade?: string; publicadoOnly?: boolean }): Promise<Imovel[]> {
+  const db = getDb();
+  let query = db.select().from(imoveis).$dynamic();
+  const conditions = [];
+  if (filters?.status) conditions.push(eq(imoveis.status, filters.status as any));
+  if (filters?.tipo) conditions.push(eq(imoveis.tipo, filters.tipo));
+  if (filters?.cidade) conditions.push(eq(imoveis.cidade, filters.cidade));
+  if (filters?.publicadoOnly) conditions.push(eq(imoveis.publicadoSite, true));
+  if (conditions.length > 0) query = query.where(and(...conditions));
+  return query.orderBy(desc(imoveis.createdAt));
+}
+
+export async function getImovelById(id: number): Promise<Imovel | undefined> {
+  const db = getDb();
+  const result = await db.select().from(imoveis).where(eq(imoveis.id, id)).limit(1);
+  return result[0];
+}
+
+export async function getImovelBySlug(slug: string): Promise<Imovel | undefined> {
+  const db = getDb();
+  const result = await db.select().from(imoveis).where(eq(imoveis.slug, slug)).limit(1);
+  return result[0];
+}
+
+export async function createImovel(data: InsertImovel): Promise<Imovel> {
+  const db = getDb();
+  const result = await db.insert(imoveis).values(data).returning();
+  return result[0];
+}
+
+export async function updateImovel(id: number, data: Partial<InsertImovel>): Promise<void> {
+  const db = getDb();
+  await db.update(imoveis).set({ ...data, updatedAt: new Date() }).where(eq(imoveis.id, id));
 }
