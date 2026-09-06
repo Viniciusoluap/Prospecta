@@ -8,6 +8,11 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { toast } from "sonner";
 import { ArrowLeft, Construction } from "lucide-react";
+import { TerrenoTopografia } from "@/components/incorporacao/TerrenoTopografia";
+import { EstudoMercado } from "@/components/incorporacao/EstudoMercado";
+import { EstudoMassa } from "@/components/incorporacao/EstudoMassa";
+import { OrcamentoNegociacao } from "@/components/incorporacao/OrcamentoNegociacao";
+import { BusinessPlan } from "@/components/incorporacao/BusinessPlan";
 
 const STATUS_OPTIONS = [
   { value: "draft", label: "Rascunho" },
@@ -16,11 +21,6 @@ const STATUS_OPTIONS = [
 ];
 
 const FUTURE_MODULES = [
-  "Terreno e geometria (KML/topografia)",
-  "Estudo urbanístico e de mercado",
-  "Massa e quadro de áreas (NBR 12721)",
-  "Orçamento parametrizado e negociação do terreno",
-  "Business plan e investidores",
   "Projetistas e aprovação do projeto",
   "Registro da incorporação e orçamento preliminar",
   "Planejamento de lançamento, fornecedores e material publicitário",
@@ -151,6 +151,45 @@ export default function AdminIncorporacaoDetail() {
           </CardContent>
         </Card>
 
+        <TerrenoTopografia
+          estudoId={estudo.id}
+          geojson={estudo.geojson}
+          areaM2={estudo.areaM2}
+          perimeterM={estudo.perimeterM}
+          elevationJson={estudo.elevationJson}
+        />
+
+        <EstudoMercado
+          estudoId={estudo.id}
+          city={estudo.city}
+          state={estudo.state}
+          cityResearchJson={estudo.cityResearchJson}
+          marketStudyJson={estudo.marketStudyJson}
+          comparablePricingJson={estudo.comparablePricingJson}
+          primaryResearchJson={estudo.primaryResearchJson}
+        />
+
+        <EstudoMassa
+          estudoId={estudo.id}
+          geojson={estudo.geojson}
+          areaM2={estudo.areaM2}
+          latitude={estudo.latitude}
+          longitude={estudo.longitude}
+          urbanParametersJson={estudo.urbanParametersJson}
+          potentialJson={estudo.potentialJson}
+          massScenariosJson={estudo.massScenariosJson}
+          selectedScenarioId={estudo.selectedScenarioId}
+          areasBoardJson={estudo.areasBoardJson}
+        />
+
+        <OrcamentoNegociacao
+          estudoId={estudo.id}
+          parameterizedBudgetJson={estudo.parameterizedBudgetJson}
+          landNegotiationJson={estudo.landNegotiationJson}
+        />
+
+        <BusinessPlan estudoId={estudo.id} businessPlanJson={estudo.businessPlanJson} />
+
         <Card className="bg-[#1A2332]/60 border-[#C9A961]/20 backdrop-blur-sm">
           <CardHeader>
             <CardTitle className="text-white text-lg flex items-center gap-2">
@@ -159,9 +198,10 @@ export default function AdminIncorporacaoDetail() {
           </CardHeader>
           <CardContent>
             <p className="text-gray-400 text-sm mb-4">
-              Este estudo já está cadastrado no sistema. Os módulos abaixo (viabilidade, terreno,
-              massa, orçamentos, lançamento, obra) fazem parte do epic de Incorporação e serão
-              adicionados em stories futuras — o schema no banco já reserva o espaço para todos eles.
+              Este estudo já está cadastrado no sistema. Os módulos abaixo (orçamentos, negociação,
+              business plan, projetistas, registro, lançamento, obra, atendimento) fazem parte do epic
+              de Incorporação e serão adicionados em stories futuras — o schema no banco já reserva o
+              espaço para todos eles.
             </p>
             <ul className="space-y-1.5">
               {FUTURE_MODULES.map((m) => (

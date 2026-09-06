@@ -16,6 +16,9 @@ import { gerarSugestaoValor } from "./_core/avaliacao-ia";
 import { scrapeUrl } from "./_core/imovel-scraper";
 import { paymentSettingsRouter } from "./payment-settings-router";
 import { requireRole, STAFF_ROLES } from "./_core/rbac";
+import { parseKmlTerreno } from "./_core/geo/kml";
+import { fetchElevationGrid } from "./_core/geo/elevacao";
+import { pesquisarMercado } from "./_core/incorporacao/mercado-ia";
 
 // Helper para gerar número de bilhete único
 function generateTicketNumber(): string {
@@ -1856,6 +1859,169 @@ export const appRouter = router({
           latitude: data.latitude?.toString(),
           longitude: data.longitude?.toString(),
         } as any);
+        return { success: true };
+      }),
+
+    uploadKml: protectedProcedure
+      .input(z.object({ id: z.number(), kmlContent: z.string().min(1) }))
+      .mutation(async ({ input, ctx }) => {
+        requireRole(ctx, ["admin"]);
+        const estudo = await db.getIncorporationStudyById(input.id);
+        if (!estudo) throw new TRPCError({ code: "NOT_FOUND" });
+        let terreno;
+        try {
+          terreno = parseKmlTerreno(input.kmlContent);
+        } catch (e) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: e instanceof Error ? e.message : "KML inválido." });
+        }
+        await db.updateIncorporationStudy(input.id, {
+          geojson: JSON.stringify(terreno.feature),
+          areaM2: terreno.areaM2.toString(),
+          perimeterM: terreno.perimetroM.toString(),
+          latitude: terreno.centro[1].toString(),
+          longitude: terreno.centro[0].toString(),
+        });
+        return {
+          geojson: JSON.stringify(terreno.feature),
+          areaM2: terreno.areaM2,
+          perimetroM: terreno.perimetroM,
+          centroLat: terreno.centro[1],
+          centroLng: terreno.centro[0],
+        };
+      }),
+
+    fetchElevation: protectedProcedure
+      .input(z.object({
+        id: z.number(),
+        south: z.number(),
+        north: z.number(),
+        west: z.number(),
+        east: z.number(),
+      }))
+      .mutation(async ({ input, ctx }) => {
+        requireRole(ctx, ["admin"]);
+        const { id, ...bbox } = input;
+        let grid;
+        try {
+          grid = await fetchElevationGrid(bbox);
+        } catch (e) {
+          throw new TRPCError({ code: "BAD_GATEWAY", message: e instanceof Error ? e.message : "Falha ao obter elevação." });
+        }
+        await db.updateIncorporationStudy(id, { elevationJson: JSON.stringify(grid) });
+        return grid;
+      }),
+
+    saveApp: protectedProcedure
+      .input(z.object({
+        id: z.number(),
+        areaM2: z.number(),
+        larguraM: z.number().nullable(),
+        origem: z.string(),
+      }))
+      .mutation(async ({ input, ctx }) => {
+        requireRole(ctx, ["admin"]);
+        await db.updateIncorporationStudy(input.id, {
+          appAreaM2: input.areaM2.toString(),
+          appWidthM: input.larguraM?.toString(),
+          appOrigin: input.origem,
+        });
+        return { success: true };
+      }),
+
+    pesquisarMercado: protectedProcedure
+      .input(z.object({ id: z.number(), municipio: z.string().min(1), estado: z.string().min(2) }))
+      .mutation(async ({ input, ctx }) => {
+        requireRole(ctx, ["admin"]);
+        let resultado;
+        try {
+          resultado = await pesquisarMercado(input.municipio, input.estado);
+        } catch (e) {
+          throw new TRPCError({ code: "BAD_GATEWAY", message: e instanceof Error ? e.message : "Falha na pesquisa de mercado." });
+        }
+        await db.updateIncorporationStudy(input.id, {
+          cityResearchJson: JSON.stringify(resultado.cidade),
+          marketStudyJson: JSON.stringify(resultado.mercado),
+        });
+        return resultado;
+      }),
+
+    savePrecificacao: protectedProcedure
+      .input(z.object({ id: z.number(), dataJson: z.string().min(1) }))
+      .mutation(async ({ input, ctx }) => {
+        requireRole(ctx, ["admin"]);
+        await db.updateIncorporationStudy(input.id, { comparablePricingJson: input.dataJson });
+        return { success: true };
+      }),
+
+    savePesquisaPrimaria: protectedProcedure
+      .input(z.object({ id: z.number(), dataJson: z.string().min(1) }))
+      .mutation(async ({ input, ctx }) => {
+        requireRole(ctx, ["admin"]);
+        await db.updateIncorporationStudy(input.id, { primaryResearchJson: input.dataJson });
+        return { success: true };
+      }),
+
+    saveUrbanismo: protectedProcedure
+      .input(z.object({
+        id: z.number(),
+        parametrosJson: z.string().min(1),
+        potencialJson: z.string().optional(),
+        opiniao: z.string().optional(),
+      }))
+      .mutation(async ({ input, ctx }) => {
+        requireRole(ctx, ["admin"]);
+        await db.updateIncorporationStudy(input.id, {
+          urbanParametersJson: input.parametrosJson,
+          potentialJson: input.potencialJson,
+          urbanisticOpinion: input.opiniao,
+        });
+        return { success: true };
+      }),
+
+    saveMassa: protectedProcedure
+      .input(z.object({
+        id: z.number(),
+        dataJson: z.string().min(1),
+        selectedScenarioId: z.string().nullable(),
+      }))
+      .mutation(async ({ input, ctx }) => {
+        requireRole(ctx, ["admin"]);
+        await db.updateIncorporationStudy(input.id, {
+          massScenariosJson: input.dataJson,
+          selectedScenarioId: input.selectedScenarioId,
+        });
+        return { success: true };
+      }),
+
+    saveAreasBoard: protectedProcedure
+      .input(z.object({ id: z.number(), dataJson: z.string().min(1) }))
+      .mutation(async ({ input, ctx }) => {
+        requireRole(ctx, ["admin"]);
+        await db.updateIncorporationStudy(input.id, { areasBoardJson: input.dataJson });
+        return { success: true };
+      }),
+
+    saveOrcamentoParametrizado: protectedProcedure
+      .input(z.object({ id: z.number(), dataJson: z.string().min(1) }))
+      .mutation(async ({ input, ctx }) => {
+        requireRole(ctx, ["admin"]);
+        await db.updateIncorporationStudy(input.id, { parameterizedBudgetJson: input.dataJson });
+        return { success: true };
+      }),
+
+    saveNegociacaoTerreno: protectedProcedure
+      .input(z.object({ id: z.number(), dataJson: z.string().min(1) }))
+      .mutation(async ({ input, ctx }) => {
+        requireRole(ctx, ["admin"]);
+        await db.updateIncorporationStudy(input.id, { landNegotiationJson: input.dataJson });
+        return { success: true };
+      }),
+
+    saveBusinessPlan: protectedProcedure
+      .input(z.object({ id: z.number(), dataJson: z.string().min(1) }))
+      .mutation(async ({ input, ctx }) => {
+        requireRole(ctx, ["admin"]);
+        await db.updateIncorporationStudy(input.id, { businessPlanJson: input.dataJson });
         return { success: true };
       }),
   }),
