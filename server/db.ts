@@ -29,6 +29,7 @@ import {
   imoveis, Imovel, InsertImovel,
   avaliacoes, Avaliacao, InsertAvaliacao,
   agregadorImoveis, AgregadorImovel, InsertAgregadorImovel,
+  incorporationStudies, IncorporationStudy, InsertIncorporationStudy,
 } from "../drizzle/schema";
 
 type DrizzleDb = ReturnType<typeof drizzle>;
@@ -886,4 +887,28 @@ export async function importarAgregadorParaCatalogo(id: number): Promise<Imovel 
 
   await updateAgregadorImovel(id, { status: "importado" });
   return novoImovel;
+}
+
+export async function getAllIncorporationStudies(filters?: { status?: string }): Promise<IncorporationStudy[]> {
+  const db = getDb();
+  let query = db.select().from(incorporationStudies).$dynamic();
+  if (filters?.status) query = query.where(eq(incorporationStudies.status, filters.status));
+  return query.orderBy(desc(incorporationStudies.updatedAt));
+}
+
+export async function getIncorporationStudyById(id: number): Promise<IncorporationStudy | undefined> {
+  const db = getDb();
+  const result = await db.select().from(incorporationStudies).where(eq(incorporationStudies.id, id)).limit(1);
+  return result[0];
+}
+
+export async function createIncorporationStudy(data: InsertIncorporationStudy): Promise<IncorporationStudy> {
+  const db = getDb();
+  const result = await db.insert(incorporationStudies).values(data).returning();
+  return result[0];
+}
+
+export async function updateIncorporationStudy(id: number, data: Partial<InsertIncorporationStudy>): Promise<void> {
+  const db = getDb();
+  await db.update(incorporationStudies).set({ ...data, updatedAt: new Date() }).where(eq(incorporationStudies.id, id));
 }

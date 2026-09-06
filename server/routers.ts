@@ -1795,6 +1795,70 @@ export const appRouter = router({
         return imovel;
       }),
   }),
+
+  incorporacao: router({
+    list: protectedProcedure
+      .input(z.object({
+        status: z.string().optional(),
+      }).optional())
+      .query(async ({ input, ctx }) => {
+        requireRole(ctx, ["admin"]);
+        return db.getAllIncorporationStudies(input);
+      }),
+
+    getById: protectedProcedure
+      .input(z.object({ id: z.number() }))
+      .query(async ({ input, ctx }) => {
+        requireRole(ctx, ["admin"]);
+        const estudo = await db.getIncorporationStudyById(input.id);
+        if (!estudo) throw new TRPCError({ code: "NOT_FOUND" });
+        return estudo;
+      }),
+
+    create: protectedProcedure
+      .input(z.object({
+        name: z.string().min(2),
+        city: z.string().min(1),
+        state: z.string().length(2).optional(),
+        address: z.string().optional(),
+        latitude: z.number().optional(),
+        longitude: z.number().optional(),
+        responsible: z.string().optional(),
+        propertyRef: z.string().optional(),
+      }))
+      .mutation(async ({ input, ctx }) => {
+        requireRole(ctx, ["admin"]);
+        return db.createIncorporationStudy({
+          ...input,
+          latitude: input.latitude?.toString(),
+          longitude: input.longitude?.toString(),
+        } as any);
+      }),
+
+    update: protectedProcedure
+      .input(z.object({
+        id: z.number(),
+        name: z.string().optional(),
+        city: z.string().optional(),
+        state: z.string().length(2).optional(),
+        address: z.string().optional(),
+        latitude: z.number().optional(),
+        longitude: z.number().optional(),
+        responsible: z.string().optional(),
+        status: z.enum(["draft", "in_study", "completed"]).optional(),
+        propertyRef: z.string().optional(),
+      }))
+      .mutation(async ({ input, ctx }) => {
+        requireRole(ctx, ["admin"]);
+        const { id, ...data } = input;
+        await db.updateIncorporationStudy(id, {
+          ...data,
+          latitude: data.latitude?.toString(),
+          longitude: data.longitude?.toString(),
+        } as any);
+        return { success: true };
+      }),
+  }),
 });
 
 export type AppRouter = typeof appRouter;
