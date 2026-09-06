@@ -8,6 +8,20 @@
       "when": 1788709279312,
       "tag": "0000_baseline_postgres_2026_09_06",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1788718510944,
+      "tag": "0001_extend_user_role_enum",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1788718510945,
+      "tag": "0002_migrate_user_role_data",
+      "breakpoints": true
     }
   ]
 }
