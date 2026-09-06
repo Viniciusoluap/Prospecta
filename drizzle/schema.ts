@@ -405,6 +405,43 @@ export const leads = pgTable("leads", {
 export type Lead = typeof leads.$inferSelect;
 export type InsertLead = typeof leads.$inferInsert;
 
+export const regularizacoes = pgTable("regularizacoes", {
+  id: serial("id").primaryKey(),
+  clientName: varchar("client_name", { length: 255 }).notNull(),
+  clientPhone: varchar("client_phone", { length: 30 }),
+  type: varchar("type", { length: 120 }).notNull(),
+  status: varchar("status", { length: 40 }).default("analysis").notNull(),
+  address: text("address").notNull(),
+  registration: varchar("registration", { length: 120 }),
+  registryOffice: varchar("registry_office", { length: 255 }),
+  responsible: varchar("responsible", { length: 120 }).notNull(),
+  leadId: integer("lead_id"),
+  serviceValue: decimal("service_value", { precision: 15, scale: 2 }).default("0").notNull(),
+  paidValue: decimal("paid_value", { precision: 15, scale: 2 }).default("0").notNull(),
+  expectedEndAt: timestamp("expected_end_at"),
+  description: text("description").default("").notNull(),
+  notes: text("notes"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+export type Regularizacao = typeof regularizacoes.$inferSelect;
+export type InsertRegularizacao = typeof regularizacoes.$inferInsert;
+
+export const regularizacaoDocuments = pgTable("regularizacao_documents", {
+  id: serial("id").primaryKey(),
+  regularizacaoId: integer("regularizacao_id").notNull(),
+  name: varchar("name", { length: 255 }).notNull(),
+  status: varchar("status", { length: 40 }).default("pending").notNull(),
+  observation: text("observation").default("").notNull(),
+  fileUrl: text("file_url"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+export type RegularizacaoDocument = typeof regularizacaoDocuments.$inferSelect;
+export type InsertRegularizacaoDocument = typeof regularizacaoDocuments.$inferInsert;
+
 export const leadActivities = pgTable("lead_activities", {
   id: serial("id").primaryKey(),
   leadId: integer("lead_id").notNull(),

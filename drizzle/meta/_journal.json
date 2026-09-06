@@ -8,6 +8,13 @@
       "when": 1788709279312,
       "tag": "0000_baseline_postgres_2026_09_06",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1788720076654,
+      "tag": "0001_register_existing_regularizacao_tables",
+      "breakpoints": true
     }
   ]
 }
