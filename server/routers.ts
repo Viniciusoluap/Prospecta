@@ -2128,6 +2128,14 @@ export const appRouter = router({
         await db.updateIncorporationStudy(input.id, { customerServiceJson: input.dataJson });
         return { success: true };
       }),
+
+    saveViabilidade: protectedProcedure
+      .input(z.object({ id: z.number(), dataJson: z.string().min(1) }))
+      .mutation(async ({ input, ctx }) => {
+        requireRole(ctx, ["admin"]);
+        await db.updateIncorporationStudy(input.id, { lottingJson: input.dataJson });
+        return { success: true };
+      }),
   }),
 });
 

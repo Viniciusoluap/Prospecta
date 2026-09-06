@@ -21,7 +21,7 @@
 | EPIC-005 | Agregador/Feeds | Claude | Done (S-01, S-02) | EPIC-001 |
 | EPIC-006 | WhatsApp (Evolution API) | Codex | Draft | — |
 | EPIC-007 | Financeiro avançado (Pluggy/BPO/Contabilidade) | Codex | Draft | Config de credenciais fica com o usuário |
-| EPIC-008 | Incorporação | Claude | Done (S-01 a S-12) — S-13 (Viabilidade Econômica) em backlog | EPIC-001, demais fecharem |
+| EPIC-008 | Incorporação | Claude | Done (S-01 a S-13) — epic 100% concluído | EPIC-001, demais fecharem |
 | EPIC-009 | Alinhamento de papéis (admin/corretor/colaborador/cliente) | Claude | Done (S-01, S-02, S-03) | — |
 | EPIC-010 | Páginas institucionais (serviços/sobre/contato/mercado/cursos/instituto) | Claude | Done (S-01, S-02) | — |
 
@@ -37,6 +37,7 @@
 8. **EPIC-009 S-02 original (helper RBAC)** — nunca tinha sido implementado (a story "S-02" registrada era, na verdade, uma correção de review externo não relacionada). Fechado como S-03 (`server/_core/rbac.ts`, `hasRole`/`requireRole`/`STAFF_ROLES`), substituindo as ~50 checagens de papel inline nos routers por chamadas ao helper.
 9. **EPIC-008 S-03 (correção de escopo)** — a S-03 estava descrita no `EPIC.md` como "Estudo urbanístico e de mercado" agrupando dois temas por suposição, sem checar a estrutura real do Santa Fé antes de escrever o épico. Ao implementar, ficou claro que parâmetros urbanísticos/potencial construtivo não têm aba própria lá — são consumidos dentro do módulo de Massa/Quadro de Áreas. A S-03 foi re-escopada para cobrir só "Estudo de Mercado" (pesquisa por IA + precificação por comparáveis + pesquisa primária); os campos urbanísticos passaram para a S-04. Detalhes em `epic-008-incorporacao/S-03-estudo-mercado.md`.
 10. **EPIC-008 — módulo de Viabilidade Econômica ausente do plano original** — durante a S-08, foi descoberto que o Grupo Santa Fé tem um módulo inteiro ("Estudo de Viabilidade Econômica": motor de VGV/fluxo de caixa/VPL/TIR/payback/análise de sensibilidade, `lib/finance/eve.ts` + `viabilidade-tab.tsx`, ~1.100 linhas de referência) que nunca constou como story no `EPIC.md` original desta trilha. É a fonte real do "VGV bruto"/"investimento total" que as stories S-05 (negociação do terreno) e S-06 (business plan) precisaram tornar campo manual, documentando essa limitação explicitamente. Em vez de encaixar uma versão reduzida do motor às pressas na S-08 ou inventar um cálculo simplificado, o achado foi registrado e uma nova story de backlog (S-13) foi criada para o motor completo. Detalhes em `epic-008-incorporacao/S-08-registro-orcamento-preliminar.md`.
+11. **EPIC-008 S-13 (fechamento do epic) — correção de referência** — ao implementar a S-13, ficou claro que o motor de fato usado pela aba "Viabilidade" do Santa Fé é `lib/finance/loteamento.ts` (que importa `vpl`/`tir`/`payback` de `eve.ts`) — `eve.ts` isolado é código morto na origem, sem nenhum import fora do próprio teste. Os dois arquivos foram portados juntos. Reaproveitada a coluna `lotting_json` já existente na tabela (nunca usada) em vez de gerar migration nova. EPIC-008 está 100% concluído (S-01 a S-13). Detalhes em `epic-008-incorporacao/S-13-viabilidade-economica.md`.
 
 ## Coordenação entre trilhas
 
