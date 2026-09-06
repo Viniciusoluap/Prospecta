@@ -1,7 +1,7 @@
 # EPIC-001: Catálogo de Imóveis
 
 **Epic Owner:** Claude
-**Status:** In Progress (S-01, S-02 Done)
+**Status:** Done (S-01, S-02, S-03)
 
 ## Problem Statement
 
@@ -29,4 +29,4 @@ O Grupo Santa Fé tem um catálogo público de imóveis (`Imovel`: slug, tipo, s
 |-------|-------|--------|
 | S-01 | Schema + router `imoveis` | Done |
 | S-02 | Páginas públicas de listagem/detalhe | Done |
-| S-03 | CRUD admin | Draft |
+| S-03 | CRUD admin | Done |

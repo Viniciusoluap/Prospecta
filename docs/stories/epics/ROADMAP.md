@@ -14,7 +14,7 @@
 | Epic | Nome | Owner | Status | Depende de |
 |------|------|-------|--------|------------|
 | EPIC-000 | Limpeza: remover contractors/investors/lots/partnerDistributions | Claude | Done | — |
-| EPIC-001 | Catálogo de Imóveis | Claude | In Progress (S-01, S-02 Done) | EPIC-000, EPIC-009 |
+| EPIC-001 | Catálogo de Imóveis | Claude | Done (S-01, S-02, S-03) | EPIC-000, EPIC-009 |
 | EPIC-002 | Portal do Cliente | Codex | Draft | EPIC-009 |
 | EPIC-003 | Avaliações | Claude | Done (S-01, S-02, S-03, S-04) | EPIC-001 |
 | EPIC-004 | Regularização | Codex | Draft (schema já existe — reaproveitar) | EPIC-009 |

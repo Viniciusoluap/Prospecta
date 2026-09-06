@@ -42,6 +42,8 @@ import AdminAvaliacoes from "./pages/admin/AdminAvaliacoes";
 import AdminAvaliacaoDetail from "./pages/admin/AdminAvaliacaoDetail";
 import Imoveis from "./pages/Imoveis";
 import ImovelDetalhes from "./pages/ImovelDetalhes";
+import AdminImoveis from "./pages/admin/AdminImoveis";
+import AdminImovelForm from "./pages/admin/AdminImovelForm";
 import Perfil from "./pages/Perfil";
 import SimuladorFinanciamento from "./pages/SimuladorFinanciamento";
 import WhatsAppFloat from "./components/WhatsAppFloat";
@@ -129,6 +131,15 @@ function Router() {
       </Route>
       <Route path="/admin/avaliacoes">
         <AdminRoute><AdminAvaliacoes /></AdminRoute>
+      </Route>
+      <Route path="/admin/imoveis/novo">
+        <AdminRoute><AdminImovelForm /></AdminRoute>
+      </Route>
+      <Route path="/admin/imoveis/:id/editar">
+        <AdminRoute><AdminImovelForm /></AdminRoute>
+      </Route>
+      <Route path="/admin/imoveis">
+        <AdminRoute><AdminImoveis /></AdminRoute>
       </Route>
       <Route path="/notificacoes">
         <ProtectedRoute><Notificacoes /></ProtectedRoute>
