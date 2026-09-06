@@ -8,6 +8,7 @@ import { createContext } from "./context";
 import { serveStatic, setupVite } from "./vite";
 import { registerStripeWebhook } from "./stripeWebhook";
 import uploadPhotoRouter from "../routes/upload-photo";
+import imovelFeedsRouter from "../routes/imovel-feeds";
 import { handleAsaasWebhook } from "../asaas-webhook";
 import { getUserByEmail } from "../db";
 import {
@@ -91,6 +92,8 @@ async function startServer() {
 
   // Upload de fotos
   app.use("/api", uploadPhotoRouter);
+  // Feeds XML de imóveis (ZAP/OLX/VivaReal/Chaves na Mão)
+  app.use("/api", imovelFeedsRouter);
   // Asaas webhook
   app.post("/api/asaas/webhook", handleAsaasWebhook);
 
