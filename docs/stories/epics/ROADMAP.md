@@ -21,7 +21,7 @@
 | EPIC-005 | Agregador/Feeds | Claude | Done (S-01, S-02) | EPIC-001 |
 | EPIC-006 | WhatsApp (Evolution API) | Codex | Draft | — |
 | EPIC-007 | Financeiro avançado (Pluggy/BPO/Contabilidade) | Codex | Draft | Config de credenciais fica com o usuário |
-| EPIC-008 | Incorporação | Claude | In Progress (S-01 a S-11 Done) | EPIC-001, demais fecharem |
+| EPIC-008 | Incorporação | Claude | Done (S-01 a S-12) — S-13 (Viabilidade Econômica) em backlog | EPIC-001, demais fecharem |
 | EPIC-009 | Alinhamento de papéis (admin/corretor/colaborador/cliente) | Claude | Done (S-01, S-02, S-03) | — |
 | EPIC-010 | Páginas institucionais (serviços/sobre/contato/mercado/cursos/instituto) | Claude | Done (S-01, S-02) | — |
 
