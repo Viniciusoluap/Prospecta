@@ -12,6 +12,7 @@ import { TerrenoTopografia } from "@/components/incorporacao/TerrenoTopografia";
 import { EstudoMercado } from "@/components/incorporacao/EstudoMercado";
 import { EstudoMassa } from "@/components/incorporacao/EstudoMassa";
 import { OrcamentoNegociacao } from "@/components/incorporacao/OrcamentoNegociacao";
+import { BusinessPlan } from "@/components/incorporacao/BusinessPlan";
 
 const STATUS_OPTIONS = [
   { value: "draft", label: "Rascunho" },
@@ -20,7 +21,6 @@ const STATUS_OPTIONS = [
 ];
 
 const FUTURE_MODULES = [
-  "Business plan e investidores",
   "Projetistas e aprovação do projeto",
   "Registro da incorporação e orçamento preliminar",
   "Planejamento de lançamento, fornecedores e material publicitário",
@@ -187,6 +187,8 @@ export default function AdminIncorporacaoDetail() {
           parameterizedBudgetJson={estudo.parameterizedBudgetJson}
           landNegotiationJson={estudo.landNegotiationJson}
         />
+
+        <BusinessPlan estudoId={estudo.id} businessPlanJson={estudo.businessPlanJson} />
 
         <Card className="bg-[#1A2332]/60 border-[#C9A961]/20 backdrop-blur-sm">
           <CardHeader>
