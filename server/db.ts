@@ -27,6 +27,7 @@ import {
   obraMeasurements, ObraMeasurement, InsertObraMeasurement,
   paymentSettings, PaymentSetting, InsertPaymentSetting,
   imoveis, Imovel, InsertImovel,
+  avaliacoes, Avaliacao, InsertAvaliacao,
 } from "../drizzle/schema";
 
 type DrizzleDb = ReturnType<typeof drizzle>;
@@ -779,4 +780,48 @@ export async function createImovel(data: InsertImovel): Promise<Imovel> {
 export async function updateImovel(id: number, data: Partial<InsertImovel>): Promise<void> {
   const db = getDb();
   await db.update(imoveis).set({ ...data, updatedAt: new Date() }).where(eq(imoveis.id, id));
+}
+
+// ========== AVALIAÇÕES (LAUDOS) ==========
+
+function gerarNumeroAvaliacao(): string {
+  const now = new Date();
+  return `AVL-${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, "0")}-${Math.floor(1000 + Math.random() * 9000)}`;
+}
+
+export async function getAllAvaliacoes(filters?: { status?: string; tipo?: string; cidade?: string }): Promise<Avaliacao[]> {
+  const db = getDb();
+  let query = db.select().from(avaliacoes).$dynamic();
+  const conditions = [];
+  if (filters?.status) conditions.push(eq(avaliacoes.status, filters.status as any));
+  if (filters?.tipo) conditions.push(eq(avaliacoes.tipo, filters.tipo));
+  if (filters?.cidade) conditions.push(eq(avaliacoes.cidade, filters.cidade));
+  if (conditions.length > 0) query = query.where(and(...conditions));
+  return query.orderBy(desc(avaliacoes.createdAt));
+}
+
+export async function getAvaliacaoById(id: number): Promise<Avaliacao | undefined> {
+  const db = getDb();
+  const result = await db.select().from(avaliacoes).where(eq(avaliacoes.id, id)).limit(1);
+  return result[0];
+}
+
+export async function createAvaliacao(data: Omit<InsertAvaliacao, "numero" | "status">): Promise<Avaliacao> {
+  const db = getDb();
+  const result = await db.insert(avaliacoes).values({
+    ...data,
+    numero: gerarNumeroAvaliacao(),
+    status: "solicitada",
+  }).returning();
+  return result[0];
+}
+
+export async function updateAvaliacao(id: number, data: Partial<InsertAvaliacao>): Promise<void> {
+  const db = getDb();
+  await db.update(avaliacoes).set({ ...data, updatedAt: new Date() }).where(eq(avaliacoes.id, id));
+}
+
+export async function deleteAvaliacao(id: number): Promise<void> {
+  const db = getDb();
+  await db.delete(avaliacoes).where(eq(avaliacoes.id, id));
 }
