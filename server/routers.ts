@@ -18,6 +18,7 @@ import { paymentSettingsRouter } from "./payment-settings-router";
 import { requireRole, STAFF_ROLES } from "./_core/rbac";
 import { parseKmlTerreno } from "./_core/geo/kml";
 import { fetchElevationGrid } from "./_core/geo/elevacao";
+import { pesquisarMercado } from "./_core/incorporacao/mercado-ia";
 
 // Helper para gerar número de bilhete único
 function generateTicketNumber(): string {
@@ -1924,6 +1925,39 @@ export const appRouter = router({
           appWidthM: input.larguraM?.toString(),
           appOrigin: input.origem,
         });
+        return { success: true };
+      }),
+
+    pesquisarMercado: protectedProcedure
+      .input(z.object({ id: z.number(), municipio: z.string().min(1), estado: z.string().min(2) }))
+      .mutation(async ({ input, ctx }) => {
+        requireRole(ctx, ["admin"]);
+        let resultado;
+        try {
+          resultado = await pesquisarMercado(input.municipio, input.estado);
+        } catch (e) {
+          throw new TRPCError({ code: "BAD_GATEWAY", message: e instanceof Error ? e.message : "Falha na pesquisa de mercado." });
+        }
+        await db.updateIncorporationStudy(input.id, {
+          cityResearchJson: JSON.stringify(resultado.cidade),
+          marketStudyJson: JSON.stringify(resultado.mercado),
+        });
+        return resultado;
+      }),
+
+    savePrecificacao: protectedProcedure
+      .input(z.object({ id: z.number(), dataJson: z.string().min(1) }))
+      .mutation(async ({ input, ctx }) => {
+        requireRole(ctx, ["admin"]);
+        await db.updateIncorporationStudy(input.id, { comparablePricingJson: input.dataJson });
+        return { success: true };
+      }),
+
+    savePesquisaPrimaria: protectedProcedure
+      .input(z.object({ id: z.number(), dataJson: z.string().min(1) }))
+      .mutation(async ({ input, ctx }) => {
+        requireRole(ctx, ["admin"]);
+        await db.updateIncorporationStudy(input.id, { primaryResearchJson: input.dataJson });
         return { success: true };
       }),
   }),

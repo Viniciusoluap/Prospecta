@@ -9,6 +9,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { toast } from "sonner";
 import { ArrowLeft, Construction } from "lucide-react";
 import { TerrenoTopografia } from "@/components/incorporacao/TerrenoTopografia";
+import { EstudoMercado } from "@/components/incorporacao/EstudoMercado";
 
 const STATUS_OPTIONS = [
   { value: "draft", label: "Rascunho" },
@@ -17,7 +18,7 @@ const STATUS_OPTIONS = [
 ];
 
 const FUTURE_MODULES = [
-  "Estudo urbanístico e de mercado",
+  "Parâmetros urbanísticos e potencial construtivo",
   "Massa e quadro de áreas (NBR 12721)",
   "Orçamento parametrizado e negociação do terreno",
   "Business plan e investidores",
@@ -157,6 +158,16 @@ export default function AdminIncorporacaoDetail() {
           areaM2={estudo.areaM2}
           perimeterM={estudo.perimeterM}
           elevationJson={estudo.elevationJson}
+        />
+
+        <EstudoMercado
+          estudoId={estudo.id}
+          city={estudo.city}
+          state={estudo.state}
+          cityResearchJson={estudo.cityResearchJson}
+          marketStudyJson={estudo.marketStudyJson}
+          comparablePricingJson={estudo.comparablePricingJson}
+          primaryResearchJson={estudo.primaryResearchJson}
         />
 
         <Card className="bg-[#1A2332]/60 border-[#C9A961]/20 backdrop-blur-sm">

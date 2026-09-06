@@ -21,7 +21,7 @@
 | EPIC-005 | Agregador/Feeds | Claude | Done (S-01, S-02) | EPIC-001 |
 | EPIC-006 | WhatsApp (Evolution API) | Codex | Draft | — |
 | EPIC-007 | Financeiro avançado (Pluggy/BPO/Contabilidade) | Codex | Draft | Config de credenciais fica com o usuário |
-| EPIC-008 | Incorporação | Claude | In Progress (S-01, S-02 Done) | EPIC-001, demais fecharem |
+| EPIC-008 | Incorporação | Claude | In Progress (S-01, S-02, S-03 Done) | EPIC-001, demais fecharem |
 | EPIC-009 | Alinhamento de papéis (admin/corretor/colaborador/cliente) | Claude | Done (S-01, S-02, S-03) | — |
 | EPIC-010 | Páginas institucionais (serviços/sobre/contato/mercado/cursos/instituto) | Claude | Done (S-01, S-02) | — |
 
@@ -35,6 +35,7 @@
 6. **EPIC-010 (páginas institucionais)** — atribuído diretamente à trilha Claude (antes "a dividir" com a trilha Codex), a ser feito após o restante do EPIC-001.
 7. **EPIC-008 (Incorporação)** — atribuído diretamente à trilha Claude (antes "a dividir"), a ser feito em seguida.
 8. **EPIC-009 S-02 original (helper RBAC)** — nunca tinha sido implementado (a story "S-02" registrada era, na verdade, uma correção de review externo não relacionada). Fechado como S-03 (`server/_core/rbac.ts`, `hasRole`/`requireRole`/`STAFF_ROLES`), substituindo as ~50 checagens de papel inline nos routers por chamadas ao helper.
+9. **EPIC-008 S-03 (correção de escopo)** — a S-03 estava descrita no `EPIC.md` como "Estudo urbanístico e de mercado" agrupando dois temas por suposição, sem checar a estrutura real do Santa Fé antes de escrever o épico. Ao implementar, ficou claro que parâmetros urbanísticos/potencial construtivo não têm aba própria lá — são consumidos dentro do módulo de Massa/Quadro de Áreas. A S-03 foi re-escopada para cobrir só "Estudo de Mercado" (pesquisa por IA + precificação por comparáveis + pesquisa primária); os campos urbanísticos passaram para a S-04. Detalhes em `epic-008-incorporacao/S-03-estudo-mercado.md`.
 
 ## Coordenação entre trilhas
 
