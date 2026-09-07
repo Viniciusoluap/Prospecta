@@ -1416,6 +1416,12 @@ export const appRouter = router({
         referenceId: z.number().optional(),
         referenceType: z.string().optional(),
         notes: z.string().optional(),
+        status: z.enum(["pending", "paid", "cancelled"]).optional(),
+        dueDate: z.union([z.string(), z.date()]).optional(),
+        paymentMethod: z.string().optional(),
+        externalReference: z.string().optional(),
+        competency: z.string().optional(),
+        vendor: z.string().optional(),
       }))
       .mutation(async ({ input, ctx }) => {
         requireRole(ctx, ["admin"]);
@@ -1424,8 +1430,17 @@ export const appRouter = router({
             ...input,
             amount: input.amount.toString(),
             paidAt: input.paidAt ? new Date(input.paidAt) : undefined,
+            dueDate: input.dueDate ? new Date(input.dueDate) : undefined,
           } as any);
         }
+        return { success: true };
+      }),
+
+    updateStatus: protectedProcedure
+      .input(z.object({ id: z.number(), status: z.enum(["pending", "paid", "cancelled"]) }))
+      .mutation(async ({ input, ctx }) => {
+        requireRole(ctx, ["admin"]);
+        await db.updateFinancialTransactionStatus(input.id, input.status);
         return { success: true };
       }),
   }),
