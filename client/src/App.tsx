@@ -57,12 +57,16 @@ import Perfil from "./pages/Perfil";
 import SimuladorFinanciamento from "./pages/SimuladorFinanciamento";
 import WhatsAppFloat from "./components/WhatsAppFloat";
 import Login from "./pages/Login";
+import Portal from "./pages/Portal";
+import { PortalRoute } from "./components/PortalRoute";
 
 function Router() {
   // make sure to consider if you need authentication for certain routes
   return (
     <Switch>
       <Route path="/login" component={Login} />
+      <Route path="/portal/:rest*"><PortalRoute><Portal /></PortalRoute></Route>
+      <Route path="/portal"><PortalRoute><Portal /></PortalRoute></Route>
       <Route path={"/"} component={Home} />
       <Route path="/sorteios" component={Sorteios} />
       <Route path="/comprar-bilhete/:id" component={ComprarBilhete} />

@@ -1,7 +1,7 @@
 # Story S-04 — Chat entre cliente e equipe
 
 **Epic:** EPIC-002  
-**Status:** Ready  
+**Status:** Done
 **executor:** Codex  
 **quality_gate:** TypeScript, Vitest, build e revisão de autorização
 
@@ -13,18 +13,18 @@ Fontes: `web/src/app/portal/chat/page.tsx`, `web/src/app/api/chat/[leadId]/route
 
 ## Acceptance Criteria
 
-- [ ] AC-01: cliente consulta e envia mensagens apenas na conversa do próprio lead
-- [ ] AC-02: equipe consulta e responde conversas por lead com RBAC de staff
-- [ ] AC-03: mensagens vazias são recusadas e textos são normalizados/limitados a 2.000 caracteres
-- [ ] AC-04: interface atualiza periodicamente sem duplicar mensagens otimistas
-- [ ] AC-05: tentativas de acesso cruzado são cobertas por testes
+- [x] AC-01: cliente consulta e envia mensagens apenas na conversa do próprio lead
+- [x] AC-02: equipe consulta e responde conversas por lead com RBAC de staff
+- [x] AC-03: mensagens vazias são recusadas e textos são normalizados/limitados a 2.000 caracteres
+- [x] AC-04: interface atualiza periodicamente sem duplicar mensagens otimistas
+- [x] AC-05: tentativas de acesso cruzado são cobertas por testes
 
 ## Tasks
 
-- [ ] Implementar procedures de listagem incremental e envio
-- [ ] Implementar página de chat do portal
-- [ ] Integrar painel de conversa no detalhe administrativo do lead
-- [ ] Testar validação de entrada e isolamento
+- [x] Implementar procedures de listagem incremental e envio
+- [x] Implementar página de chat do portal
+- [x] Integrar painel de conversa no detalhe administrativo do lead
+- [x] Testar validação de entrada e isolamento
 
 ## Change Log
 

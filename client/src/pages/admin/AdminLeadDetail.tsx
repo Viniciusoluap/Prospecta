@@ -16,6 +16,7 @@ import {
   FileText, MessageSquare, ChevronRight, CheckCircle2, XCircle, Clock,
   Building2, DollarSign, Calculator, AlertCircle, Plus, Edit
 } from "lucide-react";
+import { AdminPortalLeadPanel } from "@/components/admin/AdminPortalLeadPanel";
 
 const STAGES = [
   { key: "lead_new", label: "Lead Novo" },
@@ -583,6 +584,8 @@ export default function AdminLeadDetail() {
               )}
             </CardContent>
           </Card>
+
+          <AdminPortalLeadPanel leadId={leadId} defaultEmail={lead.email} />
 
           {/* Notes */}
           {lead.notes && (
