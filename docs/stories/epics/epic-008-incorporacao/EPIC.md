@@ -1,7 +1,11 @@
 # EPIC-008: Incorporação
 
-**Epic Owner:** A dividir entre Claude e Codex (backlog)
-**Status:** Backlog
+**Epic Owner:** Claude
+**Status:** Done (S-01 a S-12) — S-13 (Estudo de Viabilidade Econômica) permanece em backlog, achado durante a implementação e fora do plano original
+
+**Atualização (06/09/2026, S-03):** a S-03 originalmente descrita como "Estudo urbanístico e de mercado" foi re-escopada para "Estudo de Mercado" apenas — os campos `urban_parameters_json`/`potential_json`/`urbanistic_opinion` (parâmetros urbanísticos e potencial construtivo) não têm aba própria no Santa Fé; são consumidos dentro da aba de Massa/Quadro de Áreas, então passam a fazer parte da S-04. Ver `S-03-estudo-mercado.md` para o raciocínio completo.
+
+**Atualização (06/09/2026, S-08):** durante a S-08 foi descoberto que o Grupo Santa Fé tem um módulo inteiro — "Estudo de Viabilidade Econômica" (motor de VGV/fluxo de caixa/VPL/TIR/payback/sensibilidade, `lib/finance/eve.ts` + `viabilidade-tab.tsx`, ~1.100 linhas de referência) — que nunca constou como story nesta trilha. É a fonte real do "VGV bruto"/"investimento total" que as stories S-05 e S-06 precisaram tornar campo manual. Adicionado como nova story de backlog (S-13) em vez de encaixado às pressas ou simulado. Ver `S-08-registro-orcamento-preliminar.md` para o raciocínio completo.
 
 ## Problem Statement
 
@@ -9,6 +13,40 @@ Módulo mais denso do Grupo Santa Fé (`admin/incorporacao`): terreno, topografi
 
 Deixado por último de propósito dado o tamanho. Modelo Prisma de referência: `EstudoIncorporacao` (dezenas de campos JSON por etapa).
 
+**Atualização (06/09/2026):** já existe em produção (Neon, projeto SiteProspecta) a tabela `incorporation_studies`, vazia (0 linhas), sem nenhum código associado. A estrutura bate quase campo-a-campo com `EstudoIncorporacao` do Santa Fé (um campo `*_json` por etapa: terreno/topografia, urbanismo, mercado, pesquisa primária, massa/cenários, quadro de áreas, orçamento parametrizado/preliminar/obra, negociação de terreno, business plan, projetistas, aprovação de projeto, registro de incorporação, lançamento, fornecedores, material publicitário, projetos executivos, cronograma, atendimento a clientes, viabilidade). O dono do produto decidiu **reaproveitar** essa tabela em vez de recriar do zero.
+
+## Functional Requirements
+
+| ID | Requirement |
+|----|-------------|
+| FR-01 | Schema Drizzle para `incorporation_studies` (tabela já existe em produção — apenas declarar, sem recriar) + router tRPC com CRUD dos campos identificadores (nome/cidade/estado/endereço/responsável/status) |
+| FR-02 | `/admin/incorporacao` — lista de estudos com indicador de situação e criação |
+| FR-03 | `/admin/incorporacao/:id` — detalhe com dados gerais editáveis; demais módulos (terreno, massa, orçamentos, lançamento, obra) ficam para stories futuras |
+| FR-04..FR-13 | Um módulo `*_json` por story futura (ver tabela de Stories) — cada um replica a lógica de negócio do Santa Fé para aquela etapa, gravando no campo correspondente já existente na tabela |
+
+## Constraints
+
+| ID | Constraint |
+|----|------------|
+| CON-01 | A tabela `incorporation_studies` já existe em produção (Neon, projeto SiteProspecta) com todas as colunas `*_json` — nenhuma story deste épico deve gerar uma migration de `CREATE TABLE`; apenas a declaração inicial no Drizzle (S-01) precisa reconciliar isso manualmente (ver Change Log) |
+| CON-02 | Epic muito maior que os anteriores (~24 colunas `*_json`, cada uma um sub-módulo completo do Santa Fé) — dividido em stories por etapa do funil de incorporação, não implementado de uma vez |
+
 ## Stories
 
-_A detalhar quando os épicos anteriores fecharem — provável divisão em sub-épicos por etapa do funil de incorporação._
+| Story | Title | Status |
+|-------|-------|--------|
+| S-01 | Schema (reconciliado com tabela já existente) + router CRUD básico + lista/detalhe admin | Done |
+| S-02 | Terreno e geometria (KML, área/perímetro, APP, topografia) | Done |
+| S-03 | Estudo de Mercado (pesquisa de cidade/mercado via IA, precificação por comparáveis ponderados, pesquisa primária com compradores) | Done |
+| S-04 | Parâmetros urbanísticos, potencial construtivo, massa generativa e Quadro de Áreas (NBR 12721) | Done |
+| S-05 | Orçamento parametrizado e negociação do terreno | Done |
+| S-06 | Business plan e investidores | Done |
+| S-07 | Contratação de projetistas e aprovação de projeto | Done |
+| S-08 | Registro da incorporação e orçamento preliminar (reconciliado com S-05) | Done |
+| S-09 | Planejamento de lançamento, fornecedores e material publicitário | Done |
+| S-10 | Lançamento imobiliário e mix de produtos | Done |
+| S-11 | Projetos executivos, orçamento e cronograma físico-financeiro da obra | Done |
+| S-12 | Atendimento aos clientes e relatório executivo (PDF) | Done |
+| S-13 | Estudo de Viabilidade Econômica (EVE completo: VGV, fluxo de caixa, VPL/TIR/payback, sensibilidade) — achado durante a S-08, não fazia parte do plano original | Backlog |
+
+_Cada story S-02+ implementa um módulo isolado, lendo/gravando apenas sua própria coluna `*_json` — baixo acoplamento entre stories, podem ser feitas em qualquer ordem após a S-01._

@@ -1,7 +1,7 @@
 # EPIC-003: Avaliações (Laudos)
 
 **Epic Owner:** Claude
-**Status:** Draft
+**Status:** Done (S-01, S-02, S-03, S-04)
 
 ## Problem Statement
 
@@ -26,7 +26,7 @@ O Grupo Santa Fé tem um módulo de avaliação de imóveis (laudos por metodolo
 
 | Story | Title | Status |
 |-------|-------|--------|
-| S-01 | Schema + router `avaliacoes` | Draft |
-| S-02 | Checklist de vistoria | Draft |
-| S-03 | Sugestão de valor via IA | Draft |
-| S-04 | Tela admin | Draft |
+| S-01 | Schema + router `avaliacoes` | Done |
+| S-02 | Checklist de vistoria | Done |
+| S-03 | Sugestão de valor via IA | Done |
+| S-04 | Tela admin | Done |

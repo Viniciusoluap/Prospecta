@@ -26,6 +26,10 @@ import {
   obraFees, ObraFee, InsertObraFee,
   obraMeasurements, ObraMeasurement, InsertObraMeasurement,
   paymentSettings, PaymentSetting, InsertPaymentSetting,
+  imoveis, Imovel, InsertImovel,
+  avaliacoes, Avaliacao, InsertAvaliacao,
+  agregadorImoveis, AgregadorImovel, InsertAgregadorImovel,
+  incorporationStudies, IncorporationStudy, InsertIncorporationStudy,
 } from "../drizzle/schema";
 
 type DrizzleDb = ReturnType<typeof drizzle>;
@@ -741,4 +745,170 @@ export async function savePaymentSetting(input: InsertPaymentSetting): Promise<v
   } else {
     await database.insert(paymentSettings).values(input);
   }
+}
+
+// ========== IMÓVEIS ==========
+
+export async function getAllImoveis(filters?: { status?: string; tipo?: string; cidade?: string; publicadoOnly?: boolean }): Promise<Imovel[]> {
+  const db = getDb();
+  let query = db.select().from(imoveis).$dynamic();
+  const conditions = [];
+  if (filters?.status) conditions.push(eq(imoveis.status, filters.status as any));
+  if (filters?.tipo) conditions.push(eq(imoveis.tipo, filters.tipo));
+  if (filters?.cidade) conditions.push(eq(imoveis.cidade, filters.cidade));
+  if (filters?.publicadoOnly) conditions.push(eq(imoveis.publicadoSite, true));
+  if (conditions.length > 0) query = query.where(and(...conditions));
+  return query.orderBy(desc(imoveis.createdAt));
+}
+
+export async function getImovelById(id: number): Promise<Imovel | undefined> {
+  const db = getDb();
+  const result = await db.select().from(imoveis).where(eq(imoveis.id, id)).limit(1);
+  return result[0];
+}
+
+export async function getImovelBySlug(slug: string): Promise<Imovel | undefined> {
+  const db = getDb();
+  const result = await db.select().from(imoveis).where(eq(imoveis.slug, slug)).limit(1);
+  return result[0];
+}
+
+export async function createImovel(data: InsertImovel): Promise<Imovel> {
+  const db = getDb();
+  const result = await db.insert(imoveis).values(data).returning();
+  return result[0];
+}
+
+export async function updateImovel(id: number, data: Partial<InsertImovel>): Promise<void> {
+  const db = getDb();
+  await db.update(imoveis).set({ ...data, updatedAt: new Date() }).where(eq(imoveis.id, id));
+}
+
+// ========== AVALIAÇÕES (LAUDOS) ==========
+
+function gerarNumeroAvaliacao(): string {
+  const now = new Date();
+  return `AVL-${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, "0")}-${Math.floor(1000 + Math.random() * 9000)}`;
+}
+
+export async function getAllAvaliacoes(filters?: { status?: string; tipo?: string; cidade?: string }): Promise<Avaliacao[]> {
+  const db = getDb();
+  let query = db.select().from(avaliacoes).$dynamic();
+  const conditions = [];
+  if (filters?.status) conditions.push(eq(avaliacoes.status, filters.status as any));
+  if (filters?.tipo) conditions.push(eq(avaliacoes.tipo, filters.tipo));
+  if (filters?.cidade) conditions.push(eq(avaliacoes.cidade, filters.cidade));
+  if (conditions.length > 0) query = query.where(and(...conditions));
+  return query.orderBy(desc(avaliacoes.createdAt));
+}
+
+export async function getAvaliacaoById(id: number): Promise<Avaliacao | undefined> {
+  const db = getDb();
+  const result = await db.select().from(avaliacoes).where(eq(avaliacoes.id, id)).limit(1);
+  return result[0];
+}
+
+export async function createAvaliacao(data: Omit<InsertAvaliacao, "numero" | "status">): Promise<Avaliacao> {
+  const db = getDb();
+  const result = await db.insert(avaliacoes).values({
+    ...data,
+    numero: gerarNumeroAvaliacao(),
+    status: "solicitada",
+  }).returning();
+  return result[0];
+}
+
+export async function updateAvaliacao(id: number, data: Partial<InsertAvaliacao>): Promise<void> {
+  const db = getDb();
+  await db.update(avaliacoes).set({ ...data, updatedAt: new Date() }).where(eq(avaliacoes.id, id));
+}
+
+export async function deleteAvaliacao(id: number): Promise<void> {
+  const db = getDb();
+  await db.delete(avaliacoes).where(eq(avaliacoes.id, id));
+}
+
+// ========== AGREGADOR (SCRAPER DE IMÓVEIS EXTERNOS) ==========
+
+export async function getAllAgregadorImoveis(filters?: { status?: string; fonte?: string }): Promise<AgregadorImovel[]> {
+  const db = getDb();
+  let query = db.select().from(agregadorImoveis).$dynamic();
+  const conditions = [];
+  if (filters?.status) conditions.push(eq(agregadorImoveis.status, filters.status as any));
+  if (filters?.fonte) conditions.push(eq(agregadorImoveis.fonte, filters.fonte as any));
+  if (conditions.length > 0) query = query.where(and(...conditions));
+  return query.orderBy(desc(agregadorImoveis.createdAt));
+}
+
+export async function getAgregadorImovelById(id: number): Promise<AgregadorImovel | undefined> {
+  const db = getDb();
+  const result = await db.select().from(agregadorImoveis).where(eq(agregadorImoveis.id, id)).limit(1);
+  return result[0];
+}
+
+export async function createAgregadorImovel(data: Omit<InsertAgregadorImovel, "status">): Promise<AgregadorImovel> {
+  const db = getDb();
+  const result = await db.insert(agregadorImoveis).values({ ...data, status: "pendente" }).returning();
+  return result[0];
+}
+
+export async function updateAgregadorImovel(id: number, data: Partial<InsertAgregadorImovel>): Promise<void> {
+  const db = getDb();
+  await db.update(agregadorImoveis).set({ ...data, updatedAt: new Date() }).where(eq(agregadorImoveis.id, id));
+}
+
+export async function importarAgregadorParaCatalogo(id: number): Promise<Imovel | undefined> {
+  const db = getDb();
+  const ag = await getAgregadorImovelById(id);
+  if (!ag) return undefined;
+
+  const slug = ag.titulo
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[̀-ͯ]/g, "")
+    .replace(/[^a-z0-9\s-]/g, "")
+    .replace(/\s+/g, "-")
+    .substring(0, 80)
+    + "-" + Date.now();
+
+  const novoImovel = await createImovel({
+    slug,
+    titulo: ag.titulo,
+    descricao: ag.descricao,
+    tipo: ag.tipo ?? "outro",
+    preco: ag.preco ?? "0",
+    areaM2: ag.areaM2 ?? undefined,
+    bairro: ag.bairro,
+    cidade: ag.cidade,
+    estado: ag.estado,
+    fotos: ag.imagens,
+    publicadoSite: false,
+  } as InsertImovel);
+
+  await updateAgregadorImovel(id, { status: "importado" });
+  return novoImovel;
+}
+
+export async function getAllIncorporationStudies(filters?: { status?: string }): Promise<IncorporationStudy[]> {
+  const db = getDb();
+  let query = db.select().from(incorporationStudies).$dynamic();
+  if (filters?.status) query = query.where(eq(incorporationStudies.status, filters.status));
+  return query.orderBy(desc(incorporationStudies.updatedAt));
+}
+
+export async function getIncorporationStudyById(id: number): Promise<IncorporationStudy | undefined> {
+  const db = getDb();
+  const result = await db.select().from(incorporationStudies).where(eq(incorporationStudies.id, id)).limit(1);
+  return result[0];
+}
+
+export async function createIncorporationStudy(data: InsertIncorporationStudy): Promise<IncorporationStudy> {
+  const db = getDb();
+  const result = await db.insert(incorporationStudies).values(data).returning();
+  return result[0];
+}
+
+export async function updateIncorporationStudy(id: number, data: Partial<InsertIncorporationStudy>): Promise<void> {
+  const db = getDb();
+  await db.update(incorporationStudies).set({ ...data, updatedAt: new Date() }).where(eq(incorporationStudies.id, id));
 }

@@ -1,15 +1,17 @@
 # EPIC-004: Regularização imobiliária
 
 **Epic Owner:** Codex
-**Status:** Implementado — validação de produção pendente
+**Status:** Done — validação somente-leitura do Neon documentada como pendência operacional
 
-## Problema
+## Problema e origem da regra
 
-Os processos de regularização imobiliária eram acompanhados fora do Prospecta. Isso separava o histórico do cliente, as etapas de cartório, os valores e a documentação necessária.
+O Grupo Santa Fé possui o módulo `Regularizacao`/`RegDocumento`, com workflow de processos e documentos. Sem o equivalente no Prospecta, o histórico do cliente, as etapas de cartório, os valores e a documentação ficavam separados.
+
+Em 06/09/2026 foi confirmado que as tabelas `regularizacoes` e `regularizacao_documents` já existiam vazias no Neon do SiteProspecta. O dono do produto decidiu reaproveitar essa estrutura, vinculando `lead_id` conceitualmente ao CRM, em vez de recriá-la.
 
 ## Decisão de compatibilidade
 
-As tabelas `regularizacoes` e `regularizacao_documents` já existem no Neon do SiteProspecta. O código apenas passa a declará-las no Drizzle e consumi-las; não deve ser criada migração para essas duas tabelas. A estrutura informada no adendo de 2026-09-06 é a fonte de verdade.
+O código apenas passa a declarar e consumir as tabelas existentes. A migração associada registra metadados no Drizzle e não contém `CREATE TABLE` nem `ALTER TABLE`. A estrutura informada no adendo de 06/09/2026 e confirmada pela trilha Claude é a fonte de verdade.
 
 ## Requisitos funcionais
 
@@ -36,4 +38,4 @@ As tabelas `regularizacoes` e `regularizacao_documents` já existem no Neon do S
 | S-01 | Mapear schema existente | Concluída |
 | S-02 | API administrativa e workflow | Concluída |
 | S-03 | Tela de gestão e documentos | Concluída |
-| S-04 | Verificação e implantação segura | Em validação |
+| S-04 | Verificação e implantação segura | Concluída localmente; Neon pendente de acesso |

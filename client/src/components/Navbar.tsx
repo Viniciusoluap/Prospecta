@@ -10,7 +10,7 @@ import {
   SheetTrigger,
 } from "@/components/ui/sheet";
 import { trpc } from "@/lib/trpc";
-import { User, LogOut, Ticket, Coins, ShoppingBag, Settings, Plus, Phone, MessageCircle, HardHat, Menu, Home as HomeIcon, FileText, DollarSign, Gift, Building2, Bell } from "lucide-react";
+import { User, LogOut, Ticket, Coins, ShoppingBag, Settings, Plus, Phone, MessageCircle, HardHat, Menu, Home as HomeIcon, FileText, DollarSign, Gift, Building2, Bell, Wrench, Info, Search, GraduationCap, HandHeart } from "lucide-react";
 import { useState } from "react";
 import {
   DropdownMenu,
@@ -71,6 +71,14 @@ export default function Navbar() {
                   </Button>
                 </Link>
 
+                {/* Imóveis */}
+                <Link href="/imoveis" onClick={closeMobileMenu}>
+                  <Button variant="ghost" className="w-full justify-start text-base">
+                    <Building2 className="mr-3 h-5 w-5" />
+                    Imóveis
+                  </Button>
+                </Link>
+
                 {/* Obras (apenas autenticados) */}
                 {isAuthenticated && (
                   <Link href="/obras" onClick={closeMobileMenu}>
@@ -80,6 +88,49 @@ export default function Navbar() {
                     </Button>
                   </Link>
                 )}
+
+                {/* Institucional */}
+                <div className="px-3 py-2">
+                  <h3 className="text-sm font-semibold text-muted-foreground mb-3">Institucional</h3>
+                  <div className="flex flex-col gap-2">
+                    <Link href="/servicos" onClick={closeMobileMenu}>
+                      <Button variant="ghost" className="w-full justify-start">
+                        <Wrench className="mr-3 h-4 w-4" />
+                        Serviços
+                      </Button>
+                    </Link>
+                    <Link href="/sobre" onClick={closeMobileMenu}>
+                      <Button variant="ghost" className="w-full justify-start">
+                        <Info className="mr-3 h-4 w-4" />
+                        Sobre Nós
+                      </Button>
+                    </Link>
+                    <Link href="/mercado" onClick={closeMobileMenu}>
+                      <Button variant="ghost" className="w-full justify-start">
+                        <Search className="mr-3 h-4 w-4" />
+                        Mercado de Imóveis
+                      </Button>
+                    </Link>
+                    <Link href="/cursos" onClick={closeMobileMenu}>
+                      <Button variant="ghost" className="w-full justify-start">
+                        <GraduationCap className="mr-3 h-4 w-4" />
+                        Cursos
+                      </Button>
+                    </Link>
+                    <Link href="/instituto" onClick={closeMobileMenu}>
+                      <Button variant="ghost" className="w-full justify-start">
+                        <HandHeart className="mr-3 h-4 w-4" />
+                        Instituto
+                      </Button>
+                    </Link>
+                    <Link href="/contato" onClick={closeMobileMenu}>
+                      <Button variant="ghost" className="w-full justify-start">
+                        <Phone className="mr-3 h-4 w-4" />
+                        Contato
+                      </Button>
+                    </Link>
+                  </div>
+                </div>
 
                 {/* Divisor */}
                 <div className="border-t my-2" />

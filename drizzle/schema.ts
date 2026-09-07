@@ -7,7 +7,7 @@ import {
 // ──────────────────────────────────────────
 // ENUMS
 // ──────────────────────────────────────────
-export const userRoleEnum = pgEnum("user_role", ["user", "admin"]);
+export const userRoleEnum = pgEnum("user_role", ["user", "admin", "corretor", "colaborador", "cliente"]);
 export const drawStatusEnum = pgEnum("draw_status", ["active", "closed", "drawn"]);
 export const ticketPaymentStatusEnum = pgEnum("ticket_payment_status", ["pending", "confirmed", "failed"]);
 export const utefTransactionTypeEnum = pgEnum("utef_transaction_type", ["prize", "conversion", "adjustment", "purchase"]);
@@ -79,7 +79,7 @@ export const users = pgTable("users", {
   zipCode: varchar("zipCode", { length: 10 }),
   avatarUrl: text("avatarUrl"),
   loginMethod: varchar("loginMethod", { length: 64 }),
-  role: userRoleEnum("role").default("user").notNull(),
+  role: userRoleEnum("role").default("cliente").notNull(),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().notNull(),
   lastSignedIn: timestamp("lastSignedIn").defaultNow().notNull(),
@@ -537,3 +537,168 @@ export const paymentSettings = pgTable("payment_settings", {
 });
 export type PaymentSetting = typeof paymentSettings.$inferSelect;
 export type InsertPaymentSetting = typeof paymentSettings.$inferInsert;
+
+export const imovelStatusEnum = pgEnum("imovel_status", ["disponivel", "reservado", "vendido", "alugado"]);
+
+export const imoveis = pgTable("imoveis", {
+  id: serial("id").primaryKey(),
+  slug: varchar("slug", { length: 255 }).notNull().unique(),
+  titulo: varchar("titulo", { length: 255 }).notNull(),
+  descricao: text("descricao"),
+  tipo: varchar("tipo", { length: 100 }).notNull(),
+  status: imovelStatusEnum("status").default("disponivel").notNull(),
+  preco: decimal("preco", { precision: 15, scale: 2 }).notNull(),
+  quartos: integer("quartos"),
+  banheiros: integer("banheiros"),
+  vagas: integer("vagas"),
+  areaM2: decimal("area_m2", { precision: 10, scale: 2 }),
+  endereco: text("endereco"),
+  bairro: varchar("bairro", { length: 100 }),
+  cidade: varchar("cidade", { length: 100 }).notNull(),
+  estado: varchar("estado", { length: 2 }),
+  latitude: decimal("latitude", { precision: 10, scale: 7 }),
+  longitude: decimal("longitude", { precision: 10, scale: 7 }),
+  fotos: text("fotos"),
+  destaque: boolean("destaque").default(false).notNull(),
+  publicadoSite: boolean("publicado_site").default(true).notNull(),
+  publicadoZap: boolean("publicado_zap").default(false).notNull(),
+  publicadoOlx: boolean("publicado_olx").default(false).notNull(),
+  publicadoViva: boolean("publicado_viva").default(false).notNull(),
+  publicadoChavesNaMao: boolean("publicado_chaves_na_mao").default(false).notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+export type Imovel = typeof imoveis.$inferSelect;
+export type InsertImovel = typeof imoveis.$inferInsert;
+
+export const avaliacaoStatusEnum = pgEnum("avaliacao_status", ["solicitada", "vistoria", "elaboracao", "revisao", "entregue", "cancelada"]);
+
+export const avaliacoes = pgTable("avaliacoes", {
+  id: serial("id").primaryKey(),
+  numero: varchar("numero", { length: 30 }).notNull().unique(),
+  tipo: varchar("tipo", { length: 50 }).notNull(),
+  finalidade: varchar("finalidade", { length: 50 }).notNull(),
+  status: avaliacaoStatusEnum("status").default("solicitada").notNull(),
+  clienteNome: varchar("cliente_nome", { length: 255 }).notNull(),
+  clienteCpf: varchar("cliente_cpf", { length: 20 }),
+  clienteTel: varchar("cliente_tel", { length: 20 }).notNull(),
+  clienteEmail: varchar("cliente_email", { length: 320 }),
+  endereco: text("endereco").notNull(),
+  bairro: varchar("bairro", { length: 100 }).notNull(),
+  cidade: varchar("cidade", { length: 100 }).notNull(),
+  estado: varchar("estado", { length: 2 }).notNull(),
+  areaConstruida: decimal("area_construida", { precision: 10, scale: 2 }),
+  areaTerreno: decimal("area_terreno", { precision: 10, scale: 2 }),
+  quartos: integer("quartos"),
+  banheiros: integer("banheiros"),
+  vagas: integer("vagas"),
+  caracteristicas: text("caracteristicas").default("").notNull(),
+  metodologia: varchar("metodologia", { length: 50 }).default("comparativo").notNull(),
+  valorEstimado: decimal("valor_estimado", { precision: 15, scale: 2 }),
+  avaliador: varchar("avaliador", { length: 255 }).notNull(),
+  dataVistoria: timestamp("data_vistoria"),
+  prazoEntrega: timestamp("prazo_entrega"),
+  dataEntrega: timestamp("data_entrega"),
+  observacoes: text("observacoes").default("").notNull(),
+  laudo: text("laudo"),
+  documentos: text("documentos").default("[]").notNull(),
+  sugestaoJson: text("sugestao_json"),
+  valorServico: decimal("valor_servico", { precision: 15, scale: 2 }),
+  leadId: integer("lead_id").references(() => leads.id, { onDelete: "set null" }),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+export type Avaliacao = typeof avaliacoes.$inferSelect;
+export type InsertAvaliacao = typeof avaliacoes.$inferInsert;
+
+export const agregadorFonteEnum = pgEnum("agregador_fonte", ["olx", "zapimoveis", "vivareal", "facebook", "instagram", "google", "direto", "outro"]);
+export const agregadorStatusEnum = pgEnum("agregador_status", ["pendente", "verificado", "arquivado", "importado"]);
+export const agregadorDocumentoTipoEnum = pgEnum("agregador_documento_tipo", ["nenhum", "escritura", "contrato_gaveta", "inventario", "heranca", "financiado", "loteamento", "posse", "outros"]);
+
+export const agregadorImoveis = pgTable("agregador_imoveis", {
+  id: serial("id").primaryKey(),
+  titulo: varchar("titulo", { length: 255 }).notNull(),
+  descricao: text("descricao"),
+  preco: decimal("preco", { precision: 15, scale: 2 }),
+  precoTexto: varchar("preco_texto", { length: 50 }),
+  areaM2: decimal("area_m2", { precision: 10, scale: 2 }),
+  tipo: varchar("tipo", { length: 100 }),
+  bairro: varchar("bairro", { length: 100 }),
+  cidade: varchar("cidade", { length: 100 }).notNull(),
+  estado: varchar("estado", { length: 2 }).notNull(),
+  fonte: agregadorFonteEnum("fonte").notNull(),
+  urlFonte: text("url_fonte"),
+  imagens: text("imagens").default("[]").notNull(),
+  status: agregadorStatusEnum("status").default("pendente").notNull(),
+  documentoTipo: agregadorDocumentoTipoEnum("documento_tipo").default("nenhum").notNull(),
+  documentoObs: text("documento_obs"),
+  contatoNome: varchar("contato_nome", { length: 255 }),
+  contatoTel: varchar("contato_tel", { length: 20 }),
+  notas: text("notas"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+export type AgregadorImovel = typeof agregadorImoveis.$inferSelect;
+export type InsertAgregadorImovel = typeof agregadorImoveis.$inferInsert;
+
+// Tabela órfã pré-existente em produção (criada antes desta trilha, nunca ligada
+// a código) — declarada aqui espelhando exatamente as colunas já existentes
+// (ver EPIC-008). Não gerar migration de CREATE TABLE para este bloco: a tabela
+// já existe, só está sendo declarada no Drizzle.
+export const incorporationStudies = pgTable("incorporation_studies", {
+  id: serial("id").primaryKey(),
+  name: varchar("name", { length: 255 }).notNull(),
+  city: varchar("city", { length: 120 }).notNull(),
+  state: varchar("state", { length: 2 }).default("MA").notNull(),
+  address: text("address"),
+  latitude: decimal("latitude", { precision: 10, scale: 7 }),
+  longitude: decimal("longitude", { precision: 10, scale: 7 }),
+  responsible: varchar("responsible", { length: 120 }),
+  status: varchar("status", { length: 40 }).default("draft").notNull(),
+  propertyRef: varchar("property_ref", { length: 180 }),
+  kmlUrl: text("kml_url"),
+  geojson: text("geojson"),
+  areaM2: decimal("area_m2", { precision: 15, scale: 2 }).default("0").notNull(),
+  perimeterM: decimal("perimeter_m", { precision: 15, scale: 2 }).default("0").notNull(),
+  appAreaM2: decimal("app_area_m2", { precision: 15, scale: 2 }),
+  appWidthM: decimal("app_width_m", { precision: 15, scale: 2 }),
+  appOrigin: varchar("app_origin", { length: 40 }),
+  elevationJson: text("elevation_json"),
+  surveyUrl: text("survey_url"),
+  cutFillJson: text("cut_fill_json"),
+  urbanParametersJson: text("urban_parameters_json"),
+  potentialJson: text("potential_json"),
+  urbanisticOpinion: text("urbanistic_opinion"),
+  cityResearchJson: text("city_research_json"),
+  marketStudyJson: text("market_study_json"),
+  comparablePricingJson: text("comparable_pricing_json"),
+  primaryResearchJson: text("primary_research_json"),
+  massScenariosJson: text("mass_scenarios_json"),
+  selectedScenarioId: varchar("selected_scenario_id", { length: 120 }),
+  areasBoardJson: text("areas_board_json"),
+  parameterizedBudgetJson: text("parameterized_budget_json"),
+  landNegotiationJson: text("land_negotiation_json"),
+  businessPlanJson: text("business_plan_json"),
+  designersJson: text("designers_json"),
+  projectApprovalJson: text("project_approval_json"),
+  incorporationRegistrationJson: text("incorporation_registration_json"),
+  preliminaryBudgetJson: text("preliminary_budget_json"),
+  launchPlanJson: text("launch_plan_json"),
+  launchSuppliersJson: text("launch_suppliers_json"),
+  marketingMaterialJson: text("marketing_material_json"),
+  realEstateLaunchJson: text("real_estate_launch_json"),
+  executiveProjectsJson: text("executive_projects_json"),
+  workBudgetJson: text("work_budget_json"),
+  physicalFinancialScheduleJson: text("physical_financial_schedule_json"),
+  customerServiceJson: text("customer_service_json"),
+  productMixJson: text("product_mix_json"),
+  feasibilityJson: text("feasibility_json"),
+  scheduleJson: text("schedule_json"),
+  aiOpinion: text("ai_opinion"),
+  lottingJson: text("lotting_json"),
+  reportsJson: text("reports_json").default("[]").notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+export type IncorporationStudy = typeof incorporationStudies.$inferSelect;
+export type InsertIncorporationStudy = typeof incorporationStudies.$inferInsert;

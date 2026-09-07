@@ -39,6 +39,20 @@ import AdminTarefas from "./pages/admin/AdminTarefas";
 import AdminCorretores from "./pages/admin/AdminCorretores";
 import AdminRegularizacoes from "./pages/admin/AdminRegularizacoes";
 import AdminObraMedicoes from "./pages/admin/AdminObraMedicoes";
+import AdminAvaliacoes from "./pages/admin/AdminAvaliacoes";
+import AdminAvaliacaoDetail from "./pages/admin/AdminAvaliacaoDetail";
+import Imoveis from "./pages/Imoveis";
+import ImovelDetalhes from "./pages/ImovelDetalhes";
+import AdminImoveis from "./pages/admin/AdminImoveis";
+import AdminImovelForm from "./pages/admin/AdminImovelForm";
+import AdminIncorporacao from "./pages/admin/AdminIncorporacao";
+import AdminIncorporacaoDetail from "./pages/admin/AdminIncorporacaoDetail";
+import Servicos from "./pages/Servicos";
+import Sobre from "./pages/Sobre";
+import Contato from "./pages/Contato";
+import Mercado from "./pages/Mercado";
+import Cursos from "./pages/Cursos";
+import Instituto from "./pages/Instituto";
 import Perfil from "./pages/Perfil";
 import SimuladorFinanciamento from "./pages/SimuladorFinanciamento";
 import WhatsAppFloat from "./components/WhatsAppFloat";
@@ -53,6 +67,14 @@ function Router() {
       <Route path="/sorteios" component={Sorteios} />
       <Route path="/comprar-bilhete/:id" component={ComprarBilhete} />
       <Route path="/produtos" component={Produtos} />
+      <Route path="/imoveis" component={Imoveis} />
+      <Route path="/imoveis/:slug" component={ImovelDetalhes} />
+      <Route path="/servicos" component={Servicos} />
+      <Route path="/sobre" component={Sobre} />
+      <Route path="/contato" component={Contato} />
+      <Route path="/mercado" component={Mercado} />
+      <Route path="/cursos" component={Cursos} />
+      <Route path="/instituto" component={Instituto} />
       <Route path="/meus-bilhetes">
         <ProtectedRoute><MeusBilhetes /></ProtectedRoute>
       </Route>
@@ -121,6 +143,27 @@ function Router() {
       </Route>
       <Route path="/admin/regularizacoes">
         <AdminRoute><AdminRegularizacoes /></AdminRoute>
+      </Route>
+      <Route path="/admin/avaliacoes/:id">
+        <AdminRoute><AdminAvaliacaoDetail /></AdminRoute>
+      </Route>
+      <Route path="/admin/avaliacoes">
+        <AdminRoute><AdminAvaliacoes /></AdminRoute>
+      </Route>
+      <Route path="/admin/imoveis/novo">
+        <AdminRoute><AdminImovelForm /></AdminRoute>
+      </Route>
+      <Route path="/admin/imoveis/:id/editar">
+        <AdminRoute><AdminImovelForm /></AdminRoute>
+      </Route>
+      <Route path="/admin/imoveis">
+        <AdminRoute><AdminImoveis /></AdminRoute>
+      </Route>
+      <Route path="/admin/incorporacao/:id">
+        <AdminRoute><AdminIncorporacaoDetail /></AdminRoute>
+      </Route>
+      <Route path="/admin/incorporacao">
+        <AdminRoute><AdminIncorporacao /></AdminRoute>
       </Route>
       <Route path="/notificacoes">
         <ProtectedRoute><Notificacoes /></ProtectedRoute>

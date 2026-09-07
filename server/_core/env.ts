@@ -20,4 +20,7 @@ export const ENV = {
   smtpUser: process.env.SMTP_USER ?? "",
   smtpPassword: process.env.SMTP_PASSWORD ?? "",
   asaasEnvironment: process.env.ASAAS_ENVIRONMENT ?? "sandbox",
+  anthropicApiKey: process.env.ANTHROPIC_API_KEY ?? "",
+  openTopographyApiKey: process.env.OPENTOPOGRAPHY_API_KEY ?? "",
+  incorporacaoIaAtiva: process.env.INCORPORACAO_IA_ATIVA === "1",
 };

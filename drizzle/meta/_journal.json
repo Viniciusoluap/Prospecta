@@ -12,8 +12,50 @@
     {
       "idx": 1,
       "version": "7",
-      "when": 1788720076654,
-      "tag": "0001_register_existing_regularizacao_tables",
+      "when": 1788718510944,
+      "tag": "0001_extend_user_role_enum",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1788720284044,
+      "tag": "0002_default_role_cliente",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1788721127603,
+      "tag": "0003_create_imoveis",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1788721836378,
+      "tag": "0004_create_avaliacoes",
+      "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1788725444931,
+      "tag": "0005_create_agregador_imoveis",
+      "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1788731461819,
+      "tag": "0006_create_incorporation_studies",
+      "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1788799627949,
+      "tag": "0007_register_existing_regularizacao_tables",
       "breakpoints": true
     }
   ]

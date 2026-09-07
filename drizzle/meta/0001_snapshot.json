@@ -1,5 +1,5 @@
 {
-  "id": "d75f1587-fcc7-4ba7-b55e-7bfbccd214f5",
+  "id": "77495da7-79d4-40b9-b3bc-35e8f871b8dd",
   "prevId": "7257cb8c-c70f-47fa-9e48-4076a383dd3a",
   "version": "7",
   "dialect": "postgresql",
@@ -1692,192 +1692,6 @@
       "checkConstraints": {},
       "isRLSEnabled": false
     },
-    "public.regularizacao_documents": {
-      "name": "regularizacao_documents",
-      "schema": "",
-      "columns": {
-        "id": {
-          "name": "id",
-          "type": "serial",
-          "primaryKey": true,
-          "notNull": true
-        },
-        "regularizacao_id": {
-          "name": "regularizacao_id",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "name": {
-          "name": "name",
-          "type": "varchar(255)",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "status": {
-          "name": "status",
-          "type": "varchar(40)",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "'pending'"
-        },
-        "observation": {
-          "name": "observation",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "''"
-        },
-        "file_url": {
-          "name": "file_url",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "created_at": {
-          "name": "created_at",
-          "type": "timestamp",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        },
-        "updated_at": {
-          "name": "updated_at",
-          "type": "timestamp",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        }
-      },
-      "indexes": {},
-      "foreignKeys": {},
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
-      "policies": {},
-      "checkConstraints": {},
-      "isRLSEnabled": false
-    },
-    "public.regularizacoes": {
-      "name": "regularizacoes",
-      "schema": "",
-      "columns": {
-        "id": {
-          "name": "id",
-          "type": "serial",
-          "primaryKey": true,
-          "notNull": true
-        },
-        "client_name": {
-          "name": "client_name",
-          "type": "varchar(255)",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "client_phone": {
-          "name": "client_phone",
-          "type": "varchar(30)",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "type": {
-          "name": "type",
-          "type": "varchar(120)",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "status": {
-          "name": "status",
-          "type": "varchar(40)",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "'analysis'"
-        },
-        "address": {
-          "name": "address",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "registration": {
-          "name": "registration",
-          "type": "varchar(120)",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "registry_office": {
-          "name": "registry_office",
-          "type": "varchar(255)",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "responsible": {
-          "name": "responsible",
-          "type": "varchar(120)",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "lead_id": {
-          "name": "lead_id",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "service_value": {
-          "name": "service_value",
-          "type": "numeric(15, 2)",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "'0'"
-        },
-        "paid_value": {
-          "name": "paid_value",
-          "type": "numeric(15, 2)",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "'0'"
-        },
-        "expected_end_at": {
-          "name": "expected_end_at",
-          "type": "timestamp",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "description": {
-          "name": "description",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "''"
-        },
-        "notes": {
-          "name": "notes",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "created_at": {
-          "name": "created_at",
-          "type": "timestamp",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        },
-        "updated_at": {
-          "name": "updated_at",
-          "type": "timestamp",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        }
-      },
-      "indexes": {},
-      "foreignKeys": {},
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
-      "policies": {},
-      "checkConstraints": {},
-      "isRLSEnabled": false
-    },
     "public.tasks": {
       "name": "tasks",
       "schema": "",
@@ -2725,7 +2539,10 @@
       "schema": "public",
       "values": [
         "user",
-        "admin"
+        "admin",
+        "corretor",
+        "colaborador",
+        "cliente"
       ]
     },
     "public.utef_transaction_type": {
