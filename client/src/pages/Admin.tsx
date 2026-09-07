@@ -11,7 +11,7 @@ import Navbar from "@/components/Navbar";
 import { trpc } from "@/lib/trpc";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { formatCurrency, formatUtef, getLoginUrl } from "@/const";
-import { Settings, Plus, Ticket, ShoppingBag, AlertCircle, Users, DollarSign, CheckSquare, HardHat, UserCheck, ClipboardCheck, Building2, Mountain } from "lucide-react";
+import { Settings, Plus, Ticket, ShoppingBag, AlertCircle, Users, DollarSign, CheckSquare, HardHat, UserCheck, FileCheck2, ClipboardCheck, Building2, Mountain } from "lucide-react";
 import { toast } from "sonner";
 import {
   Select,
@@ -182,6 +182,12 @@ export default function Admin() {
                   <Button variant="outline" className="w-full h-20 flex flex-col gap-2 border-pink-500/30 hover:bg-pink-500/10">
                     <UserCheck className="h-5 w-5 text-pink-400" />
                     <span>Corretores</span>
+                  </Button>
+                </Link>
+                <Link href="/admin/regularizacoes">
+                  <Button variant="outline" className="w-full h-20 flex flex-col gap-2 border-teal-500/30 hover:bg-teal-500/10">
+                    <FileCheck2 className="h-5 w-5 text-teal-400" />
+                    <span>Regularizações</span>
                   </Button>
                 </Link>
                 <Link href="/admin/avaliacoes">

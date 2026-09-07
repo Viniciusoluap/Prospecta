@@ -15,6 +15,7 @@ import { getChecklistGroups, getEstadoGeralOptions, CHECKLIST_MAX_FOTOS } from "
 import { gerarSugestaoValor } from "./_core/avaliacao-ia";
 import { scrapeUrl } from "./_core/imovel-scraper";
 import { paymentSettingsRouter } from "./payment-settings-router";
+import { regularizacaoRouter } from "./regularizacao-router";
 import { requireRole, STAFF_ROLES } from "./_core/rbac";
 import { parseKmlTerreno } from "./_core/geo/kml";
 import { fetchElevationGrid } from "./_core/geo/elevacao";
@@ -83,6 +84,7 @@ async function generatePixCode(amount: number, ticketNumber: string): Promise<{ 
 export const appRouter = router({
   system: systemRouter,
   paymentSettings: paymentSettingsRouter,
+  regularizacao: regularizacaoRouter,
   auth: router({
     me: publicProcedure.query(opts => opts.ctx.user),
     logout: publicProcedure.mutation(({ ctx }) => {

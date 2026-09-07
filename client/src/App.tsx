@@ -37,6 +37,7 @@ import AdminLeadDetail from "./pages/admin/AdminLeadDetail";
 import AdminFinanceiro from "./pages/admin/AdminFinanceiro";
 import AdminTarefas from "./pages/admin/AdminTarefas";
 import AdminCorretores from "./pages/admin/AdminCorretores";
+import AdminRegularizacoes from "./pages/admin/AdminRegularizacoes";
 import AdminObraMedicoes from "./pages/admin/AdminObraMedicoes";
 import AdminAvaliacoes from "./pages/admin/AdminAvaliacoes";
 import AdminAvaliacaoDetail from "./pages/admin/AdminAvaliacaoDetail";
@@ -139,6 +140,9 @@ function Router() {
       </Route>
       <Route path="/admin/corretores">
         <AdminRoute><AdminCorretores /></AdminRoute>
+      </Route>
+      <Route path="/admin/regularizacoes">
+        <AdminRoute><AdminRegularizacoes /></AdminRoute>
       </Route>
       <Route path="/admin/avaliacoes/:id">
         <AdminRoute><AdminAvaliacaoDetail /></AdminRoute>

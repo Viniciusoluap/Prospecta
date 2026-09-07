@@ -1,0 +1,4 @@
+-- Metadata-only migration.
+-- `regularizacoes` and `regularizacao_documents` already exist in the
+-- SiteProspecta Neon database. The accompanying snapshot teaches Drizzle
+-- about those tables without issuing CREATE TABLE or ALTER TABLE in production.

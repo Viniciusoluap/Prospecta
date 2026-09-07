@@ -1,35 +1,41 @@
-# EPIC-004: Regularização
+# EPIC-004: Regularização imobiliária
 
 **Epic Owner:** Codex
-**Status:** Draft (a detalhar pelo Codex — ver prompt de atribuição)
+**Status:** Done — validação somente-leitura do Neon documentada como pendência operacional
 
-## Problem Statement
+## Problema e origem da regra
 
-O Grupo Santa Fé tem um módulo de regularização imobiliária (`Regularizacao`/`RegDocumento`) com workflow de documentos e status.
+O Grupo Santa Fé possui o módulo `Regularizacao`/`RegDocumento`, com workflow de processos e documentos. Sem o equivalente no Prospecta, o histórico do cliente, as etapas de cartório, os valores e a documentação ficavam separados.
 
-**Atualização (06/09/2026):** já existem em produção (Neon, projeto SiteProspecta) as tabelas `regularizacoes` e `regularizacao_documents`, vazias (0 linhas), sem nenhum código associado (não estão em `drizzle/schema.ts` nem em nenhum router). Origem desconhecida (provavelmente um experimento anterior da plataforma Manus). O dono do produto decidiu **reaproveitar** essa estrutura em vez de recriar do zero.
+Em 06/09/2026 foi confirmado que as tabelas `regularizacoes` e `regularizacao_documents` já existiam vazias no Neon do SiteProspecta. O dono do produto decidiu reaproveitar essa estrutura, vinculando `lead_id` conceitualmente ao CRM, em vez de recriá-la.
 
-## Schema já existente em produção (reaproveitar, só declarar no Drizzle)
+## Decisão de compatibilidade
 
-`regularizacoes`: id, client_name, client_phone, type, status (default 'analysis'), address, registration, registry_office, responsible, lead_id (FK conceitual pra `leads`), service_value, paid_value, expected_end_at, description, notes, created_at, updated_at.
+O código apenas passa a declarar e consumir as tabelas existentes. A migração associada registra metadados no Drizzle e não contém `CREATE TABLE` nem `ALTER TABLE`. A estrutura informada no adendo de 06/09/2026 e confirmada pela trilha Claude é a fonte de verdade.
 
-`regularizacao_documents`: id, regularizacao_id (FK pra `regularizacoes`), name, status (default 'pending'), observation, file_url, created_at, updated_at.
+## Requisitos funcionais
 
-## Functional Requirements
+| ID | Requisito |
+|---|---|
+| RF-01 | Administrador cadastra e atualiza um processo de regularização. |
+| RF-02 | Administrador filtra processos por etapa e consulta valores contratados/pagos. |
+| RF-03 | Processo pode ser associado opcionalmente a um lead existente. |
+| RF-04 | Checklist documental permite criar exigências e atualizar seu estado. |
+| RF-05 | PDF, JPEG ou PNG de até 10 MB pode ser anexado a um documento. |
+| RF-06 | Operações do módulo exigem papel `admin`. |
 
-| ID | Requirement |
-|----|-------------|
-| FR-01 | Declarar `regularizacoes` e `regularizacao_documents` em `drizzle/schema.ts` exatamente como já existem em produção (sem ALTER — só declaração) |
-| FR-02 | Router tRPC `regularizacoes` (list/getById/create/update) e sub-rotas de documentos |
-| FR-03 | Tela admin de regularização com workflow de status e upload de documentos |
+## Restrições
 
-## Constraints
-
-| ID | Constraint |
-|----|------------|
-| CON-01 | Não alterar a estrutura das tabelas existentes — só declarar o que já está no banco |
-| CON-02 | `lead_id` referencia a tabela `leads` já existente — aproveitar para linkar ao CRM |
+- Não recriar nem alterar automaticamente as tabelas já existentes em produção.
+- Não modificar os domínios de sorteios, bilhetes, UTEF ou produtos.
+- Uploads aceitam somente tipos explicitamente permitidos e nomes são normalizados.
+- Exclusão de processo remove primeiro seus registros documentais; o arquivo remoto não é apagado.
 
 ## Stories
 
-_A detalhar pelo Codex._
+| Story | Entrega | Estado |
+|---|---|---|
+| S-01 | Mapear schema existente | Concluída |
+| S-02 | API administrativa e workflow | Concluída |
+| S-03 | Tela de gestão e documentos | Concluída |
+| S-04 | Verificação e implantação segura | Concluída localmente; Neon pendente de acesso |

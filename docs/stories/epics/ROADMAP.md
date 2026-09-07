@@ -17,7 +17,7 @@
 | EPIC-001 | Catálogo de Imóveis | Claude | Done (S-01, S-02, S-03) | EPIC-000, EPIC-009 |
 | EPIC-002 | Portal do Cliente | Codex | Draft | EPIC-009 |
 | EPIC-003 | Avaliações | Claude | Done (S-01, S-02, S-03, S-04) | EPIC-001 |
-| EPIC-004 | Regularização | Codex | Draft (schema já existe — reaproveitar) | EPIC-009 |
+| EPIC-004 | Regularização | Codex | Done (S-01 a S-04; validação Neon pendente de acesso) | EPIC-009 |
 | EPIC-005 | Agregador/Feeds | Claude | Done (S-01, S-02) | EPIC-001 |
 | EPIC-006 | WhatsApp (Evolution API) | Codex | Draft | — |
 | EPIC-007 | Financeiro avançado (Pluggy/BPO/Contabilidade) | Codex | Draft | Config de credenciais fica com o usuário |
