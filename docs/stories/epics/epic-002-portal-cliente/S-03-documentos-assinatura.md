@@ -1,7 +1,7 @@
 # Story S-03 — Contratos, documentos e assinatura externa gov.br
 
 **Epic:** EPIC-002  
-**Status:** Ready  
+**Status:** Done
 **executor:** Codex  
 **quality_gate:** TypeScript, Vitest, build e revisão de upload
 
@@ -13,18 +13,18 @@ Fontes: `web/src/app/portal/documentos/page.tsx`, `web/src/app/portal/documentos
 
 ## Acceptance Criteria
 
-- [ ] AC-01: equipe cria/atualiza contratos do lead e registra documentos com os estados rastreados ao Santa Fé
-- [ ] AC-02: cliente lista e baixa somente documentos dos próprios contratos
-- [ ] AC-03: assinatura solicitada apresenta os três passos reais: baixar, assinar externamente no gov.br e reenviar
-- [ ] AC-04: upload aceita apenas PDF de até 10 MiB, valida conteúdo declarado, contrato e titularidade antes do storage
-- [ ] AC-05: upload válido cria documento `assinado` e atualiza o estado do contrato de forma consistente
+- [x] AC-01: equipe cria/atualiza contratos do lead e registra documentos com os estados rastreados ao Santa Fé
+- [x] AC-02: cliente lista e baixa somente documentos dos próprios contratos
+- [x] AC-03: assinatura solicitada apresenta os três passos reais: baixar, assinar externamente no gov.br e reenviar
+- [x] AC-04: upload aceita apenas PDF de até 10 MiB, valida conteúdo declarado, contrato e titularidade antes do storage
+- [x] AC-05: upload válido cria documento `assinado` e atualiza o estado do contrato de forma consistente
 
 ## Tasks
 
-- [ ] Implementar CRUD administrativo mínimo de contratos/documentos
-- [ ] Implementar listagem do cliente e instruções do assinador externo
-- [ ] Implementar upload seguro via storage configurado
-- [ ] Testar validação, RBAC e tentativa de acesso cruzado
+- [x] Implementar CRUD administrativo mínimo de contratos/documentos
+- [x] Implementar listagem do cliente e instruções do assinador externo
+- [x] Implementar upload seguro via storage configurado
+- [x] Testar validação, RBAC e tentativa de acesso cruzado
 
 ## Change Log
 

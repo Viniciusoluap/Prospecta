@@ -1,7 +1,7 @@
 # Story S-02 — Dashboard, acompanhamento e visitas
 
 **Epic:** EPIC-002  
-**Status:** Ready  
+**Status:** Done
 **executor:** Codex  
 **quality_gate:** TypeScript, Vitest, build e revisão visual
 
@@ -13,18 +13,18 @@ Fontes: `web/src/app/portal/page.tsx`, `web/src/app/portal/acompanhamento/page.t
 
 ## Acceptance Criteria
 
-- [ ] AC-01: `/portal` exibe boas-vindas, resumo do processo/obra e última atualização do lead autenticado
-- [ ] AC-02: `/portal/acompanhamento` lista somente atividades publicáveis do próprio lead em ordem cronológica
-- [ ] AC-03: `/portal/visitas` lista somente visitas do próprio lead, com data, estado, local e responsável disponíveis
-- [ ] AC-04: o cliente não cria, altera, cancela ou reagenda visita pelo portal
-- [ ] AC-05: estados vazios e perfil sem vínculo não vazam dados nem quebram a navegação
+- [x] AC-01: `/portal` exibe boas-vindas, resumo do processo/obra e última atualização do lead autenticado
+- [x] AC-02: `/portal/acompanhamento` lista somente atividades publicáveis do próprio lead em ordem cronológica
+- [x] AC-03: `/portal/visitas` lista somente visitas do próprio lead, com data, estado, local e responsável disponíveis
+- [x] AC-04: o cliente não cria, altera, cancela ou reagenda visita pelo portal
+- [x] AC-05: estados vazios e perfil sem vínculo não vazam dados nem quebram a navegação
 
 ## Tasks
 
-- [ ] Implementar queries isoladas do dashboard, atividades e visitas
-- [ ] Criar layout/navegação do portal com a identidade visual da Prospecta
-- [ ] Criar páginas responsivas de dashboard, acompanhamento e visitas
-- [ ] Cobrir filtros de dados publicáveis e isolamento por lead
+- [x] Implementar queries isoladas do dashboard, atividades e visitas
+- [x] Criar layout/navegação do portal com a identidade visual da Prospecta
+- [x] Criar páginas responsivas de dashboard, acompanhamento e visitas
+- [x] Cobrir filtros de dados publicáveis e isolamento por lead
 
 ## Change Log
 

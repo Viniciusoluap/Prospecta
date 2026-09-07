@@ -1,7 +1,7 @@
 # EPIC-002: Portal do Cliente
 
 **Epic Owner:** Codex
-**Status:** Ready (stories detalhadas; implementação pendente)
+**Status:** In Progress (implementado e validado localmente; PR/preview pendentes)
 
 ## Problem Statement
 
@@ -30,11 +30,11 @@ O Grupo Santa Fé tem um portal do cliente logado para acompanhar o processo, co
 
 | Story | Escopo | Status |
 |-------|--------|--------|
-| [S-01](S-01-acesso-schema-isolamento.md) | Acesso, schema, vínculo cliente–lead e isolamento | Ready |
-| [S-02](S-02-dashboard-acompanhamento-visitas.md) | Dashboard, acompanhamento do processo e visitas | Ready |
-| [S-03](S-03-documentos-assinatura.md) | Contratos, documentos e assinatura externa gov.br | Ready |
-| [S-04](S-04-chat-cliente-equipe.md) | Chat entre cliente e equipe | Ready |
-| [S-05](S-05-verificacao-implantacao.md) | Testes, migration e implantação segura | Ready |
+| [S-01](S-01-acesso-schema-isolamento.md) | Acesso, schema, vínculo cliente–lead e isolamento | Done |
+| [S-02](S-02-dashboard-acompanhamento-visitas.md) | Dashboard, acompanhamento do processo e visitas | Done |
+| [S-03](S-03-documentos-assinatura.md) | Contratos, documentos e assinatura externa gov.br | Done |
+| [S-04](S-04-chat-cliente-equipe.md) | Chat entre cliente e equipe | Done |
+| [S-05](S-05-verificacao-implantacao.md) | Testes, migration e implantação segura | In Progress |
 
 ## Fora de escopo
 

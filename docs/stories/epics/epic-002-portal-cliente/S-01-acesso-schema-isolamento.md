@@ -1,7 +1,7 @@
 # Story S-01 — Acesso, schema e isolamento por cliente
 
 **Epic:** EPIC-002  
-**Status:** Ready  
+**Status:** Done
 **executor:** Codex  
 **quality_gate:** TypeScript, Vitest, Drizzle e revisão de segurança
 
@@ -13,18 +13,18 @@ Fontes: `web/src/auth.ts`, `web/src/lib/actions/leads.ts` e `web/prisma/schema.p
 
 ## Acceptance Criteria
 
-- [ ] AC-01: usuário `cliente` possui vínculo opcional e único com um lead, persistido por chave estrangeira
-- [ ] AC-02: a equipe pode provisionar/atualizar acesso do cliente com senha armazenada somente como hash e sem substituir silenciosamente outra conta
-- [ ] AC-03: login de cliente redireciona ao portal e usuários sem papel `cliente` não acessam as rotas do portal
-- [ ] AC-04: todos os procedures do cliente derivam o escopo do vínculo existente no usuário autenticado, nunca de um `leadId` arbitrário enviado pelo navegador
-- [ ] AC-05: schema contém as entidades de visitas, contratos/documentos e chat necessárias às stories seguintes
+- [x] AC-01: usuário `cliente` possui vínculo opcional e único com um lead, persistido por chave estrangeira
+- [x] AC-02: a equipe pode provisionar/atualizar acesso do cliente com senha armazenada somente como hash e sem substituir silenciosamente outra conta
+- [x] AC-03: login de cliente redireciona ao portal e usuários sem papel `cliente` não acessam as rotas do portal
+- [x] AC-04: todos os procedures do cliente derivam o escopo do vínculo existente no usuário autenticado, nunca de um `leadId` arbitrário enviado pelo navegador
+- [x] AC-05: schema contém as entidades de visitas, contratos/documentos e chat necessárias às stories seguintes
 
 ## Tasks
 
-- [ ] Adicionar vínculo `users.leadId` e as tabelas/estados rastreados ao Santa Fé
-- [ ] Criar procedure administrativo para provisionar acesso, reutilizando o hash de senha existente
-- [ ] Criar middleware/guarda de papel `cliente` e redirect pós-login
-- [ ] Cobrir isolamento, RBAC e colisão de e-mail com testes
+- [x] Adicionar vínculo `users.leadId` e as tabelas/estados rastreados ao Santa Fé
+- [x] Criar procedure administrativo para provisionar acesso, reutilizando o hash de senha existente
+- [x] Criar middleware/guarda de papel `cliente` e redirect pós-login
+- [x] Cobrir isolamento, RBAC e colisão de e-mail com testes
 
 ## File List previsto
 

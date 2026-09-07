@@ -80,6 +80,7 @@ export const users = pgTable("users", {
   avatarUrl: text("avatarUrl"),
   loginMethod: varchar("loginMethod", { length: 64 }),
   role: userRoleEnum("role").default("cliente").notNull(),
+  leadId: integer("lead_id").unique().references(() => leads.id, { onDelete: "set null" }),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().notNull(),
   lastSignedIn: timestamp("lastSignedIn").defaultNow().notNull(),
@@ -570,6 +571,55 @@ export const imoveis = pgTable("imoveis", {
 });
 export type Imovel = typeof imoveis.$inferSelect;
 export type InsertImovel = typeof imoveis.$inferInsert;
+
+// EPIC-002 — Portal do Cliente (paridade com Visita/Contrato/ChatMensagem do Santa Fé)
+export const portalVisits = pgTable("portal_visits", {
+  id: serial("id").primaryKey(),
+  leadId: integer("lead_id").notNull().references(() => leads.id, { onDelete: "cascade" }),
+  propertyId: integer("property_id").references(() => imoveis.id, { onDelete: "set null" }),
+  scheduledAt: timestamp("scheduled_at").notNull(),
+  status: varchar("status", { length: 30 }).default("agendada").notNull(),
+  visitType: varchar("visit_type", { length: 40 }).default("imovel").notNull(),
+  responsibleName: varchar("responsible_name", { length: 255 }),
+  notes: text("notes").default("").notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+export type PortalVisit = typeof portalVisits.$inferSelect;
+
+export const portalContracts = pgTable("portal_contracts", {
+  id: serial("id").primaryKey(),
+  leadId: integer("lead_id").references(() => leads.id, { onDelete: "set null" }),
+  number: varchar("number", { length: 80 }).notNull().unique(),
+  type: varchar("type", { length: 80 }).notNull(),
+  status: varchar("status", { length: 30 }).default("rascunho").notNull(),
+  description: text("description"),
+  signatureStatus: varchar("signature_status", { length: 30 }).default("pendente").notNull(),
+  signedDocumentUrl: text("signed_document_url"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+export type PortalContract = typeof portalContracts.$inferSelect;
+
+export const portalContractDocuments = pgTable("portal_contract_documents", {
+  id: serial("id").primaryKey(),
+  contractId: integer("contract_id").notNull().references(() => portalContracts.id, { onDelete: "cascade" }),
+  name: varchar("name", { length: 255 }).notNull(),
+  url: text("url").notNull(),
+  type: varchar("type", { length: 30 }).default("anexo").notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+export type PortalContractDocument = typeof portalContractDocuments.$inferSelect;
+
+export const portalChatMessages = pgTable("portal_chat_messages", {
+  id: serial("id").primaryKey(),
+  leadId: integer("lead_id").notNull().references(() => leads.id, { onDelete: "cascade" }),
+  sender: varchar("sender", { length: 30 }).notNull(),
+  text: text("text").notNull(),
+  read: boolean("read").default(false).notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+export type PortalChatMessage = typeof portalChatMessages.$inferSelect;
 
 export const avaliacaoStatusEnum = pgEnum("avaliacao_status", ["solicitada", "vistoria", "elaboracao", "revisao", "entregue", "cancelada"]);
 

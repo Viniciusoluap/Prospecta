@@ -41,8 +41,9 @@ export default function Login() {
         return;
       }
 
-      // Redirect: admin goes to /admin, others go to /
-      if (data.role === "admin") {
+      if (data.role === "cliente") {
+        setLocation("/portal");
+      } else if (data.role === "admin") {
         setLocation("/admin");
       } else {
         setLocation("/");
