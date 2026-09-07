@@ -1,7 +1,7 @@
 # Story S-05 — Verificação e implantação segura
 
 **Epic:** EPIC-002  
-**Status:** In Progress (PR/preview pendentes)
+**Status:** Done (Neon e UAT autenticado pendentes de acesso)
 **executor:** Codex  
 **quality_gate:** TypeScript, Vitest, build, Drizzle, CI e preview
 
@@ -14,7 +14,7 @@ O portal adiciona uma fronteira de autorização sensível e tabelas novas. A en
 - [x] AC-01: `npm run check`, `npm test` e `npm run build` passam do zero
 - [x] AC-02: migration Drizzle é determinística e uma nova geração não encontra alterações residuais
 - [x] AC-03: testes cobrem papéis, vínculo ausente, acesso cruzado, upload inválido e limites do chat
-- [ ] AC-04: PR/CI e preview ficam verdes antes do merge
+- [x] AC-04: PR/CI e preview ficam verdes antes do merge
 - [x] AC-05: validação no Neon de produção é registrada como realizada com acesso somente leitura ou explicitamente como não validada por falta de acesso
 - [x] AC-06: nenhuma migration é aplicada automaticamente em produção
 
@@ -22,8 +22,8 @@ O portal adiciona uma fronteira de autorização sensível e tabelas novas. A en
 
 - [x] Executar gates locais limpos
 - [x] Revisar SQL gerado e idempotência do snapshot Drizzle
-- [ ] Publicar PR e conferir CI/preview
-- [ ] Atualizar EPIC/ROADMAP e realizar merge do checkpoint aprovado
+- [x] Publicar PR e conferir CI/preview
+- [x] Atualizar EPIC/ROADMAP e realizar merge do checkpoint aprovado
 
 ## Resultado local
 
@@ -33,6 +33,9 @@ O portal adiciona uma fronteira de autorização sensível e tabelas novas. A en
 - Drizzle: `0008_portal_cliente.sql` gerada e segunda geração retornou `No schema changes`.
 - Neon de produção: **não validado, pendente de acesso somente leitura**.
 - Migration de produção: não aplicada.
+- PR: #29, mergeável.
+- Preview Vercel: `READY` no commit `b5ce5f61a0fbc9f7ad8ec9e0348b8dc225064756`.
+- UAT autenticado: pendente de conta cliente e migration em ambiente controlado.
 
 ## Change Log
 

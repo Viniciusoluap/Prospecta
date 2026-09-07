@@ -1,7 +1,7 @@
 # EPIC-002: Portal do Cliente
 
 **Epic Owner:** Codex
-**Status:** In Progress (implementado e validado localmente; PR/preview pendentes)
+**Status:** Done (Neon e UAT autenticado pendentes de acesso)
 
 ## Problem Statement
 
@@ -34,7 +34,7 @@ O Grupo Santa Fé tem um portal do cliente logado para acompanhar o processo, co
 | [S-02](S-02-dashboard-acompanhamento-visitas.md) | Dashboard, acompanhamento do processo e visitas | Done |
 | [S-03](S-03-documentos-assinatura.md) | Contratos, documentos e assinatura externa gov.br | Done |
 | [S-04](S-04-chat-cliente-equipe.md) | Chat entre cliente e equipe | Done |
-| [S-05](S-05-verificacao-implantacao.md) | Testes, migration e implantação segura | In Progress |
+| [S-05](S-05-verificacao-implantacao.md) | Testes, migration e implantação segura | Done |
 
 ## Fora de escopo
 
