@@ -693,6 +693,13 @@ export async function createFinancialTransaction(data: InsertFinancialTransactio
   return result[0];
 }
 
+export async function updateFinancialTransactionStatus(id: number, status: "pending" | "paid" | "cancelled"): Promise<void> {
+  const db = getDb();
+  await db.update(financialTransactions)
+    .set({ status, paidAt: status === "paid" ? new Date() : null, updatedAt: new Date() })
+    .where(eq(financialTransactions.id, id));
+}
+
 // ========== TAXAS DE OBRA ==========
 
 export async function getObraFeesByProject(projectId: number): Promise<ObraFee[]> {

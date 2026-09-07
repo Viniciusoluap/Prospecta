@@ -35,7 +35,7 @@ O Grupo Santa Fé tem três módulos financeiros que o Prospecta ainda não repl
 
 | Story | Title | Escopo | Status |
 |-------|-------|--------|--------|
-| S-01 | Contabilidade — contas a pagar/receber | Estende `financial_transactions`, adiciona status/vencimento/forma de pagamento/fornecedor/competência, tela com filtros e atualização de status | Draft |
+| S-01 | Contabilidade — contas a pagar/receber | Estende `financial_transactions`, adiciona status/vencimento/forma de pagamento/fornecedor/competência, tela com filtros e atualização de status | Done |
 | S-02 | BPO — clientes e lançamentos | Tabelas `bpo_clientes`/`bpo_lancamentos`, router, tela com cobranças/despesas/DRE/relatórios | Draft |
 | S-03 | Integração bancária (Pluggy) | Tabelas `bank_accounts`/`bank_transactions`, cliente Pluggy com fallback gracioso, tela de contas + sincronização manual | Draft |
 

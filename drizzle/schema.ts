@@ -58,6 +58,9 @@ export const taskStatusEnum = pgEnum("task_status", ["pending", "in_progress", "
 export const financialTransactionTypeEnum = pgEnum("financial_transaction_type", [
   "income", "expense", "commission", "salary", "contractor_payment",
 ]);
+export const financialTransactionStatusEnum = pgEnum("financial_transaction_status", [
+  "pending", "paid", "cancelled",
+]);
 
 // ──────────────────────────────────────────
 // TABLES
@@ -519,6 +522,12 @@ export const financialTransactions = pgTable("financial_transactions", {
   referenceType: varchar("reference_type", { length: 50 }),
   paidAt: timestamp("paid_at"),
   notes: text("notes"),
+  status: financialTransactionStatusEnum("status").default("pending").notNull(),
+  dueDate: timestamp("due_date"),
+  paymentMethod: varchar("payment_method", { length: 40 }),
+  externalReference: varchar("external_reference", { length: 120 }),
+  competency: varchar("competency", { length: 7 }),
+  vendor: varchar("vendor", { length: 255 }),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });

@@ -10,7 +10,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Textarea } from "@/components/ui/textarea";
 import { toast } from "sonner";
-import { ArrowLeft, TrendingUp, TrendingDown, DollarSign, Plus } from "lucide-react";
+import { ArrowLeft, TrendingUp, TrendingDown, DollarSign, Plus, CheckCircle2, Clock, XCircle } from "lucide-react";
 
 function formatCurrencyBR(value: number | string | null | undefined) {
   if (!value) return "R$ 0,00";
@@ -26,25 +26,43 @@ const TRANSACTION_TYPES = [
   { key: "contractor_payment", label: "Pagamento Empreiteiro", color: "text-purple-400" },
 ];
 
+const STATUS_CONFIG: Record<string, { label: string; bg: string; text: string; icon: typeof Clock }> = {
+  pending: { label: "Pendente", bg: "bg-yellow-500/10", text: "text-yellow-400", icon: Clock },
+  paid: { label: "Pago", bg: "bg-green-500/10", text: "text-green-400", icon: CheckCircle2 },
+  cancelled: { label: "Cancelado", bg: "bg-red-500/10", text: "text-red-400", icon: XCircle },
+};
+
+const emptyForm = {
+  type: "income" as string,
+  amount: "",
+  description: "",
+  category: "",
+  paidAt: "",
+  dueDate: "",
+  responsible: "",
+  paymentMethod: "",
+  vendor: "",
+  competency: "",
+  externalReference: "",
+  notes: "",
+};
+
 export default function AdminFinanceiro() {
   const [open, setOpen] = useState(false);
   const [filterType, setFilterType] = useState("all");
-  const [form, setForm] = useState({
-    type: "income" as any,
-    amount: "",
-    description: "",
-    category: "",
-    paidAt: "",
-    responsible: "",
-    notes: "",
-  });
+  const [form, setForm] = useState(emptyForm);
 
-  const { data: transactions = [], refetch } = trpc.financialTransactions.list.useQuery({
+  const utils = trpc.useUtils();
+  const { data: transactions = [] } = trpc.financialTransactions.list.useQuery({
     type: filterType !== "all" ? filterType : undefined,
   });
 
   const createMutation = trpc.financialTransactions.create.useMutation({
-    onSuccess: () => { toast.success("Transação registrada!"); refetch(); setOpen(false); setForm({ type: "income", amount: "", description: "", category: "", paidAt: "", responsible: "", notes: "" }); },
+    onSuccess: () => { toast.success("Transação registrada!"); utils.financialTransactions.list.invalidate(); setOpen(false); setForm(emptyForm); },
+    onError: (e) => toast.error(e.message),
+  });
+  const updateStatus = trpc.financialTransactions.updateStatus.useMutation({
+    onSuccess: () => { toast.success("Status atualizado!"); utils.financialTransactions.list.invalidate(); },
     onError: (e) => toast.error(e.message),
   });
 
@@ -64,7 +82,7 @@ export default function AdminFinanceiro() {
             </Link>
             <div>
               <h1 className="text-2xl font-bold text-[#C9A961]">Financeiro</h1>
-              <p className="text-gray-400 text-sm">Receitas, despesas e distribuições</p>
+              <p className="text-gray-400 text-sm">Contas a pagar/receber, receitas e despesas</p>
             </div>
           </div>
           <Dialog open={open} onOpenChange={setOpen}>
@@ -73,7 +91,7 @@ export default function AdminFinanceiro() {
                 <Plus className="h-4 w-4 mr-2" /> Nova Transação
               </Button>
             </DialogTrigger>
-            <DialogContent className="bg-[#1A2332] border-[#C9A961]/20 text-white">
+            <DialogContent className="bg-[#1A2332] border-[#C9A961]/20 text-white max-h-[90vh] overflow-y-auto">
               <DialogHeader>
                 <DialogTitle className="text-[#C9A961]">Registrar Transação</DialogTitle>
               </DialogHeader>
@@ -103,12 +121,32 @@ export default function AdminFinanceiro() {
                     <Input value={form.category} onChange={e => setForm(f => ({ ...f, category: e.target.value }))} className="bg-[#2C3E50] border-[#C9A961]/30 text-white mt-1" placeholder="ex: obra, taxa, comissão" />
                   </div>
                   <div>
+                    <Label className="text-gray-300">Fornecedor</Label>
+                    <Input value={form.vendor} onChange={e => setForm(f => ({ ...f, vendor: e.target.value }))} className="bg-[#2C3E50] border-[#C9A961]/30 text-white mt-1" />
+                  </div>
+                  <div>
+                    <Label className="text-gray-300">Vencimento</Label>
+                    <Input type="date" value={form.dueDate} onChange={e => setForm(f => ({ ...f, dueDate: e.target.value }))} className="bg-[#2C3E50] border-[#C9A961]/30 text-white mt-1" />
+                  </div>
+                  <div>
                     <Label className="text-gray-300">Data Pagamento</Label>
                     <Input type="date" value={form.paidAt} onChange={e => setForm(f => ({ ...f, paidAt: e.target.value }))} className="bg-[#2C3E50] border-[#C9A961]/30 text-white mt-1" />
                   </div>
                   <div>
+                    <Label className="text-gray-300">Forma de Pagamento</Label>
+                    <Input value={form.paymentMethod} onChange={e => setForm(f => ({ ...f, paymentMethod: e.target.value }))} className="bg-[#2C3E50] border-[#C9A961]/30 text-white mt-1" placeholder="pix, boleto, cartão..." />
+                  </div>
+                  <div>
+                    <Label className="text-gray-300">Competência</Label>
+                    <Input value={form.competency} onChange={e => setForm(f => ({ ...f, competency: e.target.value }))} className="bg-[#2C3E50] border-[#C9A961]/30 text-white mt-1" placeholder="2026-09" />
+                  </div>
+                  <div>
                     <Label className="text-gray-300">Responsável</Label>
                     <Input value={form.responsible} onChange={e => setForm(f => ({ ...f, responsible: e.target.value }))} className="bg-[#2C3E50] border-[#C9A961]/30 text-white mt-1" />
+                  </div>
+                  <div>
+                    <Label className="text-gray-300">Referência</Label>
+                    <Input value={form.externalReference} onChange={e => setForm(f => ({ ...f, externalReference: e.target.value }))} className="bg-[#2C3E50] border-[#C9A961]/30 text-white mt-1" placeholder="nº nota, contrato..." />
                   </div>
                 </div>
                 <div>
@@ -116,7 +154,13 @@ export default function AdminFinanceiro() {
                   <Textarea value={form.notes} onChange={e => setForm(f => ({ ...f, notes: e.target.value }))} className="bg-[#2C3E50] border-[#C9A961]/30 text-white mt-1" rows={2} />
                 </div>
                 <Button
-                  onClick={() => createMutation.mutate({ ...form, amount: parseFloat(form.amount), paidAt: form.paidAt ? new Date(form.paidAt) : undefined })}
+                  onClick={() => createMutation.mutate({
+                    ...form,
+                    type: form.type as "income" | "expense" | "commission" | "salary" | "contractor_payment",
+                    amount: parseFloat(form.amount),
+                    paidAt: form.paidAt ? new Date(form.paidAt) : undefined,
+                    dueDate: form.dueDate ? new Date(form.dueDate) : undefined,
+                  })}
                   disabled={createMutation.isPending || !form.amount || !form.description}
                   className="w-full bg-[#C9A961] hover:bg-[#B8985A] text-[#1A2332] font-bold"
                 >
@@ -193,20 +237,41 @@ export default function AdminFinanceiro() {
                 {transactions.map((t: any) => {
                   const typeInfo = TRANSACTION_TYPES.find(tt => tt.key === t.type);
                   const isPositive = t.type === "income" || t.type === "commission";
+                  const status = STATUS_CONFIG[t.status ?? "pending"];
+                  const StatusIcon = status.icon;
                   return (
-                    <div key={t.id} className="flex items-center justify-between p-3 bg-[#1A2332] rounded-lg">
-                      <div className="flex-1">
-                        <div className="flex items-center gap-2">
+                    <div key={t.id} className="flex items-center justify-between p-3 bg-[#1A2332] rounded-lg gap-3 flex-wrap">
+                      <div className="flex-1 min-w-[200px]">
+                        <div className="flex items-center gap-2 flex-wrap">
                           <Badge className="text-xs" style={{ backgroundColor: "transparent", color: typeInfo?.color?.replace("text-", "") }}>
                             {typeInfo?.label}
                           </Badge>
                           <span className="text-white font-medium">{t.description}</span>
+                          <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-bold ${status.bg} ${status.text}`}>
+                            <StatusIcon size={10} /> {status.label}
+                          </span>
                         </div>
-                        {t.category && <p className="text-xs text-gray-500 mt-0.5">{t.category} {t.responsible ? `• ${t.responsible}` : ""}</p>}
+                        <p className="text-xs text-gray-500 mt-0.5">
+                          {[t.category, t.vendor, t.responsible, t.dueDate ? `vence ${new Date(t.dueDate).toLocaleDateString("pt-BR")}` : null].filter(Boolean).join(" • ")}
+                        </p>
                       </div>
-                      <span className={`font-bold text-lg ${isPositive ? "text-green-400" : "text-red-400"}`}>
-                        {isPositive ? "+" : "-"}{formatCurrencyBR(t.amount)}
-                      </span>
+                      <div className="flex items-center gap-3">
+                        <span className={`font-bold text-lg ${isPositive ? "text-green-400" : "text-red-400"}`}>
+                          {isPositive ? "+" : "-"}{formatCurrencyBR(t.amount)}
+                        </span>
+                        {t.status === "pending" && (
+                          <div className="flex gap-1">
+                            <Button size="sm" variant="outline" className="h-7 text-xs border-green-500/30 text-green-400 hover:bg-green-500/10"
+                              onClick={() => updateStatus.mutate({ id: t.id, status: "paid" })} disabled={updateStatus.isPending}>
+                              Marcar pago
+                            </Button>
+                            <Button size="sm" variant="outline" className="h-7 text-xs border-red-500/30 text-red-400 hover:bg-red-500/10"
+                              onClick={() => updateStatus.mutate({ id: t.id, status: "cancelled" })} disabled={updateStatus.isPending}>
+                              Cancelar
+                            </Button>
+                          </div>
+                        )}
+                      </div>
                     </div>
                   );
                 })}
