@@ -17,6 +17,7 @@ import { scrapeUrl } from "./_core/imovel-scraper";
 import { paymentSettingsRouter } from "./payment-settings-router";
 import { regularizacaoRouter } from "./regularizacao-router";
 import { portalRouter } from "./portal-router";
+import { whatsappRouter } from "./whatsapp-router";
 import { requireRole, STAFF_ROLES } from "./_core/rbac";
 import { parseKmlTerreno } from "./_core/geo/kml";
 import { fetchElevationGrid } from "./_core/geo/elevacao";
@@ -87,6 +88,7 @@ export const appRouter = router({
   paymentSettings: paymentSettingsRouter,
   regularizacao: regularizacaoRouter,
   portal: portalRouter,
+  whatsapp: whatsappRouter,
   auth: router({
     me: publicProcedure.query(opts => opts.ctx.user),
     logout: publicProcedure.mutation(({ ctx }) => {

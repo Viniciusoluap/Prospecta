@@ -10,6 +10,7 @@ import { registerStripeWebhook } from "./stripeWebhook";
 import uploadPhotoRouter from "../routes/upload-photo";
 import imovelFeedsRouter from "../routes/imovel-feeds";
 import { handleAsaasWebhook } from "../asaas-webhook";
+import { handleWhatsappWebhook } from "../whatsapp-webhook";
 import { getUserByEmail } from "../db";
 import {
   hashPassword,
@@ -42,6 +43,8 @@ async function startServer() {
 
   // Stripe webhook MUST be registered BEFORE express.json() for raw body
   registerStripeWebhook(app);
+  // WhatsApp Business webhook: same raw-body requirement, for HMAC verification
+  app.post("/api/whatsapp/webhook", express.raw({ type: "application/json" }), handleWhatsappWebhook);
 
   app.use(express.json({ limit: "50mb" }));
   app.use(express.urlencoded({ limit: "50mb", extended: true }));

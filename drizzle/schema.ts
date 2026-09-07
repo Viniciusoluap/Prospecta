@@ -752,3 +752,33 @@ export const incorporationStudies = pgTable("incorporation_studies", {
 });
 export type IncorporationStudy = typeof incorporationStudies.$inferSelect;
 export type InsertIncorporationStudy = typeof incorporationStudies.$inferInsert;
+
+export const whatsappConnections = pgTable("whatsapp_connections", {
+  id: serial("id").primaryKey(),
+  userId: integer("user_id").notNull().unique(),
+  provider: varchar("provider", { length: 20 }).default("business").notNull(),
+  tokenEncrypted: text("token_encrypted"),
+  phoneNumberId: varchar("phone_number_id", { length: 60 }),
+  numero: varchar("numero", { length: 30 }),
+  status: varchar("status", { length: 20 }).default("desconectado").notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+export type WhatsappConnection = typeof whatsappConnections.$inferSelect;
+export type InsertWhatsappConnection = typeof whatsappConnections.$inferInsert;
+
+export const whatsappMessages = pgTable("whatsapp_messages", {
+  id: serial("id").primaryKey(),
+  connectionId: integer("connection_id").notNull(),
+  leadId: integer("lead_id"),
+  destinatario: varchar("destinatario", { length: 30 }).notNull(),
+  nomeDestinatario: varchar("nome_destinatario", { length: 255 }),
+  mensagem: text("mensagem").notNull(),
+  status: varchar("status", { length: 20 }).default("enviada").notNull(),
+  externalId: varchar("external_id", { length: 120 }),
+  erroMsg: text("erro_msg"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+export type WhatsappMessage = typeof whatsappMessages.$inferSelect;
+export type InsertWhatsappMessage = typeof whatsappMessages.$inferInsert;
