@@ -1,4 +1,4 @@
-import { getDb } from "./db";
+import { getDb } from "./db.js";
 import { sql } from "drizzle-orm";
 
 /**

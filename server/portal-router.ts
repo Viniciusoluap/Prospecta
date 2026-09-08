@@ -11,12 +11,12 @@ import {
   portalContracts,
   portalVisits,
   users,
-} from "../drizzle/schema";
-import { hashPassword } from "./_core/auth-utils";
-import { requireRole, STAFF_ROLES } from "./_core/rbac";
-import { protectedProcedure, router } from "./_core/trpc";
-import { getDb } from "./db";
-import { storagePut } from "./storage";
+} from "../drizzle/schema.js";
+import { hashPassword } from "./_core/auth-utils.js";
+import { requireRole, STAFF_ROLES } from "./_core/rbac.js";
+import { protectedProcedure, router } from "./_core/trpc.js";
+import { getDb } from "./db.js";
+import { storagePut } from "./storage.js";
 
 const visitStatus = z.enum(["agendada", "realizada", "cancelada", "reagendada"]);
 const signatureStatus = z.enum(["pendente", "solicitado", "assinado", "rejeitado"]);

@@ -1,5 +1,5 @@
 import Anthropic from "@anthropic-ai/sdk";
-import { ENV } from "../env";
+import { ENV } from "../env.js";
 
 // Pesquisa da cidade + estudo de mercado imobiliário via IA com busca web:
 // perfil socioeconômico do município, oferta/demanda, preço médio do m² por

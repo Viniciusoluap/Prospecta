@@ -1,8 +1,8 @@
 import nodemailer from "nodemailer";
 import { eq } from "drizzle-orm";
-import { getDb } from "../db";
-import { emailLogs, InsertEmailLog } from "../../drizzle/schema";
-import { ENV } from "./env";
+import { getDb } from "../db.js";
+import { emailLogs, InsertEmailLog } from "../../drizzle/schema.js";
+import { ENV } from "./env.js";
 
 type EmailData = {
   to: string;

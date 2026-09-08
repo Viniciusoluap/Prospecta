@@ -1,9 +1,9 @@
 import { TRPCError } from "@trpc/server";
 import { z } from "zod";
-import { adminProcedure, router } from "./_core/trpc";
-import { validateAsaasApiKey, type AsaasEnvironment } from "./_core/asaas";
-import { encryptSecret } from "./_core/secret-vault";
-import * as db from "./db";
+import { adminProcedure, router } from "./_core/trpc.js";
+import { validateAsaasApiKey, type AsaasEnvironment } from "./_core/asaas.js";
+import { encryptSecret } from "./_core/secret-vault.js";
+import * as db from "./db.js";
 
 type StoredSetting = Awaited<ReturnType<typeof db.getPaymentSetting>>;
 type PaymentSettingsDependencies = {

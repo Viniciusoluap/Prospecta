@@ -3,7 +3,7 @@
 // anteriormente. Função pura, portada do Grupo Santa Fé sem alteração de
 // lógica.
 
-import { CATEGORIAS_ORCAMENTO_PRELIMINAR, type CategoriaOrcamentoPreliminar } from "./orcamento-preliminar";
+import { CATEGORIAS_ORCAMENTO_PRELIMINAR, type CategoriaOrcamentoPreliminar } from "./orcamento-preliminar.js";
 
 export type CategoriaOrcamentoObra = CategoriaOrcamentoPreliminar;
 export const CATEGORIAS_ORCAMENTO_OBRA = CATEGORIAS_ORCAMENTO_PRELIMINAR;

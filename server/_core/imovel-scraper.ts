@@ -1,5 +1,5 @@
 import * as cheerio from "cheerio";
-import { isSsrfUrl } from "../../shared/ssrf";
+import { isSsrfUrl } from "../../shared/ssrf.js";
 
 /**
  * Scraper de metadados de anúncios externos (OLX/ZAP/VivaReal/redes sociais)

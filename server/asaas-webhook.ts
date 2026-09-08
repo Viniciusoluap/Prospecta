@@ -1,8 +1,8 @@
 import { Request, Response } from 'express';
-import { getDb, createOrUpdateUtefBalance } from './db';
-import { utefTransactions, tickets, users } from '../drizzle/schema';
+import { getDb, createOrUpdateUtefBalance } from './db.js';
+import { utefTransactions, tickets, users } from '../drizzle/schema.js';
 import { eq } from 'drizzle-orm';
-import { getAsaasPayment } from './_core/asaas';
+import { getAsaasPayment } from './_core/asaas.js';
 
 /**
  * Webhook do Asaas para receber notificações de pagamento
@@ -147,7 +147,7 @@ async function processTicketPurchase(
   // Enviar email de confirmação
   const user = await db.select().from(users).where(eq(users.id, userId)).limit(1);
   if (user[0] && user[0].email) {
-    const { sendEmail, paymentConfirmedTemplate } = await import('./_core/email-smtp');
+    const { sendEmail, paymentConfirmedTemplate } = await import('./_core/email-smtp.js');
     const template = paymentConfirmedTemplate({
       name: user[0].name || 'Cliente',
       amount: Math.floor(payment.value * 100), // Converter para centavos
@@ -220,7 +220,7 @@ async function processUtefPurchase(
 
   // Enviar email de confirmação
   if (user.email) {
-    const { sendEmail, paymentConfirmedTemplate } = await import('./_core/email-smtp');
+    const { sendEmail, paymentConfirmedTemplate } = await import('./_core/email-smtp.js');
     const template = paymentConfirmedTemplate({
       name: user.name || 'Cliente',
       amount: Math.floor(payment.value * 100), // Converter para centavos

@@ -2,19 +2,19 @@ import express from "express";
 import { createExpressMiddleware } from "@trpc/server/adapters/express";
 import { eq } from "drizzle-orm";
 
-import { users } from "../drizzle/schema";
-import { handleAsaasWebhook } from "../server/asaas-webhook";
+import { users } from "../drizzle/schema.js";
+import { handleAsaasWebhook } from "../server/asaas-webhook.js";
 import {
   createSessionToken,
   hashPassword,
   SESSION_COOKIE_NAME,
   verifyPassword,
-} from "../server/_core/auth-utils";
-import { getSessionCookieOptions } from "../server/_core/cookies";
-import { createContext } from "../server/_core/context";
-import { getDb, getUserByEmail } from "../server/db";
-import { appRouter } from "../server/routers";
-import uploadPhotoRouter from "../server/routes/upload-photo";
+} from "../server/_core/auth-utils.js";
+import { getSessionCookieOptions } from "../server/_core/cookies.js";
+import { createContext } from "../server/_core/context.js";
+import { getDb, getUserByEmail } from "../server/db.js";
+import { appRouter } from "../server/routers.js";
+import uploadPhotoRouter from "../server/routes/upload-photo.js";
 
 const app = express();
 app.use(express.json({ limit: "50mb" }));
@@ -34,7 +34,6 @@ app.get("/api/health", async (_req, res) => {
 // ── Auth ──────────────────────────────────────
 app.post("/api/auth/login", async (req, res) => {
   try {
-
     const { email, password } = req.body as { email?: string; password?: string };
     if (!email || !password) {
       return res.status(400).json({ error: "Email e senha são obrigatórios" });
@@ -85,7 +84,6 @@ app.post("/api/auth/setup-admin", async (req, res) => {
     if (!email || !password) {
       return res.status(400).json({ error: "Email e senha são obrigatórios" });
     }
-
     const db = getDb();
     const passwordHash = hashPassword(password);
     const existing = await db.select().from(users).where(eq(users.email, email.toLowerCase())).limit(1);

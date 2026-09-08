@@ -4,10 +4,10 @@ import { z } from "zod";
 import {
   regularizacaoDocuments,
   regularizacoes,
-} from "../drizzle/schema";
-import { adminProcedure, router } from "./_core/trpc";
-import { getDb } from "./db";
-import { storagePut } from "./storage";
+} from "../drizzle/schema.js";
+import { adminProcedure, router } from "./_core/trpc.js";
+import { getDb } from "./db.js";
+import { storagePut } from "./storage.js";
 
 const statusSchema = z.enum([
   "analysis",

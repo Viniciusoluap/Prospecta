@@ -1,4 +1,4 @@
-import type { Imovel } from "../../drizzle/schema";
+import type { Imovel } from "../../drizzle/schema.js";
 
 /**
  * Geração dos feeds XML de imóveis por portal (ZAP, OLX, VivaReal, Chaves na

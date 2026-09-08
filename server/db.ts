@@ -35,7 +35,7 @@ import {
   pluggySettings, PluggySetting, InsertPluggySetting,
   bankAccounts, BankAccount, InsertBankAccount,
   bankTransactions, BankTransaction, InsertBankTransaction,
-} from "../drizzle/schema";
+} from "../drizzle/schema.js";
 
 type DrizzleDb = ReturnType<typeof drizzle>;
 let _db: DrizzleDb | null = null;

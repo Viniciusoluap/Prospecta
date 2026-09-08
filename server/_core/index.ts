@@ -3,22 +3,22 @@ import express from "express";
 import { createServer } from "http";
 import net from "net";
 import { createExpressMiddleware } from "@trpc/server/adapters/express";
-import { appRouter } from "../routers";
-import { createContext } from "./context";
-import { serveStatic, setupVite } from "./vite";
-import { registerStripeWebhook } from "./stripeWebhook";
-import uploadPhotoRouter from "../routes/upload-photo";
-import imovelFeedsRouter from "../routes/imovel-feeds";
-import { handleAsaasWebhook } from "../asaas-webhook";
-import { handleWhatsappWebhook } from "../whatsapp-webhook";
-import { getUserByEmail } from "../db";
+import { appRouter } from "../routers.js";
+import { createContext } from "./context.js";
+import { serveStatic, setupVite } from "./vite.js";
+import { registerStripeWebhook } from "./stripeWebhook.js";
+import uploadPhotoRouter from "../routes/upload-photo.js";
+import imovelFeedsRouter from "../routes/imovel-feeds.js";
+import { handleAsaasWebhook } from "../asaas-webhook.js";
+import { handleWhatsappWebhook } from "../whatsapp-webhook.js";
+import { getUserByEmail } from "../db.js";
 import {
   hashPassword,
   verifyPassword,
   createSessionToken,
   SESSION_COOKIE_NAME,
-} from "./auth-utils";
-import { getSessionCookieOptions } from "./cookies";
+} from "./auth-utils.js";
+import { getSessionCookieOptions } from "./cookies.js";
 
 function isPortAvailable(port: number): Promise<boolean> {
   return new Promise(resolve => {
