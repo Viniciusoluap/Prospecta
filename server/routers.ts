@@ -19,6 +19,8 @@ import { regularizacaoRouter } from "./regularizacao-router";
 import { portalRouter } from "./portal-router";
 import { whatsappRouter } from "./whatsapp-router";
 import { requireRole, STAFF_ROLES } from "./_core/rbac";
+import { encryptSecret, decryptSecret } from "./_core/secret-vault";
+import { authenticatePluggy, fetchPluggyTransactions, fetchPluggyAccountBalance } from "./_core/pluggy";
 import { parseKmlTerreno } from "./_core/geo/kml";
 import { fetchElevationGrid } from "./_core/geo/elevacao";
 import { pesquisarMercado } from "./_core/incorporacao/mercado-ia";
@@ -1536,6 +1538,140 @@ export const appRouter = router({
         .map(([competencia, v]) => ({ competencia, ...v, resultado: v.cobrancas - v.despesas }))
         .sort((a, b) => b.competencia.localeCompare(a.competencia));
     }),
+  }),
+
+  // ========== Pluggy (credenciais de integração bancária) ==========
+  pluggySettings: router({
+    status: protectedProcedure.query(async ({ ctx }) => {
+      requireRole(ctx, ["admin"]);
+      const setting = await db.getPluggySetting();
+      return { configured: Boolean(setting?.clientIdEncrypted), active: Boolean(setting?.isActive) };
+    }),
+
+    save: protectedProcedure
+      .input(z.object({ clientId: z.string().trim().min(1), clientSecret: z.string().trim().min(1) }))
+      .mutation(async ({ input, ctx }) => {
+        requireRole(ctx, ["admin"]);
+        const token = await authenticatePluggy(input.clientId, input.clientSecret);
+        if (!token) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "Credenciais Pluggy inválidas ou API indisponível" });
+        }
+        await db.savePluggySetting({
+          clientIdEncrypted: encryptSecret(input.clientId),
+          clientSecretEncrypted: encryptSecret(input.clientSecret),
+          isActive: true,
+        });
+        return { success: true };
+      }),
+  }),
+
+  // ========== Bancário (contas e transações) ==========
+  bancario: router({
+    contas: router({
+      list: protectedProcedure.query(async ({ ctx }) => {
+        requireRole(ctx, STAFF_ROLES);
+        return db.getAllBankAccounts();
+      }),
+
+      create: protectedProcedure
+        .input(z.object({
+          banco: z.string().min(1),
+          agencia: z.string().optional(),
+          conta: z.string().min(1),
+          tipo: z.enum(["corrente", "poupanca", "pagamento", "investimento"]).optional(),
+          descricao: z.string().optional(),
+          saldoAtual: z.number().optional(),
+          pluggyAccountId: z.string().optional(),
+          webhookUrl: z.string().optional(),
+        }))
+        .mutation(async ({ input, ctx }) => {
+          requireRole(ctx, ["admin"]);
+          return db.createBankAccount({
+            ...input,
+            saldoAtual: (input.saldoAtual ?? 0).toString(),
+          } as any);
+        }),
+
+      delete: protectedProcedure
+        .input(z.object({ id: z.number() }))
+        .mutation(async ({ input, ctx }) => {
+          requireRole(ctx, ["admin"]);
+          await db.deleteBankAccount(input.id);
+          return { success: true };
+        }),
+
+      atualizarSaldo: protectedProcedure
+        .input(z.object({ id: z.number(), saldo: z.number() }))
+        .mutation(async ({ input, ctx }) => {
+          requireRole(ctx, STAFF_ROLES);
+          await db.updateBankAccountSaldo(input.id, input.saldo);
+          return { success: true };
+        }),
+    }),
+
+    transacoes: router({
+      listByConta: protectedProcedure
+        .input(z.object({ accountId: z.number() }))
+        .query(async ({ input, ctx }) => {
+          requireRole(ctx, STAFF_ROLES);
+          return db.getBankTransactionsByAccount(input.accountId);
+        }),
+
+      atualizarStatus: protectedProcedure
+        .input(z.object({ id: z.number(), status: z.enum(["pendente", "conciliado", "ignorado"]) }))
+        .mutation(async ({ input, ctx }) => {
+          requireRole(ctx, STAFF_ROLES);
+          await db.updateBankTransactionStatus(input.id, input.status);
+          return { success: true };
+        }),
+    }),
+
+    sincronizar: protectedProcedure
+      .input(z.object({ contaId: z.number() }))
+      .mutation(async ({ input, ctx }) => {
+        requireRole(ctx, STAFF_ROLES);
+        const conta = await db.getBankAccountById(input.contaId);
+        if (!conta) throw new TRPCError({ code: "NOT_FOUND", message: "Conta não encontrada" });
+
+        if (!conta.pluggyAccountId) {
+          return { ok: false, configurado: false, mensagem: "Esta conta não tem um pluggyAccountId configurado." };
+        }
+
+        const setting = await db.getPluggySetting();
+        if (!setting?.isActive) {
+          return {
+            ok: false,
+            configurado: false,
+            mensagem: "Configure as credenciais Pluggy em Configurações para sincronização automática.",
+          };
+        }
+
+        const token = await authenticatePluggy(
+          decryptSecret(setting.clientIdEncrypted),
+          decryptSecret(setting.clientSecretEncrypted)
+        );
+        if (!token) {
+          return { ok: false, configurado: true, mensagem: "Não foi possível autenticar com a Pluggy. Verifique as credenciais." };
+        }
+
+        const transacoes = await fetchPluggyTransactions(token, conta.pluggyAccountId);
+        const sincronizados = await db.upsertBankTransactions(
+          conta.id,
+          transacoes.map((t) => ({
+            data: new Date(t.data),
+            descricao: t.descricao,
+            valor: t.valor.toString(),
+            tipo: t.tipo,
+            categoria: t.categoria,
+            externalId: t.externalId,
+          })) as any
+        );
+
+        const novoSaldo = await fetchPluggyAccountBalance(token, conta.pluggyAccountId);
+        await db.updateBankAccountSaldo(conta.id, novoSaldo ?? Number(conta.saldoAtual));
+
+        return { ok: true, sincronizados, saldo: novoSaldo ?? Number(conta.saldoAtual) };
+      }),
   }),
 
   // ========== IMÓVEIS ==========

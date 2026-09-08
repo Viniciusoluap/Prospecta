@@ -587,6 +587,54 @@ export const bpoLancamentos = pgTable("bpo_lancamentos", {
 export type BpoLancamento = typeof bpoLancamentos.$inferSelect;
 export type InsertBpoLancamento = typeof bpoLancamentos.$inferInsert;
 
+export const bankAccountTipoEnum = pgEnum("bank_account_tipo", ["corrente", "poupanca", "pagamento", "investimento"]);
+export const bankTransactionTipoEnum = pgEnum("bank_transaction_tipo", ["credito", "debito"]);
+export const bankTransactionStatusEnum = pgEnum("bank_transaction_status", ["pendente", "conciliado", "ignorado"]);
+
+export const pluggySettings = pgTable("pluggy_settings", {
+  id: serial("id").primaryKey(),
+  clientIdEncrypted: text("client_id_encrypted").notNull(),
+  clientSecretEncrypted: text("client_secret_encrypted").notNull(),
+  isActive: boolean("is_active").default(true).notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+export type PluggySetting = typeof pluggySettings.$inferSelect;
+export type InsertPluggySetting = typeof pluggySettings.$inferInsert;
+
+export const bankAccounts = pgTable("bank_accounts", {
+  id: serial("id").primaryKey(),
+  banco: varchar("banco", { length: 255 }).notNull(),
+  agencia: varchar("agencia", { length: 20 }),
+  conta: varchar("conta", { length: 30 }).notNull(),
+  tipo: bankAccountTipoEnum("tipo").default("corrente").notNull(),
+  descricao: varchar("descricao", { length: 255 }),
+  saldoAtual: decimal("saldo_atual", { precision: 15, scale: 2 }).default("0").notNull(),
+  ativo: boolean("ativo").default(true).notNull(),
+  pluggyItemId: varchar("pluggy_item_id", { length: 120 }),
+  pluggyAccountId: varchar("pluggy_account_id", { length: 120 }),
+  webhookUrl: varchar("webhook_url", { length: 500 }),
+  ultimaSincronizacao: timestamp("ultima_sincronizacao"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+export type BankAccount = typeof bankAccounts.$inferSelect;
+export type InsertBankAccount = typeof bankAccounts.$inferInsert;
+
+export const bankTransactions = pgTable("bank_transactions", {
+  id: serial("id").primaryKey(),
+  accountId: integer("account_id").notNull().references(() => bankAccounts.id, { onDelete: "cascade" }),
+  data: timestamp("data").notNull(),
+  descricao: varchar("descricao", { length: 500 }).notNull(),
+  valor: decimal("valor", { precision: 15, scale: 2 }).notNull(),
+  tipo: bankTransactionTipoEnum("tipo").notNull(),
+  categoria: varchar("categoria", { length: 100 }),
+  status: bankTransactionStatusEnum("status").default("pendente").notNull(),
+  externalId: varchar("external_id", { length: 255 }).unique(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+export type BankTransaction = typeof bankTransactions.$inferSelect;
+export type InsertBankTransaction = typeof bankTransactions.$inferInsert;
+
 export const imovelStatusEnum = pgEnum("imovel_status", ["disponivel", "reservado", "vendido", "alugado"]);
 
 export const imoveis = pgTable("imoveis", {
