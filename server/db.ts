@@ -32,6 +32,9 @@ import {
   incorporationStudies, IncorporationStudy, InsertIncorporationStudy,
   bpoClients, BpoClient, InsertBpoClient,
   bpoLancamentos, BpoLancamento, InsertBpoLancamento,
+  pluggySettings, PluggySetting, InsertPluggySetting,
+  bankAccounts, BankAccount, InsertBankAccount,
+  bankTransactions, BankTransaction, InsertBankTransaction,
 } from "../drizzle/schema";
 
 type DrizzleDb = ReturnType<typeof drizzle>;
@@ -954,4 +957,71 @@ export async function createBpoLancamento(data: InsertBpoLancamento): Promise<Bp
 export async function marcarBpoLancamentoPago(id: number): Promise<void> {
   const db = getDb();
   await db.update(bpoLancamentos).set({ pago: true, pagoEm: new Date() }).where(eq(bpoLancamentos.id, id));
+}
+
+// ========== Pluggy (integração bancária — credenciais) ==========
+
+export async function getPluggySetting(): Promise<PluggySetting | undefined> {
+  return (await getDb().select().from(pluggySettings).limit(1))[0];
+}
+
+export async function savePluggySetting(input: InsertPluggySetting): Promise<void> {
+  const database = getDb();
+  const current = await database.select().from(pluggySettings).limit(1);
+  if (current[0]) {
+    await database.update(pluggySettings).set({ ...input, updatedAt: new Date() }).where(eq(pluggySettings.id, current[0].id));
+  } else {
+    await database.insert(pluggySettings).values(input);
+  }
+}
+
+// ========== Contas e transações bancárias ==========
+
+export async function getAllBankAccounts(): Promise<BankAccount[]> {
+  const db = getDb();
+  return db.select().from(bankAccounts).where(eq(bankAccounts.ativo, true)).orderBy(desc(bankAccounts.createdAt));
+}
+
+export async function getBankAccountById(id: number): Promise<BankAccount | undefined> {
+  return (await getDb().select().from(bankAccounts).where(eq(bankAccounts.id, id)).limit(1))[0];
+}
+
+export async function createBankAccount(data: InsertBankAccount): Promise<BankAccount> {
+  const db = getDb();
+  const result = await db.insert(bankAccounts).values(data).returning();
+  return result[0];
+}
+
+export async function deleteBankAccount(id: number): Promise<void> {
+  const db = getDb();
+  await db.update(bankAccounts).set({ ativo: false }).where(eq(bankAccounts.id, id));
+}
+
+export async function updateBankAccountSaldo(id: number, saldo: number): Promise<void> {
+  const db = getDb();
+  await db.update(bankAccounts).set({ saldoAtual: saldo.toString(), ultimaSincronizacao: new Date() }).where(eq(bankAccounts.id, id));
+}
+
+export async function getBankTransactionsByAccount(accountId: number): Promise<BankTransaction[]> {
+  const db = getDb();
+  return db.select().from(bankTransactions).where(eq(bankTransactions.accountId, accountId)).orderBy(desc(bankTransactions.data));
+}
+
+export async function upsertBankTransactions(accountId: number, transacoes: InsertBankTransaction[]): Promise<number> {
+  const db = getDb();
+  let count = 0;
+  for (const t of transacoes) {
+    const result = await db
+      .insert(bankTransactions)
+      .values({ ...t, accountId })
+      .onConflictDoNothing({ target: bankTransactions.externalId })
+      .returning();
+    if (result.length > 0) count++;
+  }
+  return count;
+}
+
+export async function updateBankTransactionStatus(id: number, status: "pendente" | "conciliado" | "ignorado"): Promise<void> {
+  const db = getDb();
+  await db.update(bankTransactions).set({ status }).where(eq(bankTransactions.id, id));
 }

@@ -1,7 +1,7 @@
 # EPIC-007: Financeiro Avançado
 
 **Epic Owner:** originalmente Codex, assumido pela trilha Claude em 07/09/2026 (Codex ainda não havia iniciado)
-**Status:** Draft — detalhamento de escopo, aguardando confirmação do dono do produto antes de implementar
+**Status:** Done — epic 100% concluído (S-01, S-02, S-03) em 08/09/2026
 
 ## Problem Statement
 
@@ -37,7 +37,7 @@ O Grupo Santa Fé tem três módulos financeiros que o Prospecta ainda não repl
 |-------|-------|--------|--------|
 | S-01 | Contabilidade — contas a pagar/receber | Estende `financial_transactions`, adiciona status/vencimento/forma de pagamento/fornecedor/competência, tela com filtros e atualização de status | Done |
 | S-02 | BPO — clientes e lançamentos | Tabelas `bpo_clients`/`bpo_lancamentos`, router, tela com clientes/cobranças/despesas/DRE | Done |
-| S-03 | Integração bancária (Pluggy) | Tabelas `bank_accounts`/`bank_transactions`, cliente Pluggy com fallback gracioso, tela de contas + sincronização manual | Draft |
+| S-03 | Integração bancária (Pluggy) | Tabelas `bank_accounts`/`bank_transactions`, cliente Pluggy com fallback gracioso, tela de contas + sincronização manual | Done |
 
 _Ordem sugerida: S-01 → S-02 → S-03 (do mais simples/menos dependente de credencial externa para o mais dependente)._
 
