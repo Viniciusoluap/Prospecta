@@ -6,7 +6,7 @@
 // OPENTOPOGRAPHY_API_KEY (opcional) e devolve um raster AAIGrid (ASCII).
 // Fallback keyless: Open Topo Data (amostragem por pontos, SRTM 30m).
 
-import { ENV } from "../env";
+import { ENV } from "../env.js";
 
 export interface GridElevacao {
   ncols: number;

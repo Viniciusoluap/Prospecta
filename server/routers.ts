@@ -1,29 +1,29 @@
-import { COOKIE_NAME } from "@shared/const";
-import { getSessionCookieOptions } from "./_core/cookies";
-import { systemRouter } from "./_core/systemRouter";
-import { publicProcedure, protectedProcedure, router } from "./_core/trpc";
+import { COOKIE_NAME } from "../shared/const.js";
+import { getSessionCookieOptions } from "./_core/cookies.js";
+import { systemRouter } from "./_core/systemRouter.js";
+import { publicProcedure, protectedProcedure, router } from "./_core/trpc.js";
 import { z } from "zod";
-import { notifyOwner } from "./_core/notification";
-import { stripe } from "./_core/stripe";
-import { createAsaasPayment, getAsaasPixQrCode, createOrUpdateAsaasCustomer } from "./_core/asaas";
-import { ENV } from "./_core/env";
+import { notifyOwner } from "./_core/notification.js";
+import { stripe } from "./_core/stripe.js";
+import { createAsaasPayment, getAsaasPixQrCode, createOrUpdateAsaasCustomer } from "./_core/asaas.js";
+import { ENV } from "./_core/env.js";
 import QRCode from "qrcode";
-import * as db from "./db";
+import * as db from "./db.js";
 import { TRPCError } from "@trpc/server";
-import { validateCPF, cleanCPF } from "../shared/cpf";
-import { getChecklistGroups, getEstadoGeralOptions, CHECKLIST_MAX_FOTOS } from "../shared/avaliacao-checklist";
-import { gerarSugestaoValor } from "./_core/avaliacao-ia";
-import { scrapeUrl } from "./_core/imovel-scraper";
-import { paymentSettingsRouter } from "./payment-settings-router";
-import { regularizacaoRouter } from "./regularizacao-router";
-import { portalRouter } from "./portal-router";
-import { whatsappRouter } from "./whatsapp-router";
-import { requireRole, STAFF_ROLES } from "./_core/rbac";
-import { encryptSecret, decryptSecret } from "./_core/secret-vault";
-import { authenticatePluggy, fetchPluggyTransactions, fetchPluggyAccountBalance } from "./_core/pluggy";
-import { parseKmlTerreno } from "./_core/geo/kml";
-import { fetchElevationGrid } from "./_core/geo/elevacao";
-import { pesquisarMercado } from "./_core/incorporacao/mercado-ia";
+import { validateCPF, cleanCPF } from "../shared/cpf.js";
+import { getChecklistGroups, getEstadoGeralOptions, CHECKLIST_MAX_FOTOS } from "../shared/avaliacao-checklist.js";
+import { gerarSugestaoValor } from "./_core/avaliacao-ia.js";
+import { scrapeUrl } from "./_core/imovel-scraper.js";
+import { paymentSettingsRouter } from "./payment-settings-router.js";
+import { regularizacaoRouter } from "./regularizacao-router.js";
+import { portalRouter } from "./portal-router.js";
+import { whatsappRouter } from "./whatsapp-router.js";
+import { requireRole, STAFF_ROLES } from "./_core/rbac.js";
+import { encryptSecret, decryptSecret } from "./_core/secret-vault.js";
+import { authenticatePluggy, fetchPluggyTransactions, fetchPluggyAccountBalance } from "./_core/pluggy.js";
+import { parseKmlTerreno } from "./_core/geo/kml.js";
+import { fetchElevationGrid } from "./_core/geo/elevacao.js";
+import { pesquisarMercado } from "./_core/incorporacao/mercado-ia.js";
 
 // Helper para gerar número de bilhete único
 function generateTicketNumber(): string {
@@ -139,7 +139,7 @@ export const appRouter = router({
         mimeType: z.string(),
       }))
       .mutation(async ({ ctx, input }) => {
-        const { storagePut } = await import("./storage");
+        const { storagePut } = await import("./storage.js");
         
         // Converter base64 para buffer
         const base64Data = input.imageBase64.replace(/^data:image\/\w+;base64,/, "");
@@ -750,7 +750,7 @@ export const appRouter = router({
         });
         
         // Enviar email de confirmação para o cliente
-        const { sendEmail, budgetConfirmationTemplate } = await import("./_core/email-smtp");
+        const { sendEmail, budgetConfirmationTemplate } = await import("./_core/email-smtp.js");
         const template = budgetConfirmationTemplate({
           name: input.name,
           projectType: input.projectType,
@@ -811,7 +811,7 @@ export const appRouter = router({
         
         // Enviar email de atualização se o status mudou
         if (input.status && input.status !== request.status) {
-          const { sendBudgetUpdateEmail } = await import("./_core/email-smtp");
+          const { sendBudgetUpdateEmail } = await import("./_core/email-smtp.js");
           const statusLabels: Record<string, string> = {
             pending: "Pendente",
             contacted: "Contatado",
@@ -1285,7 +1285,7 @@ export const appRouter = router({
       .input(z.object({ projectId: z.number() }))
       .query(async ({ input, ctx }) => {
         requireRole(ctx, ["admin"]);
-        const db = await import("./db").then(m => m.getDb());
+        const db = await import("./db.js").then(m => m.getDb());
         if (!db) return [];
         const { sql } = await import("drizzle-orm");
         try {
@@ -1322,7 +1322,7 @@ export const appRouter = router({
       }))
       .mutation(async ({ input, ctx }) => {
         requireRole(ctx, ["admin"]);
-        const db = await import("./db").then(m => m.getDb());
+        const db = await import("./db.js").then(m => m.getDb());
         if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB unavailable" });
         const { sql } = await import("drizzle-orm");
         await db.execute(sql`
@@ -1350,7 +1350,7 @@ export const appRouter = router({
       }))
       .mutation(async ({ input, ctx }) => {
         requireRole(ctx, ["admin"]);
-        const db = await import("./db").then(m => m.getDb());
+        const db = await import("./db.js").then(m => m.getDb());
         if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB unavailable" });
         const { sql } = await import("drizzle-orm");
         if (input.cefPaid) {
@@ -1380,7 +1380,7 @@ export const appRouter = router({
       }))
       .mutation(async ({ input, ctx }) => {
         requireRole(ctx, ["admin"]);
-        const db = await import("./db").then(m => m.getDb());
+        const db = await import("./db.js").then(m => m.getDb());
         if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB unavailable" });
         const { sql } = await import("drizzle-orm");
         await db.execute(sql`

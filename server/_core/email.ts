@@ -1,5 +1,5 @@
-import { getDb } from "../db";
-import { emailLogs, InsertEmailLog } from "../../drizzle/schema";
+import { getDb } from "../db.js";
+import { emailLogs, InsertEmailLog } from "../../drizzle/schema.js";
 
 /**
  * Templates de email em HTML

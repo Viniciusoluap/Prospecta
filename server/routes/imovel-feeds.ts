@@ -1,12 +1,12 @@
 import { Router, Request, Response } from "express";
-import { getAllImoveis } from "../db";
+import { getAllImoveis } from "../db.js";
 import {
   gerarFeedZap,
   gerarFeedOlx,
   gerarFeedVivaReal,
   gerarFeedChavesNaMao,
   XML_HEADERS,
-} from "../_core/imovel-feeds";
+} from "../_core/imovel-feeds.js";
 
 const router = Router();
 

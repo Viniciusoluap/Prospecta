@@ -1,6 +1,6 @@
-import { ENV } from "./env";
-import { getPaymentSetting } from "../db";
-import { decryptSecret } from "./secret-vault";
+import { ENV } from "./env.js";
+import { getPaymentSetting } from "../db.js";
+import { decryptSecret } from "./secret-vault.js";
 
 const ASAAS_URLS = {
   sandbox: "https://sandbox.asaas.com/api/v3",

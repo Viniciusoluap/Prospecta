@@ -6,7 +6,7 @@
 
 import { Request, Response } from "express";
 import { createHmac, timingSafeEqual } from "crypto";
-import { aplicarStatusWebhook } from "./whatsapp-router";
+import { aplicarStatusWebhook } from "./whatsapp-router.js";
 
 interface WebhookBody {
   event?: string;

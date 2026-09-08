@@ -1,11 +1,11 @@
 import { desc, eq, inArray } from "drizzle-orm";
 import { z } from "zod";
-import { leads, users, whatsappConnections, whatsappMessages } from "../drizzle/schema";
-import { enviarWhatsappBusiness, normalizarStatusWebhook } from "./_core/whatsapp-business";
-import { decryptSecret, encryptSecret } from "./_core/secret-vault";
-import { requireRole, STAFF_ROLES } from "./_core/rbac";
-import { protectedProcedure, router } from "./_core/trpc";
-import { getDb } from "./db";
+import { leads, users, whatsappConnections, whatsappMessages } from "../drizzle/schema.js";
+import { enviarWhatsappBusiness, normalizarStatusWebhook } from "./_core/whatsapp-business.js";
+import { decryptSecret, encryptSecret } from "./_core/secret-vault.js";
+import { requireRole, STAFF_ROLES } from "./_core/rbac.js";
+import { protectedProcedure, router } from "./_core/trpc.js";
+import { getDb } from "./db.js";
 
 async function conexaoParaPapel(userId: number, role: string) {
   const db = getDb();

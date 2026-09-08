@@ -1,5 +1,5 @@
 import Stripe from "stripe";
-import { ENV } from "./env";
+import { ENV } from "./env.js";
 
 // Lazy initialization — avoids crashing the server if key is not set
 let _stripe: Stripe | null = null;

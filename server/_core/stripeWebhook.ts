@@ -1,7 +1,7 @@
 import express from 'express';
-import { stripe } from './stripe';
-import { ENV } from './env';
-import * as db from '../db';
+import { stripe } from './stripe.js';
+import { ENV } from './env.js';
+import * as db from '../db.js';
 
 export function registerStripeWebhook(app: express.Application) {
   // Webhook deve estar registrado ANTES do express.json() para receber raw body

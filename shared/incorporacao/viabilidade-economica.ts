@@ -10,7 +10,7 @@
 // já foram portados na S-10 (`mix-produtos.ts`) e são reaproveitados aqui em vez
 // de duplicados.
 
-import { calcularMix, type ItemMixProduto, type ResultadoMix } from "./mix-produtos";
+import { calcularMix, type ItemMixProduto, type ResultadoMix } from "./mix-produtos.js";
 
 export type { ItemMixProduto, ResultadoMix };
 

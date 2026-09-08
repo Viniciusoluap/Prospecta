@@ -1,6 +1,6 @@
 import Anthropic from "@anthropic-ai/sdk";
-import { ENV } from "./env";
-import type { ChecklistData } from "../../shared/avaliacao-checklist";
+import { ENV } from "./env.js";
+import type { ChecklistData } from "../../shared/avaliacao-checklist.js";
 
 /**
  * Sugestão de valor de avaliação via IA, espelhando fielmente a lógica do

@@ -4,7 +4,7 @@ import {
   createHash,
   randomBytes,
 } from "node:crypto";
-import { ENV } from "./env";
+import { ENV } from "./env.js";
 
 function encryptionKey(): Buffer {
   if (!ENV.cookieSecret)
