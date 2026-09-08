@@ -1445,6 +1445,99 @@ export const appRouter = router({
       }),
   }),
 
+  // ========== BPO (terceirização contábil) ==========
+  bpo: router({
+    clientes: router({
+      list: protectedProcedure.query(async ({ ctx }) => {
+        requireRole(ctx, STAFF_ROLES);
+        return db.getAllBpoClients();
+      }),
+
+      create: protectedProcedure
+        .input(z.object({
+          razaoSocial: z.string().min(2),
+          cnpj: z.string().optional(),
+          cpf: z.string().optional(),
+          responsavel: z.string().min(1),
+          email: z.string().optional(),
+          telefone: z.string().min(1),
+          servicos: z.array(z.string()).default([]),
+          honorarios: z.number(),
+          diaVencimento: z.number().optional(),
+          dataInicio: z.union([z.string(), z.date()]),
+          observacoes: z.string().optional(),
+        }))
+        .mutation(async ({ input, ctx }) => {
+          requireRole(ctx, ["admin"]);
+          return db.createBpoClient({
+            ...input,
+            servicos: JSON.stringify(input.servicos),
+            honorarios: input.honorarios.toString(),
+            dataInicio: new Date(input.dataInicio),
+          } as any);
+        }),
+
+      updateStatus: protectedProcedure
+        .input(z.object({ id: z.number(), status: z.enum(["ativo", "pausado", "encerrado"]) }))
+        .mutation(async ({ input, ctx }) => {
+          requireRole(ctx, ["admin"]);
+          await db.updateBpoClientStatus(input.id, input.status);
+          return { success: true };
+        }),
+    }),
+
+    lancamentos: router({
+      list: protectedProcedure.query(async ({ ctx }) => {
+        requireRole(ctx, STAFF_ROLES);
+        return db.getAllBpoLancamentos();
+      }),
+
+      create: protectedProcedure
+        .input(z.object({
+          clienteId: z.number().optional(),
+          clienteNomeLivre: z.string().optional(),
+          tipo: z.enum(["honorario", "despesa", "reembolso"]),
+          descricao: z.string().min(1),
+          valor: z.number(),
+          vencimento: z.union([z.string(), z.date()]),
+          competencia: z.string().min(7).max(7),
+          centroCustos: z.string().optional(),
+        }))
+        .mutation(async ({ input, ctx }) => {
+          requireRole(ctx, STAFF_ROLES);
+          return db.createBpoLancamento({
+            ...input,
+            valor: input.valor.toString(),
+            vencimento: new Date(input.vencimento),
+          } as any);
+        }),
+
+      marcarPago: protectedProcedure
+        .input(z.object({ id: z.number() }))
+        .mutation(async ({ input, ctx }) => {
+          requireRole(ctx, STAFF_ROLES);
+          await db.marcarBpoLancamentoPago(input.id);
+          return { success: true };
+        }),
+    }),
+
+    dre: protectedProcedure.query(async ({ ctx }) => {
+      requireRole(ctx, STAFF_ROLES);
+      const lancamentos = await db.getAllBpoLancamentos();
+      const map = new Map<string, { cobrancas: number; despesas: number }>();
+      for (const l of lancamentos) {
+        const entry = map.get(l.competencia) ?? { cobrancas: 0, despesas: 0 };
+        const valor = Number(l.valor);
+        if (l.tipo === "despesa") entry.despesas += valor;
+        else entry.cobrancas += valor;
+        map.set(l.competencia, entry);
+      }
+      return Array.from(map.entries())
+        .map(([competencia, v]) => ({ competencia, ...v, resultado: v.cobrancas - v.despesas }))
+        .sort((a, b) => b.competencia.localeCompare(a.competencia));
+    }),
+  }),
+
   // ========== IMÓVEIS ==========
   imoveis: router({
     list: publicProcedure

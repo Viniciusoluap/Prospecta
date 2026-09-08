@@ -30,6 +30,8 @@ import {
   avaliacoes, Avaliacao, InsertAvaliacao,
   agregadorImoveis, AgregadorImovel, InsertAgregadorImovel,
   incorporationStudies, IncorporationStudy, InsertIncorporationStudy,
+  bpoClients, BpoClient, InsertBpoClient,
+  bpoLancamentos, BpoLancamento, InsertBpoLancamento,
 } from "../drizzle/schema";
 
 type DrizzleDb = ReturnType<typeof drizzle>;
@@ -918,4 +920,38 @@ export async function createIncorporationStudy(data: InsertIncorporationStudy): 
 export async function updateIncorporationStudy(id: number, data: Partial<InsertIncorporationStudy>): Promise<void> {
   const db = getDb();
   await db.update(incorporationStudies).set({ ...data, updatedAt: new Date() }).where(eq(incorporationStudies.id, id));
+}
+
+// ========== BPO (financeiro — clientes de terceirização contábil) ==========
+
+export async function getAllBpoClients(): Promise<BpoClient[]> {
+  const db = getDb();
+  return db.select().from(bpoClients).orderBy(bpoClients.razaoSocial);
+}
+
+export async function createBpoClient(data: InsertBpoClient): Promise<BpoClient> {
+  const db = getDb();
+  const result = await db.insert(bpoClients).values(data).returning();
+  return result[0];
+}
+
+export async function updateBpoClientStatus(id: number, status: "ativo" | "pausado" | "encerrado"): Promise<void> {
+  const db = getDb();
+  await db.update(bpoClients).set({ status, updatedAt: new Date() }).where(eq(bpoClients.id, id));
+}
+
+export async function getAllBpoLancamentos(): Promise<BpoLancamento[]> {
+  const db = getDb();
+  return db.select().from(bpoLancamentos).orderBy(desc(bpoLancamentos.vencimento));
+}
+
+export async function createBpoLancamento(data: InsertBpoLancamento): Promise<BpoLancamento> {
+  const db = getDb();
+  const result = await db.insert(bpoLancamentos).values(data).returning();
+  return result[0];
+}
+
+export async function marcarBpoLancamentoPago(id: number): Promise<void> {
+  const db = getDb();
+  await db.update(bpoLancamentos).set({ pago: true, pagoEm: new Date() }).where(eq(bpoLancamentos.id, id));
 }

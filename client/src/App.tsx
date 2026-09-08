@@ -39,6 +39,7 @@ import AdminTarefas from "./pages/admin/AdminTarefas";
 import AdminCorretores from "./pages/admin/AdminCorretores";
 import AdminRegularizacoes from "./pages/admin/AdminRegularizacoes";
 import AdminWhatsApp from "./pages/admin/AdminWhatsApp";
+import AdminBpo from "./pages/admin/AdminBpo";
 import AdminObraMedicoes from "./pages/admin/AdminObraMedicoes";
 import AdminAvaliacoes from "./pages/admin/AdminAvaliacoes";
 import AdminAvaliacaoDetail from "./pages/admin/AdminAvaliacaoDetail";
@@ -148,6 +149,9 @@ function Router() {
       </Route>
       <Route path="/admin/whatsapp">
         <AdminRoute><AdminWhatsApp /></AdminRoute>
+      </Route>
+      <Route path="/admin/bpo">
+        <AdminRoute><AdminBpo /></AdminRoute>
       </Route>
       <Route path="/admin/regularizacoes">
         <AdminRoute><AdminRegularizacoes /></AdminRoute>

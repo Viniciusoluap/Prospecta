@@ -58,6 +58,8 @@ export const taskStatusEnum = pgEnum("task_status", ["pending", "in_progress", "
 export const financialTransactionTypeEnum = pgEnum("financial_transaction_type", [
   "income", "expense", "commission", "salary", "contractor_payment",
 ]);
+export const bpoClientStatusEnum = pgEnum("bpo_client_status", ["ativo", "pausado", "encerrado"]);
+export const bpoLancamentoTipoEnum = pgEnum("bpo_lancamento_tipo", ["honorario", "despesa", "reembolso"]);
 export const financialTransactionStatusEnum = pgEnum("financial_transaction_status", [
   "pending", "paid", "cancelled",
 ]);
@@ -547,6 +549,43 @@ export const paymentSettings = pgTable("payment_settings", {
 });
 export type PaymentSetting = typeof paymentSettings.$inferSelect;
 export type InsertPaymentSetting = typeof paymentSettings.$inferInsert;
+
+export const bpoClients = pgTable("bpo_clients", {
+  id: serial("id").primaryKey(),
+  razaoSocial: varchar("razao_social", { length: 255 }).notNull(),
+  cnpj: varchar("cnpj", { length: 20 }),
+  cpf: varchar("cpf", { length: 14 }),
+  responsavel: varchar("responsavel", { length: 255 }).notNull(),
+  email: varchar("email", { length: 255 }),
+  telefone: varchar("telefone", { length: 20 }).notNull(),
+  servicos: text("servicos").default("[]").notNull(),
+  status: bpoClientStatusEnum("status").default("ativo").notNull(),
+  honorarios: decimal("honorarios", { precision: 15, scale: 2 }).notNull(),
+  diaVencimento: integer("dia_vencimento").default(10).notNull(),
+  dataInicio: timestamp("data_inicio").notNull(),
+  observacoes: text("observacoes").default("").notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+export type BpoClient = typeof bpoClients.$inferSelect;
+export type InsertBpoClient = typeof bpoClients.$inferInsert;
+
+export const bpoLancamentos = pgTable("bpo_lancamentos", {
+  id: serial("id").primaryKey(),
+  clienteId: integer("cliente_id").references(() => bpoClients.id, { onDelete: "set null" }),
+  clienteNomeLivre: varchar("cliente_nome_livre", { length: 255 }),
+  tipo: bpoLancamentoTipoEnum("tipo").notNull(),
+  descricao: varchar("descricao", { length: 500 }).notNull(),
+  valor: decimal("valor", { precision: 15, scale: 2 }).notNull(),
+  vencimento: timestamp("vencimento").notNull(),
+  pago: boolean("pago").default(false).notNull(),
+  pagoEm: timestamp("pago_em"),
+  competencia: varchar("competencia", { length: 7 }).notNull(),
+  centroCustos: varchar("centro_custos", { length: 100 }),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+export type BpoLancamento = typeof bpoLancamentos.$inferSelect;
+export type InsertBpoLancamento = typeof bpoLancamentos.$inferInsert;
 
 export const imovelStatusEnum = pgEnum("imovel_status", ["disponivel", "reservado", "vendido", "alugado"]);
 
