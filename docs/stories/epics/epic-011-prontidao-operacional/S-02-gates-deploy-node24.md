@@ -1,6 +1,6 @@
 # EPIC-011 S-02 — Tornar o deploy verificável e compatível com Node 24
 
-**Status:** InProgress
+**Status:** InReview
 **Owner:** AIOX SDC (`@sm` → `@po` → `@dev` → `@qa` → `@devops`)
 **Prioridade:** P0
 
@@ -17,12 +17,12 @@ Como responsável pela operação, quero que todo preview execute testes e typec
 
 ## Critérios de aceitação
 
-- [ ] AC-01: o build do preview executa os testes de sessão e o typecheck antes do Vite.
-- [ ] AC-02: falha em teste ou typecheck interrompe o deploy.
-- [ ] AC-03: as funções serverless são analisadas sem os erros TypeScript observados no baseline.
-- [ ] AC-04: o runtime declarado é Node 24.
-- [ ] AC-05: título, favicon e ícone Apple possuem valores válidos mesmo sem variáveis Vite.
-- [ ] AC-06: o HTML não referencia um endpoint de analytics inexistente.
+- [x] AC-01: o build do preview executa os testes de sessão e o typecheck antes do Vite.
+- [x] AC-02: falha em teste ou typecheck interrompe o deploy.
+- [x] AC-03: as funções serverless são analisadas sem os erros TypeScript observados no baseline.
+- [x] AC-04: o runtime declarado é Node 24.
+- [x] AC-05: título, favicon e ícone Apple possuem valores válidos mesmo sem variáveis Vite.
+- [x] AC-06: o HTML não referencia um endpoint de analytics inexistente.
 
 ## File List
 
@@ -39,3 +39,4 @@ Como responsável pela operação, quero que todo preview execute testes e typec
 - 2026-09-09 — `@sm`: story criada em Draft a partir do log real do preview.
 - 2026-09-09 — `@po`: validada como bloqueio P0 e movida para Ready.
 - 2026-09-09 — `@dev`: implementação iniciada; Ready → InProgress.
+- 2026-09-09 — `@qa`: 266 testes, typecheck, Vite e empacotamento serverless aprovados no Node 24; InProgress → InReview.
