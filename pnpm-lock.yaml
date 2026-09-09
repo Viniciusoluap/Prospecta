@@ -121,12 +121,33 @@ importers:
       '@trpc/server':
         specifier: ^11.6.0
         version: 11.6.0(typescript@5.9.3)
+      '@turf/helpers':
+        specifier: ^7.4.0
+        version: 7.4.0
       '@turf/turf':
         specifier: ^7.4.0
         version: 7.4.0
+      '@types/express':
+        specifier: 4.17.21
+        version: 4.17.21
+      '@types/express-serve-static-core':
+        specifier: 4.19.6
+        version: 4.19.6
+      '@types/geojson':
+        specifier: ^7946.0.16
+        version: 7946.0.16
       '@types/jsonwebtoken':
         specifier: ^9.0.10
         version: 9.0.10
+      '@types/node':
+        specifier: ^24.7.0
+        version: 24.7.0
+      '@types/qs':
+        specifier: 6.14.0
+        version: 6.14.0
+      '@types/serve-static':
+        specifier: 1.15.9
+        version: 1.15.9
       '@xmldom/xmldom':
         specifier: ^0.9.12
         version: 0.9.12
@@ -257,21 +278,12 @@ importers:
       '@tailwindcss/vite':
         specifier: ^4.1.3
         version: 4.1.14(vite@7.1.9(@types/node@24.7.0)(jiti@2.6.1)(lightningcss@1.30.1)(tsx@4.20.6))
-      '@types/express':
-        specifier: 4.17.21
-        version: 4.17.21
-      '@types/geojson':
-        specifier: ^7946.0.16
-        version: 7946.0.16
       '@types/google.maps':
         specifier: ^3.58.1
         version: 3.58.1
       '@types/leaflet':
         specifier: ^1.9.22
         version: 1.9.22
-      '@types/node':
-        specifier: ^24.7.0
-        version: 24.7.0
       '@types/nodemailer':
         specifier: ^7.0.4
         version: 7.0.4

@@ -1,5 +1,4 @@
 import { useState } from "react";
-import { useLocation } from "wouter";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -8,7 +7,6 @@ import { Alert, AlertDescription } from "@/components/ui/alert";
 import { AlertCircle, Loader2 } from "lucide-react";
 
 export default function Login() {
-  const [, setLocation] = useLocation();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -41,15 +39,15 @@ export default function Login() {
         return;
       }
 
-      if (data.role === "cliente") {
-        setLocation("/portal");
-      } else if (data.role === "admin") {
-        setLocation("/admin");
-      } else {
-        setLocation("/");
-      }
-      // Force reload so useAuth re-initializes
-      window.location.reload();
+      const destination = data.role === "cliente"
+        ? "/portal"
+        : data.role === "admin"
+          ? "/admin"
+          : "/";
+
+      // A full, single navigation starts the protected route with a fresh
+      // auth query and avoids the setLocation + reload race seen on Safari.
+      window.location.assign(destination);
     } catch {
       setError("Erro de conexão. Tente novamente.");
     } finally {

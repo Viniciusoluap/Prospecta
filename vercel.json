@@ -1,6 +1,6 @@
 {
   "version": 2,
-  "buildCommand": "vite build",
+  "buildCommand": "pnpm test -- server/auth-session.test.ts && pnpm check && vite build",
   "outputDirectory": "dist/public",
   "installCommand": "pnpm install",
   "framework": null,
