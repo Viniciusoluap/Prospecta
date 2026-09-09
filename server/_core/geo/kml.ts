@@ -5,7 +5,8 @@
 
 import { kml as kmlToGeoJSON } from "@tmcw/togeojson";
 import { DOMParser } from "@xmldom/xmldom";
-import { area, length, centroid, polygon as turfPolygon, lineString } from "@turf/turf";
+import { lineString, polygon as turfPolygon } from "@turf/helpers";
+import { area, centroid, length } from "@turf/turf";
 import type { Feature, Polygon, Position } from "geojson";
 
 export interface TerrenoGeo {
