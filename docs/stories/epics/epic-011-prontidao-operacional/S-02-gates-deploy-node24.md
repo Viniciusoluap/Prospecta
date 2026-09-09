@@ -29,7 +29,9 @@ Como responsável pela operação, quero que todo preview execute testes e typec
 - `package.json`
 - `pnpm-lock.yaml`
 - `vercel.json`
+- `tsconfig.json`
 - `client/index.html`
+- `server/_core/geo/kml.ts`
 - `docs/stories/epics/epic-011-prontidao-operacional/S-02-gates-deploy-node24.md`
 
 ## Change Log
