@@ -1,9 +1,9 @@
 import { createHmac, randomBytes, timingSafeEqual } from "crypto";
 import jwt from "jsonwebtoken";
 import type { Request } from "express";
+import { COOKIE_NAME } from "../../shared/const.js";
 
 const JWT_SECRET = process.env.JWT_SECRET ?? "change-me-in-production";
-const COOKIE_NAME = "session";
 
 export function hashPassword(password: string): string {
   const salt = randomBytes(16).toString("hex");
