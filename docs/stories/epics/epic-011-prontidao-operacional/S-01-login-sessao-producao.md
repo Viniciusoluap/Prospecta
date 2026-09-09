@@ -1,6 +1,6 @@
 # EPIC-011 S-01 — Corrigir persistência da sessão em produção
 
-**Status:** InProgress
+**Status:** InReview
 **Owner:** AIOX SDC (`@sm` → `@po` → `@dev` → `@qa`)
 **Prioridade:** P0
 
@@ -19,13 +19,13 @@ Como administrador da Prospecta, quero que o login por email e senha mantenha a 
 
 ## Critérios de aceitação
 
-- [ ] AC-01: login e leitura de sessão usam o mesmo nome canônico de cookie.
-- [ ] AC-02: cookie de autenticação usa política same-origin compatível com Safari e continua seguro em produção.
-- [ ] AC-03: login bem-sucedido faz navegação única para `/admin`, `/portal` ou `/`, conforme o papel.
-- [ ] AC-04: rotas protegidas sem sessão redirecionam para `/login`, sem dependência do OAuth legado Manus.
-- [ ] AC-05: logout remove o mesmo cookie criado pelo login.
-- [ ] AC-06: testes automatizados cobrem nome, flags de produção/proxy e ambiente local.
-- [ ] AC-07: typecheck, testes e build passam.
+- [x] AC-01: login e leitura de sessão usam o mesmo nome canônico de cookie.
+- [x] AC-02: cookie de autenticação usa política same-origin compatível com Safari e continua seguro em produção.
+- [x] AC-03: login bem-sucedido faz navegação única para `/admin`, `/portal` ou `/`, conforme o papel.
+- [x] AC-04: rotas protegidas sem sessão redirecionam para `/login`, sem dependência do OAuth legado Manus.
+- [x] AC-05: logout remove o mesmo cookie criado pelo login.
+- [x] AC-06: testes automatizados cobrem nome, flags de produção/proxy e ambiente local.
+- [x] AC-07: typecheck, testes e build passam.
 - [ ] AC-08: após deploy, login real e `auth.me` autenticado são validados no domínio de produção.
 
 ## Fora de escopo
@@ -54,3 +54,4 @@ Como administrador da Prospecta, quero que o login por email e senha mantenha a 
 - 2026-09-09 — `@sm`: story criada em Draft a partir do incidente real.
 - 2026-09-09 — `@po`: validada GO (10/10) e movida para Ready.
 - 2026-09-09 — `@dev`: implementação iniciada; Ready → InProgress.
+- 2026-09-09 — `@qa`: 266 testes, typecheck e build aprovados no preview; InProgress → InReview. AC-08 aguarda validação após produção.
