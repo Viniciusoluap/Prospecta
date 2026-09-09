@@ -13,7 +13,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Alert, AlertDescription } from "@/components/ui/alert";
-import { Loader2, CheckCircle2, XCircle, ArrowLeft } from "lucide-react";
+import { Loader2, CheckCircle2, XCircle, ArrowLeft, Landmark } from "lucide-react";
 import { trpc } from "@/lib/trpc";
 import { toast } from "sonner";
 
@@ -23,6 +23,8 @@ export default function ConfiguracoesPagamento() {
   const [provider, setProvider] = useState<"asaas" | "stripe">("asaas");
   const [asaasApiKey, setAsaasApiKey] = useState("");
   const [asaasWebhookToken, setAsaasWebhookToken] = useState("");
+  const [pluggyClientId, setPluggyClientId] = useState("");
+  const [pluggyClientSecret, setPluggyClientSecret] = useState("");
   const [environment, setEnvironment] = useState<"sandbox" | "production">(
     "sandbox"
   );
@@ -37,6 +39,18 @@ export default function ConfiguracoesPagamento() {
   });
   const validateMutation = trpc.paymentSettings.validate.useMutation();
   const saveMutation = trpc.paymentSettings.save.useMutation();
+  const pluggyStatusQuery = trpc.pluggySettings.status.useQuery(undefined, {
+    enabled: user?.role === "admin",
+  });
+  const savePluggyMutation = trpc.pluggySettings.save.useMutation({
+    onSuccess: async () => {
+      await utils.pluggySettings.status.invalidate();
+      setPluggyClientId("");
+      setPluggyClientSecret("");
+      toast.success("Credenciais Pluggy salvas com segurança!");
+    },
+    onError: error => toast.error(error.message),
+  });
 
   // Redirect if not admin
   if (!authLoading && user?.role !== "admin") {
@@ -316,6 +330,56 @@ export default function ConfiguracoesPagamento() {
             </CardContent>
           </Card>
         )}
+
+        {/* Integrações bancárias centralizadas — não ficam duplicadas no BPO */}
+        <Card className="mt-6 bg-white/5 border-white/10">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2 text-white">
+              <Landmark className="h-5 w-5 text-[#C9A961]" /> Open Finance — Pluggy
+            </CardTitle>
+            <CardDescription className="text-gray-400">
+              Credenciais para sincronização das contas bancárias utilizadas pelo BPO.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <p className="text-sm text-gray-400">
+              {pluggyStatusQuery.data?.configured
+                ? "Integração configurada. Preencha os campos somente para substituir as credenciais atuais."
+                : "Integração ainda não configurada. As contas continuam disponíveis para lançamentos manuais."}
+            </p>
+            <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+              <div className="space-y-2">
+                <Label htmlFor="pluggy-client-id" className="text-white">Client ID</Label>
+                <Input
+                  id="pluggy-client-id"
+                  type="password"
+                  autoComplete="off"
+                  value={pluggyClientId}
+                  onChange={event => setPluggyClientId(event.target.value)}
+                  className="bg-white/10 border-white/20 text-white"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="pluggy-client-secret" className="text-white">Client Secret</Label>
+                <Input
+                  id="pluggy-client-secret"
+                  type="password"
+                  autoComplete="off"
+                  value={pluggyClientSecret}
+                  onChange={event => setPluggyClientSecret(event.target.value)}
+                  className="bg-white/10 border-white/20 text-white"
+                />
+              </div>
+            </div>
+            <Button
+              onClick={() => savePluggyMutation.mutate({ clientId: pluggyClientId, clientSecret: pluggyClientSecret })}
+              disabled={savePluggyMutation.isPending || !pluggyClientId || !pluggyClientSecret}
+              className="w-full bg-[#C9A961] font-bold text-[#1A2332] hover:bg-[#B8985A]"
+            >
+              {savePluggyMutation.isPending ? "Validando..." : "Salvar credenciais Pluggy"}
+            </Button>
+          </CardContent>
+        </Card>
       </div>
     </div>
   );
