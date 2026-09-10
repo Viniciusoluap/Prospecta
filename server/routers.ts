@@ -24,6 +24,7 @@ import { authenticatePluggy, fetchPluggyTransactions, fetchPluggyAccountBalance 
 import { parseKmlTerreno } from "./_core/geo/kml.js";
 import { fetchElevationGrid } from "./_core/geo/elevacao.js";
 import { pesquisarMercado } from "./_core/incorporacao/mercado-ia.js";
+import { financiamentoRouter } from "./financiamento-router.js";
 
 // Helper para gerar número de bilhete único
 function generateTicketNumber(): string {
@@ -91,6 +92,7 @@ export const appRouter = router({
   regularizacao: regularizacaoRouter,
   portal: portalRouter,
   whatsapp: whatsappRouter,
+  financiamentos: financiamentoRouter,
   auth: router({
     me: publicProcedure.query(opts => opts.ctx.user),
     logout: publicProcedure.mutation(({ ctx }) => {
