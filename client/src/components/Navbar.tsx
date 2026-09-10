@@ -265,8 +265,44 @@ export default function Navbar() {
           <DesktopNavLink href="/contato">Contato</DesktopNavLink>
           <DesktopNavLink href="/sorteios">Sorteios</DesktopNavLink>
           {isAuthenticated && <DesktopNavLink href="/obras">Obras</DesktopNavLink>}
-          {!isAuthenticated && <DesktopNavLink href={getLoginUrl()}>Entrar</DesktopNavLink>}
-          {user?.role === "admin" && <DesktopNavLink href="/admin">Painel Admin</DesktopNavLink>}
+          {!isAuthenticated ? (
+            <DesktopNavLink href={getLoginUrl()}>Entrar</DesktopNavLink>
+          ) : (
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant="ghost" className="px-3 py-2 text-sm font-medium text-foreground/75 hover:bg-primary/10 hover:text-primary">
+                  <User className="mr-2 h-4 w-4" />
+                  Minha Conta
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="w-56">
+                <DropdownMenuItem asChild>
+                  <Link href="/meus-bilhetes"><Ticket className="mr-2 h-4 w-4" />Meus Bilhetes</Link>
+                </DropdownMenuItem>
+                <DropdownMenuItem asChild>
+                  <Link href="/meu-saldo"><Coins className="mr-2 h-4 w-4" />Meu Saldo UTEF</Link>
+                </DropdownMenuItem>
+                <DropdownMenuItem asChild>
+                  <Link href="/minhas-conversoes"><ShoppingBag className="mr-2 h-4 w-4" />Minhas Conversões</Link>
+                </DropdownMenuItem>
+                {user?.role === "admin" && (
+                  <>
+                    <DropdownMenuSeparator />
+                    <DropdownMenuItem asChild>
+                      <Link href="/admin"><Settings className="mr-2 h-4 w-4" />Painel Admin</Link>
+                    </DropdownMenuItem>
+                  </>
+                )}
+                <DropdownMenuSeparator />
+                <DropdownMenuItem
+                  className="text-red-600 focus:text-red-600"
+                  onSelect={handleLogout}
+                >
+                  <LogOut className="mr-2 h-4 w-4" />Sair
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          )}
         </div>
       </div>
     </nav>
