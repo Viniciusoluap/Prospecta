@@ -11,7 +11,7 @@ import Navbar from "@/components/Navbar";
 import { trpc } from "@/lib/trpc";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { formatCurrency, formatUtef, getLoginUrl } from "@/const";
-import { Settings, Plus, Ticket, ShoppingBag, AlertCircle, Users, BookOpen, CheckSquare, HardHat, UserCheck, FileCheck2, ClipboardCheck, Building2, Mountain, MessageCircle, Receipt } from "lucide-react";
+import { Settings, Plus, Ticket, ShoppingBag, AlertCircle, Users, BookOpen, CheckSquare, HardHat, UserCheck, FileCheck2, ClipboardCheck, Building2, Mountain, MessageCircle, Receipt, Landmark } from "lucide-react";
 import { toast } from "sonner";
 import {
   Select,
@@ -218,6 +218,12 @@ export default function Admin() {
                   <Button variant="outline" className="w-full h-20 flex flex-col gap-2 border-[#C9A961]/30 hover:bg-[#C9A961]/10">
                     <Receipt className="h-5 w-5 text-[#C9A961]" />
                     <span>BPO Financeiro</span>
+                  </Button>
+                </Link>
+                <Link href="/admin/financiamentos">
+                  <Button variant="outline" className="w-full h-20 flex flex-col gap-2 border-blue-500/30 hover:bg-blue-500/10">
+                    <Landmark className="h-5 w-5 text-blue-400" />
+                    <span>Financiamentos</span>
                   </Button>
                 </Link>
               </div>
