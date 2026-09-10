@@ -35,4 +35,3 @@ Antes de declarar os dois sistemas 100% operacionais, produzir uma matriz funcio
 - teste automatizado;
 - evidência de produção;
 - exceção aprovada pelo proprietário, quando houver.
-
