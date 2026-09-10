@@ -63,6 +63,16 @@ export const bpoLancamentoTipoEnum = pgEnum("bpo_lancamento_tipo", ["honorario",
 export const financialTransactionStatusEnum = pgEnum("financial_transaction_status", [
   "pending", "paid", "cancelled",
 ]);
+export const financiamentoTipoEnum = pgEnum("financiamento_tipo", [
+  "mcmv", "sbpe", "pro_cotista", "construcao", "reforma",
+]);
+export const financiamentoBancoEnum = pgEnum("financiamento_banco", [
+  "caixa", "bb", "bradesco", "itau", "santander", "outro",
+]);
+export const financiamentoStatusEnum = pgEnum("financiamento_status", [
+  "pre_analise", "documentacao", "analise_banco", "aprovado",
+  "contrato", "registro", "liberado", "cancelado",
+]);
 
 // ──────────────────────────────────────────
 // TABLES
@@ -536,6 +546,49 @@ export const financialTransactions = pgTable("financial_transactions", {
 
 export type FinancialTransaction = typeof financialTransactions.$inferSelect;
 export type InsertFinancialTransaction = typeof financialTransactions.$inferInsert;
+
+// ========== FINANCIAMENTOS ==========
+
+export const financiamentos = pgTable("financiamentos", {
+  id: serial("id").primaryKey(),
+  clienteNome: varchar("cliente_nome", { length: 255 }).notNull(),
+  clienteCpf: varchar("cliente_cpf", { length: 14 }),
+  clienteTel: varchar("cliente_tel", { length: 30 }).notNull(),
+  clienteEmail: varchar("cliente_email", { length: 320 }),
+  imovel: varchar("imovel", { length: 500 }).notNull(),
+  tipo: financiamentoTipoEnum("tipo").notNull(),
+  banco: financiamentoBancoEnum("banco").notNull(),
+  bancoOutro: varchar("banco_outro", { length: 120 }),
+  valorImovel: decimal("valor_imovel", { precision: 15, scale: 2 }).default("0").notNull(),
+  valorFinanciado: decimal("valor_financiado", { precision: 15, scale: 2 }).default("0").notNull(),
+  entrada: decimal("entrada", { precision: 15, scale: 2 }).default("0").notNull(),
+  taxa: decimal("taxa", { precision: 8, scale: 4 }).default("0").notNull(),
+  prazo: integer("prazo").default(360).notNull(),
+  parcela: decimal("parcela", { precision: 15, scale: 2 }),
+  status: financiamentoStatusEnum("status").default("pre_analise").notNull(),
+  protocolo: varchar("protocolo", { length: 120 }),
+  leadId: integer("lead_id").references(() => leads.id, { onDelete: "set null" }),
+  imovelVinculadoId: integer("imovel_vinculado_id").references(() => imoveis.id, { onDelete: "set null" }),
+  corretorId: integer("corretor_id").references(() => users.id, { onDelete: "set null" }),
+  observacoes: text("observacoes"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+export type Financiamento = typeof financiamentos.$inferSelect;
+export type InsertFinanciamento = typeof financiamentos.$inferInsert;
+
+export const financiamentoChecklistItems = pgTable("financiamento_checklist_items", {
+  id: serial("id").primaryKey(),
+  financiamentoId: integer("financiamento_id").notNull().references(() => financiamentos.id, { onDelete: "cascade" }),
+  grupo: varchar("grupo", { length: 80 }).notNull(),
+  item: varchar("item", { length: 255 }).notNull(),
+  concluido: boolean("concluido").default(false).notNull(),
+  concluidoEm: timestamp("concluido_em"),
+  notas: text("notas"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+export type FinanciamentoChecklistItem = typeof financiamentoChecklistItems.$inferSelect;
+export type InsertFinanciamentoChecklistItem = typeof financiamentoChecklistItems.$inferInsert;
 
 export const paymentSettings = pgTable("payment_settings", {
   id: serial("id").primaryKey(),
