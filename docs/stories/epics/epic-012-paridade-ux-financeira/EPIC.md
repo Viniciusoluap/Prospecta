@@ -1,7 +1,9 @@
 # EPIC-012: Paridade real, navegação e arquitetura financeira
 
-**Owner:** Codex / AIOX  
-**Status:** Em andamento  
+**Owner:** Codex / AIOX
+
+**Status:** Em andamento
+
 **Origem:** validação visual do proprietário em produção (8 evidências, 09/09/2026)
 
 ## Problema
@@ -45,4 +47,3 @@ O Grupo Santa Fé continua sendo a fonte da verdade para regras de negócio. Lan
 - Configurações de Pagamento apresenta Asaas, Stripe (estado atual) e Pluggy.
 - Painel administrativo apresenta Contabilidade e BPO Financeiro como funções distintas.
 - Typecheck, testes e build passam antes da publicação.
-
