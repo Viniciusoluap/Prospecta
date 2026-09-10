@@ -3,6 +3,7 @@ import {
   FINANCIAMENTO_CHECKLIST_PADRAO,
   FINANCIAMENTO_STATUS,
   financiamentoInputSchema,
+  financiamentoUpdateSchema,
 } from "../shared/financiamento";
 
 const valido = {
@@ -36,5 +37,9 @@ describe("financiamentoInputSchema", () => {
     expect(new Set(FINANCIAMENTO_CHECKLIST_PADRAO.map((item) => item.grupo))).toEqual(
       new Set(["Comprador", "Imóvel", "Banco"]),
     );
+  });
+
+  it("permite atualização parcial sem exigir os dois valores", () => {
+    expect(financiamentoUpdateSchema.parse({ protocolo: "CEF-123" })).toEqual({ protocolo: "CEF-123" });
   });
 });
