@@ -9,7 +9,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import Navbar from "@/components/Navbar";
 import SEO from "@/components/SEO";
 import { trpc } from "@/lib/trpc";
-import { ArrowLeft, Bed, Bath, Car, Ruler, MapPin, Search, Building2 } from "lucide-react";
+import { ArrowLeft, Bed, Bath, Car, Ruler, MapPin, Search, Building2, FileText, BarChart3 } from "lucide-react";
 import type { inferRouterOutputs } from "@trpc/server";
 import type { AppRouter } from "../../../server/routers";
 
@@ -96,8 +96,24 @@ export default function Imoveis() {
             <div className="text-center space-y-4">
               <h1 className="text-5xl font-bold text-[#C9A961]">Imóveis</h1>
               <p className="text-xl text-gray-300 max-w-3xl mx-auto">
-                Confira as oportunidades disponíveis
+                Catálogo, projetos e inteligência de mercado em uma única jornada
               </p>
+            </div>
+
+            <div className="grid gap-3 md:grid-cols-3" aria-label="Serviços de imóveis">
+              <Button className="h-14 bg-[#C9A961] font-bold text-[#1A2332] hover:bg-[#B8985A]">
+                <Building2 className="mr-2 h-5 w-5" /> Catálogo de Imóveis
+              </Button>
+              <Link href="/projetos-orcamentos">
+                <Button variant="outline" className="h-14 w-full border-[#C9A961]/40 text-[#C9A961] hover:bg-[#C9A961]/10">
+                  <FileText className="mr-2 h-5 w-5" /> Projetos e Orçamentos
+                </Button>
+              </Link>
+              <Link href="/mercado">
+                <Button variant="outline" className="h-14 w-full border-[#C9A961]/40 text-[#C9A961] hover:bg-[#C9A961]/10">
+                  <BarChart3 className="mr-2 h-5 w-5" /> Mercado de Imóveis
+                </Button>
+              </Link>
             </div>
 
             <Card className="bg-[#1A2332]/60 border-[#C9A961]/20 backdrop-blur-sm">

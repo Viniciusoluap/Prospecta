@@ -81,7 +81,8 @@ export default function AdminFinanceiro() {
               </Button>
             </Link>
             <div>
-              <h1 className="text-2xl font-bold text-[#C9A961]">Financeiro</h1>
+              <h1 className="text-2xl font-bold text-[#C9A961]">Contabilidade</h1>
+              <p className="text-sm text-gray-400">Livro-razão, contas a pagar e contas a receber</p>
               <p className="text-gray-400 text-sm">Contas a pagar/receber, receitas e despesas</p>
             </div>
           </div>

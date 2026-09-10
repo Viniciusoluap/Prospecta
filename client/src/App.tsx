@@ -138,6 +138,10 @@ function Router() {
       <Route path="/admin/crm">
         <AdminRoute><AdminCRM /></AdminRoute>
       </Route>
+      <Route path="/admin/contabilidade">
+        <AdminRoute><AdminFinanceiro /></AdminRoute>
+      </Route>
+      {/* Compatibilidade temporária para favoritos antigos; não aparece mais na interface. */}
       <Route path="/admin/financeiro">
         <AdminRoute><AdminFinanceiro /></AdminRoute>
       </Route>

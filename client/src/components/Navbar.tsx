@@ -10,8 +10,9 @@ import {
   SheetTrigger,
 } from "@/components/ui/sheet";
 import { trpc } from "@/lib/trpc";
-import { User, LogOut, Ticket, Coins, ShoppingBag, Settings, Plus, Phone, MessageCircle, HardHat, Menu, Home as HomeIcon, FileText, DollarSign, Gift, Building2, Bell, Wrench, Info, Search, GraduationCap, HandHeart } from "lucide-react";
+import { User, LogOut, Ticket, Coins, ShoppingBag, Settings, Plus, Phone, MessageCircle, HardHat, Menu, Home as HomeIcon, FileText, DollarSign, Gift, Building2, Bell, Wrench, Info, GraduationCap, HandHeart } from "lucide-react";
 import { useState } from "react";
+import type { ReactNode } from "react";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -40,21 +41,22 @@ export default function Navbar() {
 
   return (
     <nav className="border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60 sticky top-0 z-50">
-      <div className="container flex h-16 items-center justify-between px-4">
-        {/* Menu Hambúrguer (Esquerda) */}
+      <div className="container px-4">
+        <div className="flex h-16 items-center justify-between md:justify-center">
+        {/* Menu hambúrguer: somente em telas pequenas */}
         <Sheet open={mobileMenuOpen} onOpenChange={setMobileMenuOpen}>
           <SheetTrigger asChild>
-            <Button variant="ghost" size="icon" className="text-primary hover:bg-primary/10">
+            <Button variant="ghost" size="icon" className="text-primary hover:bg-primary/10 md:hidden">
               <Menu className="h-6 w-6" />
               <span className="sr-only">Menu</span>
             </Button>
           </SheetTrigger>
-          <SheetContent side="left" className="w-[300px] sm:w-[400px]">
+          <SheetContent side="left" className="w-[300px] sm:w-[400px] gap-0">
             <SheetHeader>
               <SheetTitle className="text-primary">Menu</SheetTitle>
             </SheetHeader>
-            <ScrollArea className="h-[calc(100vh-8rem)] mt-6">
-              <div className="flex flex-col gap-4">
+            <ScrollArea className="flex-1 min-h-0">
+              <div className="flex flex-col gap-4 px-1 pb-8">
                 {/* Início */}
                 <Link href="/" onClick={closeMobileMenu}>
                   <Button variant="ghost" className="w-full justify-start text-base">
@@ -63,15 +65,7 @@ export default function Navbar() {
                   </Button>
                 </Link>
 
-                {/* Projetos e Orçamentos */}
-                <Link href="/projetos-orcamentos" onClick={closeMobileMenu}>
-                  <Button variant="ghost" className="w-full justify-start text-base">
-                    <FileText className="mr-3 h-5 w-5" />
-                    Projetos e Orçamentos
-                  </Button>
-                </Link>
-
-                {/* Imóveis */}
+                {/* Jornada imobiliária consolidada */}
                 <Link href="/imoveis" onClick={closeMobileMenu}>
                   <Button variant="ghost" className="w-full justify-start text-base">
                     <Building2 className="mr-3 h-5 w-5" />
@@ -103,12 +97,6 @@ export default function Navbar() {
                       <Button variant="ghost" className="w-full justify-start">
                         <Info className="mr-3 h-4 w-4" />
                         Sobre Nós
-                      </Button>
-                    </Link>
-                    <Link href="/mercado" onClick={closeMobileMenu}>
-                      <Button variant="ghost" className="w-full justify-start">
-                        <Search className="mr-3 h-4 w-4" />
-                        Mercado de Imóveis
                       </Button>
                     </Link>
                     <Link href="/cursos" onClick={closeMobileMenu}>
@@ -253,19 +241,79 @@ export default function Navbar() {
           </SheetContent>
         </Sheet>
 
-        {/* Logo + Nome (Centro) */}
-        <Link href="/" className="flex items-center gap-2 font-bold text-primary hover:opacity-80 transition-opacity absolute left-1/2 transform -translate-x-1/2">
+        {/* Logo + Nome */}
+        <Link href="/" className="flex items-center gap-2 font-bold text-primary hover:opacity-80 transition-opacity">
           <img src={APP_LOGO} alt={APP_TITLE} className="h-8 w-auto" />
           <span className="hidden md:inline text-lg whitespace-nowrap">{APP_TITLE}</span>
         </Link>
 
         {/* Notificações (Direita) */}
-        <div className="flex items-center gap-3">
+        <div className="flex w-10 items-center justify-end gap-3 md:absolute md:right-4 md:w-auto">
           {/* Badge de Notificações (apenas para usuários logados) */}
           {isAuthenticated && <NotificationBell />}
         </div>
+        </div>
+
+        {/* Navegação completa em tablet/desktop, seguindo a lógica do Santa Fé */}
+        <div className="hidden md:flex min-h-12 flex-wrap items-center justify-center gap-1 border-t py-1">
+          <DesktopNavLink href="/">Início</DesktopNavLink>
+          <DesktopNavLink href="/imoveis">Imóveis</DesktopNavLink>
+          <DesktopNavLink href="/servicos">Serviços</DesktopNavLink>
+          <DesktopNavLink href="/sobre">Sobre Nós</DesktopNavLink>
+          <DesktopNavLink href="/cursos">Cursos</DesktopNavLink>
+          <DesktopNavLink href="/instituto">Instituto</DesktopNavLink>
+          <DesktopNavLink href="/contato">Contato</DesktopNavLink>
+          <DesktopNavLink href="/sorteios">Sorteios</DesktopNavLink>
+          {isAuthenticated && <DesktopNavLink href="/obras">Obras</DesktopNavLink>}
+          {!isAuthenticated ? (
+            <DesktopNavLink href={getLoginUrl()}>Entrar</DesktopNavLink>
+          ) : (
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant="ghost" className="px-3 py-2 text-sm font-medium text-foreground/75 hover:bg-primary/10 hover:text-primary">
+                  <User className="mr-2 h-4 w-4" />
+                  Minha Conta
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="w-56">
+                <DropdownMenuItem asChild>
+                  <Link href="/meus-bilhetes"><Ticket className="mr-2 h-4 w-4" />Meus Bilhetes</Link>
+                </DropdownMenuItem>
+                <DropdownMenuItem asChild>
+                  <Link href="/meu-saldo"><Coins className="mr-2 h-4 w-4" />Meu Saldo UTEF</Link>
+                </DropdownMenuItem>
+                <DropdownMenuItem asChild>
+                  <Link href="/minhas-conversoes"><ShoppingBag className="mr-2 h-4 w-4" />Minhas Conversões</Link>
+                </DropdownMenuItem>
+                {user?.role === "admin" && (
+                  <>
+                    <DropdownMenuSeparator />
+                    <DropdownMenuItem asChild>
+                      <Link href="/admin"><Settings className="mr-2 h-4 w-4" />Painel Admin</Link>
+                    </DropdownMenuItem>
+                  </>
+                )}
+                <DropdownMenuSeparator />
+                <DropdownMenuItem
+                  className="text-red-600 focus:text-red-600"
+                  onSelect={handleLogout}
+                >
+                  <LogOut className="mr-2 h-4 w-4" />Sair
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          )}
+        </div>
       </div>
     </nav>
+  );
+}
+
+function DesktopNavLink({ href, children }: { href: string; children: ReactNode }) {
+  return (
+    <Link href={href} className="rounded-md px-3 py-2 text-sm font-medium text-foreground/75 transition-colors hover:bg-primary/10 hover:text-primary">
+      {children}
+    </Link>
   );
 }
 

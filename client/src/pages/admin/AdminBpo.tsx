@@ -9,7 +9,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Textarea } from "@/components/ui/textarea";
 import { toast } from "sonner";
-import { ArrowLeft, Building2, Receipt, TrendingDown, BarChart3, Plus, Landmark, Lock, RefreshCw } from "lucide-react";
+import { ArrowLeft, Building2, Receipt, TrendingDown, BarChart3, Plus, Landmark, RefreshCw } from "lucide-react";
 
 function formatCurrencyBR(value: number | string | null | undefined) {
   if (!value) return "R$ 0,00";
@@ -36,8 +36,6 @@ const emptyContaForm = {
   descricao: "", saldoAtual: "0", pluggyAccountId: "",
 };
 
-const emptyCredForm = { clientId: "", clientSecret: "" };
-
 export default function AdminBpo() {
   const [aba, setAba] = useState<Aba>("clientes");
   const [clienteOpen, setClienteOpen] = useState(false);
@@ -46,14 +44,12 @@ export default function AdminBpo() {
   const [clienteForm, setClienteForm] = useState(emptyClienteForm);
   const [lancamentoForm, setLancamentoForm] = useState(emptyLancamentoForm);
   const [contaForm, setContaForm] = useState(emptyContaForm);
-  const [credForm, setCredForm] = useState(emptyCredForm);
 
   const utils = trpc.useUtils();
   const { data: clientes = [] } = trpc.bpo.clientes.list.useQuery();
   const { data: lancamentos = [] } = trpc.bpo.lancamentos.list.useQuery();
   const { data: dreRows = [] } = trpc.bpo.dre.useQuery();
   const { data: contas = [] } = trpc.bancario.contas.list.useQuery();
-  const { data: pluggyStatus } = trpc.pluggySettings.status.useQuery();
 
   const createCliente = trpc.bpo.clientes.create.useMutation({
     onSuccess: () => { toast.success("Cliente BPO cadastrado!"); utils.bpo.clientes.list.invalidate(); setClienteOpen(false); setClienteForm(emptyClienteForm); },
@@ -84,10 +80,6 @@ export default function AdminBpo() {
     onError: (e) => toast.error(e.message),
   });
 
-  const savePluggyCreds = trpc.pluggySettings.save.useMutation({
-    onSuccess: () => { toast.success("Credenciais Pluggy salvas!"); utils.pluggySettings.status.invalidate(); setCredForm(emptyCredForm); },
-    onError: (e) => toast.error(e.message),
-  });
 
   const cobrancas = lancamentos.filter((l: any) => l.tipo !== "despesa");
   const despesas = lancamentos.filter((l: any) => l.tipo === "despesa");
@@ -456,38 +448,6 @@ export default function AdminBpo() {
 
         {aba === "bancos" && (
           <div className="space-y-6">
-            <Card className="bg-[#2C3E50] border-[#C9A961]/20">
-              <CardHeader>
-                <CardTitle className="text-[#C9A961] flex items-center gap-2">
-                  <Lock className="h-4 w-4" /> Credenciais Pluggy
-                </CardTitle>
-              </CardHeader>
-              <CardContent>
-                <p className="text-sm text-gray-400 mb-3">
-                  {pluggyStatus?.configured
-                    ? "Credenciais Pluggy configuradas (armazenadas criptografadas no banco). Preencha novamente para substituir."
-                    : "Sem credenciais Pluggy configuradas ainda. Sem elas, contas sem pluggyAccountId funcionam normalmente (saldo/lançamentos manuais); a sincronização automática fica indisponível até configurar."}
-                </p>
-                <div className="grid grid-cols-2 gap-4">
-                  <div>
-                    <Label className="text-gray-300">Client ID</Label>
-                    <Input type="password" value={credForm.clientId} onChange={e => setCredForm(f => ({ ...f, clientId: e.target.value }))} className="bg-[#1A2332] border-[#C9A961]/30 text-white mt-1" />
-                  </div>
-                  <div>
-                    <Label className="text-gray-300">Client Secret</Label>
-                    <Input type="password" value={credForm.clientSecret} onChange={e => setCredForm(f => ({ ...f, clientSecret: e.target.value }))} className="bg-[#1A2332] border-[#C9A961]/30 text-white mt-1" />
-                  </div>
-                </div>
-                <Button
-                  onClick={() => savePluggyCreds.mutate(credForm)}
-                  disabled={savePluggyCreds.isPending || !credForm.clientId || !credForm.clientSecret}
-                  className="w-full mt-4 bg-[#C9A961] hover:bg-[#B8985A] text-[#1A2332] font-bold"
-                >
-                  {savePluggyCreds.isPending ? "Validando..." : "Salvar Credenciais"}
-                </Button>
-              </CardContent>
-            </Card>
-
             <Card className="bg-[#2C3E50] border-[#C9A961]/20">
               <CardHeader><CardTitle className="text-[#C9A961]">Contas Bancárias ({contas.length})</CardTitle></CardHeader>
               <CardContent>
