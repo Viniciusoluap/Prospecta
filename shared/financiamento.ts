@@ -61,7 +61,7 @@ export const FINANCIAMENTO_CHECKLIST_PADRAO = [
 
 const optionalText = z.string().trim().max(500).optional().nullable();
 
-export const financiamentoInputSchema = z.object({
+const financiamentoBaseInputSchema = z.object({
   clienteNome: z.string().trim().min(2).max(255),
   clienteCpf: z.string().trim().max(14).optional().nullable(),
   clienteTel: z.string().trim().min(8).max(30),
@@ -81,9 +81,16 @@ export const financiamentoInputSchema = z.object({
   leadId: z.number().int().positive().optional().nullable(),
   imovelVinculadoId: z.number().int().positive().optional().nullable(),
   corretorId: z.number().int().positive().optional().nullable(),
-}).refine((value) => value.valorFinanciado <= value.valorImovel, {
+});
+
+export const financiamentoInputSchema = financiamentoBaseInputSchema.refine((value) => value.valorFinanciado <= value.valorImovel, {
   message: "O valor financiado não pode superar o valor do imóvel",
   path: ["valorFinanciado"],
 });
+
+export const financiamentoUpdateSchema = financiamentoBaseInputSchema.partial().refine(
+  (value) => value.valorFinanciado === undefined || value.valorImovel === undefined || value.valorFinanciado <= value.valorImovel,
+  { message: "O valor financiado não pode superar o valor do imóvel", path: ["valorFinanciado"] },
+);
 
 export type FinanciamentoInput = z.infer<typeof financiamentoInputSchema>;
