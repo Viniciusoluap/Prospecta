@@ -5,6 +5,7 @@ import {
   FINANCIAMENTO_CHECKLIST_PADRAO,
   FINANCIAMENTO_STATUS,
   financiamentoInputSchema,
+  financiamentoUpdateSchema,
 } from "../shared/financiamento.js";
 import { getDb } from "./db.js";
 import { adminProcedure, router } from "./_core/trpc.js";
@@ -58,7 +59,7 @@ export const financiamentoRouter = router({
   }),
 
   update: adminProcedure
-    .input(z.object({ id: z.number().int().positive(), data: financiamentoInputSchema.partial() }))
+    .input(z.object({ id: z.number().int().positive(), data: financiamentoUpdateSchema }))
     .mutation(async ({ input }) => {
       const data = input.data;
       const [updated] = await getDb().update(financiamentos).set({
