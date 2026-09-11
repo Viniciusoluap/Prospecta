@@ -25,7 +25,7 @@
 | EPIC-009 | Alinhamento de papéis (admin/corretor/colaborador/cliente) | Claude | Done (S-01, S-02, S-03) | — |
 | EPIC-010 | Páginas institucionais (serviços/sobre/contato/mercado/cursos/instituto) | Claude | Done (S-01, S-02) | — |
 | EPIC-011 | Prontidão operacional e sessão de produção | Codex | Done (login validado pelo proprietário em 09/09/2026) | — |
-| EPIC-012 | Paridade real, navegação e arquitetura financeira | Codex / AIOX | Em andamento (S-01 a S-03 Done; auditoria e lacunas em execução) | EPIC-000 a EPIC-011 |
+| EPIC-012 | Paridade real, navegação e arquitetura financeira | Codex / AIOX | Em andamento (S-01 a S-04 Done; P0 em execução, Financiamentos entregue) | EPIC-000 a EPIC-011 |
 
 ## Decisões do dono do produto (06/09/2026)
 
@@ -55,8 +55,6 @@
 - Nenhuma trilha mexe no ecossistema de sorteios (`draws`/`tickets`/`utef`/`products`) nem na landing page.
 - **Arquivos compartilhados tocados pela trilha Claude que a trilha Codex também usa:** o helper de RBAC (EPIC-009 S-03) substituiu ~50 checagens de papel inline em `server/routers.ts` por chamadas a `requireRole(...)` — incluindo trechos de `leads`/CRM (base do Portal do Cliente, EPIC-002) e de `financial_transactions`/`payment_settings` (base do EPIC-007). Nenhuma lógica de negócio foi alterada (mesmo comportamento, mesmos papéis permitidos) — mas se a trilha Codex tiver alterações locais ainda não mergeadas nessas mesmas linhas, é esperado um conflito de texto trivial (não de lógica) ao mergear, resolvível como qualquer merge normal.
 
-## Achado (06/09/2026) — PR #7 do Codex (`codex/nextjs-santa-fe-unification`)
+## Frente histórica de unificação Next.js
 
-Existe um PR aberto e em rascunho (**#7**, "Checkpoint: unificação Prospecta + Grupo Santa Fé") que parece ser uma frente **diferente** de trabalho do Codex: uma tentativa de unificação via reescrita/integração em Next.js, com 505 arquivos alterados, baseada num commit de `main` (`e507a2e`) bem anterior à criação deste `ROADMAP.md` e a todo o trabalho da trilha Claude descrito aqui (EPIC-000 em diante). O próprio corpo do PR diz que fica em rascunho "para impedir merge concorrente e preservar uma fila única de integração", e lista pendências próprias (conflito em `.env.example`, ajuste de escopo do ESLint, revalidação de staging/UAT) — nada relacionado aos épicos deste roadmap.
-
-**Não foi mexido por ninguém desta trilha.** Como está muito desatualizado em relação ao `main` atual (que já incorpora EPIC-000/001/003/005/008/009/010 inteiros), qualquer tentativa futura de mergeá-lo vai exigir reconciliação extensa. Registrado aqui para visibilidade — cabe ao dono do produto ou a quem estiver conduzindo a sessão do Codex decidir se essa frente ainda está ativa ou se foi substituída pela abordagem incremental (Vite/tRPC) deste roadmap.
+A tentativa antiga de unificação por reescrita em Next.js foi definitivamente abandonada por decisão do proprietário. Ela não participa deste roadmap, não será integrada e não deve ser considerada dependência ou pendência. A abordagem oficial continua incremental na stack Vite/React + Express/tRPC + Drizzle/Neon.
