@@ -18,7 +18,11 @@ Data: 13/09/2026. Base: `CHECKPOINT-ETAPA-2.md`, texto original do proprietário
 - A migração 0014 estava aplicada, mas não registrada em `drizzle.__drizzle_migrations`. Suas 12 colunas e FK foram conferidas e seu hash registrado junto da 0015; o DDL da 0014 não foi reaplicado.
 - A 0015 foi aplicada em produção (`br-steep-leaf-anxdjv1p`) em uma única transação, incluindo o registro das migrations. Hash 0015: `c5280f9bc9c78372b9748ce9398354e6603de137a5cafea57ef54e0eebcc9587`.
 - Gates aprovados: TypeScript; Vitest 46 arquivos / 310 testes (33 novos); build Vite e esbuild; `git diff --check`. Os novos testes cobrem validações, isolamento de permissões, bloqueio antes do banco e persistência dos procedures.
-- A publicação deve ocorrer somente após gates aprovados e migração em produção. SHA de merge e deployment READY devem constar no relato final/PR.
+- Após a conciliação com as entregas do Claude, os gates finais passaram novamente: TypeScript, 49 arquivos / 330 testes, Vite, esbuild e `git diff --check`.
+- PR de implementação: #45. Merge de produção: `9c513dffff3741c7896fe8d852d97911b92ac32f`.
+- Deploy Vercel de produção: `dpl_58kqHcszuyJGh4FT9Sc8pjqjG5H6`, estado `READY`, aliases `prospectaconstrucoes.com`, `www.prospectaconstrucoes.com` e `site-prospecta.vercel.app`.
+- Varredura de erros de runtime após o deploy: nenhum erro no intervalo verificado.
+- Verificação visual automatizada não executada porque `agent-browser` não está instalado neste ambiente; não foi substituída por uma alegação de UAT.
 
 ## Limites e pendências deliberadas
 
