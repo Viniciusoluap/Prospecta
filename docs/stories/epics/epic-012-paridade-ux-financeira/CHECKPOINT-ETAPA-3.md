@@ -1,7 +1,7 @@
 # Checkpoint — Etapa 3: lacunas P0
 
 **Data:** 13/09/2026  
-**Status:** Em validação final; só será concluída após merge, migration e deploy  
+**Status:** Concluída após merge, migration e deploy  
 **Escopo:** Financiamentos, Jurídico e Configurações/RBAC
 
 ## Entregas
@@ -37,4 +37,15 @@
 
 ## Evidências de encerramento
 
-Os resultados finais de testes, merge, migration de produção e deploy Vercel devem ser preenchidos na PR e confirmados antes de considerar este checkpoint efetivamente encerrado.
+- TypeScript aprovado;
+- Vitest: 45 arquivos e 277 testes aprovados;
+- build Vite e bundle do servidor aprovados;
+- `git diff --check` aprovado;
+- migration validada primeiro na branch Neon `etapa-3-migration-0014-validation`;
+- snapshot pré-migration: `pre-etapa-3-migration-0014` (`snap-wandering-credit-an4oibwh`);
+- migration 0014 aplicada em produção numa única transação e validada: 3/3 campos de usuário, 9/9 campos jurídicos e 1/1 chave estrangeira;
+- PR #43 mergeada em `e4b4193828e9c5f831ce12cf5ad5e2089d2cf32f`;
+- deploy Vercel de produção `dpl_HmWYAbxshJ4Br76nw8faxMvZdjy6` em estado `READY`;
+- varredura pós-deploy sem erros de runtime no intervalo verificado.
+
+A inspeção visual externa do domínio a partir do ambiente automatizado foi limitada por falha TLS do proxy do navegador, não por erro registrado na aplicação. O UAT autenticado completo continua planejado para a Etapa 6.
