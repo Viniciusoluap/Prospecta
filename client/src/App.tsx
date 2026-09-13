@@ -50,6 +50,9 @@ import AdminImovelForm from "./pages/admin/AdminImovelForm";
 import AdminIncorporacao from "./pages/admin/AdminIncorporacao";
 import AdminIncorporacaoDetail from "./pages/admin/AdminIncorporacaoDetail";
 import AdminFinanciamentos from "./pages/admin/AdminFinanciamentos";
+import AdminJuridico from "./pages/admin/AdminJuridico";
+import AdminConfiguracoes from "./pages/admin/AdminConfiguracoes";
+import AdminAcesso from "./pages/admin/AdminAcesso";
 import Servicos from "./pages/Servicos";
 import Sobre from "./pages/Sobre";
 import Contato from "./pages/Contato";
@@ -94,6 +97,9 @@ function Router() {
       <Route path="/admin">
         <AdminRoute><Admin /></AdminRoute>
       </Route>
+      <Route path="/admin/acesso">
+        <AdminRoute allowStaffHome><AdminAcesso /></AdminRoute>
+      </Route>
       <Route path="/converter-produto/:id">
         <ProtectedRoute><ConverterProduto /></ProtectedRoute>
       </Route>
@@ -113,77 +119,83 @@ function Router() {
         <ProtectedRoute><ObraDetalhes /></ProtectedRoute>
       </Route>
       <Route path="/admin/obras">
-        <AdminRoute><AdminObras /></AdminRoute>
+        <AdminRoute module="obras"><AdminObras /></AdminRoute>
       </Route>
       <Route path="/admin/obras/editar/:id">
-        <AdminRoute><AdminEditarObra /></AdminRoute>
+        <AdminRoute module="obras"><AdminEditarObra /></AdminRoute>
       </Route>
       <Route path="/admin/obras/:id/medicoes">
-        <AdminRoute><AdminObraMedicoes /></AdminRoute>
+        <AdminRoute module="obras"><AdminObraMedicoes /></AdminRoute>
       </Route>
       <Route path="/admin/orcamentos">
-        <AdminRoute><AdminOrcamentos /></AdminRoute>
+        <AdminRoute module="projetos"><AdminOrcamentos /></AdminRoute>
       </Route>
       <Route path="/admin/dashboard">
-        <AdminRoute><AdminDashboard /></AdminRoute>
+        <AdminRoute module="dashboard"><AdminDashboard /></AdminRoute>
       </Route>
       <Route path="/admin/emails">
-        <AdminRoute><AdminEmails /></AdminRoute>
+        <AdminRoute module="dashboard"><AdminEmails /></AdminRoute>
       </Route>
       <Route path="/admin/configuracoes-pagamento">
         <AdminRoute><ConfiguracoesPagamento /></AdminRoute>
       </Route>
       <Route path="/admin/crm/:id">
-        <AdminRoute><AdminLeadDetail /></AdminRoute>
+        <AdminRoute module="crm"><AdminLeadDetail /></AdminRoute>
       </Route>
       <Route path="/admin/crm">
-        <AdminRoute><AdminCRM /></AdminRoute>
+        <AdminRoute module="crm"><AdminCRM /></AdminRoute>
       </Route>
       <Route path="/admin/contabilidade">
-        <AdminRoute><AdminFinanceiro /></AdminRoute>
+        <AdminRoute module="contabilidade"><AdminFinanceiro /></AdminRoute>
       </Route>
       {/* Compatibilidade temporária para favoritos antigos; não aparece mais na interface. */}
       <Route path="/admin/financeiro">
-        <AdminRoute><AdminFinanceiro /></AdminRoute>
+        <AdminRoute module="contabilidade"><AdminFinanceiro /></AdminRoute>
       </Route>
       <Route path="/admin/tarefas">
-        <AdminRoute><AdminTarefas /></AdminRoute>
+        <AdminRoute module="dashboard"><AdminTarefas /></AdminRoute>
       </Route>
       <Route path="/admin/corretores">
-        <AdminRoute><AdminCorretores /></AdminRoute>
+        <AdminRoute module="corretores"><AdminCorretores /></AdminRoute>
       </Route>
       <Route path="/admin/whatsapp">
-        <AdminRoute><AdminWhatsApp /></AdminRoute>
+        <AdminRoute module="whatsapp"><AdminWhatsApp /></AdminRoute>
       </Route>
       <Route path="/admin/bpo">
-        <AdminRoute><AdminBpo /></AdminRoute>
+        <AdminRoute module="bpo"><AdminBpo /></AdminRoute>
       </Route>
       <Route path="/admin/regularizacoes">
-        <AdminRoute><AdminRegularizacoes /></AdminRoute>
+        <AdminRoute module="regularizacao"><AdminRegularizacoes /></AdminRoute>
       </Route>
       <Route path="/admin/avaliacoes/:id">
-        <AdminRoute><AdminAvaliacaoDetail /></AdminRoute>
+        <AdminRoute module="avaliacoes"><AdminAvaliacaoDetail /></AdminRoute>
       </Route>
       <Route path="/admin/avaliacoes">
-        <AdminRoute><AdminAvaliacoes /></AdminRoute>
+        <AdminRoute module="avaliacoes"><AdminAvaliacoes /></AdminRoute>
       </Route>
       <Route path="/admin/imoveis/novo">
-        <AdminRoute><AdminImovelForm /></AdminRoute>
+        <AdminRoute module="imoveis"><AdminImovelForm /></AdminRoute>
       </Route>
       <Route path="/admin/imoveis/:id/editar">
-        <AdminRoute><AdminImovelForm /></AdminRoute>
+        <AdminRoute module="imoveis"><AdminImovelForm /></AdminRoute>
       </Route>
       <Route path="/admin/imoveis">
-        <AdminRoute><AdminImoveis /></AdminRoute>
+        <AdminRoute module="imoveis"><AdminImoveis /></AdminRoute>
       </Route>
       <Route path="/admin/incorporacao/:id">
-        <AdminRoute><AdminIncorporacaoDetail /></AdminRoute>
+        <AdminRoute module="projetos"><AdminIncorporacaoDetail /></AdminRoute>
       </Route>
       <Route path="/admin/incorporacao">
-        <AdminRoute><AdminIncorporacao /></AdminRoute>
+        <AdminRoute module="projetos"><AdminIncorporacao /></AdminRoute>
       </Route>
       <Route path="/admin/financiamentos">
-        <AdminRoute><AdminFinanciamentos /></AdminRoute>
+        <AdminRoute module="financiamentos"><AdminFinanciamentos /></AdminRoute>
+      </Route>
+      <Route path="/admin/juridico">
+        <AdminRoute module="juridico"><AdminJuridico /></AdminRoute>
+      </Route>
+      <Route path="/admin/configuracoes">
+        <AdminRoute><AdminConfiguracoes /></AdminRoute>
       </Route>
       <Route path="/notificacoes">
         <ProtectedRoute><Notificacoes /></ProtectedRoute>

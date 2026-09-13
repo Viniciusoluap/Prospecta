@@ -14,15 +14,15 @@ A declaração anterior de “roadmap 100% concluído” significava que as stor
 | Avaliações | Lista, criação, detalhe, checklist e sugestões por IA | Parcial | Portar edição dedicada e laudos em lote |
 | BPO Financeiro | Clientes, cobranças, despesas, DRE e contas bancárias | Núcleo equivalente | UAT com credenciais reais |
 | Comissões | CRUD e baixa de comissões dentro de Corretores | Parcial | Separar visão e relatórios de comissões |
-| Configurações/RBAC | Papéis básicos e configuração de pagamentos | Ausente | Criar gestão de usuários e permissões granulares |
+| Configurações/RBAC | Usuários, ativação, senhas, papéis, permissões por módulo e bloqueio no cliente/servidor | Núcleo equivalente | UAT por papel na Etapa 6 |
 | Contabilidade | Livro-razão em `/admin/contabilidade` | Núcleo equivalente | UAT operacional |
-| Contratos | Contratos, documentos e chat vinculados ao Portal/CRM | Parcial | Consolidar no fluxo Jurídico global |
+| Contratos | Gestão global, vínculos, documentos PDF, status e assinatura integrada ao Portal | Núcleo equivalente | UAT de upload e assinatura na Etapa 6 |
 | Corretores | Comissões operacionais, sem cadastro completo de perfis | Parcial | Portar CRUD e detalhes de corretores |
 | Feeds | Backend e publicação pública | Parcial | Criar tela de administração/configuração |
-| Financiamentos | `/admin/financiamentos`, schema, API, checklist, filtros e status | Núcleo equivalente | Completar edição/vínculos e UAT |
+| Financiamentos | `/admin/financiamentos`, schema, API, checklist, filtros, edição, vínculos e status | Núcleo equivalente | UAT integral na Etapa 6 |
 | Imóveis | Lista, cadastro, edição e canais de publicação | Núcleo equivalente | UAT de publicação real |
 | Incorporação | Fluxo administrativo de 13 etapas e motor de viabilidade | Núcleo equivalente | UAT integral |
-| Jurídico | Primitivas de contratos/documentos/chat dentro do Portal | Parcial | Criar módulo jurídico dedicado e visão global |
+| Jurídico | Módulo global de contratos, documentos, assinatura e atendimento | Núcleo equivalente | UAT integral na Etapa 6 |
 | Leads/CRM | Pipeline, cadastro, detalhe e evolução de status | Núcleo equivalente | UAT integral |
 | Mapa | Mapas locais em Imóveis/Incorporação | Parcial | Criar mapa operacional global |
 | Obras | Lista, edição, detalhe e medições | Núcleo equivalente | UAT integral |
@@ -33,9 +33,9 @@ A declaração anterior de “roadmap 100% concluído” significava que as stor
 
 ### Placar da auditoria
 
-- **9/22 com núcleo equivalente:** BPO, Contabilidade, Financiamentos, Imóveis, Incorporação, Leads/CRM, Obras, Regularização e WhatsApp.
-- **12/22 parciais:** Painel/indicadores, Agenda, Agregador, Avaliações, Comissões, Contratos, Corretores, Feeds, Jurídico, Mapa, Projetos e Relatórios.
-- **1/22 ausente:** administração de usuários e permissões granulares (RBAC).
+- **12/22 com núcleo equivalente:** BPO, Configurações/RBAC, Contabilidade, Contratos, Financiamentos, Imóveis, Incorporação, Jurídico, Leads/CRM, Obras, Regularização e WhatsApp.
+- **10/22 parciais:** Painel/indicadores, Agenda, Agregador, Avaliações, Comissões, Corretores, Feeds, Mapa, Projetos e Relatórios.
+- **0/22 ausentes.**
 
 “Núcleo equivalente” significa que as regras e operações centrais existem, não que o módulo esteja dispensado de UAT, integração com credenciais reais ou ajustes residuais. Portanto, os dois sistemas ainda não podem ser declarados 100% operacionais.
 

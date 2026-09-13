@@ -19,7 +19,8 @@ export async function createContext(
     if (token) {
       const payload = await verifySessionToken(token);
       if (payload) {
-        user = await getUserById(payload.userId);
+        const loadedUser = await getUserById(payload.userId);
+        user = loadedUser?.active ? loadedUser : null;
       }
     }
   } catch {

@@ -1,6 +1,6 @@
 import { and, asc, desc, eq, sql } from "drizzle-orm";
 import { z } from "zod";
-import { financiamentoChecklistItems, financiamentos } from "../drizzle/schema.js";
+import { financiamentoChecklistItems, financiamentos, imoveis, leads, users } from "../drizzle/schema.js";
 import {
   FINANCIAMENTO_CHECKLIST_PADRAO,
   FINANCIAMENTO_STATUS,
@@ -11,6 +11,16 @@ import { getDb } from "./db.js";
 import { adminProcedure, router } from "./_core/trpc.js";
 
 export const financiamentoRouter = router({
+  options: adminProcedure.query(async () => {
+    const database = getDb();
+    const [leadOptions, propertyOptions, brokerOptions] = await Promise.all([
+      database.select({ id: leads.id, name: leads.name, email: leads.email, phone: leads.phone }).from(leads).orderBy(leads.name),
+      database.select({ id: imoveis.id, title: imoveis.titulo, city: imoveis.cidade }).from(imoveis).orderBy(imoveis.titulo),
+      database.select({ id: users.id, name: users.name, email: users.email }).from(users).where(eq(users.role, "corretor")).orderBy(users.name),
+    ]);
+    return { leads: leadOptions, properties: propertyOptions, brokers: brokerOptions };
+  }),
+
   list: adminProcedure
     .input(z.object({ status: z.enum(FINANCIAMENTO_STATUS).optional() }).optional())
     .query(async ({ input }) => {
