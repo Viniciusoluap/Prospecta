@@ -30,11 +30,12 @@ export const protectedProcedure = t.procedure.use(requireUser);
 
 const procedureModules: Record<string, AdminModule> = {
   construction: "obras", budgetRequests: "projetos", analytics: "dashboard", emails: "dashboard",
-  leads: "crm", tasks: "dashboard", brokerCommissions: "corretores", obraMedicoes: "obras",
+  leads: "crm", tasks: "dashboard", brokerCommissions: "comissoes", obraMedicoes: "obras",
   financialTransactions: "contabilidade", bpo: "bpo", pluggySettings: "banco", bancario: "banco",
   imoveis: "imoveis", avaliacoes: "avaliacoes", agregador: "agregador", incorporacao: "projetos",
   regularizacao: "regularizacao", portal: "crm", whatsapp: "whatsapp", financiamentos: "financiamentos",
-  juridico: "juridico", relatorios: "relatorios",
+  juridico: "juridico", relatorios: "relatorios", agenda: "agenda", corretores: "corretores",
+  comissoes: "comissoes", projetos: "projetos", mapa: "mapa",
 };
 
 export function canAccessAdminProcedure(user: { role: string; permissions?: string | null }, path: string): boolean {

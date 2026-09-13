@@ -727,7 +727,10 @@ export type InsertImovel = typeof imoveis.$inferInsert;
 // EPIC-002 — Portal do Cliente (paridade com Visita/Contrato/ChatMensagem do Santa Fé)
 export const portalVisits = pgTable("portal_visits", {
   id: serial("id").primaryKey(),
-  leadId: integer("lead_id").notNull().references(() => leads.id, { onDelete: "cascade" }),
+  leadId: integer("lead_id").references(() => leads.id, { onDelete: "set null" }),
+  clientName: varchar("client_name", { length: 255 }).default("").notNull(),
+  clientPhone: varchar("client_phone", { length: 40 }).default("").notNull(),
+  brokerId: integer("broker_id").references(() => users.id, { onDelete: "set null" }),
   propertyId: integer("property_id").references(() => imoveis.id, { onDelete: "set null" }),
   scheduledAt: timestamp("scheduled_at").notNull(),
   status: varchar("status", { length: 30 }).default("agendada").notNull(),
@@ -738,6 +741,48 @@ export const portalVisits = pgTable("portal_visits", {
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });
 export type PortalVisit = typeof portalVisits.$inferSelect;
+
+// Etapa 4: directory metadata is separate from authentication and permissions.
+export const brokerProfiles = pgTable("broker_profiles", {
+  userId: integer("user_id").primaryKey().references(() => users.id, { onDelete: "cascade" }),
+  specialties: text("specialties").default("[]").notNull(),
+  notes: text("notes").default("").notNull(),
+});
+
+export const operationalCommissions = pgTable("operational_commissions", {
+  id: serial("id").primaryKey(),
+  beneficiary: varchar("beneficiary", { length: 20 }).notNull(),
+  businessType: varchar("business_type", { length: 60 }).notNull(),
+  brokerId: integer("broker_id").references(() => users.id, { onDelete: "set null" }),
+  property: varchar("property", { length: 255 }).notNull(),
+  amount: decimal("amount", { precision: 15, scale: 2 }).notNull(),
+  percent: decimal("percent", { precision: 5, scale: 2 }).notNull(),
+  status: varchar("status", { length: 30 }).default("pendente").notNull(),
+  dueDate: timestamp("due_date").notNull(),
+  paidAt: timestamp("paid_at"),
+  notes: text("notes").default("").notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+export const operationalProjects = pgTable("operational_projects", {
+  id: serial("id").primaryKey(),
+  name: varchar("name", { length: 255 }).notNull(),
+  types: text("types").default("[]").notNull(),
+  status: varchar("status", { length: 40 }).default("orcamento").notNull(),
+  clientName: varchar("client_name", { length: 255 }).notNull(),
+  clientPhone: varchar("client_phone", { length: 40 }).notNull(),
+  engineer: varchar("engineer", { length: 255 }).notNull(),
+  value: decimal("value", { precision: 15, scale: 2 }).notNull(),
+  paidValue: decimal("paid_value", { precision: 15, scale: 2 }).default("0").notNull(),
+  deadline: timestamp("deadline"),
+  leadId: integer("lead_id").references(() => leads.id, { onDelete: "set null" }),
+  description: text("description").default("").notNull(),
+  checklist: text("checklist").default("[]").notNull(),
+  files: text("files").default("[]").notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
 
 export const portalContracts = pgTable("portal_contracts", {
   id: serial("id").primaryKey(),

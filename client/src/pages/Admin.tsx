@@ -190,6 +190,7 @@ export default function Admin() {
                     <span>Regularizações</span>
                   </Button>
                 </Link>
+                {[{ href: "/admin/agenda", label: "Agenda" }, { href: "/admin/comissoes", label: "Comissões" }, { href: "/admin/projetos", label: "Projetos" }, { href: "/admin/mapa", label: "Mapa operacional" }].map(item => <Link key={item.href} href={item.href}><Button variant="outline" className="w-full h-20 flex flex-col gap-2 border-[#C9A961]/30"><CheckSquare className="h-5 w-5 text-[#C9A961]" /><span>{item.label}</span></Button></Link>)}
                 <Link href="/admin/agregador">
                   <Button variant="outline" className="w-full h-20 flex flex-col gap-2 border-orange-500/30 hover:bg-orange-500/10">
                     <Rss className="h-5 w-5 text-orange-400" />
