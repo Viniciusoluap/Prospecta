@@ -13,7 +13,7 @@ import {
   users,
 } from "../drizzle/schema.js";
 import { hashPassword } from "./_core/auth-utils.js";
-import { requireRole, STAFF_ROLES } from "./_core/rbac.js";
+import { requireRole } from "./_core/rbac.js";
 import { adminProcedure, protectedProcedure, router } from "./_core/trpc.js";
 import { getDb } from "./db.js";
 import { storagePut } from "./storage.js";
@@ -123,8 +123,7 @@ export const portalRouter = router({
     }),
 
   admin: router({
-    overview: adminProcedure.input(z.object({ leadId: z.number().int().positive() })).query(async ({ ctx, input }) => {
-      requireRole(ctx, STAFF_ROLES);
+    overview: adminProcedure.input(z.object({ leadId: z.number().int().positive() })).query(async ({ input }) => {
       const db = getDb();
       const [account] = await db.select({ id: users.id, email: users.email }).from(users).where(eq(users.leadId, input.leadId)).limit(1);
       const visits = await db.select().from(portalVisits).where(eq(portalVisits.leadId, input.leadId)).orderBy(desc(portalVisits.scheduledAt));
@@ -135,8 +134,7 @@ export const portalRouter = router({
 
     provisionAccess: adminProcedure.input(z.object({
       leadId: z.number().int().positive(), email: z.string().email(), password: z.string().min(8).max(128),
-    })).mutation(async ({ ctx, input }) => {
-      requireRole(ctx, STAFF_ROLES);
+    })).mutation(async ({ input }) => {
       const db = getDb();
       const email = input.email.toLowerCase().trim();
       const [lead] = await db.select().from(leads).where(eq(leads.id, input.leadId)).limit(1);
@@ -155,38 +153,33 @@ export const portalRouter = router({
     createVisit: adminProcedure.input(z.object({
       leadId: z.number().int().positive(), propertyId: z.number().int().positive().nullable().optional(), scheduledAt: z.date(),
       status: visitStatus.default("agendada"), responsibleName: z.string().max(255).optional(), notes: z.string().max(2000).optional(),
-    })).mutation(async ({ ctx, input }) => {
-      requireRole(ctx, STAFF_ROLES);
+    })).mutation(async ({ input }) => {
       const [visit] = await getDb().insert(portalVisits).values(input).returning();
       return visit;
     }),
 
     createContract: adminProcedure.input(z.object({
       leadId: z.number().int().positive(), number: z.string().trim().min(1).max(80), type: z.string().trim().min(1).max(80), description: z.string().max(4000).optional(),
-    })).mutation(async ({ ctx, input }) => {
-      requireRole(ctx, STAFF_ROLES);
+    })).mutation(async ({ input }) => {
       const [contract] = await getDb().insert(portalContracts).values(input).returning();
       return contract;
     }),
 
     addDocument: adminProcedure.input(z.object({
       contractId: z.number().int().positive(), name: z.string().trim().min(1).max(255), url: z.string().url(), type: documentType.default("anexo"),
-    })).mutation(async ({ ctx, input }) => {
-      requireRole(ctx, STAFF_ROLES);
+    })).mutation(async ({ input }) => {
       const [document] = await getDb().insert(portalContractDocuments).values(input).returning();
       return document;
     }),
 
     setSignatureStatus: adminProcedure.input(z.object({ contractId: z.number().int().positive(), status: signatureStatus }))
-      .mutation(async ({ ctx, input }) => {
-        requireRole(ctx, STAFF_ROLES);
+      .mutation(async ({ input }) => {
         await getDb().update(portalContracts).set({ signatureStatus: input.status, updatedAt: new Date() }).where(eq(portalContracts.id, input.contractId));
         return { success: true };
       }),
 
     sendMessage: adminProcedure.input(z.object({ leadId: z.number().int().positive(), text: z.string().trim().min(1).max(2000) }))
-      .mutation(async ({ ctx, input }) => {
-        requireRole(ctx, STAFF_ROLES);
+      .mutation(async ({ input }) => {
         const [message] = await getDb().insert(portalChatMessages).values({ leadId: input.leadId, sender: "corretor", text: input.text }).returning();
         return message;
       }),
