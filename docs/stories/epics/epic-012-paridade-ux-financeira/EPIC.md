@@ -37,6 +37,7 @@ O Grupo Santa Fé continua sendo a fonte da verdade para regras de negócio. Lan
 | S-06 | Portar lacunas P1: Agenda, Comissões, Projetos e Mapa | Backlog |
 | S-07 | Portar lacunas P2: Relatórios, avaliações em lote e acesso administrativo a feeds | Done |
 | S-08 | UAT autenticado e responsivo em produção | Backlog |
+| S-09 | Migrar RBAC legado (STAFF_ROLES) para permissão granular por módulo | Done |
 
 ## Critérios de aceite imediatos
 
