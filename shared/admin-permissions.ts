@@ -2,6 +2,7 @@ export const ADMIN_MODULES = [
   "dashboard", "crm", "imoveis", "obras", "projetos", "regularizacao",
   "financiamentos", "juridico", "corretores", "comissoes", "avaliacoes",
   "bpo", "contabilidade", "banco", "whatsapp", "agregador", "configuracoes",
+  "relatorios",
 ] as const;
 
 export type AdminModule = (typeof ADMIN_MODULES)[number];
@@ -24,6 +25,7 @@ export const ADMIN_MODULE_LABELS: Record<AdminModule, string> = {
   whatsapp: "WhatsApp",
   agregador: "Agregador / feeds",
   configuracoes: "Configurações",
+  relatorios: "Relatórios e exportações",
 };
 
 export function normalizePermissions(value: unknown): AdminModule[] {
