@@ -572,6 +572,11 @@ export async function getLeadById(id: number): Promise<Lead | undefined> {
   return result[0];
 }
 
+export async function getLeadOptions(): Promise<{ id: number; name: string }[]> {
+  const db = getDb();
+  return db.select({ id: leads.id, name: leads.name }).from(leads).orderBy(leads.name);
+}
+
 export async function createLead(data: InsertLead): Promise<Lead> {
   const db = getDb();
   const result = await db.insert(leads).values(data).returning();

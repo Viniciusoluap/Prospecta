@@ -12,7 +12,7 @@ import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/
 import { toast } from "sonner";
 import {
   ArrowLeft, Home, TreePine, CheckCircle2, XCircle, MinusCircle,
-  Sparkles, Loader2, Paperclip, X, FileText, FileImage, Trash2,
+  Sparkles, Loader2, Paperclip, X, FileText, FileImage, Trash2, Pencil, Printer,
 } from "lucide-react";
 
 type ItemState = { ok: boolean | null; nota: string };
@@ -230,17 +230,29 @@ export default function AdminAvaliacaoDetail() {
               <p className="text-gray-400 text-sm">{avaliacao.clienteNome} • {avaliacao.endereco}, {avaliacao.bairro} — {avaliacao.cidade}/{avaliacao.estado}</p>
             </div>
           </div>
-          <Select
-            value={avaliacao.status}
-            onValueChange={(v) => updateMutation.mutate({ id, status: v as any })}
-          >
-            <SelectTrigger className="w-44 bg-[#2C3E50] border-[#C9A961]/30 text-white">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              {Object.entries(STATUS_LABELS).map(([k, v]) => <SelectItem key={k} value={k}>{v}</SelectItem>)}
-            </SelectContent>
-          </Select>
+          <div className="flex items-center gap-2">
+            <Link href={`/admin/avaliacoes/${id}/editar`}>
+              <Button variant="outline" size="sm" className="border-[#C9A961]/30 text-[#C9A961]">
+                <Pencil className="h-3.5 w-3.5 mr-1" /> Editar
+              </Button>
+            </Link>
+            <a href={`/admin/avaliacoes/${id}/laudo`} target="_blank" rel="noopener noreferrer">
+              <Button variant="outline" size="sm" className="border-[#C9A961]/30 text-[#C9A961]">
+                <Printer className="h-3.5 w-3.5 mr-1" /> Laudo
+              </Button>
+            </a>
+            <Select
+              value={avaliacao.status}
+              onValueChange={(v) => updateMutation.mutate({ id, status: v as any })}
+            >
+              <SelectTrigger className="w-44 bg-[#2C3E50] border-[#C9A961]/30 text-white">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {Object.entries(STATUS_LABELS).map(([k, v]) => <SelectItem key={k} value={k}>{v}</SelectItem>)}
+              </SelectContent>
+            </Select>
+          </div>
         </div>
       </div>
 

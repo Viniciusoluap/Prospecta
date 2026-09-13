@@ -27,6 +27,7 @@ import { pesquisarMercado } from "./_core/incorporacao/mercado-ia.js";
 import { financiamentoRouter } from "./financiamento-router.js";
 import { juridicoRouter } from "./juridico-router.js";
 import { configuracoesRouter } from "./configuracoes-router.js";
+import { relatoriosRouter } from "./relatorios-router.js";
 
 // Helper para gerar número de bilhete único
 function generateTicketNumber(): string {
@@ -97,6 +98,7 @@ export const appRouter = router({
   financiamentos: financiamentoRouter,
   juridico: juridicoRouter,
   configuracoes: configuracoesRouter,
+  relatorios: relatoriosRouter,
   auth: router({
     me: publicProcedure.query(opts => opts.ctx.user),
     logout: publicProcedure.mutation(({ ctx }) => {
@@ -1789,6 +1791,11 @@ export const appRouter = router({
   }),
 
   avaliacoes: router({
+    leadOptions: protectedProcedure.query(async ({ ctx }) => {
+      requireRole(ctx, STAFF_ROLES);
+      return db.getLeadOptions();
+    }),
+
     list: protectedProcedure
       .input(z.object({
         status: z.string().optional(),
