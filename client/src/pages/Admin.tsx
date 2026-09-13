@@ -11,7 +11,7 @@ import Navbar from "@/components/Navbar";
 import { trpc } from "@/lib/trpc";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { formatCurrency, formatUtef, getLoginUrl } from "@/const";
-import { Settings, Plus, Ticket, ShoppingBag, AlertCircle, Users, BookOpen, CheckSquare, HardHat, UserCheck, FileCheck2, ClipboardCheck, Building2, Mountain, MessageCircle, Receipt, Landmark } from "lucide-react";
+import { Settings, Plus, Ticket, ShoppingBag, AlertCircle, Users, BookOpen, CheckSquare, HardHat, UserCheck, FileCheck2, ClipboardCheck, Building2, Mountain, MessageCircle, Receipt, Landmark, Scale, Shield } from "lucide-react";
 import { toast } from "sonner";
 import {
   Select,
@@ -226,6 +226,12 @@ export default function Admin() {
                     <span>Financiamentos</span>
                   </Button>
                 </Link>
+                <Link href="/admin/juridico">
+                  <Button variant="outline" className="w-full h-20 flex flex-col gap-2 border-purple-500/30 hover:bg-purple-500/10">
+                    <Scale className="h-5 w-5 text-purple-400" />
+                    <span>Jurídico</span>
+                  </Button>
+                </Link>
               </div>
             </CardContent>
           </Card>
@@ -259,6 +265,12 @@ export default function Admin() {
                   <Button variant="outline" className="w-full h-14 flex flex-col gap-1 text-sm">
                     <Settings className="h-4 w-4" />
                     <span>Pagamentos</span>
+                  </Button>
+                </Link>
+                <Link href="/admin/configuracoes">
+                  <Button variant="outline" className="w-full h-14 flex flex-col gap-1 text-sm">
+                    <Shield className="h-4 w-4" />
+                    <span>Usuários e Acessos</span>
                   </Button>
                 </Link>
               </div>

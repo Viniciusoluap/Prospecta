@@ -1,9 +1,12 @@
 import { ReactNode, useEffect } from "react";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { useLocation } from "wouter";
+import { AdminModule, parsePermissions } from "../../../shared/admin-permissions";
 
 interface AdminRouteProps {
   children: ReactNode;
+  module?: AdminModule;
+  allowStaffHome?: boolean;
 }
 
 /**
@@ -11,17 +14,18 @@ interface AdminRouteProps {
  * Requer autenticação E role === 'admin'.
  * Redireciona para login se não autenticado, ou para home se não for admin.
  */
-export function AdminRoute({ children }: AdminRouteProps) {
+export function AdminRoute({ children, module, allowStaffHome = false }: AdminRouteProps) {
   // Usa opção redirectOnUnauthenticated para redirecionar automaticamente se não autenticado
   const { user, loading } = useAuth({ redirectOnUnauthenticated: true });
   const [, setLocation] = useLocation();
 
   useEffect(() => {
-    // Se terminou de carregar e tem usuário, verifica se é admin
-    if (!loading && user && user.role !== "admin") {
-      setLocation("/");
+    const staff = user?.role === "corretor" || user?.role === "colaborador";
+    const allowed = user?.role === "admin" || (staff && (allowStaffHome || (!!module && parsePermissions(user.permissions).includes(module))));
+    if (!loading && user && !allowed) {
+      setLocation(staff ? "/admin/acesso" : "/");
     }
-  }, [loading, user, setLocation]);
+  }, [allowStaffHome, loading, module, user, setLocation]);
 
   // Mostra loading enquanto verifica autenticação
   if (loading) {
@@ -35,8 +39,9 @@ export function AdminRoute({ children }: AdminRouteProps) {
     );
   }
 
-  // Se não é admin, não renderiza nada (redirecionamento acontece no useEffect)
-  if (!user || user.role !== "admin") {
+  const staff = user?.role === "corretor" || user?.role === "colaborador";
+  const allowed = user?.role === "admin" || (staff && (allowStaffHome || (!!module && parsePermissions(user.permissions).includes(module))));
+  if (!user || !allowed) {
     return null;
   }
 

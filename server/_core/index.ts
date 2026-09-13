@@ -62,6 +62,10 @@ async function startServer() {
         return res.status(401).json({ error: "Email ou senha incorretos" });
       }
 
+      if (!user.active) {
+        return res.status(403).json({ error: "Usuário desativado. Procure o administrador." });
+      }
+
       const valid = verifyPassword(password, user.passwordHash);
       if (!valid) {
         return res.status(401).json({ error: "Email ou senha incorretos" });
@@ -80,6 +84,7 @@ async function startServer() {
         name: user.name,
         email: user.email,
         role: user.role,
+        permissions: user.permissions,
       });
     } catch (err) {
       console.error("[auth/login]", err);

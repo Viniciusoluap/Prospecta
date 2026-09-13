@@ -26,7 +26,7 @@ export default function Login() {
       });
 
       const text = await res.text();
-      let data: { error?: string; id?: number; name?: string; email?: string; role?: string } = {};
+      let data: { error?: string; id?: number; name?: string; email?: string; role?: string; permissions?: string } = {};
       try {
         data = JSON.parse(text);
       } catch {
@@ -43,7 +43,7 @@ export default function Login() {
         ? "/portal"
         : data.role === "admin"
           ? "/admin"
-          : "/";
+          : "/admin/acesso";
 
       // A full, single navigation starts the protected route with a fresh
       // auth query and avoids the setLocation + reload race seen on Safari.

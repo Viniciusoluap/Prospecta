@@ -1,6 +1,6 @@
 import { FormEvent, useState } from "react";
 import { Link } from "wouter";
-import { ArrowLeft, Building2, CheckCircle2, FileCheck2, Landmark, Plus, Trash2 } from "lucide-react";
+import { ArrowLeft, Building2, CheckCircle2, FileCheck2, Landmark, Pencil, Plus, Trash2 } from "lucide-react";
 import { trpc } from "@/lib/trpc";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -34,6 +34,7 @@ function numero(formData: FormData, nome: string) {
 
 export default function AdminFinanciamentos() {
   const [novoAberto, setNovoAberto] = useState(false);
+  const [editarAberto, setEditarAberto] = useState(false);
   const [selecionado, setSelecionado] = useState<number | null>(null);
   const [filtro, setFiltro] = useState<Status | "todos">("todos");
   const utils = trpc.useUtils();
@@ -44,6 +45,7 @@ export default function AdminFinanciamentos() {
     { id: selecionado ?? 0 },
     { enabled: selecionado !== null },
   );
+  const { data: options } = trpc.financiamentos.options.useQuery();
 
   const criar = trpc.financiamentos.create.useMutation({
     onSuccess: async (item) => {
@@ -75,11 +77,22 @@ export default function AdminFinanciamentos() {
     },
     onError: (erro) => toast.error(erro.message),
   });
+  const atualizar = trpc.financiamentos.update.useMutation({
+    onSuccess: async () => {
+      await Promise.all([utils.financiamentos.list.invalidate(), utils.financiamentos.getById.invalidate()]);
+      setEditarAberto(false);
+      toast.success("Financiamento atualizado");
+    },
+    onError: (erro) => toast.error(erro.message),
+  });
 
-  function handleCriar(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    const dados = new FormData(event.currentTarget);
-    criar.mutate({
+  function dadosFormulario(form: HTMLFormElement) {
+    const dados = new FormData(form);
+    const optionalId = (nome: string) => {
+      const valor = String(dados.get(nome) || "");
+      return valor && valor !== "none" ? Number(valor) : null;
+    };
+    return {
       clienteNome: String(dados.get("clienteNome") || ""),
       clienteCpf: String(dados.get("clienteCpf") || "") || null,
       clienteTel: String(dados.get("clienteTel") || ""),
@@ -96,7 +109,15 @@ export default function AdminFinanciamentos() {
       parcela: numero(dados, "parcela") || null,
       protocolo: String(dados.get("protocolo") || "") || null,
       observacoes: String(dados.get("observacoes") || "") || null,
-    });
+      leadId: optionalId("leadId"),
+      imovelVinculadoId: optionalId("imovelVinculadoId"),
+      corretorId: optionalId("corretorId"),
+    };
+  }
+
+  function handleCriar(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    criar.mutate(dadosFormulario(event.currentTarget));
   }
 
   const total = processos.reduce((soma, item) => soma + Number(item.financiamento.valorFinanciado), 0);
@@ -174,6 +195,7 @@ export default function AdminFinanciamentos() {
             <Selecao nome="banco" rotulo="Banco" opcoes={FINANCIAMENTO_BANCOS.map((v) => [v, FINANCIAMENTO_BANCO_LABELS[v]])} />
             <Campo nome="bancoOutro" rotulo="Outro banco" />
             <Campo nome="protocolo" rotulo="Protocolo" />
+            <Vinculos options={options} />
             <Campo nome="valorImovel" rotulo="Valor do imóvel" tipo="number" obrigatorio />
             <Campo nome="valorFinanciado" rotulo="Valor financiado" tipo="number" obrigatorio />
             <Campo nome="entrada" rotulo="Entrada" tipo="number" obrigatorio />
@@ -197,8 +219,26 @@ export default function AdminFinanciamentos() {
             </div>
             <div><Label>Etapa atual</Label><Select value={detalhe.financiamento.status} onValueChange={(status: Status) => atualizarStatus.mutate({ id: detalhe.financiamento.id, status })}><SelectTrigger className="mt-1 border-[#C9A961]/30 bg-[#2C3E50]"><SelectValue /></SelectTrigger><SelectContent>{FINANCIAMENTO_STATUS.map((status) => <SelectItem key={status} value={status}>{FINANCIAMENTO_STATUS_LABELS[status]}</SelectItem>)}</SelectContent></Select></div>
             <div className="space-y-2"><h3 className="font-semibold text-[#C9A961]">Checklist documental</h3>{detalhe.checklist.map((item) => <label key={item.id} className="flex cursor-pointer items-start gap-3 rounded-lg bg-[#2C3E50] p-3"><input type="checkbox" checked={item.concluido} onChange={(evento) => atualizarChecklist.mutate({ id: item.id, financiamentoId: detalhe.financiamento.id, concluido: evento.target.checked, notas: item.notas ?? undefined })} className="mt-1 accent-[#C9A961]" /><span><strong>{item.item}</strong><span className="block text-xs text-gray-400">{item.grupo}</span></span></label>)}</div>
-            <Button variant="destructive" onClick={() => confirm("Excluir este financiamento e seu checklist?") && excluir.mutate({ id: detalhe.financiamento.id })}><Trash2 className="mr-2 h-4 w-4" /> Excluir processo</Button>
+            <div className="flex gap-2"><Button onClick={() => setEditarAberto(true)} className="flex-1 bg-[#C9A961] text-[#1A2332]"><Pencil className="mr-2 h-4 w-4" /> Editar dados e vínculos</Button><Button variant="destructive" onClick={() => confirm("Excluir este financiamento e seu checklist?") && excluir.mutate({ id: detalhe.financiamento.id })}><Trash2 className="h-4 w-4" /></Button></div>
           </>}
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={editarAberto} onOpenChange={setEditarAberto}>
+        <DialogContent className="max-h-[92vh] max-w-3xl overflow-y-auto border-[#C9A961]/30 bg-[#1A2332] text-white">
+          <DialogHeader><DialogTitle className="text-[#C9A961]">Editar financiamento</DialogTitle></DialogHeader>
+          {detalhe && <form onSubmit={(event) => { event.preventDefault(); atualizar.mutate({ id: detalhe.financiamento.id, data: dadosFormulario(event.currentTarget) }); }} className="grid gap-4 md:grid-cols-2">
+            <Campo nome="clienteNome" rotulo="Cliente" obrigatorio valorPadrao={detalhe.financiamento.clienteNome} /><Campo nome="clienteTel" rotulo="Telefone" obrigatorio valorPadrao={detalhe.financiamento.clienteTel} />
+            <Campo nome="clienteEmail" rotulo="E-mail" tipo="email" valorPadrao={detalhe.financiamento.clienteEmail || ""} /><Campo nome="clienteCpf" rotulo="CPF" valorPadrao={detalhe.financiamento.clienteCpf || ""} />
+            <div className="md:col-span-2"><Campo nome="imovel" rotulo="Descrição do imóvel" obrigatorio valorPadrao={detalhe.financiamento.imovel} /></div>
+            <Selecao nome="tipo" rotulo="Tipo" valorPadrao={detalhe.financiamento.tipo} opcoes={FINANCIAMENTO_TIPOS.map((v) => [v, FINANCIAMENTO_TIPO_LABELS[v]])} /><Selecao nome="banco" rotulo="Banco" valorPadrao={detalhe.financiamento.banco} opcoes={FINANCIAMENTO_BANCOS.map((v) => [v, FINANCIAMENTO_BANCO_LABELS[v]])} />
+            <Campo nome="bancoOutro" rotulo="Outro banco" valorPadrao={detalhe.financiamento.bancoOutro || ""} /><Campo nome="protocolo" rotulo="Protocolo" valorPadrao={detalhe.financiamento.protocolo || ""} />
+            <Vinculos options={options} initial={detalhe.financiamento} />
+            <Campo nome="valorImovel" rotulo="Valor do imóvel" tipo="number" obrigatorio valorPadrao={String(detalhe.financiamento.valorImovel)} /><Campo nome="valorFinanciado" rotulo="Valor financiado" tipo="number" obrigatorio valorPadrao={String(detalhe.financiamento.valorFinanciado)} />
+            <Campo nome="entrada" rotulo="Entrada" tipo="number" obrigatorio valorPadrao={String(detalhe.financiamento.entrada)} /><Campo nome="parcela" rotulo="Parcela" tipo="number" valorPadrao={String(detalhe.financiamento.parcela || "")} />
+            <Campo nome="taxa" rotulo="Taxa anual (%)" tipo="number" passo="0.0001" obrigatorio valorPadrao={String(detalhe.financiamento.taxa)} /><Campo nome="prazo" rotulo="Prazo (meses)" tipo="number" obrigatorio valorPadrao={String(detalhe.financiamento.prazo)} />
+            <div className="md:col-span-2"><Label>Observações</Label><Textarea name="observacoes" defaultValue={detalhe.financiamento.observacoes || ""} /></div><Button type="submit" className="md:col-span-2 bg-[#C9A961] text-[#1A2332]">Salvar alterações</Button>
+          </form>}
         </DialogContent>
       </Dialog>
     </div>
@@ -209,6 +249,10 @@ function Campo({ nome, rotulo, tipo = "text", obrigatorio = false, passo, valorP
   return <div><Label htmlFor={nome}>{rotulo}{obrigatorio ? " *" : ""}</Label><Input id={nome} name={nome} type={tipo} required={obrigatorio} step={passo ?? (tipo === "number" ? "0.01" : undefined)} min={tipo === "number" ? 0 : undefined} defaultValue={valorPadrao} className="mt-1 border-[#C9A961]/30 bg-[#2C3E50]" /></div>;
 }
 
-function Selecao({ nome, rotulo, opcoes }: { nome: string; rotulo: string; opcoes: readonly (readonly [string, string])[] }) {
-  return <div><Label>{rotulo}</Label><Select name={nome} defaultValue={opcoes[0][0]}><SelectTrigger className="mt-1 border-[#C9A961]/30 bg-[#2C3E50]"><SelectValue /></SelectTrigger><SelectContent>{opcoes.map(([valor, texto]) => <SelectItem key={valor} value={valor}>{texto}</SelectItem>)}</SelectContent></Select></div>;
+function Selecao({ nome, rotulo, opcoes, valorPadrao }: { nome: string; rotulo: string; opcoes: readonly (readonly [string, string])[]; valorPadrao?: string }) {
+  return <div><Label>{rotulo}</Label><Select name={nome} defaultValue={valorPadrao || opcoes[0][0]}><SelectTrigger className="mt-1 border-[#C9A961]/30 bg-[#2C3E50]"><SelectValue /></SelectTrigger><SelectContent>{opcoes.map(([valor, texto]) => <SelectItem key={valor} value={valor}>{texto}</SelectItem>)}</SelectContent></Select></div>;
+}
+
+function Vinculos({ options, initial }: { options?: { leads: { id: number; name: string }[]; properties: { id: number; title: string }[]; brokers: { id: number; name: string | null; email: string | null }[] }; initial?: { leadId: number | null; imovelVinculadoId: number | null; corretorId: number | null } }) {
+  return <><div><Label>Lead vinculado</Label><Select name="leadId" defaultValue={initial?.leadId ? String(initial.leadId) : "none"}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="none">Sem vínculo</SelectItem>{options?.leads.map(item => <SelectItem key={item.id} value={String(item.id)}>{item.name}</SelectItem>)}</SelectContent></Select></div><div><Label>Imóvel vinculado</Label><Select name="imovelVinculadoId" defaultValue={initial?.imovelVinculadoId ? String(initial.imovelVinculadoId) : "none"}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="none">Sem vínculo</SelectItem>{options?.properties.map(item => <SelectItem key={item.id} value={String(item.id)}>{item.title}</SelectItem>)}</SelectContent></Select></div><div className="md:col-span-2"><Label>Corretor responsável</Label><Select name="corretorId" defaultValue={initial?.corretorId ? String(initial.corretorId) : "none"}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="none">Sem responsável</SelectItem>{options?.brokers.map(item => <SelectItem key={item.id} value={String(item.id)}>{item.name || item.email}</SelectItem>)}</SelectContent></Select></div></>;
 }
