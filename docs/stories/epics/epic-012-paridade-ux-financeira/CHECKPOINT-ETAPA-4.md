@@ -32,10 +32,8 @@ Data: 13/09/2026. Base: `CHECKPOINT-ETAPA-2.md`, texto original do proprietário
 
 A PR #7 está fechada e marcada no GitHub como encerrada definitivamente, não integrar. Não faz parte das etapas futuras. Sua branch Git `codex/nextjs-santa-fe-unification` não pôde ser excluída por falta de autenticação Git nesta sessão; existe também o preview Neon `br-orange-heart-an3z3xn1`. Não foram apagados, não devem ser retomados, e a limpeza exige acesso apropriado e confirmação para excluir os dados do preview. O registro histórico da PR não é apagável por fechamento normal.
 
-## Próximas etapas
+## Continuidade registrada durante o fechamento
 
-5. Relatórios/exportações, Feeds/Agregador, Avaliações e acabamento das lacunas declaradas acima.
-6. UAT, regressão, RBAC legado, responsividade, segurança, desempenho e observabilidade.
-7. Credenciais e operação real de Asaas, Pluggy, Meta WhatsApp, Anthropic e armazenamento; evidências e rollback.
+Enquanto a Etapa 4 era fechada, o `main` recebeu a Etapa 5 pela PR #46 e a migração do RBAC legado pela PR #47. O conflito textual foi resolvido preservando integralmente essas entregas e adicionando os cinco módulos desta etapa. O UAT autenticado, as validações responsivas e as integrações com credenciais reais devem seguir o estado dos checkpoints posteriores publicados pelo Claude, sem refazer ou reverter o que já foi concluído.
 
 Cada etapa termina com checkpoint, testes, PR, merge e confirmação de deploy. Não retomar a tentativa abandonada.

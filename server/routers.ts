@@ -18,7 +18,7 @@ import { paymentSettingsRouter } from "./payment-settings-router.js";
 import { regularizacaoRouter } from "./regularizacao-router.js";
 import { portalRouter } from "./portal-router.js";
 import { whatsappRouter } from "./whatsapp-router.js";
-import { requireRole, STAFF_ROLES } from "./_core/rbac.js";
+import { requireRole } from "./_core/rbac.js";
 import { encryptSecret, decryptSecret } from "./_core/secret-vault.js";
 import { authenticatePluggy, fetchPluggyTransactions, fetchPluggyAccountBalance } from "./_core/pluggy.js";
 import { parseKmlTerreno } from "./_core/geo/kml.js";
@@ -28,6 +28,7 @@ import { financiamentoRouter } from "./financiamento-router.js";
 import { juridicoRouter } from "./juridico-router.js";
 import { agendaRouter, corretoresRouter, comissoesRouter, projetosRouter, mapaRouter } from "./operacional-router.js";
 import { configuracoesRouter } from "./configuracoes-router.js";
+import { relatoriosRouter } from "./relatorios-router.js";
 
 // Helper para gerar número de bilhete único
 function generateTicketNumber(): string {
@@ -103,6 +104,7 @@ export const appRouter = router({
   projetos: projetosRouter,
   mapa: mapaRouter,
   configuracoes: configuracoesRouter,
+  relatorios: relatoriosRouter,
   auth: router({
     me: publicProcedure.query(opts => opts.ctx.user),
     logout: publicProcedure.mutation(({ ctx }) => {
@@ -1403,8 +1405,7 @@ export const appRouter = router({
   // ========== BPO (terceirização contábil) ==========
   bpo: router({
     clientes: router({
-      list: protectedProcedure.query(async ({ ctx }) => {
-        requireRole(ctx, STAFF_ROLES);
+      list: adminProcedure.query(async () => {
         return db.getAllBpoClients();
       }),
 
@@ -1442,12 +1443,11 @@ export const appRouter = router({
     }),
 
     lancamentos: router({
-      list: protectedProcedure.query(async ({ ctx }) => {
-        requireRole(ctx, STAFF_ROLES);
+      list: adminProcedure.query(async () => {
         return db.getAllBpoLancamentos();
       }),
 
-      create: protectedProcedure
+      create: adminProcedure
         .input(z.object({
           clienteId: z.number().optional(),
           clienteNomeLivre: z.string().optional(),
@@ -1458,8 +1458,7 @@ export const appRouter = router({
           competencia: z.string().min(7).max(7),
           centroCustos: z.string().optional(),
         }))
-        .mutation(async ({ input, ctx }) => {
-          requireRole(ctx, STAFF_ROLES);
+        .mutation(async ({ input }) => {
           return db.createBpoLancamento({
             ...input,
             valor: input.valor.toString(),
@@ -1467,17 +1466,15 @@ export const appRouter = router({
           } as any);
         }),
 
-      marcarPago: protectedProcedure
+      marcarPago: adminProcedure
         .input(z.object({ id: z.number() }))
-        .mutation(async ({ input, ctx }) => {
-          requireRole(ctx, STAFF_ROLES);
+        .mutation(async ({ input }) => {
           await db.marcarBpoLancamentoPago(input.id);
           return { success: true };
         }),
     }),
 
-    dre: protectedProcedure.query(async ({ ctx }) => {
-      requireRole(ctx, STAFF_ROLES);
+    dre: adminProcedure.query(async () => {
       const lancamentos = await db.getAllBpoLancamentos();
       const map = new Map<string, { cobrancas: number; despesas: number }>();
       for (const l of lancamentos) {
@@ -1521,8 +1518,7 @@ export const appRouter = router({
   // ========== Bancário (contas e transações) ==========
   bancario: router({
     contas: router({
-      list: protectedProcedure.query(async ({ ctx }) => {
-        requireRole(ctx, STAFF_ROLES);
+      list: adminProcedure.query(async () => {
         return db.getAllBankAccounts();
       }),
 
@@ -1553,36 +1549,32 @@ export const appRouter = router({
           return { success: true };
         }),
 
-      atualizarSaldo: protectedProcedure
+      atualizarSaldo: adminProcedure
         .input(z.object({ id: z.number(), saldo: z.number() }))
-        .mutation(async ({ input, ctx }) => {
-          requireRole(ctx, STAFF_ROLES);
+        .mutation(async ({ input }) => {
           await db.updateBankAccountSaldo(input.id, input.saldo);
           return { success: true };
         }),
     }),
 
     transacoes: router({
-      listByConta: protectedProcedure
+      listByConta: adminProcedure
         .input(z.object({ accountId: z.number() }))
-        .query(async ({ input, ctx }) => {
-          requireRole(ctx, STAFF_ROLES);
+        .query(async ({ input }) => {
           return db.getBankTransactionsByAccount(input.accountId);
         }),
 
-      atualizarStatus: protectedProcedure
+      atualizarStatus: adminProcedure
         .input(z.object({ id: z.number(), status: z.enum(["pendente", "conciliado", "ignorado"]) }))
-        .mutation(async ({ input, ctx }) => {
-          requireRole(ctx, STAFF_ROLES);
+        .mutation(async ({ input }) => {
           await db.updateBankTransactionStatus(input.id, input.status);
           return { success: true };
         }),
     }),
 
-    sincronizar: protectedProcedure
+    sincronizar: adminProcedure
       .input(z.object({ contaId: z.number() }))
-      .mutation(async ({ input, ctx }) => {
-        requireRole(ctx, STAFF_ROLES);
+      .mutation(async ({ input }) => {
         const conta = await db.getBankAccountById(input.contaId);
         if (!conta) throw new TRPCError({ code: "NOT_FOUND", message: "Conta não encontrada" });
 
@@ -1736,27 +1728,29 @@ export const appRouter = router({
   }),
 
   avaliacoes: router({
-    list: protectedProcedure
+    leadOptions: adminProcedure.query(async () => {
+      return db.getLeadOptions();
+    }),
+
+    list: adminProcedure
       .input(z.object({
         status: z.string().optional(),
         tipo: z.string().optional(),
         cidade: z.string().optional(),
       }).optional())
-      .query(async ({ input, ctx }) => {
-        requireRole(ctx, STAFF_ROLES);
+      .query(async ({ input }) => {
         return db.getAllAvaliacoes(input);
       }),
 
-    getById: protectedProcedure
+    getById: adminProcedure
       .input(z.object({ id: z.number() }))
-      .query(async ({ input, ctx }) => {
-        requireRole(ctx, STAFF_ROLES);
+      .query(async ({ input }) => {
         const avaliacao = await db.getAvaliacaoById(input.id);
         if (!avaliacao) throw new TRPCError({ code: "NOT_FOUND" });
         return avaliacao;
       }),
 
-    create: protectedProcedure
+    create: adminProcedure
       .input(z.object({
         tipo: z.string(),
         finalidade: z.string(),
@@ -1781,8 +1775,7 @@ export const appRouter = router({
         valorServico: z.number().optional(),
         leadId: z.number().optional(),
       }))
-      .mutation(async ({ input, ctx }) => {
-        requireRole(ctx, STAFF_ROLES);
+      .mutation(async ({ input }) => {
         return db.createAvaliacao({
           ...input,
           areaConstruida: input.areaConstruida?.toString(),
@@ -1793,7 +1786,7 @@ export const appRouter = router({
         } as any);
       }),
 
-    update: protectedProcedure
+    update: adminProcedure
       .input(z.object({
         id: z.number(),
         tipo: z.string().optional(),
@@ -1825,8 +1818,7 @@ export const appRouter = router({
         valorServico: z.number().optional(),
         leadId: z.number().optional(),
       }))
-      .mutation(async ({ input, ctx }) => {
-        requireRole(ctx, STAFF_ROLES);
+      .mutation(async ({ input }) => {
         const { id, ...data } = input;
         if (data.status === "entregue") {
           (data as any).dataEntrega = new Date();
@@ -1860,7 +1852,7 @@ export const appRouter = router({
         };
       }),
 
-    updateChecklist: protectedProcedure
+    updateChecklist: adminProcedure
       .input(z.object({
         id: z.number(),
         tipoChecklist: z.enum(["imovel", "terreno"]),
@@ -1871,17 +1863,15 @@ export const appRouter = router({
         })),
         fotos: z.array(z.string()).max(CHECKLIST_MAX_FOTOS),
       }))
-      .mutation(async ({ input, ctx }) => {
-        requireRole(ctx, STAFF_ROLES);
+      .mutation(async ({ input }) => {
         const { id, ...checklist } = input;
         await db.updateAvaliacao(id, { caracteristicas: JSON.stringify(checklist) });
         return { success: true };
       }),
 
-    sugerirValor: protectedProcedure
+    sugerirValor: adminProcedure
       .input(z.object({ id: z.number() }))
-      .mutation(async ({ input, ctx }) => {
-        requireRole(ctx, STAFF_ROLES);
+      .mutation(async ({ input }) => {
         const avaliacao = await db.getAvaliacaoById(input.id);
         if (!avaliacao) throw new TRPCError({ code: "NOT_FOUND" });
 
@@ -1925,33 +1915,30 @@ export const appRouter = router({
         }));
       }),
 
-    scrape: protectedProcedure
+    scrape: adminProcedure
       .input(z.object({ url: z.string() }))
-      .mutation(async ({ input, ctx }) => {
-        requireRole(ctx, STAFF_ROLES);
+      .mutation(async ({ input }) => {
         return scrapeUrl(input.url);
       }),
 
-    list: protectedProcedure
+    list: adminProcedure
       .input(z.object({
         status: z.string().optional(),
         fonte: z.string().optional(),
       }).optional())
-      .query(async ({ input, ctx }) => {
-        requireRole(ctx, STAFF_ROLES);
+      .query(async ({ input }) => {
         return db.getAllAgregadorImoveis(input);
       }),
 
-    getById: protectedProcedure
+    getById: adminProcedure
       .input(z.object({ id: z.number() }))
-      .query(async ({ input, ctx }) => {
-        requireRole(ctx, STAFF_ROLES);
+      .query(async ({ input }) => {
         const item = await db.getAgregadorImovelById(input.id);
         if (!item) throw new TRPCError({ code: "NOT_FOUND" });
         return item;
       }),
 
-    create: protectedProcedure
+    create: adminProcedure
       .input(z.object({
         titulo: z.string(),
         descricao: z.string().optional(),
@@ -1971,8 +1958,7 @@ export const appRouter = router({
         contatoTel: z.string().optional(),
         notas: z.string().optional(),
       }))
-      .mutation(async ({ input, ctx }) => {
-        requireRole(ctx, STAFF_ROLES);
+      .mutation(async ({ input }) => {
         return db.createAgregadorImovel({
           ...input,
           preco: input.preco?.toString(),
@@ -1981,13 +1967,12 @@ export const appRouter = router({
         } as any);
       }),
 
-    updateStatus: protectedProcedure
+    updateStatus: adminProcedure
       .input(z.object({
         id: z.number(),
         status: z.enum(["pendente", "verificado", "arquivado"]),
       }))
-      .mutation(async ({ input, ctx }) => {
-        requireRole(ctx, STAFF_ROLES);
+      .mutation(async ({ input }) => {
         await db.updateAgregadorImovel(input.id, { status: input.status });
         return { success: true };
       }),

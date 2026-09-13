@@ -42,11 +42,16 @@ import AdminComissoes from "./pages/admin/AdminComissoes";
 import AdminProjetos from "./pages/admin/AdminProjetos";
 import AdminMapa from "./pages/admin/AdminMapa";
 import AdminRegularizacoes from "./pages/admin/AdminRegularizacoes";
+import AdminAgregador from "./pages/admin/AdminAgregador";
+import AdminRelatorios from "./pages/admin/AdminRelatorios";
 import AdminWhatsApp from "./pages/admin/AdminWhatsApp";
 import AdminBpo from "./pages/admin/AdminBpo";
 import AdminObraMedicoes from "./pages/admin/AdminObraMedicoes";
 import AdminAvaliacoes from "./pages/admin/AdminAvaliacoes";
 import AdminAvaliacaoDetail from "./pages/admin/AdminAvaliacaoDetail";
+import AdminAvaliacaoEditar from "./pages/admin/AdminAvaliacaoEditar";
+import AdminAvaliacaoLaudo from "./pages/admin/AdminAvaliacaoLaudo";
+import AdminAvaliacoesLaudosLote from "./pages/admin/AdminAvaliacoesLaudosLote";
 import Imoveis from "./pages/Imoveis";
 import ImovelDetalhes from "./pages/ImovelDetalhes";
 import AdminImoveis from "./pages/admin/AdminImoveis";
@@ -174,6 +179,21 @@ function Router() {
       </Route>
       <Route path="/admin/regularizacoes">
         <AdminRoute module="regularizacao"><AdminRegularizacoes /></AdminRoute>
+      </Route>
+      <Route path="/admin/agregador">
+        <AdminRoute module="agregador"><AdminAgregador /></AdminRoute>
+      </Route>
+      <Route path="/admin/relatorios">
+        <AdminRoute module="relatorios"><AdminRelatorios /></AdminRoute>
+      </Route>
+      <Route path="/admin/avaliacoes/laudos">
+        <AdminRoute module="avaliacoes"><AdminAvaliacoesLaudosLote /></AdminRoute>
+      </Route>
+      <Route path="/admin/avaliacoes/:id/editar">
+        <AdminRoute module="avaliacoes"><AdminAvaliacaoEditar /></AdminRoute>
+      </Route>
+      <Route path="/admin/avaliacoes/:id/laudo">
+        <AdminRoute module="avaliacoes"><AdminAvaliacaoLaudo /></AdminRoute>
       </Route>
       <Route path="/admin/avaliacoes/:id">
         <AdminRoute module="avaliacoes"><AdminAvaliacaoDetail /></AdminRoute>

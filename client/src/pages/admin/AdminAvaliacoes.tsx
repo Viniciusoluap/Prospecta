@@ -9,7 +9,7 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { toast } from "sonner";
-import { ArrowLeft, ClipboardCheck, Plus, FileSearch, Clock, CheckCircle2, XCircle } from "lucide-react";
+import { ArrowLeft, ClipboardCheck, Plus, FileSearch, Clock, CheckCircle2, XCircle, Printer } from "lucide-react";
 
 const STATUS_LABELS: Record<string, string> = {
   solicitada: "Solicitada",
@@ -47,6 +47,7 @@ export default function AdminAvaliacoes() {
   const [open, setOpen] = useState(false);
   const [filterStatus, setFilterStatus] = useState("all");
   const [filterTipo, setFilterTipo] = useState("all");
+  const [selecionadas, setSelecionadas] = useState<Set<number>>(new Set());
   const [form, setForm] = useState({
     tipo: "mercado", finalidade: "compra_venda",
     clienteNome: "", clienteCpf: "", clienteTel: "", clienteEmail: "",
@@ -75,6 +76,19 @@ export default function AdminAvaliacoes() {
     },
     onError: (e) => toast.error(e.message),
   });
+
+  function toggleSelecionada(id: number) {
+    setSelecionadas((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  }
+
+  function baixarLaudos() {
+    const ids = Array.from(selecionadas).join(",");
+    window.open(`/admin/avaliacoes/laudos?ids=${ids}`, "_blank");
+  }
 
   const total = avaliacoes.length;
   const pendentes = avaliacoes.filter((a: any) => ["solicitada", "vistoria", "elaboracao", "revisao"].includes(a.status)).length;
@@ -119,7 +133,13 @@ export default function AdminAvaliacoes() {
               <p className="text-gray-400 text-sm">Avaliação imobiliária — comparativo/renda/custo</p>
             </div>
           </div>
-          <Dialog open={open} onOpenChange={setOpen}>
+          <div className="flex items-center gap-2">
+            {selecionadas.size > 0 && (
+              <Button onClick={baixarLaudos} variant="outline" className="border-[#C9A961]/30 text-[#C9A961]">
+                <Printer className="h-4 w-4 mr-2" /> Baixar Laudos ({selecionadas.size})
+              </Button>
+            )}
+            <Dialog open={open} onOpenChange={setOpen}>
             <DialogTrigger asChild>
               <Button className="bg-[#C9A961] hover:bg-[#B8985A] text-[#1A2332] font-bold">
                 <Plus className="h-4 w-4 mr-2" /> Nova Avaliação
@@ -252,7 +272,8 @@ export default function AdminAvaliacoes() {
                 </Button>
               </div>
             </DialogContent>
-          </Dialog>
+            </Dialog>
+          </div>
         </div>
       </div>
 
@@ -330,26 +351,35 @@ export default function AdminAvaliacoes() {
         ) : (
           <div className="space-y-3">
             {avaliacoes.map((a: any) => (
-              <Link key={a.id} href={`/admin/avaliacoes/${a.id}`}>
-                <Card className="bg-[#2C3E50] border-[#C9A961]/20 hover:border-[#C9A961]/50 transition-colors cursor-pointer">
-                  <CardHeader className="pb-3">
-                    <div className="flex items-center justify-between">
-                      <div>
-                        <CardTitle className="text-white text-base flex items-center gap-2">
-                          {a.numero}
-                          <Badge className={`${STATUS_COLORS[a.status]} text-white`}>{STATUS_LABELS[a.status]}</Badge>
-                        </CardTitle>
-                        <p className="text-sm text-gray-400 mt-1">{a.clienteNome} • {a.endereco}, {a.bairro} — {a.cidade}/{a.estado}</p>
-                        <p className="text-xs text-gray-500 mt-0.5">{TIPO_LABELS[a.tipo] ?? a.tipo} • {a.avaliador}</p>
+              <Card key={a.id} className="bg-[#2C3E50] border-[#C9A961]/20 hover:border-[#C9A961]/50 transition-colors">
+                <CardHeader className="pb-3">
+                  <div className="flex items-center gap-3">
+                    <input
+                      type="checkbox"
+                      checked={selecionadas.has(a.id)}
+                      onChange={() => toggleSelecionada(a.id)}
+                      onClick={(e) => e.stopPropagation()}
+                      className="h-4 w-4 shrink-0 accent-[#C9A961]"
+                    />
+                    <Link href={`/admin/avaliacoes/${a.id}`} className="flex-1">
+                      <div className="flex items-center justify-between cursor-pointer">
+                        <div>
+                          <CardTitle className="text-white text-base flex items-center gap-2">
+                            {a.numero}
+                            <Badge className={`${STATUS_COLORS[a.status]} text-white`}>{STATUS_LABELS[a.status]}</Badge>
+                          </CardTitle>
+                          <p className="text-sm text-gray-400 mt-1">{a.clienteNome} • {a.endereco}, {a.bairro} — {a.cidade}/{a.estado}</p>
+                          <p className="text-xs text-gray-500 mt-0.5">{TIPO_LABELS[a.tipo] ?? a.tipo} • {a.avaliador}</p>
+                        </div>
+                        <div className="text-right">
+                          {a.valorEstimado && <p className="text-[#C9A961] font-bold text-lg">{formatCurrencyBR(a.valorEstimado)}</p>}
+                          {a.valorServico && <p className="text-xs text-gray-400">Serviço: {formatCurrencyBR(a.valorServico)}</p>}
+                        </div>
                       </div>
-                      <div className="text-right">
-                        {a.valorEstimado && <p className="text-[#C9A961] font-bold text-lg">{formatCurrencyBR(a.valorEstimado)}</p>}
-                        {a.valorServico && <p className="text-xs text-gray-400">Serviço: {formatCurrencyBR(a.valorServico)}</p>}
-                      </div>
-                    </div>
-                  </CardHeader>
-                </Card>
-              </Link>
+                    </Link>
+                  </div>
+                </CardHeader>
+              </Card>
             ))}
           </div>
         )}

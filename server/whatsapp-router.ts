@@ -3,8 +3,8 @@ import { z } from "zod";
 import { leads, users, whatsappConnections, whatsappMessages } from "../drizzle/schema.js";
 import { enviarWhatsappBusiness, normalizarStatusWebhook } from "./_core/whatsapp-business.js";
 import { decryptSecret, encryptSecret } from "./_core/secret-vault.js";
-import { requireRole, STAFF_ROLES } from "./_core/rbac.js";
-import { protectedProcedure, router } from "./_core/trpc.js";
+import { requireRole } from "./_core/rbac.js";
+import { adminProcedure, protectedProcedure, router } from "./_core/trpc.js";
 import { getDb } from "./db.js";
 
 async function conexaoParaPapel(userId: number, role: string) {
@@ -20,8 +20,7 @@ async function conexaoParaPapel(userId: number, role: string) {
 }
 
 export const whatsappRouter = router({
-  minhaConexao: protectedProcedure.query(async ({ ctx }) => {
-    requireRole(ctx, STAFF_ROLES);
+  minhaConexao: adminProcedure.query(async ({ ctx }) => {
     const conn = await conexaoParaPapel(ctx.user.id, ctx.user.role);
     if (!conn) return null;
     return { id: conn.id, numero: conn.numero, status: conn.status };
@@ -39,13 +38,11 @@ export const whatsappRouter = router({
     });
   }),
 
-  leadsParaEnvio: protectedProcedure.query(async ({ ctx }) => {
-    requireRole(ctx, STAFF_ROLES);
+  leadsParaEnvio: adminProcedure.query(async () => {
     return getDb().select({ id: leads.id, name: leads.name, phone: leads.phone }).from(leads).orderBy(desc(leads.createdAt));
   }),
 
-  historico: protectedProcedure.query(async ({ ctx }) => {
-    requireRole(ctx, STAFF_ROLES);
+  historico: adminProcedure.query(async ({ ctx }) => {
     const db = getDb();
     if (ctx.user.role === "admin") {
       return db.select().from(whatsappMessages).orderBy(desc(whatsappMessages.createdAt)).limit(100);
@@ -81,13 +78,12 @@ export const whatsappRouter = router({
     return { success: true };
   }),
 
-  enviar: protectedProcedure
+  enviar: adminProcedure
     .input(z.object({
       mensagem: z.string().trim().min(1).max(4096),
       destinatarios: z.array(z.object({ id: z.number(), nome: z.string(), telefone: z.string() })).min(1).max(200),
     }))
     .mutation(async ({ ctx, input }) => {
-      requireRole(ctx, STAFF_ROLES);
       const db = getDb();
       const conn = await conexaoParaPapel(ctx.user.id, ctx.user.role);
       if (!conn || conn.status !== "conectado") {

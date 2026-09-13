@@ -34,7 +34,8 @@ const procedureModules: Record<string, AdminModule> = {
   financialTransactions: "contabilidade", bpo: "bpo", pluggySettings: "banco", bancario: "banco",
   imoveis: "imoveis", avaliacoes: "avaliacoes", agregador: "agregador", incorporacao: "projetos",
   regularizacao: "regularizacao", portal: "crm", whatsapp: "whatsapp", financiamentos: "financiamentos",
-  juridico: "juridico", agenda: "agenda", corretores: "corretores", comissoes: "comissoes", projetos: "projetos", mapa: "mapa",
+  juridico: "juridico", relatorios: "relatorios", agenda: "agenda", corretores: "corretores",
+  comissoes: "comissoes", projetos: "projetos", mapa: "mapa",
 };
 
 export function canAccessAdminProcedure(user: { role: string; permissions?: string | null }, path: string): boolean {
