@@ -1,5 +1,5 @@
 export const ADMIN_MODULES = [
-  "dashboard", "crm", "imoveis", "obras", "projetos", "regularizacao",
+  "dashboard", "agenda", "mapa", "crm", "imoveis", "obras", "projetos", "regularizacao",
   "financiamentos", "juridico", "corretores", "comissoes", "avaliacoes",
   "bpo", "contabilidade", "banco", "whatsapp", "agregador", "configuracoes",
 ] as const;
@@ -8,6 +8,8 @@ export type AdminModule = (typeof ADMIN_MODULES)[number];
 
 export const ADMIN_MODULE_LABELS: Record<AdminModule, string> = {
   dashboard: "Painel e indicadores",
+  agenda: "Agenda operacional",
+  mapa: "Mapa operacional",
   crm: "Leads / CRM",
   imoveis: "Imóveis",
   obras: "Obras",

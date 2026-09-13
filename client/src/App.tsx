@@ -36,7 +36,11 @@ import AdminCRM from "./pages/admin/AdminCRM";
 import AdminLeadDetail from "./pages/admin/AdminLeadDetail";
 import AdminFinanceiro from "./pages/admin/AdminFinanceiro";
 import AdminTarefas from "./pages/admin/AdminTarefas";
-import AdminCorretores from "./pages/admin/AdminCorretores";
+import AdminCorretores from "./pages/admin/AdminBrokerDirectory";
+import AdminAgenda from "./pages/admin/AdminAgenda";
+import AdminComissoes from "./pages/admin/AdminComissoes";
+import AdminProjetos from "./pages/admin/AdminProjetos";
+import AdminMapa from "./pages/admin/AdminMapa";
 import AdminRegularizacoes from "./pages/admin/AdminRegularizacoes";
 import AdminWhatsApp from "./pages/admin/AdminWhatsApp";
 import AdminBpo from "./pages/admin/AdminBpo";
@@ -158,6 +162,10 @@ function Router() {
       <Route path="/admin/corretores">
         <AdminRoute module="corretores"><AdminCorretores /></AdminRoute>
       </Route>
+      <Route path="/admin/agenda"><AdminRoute module="agenda"><AdminAgenda /></AdminRoute></Route>
+      <Route path="/admin/comissoes"><AdminRoute module="comissoes"><AdminComissoes /></AdminRoute></Route>
+      <Route path="/admin/projetos"><AdminRoute module="projetos"><AdminProjetos /></AdminRoute></Route>
+      <Route path="/admin/mapa"><AdminRoute module="mapa"><AdminMapa /></AdminRoute></Route>
       <Route path="/admin/whatsapp">
         <AdminRoute module="whatsapp"><AdminWhatsApp /></AdminRoute>
       </Route>

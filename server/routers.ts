@@ -1,7 +1,7 @@
 import { COOKIE_NAME } from "../shared/const.js";
 import { getSessionCookieOptions } from "./_core/cookies.js";
 import { systemRouter } from "./_core/systemRouter.js";
-import { publicProcedure, protectedProcedure, router } from "./_core/trpc.js";
+import { adminProcedure, publicProcedure, protectedProcedure, router } from "./_core/trpc.js";
 import { z } from "zod";
 import { notifyOwner } from "./_core/notification.js";
 import { stripe } from "./_core/stripe.js";
@@ -26,6 +26,7 @@ import { fetchElevationGrid } from "./_core/geo/elevacao.js";
 import { pesquisarMercado } from "./_core/incorporacao/mercado-ia.js";
 import { financiamentoRouter } from "./financiamento-router.js";
 import { juridicoRouter } from "./juridico-router.js";
+import { agendaRouter, corretoresRouter, comissoesRouter, projetosRouter, mapaRouter } from "./operacional-router.js";
 import { configuracoesRouter } from "./configuracoes-router.js";
 
 // Helper para gerar número de bilhete único
@@ -96,6 +97,11 @@ export const appRouter = router({
   whatsapp: whatsappRouter,
   financiamentos: financiamentoRouter,
   juridico: juridicoRouter,
+  agenda: agendaRouter,
+  corretores: corretoresRouter,
+  comissoes: comissoesRouter,
+  projetos: projetosRouter,
+  mapa: mapaRouter,
   configuracoes: configuracoesRouter,
   auth: router({
     me: publicProcedure.query(opts => opts.ctx.user),
@@ -1218,70 +1224,11 @@ export const appRouter = router({
 
   // ========== CORRETORES ==========
   brokerCommissions: router({
-    list: protectedProcedure
-      .input(z.object({
-        brokerName: z.string().optional(),
-        status: z.string().optional(),
-      }).optional())
-      .query(async ({ ctx }) => {
-        requireRole(ctx, ["admin"]);
-        return db.getAllBrokerCommissions();
-      }),
-
-    create: protectedProcedure
-      .input(z.object({
-        brokerName: z.string(),
-        clientName: z.string(),
-        projectName: z.string().optional(),
-        totalAmount: z.number(),
-        installment1: z.number().optional(),
-        installment2: z.number().optional(),
-        installment3: z.number().optional(),
-        installment4: z.number().optional(),
-        dueDate1: z.union([z.string(), z.date()]).optional(),
-        dueDate2: z.union([z.string(), z.date()]).optional(),
-        dueDate3: z.union([z.string(), z.date()]).optional(),
-        dueDate4: z.union([z.string(), z.date()]).optional(),
-      }))
-      .mutation(async ({ input, ctx }) => {
-        requireRole(ctx, ["admin"]);
-        return db.createBrokerCommission({
-          brokerName: input.brokerName,
-          clientName: input.clientName,
-          projectName: input.projectName,
-          totalCommission: input.totalAmount.toString(),
-          installment1Value: input.installment1?.toString(),
-          installment2Value: input.installment2?.toString(),
-          installment3Value: input.installment3?.toString(),
-          installment4Value: input.installment4?.toString(),
-          installment1DueDate: input.dueDate1 ? new Date(input.dueDate1) : undefined,
-          installment2DueDate: input.dueDate2 ? new Date(input.dueDate2) : undefined,
-          installment3DueDate: input.dueDate3 ? new Date(input.dueDate3) : undefined,
-          installment4DueDate: input.dueDate4 ? new Date(input.dueDate4) : undefined,
-          status: "pending",
-        } as any);
-      }),
-
-    update: protectedProcedure
-      .input(z.object({
-        id: z.number(),
-        paidDate1: z.union([z.string(), z.date()]).optional(),
-        paidDate2: z.union([z.string(), z.date()]).optional(),
-        paidDate3: z.union([z.string(), z.date()]).optional(),
-        paidDate4: z.union([z.string(), z.date()]).optional(),
-        notes: z.string().optional(),
-      }))
-      .mutation(async ({ input, ctx }) => {
-        requireRole(ctx, ["admin"]);
-        const { id, notes, ...dates } = input;
-        const data: Record<string, any> = { notes };
-        if (dates.paidDate1) data.installment1Paid = new Date(dates.paidDate1);
-        if (dates.paidDate2) data.installment2Paid = new Date(dates.paidDate2);
-        if (dates.paidDate3) data.installment3Paid = new Date(dates.paidDate3);
-        if (dates.paidDate4) data.installment4Paid = new Date(dates.paidDate4);
-        await db.updateBrokerCommission(id, data as any);
-        return { success: true };
-      }),
+    list: adminProcedure.query(async () => db.getAllBrokerCommissions()),
+    // The legacy contract confused paid amounts with dates. Keep data readable,
+    // but reject writes from stale clients rather than corrupting monetary fields.
+    create: adminProcedure.mutation(() => { throw new TRPCError({ code: "PRECONDITION_FAILED", message: "Use o módulo Comissões atualizado" }); }),
+    update: adminProcedure.mutation(() => { throw new TRPCError({ code: "PRECONDITION_FAILED", message: "Histórico legado é somente leitura; use Comissões" }); }),
   }),
 
 

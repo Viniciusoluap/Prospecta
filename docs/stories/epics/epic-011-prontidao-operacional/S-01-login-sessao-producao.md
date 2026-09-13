@@ -33,7 +33,7 @@ Como administrador da Prospecta, quero que o login por email e senha mantenha a 
 - Alteração de senha do usuário.
 - Mudança de provedor de autenticação.
 - Alteração do banco de produção.
-- PR #7, encerrada e removida do plano.
+- A tentativa antiga de unificação foi abandonada definitivamente e não integra este plano.
 
 ## Riscos e rollback
 
