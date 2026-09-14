@@ -27,6 +27,14 @@ IDs duplicados em `AdminAcesso.tsx` (projetos/incorporação, dashboard/tarefas)
 `banco`/`configuracoes` sem rota correspondente, descompasso de granularidade `AdminBpo`
 (rota `module="bpo"` vs backend `module="banco"`).
 
+## Encerramento
+
+- **PR #49** mesclado (squash) em `main`, commit `4da1f60`.
+- **Deploy de produção confirmado `READY`**: `dpl_9Y3A3NJHuPDWBymQ1aNqCdQ8tz6L`
+  (`prj_hVT5OCL8S5GbJ5L0GArH9aDxbFHR`). Nenhum erro de runtime nas últimas 24h.
+- **PR #119** (Grupo Santa Fé) também mesclado, commit `6d9431c`, deploy `READY`
+  (`dpl_8f6pYUuakDtEggz5mEur1MW3Hec8`), sem erros de runtime.
+
 ## Evidências de encerramento (Prospecta)
 
 - TypeScript aprovado (`npx tsc --noEmit`, zero erros);
