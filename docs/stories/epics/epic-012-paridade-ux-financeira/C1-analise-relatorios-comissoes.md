@@ -1,7 +1,8 @@
-# C1 — Relatórios de comissões: análise (implementação pendente)
+# C1 — Relatórios de comissões: análise
 
-**Status:** Analisado; implementação não iniciada nesta rodada (C2 foi escolhida como a
-frente de menor complexidade e executada primeiro)
+**Status:** Implementado — ver `S-11-relatorios-comissoes-unificados.md` e
+`CHECKPOINT-C1-COMISSOES.md` para a entrega final. Este documento registra a análise e o
+mapeamento originais, que orientaram a implementação.
 
 ## Problema confirmado
 
@@ -42,19 +43,22 @@ Etapa 5" — esta é exatamente essa pendência.
    `dueDate` (vencimento) ou `paidAt` (quando pago) — a decisão exata de qual data usar como
    "data do relatório" fica para a implementação, documentando a escolha.
 
-## Escopo de implementação (próxima rodada)
+## Implementação (concluída)
 
-- `server/relatorios-router.ts`: `overview.corretorRanking` e `exportComissoesCsv` passam a
+Toda esta proposta foi implementada como descrita, sem alterações à regra. Ver
+`S-11-relatorios-comissoes-unificados.md` para o detalhamento final e
+`server/relatorios-comissoes.test.ts` para os 14 testes que cobrem exatamente os cenários
+listados abaixo (originalmente planejados para a rodada seguinte, já entregues):
+
+- `server/relatorios-router.ts`: `overview.corretorRanking` e `exportComissoesCsv` passaram a
   consultar as duas tabelas, unificando por corretor com o campo de origem.
 - Testes cobrindo: registro novo pago, novo pendente, novo cancelado (excluído do total
-  "pago" mas visível se o relatório mostrar todos os status), legado pago, legado parcialmente
+  "pago" mas visível na exportação com todos os status), legado pago, legado parcialmente
   pago.
-- Conferir filtros de data/valor exportado para garantir que a soma total do CSV bate com a
-  soma exibida na tela.
 
-## Por que não implementado nesta rodada
+## Por que C1 não foi implementado na primeira rodada (contexto histórico)
 
-O pedido explicitamente instruiu executar primeiro "a frente de menor complexidade do plano".
+O pedido original instruiu executar primeiro "a frente de menor complexidade do plano".
 C1 exige reconciliar dois modelos de dados com formatos e regras de status diferentes, com
 risco real de dupla contagem ou omissão se malfeito — mais complexo que C2 (navegação, que é
 essencialmente correção de rotas/links já mapeados). Esta análise fica pronta para a próxima

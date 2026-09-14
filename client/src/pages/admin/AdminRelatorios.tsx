@@ -57,9 +57,9 @@ export default function AdminRelatorios() {
   async function exportarCsv() {
     const result = await exportQuery.refetch();
     const rows = result.data ?? [];
-    const header = "Data;Corretor;Cliente;Valor Total;Pago";
+    const header = "Origem;Data;Corretor;Referência;Valor Total;Pago;Status";
     const linhas = rows.map((r) =>
-      [r.data, r.corretor, r.cliente, r.valorTotal.toFixed(2), r.pago.toFixed(2)].join(";")
+      [r.origem, r.data, r.corretor, r.referencia ?? "", r.valorTotal.toFixed(2), r.pago.toFixed(2), r.status].join(";")
     );
     const csv = "﻿" + [header, ...linhas].join("\n");
     const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
