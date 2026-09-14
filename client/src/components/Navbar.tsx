@@ -5,6 +5,7 @@ import { useAuth } from "@/_core/hooks/useAuth";
 import {
   Sheet,
   SheetContent,
+  SheetFooter,
   SheetHeader,
   SheetTitle,
   SheetTrigger,
@@ -158,7 +159,7 @@ export default function Navbar() {
                 <div className="border-t my-2" />
 
                 {/* Minha Conta */}
-                {isAuthenticated ? (
+                {isAuthenticated && (
                   <div className="px-3 py-2">
                     <h3 className="text-sm font-semibold text-muted-foreground mb-3">Minha Conta</h3>
                     <div className="flex flex-col gap-2">
@@ -209,35 +210,38 @@ export default function Navbar() {
                           </Link>
                         </>
                       )}
-                      <div className="border-t my-2" />
-                      <Button
-                        variant="ghost"
-                        className="w-full justify-start text-red-500 hover:text-red-600 hover:bg-red-50"
-                        onClick={() => {
-                          handleLogout();
-                          closeMobileMenu();
-                        }}
-                      >
-                        <LogOut className="mr-3 h-4 w-4" />
-                        Sair
-                      </Button>
                     </div>
                   </div>
-                ) : (
-                  <Button
-                    variant="default"
-                    className="w-full"
-                    onClick={() => {
-                      window.location.href = getLoginUrl();
-                      closeMobileMenu();
-                    }}
-                  >
-                    <User className="mr-2 h-4 w-4" />
-                    Entrar
-                  </Button>
                 )}
               </div>
             </ScrollArea>
+            <SheetFooter className="border-t">
+              {isAuthenticated ? (
+                <Button
+                  variant="ghost"
+                  className="w-full justify-start text-red-500 hover:text-red-600 hover:bg-red-50"
+                  onClick={() => {
+                    handleLogout();
+                    closeMobileMenu();
+                  }}
+                >
+                  <LogOut className="mr-3 h-4 w-4" />
+                  Sair
+                </Button>
+              ) : (
+                <Button
+                  variant="default"
+                  className="w-full"
+                  onClick={() => {
+                    window.location.href = getLoginUrl();
+                    closeMobileMenu();
+                  }}
+                >
+                  <User className="mr-2 h-4 w-4" />
+                  Entrar
+                </Button>
+              )}
+            </SheetFooter>
           </SheetContent>
         </Sheet>
 

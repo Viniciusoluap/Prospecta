@@ -25,7 +25,7 @@
 | EPIC-009 | Alinhamento de papéis (admin/corretor/colaborador/cliente) | Claude | Done (S-01, S-02, S-03) | — |
 | EPIC-010 | Páginas institucionais (serviços/sobre/contato/mercado/cursos/instituto) | Claude | Done (S-01, S-02) | — |
 | EPIC-011 | Prontidão operacional e sessão de produção | Codex | Done (login validado pelo proprietário em 09/09/2026) | — |
-| EPIC-012 | Paridade real, navegação e arquitetura financeira | Codex / AIOX | Em andamento (S-01 a S-07 e S-09 Done; Etapas 3/P0, 4/P1, 5/P2 e RBAC legado concluídos; S-08/UAT em produção pendente) | EPIC-000 a EPIC-011 |
+| EPIC-012 | Paridade real, navegação e arquitetura financeira | Codex / AIOX | Em andamento (S-01 a S-07, S-09 e S-10 Done; Etapas 3/P0, 4/P1, 5/P2, RBAC legado e plano de correção C2/navegação concluídos; C1/relatórios de comissões analisado, implementação pendente; S-08/UAT em produção pendente) | EPIC-000 a EPIC-011 |
 
 ## Decisões do dono do produto (06/09/2026)
 

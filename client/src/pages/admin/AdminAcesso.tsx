@@ -1,5 +1,5 @@
 import { Link } from "wouter";
-import { BookOpen, Building2, CheckSquare, ClipboardCheck, FileCheck2, HardHat, Landmark, LayoutDashboard, Map, MessageCircle, Mountain, Receipt, Scale, UserCheck, Users } from "lucide-react";
+import { BarChart3, BookOpen, Building2, CheckSquare, ClipboardCheck, FileCheck2, HardHat, Landmark, LayoutDashboard, Map, MessageCircle, Mountain, Receipt, Scale, UserCheck, Users } from "lucide-react";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { parsePermissions, type AdminModule } from "../../../../shared/admin-permissions";
@@ -22,7 +22,8 @@ const modules: { id: AdminModule; label: string; href: string; icon: typeof User
   { id: "bpo", label: "BPO Financeiro", href: "/admin/bpo", icon: Receipt },
   { id: "contabilidade", label: "Contabilidade", href: "/admin/contabilidade", icon: BookOpen },
   { id: "whatsapp", label: "WhatsApp", href: "/admin/whatsapp", icon: MessageCircle },
-  { id: "agregador", label: "Agregador", href: "/mercado", icon: Map },
+  { id: "agregador", label: "Agregador", href: "/admin/agregador", icon: Map },
+  { id: "relatorios", label: "Relatórios", href: "/admin/relatorios", icon: BarChart3 },
   { id: "dashboard", label: "Tarefas", href: "/admin/tarefas", icon: CheckSquare },
 ];
 
