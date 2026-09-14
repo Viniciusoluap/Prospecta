@@ -42,3 +42,14 @@ sistematicamente incompletos desde que o novo modelo entrou em uso.
 **Não testado nesta sessão:** validação visual dos números de `/admin/relatorios` com dados
 reais em navegador (sandbox sem acesso à internet externa) — mesma limitação já documentada em
 checkpoints anteriores.
+
+## Encerramento — merge e deploy confirmados
+
+- PR #51 mesclado via squash em `main` (commit `cb907bac628bc2863f9306b7533390deda5149ce`);
+- Deploy de produção confirmado `READY` (deployment `dpl_RTfzrZHJbKZCsEzqat5gxqLHqf2U`, projeto
+  `site-prospecta`, alvo `production`, alias `site-prospecta.vercel.app` /
+  `prospectaconstrucoes.com`);
+- `mcp__Vercel__get_runtime_errors` (janela de 24h): nenhum erro de runtime encontrado.
+- Com este encerramento, as duas frentes do plano de correção coordenado com Astra — **C1**
+  (relatórios de comissões) e **C2** (navegação e acessos visuais) — estão mescladas e com
+  deploy de produção verificado em ambos os repositórios (Prospecta e Grupo Santa Fé).
