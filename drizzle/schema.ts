@@ -100,6 +100,7 @@ export const users = pgTable("users", {
   loginMethod: varchar("loginMethod", { length: 64 }),
   role: userRoleEnum("role").default("cliente").notNull(),
   active: boolean("active").default(true).notNull(),
+  sessionVersion: integer("sessionVersion").default(0).notNull(),
   permissions: text("permissions").default("[]").notNull(),
   creci: varchar("creci", { length: 40 }),
   leadId: integer("lead_id").unique().references(() => leads.id, { onDelete: "set null" }),

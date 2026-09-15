@@ -1,5 +1,5 @@
 import { TRPCError } from "@trpc/server";
-import { and, asc, desc, eq, gt, ne } from "drizzle-orm";
+import { and, asc, desc, eq, gt, ne, sql } from "drizzle-orm";
 import { z } from "zod";
 import {
   imoveis,
@@ -143,7 +143,16 @@ export const portalRouter = router({
       assertProvisionable(existing, input.leadId);
       const passwordHash = hashPassword(input.password);
       if (existing) {
-        await db.update(users).set({ leadId: input.leadId, passwordHash, name: lead.name, updatedAt: new Date() }).where(eq(users.id, existing.id));
+        // sessionVersion incrementado pelo mesmo motivo de configuracoes-router.ts
+        // resetPassword: reprovisionar credenciais nao deveria deixar uma sessao
+        // antiga (de quem tinha a senha anterior) continuar valida.
+        await db.update(users).set({
+          leadId: input.leadId,
+          passwordHash,
+          name: lead.name,
+          sessionVersion: sql`${users.sessionVersion} + 1`,
+          updatedAt: new Date(),
+        }).where(eq(users.id, existing.id));
         return { id: existing.id, email };
       }
       const [created] = await db.insert(users).values({ openId: `portal:${email}`, email, name: lead.name, role: "cliente", leadId: input.leadId, passwordHash, loginMethod: "password" }).returning({ id: users.id });

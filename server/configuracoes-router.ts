@@ -1,5 +1,5 @@
 import { TRPCError } from "@trpc/server";
-import { and, count, eq, ne } from "drizzle-orm";
+import { and, count, eq, ne, sql } from "drizzle-orm";
 import { z } from "zod";
 import { users } from "../drizzle/schema.js";
 import { ADMIN_MODULES, normalizePermissions } from "../shared/admin-permissions.js";
@@ -90,7 +90,14 @@ export const configuracoesRouter = router({
 
   resetPassword: adminProcedure.input(z.object({ id: z.number().int().positive(), password: z.string().min(8).max(128) }))
     .mutation(async ({ input }) => {
-      const [updated] = await getDb().update(users).set({ passwordHash: hashPassword(input.password), updatedAt: new Date() })
+      // sessionVersion incrementado: qualquer sessao JWT ja emitida para este
+      // usuario (por exemplo, de alguem que tinha acesso indevido) e invalidada
+      // no proximo request - ver server/_core/context.ts / shared/session.ts.
+      const [updated] = await getDb().update(users).set({
+        passwordHash: hashPassword(input.password),
+        sessionVersion: sql`${users.sessionVersion} + 1`,
+        updatedAt: new Date(),
+      })
         .where(eq(users.id, input.id)).returning({ id: users.id });
       if (!updated) throw new TRPCError({ code: "NOT_FOUND", message: "Usuário não encontrado" });
       return updated;

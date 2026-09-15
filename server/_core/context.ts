@@ -2,6 +2,7 @@ import type { CreateExpressContextOptions } from "@trpc/server/adapters/express"
 import type { User } from "../../drizzle/schema.js";
 import { getTokenFromRequest, verifySessionToken } from "./auth-utils.js";
 import { getUserById } from "../db.js";
+import { sessaoAindaValida } from "../../shared/session.js";
 
 export type TrpcContext = {
   req: CreateExpressContextOptions["req"];
@@ -20,7 +21,7 @@ export async function createContext(
       const payload = await verifySessionToken(token);
       if (payload) {
         const loadedUser = await getUserById(payload.userId);
-        user = loadedUser?.active ? loadedUser : null;
+        user = sessaoAindaValida(loadedUser, payload.sessionVersion) ? loadedUser : null;
       }
     }
   } catch {
