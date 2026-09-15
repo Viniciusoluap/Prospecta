@@ -179,13 +179,21 @@ branches arquivadas.
 (DDL) foi tocado; todos os testes de comportamento usaram dados sintéticos com
 `user_id`/`draw_id` negativos na branch isolada, nunca em produção.
 
+## Encerramento — merge e deploy confirmados
+
+- PR #53 mesclado via squash em `main` (commit `036f118e05c1ae069b4ff316f44328509255f827`).
+- Deploy de produção confirmado `READY` (deployment `dpl_7GErMUmvZ1zuD2SzWghtgSqCAWtY`,
+  projeto `site-prospecta`, alvo `production`, alias `site-prospecta.vercel.app` /
+  `prospectaconstrucoes.com`).
+- `mcp__Vercel__get_runtime_errors` (janela de 24h): nenhum erro de runtime encontrado.
+
 ## Situação após esta entrega
 
-- Código da Etapa 1 (Prospecta: pagamentos + sorteios) está completo, testado,
-  buildado, **e a migração está validada e aplicada em produção** com evidência
-  registrada acima. O PR de código (#53) segue aberto para revisão/merge do código da
-  aplicação (a migração de banco já está live independentemente do merge do PR, já que
-  foi aplicada diretamente via Neon).
-- Etapa 2 (Grupo Santa Fé continua sem alteração equivalente nesta rodada — não há
+- **Etapa 1 (Prospecta: pagamentos + sorteios) está concluída**: código mesclado,
+  migração validada em branch isolada e aplicada em produção, deploy confirmado
+  `READY`, zero erros de runtime. Achado mais grave (endpoint de simulação de
+  pagamento) corrigido e removido.
+- Etapa 2 (Grupo Santa Fé continua sem alteração equivalente nesta frente — não há
   módulo de sorteios no Santa Fé, então não há nada a portar aqui) e demais etapas do
-  handoff seguem pendentes.
+  handoff (autenticação/sessões/RBAC, adapter/webhooks, regressão completa) seguem
+  pendentes — começam a partir deste checkpoint.
