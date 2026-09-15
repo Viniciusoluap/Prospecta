@@ -113,6 +113,13 @@
       "when": 1789281186900,
       "tag": "0015_etapa4_operacional",
       "breakpoints": true
+    },
+    {
+      "idx": 16,
+      "version": "7",
+      "when": 1789496600904,
+      "tag": "0016_etapa1_payment_integrity",
+      "breakpoints": true
     }
   ]
 }

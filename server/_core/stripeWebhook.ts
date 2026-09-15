@@ -1,8 +1,21 @@
 import express from 'express';
 import { stripe } from './stripe.js';
 import { ENV } from './env.js';
-import * as db from '../db.js';
 
+// Stripe foi desabilitado como metodo de pagamento na interface (nao ha nenhuma tela
+// que ofereca "cartao/Stripe" como opcao de compra de bilhete/UTEF - o unico provedor
+// ativo e o Asaas, via server/payment-settlement.ts). Este webhook tinha um caminho
+// financeiro completo e divergente do Asaas (credito de UTEF/confirmacao de bilhete
+// direto, sem passar por payment_orders, sem idempotencia contra reentrega). Manter
+// os dois caminhos ativos e um risco real de regra financeira inconsistente.
+//
+// Decisao (auditoria Etapa 1): desabilitar o processamento explicitamente, em vez de
+// migrar Stripe para o mesmo contrato idempotente do Asaas - o provedor esta inativo
+// na UI, entao nao ha justificativa para manter um segundo pipeline financeiro
+// completo por algo que nenhum cliente pode escolher. Assinatura ainda e verificada
+// (para nao aceitar eventos nao autenticados silenciosamente e para acusar/logar
+// tentativas reais do Stripe, caso o webhook ainda esteja configurado no painel deles),
+// mas nenhum evento altera saldo/bilhete.
 export function registerStripeWebhook(app: express.Application) {
   // Webhook deve estar registrado ANTES do express.json() para receber raw body
   app.post(
@@ -17,101 +30,27 @@ export function registerStripeWebhook(app: express.Application) {
       }
 
       let event;
-
       try {
-        event = stripe.webhooks.constructEvent(
-          req.body,
-          sig,
-          ENV.stripeWebhookSecret
-        );
+        event = stripe.webhooks.constructEvent(req.body, sig, ENV.stripeWebhookSecret);
       } catch (err: any) {
         console.error('[Stripe Webhook] Signature verification failed:', err.message);
         return res.status(400).send(`Webhook Error: ${err.message}`);
       }
 
-      // Detectar eventos de teste
-      if (event.id.startsWith('evt_test_')) {
-        console.log('[Stripe Webhook] Test event detected, returning verification response');
-        return res.json({ verified: true });
-      }
+      console.warn(
+        '[Stripe Webhook] Integração desabilitada (Asaas é o único provedor ativo) - evento recebido e ignorado, nenhum dado foi alterado:',
+        event.type,
+        event.id,
+      );
 
-      console.log('[Stripe Webhook] Event received:', event.type, event.id);
-
-      try {
-        switch (event.type) {
-          case 'checkout.session.completed': {
-            const session = event.data.object as any;
-            console.log('[Stripe Webhook] Checkout completed:', session.id);
-
-            // Verificar se é uma compra de UTEFs
-            if (session.metadata?.transaction_type === 'utef_purchase') {
-              const userId = parseInt(session.metadata.user_id);
-              const utefAmount = parseInt(session.metadata.utef_amount);
-              const txId = session.metadata.tx_id;
-              
-              // Calcular bônus (10% para compras acima de 1000 UTEFs)
-              let bonusAmount = 0;
-              if (utefAmount >= 1000) {
-                bonusAmount = Math.floor(utefAmount * 0.1);
-              }
-              
-              const totalUtef = utefAmount + bonusAmount;
-              
-              // Creditar UTEFs na conta do usuário
-              await db.addUtefBalance(userId, totalUtef);
-              
-              // Registrar transação
-              await db.createUtefTransaction({
-                userId,
-                amount: totalUtef,
-                type: 'purchase',
-                description: bonusAmount > 0 
-                  ? `Compra de ${utefAmount} UTEFs + ${bonusAmount} bônus (10%)` 
-                  : `Compra de ${utefAmount} UTEFs`,
-                referenceId: txId,
-              });
-              
-              console.log(`[Stripe Webhook] UTEFs credited: ${totalUtef} (${utefAmount} + ${bonusAmount} bonus) for user ${userId}`);
-            } else {
-              // Buscar o bilhete pelo session ID
-              const ticket = await db.getTicketByStripeSessionId(session.id);
-              if (ticket) {
-                // Atualizar status do bilhete para confirmado
-                await db.updateTicketPaymentStatus(ticket.id, 'confirmed');
-                
-                // Atualizar o sorteio (incrementar arrecadação e bilhetes vendidos)
-                await db.incrementDrawStats(ticket.drawId, ticket.totalPaid, ticket.quantity);
-                
-                console.log('[Stripe Webhook] Ticket confirmed:', ticket.id);
-              } else {
-                console.warn('[Stripe Webhook] Ticket not found for session:', session.id);
-              }
-            }
-            break;
-          }
-
-          case 'payment_intent.payment_failed': {
-            const paymentIntent = event.data.object as any;
-            console.log('[Stripe Webhook] Payment failed:', paymentIntent.id);
-            
-            // Buscar o bilhete pelo payment intent ID
-            const ticket = await db.getTicketByStripePaymentIntentId(paymentIntent.id);
-            if (ticket) {
-              await db.updateTicketPaymentStatus(ticket.id, 'failed');
-              console.log('[Stripe Webhook] Ticket marked as failed:', ticket.id);
-            }
-            break;
-          }
-
-          default:
-            console.log('[Stripe Webhook] Unhandled event type:', event.type);
-        }
-
-        res.json({ received: true });
-      } catch (error: any) {
-        console.error('[Stripe Webhook] Error processing event:', error);
-        res.status(500).json({ error: error.message });
-      }
+      // 410 Gone: sinaliza claramente ao Stripe (e a qualquer log/observabilidade)
+      // que este endpoint nao processa mais eventos, sem mascarar como sucesso (200)
+      // nem como erro transitorio (5xx) que levaria a novas tentativas de retry.
+      return res.status(410).json({
+        received: false,
+        disabled: true,
+        message: 'Integração Stripe desabilitada - Asaas é o único provedor de pagamento ativo.',
+      });
     }
   );
 }

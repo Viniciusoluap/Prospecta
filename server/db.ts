@@ -8,6 +8,8 @@ import {
   tickets, Ticket, InsertTicket,
   utefBalances, UtefBalance, InsertUtefBalance,
   utefTransactions, UtefTransaction, InsertUtefTransaction,
+  paymentOrders, PaymentOrder, InsertPaymentOrder,
+  ticketNumbers, TicketNumber, InsertTicketNumber,
   products, Product, InsertProduct,
   productConversions, ProductConversion, InsertProductConversion,
   constructionProjects, ConstructionProject, InsertConstructionProject,
@@ -140,6 +142,146 @@ export async function getDrawById(id: number): Promise<Draw | undefined> {
   const db = getDb();
   const result = await db.select().from(draws).where(eq(draws.id, id)).limit(1);
   return result[0];
+}
+
+// Reserva atomicamente `quantity` numeros de capacidade de um sorteio (guarda de
+// concorrencia: so avanca se ticketsSold + quantity <= capacity, num unico UPDATE
+// condicional - sem read-then-write). Retorna o valor de ticketsSold ANTES da reserva
+// (para atribuir numeros sequenciais) ou null se excederia a capacidade/sorteio nao
+// existe.
+export async function reserveDrawCapacity(
+  drawId: number,
+  quantity: number,
+  amountPaidCents: number,
+  capacity: number,
+): Promise<{ ticketsSoldBefore: number } | null> {
+  const db = getDb();
+  const result = await db
+    .update(draws)
+    .set({
+      ticketsSold: sql`${draws.ticketsSold} + ${quantity}`,
+      currentAmount: sql`${draws.currentAmount} + ${amountPaidCents}`,
+      updatedAt: new Date(),
+    })
+    .where(and(
+      eq(draws.id, drawId),
+      sql`${draws.ticketsSold} + ${quantity} <= ${capacity}`,
+    ))
+    .returning({ ticketsSold: draws.ticketsSold });
+  if (result.length === 0) return null;
+  return { ticketsSoldBefore: result[0].ticketsSold - quantity };
+}
+
+export async function insertTicketNumbers(rows: InsertTicketNumber[]): Promise<void> {
+  if (rows.length === 0) return;
+  const db = getDb();
+  await db.insert(ticketNumbers).values(rows);
+}
+
+export async function getTicketNumbersByDrawId(drawId: number): Promise<TicketNumber[]> {
+  const db = getDb();
+  return db.select().from(ticketNumbers).where(eq(ticketNumbers.drawId, drawId));
+}
+
+export async function getTicketById(id: number): Promise<Ticket | undefined> {
+  const db = getDb();
+  const result = await db.select().from(tickets).where(eq(tickets.id, id)).limit(1);
+  return result[0];
+}
+
+// ========== PAYMENT ORDERS (ledger de idempotencia) ==========
+
+export async function createPaymentOrder(order: InsertPaymentOrder): Promise<PaymentOrder> {
+  const db = getDb();
+  const result = await db
+    .insert(paymentOrders)
+    .values(order)
+    .onConflictDoNothing({ target: paymentOrders.providerPaymentId })
+    .returning();
+  if (result[0]) return result[0];
+  // Ja existia (reentrancia na criacao da cobranca) - retorna o registro existente.
+  const existing = await getPaymentOrderByProviderId(order.providerPaymentId);
+  if (!existing) throw new Error(`Falha ao criar/recuperar payment_order para ${order.providerPaymentId}`);
+  return existing;
+}
+
+export async function getPaymentOrderByProviderId(providerPaymentId: string): Promise<PaymentOrder | undefined> {
+  const db = getDb();
+  const result = await db.select().from(paymentOrders).where(eq(paymentOrders.providerPaymentId, providerPaymentId)).limit(1);
+  return result[0];
+}
+
+// Guarda de idempotencia: so liquida uma vez. Retorna o pedido reivindicado (e passa a
+// responsabilidade de credito ao chamador) ou null se ja tinha sido liquidado/nao esta
+// mais pendente (reentrega do webhook, ou estado final ja alcancado).
+export async function claimPendingPaymentOrder(providerPaymentId: string): Promise<PaymentOrder | null> {
+  const db = getDb();
+  const result = await db
+    .update(paymentOrders)
+    .set({ status: "settled", settledAt: new Date(), updatedAt: new Date() })
+    .where(and(eq(paymentOrders.providerPaymentId, providerPaymentId), eq(paymentOrders.status, "pending")))
+    .returning();
+  return result[0] ?? null;
+}
+
+export async function markPaymentOrderReview(providerPaymentId: string, reason: string): Promise<PaymentOrder | null> {
+  const db = getDb();
+  const result = await db
+    .update(paymentOrders)
+    .set({ status: "review_required", reviewReason: reason, updatedAt: new Date() })
+    .where(eq(paymentOrders.providerPaymentId, providerPaymentId))
+    .returning();
+  return result[0] ?? null;
+}
+
+// Usado quando um pedido ja foi reivindicado (status='settled') mas uma etapa
+// posterior da liquidacao falha (sorteio encerrado, capacidade esgotada) - move o
+// pedido, que ja e propriedade exclusiva desta chamada, para conciliacao manual.
+export async function demoteSettledOrderToReview(providerPaymentId: string, reason: string): Promise<PaymentOrder | null> {
+  const db = getDb();
+  const result = await db
+    .update(paymentOrders)
+    .set({ status: "review_required", reviewReason: reason, updatedAt: new Date() })
+    .where(and(eq(paymentOrders.providerPaymentId, providerPaymentId), eq(paymentOrders.status, "settled")))
+    .returning();
+  return result[0] ?? null;
+}
+
+export async function markPaymentOrderRefunded(providerPaymentId: string): Promise<PaymentOrder | null> {
+  const db = getDb();
+  const result = await db
+    .update(paymentOrders)
+    .set({ status: "refunded", updatedAt: new Date() })
+    .where(and(eq(paymentOrders.providerPaymentId, providerPaymentId), eq(paymentOrders.status, "pending")))
+    .returning();
+  return result[0] ?? null;
+}
+
+// Credito atomico de UTEF: UPSERT com incremento no proprio SQL (nunca le o saldo
+// antes de escrever), elimina a corrida de leitura-e-escrita do createOrUpdateUtefBalance.
+export async function incrementUtefBalanceAtomic(userId: number, amount: number): Promise<void> {
+  const db = getDb();
+  await db
+    .insert(utefBalances)
+    .values({ userId, balance: amount })
+    .onConflictDoUpdate({
+      target: utefBalances.userId,
+      set: { balance: sql`${utefBalances.balance} + ${amount}`, updatedAt: new Date() },
+    });
+}
+
+// Debito atomico e condicional: so decrementa se o saldo atual for suficiente, em um
+// unico UPDATE...WHERE (sem read-then-write). Impede gasto duplicado quando duas
+// conversoes concorrentes leem o mesmo saldo "suficiente" antes de qualquer escrita.
+// Retorna true se o debito foi aplicado, false se o saldo era insuficiente.
+export async function decrementUtefBalanceAtomic(userId: number, amount: number): Promise<boolean> {
+  const db = getDb();
+  const result = await db
+    .update(utefBalances)
+    .set({ balance: sql`${utefBalances.balance} - ${amount}`, updatedAt: new Date() })
+    .where(and(eq(utefBalances.userId, userId), sql`${utefBalances.balance} >= ${amount}`))
+    .returning({ id: utefBalances.id });
+  return result.length > 0;
 }
 
 export async function createDraw(draw: InsertDraw): Promise<Draw> {
