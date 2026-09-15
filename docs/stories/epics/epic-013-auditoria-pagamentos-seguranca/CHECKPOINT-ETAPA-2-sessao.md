@@ -88,6 +88,14 @@ navegador real (exigiria o servidor rodando com banco real, indisponível neste
 sandbox). A lógica de decisão está coberta por teste unitário e a integração foi
 revisada linha a linha contra os dois pontos de emissão de token reais.
 
+## Encerramento — merge e deploy confirmados
+
+- PR #55 mesclado via squash em `main` (commit `942e533a3abca326152056b866f544fcafd7fb57`).
+- Deploy de produção confirmado `READY` (deployment `dpl_6ZgVGJnmFwRGpNYvcVqvvJiiVuxM`,
+  projeto `site-prospecta`, alvo `production`, alias `site-prospecta.vercel.app` /
+  `prospectaconstrucoes.com`).
+- `mcp__Vercel__get_runtime_errors` (janela de 24h): nenhum erro de runtime encontrado.
+
 ## Grupo Santa Fé × Prospecta
 
 Esta correção é a contraparte Prospecta do item "password reset session revocation"
