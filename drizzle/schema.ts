@@ -1,7 +1,7 @@
 import {
   pgTable, pgEnum,
   text, varchar, integer, serial, boolean,
-  timestamp, decimal,
+  timestamp, decimal, uniqueIndex,
 } from "drizzle-orm/pg-core";
 
 // ──────────────────────────────────────────
@@ -11,6 +11,10 @@ export const userRoleEnum = pgEnum("user_role", ["user", "admin", "corretor", "c
 export const drawStatusEnum = pgEnum("draw_status", ["active", "closed", "drawn"]);
 export const ticketPaymentStatusEnum = pgEnum("ticket_payment_status", ["pending", "confirmed", "failed"]);
 export const utefTransactionTypeEnum = pgEnum("utef_transaction_type", ["prize", "conversion", "adjustment", "purchase"]);
+export const paymentOrderPurposeEnum = pgEnum("payment_order_purpose", ["ticket_purchase", "utef_purchase"]);
+export const paymentOrderStatusEnum = pgEnum("payment_order_status", [
+  "pending", "settled", "refunded", "chargeback", "review_required", "failed",
+]);
 export const productCategoryEnum = pgEnum("product_category", ["real_estate", "financial", "nautical"]);
 export const productStatusEnum = pgEnum("product_status", ["available", "unavailable"]);
 export const productConversionStatusEnum = pgEnum("product_conversion_status", ["pending", "completed", "cancelled"]);
@@ -171,6 +175,46 @@ export const utefTransactions = pgTable("utef_transactions", {
 
 export type UtefTransaction = typeof utefTransactions.$inferSelect;
 export type InsertUtefTransaction = typeof utefTransactions.$inferInsert;
+
+// Ledger de intencao de pagamento: criado na hora da cobranca (Asaas), liquidado no
+// webhook. Garante idempotencia (provider_payment_id e unico) e serve de base para
+// reconciliacao manual de reembolso/chargeback.
+export const paymentOrders = pgTable("payment_orders", {
+  id: serial("id").primaryKey(),
+  provider: varchar("provider", { length: 20 }).notNull().default("asaas"),
+  providerPaymentId: varchar("provider_payment_id", { length: 255 }).notNull().unique(),
+  purpose: paymentOrderPurposeEnum("purpose").notNull(),
+  userId: integer("user_id").notNull(),
+  drawId: integer("draw_id"),
+  ticketId: integer("ticket_id"),
+  quantity: integer("quantity").default(1).notNull(),
+  principalAmount: integer("principal_amount").notNull(),
+  bonusAmount: integer("bonus_amount").default(0).notNull(),
+  status: paymentOrderStatusEnum("status").default("pending").notNull(),
+  reviewReason: text("review_reason"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  settledAt: timestamp("settled_at"),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+export type PaymentOrder = typeof paymentOrders.$inferSelect;
+export type InsertPaymentOrder = typeof paymentOrders.$inferInsert;
+
+// Numeros individuais de bilhete dentro de um sorteio (00000-99999). Cada unidade de
+// `quantity` comprada gera uma linha aqui, permitindo chance proporcional real e a
+// regra publica de "5 ultimos digitos da Loteria Federal" (busca exata ou anterior).
+export const ticketNumbers = pgTable("ticket_numbers", {
+  id: serial("id").primaryKey(),
+  ticketId: integer("ticket_id").notNull(),
+  drawId: integer("draw_id").notNull(),
+  number: integer("number").notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+}, (table) => ({
+  drawNumberUnique: uniqueIndex("ticket_numbers_draw_number_unique").on(table.drawId, table.number),
+}));
+
+export type TicketNumber = typeof ticketNumbers.$inferSelect;
+export type InsertTicketNumber = typeof ticketNumbers.$inferInsert;
 
 export const products = pgTable("products", {
   id: serial("id").primaryKey(),

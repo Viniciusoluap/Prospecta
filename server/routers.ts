@@ -29,6 +29,7 @@ import { juridicoRouter } from "./juridico-router.js";
 import { agendaRouter, corretoresRouter, comissoesRouter, projetosRouter, mapaRouter } from "./operacional-router.js";
 import { configuracoesRouter } from "./configuracoes-router.js";
 import { relatoriosRouter } from "./relatorios-router.js";
+import { calculateUtefBonus, extractLotteryTargetNumber, pickWinningNumber } from "../shared/raffle.js";
 
 // Helper para gerar número de bilhete único
 function generateTicketNumber(): string {
@@ -222,36 +223,56 @@ export const appRouter = router({
           throw new TRPCError({ code: "BAD_REQUEST", message: "Sorteio ainda não foi fechado" });
         }
 
-        // Buscar todos os bilhetes confirmados
-        const allTickets = await db.getTicketsByDrawId(input.drawId);
-        const confirmedTickets = allTickets.filter(t => t.paymentStatus === "confirmed");
+        // Regra publica (client/src/pages/FAQ.tsx): "Os 5 ultimos digitos do 1o
+        // premio determinam o numero vencedor. Se nao houver bilhete
+        // correspondente, vence o bilhete com numeracao imediatamente anterior."
+        // Numero vencedor e buscado entre os NUMEROS INDIVIDUAIS vendidos
+        // (ticket_numbers), nunca por indice/modulo sobre a contagem de linhas -
+        // isso garante chance proporcional real a quantity.
+        const targetNumber = extractLotteryTargetNumber(input.lotteryResult);
+        if (targetNumber === null) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "Resultado da loteria deve conter ao menos 5 dígitos" });
+        }
 
-        if (confirmedTickets.length === 0) {
+        const soldNumberRows = await db.getTicketNumbersByDrawId(input.drawId);
+        if (soldNumberRows.length === 0) {
           throw new TRPCError({ code: "BAD_REQUEST", message: "Nenhum bilhete confirmado para sorteio" });
         }
 
-        // Selecionar ganhador aleatório (simulação baseada no resultado da loteria)
-        const winnerIndex = parseInt(input.lotteryResult.slice(-2)) % confirmedTickets.length;
-        const winner = confirmedTickets[winnerIndex];
+        const winningNumber = pickWinningNumber(soldNumberRows.map((r) => r.number), targetNumber);
+        if (winningNumber === null) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "Não foi possível determinar um número vencedor" });
+        }
+
+        const winningRow = soldNumberRows.find((r) => r.number === winningNumber)!;
+        const winnerTicket = await db.getTicketById(winningRow.ticketId);
+        if (!winnerTicket) {
+          throw new TRPCError({ code: "NOT_FOUND", message: "Bilhete vencedor não encontrado" });
+        }
 
         // Atualizar sorteio com ganhador
         await db.updateDraw(input.drawId, {
           status: "drawn",
-          winnerUserId: winner.userId,
+          winnerUserId: winnerTicket.userId,
           lotteryResult: input.lotteryResult,
         });
 
-        // Creditar UTEFs ao ganhador
-        await db.createOrUpdateUtefBalance(winner.userId, draw.prizeAmount);
+        // Creditar UTEFs ao ganhador (credito atomico - nao le saldo antes de escrever)
+        await db.incrementUtefBalanceAtomic(winnerTicket.userId, draw.prizeAmount);
         await db.createUtefTransaction({
-          userId: winner.userId,
+          userId: winnerTicket.userId,
           amount: draw.prizeAmount,
           type: "prize",
-          description: `Prêmio do sorteio: ${draw.title}`,
+          description: `Prêmio do sorteio: ${draw.title} (número vencedor: ${String(winningNumber).padStart(5, "0")})`,
           relatedId: input.drawId,
         });
 
-        return { success: true, winnerId: winner.userId, winnerTicket: winner.ticketNumber };
+        return {
+          success: true,
+          winnerId: winnerTicket.userId,
+          winnerTicket: winnerTicket.ticketNumber,
+          winningNumber,
+        };
       }),
   }),
 
@@ -325,6 +346,19 @@ export const appRouter = router({
           stripeCheckoutSessionId: null, // Campo não usado com Asaas
         });
 
+        // Ledger de idempotencia: a liquidacao real (confirmar bilhete, atribuir
+        // numeros) so acontece uma vez, no webhook, via payment-settlement.ts.
+        await db.createPaymentOrder({
+          providerPaymentId: asaasPayment.id!,
+          purpose: "ticket_purchase",
+          userId: ctx.user.id,
+          drawId: input.drawId,
+          ticketId: ticket.id,
+          quantity: input.quantity,
+          principalAmount: totalPaid,
+          bonusAmount: 0,
+        });
+
         return {
           ticket,
           asaasPaymentId: asaasPayment.id,
@@ -336,30 +370,20 @@ export const appRouter = router({
         };
       }),
 
-    confirmPayment: protectedProcedure
-      .input(z.object({
-        ticketId: z.number(),
-      }))
-      .mutation(async ({ input, ctx }) => {
-        // Simulação de confirmação de pagamento
-        // Em produção, integrar com webhook do gateway de pagamento
-        await db.updateTicket(input.ticketId, {
-          paymentStatus: "confirmed",
-        });
-
-        // Atualizar estatísticas do sorteio
-        const ticket = (await db.getTicketsByUserId(ctx.user.id)).find(t => t.id === input.ticketId);
-        if (ticket) {
-          const draw = await db.getDrawById(ticket.drawId);
-          if (draw) {
-            await db.updateDraw(ticket.drawId, {
-              ticketsSold: draw.ticketsSold + ticket.quantity,
-              currentAmount: draw.currentAmount + ticket.totalPaid,
-            });
-          }
+    // Consulta o status real do bilhete (nunca o define) - a confirmacao so
+    // acontece via webhook do Asaas (server/payment-settlement.ts). Substituiu um
+    // endpoint anterior ("confirmPayment") que permitia qualquer usuario autenticado
+    // marcar o proprio bilhete como pago sem pagamento real (botao "Já Paguei -
+    // Confirmar Pagamento", explicitamente rotulado como simulação na interface, mas
+    // publicado em produção sem nenhuma verificação de pagamento).
+    getStatus: protectedProcedure
+      .input(z.object({ ticketId: z.number() }))
+      .query(async ({ input, ctx }) => {
+        const ticket = await db.getTicketById(input.ticketId);
+        if (!ticket || ticket.userId !== ctx.user.id) {
+          throw new TRPCError({ code: "FORBIDDEN", message: "Bilhete não encontrado" });
         }
-
-        return { success: true };
+        return { paymentStatus: ticket.paymentStatus };
       }),
   }),
 
@@ -415,6 +439,14 @@ export const appRouter = router({
           pixCopyPaste = pixData.payload;
         }
 
+        await db.createPaymentOrder({
+          providerPaymentId: asaasPayment.id!,
+          purpose: "utef_purchase",
+          userId: ctx.user.id,
+          principalAmount: input.amount,
+          bonusAmount: calculateUtefBonus(input.amount),
+        });
+
         return {
           asaasPaymentId: asaasPayment.id,
           invoiceUrl: asaasPayment.invoiceUrl,
@@ -422,6 +454,8 @@ export const appRouter = router({
           pixQrCode,
           pixCopyPaste,
           totalPrice,
+          bonus: calculateUtefBonus(input.amount),
+          totalUtef: input.amount + calculateUtefBonus(input.amount),
         };
       }),
   }),
@@ -471,13 +505,13 @@ export const appRouter = router({
           throw new TRPCError({ code: "NOT_FOUND", message: "Produto não encontrado" });
         }
 
-        const balance = await db.getUtefBalance(ctx.user.id);
-        if (!balance || balance.balance < product.priceUtef) {
+        // Debito atomico e condicional - evita gasto duplicado por duas conversoes
+        // concorrentes lendo o mesmo saldo antes de qualquer escrita.
+        const debited = await db.decrementUtefBalanceAtomic(ctx.user.id, product.priceUtef);
+        if (!debited) {
           throw new TRPCError({ code: "BAD_REQUEST", message: "Saldo insuficiente de UTEF" });
         }
 
-        // Debitar UTEFs
-        await db.createOrUpdateUtefBalance(ctx.user.id, -product.priceUtef);
         await db.createUtefTransaction({
           userId: ctx.user.id,
           amount: -product.priceUtef,
