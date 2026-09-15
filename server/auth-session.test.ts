@@ -1,7 +1,13 @@
 import { afterEach, describe, expect, it } from "vitest";
+import jwt from "jsonwebtoken";
 import type { Request } from "express";
 import { COOKIE_NAME } from "../shared/const.js";
-import { getTokenFromRequest, SESSION_COOKIE_NAME } from "./_core/auth-utils.js";
+import {
+  createSessionToken,
+  getTokenFromRequest,
+  SESSION_COOKIE_NAME,
+  verifySessionToken,
+} from "./_core/auth-utils.js";
 import { getSessionCookieOptions } from "./_core/cookies.js";
 
 function request(headers: Record<string, string> = {}, protocol = "http") {
@@ -47,5 +53,21 @@ describe("production session contract", () => {
       sameSite: "lax",
       secure: false,
     });
+  });
+});
+
+describe("session revocation via sessionVersion", () => {
+  it("round-trips sessionVersion through create/verify", async () => {
+    const token = await createSessionToken(42, "Fulano", 7);
+    const payload = await verifySessionToken(token);
+    expect(payload).toEqual({ userId: 42, name: "Fulano", sessionVersion: 7 });
+  });
+
+  it("normalizes a pre-existing token without the sessionVersion claim to 0", async () => {
+    // Simula um token emitido antes desta mudanca (sem o claim sessionVersion) -
+    // nao deve quebrar, deve ser tratado como versao 0.
+    const legacyToken = jwt.sign({ userId: 1, name: "Legado" }, process.env.JWT_SECRET ?? "change-me-in-production");
+    const payload = await verifySessionToken(legacyToken);
+    expect(payload).toEqual({ userId: 1, name: "Legado", sessionVersion: 0 });
   });
 });

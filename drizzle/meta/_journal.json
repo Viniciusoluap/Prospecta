@@ -120,6 +120,13 @@
       "when": 1789496600904,
       "tag": "0016_etapa1_payment_integrity",
       "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "7",
+      "when": 1789503025471,
+      "tag": "0017_etapa2_session_version",
+      "breakpoints": true
     }
   ]
 }

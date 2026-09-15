@@ -46,7 +46,7 @@ app.post("/api/auth/login", async (req, res) => {
     if (!valid) {
       return res.status(401).json({ error: "Email ou senha incorretos" });
     }
-    const token = await createSessionToken(user.id, user.name);
+    const token = await createSessionToken(user.id, user.name, user.sessionVersion);
     const cookieOpts = getSessionCookieOptions(req);
     res.cookie(SESSION_COOKIE_NAME, token, {
       ...cookieOpts,
