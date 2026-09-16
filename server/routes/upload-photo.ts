@@ -1,9 +1,30 @@
 import { Router, Request, Response } from "express";
 import { storagePut } from "../storage.js";
+import { getTokenFromRequest, verifySessionToken } from "../_core/auth-utils.js";
+import { getUserById } from "../db.js";
+import { sessaoAindaValida } from "../../shared/session.js";
 
 const router = Router();
 
+// Rota Express pura (fora do tRPC) - nao herda o adminProcedure/protectedProcedure
+// dos routers tRPC, entao a sessao precisa ser verificada manualmente aqui, com o
+// mesmo mecanismo usado por createContext (server/_core/context.ts). So chamada
+// hoje por AdminEditarObra.tsx (upload de fotos de obra), que so deveria ser
+// acessivel a admin.
+async function usuarioAdminAutenticado(req: Request) {
+  const token = getTokenFromRequest(req);
+  if (!token) return null;
+  const payload = await verifySessionToken(token);
+  if (!payload) return null;
+  const usuario = await getUserById(payload.userId);
+  if (!sessaoAindaValida(usuario, payload.sessionVersion) || usuario?.role !== "admin") return null;
+  return usuario;
+}
+
 router.post("/upload-photo", async (req: Request, res: Response) => {
+  const usuario = await usuarioAdminAutenticado(req);
+  if (!usuario) return res.status(401).json({ error: "Não autorizado" });
+
   try {
     const { image, filename, projectId } = req.body;
 
