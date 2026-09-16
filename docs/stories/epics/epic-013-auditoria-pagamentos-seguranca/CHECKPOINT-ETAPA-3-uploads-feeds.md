@@ -67,3 +67,11 @@ achado.
 
 **Não testado nesta sessão**: o fluxo real de upload de foto de obra em produção
 (exigiria sessão real de admin e acesso ao bucket S3 configurado).
+
+## Encerramento — merge e deploy confirmados
+
+- PR: `Viniciusoluap/Prospecta#57` — mesclado (squash) em `main`.
+- Commit de merge: `28bfa8a24b90cc0dd8ae2b04ba7ee3872f1b2696`.
+- Deploy de produção: `dpl_62EVWDHvvKvHjXP6kfdkSyYDK5ti` — `READY`.
+- `mcp__Vercel__get_runtime_errors` (últimas 24h, projeto
+  `prj_hVT5OCL8S5GbJ5L0GArH9aDxbFHR`): nenhum erro de runtime encontrado.
