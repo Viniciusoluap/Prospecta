@@ -920,6 +920,19 @@ export const appRouter = router({
         requireRole(ctx, ["admin"]);
         return db.getRecentBudgetRequests(input.limit);
       }),
+
+    getManagementDashboard: protectedProcedure.query(async ({ ctx }) => {
+      requireRole(ctx, ["admin"]);
+      return db.getManagementDashboardData();
+    }),
+
+    saveMonthlyGoal: protectedProcedure
+      .input(z.object({ value: z.number().min(0).max(1_000_000_000) }))
+      .mutation(async ({ ctx, input }) => {
+        requireRole(ctx, ["admin"]);
+        await db.saveDashboardSetting("monthly_sales_goal", String(input.value));
+        return { success: true };
+      }),
   }),
 
   // Email Logs Router
