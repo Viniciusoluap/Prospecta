@@ -208,27 +208,30 @@ export default function AdminDashboard() {
     const closedProjects = monthProjects.filter(item =>
       closedStages.has(item.status)
     );
-    const salesRevenue =
-      closedProjects.reduce((sum, item) => sum + number(item.value), 0) ||
-      revenue;
+    const salesRevenue = revenue;
+    const approvedProjectValue = closedProjects.reduce((sum, item) => sum + number(item.value), 0);
     const ticket = closedProjects.length
-      ? salesRevenue / closedProjects.length
+      ? approvedProjectValue / closedProjects.length
       : 0;
     const stages = [
       "lead_new",
-      "contacted",
-      "documentation",
+      "attending",
+      "waiting_docs",
       "analysis",
+      "caixa_register",
+      "approval",
       "approved",
-      "contract_signed",
+      "done",
     ];
     const stageLabels: Record<string, string> = {
       lead_new: "Novos",
-      contacted: "Contato",
-      documentation: "Documentos",
+      attending: "Atendimento",
+      waiting_docs: "Documentos",
       analysis: "Análise",
+      caixa_register: "Cadastro Caixa",
+      approval: "Aprovação",
       approved: "Aprovados",
-      contract_signed: "Fechados",
+      done: "Concluídos",
     };
     const funnelRows = stages.map(stage => ({
       name: stageLabels[stage],
@@ -481,7 +484,7 @@ export default function AdminDashboard() {
           <>
             <div className="grid grid-cols-2 lg:grid-cols-5 gap-3">
               {[
-                ["Vendas", MONEY.format(m.salesRevenue), m.goalPct ?? 0],
+                ["Receita", MONEY.format(m.salesRevenue), m.goalPct ?? 0],
                 ["Caixa", MONEY.format(m.cash), m.cash > 0 ? 100 : 0],
                 [
                   "Cobrança",
@@ -516,7 +519,7 @@ export default function AdminDashboard() {
             <Panel title="3 destaques do mês">
               <div className="grid md:grid-cols-3 gap-4 text-sm">
                 <p>
-                  <b className="text-[#C9A961]">1.</b> Vendas em{" "}
+                  <b className="text-[#C9A961]">1.</b> Receita em{" "}
                   {m.goalPct == null
                     ? "meta não configurada"
                     : `${m.goalPct.toFixed(0)}% da meta`}
@@ -538,7 +541,7 @@ export default function AdminDashboard() {
           <>
             <div className="grid md:grid-cols-4 gap-3">
               <Metric
-                label="Receita do mês"
+                label="Receita paga do mês"
                 value={MONEY.format(m.salesRevenue)}
                 tone="blue"
                 detail={
@@ -548,20 +551,20 @@ export default function AdminDashboard() {
                 }
               />
               <Metric
-                label="Meta do mês"
+                label="Meta mensal padrão"
                 value={m.goal ? MONEY.format(m.goal) : "Não definida"}
               />
               <Metric
-                label="Ticket médio"
+                label="Média por projeto aprovado"
                 value={m.ticket ? MONEY.format(m.ticket) : "—"}
               />
               <Metric
-                label="Negócios fechados"
+                label="Projetos aprovados cadastrados"
                 value={NUMBER.format(m.closedCount)}
                 tone="green"
               />
             </div>
-            <Panel title="Definir meta mensal">
+            <Panel title="Definir meta mensal padrão">
               <div className="flex gap-2 max-w-md">
                 <Input
                   type="number"
@@ -642,7 +645,7 @@ export default function AdminDashboard() {
                 tone="red"
               />
               <Metric
-                label="Resultado DRE"
+                label="Resultado de receitas e despesas pagas"
                 value={MONEY.format(m.result)}
                 tone={m.result >= 0 ? "green" : "red"}
               />
@@ -780,7 +783,7 @@ export default function AdminDashboard() {
           <>
             <div className="grid md:grid-cols-3 gap-3">
               <Metric
-                label="Break-even mensal"
+                label="Receita para cobrir custos registrados"
                 value={MONEY.format(m.costs)}
                 tone="red"
                 detail="Receita necessária para empatar"
@@ -793,7 +796,7 @@ export default function AdminDashboard() {
                 tone={m.runway != null && m.runway >= 6 ? "green" : "red"}
               />
               <Metric
-                label="Margem de contribuição"
+                label="Margem após despesas registradas"
                 value={
                   m.contribution == null
                     ? "Sem receita"
