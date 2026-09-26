@@ -37,6 +37,7 @@ import {
   pluggySettings, PluggySetting, InsertPluggySetting,
   bankAccounts, BankAccount, InsertBankAccount,
   bankTransactions, BankTransaction, InsertBankTransaction,
+  dashboardSettings, operationalCommissions, operationalProjects,
 } from "../drizzle/schema.js";
 
 type DrizzleDb = ReturnType<typeof drizzle>;
@@ -837,6 +838,27 @@ export async function updateBrokerCommission(id: number, data: Partial<InsertBro
 export async function getAllFinancialTransactions(): Promise<FinancialTransaction[]> {
   const db = getDb();
   return db.select().from(financialTransactions).orderBy(desc(financialTransactions.createdAt));
+}
+
+export async function getManagementDashboardData() {
+  const database = getDb();
+  const [transactions, accounts, bankTx, leadRows, userRows, commissions, projects, settings] = await Promise.all([
+    database.select({ status: financialTransactions.status, paidAt: financialTransactions.paidAt, createdAt: financialTransactions.createdAt, type: financialTransactions.type, amount: financialTransactions.amount, dueDate: financialTransactions.dueDate, vendor: financialTransactions.vendor, responsible: financialTransactions.responsible, description: financialTransactions.description, category: financialTransactions.category }).from(financialTransactions).orderBy(desc(financialTransactions.createdAt)),
+    database.select({ saldoAtual: bankAccounts.saldoAtual }).from(bankAccounts).where(eq(bankAccounts.ativo, true)),
+    database.select({ data: bankTransactions.data, status: bankTransactions.status, tipo: bankTransactions.tipo, valor: bankTransactions.valor }).from(bankTransactions).orderBy(desc(bankTransactions.data)),
+    database.select({ stage: leads.stage }).from(leads),
+    database.select({ id: users.id, name: users.name, role: users.role, active: users.active, createdAt: users.createdAt }).from(users),
+    database.select({ amount: operationalCommissions.amount, paidAt: operationalCommissions.paidAt, brokerId: operationalCommissions.brokerId, businessType: operationalCommissions.businessType, property: operationalCommissions.property }).from(operationalCommissions).orderBy(desc(operationalCommissions.createdAt)),
+    database.select({ createdAt: operationalProjects.createdAt, status: operationalProjects.status, value: operationalProjects.value }).from(operationalProjects).orderBy(desc(operationalProjects.createdAt)),
+    database.select({ key: dashboardSettings.key, value: dashboardSettings.value }).from(dashboardSettings),
+  ]);
+  return { transactions, accounts, bankTx, leads: leadRows, users: userRows, commissions, projects, settings };
+}
+
+export async function saveDashboardSetting(key: string, value: string): Promise<void> {
+  const database = getDb();
+  await database.insert(dashboardSettings).values({ key, value, updatedAt: new Date() })
+    .onConflictDoUpdate({ target: dashboardSettings.key, set: { value, updatedAt: new Date() } });
 }
 
 export async function createFinancialTransaction(data: InsertFinancialTransaction): Promise<FinancialTransaction> {
