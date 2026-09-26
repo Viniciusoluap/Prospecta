@@ -115,6 +115,14 @@ temp/
 node_modules/
 node_modules
 
+# Documentos e conhecimento locais (repositório público)
+.venv/
+__pycache__/
+*.pyc
+documentos/entrada/
+conhecimento/
+_indice_documentos.local.md
+
 # Build & Logs (AIOX)
 logs/
 
