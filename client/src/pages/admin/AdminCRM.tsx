@@ -98,7 +98,7 @@ export default function AdminCRM() {
       toast.error("Nome é obrigatório");
       return;
     }
-    createMutation.mutate(newLead as any);
+    createMutation.mutate({ ...newLead, phone: newLead.phone || undefined, email: newLead.email || undefined, city: newLead.city || undefined, state: newLead.state || undefined, income: newLead.income || undefined, notes: newLead.notes || undefined } as any);
   };
 
   const getLeadsByStage = (stage: string) => filtered.filter(l => l.stage === stage);
