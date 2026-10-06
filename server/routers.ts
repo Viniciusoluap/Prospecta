@@ -1059,6 +1059,7 @@ export const appRouter = router({
         if (city.includes("canaa") || city.includes("parauapebas")) responsible = "bianca";
         const lead = await db.createLead({
           ...input,
+          phone: input.phone ?? "",
           responsible,
           stage: "lead_new",
           temperature: input.temperature || "cold",
