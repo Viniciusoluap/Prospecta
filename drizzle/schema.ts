@@ -9,8 +9,8 @@ import {
 // ──────────────────────────────────────────
 export const userRoleEnum = pgEnum("user_role", ["user", "admin", "corretor", "colaborador", "cliente"]);
 export const drawStatusEnum = pgEnum("draw_status", ["active", "closed", "drawn"]);
-export const ticketPaymentStatusEnum = pgEnum("ticket_payment_status", ["pending", "confirmed", "failed"]);
-export const utefTransactionTypeEnum = pgEnum("utef_transaction_type", ["prize", "conversion", "adjustment", "purchase"]);
+export const ticketPaymentStatusEnum = pgEnum("ticket_payment_status", ["pending", "confirmed", "failed", "chargeback"]);
+export const utefTransactionTypeEnum = pgEnum("utef_transaction_type", ["prize", "conversion", "adjustment", "purchase", "chargeback"]);
 export const paymentOrderPurposeEnum = pgEnum("payment_order_purpose", ["ticket_purchase", "utef_purchase"]);
 export const paymentOrderStatusEnum = pgEnum("payment_order_status", [
   "pending", "settled", "refunded", "chargeback", "review_required", "failed",

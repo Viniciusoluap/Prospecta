@@ -1,5 +1,5 @@
 import { Request, Response } from 'express';
-import { settlePaymentOrder, refundPaymentOrder } from './payment-settlement.js';
+import { settlePaymentOrder, refundPaymentOrder, chargebackPaymentOrder } from './payment-settlement.js';
 import * as db from './db.js';
 import { decryptSecret } from './_core/secret-vault.js';
 
@@ -14,7 +14,10 @@ import { decryptSecret } from './_core/secret-vault.js';
  * - PAYMENT_CONFIRMED: Pagamento confirmado (PIX pessoa física em análise)
  * - PAYMENT_RECEIVED: Pagamento recebido e confirmado
  * - PAYMENT_OVERDUE: Cobrança vencida
- * - PAYMENT_REFUNDED: Pagamento estornado
+ * - PAYMENT_REFUNDED: Pagamento estornado (voluntário, vai para conciliação manual se já liquidado)
+ * - PAYMENT_CHARGEBACK_REQUESTED: Chargeback recebido (reversão automática: cancela
+ *   bilhete ou debita UTEF, mesmo que o saldo fique negativo — regra definida pelo
+ *   dono do produto, diferente do estorno voluntário acima)
  *
  * Idempotencia: a liquidacao real (credito de UTEF, confirmacao de bilhete) e
  * delegada a payment-settlement.ts, que so aplica efeito uma vez por payment.id,
@@ -90,6 +93,9 @@ export async function handleAsaasWebhook(req: Request, res: Response) {
     } else if (event === 'PAYMENT_REFUNDED') {
       const result = await refundPaymentOrder(payment.id);
       console.log('[Asaas Webhook] Refund result for', payment.id, ':', result.outcome);
+    } else if (event === 'PAYMENT_CHARGEBACK_REQUESTED') {
+      const result = await chargebackPaymentOrder(payment.id);
+      console.log('[Asaas Webhook] Chargeback result for', payment.id, ':', result.outcome);
     }
 
     res.status(200).json({ received: true });
