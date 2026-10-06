@@ -94,8 +94,8 @@ export default function AdminCRM() {
   if (user?.role !== "admin") return null;
 
   const handleCreate = () => {
-    if (!newLead.name || !newLead.phone) {
-      toast.error("Nome e telefone são obrigatórios");
+    if (!newLead.name) {
+      toast.error("Nome é obrigatório");
       return;
     }
     createMutation.mutate(newLead as any);
@@ -153,7 +153,7 @@ export default function AdminCRM() {
                         placeholder="Nome completo" className="bg-white/10 border-white/20 text-white" />
                     </div>
                     <div>
-                      <Label className="text-gray-300">Telefone *</Label>
+                      <Label className="text-gray-300">Telefone</Label>
                       <Input value={newLead.phone} onChange={e => setNewLead(p => ({ ...p, phone: e.target.value }))}
                         placeholder="(99) 99999-9999" className="bg-white/10 border-white/20 text-white" />
                     </div>
