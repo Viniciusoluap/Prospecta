@@ -256,24 +256,6 @@ export default function Admin() {
             </CardHeader>
             <CardContent>
               <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-                <Link href="/admin/dashboard">
-                  <Button variant="outline" className="w-full h-14 flex flex-col gap-1 text-sm">
-                    <Settings className="h-4 w-4" />
-                    <span>Dashboard</span>
-                  </Button>
-                </Link>
-                <Link href="/admin/orcamentos">
-                  <Button variant="outline" className="w-full h-14 flex flex-col gap-1 text-sm">
-                    <Settings className="h-4 w-4" />
-                    <span>Orçamentos</span>
-                  </Button>
-                </Link>
-                <Link href="/admin/emails">
-                  <Button variant="outline" className="w-full h-14 flex flex-col gap-1 text-sm">
-                    <Settings className="h-4 w-4" />
-                    <span>Emails</span>
-                  </Button>
-                </Link>
                 <Link href="/admin/configuracoes-pagamento">
                   <Button variant="outline" className="w-full h-14 flex flex-col gap-1 text-sm">
                     <Settings className="h-4 w-4" />

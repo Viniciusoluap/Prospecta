@@ -1,5 +1,5 @@
 import { Link } from "wouter";
-import { BarChart3, BookOpen, Building2, CheckSquare, ClipboardCheck, FileCheck2, HardHat, Landmark, LayoutDashboard, Map, MessageCircle, Mountain, Receipt, Scale, UserCheck, Users } from "lucide-react";
+import { BarChart3, BookOpen, Building2, CheckSquare, ClipboardCheck, FileCheck2, FileText, HardHat, Landmark, LayoutDashboard, Mail, Map, MessageCircle, Mountain, Receipt, Scale, UserCheck, Users } from "lucide-react";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { parsePermissions, type AdminModule } from "../../../../shared/admin-permissions";
@@ -11,6 +11,7 @@ const modules: { id: AdminModule; label: string; href: string; icon: typeof User
   { id: "obras", label: "Obras", href: "/admin/obras", icon: HardHat },
   { id: "projetos", label: "Projetos", href: "/admin/projetos", icon: Mountain },
   { id: "projetos", label: "Incorporação", href: "/admin/incorporacao", icon: Mountain },
+  { id: "projetos", label: "Orçamentos", href: "/admin/orcamentos", icon: FileText },
   { id: "agenda", label: "Agenda", href: "/admin/agenda", icon: CheckSquare },
   { id: "mapa", label: "Mapa operacional", href: "/admin/mapa", icon: Map },
   { id: "comissoes", label: "Comissões", href: "/admin/comissoes", icon: Receipt },
@@ -25,6 +26,7 @@ const modules: { id: AdminModule; label: string; href: string; icon: typeof User
   { id: "agregador", label: "Agregador", href: "/admin/agregador", icon: Map },
   { id: "relatorios", label: "Relatórios", href: "/admin/relatorios", icon: BarChart3 },
   { id: "dashboard", label: "Tarefas", href: "/admin/tarefas", icon: CheckSquare },
+  { id: "dashboard", label: "Emails", href: "/admin/emails", icon: Mail },
 ];
 
 export default function AdminAcesso() {
