@@ -10,3 +10,14 @@ export function sessaoAindaValida(
   if (!usuarioAtual || !usuarioAtual.active) return false;
   return usuarioAtual.sessionVersion === sessionVersionDoToken;
 }
+
+// Funcao pura que decide se um link de primeiro acesso/redefinicao de senha (token em
+// users.tokenPrimeiroAcesso) ainda pode ser usado - usada tanto pra validar o link
+// antes de mostrar o formulario quanto pra validar de novo no momento de salvar a
+// nova senha (server/configuracoes-router.ts, primeiroAcessoRouter).
+export function tokenPrimeiroAcessoAindaValido(
+  expiraEm: Date | null | undefined,
+  agora: Date = new Date(),
+): boolean {
+  return !!expiraEm && expiraEm > agora;
+}

@@ -28,7 +28,7 @@ export const budgetRequestHasLotEnum = pgEnum("budget_request_has_lot", ["yes", 
 export const budgetRequestStatusEnum = pgEnum("budget_request_status", ["pending", "contacted", "in_negotiation", "converted", "cancelled"]);
 export const emailTemplateTypeEnum = pgEnum("email_template_type", [
   "welcome", "budget_confirmation", "budget_update",
-  "draw_winner", "promotional_campaign", "payment_confirmation",
+  "draw_winner", "promotional_campaign", "payment_confirmation", "primeiro_acesso",
 ]);
 export const emailStatusEnum = pgEnum("email_status", ["pending", "sent", "failed"]);
 export const notificationTypeEnum = pgEnum("notification_type", [
@@ -102,6 +102,9 @@ export const users = pgTable("users", {
   active: boolean("active").default(true).notNull(),
   sessionVersion: integer("sessionVersion").default(0).notNull(),
   permissions: text("permissions").default("[]").notNull(),
+  /** Token de primeiro acesso / redefinição de senha (ver configuracoes-router.ts). */
+  tokenPrimeiroAcesso: varchar("tokenPrimeiroAcesso", { length: 64 }).unique(),
+  tokenPrimeiroAcessoExpiraEm: timestamp("tokenPrimeiroAcessoExpiraEm"),
   creci: varchar("creci", { length: 40 }),
   leadId: integer("lead_id").unique().references(() => leads.id, { onDelete: "set null" }),
   createdAt: timestamp("createdAt").defaultNow().notNull(),

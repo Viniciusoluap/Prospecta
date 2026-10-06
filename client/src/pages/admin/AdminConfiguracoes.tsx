@@ -32,16 +32,25 @@ export default function AdminConfiguracoes() {
   }, [usuario]);
 
   const refresh = () => utils.configuracoes.listUsers.invalidate();
-  const criar = trpc.configuracoes.createUser.useMutation({ onSuccess: async () => { await refresh(); setNovo(false); toast.success("Usuário criado"); }, onError: e => toast.error(e.message) });
+  const criar = trpc.configuracoes.createUser.useMutation({
+    onSuccess: async (result) => {
+      await refresh(); setNovo(false);
+      toast.success(result.emailEnviado ? "Usuário criado — email com o link de definição de senha enviado" : "Usuário criado, mas o email não pôde ser enviado (confira a configuração de SMTP)");
+    },
+    onError: e => toast.error(e.message),
+  });
   const atualizar = trpc.configuracoes.updateUser.useMutation({ onSuccess: async () => { await refresh(); setEditId(null); toast.success("Acesso atualizado"); }, onError: e => toast.error(e.message) });
-  const redefinir = trpc.configuracoes.resetPassword.useMutation({ onSuccess: () => toast.success("Senha redefinida"), onError: e => toast.error(e.message) });
+  const redefinir = trpc.configuracoes.resetPassword.useMutation({
+    onSuccess: (result) => toast.success(result.emailEnviado ? "Link de redefinição enviado por email" : "Sessões revogadas, mas o email não pôde ser enviado (confira a configuração de SMTP)"),
+    onError: e => toast.error(e.message),
+  });
   const excluir = trpc.configuracoes.deleteUser.useMutation({ onSuccess: async () => { await refresh(); setEditId(null); toast.success("Usuário excluído"); }, onError: e => toast.error(e.message) });
 
   function handleNovo(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const data = new FormData(event.currentTarget);
     criar.mutate({
-      name: String(data.get("name") || ""), email: String(data.get("email") || ""), password: String(data.get("password") || ""),
+      name: String(data.get("name") || ""), email: String(data.get("email") || ""),
       role: String(data.get("role")) as (typeof ROLES)[number], phone: String(data.get("phone") || "") || null,
       creci: String(data.get("creci") || "") || null, permissions: [],
     });
@@ -68,9 +77,11 @@ export default function AdminConfiguracoes() {
     </CardContent></Card></main>
 
     <Dialog open={novo} onOpenChange={setNovo}><DialogContent className="border-[#C9A961]/30 bg-[#1A2332] text-white"><DialogHeader><DialogTitle>Novo usuário</DialogTitle></DialogHeader>
-      <form onSubmit={handleNovo} className="grid gap-4 md:grid-cols-2"><Campo name="name" label="Nome" required /><Campo name="email" label="E-mail" type="email" required /><Campo name="password" label="Senha inicial (mín. 8)" type="password" required />
+      <form onSubmit={handleNovo} className="grid gap-4 md:grid-cols-2"><Campo name="name" label="Nome" required /><Campo name="email" label="E-mail" type="email" required />
         <div><Label>Papel</Label><Select name="role" defaultValue="colaborador"><SelectTrigger><SelectValue /></SelectTrigger><SelectContent>{ROLES.map(role => <SelectItem key={role} value={role}>{role}</SelectItem>)}</SelectContent></Select></div>
-        <Campo name="phone" label="Telefone" /><Campo name="creci" label="CRECI" /><Button type="submit" disabled={criar.isPending} className="md:col-span-2 bg-[#C9A961] text-[#1A2332]">Criar usuário</Button>
+        <Campo name="phone" label="Telefone" /><Campo name="creci" label="CRECI" />
+        <p className="text-xs text-gray-400 md:col-span-2">O usuário recebe um email para definir a própria senha — ninguém mais vê ou digita a senha dele.</p>
+        <Button type="submit" disabled={criar.isPending} className="md:col-span-2 bg-[#C9A961] text-[#1A2332]">Criar usuário</Button>
       </form></DialogContent></Dialog>
 
     <Dialog open={!!usuario} onOpenChange={open => !open && setEditId(null)}><DialogContent className="max-h-[92vh] max-w-3xl overflow-y-auto border-[#C9A961]/30 bg-[#1A2332] text-white">{usuario && <>
@@ -80,7 +91,7 @@ export default function AdminConfiguracoes() {
         </div><label className="flex items-center justify-between rounded-lg bg-[#2C3E50] p-3"><span>Usuário ativo</span><Switch checked={ativo} onCheckedChange={setAtivo} /></label>
         <div><div className="mb-2 flex items-center gap-2"><Shield className="h-4 w-4 text-[#C9A961]" /><h3 className="font-semibold">Permissões por módulo</h3></div><div className="grid gap-2 sm:grid-cols-2 md:grid-cols-3">{ADMIN_MODULES.map(module => <label key={module} className="flex items-center gap-2 rounded bg-[#2C3E50] p-2 text-sm"><input type="checkbox" checked={papel === "admin" || permissoes.includes(module)} disabled={papel === "admin"} onChange={() => setPermissoes(current => current.includes(module) ? current.filter(p => p !== module) : [...current, module])} className="accent-[#C9A961]" />{ADMIN_MODULE_LABELS[module]}</label>)}</div></div>
         <Button type="submit" disabled={atualizar.isPending} className="w-full bg-[#C9A961] text-[#1A2332]">Salvar acesso</Button>
-      </form><form onSubmit={event => { event.preventDefault(); const data = new FormData(event.currentTarget); redefinir.mutate({ id: usuario.id, password: String(data.get("password")) }); event.currentTarget.reset(); }} className="flex gap-2 border-t border-white/10 pt-4"><Input name="password" type="password" minLength={8} required placeholder="Nova senha" /><Button type="submit" variant="outline"><KeyRound className="mr-2 h-4 w-4" /> Redefinir</Button></form>
+      </form><div className="flex items-center justify-between gap-2 border-t border-white/10 pt-4"><p className="text-xs text-gray-400">Envia um email para {usuario.name} definir uma nova senha (invalida sessões ativas na hora).</p><Button type="button" variant="outline" disabled={redefinir.isPending} onClick={() => redefinir.mutate({ id: usuario.id })}><KeyRound className="mr-2 h-4 w-4" /> Enviar link de redefinição</Button></div>
       <Button variant="destructive" onClick={() => confirm(`Excluir ${usuario.name}?`) && excluir.mutate({ id: usuario.id })}><Trash2 className="mr-2 h-4 w-4" /> Excluir usuário</Button>
     </>}</DialogContent></Dialog>
   </div>;

@@ -141,6 +141,13 @@
       "when": 1791248769038,
       "tag": "0019_etapa4_chargeback_reversao",
       "breakpoints": true
+    },
+    {
+      "idx": 20,
+      "version": "7",
+      "when": 1791249351627,
+      "tag": "0020_etapa5_primeiro_acesso",
+      "breakpoints": true
     }
   ]
 }

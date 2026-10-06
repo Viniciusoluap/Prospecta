@@ -27,7 +27,7 @@ import { pesquisarMercado } from "./_core/incorporacao/mercado-ia.js";
 import { financiamentoRouter } from "./financiamento-router.js";
 import { juridicoRouter } from "./juridico-router.js";
 import { agendaRouter, corretoresRouter, comissoesRouter, projetosRouter, mapaRouter } from "./operacional-router.js";
-import { configuracoesRouter } from "./configuracoes-router.js";
+import { configuracoesRouter, primeiroAcessoRouter } from "./configuracoes-router.js";
 import { relatoriosRouter } from "./relatorios-router.js";
 import { calculateUtefBonus, extractLotteryTargetNumber, pickWinningNumber } from "../shared/raffle.js";
 
@@ -105,6 +105,7 @@ export const appRouter = router({
   projetos: projetosRouter,
   mapa: mapaRouter,
   configuracoes: configuracoesRouter,
+  primeiroAcesso: primeiroAcessoRouter,
   relatorios: relatoriosRouter,
   auth: router({
     me: publicProcedure.query(opts => opts.ctx.user),

@@ -1,14 +1,48 @@
+import { randomBytes } from "crypto";
 import { TRPCError } from "@trpc/server";
-import { and, count, eq, ne, sql } from "drizzle-orm";
+import { and, count, eq, gt, ne, sql } from "drizzle-orm";
 import { z } from "zod";
 import { users } from "../drizzle/schema.js";
 import { ADMIN_MODULES, normalizePermissions } from "../shared/admin-permissions.js";
+import { tokenPrimeiroAcessoAindaValido } from "../shared/session.js";
 import { hashPassword } from "./_core/auth-utils.js";
-import { adminProcedure, router } from "./_core/trpc.js";
+import { adminProcedure, publicProcedure, router } from "./_core/trpc.js";
 import { getDb } from "./db.js";
 
 const managedRole = z.enum(["admin", "corretor", "colaborador", "cliente"]);
 const permissionsSchema = z.array(z.enum(ADMIN_MODULES)).max(ADMIN_MODULES.length);
+
+const PRIMEIRO_ACESSO_VALIDADE_MS = 7 * 24 * 60 * 60 * 1000;
+const SITE_URL = "https://www.prospectaconstrucoes.com";
+
+// Gera um token de primeiro acesso/redefinição de senha (7 dias) e envia o email para
+// o usuário definir a própria senha — ela nunca passa pelo admin. Não lança se o envio
+// falhar (fica registrado em email_logs com status "failed"); quem chama decide se
+// avisa o admin.
+async function enviarLinkDefinicaoSenha(
+  userId: number,
+  name: string,
+  email: string,
+  novoUsuario: boolean,
+): Promise<boolean> {
+  const token = randomBytes(32).toString("hex");
+  const expiraEm = new Date(Date.now() + PRIMEIRO_ACESSO_VALIDADE_MS);
+  await getDb().update(users).set({
+    tokenPrimeiroAcesso: token,
+    tokenPrimeiroAcessoExpiraEm: expiraEm,
+    updatedAt: new Date(),
+  }).where(eq(users.id, userId));
+
+  const { sendEmail, primeiroAcessoTemplate } = await import("./_core/email-smtp.js");
+  const template = primeiroAcessoTemplate({ name, link: `${SITE_URL}/definir-senha/${token}`, novoUsuario });
+  return sendEmail({
+    to: email,
+    subject: template.subject,
+    html: template.html,
+    recipientName: name,
+    templateType: "primeiro_acesso",
+  });
+}
 
 async function ensureAnotherAdmin(userId: number) {
   const [result] = await getDb().select({ total: count() }).from(users)
@@ -32,10 +66,12 @@ export const configuracoesRouter = router({
     createdAt: users.createdAt,
   }).from(users).orderBy(users.name)),
 
+  // A senha inicial nunca é digitada pelo admin: cria a conta com um hash placeholder
+  // inutilizável (ninguém consegue logar com ele) e manda um email pro próprio usuário
+  // definir a senha real pelo link de primeiro acesso.
   createUser: adminProcedure.input(z.object({
     name: z.string().trim().min(2).max(255),
     email: z.string().trim().email().max(320),
-    password: z.string().min(8).max(128),
     role: managedRole,
     phone: z.string().trim().max(20).optional().nullable(),
     creci: z.string().trim().max(40).optional().nullable(),
@@ -49,7 +85,7 @@ export const configuracoesRouter = router({
       openId: `admin:${email}`,
       name: input.name,
       email,
-      passwordHash: hashPassword(input.password),
+      passwordHash: hashPassword(randomBytes(32).toString("hex")),
       role: input.role,
       phone: input.phone || null,
       creci: input.creci || null,
@@ -57,7 +93,8 @@ export const configuracoesRouter = router({
       loginMethod: "password",
       active: true,
     }).returning({ id: users.id });
-    return created;
+    const emailEnviado = await enviarLinkDefinicaoSenha(created.id, input.name, email, true);
+    return { ...created, emailEnviado };
   }),
 
   updateUser: adminProcedure.input(z.object({
@@ -88,19 +125,25 @@ export const configuracoesRouter = router({
     return updated;
   }),
 
-  resetPassword: adminProcedure.input(z.object({ id: z.number().int().positive(), password: z.string().min(8).max(128) }))
+  // O admin não digita mais a nova senha de outra pessoa: dispara um link de
+  // redefinição por email, e o próprio usuário define a senha real. sessionVersion é
+  // incrementado na hora (não só quando o link é usado) - qualquer sessão JWT já
+  // emitida para este usuário (ex: alguém com acesso indevido) é invalidada
+  // imediatamente, sem esperar o reset ser concluído - ver _core/context.ts / shared/session.ts.
+  resetPassword: adminProcedure.input(z.object({ id: z.number().int().positive() }))
     .mutation(async ({ input }) => {
-      // sessionVersion incrementado: qualquer sessao JWT ja emitida para este
-      // usuario (por exemplo, de alguem que tinha acesso indevido) e invalidada
-      // no proximo request - ver server/_core/context.ts / shared/session.ts.
-      const [updated] = await getDb().update(users).set({
-        passwordHash: hashPassword(input.password),
+      const [current] = await getDb().select({ id: users.id, name: users.name, email: users.email })
+        .from(users).where(eq(users.id, input.id)).limit(1);
+      if (!current) throw new TRPCError({ code: "NOT_FOUND", message: "Usuário não encontrado" });
+      if (!current.email) throw new TRPCError({ code: "PRECONDITION_FAILED", message: "Usuário sem email cadastrado - não é possível enviar o link" });
+
+      await getDb().update(users).set({
         sessionVersion: sql`${users.sessionVersion} + 1`,
         updatedAt: new Date(),
-      })
-        .where(eq(users.id, input.id)).returning({ id: users.id });
-      if (!updated) throw new TRPCError({ code: "NOT_FOUND", message: "Usuário não encontrado" });
-      return updated;
+      }).where(eq(users.id, input.id));
+
+      const emailEnviado = await enviarLinkDefinicaoSenha(current.id, current.name ?? "", current.email, false);
+      return { id: current.id, emailEnviado };
     }),
 
   deleteUser: adminProcedure.input(z.object({ id: z.number().int().positive() })).mutation(async ({ ctx, input }) => {
@@ -110,6 +153,42 @@ export const configuracoesRouter = router({
     if (!current) throw new TRPCError({ code: "NOT_FOUND", message: "Usuário não encontrado" });
     if (current.role === "admin" && current.active) await ensureAnotherAdmin(input.id);
     await db.delete(users).where(eq(users.id, input.id));
+    return { success: true } as const;
+  }),
+});
+
+// Router público (sem autenticação) para a página /definir-senha/:token — o usuário
+// define a própria senha a partir do link enviado por email, sem nunca passar pelo
+// admin. Mantido junto de configuracoesRouter porque compartilha a lógica de token.
+export const primeiroAcessoRouter = router({
+  validarToken: publicProcedure.input(z.object({ token: z.string().min(1) })).query(async ({ input }) => {
+    const [usuario] = await getDb().select({ name: users.name, expiraEm: users.tokenPrimeiroAcessoExpiraEm })
+      .from(users).where(eq(users.tokenPrimeiroAcesso, input.token)).limit(1);
+    const valido = tokenPrimeiroAcessoAindaValido(usuario?.expiraEm);
+    return { valido, nome: valido ? usuario!.name : null };
+  }),
+
+  definirSenha: publicProcedure.input(z.object({
+    token: z.string().min(1),
+    novaSenha: z.string().min(8).max(128),
+  })).mutation(async ({ input }) => {
+    const db = getDb();
+    const [usuario] = await db.select({ id: users.id, expiraEm: users.tokenPrimeiroAcessoExpiraEm })
+      .from(users).where(eq(users.tokenPrimeiroAcesso, input.token)).limit(1);
+    if (!usuario || !tokenPrimeiroAcessoAindaValido(usuario.expiraEm)) {
+      throw new TRPCError({ code: "BAD_REQUEST", message: "Link inválido ou expirado" });
+    }
+    // Reivindica o token com guarda atômica (token ainda bate E ainda não expirou) —
+    // evita reuso em corrida (duas abas enviando o mesmo link ao mesmo tempo).
+    const [claimed] = await db.update(users).set({
+      passwordHash: hashPassword(input.novaSenha),
+      tokenPrimeiroAcesso: null,
+      tokenPrimeiroAcessoExpiraEm: null,
+      sessionVersion: sql`${users.sessionVersion} + 1`,
+      updatedAt: new Date(),
+    }).where(and(eq(users.id, usuario.id), eq(users.tokenPrimeiroAcesso, input.token), gt(users.tokenPrimeiroAcessoExpiraEm, new Date())))
+      .returning({ id: users.id });
+    if (!claimed) throw new TRPCError({ code: "BAD_REQUEST", message: "Link inválido ou expirado" });
     return { success: true } as const;
   }),
 });
