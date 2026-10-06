@@ -1036,7 +1036,7 @@ export const appRouter = router({
     create: protectedProcedure
       .input(z.object({
         name: z.string().min(2),
-        phone: z.string().min(8),
+        phone: z.string().optional(),
         email: z.string().email().optional(),
         city: z.string().optional(),
         state: z.string().optional(),
