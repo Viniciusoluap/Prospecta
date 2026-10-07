@@ -33,13 +33,13 @@ export const LEAD_SERVICE_LABELS: Record<LeadServiceType, string> = {
 };
 
 export const LEAD_SERVICE_MODULE: Record<LeadServiceType, string> = {
-  obra_cliente: "obras_clientes",
+  obra_cliente: "obras",
   projeto_tecnico: "projetos",
   regularizacao: "regularizacoes",
   financiamento_habitacional: "financiamentos",
   consorcio: "financiamentos",
   despachante: "regularizacoes",
-  vistoria_medicao: "obras_clientes",
+  vistoria_medicao: "obras",
   avaliacao: "avaliacoes",
   juridico: "juridico",
   bpo_financeiro: "bpo_financeiro",

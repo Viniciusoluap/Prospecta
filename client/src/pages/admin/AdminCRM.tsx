@@ -89,7 +89,7 @@ export default function AdminCRM() {
 
   const backfillServicesMutation = trpc.leadServices.backfillFromTrello.useMutation({
     onSuccess: result => {
-      toast.success(`${result.created} serviço(s) do Trello vinculado(s); ${result.skipped} registro(s) já estavam corretos.`);
+      toast.success(`${result.created} serviço(s) criados; ${result.synchronized} serviço(s) sincronizados; ${result.worksCreated} obra(s) criada(s).`);
       refetch();
     },
     onError: error => toast.error(error.message),

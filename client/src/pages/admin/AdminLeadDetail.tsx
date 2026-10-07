@@ -152,9 +152,12 @@ export default function AdminLeadDetail() {
   });
 
   const createServiceMutation = trpc.leadServices.create.useMutation({
-    onSuccess: () => { toast.success("Serviço vinculado ao cliente."); refetchServices(); },
+    onSuccess: () => { toast.success("Serviço criado e sincronizado automaticamente."); refetchServices(); },
     onError: (error) => toast.error(error.message),
   });
+  const updateServiceStatusMutation = trpc.leadServices.setStatus.useMutation({ onSuccess: () => { toast.success("Status do serviço atualizado."); refetchServices(); }, onError: error => toast.error(error.message) });
+  const unlinkServiceMutation = trpc.leadServices.unlinkProcess.useMutation({ onSuccess: () => { toast.success("Processo desvinculado do serviço."); refetchServices(); }, onError: error => toast.error(error.message) });
+  const removeServiceMutation = trpc.leadServices.remove.useMutation({ onSuccess: () => { toast.success("Serviço excluído do lead."); refetchServices(); }, onError: error => toast.error(error.message) });
 
   const handleAdvanceStage = () => {
     if (!lead) return;
@@ -454,9 +457,14 @@ export default function AdminLeadDetail() {
                     <div key={service.id} className="rounded-lg border border-white/10 bg-[#1A2332] px-3 py-2 flex items-center justify-between gap-3">
                       <div>
                         <p className="text-sm font-medium text-white">{LEAD_SERVICE_LABELS[service.serviceType as LeadServiceType] || service.serviceType}</p>
-                        <p className="text-xs text-gray-400">{service.operationalRecordId ? `Processo vinculado em ${service.operationalModule}` : `Destino: ${service.operationalModule || "a definir"} · aguardando dados operacionais`}</p>
+                        <p className="text-xs text-gray-400">{service.operationalRecordId ? `Processo criado em ${service.operationalModule}` : `Serviço ativo · destino: ${service.operationalModule || "CRM"}`}</p>
                       </div>
-                      <Badge className={service.status === "active" ? "bg-teal-600" : "bg-amber-600"}>{service.status === "active" ? "Em andamento" : "Aguardando dados"}</Badge>
+                      <div className="flex items-center gap-2">
+                        <Badge className={service.status === "completed" ? "bg-green-700" : service.status === "cancelled" ? "bg-red-700" : "bg-teal-600"}>{service.status === "completed" ? "Concluído" : service.status === "cancelled" ? "Cancelado" : "Em andamento"}</Badge>
+                        {service.status !== "completed" && <Button size="sm" variant="outline" className="h-7 border-green-600/50 text-green-300" onClick={() => updateServiceStatusMutation.mutate({ id: service.id, status: "completed" })}>Concluir</Button>}
+                        {service.operationalRecordId && <Button size="sm" variant="outline" className="h-7" onClick={() => { if (window.confirm("Desvincular o processo operacional deste serviço? A obra não será excluída.")) unlinkServiceMutation.mutate({ id: service.id }); }}>Desvincular</Button>}
+                        <Button size="sm" variant="outline" className="h-7 border-red-600/50 text-red-300" onClick={() => { if (window.confirm("Excluir este serviço do lead? O processo operacional existente não será excluído.")) removeServiceMutation.mutate({ id: service.id }); }}>Excluir</Button>
+                      </div>
                     </div>
                   ))}
                 </div>

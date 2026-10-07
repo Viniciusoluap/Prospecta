@@ -1,6 +1,6 @@
 import { desc, eq, sql } from "drizzle-orm";
 import { z } from "zod";
-import { leadServices, leads } from "../drizzle/schema.js";
+import { constructionProjects, leadServices, leads } from "../drizzle/schema.js";
 import { LEAD_SERVICE_MODULE, LEAD_SERVICE_TYPES, serviceTypeFromTrelloText } from "../shared/lead-services.js";
 import { adminProcedure, router } from "./_core/trpc.js";
 import { getDb } from "./db.js";
@@ -52,6 +52,60 @@ async function ensureLeadServicesSchema() {
   await database.execute(sql.raw(`ALTER TABLE "regularizacoes" ADD COLUMN IF NOT EXISTS "lead_service_id" integer REFERENCES "lead_services"("id") ON DELETE set null`));
   await database.execute(sql.raw(`ALTER TABLE "financiamentos" ADD COLUMN IF NOT EXISTS "lead_service_id" integer REFERENCES "lead_services"("id") ON DELETE set null`));
   await database.execute(sql.raw(`ALTER TABLE "operational_projects" ADD COLUMN IF NOT EXISTS "lead_service_id" integer REFERENCES "lead_services"("id") ON DELETE set null`));
+  await database.execute(sql.raw(`ALTER TABLE "construction_projects" ADD COLUMN IF NOT EXISTS "lead_id" integer REFERENCES "leads"("id") ON DELETE set null`));
+  await database.execute(sql.raw(`ALTER TABLE "construction_projects" ADD COLUMN IF NOT EXISTS "lead_service_id" integer REFERENCES "lead_services"("id") ON DELETE set null`));
+  await database.execute(sql.raw(`ALTER TABLE "construction_projects" ALTER COLUMN "user_id" DROP NOT NULL`));
+  await database.execute(sql.raw(`CREATE UNIQUE INDEX IF NOT EXISTS "construction_projects_lead_service_id_unique" ON "construction_projects" ("lead_service_id")`));
+}
+
+const isWorksService = (serviceType: string) => serviceType === "obra_cliente" || serviceType === "vistoria_medicao";
+
+/** Cria a obra mínima, sem inventar endereço, valores ou dados financeiros. */
+async function ensureOperationalRecord(service: typeof leadServices.$inferSelect, lead: typeof leads.$inferSelect) {
+  const database = getDb();
+  if (!isWorksService(service.serviceType)) return { service, createdWork: false };
+
+  const [existingWork] = await database.select({ id: constructionProjects.id })
+    .from(constructionProjects)
+    .where(eq(constructionProjects.leadServiceId, service.id))
+    .limit(1);
+  const workId = existingWork?.id || service.operationalRecordId;
+  if (workId) {
+    const [updated] = await database.update(leadServices).set({
+      operationalModule: "obras", operationalRecordId: workId, status: "active", updatedAt: new Date(),
+    }).where(eq(leadServices.id, service.id)).returning();
+    return { service: updated, createdWork: false };
+  }
+
+  const [work] = await database.insert(constructionProjects).values({
+    leadId: lead.id,
+    leadServiceId: service.id,
+    title: service.title || lead.name,
+    city: lead.city || null,
+    state: lead.state || null,
+    projectType: service.serviceType === "vistoria_medicao" ? "Vistoria e medição" : "Obra / reforma",
+    status: "planning",
+    progress: 0,
+    notes: service.description || lead.notes || null,
+  }).returning();
+  const [updated] = await database.update(leadServices).set({
+    operationalModule: "obras", operationalRecordId: work.id, status: "active", updatedAt: new Date(),
+  }).where(eq(leadServices.id, service.id)).returning();
+  return { service: updated, createdWork: true };
+}
+
+export async function createLeadServiceWithAutomation(input: z.infer<typeof serviceInput>) {
+  await ensureLeadServicesSchema();
+  const database = getDb();
+  const [lead] = await database.select().from(leads).where(eq(leads.id, input.leadId)).limit(1);
+  if (!lead) throw new Error("Lead não encontrado");
+  const [created] = await database.insert(leadServices).values({
+    ...input,
+    title: input.title || undefined,
+    status: input.status || "active",
+    operationalModule: LEAD_SERVICE_MODULE[input.serviceType],
+  }).returning();
+  return ensureOperationalRecord(created, lead);
 }
 
 export const leadServicesRouter = router({
@@ -59,18 +113,9 @@ export const leadServicesRouter = router({
     getDb().select().from(leadServices).where(eq(leadServices.leadId, input.leadId)).orderBy(desc(leadServices.createdAt))
   ),
 
-  create: adminProcedure.input(serviceInput).mutation(async ({ input }) => {
-    const database = getDb();
-    const [lead] = await database.select({ id: leads.id }).from(leads).where(eq(leads.id, input.leadId)).limit(1);
-    if (!lead) throw new Error("Lead não encontrado");
-    const [created] = await database.insert(leadServices).values({
-      ...input,
-      title: input.title || undefined,
-      status: input.status || "awaiting_data",
-      operationalModule: LEAD_SERVICE_MODULE[input.serviceType],
-    }).returning();
-    return created;
-  }),
+  create: adminProcedure.input(serviceInput).mutation(async ({ input }) =>
+    (await createLeadServiceWithAutomation(input)).service
+  ),
 
   update: adminProcedure.input(serviceInput.partial().extend({ id: z.number().int().positive() })).mutation(async ({ input }) => {
     const { id, serviceType, ...data } = input;
@@ -98,32 +143,56 @@ export const leadServicesRouter = router({
     return updated;
   }),
 
+  setStatus: adminProcedure.input(z.object({
+    id: z.number().int().positive(),
+    status: z.enum(["active", "paused", "completed", "cancelled"]),
+  })).mutation(async ({ input }) => {
+    const [updated] = await getDb().update(leadServices).set({ status: input.status, updatedAt: new Date() })
+      .where(eq(leadServices.id, input.id)).returning();
+    if (!updated) throw new Error("Serviço não encontrado");
+    return updated;
+  }),
+
+  unlinkProcess: adminProcedure.input(z.object({ id: z.number().int().positive() })).mutation(async ({ input }) => {
+    const [updated] = await getDb().update(leadServices).set({
+      operationalRecordId: null, status: "active", updatedAt: new Date(),
+    }).where(eq(leadServices.id, input.id)).returning();
+    if (!updated) throw new Error("Serviço não encontrado");
+    return updated;
+  }),
+
+  remove: adminProcedure.input(z.object({ id: z.number().int().positive() })).mutation(async ({ input }) => {
+    const [removed] = await getDb().delete(leadServices).where(eq(leadServices.id, input.id)).returning();
+    if (!removed) throw new Error("Serviço não encontrado");
+    return { success: true };
+  }),
+
   backfillFromTrello: adminProcedure.mutation(async () => {
     await ensureLeadServicesSchema();
     const database = getDb();
     const migrated = await database.select().from(leads).where(sql`${leads.notes} like '%trello.com/c/%'`);
     let created = 0;
-    let skipped = 0;
+    let synchronized = 0;
+    let worksCreated = 0;
     for (const lead of migrated) {
       const meta = sourceMetadata(lead.notes);
-      if (!meta.sourceCardUrl) { skipped++; continue; }
-      const [existing] = await database.select({ id: leadServices.id }).from(leadServices)
+      if (!meta.sourceCardUrl) continue;
+      const [existing] = await database.select().from(leadServices)
         .where(eq(leadServices.sourceCardUrl, meta.sourceCardUrl)).limit(1);
-      if (existing) { skipped++; continue; }
+      if (existing) {
+        const result = await ensureOperationalRecord(existing, lead);
+        synchronized++;
+        if (result.createdWork) worksCreated++;
+        continue;
+      }
       const serviceType = serviceTypeFromTrelloText(`${lead.name}\n${lead.notes || ""}`);
-      await database.insert(leadServices).values({
-        leadId: lead.id,
-        serviceType,
-        status: "awaiting_data",
-        title: lead.name,
-        originList: meta.originList || null,
-        sourceCardUrl: meta.sourceCardUrl,
-        dueAt: meta.dueAt,
-        description: lead.notes || "",
-        operationalModule: LEAD_SERVICE_MODULE[serviceType],
+      const result = await createLeadServiceWithAutomation({
+        leadId: lead.id, serviceType, title: lead.name, originList: meta.originList,
+        sourceCardUrl: meta.sourceCardUrl, dueAt: meta.dueAt, description: lead.notes || "",
       });
       created++;
+      if (result.createdWork) worksCreated++;
     }
-    return { created, skipped, total: migrated.length };
+    return { created, synchronized, worksCreated, total: migrated.length };
   }),
 });
