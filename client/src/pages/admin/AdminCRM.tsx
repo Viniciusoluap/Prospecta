@@ -13,8 +13,9 @@ import { Textarea } from "@/components/ui/textarea";
 import { toast } from "sonner";
 import {
   Users, Plus, Search, Filter, Phone, Mail, MapPin,
-  Thermometer, User, ArrowLeft, Flame, Snowflake, TrendingUp
+  Thermometer, User, ArrowLeft, Flame, Snowflake, TrendingUp, RefreshCcw
 } from "lucide-react";
+import { LEAD_SERVICE_LABELS, LEAD_SERVICE_TYPES, type LeadServiceType } from "../../../../shared/lead-services";
 
 const STAGES = [
   { key: "lead_new", label: "Lead Novo", color: "bg-gray-500" },
@@ -65,7 +66,7 @@ export default function AdminCRM() {
   const [newLeadOpen, setNewLeadOpen] = useState(false);
   const [newLead, setNewLead] = useState({
     name: "", phone: "", email: "", city: "", state: "",
-    income: "", incomeType: "formal" as any, notes: "", type: "new_lead" as any,
+    income: "", incomeType: "formal" as any, notes: "", type: "new_lead" as any, services: [] as LeadServiceType[],
   });
 
   const { data: leads = [], refetch } = trpc.leads.list.useQuery({
@@ -80,10 +81,18 @@ export default function AdminCRM() {
     onSuccess: () => {
       toast.success("Lead criado com sucesso!");
       setNewLeadOpen(false);
-      setNewLead({ name: "", phone: "", email: "", city: "", state: "", income: "", incomeType: "formal", notes: "", type: "new_lead" });
+      setNewLead({ name: "", phone: "", email: "", city: "", state: "", income: "", incomeType: "formal", notes: "", type: "new_lead", services: [] });
       refetch();
     },
     onError: (err) => toast.error(err.message),
+  });
+
+  const backfillServicesMutation = trpc.leadServices.backfillFromTrello.useMutation({
+    onSuccess: result => {
+      toast.success(`${result.created} serviço(s) do Trello vinculado(s); ${result.skipped} registro(s) já estavam corretos.`);
+      refetch();
+    },
+    onError: error => toast.error(error.message),
   });
 
   const filtered = leads.filter(l =>
@@ -99,6 +108,15 @@ export default function AdminCRM() {
       return;
     }
     createMutation.mutate({ ...newLead, phone: newLead.phone || undefined, email: newLead.email || undefined, city: newLead.city || undefined, state: newLead.state || undefined, income: newLead.income || undefined, notes: newLead.notes || undefined } as any);
+  };
+
+  const toggleService = (service: LeadServiceType) => {
+    setNewLead(current => ({
+      ...current,
+      services: current.services.includes(service)
+        ? current.services.filter(item => item !== service)
+        : [...current.services, service],
+    }));
   };
 
   const getLeadsByStage = (stage: string) => filtered.filter(l => l.stage === stage);
@@ -134,6 +152,21 @@ export default function AdminCRM() {
               className={viewMode === "list" ? "bg-[#C9A961] text-black" : "border-white/20 text-white"}
             >
               Lista
+            </Button>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              disabled={backfillServicesMutation.isPending}
+              onClick={() => {
+                if (window.confirm("Completar os serviços dos leads migrados do Trello? Esta ação não cria clientes e pode ser executada novamente sem duplicar serviços.")) {
+                  backfillServicesMutation.mutate();
+                }
+              }}
+              className="border-[#C9A961]/50 text-[#C9A961] hover:bg-[#C9A961]/10"
+            >
+              <RefreshCcw className="h-3 w-3 mr-1" />
+              {backfillServicesMutation.isPending ? "Corrigindo..." : "Corrigir migração Trello"}
             </Button>
             <Dialog open={newLeadOpen} onOpenChange={setNewLeadOpen}>
               <DialogTrigger asChild>
@@ -208,6 +241,25 @@ export default function AdminCRM() {
                         <SelectItem value="vip">VIP</SelectItem>
                       </SelectContent>
                     </Select>
+                  </div>
+                  <div>
+                    <Label className="text-gray-300">Serviços solicitados</Label>
+                    <p className="text-xs text-gray-400 mt-1">Selecione todos os serviços deste cliente. Os dados operacionais serão preenchidos no respectivo módulo.</p>
+                    <div className="mt-2 grid grid-cols-2 gap-2 max-h-44 overflow-y-auto pr-1">
+                      {LEAD_SERVICE_TYPES.filter(service => service !== "operacional_interno").map(service => {
+                        const selected = newLead.services.includes(service);
+                        return (
+                          <button
+                            key={service}
+                            type="button"
+                            onClick={() => toggleService(service)}
+                            className={`rounded border px-2 py-2 text-left text-xs transition-colors ${selected ? "border-[#C9A961] bg-[#C9A961]/15 text-[#F4D37D]" : "border-white/15 bg-white/5 text-gray-300 hover:bg-white/10"}`}
+                          >
+                            {selected ? "✓ " : ""}{LEAD_SERVICE_LABELS[service]}
+                          </button>
+                        );
+                      })}
+                    </div>
                   </div>
                   <div>
                     <Label className="text-gray-300">Observações</Label>
