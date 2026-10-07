@@ -249,7 +249,11 @@ export type InsertProductConversion = typeof productConversions.$inferInsert;
 
 export const constructionProjects = pgTable("construction_projects", {
   id: serial("id").primaryKey(),
-  userId: integer("user_id").notNull(),
+  // Obras internas podem nascer diretamente de um serviço do CRM, sem criar
+  // um usuário/cliente fictício apenas para satisfazer a estrutura antiga.
+  userId: integer("user_id"),
+  leadId: integer("lead_id").references(() => leads.id, { onDelete: "set null" }),
+  leadServiceId: integer("lead_service_id").references(() => leadServices.id, { onDelete: "set null" }).unique(),
   title: varchar("title", { length: 255 }).notNull(),
   address: text("address"),
   city: varchar("city", { length: 100 }),
