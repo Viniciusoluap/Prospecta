@@ -29,7 +29,7 @@ import { juridicoRouter } from "./juridico-router.js";
 import { agendaRouter, corretoresRouter, comissoesRouter, projetosRouter, mapaRouter } from "./operacional-router.js";
 import { configuracoesRouter } from "./configuracoes-router.js";
 import { relatoriosRouter } from "./relatorios-router.js";
-import { leadServicesRouter } from "./lead-services-router.js";
+import { createLeadServiceWithAutomation, leadServicesRouter } from "./lead-services-router.js";
 import { leadServices } from "../drizzle/schema.js";
 import { LEAD_SERVICE_MODULE, LEAD_SERVICE_TYPES } from "../shared/lead-services.js";
 import { calculateUtefBonus, extractLotteryTargetNumber, pickWinningNumber } from "../shared/raffle.js";
@@ -1077,14 +1077,7 @@ export const appRouter = router({
           description: "Lead criado no sistema",
           performedBy: "vinicius",
         });
-        if (services.length) {
-          await db.getDb().insert(leadServices).values(services.map(serviceType => ({
-            leadId: lead.id,
-            serviceType,
-            status: "awaiting_data",
-            operationalModule: LEAD_SERVICE_MODULE[serviceType],
-          })));
-        }
+        for (const serviceType of services) await createLeadServiceWithAutomation({ leadId: lead.id, serviceType });
         return lead;
       }),
 
