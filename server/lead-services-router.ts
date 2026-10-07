@@ -24,6 +24,36 @@ function sourceMetadata(notes: string | null) {
   return { sourceCardUrl, dueAt: dueAtText ? new Date(dueAtText) : null, originList };
 }
 
+/**
+ * A plataforma atual não roda migrations no deploy. Esta inicialização é
+ * deliberadamente idempotente e só é alcançável por uma ação administrativa.
+ * A migration Drizzle continua sendo a fonte de rastreabilidade do esquema.
+ */
+async function ensureLeadServicesSchema() {
+  const database = getDb();
+  await database.execute(sql.raw(`
+    CREATE TABLE IF NOT EXISTS "lead_services" (
+      "id" serial PRIMARY KEY NOT NULL,
+      "lead_id" integer NOT NULL REFERENCES "leads"("id") ON DELETE cascade,
+      "service_type" varchar(60) NOT NULL,
+      "title" varchar(255),
+      "status" varchar(40) DEFAULT 'awaiting_data' NOT NULL,
+      "origin_list" varchar(255),
+      "source_card_url" text,
+      "due_at" timestamp,
+      "description" text DEFAULT '' NOT NULL,
+      "operational_module" varchar(80),
+      "operational_record_id" integer,
+      "created_at" timestamp DEFAULT now() NOT NULL,
+      "updated_at" timestamp DEFAULT now() NOT NULL
+    )
+  `));
+  await database.execute(sql.raw(`CREATE UNIQUE INDEX IF NOT EXISTS "lead_services_source_card_url_unique" ON "lead_services" ("source_card_url")`));
+  await database.execute(sql.raw(`ALTER TABLE "regularizacoes" ADD COLUMN IF NOT EXISTS "lead_service_id" integer REFERENCES "lead_services"("id") ON DELETE set null`));
+  await database.execute(sql.raw(`ALTER TABLE "financiamentos" ADD COLUMN IF NOT EXISTS "lead_service_id" integer REFERENCES "lead_services"("id") ON DELETE set null`));
+  await database.execute(sql.raw(`ALTER TABLE "operational_projects" ADD COLUMN IF NOT EXISTS "lead_service_id" integer REFERENCES "lead_services"("id") ON DELETE set null`));
+}
+
 export const leadServicesRouter = router({
   listByLead: adminProcedure.input(z.object({ leadId: z.number().int().positive() })).query(async ({ input }) =>
     getDb().select().from(leadServices).where(eq(leadServices.leadId, input.leadId)).orderBy(desc(leadServices.createdAt))
@@ -69,6 +99,7 @@ export const leadServicesRouter = router({
   }),
 
   backfillFromTrello: adminProcedure.mutation(async () => {
+    await ensureLeadServicesSchema();
     const database = getDb();
     const migrated = await database.select().from(leads).where(sql`${leads.notes} like '%trello.com/c/%'`);
     let created = 0;
