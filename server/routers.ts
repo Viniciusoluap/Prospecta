@@ -29,6 +29,9 @@ import { juridicoRouter } from "./juridico-router.js";
 import { agendaRouter, corretoresRouter, comissoesRouter, projetosRouter, mapaRouter } from "./operacional-router.js";
 import { configuracoesRouter } from "./configuracoes-router.js";
 import { relatoriosRouter } from "./relatorios-router.js";
+import { leadServicesRouter } from "./lead-services-router.js";
+import { leadServices } from "../drizzle/schema.js";
+import { LEAD_SERVICE_MODULE, LEAD_SERVICE_TYPES } from "../shared/lead-services.js";
 import { calculateUtefBonus, extractLotteryTargetNumber, pickWinningNumber } from "../shared/raffle.js";
 
 // Helper para gerar número de bilhete único
@@ -106,6 +109,7 @@ export const appRouter = router({
   mapa: mapaRouter,
   configuracoes: configuracoesRouter,
   relatorios: relatoriosRouter,
+  leadServices: leadServicesRouter,
   auth: router({
     me: publicProcedure.query(opts => opts.ctx.user),
     logout: publicProcedure.mutation(({ ctx }) => {
@@ -1050,6 +1054,7 @@ export const appRouter = router({
         spouseName: z.string().optional(),
         sourceChannel: z.string().optional(),
         notes: z.string().optional(),
+        services: z.array(z.enum(LEAD_SERVICE_TYPES)).max(20).optional(),
       }))
       .mutation(async ({ input, ctx }) => {
         requireRole(ctx, ["admin"]);
@@ -1057,8 +1062,9 @@ export const appRouter = router({
         let responsible: "sarah" | "vinicius" | "bianca" = "sarah";
         const city = (input.city || "").toLowerCase();
         if (city.includes("canaa") || city.includes("parauapebas")) responsible = "bianca";
+        const { services = [], ...leadInput } = input;
         const lead = await db.createLead({
-          ...input,
+          ...leadInput,
           phone: input.phone ?? "",
           responsible,
           stage: "lead_new",
@@ -1071,6 +1077,14 @@ export const appRouter = router({
           description: "Lead criado no sistema",
           performedBy: "vinicius",
         });
+        if (services.length) {
+          await db.getDb().insert(leadServices).values(services.map(serviceType => ({
+            leadId: lead.id,
+            serviceType,
+            status: "awaiting_data",
+            operationalModule: LEAD_SERVICE_MODULE[serviceType],
+          })));
+        }
         return lead;
       }),
 

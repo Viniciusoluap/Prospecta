@@ -469,6 +469,28 @@ export const leads = pgTable("leads", {
 export type Lead = typeof leads.$inferSelect;
 export type InsertLead = typeof leads.$inferInsert;
 
+// Serviço é separado do cliente: um lead pode ter vários atendimentos sem duplicação.
+export const leadServices = pgTable("lead_services", {
+  id: serial("id").primaryKey(),
+  leadId: integer("lead_id").notNull().references(() => leads.id, { onDelete: "cascade" }),
+  serviceType: varchar("service_type", { length: 60 }).notNull(),
+  title: varchar("title", { length: 255 }),
+  status: varchar("status", { length: 40 }).default("awaiting_data").notNull(),
+  originList: varchar("origin_list", { length: 255 }),
+  sourceCardUrl: text("source_card_url"),
+  dueAt: timestamp("due_at"),
+  description: text("description").default("").notNull(),
+  operationalModule: varchar("operational_module", { length: 80 }),
+  operationalRecordId: integer("operational_record_id"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+}, table => ({
+  sourceCardUrlUnique: uniqueIndex("lead_services_source_card_url_unique").on(table.sourceCardUrl),
+}));
+
+export type LeadService = typeof leadServices.$inferSelect;
+export type InsertLeadService = typeof leadServices.$inferInsert;
+
 export const regularizacoes = pgTable("regularizacoes", {
   id: serial("id").primaryKey(),
   clientName: varchar("client_name", { length: 255 }).notNull(),
@@ -480,6 +502,7 @@ export const regularizacoes = pgTable("regularizacoes", {
   registryOffice: varchar("registry_office", { length: 255 }),
   responsible: varchar("responsible", { length: 120 }).notNull(),
   leadId: integer("lead_id"),
+  leadServiceId: integer("lead_service_id").references(() => leadServices.id, { onDelete: "set null" }),
   serviceValue: decimal("service_value", { precision: 15, scale: 2 }).default("0").notNull(),
   paidValue: decimal("paid_value", { precision: 15, scale: 2 }).default("0").notNull(),
   expectedEndAt: timestamp("expected_end_at"),
@@ -625,6 +648,7 @@ export const financiamentos = pgTable("financiamentos", {
   status: financiamentoStatusEnum("status").default("pre_analise").notNull(),
   protocolo: varchar("protocolo", { length: 120 }),
   leadId: integer("lead_id").references(() => leads.id, { onDelete: "set null" }),
+  leadServiceId: integer("lead_service_id").references(() => leadServices.id, { onDelete: "set null" }),
   imovelVinculadoId: integer("imovel_vinculado_id").references(() => imoveis.id, { onDelete: "set null" }),
   corretorId: integer("corretor_id").references(() => users.id, { onDelete: "set null" }),
   observacoes: text("observacoes"),
@@ -831,6 +855,7 @@ export const operationalProjects = pgTable("operational_projects", {
   paidValue: decimal("paid_value", { precision: 15, scale: 2 }).default("0").notNull(),
   deadline: timestamp("deadline"),
   leadId: integer("lead_id").references(() => leads.id, { onDelete: "set null" }),
+  leadServiceId: integer("lead_service_id").references(() => leadServices.id, { onDelete: "set null" }),
   description: text("description").default("").notNull(),
   checklist: text("checklist").default("[]").notNull(),
   files: text("files").default("[]").notNull(),

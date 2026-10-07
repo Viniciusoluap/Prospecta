@@ -17,6 +17,7 @@ import {
   Building2, DollarSign, Calculator, AlertCircle, Plus, Edit
 } from "lucide-react";
 import { AdminPortalLeadPanel } from "@/components/admin/AdminPortalLeadPanel";
+import { LEAD_SERVICE_LABELS, LEAD_SERVICE_TYPES, type LeadServiceType } from "../../../../shared/lead-services";
 
 const STAGES = [
   { key: "lead_new", label: "Lead Novo" },
@@ -105,10 +106,12 @@ export default function AdminLeadDetail() {
   const [activityForm, setActivityForm] = useState({ type: "note", description: "" });
   const [docForm, setDocForm] = useState({ type: "rg", fileName: "", notes: "" });
   const [editForm, setEditForm] = useState<Record<string, any>>({});
+  const [serviceType, setServiceType] = useState<LeadServiceType>("obra_cliente");
 
   const { data: lead, refetch } = trpc.leads.getById.useQuery({ id: leadId }, {
     enabled: !!leadId,
   });
+  const { data: services = [], refetch: refetchServices } = trpc.leadServices.listByLead.useQuery({ leadId }, { enabled: !!leadId });
 
   useEffect(() => {
     if (lead && Object.keys(editForm).length === 0) {
@@ -146,6 +149,11 @@ export default function AdminLeadDetail() {
   const updateDocMutation = trpc.leads.updateDocument.useMutation({
     onSuccess: () => { toast.success("Documento atualizado!"); refetch(); },
     onError: (e) => toast.error(e.message),
+  });
+
+  const createServiceMutation = trpc.leadServices.create.useMutation({
+    onSuccess: () => { toast.success("Serviço vinculado ao cliente."); refetchServices(); },
+    onError: (error) => toast.error(error.message),
   });
 
   const handleAdvanceStage = () => {
@@ -417,6 +425,44 @@ export default function AdminLeadDetail() {
 
         {/* Right Column — Timeline + Documents */}
         <div className="lg:col-span-2 space-y-4">
+          <Card className="bg-[#2C3E50] border-[#C9A961]/20">
+            <CardHeader className="pb-3 flex flex-row items-center justify-between">
+              <div>
+                <CardTitle className="text-[#C9A961] text-sm flex items-center gap-2">
+                  <Building2 className="h-4 w-4" /> Serviços do cliente
+                </CardTitle>
+                <p className="mt-1 text-xs text-gray-400">Cada serviço é independente e pode ser ligado ao módulo operacional correspondente.</p>
+              </div>
+              <div className="flex gap-2">
+                <Select value={serviceType} onValueChange={value => setServiceType(value as LeadServiceType)}>
+                  <SelectTrigger className="w-48 h-8 bg-[#1A2332] border-white/20 text-white text-xs"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    {LEAD_SERVICE_TYPES.filter(type => type !== "operacional_interno").map(type => <SelectItem key={type} value={type}>{LEAD_SERVICE_LABELS[type]}</SelectItem>)}
+                  </SelectContent>
+                </Select>
+                <Button size="sm" onClick={() => createServiceMutation.mutate({ leadId, serviceType })} disabled={createServiceMutation.isPending} className="bg-[#C9A961] text-black hover:bg-[#B8985A]">
+                  <Plus className="h-3 w-3 mr-1" /> Vincular
+                </Button>
+              </div>
+            </CardHeader>
+            <CardContent>
+              {services.length === 0 ? (
+                <p className="text-sm text-gray-400">Nenhum serviço vinculado. Cadastre o serviço antes de iniciar o processo operacional.</p>
+              ) : (
+                <div className="space-y-2">
+                  {services.map(service => (
+                    <div key={service.id} className="rounded-lg border border-white/10 bg-[#1A2332] px-3 py-2 flex items-center justify-between gap-3">
+                      <div>
+                        <p className="text-sm font-medium text-white">{LEAD_SERVICE_LABELS[service.serviceType as LeadServiceType] || service.serviceType}</p>
+                        <p className="text-xs text-gray-400">{service.operationalRecordId ? `Processo vinculado em ${service.operationalModule}` : `Destino: ${service.operationalModule || "a definir"} · aguardando dados operacionais`}</p>
+                      </div>
+                      <Badge className={service.status === "active" ? "bg-teal-600" : "bg-amber-600"}>{service.status === "active" ? "Em andamento" : "Aguardando dados"}</Badge>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </CardContent>
+          </Card>
           {/* Document Checklist */}
           <Card className="bg-[#2C3E50] border-[#C9A961]/20">
             <CardHeader className="pb-3 flex flex-row items-center justify-between">
