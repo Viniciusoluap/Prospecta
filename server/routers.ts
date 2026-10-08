@@ -741,14 +741,30 @@ export const appRouter = router({
           status: "pending",
         });
         
-        // Notificar admin sobre novo orçamento
+        // Notificar admin sobre novo orçamento (notificação interna da plataforma)
         await notifyOwner({
           title: "🏗️ Novo Orçamento Recebido",
           content: `Nome: ${input.name}\nEmail: ${input.email}\nTelefone: ${input.phone || 'Não informado'}\nCidade: ${input.city || 'Não informada'}\nTipo: ${input.projectType || 'Não especificado'}\nPossui lote: ${input.hasLot === 'yes' ? 'Sim' : input.hasLot === 'no' ? 'Não' : 'Não tem certeza'}\n\nMensagem: ${input.message || 'Nenhuma mensagem adicional'}`
         });
-        
+
+        const { sendEmail, budgetConfirmationTemplate, notifyAdminByEmail } = await import("./_core/email-smtp.js");
+
+        // Notificar admin por e-mail também - a notificação interna acima não chega
+        // na caixa de entrada, só o e-mail de verdade garante que a mensagem é vista.
+        await notifyAdminByEmail({
+          titulo: "Novo orçamento recebido pelo site",
+          linhas: [
+            { label: "Nome", valor: input.name },
+            { label: "Email", valor: input.email },
+            { label: "Telefone", valor: input.phone || "" },
+            { label: "Cidade", valor: input.city || "" },
+            { label: "Tipo de projeto", valor: input.projectType || "" },
+            { label: "Possui lote", valor: input.hasLot === "yes" ? "Sim" : input.hasLot === "no" ? "Não" : input.hasLot === "not_sure" ? "Não tem certeza" : "" },
+            { label: "Mensagem", valor: input.message || "" },
+          ],
+        });
+
         // Enviar email de confirmação para o cliente
-        const { sendEmail, budgetConfirmationTemplate } = await import("./_core/email-smtp.js");
         const template = budgetConfirmationTemplate({
           name: input.name,
           projectType: input.projectType,
@@ -1060,6 +1076,23 @@ export const appRouter = router({
           description: "Lead criado via formulário público do site",
           performedBy: "site",
         });
+
+        // Antes deste formulário não notificava ninguém - a mensagem só aparecia
+        // no CRM se alguém entrasse pra conferir.
+        const { notifyAdminByEmail } = await import("./_core/email-smtp.js");
+        await notifyAdminByEmail({
+          titulo: "Nova mensagem recebida pelo site (Contato)",
+          linhas: [
+            { label: "Nome", valor: input.name },
+            { label: "Telefone", valor: input.phone },
+            { label: "Email", valor: input.email || "" },
+            { label: "Cidade", valor: input.city || "" },
+            { label: "Estado", valor: input.state || "" },
+            { label: "Origem", valor: input.sourceChannel },
+            { label: "Mensagem", valor: input.notes || "" },
+          ],
+        });
+
         return { success: true };
       }),
 

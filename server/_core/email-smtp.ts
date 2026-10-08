@@ -220,6 +220,64 @@ export function paymentConfirmedTemplate(data: {
   };
 }
 
+/**
+ * E-mail de notificação interna: avisa o admin que uma mensagem/solicitação chegou
+ * pelo site (orçamento, formulário de contato). Enviado para ADMIN_NOTIFICATION_EMAIL,
+ * nunca para o cliente.
+ */
+export const ADMIN_NOTIFICATION_EMAIL = "atendimento@prospectaconstrucoes.com";
+
+export function adminNotificationTemplate(data: {
+  titulo: string;
+  linhas: { label: string; valor: string }[];
+}) {
+  const linhasHtml = data.linhas
+    .map(
+      (l) =>
+        `<p style="margin: 4px 0;"><strong>${l.label}:</strong> ${l.valor || "Não informado"}</p>`
+    )
+    .join("");
+  return {
+    subject: `📩 ${data.titulo}`,
+    html: `
+      <!DOCTYPE html>
+      <html>
+      <head><meta charset="utf-8">
+        <style>
+          body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
+          .container { max-width: 600px; margin: 0 auto; padding: 20px; }
+          .header { background: linear-gradient(135deg, #1A2332 0%, #C9A961 100%); color: white; padding: 24px; text-align: center; border-radius: 10px 10px 0 0; }
+          .content { background: #f9f9f9; padding: 24px; border-radius: 0 0 10px 10px; }
+          .footer { text-align: center; margin-top: 20px; color: #666; font-size: 13px; }
+        </style>
+      </head>
+      <body>
+        <div class="container">
+          <div class="header"><h1 style="margin:0; font-size: 20px;">${data.titulo}</h1></div>
+          <div class="content">${linhasHtml}</div>
+          <div class="footer"><p>© 2025 Prospecta Empreendimentos - Grupo Efficaz</p></div>
+        </div>
+      </body>
+      </html>
+    `,
+  };
+}
+
+/** Envia a notificação acima para o e-mail do admin. Não lança se o envio falhar. */
+export async function notifyAdminByEmail(data: {
+  titulo: string;
+  linhas: { label: string; valor: string }[];
+}): Promise<boolean> {
+  const template = adminNotificationTemplate(data);
+  return sendEmail({
+    to: ADMIN_NOTIFICATION_EMAIL,
+    subject: template.subject,
+    html: template.html,
+    recipientName: "Prospecta",
+    templateType: "admin_notification",
+  });
+}
+
 export async function sendBudgetUpdateEmail(data: {
   name: string;
   email: string;
