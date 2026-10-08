@@ -15,6 +15,7 @@ import { createContext } from "../server/_core/context.js";
 import { getDb, getUserByEmail } from "../server/db.js";
 import { appRouter } from "../server/routers.js";
 import uploadPhotoRouter from "../server/routes/upload-photo.js";
+import { checkAndSendReminder } from "../server/mcmv-rules-reminder.js";
 
 const app = express();
 app.use(express.json({ limit: "50mb" }));
@@ -105,6 +106,24 @@ app.post("/api/auth/setup-admin", async (req, res) => {
     }
   } catch (err: any) {
     console.error("[auth/setup-admin]", err);
+    return res.status(500).json({ error: "Erro interno", detail: err?.message });
+  }
+});
+
+// ── Cron: lembrete de 30 dias p/ revisar as regras do MCMV ─
+// Vercel não roda um processo persistente (server/_core/index.ts), então o
+// setInterval de startMcmvRulesReminder() nunca dispara em produção aqui.
+// Esta rota é chamada periodicamente pelo Vercel Cron (ver vercel.json).
+app.get("/api/cron/mcmv-reminder", async (req, res) => {
+  const cronSecret = process.env.CRON_SECRET;
+  if (cronSecret && req.headers.authorization !== `Bearer ${cronSecret}`) {
+    return res.status(401).json({ error: "Não autorizado" });
+  }
+  try {
+    await checkAndSendReminder();
+    return res.json({ ok: true });
+  } catch (err: any) {
+    console.error("[cron/mcmv-reminder]", err);
     return res.status(500).json({ error: "Erro interno", detail: err?.message });
   }
 });

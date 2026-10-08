@@ -227,6 +227,16 @@ export function paymentConfirmedTemplate(data: {
  */
 export const ADMIN_NOTIFICATION_EMAIL = "atendimento@prospectaconstrucoes.com";
 
+/** Escapa HTML para evitar XSS ao interpolar texto de origem não confiável (formulários públicos) em templates de e-mail. */
+function escapeHtml(value: string): string {
+  return value
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
 export function adminNotificationTemplate(data: {
   titulo: string;
   linhas: { label: string; valor: string }[];
@@ -234,11 +244,13 @@ export function adminNotificationTemplate(data: {
   const linhasHtml = data.linhas
     .map(
       (l) =>
-        `<p style="margin: 4px 0;"><strong>${l.label}:</strong> ${l.valor || "Não informado"}</p>`
+        `<p style="margin: 4px 0;"><strong>${escapeHtml(l.label)}:</strong> ${
+          l.valor ? escapeHtml(l.valor) : "Não informado"
+        }</p>`
     )
     .join("");
   return {
-    subject: `📩 ${data.titulo}`,
+    subject: `📩 ${escapeHtml(data.titulo)}`,
     html: `
       <!DOCTYPE html>
       <html>
@@ -253,7 +265,7 @@ export function adminNotificationTemplate(data: {
       </head>
       <body>
         <div class="container">
-          <div class="header"><h1 style="margin:0; font-size: 20px;">${data.titulo}</h1></div>
+          <div class="header"><h1 style="margin:0; font-size: 20px;">${escapeHtml(data.titulo)}</h1></div>
           <div class="content">${linhasHtml}</div>
           <div class="footer"><p>© 2025 Prospecta Empreendimentos - Grupo Efficaz</p></div>
         </div>
