@@ -134,7 +134,7 @@ export default function Home() {
                 <CardContent className="p-6">
                   <div className="aspect-video rounded-lg mb-4 overflow-hidden">
                     <img 
-                      src="/casa-compacta-47m2.jpg" 
+                      src="/casa-compacta-linha-smart.jpg"
                       alt="Casa Compacta - Linha Smart" 
                       className="w-full h-full object-cover"
                     />
@@ -155,7 +155,7 @@ export default function Home() {
                 <CardContent className="p-6">
                   <div className="aspect-video rounded-lg mb-4 overflow-hidden">
                     <img 
-                      src="https://images.unsplash.com/photo-1600596542815-ffad4c1539a9?w=600&h=400&fit=crop" 
+                      src="/casa-concept-linha-plus.jpg"
                       alt="Casa Concept - Linha Plus" 
                       className="w-full h-full object-cover"
                     />
@@ -176,7 +176,7 @@ export default function Home() {
                 <CardContent className="p-6">
                   <div className="aspect-video rounded-lg mb-4 overflow-hidden">
                     <img 
-                      src="https://images.unsplash.com/photo-1600566753190-17f0baa2a6c3?w=600&h=400&fit=crop" 
+                      src="/casa-luxo-linha-premium.jpg"
                       alt="Casa Luxo - Linha Premium" 
                       className="w-full h-full object-cover"
                     />
