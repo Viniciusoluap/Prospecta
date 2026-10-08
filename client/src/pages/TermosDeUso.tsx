@@ -161,7 +161,7 @@ export default function TermosDeUso() {
                 Para dúvidas ou questões sobre estes Termos, entre em contato:
               </p>
               <ul className="list-none ml-4 mt-4 space-y-2">
-                <li><strong>Email:</strong> <a href="mailto:contato@grupoefficaz.com.br" className="text-[#C9A961] hover:underline">contato@grupoefficaz.com.br</a></li>
+                <li><strong>Email:</strong> <a href="mailto:atendimento@prospectaconstrucoes.com" className="text-[#C9A961] hover:underline">atendimento@prospectaconstrucoes.com</a></li>
                 <li><strong>Telefone:</strong> (99) 98139-2210 | (94) 99304-4689</li>
                 <li><strong>Endereço:</strong> Imperatriz - MA</li>
               </ul>

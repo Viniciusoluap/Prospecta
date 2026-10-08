@@ -28,7 +28,7 @@ export const budgetRequestHasLotEnum = pgEnum("budget_request_has_lot", ["yes", 
 export const budgetRequestStatusEnum = pgEnum("budget_request_status", ["pending", "contacted", "in_negotiation", "converted", "cancelled"]);
 export const emailTemplateTypeEnum = pgEnum("email_template_type", [
   "welcome", "budget_confirmation", "budget_update",
-  "draw_winner", "promotional_campaign", "payment_confirmation",
+  "draw_winner", "promotional_campaign", "payment_confirmation", "admin_notification",
 ]);
 export const emailStatusEnum = pgEnum("email_status", ["pending", "sent", "failed"]);
 export const notificationTypeEnum = pgEnum("notification_type", [

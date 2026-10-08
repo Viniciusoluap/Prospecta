@@ -63,22 +63,25 @@ export default function SimuladorFinanciamento() {
     return Math.max(0, valorImovel - entradaTotal);
   }, [valorImovel, valorEntrada, usarFGTS, valorFGTS, subsidioEstimado]);
 
-  // Calcular parcela (Sistema SAC - primeira parcela)
+  // Sistema de amortização selecionado pelo usuário (Price é o mais usado nos financiamentos habitacionais)
+  const [sistemaAmortizacao, setSistemaAmortizacao] = useState<"price" | "sac">("price");
+
+  // Calcular parcela (Sistema SAC - amortização constante, parcela decrescente)
   const parcelaSAC = useMemo(() => {
     if (valorFinanciado <= 0 || prazoMeses <= 0) return { primeira: 0, ultima: 0, media: 0 };
-    
+
     const taxaMensal = faixaAtual.taxaJuros / 100 / 12;
     const amortizacao = valorFinanciado / prazoMeses;
-    
+
     // Primeira parcela (maior)
     const primeiraParcela = amortizacao + (valorFinanciado * taxaMensal);
-    
+
     // Última parcela (menor)
     const ultimaParcela = amortizacao + (amortizacao * taxaMensal);
-    
+
     // Parcela média
     const parcelaMedia = (primeiraParcela + ultimaParcela) / 2;
-    
+
     return {
       primeira: primeiraParcela,
       ultima: ultimaParcela,
@@ -86,10 +89,28 @@ export default function SimuladorFinanciamento() {
     };
   }, [valorFinanciado, prazoMeses, faixaAtual.taxaJuros]);
 
+  // Calcular parcela (Tabela Price - amortização francesa, parcela fixa)
+  const parcelaPrice = useMemo(() => {
+    if (valorFinanciado <= 0 || prazoMeses <= 0) return { fixa: 0 };
+
+    const taxaMensal = faixaAtual.taxaJuros / 100 / 12;
+
+    // PMT = PV * i / (1 - (1 + i)^-n)
+    const parcelaFixa =
+      taxaMensal === 0
+        ? valorFinanciado / prazoMeses
+        : (valorFinanciado * taxaMensal) / (1 - Math.pow(1 + taxaMensal, -prazoMeses));
+
+    return { fixa: parcelaFixa };
+  }, [valorFinanciado, prazoMeses, faixaAtual.taxaJuros]);
+
+  // Parcela de referência conforme o sistema escolhido (usada no card de resultado e no comprometimento de renda)
+  const parcelaReferencia = sistemaAmortizacao === "price" ? parcelaPrice.fixa : parcelaSAC.primeira;
+
   // Verificar se a parcela cabe na renda (máximo 30%)
   const comprometimentoRenda = useMemo(() => {
-    return (parcelaSAC.primeira / rendaFamiliar) * 100;
-  }, [parcelaSAC.primeira, rendaFamiliar]);
+    return (parcelaReferencia / rendaFamiliar) * 100;
+  }, [parcelaReferencia, rendaFamiliar]);
 
   // Entrada mínima necessária (20%)
   const entradaMinima = valorImovel * 0.20;
@@ -303,15 +324,51 @@ export default function SimuladorFinanciamento() {
                 <CardTitle className="text-primary text-center">Resultado da Simulação</CardTitle>
               </CardHeader>
               <CardContent className="space-y-4">
+                {/* Seletor de sistema de amortização */}
+                <div className="flex gap-2 p-1 bg-white/10 rounded-lg">
+                  <button
+                    type="button"
+                    onClick={() => setSistemaAmortizacao("price")}
+                    className={`flex-1 py-2 rounded-md text-sm font-medium transition-colors ${
+                      sistemaAmortizacao === "price" ? "bg-primary text-secondary" : "text-white/70"
+                    }`}
+                  >
+                    Tabela Price
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setSistemaAmortizacao("sac")}
+                    className={`flex-1 py-2 rounded-md text-sm font-medium transition-colors ${
+                      sistemaAmortizacao === "sac" ? "bg-primary text-secondary" : "text-white/70"
+                    }`}
+                  >
+                    SAC
+                  </button>
+                </div>
+
                 {/* Parcela */}
                 <div className="text-center py-4 bg-white/10 rounded-lg">
-                  <p className="text-white/70 text-sm mb-1">Primeira Parcela (SAC)</p>
-                  <p className="text-3xl font-bold text-primary">
-                    {formatCurrency(parcelaSAC.primeira)}
-                  </p>
-                  <p className="text-white/50 text-xs mt-1">
-                    Última parcela: {formatCurrency(parcelaSAC.ultima)}
-                  </p>
+                  {sistemaAmortizacao === "price" ? (
+                    <>
+                      <p className="text-white/70 text-sm mb-1">Parcela Fixa (Tabela Price)</p>
+                      <p className="text-3xl font-bold text-primary">
+                        {formatCurrency(parcelaPrice.fixa)}
+                      </p>
+                      <p className="text-white/50 text-xs mt-1">
+                        Valor igual do início ao fim do financiamento
+                      </p>
+                    </>
+                  ) : (
+                    <>
+                      <p className="text-white/70 text-sm mb-1">Primeira Parcela (SAC)</p>
+                      <p className="text-3xl font-bold text-primary">
+                        {formatCurrency(parcelaSAC.primeira)}
+                      </p>
+                      <p className="text-white/50 text-xs mt-1">
+                        Última parcela: {formatCurrency(parcelaSAC.ultima)}
+                      </p>
+                    </>
+                  )}
                 </div>
 
                 {/* Detalhes */}

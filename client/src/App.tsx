@@ -74,7 +74,6 @@ import WhatsAppFloat from "./components/WhatsAppFloat";
 import Login from "./pages/Login";
 import Portal from "./pages/Portal";
 import { PortalRoute } from "./components/PortalRoute";
-import { GlobalBackButton } from "./components/GlobalBackButton";
 
 function Router() {
   // make sure to consider if you need authentication for certain routes
@@ -256,7 +255,6 @@ function App() {
         <TooltipProvider>
           <Toaster />
           <Router />
-          <GlobalBackButton />
           <WhatsAppFloat />
         </TooltipProvider>
       </ThemeProvider>

@@ -861,6 +861,12 @@ export async function saveDashboardSetting(key: string, value: string): Promise<
     .onConflictDoUpdate({ target: dashboardSettings.key, set: { value, updatedAt: new Date() } });
 }
 
+export async function getDashboardSetting(key: string): Promise<string | undefined> {
+  const database = getDb();
+  const rows = await database.select({ value: dashboardSettings.value }).from(dashboardSettings).where(eq(dashboardSettings.key, key)).limit(1);
+  return rows[0]?.value;
+}
+
 export async function createFinancialTransaction(data: InsertFinancialTransaction): Promise<FinancialTransaction> {
   const db = getDb();
   const result = await db.insert(financialTransactions).values(data).returning();

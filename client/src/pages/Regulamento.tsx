@@ -25,7 +25,7 @@ export default function Regulamento() {
             <section>
               <h2 className="text-2xl font-semibold text-[#C9A961] mb-4">1. Organizador</h2>
               <p>
-                O sorteio é promovido por <strong>EFFICAZ PROMOÇÃO DE VENDAS</strong>, CNPJ 41.865.900/0001-89, 
+                O sorteio é promovido por <strong>PROSPECTA CONSTRUÇÕES E AVALIAÇÃO IMOBILIÁRIA LTDA</strong>, CNPJ 41.865.900/0001-89,
                 com sede em Imperatriz - MA, denominado simplesmente como "Organizador".
               </p>
             </section>
@@ -130,7 +130,7 @@ export default function Regulamento() {
                 <strong>8.2.</strong> O Organizador poderá alterar este regulamento a qualquer momento, mediante divulgação prévia.
               </p>
               <p>
-                <strong>8.3.</strong> Dúvidas podem ser esclarecidas através do e-mail: <a href="mailto:contato@grupoefficaz.com.br" className="text-[#C9A961] hover:underline">contato@grupoefficaz.com.br</a>
+                <strong>8.3.</strong> Dúvidas podem ser esclarecidas através do e-mail: <a href="mailto:atendimento@prospectaconstrucoes.com" className="text-[#C9A961] hover:underline">atendimento@prospectaconstrucoes.com</a>
               </p>
             </section>
 

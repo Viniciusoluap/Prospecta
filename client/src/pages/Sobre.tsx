@@ -60,9 +60,9 @@ export default function Sobre() {
               <CardContent className="p-8 grid grid-cols-2 md:grid-cols-4 gap-4 text-center">
                 {[
                   { value: "2020", label: "Ano de fundação" },
-                  { value: "Em breve", label: "Imóveis negociados" },
-                  { value: "Em breve", label: "Clientes atendidos" },
-                  { value: "Em breve", label: "Obras acompanhadas" },
+                  { value: "Mais de 300", label: "Imóveis negociados" },
+                  { value: "Mais de 150", label: "Clientes atendidos" },
+                  { value: "Mais de 100", label: "Obras acompanhadas" },
                 ].map(({ value, label }) => (
                   <div key={label} className="border border-[#C9A961]/10 rounded-lg p-4">
                     <p className="text-[#C9A961] font-black text-2xl">{value}</p>
@@ -76,8 +76,14 @@ export default function Sobre() {
               <CardContent className="p-8 text-center">
                 <h2 className="text-2xl md:text-3xl font-bold text-[#C9A961] mb-4">Nossa Missão</h2>
                 <p className="text-gray-300 max-w-2xl mx-auto leading-relaxed">
-                  Transformar o sonho da casa própria em realidade, oferecendo soluções imobiliárias e de
-                  construção completas, com transparência e comprometimento com cada cliente.
+                  Nossa missão é transformar o sonho da casa própria em uma conquista real, segura e possível
+                  — não só erguendo paredes, mas construindo a confiança de quem coloca nas nossas mãos um dos
+                  momentos mais importantes da vida. Cada família que atendemos carrega uma história, um
+                  esforço de anos, uma expectativa que não pode ser tratada como mais um contrato. Por isso
+                  caminhamos ao lado do cliente em cada etapa: do primeiro orçamento à entrega das chaves, do
+                  financiamento mais complexo à última vistoria da obra — com transparência total, compromisso
+                  genuíno e o cuidado de quem entende que, por trás de cada imóvel, existe uma vida inteira
+                  sendo construída.
                 </p>
               </CardContent>
             </Card>

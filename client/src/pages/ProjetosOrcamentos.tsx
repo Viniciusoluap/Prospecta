@@ -143,10 +143,10 @@ export default function ProjetosOrcamentos() {
                 <CardContent>
                   <div className="text-center py-6">
                     <p className="text-5xl font-bold text-[#C9A961] mb-2">
-                      R$ 160.000
+                      R$ 215.000
                     </p>
                     <p className="text-gray-600">
-                      ou <span className="font-bold text-[#1A2332]">160.000 UTEFs</span>
+                      ou <span className="font-bold text-[#1A2332]">215.000 UTEFs</span>
                     </p>
                   </div>
                 </CardContent>
@@ -334,7 +334,7 @@ export default function ProjetosOrcamentos() {
                   <p className="text-sm text-gray-500 text-center">
                     Ou entre em contato diretamente:<br />
                     <strong className="text-[#1A2332]">WhatsApp:</strong> (99) 98139-2210 | (94) 99304-4689<br />
-                    <strong className="text-[#1A2332]">E-mail:</strong> contato@prospectaempreendimentos.com
+                    <strong className="text-[#1A2332]">E-mail:</strong> atendimento@prospectaconstrucoes.com
                   </p>
                 </div>
               </form>
@@ -362,7 +362,7 @@ export default function ProjetosOrcamentos() {
                 <CardDescription>3 quartos • 1 banheiro</CardDescription>
               </CardHeader>
               <CardContent>
-                <p className="text-3xl font-bold text-[#C9A961] mb-4">R$ 200.000</p>
+                <p className="text-3xl font-bold text-[#C9A961] mb-4">R$ 260.000</p>
                 <Button variant="outline" className="w-full border-[#C9A961] text-[#C9A961] hover:bg-[#C9A961] hover:text-white">
                   Ver Detalhes
                 </Button>
@@ -375,7 +375,7 @@ export default function ProjetosOrcamentos() {
                 <CardDescription>3 quartos • 2 banheiros</CardDescription>
               </CardHeader>
               <CardContent>
-                <p className="text-3xl font-bold text-[#C9A961] mb-4">R$ 280.000</p>
+                <p className="text-3xl font-bold text-[#C9A961] mb-4">R$ 305.000</p>
                 <Button variant="outline" className="w-full border-[#C9A961] text-[#C9A961] hover:bg-[#C9A961] hover:text-white">
                   Ver Detalhes
                 </Button>
@@ -388,7 +388,7 @@ export default function ProjetosOrcamentos() {
                 <CardDescription>4 quartos • 2 banheiros</CardDescription>
               </CardHeader>
               <CardContent>
-                <p className="text-3xl font-bold text-[#C9A961] mb-4">R$ 350.000</p>
+                <p className="text-3xl font-bold text-[#C9A961] mb-4">R$ 380.000</p>
                 <Button variant="outline" className="w-full border-[#C9A961] text-[#C9A961] hover:bg-[#C9A961] hover:text-white">
                   Ver Detalhes
                 </Button>

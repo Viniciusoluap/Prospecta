@@ -11,6 +11,7 @@ import uploadPhotoRouter from "../routes/upload-photo.js";
 import imovelFeedsRouter from "../routes/imovel-feeds.js";
 import { handleAsaasWebhook } from "../asaas-webhook.js";
 import { handleWhatsappWebhook } from "../whatsapp-webhook.js";
+import { startMcmvRulesReminder } from "../mcmv-rules-reminder.js";
 import { getUserByEmail } from "../db.js";
 import {
   hashPassword,
@@ -130,6 +131,8 @@ async function startServer() {
   server.listen(port, () => {
     console.log(`Server running on http://localhost:${port}/`);
   });
+
+  startMcmvRulesReminder();
 }
 
 startServer().catch(console.error);

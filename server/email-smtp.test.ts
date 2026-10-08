@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { budgetConfirmationTemplate, sendEmail } from "./_core/email-smtp";
+import { adminNotificationTemplate, budgetConfirmationTemplate, sendEmail } from "./_core/email-smtp";
 
 function dependencies(
   options: { transportFails?: boolean; insertFails?: boolean } = {}
@@ -67,5 +67,31 @@ describe("Email service", () => {
     const { deps, mocks } = dependencies({ insertFails: true });
     await expect(sendEmail(data, deps)).resolves.toBe(false);
     expect(mocks.sendMail).not.toHaveBeenCalled();
+  });
+});
+
+describe("adminNotificationTemplate", () => {
+  it("escapa HTML vindo de valores de formulários públicos (evita XSS armazenado)", () => {
+    const template = adminNotificationTemplate({
+      titulo: "Nova mensagem recebida pelo site (Contato)",
+      linhas: [
+        { label: "Nome", valor: "<img src=x onerror=alert(1)>" },
+        { label: "Mensagem", valor: "Olá & bem-vindo <script>alert('xss')</script>" },
+      ],
+    });
+
+    expect(template.html).not.toContain("<img src=x onerror=alert(1)>");
+    expect(template.html).not.toContain("<script>alert('xss')</script>");
+    expect(template.html).toContain("&lt;img src=x onerror=alert(1)&gt;");
+    expect(template.html).toContain("&lt;script&gt;alert(&#39;xss&#39;)&lt;/script&gt;");
+    expect(template.html).toContain("Olá &amp; bem-vindo");
+  });
+
+  it("mostra 'Não informado' quando o valor vem vazio", () => {
+    const template = adminNotificationTemplate({
+      titulo: "Teste",
+      linhas: [{ label: "Telefone", valor: "" }],
+    });
+    expect(template.html).toContain("Não informado");
   });
 });
