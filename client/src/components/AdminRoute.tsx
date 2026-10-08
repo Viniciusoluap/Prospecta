@@ -1,11 +1,15 @@
 import { ReactNode, useEffect } from "react";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { useLocation } from "wouter";
-import { AdminModule, parsePermissions } from "../../../shared/admin-permissions";
+import {
+  AdminModule,
+  parsePermissions,
+} from "../../../shared/admin-permissions";
 
 interface AdminRouteProps {
   children: ReactNode;
   module?: AdminModule;
+  modules?: AdminModule[];
   allowStaffHome?: boolean;
 }
 
@@ -14,18 +18,29 @@ interface AdminRouteProps {
  * Requer autenticação E role === 'admin'.
  * Redireciona para login se não autenticado, ou para home se não for admin.
  */
-export function AdminRoute({ children, module, allowStaffHome = false }: AdminRouteProps) {
+export function AdminRoute({
+  children,
+  module,
+  modules,
+  allowStaffHome = false,
+}: AdminRouteProps) {
   // Usa opção redirectOnUnauthenticated para redirecionar automaticamente se não autenticado
   const { user, loading } = useAuth({ redirectOnUnauthenticated: true });
   const [, setLocation] = useLocation();
 
   useEffect(() => {
     const staff = user?.role === "corretor" || user?.role === "colaborador";
-    const allowed = user?.role === "admin" || (staff && (allowStaffHome || (!!module && parsePermissions(user.permissions).includes(module))));
+    const permissions = parsePermissions(user?.permissions);
+    const allowedModules = modules ?? (module ? [module] : []);
+    const allowed =
+      user?.role === "admin" ||
+      (staff &&
+        (allowStaffHome ||
+          allowedModules.some(item => permissions.includes(item))));
     if (!loading && user && !allowed) {
       setLocation(staff ? "/admin/acesso" : "/");
     }
-  }, [allowStaffHome, loading, module, user, setLocation]);
+  }, [allowStaffHome, loading, module, modules, user, setLocation]);
 
   // Mostra loading enquanto verifica autenticação
   if (loading) {
@@ -40,7 +55,13 @@ export function AdminRoute({ children, module, allowStaffHome = false }: AdminRo
   }
 
   const staff = user?.role === "corretor" || user?.role === "colaborador";
-  const allowed = user?.role === "admin" || (staff && (allowStaffHome || (!!module && parsePermissions(user.permissions).includes(module))));
+  const permissions = parsePermissions(user?.permissions);
+  const allowedModules = modules ?? (module ? [module] : []);
+  const allowed =
+    user?.role === "admin" ||
+    (staff &&
+      (allowStaffHome ||
+        allowedModules.some(item => permissions.includes(item))));
   if (!user || !allowed) {
     return null;
   }

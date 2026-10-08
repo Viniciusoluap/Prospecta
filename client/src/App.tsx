@@ -34,16 +34,12 @@ import Notificacoes from "./pages/Notificacoes";
 import ConfiguracoesPagamento from "./pages/admin/ConfiguracoesPagamento";
 import AdminCRM from "./pages/admin/AdminCRM";
 import AdminLeadDetail from "./pages/admin/AdminLeadDetail";
-import AdminFinanceiro from "./pages/admin/AdminFinanceiro";
-import AdminTarefas from "./pages/admin/AdminTarefas";
 import AdminCorretores from "./pages/admin/AdminBrokerDirectory";
-import AdminAgenda from "./pages/admin/AdminAgenda";
+import AdminTarefasAgenda from "./pages/admin/AdminTarefasAgenda";
 import AdminComissoes from "./pages/admin/AdminComissoes";
 import AdminProjetos from "./pages/admin/AdminProjetos";
 import AdminMapa from "./pages/admin/AdminMapa";
 import AdminRegularizacoes from "./pages/admin/AdminRegularizacoes";
-import AdminAgregador from "./pages/admin/AdminAgregador";
-import AdminRelatorios from "./pages/admin/AdminRelatorios";
 import AdminWhatsApp from "./pages/admin/AdminWhatsApp";
 import AdminBpo from "./pages/admin/AdminBpo";
 import AdminObraMedicoes from "./pages/admin/AdminObraMedicoes";
@@ -54,7 +50,7 @@ import AdminAvaliacaoLaudo from "./pages/admin/AdminAvaliacaoLaudo";
 import AdminAvaliacoesLaudosLote from "./pages/admin/AdminAvaliacoesLaudosLote";
 import Imoveis from "./pages/Imoveis";
 import ImovelDetalhes from "./pages/ImovelDetalhes";
-import AdminImoveis from "./pages/admin/AdminImoveis";
+import AdminImoveisHub from "./pages/admin/AdminImoveisHub";
 import AdminImovelForm from "./pages/admin/AdminImovelForm";
 import AdminIncorporacao from "./pages/admin/AdminIncorporacao";
 import AdminIncorporacaoDetail from "./pages/admin/AdminIncorporacaoDetail";
@@ -74,14 +70,23 @@ import WhatsAppFloat from "./components/WhatsAppFloat";
 import Login from "./pages/Login";
 import Portal from "./pages/Portal";
 import { PortalRoute } from "./components/PortalRoute";
+import { GlobalBackButton } from "./components/GlobalBackButton";
 
 function Router() {
   // make sure to consider if you need authentication for certain routes
   return (
     <Switch>
       <Route path="/login" component={Login} />
-      <Route path="/portal/:rest*"><PortalRoute><Portal /></PortalRoute></Route>
-      <Route path="/portal"><PortalRoute><Portal /></PortalRoute></Route>
+      <Route path="/portal/:rest*">
+        <PortalRoute>
+          <Portal />
+        </PortalRoute>
+      </Route>
+      <Route path="/portal">
+        <PortalRoute>
+          <Portal />
+        </PortalRoute>
+      </Route>
       <Route path={"/"} component={Home} />
       <Route path="/sorteios" component={Sorteios} />
       <Route path="/comprar-bilhete/:id" component={ComprarBilhete} />
@@ -95,142 +100,250 @@ function Router() {
       <Route path="/cursos" component={Cursos} />
       <Route path="/instituto" component={Instituto} />
       <Route path="/meus-bilhetes">
-        <ProtectedRoute><MeusBilhetes /></ProtectedRoute>
+        <ProtectedRoute>
+          <MeusBilhetes />
+        </ProtectedRoute>
       </Route>
       <Route path="/meu-saldo">
-        <ProtectedRoute><MeuSaldo /></ProtectedRoute>
+        <ProtectedRoute>
+          <MeuSaldo />
+        </ProtectedRoute>
       </Route>
       <Route path="/perfil">
-        <ProtectedRoute><Perfil /></ProtectedRoute>
+        <ProtectedRoute>
+          <Perfil />
+        </ProtectedRoute>
       </Route>
       <Route path="/admin">
-        <AdminRoute><Admin /></AdminRoute>
+        <AdminRoute>
+          <Admin />
+        </AdminRoute>
       </Route>
       <Route path="/admin/acesso">
-        <AdminRoute allowStaffHome><AdminAcesso /></AdminRoute>
+        <AdminRoute allowStaffHome>
+          <AdminAcesso />
+        </AdminRoute>
       </Route>
       <Route path="/converter-produto/:id">
-        <ProtectedRoute><ConverterProduto /></ProtectedRoute>
+        <ProtectedRoute>
+          <ConverterProduto />
+        </ProtectedRoute>
       </Route>
       <Route path="/como-funciona" component={ComoFunciona} />
       <Route path="/minhas-conversoes">
-        <ProtectedRoute><MinhasConversoes /></ProtectedRoute>
+        <ProtectedRoute>
+          <MinhasConversoes />
+        </ProtectedRoute>
       </Route>
       <Route path="/comprar-utef" component={ComprarUtef} />
       <Route path="/projetos-orcamentos" component={ProjetosOrcamentos} />
       <Route path="/obras">
-        <ProtectedRoute><Obras /></ProtectedRoute>
+        <ProtectedRoute>
+          <Obras />
+        </ProtectedRoute>
       </Route>
       <Route path="/obras/nova">
-        <ProtectedRoute><NovaObra /></ProtectedRoute>
+        <ProtectedRoute>
+          <NovaObra />
+        </ProtectedRoute>
       </Route>
       <Route path="/obras/:id">
-        <ProtectedRoute><ObraDetalhes /></ProtectedRoute>
+        <ProtectedRoute>
+          <ObraDetalhes />
+        </ProtectedRoute>
       </Route>
       <Route path="/admin/obras">
-        <AdminRoute module="obras"><AdminObras /></AdminRoute>
+        <AdminRoute module="obras">
+          <AdminObras />
+        </AdminRoute>
       </Route>
       <Route path="/admin/obras/editar/:id">
-        <AdminRoute module="obras"><AdminEditarObra /></AdminRoute>
+        <AdminRoute module="obras">
+          <AdminEditarObra />
+        </AdminRoute>
       </Route>
       <Route path="/admin/obras/:id/medicoes">
-        <AdminRoute module="obras"><AdminObraMedicoes /></AdminRoute>
+        <AdminRoute module="obras">
+          <AdminObraMedicoes />
+        </AdminRoute>
       </Route>
       <Route path="/admin/orcamentos">
-        <AdminRoute module="projetos"><AdminOrcamentos /></AdminRoute>
+        <AdminRoute module="projetos">
+          <AdminOrcamentos />
+        </AdminRoute>
       </Route>
       <Route path="/admin/dashboard">
-        <AdminRoute module="dashboard"><AdminDashboard /></AdminRoute>
+        <AdminRoute module="dashboard">
+          <AdminDashboard />
+        </AdminRoute>
       </Route>
       <Route path="/admin/emails">
-        <AdminRoute module="dashboard"><AdminEmails /></AdminRoute>
+        <AdminRoute module="dashboard">
+          <AdminEmails />
+        </AdminRoute>
       </Route>
       <Route path="/admin/configuracoes-pagamento">
-        <AdminRoute><ConfiguracoesPagamento /></AdminRoute>
+        <AdminRoute>
+          <ConfiguracoesPagamento />
+        </AdminRoute>
       </Route>
       <Route path="/admin/crm/:id">
-        <AdminRoute module="crm"><AdminLeadDetail /></AdminRoute>
+        <AdminRoute module="crm">
+          <AdminLeadDetail />
+        </AdminRoute>
       </Route>
       <Route path="/admin/crm">
-        <AdminRoute module="crm"><AdminCRM /></AdminRoute>
+        <AdminRoute module="crm">
+          <AdminCRM />
+        </AdminRoute>
       </Route>
       <Route path="/admin/contabilidade">
-        <AdminRoute module="contabilidade"><AdminFinanceiro /></AdminRoute>
+        <AdminRoute modules={["bpo", "contabilidade", "relatorios"]}>
+          <AdminBpo initialTab="contabilidade" />
+        </AdminRoute>
       </Route>
       {/* Compatibilidade temporária para favoritos antigos; não aparece mais na interface. */}
       <Route path="/admin/financeiro">
-        <AdminRoute module="contabilidade"><AdminFinanceiro /></AdminRoute>
+        <AdminRoute modules={["bpo", "contabilidade", "relatorios"]}>
+          <AdminBpo initialTab="contabilidade" />
+        </AdminRoute>
       </Route>
       <Route path="/admin/tarefas">
-        <AdminRoute module="dashboard"><AdminTarefas /></AdminRoute>
+        <AdminRoute modules={["dashboard", "agenda"]}>
+          <AdminTarefasAgenda initialView="tarefas" />
+        </AdminRoute>
       </Route>
       <Route path="/admin/corretores">
-        <AdminRoute module="corretores"><AdminCorretores /></AdminRoute>
+        <AdminRoute module="corretores">
+          <AdminCorretores />
+        </AdminRoute>
       </Route>
-      <Route path="/admin/agenda"><AdminRoute module="agenda"><AdminAgenda /></AdminRoute></Route>
-      <Route path="/admin/comissoes"><AdminRoute module="comissoes"><AdminComissoes /></AdminRoute></Route>
-      <Route path="/admin/projetos"><AdminRoute module="projetos"><AdminProjetos /></AdminRoute></Route>
-      <Route path="/admin/mapa"><AdminRoute module="mapa"><AdminMapa /></AdminRoute></Route>
+      <Route path="/admin/agenda">
+        <AdminRoute modules={["dashboard", "agenda"]}>
+          <AdminTarefasAgenda initialView="agenda" />
+        </AdminRoute>
+      </Route>
+      <Route path="/admin/tarefas-agenda">
+        <AdminRoute modules={["dashboard", "agenda"]}>
+          <AdminTarefasAgenda />
+        </AdminRoute>
+      </Route>
+      <Route path="/admin/comissoes">
+        <AdminRoute module="comissoes">
+          <AdminComissoes />
+        </AdminRoute>
+      </Route>
+      <Route path="/admin/projetos">
+        <AdminRoute module="projetos">
+          <AdminProjetos />
+        </AdminRoute>
+      </Route>
+      <Route path="/admin/mapa">
+        <AdminRoute module="mapa">
+          <AdminMapa />
+        </AdminRoute>
+      </Route>
       <Route path="/admin/whatsapp">
-        <AdminRoute module="whatsapp"><AdminWhatsApp /></AdminRoute>
+        <AdminRoute module="whatsapp">
+          <AdminWhatsApp />
+        </AdminRoute>
       </Route>
       <Route path="/admin/bpo">
-        <AdminRoute module="bpo"><AdminBpo /></AdminRoute>
+        <AdminRoute modules={["bpo", "contabilidade", "relatorios"]}>
+          <AdminBpo />
+        </AdminRoute>
       </Route>
       <Route path="/admin/regularizacoes">
-        <AdminRoute module="regularizacao"><AdminRegularizacoes /></AdminRoute>
+        <AdminRoute module="regularizacao">
+          <AdminRegularizacoes />
+        </AdminRoute>
       </Route>
       <Route path="/admin/agregador">
-        <AdminRoute module="agregador"><AdminAgregador /></AdminRoute>
+        <AdminRoute modules={["imoveis", "agregador"]}>
+          <AdminImoveisHub initialView="captacao" />
+        </AdminRoute>
       </Route>
       <Route path="/admin/relatorios">
-        <AdminRoute module="relatorios"><AdminRelatorios /></AdminRoute>
+        <AdminRoute modules={["bpo", "contabilidade", "relatorios"]}>
+          <AdminBpo initialTab="relatorios" />
+        </AdminRoute>
       </Route>
       <Route path="/admin/avaliacoes/laudos">
-        <AdminRoute module="avaliacoes"><AdminAvaliacoesLaudosLote /></AdminRoute>
+        <AdminRoute module="avaliacoes">
+          <AdminAvaliacoesLaudosLote />
+        </AdminRoute>
       </Route>
       <Route path="/admin/avaliacoes/:id/editar">
-        <AdminRoute module="avaliacoes"><AdminAvaliacaoEditar /></AdminRoute>
+        <AdminRoute module="avaliacoes">
+          <AdminAvaliacaoEditar />
+        </AdminRoute>
       </Route>
       <Route path="/admin/avaliacoes/:id/laudo">
-        <AdminRoute module="avaliacoes"><AdminAvaliacaoLaudo /></AdminRoute>
+        <AdminRoute module="avaliacoes">
+          <AdminAvaliacaoLaudo />
+        </AdminRoute>
       </Route>
       <Route path="/admin/avaliacoes/:id">
-        <AdminRoute module="avaliacoes"><AdminAvaliacaoDetail /></AdminRoute>
+        <AdminRoute module="avaliacoes">
+          <AdminAvaliacaoDetail />
+        </AdminRoute>
       </Route>
       <Route path="/admin/avaliacoes">
-        <AdminRoute module="avaliacoes"><AdminAvaliacoes /></AdminRoute>
+        <AdminRoute module="avaliacoes">
+          <AdminAvaliacoes />
+        </AdminRoute>
       </Route>
       <Route path="/admin/imoveis/novo">
-        <AdminRoute module="imoveis"><AdminImovelForm /></AdminRoute>
+        <AdminRoute module="imoveis">
+          <AdminImovelForm />
+        </AdminRoute>
       </Route>
       <Route path="/admin/imoveis/:id/editar">
-        <AdminRoute module="imoveis"><AdminImovelForm /></AdminRoute>
+        <AdminRoute module="imoveis">
+          <AdminImovelForm />
+        </AdminRoute>
       </Route>
       <Route path="/admin/imoveis">
-        <AdminRoute module="imoveis"><AdminImoveis /></AdminRoute>
+        <AdminRoute modules={["imoveis", "agregador"]}>
+          <AdminImoveisHub />
+        </AdminRoute>
       </Route>
       <Route path="/admin/incorporacao/:id">
-        <AdminRoute module="projetos"><AdminIncorporacaoDetail /></AdminRoute>
+        <AdminRoute module="projetos">
+          <AdminIncorporacaoDetail />
+        </AdminRoute>
       </Route>
       <Route path="/admin/incorporacao">
-        <AdminRoute module="projetos"><AdminIncorporacao /></AdminRoute>
+        <AdminRoute module="projetos">
+          <AdminIncorporacao />
+        </AdminRoute>
       </Route>
       <Route path="/admin/financiamentos">
-        <AdminRoute module="financiamentos"><AdminFinanciamentos /></AdminRoute>
+        <AdminRoute module="financiamentos">
+          <AdminFinanciamentos />
+        </AdminRoute>
       </Route>
       <Route path="/admin/juridico">
-        <AdminRoute module="juridico"><AdminJuridico /></AdminRoute>
+        <AdminRoute module="juridico">
+          <AdminJuridico />
+        </AdminRoute>
       </Route>
       <Route path="/admin/configuracoes">
-        <AdminRoute><AdminConfiguracoes /></AdminRoute>
+        <AdminRoute>
+          <AdminConfiguracoes />
+        </AdminRoute>
       </Route>
       <Route path="/notificacoes">
-        <ProtectedRoute><Notificacoes /></ProtectedRoute>
+        <ProtectedRoute>
+          <Notificacoes />
+        </ProtectedRoute>
       </Route>
       <Route path="/regulamento" component={Regulamento} />
       <Route path="/termos-de-uso" component={TermosDeUso} />
-      <Route path="/politica-de-privacidade" component={PoliticaDePrivacidade} />
+      <Route
+        path="/politica-de-privacidade"
+        component={PoliticaDePrivacidade}
+      />
       <Route path="/faq" component={FAQ} />
       <Route path="/simulador" component={SimuladorFinanciamento} />
       <Route path={"/404"} component={NotFound} />
@@ -255,6 +368,7 @@ function App() {
         <TooltipProvider>
           <Toaster />
           <Router />
+          <GlobalBackButton />
           <WhatsAppFloat />
         </TooltipProvider>
       </ThemeProvider>

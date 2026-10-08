@@ -28,6 +28,7 @@ import { juridicoRouter } from "./juridico-router.js";
 import { agendaRouter, corretoresRouter, comissoesRouter, projetosRouter, mapaRouter } from "./operacional-router.js";
 import { configuracoesRouter } from "./configuracoes-router.js";
 import { relatoriosRouter } from "./relatorios-router.js";
+import { taxRouter } from "./tax-router.js";
 import { createLeadServiceWithAutomation, ensureLeadServicesSchema, leadServicesRouter } from "./lead-services-router.js";
 import { leadServices } from "../drizzle/schema.js";
 import { LEAD_SERVICE_MODULE, LEAD_SERVICE_TYPES } from "../shared/lead-services.js";
@@ -53,6 +54,7 @@ export const appRouter = router({
   mapa: mapaRouter,
   configuracoes: configuracoesRouter,
   relatorios: relatoriosRouter,
+  tax: taxRouter,
   leadServices: leadServicesRouter,
   auth: router({
     me: publicProcedure.query(opts => opts.ctx.user),
@@ -441,6 +443,31 @@ export const appRouter = router({
         // Apenas admin pode criar produtos
         requireRole(ctx, ["admin"]);
         return db.createProduct(input);
+      }),
+
+    uploadImage: protectedProcedure
+      .input(z.object({
+        fileName: z.string().trim().min(1).max(255),
+        mimeType: z.enum(["image/jpeg", "image/png", "image/webp", "image/heic", "image/heif"]),
+        base64: z.string().min(1),
+      }))
+      .mutation(async ({ input, ctx }) => {
+        requireRole(ctx, ["admin"]);
+        const base64Data = input.base64.replace(/^data:image\/[a-zA-Z0-9.+-]+;base64,/, "");
+        const buffer = Buffer.from(base64Data, "base64");
+        if (!buffer.length || buffer.length > 10 * 1024 * 1024) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "A imagem deve ter no máximo 10 MB" });
+        }
+        const extensions: Record<string, string> = {
+          "image/jpeg": "jpg", "image/png": "png", "image/webp": "webp", "image/heic": "heic", "image/heif": "heif",
+        };
+        const { storagePut } = await import("./storage.js");
+        const { url } = await storagePut(
+          `products/${ctx.user.id}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}.${extensions[input.mimeType]}`,
+          buffer,
+          input.mimeType,
+        );
+        return { url };
       }),
 
     convert: protectedProcedure

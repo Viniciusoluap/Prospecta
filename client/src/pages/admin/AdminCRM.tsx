@@ -89,7 +89,9 @@ export default function AdminCRM() {
 
   const backfillServicesMutation = trpc.leadServices.backfillFromTrello.useMutation({
     onSuccess: result => {
-      toast.success(`${result.created} serviço(s) criados; ${result.synchronized} serviço(s) sincronizados; ${result.worksCreated} obra(s) criada(s).`);
+      const summary = `${result.servicesCreated} serviço(s) criado(s), ${result.servicesReclassified} reclassificado(s), ${result.worksCreated} obra(s) criada(s) e ${result.worksRelinked} religada(s).`;
+      if (result.errors.length) toast.warning(`${summary} ${result.errors.length} item(ns) precisam de revisão.`);
+      else toast.success(summary);
       refetch();
     },
     onError: error => toast.error(error.message),
@@ -159,7 +161,7 @@ export default function AdminCRM() {
               size="sm"
               disabled={backfillServicesMutation.isPending}
               onClick={() => {
-                if (window.confirm("Completar os serviços dos leads migrados do Trello? Esta ação não cria clientes e pode ser executada novamente sem duplicar serviços.")) {
+                if (window.confirm("Revisar os serviços migrados do Trello e criar automaticamente os registros de Obras que estiverem faltando? A operação é idempotente e não cria clientes nem duplica obras.")) {
                   backfillServicesMutation.mutate();
                 }
               }}

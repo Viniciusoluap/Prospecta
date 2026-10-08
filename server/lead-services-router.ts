@@ -1,7 +1,7 @@
 import { desc, eq, sql } from "drizzle-orm";
 import { z } from "zod";
 import { constructionProjects, leadServices, leads } from "../drizzle/schema.js";
-import { LEAD_SERVICE_MODULE, LEAD_SERVICE_TYPES, serviceTypeFromTrelloText } from "../shared/lead-services.js";
+import { LEAD_SERVICE_MODULE, LEAD_SERVICE_TYPES, serviceTypeFromTrelloFields } from "../shared/lead-services.js";
 import { adminProcedure, router } from "./_core/trpc.js";
 import { getDb } from "./db.js";
 
@@ -20,7 +20,7 @@ function sourceMetadata(notes: string | null) {
   const value = notes || "";
   const sourceCardUrl = value.match(/https:\/\/trello\.com\/c\/[^\s)]+/i)?.[0];
   const dueAtText = value.match(/\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z/)?.[0];
-  const originList = value.match(/(?:lista(?: de origem)?|origem)\s*:\s*([^\n]+)/i)?.[1]?.trim();
+  const originList = value.match(/(?:lista(?: de origem)?|lista original(?: do trello)?|origem da lista)\s*:\s*([^\n|—]+)/i)?.[1]?.trim();
   return { sourceCardUrl, dueAt: dueAtText ? new Date(dueAtText) : null, originList };
 }
 
@@ -76,18 +76,39 @@ const isWorksService = (serviceType: string) => serviceType === "obra_cliente" |
 /** Cria a obra mínima, sem inventar endereço, valores ou dados financeiros. */
 async function ensureOperationalRecord(service: typeof leadServices.$inferSelect, lead: typeof leads.$inferSelect) {
   const database = getDb();
-  if (!isWorksService(service.serviceType)) return { service, createdWork: false };
+  if (!isWorksService(service.serviceType)) return { service, workState: "not_applicable" as const };
 
   const [existingWork] = await database.select({ id: constructionProjects.id })
     .from(constructionProjects)
     .where(eq(constructionProjects.leadServiceId, service.id))
     .limit(1);
-  const workId = existingWork?.id || service.operationalRecordId;
-  if (workId) {
+  if (existingWork) {
     const [updated] = await database.update(leadServices).set({
-      operationalModule: "obras", operationalRecordId: workId, status: "active", updatedAt: new Date(),
+      operationalModule: "obras", operationalRecordId: existingWork.id, status: "active", updatedAt: new Date(),
     }).where(eq(leadServices.id, service.id)).returning();
-    return { service: updated, createdWork: false };
+    return { service: updated, workState: "already_linked" as const };
+  }
+
+  // Versões anteriores podiam gravar operational_record_id sem ligar a obra
+  // pela FK. Só confiamos no ID se a obra realmente existir e estiver livre.
+  if (service.operationalRecordId) {
+    const [legacyWork] = await database.select({
+      id: constructionProjects.id,
+      leadServiceId: constructionProjects.leadServiceId,
+    }).from(constructionProjects)
+      .where(eq(constructionProjects.id, service.operationalRecordId))
+      .limit(1);
+    if (legacyWork && (!legacyWork.leadServiceId || legacyWork.leadServiceId === service.id)) {
+      await database.update(constructionProjects).set({
+        leadId: lead.id,
+        leadServiceId: service.id,
+        updatedAt: new Date(),
+      }).where(eq(constructionProjects.id, legacyWork.id));
+      const [updated] = await database.update(leadServices).set({
+        operationalModule: "obras", operationalRecordId: legacyWork.id, status: "active", updatedAt: new Date(),
+      }).where(eq(leadServices.id, service.id)).returning();
+      return { service: updated, workState: "relinked" as const };
+    }
   }
 
   const [work] = await database.insert(constructionProjects).values({
@@ -104,7 +125,7 @@ async function ensureOperationalRecord(service: typeof leadServices.$inferSelect
   const [updated] = await database.update(leadServices).set({
     operationalModule: "obras", operationalRecordId: work.id, status: "active", updatedAt: new Date(),
   }).where(eq(leadServices.id, service.id)).returning();
-  return { service: updated, createdWork: true };
+  return { service: updated, workState: "created" as const };
 }
 
 export async function createLeadServiceWithAutomation(input: z.infer<typeof serviceInput>) {
@@ -138,7 +159,9 @@ export const leadServicesRouter = router({
       updatedAt: new Date(),
     }).where(eq(leadServices.id, id)).returning();
     if (!updated) throw new Error("Serviço não encontrado");
-    return updated;
+    const [lead] = await getDb().select().from(leads).where(eq(leads.id, updated.leadId)).limit(1);
+    if (!lead) throw new Error("Lead do serviço não encontrado");
+    return (await ensureOperationalRecord(updated, lead)).service;
   }),
 
   linkProcess: adminProcedure.input(z.object({
@@ -167,10 +190,16 @@ export const leadServicesRouter = router({
   }),
 
   unlinkProcess: adminProcedure.input(z.object({ id: z.number().int().positive() })).mutation(async ({ input }) => {
-    const [updated] = await getDb().update(leadServices).set({
+    const database = getDb();
+    const [service] = await database.select().from(leadServices).where(eq(leadServices.id, input.id)).limit(1);
+    if (!service) throw new Error("Serviço não encontrado");
+    if (service.operationalModule === "obras" && service.operationalRecordId) {
+      await database.update(constructionProjects).set({ leadServiceId: null, updatedAt: new Date() })
+        .where(eq(constructionProjects.id, service.operationalRecordId));
+    }
+    const [updated] = await database.update(leadServices).set({
       operationalRecordId: null, status: "active", updatedAt: new Date(),
     }).where(eq(leadServices.id, input.id)).returning();
-    if (!updated) throw new Error("Serviço não encontrado");
     return updated;
   }),
 
@@ -184,28 +213,66 @@ export const leadServicesRouter = router({
     await ensureLeadServicesSchema();
     const database = getDb();
     const migrated = await database.select().from(leads).where(sql`${leads.notes} like '%trello.com/c/%'`);
-    let created = 0;
-    let synchronized = 0;
+    let servicesCreated = 0;
+    let servicesReclassified = 0;
     let worksCreated = 0;
+    let worksRelinked = 0;
+    let alreadySynchronized = 0;
+    let ignored = 0;
+    const errors: Array<{ leadId: number; message: string }> = [];
     for (const lead of migrated) {
-      const meta = sourceMetadata(lead.notes);
-      if (!meta.sourceCardUrl) continue;
-      const [existing] = await database.select().from(leadServices)
-        .where(eq(leadServices.sourceCardUrl, meta.sourceCardUrl)).limit(1);
-      if (existing) {
-        const result = await ensureOperationalRecord(existing, lead);
-        synchronized++;
-        if (result.createdWork) worksCreated++;
-        continue;
+      try {
+        const meta = sourceMetadata(lead.notes);
+        if (!meta.sourceCardUrl) { ignored++; continue; }
+        const inferredType = serviceTypeFromTrelloFields({
+          title: lead.name,
+          originList: meta.originList,
+          description: lead.notes,
+        });
+        const [existing] = await database.select().from(leadServices)
+          .where(eq(leadServices.sourceCardUrl, meta.sourceCardUrl)).limit(1);
+        let service = existing;
+        if (service) {
+          if (inferredType !== "outro" && service.serviceType !== inferredType) {
+            [service] = await database.update(leadServices).set({
+              serviceType: inferredType,
+              operationalModule: LEAD_SERVICE_MODULE[inferredType],
+              originList: meta.originList || service.originList,
+              updatedAt: new Date(),
+            }).where(eq(leadServices.id, service.id)).returning();
+            servicesReclassified++;
+          }
+        } else {
+          const result = await createLeadServiceWithAutomation({
+            leadId: lead.id, serviceType: inferredType, title: lead.name, originList: meta.originList,
+            sourceCardUrl: meta.sourceCardUrl, dueAt: meta.dueAt, description: lead.notes || "",
+          });
+          service = result.service;
+          servicesCreated++;
+          if (result.workState === "created") worksCreated++;
+          else if (result.workState === "relinked") worksRelinked++;
+          else if (result.workState === "already_linked") alreadySynchronized++;
+          continue;
+        }
+
+        const result = await ensureOperationalRecord(service, lead);
+        if (result.workState === "created") worksCreated++;
+        else if (result.workState === "relinked") worksRelinked++;
+        else if (result.workState === "already_linked") alreadySynchronized++;
+        else ignored++;
+      } catch (error) {
+        errors.push({ leadId: lead.id, message: error instanceof Error ? error.message : "Erro desconhecido" });
       }
-      const serviceType = serviceTypeFromTrelloText(`${lead.name}\n${lead.notes || ""}`);
-      const result = await createLeadServiceWithAutomation({
-        leadId: lead.id, serviceType, title: lead.name, originList: meta.originList,
-        sourceCardUrl: meta.sourceCardUrl, dueAt: meta.dueAt, description: lead.notes || "",
-      });
-      created++;
-      if (result.createdWork) worksCreated++;
     }
-    return { created, synchronized, worksCreated, total: migrated.length };
+    return {
+      servicesCreated,
+      servicesReclassified,
+      worksCreated,
+      worksRelinked,
+      alreadySynchronized,
+      ignored,
+      errors,
+      total: migrated.length,
+    };
   }),
 });

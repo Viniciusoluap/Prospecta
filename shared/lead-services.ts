@@ -48,10 +48,41 @@ export const LEAD_SERVICE_MODULE: Record<LeadServiceType, string> = {
   outro: "",
 };
 
+function normalizeServiceText(value: string) {
+  return value.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
+}
+
+/**
+ * A lista do Trello é a fonte mais confiável para determinar o serviço. O
+ * título e a descrição entram apenas como fallback para registros antigos que
+ * não tiveram a lista preservada.
+ */
+export function serviceTypeFromTrelloFields(input: {
+  title?: string | null;
+  originList?: string | null;
+  description?: string | null;
+}): LeadServiceType {
+  const list = normalizeServiceText(input.originList || "");
+  const fallback = normalizeServiceText(`${input.title || ""}\n${input.description || ""}`);
+
+  if (list.includes("vistoria") || list.includes("medicao")) return "vistoria_medicao";
+  if (list.includes("planejamento semanal de obras") || list === "obras") return "obra_cliente";
+  if (list.includes("projeto")) return "projeto_tecnico";
+  if (list.includes("despachante")) return "despachante";
+  if (list.includes("habitacional") || list.includes("contratos do mes")) return "financiamento_habitacional";
+  if (list.includes("consorcio")) return "consorcio";
+  if (list.includes("juridico")) return "juridico";
+  if (list.includes("contas a pagar")) return "bpo_financeiro";
+  if (fallback.includes("reembolso")) return "reembolso";
+  if (list.includes("assessoria") || list.includes("meta mensal") || list.includes("problemas com resolucao")) return "operacional_interno";
+
+  return serviceTypeFromTrelloText(fallback);
+}
+
 export function serviceTypeFromTrelloText(value: string): LeadServiceType {
-  const normalized = value.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
-  if (normalized.includes("planejamento semanal de obras")) return "obra_cliente";
+  const normalized = normalizeServiceText(value);
   if (normalized.includes("vistoria") || normalized.includes("medicao")) return "vistoria_medicao";
+  if (normalized.includes("planejamento semanal de obras")) return "obra_cliente";
   if (normalized.includes("projetos")) return "projeto_tecnico";
   if (normalized.includes("despachante")) return "despachante";
   if (normalized.includes("habitacional") || normalized.includes("contratos do mes")) return "financiamento_habitacional";

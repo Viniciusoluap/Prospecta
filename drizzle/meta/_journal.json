@@ -155,6 +155,13 @@
       "when": 1791465870048,
       "tag": "0021_epic014_admin_notification_email",
       "breakpoints": true
+    },
+    {
+      "idx": 22,
+      "version": "7",
+      "when": 1791482400000,
+      "tag": "0022_tax_management",
+      "breakpoints": true
     }
   ]
 }

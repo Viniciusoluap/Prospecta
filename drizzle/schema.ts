@@ -725,6 +725,58 @@ export const bpoLancamentos = pgTable("bpo_lancamentos", {
 export type BpoLancamento = typeof bpoLancamentos.$inferSelect;
 export type InsertBpoLancamento = typeof bpoLancamentos.$inferInsert;
 
+// ========== GESTÃO TRIBUTÁRIA ==========
+
+export const taxProfiles = pgTable("tax_profiles", {
+  id: serial("id").primaryKey(),
+  companyName: varchar("company_name", { length: 255 }).notNull(),
+  cnpj: varchar("cnpj", { length: 20 }),
+  regime: varchar("regime", { length: 40 }).notNull(),
+  estimatedRate: decimal("estimated_rate", { precision: 7, scale: 4 }).default("0").notNull(),
+  effectiveFrom: timestamp("effective_from").notNull(),
+  effectiveTo: timestamp("effective_to"),
+  notes: text("notes"),
+  isActive: boolean("is_active").default(true).notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+export type TaxProfile = typeof taxProfiles.$inferSelect;
+export type InsertTaxProfile = typeof taxProfiles.$inferInsert;
+
+export const taxObligations = pgTable("tax_obligations", {
+  id: serial("id").primaryKey(),
+  profileId: integer("profile_id").references(() => taxProfiles.id, { onDelete: "set null" }),
+  name: varchar("name", { length: 255 }).notNull(),
+  competency: varchar("competency", { length: 7 }).notNull(),
+  dueDate: timestamp("due_date").notNull(),
+  estimatedAmount: decimal("estimated_amount", { precision: 15, scale: 2 }).default("0").notNull(),
+  status: varchar("status", { length: 30 }).default("pending").notNull(),
+  paidAt: timestamp("paid_at"),
+  notes: text("notes"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+export type TaxObligation = typeof taxObligations.$inferSelect;
+export type InsertTaxObligation = typeof taxObligations.$inferInsert;
+
+export const retProjects = pgTable("ret_projects", {
+  id: serial("id").primaryKey(),
+  profileId: integer("profile_id").references(() => taxProfiles.id, { onDelete: "set null" }),
+  name: varchar("name", { length: 255 }).notNull(),
+  cnpj: varchar("cnpj", { length: 20 }),
+  registrationNumber: varchar("registration_number", { length: 120 }),
+  affectedAssets: boolean("affected_assets").default(false).notNull(),
+  status: varchar("status", { length: 30 }).default("analysis").notNull(),
+  retRate: decimal("ret_rate", { precision: 7, scale: 4 }).default("4").notNull(),
+  effectiveFrom: timestamp("effective_from"),
+  effectiveTo: timestamp("effective_to"),
+  notes: text("notes"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+export type RetProject = typeof retProjects.$inferSelect;
+export type InsertRetProject = typeof retProjects.$inferInsert;
+
 export const bankAccountTipoEnum = pgEnum("bank_account_tipo", ["corrente", "poupanca", "pagamento", "investimento"]);
 export const bankTransactionTipoEnum = pgEnum("bank_transaction_tipo", ["credito", "debito"]);
 export const bankTransactionStatusEnum = pgEnum("bank_transaction_status", ["pendente", "conciliado", "ignorado"]);

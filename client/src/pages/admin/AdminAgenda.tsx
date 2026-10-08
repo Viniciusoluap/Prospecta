@@ -33,7 +33,9 @@ const blank = () => ({
   responsibleName: "",
   notes: "",
 });
-export default function AdminAgenda() {
+export default function AdminAgenda({
+  embedded = false,
+}: { embedded?: boolean } = {}) {
   const list = trpc.agenda.list.useQuery();
   const options = trpc.agenda.options.useQuery();
   const create = trpc.agenda.create.useMutation();
@@ -61,6 +63,7 @@ export default function AdminAgenda() {
       loading={list.isLoading}
       error={list.error}
       retry={() => void list.refetch()}
+      embedded={embedded}
       onNew={() => {
         setForm(blank());
         setEditing(null);
