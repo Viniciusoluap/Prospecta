@@ -29,7 +29,7 @@ import { juridicoRouter } from "./juridico-router.js";
 import { agendaRouter, corretoresRouter, comissoesRouter, projetosRouter, mapaRouter } from "./operacional-router.js";
 import { configuracoesRouter } from "./configuracoes-router.js";
 import { relatoriosRouter } from "./relatorios-router.js";
-import { createLeadServiceWithAutomation, leadServicesRouter } from "./lead-services-router.js";
+import { createLeadServiceWithAutomation, ensureLeadServicesSchema, leadServicesRouter } from "./lead-services-router.js";
 import { leadServices } from "../drizzle/schema.js";
 import { LEAD_SERVICE_MODULE, LEAD_SERVICE_TYPES } from "../shared/lead-services.js";
 import { calculateUtefBonus, extractLotteryTargetNumber, pickWinningNumber } from "../shared/raffle.js";
@@ -554,12 +554,14 @@ export const appRouter = router({
   construction: router({
     // Listar obras do usuário
     myProjects: protectedProcedure.query(async ({ ctx }) => {
+      await ensureLeadServicesSchema();
       return db.getProjectsByUserId(ctx.user.id);
     }),
 
     // Listar TODAS as obras (apenas admin)
     allProjects: protectedProcedure.query(async ({ ctx }) => {
       requireRole(ctx, ["admin"]);
+      await ensureLeadServicesSchema();
       return db.getAllProjects();
     }),
 
