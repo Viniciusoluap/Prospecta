@@ -153,14 +153,14 @@ export default function Contato() {
                     <div className="flex items-start gap-3 text-gray-300">
                       <MapPin className="h-4 w-4 text-[#C9A961] mt-0.5 shrink-0" />
                       <div>
-                        <p className="font-bold text-sm">Leôncio Pires Dourado, 840A — Bacuri</p>
-                        <p className="text-xs text-gray-500">CEP 65900-000 · Imperatriz-MA</p>
+                        <p className="font-bold text-sm">R. Gonçalves Dias, 1993 — Juçara</p>
+                        <p className="text-xs text-gray-500">CEP 65900-545 · Imperatriz-MA</p>
                       </div>
                     </div>
                     <div className="flex items-start gap-3 text-gray-300">
                       <Clock className="h-4 w-4 text-[#C9A961] mt-0.5 shrink-0" />
                       <div>
-                        <p className="font-bold text-sm">Seg–Sex: 8h às 18h</p>
+                        <p className="font-bold text-sm">Segunda a sexta: 9h às 17h</p>
                       </div>
                     </div>
                   </CardContent>

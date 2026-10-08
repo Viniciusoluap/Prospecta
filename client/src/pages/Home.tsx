@@ -360,14 +360,6 @@ export default function Home() {
                   className="h-12 md:h-16 object-contain"
                 />
               </div>
-              {/* Logo Exclusive Club */}
-              <div className="grayscale hover:grayscale-0 transition-all flex items-center gap-2">
-                <img 
-                  src="https://d2xsxph8kpxj0f.cloudfront.net/310419663028705863/XKiYeWQckm4y8ZFAdaZbRn/exclusive-club-logo_7a4d7eae.png" 
-                  alt="Exclusive Club" 
-                  className="h-12 md:h-16 object-contain"
-                />
-              </div>
             </div>
           </div>
         </section>
@@ -976,8 +968,8 @@ export default function Home() {
               <h3 className="font-bold text-primary mb-4">Endereços</h3>
               <div className="text-white/70 text-sm space-y-3">
                 <p>
-                  📍 Leôncio Pires Dourado, 840A<br />
-                  Bacuri - Imperatriz - MA
+                  📍 R. Gonçalves Dias, 1993 - Juçara<br />
+                  Imperatriz - MA, 65900-545
                 </p>
                 <p>
                   📍 Avenida JK, 103<br />

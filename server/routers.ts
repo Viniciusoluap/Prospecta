@@ -7,7 +7,6 @@ import { notifyOwner } from "./_core/notification.js";
 import { stripe } from "./_core/stripe.js";
 import { createAsaasPayment, getAsaasPixQrCode, createOrUpdateAsaasCustomer } from "./_core/asaas.js";
 import { ENV } from "./_core/env.js";
-import QRCode from "qrcode";
 import * as db from "./db.js";
 import { TRPCError } from "@trpc/server";
 import { validateCPF, cleanCPF } from "../shared/cpf.js";
@@ -37,61 +36,6 @@ import { calculateUtefBonus, extractLotteryTargetNumber, pickWinningNumber } fro
 // Helper para gerar número de bilhete único
 function generateTicketNumber(): string {
   return `TKT${Date.now()}${Math.random().toString(36).substring(2, 9).toUpperCase()}`;
-}
-
-// Helper para gerar código PIX (BR Code)
-function generatePixBRCode(amount: number, pixKey: string, merchantName: string, merchantCity: string, txid: string): string {
-  const amountStr = (amount / 100).toFixed(2);
-  
-  // Formato PIX BR Code simplificado
-  const payload = [
-    { id: '00', value: '01' }, // Payload Format Indicator
-    { id: '26', value: `0014br.gov.bcb.pix01${pixKey.length.toString().padStart(2, '0')}${pixKey}` }, // Merchant Account Information
-    { id: '52', value: '0000' }, // Merchant Category Code
-    { id: '53', value: '986' }, // Transaction Currency (BRL)
-    { id: '54', value: amountStr }, // Transaction Amount
-    { id: '58', value: 'BR' }, // Country Code
-    { id: '59', value: merchantName.substring(0, 25) }, // Merchant Name
-    { id: '60', value: merchantCity.substring(0, 15) }, // Merchant City
-    { id: '62', value: `05${txid.length.toString().padStart(2, '0')}${txid}` }, // Additional Data Field
-  ];
-  
-  let brcode = '';
-  for (const item of payload) {
-    brcode += item.id + item.value.length.toString().padStart(2, '0') + item.value;
-  }
-  
-  // CRC16 simplificado (para produção, usar biblioteca adequada)
-  brcode += '6304';
-  const crc = calculateCRC16(brcode);
-  brcode += crc;
-  
-  return brcode;
-}
-
-// CRC16 CCITT-FALSE para PIX
-function calculateCRC16(str: string): string {
-  let crc = 0xFFFF;
-  for (let i = 0; i < str.length; i++) {
-    crc ^= str.charCodeAt(i) << 8;
-    for (let j = 0; j < 8; j++) {
-      if (crc & 0x8000) {
-        crc = (crc << 1) ^ 0x1021;
-      } else {
-        crc = crc << 1;
-      }
-    }
-  }
-  return (crc & 0xFFFF).toString(16).toUpperCase().padStart(4, '0');
-}
-
-// Helper para gerar PIX completo
-async function generatePixCode(amount: number, ticketNumber: string): Promise<{ pixCopyPaste: string; pixQrCode: string }> {
-  // Código PIX fixo fornecido pelo usuário
-  const pixCopyPaste = '00020101021126490014br.gov.bcb.pix0127contato@grupoefficaz.com.br5204000053039865802BR5925EFFICAZ PROMOCAO DE VENDA6009SAO PAULO622905251KA59P2H5DDDDBZ38HJZQA2GV63043C89';
-  const pixQrCode = await QRCode.toDataURL(pixCopyPaste);
-  
-  return { pixCopyPaste, pixQrCode };
 }
 
 export const appRouter = router({

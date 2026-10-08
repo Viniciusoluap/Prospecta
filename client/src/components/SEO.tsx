@@ -81,7 +81,7 @@ export const organizationSchema = {
   "@context": "https://schema.org",
   "@type": "Organization",
   name: "Prospecta Empreendimentos",
-  legalName: "Prospecta Empreendimentos LTDA",
+  legalName: "Prospecta Construções e Avaliação Imobiliária Ltda",
   url: "https://prospectaconstrucoes.com",
   logo: "https://prospectaconstrucoes.com/logo.png",
   foundingDate: "2020",
@@ -94,10 +94,10 @@ export const organizationSchema = {
   },
   address: {
     "@type": "PostalAddress",
-    streetAddress: "Leôncio Pires Dourado, 840A - Bacuri",
+    streetAddress: "R. Gonçalves Dias, 1993 - Juçara",
     addressLocality: "Imperatriz",
     addressRegion: "MA",
-    postalCode: "65900-000",
+    postalCode: "65900-545",
     addressCountry: "BR"
   },
   sameAs: [
@@ -116,10 +116,10 @@ export const localBusinessSchema = {
   priceRange: "$$",
   address: {
     "@type": "PostalAddress",
-    streetAddress: "Leôncio Pires Dourado, 840A - Bacuri",
+    streetAddress: "R. Gonçalves Dias, 1993 - Juçara",
     addressLocality: "Imperatriz",
     addressRegion: "MA",
-    postalCode: "65900-000",
+    postalCode: "65900-545",
     addressCountry: "BR"
   },
   geo: {
@@ -136,7 +136,7 @@ export const localBusinessSchema = {
       "Thursday",
       "Friday"
     ],
-    opens: "08:00",
-    closes: "18:00"
+    opens: "09:00",
+    closes: "17:00"
   }
 };
