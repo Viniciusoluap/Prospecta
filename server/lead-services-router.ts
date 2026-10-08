@@ -26,10 +26,23 @@ function sourceMetadata(notes: string | null) {
 
 /**
  * A plataforma atual não roda migrations no deploy. Esta inicialização é
- * deliberadamente idempotente e só é alcançável por uma ação administrativa.
- * A migration Drizzle continua sendo a fonte de rastreabilidade do esquema.
+ * deliberadamente idempotente e é reutilizada pelos módulos que dependem
+ * destes vínculos. A migration Drizzle continua sendo a fonte de
+ * rastreabilidade do esquema.
  */
-async function ensureLeadServicesSchema() {
+let schemaInitialization: Promise<void> | undefined;
+
+export async function ensureLeadServicesSchema() {
+  if (!schemaInitialization) {
+    schemaInitialization = initializeLeadServicesSchema().catch(error => {
+      schemaInitialization = undefined;
+      throw error;
+    });
+  }
+  return schemaInitialization;
+}
+
+async function initializeLeadServicesSchema() {
   const database = getDb();
   await database.execute(sql.raw(`
     CREATE TABLE IF NOT EXISTS "lead_services" (
