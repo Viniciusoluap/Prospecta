@@ -92,7 +92,7 @@ export default function Login() {
       }
 
       const destination =
-        data.role === "cliente"
+        data.role === "cliente" || data.role === "user"
           ? "/portal"
           : data.role === "corretor"
             ? "/corretor"

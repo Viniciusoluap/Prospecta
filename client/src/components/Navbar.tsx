@@ -235,7 +235,7 @@ export default function Navbar() {
                           />
                         </>
                       )}
-                      {user?.role === "cliente" && (
+                      {(user?.role === "cliente" || user?.role === "user") && (
                         <AccountLink
                           href="/portal"
                           label="Portal do Cliente"
@@ -346,7 +346,7 @@ export default function Navbar() {
                   </DropdownMenuItem>
                 </>
               )}
-              {user?.role === "cliente" && (
+              {(user?.role === "cliente" || user?.role === "user") && (
                 <DropdownMenuItem asChild>
                   <Link href="/portal">
                     <User className="mr-2 h-4 w-4" />

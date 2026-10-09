@@ -6,6 +6,10 @@ type SessionUser = Pick<User, "id" | "role" | "active" | "leadId">;
 export type ClientContext = { userId: number; leadId: number };
 export type BrokerContext = { userId: number; brokerId: number };
 
+export function isClientRole(role: string): boolean {
+  return role === "cliente" || role === "user";
+}
+
 export function requireClientContext(
   user: SessionUser | null | undefined
 ): ClientContext {
@@ -14,7 +18,7 @@ export function requireClientContext(
       code: "UNAUTHORIZED",
       message: "Faça login como cliente",
     });
-  if (!user.active || user.role !== "cliente") {
+  if (!user.active || !isClientRole(user.role)) {
     throw new TRPCError({
       code: "FORBIDDEN",
       message: "Esta conta não possui perfil de cliente",

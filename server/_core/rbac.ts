@@ -1,11 +1,15 @@
 import { TRPCError } from "@trpc/server";
 
-export type Role = "admin" | "corretor" | "colaborador" | "cliente";
+export type Role = "admin" | "corretor" | "colaborador" | "cliente" | "user";
 
 export const STAFF_ROLES: Role[] = ["admin", "corretor", "colaborador"];
 
 export function hasRole(role: string | undefined, allowed: Role[]): boolean {
-  return !!role && allowed.includes(role as Role);
+  // "user" era o perfil de cliente nas contas antigas. A migração de dados
+  // o converte para "cliente", mas esta compatibilidade evita interrupção de
+  // acesso durante a publicação da versão.
+  const normalizedRole = role === "user" ? "cliente" : role;
+  return !!normalizedRole && allowed.includes(normalizedRole as Role);
 }
 
 export function requireRole(
