@@ -12,6 +12,8 @@ export const LEAD_SERVICE_TYPES = [
   "reembolso",
   "operacional_interno",
   "outro",
+  "comissao",
+  "tarefa_agenda",
 ] as const;
 
 export type LeadServiceType = (typeof LEAD_SERVICE_TYPES)[number];
@@ -22,7 +24,7 @@ export const LEAD_SERVICE_LABELS: Record<LeadServiceType, string> = {
   regularizacao: "Regularização imobiliária",
   financiamento_habitacional: "Financiamento habitacional",
   consorcio: "Consórcio",
-  despachante: "Serviço de despachante",
+  despachante: "Regularizações",
   vistoria_medicao: "Vistoria e medição",
   avaliacao: "Avaliação imobiliária",
   juridico: "Jurídico",
@@ -30,6 +32,8 @@ export const LEAD_SERVICE_LABELS: Record<LeadServiceType, string> = {
   reembolso: "Reembolso",
   operacional_interno: "Operação interna",
   outro: "Outro serviço",
+  comissao: "Comissões",
+  tarefa_agenda: "Tarefas e Agenda",
 };
 
 export const LEAD_SERVICE_MODULE: Record<LeadServiceType, string> = {
@@ -46,6 +50,21 @@ export const LEAD_SERVICE_MODULE: Record<LeadServiceType, string> = {
   reembolso: "bpo_financeiro",
   operacional_interno: "tarefas",
   outro: "",
+  comissao: "comissoes",
+  tarefa_agenda: "tarefas",
+};
+
+/** Opções canônicas de entrada; tipos antigos continuam válidos para leitura. */
+export const LEAD_SERVICE_PRIMARY_TYPES = [
+  "obra_cliente", "tarefa_agenda", "regularizacao", "comissao",
+  "projeto_tecnico", "avaliacao", "financiamento_habitacional",
+] as const satisfies readonly LeadServiceType[];
+
+export const LEAD_SERVICE_MODULE_ROUTES: Record<string, string> = {
+  obras: "/admin/obras", tarefas: "/admin/tarefas-agenda",
+  regularizacoes: "/admin/regularizacoes", comissoes: "/admin/comissoes",
+  projetos: "/admin/projetos", avaliacoes: "/admin/avaliacoes",
+  financiamentos: "/admin/financiamentos",
 };
 
 function normalizeServiceText(value: string) {

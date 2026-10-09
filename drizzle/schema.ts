@@ -9,6 +9,7 @@ import {
   timestamp,
   decimal,
   uniqueIndex,
+  type AnyPgColumn,
 } from "drizzle-orm/pg-core";
 
 // ──────────────────────────────────────────
@@ -693,7 +694,11 @@ export const leads = pgTable("leads", {
   state: varchar("state", { length: 2 }),
   type: leadTypeEnum("type").default("new_lead").notNull(),
   temperature: leadTemperatureEnum("temperature").default("cold").notNull(),
-  stage: leadStageEnum("stage").default("lead_new").notNull(),
+  stage: varchar("stage", { length: 40 }).default("lead_new").notNull(),
+  legacyStage: varchar("legacy_stage", { length: 40 }),
+  stageClassificationPending: boolean("stage_classification_pending").default(false).notNull(),
+  deletedAt: timestamp("deleted_at"),
+  deletedByUserId: integer("deleted_by_user_id").references((): AnyPgColumn => users.id, { onDelete: "set null" }),
   responsible: leadResponsibleEnum("responsible").default("sarah").notNull(),
   income: decimal("income", { precision: 15, scale: 2 }),
   incomeType: leadIncomeTypeEnum("income_type"),
@@ -736,6 +741,7 @@ export const leadServices = pgTable(
       .notNull(),
     originList: varchar("origin_list", { length: 255 }),
     sourceCardUrl: text("source_card_url"),
+    idempotencyKey: varchar("idempotency_key", { length: 120 }),
     dueAt: timestamp("due_at"),
     description: text("description").default("").notNull(),
     operationalModule: varchar("operational_module", { length: 80 }),
@@ -747,6 +753,7 @@ export const leadServices = pgTable(
     sourceCardUrlUnique: uniqueIndex("lead_services_source_card_url_unique").on(
       table.sourceCardUrl
     ),
+    idempotencyKeyUnique: uniqueIndex("lead_services_idempotency_key_unique").on(table.idempotencyKey),
   })
 );
 
@@ -814,9 +821,17 @@ export type InsertLeadActivity = typeof leadActivities.$inferInsert;
 export const leadDocuments = pgTable("lead_documents", {
   id: serial("id").primaryKey(),
   leadId: integer("lead_id").notNull(),
+  serviceId: integer("service_id").references(() => leadServices.id, { onDelete: "set null" }),
   type: leadDocTypeEnum("type").notNull(),
   fileName: varchar("file_name", { length: 255 }),
   fileUrl: text("file_url"),
+  driveFileId: text("drive_file_id"),
+  mimeType: varchar("mime_type", { length: 120 }),
+  fileSize: integer("file_size"),
+  sha256: varchar("sha256", { length: 64 }),
+  uploadedByUserId: integer("uploaded_by_user_id").references(() => users.id, { onDelete: "set null" }),
+  deletedByUserId: integer("deleted_by_user_id").references(() => users.id, { onDelete: "set null" }),
+  deletedAt: timestamp("deleted_at"),
   status: leadDocStatusEnum("status").default("pending").notNull(),
   notes: text("notes"),
   uploadedAt: timestamp("uploaded_at"),

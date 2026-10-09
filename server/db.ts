@@ -1,4 +1,4 @@
-import { eq, and, desc, sql, like } from "drizzle-orm";
+import { eq, and, desc, sql, like, isNull } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/neon-http";
 import { neon } from "@neondatabase/serverless";
 
@@ -18,7 +18,7 @@ import {
   projectBudgetRequests, ProjectBudgetRequest, InsertProjectBudgetRequest,
   emailLogs, EmailLog,
   userNotifications, UserNotification, InsertUserNotification,
-  leads, Lead, InsertLead,
+  leads, Lead, InsertLead, leadServices,
   leadActivities, LeadActivity, InsertLeadActivity,
   leadDocuments, LeadDocument, InsertLeadDocument,
   leadFollowUps, LeadFollowUp, InsertLeadFollowUp,
@@ -697,10 +697,12 @@ export async function getAllLeads(filters?: {
   responsible?: string;
   temperature?: string;
   city?: string;
+  includeDeleted?: boolean;
 }): Promise<Lead[]> {
   const db = getDb();
   let query = db.select().from(leads).$dynamic();
   const conditions = [];
+  if (!filters?.includeDeleted) conditions.push(isNull(leads.deletedAt));
   if (filters?.stage) conditions.push(eq(leads.stage, filters.stage as any));
   if (filters?.responsible) conditions.push(eq(leads.responsible, filters.responsible as any));
   if (filters?.temperature) conditions.push(eq(leads.temperature, filters.temperature as any));
@@ -717,7 +719,7 @@ export async function getLeadById(id: number): Promise<Lead | undefined> {
 
 export async function getLeadOptions(): Promise<{ id: number; name: string }[]> {
   const db = getDb();
-  return db.select({ id: leads.id, name: leads.name }).from(leads).orderBy(leads.name);
+  return db.select({ id: leads.id, name: leads.name }).from(leads).where(isNull(leads.deletedAt)).orderBy(leads.name);
 }
 
 export async function createLead(data: InsertLead): Promise<Lead> {
@@ -729,6 +731,68 @@ export async function createLead(data: InsertLead): Promise<Lead> {
 export async function updateLead(id: number, data: Partial<InsertLead>): Promise<void> {
   const db = getDb();
   await db.update(leads).set({ ...data, updatedAt: new Date() }).where(eq(leads.id, id));
+}
+
+export async function updateLeadPipelineStage(id: number, stage: string, actorId: number): Promise<boolean> {
+  const db = getDb();
+  const result = await db.execute(sql`
+    WITH previous AS (
+      SELECT id, stage AS old_stage FROM leads
+      WHERE id = ${id} AND deleted_at IS NULL AND (stage <> ${stage} OR stage_classification_pending)
+      FOR UPDATE
+    ), changed AS (
+      UPDATE leads AS lead
+      SET stage = ${stage}, stage_classification_pending = false, updated_at = now()
+      FROM previous WHERE lead.id = previous.id
+      RETURNING lead.id, previous.old_stage
+    ), audit AS (
+      INSERT INTO lead_activities (lead_id, type, description, performed_by, metadata)
+      SELECT id, 'status_change'::lead_activity_type,
+             'Estágio alterado de "' || old_stage || '" para "' || ${stage} || '"', ${String(actorId)},
+             ${JSON.stringify({ operation: "pipeline_stage_change", stage })}
+      FROM changed RETURNING id
+    )
+    SELECT count(*)::integer AS count FROM audit
+  `);
+  return Number(result.rows[0]?.count ?? 0) === 1;
+}
+
+export async function getLeadDeletionContext(id: number) {
+  const db = getDb();
+  const [services, accounts, projects] = await Promise.all([
+    db.select({ count: sql<number>`count(*)` }).from(leadServices).where(eq(leadServices.leadId, id)),
+    db.select({ count: sql<number>`count(*)` }).from(users).where(eq(users.leadId, id)),
+    db.select({ count: sql<number>`count(*)` }).from(constructionProjects).where(eq(constructionProjects.leadId, id)),
+  ]);
+  return { services: Number(services[0]?.count || 0), accounts: Number(accounts[0]?.count || 0), projects: Number(projects[0]?.count || 0) };
+}
+
+/** One SQL statement makes the state change and audit entry atomic. */
+export function leadDeletionStatement(id: number, actorId: number, deleted: boolean) {
+  return sql`
+    WITH changed AS (
+      UPDATE leads
+      SET deleted_at = ${deleted ? new Date() : null},
+          deleted_by_user_id = ${deleted ? actorId : null},
+          updated_at = now()
+      WHERE id = ${id} AND ${deleted ? sql`deleted_at IS NULL` : sql`deleted_at IS NOT NULL`}
+      RETURNING id
+    ), audit AS (
+      INSERT INTO lead_activities (lead_id, type, description, performed_by, metadata)
+      SELECT id, 'note'::lead_activity_type,
+             ${deleted ? "Lead excluído logicamente pelo administrador" : "Lead recuperado pelo administrador"},
+             ${String(actorId)},
+             ${JSON.stringify({ operation: deleted ? "soft_delete" : "restore", actorId })}
+      FROM changed
+      RETURNING id
+    )
+    SELECT count(*)::integer AS count FROM audit
+  `;
+}
+
+export async function setLeadDeleted(id: number, actorId: number, deleted: boolean): Promise<boolean> {
+  const updated = await getDb().execute(leadDeletionStatement(id, actorId, deleted));
+  return Number(updated.rows[0]?.count ?? 0) === 1;
 }
 
 export async function getLeadActivities(leadId: number): Promise<LeadActivity[]> {
@@ -781,10 +845,10 @@ export async function updateFollowUp(id: number, data: Partial<InsertLeadFollowU
 export async function getLeadStats() {
   const db = getDb();
   const [total, hot, approved, rejected] = await Promise.all([
-    db.select({ count: sql<number>`count(*)` }).from(leads),
-    db.select({ count: sql<number>`count(*)` }).from(leads).where(eq(leads.temperature, "hot")),
-    db.select({ count: sql<number>`count(*)` }).from(leads).where(eq(leads.stage, "approved")),
-    db.select({ count: sql<number>`count(*)` }).from(leads).where(eq(leads.stage, "rejected")),
+    db.select({ count: sql<number>`count(*)` }).from(leads).where(isNull(leads.deletedAt)),
+    db.select({ count: sql<number>`count(*)` }).from(leads).where(and(isNull(leads.deletedAt), eq(leads.temperature, "hot"))),
+    db.select({ count: sql<number>`count(*)` }).from(leads).where(and(isNull(leads.deletedAt), eq(leads.stage, "approved_projects"))),
+    db.select({ count: sql<number>`count(*)` }).from(leads).where(and(isNull(leads.deletedAt), eq(leads.stage, "rejected"))),
   ]);
   return {
     total: total[0]?.count || 0,
@@ -808,6 +872,16 @@ export async function createTask(data: InsertTask): Promise<Task> {
   const db = getDb();
   const result = await db.insert(tasks).values(data).returning();
   return result[0];
+}
+
+export async function getTaskById(id: number): Promise<Task | undefined> {
+  const db = getDb();
+  return (await db.select().from(tasks).where(eq(tasks.id, id)).limit(1))[0];
+}
+
+export async function deleteTask(id: number): Promise<void> {
+  const db = getDb();
+  await db.delete(tasks).where(eq(tasks.id, id));
 }
 
 export async function updateTask(id: number, data: Partial<InsertTask>): Promise<void> {

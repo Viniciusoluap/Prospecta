@@ -21,6 +21,7 @@ import {
 } from "../shared/operacional.js";
 import { adminProcedure, router } from "./_core/trpc.js";
 import { getDb } from "./db.js";
+import { attachCompletedProcess } from "./lead-services-router.js";
 
 const idInput = z.object({ id: z.number().int().positive() });
 function found<T>(row: T | undefined): T {
@@ -408,11 +409,13 @@ export const projetosRouter = router({
     ),
   create: adminProcedure.input(projectInput).mutation(async ({ input }) => {
     await leadExists(input.leadId);
-    return found(
+    const created = found(
       (
         await getDb().insert(projects).values(projectValues(input)).returning()
       )[0]
     );
+    await attachCompletedProcess("projetos", created.leadId, created.id);
+    return created;
   }),
   update: adminProcedure
     .input(z.object({ id: z.number().int().positive(), data: projectInput }))

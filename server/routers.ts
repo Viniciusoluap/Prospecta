@@ -68,6 +68,8 @@ import {
   pickWinningNumber,
 } from "../shared/raffle.js";
 import { brokerPortalRouter } from "./broker-portal-router.js";
+import { LEAD_PIPELINE_KEYS } from "../shared/lead-pipeline.js";
+import { leadDocumentsRouter } from "./lead-documents-router.js";
 
 // Helper para gerar número de bilhete único
 function generateTicketNumber(): string {
@@ -91,6 +93,7 @@ export const appRouter = router({
   relatorios: relatoriosRouter,
   tax: taxRouter,
   leadServices: leadServicesRouter,
+  leadDocuments: leadDocumentsRouter,
   brokerPortal: brokerPortalRouter,
   auth: router({
     me: publicProcedure.query(opts => opts.ctx.user),
@@ -666,6 +669,34 @@ export const appRouter = router({
 
   // ========== CONSTRUCTION (OBRAS) ==========
   construction: router({
+    leadOptions: adminProcedure.query(() => db.getLeadOptions()),
+    createAdminProject: adminProcedure
+      .input(z.object({
+        title: z.string().trim().min(2).max(255),
+        leadId: z.number().int().positive().optional(),
+        address: z.string().trim().optional(),
+        projectType: z.string().trim().optional(),
+        totalArea: z.number().positive().optional(),
+        startDate: z.date().optional(),
+        estimatedEndDate: z.date().optional(),
+        notes: z.string().trim().optional(),
+      }))
+      .mutation(async ({ input }) => {
+        if (input.leadId && !(await db.getLeadById(input.leadId))) {
+          throw new TRPCError({ code: "NOT_FOUND", message: "Lead não encontrado" });
+        }
+        if (input.startDate && input.estimatedEndDate && input.estimatedEndDate < input.startDate) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "O término previsto antecede o início" });
+        }
+        // Um cadastro administrativo pode ser iniciado sem conta de portal.
+        // O vínculo CRM é feito pelo identificador existente, sem duplicar clientes.
+        return db.createProject({
+          ...input,
+          userId: null,
+          status: "planning",
+          progress: 0,
+        });
+      }),
     // Listar obras do usuário
     myProjects: protectedProcedure.query(async ({ ctx }) => {
       await ensureLeadServicesSchema();
@@ -1242,6 +1273,33 @@ export const appRouter = router({
 
   // ========== CRM — LEADS ==========
   leads: router({
+    deletionContext: protectedProcedure
+      .input(z.object({ id: z.number().int().positive() }))
+      .query(async ({ input, ctx }) => {
+        requireRole(ctx, ["admin"]);
+        const lead = await db.getLeadById(input.id);
+        if (!lead) throw new TRPCError({ code: "NOT_FOUND" });
+        return db.getLeadDeletionContext(input.id);
+      }),
+
+    softDelete: protectedProcedure
+      .input(z.object({ id: z.number().int().positive() }))
+      .mutation(async ({ input, ctx }) => {
+        requireRole(ctx, ["admin"]);
+        const changed = await db.setLeadDeleted(input.id, ctx.user.id, true);
+        if (!changed) throw new TRPCError({ code: "CONFLICT", message: "Lead inexistente ou já excluído" });
+        return { success: true };
+      }),
+
+    restore: protectedProcedure
+      .input(z.object({ id: z.number().int().positive() }))
+      .mutation(async ({ input, ctx }) => {
+        requireRole(ctx, ["admin"]);
+        const changed = await db.setLeadDeleted(input.id, ctx.user.id, false);
+        if (!changed) throw new TRPCError({ code: "CONFLICT", message: "Lead inexistente ou ativo" });
+        return { success: true };
+      }),
+
     list: protectedProcedure
       .input(
         z
@@ -1250,6 +1308,7 @@ export const appRouter = router({
             responsible: z.string().optional(),
             temperature: z.string().optional(),
             city: z.string().optional(),
+            includeDeleted: z.boolean().optional(),
           })
           .optional()
       )
@@ -1397,7 +1456,7 @@ export const appRouter = router({
           email: z.string().optional(),
           city: z.string().optional(),
           state: z.string().optional(),
-          stage: z.string().optional(),
+          stage: z.enum(LEAD_PIPELINE_KEYS).optional(),
           temperature: z.enum(["cold", "warm", "hot"]).optional(),
           responsible: z.enum(["sarah", "vinicius", "bianca"]).optional(),
           cpfStatus: z.enum(["clean", "restricted", "unknown"]).optional(),
@@ -1428,10 +1487,10 @@ export const appRouter = router({
         const { id, stage, ...data } = input;
         const lead = await db.getLeadById(id);
         if (!lead) throw new TRPCError({ code: "NOT_FOUND" });
+        if (lead.deletedAt) throw new TRPCError({ code: "CONFLICT", message: "Recupere o lead antes de editá-lo" });
         // Convert number fields to string for decimal columns
         const dbData: any = {
           ...data,
-          stage: stage as any,
           income:
             data.income !== undefined ? data.income.toString() : undefined,
           simulationValue:
@@ -1456,14 +1515,8 @@ export const appRouter = router({
             : undefined,
         };
         await db.updateLead(id, dbData);
-        if (stage && stage !== lead.stage) {
-          await db.addLeadActivity({
-            leadId: id,
-            type: "status_change",
-            description: `Estágio alterado de "${lead.stage}" para "${stage}"`,
-            performedBy: "vinicius",
-          });
-        }
+        if (stage && (stage !== lead.stage || lead.stageClassificationPending))
+          await db.updateLeadPipelineStage(id, stage, ctx.user.id);
         return { success: true };
       }),
 
@@ -1512,18 +1565,22 @@ export const appRouter = router({
           ]),
           fileName: z.string().optional(),
           fileUrl: z.string().optional(),
-          status: z
-            .enum(["pending", "received", "approved", "rejected"])
-            .optional(),
+          status: z.enum(["pending", "received", "approved", "rejected"]).optional(),
           notes: z.string().optional(),
         })
       )
       .mutation(async ({ input, ctx }) => {
         requireRole(ctx, ["admin"]);
+        if (input.fileName || input.fileUrl || (input.status && input.status !== "pending")) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "Use o envio autenticado ao Google Drive para registrar arquivos" });
+        }
+        const lead = await db.getLeadById(input.leadId);
+        if (!lead) throw new TRPCError({ code: "NOT_FOUND" });
         await db.addLeadDocument({
-          ...input,
-          status: input.status || "received",
-          uploadedAt: new Date(),
+          leadId: input.leadId,
+          type: input.type,
+          notes: input.notes,
+          status: "pending",
         });
         return { success: true };
       }),
@@ -1565,7 +1622,8 @@ export const appRouter = router({
       )
       .query(async ({ input, ctx }) => {
         requireRole(ctx, ["admin"]);
-        return db.getAllTasks(input?.assignedTo);
+        const rows = await db.getAllTasks(input?.assignedTo);
+        return input?.status ? rows.filter(task => task.status === input.status) : rows;
       }),
 
     create: protectedProcedure
@@ -1573,23 +1631,34 @@ export const appRouter = router({
         z.object({
           title: z.string().min(2),
           description: z.string().optional(),
-          assignedTo: z.string(),
+          assignedTo: z.string().trim().min(1).max(100),
           relatedType: z
             .enum(["lead", "obra", "budget", "financial", "general"])
             .optional(),
           relatedId: z.number().optional(),
           priority: z.enum(["low", "medium", "high", "critical"]).optional(),
+          status: z.enum(["pending", "in_progress", "done", "cancelled"]).optional(),
           slaHours: z.number().optional(),
           dueAt: z.union([z.string(), z.date()]).optional(),
         })
       )
       .mutation(async ({ input, ctx }) => {
         requireRole(ctx, ["admin"]);
+        if (input.relatedType !== "general" && Boolean(input.relatedType) !== Boolean(input.relatedId)) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "Selecione um vínculo completo" });
+        }
+        if (input.relatedType === "lead" && !(await db.getLeadById(input.relatedId!))) {
+          throw new TRPCError({ code: "NOT_FOUND", message: "Lead não encontrado" });
+        }
+        if (input.relatedType === "obra" && !(await db.getProjectById(input.relatedId!))) {
+          throw new TRPCError({ code: "NOT_FOUND", message: "Obra não encontrada" });
+        }
         return db.createTask({
           ...input,
           dueAt: input.dueAt ? new Date(input.dueAt) : undefined,
           priority: input.priority || "medium",
-          status: "pending",
+          status: input.status || "pending",
+          completedAt: input.status === "done" ? new Date() : undefined,
         } as any);
       }),
 
@@ -1597,22 +1666,37 @@ export const appRouter = router({
       .input(
         z.object({
           id: z.number(),
+          title: z.string().trim().min(2).max(255).optional(),
+          description: z.string().optional(),
+          assignedTo: z.string().trim().min(1).optional(),
           status: z
             .enum(["pending", "in_progress", "done", "cancelled"])
             .optional(),
           priority: z.enum(["low", "medium", "high", "critical"]).optional(),
           escalatedToVinicius: z.number().optional(),
-          dueAt: z.string().optional(),
+          dueAt: z.string().nullable().optional(),
         })
       )
       .mutation(async ({ input, ctx }) => {
         requireRole(ctx, ["admin"]);
         const { id, ...data } = input;
+        if (!(await db.getTaskById(id))) {
+          throw new TRPCError({ code: "NOT_FOUND", message: "Tarefa não encontrada" });
+        }
         await db.updateTask(id, {
           ...data,
-          dueAt: data.dueAt ? new Date(data.dueAt) : undefined,
-          completedAt: data.status === "done" ? new Date() : undefined,
+          dueAt: data.dueAt === null ? null : data.dueAt ? new Date(data.dueAt) : undefined,
+          completedAt: data.status === "done" ? new Date() : data.status ? null : undefined,
         } as any);
+        return { success: true };
+      }),
+    delete: adminProcedure
+      .input(z.object({ id: z.number().int().positive() }))
+      .mutation(async ({ input }) => {
+        if (!(await db.getTaskById(input.id))) {
+          throw new TRPCError({ code: "NOT_FOUND", message: "Tarefa não encontrada" });
+        }
+        await db.deleteTask(input.id);
         return { success: true };
       }),
   }),
