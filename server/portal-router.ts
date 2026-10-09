@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { TRPCError } from "@trpc/server";
-import { and, asc, desc, eq, gt, ne, notInArray, sql } from "drizzle-orm";
+import { and, asc, desc, eq, gt, ne, notInArray, or, sql } from "drizzle-orm";
 import { z } from "zod";
 import {
   imoveis,
@@ -22,7 +22,7 @@ import { requireRole } from "./_core/rbac.js";
 import { adminProcedure, protectedProcedure, router } from "./_core/trpc.js";
 import { getDb } from "./db.js";
 import { storagePut } from "./storage.js";
-import { requireClientContext } from "./profile-context.js";
+import { isClientRole, requireClientContext } from "./profile-context.js";
 
 const visitStatus = z.enum([
   "agendada",
@@ -41,7 +41,9 @@ const documentType = z.enum(["contrato_gerado", "assinado", "anexo"]);
 export function clientLeadId(ctx: {
   user: { role: string; leadId: number | null };
 }): number {
-  requireRole(ctx, ["cliente"]);
+  if (!isClientRole(ctx.user.role)) {
+    throw new TRPCError({ code: "FORBIDDEN", message: "Acesso negado" });
+  }
   if (!ctx.user.leadId) {
     throw new TRPCError({
       code: "PRECONDITION_FAILED",
@@ -85,7 +87,7 @@ export function assertProvisionable(
 ): void {
   if (
     existing &&
-    (existing.role !== "cliente" ||
+    (!isClientRole(existing.role) ||
       (existing.leadId && existing.leadId !== leadId))
   ) {
     throw new TRPCError({
@@ -97,13 +99,18 @@ export function assertProvisionable(
 
 export const portalRouter = router({
   navigation: protectedProcedure.query(async ({ ctx }) => {
-    const { leadId } = requireClientContext(ctx.user);
+    const { leadId, userId } = requireClientContext(ctx.user);
     const db = getDb();
     const [[works], [activeFinancing]] = await Promise.all([
       db
         .select({ count: sql<number>`count(*)::int` })
         .from(constructionProjects)
-        .where(eq(constructionProjects.leadId, leadId)),
+        .where(
+          or(
+            eq(constructionProjects.leadId, leadId),
+            eq(constructionProjects.userId, userId)
+          )
+        ),
       db
         .select({ count: sql<number>`count(*)::int` })
         .from(financiamentos)
@@ -122,7 +129,7 @@ export const portalRouter = router({
   }),
 
   works: protectedProcedure.query(async ({ ctx }) => {
-    const { leadId } = requireClientContext(ctx.user);
+    const { leadId, userId } = requireClientContext(ctx.user);
     return getDb()
       .select({
         id: constructionProjects.id,
@@ -139,14 +146,19 @@ export const portalRouter = router({
         updatedAt: constructionProjects.updatedAt,
       })
       .from(constructionProjects)
-      .where(eq(constructionProjects.leadId, leadId))
+      .where(
+        or(
+          eq(constructionProjects.leadId, leadId),
+          eq(constructionProjects.userId, userId)
+        )
+      )
       .orderBy(desc(constructionProjects.updatedAt));
   }),
 
   work: protectedProcedure
     .input(z.object({ projectId: z.number().int().positive() }))
     .query(async ({ ctx, input }) => {
-      const { leadId } = requireClientContext(ctx.user);
+      const { leadId, userId } = requireClientContext(ctx.user);
       const db = getDb();
       const [project] = await db
         .select({
@@ -167,7 +179,10 @@ export const portalRouter = router({
         .where(
           and(
             eq(constructionProjects.id, input.projectId),
-            eq(constructionProjects.leadId, leadId)
+            or(
+              eq(constructionProjects.leadId, leadId),
+              eq(constructionProjects.userId, userId)
+            )
           )
         )
         .limit(1);
@@ -206,7 +221,7 @@ export const portalRouter = router({
     }),
 
   financings: protectedProcedure.query(async ({ ctx }) => {
-    const { leadId } = requireClientContext(ctx.user);
+    const { leadId, userId } = requireClientContext(ctx.user);
     return getDb()
       .select({
         id: financiamentos.id,
@@ -366,7 +381,7 @@ export const portalRouter = router({
     }),
 
   dashboard: protectedProcedure.query(async ({ ctx }) => {
-    const { leadId } = requireClientContext(ctx.user);
+    const { leadId, userId } = requireClientContext(ctx.user);
     const db = getDb();
     const [lead] = await db
       .select()
@@ -389,7 +404,12 @@ export const portalRouter = router({
     const [project] = await db
       .select()
       .from(constructionProjects)
-      .where(eq(constructionProjects.leadId, leadId))
+      .where(
+        or(
+          eq(constructionProjects.leadId, leadId),
+          eq(constructionProjects.userId, userId)
+        )
+      )
       .orderBy(desc(constructionProjects.updatedAt))
       .limit(1);
     return {
