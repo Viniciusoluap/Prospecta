@@ -10,6 +10,16 @@ ALTER TABLE "imoveis"
   ADD COLUMN IF NOT EXISTS "created_by_user_id" integer,
   ADD COLUMN IF NOT EXISTS "review_status" varchar(30) DEFAULT 'approved' NOT NULL;
 
+-- Preserva o acesso dos usuários da versão anterior e relaciona obras
+-- antigas ao mesmo lead da conta quando o vínculo for inequívoco.
+UPDATE "users" SET "role" = 'cliente' WHERE "role" = 'user';
+UPDATE "construction_projects" AS project
+SET "lead_id" = "users"."lead_id"
+FROM "users"
+WHERE project."lead_id" IS NULL
+  AND project."user_id" = "users"."id"
+  AND "users"."lead_id" IS NOT NULL;
+
 DO $$ BEGIN
   ALTER TABLE "imoveis"
     ADD CONSTRAINT "imoveis_created_by_user_id_users_id_fk"
