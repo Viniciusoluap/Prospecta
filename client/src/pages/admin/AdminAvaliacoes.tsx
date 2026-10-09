@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { Link } from "wouter";
 import { trpc } from "@/lib/trpc";
+import { LinkedServiceQueue } from "./LinkedServiceQueue";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -278,6 +279,7 @@ export default function AdminAvaliacoes() {
       </div>
 
       <div className="max-w-7xl mx-auto px-6 py-6 space-y-6">
+        <LinkedServiceQueue module="avaliacoes" title="Avaliações" />
         {/* Indicadores */}
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
           <Card className="bg-[#2C3E50] border-[#C9A961]/20">
@@ -377,6 +379,7 @@ export default function AdminAvaliacoes() {
                         </div>
                       </div>
                     </Link>
+                    {a.leadId && <Link href={`/admin/crm/${a.leadId}`} className="text-sm text-[#E6CA88] underline">CRM</Link>}
                   </div>
                 </CardHeader>
               </Card>

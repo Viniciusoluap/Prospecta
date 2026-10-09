@@ -4,6 +4,7 @@ import { ArrowLeft, CalendarDays, CheckSquare } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import AdminAgenda from "./AdminAgenda";
 import AdminTarefas from "./AdminTarefas";
+import { LinkedServiceQueue } from "./LinkedServiceQueue";
 
 type View = "tarefas" | "agenda";
 
@@ -42,6 +43,7 @@ export default function AdminTarefasAgenda({
         </div>
       </header>
       <div className="mx-auto max-w-7xl space-y-6 px-6 py-6">
+        <LinkedServiceQueue module="tarefas" title="Tarefas e Agenda" />
         <div className="flex gap-2">
           <button
             className={tabClass("tarefas")}

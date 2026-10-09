@@ -1,286 +1,80 @@
 import { useAuth } from "@/_core/hooks/useAuth";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { trpc } from "@/lib/trpc";
 import { ArrowLeft, HardHat, Loader2 } from "lucide-react";
-import { useState } from "react";
-import { useLocation } from "wouter";
-import { getLoginUrl } from "@/const";
+import { useState, type FormEvent } from "react";
+import { Link, useLocation } from "wouter";
 import { toast } from "sonner";
 
 export default function NovaObra() {
-  const { user, loading: authLoading, isAuthenticated } = useAuth();
-  const [, setLocation] = useLocation();
-  const [isSubmitting, setIsSubmitting] = useState(false);
-
-  const createMutation = trpc.construction.createProject.useMutation({
-    onSuccess: (data) => {
-      toast.success("Obra cadastrada com sucesso!");
-      setLocation(`/obras/${data.id}`);
+  const { user, loading } = useAuth();
+  const [, navigate] = useLocation();
+  const [leadId, setLeadId] = useState("none");
+  const { data: leads = [] } = trpc.construction.leadOptions.useQuery(undefined, {
+    enabled: !loading && user?.role === "admin",
+  });
+  const create = trpc.construction.createAdminProject.useMutation({
+    onSuccess: project => {
+      toast.success("Obra cadastrada com sucesso");
+      navigate(`/admin/obras/editar/${project.id}`);
     },
-    onError: (error) => {
-      toast.error(`Erro ao cadastrar obra: ${error.message}`);
-      setIsSubmitting(false);
-    },
+    onError: error => toast.error(error.message),
   });
 
-  // Redirect para login se não autenticado
-  if (!authLoading && !isAuthenticated) {
-    window.location.href = getLoginUrl();
-    return null;
+  function submit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const form = new FormData(event.currentTarget);
+    const value = (key: string) => String(form.get(key) || "").trim();
+    const startDate = value("startDate");
+    const estimatedEndDate = value("estimatedEndDate");
+    const totalArea = value("totalArea");
+    create.mutate({
+      title: value("title"),
+      leadId: leadId === "none" ? undefined : Number(leadId),
+      address: value("address") || undefined,
+      projectType: value("projectType") || undefined,
+      totalArea: totalArea ? Number(totalArea) : undefined,
+      startDate: startDate ? new Date(`${startDate}T12:00:00`) : undefined,
+      estimatedEndDate: estimatedEndDate ? new Date(`${estimatedEndDate}T12:00:00`) : undefined,
+      notes: value("notes") || undefined,
+    });
   }
-
-  if (authLoading) {
-    return (
-      <div className="min-h-screen bg-gradient-to-b from-[#1A2332] to-[#0F1419] flex items-center justify-center">
-        <div className="text-center">
-          <HardHat className="h-12 w-12 text-[#C9A961] animate-pulse mx-auto mb-4" />
-          <p className="text-white">Carregando...</p>
-        </div>
-      </div>
-    );
-  }
-
-  const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
-    e.preventDefault();
-    setIsSubmitting(true);
-
-    const formData = new FormData(e.currentTarget);
-    const address = formData.get("address") as string;
-    const city = formData.get("city") as string;
-    const state = formData.get("state") as string;
-    const fullAddress = `${address}, ${city} - ${state}`;
-
-    const data = {
-      title: formData.get("name") as string,
-      description: formData.get("description") as string || undefined,
-      address: fullAddress,
-      status: formData.get("status") as "planning" | "in_progress" | "paused" | "completed" | "cancelled",
-      estimatedCost: formData.get("totalBudget") ? parseFloat(formData.get("totalBudget") as string) : undefined,
-      startDate: formData.get("startDate") ? new Date(formData.get("startDate") as string) : undefined,
-      estimatedEndDate: formData.get("estimatedEndDate") ? new Date(formData.get("estimatedEndDate") as string) : undefined,
-    };
-
-    createMutation.mutate(data);
-  };
 
   return (
-    <div className="min-h-screen bg-gradient-to-b from-[#1A2332] to-[#0F1419]">
-      {/* Header */}
-      <div className="bg-[#1A2332] border-b border-[#C9A961]/20">
-        <div className="container mx-auto px-4 py-8">
-          <Button
-            variant="ghost"
-            className="text-[#C9A961] hover:text-[#B89851] hover:bg-[#C9A961]/10 mb-4"
-            onClick={() => setLocation("/obras")}
-          >
-            <ArrowLeft className="mr-2 h-4 w-4" />
-            Voltar para Minhas Obras
-          </Button>
-
-          <h1 className="text-3xl font-bold text-[#C9A961] flex items-center gap-3">
-            <HardHat className="h-8 w-8" />
-            Cadastrar Nova Obra
-          </h1>
-          <p className="text-gray-400 mt-2">
-            Preencha as informações da sua nova construção
-          </p>
+    <div className="min-h-screen bg-[#1A2332] text-white">
+      <header className="border-b border-[#C9A961]/30 p-6">
+        <div className="container">
+          <Link href="/admin/obras"><Button variant="ghost" className="text-gray-200 hover:text-white"><ArrowLeft className="mr-2 h-4 w-4" />Voltar para Obras</Button></Link>
+          <h1 className="mt-4 flex items-center gap-3 text-3xl font-bold text-[#C9A961]"><HardHat /> Nova Obra</h1>
         </div>
-      </div>
-
-      {/* Formulário */}
-      <div className="container mx-auto px-4 py-8">
-        <Card className="bg-[#1A2332]/50 border-[#C9A961]/20 backdrop-blur-sm">
-          <CardHeader>
-            <CardTitle className="text-[#C9A961]">Informações da Obra</CardTitle>
-            <CardDescription className="text-gray-400">
-              Preencha todos os campos obrigatórios
-            </CardDescription>
-          </CardHeader>
+      </header>
+      <main className="container max-w-3xl py-8">
+        <Card className="border-[#C9A961]/30 bg-[#223246] text-white">
+          <CardHeader><CardTitle className="text-[#C9A961]">Informações da Obra</CardTitle></CardHeader>
           <CardContent>
-            <form onSubmit={handleSubmit} className="space-y-6">
-              {/* Nome da Obra */}
-              <div className="space-y-2">
-                <Label htmlFor="name" className="text-white">
-                  Nome da Obra *
-                </Label>
-                <Input
-                  id="name"
-                  name="name"
-                  required
-                  placeholder="Ex: Casa Residencial - Rua das Flores"
-                  className="bg-[#0F1419] border-[#C9A961]/30 text-white"
-                />
+            <form onSubmit={submit} className="space-y-5">
+              <div className="space-y-2"><Label htmlFor="title">Título *</Label><Input id="title" name="title" minLength={2} maxLength={255} required className="bg-[#111B29] text-white placeholder:text-gray-400" /></div>
+              <div className="space-y-2"><Label htmlFor="lead">Cliente no CRM</Label>
+                <Select value={leadId} onValueChange={setLeadId}><SelectTrigger id="lead" className="bg-[#111B29] text-white"><SelectValue placeholder="Selecione um cliente" /></SelectTrigger><SelectContent><SelectItem value="none">Sem vínculo por enquanto</SelectItem>{leads.map(lead => <SelectItem key={lead.id} value={String(lead.id)}>{lead.name} (#{lead.id})</SelectItem>)}</SelectContent></Select>
               </div>
-
-              {/* Descrição */}
-              <div className="space-y-2">
-                <Label htmlFor="description" className="text-white">
-                  Descrição
-                </Label>
-                <Textarea
-                  id="description"
-                  name="description"
-                  placeholder="Descreva os detalhes da obra..."
-                  rows={4}
-                  className="bg-[#0F1419] border-[#C9A961]/30 text-white"
-                />
+              <div className="space-y-2"><Label htmlFor="address">Endereço</Label><Input id="address" name="address" className="bg-[#111B29] text-white placeholder:text-gray-400" /></div>
+              <div className="grid gap-4 sm:grid-cols-2">
+                <div className="space-y-2"><Label htmlFor="projectType">Tipo de projeto</Label><Input id="projectType" name="projectType" className="bg-[#111B29] text-white placeholder:text-gray-400" /></div>
+                <div className="space-y-2"><Label htmlFor="totalArea">Área total (m²)</Label><Input id="totalArea" name="totalArea" type="number" min="0.01" step="0.01" className="bg-[#111B29] text-white" /></div>
+                <div className="space-y-2"><Label htmlFor="startDate">Data de início</Label><Input id="startDate" name="startDate" type="date" className="bg-[#111B29] text-white" /></div>
+                <div className="space-y-2"><Label htmlFor="estimatedEndDate">Previsão de término</Label><Input id="estimatedEndDate" name="estimatedEndDate" type="date" className="bg-[#111B29] text-white" /></div>
               </div>
-
-              {/* Endereço */}
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div className="space-y-2 md:col-span-2">
-                  <Label htmlFor="address" className="text-white">
-                    Endereço *
-                  </Label>
-                  <Input
-                    id="address"
-                    name="address"
-                    required
-                    placeholder="Rua, número, complemento"
-                    className="bg-[#0F1419] border-[#C9A961]/30 text-white"
-                  />
-                </div>
-
-                <div className="space-y-2">
-                  <Label htmlFor="city" className="text-white">
-                    Cidade *
-                  </Label>
-                  <Input
-                    id="city"
-                    name="city"
-                    required
-                    placeholder="Ex: Imperatriz"
-                    className="bg-[#0F1419] border-[#C9A961]/30 text-white"
-                  />
-                </div>
-
-                <div className="space-y-2">
-                  <Label htmlFor="state" className="text-white">
-                    Estado *
-                  </Label>
-                  <Input
-                    id="state"
-                    name="state"
-                    required
-                    placeholder="Ex: MA"
-                    maxLength={2}
-                    className="bg-[#0F1419] border-[#C9A961]/30 text-white"
-                  />
-                </div>
-
-                <div className="space-y-2">
-                  <Label htmlFor="zipCode" className="text-white">
-                    CEP
-                  </Label>
-                  <Input
-                    id="zipCode"
-                    name="zipCode"
-                    placeholder="00000-000"
-                    className="bg-[#0F1419] border-[#C9A961]/30 text-white"
-                  />
-                </div>
-
-                <div className="space-y-2">
-                  <Label htmlFor="status" className="text-white">
-                    Status *
-                  </Label>
-                  <Select name="status" defaultValue="planning" required>
-                    <SelectTrigger className="bg-[#0F1419] border-[#C9A961]/30 text-white">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="planning">Planejamento</SelectItem>
-                      <SelectItem value="in_progress">Em Andamento</SelectItem>
-                      <SelectItem value="paused">Pausada</SelectItem>
-                      <SelectItem value="completed">Concluída</SelectItem>
-                      <SelectItem value="cancelled">Cancelada</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-              </div>
-
-              {/* Orçamento e Datas */}
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                <div className="space-y-2">
-                  <Label htmlFor="totalBudget" className="text-white">
-                    Orçamento Total (R$)
-                  </Label>
-                  <Input
-                    id="totalBudget"
-                    name="totalBudget"
-                    type="number"
-                    step="0.01"
-                    placeholder="0.00"
-                    className="bg-[#0F1419] border-[#C9A961]/30 text-white"
-                  />
-                </div>
-
-                <div className="space-y-2">
-                  <Label htmlFor="startDate" className="text-white">
-                    Data de Início
-                  </Label>
-                  <Input
-                    id="startDate"
-                    name="startDate"
-                    type="date"
-                    className="bg-[#0F1419] border-[#C9A961]/30 text-white"
-                  />
-                </div>
-
-                <div className="space-y-2">
-                  <Label htmlFor="estimatedEndDate" className="text-white">
-                    Previsão de Término
-                  </Label>
-                  <Input
-                    id="estimatedEndDate"
-                    name="estimatedEndDate"
-                    type="date"
-                    className="bg-[#0F1419] border-[#C9A961]/30 text-white"
-                  />
-                </div>
-              </div>
-
-              {/* Botões */}
-              <div className="flex gap-4 pt-4">
-                <Button
-                  type="button"
-                  variant="outline"
-                  className="flex-1 border-[#C9A961]/30 text-white hover:bg-[#C9A961]/10"
-                  onClick={() => setLocation("/obras")}
-                  disabled={isSubmitting}
-                >
-                  Cancelar
-                </Button>
-                <Button
-                  type="submit"
-                  className="flex-1 bg-[#C9A961] hover:bg-[#B89851] text-[#1A2332] font-semibold"
-                  disabled={isSubmitting}
-                >
-                  {isSubmitting ? (
-                    <>
-                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                      Cadastrando...
-                    </>
-                  ) : (
-                    "Cadastrar Obra"
-                  )}
-                </Button>
-              </div>
+              <div className="space-y-2"><Label htmlFor="notes">Observações</Label><Textarea id="notes" name="notes" className="bg-[#111B29] text-white placeholder:text-gray-400" /></div>
+              <div className="flex flex-wrap gap-3"><Button type="submit" disabled={create.isPending || loading || user?.role !== "admin"} className="bg-[#C9A961] text-[#1A2332] hover:bg-[#E1BF78]">{create.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}Cadastrar Obra</Button><Link href="/admin/obras"><Button type="button" variant="outline" className="text-white">Cancelar</Button></Link></div>
             </form>
           </CardContent>
         </Card>
-      </div>
+      </main>
     </div>
   );
 }

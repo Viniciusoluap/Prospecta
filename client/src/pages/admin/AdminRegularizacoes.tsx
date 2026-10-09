@@ -11,6 +11,7 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { trpc } from "@/lib/trpc";
+import { LinkedServiceQueue } from "./LinkedServiceQueue";
 
 const STATUSES = ["analysis", "documentation", "protocol", "registry", "completed", "cancelled"] as const;
 type Status = (typeof STATUSES)[number];
@@ -148,6 +149,7 @@ export default function AdminRegularizacoes() {
       </header>
 
       <main className="mx-auto max-w-7xl space-y-6 px-6 py-6">
+        <LinkedServiceQueue module="regularizacoes" title="Regularizações" />
         <div className="grid gap-4 sm:grid-cols-3">
           <Metric label="Processos ativos" value={String(totals.active)} />
           <Metric label="Concluídos" value={String(totals.completed)} />
@@ -169,11 +171,14 @@ export default function AdminRegularizacoes() {
               {listQuery.isLoading && <p className="text-gray-400">Carregando...</p>}
               {!listQuery.isLoading && !records.length && <p className="text-gray-400">Nenhum processo encontrado.</p>}
               {records.map(record => (
+                <div key={record.id}>
                 <button key={record.id} onClick={() => setSelectedId(record.id)} className={`w-full rounded-md border p-3 text-left ${selectedId === record.id ? "border-[#C9A961]" : "border-white/10"}`}>
                   <div className="flex items-start justify-between gap-2"><strong>{record.clientName}</strong><Badge variant="secondary">{STATUS_LABELS[record.status as Status] ?? record.status}</Badge></div>
                   <p className="mt-1 text-sm text-gray-400">{record.type} · {record.responsible}</p>
                   <p className="text-sm text-[#C9A961]">{currency(record.serviceValue)}</p>
                 </button>
+                {record.leadId && <Link href={`/admin/crm/${record.leadId}`} className="inline-block py-1 text-sm text-[#E6CA88] underline">Abrir cadastro CRM</Link>}
+                </div>
               ))}
             </CardContent>
           </Card>

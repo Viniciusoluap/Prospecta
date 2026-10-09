@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { Link, useParams } from "wouter";
+import { Link, useLocation, useParams } from "wouter";
 import { trpc } from "@/lib/trpc";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -13,64 +13,16 @@ import { Separator } from "@/components/ui/separator";
 import { toast } from "sonner";
 import {
   ArrowLeft, User, Phone, Mail, MapPin, Flame, Snowflake, Thermometer,
-  FileText, MessageSquare, ChevronRight, CheckCircle2, XCircle, Clock,
-  Building2, DollarSign, Calculator, AlertCircle, Plus, Edit
+  FileText, MessageSquare, ChevronRight, Clock,
+  Building2, DollarSign, Calculator, AlertCircle, Plus, Edit, Trash2, RotateCcw
 } from "lucide-react";
 import { AdminPortalLeadPanel } from "@/components/admin/AdminPortalLeadPanel";
-import { LEAD_SERVICE_LABELS, LEAD_SERVICE_TYPES, type LeadServiceType } from "../../../../shared/lead-services";
+import { LeadDocuments } from "@/components/LeadDocuments";
+import { LEAD_SERVICE_LABELS, LEAD_SERVICE_MODULE_ROUTES, LEAD_SERVICE_PRIMARY_TYPES, type LeadServiceType } from "../../../../shared/lead-services";
+import { LEAD_PIPELINE_STAGES, LEGACY_STAGE_LABELS } from "../../../../shared/lead-pipeline";
 
-const STAGES = [
-  { key: "lead_new", label: "Lead Novo" },
-  { key: "attending", label: "Em Atendimento" },
-  { key: "waiting_docs", label: "Aguardando Docs" },
-  { key: "analysis", label: "Em Análise" },
-  { key: "caixa_register", label: "Cadastro Caixa" },
-  { key: "approval", label: "Em Aprovação" },
-  { key: "approved", label: "Aprovado" },
-  { key: "rejected", label: "Reprovado" },
-  { key: "followup", label: "Follow-up" },
-  { key: "in_process", label: "Cliente em Processo" },
-  { key: "done", label: "Concluído" },
-];
-
-const STAGE_COLORS: Record<string, string> = {
-  lead_new: "bg-gray-500",
-  attending: "bg-blue-500",
-  waiting_docs: "bg-yellow-500",
-  analysis: "bg-orange-500",
-  caixa_register: "bg-purple-500",
-  approval: "bg-indigo-500",
-  approved: "bg-green-500",
-  rejected: "bg-red-500",
-  followup: "bg-pink-500",
-  in_process: "bg-teal-500",
-  done: "bg-gray-400",
-};
-
-const DOC_TYPES = [
-  { key: "rg", label: "RG / CNH" },
-  { key: "cnh", label: "CNH (frente e verso)" },
-  { key: "address_proof", label: "Comprovante de Endereço" },
-  { key: "income_proof", label: "Comprovante de Renda" },
-  { key: "fgts", label: "Extrato FGTS" },
-  { key: "irpf", label: "Declaração IRPF" },
-  { key: "spouse_docs", label: "Docs Cônjuge / 2° Titular" },
-  { key: "other", label: "Outros" },
-];
-
-const DOC_STATUS_COLORS: Record<string, string> = {
-  pending: "text-gray-400",
-  received: "text-yellow-400",
-  approved: "text-green-400",
-  rejected: "text-red-400",
-};
-
-const DOC_STATUS_ICONS: Record<string, React.ReactNode> = {
-  pending: <Clock className="h-4 w-4" />,
-  received: <FileText className="h-4 w-4" />,
-  approved: <CheckCircle2 className="h-4 w-4" />,
-  rejected: <XCircle className="h-4 w-4" />,
-};
+const STAGES = LEAD_PIPELINE_STAGES;
+const STAGE_COLORS: Record<string, string> = Object.fromEntries(STAGES.map(stage => [stage.key, stage.color]));
 
 const ACTIVITY_ICONS: Record<string, React.ReactNode> = {
   message: <MessageSquare className="h-4 w-4" />,
@@ -97,14 +49,14 @@ function formatDate(dateStr: string | Date | null | undefined) {
 }
 
 export default function AdminLeadDetail() {
+  const [, navigate] = useLocation();
   const params = useParams<{ id: string }>();
   const leadId = parseInt(params.id || "0");
 
   const [addActivityOpen, setAddActivityOpen] = useState(false);
-  const [addDocOpen, setAddDocOpen] = useState(false);
   const [editOpen, setEditOpen] = useState(false);
+  const [deleteOpen, setDeleteOpen] = useState(false);
   const [activityForm, setActivityForm] = useState({ type: "note", description: "" });
-  const [docForm, setDocForm] = useState({ type: "rg", fileName: "", notes: "" });
   const [editForm, setEditForm] = useState<Record<string, any>>({});
   const [serviceType, setServiceType] = useState<LeadServiceType>("obra_cliente");
 
@@ -112,6 +64,16 @@ export default function AdminLeadDetail() {
     enabled: !!leadId,
   });
   const { data: services = [], refetch: refetchServices } = trpc.leadServices.listByLead.useQuery({ leadId }, { enabled: !!leadId });
+  const { data: deletionContext } = trpc.leads.deletionContext.useQuery({ id: leadId }, { enabled: deleteOpen && !!leadId });
+
+  const deleteMutation = trpc.leads.softDelete.useMutation({
+    onSuccess: () => { toast.success("Lead excluído com possibilidade de recuperação."); navigate("/admin/crm"); },
+    onError: error => toast.error(error.message),
+  });
+  const restoreMutation = trpc.leads.restore.useMutation({
+    onSuccess: () => { toast.success("Lead recuperado."); refetch(); },
+    onError: error => toast.error(error.message),
+  });
 
   useEffect(() => {
     if (lead && Object.keys(editForm).length === 0) {
@@ -132,22 +94,12 @@ export default function AdminLeadDetail() {
   }, [lead]);
 
   const updateMutation = trpc.leads.update.useMutation({
-    onSuccess: () => { toast.success("Lead atualizado!"); refetch(); setEditOpen(false); },
+    onSuccess: () => { toast.success("Lead atualizado!"); setEditForm({}); refetch(); setEditOpen(false); },
     onError: (e) => toast.error(e.message),
   });
 
   const addActivityMutation = trpc.leads.addActivity.useMutation({
     onSuccess: () => { toast.success("Atividade registrada!"); refetch(); setAddActivityOpen(false); setActivityForm({ type: "note", description: "" }); },
-    onError: (e) => toast.error(e.message),
-  });
-
-  const addDocMutation = trpc.leads.addDocument.useMutation({
-    onSuccess: () => { toast.success("Documento registrado!"); refetch(); setAddDocOpen(false); setDocForm({ type: "rg", fileName: "", notes: "" }); },
-    onError: (e) => toast.error(e.message),
-  });
-
-  const updateDocMutation = trpc.leads.updateDocument.useMutation({
-    onSuccess: () => { toast.success("Documento atualizado!"); refetch(); },
     onError: (e) => toast.error(e.message),
   });
 
@@ -162,7 +114,7 @@ export default function AdminLeadDetail() {
   const handleAdvanceStage = () => {
     if (!lead) return;
     const currentIdx = STAGES.findIndex(s => s.key === lead.stage);
-    if (currentIdx < STAGES.length - 1) {
+    if (currentIdx >= 0 && currentIdx < STAGES.length - 1) {
       const nextStage = STAGES[currentIdx + 1].key;
       updateMutation.mutate({ id: leadId, stage: nextStage as any });
     }
@@ -185,7 +137,7 @@ export default function AdminLeadDetail() {
   }
 
   const currentStageIdx = STAGES.findIndex(s => s.key === lead.stage);
-  const canAdvance = currentStageIdx < STAGES.length - 1;
+  const canAdvance = !lead.deletedAt && currentStageIdx >= 0 && currentStageIdx < STAGES.length - 1;
 
   return (
     <div className="min-h-screen bg-[#1A2332] text-white">
@@ -202,13 +154,28 @@ export default function AdminLeadDetail() {
               <h1 className="text-2xl font-bold text-[#C9A961]">{lead.name}</h1>
               <div className="flex items-center gap-3 mt-1">
                 <Badge className={`${STAGE_COLORS[lead.stage] || "bg-gray-500"} text-white text-xs`}>
-                  {STAGES.find(s => s.key === lead.stage)?.label || lead.stage}
+                  {STAGES.find(s => s.key === lead.stage)?.label || LEGACY_STAGE_LABELS[lead.stage] || lead.stage}
                 </Badge>
                 <span className="text-gray-400 text-sm">Lead #{lead.id}</span>
+                {lead.stageClassificationPending && <Badge className="bg-amber-700 text-white">Classificação pendente: {LEGACY_STAGE_LABELS[lead.legacyStage || lead.stage] || lead.stage}</Badge>}
+                {lead.deletedAt && <Badge className="bg-red-700 text-white">Excluído</Badge>}
               </div>
             </div>
           </div>
           <div className="flex gap-2">
+            {lead.deletedAt ? (
+              <Button onClick={() => restoreMutation.mutate({ id: leadId })} disabled={restoreMutation.isPending} variant="outline" className="text-white border-white/40"><RotateCcw className="h-4 w-4 mr-2" />Recuperar lead</Button>
+            ) : (
+              <Dialog open={deleteOpen} onOpenChange={setDeleteOpen}>
+                <DialogTrigger asChild><Button variant="outline" className="text-red-300 border-red-500/40"><Trash2 className="h-4 w-4 mr-2" />Excluir lead</Button></DialogTrigger>
+                <DialogContent className="bg-[#1A2332] text-white border-[#C9A961]/30">
+                  <DialogHeader><DialogTitle>Confirmar exclusão de {lead.name}?</DialogTitle></DialogHeader>
+                  <p className="text-sm text-gray-300">O lead sairá do CRM. Serviços, contas e obras vinculados serão preservados; um administrador poderá recuperar o cadastro.</p>
+                  {deletionContext && <p className="text-sm text-amber-300">Vínculos encontrados: {deletionContext.services} serviços, {deletionContext.accounts} contas, {deletionContext.projects} obras.</p>}
+                  <Button disabled={!deletionContext || deleteMutation.isPending} onClick={() => deleteMutation.mutate({ id: leadId })} className="bg-red-700 hover:bg-red-800 text-white">Confirmar exclusão</Button>
+                </DialogContent>
+              </Dialog>
+            )}
             {canAdvance && (
               <Button
                 onClick={handleAdvanceStage}
@@ -219,7 +186,7 @@ export default function AdminLeadDetail() {
                 Avançar Etapa
               </Button>
             )}
-            <Dialog open={editOpen} onOpenChange={setEditOpen}>
+            {!lead.deletedAt && <Dialog open={editOpen} onOpenChange={setEditOpen}>
               <DialogTrigger asChild>
                 <Button variant="outline" className="border-[#C9A961]/30 text-[#C9A961] hover:bg-[#2C3E50]">
                   <Edit className="h-4 w-4 mr-2" />
@@ -280,9 +247,9 @@ export default function AdminLeadDetail() {
                     </div>
                     <div>
                       <Label className="text-gray-300">Estágio</Label>
-                      <Select value={editForm.stage} onValueChange={v => setEditForm(f => ({ ...f, stage: v }))}>
+                      <Select value={STAGES.some(s => s.key === editForm.stage) ? editForm.stage : undefined} onValueChange={v => setEditForm(f => ({ ...f, stage: v }))}>
                         <SelectTrigger className="bg-[#2C3E50] border-[#C9A961]/30 text-white mt-1">
-                          <SelectValue />
+                          <SelectValue placeholder={lead.stageClassificationPending ? "Classificar etapa comercial" : "Selecione"} />
                         </SelectTrigger>
                         <SelectContent>
                           {STAGES.map(s => <SelectItem key={s.key} value={s.key}>{s.label}</SelectItem>)}
@@ -303,7 +270,7 @@ export default function AdminLeadDetail() {
                     <Textarea value={editForm.adminNotes || ""} onChange={e => setEditForm(f => ({ ...f, adminNotes: e.target.value }))} className="bg-[#2C3E50] border-[#C9A961]/30 text-white mt-1" rows={3} />
                   </div>
                   <Button
-                    onClick={() => updateMutation.mutate({ id: leadId, ...editForm, income: editForm.income ? parseFloat(editForm.income) : undefined, simulationValue: editForm.simulationValue ? parseFloat(editForm.simulationValue) : undefined, approvedValue: editForm.approvedValue ? parseFloat(editForm.approvedValue) : undefined })}
+                    onClick={() => updateMutation.mutate({ id: leadId, ...editForm, stage: STAGES.some(s => s.key === editForm.stage) ? editForm.stage : undefined, income: editForm.income ? parseFloat(editForm.income) : undefined, simulationValue: editForm.simulationValue ? parseFloat(editForm.simulationValue) : undefined, approvedValue: editForm.approvedValue ? parseFloat(editForm.approvedValue) : undefined })}
                     disabled={updateMutation.isPending}
                     className="w-full bg-[#C9A961] hover:bg-[#B8985A] text-[#1A2332] font-bold"
                   >
@@ -311,7 +278,7 @@ export default function AdminLeadDetail() {
                   </Button>
                 </div>
               </DialogContent>
-            </Dialog>
+            </Dialog>}
           </div>
         </div>
       </div>
@@ -323,7 +290,8 @@ export default function AdminLeadDetail() {
             {STAGES.map((stage, idx) => (
               <div key={stage.key} className="flex items-center gap-1">
                 <button
-                  onClick={() => updateMutation.mutate({ id: leadId, stage: stage.key as any })}
+                  onClick={() => !lead.deletedAt && updateMutation.mutate({ id: leadId, stage: stage.key })}
+                  disabled={!!lead.deletedAt}
                   className={`px-3 py-1 rounded-full text-xs font-medium transition-all ${
                     idx <= currentStageIdx
                       ? `${STAGE_COLORS[stage.key]} text-white`
@@ -440,7 +408,7 @@ export default function AdminLeadDetail() {
                 <Select value={serviceType} onValueChange={value => setServiceType(value as LeadServiceType)}>
                   <SelectTrigger className="w-48 h-8 bg-[#1A2332] border-white/20 text-white text-xs"><SelectValue /></SelectTrigger>
                   <SelectContent>
-                    {LEAD_SERVICE_TYPES.filter(type => type !== "operacional_interno").map(type => <SelectItem key={type} value={type}>{LEAD_SERVICE_LABELS[type]}</SelectItem>)}
+                    {LEAD_SERVICE_PRIMARY_TYPES.map(type => <SelectItem key={type} value={type}>{LEAD_SERVICE_LABELS[type]}</SelectItem>)}
                   </SelectContent>
                 </Select>
                 <Button size="sm" onClick={() => createServiceMutation.mutate({ leadId, serviceType })} disabled={createServiceMutation.isPending} className="bg-[#C9A961] text-black hover:bg-[#B8985A]">
@@ -457,9 +425,10 @@ export default function AdminLeadDetail() {
                     <div key={service.id} className="rounded-lg border border-white/10 bg-[#1A2332] px-3 py-2 flex items-center justify-between gap-3">
                       <div>
                         <p className="text-sm font-medium text-white">{LEAD_SERVICE_LABELS[service.serviceType as LeadServiceType] || service.serviceType}</p>
-                        <p className="text-xs text-gray-400">{service.operationalRecordId ? `Processo criado em ${service.operationalModule}` : `Serviço ativo · destino: ${service.operationalModule || "CRM"}`}</p>
+                        <p className="text-xs text-gray-300">{service.operationalRecordId ? `Processo vinculado em ${service.operationalModule}` : `Aguardando configuração em ${service.operationalModule || "CRM"}`}</p>
                       </div>
                       <div className="flex items-center gap-2">
+                        {service.operationalModule && LEAD_SERVICE_MODULE_ROUTES[service.operationalModule] && <Link href={LEAD_SERVICE_MODULE_ROUTES[service.operationalModule]} className="rounded border border-[#C9A961]/50 px-2 py-1 text-xs text-[#E6CA88]">Abrir módulo</Link>}
                         <Badge className={service.status === "completed" ? "bg-green-700" : service.status === "cancelled" ? "bg-red-700" : "bg-teal-600"}>{service.status === "completed" ? "Concluído" : service.status === "cancelled" ? "Cancelado" : "Em andamento"}</Badge>
                         {service.status !== "completed" && <Button size="sm" variant="outline" className="h-7 border-green-600/50 text-green-300" onClick={() => updateServiceStatusMutation.mutate({ id: service.id, status: "completed" })}>Concluir</Button>}
                         {service.operationalRecordId && <Button size="sm" variant="outline" className="h-7" onClick={() => { if (window.confirm("Desvincular o processo operacional deste serviço? A obra não será excluída.")) unlinkServiceMutation.mutate({ id: service.id }); }}>Desvincular</Button>}
@@ -471,87 +440,10 @@ export default function AdminLeadDetail() {
               )}
             </CardContent>
           </Card>
-          {/* Document Checklist */}
+          {/* Documentos privados vinculados ao cadastro do cliente */}
           <Card className="bg-[#2C3E50] border-[#C9A961]/20">
-            <CardHeader className="pb-3 flex flex-row items-center justify-between">
-              <CardTitle className="text-[#C9A961] text-sm flex items-center gap-2">
-                <FileText className="h-4 w-4" /> Documentos
-              </CardTitle>
-              <Dialog open={addDocOpen} onOpenChange={setAddDocOpen}>
-                <DialogTrigger asChild>
-                  <Button size="sm" variant="outline" className="border-[#C9A961]/30 text-[#C9A961] hover:bg-[#1A2332] h-7">
-                    <Plus className="h-3 w-3 mr-1" /> Adicionar
-                  </Button>
-                </DialogTrigger>
-                <DialogContent className="bg-[#1A2332] border-[#C9A961]/20 text-white">
-                  <DialogHeader>
-                    <DialogTitle className="text-[#C9A961]">Registrar Documento</DialogTitle>
-                  </DialogHeader>
-                  <div className="space-y-4 mt-4">
-                    <div>
-                      <Label className="text-gray-300">Tipo de Documento</Label>
-                      <Select value={docForm.type} onValueChange={v => setDocForm(f => ({ ...f, type: v }))}>
-                        <SelectTrigger className="bg-[#2C3E50] border-[#C9A961]/30 text-white mt-1">
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {DOC_TYPES.map(d => <SelectItem key={d.key} value={d.key}>{d.label}</SelectItem>)}
-                        </SelectContent>
-                      </Select>
-                    </div>
-                    <div>
-                      <Label className="text-gray-300">Nome do Arquivo</Label>
-                      <Input value={docForm.fileName} onChange={e => setDocForm(f => ({ ...f, fileName: e.target.value }))} className="bg-[#2C3E50] border-[#C9A961]/30 text-white mt-1" placeholder="rg_joao.pdf" />
-                    </div>
-                    <div>
-                      <Label className="text-gray-300">Observações</Label>
-                      <Textarea value={docForm.notes} onChange={e => setDocForm(f => ({ ...f, notes: e.target.value }))} className="bg-[#2C3E50] border-[#C9A961]/30 text-white mt-1" rows={2} />
-                    </div>
-                    <Button
-                      onClick={() => addDocMutation.mutate({ leadId, type: docForm.type as any, fileName: docForm.fileName, notes: docForm.notes })}
-                      disabled={addDocMutation.isPending || !docForm.fileName}
-                      className="w-full bg-[#C9A961] hover:bg-[#B8985A] text-[#1A2332] font-bold"
-                    >
-                      Registrar
-                    </Button>
-                  </div>
-                </DialogContent>
-              </Dialog>
-            </CardHeader>
-            <CardContent>
-              <div className="space-y-2">
-                {DOC_TYPES.map(docType => {
-                  const doc = lead.documents?.find(d => d.type === docType.key);
-                  return (
-                    <div key={docType.key} className="flex items-center justify-between p-2 rounded-lg bg-[#1A2332]">
-                      <div className="flex items-center gap-2">
-                        <span className={DOC_STATUS_COLORS[doc?.status || "pending"]}>
-                          {DOC_STATUS_ICONS[doc?.status || "pending"]}
-                        </span>
-                        <span className="text-sm text-gray-300">{docType.label}</span>
-                        {doc?.fileName && <span className="text-xs text-gray-500">({doc.fileName})</span>}
-                      </div>
-                      {doc && (
-                        <Select
-                          value={doc.status}
-                          onValueChange={v => updateDocMutation.mutate({ id: doc.id, status: v as any })}
-                        >
-                          <SelectTrigger className="h-6 w-24 text-xs bg-[#2C3E50] border-[#C9A961]/20 text-gray-300">
-                            <SelectValue />
-                          </SelectTrigger>
-                          <SelectContent>
-                            <SelectItem value="pending">Pendente</SelectItem>
-                            <SelectItem value="received">Recebido</SelectItem>
-                            <SelectItem value="approved">Aprovado</SelectItem>
-                            <SelectItem value="rejected">Rejeitado</SelectItem>
-                          </SelectContent>
-                        </Select>
-                      )}
-                    </div>
-                  );
-                })}
-              </div>
-            </CardContent>
+            <CardHeader><CardTitle className="text-[#C9A961] text-sm">Documentos</CardTitle></CardHeader>
+            <CardContent><LeadDocuments leadId={leadId} admin /></CardContent>
           </Card>
 
           {/* Activity Timeline */}
