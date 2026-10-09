@@ -264,7 +264,9 @@ export default function BrokerPortal() {
                         Revisão:{" "}
                         {property.reviewStatus === "pending"
                           ? "Pendente"
-                          : "Aprovado"}
+                          : property.reviewStatus === "rejected"
+                            ? "Reprovado"
+                            : "Aprovado"}
                       </p>
                     )}
                   </CardContent>
