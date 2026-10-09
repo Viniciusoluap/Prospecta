@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { TRPCError } from "@trpc/server";
-import { and, asc, desc, eq } from "drizzle-orm";
+import { and, asc, desc, eq, or } from "drizzle-orm";
 import { z } from "zod";
 import { imoveis, operationalCommissions } from "../drizzle/schema.js";
 import { protectedProcedure, router } from "./_core/trpc.js";
@@ -66,6 +66,12 @@ export const brokerPortalRouter = router({
       db
         .select({ id: imoveis.id })
         .from(imoveis)
+        .where(
+          or(
+            eq(imoveis.reviewStatus, "approved"),
+            eq(imoveis.createdByUserId, brokerId)
+          )
+        )
         .orderBy(desc(imoveis.createdAt)),
       db
         .select({ id: operationalCommissions.id })
@@ -100,6 +106,12 @@ export const brokerPortalRouter = router({
         createdAt: imoveis.createdAt,
       })
       .from(imoveis)
+      .where(
+        or(
+          eq(imoveis.reviewStatus, "approved"),
+          eq(imoveis.createdByUserId, userId)
+        )
+      )
       .orderBy(desc(imoveis.createdAt));
     return rows.map(row => ({
       ...row,
