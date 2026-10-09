@@ -45,7 +45,11 @@ async function startServer() {
   // Stripe webhook MUST be registered BEFORE express.json() for raw body
   registerStripeWebhook(app);
   // WhatsApp Business webhook: same raw-body requirement, for HMAC verification
-  app.post("/api/whatsapp/webhook", express.raw({ type: "application/json" }), handleWhatsappWebhook);
+  app.post(
+    "/api/whatsapp/webhook",
+    express.raw({ type: "application/json" }),
+    handleWhatsappWebhook
+  );
 
   app.use(express.json({ limit: "50mb" }));
   app.use(express.urlencoded({ limit: "50mb", extended: true }));
@@ -53,9 +57,15 @@ async function startServer() {
   // ── Auth routes ──────────────────────────────
   app.post("/api/auth/login", async (req, res) => {
     try {
-      const { email, password } = req.body as { email?: string; password?: string };
+      const { email, password, profile } = req.body as {
+        email?: string;
+        password?: string;
+        profile?: "cliente" | "corretor" | "admin";
+      };
       if (!email || !password) {
-        return res.status(400).json({ error: "Email e senha são obrigatórios" });
+        return res
+          .status(400)
+          .json({ error: "Email e senha são obrigatórios" });
       }
 
       const user = await getUserByEmail(email.toLowerCase().trim());
@@ -64,7 +74,9 @@ async function startServer() {
       }
 
       if (!user.active) {
-        return res.status(403).json({ error: "Usuário desativado. Procure o administrador." });
+        return res
+          .status(403)
+          .json({ error: "Usuário desativado. Procure o administrador." });
       }
 
       const valid = verifyPassword(password, user.passwordHash);
@@ -72,7 +84,22 @@ async function startServer() {
         return res.status(401).json({ error: "Email ou senha incorretos" });
       }
 
-      const token = await createSessionToken(user.id, user.name, user.sessionVersion);
+      if (profile && user.role !== profile) {
+        const labels = {
+          cliente: "cliente",
+          corretor: "corretor",
+          admin: "administrador",
+        } as const;
+        return res.status(403).json({
+          error: `Esta conta não possui perfil de ${labels[profile]}. Use o acesso correspondente ao seu cadastro.`,
+        });
+      }
+
+      const token = await createSessionToken(
+        user.id,
+        user.name,
+        user.sessionVersion
+      );
       const cookieOpts = getSessionCookieOptions(req);
 
       res.cookie(SESSION_COOKIE_NAME, token, {

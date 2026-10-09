@@ -162,6 +162,13 @@
       "when": 1791482400000,
       "tag": "0022_tax_management",
       "breakpoints": true
+    },
+    {
+      "idx": 23,
+      "version": "7",
+      "when": 1791511200000,
+      "tag": "0023_profile_portals",
+      "breakpoints": true
     }
   ]
 }
