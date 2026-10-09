@@ -10,17 +10,11 @@ import Home from "./pages/Home";
 import Sorteios from "./pages/Sorteios";
 import ComprarBilhete from "./pages/ComprarBilhete";
 import Produtos from "./pages/Produtos";
-import MeusBilhetes from "./pages/MeusBilhetes";
-import MeuSaldo from "./pages/MeuSaldo";
 import Admin from "./pages/Admin";
 import ConverterProduto from "./pages/ConverterProduto";
 import ComoFunciona from "./pages/ComoFunciona";
-import MinhasConversoes from "./pages/MinhasConversoes";
 import ComprarUtef from "./pages/ComprarUtef";
 import ProjetosOrcamentos from "./pages/ProjetosOrcamentos";
-import Obras from "./pages/Obras";
-import NovaObra from "./pages/NovaObra";
-import ObraDetalhes from "./pages/ObraDetalhes";
 import AdminObras from "./pages/AdminObras";
 import AdminEditarObra from "./pages/AdminEditarObra";
 import AdminOrcamentos from "./pages/AdminOrcamentos";
@@ -71,6 +65,9 @@ import Login from "./pages/Login";
 import Portal from "./pages/Portal";
 import { PortalRoute } from "./components/PortalRoute";
 import { GlobalBackButton } from "./components/GlobalBackButton";
+import BrokerPortal from "./pages/BrokerPortal";
+import { BrokerRoute } from "./components/BrokerRoute";
+import { LegacyRedirect } from "./components/LegacyRedirect";
 
 function Router() {
   // make sure to consider if you need authentication for certain routes
@@ -87,6 +84,16 @@ function Router() {
           <Portal />
         </PortalRoute>
       </Route>
+      <Route path="/corretor/:rest*">
+        <BrokerRoute>
+          <BrokerPortal />
+        </BrokerRoute>
+      </Route>
+      <Route path="/corretor">
+        <BrokerRoute>
+          <BrokerPortal />
+        </BrokerRoute>
+      </Route>
       <Route path={"/"} component={Home} />
       <Route path="/sorteios" component={Sorteios} />
       <Route path="/comprar-bilhete/:id" component={ComprarBilhete} />
@@ -100,14 +107,14 @@ function Router() {
       <Route path="/cursos" component={Cursos} />
       <Route path="/instituto" component={Instituto} />
       <Route path="/meus-bilhetes">
-        <ProtectedRoute>
-          <MeusBilhetes />
-        </ProtectedRoute>
+        <PortalRoute>
+          <LegacyRedirect to="/portal/bilhetes" />
+        </PortalRoute>
       </Route>
       <Route path="/meu-saldo">
-        <ProtectedRoute>
-          <MeuSaldo />
-        </ProtectedRoute>
+        <PortalRoute>
+          <LegacyRedirect to="/portal/saldo" />
+        </PortalRoute>
       </Route>
       <Route path="/perfil">
         <ProtectedRoute>
@@ -131,26 +138,26 @@ function Router() {
       </Route>
       <Route path="/como-funciona" component={ComoFunciona} />
       <Route path="/minhas-conversoes">
-        <ProtectedRoute>
-          <MinhasConversoes />
-        </ProtectedRoute>
+        <PortalRoute>
+          <LegacyRedirect to="/portal/conversoes" />
+        </PortalRoute>
       </Route>
       <Route path="/comprar-utef" component={ComprarUtef} />
       <Route path="/projetos-orcamentos" component={ProjetosOrcamentos} />
       <Route path="/obras">
-        <ProtectedRoute>
-          <Obras />
-        </ProtectedRoute>
+        <PortalRoute>
+          <LegacyRedirect to="/portal/obras" />
+        </PortalRoute>
       </Route>
       <Route path="/obras/nova">
-        <ProtectedRoute>
-          <NovaObra />
-        </ProtectedRoute>
+        <PortalRoute>
+          <LegacyRedirect to="/portal/obras" />
+        </PortalRoute>
       </Route>
       <Route path="/obras/:id">
-        <ProtectedRoute>
-          <ObraDetalhes />
-        </ProtectedRoute>
+        <PortalRoute>
+          <LegacyRedirect to="/portal/obras" />
+        </PortalRoute>
       </Route>
       <Route path="/admin/obras">
         <AdminRoute module="obras">

@@ -3,22 +3,23 @@ import { useEffect } from "react";
 import { useLocation } from "wouter";
 import { useAuth } from "@/_core/hooks/useAuth";
 
-export function PortalRoute({ children }: { children: ReactNode }) {
+export function BrokerRoute({ children }: { children: ReactNode }) {
   const { user, loading } = useAuth({
     redirectOnUnauthenticated: true,
-    redirectPath: "/login?perfil=cliente",
+    redirectPath: "/login?perfil=corretor",
   });
   const [, navigate] = useLocation();
 
   useEffect(() => {
-    if (!loading && user && user.role !== "cliente")
+    if (!loading && user && user.role !== "corretor") {
       navigate(
         user.role === "admin"
           ? "/admin"
-          : user.role === "corretor"
-            ? "/corretor"
+          : user.role === "cliente"
+            ? "/portal"
             : "/"
       );
+    }
   }, [loading, navigate, user]);
 
   if (loading)
@@ -27,6 +28,6 @@ export function PortalRoute({ children }: { children: ReactNode }) {
         Verificando acesso...
       </div>
     );
-  if (!user || user.role !== "cliente") return null;
+  if (!user || user.role !== "corretor") return null;
   return <>{children}</>;
 }
