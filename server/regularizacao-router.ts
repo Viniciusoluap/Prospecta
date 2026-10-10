@@ -206,7 +206,7 @@ export const regularizacaoRouter = router({
             )).url, driveFileId: null };
         const [updated] = await getDb()
           .update(regularizacaoDocuments)
-          .set({ ...fields, status: "received", updatedAt: new Date() })
+          .set({ ...fields, uploadedFileName: input.fileName, uploadedMimeType: input.mimeType, status: "received", updatedAt: new Date() })
           .where(and(
             eq(regularizacaoDocuments.id, input.id),
             eq(regularizacaoDocuments.regularizacaoId, document.regularizacaoId),
@@ -221,7 +221,7 @@ export const regularizacaoRouter = router({
         const [document] = await getDb().select().from(regularizacaoDocuments).where(eq(regularizacaoDocuments.id, input.id)).limit(1);
         if (!document?.driveFileId) throw new TRPCError({ code: "NOT_FOUND" });
         const data = await readPrivateDocument(document.driveFileId);
-        return { fileName: document.name, base64: data.toString("base64") };
+        return { fileName: document.uploadedFileName ?? document.name, mimeType: document.uploadedMimeType ?? "application/octet-stream", base64: data.toString("base64") };
       }),
 
     remove: adminProcedure

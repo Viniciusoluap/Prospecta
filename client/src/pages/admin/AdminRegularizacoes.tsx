@@ -99,14 +99,14 @@ export default function AdminRegularizacoes() {
     onError: error => toast.error(error.message),
   });
 
-  async function openDocument(id: number, fileName: string) {
+  async function openDocument(id: number, fallbackName: string) {
     try {
       const content = await utils.regularizacao.documents.content.fetch({ id });
       const bytes = Uint8Array.from(atob(content.base64), char => char.charCodeAt(0));
-      const url = URL.createObjectURL(new Blob([bytes]));
+      const url = URL.createObjectURL(new Blob([bytes], { type: content.mimeType }));
       const link = document.createElement("a");
       link.href = url;
-      link.download = fileName || "documento";
+      link.download = content.fileName || fallbackName || "documento";
       document.body.appendChild(link);
       link.click();
       link.remove();

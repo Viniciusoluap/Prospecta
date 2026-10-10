@@ -390,7 +390,12 @@ export const portalRouter = router({
       const [row] = await db.select({ item: financiamentoChecklistItems })
         .from(financiamentoChecklistItems)
         .innerJoin(financiamentos, eq(financiamentoChecklistItems.financiamentoId, financiamentos.id))
-        .where(and(eq(financiamentoChecklistItems.id, input.checklistItemId), eq(financiamentos.leadId, leadId)))
+        .where(and(
+          eq(financiamentoChecklistItems.id, input.checklistItemId),
+          eq(financiamentos.leadId, leadId),
+          eq(financiamentoChecklistItems.visivelCliente, true),
+          notInArray(financiamentos.status, ["liberado", "cancelado"]),
+        ))
         .limit(1);
       if (!row?.item.documentoDriveFileId) throw new TRPCError({ code: "NOT_FOUND" });
       const data = await readPrivateDocument(row.item.documentoDriveFileId);

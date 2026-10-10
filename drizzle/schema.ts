@@ -798,6 +798,8 @@ export const regularizacaoDocuments = pgTable("regularizacao_documents", {
   observation: text("observation").default("").notNull(),
   fileUrl: text("file_url"),
   driveFileId: text("drive_file_id"),
+  uploadedFileName: varchar("uploaded_file_name", { length: 255 }),
+  uploadedMimeType: varchar("uploaded_mime_type", { length: 120 }),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });
