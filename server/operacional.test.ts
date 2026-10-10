@@ -277,7 +277,7 @@ describe("Etapa 4 — persistência via procedures", () => {
   it("Projetos serializa checklist e tipos", async () => {
     const values = vi
       .fn()
-      .mockReturnValue({ returning: async () => [{ id: 9 }] });
+      .mockReturnValue({ returning: async () => [{ id: 9, leadId: null }] });
     vi.mocked(getDb).mockReturnValue({
       insert: () => ({ values }),
     } as unknown as ReturnType<typeof getDb>);

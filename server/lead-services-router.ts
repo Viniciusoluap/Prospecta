@@ -1,7 +1,8 @@
-import { desc, eq, sql } from "drizzle-orm";
+import { and, desc, eq, ne, sql } from "drizzle-orm";
 import { z } from "zod";
-import { constructionProjects, leadServices, leads } from "../drizzle/schema.js";
+import { constructionProjects, leadActivities, leadServices, leads } from "../drizzle/schema.js";
 import { LEAD_SERVICE_MODULE, LEAD_SERVICE_TYPES, serviceTypeFromTrelloFields } from "../shared/lead-services.js";
+import { selectProcessReference } from "../shared/service-reconciliation.js";
 import { adminProcedure, router } from "./_core/trpc.js";
 import { getDb } from "./db.js";
 
@@ -62,6 +63,8 @@ async function initializeLeadServicesSchema() {
     )
   `));
   await database.execute(sql.raw(`CREATE UNIQUE INDEX IF NOT EXISTS "lead_services_source_card_url_unique" ON "lead_services" ("source_card_url")`));
+  await database.execute(sql.raw(`ALTER TABLE "lead_services" ADD COLUMN IF NOT EXISTS "idempotency_key" varchar(120)`));
+  await database.execute(sql.raw(`CREATE UNIQUE INDEX IF NOT EXISTS "lead_services_idempotency_key_unique" ON "lead_services" ("idempotency_key")`));
   await database.execute(sql.raw(`ALTER TABLE "regularizacoes" ADD COLUMN IF NOT EXISTS "lead_service_id" integer REFERENCES "lead_services"("id") ON DELETE set null`));
   await database.execute(sql.raw(`ALTER TABLE "financiamentos" ADD COLUMN IF NOT EXISTS "lead_service_id" integer REFERENCES "lead_services"("id") ON DELETE set null`));
   await database.execute(sql.raw(`ALTER TABLE "operational_projects" ADD COLUMN IF NOT EXISTS "lead_service_id" integer REFERENCES "lead_services"("id") ON DELETE set null`));
@@ -72,6 +75,68 @@ async function initializeLeadServicesSchema() {
 }
 
 const isWorksService = (serviceType: string) => serviceType === "obra_cliente" || serviceType === "vistoria_medicao";
+
+const operationalTables = {
+  regularizacoes: "regularizacoes",
+  financiamentos: "financiamentos",
+  projetos: "operational_projects",
+} as const;
+
+/** Ao salvar dados completos no módulo, conecta uma única demanda CRM inequívoca. */
+export async function attachCompletedProcess(module: keyof typeof operationalTables, leadId: number | null, recordId: number) {
+  if (leadId == null) return "no_lead" as const;
+  const database = getDb();
+  const services = await database.select().from(leadServices).where(and(
+    eq(leadServices.leadId, leadId), eq(leadServices.operationalModule, module),
+    ne(leadServices.status, "cancelled"),
+  ));
+  if (services.length !== 1) return services.length ? "ambiguous" as const : "no_service" as const;
+  const service = services[0];
+  if (service.operationalRecordId && service.operationalRecordId !== recordId) return "already_linked" as const;
+  const table = operationalTables[module];
+  const patched = await database.execute(sql`
+    UPDATE ${sql.raw(`"${table}"`)} SET lead_service_id = ${service.id}
+    WHERE id = ${recordId} AND lead_id = ${leadId}
+      AND (lead_service_id IS NULL OR lead_service_id = ${service.id}) RETURNING id
+  `);
+  if (!patched.rows.length) return "conflict" as const;
+  await database.update(leadServices).set({ operationalRecordId: recordId, updatedAt: new Date() })
+    .where(eq(leadServices.id, service.id));
+  return "linked" as const;
+}
+
+/** Reassocia somente por chaves persistidas. Nomes, telefone e CPF nunca são usados como chave. */
+async function reconcileExistingProcess(service: typeof leadServices.$inferSelect) {
+  const module = service.operationalModule as keyof typeof operationalTables;
+  const table = operationalTables[module];
+  if (!table) return { service, state: "awaiting_configuration" as const };
+  const database = getDb();
+  const rows = await database.execute(sql`
+    SELECT id, lead_id, lead_service_id FROM ${sql.raw(`"${table}"`)}
+    WHERE lead_service_id = ${service.id}
+       OR (${service.operationalRecordId ? sql`id = ${service.operationalRecordId}` : sql`false`})
+       OR (lead_id = ${service.leadId} AND lead_service_id IS NULL)
+    ORDER BY id
+  `);
+  const candidates = rows.rows as Array<{ id: number; lead_id: number | null; lead_service_id: number | null }>;
+  const siblingServices = await database.select({ id: leadServices.id }).from(leadServices)
+    .where(and(eq(leadServices.leadId, service.leadId), eq(leadServices.operationalModule, module),
+      ne(leadServices.status, "cancelled")));
+  const selection = selectProcessReference(candidates, service.leadId, service.id,
+    service.operationalRecordId, siblingServices.length);
+  if (!selection.selected) return { service, state: selection.state };
+  const selected = selection.selected;
+  const patched = await database.execute(sql`
+    UPDATE ${sql.raw(`"${table}"`)} SET lead_id = ${service.leadId}, lead_service_id = ${service.id}
+    WHERE id = ${selected.id} AND (lead_id IS NULL OR lead_id = ${service.leadId})
+      AND (lead_service_id IS NULL OR lead_service_id = ${service.id}) RETURNING id
+  `);
+  if (!patched.rows.length) return { service, state: "conflict" as const };
+  const [updated] = await database.update(leadServices).set({
+    operationalRecordId: selected.id, updatedAt: new Date(),
+  }).where(eq(leadServices.id, service.id)).returning();
+  return { service: updated, state: selection.state };
+}
 
 /** Cria a obra mínima, sem inventar endereço, valores ou dados financeiros. */
 async function ensureOperationalRecord(service: typeof leadServices.$inferSelect, lead: typeof leads.$inferSelect) {
@@ -94,11 +159,13 @@ async function ensureOperationalRecord(service: typeof leadServices.$inferSelect
   if (service.operationalRecordId) {
     const [legacyWork] = await database.select({
       id: constructionProjects.id,
+      leadId: constructionProjects.leadId,
       leadServiceId: constructionProjects.leadServiceId,
     }).from(constructionProjects)
       .where(eq(constructionProjects.id, service.operationalRecordId))
       .limit(1);
-    if (legacyWork && (!legacyWork.leadServiceId || legacyWork.leadServiceId === service.id)) {
+    if (legacyWork && (legacyWork.leadId === null || legacyWork.leadId === lead.id) &&
+      (!legacyWork.leadServiceId || legacyWork.leadServiceId === service.id)) {
       await database.update(constructionProjects).set({
         leadId: lead.id,
         leadServiceId: service.id,
@@ -110,6 +177,28 @@ async function ensureOperationalRecord(service: typeof leadServices.$inferSelect
       return { service: updated, workState: "relinked" as const };
     }
   }
+
+  // Obras prévias com lead_id inequívoco são reutilizadas; nunca casar por nome.
+  const [orphanedWorks, siblingServices] = await Promise.all([
+    database.select({ id: constructionProjects.id }).from(constructionProjects)
+      .where(and(eq(constructionProjects.leadId, lead.id), sql`${constructionProjects.leadServiceId} IS NULL`)),
+    database.select({ id: leadServices.id }).from(leadServices)
+      .where(and(eq(leadServices.leadId, lead.id), eq(leadServices.operationalModule, "obras"), ne(leadServices.status, "cancelled"))),
+  ]);
+  if (orphanedWorks.length === 1 && siblingServices.length === 1) {
+    const [work] = await database.update(constructionProjects)
+      .set({ leadServiceId: service.id, updatedAt: new Date() })
+      .where(and(eq(constructionProjects.id, orphanedWorks[0].id), sql`${constructionProjects.leadServiceId} IS NULL`))
+      .returning({ id: constructionProjects.id });
+    if (work) {
+      const [updated] = await database.update(leadServices).set({
+        operationalRecordId: work.id, operationalModule: "obras", status: "active", updatedAt: new Date(),
+      }).where(eq(leadServices.id, service.id)).returning();
+      return { service: updated, workState: "relinked" as const };
+    }
+  }
+  if (orphanedWorks.length > 1 || orphanedWorks.length && siblingServices.length > 1)
+    return { service, workState: "ambiguous" as const };
 
   const [work] = await database.insert(constructionProjects).values({
     leadId: lead.id,
@@ -133,16 +222,74 @@ export async function createLeadServiceWithAutomation(input: z.infer<typeof serv
   const database = getDb();
   const [lead] = await database.select().from(leads).where(eq(leads.id, input.leadId)).limit(1);
   if (!lead) throw new Error("Lead não encontrado");
+  // Repetir o clique Vincular não multiplica vínculos equivalentes.
+  if (!input.sourceCardUrl) {
+    const [existing] = await database.select().from(leadServices).where(and(
+      eq(leadServices.leadId, input.leadId), eq(leadServices.serviceType, input.serviceType),
+      ne(leadServices.status, "cancelled"),
+    )).orderBy(desc(leadServices.createdAt)).limit(1);
+    if (existing) {
+      if (isWorksService(existing.serviceType)) return ensureOperationalRecord(existing, lead);
+      const reconciled = await reconcileExistingProcess(existing);
+      return { service: reconciled.service, workState: "not_applicable" as const };
+    }
+  }
+  const idempotencyKey = input.sourceCardUrl ? null : `${input.leadId}:${input.serviceType}`;
   const [created] = await database.insert(leadServices).values({
     ...input,
     title: input.title || undefined,
-    status: input.status || "active",
+    status: input.status || "awaiting_data",
     operationalModule: LEAD_SERVICE_MODULE[input.serviceType],
-  }).returning();
-  return ensureOperationalRecord(created, lead);
+    idempotencyKey,
+  }).onConflictDoNothing().returning();
+  if (!created && idempotencyKey) {
+    const [existing] = await database.select().from(leadServices).where(eq(leadServices.idempotencyKey, idempotencyKey)).limit(1);
+    if (existing) {
+      if (isWorksService(existing.serviceType)) return ensureOperationalRecord(existing, lead);
+      const reconciled = await reconcileExistingProcess(existing);
+      return { service: reconciled.service, workState: "not_applicable" as const };
+    }
+  }
+  if (!created) throw new Error("Não foi possível criar o vínculo; revise o registro de origem");
+  if (isWorksService(created.serviceType)) return ensureOperationalRecord(created, lead);
+  const reconciled = await reconcileExistingProcess(created);
+  return { service: reconciled.service, workState: "not_applicable" as const };
 }
 
 export const leadServicesRouter = router({
+  listForModule: adminProcedure.input(z.object({
+    module: z.enum(["obras", "tarefas", "regularizacoes", "comissoes", "projetos", "avaliacoes", "financiamentos"]),
+  })).query(async ({ input }) => getDb().select({ service: leadServices, lead: leads })
+    .from(leadServices).innerJoin(leads, eq(leads.id, leadServices.leadId))
+    .where(and(eq(leadServices.operationalModule, input.module), ne(leadServices.status, "cancelled")))
+    .orderBy(desc(leadServices.createdAt))),
+
+  /** Revisão idempotente dos vínculos antigos; resultados ambíguos ficam intocados. */
+  reconcile: adminProcedure.input(z.object({ dryRun: z.boolean().default(true) })).mutation(async ({ input, ctx }) => {
+    const database = getDb();
+    const services = await database.select().from(leadServices).orderBy(leadServices.id);
+    const results: Array<{ serviceId: number; leadId: number; module: string | null; state: string }> = [];
+    for (const service of services) {
+      if (!service.operationalModule || !Object.hasOwn(operationalTables, service.operationalModule)) continue;
+      if (input.dryRun) {
+        results.push({ serviceId: service.id, leadId: service.leadId, module: service.operationalModule,
+          state: service.operationalRecordId ? "review_existing_reference" : "review_unconfigured" });
+        continue;
+      }
+      const result = await reconcileExistingProcess(service);
+      results.push({ serviceId: service.id, leadId: service.leadId, module: service.operationalModule, state: result.state });
+      if (["relinked", "conflict", "ambiguous"].includes(result.state)) {
+        await database.insert(leadActivities).values({
+          leadId: service.leadId, type: "note",
+          description: `Reconciliação do serviço ${service.id}: ${result.state}`,
+          performedBy: ctx.user.name || `admin:${ctx.user.id}`,
+          metadata: JSON.stringify({ serviceId: service.id, module: service.operationalModule,
+            operationalRecordId: result.service.operationalRecordId, state: result.state }),
+        });
+      }
+    }
+    return { dryRun: input.dryRun, results };
+  }),
   listByLead: adminProcedure.input(z.object({ leadId: z.number().int().positive() })).query(async ({ input }) =>
     getDb().select().from(leadServices).where(eq(leadServices.leadId, input.leadId)).orderBy(desc(leadServices.createdAt))
   ),
@@ -153,29 +300,51 @@ export const leadServicesRouter = router({
 
   update: adminProcedure.input(serviceInput.partial().extend({ id: z.number().int().positive() })).mutation(async ({ input }) => {
     const { id, serviceType, ...data } = input;
+    const [previous] = await getDb().select().from(leadServices).where(eq(leadServices.id, id)).limit(1);
+    if (!previous) throw new Error("Serviço não encontrado");
+    if (data.leadId && data.leadId !== previous.leadId) throw new Error("A identidade do lead não pode ser alterada neste vínculo");
     const [updated] = await getDb().update(leadServices).set({
       ...data,
       ...(serviceType ? { serviceType, operationalModule: LEAD_SERVICE_MODULE[serviceType] } : {}),
+      ...(serviceType && previous.idempotencyKey ? { idempotencyKey: `${previous.leadId}:${serviceType}` } : {}),
+      ...(data.status === "cancelled" ? { idempotencyKey: null } : {}),
       updatedAt: new Date(),
     }).where(eq(leadServices.id, id)).returning();
     if (!updated) throw new Error("Serviço não encontrado");
     const [lead] = await getDb().select().from(leads).where(eq(leads.id, updated.leadId)).limit(1);
     if (!lead) throw new Error("Lead do serviço não encontrado");
-    return (await ensureOperationalRecord(updated, lead)).service;
+    if (isWorksService(updated.serviceType)) return (await ensureOperationalRecord(updated, lead)).service;
+    return (await reconcileExistingProcess(updated)).service;
   }),
 
   linkProcess: adminProcedure.input(z.object({
     id: z.number().int().positive(),
-    operationalModule: z.string().trim().min(2).max(80),
+    operationalModule: z.enum(["obras", "regularizacoes", "financiamentos", "projetos"]),
     operationalRecordId: z.number().int().positive(),
   })).mutation(async ({ input }) => {
-    const [updated] = await getDb().update(leadServices).set({
-      operationalModule: input.operationalModule,
-      operationalRecordId: input.operationalRecordId,
-      status: "active",
-      updatedAt: new Date(),
-    }).where(eq(leadServices.id, input.id)).returning();
-    if (!updated) throw new Error("Serviço não encontrado");
+    const database = getDb();
+    const [service] = await database.select().from(leadServices).where(eq(leadServices.id, input.id)).limit(1);
+    if (!service || LEAD_SERVICE_MODULE[service.serviceType as keyof typeof LEAD_SERVICE_MODULE] !== input.operationalModule)
+      throw new Error("Serviço incompatível com o módulo informado");
+    const table = input.operationalModule === "obras" ? "construction_projects" : operationalTables[input.operationalModule];
+    const reference = await database.execute(sql`
+      SELECT lead_id, lead_service_id FROM ${sql.raw(`"${table}"`)} WHERE id = ${input.operationalRecordId}
+    `);
+    const target = reference.rows[0] as { lead_id: number | null; lead_service_id: number | null } | undefined;
+    if (!target || target.lead_id !== null && target.lead_id !== service.leadId ||
+      target.lead_service_id !== null && target.lead_service_id !== service.id)
+      throw new Error("O registro operacional não corresponde ao cliente ou já está vinculado");
+    const patched = await database.execute(sql`
+      UPDATE ${sql.raw(`"${table}"`)} SET lead_id = ${service.leadId}, lead_service_id = ${service.id}
+      WHERE id = ${input.operationalRecordId}
+        AND (lead_id IS NULL OR lead_id = ${service.leadId})
+        AND (lead_service_id IS NULL OR lead_service_id = ${service.id})
+      RETURNING id
+    `);
+    if (!patched.rows.length) throw new Error("O processo foi vinculado por outra operação; revise o vínculo");
+    const [updated] = await database.update(leadServices).set({
+      operationalRecordId: input.operationalRecordId, updatedAt: new Date(),
+    }).where(eq(leadServices.id, service.id)).returning();
     return updated;
   }),
 
@@ -183,7 +352,9 @@ export const leadServicesRouter = router({
     id: z.number().int().positive(),
     status: z.enum(["active", "paused", "completed", "cancelled"]),
   })).mutation(async ({ input }) => {
-    const [updated] = await getDb().update(leadServices).set({ status: input.status, updatedAt: new Date() })
+    const [updated] = await getDb().update(leadServices).set({
+      status: input.status, ...(input.status === "cancelled" ? { idempotencyKey: null } : {}), updatedAt: new Date(),
+    })
       .where(eq(leadServices.id, input.id)).returning();
     if (!updated) throw new Error("Serviço não encontrado");
     return updated;

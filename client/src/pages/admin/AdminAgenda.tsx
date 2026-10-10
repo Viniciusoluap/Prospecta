@@ -37,6 +37,7 @@ export default function AdminAgenda({
   embedded = false,
 }: { embedded?: boolean } = {}) {
   const list = trpc.agenda.list.useQuery();
+  const taskList = trpc.tasks.list.useQuery();
   const options = trpc.agenda.options.useQuery();
   const create = trpc.agenda.create.useMutation();
   const update = trpc.agenda.update.useMutation();
@@ -70,6 +71,15 @@ export default function AdminAgenda({
         setOpen(true);
       }}
     >
+      <section className="rounded border border-[#C9A961]/40 bg-[#243345] p-4 text-white" aria-label="Prazos de tarefas">
+        <h2 className="font-semibold text-[#E6CA88]">Prazos de tarefas</h2>
+        <p className="text-sm text-gray-200">Tarefas com prazo neste mês. O prazo não cria automaticamente uma visita ou compromisso.</p>
+        <ul className="mt-2 space-y-1 text-sm">
+          {(taskList.data || []).filter(task => task.dueAt && task.status !== "done" && task.status !== "cancelled" && localDate(task.dueAt).startsWith(month)).map(task =>
+            <li key={task.id}>{localDate(task.dueAt!)} · {task.title} · {task.assignedTo}</li>
+          )}
+        </ul>
+      </section>
       <div className="grid gap-3 sm:grid-cols-3">
         <Field label="Dia">
           <input

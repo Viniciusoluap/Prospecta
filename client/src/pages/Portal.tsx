@@ -18,6 +18,7 @@ import {
   Upload,
 } from "lucide-react";
 import { trpc } from "@/lib/trpc";
+import { LeadDocuments } from "@/components/LeadDocuments";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -565,6 +566,7 @@ export default function Portal() {
         {path === "/portal/documentos" && (
           <Section title="Documentos e contratos">
             <div className="space-y-4">
+              <LeadDocuments />
               {contracts.data?.map(contract => (
                 <Card key={contract.id}>
                   <CardHeader>

@@ -14,6 +14,7 @@ import {
   Upload,
 } from "lucide-react";
 import { trpc } from "@/lib/trpc";
+import { LinkedServiceQueue } from "./LinkedServiceQueue";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import {
@@ -196,6 +197,7 @@ export default function AdminFinanciamentos() {
       </header>
 
       <main className="mx-auto max-w-7xl space-y-5 px-4 py-6 md:px-6">
+        <LinkedServiceQueue module="financiamentos" title="Financiamentos" />
         <div className="grid gap-4 md:grid-cols-3">
           {[
             {
@@ -262,10 +264,10 @@ export default function AdminFinanciamentos() {
               <div className="space-y-2">
                 {processos.map(
                   ({ financiamento, checklistTotal, checklistConcluido }) => (
+                    <div key={financiamento.id} className="rounded-lg bg-[#1A2332]">
                     <button
-                      key={financiamento.id}
                       onClick={() => setSelecionado(financiamento.id)}
-                      className="flex w-full flex-wrap items-center justify-between gap-3 rounded-lg bg-[#1A2332] p-4 text-left hover:ring-1 hover:ring-[#C9A961]/50"
+                      className="flex w-full flex-wrap items-center justify-between gap-3 p-4 text-left hover:ring-1 hover:ring-[#C9A961]/50"
                     >
                       <div className="min-w-[220px] flex-1">
                         <p className="font-semibold">
@@ -293,6 +295,8 @@ export default function AdminFinanciamentos() {
                         </p>
                       </div>
                     </button>
+                    {financiamento.leadId && <Link href={`/admin/crm/${financiamento.leadId}`} className="inline-block px-4 pb-3 text-sm text-[#E6CA88] underline">Abrir cadastro CRM</Link>}
+                    </div>
                   )
                 )}
               </div>

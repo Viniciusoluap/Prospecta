@@ -15,6 +15,7 @@ import {
 } from "../shared/financiamento.js";
 import { getDb } from "./db.js";
 import { adminProcedure, router } from "./_core/trpc.js";
+import { attachCompletedProcess } from "./lead-services-router.js";
 
 export const financiamentoRouter = router({
   options: adminProcedure.query(async () => {
@@ -116,6 +117,7 @@ export const financiamentoRouter = router({
             ...item,
           }))
         );
+      await attachCompletedProcess("financiamentos", financiamento.leadId, financiamento.id);
       return financiamento;
     }),
 

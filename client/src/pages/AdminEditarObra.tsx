@@ -366,28 +366,28 @@ export default function AdminEditarObra() {
       {/* Content */}
       <div className="container py-8">
         <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
-          <TabsList className="grid w-full grid-cols-6 bg-[#1A2332]/60 border border-[#C9A961]/20">
-            <TabsTrigger value="info" className="data-[state=active]:bg-[#C9A961] data-[state=active]:text-[#1A2332]">
+          <TabsList className="grid w-full grid-cols-6 bg-[#1A2332]/60 border border-[#C9A961]/20 h-auto min-h-10">
+            <TabsTrigger value="info" className="text-gray-200 hover:text-white focus-visible:ring-[#C9A961] data-[state=active]:bg-[#C9A961] data-[state=active]:text-[#1A2332]">
               <Building2 className="h-4 w-4 mr-1" />
               <span className="hidden md:inline">Informações</span>
             </TabsTrigger>
-            <TabsTrigger value="mcmv" className="data-[state=active]:bg-[#C9A961] data-[state=active]:text-[#1A2332]">
+            <TabsTrigger value="mcmv" className="text-gray-200 hover:text-white focus-visible:ring-[#C9A961] data-[state=active]:bg-[#C9A961] data-[state=active]:text-[#1A2332]">
               <DollarSign className="h-4 w-4 mr-1" />
               <span className="hidden md:inline">MCMV/CEF</span>
             </TabsTrigger>
-            <TabsTrigger value="valores" className="data-[state=active]:bg-[#C9A961] data-[state=active]:text-[#1A2332]">
+            <TabsTrigger value="valores" className="text-gray-200 hover:text-white focus-visible:ring-[#C9A961] data-[state=active]:bg-[#C9A961] data-[state=active]:text-[#1A2332]">
               <DollarSign className="h-4 w-4 mr-1" />
               <span className="hidden md:inline">Custos</span>
             </TabsTrigger>
-            <TabsTrigger value="progresso" className="data-[state=active]:bg-[#C9A961] data-[state=active]:text-[#1A2332]">
+            <TabsTrigger value="progresso" className="text-gray-200 hover:text-white focus-visible:ring-[#C9A961] data-[state=active]:bg-[#C9A961] data-[state=active]:text-[#1A2332]">
               <FileText className="h-4 w-4 mr-1" />
               <span className="hidden md:inline">Progresso</span>
             </TabsTrigger>
-            <TabsTrigger value="fotos" className="data-[state=active]:bg-[#C9A961] data-[state=active]:text-[#1A2332]">
+            <TabsTrigger value="fotos" className="text-gray-200 hover:text-white focus-visible:ring-[#C9A961] data-[state=active]:bg-[#C9A961] data-[state=active]:text-[#1A2332]">
               <Image className="h-4 w-4 mr-1" />
               <span className="hidden md:inline">Fotos</span>
             </TabsTrigger>
-            <TabsTrigger value="relatorios" className="data-[state=active]:bg-[#C9A961] data-[state=active]:text-[#1A2332]">
+            <TabsTrigger value="relatorios" className="text-gray-200 hover:text-white focus-visible:ring-[#C9A961] data-[state=active]:bg-[#C9A961] data-[state=active]:text-[#1A2332]">
               <FileText className="h-4 w-4 mr-1" />
               <span className="hidden md:inline">Relatórios</span>
             </TabsTrigger>

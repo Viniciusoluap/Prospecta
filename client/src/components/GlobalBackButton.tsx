@@ -28,6 +28,7 @@ function hasPageBackButton(location: string) {
     "/projetos-orcamentos",
     "/obras",
     "/obras/",
+    "/admin/obras",
     "/admin/obras/editar/",
     "/admin/obras/",
     "/admin/dashboard",

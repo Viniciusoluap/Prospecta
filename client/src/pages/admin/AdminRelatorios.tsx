@@ -51,7 +51,7 @@ const STAGE_LABELS: Record<string, string> = {
   approval: "Em Aprovação",
   approved: "Aprovado",
   rejected: "Reprovado",
-  followup: "Follow-up",
+  followup: "Projetos e Vistorias",
   in_process: "Cliente em Processo",
   done: "Concluído",
 };

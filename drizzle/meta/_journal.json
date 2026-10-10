@@ -152,7 +152,7 @@
     {
       "idx": 21,
       "version": "7",
-      "when": 1791465870048,
+      "when": 1791476720000,
       "tag": "0021_epic014_admin_notification_email",
       "breakpoints": true
     },
@@ -168,6 +168,27 @@
       "version": "7",
       "when": 1791511200000,
       "tag": "0023_profile_portals",
+      "breakpoints": true
+    },
+    {
+      "idx": 24,
+      "version": "7",
+      "when": 1791597600000,
+      "tag": "0024_crm_pipeline_soft_delete",
+      "breakpoints": true
+    },
+    {
+      "idx": 25,
+      "version": "7",
+      "when": 1791684000000,
+      "tag": "0025_drive_documents",
+      "breakpoints": true
+    },
+    {
+      "idx": 26,
+      "version": "7",
+      "when": 1791770400000,
+      "tag": "0026_lead_service_idempotency",
       "breakpoints": true
     }
   ]

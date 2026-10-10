@@ -18,8 +18,11 @@ import {
   DialogContent,
   DialogHeader,
   DialogTitle,
-  DialogTrigger,
 } from "@/components/ui/dialog";
+import {
+  AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
+  AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { Textarea } from "@/components/ui/textarea";
 import { toast } from "sonner";
 import {
@@ -29,6 +32,8 @@ import {
   Clock,
   AlertTriangle,
   User,
+  Pencil,
+  Trash2,
 } from "lucide-react";
 
 const PRIORITY_COLORS: Record<string, string> = {
@@ -68,6 +73,8 @@ export default function AdminTarefas({
   embedded = false,
 }: { embedded?: boolean } = {}) {
   const [open, setOpen] = useState(false);
+  const [editingId, setEditingId] = useState<number | null>(null);
+  const [deletingId, setDeletingId] = useState<number | null>(null);
   const [filterStatus, setFilterStatus] = useState("all");
   const [filterResp, setFilterResp] = useState("all");
   const [form, setForm] = useState({
@@ -77,26 +84,40 @@ export default function AdminTarefas({
     priority: "medium" as any,
     dueAt: "",
     slaHours: "",
+    status: "pending" as "pending" | "in_progress" | "done" | "cancelled",
+    relatedType: "none",
+    relatedId: "none",
   });
 
-  const { data: tasks = [], refetch } = trpc.tasks.list.useQuery({
-    status: filterStatus !== "all" ? filterStatus : undefined,
-    assignedTo: filterResp !== "all" ? filterResp : undefined,
-  });
+  const { data: allTasks = [], refetch } = trpc.tasks.list.useQuery();
+  const { data: leads = [] } = trpc.construction.leadOptions.useQuery();
+  const { data: projects = [] } = trpc.construction.allProjects.useQuery();
+  const tasks = allTasks.filter(task =>
+    (filterStatus === "all" || task.status === filterStatus) &&
+    (filterResp === "all" || task.assignedTo === filterResp)
+  );
+
+  const resetForm = () => {
+    setEditingId(null);
+    setForm({ title: "", description: "", assignedTo: "sarah", priority: "medium", dueAt: "", slaHours: "", status: "pending", relatedType: "none", relatedId: "none" });
+  };
+  const editTask = (task: (typeof allTasks)[number]) => {
+    setEditingId(task.id);
+    setForm({
+      title: task.title, description: task.description || "", assignedTo: task.assignedTo,
+      priority: task.priority, dueAt: task.dueAt ? new Date(task.dueAt).toISOString().slice(0, 16) : "",
+      slaHours: task.slaHours ? String(task.slaHours) : "", status: task.status,
+      relatedType: task.relatedType || "none", relatedId: task.relatedId ? String(task.relatedId) : "none",
+    });
+    setOpen(true);
+  };
 
   const createMutation = trpc.tasks.create.useMutation({
     onSuccess: () => {
       toast.success("Tarefa criada!");
       refetch();
       setOpen(false);
-      setForm({
-        title: "",
-        description: "",
-        assignedTo: "sarah",
-        priority: "medium",
-        dueAt: "",
-        slaHours: "",
-      });
+      resetForm();
     },
     onError: e => toast.error(e.message),
   });
@@ -104,13 +125,19 @@ export default function AdminTarefas({
   const updateMutation = trpc.tasks.update.useMutation({
     onSuccess: () => {
       refetch();
+      setOpen(false);
+      resetForm();
     },
     onError: e => toast.error(e.message),
   });
+  const deleteMutation = trpc.tasks.delete.useMutation({
+    onSuccess: () => { toast.success("Tarefa excluída"); setDeletingId(null); refetch(); },
+    onError: e => toast.error(e.message),
+  });
 
-  const pending = tasks.filter(t => t.status === "pending").length;
-  const inProgress = tasks.filter(t => t.status === "in_progress").length;
-  const overdue = tasks.filter(
+  const pending = allTasks.filter(t => t.status === "pending").length;
+  const inProgress = allTasks.filter(t => t.status === "in_progress").length;
+  const overdue = allTasks.filter(
     t =>
       t.dueAt &&
       new Date(t.dueAt) < new Date() &&
@@ -146,16 +173,17 @@ export default function AdminTarefas({
                 </p>
               </div>
             </div>
-            <Dialog open={open} onOpenChange={setOpen}>
-              <DialogTrigger asChild>
-                <Button className="bg-[#C9A961] hover:bg-[#B8985A] text-[#1A2332] font-bold">
-                  <Plus className="h-4 w-4 mr-2" /> Nova Tarefa
-                </Button>
-              </DialogTrigger>
+            <Button onClick={() => { resetForm(); setOpen(true); }} className="bg-[#C9A961] hover:bg-[#B8985A] text-[#1A2332] font-bold">
+              <Plus className="h-4 w-4 mr-2" /> Nova Tarefa
+            </Button>
+          </div>
+        </div>
+      )}
+            <Dialog open={open} onOpenChange={value => { setOpen(value); if (!value) resetForm(); }}>
               <DialogContent className="bg-[#1A2332] border-[#C9A961]/20 text-white">
                 <DialogHeader>
                   <DialogTitle className="text-[#C9A961]">
-                    Criar Tarefa
+                    {editingId ? "Editar Tarefa" : "Criar Tarefa"}
                   </DialogTitle>
                 </DialogHeader>
                 <div className="space-y-4 mt-4">
@@ -232,33 +260,38 @@ export default function AdminTarefas({
                       />
                     </div>
                   </div>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div><Label className="text-gray-200">Status</Label><Select value={form.status} onValueChange={value => setForm(f => ({ ...f, status: value as typeof f.status }))}><SelectTrigger className="bg-[#2C3E50] text-white mt-1"><SelectValue /></SelectTrigger><SelectContent>{Object.entries(STATUS_LABELS).map(([value, label]) => <SelectItem key={value} value={value}>{label}</SelectItem>)}</SelectContent></Select></div>
+                    {!editingId && <div><Label className="text-gray-200">Vincular a</Label><Select value={form.relatedType} onValueChange={value => setForm(f => ({ ...f, relatedType: value, relatedId: "none" }))}><SelectTrigger className="bg-[#2C3E50] text-white mt-1"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="none">Tarefa avulsa</SelectItem><SelectItem value="lead">Lead / cliente</SelectItem><SelectItem value="obra">Obra</SelectItem></SelectContent></Select></div>}
+                  </div>
+                  {!editingId && form.relatedType !== "none" && <div><Label className="text-gray-200">Registro vinculado</Label><Select value={form.relatedId} onValueChange={value => setForm(f => ({ ...f, relatedId: value }))}><SelectTrigger className="bg-[#2C3E50] text-white mt-1"><SelectValue placeholder="Selecione" /></SelectTrigger><SelectContent><SelectItem value="none">Selecione</SelectItem>{form.relatedType === "lead" ? leads.map(lead => <SelectItem key={lead.id} value={String(lead.id)}>{lead.name} (#{lead.id})</SelectItem>) : projects.map(project => <SelectItem key={project.id} value={String(project.id)}>{project.title} (#{project.id})</SelectItem>)}</SelectContent></Select></div>}
                   <Button
-                    onClick={() =>
-                      createMutation.mutate({
-                        ...form,
-                        dueAt: form.dueAt ? new Date(form.dueAt) : undefined,
-                        slaHours: form.slaHours
-                          ? parseInt(form.slaHours)
-                          : undefined,
-                      })
+                    onClick={() => editingId
+                      ? updateMutation.mutate({ id: editingId, title: form.title, description: form.description, assignedTo: form.assignedTo, priority: form.priority, status: form.status, dueAt: form.dueAt || null })
+                      : createMutation.mutate({ title: form.title, description: form.description, assignedTo: form.assignedTo, priority: form.priority, status: form.status, dueAt: form.dueAt ? new Date(form.dueAt) : undefined, slaHours: form.slaHours ? Number(form.slaHours) : undefined, relatedType: form.relatedType === "none" ? undefined : form.relatedType as "lead" | "obra", relatedId: form.relatedId === "none" ? undefined : Number(form.relatedId) })
                     }
-                    disabled={createMutation.isPending || !form.title}
+                    disabled={createMutation.isPending || updateMutation.isPending || form.title.trim().length < 2 || (form.relatedType !== "none" && form.relatedId === "none")}
                     className="w-full bg-[#C9A961] hover:bg-[#B8985A] text-[#1A2332] font-bold"
                   >
-                    Criar Tarefa
+                    {editingId ? "Salvar Tarefa" : "Criar Tarefa"}
                   </Button>
                 </div>
               </DialogContent>
             </Dialog>
-          </div>
-        </div>
-      )}
+            <AlertDialog open={deletingId !== null} onOpenChange={value => { if (!value) setDeletingId(null); }}><AlertDialogContent className="bg-[#1A2332] text-white border-[#C9A961]/40"><AlertDialogHeader><AlertDialogTitle>Excluir tarefa?</AlertDialogTitle><AlertDialogDescription className="text-gray-300">Esta tarefa será removida da lista.</AlertDialogDescription></AlertDialogHeader><AlertDialogFooter><AlertDialogCancel className="text-[#1A2332]">Cancelar</AlertDialogCancel><AlertDialogAction className="bg-red-700 hover:bg-red-800" onClick={() => { if (deletingId !== null) deleteMutation.mutate({ id: deletingId }); }}>Excluir</AlertDialogAction></AlertDialogFooter></AlertDialogContent></AlertDialog>
 
       <div
         className={
           embedded ? "space-y-6" : "max-w-7xl mx-auto px-6 py-6 space-y-6"
         }
       >
+        {embedded && (
+          <div className="flex justify-end">
+            <Button onClick={() => { resetForm(); setOpen(true); }} className="bg-[#C9A961] text-[#1A2332] hover:bg-[#B8985A] font-bold">
+              <Plus className="h-4 w-4 mr-2" /> Nova Tarefa
+            </Button>
+          </div>
+        )}
         {/* Stats */}
         <div className="grid grid-cols-3 gap-4">
           <Card className="bg-[#2C3E50] border-yellow-500/30">
@@ -386,6 +419,8 @@ export default function AdminTarefas({
                         </div>
                       </div>
                       <div className="flex gap-1">
+                        <Button size="sm" variant="outline" aria-label={`Editar tarefa ${task.title}`} onClick={() => editTask(task)} className="text-white"><Pencil className="h-4 w-4" /></Button>
+                        <Button size="sm" variant="outline" aria-label={`Excluir tarefa ${task.title}`} onClick={() => setDeletingId(task.id)} className="text-red-300"><Trash2 className="h-4 w-4" /></Button>
                         {task.status === "pending" && (
                           <Button
                             size="sm"

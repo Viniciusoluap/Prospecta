@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { trpc } from "@/lib/trpc";
+import { LinkedServiceQueue } from "./LinkedServiceQueue";
 import { Button } from "@/components/ui/button";
 import {
   COMMISSION_STATUS,
@@ -63,6 +64,7 @@ export default function AdminComissoes() {
         setOpen(true);
       }}
     >
+      <LinkedServiceQueue module="comissoes" title="Comissões" />
       <div className="grid gap-3 sm:grid-cols-2">
         <Choice
           label="Status"
