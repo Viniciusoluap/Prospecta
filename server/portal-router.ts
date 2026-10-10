@@ -22,6 +22,7 @@ import { requireRole } from "./_core/rbac.js";
 import { adminProcedure, protectedProcedure, router } from "./_core/trpc.js";
 import { getDb } from "./db.js";
 import { storagePut } from "./storage.js";
+import { driveConfigured, readPrivateDocument, uploadPrivateDocument } from "./drive-documents.js";
 import { isClientRole, requireClientContext } from "./profile-context.js";
 
 const visitStatus = z.enum([
@@ -294,7 +295,9 @@ export const portalRouter = router({
           concluidoEm: financiamentoChecklistItems.concluidoEm,
           solicitarDocumento: financiamentoChecklistItems.solicitarDocumento,
           documentoUrl: financiamentoChecklistItems.documentoUrl,
+          documentoDriveFileId: financiamentoChecklistItems.documentoDriveFileId,
           documentoNome: financiamentoChecklistItems.documentoNome,
+          documentoMime: financiamentoChecklistItems.documentoMime,
           enviadoEm: financiamentoChecklistItems.enviadoEm,
         })
         .from(financiamentoChecklistItems)
@@ -351,10 +354,11 @@ export const portalRouter = router({
           message: "Solicitação de documento não encontrada",
         });
       const buffer = Buffer.from(input.base64, "base64");
-      if (!isValidPortalDocument(buffer, input.mimeType)) {
+      const maxSize = driveConfigured() ? 3 * 1024 * 1024 : 10 * 1024 * 1024;
+      if (!isValidPortalDocument(buffer, input.mimeType) || buffer.length > maxSize) {
         throw new TRPCError({
           code: "BAD_REQUEST",
-          message: "Envie PDF, JPG ou PNG válido de até 10 MiB",
+          message: driveConfigured() ? "Envie PDF, JPG ou PNG válido de até 3 MiB" : "Envie PDF, JPG ou PNG válido de até 10 MiB",
         });
       }
       const extension =
@@ -363,21 +367,34 @@ export const portalRouter = router({
           : input.mimeType === "image/png"
             ? "png"
             : "jpg";
-      const { url } = await storagePut(
-        `portal/financiamentos/${userId}/${randomUUID()}.${extension}`,
-        buffer,
-        input.mimeType
-      );
+      const fields = driveConfigured()
+        ? { documentoDriveFileId: await uploadPrivateDocument(leadId, null, "financiamento_checklist", input.fileName, input.mimeType, buffer), documentoUrl: null }
+        : { documentoUrl: (await storagePut(`portal/financiamentos/${userId}/${randomUUID()}.${extension}`, buffer, input.mimeType)).url, documentoDriveFileId: null };
       await db
         .update(financiamentoChecklistItems)
         .set({
-          documentoUrl: url,
+          ...fields,
           documentoNome: input.fileName,
           documentoMime: input.mimeType,
           enviadoEm: new Date(),
         })
         .where(eq(financiamentoChecklistItems.id, request.item.id));
-      return { url };
+      return { url: fields.documentoUrl ?? null };
+    }),
+
+  checklistDocumentContent: protectedProcedure
+    .input(z.object({ checklistItemId: z.number().int().positive() }))
+    .query(async ({ ctx, input }) => {
+      const { leadId } = requireClientContext(ctx.user);
+      const db = getDb();
+      const [row] = await db.select({ item: financiamentoChecklistItems })
+        .from(financiamentoChecklistItems)
+        .innerJoin(financiamentos, eq(financiamentoChecklistItems.financiamentoId, financiamentos.id))
+        .where(and(eq(financiamentoChecklistItems.id, input.checklistItemId), eq(financiamentos.leadId, leadId)))
+        .limit(1);
+      if (!row?.item.documentoDriveFileId) throw new TRPCError({ code: "NOT_FOUND" });
+      const data = await readPrivateDocument(row.item.documentoDriveFileId);
+      return { fileName: row.item.documentoNome ?? "documento", base64: data.toString("base64") };
     }),
 
   dashboard: protectedProcedure.query(async ({ ctx }) => {
@@ -490,35 +507,49 @@ export const portalRouter = router({
           message: "Contrato não encontrado",
         });
       const buffer = Buffer.from(input.base64, "base64");
-      if (!isValidSignedPdf(buffer)) {
+      const maxSize = driveConfigured() ? 3 * 1024 * 1024 : 10 * 1024 * 1024;
+      if (!isValidSignedPdf(buffer) || buffer.length > maxSize) {
         throw new TRPCError({
           code: "BAD_REQUEST",
-          message: "Envie um PDF válido de até 10 MiB",
+          message: driveConfigured() ? "Envie um PDF válido de até 3 MiB" : "Envie um PDF válido de até 10 MiB",
         });
       }
       const safeNumber = contract.number.replace(/[^a-zA-Z0-9_-]/g, "-");
-      const { url } = await storagePut(
-        `portal/contratos/${safeNumber}-${Date.now()}.pdf`,
-        buffer,
-        input.mimeType
-      );
+      const fields = driveConfigured()
+        ? { driveFileId: await uploadPrivateDocument(leadId, null, "juridico", `${safeNumber}-${Date.now()}.pdf`, input.mimeType, buffer), url: null }
+        : { url: (await storagePut(`portal/contratos/${safeNumber}-${Date.now()}.pdf`, buffer, input.mimeType)).url, driveFileId: null };
       await db
         .insert(portalContractDocuments)
         .values({
           contractId: contract.id,
           name: input.fileName,
-          url,
           type: "assinado",
+          ...fields,
         });
       await db
         .update(portalContracts)
         .set({
           signatureStatus: "assinado",
-          signedDocumentUrl: url,
+          signedDocumentUrl: fields.url,
           updatedAt: new Date(),
         })
         .where(eq(portalContracts.id, contract.id));
-      return { url };
+      return { url: fields.url ?? null };
+    }),
+
+  contractDocumentContent: protectedProcedure
+    .input(z.object({ id: z.number().int().positive() }))
+    .query(async ({ ctx, input }) => {
+      const leadId = clientLeadId(ctx);
+      const db = getDb();
+      const [row] = await db.select({ document: portalContractDocuments })
+        .from(portalContractDocuments)
+        .innerJoin(portalContracts, eq(portalContractDocuments.contractId, portalContracts.id))
+        .where(and(eq(portalContractDocuments.id, input.id), eq(portalContracts.leadId, leadId)))
+        .limit(1);
+      if (!row?.document.driveFileId) throw new TRPCError({ code: "NOT_FOUND" });
+      const data = await readPrivateDocument(row.document.driveFileId);
+      return { fileName: row.document.name, base64: data.toString("base64") };
     }),
 
   messages: protectedProcedure

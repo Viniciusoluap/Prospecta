@@ -6,6 +6,7 @@ import { ASSINATURA_STATUS, CONTRATO_STATUS, contratoInputSchema } from "../shar
 import { adminProcedure, router } from "./_core/trpc.js";
 import { getDb } from "./db.js";
 import { storagePut } from "./storage.js";
+import { driveConfigured, readPrivateDocument, uploadPrivateDocument } from "./drive-documents.js";
 
 const documentType = z.enum(["contrato_gerado", "assinado", "anexo"]);
 
@@ -104,15 +105,28 @@ export const juridicoRouter = router({
     const [contract] = await db.select().from(portalContracts).where(eq(portalContracts.id, input.contractId)).limit(1);
     if (!contract) throw new TRPCError({ code: "NOT_FOUND", message: "Contrato não encontrado" });
     const buffer = Buffer.from(input.base64, "base64");
-    if (!isValidContractPdf(buffer)) throw new TRPCError({ code: "BAD_REQUEST", message: "Envie um PDF válido de até 10 MiB" });
+    const maxSize = driveConfigured() ? 3 * 1024 * 1024 : 10 * 1024 * 1024;
+    if (!isValidContractPdf(buffer) || buffer.length > maxSize) {
+      throw new TRPCError({ code: "BAD_REQUEST", message: driveConfigured() ? "Envie um PDF válido de até 3 MiB" : "Envie um PDF válido de até 10 MiB" });
+    }
     const safeNumber = contract.number.replace(/[^a-zA-Z0-9_-]/g, "-");
-    const { url } = await storagePut(`juridico/${safeNumber}-${Date.now()}.pdf`, buffer, "application/pdf");
-    const [document] = await db.insert(portalContractDocuments).values({ contractId: input.contractId, name: input.name, type: input.type, url }).returning();
+    const fileName = `${safeNumber}-${Date.now()}.pdf`;
+    const fields = contract.leadId && driveConfigured()
+      ? { driveFileId: await uploadPrivateDocument(contract.leadId, null, "juridico", fileName, "application/pdf", buffer), url: null }
+      : { url: (await storagePut(`juridico/${fileName}`, buffer, "application/pdf")).url, driveFileId: null };
+    const [document] = await db.insert(portalContractDocuments).values({ contractId: input.contractId, name: input.name, type: input.type, ...fields }).returning();
     if (input.type === "assinado") {
-      await db.update(portalContracts).set({ signatureStatus: "assinado", signedDocumentUrl: url, updatedAt: new Date() })
+      await db.update(portalContracts).set({ signatureStatus: "assinado", signedDocumentUrl: fields.url, updatedAt: new Date() })
         .where(eq(portalContracts.id, input.contractId));
     }
     return document;
+  }),
+
+  documentContent: adminProcedure.input(z.object({ id: z.number().int().positive() })).query(async ({ input }) => {
+    const [document] = await getDb().select().from(portalContractDocuments).where(eq(portalContractDocuments.id, input.id)).limit(1);
+    if (!document?.driveFileId) throw new TRPCError({ code: "NOT_FOUND" });
+    const data = await readPrivateDocument(document.driveFileId);
+    return { fileName: document.name, base64: data.toString("base64") };
   }),
 
   deleteDocument: adminProcedure.input(z.object({ id: z.number().int().positive() })).mutation(async ({ input }) => {

@@ -74,6 +74,21 @@ export default function AdminFinanciamentos() {
   );
   const { data: options } = trpc.financiamentos.options.useQuery();
 
+  async function abrirDocumento(id: number, nome: string) {
+    try {
+      const content = await utils.financiamentos.checklistDocumentContent.fetch({ id });
+      const bytes = Uint8Array.from(atob(content.base64), char => char.charCodeAt(0));
+      const url = URL.createObjectURL(new Blob([bytes]));
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = nome || "documento";
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.setTimeout(() => URL.revokeObjectURL(url), 60_000);
+    } catch (error) { toast.error(error instanceof Error ? error.message : "Falha ao consultar documento"); }
+  }
+
   const criar = trpc.financiamentos.create.useMutation({
     onSuccess: async item => {
       await utils.financiamentos.list.invalidate();
@@ -503,7 +518,17 @@ export default function AdminFinanciamentos() {
                         />
                         <Upload className="h-4 w-4" /> Solicitar documento
                       </label>
-                      {item.documentoUrl && (
+                      {item.documentoDriveFileId && (
+                        <button
+                          type="button"
+                          onClick={() => void abrirDocumento(item.id, item.documentoNome || "documento")}
+                          className="ml-auto inline-flex items-center gap-1 text-[#C9A961] underline"
+                        >
+                          <Download className="h-4 w-4" />
+                          {item.documentoNome || "Documento enviado"}
+                        </button>
+                      )}
+                      {item.documentoUrl && !item.documentoDriveFileId && (
                         <a
                           href={item.documentoUrl}
                           target="_blank"

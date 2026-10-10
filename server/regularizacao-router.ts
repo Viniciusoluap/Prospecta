@@ -9,6 +9,7 @@ import { adminProcedure, router } from "./_core/trpc.js";
 import { getDb } from "./db.js";
 import { storagePut } from "./storage.js";
 import { attachCompletedProcess } from "./lead-services-router.js";
+import { driveConfigured, readPrivateDocument, uploadPrivateDocument } from "./drive-documents.js";
 
 const statusSchema = z.enum([
   "analysis",
@@ -188,25 +189,39 @@ export const regularizacaoRouter = router({
           throw new TRPCError({ code: "NOT_FOUND", message: "Documento não encontrado" });
         }
 
+        const maxSize = driveConfigured() ? 3 * 1024 * 1024 : 10 * 1024 * 1024;
         const buffer = Buffer.from(input.base64, "base64");
-        if (buffer.length > 10 * 1024 * 1024) {
-          throw new TRPCError({ code: "PAYLOAD_TOO_LARGE", message: "O arquivo deve ter no máximo 10 MB" });
+        if (buffer.length > maxSize) {
+          throw new TRPCError({ code: "PAYLOAD_TOO_LARGE", message: driveConfigured() ? "O arquivo deve ter no máximo 3 MiB" : "O arquivo deve ter no máximo 10 MB" });
         }
         const safeName = input.fileName.replace(/[^a-zA-Z0-9._-]/g, "-");
-        const { url } = await storagePut(
-          `regularizacoes/${document.regularizacaoId}/${Date.now()}-${safeName}`,
-          buffer,
-          input.mimeType,
-        );
+        const [regularizacao] = await getDb().select({ leadId: regularizacoes.leadId })
+          .from(regularizacoes).where(eq(regularizacoes.id, document.regularizacaoId)).limit(1);
+        const fields = regularizacao?.leadId && driveConfigured()
+          ? { driveFileId: await uploadPrivateDocument(regularizacao.leadId, null, "regularizacao", safeName, input.mimeType, buffer), fileUrl: null }
+          : { fileUrl: (await storagePut(
+              `regularizacoes/${document.regularizacaoId}/${Date.now()}-${safeName}`,
+              buffer,
+              input.mimeType,
+            )).url, driveFileId: null };
         const [updated] = await getDb()
           .update(regularizacaoDocuments)
-          .set({ fileUrl: url, status: "received", updatedAt: new Date() })
+          .set({ ...fields, status: "received", updatedAt: new Date() })
           .where(and(
             eq(regularizacaoDocuments.id, input.id),
             eq(regularizacaoDocuments.regularizacaoId, document.regularizacaoId),
           ))
           .returning();
         return updated;
+      }),
+
+    content: adminProcedure
+      .input(z.object({ id: z.number().int().positive() }))
+      .query(async ({ input }) => {
+        const [document] = await getDb().select().from(regularizacaoDocuments).where(eq(regularizacaoDocuments.id, input.id)).limit(1);
+        if (!document?.driveFileId) throw new TRPCError({ code: "NOT_FOUND" });
+        const data = await readPrivateDocument(document.driveFileId);
+        return { fileName: document.name, base64: data.toString("base64") };
       }),
 
     remove: adminProcedure

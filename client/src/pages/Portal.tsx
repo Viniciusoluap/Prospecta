@@ -70,9 +70,22 @@ async function toBase64(file: File): Promise<string> {
   });
 }
 
+async function openDocument(base64: string, mimeType: string, fileName: string) {
+  const bytes = Uint8Array.from(atob(base64), char => char.charCodeAt(0));
+  const url = URL.createObjectURL(new Blob([bytes], { type: mimeType }));
+  const link = window.document.createElement("a");
+  link.href = url;
+  link.download = fileName || "documento";
+  window.document.body.appendChild(link);
+  link.click();
+  link.remove();
+  window.setTimeout(() => URL.revokeObjectURL(url), 60_000);
+}
+
 export default function Portal() {
   const [path] = useLocation();
   const { user, logout } = useAuth();
+  const utils = trpc.useUtils();
   const navigation = trpc.portal.navigation.useQuery();
   const workId = routeId(path, "/portal/obras/");
   const financingId = routeId(path, "/portal/financiamento/");
@@ -466,7 +479,21 @@ export default function Portal() {
                             <p className="text-xs text-slate-500 mt-1">
                               {item.grupo}
                             </p>
-                            {item.documentoNome && (
+                            {item.documentoNome && item.documentoDriveFileId && (
+                              <button
+                                type="button"
+                                className="text-sm underline mt-2 inline-flex items-center gap-1"
+                                onClick={() => {
+                                  void utils.portal.checklistDocumentContent.fetch({ checklistItemId: item.id }).then(content =>
+                                    openDocument(content.base64, item.documentoMime || "application/octet-stream", content.fileName)
+                                  ).catch(() => toast.error("Falha ao consultar documento"));
+                                }}
+                              >
+                                <Download className="h-4 w-4" />
+                                {item.documentoNome}
+                              </button>
+                            )}
+                            {item.documentoNome && !item.documentoDriveFileId && (
                               <a
                                 className="text-sm underline mt-2 inline-flex items-center gap-1"
                                 href={item.documentoUrl ?? "#"}
@@ -487,7 +514,7 @@ export default function Portal() {
                               disabled={uploadFinancing.isPending}
                             >
                               <Upload className="h-4 w-4 mr-2" />
-                              {item.documentoUrl
+                              {item.documentoUrl || item.documentoDriveFileId
                                 ? "Substituir documento"
                                 : "Enviar documento"}
                             </Button>
@@ -578,10 +605,24 @@ export default function Portal() {
                     </div>
                   </CardHeader>
                   <CardContent className="space-y-3">
-                    {contract.documents.map(document => (
+                    {contract.documents.map(document => document.driveFileId ? (
+                      <button
+                        key={document.id}
+                        type="button"
+                        onClick={() => {
+                          void utils.portal.contractDocumentContent.fetch({ id: document.id }).then(content =>
+                            openDocument(content.base64, "application/pdf", content.fileName)
+                          ).catch(() => toast.error("Falha ao consultar documento"));
+                        }}
+                        className="flex items-center gap-2 text-sm underline"
+                      >
+                        <Download className="h-4 w-4" />
+                        {document.name}
+                      </button>
+                    ) : (
                       <a
                         key={document.id}
-                        href={document.url}
+                        href={document.url ?? "#"}
                         target="_blank"
                         rel="noreferrer"
                         className="flex items-center gap-2 text-sm underline"
