@@ -12,9 +12,11 @@ describe("EPIC-012 S-07 (Etapa 5) - Tela admin de Agregador/Feeds", () => {
     expect(procedures["agregador.importarParaCatalogo"]).toBeDefined();
   });
 
-  it("corretor sem a permissao agregador nao acessa o modulo", () => {
+  it("permissao imoveis acessa a captação consolidada, mas permissão alheia não", () => {
     const corretor = { role: "corretor", permissions: JSON.stringify(["imoveis"]) };
-    expect(canAccessAdminProcedure(corretor, "agregador.list")).toBe(false);
+    const semAcesso = { role: "corretor", permissions: JSON.stringify(["crm"]) };
+    expect(canAccessAdminProcedure(corretor, "agregador.list")).toBe(true);
+    expect(canAccessAdminProcedure(semAcesso, "agregador.list")).toBe(false);
   });
 
   it("colaborador com a permissao agregador acessa o modulo", () => {

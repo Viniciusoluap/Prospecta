@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useRoute, Link } from "wouter";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
@@ -57,14 +57,24 @@ export default function ComprarBilhete() {
     },
   });
 
-  const confirmPaymentMutation = trpc.tickets.confirmPayment.useMutation({
-    onSuccess: () => {
+  // O pagamento so e confirmado pelo webhook real do Asaas - esta tela apenas
+  // consulta o status (nunca o define). Poll enquanto o bilhete estiver pendente.
+  const { data: statusData } = trpc.tickets.getStatus.useQuery(
+    { ticketId: ticketId! },
+    { enabled: purchaseComplete && ticketId !== null, refetchInterval: 5000 },
+  );
+  const paymentStatus = statusData?.paymentStatus;
+
+  useEffect(() => {
+    if (paymentStatus === "confirmed") {
       toast.success("Pagamento confirmado! Boa sorte no sorteio!");
       setTimeout(() => {
         window.location.href = "/meus-bilhetes";
       }, 2000);
-    },
-  });
+    } else if (paymentStatus === "failed") {
+      toast.error("Pagamento não foi concluído.");
+    }
+  }, [paymentStatus]);
 
   const handlePurchase = () => {
     if (!isAuthenticated) {
@@ -84,11 +94,6 @@ export default function ComprarBilhete() {
     toast.success("Código PIX copiado!");
   };
 
-  const handleConfirmPayment = () => {
-    if (ticketId) {
-      confirmPaymentMutation.mutate({ ticketId });
-    }
-  };
 
   if (isLoading) {
     return (
@@ -294,15 +299,16 @@ export default function ComprarBilhete() {
               </CardContent>
               
               <CardFooter className="flex-col gap-3">
-                <Button 
-                  onClick={handleConfirmPayment}
-                  disabled={confirmPaymentMutation.isPending}
-                  className="w-full bg-[#00FF00] hover:bg-[#00dd00] text-black font-bold text-lg py-6 h-auto"
-                >
-                  {confirmPaymentMutation.isPending ? "Confirmando..." : "Já Paguei - Confirmar Pagamento"}
-                </Button>
+                <div className="w-full flex items-center justify-center gap-2 bg-[#2C3E50] border border-[#C9A961]/30 rounded-lg py-4">
+                  <Skeleton className="h-4 w-4 rounded-full" />
+                  <span className="text-gray-300 text-sm">
+                    {paymentStatus === "failed"
+                      ? "Pagamento não foi concluído."
+                      : "Aguardando confirmação automática do pagamento..."}
+                  </span>
+                </div>
                 <p className="text-xs text-gray-400 text-center">
-                  Simulação: Clique acima para confirmar o pagamento (em produção, seria automático via webhook)
+                  A confirmação é automática assim que o pagamento é processado - não é necessário fazer nada.
                 </p>
               </CardFooter>
             </Card>

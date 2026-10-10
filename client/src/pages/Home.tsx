@@ -134,7 +134,7 @@ export default function Home() {
                 <CardContent className="p-6">
                   <div className="aspect-video rounded-lg mb-4 overflow-hidden">
                     <img 
-                      src="/casa-compacta-47m2.jpg" 
+                      src="/casa-compacta-linha-smart.jpg"
                       alt="Casa Compacta - Linha Smart" 
                       className="w-full h-full object-cover"
                     />
@@ -155,7 +155,7 @@ export default function Home() {
                 <CardContent className="p-6">
                   <div className="aspect-video rounded-lg mb-4 overflow-hidden">
                     <img 
-                      src="https://images.unsplash.com/photo-1600596542815-ffad4c1539a9?w=600&h=400&fit=crop" 
+                      src="/casa-concept-linha-plus.jpg"
                       alt="Casa Concept - Linha Plus" 
                       className="w-full h-full object-cover"
                     />
@@ -176,7 +176,7 @@ export default function Home() {
                 <CardContent className="p-6">
                   <div className="aspect-video rounded-lg mb-4 overflow-hidden">
                     <img 
-                      src="https://images.unsplash.com/photo-1600566753190-17f0baa2a6c3?w=600&h=400&fit=crop" 
+                      src="/casa-luxo-linha-premium.jpg"
                       alt="Casa Luxo - Linha Premium" 
                       className="w-full h-full object-cover"
                     />
@@ -357,14 +357,6 @@ export default function Home() {
                 <img 
                   src="/logo-itau.png" 
                   alt="Itaú" 
-                  className="h-12 md:h-16 object-contain"
-                />
-              </div>
-              {/* Logo Exclusive Club */}
-              <div className="grayscale hover:grayscale-0 transition-all flex items-center gap-2">
-                <img 
-                  src="https://d2xsxph8kpxj0f.cloudfront.net/310419663028705863/XKiYeWQckm4y8ZFAdaZbRn/exclusive-club-logo_7a4d7eae.png" 
-                  alt="Exclusive Club" 
                   className="h-12 md:h-16 object-contain"
                 />
               </div>
@@ -976,8 +968,8 @@ export default function Home() {
               <h3 className="font-bold text-primary mb-4">Endereços</h3>
               <div className="text-white/70 text-sm space-y-3">
                 <p>
-                  📍 Leôncio Pires Dourado, 840A<br />
-                  Bacuri - Imperatriz - MA
+                  📍 R. Gonçalves Dias, 1993 - Juçara<br />
+                  Imperatriz - MA, 65900-545
                 </p>
                 <p>
                   📍 Avenida JK, 103<br />

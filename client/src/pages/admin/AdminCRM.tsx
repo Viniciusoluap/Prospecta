@@ -13,22 +13,12 @@ import { Textarea } from "@/components/ui/textarea";
 import { toast } from "sonner";
 import {
   Users, Plus, Search, Filter, Phone, Mail, MapPin,
-  Thermometer, User, ArrowLeft, Flame, Snowflake, TrendingUp
+  Thermometer, User, ArrowLeft, Flame, Snowflake, TrendingUp, Trash2, RotateCcw
 } from "lucide-react";
+import { LEAD_SERVICE_LABELS, LEAD_SERVICE_PRIMARY_TYPES, type LeadServiceType } from "../../../../shared/lead-services";
+import { LEAD_PIPELINE_STAGES, LEGACY_STAGE_LABELS } from "../../../../shared/lead-pipeline";
 
-const STAGES = [
-  { key: "lead_new", label: "Lead Novo", color: "bg-gray-500" },
-  { key: "attending", label: "Em Atendimento", color: "bg-blue-500" },
-  { key: "waiting_docs", label: "Aguardando Docs", color: "bg-yellow-500" },
-  { key: "analysis", label: "Em Análise", color: "bg-orange-500" },
-  { key: "caixa_register", label: "Cadastro Caixa", color: "bg-purple-500" },
-  { key: "approval", label: "Em Aprovação", color: "bg-indigo-500" },
-  { key: "approved", label: "Aprovado", color: "bg-green-500" },
-  { key: "rejected", label: "Reprovado", color: "bg-red-500" },
-  { key: "followup", label: "Follow-up", color: "bg-pink-500" },
-  { key: "in_process", label: "Cliente em Processo", color: "bg-teal-500" },
-  { key: "done", label: "Concluído", color: "bg-gray-400" },
-];
+const STAGES = LEAD_PIPELINE_STAGES;
 
 const TEMP_COLORS: Record<string, string> = {
   cold: "text-blue-400",
@@ -62,25 +52,36 @@ export default function AdminCRM() {
   const [filterTemp, setFilterTemp] = useState<string>("all");
   const [filterResp, setFilterResp] = useState<string>("all");
   const [viewMode, setViewMode] = useState<"pipeline" | "list">("pipeline");
+  const [showDeleted, setShowDeleted] = useState(false);
   const [newLeadOpen, setNewLeadOpen] = useState(false);
   const [newLead, setNewLead] = useState({
     name: "", phone: "", email: "", city: "", state: "",
-    income: "", incomeType: "formal" as any, notes: "", type: "new_lead" as any,
+    income: "", incomeType: "formal" as any, notes: "", type: "new_lead" as any, services: [] as LeadServiceType[],
   });
 
   const { data: leads = [], refetch } = trpc.leads.list.useQuery({
+    includeDeleted: showDeleted,
     stage: filterStage !== "all" ? filterStage : undefined,
     responsible: filterResp !== "all" ? filterResp : undefined,
     temperature: filterTemp !== "all" ? filterTemp : undefined,
   });
 
   const { data: stats } = trpc.leads.stats.useQuery();
+  const utils = trpc.useUtils();
+  const softDelete = trpc.leads.softDelete.useMutation({
+    onSuccess: async () => { toast.success("Lead arquivado. Os vínculos e históricos foram preservados."); await Promise.all([refetch(), utils.leads.stats.invalidate()]); },
+    onError: err => toast.error(err.message),
+  });
+  const restore = trpc.leads.restore.useMutation({
+    onSuccess: async () => { toast.success("Lead recuperado."); await Promise.all([refetch(), utils.leads.stats.invalidate()]); },
+    onError: err => toast.error(err.message),
+  });
 
   const createMutation = trpc.leads.create.useMutation({
     onSuccess: () => {
       toast.success("Lead criado com sucesso!");
       setNewLeadOpen(false);
-      setNewLead({ name: "", phone: "", email: "", city: "", state: "", income: "", incomeType: "formal", notes: "", type: "new_lead" });
+      setNewLead({ name: "", phone: "", email: "", city: "", state: "", income: "", incomeType: "formal", notes: "", type: "new_lead", services: [] });
       refetch();
     },
     onError: (err) => toast.error(err.message),
@@ -94,14 +95,35 @@ export default function AdminCRM() {
   if (user?.role !== "admin") return null;
 
   const handleCreate = () => {
-    if (!newLead.name || !newLead.phone) {
-      toast.error("Nome e telefone são obrigatórios");
+    if (!newLead.name) {
+      toast.error("Nome é obrigatório");
       return;
     }
-    createMutation.mutate(newLead as any);
+    createMutation.mutate({ ...newLead, phone: newLead.phone || undefined, email: newLead.email || undefined, city: newLead.city || undefined, state: newLead.state || undefined, income: newLead.income || undefined, notes: newLead.notes || undefined } as any);
+  };
+
+  const toggleService = (service: LeadServiceType) => {
+    setNewLead(current => ({
+      ...current,
+      services: current.services.includes(service)
+        ? current.services.filter(item => item !== service)
+        : [...current.services, service],
+    }));
   };
 
   const getLeadsByStage = (stage: string) => filtered.filter(l => l.stage === stage);
+  const pendingClassification = filtered.filter(l => l.stageClassificationPending && !l.deletedAt);
+  const archiveLead = async (lead: typeof leads[number]) => {
+    try {
+      const links = await utils.leads.deletionContext.fetch({ id: lead.id });
+      const details = `${links.services} serviço(s), ${links.projects} obra(s) e ${links.accounts} conta(s) vinculadas`;
+      if (window.confirm(`Excluir logicamente o lead ${lead.name}?\n${details}. Os registros vinculados e históricos serão preservados.`)) {
+        softDelete.mutate({ id: lead.id });
+      }
+    } catch (error) {
+      toast.error("Não foi possível verificar os vínculos deste lead.");
+    }
+  };
 
   return (
     <div className="min-h-screen bg-[#0F1419]">
@@ -119,6 +141,10 @@ export default function AdminCRM() {
             </div>
           </div>
           <div className="flex gap-2">
+            <Button variant="outline" size="sm" onClick={() => { setShowDeleted(v => !v); setViewMode("list"); }}
+              className="border-white/20 text-white">
+              {showDeleted ? "Ocultar arquivados" : "Ver arquivados"}
+            </Button>
             <Button
               variant={viewMode === "pipeline" ? "default" : "outline"}
               size="sm"
@@ -153,7 +179,7 @@ export default function AdminCRM() {
                         placeholder="Nome completo" className="bg-white/10 border-white/20 text-white" />
                     </div>
                     <div>
-                      <Label className="text-gray-300">Telefone *</Label>
+                      <Label className="text-gray-300">Telefone</Label>
                       <Input value={newLead.phone} onChange={e => setNewLead(p => ({ ...p, phone: e.target.value }))}
                         placeholder="(99) 99999-9999" className="bg-white/10 border-white/20 text-white" />
                     </div>
@@ -210,6 +236,25 @@ export default function AdminCRM() {
                     </Select>
                   </div>
                   <div>
+                    <Label className="text-gray-300">Serviços solicitados</Label>
+                    <p className="text-xs text-gray-400 mt-1">Selecione todos os serviços deste cliente. Os dados operacionais serão preenchidos no respectivo módulo.</p>
+                    <div className="mt-2 grid grid-cols-2 gap-2 max-h-44 overflow-y-auto pr-1">
+                      {LEAD_SERVICE_PRIMARY_TYPES.map(service => {
+                        const selected = newLead.services.includes(service);
+                        return (
+                          <button
+                            key={service}
+                            type="button"
+                            onClick={() => toggleService(service)}
+                            className={`rounded border px-2 py-2 text-left text-xs transition-colors ${selected ? "border-[#C9A961] bg-[#C9A961]/15 text-[#F4D37D]" : "border-white/15 bg-white/5 text-gray-300 hover:bg-white/10"}`}
+                          >
+                            {selected ? "✓ " : ""}{LEAD_SERVICE_LABELS[service]}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                  <div>
                     <Label className="text-gray-300">Observações</Label>
                     <Textarea value={newLead.notes} onChange={e => setNewLead(p => ({ ...p, notes: e.target.value }))}
                       placeholder="Informações adicionais..." rows={3}
@@ -252,7 +297,7 @@ export default function AdminCRM() {
               <TrendingUp className="h-8 w-8 text-green-500" />
               <div>
                 <p className="text-2xl font-bold text-white">{stats.approved}</p>
-                <p className="text-xs text-gray-400">Aprovados</p>
+                <p className="text-xs text-gray-400">Aprovado e Follow up</p>
               </div>
             </CardContent>
           </Card>
@@ -260,8 +305,8 @@ export default function AdminCRM() {
             <CardContent className="p-4 flex items-center gap-3">
               <User className="h-8 w-8 text-purple-400" />
               <div>
-                <p className="text-2xl font-bold text-white">{stats.rejected}</p>
-                <p className="text-xs text-gray-400">Reprovados</p>
+                <p className="text-2xl font-bold text-white">{pendingClassification.length}</p>
+                <p className="text-xs text-gray-400">A classificar</p>
               </div>
             </CardContent>
           </Card>
@@ -275,6 +320,15 @@ export default function AdminCRM() {
           <Input value={search} onChange={e => setSearch(e.target.value)}
             placeholder="Buscar lead..." className="pl-9 bg-[#1A2332] border-white/20 text-white" />
         </div>
+        <Select value={filterStage} onValueChange={setFilterStage}>
+          <SelectTrigger className="w-48 bg-[#1A2332] border-white/20 text-white">
+            <SelectValue placeholder="Etapa" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">Todas as etapas</SelectItem>
+            {STAGES.map(stage => <SelectItem key={stage.key} value={stage.key}>{stage.label}</SelectItem>)}
+          </SelectContent>
+        </Select>
         <Select value={filterTemp} onValueChange={setFilterTemp}>
           <SelectTrigger className="w-36 bg-[#1A2332] border-white/20 text-white">
             <SelectValue placeholder="Temperatura" />
@@ -299,13 +353,33 @@ export default function AdminCRM() {
         </Select>
       </div>
 
+      {pendingClassification.length > 0 && (
+        <div className="container mx-auto px-4 pb-5">
+          <Card className="border-amber-500/40 bg-amber-500/10 text-white">
+            <CardContent className="p-4">
+              <p className="font-semibold">{pendingClassification.length} lead(s) aguardam classificação na nova sequência</p>
+              <p className="text-sm text-gray-300 mt-1">A etapa anterior foi preservada. Abra cada cadastro para selecionar a etapa correta.</p>
+              <div className="flex flex-wrap gap-2 mt-3">
+                {pendingClassification.map(lead => (
+                  <Link key={lead.id} href={`/admin/crm/${lead.id}`}>
+                    <Button variant="outline" size="sm" className="border-amber-500/40 text-white">
+                      {lead.name} · {LEGACY_STAGE_LABELS[lead.legacyStage || lead.stage] || lead.legacyStage || lead.stage}
+                    </Button>
+                  </Link>
+                ))}
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+      )}
+
       {/* Pipeline View */}
       {viewMode === "pipeline" && (
         <div className="container mx-auto px-4 pb-8">
           <div className="overflow-x-auto">
             <div className="flex gap-4 min-w-max">
               {STAGES.map(stage => {
-                const stageLeads = getLeadsByStage(stage.key);
+                const stageLeads = getLeadsByStage(stage.key).filter(lead => !lead.stageClassificationPending && !lead.deletedAt);
                 return (
                   <div key={stage.key} className="w-64 flex-shrink-0">
                     <div className="flex items-center gap-2 mb-3">
@@ -377,6 +451,7 @@ export default function AdminCRM() {
                     <th className="text-left p-4 text-xs text-gray-400 font-medium">TEMP.</th>
                     <th className="text-left p-4 text-xs text-gray-400 font-medium">RESP.</th>
                     <th className="text-left p-4 text-xs text-gray-400 font-medium">RENDA</th>
+                    <th className="text-left p-4 text-xs text-gray-400 font-medium">AÇÕES</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -390,10 +465,10 @@ export default function AdminCRM() {
                         <td className="p-4 text-gray-400 text-sm">{lead.phone}</td>
                         <td className="p-4 text-gray-400 text-sm">{lead.city || "—"}</td>
                         <td className="p-4">
-                          {stage && (
+                          {(stage || lead.stageClassificationPending) && (
                             <div className="flex items-center gap-2">
-                              <div className={`h-2 w-2 rounded-full ${stage.color}`} />
-                              <span className="text-xs text-gray-300">{stage.label}</span>
+                              <div className={`h-2 w-2 rounded-full ${stage?.color || "bg-amber-500"}`} />
+                              <span className="text-xs text-gray-300">{lead.stageClassificationPending ? `Classificar: ${LEGACY_STAGE_LABELS[lead.legacyStage || lead.stage] || lead.legacyStage || lead.stage}` : stage?.label}</span>
                             </div>
                           )}
                         </td>
@@ -407,12 +482,25 @@ export default function AdminCRM() {
                         <td className="p-4 text-[#C9A961] text-sm">
                           {lead.income ? `R$ ${Number(lead.income).toLocaleString("pt-BR")}` : "—"}
                         </td>
+                        <td className="p-4">
+                          {lead.deletedAt ? (
+                            <Button variant="outline" size="sm" className="text-white border-white/20" disabled={restore.isPending}
+                              onClick={e => { e.stopPropagation(); restore.mutate({ id: lead.id }); }} aria-label={`Recuperar ${lead.name}`}>
+                              <RotateCcw className="h-4 w-4 mr-1" /> Recuperar
+                            </Button>
+                          ) : (
+                            <Button variant="outline" size="sm" className="text-red-300 border-red-400/30" disabled={softDelete.isPending}
+                              onClick={e => { e.stopPropagation(); archiveLead(lead); }} aria-label={`Excluir ${lead.name}`}>
+                              <Trash2 className="h-4 w-4 mr-1" /> Excluir
+                            </Button>
+                          )}
+                        </td>
                       </tr>
                     );
                   })}
                   {filtered.length === 0 && (
                     <tr>
-                      <td colSpan={7} className="p-8 text-center text-gray-500">
+                      <td colSpan={8} className="p-8 text-center text-gray-500">
                         Nenhum lead encontrado
                       </td>
                     </tr>

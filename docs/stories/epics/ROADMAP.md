@@ -26,6 +26,8 @@
 | EPIC-010 | Páginas institucionais (serviços/sobre/contato/mercado/cursos/instituto) | Claude | Done (S-01, S-02) | — |
 | EPIC-011 | Prontidão operacional e sessão de produção | Codex | Done (login validado pelo proprietário em 09/09/2026) | — |
 | EPIC-012 | Paridade real, navegação e arquitetura financeira | Codex / AIOX | Em andamento (S-01 a S-07, S-09, S-10 e S-11 Done; Etapas 3/P0, 4/P1, 5/P2, RBAC legado e plano de correção C1+C2 (comissões unificadas + navegação) concluídos; S-08/UAT em produção pendente) | EPIC-000 a EPIC-011 |
+| EPIC-015 | Consolidação operacional, serviços e navegação | Codex / AIOX | Ready (S-01 a S-08 planejadas) | EPIC-012, EPIC-014 |
+| EPIC-016 | Portais segmentados por perfil | Codex / AIOX | Draft (estrutura e stories planejadas; nenhuma implementação iniciada) | EPIC-002, EPIC-009, EPIC-015 |
 
 ## Decisões do dono do produto (06/09/2026)
 

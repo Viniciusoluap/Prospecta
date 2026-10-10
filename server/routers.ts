@@ -1,17 +1,29 @@
 import { COOKIE_NAME } from "../shared/const.js";
 import { getSessionCookieOptions } from "./_core/cookies.js";
 import { systemRouter } from "./_core/systemRouter.js";
-import { adminProcedure, publicProcedure, protectedProcedure, router } from "./_core/trpc.js";
+import {
+  adminProcedure,
+  publicProcedure,
+  protectedProcedure,
+  router,
+} from "./_core/trpc.js";
 import { z } from "zod";
 import { notifyOwner } from "./_core/notification.js";
 import { stripe } from "./_core/stripe.js";
-import { createAsaasPayment, getAsaasPixQrCode, createOrUpdateAsaasCustomer } from "./_core/asaas.js";
+import {
+  createAsaasPayment,
+  getAsaasPixQrCode,
+  createOrUpdateAsaasCustomer,
+} from "./_core/asaas.js";
 import { ENV } from "./_core/env.js";
-import QRCode from "qrcode";
 import * as db from "./db.js";
 import { TRPCError } from "@trpc/server";
 import { validateCPF, cleanCPF } from "../shared/cpf.js";
-import { getChecklistGroups, getEstadoGeralOptions, CHECKLIST_MAX_FOTOS } from "../shared/avaliacao-checklist.js";
+import {
+  getChecklistGroups,
+  getEstadoGeralOptions,
+  CHECKLIST_MAX_FOTOS,
+} from "../shared/avaliacao-checklist.js";
 import { gerarSugestaoValor } from "./_core/avaliacao-ia.js";
 import { scrapeUrl } from "./_core/imovel-scraper.js";
 import { paymentSettingsRouter } from "./payment-settings-router.js";
@@ -20,74 +32,48 @@ import { portalRouter } from "./portal-router.js";
 import { whatsappRouter } from "./whatsapp-router.js";
 import { requireRole } from "./_core/rbac.js";
 import { encryptSecret, decryptSecret } from "./_core/secret-vault.js";
-import { authenticatePluggy, fetchPluggyTransactions, fetchPluggyAccountBalance } from "./_core/pluggy.js";
+import {
+  authenticatePluggy,
+  fetchPluggyTransactions,
+  fetchPluggyAccountBalance,
+} from "./_core/pluggy.js";
 import { parseKmlTerreno } from "./_core/geo/kml.js";
 import { fetchElevationGrid } from "./_core/geo/elevacao.js";
 import { pesquisarMercado } from "./_core/incorporacao/mercado-ia.js";
 import { financiamentoRouter } from "./financiamento-router.js";
 import { juridicoRouter } from "./juridico-router.js";
-import { agendaRouter, corretoresRouter, comissoesRouter, projetosRouter, mapaRouter } from "./operacional-router.js";
+import {
+  agendaRouter,
+  corretoresRouter,
+  comissoesRouter,
+  projetosRouter,
+  mapaRouter,
+} from "./operacional-router.js";
 import { configuracoesRouter } from "./configuracoes-router.js";
 import { relatoriosRouter } from "./relatorios-router.js";
+import { taxRouter } from "./tax-router.js";
+import {
+  createLeadServiceWithAutomation,
+  ensureLeadServicesSchema,
+  leadServicesRouter,
+} from "./lead-services-router.js";
+import { leadServices } from "../drizzle/schema.js";
+import {
+  LEAD_SERVICE_MODULE,
+  LEAD_SERVICE_TYPES,
+} from "../shared/lead-services.js";
+import {
+  calculateUtefBonus,
+  extractLotteryTargetNumber,
+  pickWinningNumber,
+} from "../shared/raffle.js";
+import { brokerPortalRouter } from "./broker-portal-router.js";
+import { LEAD_PIPELINE_KEYS } from "../shared/lead-pipeline.js";
+import { leadDocumentsRouter } from "./lead-documents-router.js";
 
 // Helper para gerar número de bilhete único
 function generateTicketNumber(): string {
   return `TKT${Date.now()}${Math.random().toString(36).substring(2, 9).toUpperCase()}`;
-}
-
-// Helper para gerar código PIX (BR Code)
-function generatePixBRCode(amount: number, pixKey: string, merchantName: string, merchantCity: string, txid: string): string {
-  const amountStr = (amount / 100).toFixed(2);
-  
-  // Formato PIX BR Code simplificado
-  const payload = [
-    { id: '00', value: '01' }, // Payload Format Indicator
-    { id: '26', value: `0014br.gov.bcb.pix01${pixKey.length.toString().padStart(2, '0')}${pixKey}` }, // Merchant Account Information
-    { id: '52', value: '0000' }, // Merchant Category Code
-    { id: '53', value: '986' }, // Transaction Currency (BRL)
-    { id: '54', value: amountStr }, // Transaction Amount
-    { id: '58', value: 'BR' }, // Country Code
-    { id: '59', value: merchantName.substring(0, 25) }, // Merchant Name
-    { id: '60', value: merchantCity.substring(0, 15) }, // Merchant City
-    { id: '62', value: `05${txid.length.toString().padStart(2, '0')}${txid}` }, // Additional Data Field
-  ];
-  
-  let brcode = '';
-  for (const item of payload) {
-    brcode += item.id + item.value.length.toString().padStart(2, '0') + item.value;
-  }
-  
-  // CRC16 simplificado (para produção, usar biblioteca adequada)
-  brcode += '6304';
-  const crc = calculateCRC16(brcode);
-  brcode += crc;
-  
-  return brcode;
-}
-
-// CRC16 CCITT-FALSE para PIX
-function calculateCRC16(str: string): string {
-  let crc = 0xFFFF;
-  for (let i = 0; i < str.length; i++) {
-    crc ^= str.charCodeAt(i) << 8;
-    for (let j = 0; j < 8; j++) {
-      if (crc & 0x8000) {
-        crc = (crc << 1) ^ 0x1021;
-      } else {
-        crc = crc << 1;
-      }
-    }
-  }
-  return (crc & 0xFFFF).toString(16).toUpperCase().padStart(4, '0');
-}
-
-// Helper para gerar PIX completo
-async function generatePixCode(amount: number, ticketNumber: string): Promise<{ pixCopyPaste: string; pixQrCode: string }> {
-  // Código PIX fixo fornecido pelo usuário
-  const pixCopyPaste = '00020101021126490014br.gov.bcb.pix0127contato@grupoefficaz.com.br5204000053039865802BR5925EFFICAZ PROMOCAO DE VENDA6009SAO PAULO622905251KA59P2H5DDDDBZ38HJZQA2GV63043C89';
-  const pixQrCode = await QRCode.toDataURL(pixCopyPaste);
-  
-  return { pixCopyPaste, pixQrCode };
 }
 
 export const appRouter = router({
@@ -105,6 +91,10 @@ export const appRouter = router({
   mapa: mapaRouter,
   configuracoes: configuracoesRouter,
   relatorios: relatoriosRouter,
+  tax: taxRouter,
+  leadServices: leadServicesRouter,
+  leadDocuments: leadDocumentsRouter,
+  brokerPortal: brokerPortalRouter,
   auth: router({
     me: publicProcedure.query(opts => opts.ctx.user),
     logout: publicProcedure.mutation(({ ctx }) => {
@@ -119,56 +109,63 @@ export const appRouter = router({
   // ========== USER (USUÁRIO) ==========
   user: router({
     updateProfile: protectedProcedure
-      .input(z.object({
-        name: z.string().optional(),
-        email: z.string().email().optional(),
-        cpf: z.string().max(14).optional(),
-        phone: z.string().max(20).optional(),
-        address: z.string().optional(),
-        city: z.string().max(100).optional(),
-        state: z.string().max(2).optional(),
-        zipCode: z.string().max(10).optional(),
-        avatarUrl: z.string().optional(),
-      }))
+      .input(
+        z.object({
+          name: z.string().optional(),
+          email: z.string().email().optional(),
+          cpf: z.string().max(14).optional(),
+          phone: z.string().max(20).optional(),
+          address: z.string().optional(),
+          city: z.string().max(100).optional(),
+          state: z.string().max(2).optional(),
+          zipCode: z.string().max(10).optional(),
+          avatarUrl: z.string().optional(),
+        })
+      )
       .mutation(async ({ ctx, input }) => {
         // Validar CPF se fornecido
         if (input.cpf && cleanCPF(input.cpf).length === 11) {
           const cpfValidation = validateCPF(input.cpf);
           if (!cpfValidation.valid) {
-            throw new TRPCError({ 
-              code: "BAD_REQUEST", 
-              message: cpfValidation.message 
+            throw new TRPCError({
+              code: "BAD_REQUEST",
+              message: cpfValidation.message,
             });
           }
         }
-        
+
         await db.updateUserProfile(ctx.user.id, input);
         return { success: true };
       }),
-      
+
     // Upload de avatar
     uploadAvatar: protectedProcedure
-      .input(z.object({
-        imageBase64: z.string(),
-        mimeType: z.string(),
-      }))
+      .input(
+        z.object({
+          imageBase64: z.string(),
+          mimeType: z.string(),
+        })
+      )
       .mutation(async ({ ctx, input }) => {
         const { storagePut } = await import("./storage.js");
-        
+
         // Converter base64 para buffer
-        const base64Data = input.imageBase64.replace(/^data:image\/\w+;base64,/, "");
+        const base64Data = input.imageBase64.replace(
+          /^data:image\/\w+;base64,/,
+          ""
+        );
         const buffer = Buffer.from(base64Data, "base64");
-        
+
         // Gerar nome único para o arquivo
         const extension = input.mimeType.split("/")[1] || "png";
         const fileName = `avatars/${ctx.user.id}-${Date.now()}.${extension}`;
-        
+
         // Upload para S3
         const { url } = await storagePut(fileName, buffer, input.mimeType);
-        
+
         // Atualizar URL no perfil do usuário
         await db.updateUserProfile(ctx.user.id, { avatarUrl: url });
-        
+
         return { success: true, avatarUrl: url };
       }),
   }),
@@ -178,26 +175,31 @@ export const appRouter = router({
     list: publicProcedure.query(async () => {
       return db.getActiveDraws();
     }),
-    
+
     getById: publicProcedure
       .input(z.object({ id: z.number() }))
       .query(async ({ input }) => {
         const draw = await db.getDrawById(input.id);
         if (!draw) {
-          throw new TRPCError({ code: "NOT_FOUND", message: "Sorteio não encontrado" });
+          throw new TRPCError({
+            code: "NOT_FOUND",
+            message: "Sorteio não encontrado",
+          });
         }
         return draw;
       }),
 
     create: protectedProcedure
-      .input(z.object({
-        title: z.string(),
-        description: z.string().optional(),
-        prizeAmount: z.number(),
-        ticketPrice: z.number(),
-        targetAmount: z.number(),
-        drawDate: z.date().optional(),
-      }))
+      .input(
+        z.object({
+          title: z.string(),
+          description: z.string().optional(),
+          prizeAmount: z.number(),
+          ticketPrice: z.number(),
+          targetAmount: z.number(),
+          drawDate: z.date().optional(),
+        })
+      )
       .mutation(async ({ input, ctx }) => {
         // Apenas admin pode criar sorteios
         requireRole(ctx, ["admin"]);
@@ -205,81 +207,140 @@ export const appRouter = router({
       }),
 
     performDraw: protectedProcedure
-      .input(z.object({
-        drawId: z.number(),
-        lotteryResult: z.string(), // Resultado da Loteria Federal
-      }))
+      .input(
+        z.object({
+          drawId: z.number(),
+          lotteryResult: z.string(), // Resultado da Loteria Federal
+        })
+      )
       .mutation(async ({ input, ctx }) => {
         // Apenas admin pode realizar sorteio
         requireRole(ctx, ["admin"]);
 
         const draw = await db.getDrawById(input.drawId);
         if (!draw) {
-          throw new TRPCError({ code: "NOT_FOUND", message: "Sorteio não encontrado" });
+          throw new TRPCError({
+            code: "NOT_FOUND",
+            message: "Sorteio não encontrado",
+          });
         }
 
         if (draw.status !== "closed") {
-          throw new TRPCError({ code: "BAD_REQUEST", message: "Sorteio ainda não foi fechado" });
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: "Sorteio ainda não foi fechado",
+          });
         }
 
-        // Buscar todos os bilhetes confirmados
-        const allTickets = await db.getTicketsByDrawId(input.drawId);
-        const confirmedTickets = allTickets.filter(t => t.paymentStatus === "confirmed");
-
-        if (confirmedTickets.length === 0) {
-          throw new TRPCError({ code: "BAD_REQUEST", message: "Nenhum bilhete confirmado para sorteio" });
+        // Regra publica (client/src/pages/FAQ.tsx): "Os 5 ultimos digitos do 1o
+        // premio determinam o numero vencedor. Se nao houver bilhete
+        // correspondente, vence o bilhete com numeracao imediatamente anterior."
+        // Numero vencedor e buscado entre os NUMEROS INDIVIDUAIS vendidos
+        // (ticket_numbers), nunca por indice/modulo sobre a contagem de linhas -
+        // isso garante chance proporcional real a quantity.
+        const targetNumber = extractLotteryTargetNumber(input.lotteryResult);
+        if (targetNumber === null) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: "Resultado da loteria deve conter ao menos 5 dígitos",
+          });
         }
 
-        // Selecionar ganhador aleatório (simulação baseada no resultado da loteria)
-        const winnerIndex = parseInt(input.lotteryResult.slice(-2)) % confirmedTickets.length;
-        const winner = confirmedTickets[winnerIndex];
+        const soldNumberRows = await db.getTicketNumbersByDrawId(input.drawId);
+        if (soldNumberRows.length === 0) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: "Nenhum bilhete confirmado para sorteio",
+          });
+        }
+
+        const winningNumber = pickWinningNumber(
+          soldNumberRows.map(r => r.number),
+          targetNumber
+        );
+        if (winningNumber === null) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: "Não foi possível determinar um número vencedor",
+          });
+        }
+
+        const winningRow = soldNumberRows.find(
+          r => r.number === winningNumber
+        )!;
+        const winnerTicket = await db.getTicketById(winningRow.ticketId);
+        if (!winnerTicket) {
+          throw new TRPCError({
+            code: "NOT_FOUND",
+            message: "Bilhete vencedor não encontrado",
+          });
+        }
 
         // Atualizar sorteio com ganhador
         await db.updateDraw(input.drawId, {
           status: "drawn",
-          winnerUserId: winner.userId,
+          winnerUserId: winnerTicket.userId,
           lotteryResult: input.lotteryResult,
         });
 
-        // Creditar UTEFs ao ganhador
-        await db.createOrUpdateUtefBalance(winner.userId, draw.prizeAmount);
+        // Creditar UTEFs ao ganhador (credito atomico - nao le saldo antes de escrever)
+        await db.incrementUtefBalanceAtomic(
+          winnerTicket.userId,
+          draw.prizeAmount
+        );
         await db.createUtefTransaction({
-          userId: winner.userId,
+          userId: winnerTicket.userId,
           amount: draw.prizeAmount,
           type: "prize",
-          description: `Prêmio do sorteio: ${draw.title}`,
+          description: `Prêmio do sorteio: ${draw.title} (número vencedor: ${String(winningNumber).padStart(5, "0")})`,
           relatedId: input.drawId,
         });
 
-        return { success: true, winnerId: winner.userId, winnerTicket: winner.ticketNumber };
+        return {
+          success: true,
+          winnerId: winnerTicket.userId,
+          winnerTicket: winnerTicket.ticketNumber,
+          winningNumber,
+        };
       }),
   }),
 
   // ========== TICKETS (BILHETES) ==========
   tickets: router({
     myTickets: protectedProcedure.query(async ({ ctx }) => {
+      requireRole(ctx, ["cliente"]);
       return db.getTicketsByUserId(ctx.user.id);
     }),
 
     purchase: protectedProcedure
-      .input(z.object({
-        drawId: z.number(),
-        quantity: z.number().min(1),
-        paymentMethod: z.enum(["pix", "credit_card", "boleto"]).default("pix"),
-      }))
+      .input(
+        z.object({
+          drawId: z.number(),
+          quantity: z.number().min(1),
+          paymentMethod: z
+            .enum(["pix", "credit_card", "boleto"])
+            .default("pix"),
+        })
+      )
       .mutation(async ({ input, ctx }) => {
         const draw = await db.getDrawById(input.drawId);
         if (!draw) {
-          throw new TRPCError({ code: "NOT_FOUND", message: "Sorteio não encontrado" });
+          throw new TRPCError({
+            code: "NOT_FOUND",
+            message: "Sorteio não encontrado",
+          });
         }
 
         if (draw.status !== "active") {
-          throw new TRPCError({ code: "BAD_REQUEST", message: "Sorteio não está ativo" });
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: "Sorteio não está ativo",
+          });
         }
 
         const totalPaid = draw.ticketPrice * input.quantity;
         const ticketNumber = generateTicketNumber();
-        
+
         // Criar ou buscar cliente no Asaas
         const asaasCustomer = await createOrUpdateAsaasCustomer({
           name: ctx.user.name || "Cliente",
@@ -287,14 +348,19 @@ export const appRouter = router({
           cpfCnpj: ctx.user.cpf || undefined,
           externalReference: `user_${ctx.user.id}`,
         });
-        
+
         // Criar cobrança no Asaas
         const dueDate = new Date(Date.now() + 24 * 60 * 60 * 1000);
-        const dueDateStr = dueDate.toISOString().split('T')[0]; // YYYY-MM-DD
-        
+        const dueDateStr = dueDate.toISOString().split("T")[0]; // YYYY-MM-DD
+
         const asaasPayment = await createAsaasPayment({
           customer: asaasCustomer.id!,
-          billingType: input.paymentMethod === "pix" ? "PIX" : input.paymentMethod === "credit_card" ? "CREDIT_CARD" : "BOLETO",
+          billingType:
+            input.paymentMethod === "pix"
+              ? "PIX"
+              : input.paymentMethod === "credit_card"
+                ? "CREDIT_CARD"
+                : "BOLETO",
           value: totalPaid / 100, // Converter centavos para reais
           dueDate: dueDateStr,
           description: `${input.quantity} bilhete(s) - ${draw.title}`,
@@ -304,7 +370,7 @@ export const appRouter = router({
         // Se for PIX, buscar QR Code
         let pixQrCode: string | undefined;
         let pixCopyPaste: string | undefined;
-        
+
         if (input.paymentMethod === "pix" && asaasPayment.id) {
           const pixData = await getAsaasPixQrCode(asaasPayment.id);
           pixQrCode = pixData.encodedImage;
@@ -325,6 +391,19 @@ export const appRouter = router({
           stripeCheckoutSessionId: null, // Campo não usado com Asaas
         });
 
+        // Ledger de idempotencia: a liquidacao real (confirmar bilhete, atribuir
+        // numeros) so acontece uma vez, no webhook, via payment-settlement.ts.
+        await db.createPaymentOrder({
+          providerPaymentId: asaasPayment.id!,
+          purpose: "ticket_purchase",
+          userId: ctx.user.id,
+          drawId: input.drawId,
+          ticketId: ticket.id,
+          quantity: input.quantity,
+          principalAmount: totalPaid,
+          bonusAmount: 0,
+        });
+
         return {
           ticket,
           asaasPaymentId: asaasPayment.id,
@@ -336,54 +415,53 @@ export const appRouter = router({
         };
       }),
 
-    confirmPayment: protectedProcedure
-      .input(z.object({
-        ticketId: z.number(),
-      }))
-      .mutation(async ({ input, ctx }) => {
-        // Simulação de confirmação de pagamento
-        // Em produção, integrar com webhook do gateway de pagamento
-        await db.updateTicket(input.ticketId, {
-          paymentStatus: "confirmed",
-        });
-
-        // Atualizar estatísticas do sorteio
-        const ticket = (await db.getTicketsByUserId(ctx.user.id)).find(t => t.id === input.ticketId);
-        if (ticket) {
-          const draw = await db.getDrawById(ticket.drawId);
-          if (draw) {
-            await db.updateDraw(ticket.drawId, {
-              ticketsSold: draw.ticketsSold + ticket.quantity,
-              currentAmount: draw.currentAmount + ticket.totalPaid,
-            });
-          }
+    // Consulta o status real do bilhete (nunca o define) - a confirmacao so
+    // acontece via webhook do Asaas (server/payment-settlement.ts). Substituiu um
+    // endpoint anterior ("confirmPayment") que permitia qualquer usuario autenticado
+    // marcar o proprio bilhete como pago sem pagamento real (botao "Já Paguei -
+    // Confirmar Pagamento", explicitamente rotulado como simulação na interface, mas
+    // publicado em produção sem nenhuma verificação de pagamento).
+    getStatus: protectedProcedure
+      .input(z.object({ ticketId: z.number() }))
+      .query(async ({ input, ctx }) => {
+        const ticket = await db.getTicketById(input.ticketId);
+        if (!ticket || ticket.userId !== ctx.user.id) {
+          throw new TRPCError({
+            code: "FORBIDDEN",
+            message: "Bilhete não encontrado",
+          });
         }
-
-        return { success: true };
+        return { paymentStatus: ticket.paymentStatus };
       }),
   }),
 
   // ========== UTEF ==========
   utef: router({
     balance: protectedProcedure.query(async ({ ctx }) => {
+      requireRole(ctx, ["cliente"]);
       const balance = await db.getUtefBalance(ctx.user.id);
       return balance?.balance || 0;
     }),
 
     transactions: protectedProcedure.query(async ({ ctx }) => {
+      requireRole(ctx, ["cliente"]);
       return db.getUtefTransactionsByUserId(ctx.user.id);
     }),
 
     purchase: protectedProcedure
-      .input(z.object({
-        amount: z.number().min(1),
-        paymentMethod: z.enum(["pix", "credit_card", "boleto"]).default("pix"),
-      }))
+      .input(
+        z.object({
+          amount: z.number().min(1),
+          paymentMethod: z
+            .enum(["pix", "credit_card", "boleto"])
+            .default("pix"),
+        })
+      )
       .mutation(async ({ input, ctx }) => {
         // 1 UTEF = R$ 1,00
         const totalPrice = input.amount;
         const txId = `UTEF${Date.now()}${Math.random().toString(36).substring(2, 9).toUpperCase()}`;
-        
+
         // Criar ou buscar cliente no Asaas
         const asaasCustomer = await createOrUpdateAsaasCustomer({
           name: ctx.user.name || "Cliente",
@@ -391,14 +469,19 @@ export const appRouter = router({
           cpfCnpj: ctx.user.cpf || undefined,
           externalReference: `user_${ctx.user.id}`,
         });
-        
+
         // Criar cobrança no Asaas
         const dueDate = new Date(Date.now() + 24 * 60 * 60 * 1000);
-        const dueDateStr = dueDate.toISOString().split('T')[0]; // YYYY-MM-DD
-        
+        const dueDateStr = dueDate.toISOString().split("T")[0]; // YYYY-MM-DD
+
         const asaasPayment = await createAsaasPayment({
           customer: asaasCustomer.id!,
-          billingType: input.paymentMethod === "pix" ? "PIX" : input.paymentMethod === "credit_card" ? "CREDIT_CARD" : "BOLETO",
+          billingType:
+            input.paymentMethod === "pix"
+              ? "PIX"
+              : input.paymentMethod === "credit_card"
+                ? "CREDIT_CARD"
+                : "BOLETO",
           value: totalPrice, // Já em reais
           dueDate: dueDateStr,
           description: `Compra de ${input.amount} UTEFs`,
@@ -408,12 +491,20 @@ export const appRouter = router({
         // Se for PIX, buscar QR Code
         let pixQrCode: string | undefined;
         let pixCopyPaste: string | undefined;
-        
+
         if (input.paymentMethod === "pix" && asaasPayment.id) {
           const pixData = await getAsaasPixQrCode(asaasPayment.id);
           pixQrCode = pixData.encodedImage;
           pixCopyPaste = pixData.payload;
         }
+
+        await db.createPaymentOrder({
+          providerPaymentId: asaasPayment.id!,
+          purpose: "utef_purchase",
+          userId: ctx.user.id,
+          principalAmount: input.amount,
+          bonusAmount: calculateUtefBonus(input.amount),
+        });
 
         return {
           asaasPaymentId: asaasPayment.id,
@@ -422,6 +513,8 @@ export const appRouter = router({
           pixQrCode,
           pixCopyPaste,
           totalPrice,
+          bonus: calculateUtefBonus(input.amount),
+          totalUtef: input.amount + calculateUtefBonus(input.amount),
         };
       }),
   }),
@@ -429,9 +522,11 @@ export const appRouter = router({
   // ========== PRODUCTS (PRODUTOS) ==========
   products: router({
     list: publicProcedure
-      .input(z.object({
-        category: z.enum(["real_estate", "financial", "nautical"]).optional(),
-      }))
+      .input(
+        z.object({
+          category: z.enum(["real_estate", "financial", "nautical"]).optional(),
+        })
+      )
       .query(async ({ input }) => {
         return db.getProducts(input.category);
       }),
@@ -441,43 +536,102 @@ export const appRouter = router({
       .query(async ({ input }) => {
         const product = await db.getProductById(input.id);
         if (!product) {
-          throw new TRPCError({ code: "NOT_FOUND", message: "Produto não encontrado" });
+          throw new TRPCError({
+            code: "NOT_FOUND",
+            message: "Produto não encontrado",
+          });
         }
         return product;
       }),
 
     create: protectedProcedure
-      .input(z.object({
-        category: z.enum(["real_estate", "financial", "nautical"]),
-        title: z.string(),
-        description: z.string().optional(),
-        priceUtef: z.number(),
-        imageUrl: z.string().optional(),
-        details: z.string().optional(),
-      }))
+      .input(
+        z.object({
+          category: z.enum(["real_estate", "financial", "nautical"]),
+          title: z.string(),
+          description: z.string().optional(),
+          priceUtef: z.number(),
+          imageUrl: z.string().optional(),
+          details: z.string().optional(),
+        })
+      )
       .mutation(async ({ input, ctx }) => {
         // Apenas admin pode criar produtos
         requireRole(ctx, ["admin"]);
         return db.createProduct(input);
       }),
 
+    uploadImage: protectedProcedure
+      .input(
+        z.object({
+          fileName: z.string().trim().min(1).max(255),
+          mimeType: z.enum([
+            "image/jpeg",
+            "image/png",
+            "image/webp",
+            "image/heic",
+            "image/heif",
+          ]),
+          base64: z.string().min(1),
+        })
+      )
+      .mutation(async ({ input, ctx }) => {
+        requireRole(ctx, ["admin"]);
+        const base64Data = input.base64.replace(
+          /^data:image\/[a-zA-Z0-9.+-]+;base64,/,
+          ""
+        );
+        const buffer = Buffer.from(base64Data, "base64");
+        if (!buffer.length || buffer.length > 10 * 1024 * 1024) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: "A imagem deve ter no máximo 10 MB",
+          });
+        }
+        const extensions: Record<string, string> = {
+          "image/jpeg": "jpg",
+          "image/png": "png",
+          "image/webp": "webp",
+          "image/heic": "heic",
+          "image/heif": "heif",
+        };
+        const { storagePut } = await import("./storage.js");
+        const { url } = await storagePut(
+          `products/${ctx.user.id}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}.${extensions[input.mimeType]}`,
+          buffer,
+          input.mimeType
+        );
+        return { url };
+      }),
+
     convert: protectedProcedure
-      .input(z.object({
-        productId: z.number(),
-      }))
+      .input(
+        z.object({
+          productId: z.number(),
+        })
+      )
       .mutation(async ({ input, ctx }) => {
         const product = await db.getProductById(input.productId);
         if (!product) {
-          throw new TRPCError({ code: "NOT_FOUND", message: "Produto não encontrado" });
+          throw new TRPCError({
+            code: "NOT_FOUND",
+            message: "Produto não encontrado",
+          });
         }
 
-        const balance = await db.getUtefBalance(ctx.user.id);
-        if (!balance || balance.balance < product.priceUtef) {
-          throw new TRPCError({ code: "BAD_REQUEST", message: "Saldo insuficiente de UTEF" });
+        // Debito atomico e condicional - evita gasto duplicado por duas conversoes
+        // concorrentes lendo o mesmo saldo antes de qualquer escrita.
+        const debited = await db.decrementUtefBalanceAtomic(
+          ctx.user.id,
+          product.priceUtef
+        );
+        if (!debited) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: "Saldo insuficiente de UTEF",
+          });
         }
 
-        // Debitar UTEFs
-        await db.createOrUpdateUtefBalance(ctx.user.id, -product.priceUtef);
         await db.createUtefTransaction({
           userId: ctx.user.id,
           amount: -product.priceUtef,
@@ -501,27 +655,58 @@ export const appRouter = router({
           message: `Você converteu ${product.priceUtef} UTEFs em: ${product.title}`,
           type: "utef_update",
           relatedId: conversion.id,
-          actionUrl: "/minhas-conversoes",
+          actionUrl: "/portal/conversoes",
         });
 
         return { success: true, conversion };
       }),
 
     myConversions: protectedProcedure.query(async ({ ctx }) => {
+      requireRole(ctx, ["cliente"]);
       return db.getConversionsByUserId(ctx.user.id);
     }),
   }),
 
   // ========== CONSTRUCTION (OBRAS) ==========
   construction: router({
+    leadOptions: adminProcedure.query(() => db.getLeadOptions()),
+    createAdminProject: adminProcedure
+      .input(z.object({
+        title: z.string().trim().min(2).max(255),
+        leadId: z.number().int().positive().optional(),
+        address: z.string().trim().optional(),
+        projectType: z.string().trim().optional(),
+        totalArea: z.number().positive().optional(),
+        startDate: z.date().optional(),
+        estimatedEndDate: z.date().optional(),
+        notes: z.string().trim().optional(),
+      }))
+      .mutation(async ({ input }) => {
+        if (input.leadId && !(await db.getLeadById(input.leadId))) {
+          throw new TRPCError({ code: "NOT_FOUND", message: "Lead não encontrado" });
+        }
+        if (input.startDate && input.estimatedEndDate && input.estimatedEndDate < input.startDate) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "O término previsto antecede o início" });
+        }
+        // Um cadastro administrativo pode ser iniciado sem conta de portal.
+        // O vínculo CRM é feito pelo identificador existente, sem duplicar clientes.
+        return db.createProject({
+          ...input,
+          userId: null,
+          status: "planning",
+          progress: 0,
+        });
+      }),
     // Listar obras do usuário
     myProjects: protectedProcedure.query(async ({ ctx }) => {
+      await ensureLeadServicesSchema();
       return db.getProjectsByUserId(ctx.user.id);
     }),
 
     // Listar TODAS as obras (apenas admin)
     allProjects: protectedProcedure.query(async ({ ctx }) => {
       requireRole(ctx, ["admin"]);
+      await ensureLeadServicesSchema();
       return db.getAllProjects();
     }),
 
@@ -531,7 +716,10 @@ export const appRouter = router({
       .query(async ({ input, ctx }) => {
         const project = await db.getProjectWithDetails(input.projectId);
         if (!project) {
-          throw new TRPCError({ code: "NOT_FOUND", message: "Obra não encontrada" });
+          throw new TRPCError({
+            code: "NOT_FOUND",
+            message: "Obra não encontrada",
+          });
         }
         // Verificar se o usuário é o proprietário ou admin
         if (project.userId !== ctx.user.id && ctx.user.role !== "admin") {
@@ -542,16 +730,18 @@ export const appRouter = router({
 
     // Criar nova obra
     createProject: protectedProcedure
-      .input(z.object({
-        title: z.string().min(1),
-        address: z.string().optional(),
-        projectType: z.string().optional(),
-        totalArea: z.number().optional(),
-        estimatedCost: z.number().optional(),
-        startDate: z.date().optional(),
-        estimatedEndDate: z.date().optional(),
-        notes: z.string().optional(),
-      }))
+      .input(
+        z.object({
+          title: z.string().min(1),
+          address: z.string().optional(),
+          projectType: z.string().optional(),
+          totalArea: z.number().optional(),
+          estimatedCost: z.number().optional(),
+          startDate: z.date().optional(),
+          estimatedEndDate: z.date().optional(),
+          notes: z.string().optional(),
+        })
+      )
       .mutation(async ({ input, ctx }) => {
         const project = await db.createProject({
           ...input,
@@ -564,44 +754,69 @@ export const appRouter = router({
 
     // Atualizar obra
     updateProject: protectedProcedure
-      .input(z.object({
-        projectId: z.number(),
-        title: z.string().optional(),
-        address: z.string().optional(),
-        projectType: z.string().optional(),
-        totalArea: z.number().optional(),
-        estimatedCost: z.number().optional(),
-        actualCost: z.number().optional(),
-        // Campos financeiros detalhados
-        contractValue: z.number().optional(),
-        contractType: z.string().optional(),
-        contractorPayment: z.number().optional(),
-        materialCost: z.number().optional(),
-        lotCost: z.number().optional(),
-        commissionCost: z.number().optional(),
-        extrasCost: z.number().optional(),
-        maintenanceCost: z.number().optional(),
-        insuranceCost: z.number().optional(),
-        balanceAmount: z.number().optional(),
-        // Datas e status
-        startDate: z.date().optional(),
-        estimatedEndDate: z.date().optional(),
-        actualEndDate: z.date().optional(),
-        status: z.enum(["planning", "in_progress", "paused", "completed", "cancelled"]).optional(),
-        progress: z.number().min(0).max(100).optional(),
-        notes: z.string().optional(),
-      }))
+      .input(
+        z.object({
+          projectId: z.number(),
+          title: z.string().optional(),
+          address: z.string().optional(),
+          projectType: z.string().optional(),
+          totalArea: z.number().optional(),
+          estimatedCost: z.number().optional(),
+          actualCost: z.number().optional(),
+          // Campos financeiros detalhados
+          contractValue: z.number().optional(),
+          contractType: z.string().optional(),
+          contractorPayment: z.number().optional(),
+          materialCost: z.number().optional(),
+          lotCost: z.number().optional(),
+          commissionCost: z.number().optional(),
+          extrasCost: z.number().optional(),
+          maintenanceCost: z.number().optional(),
+          insuranceCost: z.number().optional(),
+          balanceAmount: z.number().optional(),
+          // Datas e status
+          startDate: z.date().optional(),
+          estimatedEndDate: z.date().optional(),
+          actualEndDate: z.date().optional(),
+          status: z
+            .enum([
+              "planning",
+              "in_progress",
+              "paused",
+              "completed",
+              "cancelled",
+            ])
+            .optional(),
+          progress: z.number().min(0).max(100).optional(),
+          notes: z.string().optional(),
+        })
+      )
       .mutation(async ({ input, ctx }) => {
         const { projectId, ...updates } = input;
         const project = await db.getProjectById(projectId);
         if (!project) {
-          throw new TRPCError({ code: "NOT_FOUND", message: "Obra não encontrada" });
+          throw new TRPCError({
+            code: "NOT_FOUND",
+            message: "Obra não encontrada",
+          });
         }
         if (project.userId !== ctx.user.id && ctx.user.role !== "admin") {
           throw new TRPCError({ code: "FORBIDDEN", message: "Acesso negado" });
         }
         // Convert number fields to string for decimal columns in Drizzle
-        const decimalFields = ['estimatedCost', 'actualCost', 'contractValue', 'contractorPayment', 'materialCost', 'lotCost', 'commissionCost', 'extrasCost', 'maintenanceCost', 'insuranceCost', 'balanceAmount'] as const;
+        const decimalFields = [
+          "estimatedCost",
+          "actualCost",
+          "contractValue",
+          "contractorPayment",
+          "materialCost",
+          "lotCost",
+          "commissionCost",
+          "extrasCost",
+          "maintenanceCost",
+          "insuranceCost",
+          "balanceAmount",
+        ] as const;
         const converted: Record<string, any> = { ...updates };
         for (const field of decimalFields) {
           if (converted[field] !== undefined) {
@@ -618,7 +833,10 @@ export const appRouter = router({
       .mutation(async ({ input, ctx }) => {
         const project = await db.getProjectById(input.projectId);
         if (!project) {
-          throw new TRPCError({ code: "NOT_FOUND", message: "Obra não encontrada" });
+          throw new TRPCError({
+            code: "NOT_FOUND",
+            message: "Obra não encontrada",
+          });
         }
         if (project.userId !== ctx.user.id && ctx.user.role !== "admin") {
           throw new TRPCError({ code: "FORBIDDEN", message: "Acesso negado" });
@@ -631,17 +849,22 @@ export const appRouter = router({
 
     // Criar etapa
     createStage: protectedProcedure
-      .input(z.object({
-        projectId: z.number(),
-        name: z.string().min(1),
-        description: z.string().optional(),
-        orderIndex: z.number(),
-        estimatedCost: z.number().optional(),
-      }))
+      .input(
+        z.object({
+          projectId: z.number(),
+          name: z.string().min(1),
+          description: z.string().optional(),
+          orderIndex: z.number(),
+          estimatedCost: z.number().optional(),
+        })
+      )
       .mutation(async ({ input, ctx }) => {
         const project = await db.getProjectById(input.projectId);
         if (!project) {
-          throw new TRPCError({ code: "NOT_FOUND", message: "Obra não encontrada" });
+          throw new TRPCError({
+            code: "NOT_FOUND",
+            message: "Obra não encontrada",
+          });
         }
         if (project.userId !== ctx.user.id && ctx.user.role !== "admin") {
           throw new TRPCError({ code: "FORBIDDEN", message: "Acesso negado" });
@@ -652,24 +875,32 @@ export const appRouter = router({
 
     // Atualizar etapa
     updateStage: protectedProcedure
-      .input(z.object({
-        stageId: z.number(),
-        name: z.string().optional(),
-        description: z.string().optional(),
-        status: z.enum(["pending", "in_progress", "completed"]).optional(),
-        startDate: z.date().optional(),
-        endDate: z.date().optional(),
-        actualCost: z.number().optional(),
-        notes: z.string().optional(),
-      }))
+      .input(
+        z.object({
+          stageId: z.number(),
+          name: z.string().optional(),
+          description: z.string().optional(),
+          status: z.enum(["pending", "in_progress", "completed"]).optional(),
+          startDate: z.date().optional(),
+          endDate: z.date().optional(),
+          actualCost: z.number().optional(),
+          notes: z.string().optional(),
+        })
+      )
       .mutation(async ({ input, ctx }) => {
         const { stageId, ...updates } = input;
         const stage = await db.getStageById(stageId);
         if (!stage) {
-          throw new TRPCError({ code: "NOT_FOUND", message: "Etapa não encontrada" });
+          throw new TRPCError({
+            code: "NOT_FOUND",
+            message: "Etapa não encontrada",
+          });
         }
         const project = await db.getProjectById(stage.projectId);
-        if (!project || (project.userId !== ctx.user.id && ctx.user.role !== "admin")) {
+        if (
+          !project ||
+          (project.userId !== ctx.user.id && ctx.user.role !== "admin")
+        ) {
           throw new TRPCError({ code: "FORBIDDEN", message: "Acesso negado" });
         }
         await db.updateStage(stageId, updates);
@@ -682,10 +913,16 @@ export const appRouter = router({
       .mutation(async ({ input, ctx }) => {
         const stage = await db.getStageById(input.stageId);
         if (!stage) {
-          throw new TRPCError({ code: "NOT_FOUND", message: "Etapa não encontrada" });
+          throw new TRPCError({
+            code: "NOT_FOUND",
+            message: "Etapa não encontrada",
+          });
         }
         const project = await db.getProjectById(stage.projectId);
-        if (!project || (project.userId !== ctx.user.id && ctx.user.role !== "admin")) {
+        if (
+          !project ||
+          (project.userId !== ctx.user.id && ctx.user.role !== "admin")
+        ) {
           throw new TRPCError({ code: "FORBIDDEN", message: "Acesso negado" });
         }
         await db.deleteStage(input.stageId);
@@ -696,17 +933,22 @@ export const appRouter = router({
 
     // Upload de foto (retorna URL para upload no S3)
     uploadPhoto: protectedProcedure
-      .input(z.object({
-        projectId: z.number(),
-        stageId: z.number().optional(),
-        caption: z.string().optional(),
-        takenAt: z.date(),
-        imageUrl: z.string(), // URL da imagem já no S3
-      }))
+      .input(
+        z.object({
+          projectId: z.number(),
+          stageId: z.number().optional(),
+          caption: z.string().optional(),
+          takenAt: z.date(),
+          imageUrl: z.string(), // URL da imagem já no S3
+        })
+      )
       .mutation(async ({ input, ctx }) => {
         const project = await db.getProjectById(input.projectId);
         if (!project) {
-          throw new TRPCError({ code: "NOT_FOUND", message: "Obra não encontrada" });
+          throw new TRPCError({
+            code: "NOT_FOUND",
+            message: "Obra não encontrada",
+          });
         }
         if (project.userId !== ctx.user.id && ctx.user.role !== "admin") {
           throw new TRPCError({ code: "FORBIDDEN", message: "Acesso negado" });
@@ -726,10 +968,16 @@ export const appRouter = router({
         const photos = await db.getPhotosByProjectId(0); // Workaround: buscar todas e filtrar
         const photo = photos.find(p => p.id === input.photoId);
         if (!photo) {
-          throw new TRPCError({ code: "NOT_FOUND", message: "Foto não encontrada" });
+          throw new TRPCError({
+            code: "NOT_FOUND",
+            message: "Foto não encontrada",
+          });
         }
         const project = await db.getProjectById(photo.projectId);
-        if (!project || (project.userId !== ctx.user.id && ctx.user.role !== "admin")) {
+        if (
+          !project ||
+          (project.userId !== ctx.user.id && ctx.user.role !== "admin")
+        ) {
           throw new TRPCError({ code: "FORBIDDEN", message: "Acesso negado" });
         }
         await db.deletePhoto(input.photoId);
@@ -741,30 +989,59 @@ export const appRouter = router({
   budgetRequests: router({
     // Criar solicitação de orçamento (pública)
     create: publicProcedure
-      .input(z.object({
-        userId: z.number().optional(),
-        name: z.string().min(1),
-        email: z.string().email(),
-        phone: z.string().optional(),
-        city: z.string().optional(),
-        projectType: z.string().optional(),
-        hasLot: z.enum(["yes", "no", "not_sure"]).optional(),
-        message: z.string().optional(),
-      }))
+      .input(
+        z.object({
+          userId: z.number().optional(),
+          name: z.string().min(1),
+          email: z.string().email(),
+          phone: z.string().optional(),
+          city: z.string().optional(),
+          projectType: z.string().optional(),
+          hasLot: z.enum(["yes", "no", "not_sure"]).optional(),
+          message: z.string().optional(),
+        })
+      )
       .mutation(async ({ input }) => {
         const request = await db.createBudgetRequest({
           ...input,
           status: "pending",
         });
-        
-        // Notificar admin sobre novo orçamento
+
+        // Notificar admin sobre novo orçamento (notificação interna da plataforma)
         await notifyOwner({
           title: "🏗️ Novo Orçamento Recebido",
-          content: `Nome: ${input.name}\nEmail: ${input.email}\nTelefone: ${input.phone || 'Não informado'}\nCidade: ${input.city || 'Não informada'}\nTipo: ${input.projectType || 'Não especificado'}\nPossui lote: ${input.hasLot === 'yes' ? 'Sim' : input.hasLot === 'no' ? 'Não' : 'Não tem certeza'}\n\nMensagem: ${input.message || 'Nenhuma mensagem adicional'}`
+          content: `Nome: ${input.name}\nEmail: ${input.email}\nTelefone: ${input.phone || "Não informado"}\nCidade: ${input.city || "Não informada"}\nTipo: ${input.projectType || "Não especificado"}\nPossui lote: ${input.hasLot === "yes" ? "Sim" : input.hasLot === "no" ? "Não" : "Não tem certeza"}\n\nMensagem: ${input.message || "Nenhuma mensagem adicional"}`,
         });
-        
+
+        const { sendEmail, budgetConfirmationTemplate, notifyAdminByEmail } =
+          await import("./_core/email-smtp.js");
+
+        // Notificar admin por e-mail também - a notificação interna acima não chega
+        // na caixa de entrada, só o e-mail de verdade garante que a mensagem é vista.
+        await notifyAdminByEmail({
+          titulo: "Novo orçamento recebido pelo site",
+          linhas: [
+            { label: "Nome", valor: input.name },
+            { label: "Email", valor: input.email },
+            { label: "Telefone", valor: input.phone || "" },
+            { label: "Cidade", valor: input.city || "" },
+            { label: "Tipo de projeto", valor: input.projectType || "" },
+            {
+              label: "Possui lote",
+              valor:
+                input.hasLot === "yes"
+                  ? "Sim"
+                  : input.hasLot === "no"
+                    ? "Não"
+                    : input.hasLot === "not_sure"
+                      ? "Não tem certeza"
+                      : "",
+            },
+            { label: "Mensagem", valor: input.message || "" },
+          ],
+        });
+
         // Enviar email de confirmação para o cliente
-        const { sendEmail, budgetConfirmationTemplate } = await import("./_core/email-smtp.js");
         const template = budgetConfirmationTemplate({
           name: input.name,
           projectType: input.projectType,
@@ -775,14 +1052,14 @@ export const appRouter = router({
           subject: template.subject,
           html: template.html,
           recipientName: input.name,
-          templateType: 'budget_confirmation',
+          templateType: "budget_confirmation",
           metadata: {
             projectType: input.projectType || "Projeto personalizado",
             city: input.city || "Não informada",
-            budgetId: request.id
-          }
+            budgetId: request.id,
+          },
         });
-        
+
         return request;
       }),
 
@@ -799,50 +1076,68 @@ export const appRouter = router({
         requireRole(ctx, ["admin"]);
         const request = await db.getBudgetRequestById(input.id);
         if (!request) {
-          throw new TRPCError({ code: "NOT_FOUND", message: "Orçamento não encontrado" });
+          throw new TRPCError({
+            code: "NOT_FOUND",
+            message: "Orçamento não encontrado",
+          });
         }
         return request;
       }),
 
     // Atualizar orçamento (apenas admin)
     update: protectedProcedure
-      .input(z.object({
-        id: z.number(),
-        status: z.enum(["pending", "contacted", "in_negotiation", "converted", "cancelled"]).optional(),
-        adminNotes: z.string().optional(),
-      }))
+      .input(
+        z.object({
+          id: z.number(),
+          status: z
+            .enum([
+              "pending",
+              "contacted",
+              "in_negotiation",
+              "converted",
+              "cancelled",
+            ])
+            .optional(),
+          adminNotes: z.string().optional(),
+        })
+      )
       .mutation(async ({ input, ctx }) => {
         requireRole(ctx, ["admin"]);
         const { id, ...updates } = input;
-        
+
         // Buscar dados do orçamento antes de atualizar
         const request = await db.getBudgetRequestById(id);
         if (!request) {
-          throw new TRPCError({ code: "NOT_FOUND", message: "Orçamento não encontrado" });
+          throw new TRPCError({
+            code: "NOT_FOUND",
+            message: "Orçamento não encontrado",
+          });
         }
-        
+
         await db.updateBudgetRequest(id, updates);
-        
+
         // Enviar email de atualização se o status mudou
         if (input.status && input.status !== request.status) {
-          const { sendBudgetUpdateEmail } = await import("./_core/email-smtp.js");
+          const { sendBudgetUpdateEmail } = await import(
+            "./_core/email-smtp.js"
+          );
           const statusLabels: Record<string, string> = {
             pending: "Pendente",
             contacted: "Contatado",
             in_negotiation: "Em Negociação",
             converted: "Convertido",
-            cancelled: "Cancelado"
+            cancelled: "Cancelado",
           };
-          
+
           await sendBudgetUpdateEmail({
             name: request.name,
             email: request.email,
             status: statusLabels[input.status] || input.status,
             notes: input.adminNotes,
-            budgetId: id
+            budgetId: id,
           });
         }
-        
+
         return { success: true };
       }),
 
@@ -859,25 +1154,22 @@ export const appRouter = router({
   // Analytics Router
   analytics: router({
     // Obter estatísticas gerais (apenas admin)
-    getStats: protectedProcedure
-      .query(async ({ ctx }) => {
-        requireRole(ctx, ["admin"]);
-        return db.getAnalyticsStats();
-      }),
+    getStats: protectedProcedure.query(async ({ ctx }) => {
+      requireRole(ctx, ["admin"]);
+      return db.getAnalyticsStats();
+    }),
 
     // Obter orçamentos por status (apenas admin)
-    getBudgetRequestsByStatus: protectedProcedure
-      .query(async ({ ctx }) => {
-        requireRole(ctx, ["admin"]);
-        return db.getBudgetRequestsByStatus();
-      }),
+    getBudgetRequestsByStatus: protectedProcedure.query(async ({ ctx }) => {
+      requireRole(ctx, ["admin"]);
+      return db.getBudgetRequestsByStatus();
+    }),
 
     // Obter obras por status (apenas admin)
-    getProjectsByStatus: protectedProcedure
-      .query(async ({ ctx }) => {
-        requireRole(ctx, ["admin"]);
-        return db.getProjectsByStatus();
-      }),
+    getProjectsByStatus: protectedProcedure.query(async ({ ctx }) => {
+      requireRole(ctx, ["admin"]);
+      return db.getProjectsByStatus();
+    }),
 
     // Obter orçamentos recentes (apenas admin)
     getRecentBudgetRequests: protectedProcedure
@@ -886,16 +1178,31 @@ export const appRouter = router({
         requireRole(ctx, ["admin"]);
         return db.getRecentBudgetRequests(input.limit);
       }),
+
+    getManagementDashboard: protectedProcedure.query(async ({ ctx }) => {
+      requireRole(ctx, ["admin"]);
+      return db.getManagementDashboardData();
+    }),
+
+    saveMonthlyGoal: protectedProcedure
+      .input(z.object({ value: z.number().min(0).max(1_000_000_000) }))
+      .mutation(async ({ ctx, input }) => {
+        requireRole(ctx, ["admin"]);
+        await db.saveDashboardSetting(
+          "monthly_sales_goal",
+          String(input.value)
+        );
+        return { success: true };
+      }),
   }),
 
   // Email Logs Router
   emails: router({
     // Listar todos os emails (apenas admin)
-    getAll: protectedProcedure
-      .query(async ({ ctx }) => {
-        requireRole(ctx, ["admin"]);
-        return db.getAllEmailLogs();
-      }),
+    getAll: protectedProcedure.query(async ({ ctx }) => {
+      requireRole(ctx, ["admin"]);
+      return db.getAllEmailLogs();
+    }),
 
     // Listar emails recentes (apenas admin)
     getRecent: protectedProcedure
@@ -912,7 +1219,10 @@ export const appRouter = router({
         requireRole(ctx, ["admin"]);
         const email = await db.getEmailLogById(input.id);
         if (!email) {
-          throw new TRPCError({ code: "NOT_FOUND", message: "Email não encontrado" });
+          throw new TRPCError({
+            code: "NOT_FOUND",
+            message: "Email não encontrado",
+          });
         }
         return email;
       }),
@@ -942,11 +1252,14 @@ export const appRouter = router({
         // Verificar se a notificação pertence ao usuário
         const notifications = await db.getUserNotifications(ctx.user.id);
         const notification = notifications.find(n => n.id === input.id);
-        
+
         if (!notification) {
-          throw new TRPCError({ code: "NOT_FOUND", message: "Notificação não encontrada" });
+          throw new TRPCError({
+            code: "NOT_FOUND",
+            message: "Notificação não encontrada",
+          });
         }
-        
+
         await db.markNotificationAsRead(input.id);
         return { success: true };
       }),
@@ -960,13 +1273,45 @@ export const appRouter = router({
 
   // ========== CRM — LEADS ==========
   leads: router({
+    deletionContext: protectedProcedure
+      .input(z.object({ id: z.number().int().positive() }))
+      .query(async ({ input, ctx }) => {
+        requireRole(ctx, ["admin"]);
+        const lead = await db.getLeadById(input.id);
+        if (!lead) throw new TRPCError({ code: "NOT_FOUND" });
+        return db.getLeadDeletionContext(input.id);
+      }),
+
+    softDelete: protectedProcedure
+      .input(z.object({ id: z.number().int().positive() }))
+      .mutation(async ({ input, ctx }) => {
+        requireRole(ctx, ["admin"]);
+        const changed = await db.setLeadDeleted(input.id, ctx.user.id, true);
+        if (!changed) throw new TRPCError({ code: "CONFLICT", message: "Lead inexistente ou já excluído" });
+        return { success: true };
+      }),
+
+    restore: protectedProcedure
+      .input(z.object({ id: z.number().int().positive() }))
+      .mutation(async ({ input, ctx }) => {
+        requireRole(ctx, ["admin"]);
+        const changed = await db.setLeadDeleted(input.id, ctx.user.id, false);
+        if (!changed) throw new TRPCError({ code: "CONFLICT", message: "Lead inexistente ou ativo" });
+        return { success: true };
+      }),
+
     list: protectedProcedure
-      .input(z.object({
-        stage: z.string().optional(),
-        responsible: z.string().optional(),
-        temperature: z.string().optional(),
-        city: z.string().optional(),
-      }).optional())
+      .input(
+        z
+          .object({
+            stage: z.string().optional(),
+            responsible: z.string().optional(),
+            temperature: z.string().optional(),
+            city: z.string().optional(),
+            includeDeleted: z.boolean().optional(),
+          })
+          .optional()
+      )
       .query(async ({ input, ctx }) => {
         requireRole(ctx, ["admin"]);
         return db.getAllLeads(input || {});
@@ -987,31 +1332,46 @@ export const appRouter = router({
       }),
 
     create: protectedProcedure
-      .input(z.object({
-        name: z.string().min(2),
-        phone: z.string().min(8),
-        email: z.string().email().optional(),
-        city: z.string().optional(),
-        state: z.string().optional(),
-        type: z.enum(["new_lead","in_process","broker","employee","supplier","vip"]).optional(),
-        temperature: z.enum(["cold","warm","hot"]).optional(),
-        income: z.string().optional(),
-        incomeType: z.enum(["formal","informal","irpf"]).optional(),
-        fgtsAmount: z.string().optional(),
-        pisFgts: z.string().optional(),
-        hasSpouse: z.number().optional(),
-        spouseName: z.string().optional(),
-        sourceChannel: z.string().optional(),
-        notes: z.string().optional(),
-      }))
+      .input(
+        z.object({
+          name: z.string().min(2),
+          phone: z.string().optional(),
+          email: z.string().email().optional(),
+          city: z.string().optional(),
+          state: z.string().optional(),
+          type: z
+            .enum([
+              "new_lead",
+              "in_process",
+              "broker",
+              "employee",
+              "supplier",
+              "vip",
+            ])
+            .optional(),
+          temperature: z.enum(["cold", "warm", "hot"]).optional(),
+          income: z.string().optional(),
+          incomeType: z.enum(["formal", "informal", "irpf"]).optional(),
+          fgtsAmount: z.string().optional(),
+          pisFgts: z.string().optional(),
+          hasSpouse: z.number().optional(),
+          spouseName: z.string().optional(),
+          sourceChannel: z.string().optional(),
+          notes: z.string().optional(),
+          services: z.array(z.enum(LEAD_SERVICE_TYPES)).max(20).optional(),
+        })
+      )
       .mutation(async ({ input, ctx }) => {
         requireRole(ctx, ["admin"]);
         // Roteamento automático por cidade
         let responsible: "sarah" | "vinicius" | "bianca" = "sarah";
         const city = (input.city || "").toLowerCase();
-        if (city.includes("canaa") || city.includes("parauapebas")) responsible = "bianca";
+        if (city.includes("canaa") || city.includes("parauapebas"))
+          responsible = "bianca";
+        const { services = [], ...leadInput } = input;
         const lead = await db.createLead({
-          ...input,
+          ...leadInput,
+          phone: input.phone ?? "",
           responsible,
           stage: "lead_new",
           temperature: input.temperature || "cold",
@@ -1023,23 +1383,31 @@ export const appRouter = router({
           description: "Lead criado no sistema",
           performedBy: "vinicius",
         });
+        for (const serviceType of services)
+          await createLeadServiceWithAutomation({
+            leadId: lead.id,
+            serviceType,
+          });
         return lead;
       }),
 
     createPublic: publicProcedure
-      .input(z.object({
-        name: z.string().min(2),
-        phone: z.string().min(8),
-        email: z.string().email().optional(),
-        city: z.string().optional(),
-        state: z.string().optional(),
-        sourceChannel: z.string(),
-        notes: z.string().optional(),
-      }))
+      .input(
+        z.object({
+          name: z.string().min(2),
+          phone: z.string().min(8),
+          email: z.string().email().optional(),
+          city: z.string().optional(),
+          state: z.string().optional(),
+          sourceChannel: z.string(),
+          notes: z.string().optional(),
+        })
+      )
       .mutation(async ({ input }) => {
         let responsible: "sarah" | "vinicius" | "bianca" = "sarah";
         const city = (input.city || "").toLowerCase();
-        if (city.includes("canaa") || city.includes("parauapebas")) responsible = "bianca";
+        if (city.includes("canaa") || city.includes("parauapebas"))
+          responsible = "bianca";
         const lead = await db.createLead({
           name: input.name,
           phone: input.phone,
@@ -1059,103 +1427,174 @@ export const appRouter = router({
           description: "Lead criado via formulário público do site",
           performedBy: "site",
         });
+
+        // Antes deste formulário não notificava ninguém - a mensagem só aparecia
+        // no CRM se alguém entrasse pra conferir.
+        const { notifyAdminByEmail } = await import("./_core/email-smtp.js");
+        await notifyAdminByEmail({
+          titulo: "Nova mensagem recebida pelo site (Contato)",
+          linhas: [
+            { label: "Nome", valor: input.name },
+            { label: "Telefone", valor: input.phone },
+            { label: "Email", valor: input.email || "" },
+            { label: "Cidade", valor: input.city || "" },
+            { label: "Estado", valor: input.state || "" },
+            { label: "Origem", valor: input.sourceChannel },
+            { label: "Mensagem", valor: input.notes || "" },
+          ],
+        });
+
         return { success: true };
       }),
 
     update: protectedProcedure
-      .input(z.object({
-        id: z.number(),
-        name: z.string().optional(),
-        phone: z.string().optional(),
-        email: z.string().optional(),
-        city: z.string().optional(),
-        state: z.string().optional(),
-        stage: z.string().optional(),
-        temperature: z.enum(["cold","warm","hot"]).optional(),
-        responsible: z.enum(["sarah","vinicius","bianca"]).optional(),
-        cpfStatus: z.enum(["clean","restricted","unknown"]).optional(),
-        simulationValue: z.union([z.string(), z.number()]).optional(),
-        approvedValue: z.union([z.string(), z.number()]).optional(),
-        contractType: z.enum(["obra","financing","both"]).optional(),
-        rejectionReason: z.string().optional(),
-        followupDate: z.string().optional(),
-        notes: z.string().optional(),
-        adminNotes: z.string().optional(),
-        income: z.union([z.string(), z.number()]).optional(),
-        incomeType: z.enum(["formal","informal","irpf"]).optional(),
-        fgtsAmount: z.string().optional(),
-        pisFgts: z.string().optional(),
-        fgts: z.boolean().optional(),
-        hasSpouse: z.union([z.boolean(), z.number()]).optional(),
-        spouseName: z.string().optional(),
-        incomeComposition: z.union([z.boolean(), z.number()]).optional(),
-        interest: z.enum(["house","lot","financing","construction"]).optional(),
-        type: z.string().optional(),
-        lgpdConsent: z.number().optional(),
-      }))
+      .input(
+        z.object({
+          id: z.number(),
+          name: z.string().optional(),
+          phone: z.string().optional(),
+          email: z.string().optional(),
+          city: z.string().optional(),
+          state: z.string().optional(),
+          stage: z.enum(LEAD_PIPELINE_KEYS).optional(),
+          temperature: z.enum(["cold", "warm", "hot"]).optional(),
+          responsible: z.enum(["sarah", "vinicius", "bianca"]).optional(),
+          cpfStatus: z.enum(["clean", "restricted", "unknown"]).optional(),
+          simulationValue: z.union([z.string(), z.number()]).optional(),
+          approvedValue: z.union([z.string(), z.number()]).optional(),
+          contractType: z.enum(["obra", "financing", "both"]).optional(),
+          rejectionReason: z.string().optional(),
+          followupDate: z.string().optional(),
+          notes: z.string().optional(),
+          adminNotes: z.string().optional(),
+          income: z.union([z.string(), z.number()]).optional(),
+          incomeType: z.enum(["formal", "informal", "irpf"]).optional(),
+          fgtsAmount: z.string().optional(),
+          pisFgts: z.string().optional(),
+          fgts: z.boolean().optional(),
+          hasSpouse: z.union([z.boolean(), z.number()]).optional(),
+          spouseName: z.string().optional(),
+          incomeComposition: z.union([z.boolean(), z.number()]).optional(),
+          interest: z
+            .enum(["house", "lot", "financing", "construction"])
+            .optional(),
+          type: z.string().optional(),
+          lgpdConsent: z.number().optional(),
+        })
+      )
       .mutation(async ({ input, ctx }) => {
         requireRole(ctx, ["admin"]);
         const { id, stage, ...data } = input;
         const lead = await db.getLeadById(id);
         if (!lead) throw new TRPCError({ code: "NOT_FOUND" });
+        if (lead.deletedAt) throw new TRPCError({ code: "CONFLICT", message: "Recupere o lead antes de editá-lo" });
         // Convert number fields to string for decimal columns
         const dbData: any = {
           ...data,
-          stage: stage as any,
-          income: data.income !== undefined ? data.income.toString() : undefined,
-          simulationValue: data.simulationValue !== undefined ? data.simulationValue.toString() : undefined,
-          approvedValue: data.approvedValue !== undefined ? data.approvedValue.toString() : undefined,
-          hasSpouse: data.hasSpouse !== undefined ? (data.hasSpouse ? 1 : 0) : undefined,
+          income:
+            data.income !== undefined ? data.income.toString() : undefined,
+          simulationValue:
+            data.simulationValue !== undefined
+              ? data.simulationValue.toString()
+              : undefined,
+          approvedValue:
+            data.approvedValue !== undefined
+              ? data.approvedValue.toString()
+              : undefined,
+          hasSpouse:
+            data.hasSpouse !== undefined ? (data.hasSpouse ? 1 : 0) : undefined,
           fgts: data.fgts !== undefined ? (data.fgts ? 1 : 0) : undefined,
-          incomeComposition: data.incomeComposition !== undefined ? (data.incomeComposition ? 1 : 0) : undefined,
-          followupDate: data.followupDate ? new Date(data.followupDate) : undefined,
+          incomeComposition:
+            data.incomeComposition !== undefined
+              ? data.incomeComposition
+                ? 1
+                : 0
+              : undefined,
+          followupDate: data.followupDate
+            ? new Date(data.followupDate)
+            : undefined,
         };
         await db.updateLead(id, dbData);
-        if (stage && stage !== lead.stage) {
-          await db.addLeadActivity({
-            leadId: id,
-            type: "status_change",
-            description: `Estágio alterado de "${lead.stage}" para "${stage}"`,
-            performedBy: "vinicius",
-          });
-        }
+        if (stage && (stage !== lead.stage || lead.stageClassificationPending))
+          await db.updateLeadPipelineStage(id, stage, ctx.user.id);
         return { success: true };
       }),
 
     addActivity: protectedProcedure
-      .input(z.object({
-        leadId: z.number(),
-        type: z.enum(["message","call","document","status_change","note","handoff","follow_up","simulation","caixa_register"]),
-        description: z.string(),
-        performedBy: z.string().optional(),
-      }))
+      .input(
+        z.object({
+          leadId: z.number(),
+          type: z.enum([
+            "message",
+            "call",
+            "document",
+            "status_change",
+            "note",
+            "handoff",
+            "follow_up",
+            "simulation",
+            "caixa_register",
+          ]),
+          description: z.string(),
+          performedBy: z.string().optional(),
+        })
+      )
       .mutation(async ({ input, ctx }) => {
         requireRole(ctx, ["admin"]);
-        await db.addLeadActivity({ ...input, performedBy: input.performedBy || "vinicius" });
+        await db.addLeadActivity({
+          ...input,
+          performedBy: input.performedBy || "vinicius",
+        });
         return { success: true };
       }),
 
     addDocument: protectedProcedure
-      .input(z.object({
-        leadId: z.number(),
-        type: z.enum(["rg","cnh","address_proof","income_proof_formal","income_proof_irpf","fgts","spouse_docs","pis","other"]),
-        fileName: z.string().optional(),
-        fileUrl: z.string().optional(),
-        status: z.enum(["pending","received","approved","rejected"]).optional(),
-        notes: z.string().optional(),
-      }))
+      .input(
+        z.object({
+          leadId: z.number(),
+          type: z.enum([
+            "rg",
+            "cnh",
+            "address_proof",
+            "income_proof_formal",
+            "income_proof_irpf",
+            "fgts",
+            "spouse_docs",
+            "pis",
+            "other",
+          ]),
+          fileName: z.string().optional(),
+          fileUrl: z.string().optional(),
+          status: z.enum(["pending", "received", "approved", "rejected"]).optional(),
+          notes: z.string().optional(),
+        })
+      )
       .mutation(async ({ input, ctx }) => {
         requireRole(ctx, ["admin"]);
-        await db.addLeadDocument({ ...input, status: input.status || "received", uploadedAt: new Date() });
+        if (input.fileName || input.fileUrl || (input.status && input.status !== "pending")) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "Use o envio autenticado ao Google Drive para registrar arquivos" });
+        }
+        const lead = await db.getLeadById(input.leadId);
+        if (!lead) throw new TRPCError({ code: "NOT_FOUND" });
+        await db.addLeadDocument({
+          leadId: input.leadId,
+          type: input.type,
+          notes: input.notes,
+          status: "pending",
+        });
         return { success: true };
       }),
 
     updateDocument: protectedProcedure
-      .input(z.object({
-        id: z.number(),
-        status: z.enum(["pending","received","approved","rejected"]).optional(),
-        notes: z.string().optional(),
-      }))
+      .input(
+        z.object({
+          id: z.number(),
+          status: z
+            .enum(["pending", "received", "approved", "rejected"])
+            .optional(),
+          notes: z.string().optional(),
+        })
+      )
       .mutation(async ({ input, ctx }) => {
         requireRole(ctx, ["admin"]);
         const { id, ...data } = input;
@@ -1163,63 +1602,101 @@ export const appRouter = router({
         return { success: true };
       }),
 
-    stats: protectedProcedure
-      .query(async ({ ctx }) => {
-        requireRole(ctx, ["admin"]);
-        return db.getLeadStats();
-      }),
+    stats: protectedProcedure.query(async ({ ctx }) => {
+      requireRole(ctx, ["admin"]);
+      return db.getLeadStats();
+    }),
   }),
 
   // ========== EMPREITEIROS ==========
   // ========== TAREFAS ==========
   tasks: router({
     list: protectedProcedure
-      .input(z.object({
-        assignedTo: z.string().optional(),
-        status: z.string().optional(),
-      }).optional())
+      .input(
+        z
+          .object({
+            assignedTo: z.string().optional(),
+            status: z.string().optional(),
+          })
+          .optional()
+      )
       .query(async ({ input, ctx }) => {
         requireRole(ctx, ["admin"]);
-        return db.getAllTasks(input?.assignedTo);
+        const rows = await db.getAllTasks(input?.assignedTo);
+        return input?.status ? rows.filter(task => task.status === input.status) : rows;
       }),
 
     create: protectedProcedure
-      .input(z.object({
-        title: z.string().min(2),
-        description: z.string().optional(),
-        assignedTo: z.string(),
-        relatedType: z.enum(["lead","obra","budget","financial","general"]).optional(),
-        relatedId: z.number().optional(),
-        priority: z.enum(["low","medium","high","critical"]).optional(),
-        slaHours: z.number().optional(),
-        dueAt: z.union([z.string(), z.date()]).optional(),
-      }))
+      .input(
+        z.object({
+          title: z.string().min(2),
+          description: z.string().optional(),
+          assignedTo: z.string().trim().min(1).max(100),
+          relatedType: z
+            .enum(["lead", "obra", "budget", "financial", "general"])
+            .optional(),
+          relatedId: z.number().optional(),
+          priority: z.enum(["low", "medium", "high", "critical"]).optional(),
+          status: z.enum(["pending", "in_progress", "done", "cancelled"]).optional(),
+          slaHours: z.number().optional(),
+          dueAt: z.union([z.string(), z.date()]).optional(),
+        })
+      )
       .mutation(async ({ input, ctx }) => {
         requireRole(ctx, ["admin"]);
+        if (input.relatedType !== "general" && Boolean(input.relatedType) !== Boolean(input.relatedId)) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "Selecione um vínculo completo" });
+        }
+        if (input.relatedType === "lead" && !(await db.getLeadById(input.relatedId!))) {
+          throw new TRPCError({ code: "NOT_FOUND", message: "Lead não encontrado" });
+        }
+        if (input.relatedType === "obra" && !(await db.getProjectById(input.relatedId!))) {
+          throw new TRPCError({ code: "NOT_FOUND", message: "Obra não encontrada" });
+        }
         return db.createTask({
           ...input,
           dueAt: input.dueAt ? new Date(input.dueAt) : undefined,
           priority: input.priority || "medium",
-          status: "pending",
+          status: input.status || "pending",
+          completedAt: input.status === "done" ? new Date() : undefined,
         } as any);
       }),
 
     update: protectedProcedure
-      .input(z.object({
-        id: z.number(),
-        status: z.enum(["pending","in_progress","done","cancelled"]).optional(),
-        priority: z.enum(["low","medium","high","critical"]).optional(),
-        escalatedToVinicius: z.number().optional(),
-        dueAt: z.string().optional(),
-      }))
+      .input(
+        z.object({
+          id: z.number(),
+          title: z.string().trim().min(2).max(255).optional(),
+          description: z.string().optional(),
+          assignedTo: z.string().trim().min(1).optional(),
+          status: z
+            .enum(["pending", "in_progress", "done", "cancelled"])
+            .optional(),
+          priority: z.enum(["low", "medium", "high", "critical"]).optional(),
+          escalatedToVinicius: z.number().optional(),
+          dueAt: z.string().nullable().optional(),
+        })
+      )
       .mutation(async ({ input, ctx }) => {
         requireRole(ctx, ["admin"]);
         const { id, ...data } = input;
+        if (!(await db.getTaskById(id))) {
+          throw new TRPCError({ code: "NOT_FOUND", message: "Tarefa não encontrada" });
+        }
         await db.updateTask(id, {
           ...data,
-          dueAt: data.dueAt ? new Date(data.dueAt) : undefined,
-          completedAt: data.status === "done" ? new Date() : undefined,
+          dueAt: data.dueAt === null ? null : data.dueAt ? new Date(data.dueAt) : undefined,
+          completedAt: data.status === "done" ? new Date() : data.status ? null : undefined,
         } as any);
+        return { success: true };
+      }),
+    delete: adminProcedure
+      .input(z.object({ id: z.number().int().positive() }))
+      .mutation(async ({ input }) => {
+        if (!(await db.getTaskById(input.id))) {
+          throw new TRPCError({ code: "NOT_FOUND", message: "Tarefa não encontrada" });
+        }
+        await db.deleteTask(input.id);
         return { success: true };
       }),
   }),
@@ -1229,10 +1706,19 @@ export const appRouter = router({
     list: adminProcedure.query(async () => db.getAllBrokerCommissions()),
     // The legacy contract confused paid amounts with dates. Keep data readable,
     // but reject writes from stale clients rather than corrupting monetary fields.
-    create: adminProcedure.mutation(() => { throw new TRPCError({ code: "PRECONDITION_FAILED", message: "Use o módulo Comissões atualizado" }); }),
-    update: adminProcedure.mutation(() => { throw new TRPCError({ code: "PRECONDITION_FAILED", message: "Histórico legado é somente leitura; use Comissões" }); }),
+    create: adminProcedure.mutation(() => {
+      throw new TRPCError({
+        code: "PRECONDITION_FAILED",
+        message: "Use o módulo Comissões atualizado",
+      });
+    }),
+    update: adminProcedure.mutation(() => {
+      throw new TRPCError({
+        code: "PRECONDITION_FAILED",
+        message: "Histórico legado é somente leitura; use Comissões",
+      });
+    }),
   }),
-
 
   // ========== MEDIÇÕES DE OBRA ==========
   obraMedicoes: router({
@@ -1253,13 +1739,21 @@ export const appRouter = router({
             projectId: r.project_id,
             tipo: r.tipo || "pls",
             dataPrevista: r.data_prevista ? new Date(r.data_prevista) : null,
-            dataRecebimentoCef: r.data_recebimento_cef ? new Date(r.data_recebimento_cef) : null,
+            dataRecebimentoCef: r.data_recebimento_cef
+              ? new Date(r.data_recebimento_cef)
+              : null,
             valorCef: r.valor_cef ? Number(r.valor_cef) : null,
-            dataTransferencia: r.data_transferencia ? new Date(r.data_transferencia) : null,
-            valorTransferido: r.valor_transferido ? Number(r.valor_transferido) : null,
+            dataTransferencia: r.data_transferencia
+              ? new Date(r.data_transferencia)
+              : null,
+            valorTransferido: r.valor_transferido
+              ? Number(r.valor_transferido)
+              : null,
             status: r.status || "pending",
             empreiteiro: r.empreiteiro || null,
-            valorPagoEmpreiteiro: r.valor_pago_empreiteiro ? Number(r.valor_pago_empreiteiro) : null,
+            valorPagoEmpreiteiro: r.valor_pago_empreiteiro
+              ? Number(r.valor_pago_empreiteiro)
+              : null,
             notes: r.notes || null,
           }));
         } catch {
@@ -1268,17 +1762,30 @@ export const appRouter = router({
       }),
 
     create: protectedProcedure
-      .input(z.object({
-        projectId: z.number(),
-        tipo: z.enum(["pls", "rae", "marco_30", "marco_85", "final", "repactuacao"]),
-        dataPrevista: z.date().optional(),
-        valorCef: z.number().optional(),
-        notes: z.string().optional(),
-      }))
+      .input(
+        z.object({
+          projectId: z.number(),
+          tipo: z.enum([
+            "pls",
+            "rae",
+            "marco_30",
+            "marco_85",
+            "final",
+            "repactuacao",
+          ]),
+          dataPrevista: z.date().optional(),
+          valorCef: z.number().optional(),
+          notes: z.string().optional(),
+        })
+      )
       .mutation(async ({ input, ctx }) => {
         requireRole(ctx, ["admin"]);
         const db = await import("./db.js").then(m => m.getDb());
-        if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB unavailable" });
+        if (!db)
+          throw new TRPCError({
+            code: "INTERNAL_SERVER_ERROR",
+            message: "DB unavailable",
+          });
         const { sql } = await import("drizzle-orm");
         await db.execute(sql`
           INSERT INTO obra_medicoes (project_id, tipo, data_prevista, valor_cef, status, notes, created_at, updated_at)
@@ -1296,17 +1803,23 @@ export const appRouter = router({
       }),
 
     confirmReceipt: protectedProcedure
-      .input(z.object({
-        id: z.number(),
-        cefPaid: z.boolean().optional(),
-        dataRecebimentoCef: z.date().optional(),
-        valorTransferido: z.number().optional(),
-        dataTransferencia: z.date().optional(),
-      }))
+      .input(
+        z.object({
+          id: z.number(),
+          cefPaid: z.boolean().optional(),
+          dataRecebimentoCef: z.date().optional(),
+          valorTransferido: z.number().optional(),
+          dataTransferencia: z.date().optional(),
+        })
+      )
       .mutation(async ({ input, ctx }) => {
         requireRole(ctx, ["admin"]);
         const db = await import("./db.js").then(m => m.getDb());
-        if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB unavailable" });
+        if (!db)
+          throw new TRPCError({
+            code: "INTERNAL_SERVER_ERROR",
+            message: "DB unavailable",
+          });
         const { sql } = await import("drizzle-orm");
         if (input.cefPaid) {
           await db.execute(sql`
@@ -1328,15 +1841,21 @@ export const appRouter = router({
       }),
 
     payContractor: protectedProcedure
-      .input(z.object({
-        id: z.number(),
-        valorPagoEmpreiteiro: z.number(),
-        empreiteiro: z.string().optional(),
-      }))
+      .input(
+        z.object({
+          id: z.number(),
+          valorPagoEmpreiteiro: z.number(),
+          empreiteiro: z.string().optional(),
+        })
+      )
       .mutation(async ({ input, ctx }) => {
         requireRole(ctx, ["admin"]);
         const db = await import("./db.js").then(m => m.getDb());
-        if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB unavailable" });
+        if (!db)
+          throw new TRPCError({
+            code: "INTERNAL_SERVER_ERROR",
+            message: "DB unavailable",
+          });
         const { sql } = await import("drizzle-orm");
         await db.execute(sql`
           UPDATE obra_medicoes
@@ -1353,33 +1872,47 @@ export const appRouter = router({
   // ========== TRANSAÇÕES FINANCEIRAS ==========
   financialTransactions: router({
     list: protectedProcedure
-      .input(z.object({
-        type: z.string().optional(),
-        responsible: z.string().optional(),
-      }).optional())
+      .input(
+        z
+          .object({
+            type: z.string().optional(),
+            responsible: z.string().optional(),
+          })
+          .optional()
+      )
       .query(async ({ ctx }) => {
         requireRole(ctx, ["admin"]);
-        return db.getAllFinancialTransactions ? db.getAllFinancialTransactions() : [];
+        return db.getAllFinancialTransactions
+          ? db.getAllFinancialTransactions()
+          : [];
       }),
 
     create: protectedProcedure
-      .input(z.object({
-        type: z.enum(["income","expense","commission","salary","contractor_payment"]),
-        amount: z.number(),
-        description: z.string(),
-        category: z.string().optional(),
-        responsible: z.string().optional(),
-        paidAt: z.union([z.string(), z.date()]).optional(),
-        referenceId: z.number().optional(),
-        referenceType: z.string().optional(),
-        notes: z.string().optional(),
-        status: z.enum(["pending", "paid", "cancelled"]).optional(),
-        dueDate: z.union([z.string(), z.date()]).optional(),
-        paymentMethod: z.string().optional(),
-        externalReference: z.string().optional(),
-        competency: z.string().optional(),
-        vendor: z.string().optional(),
-      }))
+      .input(
+        z.object({
+          type: z.enum([
+            "income",
+            "expense",
+            "commission",
+            "salary",
+            "contractor_payment",
+          ]),
+          amount: z.number(),
+          description: z.string(),
+          category: z.string().optional(),
+          responsible: z.string().optional(),
+          paidAt: z.union([z.string(), z.date()]).optional(),
+          referenceId: z.number().optional(),
+          referenceType: z.string().optional(),
+          notes: z.string().optional(),
+          status: z.enum(["pending", "paid", "cancelled"]).optional(),
+          dueDate: z.union([z.string(), z.date()]).optional(),
+          paymentMethod: z.string().optional(),
+          externalReference: z.string().optional(),
+          competency: z.string().optional(),
+          vendor: z.string().optional(),
+        })
+      )
       .mutation(async ({ input, ctx }) => {
         requireRole(ctx, ["admin"]);
         if (db.createFinancialTransaction) {
@@ -1394,7 +1927,12 @@ export const appRouter = router({
       }),
 
     updateStatus: protectedProcedure
-      .input(z.object({ id: z.number(), status: z.enum(["pending", "paid", "cancelled"]) }))
+      .input(
+        z.object({
+          id: z.number(),
+          status: z.enum(["pending", "paid", "cancelled"]),
+        })
+      )
       .mutation(async ({ input, ctx }) => {
         requireRole(ctx, ["admin"]);
         await db.updateFinancialTransactionStatus(input.id, input.status);
@@ -1410,19 +1948,21 @@ export const appRouter = router({
       }),
 
       create: protectedProcedure
-        .input(z.object({
-          razaoSocial: z.string().min(2),
-          cnpj: z.string().optional(),
-          cpf: z.string().optional(),
-          responsavel: z.string().min(1),
-          email: z.string().optional(),
-          telefone: z.string().min(1),
-          servicos: z.array(z.string()).default([]),
-          honorarios: z.number(),
-          diaVencimento: z.number().optional(),
-          dataInicio: z.union([z.string(), z.date()]),
-          observacoes: z.string().optional(),
-        }))
+        .input(
+          z.object({
+            razaoSocial: z.string().min(2),
+            cnpj: z.string().optional(),
+            cpf: z.string().optional(),
+            responsavel: z.string().min(1),
+            email: z.string().optional(),
+            telefone: z.string().min(1),
+            servicos: z.array(z.string()).default([]),
+            honorarios: z.number(),
+            diaVencimento: z.number().optional(),
+            dataInicio: z.union([z.string(), z.date()]),
+            observacoes: z.string().optional(),
+          })
+        )
         .mutation(async ({ input, ctx }) => {
           requireRole(ctx, ["admin"]);
           return db.createBpoClient({
@@ -1434,7 +1974,12 @@ export const appRouter = router({
         }),
 
       updateStatus: protectedProcedure
-        .input(z.object({ id: z.number(), status: z.enum(["ativo", "pausado", "encerrado"]) }))
+        .input(
+          z.object({
+            id: z.number(),
+            status: z.enum(["ativo", "pausado", "encerrado"]),
+          })
+        )
         .mutation(async ({ input, ctx }) => {
           requireRole(ctx, ["admin"]);
           await db.updateBpoClientStatus(input.id, input.status);
@@ -1448,16 +1993,18 @@ export const appRouter = router({
       }),
 
       create: adminProcedure
-        .input(z.object({
-          clienteId: z.number().optional(),
-          clienteNomeLivre: z.string().optional(),
-          tipo: z.enum(["honorario", "despesa", "reembolso"]),
-          descricao: z.string().min(1),
-          valor: z.number(),
-          vencimento: z.union([z.string(), z.date()]),
-          competencia: z.string().min(7).max(7),
-          centroCustos: z.string().optional(),
-        }))
+        .input(
+          z.object({
+            clienteId: z.number().optional(),
+            clienteNomeLivre: z.string().optional(),
+            tipo: z.enum(["honorario", "despesa", "reembolso"]),
+            descricao: z.string().min(1),
+            valor: z.number(),
+            vencimento: z.union([z.string(), z.date()]),
+            competencia: z.string().min(7).max(7),
+            centroCustos: z.string().optional(),
+          })
+        )
         .mutation(async ({ input }) => {
           return db.createBpoLancamento({
             ...input,
@@ -1485,7 +2032,11 @@ export const appRouter = router({
         map.set(l.competencia, entry);
       }
       return Array.from(map.entries())
-        .map(([competencia, v]) => ({ competencia, ...v, resultado: v.cobrancas - v.despesas }))
+        .map(([competencia, v]) => ({
+          competencia,
+          ...v,
+          resultado: v.cobrancas - v.despesas,
+        }))
         .sort((a, b) => b.competencia.localeCompare(a.competencia));
     }),
   }),
@@ -1495,16 +2046,30 @@ export const appRouter = router({
     status: protectedProcedure.query(async ({ ctx }) => {
       requireRole(ctx, ["admin"]);
       const setting = await db.getPluggySetting();
-      return { configured: Boolean(setting?.clientIdEncrypted), active: Boolean(setting?.isActive) };
+      return {
+        configured: Boolean(setting?.clientIdEncrypted),
+        active: Boolean(setting?.isActive),
+      };
     }),
 
     save: protectedProcedure
-      .input(z.object({ clientId: z.string().trim().min(1), clientSecret: z.string().trim().min(1) }))
+      .input(
+        z.object({
+          clientId: z.string().trim().min(1),
+          clientSecret: z.string().trim().min(1),
+        })
+      )
       .mutation(async ({ input, ctx }) => {
         requireRole(ctx, ["admin"]);
-        const token = await authenticatePluggy(input.clientId, input.clientSecret);
+        const token = await authenticatePluggy(
+          input.clientId,
+          input.clientSecret
+        );
         if (!token) {
-          throw new TRPCError({ code: "BAD_REQUEST", message: "Credenciais Pluggy inválidas ou API indisponível" });
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: "Credenciais Pluggy inválidas ou API indisponível",
+          });
         }
         await db.savePluggySetting({
           clientIdEncrypted: encryptSecret(input.clientId),
@@ -1523,16 +2088,20 @@ export const appRouter = router({
       }),
 
       create: protectedProcedure
-        .input(z.object({
-          banco: z.string().min(1),
-          agencia: z.string().optional(),
-          conta: z.string().min(1),
-          tipo: z.enum(["corrente", "poupanca", "pagamento", "investimento"]).optional(),
-          descricao: z.string().optional(),
-          saldoAtual: z.number().optional(),
-          pluggyAccountId: z.string().optional(),
-          webhookUrl: z.string().optional(),
-        }))
+        .input(
+          z.object({
+            banco: z.string().min(1),
+            agencia: z.string().optional(),
+            conta: z.string().min(1),
+            tipo: z
+              .enum(["corrente", "poupanca", "pagamento", "investimento"])
+              .optional(),
+            descricao: z.string().optional(),
+            saldoAtual: z.number().optional(),
+            pluggyAccountId: z.string().optional(),
+            webhookUrl: z.string().optional(),
+          })
+        )
         .mutation(async ({ input, ctx }) => {
           requireRole(ctx, ["admin"]);
           return db.createBankAccount({
@@ -1565,7 +2134,12 @@ export const appRouter = router({
         }),
 
       atualizarStatus: adminProcedure
-        .input(z.object({ id: z.number(), status: z.enum(["pendente", "conciliado", "ignorado"]) }))
+        .input(
+          z.object({
+            id: z.number(),
+            status: z.enum(["pendente", "conciliado", "ignorado"]),
+          })
+        )
         .mutation(async ({ input }) => {
           await db.updateBankTransactionStatus(input.id, input.status);
           return { success: true };
@@ -1576,10 +2150,18 @@ export const appRouter = router({
       .input(z.object({ contaId: z.number() }))
       .mutation(async ({ input }) => {
         const conta = await db.getBankAccountById(input.contaId);
-        if (!conta) throw new TRPCError({ code: "NOT_FOUND", message: "Conta não encontrada" });
+        if (!conta)
+          throw new TRPCError({
+            code: "NOT_FOUND",
+            message: "Conta não encontrada",
+          });
 
         if (!conta.pluggyAccountId) {
-          return { ok: false, configurado: false, mensagem: "Esta conta não tem um pluggyAccountId configurado." };
+          return {
+            ok: false,
+            configurado: false,
+            mensagem: "Esta conta não tem um pluggyAccountId configurado.",
+          };
         }
 
         const setting = await db.getPluggySetting();
@@ -1587,7 +2169,8 @@ export const appRouter = router({
           return {
             ok: false,
             configurado: false,
-            mensagem: "Configure as credenciais Pluggy em Configurações para sincronização automática.",
+            mensagem:
+              "Configure as credenciais Pluggy em Configurações para sincronização automática.",
           };
         }
 
@@ -1596,13 +2179,21 @@ export const appRouter = router({
           decryptSecret(setting.clientSecretEncrypted)
         );
         if (!token) {
-          return { ok: false, configurado: true, mensagem: "Não foi possível autenticar com a Pluggy. Verifique as credenciais." };
+          return {
+            ok: false,
+            configurado: true,
+            mensagem:
+              "Não foi possível autenticar com a Pluggy. Verifique as credenciais.",
+          };
         }
 
-        const transacoes = await fetchPluggyTransactions(token, conta.pluggyAccountId);
+        const transacoes = await fetchPluggyTransactions(
+          token,
+          conta.pluggyAccountId
+        );
         const sincronizados = await db.upsertBankTransactions(
           conta.id,
-          transacoes.map((t) => ({
+          transacoes.map(t => ({
             data: new Date(t.data),
             descricao: t.descricao,
             valor: t.valor.toString(),
@@ -1612,22 +2203,36 @@ export const appRouter = router({
           })) as any
         );
 
-        const novoSaldo = await fetchPluggyAccountBalance(token, conta.pluggyAccountId);
-        await db.updateBankAccountSaldo(conta.id, novoSaldo ?? Number(conta.saldoAtual));
+        const novoSaldo = await fetchPluggyAccountBalance(
+          token,
+          conta.pluggyAccountId
+        );
+        await db.updateBankAccountSaldo(
+          conta.id,
+          novoSaldo ?? Number(conta.saldoAtual)
+        );
 
-        return { ok: true, sincronizados, saldo: novoSaldo ?? Number(conta.saldoAtual) };
+        return {
+          ok: true,
+          sincronizados,
+          saldo: novoSaldo ?? Number(conta.saldoAtual),
+        };
       }),
   }),
 
   // ========== IMÓVEIS ==========
   imoveis: router({
     list: publicProcedure
-      .input(z.object({
-        status: z.string().optional(),
-        tipo: z.string().optional(),
-        cidade: z.string().optional(),
-        adminView: z.boolean().optional(),
-      }).optional())
+      .input(
+        z
+          .object({
+            status: z.string().optional(),
+            tipo: z.string().optional(),
+            cidade: z.string().optional(),
+            adminView: z.boolean().optional(),
+          })
+          .optional()
+      )
       .query(async ({ input, ctx }) => {
         const isAdmin = ctx.user?.role === "admin";
         return db.getAllImoveis({
@@ -1651,31 +2256,36 @@ export const appRouter = router({
       }),
 
     create: protectedProcedure
-      .input(z.object({
-        slug: z.string().min(1),
-        titulo: z.string().min(2),
-        descricao: z.string().optional(),
-        tipo: z.string().min(1),
-        status: z.enum(["disponivel", "reservado", "vendido", "alugado"]).optional(),
-        preco: z.number(),
-        quartos: z.number().optional(),
-        banheiros: z.number().optional(),
-        vagas: z.number().optional(),
-        areaM2: z.number().optional(),
-        endereco: z.string().optional(),
-        bairro: z.string().optional(),
-        cidade: z.string().min(1),
-        estado: z.string().optional(),
-        latitude: z.number().optional(),
-        longitude: z.number().optional(),
-        fotos: z.string().optional(),
-        destaque: z.boolean().optional(),
-        publicadoSite: z.boolean().optional(),
-        publicadoZap: z.boolean().optional(),
-        publicadoOlx: z.boolean().optional(),
-        publicadoViva: z.boolean().optional(),
-        publicadoChavesNaMao: z.boolean().optional(),
-      }))
+      .input(
+        z.object({
+          slug: z.string().min(1),
+          titulo: z.string().min(2),
+          descricao: z.string().optional(),
+          tipo: z.string().min(1),
+          status: z
+            .enum(["disponivel", "reservado", "vendido", "alugado"])
+            .optional(),
+          preco: z.number(),
+          quartos: z.number().optional(),
+          banheiros: z.number().optional(),
+          vagas: z.number().optional(),
+          areaM2: z.number().optional(),
+          endereco: z.string().optional(),
+          bairro: z.string().optional(),
+          cidade: z.string().min(1),
+          estado: z.string().optional(),
+          latitude: z.number().optional(),
+          longitude: z.number().optional(),
+          fotos: z.string().optional(),
+          destaque: z.boolean().optional(),
+          publicadoSite: z.boolean().optional(),
+          publicadoZap: z.boolean().optional(),
+          publicadoOlx: z.boolean().optional(),
+          publicadoViva: z.boolean().optional(),
+          publicadoChavesNaMao: z.boolean().optional(),
+          reviewStatus: z.enum(["pending", "approved", "rejected"]).optional(),
+        })
+      )
       .mutation(async ({ input, ctx }) => {
         requireRole(ctx, ["admin"]);
         return db.createImovel({
@@ -1688,31 +2298,36 @@ export const appRouter = router({
       }),
 
     update: protectedProcedure
-      .input(z.object({
-        id: z.number(),
-        titulo: z.string().optional(),
-        descricao: z.string().optional(),
-        tipo: z.string().optional(),
-        status: z.enum(["disponivel", "reservado", "vendido", "alugado"]).optional(),
-        preco: z.number().optional(),
-        quartos: z.number().optional(),
-        banheiros: z.number().optional(),
-        vagas: z.number().optional(),
-        areaM2: z.number().optional(),
-        endereco: z.string().optional(),
-        bairro: z.string().optional(),
-        cidade: z.string().optional(),
-        estado: z.string().optional(),
-        latitude: z.number().optional(),
-        longitude: z.number().optional(),
-        fotos: z.string().optional(),
-        destaque: z.boolean().optional(),
-        publicadoSite: z.boolean().optional(),
-        publicadoZap: z.boolean().optional(),
-        publicadoOlx: z.boolean().optional(),
-        publicadoViva: z.boolean().optional(),
-        publicadoChavesNaMao: z.boolean().optional(),
-      }))
+      .input(
+        z.object({
+          id: z.number(),
+          titulo: z.string().optional(),
+          descricao: z.string().optional(),
+          tipo: z.string().optional(),
+          status: z
+            .enum(["disponivel", "reservado", "vendido", "alugado"])
+            .optional(),
+          preco: z.number().optional(),
+          quartos: z.number().optional(),
+          banheiros: z.number().optional(),
+          vagas: z.number().optional(),
+          areaM2: z.number().optional(),
+          endereco: z.string().optional(),
+          bairro: z.string().optional(),
+          cidade: z.string().optional(),
+          estado: z.string().optional(),
+          latitude: z.number().optional(),
+          longitude: z.number().optional(),
+          fotos: z.string().optional(),
+          destaque: z.boolean().optional(),
+          publicadoSite: z.boolean().optional(),
+          publicadoZap: z.boolean().optional(),
+          publicadoOlx: z.boolean().optional(),
+          publicadoViva: z.boolean().optional(),
+          publicadoChavesNaMao: z.boolean().optional(),
+          reviewStatus: z.enum(["pending", "approved", "rejected"]).optional(),
+        })
+      )
       .mutation(async ({ input, ctx }) => {
         requireRole(ctx, ["admin"]);
         const { id, ...data } = input;
@@ -1733,11 +2348,15 @@ export const appRouter = router({
     }),
 
     list: adminProcedure
-      .input(z.object({
-        status: z.string().optional(),
-        tipo: z.string().optional(),
-        cidade: z.string().optional(),
-      }).optional())
+      .input(
+        z
+          .object({
+            status: z.string().optional(),
+            tipo: z.string().optional(),
+            cidade: z.string().optional(),
+          })
+          .optional()
+      )
       .query(async ({ input }) => {
         return db.getAllAvaliacoes(input);
       }),
@@ -1751,73 +2370,90 @@ export const appRouter = router({
       }),
 
     create: adminProcedure
-      .input(z.object({
-        tipo: z.string(),
-        finalidade: z.string(),
-        clienteNome: z.string(),
-        clienteCpf: z.string().optional(),
-        clienteTel: z.string(),
-        clienteEmail: z.string().optional(),
-        endereco: z.string(),
-        bairro: z.string(),
-        cidade: z.string(),
-        estado: z.string(),
-        areaConstruida: z.number().optional(),
-        areaTerreno: z.number().optional(),
-        quartos: z.number().optional(),
-        banheiros: z.number().optional(),
-        vagas: z.number().optional(),
-        metodologia: z.string().optional(),
-        avaliador: z.string(),
-        dataVistoria: z.string().optional(),
-        prazoEntrega: z.string().optional(),
-        observacoes: z.string().optional(),
-        valorServico: z.number().optional(),
-        leadId: z.number().optional(),
-      }))
+      .input(
+        z.object({
+          tipo: z.string(),
+          finalidade: z.string(),
+          clienteNome: z.string(),
+          clienteCpf: z.string().optional(),
+          clienteTel: z.string(),
+          clienteEmail: z.string().optional(),
+          endereco: z.string(),
+          bairro: z.string(),
+          cidade: z.string(),
+          estado: z.string(),
+          areaConstruida: z.number().optional(),
+          areaTerreno: z.number().optional(),
+          quartos: z.number().optional(),
+          banheiros: z.number().optional(),
+          vagas: z.number().optional(),
+          metodologia: z.string().optional(),
+          avaliador: z.string(),
+          dataVistoria: z.string().optional(),
+          prazoEntrega: z.string().optional(),
+          observacoes: z.string().optional(),
+          valorServico: z.number().optional(),
+          leadId: z.number().optional(),
+        })
+      )
       .mutation(async ({ input }) => {
         return db.createAvaliacao({
           ...input,
           areaConstruida: input.areaConstruida?.toString(),
           areaTerreno: input.areaTerreno?.toString(),
           valorServico: input.valorServico?.toString(),
-          dataVistoria: input.dataVistoria ? new Date(input.dataVistoria) : undefined,
-          prazoEntrega: input.prazoEntrega ? new Date(input.prazoEntrega) : undefined,
+          dataVistoria: input.dataVistoria
+            ? new Date(input.dataVistoria)
+            : undefined,
+          prazoEntrega: input.prazoEntrega
+            ? new Date(input.prazoEntrega)
+            : undefined,
         } as any);
       }),
 
     update: adminProcedure
-      .input(z.object({
-        id: z.number(),
-        tipo: z.string().optional(),
-        finalidade: z.string().optional(),
-        status: z.enum(["solicitada", "vistoria", "elaboracao", "revisao", "entregue", "cancelada"]).optional(),
-        clienteNome: z.string().optional(),
-        clienteCpf: z.string().optional(),
-        clienteTel: z.string().optional(),
-        clienteEmail: z.string().optional(),
-        endereco: z.string().optional(),
-        bairro: z.string().optional(),
-        cidade: z.string().optional(),
-        estado: z.string().optional(),
-        areaConstruida: z.number().optional(),
-        areaTerreno: z.number().optional(),
-        quartos: z.number().optional(),
-        banheiros: z.number().optional(),
-        vagas: z.number().optional(),
-        caracteristicas: z.string().optional(),
-        metodologia: z.string().optional(),
-        valorEstimado: z.number().optional(),
-        avaliador: z.string().optional(),
-        dataVistoria: z.string().optional(),
-        prazoEntrega: z.string().optional(),
-        observacoes: z.string().optional(),
-        laudo: z.string().optional(),
-        documentos: z.string().optional(),
-        sugestaoJson: z.string().optional(),
-        valorServico: z.number().optional(),
-        leadId: z.number().optional(),
-      }))
+      .input(
+        z.object({
+          id: z.number(),
+          tipo: z.string().optional(),
+          finalidade: z.string().optional(),
+          status: z
+            .enum([
+              "solicitada",
+              "vistoria",
+              "elaboracao",
+              "revisao",
+              "entregue",
+              "cancelada",
+            ])
+            .optional(),
+          clienteNome: z.string().optional(),
+          clienteCpf: z.string().optional(),
+          clienteTel: z.string().optional(),
+          clienteEmail: z.string().optional(),
+          endereco: z.string().optional(),
+          bairro: z.string().optional(),
+          cidade: z.string().optional(),
+          estado: z.string().optional(),
+          areaConstruida: z.number().optional(),
+          areaTerreno: z.number().optional(),
+          quartos: z.number().optional(),
+          banheiros: z.number().optional(),
+          vagas: z.number().optional(),
+          caracteristicas: z.string().optional(),
+          metodologia: z.string().optional(),
+          valorEstimado: z.number().optional(),
+          avaliador: z.string().optional(),
+          dataVistoria: z.string().optional(),
+          prazoEntrega: z.string().optional(),
+          observacoes: z.string().optional(),
+          laudo: z.string().optional(),
+          documentos: z.string().optional(),
+          sugestaoJson: z.string().optional(),
+          valorServico: z.number().optional(),
+          leadId: z.number().optional(),
+        })
+      )
       .mutation(async ({ input }) => {
         const { id, ...data } = input;
         if (data.status === "entregue") {
@@ -1829,8 +2465,12 @@ export const appRouter = router({
           areaTerreno: data.areaTerreno?.toString(),
           valorEstimado: data.valorEstimado?.toString(),
           valorServico: data.valorServico?.toString(),
-          dataVistoria: data.dataVistoria ? new Date(data.dataVistoria) : undefined,
-          prazoEntrega: data.prazoEntrega ? new Date(data.prazoEntrega) : undefined,
+          dataVistoria: data.dataVistoria
+            ? new Date(data.dataVistoria)
+            : undefined,
+          prazoEntrega: data.prazoEntrega
+            ? new Date(data.prazoEntrega)
+            : undefined,
         } as any);
         return { success: true };
       }),
@@ -1853,19 +2493,26 @@ export const appRouter = router({
       }),
 
     updateChecklist: adminProcedure
-      .input(z.object({
-        id: z.number(),
-        tipoChecklist: z.enum(["imovel", "terreno"]),
-        estadoGeral: z.string().optional().default(""),
-        items: z.record(z.string(), z.object({
-          ok: z.boolean().nullable(),
-          nota: z.string(),
-        })),
-        fotos: z.array(z.string()).max(CHECKLIST_MAX_FOTOS),
-      }))
+      .input(
+        z.object({
+          id: z.number(),
+          tipoChecklist: z.enum(["imovel", "terreno"]),
+          estadoGeral: z.string().optional().default(""),
+          items: z.record(
+            z.string(),
+            z.object({
+              ok: z.boolean().nullable(),
+              nota: z.string(),
+            })
+          ),
+          fotos: z.array(z.string()).max(CHECKLIST_MAX_FOTOS),
+        })
+      )
       .mutation(async ({ input }) => {
         const { id, ...checklist } = input;
-        await db.updateAvaliacao(id, { caracteristicas: JSON.stringify(checklist) });
+        await db.updateAvaliacao(id, {
+          caracteristicas: JSON.stringify(checklist),
+        });
         return { success: true };
       }),
 
@@ -1881,39 +2528,44 @@ export const appRouter = router({
           cidade: avaliacao.cidade,
           estado: avaliacao.estado,
           tipo: avaliacao.tipo,
-          areaConstruida: avaliacao.areaConstruida ? Number(avaliacao.areaConstruida) : null,
-          areaTerreno: avaliacao.areaTerreno ? Number(avaliacao.areaTerreno) : null,
+          areaConstruida: avaliacao.areaConstruida
+            ? Number(avaliacao.areaConstruida)
+            : null,
+          areaTerreno: avaliacao.areaTerreno
+            ? Number(avaliacao.areaTerreno)
+            : null,
           quartos: avaliacao.quartos,
           banheiros: avaliacao.banheiros,
           caracteristicas: avaliacao.caracteristicas,
         });
 
-        await db.updateAvaliacao(input.id, { sugestaoJson: JSON.stringify(sugestao) });
+        await db.updateAvaliacao(input.id, {
+          sugestaoJson: JSON.stringify(sugestao),
+        });
         return sugestao;
       }),
   }),
 
   agregador: router({
-    listPublic: publicProcedure
-      .query(async () => {
-        const items = await db.getAllAgregadorImoveis({ status: "verificado" });
-        return items.map((i) => ({
-          id: i.id,
-          titulo: i.titulo,
-          descricao: i.descricao,
-          preco: i.preco,
-          precoTexto: i.precoTexto,
-          areaM2: i.areaM2,
-          tipo: i.tipo,
-          bairro: i.bairro,
-          cidade: i.cidade,
-          fonte: i.fonte,
-          urlFonte: i.urlFonte,
-          imagens: i.imagens,
-          documentoTipo: i.documentoTipo,
-          contatoTel: i.contatoTel,
-        }));
-      }),
+    listPublic: publicProcedure.query(async () => {
+      const items = await db.getAllAgregadorImoveis({ status: "verificado" });
+      return items.map(i => ({
+        id: i.id,
+        titulo: i.titulo,
+        descricao: i.descricao,
+        preco: i.preco,
+        precoTexto: i.precoTexto,
+        areaM2: i.areaM2,
+        tipo: i.tipo,
+        bairro: i.bairro,
+        cidade: i.cidade,
+        fonte: i.fonte,
+        urlFonte: i.urlFonte,
+        imagens: i.imagens,
+        documentoTipo: i.documentoTipo,
+        contatoTel: i.contatoTel,
+      }));
+    }),
 
     scrape: adminProcedure
       .input(z.object({ url: z.string() }))
@@ -1922,10 +2574,14 @@ export const appRouter = router({
       }),
 
     list: adminProcedure
-      .input(z.object({
-        status: z.string().optional(),
-        fonte: z.string().optional(),
-      }).optional())
+      .input(
+        z
+          .object({
+            status: z.string().optional(),
+            fonte: z.string().optional(),
+          })
+          .optional()
+      )
       .query(async ({ input }) => {
         return db.getAllAgregadorImoveis(input);
       }),
@@ -1939,25 +2595,48 @@ export const appRouter = router({
       }),
 
     create: adminProcedure
-      .input(z.object({
-        titulo: z.string(),
-        descricao: z.string().optional(),
-        preco: z.number().optional(),
-        precoTexto: z.string().optional(),
-        areaM2: z.number().optional(),
-        tipo: z.string().optional(),
-        bairro: z.string().optional(),
-        cidade: z.string(),
-        estado: z.string(),
-        fonte: z.enum(["olx", "zapimoveis", "vivareal", "facebook", "instagram", "google", "direto", "outro"]),
-        urlFonte: z.string().optional(),
-        imagens: z.array(z.string()).optional(),
-        documentoTipo: z.enum(["nenhum", "escritura", "contrato_gaveta", "inventario", "heranca", "financiado", "loteamento", "posse", "outros"]).optional(),
-        documentoObs: z.string().optional(),
-        contatoNome: z.string().optional(),
-        contatoTel: z.string().optional(),
-        notas: z.string().optional(),
-      }))
+      .input(
+        z.object({
+          titulo: z.string(),
+          descricao: z.string().optional(),
+          preco: z.number().optional(),
+          precoTexto: z.string().optional(),
+          areaM2: z.number().optional(),
+          tipo: z.string().optional(),
+          bairro: z.string().optional(),
+          cidade: z.string(),
+          estado: z.string(),
+          fonte: z.enum([
+            "olx",
+            "zapimoveis",
+            "vivareal",
+            "facebook",
+            "instagram",
+            "google",
+            "direto",
+            "outro",
+          ]),
+          urlFonte: z.string().optional(),
+          imagens: z.array(z.string()).optional(),
+          documentoTipo: z
+            .enum([
+              "nenhum",
+              "escritura",
+              "contrato_gaveta",
+              "inventario",
+              "heranca",
+              "financiado",
+              "loteamento",
+              "posse",
+              "outros",
+            ])
+            .optional(),
+          documentoObs: z.string().optional(),
+          contatoNome: z.string().optional(),
+          contatoTel: z.string().optional(),
+          notas: z.string().optional(),
+        })
+      )
       .mutation(async ({ input }) => {
         return db.createAgregadorImovel({
           ...input,
@@ -1968,10 +2647,12 @@ export const appRouter = router({
       }),
 
     updateStatus: adminProcedure
-      .input(z.object({
-        id: z.number(),
-        status: z.enum(["pendente", "verificado", "arquivado"]),
-      }))
+      .input(
+        z.object({
+          id: z.number(),
+          status: z.enum(["pendente", "verificado", "arquivado"]),
+        })
+      )
       .mutation(async ({ input }) => {
         await db.updateAgregadorImovel(input.id, { status: input.status });
         return { success: true };
@@ -1989,9 +2670,13 @@ export const appRouter = router({
 
   incorporacao: router({
     list: protectedProcedure
-      .input(z.object({
-        status: z.string().optional(),
-      }).optional())
+      .input(
+        z
+          .object({
+            status: z.string().optional(),
+          })
+          .optional()
+      )
       .query(async ({ input, ctx }) => {
         requireRole(ctx, ["admin"]);
         return db.getAllIncorporationStudies(input);
@@ -2007,16 +2692,18 @@ export const appRouter = router({
       }),
 
     create: protectedProcedure
-      .input(z.object({
-        name: z.string().min(2),
-        city: z.string().min(1),
-        state: z.string().length(2).optional(),
-        address: z.string().optional(),
-        latitude: z.number().optional(),
-        longitude: z.number().optional(),
-        responsible: z.string().optional(),
-        propertyRef: z.string().optional(),
-      }))
+      .input(
+        z.object({
+          name: z.string().min(2),
+          city: z.string().min(1),
+          state: z.string().length(2).optional(),
+          address: z.string().optional(),
+          latitude: z.number().optional(),
+          longitude: z.number().optional(),
+          responsible: z.string().optional(),
+          propertyRef: z.string().optional(),
+        })
+      )
       .mutation(async ({ input, ctx }) => {
         requireRole(ctx, ["admin"]);
         return db.createIncorporationStudy({
@@ -2027,18 +2714,20 @@ export const appRouter = router({
       }),
 
     update: protectedProcedure
-      .input(z.object({
-        id: z.number(),
-        name: z.string().optional(),
-        city: z.string().optional(),
-        state: z.string().length(2).optional(),
-        address: z.string().optional(),
-        latitude: z.number().optional(),
-        longitude: z.number().optional(),
-        responsible: z.string().optional(),
-        status: z.enum(["draft", "in_study", "completed"]).optional(),
-        propertyRef: z.string().optional(),
-      }))
+      .input(
+        z.object({
+          id: z.number(),
+          name: z.string().optional(),
+          city: z.string().optional(),
+          state: z.string().length(2).optional(),
+          address: z.string().optional(),
+          latitude: z.number().optional(),
+          longitude: z.number().optional(),
+          responsible: z.string().optional(),
+          status: z.enum(["draft", "in_study", "completed"]).optional(),
+          propertyRef: z.string().optional(),
+        })
+      )
       .mutation(async ({ input, ctx }) => {
         requireRole(ctx, ["admin"]);
         const { id, ...data } = input;
@@ -2060,7 +2749,10 @@ export const appRouter = router({
         try {
           terreno = parseKmlTerreno(input.kmlContent);
         } catch (e) {
-          throw new TRPCError({ code: "BAD_REQUEST", message: e instanceof Error ? e.message : "KML inválido." });
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: e instanceof Error ? e.message : "KML inválido.",
+          });
         }
         await db.updateIncorporationStudy(input.id, {
           geojson: JSON.stringify(terreno.feature),
@@ -2079,13 +2771,15 @@ export const appRouter = router({
       }),
 
     fetchElevation: protectedProcedure
-      .input(z.object({
-        id: z.number(),
-        south: z.number(),
-        north: z.number(),
-        west: z.number(),
-        east: z.number(),
-      }))
+      .input(
+        z.object({
+          id: z.number(),
+          south: z.number(),
+          north: z.number(),
+          west: z.number(),
+          east: z.number(),
+        })
+      )
       .mutation(async ({ input, ctx }) => {
         requireRole(ctx, ["admin"]);
         const { id, ...bbox } = input;
@@ -2093,19 +2787,27 @@ export const appRouter = router({
         try {
           grid = await fetchElevationGrid(bbox);
         } catch (e) {
-          throw new TRPCError({ code: "BAD_GATEWAY", message: e instanceof Error ? e.message : "Falha ao obter elevação." });
+          throw new TRPCError({
+            code: "BAD_GATEWAY",
+            message:
+              e instanceof Error ? e.message : "Falha ao obter elevação.",
+          });
         }
-        await db.updateIncorporationStudy(id, { elevationJson: JSON.stringify(grid) });
+        await db.updateIncorporationStudy(id, {
+          elevationJson: JSON.stringify(grid),
+        });
         return grid;
       }),
 
     saveApp: protectedProcedure
-      .input(z.object({
-        id: z.number(),
-        areaM2: z.number(),
-        larguraM: z.number().nullable(),
-        origem: z.string(),
-      }))
+      .input(
+        z.object({
+          id: z.number(),
+          areaM2: z.number(),
+          larguraM: z.number().nullable(),
+          origem: z.string(),
+        })
+      )
       .mutation(async ({ input, ctx }) => {
         requireRole(ctx, ["admin"]);
         await db.updateIncorporationStudy(input.id, {
@@ -2117,14 +2819,24 @@ export const appRouter = router({
       }),
 
     pesquisarMercado: protectedProcedure
-      .input(z.object({ id: z.number(), municipio: z.string().min(1), estado: z.string().min(2) }))
+      .input(
+        z.object({
+          id: z.number(),
+          municipio: z.string().min(1),
+          estado: z.string().min(2),
+        })
+      )
       .mutation(async ({ input, ctx }) => {
         requireRole(ctx, ["admin"]);
         let resultado;
         try {
           resultado = await pesquisarMercado(input.municipio, input.estado);
         } catch (e) {
-          throw new TRPCError({ code: "BAD_GATEWAY", message: e instanceof Error ? e.message : "Falha na pesquisa de mercado." });
+          throw new TRPCError({
+            code: "BAD_GATEWAY",
+            message:
+              e instanceof Error ? e.message : "Falha na pesquisa de mercado.",
+          });
         }
         await db.updateIncorporationStudy(input.id, {
           cityResearchJson: JSON.stringify(resultado.cidade),
@@ -2137,7 +2849,9 @@ export const appRouter = router({
       .input(z.object({ id: z.number(), dataJson: z.string().min(1) }))
       .mutation(async ({ input, ctx }) => {
         requireRole(ctx, ["admin"]);
-        await db.updateIncorporationStudy(input.id, { comparablePricingJson: input.dataJson });
+        await db.updateIncorporationStudy(input.id, {
+          comparablePricingJson: input.dataJson,
+        });
         return { success: true };
       }),
 
@@ -2145,17 +2859,21 @@ export const appRouter = router({
       .input(z.object({ id: z.number(), dataJson: z.string().min(1) }))
       .mutation(async ({ input, ctx }) => {
         requireRole(ctx, ["admin"]);
-        await db.updateIncorporationStudy(input.id, { primaryResearchJson: input.dataJson });
+        await db.updateIncorporationStudy(input.id, {
+          primaryResearchJson: input.dataJson,
+        });
         return { success: true };
       }),
 
     saveUrbanismo: protectedProcedure
-      .input(z.object({
-        id: z.number(),
-        parametrosJson: z.string().min(1),
-        potencialJson: z.string().optional(),
-        opiniao: z.string().optional(),
-      }))
+      .input(
+        z.object({
+          id: z.number(),
+          parametrosJson: z.string().min(1),
+          potencialJson: z.string().optional(),
+          opiniao: z.string().optional(),
+        })
+      )
       .mutation(async ({ input, ctx }) => {
         requireRole(ctx, ["admin"]);
         await db.updateIncorporationStudy(input.id, {
@@ -2167,11 +2885,13 @@ export const appRouter = router({
       }),
 
     saveMassa: protectedProcedure
-      .input(z.object({
-        id: z.number(),
-        dataJson: z.string().min(1),
-        selectedScenarioId: z.string().nullable(),
-      }))
+      .input(
+        z.object({
+          id: z.number(),
+          dataJson: z.string().min(1),
+          selectedScenarioId: z.string().nullable(),
+        })
+      )
       .mutation(async ({ input, ctx }) => {
         requireRole(ctx, ["admin"]);
         await db.updateIncorporationStudy(input.id, {
@@ -2185,7 +2905,9 @@ export const appRouter = router({
       .input(z.object({ id: z.number(), dataJson: z.string().min(1) }))
       .mutation(async ({ input, ctx }) => {
         requireRole(ctx, ["admin"]);
-        await db.updateIncorporationStudy(input.id, { areasBoardJson: input.dataJson });
+        await db.updateIncorporationStudy(input.id, {
+          areasBoardJson: input.dataJson,
+        });
         return { success: true };
       }),
 
@@ -2193,7 +2915,9 @@ export const appRouter = router({
       .input(z.object({ id: z.number(), dataJson: z.string().min(1) }))
       .mutation(async ({ input, ctx }) => {
         requireRole(ctx, ["admin"]);
-        await db.updateIncorporationStudy(input.id, { parameterizedBudgetJson: input.dataJson });
+        await db.updateIncorporationStudy(input.id, {
+          parameterizedBudgetJson: input.dataJson,
+        });
         return { success: true };
       }),
 
@@ -2201,7 +2925,9 @@ export const appRouter = router({
       .input(z.object({ id: z.number(), dataJson: z.string().min(1) }))
       .mutation(async ({ input, ctx }) => {
         requireRole(ctx, ["admin"]);
-        await db.updateIncorporationStudy(input.id, { landNegotiationJson: input.dataJson });
+        await db.updateIncorporationStudy(input.id, {
+          landNegotiationJson: input.dataJson,
+        });
         return { success: true };
       }),
 
@@ -2209,7 +2935,9 @@ export const appRouter = router({
       .input(z.object({ id: z.number(), dataJson: z.string().min(1) }))
       .mutation(async ({ input, ctx }) => {
         requireRole(ctx, ["admin"]);
-        await db.updateIncorporationStudy(input.id, { businessPlanJson: input.dataJson });
+        await db.updateIncorporationStudy(input.id, {
+          businessPlanJson: input.dataJson,
+        });
         return { success: true };
       }),
 
@@ -2217,7 +2945,9 @@ export const appRouter = router({
       .input(z.object({ id: z.number(), dataJson: z.string().min(1) }))
       .mutation(async ({ input, ctx }) => {
         requireRole(ctx, ["admin"]);
-        await db.updateIncorporationStudy(input.id, { designersJson: input.dataJson });
+        await db.updateIncorporationStudy(input.id, {
+          designersJson: input.dataJson,
+        });
         return { success: true };
       }),
 
@@ -2225,7 +2955,9 @@ export const appRouter = router({
       .input(z.object({ id: z.number(), dataJson: z.string().min(1) }))
       .mutation(async ({ input, ctx }) => {
         requireRole(ctx, ["admin"]);
-        await db.updateIncorporationStudy(input.id, { projectApprovalJson: input.dataJson });
+        await db.updateIncorporationStudy(input.id, {
+          projectApprovalJson: input.dataJson,
+        });
         return { success: true };
       }),
 
@@ -2233,7 +2965,9 @@ export const appRouter = router({
       .input(z.object({ id: z.number(), dataJson: z.string().min(1) }))
       .mutation(async ({ input, ctx }) => {
         requireRole(ctx, ["admin"]);
-        await db.updateIncorporationStudy(input.id, { incorporationRegistrationJson: input.dataJson });
+        await db.updateIncorporationStudy(input.id, {
+          incorporationRegistrationJson: input.dataJson,
+        });
         return { success: true };
       }),
 
@@ -2241,7 +2975,9 @@ export const appRouter = router({
       .input(z.object({ id: z.number(), dataJson: z.string().min(1) }))
       .mutation(async ({ input, ctx }) => {
         requireRole(ctx, ["admin"]);
-        await db.updateIncorporationStudy(input.id, { preliminaryBudgetJson: input.dataJson });
+        await db.updateIncorporationStudy(input.id, {
+          preliminaryBudgetJson: input.dataJson,
+        });
         return { success: true };
       }),
 
@@ -2249,7 +2985,9 @@ export const appRouter = router({
       .input(z.object({ id: z.number(), dataJson: z.string().min(1) }))
       .mutation(async ({ input, ctx }) => {
         requireRole(ctx, ["admin"]);
-        await db.updateIncorporationStudy(input.id, { launchPlanJson: input.dataJson });
+        await db.updateIncorporationStudy(input.id, {
+          launchPlanJson: input.dataJson,
+        });
         return { success: true };
       }),
 
@@ -2257,7 +2995,9 @@ export const appRouter = router({
       .input(z.object({ id: z.number(), dataJson: z.string().min(1) }))
       .mutation(async ({ input, ctx }) => {
         requireRole(ctx, ["admin"]);
-        await db.updateIncorporationStudy(input.id, { launchSuppliersJson: input.dataJson });
+        await db.updateIncorporationStudy(input.id, {
+          launchSuppliersJson: input.dataJson,
+        });
         return { success: true };
       }),
 
@@ -2265,7 +3005,9 @@ export const appRouter = router({
       .input(z.object({ id: z.number(), dataJson: z.string().min(1) }))
       .mutation(async ({ input, ctx }) => {
         requireRole(ctx, ["admin"]);
-        await db.updateIncorporationStudy(input.id, { marketingMaterialJson: input.dataJson });
+        await db.updateIncorporationStudy(input.id, {
+          marketingMaterialJson: input.dataJson,
+        });
         return { success: true };
       }),
 
@@ -2273,7 +3015,9 @@ export const appRouter = router({
       .input(z.object({ id: z.number(), dataJson: z.string().min(1) }))
       .mutation(async ({ input, ctx }) => {
         requireRole(ctx, ["admin"]);
-        await db.updateIncorporationStudy(input.id, { productMixJson: input.dataJson });
+        await db.updateIncorporationStudy(input.id, {
+          productMixJson: input.dataJson,
+        });
         return { success: true };
       }),
 
@@ -2281,7 +3025,9 @@ export const appRouter = router({
       .input(z.object({ id: z.number(), dataJson: z.string().min(1) }))
       .mutation(async ({ input, ctx }) => {
         requireRole(ctx, ["admin"]);
-        await db.updateIncorporationStudy(input.id, { realEstateLaunchJson: input.dataJson });
+        await db.updateIncorporationStudy(input.id, {
+          realEstateLaunchJson: input.dataJson,
+        });
         return { success: true };
       }),
 
@@ -2289,7 +3035,9 @@ export const appRouter = router({
       .input(z.object({ id: z.number(), dataJson: z.string().min(1) }))
       .mutation(async ({ input, ctx }) => {
         requireRole(ctx, ["admin"]);
-        await db.updateIncorporationStudy(input.id, { executiveProjectsJson: input.dataJson });
+        await db.updateIncorporationStudy(input.id, {
+          executiveProjectsJson: input.dataJson,
+        });
         return { success: true };
       }),
 
@@ -2297,7 +3045,9 @@ export const appRouter = router({
       .input(z.object({ id: z.number(), dataJson: z.string().min(1) }))
       .mutation(async ({ input, ctx }) => {
         requireRole(ctx, ["admin"]);
-        await db.updateIncorporationStudy(input.id, { workBudgetJson: input.dataJson });
+        await db.updateIncorporationStudy(input.id, {
+          workBudgetJson: input.dataJson,
+        });
         return { success: true };
       }),
 
@@ -2305,7 +3055,9 @@ export const appRouter = router({
       .input(z.object({ id: z.number(), dataJson: z.string().min(1) }))
       .mutation(async ({ input, ctx }) => {
         requireRole(ctx, ["admin"]);
-        await db.updateIncorporationStudy(input.id, { physicalFinancialScheduleJson: input.dataJson });
+        await db.updateIncorporationStudy(input.id, {
+          physicalFinancialScheduleJson: input.dataJson,
+        });
         return { success: true };
       }),
 
@@ -2313,7 +3065,9 @@ export const appRouter = router({
       .input(z.object({ id: z.number(), dataJson: z.string().min(1) }))
       .mutation(async ({ input, ctx }) => {
         requireRole(ctx, ["admin"]);
-        await db.updateIncorporationStudy(input.id, { customerServiceJson: input.dataJson });
+        await db.updateIncorporationStudy(input.id, {
+          customerServiceJson: input.dataJson,
+        });
         return { success: true };
       }),
 
@@ -2321,7 +3075,9 @@ export const appRouter = router({
       .input(z.object({ id: z.number(), dataJson: z.string().min(1) }))
       .mutation(async ({ input, ctx }) => {
         requireRole(ctx, ["admin"]);
-        await db.updateIncorporationStudy(input.id, { lottingJson: input.dataJson });
+        await db.updateIncorporationStudy(input.id, {
+          lottingJson: input.dataJson,
+        });
         return { success: true };
       }),
   }),

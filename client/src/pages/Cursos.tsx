@@ -9,18 +9,27 @@ import Navbar from "@/components/Navbar";
 import SEO from "@/components/SEO";
 import { trpc } from "@/lib/trpc";
 import { toast } from "sonner";
-import { ArrowLeft, GraduationCap, Clock, Users, Calculator, Home, CheckCircle2 } from "lucide-react";
+import { ArrowLeft, GraduationCap, Clock, Users, Calculator, Home, Building2, CheckCircle2 } from "lucide-react";
 
 const AREAS_INTERESSE = [
   {
     icon: Home,
     title: "Corretagem Imobiliária",
     description: "Formação voltada a quem quer atuar com intermediação e vendas de imóveis.",
+    status: "Turmas em breve",
   },
   {
     icon: Calculator,
     title: "Financiamento Habitacional",
     description: "Capacitação sobre o processo de financiamento da casa própria, do zero à assinatura.",
+    status: "Turmas em breve",
+  },
+  {
+    icon: Building2,
+    title: "Mentoria VFX",
+    description:
+      "Mentoria para quem quer abrir a própria construtora do zero — mesmo sem capital inicial. Ensinamos, passo a passo, como usar os recursos bancários disponíveis para desenvolver o negócio através da construção financiada: de onde vem o dinheiro, como estruturar o projeto, e como transformar financiamento em obra real e rentável.",
+    status: "Turmas em andamento",
   },
 ];
 
@@ -89,15 +98,15 @@ export default function Cursos() {
               </div>
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
-              {AREAS_INTERESSE.map(({ icon: Icon, title, description }) => (
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
+              {AREAS_INTERESSE.map(({ icon: Icon, title, description, status }) => (
                 <Card key={title} className="bg-[#1A2332]/60 border-[#C9A961]/20 backdrop-blur-sm">
                   <CardContent className="p-6 space-y-3">
                     <Icon className="h-8 w-8 text-[#C9A961]" />
                     <h3 className="font-bold text-white uppercase">{title}</h3>
                     <p className="text-gray-400 text-sm leading-relaxed">{description}</p>
                     <p className="flex items-center gap-2 text-xs text-[#C9A961]/80">
-                      <CheckCircle2 className="h-3.5 w-3.5" /> Turmas em breve
+                      <CheckCircle2 className="h-3.5 w-3.5" /> {status}
                     </p>
                   </CardContent>
                 </Card>

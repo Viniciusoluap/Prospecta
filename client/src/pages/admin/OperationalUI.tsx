@@ -92,6 +92,7 @@ export function OperationalPage({
   error,
   retry,
   onNew,
+  embedded = false,
 }: {
   title: string;
   description: string;
@@ -100,13 +101,22 @@ export function OperationalPage({
   error?: { message: string } | null;
   retry?: () => void;
   onNew?: () => void;
+  embedded?: boolean;
 }) {
-  return (
-    <main className="min-h-screen bg-slate-50 p-4 text-slate-900 md:p-8">
+  const content = (
+    <main
+      className={
+        embedded
+          ? "rounded-lg bg-slate-50 p-4 text-slate-900"
+          : "min-h-screen bg-slate-50 p-4 text-slate-900 md:p-8"
+      }
+    >
       <div className="mx-auto max-w-6xl space-y-5">
-        <Link href="/admin/acesso" className="text-sm underline">
-          ← Central administrativa
-        </Link>
+        {!embedded && (
+          <Link href="/admin/acesso" className="text-sm underline">
+            ← Central administrativa
+          </Link>
+        )}
         <header className="flex flex-wrap items-center justify-between gap-3">
           <div>
             <h1 className="text-3xl font-bold text-[#906a25]">{title}</h1>
@@ -129,6 +139,7 @@ export function OperationalPage({
       </div>
     </main>
   );
+  return content;
 }
 export function Editor({
   title,

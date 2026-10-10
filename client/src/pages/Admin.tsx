@@ -1,7 +1,13 @@
 import { useState } from "react";
 import { Link } from "wouter";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
@@ -11,7 +17,28 @@ import Navbar from "@/components/Navbar";
 import { trpc } from "@/lib/trpc";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { formatCurrency, formatUtef, getLoginUrl } from "@/const";
-import { Settings, Plus, Ticket, ShoppingBag, AlertCircle, Users, BookOpen, CheckSquare, HardHat, UserCheck, FileCheck2, ClipboardCheck, Building2, Mountain, MessageCircle, Receipt, Landmark, Scale, Shield, Rss, BarChart3 } from "lucide-react";
+import {
+  Settings,
+  Plus,
+  Ticket,
+  ShoppingBag,
+  AlertCircle,
+  Users,
+  CheckSquare,
+  HardHat,
+  UserCheck,
+  FileCheck2,
+  ClipboardCheck,
+  Building2,
+  Mountain,
+  MessageCircle,
+  Receipt,
+  Landmark,
+  Scale,
+  Shield,
+  Upload,
+  X,
+} from "lucide-react";
 import { toast } from "sonner";
 import {
   Select,
@@ -37,8 +64,9 @@ export default function Admin() {
     title: "",
     description: "",
     priceUtef: "",
-    imageUrl: "",
   });
+  const [productImage, setProductImage] = useState<File | null>(null);
+  const [productImagePreview, setProductImagePreview] = useState("");
 
   const createDrawMutation = trpc.draws.create.useMutation({
     onSuccess: () => {
@@ -52,7 +80,7 @@ export default function Admin() {
         drawDate: "",
       });
     },
-    onError: (error) => {
+    onError: error => {
       toast.error(error.message || "Erro ao criar sorteio");
     },
   });
@@ -65,13 +93,13 @@ export default function Admin() {
         title: "",
         description: "",
         priceUtef: "",
-        imageUrl: "",
       });
     },
-    onError: (error) => {
+    onError: error => {
       toast.error(error.message || "Erro ao criar produto");
     },
   });
+  const uploadProductImageMutation = trpc.products.uploadImage.useMutation();
 
   if (authLoading) {
     return (
@@ -121,126 +149,194 @@ export default function Admin() {
     });
   };
 
-  const handleCreateProduct = (e: React.FormEvent) => {
+  const handleCreateProduct = async (e: React.FormEvent) => {
     e.preventDefault();
-    createProductMutation.mutate({
-      category: productForm.category,
-      title: productForm.title,
-      description: productForm.description,
-      priceUtef: parseInt(productForm.priceUtef),
-      imageUrl: productForm.imageUrl || undefined,
-    });
+    try {
+      let imageUrl: string | undefined;
+      if (productImage) {
+        const base64 = await new Promise<string>((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onload = () => resolve(String(reader.result));
+          reader.onerror = () =>
+            reject(new Error("Não foi possível ler a imagem"));
+          reader.readAsDataURL(productImage);
+        });
+        const uploaded = await uploadProductImageMutation.mutateAsync({
+          fileName: productImage.name,
+          mimeType: productImage.type as
+            | "image/jpeg"
+            | "image/png"
+            | "image/webp"
+            | "image/heic"
+            | "image/heif",
+          base64,
+        });
+        imageUrl = uploaded.url;
+      }
+      await createProductMutation.mutateAsync({
+        category: productForm.category,
+        title: productForm.title,
+        description: productForm.description,
+        priceUtef: parseInt(productForm.priceUtef),
+        imageUrl,
+      });
+      if (productImagePreview) URL.revokeObjectURL(productImagePreview);
+      setProductImage(null);
+      setProductImagePreview("");
+    } catch (error) {
+      toast.error(
+        error instanceof Error
+          ? error.message
+          : "Erro ao enviar imagem do produto"
+      );
+    }
   };
 
   return (
     <div className="min-h-screen flex flex-col">
       <Navbar />
-      
+
       <main className="flex-1 py-12">
         <div className="container max-w-4xl space-y-6">
           <div className="flex items-center gap-3">
             <Settings className="h-8 w-8 text-primary" />
             <div>
               <h1 className="text-3xl font-bold">Painel Administrativo</h1>
-              <p className="text-muted-foreground">Gerencie sorteios e produtos do ecossistema</p>
+              <p className="text-muted-foreground">
+                Gerencie sorteios e produtos do ecossistema
+              </p>
             </div>
           </div>
 
           {/* Links Rápidos — Prospecta */}
           <Card>
             <CardHeader>
-              <CardTitle>Módulos Principais — VFX Capital / Prospecta</CardTitle>
+              <CardTitle>
+                Módulos Principais — VFX Capital / Prospecta
+              </CardTitle>
               <CardDescription>Acesso rápido às operações</CardDescription>
             </CardHeader>
             <CardContent>
               <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
                 <Link href="/admin/crm">
-                  <Button variant="outline" className="w-full h-20 flex flex-col gap-2 border-blue-500/30 hover:bg-blue-500/10">
+                  <Button
+                    variant="outline"
+                    className="w-full h-20 flex flex-col gap-2 border-blue-500/30 hover:bg-blue-500/10"
+                  >
                     <Users className="h-5 w-5 text-blue-400" />
                     <span>CRM / Pipeline</span>
                   </Button>
                 </Link>
                 <Link href="/admin/obras">
-                  <Button variant="outline" className="w-full h-20 flex flex-col gap-2 border-orange-500/30 hover:bg-orange-500/10">
+                  <Button
+                    variant="outline"
+                    className="w-full h-20 flex flex-col gap-2 border-orange-500/30 hover:bg-orange-500/10"
+                  >
                     <HardHat className="h-5 w-5 text-orange-400" />
                     <span>Obras</span>
                   </Button>
                 </Link>
-                <Link href="/admin/contabilidade">
-                  <Button variant="outline" className="w-full h-20 flex flex-col gap-2 border-green-500/30 hover:bg-green-500/10">
-                    <BookOpen className="h-5 w-5 text-green-400" />
-                    <span>Contabilidade</span>
-                  </Button>
-                </Link>
-                <Link href="/admin/tarefas">
-                  <Button variant="outline" className="w-full h-20 flex flex-col gap-2 border-purple-500/30 hover:bg-purple-500/10">
+                <Link href="/admin/tarefas-agenda">
+                  <Button
+                    variant="outline"
+                    className="w-full h-20 flex flex-col gap-2 border-purple-500/30 hover:bg-purple-500/10"
+                  >
                     <CheckSquare className="h-5 w-5 text-purple-400" />
-                    <span>Tarefas & SLA</span>
+                    <span>Tarefas e Agenda</span>
                   </Button>
                 </Link>
                 <Link href="/admin/corretores">
-                  <Button variant="outline" className="w-full h-20 flex flex-col gap-2 border-pink-500/30 hover:bg-pink-500/10">
+                  <Button
+                    variant="outline"
+                    className="w-full h-20 flex flex-col gap-2 border-pink-500/30 hover:bg-pink-500/10"
+                  >
                     <UserCheck className="h-5 w-5 text-pink-400" />
                     <span>Corretores</span>
                   </Button>
                 </Link>
                 <Link href="/admin/regularizacoes">
-                  <Button variant="outline" className="w-full h-20 flex flex-col gap-2 border-teal-500/30 hover:bg-teal-500/10">
+                  <Button
+                    variant="outline"
+                    className="w-full h-20 flex flex-col gap-2 border-teal-500/30 hover:bg-teal-500/10"
+                  >
                     <FileCheck2 className="h-5 w-5 text-teal-400" />
                     <span>Regularizações</span>
                   </Button>
                 </Link>
-                {[{ href: "/admin/agenda", label: "Agenda" }, { href: "/admin/comissoes", label: "Comissões" }, { href: "/admin/projetos", label: "Projetos" }, { href: "/admin/mapa", label: "Mapa operacional" }].map(item => <Link key={item.href} href={item.href}><Button variant="outline" className="w-full h-20 flex flex-col gap-2 border-[#C9A961]/30"><CheckSquare className="h-5 w-5 text-[#C9A961]" /><span>{item.label}</span></Button></Link>)}
-                <Link href="/admin/agregador">
-                  <Button variant="outline" className="w-full h-20 flex flex-col gap-2 border-orange-500/30 hover:bg-orange-500/10">
-                    <Rss className="h-5 w-5 text-orange-400" />
-                    <span>Agregador / Feeds</span>
-                  </Button>
-                </Link>
-                <Link href="/admin/relatorios">
-                  <Button variant="outline" className="w-full h-20 flex flex-col gap-2 border-cyan-500/30 hover:bg-cyan-500/10">
-                    <BarChart3 className="h-5 w-5 text-cyan-400" />
-                    <span>Relatórios</span>
-                  </Button>
-                </Link>
+                {[
+                  { href: "/admin/comissoes", label: "Comissões" },
+                  { href: "/admin/projetos", label: "Projetos" },
+                  { href: "/admin/mapa", label: "Mapa operacional" },
+                ].map(item => (
+                  <Link key={item.href} href={item.href}>
+                    <Button
+                      variant="outline"
+                      className="w-full h-20 flex flex-col gap-2 border-[#C9A961]/30"
+                    >
+                      <CheckSquare className="h-5 w-5 text-[#C9A961]" />
+                      <span>{item.label}</span>
+                    </Button>
+                  </Link>
+                ))}
                 <Link href="/admin/avaliacoes">
-                  <Button variant="outline" className="w-full h-20 flex flex-col gap-2 border-cyan-500/30 hover:bg-cyan-500/10">
+                  <Button
+                    variant="outline"
+                    className="w-full h-20 flex flex-col gap-2 border-cyan-500/30 hover:bg-cyan-500/10"
+                  >
                     <ClipboardCheck className="h-5 w-5 text-cyan-400" />
                     <span>Avaliações</span>
                   </Button>
                 </Link>
                 <Link href="/admin/imoveis">
-                  <Button variant="outline" className="w-full h-20 flex flex-col gap-2 border-amber-500/30 hover:bg-amber-500/10">
+                  <Button
+                    variant="outline"
+                    className="w-full h-20 flex flex-col gap-2 border-amber-500/30 hover:bg-amber-500/10"
+                  >
                     <Building2 className="h-5 w-5 text-amber-400" />
                     <span>Imóveis</span>
                   </Button>
                 </Link>
                 <Link href="/admin/incorporacao">
-                  <Button variant="outline" className="w-full h-20 flex flex-col gap-2 border-orange-500/30 hover:bg-orange-500/10">
+                  <Button
+                    variant="outline"
+                    className="w-full h-20 flex flex-col gap-2 border-orange-500/30 hover:bg-orange-500/10"
+                  >
                     <Mountain className="h-5 w-5 text-orange-400" />
                     <span>Incorporação</span>
                   </Button>
                 </Link>
                 <Link href="/admin/whatsapp">
-                  <Button variant="outline" className="w-full h-20 flex flex-col gap-2 border-green-500/30 hover:bg-green-500/10">
+                  <Button
+                    variant="outline"
+                    className="w-full h-20 flex flex-col gap-2 border-green-500/30 hover:bg-green-500/10"
+                  >
                     <MessageCircle className="h-5 w-5 text-green-400" />
                     <span>WhatsApp</span>
                   </Button>
                 </Link>
                 <Link href="/admin/bpo">
-                  <Button variant="outline" className="w-full h-20 flex flex-col gap-2 border-[#C9A961]/30 hover:bg-[#C9A961]/10">
+                  <Button
+                    variant="outline"
+                    className="w-full h-20 flex flex-col gap-2 border-[#C9A961]/30 hover:bg-[#C9A961]/10"
+                  >
                     <Receipt className="h-5 w-5 text-[#C9A961]" />
                     <span>BPO Financeiro</span>
                   </Button>
                 </Link>
                 <Link href="/admin/financiamentos">
-                  <Button variant="outline" className="w-full h-20 flex flex-col gap-2 border-blue-500/30 hover:bg-blue-500/10">
+                  <Button
+                    variant="outline"
+                    className="w-full h-20 flex flex-col gap-2 border-blue-500/30 hover:bg-blue-500/10"
+                  >
                     <Landmark className="h-5 w-5 text-blue-400" />
                     <span>Financiamentos</span>
                   </Button>
                 </Link>
                 <Link href="/admin/juridico">
-                  <Button variant="outline" className="w-full h-20 flex flex-col gap-2 border-purple-500/30 hover:bg-purple-500/10">
+                  <Button
+                    variant="outline"
+                    className="w-full h-20 flex flex-col gap-2 border-purple-500/30 hover:bg-purple-500/10"
+                  >
                     <Scale className="h-5 w-5 text-purple-400" />
                     <span>Jurídico</span>
                   </Button>
@@ -256,32 +352,20 @@ export default function Admin() {
             </CardHeader>
             <CardContent>
               <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-                <Link href="/admin/dashboard">
-                  <Button variant="outline" className="w-full h-14 flex flex-col gap-1 text-sm">
-                    <Settings className="h-4 w-4" />
-                    <span>Dashboard</span>
-                  </Button>
-                </Link>
-                <Link href="/admin/orcamentos">
-                  <Button variant="outline" className="w-full h-14 flex flex-col gap-1 text-sm">
-                    <Settings className="h-4 w-4" />
-                    <span>Orçamentos</span>
-                  </Button>
-                </Link>
-                <Link href="/admin/emails">
-                  <Button variant="outline" className="w-full h-14 flex flex-col gap-1 text-sm">
-                    <Settings className="h-4 w-4" />
-                    <span>Emails</span>
-                  </Button>
-                </Link>
                 <Link href="/admin/configuracoes-pagamento">
-                  <Button variant="outline" className="w-full h-14 flex flex-col gap-1 text-sm">
+                  <Button
+                    variant="outline"
+                    className="w-full h-14 flex flex-col gap-1 text-sm"
+                  >
                     <Settings className="h-4 w-4" />
-                    <span>Pagamentos</span>
+                    <span>API Contas</span>
                   </Button>
                 </Link>
                 <Link href="/admin/configuracoes">
-                  <Button variant="outline" className="w-full h-14 flex flex-col gap-1 text-sm">
+                  <Button
+                    variant="outline"
+                    className="w-full h-14 flex flex-col gap-1 text-sm"
+                  >
                     <Shield className="h-4 w-4" />
                     <span>Usuários e Acessos</span>
                   </Button>
@@ -315,7 +399,9 @@ export default function Admin() {
                       <Input
                         id="draw-title"
                         value={drawForm.title}
-                        onChange={(e) => setDrawForm({ ...drawForm, title: e.target.value })}
+                        onChange={e =>
+                          setDrawForm({ ...drawForm, title: e.target.value })
+                        }
                         placeholder="Ex: Sorteio Efficaz 2025"
                         required
                       />
@@ -326,7 +412,12 @@ export default function Admin() {
                       <Textarea
                         id="draw-description"
                         value={drawForm.description}
-                        onChange={(e) => setDrawForm({ ...drawForm, description: e.target.value })}
+                        onChange={e =>
+                          setDrawForm({
+                            ...drawForm,
+                            description: e.target.value,
+                          })
+                        }
                         placeholder="Descreva o sorteio..."
                         rows={3}
                       />
@@ -339,18 +430,30 @@ export default function Admin() {
                           id="prize-amount"
                           type="number"
                           value={drawForm.prizeAmount}
-                          onChange={(e) => setDrawForm({ ...drawForm, prizeAmount: e.target.value })}
+                          onChange={e =>
+                            setDrawForm({
+                              ...drawForm,
+                              prizeAmount: e.target.value,
+                            })
+                          }
                           required
                         />
                       </div>
 
                       <div className="space-y-2">
-                        <Label htmlFor="ticket-price">Preço do Bilhete (centavos)</Label>
+                        <Label htmlFor="ticket-price">
+                          Preço do Bilhete (centavos)
+                        </Label>
                         <Input
                           id="ticket-price"
                           type="number"
                           value={drawForm.ticketPrice}
-                          onChange={(e) => setDrawForm({ ...drawForm, ticketPrice: e.target.value })}
+                          onChange={e =>
+                            setDrawForm({
+                              ...drawForm,
+                              ticketPrice: e.target.value,
+                            })
+                          }
                           placeholder="200 = R$ 2,00"
                           required
                         />
@@ -359,12 +462,19 @@ export default function Admin() {
 
                     <div className="grid md:grid-cols-2 gap-4">
                       <div className="space-y-2">
-                        <Label htmlFor="target-amount">Meta de Arrecadação (centavos)</Label>
+                        <Label htmlFor="target-amount">
+                          Meta de Arrecadação (centavos)
+                        </Label>
                         <Input
                           id="target-amount"
                           type="number"
                           value={drawForm.targetAmount}
-                          onChange={(e) => setDrawForm({ ...drawForm, targetAmount: e.target.value })}
+                          onChange={e =>
+                            setDrawForm({
+                              ...drawForm,
+                              targetAmount: e.target.value,
+                            })
+                          }
                           required
                         />
                       </div>
@@ -375,14 +485,25 @@ export default function Admin() {
                           id="draw-date"
                           type="datetime-local"
                           value={drawForm.drawDate}
-                          onChange={(e) => setDrawForm({ ...drawForm, drawDate: e.target.value })}
+                          onChange={e =>
+                            setDrawForm({
+                              ...drawForm,
+                              drawDate: e.target.value,
+                            })
+                          }
                         />
                       </div>
                     </div>
 
-                    <Button type="submit" disabled={createDrawMutation.isPending} className="w-full">
+                    <Button
+                      type="submit"
+                      disabled={createDrawMutation.isPending}
+                      className="w-full"
+                    >
                       <Ticket className="h-4 w-4 mr-2" />
-                      {createDrawMutation.isPending ? "Criando..." : "Criar Sorteio"}
+                      {createDrawMutation.isPending
+                        ? "Criando..."
+                        : "Criar Sorteio"}
                     </Button>
                   </form>
                 </CardContent>
@@ -407,13 +528,17 @@ export default function Admin() {
                       <Label htmlFor="product-category">Categoria</Label>
                       <Select
                         value={productForm.category}
-                        onValueChange={(value: any) => setProductForm({ ...productForm, category: value })}
+                        onValueChange={(value: any) =>
+                          setProductForm({ ...productForm, category: value })
+                        }
                       >
                         <SelectTrigger>
                           <SelectValue />
                         </SelectTrigger>
                         <SelectContent>
-                          <SelectItem value="real_estate">Construção Civil</SelectItem>
+                          <SelectItem value="real_estate">
+                            Construção Civil
+                          </SelectItem>
                           <SelectItem value="financial">Financeira</SelectItem>
                           <SelectItem value="nautical">Náutico</SelectItem>
                         </SelectContent>
@@ -425,7 +550,12 @@ export default function Admin() {
                       <Input
                         id="product-title"
                         value={productForm.title}
-                        onChange={(e) => setProductForm({ ...productForm, title: e.target.value })}
+                        onChange={e =>
+                          setProductForm({
+                            ...productForm,
+                            title: e.target.value,
+                          })
+                        }
                         placeholder="Ex: Casa Térrea 53m²"
                         required
                       />
@@ -436,7 +566,12 @@ export default function Admin() {
                       <Textarea
                         id="product-description"
                         value={productForm.description}
-                        onChange={(e) => setProductForm({ ...productForm, description: e.target.value })}
+                        onChange={e =>
+                          setProductForm({
+                            ...productForm,
+                            description: e.target.value,
+                          })
+                        }
                         placeholder="Descreva o produto..."
                         rows={3}
                       />
@@ -449,26 +584,91 @@ export default function Admin() {
                           id="product-price"
                           type="number"
                           value={productForm.priceUtef}
-                          onChange={(e) => setProductForm({ ...productForm, priceUtef: e.target.value })}
+                          onChange={e =>
+                            setProductForm({
+                              ...productForm,
+                              priceUtef: e.target.value,
+                            })
+                          }
                           placeholder="Ex: 180000"
                           required
                         />
                       </div>
 
                       <div className="space-y-2">
-                        <Label htmlFor="product-image">URL da Imagem</Label>
+                        <Label htmlFor="product-image">Imagem do produto</Label>
                         <Input
                           id="product-image"
-                          value={productForm.imageUrl}
-                          onChange={(e) => setProductForm({ ...productForm, imageUrl: e.target.value })}
-                          placeholder="https://..."
+                          type="file"
+                          accept="image/jpeg,image/png,image/webp,image/heic,image/heif"
+                          onChange={event => {
+                            const file = event.target.files?.[0] ?? null;
+                            if (file && file.size > 10 * 1024 * 1024) {
+                              toast.error("A imagem deve ter no máximo 10 MB");
+                              event.target.value = "";
+                              return;
+                            }
+                            if (productImagePreview)
+                              URL.revokeObjectURL(productImagePreview);
+                            setProductImage(file);
+                            setProductImagePreview(
+                              file ? URL.createObjectURL(file) : ""
+                            );
+                          }}
                         />
+                        <p className="text-xs text-muted-foreground">
+                          Escolha pela câmera, biblioteca ou arquivos do
+                          dispositivo. Máximo: 10 MB.
+                        </p>
                       </div>
                     </div>
 
-                    <Button type="submit" disabled={createProductMutation.isPending} className="w-full">
-                      <ShoppingBag className="h-4 w-4 mr-2" />
-                      {createProductMutation.isPending ? "Criando..." : "Criar Produto"}
+                    {productImagePreview && (
+                      <div className="relative w-fit rounded-lg border p-2">
+                        <img
+                          src={productImagePreview}
+                          alt="Prévia da imagem do produto"
+                          className="h-32 max-w-full rounded object-cover"
+                        />
+                        <Button
+                          type="button"
+                          variant="destructive"
+                          size="icon"
+                          className="absolute -right-3 -top-3 h-7 w-7"
+                          aria-label="Remover imagem selecionada"
+                          onClick={() => {
+                            URL.revokeObjectURL(productImagePreview);
+                            setProductImage(null);
+                            setProductImagePreview("");
+                            const input = document.getElementById(
+                              "product-image"
+                            ) as HTMLInputElement | null;
+                            if (input) input.value = "";
+                          }}
+                        >
+                          <X className="h-4 w-4" />
+                        </Button>
+                      </div>
+                    )}
+
+                    <Button
+                      type="submit"
+                      disabled={
+                        createProductMutation.isPending ||
+                        uploadProductImageMutation.isPending
+                      }
+                      className="w-full"
+                    >
+                      {uploadProductImageMutation.isPending ? (
+                        <Upload className="h-4 w-4 mr-2 animate-pulse" />
+                      ) : (
+                        <ShoppingBag className="h-4 w-4 mr-2" />
+                      )}
+                      {uploadProductImageMutation.isPending
+                        ? "Enviando imagem..."
+                        : createProductMutation.isPending
+                          ? "Criando..."
+                          : "Criar Produto"}
                     </Button>
                   </form>
                 </CardContent>

@@ -41,7 +41,7 @@ export const emailTemplates = {
             </div>
             <div class="footer">
               <p>Prospecta Empreendimentos - CNPJ: 41.865.900/0001-89</p>
-              <p>Leôncio Pires Dourado, 840A - Bacuri - Imperatriz - MA</p>
+              <p>R. Gonçalves Dias, 1993 - Juçara - Imperatriz - MA</p>
             </div>
           </div>
         </body>

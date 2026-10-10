@@ -25,7 +25,7 @@ export default function PoliticaDePrivacidade() {
             <section>
               <h2 className="text-2xl font-semibold text-[#C9A961] mb-4">1. Introdução</h2>
               <p>
-                A <strong>EFFICAZ PROMOÇÃO DE VENDAS</strong>, CNPJ 41.865.900/0001-89, valoriza a privacidade de seus usuários 
+                A <strong>PROSPECTA CONSTRUÇÕES E AVALIAÇÃO IMOBILIÁRIA LTDA</strong>, CNPJ 41.865.900/0001-89, valoriza a privacidade de seus usuários
                 e está comprometida em proteger seus dados pessoais. Esta Política de Privacidade descreve como coletamos, 
                 usamos, armazenamos e compartilhamos suas informações quando você utiliza a plataforma {APP_TITLE}.
               </p>
@@ -134,7 +134,7 @@ export default function PoliticaDePrivacidade() {
                 <li><strong>Informação:</strong> Saber com quem compartilhamos seus dados</li>
               </ul>
               <p className="mt-4">
-                Para exercer seus direitos, entre em contato: <a href="mailto:privacidade@grupoefficaz.com.br" className="text-[#C9A961] hover:underline">privacidade@grupoefficaz.com.br</a>
+                Para exercer seus direitos, entre em contato: <a href="mailto:atendimento@prospectaconstrucoes.com" className="text-[#C9A961] hover:underline">atendimento@prospectaconstrucoes.com</a>
               </p>
             </section>
 
@@ -168,7 +168,7 @@ export default function PoliticaDePrivacidade() {
                 Para dúvidas sobre esta Política de Privacidade ou sobre o tratamento de seus dados:
               </p>
               <ul className="list-none ml-4 space-y-2">
-                <li><strong>Email:</strong> <a href="mailto:privacidade@grupoefficaz.com.br" className="text-[#C9A961] hover:underline">privacidade@grupoefficaz.com.br</a></li>
+                <li><strong>Email:</strong> <a href="mailto:atendimento@prospectaconstrucoes.com" className="text-[#C9A961] hover:underline">atendimento@prospectaconstrucoes.com</a></li>
                 <li><strong>Telefone:</strong> (99) 98139-2210 | (94) 99304-4689</li>
                 <li><strong>Endereço:</strong> Imperatriz - MA</li>
               </ul>

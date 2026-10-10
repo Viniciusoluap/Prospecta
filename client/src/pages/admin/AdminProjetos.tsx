@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { Link } from "wouter";
 import { trpc } from "@/lib/trpc";
+import { LinkedServiceQueue } from "./LinkedServiceQueue";
 import { Button } from "@/components/ui/button";
 import { PROJECT_STATUS, projectInput } from "../../../../shared/operacional";
 import {
@@ -66,6 +67,7 @@ export default function AdminProjetos() {
         setOpen(true);
       }}
     >
+      <LinkedServiceQueue module="projetos" title="Projetos" />
       <nav className="flex flex-wrap gap-4 text-sm underline">
         <Link href="/admin/orcamentos">Solicitações de orçamento</Link>
         <Link href="/admin/incorporacao">Estudos de incorporação</Link>
@@ -106,6 +108,7 @@ export default function AdminProjetos() {
                 {r.name}
                 <br />
                 {r.clientName}
+                {r.leadId && <><br /><Link href={`/admin/crm/${r.leadId}`} className="text-sm text-[#8B631D] underline">Abrir cadastro CRM</Link></>}
               </td>
               <td>{r.engineer}</td>
               <td>

@@ -6,11 +6,35 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import {
+  AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
+  AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { Textarea } from "@/components/ui/textarea";
 import { toast } from "sonner";
-import { ArrowLeft, CheckSquare, Plus, Clock, AlertTriangle, User } from "lucide-react";
+import {
+  ArrowLeft,
+  CheckSquare,
+  Plus,
+  Clock,
+  AlertTriangle,
+  User,
+  Pencil,
+  Trash2,
+} from "lucide-react";
 
 const PRIORITY_COLORS: Record<string, string> = {
   low: "bg-gray-500",
@@ -45,115 +69,229 @@ function formatDate(d: string | Date | null | undefined) {
   return new Date(d).toLocaleDateString("pt-BR");
 }
 
-export default function AdminTarefas() {
+export default function AdminTarefas({
+  embedded = false,
+}: { embedded?: boolean } = {}) {
   const [open, setOpen] = useState(false);
+  const [editingId, setEditingId] = useState<number | null>(null);
+  const [deletingId, setDeletingId] = useState<number | null>(null);
   const [filterStatus, setFilterStatus] = useState("all");
   const [filterResp, setFilterResp] = useState("all");
   const [form, setForm] = useState({
-    title: "", description: "", assignedTo: "sarah",
-    priority: "medium" as any, dueAt: "", slaHours: "",
+    title: "",
+    description: "",
+    assignedTo: "sarah",
+    priority: "medium" as any,
+    dueAt: "",
+    slaHours: "",
+    status: "pending" as "pending" | "in_progress" | "done" | "cancelled",
+    relatedType: "none",
+    relatedId: "none",
   });
 
-  const { data: tasks = [], refetch } = trpc.tasks.list.useQuery({
-    status: filterStatus !== "all" ? filterStatus : undefined,
-    assignedTo: filterResp !== "all" ? filterResp : undefined,
-  });
+  const { data: allTasks = [], refetch } = trpc.tasks.list.useQuery();
+  const { data: leads = [] } = trpc.construction.leadOptions.useQuery();
+  const { data: projects = [] } = trpc.construction.allProjects.useQuery();
+  const tasks = allTasks.filter(task =>
+    (filterStatus === "all" || task.status === filterStatus) &&
+    (filterResp === "all" || task.assignedTo === filterResp)
+  );
+
+  const resetForm = () => {
+    setEditingId(null);
+    setForm({ title: "", description: "", assignedTo: "sarah", priority: "medium", dueAt: "", slaHours: "", status: "pending", relatedType: "none", relatedId: "none" });
+  };
+  const editTask = (task: (typeof allTasks)[number]) => {
+    setEditingId(task.id);
+    setForm({
+      title: task.title, description: task.description || "", assignedTo: task.assignedTo,
+      priority: task.priority, dueAt: task.dueAt ? new Date(task.dueAt).toISOString().slice(0, 16) : "",
+      slaHours: task.slaHours ? String(task.slaHours) : "", status: task.status,
+      relatedType: task.relatedType || "none", relatedId: task.relatedId ? String(task.relatedId) : "none",
+    });
+    setOpen(true);
+  };
 
   const createMutation = trpc.tasks.create.useMutation({
-    onSuccess: () => { toast.success("Tarefa criada!"); refetch(); setOpen(false); setForm({ title: "", description: "", assignedTo: "sarah", priority: "medium", dueAt: "", slaHours: "" }); },
-    onError: (e) => toast.error(e.message),
+    onSuccess: () => {
+      toast.success("Tarefa criada!");
+      refetch();
+      setOpen(false);
+      resetForm();
+    },
+    onError: e => toast.error(e.message),
   });
 
   const updateMutation = trpc.tasks.update.useMutation({
-    onSuccess: () => { refetch(); },
-    onError: (e) => toast.error(e.message),
+    onSuccess: () => {
+      refetch();
+      setOpen(false);
+      resetForm();
+    },
+    onError: e => toast.error(e.message),
+  });
+  const deleteMutation = trpc.tasks.delete.useMutation({
+    onSuccess: () => { toast.success("Tarefa excluída"); setDeletingId(null); refetch(); },
+    onError: e => toast.error(e.message),
   });
 
-  const pending = tasks.filter(t => t.status === "pending").length;
-  const inProgress = tasks.filter(t => t.status === "in_progress").length;
-  const overdue = tasks.filter(t => t.dueAt && new Date(t.dueAt) < new Date() && t.status !== "done" && t.status !== "cancelled").length;
+  const pending = allTasks.filter(t => t.status === "pending").length;
+  const inProgress = allTasks.filter(t => t.status === "in_progress").length;
+  const overdue = allTasks.filter(
+    t =>
+      t.dueAt &&
+      new Date(t.dueAt) < new Date() &&
+      t.status !== "done" &&
+      t.status !== "cancelled"
+  ).length;
 
   return (
-    <div className="min-h-screen bg-[#1A2332] text-white">
-      <div className="bg-[#0F1923] border-b border-[#C9A961]/20 px-6 py-4">
-        <div className="max-w-7xl mx-auto flex items-center justify-between">
-          <div className="flex items-center gap-4">
-            <Link href="/admin">
-              <Button variant="ghost" size="icon" className="text-gray-400 hover:text-white">
-                <ArrowLeft className="h-5 w-5" />
-              </Button>
-            </Link>
-            <div>
-              <h1 className="text-2xl font-bold text-[#C9A961]">Tarefas & SLA</h1>
-              <p className="text-gray-400 text-sm">Controle de demandas internas</p>
-            </div>
-          </div>
-          <Dialog open={open} onOpenChange={setOpen}>
-            <DialogTrigger asChild>
-              <Button className="bg-[#C9A961] hover:bg-[#B8985A] text-[#1A2332] font-bold">
-                <Plus className="h-4 w-4 mr-2" /> Nova Tarefa
-              </Button>
-            </DialogTrigger>
-            <DialogContent className="bg-[#1A2332] border-[#C9A961]/20 text-white">
-              <DialogHeader>
-                <DialogTitle className="text-[#C9A961]">Criar Tarefa</DialogTitle>
-              </DialogHeader>
-              <div className="space-y-4 mt-4">
-                <div>
-                  <Label className="text-gray-300">Título</Label>
-                  <Input value={form.title} onChange={e => setForm(f => ({ ...f, title: e.target.value }))} className="bg-[#2C3E50] border-[#C9A961]/30 text-white mt-1" />
-                </div>
-                <div>
-                  <Label className="text-gray-300">Descrição</Label>
-                  <Textarea value={form.description} onChange={e => setForm(f => ({ ...f, description: e.target.value }))} className="bg-[#2C3E50] border-[#C9A961]/30 text-white mt-1" rows={3} />
-                </div>
-                <div className="grid grid-cols-2 gap-4">
-                  <div>
-                    <Label className="text-gray-300">Responsável</Label>
-                    <Select value={form.assignedTo} onValueChange={v => setForm(f => ({ ...f, assignedTo: v }))}>
-                      <SelectTrigger className="bg-[#2C3E50] border-[#C9A961]/30 text-white mt-1">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="sarah">Sarah</SelectItem>
-                        <SelectItem value="vinicius">Vinicius</SelectItem>
-                        <SelectItem value="bianca">Bianca</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
-                  <div>
-                    <Label className="text-gray-300">Prioridade</Label>
-                    <Select value={form.priority} onValueChange={v => setForm(f => ({ ...f, priority: v }))}>
-                      <SelectTrigger className="bg-[#2C3E50] border-[#C9A961]/30 text-white mt-1">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="low">Baixa (SLA 24h)</SelectItem>
-                        <SelectItem value="medium">Média (SLA 6h)</SelectItem>
-                        <SelectItem value="high">Alta (SLA 2h)</SelectItem>
-                        <SelectItem value="critical">Crítica (imediato)</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
-                  <div>
-                    <Label className="text-gray-300">Prazo</Label>
-                    <Input type="datetime-local" value={form.dueAt} onChange={e => setForm(f => ({ ...f, dueAt: e.target.value }))} className="bg-[#2C3E50] border-[#C9A961]/30 text-white mt-1" />
-                  </div>
-                </div>
+    <div
+      className={
+        embedded ? "text-white" : "min-h-screen bg-[#1A2332] text-white"
+      }
+    >
+      {!embedded && (
+        <div className="bg-[#0F1923] border-b border-[#C9A961]/20 px-6 py-4">
+          <div className="max-w-7xl mx-auto flex items-center justify-between">
+            <div className="flex items-center gap-4">
+              <Link href="/admin">
                 <Button
-                  onClick={() => createMutation.mutate({ ...form, dueAt: form.dueAt ? new Date(form.dueAt) : undefined, slaHours: form.slaHours ? parseInt(form.slaHours) : undefined })}
-                  disabled={createMutation.isPending || !form.title}
-                  className="w-full bg-[#C9A961] hover:bg-[#B8985A] text-[#1A2332] font-bold"
+                  variant="ghost"
+                  size="icon"
+                  className="text-gray-400 hover:text-white"
                 >
-                  Criar Tarefa
+                  <ArrowLeft className="h-5 w-5" />
                 </Button>
+              </Link>
+              <div>
+                <h1 className="text-2xl font-bold text-[#C9A961]">
+                  Tarefas & SLA
+                </h1>
+                <p className="text-gray-400 text-sm">
+                  Controle de demandas internas
+                </p>
               </div>
-            </DialogContent>
-          </Dialog>
+            </div>
+            <Button onClick={() => { resetForm(); setOpen(true); }} className="bg-[#C9A961] hover:bg-[#B8985A] text-[#1A2332] font-bold">
+              <Plus className="h-4 w-4 mr-2" /> Nova Tarefa
+            </Button>
+          </div>
         </div>
-      </div>
+      )}
+            <Dialog open={open} onOpenChange={value => { setOpen(value); if (!value) resetForm(); }}>
+              <DialogContent className="bg-[#1A2332] border-[#C9A961]/20 text-white">
+                <DialogHeader>
+                  <DialogTitle className="text-[#C9A961]">
+                    {editingId ? "Editar Tarefa" : "Criar Tarefa"}
+                  </DialogTitle>
+                </DialogHeader>
+                <div className="space-y-4 mt-4">
+                  <div>
+                    <Label className="text-gray-300">Título</Label>
+                    <Input
+                      value={form.title}
+                      onChange={e =>
+                        setForm(f => ({ ...f, title: e.target.value }))
+                      }
+                      className="bg-[#2C3E50] border-[#C9A961]/30 text-white mt-1"
+                    />
+                  </div>
+                  <div>
+                    <Label className="text-gray-300">Descrição</Label>
+                    <Textarea
+                      value={form.description}
+                      onChange={e =>
+                        setForm(f => ({ ...f, description: e.target.value }))
+                      }
+                      className="bg-[#2C3E50] border-[#C9A961]/30 text-white mt-1"
+                      rows={3}
+                    />
+                  </div>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <Label className="text-gray-300">Responsável</Label>
+                      <Select
+                        value={form.assignedTo}
+                        onValueChange={v =>
+                          setForm(f => ({ ...f, assignedTo: v }))
+                        }
+                      >
+                        <SelectTrigger className="bg-[#2C3E50] border-[#C9A961]/30 text-white mt-1">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="sarah">Sarah</SelectItem>
+                          <SelectItem value="vinicius">Vinicius</SelectItem>
+                          <SelectItem value="bianca">Bianca</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div>
+                      <Label className="text-gray-300">Prioridade</Label>
+                      <Select
+                        value={form.priority}
+                        onValueChange={v =>
+                          setForm(f => ({ ...f, priority: v }))
+                        }
+                      >
+                        <SelectTrigger className="bg-[#2C3E50] border-[#C9A961]/30 text-white mt-1">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="low">Baixa (SLA 24h)</SelectItem>
+                          <SelectItem value="medium">Média (SLA 6h)</SelectItem>
+                          <SelectItem value="high">Alta (SLA 2h)</SelectItem>
+                          <SelectItem value="critical">
+                            Crítica (imediato)
+                          </SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div>
+                      <Label className="text-gray-300">Prazo</Label>
+                      <Input
+                        type="datetime-local"
+                        value={form.dueAt}
+                        onChange={e =>
+                          setForm(f => ({ ...f, dueAt: e.target.value }))
+                        }
+                        className="bg-[#2C3E50] border-[#C9A961]/30 text-white mt-1"
+                      />
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div><Label className="text-gray-200">Status</Label><Select value={form.status} onValueChange={value => setForm(f => ({ ...f, status: value as typeof f.status }))}><SelectTrigger className="bg-[#2C3E50] text-white mt-1"><SelectValue /></SelectTrigger><SelectContent>{Object.entries(STATUS_LABELS).map(([value, label]) => <SelectItem key={value} value={value}>{label}</SelectItem>)}</SelectContent></Select></div>
+                    {!editingId && <div><Label className="text-gray-200">Vincular a</Label><Select value={form.relatedType} onValueChange={value => setForm(f => ({ ...f, relatedType: value, relatedId: "none" }))}><SelectTrigger className="bg-[#2C3E50] text-white mt-1"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="none">Tarefa avulsa</SelectItem><SelectItem value="lead">Lead / cliente</SelectItem><SelectItem value="obra">Obra</SelectItem></SelectContent></Select></div>}
+                  </div>
+                  {!editingId && form.relatedType !== "none" && <div><Label className="text-gray-200">Registro vinculado</Label><Select value={form.relatedId} onValueChange={value => setForm(f => ({ ...f, relatedId: value }))}><SelectTrigger className="bg-[#2C3E50] text-white mt-1"><SelectValue placeholder="Selecione" /></SelectTrigger><SelectContent><SelectItem value="none">Selecione</SelectItem>{form.relatedType === "lead" ? leads.map(lead => <SelectItem key={lead.id} value={String(lead.id)}>{lead.name} (#{lead.id})</SelectItem>) : projects.map(project => <SelectItem key={project.id} value={String(project.id)}>{project.title} (#{project.id})</SelectItem>)}</SelectContent></Select></div>}
+                  <Button
+                    onClick={() => editingId
+                      ? updateMutation.mutate({ id: editingId, title: form.title, description: form.description, assignedTo: form.assignedTo, priority: form.priority, status: form.status, dueAt: form.dueAt || null })
+                      : createMutation.mutate({ title: form.title, description: form.description, assignedTo: form.assignedTo, priority: form.priority, status: form.status, dueAt: form.dueAt ? new Date(form.dueAt) : undefined, slaHours: form.slaHours ? Number(form.slaHours) : undefined, relatedType: form.relatedType === "none" ? undefined : form.relatedType as "lead" | "obra", relatedId: form.relatedId === "none" ? undefined : Number(form.relatedId) })
+                    }
+                    disabled={createMutation.isPending || updateMutation.isPending || form.title.trim().length < 2 || (form.relatedType !== "none" && form.relatedId === "none")}
+                    className="w-full bg-[#C9A961] hover:bg-[#B8985A] text-[#1A2332] font-bold"
+                  >
+                    {editingId ? "Salvar Tarefa" : "Criar Tarefa"}
+                  </Button>
+                </div>
+              </DialogContent>
+            </Dialog>
+            <AlertDialog open={deletingId !== null} onOpenChange={value => { if (!value) setDeletingId(null); }}><AlertDialogContent className="bg-[#1A2332] text-white border-[#C9A961]/40"><AlertDialogHeader><AlertDialogTitle>Excluir tarefa?</AlertDialogTitle><AlertDialogDescription className="text-gray-300">Esta tarefa será removida da lista.</AlertDialogDescription></AlertDialogHeader><AlertDialogFooter><AlertDialogCancel className="text-[#1A2332]">Cancelar</AlertDialogCancel><AlertDialogAction className="bg-red-700 hover:bg-red-800" onClick={() => { if (deletingId !== null) deleteMutation.mutate({ id: deletingId }); }}>Excluir</AlertDialogAction></AlertDialogFooter></AlertDialogContent></AlertDialog>
 
-      <div className="max-w-7xl mx-auto px-6 py-6 space-y-6">
+      <div
+        className={
+          embedded ? "space-y-6" : "max-w-7xl mx-auto px-6 py-6 space-y-6"
+        }
+      >
+        {embedded && (
+          <div className="flex justify-end">
+            <Button onClick={() => { resetForm(); setOpen(true); }} className="bg-[#C9A961] text-[#1A2332] hover:bg-[#B8985A] font-bold">
+              <Plus className="h-4 w-4 mr-2" /> Nova Tarefa
+            </Button>
+          </div>
+        )}
         {/* Stats */}
         <div className="grid grid-cols-3 gap-4">
           <Card className="bg-[#2C3E50] border-yellow-500/30">
@@ -174,12 +312,20 @@ export default function AdminTarefas() {
               </div>
             </CardContent>
           </Card>
-          <Card className={`bg-[#2C3E50] ${overdue > 0 ? "border-red-500/30" : "border-gray-500/30"}`}>
+          <Card
+            className={`bg-[#2C3E50] ${overdue > 0 ? "border-red-500/30" : "border-gray-500/30"}`}
+          >
             <CardContent className="pt-4 pb-4 flex items-center gap-3">
-              <AlertTriangle className={`h-6 w-6 ${overdue > 0 ? "text-red-400" : "text-gray-400"}`} />
+              <AlertTriangle
+                className={`h-6 w-6 ${overdue > 0 ? "text-red-400" : "text-gray-400"}`}
+              />
               <div>
                 <p className="text-gray-400 text-xs">Atrasadas</p>
-                <p className={`text-2xl font-bold ${overdue > 0 ? "text-red-400" : "text-gray-400"}`}>{overdue}</p>
+                <p
+                  className={`text-2xl font-bold ${overdue > 0 ? "text-red-400" : "text-gray-400"}`}
+                >
+                  {overdue}
+                </p>
               </div>
             </CardContent>
           </Card>
@@ -222,36 +368,84 @@ export default function AdminTarefas() {
         ) : (
           <div className="space-y-3">
             {tasks.map((task: any) => {
-              const isOverdue = task.dueAt && new Date(task.dueAt) < new Date() && task.status !== "done" && task.status !== "cancelled";
+              const isOverdue =
+                task.dueAt &&
+                new Date(task.dueAt) < new Date() &&
+                task.status !== "done" &&
+                task.status !== "cancelled";
               return (
-                <Card key={task.id} className={`bg-[#2C3E50] ${isOverdue ? "border-red-500/50" : "border-[#C9A961]/20"}`}>
+                <Card
+                  key={task.id}
+                  className={`bg-[#2C3E50] ${isOverdue ? "border-red-500/50" : "border-[#C9A961]/20"}`}
+                >
                   <CardContent className="py-4 px-4">
                     <div className="flex items-start gap-3">
                       <div className="flex-1">
                         <div className="flex items-center gap-2 flex-wrap">
-                          <span className="font-medium text-white">{task.title}</span>
-                          <Badge className={`${PRIORITY_COLORS[task.priority] || "bg-gray-500"} text-white text-xs`}>
+                          <span className="font-medium text-white">
+                            {task.title}
+                          </span>
+                          <Badge
+                            className={`${PRIORITY_COLORS[task.priority] || "bg-gray-500"} text-white text-xs`}
+                          >
                             {PRIORITY_LABELS[task.priority] || task.priority}
                           </Badge>
-                          <Badge className={`${STATUS_COLORS[task.status] || "bg-gray-500"} text-white text-xs`}>
+                          <Badge
+                            className={`${STATUS_COLORS[task.status] || "bg-gray-500"} text-white text-xs`}
+                          >
                             {STATUS_LABELS[task.status] || task.status}
                           </Badge>
-                          {isOverdue && <Badge className="bg-red-600 text-white text-xs">ATRASADA</Badge>}
+                          {isOverdue && (
+                            <Badge className="bg-red-600 text-white text-xs">
+                              ATRASADA
+                            </Badge>
+                          )}
                         </div>
-                        {task.description && <p className="text-sm text-gray-400 mt-1">{task.description}</p>}
+                        {task.description && (
+                          <p className="text-sm text-gray-400 mt-1">
+                            {task.description}
+                          </p>
+                        )}
                         <div className="flex items-center gap-4 mt-2 text-xs text-gray-500">
-                          <span className="flex items-center gap-1"><User className="h-3 w-3" /> {task.assignedTo}</span>
-                          {task.dueAt && <span className="flex items-center gap-1"><Clock className="h-3 w-3" /> Prazo: {formatDate(task.dueAt)}</span>}
+                          <span className="flex items-center gap-1">
+                            <User className="h-3 w-3" /> {task.assignedTo}
+                          </span>
+                          {task.dueAt && (
+                            <span className="flex items-center gap-1">
+                              <Clock className="h-3 w-3" /> Prazo:{" "}
+                              {formatDate(task.dueAt)}
+                            </span>
+                          )}
                         </div>
                       </div>
                       <div className="flex gap-1">
+                        <Button size="sm" variant="outline" aria-label={`Editar tarefa ${task.title}`} onClick={() => editTask(task)} className="text-white"><Pencil className="h-4 w-4" /></Button>
+                        <Button size="sm" variant="outline" aria-label={`Excluir tarefa ${task.title}`} onClick={() => setDeletingId(task.id)} className="text-red-300"><Trash2 className="h-4 w-4" /></Button>
                         {task.status === "pending" && (
-                          <Button size="sm" onClick={() => updateMutation.mutate({ id: task.id, status: "in_progress" })} className="bg-blue-600 hover:bg-blue-700 text-white h-7 text-xs">
+                          <Button
+                            size="sm"
+                            onClick={() =>
+                              updateMutation.mutate({
+                                id: task.id,
+                                status: "in_progress",
+                              })
+                            }
+                            className="bg-blue-600 hover:bg-blue-700 text-white h-7 text-xs"
+                          >
                             Iniciar
                           </Button>
                         )}
                         {task.status === "in_progress" && (
-                          <Button size="sm" onClick={() => updateMutation.mutate({ id: task.id, status: "done" })} className="bg-green-600 hover:bg-green-700 text-white h-7 text-xs">
+                          <Button
+                            size="sm"
+                            onClick={() =>
+                              updateMutation.mutate({
+                                id: task.id,
+                                status: "done",
+                              })
+                            }
+                            className="bg-green-600 hover:bg-green-700 text-white h-7 text-xs"
+                          >
                             Concluir
                           </Button>
                         )}

@@ -22,14 +22,20 @@ export function verifyPassword(password: string, stored: string): boolean {
   }
 }
 
-export async function createSessionToken(userId: number, name: string | null): Promise<string> {
-  return jwt.sign({ userId, name: name ?? "" }, JWT_SECRET, { expiresIn: "30d" });
+export async function createSessionToken(
+  userId: number,
+  name: string | null,
+  sessionVersion: number,
+): Promise<string> {
+  return jwt.sign({ userId, name: name ?? "", sessionVersion }, JWT_SECRET, { expiresIn: "30d" });
 }
 
-export async function verifySessionToken(token: string): Promise<{ userId: number; name: string } | null> {
+export async function verifySessionToken(
+  token: string,
+): Promise<{ userId: number; name: string; sessionVersion: number } | null> {
   try {
-    const payload = jwt.verify(token, JWT_SECRET) as { userId: number; name: string };
-    return { userId: payload.userId, name: payload.name };
+    const payload = jwt.verify(token, JWT_SECRET) as { userId: number; name: string; sessionVersion?: number };
+    return { userId: payload.userId, name: payload.name, sessionVersion: payload.sessionVersion ?? 0 };
   } catch {
     return null;
   }

@@ -97,7 +97,7 @@ export default function FAQ() {
     },
     {
       question: "Como entro em contato com o suporte?",
-      answer: "Você pode entrar em contato através do e-mail contato@grupoefficaz.com.br ou pelos telefones (99) 98139-2210 e (94) 99304-4689. Também temos o botão 'Fale Conosco' disponível em todas as páginas."
+      answer: "Você pode entrar em contato através do e-mail atendimento@prospectaconstrucoes.com ou pelos telefones (99) 98139-2210 e (94) 99304-4689. Também temos o botão 'Fale Conosco' disponível em todas as páginas."
     },
     {
       question: "O Grupo Efficaz tem lojas físicas?",
@@ -146,7 +146,7 @@ export default function FAQ() {
             </p>
             <div className="flex flex-col sm:flex-row gap-4 justify-center items-center">
               <a
-                href="mailto:contato@grupoefficaz.com.br"
+                href="mailto:atendimento@prospectaconstrucoes.com"
                 className="px-6 py-3 bg-[#C9A961] hover:bg-[#B8935A] text-[#1A2332] font-semibold rounded-lg transition-colors"
               >
                 Enviar E-mail

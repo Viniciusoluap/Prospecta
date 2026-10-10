@@ -6,6 +6,7 @@ import { Building2, Calendar, DollarSign, Loader2, Plus, User } from "lucide-rea
 import { Link, useLocation } from "wouter";
 import { getLoginUrl } from "@/const";
 import { useEffect } from "react";
+import { LinkedServiceQueue } from "./admin/LinkedServiceQueue";
 
 export default function AdminObras() {
   const { user, isAuthenticated, loading: authLoading } = useAuth();
@@ -82,6 +83,11 @@ export default function AdminObras() {
         <div className="container py-8">
           <div className="flex items-center justify-between">
             <div>
+              <Link href="/admin">
+                <Button variant="ghost" size="sm" className="mb-2 text-gray-300 hover:text-white">
+                  Voltar ao Painel Administrativo
+                </Button>
+              </Link>
               <h1 className="text-3xl font-bold text-[#C9A961] mb-2">Painel Admin - Obras</h1>
               <p className="text-gray-400">Gerencie todas as obras do sistema</p>
             </div>
@@ -97,6 +103,7 @@ export default function AdminObras() {
 
       {/* Content */}
       <div className="container py-8">
+        <div className="mb-6"><LinkedServiceQueue module="obras" title="Obras" /></div>
         {isLoading ? (
           <div className="flex items-center justify-center py-12">
             <Loader2 className="h-8 w-8 animate-spin text-[#C9A961]" />
@@ -142,7 +149,7 @@ export default function AdminObras() {
                   <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-4">
                     <div className="flex items-center gap-2 text-gray-300">
                       <User className="h-4 w-4 text-[#C9A961]" />
-                      <span className="text-sm">Cliente ID: {project.userId}</span>
+                      <span className="text-sm">{project.leadId ? `Cliente CRM #${project.leadId}` : project.userId ? `Conta #${project.userId}` : "Cliente ainda não vinculado"}</span>
                     </div>
                     <div className="flex items-center gap-2 text-gray-300">
                       <Building2 className="h-4 w-4 text-[#C9A961]" />

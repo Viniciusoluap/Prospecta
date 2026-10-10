@@ -8,6 +8,7 @@ import {
 import { adminProcedure, router } from "./_core/trpc.js";
 import { getDb } from "./db.js";
 import { storagePut } from "./storage.js";
+import { attachCompletedProcess } from "./lead-services-router.js";
 
 const statusSchema = z.enum([
   "analysis",
@@ -103,6 +104,7 @@ export const regularizacaoRouter = router({
           paidValue: input.paidValue?.toString(),
         })
         .returning();
+      await attachCompletedProcess("regularizacoes", created.leadId, created.id);
       return created;
     }),
 
@@ -123,6 +125,7 @@ export const regularizacaoRouter = router({
       if (!updated) {
         throw new TRPCError({ code: "NOT_FOUND", message: "Regularização não encontrada" });
       }
+      await attachCompletedProcess("regularizacoes", updated.leadId, updated.id);
       return updated;
     }),
 

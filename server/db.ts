@@ -1,4 +1,4 @@
-import { eq, and, desc, sql, like } from "drizzle-orm";
+import { eq, and, desc, sql, like, isNull } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/neon-http";
 import { neon } from "@neondatabase/serverless";
 
@@ -8,6 +8,8 @@ import {
   tickets, Ticket, InsertTicket,
   utefBalances, UtefBalance, InsertUtefBalance,
   utefTransactions, UtefTransaction, InsertUtefTransaction,
+  paymentOrders, PaymentOrder, InsertPaymentOrder,
+  ticketNumbers, TicketNumber, InsertTicketNumber,
   products, Product, InsertProduct,
   productConversions, ProductConversion, InsertProductConversion,
   constructionProjects, ConstructionProject, InsertConstructionProject,
@@ -16,7 +18,7 @@ import {
   projectBudgetRequests, ProjectBudgetRequest, InsertProjectBudgetRequest,
   emailLogs, EmailLog,
   userNotifications, UserNotification, InsertUserNotification,
-  leads, Lead, InsertLead,
+  leads, Lead, InsertLead, leadServices,
   leadActivities, LeadActivity, InsertLeadActivity,
   leadDocuments, LeadDocument, InsertLeadDocument,
   leadFollowUps, LeadFollowUp, InsertLeadFollowUp,
@@ -35,6 +37,7 @@ import {
   pluggySettings, PluggySetting, InsertPluggySetting,
   bankAccounts, BankAccount, InsertBankAccount,
   bankTransactions, BankTransaction, InsertBankTransaction,
+  dashboardSettings, operationalCommissions, operationalProjects,
 } from "../drizzle/schema.js";
 
 type DrizzleDb = ReturnType<typeof drizzle>;
@@ -140,6 +143,146 @@ export async function getDrawById(id: number): Promise<Draw | undefined> {
   const db = getDb();
   const result = await db.select().from(draws).where(eq(draws.id, id)).limit(1);
   return result[0];
+}
+
+// Reserva atomicamente `quantity` numeros de capacidade de um sorteio (guarda de
+// concorrencia: so avanca se ticketsSold + quantity <= capacity, num unico UPDATE
+// condicional - sem read-then-write). Retorna o valor de ticketsSold ANTES da reserva
+// (para atribuir numeros sequenciais) ou null se excederia a capacidade/sorteio nao
+// existe.
+export async function reserveDrawCapacity(
+  drawId: number,
+  quantity: number,
+  amountPaidCents: number,
+  capacity: number,
+): Promise<{ ticketsSoldBefore: number } | null> {
+  const db = getDb();
+  const result = await db
+    .update(draws)
+    .set({
+      ticketsSold: sql`${draws.ticketsSold} + ${quantity}`,
+      currentAmount: sql`${draws.currentAmount} + ${amountPaidCents}`,
+      updatedAt: new Date(),
+    })
+    .where(and(
+      eq(draws.id, drawId),
+      sql`${draws.ticketsSold} + ${quantity} <= ${capacity}`,
+    ))
+    .returning({ ticketsSold: draws.ticketsSold });
+  if (result.length === 0) return null;
+  return { ticketsSoldBefore: result[0].ticketsSold - quantity };
+}
+
+export async function insertTicketNumbers(rows: InsertTicketNumber[]): Promise<void> {
+  if (rows.length === 0) return;
+  const db = getDb();
+  await db.insert(ticketNumbers).values(rows);
+}
+
+export async function getTicketNumbersByDrawId(drawId: number): Promise<TicketNumber[]> {
+  const db = getDb();
+  return db.select().from(ticketNumbers).where(eq(ticketNumbers.drawId, drawId));
+}
+
+export async function getTicketById(id: number): Promise<Ticket | undefined> {
+  const db = getDb();
+  const result = await db.select().from(tickets).where(eq(tickets.id, id)).limit(1);
+  return result[0];
+}
+
+// ========== PAYMENT ORDERS (ledger de idempotencia) ==========
+
+export async function createPaymentOrder(order: InsertPaymentOrder): Promise<PaymentOrder> {
+  const db = getDb();
+  const result = await db
+    .insert(paymentOrders)
+    .values(order)
+    .onConflictDoNothing({ target: paymentOrders.providerPaymentId })
+    .returning();
+  if (result[0]) return result[0];
+  // Ja existia (reentrancia na criacao da cobranca) - retorna o registro existente.
+  const existing = await getPaymentOrderByProviderId(order.providerPaymentId);
+  if (!existing) throw new Error(`Falha ao criar/recuperar payment_order para ${order.providerPaymentId}`);
+  return existing;
+}
+
+export async function getPaymentOrderByProviderId(providerPaymentId: string): Promise<PaymentOrder | undefined> {
+  const db = getDb();
+  const result = await db.select().from(paymentOrders).where(eq(paymentOrders.providerPaymentId, providerPaymentId)).limit(1);
+  return result[0];
+}
+
+// Guarda de idempotencia: so liquida uma vez. Retorna o pedido reivindicado (e passa a
+// responsabilidade de credito ao chamador) ou null se ja tinha sido liquidado/nao esta
+// mais pendente (reentrega do webhook, ou estado final ja alcancado).
+export async function claimPendingPaymentOrder(providerPaymentId: string): Promise<PaymentOrder | null> {
+  const db = getDb();
+  const result = await db
+    .update(paymentOrders)
+    .set({ status: "settled", settledAt: new Date(), updatedAt: new Date() })
+    .where(and(eq(paymentOrders.providerPaymentId, providerPaymentId), eq(paymentOrders.status, "pending")))
+    .returning();
+  return result[0] ?? null;
+}
+
+export async function markPaymentOrderReview(providerPaymentId: string, reason: string): Promise<PaymentOrder | null> {
+  const db = getDb();
+  const result = await db
+    .update(paymentOrders)
+    .set({ status: "review_required", reviewReason: reason, updatedAt: new Date() })
+    .where(eq(paymentOrders.providerPaymentId, providerPaymentId))
+    .returning();
+  return result[0] ?? null;
+}
+
+// Usado quando um pedido ja foi reivindicado (status='settled') mas uma etapa
+// posterior da liquidacao falha (sorteio encerrado, capacidade esgotada) - move o
+// pedido, que ja e propriedade exclusiva desta chamada, para conciliacao manual.
+export async function demoteSettledOrderToReview(providerPaymentId: string, reason: string): Promise<PaymentOrder | null> {
+  const db = getDb();
+  const result = await db
+    .update(paymentOrders)
+    .set({ status: "review_required", reviewReason: reason, updatedAt: new Date() })
+    .where(and(eq(paymentOrders.providerPaymentId, providerPaymentId), eq(paymentOrders.status, "settled")))
+    .returning();
+  return result[0] ?? null;
+}
+
+export async function markPaymentOrderRefunded(providerPaymentId: string): Promise<PaymentOrder | null> {
+  const db = getDb();
+  const result = await db
+    .update(paymentOrders)
+    .set({ status: "refunded", updatedAt: new Date() })
+    .where(and(eq(paymentOrders.providerPaymentId, providerPaymentId), eq(paymentOrders.status, "pending")))
+    .returning();
+  return result[0] ?? null;
+}
+
+// Credito atomico de UTEF: UPSERT com incremento no proprio SQL (nunca le o saldo
+// antes de escrever), elimina a corrida de leitura-e-escrita do createOrUpdateUtefBalance.
+export async function incrementUtefBalanceAtomic(userId: number, amount: number): Promise<void> {
+  const db = getDb();
+  await db
+    .insert(utefBalances)
+    .values({ userId, balance: amount })
+    .onConflictDoUpdate({
+      target: utefBalances.userId,
+      set: { balance: sql`${utefBalances.balance} + ${amount}`, updatedAt: new Date() },
+    });
+}
+
+// Debito atomico e condicional: so decrementa se o saldo atual for suficiente, em um
+// unico UPDATE...WHERE (sem read-then-write). Impede gasto duplicado quando duas
+// conversoes concorrentes leem o mesmo saldo "suficiente" antes de qualquer escrita.
+// Retorna true se o debito foi aplicado, false se o saldo era insuficiente.
+export async function decrementUtefBalanceAtomic(userId: number, amount: number): Promise<boolean> {
+  const db = getDb();
+  const result = await db
+    .update(utefBalances)
+    .set({ balance: sql`${utefBalances.balance} - ${amount}`, updatedAt: new Date() })
+    .where(and(eq(utefBalances.userId, userId), sql`${utefBalances.balance} >= ${amount}`))
+    .returning({ id: utefBalances.id });
+  return result.length > 0;
 }
 
 export async function createDraw(draw: InsertDraw): Promise<Draw> {
@@ -554,10 +697,12 @@ export async function getAllLeads(filters?: {
   responsible?: string;
   temperature?: string;
   city?: string;
+  includeDeleted?: boolean;
 }): Promise<Lead[]> {
   const db = getDb();
   let query = db.select().from(leads).$dynamic();
   const conditions = [];
+  if (!filters?.includeDeleted) conditions.push(isNull(leads.deletedAt));
   if (filters?.stage) conditions.push(eq(leads.stage, filters.stage as any));
   if (filters?.responsible) conditions.push(eq(leads.responsible, filters.responsible as any));
   if (filters?.temperature) conditions.push(eq(leads.temperature, filters.temperature as any));
@@ -574,7 +719,7 @@ export async function getLeadById(id: number): Promise<Lead | undefined> {
 
 export async function getLeadOptions(): Promise<{ id: number; name: string }[]> {
   const db = getDb();
-  return db.select({ id: leads.id, name: leads.name }).from(leads).orderBy(leads.name);
+  return db.select({ id: leads.id, name: leads.name }).from(leads).where(isNull(leads.deletedAt)).orderBy(leads.name);
 }
 
 export async function createLead(data: InsertLead): Promise<Lead> {
@@ -586,6 +731,68 @@ export async function createLead(data: InsertLead): Promise<Lead> {
 export async function updateLead(id: number, data: Partial<InsertLead>): Promise<void> {
   const db = getDb();
   await db.update(leads).set({ ...data, updatedAt: new Date() }).where(eq(leads.id, id));
+}
+
+export async function updateLeadPipelineStage(id: number, stage: string, actorId: number): Promise<boolean> {
+  const db = getDb();
+  const result = await db.execute(sql`
+    WITH previous AS (
+      SELECT id, stage AS old_stage FROM leads
+      WHERE id = ${id} AND deleted_at IS NULL AND (stage <> ${stage} OR stage_classification_pending)
+      FOR UPDATE
+    ), changed AS (
+      UPDATE leads AS lead
+      SET stage = ${stage}, stage_classification_pending = false, updated_at = now()
+      FROM previous WHERE lead.id = previous.id
+      RETURNING lead.id, previous.old_stage
+    ), audit AS (
+      INSERT INTO lead_activities (lead_id, type, description, performed_by, metadata)
+      SELECT id, 'status_change'::lead_activity_type,
+             'Estágio alterado de "' || old_stage || '" para "' || ${stage} || '"', ${String(actorId)},
+             ${JSON.stringify({ operation: "pipeline_stage_change", stage })}
+      FROM changed RETURNING id
+    )
+    SELECT count(*)::integer AS count FROM audit
+  `);
+  return Number(result.rows[0]?.count ?? 0) === 1;
+}
+
+export async function getLeadDeletionContext(id: number) {
+  const db = getDb();
+  const [services, accounts, projects] = await Promise.all([
+    db.select({ count: sql<number>`count(*)` }).from(leadServices).where(eq(leadServices.leadId, id)),
+    db.select({ count: sql<number>`count(*)` }).from(users).where(eq(users.leadId, id)),
+    db.select({ count: sql<number>`count(*)` }).from(constructionProjects).where(eq(constructionProjects.leadId, id)),
+  ]);
+  return { services: Number(services[0]?.count || 0), accounts: Number(accounts[0]?.count || 0), projects: Number(projects[0]?.count || 0) };
+}
+
+/** One SQL statement makes the state change and audit entry atomic. */
+export function leadDeletionStatement(id: number, actorId: number, deleted: boolean) {
+  return sql`
+    WITH changed AS (
+      UPDATE leads
+      SET deleted_at = ${deleted ? new Date() : null},
+          deleted_by_user_id = ${deleted ? actorId : null},
+          updated_at = now()
+      WHERE id = ${id} AND ${deleted ? sql`deleted_at IS NULL` : sql`deleted_at IS NOT NULL`}
+      RETURNING id
+    ), audit AS (
+      INSERT INTO lead_activities (lead_id, type, description, performed_by, metadata)
+      SELECT id, 'note'::lead_activity_type,
+             ${deleted ? "Lead excluído logicamente pelo administrador" : "Lead recuperado pelo administrador"},
+             ${String(actorId)},
+             ${JSON.stringify({ operation: deleted ? "soft_delete" : "restore", actorId })}
+      FROM changed
+      RETURNING id
+    )
+    SELECT count(*)::integer AS count FROM audit
+  `;
+}
+
+export async function setLeadDeleted(id: number, actorId: number, deleted: boolean): Promise<boolean> {
+  const updated = await getDb().execute(leadDeletionStatement(id, actorId, deleted));
+  return Number(updated.rows[0]?.count ?? 0) === 1;
 }
 
 export async function getLeadActivities(leadId: number): Promise<LeadActivity[]> {
@@ -638,10 +845,10 @@ export async function updateFollowUp(id: number, data: Partial<InsertLeadFollowU
 export async function getLeadStats() {
   const db = getDb();
   const [total, hot, approved, rejected] = await Promise.all([
-    db.select({ count: sql<number>`count(*)` }).from(leads),
-    db.select({ count: sql<number>`count(*)` }).from(leads).where(eq(leads.temperature, "hot")),
-    db.select({ count: sql<number>`count(*)` }).from(leads).where(eq(leads.stage, "approved")),
-    db.select({ count: sql<number>`count(*)` }).from(leads).where(eq(leads.stage, "rejected")),
+    db.select({ count: sql<number>`count(*)` }).from(leads).where(isNull(leads.deletedAt)),
+    db.select({ count: sql<number>`count(*)` }).from(leads).where(and(isNull(leads.deletedAt), eq(leads.temperature, "hot"))),
+    db.select({ count: sql<number>`count(*)` }).from(leads).where(and(isNull(leads.deletedAt), eq(leads.stage, "approved_projects"))),
+    db.select({ count: sql<number>`count(*)` }).from(leads).where(and(isNull(leads.deletedAt), eq(leads.stage, "rejected"))),
   ]);
   return {
     total: total[0]?.count || 0,
@@ -665,6 +872,16 @@ export async function createTask(data: InsertTask): Promise<Task> {
   const db = getDb();
   const result = await db.insert(tasks).values(data).returning();
   return result[0];
+}
+
+export async function getTaskById(id: number): Promise<Task | undefined> {
+  const db = getDb();
+  return (await db.select().from(tasks).where(eq(tasks.id, id)).limit(1))[0];
+}
+
+export async function deleteTask(id: number): Promise<void> {
+  const db = getDb();
+  await db.delete(tasks).where(eq(tasks.id, id));
 }
 
 export async function updateTask(id: number, data: Partial<InsertTask>): Promise<void> {
@@ -695,6 +912,33 @@ export async function updateBrokerCommission(id: number, data: Partial<InsertBro
 export async function getAllFinancialTransactions(): Promise<FinancialTransaction[]> {
   const db = getDb();
   return db.select().from(financialTransactions).orderBy(desc(financialTransactions.createdAt));
+}
+
+export async function getManagementDashboardData() {
+  const database = getDb();
+  const [transactions, accounts, bankTx, leadRows, userRows, commissions, projects, settings] = await Promise.all([
+    database.select({ status: financialTransactions.status, paidAt: financialTransactions.paidAt, createdAt: financialTransactions.createdAt, type: financialTransactions.type, amount: financialTransactions.amount, dueDate: financialTransactions.dueDate, vendor: financialTransactions.vendor, responsible: financialTransactions.responsible, description: financialTransactions.description, category: financialTransactions.category }).from(financialTransactions).orderBy(desc(financialTransactions.createdAt)),
+    database.select({ saldoAtual: bankAccounts.saldoAtual }).from(bankAccounts).where(eq(bankAccounts.ativo, true)),
+    database.select({ data: bankTransactions.data, status: bankTransactions.status, tipo: bankTransactions.tipo, valor: bankTransactions.valor }).from(bankTransactions).orderBy(desc(bankTransactions.data)),
+    database.select({ stage: leads.stage }).from(leads),
+    database.select({ id: users.id, name: users.name, role: users.role, active: users.active, createdAt: users.createdAt }).from(users),
+    database.select({ amount: operationalCommissions.amount, paidAt: operationalCommissions.paidAt, brokerId: operationalCommissions.brokerId, businessType: operationalCommissions.businessType, property: operationalCommissions.property }).from(operationalCommissions).orderBy(desc(operationalCommissions.createdAt)),
+    database.select({ createdAt: operationalProjects.createdAt, status: operationalProjects.status, value: operationalProjects.value }).from(operationalProjects).orderBy(desc(operationalProjects.createdAt)),
+    database.select({ key: dashboardSettings.key, value: dashboardSettings.value }).from(dashboardSettings),
+  ]);
+  return { transactions, accounts, bankTx, leads: leadRows, users: userRows, commissions, projects, settings };
+}
+
+export async function saveDashboardSetting(key: string, value: string): Promise<void> {
+  const database = getDb();
+  await database.insert(dashboardSettings).values({ key, value, updatedAt: new Date() })
+    .onConflictDoUpdate({ target: dashboardSettings.key, set: { value, updatedAt: new Date() } });
+}
+
+export async function getDashboardSetting(key: string): Promise<string | undefined> {
+  const database = getDb();
+  const rows = await database.select({ value: dashboardSettings.value }).from(dashboardSettings).where(eq(dashboardSettings.key, key)).limit(1);
+  return rows[0]?.value;
 }
 
 export async function createFinancialTransaction(data: InsertFinancialTransaction): Promise<FinancialTransaction> {

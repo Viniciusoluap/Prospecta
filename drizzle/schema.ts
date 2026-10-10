@@ -1,77 +1,274 @@
 import {
-  pgTable, pgEnum,
-  text, varchar, integer, serial, boolean,
-  timestamp, decimal,
+  pgTable,
+  pgEnum,
+  text,
+  varchar,
+  integer,
+  serial,
+  boolean,
+  timestamp,
+  decimal,
+  uniqueIndex,
+  type AnyPgColumn,
 } from "drizzle-orm/pg-core";
 
 // ──────────────────────────────────────────
 // ENUMS
 // ──────────────────────────────────────────
-export const userRoleEnum = pgEnum("user_role", ["user", "admin", "corretor", "colaborador", "cliente"]);
-export const drawStatusEnum = pgEnum("draw_status", ["active", "closed", "drawn"]);
-export const ticketPaymentStatusEnum = pgEnum("ticket_payment_status", ["pending", "confirmed", "failed"]);
-export const utefTransactionTypeEnum = pgEnum("utef_transaction_type", ["prize", "conversion", "adjustment", "purchase"]);
-export const productCategoryEnum = pgEnum("product_category", ["real_estate", "financial", "nautical"]);
-export const productStatusEnum = pgEnum("product_status", ["available", "unavailable"]);
-export const productConversionStatusEnum = pgEnum("product_conversion_status", ["pending", "completed", "cancelled"]);
-export const constructionProjectStatusEnum = pgEnum("construction_project_status", [
-  "planning", "alvara", "art", "assinatura_cef", "vistoria_cef",
-  "laudo_ok", "cartorio", "in_progress", "casa_pronta", "disponivel",
-  "reavaliar", "distrato", "paused", "completed", "cancelled",
+export const userRoleEnum = pgEnum("user_role", [
+  "user",
+  "admin",
+  "corretor",
+  "colaborador",
+  "cliente",
 ]);
-export const constructionStageStatusEnum = pgEnum("construction_stage_status", ["pending", "in_progress", "completed"]);
-export const budgetRequestHasLotEnum = pgEnum("budget_request_has_lot", ["yes", "no", "not_sure"]);
-export const budgetRequestStatusEnum = pgEnum("budget_request_status", ["pending", "contacted", "in_negotiation", "converted", "cancelled"]);
+export const drawStatusEnum = pgEnum("draw_status", [
+  "active",
+  "closed",
+  "drawn",
+]);
+export const ticketPaymentStatusEnum = pgEnum("ticket_payment_status", [
+  "pending",
+  "confirmed",
+  "failed",
+]);
+export const utefTransactionTypeEnum = pgEnum("utef_transaction_type", [
+  "prize",
+  "conversion",
+  "adjustment",
+  "purchase",
+]);
+export const paymentOrderPurposeEnum = pgEnum("payment_order_purpose", [
+  "ticket_purchase",
+  "utef_purchase",
+]);
+export const paymentOrderStatusEnum = pgEnum("payment_order_status", [
+  "pending",
+  "settled",
+  "refunded",
+  "chargeback",
+  "review_required",
+  "failed",
+]);
+export const productCategoryEnum = pgEnum("product_category", [
+  "real_estate",
+  "financial",
+  "nautical",
+]);
+export const productStatusEnum = pgEnum("product_status", [
+  "available",
+  "unavailable",
+]);
+export const productConversionStatusEnum = pgEnum("product_conversion_status", [
+  "pending",
+  "completed",
+  "cancelled",
+]);
+export const constructionProjectStatusEnum = pgEnum(
+  "construction_project_status",
+  [
+    "planning",
+    "alvara",
+    "art",
+    "assinatura_cef",
+    "vistoria_cef",
+    "laudo_ok",
+    "cartorio",
+    "in_progress",
+    "casa_pronta",
+    "disponivel",
+    "reavaliar",
+    "distrato",
+    "paused",
+    "completed",
+    "cancelled",
+  ]
+);
+export const constructionStageStatusEnum = pgEnum("construction_stage_status", [
+  "pending",
+  "in_progress",
+  "completed",
+]);
+export const budgetRequestHasLotEnum = pgEnum("budget_request_has_lot", [
+  "yes",
+  "no",
+  "not_sure",
+]);
+export const budgetRequestStatusEnum = pgEnum("budget_request_status", [
+  "pending",
+  "contacted",
+  "in_negotiation",
+  "converted",
+  "cancelled",
+]);
 export const emailTemplateTypeEnum = pgEnum("email_template_type", [
-  "welcome", "budget_confirmation", "budget_update",
-  "draw_winner", "promotional_campaign", "payment_confirmation",
+  "welcome",
+  "budget_confirmation",
+  "budget_update",
+  "draw_winner",
+  "promotional_campaign",
+  "payment_confirmation",
+  "admin_notification",
 ]);
-export const emailStatusEnum = pgEnum("email_status", ["pending", "sent", "failed"]);
+export const emailStatusEnum = pgEnum("email_status", [
+  "pending",
+  "sent",
+  "failed",
+]);
 export const notificationTypeEnum = pgEnum("notification_type", [
-  "draw_result", "utef_update", "construction_update", "system", "promotional",
+  "draw_result",
+  "utef_update",
+  "construction_update",
+  "system",
+  "promotional",
 ]);
-export const obraMeasurementStatusEnum = pgEnum("obra_measurement_status", ["pending", "approved", "paid"]);
-export const leadTypeEnum = pgEnum("lead_type", ["new_lead", "in_process", "broker", "employee", "supplier", "vip"]);
-export const leadTemperatureEnum = pgEnum("lead_temperature", ["cold", "warm", "hot"]);
+export const obraMeasurementStatusEnum = pgEnum("obra_measurement_status", [
+  "pending",
+  "approved",
+  "paid",
+]);
+export const leadTypeEnum = pgEnum("lead_type", [
+  "new_lead",
+  "in_process",
+  "broker",
+  "employee",
+  "supplier",
+  "vip",
+]);
+export const leadTemperatureEnum = pgEnum("lead_temperature", [
+  "cold",
+  "warm",
+  "hot",
+]);
 export const leadStageEnum = pgEnum("lead_stage", [
-  "lead_new", "attending", "waiting_docs", "analysis",
-  "caixa_register", "approval", "approved", "rejected",
-  "followup", "in_process", "done",
+  "lead_new",
+  "attending",
+  "waiting_docs",
+  "analysis",
+  "caixa_register",
+  "approval",
+  "approved",
+  "rejected",
+  "followup",
+  "in_process",
+  "done",
 ]);
-export const leadResponsibleEnum = pgEnum("lead_responsible", ["sarah", "vinicius", "bianca"]);
-export const leadIncomeTypeEnum = pgEnum("lead_income_type", ["formal", "informal", "irpf"]);
-export const leadCpfStatusEnum = pgEnum("lead_cpf_status", ["clean", "restricted", "unknown"]);
-export const leadContractTypeEnum = pgEnum("lead_contract_type", ["obra", "financing", "both"]);
+export const leadResponsibleEnum = pgEnum("lead_responsible", [
+  "sarah",
+  "vinicius",
+  "bianca",
+]);
+export const leadIncomeTypeEnum = pgEnum("lead_income_type", [
+  "formal",
+  "informal",
+  "irpf",
+]);
+export const leadCpfStatusEnum = pgEnum("lead_cpf_status", [
+  "clean",
+  "restricted",
+  "unknown",
+]);
+export const leadContractTypeEnum = pgEnum("lead_contract_type", [
+  "obra",
+  "financing",
+  "both",
+]);
 export const leadActivityTypeEnum = pgEnum("lead_activity_type", [
-  "message", "call", "document", "status_change",
-  "note", "handoff", "follow_up", "simulation", "caixa_register",
+  "message",
+  "call",
+  "document",
+  "status_change",
+  "note",
+  "handoff",
+  "follow_up",
+  "simulation",
+  "caixa_register",
 ]);
 export const leadDocTypeEnum = pgEnum("lead_doc_type", [
-  "rg", "cnh", "address_proof", "income_proof_formal",
-  "income_proof_irpf", "fgts", "spouse_docs", "pis", "other",
+  "rg",
+  "cnh",
+  "address_proof",
+  "income_proof_formal",
+  "income_proof_irpf",
+  "fgts",
+  "spouse_docs",
+  "pis",
+  "other",
 ]);
-export const leadDocStatusEnum = pgEnum("lead_doc_status", ["pending", "received", "approved", "rejected"]);
-export const followUpStatusEnum = pgEnum("follow_up_status", ["pending", "sent", "responded", "failed", "cancelled"]);
-export const taskRelatedTypeEnum = pgEnum("task_related_type", ["lead", "obra", "budget", "financial", "general"]);
-export const taskPriorityEnum = pgEnum("task_priority", ["low", "medium", "high", "critical"]);
-export const taskStatusEnum = pgEnum("task_status", ["pending", "in_progress", "done", "cancelled"]);
-export const financialTransactionTypeEnum = pgEnum("financial_transaction_type", [
-  "income", "expense", "commission", "salary", "contractor_payment",
+export const leadDocStatusEnum = pgEnum("lead_doc_status", [
+  "pending",
+  "received",
+  "approved",
+  "rejected",
 ]);
-export const bpoClientStatusEnum = pgEnum("bpo_client_status", ["ativo", "pausado", "encerrado"]);
-export const bpoLancamentoTipoEnum = pgEnum("bpo_lancamento_tipo", ["honorario", "despesa", "reembolso"]);
-export const financialTransactionStatusEnum = pgEnum("financial_transaction_status", [
-  "pending", "paid", "cancelled",
+export const followUpStatusEnum = pgEnum("follow_up_status", [
+  "pending",
+  "sent",
+  "responded",
+  "failed",
+  "cancelled",
 ]);
+export const taskRelatedTypeEnum = pgEnum("task_related_type", [
+  "lead",
+  "obra",
+  "budget",
+  "financial",
+  "general",
+]);
+export const taskPriorityEnum = pgEnum("task_priority", [
+  "low",
+  "medium",
+  "high",
+  "critical",
+]);
+export const taskStatusEnum = pgEnum("task_status", [
+  "pending",
+  "in_progress",
+  "done",
+  "cancelled",
+]);
+export const financialTransactionTypeEnum = pgEnum(
+  "financial_transaction_type",
+  ["income", "expense", "commission", "salary", "contractor_payment"]
+);
+export const bpoClientStatusEnum = pgEnum("bpo_client_status", [
+  "ativo",
+  "pausado",
+  "encerrado",
+]);
+export const bpoLancamentoTipoEnum = pgEnum("bpo_lancamento_tipo", [
+  "honorario",
+  "despesa",
+  "reembolso",
+]);
+export const financialTransactionStatusEnum = pgEnum(
+  "financial_transaction_status",
+  ["pending", "paid", "cancelled"]
+);
 export const financiamentoTipoEnum = pgEnum("financiamento_tipo", [
-  "mcmv", "sbpe", "pro_cotista", "construcao", "reforma",
+  "mcmv",
+  "sbpe",
+  "pro_cotista",
+  "construcao",
+  "reforma",
 ]);
 export const financiamentoBancoEnum = pgEnum("financiamento_banco", [
-  "caixa", "bb", "bradesco", "itau", "santander", "outro",
+  "caixa",
+  "bb",
+  "bradesco",
+  "itau",
+  "santander",
+  "outro",
 ]);
 export const financiamentoStatusEnum = pgEnum("financiamento_status", [
-  "pre_analise", "documentacao", "analise_banco", "aprovado",
-  "contrato", "registro", "liberado", "cancelado",
+  "pre_analise",
+  "documentacao",
+  "analise_banco",
+  "aprovado",
+  "contrato",
+  "registro",
+  "liberado",
+  "cancelado",
 ]);
 
 // ──────────────────────────────────────────
@@ -96,9 +293,12 @@ export const users = pgTable("users", {
   loginMethod: varchar("loginMethod", { length: 64 }),
   role: userRoleEnum("role").default("cliente").notNull(),
   active: boolean("active").default(true).notNull(),
+  sessionVersion: integer("sessionVersion").default(0).notNull(),
   permissions: text("permissions").default("[]").notNull(),
   creci: varchar("creci", { length: 40 }),
-  leadId: integer("lead_id").unique().references(() => leads.id, { onDelete: "set null" }),
+  leadId: integer("lead_id")
+    .unique()
+    .references(() => leads.id, { onDelete: "set null" }),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().notNull(),
   lastSignedIn: timestamp("lastSignedIn").defaultNow().notNull(),
@@ -134,12 +334,16 @@ export const tickets = pgTable("tickets", {
   ticketNumber: varchar("ticket_number", { length: 50 }).notNull().unique(),
   quantity: integer("quantity").default(1).notNull(),
   totalPaid: integer("total_paid").notNull(),
-  paymentStatus: ticketPaymentStatusEnum("payment_status").default("pending").notNull(),
+  paymentStatus: ticketPaymentStatusEnum("payment_status")
+    .default("pending")
+    .notNull(),
   paymentMethod: varchar("payment_method", { length: 50 }).default("pix"),
   pixQrCode: text("pix_qr_code"),
   pixCopyPaste: text("pix_copy_paste"),
   stripePaymentIntentId: varchar("stripe_payment_intent_id", { length: 255 }),
-  stripeCheckoutSessionId: varchar("stripe_checkout_session_id", { length: 255 }),
+  stripeCheckoutSessionId: varchar("stripe_checkout_session_id", {
+    length: 255,
+  }),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });
@@ -171,6 +375,55 @@ export const utefTransactions = pgTable("utef_transactions", {
 
 export type UtefTransaction = typeof utefTransactions.$inferSelect;
 export type InsertUtefTransaction = typeof utefTransactions.$inferInsert;
+
+// Ledger de intencao de pagamento: criado na hora da cobranca (Asaas), liquidado no
+// webhook. Garante idempotencia (provider_payment_id e unico) e serve de base para
+// reconciliacao manual de reembolso/chargeback.
+export const paymentOrders = pgTable("payment_orders", {
+  id: serial("id").primaryKey(),
+  provider: varchar("provider", { length: 20 }).notNull().default("asaas"),
+  providerPaymentId: varchar("provider_payment_id", { length: 255 })
+    .notNull()
+    .unique(),
+  purpose: paymentOrderPurposeEnum("purpose").notNull(),
+  userId: integer("user_id").notNull(),
+  drawId: integer("draw_id"),
+  ticketId: integer("ticket_id"),
+  quantity: integer("quantity").default(1).notNull(),
+  principalAmount: integer("principal_amount").notNull(),
+  bonusAmount: integer("bonus_amount").default(0).notNull(),
+  status: paymentOrderStatusEnum("status").default("pending").notNull(),
+  reviewReason: text("review_reason"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  settledAt: timestamp("settled_at"),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+export type PaymentOrder = typeof paymentOrders.$inferSelect;
+export type InsertPaymentOrder = typeof paymentOrders.$inferInsert;
+
+// Numeros individuais de bilhete dentro de um sorteio (00000-99999). Cada unidade de
+// `quantity` comprada gera uma linha aqui, permitindo chance proporcional real e a
+// regra publica de "5 ultimos digitos da Loteria Federal" (busca exata ou anterior).
+export const ticketNumbers = pgTable(
+  "ticket_numbers",
+  {
+    id: serial("id").primaryKey(),
+    ticketId: integer("ticket_id").notNull(),
+    drawId: integer("draw_id").notNull(),
+    number: integer("number").notNull(),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+  },
+  table => ({
+    drawNumberUnique: uniqueIndex("ticket_numbers_draw_number_unique").on(
+      table.drawId,
+      table.number
+    ),
+  })
+);
+
+export type TicketNumber = typeof ticketNumbers.$inferSelect;
+export type InsertTicketNumber = typeof ticketNumbers.$inferInsert;
 
 export const products = pgTable("products", {
   id: serial("id").primaryKey(),
@@ -204,7 +457,15 @@ export type InsertProductConversion = typeof productConversions.$inferInsert;
 
 export const constructionProjects = pgTable("construction_projects", {
   id: serial("id").primaryKey(),
-  userId: integer("user_id").notNull(),
+  // Obras internas podem nascer diretamente de um serviço do CRM, sem criar
+  // um usuário/cliente fictício apenas para satisfazer a estrutura antiga.
+  userId: integer("user_id"),
+  leadId: integer("lead_id").references(() => leads.id, {
+    onDelete: "set null",
+  }),
+  leadServiceId: integer("lead_service_id")
+    .references(() => leadServices.id, { onDelete: "set null" })
+    .unique(),
   title: varchar("title", { length: 255 }).notNull(),
   address: text("address"),
   city: varchar("city", { length: 100 }),
@@ -220,8 +481,14 @@ export const constructionProjects = pgTable("construction_projects", {
   downPaymentTotal: decimal("down_payment_total", { precision: 15, scale: 2 }),
   downPaymentPaid: decimal("down_payment_paid", { precision: 15, scale: 2 }),
   plsPercentage: decimal("pls_percentage", { precision: 7, scale: 4 }),
-  realReceivedPercentage: decimal("real_received_pct", { precision: 7, scale: 4 }),
-  cefReceivedAmount: decimal("cef_received_amount", { precision: 15, scale: 2 }),
+  realReceivedPercentage: decimal("real_received_pct", {
+    precision: 7,
+    scale: 4,
+  }),
+  cefReceivedAmount: decimal("cef_received_amount", {
+    precision: 15,
+    scale: 2,
+  }),
   constructionSpent: decimal("construction_spent", { precision: 15, scale: 2 }),
   lotCost: decimal("lot_cost", { precision: 15, scale: 2 }),
   brokerName: varchar("broker_name", { length: 255 }),
@@ -247,7 +514,8 @@ export const constructionProjects = pgTable("construction_projects", {
 });
 
 export type ConstructionProject = typeof constructionProjects.$inferSelect;
-export type InsertConstructionProject = typeof constructionProjects.$inferInsert;
+export type InsertConstructionProject =
+  typeof constructionProjects.$inferInsert;
 
 export const constructionStages = pgTable("construction_stages", {
   id: serial("id").primaryKey(),
@@ -299,7 +567,8 @@ export const projectBudgetRequests = pgTable("project_budget_requests", {
 });
 
 export type ProjectBudgetRequest = typeof projectBudgetRequests.$inferSelect;
-export type InsertProjectBudgetRequest = typeof projectBudgetRequests.$inferInsert;
+export type InsertProjectBudgetRequest =
+  typeof projectBudgetRequests.$inferInsert;
 
 export const emailLogs = pgTable("email_logs", {
   id: serial("id").primaryKey(),
@@ -338,7 +607,10 @@ export const obraFees = pgTable("obra_fees", {
   id: serial("id").primaryKey(),
   projectId: integer("project_id").notNull(),
   feeType: varchar("fee_type", { length: 100 }).notNull(),
-  estimatedValue: decimal("estimated_value", { precision: 15, scale: 2 }).default("0"),
+  estimatedValue: decimal("estimated_value", {
+    precision: 15,
+    scale: 2,
+  }).default("0"),
   paidValue: decimal("paid_value", { precision: 15, scale: 2 }).default("0"),
   notes: text("notes"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
@@ -364,21 +636,47 @@ export const obraMeasurements = pgTable("obra_measurements", {
 export type ObraMeasurement = typeof obraMeasurements.$inferSelect;
 export type InsertObraMeasurement = typeof obraMeasurements.$inferInsert;
 
-
 export const brokerCommissions = pgTable("broker_commissions", {
   id: serial("id").primaryKey(),
   projectId: integer("project_id"),
   clientName: varchar("client_name", { length: 255 }).notNull(),
   brokerName: varchar("broker_name", { length: 255 }).notNull(),
-  totalCommission: decimal("total_commission", { precision: 15, scale: 2 }).notNull(),
-  installment1Value: decimal("installment1_value", { precision: 15, scale: 2 }).default("0"),
-  installment1Paid: decimal("installment1_paid", { precision: 15, scale: 2 }).default("0"),
-  installment2Value: decimal("installment2_value", { precision: 15, scale: 2 }).default("0"),
-  installment2Paid: decimal("installment2_paid", { precision: 15, scale: 2 }).default("0"),
-  installment3Value: decimal("installment3_value", { precision: 15, scale: 2 }).default("0"),
-  installment3Paid: decimal("installment3_paid", { precision: 15, scale: 2 }).default("0"),
-  installment4Value: decimal("installment4_value", { precision: 15, scale: 2 }).default("0"),
-  installment4Paid: decimal("installment4_paid", { precision: 15, scale: 2 }).default("0"),
+  totalCommission: decimal("total_commission", {
+    precision: 15,
+    scale: 2,
+  }).notNull(),
+  installment1Value: decimal("installment1_value", {
+    precision: 15,
+    scale: 2,
+  }).default("0"),
+  installment1Paid: decimal("installment1_paid", {
+    precision: 15,
+    scale: 2,
+  }).default("0"),
+  installment2Value: decimal("installment2_value", {
+    precision: 15,
+    scale: 2,
+  }).default("0"),
+  installment2Paid: decimal("installment2_paid", {
+    precision: 15,
+    scale: 2,
+  }).default("0"),
+  installment3Value: decimal("installment3_value", {
+    precision: 15,
+    scale: 2,
+  }).default("0"),
+  installment3Paid: decimal("installment3_paid", {
+    precision: 15,
+    scale: 2,
+  }).default("0"),
+  installment4Value: decimal("installment4_value", {
+    precision: 15,
+    scale: 2,
+  }).default("0"),
+  installment4Paid: decimal("installment4_paid", {
+    precision: 15,
+    scale: 2,
+  }).default("0"),
   notes: text("notes"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
@@ -396,7 +694,11 @@ export const leads = pgTable("leads", {
   state: varchar("state", { length: 2 }),
   type: leadTypeEnum("type").default("new_lead").notNull(),
   temperature: leadTemperatureEnum("temperature").default("cold").notNull(),
-  stage: leadStageEnum("stage").default("lead_new").notNull(),
+  stage: varchar("stage", { length: 40 }).default("lead_new").notNull(),
+  legacyStage: varchar("legacy_stage", { length: 40 }),
+  stageClassificationPending: boolean("stage_classification_pending").default(false).notNull(),
+  deletedAt: timestamp("deleted_at"),
+  deletedByUserId: integer("deleted_by_user_id").references((): AnyPgColumn => users.id, { onDelete: "set null" }),
   responsible: leadResponsibleEnum("responsible").default("sarah").notNull(),
   income: decimal("income", { precision: 15, scale: 2 }),
   incomeType: leadIncomeTypeEnum("income_type"),
@@ -424,6 +726,40 @@ export const leads = pgTable("leads", {
 export type Lead = typeof leads.$inferSelect;
 export type InsertLead = typeof leads.$inferInsert;
 
+// Serviço é separado do cliente: um lead pode ter vários atendimentos sem duplicação.
+export const leadServices = pgTable(
+  "lead_services",
+  {
+    id: serial("id").primaryKey(),
+    leadId: integer("lead_id")
+      .notNull()
+      .references(() => leads.id, { onDelete: "cascade" }),
+    serviceType: varchar("service_type", { length: 60 }).notNull(),
+    title: varchar("title", { length: 255 }),
+    status: varchar("status", { length: 40 })
+      .default("awaiting_data")
+      .notNull(),
+    originList: varchar("origin_list", { length: 255 }),
+    sourceCardUrl: text("source_card_url"),
+    idempotencyKey: varchar("idempotency_key", { length: 120 }),
+    dueAt: timestamp("due_at"),
+    description: text("description").default("").notNull(),
+    operationalModule: varchar("operational_module", { length: 80 }),
+    operationalRecordId: integer("operational_record_id"),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+    updatedAt: timestamp("updated_at").defaultNow().notNull(),
+  },
+  table => ({
+    sourceCardUrlUnique: uniqueIndex("lead_services_source_card_url_unique").on(
+      table.sourceCardUrl
+    ),
+    idempotencyKeyUnique: uniqueIndex("lead_services_idempotency_key_unique").on(table.idempotencyKey),
+  })
+);
+
+export type LeadService = typeof leadServices.$inferSelect;
+export type InsertLeadService = typeof leadServices.$inferInsert;
+
 export const regularizacoes = pgTable("regularizacoes", {
   id: serial("id").primaryKey(),
   clientName: varchar("client_name", { length: 255 }).notNull(),
@@ -435,8 +771,15 @@ export const regularizacoes = pgTable("regularizacoes", {
   registryOffice: varchar("registry_office", { length: 255 }),
   responsible: varchar("responsible", { length: 120 }).notNull(),
   leadId: integer("lead_id"),
-  serviceValue: decimal("service_value", { precision: 15, scale: 2 }).default("0").notNull(),
-  paidValue: decimal("paid_value", { precision: 15, scale: 2 }).default("0").notNull(),
+  leadServiceId: integer("lead_service_id").references(() => leadServices.id, {
+    onDelete: "set null",
+  }),
+  serviceValue: decimal("service_value", { precision: 15, scale: 2 })
+    .default("0")
+    .notNull(),
+  paidValue: decimal("paid_value", { precision: 15, scale: 2 })
+    .default("0")
+    .notNull(),
   expectedEndAt: timestamp("expected_end_at"),
   description: text("description").default("").notNull(),
   notes: text("notes"),
@@ -459,7 +802,8 @@ export const regularizacaoDocuments = pgTable("regularizacao_documents", {
 });
 
 export type RegularizacaoDocument = typeof regularizacaoDocuments.$inferSelect;
-export type InsertRegularizacaoDocument = typeof regularizacaoDocuments.$inferInsert;
+export type InsertRegularizacaoDocument =
+  typeof regularizacaoDocuments.$inferInsert;
 
 export const leadActivities = pgTable("lead_activities", {
   id: serial("id").primaryKey(),
@@ -477,9 +821,17 @@ export type InsertLeadActivity = typeof leadActivities.$inferInsert;
 export const leadDocuments = pgTable("lead_documents", {
   id: serial("id").primaryKey(),
   leadId: integer("lead_id").notNull(),
+  serviceId: integer("service_id").references(() => leadServices.id, { onDelete: "set null" }),
   type: leadDocTypeEnum("type").notNull(),
   fileName: varchar("file_name", { length: 255 }),
   fileUrl: text("file_url"),
+  driveFileId: text("drive_file_id"),
+  mimeType: varchar("mime_type", { length: 120 }),
+  fileSize: integer("file_size"),
+  sha256: varchar("sha256", { length: 64 }),
+  uploadedByUserId: integer("uploaded_by_user_id").references(() => users.id, { onDelete: "set null" }),
+  deletedByUserId: integer("deleted_by_user_id").references(() => users.id, { onDelete: "set null" }),
+  deletedAt: timestamp("deleted_at"),
   status: leadDocStatusEnum("status").default("pending").notNull(),
   notes: text("notes"),
   uploadedAt: timestamp("uploaded_at"),
@@ -547,8 +899,18 @@ export const financialTransactions = pgTable("financial_transactions", {
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });
 
+export const dashboardSettings = pgTable("dashboard_settings", {
+  id: serial("id").primaryKey(),
+  key: varchar("key", { length: 100 }).notNull().unique(),
+  value: varchar("value", { length: 500 }).notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+export type DashboardSetting = typeof dashboardSettings.$inferSelect;
+
 export type FinancialTransaction = typeof financialTransactions.$inferSelect;
-export type InsertFinancialTransaction = typeof financialTransactions.$inferInsert;
+export type InsertFinancialTransaction =
+  typeof financialTransactions.$inferInsert;
 
 // ========== FINANCIAMENTOS ==========
 
@@ -562,17 +924,33 @@ export const financiamentos = pgTable("financiamentos", {
   tipo: financiamentoTipoEnum("tipo").notNull(),
   banco: financiamentoBancoEnum("banco").notNull(),
   bancoOutro: varchar("banco_outro", { length: 120 }),
-  valorImovel: decimal("valor_imovel", { precision: 15, scale: 2 }).default("0").notNull(),
-  valorFinanciado: decimal("valor_financiado", { precision: 15, scale: 2 }).default("0").notNull(),
-  entrada: decimal("entrada", { precision: 15, scale: 2 }).default("0").notNull(),
+  valorImovel: decimal("valor_imovel", { precision: 15, scale: 2 })
+    .default("0")
+    .notNull(),
+  valorFinanciado: decimal("valor_financiado", { precision: 15, scale: 2 })
+    .default("0")
+    .notNull(),
+  entrada: decimal("entrada", { precision: 15, scale: 2 })
+    .default("0")
+    .notNull(),
   taxa: decimal("taxa", { precision: 8, scale: 4 }).default("0").notNull(),
   prazo: integer("prazo").default(360).notNull(),
   parcela: decimal("parcela", { precision: 15, scale: 2 }),
   status: financiamentoStatusEnum("status").default("pre_analise").notNull(),
   protocolo: varchar("protocolo", { length: 120 }),
-  leadId: integer("lead_id").references(() => leads.id, { onDelete: "set null" }),
-  imovelVinculadoId: integer("imovel_vinculado_id").references(() => imoveis.id, { onDelete: "set null" }),
-  corretorId: integer("corretor_id").references(() => users.id, { onDelete: "set null" }),
+  leadId: integer("lead_id").references(() => leads.id, {
+    onDelete: "set null",
+  }),
+  leadServiceId: integer("lead_service_id").references(() => leadServices.id, {
+    onDelete: "set null",
+  }),
+  imovelVinculadoId: integer("imovel_vinculado_id").references(
+    () => imoveis.id,
+    { onDelete: "set null" }
+  ),
+  corretorId: integer("corretor_id").references(() => users.id, {
+    onDelete: "set null",
+  }),
   observacoes: text("observacoes"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
@@ -580,25 +958,40 @@ export const financiamentos = pgTable("financiamentos", {
 export type Financiamento = typeof financiamentos.$inferSelect;
 export type InsertFinanciamento = typeof financiamentos.$inferInsert;
 
-export const financiamentoChecklistItems = pgTable("financiamento_checklist_items", {
-  id: serial("id").primaryKey(),
-  financiamentoId: integer("financiamento_id").notNull().references(() => financiamentos.id, { onDelete: "cascade" }),
-  grupo: varchar("grupo", { length: 80 }).notNull(),
-  item: varchar("item", { length: 255 }).notNull(),
-  concluido: boolean("concluido").default(false).notNull(),
-  concluidoEm: timestamp("concluido_em"),
-  notas: text("notas"),
-  createdAt: timestamp("created_at").defaultNow().notNull(),
-});
-export type FinanciamentoChecklistItem = typeof financiamentoChecklistItems.$inferSelect;
-export type InsertFinanciamentoChecklistItem = typeof financiamentoChecklistItems.$inferInsert;
+export const financiamentoChecklistItems = pgTable(
+  "financiamento_checklist_items",
+  {
+    id: serial("id").primaryKey(),
+    financiamentoId: integer("financiamento_id")
+      .notNull()
+      .references(() => financiamentos.id, { onDelete: "cascade" }),
+    grupo: varchar("grupo", { length: 80 }).notNull(),
+    item: varchar("item", { length: 255 }).notNull(),
+    concluido: boolean("concluido").default(false).notNull(),
+    concluidoEm: timestamp("concluido_em"),
+    notas: text("notas"),
+    visivelCliente: boolean("visivel_cliente").default(true).notNull(),
+    solicitarDocumento: boolean("solicitar_documento").default(false).notNull(),
+    documentoUrl: text("documento_url"),
+    documentoNome: varchar("documento_nome", { length: 255 }),
+    documentoMime: varchar("documento_mime", { length: 120 }),
+    enviadoEm: timestamp("enviado_em"),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+  }
+);
+export type FinanciamentoChecklistItem =
+  typeof financiamentoChecklistItems.$inferSelect;
+export type InsertFinanciamentoChecklistItem =
+  typeof financiamentoChecklistItems.$inferInsert;
 
 export const paymentSettings = pgTable("payment_settings", {
   id: serial("id").primaryKey(),
   provider: varchar("provider", { length: 50 }).default("asaas").notNull(),
   asaasApiKeyEncrypted: text("asaas_api_key_encrypted").notNull(),
   asaasWebhookTokenEncrypted: text("asaas_webhook_token_encrypted"),
-  asaasEnvironment: varchar("asaas_environment", { length: 20 }).default("sandbox").notNull(),
+  asaasEnvironment: varchar("asaas_environment", { length: 20 })
+    .default("sandbox")
+    .notNull(),
   isActive: boolean("is_active").default(true).notNull(),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
@@ -628,7 +1021,9 @@ export type InsertBpoClient = typeof bpoClients.$inferInsert;
 
 export const bpoLancamentos = pgTable("bpo_lancamentos", {
   id: serial("id").primaryKey(),
-  clienteId: integer("cliente_id").references(() => bpoClients.id, { onDelete: "set null" }),
+  clienteId: integer("cliente_id").references(() => bpoClients.id, {
+    onDelete: "set null",
+  }),
   clienteNomeLivre: varchar("cliente_nome_livre", { length: 255 }),
   tipo: bpoLancamentoTipoEnum("tipo").notNull(),
   descricao: varchar("descricao", { length: 500 }).notNull(),
@@ -643,9 +1038,83 @@ export const bpoLancamentos = pgTable("bpo_lancamentos", {
 export type BpoLancamento = typeof bpoLancamentos.$inferSelect;
 export type InsertBpoLancamento = typeof bpoLancamentos.$inferInsert;
 
-export const bankAccountTipoEnum = pgEnum("bank_account_tipo", ["corrente", "poupanca", "pagamento", "investimento"]);
-export const bankTransactionTipoEnum = pgEnum("bank_transaction_tipo", ["credito", "debito"]);
-export const bankTransactionStatusEnum = pgEnum("bank_transaction_status", ["pendente", "conciliado", "ignorado"]);
+// ========== GESTÃO TRIBUTÁRIA ==========
+
+export const taxProfiles = pgTable("tax_profiles", {
+  id: serial("id").primaryKey(),
+  companyName: varchar("company_name", { length: 255 }).notNull(),
+  cnpj: varchar("cnpj", { length: 20 }),
+  regime: varchar("regime", { length: 40 }).notNull(),
+  estimatedRate: decimal("estimated_rate", { precision: 7, scale: 4 })
+    .default("0")
+    .notNull(),
+  effectiveFrom: timestamp("effective_from").notNull(),
+  effectiveTo: timestamp("effective_to"),
+  notes: text("notes"),
+  isActive: boolean("is_active").default(true).notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+export type TaxProfile = typeof taxProfiles.$inferSelect;
+export type InsertTaxProfile = typeof taxProfiles.$inferInsert;
+
+export const taxObligations = pgTable("tax_obligations", {
+  id: serial("id").primaryKey(),
+  profileId: integer("profile_id").references(() => taxProfiles.id, {
+    onDelete: "set null",
+  }),
+  name: varchar("name", { length: 255 }).notNull(),
+  competency: varchar("competency", { length: 7 }).notNull(),
+  dueDate: timestamp("due_date").notNull(),
+  estimatedAmount: decimal("estimated_amount", { precision: 15, scale: 2 })
+    .default("0")
+    .notNull(),
+  status: varchar("status", { length: 30 }).default("pending").notNull(),
+  paidAt: timestamp("paid_at"),
+  notes: text("notes"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+export type TaxObligation = typeof taxObligations.$inferSelect;
+export type InsertTaxObligation = typeof taxObligations.$inferInsert;
+
+export const retProjects = pgTable("ret_projects", {
+  id: serial("id").primaryKey(),
+  profileId: integer("profile_id").references(() => taxProfiles.id, {
+    onDelete: "set null",
+  }),
+  name: varchar("name", { length: 255 }).notNull(),
+  cnpj: varchar("cnpj", { length: 20 }),
+  registrationNumber: varchar("registration_number", { length: 120 }),
+  affectedAssets: boolean("affected_assets").default(false).notNull(),
+  status: varchar("status", { length: 30 }).default("analysis").notNull(),
+  retRate: decimal("ret_rate", { precision: 7, scale: 4 })
+    .default("4")
+    .notNull(),
+  effectiveFrom: timestamp("effective_from"),
+  effectiveTo: timestamp("effective_to"),
+  notes: text("notes"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+export type RetProject = typeof retProjects.$inferSelect;
+export type InsertRetProject = typeof retProjects.$inferInsert;
+
+export const bankAccountTipoEnum = pgEnum("bank_account_tipo", [
+  "corrente",
+  "poupanca",
+  "pagamento",
+  "investimento",
+]);
+export const bankTransactionTipoEnum = pgEnum("bank_transaction_tipo", [
+  "credito",
+  "debito",
+]);
+export const bankTransactionStatusEnum = pgEnum("bank_transaction_status", [
+  "pendente",
+  "conciliado",
+  "ignorado",
+]);
 
 export const pluggySettings = pgTable("pluggy_settings", {
   id: serial("id").primaryKey(),
@@ -665,7 +1134,9 @@ export const bankAccounts = pgTable("bank_accounts", {
   conta: varchar("conta", { length: 30 }).notNull(),
   tipo: bankAccountTipoEnum("tipo").default("corrente").notNull(),
   descricao: varchar("descricao", { length: 255 }),
-  saldoAtual: decimal("saldo_atual", { precision: 15, scale: 2 }).default("0").notNull(),
+  saldoAtual: decimal("saldo_atual", { precision: 15, scale: 2 })
+    .default("0")
+    .notNull(),
   ativo: boolean("ativo").default(true).notNull(),
   pluggyItemId: varchar("pluggy_item_id", { length: 120 }),
   pluggyAccountId: varchar("pluggy_account_id", { length: 120 }),
@@ -678,7 +1149,9 @@ export type InsertBankAccount = typeof bankAccounts.$inferInsert;
 
 export const bankTransactions = pgTable("bank_transactions", {
   id: serial("id").primaryKey(),
-  accountId: integer("account_id").notNull().references(() => bankAccounts.id, { onDelete: "cascade" }),
+  accountId: integer("account_id")
+    .notNull()
+    .references(() => bankAccounts.id, { onDelete: "cascade" }),
   data: timestamp("data").notNull(),
   descricao: varchar("descricao", { length: 500 }).notNull(),
   valor: decimal("valor", { precision: 15, scale: 2 }).notNull(),
@@ -691,7 +1164,12 @@ export const bankTransactions = pgTable("bank_transactions", {
 export type BankTransaction = typeof bankTransactions.$inferSelect;
 export type InsertBankTransaction = typeof bankTransactions.$inferInsert;
 
-export const imovelStatusEnum = pgEnum("imovel_status", ["disponivel", "reservado", "vendido", "alugado"]);
+export const imovelStatusEnum = pgEnum("imovel_status", [
+  "disponivel",
+  "reservado",
+  "vendido",
+  "alugado",
+]);
 
 export const imoveis = pgTable("imoveis", {
   id: serial("id").primaryKey(),
@@ -717,7 +1195,15 @@ export const imoveis = pgTable("imoveis", {
   publicadoZap: boolean("publicado_zap").default(false).notNull(),
   publicadoOlx: boolean("publicado_olx").default(false).notNull(),
   publicadoViva: boolean("publicado_viva").default(false).notNull(),
-  publicadoChavesNaMao: boolean("publicado_chaves_na_mao").default(false).notNull(),
+  publicadoChavesNaMao: boolean("publicado_chaves_na_mao")
+    .default(false)
+    .notNull(),
+  createdByUserId: integer("created_by_user_id").references(() => users.id, {
+    onDelete: "set null",
+  }),
+  reviewStatus: varchar("review_status", { length: 30 })
+    .default("approved")
+    .notNull(),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });
@@ -727,11 +1213,17 @@ export type InsertImovel = typeof imoveis.$inferInsert;
 // EPIC-002 — Portal do Cliente (paridade com Visita/Contrato/ChatMensagem do Santa Fé)
 export const portalVisits = pgTable("portal_visits", {
   id: serial("id").primaryKey(),
-  leadId: integer("lead_id").references(() => leads.id, { onDelete: "set null" }),
+  leadId: integer("lead_id").references(() => leads.id, {
+    onDelete: "set null",
+  }),
   clientName: varchar("client_name", { length: 255 }).default("").notNull(),
   clientPhone: varchar("client_phone", { length: 40 }).default("").notNull(),
-  brokerId: integer("broker_id").references(() => users.id, { onDelete: "set null" }),
-  propertyId: integer("property_id").references(() => imoveis.id, { onDelete: "set null" }),
+  brokerId: integer("broker_id").references(() => users.id, {
+    onDelete: "set null",
+  }),
+  propertyId: integer("property_id").references(() => imoveis.id, {
+    onDelete: "set null",
+  }),
   scheduledAt: timestamp("scheduled_at").notNull(),
   status: varchar("status", { length: 30 }).default("agendada").notNull(),
   visitType: varchar("visit_type", { length: 40 }).default("imovel").notNull(),
@@ -744,7 +1236,9 @@ export type PortalVisit = typeof portalVisits.$inferSelect;
 
 // Etapa 4: directory metadata is separate from authentication and permissions.
 export const brokerProfiles = pgTable("broker_profiles", {
-  userId: integer("user_id").primaryKey().references(() => users.id, { onDelete: "cascade" }),
+  userId: integer("user_id")
+    .primaryKey()
+    .references(() => users.id, { onDelete: "cascade" }),
   specialties: text("specialties").default("[]").notNull(),
   notes: text("notes").default("").notNull(),
 });
@@ -753,7 +1247,9 @@ export const operationalCommissions = pgTable("operational_commissions", {
   id: serial("id").primaryKey(),
   beneficiary: varchar("beneficiary", { length: 20 }).notNull(),
   businessType: varchar("business_type", { length: 60 }).notNull(),
-  brokerId: integer("broker_id").references(() => users.id, { onDelete: "set null" }),
+  brokerId: integer("broker_id").references(() => users.id, {
+    onDelete: "set null",
+  }),
   property: varchar("property", { length: 255 }).notNull(),
   amount: decimal("amount", { precision: 15, scale: 2 }).notNull(),
   percent: decimal("percent", { precision: 5, scale: 2 }).notNull(),
@@ -774,9 +1270,16 @@ export const operationalProjects = pgTable("operational_projects", {
   clientPhone: varchar("client_phone", { length: 40 }).notNull(),
   engineer: varchar("engineer", { length: 255 }).notNull(),
   value: decimal("value", { precision: 15, scale: 2 }).notNull(),
-  paidValue: decimal("paid_value", { precision: 15, scale: 2 }).default("0").notNull(),
+  paidValue: decimal("paid_value", { precision: 15, scale: 2 })
+    .default("0")
+    .notNull(),
   deadline: timestamp("deadline"),
-  leadId: integer("lead_id").references(() => leads.id, { onDelete: "set null" }),
+  leadId: integer("lead_id").references(() => leads.id, {
+    onDelete: "set null",
+  }),
+  leadServiceId: integer("lead_service_id").references(() => leadServices.id, {
+    onDelete: "set null",
+  }),
   description: text("description").default("").notNull(),
   checklist: text("checklist").default("[]").notNull(),
   files: text("files").default("[]").notNull(),
@@ -786,7 +1289,9 @@ export const operationalProjects = pgTable("operational_projects", {
 
 export const portalContracts = pgTable("portal_contracts", {
   id: serial("id").primaryKey(),
-  leadId: integer("lead_id").references(() => leads.id, { onDelete: "set null" }),
+  leadId: integer("lead_id").references(() => leads.id, {
+    onDelete: "set null",
+  }),
   number: varchar("number", { length: 80 }).notNull().unique(),
   type: varchar("type", { length: 80 }).notNull(),
   status: varchar("status", { length: 30 }).default("rascunho").notNull(),
@@ -794,12 +1299,16 @@ export const portalContracts = pgTable("portal_contracts", {
   partyADocument: varchar("party_a_document", { length: 40 }),
   partyB: varchar("party_b", { length: 255 }),
   partyBDocument: varchar("party_b_document", { length: 40 }),
-  propertyId: integer("property_id").references(() => imoveis.id, { onDelete: "set null" }),
+  propertyId: integer("property_id").references(() => imoveis.id, {
+    onDelete: "set null",
+  }),
   value: decimal("value", { precision: 15, scale: 2 }).default("0").notNull(),
   dueAt: timestamp("due_at"),
   description: text("description"),
   clauses: text("clauses"),
-  signatureStatus: varchar("signature_status", { length: 30 }).default("pendente").notNull(),
+  signatureStatus: varchar("signature_status", { length: 30 })
+    .default("pendente")
+    .notNull(),
   signatureGovId: varchar("signature_gov_id", { length: 255 }),
   signedDocumentUrl: text("signed_document_url"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
@@ -809,17 +1318,22 @@ export type PortalContract = typeof portalContracts.$inferSelect;
 
 export const portalContractDocuments = pgTable("portal_contract_documents", {
   id: serial("id").primaryKey(),
-  contractId: integer("contract_id").notNull().references(() => portalContracts.id, { onDelete: "cascade" }),
+  contractId: integer("contract_id")
+    .notNull()
+    .references(() => portalContracts.id, { onDelete: "cascade" }),
   name: varchar("name", { length: 255 }).notNull(),
   url: text("url").notNull(),
   type: varchar("type", { length: 30 }).default("anexo").notNull(),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
-export type PortalContractDocument = typeof portalContractDocuments.$inferSelect;
+export type PortalContractDocument =
+  typeof portalContractDocuments.$inferSelect;
 
 export const portalChatMessages = pgTable("portal_chat_messages", {
   id: serial("id").primaryKey(),
-  leadId: integer("lead_id").notNull().references(() => leads.id, { onDelete: "cascade" }),
+  leadId: integer("lead_id")
+    .notNull()
+    .references(() => leads.id, { onDelete: "cascade" }),
   sender: varchar("sender", { length: 30 }).notNull(),
   text: text("text").notNull(),
   read: boolean("read").default(false).notNull(),
@@ -827,7 +1341,14 @@ export const portalChatMessages = pgTable("portal_chat_messages", {
 });
 export type PortalChatMessage = typeof portalChatMessages.$inferSelect;
 
-export const avaliacaoStatusEnum = pgEnum("avaliacao_status", ["solicitada", "vistoria", "elaboracao", "revisao", "entregue", "cancelada"]);
+export const avaliacaoStatusEnum = pgEnum("avaliacao_status", [
+  "solicitada",
+  "vistoria",
+  "elaboracao",
+  "revisao",
+  "entregue",
+  "cancelada",
+]);
 
 export const avaliacoes = pgTable("avaliacoes", {
   id: serial("id").primaryKey(),
@@ -849,7 +1370,9 @@ export const avaliacoes = pgTable("avaliacoes", {
   banheiros: integer("banheiros"),
   vagas: integer("vagas"),
   caracteristicas: text("caracteristicas").default("").notNull(),
-  metodologia: varchar("metodologia", { length: 50 }).default("comparativo").notNull(),
+  metodologia: varchar("metodologia", { length: 50 })
+    .default("comparativo")
+    .notNull(),
   valorEstimado: decimal("valor_estimado", { precision: 15, scale: 2 }),
   avaliador: varchar("avaliador", { length: 255 }).notNull(),
   dataVistoria: timestamp("data_vistoria"),
@@ -860,16 +1383,42 @@ export const avaliacoes = pgTable("avaliacoes", {
   documentos: text("documentos").default("[]").notNull(),
   sugestaoJson: text("sugestao_json"),
   valorServico: decimal("valor_servico", { precision: 15, scale: 2 }),
-  leadId: integer("lead_id").references(() => leads.id, { onDelete: "set null" }),
+  leadId: integer("lead_id").references(() => leads.id, {
+    onDelete: "set null",
+  }),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });
 export type Avaliacao = typeof avaliacoes.$inferSelect;
 export type InsertAvaliacao = typeof avaliacoes.$inferInsert;
 
-export const agregadorFonteEnum = pgEnum("agregador_fonte", ["olx", "zapimoveis", "vivareal", "facebook", "instagram", "google", "direto", "outro"]);
-export const agregadorStatusEnum = pgEnum("agregador_status", ["pendente", "verificado", "arquivado", "importado"]);
-export const agregadorDocumentoTipoEnum = pgEnum("agregador_documento_tipo", ["nenhum", "escritura", "contrato_gaveta", "inventario", "heranca", "financiado", "loteamento", "posse", "outros"]);
+export const agregadorFonteEnum = pgEnum("agregador_fonte", [
+  "olx",
+  "zapimoveis",
+  "vivareal",
+  "facebook",
+  "instagram",
+  "google",
+  "direto",
+  "outro",
+]);
+export const agregadorStatusEnum = pgEnum("agregador_status", [
+  "pendente",
+  "verificado",
+  "arquivado",
+  "importado",
+]);
+export const agregadorDocumentoTipoEnum = pgEnum("agregador_documento_tipo", [
+  "nenhum",
+  "escritura",
+  "contrato_gaveta",
+  "inventario",
+  "heranca",
+  "financiado",
+  "loteamento",
+  "posse",
+  "outros",
+]);
 
 export const agregadorImoveis = pgTable("agregador_imoveis", {
   id: serial("id").primaryKey(),
@@ -886,7 +1435,9 @@ export const agregadorImoveis = pgTable("agregador_imoveis", {
   urlFonte: text("url_fonte"),
   imagens: text("imagens").default("[]").notNull(),
   status: agregadorStatusEnum("status").default("pendente").notNull(),
-  documentoTipo: agregadorDocumentoTipoEnum("documento_tipo").default("nenhum").notNull(),
+  documentoTipo: agregadorDocumentoTipoEnum("documento_tipo")
+    .default("nenhum")
+    .notNull(),
   documentoObs: text("documento_obs"),
   contatoNome: varchar("contato_nome", { length: 255 }),
   contatoTel: varchar("contato_tel", { length: 20 }),
@@ -914,8 +1465,12 @@ export const incorporationStudies = pgTable("incorporation_studies", {
   propertyRef: varchar("property_ref", { length: 180 }),
   kmlUrl: text("kml_url"),
   geojson: text("geojson"),
-  areaM2: decimal("area_m2", { precision: 15, scale: 2 }).default("0").notNull(),
-  perimeterM: decimal("perimeter_m", { precision: 15, scale: 2 }).default("0").notNull(),
+  areaM2: decimal("area_m2", { precision: 15, scale: 2 })
+    .default("0")
+    .notNull(),
+  perimeterM: decimal("perimeter_m", { precision: 15, scale: 2 })
+    .default("0")
+    .notNull(),
   appAreaM2: decimal("app_area_m2", { precision: 15, scale: 2 }),
   appWidthM: decimal("app_width_m", { precision: 15, scale: 2 }),
   appOrigin: varchar("app_origin", { length: 40 }),
