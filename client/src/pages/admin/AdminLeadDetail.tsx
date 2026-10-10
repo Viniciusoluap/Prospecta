@@ -142,17 +142,17 @@ export default function AdminLeadDetail() {
   return (
     <div className="min-h-screen bg-[#1A2332] text-white">
       {/* Header */}
-      <div className="bg-[#0F1923] border-b border-[#C9A961]/20 px-6 py-4">
-        <div className="max-w-7xl mx-auto flex items-center justify-between">
-          <div className="flex items-center gap-4">
+      <div className="bg-[#0F1923] border-b border-[#C9A961]/20 px-4 py-4 sm:px-6">
+        <div className="mx-auto flex max-w-7xl flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+          <div className="flex min-w-0 flex-col gap-2 sm:flex-row sm:items-center sm:gap-4">
             <Link href="/admin/crm">
-              <Button variant="ghost" size="icon" className="text-gray-400 hover:text-white">
+              <Button variant="ghost" size="icon" className="w-fit text-gray-400 hover:text-white">
                 <ArrowLeft className="h-5 w-5" />
               </Button>
             </Link>
-            <div>
-              <h1 className="text-2xl font-bold text-[#C9A961]">{lead.name}</h1>
-              <div className="flex items-center gap-3 mt-1">
+            <div className="min-w-0">
+              <h1 className="text-2xl font-bold text-[#C9A961] break-words">{lead.name}</h1>
+              <div className="flex flex-wrap items-center gap-3 mt-1">
                 <Badge className={`${STAGE_COLORS[lead.stage] || "bg-gray-500"} text-white text-xs`}>
                   {STAGES.find(s => s.key === lead.stage)?.label || LEGACY_STAGE_LABELS[lead.stage] || lead.stage}
                 </Badge>
@@ -162,7 +162,7 @@ export default function AdminLeadDetail() {
               </div>
             </div>
           </div>
-          <div className="flex gap-2">
+          <div className="flex flex-wrap gap-2">
             {lead.deletedAt ? (
               <Button onClick={() => restoreMutation.mutate({ id: leadId })} disabled={restoreMutation.isPending} variant="outline" className="text-white border-white/40"><RotateCcw className="h-4 w-4 mr-2" />Recuperar lead</Button>
             ) : (
@@ -313,7 +313,7 @@ export default function AdminLeadDetail() {
         {/* Left Column — Lead Data */}
         <div className="lg:col-span-1 space-y-4">
           {/* Personal Info */}
-          <Card className="bg-[#2C3E50] border-[#C9A961]/20">
+          <Card className="bg-[#2C3E50] border-[#C9A961]/20 text-white">
             <CardHeader className="pb-3">
               <CardTitle className="text-[#C9A961] text-sm flex items-center gap-2">
                 <User className="h-4 w-4" /> Dados Pessoais
@@ -335,7 +335,7 @@ export default function AdminLeadDetail() {
           </Card>
 
           {/* Financial Info */}
-          <Card className="bg-[#2C3E50] border-[#C9A961]/20">
+          <Card className="bg-[#2C3E50] border-[#C9A961]/20 text-white">
             <CardHeader className="pb-3">
               <CardTitle className="text-[#C9A961] text-sm flex items-center gap-2">
                 <DollarSign className="h-4 w-4" /> Dados Financeiros
@@ -357,7 +357,7 @@ export default function AdminLeadDetail() {
 
           {/* 80% Rule Calculator */}
           {income > 0 && (
-            <Card className="bg-[#2C3E50] border-[#C9A961]/20">
+            <Card className="bg-[#2C3E50] border-[#C9A961]/20 text-white">
               <CardHeader className="pb-3">
                 <CardTitle className="text-[#C9A961] text-sm flex items-center gap-2">
                   <Calculator className="h-4 w-4" /> Regra dos 80%
@@ -396,15 +396,15 @@ export default function AdminLeadDetail() {
 
         {/* Right Column — Timeline + Documents */}
         <div className="lg:col-span-2 space-y-4">
-          <Card className="bg-[#2C3E50] border-[#C9A961]/20">
-            <CardHeader className="pb-3 flex flex-row items-center justify-between">
-              <div>
+          <Card className="bg-[#2C3E50] border-[#C9A961]/20 text-white">
+            <CardHeader className="pb-3 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+              <div className="min-w-0">
                 <CardTitle className="text-[#C9A961] text-sm flex items-center gap-2">
                   <Building2 className="h-4 w-4" /> Serviços do cliente
                 </CardTitle>
                 <p className="mt-1 text-xs text-gray-400">Cada serviço é independente e pode ser ligado ao módulo operacional correspondente.</p>
               </div>
-              <div className="flex gap-2">
+              <div className="flex flex-wrap gap-2">
                 <Select value={serviceType} onValueChange={value => setServiceType(value as LeadServiceType)}>
                   <SelectTrigger className="w-48 h-8 bg-[#1A2332] border-white/20 text-white text-xs"><SelectValue /></SelectTrigger>
                   <SelectContent>
@@ -422,12 +422,12 @@ export default function AdminLeadDetail() {
               ) : (
                 <div className="space-y-2">
                   {services.map(service => (
-                    <div key={service.id} className="rounded-lg border border-white/10 bg-[#1A2332] px-3 py-2 flex items-center justify-between gap-3">
-                      <div>
+                    <div key={service.id} className="rounded-lg border border-white/10 bg-[#1A2332] px-3 py-2 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                      <div className="min-w-0">
                         <p className="text-sm font-medium text-white">{LEAD_SERVICE_LABELS[service.serviceType as LeadServiceType] || service.serviceType}</p>
-                        <p className="text-xs text-gray-300">{service.operationalRecordId ? `Processo vinculado em ${service.operationalModule}` : `Aguardando configuração em ${service.operationalModule || "CRM"}`}</p>
+                        <p className="text-xs text-gray-300 break-words">{service.operationalRecordId ? `Processo vinculado em ${service.operationalModule}` : `Aguardando configuração em ${service.operationalModule || "CRM"}`}</p>
                       </div>
-                      <div className="flex items-center gap-2">
+                      <div className="flex flex-wrap items-center gap-2">
                         {service.operationalModule && LEAD_SERVICE_MODULE_ROUTES[service.operationalModule] && <Link href={LEAD_SERVICE_MODULE_ROUTES[service.operationalModule]} className="rounded border border-[#C9A961]/50 px-2 py-1 text-xs text-[#E6CA88]">Abrir módulo</Link>}
                         <Badge className={service.status === "completed" ? "bg-green-700" : service.status === "cancelled" ? "bg-red-700" : "bg-teal-600"}>{service.status === "completed" ? "Concluído" : service.status === "cancelled" ? "Cancelado" : "Em andamento"}</Badge>
                         {service.status !== "completed" && <Button size="sm" variant="outline" className="h-7 border-green-600/50 text-green-300" onClick={() => updateServiceStatusMutation.mutate({ id: service.id, status: "completed" })}>Concluir</Button>}
@@ -441,13 +441,13 @@ export default function AdminLeadDetail() {
             </CardContent>
           </Card>
           {/* Documentos privados vinculados ao cadastro do cliente */}
-          <Card className="bg-[#2C3E50] border-[#C9A961]/20">
+          <Card className="bg-[#2C3E50] border-[#C9A961]/20 text-white">
             <CardHeader><CardTitle className="text-[#C9A961] text-sm">Documentos</CardTitle></CardHeader>
             <CardContent><LeadDocuments leadId={leadId} admin /></CardContent>
           </Card>
 
           {/* Activity Timeline */}
-          <Card className="bg-[#2C3E50] border-[#C9A961]/20">
+          <Card className="bg-[#2C3E50] border-[#C9A961]/20 text-white">
             <CardHeader className="pb-3 flex flex-row items-center justify-between">
               <CardTitle className="text-[#C9A961] text-sm flex items-center gap-2">
                 <MessageSquare className="h-4 w-4" /> Timeline de Atividades
@@ -535,7 +535,7 @@ export default function AdminLeadDetail() {
 
           {/* Notes */}
           {lead.notes && (
-            <Card className="bg-[#2C3E50] border-[#C9A961]/20">
+            <Card className="bg-[#2C3E50] border-[#C9A961]/20 text-white">
               <CardHeader className="pb-3">
                 <CardTitle className="text-[#C9A961] text-sm">Observações do Lead</CardTitle>
               </CardHeader>

@@ -16,6 +16,7 @@ import ComoFunciona from "./pages/ComoFunciona";
 import ComprarUtef from "./pages/ComprarUtef";
 import ProjetosOrcamentos from "./pages/ProjetosOrcamentos";
 import AdminObras from "./pages/AdminObras";
+import ObraDetalhes from "./pages/ObraDetalhes";
 import NovaObra from "./pages/NovaObra";
 import AdminEditarObra from "./pages/AdminEditarObra";
 import AdminOrcamentos from "./pages/AdminOrcamentos";
@@ -59,6 +60,7 @@ import Contato from "./pages/Contato";
 import Mercado from "./pages/Mercado";
 import Cursos from "./pages/Cursos";
 import Instituto from "./pages/Instituto";
+import InstalarApp from "./pages/InstalarApp";
 import Perfil from "./pages/Perfil";
 import SimuladorFinanciamento from "./pages/SimuladorFinanciamento";
 import WhatsAppFloat from "./components/WhatsAppFloat";
@@ -107,6 +109,7 @@ function Router() {
       <Route path="/mercado" component={Mercado} />
       <Route path="/cursos" component={Cursos} />
       <Route path="/instituto" component={Instituto} />
+      <Route path="/instalar-aplicativo" component={InstalarApp} />
       <Route path="/meus-bilhetes">
         <PortalRoute>
           <LegacyRedirect to="/portal/bilhetes" />
@@ -178,6 +181,11 @@ function Router() {
       <Route path="/admin/obras/:id/medicoes">
         <AdminRoute module="obras">
           <AdminObraMedicoes />
+        </AdminRoute>
+      </Route>
+      <Route path="/admin/obras/:id">
+        <AdminRoute module="obras">
+          <ObraDetalhes admin />
         </AdminRoute>
       </Route>
       <Route path="/admin/orcamentos">

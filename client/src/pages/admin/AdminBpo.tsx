@@ -189,19 +189,19 @@ export default function AdminBpo({ initialTab }: { initialTab?: Aba } = {}) {
 
   return (
     <div className="min-h-screen bg-[#1A2332] text-white">
-      <div className="bg-[#0F1923] border-b border-[#C9A961]/20 px-6 py-4">
-        <div className="max-w-7xl mx-auto flex items-center justify-between flex-wrap gap-3">
-          <div className="flex items-center gap-4">
+      <div className="bg-[#0F1923] border-b border-[#C9A961]/20 px-4 py-4 sm:px-6">
+        <div className="mx-auto flex max-w-7xl flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between">
+          <div className="flex min-w-0 flex-col gap-2 sm:flex-row sm:items-center sm:gap-4">
             <Link href="/admin">
               <Button
                 variant="ghost"
                 size="icon"
-                className="text-gray-400 hover:text-white"
+                className="w-fit text-gray-400 hover:text-white"
               >
                 <ArrowLeft className="h-5 w-5" />
               </Button>
             </Link>
-            <div>
+            <div className="min-w-0">
               <h1 className="text-2xl font-bold text-[#C9A961]">
                 BPO Financeiro
               </h1>
@@ -210,7 +210,7 @@ export default function AdminBpo({ initialTab }: { initialTab?: Aba } = {}) {
               </p>
             </div>
           </div>
-          <div className="flex gap-2">
+          <div className="flex flex-wrap gap-2">
             <Dialog open={clienteOpen} onOpenChange={setClienteOpen}>
               <DialogTrigger asChild>
                 <Button

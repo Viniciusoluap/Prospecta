@@ -121,20 +121,20 @@ export default function AdminAvaliacoes() {
 
   return (
     <div className="min-h-screen bg-[#1A2332] text-white">
-      <div className="bg-[#0F1923] border-b border-[#C9A961]/20 px-6 py-4">
-        <div className="max-w-7xl mx-auto flex items-center justify-between">
-          <div className="flex items-center gap-4">
+      <div className="bg-[#0F1923] border-b border-[#C9A961]/20 px-4 py-4 sm:px-6">
+        <div className="mx-auto flex max-w-7xl flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex min-w-0 flex-col gap-2 sm:flex-row sm:items-center sm:gap-4">
             <Link href="/admin">
-              <Button variant="ghost" size="icon" className="text-gray-400 hover:text-white">
+              <Button variant="ghost" size="icon" className="w-fit text-gray-400 hover:text-white">
                 <ArrowLeft className="h-5 w-5" />
               </Button>
             </Link>
-            <div>
+            <div className="min-w-0">
               <h1 className="text-2xl font-bold text-[#C9A961]">Avaliações (Laudos)</h1>
               <p className="text-gray-400 text-sm">Avaliação imobiliária — comparativo/renda/custo</p>
             </div>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             {selecionadas.size > 0 && (
               <Button onClick={baixarLaudos} variant="outline" className="border-[#C9A961]/30 text-[#C9A961]">
                 <Printer className="h-4 w-4 mr-2" /> Baixar Laudos ({selecionadas.size})

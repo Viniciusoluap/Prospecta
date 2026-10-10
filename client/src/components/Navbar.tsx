@@ -28,6 +28,7 @@ import {
   Info,
   GraduationCap,
   HandHeart,
+  Download,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { useState } from "react";
@@ -99,6 +100,17 @@ export default function Navbar() {
                     >
                       <Building2 className="mr-3 h-5 w-5" />
                       Imóveis
+                    </Button>
+                  </Link>
+
+                  {/* Instalar aplicativo */}
+                  <Link href="/instalar-aplicativo" onClick={closeMobileMenu}>
+                    <Button
+                      variant="ghost"
+                      className="w-full justify-start text-base"
+                    >
+                      <Download className="mr-3 h-5 w-5" />
+                      Instalar aplicativo
                     </Button>
                   </Link>
 
@@ -313,6 +325,13 @@ export default function Navbar() {
           <DesktopNavLink href="/instituto">Instituto</DesktopNavLink>
           <DesktopNavLink href="/contato">Contato</DesktopNavLink>
           <DesktopNavLink href="/sorteios">Sorteios</DesktopNavLink>
+          <Link
+            href="/instalar-aplicativo"
+            className="flex items-center gap-1.5 rounded-md px-3 py-2 text-sm font-medium text-foreground/75 transition-colors hover:bg-primary/10 hover:text-primary"
+          >
+            <Download className="h-4 w-4" />
+            Instalar app
+          </Link>
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <Button

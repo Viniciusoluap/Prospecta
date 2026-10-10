@@ -61,9 +61,9 @@ export default function AdminConfiguracoes() {
       <Button onClick={() => setNovo(true)} className="bg-[#C9A961] font-bold text-[#1A2332]"><Plus className="mr-2 h-4 w-4" /> Novo usuário</Button>
     </div></header>
     <main className="mx-auto max-w-7xl p-4 md:p-6"><Card className="border-[#C9A961]/20 bg-[#2C3E50]"><CardContent className="space-y-2 pt-6">
-      {isLoading ? <p>Carregando…</p> : usuarios.map(item => <button key={item.id} onClick={() => setEditId(item.id)} className="flex w-full flex-wrap items-center justify-between gap-3 rounded-lg bg-[#1A2332] p-4 text-left hover:ring-1 hover:ring-[#C9A961]/50">
-        <div className="flex items-center gap-3"><UserCog className={item.active ? "text-green-400" : "text-gray-600"} /><div><p className="font-semibold">{item.name || "Sem nome"}</p><p className="text-xs text-gray-400">{item.email}</p></div></div>
-        <div className="text-right"><p className="text-sm capitalize text-[#C9A961]">{item.role}</p><p className="text-xs text-gray-500">{item.active ? "Ativo" : "Inativo"} · {parsePermissions(item.permissions).length} permissões</p></div>
+      {isLoading ? <p className="text-gray-300">Carregando…</p> : usuarios.map(item => <button key={item.id} onClick={() => setEditId(item.id)} className="flex w-full flex-wrap items-center justify-between gap-3 rounded-lg bg-[#1A2332] p-4 text-left hover:ring-1 hover:ring-[#C9A961]/50">
+        <div className="flex items-center gap-3"><UserCog className={item.active ? "text-green-400" : "text-gray-600"} /><div><p className="font-semibold text-white">{item.name || "Sem nome"}</p><p className="text-xs text-gray-400">{item.email}</p></div></div>
+        <div className="text-right"><p className="text-sm capitalize text-[#C9A961]">{item.role}</p><p className="text-xs text-gray-400">{item.active ? "Ativo" : "Inativo"} · {parsePermissions(item.permissions).length} permissões</p></div>
       </button>)}
     </CardContent></Card></main>
 
