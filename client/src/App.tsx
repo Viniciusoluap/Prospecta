@@ -16,6 +16,7 @@ import ComoFunciona from "./pages/ComoFunciona";
 import ComprarUtef from "./pages/ComprarUtef";
 import ProjetosOrcamentos from "./pages/ProjetosOrcamentos";
 import AdminObras from "./pages/AdminObras";
+import ObraDetalhes from "./pages/ObraDetalhes";
 import NovaObra from "./pages/NovaObra";
 import AdminEditarObra from "./pages/AdminEditarObra";
 import AdminOrcamentos from "./pages/AdminOrcamentos";
@@ -178,6 +179,11 @@ function Router() {
       <Route path="/admin/obras/:id/medicoes">
         <AdminRoute module="obras">
           <AdminObraMedicoes />
+        </AdminRoute>
+      </Route>
+      <Route path="/admin/obras/:id">
+        <AdminRoute module="obras">
+          <ObraDetalhes admin />
         </AdminRoute>
       </Route>
       <Route path="/admin/orcamentos">

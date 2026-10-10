@@ -1,5 +1,6 @@
 import { useState, type ReactNode } from "react";
 import { Link } from "wouter";
+import { ArrowLeft } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -112,17 +113,19 @@ export function OperationalPage({
       }
     >
       <div className="mx-auto max-w-6xl space-y-5">
-        {!embedded && (
-          <Link href="/admin/acesso" className="text-sm underline">
-            ← Central administrativa
-          </Link>
-        )}
-        <header className="flex flex-wrap items-center justify-between gap-3">
-          <div>
+        <header className="flex flex-wrap items-end justify-between gap-4">
+          <div className="min-w-0">
+            {!embedded && (
+              <Link href="/admin/acesso">
+                <Button type="button" variant="ghost" className="mb-3 gap-2 text-slate-700 hover:text-slate-950">
+                  <ArrowLeft className="h-4 w-4" /> Voltar
+                </Button>
+              </Link>
+            )}
             <h1 className="text-3xl font-bold text-[#906a25]">{title}</h1>
             <p className="mt-2 text-slate-600">{description}</p>
           </div>
-          {onNew && <Button onClick={onNew}>Novo cadastro</Button>}
+          {onNew && <Button onClick={onNew} className="shrink-0">Novo cadastro</Button>}
         </header>
         {loading ? (
           <p role="status">Carregando…</p>

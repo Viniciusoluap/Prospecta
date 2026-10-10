@@ -191,7 +191,7 @@ export default function AdminObras() {
                         Editar Obra
                       </Button>
                     </Link>
-                    <Link href={`/obras/${project.id}`}>
+                    <Link href={`/admin/obras/${project.id}`}>
                       <Button variant="ghost" className="text-gray-300 hover:text-[#C9A961]">
                         Ver Detalhes
                       </Button>
