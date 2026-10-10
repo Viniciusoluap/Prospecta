@@ -13,7 +13,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Alert, AlertDescription } from "@/components/ui/alert";
-import { Loader2, CheckCircle2, XCircle, ArrowLeft, Landmark } from "lucide-react";
+import { Loader2, CheckCircle2, XCircle, ArrowLeft, Landmark, Copy } from "lucide-react";
 import { trpc } from "@/lib/trpc";
 import { toast } from "sonner";
 
@@ -252,12 +252,24 @@ export default function ConfiguracoesPagamento() {
               <Alert className="bg-[#C9A961]/10 border-[#C9A961]/30">
                 <AlertDescription className="text-white">
                   <strong>URL do Webhook:</strong>
-                  <br />
-                  <code className="text-sm bg-black/30 px-2 py-1 rounded mt-1 inline-block">
-                    {window.location.origin}/api/asaas/webhook
-                  </code>
-                  <br />
-                  <span className="text-sm text-gray-300">
+                  <div className="mt-1 flex flex-wrap items-center gap-2">
+                    <code className="min-w-0 flex-1 break-all rounded bg-black/30 px-2 py-1 text-sm">
+                      {window.location.origin}/api/asaas/webhook
+                    </code>
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      className="h-7 shrink-0 border-[#C9A961]/40 text-[#C9A961] hover:bg-[#C9A961]/10"
+                      onClick={() => {
+                        navigator.clipboard.writeText(`${window.location.origin}/api/asaas/webhook`);
+                        toast.success("URL copiada!");
+                      }}
+                    >
+                      <Copy className="h-3 w-3 mr-1" /> Copiar
+                    </Button>
+                  </div>
+                  <span className="mt-1 block text-sm text-gray-300">
                     Configure esta URL no painel do Asaas para receber
                     notificações de pagamento
                   </span>

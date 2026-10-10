@@ -87,8 +87,8 @@ export default function AdminWhatsApp() {
 
   return (
     <div className="min-h-screen bg-[#1A2332] text-white">
-      <header className="border-b border-[#C9A961]/20 bg-[#0F1923] px-6 py-4">
-        <div className="max-w-6xl mx-auto flex items-center gap-4">
+      <header className="border-b border-[#C9A961]/20 bg-[#0F1923] px-4 py-4 sm:px-6">
+        <div className="mx-auto flex max-w-6xl flex-wrap items-center gap-3 sm:gap-4">
           <Link href="/admin"><Button variant="ghost" size="icon" className="text-gray-400 hover:text-white"><ArrowLeft className="h-5 w-5" /></Button></Link>
           <h1 className="text-2xl font-bold text-[#C9A961]">Central WhatsApp</h1>
           <span className="text-sm text-gray-400">{leads.length} leads disponíveis</span>
@@ -117,7 +117,7 @@ export default function AdminWhatsApp() {
         </div>
 
         {/* Tabs */}
-        <div className="flex border-b border-[#C9A961]/20 overflow-x-auto">
+        <div className="flex gap-1 border-b border-[#C9A961]/20 overflow-x-auto">
           {([
             { key: "conexao" as const, label: "Conexão", icon: Smartphone },
             { key: "enviar" as const, label: "Enviar Mensagem", icon: Send },
@@ -125,7 +125,7 @@ export default function AdminWhatsApp() {
             { key: "historico" as const, label: "Histórico", icon: Clock },
           ]).map(({ key, label, icon: Icon }) => (
             <button key={key} onClick={() => setActiveTab(key)}
-              className={`flex items-center gap-2 px-4 py-3 text-xs font-bold uppercase tracking-wide border-b-2 transition-colors whitespace-nowrap ${activeTab === key ? "border-[#C9A961] text-[#C9A961]" : "border-transparent text-gray-500 hover:text-white"}`}>
+              className={`flex shrink-0 items-center gap-2 rounded-t px-4 py-3 text-xs font-bold uppercase tracking-wide border-b-2 transition-colors whitespace-nowrap ${activeTab === key ? "border-[#C9A961] bg-[#C9A961]/10 text-[#C9A961]" : "border-transparent text-gray-500 hover:bg-white/5 hover:text-white"}`}>
               <Icon size={14} /> {label}
             </button>
           ))}

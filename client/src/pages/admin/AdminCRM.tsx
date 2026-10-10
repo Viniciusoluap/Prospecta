@@ -128,19 +128,19 @@ export default function AdminCRM() {
   return (
     <div className="min-h-screen bg-[#0F1419]">
       <div className="border-b border-white/10 bg-[#1A2332]">
-        <div className="container mx-auto px-4 py-4 flex items-center justify-between">
-          <div className="flex items-center gap-4">
+        <div className="container mx-auto flex flex-col gap-4 py-4 lg:flex-row lg:items-center lg:justify-between">
+          <div className="flex min-w-0 flex-col gap-2 sm:flex-row sm:items-center sm:gap-4">
             <Link href="/admin">
-              <Button variant="ghost" size="sm" className="text-gray-400 hover:text-white">
+              <Button variant="ghost" size="sm" className="w-fit text-gray-400 hover:text-white">
                 <ArrowLeft className="h-4 w-4 mr-2" /> Admin
               </Button>
             </Link>
-            <div className="flex items-center gap-2">
-              <Users className="h-6 w-6 text-[#C9A961]" />
-              <h1 className="text-xl font-bold text-white">CRM — Pipeline de Leads</h1>
+            <div className="flex min-w-0 items-center gap-2">
+              <Users className="h-6 w-6 shrink-0 text-[#C9A961]" />
+              <h1 className="truncate text-xl font-bold text-white">CRM — Pipeline de Leads</h1>
             </div>
           </div>
-          <div className="flex gap-2">
+          <div className="flex flex-wrap gap-2">
             <Button variant="outline" size="sm" onClick={() => { setShowDeleted(v => !v); setViewMode("list"); }}
               className="border-white/20 text-white">
               {showDeleted ? "Ocultar arquivados" : "Ver arquivados"}
