@@ -887,7 +887,7 @@ export default function AdminEditarObra() {
 
                 <div className="border-t border-[#C9A961]/20 pt-6">
                   <h3 className="text-lg font-semibold text-[#C9A961] mb-4">Etapas da Obra</h3>
-                  <p className="text-gray-400 text-sm mb-4">
+                  <p className="text-gray-300 text-sm mb-4">
                     As etapas individuais podem ser gerenciadas na seção de detalhes da obra.
                   </p>
                   {project.stages && project.stages.length > 0 ? (
@@ -896,7 +896,7 @@ export default function AdminEditarObra() {
                         <div key={stage.id} className="flex items-center justify-between p-3 bg-[#2C3E50] rounded-lg border border-[#C9A961]/20">
                           <div>
                             <p className="font-medium text-white">{stage.name}</p>
-                            <p className="text-sm text-gray-400">{stage.description || "Sem descrição"}</p>
+                            <p className="text-sm text-gray-300">{stage.description || "Sem descrição"}</p>
                           </div>
                           <span className={`px-3 py-1 rounded-full text-sm ${
                             stage.status === "completed" ? "bg-green-500/20 text-green-300" :
@@ -911,7 +911,7 @@ export default function AdminEditarObra() {
                       ))}
                     </div>
                   ) : (
-                    <p className="text-gray-400 text-center py-8">Nenhuma etapa cadastrada ainda.</p>
+                    <p className="text-gray-300 text-center py-8">Nenhuma etapa cadastrada ainda.</p>
                   )}
                 </div>
               </CardContent>

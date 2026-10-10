@@ -438,25 +438,25 @@ export default function AdminAgregador({
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
           <Card className="bg-[#2C3E50] border-[#C9A961]/20">
             <CardContent className="pt-6">
-              <p className="text-gray-400 text-xs">Total</p>
+              <p className="text-gray-300 text-xs">Total</p>
               <p className="text-2xl font-bold text-white">{total}</p>
             </CardContent>
           </Card>
           <Card className="bg-[#2C3E50] border-[#C9A961]/20">
             <CardContent className="pt-6">
-              <p className="text-gray-400 text-xs">Pendentes</p>
+              <p className="text-gray-300 text-xs">Pendentes</p>
               <p className="text-2xl font-bold text-yellow-400">{pendentes}</p>
             </CardContent>
           </Card>
           <Card className="bg-[#2C3E50] border-[#C9A961]/20">
             <CardContent className="pt-6">
-              <p className="text-gray-400 text-xs">Verificados</p>
+              <p className="text-gray-300 text-xs">Verificados</p>
               <p className="text-2xl font-bold text-blue-400">{verificados}</p>
             </CardContent>
           </Card>
           <Card className="bg-[#2C3E50] border-[#C9A961]/20">
             <CardContent className="pt-6">
-              <p className="text-gray-400 text-xs">Importados</p>
+              <p className="text-gray-300 text-xs">Importados</p>
               <p className="text-2xl font-bold text-green-400">{importados}</p>
             </CardContent>
           </Card>
@@ -528,7 +528,7 @@ export default function AdminAgregador({
                             {FONTE_LABELS[item.fonte] ?? item.fonte}
                           </Badge>
                         </CardTitle>
-                        <p className="text-sm text-gray-400 mt-1">
+                        <p className="text-sm text-gray-300 mt-1">
                           {item.tipo ?? "—"} •{" "}
                           {item.bairro ? `${item.bairro}, ` : ""}
                           {item.cidade}/{item.estado}

@@ -147,7 +147,7 @@ export default function AdminIncorporacao() {
         </div>
 
         {isLoading ? (
-          <p className="text-gray-400">Carregando...</p>
+          <p className="text-gray-300">Carregando...</p>
         ) : estudos.length === 0 ? (
           <Card className="bg-[#1A2332]/60 border-[#C9A961]/20">
             <CardContent className="py-16 text-center">

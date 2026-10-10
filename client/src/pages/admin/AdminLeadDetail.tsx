@@ -402,7 +402,7 @@ export default function AdminLeadDetail() {
                 <CardTitle className="text-[#C9A961] text-sm flex items-center gap-2">
                   <Building2 className="h-4 w-4" /> Serviços do cliente
                 </CardTitle>
-                <p className="mt-1 text-xs text-gray-400">Cada serviço é independente e pode ser ligado ao módulo operacional correspondente.</p>
+                <p className="mt-1 text-xs text-gray-300">Cada serviço é independente e pode ser ligado ao módulo operacional correspondente.</p>
               </div>
               <div className="flex flex-wrap gap-2">
                 <Select value={serviceType} onValueChange={value => setServiceType(value as LeadServiceType)}>
@@ -553,7 +553,7 @@ export default function AdminLeadDetail() {
 function InfoRow({ label, value, icon, highlight }: { label: string; value?: string | null; icon?: React.ReactNode; highlight?: boolean }) {
   return (
     <div className="flex justify-between items-start gap-2">
-      <span className="text-gray-400 shrink-0">{label}:</span>
+      <span className="text-gray-300 shrink-0">{label}:</span>
       <span className={`font-medium text-right ${highlight ? "text-[#C9A961]" : "text-gray-200"} flex items-center gap-1`}>
         {icon} {value || "—"}
       </span>

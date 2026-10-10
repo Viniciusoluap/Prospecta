@@ -183,13 +183,13 @@ export default function AdminRegularizacoes() {
           <Card className="border-[#C9A961]/20 bg-[#2C3E50] text-white">
             <CardHeader><CardTitle>Processos</CardTitle></CardHeader>
             <CardContent className="space-y-2">
-              {listQuery.isLoading && <p className="text-gray-400">Carregando...</p>}
-              {!listQuery.isLoading && !records.length && <p className="text-gray-400">Nenhum processo encontrado.</p>}
+              {listQuery.isLoading && <p className="text-gray-300">Carregando...</p>}
+              {!listQuery.isLoading && !records.length && <p className="text-gray-300">Nenhum processo encontrado.</p>}
               {records.map(record => (
                 <div key={record.id}>
                 <button key={record.id} onClick={() => setSelectedId(record.id)} className={`w-full rounded-md border p-3 text-left ${selectedId === record.id ? "border-[#C9A961]" : "border-white/10"}`}>
                   <div className="flex items-start justify-between gap-2"><strong>{record.clientName}</strong><Badge variant="secondary">{STATUS_LABELS[record.status as Status] ?? record.status}</Badge></div>
-                  <p className="mt-1 text-sm text-gray-400">{record.type} · {record.responsible}</p>
+                  <p className="mt-1 text-sm text-gray-300">{record.type} · {record.responsible}</p>
                   <p className="text-sm text-[#C9A961]">{currency(record.serviceValue)}</p>
                 </button>
                 {record.leadId && <Link href={`/admin/crm/${record.leadId}`} className="inline-block py-1 text-sm text-[#E6CA88] underline">Abrir cadastro CRM</Link>}
@@ -201,12 +201,12 @@ export default function AdminRegularizacoes() {
           <Card className="border-[#C9A961]/20 bg-[#2C3E50] text-white">
             <CardHeader><CardTitle>{selected ? selected.clientName : "Detalhes"}</CardTitle></CardHeader>
             <CardContent>
-              {!selected && <p className="text-gray-400">Selecione um processo para acompanhar o workflow.</p>}
+              {!selected && <p className="text-gray-300">Selecione um processo para acompanhar o workflow.</p>}
               {selected && (
                 <div className="space-y-6">
                   <div className="grid gap-4 sm:grid-cols-2">
-                    <div><p className="text-xs text-gray-400">Imóvel</p><p>{selected.address}</p></div>
-                    <div><p className="text-xs text-gray-400">Matrícula / cartório</p><p>{selected.registration || "—"} · {selected.registryOffice || "—"}</p></div>
+                    <div><p className="text-xs text-gray-300">Imóvel</p><p>{selected.address}</p></div>
+                    <div><p className="text-xs text-gray-300">Matrícula / cartório</p><p>{selected.registration || "—"} · {selected.registryOffice || "—"}</p></div>
                     <Field label="Etapa do processo">
                       <Select value={selected.status} onValueChange={status => updateMutation.mutate({ id: selected.id, status: status as Status })}>
                         <SelectTrigger className="bg-[#1A2332]"><SelectValue /></SelectTrigger>
@@ -258,5 +258,5 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
 }
 
 function Metric({ label, value }: { label: string; value: string }) {
-  return <Card className="border-[#C9A961]/20 bg-[#2C3E50] text-white"><CardContent className="flex items-center gap-3 pt-6"><Building2 className="h-6 w-6 text-[#C9A961]" /><div><p className="text-xs text-gray-400">{label}</p><p className="text-xl font-bold">{value}</p></div></CardContent></Card>;
+  return <Card className="border-[#C9A961]/20 bg-[#2C3E50] text-white"><CardContent className="flex items-center gap-3 pt-6"><Building2 className="h-6 w-6 text-[#C9A961]" /><div><p className="text-xs text-gray-300">{label}</p><p className="text-xl font-bold">{value}</p></div></CardContent></Card>;
 }

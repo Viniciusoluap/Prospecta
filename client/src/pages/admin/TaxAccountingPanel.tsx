@@ -125,7 +125,7 @@ export default function TaxAccountingPanel() {
       <div className="grid gap-4 md:grid-cols-4">
         <Card className="bg-[#2C3E50] border-[#C9A961]/20">
           <CardContent className="pt-6">
-            <p className="text-xs text-gray-400">Regime vigente</p>
+            <p className="text-xs text-gray-300">Regime vigente</p>
             <p className="mt-1 font-bold text-white">
               {data.profile
                 ? regimes[data.profile.regime as keyof typeof regimes] ||
@@ -136,7 +136,7 @@ export default function TaxAccountingPanel() {
         </Card>
         <Card className="bg-[#2C3E50] border-green-500/30">
           <CardContent className="pt-6">
-            <p className="text-xs text-gray-400">Receita realizada</p>
+            <p className="text-xs text-gray-300">Receita realizada</p>
             <p className="mt-1 text-xl font-bold text-green-400">
               {money(data.revenue)}
             </p>
@@ -144,7 +144,7 @@ export default function TaxAccountingPanel() {
         </Card>
         <Card className="bg-[#2C3E50] border-amber-500/30">
           <CardContent className="pt-6">
-            <p className="text-xs text-gray-400">Tributos estimados</p>
+            <p className="text-xs text-gray-300">Tributos estimados</p>
             <p className="mt-1 text-xl font-bold text-amber-300">
               {money(data.estimatedTax)}
             </p>
@@ -155,7 +155,7 @@ export default function TaxAccountingPanel() {
         </Card>
         <Card className="bg-[#2C3E50] border-red-500/30">
           <CardContent className="pt-6">
-            <p className="text-xs text-gray-400">Obrigações vencidas</p>
+            <p className="text-xs text-gray-300">Obrigações vencidas</p>
             <p className="mt-1 text-xl font-bold text-red-300">
               {data.overdue}
             </p>

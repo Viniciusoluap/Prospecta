@@ -261,14 +261,14 @@ export default function AdminAvaliacaoDetail() {
         <Card className="bg-[#2C3E50] border-[#C9A961]/20">
           <CardHeader><CardTitle className="text-[#C9A961] text-base">Dados Gerais</CardTitle></CardHeader>
           <CardContent className="grid grid-cols-2 md:grid-cols-4 gap-3 text-sm">
-            <div><p className="text-gray-400 text-xs">Tipo</p><p className="text-white">{avaliacao.tipo}</p></div>
-            <div><p className="text-gray-400 text-xs">Finalidade</p><p className="text-white">{avaliacao.finalidade}</p></div>
-            <div><p className="text-gray-400 text-xs">Metodologia</p><p className="text-white">{avaliacao.metodologia}</p></div>
-            <div><p className="text-gray-400 text-xs">Avaliador</p><p className="text-white">{avaliacao.avaliador}</p></div>
-            <div><p className="text-gray-400 text-xs">Telefone</p><p className="text-white">{avaliacao.clienteTel}</p></div>
-            <div><p className="text-gray-400 text-xs">Email</p><p className="text-white">{avaliacao.clienteEmail ?? "—"}</p></div>
-            <div><p className="text-gray-400 text-xs">Área constr.</p><p className="text-white">{avaliacao.areaConstruida ?? "—"} m²</p></div>
-            <div><p className="text-gray-400 text-xs">Área terreno</p><p className="text-white">{avaliacao.areaTerreno ?? "—"} m²</p></div>
+            <div><p className="text-gray-300 text-xs">Tipo</p><p className="text-white">{avaliacao.tipo}</p></div>
+            <div><p className="text-gray-300 text-xs">Finalidade</p><p className="text-white">{avaliacao.finalidade}</p></div>
+            <div><p className="text-gray-300 text-xs">Metodologia</p><p className="text-white">{avaliacao.metodologia}</p></div>
+            <div><p className="text-gray-300 text-xs">Avaliador</p><p className="text-white">{avaliacao.avaliador}</p></div>
+            <div><p className="text-gray-300 text-xs">Telefone</p><p className="text-white">{avaliacao.clienteTel}</p></div>
+            <div><p className="text-gray-300 text-xs">Email</p><p className="text-white">{avaliacao.clienteEmail ?? "—"}</p></div>
+            <div><p className="text-gray-300 text-xs">Área constr.</p><p className="text-white">{avaliacao.areaConstruida ?? "—"} m²</p></div>
+            <div><p className="text-gray-300 text-xs">Área terreno</p><p className="text-white">{avaliacao.areaTerreno ?? "—"} m²</p></div>
           </CardContent>
         </Card>
 
