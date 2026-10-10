@@ -2,7 +2,8 @@ import { TRPCError } from "@trpc/server";
 import { and, desc, eq, isNull } from "drizzle-orm";
 import { z } from "zod";
 import { leadActivities, leadDocuments, leads, leadServices, type User } from "../drizzle/schema.js";
-import { canAccessAdminProcedure, protectedProcedure, router } from "./_core/trpc.js";
+import { protectedProcedure, router } from "./_core/trpc.js";
+import { hasRole, requireRole } from "./_core/rbac.js";
 import { getDb } from "./db.js";
 import { documentHash, driveConfigured, readPrivateDocument, uploadPrivateDocument } from "./drive-documents.js";
 import { requireClientContext } from "./profile-context.js";
@@ -13,7 +14,7 @@ const mime = z.enum(["application/pdf", "image/jpeg", "image/png"]);
 
 export function authorizedLead(user: Pick<User, "id" | "role" | "active" | "leadId" | "permissions">, requested?: number): number {
   if (!user.active) throw new TRPCError({ code: "FORBIDDEN" });
-  if (canAccessAdminProcedure(user, "leads.getById")) {
+  if (hasRole(user.role, ["admin"])) {
     if (!requested) throw new TRPCError({ code: "BAD_REQUEST", message: "Selecione o cliente" });
     return requested;
   }
@@ -27,7 +28,7 @@ export const leadDocumentsRouter = router({
   request: protectedProcedure
     .input(z.object({ leadId: z.number().int().positive(), serviceId: z.number().int().positive().optional(), type: category }))
     .mutation(async ({ ctx, input }) => {
-      if (!canAccessAdminProcedure(ctx.user, "leads.update")) throw new TRPCError({ code: "FORBIDDEN" });
+      requireRole(ctx, ["admin"]);
       const db = getDb();
       const [lead] = await db.select({ id: leads.id }).from(leads).where(eq(leads.id, input.leadId)).limit(1);
       if (!lead) throw new TRPCError({ code: "NOT_FOUND" });
@@ -110,7 +111,7 @@ export const leadDocumentsRouter = router({
   remove: protectedProcedure
     .input(z.object({ id: z.number().int().positive() }))
     .mutation(async ({ ctx, input }) => {
-      if (!canAccessAdminProcedure(ctx.user, "leads.update")) throw new TRPCError({ code: "FORBIDDEN" });
+      requireRole(ctx, ["admin"]);
       const db = getDb();
       const [doc] = await db.select({ id: leadDocuments.id, leadId: leadDocuments.leadId, type: leadDocuments.type }).from(leadDocuments).where(and(eq(leadDocuments.id, input.id), isNull(leadDocuments.deletedAt))).limit(1);
       if (!doc) throw new TRPCError({ code: "NOT_FOUND" });

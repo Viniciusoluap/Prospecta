@@ -15,9 +15,16 @@ describe("private lead document access", () => {
     expect(() => authorizedLead({ ...client, leadId: null }, 42)).toThrow();
   });
 
-  it("allows authorized CRM operators and blocks unrelated operators", () => {
+  it("blocks colaborador/corretor even with crm permission — só admin acessa documentos de qualquer lead", () => {
     const collaborator = { ...client, role: "colaborador" as const, leadId: null, permissions: '["crm"]' };
-    expect(authorizedLead(collaborator, 43)).toBe(43);
-    expect(() => authorizedLead({ ...collaborator, permissions: "[]" }, 43)).toThrow();
+    expect(() => authorizedLead(collaborator, 43)).toThrow();
+    const corretor = { ...client, role: "corretor" as const, leadId: null, permissions: '["crm"]' };
+    expect(() => authorizedLead(corretor, 43)).toThrow();
+  });
+
+  it("allows admin to access any lead's documents", () => {
+    const admin = { id: 99, role: "admin" as const, active: true, leadId: null, permissions: null };
+    expect(authorizedLead(admin, 43)).toBe(43);
+    expect(() => authorizedLead(admin)).toThrow();
   });
 });
