@@ -99,6 +99,21 @@ export default function AdminRegularizacoes() {
     onError: error => toast.error(error.message),
   });
 
+  async function openDocument(id: number, fallbackName: string) {
+    try {
+      const content = await utils.regularizacao.documents.content.fetch({ id });
+      const bytes = Uint8Array.from(atob(content.base64), char => char.charCodeAt(0));
+      const url = URL.createObjectURL(new Blob([bytes], { type: content.mimeType }));
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = content.fileName || fallbackName || "documento";
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.setTimeout(() => URL.revokeObjectURL(url), 60_000);
+    } catch (error) { toast.error(error instanceof Error ? error.message : "Falha ao consultar documento"); }
+  }
+
   const records = listQuery.data ?? [];
   const totals = useMemo(() => ({
     active: records.filter(record => !["completed", "cancelled"].includes(record.status)).length,
@@ -209,7 +224,9 @@ export default function AdminRegularizacoes() {
                     {selected.documents.map(document => (
                       <div key={document.id} className="rounded-md border border-white/10 p-3">
                         <div className="flex flex-wrap items-center justify-between gap-3">
-                          <div><p className="font-medium">{document.name}</p>{document.fileUrl && <a className="text-sm text-[#C9A961] underline" href={document.fileUrl} target="_blank" rel="noreferrer">Abrir arquivo</a>}</div>
+                          <div><p className="font-medium">{document.name}</p>{document.driveFileId
+                            ? <button type="button" className="text-sm text-[#C9A961] underline" onClick={() => void openDocument(document.id, document.name)}>Abrir arquivo</button>
+                            : document.fileUrl && <a className="text-sm text-[#C9A961] underline" href={document.fileUrl} target="_blank" rel="noreferrer">Abrir arquivo</a>}</div>
                           <div className="flex items-center gap-2">
                             <Select value={document.status} onValueChange={status => updateDocument.mutate({ id: document.id, status: status as "pending" | "requested" | "received" | "approved" | "rejected" })}>
                               <SelectTrigger className="w-36 bg-[#1A2332]"><SelectValue /></SelectTrigger>

@@ -16,6 +16,8 @@ import {
 import { getDb } from "./db.js";
 import { adminProcedure, router } from "./_core/trpc.js";
 import { attachCompletedProcess } from "./lead-services-router.js";
+import { readPrivateDocument } from "./drive-documents.js";
+import { TRPCError } from "@trpc/server";
 
 export const financiamentoRouter = router({
   options: adminProcedure.query(async () => {
@@ -213,5 +215,14 @@ export const financiamentoRouter = router({
         .delete(financiamentos)
         .where(eq(financiamentos.id, input.id));
       return { success: true } as const;
+    }),
+
+  checklistDocumentContent: adminProcedure
+    .input(z.object({ id: z.number().int().positive() }))
+    .query(async ({ input }) => {
+      const [item] = await getDb().select().from(financiamentoChecklistItems).where(eq(financiamentoChecklistItems.id, input.id)).limit(1);
+      if (!item?.documentoDriveFileId) throw new TRPCError({ code: "NOT_FOUND" });
+      const data = await readPrivateDocument(item.documentoDriveFileId);
+      return { fileName: item.documentoNome ?? "documento", base64: data.toString("base64") };
     }),
 });

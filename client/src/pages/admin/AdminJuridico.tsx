@@ -38,6 +38,21 @@ export default function AdminJuridico() {
   const deleteDocument = trpc.juridico.deleteDocument.useMutation({ onSuccess: invalidate, onError: e => toast.error(e.message) });
   const send = trpc.juridico.sendMessage.useMutation({ onSuccess: invalidate, onError: e => toast.error(e.message) });
 
+  async function openDocument(id: number, fileName: string) {
+    try {
+      const content = await utils.juridico.documentContent.fetch({ id });
+      const bytes = Uint8Array.from(atob(content.base64), char => char.charCodeAt(0));
+      const url = URL.createObjectURL(new Blob([bytes], { type: "application/pdf" }));
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = fileName || "documento.pdf";
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.setTimeout(() => URL.revokeObjectURL(url), 60_000);
+    } catch (error) { toast.error(error instanceof Error ? error.message : "Falha ao consultar documento"); }
+  }
+
   const chatLeads = useMemo(() => {
     const ids = new Set(chats.map(item => item.message.leadId));
     return (options?.leads || []).filter(lead => ids.has(lead.id) || lead.id === chatLeadId);
@@ -84,7 +99,9 @@ export default function AdminJuridico() {
     <Dialog open={formOpen} onOpenChange={setFormOpen}><DialogContent className="max-h-[92vh] max-w-4xl overflow-y-auto border-[#C9A961]/30 bg-[#1A2332] text-white"><DialogHeader><DialogTitle>{detail ? "Editar contrato" : "Novo contrato"}</DialogTitle></DialogHeader><ContractForm initial={detail?.contract} options={options} onSubmit={event => { event.preventDefault(); const data = payload(event.currentTarget); detail ? atualizar.mutate({ id: detail.contract.id, data }) : criar.mutate(data); }} /></DialogContent></Dialog>
     <Dialog open={!!detail && !formOpen} onOpenChange={open => !open && setSelectedId(null)}><DialogContent className="max-h-[92vh] max-w-3xl overflow-y-auto border-[#C9A961]/30 bg-[#1A2332] text-white">{detail && <><DialogHeader><DialogTitle>{detail.contract.number}</DialogTitle></DialogHeader><div className="grid gap-3 rounded bg-[#2C3E50] p-4 sm:grid-cols-3"><div><p className="text-xs text-gray-400">Parte A</p><p>{detail.contract.partyA || "—"}</p></div><div><p className="text-xs text-gray-400">Parte B</p><p>{detail.contract.partyB || "—"}</p></div><div><p className="text-xs text-gray-400">Valor</p><p>{money(detail.contract.value)}</p></div></div>
       <div className="grid gap-3 sm:grid-cols-2"><div><Label>Status</Label><Select value={detail.contract.status} onValueChange={value => status.mutate({ id: detail.contract.id, status: value as typeof CONTRATO_STATUS[number] })}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent>{CONTRATO_STATUS.map(v => <SelectItem key={v} value={v}>{v}</SelectItem>)}</SelectContent></Select></div><div><Label>Assinatura</Label><Select value={detail.contract.signatureStatus} onValueChange={value => status.mutate({ id: detail.contract.id, signatureStatus: value as typeof ASSINATURA_STATUS[number] })}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent>{ASSINATURA_STATUS.map(v => <SelectItem key={v} value={v}>{v}</SelectItem>)}</SelectContent></Select></div></div>
-      <div><h3 className="mb-2 font-semibold text-[#C9A961]">Documentos</h3>{detail.documents.map(doc => <div key={doc.id} className="flex items-center justify-between rounded bg-[#2C3E50] p-2"><a href={doc.url} target="_blank" rel="noreferrer" className="text-sm underline">{doc.name} · {doc.type}</a><Button size="icon" variant="ghost" onClick={() => deleteDocument.mutate({ id: doc.id })}><Trash2 className="h-4 w-4 text-red-400" /></Button></div>)}<form onSubmit={handlePdf} className="mt-3 flex flex-wrap gap-2"><Input name="file" type="file" accept="application/pdf" required className="flex-1" /><Select name="type" defaultValue="anexo"><SelectTrigger className="w-40"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="anexo">Anexo</SelectItem><SelectItem value="contrato_gerado">Contrato gerado</SelectItem><SelectItem value="assinado">Assinado</SelectItem></SelectContent></Select><Button type="submit"><Paperclip className="mr-2 h-4 w-4" />Anexar</Button></form></div>
+      <div><h3 className="mb-2 font-semibold text-[#C9A961]">Documentos</h3>{detail.documents.map(doc => <div key={doc.id} className="flex items-center justify-between rounded bg-[#2C3E50] p-2">{doc.driveFileId
+        ? <button type="button" onClick={() => void openDocument(doc.id, doc.name)} className="text-sm underline">{doc.name} · {doc.type}</button>
+        : <a href={doc.url ?? "#"} target="_blank" rel="noreferrer" className="text-sm underline">{doc.name} · {doc.type}</a>}<Button size="icon" variant="ghost" onClick={() => deleteDocument.mutate({ id: doc.id })}><Trash2 className="h-4 w-4 text-red-400" /></Button></div>)}<form onSubmit={handlePdf} className="mt-3 flex flex-wrap gap-2"><Input name="file" type="file" accept="application/pdf" required className="flex-1" /><Select name="type" defaultValue="anexo"><SelectTrigger className="w-40"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="anexo">Anexo</SelectItem><SelectItem value="contrato_gerado">Contrato gerado</SelectItem><SelectItem value="assinado">Assinado</SelectItem></SelectContent></Select><Button type="submit"><Paperclip className="mr-2 h-4 w-4" />Anexar</Button></form></div>
       <div className="flex gap-2"><Button onClick={() => setFormOpen(true)} className="flex-1 bg-[#C9A961] text-[#1A2332]">Editar contrato</Button><Button variant="destructive" onClick={() => confirm("Excluir contrato e documentos?") && excluir.mutate({ id: detail.contract.id })}><Trash2 className="h-4 w-4" /></Button></div>
     </>}</DialogContent></Dialog>
   </div>;

@@ -797,6 +797,9 @@ export const regularizacaoDocuments = pgTable("regularizacao_documents", {
   status: varchar("status", { length: 40 }).default("pending").notNull(),
   observation: text("observation").default("").notNull(),
   fileUrl: text("file_url"),
+  driveFileId: text("drive_file_id"),
+  uploadedFileName: varchar("uploaded_file_name", { length: 255 }),
+  uploadedMimeType: varchar("uploaded_mime_type", { length: 120 }),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });
@@ -973,6 +976,7 @@ export const financiamentoChecklistItems = pgTable(
     visivelCliente: boolean("visivel_cliente").default(true).notNull(),
     solicitarDocumento: boolean("solicitar_documento").default(false).notNull(),
     documentoUrl: text("documento_url"),
+    documentoDriveFileId: text("documento_drive_file_id"),
     documentoNome: varchar("documento_nome", { length: 255 }),
     documentoMime: varchar("documento_mime", { length: 120 }),
     enviadoEm: timestamp("enviado_em"),
@@ -1322,7 +1326,8 @@ export const portalContractDocuments = pgTable("portal_contract_documents", {
     .notNull()
     .references(() => portalContracts.id, { onDelete: "cascade" }),
   name: varchar("name", { length: 255 }).notNull(),
-  url: text("url").notNull(),
+  url: text("url"),
+  driveFileId: text("drive_file_id"),
   type: varchar("type", { length: 30 }).default("anexo").notNull(),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
