@@ -19,6 +19,7 @@ export function hasPageBackButton(location: string) {
     "/mercado",
     "/cursos",
     "/instituto",
+    "/instalar-aplicativo",
     "/meus-bilhetes",
     "/meu-saldo",
     "/perfil",
