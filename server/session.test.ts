@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { sessaoAindaValida } from "../shared/session.js";
+import { sessaoAindaValida, tokenPrimeiroAcessoAindaValido } from "../shared/session.js";
 
 describe("sessaoAindaValida", () => {
   it("aceita quando sessionVersion do token bate com o do banco e usuário está ativo", () => {
@@ -26,5 +26,26 @@ describe("sessaoAindaValida", () => {
     // funcao pura, isolada, so ve `undefined` se for chamada de forma incorreta
     // (bug de integracao) e deve falhar fechado nesse caso.
     expect(sessaoAindaValida({ active: true, sessionVersion: 0 }, undefined)).toBe(false);
+  });
+});
+
+describe("tokenPrimeiroAcessoAindaValido", () => {
+  const agora = new Date("2026-10-06T12:00:00Z");
+
+  it("aceita quando a expiração ainda está no futuro", () => {
+    expect(tokenPrimeiroAcessoAindaValido(new Date("2026-10-13T12:00:00Z"), agora)).toBe(true);
+  });
+
+  it("rejeita quando a expiração já passou", () => {
+    expect(tokenPrimeiroAcessoAindaValido(new Date("2026-10-06T11:59:59Z"), agora)).toBe(false);
+  });
+
+  it("rejeita exatamente no instante da expiração (janela fechada, não inclusiva)", () => {
+    expect(tokenPrimeiroAcessoAindaValido(agora, agora)).toBe(false);
+  });
+
+  it("rejeita quando não há data de expiração (sem token ativo)", () => {
+    expect(tokenPrimeiroAcessoAindaValido(null, agora)).toBe(false);
+    expect(tokenPrimeiroAcessoAindaValido(undefined, agora)).toBe(false);
   });
 });

@@ -204,6 +204,20 @@
       "when": 1791857800000,
       "tag": "0028_regularizacao_document_filename",
       "breakpoints": true
+    },
+    {
+      "idx": 29,
+      "version": "7",
+      "when": 1791857900000,
+      "tag": "0029_etapa4_chargeback_reversao",
+      "breakpoints": true
+    },
+    {
+      "idx": 30,
+      "version": "7",
+      "when": 1791857950000,
+      "tag": "0030_etapa5_primeiro_acesso",
+      "breakpoints": true
     }
   ]
 }
