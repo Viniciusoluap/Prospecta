@@ -12,7 +12,7 @@ afterEach(() => vi.restoreAllMocks());
 describe("ciclo de vida do lead comercial", () => {
   it("mantém exatamente as sete etapas comerciais na ordem solicitada", () => {
     expect(LEAD_PIPELINE_STAGES.map(({ label }) => label)).toEqual([
-      "Lead Novo", "Em Atendimento", "Aprovado e Projetos", "Follow-up",
+      "Lead Novo", "Em Atendimento", "Aprovado e Follow up", "Projetos e Vistorias",
       "Contratos e Cartório", "Medições", "Finalizado",
     ]);
   });

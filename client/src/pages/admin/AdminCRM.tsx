@@ -297,7 +297,7 @@ export default function AdminCRM() {
               <TrendingUp className="h-8 w-8 text-green-500" />
               <div>
                 <p className="text-2xl font-bold text-white">{stats.approved}</p>
-                <p className="text-xs text-gray-400">Aprovado e Projetos</p>
+                <p className="text-xs text-gray-400">Aprovado e Follow up</p>
               </div>
             </CardContent>
           </Card>

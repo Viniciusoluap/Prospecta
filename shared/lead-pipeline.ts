@@ -2,8 +2,8 @@
 export const LEAD_PIPELINE_STAGES = [
   { key: "lead_new", label: "Lead Novo", color: "bg-gray-500" },
   { key: "attending", label: "Em Atendimento", color: "bg-blue-500" },
-  { key: "approved_projects", label: "Aprovado e Projetos", color: "bg-green-600" },
-  { key: "followup", label: "Follow-up", color: "bg-pink-500" },
+  { key: "approved_projects", label: "Aprovado e Follow up", color: "bg-green-600" },
+  { key: "followup", label: "Projetos e Vistorias", color: "bg-pink-500" },
   { key: "contracts_registry", label: "Contratos e Cartório", color: "bg-purple-600" },
   { key: "measurements", label: "Medições", color: "bg-teal-600" },
   { key: "finalized", label: "Finalizado", color: "bg-gray-400" },
