@@ -109,10 +109,10 @@ export type RefundResult =
   | { outcome: "refunded_unsettled" }
   | { outcome: "review_required"; reason: string };
 
-// Estorno/chargeback: se o pedido nunca foi liquidado, apenas cancela (nada a
-// reverter). Se ja tinha sido liquidado (credito/confirmacao aplicados), NAO reverte
-// saldo/bilhete automaticamente - vai para conciliacao manual, pois a regra de negocio
-// para reversao parcial/chargeback ainda nao foi definida pelo dono do produto.
+// Estorno voluntario (PAYMENT_REFUNDED): se o pedido nunca foi liquidado, apenas
+// cancela (nada a reverter). Se ja tinha sido liquidado, vai para conciliacao manual —
+// diferente de chargeback (ver chargebackPaymentOrder), que tem regra de reversao
+// automatica definida pelo dono do produto.
 export async function refundPaymentOrder(providerPaymentId: string): Promise<RefundResult> {
   const order = await db.getPaymentOrderByProviderId(providerPaymentId);
   if (!order) return { outcome: "order_not_found" };
@@ -131,4 +131,67 @@ export async function refundPaymentOrder(providerPaymentId: string): Promise<Ref
   }
 
   return { outcome: "already_processed" };
+}
+
+export type ChargebackResult =
+  | { outcome: "order_not_found" }
+  | { outcome: "already_processed" }
+  | { outcome: "chargeback_unsettled" }
+  | { outcome: "ticket_cancelled"; ticketId: number }
+  | { outcome: "utef_debited"; userId: number; total: number }
+  | { outcome: "review_required"; reason: string };
+
+// Chargeback (PAYMENT_CHARGEBACK_REQUESTED): o dono do produto decidiu que a reversao
+// e SEMPRE automatica, mesmo que o sorteio ja tenha sido realizado - nunca fica em
+// conciliacao manual, exceto se os dados do pedido liquidado estiverem inconsistentes
+// (nesse caso cai em review_required, igual ao resto da liquidacao).
+//
+// - compra de bilhete: cancela o bilhete, libera os numeros atribuidos (para nao
+//   ficarem elegiveis ao sorteio nem colidirem com a proxima venda) e devolve a
+//   capacidade reservada do sorteio.
+// - compra de UTEF: debita o saldo integralmente (principal + bonus), mesmo que fique
+//   negativo - incrementUtefBalanceAtomic nao tem piso, ao contrario do debito
+//   condicional usado em conversoes (decrementUtefBalanceAtomic).
+export async function chargebackPaymentOrder(providerPaymentId: string): Promise<ChargebackResult> {
+  const order = await db.getPaymentOrderByProviderId(providerPaymentId);
+  if (!order) return { outcome: "order_not_found" };
+
+  if (order.status === "pending") {
+    const marked = await db.markPaymentOrderChargeback(providerPaymentId);
+    if (!marked) return { outcome: "already_processed" };
+    return { outcome: "chargeback_unsettled" };
+  }
+
+  if (order.status !== "settled") return { outcome: "already_processed" };
+
+  const claimed = await db.claimSettledPaymentOrderForChargeback(providerPaymentId);
+  if (!claimed) return { outcome: "already_processed" };
+
+  if (claimed.purpose === "utef_purchase") {
+    const total = claimed.principalAmount + claimed.bonusAmount;
+    await db.createUtefTransaction({
+      userId: claimed.userId,
+      amount: -total,
+      type: "chargeback",
+      description: `Estorno por chargeback da compra de ${claimed.principalAmount} UTEFs`,
+      referenceId: claimed.providerPaymentId,
+    });
+    await db.incrementUtefBalanceAtomic(claimed.userId, -total);
+    return { outcome: "utef_debited", userId: claimed.userId, total };
+  }
+
+  if (!claimed.drawId || !claimed.ticketId) {
+    // O pedido ja foi reivindicado (status='chargeback') acima; so resta registrar o
+    // motivo para conciliacao manual - demoteSettledOrderToReview nao serve aqui
+    // porque so casa com status='settled'.
+    const reason = "payment_order de chargeback sem drawId/ticketId";
+    await db.markPaymentOrderReview(providerPaymentId, reason);
+    return { outcome: "review_required", reason };
+  }
+
+  await db.deleteTicketNumbersByTicketId(claimed.ticketId);
+  await db.releaseDrawCapacity(claimed.drawId, claimed.quantity, claimed.principalAmount);
+  await db.updateTicket(claimed.ticketId, { paymentStatus: "chargeback" });
+
+  return { outcome: "ticket_cancelled", ticketId: claimed.ticketId };
 }

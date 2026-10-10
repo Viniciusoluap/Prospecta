@@ -31,12 +31,14 @@ export const ticketPaymentStatusEnum = pgEnum("ticket_payment_status", [
   "pending",
   "confirmed",
   "failed",
+  "chargeback",
 ]);
 export const utefTransactionTypeEnum = pgEnum("utef_transaction_type", [
   "prize",
   "conversion",
   "adjustment",
   "purchase",
+  "chargeback",
 ]);
 export const paymentOrderPurposeEnum = pgEnum("payment_order_purpose", [
   "ticket_purchase",
@@ -109,6 +111,7 @@ export const emailTemplateTypeEnum = pgEnum("email_template_type", [
   "promotional_campaign",
   "payment_confirmation",
   "admin_notification",
+  "primeiro_acesso",
 ]);
 export const emailStatusEnum = pgEnum("email_status", [
   "pending",
@@ -295,6 +298,9 @@ export const users = pgTable("users", {
   active: boolean("active").default(true).notNull(),
   sessionVersion: integer("sessionVersion").default(0).notNull(),
   permissions: text("permissions").default("[]").notNull(),
+  /** Token de primeiro acesso / redefinição de senha (ver configuracoes-router.ts). */
+  tokenPrimeiroAcesso: varchar("tokenPrimeiroAcesso", { length: 64 }).unique(),
+  tokenPrimeiroAcessoExpiraEm: timestamp("tokenPrimeiroAcessoExpiraEm"),
   creci: varchar("creci", { length: 40 }),
   leadId: integer("lead_id")
     .unique()

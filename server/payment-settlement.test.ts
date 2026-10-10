@@ -6,16 +6,21 @@ const dbMock = {
   claimPendingPaymentOrder: vi.fn(),
   demoteSettledOrderToReview: vi.fn(),
   markPaymentOrderRefunded: vi.fn(),
+  markPaymentOrderChargeback: vi.fn(),
+  claimSettledPaymentOrderForChargeback: vi.fn(),
+  markPaymentOrderReview: vi.fn(),
   createUtefTransaction: vi.fn(),
   incrementUtefBalanceAtomic: vi.fn(),
   getDrawById: vi.fn(),
   reserveDrawCapacity: vi.fn(),
+  releaseDrawCapacity: vi.fn(),
   insertTicketNumbers: vi.fn(),
+  deleteTicketNumbersByTicketId: vi.fn(),
   updateTicket: vi.fn(),
 };
 vi.mock("./db.js", () => dbMock);
 
-const { settlePaymentOrder, refundPaymentOrder } = await import("./payment-settlement");
+const { settlePaymentOrder, refundPaymentOrder, chargebackPaymentOrder } = await import("./payment-settlement");
 
 function order(overrides: Partial<PaymentOrder> = {}): PaymentOrder {
   return {
@@ -202,5 +207,100 @@ describe("refundPaymentOrder", () => {
       "pay_123",
       expect.stringContaining("requer decisão manual"),
     );
+  });
+});
+
+describe("chargebackPaymentOrder", () => {
+  it("retorna order_not_found se o pedido não existe", async () => {
+    dbMock.getPaymentOrderByProviderId.mockResolvedValue(undefined);
+    const result = await chargebackPaymentOrder("pay_x");
+    expect(result).toEqual({ outcome: "order_not_found" });
+  });
+
+  it("cancela sem efeito colateral se o pedido nunca foi liquidado", async () => {
+    dbMock.getPaymentOrderByProviderId.mockResolvedValue(order({ status: "pending" }));
+    dbMock.markPaymentOrderChargeback.mockResolvedValue(order({ status: "chargeback" }));
+
+    const result = await chargebackPaymentOrder("pay_123");
+
+    expect(result).toEqual({ outcome: "chargeback_unsettled" });
+    expect(dbMock.incrementUtefBalanceAtomic).not.toHaveBeenCalled();
+    expect(dbMock.deleteTicketNumbersByTicketId).not.toHaveBeenCalled();
+  });
+
+  it("debita o saldo UTEF integralmente (principal + bônus), mesmo que fique negativo", async () => {
+    const settled = order({ status: "settled", userId: 42, principalAmount: 2000, bonusAmount: 200 });
+    dbMock.getPaymentOrderByProviderId.mockResolvedValue(settled);
+    dbMock.claimSettledPaymentOrderForChargeback.mockResolvedValue(settled);
+
+    const result = await chargebackPaymentOrder("pay_123");
+
+    expect(result).toEqual({ outcome: "utef_debited", userId: 42, total: 2200 });
+    expect(dbMock.incrementUtefBalanceAtomic).toHaveBeenCalledWith(42, -2200);
+    expect(dbMock.createUtefTransaction).toHaveBeenCalledWith(
+      expect.objectContaining({ userId: 42, amount: -2200, type: "chargeback", referenceId: "pay_123" }),
+    );
+  });
+
+  it("cancela o bilhete, libera os números e devolve a capacidade do sorteio", async () => {
+    const settled = order({
+      status: "settled",
+      purpose: "ticket_purchase",
+      drawId: 7,
+      ticketId: 55,
+      quantity: 3,
+      principalAmount: 300,
+    });
+    dbMock.getPaymentOrderByProviderId.mockResolvedValue(settled);
+    dbMock.claimSettledPaymentOrderForChargeback.mockResolvedValue(settled);
+
+    const result = await chargebackPaymentOrder("pay_123");
+
+    expect(result).toEqual({ outcome: "ticket_cancelled", ticketId: 55 });
+    expect(dbMock.deleteTicketNumbersByTicketId).toHaveBeenCalledWith(55);
+    expect(dbMock.releaseDrawCapacity).toHaveBeenCalledWith(7, 3, 300);
+    expect(dbMock.updateTicket).toHaveBeenCalledWith(55, { paymentStatus: "chargeback" });
+  });
+
+  it("cancela o bilhete mesmo que o sorteio já tenha sido realizado", async () => {
+    const settled = order({
+      status: "settled",
+      purpose: "ticket_purchase",
+      drawId: 7,
+      ticketId: 55,
+      quantity: 1,
+      principalAmount: 100,
+    });
+    dbMock.getPaymentOrderByProviderId.mockResolvedValue(settled);
+    dbMock.claimSettledPaymentOrderForChargeback.mockResolvedValue(settled);
+
+    const result = await chargebackPaymentOrder("pay_123");
+
+    expect(result.outcome).toBe("ticket_cancelled");
+    expect(dbMock.getDrawById).not.toHaveBeenCalled();
+  });
+
+  it("vai para conciliação manual se o pedido de bilhete liquidado estiver sem drawId/ticketId", async () => {
+    const settled = order({ status: "settled", purpose: "ticket_purchase", drawId: null, ticketId: null });
+    dbMock.getPaymentOrderByProviderId.mockResolvedValue(settled);
+    dbMock.claimSettledPaymentOrderForChargeback.mockResolvedValue(settled);
+
+    const result = await chargebackPaymentOrder("pay_123");
+
+    expect(result.outcome).toBe("review_required");
+    expect(dbMock.markPaymentOrderReview).toHaveBeenCalledWith(
+      "pay_123",
+      expect.stringContaining("sem drawId/ticketId"),
+    );
+  });
+
+  it("é idempotente: se outra chamada já reivindicou o pedido, não reverte de novo", async () => {
+    dbMock.getPaymentOrderByProviderId.mockResolvedValue(order({ status: "settled" }));
+    dbMock.claimSettledPaymentOrderForChargeback.mockResolvedValue(null);
+
+    const result = await chargebackPaymentOrder("pay_123");
+
+    expect(result).toEqual({ outcome: "already_processed" });
+    expect(dbMock.incrementUtefBalanceAtomic).not.toHaveBeenCalled();
   });
 });

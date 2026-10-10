@@ -173,6 +173,25 @@ export async function reserveDrawCapacity(
   return { ticketsSoldBefore: result[0].ticketsSold - quantity };
 }
 
+// Reverso de reserveDrawCapacity: libera a capacidade reservada por um bilhete
+// cancelado (chargeback), para que os numeros liberados possam ser vendidos de novo.
+// Incondicional (a reserva que esta revertendo e conhecida por ja existir).
+export async function releaseDrawCapacity(
+  drawId: number,
+  quantity: number,
+  amountPaidCents: number,
+): Promise<void> {
+  const db = getDb();
+  await db
+    .update(draws)
+    .set({
+      ticketsSold: sql`greatest(${draws.ticketsSold} - ${quantity}, 0)`,
+      currentAmount: sql`greatest(${draws.currentAmount} - ${amountPaidCents}, 0)`,
+      updatedAt: new Date(),
+    })
+    .where(eq(draws.id, drawId));
+}
+
 export async function insertTicketNumbers(rows: InsertTicketNumber[]): Promise<void> {
   if (rows.length === 0) return;
   const db = getDb();
@@ -182,6 +201,14 @@ export async function insertTicketNumbers(rows: InsertTicketNumber[]): Promise<v
 export async function getTicketNumbersByDrawId(drawId: number): Promise<TicketNumber[]> {
   const db = getDb();
   return db.select().from(ticketNumbers).where(eq(ticketNumbers.drawId, drawId));
+}
+
+// Libera os numeros individuais atribuidos a um bilhete cancelado (chargeback), para
+// que nao fiquem elegiveis ao sorteio nem colidam com a unicidade (draw_id, number)
+// quando a capacidade liberada for vendida de novo.
+export async function deleteTicketNumbersByTicketId(ticketId: number): Promise<void> {
+  const db = getDb();
+  await db.delete(ticketNumbers).where(eq(ticketNumbers.ticketId, ticketId));
 }
 
 export async function getTicketById(id: number): Promise<Ticket | undefined> {
@@ -254,6 +281,32 @@ export async function markPaymentOrderRefunded(providerPaymentId: string): Promi
     .update(paymentOrders)
     .set({ status: "refunded", updatedAt: new Date() })
     .where(and(eq(paymentOrders.providerPaymentId, providerPaymentId), eq(paymentOrders.status, "pending")))
+    .returning();
+  return result[0] ?? null;
+}
+
+// Chargeback de um pedido que nunca chegou a ser liquidado: nada a reverter, so
+// marca o estado terminal.
+export async function markPaymentOrderChargeback(providerPaymentId: string): Promise<PaymentOrder | null> {
+  const db = getDb();
+  const result = await db
+    .update(paymentOrders)
+    .set({ status: "chargeback", updatedAt: new Date() })
+    .where(and(eq(paymentOrders.providerPaymentId, providerPaymentId), eq(paymentOrders.status, "pending")))
+    .returning();
+  return result[0] ?? null;
+}
+
+// Guarda de idempotencia para chargeback de um pedido ja liquidado: so uma chamada
+// reivindica o pedido (status 'settled' -> 'chargeback'), passando a responsabilidade
+// de reverter o efeito (UTEF/bilhete) a quem reivindicou. Mesmo padrao de
+// claimPendingPaymentOrder, aplicado ao estado 'settled'.
+export async function claimSettledPaymentOrderForChargeback(providerPaymentId: string): Promise<PaymentOrder | null> {
+  const db = getDb();
+  const result = await db
+    .update(paymentOrders)
+    .set({ status: "chargeback", updatedAt: new Date() })
+    .where(and(eq(paymentOrders.providerPaymentId, providerPaymentId), eq(paymentOrders.status, "settled")))
     .returning();
   return result[0] ?? null;
 }

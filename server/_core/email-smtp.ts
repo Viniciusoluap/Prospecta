@@ -290,6 +290,47 @@ export async function notifyAdminByEmail(data: {
   });
 }
 
+/**
+ * Template de email de primeiro acesso / redefinição de senha: o usuário define a
+ * própria senha a partir do link — ela nunca passa pelo admin.
+ */
+export function primeiroAcessoTemplate(data: { name: string; link: string; novoUsuario: boolean }) {
+  return {
+    subject: data.novoUsuario
+      ? "🔑 Bem-vindo(a) — defina sua senha de acesso"
+      : "🔑 Redefinição de senha solicitada",
+    html: `
+      <!DOCTYPE html>
+      <html>
+      <head><meta charset="utf-8">
+        <style>
+          body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
+          .container { max-width: 600px; margin: 0 auto; padding: 20px; }
+          .header { background: linear-gradient(135deg, #1A2332 0%, #C9A961 100%); color: white; padding: 30px; text-align: center; border-radius: 10px 10px 0 0; }
+          .content { background: #f9f9f9; padding: 30px; border-radius: 0 0 10px 10px; }
+          .button { display: inline-block; background: #C9A961; color: #1A2332; font-weight: bold; padding: 14px 32px; text-decoration: none; border-radius: 5px; margin-top: 20px; }
+          .footer { text-align: center; margin-top: 30px; color: #666; font-size: 13px; }
+        </style>
+      </head>
+      <body>
+        <div class="container">
+          <div class="header"><h1>${data.novoUsuario ? "Bem-vindo(a)!" : "Redefinição de senha"}</h1></div>
+          <div class="content">
+            <p>Olá <strong>${data.name}</strong>,</p>
+            <p>${data.novoUsuario
+              ? "Sua conta no sistema da Prospecta Empreendimentos foi criada. Para acessar, defina sua senha pelo link abaixo:"
+              : "Foi solicitada a redefinição da sua senha de acesso. Defina a nova senha pelo link abaixo:"}</p>
+            <p style="text-align: center;"><a href="${data.link}" class="button">Definir minha senha</a></p>
+            <p style="font-size: 13px; color: #666;">Este link expira em 7 dias e só pode ser usado uma vez. Se você não pediu isso, ignore este email.</p>
+          </div>
+          <div class="footer"><p>© 2025 Prospecta Empreendimentos - Grupo Efficaz</p></div>
+        </div>
+      </body>
+      </html>
+    `,
+  };
+}
+
 export async function sendBudgetUpdateEmail(data: {
   name: string;
   email: string;

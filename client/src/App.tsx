@@ -65,6 +65,7 @@ import Perfil from "./pages/Perfil";
 import SimuladorFinanciamento from "./pages/SimuladorFinanciamento";
 import WhatsAppFloat from "./components/WhatsAppFloat";
 import Login from "./pages/Login";
+import DefinirSenha from "./pages/DefinirSenha";
 import Portal from "./pages/Portal";
 import { PortalRoute } from "./components/PortalRoute";
 import { GlobalBackButton } from "./components/GlobalBackButton";
@@ -77,6 +78,7 @@ function Router() {
   return (
     <Switch>
       <Route path="/login" component={Login} />
+      <Route path="/definir-senha/:token" component={DefinirSenha} />
       <Route path="/portal/:rest*">
         <PortalRoute>
           <Portal />
