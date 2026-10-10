@@ -109,14 +109,14 @@ export default function AdminRegularizacoes() {
 
   return (
     <div className="min-h-screen bg-[#1A2332] text-white">
-      <header className="border-b border-[#C9A961]/20 bg-[#0F1923] px-6 py-4">
-        <div className="mx-auto flex max-w-7xl items-center justify-between">
-          <div className="flex items-center gap-4">
-            <Link href="/admin"><Button variant="ghost" size="icon" className="text-gray-300"><ArrowLeft /></Button></Link>
-            <div><h1 className="text-2xl font-bold text-[#C9A961]">Regularizações</h1><p className="text-sm text-gray-400">Processos imobiliários e documentos</p></div>
+      <header className="border-b border-[#C9A961]/20 bg-[#0F1923] px-4 py-4 sm:px-6">
+        <div className="mx-auto flex max-w-7xl flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex min-w-0 flex-col gap-2 sm:flex-row sm:items-center sm:gap-4">
+            <Link href="/admin"><Button variant="ghost" className="w-fit gap-2 text-gray-200 hover:text-white"><ArrowLeft className="h-4 w-4" />Voltar</Button></Link>
+            <div className="min-w-0"><h1 className="text-2xl font-bold text-[#C9A961]">Regularizações</h1><p className="text-sm text-gray-400">Processos imobiliários e documentos</p></div>
           </div>
           <Dialog open={createOpen} onOpenChange={setCreateOpen}>
-            <DialogTrigger asChild><Button className="bg-[#C9A961] text-[#1A2332]"><Plus className="mr-2 h-4 w-4" />Novo processo</Button></DialogTrigger>
+            <DialogTrigger asChild><Button className="w-fit shrink-0 bg-[#C9A961] text-[#1A2332]"><Plus className="mr-2 h-4 w-4" />Novo processo</Button></DialogTrigger>
             <DialogContent className="max-h-[90vh] overflow-y-auto bg-[#1A2332] text-white">
               <DialogHeader><DialogTitle>Nova regularização</DialogTitle></DialogHeader>
               <div className="grid gap-4 sm:grid-cols-2">

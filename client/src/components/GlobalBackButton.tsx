@@ -6,7 +6,7 @@ import { Button } from "./ui/button";
  * Páginas que já fornecem um retorno contextual no próprio cabeçalho.
  * O botão global fica reservado para as demais rotas, evitando duplicidade.
  */
-function hasPageBackButton(location: string) {
+export function hasPageBackButton(location: string) {
   return [
     "/sorteios",
     "/comprar-bilhete/",
@@ -31,6 +31,11 @@ function hasPageBackButton(location: string) {
     "/admin/obras",
     "/admin/obras/editar/",
     "/admin/obras/",
+    "/admin",
+    "/admin/corretores",
+    "/admin/comissoes",
+    "/admin/projetos",
+    "/admin/mapa",
     "/admin/dashboard",
     "/admin/emails",
     "/admin/configuracoes-pagamento",

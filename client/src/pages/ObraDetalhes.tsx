@@ -68,14 +68,17 @@ const stageStatusLabels = {
   completed: "Concluída",
 };
 
-export default function ObraDetalhes() {
+export default function ObraDetalhes({ admin = false }: { admin?: boolean }) {
   const { id } = useParams<{ id: string }>();
-  const { user, loading: authLoading, isAuthenticated } = useAuth();
+  const { loading: authLoading, isAuthenticated } = useAuth();
   const [, setLocation] = useLocation();
+  const projectId = Number(id);
+  const backTo = admin ? "/admin/obras" : "/obras";
+  const backLabel = admin ? "Voltar para Obras" : "Voltar para Minhas Obras";
 
-  const { data: project, isLoading } = trpc.construction.getProjectDetails.useQuery(
-    { projectId: parseInt(id!) },
-    { enabled: isAuthenticated && !!id }
+  const { data: project, isLoading, error } = trpc.construction.getProjectDetails.useQuery(
+    { projectId },
+    { enabled: isAuthenticated && Number.isInteger(projectId) && projectId > 0 }
   );
 
   // Redirect para login se não autenticado
@@ -102,10 +105,10 @@ export default function ObraDetalhes() {
           <CardContent className="text-center py-12">
             <HardHat className="h-16 w-16 text-gray-500 mx-auto mb-4" />
             <h3 className="text-xl font-bold text-white mb-2">Obra não encontrada</h3>
-            <p className="text-gray-400 mb-6">Esta obra não existe ou você não tem permissão para acessá-la.</p>
-            <Button onClick={() => setLocation("/obras")} className="bg-[#C9A961] hover:bg-[#B89851] text-[#1A2332]">
+            <p className="text-gray-400 mb-6">{error ? "Não foi possível carregar esta obra." : "Esta obra não existe ou você não tem permissão para acessá-la."}</p>
+            <Button onClick={() => setLocation(backTo)} className="bg-[#C9A961] hover:bg-[#B89851] text-[#1A2332]">
               <ArrowLeft className="mr-2 h-4 w-4" />
-              Voltar para Minhas Obras
+              {backLabel}
             </Button>
           </CardContent>
         </Card>
@@ -121,10 +124,10 @@ export default function ObraDetalhes() {
           <Button
             variant="ghost"
             className="text-[#C9A961] hover:text-[#B89851] hover:bg-[#C9A961]/10 mb-4"
-            onClick={() => setLocation("/obras")}
+            onClick={() => setLocation(backTo)}
           >
             <ArrowLeft className="mr-2 h-4 w-4" />
-            Voltar para Minhas Obras
+            {backLabel}
           </Button>
 
           <div className="flex items-start justify-between">
@@ -143,6 +146,13 @@ export default function ObraDetalhes() {
               )}
             </div>
           </div>
+          {admin && (
+            <Link href={`/admin/obras/editar/${project.id}`}>
+              <Button variant="outline" className="mt-4 border-[#C9A961] text-[#C9A961] hover:bg-[#C9A961]/10">
+                Editar Obra
+              </Button>
+            </Link>
+          )}
 
           {/* Progress Bar */}
           <div className="mt-6">
