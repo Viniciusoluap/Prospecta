@@ -185,7 +185,7 @@ export default function AdminBpo({ initialTab }: { initialTab?: Aba } = {}) {
     "—";
 
   const abaClass = (a: Aba) =>
-    `px-4 py-2 rounded-lg text-sm font-bold transition-colors ${aba === a ? "bg-[#C9A961] text-[#1A2332]" : "bg-[#2C3E50] text-gray-400 hover:text-white"}`;
+    `px-4 py-2 rounded-lg text-sm font-bold transition-colors ${aba === a ? "bg-[#C9A961] text-[#1A2332]" : "bg-[#2C3E50] text-gray-300 hover:text-white"}`;
 
   return (
     <div className="min-h-screen bg-[#1A2332] text-white">
@@ -887,7 +887,7 @@ export default function AdminBpo({ initialTab }: { initialTab?: Aba } = {}) {
                 <div className="overflow-x-auto">
                   <table className="w-full text-sm">
                     <thead>
-                      <tr className="text-left text-gray-400 text-xs uppercase">
+                      <tr className="text-left text-gray-300 text-xs uppercase">
                         <th className="py-2 pr-4">Competência</th>
                         <th className="py-2 pr-4 text-right">Cobranças</th>
                         <th className="py-2 pr-4 text-right">Despesas</th>

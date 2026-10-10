@@ -181,7 +181,7 @@ export default function AdminFinanceiro() {
               <div className="flex items-center gap-3">
                 <TrendingUp className="h-8 w-8 text-green-400" />
                 <div>
-                  <p className="text-gray-400 text-sm">Total Receitas</p>
+                  <p className="text-gray-300 text-sm">Total Receitas</p>
                   <p className="text-2xl font-bold text-green-400">{formatCurrencyBR(totalIncome)}</p>
                 </div>
               </div>
@@ -192,7 +192,7 @@ export default function AdminFinanceiro() {
               <div className="flex items-center gap-3">
                 <TrendingDown className="h-8 w-8 text-red-400" />
                 <div>
-                  <p className="text-gray-400 text-sm">Total Despesas</p>
+                  <p className="text-gray-300 text-sm">Total Despesas</p>
                   <p className="text-2xl font-bold text-red-400">{formatCurrencyBR(totalExpense)}</p>
                 </div>
               </div>
@@ -203,7 +203,7 @@ export default function AdminFinanceiro() {
               <div className="flex items-center gap-3">
                 <DollarSign className={`h-8 w-8 ${profit >= 0 ? "text-[#C9A961]" : "text-red-400"}`} />
                 <div>
-                  <p className="text-gray-400 text-sm">Lucro Líquido</p>
+                  <p className="text-gray-300 text-sm">Lucro Líquido</p>
                   <p className={`text-2xl font-bold ${profit >= 0 ? "text-[#C9A961]" : "text-red-400"}`}>{formatCurrencyBR(profit)}</p>
                 </div>
               </div>

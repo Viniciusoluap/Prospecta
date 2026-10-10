@@ -286,7 +286,7 @@ export default function AdminAvaliacoes() {
             <CardContent className="pt-6 flex items-center gap-3">
               <FileSearch className="h-7 w-7 text-[#C9A961]" />
               <div>
-                <p className="text-gray-400 text-xs">Total</p>
+                <p className="text-gray-300 text-xs">Total</p>
                 <p className="text-2xl font-bold text-white">{total}</p>
               </div>
             </CardContent>
@@ -295,7 +295,7 @@ export default function AdminAvaliacoes() {
             <CardContent className="pt-6 flex items-center gap-3">
               <Clock className="h-7 w-7 text-yellow-500" />
               <div>
-                <p className="text-gray-400 text-xs">Em andamento</p>
+                <p className="text-gray-300 text-xs">Em andamento</p>
                 <p className="text-2xl font-bold text-white">{pendentes}</p>
               </div>
             </CardContent>
@@ -304,7 +304,7 @@ export default function AdminAvaliacoes() {
             <CardContent className="pt-6 flex items-center gap-3">
               <CheckCircle2 className="h-7 w-7 text-green-500" />
               <div>
-                <p className="text-gray-400 text-xs">Entregues</p>
+                <p className="text-gray-300 text-xs">Entregues</p>
                 <p className="text-2xl font-bold text-white">{entregues}</p>
               </div>
             </CardContent>
@@ -313,7 +313,7 @@ export default function AdminAvaliacoes() {
             <CardContent className="pt-6 flex items-center gap-3">
               <XCircle className="h-7 w-7 text-red-500" />
               <div>
-                <p className="text-gray-400 text-xs">Canceladas</p>
+                <p className="text-gray-300 text-xs">Canceladas</p>
                 <p className="text-2xl font-bold text-white">{canceladas}</p>
               </div>
             </CardContent>
@@ -370,7 +370,7 @@ export default function AdminAvaliacoes() {
                             {a.numero}
                             <Badge className={`${STATUS_COLORS[a.status]} text-white`}>{STATUS_LABELS[a.status]}</Badge>
                           </CardTitle>
-                          <p className="text-sm text-gray-400 mt-1">{a.clienteNome} • {a.endereco}, {a.bairro} — {a.cidade}/{a.estado}</p>
+                          <p className="text-sm text-gray-300 mt-1">{a.clienteNome} • {a.endereco}, {a.bairro} — {a.cidade}/{a.estado}</p>
                           <p className="text-xs text-gray-500 mt-0.5">{TIPO_LABELS[a.tipo] ?? a.tipo} • {a.avaliador}</p>
                         </div>
                         <div className="text-right">

@@ -238,7 +238,7 @@ export default function AdminFinanciamentos() {
               <CardContent className="flex items-center gap-3 pt-6">
                 <Icone className={`h-8 w-8 ${cor}`} />
                 <div>
-                  <p className="text-sm text-gray-400">{titulo}</p>
+                  <p className="text-sm text-gray-300">{titulo}</p>
                   <p className={`text-2xl font-bold ${cor}`}>{valor}</p>
                 </div>
               </CardContent>
@@ -269,7 +269,7 @@ export default function AdminFinanciamentos() {
         <Card className="border-[#C9A961]/20 bg-[#2C3E50]">
           <CardContent className="pt-6">
             {isLoading ? (
-              <p className="py-10 text-center text-gray-400">Carregando…</p>
+              <p className="py-10 text-center text-gray-300">Carregando…</p>
             ) : processos.length === 0 ? (
               <div className="py-12 text-center text-gray-500">
                 <Building2 className="mx-auto mb-3 h-12 w-12 opacity-30" />
@@ -414,15 +414,15 @@ export default function AdminFinanciamentos() {
               </DialogHeader>
               <div className="grid gap-3 rounded-lg bg-[#2C3E50] p-4 text-sm md:grid-cols-3">
                 <div>
-                  <p className="text-gray-400">Imóvel</p>
+                  <p className="text-gray-300">Imóvel</p>
                   <p>{detalhe.financiamento.imovel}</p>
                 </div>
                 <div>
-                  <p className="text-gray-400">Financiado</p>
+                  <p className="text-gray-300">Financiado</p>
                   <p>{moeda(detalhe.financiamento.valorFinanciado)}</p>
                 </div>
                 <div>
-                  <p className="text-gray-400">Banco</p>
+                  <p className="text-gray-300">Banco</p>
                   <p>
                     {FINANCIAMENTO_BANCO_LABELS[detalhe.financiamento.banco]}
                   </p>
@@ -475,7 +475,7 @@ export default function AdminFinanciamentos() {
                       />
                       <span>
                         <strong>{item.item}</strong>
-                        <span className="block text-xs text-gray-400">
+                        <span className="block text-xs text-gray-300">
                           {item.grupo}
                         </span>
                       </span>

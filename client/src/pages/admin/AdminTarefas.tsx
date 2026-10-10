@@ -298,7 +298,7 @@ export default function AdminTarefas({
             <CardContent className="pt-4 pb-4 flex items-center gap-3">
               <Clock className="h-6 w-6 text-yellow-400" />
               <div>
-                <p className="text-gray-400 text-xs">Pendentes</p>
+                <p className="text-gray-300 text-xs">Pendentes</p>
                 <p className="text-2xl font-bold text-yellow-400">{pending}</p>
               </div>
             </CardContent>
@@ -307,7 +307,7 @@ export default function AdminTarefas({
             <CardContent className="pt-4 pb-4 flex items-center gap-3">
               <CheckSquare className="h-6 w-6 text-blue-400" />
               <div>
-                <p className="text-gray-400 text-xs">Em Andamento</p>
+                <p className="text-gray-300 text-xs">Em Andamento</p>
                 <p className="text-2xl font-bold text-blue-400">{inProgress}</p>
               </div>
             </CardContent>
@@ -317,12 +317,12 @@ export default function AdminTarefas({
           >
             <CardContent className="pt-4 pb-4 flex items-center gap-3">
               <AlertTriangle
-                className={`h-6 w-6 ${overdue > 0 ? "text-red-400" : "text-gray-400"}`}
+                className={`h-6 w-6 ${overdue > 0 ? "text-red-400" : "text-gray-300"}`}
               />
               <div>
-                <p className="text-gray-400 text-xs">Atrasadas</p>
+                <p className="text-gray-300 text-xs">Atrasadas</p>
                 <p
-                  className={`text-2xl font-bold ${overdue > 0 ? "text-red-400" : "text-gray-400"}`}
+                  className={`text-2xl font-bold ${overdue > 0 ? "text-red-400" : "text-gray-300"}`}
                 >
                   {overdue}
                 </p>
@@ -402,7 +402,7 @@ export default function AdminTarefas({
                           )}
                         </div>
                         {task.description && (
-                          <p className="text-sm text-gray-400 mt-1">
+                          <p className="text-sm text-gray-300 mt-1">
                             {task.description}
                           </p>
                         )}

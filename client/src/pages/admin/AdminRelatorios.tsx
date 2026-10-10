@@ -215,7 +215,7 @@ export default function AdminRelatorios({
                 <CardContent className="pt-6 flex items-center gap-2">
                   <Home className="h-6 w-6 text-[#C9A961]" />
                   <div>
-                    <p className="text-gray-400 text-xs">Imóveis</p>
+                    <p className="text-gray-300 text-xs">Imóveis</p>
                     <p className="text-xl font-bold text-white">
                       {data.totalImoveis}
                     </p>
@@ -226,7 +226,7 @@ export default function AdminRelatorios({
                 <CardContent className="pt-6 flex items-center gap-2">
                   <Users className="h-6 w-6 text-blue-400" />
                   <div>
-                    <p className="text-gray-400 text-xs">Leads</p>
+                    <p className="text-gray-300 text-xs">Leads</p>
                     <p className="text-xl font-bold text-white">
                       {data.totalLeads}
                     </p>
@@ -237,7 +237,7 @@ export default function AdminRelatorios({
                 <CardContent className="pt-6 flex items-center gap-2">
                   <Landmark className="h-6 w-6 text-purple-400" />
                   <div>
-                    <p className="text-gray-400 text-xs">Financiamentos</p>
+                    <p className="text-gray-300 text-xs">Financiamentos</p>
                     <p className="text-xl font-bold text-white">
                       {data.totalFinanciamentos}
                     </p>
@@ -248,7 +248,7 @@ export default function AdminRelatorios({
                 <CardContent className="pt-6 flex items-center gap-2">
                   <ClipboardCheck className="h-6 w-6 text-yellow-400" />
                   <div>
-                    <p className="text-gray-400 text-xs">Avaliações</p>
+                    <p className="text-gray-300 text-xs">Avaliações</p>
                     <p className="text-xl font-bold text-white">
                       {data.avaliacoes.total}
                     </p>
@@ -265,7 +265,7 @@ export default function AdminRelatorios({
                 <CardContent className="pt-6 flex items-center gap-2">
                   <TrendingUp className="h-6 w-6 text-green-400" />
                   <div>
-                    <p className="text-gray-400 text-xs">Ticket médio</p>
+                    <p className="text-gray-300 text-xs">Ticket médio</p>
                     <p className="text-lg font-bold text-white">
                       {formatCurrencyBR(data.ticketMedio)}
                     </p>
@@ -280,7 +280,7 @@ export default function AdminRelatorios({
                     className={`h-6 w-6 ${data.resultado >= 0 ? "text-green-400" : "text-red-400"}`}
                   />
                   <div>
-                    <p className="text-gray-400 text-xs">Resultado (DRE)</p>
+                    <p className="text-gray-300 text-xs">Resultado (DRE)</p>
                     <p
                       className={`text-lg font-bold ${data.resultado >= 0 ? "text-green-400" : "text-red-400"}`}
                     >
