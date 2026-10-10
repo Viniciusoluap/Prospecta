@@ -1,6 +1,7 @@
 # Dependencies
 **/node_modules
 .pnpm-store/
+# Projeto usa pnpm (pnpm-lock.yaml); package-lock.json é artefato estranho de npm
 package-lock.json
 
 # Build outputs
