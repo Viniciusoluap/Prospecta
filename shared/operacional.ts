@@ -53,34 +53,69 @@ export const visitInput = z
     message: "Selecione um lead ou informe o cliente",
     path: ["clientName"],
   });
+// EPIC-018 (story 2.1): foto e especialidades saíram do cadastro de corretor.
+// Continuam opcionais no contrato para preservar dados já gravados: quando
+// ausentes, o servidor não altera os valores existentes.
 export const brokerInput = z.object({
   name,
   email: z.string().trim().email().max(320),
   phone: z.string().trim().max(20),
   creci: z.string().trim().min(1).max(40),
   active: z.boolean(),
-  avatar: z.union([
-    z.literal(""),
-    z
-      .string()
-      .url()
-      .refine(v => v.startsWith("https://")),
-  ]),
-  specialties: z.array(z.string().trim().min(1).max(80)).max(30),
+  avatar: z
+    .union([
+      z.literal(""),
+      z
+        .string()
+        .url()
+        .refine(v => v.startsWith("https://")),
+    ])
+    .optional(),
+  specialties: z.array(z.string().trim().min(1).max(80)).max(30).optional(),
   notes,
 });
+
+/** EPIC-018 (story 2.5): "construção" passa a se chamar "obra" em toda a tela. */
+export const COMMISSION_BUSINESS_TYPES = [
+  "venda_imovel",
+  "locacao",
+  "obra",
+  "financiamento",
+  "outro",
+] as const;
+export type CommissionBusinessType = (typeof COMMISSION_BUSINESS_TYPES)[number];
+export const COMMISSION_BUSINESS_TYPE_LABELS: Record<CommissionBusinessType, string> = {
+  venda_imovel: "Venda de imóvel",
+  locacao: "Locação",
+  obra: "Obra",
+  financiamento: "Financiamento",
+  outro: "Outro",
+};
+/** Rótulo de exibição; aceita o valor legado "construcao" gravado antes da migration 0031. */
+export function commissionBusinessTypeLabel(value: string) {
+  const normalized = value === "construcao" ? "obra" : value;
+  return COMMISSION_BUSINESS_TYPE_LABELS[normalized as CommissionBusinessType] ?? value.replaceAll("_", " ");
+}
+
+/** Story 2.4: valor sugerido = percentual de referência sobre o valor cadastrado. */
+export function suggestedCommissionAmount(baseValue: number | string | null | undefined, percent: number | string) {
+  const base = Number(baseValue);
+  const pct = Number(percent);
+  if (!Number.isFinite(base) || base <= 0 || !Number.isFinite(pct) || pct < 0) return null;
+  return Math.round(base * pct) / 100;
+}
+
 export const commissionInput = z
   .object({
     beneficiary: z.enum(["corretor", "empresa"]),
-    businessType: z.enum([
-      "venda_imovel",
-      "locacao",
-      "construcao",
-      "financiamento",
-      "outro",
-    ]),
+    businessType: z.preprocess(
+      v => (v === "construcao" ? "obra" : v),
+      z.enum(COMMISSION_BUSINESS_TYPES)
+    ),
     brokerId: id.nullable(),
-    property: name,
+    // Stories 2.3/2.5: imóvel ou obra cadastrados — sem digitação livre.
+    propertyId: id.nullable().default(null),
+    constructionProjectId: id.nullable().default(null),
     amount: money,
     percent: z.number().min(0).max(100),
     status: z.enum(COMMISSION_STATUS),
@@ -90,6 +125,14 @@ export const commissionInput = z
   .refine(v => v.beneficiary !== "corretor" || v.brokerId !== null, {
     message: "Selecione o corretor",
     path: ["brokerId"],
+  })
+  .refine(v => v.businessType !== "obra" || v.constructionProjectId !== null, {
+    message: "Selecione a obra cadastrada",
+    path: ["constructionProjectId"],
+  })
+  .refine(v => v.businessType === "obra" || v.propertyId !== null, {
+    message: "Selecione o imóvel cadastrado",
+    path: ["propertyId"],
   });
 export const projectInput = z
   .object({

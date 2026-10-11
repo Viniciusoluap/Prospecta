@@ -1,9 +1,11 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
   brokerInput,
+  commissionBusinessTypeLabel,
   commissionInput,
   commissionPaidAt,
   projectInput,
+  suggestedCommissionAmount,
   validCoordinates,
   visitInput,
 } from "../shared/operacional";
@@ -53,7 +55,7 @@ const commission = {
   beneficiary: "corretor",
   businessType: "venda_imovel",
   brokerId: 1,
-  property: "Imóvel teste",
+  propertyId: 1,
   amount: 100,
   percent: 6,
   status: "pendente",
@@ -107,6 +109,52 @@ describe("Etapa 4 — validação de negócio", () => {
       }).success
     ).toBe(true);
   });
+  it("EPIC-018: comissão exige imóvel cadastrado ou, para obra, obra cadastrada", () => {
+    expect(
+      commissionInput.safeParse({ ...commission, propertyId: null }).success
+    ).toBe(false);
+    expect(
+      commissionInput.safeParse({
+        ...commission,
+        businessType: "obra",
+        propertyId: null,
+      }).success
+    ).toBe(false);
+    expect(
+      commissionInput.safeParse({
+        ...commission,
+        businessType: "obra",
+        propertyId: null,
+        constructionProjectId: 5,
+      }).success
+    ).toBe(true);
+  });
+  it("EPIC-018: valor legado 'construcao' é tratado como 'obra'", () => {
+    const parsed = commissionInput.parse({
+      ...commission,
+      businessType: "construcao",
+      propertyId: null,
+      constructionProjectId: 5,
+    });
+    expect(parsed.businessType).toBe("obra");
+    expect(commissionBusinessTypeLabel("construcao")).toBe("Obra");
+    expect(commissionBusinessTypeLabel("obra")).toBe("Obra");
+    expect(commissionBusinessTypeLabel("venda_imovel")).toBe("Venda de imóvel");
+  });
+  it.each([
+    [300000, 6, 18000],
+    ["250000.00", "5", 12500],
+    [199999.99, 3, 6000],
+    [null, 6, null],
+    [0, 6, null],
+    [100000, -1, null],
+  ])(
+    "EPIC-018: sugere comissão de %s com %s%%",
+    (base, percent, expected) =>
+      expect(
+        suggestedCommissionAmount(base as number | string | null, percent)
+      ).toBe(expected)
+  );
   it.each([
     { amount: -1 },
     { amount: Infinity },
@@ -160,6 +208,18 @@ describe("Etapa 4 — validação de negócio", () => {
     expect(data).not.toHaveProperty("role");
     expect(data).not.toHaveProperty("permissions");
     expect(data).not.toHaveProperty("password");
+  });
+  it("EPIC-018: cadastro de corretor não exige foto nem especialidades", () => {
+    const data = brokerInput.parse({
+      name: "Corretor",
+      email: "broker@example.com",
+      phone: "",
+      creci: "123",
+      active: true,
+      notes: "",
+    });
+    expect(data.avatar).toBeUndefined();
+    expect(data.specialties).toBeUndefined();
   });
   it.each([
     [null, "0", false],
@@ -253,8 +313,14 @@ describe("Etapa 4 — persistência via procedures", () => {
     const values = vi
       .fn()
       .mockReturnValue({ returning: async () => [{ id: 8 }] });
+    const lookup = {
+      from: () => ({
+        where: () => ({ limit: async () => [{ id: 1, title: "Casa Centro" }] }),
+      }),
+    };
     vi.mocked(getDb).mockReturnValue({
       insert: () => ({ values }),
+      select: () => lookup,
     } as unknown as ReturnType<typeof getDb>);
     await app
       .createCaller(context("colaborador", ["comissoes"]))
@@ -271,8 +337,62 @@ describe("Etapa 4 — persistência via procedures", () => {
         amount: "100.00",
         percent: "6.00",
         paidAt: expect.any(Date),
+        // EPIC-018: o título vem do imóvel cadastrado, nunca de texto livre.
+        propertyId: 1,
+        constructionProjectId: null,
+        property: "Casa Centro",
       })
     );
+  });
+  it("EPIC-018: comissão de obra vincula a obra cadastrada", async () => {
+    const values = vi
+      .fn()
+      .mockReturnValue({ returning: async () => [{ id: 9 }] });
+    const lookup = {
+      from: () => ({
+        where: () => ({ limit: async () => [{ id: 5, title: "Obra Jardim" }] }),
+      }),
+    };
+    vi.mocked(getDb).mockReturnValue({
+      insert: () => ({ values }),
+      select: () => lookup,
+    } as unknown as ReturnType<typeof getDb>);
+    await app
+      .createCaller(context("colaborador", ["comissoes"]))
+      .comissoes.create(
+        commissionInput.parse({
+          ...commission,
+          beneficiary: "empresa",
+          businessType: "obra",
+          propertyId: null,
+          constructionProjectId: 5,
+        })
+      );
+    expect(values).toHaveBeenCalledWith(
+      expect.objectContaining({
+        businessType: "obra",
+        propertyId: null,
+        constructionProjectId: 5,
+        property: "Obra Jardim",
+      })
+    );
+  });
+  it("EPIC-018: recusa imóvel inexistente sem gravar comissão", async () => {
+    const insert = vi.fn();
+    vi.mocked(getDb).mockReturnValue({
+      insert,
+      select: () => ({
+        from: () => ({ where: () => ({ limit: async () => [] }) }),
+      }),
+    } as unknown as ReturnType<typeof getDb>);
+    await expect(
+      app
+        .createCaller(context("colaborador", ["comissoes"]))
+        .comissoes.create(
+          commissionInput.parse({ ...commission, beneficiary: "empresa" })
+        )
+    ).rejects.toMatchObject({ code: "NOT_FOUND" });
+    expect(insert).not.toHaveBeenCalled();
   });
   it("Projetos serializa checklist e tipos", async () => {
     const values = vi

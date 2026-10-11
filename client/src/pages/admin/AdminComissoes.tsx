@@ -3,8 +3,12 @@ import { trpc } from "@/lib/trpc";
 import { LinkedServiceQueue } from "./LinkedServiceQueue";
 import { Button } from "@/components/ui/button";
 import {
+  COMMISSION_BUSINESS_TYPE_LABELS,
+  COMMISSION_BUSINESS_TYPES,
   COMMISSION_STATUS,
+  commissionBusinessTypeLabel,
   commissionInput,
+  suggestedCommissionAmount,
 } from "../../../../shared/operacional";
 import {
   Choice,
@@ -21,11 +25,14 @@ import {
   optionalId,
   Rows,
 } from "./OperationalUI";
+// EPIC-018 (stories 2.2–2.5): corretor, imóvel e obra vêm dos cadastros reais;
+// o valor é sugerido pelo percentual de referência e continua editável.
 const blank = () => ({
   beneficiary: "corretor",
   businessType: "venda_imovel",
   brokerId: "",
-  property: "",
+  propertyId: "",
+  constructionProjectId: "",
   amount: "0",
   percent: "6",
   status: "pendente",
@@ -35,6 +42,7 @@ const blank = () => ({
 export default function AdminComissoes() {
   const list = trpc.comissoes.list.useQuery();
   const brokers = trpc.comissoes.options.useQuery();
+  const formOptions = trpc.comissoes.formOptions.useQuery();
   const legacy = trpc.comissoes.legacy.useQuery();
   const create = trpc.comissoes.create.useMutation();
   const update = trpc.comissoes.update.useMutation();
@@ -46,6 +54,28 @@ export default function AdminComissoes() {
   const [broker, setBroker] = useState("");
   const set = (key: keyof ReturnType<typeof blank>, value: string) =>
     setForm(f => ({ ...f, [key]: value }));
+  const isObra = form.businessType === "obra";
+  const targets = isObra
+    ? formOptions.data?.obras ?? []
+    : formOptions.data?.properties ?? [];
+  const targetId = isObra ? form.constructionProjectId : form.propertyId;
+  const selectedTarget = targets.find(t => String(t.id) === targetId);
+  /** Recalcula o valor sugerido quando muda o imóvel/obra ou o percentual. */
+  const updateAndSuggest = (patch: Partial<ReturnType<typeof blank>>) =>
+    setForm(f => {
+      const next = { ...f, ...patch };
+      const list =
+        next.businessType === "obra"
+          ? formOptions.data?.obras ?? []
+          : formOptions.data?.properties ?? [];
+      const id =
+        next.businessType === "obra"
+          ? next.constructionProjectId
+          : next.propertyId;
+      const base = list.find(t => String(t.id) === id)?.value;
+      const suggested = suggestedCommissionAmount(base, next.percent);
+      return suggested === null ? next : { ...next, amount: suggested.toFixed(2) };
+    });
   const rows = (list.data || []).filter(
     ({ commission: c }) =>
       (!status || c.status === status) &&
@@ -98,7 +128,7 @@ export default function AdminComissoes() {
       <Rows
         headers={[
           "Beneficiário / negócio",
-          "Imóvel",
+          "Imóvel / obra",
           "Valor",
           "Vencimento / pagamento",
           "Status",
@@ -113,7 +143,7 @@ export default function AdminComissoes() {
                 ? "Empresa"
                 : brokerName || "Corretor excluído"}
               <br />
-              {c.businessType}
+              {commissionBusinessTypeLabel(c.businessType)}
             </td>
             <td>{c.property}</td>
             <td>
@@ -135,9 +165,17 @@ export default function AdminComissoes() {
                   onClick={() => {
                     setId(c.id);
                     setForm({
-                      ...c,
+                      beneficiary: c.beneficiary,
+                      businessType:
+                        c.businessType === "construcao" ? "obra" : c.businessType,
                       brokerId: String(c.brokerId ?? ""),
+                      propertyId: String(c.propertyId ?? ""),
+                      constructionProjectId: String(c.constructionProjectId ?? ""),
+                      amount: String(c.amount),
+                      percent: String(c.percent),
+                      status: c.status,
                       dueDate: localDate(c.dueDate),
+                      notes: c.notes,
                     });
                     setOpen(true);
                   }}
@@ -197,6 +235,10 @@ export default function AdminComissoes() {
             ...form,
             brokerId:
               form.beneficiary === "empresa" ? null : optionalId(form.brokerId),
+            propertyId: isObra ? null : optionalId(form.propertyId),
+            constructionProjectId: isObra
+              ? optionalId(form.constructionProjectId)
+              : null,
             amount: Number(form.amount),
             percent: Number(form.percent),
             dueDate: new Date(form.dueDate),
@@ -212,24 +254,37 @@ export default function AdminComissoes() {
           onChange={v => set("beneficiary", v)}
           options={choices(["corretor", "empresa"])}
         />
-        <Choice
-          label="Corretor"
-          value={form.brokerId}
-          onChange={v => set("brokerId", v)}
-          optional
-          options={ids(brokers.data)}
-        />
+        {form.beneficiary === "corretor" && (
+          <Field label="Corretor *">
+            <select
+              className={inputClass}
+              required
+              value={form.brokerId}
+              onChange={e => set("brokerId", e.target.value)}
+            >
+              <option value="">
+                {formOptions.isLoading
+                  ? "Carregando corretores…"
+                  : formOptions.data?.brokers.length
+                    ? "Selecione o corretor"
+                    : "Nenhum corretor cadastrado em Corretores"}
+              </option>
+              {formOptions.data?.brokers.map(b => (
+                <option key={b.id} value={String(b.id)}>
+                  {(b.name || `#${b.id}`) + (b.active ? "" : " (inativo)")}
+                </option>
+              ))}
+            </select>
+          </Field>
+        )}
         <Choice
           label="Tipo de negócio"
           value={form.businessType}
-          onChange={v => set("businessType", v)}
-          options={choices([
-            "venda_imovel",
-            "locacao",
-            "construcao",
-            "financiamento",
-            "outro",
-          ])}
+          onChange={v => updateAndSuggest({ businessType: v })}
+          options={COMMISSION_BUSINESS_TYPES.map(value => ({
+            value,
+            label: COMMISSION_BUSINESS_TYPE_LABELS[value],
+          }))}
         />
         <Choice
           label="Status (paga registra data atual)"
@@ -237,11 +292,73 @@ export default function AdminComissoes() {
           onChange={v => set("status", v)}
           options={choices(COMMISSION_STATUS)}
         />
+        <Field label={isObra ? "Obra *" : "Imóvel / negócio *"}>
+          <select
+            className={inputClass}
+            required
+            value={targetId}
+            onChange={e =>
+              updateAndSuggest(
+                isObra
+                  ? { constructionProjectId: e.target.value }
+                  : { propertyId: e.target.value }
+              )
+            }
+          >
+            <option value="">
+              {formOptions.isLoading
+                ? "Carregando…"
+                : targets.length
+                  ? isObra
+                    ? "Selecione a obra cadastrada"
+                    : "Selecione o imóvel cadastrado"
+                  : isObra
+                    ? "Nenhuma obra cadastrada"
+                    : "Nenhum imóvel cadastrado"}
+            </option>
+            {targets.map(t => (
+              <option key={t.id} value={String(t.id)}>
+                {t.name}
+                {t.value ? ` — ${money(t.value)}` : ""}
+              </option>
+            ))}
+          </select>
+          {selectedTarget && !selectedTarget.value && (
+            <span className="block text-xs font-normal text-amber-700">
+              {isObra
+                ? "Obra sem valor de contrato/VGV cadastrado: informe o valor manualmente."
+                : "Imóvel sem preço cadastrado: informe o valor manualmente."}
+            </span>
+          )}
+        </Field>
+        <Field label="Percentual de referência (%)">
+          <input
+            className={inputClass}
+            type="number"
+            step="0.01"
+            min="0"
+            max="100"
+            required
+            value={form.percent}
+            onChange={e => updateAndSuggest({ percent: e.target.value })}
+          />
+        </Field>
+        <Field label="Valor da comissão (R$)">
+          <input
+            className={inputClass}
+            type="number"
+            step="0.01"
+            min="0"
+            required
+            value={form.amount}
+            onChange={e => set("amount", e.target.value)}
+          />
+          <span className="block text-xs font-normal text-slate-600">
+            Calculado pelo percentual sobre o valor do {isObra ? "contrato da obra" : "imóvel"}; pode ser ajustado.
+          </span>
+        </Field>
         {(
           [
-            ["property", "Imóvel / negócio", "text"],
-            ["amount", "Valor da comissão (R$)", "number"],
-            ["percent", "Percentual de referência (%)", "number"],
             ["dueDate", "Vencimento", "datetime-local"],
             ["notes", "Observações", "text"],
           ] as const
@@ -250,8 +367,6 @@ export default function AdminComissoes() {
             <input
               className={inputClass}
               type={type}
-              step={type === "number" ? "0.01" : undefined}
-              min={type === "number" ? "0" : undefined}
               required={key !== "notes"}
               value={form[key]}
               onChange={e => set(key, e.target.value)}

@@ -4,6 +4,7 @@ import { z } from "zod";
 import {
   brokerCommissions,
   brokerProfiles,
+  constructionProjects,
   imoveis,
   leads,
   operationalCommissions as commissions,
@@ -201,7 +202,7 @@ export const corretoresRouter = router({
       });
     // One statement: profile and user are created atomically; no credential or role escalation.
     const result = await db.execute(
-      sql`WITH created AS (INSERT INTO users ("openId", name, email, phone, creci, active, "avatarUrl", role, permissions) VALUES (${`broker:${email}`}, ${input.name}, ${email}, ${input.phone}, ${input.creci}, ${input.active}, ${input.avatar || null}, 'corretor', '[]') RETURNING id) INSERT INTO broker_profiles (user_id, specialties, notes) SELECT id, ${JSON.stringify(input.specialties)}, ${input.notes} FROM created RETURNING user_id`
+      sql`WITH created AS (INSERT INTO users ("openId", name, email, phone, creci, active, "avatarUrl", role, permissions) VALUES (${`broker:${email}`}, ${input.name}, ${email}, ${input.phone}, ${input.creci}, ${input.active}, ${input.avatar || null}, 'corretor', '[]') RETURNING id) INSERT INTO broker_profiles (user_id, specialties, notes) SELECT id, ${JSON.stringify(input.specialties ?? [])}, ${input.notes} FROM created RETURNING user_id`
     );
     return { id: Number(result.rows[0].user_id) };
   }),
@@ -247,6 +248,12 @@ export const corretoresRouter = router({
           message:
             "O e-mail de acesso não pode ser alterado pelo cadastro de corretores",
         });
+      // Foto e especialidades não são mais editadas pela tela (EPIC-018);
+      // quando ausentes no payload, os valores gravados são preservados.
+      const specialties =
+        data.specialties === undefined
+          ? undefined
+          : JSON.stringify(data.specialties);
       await db.batch([
         db
           .update(users)
@@ -255,7 +262,9 @@ export const corretoresRouter = router({
             phone: data.phone,
             creci: data.creci,
             active: data.active,
-            avatarUrl: data.avatar || null,
+            ...(data.avatar === undefined
+              ? {}
+              : { avatarUrl: data.avatar || null }),
             updatedAt: new Date(),
           })
           .where(and(eq(users.id, input.id), eq(users.role, "corretor"))),
@@ -263,13 +272,13 @@ export const corretoresRouter = router({
           .insert(brokerProfiles)
           .values({
             userId: input.id,
-            specialties: JSON.stringify(data.specialties),
+            specialties: specialties ?? "[]",
             notes: data.notes,
           })
           .onConflictDoUpdate({
             target: brokerProfiles.userId,
             set: {
-              specialties: JSON.stringify(data.specialties),
+              ...(specialties === undefined ? {} : { specialties }),
               notes: data.notes,
             },
           }),
@@ -298,8 +307,71 @@ export const corretoresRouter = router({
   }),
 });
 
+/**
+ * EPIC-018 (stories 2.3–2.5): o negócio da comissão aponta para um imóvel ou
+ * uma obra cadastrados. O título é gravado em `property` para histórico.
+ */
+async function commissionTarget(input: z.infer<typeof commissionInput>) {
+  const db = getDb();
+  if (input.businessType === "obra") {
+    const obra = found(
+      (
+        await db
+          .select({ id: constructionProjects.id, title: constructionProjects.title })
+          .from(constructionProjects)
+          .where(eq(constructionProjects.id, input.constructionProjectId!))
+          .limit(1)
+      )[0]
+    );
+    return { propertyId: null, constructionProjectId: obra.id, property: obra.title };
+  }
+  const imovel = found(
+    (
+      await db
+        .select({ id: imoveis.id, title: imoveis.titulo })
+        .from(imoveis)
+        .where(eq(imoveis.id, input.propertyId!))
+        .limit(1)
+    )[0]
+  );
+  return { propertyId: imovel.id, constructionProjectId: null, property: imovel.title };
+}
+
 export const comissoesRouter = router({
   options: adminProcedure.query(async () => (await options()).brokers),
+  /** Corretores, imóveis e obras realmente cadastrados para o formulário. */
+  formOptions: adminProcedure.query(async () => {
+    const db = getDb();
+    const [brokers, properties, obras] = await Promise.all([
+      db
+        .select({ id: users.id, name: users.name, active: users.active })
+        .from(users)
+        .where(eq(users.role, "corretor"))
+        .orderBy(asc(users.name)),
+      db
+        .select({ id: imoveis.id, name: imoveis.titulo, value: imoveis.preco, status: imoveis.status })
+        .from(imoveis)
+        .orderBy(asc(imoveis.titulo)),
+      db
+        .select({
+          id: constructionProjects.id,
+          name: constructionProjects.title,
+          contractValue: constructionProjects.contractValue,
+          vgv: constructionProjects.vgv,
+        })
+        .from(constructionProjects)
+        .orderBy(asc(constructionProjects.title)),
+    ]);
+    return {
+      brokers,
+      properties,
+      // Base da obra: valor do contrato; na falta dele, o VGV cadastrado.
+      obras: obras.map(({ contractValue, vgv, ...obra }) => ({
+        ...obra,
+        value: contractValue ?? vgv,
+      })),
+    };
+  }),
   list: adminProcedure.query(async () =>
     getDb()
       .select({ commission: commissions, brokerName: users.name })
@@ -316,12 +388,14 @@ export const comissoesRouter = router({
   create: adminProcedure.input(commissionInput).mutation(async ({ input }) => {
     const brokerId = input.beneficiary === "empresa" ? null : input.brokerId;
     await brokerExists(brokerId);
+    const target = await commissionTarget(input);
     return found(
       (
         await getDb()
           .insert(commissions)
           .values({
             ...input,
+            ...target,
             brokerId,
             amount: input.amount.toFixed(2),
             percent: input.percent.toFixed(2),
@@ -338,6 +412,7 @@ export const comissoesRouter = router({
       const d = input.data;
       const brokerId = d.beneficiary === "empresa" ? null : d.brokerId;
       await brokerExists(brokerId);
+      const target = await commissionTarget(d);
       const previous = found(
         (
           await db
@@ -353,6 +428,7 @@ export const comissoesRouter = router({
             .update(commissions)
             .set({
               ...d,
+              ...target,
               brokerId,
               amount: d.amount.toFixed(2),
               percent: d.percent.toFixed(2),
@@ -378,9 +454,14 @@ export const comissoesRouter = router({
     ),
 });
 
-function projectValues(d: z.infer<typeof projectInput>) {
+function projectValues(
+  d: z.infer<typeof projectInput>,
+  lead: { name: string; phone: string } | null = null
+) {
   return {
     ...d,
+    // EPIC-017: com lead vinculado, cliente e telefone seguem o CRM.
+    ...(lead ? { clientName: lead.name, clientPhone: lead.phone ?? "" } : {}),
     types: JSON.stringify(d.types),
     checklist: JSON.stringify(d.checklist),
     files: JSON.stringify(d.files),
@@ -408,10 +489,13 @@ export const projetosRouter = router({
       )
     ),
   create: adminProcedure.input(projectInput).mutation(async ({ input }) => {
-    await leadExists(input.leadId);
+    const lead = await leadExists(input.leadId);
     const created = found(
       (
-        await getDb().insert(projects).values(projectValues(input)).returning()
+        await getDb()
+          .insert(projects)
+          .values(projectValues(input, lead))
+          .returning()
       )[0]
     );
     await attachCompletedProcess("projetos", created.leadId, created.id);
@@ -420,12 +504,12 @@ export const projetosRouter = router({
   update: adminProcedure
     .input(z.object({ id: z.number().int().positive(), data: projectInput }))
     .mutation(async ({ input }) => {
-      await leadExists(input.data.leadId);
+      const lead = await leadExists(input.data.leadId);
       return found(
         (
           await getDb()
             .update(projects)
-            .set(projectValues(input.data))
+            .set(projectValues(input.data, lead))
             .where(eq(projects.id, input.id))
             .returning()
         )[0]
