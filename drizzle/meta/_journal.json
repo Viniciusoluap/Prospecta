@@ -218,6 +218,13 @@
       "when": 1791857950000,
       "tag": "0030_etapa5_primeiro_acesso",
       "breakpoints": true
+    },
+    {
+      "idx": 31,
+      "version": "7",
+      "when": 1791858000000,
+      "tag": "0031_epic017_018_vinculos_reais",
+      "breakpoints": true
     }
   ]
 }
