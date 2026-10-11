@@ -38,11 +38,19 @@ const TEMP_LABELS: Record<string, string> = {
   hot: "Quente",
 };
 
-const RESPONSIBLE_LABELS: Record<string, string> = {
+// Nomes do enum legado: usados só para exibir leads antigos sem responsável real.
+const LEGACY_RESPONSIBLE_LABELS: Record<string, string> = {
   sarah: "Sarah",
   vinicius: "Vinicius",
   bianca: "Bianca",
 };
+
+const NONE = "none";
+const emptyLead = () => ({
+  name: "", phone: "", email: "", cpf: "", address: "", neighborhood: "", city: "", state: "",
+  notes: "", type: "new_lead" as any, services: [] as LeadServiceType[],
+  responsibleUserId: NONE, brokerId: NONE,
+});
 
 export default function AdminCRM() {
   const { user } = useAuth();
@@ -54,10 +62,13 @@ export default function AdminCRM() {
   const [viewMode, setViewMode] = useState<"pipeline" | "list">("pipeline");
   const [showDeleted, setShowDeleted] = useState(false);
   const [newLeadOpen, setNewLeadOpen] = useState(false);
-  const [newLead, setNewLead] = useState({
-    name: "", phone: "", email: "", city: "", state: "",
-    income: "", incomeType: "formal" as any, notes: "", type: "new_lead" as any, services: [] as LeadServiceType[],
-  });
+  // EPIC-017 (stories 1.6/1.8): sem renda/tipo de renda; responsável e corretor
+  // vêm dos usuários realmente cadastrados.
+  const [newLead, setNewLead] = useState(emptyLead);
+  const { data: assignment } = trpc.leads.assignmentOptions.useQuery(undefined, { enabled: user?.role === "admin" });
+  const responsibleName = (lead: { responsibleUserId?: number | null; responsible: string }) =>
+    (lead.responsibleUserId && assignment?.responsibles.find(item => item.id === lead.responsibleUserId)?.name) ||
+    LEGACY_RESPONSIBLE_LABELS[lead.responsible] || "—";
 
   const { data: leads = [], refetch } = trpc.leads.list.useQuery({
     includeDeleted: showDeleted,
@@ -81,7 +92,7 @@ export default function AdminCRM() {
     onSuccess: () => {
       toast.success("Lead criado com sucesso!");
       setNewLeadOpen(false);
-      setNewLead({ name: "", phone: "", email: "", city: "", state: "", income: "", incomeType: "formal", notes: "", type: "new_lead", services: [] });
+      setNewLead(emptyLead());
       refetch();
     },
     onError: (err) => toast.error(err.message),
@@ -99,7 +110,19 @@ export default function AdminCRM() {
       toast.error("Nome é obrigatório");
       return;
     }
-    createMutation.mutate({ ...newLead, phone: newLead.phone || undefined, email: newLead.email || undefined, city: newLead.city || undefined, state: newLead.state || undefined, income: newLead.income || undefined, notes: newLead.notes || undefined } as any);
+    createMutation.mutate({
+      ...newLead,
+      phone: newLead.phone || undefined,
+      email: newLead.email || undefined,
+      cpf: newLead.cpf || undefined,
+      address: newLead.address || undefined,
+      neighborhood: newLead.neighborhood || undefined,
+      city: newLead.city || undefined,
+      state: newLead.state || undefined,
+      notes: newLead.notes || undefined,
+      responsibleUserId: newLead.responsibleUserId === NONE ? null : Number(newLead.responsibleUserId),
+      brokerId: newLead.brokerId === NONE ? null : Number(newLead.brokerId),
+    } as any);
   };
 
   const toggleService = (service: LeadServiceType) => {
@@ -184,39 +207,62 @@ export default function AdminCRM() {
                         placeholder="(99) 99999-9999" className="bg-white/10 border-white/20 text-white" />
                     </div>
                   </div>
-                  <div>
-                    <Label className="text-gray-300">Email</Label>
-                    <Input value={newLead.email} onChange={e => setNewLead(p => ({ ...p, email: e.target.value }))}
-                      placeholder="email@exemplo.com" className="bg-white/10 border-white/20 text-white" />
-                  </div>
                   <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <Label className="text-gray-300">Email</Label>
+                      <Input value={newLead.email} onChange={e => setNewLead(p => ({ ...p, email: e.target.value }))}
+                        placeholder="email@exemplo.com" className="bg-white/10 border-white/20 text-white" />
+                    </div>
+                    <div>
+                      <Label className="text-gray-300">CPF</Label>
+                      <Input value={newLead.cpf} onChange={e => setNewLead(p => ({ ...p, cpf: e.target.value }))}
+                        placeholder="000.000.000-00" maxLength={14} className="bg-white/10 border-white/20 text-white" />
+                    </div>
+                  </div>
+                  <div>
+                    <Label className="text-gray-300">Endereço</Label>
+                    <Input value={newLead.address} onChange={e => setNewLead(p => ({ ...p, address: e.target.value }))}
+                      placeholder="Rua, número, complemento" className="bg-white/10 border-white/20 text-white" />
+                  </div>
+                  <div className="grid grid-cols-[1fr_1fr_4rem] gap-3">
+                    <div>
+                      <Label className="text-gray-300">Bairro</Label>
+                      <Input value={newLead.neighborhood} onChange={e => setNewLead(p => ({ ...p, neighborhood: e.target.value }))}
+                        className="bg-white/10 border-white/20 text-white" />
+                    </div>
                     <div>
                       <Label className="text-gray-300">Cidade</Label>
                       <Input value={newLead.city} onChange={e => setNewLead(p => ({ ...p, city: e.target.value }))}
                         placeholder="Imperatriz" className="bg-white/10 border-white/20 text-white" />
                     </div>
                     <div>
-                      <Label className="text-gray-300">Estado</Label>
-                      <Input value={newLead.state} onChange={e => setNewLead(p => ({ ...p, state: e.target.value }))}
+                      <Label className="text-gray-300">UF</Label>
+                      <Input value={newLead.state} onChange={e => setNewLead(p => ({ ...p, state: e.target.value.toUpperCase() }))}
                         placeholder="MA" maxLength={2} className="bg-white/10 border-white/20 text-white" />
                     </div>
                   </div>
                   <div className="grid grid-cols-2 gap-3">
                     <div>
-                      <Label className="text-gray-300">Renda (R$)</Label>
-                      <Input value={newLead.income} onChange={e => setNewLead(p => ({ ...p, income: e.target.value }))}
-                        placeholder="3000.00" className="bg-white/10 border-white/20 text-white" />
+                      <Label className="text-gray-300">Responsável</Label>
+                      <Select value={newLead.responsibleUserId} onValueChange={v => setNewLead(p => ({ ...p, responsibleUserId: v }))}>
+                        <SelectTrigger className="bg-white/10 border-white/20 text-white"><SelectValue /></SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value={NONE}>Automático (por cidade)</SelectItem>
+                          {assignment?.responsibles.map(item => (
+                            <SelectItem key={item.id} value={String(item.id)}>{item.name || item.email}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
                     </div>
                     <div>
-                      <Label className="text-gray-300">Tipo de Renda</Label>
-                      <Select value={newLead.incomeType} onValueChange={v => setNewLead(p => ({ ...p, incomeType: v as any }))}>
-                        <SelectTrigger className="bg-white/10 border-white/20 text-white">
-                          <SelectValue />
-                        </SelectTrigger>
+                      <Label className="text-gray-300">Corretor</Label>
+                      <Select value={newLead.brokerId} onValueChange={v => setNewLead(p => ({ ...p, brokerId: v }))}>
+                        <SelectTrigger className="bg-white/10 border-white/20 text-white"><SelectValue /></SelectTrigger>
                         <SelectContent>
-                          <SelectItem value="formal">Formal (CLT)</SelectItem>
-                          <SelectItem value="informal">Informal (Declarada)</SelectItem>
-                          <SelectItem value="irpf">IRPF</SelectItem>
+                          <SelectItem value={NONE}>Nenhum</SelectItem>
+                          {assignment?.brokers.map(item => (
+                            <SelectItem key={item.id} value={String(item.id)}>{item.name || item.email}</SelectItem>
+                          ))}
                         </SelectContent>
                       </Select>
                     </div>
@@ -346,9 +392,9 @@ export default function AdminCRM() {
           </SelectTrigger>
           <SelectContent>
             <SelectItem value="all">Todos</SelectItem>
-            <SelectItem value="sarah">Sarah</SelectItem>
-            <SelectItem value="vinicius">Vinicius</SelectItem>
-            <SelectItem value="bianca">Bianca</SelectItem>
+            {assignment?.responsibles.map(item => (
+              <SelectItem key={item.id} value={String(item.id)}>{item.name || item.email}</SelectItem>
+            ))}
           </SelectContent>
         </Select>
       </div>
@@ -412,7 +458,7 @@ export default function AdminCRM() {
                               )}
                               <div className="flex items-center justify-between">
                                 <Badge variant="outline" className="text-xs border-white/20 text-gray-400">
-                                  {RESPONSIBLE_LABELS[lead.responsible]}
+                                  {responsibleName(lead)}
                                 </Badge>
                                 {lead.income && (
                                   <span className="text-xs text-[#C9A961]">
@@ -478,7 +524,7 @@ export default function AdminCRM() {
                             {TEMP_LABELS[lead.temperature]}
                           </span>
                         </td>
-                        <td className="p-4 text-gray-400 text-sm">{RESPONSIBLE_LABELS[lead.responsible]}</td>
+                        <td className="p-4 text-gray-400 text-sm">{responsibleName(lead)}</td>
                         <td className="p-4 text-[#C9A961] text-sm">
                           {lead.income ? `R$ ${Number(lead.income).toLocaleString("pt-BR")}` : "—"}
                         </td>
