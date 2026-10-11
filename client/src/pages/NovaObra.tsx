@@ -10,12 +10,15 @@ import { ArrowLeft, HardHat, Loader2 } from "lucide-react";
 import { useState, type FormEvent } from "react";
 import { Link, useLocation } from "wouter";
 import { toast } from "sonner";
+import { LeadPicker } from "@/components/admin/LeadPicker";
+import { leadFullAddress } from "../../../shared/lead-snapshot";
 
 export default function NovaObra() {
   const { user, loading } = useAuth();
   const [, navigate] = useLocation();
-  const [leadId, setLeadId] = useState("none");
-  const { data: leads = [] } = trpc.construction.leadOptions.useQuery(undefined, {
+  // EPIC-017 (story 1.4): obra nasce sempre de um lead do CRM.
+  const [leadId, setLeadId] = useState<number | null>(null);
+  const { data: leads = [], isLoading: leadsLoading } = trpc.construction.leadOptions.useQuery(undefined, {
     enabled: !loading && user?.role === "admin",
   });
   const create = trpc.construction.createAdminProject.useMutation({
@@ -26,8 +29,15 @@ export default function NovaObra() {
     onError: error => toast.error(error.message),
   });
 
+  const selectedLead = leads.find(lead => lead.id === leadId);
+  const leadAddress = selectedLead ? leadFullAddress(selectedLead) : "";
+
   function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    if (!leadId) {
+      toast.error("Selecione o cliente no CRM");
+      return;
+    }
     const form = new FormData(event.currentTarget);
     const value = (key: string) => String(form.get(key) || "").trim();
     const startDate = value("startDate");
@@ -35,7 +45,7 @@ export default function NovaObra() {
     const totalArea = value("totalArea");
     create.mutate({
       title: value("title"),
-      leadId: leadId === "none" ? undefined : Number(leadId),
+      leadId,
       address: value("address") || undefined,
       projectType: value("projectType") || undefined,
       totalArea: totalArea ? Number(totalArea) : undefined,
@@ -59,10 +69,10 @@ export default function NovaObra() {
           <CardContent>
             <form onSubmit={submit} className="space-y-5">
               <div className="space-y-2"><Label htmlFor="title">Título *</Label><Input id="title" name="title" minLength={2} maxLength={255} required className="bg-[#111B29] text-white placeholder:text-gray-400" /></div>
-              <div className="space-y-2"><Label htmlFor="lead">Cliente no CRM</Label>
-                <Select value={leadId} onValueChange={setLeadId}><SelectTrigger id="lead" className="bg-[#111B29] text-white"><SelectValue placeholder="Selecione um cliente" /></SelectTrigger><SelectContent><SelectItem value="none">Sem vínculo por enquanto</SelectItem>{leads.map(lead => <SelectItem key={lead.id} value={String(lead.id)}>{lead.name} (#{lead.id})</SelectItem>)}</SelectContent></Select>
+              <LeadPicker label="Cliente no CRM" leads={leads} loading={leadsLoading} value={leadId} onChange={setLeadId} />
+              <div className="space-y-2"><Label htmlFor="address">Endereço da obra</Label><Input id="address" name="address" placeholder={leadAddress || "Se vazio, usa o endereço do lead"} className="bg-[#111B29] text-white placeholder:text-gray-400" />
+                <p className="text-xs text-gray-300">{leadAddress ? `Deixe em branco para usar o endereço do cadastro do lead: ${leadAddress}.` : "Se o lote for diferente do endereço do cliente, informe aqui."}</p>
               </div>
-              <div className="space-y-2"><Label htmlFor="address">Endereço</Label><Input id="address" name="address" className="bg-[#111B29] text-white placeholder:text-gray-400" /></div>
               <div className="grid gap-4 sm:grid-cols-2">
                 <div className="space-y-2"><Label htmlFor="projectType">Tipo de projeto</Label><Input id="projectType" name="projectType" className="bg-[#111B29] text-white placeholder:text-gray-400" /></div>
                 <div className="space-y-2"><Label htmlFor="totalArea">Área total (m²)</Label><Input id="totalArea" name="totalArea" type="number" min="0.01" step="0.01" className="bg-[#111B29] text-white" /></div>
@@ -70,7 +80,7 @@ export default function NovaObra() {
                 <div className="space-y-2"><Label htmlFor="estimatedEndDate">Previsão de término</Label><Input id="estimatedEndDate" name="estimatedEndDate" type="date" className="bg-[#111B29] text-white" /></div>
               </div>
               <div className="space-y-2"><Label htmlFor="notes">Observações</Label><Textarea id="notes" name="notes" className="bg-[#111B29] text-white placeholder:text-gray-400" /></div>
-              <div className="flex flex-wrap gap-3"><Button type="submit" disabled={create.isPending || loading || user?.role !== "admin"} className="bg-[#C9A961] text-[#1A2332] hover:bg-[#E1BF78]">{create.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}Cadastrar Obra</Button><Link href="/admin/obras"><Button type="button" variant="outline" className="text-white">Cancelar</Button></Link></div>
+              <div className="flex flex-wrap gap-3"><Button type="submit" disabled={create.isPending || loading || user?.role !== "admin" || !leadId} className="bg-[#C9A961] text-[#1A2332] hover:bg-[#E1BF78]">{create.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}Cadastrar Obra</Button><Link href="/admin/obras"><Button type="button" variant="outline" className="text-white">Cancelar</Button></Link></div>
             </form>
           </CardContent>
         </Card>

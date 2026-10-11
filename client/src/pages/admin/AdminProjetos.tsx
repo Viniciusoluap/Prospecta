@@ -44,6 +44,8 @@ export default function AdminProjetos() {
   const remove = trpc.projetos.delete.useMutation();
   const [form, setForm] = useState(blank);
   const [id, setId] = useState<number | null>(null);
+  // EPIC-017: registro nasce do lead; cliente/telefone vêm do CRM.
+  const [linkedLeadId, setLinkedLeadId] = useState<number | null>(null);
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState("");
   const [status, setStatus] = useState("");
@@ -61,13 +63,17 @@ export default function AdminProjetos() {
       loading={list.isLoading}
       error={list.error}
       retry={() => void list.refetch()}
-      onNew={() => {
-        setId(null);
-        setForm(blank());
-        setOpen(true);
-      }}
     >
-      <LinkedServiceQueue module="projetos" title="Projetos" />
+      <LinkedServiceQueue
+        module="projetos"
+        title="Projetos"
+        onRecordsCreated={() => void list.refetch()}
+      />
+      <p className="rounded border border-slate-200 bg-white p-3 text-sm text-slate-700">
+        Novos projetos nascem do CRM: no cadastro do lead, vincule o serviço
+        “Projeto técnico”. O registro aparece aqui com os dados do cliente;
+        complete engenheiro, tipos, valores e prazo em “Detalhes / editar”.
+      </p>
       <nav className="flex flex-wrap gap-4 text-sm underline">
         <Link href="/admin/orcamentos">Solicitações de orçamento</Link>
         <Link href="/admin/incorporacao">Estudos de incorporação</Link>
@@ -102,10 +108,17 @@ export default function AdminProjetos() {
       >
         {rows.map(r => {
           const checks = parseArray<Check>(r.checklist);
+          const pendingTechnicalData =
+            !r.engineer.trim() || !parseArray<string>(r.types).length;
           return (
             <tr key={r.id}>
               <td>
                 {r.name}
+                {pendingTechnicalData && (
+                  <span className="ml-2 rounded bg-amber-100 px-2 py-0.5 text-xs font-semibold text-amber-900">
+                    Aguardando dados técnicos
+                  </span>
+                )}
                 <br />
                 {r.clientName}
                 {r.leadId && <><br /><Link href={`/admin/crm/${r.leadId}`} className="text-sm text-[#8B631D] underline">Abrir cadastro CRM</Link></>}
@@ -133,6 +146,7 @@ export default function AdminProjetos() {
                     variant="outline"
                     onClick={() => {
                       setId(r.id);
+                      setLinkedLeadId(r.leadId ?? null);
                       setForm({
                         ...r,
                         types: parseArray<string>(r.types).join(", "),
@@ -183,8 +197,8 @@ export default function AdminProjetos() {
           [
             ["name", "Nome", "text"],
             ["types", "Tipos separados por vírgula", "text"],
-            ["clientName", "Cliente", "text"],
-            ["clientPhone", "Telefone", "tel"],
+            ["clientName", linkedLeadId ? "Cliente (do CRM)" : "Cliente", "text"],
+            ["clientPhone", linkedLeadId ? "Telefone (do CRM)" : "Telefone", "tel"],
             ["engineer", "Engenheiro responsável", "text"],
             ["value", "Valor do projeto (R$)", "number"],
             ["paidValue", "Valor pago (R$)", "number"],
@@ -197,6 +211,10 @@ export default function AdminProjetos() {
               type={type}
               step={type === "number" ? "0.01" : undefined}
               min={type === "number" ? "0" : undefined}
+              disabled={
+                linkedLeadId !== null &&
+                (key === "clientName" || key === "clientPhone")
+              }
               value={form[key]}
               onChange={e => setForm(f => ({ ...f, [key]: e.target.value }))}
             />
@@ -208,13 +226,25 @@ export default function AdminProjetos() {
           onChange={v => setForm(f => ({ ...f, status: v }))}
           options={choices(PROJECT_STATUS)}
         />
-        <Choice
-          label="Lead vinculado"
-          optional
-          value={form.leadId}
-          onChange={v => setForm(f => ({ ...f, leadId: v }))}
-          options={ids(leads.data)}
-        />
+        {linkedLeadId ? (
+          <Field label="Lead vinculado">
+            <Link
+              href={`/admin/crm/${linkedLeadId}`}
+              className="block p-2 text-[#8B631D] underline"
+            >
+              {leads.data?.find(l => l.id === linkedLeadId)?.name ??
+                `Lead #${linkedLeadId}`}
+            </Link>
+          </Field>
+        ) : (
+          <Choice
+            label="Lead vinculado (registro antigo sem vínculo)"
+            optional
+            value={form.leadId}
+            onChange={v => setForm(f => ({ ...f, leadId: v }))}
+            options={ids(leads.data)}
+          />
+        )}
         <Field label="Descrição">
           <textarea
             className={inputClass}

@@ -15,6 +15,7 @@ import {
 } from "lucide-react";
 import { trpc } from "@/lib/trpc";
 import { LinkedServiceQueue } from "./LinkedServiceQueue";
+import { LeadPicker } from "@/components/admin/LeadPicker";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import {
@@ -61,6 +62,12 @@ function numero(formData: FormData, nome: string) {
 
 export default function AdminFinanciamentos() {
   const [novoAberto, setNovoAberto] = useState(false);
+  // EPIC-017 (story 1.5): novo financiamento nasce de um lead do CRM.
+  const [novoLeadId, setNovoLeadId] = useState<number | null>(null);
+  const abrirNovo = (leadId: number | null = null) => {
+    setNovoLeadId(leadId);
+    setNovoAberto(true);
+  };
   const [editarAberto, setEditarAberto] = useState(false);
   const [selecionado, setSelecionado] = useState<number | null>(null);
   const [filtro, setFiltro] = useState<Status | "todos">("todos");
@@ -168,7 +175,34 @@ export default function AdminFinanciamentos() {
 
   function handleCriar(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    criar.mutate(dadosFormulario(event.currentTarget));
+    if (!novoLeadId) {
+      toast.error("Selecione o lead do CRM");
+      return;
+    }
+    // Nome, CPF, telefone e e-mail são migrados do lead pelo servidor.
+    const {
+      clienteNome: _nome,
+      clienteCpf: _cpf,
+      clienteTel: _tel,
+      clienteEmail: _email,
+      leadId: _lead,
+      ...dados
+    } = dadosFormulario(event.currentTarget);
+    criar.mutate({ ...dados, leadId: novoLeadId });
+  }
+
+  function dadosEdicao(form: HTMLFormElement, leadIdVinculado: number | null) {
+    const dados = dadosFormulario(form);
+    if (!leadIdVinculado) return dados;
+    // Cliente vinculado: dados pessoais seguem o CRM e o vínculo não muda aqui.
+    const {
+      clienteNome: _nome,
+      clienteCpf: _cpf,
+      clienteTel: _tel,
+      clienteEmail: _email,
+      ...resto
+    } = dados;
+    return { ...resto, leadId: leadIdVinculado };
   }
 
   const total = processos.reduce(
@@ -203,7 +237,7 @@ export default function AdminFinanciamentos() {
             </div>
           </div>
           <Button
-            onClick={() => setNovoAberto(true)}
+            onClick={() => abrirNovo()}
             className="bg-[#C9A961] font-bold text-[#1A2332] hover:bg-[#B8985A]"
           >
             <Plus className="mr-2 h-4 w-4" /> Novo financiamento
@@ -212,7 +246,12 @@ export default function AdminFinanciamentos() {
       </header>
 
       <main className="mx-auto max-w-7xl space-y-5 px-4 py-6 md:px-6">
-        <LinkedServiceQueue module="financiamentos" title="Financiamentos" />
+        <LinkedServiceQueue
+          module="financiamentos"
+          title="Financiamentos"
+          startLabel="Iniciar financiamento"
+          onStart={leadId => abrirNovo(leadId)}
+        />
         <div className="grid gap-4 md:grid-cols-3">
           {[
             {
@@ -328,10 +367,18 @@ export default function AdminFinanciamentos() {
             </DialogTitle>
           </DialogHeader>
           <form onSubmit={handleCriar} className="grid gap-4 md:grid-cols-2">
-            <Campo nome="clienteNome" rotulo="Cliente" obrigatorio />
-            <Campo nome="clienteTel" rotulo="Telefone" obrigatorio />
-            <Campo nome="clienteEmail" rotulo="E-mail" tipo="email" />
-            <Campo nome="clienteCpf" rotulo="CPF" />
+            <div className="md:col-span-2">
+              <LeadPicker
+                label="Cliente (lead do CRM)"
+                leads={options?.leads ?? []}
+                loading={!options}
+                value={novoLeadId}
+                onChange={setNovoLeadId}
+              />
+              <p className="mt-1 text-xs text-gray-300">
+                Nome, CPF, telefone e e-mail do cliente são copiados do cadastro do lead.
+              </p>
+            </div>
             <div className="md:col-span-2">
               <Campo nome="imovel" rotulo="Imóvel" obrigatorio />
             </div>
@@ -353,7 +400,7 @@ export default function AdminFinanciamentos() {
             />
             <Campo nome="bancoOutro" rotulo="Outro banco" />
             <Campo nome="protocolo" rotulo="Protocolo" />
-            <Vinculos options={options} />
+            <Vinculos options={options} semLead />
             <Campo
               nome="valorImovel"
               rotulo="Valor do imóvel"
@@ -391,7 +438,7 @@ export default function AdminFinanciamentos() {
             </div>
             <Button
               type="submit"
-              disabled={criar.isPending}
+              disabled={criar.isPending || !novoLeadId}
               className="md:col-span-2 bg-[#C9A961] font-bold text-[#1A2332] hover:bg-[#B8985A]"
             >
               Cadastrar processo
@@ -578,31 +625,38 @@ export default function AdminFinanciamentos() {
                 event.preventDefault();
                 atualizar.mutate({
                   id: detalhe.financiamento.id,
-                  data: dadosFormulario(event.currentTarget),
+                  data: dadosEdicao(
+                    event.currentTarget,
+                    detalhe.financiamento.leadId
+                  ),
                 });
               }}
               className="grid gap-4 md:grid-cols-2"
             >
               <Campo
                 nome="clienteNome"
+                desabilitado={Boolean(detalhe.financiamento.leadId)}
                 rotulo="Cliente"
                 obrigatorio
                 valorPadrao={detalhe.financiamento.clienteNome}
               />
               <Campo
                 nome="clienteTel"
+                desabilitado={Boolean(detalhe.financiamento.leadId)}
                 rotulo="Telefone"
                 obrigatorio
                 valorPadrao={detalhe.financiamento.clienteTel}
               />
               <Campo
                 nome="clienteEmail"
+                desabilitado={Boolean(detalhe.financiamento.leadId)}
                 rotulo="E-mail"
                 tipo="email"
                 valorPadrao={detalhe.financiamento.clienteEmail || ""}
               />
               <Campo
                 nome="clienteCpf"
+                desabilitado={Boolean(detalhe.financiamento.leadId)}
                 rotulo="CPF"
                 valorPadrao={detalhe.financiamento.clienteCpf || ""}
               />
@@ -642,7 +696,23 @@ export default function AdminFinanciamentos() {
                 rotulo="Protocolo"
                 valorPadrao={detalhe.financiamento.protocolo || ""}
               />
-              <Vinculos options={options} initial={detalhe.financiamento} />
+              <Vinculos
+                options={options}
+                initial={detalhe.financiamento}
+                semLead={Boolean(detalhe.financiamento.leadId)}
+              />
+              {detalhe.financiamento.leadId && (
+                <p className="md:col-span-2 text-xs text-gray-300">
+                  Cliente vinculado ao{" "}
+                  <Link
+                    href={`/admin/crm/${detalhe.financiamento.leadId}`}
+                    className="underline"
+                  >
+                    lead do CRM
+                  </Link>
+                  : nome, CPF, telefone e e-mail são atualizados a partir do cadastro do lead.
+                </p>
+              )}
               <Campo
                 nome="valorImovel"
                 rotulo="Valor do imóvel"
@@ -713,6 +783,7 @@ function Campo({
   obrigatorio = false,
   passo,
   valorPadrao,
+  desabilitado = false,
 }: {
   nome: string;
   rotulo: string;
@@ -720,6 +791,7 @@ function Campo({
   obrigatorio?: boolean;
   passo?: string;
   valorPadrao?: string;
+  desabilitado?: boolean;
 }) {
   return (
     <div>
@@ -731,7 +803,8 @@ function Campo({
         id={nome}
         name={nome}
         type={tipo}
-        required={obrigatorio}
+        required={obrigatorio && !desabilitado}
+        disabled={desabilitado}
         step={passo ?? (tipo === "number" ? "0.01" : undefined)}
         min={tipo === "number" ? 0 : undefined}
         defaultValue={valorPadrao}
@@ -774,7 +847,9 @@ function Selecao({
 function Vinculos({
   options,
   initial,
+  semLead = false,
 }: {
+  semLead?: boolean;
   options?: {
     leads: { id: number; name: string }[];
     properties: { id: number; title: string }[];
@@ -788,7 +863,7 @@ function Vinculos({
 }) {
   return (
     <>
-      <div>
+      {!semLead && <div>
         <Label>Lead vinculado</Label>
         <Select
           name="leadId"
@@ -806,7 +881,7 @@ function Vinculos({
             ))}
           </SelectContent>
         </Select>
-      </div>
+      </div>}
       <div>
         <Label>Imóvel vinculado</Label>
         <Select
