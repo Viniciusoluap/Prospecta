@@ -56,7 +56,9 @@ import {
   createLeadServiceWithAutomation,
   ensureLeadServicesSchema,
   leadServicesRouter,
+  linkRecordToLead,
 } from "./lead-services-router.js";
+import { leadContact, leadFullAddress } from "../shared/lead-snapshot.js";
 import { leadServices } from "../drizzle/schema.js";
 import {
   LEAD_SERVICE_MODULE,
@@ -74,6 +76,30 @@ import { leadDocumentsRouter } from "./lead-documents-router.js";
 // Helper para gerar número de bilhete único
 function generateTicketNumber(): string {
   return `TKT${Date.now()}${Math.random().toString(36).substring(2, 9).toUpperCase()}`;
+}
+
+/** Campos de cliente da avaliação derivados do lead (EPIC-017). */
+function avaliacaoClientFields(lead: Parameters<typeof leadContact>[0]) {
+  const contact = leadContact(lead);
+  return {
+    clienteNome: contact.name,
+    clienteCpf: contact.cpf ?? undefined,
+    clienteTel: contact.phone,
+    clienteEmail: contact.email ?? undefined,
+    endereco: contact.address,
+    bairro: contact.neighborhood,
+    cidade: contact.city,
+    estado: contact.state,
+  };
+}
+
+/** Responsável e corretor do lead precisam ser usuários reais com o papel certo. */
+async function assertLeadAssignment(input: { responsibleUserId?: number | null; brokerId?: number | null }) {
+  const check = await db.validateLeadAssignment(input);
+  if (!check.responsibleOk)
+    throw new TRPCError({ code: "BAD_REQUEST", message: "Responsável inválido: selecione um colaborador ou administrador cadastrado" });
+  if (!check.brokerOk)
+    throw new TRPCError({ code: "BAD_REQUEST", message: "Corretor inválido: selecione um corretor cadastrado" });
 }
 
 export const appRouter = router({
@@ -670,11 +696,13 @@ export const appRouter = router({
 
   // ========== CONSTRUCTION (OBRAS) ==========
   construction: router({
-    leadOptions: adminProcedure.query(() => db.getLeadOptions()),
+    // EPIC-017: inclui os dados cadastrais que migram do lead para a obra.
+    leadOptions: adminProcedure.query(() => db.getLeadContactOptions()),
     createAdminProject: adminProcedure
       .input(z.object({
         title: z.string().trim().min(2).max(255),
-        leadId: z.number().int().positive().optional(),
+        // EPIC-017: obra sempre nasce de um lead do CRM; nada de cadastro avulso.
+        leadId: z.number().int().positive(),
         address: z.string().trim().optional(),
         projectType: z.string().trim().optional(),
         totalArea: z.number().positive().optional(),
@@ -683,20 +711,27 @@ export const appRouter = router({
         notes: z.string().trim().optional(),
       }))
       .mutation(async ({ input }) => {
-        if (input.leadId && !(await db.getLeadById(input.leadId))) {
+        const lead = await db.getLeadById(input.leadId);
+        if (!lead) {
           throw new TRPCError({ code: "NOT_FOUND", message: "Lead não encontrado" });
         }
         if (input.startDate && input.estimatedEndDate && input.estimatedEndDate < input.startDate) {
           throw new TRPCError({ code: "BAD_REQUEST", message: "O término previsto antecede o início" });
         }
         // Um cadastro administrativo pode ser iniciado sem conta de portal.
-        // O vínculo CRM é feito pelo identificador existente, sem duplicar clientes.
-        return db.createProject({
+        // O vínculo CRM é feito pelo identificador existente, sem duplicar clientes;
+        // endereço, cidade e UF migram do lead quando não informados para a obra.
+        const project = await db.createProject({
           ...input,
+          address: input.address || leadFullAddress(lead) || undefined,
+          city: lead.city || undefined,
+          state: lead.state || undefined,
           userId: null,
           status: "planning",
           progress: 0,
         });
+        await linkRecordToLead("obras", input.leadId, project.id);
+        return project;
       }),
     // Listar obras do usuário
     myProjects: protectedProcedure.query(async ({ ctx }) => {
@@ -1318,6 +1353,12 @@ export const appRouter = router({
         return db.getAllLeads(input || {});
       }),
 
+    /** Responsáveis e corretores reais (EPIC-017, stories 1.6 e 1.8). */
+    assignmentOptions: protectedProcedure.query(async ({ ctx }) => {
+      requireRole(ctx, ["admin"]);
+      return db.getLeadAssignmentOptions();
+    }),
+
     getById: protectedProcedure
       .input(z.object({ id: z.number() }))
       .query(async ({ input, ctx }) => {
@@ -1351,6 +1392,8 @@ export const appRouter = router({
             ])
             .optional(),
           temperature: z.enum(["cold", "warm", "hot"]).optional(),
+          // Renda/tipo de renda saíram do formulário (EPIC-017, story 1.6) e
+          // seguem aceitos apenas por compatibilidade com integrações antigas.
           income: z.string().optional(),
           incomeType: z.enum(["formal", "informal", "irpf"]).optional(),
           fgtsAmount: z.string().optional(),
@@ -1359,11 +1402,17 @@ export const appRouter = router({
           spouseName: z.string().optional(),
           sourceChannel: z.string().optional(),
           notes: z.string().optional(),
+          cpf: z.string().trim().max(14).optional(),
+          address: z.string().trim().max(500).optional(),
+          neighborhood: z.string().trim().max(100).optional(),
+          responsibleUserId: z.number().int().positive().nullable().optional(),
+          brokerId: z.number().int().positive().nullable().optional(),
           services: z.array(z.enum(LEAD_SERVICE_TYPES)).max(20).optional(),
         })
       )
       .mutation(async ({ input, ctx }) => {
         requireRole(ctx, ["admin"]);
+        await assertLeadAssignment(input);
         // Roteamento automático por cidade
         let responsible: "sarah" | "vinicius" | "bianca" = "sarah";
         const city = (input.city || "").toLowerCase();
@@ -1481,11 +1530,17 @@ export const appRouter = router({
             .optional(),
           type: z.string().optional(),
           lgpdConsent: z.number().optional(),
+          cpf: z.string().trim().max(14).optional(),
+          address: z.string().trim().max(500).optional(),
+          neighborhood: z.string().trim().max(100).optional(),
+          responsibleUserId: z.number().int().positive().nullable().optional(),
+          brokerId: z.number().int().positive().nullable().optional(),
         })
       )
       .mutation(async ({ input, ctx }) => {
         requireRole(ctx, ["admin"]);
         const { id, stage, ...data } = input;
+        await assertLeadAssignment(data);
         const lead = await db.getLeadById(id);
         if (!lead) throw new TRPCError({ code: "NOT_FOUND" });
         if (lead.deletedAt) throw new TRPCError({ code: "CONFLICT", message: "Recupere o lead antes de editá-lo" });
@@ -2348,6 +2403,9 @@ export const appRouter = router({
       return db.getLeadOptions();
     }),
 
+    /** Leads com os dados cadastrais que migram para a avaliação (EPIC-017, story 1.1). */
+    leadContactOptions: adminProcedure.query(async () => db.getLeadContactOptions()),
+
     list: adminProcedure
       .input(
         z
@@ -2375,14 +2433,8 @@ export const appRouter = router({
         z.object({
           tipo: z.string(),
           finalidade: z.string(),
-          clienteNome: z.string(),
-          clienteCpf: z.string().optional(),
-          clienteTel: z.string(),
-          clienteEmail: z.string().optional(),
-          endereco: z.string(),
-          bairro: z.string(),
-          cidade: z.string(),
-          estado: z.string(),
+          // EPIC-017: cliente e endereço vêm do lead; não há cadastro manual.
+          leadId: z.number().int().positive(),
           areaConstruida: z.number().optional(),
           areaTerreno: z.number().optional(),
           quartos: z.number().optional(),
@@ -2394,12 +2446,15 @@ export const appRouter = router({
           prazoEntrega: z.string().optional(),
           observacoes: z.string().optional(),
           valorServico: z.number().optional(),
-          leadId: z.number().optional(),
         })
       )
       .mutation(async ({ input }) => {
-        return db.createAvaliacao({
+        const lead = await db.getLeadById(input.leadId);
+        if (!lead || lead.deletedAt)
+          throw new TRPCError({ code: "NOT_FOUND", message: "Lead não encontrado no CRM" });
+        const avaliacao = await db.createAvaliacao({
           ...input,
+          ...avaliacaoClientFields(lead),
           areaConstruida: input.areaConstruida?.toString(),
           areaTerreno: input.areaTerreno?.toString(),
           valorServico: input.valorServico?.toString(),
@@ -2410,6 +2465,8 @@ export const appRouter = router({
             ? new Date(input.prazoEntrega)
             : undefined,
         } as any);
+        await linkRecordToLead("avaliacoes", lead.id, avaliacao.id);
+        return avaliacao;
       }),
 
     update: adminProcedure
@@ -2460,8 +2517,12 @@ export const appRouter = router({
         if (data.status === "entregue") {
           (data as any).dataEntrega = new Date();
         }
+        // Com lead vinculado, os dados do cliente seguem o CRM (fonte única).
+        const leadId = data.leadId ?? (await db.getAvaliacaoById(id))?.leadId ?? null;
+        const lead = leadId ? await db.getLeadById(leadId) : undefined;
         await db.updateAvaliacao(id, {
           ...data,
+          ...(lead ? avaliacaoClientFields(lead) : {}),
           areaConstruida: data.areaConstruida?.toString(),
           areaTerreno: data.areaTerreno?.toString(),
           valorEstimado: data.valorEstimado?.toString(),

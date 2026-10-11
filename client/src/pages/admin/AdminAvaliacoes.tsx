@@ -2,6 +2,8 @@ import { useState } from "react";
 import { Link } from "wouter";
 import { trpc } from "@/lib/trpc";
 import { LinkedServiceQueue } from "./LinkedServiceQueue";
+import { LeadPicker } from "@/components/admin/LeadPicker";
+import { leadContact, missingLeadAddressFields } from "../../../../shared/lead-snapshot";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -49,13 +51,17 @@ export default function AdminAvaliacoes() {
   const [filterStatus, setFilterStatus] = useState("all");
   const [filterTipo, setFilterTipo] = useState("all");
   const [selecionadas, setSelecionadas] = useState<Set<number>>(new Set());
-  const [form, setForm] = useState({
-    tipo: "mercado", finalidade: "compra_venda",
-    clienteNome: "", clienteCpf: "", clienteTel: "", clienteEmail: "",
-    endereco: "", bairro: "", cidade: "", estado: "",
+  // EPIC-017 (story 1.1): o cliente vem de um lead do CRM; nada é redigitado.
+  const emptyForm = () => ({
+    tipo: "mercado", finalidade: "compra_venda", leadId: null as number | null,
     areaConstruida: "", areaTerreno: "", quartos: "", banheiros: "", vagas: "",
     metodologia: "comparativo", avaliador: "", valorServico: "",
   });
+  const [form, setForm] = useState(emptyForm);
+  const { data: leadOptions = [], isLoading: leadsLoading } = trpc.avaliacoes.leadContactOptions.useQuery(undefined, { enabled: open });
+  const selectedLead = leadOptions.find(lead => lead.id === form.leadId);
+  const selectedContact = selectedLead ? leadContact(selectedLead) : null;
+  const missingAddress = selectedLead ? missingLeadAddressFields(selectedLead) : [];
 
   const { data: avaliacoes = [], refetch } = trpc.avaliacoes.list.useQuery({
     status: filterStatus !== "all" ? filterStatus : undefined,
@@ -67,13 +73,7 @@ export default function AdminAvaliacoes() {
       toast.success("Avaliação criada!");
       refetch();
       setOpen(false);
-      setForm({
-        tipo: "mercado", finalidade: "compra_venda",
-        clienteNome: "", clienteCpf: "", clienteTel: "", clienteEmail: "",
-        endereco: "", bairro: "", cidade: "", estado: "",
-        areaConstruida: "", areaTerreno: "", quartos: "", banheiros: "", vagas: "",
-        metodologia: "comparativo", avaliador: "", valorServico: "",
-      });
+      setForm(emptyForm());
     },
     onError: (e) => toast.error(e.message),
   });
@@ -97,17 +97,11 @@ export default function AdminAvaliacoes() {
   const canceladas = avaliacoes.filter((a: any) => a.status === "cancelada").length;
 
   function handleCreate() {
+    if (!form.leadId) return;
     createMutation.mutate({
       tipo: form.tipo,
       finalidade: form.finalidade,
-      clienteNome: form.clienteNome,
-      clienteCpf: form.clienteCpf || undefined,
-      clienteTel: form.clienteTel,
-      clienteEmail: form.clienteEmail || undefined,
-      endereco: form.endereco,
-      bairro: form.bairro,
-      cidade: form.cidade,
-      estado: form.estado,
+      leadId: form.leadId,
       areaConstruida: form.areaConstruida ? parseFloat(form.areaConstruida) : undefined,
       areaTerreno: form.areaTerreno ? parseFloat(form.areaTerreno) : undefined,
       quartos: form.quartos ? parseInt(form.quartos) : undefined,
@@ -179,45 +173,30 @@ export default function AdminAvaliacoes() {
                   </div>
                 </div>
 
-                <div className="grid grid-cols-2 gap-3">
-                  <div>
-                    <Label className="text-gray-300">Cliente</Label>
-                    <Input value={form.clienteNome} onChange={e => setForm(f => ({ ...f, clienteNome: e.target.value }))} className="bg-[#2C3E50] border-[#C9A961]/30 text-white mt-1" />
+                <LeadPicker
+                  label="Cliente (lead do CRM)"
+                  leads={leadOptions}
+                  loading={leadsLoading}
+                  value={form.leadId}
+                  onChange={leadId => setForm(f => ({ ...f, leadId }))}
+                />
+                {selectedContact && (
+                  <div className="rounded-md border border-white/10 bg-[#0F1923] p-3 text-sm" aria-label="Dados migrados do lead">
+                    <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-[#C9A961]">Dados migrados do CRM</p>
+                    <dl className="grid gap-x-4 gap-y-1 sm:grid-cols-2">
+                      <div><dt className="inline text-gray-400">CPF: </dt><dd className="inline">{selectedContact.cpf || "—"}</dd></div>
+                      <div><dt className="inline text-gray-400">Telefone: </dt><dd className="inline">{selectedContact.phone || "—"}</dd></div>
+                      <div className="sm:col-span-2"><dt className="inline text-gray-400">E-mail: </dt><dd className="inline">{selectedContact.email || "—"}</dd></div>
+                      <div className="sm:col-span-2"><dt className="inline text-gray-400">Endereço: </dt><dd className="inline">{[selectedContact.address, selectedContact.neighborhood, [selectedContact.city, selectedContact.state].filter(Boolean).join("/")].filter(Boolean).join(", ") || "—"}</dd></div>
+                    </dl>
+                    {missingAddress.length > 0 && (
+                      <p className="mt-2 text-xs text-amber-300">
+                        O lead não tem {missingAddress.join(", ")}. A avaliação será criada mesmo assim; complete o cadastro no{" "}
+                        <Link href={`/admin/crm/${selectedLead!.id}`} className="underline">CRM</Link> para o laudo sair completo.
+                      </p>
+                    )}
                   </div>
-                  <div>
-                    <Label className="text-gray-300">CPF</Label>
-                    <Input value={form.clienteCpf} onChange={e => setForm(f => ({ ...f, clienteCpf: e.target.value }))} className="bg-[#2C3E50] border-[#C9A961]/30 text-white mt-1" />
-                  </div>
-                  <div>
-                    <Label className="text-gray-300">Telefone</Label>
-                    <Input value={form.clienteTel} onChange={e => setForm(f => ({ ...f, clienteTel: e.target.value }))} className="bg-[#2C3E50] border-[#C9A961]/30 text-white mt-1" />
-                  </div>
-                  <div>
-                    <Label className="text-gray-300">Email</Label>
-                    <Input value={form.clienteEmail} onChange={e => setForm(f => ({ ...f, clienteEmail: e.target.value }))} className="bg-[#2C3E50] border-[#C9A961]/30 text-white mt-1" />
-                  </div>
-                </div>
-
-                <div className="grid grid-cols-2 gap-3">
-                  <div className="col-span-2">
-                    <Label className="text-gray-300">Endereço</Label>
-                    <Input value={form.endereco} onChange={e => setForm(f => ({ ...f, endereco: e.target.value }))} className="bg-[#2C3E50] border-[#C9A961]/30 text-white mt-1" />
-                  </div>
-                  <div>
-                    <Label className="text-gray-300">Bairro</Label>
-                    <Input value={form.bairro} onChange={e => setForm(f => ({ ...f, bairro: e.target.value }))} className="bg-[#2C3E50] border-[#C9A961]/30 text-white mt-1" />
-                  </div>
-                  <div className="grid grid-cols-2 gap-2">
-                    <div>
-                      <Label className="text-gray-300">Cidade</Label>
-                      <Input value={form.cidade} onChange={e => setForm(f => ({ ...f, cidade: e.target.value }))} className="bg-[#2C3E50] border-[#C9A961]/30 text-white mt-1" />
-                    </div>
-                    <div>
-                      <Label className="text-gray-300">UF</Label>
-                      <Input value={form.estado} maxLength={2} onChange={e => setForm(f => ({ ...f, estado: e.target.value.toUpperCase() }))} className="bg-[#2C3E50] border-[#C9A961]/30 text-white mt-1" />
-                    </div>
-                  </div>
-                </div>
+                )}
 
                 <div className="grid grid-cols-3 gap-3">
                   <div>
@@ -266,7 +245,7 @@ export default function AdminAvaliacoes() {
 
                 <Button
                   onClick={handleCreate}
-                  disabled={createMutation.isPending || !form.clienteNome || !form.clienteTel || !form.endereco || !form.cidade || !form.estado || !form.avaliador}
+                  disabled={createMutation.isPending || !form.leadId || !form.avaliador}
                   className="w-full bg-[#C9A961] hover:bg-[#B8985A] text-[#1A2332] font-bold"
                 >
                   Criar Avaliação
@@ -279,7 +258,12 @@ export default function AdminAvaliacoes() {
       </div>
 
       <div className="max-w-7xl mx-auto px-6 py-6 space-y-6">
-        <LinkedServiceQueue module="avaliacoes" title="Avaliações" />
+        <LinkedServiceQueue
+          module="avaliacoes"
+          title="Avaliações"
+          startLabel="Solicitar avaliação"
+          onStart={leadId => { setForm({ ...emptyForm(), leadId }); setOpen(true); }}
+        />
         {/* Indicadores */}
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
           <Card className="bg-[#2C3E50] border-[#C9A961]/20">

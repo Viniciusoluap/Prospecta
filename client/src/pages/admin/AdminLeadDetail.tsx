@@ -64,6 +64,8 @@ export default function AdminLeadDetail() {
     enabled: !!leadId,
   });
   const { data: services = [], refetch: refetchServices } = trpc.leadServices.listByLead.useQuery({ leadId }, { enabled: !!leadId });
+  // EPIC-017 (stories 1.6/1.8): responsável e corretor são usuários reais.
+  const { data: assignment } = trpc.leads.assignmentOptions.useQuery();
   const { data: deletionContext } = trpc.leads.deletionContext.useQuery({ id: leadId }, { enabled: deleteOpen && !!leadId });
 
   const deleteMutation = trpc.leads.softDelete.useMutation({
@@ -79,7 +81,10 @@ export default function AdminLeadDetail() {
     if (lead && Object.keys(editForm).length === 0) {
       setEditForm({
         name: lead.name, phone: lead.phone, email: lead.email || "",
+        cpf: lead.cpf || "", address: lead.address || "", neighborhood: lead.neighborhood || "",
         city: lead.city || "", state: lead.state || "",
+        responsibleUserId: lead.responsibleUserId ? String(lead.responsibleUserId) : "none",
+        brokerId: lead.brokerId ? String(lead.brokerId) : "none",
         income: lead.income || "", fgts: (lead as any).fgts || false,
         pisFgts: lead.pisFgts || "", hasSpouse: lead.hasSpouse || false,
         spouseName: lead.spouseName || "", incomeComposition: lead.incomeComposition || false,
@@ -108,7 +113,6 @@ export default function AdminLeadDetail() {
     onError: (error) => toast.error(error.message),
   });
   const updateServiceStatusMutation = trpc.leadServices.setStatus.useMutation({ onSuccess: () => { toast.success("Status do serviço atualizado."); refetchServices(); }, onError: error => toast.error(error.message) });
-  const unlinkServiceMutation = trpc.leadServices.unlinkProcess.useMutation({ onSuccess: () => { toast.success("Processo desvinculado do serviço."); refetchServices(); }, onError: error => toast.error(error.message) });
   const removeServiceMutation = trpc.leadServices.remove.useMutation({ onSuccess: () => { toast.success("Serviço excluído do lead."); refetchServices(); }, onError: error => toast.error(error.message) });
 
   const handleAdvanceStage = () => {
@@ -136,6 +140,11 @@ export default function AdminLeadDetail() {
     );
   }
 
+  const legacyResponsible = ({ sarah: "Sarah", vinicius: "Vinicius", bianca: "Bianca" } as Record<string, string>)[lead.responsible] ?? "";
+  const responsibleName = lead.responsibleUserId
+    ? assignment?.responsibles.find(item => item.id === lead.responsibleUserId)?.name || `Usuário #${lead.responsibleUserId} (inativo)`
+    : legacyResponsible || "—";
+  const brokerName = lead.brokerId ? assignment?.brokers.find(item => item.id === lead.brokerId)?.name || `Corretor #${lead.brokerId}` : "Nenhum";
   const currentStageIdx = STAGES.findIndex(s => s.key === lead.stage);
   const canAdvance = !lead.deletedAt && currentStageIdx >= 0 && currentStageIdx < STAGES.length - 1;
 
@@ -212,12 +221,26 @@ export default function AdminLeadDetail() {
                       <Input value={editForm.email || ""} onChange={e => setEditForm(f => ({ ...f, email: e.target.value }))} className="bg-[#2C3E50] border-[#C9A961]/30 text-white mt-1" />
                     </div>
                     <div>
-                      <Label className="text-gray-300">Cidade</Label>
-                      <Input value={editForm.city || ""} onChange={e => setEditForm(f => ({ ...f, city: e.target.value }))} className="bg-[#2C3E50] border-[#C9A961]/30 text-white mt-1" />
+                      <Label className="text-gray-300">CPF</Label>
+                      <Input value={editForm.cpf || ""} maxLength={14} onChange={e => setEditForm(f => ({ ...f, cpf: e.target.value }))} className="bg-[#2C3E50] border-[#C9A961]/30 text-white mt-1" />
+                    </div>
+                    <div className="col-span-2">
+                      <Label className="text-gray-300">Endereço</Label>
+                      <Input value={editForm.address || ""} onChange={e => setEditForm(f => ({ ...f, address: e.target.value }))} className="bg-[#2C3E50] border-[#C9A961]/30 text-white mt-1" />
                     </div>
                     <div>
-                      <Label className="text-gray-300">Renda Mensal (R$)</Label>
-                      <Input type="number" value={editForm.income || ""} onChange={e => setEditForm(f => ({ ...f, income: e.target.value }))} className="bg-[#2C3E50] border-[#C9A961]/30 text-white mt-1" />
+                      <Label className="text-gray-300">Bairro</Label>
+                      <Input value={editForm.neighborhood || ""} onChange={e => setEditForm(f => ({ ...f, neighborhood: e.target.value }))} className="bg-[#2C3E50] border-[#C9A961]/30 text-white mt-1" />
+                    </div>
+                    <div className="grid grid-cols-[1fr_4rem] gap-2">
+                      <div>
+                        <Label className="text-gray-300">Cidade</Label>
+                        <Input value={editForm.city || ""} onChange={e => setEditForm(f => ({ ...f, city: e.target.value }))} className="bg-[#2C3E50] border-[#C9A961]/30 text-white mt-1" />
+                      </div>
+                      <div>
+                        <Label className="text-gray-300">UF</Label>
+                        <Input value={editForm.state || ""} maxLength={2} onChange={e => setEditForm(f => ({ ...f, state: e.target.value.toUpperCase() }))} className="bg-[#2C3E50] border-[#C9A961]/30 text-white mt-1" />
+                      </div>
                     </div>
                     <div>
                       <Label className="text-gray-300">Temperatura</Label>
@@ -234,14 +257,29 @@ export default function AdminLeadDetail() {
                     </div>
                     <div>
                       <Label className="text-gray-300">Responsável</Label>
-                      <Select value={editForm.responsible} onValueChange={v => setEditForm(f => ({ ...f, responsible: v }))}>
+                      <Select value={editForm.responsibleUserId} onValueChange={v => setEditForm(f => ({ ...f, responsibleUserId: v }))}>
                         <SelectTrigger className="bg-[#2C3E50] border-[#C9A961]/30 text-white mt-1">
                           <SelectValue />
                         </SelectTrigger>
                         <SelectContent>
-                          <SelectItem value="sarah">Sarah</SelectItem>
-                          <SelectItem value="vinicius">Vinicius</SelectItem>
-                          <SelectItem value="bianca">Bianca</SelectItem>
+                          <SelectItem value="none">{legacyResponsible ? `Sem usuário (antigo: ${legacyResponsible})` : "Não definido"}</SelectItem>
+                          {assignment?.responsibles.map(item => (
+                            <SelectItem key={item.id} value={String(item.id)}>{item.name || item.email}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div>
+                      <Label className="text-gray-300">Corretor</Label>
+                      <Select value={editForm.brokerId} onValueChange={v => setEditForm(f => ({ ...f, brokerId: v }))}>
+                        <SelectTrigger className="bg-[#2C3E50] border-[#C9A961]/30 text-white mt-1">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="none">Nenhum</SelectItem>
+                          {assignment?.brokers.map(item => (
+                            <SelectItem key={item.id} value={String(item.id)}>{item.name || item.email}</SelectItem>
+                          ))}
                         </SelectContent>
                       </Select>
                     </div>
@@ -270,7 +308,18 @@ export default function AdminLeadDetail() {
                     <Textarea value={editForm.adminNotes || ""} onChange={e => setEditForm(f => ({ ...f, adminNotes: e.target.value }))} className="bg-[#2C3E50] border-[#C9A961]/30 text-white mt-1" rows={3} />
                   </div>
                   <Button
-                    onClick={() => updateMutation.mutate({ id: leadId, ...editForm, stage: STAGES.some(s => s.key === editForm.stage) ? editForm.stage : undefined, income: editForm.income ? parseFloat(editForm.income) : undefined, simulationValue: editForm.simulationValue ? parseFloat(editForm.simulationValue) : undefined, approvedValue: editForm.approvedValue ? parseFloat(editForm.approvedValue) : undefined })}
+                    onClick={() => {
+                      // Renda saiu do formulário (story 1.6); o valor legado não é reenviado.
+                      const { income: _income, responsible: _legacyResponsible, responsibleUserId, brokerId, ...form } = editForm;
+                      updateMutation.mutate({
+                        id: leadId, ...form,
+                        stage: STAGES.some(s => s.key === editForm.stage) ? editForm.stage : undefined,
+                        responsibleUserId: responsibleUserId && responsibleUserId !== "none" ? Number(responsibleUserId) : null,
+                        brokerId: brokerId && brokerId !== "none" ? Number(brokerId) : null,
+                        simulationValue: editForm.simulationValue ? parseFloat(editForm.simulationValue) : undefined,
+                        approvedValue: editForm.approvedValue ? parseFloat(editForm.approvedValue) : undefined,
+                      });
+                    }}
                     disabled={updateMutation.isPending}
                     className="w-full bg-[#C9A961] hover:bg-[#B8985A] text-[#1A2332] font-bold"
                   >
@@ -323,12 +372,15 @@ export default function AdminLeadDetail() {
               <InfoRow label="Nome" value={lead.name} />
               <InfoRow label="Telefone" value={lead.phone} icon={<Phone className="h-3 w-3" />} />
               <InfoRow label="Email" value={lead.email} icon={<Mail className="h-3 w-3" />} />
+              <InfoRow label="CPF" value={lead.cpf} />
+              <InfoRow label="Endereço" value={[lead.address, lead.neighborhood].filter(Boolean).join(", ") || null} icon={<MapPin className="h-3 w-3" />} />
               <InfoRow label="Cidade" value={`${lead.city || "—"}${lead.state ? `/${lead.state}` : ""}`} icon={<MapPin className="h-3 w-3" />} />
               <InfoRow label="Temperatura" value={
                 lead.temperature === "hot" ? "Quente 🔥" :
                 lead.temperature === "warm" ? "Morno 🌡️" : "Frio ❄️"
               } />
-              <InfoRow label="Responsável" value={lead.responsible === "sarah" ? "Sarah" : lead.responsible === "vinicius" ? "Vinicius" : "Bianca"} />
+              <InfoRow label="Responsável" value={responsibleName} />
+              <InfoRow label="Corretor" value={brokerName} />
               <InfoRow label="Canal de Origem" value={lead.sourceChannel} />
               <InfoRow label="Cidade Origem" value={lead.sourceCity} />
             </CardContent>
@@ -431,7 +483,6 @@ export default function AdminLeadDetail() {
                         {service.operationalModule && LEAD_SERVICE_MODULE_ROUTES[service.operationalModule] && <Link href={LEAD_SERVICE_MODULE_ROUTES[service.operationalModule]} className="rounded border border-[#C9A961]/50 px-2 py-1 text-xs text-[#E6CA88]">Abrir módulo</Link>}
                         <Badge className={service.status === "completed" ? "bg-green-700" : service.status === "cancelled" ? "bg-red-700" : "bg-teal-600"}>{service.status === "completed" ? "Concluído" : service.status === "cancelled" ? "Cancelado" : "Em andamento"}</Badge>
                         {service.status !== "completed" && <Button size="sm" variant="outline" className="h-7 border-green-600/50 text-green-300" onClick={() => updateServiceStatusMutation.mutate({ id: service.id, status: "completed" })}>Concluir</Button>}
-                        {service.operationalRecordId && <Button size="sm" variant="outline" className="h-7" onClick={() => { if (window.confirm("Desvincular o processo operacional deste serviço? A obra não será excluída.")) unlinkServiceMutation.mutate({ id: service.id }); }}>Desvincular</Button>}
                         <Button size="sm" variant="outline" className="h-7 border-red-600/50 text-red-300" onClick={() => { if (window.confirm("Excluir este serviço do lead? O processo operacional existente não será excluído.")) removeServiceMutation.mutate({ id: service.id }); }}>Excluir</Button>
                       </div>
                     </div>

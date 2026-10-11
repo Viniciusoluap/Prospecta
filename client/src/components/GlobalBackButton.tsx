@@ -33,6 +33,8 @@ export function hasPageBackButton(location: string) {
     "/admin/obras/editar/",
     "/admin/obras/",
     "/admin",
+    // Central Administrativa: tem retorno próprio; o botão fixo cobria o título (EPIC-017, story 3.1).
+    "/admin/acesso",
     "/admin/corretores",
     "/admin/comissoes",
     "/admin/projetos",

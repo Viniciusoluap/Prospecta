@@ -50,6 +50,9 @@ export default function AdminAvaliacaoEditar() {
     onError: (e) => toast.error(e.message),
   });
 
+  // EPIC-017: com lead vinculado, cliente e endereço vêm do CRM (fonte única).
+  const linked = form.leadId !== "none";
+
   if (!avaliacao) {
     return (
       <div className="min-h-screen bg-[#1A2332] text-white flex items-center justify-center">
@@ -156,45 +159,46 @@ export default function AdminAvaliacaoEditar() {
                     {leadOptions.map((l: any) => <SelectItem key={l.id} value={String(l.id)}>{l.name}</SelectItem>)}
                   </SelectContent>
                 </Select>
+                {linked && <p className="mt-1 text-xs text-gray-300">Cliente, CPF, telefone, e-mail e endereço são sincronizados com o cadastro do lead no CRM ao salvar.</p>}
               </div>
             </div>
 
             <div className="grid grid-cols-2 gap-3">
               <div>
                 <Label className="text-gray-300">Cliente</Label>
-                <Input value={form.clienteNome} onChange={(e) => setForm((f) => ({ ...f, clienteNome: e.target.value }))} className="bg-[#1A2332] border-[#C9A961]/30 text-white mt-1" />
+                <Input disabled={linked} value={form.clienteNome} onChange={(e) => setForm((f) => ({ ...f, clienteNome: e.target.value }))} className="bg-[#1A2332] border-[#C9A961]/30 text-white mt-1" />
               </div>
               <div>
                 <Label className="text-gray-300">CPF</Label>
-                <Input value={form.clienteCpf} onChange={(e) => setForm((f) => ({ ...f, clienteCpf: e.target.value }))} className="bg-[#1A2332] border-[#C9A961]/30 text-white mt-1" />
+                <Input disabled={linked} value={form.clienteCpf} onChange={(e) => setForm((f) => ({ ...f, clienteCpf: e.target.value }))} className="bg-[#1A2332] border-[#C9A961]/30 text-white mt-1" />
               </div>
               <div>
                 <Label className="text-gray-300">Telefone</Label>
-                <Input value={form.clienteTel} onChange={(e) => setForm((f) => ({ ...f, clienteTel: e.target.value }))} className="bg-[#1A2332] border-[#C9A961]/30 text-white mt-1" />
+                <Input disabled={linked} value={form.clienteTel} onChange={(e) => setForm((f) => ({ ...f, clienteTel: e.target.value }))} className="bg-[#1A2332] border-[#C9A961]/30 text-white mt-1" />
               </div>
               <div>
                 <Label className="text-gray-300">Email</Label>
-                <Input value={form.clienteEmail} onChange={(e) => setForm((f) => ({ ...f, clienteEmail: e.target.value }))} className="bg-[#1A2332] border-[#C9A961]/30 text-white mt-1" />
+                <Input disabled={linked} value={form.clienteEmail} onChange={(e) => setForm((f) => ({ ...f, clienteEmail: e.target.value }))} className="bg-[#1A2332] border-[#C9A961]/30 text-white mt-1" />
               </div>
             </div>
 
             <div className="grid grid-cols-2 gap-3">
               <div className="col-span-2">
                 <Label className="text-gray-300">Endereço</Label>
-                <Input value={form.endereco} onChange={(e) => setForm((f) => ({ ...f, endereco: e.target.value }))} className="bg-[#1A2332] border-[#C9A961]/30 text-white mt-1" />
+                <Input disabled={linked} value={form.endereco} onChange={(e) => setForm((f) => ({ ...f, endereco: e.target.value }))} className="bg-[#1A2332] border-[#C9A961]/30 text-white mt-1" />
               </div>
               <div>
                 <Label className="text-gray-300">Bairro</Label>
-                <Input value={form.bairro} onChange={(e) => setForm((f) => ({ ...f, bairro: e.target.value }))} className="bg-[#1A2332] border-[#C9A961]/30 text-white mt-1" />
+                <Input disabled={linked} value={form.bairro} onChange={(e) => setForm((f) => ({ ...f, bairro: e.target.value }))} className="bg-[#1A2332] border-[#C9A961]/30 text-white mt-1" />
               </div>
               <div className="grid grid-cols-2 gap-2">
                 <div>
                   <Label className="text-gray-300">Cidade</Label>
-                  <Input value={form.cidade} onChange={(e) => setForm((f) => ({ ...f, cidade: e.target.value }))} className="bg-[#1A2332] border-[#C9A961]/30 text-white mt-1" />
+                  <Input disabled={linked} value={form.cidade} onChange={(e) => setForm((f) => ({ ...f, cidade: e.target.value }))} className="bg-[#1A2332] border-[#C9A961]/30 text-white mt-1" />
                 </div>
                 <div>
                   <Label className="text-gray-300">UF</Label>
-                  <Input value={form.estado} maxLength={2} onChange={(e) => setForm((f) => ({ ...f, estado: e.target.value.toUpperCase() }))} className="bg-[#1A2332] border-[#C9A961]/30 text-white mt-1" />
+                  <Input disabled={linked} value={form.estado} maxLength={2} onChange={(e) => setForm((f) => ({ ...f, estado: e.target.value.toUpperCase() }))} className="bg-[#1A2332] border-[#C9A961]/30 text-white mt-1" />
                 </div>
               </div>
             </div>
@@ -244,7 +248,7 @@ export default function AdminAvaliacaoEditar() {
 
             <Button
               onClick={handleSave}
-              disabled={updateMutation.isPending || !form.clienteNome || !form.clienteTel || !form.endereco || !form.cidade || !form.estado || !form.avaliador}
+              disabled={updateMutation.isPending || (!linked && (!form.clienteNome || !form.clienteTel || !form.endereco || !form.cidade || !form.estado)) || !form.avaliador}
               className="w-full bg-[#C9A961] hover:bg-[#B8985A] text-[#1A2332] font-bold"
             >
               {updateMutation.isPending ? "Salvando..." : "Salvar alterações"}

@@ -706,6 +706,14 @@ export const leads = pgTable("leads", {
   deletedAt: timestamp("deleted_at"),
   deletedByUserId: integer("deleted_by_user_id").references((): AnyPgColumn => users.id, { onDelete: "set null" }),
   responsible: leadResponsibleEnum("responsible").default("sarah").notNull(),
+  // EPIC-017: responsável e corretor apontam para usuários reais do sistema.
+  // O enum legado `responsible` é mantido só para leitura de registros antigos.
+  responsibleUserId: integer("responsible_user_id").references((): AnyPgColumn => users.id, { onDelete: "set null" }),
+  brokerId: integer("broker_id").references((): AnyPgColumn => users.id, { onDelete: "set null" }),
+  // Dados cadastrais migrados automaticamente para os serviços vinculados.
+  cpf: varchar("cpf", { length: 14 }),
+  address: text("address"),
+  neighborhood: varchar("neighborhood", { length: 100 }),
   income: decimal("income", { precision: 15, scale: 2 }),
   incomeType: leadIncomeTypeEnum("income_type"),
   fgtsAmount: decimal("fgts_amount", { precision: 15, scale: 2 }),
@@ -1260,6 +1268,15 @@ export const operationalCommissions = pgTable("operational_commissions", {
   brokerId: integer("broker_id").references(() => users.id, {
     onDelete: "set null",
   }),
+  // EPIC-018: o negócio aponta para um imóvel ou obra cadastrados; `property`
+  // guarda o título no momento do cadastro (e o texto livre de registros antigos).
+  propertyId: integer("property_id").references(() => imoveis.id, {
+    onDelete: "set null",
+  }),
+  constructionProjectId: integer("construction_project_id").references(
+    () => constructionProjects.id,
+    { onDelete: "set null" }
+  ),
   property: varchar("property", { length: 255 }).notNull(),
   amount: decimal("amount", { precision: 15, scale: 2 }).notNull(),
   percent: decimal("percent", { precision: 5, scale: 2 }).notNull(),
@@ -1395,6 +1412,9 @@ export const avaliacoes = pgTable("avaliacoes", {
   sugestaoJson: text("sugestao_json"),
   valorServico: decimal("valor_servico", { precision: 15, scale: 2 }),
   leadId: integer("lead_id").references(() => leads.id, {
+    onDelete: "set null",
+  }),
+  leadServiceId: integer("lead_service_id").references(() => leadServices.id, {
     onDelete: "set null",
   }),
   createdAt: timestamp("created_at").defaultNow().notNull(),

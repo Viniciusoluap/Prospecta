@@ -1,6 +1,12 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import * as db from "./db.js";
 import { appRouter } from "./routers.js";
+import { linkRecordToLead } from "./lead-services-router.js";
+
+vi.mock("./lead-services-router.js", async importOriginal => ({
+  ...(await importOriginal<typeof import("./lead-services-router.js")>()),
+  linkRecordToLead: vi.fn().mockResolvedValue("linked"),
+}));
 
 const admin = () => appRouter.createCaller({ user: { id: 99, role: "admin", active: true }, req: {}, res: {} } as never);
 const client = () => appRouter.createCaller({ user: { id: 2, role: "cliente", active: true }, req: {}, res: {} } as never);
@@ -13,6 +19,27 @@ describe("cadastro administrativo de obras", () => {
     const create = vi.spyOn(db, "createProject").mockResolvedValue({ id: 17 } as never);
     await expect(admin().construction.createAdminProject({ title: "Casa", leadId: 3 })).resolves.toMatchObject({ id: 17 });
     expect(create).toHaveBeenCalledWith(expect.objectContaining({ title: "Casa", leadId: 3, userId: null, status: "planning" }));
+    // EPIC-017: a obra entra nos "Serviços do cliente" do lead.
+    expect(linkRecordToLead).toHaveBeenCalledWith("obras", 3, 17);
+  });
+
+  it("EPIC-017: migra endereço, cidade e UF do lead quando a obra não informa", async () => {
+    vi.spyOn(db, "getLeadById").mockResolvedValue({
+      id: 3, name: "Ana", phone: "99", email: null, address: "Rua A, 10", neighborhood: "Centro", city: "Imperatriz", state: "MA",
+    } as never);
+    const create = vi.spyOn(db, "createProject").mockResolvedValue({ id: 18 } as never);
+    await admin().construction.createAdminProject({ title: "Casa", leadId: 3 });
+    expect(create).toHaveBeenCalledWith(expect.objectContaining({
+      address: "Rua A, 10, Centro, Imperatriz/MA", city: "Imperatriz", state: "MA",
+    }));
+    await admin().construction.createAdminProject({ title: "Casa 2", leadId: 3, address: "Lote 5, Qd 2" });
+    expect(create).toHaveBeenLastCalledWith(expect.objectContaining({ address: "Lote 5, Qd 2" }));
+  });
+
+  it("EPIC-017: recusa obra avulsa, sem lead do CRM", async () => {
+    const create = vi.spyOn(db, "createProject");
+    await expect(admin().construction.createAdminProject({ title: "Casa" } as never)).rejects.toMatchObject({ code: "BAD_REQUEST" });
+    expect(create).not.toHaveBeenCalled();
   });
 
   it("recusa lead inexistente sem criar obra", async () => {
@@ -23,7 +50,7 @@ describe("cadastro administrativo de obras", () => {
   });
 
   it("não permite cadastro por cliente", async () => {
-    await expect(client().construction.createAdminProject({ title: "Casa" })).rejects.toMatchObject({ code: "FORBIDDEN" });
+    await expect(client().construction.createAdminProject({ title: "Casa", leadId: 3 })).rejects.toMatchObject({ code: "FORBIDDEN" });
   });
 });
 

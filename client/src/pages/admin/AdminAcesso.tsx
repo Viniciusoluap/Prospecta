@@ -1,5 +1,6 @@
 import { Link } from "wouter";
 import {
+  ArrowLeft,
   Building2,
   CheckSquare,
   ClipboardCheck,
@@ -115,28 +116,38 @@ export default function AdminAcesso() {
     <div className="min-h-screen bg-[#1A2332] p-4 text-white md:p-8">
       <div className="mx-auto max-w-6xl space-y-6">
         <div>
+          {user?.role === "admin" && (
+            <Link
+              href="/admin"
+              className="mb-3 inline-flex items-center gap-2 rounded-md px-2 py-1 text-sm text-gray-200 hover:bg-white/10 hover:text-white"
+            >
+              <ArrowLeft className="h-4 w-4" /> Painel Administrativo
+            </Link>
+          )}
           <h1 className="text-3xl font-bold text-[#C9A961]">
             Central Administrativa
           </h1>
-          <p className="text-gray-400">
+          <p className="text-gray-300">
             Olá, {user?.name}. Estes são os seus módulos autorizados.
           </p>
         </div>
-        <Card className="border-[#C9A961]/20 bg-[#2C3E50]">
+        {/* Cores explícitas: o Card base usa text-card-foreground (escuro no tema
+            claro), o que deixava títulos e rótulos ilegíveis sobre o fundo escuro. */}
+        <Card className="border-[#C9A961]/20 bg-[#2C3E50] text-white">
           <CardHeader>
-            <CardTitle>Acessos disponíveis</CardTitle>
+            <CardTitle className="text-white">Acessos disponíveis</CardTitle>
           </CardHeader>
           <CardContent className="grid gap-3 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4">
             {allowed.map(({ ids, label, href, icon: Icon }, index) => (
               <Link key={`${ids.join("-")}-${index}`} href={href}>
-                <div className="flex h-24 cursor-pointer flex-col items-center justify-center gap-2 rounded-lg border border-[#C9A961]/20 bg-[#1A2332] hover:border-[#C9A961]">
+                <div className="flex h-24 cursor-pointer flex-col items-center justify-center gap-2 rounded-lg border border-[#C9A961]/20 bg-[#1A2332] text-white hover:border-[#C9A961]">
                   <Icon className="h-6 w-6 text-[#C9A961]" />
-                  <span>{label}</span>
+                  <span className="text-center text-white">{label}</span>
                 </div>
               </Link>
             ))}
             {allowed.length === 0 && (
-              <p className="col-span-full py-10 text-center text-gray-500">
+              <p className="col-span-full py-10 text-center text-gray-300">
                 Nenhum módulo foi liberado. Procure o administrador.
               </p>
             )}

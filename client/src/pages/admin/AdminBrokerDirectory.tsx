@@ -10,17 +10,15 @@ import {
   Field,
   inputClass,
   OperationalPage,
-  parseArray,
   Rows,
 } from "./OperationalUI";
+// EPIC-018 (story 2.1): sem URL de foto e sem especialidades no cadastro.
 const blank = () => ({
   name: "",
   email: "",
   phone: "",
   creci: "",
   active: true,
-  avatar: "",
-  specialties: "",
   notes: "",
 });
 export default function AdminBrokerDirectory() {
@@ -44,7 +42,7 @@ export default function AdminBrokerDirectory() {
   return (
     <OperationalPage
       title="Corretores"
-      description="Cadastro, CRECI, especialidades e situação. Senhas e permissões são administradas exclusivamente em Configurações."
+      description="Cadastro, CRECI e situação. Senhas e permissões são administradas exclusivamente em Configurações."
       loading={list.isLoading}
       error={list.error}
       retry={() => void list.refetch()}
@@ -77,7 +75,7 @@ export default function AdminBrokerDirectory() {
         headers={[
           "Corretor",
           "Contato",
-          "CRECI / especialidades",
+          "CRECI",
           "Situação",
           "Ações",
         ]}
@@ -91,11 +89,7 @@ export default function AdminBrokerDirectory() {
               <br />
               {r.phone}
             </td>
-            <td>
-              {r.creci}
-              <br />
-              {parseArray<string>(r.specialties).join(", ")}
-            </td>
+            <td>{r.creci}</td>
             <td>{r.active ? "Ativo" : "Inativo"}</td>
             <td>
               <div className="flex gap-2">
@@ -110,8 +104,6 @@ export default function AdminBrokerDirectory() {
                       phone: r.phone || "",
                       creci: r.creci || "",
                       active: r.active,
-                      avatar: r.avatar || "",
-                      specialties: parseArray<string>(r.specialties).join(", "),
                       notes: r.notes || "",
                     });
                     setOpen(true);
@@ -137,13 +129,8 @@ export default function AdminBrokerDirectory() {
         open={open}
         onClose={() => setOpen(false)}
         onSave={async () => {
-          const data = brokerInput.parse({
-            ...form,
-            specialties: form.specialties
-              .split(",")
-              .map(s => s.trim())
-              .filter(Boolean),
-          });
+          // Foto/especialidades não são enviadas: o servidor preserva o que já existe.
+          const data = brokerInput.parse(form);
           if (id) await update.mutateAsync({ id, data });
           else await create.mutateAsync(data);
           await list.refetch();
@@ -155,8 +142,6 @@ export default function AdminBrokerDirectory() {
             ["email", "E-mail de acesso (imutável após cadastro)"],
             ["phone", "Telefone"],
             ["creci", "CRECI"],
-            ["avatar", "URL HTTPS da foto"],
-            ["specialties", "Especialidades, separadas por vírgula"],
             ["notes", "Observações"],
           ] as const
         ).map(([key, label]) => (
@@ -164,9 +149,7 @@ export default function AdminBrokerDirectory() {
             <input
               className={inputClass}
               disabled={key === "email" && id !== null}
-              type={
-                key === "email" ? "email" : key === "avatar" ? "url" : "text"
-              }
+              type={key === "email" ? "email" : "text"}
               value={form[key]}
               onChange={e => setForm(f => ({ ...f, [key]: e.target.value }))}
             />

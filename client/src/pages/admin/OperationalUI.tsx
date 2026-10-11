@@ -10,6 +10,7 @@ import {
   DialogDescription,
 } from "@/components/ui/dialog";
 import { toast } from "sonner";
+import { useAuth } from "@/_core/hooks/useAuth";
 
 export const inputClass =
   "w-full rounded border border-slate-300 bg-white p-2 text-slate-900 disabled:bg-slate-100";
@@ -104,6 +105,10 @@ export function OperationalPage({
   onNew?: () => void;
   embedded?: boolean;
 }) {
+  // Story 3.1: o administrador volta ao Painel Administrativo (onde entrou após
+  // o login); colaboradores e corretores voltam à Central Administrativa.
+  const { user } = useAuth();
+  const backHref = user?.role === "admin" ? "/admin" : "/admin/acesso";
   const content = (
     <main
       className={
@@ -116,7 +121,7 @@ export function OperationalPage({
         <header className="flex flex-wrap items-end justify-between gap-4">
           <div className="min-w-0">
             {!embedded && (
-              <Link href="/admin/acesso">
+              <Link href={backHref}>
                 <Button type="button" variant="ghost" className="mb-3 gap-2 text-slate-700 hover:text-slate-950">
                   <ArrowLeft className="h-4 w-4" /> Voltar
                 </Button>

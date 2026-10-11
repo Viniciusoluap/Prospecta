@@ -6,6 +6,8 @@ describe("retorno único das rotas administrativas", () => {
     for (const route of [
       "/admin", "/admin/corretores", "/admin/comissoes", "/admin/projetos",
       "/admin/mapa", "/admin/regularizacoes", "/admin/obras/42",
+      // Story 3.1: o botão fixo cobria o título da Central Administrativa.
+      "/admin/acesso",
     ]) {
       expect(hasPageBackButton(route), route).toBe(true);
     }

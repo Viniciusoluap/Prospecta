@@ -1,7 +1,8 @@
 import { and, desc, eq, ne, sql } from "drizzle-orm";
 import { z } from "zod";
-import { constructionProjects, leadActivities, leadServices, leads } from "../drizzle/schema.js";
-import { LEAD_SERVICE_MODULE, LEAD_SERVICE_TYPES, serviceTypeFromTrelloFields } from "../shared/lead-services.js";
+import { constructionProjects, leadActivities, leadServices, leads, operationalProjects, regularizacoes } from "../drizzle/schema.js";
+import { LEAD_SERVICE_MODULE, LEAD_SERVICE_TYPES, serviceTypeFromTrelloFields, type LeadServiceType } from "../shared/lead-services.js";
+import { leadContact, leadFullAddress } from "../shared/lead-snapshot.js";
 import { selectProcessReference } from "../shared/service-reconciliation.js";
 import { adminProcedure, router } from "./_core/trpc.js";
 import { getDb } from "./db.js";
@@ -80,10 +81,30 @@ const operationalTables = {
   regularizacoes: "regularizacoes",
   financiamentos: "financiamentos",
   projetos: "operational_projects",
+  avaliacoes: "avaliacoes",
 } as const;
 
+/** Tabelas que aceitam vínculo por lead_service_id, inclusive Obras. */
+const linkableTables = { ...operationalTables, obras: "construction_projects" } as const;
+export type LinkableModule = keyof typeof linkableTables;
+
+/** Serviço CRM criado quando um registro nasce no módulo sem demanda prévia no lead. */
+const DEFAULT_SERVICE_FOR_MODULE: Record<LinkableModule, LeadServiceType> = {
+  regularizacoes: "regularizacao",
+  financiamentos: "financiamento_habitacional",
+  projetos: "projeto_tecnico",
+  avaliacoes: "avaliacao",
+  obras: "obra_cliente",
+};
+
+/** Módulos cujo registro operacional nasce automaticamente ao vincular o lead (EPIC-017). */
+const AUTO_RECORD_MODULES = ["projetos", "regularizacoes"] as const;
+type AutoRecordModule = (typeof AUTO_RECORD_MODULES)[number];
+const isAutoRecordModule = (module: string | null): module is AutoRecordModule =>
+  (AUTO_RECORD_MODULES as readonly string[]).includes(module ?? "");
+
 /** Ao salvar dados completos no módulo, conecta uma única demanda CRM inequívoca. */
-export async function attachCompletedProcess(module: keyof typeof operationalTables, leadId: number | null, recordId: number) {
+export async function attachCompletedProcess(module: LinkableModule, leadId: number | null, recordId: number) {
   if (leadId == null) return "no_lead" as const;
   const database = getDb();
   const services = await database.select().from(leadServices).where(and(
@@ -93,7 +114,7 @@ export async function attachCompletedProcess(module: keyof typeof operationalTab
   if (services.length !== 1) return services.length ? "ambiguous" as const : "no_service" as const;
   const service = services[0];
   if (service.operationalRecordId && service.operationalRecordId !== recordId) return "already_linked" as const;
-  const table = operationalTables[module];
+  const table = linkableTables[module];
   const patched = await database.execute(sql`
     UPDATE ${sql.raw(`"${table}"`)} SET lead_service_id = ${service.id}
     WHERE id = ${recordId} AND lead_id = ${leadId}
@@ -103,6 +124,94 @@ export async function attachCompletedProcess(module: keyof typeof operationalTab
   await database.update(leadServices).set({ operationalRecordId: recordId, updatedAt: new Date() })
     .where(eq(leadServices.id, service.id));
   return "linked" as const;
+}
+
+/**
+ * Registro criado no próprio módulo a partir de um lead (ex.: Nova avaliação,
+ * Novo financiamento, Nova obra): conecta à demanda CRM existente ou, quando o
+ * lead ainda não tinha a demanda, cria o serviço já vinculado — assim o card
+ * "Serviços do cliente" do lead sempre reflete o processo real.
+ */
+export async function linkRecordToLead(module: LinkableModule, leadId: number | null, recordId: number) {
+  const attached = await attachCompletedProcess(module, leadId, recordId);
+  if (attached !== "no_service" || leadId == null) return attached;
+  const database = getDb();
+  const [service] = await database.insert(leadServices).values({
+    leadId,
+    serviceType: DEFAULT_SERVICE_FOR_MODULE[module],
+    status: "active",
+    operationalModule: module,
+    operationalRecordId: recordId,
+  }).returning();
+  const table = linkableTables[module];
+  await database.execute(sql`
+    UPDATE ${sql.raw(`"${table}"`)} SET lead_service_id = ${service.id}
+    WHERE id = ${recordId} AND lead_id = ${leadId} AND lead_service_id IS NULL
+  `);
+  return "service_created" as const;
+}
+
+/**
+ * Projetos e Regularizações: o vínculo com o lead cria o registro real com os
+ * dados cadastrais migrados do CRM. Dados técnicos (engenheiro, tipo, valores)
+ * não são presumidos — ficam vazios até o profissional completar no módulo.
+ */
+async function ensureLinkedRecord(service: typeof leadServices.$inferSelect, lead: typeof leads.$inferSelect) {
+  const reconciled = await reconcileExistingProcess(service);
+  if (reconciled.state !== "awaiting_configuration" || !isAutoRecordModule(service.operationalModule) ||
+    service.status === "cancelled" || service.status === "completed")
+    return reconciled;
+  const database = getDb();
+  const contact = leadContact(lead);
+  let recordId: number;
+  if (service.operationalModule === "projetos") {
+    const [record] = await database.insert(operationalProjects).values({
+      name: service.title || `Projeto técnico — ${contact.name}`,
+      types: "[]",
+      status: "orcamento",
+      clientName: contact.name,
+      clientPhone: contact.phone,
+      engineer: "",
+      value: "0",
+      paidValue: "0",
+      leadId: lead.id,
+      leadServiceId: service.id,
+      description: service.description || "",
+    }).returning({ id: operationalProjects.id });
+    recordId = record.id;
+  } else {
+    const [record] = await database.insert(regularizacoes).values({
+      clientName: contact.name,
+      clientPhone: contact.phone || null,
+      type: "",
+      status: "analysis",
+      address: leadFullAddress(lead),
+      responsible: "",
+      leadId: lead.id,
+      leadServiceId: service.id,
+      description: service.description || "",
+    }).returning({ id: regularizacoes.id });
+    recordId = record.id;
+  }
+  const [updated] = await database.update(leadServices).set({
+    operationalRecordId: recordId, status: "active", updatedAt: new Date(),
+  }).where(eq(leadServices.id, service.id)).returning();
+  return { service: updated, state: "created" as const };
+}
+
+/** Converte demandas antigas ainda sem registro (criadas antes do EPIC-017). */
+export async function materializePendingServices(module: AutoRecordModule) {
+  const database = getDb();
+  const pending = await database.select({ service: leadServices, lead: leads })
+    .from(leadServices).innerJoin(leads, eq(leads.id, leadServices.leadId))
+    .where(and(eq(leadServices.operationalModule, module), ne(leadServices.status, "cancelled"),
+      sql`${leadServices.operationalRecordId} IS NULL`));
+  const results: Array<{ serviceId: number; state: string }> = [];
+  for (const { service, lead } of pending) {
+    const result = await ensureLinkedRecord(service, lead);
+    results.push({ serviceId: service.id, state: result.state });
+  }
+  return results;
 }
 
 /** Reassocia somente por chaves persistidas. Nomes, telefone e CPF nunca são usados como chave. */
@@ -204,6 +313,7 @@ async function ensureOperationalRecord(service: typeof leadServices.$inferSelect
     leadId: lead.id,
     leadServiceId: service.id,
     title: service.title || lead.name,
+    address: leadFullAddress(lead) || null,
     city: lead.city || null,
     state: lead.state || null,
     projectType: service.serviceType === "vistoria_medicao" ? "Vistoria e medição" : "Obra / reforma",
@@ -230,7 +340,7 @@ export async function createLeadServiceWithAutomation(input: z.infer<typeof serv
     )).orderBy(desc(leadServices.createdAt)).limit(1);
     if (existing) {
       if (isWorksService(existing.serviceType)) return ensureOperationalRecord(existing, lead);
-      const reconciled = await reconcileExistingProcess(existing);
+      const reconciled = await ensureLinkedRecord(existing, lead);
       return { service: reconciled.service, workState: "not_applicable" as const };
     }
   }
@@ -246,13 +356,13 @@ export async function createLeadServiceWithAutomation(input: z.infer<typeof serv
     const [existing] = await database.select().from(leadServices).where(eq(leadServices.idempotencyKey, idempotencyKey)).limit(1);
     if (existing) {
       if (isWorksService(existing.serviceType)) return ensureOperationalRecord(existing, lead);
-      const reconciled = await reconcileExistingProcess(existing);
+      const reconciled = await ensureLinkedRecord(existing, lead);
       return { service: reconciled.service, workState: "not_applicable" as const };
     }
   }
   if (!created) throw new Error("Não foi possível criar o vínculo; revise o registro de origem");
   if (isWorksService(created.serviceType)) return ensureOperationalRecord(created, lead);
-  const reconciled = await reconcileExistingProcess(created);
+  const reconciled = await ensureLinkedRecord(created, lead);
   return { service: reconciled.service, workState: "not_applicable" as const };
 }
 
@@ -290,6 +400,15 @@ export const leadServicesRouter = router({
     }
     return { dryRun: input.dryRun, results };
   }),
+  /** Cria os registros reais das demandas antigas que ainda aguardam configuração. */
+  materializePending: adminProcedure.input(z.object({
+    module: z.enum(AUTO_RECORD_MODULES),
+  })).mutation(async ({ input }) => {
+    await ensureLeadServicesSchema();
+    const results = await materializePendingServices(input.module);
+    return { created: results.filter(result => result.state === "created").length, results };
+  }),
+
   listByLead: adminProcedure.input(z.object({ leadId: z.number().int().positive() })).query(async ({ input }) =>
     getDb().select().from(leadServices).where(eq(leadServices.leadId, input.leadId)).orderBy(desc(leadServices.createdAt))
   ),
@@ -314,7 +433,7 @@ export const leadServicesRouter = router({
     const [lead] = await getDb().select().from(leads).where(eq(leads.id, updated.leadId)).limit(1);
     if (!lead) throw new Error("Lead do serviço não encontrado");
     if (isWorksService(updated.serviceType)) return (await ensureOperationalRecord(updated, lead)).service;
-    return (await reconcileExistingProcess(updated)).service;
+    return (await ensureLinkedRecord(updated, lead)).service;
   }),
 
   linkProcess: adminProcedure.input(z.object({

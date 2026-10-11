@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, sql } from "drizzle-orm";
+import { and, asc, desc, eq, isNull, sql } from "drizzle-orm";
 import { z } from "zod";
 import {
   financiamentoChecklistItems,
@@ -10,14 +10,27 @@ import {
 import {
   FINANCIAMENTO_CHECKLIST_PADRAO,
   FINANCIAMENTO_STATUS,
-  financiamentoInputSchema,
+  financiamentoFromLeadSchema,
   financiamentoUpdateSchema,
 } from "../shared/financiamento.js";
+import { leadContact } from "../shared/lead-snapshot.js";
 import { getDb } from "./db.js";
 import { adminProcedure, router } from "./_core/trpc.js";
-import { attachCompletedProcess } from "./lead-services-router.js";
+import { linkRecordToLead } from "./lead-services-router.js";
 import { readPrivateDocument } from "./drive-documents.js";
 import { TRPCError } from "@trpc/server";
+
+async function clientFieldsFromLead(leadId: number) {
+  const [lead] = await getDb().select().from(leads).where(eq(leads.id, leadId)).limit(1);
+  if (!lead) return null;
+  const contact = leadContact(lead);
+  return {
+    clienteNome: contact.name,
+    clienteCpf: contact.cpf,
+    clienteTel: contact.phone,
+    clienteEmail: contact.email,
+  };
+}
 
 export const financiamentoRouter = router({
   options: adminProcedure.query(async () => {
@@ -29,8 +42,10 @@ export const financiamentoRouter = router({
           name: leads.name,
           email: leads.email,
           phone: leads.phone,
+          cpf: leads.cpf,
         })
         .from(leads)
+        .where(isNull(leads.deletedAt))
         .orderBy(leads.name),
       database
         .select({ id: imoveis.id, title: imoveis.titulo, city: imoveis.cidade })
@@ -96,14 +111,16 @@ export const financiamentoRouter = router({
     }),
 
   create: adminProcedure
-    .input(financiamentoInputSchema)
+    .input(financiamentoFromLeadSchema)
     .mutation(async ({ input }) => {
       const database = getDb();
+      const client = await clientFieldsFromLead(input.leadId);
+      if (!client) throw new TRPCError({ code: "NOT_FOUND", message: "Lead não encontrado no CRM" });
       const [financiamento] = await database
         .insert(financiamentos)
         .values({
           ...input,
-          clienteEmail: input.clienteEmail || null,
+          ...client,
           valorImovel: input.valorImovel.toFixed(2),
           valorFinanciado: input.valorFinanciado.toFixed(2),
           entrada: input.entrada.toFixed(2),
@@ -119,7 +136,7 @@ export const financiamentoRouter = router({
             ...item,
           }))
         );
-      await attachCompletedProcess("financiamentos", financiamento.leadId, financiamento.id);
+      await linkRecordToLead("financiamentos", financiamento.leadId, financiamento.id);
       return financiamento;
     }),
 
@@ -132,11 +149,20 @@ export const financiamentoRouter = router({
     )
     .mutation(async ({ input }) => {
       const data = input.data;
+      // Com lead vinculado, o cliente segue o cadastro do CRM (fonte única).
+      const [current] = await getDb()
+        .select({ leadId: financiamentos.leadId })
+        .from(financiamentos)
+        .where(eq(financiamentos.id, input.id))
+        .limit(1);
+      const leadId = data.leadId ?? current?.leadId ?? null;
+      const client = leadId ? await clientFieldsFromLead(leadId) : null;
       const [updated] = await getDb()
         .update(financiamentos)
         .set({
           ...data,
           clienteEmail: data.clienteEmail || null,
+          ...(client ?? {}),
           valorImovel:
             data.valorImovel == null ? undefined : data.valorImovel.toFixed(2),
           valorFinanciado:

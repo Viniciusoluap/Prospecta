@@ -112,11 +112,23 @@ export const regularizacaoRouter = router({
   update: adminProcedure
     .input(regularizacaoFields.partial().extend({ id: z.number().int().positive() }))
     .mutation(async ({ input }) => {
-      const { id, serviceValue, paidValue, ...fields } = input;
+      const { id, serviceValue, paidValue, ...requested } = input;
+      // EPIC-017: com lead vinculado, cliente e telefone vêm do CRM e não são
+      // sobrescritos pelo módulo (o cadastro do cliente é único).
+      const [current] = await getDb()
+        .select({ leadId: regularizacoes.leadId })
+        .from(regularizacoes)
+        .where(eq(regularizacoes.id, id))
+        .limit(1);
+      const { clientName, clientPhone, leadId, ...fields } = requested;
+      const clientFields = current?.leadId
+        ? {}
+        : { clientName, clientPhone, leadId };
       const [updated] = await getDb()
         .update(regularizacoes)
         .set({
           ...fields,
+          ...clientFields,
           ...(serviceValue !== undefined ? { serviceValue: serviceValue.toString() } : {}),
           ...(paidValue !== undefined ? { paidValue: paidValue.toString() } : {}),
           updatedAt: new Date(),

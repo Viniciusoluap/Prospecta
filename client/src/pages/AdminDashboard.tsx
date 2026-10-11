@@ -4,6 +4,7 @@ import { trpc } from "@/lib/trpc";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { commissionBusinessTypeLabel } from "../../../shared/operacional";
 import {
   ArrowLeft,
   BarChart3,
@@ -369,7 +370,10 @@ export default function AdminDashboard() {
         : "Empresa"
     );
     const productRanking = rank(
-      item => item.businessType || item.property || "Sem categoria"
+      item =>
+        (item.businessType && commissionBusinessTypeLabel(item.businessType)) ||
+        item.property ||
+        "Sem categoria"
     );
     const categoryRows = new Map<string, { revenue: number; costs: number }>();
     monthlyPaid.forEach(item => {

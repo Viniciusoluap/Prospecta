@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import { Link } from "wouter";
-import { ArrowLeft, Building2, FileText, Plus, Upload } from "lucide-react";
+import { ArrowLeft, Building2, FileText, Pencil, Plus, Upload } from "lucide-react";
 import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -25,6 +25,8 @@ const STATUS_LABELS: Record<Status, string> = {
   cancelled: "Cancelado",
 };
 
+// EPIC-017 (story 1.3): processos nascem do vínculo no CRM; aqui o profissional
+// completa apenas os dados técnicos. Cliente e telefone vêm do lead.
 const EMPTY_FORM = {
   clientName: "",
   clientPhone: "",
@@ -54,7 +56,7 @@ function fileToBase64(file: File): Promise<string> {
 export default function AdminRegularizacoes() {
   const [filter, setFilter] = useState<Status | "all">("all");
   const [selectedId, setSelectedId] = useState<number>();
-  const [createOpen, setCreateOpen] = useState(false);
+  const [editOpen, setEditOpen] = useState(false);
   const [form, setForm] = useState(EMPTY_FORM);
   const [documentName, setDocumentName] = useState("");
 
@@ -72,18 +74,8 @@ export default function AdminRegularizacoes() {
     ]);
   };
 
-  const createMutation = trpc.regularizacao.create.useMutation({
-    onSuccess: async record => {
-      toast.success("Regularização criada");
-      setSelectedId(record.id);
-      setForm(EMPTY_FORM);
-      setCreateOpen(false);
-      await refresh();
-    },
-    onError: error => toast.error(error.message),
-  });
   const updateMutation = trpc.regularizacao.update.useMutation({
-    onSuccess: async () => { toast.success("Processo atualizado"); await refresh(); },
+    onSuccess: async () => { toast.success("Processo atualizado"); setEditOpen(false); await refresh(); },
     onError: error => toast.error(error.message),
   });
   const createDocument = trpc.regularizacao.documents.create.useMutation({
@@ -130,41 +122,15 @@ export default function AdminRegularizacoes() {
             <Link href="/admin"><Button variant="ghost" className="w-fit gap-2 text-gray-200 hover:text-white"><ArrowLeft className="h-4 w-4" />Voltar</Button></Link>
             <div className="min-w-0"><h1 className="text-2xl font-bold text-[#C9A961]">Regularizações</h1><p className="text-sm text-gray-400">Processos imobiliários e documentos</p></div>
           </div>
-          <Dialog open={createOpen} onOpenChange={setCreateOpen}>
-            <DialogTrigger asChild><Button className="w-fit shrink-0 bg-[#C9A961] text-[#1A2332]"><Plus className="mr-2 h-4 w-4" />Novo processo</Button></DialogTrigger>
-            <DialogContent className="max-h-[90vh] overflow-y-auto bg-[#1A2332] text-white">
-              <DialogHeader><DialogTitle>Nova regularização</DialogTitle></DialogHeader>
-              <div className="grid gap-4 sm:grid-cols-2">
-                <Field label="Cliente"><Input value={form.clientName} onChange={e => setForm({ ...form, clientName: e.target.value })} /></Field>
-                <Field label="Telefone"><Input value={form.clientPhone} onChange={e => setForm({ ...form, clientPhone: e.target.value })} /></Field>
-                <Field label="Tipo"><Input placeholder="Usucapião, escritura..." value={form.type} onChange={e => setForm({ ...form, type: e.target.value })} /></Field>
-                <Field label="Responsável"><Input value={form.responsible} onChange={e => setForm({ ...form, responsible: e.target.value })} /></Field>
-                <Field label="Matrícula"><Input value={form.registration} onChange={e => setForm({ ...form, registration: e.target.value })} /></Field>
-                <Field label="Cartório"><Input value={form.registryOffice} onChange={e => setForm({ ...form, registryOffice: e.target.value })} /></Field>
-                <Field label="Valor do serviço"><Input type="number" min="0" step="0.01" value={form.serviceValue} onChange={e => setForm({ ...form, serviceValue: e.target.value })} /></Field>
-                <Field label="Previsão de conclusão"><Input type="date" value={form.expectedEndAt} onChange={e => setForm({ ...form, expectedEndAt: e.target.value })} /></Field>
-                <div className="sm:col-span-2"><Field label="Endereço"><Input value={form.address} onChange={e => setForm({ ...form, address: e.target.value })} /></Field></div>
-                <div className="sm:col-span-2"><Field label="Descrição"><Textarea value={form.description} onChange={e => setForm({ ...form, description: e.target.value })} /></Field></div>
-              </div>
-              <Button className="w-full bg-[#C9A961] text-[#1A2332]" disabled={createMutation.isPending} onClick={() => createMutation.mutate({
-                clientName: form.clientName,
-                clientPhone: form.clientPhone || null,
-                type: form.type,
-                address: form.address,
-                registration: form.registration || null,
-                registryOffice: form.registryOffice || null,
-                responsible: form.responsible,
-                serviceValue: Number(form.serviceValue || 0),
-                expectedEndAt: form.expectedEndAt ? new Date(`${form.expectedEndAt}T12:00:00`) : null,
-                description: form.description,
-              })}>Salvar processo</Button>
-            </DialogContent>
-          </Dialog>
         </div>
       </header>
 
       <main className="mx-auto max-w-7xl space-y-6 px-6 py-6">
-        <LinkedServiceQueue module="regularizacoes" title="Regularizações" />
+        <LinkedServiceQueue module="regularizacoes" title="Regularizações" onRecordsCreated={() => void refresh()} />
+        <p className="rounded-md border border-white/10 bg-[#243345] p-3 text-sm text-gray-200">
+          Novos processos nascem do CRM: no cadastro do lead, vincule o serviço “Regularização imobiliária”.
+          O processo aparece aqui com os dados do cliente; complete tipo, responsável, matrícula e valores em “Editar dados do processo”.
+        </p>
         <div className="grid gap-4 sm:grid-cols-3">
           <Metric label="Processos ativos" value={String(totals.active)} />
           <Metric label="Concluídos" value={String(totals.completed)} />
@@ -189,7 +155,9 @@ export default function AdminRegularizacoes() {
                 <div key={record.id}>
                 <button key={record.id} onClick={() => setSelectedId(record.id)} className={`w-full rounded-md border p-3 text-left ${selectedId === record.id ? "border-[#C9A961]" : "border-white/10"}`}>
                   <div className="flex items-start justify-between gap-2"><strong>{record.clientName}</strong><Badge variant="secondary">{STATUS_LABELS[record.status as Status] ?? record.status}</Badge></div>
-                  <p className="mt-1 text-sm text-gray-300">{record.type} · {record.responsible}</p>
+                  {!record.type.trim() || !record.responsible.trim()
+                    ? <p className="mt-1 text-sm font-semibold text-amber-300">Aguardando dados técnicos</p>
+                    : <p className="mt-1 text-sm text-gray-300">{record.type} · {record.responsible}</p>}
                   <p className="text-sm text-[#C9A961]">{currency(record.serviceValue)}</p>
                 </button>
                 {record.leadId && <Link href={`/admin/crm/${record.leadId}`} className="inline-block py-1 text-sm text-[#E6CA88] underline">Abrir cadastro CRM</Link>}
@@ -204,8 +172,31 @@ export default function AdminRegularizacoes() {
               {!selected && <p className="text-gray-300">Selecione um processo para acompanhar o workflow.</p>}
               {selected && (
                 <div className="space-y-6">
+                  <Button
+                    variant="outline"
+                    className="gap-2 border-[#C9A961]/60 text-[#E6CA88]"
+                    onClick={() => {
+                      setForm({
+                        clientName: selected.clientName,
+                        clientPhone: selected.clientPhone ?? "",
+                        type: selected.type,
+                        address: selected.address,
+                        registration: selected.registration ?? "",
+                        registryOffice: selected.registryOffice ?? "",
+                        responsible: selected.responsible,
+                        serviceValue: String(Number(selected.serviceValue)),
+                        expectedEndAt: selected.expectedEndAt ? new Date(selected.expectedEndAt).toISOString().slice(0, 10) : "",
+                        description: selected.description,
+                      });
+                      setEditOpen(true);
+                    }}
+                  >
+                    <Pencil className="h-4 w-4" />Editar dados do processo
+                  </Button>
                   <div className="grid gap-4 sm:grid-cols-2">
-                    <div><p className="text-xs text-gray-300">Imóvel</p><p>{selected.address}</p></div>
+                    <div><p className="text-xs text-gray-300">Cliente</p><p>{selected.clientName}{selected.clientPhone ? ` · ${selected.clientPhone}` : ""}</p></div>
+                    <div><p className="text-xs text-gray-300">Tipo / responsável</p><p>{selected.type || "—"} · {selected.responsible || "—"}</p></div>
+                    <div><p className="text-xs text-gray-300">Imóvel</p><p>{selected.address || "—"}</p></div>
                     <div><p className="text-xs text-gray-300">Matrícula / cartório</p><p>{selected.registration || "—"} · {selected.registryOffice || "—"}</p></div>
                     <Field label="Etapa do processo">
                       <Select value={selected.status} onValueChange={status => updateMutation.mutate({ id: selected.id, status: status as Status })}>
@@ -249,6 +240,40 @@ export default function AdminRegularizacoes() {
           </Card>
         </div>
       </main>
+
+      <Dialog open={editOpen} onOpenChange={setEditOpen}>
+        <DialogContent className="max-h-[90vh] overflow-y-auto bg-[#1A2332] text-white">
+          <DialogHeader><DialogTitle>Dados do processo</DialogTitle></DialogHeader>
+          {selected && (
+            <>
+              <div className="grid gap-4 sm:grid-cols-2">
+                <Field label={selected.leadId ? "Cliente (do CRM)" : "Cliente"}><Input disabled={Boolean(selected.leadId)} value={form.clientName} onChange={e => setForm({ ...form, clientName: e.target.value })} /></Field>
+                <Field label={selected.leadId ? "Telefone (do CRM)" : "Telefone"}><Input disabled={Boolean(selected.leadId)} value={form.clientPhone} onChange={e => setForm({ ...form, clientPhone: e.target.value })} /></Field>
+                <Field label="Tipo *"><Input placeholder="Usucapião, escritura..." value={form.type} onChange={e => setForm({ ...form, type: e.target.value })} /></Field>
+                <Field label="Responsável *"><Input value={form.responsible} onChange={e => setForm({ ...form, responsible: e.target.value })} /></Field>
+                <Field label="Matrícula"><Input value={form.registration} onChange={e => setForm({ ...form, registration: e.target.value })} /></Field>
+                <Field label="Cartório"><Input value={form.registryOffice} onChange={e => setForm({ ...form, registryOffice: e.target.value })} /></Field>
+                <Field label="Valor do serviço"><Input type="number" min="0" step="0.01" value={form.serviceValue} onChange={e => setForm({ ...form, serviceValue: e.target.value })} /></Field>
+                <Field label="Previsão de conclusão"><Input type="date" value={form.expectedEndAt} onChange={e => setForm({ ...form, expectedEndAt: e.target.value })} /></Field>
+                <div className="sm:col-span-2"><Field label="Endereço do imóvel *"><Input value={form.address} onChange={e => setForm({ ...form, address: e.target.value })} /></Field></div>
+                <div className="sm:col-span-2"><Field label="Descrição"><Textarea value={form.description} onChange={e => setForm({ ...form, description: e.target.value })} /></Field></div>
+              </div>
+              <Button className="w-full bg-[#C9A961] text-[#1A2332]" disabled={updateMutation.isPending || form.type.trim().length < 2 || form.responsible.trim().length < 2 || form.address.trim().length < 3} onClick={() => updateMutation.mutate({
+                id: selected.id,
+                ...(selected.leadId ? {} : { clientName: form.clientName, clientPhone: form.clientPhone || null }),
+                type: form.type,
+                address: form.address,
+                registration: form.registration || null,
+                registryOffice: form.registryOffice || null,
+                responsible: form.responsible,
+                serviceValue: Number(form.serviceValue || 0),
+                expectedEndAt: form.expectedEndAt ? new Date(`${form.expectedEndAt}T12:00:00`) : null,
+                description: form.description,
+              })}>Salvar dados do processo</Button>
+            </>
+          )}
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
