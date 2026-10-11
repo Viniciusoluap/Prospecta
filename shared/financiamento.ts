@@ -88,6 +88,18 @@ export const financiamentoInputSchema = financiamentoBaseInputSchema.refine((val
   path: ["valorFinanciado"],
 });
 
+/**
+ * EPIC-017 (story 1.5): novo financiamento nasce sempre de um lead do CRM. Nome,
+ * CPF, telefone e e-mail do cliente são migrados do lead pelo servidor.
+ */
+export const financiamentoFromLeadSchema = financiamentoBaseInputSchema
+  .omit({ clienteNome: true, clienteCpf: true, clienteTel: true, clienteEmail: true })
+  .extend({ leadId: z.number().int().positive() })
+  .refine((value) => value.valorFinanciado <= value.valorImovel, {
+    message: "O valor financiado não pode superar o valor do imóvel",
+    path: ["valorFinanciado"],
+  });
+
 export const financiamentoUpdateSchema = financiamentoBaseInputSchema.partial().refine(
   (value) => value.valorFinanciado === undefined || value.valorImovel === undefined || value.valorFinanciado <= value.valorImovel,
   { message: "O valor financiado não pode superar o valor do imóvel", path: ["valorFinanciado"] },

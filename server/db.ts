@@ -1,4 +1,4 @@
-import { eq, and, desc, sql, like, isNull } from "drizzle-orm";
+import { eq, and, desc, sql, like, isNull, inArray, asc } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/neon-http";
 import { neon } from "@neondatabase/serverless";
 
@@ -757,7 +757,13 @@ export async function getAllLeads(filters?: {
   const conditions = [];
   if (!filters?.includeDeleted) conditions.push(isNull(leads.deletedAt));
   if (filters?.stage) conditions.push(eq(leads.stage, filters.stage as any));
-  if (filters?.responsible) conditions.push(eq(leads.responsible, filters.responsible as any));
+  if (filters?.responsible) {
+    // EPIC-017: o filtro usa o usuário responsável; nomes legados ainda são aceitos.
+    const userId = Number(filters.responsible);
+    conditions.push(Number.isInteger(userId) && userId > 0
+      ? eq(leads.responsibleUserId, userId)
+      : eq(leads.responsible, filters.responsible as any));
+  }
   if (filters?.temperature) conditions.push(eq(leads.temperature, filters.temperature as any));
   if (filters?.city) conditions.push(like(leads.city, `%${filters.city}%`));
   if (conditions.length > 0) query = query.where(and(...conditions));
@@ -773,6 +779,44 @@ export async function getLeadById(id: number): Promise<Lead | undefined> {
 export async function getLeadOptions(): Promise<{ id: number; name: string }[]> {
   const db = getDb();
   return db.select({ id: leads.id, name: leads.name }).from(leads).where(isNull(leads.deletedAt)).orderBy(leads.name);
+}
+
+/**
+ * EPIC-017 — leads ativos com os dados cadastrais que migram para os serviços
+ * (Avaliações, Financiamentos, Obras). Usado pelos seletores de lead dos módulos.
+ */
+export async function getLeadContactOptions() {
+  const db = getDb();
+  return db.select({
+    id: leads.id, name: leads.name, phone: leads.phone, email: leads.email, cpf: leads.cpf,
+    address: leads.address, neighborhood: leads.neighborhood, city: leads.city, state: leads.state,
+  }).from(leads).where(isNull(leads.deletedAt)).orderBy(leads.name);
+}
+
+/** Responsáveis (admin/colaborador) e corretores reais, ativos, para o cadastro de lead. */
+export async function getLeadAssignmentOptions() {
+  const db = getDb();
+  const rows = await db.select({ id: users.id, name: users.name, email: users.email, role: users.role })
+    .from(users)
+    .where(and(eq(users.active, true), inArray(users.role, ["admin", "colaborador", "corretor"])))
+    .orderBy(asc(users.name));
+  return {
+    responsibles: rows.filter(row => row.role === "admin" || row.role === "colaborador"),
+    brokers: rows.filter(row => row.role === "corretor"),
+  };
+}
+
+/** Confere se o responsável/corretor informados existem com o papel correto. */
+export async function validateLeadAssignment(input: { responsibleUserId?: number | null; brokerId?: number | null }) {
+  const ids = [input.responsibleUserId, input.brokerId].filter((id): id is number => typeof id === "number");
+  if (!ids.length) return { responsibleOk: true, brokerOk: true };
+  const db = getDb();
+  const rows = await db.select({ id: users.id, role: users.role }).from(users).where(inArray(users.id, ids));
+  const roleOf = (id: number | null | undefined) => rows.find(row => row.id === id)?.role;
+  return {
+    responsibleOk: input.responsibleUserId == null || ["admin", "colaborador"].includes(roleOf(input.responsibleUserId) ?? ""),
+    brokerOk: input.brokerId == null || roleOf(input.brokerId) === "corretor",
+  };
 }
 
 export async function createLead(data: InsertLead): Promise<Lead> {
