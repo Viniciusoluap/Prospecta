@@ -2546,8 +2546,19 @@ export const appRouter = router({
             : undefined,
         } as any);
         // Avaliação antiga que acabou de ganhar o lead (ou ainda sem serviço):
-        // entra nos "Serviços do cliente" como na criação.
-        if (lead && !lead.deletedAt && !current.leadServiceId) await linkRecordToLead("avaliacoes", lead.id, id);
+        // entra nos "Serviços do cliente" como na criação. Os dados do cliente já
+        // foram salvos acima; se o vínculo ficar ambíguo (lead com mais de uma
+        // demanda de avaliação pendente), avisamos em vez de reportar sucesso total.
+        if (lead && !lead.deletedAt && !current.leadServiceId) {
+          const linkResult = await linkRecordToLead("avaliacoes", lead.id, id);
+          if (linkResult === "ambiguous") {
+            throw new TRPCError({
+              code: "CONFLICT",
+              message:
+                "Dados do cliente salvos, mas o lead tem mais de uma demanda de avaliação pendente — resolva manualmente em Serviços do cliente antes de reabrir esta avaliação.",
+            });
+          }
+        }
         return { success: true };
       }),
 

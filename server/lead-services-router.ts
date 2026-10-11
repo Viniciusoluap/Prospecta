@@ -540,9 +540,16 @@ export const leadServicesRouter = router({
     const database = getDb();
     const [service] = await database.select().from(leadServices).where(eq(leadServices.id, input.id)).limit(1);
     if (!service) throw new Error("Serviço não encontrado");
-    if (service.operationalModule === "obras" && service.operationalRecordId) {
-      await database.update(constructionProjects).set({ leadServiceId: null, updatedAt: new Date() })
-        .where(eq(constructionProjects.id, service.operationalRecordId));
+    const module = service.operationalModule as LinkableModule | null;
+    // Limpa lead_service_id do registro operacional dos dois lados — obras,
+    // projetos e regularizações têm índice único em lead_service_id, então
+    // deixar o valor antigo preso impediria vincular um registro substituto.
+    if (module && module in linkableTables && service.operationalRecordId) {
+      const table = linkableTables[module];
+      await database.execute(sql`
+        UPDATE ${sql.raw(`"${table}"`)} SET lead_service_id = NULL
+        WHERE id = ${service.operationalRecordId} AND lead_service_id = ${service.id}
+      `);
     }
     const [updated] = await database.update(leadServices).set({
       operationalRecordId: null, status: "active", updatedAt: new Date(),
