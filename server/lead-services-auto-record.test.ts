@@ -1,7 +1,10 @@
 import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
-import { getTableName } from "drizzle-orm";
+import { getTableName, type SQL } from "drizzle-orm";
+import { PgDialect } from "drizzle-orm/pg-core";
 import { getDb } from "./db.js";
-import { createLeadServiceWithAutomation, ensureLeadServicesSchema, linkRecordToLead } from "./lead-services-router.js";
+import {
+  createLeadServiceWithAutomation, ensureLeadServicesSchema, linkRecordToLead, materializePendingServices,
+} from "./lead-services-router.js";
 
 vi.mock("./db.js", () => ({ getDb: vi.fn() }));
 
@@ -54,9 +57,12 @@ const service = (overrides: Record<string, unknown>) => ({
 });
 
 // A inicialização idempotente do esquema é memorizada; roda uma vez antes das filas.
+let schemaStatements: string[] = [];
 beforeAll(async () => {
-  fakeDb({});
+  const { executed } = fakeDb({});
   await ensureLeadServicesSchema();
+  const dialect = new PgDialect();
+  schemaStatements = executed.map(query => dialect.sqlToQuery(query as SQL).sql.replace(/\s+/g, " "));
 });
 beforeEach(() => vi.clearAllMocks());
 
@@ -128,5 +134,76 @@ describe("EPIC-017 — vínculo no CRM cria o registro real", () => {
   it("sem lead não cria vínculo", async () => {
     fakeDb({});
     await expect(linkRecordToLead("avaliacoes", null, 33)).resolves.toBe("no_lead");
+  });
+});
+
+describe("Codex #87 — registro criado no módulo nunca fica sem serviço no lead", () => {
+  const linkedService = (overrides: Record<string, unknown>) => service({
+    id: 50, serviceType: "avaliacao", status: "active", operationalModule: "avaliacoes",
+    idempotencyKey: "7:avaliacao", operationalRecordId: 31, ...overrides,
+  });
+
+  it("segunda avaliação do mesmo lead cria um novo serviço em vez de ficar órfã", async () => {
+    const { inserts, executed } = fakeDb({
+      select: [[linkedService({})]],
+      insert: [[{ id: 91 }]],
+    });
+    await expect(linkRecordToLead("avaliacoes", 7, 34)).resolves.toBe("service_created");
+    expect(inserts).toHaveLength(1);
+    expect(inserts[0]).toMatchObject({
+      table: "lead_services",
+      values: { leadId: 7, serviceType: "avaliacao", status: "active", operationalModule: "avaliacoes", operationalRecordId: 34 },
+    });
+    // O registro recém-criado recebe o lead_service_id do serviço novo.
+    expect(executed).toHaveLength(1);
+  });
+
+  it("com uma demanda livre e outra já atendida, conecta à demanda livre sem criar outra", async () => {
+    const { inserts, updates } = fakeDb({
+      select: [[linkedService({}), linkedService({ id: 51, operationalRecordId: null })]],
+      execute: [[{ id: 34 }]],
+    });
+    await expect(linkRecordToLead("avaliacoes", 7, 34)).resolves.toBe("linked");
+    expect(inserts).toHaveLength(0);
+    expect(updates).toContainEqual(expect.objectContaining({ operationalRecordId: 34 }));
+  });
+
+  it("religar o mesmo registro é idempotente", async () => {
+    const { inserts } = fakeDb({
+      select: [[linkedService({ id: 52, operationalRecordId: 60 }), linkedService({ operationalRecordId: 34 })]],
+      execute: [[{ id: 34 }]],
+    });
+    await expect(linkRecordToLead("avaliacoes", 7, 34)).resolves.toBe("linked");
+    expect(inserts).toHaveLength(0);
+  });
+});
+
+describe("Codex #87 — materialização concorrente não duplica registros", () => {
+  it("o esquema garante um único registro operacional por serviço em Projetos e Regularização", () => {
+    for (const table of ["operational_projects", "regularizacoes"]) {
+      const index = schemaStatements.findIndex(statement =>
+        statement.includes(`CREATE UNIQUE INDEX IF NOT EXISTS "${table}_lead_service_id_unique" ON "${table}" ("lead_service_id")`));
+      expect(index).toBeGreaterThan(-1);
+      // Duplicatas antigas são desfeitas antes, senão a criação do índice falharia em produção.
+      const dedupe = schemaStatements.findIndex(statement =>
+        statement.startsWith(`UPDATE "${table}" AS r SET "lead_service_id" = NULL`));
+      expect(dedupe).toBeGreaterThan(-1);
+      expect(dedupe).toBeLessThan(index);
+    }
+  });
+
+  it("quando outro administrador criou o registro primeiro, reutiliza o dele", async () => {
+    const pending = service({ id: 41, serviceType: "regularizacao", operationalModule: "regularizacoes", idempotencyKey: "7:regularizacao" });
+    const { inserts, updates } = fakeDb({
+      // pendentes → irmãos na reconciliação → registro do vencedor da corrida
+      select: [[{ service: pending, lead }], [{ id: 41 }], [{ id: 81 }]],
+      execute: [[]],
+      // ON CONFLICT DO NOTHING: o índice único barrou o segundo insert
+      insert: [[]],
+      update: [[{ ...pending, operationalRecordId: 81, status: "active" }]],
+    });
+    await expect(materializePendingServices("regularizacoes")).resolves.toEqual([{ serviceId: 41, state: "already_linked" }]);
+    expect(inserts.map(entry => entry.table)).toEqual(["regularizacoes"]);
+    expect(updates).toContainEqual(expect.objectContaining({ operationalRecordId: 81 }));
   });
 });

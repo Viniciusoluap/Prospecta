@@ -73,6 +73,37 @@ async function initializeLeadServicesSchema() {
   await database.execute(sql.raw(`ALTER TABLE "construction_projects" ADD COLUMN IF NOT EXISTS "lead_service_id" integer REFERENCES "lead_services"("id") ON DELETE set null`));
   await database.execute(sql.raw(`ALTER TABLE "construction_projects" ALTER COLUMN "user_id" DROP NOT NULL`));
   await database.execute(sql.raw(`CREATE UNIQUE INDEX IF NOT EXISTS "construction_projects_lead_service_id_unique" ON "construction_projects" ("lead_service_id")`));
+  // Projetos e Regularizações nascem automaticamente do serviço (materializePending);
+  // o índice único impede que duas aberturas simultâneas do módulo criem dois registros
+  // para o mesmo serviço. Duplicatas anteriores são desfeitas antes de criar o índice.
+  for (const table of AUTO_RECORD_TABLES) {
+    await database.execute(sql.raw(dedupeLeadServiceLinksSql(table)));
+    await database.execute(sql.raw(`CREATE UNIQUE INDEX IF NOT EXISTS "${table}_lead_service_id_unique" ON "${table}" ("lead_service_id")`));
+  }
+}
+
+const AUTO_RECORD_TABLES = ["operational_projects", "regularizacoes"] as const;
+
+/**
+ * Mantém um único registro por lead_service_id: preserva o referenciado pelo
+ * serviço (operational_record_id) ou, sem referência, o mais antigo. Os demais
+ * só perdem o lead_service_id (continuam no módulo, com o lead_id intacto).
+ */
+function dedupeLeadServiceLinksSql(table: (typeof AUTO_RECORD_TABLES)[number]) {
+  return `UPDATE "${table}" AS r SET "lead_service_id" = NULL
+    FROM (
+      SELECT t."lead_service_id" AS sid,
+        COALESCE(MAX(CASE WHEN t."id" = s."operational_record_id" THEN t."id" END), MIN(t."id")) AS keep_id
+      FROM "${table}" t LEFT JOIN "lead_services" s ON s."id" = t."lead_service_id"
+      WHERE t."lead_service_id" IS NOT NULL
+      GROUP BY t."lead_service_id" HAVING COUNT(*) > 1
+    ) d
+    WHERE r."lead_service_id" = d.sid AND r."id" <> d.keep_id`;
+}
+
+function isUniqueViolation(error: unknown): boolean {
+  const candidate = error as { code?: string; cause?: unknown } | null;
+  return candidate?.code === "23505" || (candidate?.cause != null && isUniqueViolation(candidate.cause));
 }
 
 const isWorksService = (serviceType: string) => serviceType === "obra_cliente" || serviceType === "vistoria_medicao";
@@ -103,7 +134,12 @@ type AutoRecordModule = (typeof AUTO_RECORD_MODULES)[number];
 const isAutoRecordModule = (module: string | null): module is AutoRecordModule =>
   (AUTO_RECORD_MODULES as readonly string[]).includes(module ?? "");
 
-/** Ao salvar dados completos no módulo, conecta uma única demanda CRM inequívoca. */
+/**
+ * Ao salvar dados completos no módulo, conecta o registro à demanda CRM
+ * inequívoca do lead: a que já aponta para este registro ou a única demanda
+ * ainda sem registro. Demandas já atendidas por outro registro não contam —
+ * um lead pode ter mais de uma avaliação/financiamento/obra.
+ */
 export async function attachCompletedProcess(module: LinkableModule, leadId: number | null, recordId: number) {
   if (leadId == null) return "no_lead" as const;
   const database = getDb();
@@ -111,9 +147,13 @@ export async function attachCompletedProcess(module: LinkableModule, leadId: num
     eq(leadServices.leadId, leadId), eq(leadServices.operationalModule, module),
     ne(leadServices.status, "cancelled"),
   ));
-  if (services.length !== 1) return services.length ? "ambiguous" as const : "no_service" as const;
-  const service = services[0];
-  if (service.operationalRecordId && service.operationalRecordId !== recordId) return "already_linked" as const;
+  const free = services.filter(candidate => !candidate.operationalRecordId);
+  const service = services.find(candidate => candidate.operationalRecordId === recordId) ??
+    (free.length === 1 ? free[0] : undefined);
+  if (!service) {
+    if (free.length > 1) return "ambiguous" as const;
+    return services.length ? "already_linked" as const : "no_service" as const;
+  }
   const table = linkableTables[module];
   const patched = await database.execute(sql`
     UPDATE ${sql.raw(`"${table}"`)} SET lead_service_id = ${service.id}
@@ -128,13 +168,14 @@ export async function attachCompletedProcess(module: LinkableModule, leadId: num
 
 /**
  * Registro criado no próprio módulo a partir de um lead (ex.: Nova avaliação,
- * Novo financiamento, Nova obra): conecta à demanda CRM existente ou, quando o
- * lead ainda não tinha a demanda, cria o serviço já vinculado — assim o card
- * "Serviços do cliente" do lead sempre reflete o processo real.
+ * Novo financiamento, Nova obra): conecta à demanda CRM pendente ou, quando o
+ * lead não tem demanda pendente (nenhuma, ou todas já atendidas por outros
+ * registros), cria o serviço já vinculado — assim o card "Serviços do cliente"
+ * do lead sempre reflete o processo real, inclusive a segunda avaliação.
  */
 export async function linkRecordToLead(module: LinkableModule, leadId: number | null, recordId: number) {
   const attached = await attachCompletedProcess(module, leadId, recordId);
-  if (attached !== "no_service" || leadId == null) return attached;
+  if (attached !== "no_service" && attached !== "already_linked" || leadId == null) return attached;
   const database = getDb();
   const [service] = await database.insert(leadServices).values({
     leadId,
@@ -161,11 +202,18 @@ async function ensureLinkedRecord(service: typeof leadServices.$inferSelect, lea
   if (reconciled.state !== "awaiting_configuration" || !isAutoRecordModule(service.operationalModule) ||
     service.status === "cancelled" || service.status === "completed")
     return reconciled;
+  // Garante o índice único por lead_service_id antes de inserir.
+  await ensureLeadServicesSchema();
   const database = getDb();
   const contact = leadContact(lead);
-  let recordId: number;
+  // Duas chamadas simultâneas (ex.: dois administradores abrindo o módulo)
+  // podem passar juntas pela reconciliação. O índice único em lead_service_id
+  // faz o segundo insert não gravar nada; nesse caso reutilizamos o registro
+  // criado pela outra chamada em vez de duplicar o processo.
+  let inserted: { id: number } | undefined;
+  let existing: { id: number } | undefined;
   if (service.operationalModule === "projetos") {
-    const [record] = await database.insert(operationalProjects).values({
+    [inserted] = await database.insert(operationalProjects).values({
       name: service.title || `Projeto técnico — ${contact.name}`,
       types: "[]",
       status: "orcamento",
@@ -177,10 +225,11 @@ async function ensureLinkedRecord(service: typeof leadServices.$inferSelect, lea
       leadId: lead.id,
       leadServiceId: service.id,
       description: service.description || "",
-    }).returning({ id: operationalProjects.id });
-    recordId = record.id;
+    }).onConflictDoNothing().returning({ id: operationalProjects.id });
+    if (!inserted) [existing] = await database.select({ id: operationalProjects.id }).from(operationalProjects)
+      .where(eq(operationalProjects.leadServiceId, service.id)).limit(1);
   } else {
-    const [record] = await database.insert(regularizacoes).values({
+    [inserted] = await database.insert(regularizacoes).values({
       clientName: contact.name,
       clientPhone: contact.phone || null,
       type: "",
@@ -190,13 +239,17 @@ async function ensureLinkedRecord(service: typeof leadServices.$inferSelect, lea
       leadId: lead.id,
       leadServiceId: service.id,
       description: service.description || "",
-    }).returning({ id: regularizacoes.id });
-    recordId = record.id;
+    }).onConflictDoNothing().returning({ id: regularizacoes.id });
+    if (!inserted) [existing] = await database.select({ id: regularizacoes.id }).from(regularizacoes)
+      .where(eq(regularizacoes.leadServiceId, service.id)).limit(1);
   }
+  const record = inserted ?? existing;
+  if (!record) return { service, state: "conflict" as const };
+  const recordId = record.id;
   const [updated] = await database.update(leadServices).set({
     operationalRecordId: recordId, status: "active", updatedAt: new Date(),
   }).where(eq(leadServices.id, service.id)).returning();
-  return { service: updated, state: "created" as const };
+  return { service: updated, state: inserted ? "created" as const : "already_linked" as const };
 }
 
 /** Converte demandas antigas ainda sem registro (criadas antes do EPIC-017). */
@@ -459,7 +512,11 @@ export const leadServicesRouter = router({
         AND (lead_id IS NULL OR lead_id = ${service.leadId})
         AND (lead_service_id IS NULL OR lead_service_id = ${service.id})
       RETURNING id
-    `);
+    `).catch(error => {
+      // Índice único por lead_service_id (Obras, Projetos, Regularização).
+      if (isUniqueViolation(error)) throw new Error("Este serviço já possui outro processo vinculado neste módulo");
+      throw error;
+    });
     if (!patched.rows.length) throw new Error("O processo foi vinculado por outra operação; revise o vínculo");
     const [updated] = await database.update(leadServices).set({
       operationalRecordId: input.operationalRecordId, updatedAt: new Date(),
@@ -483,9 +540,16 @@ export const leadServicesRouter = router({
     const database = getDb();
     const [service] = await database.select().from(leadServices).where(eq(leadServices.id, input.id)).limit(1);
     if (!service) throw new Error("Serviço não encontrado");
-    if (service.operationalModule === "obras" && service.operationalRecordId) {
-      await database.update(constructionProjects).set({ leadServiceId: null, updatedAt: new Date() })
-        .where(eq(constructionProjects.id, service.operationalRecordId));
+    const module = service.operationalModule as LinkableModule | null;
+    // Limpa lead_service_id do registro operacional dos dois lados — obras,
+    // projetos e regularizações têm índice único em lead_service_id, então
+    // deixar o valor antigo preso impediria vincular um registro substituto.
+    if (module && module in linkableTables && service.operationalRecordId) {
+      const table = linkableTables[module];
+      await database.execute(sql`
+        UPDATE ${sql.raw(`"${table}"`)} SET lead_service_id = NULL
+        WHERE id = ${service.operationalRecordId} AND lead_service_id = ${service.id}
+      `);
     }
     const [updated] = await database.update(leadServices).set({
       operationalRecordId: null, status: "active", updatedAt: new Date(),

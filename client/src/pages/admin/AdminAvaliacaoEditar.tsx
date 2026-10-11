@@ -52,6 +52,8 @@ export default function AdminAvaliacaoEditar() {
 
   // EPIC-017: com lead vinculado, cliente e endereço vêm do CRM (fonte única).
   const linked = form.leadId !== "none";
+  // O lead de uma avaliação já vinculada é imutável (o serviço do lead aponta para ela).
+  const leadLocked = Boolean(avaliacao?.leadId);
 
   if (!avaliacao) {
     return (
@@ -152,7 +154,7 @@ export default function AdminAvaliacaoEditar() {
               </div>
               <div className="col-span-2">
                 <Label className="text-gray-300">Lead vinculado</Label>
-                <Select value={form.leadId} onValueChange={(v) => setForm((f) => ({ ...f, leadId: v }))}>
+                <Select disabled={leadLocked} value={form.leadId} onValueChange={(v) => setForm((f) => ({ ...f, leadId: v }))}>
                   <SelectTrigger className="bg-[#1A2332] border-[#C9A961]/30 text-white mt-1"><SelectValue /></SelectTrigger>
                   <SelectContent>
                     <SelectItem value="none">Sem vínculo</SelectItem>
@@ -160,6 +162,7 @@ export default function AdminAvaliacaoEditar() {
                   </SelectContent>
                 </Select>
                 {linked && <p className="mt-1 text-xs text-gray-300">Cliente, CPF, telefone, e-mail e endereço são sincronizados com o cadastro do lead no CRM ao salvar.</p>}
+                {leadLocked && <p className="mt-1 text-xs text-gray-400">O lead não pode ser trocado depois do vínculo. Para outro cliente, crie uma nova avaliação.</p>}
               </div>
             </div>
 
