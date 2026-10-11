@@ -28,6 +28,9 @@
 | EPIC-012 | Paridade real, navegação e arquitetura financeira | Codex / AIOX | Em andamento (S-01 a S-07, S-09, S-10 e S-11 Done; Etapas 3/P0, 4/P1, 5/P2, RBAC legado e plano de correção C1+C2 (comissões unificadas + navegação) concluídos; S-08/UAT em produção pendente) | EPIC-000 a EPIC-011 |
 | EPIC-015 | Consolidação operacional, serviços e navegação | Codex / AIOX | Ready (S-01 a S-08 planejadas) | EPIC-012, EPIC-014 |
 | EPIC-016 | Portais segmentados por perfil | Codex / AIOX | Draft (estrutura e stories planejadas; nenhuma implementação iniciada) | EPIC-002, EPIC-009, EPIC-015 |
+| EPIC-017 | Vínculo real CRM/Leads ↔ Serviços operacionais | Claude / AIOX | InReview (stories 1.1 a 1.8; migration 0031 a aplicar antes do deploy) — **paridade Santa Fé pendente** | EPIC-015 |
+| EPIC-018 | Corretores & Comissões — vínculos reais | Claude / AIOX | InReview (stories 2.1 a 2.5) — **paridade Santa Fé pendente** | EPIC-012, EPIC-017 |
+| EPIC-019 | Navegação da Central Administrativa | Claude / AIOX | InReview (story 3.1; UAT visual pendente) — **paridade Santa Fé a verificar** | — |
 
 ## Decisões do dono do produto (06/09/2026)
 
@@ -49,6 +52,18 @@
 16. **EPIC-007 (Financeiro avançado) — escopo detalhado (07/09/2026)** — ao pesquisar o Santa Fé, ficou claro que são 3 sub-módulos (Contabilidade/livro-razão, BPO/terceirização contábil, integração bancária Pluggy). Achado importante: o Prospecta **já tem** `financial_transactions` + router + `AdminFinanceiro.tsx` cobrindo uma versão simples da Contabilidade — não é do zero. **Decisões do dono do produto**: (a) BPO faz sentido para a Prospecta — portar também (S-02); (b) ainda não há credencial Pluggy real — adiantar só schema/UI/lógica com fallback gracioso (S-03); (c) credenciais Pluggy ficam em tela própria com criptografia no banco (mesmo padrão já usado para o Asaas), não em variável de ambiente. Ver `epic-007-financeiro-avancado/EPIC.md`.
 17. **EPIC-007 S-02 (BPO) concluída (07/09/2026)** — tabelas `bpo_clients`/`bpo_lancamentos` novas (migration `0011_typical_annihilus` aplicada em produção), router `bpo` (clientes/lançamentos/DRE), tela `AdminBpo.tsx` com abas Clientes/Cobranças/Despesas/DRE. Adaptações: sem aba "Relatórios" da origem (dados de funil/corretores já existem no CRM do Prospecta, evitando duplicação) e sem aba "Bancos" (fica para a S-03/Pluggy). Detalhes em `epic-007-financeiro-avancado/S-02-bpo-clientes-lancamentos.md`.
 18. **EPIC-007 S-03 (Integração bancária Pluggy) concluída — EPIC-007 e roadmap 100% fechados (08/09/2026)** — tabelas `bank_accounts`/`bank_transactions`/`pluggy_settings` novas (migration `0012_eminent_wraith` aplicada em produção), cliente Pluggy (`server/_core/pluggy.ts`) com fallback gracioso em 3 camadas (sem `pluggyAccountId` / sem credencial / API indisponível — nenhum caso lança erro), router `bancario` (contas/transações/sincronizar) + `pluggySettings` (credenciais **criptografadas no banco**, conforme decisão explícita do dono do produto — nunca em variável de ambiente), aba "Bancos" em `AdminBpo.tsx`. Sem credencial Pluggy real disponível ainda (decisão do dono do produto), então a sincronização de ponta a ponta não foi validada contra a API real — o formulário de credenciais valida contra a API real da Pluggy antes de salvar, então funciona assim que uma credencial real for configurada. Detalhes em `epic-007-financeiro-avancado/S-03-integracao-bancaria-pluggy.md`. **Com isso, os 10 épicos do roadmap (EPIC-000 a EPIC-010) estão Done.**
+
+## Pendências de paridade com o Grupo Santa Fé (EPIC-017/018/019 — 11/10/2026)
+
+Implementado primeiro no Prospecta; precisa ser portado para o Santa Fé com a mesma regra de negócio:
+
+- **EPIC-017:** vínculo de serviço no lead cria Projeto/Regularização reais com dados do lead;
+  Avaliação/Financiamento/Obra só nascem a partir de lead (seletor buscável), com nome/CPF/telefone/
+  e-mail/endereço migrados; lead ganha CPF/endereço/bairro, corretor vinculado e responsável vindo
+  dos usuários reais; sem Renda/Tipo de Renda no cadastro; sem botão "Desvincular".
+- **EPIC-018:** corretor sem foto/especialidades no cadastro; comissão com corretor, imóvel ou obra
+  cadastrados (sem texto livre), valor sugerido por percentual × valor cadastrado; "construção" → "Obra".
+- **EPIC-019:** verificar se a Central Administrativa do Santa Fé tem o mesmo problema de retorno/layout.
 
 ## Coordenação entre trilhas
 
