@@ -58,6 +58,33 @@ describe("EPIC-017 — dados do lead migrados para os serviços", () => {
     expect(create).not.toHaveBeenCalled();
   });
 
+  it("não troca o lead de uma avaliação já vinculada (Codex #87)", async () => {
+    vi.spyOn(db, "getAvaliacaoById").mockResolvedValue({ id: 31, leadId: 12, leadServiceId: 50 } as never);
+    vi.spyOn(db, "getLeadById").mockResolvedValue({ ...lead, id: 13 } as never);
+    const update = vi.spyOn(db, "updateAvaliacao").mockResolvedValue(undefined as never);
+    await expect(caller("admin").avaliacoes.update({ id: 31, leadId: 13 })).rejects.toMatchObject({ code: "BAD_REQUEST" });
+    expect(update).not.toHaveBeenCalled();
+    expect(linkRecordToLead).not.toHaveBeenCalled();
+  });
+
+  it("editar avaliação vinculada mantém o lead e sincroniza os dados do CRM", async () => {
+    vi.spyOn(db, "getAvaliacaoById").mockResolvedValue({ id: 31, leadId: 12, leadServiceId: 50 } as never);
+    vi.spyOn(db, "getLeadById").mockResolvedValue(lead as never);
+    const update = vi.spyOn(db, "updateAvaliacao").mockResolvedValue(undefined as never);
+    await caller("admin").avaliacoes.update({ id: 31, leadId: 12, avaliador: "Eng. Ana", clienteNome: "Outro" });
+    expect(update).toHaveBeenCalledWith(31, expect.objectContaining({ leadId: 12, clienteNome: "Maria Souza", avaliador: "Eng. Ana" }));
+    expect(linkRecordToLead).not.toHaveBeenCalled();
+  });
+
+  it("avaliação antiga sem lead ganha o lead e entra nos serviços do cliente", async () => {
+    vi.spyOn(db, "getAvaliacaoById").mockResolvedValue({ id: 31, leadId: null, leadServiceId: null } as never);
+    vi.spyOn(db, "getLeadById").mockResolvedValue(lead as never);
+    const update = vi.spyOn(db, "updateAvaliacao").mockResolvedValue(undefined as never);
+    await caller("admin").avaliacoes.update({ id: 31, leadId: 12 });
+    expect(update).toHaveBeenCalledWith(31, expect.objectContaining({ leadId: 12, clienteNome: "Maria Souza" }));
+    expect(linkRecordToLead).toHaveBeenCalledWith("avaliacoes", 12, 31);
+  });
+
   it("novo financiamento exige lead e ignora dados de cliente digitados", () => {
     const base = {
       imovel: "Casa Centro", tipo: "mcmv", banco: "caixa", valorImovel: 200000, valorFinanciado: 150000,

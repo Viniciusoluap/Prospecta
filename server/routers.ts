@@ -2517,9 +2517,20 @@ export const appRouter = router({
         if (data.status === "entregue") {
           (data as any).dataEntrega = new Date();
         }
+        const current = await db.getAvaliacaoById(id);
+        if (!current) throw new TRPCError({ code: "NOT_FOUND" });
+        // EPIC-017: o lead vinculado é a identidade da avaliação e não muda depois
+        // de criado — trocar deixaria o serviço do lead antigo apontando para cá.
+        if (current.leadId != null && data.leadId != null && data.leadId !== current.leadId)
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: "O lead de uma avaliação vinculada não pode ser trocado. Crie uma nova avaliação para o outro cliente.",
+          });
         // Com lead vinculado, os dados do cliente seguem o CRM (fonte única).
-        const leadId = data.leadId ?? (await db.getAvaliacaoById(id))?.leadId ?? null;
+        const leadId = current.leadId ?? data.leadId ?? null;
         const lead = leadId ? await db.getLeadById(leadId) : undefined;
+        if (data.leadId != null && current.leadId == null && (!lead || lead.deletedAt))
+          throw new TRPCError({ code: "NOT_FOUND", message: "Lead não encontrado no CRM" });
         await db.updateAvaliacao(id, {
           ...data,
           ...(lead ? avaliacaoClientFields(lead) : {}),
@@ -2534,6 +2545,9 @@ export const appRouter = router({
             ? new Date(data.prazoEntrega)
             : undefined,
         } as any);
+        // Avaliação antiga que acabou de ganhar o lead (ou ainda sem serviço):
+        // entra nos "Serviços do cliente" como na criação.
+        if (lead && !lead.deletedAt && !current.leadServiceId) await linkRecordToLead("avaliacoes", lead.id, id);
         return { success: true };
       }),
 
