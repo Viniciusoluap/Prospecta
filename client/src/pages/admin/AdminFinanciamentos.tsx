@@ -1,4 +1,4 @@
-import { FormEvent, useState } from "react";
+import { useState } from "react";
 import { Link } from "wouter";
 import {
   ArrowLeft,
@@ -9,13 +9,11 @@ import {
   FileCheck2,
   Landmark,
   Pencil,
-  Plus,
   Trash2,
   Upload,
 } from "lucide-react";
 import { trpc } from "@/lib/trpc";
 import { LinkedServiceQueue } from "./LinkedServiceQueue";
-import { LeadPicker } from "@/components/admin/LeadPicker";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import {
@@ -61,13 +59,6 @@ function numero(formData: FormData, nome: string) {
 }
 
 export default function AdminFinanciamentos() {
-  const [novoAberto, setNovoAberto] = useState(false);
-  // EPIC-017 (story 1.5): novo financiamento nasce de um lead do CRM.
-  const [novoLeadId, setNovoLeadId] = useState<number | null>(null);
-  const abrirNovo = (leadId: number | null = null) => {
-    setNovoLeadId(leadId);
-    setNovoAberto(true);
-  };
   const [editarAberto, setEditarAberto] = useState(false);
   const [selecionado, setSelecionado] = useState<number | null>(null);
   const [filtro, setFiltro] = useState<Status | "todos">("todos");
@@ -96,15 +87,6 @@ export default function AdminFinanciamentos() {
     } catch (error) { toast.error(error instanceof Error ? error.message : "Falha ao consultar documento"); }
   }
 
-  const criar = trpc.financiamentos.create.useMutation({
-    onSuccess: async item => {
-      await utils.financiamentos.list.invalidate();
-      setNovoAberto(false);
-      setSelecionado(item.id);
-      toast.success("Financiamento cadastrado");
-    },
-    onError: erro => toast.error(erro.message),
-  });
   const atualizarStatus = trpc.financiamentos.updateStatus.useMutation({
     onSuccess: async () => {
       await Promise.all([
@@ -173,24 +155,6 @@ export default function AdminFinanciamentos() {
     };
   }
 
-  function handleCriar(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    if (!novoLeadId) {
-      toast.error("Selecione o lead do CRM");
-      return;
-    }
-    // Nome, CPF, telefone e e-mail são migrados do lead pelo servidor.
-    const {
-      clienteNome: _nome,
-      clienteCpf: _cpf,
-      clienteTel: _tel,
-      clienteEmail: _email,
-      leadId: _lead,
-      ...dados
-    } = dadosFormulario(event.currentTarget);
-    criar.mutate({ ...dados, leadId: novoLeadId });
-  }
-
   function dadosEdicao(form: HTMLFormElement, leadIdVinculado: number | null) {
     const dados = dadosFormulario(form);
     if (!leadIdVinculado) return dados;
@@ -236,12 +200,6 @@ export default function AdminFinanciamentos() {
               </p>
             </div>
           </div>
-          <Button
-            onClick={() => abrirNovo()}
-            className="bg-[#C9A961] font-bold text-[#1A2332] hover:bg-[#B8985A]"
-          >
-            <Plus className="mr-2 h-4 w-4" /> Novo financiamento
-          </Button>
         </div>
       </header>
 
@@ -249,8 +207,7 @@ export default function AdminFinanciamentos() {
         <LinkedServiceQueue
           module="financiamentos"
           title="Financiamentos"
-          startLabel="Iniciar financiamento"
-          onStart={leadId => abrirNovo(leadId)}
+          onRecordsCreated={() => void utils.financiamentos.list.invalidate()}
         />
         <div className="grid gap-4 md:grid-cols-3">
           {[
@@ -328,8 +285,10 @@ export default function AdminFinanciamentos() {
                           {financiamento.clienteNome}
                         </p>
                         <p className="text-xs text-gray-400">
-                          {financiamento.imovel} •{" "}
-                          {FINANCIAMENTO_BANCO_LABELS[financiamento.banco]}
+                          {financiamento.imovel || "Imóvel a definir"} •{" "}
+                          {financiamento.banco
+                            ? FINANCIAMENTO_BANCO_LABELS[financiamento.banco]
+                            : "Banco a definir"}
                         </p>
                       </div>
                       <div className="text-sm">
@@ -359,94 +318,6 @@ export default function AdminFinanciamentos() {
         </Card>
       </main>
 
-      <Dialog open={novoAberto} onOpenChange={setNovoAberto}>
-        <DialogContent className="max-h-[92vh] max-w-3xl overflow-y-auto border-[#C9A961]/30 bg-[#1A2332] text-white">
-          <DialogHeader>
-            <DialogTitle className="text-[#C9A961]">
-              Novo financiamento
-            </DialogTitle>
-          </DialogHeader>
-          <form onSubmit={handleCriar} className="grid gap-4 md:grid-cols-2">
-            <div className="md:col-span-2">
-              <LeadPicker
-                label="Cliente (lead do CRM)"
-                leads={options?.leads ?? []}
-                loading={!options}
-                value={novoLeadId}
-                onChange={setNovoLeadId}
-              />
-              <p className="mt-1 text-xs text-gray-300">
-                Nome, CPF, telefone e e-mail do cliente são copiados do cadastro do lead.
-              </p>
-            </div>
-            <div className="md:col-span-2">
-              <Campo nome="imovel" rotulo="Imóvel" obrigatorio />
-            </div>
-            <Selecao
-              nome="tipo"
-              rotulo="Tipo"
-              opcoes={FINANCIAMENTO_TIPOS.map(v => [
-                v,
-                FINANCIAMENTO_TIPO_LABELS[v],
-              ])}
-            />
-            <Selecao
-              nome="banco"
-              rotulo="Banco"
-              opcoes={FINANCIAMENTO_BANCOS.map(v => [
-                v,
-                FINANCIAMENTO_BANCO_LABELS[v],
-              ])}
-            />
-            <Campo nome="bancoOutro" rotulo="Outro banco" />
-            <Campo nome="protocolo" rotulo="Protocolo" />
-            <Vinculos options={options} semLead />
-            <Campo
-              nome="valorImovel"
-              rotulo="Valor do imóvel"
-              tipo="number"
-              obrigatorio
-            />
-            <Campo
-              nome="valorFinanciado"
-              rotulo="Valor financiado"
-              tipo="number"
-              obrigatorio
-            />
-            <Campo nome="entrada" rotulo="Entrada" tipo="number" obrigatorio />
-            <Campo nome="parcela" rotulo="Parcela estimada" tipo="number" />
-            <Campo
-              nome="taxa"
-              rotulo="Taxa anual (%)"
-              tipo="number"
-              obrigatorio
-              passo="0.0001"
-            />
-            <Campo
-              nome="prazo"
-              rotulo="Prazo (meses)"
-              tipo="number"
-              obrigatorio
-              valorPadrao="360"
-            />
-            <div className="md:col-span-2">
-              <Label>Observações</Label>
-              <Textarea
-                name="observacoes"
-                className="mt-1 border-[#C9A961]/30 bg-[#2C3E50]"
-              />
-            </div>
-            <Button
-              type="submit"
-              disabled={criar.isPending || !novoLeadId}
-              className="md:col-span-2 bg-[#C9A961] font-bold text-[#1A2332] hover:bg-[#B8985A]"
-            >
-              Cadastrar processo
-            </Button>
-          </form>
-        </DialogContent>
-      </Dialog>
-
       <Dialog
         open={selecionado !== null}
         onOpenChange={aberto => !aberto && setSelecionado(null)}
@@ -462,7 +333,7 @@ export default function AdminFinanciamentos() {
               <div className="grid gap-3 rounded-lg bg-[#2C3E50] p-4 text-sm md:grid-cols-3">
                 <div>
                   <p className="text-gray-300">Imóvel</p>
-                  <p>{detalhe.financiamento.imovel}</p>
+                  <p>{detalhe.financiamento.imovel || "A definir"}</p>
                 </div>
                 <div>
                   <p className="text-gray-300">Financiado</p>
@@ -471,7 +342,9 @@ export default function AdminFinanciamentos() {
                 <div>
                   <p className="text-gray-300">Banco</p>
                   <p>
-                    {FINANCIAMENTO_BANCO_LABELS[detalhe.financiamento.banco]}
+                    {detalhe.financiamento.banco
+                      ? FINANCIAMENTO_BANCO_LABELS[detalhe.financiamento.banco]
+                      : "A definir"}
                   </p>
                 </div>
               </div>
@@ -665,13 +538,13 @@ export default function AdminFinanciamentos() {
                   nome="imovel"
                   rotulo="Descrição do imóvel"
                   obrigatorio
-                  valorPadrao={detalhe.financiamento.imovel}
+                  valorPadrao={detalhe.financiamento.imovel ?? undefined}
                 />
               </div>
               <Selecao
                 nome="tipo"
                 rotulo="Tipo"
-                valorPadrao={detalhe.financiamento.tipo}
+                valorPadrao={detalhe.financiamento.tipo ?? undefined}
                 opcoes={FINANCIAMENTO_TIPOS.map(v => [
                   v,
                   FINANCIAMENTO_TIPO_LABELS[v],
@@ -680,7 +553,7 @@ export default function AdminFinanciamentos() {
               <Selecao
                 nome="banco"
                 rotulo="Banco"
-                valorPadrao={detalhe.financiamento.banco}
+                valorPadrao={detalhe.financiamento.banco ?? undefined}
                 opcoes={FINANCIAMENTO_BANCOS.map(v => [
                   v,
                   FINANCIAMENTO_BANCO_LABELS[v],
