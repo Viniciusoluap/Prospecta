@@ -40,6 +40,22 @@ const STATUS_OPTIONS = [
 ];
 const MAX_FOTOS = 15;
 
+function precoCentsToDisplay(digitsRaw: string): string {
+  const digits = digitsRaw.replace(/\D/g, "");
+  if (!digits || digits === "0") return "";
+  const num = parseInt(digits, 10) / 100;
+  return num.toLocaleString("pt-BR", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  });
+}
+
+function precoDisplayToNumber(display: string): number | null {
+  if (!display) return null;
+  const parsed = parseFloat(display.replace(/\./g, "").replace(",", "."));
+  return Number.isNaN(parsed) ? null : parsed;
+}
+
 function slugify(text: string): string {
   return text
     .normalize("NFD")
@@ -152,6 +168,7 @@ export default function AdminImovelForm() {
   );
 
   const [form, setForm] = useState<FormState>(EMPTY_FORM);
+  const [precoDisplay, setPrecoDisplay] = useState("");
   const [slugTocado, setSlugTocado] = useState(false);
   const [fotos, setFotos] = useState<string[]>([]);
   const [coords, setCoords] = useState<{ lat: number; lng: number } | null>(
@@ -191,6 +208,17 @@ export default function AdminImovelForm() {
           (imovel.reviewStatus as FormState["reviewStatus"]) ?? "approved",
       });
       setSlugTocado(true);
+      if (imovel.preco) {
+        const num = Number(imovel.preco);
+        setPrecoDisplay(
+          Number.isNaN(num)
+            ? ""
+            : num.toLocaleString("pt-BR", {
+                minimumFractionDigits: 2,
+                maximumFractionDigits: 2,
+              })
+        );
+      }
       if (imovel.fotos) {
         try {
           setFotos(JSON.parse(imovel.fotos));
@@ -215,6 +243,13 @@ export default function AdminImovelForm() {
     if (!slugTocado) set("slug", slugify(value));
   };
 
+  const handlePrecoChange = (rawTyped: string) => {
+    const display = precoCentsToDisplay(rawTyped);
+    setPrecoDisplay(display);
+    const numero = precoDisplayToNumber(display);
+    set("preco", numero === null ? "" : String(numero));
+  };
+
   const addFiles = useCallback(
     async (files: FileList | File[]) => {
       const imgs = Array.from(files).filter(f => f.type.startsWith("image/"));
@@ -227,6 +262,12 @@ export default function AdminImovelForm() {
   );
 
   const removeFoto = (i: number) => setFotos(p => p.filter((_, j) => j !== i));
+  const moveFoto = (i: number, j: number) =>
+    setFotos(p => {
+      const a = [...p];
+      [a[i], a[j]] = [a[j], a[i]];
+      return a;
+    });
 
   const handleApplyPaste = () => {
     const parsed = parseMapsInput(pasteValue);
@@ -438,14 +479,20 @@ export default function AdminImovelForm() {
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div>
                 <Label className="text-gray-300">Preço (R$) *</Label>
-                <Input
-                  type="number"
-                  min={0}
-                  value={form.preco}
-                  onChange={e => set("preco", e.target.value)}
-                  required
-                  className="bg-[#2C3E50] border-[#C9A961]/30 text-white mt-1"
-                />
+                <div className="relative mt-1">
+                  <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-sm text-gray-400">
+                    R$
+                  </span>
+                  <Input
+                    type="text"
+                    inputMode="decimal"
+                    placeholder="0,00"
+                    value={precoDisplay}
+                    onChange={e => handlePrecoChange(e.target.value)}
+                    required
+                    className="bg-[#2C3E50] border-[#C9A961]/30 text-white pl-9"
+                  />
+                </div>
               </div>
               <div>
                 <Label className="text-gray-300">Área (m²)</Label>
@@ -543,7 +590,7 @@ export default function AdminImovelForm() {
                 {fotos.map((src, i) => (
                   <div
                     key={i}
-                    className="relative group aspect-square bg-[#2C3E50] rounded overflow-hidden"
+                    className="relative aspect-square bg-[#2C3E50] rounded overflow-hidden"
                   >
                     <img
                       src={src}
@@ -555,16 +602,36 @@ export default function AdminImovelForm() {
                         Capa
                       </span>
                     )}
-                    <button
-                      type="button"
-                      onClick={e => {
-                        e.stopPropagation();
-                        removeFoto(i);
-                      }}
-                      className="absolute top-1 right-1 bg-red-500 text-white rounded-full w-5 h-5 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
-                    >
-                      <X className="h-3 w-3" />
-                    </button>
+                    <div className="absolute inset-x-0 bottom-0 flex items-center justify-center gap-1 bg-black/60 py-1">
+                      {i > 0 && (
+                        <button
+                          type="button"
+                          onClick={() => moveFoto(i, i - 1)}
+                          title="Tornar capa / mover para a esquerda"
+                          className="bg-white text-black rounded-full w-6 h-6 text-xs font-bold flex items-center justify-center hover:bg-gray-100"
+                        >
+                          ←
+                        </button>
+                      )}
+                      <button
+                        type="button"
+                        onClick={() => removeFoto(i)}
+                        title="Excluir foto"
+                        className="bg-red-500 text-white rounded-full w-6 h-6 flex items-center justify-center hover:bg-red-600"
+                      >
+                        <X className="h-3 w-3" />
+                      </button>
+                      {i < fotos.length - 1 && (
+                        <button
+                          type="button"
+                          onClick={() => moveFoto(i, i + 1)}
+                          title="Mover para a direita"
+                          className="bg-white text-black rounded-full w-6 h-6 text-xs font-bold flex items-center justify-center hover:bg-gray-100"
+                        >
+                          →
+                        </button>
+                      )}
+                    </div>
                   </div>
                 ))}
               </div>
