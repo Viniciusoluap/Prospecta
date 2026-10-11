@@ -3,6 +3,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import Navbar from "@/components/Navbar";
 import SEO, { organizationSchema } from "@/components/SEO";
+import SocialProofSection from "@/components/SocialProofSection";
 import { ArrowLeft, ArrowRight, ShieldCheck, Heart, Target, Users } from "lucide-react";
 
 const values = [
@@ -136,6 +137,10 @@ export default function Sobre() {
               </Button>
             </div>
           </div>
+        </div>
+
+        <div className="mt-12">
+          <SocialProofSection />
         </div>
       </main>
     </div>
