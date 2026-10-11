@@ -1682,12 +1682,25 @@ export const appRouter = router({
         return input?.status ? rows.filter(task => task.status === input.status) : rows;
       }),
 
+    // Responsáveis selecionáveis: apenas administradores e colaboradores ativos,
+    // carregados do banco — nunca uma lista fixa de nomes.
+    assignableUsers: protectedProcedure.query(async ({ ctx }) => {
+      requireRole(ctx, ["admin"]);
+      return db.getAssignableUsers();
+    }),
+
+    // Leads elegíveis para vínculo: exclui excluídos (soft delete) e rejeitados.
+    leadOptions: protectedProcedure.query(async ({ ctx }) => {
+      requireRole(ctx, ["admin"]);
+      return db.getAssignableLeadOptions();
+    }),
+
     create: protectedProcedure
       .input(
         z.object({
           title: z.string().min(2),
           description: z.string().optional(),
-          assignedTo: z.string().trim().min(1).max(100),
+          assignedTo: z.number().int().positive(),
           relatedType: z
             .enum(["lead", "obra", "budget", "financial", "general"])
             .optional(),
@@ -1700,10 +1713,17 @@ export const appRouter = router({
       )
       .mutation(async ({ input, ctx }) => {
         requireRole(ctx, ["admin"]);
+        const assignee = await db.getAssignableUserById(input.assignedTo);
+        if (!assignee) {
+          throw new TRPCError({
+            code: "NOT_FOUND",
+            message: "Selecione um administrador ou colaborador ativo como responsável",
+          });
+        }
         if (input.relatedType !== "general" && Boolean(input.relatedType) !== Boolean(input.relatedId)) {
           throw new TRPCError({ code: "BAD_REQUEST", message: "Selecione um vínculo completo" });
         }
-        if (input.relatedType === "lead" && !(await db.getLeadById(input.relatedId!))) {
+        if (input.relatedType === "lead" && !(await db.getAssignableLeadById(input.relatedId!))) {
           throw new TRPCError({ code: "NOT_FOUND", message: "Lead não encontrado" });
         }
         if (input.relatedType === "obra" && !(await db.getProjectById(input.relatedId!))) {
@@ -1711,6 +1731,7 @@ export const appRouter = router({
         }
         return db.createTask({
           ...input,
+          assignedTo: assignee.name || `Usuário #${assignee.id}`,
           dueAt: input.dueAt ? new Date(input.dueAt) : undefined,
           priority: input.priority || "medium",
           status: input.status || "pending",
@@ -1724,7 +1745,7 @@ export const appRouter = router({
           id: z.number(),
           title: z.string().trim().min(2).max(255).optional(),
           description: z.string().optional(),
-          assignedTo: z.string().trim().min(1).optional(),
+          assignedTo: z.number().int().positive().optional(),
           status: z
             .enum(["pending", "in_progress", "done", "cancelled"])
             .optional(),
@@ -1735,12 +1756,24 @@ export const appRouter = router({
       )
       .mutation(async ({ input, ctx }) => {
         requireRole(ctx, ["admin"]);
-        const { id, ...data } = input;
+        const { id, assignedTo, ...data } = input;
         if (!(await db.getTaskById(id))) {
           throw new TRPCError({ code: "NOT_FOUND", message: "Tarefa não encontrada" });
         }
+        let resolvedAssignedTo: string | undefined;
+        if (assignedTo !== undefined) {
+          const assignee = await db.getAssignableUserById(assignedTo);
+          if (!assignee) {
+            throw new TRPCError({
+              code: "NOT_FOUND",
+              message: "Selecione um administrador ou colaborador ativo como responsável",
+            });
+          }
+          resolvedAssignedTo = assignee.name || `Usuário #${assignee.id}`;
+        }
         await db.updateTask(id, {
           ...data,
+          ...(resolvedAssignedTo !== undefined ? { assignedTo: resolvedAssignedTo } : {}),
           dueAt: data.dueAt === null ? null : data.dueAt ? new Date(data.dueAt) : undefined,
           completedAt: data.status === "done" ? new Date() : data.status ? null : undefined,
         } as any);

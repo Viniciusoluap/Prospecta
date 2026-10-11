@@ -46,7 +46,9 @@ export const visitInput = z
     scheduledAt: z.coerce.date(),
     status: z.enum(VISIT_STATUS),
     visitType: z.enum(VISIT_TYPES),
-    responsibleName: z.string().trim().max(255),
+    // Seleção real: id de um administrador/colaborador ativo, carregado do
+    // banco (ver agendaRouter.options). Nunca texto livre.
+    responsibleId: id.nullable(),
     notes,
   })
   .refine(v => v.leadId !== null || v.clientName.length >= 2, {

@@ -30,7 +30,7 @@ const blank = () => ({
   scheduledAt: localDate(new Date()),
   status: "agendada",
   visitType: "imovel",
-  responsibleName: "",
+  responsibleId: "",
   notes: "",
 });
 export default function AdminAgenda({
@@ -195,6 +195,13 @@ export default function AdminAgenda({
                   variant="outline"
                   onClick={() => {
                     setEditing(v.id);
+                    // responsibleName é o nome persistido; localizamos o responsável
+                    // ativo correspondente para pré-selecionar o combo (fica em
+                    // branco se não houver mais um admin/colaborador ativo com esse
+                    // nome — a UI então pede uma nova seleção real).
+                    const currentResponsible = options.data?.responsibles.find(
+                      r => r.name === v.responsibleName
+                    );
                     setForm({
                       leadId: String(v.leadId ?? ""),
                       propertyId: String(v.propertyId ?? ""),
@@ -204,7 +211,7 @@ export default function AdminAgenda({
                       scheduledAt: localDate(v.scheduledAt),
                       status: v.status,
                       visitType: v.visitType,
-                      responsibleName: v.responsibleName || "",
+                      responsibleId: currentResponsible ? String(currentResponsible.id) : "",
                       notes: v.notes,
                     });
                     setOpen(true);
@@ -233,6 +240,7 @@ export default function AdminAgenda({
             leadId: optionalId(form.leadId),
             propertyId: optionalId(form.propertyId),
             brokerId: optionalId(form.brokerId),
+            responsibleId: optionalId(form.responsibleId),
             scheduledAt: new Date(form.scheduledAt),
           });
           if (editing) await update.mutateAsync({ id: editing, data });
@@ -267,6 +275,13 @@ export default function AdminAgenda({
           options={ids(options.data?.brokers)}
         />
         <Choice
+          label="Colaborador responsável (opcional)"
+          value={form.responsibleId}
+          onChange={v => set("responsibleId", v)}
+          optional
+          options={ids(options.data?.responsibles)}
+        />
+        <Choice
           label="Tipo"
           value={form.visitType}
           onChange={v => set("visitType", v)}
@@ -291,7 +306,6 @@ export default function AdminAgenda({
           [
             ["clientName", "Cliente sem lead"],
             ["clientPhone", "Telefone"],
-            ["responsibleName", "Colaborador responsável"],
             ["notes", "Observações"],
           ] as const
         ).map(([key, label]) => (
