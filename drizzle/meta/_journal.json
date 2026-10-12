@@ -309,6 +309,20 @@
       "when": 1791858600000,
       "tag": "0043_incorporation_type",
       "breakpoints": true
+    },
+    {
+      "idx": 44,
+      "version": "7",
+      "when": 1791858650000,
+      "tag": "0044_due_diligence",
+      "breakpoints": true
+    },
+    {
+      "idx": 45,
+      "version": "7",
+      "when": 1791858700000,
+      "tag": "0045_incorporation_units",
+      "breakpoints": true
     }
   ]
 }

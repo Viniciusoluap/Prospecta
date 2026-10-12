@@ -20,6 +20,8 @@ import { LancamentoImobiliario } from "@/components/incorporacao/LancamentoImobi
 import { ObraExecutiva } from "@/components/incorporacao/ObraExecutiva";
 import { AtendimentoRelatorio } from "@/components/incorporacao/AtendimentoRelatorio";
 import { ViabilidadeEconomica } from "@/components/incorporacao/ViabilidadeEconomica";
+import { DueDiligenceEditor } from "@/components/incorporacao/DueDiligenceEditor";
+import { UnidadesEditor } from "@/components/incorporacao/UnidadesEditor";
 
 const STATUS_OPTIONS = [
   { value: "in_study", label: "Em estudo" },
@@ -35,13 +37,22 @@ const TIPOS = [
 ] as const;
 
 const MODULOS = [
-  ["dados", "Dados Gerais"], ["terreno", "Terreno e Topografia"],
+  ["dados", "Dados Gerais"], ["diligencia", "Due Diligence"], ["terreno", "Terreno e Topografia"],
   ["mercado", "Inteligência de Mercado"], ["massa", "Estudo de Massa Generativa"],
   ["orcamento", "Orçamento e Negociação"], ["business", "Business/Investidores"],
   ["projeto", "Projeto Aprovado"], ["registro", "Registro e Orçamento"],
   ["lancamento", "Planejamento do Lançamento"], ["unidades", "Unidades à Venda"],
   ["obra", "Obra Executiva"], ["relatorio", "Atendimento e Relatório"],
   ["viabilidade", "Viabilidade Econômica"],
+] as const;
+const MODULOS_DESMEMBRAMENTO = [
+  ["dados", "Dados Gerais"], ["diligencia", "Due Diligence"], ["terreno", "Terreno"],
+  ["topografia", "Topografia"], ["mercado", "Inteligência de Mercado"], ["massa", "Estudo de Massa Generativa"],
+  ["orcamento", "Orçamento Parametrizado"], ["negociacao", "Negociação do Terreno"],
+  ["business", "Business/Investidores"], ["projeto", "Projeto Aprovado"], ["unidades", "Unidades à Venda"],
+  ["lancamento", "Planejamento do Lançamento"], ["fornecedores", "Contratação de Fornecedores"],
+  ["material", "Material Publicitário"], ["atendimento", "Atendimento aos Clientes"],
+  ["relatorio", "Relatório Executivo"], ["viabilidade", "Viabilidade Econômica"],
 ] as const;
 
 export default function AdminIncorporacaoDetail() {
@@ -52,7 +63,7 @@ export default function AdminIncorporacaoDetail() {
   const { data: versoes = [] } = trpc.incorporacao.versions.useQuery({ id: Number(id) }, { enabled: !!Number(id) });
   const { data: equipe = [] } = trpc.incorporacao.staff.useQuery();
   const [erroVersao, setErroVersao] = useState("");
-  const [moduloAtivo, setModuloAtivo] = useState<(typeof MODULOS)[number][0]>("dados");
+  const [moduloAtivo, setModuloAtivo] = useState<(typeof MODULOS)[number][0] | (typeof MODULOS_DESMEMBRAMENTO)[number][0]>("dados");
   const [alterado, setAlterado] = useState(false);
 
   useEffect(() => {
@@ -158,7 +169,7 @@ export default function AdminIncorporacaoDetail() {
 
       <div className="max-w-4xl mx-auto px-6 py-6 space-y-6" onInputCapture={() => setAlterado(true)} onChangeCapture={() => setAlterado(true)}>
         <nav aria-label="Módulos do estudo" className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-2">
-          {MODULOS.map(([idModulo, nome]) => (
+          {(estudo.incorporationType === "desmembramento_simples" ? MODULOS_DESMEMBRAMENTO : MODULOS.filter(([idModulo]) => idModulo !== "diligencia")).map(([idModulo, nome]) => (
             <button key={idModulo} type="button" onClick={() => setModuloAtivo(idModulo)}
               aria-current={moduloAtivo === idModulo ? "page" : undefined}
               className={`min-w-0 rounded-md border px-3 py-3 text-left text-sm font-medium break-words ${moduloAtivo === idModulo ? "border-[#C9A961] bg-[#C9A961] text-[#1A2332]" : "border-[#C9A961]/30 bg-[#0F1923] text-gray-200 hover:border-[#C9A961]"}`}>
@@ -166,6 +177,7 @@ export default function AdminIncorporacaoDetail() {
             </button>
           ))}
         </nav>
+        {estudo.incorporationType === "desmembramento_simples" && <div hidden={moduloAtivo !== "diligencia"}><DueDiligenceEditor estudoId={estudo.id} json={estudo.dueDiligenceJson} /></div>}
         <div hidden={moduloAtivo !== "dados"} className="space-y-6">
         <Card className="bg-[#1A2332]/60 border-[#C9A961]/20 backdrop-blur-sm">
           <CardHeader>
@@ -252,13 +264,14 @@ export default function AdminIncorporacaoDetail() {
         </Card>
         </div>
 
-        <div hidden={moduloAtivo !== "terreno"}>
+        <div hidden={moduloAtivo !== "terreno" && moduloAtivo !== "topografia"}>
         <TerrenoTopografia
           estudoId={estudo.id}
           geojson={estudo.geojson}
           areaM2={estudo.areaM2}
           perimeterM={estudo.perimeterM}
           elevationJson={estudo.elevationJson}
+          secao={estudo.incorporationType === "desmembramento_simples" ? moduloAtivo === "topografia" ? "topografia" : "terreno" : undefined}
         />
         </div>
 
@@ -289,11 +302,12 @@ export default function AdminIncorporacaoDetail() {
         />
         </div>
 
-        <div hidden={moduloAtivo !== "orcamento"}>
+        <div hidden={moduloAtivo !== "orcamento" && moduloAtivo !== "negociacao"}>
         <OrcamentoNegociacao
           estudoId={estudo.id}
           parameterizedBudgetJson={estudo.parameterizedBudgetJson}
           landNegotiationJson={estudo.landNegotiationJson}
+          secao={estudo.incorporationType === "desmembramento_simples" ? moduloAtivo === "negociacao" ? "negociacao" : "orcamento" : undefined}
         />
         </div>
 
@@ -306,6 +320,7 @@ export default function AdminIncorporacaoDetail() {
           estudoId={estudo.id}
           designersJson={estudo.designersJson}
           projectApprovalJson={estudo.projectApprovalJson}
+          secao={estudo.incorporationType === "desmembramento_simples" ? "aprovacao" : undefined}
         />
         </div>
 
@@ -318,21 +333,22 @@ export default function AdminIncorporacaoDetail() {
         />
         </div>
 
-        <div hidden={moduloAtivo !== "lancamento"}>
+        <div hidden={moduloAtivo !== "lancamento" && moduloAtivo !== "fornecedores" && moduloAtivo !== "material"}>
         <LancamentoMarketing
           estudoId={estudo.id}
           launchPlanJson={estudo.launchPlanJson}
           launchSuppliersJson={estudo.launchSuppliersJson}
           marketingMaterialJson={estudo.marketingMaterialJson}
+          secao={estudo.incorporationType === "desmembramento_simples" ? moduloAtivo === "fornecedores" ? "fornecedores" : moduloAtivo === "material" ? "material" : "planejamento" : undefined}
         />
         </div>
 
         <div hidden={moduloAtivo !== "unidades"}>
-        <LancamentoImobiliario
+        {estudo.incorporationType === "desmembramento_simples" ? <UnidadesEditor estudoId={estudo.id} /> : <LancamentoImobiliario
           estudoId={estudo.id}
           productMixJson={estudo.productMixJson}
           realEstateLaunchJson={estudo.realEstateLaunchJson}
-        />
+        />}
         </div>
 
         <div hidden={moduloAtivo !== "obra"}>
@@ -345,11 +361,12 @@ export default function AdminIncorporacaoDetail() {
         />
         </div>
 
-        <div hidden={moduloAtivo !== "relatorio"}>
+        <div hidden={moduloAtivo !== "relatorio" && moduloAtivo !== "atendimento"}>
         <AtendimentoRelatorio
           estudoId={estudo.id}
           customerServiceJson={estudo.customerServiceJson}
           estudo={{ ...estudo, versionNumber: versoes[0]?.revision ?? null, staff: equipe }}
+          secao={estudo.incorporationType === "desmembramento_simples" ? moduloAtivo === "atendimento" ? "atendimento" : "relatorio" : undefined}
         />
         </div>
 

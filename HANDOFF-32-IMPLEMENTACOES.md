@@ -6,7 +6,7 @@
 > `Prospecta/docs/stories/epics/epic-020-32-implementacoes-paridade/MATRIZ-PARIDADE.md` (cópia em `Grupo-Santa-Fe/docs/epic-020/MATRIZ-PARIDADE.md`).
 > **Ao terminar cada lote, atualize a seção "Estado atual" deste arquivo nos dois repositórios.**
 
-Última atualização: 12/10/2026 — Lotes 0–4 publicados. Lote 5 em execução em branch isolada. Inventário de feito × pendente em §7.
+Última atualização: 12/10/2026 — Lotes 0–4 publicados. Lote 5 em execução em branch isolada. Inventário de feito × pendente em §7 e checkpoint recente no fim deste arquivo.
 
 ---
 
@@ -421,4 +421,13 @@ Testes automáticos atuais: Prospecta 663/663 · Santa Fé 539/539 (inclui teste
   antiga só preserva o histórico.
 - **C-03:** na Vercel → Project → Settings → Git: desconectar e reconectar o repositório e revisar/reinstalar
   as permissões do app GitHub da Vercel para os dois repositórios. Enquanto isso, o agente confere cada deploy.
+
+### 7.8 Checkpoint Lote 5 — 12/10/2026 (Prospecta)
+
+- Branch isolada `codex/epic020-lote5-20261012`, PR rascunho #105. Nenhuma migration 0041–0045 aplicada; sem merge/deploy deste lote. `main` e produção continuam no Lote 4.
+- Itens 01 e 02 e a preparação do item 03 foram commitados anteriormente. Drive privado próprio do site, com metadados/eventos e upload de até 3 MiB. Falta teste real de upload/download no Google Drive e validação autenticada.
+- Item 04 agora inclui `due_diligence_json` (migration 0044), editor de etapas reordenáveis, tarefas/documentos, progresso, anexo privado por ID de etapa/documento e atualização CAS (conflito em alteração concorrente). Testes unitários Due Diligence 2/2; TypeScript passou antes da etapa de inventário.
+- Inventário de unidades em implementação: migration 0045, tabelas `incorporation_units` e eventos, código único por estudo, CRUD de criação/reserva/venda/liberação, conciliação explícita de vendas antigas com código exato e proteção contra venda duplicada por `UPDATE` condicional + auditoria em uma declaração SQL. Vendas históricas JSON preservadas. `shared/incorporacao/unidades.ts`, `server/incorporacao-unidades-router.ts`, `client/src/components/incorporacao/UnidadesEditor.tsx`. O endpoint antigo `saveLancamentoImobiliario` é bloqueado para Desmembramento Simples. **Ainda requer revisão de concorrência, validação integral e teste em banco de desenvolvimento.**
+- Navegação Desmembramento Simples contém os 17 módulos especificados, reutilizando os componentes atuais por seção sem apagar dados de outras tipologias. **Ainda requer validação visual e funcional.**
+- Próximo passo: terminar `tsc`, lint/testes de unidade e integração em base isolada; revisar especialidade dos tipos e reconciliação (vendas incompletas bloqueiam movimentação e exigem tratamento humano), fazer backup/pré-flight de migrations, completar Drive real e smoke autenticado. Só então considerar merge/deploy. Não presumir que este checkpoint está pronto para produção.
 

@@ -27,15 +27,16 @@ function Metric({ label, valor, destaque }: { label: string; valor: string; dest
   );
 }
 
-export function LancamentoMarketing({ estudoId, launchPlanJson, launchSuppliersJson, marketingMaterialJson }: {
+export function LancamentoMarketing({ estudoId, launchPlanJson, launchSuppliersJson, marketingMaterialJson, secao }: {
   estudoId: number; launchPlanJson: string | null; launchSuppliersJson: string | null; marketingMaterialJson: string | null;
+  secao?: "planejamento" | "fornecedores" | "material";
 }) {
   const { data: staff = [] } = trpc.incorporacao.staff.useQuery();
   return (
     <div className="space-y-6">
-      <PlanejamentoLancamento estudoId={estudoId} launchPlanJson={launchPlanJson} staff={staff} />
-      <FornecedoresLancamento estudoId={estudoId} launchSuppliersJson={launchSuppliersJson} />
-      <MaterialPublicitario estudoId={estudoId} marketingMaterialJson={marketingMaterialJson} />
+      <div hidden={!!secao && secao !== "planejamento"}><PlanejamentoLancamento estudoId={estudoId} launchPlanJson={launchPlanJson} staff={staff} /></div>
+      <div hidden={!!secao && secao !== "fornecedores"}><FornecedoresLancamento estudoId={estudoId} launchSuppliersJson={launchSuppliersJson} /></div>
+      <div hidden={!!secao && secao !== "material"}><MaterialPublicitario estudoId={estudoId} marketingMaterialJson={marketingMaterialJson} /></div>
     </div>
   );
 }

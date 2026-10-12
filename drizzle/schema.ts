@@ -1553,6 +1553,7 @@ export const incorporationStudies = pgTable("incorporation_studies", {
   responsible: varchar("responsible", { length: 120 }),
   status: varchar("status", { length: 40 }).default("in_study").notNull(),
   incorporationType: varchar("incorporation_type", { length: 40 }),
+  dueDiligenceJson: text("due_diligence_json"),
   propertyRef: varchar("property_ref", { length: 180 }),
   propertyRegistration: text("property_registration"),
   carRegistration: text("car_registration"),
@@ -1624,6 +1625,33 @@ export const incorporationRegistrationDocuments = pgTable("incorporation_registr
   performedByUserId: integer("performed_by_user_id").notNull().references(() => users.id, { onDelete: "restrict" }),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 }, (t) => ({ porEstudoItem: index("incorporation_registration_documents_study_item_idx").on(t.studyId, t.itemId, t.id) }));
+
+// Inventário comercial isolado do JSON histórico de lançamento. A transição
+// de estado acontece no servidor com UPDATE condicional e evento na mesma TX.
+export const incorporationUnits = pgTable("incorporation_units", {
+  id: serial("id").primaryKey(),
+  studyId: integer("study_id").notNull().references(() => incorporationStudies.id, { onDelete: "restrict" }),
+  code: varchar("code", { length: 120 }).notNull(),
+  codeKey: varchar("code_key", { length: 120 }).notNull(),
+  kind: varchar("kind", { length: 40 }).notNull(),
+  status: varchar("status", { length: 20 }).default("disponivel").notNull(),
+  buyer: varchar("buyer", { length: 255 }),
+  salePrice: decimal("sale_price", { precision: 15, scale: 2 }),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+}, (t) => ({ studyCode: uniqueIndex("incorporation_units_study_code_key_idx").on(t.studyId, t.codeKey) }));
+
+export const incorporationUnitEvents = pgTable("incorporation_unit_events", {
+  id: serial("id").primaryKey(),
+  unitId: integer("unit_id").notNull().references(() => incorporationUnits.id, { onDelete: "restrict" }),
+  previousStatus: varchar("previous_status", { length: 20 }),
+  nextStatus: varchar("next_status", { length: 20 }).notNull(),
+  buyer: varchar("buyer", { length: 255 }),
+  salePrice: decimal("sale_price", { precision: 15, scale: 2 }),
+  legacySaleId: varchar("legacy_sale_id", { length: 120 }),
+  performedByUserId: integer("performed_by_user_id").notNull().references(() => users.id, { onDelete: "restrict" }),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+}, (t) => ({ byUnit: index("incorporation_unit_events_unit_idx").on(t.unitId, t.id) }));
 
 // Histórico imutável do estudo. Snapshot guardado pelo trigger da migração 0038.
 export const incorporationStudyVersions = pgTable("incorporation_study_versions", {

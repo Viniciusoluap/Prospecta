@@ -3,6 +3,7 @@ import { and, desc, eq } from "drizzle-orm";
 import { z } from "zod";
 import { incorporationRegistrationDocuments } from "../drizzle/schema.js";
 import { DOCUMENTOS_PADRAO_REGISTRO, type DocumentoRegistro } from "../shared/incorporacao/registro-incorporacao.js";
+import { lerDueDiligence } from "../shared/incorporacao/due-diligence.js";
 import { protectedProcedure, router } from "./_core/trpc.js";
 import { requireRole } from "./_core/rbac.js";
 import { getDb, getIncorporationStudyById } from "./db.js";
@@ -16,6 +17,14 @@ const mime = z.enum(["application/pdf", "image/jpeg", "image/png"]);
 export async function requireRegistrationItem(studyId: number, itemId: string) {
   const study = await getIncorporationStudyById(studyId);
   if (!study) throw new TRPCError({ code: "NOT_FOUND", message: "Estudo não encontrado" });
+  if (itemId.startsWith("dd_")) {
+    const [, stageId, documentId, extra] = itemId.split("_");
+    if (extra || !stageId || !documentId ||
+      !lerDueDiligence(study.dueDiligenceJson).etapas.some((stage) =>
+        stage.id === stageId && stage.documentos.some((document) => document.id === documentId)))
+      throw new TRPCError({ code: "NOT_FOUND", message: "Documento da Due Diligence não encontrado" });
+    return;
+  }
   let documents: DocumentoRegistro[] = DOCUMENTOS_PADRAO_REGISTRO.map((nome, i) => ({ id: `padrao-${i}`, nome, status: "pendente" }));
   if (study.incorporationRegistrationJson) {
     try {
