@@ -1,5 +1,5 @@
 import { TRPCError } from "@trpc/server";
-import { and, asc, desc, eq, ne, sql } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, isNull, ne, sql } from "drizzle-orm";
 import { z } from "zod";
 import {
   brokerCommissions,
@@ -45,6 +45,23 @@ async function brokerExists(id: number | null) {
       )[0]
     );
 }
+// Responsável (colaborador administrativo) distinto do corretor que conduz a
+// visita: carregado do banco, restrito a administradores/colaboradores ativos.
+const ASSIGNABLE_ROLES = ["admin", "colaborador"] as const;
+async function responsibleExists(id: number | null) {
+  if (id === null) return null;
+  return found(
+    (
+      await getDb()
+        .select({ name: users.name })
+        .from(users)
+        .where(
+          and(eq(users.id, id), inArray(users.role, ASSIGNABLE_ROLES), eq(users.active, true))
+        )
+        .limit(1)
+    )[0]
+  );
+}
 async function leadExists(id: number | null) {
   if (id !== null)
     return found(
@@ -52,7 +69,7 @@ async function leadExists(id: number | null) {
         await getDb()
           .select({ name: leads.name, phone: leads.phone })
           .from(leads)
-          .where(eq(leads.id, id))
+          .where(and(eq(leads.id, id), isNull(leads.deletedAt), ne(leads.stage, "rejected")))
           .limit(1)
       )[0]
     );
@@ -71,10 +88,12 @@ const brokerFields = {
 };
 async function options() {
   const db = getDb();
-  const [leadOptions, properties, brokers] = await Promise.all([
+  const [leadOptions, properties, brokers, responsibles] = await Promise.all([
+    // Exclui leads excluídos (soft delete) e rejeitados — não aparecem em seletores.
     db
       .select({ id: leads.id, name: leads.name })
       .from(leads)
+      .where(and(isNull(leads.deletedAt), ne(leads.stage, "rejected")))
       .orderBy(asc(leads.name)),
     db
       .select({ id: imoveis.id, name: imoveis.titulo })
@@ -85,13 +104,20 @@ async function options() {
       .from(users)
       .where(eq(users.role, "corretor"))
       .orderBy(asc(users.name)),
+    // Responsáveis: apenas administradores e colaboradores ativos, do banco.
+    db
+      .select({ id: users.id, name: users.name })
+      .from(users)
+      .where(and(inArray(users.role, ASSIGNABLE_ROLES), eq(users.active, true)))
+      .orderBy(asc(users.name)),
   ]);
-  return { leads: leadOptions, properties, brokers };
+  return { leads: leadOptions, properties, brokers, responsibles };
 }
 
 async function visitValues(input: z.infer<typeof visitInput>) {
   const lead = await leadExists(input.leadId);
   await brokerExists(input.brokerId);
+  const responsible = await responsibleExists(input.responsibleId);
   if (input.propertyId !== null)
     found(
       (
@@ -102,10 +128,12 @@ async function visitValues(input: z.infer<typeof visitInput>) {
           .limit(1)
       )[0]
     );
+  const { responsibleId, ...rest } = input;
   return {
-    ...input,
+    ...rest,
     clientName: lead?.name ?? input.clientName,
     clientPhone: lead?.phone ?? input.clientPhone,
+    responsibleName: responsible?.name ?? null,
     updatedAt: new Date(),
   };
 }

@@ -48,7 +48,7 @@ const visit = {
   scheduledAt: new Date(),
   status: "agendada",
   visitType: "imovel",
-  responsibleName: "",
+  responsibleId: null,
   notes: "",
 };
 const commission = {
@@ -93,8 +93,19 @@ describe("Etapa 4 — validação de negócio", () => {
       { scheduledAt: "invalid" },
       { status: "inventado" },
       { brokerId: -1 },
+      { responsibleId: -1 },
+      { responsibleId: 0 },
     ])
       expect(visitInput.safeParse({ ...visit, ...change }).success).toBe(false);
+  });
+  it("responsável é uma seleção real (id), nunca texto livre", () => {
+    expect(visitInput.safeParse({ ...visit, responsibleId: 5 }).success).toBe(true);
+    expect(visitInput.safeParse({ ...visit, responsibleId: null }).success).toBe(true);
+    expect(
+      (visitInput.parse({ ...visit, responsibleId: null }) as never as {
+        responsibleName?: unknown;
+      }).responsibleName
+    ).toBeUndefined();
   });
   it("comissão exige corretor apenas para beneficiário corretor", () => {
     expect(commissionInput.safeParse(commission).success).toBe(true);
@@ -308,6 +319,66 @@ describe("Etapa 4 — persistência via procedures", () => {
     expect(values).toHaveBeenCalledWith(
       expect.objectContaining({ leadId: null, clientName: "Cliente" })
     );
+  });
+  it("Agenda resolve o responsável selecionado (admin/colaborador ativo) para o nome persistido", async () => {
+    const limit = vi.fn().mockResolvedValue([{ name: "Ana Colaboradora" }]);
+    const select = vi.fn().mockReturnValue({
+      from: () => ({ where: () => ({ limit }) }),
+    });
+    const values = vi
+      .fn()
+      .mockReturnValue({ returning: async () => [{ id: 10 }] });
+    vi.mocked(getDb).mockReturnValue({
+      select,
+      insert: () => ({ values }),
+    } as unknown as ReturnType<typeof getDb>);
+    await expect(
+      app
+        .createCaller(context("colaborador", ["agenda"]))
+        .agenda.create(visitInput.parse({ ...visit, responsibleId: 5 }))
+    ).resolves.toEqual({ id: 10 });
+    expect(values).toHaveBeenCalledWith(
+      expect.objectContaining({ responsibleName: "Ana Colaboradora" })
+    );
+    expect(values.mock.calls[0][0]).not.toHaveProperty("responsibleId");
+  });
+  it("Agenda rejeita responsável que não é administrador/colaborador ativo", async () => {
+    const limit = vi.fn().mockResolvedValue([]);
+    const select = vi.fn().mockReturnValue({
+      from: () => ({ where: () => ({ limit }) }),
+    });
+    const values = vi.fn();
+    vi.mocked(getDb).mockReturnValue({
+      select,
+      // insert() é alcançado antes do await que rejeita (avaliação de argumentos
+      // do `.values(...)`); values nunca deve ser chamado com dados reais.
+      insert: () => ({ values }),
+    } as unknown as ReturnType<typeof getDb>);
+    await expect(
+      app
+        .createCaller(context("colaborador", ["agenda"]))
+        .agenda.create(visitInput.parse({ ...visit, responsibleId: 999 }))
+    ).rejects.toMatchObject({ code: "NOT_FOUND" });
+    expect(values).not.toHaveBeenCalled();
+  });
+  it("Agenda não oferece lead excluído/rejeitado como vínculo (nem informado diretamente)", async () => {
+    // A mesma query filtrada (deletedAt nulo e stage distinto de "rejected") usada
+    // no seletor é aplicada aqui: um lead excluído ou rejeitado não é encontrado,
+    // mesmo que o id seja enviado diretamente à API.
+    const limit = vi.fn().mockResolvedValue([]);
+    const select = vi.fn().mockReturnValue({
+      from: () => ({ where: () => ({ limit }) }),
+    });
+    const values = vi.fn();
+    vi.mocked(getDb).mockReturnValue({
+      insert: () => ({ values }),
+      select,
+    } as unknown as ReturnType<typeof getDb>);
+    await expect(
+      app
+        .createCaller(context("colaborador", ["agenda"]))
+        .agenda.create(visitInput.parse({ ...visit, leadId: 3 }))
+    ).rejects.toMatchObject({ code: "NOT_FOUND" });
   });
   it("Comissões grava moeda decimal e não associa corretor à empresa", async () => {
     const values = vi

@@ -80,7 +80,7 @@ export default function AdminTarefas({
   const [form, setForm] = useState({
     title: "",
     description: "",
-    assignedTo: "sarah",
+    assignedTo: "",
     priority: "medium" as any,
     dueAt: "",
     slaHours: "",
@@ -90,21 +90,30 @@ export default function AdminTarefas({
   });
 
   const { data: allTasks = [], refetch } = trpc.tasks.list.useQuery();
-  const { data: leads = [] } = trpc.construction.leadOptions.useQuery();
+  // Responsáveis: apenas administradores e colaboradores ativos, carregados do banco.
+  const { data: assignableUsers = [] } = trpc.tasks.assignableUsers.useQuery();
+  // Leads elegíveis para vínculo: exclui excluídos/rejeitados.
+  const { data: leads = [] } = trpc.tasks.leadOptions.useQuery();
   const { data: projects = [] } = trpc.construction.allProjects.useQuery();
   const tasks = allTasks.filter(task =>
     (filterStatus === "all" || task.status === filterStatus) &&
     (filterResp === "all" || task.assignedTo === filterResp)
   );
 
+  const defaultAssignee = () => (assignableUsers[0] ? String(assignableUsers[0].id) : "");
   const resetForm = () => {
     setEditingId(null);
-    setForm({ title: "", description: "", assignedTo: "sarah", priority: "medium", dueAt: "", slaHours: "", status: "pending", relatedType: "none", relatedId: "none" });
+    setForm({ title: "", description: "", assignedTo: defaultAssignee(), priority: "medium", dueAt: "", slaHours: "", status: "pending", relatedType: "none", relatedId: "none" });
   };
   const editTask = (task: (typeof allTasks)[number]) => {
     setEditingId(task.id);
+    // O responsável é persistido pelo nome; localizamos o usuário ativo correspondente
+    // para pré-selecionar o combo (pode ficar em branco se o nome não bater mais
+    // com nenhum admin/colaborador ativo — a UI então pede uma nova seleção real).
+    const currentAssignee = assignableUsers.find(u => u.name === task.assignedTo);
     setForm({
-      title: task.title, description: task.description || "", assignedTo: task.assignedTo,
+      title: task.title, description: task.description || "",
+      assignedTo: currentAssignee ? String(currentAssignee.id) : "",
       priority: task.priority, dueAt: task.dueAt ? new Date(task.dueAt).toISOString().slice(0, 16) : "",
       slaHours: task.slaHours ? String(task.slaHours) : "", status: task.status,
       relatedType: task.relatedType || "none", relatedId: task.relatedId ? String(task.relatedId) : "none",
@@ -218,12 +227,14 @@ export default function AdminTarefas({
                         }
                       >
                         <SelectTrigger className="bg-[#2C3E50] border-[#C9A961]/30 text-white mt-1">
-                          <SelectValue />
+                          <SelectValue placeholder="Selecione um responsável" />
                         </SelectTrigger>
                         <SelectContent>
-                          <SelectItem value="sarah">Sarah</SelectItem>
-                          <SelectItem value="vinicius">Vinicius</SelectItem>
-                          <SelectItem value="bianca">Bianca</SelectItem>
+                          {assignableUsers.map(user => (
+                            <SelectItem key={user.id} value={String(user.id)}>
+                              {user.name || `Usuário #${user.id}`}
+                            </SelectItem>
+                          ))}
                         </SelectContent>
                       </Select>
                     </div>
@@ -267,10 +278,10 @@ export default function AdminTarefas({
                   {!editingId && form.relatedType !== "none" && <div><Label className="text-gray-200">Registro vinculado</Label><Select value={form.relatedId} onValueChange={value => setForm(f => ({ ...f, relatedId: value }))}><SelectTrigger className="bg-[#2C3E50] text-white mt-1"><SelectValue placeholder="Selecione" /></SelectTrigger><SelectContent><SelectItem value="none">Selecione</SelectItem>{form.relatedType === "lead" ? leads.map(lead => <SelectItem key={lead.id} value={String(lead.id)}>{lead.name} (#{lead.id})</SelectItem>) : projects.map(project => <SelectItem key={project.id} value={String(project.id)}>{project.title} (#{project.id})</SelectItem>)}</SelectContent></Select></div>}
                   <Button
                     onClick={() => editingId
-                      ? updateMutation.mutate({ id: editingId, title: form.title, description: form.description, assignedTo: form.assignedTo, priority: form.priority, status: form.status, dueAt: form.dueAt || null })
-                      : createMutation.mutate({ title: form.title, description: form.description, assignedTo: form.assignedTo, priority: form.priority, status: form.status, dueAt: form.dueAt ? new Date(form.dueAt) : undefined, slaHours: form.slaHours ? Number(form.slaHours) : undefined, relatedType: form.relatedType === "none" ? undefined : form.relatedType as "lead" | "obra", relatedId: form.relatedId === "none" ? undefined : Number(form.relatedId) })
+                      ? updateMutation.mutate({ id: editingId, title: form.title, description: form.description, assignedTo: Number(form.assignedTo), priority: form.priority, status: form.status, dueAt: form.dueAt || null })
+                      : createMutation.mutate({ title: form.title, description: form.description, assignedTo: Number(form.assignedTo), priority: form.priority, status: form.status, dueAt: form.dueAt ? new Date(form.dueAt) : undefined, slaHours: form.slaHours ? Number(form.slaHours) : undefined, relatedType: form.relatedType === "none" ? undefined : form.relatedType as "lead" | "obra", relatedId: form.relatedId === "none" ? undefined : Number(form.relatedId) })
                     }
-                    disabled={createMutation.isPending || updateMutation.isPending || form.title.trim().length < 2 || (form.relatedType !== "none" && form.relatedId === "none")}
+                    disabled={createMutation.isPending || updateMutation.isPending || form.title.trim().length < 2 || !form.assignedTo || (form.relatedType !== "none" && form.relatedId === "none")}
                     className="w-full bg-[#C9A961] hover:bg-[#B8985A] text-[#1A2332] font-bold"
                   >
                     {editingId ? "Salvar Tarefa" : "Criar Tarefa"}
@@ -350,9 +361,9 @@ export default function AdminTarefas({
             </SelectTrigger>
             <SelectContent>
               <SelectItem value="all">Todos</SelectItem>
-              <SelectItem value="sarah">Sarah</SelectItem>
-              <SelectItem value="vinicius">Vinicius</SelectItem>
-              <SelectItem value="bianca">Bianca</SelectItem>
+              {Array.from(new Set(assignableUsers.map(u => u.name).filter((n): n is string => Boolean(n)))).map(name => (
+                <SelectItem key={name} value={name}>{name}</SelectItem>
+              ))}
             </SelectContent>
           </Select>
         </div>

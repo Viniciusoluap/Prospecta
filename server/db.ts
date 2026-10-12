@@ -1,4 +1,4 @@
-import { eq, and, desc, sql, like, isNull, inArray, asc } from "drizzle-orm";
+import { eq, and, desc, sql, like, isNull, inArray, asc, ne } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/neon-http";
 import { neon } from "@neondatabase/serverless";
 
@@ -819,6 +819,31 @@ export async function validateLeadAssignment(input: { responsibleUserId?: number
   };
 }
 
+/**
+ * Leads elegíveis para vínculo em seletores de Tarefas/Agenda: exclui leads
+ * excluídos (soft delete) e leads rejeitados (equivalente a "arquivado/inativo"
+ * no modelo atual — não existe um campo "active"/"archived" dedicado em `leads`).
+ */
+export async function getAssignableLeadOptions(): Promise<{ id: number; name: string }[]> {
+  const db = getDb();
+  return db
+    .select({ id: leads.id, name: leads.name })
+    .from(leads)
+    .where(and(isNull(leads.deletedAt), ne(leads.stage, "rejected")))
+    .orderBy(leads.name);
+}
+
+/** Mesma regra de getAssignableLeadOptions, mas para validar um vínculo pontual no servidor. */
+export async function getAssignableLeadById(id: number): Promise<Lead | undefined> {
+  const db = getDb();
+  const result = await db
+    .select()
+    .from(leads)
+    .where(and(eq(leads.id, id), isNull(leads.deletedAt), ne(leads.stage, "rejected")))
+    .limit(1);
+  return result[0];
+}
+
 export async function createLead(data: InsertLead): Promise<Lead> {
   const db = getDb();
   const result = await db.insert(leads).values(data).returning();
@@ -953,6 +978,33 @@ export async function getLeadStats() {
     approved: approved[0]?.count || 0,
     rejected: rejected[0]?.count || 0,
   };
+}
+
+// ========== RESPONSÁVEIS (ADMIN/COLABORADOR ATIVOS) ==========
+// Fonte única de "quem pode ser responsável" por uma Tarefa ou por um
+// compromisso de Agenda: carregado do banco, nunca uma lista fixa de nomes.
+// Critério: role in (admin, colaborador) e active = true.
+const ASSIGNABLE_ROLES = ["admin", "colaborador"] as const;
+
+export async function getAssignableUsers(): Promise<{ id: number; name: string | null }[]> {
+  const db = getDb();
+  return db
+    .select({ id: users.id, name: users.name })
+    .from(users)
+    .where(and(inArray(users.role, ASSIGNABLE_ROLES), eq(users.active, true)))
+    .orderBy(users.name);
+}
+
+export async function getAssignableUserById(
+  id: number
+): Promise<{ id: number; name: string | null } | undefined> {
+  const db = getDb();
+  const result = await db
+    .select({ id: users.id, name: users.name })
+    .from(users)
+    .where(and(eq(users.id, id), inArray(users.role, ASSIGNABLE_ROLES), eq(users.active, true)))
+    .limit(1);
+  return result[0];
 }
 
 // ========== TAREFAS (TASKS) ==========

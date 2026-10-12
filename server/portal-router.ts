@@ -20,7 +20,7 @@ import {
 import { hashPassword } from "./_core/auth-utils.js";
 import { requireRole } from "./_core/rbac.js";
 import { adminProcedure, protectedProcedure, router } from "./_core/trpc.js";
-import { getDb } from "./db.js";
+import { getAssignableUserById, getDb } from "./db.js";
 import { storagePut } from "./storage.js";
 import { driveConfigured, readPrivateDocument, uploadPrivateDocument } from "./drive-documents.js";
 import { isClientRole, requireClientContext } from "./profile-context.js";
@@ -681,14 +681,29 @@ export const portalRouter = router({
           propertyId: z.number().int().positive().nullable().optional(),
           scheduledAt: z.date(),
           status: visitStatus.default("agendada"),
-          responsibleName: z.string().max(255).optional(),
+          // Seleção real: id de um administrador/colaborador ativo (ver
+          // tasks.assignableUsers / agendaRouter.options). Nunca texto livre —
+          // mesma regra aplicada no agendaRouter para esta mesma tabela.
+          responsibleId: z.number().int().positive().optional(),
           notes: z.string().max(2000).optional(),
         })
       )
       .mutation(async ({ input }) => {
+        const { responsibleId, ...rest } = input;
+        let responsibleName: string | null = null;
+        if (responsibleId !== undefined) {
+          const responsible = await getAssignableUserById(responsibleId);
+          if (!responsible) {
+            throw new TRPCError({
+              code: "NOT_FOUND",
+              message: "Selecione um administrador ou colaborador ativo como responsável",
+            });
+          }
+          responsibleName = responsible.name || `Usuário #${responsible.id}`;
+        }
         const [visit] = await getDb()
           .insert(portalVisits)
-          .values(input)
+          .values({ ...rest, responsibleName })
           .returning();
         return visit;
       }),

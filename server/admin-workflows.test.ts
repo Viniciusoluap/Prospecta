@@ -55,29 +55,59 @@ describe("cadastro administrativo de obras", () => {
 });
 
 describe("tarefas", () => {
-  it("cria tarefa independente sem referência a lead", async () => {
+  it("cria tarefa independente sem referência a lead, resolvendo o responsável selecionado", async () => {
+    vi.spyOn(db, "getAssignableUserById").mockResolvedValue({ id: 12, name: "Sarah" } as never);
     const create = vi.spyOn(db, "createTask").mockResolvedValue({ id: 4 } as never);
-    await expect(admin().tasks.create({ title: "Conferir contrato", assignedTo: "sarah" })).resolves.toMatchObject({ id: 4 });
-    expect(create).toHaveBeenCalledWith(expect.objectContaining({ status: "pending", priority: "medium" }));
+    await expect(admin().tasks.create({ title: "Conferir contrato", assignedTo: 12 })).resolves.toMatchObject({ id: 4 });
+    expect(create).toHaveBeenCalledWith(expect.objectContaining({ assignedTo: "Sarah", status: "pending", priority: "medium" }));
     expect(create.mock.calls[0][0].relatedId).toBeUndefined();
   });
 
-  it("impede vínculo inválido e operações de cliente", async () => {
-    vi.spyOn(db, "getLeadById").mockResolvedValue(undefined);
+  it("recusa responsável que não é administrador ou colaborador ativo", async () => {
+    vi.spyOn(db, "getAssignableUserById").mockResolvedValue(undefined);
     const create = vi.spyOn(db, "createTask");
-    await expect(admin().tasks.create({ title: "Conferir contrato", assignedTo: "sarah", relatedType: "lead", relatedId: 5 })).rejects.toMatchObject({ code: "NOT_FOUND" });
-    await expect(client().tasks.create({ title: "Conferir contrato", assignedTo: "sarah" })).rejects.toMatchObject({ code: "FORBIDDEN" });
+    await expect(admin().tasks.create({ title: "Conferir contrato", assignedTo: 999 })).rejects.toMatchObject({ code: "NOT_FOUND" });
     expect(create).not.toHaveBeenCalled();
   });
 
-  it("edita e exclui tarefa apenas após verificar a existência", async () => {
+  it("impede vínculo com lead excluído/rejeitado/inexistente e operações de cliente", async () => {
+    vi.spyOn(db, "getAssignableUserById").mockResolvedValue({ id: 12, name: "Sarah" } as never);
+    vi.spyOn(db, "getAssignableLeadById").mockResolvedValue(undefined);
+    const create = vi.spyOn(db, "createTask");
+    await expect(admin().tasks.create({ title: "Conferir contrato", assignedTo: 12, relatedType: "lead", relatedId: 5 })).rejects.toMatchObject({ code: "NOT_FOUND" });
+    await expect(client().tasks.create({ title: "Conferir contrato", assignedTo: 12 })).rejects.toMatchObject({ code: "FORBIDDEN" });
+    expect(create).not.toHaveBeenCalled();
+  });
+
+  it("edita tarefa resolvendo o novo responsável e exclui apenas após verificar a existência", async () => {
     vi.spyOn(db, "getTaskById").mockResolvedValue({ id: 7 } as never);
+    vi.spyOn(db, "getAssignableUserById").mockResolvedValue({ id: 20, name: "Bianca" } as never);
     const update = vi.spyOn(db, "updateTask").mockResolvedValue(undefined);
     const remove = vi.spyOn(db, "deleteTask").mockResolvedValue(undefined);
-    await admin().tasks.update({ id: 7, assignedTo: "bianca", status: "done" });
-    expect(update).toHaveBeenCalledWith(7, expect.objectContaining({ assignedTo: "bianca", status: "done", completedAt: expect.any(Date) }));
+    await admin().tasks.update({ id: 7, assignedTo: 20, status: "done" });
+    expect(update).toHaveBeenCalledWith(7, expect.objectContaining({ assignedTo: "Bianca", status: "done", completedAt: expect.any(Date) }));
     await admin().tasks.delete({ id: 7 });
     expect(remove).toHaveBeenCalledWith(7);
     await expect(client().tasks.delete({ id: 7 })).rejects.toMatchObject({ code: "FORBIDDEN" });
+  });
+
+  it("recusa editar tarefa para um responsável inválido sem persistir a mudança", async () => {
+    vi.spyOn(db, "getTaskById").mockResolvedValue({ id: 7 } as never);
+    vi.spyOn(db, "getAssignableUserById").mockResolvedValue(undefined);
+    const update = vi.spyOn(db, "updateTask");
+    await expect(admin().tasks.update({ id: 7, assignedTo: 999 })).rejects.toMatchObject({ code: "NOT_FOUND" });
+    expect(update).not.toHaveBeenCalled();
+  });
+
+  it("carrega responsáveis e leads elegíveis do banco (sem nomes fixos)", async () => {
+    vi.spyOn(db, "getAssignableUsers").mockResolvedValue([
+      { id: 1, name: "Admin Ativo" },
+    ] as never);
+    vi.spyOn(db, "getAssignableLeadOptions").mockResolvedValue([
+      { id: 2, name: "Lead Ativo" },
+    ] as never);
+    await expect(admin().tasks.assignableUsers()).resolves.toEqual([{ id: 1, name: "Admin Ativo" }]);
+    await expect(admin().tasks.leadOptions()).resolves.toEqual([{ id: 2, name: "Lead Ativo" }]);
+    await expect(client().tasks.assignableUsers()).rejects.toMatchObject({ code: "FORBIDDEN" });
   });
 });
