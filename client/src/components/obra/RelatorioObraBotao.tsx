@@ -4,7 +4,7 @@ import { Download, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { trpc } from "@/lib/trpc";
 import { gerarPdfRelatorioObra } from "@/lib/relatorio-obra-pdf";
-import { montarRelatorioObra, verificarCompletude } from "@shared/relatorio-obra";
+import { montarRelatorioObra, progressoParaRelatorio, verificarCompletude } from "@shared/relatorio-obra";
 import { calcularProgresso } from "@shared/financeiro/progresso";
 import { obraStatusLabel } from "@shared/obra-status";
 
@@ -44,7 +44,7 @@ export function RelatorioObraBotao({ projectId }: { projectId: number }) {
           data: m.data, natureza: m.natureza, categoria: m.categoria, descricao: m.descricao,
           valor: m.valor, status: m.status, origem: m.origem,
         })),
-        progresso: calcularProgresso(d.progresso.itens),
+        progresso: progressoParaRelatorio(calcularProgresso(d.progresso.itens), d.progresso.medido, d.progresso.progressoLegado),
         fotos: d.fotos.map((f) => ({ legenda: f.caption, data: f.takenAt })),
       });
       const faltas = verificarCompletude(relatorio);

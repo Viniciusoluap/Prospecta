@@ -6,6 +6,7 @@ import {
   constructionProgressHistory,
   constructionProgressItems,
   constructionProjects,
+  leads,
   users,
 } from "../drizzle/schema.js";
 import {
@@ -139,12 +140,17 @@ export const obraProgressoRouter = router({
         .where(eq(constructionPhotos.projectId, input.projectId))
         .orderBy(asc(constructionPhotos.takenAt), asc(constructionPhotos.id)),
     ]);
+    const [contato] = obra.leadId
+      ? await getDb().select({ telefone: leads.phone, email: leads.email }).from(leads).where(eq(leads.id, obra.leadId)).limit(1)
+      : [];
     const notas = (obra.notes ?? "").replace(/\n__MCMV_META__:[\s\S]+$/, "");
     return {
       info: {
         titulo: obra.title,
         tipo: crm.projectType,
         cliente: crm.clientName ?? obra.mcmvClientName,
+        telefoneCliente: contato?.telefone ?? null,
+        emailCliente: contato?.email ?? null,
         corretor: crm.brokerName,
         endereco: [obra.address, obra.city, obra.state].filter(Boolean).join(" — ") || null,
         area: obra.totalArea,

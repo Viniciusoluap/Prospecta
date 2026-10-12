@@ -3,6 +3,7 @@ import { eq } from "drizzle-orm";
 import { getDb } from "../db.js";
 import { emailLogs, InsertEmailLog } from "../../drizzle/schema.js";
 import { ENV } from "./env.js";
+import { descreverErroSmtp } from "../../shared/email-erro.js";
 
 type EmailData = {
   to: string;
@@ -72,12 +73,14 @@ export async function sendEmail(
       .set({ status: "sent", sentAt: new Date() })
       .where(eq(emailLogs.id, emailId));
     return true;
-  } catch {
+  } catch (erro) {
+    const motivo = descreverErroSmtp(erro);
+    console.error(`[email] envio falhou: ${motivo}`);
     if (emailId) {
       try {
         await deps.db
           .update(emailLogs)
-          .set({ status: "failed" })
+          .set({ status: "failed", errorMessage: motivo })
           .where(eq(emailLogs.id, emailId));
       } catch {
         // O erro de auditoria não deve ocultar a falha original do envio.
