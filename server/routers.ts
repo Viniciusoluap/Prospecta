@@ -72,6 +72,7 @@ import {
   pickWinningNumber,
 } from "../shared/raffle.js";
 import { brokerPortalRouter } from "./broker-portal-router.js";
+import { empreiteiroRouter, obraFinanceiroRouter } from "./obra-financeiro-router.js";
 import { LEAD_PIPELINE_KEYS } from "../shared/lead-pipeline.js";
 import { leadDocumentsRouter } from "./lead-documents-router.js";
 
@@ -124,6 +125,8 @@ export const appRouter = router({
   leadServices: leadServicesRouter,
   leadDocuments: leadDocumentsRouter,
   brokerPortal: brokerPortalRouter,
+  obraFinanceiro: obraFinanceiroRouter,
+  empreiteiro: empreiteiroRouter,
   auth: router({
     me: publicProcedure.query(opts => opts.ctx.user),
     logout: publicProcedure.mutation(({ ctx }) => {
@@ -799,19 +802,7 @@ export const appRouter = router({
           title: z.string().optional(),
           address: z.string().optional(),
           totalArea: z.number().optional(),
-          estimatedCost: z.number().optional(),
-          actualCost: z.number().optional(),
-          // Campos financeiros detalhados
-          contractValue: z.number().optional(),
-          contractType: z.string().optional(),
-          contractorPayment: z.number().optional(),
-          materialCost: z.number().optional(),
-          lotCost: z.number().optional(),
-          commissionCost: z.number().optional(),
-          extrasCost: z.number().optional(),
-          maintenanceCost: z.number().optional(),
-          insuranceCost: z.number().optional(),
-          balanceAmount: z.number().optional(),
+          // Valores financeiros ficam em obraFinanceiro.salvarValores (Lote 2).
           // Datas e status
           startDate: z.date().optional(),
           estimatedEndDate: z.date().optional(),
@@ -834,27 +825,7 @@ export const appRouter = router({
           const erroStatus = validarMudancaStatusObra(project.status, updates.status);
           if (erroStatus) throw new TRPCError({ code: "BAD_REQUEST", message: erroStatus });
         }
-        // Convert number fields to string for decimal columns in Drizzle
-        const decimalFields = [
-          "estimatedCost",
-          "actualCost",
-          "contractValue",
-          "contractorPayment",
-          "materialCost",
-          "lotCost",
-          "commissionCost",
-          "extrasCost",
-          "maintenanceCost",
-          "insuranceCost",
-          "balanceAmount",
-        ] as const;
-        const converted: Record<string, any> = { ...updates };
-        for (const field of decimalFields) {
-          if (converted[field] !== undefined) {
-            converted[field] = String(converted[field]);
-          }
-        }
-        await db.updateProject(projectId, converted as any);
+        await db.updateProject(projectId, updates);
         return { success: true };
       }),
 

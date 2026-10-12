@@ -96,7 +96,9 @@ export default function Login() {
           ? "/portal"
           : data.role === "corretor"
             ? "/corretor"
-            : data.role === "admin"
+            : data.role === "empreiteiro"
+              ? "/empreiteiro"
+              : data.role === "admin"
               ? "/admin"
               : "/admin/acesso";
 

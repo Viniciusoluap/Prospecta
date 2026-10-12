@@ -263,6 +263,14 @@ export default function Navbar() {
                           onClick={closeMobileMenu}
                         />
                       )}
+                      {user?.role === "empreiteiro" && (
+                        <AccountLink
+                          href="/empreiteiro"
+                          label="Minhas Obras"
+                          icon={Building2}
+                          onClick={closeMobileMenu}
+                        />
+                      )}
                       {user?.role === "admin" && (
                         <AccountLink
                           href="/admin"

@@ -246,6 +246,13 @@
       "when": 1791858150000,
       "tag": "0034_lote1_crm_obras",
       "breakpoints": true
+    },
+    {
+      "idx": 35,
+      "version": "7",
+      "when": 1791858200000,
+      "tag": "0035_lote2_motor_financeiro",
+      "breakpoints": true
     }
   ]
 }
