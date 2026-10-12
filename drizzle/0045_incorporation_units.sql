@@ -25,3 +25,20 @@ CREATE TABLE IF NOT EXISTS "incorporation_unit_events" (
 );
 CREATE INDEX IF NOT EXISTS "incorporation_unit_events_unit_idx" ON "incorporation_unit_events" ("unit_id", "id");
 CREATE UNIQUE INDEX IF NOT EXISTS "incorporation_unit_events_legacy_sale_idx" ON "incorporation_unit_events" ("unit_id", "legacy_sale_id") WHERE "legacy_sale_id" IS NOT NULL;
+
+-- Impede que uma mudança de tipologia esconda o inventário existente e que
+-- endpoints antigos recriem vendas no JSON em paralelo às vendas auditáveis.
+CREATE OR REPLACE FUNCTION protect_incorporation_unit_origin() RETURNS trigger LANGUAGE plpgsql AS $$
+BEGIN
+  IF NEW.incorporation_type IS DISTINCT FROM OLD.incorporation_type
+     AND EXISTS (SELECT 1 FROM incorporation_units WHERE study_id = OLD.id) THEN
+    RAISE EXCEPTION 'INVENTARIO_TIPO_BLOQUEADO';
+  END IF;
+  IF NEW.incorporation_type = 'desmembramento_simples'
+     AND NEW.real_estate_launch_json IS DISTINCT FROM OLD.real_estate_launch_json THEN
+    RAISE EXCEPTION 'INVENTARIO_VENDAS_JSON_BLOQUEADAS';
+  END IF;
+  RETURN NEW;
+END $$;
+CREATE TRIGGER protect_incorporation_unit_origin_trg BEFORE UPDATE ON incorporation_studies
+FOR EACH ROW EXECUTE FUNCTION protect_incorporation_unit_origin();
