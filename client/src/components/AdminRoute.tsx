@@ -38,7 +38,8 @@ export function AdminRoute({
         (allowStaffHome ||
           allowedModules.some(item => permissions.includes(item))));
     if (!loading && user && !allowed) {
-      setLocation(staff ? "/admin/acesso" : "/");
+      // D-05 (paridade com o Grupo Santa Fé): empreiteiro vai para "Minhas Obras".
+      setLocation(staff ? "/admin/acesso" : user.role === "empreiteiro" ? "/empreiteiro" : "/");
     }
   }, [allowStaffHome, loading, module, modules, user, setLocation]);
 
