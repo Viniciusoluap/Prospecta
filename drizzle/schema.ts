@@ -1552,6 +1552,7 @@ export const incorporationStudies = pgTable("incorporation_studies", {
   longitude: decimal("longitude", { precision: 10, scale: 7 }),
   responsible: varchar("responsible", { length: 120 }),
   status: varchar("status", { length: 40 }).default("in_study").notNull(),
+  incorporationType: varchar("incorporation_type", { length: 40 }),
   propertyRef: varchar("property_ref", { length: 180 }),
   propertyRegistration: text("property_registration"),
   carRegistration: text("car_registration"),

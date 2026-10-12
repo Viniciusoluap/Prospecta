@@ -27,6 +27,12 @@ const STATUS_OPTIONS = [
   { value: "in_progress", label: "Em andamento" },
   { value: "completed", label: "Concluído" },
 ];
+const TIPOS = [
+  { value: "desmembramento_simples", label: "Desmembramento Simples" },
+  { value: "residencial", label: "Residencial" },
+  { value: "vertical", label: "Vertical" },
+  { value: "loteamento", label: "Loteamento" },
+] as const;
 
 const MODULOS = [
   ["dados", "Dados Gerais"], ["terreno", "Terreno e Topografia"],
@@ -69,7 +75,7 @@ export default function AdminIncorporacaoDetail() {
     } catch (e) { setErroVersao(e instanceof Error ? e.message : "Falha ao obter a versão"); }
   }
 
-  const [form, setForm] = useState({ name: "", city: "", state: "", address: "", responsible: "", status: "in_study",
+  const [form, setForm] = useState({ name: "", city: "", state: "", address: "", responsible: "", status: "in_study", incorporationType: "",
     propertyRegistration: "", carRegistration: "", officialZoning: "", zoningSource: "" });
 
   useEffect(() => {
@@ -81,6 +87,7 @@ export default function AdminIncorporacaoDetail() {
         address: estudo.address ?? "",
         responsible: estudo.responsible ?? "",
         status: STATUS_OPTIONS.some((option) => option.value === estudo.status) ? estudo.status : "",
+        incorporationType: estudo.incorporationType ?? "",
         propertyRegistration: estudo.propertyRegistration ?? "",
         carRegistration: estudo.carRegistration ?? "",
         officialZoning: estudo.officialZoning ?? "",
@@ -112,6 +119,7 @@ export default function AdminIncorporacaoDetail() {
       address: form.address || undefined,
       responsible: form.responsible || undefined,
       status: form.status as "in_study" | "unfeasible" | "in_progress" | "completed",
+      incorporationType: form.incorporationType ? form.incorporationType as (typeof TIPOS)[number]["value"] : undefined,
       propertyRegistration: form.propertyRegistration.trim() || null,
       carRegistration: form.carRegistration.trim() || null,
       officialZoning: form.officialZoning.trim() || null,
@@ -200,6 +208,13 @@ export default function AdminIncorporacaoDetail() {
                   <SelectContent>
                     {STATUS_OPTIONS.map((s) => <SelectItem key={s.value} value={s.value}>{s.label}</SelectItem>)}
                   </SelectContent>
+                </Select>
+              </div>
+              <div>
+                <Label className="text-gray-300">Tipo de incorporação</Label>
+                <Select value={form.incorporationType} onValueChange={(value) => setForm((f) => ({ ...f, incorporationType: value }))}>
+                  <SelectTrigger className="bg-[#2C3E50] border-[#C9A961]/30 text-white mt-1"><SelectValue placeholder="Classificar estudo legado" /></SelectTrigger>
+                  <SelectContent>{TIPOS.map((tipo) => <SelectItem key={tipo.value} value={tipo.value}>{tipo.label}</SelectItem>)}</SelectContent>
                 </Select>
               </div>
               {([

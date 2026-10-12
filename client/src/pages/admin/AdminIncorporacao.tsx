@@ -26,6 +26,13 @@ const STATUS_COLORS: Record<string, string> = {
 };
 
 type FiltroSituacao = "todos" | "in_study" | "unfeasible" | "in_progress" | "completed";
+const TIPOS = [
+  { value: "desmembramento_simples", label: "Desmembramento Simples" },
+  { value: "residencial", label: "Residencial" },
+  { value: "vertical", label: "Vertical" },
+  { value: "loteamento", label: "Loteamento" },
+] as const;
+type Tipo = (typeof TIPOS)[number]["value"];
 const situacaoValida = (value: string): value is FiltroSituacao => value === "todos" || value in STATUS_LABELS;
 
 function hectares(m2: string | number): string {
@@ -37,7 +44,7 @@ function hectares(m2: string | number): string {
 export default function AdminIncorporacao() {
   const [open, setOpen] = useState(false);
   const [status, setStatus] = useState<FiltroSituacao>("todos");
-  const [form, setForm] = useState({ name: "", city: "", state: "MA", address: "", responsible: "" });
+  const [form, setForm] = useState<{ name: string; city: string; state: string; address: string; responsible: string; incorporationType: Tipo | "" }>({ name: "", city: "", state: "MA", address: "", responsible: "", incorporationType: "" });
 
   const { data: estudos = [], isLoading, refetch } = trpc.incorporacao.list.useQuery({
     status: status === "todos" ? undefined : status,
@@ -48,14 +55,14 @@ export default function AdminIncorporacao() {
       toast.success("Estudo criado!");
       refetch();
       setOpen(false);
-      setForm({ name: "", city: "", state: "MA", address: "", responsible: "" });
+      setForm({ name: "", city: "", state: "MA", address: "", responsible: "", incorporationType: "" });
     },
     onError: (e) => toast.error(e.message),
   });
 
   const handleCreate = () => {
-    if (!form.name || !form.city) {
-      toast.error("Preencha nome e cidade.");
+    if (!form.name || !form.city || !form.incorporationType) {
+      toast.error("Preencha nome, cidade e tipo de incorporação.");
       return;
     }
     createMutation.mutate({
@@ -64,6 +71,7 @@ export default function AdminIncorporacao() {
       state: form.state || undefined,
       address: form.address || undefined,
       responsible: form.responsible || undefined,
+      incorporationType: form.incorporationType,
     });
   };
 
@@ -125,6 +133,13 @@ export default function AdminIncorporacao() {
                   <Input value={form.responsible} onChange={(e) => setForm((f) => ({ ...f, responsible: e.target.value }))}
                     placeholder="Opcional"
                     className="bg-[#2C3E50] border-[#C9A961]/30 text-white mt-1" />
+                </div>
+                <div>
+                  <Label className="text-gray-300">Tipo de incorporação *</Label>
+                  <Select value={form.incorporationType} onValueChange={(value: Tipo) => setForm((f) => ({ ...f, incorporationType: value }))}>
+                    <SelectTrigger className="bg-[#2C3E50] border-[#C9A961]/30 text-white mt-1"><SelectValue placeholder="Selecione o tipo" /></SelectTrigger>
+                    <SelectContent>{TIPOS.map((tipo) => <SelectItem key={tipo.value} value={tipo.value}>{tipo.label}</SelectItem>)}</SelectContent>
+                  </Select>
                 </div>
                 <Button onClick={handleCreate} disabled={createMutation.isPending}
                   className="w-full bg-[#C9A961] hover:bg-[#B8985A] text-[#1A2332] font-bold">
