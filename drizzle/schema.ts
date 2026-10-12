@@ -1608,6 +1608,22 @@ export const incorporationStudies = pgTable("incorporation_studies", {
 export type IncorporationStudy = typeof incorporationStudies.$inferSelect;
 export type InsertIncorporationStudy = typeof incorporationStudies.$inferInsert;
 
+// Anexos do checklist: o último evento por estudo/item determina o anexo
+// vigente. Arquivos antigos e desvinculações continuam auditáveis.
+export const incorporationRegistrationDocuments = pgTable("incorporation_registration_documents", {
+  id: serial("id").primaryKey(),
+  studyId: integer("study_id").notNull().references(() => incorporationStudies.id, { onDelete: "restrict" }),
+  itemId: varchar("item_id", { length: 120 }).notNull(),
+  action: varchar("action", { length: 12 }).notNull(),
+  driveFileId: text("drive_file_id"),
+  fileName: varchar("file_name", { length: 255 }),
+  mimeType: varchar("mime_type", { length: 40 }),
+  fileSize: integer("file_size"),
+  sha256: varchar("sha256", { length: 64 }),
+  performedByUserId: integer("performed_by_user_id").notNull().references(() => users.id, { onDelete: "restrict" }),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+}, (t) => ({ porEstudoItem: index("incorporation_registration_documents_study_item_idx").on(t.studyId, t.itemId, t.id) }));
+
 // Histórico imutável do estudo. Snapshot guardado pelo trigger da migração 0038.
 export const incorporationStudyVersions = pgTable("incorporation_study_versions", {
   id: serial("id").primaryKey(),

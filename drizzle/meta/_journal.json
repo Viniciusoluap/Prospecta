@@ -295,6 +295,13 @@
       "when": 1791858500000,
       "tag": "0041_incorporation_status",
       "breakpoints": true
+    },
+    {
+      "idx": 42,
+      "version": "7",
+      "when": 1791858550000,
+      "tag": "0042_incorporation_registration_documents",
+      "breakpoints": true
     }
   ]
 }

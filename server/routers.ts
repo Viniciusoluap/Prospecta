@@ -76,6 +76,7 @@ import { empreiteiroRouter, obraFinanceiroRouter } from "./obra-financeiro-route
 import { obraProgressoRouter } from "./obra-progresso-router.js";
 import { LEAD_PIPELINE_KEYS } from "../shared/lead-pipeline.js";
 import { leadDocumentsRouter } from "./lead-documents-router.js";
+import { incorporacaoDocumentsRouter } from "./incorporacao-documents-router.js";
 
 async function validateStudySchedule(dataJson: string, key: "medicoes" | "marcos") {
   if (dataJson.length > 150_000) throw new TRPCError({ code: "BAD_REQUEST", message: "Cronograma muito extenso" });
@@ -2734,6 +2735,7 @@ export const appRouter = router({
   }),
 
   incorporacao: router({
+    documents: incorporacaoDocumentsRouter,
     staff: protectedProcedure.query(async ({ ctx }) => {
       requireRole(ctx, ["admin"]);
       return db.getIncorporationStaff();
