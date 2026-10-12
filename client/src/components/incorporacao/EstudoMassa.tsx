@@ -34,6 +34,11 @@ function fmtBRL(v: number) {
   return v.toLocaleString("pt-BR", { style: "currency", currency: "BRL", maximumFractionDigits: 0 });
 }
 
+// Formata um número para exibição no padrão brasileiro (buffer de texto de um campo editável).
+function formatarCampoNumero(v: number): string {
+  return Number.isFinite(v) ? v.toLocaleString("pt-BR", { maximumFractionDigits: 4 }) : "";
+}
+
 function Metric({ label, valor, destaque, negativo }: { label: string; valor: string; destaque?: boolean; negativo?: boolean }) {
   return (
     <div className={`rounded-lg p-3 border ${destaque ? "bg-[#C9A961]/10 border-[#C9A961]/40" : "bg-[#0F1923] border-[#C9A961]/10"}`}>
@@ -80,24 +85,6 @@ function UrbanismoPotencial({ estudoId, areaTerrenoM2, urbanParametersJson, pote
   estudoId: number; areaTerrenoM2: number; urbanParametersJson: string | null; potentialJson: string | null;
 }) {
   const utils = trpc.useUtils();
-  const [params, setParams] = useState<ParametrosUrbanisticos>(() =>
-    urbanParametersJson ? { ...PARAMETROS_DEFAULT, ...JSON.parse(urbanParametersJson) } : PARAMETROS_DEFAULT
-  );
-  const [areaMediaUnidade, setAreaMediaUnidade] = useState<number | undefined>(() => {
-    if (!potentialJson) return undefined;
-    try { return JSON.parse(potentialJson).areaMediaUnidadeM2; } catch { return undefined; }
-  });
-
-  const saveMutation = trpc.incorporacao.saveUrbanismo.useMutation({
-    onSuccess: () => { toast.success("Parâmetros urbanísticos salvos!"); utils.incorporacao.getById.invalidate({ id: estudoId }); },
-    onError: (e) => toast.error(e.message),
-  });
-
-  const potencial = useMemo(() => calcularPotencial(areaTerrenoM2, params, areaMediaUnidade), [areaTerrenoM2, params, areaMediaUnidade]);
-
-  function upd<K extends keyof ParametrosUrbanisticos>(k: K, valor: string) {
-    setParams((p) => ({ ...p, [k]: k === "zona" ? (valor as ParametrosUrbanisticos[K]) : (parseNumeroBR(valor) as ParametrosUrbanisticos[K]) }));
-  }
 
   const campos: { k: keyof ParametrosUrbanisticos; label: string; step?: string }[] = [
     { k: "taxaOcupacao", label: "Taxa de ocupação (0-1)", step: "0.01" },
@@ -114,6 +101,44 @@ function UrbanismoPotencial({ estudoId, areaTerrenoM2, urbanParametersJson, pote
     { k: "vagasPorUnidade", label: "Vagas por unidade" },
   ];
 
+  const [params, setParams] = useState<ParametrosUrbanisticos>(() =>
+    urbanParametersJson ? { ...PARAMETROS_DEFAULT, ...JSON.parse(urbanParametersJson) } : PARAMETROS_DEFAULT
+  );
+  // Buffer de texto por campo: o <Input> exibe este texto, não o número de
+  // `params` diretamente — senão, cada tecla reformata o valor e apaga a
+  // vírgula decimal que o usuário está digitando (ex.: "0," viraria "0").
+  const [camposTexto, setCamposTexto] = useState<Record<keyof ParametrosUrbanisticos, string>>(() =>
+    campos.reduce((acc, c) => {
+      acc[c.k] = formatarCampoNumero(params[c.k] as number);
+      return acc;
+    }, {} as Record<keyof ParametrosUrbanisticos, string>)
+  );
+  const [areaMediaUnidade, setAreaMediaUnidade] = useState<number | undefined>(() => {
+    if (!potentialJson) return undefined;
+    try { return JSON.parse(potentialJson).areaMediaUnidadeM2; } catch { return undefined; }
+  });
+  const [areaMediaTexto, setAreaMediaTexto] = useState<string>(() =>
+    areaMediaUnidade != null ? formatarCampoNumero(areaMediaUnidade) : ""
+  );
+
+  const saveMutation = trpc.incorporacao.saveUrbanismo.useMutation({
+    onSuccess: () => { toast.success("Parâmetros urbanísticos salvos!"); utils.incorporacao.getById.invalidate({ id: estudoId }); },
+    onError: (e) => toast.error(e.message),
+  });
+
+  const potencial = useMemo(() => calcularPotencial(areaTerrenoM2, params, areaMediaUnidade), [areaTerrenoM2, params, areaMediaUnidade]);
+
+  function upd<K extends keyof ParametrosUrbanisticos>(k: K, valorTexto: string) {
+    setCamposTexto((c) => ({ ...c, [k]: valorTexto }));
+    setParams((p) => ({ ...p, [k]: parseNumeroBR(valorTexto) as ParametrosUrbanisticos[K] }));
+  }
+
+  // Ao sair do campo, reformata o texto a partir do número já parseado —
+  // limpa digitação intermediária/inválida sem alterar `params`.
+  function reformatarCampo(k: keyof ParametrosUrbanisticos) {
+    setCamposTexto((c) => ({ ...c, [k]: formatarCampoNumero(params[k] as number) }));
+  }
+
   return (
     <Card className={cardCls}>
       <CardHeader>
@@ -124,18 +149,28 @@ function UrbanismoPotencial({ estudoId, areaTerrenoM2, urbanParametersJson, pote
       <CardContent className="space-y-4">
         <div>
           <label className="text-[10px] font-bold text-gray-500 uppercase tracking-widest block mb-1">Zona / Plano Diretor</label>
-          <Input value={params.zona} onChange={(e) => upd("zona", e.target.value)} className={`${inputCls} max-w-xs`} placeholder="Ex.: ZR-2" />
+          <Input value={params.zona} onChange={(e) => setParams((p) => ({ ...p, zona: e.target.value }))} className={`${inputCls} max-w-xs`} placeholder="Ex.: ZR-2" />
         </div>
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
           {campos.map((c) => (
             <div key={c.k}>
               <label className="text-[10px] font-bold text-gray-500 uppercase tracking-widest block mb-1">{c.label}</label>
-              <Input type="text" inputMode="decimal" value={params[c.k] as number} onChange={(e) => upd(c.k, e.target.value)} className={inputCls} />
+              <Input type="text" inputMode="decimal" value={camposTexto[c.k]} onChange={(e) => upd(c.k, e.target.value)} onBlur={() => reformatarCampo(c.k)} className={inputCls} />
             </div>
           ))}
           <div>
             <label className="text-[10px] font-bold text-gray-500 uppercase tracking-widest block mb-1">Área média/unidade (m², opcional)</label>
-            <Input type="text" inputMode="decimal" value={areaMediaUnidade ?? ""} onChange={(e) => setAreaMediaUnidade(parseNumeroBR(e.target.value) || undefined)} className={inputCls} />
+            <Input
+              type="text"
+              inputMode="decimal"
+              value={areaMediaTexto}
+              onChange={(e) => {
+                setAreaMediaTexto(e.target.value);
+                setAreaMediaUnidade(parseNumeroBR(e.target.value) || undefined);
+              }}
+              onBlur={() => setAreaMediaTexto(areaMediaUnidade != null ? formatarCampoNumero(areaMediaUnidade) : "")}
+              className={inputCls}
+            />
           </div>
         </div>
 
@@ -170,6 +205,17 @@ function MassaGenerativa({ estudoId, geojson, temTerreno, latitude, longitude, m
   const utils = trpc.useUtils();
   const urb = urbanParametersJson ? (JSON.parse(urbanParametersJson) as Partial<ParametrosUrbanisticos>) : null;
 
+  const campos: { k: keyof ParametrosMassa; label: string; step?: string }[] = [
+    { k: "testadaLoteM", label: "Testada do lote (m)", step: "0.5" },
+    { k: "profundidadeLoteM", label: "Profundidade (m)" },
+    { k: "loteMinimoM2", label: "Lote mínimo (m²)" },
+    { k: "larguraViaM", label: "Largura da via (m)" },
+    { k: "comprimentoMaxQuadraM", label: "Quadra máx. (m)" },
+    { k: "precoM2Lote", label: "Preço lote (R$/m²)" },
+    { k: "percentInstitucional", label: "% institucional (0-1)", step: "0.01" },
+    { k: "percentAreaVerde", label: "% área verde (0-1)", step: "0.01" },
+  ];
+
   const [params, setParams] = useState<ParametrosMassa>(() => {
     const salvo = massScenariosJson ? JSON.parse(massScenariosJson) : null;
     return (
@@ -185,6 +231,15 @@ function MassaGenerativa({ estudoId, geojson, temTerreno, latitude, longitude, m
       }
     );
   });
+  // Buffer de texto por campo — mesmo motivo do UrbanismoPotencial acima:
+  // sem ele, o <Input> ficaria vinculado ao número já parseado e cada tecla
+  // apagaria a vírgula decimal que o usuário está digitando.
+  const [camposTexto, setCamposTexto] = useState<Record<keyof ParametrosMassa, string>>(() =>
+    campos.reduce((acc, c) => {
+      acc[c.k] = formatarCampoNumero(params[c.k]);
+      return acc;
+    }, {} as Record<keyof ParametrosMassa, string>)
+  );
   const [cenarios, setCenarios] = useState<CenarioMassa[]>(() => {
     const salvo = massScenariosJson ? JSON.parse(massScenariosJson) : null;
     return salvo?.cenarios ?? [];
@@ -198,8 +253,13 @@ function MassaGenerativa({ estudoId, geojson, temTerreno, latitude, longitude, m
     onError: (e) => toast.error(e.message),
   });
 
-  function upd<K extends keyof ParametrosMassa>(k: K, valor: string) {
-    setParams((p) => ({ ...p, [k]: parseNumeroBR(valor) }));
+  function upd<K extends keyof ParametrosMassa>(k: K, valorTexto: string) {
+    setCamposTexto((c) => ({ ...c, [k]: valorTexto }));
+    setParams((p) => ({ ...p, [k]: parseNumeroBR(valorTexto) }));
+  }
+
+  function reformatarCampo(k: keyof ParametrosMassa) {
+    setCamposTexto((c) => ({ ...c, [k]: formatarCampoNumero(params[k]) }));
   }
 
   // Gera (ou regenera) os cenários sem derrubar a página: valida os
@@ -248,17 +308,6 @@ function MassaGenerativa({ estudoId, geojson, temTerreno, latitude, longitude, m
 
   const cenarioAtivo = cenarios.find((c) => c.id === selecionado) ?? cenarios[0];
 
-  const campos: { k: keyof ParametrosMassa; label: string; step?: string }[] = [
-    { k: "testadaLoteM", label: "Testada do lote (m)", step: "0.5" },
-    { k: "profundidadeLoteM", label: "Profundidade (m)" },
-    { k: "loteMinimoM2", label: "Lote mínimo (m²)" },
-    { k: "larguraViaM", label: "Largura da via (m)" },
-    { k: "comprimentoMaxQuadraM", label: "Quadra máx. (m)" },
-    { k: "precoM2Lote", label: "Preço lote (R$/m²)" },
-    { k: "percentInstitucional", label: "% institucional (0-1)", step: "0.01" },
-    { k: "percentAreaVerde", label: "% área verde (0-1)", step: "0.01" },
-  ];
-
   return (
     <Card className={cardCls}>
       <CardHeader>
@@ -273,7 +322,7 @@ function MassaGenerativa({ estudoId, geojson, temTerreno, latitude, longitude, m
           {campos.map((c) => (
             <div key={c.k}>
               <label className="text-[10px] font-bold text-gray-500 uppercase tracking-widest block mb-1">{c.label}</label>
-              <Input type="text" inputMode="decimal" value={params[c.k]} onChange={(e) => upd(c.k, e.target.value)} className={inputCls} />
+              <Input type="text" inputMode="decimal" value={camposTexto[c.k]} onChange={(e) => upd(c.k, e.target.value)} onBlur={() => reformatarCampo(c.k)} className={inputCls} />
             </div>
           ))}
         </div>
@@ -356,6 +405,24 @@ function QuadroDeAreas({ estudoId, areaTerrenoM2, urbanParametersJson, areasBoar
   const utils = trpc.useUtils();
   const coeficienteLegado = urbanParametersJson ? (JSON.parse(urbanParametersJson).coefAproveitamento ?? 1) : 1;
 
+  const COLS: { campo: keyof ItemQuadroAreas; label: string }[] = [
+    { campo: "areaConstCobertaM2", label: "Const. coberta" },
+    { campo: "areaConstDescobertaM2", label: "Const. descoberta" },
+    { campo: "areaUrbanizadaM2", label: "Urbanizada" },
+    { campo: "areaDescontarM2", label: "A descontar" },
+    { campo: "areaComputavelM2", label: "Computável" },
+    { campo: "areaPrivativaM2", label: "Privativa (APV)" },
+  ];
+
+  function formatarItemBuffer(it: ItemQuadroAreas): Record<keyof ItemQuadroAreas, string> {
+    const buffer = {} as Record<keyof ItemQuadroAreas, string>;
+    for (const c of COLS) {
+      const v = it[c.campo] as number;
+      buffer[c.campo] = v ? formatarCampoNumero(v) : "";
+    }
+    return buffer;
+  }
+
   const [dados, setDados] = useState<{ coeficienteAproveitamento: number; itens: ItemQuadroAreas[] }>(() => {
     if (areasBoardJson) {
       try {
@@ -365,6 +432,11 @@ function QuadroDeAreas({ estudoId, areaTerrenoM2, urbanParametersJson, areasBoar
     }
     return defaultsQuadro(coeficienteLegado);
   });
+  // Buffers de texto — mesmo motivo das outras seções: o <Input> nunca é
+  // vinculado diretamente ao número parseado, senão a vírgula decimal
+  // digitada é apagada a cada tecla.
+  const [coefTexto, setCoefTexto] = useState<string>(() => formatarCampoNumero(dados.coeficienteAproveitamento));
+  const [itensTexto, setItensTexto] = useState<Record<keyof ItemQuadroAreas, string>[]>(() => dados.itens.map(formatarItemBuffer));
 
   const saveMutation = trpc.incorporacao.saveAreasBoard.useMutation({
     onSuccess: () => { toast.success("Quadro de áreas salvo!"); utils.incorporacao.getById.invalidate({ id: estudoId }); },
@@ -373,28 +445,52 @@ function QuadroDeAreas({ estudoId, areaTerrenoM2, urbanParametersJson, areasBoar
 
   const resultado = useMemo(() => calcularQuadroAreas(dados.itens, areaTerrenoM2, dados.coeficienteAproveitamento), [dados, areaTerrenoM2]);
 
+  function updCoeficiente(valorTexto: string) {
+    setCoefTexto(valorTexto);
+    setDados((d) => ({ ...d, coeficienteAproveitamento: parseNumeroBR(valorTexto) }));
+  }
+  function reformatarCoeficiente() {
+    setCoefTexto(formatarCampoNumero(dados.coeficienteAproveitamento));
+  }
+
   function addItem() {
-    setDados((d) => ({ ...d, itens: [...d.itens, { pavimento: "Novo pavimento", areaConstCobertaM2: 0, areaConstDescobertaM2: 0, areaUrbanizadaM2: 0, areaDescontarM2: 0, areaComputavelM2: 0, areaPrivativaM2: 0 }] }));
+    const novo: ItemQuadroAreas = { pavimento: "Novo pavimento", areaConstCobertaM2: 0, areaConstDescobertaM2: 0, areaUrbanizadaM2: 0, areaDescontarM2: 0, areaComputavelM2: 0, areaPrivativaM2: 0 };
+    setDados((d) => ({ ...d, itens: [...d.itens, novo] }));
+    setItensTexto((t) => [...t, formatarItemBuffer(novo)]);
   }
   function removerItem(i: number) {
     setDados((d) => ({ ...d, itens: d.itens.filter((_, j) => j !== i) }));
+    setItensTexto((t) => t.filter((_, j) => j !== i));
   }
-  function updItem(i: number, campo: keyof ItemQuadroAreas, valor: string) {
+  function updItem(i: number, campo: keyof ItemQuadroAreas, valorTexto: string) {
+    if (campo === "pavimento") {
+      setDados((d) => {
+        const itens = [...d.itens];
+        itens[i] = { ...itens[i], pavimento: valorTexto };
+        return { ...d, itens };
+      });
+      return;
+    }
+    setItensTexto((t) => {
+      const copia = [...t];
+      copia[i] = { ...copia[i], [campo]: valorTexto };
+      return copia;
+    });
     setDados((d) => {
       const itens = [...d.itens];
-      itens[i] = { ...itens[i], [campo]: campo === "pavimento" ? valor : parseNumeroBR(valor) };
+      itens[i] = { ...itens[i], [campo]: parseNumeroBR(valorTexto) };
       return { ...d, itens };
     });
   }
-
-  const COLS: { campo: keyof ItemQuadroAreas; label: string }[] = [
-    { campo: "areaConstCobertaM2", label: "Const. coberta" },
-    { campo: "areaConstDescobertaM2", label: "Const. descoberta" },
-    { campo: "areaUrbanizadaM2", label: "Urbanizada" },
-    { campo: "areaDescontarM2", label: "A descontar" },
-    { campo: "areaComputavelM2", label: "Computável" },
-    { campo: "areaPrivativaM2", label: "Privativa (APV)" },
-  ];
+  function reformatarItem(i: number, campo: keyof ItemQuadroAreas) {
+    if (campo === "pavimento") return;
+    setItensTexto((t) => {
+      const copia = [...t];
+      const v = dados.itens[i][campo] as number;
+      copia[i] = { ...copia[i], [campo]: v ? formatarCampoNumero(v) : "" };
+      return copia;
+    });
+  }
 
   return (
     <Card className={cardCls}>
@@ -413,7 +509,7 @@ function QuadroDeAreas({ estudoId, areaTerrenoM2, urbanParametersJson, areasBoar
           <Metric label="Área do terreno" valor={fmtM2(areaTerrenoM2)} />
           <div>
             <label className="text-[10px] font-bold text-gray-500 uppercase tracking-widest block mb-1">Coeficiente de aproveitamento (CA)</label>
-            <Input type="text" inputMode="decimal" value={dados.coeficienteAproveitamento} onChange={(e) => setDados((d) => ({ ...d, coeficienteAproveitamento: parseNumeroBR(e.target.value) }))} className={inputCls} />
+            <Input type="text" inputMode="decimal" value={coefTexto} onChange={(e) => updCoeficiente(e.target.value)} onBlur={reformatarCoeficiente} className={inputCls} />
           </div>
           <Metric label="Área computável máxima" valor={fmtM2(resultado.areaComputavelMaximaM2)} />
         </div>
@@ -433,7 +529,7 @@ function QuadroDeAreas({ estudoId, areaTerrenoM2, urbanParametersJson, areasBoar
                   <td className="px-1 py-1"><Input value={it.pavimento} onChange={(e) => updItem(i, "pavimento", e.target.value)} className={inputCls} placeholder="Ex.: Torre A" /></td>
                   {COLS.map((c) => (
                     <td key={c.campo} className="px-1 py-1">
-                      <Input type="text" inputMode="decimal" value={(it[c.campo] as number) || ""} onChange={(e) => updItem(i, c.campo, e.target.value)} className={`${inputCls} text-right`} />
+                      <Input type="text" inputMode="decimal" value={itensTexto[i]?.[c.campo] ?? ""} onChange={(e) => updItem(i, c.campo, e.target.value)} onBlur={() => reformatarItem(i, c.campo)} className={`${inputCls} text-right`} />
                     </td>
                   ))}
                   <td className="px-1 py-1">
