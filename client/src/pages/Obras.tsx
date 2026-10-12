@@ -1,4 +1,5 @@
 import { useAuth } from "@/_core/hooks/useAuth";
+import { obraStatusLabel } from "@shared/obra-status";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -24,24 +25,10 @@ const statusColors: Record<string, string> = {
   disponivel: "bg-lime-500",
   reavaliar: "bg-amber-500",
   distrato: "bg-rose-500",
-};
-
-const statusLabels: Record<string, string> = {
-  planning: "Planejamento",
-  in_progress: "Em Andamento",
-  paused: "Pausada",
-  completed: "Concluída",
-  cancelled: "Cancelada",
-  alvara: "Alvará",
-  art: "ART",
-  assinatura_cef: "Assinatura CEF",
-  vistoria_cef: "Vistoria CEF",
-  laudo_ok: "Laudo OK",
-  cartorio: "Cartório",
-  casa_pronta: "Casa Pronta",
-  disponivel: "Disponível",
-  reavaliar: "Reavaliar",
-  distrato: "Distrato",
+  aprovacao: "bg-sky-500",
+  contrato_prospecta: "bg-amber-600",
+  laudo_cef: "bg-emerald-600",
+  conformidade_cef: "bg-teal-600",
 };
 
 export default function Obras() {
@@ -143,7 +130,7 @@ export default function Obras() {
                       {project.title}
                     </CardTitle>
                     <Badge className={`${statusColors[project.status]} text-white border-0`}>
-                      {statusLabels[project.status]}
+                      {obraStatusLabel(project.status)}
                     </Badge>
                   </div>
                   {project.address && (

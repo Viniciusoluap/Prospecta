@@ -17,6 +17,7 @@ import {
 } from "lucide-react";
 import { LEAD_SERVICE_LABELS, LEAD_SERVICE_PRIMARY_TYPES, type LeadServiceType } from "../../../../shared/lead-services";
 import { LEAD_PIPELINE_STAGES, LEGACY_STAGE_LABELS } from "../../../../shared/lead-pipeline";
+import { LEAD_TEMPERATURAS, LEAD_TEMPERATURA_CONFIG, leadTemperaturaRotulo, type LeadTemperatura } from "../../../../shared/lead-temperature";
 
 const STAGES = LEAD_PIPELINE_STAGES;
 
@@ -24,19 +25,19 @@ const TEMP_COLORS: Record<string, string> = {
   cold: "text-blue-400",
   warm: "text-yellow-400",
   hot: "text-red-500",
+  closed: "text-green-400",
 };
 
 const TEMP_ICONS: Record<string, React.ReactNode> = {
   cold: <Snowflake className="h-4 w-4" />,
   warm: <Thermometer className="h-4 w-4" />,
   hot: <Flame className="h-4 w-4" />,
+  closed: <span aria-hidden="true">{LEAD_TEMPERATURA_CONFIG.closed.emoji}</span>,
 };
 
-const TEMP_LABELS: Record<string, string> = {
-  cold: "Frio",
-  warm: "Morno",
-  hot: "Quente",
-};
+const TEMP_LABELS: Record<string, string> = Object.fromEntries(
+  LEAD_TEMPERATURAS.map(t => [t, LEAD_TEMPERATURA_CONFIG[t].label])
+);
 
 // Nomes do enum legado: usados só para exibir leads antigos sem responsável real.
 const LEGACY_RESPONSIBLE_LABELS: Record<string, string> = {
@@ -48,7 +49,7 @@ const LEGACY_RESPONSIBLE_LABELS: Record<string, string> = {
 const NONE = "none";
 const emptyLead = () => ({
   name: "", phone: "", email: "", cpf: "", address: "", neighborhood: "", city: "", state: "",
-  notes: "", type: "new_lead" as any, services: [] as LeadServiceType[],
+  notes: "", type: "new_lead" as any, temperature: "cold" as LeadTemperatura, services: [] as LeadServiceType[],
   responsibleUserId: NONE, brokerId: NONE,
 });
 
@@ -268,6 +269,19 @@ export default function AdminCRM() {
                     </div>
                   </div>
                   <div>
+                    <Label className="text-gray-300">Temperatura</Label>
+                    <Select value={newLead.temperature} onValueChange={v => setNewLead(p => ({ ...p, temperature: v as LeadTemperatura }))}>
+                      <SelectTrigger className="bg-white/10 border-white/20 text-white">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {LEAD_TEMPERATURAS.map(t => (
+                          <SelectItem key={t} value={t}>{leadTemperaturaRotulo(t)}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div>
                     <Label className="text-gray-300">Tipo de Lead</Label>
                     <Select value={newLead.type} onValueChange={v => setNewLead(p => ({ ...p, type: v as any }))}>
                       <SelectTrigger className="bg-white/10 border-white/20 text-white">
@@ -381,6 +395,7 @@ export default function AdminCRM() {
           </SelectTrigger>
           <SelectContent>
             <SelectItem value="all">Todas</SelectItem>
+            <SelectItem value="closed">🤝 Negócio fechado</SelectItem>
             <SelectItem value="hot">Quente</SelectItem>
             <SelectItem value="warm">Morno</SelectItem>
             <SelectItem value="cold">Frio</SelectItem>
@@ -441,7 +456,10 @@ export default function AdminCRM() {
                           <Card className="bg-[#1A2332] border-white/10 hover:border-[#C9A961]/50 cursor-pointer transition-all">
                             <CardContent className="p-3 space-y-2">
                               <div className="flex items-start justify-between">
-                                <p className="text-sm font-medium text-white leading-tight">{lead.name}</p>
+                                <p className="text-sm font-medium text-white leading-tight">
+                                  {lead.temperature === "closed" && <span className="mr-1" title="Negócio fechado">{LEAD_TEMPERATURA_CONFIG.closed.emoji}</span>}
+                                  {lead.name}
+                                </p>
                                 <span className={`flex items-center gap-1 ${TEMP_COLORS[lead.temperature]}`}>
                                   {TEMP_ICONS[lead.temperature]}
                                 </span>
@@ -507,7 +525,10 @@ export default function AdminCRM() {
                       <tr key={lead.id}
                         onClick={() => navigate(`/admin/crm/${lead.id}`)}
                         className="border-b border-white/5 hover:bg-white/5 cursor-pointer transition-colors">
-                        <td className="p-4 text-white font-medium">{lead.name}</td>
+                        <td className="p-4 text-white font-medium">
+                          {lead.temperature === "closed" && <span className="mr-1" title="Negócio fechado">{LEAD_TEMPERATURA_CONFIG.closed.emoji}</span>}
+                          {lead.name}
+                        </td>
                         <td className="p-4 text-gray-400 text-sm">{lead.phone}</td>
                         <td className="p-4 text-gray-400 text-sm">{lead.city || "—"}</td>
                         <td className="p-4">
