@@ -50,7 +50,7 @@ export function PercentInput(props: PercentInputProps) {
   }, [valorControlado]);
 
   function onChangeTexto(valorTexto: string) {
-    const { texto: novoTexto, numero: novoNumero } = aplicarDigitacao(valorTexto);
+    const { texto: novoTexto, numero: novoNumero } = aplicarDigitacao(valorTexto, { percentual: true });
     setTexto(novoTexto);
     setNumero(novoNumero);
     if (controlado) (resto as { onChange: (v: number) => void }).onChange(novoNumero);

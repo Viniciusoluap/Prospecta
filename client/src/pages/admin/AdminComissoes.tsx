@@ -38,7 +38,7 @@ const blank = () => ({
   propertyId: "",
   constructionProjectId: "",
   amount: "0",
-  percent: "6",
+  percent: "5", // sugestão editável (D-02)
   status: "pendente",
   dueDate: localDate(new Date()),
   notes: "",

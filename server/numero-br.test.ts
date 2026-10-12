@@ -56,4 +56,12 @@ describe("parseNumeroBR", () => {
     expect(parseNumeroBR("0")).toBe(0);
     expect(parseNumeroBR("0,00")).toBe(0);
   });
+
+  it("D-01: só ponto é milhar (igual ao Grupo Santa Fé); um ponto com 1–2 casas é decimal do banco", () => {
+    expect(parseNumeroBR("1.000")).toBe(1000);
+    expect(parseNumeroBR("158.000")).toBe(158000);
+    expect(parseNumeroBR("1.234.567")).toBe(1234567);
+    expect(parseNumeroBR("1234.5")).toBe(1234.5);
+    expect(parseNumeroBR("-2.500")).toBe(-2500);
+  });
 });
