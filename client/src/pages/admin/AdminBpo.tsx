@@ -4,6 +4,8 @@ import { trpc } from "@/lib/trpc";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import { CurrencyInput } from "@/components/ui/currency-input";
+import { formatCurrency } from "@/lib/format";
 import { Label } from "@/components/ui/label";
 import {
   Select,
@@ -36,12 +38,9 @@ import TaxAccountingPanel from "./TaxAccountingPanel";
 import AdminRelatorios from "./AdminRelatorios";
 
 function formatCurrencyBR(value: number | string | null | undefined) {
-  if (!value) return "R$ 0,00";
+  if (!value) return formatCurrency(0);
   const num = typeof value === "string" ? parseFloat(value) : value;
-  return new Intl.NumberFormat("pt-BR", {
-    style: "currency",
-    currency: "BRL",
-  }).format(num);
+  return formatCurrency(num);
 }
 
 type Aba =
@@ -301,13 +300,12 @@ export default function AdminBpo({ initialTab }: { initialTab?: Aba } = {}) {
                       <Label className="text-gray-300">
                         Honorário Mensal (R$) *
                       </Label>
-                      <Input
-                        type="number"
-                        value={clienteForm.honorarios}
-                        onChange={e =>
+                      <CurrencyInput
+                        value={clienteForm.honorarios ? Number(clienteForm.honorarios) : 0}
+                        onChange={v =>
                           setClienteForm(f => ({
                             ...f,
-                            honorarios: e.target.value,
+                            honorarios: v ? String(v) : "",
                           }))
                         }
                         className="bg-[#2C3E50] border-[#C9A961]/30 text-white mt-1"
@@ -480,13 +478,12 @@ export default function AdminBpo({ initialTab }: { initialTab?: Aba } = {}) {
                     </div>
                     <div>
                       <Label className="text-gray-300">Saldo Atual (R$)</Label>
-                      <Input
-                        type="number"
-                        value={contaForm.saldoAtual}
-                        onChange={e =>
+                      <CurrencyInput
+                        value={contaForm.saldoAtual ? Number(contaForm.saldoAtual) : 0}
+                        onChange={v =>
                           setContaForm(f => ({
                             ...f,
-                            saldoAtual: e.target.value,
+                            saldoAtual: v ? String(v) : "",
                           }))
                         }
                         className="bg-[#2C3E50] border-[#C9A961]/30 text-white mt-1"
@@ -635,13 +632,12 @@ export default function AdminBpo({ initialTab }: { initialTab?: Aba } = {}) {
                     </div>
                     <div>
                       <Label className="text-gray-300">Valor (R$) *</Label>
-                      <Input
-                        type="number"
-                        value={lancamentoForm.valor}
-                        onChange={e =>
+                      <CurrencyInput
+                        value={lancamentoForm.valor ? Number(lancamentoForm.valor) : 0}
+                        onChange={v =>
                           setLancamentoForm(f => ({
                             ...f,
-                            valor: e.target.value,
+                            valor: v ? String(v) : "",
                           }))
                         }
                         className="bg-[#2C3E50] border-[#C9A961]/30 text-white mt-1"

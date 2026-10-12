@@ -23,6 +23,9 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
+import { CurrencyInput } from "@/components/ui/currency-input";
+import { PercentInput } from "@/components/ui/percent-input";
+import { formatCurrency } from "@/lib/format";
 import { Label } from "@/components/ui/label";
 import {
   Select,
@@ -47,11 +50,7 @@ type Tipo = (typeof FINANCIAMENTO_TIPOS)[number];
 type Banco = (typeof FINANCIAMENTO_BANCOS)[number];
 
 function moeda(valor: string | number | null | undefined) {
-  const numero = Number(valor ?? 0);
-  return new Intl.NumberFormat("pt-BR", {
-    style: "currency",
-    currency: "BRL",
-  }).format(numero);
+  return formatCurrency(Number(valor ?? 0));
 }
 
 function numero(formData: FormData, nome: string) {
@@ -586,40 +585,34 @@ export default function AdminFinanciamentos() {
                   : nome, CPF, telefone e e-mail são atualizados a partir do cadastro do lead.
                 </p>
               )}
-              <Campo
+              <CampoMoeda
                 nome="valorImovel"
                 rotulo="Valor do imóvel"
-                tipo="number"
                 obrigatorio
-                valorPadrao={String(detalhe.financiamento.valorImovel)}
+                valorPadrao={Number(detalhe.financiamento.valorImovel)}
               />
-              <Campo
+              <CampoMoeda
                 nome="valorFinanciado"
                 rotulo="Valor financiado"
-                tipo="number"
                 obrigatorio
-                valorPadrao={String(detalhe.financiamento.valorFinanciado)}
+                valorPadrao={Number(detalhe.financiamento.valorFinanciado)}
               />
-              <Campo
+              <CampoMoeda
                 nome="entrada"
                 rotulo="Entrada"
-                tipo="number"
                 obrigatorio
-                valorPadrao={String(detalhe.financiamento.entrada)}
+                valorPadrao={Number(detalhe.financiamento.entrada)}
               />
-              <Campo
+              <CampoMoeda
                 nome="parcela"
                 rotulo="Parcela"
-                tipo="number"
-                valorPadrao={String(detalhe.financiamento.parcela || "")}
+                valorPadrao={detalhe.financiamento.parcela != null ? Number(detalhe.financiamento.parcela) : null}
               />
-              <Campo
+              <CampoPercentual
                 nome="taxa"
                 rotulo="Taxa anual (%)"
-                tipo="number"
-                passo="0.0001"
                 obrigatorio
-                valorPadrao={String(detalhe.financiamento.taxa)}
+                valorPadrao={Number(detalhe.financiamento.taxa)}
               />
               <Campo
                 nome="prazo"
@@ -681,6 +674,69 @@ function Campo({
         step={passo ?? (tipo === "number" ? "0.01" : undefined)}
         min={tipo === "number" ? 0 : undefined}
         defaultValue={valorPadrao}
+        className="mt-1 border-[#C9A961]/30 bg-[#2C3E50]"
+      />
+    </div>
+  );
+}
+
+// Variante de `Campo` para dinheiro/percentual: mesmo visual (Label +
+// moldura), mas usando `CurrencyInput`/`PercentInput` (buffer de texto +
+// `parseNumeroBR`) em vez de `<Input type="number">` — que mastiga a
+// vírgula decimal durante a digitação. `name`+`defaultValue` seguem
+// alimentando o `FormData` do submit via `<input type="hidden">` interno,
+// então `dadosFormulario()`/`numero()` continuam funcionando sem mudança.
+function CampoMoeda({
+  nome,
+  rotulo,
+  obrigatorio = false,
+  valorPadrao,
+}: {
+  nome: string;
+  rotulo: string;
+  obrigatorio?: boolean;
+  valorPadrao?: number | null;
+}) {
+  return (
+    <div>
+      <Label htmlFor={nome}>
+        {rotulo}
+        {obrigatorio ? " *" : ""}
+      </Label>
+      <CurrencyInput
+        id={nome}
+        name={nome}
+        defaultValue={valorPadrao}
+        required={obrigatorio}
+        className="mt-1 border-[#C9A961]/30 bg-[#2C3E50]"
+      />
+    </div>
+  );
+}
+
+function CampoPercentual({
+  nome,
+  rotulo,
+  obrigatorio = false,
+  valorPadrao,
+}: {
+  nome: string;
+  rotulo: string;
+  obrigatorio?: boolean;
+  valorPadrao?: number | null;
+}) {
+  return (
+    <div>
+      <Label htmlFor={nome}>
+        {rotulo}
+        {obrigatorio ? " *" : ""}
+      </Label>
+      <PercentInput
+        id={nome}
+        name={nome}
+        defaultValue={valorPadrao}
+        required={obrigatorio}
+        maximumFractionDigits={4}
         className="mt-1 border-[#C9A961]/30 bg-[#2C3E50]"
       />
     </div>

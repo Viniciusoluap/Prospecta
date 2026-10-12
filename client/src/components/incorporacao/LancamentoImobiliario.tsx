@@ -2,6 +2,8 @@ import { useMemo, useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { CurrencyInput } from "@/components/ui/currency-input";
+import { formatarNumeroParaEdicao, aplicarDigitacao } from "@/lib/numero-input";
 import { trpc } from "@/lib/trpc";
 import { toast } from "sonner";
 import { LayoutList, PartyPopper, Plus, Trash2 } from "lucide-react";
@@ -55,12 +57,26 @@ function MixProdutos({ estudoId, mixAtual, onChange }: { estudoId: number; mixAt
 
   const resultado = useMemo(() => calcularMix(mixAtual), [mixAtual]);
 
-  function addItem() { onChange([...mixAtual, novoItemMix()]); }
-  function removerItem(i: number) { onChange(mixAtual.filter((_, j) => j !== i)); }
+  // Buffer de texto da área/unidade (m²) — mesmo motivo do `EstudoMassa.tsx`
+  // (Lote 5). Mantido em sincronia por índice com `mixAtual` em add/remover.
+  const [textoArea, setTextoArea] = useState<string[]>(() => mixAtual.map((it) => formatarNumeroParaEdicao(it.areaUnidadeM2)));
+
+  function addItem() { onChange([...mixAtual, novoItemMix()]); setTextoArea((t) => [...t, ""]); }
+  function removerItem(i: number) { onChange(mixAtual.filter((_, j) => j !== i)); setTextoArea((t) => t.filter((_, j) => j !== i)); }
   function upd(i: number, campo: keyof ItemMixProduto, valor: string) {
     const itens = [...mixAtual];
     itens[i] = { ...itens[i], [campo]: campo === "nome" ? valor : (parseFloat(valor) || 0) };
     onChange(itens);
+  }
+  function updArea(i: number, valorTexto: string) {
+    const { texto, numero } = aplicarDigitacao(valorTexto);
+    setTextoArea((t) => { const c = [...t]; c[i] = texto; return c; });
+    const itens = [...mixAtual];
+    itens[i] = { ...itens[i], areaUnidadeM2: numero };
+    onChange(itens);
+  }
+  function reformatarArea(i: number) {
+    setTextoArea((t) => { const c = [...t]; c[i] = formatarNumeroParaEdicao(mixAtual[i]?.areaUnidadeM2 ?? 0); return c; });
   }
 
   return (
@@ -95,8 +111,17 @@ function MixProdutos({ estudoId, mixAtual, onChange }: { estudoId: number; mixAt
                   <tr key={i}>
                     <td className="px-1 py-1"><Input value={it.nome} onChange={(e) => upd(i, "nome", e.target.value)} className={inputCls} placeholder="Ex.: Lote 300m²" /></td>
                     <td className="px-1 py-1"><Input type="number" value={it.quantidade || ""} onChange={(e) => upd(i, "quantidade", e.target.value)} className={`${inputCls} text-right`} /></td>
-                    <td className="px-1 py-1"><Input type="number" value={it.areaUnidadeM2 || ""} onChange={(e) => upd(i, "areaUnidadeM2", e.target.value)} className={`${inputCls} text-right`} /></td>
-                    <td className="px-1 py-1"><Input type="number" value={it.precoM2 || ""} onChange={(e) => upd(i, "precoM2", e.target.value)} className={`${inputCls} text-right`} /></td>
+                    <td className="px-1 py-1">
+                      <Input
+                        type="text"
+                        inputMode="decimal"
+                        value={textoArea[i] ?? formatarNumeroParaEdicao(it.areaUnidadeM2)}
+                        onChange={(e) => updArea(i, e.target.value)}
+                        onBlur={() => reformatarArea(i)}
+                        className={`${inputCls} text-right`}
+                      />
+                    </td>
+                    <td className="px-1 py-1"><CurrencyInput value={it.precoM2} onChange={(v) => upd(i, "precoM2", String(v))} className={`${inputCls} text-right`} /></td>
                     <td className="px-1 py-1 text-right text-white font-bold">{r ? fmtBRL(r.vgv) : "—"}</td>
                     <td className="px-1 py-1">
                       <button type="button" onClick={() => removerItem(i)} className="text-gray-500 hover:text-red-400 flex justify-center"><Trash2 className="h-4 w-4" /></button>
@@ -194,7 +219,7 @@ function LancamentoVendas({ estudoId, realEstateLaunchJson, mixAtual }: { estudo
                 <tr key={v.id}>
                   <td className="px-1 py-1"><Input value={v.unidade} onChange={(e) => upd(v.id, "unidade", e.target.value)} className={inputCls} placeholder="Ex.: Lote 12" /></td>
                   <td className="px-1 py-1"><Input value={v.comprador ?? ""} onChange={(e) => upd(v.id, "comprador", e.target.value)} className={inputCls} placeholder="Nome do comprador" /></td>
-                  <td className="px-1 py-1"><Input type="number" value={v.valorVenda || ""} onChange={(e) => upd(v.id, "valorVenda", parseFloat(e.target.value) || 0)} className={`${inputCls} text-right`} /></td>
+                  <td className="px-1 py-1"><CurrencyInput value={v.valorVenda} onChange={(x) => upd(v.id, "valorVenda", x)} className={`${inputCls} text-right`} /></td>
                   <td className="px-1 py-1"><Input type="date" value={v.data ?? ""} onChange={(e) => upd(v.id, "data", e.target.value)} className={inputCls} /></td>
                   <td className="px-1 py-1">
                     <button type="button" onClick={() => removerVenda(v.id)} className="text-gray-500 hover:text-red-400 flex justify-center"><Trash2 className="h-4 w-4" /></button>

@@ -5,6 +5,8 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
+import { CurrencyInput } from "@/components/ui/currency-input";
+import { formatCurrency } from "@/lib/format";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
@@ -13,9 +15,9 @@ import { toast } from "sonner";
 import { ArrowLeft, TrendingUp, TrendingDown, DollarSign, Plus, CheckCircle2, Clock, XCircle } from "lucide-react";
 
 function formatCurrencyBR(value: number | string | null | undefined) {
-  if (!value) return "R$ 0,00";
+  if (!value) return formatCurrency(0);
   const num = typeof value === "string" ? parseFloat(value) : value;
-  return new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(num);
+  return formatCurrency(num);
 }
 
 const TRANSACTION_TYPES = [
@@ -111,7 +113,7 @@ export default function AdminFinanceiro() {
                   </div>
                   <div>
                     <Label className="text-gray-300">Valor (R$)</Label>
-                    <Input type="number" value={form.amount} onChange={e => setForm(f => ({ ...f, amount: e.target.value }))} className="bg-[#2C3E50] border-[#C9A961]/30 text-white mt-1" placeholder="0.00" />
+                    <CurrencyInput value={form.amount ? Number(form.amount) : 0} onChange={v => setForm(f => ({ ...f, amount: v ? String(v) : "" }))} className="bg-[#2C3E50] border-[#C9A961]/30 text-white mt-1" />
                   </div>
                   <div className="col-span-2">
                     <Label className="text-gray-300">Descrição</Label>

@@ -7,6 +7,8 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
+import { CurrencyInput } from "@/components/ui/currency-input";
+import { formatCurrency } from "@/lib/format";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
@@ -41,7 +43,7 @@ const EMPTY_FORM = {
 };
 
 function currency(value: string | null) {
-  return Number(value ?? 0).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
+  return formatCurrency(Number(value ?? 0));
 }
 
 function fileToBase64(file: File): Promise<string> {
@@ -205,7 +207,7 @@ export default function AdminRegularizacoes() {
                       </Select>
                     </Field>
                     <Field label="Valor pago">
-                      <Input className="bg-[#1A2332]" type="number" min="0" step="0.01" defaultValue={Number(selected.paidValue)} onBlur={event => updateMutation.mutate({ id: selected.id, paidValue: Number(event.target.value) })} />
+                      <CurrencyInput className="bg-[#1A2332]" defaultValue={Number(selected.paidValue)} onBlurValue={value => updateMutation.mutate({ id: selected.id, paidValue: value })} />
                     </Field>
                   </div>
 
@@ -253,7 +255,7 @@ export default function AdminRegularizacoes() {
                 <Field label="Responsável *"><Input value={form.responsible} onChange={e => setForm({ ...form, responsible: e.target.value })} /></Field>
                 <Field label="Matrícula"><Input value={form.registration} onChange={e => setForm({ ...form, registration: e.target.value })} /></Field>
                 <Field label="Cartório"><Input value={form.registryOffice} onChange={e => setForm({ ...form, registryOffice: e.target.value })} /></Field>
-                <Field label="Valor do serviço"><Input type="number" min="0" step="0.01" value={form.serviceValue} onChange={e => setForm({ ...form, serviceValue: e.target.value })} /></Field>
+                <Field label="Valor do serviço"><CurrencyInput value={form.serviceValue ? Number(form.serviceValue) : 0} onChange={v => setForm({ ...form, serviceValue: v ? String(v) : "" })} /></Field>
                 <Field label="Previsão de conclusão"><Input type="date" value={form.expectedEndAt} onChange={e => setForm({ ...form, expectedEndAt: e.target.value })} /></Field>
                 <div className="sm:col-span-2"><Field label="Endereço do imóvel *"><Input value={form.address} onChange={e => setForm({ ...form, address: e.target.value })} /></Field></div>
                 <div className="sm:col-span-2"><Field label="Descrição"><Textarea value={form.description} onChange={e => setForm({ ...form, description: e.target.value })} /></Field></div>

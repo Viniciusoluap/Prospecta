@@ -8,6 +8,9 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
+import { CurrencyInput } from "@/components/ui/currency-input";
+import { formatarNumeroParaEdicao, aplicarDigitacao } from "@/lib/numero-input";
+import { formatCurrency } from "@/lib/format";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
@@ -43,7 +46,7 @@ function formatCurrencyBR(value: string | number | null | undefined) {
   if (!value) return "—";
   const num = typeof value === "string" ? parseFloat(value) : value;
   if (isNaN(num)) return "—";
-  return new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(num);
+  return formatCurrency(num);
 }
 
 export default function AdminAvaliacoes() {
@@ -58,6 +61,11 @@ export default function AdminAvaliacoes() {
     metodologia: "comparativo", avaliador: "", valorServico: "",
   });
   const [form, setForm] = useState(emptyForm);
+  // Buffers de texto de "Área const." e "Área terreno" (m²) — mesmo motivo
+  // do `EstudoMassa.tsx` (Lote 5). Resetados junto com `form` sempre que
+  // ele volta a `emptyForm()`.
+  const [areaConstruidaTexto, setAreaConstruidaTexto] = useState("");
+  const [areaTerrenoTexto, setAreaTerrenoTexto] = useState("");
   const { data: leadOptions = [], isLoading: leadsLoading } = trpc.avaliacoes.leadContactOptions.useQuery(undefined, { enabled: open });
   const selectedLead = leadOptions.find(lead => lead.id === form.leadId);
   const selectedContact = selectedLead ? leadContact(selectedLead) : null;
@@ -74,6 +82,8 @@ export default function AdminAvaliacoes() {
       refetch();
       setOpen(false);
       setForm(emptyForm());
+      setAreaConstruidaTexto("");
+      setAreaTerrenoTexto("");
     },
     onError: (e) => toast.error(e.message),
   });
@@ -201,11 +211,33 @@ export default function AdminAvaliacoes() {
                 <div className="grid grid-cols-3 gap-3">
                   <div>
                     <Label className="text-gray-300">Área const. (m²)</Label>
-                    <Input type="number" value={form.areaConstruida} onChange={e => setForm(f => ({ ...f, areaConstruida: e.target.value }))} className="bg-[#2C3E50] border-[#C9A961]/30 text-white mt-1" />
+                    <Input
+                      type="text"
+                      inputMode="decimal"
+                      value={areaConstruidaTexto}
+                      onChange={e => {
+                        const { texto, numero } = aplicarDigitacao(e.target.value);
+                        setAreaConstruidaTexto(texto);
+                        setForm(f => ({ ...f, areaConstruida: numero ? String(numero) : "" }));
+                      }}
+                      onBlur={() => setAreaConstruidaTexto(form.areaConstruida ? formatarNumeroParaEdicao(Number(form.areaConstruida)) : "")}
+                      className="bg-[#2C3E50] border-[#C9A961]/30 text-white mt-1"
+                    />
                   </div>
                   <div>
                     <Label className="text-gray-300">Área terreno (m²)</Label>
-                    <Input type="number" value={form.areaTerreno} onChange={e => setForm(f => ({ ...f, areaTerreno: e.target.value }))} className="bg-[#2C3E50] border-[#C9A961]/30 text-white mt-1" />
+                    <Input
+                      type="text"
+                      inputMode="decimal"
+                      value={areaTerrenoTexto}
+                      onChange={e => {
+                        const { texto, numero } = aplicarDigitacao(e.target.value);
+                        setAreaTerrenoTexto(texto);
+                        setForm(f => ({ ...f, areaTerreno: numero ? String(numero) : "" }));
+                      }}
+                      onBlur={() => setAreaTerrenoTexto(form.areaTerreno ? formatarNumeroParaEdicao(Number(form.areaTerreno)) : "")}
+                      className="bg-[#2C3E50] border-[#C9A961]/30 text-white mt-1"
+                    />
                   </div>
                   <div>
                     <Label className="text-gray-300">Metodologia</Label>
@@ -239,7 +271,7 @@ export default function AdminAvaliacoes() {
                   </div>
                   <div>
                     <Label className="text-gray-300">Valor do serviço (R$)</Label>
-                    <Input type="number" value={form.valorServico} onChange={e => setForm(f => ({ ...f, valorServico: e.target.value }))} className="bg-[#2C3E50] border-[#C9A961]/30 text-white mt-1" />
+                    <CurrencyInput value={form.valorServico ? Number(form.valorServico) : 0} onChange={v => setForm(f => ({ ...f, valorServico: v ? String(v) : "" }))} className="bg-[#2C3E50] border-[#C9A961]/30 text-white mt-1" />
                   </div>
                 </div>
 
@@ -262,7 +294,7 @@ export default function AdminAvaliacoes() {
           module="avaliacoes"
           title="Avaliações"
           startLabel="Solicitar avaliação"
-          onStart={leadId => { setForm({ ...emptyForm(), leadId }); setOpen(true); }}
+          onStart={leadId => { setForm({ ...emptyForm(), leadId }); setAreaConstruidaTexto(""); setAreaTerrenoTexto(""); setOpen(true); }}
         />
         {/* Indicadores */}
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4">

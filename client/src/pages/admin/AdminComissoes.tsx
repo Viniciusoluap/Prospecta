@@ -2,6 +2,8 @@ import { useState } from "react";
 import { trpc } from "@/lib/trpc";
 import { LinkedServiceQueue } from "./LinkedServiceQueue";
 import { Button } from "@/components/ui/button";
+import { CurrencyInput } from "@/components/ui/currency-input";
+import { PercentInput } from "@/components/ui/percent-input";
 import {
   COMMISSION_BUSINESS_TYPE_LABELS,
   COMMISSION_BUSINESS_TYPES,
@@ -332,26 +334,19 @@ export default function AdminComissoes() {
           )}
         </Field>
         <Field label="Percentual de referência (%)">
-          <input
+          <PercentInput
             className={inputClass}
-            type="number"
-            step="0.01"
-            min="0"
-            max="100"
             required
-            value={form.percent}
-            onChange={e => updateAndSuggest({ percent: e.target.value })}
+            value={Number(form.percent) || 0}
+            onChange={v => updateAndSuggest({ percent: String(v) })}
           />
         </Field>
         <Field label="Valor da comissão (R$)">
-          <input
+          <CurrencyInput
             className={inputClass}
-            type="number"
-            step="0.01"
-            min="0"
             required
-            value={form.amount}
-            onChange={e => set("amount", e.target.value)}
+            value={Number(form.amount) || 0}
+            onChange={v => set("amount", String(v))}
           />
           <span className="block text-xs font-normal text-slate-600">
             Calculado pelo percentual sobre o valor do {isObra ? "contrato da obra" : "imóvel"}; pode ser ajustado.

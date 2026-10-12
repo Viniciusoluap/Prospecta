@@ -10,6 +10,9 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
+import { CurrencyInput } from "@/components/ui/currency-input";
+import { PercentInput } from "@/components/ui/percent-input";
+import { formatCurrency } from "@/lib/format";
 import { Label } from "@/components/ui/label";
 import {
   Select,
@@ -37,10 +40,7 @@ const regimes = {
 } as const;
 
 function money(value: number | string | null | undefined) {
-  return new Intl.NumberFormat("pt-BR", {
-    style: "currency",
-    currency: "BRL",
-  }).format(Number(value || 0));
+  return formatCurrency(Number(value || 0));
 }
 
 export default function TaxAccountingPanel() {
@@ -222,12 +222,11 @@ export default function TaxAccountingPanel() {
               </div>
               <div>
                 <Label>Alíquota estimada (%) *</Label>
-                <Input
-                  type="number"
-                  step="0.01"
-                  value={profile.estimatedRate}
-                  onChange={e =>
-                    setProfile({ ...profile, estimatedRate: e.target.value })
+                <PercentInput
+                  maximumFractionDigits={4}
+                  value={profile.estimatedRate ? Number(profile.estimatedRate) : 0}
+                  onChange={v =>
+                    setProfile({ ...profile, estimatedRate: v ? String(v) : "" })
                   }
                   className="mt-1 bg-[#2C3E50]"
                 />
@@ -328,13 +327,12 @@ export default function TaxAccountingPanel() {
               </div>
               <div>
                 <Label>Valor estimado *</Label>
-                <Input
-                  type="number"
-                  value={obligation.estimatedAmount}
-                  onChange={e =>
+                <CurrencyInput
+                  value={obligation.estimatedAmount ? Number(obligation.estimatedAmount) : 0}
+                  onChange={v =>
                     setObligation({
                       ...obligation,
-                      estimatedAmount: e.target.value,
+                      estimatedAmount: v ? String(v) : "",
                     })
                   }
                   className="mt-1 bg-[#2C3E50]"
@@ -437,11 +435,10 @@ export default function TaxAccountingPanel() {
               </div>
               <div>
                 <Label>Alíquota RET estimada (%)</Label>
-                <Input
-                  type="number"
-                  step="0.01"
-                  value={ret.retRate}
-                  onChange={e => setRet({ ...ret, retRate: e.target.value })}
+                <PercentInput
+                  maximumFractionDigits={4}
+                  value={ret.retRate ? Number(ret.retRate) : 0}
+                  onChange={v => setRet({ ...ret, retRate: v ? String(v) : "" })}
                   className="mt-1 bg-[#2C3E50]"
                 />
               </div>

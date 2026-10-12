@@ -5,6 +5,8 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
+import { CurrencyInput } from "@/components/ui/currency-input";
+import { formatCurrency } from "@/lib/format";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -447,7 +449,7 @@ export default function AdminAvaliacaoDetail() {
           <CardContent className="space-y-3">
             <div>
               <Label className="text-gray-300">Valor estimado (R$)</Label>
-              <Input type="number" value={valorEstimado} onChange={(e) => setValorEstimado(e.target.value)} className="bg-[#1A2332] border-[#C9A961]/30 text-white mt-1" />
+              <CurrencyInput value={valorEstimado ? Number(valorEstimado) : 0} onChange={(v) => setValorEstimado(v ? String(v) : "")} className="bg-[#1A2332] border-[#C9A961]/30 text-white mt-1" />
             </div>
             <div>
               <Label className="text-gray-300">Laudo</Label>
@@ -503,5 +505,5 @@ function formatCurrencyBR(value: string | number | null | undefined) {
   if (value === null || value === undefined || value === "") return "—";
   const num = typeof value === "string" ? parseFloat(value) : value;
   if (isNaN(num)) return "—";
-  return new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(num);
+  return formatCurrency(num);
 }

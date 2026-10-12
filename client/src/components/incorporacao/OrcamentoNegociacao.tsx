@@ -2,6 +2,9 @@ import { useMemo, useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { CurrencyInput } from "@/components/ui/currency-input";
+import { PercentInput } from "@/components/ui/percent-input";
+import { formatarNumeroParaEdicao, aplicarDigitacao } from "@/lib/numero-input";
 import { trpc } from "@/lib/trpc";
 import { toast } from "sonner";
 import { Calculator, Handshake, Plus, Trash2, BadgeCheck } from "lucide-react";
@@ -25,6 +28,12 @@ const inputCls = "bg-[#2C3E50] border-[#C9A961]/30 text-white";
 function fmtBRL(v: number) {
   return v.toLocaleString("pt-BR", { style: "currency", currency: "BRL", maximumFractionDigits: 0 });
 }
+
+// Opções de formatação para os buffers de texto de campos "medida"/decimal
+// (área, coeficiente, meses, unidades) — sem forçar zeros decimais em
+// contagens inteiras, mas aceitando até 4 casas quando o usuário digitar.
+const MEDIDA_OPCOES = { minimumFractionDigits: 0, maximumFractionDigits: 4 };
+const CONTAGEM_OPCOES = { minimumFractionDigits: 0, maximumFractionDigits: 0 };
 
 function Metric({ label, valor, destaque }: { label: string; valor: string; destaque?: boolean }) {
   return (
@@ -79,20 +88,56 @@ function OrcamentoParametrizado({ estudoId, parameterizedBudgetJson }: { estudoI
 
   const resultado = useMemo(() => calcularOrcamentoParametrizado(dados), [dados]);
 
-  function set<K extends keyof PremissasOrcamentoParametrizado>(campo: K) {
-    return (valor: string) => setDados((d) => ({ ...d, [campo]: parseFloat(valor) || 0 }));
+  function setNumero<K extends keyof PremissasOrcamentoParametrizado>(campo: K, valor: number) {
+    setDados((d) => ({ ...d, [campo]: valor }));
   }
+
+  // Buffers de texto de "Área (m²)" e "Coef. equivalência" por pavimento —
+  // mesmo motivo do `EstudoMassa.tsx` (Lote 5). Mantidos em sincronia por
+  // índice com `dados.itens` em add/remover.
+  const [textoItens, setTextoItens] = useState<{ areaM2: string; coeficienteEquivalencia: string }[]>(() =>
+    dados.itens.map((it) => ({
+      areaM2: formatarNumeroParaEdicao(it.areaM2, MEDIDA_OPCOES),
+      coeficienteEquivalencia: formatarNumeroParaEdicao(it.coeficienteEquivalencia, MEDIDA_OPCOES),
+    }))
+  );
+
   function addItem() {
     setDados((d) => ({ ...d, itens: [...d.itens, { pavimento: "Novo pavimento", areaM2: 0, coeficienteEquivalencia: 1 }] }));
+    setTextoItens((t) => [...t, { areaM2: "", coeficienteEquivalencia: formatarNumeroParaEdicao(1, MEDIDA_OPCOES) }]);
   }
   function removerItem(i: number) {
     setDados((d) => ({ ...d, itens: d.itens.filter((_, j) => j !== i) }));
+    setTextoItens((t) => t.filter((_, j) => j !== i));
   }
+  function updItem(i: number, campo: "pavimento", valor: string): void;
+  function updItem(i: number, campo: "areaM2" | "coeficienteEquivalencia", valorTexto: string): void;
   function updItem(i: number, campo: keyof ItemOrcamentoParametrizado, valor: string) {
+    if (campo === "pavimento") {
+      setDados((d) => {
+        const itens = [...d.itens];
+        itens[i] = { ...itens[i], pavimento: valor };
+        return { ...d, itens };
+      });
+      return;
+    }
+    const { texto, numero } = aplicarDigitacao(valor);
+    setTextoItens((t) => {
+      const copia = [...t];
+      copia[i] = { ...copia[i], [campo]: texto };
+      return copia;
+    });
     setDados((d) => {
       const itens = [...d.itens];
-      itens[i] = { ...itens[i], [campo]: campo === "pavimento" ? valor : (parseFloat(valor) || 0) };
+      itens[i] = { ...itens[i], [campo]: numero };
       return { ...d, itens };
+    });
+  }
+  function reformatarItem(i: number, campo: "areaM2" | "coeficienteEquivalencia") {
+    setTextoItens((t) => {
+      const copia = [...t];
+      copia[i] = { ...copia[i], [campo]: formatarNumeroParaEdicao(dados.itens[i]?.[campo] ?? 0, MEDIDA_OPCOES) };
+      return copia;
     });
   }
 
@@ -133,8 +178,26 @@ function OrcamentoParametrizado({ estudoId, parameterizedBudgetJson }: { estudoI
               {dados.itens.map((it, i) => (
                 <tr key={i}>
                   <td className="px-1 py-1"><Input value={it.pavimento} onChange={(e) => updItem(i, "pavimento", e.target.value)} className={inputCls} placeholder="Ex.: Torre A" /></td>
-                  <td className="px-1 py-1"><Input type="number" value={it.areaM2 || ""} onChange={(e) => updItem(i, "areaM2", e.target.value)} className={`${inputCls} text-right`} /></td>
-                  <td className="px-1 py-1"><Input type="number" step={0.05} value={it.coeficienteEquivalencia} onChange={(e) => updItem(i, "coeficienteEquivalencia", e.target.value)} className={`${inputCls} text-right`} /></td>
+                  <td className="px-1 py-1">
+                    <Input
+                      type="text"
+                      inputMode="decimal"
+                      value={textoItens[i]?.areaM2 ?? formatarNumeroParaEdicao(it.areaM2, MEDIDA_OPCOES)}
+                      onChange={(e) => updItem(i, "areaM2", e.target.value)}
+                      onBlur={() => reformatarItem(i, "areaM2")}
+                      className={`${inputCls} text-right`}
+                    />
+                  </td>
+                  <td className="px-1 py-1">
+                    <Input
+                      type="text"
+                      inputMode="decimal"
+                      value={textoItens[i]?.coeficienteEquivalencia ?? formatarNumeroParaEdicao(it.coeficienteEquivalencia, MEDIDA_OPCOES)}
+                      onChange={(e) => updItem(i, "coeficienteEquivalencia", e.target.value)}
+                      onBlur={() => reformatarItem(i, "coeficienteEquivalencia")}
+                      className={`${inputCls} text-right`}
+                    />
+                  </td>
                   <td className="px-1 py-1 text-right text-gray-400">{Math.round(it.areaM2 * it.coeficienteEquivalencia).toLocaleString("pt-BR")} m²</td>
                   <td className="px-1 py-1">
                     <button type="button" onClick={() => removerItem(i)} className="text-gray-500 hover:text-red-400 flex justify-center"><Trash2 className="h-4 w-4" /></button>
@@ -154,7 +217,7 @@ function OrcamentoParametrizado({ estudoId, parameterizedBudgetJson }: { estudoI
             {CUSTOS.map((c) => (
               <div key={c.k}>
                 <label className="text-[10px] font-bold text-gray-500 uppercase tracking-widest block mb-1">{c.label}</label>
-                <Input type="number" value={dados[c.k]} onChange={(e) => set(c.k)(e.target.value)} className={inputCls} />
+                <CurrencyInput value={dados[c.k]} onChange={(v) => setNumero(c.k, v)} className={inputCls} />
               </div>
             ))}
           </div>
@@ -224,6 +287,20 @@ function NegociacaoTerreno({ estudoId, landNegotiationJson }: { estudoId: number
     setDados((d) => ({ ...d, propostas: d.propostas.map((p) => (p.id === id ? { ...p, [campo]: valor } : p)) }));
   }
 
+  // Buffer de texto de "Prazo (meses)" e "Unidades entregues" por proposta
+  // (campos de contagem, mas sujeitos ao mesmo problema de vírgula se o
+  // usuário digitar algo como "12,5" por engano) — indexado por id da
+  // proposta; entradas ausentes caem no fallback a partir do número salvo.
+  const [textoProposta, setTextoProposta] = useState<Record<string, { prazoParcelamentoMeses: string; unidadesPermuta: string }>>({});
+  function updPropostaContagem(id: string, campo: "prazoParcelamentoMeses" | "unidadesPermuta", valorTexto: string) {
+    const { texto, numero } = aplicarDigitacao(valorTexto);
+    setTextoProposta((t) => ({ ...t, [id]: { ...t[id], [campo]: texto } }));
+    updProposta(id, campo, numero);
+  }
+  function reformatarPropostaContagem(id: string, campo: "prazoParcelamentoMeses" | "unidadesPermuta", valorAtual: number | undefined) {
+    setTextoProposta((t) => ({ ...t, [id]: { ...t[id], [campo]: formatarNumeroParaEdicao(valorAtual ?? 0, CONTAGEM_OPCOES) } }));
+  }
+
   return (
     <Card className={cardCls}>
       <CardHeader>
@@ -249,7 +326,7 @@ function NegociacaoTerreno({ estudoId, landNegotiationJson }: { estudoId: number
           </div>
           <div>
             <label className="text-[10px] font-bold text-gray-500 uppercase tracking-widest block mb-1">VGV bruto estimado (R$, manual)</label>
-            <Input type="number" value={dados.vgvGrossManual || ""} onChange={(e) => setCampo("vgvGrossManual", parseFloat(e.target.value) || 0)} className={inputCls} />
+            <CurrencyInput value={dados.vgvGrossManual} onChange={(v) => setCampo("vgvGrossManual", v)} className={inputCls} />
           </div>
         </div>
 
@@ -303,31 +380,45 @@ function NegociacaoTerreno({ estudoId, landNegotiationJson }: { estudoId: number
                 {(p.tipo === "compra_avista" || p.tipo === "compra_parcelada" || p.tipo === "permuta_fisica" || p.tipo === "misto") && (
                   <div>
                     <label className="block text-[10px] font-bold text-gray-500 uppercase tracking-wide mb-1">Valor (R$)</label>
-                    <Input type="number" value={p.valorTotal ?? ""} onChange={(e) => updProposta(p.id, "valorTotal", parseFloat(e.target.value) || 0)} className={inputCls} />
+                    <CurrencyInput value={p.valorTotal ?? 0} onChange={(v) => updProposta(p.id, "valorTotal", v)} className={inputCls} />
                   </div>
                 )}
                 {p.tipo === "compra_parcelada" && (
                   <>
                     <div>
                       <label className="block text-[10px] font-bold text-gray-500 uppercase tracking-wide mb-1">Entrada (%)</label>
-                      <Input type="number" value={p.entradaPct ?? ""} onChange={(e) => updProposta(p.id, "entradaPct", parseFloat(e.target.value) || 0)} className={inputCls} />
+                      <PercentInput value={p.entradaPct ?? 0} onChange={(v) => updProposta(p.id, "entradaPct", v)} className={inputCls} />
                     </div>
                     <div>
                       <label className="block text-[10px] font-bold text-gray-500 uppercase tracking-wide mb-1">Prazo (meses)</label>
-                      <Input type="number" value={p.prazoParcelamentoMeses ?? ""} onChange={(e) => updProposta(p.id, "prazoParcelamentoMeses", parseFloat(e.target.value) || 0)} className={inputCls} />
+                      <Input
+                        type="text"
+                        inputMode="decimal"
+                        value={textoProposta[p.id]?.prazoParcelamentoMeses ?? formatarNumeroParaEdicao(p.prazoParcelamentoMeses ?? 0, CONTAGEM_OPCOES)}
+                        onChange={(e) => updPropostaContagem(p.id, "prazoParcelamentoMeses", e.target.value)}
+                        onBlur={() => reformatarPropostaContagem(p.id, "prazoParcelamentoMeses", p.prazoParcelamentoMeses)}
+                        className={inputCls}
+                      />
                     </div>
                   </>
                 )}
                 {(p.tipo === "permuta_financeira" || p.tipo === "misto") && (
                   <div>
                     <label className="block text-[10px] font-bold text-gray-500 uppercase tracking-wide mb-1">Permuta (% do VGV)</label>
-                    <Input type="number" value={p.permutaPctVgv ?? ""} onChange={(e) => updProposta(p.id, "permutaPctVgv", parseFloat(e.target.value) || 0)} className={inputCls} />
+                    <PercentInput value={p.permutaPctVgv ?? 0} onChange={(v) => updProposta(p.id, "permutaPctVgv", v)} className={inputCls} />
                   </div>
                 )}
                 {(p.tipo === "permuta_fisica" || p.tipo === "misto") && (
                   <div>
                     <label className="block text-[10px] font-bold text-gray-500 uppercase tracking-wide mb-1">Unidades entregues</label>
-                    <Input type="number" value={p.unidadesPermuta ?? ""} onChange={(e) => updProposta(p.id, "unidadesPermuta", parseFloat(e.target.value) || 0)} className={inputCls} />
+                    <Input
+                      type="text"
+                      inputMode="decimal"
+                      value={textoProposta[p.id]?.unidadesPermuta ?? formatarNumeroParaEdicao(p.unidadesPermuta ?? 0, CONTAGEM_OPCOES)}
+                      onChange={(e) => updPropostaContagem(p.id, "unidadesPermuta", e.target.value)}
+                      onBlur={() => reformatarPropostaContagem(p.id, "unidadesPermuta", p.unidadesPermuta)}
+                      className={inputCls}
+                    />
                   </div>
                 )}
                 <div className="col-span-2 md:col-span-4">

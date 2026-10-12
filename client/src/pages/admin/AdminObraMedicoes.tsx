@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
+import { CurrencyInput } from "@/components/ui/currency-input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
@@ -169,12 +170,10 @@ export default function AdminObraMedicoes() {
                   </div>
                   <div>
                     <Label className="text-gray-300">Valor Esperado CEF (R$)</Label>
-                    <Input
-                      type="number"
-                      step="0.01"
-                      value={newMed.valorCef}
-                      onChange={(e) => setNewMed({ ...newMed, valorCef: e.target.value })}
-                      placeholder="Ex: 45000.00"
+                    <CurrencyInput
+                      value={newMed.valorCef ? Number(newMed.valorCef) : 0}
+                      onChange={(v) => setNewMed({ ...newMed, valorCef: v ? String(v) : "" })}
+                      placeholder="45.000,00"
                       className="bg-[#0F1923] border-[#C9A961]/30 text-white mt-1"
                     />
                   </div>
@@ -347,12 +346,10 @@ export default function AdminObraMedicoes() {
                                       <p className="text-gray-400 text-sm">Medição: <span className="text-white">{tipoLabel}</span></p>
                                       <div>
                                         <Label className="text-gray-300">Valor Pago (R$)</Label>
-                                        <Input
-                                          type="number"
-                                          step="0.01"
-                                          value={payAmount}
-                                          onChange={(e) => setPayAmount(e.target.value)}
-                                          placeholder="Ex: 35000.00"
+                                        <CurrencyInput
+                                          value={payAmount ? Number(payAmount) : 0}
+                                          onChange={(v) => setPayAmount(v ? String(v) : "")}
+                                          placeholder="35.000,00"
                                           className="bg-[#0F1923] border-[#C9A961]/30 text-white mt-1"
                                         />
                                       </div>

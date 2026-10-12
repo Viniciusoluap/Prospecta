@@ -3,7 +3,9 @@ import { Link, useLocation, useParams } from "wouter";
 import { trpc } from "@/lib/trpc";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { CurrencyInput } from "@/components/ui/currency-input";
 import { Label } from "@/components/ui/label";
+import { formatarNumeroParaEdicao, aplicarDigitacao } from "@/lib/numero-input";
 import { Textarea } from "@/components/ui/textarea";
 import { Checkbox } from "@/components/ui/checkbox";
 import {
@@ -39,22 +41,6 @@ const STATUS_OPTIONS = [
   { value: "alugado", label: "Alugado" },
 ];
 const MAX_FOTOS = 15;
-
-function precoCentsToDisplay(digitsRaw: string): string {
-  const digits = digitsRaw.replace(/\D/g, "");
-  if (!digits || digits === "0") return "";
-  const num = parseInt(digits, 10) / 100;
-  return num.toLocaleString("pt-BR", {
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  });
-}
-
-function precoDisplayToNumber(display: string): number | null {
-  if (!display) return null;
-  const parsed = parseFloat(display.replace(/\./g, "").replace(",", "."));
-  return Number.isNaN(parsed) ? null : parsed;
-}
 
 function slugify(text: string): string {
   return text
@@ -168,7 +154,11 @@ export default function AdminImovelForm() {
   );
 
   const [form, setForm] = useState<FormState>(EMPTY_FORM);
-  const [precoDisplay, setPrecoDisplay] = useState("");
+  // Buffer de texto de "Área (m²)" — mesmo motivo do `EstudoMassa.tsx`
+  // (Lote 5): sem ele, o <Input> ficaria vinculado diretamente ao número
+  // já parseado e cada tecla apagaria a vírgula decimal digitada. O
+  // "Preço (R$)" usa `CurrencyInput`, que já cuida do próprio buffer.
+  const [areaM2Texto, setAreaM2Texto] = useState("");
   const [slugTocado, setSlugTocado] = useState(false);
   const [fotos, setFotos] = useState<string[]>([]);
   const [coords, setCoords] = useState<{ lat: number; lng: number } | null>(
@@ -208,17 +198,7 @@ export default function AdminImovelForm() {
           (imovel.reviewStatus as FormState["reviewStatus"]) ?? "approved",
       });
       setSlugTocado(true);
-      if (imovel.preco) {
-        const num = Number(imovel.preco);
-        setPrecoDisplay(
-          Number.isNaN(num)
-            ? ""
-            : num.toLocaleString("pt-BR", {
-                minimumFractionDigits: 2,
-                maximumFractionDigits: 2,
-              })
-        );
-      }
+      setAreaM2Texto(imovel.areaM2 ? formatarNumeroParaEdicao(Number(imovel.areaM2)) : "");
       if (imovel.fotos) {
         try {
           setFotos(JSON.parse(imovel.fotos));
@@ -243,11 +223,17 @@ export default function AdminImovelForm() {
     if (!slugTocado) set("slug", slugify(value));
   };
 
-  const handlePrecoChange = (rawTyped: string) => {
-    const display = precoCentsToDisplay(rawTyped);
-    setPrecoDisplay(display);
-    const numero = precoDisplayToNumber(display);
-    set("preco", numero === null ? "" : String(numero));
+  const handlePrecoChange = (valor: number) => {
+    set("preco", valor ? String(valor) : "");
+  };
+
+  const handleAreaM2Change = (valorTexto: string) => {
+    const { texto, numero } = aplicarDigitacao(valorTexto);
+    setAreaM2Texto(texto);
+    set("areaM2", numero ? String(numero) : "");
+  };
+  const handleAreaM2Blur = () => {
+    setAreaM2Texto(form.areaM2 ? formatarNumeroParaEdicao(Number(form.areaM2)) : "");
   };
 
   const addFiles = useCallback(
@@ -479,28 +465,21 @@ export default function AdminImovelForm() {
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div>
                 <Label className="text-gray-300">Preço (R$) *</Label>
-                <div className="relative mt-1">
-                  <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-sm text-gray-400">
-                    R$
-                  </span>
-                  <Input
-                    type="text"
-                    inputMode="decimal"
-                    placeholder="0,00"
-                    value={precoDisplay}
-                    onChange={e => handlePrecoChange(e.target.value)}
-                    required
-                    className="bg-[#2C3E50] border-[#C9A961]/30 text-white pl-9"
-                  />
-                </div>
+                <CurrencyInput
+                  value={form.preco ? Number(form.preco) : 0}
+                  onChange={handlePrecoChange}
+                  required
+                  className="bg-[#2C3E50] border-[#C9A961]/30 text-white mt-1"
+                />
               </div>
               <div>
                 <Label className="text-gray-300">Área (m²)</Label>
                 <Input
-                  type="number"
-                  min={0}
-                  value={form.areaM2}
-                  onChange={e => set("areaM2", e.target.value)}
+                  type="text"
+                  inputMode="decimal"
+                  value={areaM2Texto}
+                  onChange={e => handleAreaM2Change(e.target.value)}
+                  onBlur={handleAreaM2Blur}
                   className="bg-[#2C3E50] border-[#C9A961]/30 text-white mt-1"
                 />
               </div>

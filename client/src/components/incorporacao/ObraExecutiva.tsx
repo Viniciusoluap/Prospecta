@@ -2,6 +2,8 @@ import { useMemo, useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { CurrencyInput } from "@/components/ui/currency-input";
+import { PercentInput } from "@/components/ui/percent-input";
 import { trpc } from "@/lib/trpc";
 import { toast } from "sonner";
 import { FileStack, HardHat, TrendingUp, Plus, Trash2, AlertTriangle } from "lucide-react";
@@ -224,8 +226,8 @@ function OrcamentoObra({ estudoId, workBudgetJson, preliminaryBudgetJson }: { es
                       {CATEGORIAS_ORCAMENTO_OBRA.map((c) => <option key={c} value={c}>{c}</option>)}
                     </select>
                   </td>
-                  <td className="px-1 py-1"><Input type="number" value={it.valorOrcado || ""} onChange={(e) => upd(it.id, "valorOrcado", parseFloat(e.target.value) || 0)} className={`${inputCls} text-right`} /></td>
-                  <td className="px-1 py-1"><Input type="number" value={it.valorRealizado || ""} onChange={(e) => upd(it.id, "valorRealizado", parseFloat(e.target.value) || 0)} className={`${inputCls} text-right`} /></td>
+                  <td className="px-1 py-1"><CurrencyInput value={it.valorOrcado} onChange={(v) => upd(it.id, "valorOrcado", v)} className={`${inputCls} text-right`} /></td>
+                  <td className="px-1 py-1"><CurrencyInput value={it.valorRealizado} onChange={(v) => upd(it.id, "valorRealizado", v)} className={`${inputCls} text-right`} /></td>
                   <td className="px-1 py-1">
                     <button type="button" onClick={() => removerItem(it.id)} className="text-gray-500 hover:text-red-400 flex justify-center"><Trash2 className="h-4 w-4" /></button>
                   </td>
@@ -326,7 +328,7 @@ function CronogramaObra({ estudoId, physicalFinancialScheduleJson }: { estudoId:
               {resumo.itens.map((it) => (
                 <tr key={it.id}>
                   <td className="px-1 py-1"><Input type="number" value={it.mes} onChange={(e) => upd(it.id, "mes", parseFloat(e.target.value) || 0)} className={`${inputCls} text-right`} /></td>
-                  <td className="px-1 py-1"><Input type="number" value={it.avancoFisicoAcumuladoPct || ""} onChange={(e) => upd(it.id, "avancoFisicoAcumuladoPct", parseFloat(e.target.value) || 0)} className={`${inputCls} text-right`} /></td>
+                  <td className="px-1 py-1"><PercentInput value={it.avancoFisicoAcumuladoPct} onChange={(v) => upd(it.id, "avancoFisicoAcumuladoPct", v)} className={`${inputCls} text-right`} /></td>
                   <td className="px-1 py-1"><Input type="date" value={it.data ?? ""} onChange={(e) => upd(it.id, "data", e.target.value)} className={inputCls} /></td>
                   <td className="px-1 py-1 text-right text-gray-300">{it.avancoFinanceiroProjetadoPct != null ? `${it.avancoFinanceiroProjetadoPct}%` : "—"}</td>
                   <td className={`px-1 py-1 text-right font-bold ${it.desvioPct != null && it.desvioPct < -10 ? "text-red-400" : "text-white"}`}>{it.desvioPct != null ? `${it.desvioPct > 0 ? "+" : ""}${it.desvioPct}%` : "—"}</td>

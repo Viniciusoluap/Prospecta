@@ -2,6 +2,9 @@ import { useAuth } from "@/_core/hooks/useAuth";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import { CurrencyInput } from "@/components/ui/currency-input";
+import { PercentInput } from "@/components/ui/percent-input";
+import { formatarNumeroParaEdicao, aplicarDigitacao } from "@/lib/numero-input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -40,6 +43,14 @@ export default function AdminEditarObra() {
   const [address, setAddress] = useState("");
   const [projectType, setProjectType] = useState("");
   const [totalArea, setTotalArea] = useState("");
+  // Buffers de texto dos campos "medida"/contagem — mesmo motivo do
+  // `EstudoMassa.tsx` (Lote 5): sem eles, o <Input> ficaria vinculado
+  // diretamente ao número já parseado e cada tecla apagaria a vírgula
+  // decimal digitada. Campos de dinheiro/percentual usam
+  // `CurrencyInput`/`PercentInput`, que já cuidam do próprio buffer.
+  const [totalAreaTexto, setTotalAreaTexto] = useState("");
+  const [installmentQtyTexto, setInstallmentQtyTexto] = useState("");
+  const [constructionDaysTexto, setConstructionDaysTexto] = useState("");
   const [status, setStatus] = useState<string>("planning");
   const [startDate, setStartDate] = useState("");
   const [estimatedEndDate, setEstimatedEndDate] = useState("");
@@ -184,6 +195,7 @@ export default function AdminEditarObra() {
       setAddress(project.address || "");
       setProjectType(project.projectType || "");
       setTotalArea(project.totalArea?.toString() || "");
+      setTotalAreaTexto(project.totalArea ? formatarNumeroParaEdicao(Number(project.totalArea), { minimumFractionDigits: 0, maximumFractionDigits: 0 }) : "");
       setStatus(project.status);
       setStartDate(project.startDate ? new Date(project.startDate).toISOString().split("T")[0] : "");
       setEstimatedEndDate(project.estimatedEndDate ? new Date(project.estimatedEndDate).toISOString().split("T")[0] : "");
@@ -230,6 +242,8 @@ export default function AdminEditarObra() {
       setInstallmentQty(meta.installmentQty || "");
       setInstallmentValue(meta.installmentValue || "");
       setConstructionDays(meta.constructionDays || "");
+      setInstallmentQtyTexto(meta.installmentQty ? formatarNumeroParaEdicao(Number(meta.installmentQty), { minimumFractionDigits: 0, maximumFractionDigits: 0 }) : "");
+      setConstructionDaysTexto(meta.constructionDays ? formatarNumeroParaEdicao(Number(meta.constructionDays), { minimumFractionDigits: 0, maximumFractionDigits: 0 }) : "");
       setClientName(meta.clientName || "");
       setCefTitle(meta.cefTitle || "");
       setCefBranch(meta.cefBranch || "");
@@ -444,9 +458,15 @@ export default function AdminEditarObra() {
                     <Label htmlFor="totalArea" className="text-gray-300">Área Total (m²)</Label>
                     <Input
                       id="totalArea"
-                      type="number"
-                      value={totalArea}
-                      onChange={(e) => setTotalArea(e.target.value)}
+                      type="text"
+                      inputMode="decimal"
+                      value={totalAreaTexto}
+                      onChange={(e) => {
+                        const { texto, numero } = aplicarDigitacao(e.target.value);
+                        setTotalAreaTexto(texto);
+                        setTotalArea(numero ? String(numero) : "");
+                      }}
+                      onBlur={() => setTotalAreaTexto(totalArea ? formatarNumeroParaEdicao(Number(totalArea), { minimumFractionDigits: 0, maximumFractionDigits: 0 }) : "")}
                       className="bg-[#2C3E50] border-[#C9A961]/30 text-white"
                       placeholder="Ex: 47"
                     />
@@ -571,26 +591,26 @@ export default function AdminEditarObra() {
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                   <div className="space-y-2">
                     <Label className="text-gray-300">VGV - Valor Global de Venda (R$)</Label>
-                    <Input type="number" step="0.01" value={vgv} onChange={(e) => setVgv(e.target.value)} className="bg-[#2C3E50] border-[#C9A961]/30 text-white" placeholder="Ex: 153000.00" />
+                    <CurrencyInput value={vgv ? Number(vgv) : 0} onChange={(v) => setVgv(v ? String(v) : "")} className="bg-[#2C3E50] border-[#C9A961]/30 text-white" placeholder="153.000,00" />
                   </div>
                   <div className="space-y-2">
                     <Label className="text-gray-300">Valor Financiado CEF (R$)</Label>
-                    <Input type="number" step="0.01" value={financedAmount} onChange={(e) => setFinancedAmount(e.target.value)} className="bg-[#2C3E50] border-[#C9A961]/30 text-white" placeholder="Ex: 137700.00" />
+                    <CurrencyInput value={financedAmount ? Number(financedAmount) : 0} onChange={(v) => setFinancedAmount(v ? String(v) : "")} className="bg-[#2C3E50] border-[#C9A961]/30 text-white" placeholder="137.700,00" />
                   </div>
                 </div>
 
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
                   <div className="space-y-2">
                     <Label className="text-gray-300">FGTS (R$)</Label>
-                    <Input type="number" step="0.01" value={fgtsAmount} onChange={(e) => setFgtsAmount(e.target.value)} className="bg-[#2C3E50] border-[#C9A961]/30 text-white" placeholder="Ex: 21850.00" />
+                    <CurrencyInput value={fgtsAmount ? Number(fgtsAmount) : 0} onChange={(v) => setFgtsAmount(v ? String(v) : "")} className="bg-[#2C3E50] border-[#C9A961]/30 text-white" placeholder="21.850,00" />
                   </div>
                   <div className="space-y-2">
                     <Label className="text-gray-300">Subsídio (R$)</Label>
-                    <Input type="number" step="0.01" value={subsidyAmount} onChange={(e) => setSubsidyAmount(e.target.value)} className="bg-[#2C3E50] border-[#C9A961]/30 text-white" placeholder="Ex: 55000.00" />
+                    <CurrencyInput value={subsidyAmount ? Number(subsidyAmount) : 0} onChange={(v) => setSubsidyAmount(v ? String(v) : "")} className="bg-[#2C3E50] border-[#C9A961]/30 text-white" placeholder="55.000,00" />
                   </div>
                   <div className="space-y-2">
                     <Label className="text-gray-300">Valor Recebido CEF (R$)</Label>
-                    <Input type="number" step="0.01" value={cefReceivedAmount} onChange={(e) => setCefReceivedAmount(e.target.value)} className="bg-[#2C3E50] border-[#C9A961]/30 text-white" placeholder="Valor já recebido da CEF" />
+                    <CurrencyInput value={cefReceivedAmount ? Number(cefReceivedAmount) : 0} onChange={(v) => setCefReceivedAmount(v ? String(v) : "")} className="bg-[#2C3E50] border-[#C9A961]/30 text-white" placeholder="Valor já recebido da CEF" />
                   </div>
                 </div>
 
@@ -598,11 +618,11 @@ export default function AdminEditarObra() {
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                   <div className="space-y-2">
                     <Label className="text-gray-300">Entrada Total (R$)</Label>
-                    <Input type="number" step="0.01" value={downPaymentTotal} onChange={(e) => setDownPaymentTotal(e.target.value)} className="bg-[#2C3E50] border-[#C9A961]/30 text-white" placeholder="Valor total de entrada" />
+                    <CurrencyInput value={downPaymentTotal ? Number(downPaymentTotal) : 0} onChange={(v) => setDownPaymentTotal(v ? String(v) : "")} className="bg-[#2C3E50] border-[#C9A961]/30 text-white" placeholder="Valor total de entrada" />
                   </div>
                   <div className="space-y-2">
                     <Label className="text-gray-300">Entrada Paga (R$)</Label>
-                    <Input type="number" step="0.01" value={downPaymentPaid} onChange={(e) => setDownPaymentPaid(e.target.value)} className="bg-[#2C3E50] border-[#C9A961]/30 text-white" placeholder="Quanto já foi pago" />
+                    <CurrencyInput value={downPaymentPaid ? Number(downPaymentPaid) : 0} onChange={(v) => setDownPaymentPaid(v ? String(v) : "")} className="bg-[#2C3E50] border-[#C9A961]/30 text-white" placeholder="Quanto já foi pago" />
                   </div>
                 </div>
 
@@ -610,11 +630,11 @@ export default function AdminEditarObra() {
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                   <div className="space-y-2">
                     <Label className="text-gray-300">Custo Construção (R$)</Label>
-                    <Input type="number" step="0.01" value={constructionCost} onChange={(e) => setConstructionCost(e.target.value)} className="bg-[#2C3E50] border-[#C9A961]/30 text-white" placeholder="Ex: 85000.00" />
+                    <CurrencyInput value={constructionCost ? Number(constructionCost) : 0} onChange={(v) => setConstructionCost(v ? String(v) : "")} className="bg-[#2C3E50] border-[#C9A961]/30 text-white" placeholder="85.000,00" />
                   </div>
                   <div className="space-y-2">
                     <Label className="text-gray-300">Gasto Obra Realizado (R$)</Label>
-                    <Input type="number" step="0.01" value={constructionSpent} onChange={(e) => setConstructionSpent(e.target.value)} className="bg-[#2C3E50] border-[#C9A961]/30 text-white" placeholder="Quanto já foi gasto" />
+                    <CurrencyInput value={constructionSpent ? Number(constructionSpent) : 0} onChange={(v) => setConstructionSpent(v ? String(v) : "")} className="bg-[#2C3E50] border-[#C9A961]/30 text-white" placeholder="Quanto já foi gasto" />
                   </div>
                 </div>
 
@@ -622,15 +642,15 @@ export default function AdminEditarObra() {
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
                   <div className="space-y-2">
                     <Label className="text-gray-300">Lucro Estimado (R$)</Label>
-                    <Input type="number" step="0.01" value={estimatedProfit} onChange={(e) => setEstimatedProfit(e.target.value)} className="bg-[#2C3E50] border-[#C9A961]/30 text-white" placeholder="Lucro estimado total" />
+                    <CurrencyInput value={estimatedProfit ? Number(estimatedProfit) : 0} onChange={(v) => setEstimatedProfit(v ? String(v) : "")} className="bg-[#2C3E50] border-[#C9A961]/30 text-white" placeholder="Lucro estimado total" />
                   </div>
                   <div className="space-y-2">
                     <Label className="text-gray-300">Lucro Investidor (R$)</Label>
-                    <Input type="number" step="0.01" value={investorProfit} onChange={(e) => setInvestorProfit(e.target.value)} className="bg-[#2C3E50] border-[#C9A961]/30 text-white" placeholder="Parcela do investidor" />
+                    <CurrencyInput value={investorProfit ? Number(investorProfit) : 0} onChange={(v) => setInvestorProfit(v ? String(v) : "")} className="bg-[#2C3E50] border-[#C9A961]/30 text-white" placeholder="Parcela do investidor" />
                   </div>
                   <div className="space-y-2">
                     <Label className="text-gray-300">Lucro Prospecta (R$)</Label>
-                    <Input type="number" step="0.01" value={prospectaProfit} onChange={(e) => setProspectaProfit(e.target.value)} className="bg-[#2C3E50] border-[#C9A961]/30 text-white" placeholder="Parcela da Prospecta" />
+                    <CurrencyInput value={prospectaProfit ? Number(prospectaProfit) : 0} onChange={(v) => setProspectaProfit(v ? String(v) : "")} className="bg-[#2C3E50] border-[#C9A961]/30 text-white" placeholder="Parcela da Prospecta" />
                   </div>
                 </div>
 
@@ -663,15 +683,27 @@ export default function AdminEditarObra() {
                   </div>
                   <div className="space-y-2">
                     <Label className="text-gray-300">Taxa (%)</Label>
-                    <Input type="number" step="0.01" value={installmentRate} onChange={(e) => setInstallmentRate(e.target.value)} className="bg-[#2C3E50] border-[#C9A961]/30 text-white" placeholder="Taxa mensal" />
+                    <PercentInput value={installmentRate ? Number(installmentRate) : 0} onChange={(v) => setInstallmentRate(v ? String(v) : "")} maximumFractionDigits={4} className="bg-[#2C3E50] border-[#C9A961]/30 text-white" placeholder="Taxa mensal" />
                   </div>
                   <div className="space-y-2">
                     <Label className="text-gray-300">Qtd Parcelas</Label>
-                    <Input type="number" value={installmentQty} onChange={(e) => setInstallmentQty(e.target.value)} className="bg-[#2C3E50] border-[#C9A961]/30 text-white" placeholder="Ex: 12" />
+                    <Input
+                      type="text"
+                      inputMode="decimal"
+                      value={installmentQtyTexto}
+                      onChange={(e) => {
+                        const { texto, numero } = aplicarDigitacao(e.target.value);
+                        setInstallmentQtyTexto(texto);
+                        setInstallmentQty(numero ? String(numero) : "");
+                      }}
+                      onBlur={() => setInstallmentQtyTexto(installmentQty ? formatarNumeroParaEdicao(Number(installmentQty), { minimumFractionDigits: 0, maximumFractionDigits: 0 }) : "")}
+                      className="bg-[#2C3E50] border-[#C9A961]/30 text-white"
+                      placeholder="Ex: 12"
+                    />
                   </div>
                   <div className="space-y-2">
                     <Label className="text-gray-300">Valor Parcela (R$)</Label>
-                    <Input type="number" step="0.01" value={installmentValue} onChange={(e) => setInstallmentValue(e.target.value)} className="bg-[#2C3E50] border-[#C9A961]/30 text-white" placeholder="Valor de cada parcela" />
+                    <CurrencyInput value={installmentValue ? Number(installmentValue) : 0} onChange={(v) => setInstallmentValue(v ? String(v) : "")} className="bg-[#2C3E50] border-[#C9A961]/30 text-white" placeholder="Valor de cada parcela" />
                   </div>
                 </div>
 
@@ -679,11 +711,23 @@ export default function AdminEditarObra() {
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                   <div className="space-y-2">
                     <Label className="text-gray-300">Dias de Obra (prazo)</Label>
-                    <Input type="number" value={constructionDays} onChange={(e) => setConstructionDays(e.target.value)} className="bg-[#2C3E50] border-[#C9A961]/30 text-white" placeholder="Ex: 90" />
+                    <Input
+                      type="text"
+                      inputMode="decimal"
+                      value={constructionDaysTexto}
+                      onChange={(e) => {
+                        const { texto, numero } = aplicarDigitacao(e.target.value);
+                        setConstructionDaysTexto(texto);
+                        setConstructionDays(numero ? String(numero) : "");
+                      }}
+                      onBlur={() => setConstructionDaysTexto(constructionDays ? formatarNumeroParaEdicao(Number(constructionDays), { minimumFractionDigits: 0, maximumFractionDigits: 0 }) : "")}
+                      className="bg-[#2C3E50] border-[#C9A961]/30 text-white"
+                      placeholder="Ex: 90"
+                    />
                   </div>
                   <div className="space-y-2">
                     <Label className="text-gray-300">PLS% (% Recebido)</Label>
-                    <Input type="number" step="0.01" value={plsPercentage} onChange={(e) => setPlsPercentage(e.target.value)} className="bg-[#2C3E50] border-[#C9A961]/30 text-white" placeholder="Ex: 30.00" />
+                    <PercentInput value={plsPercentage ? Number(plsPercentage) : 0} onChange={(v) => setPlsPercentage(v ? String(v) : "")} className="bg-[#2C3E50] border-[#C9A961]/30 text-white" placeholder="30,00" />
                   </div>
                 </div>
 
@@ -714,14 +758,12 @@ export default function AdminEditarObra() {
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                   <div className="space-y-2">
                     <Label htmlFor="contractValue" className="text-gray-300">Valor Total do Contrato (R$)</Label>
-                    <Input
+                    <CurrencyInput
                       id="contractValue"
-                      type="number"
-                      step="0.01"
-                      value={contractValue}
-                      onChange={(e) => setContractValue(e.target.value)}
+                      value={contractValue ? Number(contractValue) : 0}
+                      onChange={(v) => setContractValue(v ? String(v) : "")}
                       className="bg-[#2C3E50] border-[#C9A961]/30 text-white"
-                      placeholder="Ex: 180000.00"
+                      placeholder="180.000,00"
                     />
                   </div>
 
@@ -740,27 +782,23 @@ export default function AdminEditarObra() {
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                   <div className="space-y-2">
                     <Label htmlFor="contractorPayment" className="text-gray-300">Pagamento Empreiteiro (R$)</Label>
-                    <Input
+                    <CurrencyInput
                       id="contractorPayment"
-                      type="number"
-                      step="0.01"
-                      value={contractorPayment}
-                      onChange={(e) => setContractorPayment(e.target.value)}
+                      value={contractorPayment ? Number(contractorPayment) : 0}
+                      onChange={(v) => setContractorPayment(v ? String(v) : "")}
                       className="bg-[#2C3E50] border-[#C9A961]/30 text-white"
-                      placeholder="Ex: 50000.00"
+                      placeholder="50.000,00"
                     />
                   </div>
 
                   <div className="space-y-2">
                     <Label htmlFor="materialCost" className="text-gray-300">Custo de Material (R$)</Label>
-                    <Input
+                    <CurrencyInput
                       id="materialCost"
-                      type="number"
-                      step="0.01"
-                      value={materialCost}
-                      onChange={(e) => setMaterialCost(e.target.value)}
+                      value={materialCost ? Number(materialCost) : 0}
+                      onChange={(v) => setMaterialCost(v ? String(v) : "")}
                       className="bg-[#2C3E50] border-[#C9A961]/30 text-white"
-                      placeholder="Ex: 80000.00"
+                      placeholder="80.000,00"
                     />
                   </div>
                 </div>
@@ -768,27 +806,23 @@ export default function AdminEditarObra() {
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                   <div className="space-y-2">
                     <Label htmlFor="lotCost" className="text-gray-300">Custo do Lote/Terreno (R$)</Label>
-                    <Input
+                    <CurrencyInput
                       id="lotCost"
-                      type="number"
-                      step="0.01"
-                      value={lotCost}
-                      onChange={(e) => setLotCost(e.target.value)}
+                      value={lotCost ? Number(lotCost) : 0}
+                      onChange={(v) => setLotCost(v ? String(v) : "")}
                       className="bg-[#2C3E50] border-[#C9A961]/30 text-white"
-                      placeholder="Ex: 30000.00"
+                      placeholder="30.000,00"
                     />
                   </div>
 
                   <div className="space-y-2">
                     <Label htmlFor="commissionCost" className="text-gray-300">Comissão (R$)</Label>
-                    <Input
+                    <CurrencyInput
                       id="commissionCost"
-                      type="number"
-                      step="0.01"
-                      value={commissionCost}
-                      onChange={(e) => setCommissionCost(e.target.value)}
+                      value={commissionCost ? Number(commissionCost) : 0}
+                      onChange={(v) => setCommissionCost(v ? String(v) : "")}
                       className="bg-[#2C3E50] border-[#C9A961]/30 text-white"
-                      placeholder="Ex: 5000.00"
+                      placeholder="5.000,00"
                     />
                   </div>
                 </div>
@@ -796,54 +830,46 @@ export default function AdminEditarObra() {
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
                   <div className="space-y-2">
                     <Label htmlFor="extrasCost" className="text-gray-300">Custos Extras (R$)</Label>
-                    <Input
+                    <CurrencyInput
                       id="extrasCost"
-                      type="number"
-                      step="0.01"
-                      value={extrasCost}
-                      onChange={(e) => setExtrasCost(e.target.value)}
+                      value={extrasCost ? Number(extrasCost) : 0}
+                      onChange={(v) => setExtrasCost(v ? String(v) : "")}
                       className="bg-[#2C3E50] border-[#C9A961]/30 text-white"
-                      placeholder="Ex: 3000.00"
+                      placeholder="3.000,00"
                     />
                   </div>
 
                   <div className="space-y-2">
                     <Label htmlFor="maintenanceCost" className="text-gray-300">Manutenção (R$)</Label>
-                    <Input
+                    <CurrencyInput
                       id="maintenanceCost"
-                      type="number"
-                      step="0.01"
-                      value={maintenanceCost}
-                      onChange={(e) => setMaintenanceCost(e.target.value)}
+                      value={maintenanceCost ? Number(maintenanceCost) : 0}
+                      onChange={(v) => setMaintenanceCost(v ? String(v) : "")}
                       className="bg-[#2C3E50] border-[#C9A961]/30 text-white"
-                      placeholder="Ex: 2000.00"
+                      placeholder="2.000,00"
                     />
                   </div>
 
                   <div className="space-y-2">
                     <Label htmlFor="insuranceCost" className="text-gray-300">Seguro (R$)</Label>
-                    <Input
+                    <CurrencyInput
                       id="insuranceCost"
-                      type="number"
-                      step="0.01"
-                      value={insuranceCost}
-                      onChange={(e) => setInsuranceCost(e.target.value)}
+                      value={insuranceCost ? Number(insuranceCost) : 0}
+                      onChange={(v) => setInsuranceCost(v ? String(v) : "")}
                       className="bg-[#2C3E50] border-[#C9A961]/30 text-white"
-                      placeholder="Ex: 1500.00"
+                      placeholder="1.500,00"
                     />
                   </div>
                 </div>
 
                 <div className="space-y-2">
                   <Label htmlFor="balanceAmount" className="text-gray-300">Saldo Restante (R$)</Label>
-                  <Input
+                  <CurrencyInput
                     id="balanceAmount"
-                    type="number"
-                    step="0.01"
-                    value={balanceAmount}
-                    onChange={(e) => setBalanceAmount(e.target.value)}
+                    value={balanceAmount ? Number(balanceAmount) : 0}
+                    onChange={(v) => setBalanceAmount(v ? String(v) : "")}
                     className="bg-[#2C3E50] border-[#C9A961]/30 text-white"
-                    placeholder="Ex: 8500.00"
+                    placeholder="8.500,00"
                   />
                 </div>
               </CardContent>

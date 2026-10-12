@@ -6,6 +6,8 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
+import { CurrencyInput } from "@/components/ui/currency-input";
+import { formatCurrency } from "@/lib/format";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
@@ -16,7 +18,7 @@ const labels: Record<string, string> = {
   compra_venda: "Compra e venda", construcao: "Construção", prestacao_servicos: "Prestação de serviços",
   corretagem: "Corretagem", locacao: "Locação", permuta: "Permuta", consultoria_juridica: "Consultoria jurídica", outro: "Outro",
 };
-const money = (value: string | number | null | undefined) => new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(Number(value || 0));
+const money = (value: string | number | null | undefined) => formatCurrency(Number(value || 0));
 const optionalId = (value: FormDataEntryValue | null) => value && value !== "none" ? Number(value) : null;
 
 export default function AdminJuridico() {
@@ -114,4 +116,14 @@ function ContractForm({ initial, options, onSubmit }: { initial?: any; options?:
     <div><Label>Cliente/lead</Label><Select name="leadId" defaultValue={initial?.leadId ? String(initial.leadId) : "none"}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="none">Sem vínculo</SelectItem>{(options?.leads || []).map((x: any) => <SelectItem key={x.id} value={String(x.id)}>{x.name}</SelectItem>)}</SelectContent></Select></div><div><Label>Imóvel</Label><Select name="propertyId" defaultValue={initial?.propertyId ? String(initial.propertyId) : "none"}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="none">Sem vínculo</SelectItem>{(options?.properties || []).map((x: any) => <SelectItem key={x.id} value={String(x.id)}>{x.title}</SelectItem>)}</SelectContent></Select></div>
     <Field name="value" label="Valor" type="number" defaultValue={String(initial?.value || 0)} required /><Field name="dueAt" label="Vencimento" type="date" defaultValue={date} /><div className="md:col-span-2"><Label>Descrição</Label><Textarea name="description" defaultValue={initial?.description || ""} /></div><div className="md:col-span-2"><Label>Cláusulas</Label><Textarea name="clauses" rows={6} defaultValue={initial?.clauses || ""} /></div><Button type="submit" className="md:col-span-2 bg-[#C9A961] text-[#1A2332]">Salvar contrato</Button></form>;
 }
-function Field({ name, label, type = "text", defaultValue, required }: { name: string; label: string; type?: string; defaultValue?: string; required?: boolean }) { return <div><Label htmlFor={name}>{label}</Label><Input id={name} name={name} type={type} defaultValue={defaultValue} required={required} min={type === "number" ? 0 : undefined} step={type === "number" ? "0.01" : undefined} className="mt-1" /></div>; }
+// Campos de dinheiro (`type="number"`) usam `CurrencyInput` (entrada por
+// vírgula + `parseNumeroBR`) em vez de `<input type="number">`, que
+// mastiga a vírgula decimal durante a digitação. `name`+`defaultValue`
+// seguem alimentando o `FormData` do submit via `<input type="hidden">`
+// interno, então `payload()` continua funcionando sem mudança.
+function Field({ name, label, type = "text", defaultValue, required }: { name: string; label: string; type?: string; defaultValue?: string; required?: boolean }) {
+  if (type === "number") {
+    return <div><Label htmlFor={name}>{label}</Label><CurrencyInput id={name} name={name} defaultValue={defaultValue ? Number(defaultValue) : 0} required={required} className="mt-1" /></div>;
+  }
+  return <div><Label htmlFor={name}>{label}</Label><Input id={name} name={name} type={type} defaultValue={defaultValue} required={required} className="mt-1" /></div>;
+}
