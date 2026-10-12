@@ -763,7 +763,7 @@ export default function AdminEditarObra() {
                       value={contractValue ? Number(contractValue) : 0}
                       onChange={(v) => setContractValue(v ? String(v) : "")}
                       className="bg-[#2C3E50] border-[#C9A961]/30 text-white"
-                      placeholder="180,00"
+                      placeholder="180.000,00"
                     />
                   </div>
 
