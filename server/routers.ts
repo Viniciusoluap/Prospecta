@@ -2960,7 +2960,15 @@ export const appRouter = router({
         }
         await db.updateIncorporationStudy(input.id, {
           cityResearchJson: JSON.stringify(resultado.cidade),
-          marketStudyJson: JSON.stringify(resultado.mercado),
+          // `fontes`/`confiabilidade` são anexados ao mesmo JSON (coluna
+          // flexível, sem migration nova) — antes do Lote 6 eram
+          // descartados aqui e nunca chegavam a ser persistidos, apesar de
+          // a IA sempre devolvê-los (ver PesquisaMercadoResult).
+          marketStudyJson: JSON.stringify({
+            ...resultado.mercado,
+            fontes: resultado.fontes,
+            confiabilidade: resultado.confiabilidade,
+          }),
         });
         return resultado;
       }),
