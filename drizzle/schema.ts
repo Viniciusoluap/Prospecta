@@ -515,6 +515,11 @@ export const constructionProjects = pgTable("construction_projects", {
   installmentRate: decimal("installment_rate", { precision: 7, scale: 4 }),
   installmentQty: integer("installment_qty"),
   installmentValue: decimal("installment_value", { precision: 15, scale: 2 }),
+  // Identificação CEF e dados legados antes serializados no sufixo de notes.
+  cefTitle: varchar("cef_title", { length: 255 }),
+  cefBranch: varchar("cef_branch", { length: 255 }),
+  mcmvClientName: varchar("mcmv_client_name", { length: 255 }),
+  brokerPaymentSettled: boolean("broker_payment_settled"),
   startDate: timestamp("start_date"),
   constructionDays: integer("construction_days"),
   estimatedEndDate: timestamp("estimated_end_date"),
@@ -1510,6 +1515,10 @@ export const incorporationStudies = pgTable("incorporation_studies", {
   responsible: varchar("responsible", { length: 120 }),
   status: varchar("status", { length: 40 }).default("draft").notNull(),
   propertyRef: varchar("property_ref", { length: 180 }),
+  propertyRegistration: text("property_registration"),
+  carRegistration: text("car_registration"),
+  officialZoning: text("official_zoning"),
+  zoningSource: text("zoning_source"),
   kmlUrl: text("kml_url"),
   geojson: text("geojson"),
   areaM2: decimal("area_m2", { precision: 15, scale: 2 })
@@ -1560,6 +1569,15 @@ export const incorporationStudies = pgTable("incorporation_studies", {
 });
 export type IncorporationStudy = typeof incorporationStudies.$inferSelect;
 export type InsertIncorporationStudy = typeof incorporationStudies.$inferInsert;
+
+// Histórico imutável do estudo. Snapshot guardado pelo trigger da migração 0038.
+export const incorporationStudyVersions = pgTable("incorporation_study_versions", {
+  id: serial("id").primaryKey(),
+  studyId: integer("study_id").notNull(),
+  revision: integer("revision").notNull(),
+  snapshot: text("snapshot").notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+}, (table) => ({ studyRevision: uniqueIndex("incorporation_study_versions_study_revision_idx").on(table.studyId, table.revision) }));
 
 export const whatsappConnections = pgTable("whatsapp_connections", {
   id: serial("id").primaryKey(),

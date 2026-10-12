@@ -10,6 +10,7 @@ export interface MarcoLancamento {
   dataPrevista?: string; // ISO yyyy-mm-dd
   dataRealizada?: string; // ISO yyyy-mm-dd
   status: StatusMarco;
+  responsavelId?: number;
 }
 
 export const MARCOS_PADRAO_LANCAMENTO: string[] = [

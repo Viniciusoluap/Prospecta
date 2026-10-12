@@ -32,6 +32,7 @@ import {
   avaliacoes, Avaliacao, InsertAvaliacao,
   agregadorImoveis, AgregadorImovel, InsertAgregadorImovel,
   incorporationStudies, IncorporationStudy, InsertIncorporationStudy,
+  incorporationStudyVersions,
   bpoClients, BpoClient, InsertBpoClient,
   bpoLancamentos, BpoLancamento, InsertBpoLancamento,
   pluggySettings, PluggySetting, InsertPluggySetting,
@@ -1363,6 +1364,30 @@ export async function createIncorporationStudy(data: InsertIncorporationStudy): 
 export async function updateIncorporationStudy(id: number, data: Partial<InsertIncorporationStudy>): Promise<void> {
   const db = getDb();
   await db.update(incorporationStudies).set({ ...data, updatedAt: new Date() }).where(eq(incorporationStudies.id, id));
+}
+
+export async function getIncorporationStudyVersions(studyId: number) {
+  const db = getDb();
+  return db.select({ revision: incorporationStudyVersions.revision, createdAt: incorporationStudyVersions.createdAt })
+    .from(incorporationStudyVersions).where(eq(incorporationStudyVersions.studyId, studyId))
+    .orderBy(desc(incorporationStudyVersions.revision)).limit(50);
+}
+
+export async function getIncorporationStudyVersion(studyId: number, revision: number) {
+  const db = getDb();
+  const [result] = await db.select({ snapshot: incorporationStudyVersions.snapshot,
+    createdAt: incorporationStudyVersions.createdAt })
+    .from(incorporationStudyVersions)
+    .where(and(eq(incorporationStudyVersions.studyId, studyId), eq(incorporationStudyVersions.revision, revision)))
+    .limit(1);
+  return result;
+}
+
+export async function getIncorporationStaff() {
+  const db = getDb();
+  return db.select({ id: users.id, name: users.name, active: users.active }).from(users)
+    .where(inArray(users.role, ["admin", "colaborador"]))
+    .orderBy(users.name);
 }
 
 // ========== BPO (financeiro — clientes de terceirização contábil) ==========

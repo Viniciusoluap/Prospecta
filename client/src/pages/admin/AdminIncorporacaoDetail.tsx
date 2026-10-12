@@ -32,8 +32,25 @@ export default function AdminIncorporacaoDetail() {
   const utils = trpc.useUtils();
 
   const { data: estudo, isLoading } = trpc.incorporacao.getById.useQuery({ id: Number(id) });
+  const { data: versoes = [] } = trpc.incorporacao.versions.useQuery({ id: Number(id) }, { enabled: !!Number(id) });
+  const { data: equipe = [] } = trpc.incorporacao.staff.useQuery();
+  const [erroVersao, setErroVersao] = useState("");
 
-  const [form, setForm] = useState({ name: "", city: "", state: "", address: "", responsible: "", status: "draft" });
+  async function baixarVersao(revision: number) {
+    setErroVersao("");
+    try {
+      const version = await utils.incorporacao.versionSnapshot.fetch({ id: Number(id), revision });
+      const url = URL.createObjectURL(new Blob([version.snapshot], { type: "application/json" }));
+      const anchor = document.createElement("a");
+      anchor.href = url;
+      anchor.download = `estudo-${id}-versao-${revision}.json`;
+      anchor.click();
+      setTimeout(() => URL.revokeObjectURL(url), 0);
+    } catch (e) { setErroVersao(e instanceof Error ? e.message : "Falha ao obter a versão"); }
+  }
+
+  const [form, setForm] = useState({ name: "", city: "", state: "", address: "", responsible: "", status: "draft",
+    propertyRegistration: "", carRegistration: "", officialZoning: "", zoningSource: "" });
 
   useEffect(() => {
     if (estudo) {
@@ -44,6 +61,10 @@ export default function AdminIncorporacaoDetail() {
         address: estudo.address ?? "",
         responsible: estudo.responsible ?? "",
         status: estudo.status ?? "draft",
+        propertyRegistration: estudo.propertyRegistration ?? "",
+        carRegistration: estudo.carRegistration ?? "",
+        officialZoning: estudo.officialZoning ?? "",
+        zoningSource: estudo.zoningSource ?? "",
       });
     }
   }, [estudo]);
@@ -66,6 +87,10 @@ export default function AdminIncorporacaoDetail() {
       address: form.address || undefined,
       responsible: form.responsible || undefined,
       status: form.status as "draft" | "in_study" | "completed",
+      propertyRegistration: form.propertyRegistration.trim() || null,
+      carRegistration: form.carRegistration.trim() || null,
+      officialZoning: form.officialZoning.trim() || null,
+      zoningSource: form.zoningSource.trim() || null,
     });
   };
 
@@ -142,11 +167,37 @@ export default function AdminIncorporacaoDetail() {
                   </SelectContent>
                 </Select>
               </div>
+              {([
+                ["propertyRegistration", "Matrícula do imóvel"],
+                ["carRegistration", "Registro CAR (se aplicável)"],
+                ["officialZoning", "Zoneamento oficial"],
+                ["zoningSource", "Fonte oficial do zoneamento"],
+              ] as const).map(([key, label]) => (
+                <div key={key}>
+                  <Label className="text-gray-300">{label}</Label>
+                  <Input value={form[key]} maxLength={500} onChange={(e) => setForm((f) => ({ ...f, [key]: e.target.value }))}
+                    className="bg-[#2C3E50] border-[#C9A961]/30 text-white mt-1" />
+                </div>
+              ))}
             </div>
             <Button onClick={handleSave} disabled={updateMutation.isPending}
               className="bg-[#C9A961] hover:bg-[#B8985A] text-[#1A2332] font-bold">
               {updateMutation.isPending ? "Salvando..." : "Salvar Alterações"}
             </Button>
+          </CardContent>
+        </Card>
+
+        <Card className="bg-[#1A2332]/60 border-[#C9A961]/20 text-white">
+          <CardHeader><CardTitle>Histórico de versões</CardTitle></CardHeader>
+          <CardContent className="space-y-2">
+            <p className="text-sm text-gray-300">Cada alteração salva um retrato. O período anterior à ativação deste histórico não pode ser reconstruído.</p>
+            {erroVersao && <p role="alert" className="text-red-300">{erroVersao}</p>}
+            {versoes.map((versao) => (
+              <div key={versao.revision} className="flex items-center justify-between gap-3 border-t border-white/10 py-2">
+                <span>Versão {versao.revision} · {new Date(versao.createdAt).toLocaleString("pt-BR")}</span>
+                <Button type="button" variant="outline" onClick={() => baixarVersao(versao.revision)}>Baixar snapshot</Button>
+              </div>
+            ))}
           </CardContent>
         </Card>
 
@@ -226,7 +277,7 @@ export default function AdminIncorporacaoDetail() {
         <AtendimentoRelatorio
           estudoId={estudo.id}
           customerServiceJson={estudo.customerServiceJson}
-          estudo={estudo}
+          estudo={{ ...estudo, versionNumber: versoes[0]?.revision ?? null, staff: equipe }}
         />
 
         <ViabilidadeEconomica
