@@ -21,13 +21,13 @@ function Metric({ label, valor, destaque }: { label: string; valor: string; dest
   );
 }
 
-export function ProjetistasAprovacao({ estudoId, designersJson, projectApprovalJson }: {
-  estudoId: number; designersJson: string | null; projectApprovalJson: string | null;
+export function ProjetistasAprovacao({ estudoId, designersJson, projectApprovalJson, secao }: {
+  estudoId: number; designersJson: string | null; projectApprovalJson: string | null; secao?: "projetistas" | "aprovacao";
 }) {
   return (
     <div className="space-y-6">
-      <Projetistas estudoId={estudoId} designersJson={designersJson} />
-      <AprovacaoProjeto estudoId={estudoId} projectApprovalJson={projectApprovalJson} />
+      <div hidden={!!secao && secao !== "projetistas"}><Projetistas estudoId={estudoId} designersJson={designersJson} /></div>
+      <div hidden={!!secao && secao !== "aprovacao"}><AprovacaoProjeto estudoId={estudoId} projectApprovalJson={projectApprovalJson} /></div>
     </div>
   );
 }

@@ -76,6 +76,9 @@ import { empreiteiroRouter, obraFinanceiroRouter } from "./obra-financeiro-route
 import { obraProgressoRouter } from "./obra-progresso-router.js";
 import { LEAD_PIPELINE_KEYS } from "../shared/lead-pipeline.js";
 import { leadDocumentsRouter } from "./lead-documents-router.js";
+import { incorporacaoDocumentsRouter } from "./incorporacao-documents-router.js";
+import { incorporationDueDiligenceRouter } from "./incorporacao-due-diligence-router.js";
+import { incorporationUnitsRouter } from "./incorporacao-unidades-router.js";
 
 async function validateStudySchedule(dataJson: string, key: "medicoes" | "marcos") {
   if (dataJson.length > 150_000) throw new TRPCError({ code: "BAD_REQUEST", message: "Cronograma muito extenso" });
@@ -2734,6 +2737,9 @@ export const appRouter = router({
   }),
 
   incorporacao: router({
+    documents: incorporacaoDocumentsRouter,
+    dueDiligence: incorporationDueDiligenceRouter,
+    units: incorporationUnitsRouter,
     staff: protectedProcedure.query(async ({ ctx }) => {
       requireRole(ctx, ["admin"]);
       return db.getIncorporationStaff();
@@ -2756,7 +2762,7 @@ export const appRouter = router({
       .input(
         z
           .object({
-            status: z.string().optional(),
+            status: z.enum(["in_study", "unfeasible", "in_progress", "completed"]).optional(),
           })
           .optional()
       )
@@ -2784,6 +2790,7 @@ export const appRouter = router({
           latitude: z.number().optional(),
           longitude: z.number().optional(),
           responsible: z.string().optional(),
+          incorporationType: z.enum(["desmembramento_simples", "residencial", "vertical", "loteamento"]),
           propertyRef: z.string().optional(),
           propertyRegistration: z.string().max(500).nullable().optional(),
           carRegistration: z.string().max(500).nullable().optional(),
@@ -2811,7 +2818,8 @@ export const appRouter = router({
           latitude: z.number().optional(),
           longitude: z.number().optional(),
           responsible: z.string().optional(),
-          status: z.enum(["draft", "in_study", "completed"]).optional(),
+          status: z.enum(["in_study", "unfeasible", "in_progress", "completed"]).optional(),
+          incorporationType: z.enum(["desmembramento_simples", "residencial", "vertical", "loteamento"]).optional(),
           propertyRef: z.string().optional(),
           propertyRegistration: z.string().max(500).nullable().optional(),
           carRegistration: z.string().max(500).nullable().optional(),
@@ -3125,6 +3133,10 @@ export const appRouter = router({
       .input(z.object({ id: z.number(), dataJson: z.string().min(1) }))
       .mutation(async ({ input, ctx }) => {
         requireRole(ctx, ["admin"]);
+        const estudo = await db.getIncorporationStudyById(input.id);
+        if (!estudo) throw new TRPCError({ code: "NOT_FOUND" });
+        if (estudo.incorporationType === "desmembramento_simples")
+          throw new TRPCError({ code: "PRECONDITION_FAILED", message: "Use Unidades à Venda para registrar vendas do desmembramento." });
         await db.updateIncorporationStudy(input.id, {
           realEstateLaunchJson: input.dataJson,
         });
