@@ -12,16 +12,21 @@ import { toast } from "sonner";
 import { ArrowLeft, Mountain, Plus, MapPin } from "lucide-react";
 
 const STATUS_LABELS: Record<string, string> = {
-  draft: "Rascunho",
   in_study: "Em estudo",
+  unfeasible: "Inviável",
+  in_progress: "Em andamento",
   completed: "Concluído",
 };
 
 const STATUS_COLORS: Record<string, string> = {
-  draft: "bg-gray-500/20 text-gray-300 border border-gray-500/40",
   in_study: "bg-blue-500/20 text-blue-300 border border-blue-500/40",
+  unfeasible: "bg-red-500/20 text-red-300 border border-red-500/40",
+  in_progress: "bg-amber-500/20 text-amber-200 border border-amber-500/40",
   completed: "bg-[#00FF00]/20 text-[#00FF00] border border-[#00FF00]/40",
 };
+
+type FiltroSituacao = "todos" | "in_study" | "unfeasible" | "in_progress" | "completed";
+const situacaoValida = (value: string): value is FiltroSituacao => value === "todos" || value in STATUS_LABELS;
 
 function hectares(m2: string | number): string {
   const n = typeof m2 === "string" ? parseFloat(m2) : m2;
@@ -31,7 +36,7 @@ function hectares(m2: string | number): string {
 
 export default function AdminIncorporacao() {
   const [open, setOpen] = useState(false);
-  const [status, setStatus] = useState<string>("todos");
+  const [status, setStatus] = useState<FiltroSituacao>("todos");
   const [form, setForm] = useState({ name: "", city: "", state: "MA", address: "", responsible: "" });
 
   const { data: estudos = [], isLoading, refetch } = trpc.incorporacao.list.useQuery({
@@ -133,7 +138,7 @@ export default function AdminIncorporacao() {
 
       <div className="max-w-7xl mx-auto px-6 py-6 space-y-6">
         <div className="flex items-center gap-3">
-          <Select value={status} onValueChange={setStatus}>
+          <Select value={status} onValueChange={(value) => { if (situacaoValida(value)) setStatus(value); }}>
             <SelectTrigger className="w-56 bg-[#2C3E50] border-[#C9A961]/30 text-white">
               <SelectValue placeholder="Situação" />
             </SelectTrigger>
@@ -164,7 +169,7 @@ export default function AdminIncorporacao() {
                   <CardHeader className="pb-2">
                     <div className="flex items-center justify-between gap-2">
                       <CardTitle className="text-white text-base truncate">{e.name}</CardTitle>
-                      <Badge className={STATUS_COLORS[e.status] ?? ""}>{STATUS_LABELS[e.status] ?? e.status}</Badge>
+                      <Badge className={STATUS_COLORS[e.status] ?? "bg-gray-500/20 text-gray-300"}>{STATUS_LABELS[e.status] ?? "Classificação pendente"}</Badge>
                     </div>
                   </CardHeader>
                   <CardContent>

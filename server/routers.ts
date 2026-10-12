@@ -2756,7 +2756,7 @@ export const appRouter = router({
       .input(
         z
           .object({
-            status: z.string().optional(),
+            status: z.enum(["in_study", "unfeasible", "in_progress", "completed"]).optional(),
           })
           .optional()
       )
@@ -2811,7 +2811,7 @@ export const appRouter = router({
           latitude: z.number().optional(),
           longitude: z.number().optional(),
           responsible: z.string().optional(),
-          status: z.enum(["draft", "in_study", "completed"]).optional(),
+          status: z.enum(["in_study", "unfeasible", "in_progress", "completed"]).optional(),
           propertyRef: z.string().optional(),
           propertyRegistration: z.string().max(500).nullable().optional(),
           carRegistration: z.string().max(500).nullable().optional(),

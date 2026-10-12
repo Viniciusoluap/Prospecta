@@ -22,8 +22,9 @@ import { AtendimentoRelatorio } from "@/components/incorporacao/AtendimentoRelat
 import { ViabilidadeEconomica } from "@/components/incorporacao/ViabilidadeEconomica";
 
 const STATUS_OPTIONS = [
-  { value: "draft", label: "Rascunho" },
   { value: "in_study", label: "Em estudo" },
+  { value: "unfeasible", label: "Inviável" },
+  { value: "in_progress", label: "Em andamento" },
   { value: "completed", label: "Concluído" },
 ];
 
@@ -49,7 +50,7 @@ export default function AdminIncorporacaoDetail() {
     } catch (e) { setErroVersao(e instanceof Error ? e.message : "Falha ao obter a versão"); }
   }
 
-  const [form, setForm] = useState({ name: "", city: "", state: "", address: "", responsible: "", status: "draft",
+  const [form, setForm] = useState({ name: "", city: "", state: "", address: "", responsible: "", status: "in_study",
     propertyRegistration: "", carRegistration: "", officialZoning: "", zoningSource: "" });
 
   useEffect(() => {
@@ -60,7 +61,7 @@ export default function AdminIncorporacaoDetail() {
         state: estudo.state ?? "",
         address: estudo.address ?? "",
         responsible: estudo.responsible ?? "",
-        status: estudo.status ?? "draft",
+        status: STATUS_OPTIONS.some((option) => option.value === estudo.status) ? estudo.status : "",
         propertyRegistration: estudo.propertyRegistration ?? "",
         carRegistration: estudo.carRegistration ?? "",
         officialZoning: estudo.officialZoning ?? "",
@@ -79,6 +80,10 @@ export default function AdminIncorporacaoDetail() {
   });
 
   const handleSave = () => {
+    if (!form.status) {
+      toast.error("Classifique a situação antiga deste estudo antes de salvar.");
+      return;
+    }
     updateMutation.mutate({
       id: Number(id),
       name: form.name,
@@ -86,7 +91,7 @@ export default function AdminIncorporacaoDetail() {
       state: form.state || undefined,
       address: form.address || undefined,
       responsible: form.responsible || undefined,
-      status: form.status as "draft" | "in_study" | "completed",
+      status: form.status as "in_study" | "unfeasible" | "in_progress" | "completed",
       propertyRegistration: form.propertyRegistration.trim() || null,
       carRegistration: form.carRegistration.trim() || null,
       officialZoning: form.officialZoning.trim() || null,
@@ -160,7 +165,7 @@ export default function AdminIncorporacaoDetail() {
                 <Label className="text-gray-300">Situação</Label>
                 <Select value={form.status} onValueChange={(v) => setForm((f) => ({ ...f, status: v }))}>
                   <SelectTrigger className="bg-[#2C3E50] border-[#C9A961]/30 text-white mt-1">
-                    <SelectValue />
+                    <SelectValue placeholder="Classificar situação antiga" />
                   </SelectTrigger>
                   <SelectContent>
                     {STATUS_OPTIONS.map((s) => <SelectItem key={s.value} value={s.value}>{s.label}</SelectItem>)}
