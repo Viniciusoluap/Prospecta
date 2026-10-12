@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { toast } from "sonner";
 import { AlertTriangle, Ban, Plus, RotateCcw, Trash2, UserPlus } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -92,21 +92,18 @@ export function CampoDecimal({ valor, onChange, casas = 2, prefixo, sufixo, plac
 }) {
   const formatar = (v: string | null) =>
     v == null ? "" : Number(v).toLocaleString("pt-BR", { minimumFractionDigits: casas === 2 ? 2 : 0, maximumFractionDigits: casas, useGrouping: true });
-  const [texto, setTexto] = useState(() => formatar(valor));
+  // Fora de foco mostra sempre o valor canônico; em foco, o texto digitado.
+  const [texto, setTexto] = useState("");
   const [focado, setFocado] = useState(false);
-  useEffect(() => {
-    if (!focado) setTexto(formatar(valor));
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [valor, focado]);
   return (
     <div className="relative">
       {prefixo && <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-sm">{prefixo}</span>}
       <Input
         id={id}
         inputMode="decimal"
-        value={texto}
+        value={focado ? texto : formatar(valor)}
         placeholder={placeholder ?? "Não informado"}
-        onFocus={() => setFocado(true)}
+        onFocus={() => { setTexto(formatar(valor)); setFocado(true); }}
         onBlur={() => setFocado(false)}
         onChange={(e) => {
           const t = e.target.value;
