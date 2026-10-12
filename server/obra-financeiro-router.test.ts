@@ -141,3 +141,41 @@ describe("API financeira da obra — validações", () => {
     await expect(caller("admin").obraFinanceiro.cancelarMovimento({ id: 1, motivo: "" })).rejects.toMatchObject({ code: "BAD_REQUEST" });
   });
 });
+
+describe("Lote 3 — comissão da obra pelo CRM (item 32)", () => {
+  const entrada = {
+    projectId: 35, vgv: "230000.00", financiamento: null, fgts: null, subsidio: null, custoTerreno: null,
+    comissao: "1", orcamentoPrevisto: null, taxaMensalPct: null, parcelas: null, empreiteiroId: null, percentualEmpreiteiro: null,
+  };
+
+  it("com corretor e % da obra, grava o valor calculado (Teste G: 230.000 × 5% = 11.500,00) e ignora o digitado", async () => {
+    const { db, gravacoes } = fakeDb([[{ ...obra, leadId: 24, commissionPct: null }], [{ id: 9, nome: "Chaleilson", percentualPadrao: null }], []]);
+    vi.mocked(getDb).mockReturnValue(db as never);
+    await caller("admin").obraFinanceiro.salvarValores({ ...entrada, comissaoPercentual: "5" });
+    const gravado = gravacoes.find((g) => g.metodo === "update")!.valores as Record<string, unknown>;
+    expect(gravado.commissionAmount).toBe("11500.00");
+    expect(gravado.commissionPct).toBe("5");
+  });
+
+  it("sem % da obra usa o padrão do corretor", async () => {
+    const { db, gravacoes } = fakeDb([[{ ...obra, leadId: 24, commissionPct: null }], [{ id: 9, nome: "C", percentualPadrao: "4.0000" }], []]);
+    vi.mocked(getDb).mockReturnValue(db as never);
+    await caller("admin").obraFinanceiro.salvarValores({ ...entrada, comissaoPercentual: null });
+    expect((gravacoes.find((g) => g.metodo === "update")!.valores as Record<string, unknown>).commissionAmount).toBe("9200.00");
+  });
+
+  it("sem regra cadastrada: não inventa percentual e preserva o valor informado", async () => {
+    const { db, gravacoes } = fakeDb([[{ ...obra, leadId: 24, commissionPct: null }], [{ id: 9, nome: "C", percentualPadrao: null }], []]);
+    vi.mocked(getDb).mockReturnValue(db as never);
+    await caller("admin").obraFinanceiro.salvarValores({ ...entrada, comissaoPercentual: null });
+    const gravado = gravacoes.find((g) => g.metodo === "update")!.valores as Record<string, unknown>;
+    expect(gravado.commissionAmount).toBe("1");
+    expect(gravado.commissionPct).toBeNull();
+  });
+
+  it("percentual de comissão inválido é recusado", async () => {
+    for (const p of ["100.01", "5.12345", "-1", "5,5"]) {
+      await expect(caller("admin").obraFinanceiro.salvarValores({ ...entrada, comissaoPercentual: p })).rejects.toMatchObject({ code: "BAD_REQUEST" });
+    }
+  });
+});

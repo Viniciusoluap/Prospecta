@@ -20,6 +20,7 @@ const blank = () => ({
   creci: "",
   active: true,
   notes: "",
+  defaultCommissionPct: "",
 });
 export default function AdminBrokerDirectory() {
   const { user } = useAuth();
@@ -105,6 +106,7 @@ export default function AdminBrokerDirectory() {
                       creci: r.creci || "",
                       active: r.active,
                       notes: r.notes || "",
+                      defaultCommissionPct: r.defaultCommissionPct ? String(Number(r.defaultCommissionPct)).replace(".", ",") : "",
                     });
                     setOpen(true);
                   }}
@@ -142,6 +144,7 @@ export default function AdminBrokerDirectory() {
             ["email", "E-mail de acesso (imutável após cadastro)"],
             ["phone", "Telefone"],
             ["creci", "CRECI"],
+            ["defaultCommissionPct", "Comissão padrão (%) — usada nas obras sem percentual próprio"],
             ["notes", "Observações"],
           ] as const
         ).map(([key, label]) => (
@@ -150,6 +153,8 @@ export default function AdminBrokerDirectory() {
               className={inputClass}
               disabled={key === "email" && id !== null}
               type={key === "email" ? "email" : "text"}
+              inputMode={key === "defaultCommissionPct" ? "decimal" : undefined}
+              placeholder={key === "defaultCommissionPct" ? "Sem regra cadastrada" : undefined}
               value={form[key]}
               onChange={e => setForm(f => ({ ...f, [key]: e.target.value }))}
             />

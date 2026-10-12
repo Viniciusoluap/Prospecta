@@ -3,14 +3,17 @@ import { and, asc, eq, inArray, sql } from "drizzle-orm";
 import { z } from "zod";
 import {
   bpoLancamentos,
+  brokerProfiles,
   constructionProjects,
   investidores,
+  leads,
   obraInvestidores,
   obraMovimentos,
   obraMovimentosHistorico,
   users,
 } from "../drizzle/schema.js";
-import { calcularObra, centavosDe, type EntradasObra } from "../shared/financeiro/obra.js";
+import { calcularObra, centavosDe, reaisDeCentavos, type EntradasObra } from "../shared/financeiro/obra.js";
+import { calcularComissaoObra } from "../shared/financeiro/comissao.js";
 import { adminProcedure, protectedProcedure, router } from "./_core/trpc.js";
 import { getDb } from "./db.js";
 
@@ -20,6 +23,8 @@ import { getDb } from "./db.js";
 
 const dinheiro = z.string().trim().regex(/^\d{1,13}(\.\d{1,2})?$/, "Valor monetário inválido");
 const percentual = z.string().trim().regex(/^\d{1,3}(\.\d{1,6})?$/, "Percentual inválido")
+  .refine((v) => Number(v) <= 100, "O percentual deve estar entre 0% e 100%");
+const percentualComissao = z.string().trim().regex(/^\d{1,3}(\.\d{1,4})?$/, "Percentual de comissão inválido (até 4 casas decimais)")
   .refine((v) => Number(v) <= 100, "O percentual deve estar entre 0% e 100%");
 const taxaMensal = z.string().trim().regex(/^\d{1,3}(\.\d{1,4})?$/, "Taxa mensal inválida (até 4 casas decimais)");
 const dataIso = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Data inválida");
@@ -54,6 +59,19 @@ async function carregarObra(projectId: number) {
   return obra;
 }
 
+/** Corretor da obra vem do lead no CRM (item 24), com a regra padrão de comissão. */
+export async function corretorDaObra(leadId: number | null) {
+  if (!leadId) return null;
+  const [linha] = await getDb()
+    .select({ id: users.id, nome: users.name, percentualPadrao: brokerProfiles.defaultCommissionPct })
+    .from(leads)
+    .innerJoin(users, eq(users.id, leads.brokerId))
+    .leftJoin(brokerProfiles, eq(brokerProfiles.userId, users.id))
+    .where(eq(leads.id, leadId))
+    .limit(1);
+  return linha ? { id: linha.id, nome: linha.nome ?? "Corretor", percentualPadrao: linha.percentualPadrao } : null;
+}
+
 export async function calcularResumoObra(projectId: number) {
   const db = getDb();
   const obra = await carregarObra(projectId);
@@ -77,6 +95,13 @@ export async function calcularResumoObra(projectId: number) {
       .where(eq(obraMovimentos.projectId, projectId))
       .orderBy(asc(obraMovimentosHistorico.id)),
   ]);
+  const corretor = await corretorDaObra(obra.leadId);
+  const pagoComissao = movimentos
+    .filter((m) => m.mov.status === "confirmado" && m.mov.natureza === "pagamento" && m.mov.categoria === "comissao")
+    .reduce((acc, m) => acc + centavosDe(m.mov.valor)!, 0);
+  // Item 32: com corretor e regra cadastrada, a comissão é VGV × % (fonte única);
+  // sem regra, preserva o valor informado antes (condição contratual existente).
+  const comissao = calcularComissaoObra({ corretor, vgvCentavos: centavosDe(obra.vgv), percentualObra: obra.commissionPct, pagoCentavos: pagoComissao });
   const [empreiteiro] = obra.contractorUserId
     ? await db.select({ id: users.id, name: users.name, email: users.email }).from(users).where(eq(users.id, obra.contractorUserId)).limit(1)
     : [];
@@ -87,7 +112,7 @@ export async function calcularResumoObra(projectId: number) {
     fgts: centavosDe(obra.fgtsAmount),
     subsidio: centavosDe(obra.subsidyAmount),
     custoTerreno: centavosDe(obra.lotCost),
-    comissao: centavosDe(obra.commissionAmount),
+    comissao: comissao.valorCentavos ?? centavosDe(obra.commissionAmount),
     orcamentoPrevisto: centavosDe(obra.contractValue),
     taxaMensalPct: obra.installmentRate,
     parcelas: obra.installmentQty,
@@ -121,7 +146,10 @@ export async function calcularResumoObra(projectId: number) {
       dataInicio: entradas.dataInicio,
       dataTerminoPrevista: entradas.dataTerminoPrevista,
       percentualEmpreiteiro: obra.contractorSharePct,
+      comissaoPercentual: obra.commissionPct,
     },
+    corretor,
+    comissaoCalculada: comissao,
     empreiteiro: empreiteiro ?? null,
     investidores: participacoes.map((p, i) => ({
       investidorId: p.participacao.investidorId,
@@ -157,21 +185,31 @@ export const obraFinanceiroRouter = router({
     subsidio: dinheiro.nullable(),
     custoTerreno: dinheiro.nullable(),
     comissao: dinheiro.nullable(),
+    comissaoPercentual: percentualComissao.nullable().optional(),
     orcamentoPrevisto: dinheiro.nullable(),
     taxaMensalPct: taxaMensal.nullable(),
     parcelas: z.number().int().min(0).max(600).nullable(),
     empreiteiroId: z.number().int().positive().nullable(),
     percentualEmpreiteiro: percentual.nullable(),
   })).mutation(async ({ input }) => {
-    await carregarObra(input.projectId);
+    const obra = await carregarObra(input.projectId);
     await exigirEmpreiteiro(input.empreiteiroId);
+    const pctComissao = input.comissaoPercentual === undefined ? obra.commissionPct : input.comissaoPercentual;
+    // Com corretor + regra + VGV, o valor da comissão é sempre o calculado.
+    const calculada = calcularComissaoObra({
+      corretor: await corretorDaObra(obra.leadId),
+      vgvCentavos: centavosDe(input.vgv),
+      percentualObra: pctComissao,
+      pagoCentavos: 0,
+    });
     await getDb().update(constructionProjects).set({
       vgv: input.vgv,
       financedAmount: input.financiamento,
       fgtsAmount: input.fgts,
       subsidyAmount: input.subsidio,
       lotCost: input.custoTerreno,
-      commissionAmount: input.comissao,
+      commissionAmount: calculada.valorCentavos !== null ? reaisDeCentavos(calculada.valorCentavos) : input.comissao,
+      commissionPct: pctComissao,
       contractValue: input.orcamentoPrevisto,
       installmentRate: input.taxaMensalPct,
       installmentQty: input.parcelas,

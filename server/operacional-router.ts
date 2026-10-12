@@ -7,6 +7,7 @@ import {
   constructionProjects,
   imoveis,
   leads,
+  obraMovimentos,
   operationalCommissions as commissions,
   operationalProjects as projects,
   portalVisits as visits,
@@ -20,6 +21,8 @@ import {
   validCoordinates,
   visitInput,
 } from "../shared/operacional.js";
+import { calcularComissaoObra } from "../shared/financeiro/comissao.js";
+import { centavosDe } from "../shared/financeiro/obra.js";
 import { adminProcedure, router } from "./_core/trpc.js";
 import { getDb } from "./db.js";
 import { attachCompletedProcess } from "./lead-services-router.js";
@@ -85,6 +88,7 @@ const brokerFields = {
   avatar: users.avatarUrl,
   specialties: brokerProfiles.specialties,
   notes: brokerProfiles.notes,
+  defaultCommissionPct: brokerProfiles.defaultCommissionPct,
 };
 async function options() {
   const db = getDb();
@@ -230,7 +234,7 @@ export const corretoresRouter = router({
       });
     // One statement: profile and user are created atomically; no credential or role escalation.
     const result = await db.execute(
-      sql`WITH created AS (INSERT INTO users ("openId", name, email, phone, creci, active, "avatarUrl", role, permissions) VALUES (${`broker:${email}`}, ${input.name}, ${email}, ${input.phone}, ${input.creci}, ${input.active}, ${input.avatar || null}, 'corretor', '[]') RETURNING id) INSERT INTO broker_profiles (user_id, specialties, notes) SELECT id, ${JSON.stringify(input.specialties ?? [])}, ${input.notes} FROM created RETURNING user_id`
+      sql`WITH created AS (INSERT INTO users ("openId", name, email, phone, creci, active, "avatarUrl", role, permissions) VALUES (${`broker:${email}`}, ${input.name}, ${email}, ${input.phone}, ${input.creci}, ${input.active}, ${input.avatar || null}, 'corretor', '[]') RETURNING id) INSERT INTO broker_profiles (user_id, specialties, notes, default_commission_pct) SELECT id, ${JSON.stringify(input.specialties ?? [])}, ${input.notes}, ${input.defaultCommissionPct || null} FROM created RETURNING user_id`
     );
     return { id: Number(result.rows[0].user_id) };
   }),
@@ -302,12 +306,14 @@ export const corretoresRouter = router({
             userId: input.id,
             specialties: specialties ?? "[]",
             notes: data.notes,
+            defaultCommissionPct: data.defaultCommissionPct || null,
           })
           .onConflictDoUpdate({
             target: brokerProfiles.userId,
             set: {
               ...(specialties === undefined ? {} : { specialties }),
               notes: data.notes,
+              ...(data.defaultCommissionPct === undefined ? {} : { defaultCommissionPct: data.defaultCommissionPct || null }),
             },
           }),
       ]);
@@ -365,7 +371,61 @@ async function commissionTarget(input: z.infer<typeof commissionInput>) {
   return { propertyId: imovel.id, constructionProjectId: null, property: imovel.title };
 }
 
+/**
+ * EPIC-020 Lote 3 (item 32): toda obra cujo lead tem corretor aparece aqui,
+ * inclusive as antigas. A lista é derivada a cada leitura (obra + CRM +
+ * pagamentos de categoria "comissão"), então não existe registro duplicado
+ * para sincronizar. Comissões cadastradas à mão para a mesma obra são
+ * mostradas lado a lado e as divergências sinalizadas — nunca sobrescritas.
+ */
+export async function listarComissoesDeObras() {
+  const db = getDb();
+  const pago = sql<string>`COALESCE((SELECT SUM(${obraMovimentos.valor}) FROM ${obraMovimentos} WHERE ${obraMovimentos.projectId} = ${constructionProjects.id} AND ${obraMovimentos.natureza} = 'pagamento' AND ${obraMovimentos.categoria} = 'comissao' AND ${obraMovimentos.status} = 'confirmado'), 0)`;
+  const [obras, manuais] = await Promise.all([
+    db
+      .select({
+        obraId: constructionProjects.id,
+        obra: constructionProjects.title,
+        status: constructionProjects.status,
+        vgv: constructionProjects.vgv,
+        percentualObra: constructionProjects.commissionPct,
+        leadId: leads.id,
+        cliente: leads.name,
+        corretorId: users.id,
+        corretor: users.name,
+        percentualCorretor: brokerProfiles.defaultCommissionPct,
+        pago,
+      })
+      .from(constructionProjects)
+      .innerJoin(leads, eq(leads.id, constructionProjects.leadId))
+      .innerJoin(users, eq(users.id, leads.brokerId))
+      .leftJoin(brokerProfiles, eq(brokerProfiles.userId, users.id))
+      .orderBy(asc(users.name), asc(constructionProjects.title)),
+    db
+      .select({ id: commissions.id, obraId: commissions.constructionProjectId, brokerId: commissions.brokerId, amount: commissions.amount, percent: commissions.percent, status: commissions.status })
+      .from(commissions)
+      .where(sql`${commissions.constructionProjectId} IS NOT NULL`),
+  ]);
+  return obras.map(o => {
+    const calculo = calcularComissaoObra({
+      corretor: { id: o.corretorId, nome: o.corretor ?? "Corretor", percentualPadrao: o.percentualCorretor },
+      vgvCentavos: centavosDe(o.vgv),
+      percentualObra: o.percentualObra,
+      pagoCentavos: centavosDe(o.pago) ?? 0,
+    });
+    const registrosManuais = manuais.filter(m => m.obraId === o.obraId);
+    const alertas = [...calculo.alertas];
+    for (const m of registrosManuais) {
+      if (m.brokerId !== o.corretorId) alertas.push(`Comissão manual #${m.id} está em nome de outro corretor.`);
+      if (calculo.valorCentavos !== null && centavosDe(m.amount) !== calculo.valorCentavos)
+        alertas.push(`Comissão manual #${m.id} tem valor diferente do calculado (preservada; revise).`);
+    }
+    return { ...o, calculo, registrosManuais, alertas };
+  });
+}
+
 export const comissoesRouter = router({
+  obras: adminProcedure.query(() => listarComissoesDeObras()),
   options: adminProcedure.query(async () => (await options()).brokers),
   /** Corretores, imóveis e obras realmente cadastrados para o formulário. */
   formOptions: adminProcedure.query(async () => {
@@ -393,10 +453,11 @@ export const comissoesRouter = router({
     return {
       brokers,
       properties,
-      // Base da obra: valor do contrato; na falta dele, o VGV cadastrado.
-      obras: obras.map(({ contractValue, vgv, ...obra }) => ({
+      // Base da comissão de obra é o VGV (item 32); contract_value agora é o
+      // Orçamento Previsto (Lote 2) e não serve de base.
+      obras: obras.map(({ contractValue: _orcamento, vgv, ...obra }) => ({
         ...obra,
-        value: contractValue ?? vgv,
+        value: vgv,
       })),
     };
   }),

@@ -219,6 +219,7 @@ export default function AdminEditarObra() {
           subsidio: formFin.subsidio,
           custoTerreno: formFin.custoTerreno,
           comissao: formFin.comissao,
+          comissaoPercentual: formFin.comissaoPercentual,
           orcamentoPrevisto: formFin.orcamentoPrevisto,
           taxaMensalPct: formFin.taxaMensalPct,
           parcelas: formFin.parcelas,

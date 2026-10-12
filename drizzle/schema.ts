@@ -529,6 +529,8 @@ export const constructionProjects = pgTable("construction_projects", {
   // Lote 2: "Tipo de Contrato" foi substituído pelo empreiteiro vinculado; valor antigo preservado.
   contractType: varchar("contract_type", { length: 100 }),
   commissionAmount: decimal("commission_amount", { precision: 15, scale: 2 }),
+  // EPIC-020 Lote 3: percentual de comissão próprio da obra (prevalece sobre o do corretor).
+  commissionPct: decimal("commission_pct", { precision: 7, scale: 4 }),
   contractorUserId: integer("contractor_user_id").references((): AnyPgColumn => users.id, { onDelete: "set null" }),
   contractorSharePct: decimal("contractor_share_pct", { precision: 9, scale: 6 }),
   notes: text("notes"),
@@ -1280,6 +1282,8 @@ export const brokerProfiles = pgTable("broker_profiles", {
     .references(() => users.id, { onDelete: "cascade" }),
   specialties: text("specialties").default("[]").notNull(),
   notes: text("notes").default("").notNull(),
+  // EPIC-020 Lote 3: percentual padrão de comissão do corretor (0–100).
+  defaultCommissionPct: decimal("default_commission_pct", { precision: 7, scale: 4 }),
 });
 
 export const operationalCommissions = pgTable("operational_commissions", {
