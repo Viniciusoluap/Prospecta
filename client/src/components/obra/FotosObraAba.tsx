@@ -29,6 +29,8 @@ export function FotosObraAba({ projectId, fotos, onMudou }: { projectId: number;
   const [ocupado, setOcupado] = useState(false);
   const [editando, setEditando] = useState<{ id: number; texto: string } | null>(null);
   const entrada = useRef<HTMLInputElement>(null);
+  // Marcação "no relatório" otimista: muda na hora e volta se o servidor recusar.
+  const [noRelatorio, setNoRelatorio] = useState<Record<number, boolean>>({});
   const atualizar = trpc.obraProgresso.atualizarFoto.useMutation();
   const excluir = trpc.obraProgresso.excluirFoto.useMutation();
 
@@ -71,15 +73,18 @@ export function FotosObraAba({ projectId, fotos, onMudou }: { projectId: number;
   };
 
   const salvarFoto = async (foto: FotoObra, parcial: { caption?: string | null; includeInReport?: boolean }) => {
+    const incluir = parcial.includeInReport ?? noRelatorio[foto.id] ?? foto.includeInReport;
+    if (parcial.includeInReport !== undefined) setNoRelatorio((m) => ({ ...m, [foto.id]: incluir }));
     try {
       await atualizar.mutateAsync({
         photoId: foto.id,
         caption: parcial.caption !== undefined ? parcial.caption : foto.caption,
-        includeInReport: parcial.includeInReport ?? foto.includeInReport,
+        includeInReport: incluir,
       });
       setEditando(null);
       onMudou();
     } catch (e) {
+      setNoRelatorio((m) => { const { [foto.id]: _descartado, ...resto } = m; void _descartado; return resto; });
       toast.error(e instanceof Error ? e.message : String(e));
     }
   };
@@ -153,7 +158,7 @@ export function FotosObraAba({ projectId, fotos, onMudou }: { projectId: number;
                   <p className="text-xs text-gray-400">{new Date(foto.takenAt).toLocaleDateString("pt-BR")}</p>
                   <div className="flex flex-wrap items-center gap-2">
                     <label className="flex items-center gap-1 text-xs text-gray-300">
-                      <input type="checkbox" checked={foto.includeInReport} onChange={(e) => salvarFoto(foto, { includeInReport: e.target.checked })} />
+                      <input type="checkbox" checked={noRelatorio[foto.id] ?? foto.includeInReport} onChange={(e) => salvarFoto(foto, { includeInReport: e.target.checked })} />
                       No relatório
                     </label>
                     <a href={foto.imageUrl} target="_blank" rel="noreferrer" className="text-xs text-[#C9A961] inline-flex items-center gap-1"><ExternalLink className="h-3 w-3" />Abrir</a>

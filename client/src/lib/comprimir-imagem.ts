@@ -90,7 +90,7 @@ export function enviarJsonComProgresso(
   url: string,
   corpo: unknown,
   aoProgredir?: (fracao: number) => void
-): Promise<{ status: number; dados: any }> {
+): Promise<{ status: number; dados: unknown }> {
   return new Promise((resolve, reject) => {
     const xhr = new XMLHttpRequest();
     xhr.open("POST", url);
@@ -101,7 +101,7 @@ export function enviarJsonComProgresso(
       if (e.lengthComputable && aoProgredir) aoProgredir(e.loaded / e.total);
     };
     xhr.onload = () => {
-      let dados: any = null;
+      let dados: unknown = null;
       try {
         dados = JSON.parse(xhr.responseText);
       } catch {
@@ -115,8 +115,9 @@ export function enviarJsonComProgresso(
   });
 }
 
-export function mensagemErroEnvio(status: number, dados: any): string {
-  if (dados && typeof dados.error === "string") return dados.error;
+export function mensagemErroEnvio(status: number, dados: unknown): string {
+  const erro = (dados as { error?: unknown } | null)?.error;
+  if (typeof erro === "string") return erro;
   if (status === 401 || status === 403) return "Sessão expirada ou sem permissão. Entre novamente.";
   if (status === 413) return "Foto grande demais para o servidor.";
   return `Erro ao enviar (código ${status}).`;

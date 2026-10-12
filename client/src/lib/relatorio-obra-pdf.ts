@@ -164,7 +164,7 @@ export async function gerarPdfRelatorioObra(rel: RelatorioObra, tema: TemaRelato
     let y = y0;
     for (const f of fotosCarregadas) {
       const larguraMax = pw - margem * 2;
-      const alturaMax = 105;
+      const alturaMax = 96;
       let largura = larguraMax;
       let altura = f.img ? (f.img.altura / f.img.largura) * largura : 20;
       if (altura > alturaMax) {
