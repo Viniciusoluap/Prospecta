@@ -937,9 +937,12 @@ export const financiamentos = pgTable("financiamentos", {
   clienteCpf: varchar("cliente_cpf", { length: 14 }),
   clienteTel: varchar("cliente_tel", { length: 30 }).notNull(),
   clienteEmail: varchar("cliente_email", { length: 320 }),
-  imovel: varchar("imovel", { length: 500 }).notNull(),
-  tipo: financiamentoTipoEnum("tipo").notNull(),
-  banco: financiamentoBancoEnum("banco").notNull(),
+  // Nullable: um financiamento originado pelo vínculo do CRM nasce só com os
+  // dados do lead. Imóvel, tipo e banco são dados técnicos preenchidos depois,
+  // na edição operacional (EPIC Lote 3 — Financiamentos originados no CRM).
+  imovel: varchar("imovel", { length: 500 }),
+  tipo: financiamentoTipoEnum("tipo"),
+  banco: financiamentoBancoEnum("banco"),
   bancoOutro: varchar("banco_outro", { length: 120 }),
   valorImovel: decimal("valor_imovel", { precision: 15, scale: 2 })
     .default("0")

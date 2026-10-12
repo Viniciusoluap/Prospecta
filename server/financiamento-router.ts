@@ -110,6 +110,13 @@ export const financiamentoRouter = router({
       return { financiamento, checklist };
     }),
 
+  /**
+   * Criação avulsa foi removida da UI (EPIC Lote 3 — Financiamentos originados
+   * no CRM). Este endpoint segue existindo apenas como salvaguarda server-side:
+   * todo financiamento tem que nascer amarrado a um lead real do CRM — o
+   * registro inicial é criado automaticamente ao vincular o serviço no lead
+   * (ver `ensureFinanciamentoRecord` em lead-services-router.ts).
+   */
   create: adminProcedure
     .input(financiamentoFromLeadSchema)
     .mutation(async ({ input }) => {

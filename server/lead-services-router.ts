@@ -1,6 +1,10 @@
 import { and, desc, eq, ne, sql } from "drizzle-orm";
 import { z } from "zod";
-import { constructionProjects, leadActivities, leadServices, leads, operationalProjects, regularizacoes } from "../drizzle/schema.js";
+import {
+  constructionProjects, financiamentoChecklistItems, financiamentos,
+  leadActivities, leadServices, leads, operationalProjects, regularizacoes,
+} from "../drizzle/schema.js";
+import { FINANCIAMENTO_CHECKLIST_PADRAO } from "../shared/financiamento.js";
 import { LEAD_SERVICE_MODULE, LEAD_SERVICE_TYPES, serviceTypeFromTrelloFields, type LeadServiceType } from "../shared/lead-services.js";
 import { leadContact, leadFullAddress } from "../shared/lead-snapshot.js";
 import { selectProcessReference } from "../shared/service-reconciliation.js";
@@ -80,6 +84,14 @@ async function initializeLeadServicesSchema() {
     await database.execute(sql.raw(dedupeLeadServiceLinksSql(table)));
     await database.execute(sql.raw(`CREATE UNIQUE INDEX IF NOT EXISTS "${table}_lead_service_id_unique" ON "${table}" ("lead_service_id")`));
   }
+  // Lote 3 — Financiamentos originados exclusivamente no CRM: o registro nasce
+  // só com os dados do lead (ensureFinanciamentoRecord, mesmo padrão de obras);
+  // imóvel/tipo/banco deixam de ser obrigatórios e passam a ser preenchidos na
+  // edição operacional. Índice único por lead_service_id garante idempotência.
+  await database.execute(sql.raw(`ALTER TABLE "financiamentos" ALTER COLUMN "imovel" DROP NOT NULL`));
+  await database.execute(sql.raw(`ALTER TABLE "financiamentos" ALTER COLUMN "tipo" DROP NOT NULL`));
+  await database.execute(sql.raw(`ALTER TABLE "financiamentos" ALTER COLUMN "banco" DROP NOT NULL`));
+  await database.execute(sql.raw(`CREATE UNIQUE INDEX IF NOT EXISTS "financiamentos_lead_service_id_unique" ON "financiamentos" ("lead_service_id")`));
 }
 
 const AUTO_RECORD_TABLES = ["operational_projects", "regularizacoes"] as const;
@@ -107,6 +119,10 @@ function isUniqueViolation(error: unknown): boolean {
 }
 
 const isWorksService = (serviceType: string) => serviceType === "obra_cliente" || serviceType === "vistoria_medicao";
+
+/** Financiamento habitacional e consórcio caem no mesmo módulo "financiamentos" (ver LEAD_SERVICE_MODULE). */
+const isFinanciamentoService = (serviceType: string) =>
+  serviceType === "financiamento_habitacional" || serviceType === "consorcio";
 
 const operationalTables = {
   regularizacoes: "regularizacoes",
@@ -380,6 +396,98 @@ async function ensureOperationalRecord(service: typeof leadServices.$inferSelect
   return { service: updated, workState: "created" as const };
 }
 
+/**
+ * Cria o financiamento mínimo (Lote 3 — Financiamentos originados
+ * exclusivamente no CRM). Só nome, telefone e e-mail do lead são copiados;
+ * imóvel, tipo, banco e os demais dados de crédito nunca são inventados —
+ * ficam para a edição operacional, depois que o registro já existe.
+ */
+async function ensureFinanciamentoRecord(service: typeof leadServices.$inferSelect, lead: typeof leads.$inferSelect) {
+  const database = getDb();
+  if (!isFinanciamentoService(service.serviceType)) return { service, workState: "not_applicable" as const };
+
+  const [existingFinanciamento] = await database.select({ id: financiamentos.id })
+    .from(financiamentos)
+    .where(eq(financiamentos.leadServiceId, service.id))
+    .limit(1);
+  if (existingFinanciamento) {
+    const [updated] = await database.update(leadServices).set({
+      operationalModule: "financiamentos", operationalRecordId: existingFinanciamento.id, status: "active", updatedAt: new Date(),
+    }).where(eq(leadServices.id, service.id)).returning();
+    return { service: updated, workState: "already_linked" as const };
+  }
+
+  // Versões anteriores podiam gravar operational_record_id sem ligar pela FK.
+  // Só confiamos no ID se o financiamento realmente existir e estiver livre.
+  if (service.operationalRecordId) {
+    const [legacyFinanciamento] = await database.select({
+      id: financiamentos.id,
+      leadId: financiamentos.leadId,
+      leadServiceId: financiamentos.leadServiceId,
+    }).from(financiamentos)
+      .where(eq(financiamentos.id, service.operationalRecordId))
+      .limit(1);
+    if (legacyFinanciamento && (legacyFinanciamento.leadId === null || legacyFinanciamento.leadId === lead.id) &&
+      (!legacyFinanciamento.leadServiceId || legacyFinanciamento.leadServiceId === service.id)) {
+      await database.update(financiamentos).set({
+        leadId: lead.id,
+        leadServiceId: service.id,
+        updatedAt: new Date(),
+      }).where(eq(financiamentos.id, legacyFinanciamento.id));
+      const [updated] = await database.update(leadServices).set({
+        operationalModule: "financiamentos", operationalRecordId: legacyFinanciamento.id, status: "active", updatedAt: new Date(),
+      }).where(eq(leadServices.id, service.id)).returning();
+      return { service: updated, workState: "relinked" as const };
+    }
+  }
+
+  // Financiamentos legados (anteriores ao vínculo lead<->serviço) com lead_id
+  // inequívoco são reaproveitados; nunca casados por nome, CPF ou telefone.
+  const [orphanedFinanciamentos, siblingServices] = await Promise.all([
+    database.select({ id: financiamentos.id }).from(financiamentos)
+      .where(and(eq(financiamentos.leadId, lead.id), sql`${financiamentos.leadServiceId} IS NULL`)),
+    database.select({ id: leadServices.id }).from(leadServices)
+      .where(and(eq(leadServices.leadId, lead.id), eq(leadServices.operationalModule, "financiamentos"), ne(leadServices.status, "cancelled"))),
+  ]);
+  if (orphanedFinanciamentos.length === 1 && siblingServices.length === 1) {
+    const [record] = await database.update(financiamentos)
+      .set({ leadServiceId: service.id, updatedAt: new Date() })
+      .where(and(eq(financiamentos.id, orphanedFinanciamentos[0].id), sql`${financiamentos.leadServiceId} IS NULL`))
+      .returning({ id: financiamentos.id });
+    if (record) {
+      const [updated] = await database.update(leadServices).set({
+        operationalRecordId: record.id, operationalModule: "financiamentos", status: "active", updatedAt: new Date(),
+      }).where(eq(leadServices.id, service.id)).returning();
+      return { service: updated, workState: "relinked" as const };
+    }
+  }
+  if (orphanedFinanciamentos.length > 1 || orphanedFinanciamentos.length && siblingServices.length > 1)
+    return { service, workState: "ambiguous" as const };
+
+  const [created] = await database.insert(financiamentos).values({
+    leadId: lead.id,
+    leadServiceId: service.id,
+    clienteNome: lead.name,
+    clienteTel: lead.phone,
+    clienteEmail: lead.email || null,
+  }).returning();
+  await database.insert(financiamentoChecklistItems).values(
+    FINANCIAMENTO_CHECKLIST_PADRAO.map(item => ({ financiamentoId: created.id, ...item }))
+  );
+  const [updated] = await database.update(leadServices).set({
+    operationalModule: "financiamentos", operationalRecordId: created.id, status: "active", updatedAt: new Date(),
+  }).where(eq(leadServices.id, service.id)).returning();
+  return { service: updated, workState: "created" as const };
+}
+
+/** Único ponto de decisão: cada módulo que precisa nascer sozinho do vínculo tem sua regra aqui. */
+async function ensureOperationalArtifact(service: typeof leadServices.$inferSelect, lead: typeof leads.$inferSelect) {
+  if (isWorksService(service.serviceType)) return ensureOperationalRecord(service, lead);
+  if (isFinanciamentoService(service.serviceType)) return ensureFinanciamentoRecord(service, lead);
+  const reconciled = await ensureLinkedRecord(service, lead);
+  return { service: reconciled.service, workState: "not_applicable" as const };
+}
+
 export async function createLeadServiceWithAutomation(input: z.infer<typeof serviceInput>) {
   await ensureLeadServicesSchema();
   const database = getDb();
@@ -391,11 +499,7 @@ export async function createLeadServiceWithAutomation(input: z.infer<typeof serv
       eq(leadServices.leadId, input.leadId), eq(leadServices.serviceType, input.serviceType),
       ne(leadServices.status, "cancelled"),
     )).orderBy(desc(leadServices.createdAt)).limit(1);
-    if (existing) {
-      if (isWorksService(existing.serviceType)) return ensureOperationalRecord(existing, lead);
-      const reconciled = await ensureLinkedRecord(existing, lead);
-      return { service: reconciled.service, workState: "not_applicable" as const };
-    }
+    if (existing) return ensureOperationalArtifact(existing, lead);
   }
   const idempotencyKey = input.sourceCardUrl ? null : `${input.leadId}:${input.serviceType}`;
   const [created] = await database.insert(leadServices).values({
@@ -407,16 +511,10 @@ export async function createLeadServiceWithAutomation(input: z.infer<typeof serv
   }).onConflictDoNothing().returning();
   if (!created && idempotencyKey) {
     const [existing] = await database.select().from(leadServices).where(eq(leadServices.idempotencyKey, idempotencyKey)).limit(1);
-    if (existing) {
-      if (isWorksService(existing.serviceType)) return ensureOperationalRecord(existing, lead);
-      const reconciled = await ensureLinkedRecord(existing, lead);
-      return { service: reconciled.service, workState: "not_applicable" as const };
-    }
+    if (existing) return ensureOperationalArtifact(existing, lead);
   }
   if (!created) throw new Error("Não foi possível criar o vínculo; revise o registro de origem");
-  if (isWorksService(created.serviceType)) return ensureOperationalRecord(created, lead);
-  const reconciled = await ensureLinkedRecord(created, lead);
-  return { service: reconciled.service, workState: "not_applicable" as const };
+  return ensureOperationalArtifact(created, lead);
 }
 
 export const leadServicesRouter = router({
@@ -485,8 +583,7 @@ export const leadServicesRouter = router({
     if (!updated) throw new Error("Serviço não encontrado");
     const [lead] = await getDb().select().from(leads).where(eq(leads.id, updated.leadId)).limit(1);
     if (!lead) throw new Error("Lead do serviço não encontrado");
-    if (isWorksService(updated.serviceType)) return (await ensureOperationalRecord(updated, lead)).service;
-    return (await ensureLinkedRecord(updated, lead)).service;
+    return (await ensureOperationalArtifact(updated, lead)).service;
   }),
 
   linkProcess: adminProcedure.input(z.object({
@@ -609,7 +706,7 @@ export const leadServicesRouter = router({
           continue;
         }
 
-        const result = await ensureOperationalRecord(service, lead);
+        const result = await ensureOperationalArtifact(service, lead);
         if (result.workState === "created") worksCreated++;
         else if (result.workState === "relinked") worksRelinked++;
         else if (result.workState === "already_linked") alreadySynchronized++;

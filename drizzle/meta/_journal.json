@@ -232,6 +232,13 @@
       "when": 1791858050000,
       "tag": "0032_lead_service_unique_records",
       "breakpoints": true
+    },
+    {
+      "idx": 33,
+      "version": "7",
+      "when": 1791858100000,
+      "tag": "0033_financiamentos_crm_only",
+      "breakpoints": true
     }
   ]
 }
