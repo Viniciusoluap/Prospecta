@@ -11,7 +11,13 @@ import {
   type ParametrosUrbanisticos,
 } from "@shared/incorporacao/urbanismo";
 import { calcularQuadroAreas, type ItemQuadroAreas } from "@shared/incorporacao/quadro-areas";
-import { gerarCenariosMassa, type ParametrosMassa, type CenarioMassa } from "@shared/incorporacao/massa";
+import {
+  gerarCenariosMassa,
+  validarParametrosMassa,
+  type ParametrosMassa,
+  type CenarioMassa,
+} from "@shared/incorporacao/massa";
+import { parseNumeroBR } from "@shared/numero-br";
 import { MapaMassa } from "./MapaMassa";
 import type { Feature, Polygon } from "geojson";
 
@@ -90,7 +96,7 @@ function UrbanismoPotencial({ estudoId, areaTerrenoM2, urbanParametersJson, pote
   const potencial = useMemo(() => calcularPotencial(areaTerrenoM2, params, areaMediaUnidade), [areaTerrenoM2, params, areaMediaUnidade]);
 
   function upd<K extends keyof ParametrosUrbanisticos>(k: K, valor: string) {
-    setParams((p) => ({ ...p, [k]: k === "zona" ? (valor as ParametrosUrbanisticos[K]) : ((parseFloat(valor) || 0) as ParametrosUrbanisticos[K]) }));
+    setParams((p) => ({ ...p, [k]: k === "zona" ? (valor as ParametrosUrbanisticos[K]) : (parseNumeroBR(valor) as ParametrosUrbanisticos[K]) }));
   }
 
   const campos: { k: keyof ParametrosUrbanisticos; label: string; step?: string }[] = [
@@ -124,12 +130,12 @@ function UrbanismoPotencial({ estudoId, areaTerrenoM2, urbanParametersJson, pote
           {campos.map((c) => (
             <div key={c.k}>
               <label className="text-[10px] font-bold text-gray-500 uppercase tracking-widest block mb-1">{c.label}</label>
-              <Input type="number" step={c.step ?? "1"} value={params[c.k] as number} onChange={(e) => upd(c.k, e.target.value)} className={inputCls} />
+              <Input type="text" inputMode="decimal" value={params[c.k] as number} onChange={(e) => upd(c.k, e.target.value)} className={inputCls} />
             </div>
           ))}
           <div>
             <label className="text-[10px] font-bold text-gray-500 uppercase tracking-widest block mb-1">Área média/unidade (m², opcional)</label>
-            <Input type="number" value={areaMediaUnidade ?? ""} onChange={(e) => setAreaMediaUnidade(parseFloat(e.target.value) || undefined)} className={inputCls} />
+            <Input type="text" inputMode="decimal" value={areaMediaUnidade ?? ""} onChange={(e) => setAreaMediaUnidade(parseNumeroBR(e.target.value) || undefined)} className={inputCls} />
           </div>
         </div>
 
@@ -185,6 +191,7 @@ function MassaGenerativa({ estudoId, geojson, temTerreno, latitude, longitude, m
   });
   const [selecionado, setSelecionado] = useState<string | null>(selectedScenarioId);
   const [gerando, setGerando] = useState(false);
+  const [erroGeracao, setErroGeracao] = useState<string | null>(null);
 
   const saveMutation = trpc.incorporacao.saveMassa.useMutation({
     onSuccess: () => { toast.success("Cenários salvos!"); utils.incorporacao.getById.invalidate({ id: estudoId }); },
@@ -192,24 +199,47 @@ function MassaGenerativa({ estudoId, geojson, temTerreno, latitude, longitude, m
   });
 
   function upd<K extends keyof ParametrosMassa>(k: K, valor: string) {
-    setParams((p) => ({ ...p, [k]: parseFloat(valor) || 0 }));
+    setParams((p) => ({ ...p, [k]: parseNumeroBR(valor) }));
   }
 
+  // Gera (ou regenera) os cenários sem derrubar a página: valida os
+  // parâmetros antes de rodar o motor (evita loop infinito com
+  // testada/profundidade/via/quadra zeradas), captura qualquer falha de
+  // cálculo localmente e preserva os parâmetros e os cenários já existentes
+  // quando a geração falha — o usuário não perde o que preencheu.
   function gerar() {
     if (!geojson || !latitude || !longitude) return;
+    setErroGeracao(null);
+
+    const erroParametros = validarParametrosMassa(params);
+    if (erroParametros) {
+      setErroGeracao(erroParametros);
+      return;
+    }
+
     setGerando(true);
     setTimeout(() => {
       try {
         const feature = JSON.parse(geojson) as Feature<Polygon>;
-        const anel = feature.geometry.coordinates[0];
+        const anel = feature.geometry?.coordinates?.[0];
+        if (!anel || anel.length < 4) {
+          throw new Error("Geometria do terreno inválida ou incompleta.");
+        }
         const novos = gerarCenariosMassa(
           anel,
           [parseFloat(longitude), parseFloat(latitude)],
           params,
           { populacao: 14, geracoes: 12, seed: Date.now() % 100000, nCenarios: 3 }
         );
+        if (novos.length === 0) {
+          setErroGeracao("Não foi possível gerar nenhum cenário com os parâmetros atuais. Tente reduzir o lote mínimo ou revisar a geometria do terreno.");
+          return;
+        }
         setCenarios(novos);
         setSelecionado(novos[0]?.id ?? null);
+      } catch (e) {
+        console.error("Erro ao gerar cenários de estudo de massa:", e);
+        setErroGeracao("Não foi possível gerar os cenários com os parâmetros informados. Verifique os valores preenchidos e tente novamente.");
       } finally {
         setGerando(false);
       }
@@ -243,15 +273,22 @@ function MassaGenerativa({ estudoId, geojson, temTerreno, latitude, longitude, m
           {campos.map((c) => (
             <div key={c.k}>
               <label className="text-[10px] font-bold text-gray-500 uppercase tracking-widest block mb-1">{c.label}</label>
-              <Input type="number" step={c.step ?? "1"} value={params[c.k]} onChange={(e) => upd(c.k, e.target.value)} className={inputCls} />
+              <Input type="text" inputMode="decimal" value={params[c.k]} onChange={(e) => upd(c.k, e.target.value)} className={inputCls} />
             </div>
           ))}
         </div>
 
         <Button onClick={gerar} disabled={gerando || !temTerreno} className="bg-[#C9A961] hover:bg-[#B8985A] text-[#1A2332] font-bold">
           {gerando ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Grid3x3 className="h-4 w-4 mr-2" />}
-          {gerando ? "Otimizando cenários (algoritmo genético)..." : "Gerar cenários otimizados"}
+          {gerando ? "Otimizando cenários (algoritmo genético)..." : cenarios.length > 0 ? "Gerar novos cenários" : "Gerar cenários otimizados"}
         </Button>
+
+        {erroGeracao && (
+          <div className="bg-red-950/40 border border-red-900/50 rounded-lg p-3 flex items-start gap-2">
+            <AlertTriangle className="h-4 w-4 text-red-400 shrink-0 mt-0.5" />
+            <p className="text-xs text-red-300">{erroGeracao}</p>
+          </div>
+        )}
 
         {cenarios.length > 0 && (
           <>
@@ -345,7 +382,7 @@ function QuadroDeAreas({ estudoId, areaTerrenoM2, urbanParametersJson, areasBoar
   function updItem(i: number, campo: keyof ItemQuadroAreas, valor: string) {
     setDados((d) => {
       const itens = [...d.itens];
-      itens[i] = { ...itens[i], [campo]: campo === "pavimento" ? valor : (parseFloat(valor) || 0) };
+      itens[i] = { ...itens[i], [campo]: campo === "pavimento" ? valor : parseNumeroBR(valor) };
       return { ...d, itens };
     });
   }
@@ -376,7 +413,7 @@ function QuadroDeAreas({ estudoId, areaTerrenoM2, urbanParametersJson, areasBoar
           <Metric label="Área do terreno" valor={fmtM2(areaTerrenoM2)} />
           <div>
             <label className="text-[10px] font-bold text-gray-500 uppercase tracking-widest block mb-1">Coeficiente de aproveitamento (CA)</label>
-            <Input type="number" step={0.05} value={dados.coeficienteAproveitamento} onChange={(e) => setDados((d) => ({ ...d, coeficienteAproveitamento: parseFloat(e.target.value) || 0 }))} className={inputCls} />
+            <Input type="text" inputMode="decimal" value={dados.coeficienteAproveitamento} onChange={(e) => setDados((d) => ({ ...d, coeficienteAproveitamento: parseNumeroBR(e.target.value) }))} className={inputCls} />
           </div>
           <Metric label="Área computável máxima" valor={fmtM2(resultado.areaComputavelMaximaM2)} />
         </div>
@@ -396,7 +433,7 @@ function QuadroDeAreas({ estudoId, areaTerrenoM2, urbanParametersJson, areasBoar
                   <td className="px-1 py-1"><Input value={it.pavimento} onChange={(e) => updItem(i, "pavimento", e.target.value)} className={inputCls} placeholder="Ex.: Torre A" /></td>
                   {COLS.map((c) => (
                     <td key={c.campo} className="px-1 py-1">
-                      <Input type="number" value={(it[c.campo] as number) || ""} onChange={(e) => updItem(i, c.campo, e.target.value)} className={`${inputCls} text-right`} />
+                      <Input type="text" inputMode="decimal" value={(it[c.campo] as number) || ""} onChange={(e) => updItem(i, c.campo, e.target.value)} className={`${inputCls} text-right`} />
                     </td>
                   ))}
                   <td className="px-1 py-1">

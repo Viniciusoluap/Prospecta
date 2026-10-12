@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { criarRng, areaPlanar, criarProjecao, gerarCenariosMassa, type ParametrosMassa } from "../shared/incorporacao/massa";
+import { criarRng, areaPlanar, criarProjecao, gerarCenariosMassa, validarParametrosMassa, type ParametrosMassa } from "../shared/incorporacao/massa";
 import type { Position } from "geojson";
 
 describe("criarRng", () => {
@@ -85,5 +85,48 @@ describe("gerarCenariosMassa", () => {
     const c2 = gerarCenariosMassa(anel, centro, PARAMS, opts);
     expect(c1.map((c) => c.kpis.vgv)).toEqual(c2.map((c) => c.kpis.vgv));
     expect(c1.map((c) => c.anguloVia)).toEqual(c2.map((c) => c.anguloVia));
+  });
+});
+
+describe("validarParametrosMassa", () => {
+  it("aceita parâmetros válidos", () => {
+    expect(validarParametrosMassa(PARAMS)).toBeNull();
+  });
+
+  it.each([
+    "testadaLoteM",
+    "profundidadeLoteM",
+    "larguraViaM",
+    "comprimentoMaxQuadraM",
+    "loteMinimoM2",
+  ] as const)("rejeita %s zerado (evitaria loop infinito no motor generativo)", (campo) => {
+    const invalido: ParametrosMassa = { ...PARAMS, [campo]: 0 };
+    expect(validarParametrosMassa(invalido)).toMatch(/maiores que zero/);
+  });
+
+  it.each([
+    "testadaLoteM",
+    "profundidadeLoteM",
+    "larguraViaM",
+    "comprimentoMaxQuadraM",
+    "loteMinimoM2",
+  ] as const)("rejeita %s negativo", (campo) => {
+    const invalido: ParametrosMassa = { ...PARAMS, [campo]: -5 };
+    expect(validarParametrosMassa(invalido)).toMatch(/maiores que zero/);
+  });
+
+  it("rejeita percentuais negativos", () => {
+    const invalido: ParametrosMassa = { ...PARAMS, percentInstitucional: -0.1 };
+    expect(validarParametrosMassa(invalido)).toMatch(/não podem ser negativos/);
+  });
+
+  it("rejeita soma de percentuais institucional + área verde >= 100%", () => {
+    const invalido: ParametrosMassa = { ...PARAMS, percentInstitucional: 0.6, percentAreaVerde: 0.5 };
+    expect(validarParametrosMassa(invalido)).toMatch(/menor que 100%/);
+  });
+
+  it("aceita soma de percentuais logo abaixo de 100%", () => {
+    const valido: ParametrosMassa = { ...PARAMS, percentInstitucional: 0.5, percentAreaVerde: 0.49 };
+    expect(validarParametrosMassa(valido)).toBeNull();
   });
 });
