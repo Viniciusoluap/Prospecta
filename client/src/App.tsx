@@ -70,6 +70,7 @@ import Portal from "./pages/Portal";
 import { PortalRoute } from "./components/PortalRoute";
 import { GlobalBackButton } from "./components/GlobalBackButton";
 import BrokerPortal from "./pages/BrokerPortal";
+import EmpreiteiroPortal from "./pages/EmpreiteiroPortal";
 import { BrokerRoute } from "./components/BrokerRoute";
 import { LegacyRedirect } from "./components/LegacyRedirect";
 
@@ -98,6 +99,9 @@ function Router() {
         <BrokerRoute>
           <BrokerPortal />
         </BrokerRoute>
+      </Route>
+      <Route path="/empreiteiro">
+        <EmpreiteiroPortal />
       </Route>
       <Route path={"/"} component={Home} />
       <Route path="/sorteios" component={Sorteios} />

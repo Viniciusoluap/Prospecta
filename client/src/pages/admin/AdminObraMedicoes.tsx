@@ -64,6 +64,12 @@ export default function AdminObraMedicoes() {
     { enabled: !!projectId && user?.role === "admin" }
   );
 
+  // Indicadores financeiros saem do motor único (EPIC-020 Lote 2).
+  const { data: resumo } = trpc.obraFinanceiro.resumo.useQuery(
+    { projectId },
+    { enabled: !!projectId && user?.role === "admin" }
+  );
+
   // Fetch measurements
   const { data: medicoes = [], refetch } = trpc.obraMedicoes.list.useQuery(
     { projectId },
@@ -108,7 +114,9 @@ export default function AdminObraMedicoes() {
     .filter(m => m.status === "contractor_paid")
     .reduce((sum, m) => sum + (m.valorPagoEmpreiteiro || 0), 0);
   const saldoProspecta = totalRecebido - totalPagoEmpreiteiros;
-  const estimatedProfit = project ? parseFloat(project.contractValue || "0") - parseFloat((project as any).contractorPayment || "0") - parseFloat((project as any).materialCost || "0") - parseFloat(project.lotCost || "0") : 0;
+  const indicador = (i: { ok: true; centavos: number } | { ok: false; motivo: string } | undefined) =>
+    !i ? "—" : i.ok ? fmtBRL(i.centavos) : "Não calculado";
+  const vgvCentavos = resumo?.valores.vgv == null ? null : Math.round(Number(resumo.valores.vgv) * 100);
 
   return (
     <div className="min-h-screen bg-[#1A2332] text-white">
@@ -220,13 +228,13 @@ export default function AdminObraMedicoes() {
             <Card className="bg-[#0F1923] border-[#C9A961]/20">
               <CardContent className="pt-4 pb-4">
                 <p className="text-gray-400 text-xs mb-1">VGV (Valor Global)</p>
-                <p className="text-[#C9A961] font-bold text-xl">{fmtBRL(parseFloat(project.contractValue || "0"))}</p>
+                <p className="text-[#C9A961] font-bold text-xl">{vgvCentavos == null ? "Não informado" : fmtBRL(vgvCentavos)}</p>
               </CardContent>
             </Card>
             <Card className="bg-[#0F1923] border-[#C9A961]/20">
               <CardContent className="pt-4 pb-4">
-                <p className="text-gray-400 text-xs mb-1">Gasto Construção</p>
-                <p className="text-white font-bold text-xl">{fmtBRL(parseFloat((project as any).contractorPayment || "0"))}</p>
+                <p className="text-gray-400 text-xs mb-1">Total Gasto</p>
+                <p className="text-white font-bold text-xl">{indicador(resumo?.calculo.totalGasto)}</p>
               </CardContent>
             </Card>
             <Card className="bg-[#0F1923] border-[#C9A961]/20">
@@ -238,7 +246,7 @@ export default function AdminObraMedicoes() {
             <Card className="bg-[#0F1923] border-[#C9A961]/20">
               <CardContent className="pt-4 pb-4">
                 <p className="text-gray-400 text-xs mb-1">Lucro Estimado</p>
-                <p className="text-yellow-400 font-bold text-xl">{fmtBRL(estimatedProfit)}</p>
+                <p className="text-yellow-400 font-bold text-xl">{indicador(resumo?.calculo.lucroEstimado)}</p>
               </CardContent>
             </Card>
           </div>
@@ -415,7 +423,7 @@ export default function AdminObraMedicoes() {
               </div>
               <div className="bg-[#1A2332] rounded-lg p-4 border border-[#C9A961]/20 border-2">
                 <p className="text-gray-400 text-xs mb-1">Lucro Estimado</p>
-                <p className="text-[#C9A961] font-bold text-lg">{fmtBRL(estimatedProfit)}</p>
+                <p className="text-[#C9A961] font-bold text-lg">{indicador(resumo?.calculo.lucroEstimado)}</p>
               </div>
             </div>
           </CardContent>

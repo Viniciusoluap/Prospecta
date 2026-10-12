@@ -12,7 +12,7 @@ import { Switch } from "@/components/ui/switch";
 import { toast } from "sonner";
 import { ADMIN_MODULE_LABELS, ADMIN_MODULES, AdminModule, parsePermissions } from "../../../../shared/admin-permissions";
 
-const ROLES = ["admin", "corretor", "colaborador", "cliente"] as const;
+const ROLES = ["admin", "corretor", "colaborador", "cliente", "empreiteiro"] as const;
 
 export default function AdminConfiguracoes() {
   const utils = trpc.useUtils();

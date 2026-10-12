@@ -9,6 +9,8 @@ import {
   timestamp,
   decimal,
   uniqueIndex,
+  date,
+  jsonb,
   type AnyPgColumn,
 } from "drizzle-orm/pg-core";
 
@@ -21,6 +23,7 @@ export const userRoleEnum = pgEnum("user_role", [
   "corretor",
   "colaborador",
   "cliente",
+  "empreiteiro",
 ]);
 export const drawStatusEnum = pgEnum("draw_status", [
   "active",
@@ -516,8 +519,13 @@ export const constructionProjects = pgTable("construction_projects", {
   constructionDays: integer("construction_days"),
   estimatedEndDate: timestamp("estimated_end_date"),
   actualEndDate: timestamp("actual_end_date"),
+  // Lote 2: "Valor Total do Contrato" passou a ser o Orçamento Previsto.
   contractValue: decimal("contract_value", { precision: 15, scale: 2 }),
+  // Lote 2: "Tipo de Contrato" foi substituído pelo empreiteiro vinculado; valor antigo preservado.
   contractType: varchar("contract_type", { length: 100 }),
+  commissionAmount: decimal("commission_amount", { precision: 15, scale: 2 }),
+  contractorUserId: integer("contractor_user_id").references((): AnyPgColumn => users.id, { onDelete: "set null" }),
+  contractorSharePct: decimal("contractor_share_pct", { precision: 9, scale: 6 }),
   notes: text("notes"),
   extraNotes: text("extra_notes"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
@@ -1582,3 +1590,59 @@ export const whatsappMessages = pgTable("whatsapp_messages", {
 });
 export type WhatsappMessage = typeof whatsappMessages.$inferSelect;
 export type InsertWhatsappMessage = typeof whatsappMessages.$inferInsert;
+
+
+// ========== EPIC-020 Lote 2 — motor financeiro da Obra ==========
+
+export const investidores = pgTable("investidores", {
+  id: serial("id").primaryKey(),
+  nome: varchar("nome", { length: 255 }).notNull(),
+  documento: varchar("documento", { length: 20 }),
+  telefone: varchar("telefone", { length: 30 }),
+  email: varchar("email", { length: 320 }),
+  ativo: boolean("ativo").default(true).notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+export const obraInvestidores = pgTable("obra_investidores", {
+  id: serial("id").primaryKey(),
+  projectId: integer("project_id").notNull().references(() => constructionProjects.id, { onDelete: "cascade" }),
+  investidorId: integer("investidor_id").notNull().references(() => investidores.id, { onDelete: "restrict" }),
+  percentual: decimal("percentual", { precision: 9, scale: 6 }).notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+// Movimentos financeiros da obra. Garantias no banco (migração 0035): sem
+// exclusão, histórico automático e alocação do BPO limitada ao valor pago.
+export const obraMovimentos = pgTable("obra_movimentos", {
+  id: serial("id").primaryKey(),
+  projectId: integer("project_id").notNull().references(() => constructionProjects.id, { onDelete: "restrict" }),
+  natureza: varchar("natureza", { length: 20 }).$type<"entrada" | "recebimento_cef" | "pagamento">().notNull(),
+  categoria: varchar("categoria", { length: 30 }).$type<"terreno" | "comissao" | "empreiteiro" | "fornecedor" | "outros" | "nao_detalhado" | null>(),
+  descricao: varchar("descricao", { length: 255 }).notNull(),
+  valor: decimal("valor", { precision: 15, scale: 2 }).notNull(),
+  data: date("data", { mode: "string" }).notNull(),
+  observacao: text("observacao"),
+  origem: varchar("origem", { length: 12 }).$type<"manual" | "bpo" | "migracao">().notNull(),
+  bpoLancamentoId: integer("bpo_lancamento_id").references(() => bpoLancamentos.id, { onDelete: "restrict" }),
+  status: varchar("status", { length: 12 }).$type<"confirmado" | "cancelado">().default("confirmado").notNull(),
+  motivoCancelamento: text("motivo_cancelamento"),
+  criadoPor: integer("criado_por").references((): AnyPgColumn => users.id, { onDelete: "set null" }),
+  atualizadoPor: integer("atualizado_por").references((): AnyPgColumn => users.id, { onDelete: "set null" }),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+export const obraMovimentosHistorico = pgTable("obra_movimentos_historico", {
+  id: serial("id").primaryKey(),
+  movimentoId: integer("movimento_id").notNull().references(() => obraMovimentos.id, { onDelete: "restrict" }),
+  acao: varchar("acao", { length: 20 }).notNull(),
+  antes: jsonb("antes"),
+  depois: jsonb("depois").notNull(),
+  usuarioId: integer("usuario_id"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export type ObraMovimento = typeof obraMovimentos.$inferSelect;
+export type Investidor = typeof investidores.$inferSelect;

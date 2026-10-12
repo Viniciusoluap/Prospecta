@@ -9,7 +9,7 @@ import { hashPassword } from "./_core/auth-utils.js";
 import { adminProcedure, publicProcedure, router } from "./_core/trpc.js";
 import { getDb } from "./db.js";
 
-const managedRole = z.enum(["admin", "corretor", "colaborador", "cliente"]);
+const managedRole = z.enum(["admin", "corretor", "colaborador", "cliente", "empreiteiro"]);
 const permissionsSchema = z.array(z.enum(ADMIN_MODULES)).max(ADMIN_MODULES.length);
 
 const PRIMEIRO_ACESSO_VALIDADE_MS = 7 * 24 * 60 * 60 * 1000;

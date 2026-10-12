@@ -13,7 +13,8 @@ import { trpc } from "@/lib/trpc";
 import { ArrowLeft, Building2, DollarSign, FileText, Image, Loader2, Save, Upload, X, Download, BarChart3 } from "lucide-react";
 import { Link, useLocation, useParams } from "wouter";
 import { getLoginUrl } from "@/const";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { CustosAba, ValoresOperacaoAba, calcularAoVivo, formInicial, type FormFinanceiro } from "@/components/obra/FinanceiroObra";
 import { OBRA_STATUS_SELECIONAVEIS, isObraStatusSelecionavel, obraStatusLabel } from "@shared/obra-status";
 import { toast } from "sonner";
 
@@ -30,13 +31,7 @@ export default function AdminEditarObra() {
   );
 
   const updateMutation = trpc.construction.updateProject.useMutation({
-    onSuccess: () => {
-      toast.success("Obra atualizada com sucesso!");
-      refetch();
-    },
-    onError: (error) => {
-      toast.error(`Erro ao atualizar obra: ${error.message}`);
-    },
+    onSuccess: () => refetch(),
   });
 
   // Form state - Aba 1: Informações Básicas
@@ -49,50 +44,31 @@ export default function AdminEditarObra() {
   // decimal digitada. Campos de dinheiro/percentual usam
   // `CurrencyInput`/`PercentInput`, que já cuidam do próprio buffer.
   const [totalAreaTexto, setTotalAreaTexto] = useState("");
-  const [installmentQtyTexto, setInstallmentQtyTexto] = useState("");
-  const [constructionDaysTexto, setConstructionDaysTexto] = useState("");
   const [status, setStatus] = useState<string>("planning");
   const [startDate, setStartDate] = useState("");
   const [estimatedEndDate, setEstimatedEndDate] = useState("");
   const [actualEndDate, setActualEndDate] = useState("");
   const [notes, setNotes] = useState("");
 
-  // Form state - Aba 2: Valores e Custos
-  const [contractValue, setContractValue] = useState("");
-  const [contractType, setContractType] = useState("");
-  const [contractorPayment, setContractorPayment] = useState("");
-  const [materialCost, setMaterialCost] = useState("");
-  const [lotCost, setLotCost] = useState("");
-  const [commissionCost, setCommissionCost] = useState("");
-  const [extrasCost, setExtrasCost] = useState("");
-  const [maintenanceCost, setMaintenanceCost] = useState("");
-  const [insuranceCost, setInsuranceCost] = useState("");
-  const [balanceAmount, setBalanceAmount] = useState("");
+  // Valores que a tela antiga gravava como JSON em `notes`: preservados como
+  // estão (só o Escritório CF continua editável); os financeiros migraram
+  // para colunas e movimentos (Lote 2).
+  const [meta, setMeta] = useState<Record<string, string> | null>(null);
 
-  // Campos MCMV/CEF adicionais
-  const [vgv, setVgv] = useState("");
-  const [financedAmount, setFinancedAmount] = useState("");
-  const [fgtsAmount, setFgtsAmount] = useState("");
-  const [subsidyAmount, setSubsidyAmount] = useState("");
-  const [downPaymentTotal, setDownPaymentTotal] = useState("");
-  const [downPaymentPaid, setDownPaymentPaid] = useState("");
-  const [plsPercentage, setPlsPercentage] = useState("");
-  const [cefReceivedAmount, setCefReceivedAmount] = useState("");
-  const [constructionSpent, setConstructionSpent] = useState("");
-  const [brokerName, setBrokerName] = useState("");
-  const [brokerPaid, setBrokerPaid] = useState("false");
-  const [constructionCost, setConstructionCost] = useState("");
-  const [estimatedProfit, setEstimatedProfit] = useState("");
-  const [investorProfit, setInvestorProfit] = useState("");
-  const [prospectaProfit, setProspectaProfit] = useState("");
-  const [proSoluto, setProSoluto] = useState("");
-  const [installmentRate, setInstallmentRate] = useState("");
-  const [installmentQty, setInstallmentQty] = useState("");
-  const [installmentValue, setInstallmentValue] = useState("");
-  const [constructionDays, setConstructionDays] = useState("");
-  const [clientName, setClientName] = useState("");
-  const [cefTitle, setCefTitle] = useState("");
-  const [cefBranch, setCefBranch] = useState("");
+  // Valores da Operação e Custos (Lote 2)
+  const resumoQuery = trpc.obraFinanceiro.resumo.useQuery({ projectId }, { enabled: isAuthenticated && user?.role === "admin" && !!projectId });
+  const resumo = resumoQuery.data;
+  const [formFin, setFormFin] = useState<FormFinanceiro | null>(null);
+  useEffect(() => {
+    if (resumo && !formFin) setFormFin(formInicial(resumo));
+  }, [resumo, formFin]);
+  const calculo = useMemo(
+    () => (resumo && formFin ? calcularAoVivo(formFin, resumo, { inicio: startDate, termino: estimatedEndDate }) : null),
+    [resumo, formFin, startDate, estimatedEndDate]
+  );
+  const salvarValores = trpc.obraFinanceiro.salvarValores.useMutation();
+  const definirInvestidores = trpc.obraFinanceiro.definirInvestidores.useMutation();
+  const [salvando, setSalvando] = useState(false);
 
   // Form state - Aba 3: Progresso
   const [progress, setProgress] = useState("0");
@@ -202,93 +178,58 @@ export default function AdminEditarObra() {
       setNotes((project.notes || "").replace(/\n__MCMV_META__:[\s\S]+$/, ""));
       setProgress(project.progress?.toString() || "0");
 
-      // Valores financeiros
-      setContractValue(project.contractValue || "");
-      setContractType(project.contractType || "");
-      setContractorPayment((project as any).contractorPayment || "");
-      setMaterialCost((project as any).materialCost || "");
-      setLotCost(project.lotCost || "");
-      setCommissionCost((project as any).commissionCost || "");
-      setExtrasCost((project as any).extrasCost || "");
-      setMaintenanceCost((project as any).maintenanceCost || "");
-      setInsuranceCost((project as any).insuranceCost || "");
-      setBalanceAmount((project as any).balanceAmount || "");
-
-      // Campos MCMV adicionais (stored appended to notes field)
-      const notesRaw = project.notes || "";
-      const metaMatch = notesRaw.match(/\n__MCMV_META__:([\s\S]+)$/);
-      let meta: Record<string, string> = {};
+      const metaMatch = (project.notes || "").match(/\n__MCMV_META__:([\s\S]+)$/);
+      let metaLida: Record<string, string> | null = null;
       if (metaMatch) {
-        try { meta = JSON.parse(metaMatch[1]); } catch {}
+        try { metaLida = JSON.parse(metaMatch[1]); } catch { metaLida = null; }
       }
-      setVgv(project.vgv || meta.vgv || "");
-      setFinancedAmount(project.financedAmount || meta.financedAmount || "");
-      setFgtsAmount(project.fgtsAmount || meta.fgtsAmount || "");
-      setSubsidyAmount(project.subsidyAmount || meta.subsidyAmount || "");
-      setDownPaymentTotal(project.downPaymentTotal || meta.downPaymentTotal || "");
-      setDownPaymentPaid(project.downPaymentPaid || meta.downPaymentPaid || "");
-      setPlsPercentage(meta.plsPercentage || "");
-      setCefReceivedAmount(meta.cefReceivedAmount || "");
-      setConstructionSpent(meta.constructionSpent || "");
-      setBrokerName(meta.brokerName || "");
-      setBrokerPaid(meta.brokerPaid || "false");
-      setConstructionCost(meta.constructionCost || "");
-      setEstimatedProfit(meta.estimatedProfit || "");
-      setInvestorProfit(meta.investorProfit || "");
-      setProspectaProfit(meta.prospectaProfit || "");
-      setProSoluto(meta.proSoluto || "");
-      setInstallmentRate(meta.installmentRate || "");
-      setInstallmentQty(meta.installmentQty || "");
-      setInstallmentValue(meta.installmentValue || "");
-      setConstructionDays(meta.constructionDays || "");
-      setInstallmentQtyTexto(meta.installmentQty ? formatarNumeroParaEdicao(Number(meta.installmentQty), { minimumFractionDigits: 0, maximumFractionDigits: 0 }) : "");
-      setConstructionDaysTexto(meta.constructionDays ? formatarNumeroParaEdicao(Number(meta.constructionDays), { minimumFractionDigits: 0, maximumFractionDigits: 0 }) : "");
-      setClientName(meta.clientName || "");
-      setCefTitle(meta.cefTitle || "");
-      setCefBranch(meta.cefBranch || "");
+      setMeta(metaLida);
     }
   }, [project]);
 
-  const handleSave = () => {
-    const updates: any = {
+  const handleSave = async () => {
+    const updates = {
       projectId,
       title,
       address,
       totalArea: totalArea ? parseInt(totalArea) : undefined,
-      status,
+      status: status as never,
       startDate: startDate ? new Date(startDate) : undefined,
       estimatedEndDate: estimatedEndDate ? new Date(estimatedEndDate) : undefined,
       actualEndDate: actualEndDate ? new Date(actualEndDate) : undefined,
-      notes,
+      notes: meta ? `${notes}\n__MCMV_META__:${JSON.stringify(meta)}` : notes,
       progress: parseInt(progress),
     };
-
-    // Adicionar valores financeiros (decimal - sem conversão)
-    if (contractValue) updates.contractValue = parseFloat(contractValue);
-    if (contractType) updates.contractType = contractType;
-    if (contractorPayment) updates.contractorPayment = parseFloat(contractorPayment);
-    if (materialCost) updates.materialCost = parseFloat(materialCost);
-    if (lotCost) updates.lotCost = parseFloat(lotCost);
-    if (commissionCost) updates.commissionCost = parseFloat(commissionCost);
-    if (extrasCost) updates.extrasCost = parseFloat(extrasCost);
-    if (maintenanceCost) updates.maintenanceCost = parseFloat(maintenanceCost);
-    if (insuranceCost) updates.insuranceCost = parseFloat(insuranceCost);
-    if (balanceAmount) updates.balanceAmount = parseFloat(balanceAmount);
-
-    // Save MCMV/CEF metadata in notes field as JSON-like suffix
-    const mcmvMeta = {
-      vgv, financedAmount, fgtsAmount, subsidyAmount, downPaymentTotal, downPaymentPaid,
-      plsPercentage, cefReceivedAmount, constructionSpent, brokerName, brokerPaid,
-      constructionCost, estimatedProfit, investorProfit, prospectaProfit,
-      proSoluto, installmentRate, installmentQty, installmentValue,
-      constructionDays, clientName, cefTitle, cefBranch,
-    };
-    // Store MCMV data appended to notes as a parseable marker
-    const mcmvTag = `\n__MCMV_META__:${JSON.stringify(mcmvMeta)}`;
-    const baseNotes = notes.replace(/\n__MCMV_META__:[\s\S]*$/, "");
-    updates.notes = baseNotes.replace(/\n__MCMV_META__:[\s\S]*$/, "") ? baseNotes + mcmvTag : mcmvTag;
-
-    updateMutation.mutate(updates);
+    setSalvando(true);
+    try {
+      await updateMutation.mutateAsync(updates);
+      if (formFin) {
+        await salvarValores.mutateAsync({
+          projectId,
+          vgv: formFin.vgv,
+          financiamento: formFin.financiamento,
+          fgts: formFin.fgts,
+          subsidio: formFin.subsidio,
+          custoTerreno: formFin.custoTerreno,
+          comissao: formFin.comissao,
+          orcamentoPrevisto: formFin.orcamentoPrevisto,
+          taxaMensalPct: formFin.taxaMensalPct,
+          parcelas: formFin.parcelas,
+          empreiteiroId: formFin.empreiteiroId,
+          percentualEmpreiteiro: formFin.percentualEmpreiteiro,
+        });
+        await definirInvestidores.mutateAsync({
+          projectId,
+          participacoes: formFin.investidores.map((i) => ({ investidorId: i.investidorId, percentual: i.percentual })),
+        });
+      }
+      await resumoQuery.refetch();
+      toast.success("Obra salva.");
+    } catch (error) {
+      toast.error(`Erro ao salvar: ${error instanceof Error ? error.message : String(error)}`);
+    } finally {
+      setSalvando(false);
+    }
   };
 
   if (authLoading || !isAuthenticated) {
@@ -520,323 +461,54 @@ export default function AdminEditarObra() {
             </Card>
           </TabsContent>
 
-          {/* ABA MCMV/CEF */}
-          <TabsContent value="mcmv" className="mt-6">
+          {/* ABA VALORES DA OPERAÇÃO */}
+          <TabsContent value="mcmv" className="mt-6 space-y-6">
             <Card className="bg-[#1A2332]/60 border-[#C9A961]/20 backdrop-blur-sm">
               <CardHeader>
                 <CardTitle className="text-[#C9A961]">Valores da Operação</CardTitle>
                 <CardDescription className="text-gray-400">
-                  Valores financeiros da operação (MCMV / Caixa Econômica Federal)
+                  Valores financeiros da operação (MCMV / Caixa Econômica Federal). Campos "automático" são calculados e não podem ser editados.
                 </CardDescription>
               </CardHeader>
-              <CardContent className="space-y-6">
-                {/* Identificação CEF */}
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                  <div className="space-y-2">
-                    <Label className="text-gray-300">Nome do Cliente</Label>
-                    <Input
-                      value={project.crm.clientName ?? clientName ?? ""}
-                      readOnly
-                      aria-readonly="true"
-                      className="bg-[#2C3E50]/50 border-[#C9A961]/20 text-gray-300 cursor-not-allowed"
-                    />
-                    <p className="text-xs text-gray-400">
-                      {project.crm.vinculada
-                        ? "Vem do lead vinculado no CRM. Para alterar, edite o lead."
-                        : "Obra sem lead vinculado: nome antigo preservado. Vincule pelo CRM para regularizar."}
-                    </p>
-                  </div>
-                  <div className="space-y-2">
-                    <Label className="text-gray-300">Escritório CF (Agência CEF)</Label>
-                    <Input value={cefBranch} onChange={(e) => setCefBranch(e.target.value)} className="bg-[#2C3E50] border-[#C9A961]/30 text-white" placeholder="Agência CEF" />
-                  </div>
+              <CardContent className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <div className="space-y-2">
+                  <Label className="text-gray-300">Nome do Cliente</Label>
+                  <Input value={project.crm.clientName ?? meta?.clientName ?? ""} readOnly aria-readonly="true" className="bg-[#2C3E50]/50 border-[#C9A961]/20 text-gray-300 cursor-not-allowed" />
+                  <p className="text-xs text-gray-400">
+                    {project.crm.vinculada
+                      ? "Vem do lead vinculado no CRM. Para alterar, edite o lead."
+                      : "Obra sem lead vinculado: nome antigo preservado. Vincule pelo CRM para regularizar."}
+                  </p>
                 </div>
-
-                {/* Valores CEF */}
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                  <div className="space-y-2">
-                    <Label className="text-gray-300">VGV - Valor Global de Venda (R$)</Label>
-                    <CurrencyInput value={vgv ? Number(vgv) : 0} onChange={(v) => setVgv(v ? String(v) : "")} className="bg-[#2C3E50] border-[#C9A961]/30 text-white" placeholder="153.000,00" />
-                  </div>
-                  <div className="space-y-2">
-                    <Label className="text-gray-300">Valor Financiado CEF (R$)</Label>
-                    <CurrencyInput value={financedAmount ? Number(financedAmount) : 0} onChange={(v) => setFinancedAmount(v ? String(v) : "")} className="bg-[#2C3E50] border-[#C9A961]/30 text-white" placeholder="137.700,00" />
-                  </div>
+                <div className="space-y-2">
+                  <Label className="text-gray-300">Escritório CF (Agência CEF)</Label>
+                  <Input value={meta?.cefBranch ?? ""} onChange={(e) => setMeta({ ...(meta ?? {}), cefBranch: e.target.value })} className="bg-[#2C3E50] border-[#C9A961]/30 text-white" placeholder="Agência CEF" />
                 </div>
-
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                  <div className="space-y-2">
-                    <Label className="text-gray-300">FGTS (R$)</Label>
-                    <CurrencyInput value={fgtsAmount ? Number(fgtsAmount) : 0} onChange={(v) => setFgtsAmount(v ? String(v) : "")} className="bg-[#2C3E50] border-[#C9A961]/30 text-white" placeholder="21.850,00" />
-                  </div>
-                  <div className="space-y-2">
-                    <Label className="text-gray-300">Subsídio (R$)</Label>
-                    <CurrencyInput value={subsidyAmount ? Number(subsidyAmount) : 0} onChange={(v) => setSubsidyAmount(v ? String(v) : "")} className="bg-[#2C3E50] border-[#C9A961]/30 text-white" placeholder="55.000,00" />
-                  </div>
-                  <div className="space-y-2">
-                    <Label className="text-gray-300">Valor Recebido CEF (R$)</Label>
-                    <CurrencyInput value={cefReceivedAmount ? Number(cefReceivedAmount) : 0} onChange={(v) => setCefReceivedAmount(v ? String(v) : "")} className="bg-[#2C3E50] border-[#C9A961]/30 text-white" placeholder="Valor já recebido da CEF" />
-                  </div>
-                </div>
-
-                {/* Entrada */}
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                  <div className="space-y-2">
-                    <Label className="text-gray-300">Entrada Total (R$)</Label>
-                    <CurrencyInput value={downPaymentTotal ? Number(downPaymentTotal) : 0} onChange={(v) => setDownPaymentTotal(v ? String(v) : "")} className="bg-[#2C3E50] border-[#C9A961]/30 text-white" placeholder="Valor total de entrada" />
-                  </div>
-                  <div className="space-y-2">
-                    <Label className="text-gray-300">Entrada Paga (R$)</Label>
-                    <CurrencyInput value={downPaymentPaid ? Number(downPaymentPaid) : 0} onChange={(v) => setDownPaymentPaid(v ? String(v) : "")} className="bg-[#2C3E50] border-[#C9A961]/30 text-white" placeholder="Quanto já foi pago" />
-                  </div>
-                </div>
-
-                {/* Custos Construção */}
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                  <div className="space-y-2">
-                    <Label className="text-gray-300">Custo Construção (R$)</Label>
-                    <CurrencyInput value={constructionCost ? Number(constructionCost) : 0} onChange={(v) => setConstructionCost(v ? String(v) : "")} className="bg-[#2C3E50] border-[#C9A961]/30 text-white" placeholder="85.000,00" />
-                  </div>
-                  <div className="space-y-2">
-                    <Label className="text-gray-300">Gasto Obra Realizado (R$)</Label>
-                    <CurrencyInput value={constructionSpent ? Number(constructionSpent) : 0} onChange={(v) => setConstructionSpent(v ? String(v) : "")} className="bg-[#2C3E50] border-[#C9A961]/30 text-white" placeholder="Quanto já foi gasto" />
-                  </div>
-                </div>
-
-                {/* Lucros */}
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                  <div className="space-y-2">
-                    <Label className="text-gray-300">Lucro Estimado (R$)</Label>
-                    <CurrencyInput value={estimatedProfit ? Number(estimatedProfit) : 0} onChange={(v) => setEstimatedProfit(v ? String(v) : "")} className="bg-[#2C3E50] border-[#C9A961]/30 text-white" placeholder="Lucro estimado total" />
-                  </div>
-                  <div className="space-y-2">
-                    <Label className="text-gray-300">Lucro Investidor (R$)</Label>
-                    <CurrencyInput value={investorProfit ? Number(investorProfit) : 0} onChange={(v) => setInvestorProfit(v ? String(v) : "")} className="bg-[#2C3E50] border-[#C9A961]/30 text-white" placeholder="Parcela do investidor" />
-                  </div>
-                  <div className="space-y-2">
-                    <Label className="text-gray-300">Lucro Prospecta (R$)</Label>
-                    <CurrencyInput value={prospectaProfit ? Number(prospectaProfit) : 0} onChange={(v) => setProspectaProfit(v ? String(v) : "")} className="bg-[#2C3E50] border-[#C9A961]/30 text-white" placeholder="Parcela da Prospecta" />
-                  </div>
-                </div>
-
-                {/* Corretor: somente leitura, vem do lead; oculto quando não há corretor */}
                 {project.crm.brokerName && (
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                    <div className="space-y-2">
-                      <Label className="text-gray-300">Nome do Corretor</Label>
-                      <Input
-                        value={project.crm.brokerName}
-                        readOnly
-                        aria-readonly="true"
-                        className="bg-[#2C3E50]/50 border-[#C9A961]/20 text-gray-300 cursor-not-allowed"
-                      />
-                      <p className="text-xs text-gray-400">Corretor vinculado ao lead no CRM.</p>
-                    </div>
+                  <div className="space-y-2">
+                    <Label className="text-gray-300">Nome do Corretor</Label>
+                    <Input value={project.crm.brokerName} readOnly aria-readonly="true" className="bg-[#2C3E50]/50 border-[#C9A961]/20 text-gray-300 cursor-not-allowed" />
+                    <p className="text-xs text-gray-400">Corretor vinculado ao lead no CRM.</p>
                   </div>
                 )}
-
-                {/* Pro-Soluto / Parcelas */}
-                <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
-                  <div className="space-y-2">
-                    <Label className="text-gray-300">Pro-Soluto</Label>
-                    <Input value={proSoluto} onChange={(e) => setProSoluto(e.target.value)} className="bg-[#2C3E50] border-[#C9A961]/30 text-white" placeholder="Tipo de parcelamento" />
-                  </div>
-                  <div className="space-y-2">
-                    <Label className="text-gray-300">Taxa (%)</Label>
-                    <PercentInput value={installmentRate ? Number(installmentRate) : 0} onChange={(v) => setInstallmentRate(v ? String(v) : "")} maximumFractionDigits={4} className="bg-[#2C3E50] border-[#C9A961]/30 text-white" placeholder="Taxa mensal" />
-                  </div>
-                  <div className="space-y-2">
-                    <Label className="text-gray-300">Qtd Parcelas</Label>
-                    <Input
-                      type="text"
-                      inputMode="decimal"
-                      value={installmentQtyTexto}
-                      onChange={(e) => {
-                        const { texto, numero } = aplicarDigitacao(e.target.value);
-                        setInstallmentQtyTexto(texto);
-                        setInstallmentQty(numero ? String(numero) : "");
-                      }}
-                      onBlur={() => setInstallmentQtyTexto(installmentQty ? formatarNumeroParaEdicao(Number(installmentQty), { minimumFractionDigits: 0, maximumFractionDigits: 0 }) : "")}
-                      className="bg-[#2C3E50] border-[#C9A961]/30 text-white"
-                      placeholder="Ex: 12"
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <Label className="text-gray-300">Valor Parcela (R$)</Label>
-                    <CurrencyInput value={installmentValue ? Number(installmentValue) : 0} onChange={(v) => setInstallmentValue(v ? String(v) : "")} className="bg-[#2C3E50] border-[#C9A961]/30 text-white" placeholder="Valor de cada parcela" />
-                  </div>
-                </div>
-
-                {/* Dias de Obra e PLS% */}
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                  <div className="space-y-2">
-                    <Label className="text-gray-300">Dias de Obra (prazo)</Label>
-                    <Input
-                      type="text"
-                      inputMode="decimal"
-                      value={constructionDaysTexto}
-                      onChange={(e) => {
-                        const { texto, numero } = aplicarDigitacao(e.target.value);
-                        setConstructionDaysTexto(texto);
-                        setConstructionDays(numero ? String(numero) : "");
-                      }}
-                      onBlur={() => setConstructionDaysTexto(constructionDays ? formatarNumeroParaEdicao(Number(constructionDays), { minimumFractionDigits: 0, maximumFractionDigits: 0 }) : "")}
-                      className="bg-[#2C3E50] border-[#C9A961]/30 text-white"
-                      placeholder="Ex: 90"
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <Label className="text-gray-300">PLS% (% Recebido)</Label>
-                    <PercentInput value={plsPercentage ? Number(plsPercentage) : 0} onChange={(v) => setPlsPercentage(v ? String(v) : "")} className="bg-[#2C3E50] border-[#C9A961]/30 text-white" placeholder="30,00" />
-                  </div>
-                </div>
-
-                <div className="flex justify-end pt-2">
-                  <Button
-                    onClick={handleSave}
-                    disabled={updateMutation.isPending}
-                    className="bg-[#C9A961] hover:bg-[#B8985A] text-[#1A2332] gap-2"
-                  >
-                    {updateMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
-                    Salvar
-                  </Button>
-                </div>
               </CardContent>
             </Card>
+            {resumo && formFin && calculo ? (
+              <ValoresOperacaoAba projectId={projectId} resumo={resumo} form={formFin} setForm={setFormFin} calculo={calculo} nomeEmpresa="Prospecta" onMudou={() => resumoQuery.refetch()} />
+            ) : (
+              <Loader2 className="h-6 w-6 animate-spin text-[#C9A961]" />
+            )}
           </TabsContent>
 
-          {/* ABA 2: VALORES E CUSTOS */}
+          {/* ABA CUSTOS */}
           <TabsContent value="valores" className="mt-6">
-            <Card className="bg-[#1A2332]/60 border-[#C9A961]/20 backdrop-blur-sm">
-              <CardHeader>
-                <CardTitle className="text-[#C9A961]">Valores e Custos</CardTitle>
-                <CardDescription className="text-gray-400">
-                  Informações financeiras detalhadas da obra
-                </CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-6">
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                  <div className="space-y-2">
-                    <Label htmlFor="contractValue" className="text-gray-300">Valor Total do Contrato (R$)</Label>
-                    <CurrencyInput
-                      id="contractValue"
-                      value={contractValue ? Number(contractValue) : 0}
-                      onChange={(v) => setContractValue(v ? String(v) : "")}
-                      className="bg-[#2C3E50] border-[#C9A961]/30 text-white"
-                      placeholder="180.000,00"
-                    />
-                  </div>
-
-                  <div className="space-y-2">
-                    <Label htmlFor="contractType" className="text-gray-300">Tipo de Contrato</Label>
-                    <Input
-                      id="contractType"
-                      value={contractType}
-                      onChange={(e) => setContractType(e.target.value)}
-                      className="bg-[#2C3E50] border-[#C9A961]/30 text-white"
-                      placeholder="Ex: Empreitada Global"
-                    />
-                  </div>
-                </div>
-
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                  <div className="space-y-2">
-                    <Label htmlFor="contractorPayment" className="text-gray-300">Pagamento Empreiteiro (R$)</Label>
-                    <CurrencyInput
-                      id="contractorPayment"
-                      value={contractorPayment ? Number(contractorPayment) : 0}
-                      onChange={(v) => setContractorPayment(v ? String(v) : "")}
-                      className="bg-[#2C3E50] border-[#C9A961]/30 text-white"
-                      placeholder="50.000,00"
-                    />
-                  </div>
-
-                  <div className="space-y-2">
-                    <Label htmlFor="materialCost" className="text-gray-300">Custo de Material (R$)</Label>
-                    <CurrencyInput
-                      id="materialCost"
-                      value={materialCost ? Number(materialCost) : 0}
-                      onChange={(v) => setMaterialCost(v ? String(v) : "")}
-                      className="bg-[#2C3E50] border-[#C9A961]/30 text-white"
-                      placeholder="80.000,00"
-                    />
-                  </div>
-                </div>
-
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                  <div className="space-y-2">
-                    <Label htmlFor="lotCost" className="text-gray-300">Custo do Lote/Terreno (R$)</Label>
-                    <CurrencyInput
-                      id="lotCost"
-                      value={lotCost ? Number(lotCost) : 0}
-                      onChange={(v) => setLotCost(v ? String(v) : "")}
-                      className="bg-[#2C3E50] border-[#C9A961]/30 text-white"
-                      placeholder="30.000,00"
-                    />
-                  </div>
-
-                  <div className="space-y-2">
-                    <Label htmlFor="commissionCost" className="text-gray-300">Comissão (R$)</Label>
-                    <CurrencyInput
-                      id="commissionCost"
-                      value={commissionCost ? Number(commissionCost) : 0}
-                      onChange={(v) => setCommissionCost(v ? String(v) : "")}
-                      className="bg-[#2C3E50] border-[#C9A961]/30 text-white"
-                      placeholder="5.000,00"
-                    />
-                  </div>
-                </div>
-
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                  <div className="space-y-2">
-                    <Label htmlFor="extrasCost" className="text-gray-300">Custos Extras (R$)</Label>
-                    <CurrencyInput
-                      id="extrasCost"
-                      value={extrasCost ? Number(extrasCost) : 0}
-                      onChange={(v) => setExtrasCost(v ? String(v) : "")}
-                      className="bg-[#2C3E50] border-[#C9A961]/30 text-white"
-                      placeholder="3.000,00"
-                    />
-                  </div>
-
-                  <div className="space-y-2">
-                    <Label htmlFor="maintenanceCost" className="text-gray-300">Manutenção (R$)</Label>
-                    <CurrencyInput
-                      id="maintenanceCost"
-                      value={maintenanceCost ? Number(maintenanceCost) : 0}
-                      onChange={(v) => setMaintenanceCost(v ? String(v) : "")}
-                      className="bg-[#2C3E50] border-[#C9A961]/30 text-white"
-                      placeholder="2.000,00"
-                    />
-                  </div>
-
-                  <div className="space-y-2">
-                    <Label htmlFor="insuranceCost" className="text-gray-300">Seguro (R$)</Label>
-                    <CurrencyInput
-                      id="insuranceCost"
-                      value={insuranceCost ? Number(insuranceCost) : 0}
-                      onChange={(v) => setInsuranceCost(v ? String(v) : "")}
-                      className="bg-[#2C3E50] border-[#C9A961]/30 text-white"
-                      placeholder="1.500,00"
-                    />
-                  </div>
-                </div>
-
-                <div className="space-y-2">
-                  <Label htmlFor="balanceAmount" className="text-gray-300">Saldo Restante (R$)</Label>
-                  <CurrencyInput
-                    id="balanceAmount"
-                    value={balanceAmount ? Number(balanceAmount) : 0}
-                    onChange={(v) => setBalanceAmount(v ? String(v) : "")}
-                    className="bg-[#2C3E50] border-[#C9A961]/30 text-white"
-                    placeholder="8.500,00"
-                  />
-                </div>
-              </CardContent>
-            </Card>
+            {resumo && formFin && calculo ? (
+              <CustosAba projectId={projectId} resumo={resumo} form={formFin} setForm={setFormFin} calculo={calculo} corretor={project.crm.brokerName} onMudou={() => resumoQuery.refetch()} />
+            ) : (
+              <Loader2 className="h-6 w-6 animate-spin text-[#C9A961]" />
+            )}
           </TabsContent>
 
-          {/* ABA 3: PROGRESSO */}
           <TabsContent value="progresso" className="mt-6">
             <Card className="bg-[#1A2332]/60 border-[#C9A961]/20 backdrop-blur-sm">
               <CardHeader>
@@ -1039,12 +711,14 @@ export default function AdminEditarObra() {
                             doc.text(`Status: ${project.status}`, 20, 80);
                             doc.text(`Progresso: ${project.progress}%`, 20, 90);
                             
-                            // Valores
+                            // Valores (relatório completo é reconstruído no Lote 4)
+                            const fmt = (i?: { ok: boolean; centavos?: number; motivo?: string }) =>
+                              i?.ok ? (i.centavos! / 100).toLocaleString("pt-BR", { style: "currency", currency: "BRL" }) : "não disponível";
                             doc.text("Valores Financeiros:", 20, 110);
-                            doc.text(`Valor do Contrato: R$ ${project.contractValue || "0"}`, 20, 120);
-                            doc.text(`Custo de Material: R$ ${(project as any).materialCost || "0"}`, 20, 130);
-                            doc.text(`Custo do Lote: R$ ${project.lotCost || "0"}`, 20, 140);
-                            doc.text(`Saldo: R$ ${(project as any).balanceAmount || "0"}`, 20, 150);
+                            doc.text(`Orçamento Previsto: ${fmt(calculo?.custoConstrucao)}`, 20, 120);
+                            doc.text(`Total Gasto na Obra: ${fmt(calculo?.totalGasto)}`, 20, 130);
+                            doc.text(`Saldo Restante: ${fmt(calculo?.saldoRestante)}`, 20, 140);
+                            doc.text(`Lucro Estimado: ${fmt(calculo?.lucroEstimado)}`, 20, 150);
                             
                             // Salvar
                             doc.save(`relatorio-${project.title.replace(/\s+/g, "-")}.pdf`);
@@ -1086,16 +760,20 @@ export default function AdminEditarObra() {
                               ["Progresso (%)", project.progress],
                               [""],
                               ["Valores Financeiros (R$)"],
-                              ["Valor do Contrato", parseFloat(project.contractValue || "0")],
-                              ["Tipo de Contrato", project.contractType || "N/A"],
-                              ["Pagamento Empreiteiro", parseFloat((project as any).contractorPayment || "0")],
-                              ["Custo de Material", parseFloat((project as any).materialCost || "0")],
-                              ["Custo do Lote", parseFloat(project.lotCost || "0")],
-                              ["Comissão", parseFloat((project as any).commissionCost || "0")],
-                              ["Extras", parseFloat((project as any).extrasCost || "0")],
-                              ["Manutenção", parseFloat((project as any).maintenanceCost || "0")],
-                              ["Seguro", parseFloat((project as any).insuranceCost || "0")],
-                              ["Saldo", parseFloat((project as any).balanceAmount || "0")],
+                              ...([
+                                ["VGV", calculo ? formFin?.vgv : null],
+                                ["Orçamento Previsto", formFin?.orcamentoPrevisto],
+                                ["Custo do Terreno", formFin?.custoTerreno],
+                                ["Comissão", formFin?.comissao],
+                              ] as [string, string | null | undefined][]).map(([k, v]) => [k, v == null ? "não informado" : Number(v)]),
+                              ...([
+                                ["Entrada Total", calculo?.entradaTotal],
+                                ["Entrada Paga", calculo?.entradaPaga],
+                                ["Recebido CEF", calculo?.recebidoCef],
+                                ["Total Gasto na Obra", calculo?.totalGasto],
+                                ["Saldo Restante", calculo?.saldoRestante],
+                                ["Lucro Estimado", calculo?.lucroEstimado],
+                              ] as const).map(([k, i]) => [k, i?.ok ? i.centavos / 100 : "não disponível"]),
                             ];
                             
                             const ws = XLSX.utils.aoa_to_sheet(data);
@@ -1132,10 +810,10 @@ export default function AdminEditarObra() {
         <div className="mt-6 flex justify-end">
           <Button
             onClick={handleSave}
-            disabled={updateMutation.isPending}
+            disabled={salvando}
             className="bg-[#C9A961] hover:bg-[#B8985A] text-[#1A2332] gap-2"
           >
-            {updateMutation.isPending ? (
+            {salvando ? (
               <>
                 <Loader2 className="h-5 w-5 animate-spin" />
                 Salvando...
