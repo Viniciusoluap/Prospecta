@@ -11,6 +11,7 @@
 // convertido, e o que acontece no blur).
 
 import { parseNumeroBR } from "@shared/numero-br";
+import { lerPercentualDigitado } from "@shared/financeiro/obra";
 
 /**
  * Formata um número para o buffer de texto de um campo editável, no
@@ -39,7 +40,9 @@ export function formatarNumeroParaEdicao(
  * o usuário digitou, sem reformatar) e o número já convertido (para o
  * estado "de verdade" do formulário).
  */
-export function aplicarDigitacao(valorTexto: string): { texto: string; numero: number } {
+export function aplicarDigitacao(valorTexto: string, opcoes: { percentual?: boolean } = {}): { texto: string; numero: number } {
+  // Percentual: ponto é decimal ("2.345" = 2,345%); dinheiro: ponto é milhar.
+  if (opcoes.percentual) return { texto: valorTexto, numero: lerPercentualDigitado(valorTexto) ?? 0 };
   return { texto: valorTexto, numero: parseNumeroBR(valorTexto) };
 }
 

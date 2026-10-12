@@ -79,3 +79,12 @@ describe("reformatarAoSairDoCampo", () => {
     expect(reformatarAoSairDoCampo(0.0575, { minimumFractionDigits: 0, maximumFractionDigits: 4 })).toBe("0,0575");
   });
 });
+
+describe("aplicarDigitacao — campos de percentual (D-01)", () => {
+  it("percentual: ponto é decimal; dinheiro: ponto é milhar", async () => {
+    const { aplicarDigitacao } = await import("../client/src/lib/numero-input");
+    expect(aplicarDigitacao("2.345", { percentual: true }).numero).toBe(2.345);
+    expect(aplicarDigitacao("2,5", { percentual: true }).numero).toBe(2.5);
+    expect(aplicarDigitacao("2.345").numero).toBe(2345);
+  });
+});
