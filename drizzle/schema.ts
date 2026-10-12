@@ -11,6 +11,8 @@ import {
   uniqueIndex,
   date,
   jsonb,
+  primaryKey,
+  index,
   type AnyPgColumn,
 } from "drizzle-orm/pg-core";
 
@@ -488,6 +490,8 @@ export const constructionProjects = pgTable("construction_projects", {
   totalArea: integer("total_area"),
   status: constructionProjectStatusEnum("status").default("planning").notNull(),
   progress: integer("progress").default(0).notNull(),
+  // EPIC-020 Lote 4: Progresso Geral medido (soma incidência × execução), 6 casas.
+  progressMeasuredPct: decimal("progress_measured_pct", { precision: 9, scale: 6 }),
   vgv: decimal("vgv", { precision: 15, scale: 2 }),
   financedAmount: decimal("financed_amount", { precision: 15, scale: 2 }),
   fgtsAmount: decimal("fgts_amount", { precision: 15, scale: 2 }),
@@ -570,8 +574,38 @@ export const constructionPhotos = pgTable("construction_photos", {
   caption: text("caption"),
   takenAt: timestamp("taken_at").notNull(),
   uploadedBy: integer("uploaded_by"),
+  // EPIC-020 Lote 4: foto marcada para entrar no relatório executivo.
+  includeInReport: boolean("include_in_report").default(true).notNull(),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
+
+// EPIC-020 Lote 4 (item 28): bytes das fotos no próprio banco. A coluna
+// "data" (bytea) é lida/gravada só por SQL explícito em server/routes/obra-fotos.ts.
+export const constructionPhotoFiles = pgTable("construction_photo_files", {
+  photoId: integer("photo_id").primaryKey().references(() => constructionPhotos.id, { onDelete: "cascade" }),
+  mime: varchar("mime", { length: 40 }).notNull(),
+  sizeBytes: integer("size_bytes").notNull(),
+});
+
+// EPIC-020 Lote 4 (item 27): progresso por incidência (20 serviços por obra).
+export const constructionProgressItems = pgTable("construction_progress_items", {
+  projectId: integer("project_id").notNull().references(() => constructionProjects.id, { onDelete: "cascade" }),
+  serviceKey: varchar("service_key", { length: 40 }).notNull(),
+  incidencePct: decimal("incidence_pct", { precision: 7, scale: 4 }).notNull(),
+  executionPct: decimal("execution_pct", { precision: 7, scale: 4 }).default("0").notNull(),
+  updatedBy: integer("updated_by"),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+}, (t) => ({ pk: primaryKey({ columns: [t.projectId, t.serviceKey] }) }));
+
+export const constructionProgressHistory = pgTable("construction_progress_history", {
+  id: serial("id").primaryKey(),
+  projectId: integer("project_id").notNull().references(() => constructionProjects.id, { onDelete: "cascade" }),
+  progressPct: decimal("progress_pct", { precision: 9, scale: 6 }).notNull(),
+  incidenceTotalPct: decimal("incidence_total_pct", { precision: 9, scale: 4 }).notNull(),
+  items: jsonb("items").$type<{ chave: string; incidencia: string; execucao: string }[]>().notNull(),
+  createdBy: integer("created_by"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+}, (t) => ({ porObra: index("construction_progress_history_project_idx").on(t.projectId, t.createdAt) }));
 
 export type ConstructionPhoto = typeof constructionPhotos.$inferSelect;
 export type InsertConstructionPhoto = typeof constructionPhotos.$inferInsert;

@@ -1,4 +1,5 @@
 import { useAuth } from "@/_core/hooks/useAuth";
+import { formatarPercentual, progressoDaObra } from "@shared/financeiro/progresso";
 import { obraStatusLabel } from "@shared/obra-status";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -145,9 +146,9 @@ export default function ObraDetalhes({ admin = false }: { admin?: boolean }) {
           <div className="mt-6">
             <div className="flex items-center justify-between mb-2">
               <span className="text-sm text-gray-400">Progresso Geral</span>
-              <span className="text-lg font-bold text-[#C9A961]">{project.progress}%</span>
+              <span className="text-lg font-bold text-[#C9A961]">{formatarPercentual(progressoDaObra(project.progressMeasuredPct, project.progress))}</span>
             </div>
-            <Progress value={project.progress} className="h-3" />
+            <Progress value={progressoDaObra(project.progressMeasuredPct, project.progress)} className="h-3" />
           </div>
         </div>
       </div>

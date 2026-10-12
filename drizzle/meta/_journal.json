@@ -281,6 +281,13 @@
       "when": 1791858400000,
       "tag": "0039_lote3_comissoes",
       "breakpoints": true
+    },
+    {
+      "idx": 40,
+      "version": "7",
+      "when": 1791858450000,
+      "tag": "0040_lote4_progresso_fotos",
+      "breakpoints": true
     }
   ]
 }

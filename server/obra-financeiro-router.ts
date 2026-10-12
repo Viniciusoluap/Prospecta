@@ -386,6 +386,7 @@ export const empreiteiroRouter = router({
         address: constructionProjects.address,
         city: constructionProjects.city,
         progress: constructionProjects.progress,
+        progressMeasuredPct: constructionProjects.progressMeasuredPct,
       }).from(constructionProjects).where(eq(constructionProjects.id, id)).limit(1);
       resultado.push({
         id,
@@ -393,6 +394,7 @@ export const empreiteiroRouter = router({
         address: obra.address,
         city: obra.city,
         progress: obra.progress,
+        progressMeasuredPct: obra.progressMeasuredPct,
         percentualEmpreiteiro: r.valores.percentualEmpreiteiro,
         lucroEmpreiteiro: r.calculo.lucroEmpreiteiro,
       });

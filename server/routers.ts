@@ -73,6 +73,7 @@ import {
 } from "../shared/raffle.js";
 import { brokerPortalRouter } from "./broker-portal-router.js";
 import { empreiteiroRouter, obraFinanceiroRouter } from "./obra-financeiro-router.js";
+import { obraProgressoRouter } from "./obra-progresso-router.js";
 import { LEAD_PIPELINE_KEYS } from "../shared/lead-pipeline.js";
 import { leadDocumentsRouter } from "./lead-documents-router.js";
 
@@ -153,6 +154,7 @@ export const appRouter = router({
   leadDocuments: leadDocumentsRouter,
   brokerPortal: brokerPortalRouter,
   obraFinanceiro: obraFinanceiroRouter,
+  obraProgresso: obraProgressoRouter,
   empreiteiro: empreiteiroRouter,
   auth: router({
     me: publicProcedure.query(opts => opts.ctx.user),
@@ -836,7 +838,7 @@ export const appRouter = router({
           estimatedEndDate: z.date().optional(),
           actualEndDate: z.date().optional(),
           status: z.enum(OBRA_STATUS_TODOS).optional(),
-          progress: z.number().min(0).max(100).optional(),
+          // EPIC-020 Lote 4: progresso não é mais digitado (obraProgresso.salvar).
           notes: z.string().optional(),
         })
       )
@@ -960,59 +962,8 @@ export const appRouter = router({
       }),
 
     // ========== FOTOS ==========
-
-    // Upload de foto (retorna URL para upload no S3)
-    uploadPhoto: protectedProcedure
-      .input(
-        z.object({
-          projectId: z.number(),
-          stageId: z.number().optional(),
-          caption: z.string().optional(),
-          takenAt: z.date(),
-          imageUrl: z.string(), // URL da imagem já no S3
-        })
-      )
-      .mutation(async ({ input, ctx }) => {
-        const project = await db.getProjectById(input.projectId);
-        if (!project) {
-          throw new TRPCError({
-            code: "NOT_FOUND",
-            message: "Obra não encontrada",
-          });
-        }
-        if (project.userId !== ctx.user.id && ctx.user.role !== "admin") {
-          throw new TRPCError({ code: "FORBIDDEN", message: "Acesso negado" });
-        }
-        const photo = await db.createPhoto({
-          ...input,
-          uploadedBy: ctx.user.id,
-        });
-        return photo;
-      }),
-
-    // Deletar foto
-    deletePhoto: protectedProcedure
-      .input(z.object({ photoId: z.number() }))
-      .mutation(async ({ input, ctx }) => {
-        // Buscar foto para verificar permissões
-        const photos = await db.getPhotosByProjectId(0); // Workaround: buscar todas e filtrar
-        const photo = photos.find(p => p.id === input.photoId);
-        if (!photo) {
-          throw new TRPCError({
-            code: "NOT_FOUND",
-            message: "Foto não encontrada",
-          });
-        }
-        const project = await db.getProjectById(photo.projectId);
-        if (
-          !project ||
-          (project.userId !== ctx.user.id && ctx.user.role !== "admin")
-        ) {
-          throw new TRPCError({ code: "FORBIDDEN", message: "Acesso negado" });
-        }
-        await db.deletePhoto(input.photoId);
-        return { success: true };
-      }),
+    // EPIC-020 Lote 4: envio em /api/obras/:id/fotos (server/routes/obra-fotos.ts);
+    // legenda, marcação para o relatório e exclusão em obraProgresso.*.
   }),
 
   // ========== PROJECT BUDGET REQUESTS (ORÇAMENTOS) ==========
