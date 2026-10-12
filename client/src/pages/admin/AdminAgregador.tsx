@@ -5,6 +5,9 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
+import { CurrencyInput } from "@/components/ui/currency-input";
+import { formatarNumeroParaEdicao, aplicarDigitacao } from "@/lib/numero-input";
+import { formatCurrency } from "@/lib/format";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import {
@@ -88,10 +91,7 @@ function formatCurrencyBR(value: number | string | null | undefined) {
   if (!value) return null;
   const num = typeof value === "string" ? parseFloat(value) : value;
   if (isNaN(num)) return null;
-  return new Intl.NumberFormat("pt-BR", {
-    style: "currency",
-    currency: "BRL",
-  }).format(num);
+  return formatCurrency(num);
 }
 
 export default function AdminAgregador({
@@ -101,6 +101,11 @@ export default function AdminAgregador({
   const [filterFonte, setFilterFonte] = useState("all");
   const [filterStatus, setFilterStatus] = useState("all");
   const [form, setForm] = useState(emptyForm);
+  // Buffer de texto de "Área (m²)" — mesmo motivo do `EstudoMassa.tsx`
+  // (Lote 5); "Preço (R$)" usa `CurrencyInput`, que já cuida do próprio
+  // buffer e ressincroniza sozinho quando `form.preco` muda externamente
+  // (ex.: depois do scraping da URL).
+  const [areaM2Texto, setAreaM2Texto] = useState("");
 
   const utils = trpc.useUtils();
   const { data: itens = [] } = trpc.agregador.list.useQuery({
@@ -129,6 +134,7 @@ export default function AdminAgregador({
       utils.agregador.list.invalidate();
       setOpen(false);
       setForm(emptyForm);
+      setAreaM2Texto("");
     },
     onError: e => toast.error(e.message),
   });
@@ -283,11 +289,10 @@ export default function AdminAgregador({
                   </div>
                   <div>
                     <Label className="text-gray-300">Preço (R$)</Label>
-                    <Input
-                      type="number"
-                      value={form.preco}
-                      onChange={e =>
-                        setForm(f => ({ ...f, preco: e.target.value }))
+                    <CurrencyInput
+                      value={form.preco ? Number(form.preco) : 0}
+                      onChange={v =>
+                        setForm(f => ({ ...f, preco: v ? String(v) : "" }))
                       }
                       className="bg-[#2C3E50] border-[#C9A961]/30 text-white mt-1"
                     />
@@ -295,11 +300,15 @@ export default function AdminAgregador({
                   <div>
                     <Label className="text-gray-300">Área (m²)</Label>
                     <Input
-                      type="number"
-                      value={form.areaM2}
-                      onChange={e =>
-                        setForm(f => ({ ...f, areaM2: e.target.value }))
-                      }
+                      type="text"
+                      inputMode="decimal"
+                      value={areaM2Texto}
+                      onChange={e => {
+                        const { texto, numero } = aplicarDigitacao(e.target.value);
+                        setAreaM2Texto(texto);
+                        setForm(f => ({ ...f, areaM2: numero ? String(numero) : "" }));
+                      }}
+                      onBlur={() => setAreaM2Texto(form.areaM2 ? formatarNumeroParaEdicao(Number(form.areaM2)) : "")}
                       className="bg-[#2C3E50] border-[#C9A961]/30 text-white mt-1"
                     />
                   </div>

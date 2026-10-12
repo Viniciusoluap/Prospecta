@@ -4,6 +4,8 @@ import { trpc } from "@/lib/trpc";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import { CurrencyInput } from "@/components/ui/currency-input";
+import { formatarNumeroParaEdicao, aplicarDigitacao } from "@/lib/numero-input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -27,9 +29,17 @@ export default function AdminAvaliacaoEditar() {
   const { data: avaliacao } = trpc.avaliacoes.getById.useQuery({ id }, { enabled: !isNaN(id) });
   const { data: leadOptions = [] } = trpc.avaliacoes.leadOptions.useQuery();
   const [form, setForm] = useState(emptyForm);
+  // Buffers de texto de "Área const." e "Área terreno" (m²) — mesmo motivo
+  // do `EstudoMassa.tsx` (Lote 5); "Valor do serviço" usa `CurrencyInput`,
+  // que já cuida do próprio buffer. Preenchidos no mesmo efeito que
+  // hidrata `form` a partir do registro carregado.
+  const [areaConstruidaTexto, setAreaConstruidaTexto] = useState("");
+  const [areaTerrenoTexto, setAreaTerrenoTexto] = useState("");
 
   useEffect(() => {
     if (avaliacao) {
+      setAreaConstruidaTexto(avaliacao.areaConstruida ? formatarNumeroParaEdicao(Number(avaliacao.areaConstruida)) : "");
+      setAreaTerrenoTexto(avaliacao.areaTerreno ? formatarNumeroParaEdicao(Number(avaliacao.areaTerreno)) : "");
       setForm({
         tipo: avaliacao.tipo, finalidade: avaliacao.finalidade, metodologia: avaliacao.metodologia, avaliador: avaliacao.avaliador,
         clienteNome: avaliacao.clienteNome, clienteCpf: avaliacao.clienteCpf ?? "", clienteTel: avaliacao.clienteTel, clienteEmail: avaliacao.clienteEmail ?? "",
@@ -209,11 +219,33 @@ export default function AdminAvaliacaoEditar() {
             <div className="grid grid-cols-3 gap-3">
               <div>
                 <Label className="text-gray-300">Área const. (m²)</Label>
-                <Input type="number" value={form.areaConstruida} onChange={(e) => setForm((f) => ({ ...f, areaConstruida: e.target.value }))} className="bg-[#1A2332] border-[#C9A961]/30 text-white mt-1" />
+                <Input
+                  type="text"
+                  inputMode="decimal"
+                  value={areaConstruidaTexto}
+                  onChange={(e) => {
+                    const { texto, numero } = aplicarDigitacao(e.target.value);
+                    setAreaConstruidaTexto(texto);
+                    setForm((f) => ({ ...f, areaConstruida: numero ? String(numero) : "" }));
+                  }}
+                  onBlur={() => setAreaConstruidaTexto(form.areaConstruida ? formatarNumeroParaEdicao(Number(form.areaConstruida)) : "")}
+                  className="bg-[#1A2332] border-[#C9A961]/30 text-white mt-1"
+                />
               </div>
               <div>
                 <Label className="text-gray-300">Área terreno (m²)</Label>
-                <Input type="number" value={form.areaTerreno} onChange={(e) => setForm((f) => ({ ...f, areaTerreno: e.target.value }))} className="bg-[#1A2332] border-[#C9A961]/30 text-white mt-1" />
+                <Input
+                  type="text"
+                  inputMode="decimal"
+                  value={areaTerrenoTexto}
+                  onChange={(e) => {
+                    const { texto, numero } = aplicarDigitacao(e.target.value);
+                    setAreaTerrenoTexto(texto);
+                    setForm((f) => ({ ...f, areaTerreno: numero ? String(numero) : "" }));
+                  }}
+                  onBlur={() => setAreaTerrenoTexto(form.areaTerreno ? formatarNumeroParaEdicao(Number(form.areaTerreno)) : "")}
+                  className="bg-[#1A2332] border-[#C9A961]/30 text-white mt-1"
+                />
               </div>
               <div>
                 <Label className="text-gray-300">Quartos</Label>
@@ -229,7 +261,7 @@ export default function AdminAvaliacaoEditar() {
               </div>
               <div>
                 <Label className="text-gray-300">Valor do serviço (R$)</Label>
-                <Input type="number" value={form.valorServico} onChange={(e) => setForm((f) => ({ ...f, valorServico: e.target.value }))} className="bg-[#1A2332] border-[#C9A961]/30 text-white mt-1" />
+                <CurrencyInput value={form.valorServico ? Number(form.valorServico) : 0} onChange={(v) => setForm((f) => ({ ...f, valorServico: v ? String(v) : "" }))} className="bg-[#1A2332] border-[#C9A961]/30 text-white mt-1" />
               </div>
             </div>
 

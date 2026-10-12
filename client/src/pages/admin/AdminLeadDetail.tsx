@@ -5,6 +5,8 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
+import { CurrencyInput } from "@/components/ui/currency-input";
+import { formatCurrency } from "@/lib/format";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -37,7 +39,7 @@ const ACTIVITY_ICONS: Record<string, React.ReactNode> = {
 function formatCurrencyBR(value: number | string | null | undefined) {
   if (!value) return "—";
   const num = typeof value === "string" ? parseFloat(value) : value;
-  return new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(num);
+  return formatCurrency(num);
 }
 
 function formatDate(dateStr: string | Date | null | undefined) {
@@ -296,11 +298,11 @@ export default function AdminLeadDetail() {
                     </div>
                     <div>
                       <Label className="text-gray-300">Valor Simulação (R$)</Label>
-                      <Input type="number" value={editForm.simulationValue || ""} onChange={e => setEditForm(f => ({ ...f, simulationValue: e.target.value }))} className="bg-[#2C3E50] border-[#C9A961]/30 text-white mt-1" />
+                      <CurrencyInput value={editForm.simulationValue ? Number(editForm.simulationValue) : 0} onChange={v => setEditForm(f => ({ ...f, simulationValue: v ? String(v) : "" }))} className="bg-[#2C3E50] border-[#C9A961]/30 text-white mt-1" />
                     </div>
                     <div>
                       <Label className="text-gray-300">Valor Aprovado (R$)</Label>
-                      <Input type="number" value={editForm.approvedValue || ""} onChange={e => setEditForm(f => ({ ...f, approvedValue: e.target.value }))} className="bg-[#2C3E50] border-[#C9A961]/30 text-white mt-1" />
+                      <CurrencyInput value={editForm.approvedValue ? Number(editForm.approvedValue) : 0} onChange={v => setEditForm(f => ({ ...f, approvedValue: v ? String(v) : "" }))} className="bg-[#2C3E50] border-[#C9A961]/30 text-white mt-1" />
                     </div>
                   </div>
                   <div>

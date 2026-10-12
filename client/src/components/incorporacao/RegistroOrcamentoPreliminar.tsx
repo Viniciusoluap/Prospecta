@@ -2,6 +2,7 @@ import { useMemo, useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { CurrencyInput } from "@/components/ui/currency-input";
 import { trpc } from "@/lib/trpc";
 import { toast } from "sonner";
 import { FileCheck2, Wallet, Plus, Trash2, AlertTriangle } from "lucide-react";
@@ -213,7 +214,7 @@ function OrcamentoPreliminar({ estudoId, preliminaryBudgetJson, parameterizedBud
                       {CATEGORIAS_ORCAMENTO_PRELIMINAR.map((c) => <option key={c} value={c}>{c}</option>)}
                     </select>
                   </td>
-                  <td className="px-1 py-1"><Input type="number" value={item.valorOrcado || ""} onChange={(e) => upd(item.id, "valorOrcado", parseFloat(e.target.value) || 0)} className={`${inputCls} text-right`} /></td>
+                  <td className="px-1 py-1"><CurrencyInput value={item.valorOrcado} onChange={(v) => upd(item.id, "valorOrcado", v)} className={`${inputCls} text-right`} /></td>
                   <td className="px-1 py-1"><Input value={item.observacoes ?? ""} onChange={(e) => upd(item.id, "observacoes", e.target.value)} className={inputCls} placeholder="Observações" /></td>
                   <td className="px-1 py-1">
                     <button type="button" onClick={() => removerItem(item.id)} className="text-gray-500 hover:text-red-400 flex justify-center"><Trash2 className="h-4 w-4" /></button>

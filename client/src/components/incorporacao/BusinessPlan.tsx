@@ -2,6 +2,8 @@ import { useMemo, useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { CurrencyInput } from "@/components/ui/currency-input";
+import { PercentInput } from "@/components/ui/percent-input";
 import { trpc } from "@/lib/trpc";
 import { toast } from "sonner";
 import { PiggyBank, Plus, Trash2 } from "lucide-react";
@@ -73,7 +75,7 @@ export function BusinessPlan({ estudoId, businessPlanJson }: { estudoId: number;
 
         <div className="max-w-xs">
           <label className="text-[10px] font-bold text-gray-500 uppercase tracking-widest block mb-1">Investimento total (R$, manual)</label>
-          <Input type="number" value={dados.investimentoTotalManual || ""} onChange={(e) => setDados((d) => ({ ...d, investimentoTotalManual: parseFloat(e.target.value) || 0 }))} className={inputCls} />
+          <CurrencyInput value={dados.investimentoTotalManual} onChange={(v) => setDados((d) => ({ ...d, investimentoTotalManual: v }))} className={inputCls} />
         </div>
 
         <div className="overflow-x-auto">
@@ -95,8 +97,8 @@ export function BusinessPlan({ estudoId, businessPlanJson }: { estudoId: number;
                 return (
                   <tr key={f.id}>
                     <td className="px-1 py-1"><Input value={f.nome} onChange={(e) => updFonte(f.id, "nome", e.target.value)} className={inputCls} placeholder="Ex.: Fundo X" /></td>
-                    <td className="px-1 py-1"><Input type="number" value={f.capitalAportado || ""} onChange={(e) => updFonte(f.id, "capitalAportado", parseFloat(e.target.value) || 0)} className={`${inputCls} text-right`} /></td>
-                    <td className="px-1 py-1"><Input type="number" step={0.1} value={f.remuneracaoPct} onChange={(e) => updFonte(f.id, "remuneracaoPct", parseFloat(e.target.value) || 0)} className={`${inputCls} text-right`} /></td>
+                    <td className="px-1 py-1"><CurrencyInput value={f.capitalAportado} onChange={(v) => updFonte(f.id, "capitalAportado", v)} className={`${inputCls} text-right`} /></td>
+                    <td className="px-1 py-1"><PercentInput value={f.remuneracaoPct} onChange={(v) => updFonte(f.id, "remuneracaoPct", v)} className={`${inputCls} text-right`} /></td>
                     <td className="px-1 py-1">
                       <select value={f.periodoRemuneracao} onChange={(e) => updFonte(f.id, "periodoRemuneracao", e.target.value as PeriodoRemuneracao)} className="bg-[#2C3E50] border border-[#C9A961]/30 text-white rounded-md px-2 h-9 text-sm w-full">
                         <option value="mensal">Mensal</option>

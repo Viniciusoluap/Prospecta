@@ -2,6 +2,7 @@ import { useMemo, useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { CurrencyInput } from "@/components/ui/currency-input";
 import { trpc } from "@/lib/trpc";
 import { toast } from "sonner";
 import { CalendarClock, Truck, Image, Plus, Trash2, AlertTriangle } from "lucide-react";
@@ -199,7 +200,7 @@ function FornecedoresLancamento({ estudoId, launchSuppliersJson }: { estudoId: n
                   </td>
                   <td className="px-1 py-1"><Input value={f.nome} onChange={(e) => upd(f.id, "nome", e.target.value)} className={inputCls} placeholder="Nome" /></td>
                   <td className="px-1 py-1"><Input value={f.contato ?? ""} onChange={(e) => upd(f.id, "contato", e.target.value)} className={inputCls} placeholder="Telefone/e-mail" /></td>
-                  <td className="px-1 py-1"><Input type="number" value={f.valorContratado || ""} onChange={(e) => upd(f.id, "valorContratado", parseFloat(e.target.value) || 0)} className={`${inputCls} text-right`} /></td>
+                  <td className="px-1 py-1"><CurrencyInput value={f.valorContratado} onChange={(v) => upd(f.id, "valorContratado", v)} className={`${inputCls} text-right`} /></td>
                   <td className="px-1 py-1">
                     <select value={f.status} onChange={(e) => upd(f.id, "status", e.target.value as StatusFornecedor)} className={selectCls}>
                       {STATUS_FORNECEDOR.map((s) => <option key={s.value} value={s.value}>{s.label}</option>)}

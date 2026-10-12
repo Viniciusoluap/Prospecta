@@ -5,6 +5,8 @@ import {
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { CurrencyInput } from "@/components/ui/currency-input";
+import { formatarNumeroParaEdicao, aplicarDigitacao } from "@/lib/numero-input";
 import { trpc } from "@/lib/trpc";
 import { toast } from "sonner";
 import { Calculator, Plus, Trash2 } from "lucide-react";
@@ -236,11 +238,45 @@ export function ViabilidadeEconomica({ estudoId, areaM2, appAreaM2, productMixJs
 
   const set = <K extends keyof PremissasForm>(k: K) => (v: PremissasForm[K]) => setForm((f) => ({ ...f, [k]: v }));
 
-  function addProduto() { setMix((m) => [...m, { nome: "Novo produto", quantidade: 0, areaUnidadeM2: 0, precoM2: 0 }]); }
+  // Buffers de texto de "Qtd" e "Área m²" do mix de produtos — mesmo motivo
+  // do `EstudoMassa.tsx` (Lote 5): sem eles, o <Input> ficaria vinculado
+  // diretamente ao número já parseado e cada tecla apagaria a vírgula
+  // decimal que o usuário está digitando. Mantidos em sincronia por índice
+  // com `mix` em add/remover.
+  const [textoQtd, setTextoQtd] = useState<string[]>(() =>
+    mix.map((p) => formatarNumeroParaEdicao(p.quantidade, { minimumFractionDigits: 0, maximumFractionDigits: 0 }))
+  );
+  const [textoArea, setTextoArea] = useState<string[]>(() => mix.map((p) => formatarNumeroParaEdicao(p.areaUnidadeM2)));
+
+  function addProduto() {
+    setMix((m) => [...m, { nome: "Novo produto", quantidade: 0, areaUnidadeM2: 0, precoM2: 0 }]);
+    setTextoQtd((t) => [...t, ""]);
+    setTextoArea((t) => [...t, ""]);
+  }
   function updProduto(i: number, campo: keyof ItemMixProduto, valor: string) {
     setMix((m) => { const novo = [...m]; novo[i] = { ...novo[i], [campo]: campo === "nome" ? valor : (parseFloat(valor) || 0) }; return novo; });
   }
-  function removerProduto(i: number) { setMix((m) => m.filter((_, j) => j !== i)); }
+  function updQtd(i: number, valorTexto: string) {
+    const { texto, numero } = aplicarDigitacao(valorTexto);
+    setTextoQtd((t) => { const c = [...t]; c[i] = texto; return c; });
+    setMix((m) => { const novo = [...m]; novo[i] = { ...novo[i], quantidade: numero }; return novo; });
+  }
+  function reformatarQtd(i: number) {
+    setTextoQtd((t) => { const c = [...t]; c[i] = formatarNumeroParaEdicao(mix[i]?.quantidade ?? 0, { minimumFractionDigits: 0, maximumFractionDigits: 0 }); return c; });
+  }
+  function updArea(i: number, valorTexto: string) {
+    const { texto, numero } = aplicarDigitacao(valorTexto);
+    setTextoArea((t) => { const c = [...t]; c[i] = texto; return c; });
+    setMix((m) => { const novo = [...m]; novo[i] = { ...novo[i], areaUnidadeM2: numero }; return novo; });
+  }
+  function reformatarArea(i: number) {
+    setTextoArea((t) => { const c = [...t]; c[i] = formatarNumeroParaEdicao(mix[i]?.areaUnidadeM2 ?? 0); return c; });
+  }
+  function removerProduto(i: number) {
+    setMix((m) => m.filter((_, j) => j !== i));
+    setTextoQtd((t) => t.filter((_, j) => j !== i));
+    setTextoArea((t) => t.filter((_, j) => j !== i));
+  }
 
   const pctAPP = form.areaBrutaM2 > 0 ? appM2 / form.areaBrutaM2 : 0;
 
@@ -289,9 +325,25 @@ export function ViabilidadeEconomica({ estudoId, areaM2, appAreaM2, productMixJs
             {mix.map((p, i) => (
               <div key={i} className="grid grid-cols-12 gap-2 items-center">
                 <Input value={p.nome} onChange={(e) => updProduto(i, "nome", e.target.value)} className={`${inputCls} col-span-5`} placeholder="Ex.: Lotes" />
-                <Input type="number" value={p.quantidade || ""} onChange={(e) => updProduto(i, "quantidade", e.target.value)} className={`${inputCls} col-span-2`} placeholder="Qtd" />
-                <Input type="number" value={p.areaUnidadeM2 || ""} onChange={(e) => updProduto(i, "areaUnidadeM2", e.target.value)} className={`${inputCls} col-span-2`} placeholder="Área m²" />
-                <Input type="number" value={p.precoM2 || ""} onChange={(e) => updProduto(i, "precoM2", e.target.value)} className={`${inputCls} col-span-2`} placeholder="R$/m²" />
+                <Input
+                  type="text"
+                  inputMode="decimal"
+                  value={textoQtd[i] ?? formatarNumeroParaEdicao(p.quantidade, { minimumFractionDigits: 0, maximumFractionDigits: 0 })}
+                  onChange={(e) => updQtd(i, e.target.value)}
+                  onBlur={() => reformatarQtd(i)}
+                  className={`${inputCls} col-span-2`}
+                  placeholder="Qtd"
+                />
+                <Input
+                  type="text"
+                  inputMode="decimal"
+                  value={textoArea[i] ?? formatarNumeroParaEdicao(p.areaUnidadeM2)}
+                  onChange={(e) => updArea(i, e.target.value)}
+                  onBlur={() => reformatarArea(i)}
+                  className={`${inputCls} col-span-2`}
+                  placeholder="Área m²"
+                />
+                <CurrencyInput value={p.precoM2} onChange={(v) => updProduto(i, "precoM2", String(v))} className={`${inputCls} col-span-2`} placeholder="0,00/m²" />
                 <button type="button" onClick={() => removerProduto(i)} className="col-span-1 text-gray-500 hover:text-red-400 flex justify-center"><Trash2 className="h-4 w-4" /></button>
               </div>
             ))}

@@ -2,6 +2,8 @@ import { useMemo, useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { CurrencyInput } from "@/components/ui/currency-input";
+import { formatarNumeroParaEdicao, aplicarDigitacao } from "@/lib/numero-input";
 import { trpc } from "@/lib/trpc";
 import { toast } from "sonner";
 import { TrendingUp, Sparkles, Loader2, Plus, Trash2, Scale, ClipboardList } from "lucide-react";
@@ -264,7 +266,7 @@ function PrecificacaoComparaveis({ estudoId, comparablePricingJson }: { estudoId
                 {dados.comparaveis.map((c, i) => (
                   <tr key={i}>
                     <td className="px-1 py-1 w-40"><Input value={c.nome} onChange={(e) => updComparavel(i, "nome", e.target.value)} className="bg-[#2C3E50] border-[#C9A961]/30 text-white" placeholder="Concorrente" /></td>
-                    <td className="px-1 py-1 w-28"><Input type="number" value={c.precoM2 ?? ""} onChange={(e) => updComparavel(i, "precoM2", e.target.value)} className="bg-[#2C3E50] border-[#C9A961]/30 text-white" placeholder="R$/m²" /></td>
+                    <td className="px-1 py-1 w-28"><CurrencyInput value={c.precoM2 ?? 0} onChange={(v) => updComparavel(i, "precoM2", String(v))} className="bg-[#2C3E50] border-[#C9A961]/30 text-white" placeholder="0,00/m²" /></td>
                     {dados.atributos.map((_, ai) => (
                       <td key={ai} className="px-1 py-1 w-20">
                         <Input type="number" min={0} max={3} step={0.5} value={c.notas[ai] ?? 0}
@@ -350,6 +352,14 @@ function PesquisaPrimaria({ estudoId, primaryResearchJson }: { estudoId: number;
 
   const resumo = useMemo(() => resumoPesquisaPrimaria(entrevistados), [entrevistados]);
 
+  // Buffer de texto do campo "Tamanho ideal (m²)" — mesmo motivo do
+  // `EstudoMassa.tsx` (Lote 5): sem ele, o <Input> ficaria vinculado
+  // diretamente ao número já parseado e cada tecla apagaria a vírgula
+  // decimal que o usuário está digitando. Indexado por id do entrevistado;
+  // entradas ausentes (ex.: entrevistado recém-adicionado) caem no
+  // fallback a partir do número já salvo.
+  const [textoTamanho, setTextoTamanho] = useState<Record<string, string>>({});
+
   function addEntrevistado() { setEntrevistados((e) => [...e, novoEntrevistado()]); setAberto(true); }
   function removerEntrevistado(id: string) { setEntrevistados((e) => e.filter((x) => x.id !== id)); }
   function upd<K extends keyof Entrevistado>(id: string, campo: K, valor: Entrevistado[K]) {
@@ -361,6 +371,14 @@ function PesquisaPrimaria({ estudoId, primaryResearchJson }: { estudoId: number;
       const tem = e.tiposInteresse.includes(tipo);
       return { ...e, tiposInteresse: tem ? e.tiposInteresse.filter((t) => t !== tipo) : [...e.tiposInteresse, tipo] };
     }));
+  }
+  function updTamanhoIdeal(id: string, valorTexto: string) {
+    const { texto, numero } = aplicarDigitacao(valorTexto);
+    setTextoTamanho((t) => ({ ...t, [id]: texto }));
+    upd(id, "tamanhoIdealM2", numero);
+  }
+  function reformatarTamanhoIdeal(id: string, valorAtual: number) {
+    setTextoTamanho((t) => ({ ...t, [id]: formatarNumeroParaEdicao(valorAtual) }));
   }
   function updItem(id: string, item: ItemCondominio, nivel: NivelImportancia | "") {
     setEntrevistados((es) => es.map((e) => {
@@ -418,7 +436,15 @@ function PesquisaPrimaria({ estudoId, primaryResearchJson }: { estudoId: number;
                   <label className="flex items-center gap-1.5 text-xs text-gray-400">
                     <input type="checkbox" checked={e.interesseComprar12Meses} onChange={(ev) => upd(e.id, "interesseComprar12Meses", ev.target.checked)} /> Interesse em comprar (12m)
                   </label>
-                  <Input type="number" value={e.tamanhoIdealM2 || ""} onChange={(ev) => upd(e.id, "tamanhoIdealM2", parseFloat(ev.target.value) || 0)} className="bg-[#2C3E50] border-[#C9A961]/30 text-white" placeholder="Tamanho ideal (m²)" />
+                  <Input
+                    type="text"
+                    inputMode="decimal"
+                    value={textoTamanho[e.id] ?? formatarNumeroParaEdicao(e.tamanhoIdealM2)}
+                    onChange={(ev) => updTamanhoIdeal(e.id, ev.target.value)}
+                    onBlur={() => reformatarTamanhoIdeal(e.id, e.tamanhoIdealM2)}
+                    className="bg-[#2C3E50] border-[#C9A961]/30 text-white"
+                    placeholder="Tamanho ideal (m²)"
+                  />
                   <Input type="number" value={e.quartosNecessarios || ""} onChange={(ev) => upd(e.id, "quartosNecessarios", parseFloat(ev.target.value) || 0)} className="bg-[#2C3E50] border-[#C9A961]/30 text-white" placeholder="Quartos necessários" />
                 </div>
 
