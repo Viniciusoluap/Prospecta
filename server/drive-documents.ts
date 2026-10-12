@@ -90,7 +90,22 @@ export async function uploadPrivateDocument(leadId: number, serviceId: number | 
   const service = await folder(customer, serviceId ? `servico-${serviceId}` : "crm");
   const categoryFolder = await folder(service, category);
   await assertNotPublic(categoryFolder);
-  const metadata = JSON.stringify({ name, parents: [categoryFolder], description: `Prospecta documento lead ${leadId}` });
+  return uploadToFolder(categoryFolder, name, mimeType, data);
+}
+
+/** Estudos são independentes de leads: usam uma árvore própria para evitar colisões de IDs. */
+export async function uploadPrivateIncorporationDocument(studyId: number, itemId: string, name: string, mimeType: string, data: Buffer): Promise<string> {
+  const root = config().rootFolder;
+  await assertNotPublic(root);
+  const study = await folder(root, `incorporacao-${studyId}`);
+  const registration = await folder(study, "registro");
+  const item = await folder(registration, itemId);
+  await assertNotPublic(item);
+  return uploadToFolder(item, name, mimeType, data);
+}
+
+async function uploadToFolder(categoryFolder: string, name: string, mimeType: string, data: Buffer): Promise<string> {
+  const metadata = JSON.stringify({ name, parents: [categoryFolder] });
   const session = await driveFetch("https://www.googleapis.com/upload/drive/v3/files?uploadType=resumable&fields=id&supportsAllDrives=true", {
     method: "POST", headers: { "Content-Type": "application/json; charset=UTF-8", "X-Upload-Content-Type": mimeType, "X-Upload-Content-Length": String(data.length) }, body: metadata,
   });

@@ -83,12 +83,13 @@ function ElevationHeatmap({ grid }: { grid: GridElevacao }) {
   );
 }
 
-export function TerrenoTopografia({ estudoId, geojson, areaM2, perimeterM, elevationJson }: {
+export function TerrenoTopografia({ estudoId, geojson, areaM2, perimeterM, elevationJson, secao }: {
   estudoId: number;
   geojson: string | null;
   areaM2: string;
   perimeterM: string;
   elevationJson: string | null;
+  secao?: "terreno" | "topografia";
 }) {
   const utils = trpc.useUtils();
   const [busy, setBusy] = useState(false);
@@ -153,7 +154,7 @@ export function TerrenoTopografia({ estudoId, geojson, areaM2, perimeterM, eleva
 
   return (
     <div className="space-y-6">
-      <Card className="bg-[#1A2332]/60 border-[#C9A961]/20 backdrop-blur-sm">
+      <div hidden={!!secao && secao !== "terreno"}><Card className="bg-[#1A2332]/60 border-[#C9A961]/20 backdrop-blur-sm">
         <CardHeader>
           <CardTitle className="text-white text-lg">Terreno</CardTitle>
         </CardHeader>
@@ -186,9 +187,9 @@ export function TerrenoTopografia({ estudoId, geojson, areaM2, perimeterM, eleva
             </div>
           )}
         </CardContent>
-      </Card>
+      </Card></div>
 
-      <Card className="bg-[#1A2332]/60 border-[#C9A961]/20 backdrop-blur-sm">
+      <div hidden={!!secao && secao !== "topografia"}><Card className="bg-[#1A2332]/60 border-[#C9A961]/20 backdrop-blur-sm">
         <CardHeader>
           <CardTitle className="text-white text-lg">Topografia</CardTitle>
         </CardHeader>
@@ -236,7 +237,7 @@ export function TerrenoTopografia({ estudoId, geojson, areaM2, perimeterM, eleva
             </div>
           )}
         </CardContent>
-      </Card>
+      </Card></div>
     </div>
   );
 }

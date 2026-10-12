@@ -22,13 +22,13 @@ function Metric({ label, valor, destaque }: { label: string; valor: string; dest
   );
 }
 
-export function AtendimentoRelatorio({ estudoId, customerServiceJson, estudo }: {
-  estudoId: number; customerServiceJson: string | null; estudo: EstudoParaRelatorioExecutivo;
+export function AtendimentoRelatorio({ estudoId, customerServiceJson, estudo, secao }: {
+  estudoId: number; customerServiceJson: string | null; estudo: EstudoParaRelatorioExecutivo; secao?: "atendimento" | "relatorio";
 }) {
   return (
     <div className="space-y-6">
-      <AtendimentoClientes estudoId={estudoId} customerServiceJson={customerServiceJson} />
-      <RelatorioExecutivo estudo={estudo} />
+      <div hidden={!!secao && secao !== "atendimento"}><AtendimentoClientes estudoId={estudoId} customerServiceJson={customerServiceJson} /></div>
+      <div hidden={!!secao && secao !== "relatorio"}><RelatorioExecutivo estudo={estudo} /></div>
     </div>
   );
 }

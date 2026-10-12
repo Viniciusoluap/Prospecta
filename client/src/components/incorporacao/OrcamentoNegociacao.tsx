@@ -44,15 +44,16 @@ function Metric({ label, valor, destaque }: { label: string; valor: string; dest
   );
 }
 
-export function OrcamentoNegociacao({ estudoId, parameterizedBudgetJson, landNegotiationJson }: {
+export function OrcamentoNegociacao({ estudoId, parameterizedBudgetJson, landNegotiationJson, secao }: {
   estudoId: number;
   parameterizedBudgetJson: string | null;
   landNegotiationJson: string | null;
+  secao?: "orcamento" | "negociacao";
 }) {
   return (
     <div className="space-y-6">
-      <OrcamentoParametrizado estudoId={estudoId} parameterizedBudgetJson={parameterizedBudgetJson} />
-      <NegociacaoTerreno estudoId={estudoId} landNegotiationJson={landNegotiationJson} />
+      <div hidden={!!secao && secao !== "orcamento"}><OrcamentoParametrizado estudoId={estudoId} parameterizedBudgetJson={parameterizedBudgetJson} /></div>
+      <div hidden={!!secao && secao !== "negociacao"}><NegociacaoTerreno estudoId={estudoId} landNegotiationJson={landNegotiationJson} /></div>
     </div>
   );
 }

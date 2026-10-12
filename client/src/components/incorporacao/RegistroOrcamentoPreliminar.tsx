@@ -1,11 +1,11 @@
-import { useMemo, useState } from "react";
+import { useMemo, useState, type ChangeEvent } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { CurrencyInput } from "@/components/ui/currency-input";
 import { trpc } from "@/lib/trpc";
 import { toast } from "sonner";
-import { FileCheck2, Wallet, Plus, Trash2, AlertTriangle } from "lucide-react";
+import { FileCheck2, Wallet, Plus, Trash2, AlertTriangle, Paperclip, ExternalLink } from "lucide-react";
 import { resumoRegistro, DOCUMENTOS_PADRAO_REGISTRO, type DocumentoRegistro, type StatusDocumento } from "@shared/incorporacao/registro-incorporacao";
 import { resumoOrcamentoPreliminar, CATEGORIAS_ORCAMENTO_PRELIMINAR, type CategoriaOrcamentoPreliminar, type ItemOrcamentoPreliminar } from "@shared/incorporacao/orcamento-preliminar";
 import { calcularOrcamentoParametrizado, type PremissasOrcamentoParametrizado } from "@shared/incorporacao/orcamento-parametrizado";
@@ -52,6 +52,19 @@ const STATUS_DOC: { value: StatusDocumento; label: string }[] = [
 
 function RegistroIncorporacao({ estudoId, incorporationRegistrationJson }: { estudoId: number; incorporationRegistrationJson: string | null }) {
   const utils = trpc.useUtils();
+  const { data: available } = trpc.incorporacao.documents.available.useQuery();
+  const { data: attachments = [] } = trpc.incorporacao.documents.list.useQuery({ studyId: estudoId });
+  const [busyItem, setBusyItem] = useState<string | null>(null);
+  const upload = trpc.incorporacao.documents.upload.useMutation({
+    onSuccess: () => { toast.success("Documento armazenado no Drive"); void utils.incorporacao.documents.list.invalidate({ studyId: estudoId }); },
+    onError: (e) => toast.error(e.message),
+    onSettled: () => setBusyItem(null),
+  });
+  const unlink = trpc.incorporacao.documents.unlink.useMutation({
+    onSuccess: () => { toast.success("Anexo desvinculado; histórico preservado"); void utils.incorporacao.documents.list.invalidate({ studyId: estudoId }); },
+    onError: (e) => toast.error(e.message),
+    onSettled: () => setBusyItem(null),
+  });
   const [dados, setDados] = useState(() => {
     if (incorporationRegistrationJson) {
       try {
@@ -73,6 +86,42 @@ function RegistroIncorporacao({ estudoId, incorporationRegistrationJson }: { est
     setDados((d) => ({ documentos: d.documentos.map((doc) => (doc.id === id ? { ...doc, [campo]: valor } : doc)) }));
   }
 
+  async function attach(itemId: string, e: ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    e.target.value = "";
+    if (!file) return;
+    if (!["application/pdf", "image/jpeg", "image/png"].includes(file.type) || file.size > 3 * 1024 * 1024) {
+      toast.error("Envie PDF, JPG ou PNG de até 3 MiB"); return;
+    }
+    if (attachments.some((d) => d.itemId === itemId) && !window.confirm("Substituir o anexo atual? O histórico será preservado.")) return;
+    setBusyItem(itemId);
+    try {
+      const bytes = new Uint8Array(await file.arrayBuffer());
+      let binary = "";
+      for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i]);
+      await upload.mutateAsync({ studyId: estudoId, itemId, fileName: file.name, mimeType: file.type as "application/pdf" | "image/jpeg" | "image/png", base64: btoa(binary) });
+    } catch (error) {
+      if (!(error instanceof Error && error.name === "TRPCClientError")) toast.error("Não foi possível ler o arquivo");
+      setBusyItem(null);
+    }
+  }
+
+  async function openAttachment(itemId: string) {
+    setBusyItem(itemId);
+    try {
+      const { base64, mimeType } = await utils.incorporacao.documents.content.fetch({ studyId: estudoId, itemId });
+      const bytes = Uint8Array.from(atob(base64), (char) => char.charCodeAt(0));
+      const url = URL.createObjectURL(new Blob([bytes], { type: mimeType }));
+      const link = document.createElement("a");
+      link.href = url;
+      link.target = "_blank";
+      link.rel = "noopener noreferrer";
+      link.click();
+      setTimeout(() => URL.revokeObjectURL(url), 60_000);
+    } catch { toast.error("Não foi possível abrir o documento"); }
+    finally { setBusyItem(null); }
+  }
+
   return (
     <Card className={cardCls}>
       <CardHeader>
@@ -84,6 +133,7 @@ function RegistroIncorporacao({ estudoId, incorporationRegistrationJson }: { est
         <p className="text-xs text-gray-400 max-w-2xl">
           Checklist padrão do art. 32 da Lei 4.591/64, já pré-preenchido. A etapa fica concluída quando todos os documentos estiverem marcados como obtidos.
         </p>
+        {!available?.configured && <p className="text-xs text-amber-300">Upload indisponível até a configuração do Google Drive.</p>}
 
         <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
           <Metric label="Documentos" valor={String(resumo.total)} />
@@ -100,6 +150,7 @@ function RegistroIncorporacao({ estudoId, incorporationRegistrationJson }: { est
                 <th className="text-left text-[10px] font-bold text-gray-500 uppercase tracking-wide px-1 pb-1 w-32">Status</th>
                 <th className="text-left text-[10px] font-bold text-gray-500 uppercase tracking-wide px-1 pb-1 w-32">Data de obtenção</th>
                 <th className="text-left text-[10px] font-bold text-gray-500 uppercase tracking-wide px-1 pb-1 w-52">Observações</th>
+                <th className="text-left text-[10px] font-bold text-gray-500 uppercase tracking-wide px-1 pb-1 w-52">Anexo privado</th>
               </tr>
             </thead>
             <tbody>
@@ -113,6 +164,23 @@ function RegistroIncorporacao({ estudoId, incorporationRegistrationJson }: { est
                   </td>
                   <td className="px-1 py-1"><Input type="date" value={doc.dataObtencao ?? ""} onChange={(e) => upd(doc.id, "dataObtencao", e.target.value)} className={inputCls} /></td>
                   <td className="px-1 py-1"><Input value={doc.observacoes ?? ""} onChange={(e) => upd(doc.id, "observacoes", e.target.value)} className={inputCls} placeholder="Observações" /></td>
+                  <td className="px-1 py-1">
+                    {(() => {
+                      const current = attachments.find((item) => item.itemId === doc.id);
+                      return <div className="flex flex-wrap items-center gap-1 min-w-40">
+                        {current && <button type="button" className="text-[#E8C879] underline truncate max-w-40" title={current.fileName ?? "Documento"} onClick={() => void openAttachment(doc.id)} disabled={busyItem === doc.id}><ExternalLink className="inline h-3 w-3 mr-1" />{current.fileName}</button>}
+                        {available?.configured && <label className="cursor-pointer text-[#E8C879] underline inline-flex items-center gap-1">
+                          <Paperclip className="h-3 w-3" />{busyItem === doc.id ? "Aguarde..." : current ? "Substituir" : "Anexar"}
+                          <input type="file" className="sr-only" accept=".pdf,.jpg,.jpeg,.png,application/pdf,image/jpeg,image/png" disabled={busyItem === doc.id} onChange={(event) => void attach(doc.id, event)} />
+                        </label>}
+                        {current && <button type="button" className="text-red-300 underline" disabled={busyItem === doc.id} onClick={() => {
+                          if (window.confirm("Desvincular este anexo? O histórico será preservado.")) {
+                            setBusyItem(doc.id); unlink.mutate({ studyId: estudoId, itemId: doc.id });
+                          }
+                        }}>Desvincular</button>}
+                      </div>;
+                    })()}
+                  </td>
                 </tr>
               ))}
             </tbody>
