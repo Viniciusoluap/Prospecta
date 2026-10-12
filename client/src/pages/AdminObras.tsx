@@ -168,7 +168,7 @@ export default function AdminObras() {
                     <div className="w-full bg-gray-700 rounded-full h-2">
                       <div
                         className="bg-gradient-to-r from-[#C9A961] to-[#FFD700] h-2 rounded-full transition-all"
-                        style={{ width: `${formatarPercentual(progressoDaObra(project.progressMeasuredPct, project.progress))}` }}
+                        style={{ width: `${Math.min(100, progressoDaObra(project.progressMeasuredPct, project.progress))}%` }}
                       />
                     </div>
                   </div>
