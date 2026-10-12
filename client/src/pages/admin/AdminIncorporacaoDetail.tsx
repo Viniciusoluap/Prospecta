@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 import { Link, useParams } from "wouter";
 import { trpc } from "@/lib/trpc";
 import { Button } from "@/components/ui/button";
@@ -65,6 +65,14 @@ export default function AdminIncorporacaoDetail() {
   const [erroVersao, setErroVersao] = useState("");
   const [moduloAtivo, setModuloAtivo] = useState<(typeof MODULOS)[number][0] | (typeof MODULOS_DESMEMBRAMENTO)[number][0]>("dados");
   const [alterado, setAlterado] = useState(false);
+  // Marca "há alterações" depois do evento de digitação: atualizar o estado do
+  // pai durante a fase de captura fazia a primeira tecla de cada campo se perder.
+  const alteradoRef = useRef(false);
+  const marcarAlterado = () => {
+    if (alteradoRef.current) return;
+    alteradoRef.current = true;
+    setTimeout(() => setAlterado(true), 0);
+  };
 
   useEffect(() => {
     if (!alterado) return;
@@ -110,6 +118,7 @@ export default function AdminIncorporacaoDetail() {
   const updateMutation = trpc.incorporacao.update.useMutation({
     onSuccess: () => {
       toast.success("Estudo atualizado!");
+      alteradoRef.current = false;
       setAlterado(false);
       utils.incorporacao.getById.invalidate({ id: Number(id) });
       utils.incorporacao.list.invalidate();
@@ -167,7 +176,7 @@ export default function AdminIncorporacaoDetail() {
         </div>
       </div>
 
-      <div className="max-w-4xl mx-auto px-6 py-6 space-y-6" onInputCapture={() => setAlterado(true)} onChangeCapture={() => setAlterado(true)}>
+      <div className="max-w-4xl mx-auto px-6 py-6 space-y-6" onInputCapture={marcarAlterado} onChangeCapture={marcarAlterado}>
         <nav aria-label="Módulos do estudo" className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-2">
           {(estudo.incorporationType === "desmembramento_simples" ? MODULOS_DESMEMBRAMENTO : MODULOS.filter(([idModulo]) => idModulo !== "diligencia")).map(([idModulo, nome]) => (
             <button key={idModulo} type="button" onClick={() => setModuloAtivo(idModulo)}

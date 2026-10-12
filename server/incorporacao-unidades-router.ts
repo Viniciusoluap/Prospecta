@@ -50,7 +50,7 @@ export const incorporationUnitsRouter = router({
       INSERT INTO incorporation_unit_events (unit_id, next_status, performed_by_user_id)
       SELECT id, 'disponivel', ${ctx.user.id} FROM created RETURNING id
     ) SELECT id FROM audit`);
-    if (!rows.rows.length) conflict();
+    if (!rows.rows.length) throw new TRPCError({ code: "CONFLICT", message: `Já existe uma unidade com o código "${input.code.trim()}" neste estudo.` });
     return { success: true };
   }),
   transition: protectedProcedure.input(z.object({ studyId, unitId: studyId, action: z.enum(["reservar", "vender", "liberar"]), buyer: z.string().trim().max(255).optional(), salePrice: price.optional() })).mutation(async ({ ctx, input }) => {
