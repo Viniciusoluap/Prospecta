@@ -65,6 +65,28 @@ Implementado primeiro no Prospecta; precisa ser portado para o Santa Fé com a m
   cadastrados (sem texto livre), valor sugerido por percentual × valor cadastrado; "construção" → "Obra".
 - **EPIC-019:** verificar se a Central Administrativa do Santa Fé tem o mesmo problema de retorno/layout.
 
+## Pendências de paridade com o Grupo Santa Fé (Lote 5 — Estudo de Massa Generativo, 12/10/2026)
+
+Hardening aplicado primeiro no Prospecta (PR #91, `client/src/components/incorporacao/MapaMassa.tsx`,
+`EstudoMassa.tsx`, `shared/incorporacao/massa.ts`, `shared/numero-br.ts`); **confirmado que o Grupo
+Santa Fé tem os mesmos bugs nos arquivos equivalentes** e precisa do mesmo tratamento:
+
+- `web/src/app/admin/incorporacao/_components/mapa-massa.tsx` — mesmo padrão de `useEffect`/`map.remove()`
+  sem `try/catch` e sem guarda de idempotência explícita; precisa do mesmo `removerMapaComSeguranca`
+  aplicado no Prospecta.
+- `web/src/app/admin/incorporacao/_components/massa-tab.tsx` — `gerar()` sem `catch` (só `finally`), mesmo
+  risco de erro não tratado derrubando a página; `upd()` usa `parseFloat(v) || 0`, mesmo bug de número
+  brasileiro (vírgula decimal zera o campo silenciosamente).
+- `web/src/lib/geo/massa.ts` — não tem equivalente a `validarParametrosMassa`; sujeito ao mesmo loop
+  infinito em `gerarLotesFrame` se `testadaLoteM`/`profundidadeLoteM`/`larguraViaM`/`comprimentoMaxQuadraM`
+  chegarem zerados.
+- Não há, no Grupo Santa Fé, um utilitário equivalente a `shared/numero-br.ts` (`parseNumeroBR`).
+
+Como esta sessão foi escopada apenas ao Prospecta, a correção não foi portada aqui — fica registrada
+para a sessão responsável pelo Grupo Santa Fé replicar a mesma regra de negócio (ciclo de vida do
+Leaflet idempotente, validação antes do motor generativo, parsing de número BR, mensagem amigável sem
+stack trace).
+
 ## Coordenação entre trilhas
 
 - Trilha Claude (EPIC-000/001/003/005/008/009/010) e trilha Codex (EPIC-002/004/006/007) trabalham em branches separadas no mesmo repositório Prospecta.
