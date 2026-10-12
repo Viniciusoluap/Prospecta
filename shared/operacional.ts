@@ -75,6 +75,14 @@ export const brokerInput = z.object({
     .optional(),
   specialties: z.array(z.string().trim().min(1).max(80)).max(30).optional(),
   notes,
+  // EPIC-020 Lote 3 (item 32): regra de comissão do corretor, usada nas obras
+  // que não têm percentual próprio. Vazio = sem regra (nunca vira 0%).
+  defaultCommissionPct: z
+    .string()
+    .trim()
+    .transform(v => v.replace(",", "."))
+    .refine(v => v === "" || (/^\d{1,3}(\.\d{1,4})?$/.test(v) && Number(v) <= 100), "Percentual de comissão inválido (0 a 100)")
+    .optional(),
 });
 
 /** EPIC-018 (story 2.5): "construção" passa a se chamar "obra" em toda a tela. */

@@ -1,4 +1,6 @@
 import { useState } from "react";
+import type { inferRouterOutputs } from "@trpc/server";
+import type { AppRouter } from "../../../../server/routers";
 import { trpc } from "@/lib/trpc";
 import { LinkedServiceQueue } from "./LinkedServiceQueue";
 import { Button } from "@/components/ui/button";
@@ -46,6 +48,7 @@ export default function AdminComissoes() {
   const brokers = trpc.comissoes.options.useQuery();
   const formOptions = trpc.comissoes.formOptions.useQuery();
   const legacy = trpc.comissoes.legacy.useQuery();
+  const obras = trpc.comissoes.obras.useQuery();
   const create = trpc.comissoes.create.useMutation();
   const update = trpc.comissoes.update.useMutation();
   const remove = trpc.comissoes.delete.useMutation();
@@ -97,6 +100,7 @@ export default function AdminComissoes() {
       }}
     >
       <LinkedServiceQueue module="comissoes" title="Comissões" />
+      <ComissoesDeObras dados={obras.data} carregando={obras.isLoading} erro={obras.error?.message} />
       <div className="grid gap-3 sm:grid-cols-2">
         <Choice
           label="Status"
@@ -370,5 +374,58 @@ export default function AdminComissoes() {
         ))}
       </Editor>
     </OperationalPage>
+  );
+}
+
+// EPIC-020 Lote 3 (item 32): comissões nascidas das obras com corretor no CRM.
+// Comissão = VGV × % / 100; pagamentos vêm do financeiro da obra (BPO).
+const STATUS_OBRA: Record<string, { label: string; cls: string }> = {
+  dados_incompletos: { label: "Dados incompletos", cls: "bg-amber-100 text-amber-900" },
+  pendente: { label: "Pendente", cls: "bg-slate-100 text-slate-800" },
+  parcial: { label: "Paga parcialmente", cls: "bg-blue-100 text-blue-900" },
+  paga: { label: "Paga", cls: "bg-green-100 text-green-900" },
+};
+type LinhaObra = inferRouterOutputs<AppRouter>["comissoes"]["obras"][number];
+function ComissoesDeObras({ dados, carregando, erro }: { dados?: LinhaObra[]; carregando: boolean; erro?: string }) {
+  const [filtro, setFiltro] = useState("");
+  const linhas = (dados ?? []).filter(l => !filtro || l.calculo.status === filtro);
+  const incompletas = (dados ?? []).filter(l => l.calculo.status === "dados_incompletos").length;
+  const reais = (c: number | null) => (c === null ? "—" : money(c / 100));
+  return (
+    <section className="space-y-3 rounded border bg-white p-4">
+      <div className="flex flex-wrap items-end justify-between gap-3">
+        <div>
+          <h2 className="text-lg font-semibold">Comissões de obras (automáticas pelo CRM)</h2>
+          <p className="text-sm text-slate-600">
+            Toda obra cujo lead tem corretor aparece aqui. Comissão = VGV × % / 100, com o percentual da obra ou o
+            padrão do corretor. Pagamentos: lançamentos de categoria “Comissão” no financeiro da obra.
+            {incompletas > 0 && ` ${incompletas} obra(s) com dados incompletos.`}
+          </p>
+        </div>
+        <Choice label="Situação" value={filtro} onChange={setFiltro} optional
+          options={Object.entries(STATUS_OBRA).map(([value, v]) => ({ value, label: v.label }))} />
+      </div>
+      {erro && <p role="alert">{erro}</p>}
+      {carregando ? <p className="text-sm">Carregando…</p> : (
+        <Rows headers={["Corretor / cliente", "Obra", "VGV · %", "Comissão", "Pago · saldo", "Situação"]} empty={!linhas.length}>
+          {linhas.map(l => (
+            <tr key={l.obraId}>
+              <td>{l.corretor}<br /><span className="text-xs text-slate-500">{l.cliente}</span></td>
+              <td><a className="underline" href={`/admin/obras/${l.obraId}/editar`}>{l.obra}</a></td>
+              <td>
+                {l.vgv ? money(Number(l.vgv)) : "VGV não informado"}<br />
+                <span className="text-xs">{l.calculo.percentual ? `${Number(l.calculo.percentual).toLocaleString("pt-BR", { maximumFractionDigits: 4 })}% (${l.calculo.fontePercentual === "obra" ? "da obra" : "padrão do corretor"})` : "sem percentual"}</span>
+              </td>
+              <td>{reais(l.calculo.valorCentavos)}</td>
+              <td>{reais(l.calculo.pagoCentavos)}<br /><span className="text-xs">saldo {reais(l.calculo.saldoCentavos)}</span></td>
+              <td>
+                <span className={`rounded px-2 py-0.5 text-xs font-semibold ${STATUS_OBRA[l.calculo.status].cls}`}>{STATUS_OBRA[l.calculo.status].label}</span>
+                {[...l.calculo.pendencias, ...l.alertas].map(t => <p key={t} className="mt-1 text-xs text-amber-800">{t}</p>)}
+              </td>
+            </tr>
+          ))}
+        </Rows>
+      )}
+    </section>
   );
 }

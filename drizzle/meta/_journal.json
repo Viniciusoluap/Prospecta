@@ -253,6 +253,13 @@
       "when": 1791858200000,
       "tag": "0035_lote2_motor_financeiro",
       "breakpoints": true
+    },
+    {
+      "idx": 36,
+      "version": "7",
+      "when": 1791944600000,
+      "tag": "0036_lote3_comissoes",
+      "breakpoints": true
     }
   ]
 }
