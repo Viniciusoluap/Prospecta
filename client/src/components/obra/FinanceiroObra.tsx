@@ -12,7 +12,7 @@ import { trpc } from "@/lib/trpc";
 import type { inferRouterOutputs } from "@trpc/server";
 import type { AppRouter } from "../../../../server/routers";
 import { parseNumeroBR } from "@shared/numero-br";
-import { calcularObra, centavosDe, type Indicador, type Natureza, type ResultadoObra } from "@shared/financeiro/obra";
+import { calcularObra, centavosDe, lerPercentualDigitado, type Indicador, type Natureza, type ResultadoObra } from "@shared/financeiro/obra";
 import { calcularComissaoObra } from "@shared/financeiro/comissao";
 
 // EPIC-020 Lote 2 — abas "Valores da Operação" e "Custos". Os campos
@@ -77,7 +77,7 @@ export function calcularAoVivo(form: FormFinanceiro, resumo: Resumo, datas: { in
     fgts: centavosDe(form.fgts),
     subsidio: centavosDe(form.subsidio),
     custoTerreno: centavosDe(form.custoTerreno),
-    comissao: comissaoAoVivo(form, resumo).valorCentavos ?? centavosDe(form.comissao),
+    comissao: resumo.corretor ? comissaoAoVivo(form, resumo).valorCentavos : centavosDe(form.comissao),
     orcamentoPrevisto: centavosDe(form.orcamentoPrevisto),
     taxaMensalPct: form.taxaMensalPct,
     parcelas: form.parcelas,
@@ -122,8 +122,9 @@ export function CampoDecimal({ valor, onChange, casas = 2, prefixo, sufixo, plac
           const t = e.target.value;
           setTexto(t);
           if (!t.trim()) return onChange(null);
-          const n = parseNumeroBR(t);
-          if (Number.isFinite(n) && n >= 0) onChange(n.toFixed(casas));
+          // Percentual/taxa: ponto é decimal ("2.345" = 2,345%); dinheiro segue o padrão BR.
+          const n = casas > 2 ? lerPercentualDigitado(t) : parseNumeroBR(t);
+          if (n !== null && Number.isFinite(n) && n >= 0) onChange(n.toFixed(casas));
         }}
         className={`${campo} ${prefixo ? "pl-10" : ""} ${sufixo ? "pr-8" : ""}`}
       />
@@ -597,11 +598,15 @@ function ComissaoCampos({ resumo, form, setForm }: { resumo: Resumo; form: FormF
       {c.valorCentavos !== null ? (
         <Leitura label="Comissão (R$) · automático" valor={brl(c.valorCentavos)}
           ajuda={`VGV × ${Number(c.percentual).toLocaleString("pt-BR", { maximumFractionDigits: 4 })}% (${c.fontePercentual === "obra" ? "percentual da obra" : "padrão do corretor"}) · pago ${brl(c.pagoCentavos)}`} />
+      ) : resumo.corretor ? (
+        <div className="space-y-1">
+          <Leitura label="Comissão (R$) · automático" valor="Indisponível" ajuda="Obra com corretor: a comissão é sempre VGV × % (nunca digitada)." />
+          {c.pendencias.map((p) => <p key={p} className="text-xs text-amber-300">{p}</p>)}
+        </div>
       ) : (
         <div className="space-y-1">
           <Label className="text-gray-300">Comissão (R$)</Label>
           <CampoDecimal valor={form.comissao} onChange={(v) => setForm({ ...form, comissao: v })} prefixo="R$" />
-          {resumo.corretor && c.pendencias.map((p) => <p key={p} className="text-xs text-amber-300">{p} — valor informado mantido até completar a regra.</p>)}
         </div>
       )}
     </>

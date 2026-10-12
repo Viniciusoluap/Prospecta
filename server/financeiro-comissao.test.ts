@@ -2,6 +2,7 @@
 // conteúdo em Grupo-Santa-Fe/web/src/lib/__tests__/financeiro-comissao.test.ts.
 import { describe, expect, it } from "vitest";
 import { calcularComissaoObra, valorComissao } from "../shared/financeiro/comissao";
+import { lerPercentualDigitado } from "../shared/financeiro/obra";
 
 const corretor = (percentualPadrao: string | null = null) => ({ id: 1, nome: "Corretor", percentualPadrao });
 
@@ -72,5 +73,18 @@ describe("pagamentos vindos do financeiro", () => {
   });
   it("pagamento com dados incompletos gera alerta", () => {
     expect(calcularComissaoObra({ ...base, vgvCentavos: null, pagoCentavos: 100 }).alertas.length).toBe(1);
+  });
+});
+
+describe("lerPercentualDigitado — campos de percentual/taxa", () => {
+  it("ponto é decimal (nunca milhar) e vírgula também", () => {
+    expect(lerPercentualDigitado("2.345")).toBe(2.345);
+    expect(lerPercentualDigitado("2,345")).toBe(2.345);
+    expect(lerPercentualDigitado("1,5%")).toBe(1.5);
+    expect(lerPercentualDigitado("100")).toBe(100);
+  });
+  it("vazio ou inválido → null", () => {
+    expect(lerPercentualDigitado("")).toBeNull();
+    expect(lerPercentualDigitado("abc")).toBeNull();
   });
 });

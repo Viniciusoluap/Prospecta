@@ -191,7 +191,7 @@ export default function AdminComissoes() {
                 <DeleteButton
                   onDelete={async () => {
                     await remove.mutateAsync({ id: c.id });
-                    await list.refetch();
+                    await Promise.all([list.refetch(), obras.refetch()]);
                   }}
                 />
               </div>
@@ -251,7 +251,7 @@ export default function AdminComissoes() {
           });
           if (id) await update.mutateAsync({ id, data });
           else await create.mutateAsync(data);
-          await list.refetch();
+          await Promise.all([list.refetch(), obras.refetch()]);
         }}
       >
         <Choice
@@ -421,6 +421,11 @@ function ComissoesDeObras({ dados, carregando, erro }: { dados?: LinhaObra[]; ca
               <td>
                 <span className={`rounded px-2 py-0.5 text-xs font-semibold ${STATUS_OBRA[l.calculo.status].cls}`}>{STATUS_OBRA[l.calculo.status].label}</span>
                 {[...l.calculo.pendencias, ...l.alertas].map(t => <p key={t} className="mt-1 text-xs text-amber-800">{t}</p>)}
+                {l.registrosManuais.map(m => (
+                  <p key={m.id} className="mt-1 text-xs text-slate-600">
+                    Comissão manual #{m.id}: {money(m.amount)} · {Number(m.percent).toLocaleString("pt-BR")}% · {m.status}
+                  </p>
+                ))}
               </td>
             </tr>
           ))}
