@@ -1,4 +1,5 @@
 -- EPIC-020 Lote 3 (item 32) — comissões automáticas pelo CRM.
+-- Numerada 0039 para não colidir com 0036–0038 do PR #99 (Codex, estudos), aberto em paralelo.
 -- Somente aditiva. Regra de comissão: percentual da obra ou, na falta dele,
 -- o percentual padrão do corretor. Nenhum percentual é preenchido aqui: a
 -- regra é cadastrada pela empresa (nunca inventada).
