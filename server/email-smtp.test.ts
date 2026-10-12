@@ -60,7 +60,7 @@ describe("Email service", () => {
   it("marca auditoria como falha quando o transporte falha", async () => {
     const { deps, mocks } = dependencies({ transportFails: true });
     await expect(sendEmail(data, deps)).resolves.toBe(false);
-    expect(mocks.set).toHaveBeenLastCalledWith({ status: "failed" });
+    expect(mocks.set).toHaveBeenLastCalledWith({ status: "failed", errorMessage: expect.stringContaining("Falha") });
   });
 
   it("não tenta SMTP quando a persistência inicial falha", async () => {
