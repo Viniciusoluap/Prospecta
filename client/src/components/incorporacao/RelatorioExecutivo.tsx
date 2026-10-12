@@ -188,6 +188,16 @@ export function RelatorioExecutivo({ estudo }: { estudo: EstudoParaRelatorioExec
           ]],
         });
         y = fimTabela(y);
+        const cadastro = [
+          ["Matrícula", d.propertyRegistration], ["CAR", d.carRegistration],
+          ["Zoneamento oficial", d.officialZoning], ["Fonte do zoneamento", d.zoningSource],
+        ].filter((row): row is string[] => !!row[1]);
+        if (cadastro.length) {
+          autoTable(doc, { startY: y, theme: "grid", styles: { fontSize: 8 },
+            headStyles: { fillColor: [15, 25, 35], textColor: [201, 169, 97] },
+            head: [["Dado cadastral", "Valor informado"]], body: cadastro });
+          y = fimTabela(y);
+        }
         if (d.opiniao) y = paragrafo(d.opiniao, y);
         y = pendenciasLista(cadastral.pendencias, y);
       }
@@ -557,6 +567,20 @@ export function RelatorioExecutivo({ estudo }: { estudo: EstudoParaRelatorioExec
           });
           y = fimTabela(y);
         }
+        if (d.responsaveisPorTarefa.length) {
+          autoTable(doc, { startY: y, theme: "grid", styles: { fontSize: 8 },
+            headStyles: { fillColor: [15, 25, 35], textColor: [201, 169, 97] },
+            head: [["Tarefa", "Responsável"]],
+            body: d.responsaveisPorTarefa.map((t) => [t.tarefa, t.responsavel]) });
+          y = fimTabela(y);
+        }
+        if (d.riscosExecucao.length) {
+          autoTable(doc, { startY: y, theme: "grid", styles: { fontSize: 8 },
+            headStyles: { fillColor: [15, 25, 35], textColor: [201, 169, 97] },
+            head: [["Risco", "Impacto", "Mitigação", "Responsável", "Status"]],
+            body: d.riscosExecucao.map((r) => [r.descricao, r.impacto, r.mitigacao, r.responsavel, r.status]) });
+          y = fimTabela(y);
+        }
         y = pendenciasLista(cronogramaSec.pendencias, y);
       }
 
@@ -568,6 +592,7 @@ export function RelatorioExecutivo({ estudo }: { estudo: EstudoParaRelatorioExec
       } else {
         const d = premissasSec.dado;
         y = paragrafo(`Relatório gerado em: ${fmtDataHora(d.geradoEm)}.`, y);
+        if (d.versao) y = paragrafo(`Versão salva do estudo: ${d.versao}.`, y);
         if (d.premissasViabilidade) {
           autoTable(doc, {
             startY: y,

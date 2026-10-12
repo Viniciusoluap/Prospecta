@@ -10,7 +10,7 @@ import { FileStack, HardHat, TrendingUp, Plus, Trash2, AlertTriangle } from "luc
 import { resumoProjetosExecutivos, DISCIPLINAS_EXECUTIVO, type ProjetoExecutivo, type DisciplinaExecutivo, type StatusProjetoExecutivo } from "@shared/incorporacao/projetos-executivos";
 import { resumoOrcamentoObra, CATEGORIAS_ORCAMENTO_OBRA, type ItemOrcamentoObra, type CategoriaOrcamentoObra } from "@shared/incorporacao/orcamento-obra";
 import { resumoOrcamentoPreliminar } from "@shared/incorporacao/orcamento-preliminar";
-import { resumoCronogramaObra, type MedicaoMensal } from "@shared/incorporacao/cronograma-obra";
+import { resumoCronogramaObra, type MedicaoMensal, type RiscoExecucao } from "@shared/incorporacao/cronograma-obra";
 import type { ItemOrcamentoPreliminar } from "@shared/incorporacao/orcamento-preliminar";
 
 const cardCls = "bg-[#1A2332]/60 border-[#C9A961]/20 backdrop-blur-sm";
@@ -37,11 +37,12 @@ export function ObraExecutiva({ estudoId, executiveProjectsJson, workBudgetJson,
   physicalFinancialScheduleJson: string | null;
   preliminaryBudgetJson: string | null;
 }) {
+  const { data: staff = [] } = trpc.incorporacao.staff.useQuery();
   return (
     <div className="space-y-6">
       <ProjetosExecutivos estudoId={estudoId} executiveProjectsJson={executiveProjectsJson} />
       <OrcamentoObra estudoId={estudoId} workBudgetJson={workBudgetJson} preliminaryBudgetJson={preliminaryBudgetJson} />
-      <CronogramaObra estudoId={estudoId} physicalFinancialScheduleJson={physicalFinancialScheduleJson} />
+      <CronogramaObra estudoId={estudoId} physicalFinancialScheduleJson={physicalFinancialScheduleJson} staff={staff} />
     </div>
   );
 }
@@ -255,7 +256,10 @@ function novaMedicao(): MedicaoMensal {
   return { id: Math.random().toString(36).slice(2), mes: 0, avancoFisicoAcumuladoPct: 0 };
 }
 
-function CronogramaObra({ estudoId, physicalFinancialScheduleJson }: { estudoId: number; physicalFinancialScheduleJson: string | null }) {
+function CronogramaObra({ estudoId, physicalFinancialScheduleJson, staff }: {
+  estudoId: number; physicalFinancialScheduleJson: string | null;
+  staff: { id: number; name: string | null; active: boolean }[];
+}) {
   const utils = trpc.useUtils();
   const [medicoes, setMedicoes] = useState<MedicaoMensal[]>(() => {
     if (physicalFinancialScheduleJson) {
@@ -271,6 +275,10 @@ function CronogramaObra({ estudoId, physicalFinancialScheduleJson }: { estudoId:
       try { return (JSON.parse(physicalFinancialScheduleJson) as { duracaoObraMeses?: number }).duracaoObraMeses ?? 0; } catch { /* 0 */ }
     }
     return 0;
+  });
+  const [riscos, setRiscos] = useState<RiscoExecucao[]>(() => {
+    try { return physicalFinancialScheduleJson ? (JSON.parse(physicalFinancialScheduleJson) as { riscos?: RiscoExecucao[] }).riscos ?? [] : []; }
+    catch { return []; }
   });
 
   const saveMutation = trpc.incorporacao.saveCronogramaObra.useMutation({
@@ -313,7 +321,7 @@ function CronogramaObra({ estudoId, physicalFinancialScheduleJson }: { estudoId:
         </div>
 
         <div className="overflow-x-auto">
-          <table className="text-xs min-w-[560px] w-full">
+          <table className="text-xs min-w-[740px] w-full">
             <thead>
               <tr>
                 <th className="text-left text-[10px] font-bold text-gray-500 uppercase tracking-wide px-1 pb-1 w-24">Mês</th>
@@ -321,6 +329,7 @@ function CronogramaObra({ estudoId, physicalFinancialScheduleJson }: { estudoId:
                 <th className="text-left text-[10px] font-bold text-gray-500 uppercase tracking-wide px-1 pb-1 w-32">Data da medição</th>
                 <th className="text-left text-[10px] font-bold text-gray-500 uppercase tracking-wide px-1 pb-1 w-32">Financeiro projetado</th>
                 <th className="text-left text-[10px] font-bold text-gray-500 uppercase tracking-wide px-1 pb-1 w-24">Desvio</th>
+                <th className="text-left text-[10px] font-bold text-gray-500 uppercase tracking-wide px-1 pb-1 w-40">Responsável</th>
                 <th />
               </tr>
             </thead>
@@ -332,6 +341,10 @@ function CronogramaObra({ estudoId, physicalFinancialScheduleJson }: { estudoId:
                   <td className="px-1 py-1"><Input type="date" value={it.data ?? ""} onChange={(e) => upd(it.id, "data", e.target.value)} className={inputCls} /></td>
                   <td className="px-1 py-1 text-right text-gray-300">{it.avancoFinanceiroProjetadoPct != null ? `${it.avancoFinanceiroProjetadoPct}%` : "—"}</td>
                   <td className={`px-1 py-1 text-right font-bold ${it.desvioPct != null && it.desvioPct < -10 ? "text-red-400" : "text-white"}`}>{it.desvioPct != null ? `${it.desvioPct > 0 ? "+" : ""}${it.desvioPct}%` : "—"}</td>
+                  <td className="px-1 py-1"><select value={it.responsavelId ?? ""} onChange={(e) => upd(it.id, "responsavelId", e.target.value ? Number(e.target.value) : undefined)} className={selectCls}>
+                    <option value="">Não atribuído</option>
+                    {staff.filter((u) => u.active || u.id === it.responsavelId).map((u) => <option key={u.id} value={u.id}>{u.name ?? `Usuário ${u.id}`}{u.active ? "" : " (inativo)"}</option>)}
+                  </select></td>
                   <td className="px-1 py-1">
                     <button type="button" onClick={() => removerMedicao(it.id)} className="text-gray-500 hover:text-red-400 flex justify-center"><Trash2 className="h-4 w-4" /></button>
                   </td>
@@ -341,11 +354,33 @@ function CronogramaObra({ estudoId, physicalFinancialScheduleJson }: { estudoId:
           </table>
         </div>
 
+        <div className="space-y-2 border-t border-[#C9A961]/20 pt-4">
+          <div className="flex items-center justify-between gap-2">
+            <h4 className="text-white font-bold text-sm">Riscos de execução</h4>
+            <button type="button" onClick={() => setRiscos((r) => [...r, { id: crypto.randomUUID(), descricao: "", impacto: "medio", mitigacao: "", status: "aberto" }])} className="text-[#C9A961] text-xs">Adicionar risco</button>
+          </div>
+          {riscos.map((r) => <div key={r.id} className="grid grid-cols-1 sm:grid-cols-2 gap-2 border border-[#C9A961]/20 p-3">
+            <Input aria-label="Descrição do risco" placeholder="Descrição" value={r.descricao} onChange={(e) => setRiscos((rs) => rs.map((x) => x.id === r.id ? { ...x, descricao: e.target.value } : x))} className={inputCls} />
+            <Input aria-label="Mitigação" placeholder="Mitigação" value={r.mitigacao} onChange={(e) => setRiscos((rs) => rs.map((x) => x.id === r.id ? { ...x, mitigacao: e.target.value } : x))} className={inputCls} />
+            <select aria-label="Impacto" value={r.impacto} onChange={(e) => setRiscos((rs) => rs.map((x) => x.id === r.id ? { ...x, impacto: e.target.value as RiscoExecucao["impacto"] } : x))} className={selectCls}>
+              <option value="baixo">Baixo</option><option value="medio">Médio</option><option value="alto">Alto</option>
+            </select>
+            <select aria-label="Responsável pelo risco" value={r.responsavelId ?? ""} onChange={(e) => setRiscos((rs) => rs.map((x) => x.id === r.id ? { ...x, responsavelId: e.target.value ? Number(e.target.value) : undefined } : x))} className={selectCls}>
+              <option value="">Não atribuído</option>
+              {staff.filter((u) => u.active || u.id === r.responsavelId).map((u) => <option key={u.id} value={u.id}>{u.name ?? `Usuário ${u.id}`}{u.active ? "" : " (inativo)"}</option>)}
+            </select>
+            <select aria-label="Situação do risco" value={r.status} onChange={(e) => setRiscos((rs) => rs.map((x) => x.id === r.id ? { ...x, status: e.target.value as RiscoExecucao["status"] } : x))} className={selectCls}>
+              <option value="aberto">Aberto</option><option value="mitigado">Mitigado</option>
+            </select>
+            <button type="button" onClick={() => setRiscos((rs) => rs.filter((x) => x.id !== r.id))} className="text-red-300 text-left text-xs">Remover risco</button>
+          </div>)}
+        </div>
+
         <div className="flex items-center gap-3 flex-wrap">
           <button type="button" onClick={addMedicao} className="flex items-center gap-1 text-xs font-bold text-[#C9A961]">
             <Plus className="h-3.5 w-3.5" /> Adicionar medição
           </button>
-          <Button onClick={() => saveMutation.mutate({ id: estudoId, dataJson: JSON.stringify({ medicoes, duracaoObraMeses }) })}
+          <Button onClick={() => saveMutation.mutate({ id: estudoId, dataJson: JSON.stringify({ medicoes, duracaoObraMeses, riscos }) })}
             disabled={saveMutation.isPending} className="bg-[#C9A961] hover:bg-[#B8985A] text-[#1A2332] font-bold ml-auto">
             {saveMutation.isPending ? "Salvando..." : "Salvar cronograma"}
           </Button>

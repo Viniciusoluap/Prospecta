@@ -30,9 +30,10 @@ function Metric({ label, valor, destaque }: { label: string; valor: string; dest
 export function LancamentoMarketing({ estudoId, launchPlanJson, launchSuppliersJson, marketingMaterialJson }: {
   estudoId: number; launchPlanJson: string | null; launchSuppliersJson: string | null; marketingMaterialJson: string | null;
 }) {
+  const { data: staff = [] } = trpc.incorporacao.staff.useQuery();
   return (
     <div className="space-y-6">
-      <PlanejamentoLancamento estudoId={estudoId} launchPlanJson={launchPlanJson} />
+      <PlanejamentoLancamento estudoId={estudoId} launchPlanJson={launchPlanJson} staff={staff} />
       <FornecedoresLancamento estudoId={estudoId} launchSuppliersJson={launchSuppliersJson} />
       <MaterialPublicitario estudoId={estudoId} marketingMaterialJson={marketingMaterialJson} />
     </div>
@@ -48,7 +49,9 @@ function defaultsMarcos(): { marcos: MarcoLancamento[] } {
   return { marcos: MARCOS_PADRAO_LANCAMENTO.map((nome, i) => ({ id: `padrao-${i}`, nome, status: "pendente" as StatusMarco })) };
 }
 
-function PlanejamentoLancamento({ estudoId, launchPlanJson }: { estudoId: number; launchPlanJson: string | null }) {
+function PlanejamentoLancamento({ estudoId, launchPlanJson, staff }: {
+  estudoId: number; launchPlanJson: string | null; staff: { id: number; name: string | null; active: boolean }[];
+}) {
   const utils = trpc.useUtils();
   const [dados, setDados] = useState(() => {
     if (launchPlanJson) {
@@ -67,7 +70,7 @@ function PlanejamentoLancamento({ estudoId, launchPlanJson }: { estudoId: number
 
   const resumo = useMemo(() => resumoPlanejamentoLancamento(dados.marcos), [dados]);
 
-  function upd(id: string, campo: "status" | "dataPrevista" | "dataRealizada", valor: string) {
+  function upd(id: string, campo: "status" | "dataPrevista" | "dataRealizada" | "responsavelId", valor: string | number | undefined) {
     setDados((d) => ({ marcos: d.marcos.map((m) => (m.id === id ? { ...m, [campo]: valor } : m)) }));
   }
 
@@ -95,13 +98,14 @@ function PlanejamentoLancamento({ estudoId, launchPlanJson }: { estudoId: number
         )}
 
         <div className="overflow-x-auto">
-          <table className="text-xs min-w-[640px] w-full">
+          <table className="text-xs min-w-[820px] w-full">
             <thead>
               <tr>
                 <th className="text-left text-[10px] font-bold text-gray-500 uppercase tracking-wide px-1 pb-1 w-64">Marco</th>
                 <th className="text-left text-[10px] font-bold text-gray-500 uppercase tracking-wide px-1 pb-1 w-32">Data prevista</th>
                 <th className="text-left text-[10px] font-bold text-gray-500 uppercase tracking-wide px-1 pb-1 w-32">Data realizada</th>
                 <th className="text-left text-[10px] font-bold text-gray-500 uppercase tracking-wide px-1 pb-1 w-32">Status</th>
+                <th className="text-left text-[10px] font-bold text-gray-500 uppercase tracking-wide px-1 pb-1 w-40">Responsável</th>
               </tr>
             </thead>
             <tbody>
@@ -115,6 +119,10 @@ function PlanejamentoLancamento({ estudoId, launchPlanJson }: { estudoId: number
                       {STATUS_MARCO.map((s) => <option key={s.value} value={s.value}>{s.label}</option>)}
                     </select>
                   </td>
+                  <td className="px-1 py-1"><select value={m.responsavelId ?? ""} onChange={(e) => upd(m.id, "responsavelId", e.target.value ? Number(e.target.value) : undefined)} className={selectCls}>
+                    <option value="">Não atribuído</option>
+                    {staff.filter((u) => u.active || u.id === m.responsavelId).map((u) => <option key={u.id} value={u.id}>{u.name ?? `Usuário ${u.id}`}{u.active ? "" : " (inativo)"}</option>)}
+                  </select></td>
                 </tr>
               ))}
             </tbody>

@@ -66,6 +66,7 @@ import {
 import {
   resumoCronogramaObra,
   type MedicaoMensal,
+  type RiscoExecucao,
   type ResumoCronogramaObra,
 } from "./cronograma-obra.js";
 import {
@@ -108,6 +109,8 @@ function numOrNull(v: string | null | undefined): number | null {
 // ─── Entrada: o registro de incorporation_studies que o relatório precisa ──
 
 export interface EstudoParaRelatorioExecutivo {
+  versionNumber?: number | null;
+  staff?: { id: number; name: string | null }[];
   name: string;
   city: string;
   state: string;
@@ -122,6 +125,10 @@ export interface EstudoParaRelatorioExecutivo {
   urbanParametersJson: string | null;
   potentialJson: string | null;
   urbanisticOpinion: string | null;
+  propertyRegistration?: string | null;
+  carRegistration?: string | null;
+  officialZoning?: string | null;
+  zoningSource?: string | null;
 
   cityResearchJson: string | null;
   marketStudyJson: string | null;
@@ -189,6 +196,10 @@ export interface DadosCadastraisDado {
   potencial: PotencialConstrutivo;
   opiniao: string | null;
   areaMediaUnidadeM2: number | null;
+  propertyRegistration: string | null;
+  carRegistration: string | null;
+  officialZoning: string | null;
+  zoningSource: string | null;
 }
 
 function montarDadosCadastraisUrbanisticos(e: EstudoParaRelatorioExecutivo): Secao<DadosCadastraisDado> {
@@ -206,10 +217,15 @@ function montarDadosCadastraisUrbanisticos(e: EstudoParaRelatorioExecutivo): Sec
   if (areaMediaUnidadeM2 == null) {
     pendencias.push("Pendência: área média por unidade não informada — capacidade vertical e vagas exigidas não puderam ser estimadas.");
   }
-  pendencias.push(
-    "Pendência: matrícula do imóvel, CAR e zoneamento oficial não existem como dado estruturado neste sistema — apenas os parâmetros urbanísticos informados manualmente acima."
-  );
-  return ok({ parametros, potencial, opiniao: e.urbanisticOpinion ?? null, areaMediaUnidadeM2 }, pendencias);
+  if (!e.propertyRegistration?.trim()) pendencias.push("Pendência: matrícula do imóvel não informada; consultar o cartório de registro.");
+  if (!e.carRegistration?.trim()) pendencias.push("Pendência: CAR não informado; verificar aplicabilidade e consultar o órgão ambiental.");
+  if (!e.officialZoning?.trim() || !e.zoningSource?.trim()) pendencias.push("Pendência: zoneamento oficial sem classificação e fonte verificável da prefeitura.");
+  return ok({ parametros, potencial, opiniao: e.urbanisticOpinion ?? null, areaMediaUnidadeM2,
+    propertyRegistration: e.propertyRegistration?.trim() || null,
+    carRegistration: e.carRegistration?.trim() || null,
+    officialZoning: e.officialZoning?.trim() || null,
+    zoningSource: e.zoningSource?.trim() || null,
+  }, pendencias);
 }
 
 // ─── 3. Mercado / referências ──────────────────────────────────────────────
@@ -713,12 +729,21 @@ function montarDocumentosLicencas(e: EstudoParaRelatorioExecutivo): Secao<Docume
 export interface CronogramaDado {
   obra: ResumoCronogramaObra | null;
   lancamento: ResumoPlanejamentoLancamento | null;
+  responsaveisPorTarefa: { tarefa: string; responsavel: string }[];
+  riscosExecucao: { descricao: string; impacto: string; mitigacao: string; responsavel: string; status: string }[];
 }
 
 function montarCronograma(e: EstudoParaRelatorioExecutivo, eve: ViabilidadeComputada | null): Secao<CronogramaDado> {
-  const schedule = parseJson<{ medicoes?: MedicaoMensal[]; duracaoObraMeses?: number }>(e.physicalFinancialScheduleJson);
+  const schedule = parseJson<{ medicoes?: MedicaoMensal[]; duracaoObraMeses?: number; riscos?: RiscoExecucao[] }>(e.physicalFinancialScheduleJson);
   const medicoes = schedule?.medicoes ?? null;
   const marcos = parseJson<{ marcos?: MarcoLancamento[] }>(e.launchPlanJson)?.marcos ?? null;
+  const equipe = new Map((e.staff ?? []).map((u) => [u.id, u.name ?? `Usuário ${u.id}`]));
+  const tarefas = [...(medicoes ?? []).map((m) => ({ tarefa: `Medição do mês ${m.mes + 1}`, id: m.responsavelId })),
+    ...(marcos ?? []).map((m) => ({ tarefa: m.nome, id: m.responsavelId }))];
+  const responsaveisPorTarefa = tarefas.filter((t) => t.id && equipe.has(t.id))
+    .map((t) => ({ tarefa: t.tarefa, responsavel: equipe.get(t.id!)! }));
+  const riscosExecucao = (schedule?.riscos ?? []).map((r) => ({ descricao: r.descricao, impacto: r.impacto,
+    mitigacao: r.mitigacao, responsavel: equipe.get(r.responsavelId ?? -1) ?? "Não atribuído", status: r.status }));
 
   if ((!medicoes || medicoes.length === 0) && (!marcos || marcos.length === 0)) {
     return pendente("Pendência: cronograma físico-financeiro de obra e marcos do planejamento de lançamento ainda não cadastrados.");
@@ -731,14 +756,14 @@ function montarCronograma(e: EstudoParaRelatorioExecutivo, eve: ViabilidadeCompu
   const pendencias: string[] = [];
   if (!medicoes || medicoes.length === 0) pendencias.push("Pendência: cronograma físico-financeiro de obra (curva S) ainda não cadastrado.");
   if (!marcos || marcos.length === 0) pendencias.push("Pendência: marcos do planejamento de lançamento ainda não cadastrados.");
-  pendencias.push(
-    "Pendência: responsável individual por tarefa e registro de riscos de execução não existem como dado estruturado neste sistema — apenas o avanço físico x financeiro (curva S) e os marcos de lançamento, mostrados abaixo, estão disponíveis."
-  );
+  if (responsaveisPorTarefa.length < tarefas.length) pendencias.push("Pendência: marcos ou medições sem responsável individual atribuído.");
+  if (!riscosExecucao.length) pendencias.push("Pendência: riscos de execução ainda não registrados no cronograma.");
 
   return ok(
     {
       obra: medicoes && medicoes.length > 0 ? resumoCronogramaObra(medicoes, duracaoObraMeses) : null,
       lancamento: marcos && marcos.length > 0 ? resumoPlanejamentoLancamento(marcos) : null,
+      responsaveisPorTarefa, riscosExecucao,
     },
     pendencias
   );
@@ -748,6 +773,7 @@ function montarCronograma(e: EstudoParaRelatorioExecutivo, eve: ViabilidadeCompu
 
 export interface PremissasFontesDataVersaoDado {
   geradoEm: string; // ISO — timestamp real do momento da geração do PDF
+  versao: number | null;
   premissasViabilidade: {
     impostosPctVgv: number;
     comissaoPctVgv: number;
@@ -802,13 +828,12 @@ function montarPremissasFontesDataVersao(
     pendencias.push("Pendência: fontes da pesquisa de mercado não registradas.");
   }
 
-  pendencias.push(
-    "Pendência: não há sistema de versionamento de estudos neste sistema — este relatório reflete o estado atualmente salvo no momento da geração, indicado acima."
-  );
+  if (!e.versionNumber) pendencias.push("Pendência: histórico de versões indisponível para este estudo.");
 
   return ok(
     {
       geradoEm: geradoEm.toISOString(),
+      versao: e.versionNumber ?? null,
       premissasViabilidade,
       parametrosUrbanisticosRelevantes,
       fontesPesquisaMercado,

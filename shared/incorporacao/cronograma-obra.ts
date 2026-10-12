@@ -13,6 +13,16 @@ export interface MedicaoMensal {
   mes: number; // mês desde o início da obra (0 = primeiro mês)
   avancoFisicoAcumuladoPct: number; // 0-100
   data?: string; // ISO yyyy-mm-dd
+  responsavelId?: number;
+}
+
+export interface RiscoExecucao {
+  id: string;
+  descricao: string;
+  impacto: "baixo" | "medio" | "alto";
+  mitigacao: string;
+  responsavelId?: number;
+  status: "aberto" | "mitigado";
 }
 
 export interface ItemComparativoCronograma extends MedicaoMensal {
