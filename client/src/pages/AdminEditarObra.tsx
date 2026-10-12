@@ -54,6 +54,8 @@ export default function AdminEditarObra() {
   // estão (só o Escritório CF continua editável); os financeiros migraram
   // para colunas e movimentos (Lote 2).
   const [meta, setMeta] = useState<Record<string, string> | null>(null);
+  const [legacyMcmvSuffix, setLegacyMcmvSuffix] = useState("");
+  const [cefBranch, setCefBranch] = useState("");
 
   // Valores da Operação e Custos (Lote 2)
   const resumoQuery = trpc.obraFinanceiro.resumo.useQuery({ projectId }, { enabled: isAuthenticated && user?.role === "admin" && !!projectId });
@@ -175,7 +177,10 @@ export default function AdminEditarObra() {
       setStartDate(project.startDate ? new Date(project.startDate).toISOString().split("T")[0] : "");
       setEstimatedEndDate(project.estimatedEndDate ? new Date(project.estimatedEndDate).toISOString().split("T")[0] : "");
       setActualEndDate(project.actualEndDate ? new Date(project.actualEndDate).toISOString().split("T")[0] : "");
-      setNotes((project.notes || "").replace(/\n__MCMV_META__:[\s\S]+$/, ""));
+      const historicalNotes = project.notes || "";
+      const legacyMatch = historicalNotes.match(/\n__MCMV_META__:[\s\S]+$/);
+      setLegacyMcmvSuffix(legacyMatch?.[0] ?? "");
+      setNotes(historicalNotes.replace(/\n__MCMV_META__:[\s\S]+$/, ""));
       setProgress(project.progress?.toString() || "0");
 
       const metaMatch = (project.notes || "").match(/\n__MCMV_META__:([\s\S]+)$/);
@@ -184,6 +189,7 @@ export default function AdminEditarObra() {
         try { metaLida = JSON.parse(metaMatch[1]); } catch { metaLida = null; }
       }
       setMeta(metaLida);
+      setCefBranch(project.cefBranch ?? metaLida?.cefBranch ?? "");
     }
   }, [project]);
 
@@ -197,7 +203,8 @@ export default function AdminEditarObra() {
       startDate: startDate ? new Date(startDate) : undefined,
       estimatedEndDate: estimatedEndDate ? new Date(estimatedEndDate) : undefined,
       actualEndDate: actualEndDate ? new Date(actualEndDate) : undefined,
-      notes: meta ? `${notes}\n__MCMV_META__:${JSON.stringify(meta)}` : notes,
+      notes: notes + legacyMcmvSuffix,
+      cefBranch: cefBranch.trim() || null,
       progress: parseInt(progress),
     };
     setSalvando(true);
@@ -473,7 +480,7 @@ export default function AdminEditarObra() {
               <CardContent className="grid grid-cols-1 md:grid-cols-2 gap-6">
                 <div className="space-y-2">
                   <Label className="text-gray-300">Nome do Cliente</Label>
-                  <Input value={project.crm.clientName ?? meta?.clientName ?? ""} readOnly aria-readonly="true" className="bg-[#2C3E50]/50 border-[#C9A961]/20 text-gray-300 cursor-not-allowed" />
+                  <Input value={project.crm.clientName ?? project.mcmvClientName ?? meta?.clientName ?? ""} readOnly aria-readonly="true" className="bg-[#2C3E50]/50 border-[#C9A961]/20 text-gray-300 cursor-not-allowed" />
                   <p className="text-xs text-gray-400">
                     {project.crm.vinculada
                       ? "Vem do lead vinculado no CRM. Para alterar, edite o lead."
@@ -482,7 +489,7 @@ export default function AdminEditarObra() {
                 </div>
                 <div className="space-y-2">
                   <Label className="text-gray-300">Escritório CF (Agência CEF)</Label>
-                  <Input value={meta?.cefBranch ?? ""} onChange={(e) => setMeta({ ...(meta ?? {}), cefBranch: e.target.value })} className="bg-[#2C3E50] border-[#C9A961]/30 text-white" placeholder="Agência CEF" />
+                  <Input value={cefBranch} onChange={(e) => setCefBranch(e.target.value)} className="bg-[#2C3E50] border-[#C9A961]/30 text-white" placeholder="Agência CEF" />
                 </div>
                 {project.crm.brokerName && (
                   <div className="space-y-2">

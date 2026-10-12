@@ -291,7 +291,7 @@ describe("montarRelatorioExecutivo — estudo totalmente vazio", () => {
       expect(modelo.premissasFontesDataVersao.dado.parametrosUrbanisticosRelevantes).toBeNull();
       expect(modelo.premissasFontesDataVersao.dado.fontesPesquisaMercado).toBeNull();
       // versão do estudo é sempre pendência explícita (sem sistema de versionamento)
-      expect(modelo.premissasFontesDataVersao.pendencias.some((p) => p.includes("versionamento"))).toBe(true);
+      expect(modelo.premissasFontesDataVersao.pendencias.some((p) => p.includes("histórico de versões"))).toBe(true);
     }
   });
 
@@ -326,6 +326,19 @@ describe("montarRelatorioExecutivo — estudo completo", () => {
         modelo.dadosCadastraisUrbanisticos.pendencias.some((p) => p.includes("matrícula"))
       ).toBe(true);
     }
+  });
+
+  it("dados formais informados entram no relatório e removem somente suas pendências", () => {
+    const modelo = montarRelatorioExecutivo({ ...estudoCompleto(),
+      propertyRegistration: "12345 — Cartório 1º Ofício",
+      carRegistration: "MA-123",
+      officialZoning: "Zona residencial",
+      zoningSource: "Lei municipal 42/2025",
+    });
+    expect(modelo.dadosCadastraisUrbanisticos.status).toBe("ok");
+    if (modelo.dadosCadastraisUrbanisticos.status !== "ok") throw new Error("Parâmetros não carregados");
+    expect(modelo.dadosCadastraisUrbanisticos.dado.propertyRegistration).toContain("12345");
+    expect(modelo.dadosCadastraisUrbanisticos.pendencias.some((p) => /matrícula|CAR|zoneamento oficial/i.test(p))).toBe(false);
   });
 
   it("mercado/referências: cidade, mercado (com fontes), precificação e pesquisa primária todos presentes", () => {
@@ -415,8 +428,24 @@ describe("montarRelatorioExecutivo — estudo completo", () => {
     if (modelo.cronograma.status === "ok") {
       expect(modelo.cronograma.dado.obra?.avancoFisicoAtualPct).toBe(10);
       expect(modelo.cronograma.dado.lancamento?.concluidos).toBe(1);
-      expect(modelo.cronograma.pendencias.some((p) => p.includes("responsável individual por tarefa"))).toBe(true);
+      expect(modelo.cronograma.pendencias.some((p) => p.includes("sem responsável individual"))).toBe(true);
     }
+  });
+
+  it("cronograma mostra responsáveis e riscos de execução salvos", () => {
+    const completo = estudoCompleto();
+    const modelo = montarRelatorioExecutivo({ ...completo, staff: [{ id: 1, name: "Ana" }],
+      physicalFinancialScheduleJson: JSON.stringify({ medicoes: [{ id: "1", mes: 0, avancoFisicoAcumuladoPct: 30, responsavelId: 1 }],
+        riscos: [{ id: "R1", descricao: "Atraso licença", impacto: "alto", mitigacao: "Protocolar cedo", responsavelId: 1, status: "aberto" }] }),
+      launchPlanJson: JSON.stringify({ marcos: [{ id: "L1", nome: "Lançar", status: "pendente", responsavelId: 1 }] }),
+      versionNumber: 2,
+    });
+    expect(modelo.cronograma.status).toBe("ok");
+    if (modelo.cronograma.status !== "ok") throw new Error("Cronograma esperado");
+    expect(modelo.cronograma.dado.responsaveisPorTarefa).toHaveLength(2);
+    expect(modelo.cronograma.dado.riscosExecucao[0].responsavel).toBe("Ana");
+    expect(modelo.cronograma.pendencias.some((p) => p.includes("sem responsável"))).toBe(false);
+    if (modelo.premissasFontesDataVersao.status === "ok") expect(modelo.premissasFontesDataVersao.dado.versao).toBe(2);
   });
 
   it("premissas/fontes/data/versão: premissas e fontes presentes, versão ainda pendência", () => {
@@ -425,7 +454,7 @@ describe("montarRelatorioExecutivo — estudo completo", () => {
       expect(modelo.premissasFontesDataVersao.dado.premissasViabilidade?.impostosPctVgv).toBeCloseTo(6.58, 2);
       expect(modelo.premissasFontesDataVersao.dado.fontesPesquisaMercado).toEqual(["IBGE", "ZAP Imóveis"]);
       expect(new Date(modelo.premissasFontesDataVersao.dado.geradoEm).getTime()).not.toBeNaN();
-      expect(modelo.premissasFontesDataVersao.pendencias.some((p) => p.includes("versionamento"))).toBe(true);
+      expect(modelo.premissasFontesDataVersao.pendencias.some((p) => p.includes("histórico de versões"))).toBe(true);
     }
   });
 });

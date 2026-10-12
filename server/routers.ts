@@ -76,6 +76,33 @@ import { empreiteiroRouter, obraFinanceiroRouter } from "./obra-financeiro-route
 import { LEAD_PIPELINE_KEYS } from "../shared/lead-pipeline.js";
 import { leadDocumentsRouter } from "./lead-documents-router.js";
 
+async function validateStudySchedule(dataJson: string, key: "medicoes" | "marcos") {
+  if (dataJson.length > 150_000) throw new TRPCError({ code: "BAD_REQUEST", message: "Cronograma muito extenso" });
+  let data: Record<string, unknown>;
+  try { data = JSON.parse(dataJson); } catch { throw new TRPCError({ code: "BAD_REQUEST", message: "Cronograma inválido" }); }
+  if (!data || typeof data !== "object" || !Array.isArray(data[key]) || data[key].length > 500)
+    throw new TRPCError({ code: "BAD_REQUEST", message: "Itens do cronograma inválidos" });
+  const items = data[key] as Record<string, unknown>[];
+  if (key === "medicoes" && data.riscos != null && !Array.isArray(data.riscos))
+    throw new TRPCError({ code: "BAD_REQUEST", message: "Riscos de execução inválidos" });
+  const risks = key === "medicoes" && Array.isArray(data.riscos) ? data.riscos as Record<string, unknown>[] : [];
+  if (risks.length > 100 || risks.some((r) => !r || typeof r.id !== "string" ||
+      typeof r.descricao !== "string" || !r.descricao.trim() || r.descricao.length > 1000 ||
+      typeof r.mitigacao !== "string" || r.mitigacao.length > 2000 ||
+      !["baixo", "medio", "alto"].includes(String(r.impacto)) ||
+      !["aberto", "mitigado"].includes(String(r.status))))
+    throw new TRPCError({ code: "BAD_REQUEST", message: "Riscos de execução inválidos" });
+  if (items.some((i) => !i || typeof i !== "object"))
+    throw new TRPCError({ code: "BAD_REQUEST", message: "Itens do cronograma inválidos" });
+  if ([...items, ...risks].some((i) => i.responsavelId != null &&
+      (typeof i.responsavelId !== "number" || !Number.isSafeInteger(i.responsavelId))))
+    throw new TRPCError({ code: "BAD_REQUEST", message: "Responsável inválido" });
+  const ids = Array.from(new Set([...items, ...risks].map((item) => item.responsavelId).filter((v): v is number => typeof v === "number")));
+  const staff = await db.getIncorporationStaff();
+  if (ids.some((id) => !Number.isSafeInteger(id) || !staff.some((u) => u.active && u.id === id)))
+    throw new TRPCError({ code: "BAD_REQUEST", message: "Responsável inválido ou inativo" });
+}
+
 // Helper para gerar número de bilhete único
 function generateTicketNumber(): string {
   return `TKT${Date.now()}${Math.random().toString(36).substring(2, 9).toUpperCase()}`;
@@ -803,6 +830,7 @@ export const appRouter = router({
           address: z.string().optional(),
           totalArea: z.number().optional(),
           // Valores financeiros ficam em obraFinanceiro.salvarValores (Lote 2).
+          cefBranch: z.string().max(255).nullable().optional(),
           // Datas e status
           startDate: z.date().optional(),
           estimatedEndDate: z.date().optional(),
@@ -2755,6 +2783,24 @@ export const appRouter = router({
   }),
 
   incorporacao: router({
+    staff: protectedProcedure.query(async ({ ctx }) => {
+      requireRole(ctx, ["admin"]);
+      return db.getIncorporationStaff();
+    }),
+    versions: protectedProcedure
+      .input(z.object({ id: z.number().int() }))
+      .query(async ({ input, ctx }) => {
+        requireRole(ctx, ["admin"]);
+        return db.getIncorporationStudyVersions(input.id);
+      }),
+    versionSnapshot: protectedProcedure
+      .input(z.object({ id: z.number().int(), revision: z.number().int().positive() }))
+      .query(async ({ input, ctx }) => {
+        requireRole(ctx, ["admin"]);
+        const version = await db.getIncorporationStudyVersion(input.id, input.revision);
+        if (!version) throw new TRPCError({ code: "NOT_FOUND", message: "Versão não encontrada" });
+        return version;
+      }),
     list: protectedProcedure
       .input(
         z
@@ -2788,6 +2834,10 @@ export const appRouter = router({
           longitude: z.number().optional(),
           responsible: z.string().optional(),
           propertyRef: z.string().optional(),
+          propertyRegistration: z.string().max(500).nullable().optional(),
+          carRegistration: z.string().max(500).nullable().optional(),
+          officialZoning: z.string().max(500).nullable().optional(),
+          zoningSource: z.string().max(500).nullable().optional(),
         })
       )
       .mutation(async ({ input, ctx }) => {
@@ -2812,6 +2862,10 @@ export const appRouter = router({
           responsible: z.string().optional(),
           status: z.enum(["draft", "in_study", "completed"]).optional(),
           propertyRef: z.string().optional(),
+          propertyRegistration: z.string().max(500).nullable().optional(),
+          carRegistration: z.string().max(500).nullable().optional(),
+          officialZoning: z.string().max(500).nullable().optional(),
+          zoningSource: z.string().max(500).nullable().optional(),
         })
       )
       .mutation(async ({ input, ctx }) => {
@@ -3079,6 +3133,7 @@ export const appRouter = router({
       .input(z.object({ id: z.number(), dataJson: z.string().min(1) }))
       .mutation(async ({ input, ctx }) => {
         requireRole(ctx, ["admin"]);
+        await validateStudySchedule(input.dataJson, "marcos");
         await db.updateIncorporationStudy(input.id, {
           launchPlanJson: input.dataJson,
         });
@@ -3149,6 +3204,7 @@ export const appRouter = router({
       .input(z.object({ id: z.number(), dataJson: z.string().min(1) }))
       .mutation(async ({ input, ctx }) => {
         requireRole(ctx, ["admin"]);
+        await validateStudySchedule(input.dataJson, "medicoes");
         await db.updateIncorporationStudy(input.id, {
           physicalFinancialScheduleJson: input.dataJson,
         });
