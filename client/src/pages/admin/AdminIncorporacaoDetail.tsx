@@ -28,6 +28,16 @@ const STATUS_OPTIONS = [
   { value: "completed", label: "Concluído" },
 ];
 
+const MODULOS = [
+  ["dados", "Dados Gerais"], ["terreno", "Terreno e Topografia"],
+  ["mercado", "Inteligência de Mercado"], ["massa", "Estudo de Massa Generativa"],
+  ["orcamento", "Orçamento e Negociação"], ["business", "Business/Investidores"],
+  ["projeto", "Projeto Aprovado"], ["registro", "Registro e Orçamento"],
+  ["lancamento", "Planejamento do Lançamento"], ["unidades", "Unidades à Venda"],
+  ["obra", "Obra Executiva"], ["relatorio", "Atendimento e Relatório"],
+  ["viabilidade", "Viabilidade Econômica"],
+] as const;
+
 export default function AdminIncorporacaoDetail() {
   const { id } = useParams<{ id: string }>();
   const utils = trpc.useUtils();
@@ -36,6 +46,15 @@ export default function AdminIncorporacaoDetail() {
   const { data: versoes = [] } = trpc.incorporacao.versions.useQuery({ id: Number(id) }, { enabled: !!Number(id) });
   const { data: equipe = [] } = trpc.incorporacao.staff.useQuery();
   const [erroVersao, setErroVersao] = useState("");
+  const [moduloAtivo, setModuloAtivo] = useState<(typeof MODULOS)[number][0]>("dados");
+  const [alterado, setAlterado] = useState(false);
+
+  useEffect(() => {
+    if (!alterado) return;
+    const avisar = (event: BeforeUnloadEvent) => { event.preventDefault(); event.returnValue = ""; };
+    window.addEventListener("beforeunload", avisar);
+    return () => window.removeEventListener("beforeunload", avisar);
+  }, [alterado]);
 
   async function baixarVersao(revision: number) {
     setErroVersao("");
@@ -73,6 +92,7 @@ export default function AdminIncorporacaoDetail() {
   const updateMutation = trpc.incorporacao.update.useMutation({
     onSuccess: () => {
       toast.success("Estudo atualizado!");
+      setAlterado(false);
       utils.incorporacao.getById.invalidate({ id: Number(id) });
       utils.incorporacao.list.invalidate();
     },
@@ -128,7 +148,17 @@ export default function AdminIncorporacaoDetail() {
         </div>
       </div>
 
-      <div className="max-w-4xl mx-auto px-6 py-6 space-y-6">
+      <div className="max-w-4xl mx-auto px-6 py-6 space-y-6" onInputCapture={() => setAlterado(true)} onChangeCapture={() => setAlterado(true)}>
+        <nav aria-label="Módulos do estudo" className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-2">
+          {MODULOS.map(([idModulo, nome]) => (
+            <button key={idModulo} type="button" onClick={() => setModuloAtivo(idModulo)}
+              aria-current={moduloAtivo === idModulo ? "page" : undefined}
+              className={`min-w-0 rounded-md border px-3 py-3 text-left text-sm font-medium break-words ${moduloAtivo === idModulo ? "border-[#C9A961] bg-[#C9A961] text-[#1A2332]" : "border-[#C9A961]/30 bg-[#0F1923] text-gray-200 hover:border-[#C9A961]"}`}>
+              {nome}
+            </button>
+          ))}
+        </nav>
+        <div hidden={moduloAtivo !== "dados"} className="space-y-6">
         <Card className="bg-[#1A2332]/60 border-[#C9A961]/20 backdrop-blur-sm">
           <CardHeader>
             <CardTitle className="text-white text-lg">Dados Gerais</CardTitle>
@@ -205,7 +235,9 @@ export default function AdminIncorporacaoDetail() {
             ))}
           </CardContent>
         </Card>
+        </div>
 
+        <div hidden={moduloAtivo !== "terreno"}>
         <TerrenoTopografia
           estudoId={estudo.id}
           geojson={estudo.geojson}
@@ -213,7 +245,9 @@ export default function AdminIncorporacaoDetail() {
           perimeterM={estudo.perimeterM}
           elevationJson={estudo.elevationJson}
         />
+        </div>
 
+        <div hidden={moduloAtivo !== "mercado"}>
         <EstudoMercado
           estudoId={estudo.id}
           city={estudo.city}
@@ -223,7 +257,9 @@ export default function AdminIncorporacaoDetail() {
           comparablePricingJson={estudo.comparablePricingJson}
           primaryResearchJson={estudo.primaryResearchJson}
         />
+        </div>
 
+        <div hidden={moduloAtivo !== "massa"}>
         <EstudoMassa
           estudoId={estudo.id}
           geojson={estudo.geojson}
@@ -236,41 +272,55 @@ export default function AdminIncorporacaoDetail() {
           selectedScenarioId={estudo.selectedScenarioId}
           areasBoardJson={estudo.areasBoardJson}
         />
+        </div>
 
+        <div hidden={moduloAtivo !== "orcamento"}>
         <OrcamentoNegociacao
           estudoId={estudo.id}
           parameterizedBudgetJson={estudo.parameterizedBudgetJson}
           landNegotiationJson={estudo.landNegotiationJson}
         />
+        </div>
 
+        <div hidden={moduloAtivo !== "business"}>
         <BusinessPlan estudoId={estudo.id} businessPlanJson={estudo.businessPlanJson} />
+        </div>
 
+        <div hidden={moduloAtivo !== "projeto"}>
         <ProjetistasAprovacao
           estudoId={estudo.id}
           designersJson={estudo.designersJson}
           projectApprovalJson={estudo.projectApprovalJson}
         />
+        </div>
 
+        <div hidden={moduloAtivo !== "registro"}>
         <RegistroOrcamentoPreliminar
           estudoId={estudo.id}
           incorporationRegistrationJson={estudo.incorporationRegistrationJson}
           preliminaryBudgetJson={estudo.preliminaryBudgetJson}
           parameterizedBudgetJson={estudo.parameterizedBudgetJson}
         />
+        </div>
 
+        <div hidden={moduloAtivo !== "lancamento"}>
         <LancamentoMarketing
           estudoId={estudo.id}
           launchPlanJson={estudo.launchPlanJson}
           launchSuppliersJson={estudo.launchSuppliersJson}
           marketingMaterialJson={estudo.marketingMaterialJson}
         />
+        </div>
 
+        <div hidden={moduloAtivo !== "unidades"}>
         <LancamentoImobiliario
           estudoId={estudo.id}
           productMixJson={estudo.productMixJson}
           realEstateLaunchJson={estudo.realEstateLaunchJson}
         />
+        </div>
 
+        <div hidden={moduloAtivo !== "obra"}>
         <ObraExecutiva
           estudoId={estudo.id}
           executiveProjectsJson={estudo.executiveProjectsJson}
@@ -278,13 +328,17 @@ export default function AdminIncorporacaoDetail() {
           physicalFinancialScheduleJson={estudo.physicalFinancialScheduleJson}
           preliminaryBudgetJson={estudo.preliminaryBudgetJson}
         />
+        </div>
 
+        <div hidden={moduloAtivo !== "relatorio"}>
         <AtendimentoRelatorio
           estudoId={estudo.id}
           customerServiceJson={estudo.customerServiceJson}
           estudo={{ ...estudo, versionNumber: versoes[0]?.revision ?? null, staff: equipe }}
         />
+        </div>
 
+        <div hidden={moduloAtivo !== "viabilidade"}>
         <ViabilidadeEconomica
           estudoId={estudo.id}
           areaM2={estudo.areaM2}
@@ -292,6 +346,7 @@ export default function AdminIncorporacaoDetail() {
           productMixJson={estudo.productMixJson}
           lottingJson={estudo.lottingJson}
         />
+        </div>
       </div>
     </div>
   );
