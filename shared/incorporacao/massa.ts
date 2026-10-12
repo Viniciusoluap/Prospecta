@@ -200,6 +200,46 @@ export interface OpcoesGeracao {
 }
 
 /**
+ * Valida os parâmetros do estudo de massa antes de rodar o motor generativo.
+ *
+ * `testadaLoteM`, `profundidadeLoteM`, `larguraViaM` e `comprimentoMaxQuadraM`
+ * controlam o passo (`pitch`) das varreduras em `gerarLotesFrame` — se
+ * qualquer um deles chegar zerado ou negativo (ex.: um campo numérico que o
+ * usuário deixou em branco, ou um valor inválido que foi parseado para 0), o
+ * laço correspondente nunca avança e o navegador congela em loop infinito.
+ * Chamar esta função antes de `gerarCenariosMassa` evita esse cenário e
+ * permite mostrar uma mensagem amigável em vez de travar a página.
+ *
+ * Retorna `null` quando os parâmetros são válidos, ou uma mensagem amigável
+ * (sem stack trace) explicando o que corrigir.
+ */
+export function validarParametrosMassa(p: ParametrosMassa): string | null {
+  const camposPositivos: { campo: keyof ParametrosMassa; label: string }[] = [
+    { campo: "testadaLoteM", label: "testada do lote" },
+    { campo: "profundidadeLoteM", label: "profundidade do lote" },
+    { campo: "larguraViaM", label: "largura da via" },
+    { campo: "comprimentoMaxQuadraM", label: "comprimento máximo da quadra" },
+    { campo: "loteMinimoM2", label: "lote mínimo" },
+  ];
+
+  const invalidos = camposPositivos.filter(({ campo }) => !Number.isFinite(p[campo]) || p[campo] <= 0);
+  if (invalidos.length > 0) {
+    const lista = invalidos.map((c) => c.label).join(", ");
+    return `Verifique o(s) parâmetro(s) ${lista}: devem ser números maiores que zero.`;
+  }
+
+  if (p.percentInstitucional < 0 || p.percentAreaVerde < 0) {
+    return "Os percentuais de institucional e de área verde não podem ser negativos.";
+  }
+
+  if (p.percentInstitucional + p.percentAreaVerde >= 1) {
+    return "A soma dos percentuais de institucional e área verde deve ser menor que 100% (0 a 1).";
+  }
+
+  return null;
+}
+
+/**
  * Roda o motor generativo completo e retorna os melhores cenários (com
  * geometria exata dos lotes em lng/lat, prontos para desenhar no mapa).
  */
