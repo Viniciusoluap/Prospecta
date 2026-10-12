@@ -65,27 +65,21 @@ Implementado primeiro no Prospecta; precisa ser portado para o Santa Fé com a m
   cadastrados (sem texto livre), valor sugerido por percentual × valor cadastrado; "construção" → "Obra".
 - **EPIC-019:** verificar se a Central Administrativa do Santa Fé tem o mesmo problema de retorno/layout.
 
-## Pendências de paridade com o Grupo Santa Fé (Lote 5 — Estudo de Massa Generativo, 12/10/2026)
+## Paridade com o Grupo Santa Fé (Lote 5 — Estudo de Massa Generativo) — RESOLVIDA (12/10/2026)
 
-Hardening aplicado primeiro no Prospecta (PR #91, `client/src/components/incorporacao/MapaMassa.tsx`,
-`EstudoMassa.tsx`, `shared/incorporacao/massa.ts`, `shared/numero-br.ts`); **confirmado que o Grupo
-Santa Fé tem os mesmos bugs nos arquivos equivalentes** e precisa do mesmo tratamento:
+Hardening aplicado nos dois sistemas: Grupo Santa Fé em `web/src/app/admin/incorporacao/_components/
+mapa-massa.tsx`/`massa-tab.tsx`/`web/src/lib/geo/massa.ts`/`web/src/lib/utils.ts` (PR #160, mesclado
+antes deste), Prospecta em `client/src/components/incorporacao/MapaMassa.tsx`/`EstudoMassa.tsx`/
+`shared/incorporacao/massa.ts`/`shared/numero-br.ts` (PR #91). Mesma regra de negócio dos dois lados:
+ciclo de vida do Leaflet idempotente (`removerMapaSeguro`/`removerMapaComSeguranca`), `try/catch` em
+volta da regeneração de cenários preservando parâmetros/cenários em falha, `validarParametrosMassa`
+bloqueando o loop infinito do motor generativo (passo de varredura zerado), e parsing de número BR
+por vírgula decimal (`parseNumeroBR`).
 
-- `web/src/app/admin/incorporacao/_components/mapa-massa.tsx` — mesmo padrão de `useEffect`/`map.remove()`
-  sem `try/catch` e sem guarda de idempotência explícita; precisa do mesmo `removerMapaComSeguranca`
-  aplicado no Prospecta.
-- `web/src/app/admin/incorporacao/_components/massa-tab.tsx` — `gerar()` sem `catch` (só `finally`), mesmo
-  risco de erro não tratado derrubando a página; `upd()` usa `parseFloat(v) || 0`, mesmo bug de número
-  brasileiro (vírgula decimal zera o campo silenciosamente).
-- `web/src/lib/geo/massa.ts` — não tem equivalente a `validarParametrosMassa`; sujeito ao mesmo loop
-  infinito em `gerarLotesFrame` se `testadaLoteM`/`profundidadeLoteM`/`larguraViaM`/`comprimentoMaxQuadraM`
-  chegarem zerados.
-- Não há, no Grupo Santa Fé, um utilitário equivalente a `shared/numero-br.ts` (`parseNumeroBR`).
-
-Como esta sessão foi escopada apenas ao Prospecta, a correção não foi portada aqui — fica registrada
-para a sessão responsável pelo Grupo Santa Fé replicar a mesma regra de negócio (ciclo de vida do
-Leaflet idempotente, validação antes do motor generativo, parsing de número BR, mensagem amigável sem
-stack trace).
+Uma sessão inicial do Prospecta (PR #91) tinha corrigido o `parseNumeroBR` em si, mas vinculado o
+`<Input>` diretamente ao número já parseado — isso reformatava o valor a cada tecla e impedia
+digitar qualquer decimal com vírgula na prática. Corrigido antes do merge com um buffer de texto por
+campo (mesmo padrão do Santa Fé: o `<Input>` exibe o buffer, reformatado só no blur).
 
 ## Coordenação entre trilhas
 
