@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { formatarPercentual, progressoDaObra } from "@shared/financeiro/progresso";
 import { Link, useLocation } from "wouter";
 import {
   Building2,
@@ -271,9 +272,9 @@ export default function Portal() {
                 <CardContent>
                   <div className="flex justify-between text-sm mb-2">
                     <span>Andamento da obra</span>
-                    <b>{dashboard.data.project.progress}%</b>
+                    <b>{formatarPercentual(progressoDaObra(dashboard.data.project.progressMeasuredPct, dashboard.data.project.progress))}</b>
                   </div>
-                  <Progress value={dashboard.data.project.progress} />
+                  <Progress value={progressoDaObra(dashboard.data.project.progressMeasuredPct, dashboard.data.project.progress)} />
                 </CardContent>
               </Card>
             )}
@@ -315,9 +316,9 @@ export default function Portal() {
                           .filter(Boolean)
                           .join(" — ")}
                       </p>
-                      <Progress value={project.progress} />
+                      <Progress value={progressoDaObra(project.progressMeasuredPct, project.progress)} />
                       <p className="text-sm font-semibold">
-                        {project.progress}% concluído
+                        {formatarPercentual(progressoDaObra(project.progressMeasuredPct, project.progress))} concluído
                       </p>
                     </CardContent>
                   </Card>
@@ -340,9 +341,9 @@ export default function Portal() {
                         <Badge>{work.data.project.status}</Badge>
                         <Badge variant="outline">Somente acompanhamento</Badge>
                       </div>
-                      <Progress value={work.data.project.progress} />
+                      <Progress value={progressoDaObra(work.data.project.progressMeasuredPct, work.data.project.progress)} />
                       <p className="font-semibold">
-                        {work.data.project.progress}% concluído
+                        {formatarPercentual(progressoDaObra(work.data.project.progressMeasuredPct, work.data.project.progress))} concluído
                       </p>
                       <p className="text-sm text-slate-500">
                         Previsão: {date(work.data.project.estimatedEndDate)}

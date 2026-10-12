@@ -10,10 +10,13 @@ import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { trpc } from "@/lib/trpc";
-import { ArrowLeft, Building2, DollarSign, FileText, Image, Loader2, Save, Upload, X, Download, BarChart3 } from "lucide-react";
+import { ArrowLeft, Building2, DollarSign, FileText, Image, Loader2, Save, Download, BarChart3 } from "lucide-react";
 import { Link, useLocation, useParams } from "wouter";
 import { getLoginUrl } from "@/const";
 import { useEffect, useMemo, useState } from "react";
+import { ProgressoObraAba } from "@/components/obra/ProgressoObraAba";
+import { FotosObraAba } from "@/components/obra/FotosObraAba";
+import { RelatorioObraBotao } from "@/components/obra/RelatorioObraBotao";
 import { CustosAba, ValoresOperacaoAba, calcularAoVivo, formInicial, type FormFinanceiro } from "@/components/obra/FinanceiroObra";
 import { OBRA_STATUS_SELECIONAVEIS, isObraStatusSelecionavel, obraStatusLabel } from "@shared/obra-status";
 import { toast } from "sonner";
@@ -72,89 +75,6 @@ export default function AdminEditarObra() {
   const definirInvestidores = trpc.obraFinanceiro.definirInvestidores.useMutation();
   const [salvando, setSalvando] = useState(false);
 
-  // Form state - Aba 3: Progresso
-  const [progress, setProgress] = useState("0");
-
-  // Form state - Aba 4: Fotos
-  const [uploading, setUploading] = useState(false);
-  const [photoCaption, setPhotoCaption] = useState("");
-
-  const uploadPhotoMutation = trpc.construction.uploadPhoto.useMutation({
-    onSuccess: () => {
-      toast.success("Foto enviada com sucesso!");
-      setPhotoCaption("");
-      refetch();
-    },
-    onError: (error) => {
-      toast.error(`Erro ao enviar foto: ${error.message}`);
-    },
-  });
-
-  const deletePhotoMutation = trpc.construction.deletePhoto.useMutation({
-    onSuccess: () => {
-      toast.success("Foto removida com sucesso!");
-      refetch();
-    },
-    onError: (error) => {
-      toast.error(`Erro ao remover foto: ${error.message}`);
-    },
-  });
-
-  const handlePhotoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-
-    if (!file.type.startsWith("image/")) {
-      toast.error("Por favor, selecione uma imagem válida");
-      return;
-    }
-
-    if (file.size > 5 * 1024 * 1024) {
-      toast.error("A imagem deve ter no máximo 5MB");
-      return;
-    }
-
-    setUploading(true);
-
-    try {
-      // Converter para base64 para enviar ao backend
-      const reader = new FileReader();
-      reader.onloadend = async () => {
-        const base64 = reader.result as string;
-        
-        // Enviar para backend que fará upload no S3
-        const response = await fetch("/api/upload-photo", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ 
-            image: base64,
-            filename: file.name,
-            projectId 
-          }),
-        });
-
-        if (!response.ok) throw new Error("Erro ao fazer upload");
-
-        const { url } = await response.json();
-
-        // Salvar no banco
-        await uploadPhotoMutation.mutateAsync({
-          projectId,
-          imageUrl: url,
-          caption: photoCaption || undefined,
-          takenAt: new Date(),
-        });
-
-        setUploading(false);
-      };
-      reader.readAsDataURL(file);
-    } catch (error) {
-      console.error("Erro ao fazer upload:", error);
-      toast.error("Erro ao fazer upload da foto");
-      setUploading(false);
-    }
-  };
-
   useEffect(() => {
     if (!authLoading && !isAuthenticated) {
       window.location.href = getLoginUrl();
@@ -181,7 +101,6 @@ export default function AdminEditarObra() {
       const legacyMatch = historicalNotes.match(/\n__MCMV_META__:[\s\S]+$/);
       setLegacyMcmvSuffix(legacyMatch?.[0] ?? "");
       setNotes(historicalNotes.replace(/\n__MCMV_META__:[\s\S]+$/, ""));
-      setProgress(project.progress?.toString() || "0");
 
       const metaMatch = (project.notes || "").match(/\n__MCMV_META__:([\s\S]+)$/);
       let metaLida: Record<string, string> | null = null;
@@ -205,7 +124,6 @@ export default function AdminEditarObra() {
       actualEndDate: actualEndDate ? new Date(actualEndDate) : undefined,
       notes: notes + legacyMcmvSuffix,
       cefBranch: cefBranch.trim() || null,
-      progress: parseInt(progress),
     };
     setSalvando(true);
     try {
@@ -517,167 +435,19 @@ export default function AdminEditarObra() {
             )}
           </TabsContent>
 
-          <TabsContent value="progresso" className="mt-6">
-            <Card className="bg-[#1A2332]/60 border-[#C9A961]/20 backdrop-blur-sm">
-              <CardHeader>
-                <CardTitle className="text-[#C9A961]">Medições e Progresso</CardTitle>
-                <CardDescription className="text-gray-400">
-                  Acompanhamento do andamento da obra
-                </CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-6">
-                <Link href={`/admin/obras/${projectId}/medicoes`}>
-                  <Button variant="outline" className="border-[#C9A961]/40 text-[#C9A961] hover:bg-[#C9A961]/10 gap-2">
-                    <BarChart3 className="h-4 w-4" />
-                    Ver Medições
-                  </Button>
-                </Link>
-                <div className="space-y-2">
-                  <Label htmlFor="progress" className="text-gray-300">Progresso Geral (%)</Label>
-                  <div className="flex items-center gap-4">
-                    <Input
-                      id="progress"
-                      type="number"
-                      min="0"
-                      max="100"
-                      value={progress}
-                      onChange={(e) => setProgress(e.target.value)}
-                      className="bg-[#2C3E50] border-[#C9A961]/30 text-white max-w-[120px]"
-                    />
-                    <div className="flex-1">
-                      <div className="w-full bg-gray-700 rounded-full h-4">
-                        <div
-                          className="bg-gradient-to-r from-[#C9A961] to-[#FFD700] h-4 rounded-full transition-all flex items-center justify-center text-xs font-semibold text-[#1A2332]"
-                          style={{ width: `${progress}%` }}
-                        >
-                          {progress}%
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-
-                <div className="border-t border-[#C9A961]/20 pt-6">
-                  <h3 className="text-lg font-semibold text-[#C9A961] mb-4">Etapas da Obra</h3>
-                  <p className="text-gray-300 text-sm mb-4">
-                    As etapas individuais podem ser gerenciadas na seção de detalhes da obra.
-                  </p>
-                  {project.stages && project.stages.length > 0 ? (
-                    <div className="space-y-3">
-                      {project.stages.map((stage) => (
-                        <div key={stage.id} className="flex items-center justify-between p-3 bg-[#2C3E50] rounded-lg border border-[#C9A961]/20">
-                          <div>
-                            <p className="font-medium text-white">{stage.name}</p>
-                            <p className="text-sm text-gray-300">{stage.description || "Sem descrição"}</p>
-                          </div>
-                          <span className={`px-3 py-1 rounded-full text-sm ${
-                            stage.status === "completed" ? "bg-green-500/20 text-green-300" :
-                            stage.status === "in_progress" ? "bg-yellow-500/20 text-yellow-300" :
-                            "bg-gray-500/20 text-gray-300"
-                          }`}>
-                            {stage.status === "completed" ? "Concluída" :
-                             stage.status === "in_progress" ? "Em Andamento" :
-                             "Pendente"}
-                          </span>
-                        </div>
-                      ))}
-                    </div>
-                  ) : (
-                    <p className="text-gray-300 text-center py-8">Nenhuma etapa cadastrada ainda.</p>
-                  )}
-                </div>
-              </CardContent>
-            </Card>
+          <TabsContent value="progresso" className="mt-6 space-y-4">
+            <Link href={`/admin/obras/${projectId}/medicoes`}>
+              <Button variant="outline" className="border-[#C9A961]/40 text-[#C9A961] hover:bg-[#C9A961]/10 gap-2">
+                <BarChart3 className="h-4 w-4" />
+                Ver Medições da CEF
+              </Button>
+            </Link>
+            <ProgressoObraAba projectId={projectId} />
           </TabsContent>
 
           {/* ABA 4: FOTOS */}
           <TabsContent value="fotos" className="mt-6">
-            <Card className="bg-[#1A2332]/60 border-[#C9A961]/20 backdrop-blur-sm">
-              <CardHeader>
-                <CardTitle className="text-[#C9A961]">Galeria de Fotos</CardTitle>
-                <CardDescription className="text-gray-400">
-                  Fotos do progresso da obra
-                </CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-6">
-                {/* Upload de Foto */}
-                <div className="border-2 border-dashed border-[#C9A961]/30 rounded-lg p-6 bg-[#1A2332]/40">
-                  <div className="space-y-4">
-                    <div className="space-y-2">
-                      <Label htmlFor="photo-caption" className="text-gray-300">Legenda (opcional)</Label>
-                      <Input
-                        id="photo-caption"
-                        placeholder="Ex: Fundação concluída"
-                        value={photoCaption}
-                        onChange={(e) => setPhotoCaption(e.target.value)}
-                        className="bg-[#1A2332]/60 border-[#C9A961]/20 text-white"
-                      />
-                    </div>
-                    <div className="flex items-center justify-center">
-                      <label htmlFor="photo-upload" className="cursor-pointer">
-                        <div className="flex flex-col items-center gap-2 px-6 py-4 bg-[#C9A961]/10 hover:bg-[#C9A961]/20 rounded-lg border border-[#C9A961]/30 transition-colors">
-                          {uploading ? (
-                            <>
-                              <Loader2 className="h-8 w-8 text-[#C9A961] animate-spin" />
-                              <span className="text-sm text-gray-300">Enviando...</span>
-                            </>
-                          ) : (
-                            <>
-                              <Upload className="h-8 w-8 text-[#C9A961]" />
-                              <span className="text-sm text-gray-300">Clique para selecionar foto</span>
-                              <span className="text-xs text-gray-500">PNG, JPG até 5MB</span>
-                            </>
-                          )}
-                        </div>
-                        <input
-                          id="photo-upload"
-                          type="file"
-                          accept="image/*"
-                          className="hidden"
-                          onChange={handlePhotoUpload}
-                          disabled={uploading}
-                        />
-                      </label>
-                    </div>
-                  </div>
-                </div>
-
-                {/* Galeria de Fotos */}
-                {project?.photos && project.photos.length > 0 ? (
-                  <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
-                    {project.photos.map((photo) => (
-                      <div key={photo.id} className="relative group aspect-square rounded-lg overflow-hidden border border-[#C9A961]/20 bg-[#1A2332]/40">
-                        <img
-                          src={photo.imageUrl}
-                          alt={photo.caption || "Foto da obra"}
-                          className="w-full h-full object-cover"
-                        />
-                        <div className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity flex flex-col items-center justify-center gap-2 p-2">
-                          {photo.caption && (
-                            <p className="text-white text-xs text-center line-clamp-2">{photo.caption}</p>
-                          )}
-                          <p className="text-gray-400 text-xs">
-                            {new Date(photo.takenAt).toLocaleDateString("pt-BR")}
-                          </p>
-                          <Button
-                            size="sm"
-                            variant="destructive"
-                            onClick={() => deletePhotoMutation.mutate({ photoId: photo.id })}
-                            disabled={deletePhotoMutation.isPending}
-                          >
-                            <X className="h-4 w-4" />
-                          </Button>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                ) : (
-                  <p className="text-gray-400 text-center py-8">
-                    Nenhuma foto enviada ainda. Faça o upload da primeira foto acima.
-                  </p>
-                )}
-              </CardContent>
-            </Card>
+            <FotosObraAba projectId={projectId} fotos={project.photos} onMudou={() => refetch()} />
           </TabsContent>
 
           {/* ABA 5: RELATÓRIOS */}
@@ -696,49 +466,11 @@ export default function AdminEditarObra() {
                     <CardHeader>
                       <CardTitle className="text-[#C9A961] text-lg">Relatório PDF</CardTitle>
                       <CardDescription className="text-gray-400">
-                        Relatório completo com todas as informações da obra
+                        Relatório executivo multipágina: informações, valores, custos, progresso, gráficos e fotos
                       </CardDescription>
                     </CardHeader>
                     <CardContent>
-                      <Button
-                        onClick={() => {
-                          if (!project) return;
-                          import("jspdf").then(({ default: jsPDF }) => {
-                            const doc = new jsPDF();
-                            
-                            // Título
-                            doc.setFontSize(20);
-                            doc.text("Relatório da Obra", 105, 20, { align: "center" });
-                            
-                            // Informações Básicas
-                            doc.setFontSize(12);
-                            doc.text(`Título: ${project.title}`, 20, 40);
-                            doc.text(`Endereço: ${project.address || "N/A"}`, 20, 50);
-                            doc.text(`Tipo: ${project.crm.projectType || "N/A"}`, 20, 60);
-                            doc.text(`Área Total: ${project.totalArea || "N/A"} m²`, 20, 70);
-                            doc.text(`Status: ${project.status}`, 20, 80);
-                            doc.text(`Progresso: ${project.progress}%`, 20, 90);
-                            
-                            // Valores (relatório completo é reconstruído no Lote 4)
-                            const fmt = (i?: { ok: boolean; centavos?: number; motivo?: string }) =>
-                              i?.ok ? (i.centavos! / 100).toLocaleString("pt-BR", { style: "currency", currency: "BRL" }) : "não disponível";
-                            doc.text("Valores Financeiros:", 20, 110);
-                            doc.text(`Orçamento Previsto: ${fmt(calculo?.custoConstrucao)}`, 20, 120);
-                            doc.text(`Total Gasto na Obra: ${fmt(calculo?.totalGasto)}`, 20, 130);
-                            doc.text(`Saldo Restante: ${fmt(calculo?.saldoRestante)}`, 20, 140);
-                            doc.text(`Lucro Estimado: ${fmt(calculo?.lucroEstimado)}`, 20, 150);
-                            
-                            // Salvar
-                            doc.save(`relatorio-${project.title.replace(/\s+/g, "-")}.pdf`);
-                            toast.success("Relatório PDF gerado com sucesso!");
-                          });
-                        }}
-                        className="w-full bg-[#C9A961] hover:bg-[#B8935A] text-[#1A2332]"
-                        disabled={!project}
-                      >
-                        <Download className="h-4 w-4 mr-2" />
-                        Baixar PDF
-                      </Button>
+                      <RelatorioObraBotao projectId={projectId} />
                     </CardContent>
                   </Card>
 
@@ -765,7 +497,7 @@ export default function AdminEditarObra() {
                               ["Tipo", project.crm.projectType || "N/A"],
                               ["Área Total (m²)", project.totalArea || "N/A"],
                               ["Status", project.status],
-                              ["Progresso (%)", project.progress],
+                              ["Progresso (%)", project.progressMeasuredPct != null ? Number(Number(project.progressMeasuredPct).toFixed(2)) : project.progress],
                               [""],
                               ["Valores Financeiros (R$)"],
                               ...([
@@ -807,7 +539,7 @@ export default function AdminEditarObra() {
                   <ul className="text-gray-400 text-sm space-y-1">
                     <li>• <strong>PDF:</strong> Relatório visual completo, ideal para apresentações e impressão</li>
                     <li>• <strong>Excel:</strong> Planilha editável com todos os dados, ideal para análises financeiras</li>
-                    <li>• Os relatórios incluem informações básicas, valores financeiros e progresso da obra</li>
+                    <li>• O PDF usa somente dados reais da obra; campos sem informação aparecem como "Não informado"</li>
                   </ul>
                 </div>
               </CardContent>

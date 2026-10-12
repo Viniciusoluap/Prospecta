@@ -1,4 +1,5 @@
 import { useEffect } from "react";
+import { formatarPercentual, progressoDaObra } from "@shared/financeiro/progresso";
 import { useLocation } from "wouter";
 import { HardHat, Loader2 } from "lucide-react";
 import { useAuth } from "@/_core/hooks/useAuth";
@@ -39,7 +40,7 @@ export default function EmpreiteiroPortal() {
                 <p className="text-sm text-gray-400">{[o.address, o.city].filter(Boolean).join(" · ") || "Endereço não informado"}</p>
               </CardHeader>
               <CardContent className="space-y-2 text-sm">
-                <p><span className="text-gray-400">Andamento da obra:</span> {o.progress}%</p>
+                <p><span className="text-gray-400">Andamento da obra:</span> {formatarPercentual(progressoDaObra(o.progressMeasuredPct, o.progress))}</p>
                 <p><span className="text-gray-400">Sua participação:</span> {o.percentualEmpreiteiro ? `${Number(o.percentualEmpreiteiro).toLocaleString("pt-BR", { maximumFractionDigits: 6 })}%` : "não definida"}</p>
                 <p>
                   <span className="text-gray-400">Seu lucro estimado:</span>{" "}

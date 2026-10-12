@@ -14,7 +14,7 @@ import { getSessionCookieOptions } from "../server/_core/cookies.js";
 import { createContext } from "../server/_core/context.js";
 import { getDb, getUserByEmail } from "../server/db.js";
 import { appRouter } from "../server/routers.js";
-import uploadPhotoRouter from "../server/routes/upload-photo.js";
+import obraFotosRouter from "../server/routes/obra-fotos.js";
 import { checkAndSendReminder } from "../server/mcmv-rules-reminder.js";
 
 const app = express();
@@ -132,7 +132,7 @@ app.get("/api/cron/mcmv-reminder", async (req, res) => {
 app.use("/api", async (req, res, next) => {
   try {
     const router = express.Router();
-    router.use(uploadPhotoRouter);
+    router.use(obraFotosRouter);
     router.post("/asaas/webhook", handleAsaasWebhook);
     router.use("/trpc", createExpressMiddleware({ router: appRouter, createContext }));
     router(req, res, next);

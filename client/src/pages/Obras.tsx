@@ -1,4 +1,5 @@
 import { useAuth } from "@/_core/hooks/useAuth";
+import { formatarPercentual, progressoDaObra } from "@shared/financeiro/progresso";
 import { obraStatusLabel } from "@shared/obra-status";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
@@ -146,9 +147,9 @@ export default function Obras() {
                   <div>
                     <div className="flex items-center justify-between mb-2">
                       <span className="text-sm text-gray-400">Progresso</span>
-                      <span className="text-sm font-semibold text-[#C9A961]">{project.progress}%</span>
+                      <span className="text-sm font-semibold text-[#C9A961]">{formatarPercentual(progressoDaObra(project.progressMeasuredPct, project.progress))}</span>
                     </div>
-                    <Progress value={project.progress} className="h-2" />
+                    <Progress value={progressoDaObra(project.progressMeasuredPct, project.progress)} className="h-2" />
                   </div>
 
                   {/* Info Grid */}
