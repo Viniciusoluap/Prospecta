@@ -31,6 +31,7 @@
 | EPIC-017 | Vínculo real CRM/Leads ↔ Serviços operacionais | Claude / AIOX | InReview (stories 1.1 a 1.8; migration 0031 a aplicar antes do deploy) — **paridade Santa Fé pendente** | EPIC-015 |
 | EPIC-018 | Corretores & Comissões — vínculos reais | Claude / AIOX | InReview (stories 2.1 a 2.5) — **paridade Santa Fé pendente** | EPIC-012, EPIC-017 |
 | EPIC-019 | Navegação da Central Administrativa | Claude / AIOX | InReview (story 3.1; UAT visual pendente) — **paridade Santa Fé a verificar** | — |
+| EPIC-020 | 32 implementações auditadas (paridade Prospecta ↔ Santa Fé, motor financeiro) | Claude / AIOX | Em andamento — Lote 0 e Lote 1 entregues; matriz em `epic-020-32-implementacoes-paridade/MATRIZ-PARIDADE.md` | EPIC-017, EPIC-018 |
 
 ## Decisões do dono do produto (06/09/2026)
 

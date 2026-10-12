@@ -1,4 +1,5 @@
 import { useAuth } from "@/_core/hooks/useAuth";
+import { obraStatusLabel } from "@shared/obra-status";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { trpc } from "@/lib/trpc";
@@ -56,24 +57,10 @@ export default function AdminObras() {
     disponivel: "bg-lime-500/20 text-lime-300 border-lime-500/30",
     reavaliar: "bg-amber-500/20 text-amber-300 border-amber-500/30",
     distrato: "bg-rose-500/20 text-rose-300 border-rose-500/30",
-  };
-
-  const statusLabels: Record<string, string> = {
-    planning: "Planejamento",
-    in_progress: "Em Andamento",
-    paused: "Pausada",
-    completed: "Concluída",
-    cancelled: "Cancelada",
-    alvara: "Alvará",
-    art: "ART",
-    assinatura_cef: "Assinatura CEF",
-    vistoria_cef: "Vistoria CEF",
-    laudo_ok: "Laudo OK",
-    cartorio: "Cartório",
-    casa_pronta: "Casa Pronta",
-    disponivel: "Disponível",
-    reavaliar: "Reavaliar",
-    distrato: "Distrato",
+    aprovacao: "bg-sky-500/20 text-sky-300 border-sky-500/30",
+    contrato_prospecta: "bg-amber-600/20 text-amber-300 border-amber-600/30",
+    laudo_cef: "bg-emerald-600/20 text-emerald-300 border-emerald-600/30",
+    conformidade_cef: "bg-teal-600/20 text-teal-300 border-teal-600/30",
   };
 
   return (
@@ -141,7 +128,7 @@ export default function AdminObras() {
                       </CardDescription>
                     </div>
                     <span className={`px-3 py-1 rounded-full text-sm border ${statusColors[project.status]}`}>
-                      {statusLabels[project.status]}
+                      {obraStatusLabel(project.status)}
                     </span>
                   </div>
                 </CardHeader>

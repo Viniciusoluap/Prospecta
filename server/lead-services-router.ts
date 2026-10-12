@@ -8,6 +8,7 @@ import { FINANCIAMENTO_CHECKLIST_PADRAO } from "../shared/financiamento.js";
 import { LEAD_SERVICE_MODULE, LEAD_SERVICE_TYPES, serviceTypeFromTrelloFields, type LeadServiceType } from "../shared/lead-services.js";
 import { leadContact, leadFullAddress } from "../shared/lead-snapshot.js";
 import { selectProcessReference } from "../shared/service-reconciliation.js";
+import { tipoProjetoDoServico } from "../shared/obra-crm.js";
 import { adminProcedure, router } from "./_core/trpc.js";
 import { getDb } from "./db.js";
 
@@ -385,7 +386,7 @@ async function ensureOperationalRecord(service: typeof leadServices.$inferSelect
     address: leadFullAddress(lead) || null,
     city: lead.city || null,
     state: lead.state || null,
-    projectType: service.serviceType === "vistoria_medicao" ? "Vistoria e medição" : "Obra / reforma",
+    projectType: tipoProjetoDoServico(service.serviceType),
     status: "planning",
     progress: 0,
     notes: service.description || lead.notes || null,

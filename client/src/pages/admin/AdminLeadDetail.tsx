@@ -22,6 +22,7 @@ import { AdminPortalLeadPanel } from "@/components/admin/AdminPortalLeadPanel";
 import { LeadDocuments } from "@/components/LeadDocuments";
 import { LEAD_SERVICE_LABELS, LEAD_SERVICE_MODULE_ROUTES, LEAD_SERVICE_PRIMARY_TYPES, type LeadServiceType } from "../../../../shared/lead-services";
 import { LEAD_PIPELINE_STAGES, LEGACY_STAGE_LABELS } from "../../../../shared/lead-pipeline";
+import { LEAD_TEMPERATURAS, LEAD_TEMPERATURA_CONFIG, leadTemperaturaRotulo } from "../../../../shared/lead-temperature";
 
 const STAGES = LEAD_PIPELINE_STAGES;
 const STAGE_COLORS: Record<string, string> = Object.fromEntries(STAGES.map(stage => [stage.key, stage.color]));
@@ -162,7 +163,10 @@ export default function AdminLeadDetail() {
               </Button>
             </Link>
             <div className="min-w-0">
-              <h1 className="text-2xl font-bold text-[#C9A961] break-words">{lead.name}</h1>
+              <h1 className="text-2xl font-bold text-[#C9A961] break-words">
+                {lead.temperature === "closed" && <span className="mr-2" title="Negócio fechado">{LEAD_TEMPERATURA_CONFIG.closed.emoji}</span>}
+                {lead.name}
+              </h1>
               <div className="flex flex-wrap items-center gap-3 mt-1">
                 <Badge className={`${STAGE_COLORS[lead.stage] || "bg-gray-500"} text-white text-xs`}>
                   {STAGES.find(s => s.key === lead.stage)?.label || LEGACY_STAGE_LABELS[lead.stage] || lead.stage}
@@ -251,9 +255,9 @@ export default function AdminLeadDetail() {
                           <SelectValue />
                         </SelectTrigger>
                         <SelectContent>
-                          <SelectItem value="cold">Frio</SelectItem>
-                          <SelectItem value="warm">Morno</SelectItem>
-                          <SelectItem value="hot">Quente</SelectItem>
+                          {LEAD_TEMPERATURAS.map(t => (
+                            <SelectItem key={t} value={t}>{leadTemperaturaRotulo(t)}</SelectItem>
+                          ))}
                         </SelectContent>
                       </Select>
                     </div>
@@ -377,10 +381,7 @@ export default function AdminLeadDetail() {
               <InfoRow label="CPF" value={lead.cpf} />
               <InfoRow label="Endereço" value={[lead.address, lead.neighborhood].filter(Boolean).join(", ") || null} icon={<MapPin className="h-3 w-3" />} />
               <InfoRow label="Cidade" value={`${lead.city || "—"}${lead.state ? `/${lead.state}` : ""}`} icon={<MapPin className="h-3 w-3" />} />
-              <InfoRow label="Temperatura" value={
-                lead.temperature === "hot" ? "Quente 🔥" :
-                lead.temperature === "warm" ? "Morno 🌡️" : "Frio ❄️"
-              } />
+              <InfoRow label="Temperatura" value={leadTemperaturaRotulo(lead.temperature)} />
               <InfoRow label="Responsável" value={responsibleName} />
               <InfoRow label="Corretor" value={brokerName} />
               <InfoRow label="Canal de Origem" value={lead.sourceChannel} />

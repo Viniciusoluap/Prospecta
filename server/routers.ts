@@ -19,6 +19,8 @@ import { ENV } from "./_core/env.js";
 import * as db from "./db.js";
 import { TRPCError } from "@trpc/server";
 import { validateCPF, cleanCPF } from "../shared/cpf.js";
+import { OBRA_STATUS_TODOS, validarMudancaStatusObra } from "../shared/obra-status.js";
+import { LEAD_TEMPERATURAS } from "../shared/lead-temperature.js";
 import {
   getChecklistGroups,
   getEstadoGeralOptions,
@@ -788,14 +790,14 @@ export const appRouter = router({
         return project;
       }),
 
-    // Atualizar obra
-    updateProject: protectedProcedure
+    // Atualizar obra. Tipo de projeto, cliente e corretor são do CRM e não
+    // são aceitos aqui (Lote 1 — itens 08, 09 e 24).
+    updateProject: adminProcedure
       .input(
         z.object({
           projectId: z.number(),
           title: z.string().optional(),
           address: z.string().optional(),
-          projectType: z.string().optional(),
           totalArea: z.number().optional(),
           estimatedCost: z.number().optional(),
           actualCost: z.number().optional(),
@@ -814,20 +816,12 @@ export const appRouter = router({
           startDate: z.date().optional(),
           estimatedEndDate: z.date().optional(),
           actualEndDate: z.date().optional(),
-          status: z
-            .enum([
-              "planning",
-              "in_progress",
-              "paused",
-              "completed",
-              "cancelled",
-            ])
-            .optional(),
+          status: z.enum(OBRA_STATUS_TODOS).optional(),
           progress: z.number().min(0).max(100).optional(),
           notes: z.string().optional(),
         })
       )
-      .mutation(async ({ input, ctx }) => {
+      .mutation(async ({ input }) => {
         const { projectId, ...updates } = input;
         const project = await db.getProjectById(projectId);
         if (!project) {
@@ -836,8 +830,9 @@ export const appRouter = router({
             message: "Obra não encontrada",
           });
         }
-        if (project.userId !== ctx.user.id && ctx.user.role !== "admin") {
-          throw new TRPCError({ code: "FORBIDDEN", message: "Acesso negado" });
+        if (updates.status) {
+          const erroStatus = validarMudancaStatusObra(project.status, updates.status);
+          if (erroStatus) throw new TRPCError({ code: "BAD_REQUEST", message: erroStatus });
         }
         // Convert number fields to string for decimal columns in Drizzle
         const decimalFields = [
@@ -1391,7 +1386,7 @@ export const appRouter = router({
               "vip",
             ])
             .optional(),
-          temperature: z.enum(["cold", "warm", "hot"]).optional(),
+          temperature: z.enum(LEAD_TEMPERATURAS).optional(),
           // Renda/tipo de renda saíram do formulário (EPIC-017, story 1.6) e
           // seguem aceitos apenas por compatibilidade com integrações antigas.
           income: z.string().optional(),
@@ -1507,7 +1502,7 @@ export const appRouter = router({
           city: z.string().optional(),
           state: z.string().optional(),
           stage: z.enum(LEAD_PIPELINE_KEYS).optional(),
-          temperature: z.enum(["cold", "warm", "hot"]).optional(),
+          temperature: z.enum(LEAD_TEMPERATURAS).optional(),
           responsible: z.enum(["sarah", "vinicius", "bianca"]).optional(),
           cpfStatus: z.enum(["clean", "restricted", "unknown"]).optional(),
           simulationValue: z.union([z.string(), z.number()]).optional(),

@@ -84,6 +84,10 @@ export const constructionProjectStatusEnum = pgEnum(
     "paused",
     "completed",
     "cancelled",
+    "aprovacao",
+    "contrato_prospecta",
+    "laudo_cef",
+    "conformidade_cef",
   ]
 );
 export const constructionStageStatusEnum = pgEnum("construction_stage_status", [
@@ -142,6 +146,7 @@ export const leadTemperatureEnum = pgEnum("lead_temperature", [
   "cold",
   "warm",
   "hot",
+  "closed",
 ]);
 export const leadStageEnum = pgEnum("lead_stage", [
   "lead_new",

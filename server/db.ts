@@ -39,6 +39,7 @@ import {
   bankTransactions, BankTransaction, InsertBankTransaction,
   dashboardSettings, operationalCommissions, operationalProjects,
 } from "../drizzle/schema.js";
+import { montarDadosCrmObra, tipoProjetoDoServico, type ObraDadosCrm } from "../shared/obra-crm.js";
 
 type DrizzleDb = ReturnType<typeof drizzle>;
 let _db: DrizzleDb | null = null;
@@ -484,14 +485,29 @@ export async function getConversionsByUserId(userId: number) {
 
 // ========== CONSTRUCTION PROJECTS ==========
 
+// O tipo de projeto exibido vem do serviço do CRM; o valor gravado só vale
+// para obras antigas sem serviço vinculado.
+function aplicarTipoProjetoOficial(row: { project: ConstructionProject; serviceType: string | null }): ConstructionProject {
+  return { ...row.project, projectType: tipoProjetoDoServico(row.serviceType) ?? row.project.projectType };
+}
+
 export async function getProjectsByUserId(userId: number): Promise<ConstructionProject[]> {
   const db = getDb();
-  return db.select().from(constructionProjects).where(eq(constructionProjects.userId, userId)).orderBy(desc(constructionProjects.createdAt));
+  const rows = await db.select({ project: constructionProjects, serviceType: leadServices.serviceType })
+    .from(constructionProjects)
+    .leftJoin(leadServices, eq(leadServices.id, constructionProjects.leadServiceId))
+    .where(eq(constructionProjects.userId, userId))
+    .orderBy(desc(constructionProjects.createdAt));
+  return rows.map(aplicarTipoProjetoOficial);
 }
 
 export async function getAllProjects(): Promise<ConstructionProject[]> {
   const db = getDb();
-  return db.select().from(constructionProjects).orderBy(desc(constructionProjects.createdAt));
+  const rows = await db.select({ project: constructionProjects, serviceType: leadServices.serviceType })
+    .from(constructionProjects)
+    .leftJoin(leadServices, eq(leadServices.id, constructionProjects.leadServiceId))
+    .orderBy(desc(constructionProjects.createdAt));
+  return rows.map(aplicarTipoProjetoOficial);
 }
 
 export async function getProjectById(id: number): Promise<ConstructionProject | undefined> {
@@ -574,9 +590,35 @@ export async function deletePhoto(id: number): Promise<void> {
 export async function getProjectWithDetails(projectId: number) {
   const project = await getProjectById(projectId);
   if (!project) return null;
-  const stages = await getStagesByProjectId(projectId);
-  const photos = await getPhotosByProjectId(projectId);
-  return { ...project, stages, photos };
+  const [stages, photos, crm] = await Promise.all([
+    getStagesByProjectId(projectId),
+    getPhotosByProjectId(projectId),
+    getObraDadosCrm(project),
+  ]);
+  return { ...project, projectType: crm.projectType, stages, photos, crm };
+}
+
+export async function getObraDadosCrm(project: Pick<ConstructionProject, "leadId" | "leadServiceId" | "projectType">): Promise<ObraDadosCrm> {
+  const db = getDb();
+  const [lead] = project.leadId
+    ? await db.select({ name: leads.name, brokerName: users.name })
+        .from(leads)
+        .leftJoin(users, eq(users.id, leads.brokerId))
+        .where(eq(leads.id, project.leadId))
+        .limit(1)
+    : [];
+  const [service] = project.leadServiceId
+    ? await db.select({ serviceType: leadServices.serviceType })
+        .from(leadServices)
+        .where(eq(leadServices.id, project.leadServiceId))
+        .limit(1)
+    : [];
+  return montarDadosCrmObra({
+    leadName: lead?.name,
+    brokerName: lead?.brokerName,
+    serviceType: service?.serviceType,
+    projectTypeGravado: project.projectType,
+  });
 }
 
 // ========== PROJECT BUDGET REQUESTS ==========

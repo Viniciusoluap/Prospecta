@@ -14,6 +14,7 @@ import { ArrowLeft, Building2, DollarSign, FileText, Image, Loader2, Save, Uploa
 import { Link, useLocation, useParams } from "wouter";
 import { getLoginUrl } from "@/const";
 import { useEffect, useState } from "react";
+import { OBRA_STATUS_SELECIONAVEIS, isObraStatusSelecionavel, obraStatusLabel } from "@shared/obra-status";
 import { toast } from "sonner";
 
 export default function AdminEditarObra() {
@@ -41,7 +42,6 @@ export default function AdminEditarObra() {
   // Form state - Aba 1: Informações Básicas
   const [title, setTitle] = useState("");
   const [address, setAddress] = useState("");
-  const [projectType, setProjectType] = useState("");
   const [totalArea, setTotalArea] = useState("");
   // Buffers de texto dos campos "medida"/contagem — mesmo motivo do
   // `EstudoMassa.tsx` (Lote 5): sem eles, o <Input> ficaria vinculado
@@ -193,7 +193,6 @@ export default function AdminEditarObra() {
     if (project) {
       setTitle(project.title || "");
       setAddress(project.address || "");
-      setProjectType(project.projectType || "");
       setTotalArea(project.totalArea?.toString() || "");
       setTotalAreaTexto(project.totalArea ? formatarNumeroParaEdicao(Number(project.totalArea), { minimumFractionDigits: 0, maximumFractionDigits: 0 }) : "");
       setStatus(project.status);
@@ -255,7 +254,6 @@ export default function AdminEditarObra() {
       projectId,
       title,
       address,
-      projectType,
       totalArea: totalArea ? parseInt(totalArea) : undefined,
       status,
       startDate: startDate ? new Date(startDate) : undefined,
@@ -348,31 +346,6 @@ export default function AdminEditarObra() {
               <h1 className="text-3xl font-bold text-[#C9A961] mb-2">Editar Obra</h1>
               <p className="text-gray-400">{project.title}</p>
             </div>
-            <div className="flex items-center gap-3">
-              <Link href={`/admin/obras/${projectId}/medicoes`}>
-                <Button variant="outline" className="border-[#C9A961]/40 text-[#C9A961] hover:bg-[#C9A961]/10 gap-2">
-                  <BarChart3 className="h-4 w-4" />
-                  Ver Medições
-                </Button>
-              </Link>
-            <Button
-              onClick={handleSave}
-              disabled={updateMutation.isPending}
-              className="bg-[#C9A961] hover:bg-[#B8985A] text-[#1A2332] gap-2"
-            >
-              {updateMutation.isPending ? (
-                <>
-                  <Loader2 className="h-5 w-5 animate-spin" />
-                  Salvando...
-                </>
-              ) : (
-                <>
-                  <Save className="h-5 w-5" />
-                  Salvar Alterações
-                </>
-              )}
-            </Button>
-            </div>
           </div>
         </div>
       </div>
@@ -387,7 +360,7 @@ export default function AdminEditarObra() {
             </TabsTrigger>
             <TabsTrigger value="mcmv" className="text-gray-200 hover:text-white focus-visible:ring-[#C9A961] data-[state=active]:bg-[#C9A961] data-[state=active]:text-[#1A2332]">
               <DollarSign className="h-4 w-4 mr-1" />
-              <span className="hidden md:inline">MCMV/CEF</span>
+              <span className="hidden md:inline">Valores da Operação</span>
             </TabsTrigger>
             <TabsTrigger value="valores" className="text-gray-200 hover:text-white focus-visible:ring-[#C9A961] data-[state=active]:bg-[#C9A961] data-[state=active]:text-[#1A2332]">
               <DollarSign className="h-4 w-4 mr-1" />
@@ -433,11 +406,16 @@ export default function AdminEditarObra() {
                     <Label htmlFor="projectType" className="text-gray-300">Tipo de Projeto</Label>
                     <Input
                       id="projectType"
-                      value={projectType}
-                      onChange={(e) => setProjectType(e.target.value)}
-                      className="bg-[#2C3E50] border-[#C9A961]/30 text-white"
-                      placeholder="Ex: Casa 47m²"
+                      value={project.crm.projectType ?? "—"}
+                      readOnly
+                      aria-readonly="true"
+                      className="bg-[#2C3E50]/50 border-[#C9A961]/20 text-gray-300 cursor-not-allowed"
                     />
+                    <p className="text-xs text-gray-400">
+                      {project.crm.projectTypeOrigem === "crm"
+                        ? "Definido pelo serviço vinculado no CRM. Para alterar, edite o lead."
+                        : "Obra sem serviço do CRM vinculado: valor antigo preservado. Vincule pelo CRM para regularizar."}
+                    </p>
                   </div>
                 </div>
 
@@ -479,33 +457,14 @@ export default function AdminEditarObra() {
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent>
-                        {/* Status legados */}
-                        <SelectItem value="planning">Planejamento</SelectItem>
-                        <SelectItem value="in_progress">Em Andamento</SelectItem>
-                        <SelectItem value="paused">Pausada</SelectItem>
-                        <SelectItem value="completed">Concluída</SelectItem>
-                        <SelectItem value="cancelled">Cancelada</SelectItem>
-                        {/* Etapas do processo CEF/MCMV */}
-                        <SelectItem value="atendimento">Atendimento</SelectItem>
-                        <SelectItem value="aprovacao">Aprovação</SelectItem>
-                        <SelectItem value="proposta">Proposta</SelectItem>
-                        <SelectItem value="contrato_prospecta">Contrato Prospecta</SelectItem>
-                        <SelectItem value="documentos">Documentos</SelectItem>
-                        <SelectItem value="vistoria_cef">Vistoria CEF</SelectItem>
-                        <SelectItem value="laudo_cef">Laudo CEF</SelectItem>
-                        <SelectItem value="assinaturas_fichas">Assinaturas Fichas</SelectItem>
-                        <SelectItem value="conformidade_cef">Conformidade CEF</SelectItem>
-                        <SelectItem value="assinatura_contrato_cef">Assinatura Contrato CEF</SelectItem>
-                        <SelectItem value="cartorio">Cartório</SelectItem>
-                        <SelectItem value="itbi">ITBI</SelectItem>
-                        <SelectItem value="segunda_conformidade">Segunda Conformidade</SelectItem>
-                        <SelectItem value="cef_libera_obra">CEF Libera Obra</SelectItem>
-                        <SelectItem value="medicoes">Medições</SelectItem>
-                        <SelectItem value="entrega">Entrega</SelectItem>
-                        <SelectItem value="cno_cnd">CNO/CND</SelectItem>
-                        <SelectItem value="habite_se">Habite-se</SelectItem>
-                        <SelectItem value="averbacao">Averbação</SelectItem>
-                        <SelectItem value="concluido">Concluído</SelectItem>
+                        {OBRA_STATUS_SELECIONAVEIS.map((valor) => (
+                          <SelectItem key={valor} value={valor}>{obraStatusLabel(valor)}</SelectItem>
+                        ))}
+                        {!isObraStatusSelecionavel(project.status) && (
+                          <SelectItem value={project.status} disabled>
+                            {obraStatusLabel(project.status)} (classificação antiga — mantida até ser trocada)
+                          </SelectItem>
+                        )}
                       </SelectContent>
                     </Select>
                   </div>
@@ -565,21 +524,27 @@ export default function AdminEditarObra() {
           <TabsContent value="mcmv" className="mt-6">
             <Card className="bg-[#1A2332]/60 border-[#C9A961]/20 backdrop-blur-sm">
               <CardHeader>
-                <CardTitle className="text-[#C9A961]">Dados MCMV / Caixa Econômica Federal</CardTitle>
+                <CardTitle className="text-[#C9A961]">Valores da Operação</CardTitle>
                 <CardDescription className="text-gray-400">
-                  Campos específicos do programa Minha Casa Minha Vida e CEF
+                  Valores financeiros da operação (MCMV / Caixa Econômica Federal)
                 </CardDescription>
               </CardHeader>
               <CardContent className="space-y-6">
                 {/* Identificação CEF */}
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                   <div className="space-y-2">
                     <Label className="text-gray-300">Nome do Cliente</Label>
-                    <Input value={clientName} onChange={(e) => setClientName(e.target.value)} className="bg-[#2C3E50] border-[#C9A961]/30 text-white" placeholder="Nome do beneficiário" />
-                  </div>
-                  <div className="space-y-2">
-                    <Label className="text-gray-300">Título CF (CEF)</Label>
-                    <Input value={cefTitle} onChange={(e) => setCefTitle(e.target.value)} className="bg-[#2C3E50] border-[#C9A961]/30 text-white" placeholder="Número do título" />
+                    <Input
+                      value={project.crm.clientName ?? clientName ?? ""}
+                      readOnly
+                      aria-readonly="true"
+                      className="bg-[#2C3E50]/50 border-[#C9A961]/20 text-gray-300 cursor-not-allowed"
+                    />
+                    <p className="text-xs text-gray-400">
+                      {project.crm.vinculada
+                        ? "Vem do lead vinculado no CRM. Para alterar, edite o lead."
+                        : "Obra sem lead vinculado: nome antigo preservado. Vincule pelo CRM para regularizar."}
+                    </p>
                   </div>
                   <div className="space-y-2">
                     <Label className="text-gray-300">Escritório CF (Agência CEF)</Label>
@@ -654,26 +619,21 @@ export default function AdminEditarObra() {
                   </div>
                 </div>
 
-                {/* Corretor */}
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                  <div className="space-y-2">
-                    <Label className="text-gray-300">Nome do Corretor</Label>
-                    <Input value={brokerName} onChange={(e) => setBrokerName(e.target.value)} className="bg-[#2C3E50] border-[#C9A961]/30 text-white" placeholder="Nome do corretor responsável" />
+                {/* Corretor: somente leitura, vem do lead; oculto quando não há corretor */}
+                {project.crm.brokerName && (
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    <div className="space-y-2">
+                      <Label className="text-gray-300">Nome do Corretor</Label>
+                      <Input
+                        value={project.crm.brokerName}
+                        readOnly
+                        aria-readonly="true"
+                        className="bg-[#2C3E50]/50 border-[#C9A961]/20 text-gray-300 cursor-not-allowed"
+                      />
+                      <p className="text-xs text-gray-400">Corretor vinculado ao lead no CRM.</p>
+                    </div>
                   </div>
-                  <div className="space-y-2">
-                    <Label className="text-gray-300">Corretor Pago?</Label>
-                    <Select value={brokerPaid} onValueChange={setBrokerPaid}>
-                      <SelectTrigger className="bg-[#2C3E50] border-[#C9A961]/30 text-white">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="false">Não</SelectItem>
-                        <SelectItem value="true">Sim</SelectItem>
-                        <SelectItem value="partial">Parcial</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
-                </div>
+                )}
 
                 {/* Pro-Soluto / Parcelas */}
                 <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
@@ -886,6 +846,12 @@ export default function AdminEditarObra() {
                 </CardDescription>
               </CardHeader>
               <CardContent className="space-y-6">
+                <Link href={`/admin/obras/${projectId}/medicoes`}>
+                  <Button variant="outline" className="border-[#C9A961]/40 text-[#C9A961] hover:bg-[#C9A961]/10 gap-2">
+                    <BarChart3 className="h-4 w-4" />
+                    Ver Medições
+                  </Button>
+                </Link>
                 <div className="space-y-2">
                   <Label htmlFor="progress" className="text-gray-300">Progresso Geral (%)</Label>
                   <div className="flex items-center gap-4">
@@ -1068,7 +1034,7 @@ export default function AdminEditarObra() {
                             doc.setFontSize(12);
                             doc.text(`Título: ${project.title}`, 20, 40);
                             doc.text(`Endereço: ${project.address || "N/A"}`, 20, 50);
-                            doc.text(`Tipo: ${project.projectType || "N/A"}`, 20, 60);
+                            doc.text(`Tipo: ${project.crm.projectType || "N/A"}`, 20, 60);
                             doc.text(`Área Total: ${project.totalArea || "N/A"} m²`, 20, 70);
                             doc.text(`Status: ${project.status}`, 20, 80);
                             doc.text(`Progresso: ${project.progress}%`, 20, 90);
@@ -1114,7 +1080,7 @@ export default function AdminEditarObra() {
                               ["Informações Básicas"],
                               ["Título", project.title],
                               ["Endereço", project.address || "N/A"],
-                              ["Tipo", project.projectType || "N/A"],
+                              ["Tipo", project.crm.projectType || "N/A"],
                               ["Área Total (m²)", project.totalArea || "N/A"],
                               ["Status", project.status],
                               ["Progresso (%)", project.progress],
@@ -1162,6 +1128,26 @@ export default function AdminEditarObra() {
             </Card>
           </TabsContent>
         </Tabs>
+
+        <div className="mt-6 flex justify-end">
+          <Button
+            onClick={handleSave}
+            disabled={updateMutation.isPending}
+            className="bg-[#C9A961] hover:bg-[#B8985A] text-[#1A2332] gap-2"
+          >
+            {updateMutation.isPending ? (
+              <>
+                <Loader2 className="h-5 w-5 animate-spin" />
+                Salvando...
+              </>
+            ) : (
+              <>
+                <Save className="h-5 w-5" />
+                Salvar
+              </>
+            )}
+          </Button>
+        </div>
       </div>
     </div>
   );
