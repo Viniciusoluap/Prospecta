@@ -164,13 +164,20 @@ describe("Lote 3 — comissão da obra pelo CRM (item 32)", () => {
     expect((gravacoes.find((g) => g.metodo === "update")!.valores as Record<string, unknown>).commissionAmount).toBe("9200.00");
   });
 
-  it("sem regra cadastrada: não inventa percentual e preserva o valor informado", async () => {
+  it("obra com corretor sem regra: não inventa percentual nem reaproveita valor digitado/antigo", async () => {
     const { db, gravacoes } = fakeDb([[{ ...obra, leadId: 24, commissionPct: null }], [{ id: 9, nome: "C", percentualPadrao: null }], []]);
     vi.mocked(getDb).mockReturnValue(db as never);
     await caller("admin").obraFinanceiro.salvarValores({ ...entrada, comissaoPercentual: null });
     const gravado = gravacoes.find((g) => g.metodo === "update")!.valores as Record<string, unknown>;
-    expect(gravado.commissionAmount).toBe("1");
+    expect(gravado.commissionAmount).toBeNull();
     expect(gravado.commissionPct).toBeNull();
+  });
+
+  it("obra sem corretor: comissão é o valor informado", async () => {
+    const { db, gravacoes } = fakeDb([[{ ...obra, leadId: null, commissionPct: null }], []]);
+    vi.mocked(getDb).mockReturnValue(db as never);
+    await caller("admin").obraFinanceiro.salvarValores({ ...entrada, comissao: "5000", comissaoPercentual: null });
+    expect((gravacoes.find((g) => g.metodo === "update")!.valores as Record<string, unknown>).commissionAmount).toBe("5000");
   });
 
   it("percentual de comissão inválido é recusado", async () => {

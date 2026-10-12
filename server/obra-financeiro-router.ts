@@ -99,8 +99,9 @@ export async function calcularResumoObra(projectId: number) {
   const pagoComissao = movimentos
     .filter((m) => m.mov.status === "confirmado" && m.mov.natureza === "pagamento" && m.mov.categoria === "comissao")
     .reduce((acc, m) => acc + centavosDe(m.mov.valor)!, 0);
-  // Item 32: com corretor e regra cadastrada, a comissão é VGV × % (fonte única);
-  // sem regra, preserva o valor informado antes (condição contratual existente).
+  // Item 32: obra com corretor no CRM → comissão só pelo cálculo VGV × % (fonte
+  // única; sem regra fica indisponível, nunca reaproveita valor antigo). Obra sem
+  // corretor → valor informado manualmente.
   const comissao = calcularComissaoObra({ corretor, vgvCentavos: centavosDe(obra.vgv), percentualObra: obra.commissionPct, pagoCentavos: pagoComissao });
   const [empreiteiro] = obra.contractorUserId
     ? await db.select({ id: users.id, name: users.name, email: users.email }).from(users).where(eq(users.id, obra.contractorUserId)).limit(1)
@@ -112,7 +113,7 @@ export async function calcularResumoObra(projectId: number) {
     fgts: centavosDe(obra.fgtsAmount),
     subsidio: centavosDe(obra.subsidyAmount),
     custoTerreno: centavosDe(obra.lotCost),
-    comissao: comissao.valorCentavos ?? centavosDe(obra.commissionAmount),
+    comissao: corretor ? comissao.valorCentavos : centavosDe(obra.commissionAmount),
     orcamentoPrevisto: centavosDe(obra.contractValue),
     taxaMensalPct: obra.installmentRate,
     parcelas: obra.installmentQty,
@@ -196,8 +197,9 @@ export const obraFinanceiroRouter = router({
     await exigirEmpreiteiro(input.empreiteiroId);
     const pctComissao = input.comissaoPercentual === undefined ? obra.commissionPct : input.comissaoPercentual;
     // Com corretor + regra + VGV, o valor da comissão é sempre o calculado.
+    const corretorObra = await corretorDaObra(obra.leadId);
     const calculada = calcularComissaoObra({
-      corretor: await corretorDaObra(obra.leadId),
+      corretor: corretorObra,
       vgvCentavos: centavosDe(input.vgv),
       percentualObra: pctComissao,
       pagoCentavos: 0,
@@ -208,7 +210,9 @@ export const obraFinanceiroRouter = router({
       fgtsAmount: input.fgts,
       subsidyAmount: input.subsidio,
       lotCost: input.custoTerreno,
-      commissionAmount: calculada.valorCentavos !== null ? reaisDeCentavos(calculada.valorCentavos) : input.comissao,
+      commissionAmount: corretorObra
+        ? (calculada.valorCentavos !== null ? reaisDeCentavos(calculada.valorCentavos) : null)
+        : input.comissao,
       commissionPct: pctComissao,
       contractValue: input.orcamentoPrevisto,
       installmentRate: input.taxaMensalPct,
