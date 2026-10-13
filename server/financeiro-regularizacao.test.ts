@@ -102,7 +102,7 @@ describe("Tabela financeira (item 31)", () => {
   });
 
   it("traduz as garantias do banco", () => {
-    expect(mensagemErroRegularizacao(new Error("BPO_ALOCACAO_EXCEDIDA: disponível R$ 120.00"))).toContain("Disponível: R$ 120.00");
+    expect(mensagemErroRegularizacao(new Error("BPO_ALOCACAO_EXCEDIDA: disponível R$ 1120.00"))).toContain("Disponível: R$ 1.120,00");
     expect(mensagemErroRegularizacao(new Error("ITEM_COM_RECEBIMENTOS"))).toMatch(/não pode ser excluído/);
     expect(mensagemErroRegularizacao(new Error("outro"))).toBeNull();
   });

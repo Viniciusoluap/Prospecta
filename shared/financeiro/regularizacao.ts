@@ -240,5 +240,7 @@ export function mensagemErroRegularizacao(erro: unknown): string | null {
   const codigo = Object.keys(MENSAGENS_BANCO_REGULARIZACAO).find((c) => texto.includes(c));
   if (!codigo) return null;
   const disponivel = codigo === "BPO_ALOCACAO_EXCEDIDA" ? texto.match(/disponível R\$ ([\d.-]+)/)?.[1] : undefined;
-  return disponivel ? `${MENSAGENS_BANCO_REGULARIZACAO[codigo]} Disponível: R$ ${disponivel}.` : MENSAGENS_BANCO_REGULARIZACAO[codigo];
+  if (disponivel === undefined) return MENSAGENS_BANCO_REGULARIZACAO[codigo];
+  const brl = Number(disponivel).toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  return `${MENSAGENS_BANCO_REGULARIZACAO[codigo]} Disponível: R$ ${brl}.`;
 }
