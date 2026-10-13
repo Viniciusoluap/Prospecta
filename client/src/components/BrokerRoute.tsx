@@ -6,7 +6,7 @@ import { useAuth } from "@/_core/hooks/useAuth";
 export function BrokerRoute({ children }: { children: ReactNode }) {
   const { user, loading } = useAuth({
     redirectOnUnauthenticated: true,
-    redirectPath: "/login?perfil=corretor",
+    redirectPath: "/login",
   });
   const [, navigate] = useLocation();
 

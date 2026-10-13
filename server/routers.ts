@@ -867,8 +867,8 @@ export const appRouter = router({
     // movimentos financeiros, investidores, medições ou comissões: use cancelar.
     deleteProject: adminProcedure
       .input(z.object({ projectId: z.number().int().positive() }))
-      .mutation(async ({ input }) => {
-        const { excluido } = await excluirDefinitivo("obra", input.projectId);
+      .mutation(async ({ ctx, input }) => {
+        const { excluido } = await excluirDefinitivo("obra", input.projectId, ctx.user);
         if (!excluido) throw new TRPCError({ code: "NOT_FOUND", message: "Obra não encontrada" });
         return { success: true };
       }),
@@ -2549,7 +2549,7 @@ export const appRouter = router({
       .mutation(async ({ input, ctx }) => {
         requireRole(ctx, ["admin"]);
         // Item 03: remove também o serviço do CRM que só existia para ela.
-        await excluirDefinitivo("avaliacao", input.id);
+        await excluirDefinitivo("avaliacao", input.id, ctx.user);
         return { success: true };
       }),
 
@@ -2743,8 +2743,8 @@ export const appRouter = router({
     // se houver unidade vendida ou reservada.
     delete: adminProcedure
       .input(z.object({ id: z.number().int().positive() }))
-      .mutation(async ({ input }) => {
-        await excluirDefinitivo("estudo", input.id);
+      .mutation(async ({ ctx, input }) => {
+        await excluirDefinitivo("estudo", input.id, ctx.user);
         return { success: true };
       }),
     documents: incorporacaoDocumentsRouter,

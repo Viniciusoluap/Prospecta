@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import AdminAgenda from "./AdminAgenda";
 import AdminTarefas from "./AdminTarefas";
 import { LinkedServiceQueue } from "./LinkedServiceQueue";
+import { useAuth } from "@/_core/hooks/useAuth";
 
 type View = "tarefas" | "agenda";
 
@@ -21,6 +22,25 @@ export default function AdminTarefasAgenda({
       ? queryView
       : initialView || "tarefas"
   );
+  const { user } = useAuth();
+  // Item 06: o corretor usa só a própria agenda (sem tarefas nem fila do CRM).
+  if (user?.role === "corretor") {
+    return (
+      <div className="min-h-screen bg-[#1A2332] text-white">
+        <header className="border-b border-[#C9A961]/20 bg-[#0F1923] px-6 py-4">
+          <div className="mx-auto flex max-w-7xl items-center gap-4">
+            <Link href="/corretor">
+              <Button variant="ghost" size="icon" className="text-gray-400" aria-label="Voltar ao Portal do Corretor">
+                <ArrowLeft className="h-5 w-5" />
+              </Button>
+            </Link>
+            <h1 className="text-2xl font-bold text-[#C9A961]">Minha Agenda</h1>
+          </div>
+        </header>
+        <div className="mx-auto max-w-7xl px-6 py-6"><AdminAgenda /></div>
+      </div>
+    );
+  }
   const tabClass = (item: View) =>
     `rounded-lg px-4 py-2 text-sm font-bold ${view === item ? "bg-[#C9A961] text-[#1A2332]" : "bg-[#2C3E50] text-gray-300"}`;
   return (

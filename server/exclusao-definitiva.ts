@@ -14,6 +14,7 @@ import {
   operationalProjects, regularizacaoDocuments, regularizacaoRecebimentos, regularizacoes,
 } from "../drizzle/schema.js";
 import { motivoBloqueioExclusao, type DependenciasExclusao, type ModuloExclusao } from "../shared/exclusao.js";
+import { podeAdministrarSeguranca } from "../shared/perfis-acesso.js";
 import { getDb } from "./db.js";
 
 type Db = ReturnType<typeof getDb>;
@@ -99,7 +100,10 @@ function apagar(db: Db, modulo: ModuloExclusao, id: number) {
  * Exclui definitivamente. Lança BAD_REQUEST com a explicação quando a exclusão
  * é impedida. Registro inexistente (já excluído) não é erro.
  */
-export async function excluirDefinitivo(modulo: ModuloExclusao, id: number): Promise<{ excluido: boolean }> {
+export async function excluirDefinitivo(modulo: ModuloExclusao, id: number, ator: { role: string; active?: boolean | null }): Promise<{ excluido: boolean }> {
+  // Item 06: exclusão definitiva é ação de segurança — só admin ativo (como no Santa Fé).
+  if (!podeAdministrarSeguranca({ perfil: ator.role, ativo: ator.active ?? true }))
+    throw new TRPCError({ code: "FORBIDDEN", message: "Somente o administrador pode excluir definitivamente. Use \"Cancelar\"." });
   const db = getDb();
   const info = await dependencias(db, modulo, id);
   if (!info) return { excluido: false };

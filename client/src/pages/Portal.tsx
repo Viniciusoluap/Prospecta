@@ -225,7 +225,7 @@ export default function Portal() {
             className="text-white"
             onClick={() =>
               logout().then(() =>
-                window.location.assign("/login?perfil=cliente")
+                window.location.assign("/login")
               )
             }
           >

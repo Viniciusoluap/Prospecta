@@ -198,10 +198,10 @@ export const regularizacaoRouter = router({
 
   remove: adminProcedure
     .input(z.object({ id: idSchema }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ ctx, input }) => {
       // Item 03: exclusão definitiva; com recebimentos é recusada e orienta a cancelar.
       await assertRegularizacaoExists(input.id);
-      await excluirDefinitivo("regularizacao", input.id);
+      await excluirDefinitivo("regularizacao", input.id, ctx.user);
       return { success: true };
     }),
 

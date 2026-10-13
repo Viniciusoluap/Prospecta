@@ -57,10 +57,9 @@ async function startServer() {
   // ── Auth routes ──────────────────────────────
   app.post("/api/auth/login", async (req, res) => {
     try {
-      const { email, password, profile } = req.body as {
+      const { email, password } = req.body as {
         email?: string;
         password?: string;
-        profile?: "cliente" | "corretor" | "admin";
       };
       if (!email || !password) {
         return res
@@ -84,16 +83,7 @@ async function startServer() {
         return res.status(401).json({ error: "Email ou senha incorretos" });
       }
 
-      if (profile && user.role !== profile) {
-        const labels = {
-          cliente: "cliente",
-          corretor: "corretor",
-          admin: "administrador",
-        } as const;
-        return res.status(403).json({
-          error: `Esta conta não possui perfil de ${labels[profile]}. Use o acesso correspondente ao seu cadastro.`,
-        });
-      }
+      // Item 02: login único — o perfil da conta decide o destino; nada a escolher.
 
       const token = await createSessionToken(
         user.id,

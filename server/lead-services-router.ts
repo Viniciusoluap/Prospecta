@@ -660,7 +660,7 @@ export const leadServicesRouter = router({
   // Item 03: excluir o serviço exclui também o registro operacional que só existe
   // por causa dele (obra, financiamento, projeto, regularização ou avaliação),
   // com as mesmas proteções da exclusão definitiva. O lead permanece.
-  remove: adminProcedure.input(z.object({ id: z.number().int().positive() })).mutation(async ({ input }) => {
+  remove: adminProcedure.input(z.object({ id: z.number().int().positive() })).mutation(async ({ ctx, input }) => {
     const database = getDb();
     const vinculados = await Promise.all([
       database.select({ id: constructionProjects.id }).from(constructionProjects).where(eq(constructionProjects.leadServiceId, input.id)).then(r => r.map(x => ["obra", x.id] as const)),
@@ -672,7 +672,7 @@ export const leadServicesRouter = router({
     if (vinculados.length > 1) throw new TRPCError({ code: "BAD_REQUEST", message: "Este serviço tem mais de um registro operacional vinculado; exclua-os pelos módulos." });
     if (vinculados.length === 1) {
       const [modulo, recordId] = vinculados[0];
-      await excluirDefinitivo(modulo, recordId);
+      await excluirDefinitivo(modulo, recordId, ctx.user);
       return { success: true };
     }
     const [removed] = await database.delete(leadServices).where(eq(leadServices.id, input.id)).returning();

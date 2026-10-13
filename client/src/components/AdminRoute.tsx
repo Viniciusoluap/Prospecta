@@ -6,6 +6,18 @@ import {
   parsePermissions,
 } from "../../../shared/admin-permissions";
 
+/** Item 06: corretor usa no painel só Agenda e WhatsApp (o resto fica no Portal do Corretor). */
+const MODULOS_PAINEL_CORRETOR: readonly string[] = ["agenda", "whatsapp"];
+
+function podeAbrir(user: { role?: string; permissions?: string | null; active?: boolean | null } | null | undefined, modulos: readonly string[], allowStaffHome: boolean) {
+  if (!user || user.active === false) return false;
+  if (user.role === "admin") return true;
+  if (user.role === "corretor") return modulos.some((m) => MODULOS_PAINEL_CORRETOR.includes(m));
+  if (user.role !== "colaborador") return false;
+  const permissions = parsePermissions(user.permissions);
+  return allowStaffHome || modulos.some((m) => permissions.includes(m as AdminModule));
+}
+
 interface AdminRouteProps {
   children: ReactNode;
   module?: AdminModule;
@@ -29,17 +41,15 @@ export function AdminRoute({
   const [, setLocation] = useLocation();
 
   useEffect(() => {
-    const staff = user?.role === "corretor" || user?.role === "colaborador";
-    const permissions = parsePermissions(user?.permissions);
-    const allowedModules = modules ?? (module ? [module] : []);
-    const allowed =
-      user?.role === "admin" ||
-      (staff &&
-        (allowStaffHome ||
-          allowedModules.some(item => permissions.includes(item))));
+    const allowed = podeAbrir(user, modules ?? (module ? [module] : []), allowStaffHome);
     if (!loading && user && !allowed) {
-      // D-05 (paridade com o Grupo Santa Fé): empreiteiro vai para "Minhas Obras".
-      setLocation(staff ? "/admin/acesso" : user.role === "empreiteiro" ? "/empreiteiro" : "/");
+      // Cada perfil volta para a própria área (item 02).
+      setLocation(
+        user.role === "colaborador" ? "/admin/acesso"
+          : user.role === "corretor" ? "/corretor"
+          : user.role === "empreiteiro" ? "/empreiteiro"
+          : user.role === "cliente" || user.role === "user" ? "/portal" : "/",
+      );
     }
   }, [allowStaffHome, loading, module, modules, user, setLocation]);
 
@@ -55,14 +65,7 @@ export function AdminRoute({
     );
   }
 
-  const staff = user?.role === "corretor" || user?.role === "colaborador";
-  const permissions = parsePermissions(user?.permissions);
-  const allowedModules = modules ?? (module ? [module] : []);
-  const allowed =
-    user?.role === "admin" ||
-    (staff &&
-      (allowStaffHome ||
-        allowedModules.some(item => permissions.includes(item))));
+  const allowed = podeAbrir(user, modules ?? (module ? [module] : []), allowStaffHome);
   if (!user || !allowed) {
     return null;
   }

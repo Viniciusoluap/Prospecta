@@ -3,6 +3,7 @@ import { initTRPC, TRPCError } from "@trpc/server";
 import superjson from "superjson";
 import { ZodError } from "zod";
 import { mensagemValidacao } from "../../shared/erro-validacao.js";
+import { podeAcessarAlgum } from "../../shared/perfis-acesso.js";
 import type { TrpcContext } from "./context.js";
 import {
   parsePermissions,
@@ -71,21 +72,31 @@ const procedureModules: Record<string, AdminModule | AdminModule[]> = {
   mapa: "mapa",
 };
 
+/**
+ * Item 06 (regra comum em shared/perfis-acesso.ts): admin tudo; colaborador só os
+ * módulos liberados; corretor, no painel, só Agenda e WhatsApp com os próprios
+ * registros (Imóveis e Minhas Comissões ficam no Portal do Corretor, já
+ * restrito a ele); cliente, empreiteiro e contas inativas, nada.
+ */
+const ROUTERS_DO_CORRETOR = new Set(["agenda", "whatsapp"]);
+
 export function canAccessAdminProcedure(
-  user: { role: string; permissions?: string | null },
+  user: { role: string; permissions?: string | null; active?: boolean | null },
   path: string
 ): boolean {
+  const acesso = { perfil: user.role, ativo: user.active ?? true, permissoes: parsePermissions(user.permissions) };
+  if (!acesso.ativo) return false;
+  const routerName = path.split(".")[0];
   if (user.role === "admin") return true;
-  if (user.role !== "corretor" && user.role !== "colaborador") return false;
-  const requiredModule = procedureModules[path.split(".")[0]];
+  if (user.role === "corretor") return ROUTERS_DO_CORRETOR.has(routerName);
+  if (user.role !== "colaborador") return false;
+  const requiredModule = procedureModules[routerName];
   const requiredModules = Array.isArray(requiredModule)
     ? requiredModule
     : requiredModule
       ? [requiredModule]
       : [];
-  return requiredModules.some(module =>
-    parsePermissions(user.permissions).includes(module)
-  );
+  return podeAcessarAlgum(acesso, requiredModules);
 }
 
 export const adminProcedure = t.procedure.use(

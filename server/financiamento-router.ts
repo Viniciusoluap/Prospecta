@@ -246,8 +246,8 @@ export const financiamentoRouter = router({
   /** Item 03: exclusão definitiva (remove checklist e o serviço do CRM ligado). */
   delete: adminProcedure
     .input(z.object({ id: z.number().int().positive() }))
-    .mutation(async ({ input }) => {
-      await excluirDefinitivo("financiamento", input.id);
+    .mutation(async ({ ctx, input }) => {
+      await excluirDefinitivo("financiamento", input.id, ctx.user);
       return { success: true } as const;
     }),
 

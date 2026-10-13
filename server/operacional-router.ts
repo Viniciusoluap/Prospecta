@@ -141,10 +141,34 @@ async function visitValues(input: z.infer<typeof visitInput>) {
     updatedAt: new Date(),
   };
 }
+/** Item 06: corretor só vê e altera as próprias visitas; o vínculo vem da sessão. */
+function corretorDaSessao(user: { id: number; role: string }): number | null {
+  return user.role === "corretor" ? user.id : null;
+}
+
+async function visitaDoCorretor(id: number, corretorId: number | null) {
+  if (corretorId === null) return;
+  const [v] = await getDb().select({ brokerId: visits.brokerId }).from(visits).where(eq(visits.id, id)).limit(1);
+  if (!v || v.brokerId !== corretorId) throw new TRPCError({ code: "NOT_FOUND", message: "Registro não encontrado" });
+}
+
 export const agendaRouter = router({
-  options: adminProcedure.query(options),
-  list: adminProcedure.query(async () =>
-    getDb()
+  options: adminProcedure.query(async ({ ctx }) => {
+    const corretorId = corretorDaSessao(ctx.user);
+    if (corretorId === null) return options();
+    // Corretor: só os próprios leads e ele mesmo como corretor.
+    const db = getDb();
+    const [leadOptions, properties, eu] = await Promise.all([
+      db.select({ id: leads.id, name: leads.name }).from(leads)
+        .where(and(isNull(leads.deletedAt), ne(leads.stage, "rejected"), eq(leads.brokerId, corretorId))).orderBy(asc(leads.name)),
+      db.select({ id: imoveis.id, name: imoveis.titulo }).from(imoveis).orderBy(asc(imoveis.titulo)),
+      db.select({ id: users.id, name: users.name }).from(users).where(eq(users.id, corretorId)),
+    ]);
+    return { leads: leadOptions, properties, brokers: eu, responsibles: [] };
+  }),
+  list: adminProcedure.query(async ({ ctx }) => {
+    const corretorId = corretorDaSessao(ctx.user);
+    return getDb()
       .select({
         visit: visits,
         leadName: leads.name,
@@ -155,43 +179,50 @@ export const agendaRouter = router({
       .leftJoin(leads, eq(visits.leadId, leads.id))
       .leftJoin(users, eq(visits.brokerId, users.id))
       .leftJoin(imoveis, eq(visits.propertyId, imoveis.id))
-      .orderBy(asc(visits.scheduledAt))
-  ),
-  create: adminProcedure.input(visitInput).mutation(async ({ input }) =>
-    found(
+      .where(corretorId === null ? undefined : eq(visits.brokerId, corretorId))
+      .orderBy(asc(visits.scheduledAt));
+  }),
+  create: adminProcedure.input(visitInput).mutation(async ({ ctx, input }) => {
+    const corretorId = corretorDaSessao(ctx.user);
+    const dados = corretorId === null ? input : { ...input, brokerId: corretorId, responsibleId: null };
+    return found(
       (
         await getDb()
           .insert(visits)
-          .values(await visitValues(input))
+          .values(await visitValues(dados))
           .returning()
       )[0]
-    )
-  ),
+    );
+  }),
   update: adminProcedure
     .input(z.object({ id: z.number().int().positive(), data: visitInput }))
-    .mutation(async ({ input }) =>
-      found(
+    .mutation(async ({ ctx, input }) => {
+      const corretorId = corretorDaSessao(ctx.user);
+      await visitaDoCorretor(input.id, corretorId);
+      const dados = corretorId === null ? input.data : { ...input.data, brokerId: corretorId, responsibleId: null };
+      return found(
         (
           await getDb()
             .update(visits)
-            .set(await visitValues(input.data))
+            .set(await visitValues(dados))
             .where(eq(visits.id, input.id))
             .returning()
         )[0]
-      )
-    ),
+      );
+    }),
   delete: adminProcedure
     .input(idInput)
-    .mutation(async ({ input }) =>
-      found(
+    .mutation(async ({ ctx, input }) => {
+      await visitaDoCorretor(input.id, corretorDaSessao(ctx.user));
+      return found(
         (
           await getDb()
             .delete(visits)
             .where(eq(visits.id, input.id))
             .returning({ id: visits.id })
         )[0]
-      )
-    ),
+      );
+    }),
 });
 
 export const corretoresRouter = router({
@@ -528,8 +559,8 @@ export const comissoesRouter = router({
   /** Item 03: comissão paga é registro contábil e não é excluída. */
   delete: adminProcedure
     .input(idInput)
-    .mutation(async ({ input }) => {
-      const { excluido } = await excluirDefinitivo("comissao", input.id);
+    .mutation(async ({ ctx, input }) => {
+      const { excluido } = await excluirDefinitivo("comissao", input.id, ctx.user);
       if (!excluido) throw new TRPCError({ code: "NOT_FOUND", message: "Registro não encontrado" });
       return { id: input.id };
     }),
@@ -626,8 +657,8 @@ export const projetosRouter = router({
   /** Item 03: exclusão definitiva (bloqueada com pagamento registrado). */
   delete: adminProcedure
     .input(idInput)
-    .mutation(async ({ input }) => {
-      const { excluido } = await excluirDefinitivo("projeto", input.id);
+    .mutation(async ({ ctx, input }) => {
+      const { excluido } = await excluirDefinitivo("projeto", input.id, ctx.user);
       if (!excluido) throw new TRPCError({ code: "NOT_FOUND", message: "Registro não encontrado" });
       return { id: input.id };
     }),

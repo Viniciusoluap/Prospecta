@@ -227,22 +227,11 @@ export default function Navbar() {
                     <div className="flex flex-col gap-2">
                       {!isAuthenticated && (
                         <>
+                          {/* Item 02: uma entrada só; o perfil decide o destino. */}
                           <AccountLink
-                            href="/login?perfil=cliente"
-                            label="Login Cliente"
+                            href="/login"
+                            label="Entrar"
                             icon={User}
-                            onClick={closeMobileMenu}
-                          />
-                          <AccountLink
-                            href="/login?perfil=corretor"
-                            label="Login Corretor"
-                            icon={Building2}
-                            onClick={closeMobileMenu}
-                          />
-                          <AccountLink
-                            href="/login?perfil=admin"
-                            label="Painel Admin"
-                            icon={Settings}
                             onClick={closeMobileMenu}
                           />
                         </>
@@ -353,22 +342,11 @@ export default function Navbar() {
             <DropdownMenuContent align="end" className="w-56">
               {!isAuthenticated && (
                 <>
+                  {/* Item 02: uma entrada só; o perfil decide o destino. */}
                   <DropdownMenuItem asChild>
-                    <Link href="/login?perfil=cliente">
+                    <Link href="/login">
                       <User className="mr-2 h-4 w-4" />
-                      Login Cliente
-                    </Link>
-                  </DropdownMenuItem>
-                  <DropdownMenuItem asChild>
-                    <Link href="/login?perfil=corretor">
-                      <Building2 className="mr-2 h-4 w-4" />
-                      Login Corretor
-                    </Link>
-                  </DropdownMenuItem>
-                  <DropdownMenuItem asChild>
-                    <Link href="/login?perfil=admin">
-                      <Settings className="mr-2 h-4 w-4" />
-                      Painel Admin
+                      Entrar
                     </Link>
                   </DropdownMenuItem>
                 </>
