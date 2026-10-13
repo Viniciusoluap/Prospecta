@@ -160,6 +160,10 @@ export const configuracoesRouter = router({
       const [dono] = await db.select({ id: users.id }).from(users).where(and(eq(users.leadId, leadId), ne(users.id, input.id))).limit(1);
       if (dono) throw new TRPCError({ code: "CONFLICT", message: "Este cliente do CRM já tem uma conta de acesso." });
     }
+    // Revisão do Codex (PR #111): mesma exigência do cadastro — corretor sempre
+    // com telefone e CRECI, inclusive quando um usuário existente vira corretor.
+    if (input.role === "corretor" && (!input.creci?.trim() || !input.phone?.trim()))
+      throw new TRPCError({ code: "BAD_REQUEST", message: "Corretor exige CRECI e telefone." });
     if (input.role === "corretor" && current.role !== "corretor") {
       const [perfil] = await db.select({ userId: brokerProfiles.userId }).from(brokerProfiles).where(eq(brokerProfiles.userId, input.id)).limit(1);
       if (!perfil) await db.insert(brokerProfiles).values({ userId: input.id });

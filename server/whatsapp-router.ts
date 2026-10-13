@@ -1,4 +1,4 @@
-import { and, desc, eq, inArray } from "drizzle-orm";
+import { and, desc, eq, inArray, isNull } from "drizzle-orm";
 import { z } from "zod";
 import { leads, users, whatsappConnections, whatsappMessages } from "../drizzle/schema.js";
 import { enviarWhatsappBusiness, normalizarStatusWebhook } from "./_core/whatsapp-business.js";
@@ -95,26 +95,30 @@ export const whatsappRouter = router({
         return { success: false, error: "Credenciais da Business API não configuradas", enviadas: 0, falhas: 0 };
       }
       const token = decryptSecret(conn.tokenEncrypted);
-      // Item 06: corretor só envia para os próprios leads.
-      if (ctx.user.role === "corretor") {
-        const ids = Array.from(new Set(input.destinatarios.map((d) => d.id)));
-        const meus = await db.select({ id: leads.id }).from(leads).where(and(inArray(leads.id, ids), eq(leads.brokerId, ctx.user.id)));
-        if (meus.length !== ids.length) return { success: false, error: "Destinatário fora dos seus leads", enviadas: 0, falhas: 0 };
-      }
+      // Item 06 + revisão do Codex (PR #111): nome e telefone vêm sempre do
+      // cadastro do lead, nunca do corpo da requisição (como no Santa Fé); o
+      // corretor só envia para os próprios leads.
+      const ids = Array.from(new Set(input.destinatarios.map((d) => d.id)));
+      const ehCorretor = ctx.user.role === "corretor";
+      const cadastrados = await db.select({ id: leads.id, nome: leads.name, telefone: leads.phone }).from(leads)
+        .where(and(inArray(leads.id, ids), isNull(leads.deletedAt), ehCorretor ? eq(leads.brokerId, ctx.user.id) : undefined));
+      if (ehCorretor && cadastrados.length !== ids.length) return { success: false, error: "Destinatário fora dos seus leads", enviadas: 0, falhas: 0 };
+      const destinatarios = cadastrados;
+      if (destinatarios.length === 0) return { success: false, error: "Nenhum destinatário válido (lead inexistente ou não pertence a você)", enviadas: 0, falhas: 0 };
 
       let enviadas = 0;
       let falhas = 0;
-      for (const dest of input.destinatarios) {
+      for (const dest of destinatarios) {
         try {
-          const externalId = await enviarWhatsappBusiness(token, conn.phoneNumberId, dest.telefone, input.mensagem);
+          const externalId = await enviarWhatsappBusiness(token, conn.phoneNumberId, dest.telefone ?? "", input.mensagem);
           await db.insert(whatsappMessages).values({
-            connectionId: conn.id, leadId: dest.id, destinatario: dest.telefone, nomeDestinatario: dest.nome,
+            connectionId: conn.id, leadId: dest.id, destinatario: dest.telefone ?? "", nomeDestinatario: dest.nome,
             mensagem: input.mensagem, externalId, status: externalId ? "enviada" : "falhou",
           });
           if (externalId) enviadas++; else falhas++;
         } catch {
           await db.insert(whatsappMessages).values({
-            connectionId: conn.id, leadId: dest.id, destinatario: dest.telefone, nomeDestinatario: dest.nome,
+            connectionId: conn.id, leadId: dest.id, destinatario: dest.telefone ?? "", nomeDestinatario: dest.nome,
             mensagem: input.mensagem, status: "falhou", erroMsg: "Erro ao enviar",
           });
           falhas++;
