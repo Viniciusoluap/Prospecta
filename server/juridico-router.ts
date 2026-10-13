@@ -105,9 +105,9 @@ export const juridicoRouter = router({
     const [contract] = await db.select().from(portalContracts).where(eq(portalContracts.id, input.contractId)).limit(1);
     if (!contract) throw new TRPCError({ code: "NOT_FOUND", message: "Contrato não encontrado" });
     const buffer = Buffer.from(input.base64, "base64");
-    const maxSize = driveConfigured() ? 3 * 1024 * 1024 : 10 * 1024 * 1024;
-    if (!isValidContractPdf(buffer) || buffer.length > maxSize) {
-      throw new TRPCError({ code: "BAD_REQUEST", message: driveConfigured() ? "Envie um PDF válido de até 3 MiB" : "Envie um PDF válido de até 10 MiB" });
+    // A consulta devolve base64 pela API: 3 MiB ficam abaixo do limite de resposta da função.
+    if (!isValidContractPdf(buffer) || buffer.length > 3 * 1024 * 1024) {
+      throw new TRPCError({ code: "BAD_REQUEST", message: "Envie um PDF válido de até 3 MiB" });
     }
     const fileName = `${contract.number.replace(/[^a-zA-Z0-9_-]/g, "-")}-${Date.now()}.pdf`;
     if (contract.leadId && driveConfigured()) {

@@ -355,11 +355,10 @@ export const portalRouter = router({
           message: "Solicitação de documento não encontrada",
         });
       const buffer = Buffer.from(input.base64, "base64");
-      const maxSize = driveConfigured() ? 3 * 1024 * 1024 : 10 * 1024 * 1024;
-      if (!isValidPortalDocument(buffer, input.mimeType) || buffer.length > maxSize) {
+      if (!isValidPortalDocument(buffer, input.mimeType) || buffer.length > 3 * 1024 * 1024) {
         throw new TRPCError({
           code: "BAD_REQUEST",
-          message: driveConfigured() ? "Envie PDF, JPG ou PNG válido de até 3 MiB" : "Envie PDF, JPG ou PNG válido de até 10 MiB",
+          message: "Envie PDF, JPG ou PNG válido de até 3 MiB",
         });
       }
       const driveFileId = driveConfigured()
@@ -522,11 +521,10 @@ export const portalRouter = router({
           message: "Contrato não encontrado",
         });
       const buffer = Buffer.from(input.base64, "base64");
-      const maxSize = driveConfigured() ? 3 * 1024 * 1024 : 10 * 1024 * 1024;
-      if (!isValidSignedPdf(buffer) || buffer.length > maxSize) {
+      if (!isValidSignedPdf(buffer) || buffer.length > 3 * 1024 * 1024) {
         throw new TRPCError({
           code: "BAD_REQUEST",
-          message: driveConfigured() ? "Envie um PDF válido de até 3 MiB" : "Envie um PDF válido de até 10 MiB",
+          message: "Envie um PDF válido de até 3 MiB",
         });
       }
       const safeNumber = contract.number.replace(/[^a-zA-Z0-9_-]/g, "-");
