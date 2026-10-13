@@ -18,7 +18,7 @@ import { ProgressoObraAba } from "@/components/obra/ProgressoObraAba";
 import { FotosObraAba } from "@/components/obra/FotosObraAba";
 import { RelatorioObraBotao } from "@/components/obra/RelatorioObraBotao";
 import { CustosAba, ValoresOperacaoAba, calcularAoVivo, formInicial, type FormFinanceiro } from "@/components/obra/FinanceiroObra";
-import { OBRA_STATUS_SELECIONAVEIS, isObraStatusSelecionavel, obraStatusLabel } from "@shared/obra-status";
+import { OBRA_STATUS_SELECIONAVEIS, obraStatusLabel } from "@shared/obra-status";
 import { toast } from "sonner";
 
 const ABAS_OBRA = [
@@ -324,11 +324,6 @@ export default function AdminEditarObra() {
                         {OBRA_STATUS_SELECIONAVEIS.map((valor) => (
                           <SelectItem key={valor} value={valor}>{obraStatusLabel(valor)}</SelectItem>
                         ))}
-                        {!isObraStatusSelecionavel(project.status) && (
-                          <SelectItem value={project.status} disabled>
-                            {obraStatusLabel(project.status)} (classificação antiga — mantida até ser trocada)
-                          </SelectItem>
-                        )}
                       </SelectContent>
                     </Select>
                   </div>

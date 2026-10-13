@@ -33,32 +33,33 @@ describe("item 05 — temperatura do lead", () => {
 });
 
 describe("itens 06 e 07 — classificações de Obra alinhadas entre tela, API e banco", () => {
-  it("o seletor oferece exatamente as 5 classificações aprovadas", () => {
+  it("pedido A1: o seletor oferece as mesmas 19 situações do filtro da lista, na mesma ordem", () => {
     expect(OBRA_STATUS_SELECIONAVEIS.map(obraStatusLabel)).toEqual([
       "Planejamento", "Aprovação", "Contrato Prospecta", "Laudo CEF", "Conformidade CEF",
+      "Alvará", "ART", "Assinatura CEF", "Vistoria CEF", "Laudo OK", "Cartório", "Em Andamento",
+      "Casa Pronta", "Disponível", "Reavaliar", "Distrato", "Pausada", "Concluída", "Cancelada",
     ]);
+    expect(OBRA_STATUS_SELECIONAVEIS).toEqual(OBRA_STATUS_TODOS);
   });
 
   it("todo valor aceito pela API existe no enum do banco e vice-versa", () => {
     expect([...OBRA_STATUS_TODOS].sort()).toEqual([...constructionProjectStatusEnum.enumValues].sort());
   });
 
-  it("permite manter um status legado, mas não escolher um novo valor removido", () => {
+  it("qualquer uma das 19 situações pode ser escolhida; valor desconhecido é recusado", () => {
     expect(validarMudancaStatusObra("in_progress", "in_progress")).toBeNull();
-    expect(validarMudancaStatusObra("in_progress", "laudo_cef")).toBeNull();
-    expect(validarMudancaStatusObra("planning", "paused")).toMatch(/não está disponível.*Planejamento, Aprovação/);
+    expect(validarMudancaStatusObra("planning", "paused")).toBeNull();
+    expect(validarMudancaStatusObra("planning", "cancelled")).toBeNull();
+    expect(validarMudancaStatusObra("planning", "inexistente")).toMatch(/não está disponível/);
   });
 
-  it("API salva obra nova e antiga e devolve mensagem compreensível para classificação removida", async () => {
+  it("API salva obra nova e antiga em qualquer uma das 19 situações", async () => {
     const update = vi.spyOn(db, "updateProject").mockResolvedValue(undefined);
     vi.spyOn(db, "getProjectById").mockResolvedValue({ id: 1, status: "in_progress", userId: null } as never);
     await expect(caller("admin").construction.updateProject({ projectId: 1, status: "in_progress", title: "Obra antiga" })).resolves.toEqual({ success: true });
     await expect(caller("admin").construction.updateProject({ projectId: 1, status: "contrato_prospecta" })).resolves.toEqual({ success: true });
-    await expect(caller("admin").construction.updateProject({ projectId: 1, status: "cancelled" })).rejects.toMatchObject({
-      code: "BAD_REQUEST",
-      message: expect.stringContaining("Cancelada"),
-    });
-    expect(update).toHaveBeenCalledTimes(2);
+    await expect(caller("admin").construction.updateProject({ projectId: 1, status: "cancelled" })).resolves.toEqual({ success: true });
+    expect(update).toHaveBeenCalledTimes(3);
   });
 
   it("somente administradores alteram a obra (cliente do portal recebe FORBIDDEN)", async () => {
