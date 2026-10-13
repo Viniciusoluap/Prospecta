@@ -1,8 +1,9 @@
 import { randomBytes } from "crypto";
 import { TRPCError } from "@trpc/server";
-import { and, count, eq, gt, ne, sql } from "drizzle-orm";
+import { and, count, eq, gt, isNull, ne, sql } from "drizzle-orm";
 import { z } from "zod";
-import { users } from "../drizzle/schema.js";
+import { brokerProfiles, leads, users } from "../drizzle/schema.js";
+import { normalizarPermissoes } from "../shared/perfis-acesso.js";
 import { ADMIN_MODULES, normalizePermissions } from "../shared/admin-permissions.js";
 import { tokenPrimeiroAcessoAindaValido } from "../shared/session.js";
 import { hashPassword } from "./_core/auth-utils.js";
@@ -62,6 +63,7 @@ export const configuracoesRouter = router({
     role: users.role,
     active: users.active,
     permissions: users.permissions,
+    leadId: users.leadId,
     lastSignedIn: users.lastSignedIn,
     createdAt: users.createdAt,
   }).from(users).orderBy(users.name)),
@@ -69,6 +71,20 @@ export const configuracoesRouter = router({
   // A senha inicial nunca é digitada pelo admin: cria a conta com um hash placeholder
   // inutilizável (ninguém consegue logar com ele) e manda um email pro próprio usuário
   // definir a senha real pelo link de primeiro acesso.
+  /** Item 05: clientes do CRM ainda sem conta (para ligar a conta de cliente). */
+  leadsSemConta: adminProcedure.query(async () => getDb()
+    .select({ id: leads.id, name: leads.name, email: leads.email })
+    .from(leads)
+    .leftJoin(users, eq(users.leadId, leads.id))
+    .where(and(isNull(leads.deletedAt), isNull(users.id)))
+    .orderBy(leads.name)),
+
+  // A senha inicial nunca é digitada pelo admin: cria a conta com um hash placeholder
+  // inutilizável (ninguém consegue logar com ele) e manda um email pro próprio usuário
+  // definir a senha real pelo link de primeiro acesso.
+  // Item 05: cinco perfis com vínculo real — corretor com CRECI e cadastro de
+  // corretor; cliente ligado ao lead do CRM (um lead, uma conta); colaborador com
+  // módulos; empreiteiro com obras atribuídas na própria obra; admin.
   createUser: adminProcedure.input(z.object({
     name: z.string().trim().min(2).max(255),
     email: z.string().trim().email().max(320),
@@ -76,12 +92,22 @@ export const configuracoesRouter = router({
     phone: z.string().trim().max(20).optional().nullable(),
     creci: z.string().trim().max(40).optional().nullable(),
     permissions: permissionsSchema.default([]),
+    leadId: z.number().int().positive().optional().nullable(),
   })).mutation(async ({ input }) => {
     const db = getDb();
     const email = input.email.toLowerCase();
     const [existing] = await db.select({ id: users.id }).from(users).where(eq(users.email, email)).limit(1);
     if (existing) throw new TRPCError({ code: "CONFLICT", message: "E-mail já cadastrado" });
-    const [created] = await db.insert(users).values({
+    if (input.role === "corretor" && (!input.creci?.trim() || !input.phone?.trim()))
+      throw new TRPCError({ code: "BAD_REQUEST", message: "Corretor exige CRECI e telefone." });
+    if (input.role === "cliente") {
+      if (!input.leadId) throw new TRPCError({ code: "BAD_REQUEST", message: "Escolha o cliente do CRM a que esta conta pertence." });
+      const [lead] = await db.select({ id: leads.id, deletedAt: leads.deletedAt }).from(leads).where(eq(leads.id, input.leadId)).limit(1);
+      if (!lead || lead.deletedAt) throw new TRPCError({ code: "NOT_FOUND", message: "Cliente do CRM não encontrado." });
+      const [dono] = await db.select({ id: users.id }).from(users).where(eq(users.leadId, input.leadId)).limit(1);
+      if (dono) throw new TRPCError({ code: "CONFLICT", message: "Este cliente do CRM já tem uma conta de acesso." });
+    }
+    const values = {
       openId: `admin:${email}`,
       name: input.name,
       email,
@@ -89,10 +115,23 @@ export const configuracoesRouter = router({
       role: input.role,
       phone: input.phone || null,
       creci: input.creci || null,
-      permissions: JSON.stringify(normalizePermissions(input.permissions)),
+      permissions: JSON.stringify(normalizarPermissoes(input.role, normalizePermissions(input.permissions), ADMIN_MODULES)),
+      leadId: input.role === "cliente" ? input.leadId! : null,
       loginMethod: "password",
       active: true,
-    }).returning({ id: users.id });
+    };
+    let created: { id: number };
+    if (input.role === "corretor") {
+      // Conta e cadastro de corretor na mesma instrução: nunca fica corretor sem perfil.
+      const r = await db.execute(sql`WITH created AS (
+          INSERT INTO users ("openId", name, email, "passwordHash", role, phone, creci, permissions, "loginMethod", active)
+          VALUES (${values.openId}, ${values.name}, ${email}, ${values.passwordHash}, 'corretor', ${values.phone}, ${values.creci}, '[]', 'password', true)
+          RETURNING id)
+        INSERT INTO broker_profiles (user_id, specialties, notes) SELECT id, '[]', '' FROM created RETURNING user_id AS id`);
+      created = { id: Number((r as unknown as { rows: { id: number }[] }).rows[0].id) };
+    } else {
+      [created] = await db.insert(users).values(values).returning({ id: users.id });
+    }
     const emailEnviado = await enviarLinkDefinicaoSenha(created.id, input.name, email, true);
     return { ...created, emailEnviado };
   }),
@@ -105,6 +144,7 @@ export const configuracoesRouter = router({
     creci: z.string().trim().max(40).optional().nullable(),
     active: z.boolean(),
     permissions: permissionsSchema,
+    leadId: z.number().int().positive().optional().nullable(),
   })).mutation(async ({ ctx, input }) => {
     const db = getDb();
     const [current] = await db.select().from(users).where(eq(users.id, input.id)).limit(1);
@@ -113,13 +153,28 @@ export const configuracoesRouter = router({
       throw new TRPCError({ code: "PRECONDITION_FAILED", message: "Você não pode remover seu próprio acesso administrativo" });
     }
     if (current.role === "admin" && current.active && (input.role !== "admin" || !input.active)) await ensureAnotherAdmin(input.id);
+    // Item 05: vínculo do cliente com o lead do CRM (um lead, uma conta).
+    const leadId = input.role === "cliente" ? (input.leadId ?? current.leadId ?? null) : null;
+    if (input.role === "cliente") {
+      if (!leadId) throw new TRPCError({ code: "BAD_REQUEST", message: "Escolha o cliente do CRM a que esta conta pertence." });
+      const [dono] = await db.select({ id: users.id }).from(users).where(and(eq(users.leadId, leadId), ne(users.id, input.id))).limit(1);
+      if (dono) throw new TRPCError({ code: "CONFLICT", message: "Este cliente do CRM já tem uma conta de acesso." });
+    }
+    if (input.role === "corretor" && current.role !== "corretor") {
+      const [perfil] = await db.select({ userId: brokerProfiles.userId }).from(brokerProfiles).where(eq(brokerProfiles.userId, input.id)).limit(1);
+      if (!perfil) await db.insert(brokerProfiles).values({ userId: input.id });
+    }
+    // Troca de perfil ou desativação encerra as sessões antigas (sessionVersion).
+    const encerrarSessao = current.role !== input.role || (current.active && !input.active);
     const [updated] = await db.update(users).set({
       name: input.name,
       role: input.role,
       phone: input.phone || null,
       creci: input.creci || null,
       active: input.active,
-      permissions: JSON.stringify(normalizePermissions(input.permissions)),
+      leadId,
+      permissions: JSON.stringify(normalizarPermissoes(input.role, normalizePermissions(input.permissions), ADMIN_MODULES)),
+      ...(encerrarSessao ? { sessionVersion: sql`${users.sessionVersion} + 1` } : {}),
       updatedAt: new Date(),
     }).where(eq(users.id, input.id)).returning({ id: users.id });
     return updated;

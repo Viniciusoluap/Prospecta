@@ -1,4 +1,4 @@
-import { desc, eq, inArray } from "drizzle-orm";
+import { and, desc, eq, inArray } from "drizzle-orm";
 import { z } from "zod";
 import { leads, users, whatsappConnections, whatsappMessages } from "../drizzle/schema.js";
 import { enviarWhatsappBusiness, normalizarStatusWebhook } from "./_core/whatsapp-business.js";
@@ -38,8 +38,10 @@ export const whatsappRouter = router({
     });
   }),
 
-  leadsParaEnvio: adminProcedure.query(async () => {
-    return getDb().select({ id: leads.id, name: leads.name, phone: leads.phone }).from(leads).orderBy(desc(leads.createdAt));
+  // Item 06: corretor só vê os próprios leads.
+  leadsParaEnvio: adminProcedure.query(async ({ ctx }) => {
+    const q = getDb().select({ id: leads.id, name: leads.name, phone: leads.phone }).from(leads);
+    return (ctx.user.role === "corretor" ? q.where(eq(leads.brokerId, ctx.user.id)) : q).orderBy(desc(leads.createdAt));
   }),
 
   historico: adminProcedure.query(async ({ ctx }) => {
@@ -93,6 +95,12 @@ export const whatsappRouter = router({
         return { success: false, error: "Credenciais da Business API não configuradas", enviadas: 0, falhas: 0 };
       }
       const token = decryptSecret(conn.tokenEncrypted);
+      // Item 06: corretor só envia para os próprios leads.
+      if (ctx.user.role === "corretor") {
+        const ids = Array.from(new Set(input.destinatarios.map((d) => d.id)));
+        const meus = await db.select({ id: leads.id }).from(leads).where(and(inArray(leads.id, ids), eq(leads.brokerId, ctx.user.id)));
+        if (meus.length !== ids.length) return { success: false, error: "Destinatário fora dos seus leads", enviadas: 0, falhas: 0 };
+      }
 
       let enviadas = 0;
       let falhas = 0;

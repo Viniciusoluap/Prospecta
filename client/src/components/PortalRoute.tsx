@@ -8,7 +8,7 @@ const isClientRole = (role?: string) => role === "cliente" || role === "user";
 export function PortalRoute({ children }: { children: ReactNode }) {
   const { user, loading } = useAuth({
     redirectOnUnauthenticated: true,
-    redirectPath: "/login?perfil=cliente",
+    redirectPath: "/login",
   });
   const [, navigate] = useLocation();
 

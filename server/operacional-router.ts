@@ -25,6 +25,7 @@ import { centavosDe } from "../shared/financeiro/obra.js";
 import { adminProcedure, router } from "./_core/trpc.js";
 import { getDb } from "./db.js";
 import { attachCompletedProcess } from "./lead-services-router.js";
+import { excluirDefinitivo } from "./exclusao-definitiva.js";
 
 const idInput = z.object({ id: z.number().int().positive() });
 function found<T>(row: T | undefined): T {
@@ -140,10 +141,34 @@ async function visitValues(input: z.infer<typeof visitInput>) {
     updatedAt: new Date(),
   };
 }
+/** Item 06: corretor só vê e altera as próprias visitas; o vínculo vem da sessão. */
+function corretorDaSessao(user: { id: number; role: string }): number | null {
+  return user.role === "corretor" ? user.id : null;
+}
+
+async function visitaDoCorretor(id: number, corretorId: number | null) {
+  if (corretorId === null) return;
+  const [v] = await getDb().select({ brokerId: visits.brokerId }).from(visits).where(eq(visits.id, id)).limit(1);
+  if (!v || v.brokerId !== corretorId) throw new TRPCError({ code: "NOT_FOUND", message: "Registro não encontrado" });
+}
+
 export const agendaRouter = router({
-  options: adminProcedure.query(options),
-  list: adminProcedure.query(async () =>
-    getDb()
+  options: adminProcedure.query(async ({ ctx }) => {
+    const corretorId = corretorDaSessao(ctx.user);
+    if (corretorId === null) return options();
+    // Corretor: só os próprios leads e ele mesmo como corretor.
+    const db = getDb();
+    const [leadOptions, properties, eu] = await Promise.all([
+      db.select({ id: leads.id, name: leads.name }).from(leads)
+        .where(and(isNull(leads.deletedAt), ne(leads.stage, "rejected"), eq(leads.brokerId, corretorId))).orderBy(asc(leads.name)),
+      db.select({ id: imoveis.id, name: imoveis.titulo }).from(imoveis).orderBy(asc(imoveis.titulo)),
+      db.select({ id: users.id, name: users.name }).from(users).where(eq(users.id, corretorId)),
+    ]);
+    return { leads: leadOptions, properties, brokers: eu, responsibles: [] };
+  }),
+  list: adminProcedure.query(async ({ ctx }) => {
+    const corretorId = corretorDaSessao(ctx.user);
+    return getDb()
       .select({
         visit: visits,
         leadName: leads.name,
@@ -154,43 +179,50 @@ export const agendaRouter = router({
       .leftJoin(leads, eq(visits.leadId, leads.id))
       .leftJoin(users, eq(visits.brokerId, users.id))
       .leftJoin(imoveis, eq(visits.propertyId, imoveis.id))
-      .orderBy(asc(visits.scheduledAt))
-  ),
-  create: adminProcedure.input(visitInput).mutation(async ({ input }) =>
-    found(
+      .where(corretorId === null ? undefined : eq(visits.brokerId, corretorId))
+      .orderBy(asc(visits.scheduledAt));
+  }),
+  create: adminProcedure.input(visitInput).mutation(async ({ ctx, input }) => {
+    const corretorId = corretorDaSessao(ctx.user);
+    const dados = corretorId === null ? input : { ...input, brokerId: corretorId, responsibleId: null };
+    return found(
       (
         await getDb()
           .insert(visits)
-          .values(await visitValues(input))
+          .values(await visitValues(dados))
           .returning()
       )[0]
-    )
-  ),
+    );
+  }),
   update: adminProcedure
     .input(z.object({ id: z.number().int().positive(), data: visitInput }))
-    .mutation(async ({ input }) =>
-      found(
+    .mutation(async ({ ctx, input }) => {
+      const corretorId = corretorDaSessao(ctx.user);
+      await visitaDoCorretor(input.id, corretorId);
+      const dados = corretorId === null ? input.data : { ...input.data, brokerId: corretorId, responsibleId: null };
+      return found(
         (
           await getDb()
             .update(visits)
-            .set(await visitValues(input.data))
+            .set(await visitValues(dados))
             .where(eq(visits.id, input.id))
             .returning()
         )[0]
-      )
-    ),
+      );
+    }),
   delete: adminProcedure
     .input(idInput)
-    .mutation(async ({ input }) =>
-      found(
+    .mutation(async ({ ctx, input }) => {
+      await visitaDoCorretor(input.id, corretorDaSessao(ctx.user));
+      return found(
         (
           await getDb()
             .delete(visits)
             .where(eq(visits.id, input.id))
             .returning({ id: visits.id })
         )[0]
-      )
-    ),
+      );
+    }),
 });
 
 export const corretoresRouter = router({
@@ -524,18 +556,14 @@ export const comissoesRouter = router({
         )[0]
       );
     }),
+  /** Item 03: comissão paga é registro contábil e não é excluída. */
   delete: adminProcedure
     .input(idInput)
-    .mutation(async ({ input }) =>
-      found(
-        (
-          await getDb()
-            .delete(commissions)
-            .where(eq(commissions.id, input.id))
-            .returning({ id: commissions.id })
-        )[0]
-      )
-    ),
+    .mutation(async ({ ctx, input }) => {
+      const { excluido } = await excluirDefinitivo("comissao", input.id, ctx.user);
+      if (!excluido) throw new TRPCError({ code: "NOT_FOUND", message: "Registro não encontrado" });
+      return { id: input.id };
+    }),
 });
 
 function projectValues(
@@ -554,8 +582,31 @@ function projectValues(
     updatedAt: new Date(),
   };
 }
+/**
+ * Item 07: engenheiro responsável = colaborador (ou admin) ativo, por ID; o nome
+ * exibido vem do cadastro. Texto livre só permanece em registro anterior sem vínculo.
+ */
+async function resolverEngenheiro(d: z.infer<typeof projectInput>, anterior: string | null = null) {
+  if (d.engineerUserId) {
+    const [u] = await getDb().select({ id: users.id, name: users.name, role: users.role, active: users.active })
+      .from(users).where(eq(users.id, d.engineerUserId)).limit(1);
+    if (!u || !u.active || !["colaborador", "admin"].includes(u.role))
+      throw new TRPCError({ code: "BAD_REQUEST", message: "Escolha um colaborador ativo como engenheiro responsável." });
+    return { engineerUserId: u.id, engineer: u.name ?? "" };
+  }
+  const legado = d.engineer.trim();
+  if (anterior && legado && legado === anterior.trim()) return { engineerUserId: null, engineer: legado };
+  throw new TRPCError({ code: "BAD_REQUEST", message: "Escolha o engenheiro responsável entre os colaboradores cadastrados." });
+}
+
 export const projetosRouter = router({
   options: adminProcedure.query(async () => (await options()).leads),
+  /** Colaboradores (e admins) ativos que podem ser engenheiro responsável. */
+  engenheiros: adminProcedure.query(async () =>
+    getDb().select({ id: users.id, name: users.name, role: users.role }).from(users)
+      .where(and(eq(users.active, true), inArray(users.role, ["colaborador", "admin"])))
+      .orderBy(asc(users.name))
+  ),
   list: adminProcedure.query(async () =>
     getDb().select().from(projects).orderBy(desc(projects.updatedAt))
   ),
@@ -574,11 +625,12 @@ export const projetosRouter = router({
     ),
   create: adminProcedure.input(projectInput).mutation(async ({ input }) => {
     const lead = await leadExists(input.leadId);
+    const engenheiro = await resolverEngenheiro(input);
     const created = found(
       (
         await getDb()
           .insert(projects)
-          .values(projectValues(input, lead))
+          .values({ ...projectValues(input, lead), ...engenheiro })
           .returning()
       )[0]
     );
@@ -589,28 +641,31 @@ export const projetosRouter = router({
     .input(z.object({ id: z.number().int().positive(), data: projectInput }))
     .mutation(async ({ input }) => {
       const lead = await leadExists(input.data.leadId);
+      const [atual] = await getDb().select({ engineer: projects.engineer }).from(projects).where(eq(projects.id, input.id)).limit(1);
+      if (!atual) throw new TRPCError({ code: "NOT_FOUND", message: "Registro não encontrado" });
+      const engenheiro = await resolverEngenheiro(input.data, atual.engineer);
       return found(
         (
           await getDb()
             .update(projects)
-            .set(projectValues(input.data, lead))
+            .set({ ...projectValues(input.data, lead), ...engenheiro })
             .where(eq(projects.id, input.id))
             .returning()
         )[0]
       );
     }),
+  /** Item 03: exclusão definitiva (bloqueada com pagamento registrado). */
   delete: adminProcedure
     .input(idInput)
-    .mutation(async ({ input }) =>
-      found(
-        (
-          await getDb()
-            .delete(projects)
-            .where(eq(projects.id, input.id))
-            .returning({ id: projects.id })
-        )[0]
-      )
-    ),
+    .mutation(async ({ ctx, input }) => {
+      const { excluido } = await excluirDefinitivo("projeto", input.id, ctx.user);
+      if (!excluido) throw new TRPCError({ code: "NOT_FOUND", message: "Registro não encontrado" });
+      return { id: input.id };
+    }),
+  /** Item 03: cancelar mantém o registro e o histórico. */
+  cancel: adminProcedure.input(idInput).mutation(async ({ input }) =>
+    found((await getDb().update(projects).set({ status: "cancelado", updatedAt: new Date() })
+      .where(eq(projects.id, input.id)).returning({ id: projects.id }))[0])),
 });
 
 export const mapaRouter = router({

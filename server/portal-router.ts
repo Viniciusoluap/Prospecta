@@ -20,7 +20,7 @@ import { hashPassword } from "./_core/auth-utils.js";
 import { requireRole } from "./_core/rbac.js";
 import { adminProcedure, protectedProcedure, router } from "./_core/trpc.js";
 import { getAssignableUserById, getDb } from "./db.js";
-import { driveConfigured, readPrivateDocument, uploadPrivateDocument } from "./drive-documents.js";
+import { readPrivateDocument, tryDriveUpload, uploadPrivateDocument } from "./drive-documents.js";
 import { readPrivateDbFile } from "./private-document-files.js";
 import { isClientRole, requireClientContext } from "./profile-context.js";
 
@@ -361,9 +361,7 @@ export const portalRouter = router({
           message: "Envie PDF, JPG ou PNG válido de até 3 MiB",
         });
       }
-      const driveFileId = driveConfigured()
-        ? await uploadPrivateDocument(leadId, null, "financiamento_checklist", input.fileName, input.mimeType, buffer)
-        : null;
+      const { driveFileId } = await tryDriveUpload(() => uploadPrivateDocument(leadId, null, "financiamento_checklist", input.fileName, input.mimeType, buffer));
       const update = db.update(financiamentoChecklistItems).set({
         documentoDriveFileId: driveFileId,
         documentoUrl: null,
@@ -528,9 +526,7 @@ export const portalRouter = router({
         });
       }
       const safeNumber = contract.number.replace(/[^a-zA-Z0-9_-]/g, "-");
-      const driveFileId = driveConfigured()
-        ? await uploadPrivateDocument(leadId, null, "juridico", `${safeNumber}-${Date.now()}.pdf`, input.mimeType, buffer)
-        : null;
+      const { driveFileId } = await tryDriveUpload(() => uploadPrivateDocument(leadId, null, "juridico", `${safeNumber}-${Date.now()}.pdf`, input.mimeType, buffer));
       if (driveFileId) {
         await db.batch([
           db.insert(portalContractDocuments).values({ contractId: contract.id, name: input.fileName, type: "assinado", driveFileId }),

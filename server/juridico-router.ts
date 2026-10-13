@@ -5,7 +5,7 @@ import { imoveis, leads, portalChatMessages, portalContractDocuments, portalCont
 import { ASSINATURA_STATUS, CONTRATO_STATUS, contratoInputSchema } from "../shared/juridico.js";
 import { adminProcedure, router } from "./_core/trpc.js";
 import { getDb } from "./db.js";
-import { driveConfigured, readPrivateDocument, uploadPrivateDocument } from "./drive-documents.js";
+import { readPrivateDocument, tryDriveUpload, uploadPrivateDocument } from "./drive-documents.js";
 import { readPrivateDbFile } from "./private-document-files.js";
 
 const documentType = z.enum(["contrato_gerado", "assinado", "anexo"]);
@@ -110,8 +110,11 @@ export const juridicoRouter = router({
       throw new TRPCError({ code: "BAD_REQUEST", message: "Envie um PDF válido de até 3 MiB" });
     }
     const fileName = `${contract.number.replace(/[^a-zA-Z0-9_-]/g, "-")}-${Date.now()}.pdf`;
-    if (contract.leadId && driveConfigured()) {
-      const driveFileId = await uploadPrivateDocument(contract.leadId, null, "juridico", fileName, "application/pdf", buffer);
+    const leadId = contract.leadId;
+    const { driveFileId } = leadId
+      ? await tryDriveUpload(() => uploadPrivateDocument(leadId, null, "juridico", fileName, "application/pdf", buffer))
+      : { driveFileId: null };
+    if (driveFileId) {
       const [document] = await db.insert(portalContractDocuments).values({
         contractId: input.contractId, name: input.name, type: input.type, driveFileId,
       }).returning();

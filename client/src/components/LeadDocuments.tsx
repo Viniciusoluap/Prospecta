@@ -2,6 +2,7 @@ import { useRef, useState } from "react";
 import { trpc } from "@/lib/trpc";
 import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
+import { DriveDiagnostico } from "@/components/DriveDiagnostico";
 
 const categories = [
   ["rg", "RG / CNH"], ["cnh", "CNH frente e verso"],
@@ -25,10 +26,16 @@ function readBase64(file: File): Promise<string> {
 export function LeadDocuments({ leadId, admin = false }: { leadId?: number; admin?: boolean }) {
   const utils = trpc.useUtils();
   const list = trpc.leadDocuments.list.useQuery(leadId ? { leadId } : undefined);
-  const availability = trpc.leadDocuments.available.useQuery();
   const services = trpc.leadServices.listByLead.useQuery({ leadId: leadId ?? 0 }, { enabled: admin && Boolean(leadId) });
   const upload = trpc.leadDocuments.upload.useMutation({
-    onSuccess: result => { toast.success(result.duplicate ? "Arquivo já recebido" : "Documento enviado ao Google Drive"); void utils.leadDocuments.list.invalidate(); },
+    onSuccess: result => {
+      if (result.duplicate) toast.success("Arquivo já recebido");
+      else if ("storage" in result && result.storage === "banco") {
+        toast.success("Documento salvo no sistema");
+        if (admin && result.storageNote) toast.warning(`Google Drive indisponível: ${result.storageNote}`, { duration: 15000 });
+      } else toast.success("Documento salvo no Google Drive");
+      void utils.leadDocuments.list.invalidate();
+    },
     onError: error => toast.error(error.message),
   });
   const remove = trpc.leadDocuments.remove.useMutation({
@@ -75,7 +82,7 @@ export function LeadDocuments({ leadId, admin = false }: { leadId?: number; admi
   }
 
   return <div className="space-y-3 text-sm">
-    {!availability.data?.configured && <p className="rounded border border-amber-500/40 p-3 text-amber-200" role="status">Envio temporariamente indisponível: conexão privada com Google Drive pendente.</p>}
+    {admin && <DriveDiagnostico />}
     {admin && services.data && <label className="block">Serviço documental
       <select className="ml-2 rounded border border-[#C9A961]/30 bg-[#1A2332] p-2 text-white" value={serviceId ?? ""} onChange={event => setServiceId(event.target.value ? Number(event.target.value) : undefined)}>
         <option value="">CRM geral</option>
@@ -91,7 +98,7 @@ export function LeadDocuments({ leadId, admin = false }: { leadId?: number; admi
           <div><strong>{label}</strong><span className="ml-2 text-xs text-gray-300">{pending ? "Solicitado" : docs.length ? `${docs.length} registro(s)` : "Pendente"}</span></div>
           <div className="flex gap-2">
             {admin && leadId && <Button size="sm" variant="outline" onClick={() => request.mutate({ leadId, serviceId, type: key })} disabled={request.isPending}>Solicitar</Button>}
-            <Button size="sm" variant="outline" disabled={!availability.data?.configured || busy} onClick={() => { setSelected(key); inputRef.current?.click(); }}>Enviar</Button>
+            <Button size="sm" variant="outline" disabled={busy} onClick={() => { setSelected(key); inputRef.current?.click(); }}>Enviar</Button>
           </div>
         </div>
         {docs.map(document => <div key={document.id} className="mt-2 flex flex-wrap items-center justify-between gap-2 border-t border-white/10 pt-2 text-xs">

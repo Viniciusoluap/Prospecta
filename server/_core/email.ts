@@ -1,12 +1,13 @@
 import { getDb } from "../db.js";
 import { emailLogs, InsertEmailLog } from "../../drizzle/schema.js";
+import { rodapeEmail } from "../../shared/email-identidade.js";
 
 /**
  * Templates de email em HTML
  */
 export const emailTemplates = {
   welcome: (name: string) => ({
-    subject: `Bem-vindo ao Ecossistema Efficaz, ${name}!`,
+    subject: `Bem-vindo ao Ecossistema VFX Capital, ${name}!`,
     html: `
       <!DOCTYPE html>
       <html>
@@ -24,11 +25,11 @@ export const emailTemplates = {
         <body>
           <div class="container">
             <div class="header">
-              <h1>Bem-vindo ao Ecossistema Efficaz!</h1>
+              <h1>Bem-vindo ao Ecossistema VFX Capital!</h1>
             </div>
             <div class="content">
               <p>Olá, <strong>${name}</strong>!</p>
-              <p>É um prazer tê-lo(a) conosco. O Ecossistema Efficaz oferece:</p>
+              <p>É um prazer tê-lo(a) conosco. O Ecossistema VFX Capital oferece:</p>
               <ul>
                 <li>🎁 <strong>Sorteios</strong> com prêmios em UTEFs</li>
                 <li>🏠 <strong>Produtos</strong> exclusivos (imóveis, serviços, embarcações)</li>
@@ -40,7 +41,7 @@ export const emailTemplates = {
               </p>
             </div>
             <div class="footer">
-              <p>Prospecta Empreendimentos - CNPJ: 41.865.900/0001-89</p>
+              <p>${rodapeEmail()} - CNPJ: 41.865.900/0001-89</p>
               <p>R. Gonçalves Dias, 1993 - Juçara - Imperatriz - MA</p>
             </div>
           </div>
@@ -87,7 +88,7 @@ export const emailTemplates = {
               <p>Dúvidas? Entre em contato: <a href="tel:+5599981392210">(99) 98139-2210</a></p>
             </div>
             <div class="footer">
-              <p>Prospecta Empreendimentos - CNPJ: 41.865.900/0001-89</p>
+              <p>${rodapeEmail()} - CNPJ: 41.865.900/0001-89</p>
             </div>
           </div>
         </body>
@@ -124,7 +125,7 @@ export const emailTemplates = {
               <p>Para mais informações, entre em contato conosco.</p>
             </div>
             <div class="footer">
-              <p>Prospecta Empreendimentos</p>
+              <p>${rodapeEmail()}</p>
             </div>
           </div>
         </body>
@@ -167,7 +168,7 @@ export const emailTemplates = {
               </p>
             </div>
             <div class="footer">
-              <p>Prospecta Empreendimentos</p>
+              <p>${rodapeEmail()}</p>
             </div>
           </div>
         </body>
@@ -193,13 +194,13 @@ export const emailTemplates = {
         <body>
           <div class="container">
             <div class="header">
-              <h1>Ecossistema Efficaz</h1>
+              <h1>Ecossistema VFX Capital</h1>
             </div>
             <div class="content">
               ${content}
             </div>
             <div class="footer">
-              <p>Prospecta Empreendimentos</p>
+              <p>${rodapeEmail()}</p>
               <p><a href="#">Cancelar inscrição</a></p>
             </div>
           </div>

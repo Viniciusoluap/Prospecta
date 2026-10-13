@@ -1,3 +1,4 @@
+import { AcoesExcluirCancelar } from "@/components/AcoesExcluirCancelar";
 import { useMemo, useState } from "react";
 import { Link } from "wouter";
 import { ArrowLeft, Building2, Pencil } from "lucide-react";
@@ -60,6 +61,8 @@ export default function AdminRegularizacoes() {
     ]);
   };
 
+  const removeMutation = trpc.regularizacao.remove.useMutation();
+  const cancelMutation = trpc.regularizacao.cancel.useMutation();
   const updateMutation = trpc.regularizacao.update.useMutation({
     onSuccess: async () => { toast.success("Processo atualizado"); setEditOpen(false); await refresh(); },
     onError: error => toast.error(error.message),
@@ -119,7 +122,12 @@ export default function AdminRegularizacoes() {
                     : <p className="mt-1 text-sm text-gray-300">{record.type} · {record.responsible}</p>}
                   <p className="text-sm text-[#C9A961]">{currency(record.serviceValue)}</p>
                 </button>
-                {record.leadId && <Link href={`/admin/crm/${record.leadId}`} className="inline-block py-1 text-sm text-[#E6CA88] underline">Abrir cadastro CRM</Link>}
+                <div className="flex flex-wrap items-center justify-between gap-2 py-1">
+                  {record.leadId ? <Link href={`/admin/crm/${record.leadId}`} className="text-sm text-[#E6CA88] underline">Abrir cadastro CRM</Link> : <span />}
+                  <AcoesExcluirCancelar compacto rotulo={record.clientName} cancelado={record.status === "cancelado"}
+                    onCancelar={async () => { await cancelMutation.mutateAsync({ id: record.id }); await listQuery.refetch(); }}
+                    onExcluir={async () => { await removeMutation.mutateAsync({ id: record.id }); if (selectedId === record.id) setSelectedId(undefined); await listQuery.refetch(); }} />
+                </div>
                 </div>
               ))}
             </CardContent>

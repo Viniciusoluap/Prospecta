@@ -1,5 +1,5 @@
 import { TRPCError } from "@trpc/server";
-import { and, desc, eq } from "drizzle-orm";
+import { and, desc, eq, sql } from "drizzle-orm";
 import { z } from "zod";
 import { incorporationRegistrationDocuments } from "../drizzle/schema.js";
 import { DOCUMENTOS_PADRAO_REGISTRO, type DocumentoRegistro } from "../shared/incorporacao/registro-incorporacao.js";
@@ -7,7 +7,8 @@ import { lerDueDiligence } from "../shared/incorporacao/due-diligence.js";
 import { protectedProcedure, router } from "./_core/trpc.js";
 import { requireRole } from "./_core/rbac.js";
 import { getDb, getIncorporationStudyById } from "./db.js";
-import { documentHash, driveConfigured, readPrivateDocument, uploadPrivateIncorporationDocument } from "./drive-documents.js";
+import { documentHash, driveConfigured, readPrivateDocument, tryDriveUpload, uploadPrivateIncorporationDocument } from "./drive-documents.js";
+import { readPrivateDbFile } from "./private-document-files.js";
 import { isValidPortalDocument } from "./portal-router.js";
 
 const itemInput = z.object({ studyId: z.number().int().positive(), itemId: z.string().min(1).max(120) });
@@ -41,9 +42,10 @@ type DocumentEvent = typeof incorporationRegistrationDocuments.$inferSelect;
 export function currentRegistrationDocuments(events: DocumentEvent[]) {
   const latest = new Map<string, DocumentEvent>();
   for (const event of events) if (!latest.has(event.itemId) || event.id > latest.get(event.itemId)!.id) latest.set(event.itemId, event);
-  return Array.from(latest.values()).filter(event => event.action === "uploaded" && event.driveFileId).map(event => ({
+  return Array.from(latest.values()).filter(event => event.action === "uploaded" && (event.driveFileId || event.storage === "banco")).map(event => ({
     id: event.id, itemId: event.itemId, fileName: event.fileName, mimeType: event.mimeType,
     fileSize: event.fileSize, uploadedAt: event.createdAt, uploadedByUserId: event.performedByUserId,
+    storage: event.storage, storageNote: event.storageNote,
   }));
 }
 
@@ -57,7 +59,8 @@ async function latestEvent(studyId: number, itemId: string) {
 export const incorporacaoDocumentsRouter = router({
   available: protectedProcedure.query(({ ctx }) => {
     requireRole(ctx, ["admin"]);
-    return { configured: driveConfigured() };
+    // Sem Drive (ou com o Drive recusando), o arquivo fica no banco: o envio sempre funciona.
+    return { configured: true, drive: driveConfigured() };
   }),
   list: protectedProcedure.input(z.object({ studyId: z.number().int().positive() })).query(async ({ ctx, input }) => {
     requireRole(ctx, ["admin"]);
@@ -71,7 +74,6 @@ export const incorporacaoDocumentsRouter = router({
   })).mutation(async ({ ctx, input }) => {
     requireRole(ctx, ["admin"]);
     await requireRegistrationItem(input.studyId, input.itemId);
-    if (!driveConfigured()) throw new TRPCError({ code: "PRECONDITION_FAILED", message: "Google Drive não configurado" });
     const data = Buffer.from(input.base64, "base64");
     if (data.length > 3 * 1024 * 1024 || !isValidPortalDocument(data, input.mimeType))
       throw new TRPCError({ code: "BAD_REQUEST", message: "Envie PDF, JPG ou PNG válido de até 3 MiB" });
@@ -80,28 +82,36 @@ export const incorporacaoDocumentsRouter = router({
     if (previous?.action === "uploaded" && previous.sha256 === hash)
       return { id: previous.id, duplicate: true };
     const safeName = input.fileName.replace(/[\\/\x00-\x1f]/g, "_").slice(0, 255);
-    let driveFileId: string;
-    try {
-      driveFileId = await uploadPrivateIncorporationDocument(input.studyId, input.itemId, safeName, input.mimeType, data);
-    } catch {
-      throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Não foi possível armazenar o documento no Google Drive" });
+    const { driveFileId, note } = await tryDriveUpload(() => uploadPrivateIncorporationDocument(input.studyId, input.itemId, safeName, input.mimeType, data));
+    if (driveFileId) {
+      const [saved] = await getDb().insert(incorporationRegistrationDocuments).values({
+        studyId: input.studyId, itemId: input.itemId, action: "uploaded", driveFileId,
+        fileName: safeName, mimeType: input.mimeType, fileSize: data.length, sha256: hash,
+        performedByUserId: ctx.user.id,
+      }).returning({ id: incorporationRegistrationDocuments.id });
+      return { id: saved.id, duplicate: false, storage: "drive", storageNote: null };
     }
-    const [saved] = await getDb().insert(incorporationRegistrationDocuments).values({
-      studyId: input.studyId, itemId: input.itemId, action: "uploaded", driveFileId,
-      fileName: safeName, mimeType: input.mimeType, fileSize: data.length, sha256: hash,
-      performedByUserId: ctx.user.id,
-    }).returning({ id: incorporationRegistrationDocuments.id });
-    return { id: saved.id, duplicate: false };
+    // Evento e bytes na mesma instrução: nunca fica referência sem arquivo.
+    const result = await getDb().execute(sql`WITH ev AS (
+        INSERT INTO incorporation_registration_documents (study_id, item_id, action, file_name, mime_type, file_size, sha256, performed_by_user_id, storage, storage_note)
+        VALUES (${input.studyId}, ${input.itemId}, 'uploaded', ${safeName}, ${input.mimeType}, ${data.length}, ${hash}, ${ctx.user.id}, 'banco', ${note})
+        RETURNING id)
+      INSERT INTO incorporation_registration_file_data (document_id, mime, size_bytes, data)
+      SELECT id, ${input.mimeType}, ${data.length}, decode(${data.toString("base64")}, 'base64') FROM ev
+      RETURNING document_id AS id`);
+    const id = Number((result as unknown as { rows: { id: number }[] }).rows[0].id);
+    return { id, duplicate: false, storage: "banco", storageNote: note };
   }),
   content: protectedProcedure.input(itemInput).query(async ({ ctx, input }) => {
     requireRole(ctx, ["admin"]);
     await requireRegistrationItem(input.studyId, input.itemId);
     const current = await latestEvent(input.studyId, input.itemId);
-    if (!current || current.action !== "uploaded" || !current.driveFileId || !current.mimeType)
+    if (!current || current.action !== "uploaded" || (!current.driveFileId && current.storage !== "banco") || !current.mimeType)
       throw new TRPCError({ code: "NOT_FOUND" });
     if (current.fileSize && current.fileSize > 3 * 1024 * 1024) throw new TRPCError({ code: "BAD_REQUEST" });
     try {
-      const data = await readPrivateDocument(current.driveFileId);
+      const data = current.driveFileId ? await readPrivateDocument(current.driveFileId) : await readPrivateDbFile("incorporacao", current.id);
+      if (!data) throw new Error("Arquivo não encontrado no banco");
       if (data.length > 3 * 1024 * 1024) throw new Error("Arquivo excede o limite");
       return { fileName: current.fileName, mimeType: current.mimeType, base64: data.toString("base64") };
     } catch {

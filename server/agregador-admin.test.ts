@@ -13,10 +13,21 @@ describe("EPIC-012 S-07 (Etapa 5) - Tela admin de Agregador/Feeds", () => {
   });
 
   it("permissao imoveis acessa a captação consolidada, mas permissão alheia não", () => {
-    const corretor = { role: "corretor", permissions: JSON.stringify(["imoveis"]) };
-    const semAcesso = { role: "corretor", permissions: JSON.stringify(["crm"]) };
-    expect(canAccessAdminProcedure(corretor, "agregador.list")).toBe(true);
+    const colaborador = { role: "colaborador", permissions: JSON.stringify(["imoveis"]) };
+    const semAcesso = { role: "colaborador", permissions: JSON.stringify(["crm"]) };
+    expect(canAccessAdminProcedure(colaborador, "agregador.list")).toBe(true);
     expect(canAccessAdminProcedure(semAcesso, "agregador.list")).toBe(false);
+  });
+
+  it("item 06: corretor não usa módulos do painel além de Agenda e WhatsApp, mesmo com permissões gravadas", () => {
+    const corretor = { role: "corretor", permissions: JSON.stringify(["imoveis", "crm", "obras"]) };
+    expect(canAccessAdminProcedure(corretor, "agregador.list")).toBe(false);
+    expect(canAccessAdminProcedure(corretor, "leads.list")).toBe(false);
+    expect(canAccessAdminProcedure(corretor, "agenda.list")).toBe(true);
+    expect(canAccessAdminProcedure(corretor, "whatsapp.historico")).toBe(true);
+    expect(canAccessAdminProcedure({ ...corretor, active: false }, "agenda.list")).toBe(false);
+    expect(canAccessAdminProcedure({ role: "cliente", permissions: '["obras"]' }, "construction.allProjects")).toBe(false);
+    expect(canAccessAdminProcedure({ role: "empreiteiro", permissions: '["obras"]' }, "construction.allProjects")).toBe(false);
   });
 
   it("colaborador com a permissao agregador acessa o modulo", () => {

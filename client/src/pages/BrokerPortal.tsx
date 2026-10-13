@@ -1,14 +1,6 @@
 import { useRef, useState } from "react";
 import { Link, useLocation } from "wouter";
-import {
-  Building2,
-  Camera,
-  DollarSign,
-  Home,
-  LogOut,
-  Plus,
-  Upload,
-} from "lucide-react";
+import { Building2, Camera, DollarSign, Home, LogOut, Plus, Upload, CalendarDays, MessageCircle } from "lucide-react";
 import { trpc } from "@/lib/trpc";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { Button } from "@/components/ui/button";
@@ -105,6 +97,9 @@ export default function BrokerPortal() {
     ["/corretor", "Início", Home],
     ["/corretor/imoveis", "Imóveis", Building2],
     ["/corretor/comissoes", "Minhas Comissões", DollarSign],
+    // Item 06: Agenda e WhatsApp do corretor (só os próprios registros, no servidor).
+    ["/admin/agenda", "Agenda", CalendarDays],
+    ["/admin/whatsapp", "WhatsApp", MessageCircle],
   ] as const;
 
   return (
@@ -122,7 +117,7 @@ export default function BrokerPortal() {
             className="text-white"
             onClick={() =>
               logout().then(() =>
-                window.location.assign("/login?perfil=corretor")
+                window.location.assign("/login")
               )
             }
           >

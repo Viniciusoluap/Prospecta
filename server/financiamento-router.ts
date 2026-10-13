@@ -20,6 +20,7 @@ import { linkRecordToLead } from "./lead-services-router.js";
 import { readPrivateDocument } from "./drive-documents.js";
 import { readPrivateDbFile } from "./private-document-files.js";
 import { TRPCError } from "@trpc/server";
+import { excluirDefinitivo } from "./exclusao-definitiva.js";
 
 async function clientFieldsFromLead(leadId: number) {
   const [lead] = await getDb().select().from(leads).where(eq(leads.id, leadId)).limit(1);
@@ -242,12 +243,19 @@ export const financiamentoRouter = router({
       return updated;
     }),
 
+  /** Item 03: exclusão definitiva (remove checklist e o serviço do CRM ligado). */
   delete: adminProcedure
     .input(z.object({ id: z.number().int().positive() }))
+    .mutation(async ({ ctx, input }) => {
+      await excluirDefinitivo("financiamento", input.id, ctx.user);
+      return { success: true } as const;
+    }),
+
+  /** Item 03: cancelar mantém o registro e o histórico. */
+  cancel: adminProcedure
+    .input(z.object({ id: z.number().int().positive() }))
     .mutation(async ({ input }) => {
-      await getDb()
-        .delete(financiamentos)
-        .where(eq(financiamentos.id, input.id));
+      await getDb().update(financiamentos).set({ status: "cancelado", updatedAt: new Date() }).where(eq(financiamentos.id, input.id));
       return { success: true } as const;
     }),
 

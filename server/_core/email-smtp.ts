@@ -4,6 +4,7 @@ import { getDb } from "../db.js";
 import { emailLogs, InsertEmailLog } from "../../drizzle/schema.js";
 import { ENV } from "./env.js";
 import { descreverErroSmtp } from "../../shared/email-erro.js";
+import { IDENTIDADE_EMAIL, REMETENTE_EMAIL, rodapeEmail } from "../../shared/email-identidade.js";
 
 type EmailData = {
   to: string;
@@ -62,7 +63,7 @@ export async function sendEmail(
     if (!emailId) return false;
 
     await deps.transport.sendMail({
-      from: `"Prospecta Empreendimentos" <${ENV.smtpUser || "no-reply@prospecta.local"}>`,
+      from: `"${REMETENTE_EMAIL}" <${ENV.smtpUser || "no-reply@prospecta.local"}>`,
       to: data.to,
       subject: data.subject,
       html: data.html,
@@ -99,7 +100,7 @@ export function budgetConfirmationTemplate(data: {
   city?: string;
 }) {
   return {
-    subject: "🏗️ Orçamento Recebido - Prospecta Empreendimentos",
+    subject: `🏗️ Orçamento Recebido - ${IDENTIDADE_EMAIL}`,
     html: `
       <!DOCTYPE html>
       <html>
@@ -147,7 +148,7 @@ export function budgetConfirmationTemplate(data: {
             </p>
           </div>
           <div class="footer">
-            <p>© 2025 Prospecta Empreendimentos - Grupo Efficaz</p>
+            <p>${rodapeEmail()}</p>
             <p>Construindo sonhos, transformando vidas</p>
           </div>
         </div>
@@ -167,7 +168,7 @@ export function paymentConfirmedTemplate(data: {
   quantity?: number;
 }) {
   return {
-    subject: "✅ Pagamento Confirmado - Prospecta Empreendimentos",
+    subject: `✅ Pagamento Confirmado - ${IDENTIDADE_EMAIL}`,
     html: `
       <!DOCTYPE html>
       <html>
@@ -214,7 +215,7 @@ export function paymentConfirmedTemplate(data: {
             </p>
           </div>
           <div class="footer">
-            <p>© 2025 Prospecta Empreendimentos - Grupo Efficaz</p>
+            <p>${rodapeEmail()}</p>
           </div>
         </div>
       </body>
@@ -270,7 +271,7 @@ export function adminNotificationTemplate(data: {
         <div class="container">
           <div class="header"><h1 style="margin:0; font-size: 20px;">${escapeHtml(data.titulo)}</h1></div>
           <div class="content">${linhasHtml}</div>
-          <div class="footer"><p>© 2025 Prospecta Empreendimentos - Grupo Efficaz</p></div>
+          <div class="footer"><p>${rodapeEmail()}</p></div>
         </div>
       </body>
       </html>
@@ -321,12 +322,12 @@ export function primeiroAcessoTemplate(data: { name: string; link: string; novoU
           <div class="content">
             <p>Olá <strong>${data.name}</strong>,</p>
             <p>${data.novoUsuario
-              ? "Sua conta no sistema da Prospecta Empreendimentos foi criada. Para acessar, defina sua senha pelo link abaixo:"
+              ? `Sua conta no sistema da ${IDENTIDADE_EMAIL} foi criada. Para acessar, defina sua senha pelo link abaixo:`
               : "Foi solicitada a redefinição da sua senha de acesso. Defina a nova senha pelo link abaixo:"}</p>
             <p style="text-align: center;"><a href="${data.link}" class="button">Definir minha senha</a></p>
             <p style="font-size: 13px; color: #666;">Este link expira em 7 dias e só pode ser usado uma vez. Se você não pediu isso, ignore este email.</p>
           </div>
-          <div class="footer"><p>© 2025 Prospecta Empreendimentos - Grupo Efficaz</p></div>
+          <div class="footer"><p>${rodapeEmail()}</p></div>
         </div>
       </body>
       </html>
@@ -343,7 +344,7 @@ export async function sendBudgetUpdateEmail(data: {
 }): Promise<boolean> {
   return sendEmail({
     to: data.email,
-    subject: `📋 Atualização do seu Orçamento - Prospecta Empreendimentos`,
+    subject: `📋 Atualização do seu Orçamento - ${IDENTIDADE_EMAIL}`,
     html: `
       <!DOCTYPE html>
       <html>
@@ -367,7 +368,7 @@ export async function sendBudgetUpdateEmail(data: {
             ${data.notes ? `<p><strong>Observações:</strong><br>${data.notes}</p>` : ""}
             <p>Dúvidas? WhatsApp: (99) 98139-2210 | (94) 99304-4689</p>
           </div>
-          <div class="footer"><p>© 2025 Prospecta Empreendimentos - Grupo Efficaz</p></div>
+          <div class="footer"><p>${rodapeEmail()}</p></div>
         </div>
       </body>
       </html>
