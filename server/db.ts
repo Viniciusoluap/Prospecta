@@ -1,5 +1,6 @@
 import { eq, and, desc, sql, like, isNull, inArray, asc, ne } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/neon-http";
+import { alias } from "drizzle-orm/pg-core";
 import { neon } from "@neondatabase/serverless";
 
 import {
@@ -501,13 +502,33 @@ export async function getProjectsByUserId(userId: number): Promise<ConstructionP
   return rows.map(aplicarTipoProjetoOficial);
 }
 
-export async function getAllProjects(): Promise<ConstructionProject[]> {
+export type ProjetoDaLista = ConstructionProject & {
+  clientName: string | null;
+  contractorName: string | null;
+  crmResponsibleName: string | null;
+};
+
+/** Lista administrativa de obras, com os nomes usados nos filtros (item 01). */
+export async function getAllProjects(): Promise<ProjetoDaLista[]> {
   const db = getDb();
-  const rows = await db.select({ project: constructionProjects, serviceType: leadServices.serviceType })
+  const contractor = alias(users, "contractor");
+  const crmResponsible = alias(users, "crm_responsible");
+  const rows = await db.select({
+    project: constructionProjects, serviceType: leadServices.serviceType,
+    clientName: leads.name, contractorName: contractor.name, crmResponsibleName: crmResponsible.name,
+  })
     .from(constructionProjects)
     .leftJoin(leadServices, eq(leadServices.id, constructionProjects.leadServiceId))
+    .leftJoin(leads, eq(leads.id, constructionProjects.leadId))
+    .leftJoin(contractor, eq(contractor.id, constructionProjects.contractorUserId))
+    .leftJoin(crmResponsible, eq(crmResponsible.id, leads.responsibleUserId))
     .orderBy(desc(constructionProjects.createdAt));
-  return rows.map(aplicarTipoProjetoOficial);
+  return rows.map((row) => ({
+    ...aplicarTipoProjetoOficial(row),
+    clientName: row.clientName ?? row.project.mcmvClientName ?? null,
+    contractorName: row.contractorName ?? null,
+    crmResponsibleName: row.crmResponsibleName ?? null,
+  }));
 }
 
 export async function getProjectById(id: number): Promise<ConstructionProject | undefined> {

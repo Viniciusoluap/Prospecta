@@ -7,16 +7,31 @@ import { trpc } from "@/lib/trpc";
 import { Building2, Calendar, DollarSign, Loader2, Plus, User } from "lucide-react";
 import { Link, useLocation } from "wouter";
 import { getLoginUrl } from "@/const";
-import { useEffect } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { FILTROS_OBRAS_VAZIOS, filtrarObras, filtrosAtivos, type FiltrosObras, type OrdemObras } from "@shared/obras-filtro";
+import { OBRA_STATUS_TODOS } from "@shared/obra-status";
+import { AcoesExcluirCancelar } from "@/components/AcoesExcluirCancelar";
+import { Input } from "@/components/ui/input";
 import { LinkedServiceQueue } from "./admin/LinkedServiceQueue";
 
 export default function AdminObras() {
   const { user, isAuthenticated, loading: authLoading } = useAuth();
   const [, setLocation] = useLocation();
 
-  const { data: projects, isLoading, error } = trpc.construction.allProjects.useQuery(undefined, {
+  const { data: projects, isLoading, error, refetch } = trpc.construction.allProjects.useQuery(undefined, {
     enabled: isAuthenticated && user?.role === "admin",
   });
+  const excluirObra = trpc.construction.deleteProject.useMutation();
+  const cancelarObra = trpc.construction.cancelProject.useMutation();
+  const [filtros, setFiltros] = useState<FiltrosObras>(FILTROS_OBRAS_VAZIOS);
+  const set = <K extends keyof FiltrosObras>(campo: K, valor: FiltrosObras[K]) => setFiltros((f) => ({ ...f, [campo]: valor }));
+  // Item 01: todos os filtros funcionam juntos (shared/obras-filtro, igual ao Santa Fé).
+  const filtradas = useMemo(() => filtrarObras((projects ?? []).map((p) => ({
+    ...p, codigo: `#${p.id}`, nome: p.title, cliente: p.clientName ?? "",
+    responsaveis: [p.contractorName, p.crmResponsibleName, p.brokerName], origemCrm: p.leadServiceId != null,
+    criadoEm: p.createdAt, inicio: p.startDate, fim: p.actualEndDate ?? p.estimatedEndDate,
+  })), filtros), [projects, filtros]);
+  const ativos = filtrosAtivos(filtros);
 
   useEffect(() => {
     if (!authLoading && !isAuthenticated) {
@@ -118,12 +133,47 @@ export default function AdminObras() {
           </Card>
         ) : (
           <div className="grid gap-6">
-            {projects.map((project) => (
+            <Card className="bg-[#1A2332]/60 border-[#C9A961]/20">
+              <CardContent className="pt-6 space-y-3">
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 text-xs text-gray-300">
+                  <label>Nome da obra<Input value={filtros.nome} onChange={(e) => set("nome", e.target.value)} placeholder="Buscar obra" className="mt-1 bg-[#1A2332] border-[#C9A961]/30 text-white" /></label>
+                  <label>Cliente<Input value={filtros.cliente} onChange={(e) => set("cliente", e.target.value)} placeholder="Nome do cliente" className="mt-1 bg-[#1A2332] border-[#C9A961]/30 text-white" /></label>
+                  <label>Código<Input value={filtros.codigo} onChange={(e) => set("codigo", e.target.value)} placeholder="#123" className="mt-1 bg-[#1A2332] border-[#C9A961]/30 text-white" /></label>
+                  <label>Responsável<Input value={filtros.responsavel} onChange={(e) => set("responsavel", e.target.value)} placeholder="Empreiteiro, responsável ou corretor" className="mt-1 bg-[#1A2332] border-[#C9A961]/30 text-white" /></label>
+                  <label>Situação
+                    <select value={filtros.status} onChange={(e) => set("status", e.target.value)} className="mt-1 h-9 w-full rounded-md border border-[#C9A961]/30 bg-[#1A2332] px-2 text-sm text-white">
+                      <option value="">Todas</option>
+                      {OBRA_STATUS_TODOS.map((s) => <option key={s} value={s}>{obraStatusLabel(s)} ({(projects ?? []).filter((p) => p.status === s).length})</option>)}
+                    </select>
+                  </label>
+                  <label>Origem
+                    <select value={filtros.origem} onChange={(e) => set("origem", e.target.value as FiltrosObras["origem"])} className="mt-1 h-9 w-full rounded-md border border-[#C9A961]/30 bg-[#1A2332] px-2 text-sm text-white">
+                      <option value="todas">Todas</option><option value="crm">Criada pelo CRM</option><option value="manual">Sem vínculo com o CRM</option>
+                    </select>
+                  </label>
+                  <fieldset>Período de execução<div className="flex gap-2"><Input type="date" aria-label="Período de" value={filtros.periodoDe} onChange={(e) => set("periodoDe", e.target.value)} className="mt-1 bg-[#1A2332] border-[#C9A961]/30 text-white" /><Input type="date" aria-label="Período até" value={filtros.periodoAte} onChange={(e) => set("periodoAte", e.target.value)} className="mt-1 bg-[#1A2332] border-[#C9A961]/30 text-white" /></div></fieldset>
+                  <fieldset>Data de criação<div className="flex gap-2"><Input type="date" aria-label="Criada de" value={filtros.criadoDe} onChange={(e) => set("criadoDe", e.target.value)} className="mt-1 bg-[#1A2332] border-[#C9A961]/30 text-white" /><Input type="date" aria-label="Criada até" value={filtros.criadoAte} onChange={(e) => set("criadoAte", e.target.value)} className="mt-1 bg-[#1A2332] border-[#C9A961]/30 text-white" /></div></fieldset>
+                </div>
+                <div className="flex flex-wrap items-center justify-between gap-3 text-xs text-gray-300">
+                  <label className="flex items-center gap-2">Ordenar
+                    <select value={filtros.ordem} onChange={(e) => set("ordem", e.target.value as OrdemObras)} className="h-9 rounded-md border border-[#C9A961]/30 bg-[#1A2332] px-2 text-sm text-white">
+                      <option value="recentes">Mais recentes</option><option value="antigas">Mais antigas</option><option value="az">Nome A–Z</option><option value="za">Nome Z–A</option>
+                    </select>
+                  </label>
+                  <div className="flex items-center gap-3">
+                    <span>{filtradas.length} de {projects.length} obra(s){ativos ? ` · ${ativos} filtro(s) ativo(s)` : ""}</span>
+                    <Button type="button" variant="outline" size="sm" className="border-[#C9A961]/50 text-[#C9A961]" disabled={!ativos && filtros.ordem === "recentes"} onClick={() => setFiltros(FILTROS_OBRAS_VAZIOS)}>Limpar filtros</Button>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+            {filtradas.length === 0 && <p className="text-center text-gray-400">Nenhuma obra encontrada com esses filtros.</p>}
+            {filtradas.map((project) => (
               <Card key={project.id} className="bg-[#1A2332]/60 border-[#C9A961]/20 backdrop-blur-sm hover:border-[#C9A961]/40 transition-all">
                 <CardHeader>
                   <div className="flex items-start justify-between">
                     <div className="flex-1">
-                      <CardTitle className="text-[#C9A961] text-xl mb-2">{project.title}</CardTitle>
+                      <CardTitle className="text-[#C9A961] text-xl mb-2">{project.title} <span className="text-xs font-mono text-gray-400">{project.codigo}</span></CardTitle>
                       <CardDescription className="text-gray-400">
                         {project.address || "Endereço não informado"}
                       </CardDescription>
@@ -137,7 +187,7 @@ export default function AdminObras() {
                   <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-4">
                     <div className="flex items-center gap-2 text-gray-300">
                       <User className="h-4 w-4 text-[#C9A961]" />
-                      <span className="text-sm">{project.leadId ? `Cliente CRM #${project.leadId}` : project.userId ? `Conta #${project.userId}` : "Cliente ainda não vinculado"}</span>
+                      <span className="text-sm">{project.clientName ?? (project.leadId ? `Cliente CRM #${project.leadId}` : project.userId ? `Conta #${project.userId}` : "Cliente ainda não vinculado")}</span>
                     </div>
                     <div className="flex items-center gap-2 text-gray-300">
                       <Building2 className="h-4 w-4 text-[#C9A961]" />
@@ -184,6 +234,9 @@ export default function AdminObras() {
                         Ver Detalhes
                       </Button>
                     </Link>
+                    <AcoesExcluirCancelar rotulo={project.title} cancelado={project.status === "cancelled"}
+                      onCancelar={async () => { await cancelarObra.mutateAsync({ projectId: project.id }); await refetch(); }}
+                      onExcluir={async () => { await excluirObra.mutateAsync({ projectId: project.id }); await refetch(); }} />
                   </div>
                 </CardContent>
               </Card>
