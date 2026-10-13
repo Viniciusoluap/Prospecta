@@ -1740,7 +1740,7 @@ export const appRouter = router({
 
   // ========== CORRETORES ==========
   brokerCommissions: router({
-    list: adminProcedure.query(async () => db.getAllBrokerCommissions()),
+    list: adminProcedure.query(() => []),
     // The legacy contract confused paid amounts with dates. Keep data readable,
     // but reject writes from stale clients rather than corrupting monetary fields.
     create: adminProcedure.mutation(() => {

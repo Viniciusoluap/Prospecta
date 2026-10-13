@@ -47,7 +47,6 @@ export default function AdminComissoes() {
   const list = trpc.comissoes.list.useQuery();
   const brokers = trpc.comissoes.options.useQuery();
   const formOptions = trpc.comissoes.formOptions.useQuery();
-  const legacy = trpc.comissoes.legacy.useQuery();
   const obras = trpc.comissoes.obras.useQuery();
   const create = trpc.comissoes.create.useMutation();
   const update = trpc.comissoes.update.useMutation();
@@ -199,39 +198,6 @@ export default function AdminComissoes() {
           </tr>
         ))}
       </Rows>
-      <details className="rounded border bg-white p-4">
-        <summary className="cursor-pointer font-semibold">
-          Comissões legadas em quatro parcelas ({legacy.data?.length ?? "…"})
-        </summary>
-        <p className="my-3 text-sm">
-          Histórico preservado, somente leitura. Os campos antigos guardam
-          valores pagos, não datas. Não estão incluídos nos totais acima; não
-          recadastre sem conciliação.
-        </p>
-        {legacy.error && <p role="alert">{legacy.error.message}</p>}
-        <Rows
-          headers={["Corretor", "Cliente", "Comissão", "Pago (parcelas)"]}
-          empty={!legacy.data?.length}
-        >
-          {legacy.data?.map(c => (
-            <tr key={c.id}>
-              <td>{c.brokerName}</td>
-              <td>{c.clientName}</td>
-              <td>{money(c.totalCommission)}</td>
-              <td>
-                {money(
-                  [
-                    c.installment1Paid,
-                    c.installment2Paid,
-                    c.installment3Paid,
-                    c.installment4Paid,
-                  ].reduce<number>((sum, v) => sum + Number(v || 0), 0)
-                )}
-              </td>
-            </tr>
-          ))}
-        </Rows>
-      </details>
       <Editor
         title={id ? "Editar comissão" : "Nova comissão"}
         open={open}

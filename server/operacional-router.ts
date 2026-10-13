@@ -2,7 +2,6 @@ import { TRPCError } from "@trpc/server";
 import { and, asc, desc, eq, inArray, isNull, ne, sql } from "drizzle-orm";
 import { z } from "zod";
 import {
-  brokerCommissions,
   brokerProfiles,
   constructionProjects,
   imoveis,
@@ -468,12 +467,8 @@ export const comissoesRouter = router({
       .leftJoin(users, eq(commissions.brokerId, users.id))
       .orderBy(asc(commissions.dueDate))
   ),
-  legacy: adminProcedure.query(async () =>
-    getDb()
-      .select()
-      .from(brokerCommissions)
-      .orderBy(desc(brokerCommissions.createdAt))
-  ),
+  // Compatibilidade para clientes antigos; a tabela legada estava vazia.
+  legacy: adminProcedure.query(() => []),
   create: adminProcedure.input(commissionInput).mutation(async ({ input }) => {
     const brokerId = input.beneficiary === "empresa" ? null : input.brokerId;
     await brokerExists(brokerId);
