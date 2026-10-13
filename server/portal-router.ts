@@ -1,4 +1,3 @@
-import { randomUUID } from "node:crypto";
 import { TRPCError } from "@trpc/server";
 import { and, asc, desc, eq, gt, ne, notInArray, or, sql } from "drizzle-orm";
 import { z } from "zod";
@@ -21,8 +20,8 @@ import { hashPassword } from "./_core/auth-utils.js";
 import { requireRole } from "./_core/rbac.js";
 import { adminProcedure, protectedProcedure, router } from "./_core/trpc.js";
 import { getAssignableUserById, getDb } from "./db.js";
-import { storagePut } from "./storage.js";
 import { driveConfigured, readPrivateDocument, uploadPrivateDocument } from "./drive-documents.js";
+import { readPrivateDbFile } from "./private-document-files.js";
 import { isClientRole, requireClientContext } from "./profile-context.js";
 
 const visitStatus = z.enum([
@@ -327,7 +326,7 @@ export const portalRouter = router({
       })
     )
     .mutation(async ({ ctx, input }) => {
-      const { leadId, userId } = requireClientContext(ctx.user);
+      const { leadId } = requireClientContext(ctx.user);
       const db = getDb();
       const [request] = await db
         .select({
@@ -363,25 +362,31 @@ export const portalRouter = router({
           message: driveConfigured() ? "Envie PDF, JPG ou PNG válido de até 3 MiB" : "Envie PDF, JPG ou PNG válido de até 10 MiB",
         });
       }
-      const extension =
-        input.mimeType === "application/pdf"
-          ? "pdf"
-          : input.mimeType === "image/png"
-            ? "png"
-            : "jpg";
-      const fields = driveConfigured()
-        ? { documentoDriveFileId: await uploadPrivateDocument(leadId, null, "financiamento_checklist", input.fileName, input.mimeType, buffer), documentoUrl: null }
-        : { documentoUrl: (await storagePut(`portal/financiamentos/${userId}/${randomUUID()}.${extension}`, buffer, input.mimeType)).url, documentoDriveFileId: null };
-      await db
-        .update(financiamentoChecklistItems)
-        .set({
-          ...fields,
-          documentoNome: input.fileName,
-          documentoMime: input.mimeType,
-          enviadoEm: new Date(),
-        })
-        .where(eq(financiamentoChecklistItems.id, request.item.id));
-      return { url: fields.documentoUrl ?? null };
+      const driveFileId = driveConfigured()
+        ? await uploadPrivateDocument(leadId, null, "financiamento_checklist", input.fileName, input.mimeType, buffer)
+        : null;
+      const update = db.update(financiamentoChecklistItems).set({
+        documentoDriveFileId: driveFileId,
+        documentoUrl: null,
+        documentoNome: input.fileName,
+        documentoMime: input.mimeType,
+        enviadoEm: new Date(),
+      }).where(eq(financiamentoChecklistItems.id, request.item.id));
+      if (driveFileId) {
+        await db.batch([
+          update,
+          db.execute(sql`DELETE FROM financiamento_checklist_file_data WHERE checklist_item_id = ${request.item.id}`),
+        ]);
+      } else {
+        await db.batch([
+          update,
+          db.execute(sql`INSERT INTO financiamento_checklist_file_data (checklist_item_id, mime, size_bytes, data)
+            VALUES (${request.item.id}, ${input.mimeType}, ${buffer.length}, decode(${buffer.toString("base64")}, 'base64'))
+            ON CONFLICT (checklist_item_id) DO UPDATE SET mime = EXCLUDED.mime,
+              size_bytes = EXCLUDED.size_bytes, data = EXCLUDED.data`),
+        ]);
+      }
+      return { url: null };
     }),
 
   checklistDocumentContent: protectedProcedure
@@ -399,8 +404,11 @@ export const portalRouter = router({
           notInArray(financiamentos.status, ["liberado", "cancelado"]),
         ))
         .limit(1);
-      if (!row?.item.documentoDriveFileId) throw new TRPCError({ code: "NOT_FOUND" });
-      const data = await readPrivateDocument(row.item.documentoDriveFileId);
+      if (!row?.item.documentoNome || row.item.documentoUrl) throw new TRPCError({ code: "NOT_FOUND" });
+      const data = row.item.documentoDriveFileId
+        ? await readPrivateDocument(row.item.documentoDriveFileId)
+        : await readPrivateDbFile("checklist", row.item.id);
+      if (!data) throw new TRPCError({ code: "NOT_FOUND" });
       return { fileName: row.item.documentoNome ?? "documento", base64: data.toString("base64") };
     }),
 
@@ -522,26 +530,27 @@ export const portalRouter = router({
         });
       }
       const safeNumber = contract.number.replace(/[^a-zA-Z0-9_-]/g, "-");
-      const fields = driveConfigured()
-        ? { driveFileId: await uploadPrivateDocument(leadId, null, "juridico", `${safeNumber}-${Date.now()}.pdf`, input.mimeType, buffer), url: null }
-        : { url: (await storagePut(`portal/contratos/${safeNumber}-${Date.now()}.pdf`, buffer, input.mimeType)).url, driveFileId: null };
-      await db
-        .insert(portalContractDocuments)
-        .values({
-          contractId: contract.id,
-          name: input.fileName,
-          type: "assinado",
-          ...fields,
-        });
-      await db
-        .update(portalContracts)
-        .set({
-          signatureStatus: "assinado",
-          signedDocumentUrl: fields.url,
-          updatedAt: new Date(),
-        })
-        .where(eq(portalContracts.id, contract.id));
-      return { url: fields.url ?? null };
+      const driveFileId = driveConfigured()
+        ? await uploadPrivateDocument(leadId, null, "juridico", `${safeNumber}-${Date.now()}.pdf`, input.mimeType, buffer)
+        : null;
+      if (driveFileId) {
+        await db.batch([
+          db.insert(portalContractDocuments).values({ contractId: contract.id, name: input.fileName, type: "assinado", driveFileId }),
+          db.update(portalContracts).set({ signatureStatus: "assinado", signedDocumentUrl: null, updatedAt: new Date() })
+            .where(eq(portalContracts.id, contract.id)),
+        ]);
+      } else {
+        const reserved = await db.execute(sql`SELECT nextval(pg_get_serial_sequence('portal_contract_documents', 'id'))::int AS id`);
+        const id = Number((reserved as unknown as { rows: { id: number }[] }).rows[0].id);
+        await db.batch([
+          db.insert(portalContractDocuments).values({ id, contractId: contract.id, name: input.fileName, type: "assinado" }),
+          db.execute(sql`INSERT INTO portal_contract_file_data (document_id, mime, size_bytes, data)
+            VALUES (${id}, 'application/pdf', ${buffer.length}, decode(${buffer.toString("base64")}, 'base64'))`),
+          db.update(portalContracts).set({ signatureStatus: "assinado", signedDocumentUrl: null, updatedAt: new Date() })
+            .where(eq(portalContracts.id, contract.id)),
+        ]);
+      }
+      return { url: null };
     }),
 
   contractDocumentContent: protectedProcedure
@@ -554,8 +563,11 @@ export const portalRouter = router({
         .innerJoin(portalContracts, eq(portalContractDocuments.contractId, portalContracts.id))
         .where(and(eq(portalContractDocuments.id, input.id), eq(portalContracts.leadId, leadId)))
         .limit(1);
-      if (!row?.document.driveFileId) throw new TRPCError({ code: "NOT_FOUND" });
-      const data = await readPrivateDocument(row.document.driveFileId);
+      if (!row || row.document.url) throw new TRPCError({ code: "NOT_FOUND" });
+      const data = row.document.driveFileId
+        ? await readPrivateDocument(row.document.driveFileId)
+        : await readPrivateDbFile("contract", row.document.id);
+      if (!data) throw new TRPCError({ code: "NOT_FOUND" });
       return { fileName: row.document.name, base64: data.toString("base64") };
     }),
 

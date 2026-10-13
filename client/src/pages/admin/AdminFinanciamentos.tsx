@@ -437,7 +437,7 @@ export default function AdminFinanciamentos() {
                         />
                         <Upload className="h-4 w-4" /> Solicitar documento
                       </label>
-                      {item.documentoDriveFileId && (
+                      {item.documentoNome && (item.documentoDriveFileId || !item.documentoUrl) && (
                         <button
                           type="button"
                           onClick={() => void abrirDocumento(item.id, item.documentoNome || "documento")}

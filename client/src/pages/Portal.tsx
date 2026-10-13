@@ -480,7 +480,7 @@ export default function Portal() {
                             <p className="text-xs text-slate-500 mt-1">
                               {item.grupo}
                             </p>
-                            {item.documentoNome && item.documentoDriveFileId && (
+                            {item.documentoNome && (item.documentoDriveFileId || !item.documentoUrl) && (
                               <button
                                 type="button"
                                 className="text-sm underline mt-2 inline-flex items-center gap-1"
@@ -494,7 +494,7 @@ export default function Portal() {
                                 {item.documentoNome}
                               </button>
                             )}
-                            {item.documentoNome && !item.documentoDriveFileId && (
+                            {item.documentoNome && item.documentoUrl && !item.documentoDriveFileId && (
                               <a
                                 className="text-sm underline mt-2 inline-flex items-center gap-1"
                                 href={item.documentoUrl ?? "#"}
@@ -515,7 +515,7 @@ export default function Portal() {
                               disabled={uploadFinancing.isPending}
                             >
                               <Upload className="h-4 w-4 mr-2" />
-                              {item.documentoUrl || item.documentoDriveFileId
+                              {item.documentoNome
                                 ? "Substituir documento"
                                 : "Enviar documento"}
                             </Button>
@@ -606,7 +606,7 @@ export default function Portal() {
                     </div>
                   </CardHeader>
                   <CardContent className="space-y-3">
-                    {contract.documents.map(document => document.driveFileId ? (
+                    {contract.documents.map(document => (document.driveFileId || !document.url) ? (
                       <button
                         key={document.id}
                         type="button"
