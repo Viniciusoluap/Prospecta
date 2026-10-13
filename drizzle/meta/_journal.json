@@ -330,6 +330,13 @@
       "when": 1791900000000,
       "tag": "0046_lote6_regularizacao",
       "breakpoints": true
+    },
+    {
+      "idx": 47,
+      "version": "7",
+      "when": 1791900000001,
+      "tag": "0047_private_portal_files",
+      "breakpoints": true
     }
   ]
 }

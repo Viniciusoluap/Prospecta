@@ -23,7 +23,6 @@ import {
   leadDocuments, LeadDocument, InsertLeadDocument,
   leadFollowUps, LeadFollowUp, InsertLeadFollowUp,
   tasks, Task, InsertTask,
-  brokerCommissions, BrokerCommission, InsertBrokerCommission,
   financialTransactions, FinancialTransaction, InsertFinancialTransaction,
   obraFees, ObraFee, InsertObraFee,
   obraMeasurements, ObraMeasurement, InsertObraMeasurement,
@@ -1082,22 +1081,6 @@ export async function updateTask(id: number, data: Partial<InsertTask>): Promise
 }
 
 // ========== CONTROLE DE CORRETORES ==========
-
-export async function getAllBrokerCommissions(): Promise<BrokerCommission[]> {
-  const db = getDb();
-  return db.select().from(brokerCommissions).orderBy(desc(brokerCommissions.createdAt));
-}
-
-export async function createBrokerCommission(data: InsertBrokerCommission): Promise<BrokerCommission> {
-  const db = getDb();
-  const result = await db.insert(brokerCommissions).values(data).returning();
-  return result[0];
-}
-
-export async function updateBrokerCommission(id: number, data: Partial<InsertBrokerCommission>): Promise<void> {
-  const db = getDb();
-  await db.update(brokerCommissions).set({ ...data, updatedAt: new Date() }).where(eq(brokerCommissions.id, id));
-}
 
 // ========== TRANSAÇÕES FINANCEIRAS ==========
 

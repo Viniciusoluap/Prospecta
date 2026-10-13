@@ -1,12 +1,12 @@
 import { TRPCError } from "@trpc/server";
-import { asc, desc, eq } from "drizzle-orm";
+import { asc, desc, eq, sql } from "drizzle-orm";
 import { z } from "zod";
 import { imoveis, leads, portalChatMessages, portalContractDocuments, portalContracts } from "../drizzle/schema.js";
 import { ASSINATURA_STATUS, CONTRATO_STATUS, contratoInputSchema } from "../shared/juridico.js";
 import { adminProcedure, router } from "./_core/trpc.js";
 import { getDb } from "./db.js";
-import { storagePut } from "./storage.js";
 import { driveConfigured, readPrivateDocument, uploadPrivateDocument } from "./drive-documents.js";
+import { readPrivateDbFile } from "./private-document-files.js";
 
 const documentType = z.enum(["contrato_gerado", "assinado", "anexo"]);
 
@@ -105,27 +105,46 @@ export const juridicoRouter = router({
     const [contract] = await db.select().from(portalContracts).where(eq(portalContracts.id, input.contractId)).limit(1);
     if (!contract) throw new TRPCError({ code: "NOT_FOUND", message: "Contrato não encontrado" });
     const buffer = Buffer.from(input.base64, "base64");
-    const maxSize = driveConfigured() ? 3 * 1024 * 1024 : 10 * 1024 * 1024;
-    if (!isValidContractPdf(buffer) || buffer.length > maxSize) {
-      throw new TRPCError({ code: "BAD_REQUEST", message: driveConfigured() ? "Envie um PDF válido de até 3 MiB" : "Envie um PDF válido de até 10 MiB" });
+    // A consulta devolve base64 pela API: 3 MiB ficam abaixo do limite de resposta da função.
+    if (!isValidContractPdf(buffer) || buffer.length > 3 * 1024 * 1024) {
+      throw new TRPCError({ code: "BAD_REQUEST", message: "Envie um PDF válido de até 3 MiB" });
     }
-    const safeNumber = contract.number.replace(/[^a-zA-Z0-9_-]/g, "-");
-    const fileName = `${safeNumber}-${Date.now()}.pdf`;
-    const fields = contract.leadId && driveConfigured()
-      ? { driveFileId: await uploadPrivateDocument(contract.leadId, null, "juridico", fileName, "application/pdf", buffer), url: null }
-      : { url: (await storagePut(`juridico/${fileName}`, buffer, "application/pdf")).url, driveFileId: null };
-    const [document] = await db.insert(portalContractDocuments).values({ contractId: input.contractId, name: input.name, type: input.type, ...fields }).returning();
+    const fileName = `${contract.number.replace(/[^a-zA-Z0-9_-]/g, "-")}-${Date.now()}.pdf`;
+    if (contract.leadId && driveConfigured()) {
+      const driveFileId = await uploadPrivateDocument(contract.leadId, null, "juridico", fileName, "application/pdf", buffer);
+      const [document] = await db.insert(portalContractDocuments).values({
+        contractId: input.contractId, name: input.name, type: input.type, driveFileId,
+      }).returning();
+      if (input.type === "assinado") await db.update(portalContracts).set({
+        signatureStatus: "assinado", signedDocumentUrl: null, updatedAt: new Date(),
+      }).where(eq(portalContracts.id, input.contractId));
+      return document;
+    }
+    const reserved = await db.execute(sql`SELECT nextval(pg_get_serial_sequence('portal_contract_documents', 'id'))::int AS id`);
+    const id = Number((reserved as unknown as { rows: { id: number }[] }).rows[0].id);
+    const insert = db.insert(portalContractDocuments).values({
+      id, contractId: input.contractId, name: input.name, type: input.type,
+    });
+    const file = db.execute(sql`INSERT INTO portal_contract_file_data (document_id, mime, size_bytes, data)
+      VALUES (${id}, 'application/pdf', ${buffer.length}, decode(${buffer.toString("base64")}, 'base64'))`);
     if (input.type === "assinado") {
-      await db.update(portalContracts).set({ signatureStatus: "assinado", signedDocumentUrl: fields.url, updatedAt: new Date() })
-        .where(eq(portalContracts.id, input.contractId));
+      await db.batch([insert, file, db.update(portalContracts).set({
+        signatureStatus: "assinado", signedDocumentUrl: null, updatedAt: new Date(),
+      }).where(eq(portalContracts.id, input.contractId))]);
+    } else {
+      await db.batch([insert, file]);
     }
+    const [document] = await db.select().from(portalContractDocuments).where(eq(portalContractDocuments.id, id));
     return document;
   }),
 
   documentContent: adminProcedure.input(z.object({ id: z.number().int().positive() })).query(async ({ input }) => {
     const [document] = await getDb().select().from(portalContractDocuments).where(eq(portalContractDocuments.id, input.id)).limit(1);
-    if (!document?.driveFileId) throw new TRPCError({ code: "NOT_FOUND" });
-    const data = await readPrivateDocument(document.driveFileId);
+    if (!document || document.url) throw new TRPCError({ code: "NOT_FOUND" });
+    const data = document.driveFileId
+      ? await readPrivateDocument(document.driveFileId)
+      : await readPrivateDbFile("contract", document.id);
+    if (!data) throw new TRPCError({ code: "NOT_FOUND" });
     return { fileName: document.name, base64: data.toString("base64") };
   }),
 

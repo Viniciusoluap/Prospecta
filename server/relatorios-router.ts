@@ -1,7 +1,7 @@
 import { and, avg, count, eq, gte, lte } from "drizzle-orm";
 import { z } from "zod";
 import {
-  imoveis, leads, financiamentos, avaliacoes, financialTransactions, brokerCommissions,
+  imoveis, leads, financiamentos, avaliacoes, financialTransactions,
   operationalCommissions, users,
 } from "../drizzle/schema.js";
 import { getDb } from "./db.js";
@@ -16,11 +16,9 @@ function monthsAgo(n: number): Date {
 }
 
 /**
- * Comissões de corretores vivem em duas fontes desde a Etapa 4: `broker_commissions`
- * (legado, congelado, parcelas sem status explícito) e `operational_commissions`
- * (novo, CRUD ativo, status explícito). Nenhuma migra dados para a outra — os
- * relatórios precisam ler as duas e somar sem duplicar, já que são tabelas
- * disjuntas (nenhum registro existe nas duas ao mesmo tempo).
+ * O relatório operacional lê `operational_commissions`. As funções puras de
+ * interpretação do formato antigo permanecem para testes históricos; a tabela
+ * broker_commissions está vazia e deixou de ser consultada no Lote 7.
  */
 export type ComissaoLegadoRow = {
   brokerName: string;
@@ -150,7 +148,6 @@ export const relatoriosRouter = router({
         avaliacoesAgg,
         avaliacoesPorStatus,
         transacoesPagas,
-        comissoesLegado,
         comissoesNovas,
       ] = await Promise.all([
         database.select({ n: count() }).from(imoveis).then((r) => r[0]?.n ?? 0),
@@ -167,7 +164,6 @@ export const relatoriosRouter = router({
             lte(financialTransactions.paidAt, to),
           ),
         ),
-        database.select().from(brokerCommissions),
         database
           .select({
             brokerName: users.name,
@@ -197,7 +193,7 @@ export const relatoriosRouter = router({
       const vendasNoPeriodo = transacoesPagas.filter((t) => t.type === "income" || t.type === "commission").length;
       const ticketMedio = vendasNoPeriodo > 0 ? Math.round(totalReceitas / vendasNoPeriodo) : 0;
 
-      const corretorRanking = buildCorretorRanking(comissoesLegado, comissoesNovas);
+      const corretorRanking = buildCorretorRanking([], comissoesNovas);
 
       return {
         from: from.toISOString(),
@@ -223,9 +219,7 @@ export const relatoriosRouter = router({
 
   exportComissoesCsv: adminProcedure.query(async () => {
     const database = getDb();
-    const [legadoRows, novasRows] = await Promise.all([
-      database.select().from(brokerCommissions).orderBy(brokerCommissions.createdAt),
-      database
+    const novasRows = await database
         .select({
           brokerName: users.name,
           beneficiary: operationalCommissions.beneficiary,
@@ -237,11 +231,7 @@ export const relatoriosRouter = router({
         })
         .from(operationalCommissions)
         .leftJoin(users, eq(operationalCommissions.brokerId, users.id))
-        .orderBy(operationalCommissions.dueDate),
-    ]);
-    return [
-      ...buildComissoesExportLegado(legadoRows),
-      ...buildComissoesExportNovas(novasRows),
-    ];
+        .orderBy(operationalCommissions.dueDate);
+    return buildComissoesExportNovas(novasRows);
   }),
 });

@@ -37,14 +37,6 @@ export function MapaMassa({ geojson, lotes, height = 380 }: { geojson: string; l
         const L = (await import("leaflet")).default;
         if (cancelled || !ref.current) return;
 
-        if (!document.getElementById("leaflet-css")) {
-          const link = document.createElement("link");
-          link.id = "leaflet-css";
-          link.rel = "stylesheet";
-          link.href = "https://unpkg.com/leaflet@1.9.4/dist/leaflet.css";
-          document.head.appendChild(link);
-        }
-
         // Garante que só existe uma instância viva por montagem: remove
         // qualquer mapa remanescente antes de criar o novo (idempotente —
         // não faz nada se o cleanup anterior já tiver removido).
