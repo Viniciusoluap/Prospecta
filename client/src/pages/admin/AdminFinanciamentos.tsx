@@ -1,3 +1,4 @@
+import { AcoesExcluirCancelar } from "@/components/AcoesExcluirCancelar";
 import { useState } from "react";
 import { Link } from "wouter";
 import {
@@ -9,7 +10,6 @@ import {
   FileCheck2,
   Landmark,
   Pencil,
-  Trash2,
   Upload,
 } from "lucide-react";
 import { trpc } from "@/lib/trpc";
@@ -109,9 +109,12 @@ export default function AdminFinanciamentos() {
     onSuccess: async () => {
       await utils.financiamentos.list.invalidate();
       setSelecionado(null);
-      toast.success("Processo excluído");
     },
-    onError: erro => toast.error(erro.message),
+  });
+  const cancelar = trpc.financiamentos.cancel.useMutation({
+    onSuccess: async () => {
+      await Promise.all([utils.financiamentos.list.invalidate(), utils.financiamentos.getById.invalidate()]);
+    },
   });
   const atualizar = trpc.financiamentos.update.useMutation({
     onSuccess: async () => {
@@ -469,15 +472,13 @@ export default function AdminFinanciamentos() {
                 >
                   <Pencil className="mr-2 h-4 w-4" /> Editar dados e vínculos
                 </Button>
-                <Button
-                  variant="destructive"
-                  onClick={() =>
-                    confirm("Excluir este financiamento e seu checklist?") &&
-                    excluir.mutate({ id: detalhe.financiamento.id })
-                  }
-                >
-                  <Trash2 className="h-4 w-4" />
-                </Button>
+                <AcoesExcluirCancelar
+                  compacto
+                  rotulo={detalhe.financiamento.clienteNome ?? "financiamento"}
+                  cancelado={detalhe.financiamento.status === "cancelado"}
+                  onCancelar={async () => { await cancelar.mutateAsync({ id: detalhe.financiamento.id }); }}
+                  onExcluir={async () => { await excluir.mutateAsync({ id: detalhe.financiamento.id }); }}
+                />
               </div>
             </>
           )}

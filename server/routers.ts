@@ -79,6 +79,7 @@ import { leadDocumentsRouter } from "./lead-documents-router.js";
 import { incorporacaoDocumentsRouter } from "./incorporacao-documents-router.js";
 import { incorporationDueDiligenceRouter } from "./incorporacao-due-diligence-router.js";
 import { incorporationUnitsRouter } from "./incorporacao-unidades-router.js";
+import { excluirDefinitivo } from "./exclusao-definitiva.js";
 
 async function validateStudySchedule(dataJson: string, key: "medicoes" | "marcos") {
   if (dataJson.length > 150_000) throw new TRPCError({ code: "BAD_REQUEST", message: "Cronograma muito extenso" });
@@ -862,21 +863,21 @@ export const appRouter = router({
         return { success: true };
       }),
 
-    // Deletar obra
-    deleteProject: protectedProcedure
-      .input(z.object({ projectId: z.number() }))
-      .mutation(async ({ input, ctx }) => {
-        const project = await db.getProjectById(input.projectId);
-        if (!project) {
-          throw new TRPCError({
-            code: "NOT_FOUND",
-            message: "Obra não encontrada",
-          });
-        }
-        if (project.userId !== ctx.user.id && ctx.user.role !== "admin") {
-          throw new TRPCError({ code: "FORBIDDEN", message: "Acesso negado" });
-        }
-        await db.deleteProject(input.projectId);
+    // Item 01/03: excluir obra definitivamente (só admin). Bloqueada quando há
+    // movimentos financeiros, investidores, medições ou comissões: use cancelar.
+    deleteProject: adminProcedure
+      .input(z.object({ projectId: z.number().int().positive() }))
+      .mutation(async ({ input }) => {
+        const { excluido } = await excluirDefinitivo("obra", input.projectId);
+        if (!excluido) throw new TRPCError({ code: "NOT_FOUND", message: "Obra não encontrada" });
+        return { success: true };
+      }),
+
+    // Item 03: cancelar mantém a obra e todo o histórico.
+    cancelProject: adminProcedure
+      .input(z.object({ projectId: z.number().int().positive() }))
+      .mutation(async ({ input }) => {
+        await db.updateProject(input.projectId, { status: "cancelled" });
         return { success: true };
       }),
 
@@ -2547,7 +2548,8 @@ export const appRouter = router({
       .input(z.object({ id: z.number() }))
       .mutation(async ({ input, ctx }) => {
         requireRole(ctx, ["admin"]);
-        await db.deleteAvaliacao(input.id);
+        // Item 03: remove também o serviço do CRM que só existia para ela.
+        await excluirDefinitivo("avaliacao", input.id);
         return { success: true };
       }),
 
@@ -2737,6 +2739,14 @@ export const appRouter = router({
   }),
 
   incorporacao: router({
+    // Item 03: exclusão definitiva do estudo (paridade com o Santa Fé); recusada
+    // se houver unidade vendida ou reservada.
+    delete: adminProcedure
+      .input(z.object({ id: z.number().int().positive() }))
+      .mutation(async ({ input }) => {
+        await excluirDefinitivo("estudo", input.id);
+        return { success: true };
+      }),
     documents: incorporacaoDocumentsRouter,
     dueDiligence: incorporationDueDiligenceRouter,
     units: incorporationUnitsRouter,

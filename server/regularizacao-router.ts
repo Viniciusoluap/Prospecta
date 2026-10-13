@@ -25,6 +25,7 @@ import {
 import { adminProcedure, router } from "./_core/trpc.js";
 import { getDb } from "./db.js";
 import { attachCompletedProcess } from "./lead-services-router.js";
+import { excluirDefinitivo } from "./exclusao-definitiva.js";
 
 // EPIC-020 Lote 6 — Regularização. Status do Processo (30) independente das
 // Etapas do Processo; tabela financeira por processo (31) com recebimentos
@@ -198,18 +199,18 @@ export const regularizacaoRouter = router({
   remove: adminProcedure
     .input(z.object({ id: idSchema }))
     .mutation(async ({ input }) => {
+      // Item 03: exclusão definitiva; com recebimentos é recusada e orienta a cancelar.
       await assertRegularizacaoExists(input.id);
-      const [recebimento] = await getDb().select({ id: regularizacaoRecebimentos.id }).from(regularizacaoRecebimentos)
-        .where(eq(regularizacaoRecebimentos.regularizacaoId, input.id)).limit(1);
-      if (recebimento) {
-        throw new TRPCError({ code: "BAD_REQUEST", message: "Este processo tem recebimentos registrados e não pode ser excluído." });
-      }
-      try {
-        await getDb().delete(regularizacaoDocuments).where(eq(regularizacaoDocuments.regularizacaoId, input.id));
-        await getDb().delete(regularizacoes).where(eq(regularizacoes.id, input.id));
-      } catch (err) {
-        erroDoBanco(err);
-      }
+      await excluirDefinitivo("regularizacao", input.id);
+      return { success: true };
+    }),
+
+  /** Item 03: cancelar mantém o processo e o histórico. */
+  cancel: adminProcedure
+    .input(z.object({ id: idSchema }))
+    .mutation(async ({ input }) => {
+      await assertRegularizacaoExists(input.id);
+      await getDb().update(regularizacoes).set({ status: "cancelado", updatedAt: new Date() }).where(eq(regularizacoes.id, input.id));
       return { success: true };
     }),
 

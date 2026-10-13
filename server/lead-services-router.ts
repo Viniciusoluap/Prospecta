@@ -1,7 +1,8 @@
 import { and, desc, eq, ne, sql } from "drizzle-orm";
 import { z } from "zod";
+import { TRPCError } from "@trpc/server";
 import {
-  constructionProjects, financiamentoChecklistItems, financiamentos,
+  avaliacoes, constructionProjects, financiamentoChecklistItems, financiamentos,
   leadActivities, leadServices, leads, operationalProjects, regularizacoes,
 } from "../drizzle/schema.js";
 import { FINANCIAMENTO_CHECKLIST_PADRAO } from "../shared/financiamento.js";
@@ -11,6 +12,7 @@ import { selectProcessReference } from "../shared/service-reconciliation.js";
 import { tipoProjetoDoServico } from "../shared/obra-crm.js";
 import { adminProcedure, router } from "./_core/trpc.js";
 import { getDb } from "./db.js";
+import { excluirDefinitivo } from "./exclusao-definitiva.js";
 
 const serviceInput = z.object({
   leadId: z.number().int().positive(),
@@ -655,9 +657,26 @@ export const leadServicesRouter = router({
     return updated;
   }),
 
+  // Item 03: excluir o serviço exclui também o registro operacional que só existe
+  // por causa dele (obra, financiamento, projeto, regularização ou avaliação),
+  // com as mesmas proteções da exclusão definitiva. O lead permanece.
   remove: adminProcedure.input(z.object({ id: z.number().int().positive() })).mutation(async ({ input }) => {
-    const [removed] = await getDb().delete(leadServices).where(eq(leadServices.id, input.id)).returning();
-    if (!removed) throw new Error("Serviço não encontrado");
+    const database = getDb();
+    const vinculados = await Promise.all([
+      database.select({ id: constructionProjects.id }).from(constructionProjects).where(eq(constructionProjects.leadServiceId, input.id)).then(r => r.map(x => ["obra", x.id] as const)),
+      database.select({ id: financiamentos.id }).from(financiamentos).where(eq(financiamentos.leadServiceId, input.id)).then(r => r.map(x => ["financiamento", x.id] as const)),
+      database.select({ id: operationalProjects.id }).from(operationalProjects).where(eq(operationalProjects.leadServiceId, input.id)).then(r => r.map(x => ["projeto", x.id] as const)),
+      database.select({ id: regularizacoes.id }).from(regularizacoes).where(eq(regularizacoes.leadServiceId, input.id)).then(r => r.map(x => ["regularizacao", x.id] as const)),
+      database.select({ id: avaliacoes.id }).from(avaliacoes).where(eq(avaliacoes.leadServiceId, input.id)).then(r => r.map(x => ["avaliacao", x.id] as const)),
+    ]).then(listas => listas.flat());
+    if (vinculados.length > 1) throw new TRPCError({ code: "BAD_REQUEST", message: "Este serviço tem mais de um registro operacional vinculado; exclua-os pelos módulos." });
+    if (vinculados.length === 1) {
+      const [modulo, recordId] = vinculados[0];
+      await excluirDefinitivo(modulo, recordId);
+      return { success: true };
+    }
+    const [removed] = await database.delete(leadServices).where(eq(leadServices.id, input.id)).returning();
+    if (!removed) throw new TRPCError({ code: "NOT_FOUND", message: "Serviço não encontrado" });
     return { success: true };
   }),
 

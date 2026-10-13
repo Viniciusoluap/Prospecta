@@ -1,3 +1,4 @@
+import { AcoesExcluirCancelar } from "@/components/AcoesExcluirCancelar";
 import { useState } from "react";
 import { Link } from "wouter";
 import { trpc } from "@/lib/trpc";
@@ -76,6 +77,8 @@ export default function AdminAvaliacoes() {
     tipo: filterTipo !== "all" ? filterTipo : undefined,
   });
 
+  const utils = trpc.useUtils();
+  const deleteMutation = trpc.avaliacoes.delete.useMutation();
   const createMutation = trpc.avaliacoes.create.useMutation({
     onSuccess: () => {
       toast.success("Avaliação criada!");
@@ -396,6 +399,7 @@ export default function AdminAvaliacoes() {
                       </div>
                     </Link>
                     {a.leadId && <Link href={`/admin/crm/${a.leadId}`} className="text-sm text-[#E6CA88] underline">CRM</Link>}
+                    <AcoesExcluirCancelar compacto rotulo={a.numero ?? `Avaliação ${a.id}`} cancelado onExcluir={async () => { await deleteMutation.mutateAsync({ id: a.id }); await utils.avaliacoes.list.invalidate(); }} />
                   </div>
                 </CardHeader>
               </Card>

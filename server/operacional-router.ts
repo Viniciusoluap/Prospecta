@@ -25,6 +25,7 @@ import { centavosDe } from "../shared/financeiro/obra.js";
 import { adminProcedure, router } from "./_core/trpc.js";
 import { getDb } from "./db.js";
 import { attachCompletedProcess } from "./lead-services-router.js";
+import { excluirDefinitivo } from "./exclusao-definitiva.js";
 
 const idInput = z.object({ id: z.number().int().positive() });
 function found<T>(row: T | undefined): T {
@@ -524,18 +525,14 @@ export const comissoesRouter = router({
         )[0]
       );
     }),
+  /** Item 03: comissão paga é registro contábil e não é excluída. */
   delete: adminProcedure
     .input(idInput)
-    .mutation(async ({ input }) =>
-      found(
-        (
-          await getDb()
-            .delete(commissions)
-            .where(eq(commissions.id, input.id))
-            .returning({ id: commissions.id })
-        )[0]
-      )
-    ),
+    .mutation(async ({ input }) => {
+      const { excluido } = await excluirDefinitivo("comissao", input.id);
+      if (!excluido) throw new TRPCError({ code: "NOT_FOUND", message: "Registro não encontrado" });
+      return { id: input.id };
+    }),
 });
 
 function projectValues(
@@ -599,18 +596,18 @@ export const projetosRouter = router({
         )[0]
       );
     }),
+  /** Item 03: exclusão definitiva (bloqueada com pagamento registrado). */
   delete: adminProcedure
     .input(idInput)
-    .mutation(async ({ input }) =>
-      found(
-        (
-          await getDb()
-            .delete(projects)
-            .where(eq(projects.id, input.id))
-            .returning({ id: projects.id })
-        )[0]
-      )
-    ),
+    .mutation(async ({ input }) => {
+      const { excluido } = await excluirDefinitivo("projeto", input.id);
+      if (!excluido) throw new TRPCError({ code: "NOT_FOUND", message: "Registro não encontrado" });
+      return { id: input.id };
+    }),
+  /** Item 03: cancelar mantém o registro e o histórico. */
+  cancel: adminProcedure.input(idInput).mutation(async ({ input }) =>
+    found((await getDb().update(projects).set({ status: "cancelado", updatedAt: new Date() })
+      .where(eq(projects.id, input.id)).returning({ id: projects.id }))[0])),
 });
 
 export const mapaRouter = router({

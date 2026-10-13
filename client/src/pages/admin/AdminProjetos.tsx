@@ -1,3 +1,4 @@
+import { AcoesExcluirCancelar } from "@/components/AcoesExcluirCancelar";
 import { useState } from "react";
 import { Link } from "wouter";
 import { trpc } from "@/lib/trpc";
@@ -42,6 +43,7 @@ export default function AdminProjetos() {
   const create = trpc.projetos.create.useMutation();
   const update = trpc.projetos.update.useMutation();
   const remove = trpc.projetos.delete.useMutation();
+  const cancel = trpc.projetos.cancel.useMutation();
   const [form, setForm] = useState(blank);
   const [id, setId] = useState<number | null>(null);
   // EPIC-017: registro nasce do lead; cliente/telefone vêm do CRM.
@@ -160,11 +162,11 @@ export default function AdminProjetos() {
                   >
                     Detalhes / editar
                   </Button>
-                  <DeleteButton
-                    onDelete={async () => {
-                      await remove.mutateAsync({ id: r.id });
-                      await list.refetch();
-                    }}
+                  <AcoesExcluirCancelar
+                    rotulo={r.name}
+                    cancelado={r.status === "cancelado"}
+                    onCancelar={async () => { await cancel.mutateAsync({ id: r.id }); await list.refetch(); }}
+                    onExcluir={async () => { await remove.mutateAsync({ id: r.id }); await list.refetch(); }}
                   />
                 </div>
               </td>

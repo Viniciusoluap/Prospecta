@@ -10,6 +10,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { toast } from "sonner";
 import { ArrowLeft, Mountain, Plus, MapPin } from "lucide-react";
+import { AcoesExcluirCancelar } from "@/components/AcoesExcluirCancelar";
 
 const STATUS_LABELS: Record<string, string> = {
   in_study: "Em estudo",
@@ -50,6 +51,8 @@ export default function AdminIncorporacao() {
     status: status === "todos" ? undefined : status,
   });
 
+  const utils = trpc.useUtils();
+  const deleteMutation = trpc.incorporacao.delete.useMutation();
   const createMutation = trpc.incorporacao.create.useMutation({
     onSuccess: () => {
       toast.success("Estudo criado!");
@@ -184,7 +187,10 @@ export default function AdminIncorporacao() {
                   <CardHeader className="pb-2">
                     <div className="flex items-center justify-between gap-2">
                       <CardTitle className="text-white text-base truncate">{e.name}</CardTitle>
-                      <Badge className={STATUS_COLORS[e.status] ?? "bg-gray-500/20 text-gray-300"}>{STATUS_LABELS[e.status] ?? "Classificação pendente"}</Badge>
+                      <div className="flex items-center gap-2">
+                        <Badge className={STATUS_COLORS[e.status] ?? "bg-gray-500/20 text-gray-300"}>{STATUS_LABELS[e.status] ?? "Classificação pendente"}</Badge>
+                        <AcoesExcluirCancelar compacto rotulo={e.name} cancelado onExcluir={async () => { await deleteMutation.mutateAsync({ id: e.id }); await utils.incorporacao.list.invalidate(); }} />
+                      </div>
                     </div>
                   </CardHeader>
                   <CardContent>
