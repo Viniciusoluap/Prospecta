@@ -5,6 +5,7 @@ import { getTokenFromRequest, verifySessionToken } from "../_core/auth-utils.js"
 import { getDb, getUserById } from "../db.js";
 import { sessaoAindaValida } from "../../shared/session.js";
 import { lerDataUrl, podeGerenciarFotos, podeVerFotosDaObra, validarFotoObra } from "../../shared/obra-fotos.js";
+import { canAccessAdminProcedure } from "../_core/trpc.js";
 
 // EPIC-020 Lote 4 (item 28) — fotos da obra gravadas no próprio banco.
 // Antes: /api/upload-photo mandava para um storage externo que nunca foi
@@ -30,7 +31,10 @@ router.post("/obras/:projectId/fotos", async (req: Request, res: Response) => {
   try {
     const usuario = await usuarioDaSessao(req);
     if (!usuario) return res.status(401).json({ error: "Sessão expirada. Entre novamente." });
-    if (!podeGerenciarFotos({ id: usuario.id, papel: usuario.role })) return res.status(403).json({ error: "Somente administradores enviam fotos." });
+    // Item 06 (revisão do Codex no Santa Fé #180, mesma regra aqui): equipe com o
+    // módulo Obras envia, como já faz pelas telas de obra (router "construction").
+    if (!podeGerenciarFotos({ id: usuario.id, papel: usuario.role, acessoObras: canAccessAdminProcedure(usuario, "construction.fotos") }))
+      return res.status(403).json({ error: "Sem permissão para enviar fotos desta obra." });
     const projectId = idValido(String(req.params.projectId));
     if (!projectId) return res.status(400).json({ error: "Obra inválida." });
 
@@ -87,7 +91,7 @@ router.get("/obra-foto/:photoId", async (req: Request, res: Response) => {
     const linha = (resultado as unknown as { rows: { mime: string; b64: string; user_id: number | null; lead_id: number | null }[] }).rows[0];
     if (!linha) return res.status(404).json({ error: "Foto não encontrada" });
     const pode = podeVerFotosDaObra(
-      { id: usuario.id, papel: usuario.role, leadId: usuario.leadId ?? null },
+      { id: usuario.id, papel: usuario.role, leadId: usuario.leadId ?? null, acessoObras: canAccessAdminProcedure(usuario, "construction.fotos") },
       { usuarioId: linha.user_id, leadId: linha.lead_id }
     );
     if (!pode) return res.status(404).json({ error: "Foto não encontrada" });

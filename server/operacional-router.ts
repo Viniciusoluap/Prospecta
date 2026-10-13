@@ -152,6 +152,18 @@ async function visitaDoCorretor(id: number, corretorId: number | null) {
   if (!v || v.brokerId !== corretorId) throw new TRPCError({ code: "NOT_FOUND", message: "Registro não encontrado" });
 }
 
+/**
+ * Revisão do Codex (PR #111): o corretor só agenda visita para lead da própria
+ * carteira — senão poderia informar o id de outro lead e receber nome/telefone
+ * do cliente de outro corretor copiados para a visita.
+ */
+async function leadDoCorretor(leadId: number | null, corretorId: number | null) {
+  if (corretorId === null || leadId === null) return;
+  const [l] = await getDb().select({ id: leads.id }).from(leads)
+    .where(and(eq(leads.id, leadId), eq(leads.brokerId, corretorId), isNull(leads.deletedAt))).limit(1);
+  if (!l) throw new TRPCError({ code: "NOT_FOUND", message: "Lead não encontrado na sua carteira" });
+}
+
 export const agendaRouter = router({
   options: adminProcedure.query(async ({ ctx }) => {
     const corretorId = corretorDaSessao(ctx.user);
@@ -185,6 +197,7 @@ export const agendaRouter = router({
   create: adminProcedure.input(visitInput).mutation(async ({ ctx, input }) => {
     const corretorId = corretorDaSessao(ctx.user);
     const dados = corretorId === null ? input : { ...input, brokerId: corretorId, responsibleId: null };
+    await leadDoCorretor(dados.leadId, corretorId);
     return found(
       (
         await getDb()
@@ -200,6 +213,7 @@ export const agendaRouter = router({
       const corretorId = corretorDaSessao(ctx.user);
       await visitaDoCorretor(input.id, corretorId);
       const dados = corretorId === null ? input.data : { ...input.data, brokerId: corretorId, responsibleId: null };
+      await leadDoCorretor(dados.leadId, corretorId);
       return found(
         (
           await getDb()
