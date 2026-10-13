@@ -11,7 +11,7 @@ export function DueDiligenceEditor({ estudoId, json }: { estudoId: number; json:
   const { data: attachments = [] } = trpc.incorporacao.documents.list.useQuery({ studyId: estudoId });
   const { data: available } = trpc.incorporacao.documents.available.useQuery();
   const [busyItem, setBusyItem] = useState<string | null>(null);
-  const upload = trpc.incorporacao.documents.upload.useMutation({ onSuccess: () => { void utils.incorporacao.documents.list.invalidate({ studyId: estudoId }); }, onError: (e) => toast.error(e.message), onSettled: () => setBusyItem(null) });
+  const upload = trpc.incorporacao.documents.upload.useMutation({ onSuccess: (result) => { if ("storage" in result && result.storage === "banco" && result.storageNote) toast.warning(`Documento salvo no sistema. Google Drive indisponível: ${result.storageNote}`, { duration: 15000 }); void utils.incorporacao.documents.list.invalidate({ studyId: estudoId }); }, onError: (e) => toast.error(e.message), onSettled: () => setBusyItem(null) });
   const unlink = trpc.incorporacao.documents.unlink.useMutation({ onSuccess: () => { void utils.incorporacao.documents.list.invalidate({ studyId: estudoId }); }, onError: (e) => toast.error(e.message), onSettled: () => setBusyItem(null) });
   const [salvo, setSalvo] = useState<string | null>(json);
   const [dados, setDados] = useState<DueDiligence>(() => lerDueDiligence(json));

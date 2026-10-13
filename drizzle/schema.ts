@@ -904,6 +904,9 @@ export const leadDocuments = pgTable("lead_documents", {
   mimeType: varchar("mime_type", { length: 120 }),
   fileSize: integer("file_size"),
   sha256: varchar("sha256", { length: 64 }),
+  /** "drive" (Google Drive) ou "banco" (lead_document_file_data), quando o Drive recusou a gravação. */
+  storage: varchar("storage", { length: 10 }).default("drive").notNull(),
+  storageNote: varchar("storage_note", { length: 400 }),
   uploadedByUserId: integer("uploaded_by_user_id").references(() => users.id, { onDelete: "set null" }),
   deletedByUserId: integer("deleted_by_user_id").references(() => users.id, { onDelete: "set null" }),
   deletedAt: timestamp("deleted_at"),
@@ -1626,6 +1629,9 @@ export const incorporationRegistrationDocuments = pgTable("incorporation_registr
   mimeType: varchar("mime_type", { length: 40 }),
   fileSize: integer("file_size"),
   sha256: varchar("sha256", { length: 64 }),
+  /** "drive" ou "banco" (incorporation_registration_file_data). */
+  storage: varchar("storage", { length: 10 }).default("drive").notNull(),
+  storageNote: varchar("storage_note", { length: 400 }),
   performedByUserId: integer("performed_by_user_id").notNull().references(() => users.id, { onDelete: "restrict" }),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 }, (t) => ({ porEstudoItem: index("incorporation_registration_documents_study_item_idx").on(t.studyId, t.itemId, t.id) }));

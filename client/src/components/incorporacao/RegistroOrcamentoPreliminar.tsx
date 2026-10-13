@@ -9,6 +9,7 @@ import { FileCheck2, Wallet, Plus, Trash2, AlertTriangle, Paperclip, ExternalLin
 import { resumoRegistro, DOCUMENTOS_PADRAO_REGISTRO, type DocumentoRegistro, type StatusDocumento } from "@shared/incorporacao/registro-incorporacao";
 import { resumoOrcamentoPreliminar, CATEGORIAS_ORCAMENTO_PRELIMINAR, type CategoriaOrcamentoPreliminar, type ItemOrcamentoPreliminar } from "@shared/incorporacao/orcamento-preliminar";
 import { calcularOrcamentoParametrizado, type PremissasOrcamentoParametrizado } from "@shared/incorporacao/orcamento-parametrizado";
+import { DriveDiagnostico } from "@/components/DriveDiagnostico";
 
 const cardCls = "bg-[#1A2332]/60 border-[#C9A961]/20 backdrop-blur-sm";
 const inputCls = "bg-[#2C3E50] border-[#C9A961]/30 text-white";
@@ -56,7 +57,13 @@ function RegistroIncorporacao({ estudoId, incorporationRegistrationJson }: { est
   const { data: attachments = [] } = trpc.incorporacao.documents.list.useQuery({ studyId: estudoId });
   const [busyItem, setBusyItem] = useState<string | null>(null);
   const upload = trpc.incorporacao.documents.upload.useMutation({
-    onSuccess: () => { toast.success("Documento armazenado no Drive"); void utils.incorporacao.documents.list.invalidate({ studyId: estudoId }); },
+    onSuccess: (result) => {
+      if ("storage" in result && result.storage === "banco") {
+        toast.success("Documento salvo no sistema");
+        if (result.storageNote) toast.warning(`Google Drive indisponível: ${result.storageNote}`, { duration: 15000 });
+      } else toast.success(result.duplicate ? "Arquivo já anexado" : "Documento salvo no Google Drive");
+      void utils.incorporacao.documents.list.invalidate({ studyId: estudoId });
+    },
     onError: (e) => toast.error(e.message),
     onSettled: () => setBusyItem(null),
   });
@@ -133,7 +140,7 @@ function RegistroIncorporacao({ estudoId, incorporationRegistrationJson }: { est
         <p className="text-xs text-gray-400 max-w-2xl">
           Checklist padrão do art. 32 da Lei 4.591/64, já pré-preenchido. A etapa fica concluída quando todos os documentos estiverem marcados como obtidos.
         </p>
-        {!available?.configured && <p className="text-xs text-amber-300">Upload indisponível até a configuração do Google Drive.</p>}
+        <DriveDiagnostico />
 
         <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
           <Metric label="Documentos" valor={String(resumo.total)} />
