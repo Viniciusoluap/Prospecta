@@ -551,8 +551,31 @@ function projectValues(
     updatedAt: new Date(),
   };
 }
+/**
+ * Item 07: engenheiro responsável = colaborador (ou admin) ativo, por ID; o nome
+ * exibido vem do cadastro. Texto livre só permanece em registro anterior sem vínculo.
+ */
+async function resolverEngenheiro(d: z.infer<typeof projectInput>, anterior: string | null = null) {
+  if (d.engineerUserId) {
+    const [u] = await getDb().select({ id: users.id, name: users.name, role: users.role, active: users.active })
+      .from(users).where(eq(users.id, d.engineerUserId)).limit(1);
+    if (!u || !u.active || !["colaborador", "admin"].includes(u.role))
+      throw new TRPCError({ code: "BAD_REQUEST", message: "Escolha um colaborador ativo como engenheiro responsável." });
+    return { engineerUserId: u.id, engineer: u.name ?? "" };
+  }
+  const legado = d.engineer.trim();
+  if (anterior && legado && legado === anterior.trim()) return { engineerUserId: null, engineer: legado };
+  throw new TRPCError({ code: "BAD_REQUEST", message: "Escolha o engenheiro responsável entre os colaboradores cadastrados." });
+}
+
 export const projetosRouter = router({
   options: adminProcedure.query(async () => (await options()).leads),
+  /** Colaboradores (e admins) ativos que podem ser engenheiro responsável. */
+  engenheiros: adminProcedure.query(async () =>
+    getDb().select({ id: users.id, name: users.name, role: users.role }).from(users)
+      .where(and(eq(users.active, true), inArray(users.role, ["colaborador", "admin"])))
+      .orderBy(asc(users.name))
+  ),
   list: adminProcedure.query(async () =>
     getDb().select().from(projects).orderBy(desc(projects.updatedAt))
   ),
@@ -571,11 +594,12 @@ export const projetosRouter = router({
     ),
   create: adminProcedure.input(projectInput).mutation(async ({ input }) => {
     const lead = await leadExists(input.leadId);
+    const engenheiro = await resolverEngenheiro(input);
     const created = found(
       (
         await getDb()
           .insert(projects)
-          .values(projectValues(input, lead))
+          .values({ ...projectValues(input, lead), ...engenheiro })
           .returning()
       )[0]
     );
@@ -586,11 +610,14 @@ export const projetosRouter = router({
     .input(z.object({ id: z.number().int().positive(), data: projectInput }))
     .mutation(async ({ input }) => {
       const lead = await leadExists(input.data.leadId);
+      const [atual] = await getDb().select({ engineer: projects.engineer }).from(projects).where(eq(projects.id, input.id)).limit(1);
+      if (!atual) throw new TRPCError({ code: "NOT_FOUND", message: "Registro não encontrado" });
+      const engenheiro = await resolverEngenheiro(input.data, atual.engineer);
       return found(
         (
           await getDb()
             .update(projects)
-            .set(projectValues(input.data, lead))
+            .set({ ...projectValues(input.data, lead), ...engenheiro })
             .where(eq(projects.id, input.id))
             .returning()
         )[0]

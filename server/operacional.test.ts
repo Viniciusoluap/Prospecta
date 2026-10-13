@@ -469,18 +469,34 @@ describe("Etapa 4 — persistência via procedures", () => {
     const values = vi
       .fn()
       .mockReturnValue({ returning: async () => [{ id: 9, leadId: null }] });
+    // Item 07: o engenheiro é um colaborador ativo escolhido por ID.
+    const engenheiro = [{ id: 3, name: "Eng. Ana", role: "colaborador", active: true }];
     vi.mocked(getDb).mockReturnValue({
       insert: () => ({ values }),
+      select: () => ({ from: () => ({ where: () => ({ limit: async () => engenheiro }) }) }),
     } as unknown as ReturnType<typeof getDb>);
     await app
       .createCaller(context("colaborador", ["projetos"]))
-      .projetos.create(projectInput.parse(project));
+      .projetos.create(projectInput.parse({ ...project, engineerUserId: 3 }));
     expect(values).toHaveBeenCalledWith(
       expect.objectContaining({
         types: '["arquitetura"]',
         checklist: "[]",
         value: "100.00",
+        engineerUserId: 3,
+        engineer: "Eng. Ana",
       })
     );
+  });
+
+  it("Projetos recusa engenheiro inativo ou sem vínculo de colaborador", async () => {
+    vi.mocked(getDb).mockReturnValue({
+      insert: () => ({ values: vi.fn() }),
+      select: () => ({ from: () => ({ where: () => ({ limit: async () => [{ id: 4, name: "Cliente", role: "cliente", active: true }] }) }) }),
+    } as unknown as ReturnType<typeof getDb>);
+    await expect(app.createCaller(context("colaborador", ["projetos"]))
+      .projetos.create(projectInput.parse({ ...project, engineerUserId: 4 }))).rejects.toThrow(/colaborador ativo/);
+    await expect(app.createCaller(context("colaborador", ["projetos"]))
+      .projetos.create(projectInput.parse({ ...project, engineerUserId: null }))).rejects.toThrow(/Escolha o engenheiro/);
   });
 });

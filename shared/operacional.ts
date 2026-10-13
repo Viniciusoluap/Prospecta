@@ -18,6 +18,17 @@ export const PROJECT_STATUS = [
   "entregue",
   "cancelado",
 ] as const;
+/** Tipos de projeto (mesma lista do Santa Fé: PROJETO_TIPO_CONFIG). */
+export const PROJECT_TYPE_LABELS: Record<string, string> = {
+  projeto_arquitetonico: "Projeto Arquitetônico",
+  projeto_estrutural: "Projeto Estrutural",
+  projeto_eletrico: "Projeto Elétrico",
+  projeto_hidrossanitario: "Projeto Hidrossanitário",
+  projeto_completo: "Projeto Completo",
+  orcamento_obra: "Orçamento de Obra",
+  laudo_tecnico: "Laudo Técnico",
+  art_rrt: "ART / RRT",
+};
 export const COMMISSION_STATUS = [
   "pendente",
   "aprovada",
@@ -147,11 +158,15 @@ export const commissionInput = z
 export const projectInput = z
   .object({
     name,
-    types: z.array(z.string().trim().min(1).max(80)).min(1).max(20),
+    types: z.array(z.string().trim().min(1).max(80)).min(1, "Selecione ao menos um tipo de projeto.").max(20),
     status: z.enum(PROJECT_STATUS),
     clientName: name,
     clientPhone: z.string().trim().max(40),
-    engineer: name,
+    // Item 07: o engenheiro é um colaborador escolhido por ID; o nome vem do cadastro.
+    // Texto livre só é aceito para manter registros anteriores sem vínculo.
+    engineerUserId: id.nullable().default(null),
+    engineer: z.string().trim().max(255).default(""),
+    engineerRegistration: z.string().trim().max(60).nullable().default(null),
     value: money,
     paidValue: money,
     deadline: z.coerce.date().nullable(),

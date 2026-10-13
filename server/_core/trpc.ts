@@ -1,6 +1,8 @@
 import { NOT_ADMIN_ERR_MSG, UNAUTHED_ERR_MSG } from "../../shared/const.js";
 import { initTRPC, TRPCError } from "@trpc/server";
 import superjson from "superjson";
+import { ZodError } from "zod";
+import { mensagemValidacao } from "../../shared/erro-validacao.js";
 import type { TrpcContext } from "./context.js";
 import {
   parsePermissions,
@@ -9,6 +11,13 @@ import {
 
 const t = initTRPC.context<TrpcContext>().create({
   transformer: superjson,
+  // Item 07: erros de validação chegam ao usuário como frase, nunca como JSON técnico.
+  errorFormatter({ shape, error }) {
+    if (error.code === "BAD_REQUEST" && error.cause instanceof ZodError) {
+      return { ...shape, message: mensagemValidacao(error.cause.issues as never) };
+    }
+    return shape;
+  },
 });
 
 export const router = t.router;

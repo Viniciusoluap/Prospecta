@@ -4,7 +4,8 @@ import { Link } from "wouter";
 import { trpc } from "@/lib/trpc";
 import { LinkedServiceQueue } from "./LinkedServiceQueue";
 import { Button } from "@/components/ui/button";
-import { PROJECT_STATUS, projectInput } from "../../../../shared/operacional";
+import { PROJECT_STATUS, PROJECT_TYPE_LABELS, projectInput } from "../../../../shared/operacional";
+import { mensagemValidacao } from "../../../../shared/erro-validacao";
 import {
   Choice,
   choices,
@@ -24,11 +25,13 @@ type Check = { text: string; done: boolean };
 type FileLink = { name: string; url: string };
 const blank = () => ({
   name: "",
-  types: "projeto_arquitetonico",
+  types: [] as string[],
   status: "orcamento",
   clientName: "",
   clientPhone: "",
   engineer: "",
+  engineerUserId: "",
+  engineerRegistration: "",
   value: "0",
   paidValue: "0",
   deadline: "",
@@ -44,6 +47,8 @@ export default function AdminProjetos() {
   const update = trpc.projetos.update.useMutation();
   const remove = trpc.projetos.delete.useMutation();
   const cancel = trpc.projetos.cancel.useMutation();
+  const engenheiros = trpc.projetos.engenheiros.useQuery();
+  const [buscaEngenheiro, setBuscaEngenheiro] = useState("");
   const [form, setForm] = useState(blank);
   const [id, setId] = useState<number | null>(null);
   // EPIC-017: registro nasce do lead; cliente/telefone vêm do CRM.
@@ -151,7 +156,9 @@ export default function AdminProjetos() {
                       setLinkedLeadId(r.leadId ?? null);
                       setForm({
                         ...r,
-                        types: parseArray<string>(r.types).join(", "),
+                        types: parseArray<string>(r.types),
+                        engineerUserId: String(r.engineerUserId ?? ""),
+                        engineerRegistration: r.engineerRegistration ?? "",
                         deadline: localDate(r.deadline),
                         leadId: String(r.leadId ?? ""),
                         checklist: checks,
@@ -179,17 +186,20 @@ export default function AdminProjetos() {
         open={open}
         onClose={() => setOpen(false)}
         onSave={async () => {
-          const data = projectInput.parse({
+          // Item 07: valida antes de enviar e explica em português (nunca JSON técnico).
+          if (!form.types.length) throw new Error("Selecione ao menos um tipo de projeto.");
+          if (!form.engineerUserId && !form.engineer.trim()) throw new Error("Escolha o engenheiro responsável entre os colaboradores.");
+          const parsed = projectInput.safeParse({
             ...form,
-            types: form.types
-              .split(",")
-              .map(s => s.trim())
-              .filter(Boolean),
             leadId: optionalId(form.leadId),
+            engineerUserId: optionalId(form.engineerUserId),
+            engineerRegistration: form.engineerRegistration.trim() || null,
             value: Number(form.value),
             paidValue: Number(form.paidValue),
             deadline: form.deadline ? new Date(form.deadline) : null,
           });
+          if (!parsed.success) throw new Error(mensagemValidacao(parsed.error.issues as never));
+          const data = parsed.data;
           if (id) await update.mutateAsync({ id, data });
           else await create.mutateAsync(data);
           await list.refetch();
@@ -198,10 +208,8 @@ export default function AdminProjetos() {
         {(
           [
             ["name", "Nome", "text"],
-            ["types", "Tipos separados por vírgula", "text"],
             ["clientName", linkedLeadId ? "Cliente (do CRM)" : "Cliente", "text"],
             ["clientPhone", linkedLeadId ? "Telefone (do CRM)" : "Telefone", "tel"],
-            ["engineer", "Engenheiro responsável", "text"],
             ["value", "Valor do projeto (R$)", "number"],
             ["paidValue", "Valor pago (R$)", "number"],
             ["deadline", "Prazo de entrega", "datetime-local"],
@@ -222,6 +230,52 @@ export default function AdminProjetos() {
             />
           </Field>
         ))}
+        <Field label="Engenheiro responsável (colaborador)">
+          <input
+            className={inputClass}
+            placeholder="Pesquisar colaborador"
+            aria-label="Pesquisar engenheiro"
+            value={buscaEngenheiro}
+            onChange={e => setBuscaEngenheiro(e.target.value)}
+          />
+          <select
+            className={`${inputClass} mt-1`}
+            aria-label="Engenheiro responsável"
+            value={form.engineerUserId}
+            onChange={e => {
+              const escolhido = engenheiros.data?.find(u => String(u.id) === e.target.value);
+              setForm(f => ({ ...f, engineerUserId: e.target.value, engineer: escolhido?.name ?? f.engineer }));
+            }}
+          >
+            <option value="">{form.engineer && !form.engineerUserId ? `Registro anterior: ${form.engineer}` : "Selecione"}</option>
+            {(engenheiros.data ?? [])
+              .filter(u => !buscaEngenheiro.trim() || (u.name ?? "").toLowerCase().includes(buscaEngenheiro.trim().toLowerCase()) || String(u.id) === form.engineerUserId)
+              .map(u => <option key={u.id} value={u.id}>{u.name}{u.role === "admin" ? " (admin)" : ""}</option>)}
+          </select>
+        </Field>
+        <Field label="Habilitação técnica (CREA/CAU), se necessária">
+          <input
+            className={inputClass}
+            value={form.engineerRegistration}
+            onChange={e => setForm(f => ({ ...f, engineerRegistration: e.target.value }))}
+          />
+        </Field>
+        <fieldset className="space-y-1 sm:col-span-2">
+          <legend className="font-semibold">Tipos de projeto *</legend>
+          <div className="flex flex-wrap gap-3">
+            {[...Object.keys(PROJECT_TYPE_LABELS), ...form.types.filter(t => !PROJECT_TYPE_LABELS[t])].map(tipo => (
+              <label key={tipo} className="flex items-center gap-1 text-sm">
+                <input
+                  type="checkbox"
+                  checked={form.types.includes(tipo)}
+                  onChange={e => setForm(f => ({ ...f, types: e.target.checked ? [...f.types, tipo] : f.types.filter(t => t !== tipo) }))}
+                />
+                {PROJECT_TYPE_LABELS[tipo] ?? tipo}
+              </label>
+            ))}
+          </div>
+          {!form.types.length && <p className="text-xs text-amber-700">Obrigatório: selecione ao menos um tipo.</p>}
+        </fieldset>
         <Choice
           label="Status"
           value={form.status}

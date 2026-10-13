@@ -1362,6 +1362,10 @@ export const operationalProjects = pgTable("operational_projects", {
   clientName: varchar("client_name", { length: 255 }).notNull(),
   clientPhone: varchar("client_phone", { length: 40 }).notNull(),
   engineer: varchar("engineer", { length: 255 }).notNull(),
+  /** Item 07: colaborador (ou admin) ativo vinculado como engenheiro; `engineer` guarda o nome exibido. */
+  engineerUserId: integer("engineer_user_id").references((): AnyPgColumn => users.id, { onDelete: "set null" }),
+  /** CREA/CAU ou outra habilitação técnica, quando necessária. */
+  engineerRegistration: varchar("engineer_registration", { length: 60 }),
   value: decimal("value", { precision: 15, scale: 2 }).notNull(),
   paidValue: decimal("paid_value", { precision: 15, scale: 2 })
     .default("0")
