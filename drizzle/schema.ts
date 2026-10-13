@@ -671,6 +671,7 @@ export const obraFees = pgTable("obra_fees", {
     precision: 15,
     scale: 2,
   }).default("0"),
+  /** Legado: substituído pela tabela financeira (Lote 6); mantido sem edição. */
   paidValue: decimal("paid_value", { precision: 15, scale: 2 }).default("0"),
   notes: text("notes"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
@@ -833,7 +834,10 @@ export const regularizacoes = pgTable("regularizacoes", {
   clientName: varchar("client_name", { length: 255 }).notNull(),
   clientPhone: varchar("client_phone", { length: 30 }),
   type: varchar("type", { length: 120 }).notNull(),
-  status: varchar("status", { length: 40 }).default("analysis").notNull(),
+  // EPIC-020 Lote 6: em_analise | em_andamento | concluido (| cancelado).
+  status: varchar("status", { length: 40 }).default("em_analise").notNull(),
+  /** Status anterior ao Lote 6 (preservado na migração 0046). */
+  legacyStatus: varchar("legacy_status", { length: 40 }),
   address: text("address").notNull(),
   registration: varchar("registration", { length: 120 }),
   registryOffice: varchar("registry_office", { length: 255 }),
@@ -1747,3 +1751,57 @@ export const obraMovimentosHistorico = pgTable("obra_movimentos_historico", {
 
 export type ObraMovimento = typeof obraMovimentos.$inferSelect;
 export type Investidor = typeof investidores.$inferSelect;
+
+// EPIC-020 Lote 6 — Regularização: etapas livres (30) e tabela financeira (31).
+// Garantias no banco (migração 0046): recebimento nunca é apagado, histórico
+// automático, item com recebimento não é excluído e a alocação do BPO é somada
+// com a das obras (uma transação nunca é usada duas vezes).
+export const regularizacaoEtapas = pgTable("regularizacao_etapas", {
+  id: serial("id").primaryKey(),
+  regularizacaoId: integer("regularizacao_id").notNull().references(() => regularizacoes.id, { onDelete: "cascade" }),
+  nome: varchar("nome", { length: 120 }).notNull(),
+  ordem: integer("ordem").notNull(),
+  progresso: integer("progresso").default(0).notNull(),
+  observacoes: text("observacoes"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+export const regularizacaoItensFinanceiros = pgTable("regularizacao_itens_financeiros", {
+  id: serial("id").primaryKey(),
+  regularizacaoId: integer("regularizacao_id").notNull().references(() => regularizacoes.id, { onDelete: "cascade" }),
+  chavePadrao: varchar("chave_padrao", { length: 40 }),
+  nome: varchar("nome", { length: 120 }).notNull(),
+  grupo: varchar("grupo", { length: 20 }).$type<"durante_obra" | "casa_pronta">().notNull(),
+  ordem: integer("ordem").notNull(),
+  previsto: decimal("previsto", { precision: 15, scale: 2 }).default("0").notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+export const regularizacaoRecebimentos = pgTable("regularizacao_recebimentos", {
+  id: serial("id").primaryKey(),
+  regularizacaoId: integer("regularizacao_id").notNull().references(() => regularizacoes.id, { onDelete: "restrict" }),
+  itemId: integer("item_id").notNull(),
+  valor: decimal("valor", { precision: 15, scale: 2 }).notNull(),
+  data: date("data", { mode: "string" }).notNull(),
+  observacao: text("observacao"),
+  origem: varchar("origem", { length: 12 }).$type<"manual" | "bpo" | "migracao">().notNull(),
+  bpoLancamentoId: integer("bpo_lancamento_id").references(() => bpoLancamentos.id, { onDelete: "restrict" }),
+  status: varchar("status", { length: 12 }).$type<"confirmado" | "cancelado">().default("confirmado").notNull(),
+  motivoCancelamento: text("motivo_cancelamento"),
+  criadoPor: integer("criado_por").references((): AnyPgColumn => users.id, { onDelete: "set null" }),
+  atualizadoPor: integer("atualizado_por").references((): AnyPgColumn => users.id, { onDelete: "set null" }),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+export const regularizacaoRecebimentosHistorico = pgTable("regularizacao_recebimentos_historico", {
+  id: serial("id").primaryKey(),
+  recebimentoId: integer("recebimento_id").notNull().references(() => regularizacaoRecebimentos.id, { onDelete: "restrict" }),
+  acao: varchar("acao", { length: 20 }).notNull(),
+  antes: jsonb("antes"),
+  depois: jsonb("depois").notNull(),
+  usuarioId: integer("usuario_id"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});

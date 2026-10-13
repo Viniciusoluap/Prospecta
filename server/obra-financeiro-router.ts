@@ -271,7 +271,8 @@ export const obraFinanceiroRouter = router({
 
   bpoDisponiveis: adminProcedure.input(z.object({ natureza: z.enum(NATUREZAS) })).query(async ({ input }) => {
     const db = getDb();
-    const alocado = sql<string>`COALESCE((SELECT SUM(${obraMovimentos.valor}) FROM ${obraMovimentos} WHERE ${obraMovimentos.bpoLancamentoId} = ${bpoLancamentos.id} AND ${obraMovimentos.status} = 'confirmado'), 0)`;
+    // Soma o que obras e regularizações já usaram (Lote 6: uma transação do BPO é uma só).
+    const alocado = sql<string>`bpo_valor_alocado(${bpoLancamentos.id}, NULL, NULL)`;
     const tipoOk = input.natureza === "pagamento" ? eq(bpoLancamentos.tipo, "despesa") : sql`${bpoLancamentos.tipo} <> 'despesa'`;
     const linhas = await db.select({
       id: bpoLancamentos.id,

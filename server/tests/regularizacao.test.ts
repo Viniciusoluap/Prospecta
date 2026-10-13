@@ -15,7 +15,12 @@ describe("EPIC-004 - Regularização", () => {
     expect(procedures.create).toBeDefined();
     expect(procedures.update).toBeDefined();
     expect(procedures.remove).toBeDefined();
-    expect(procedures["documents.create"]).toBeDefined();
-    expect(procedures["documents.upload"]).toBeDefined();
+    // EPIC-020 Lote 6 (31): "Documentos" antigo removido; etapas e financeiro no lugar.
+    expect(procedures["documents.create"]).toBeUndefined();
+    expect(procedures["documents.upload"]).toBeUndefined();
+    expect(procedures["etapas.criar"]).toBeDefined();
+    expect(procedures["etapas.mover"]).toBeDefined();
+    expect(procedures["financeiro.adicionarRecebimento"]).toBeDefined();
+    expect(procedures["financeiro.cancelarRecebimento"]).toBeDefined();
   });
 });
