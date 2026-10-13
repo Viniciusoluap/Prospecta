@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 import { Link, useParams } from "wouter";
 import { trpc } from "@/lib/trpc";
 import { Button } from "@/components/ui/button";
@@ -20,12 +20,40 @@ import { LancamentoImobiliario } from "@/components/incorporacao/LancamentoImobi
 import { ObraExecutiva } from "@/components/incorporacao/ObraExecutiva";
 import { AtendimentoRelatorio } from "@/components/incorporacao/AtendimentoRelatorio";
 import { ViabilidadeEconomica } from "@/components/incorporacao/ViabilidadeEconomica";
+import { DueDiligenceEditor } from "@/components/incorporacao/DueDiligenceEditor";
+import { UnidadesEditor } from "@/components/incorporacao/UnidadesEditor";
 
 const STATUS_OPTIONS = [
-  { value: "draft", label: "Rascunho" },
   { value: "in_study", label: "Em estudo" },
+  { value: "unfeasible", label: "Inviável" },
+  { value: "in_progress", label: "Em andamento" },
   { value: "completed", label: "Concluído" },
 ];
+const TIPOS = [
+  { value: "desmembramento_simples", label: "Desmembramento Simples" },
+  { value: "residencial", label: "Residencial" },
+  { value: "vertical", label: "Vertical" },
+  { value: "loteamento", label: "Loteamento" },
+] as const;
+
+const MODULOS = [
+  ["dados", "Dados Gerais"], ["diligencia", "Due Diligence"], ["terreno", "Terreno e Topografia"],
+  ["mercado", "Inteligência de Mercado"], ["massa", "Estudo de Massa Generativa"],
+  ["orcamento", "Orçamento e Negociação"], ["business", "Business/Investidores"],
+  ["projeto", "Projeto Aprovado"], ["registro", "Registro e Orçamento"],
+  ["lancamento", "Planejamento do Lançamento"], ["unidades", "Unidades à Venda"],
+  ["obra", "Obra Executiva"], ["relatorio", "Atendimento e Relatório"],
+  ["viabilidade", "Viabilidade Econômica"],
+] as const;
+const MODULOS_DESMEMBRAMENTO = [
+  ["dados", "Dados Gerais"], ["diligencia", "Due Diligence"], ["terreno", "Terreno"],
+  ["topografia", "Topografia"], ["mercado", "Inteligência de Mercado"], ["massa", "Estudo de Massa Generativa"],
+  ["orcamento", "Orçamento Parametrizado"], ["negociacao", "Negociação do Terreno"],
+  ["business", "Business/Investidores"], ["projeto", "Projeto Aprovado"], ["unidades", "Unidades à Venda"],
+  ["lancamento", "Planejamento do Lançamento"], ["fornecedores", "Contratação de Fornecedores"],
+  ["material", "Material Publicitário"], ["atendimento", "Atendimento aos Clientes"],
+  ["relatorio", "Relatório Executivo"], ["viabilidade", "Viabilidade Econômica"],
+] as const;
 
 export default function AdminIncorporacaoDetail() {
   const { id } = useParams<{ id: string }>();
@@ -35,6 +63,23 @@ export default function AdminIncorporacaoDetail() {
   const { data: versoes = [] } = trpc.incorporacao.versions.useQuery({ id: Number(id) }, { enabled: !!Number(id) });
   const { data: equipe = [] } = trpc.incorporacao.staff.useQuery();
   const [erroVersao, setErroVersao] = useState("");
+  const [moduloAtivo, setModuloAtivo] = useState<(typeof MODULOS)[number][0] | (typeof MODULOS_DESMEMBRAMENTO)[number][0]>("dados");
+  const [alterado, setAlterado] = useState(false);
+  // Marca "há alterações" depois do evento de digitação: atualizar o estado do
+  // pai durante a fase de captura fazia a primeira tecla de cada campo se perder.
+  const alteradoRef = useRef(false);
+  const marcarAlterado = () => {
+    if (alteradoRef.current) return;
+    alteradoRef.current = true;
+    setTimeout(() => setAlterado(true), 0);
+  };
+
+  useEffect(() => {
+    if (!alterado) return;
+    const avisar = (event: BeforeUnloadEvent) => { event.preventDefault(); event.returnValue = ""; };
+    window.addEventListener("beforeunload", avisar);
+    return () => window.removeEventListener("beforeunload", avisar);
+  }, [alterado]);
 
   async function baixarVersao(revision: number) {
     setErroVersao("");
@@ -49,7 +94,7 @@ export default function AdminIncorporacaoDetail() {
     } catch (e) { setErroVersao(e instanceof Error ? e.message : "Falha ao obter a versão"); }
   }
 
-  const [form, setForm] = useState({ name: "", city: "", state: "", address: "", responsible: "", status: "draft",
+  const [form, setForm] = useState({ name: "", city: "", state: "", address: "", responsible: "", status: "in_study", incorporationType: "",
     propertyRegistration: "", carRegistration: "", officialZoning: "", zoningSource: "" });
 
   useEffect(() => {
@@ -60,7 +105,8 @@ export default function AdminIncorporacaoDetail() {
         state: estudo.state ?? "",
         address: estudo.address ?? "",
         responsible: estudo.responsible ?? "",
-        status: estudo.status ?? "draft",
+        status: STATUS_OPTIONS.some((option) => option.value === estudo.status) ? estudo.status : "",
+        incorporationType: estudo.incorporationType ?? "",
         propertyRegistration: estudo.propertyRegistration ?? "",
         carRegistration: estudo.carRegistration ?? "",
         officialZoning: estudo.officialZoning ?? "",
@@ -72,6 +118,8 @@ export default function AdminIncorporacaoDetail() {
   const updateMutation = trpc.incorporacao.update.useMutation({
     onSuccess: () => {
       toast.success("Estudo atualizado!");
+      alteradoRef.current = false;
+      setAlterado(false);
       utils.incorporacao.getById.invalidate({ id: Number(id) });
       utils.incorporacao.list.invalidate();
     },
@@ -79,6 +127,10 @@ export default function AdminIncorporacaoDetail() {
   });
 
   const handleSave = () => {
+    if (!form.status) {
+      toast.error("Classifique a situação antiga deste estudo antes de salvar.");
+      return;
+    }
     updateMutation.mutate({
       id: Number(id),
       name: form.name,
@@ -86,7 +138,8 @@ export default function AdminIncorporacaoDetail() {
       state: form.state || undefined,
       address: form.address || undefined,
       responsible: form.responsible || undefined,
-      status: form.status as "draft" | "in_study" | "completed",
+      status: form.status as "in_study" | "unfeasible" | "in_progress" | "completed",
+      incorporationType: form.incorporationType ? form.incorporationType as (typeof TIPOS)[number]["value"] : undefined,
       propertyRegistration: form.propertyRegistration.trim() || null,
       carRegistration: form.carRegistration.trim() || null,
       officialZoning: form.officialZoning.trim() || null,
@@ -123,7 +176,18 @@ export default function AdminIncorporacaoDetail() {
         </div>
       </div>
 
-      <div className="max-w-4xl mx-auto px-6 py-6 space-y-6">
+      <div className="max-w-4xl mx-auto px-6 py-6 space-y-6" onInputCapture={marcarAlterado} onChangeCapture={marcarAlterado}>
+        <nav aria-label="Módulos do estudo" className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-2">
+          {(estudo.incorporationType === "desmembramento_simples" ? MODULOS_DESMEMBRAMENTO : MODULOS.filter(([idModulo]) => idModulo !== "diligencia")).map(([idModulo, nome]) => (
+            <button key={idModulo} type="button" onClick={() => setModuloAtivo(idModulo)}
+              aria-current={moduloAtivo === idModulo ? "page" : undefined}
+              className={`min-w-0 rounded-md border px-3 py-3 text-left text-sm font-medium break-words ${moduloAtivo === idModulo ? "border-[#C9A961] bg-[#C9A961] text-[#1A2332]" : "border-[#C9A961]/30 bg-[#0F1923] text-gray-200 hover:border-[#C9A961]"}`}>
+              {nome}
+            </button>
+          ))}
+        </nav>
+        {estudo.incorporationType === "desmembramento_simples" && <div hidden={moduloAtivo !== "diligencia"}><DueDiligenceEditor estudoId={estudo.id} json={estudo.dueDiligenceJson} /></div>}
+        <div hidden={moduloAtivo !== "dados"} className="space-y-6">
         <Card className="bg-[#1A2332]/60 border-[#C9A961]/20 backdrop-blur-sm">
           <CardHeader>
             <CardTitle className="text-white text-lg">Dados Gerais</CardTitle>
@@ -160,11 +224,18 @@ export default function AdminIncorporacaoDetail() {
                 <Label className="text-gray-300">Situação</Label>
                 <Select value={form.status} onValueChange={(v) => setForm((f) => ({ ...f, status: v }))}>
                   <SelectTrigger className="bg-[#2C3E50] border-[#C9A961]/30 text-white mt-1">
-                    <SelectValue />
+                    <SelectValue placeholder="Classificar situação antiga" />
                   </SelectTrigger>
                   <SelectContent>
                     {STATUS_OPTIONS.map((s) => <SelectItem key={s.value} value={s.value}>{s.label}</SelectItem>)}
                   </SelectContent>
+                </Select>
+              </div>
+              <div>
+                <Label className="text-gray-300">Tipo de incorporação</Label>
+                <Select value={form.incorporationType} onValueChange={(value) => setForm((f) => ({ ...f, incorporationType: value }))}>
+                  <SelectTrigger className="bg-[#2C3E50] border-[#C9A961]/30 text-white mt-1"><SelectValue placeholder="Classificar estudo legado" /></SelectTrigger>
+                  <SelectContent>{TIPOS.map((tipo) => <SelectItem key={tipo.value} value={tipo.value}>{tipo.label}</SelectItem>)}</SelectContent>
                 </Select>
               </div>
               {([
@@ -200,15 +271,20 @@ export default function AdminIncorporacaoDetail() {
             ))}
           </CardContent>
         </Card>
+        </div>
 
+        <div hidden={moduloAtivo !== "terreno" && moduloAtivo !== "topografia"}>
         <TerrenoTopografia
           estudoId={estudo.id}
           geojson={estudo.geojson}
           areaM2={estudo.areaM2}
           perimeterM={estudo.perimeterM}
           elevationJson={estudo.elevationJson}
+          secao={estudo.incorporationType === "desmembramento_simples" ? moduloAtivo === "topografia" ? "topografia" : "terreno" : undefined}
         />
+        </div>
 
+        <div hidden={moduloAtivo !== "mercado"}>
         <EstudoMercado
           estudoId={estudo.id}
           city={estudo.city}
@@ -218,7 +294,9 @@ export default function AdminIncorporacaoDetail() {
           comparablePricingJson={estudo.comparablePricingJson}
           primaryResearchJson={estudo.primaryResearchJson}
         />
+        </div>
 
+        <div hidden={moduloAtivo !== "massa"}>
         <EstudoMassa
           estudoId={estudo.id}
           geojson={estudo.geojson}
@@ -231,41 +309,58 @@ export default function AdminIncorporacaoDetail() {
           selectedScenarioId={estudo.selectedScenarioId}
           areasBoardJson={estudo.areasBoardJson}
         />
+        </div>
 
+        <div hidden={moduloAtivo !== "orcamento" && moduloAtivo !== "negociacao"}>
         <OrcamentoNegociacao
           estudoId={estudo.id}
           parameterizedBudgetJson={estudo.parameterizedBudgetJson}
           landNegotiationJson={estudo.landNegotiationJson}
+          secao={estudo.incorporationType === "desmembramento_simples" ? moduloAtivo === "negociacao" ? "negociacao" : "orcamento" : undefined}
         />
+        </div>
 
+        <div hidden={moduloAtivo !== "business"}>
         <BusinessPlan estudoId={estudo.id} businessPlanJson={estudo.businessPlanJson} />
+        </div>
 
+        <div hidden={moduloAtivo !== "projeto"}>
         <ProjetistasAprovacao
           estudoId={estudo.id}
           designersJson={estudo.designersJson}
           projectApprovalJson={estudo.projectApprovalJson}
+          secao={estudo.incorporationType === "desmembramento_simples" ? "aprovacao" : undefined}
         />
+        </div>
 
+        <div hidden={moduloAtivo !== "registro"}>
         <RegistroOrcamentoPreliminar
           estudoId={estudo.id}
           incorporationRegistrationJson={estudo.incorporationRegistrationJson}
           preliminaryBudgetJson={estudo.preliminaryBudgetJson}
           parameterizedBudgetJson={estudo.parameterizedBudgetJson}
         />
+        </div>
 
+        <div hidden={moduloAtivo !== "lancamento" && moduloAtivo !== "fornecedores" && moduloAtivo !== "material"}>
         <LancamentoMarketing
           estudoId={estudo.id}
           launchPlanJson={estudo.launchPlanJson}
           launchSuppliersJson={estudo.launchSuppliersJson}
           marketingMaterialJson={estudo.marketingMaterialJson}
+          secao={estudo.incorporationType === "desmembramento_simples" ? moduloAtivo === "fornecedores" ? "fornecedores" : moduloAtivo === "material" ? "material" : "planejamento" : undefined}
         />
+        </div>
 
-        <LancamentoImobiliario
+        <div hidden={moduloAtivo !== "unidades"}>
+        {estudo.incorporationType === "desmembramento_simples" ? <UnidadesEditor estudoId={estudo.id} /> : <LancamentoImobiliario
           estudoId={estudo.id}
           productMixJson={estudo.productMixJson}
           realEstateLaunchJson={estudo.realEstateLaunchJson}
-        />
+        />}
+        </div>
 
+        <div hidden={moduloAtivo !== "obra"}>
         <ObraExecutiva
           estudoId={estudo.id}
           executiveProjectsJson={estudo.executiveProjectsJson}
@@ -273,13 +368,18 @@ export default function AdminIncorporacaoDetail() {
           physicalFinancialScheduleJson={estudo.physicalFinancialScheduleJson}
           preliminaryBudgetJson={estudo.preliminaryBudgetJson}
         />
+        </div>
 
+        <div hidden={moduloAtivo !== "relatorio" && moduloAtivo !== "atendimento"}>
         <AtendimentoRelatorio
           estudoId={estudo.id}
           customerServiceJson={estudo.customerServiceJson}
           estudo={{ ...estudo, versionNumber: versoes[0]?.revision ?? null, staff: equipe }}
+          secao={estudo.incorporationType === "desmembramento_simples" ? moduloAtivo === "atendimento" ? "atendimento" : "relatorio" : undefined}
         />
+        </div>
 
+        <div hidden={moduloAtivo !== "viabilidade"}>
         <ViabilidadeEconomica
           estudoId={estudo.id}
           areaM2={estudo.areaM2}
@@ -287,6 +387,7 @@ export default function AdminIncorporacaoDetail() {
           productMixJson={estudo.productMixJson}
           lottingJson={estudo.lottingJson}
         />
+        </div>
       </div>
     </div>
   );

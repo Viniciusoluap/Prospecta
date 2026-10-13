@@ -288,6 +288,41 @@
       "when": 1791858450000,
       "tag": "0040_lote4_progresso_fotos",
       "breakpoints": true
+    },
+    {
+      "idx": 41,
+      "version": "7",
+      "when": 1791858500000,
+      "tag": "0041_incorporation_status",
+      "breakpoints": true
+    },
+    {
+      "idx": 42,
+      "version": "7",
+      "when": 1791858550000,
+      "tag": "0042_incorporation_registration_documents",
+      "breakpoints": true
+    },
+    {
+      "idx": 43,
+      "version": "7",
+      "when": 1791858600000,
+      "tag": "0043_incorporation_type",
+      "breakpoints": true
+    },
+    {
+      "idx": 44,
+      "version": "7",
+      "when": 1791858650000,
+      "tag": "0044_due_diligence",
+      "breakpoints": true
+    },
+    {
+      "idx": 45,
+      "version": "7",
+      "when": 1791858700000,
+      "tag": "0045_incorporation_units",
+      "breakpoints": true
     }
   ]
 }
