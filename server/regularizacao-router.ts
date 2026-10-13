@@ -1,24 +1,40 @@
 import { TRPCError } from "@trpc/server";
-import { and, desc, eq } from "drizzle-orm";
+import { and, asc, desc, eq, sql } from "drizzle-orm";
 import { z } from "zod";
 import {
+  bpoLancamentos,
   regularizacaoDocuments,
+  regularizacaoEtapas,
+  regularizacaoItensFinanceiros,
+  regularizacaoRecebimentos,
   regularizacoes,
+  users,
 } from "../drizzle/schema.js";
+import { centavosDe } from "../shared/financeiro/obra.js";
+import {
+  GRUPOS_FINANCEIROS,
+  LIMITE_NOME_ETAPA,
+  LIMITE_NOME_ITEM,
+  LIMITE_OBSERVACAO_ETAPA,
+  STATUS_PROCESSO,
+  calcularFinanceiroRegularizacao,
+  mensagemErroRegularizacao,
+  progressoDasEtapas,
+  reordenarEtapas,
+} from "../shared/financeiro/regularizacao.js";
 import { adminProcedure, router } from "./_core/trpc.js";
 import { getDb } from "./db.js";
-import { storagePut } from "./storage.js";
 import { attachCompletedProcess } from "./lead-services-router.js";
-import { driveConfigured, readPrivateDocument, uploadPrivateDocument } from "./drive-documents.js";
 
-const statusSchema = z.enum([
-  "analysis",
-  "documentation",
-  "protocol",
-  "registry",
-  "completed",
-  "cancelled",
-]);
+// EPIC-020 Lote 6 — Regularização. Status do Processo (30) independente das
+// Etapas do Processo; tabela financeira por processo (31) com recebimentos
+// manuais ou do BPO. "Valor Pago" e os "Documentos" antigos saíram da tela e
+// da API; os dados continuam no banco.
+
+const statusSchema = z.enum(STATUS_PROCESSO);
+const dinheiro = z.string().trim().regex(/^\d{1,13}(\.\d{1,2})?$/, "Valor monetário inválido");
+const dataIso = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Data inválida");
+const idSchema = z.number().int().positive();
 
 const regularizacaoFields = z.object({
   clientName: z.string().trim().min(2).max(255),
@@ -31,19 +47,16 @@ const regularizacaoFields = z.object({
   responsible: z.string().trim().min(2).max(120),
   leadId: z.number().int().positive().nullable().optional(),
   serviceValue: z.number().min(0).optional(),
-  paidValue: z.number().min(0).optional(),
   expectedEndAt: z.date().nullable().optional(),
   description: z.string().optional(),
   notes: z.string().nullable().optional(),
 });
 
-const documentStatusSchema = z.enum([
-  "pending",
-  "requested",
-  "received",
-  "approved",
-  "rejected",
-]);
+function erroDoBanco(err: unknown): never {
+  const mensagem = mensagemErroRegularizacao(err);
+  if (mensagem) throw new TRPCError({ code: "BAD_REQUEST", message: mensagem });
+  throw err;
+}
 
 async function assertRegularizacaoExists(id: number) {
   const [record] = await getDb()
@@ -57,26 +70,73 @@ async function assertRegularizacaoExists(id: number) {
   }
 }
 
+/** Etapas, tabela financeira e recebimentos de um processo (tudo calculado na leitura). */
+export async function carregarProcesso(id: number) {
+  const db = getDb();
+  const [etapas, itens, recebimentos] = await Promise.all([
+    db.select().from(regularizacaoEtapas).where(eq(regularizacaoEtapas.regularizacaoId, id))
+      .orderBy(asc(regularizacaoEtapas.ordem), asc(regularizacaoEtapas.id)),
+    db.select().from(regularizacaoItensFinanceiros).where(eq(regularizacaoItensFinanceiros.regularizacaoId, id)),
+    db.select({
+      rec: regularizacaoRecebimentos,
+      bpoDescricao: bpoLancamentos.descricao,
+      autor: users.name,
+    }).from(regularizacaoRecebimentos)
+      .leftJoin(bpoLancamentos, eq(bpoLancamentos.id, regularizacaoRecebimentos.bpoLancamentoId))
+      .leftJoin(users, eq(users.id, regularizacaoRecebimentos.criadoPor))
+      .where(eq(regularizacaoRecebimentos.regularizacaoId, id))
+      .orderBy(desc(regularizacaoRecebimentos.data), desc(regularizacaoRecebimentos.id)),
+  ]);
+  const financeiro = calcularFinanceiroRegularizacao(
+    itens.map((i) => ({ id: i.id, nome: i.nome, grupo: i.grupo, ordem: i.ordem, previsto: i.previsto })),
+    recebimentos.map((r) => ({ itemId: r.rec.itemId, valor: r.rec.valor, status: r.rec.status })),
+  );
+  const nomeItem = new Map(itens.map((i) => [i.id, i.nome]));
+  return {
+    etapas,
+    progressoEtapas: progressoDasEtapas(etapas),
+    financeiro,
+    itensComRecebimento: Array.from(new Set(recebimentos.map((r) => r.rec.itemId))),
+    recebimentos: recebimentos.map((r) => ({
+      ...r.rec,
+      item: nomeItem.get(r.rec.itemId) ?? "",
+      bpoDescricao: r.bpoDescricao,
+      autor: r.autor,
+    })),
+  };
+}
+
+async function etapaOuErro(id: number) {
+  const [etapa] = await getDb().select().from(regularizacaoEtapas).where(eq(regularizacaoEtapas.id, id)).limit(1);
+  if (!etapa) throw new TRPCError({ code: "NOT_FOUND", message: "Etapa não encontrada" });
+  return etapa;
+}
+
+const etapaCampos = {
+  nome: z.string().trim().min(2, "Informe o nome da etapa.").max(LIMITE_NOME_ETAPA),
+  progresso: z.number().int().min(0).max(100),
+  observacoes: z.string().trim().max(LIMITE_OBSERVACAO_ETAPA).nullable().optional(),
+};
+
+const itemCampos = {
+  nome: z.string().trim().min(2, "Informe o nome do item.").max(LIMITE_NOME_ITEM),
+  grupo: z.enum(GRUPOS_FINANCEIROS),
+  previsto: dinheiro,
+};
+
 export const regularizacaoRouter = router({
   list: adminProcedure
-    .input(z.object({ status: statusSchema.optional() }).optional())
+    .input(z.object({ status: z.string().max(40).optional() }).optional())
     .query(async ({ input }) => {
-      const db = getDb();
-      const records = await db
+      return getDb()
         .select()
         .from(regularizacoes)
         .where(input?.status ? eq(regularizacoes.status, input.status) : undefined)
         .orderBy(desc(regularizacoes.updatedAt));
-      const documents = await db.select().from(regularizacaoDocuments);
-
-      return records.map(record => ({
-        ...record,
-        documents: documents.filter(document => document.regularizacaoId === record.id),
-      }));
     }),
 
   get: adminProcedure
-    .input(z.object({ id: z.number().int().positive() }))
+    .input(z.object({ id: idSchema }))
     .query(async ({ input }) => {
       const [record] = await getDb()
         .select()
@@ -86,12 +146,7 @@ export const regularizacaoRouter = router({
       if (!record) {
         throw new TRPCError({ code: "NOT_FOUND", message: "Regularização não encontrada" });
       }
-      const documents = await getDb()
-        .select()
-        .from(regularizacaoDocuments)
-        .where(eq(regularizacaoDocuments.regularizacaoId, input.id))
-        .orderBy(desc(regularizacaoDocuments.updatedAt));
-      return { ...record, documents };
+      return { ...record, ...(await carregarProcesso(input.id)) };
     }),
 
   create: adminProcedure
@@ -102,7 +157,6 @@ export const regularizacaoRouter = router({
         .values({
           ...input,
           serviceValue: input.serviceValue?.toString(),
-          paidValue: input.paidValue?.toString(),
         })
         .returning();
       await attachCompletedProcess("regularizacoes", created.leadId, created.id);
@@ -110,9 +164,9 @@ export const regularizacaoRouter = router({
     }),
 
   update: adminProcedure
-    .input(regularizacaoFields.partial().extend({ id: z.number().int().positive() }))
+    .input(regularizacaoFields.partial().extend({ id: idSchema }))
     .mutation(async ({ input }) => {
-      const { id, serviceValue, paidValue, ...requested } = input;
+      const { id, serviceValue, ...requested } = input;
       // EPIC-017: com lead vinculado, cliente e telefone vêm do CRM e não são
       // sobrescritos pelo módulo (o cadastro do cliente é único).
       const [current] = await getDb()
@@ -130,7 +184,6 @@ export const regularizacaoRouter = router({
           ...fields,
           ...clientFields,
           ...(serviceValue !== undefined ? { serviceValue: serviceValue.toString() } : {}),
-          ...(paidValue !== undefined ? { paidValue: paidValue.toString() } : {}),
           updatedAt: new Date(),
         })
         .where(eq(regularizacoes.id, id))
@@ -143,108 +196,184 @@ export const regularizacaoRouter = router({
     }),
 
   remove: adminProcedure
-    .input(z.object({ id: z.number().int().positive() }))
+    .input(z.object({ id: idSchema }))
     .mutation(async ({ input }) => {
       await assertRegularizacaoExists(input.id);
-      await getDb().delete(regularizacaoDocuments).where(eq(regularizacaoDocuments.regularizacaoId, input.id));
-      await getDb().delete(regularizacoes).where(eq(regularizacoes.id, input.id));
+      const [recebimento] = await getDb().select({ id: regularizacaoRecebimentos.id }).from(regularizacaoRecebimentos)
+        .where(eq(regularizacaoRecebimentos.regularizacaoId, input.id)).limit(1);
+      if (recebimento) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "Este processo tem recebimentos registrados e não pode ser excluído." });
+      }
+      try {
+        await getDb().delete(regularizacaoDocuments).where(eq(regularizacaoDocuments.regularizacaoId, input.id));
+        await getDb().delete(regularizacoes).where(eq(regularizacoes.id, input.id));
+      } catch (err) {
+        erroDoBanco(err);
+      }
       return { success: true };
     }),
 
-  documents: router({
-    create: adminProcedure
-      .input(z.object({
-        regularizacaoId: z.number().int().positive(),
-        name: z.string().trim().min(2).max(255),
-        status: documentStatusSchema.optional(),
-        observation: z.string().optional(),
-      }))
+  // ── Etapas do Processo (30) ─────────────────────────────────────────
+  etapas: router({
+    criar: adminProcedure
+      .input(z.object({ regularizacaoId: idSchema, ...etapaCampos }))
       .mutation(async ({ input }) => {
         await assertRegularizacaoExists(input.regularizacaoId);
-        const [created] = await getDb().insert(regularizacaoDocuments).values(input).returning();
-        return created;
+        const [criada] = await getDb().insert(regularizacaoEtapas).values({
+          regularizacaoId: input.regularizacaoId,
+          nome: input.nome,
+          progresso: input.progresso,
+          observacoes: input.observacoes || null,
+          ordem: sql`COALESCE((SELECT MAX(${regularizacaoEtapas.ordem}) FROM ${regularizacaoEtapas} WHERE ${regularizacaoEtapas.regularizacaoId} = ${input.regularizacaoId}), 0) + 1`,
+        }).returning();
+        return criada;
       }),
 
-    update: adminProcedure
+    editar: adminProcedure
+      .input(z.object({ id: idSchema, ...etapaCampos }))
+      .mutation(async ({ input }) => {
+        const [alterada] = await getDb().update(regularizacaoEtapas)
+          .set({ nome: input.nome, progresso: input.progresso, observacoes: input.observacoes || null, updatedAt: new Date() })
+          .where(eq(regularizacaoEtapas.id, input.id))
+          .returning({ id: regularizacaoEtapas.id });
+        if (!alterada) throw new TRPCError({ code: "NOT_FOUND", message: "Etapa não encontrada" });
+        return { success: true };
+      }),
+
+    excluir: adminProcedure
+      .input(z.object({ id: idSchema }))
+      .mutation(async ({ input }) => {
+        const [apagada] = await getDb().delete(regularizacaoEtapas)
+          .where(eq(regularizacaoEtapas.id, input.id))
+          .returning({ id: regularizacaoEtapas.id });
+        if (!apagada) throw new TRPCError({ code: "NOT_FOUND", message: "Etapa não encontrada" });
+        return { success: true };
+      }),
+
+    mover: adminProcedure
+      .input(z.object({ id: idSchema, direcao: z.union([z.literal(-1), z.literal(1)]) }))
+      .mutation(async ({ input }) => {
+        const etapa = await etapaOuErro(input.id);
+        const db = getDb();
+        const atuais = await db.select({ id: regularizacaoEtapas.id }).from(regularizacaoEtapas)
+          .where(eq(regularizacaoEtapas.regularizacaoId, etapa.regularizacaoId))
+          .orderBy(asc(regularizacaoEtapas.ordem), asc(regularizacaoEtapas.id));
+        const nova = reordenarEtapas(atuais, input.id, input.direcao);
+        const [primeira, ...demais] = nova.map((e, i) =>
+          db.update(regularizacaoEtapas).set({ ordem: i + 1 }).where(eq(regularizacaoEtapas.id, e.id)));
+        if (primeira) await db.batch([primeira, ...demais]);
+        return { success: true };
+      }),
+  }),
+
+  // ── Tabela financeira (31) ──────────────────────────────────────────
+  financeiro: router({
+    criarItem: adminProcedure
+      .input(z.object({ regularizacaoId: idSchema, ...itemCampos }))
+      .mutation(async ({ input }) => {
+        await assertRegularizacaoExists(input.regularizacaoId);
+        const [criado] = await getDb().insert(regularizacaoItensFinanceiros).values({
+          regularizacaoId: input.regularizacaoId,
+          nome: input.nome,
+          grupo: input.grupo,
+          previsto: input.previsto,
+          ordem: sql`COALESCE((SELECT MAX(${regularizacaoItensFinanceiros.ordem}) FROM ${regularizacaoItensFinanceiros} WHERE ${regularizacaoItensFinanceiros.regularizacaoId} = ${input.regularizacaoId} AND ${regularizacaoItensFinanceiros.ordem} < 99), 0) + 1`,
+        }).returning();
+        return criado;
+      }),
+
+    editarItem: adminProcedure
+      .input(z.object({ id: idSchema, ...itemCampos }))
+      .mutation(async ({ input }) => {
+        const [alterado] = await getDb().update(regularizacaoItensFinanceiros)
+          .set({ nome: input.nome, grupo: input.grupo, previsto: input.previsto, updatedAt: new Date() })
+          .where(eq(regularizacaoItensFinanceiros.id, input.id))
+          .returning({ id: regularizacaoItensFinanceiros.id });
+        if (!alterado) throw new TRPCError({ code: "NOT_FOUND", message: "Item não encontrado" });
+        return { success: true };
+      }),
+
+    excluirItem: adminProcedure
+      .input(z.object({ id: idSchema }))
+      .mutation(async ({ input }) => {
+        try {
+          const [apagado] = await getDb().delete(regularizacaoItensFinanceiros)
+            .where(eq(regularizacaoItensFinanceiros.id, input.id))
+            .returning({ id: regularizacaoItensFinanceiros.id });
+          if (!apagado) throw new TRPCError({ code: "NOT_FOUND", message: "Item não encontrado" });
+        } catch (err) {
+          erroDoBanco(err);
+        }
+        return { success: true };
+      }),
+
+    /** Receitas do BPO já recebidas e ainda com saldo (descontado o que obras e regularizações já usaram). */
+    bpoDisponiveis: adminProcedure.query(async () => {
+      const linhas = await getDb().select({
+        id: bpoLancamentos.id,
+        descricao: bpoLancamentos.descricao,
+        valor: bpoLancamentos.valor,
+        pagoEm: bpoLancamentos.pagoEm,
+        alocado: sql<string>`bpo_valor_alocado(${bpoLancamentos.id}, NULL, NULL)`,
+      }).from(bpoLancamentos)
+        .where(and(eq(bpoLancamentos.pago, true), sql`${bpoLancamentos.tipo} <> 'despesa'`))
+        .orderBy(asc(bpoLancamentos.vencimento));
+      return linhas
+        .map((l) => ({ ...l, disponivelCentavos: centavosDe(l.valor)! - centavosDe(l.alocado)! }))
+        .filter((l) => l.disponivelCentavos > 0);
+    }),
+
+    adicionarRecebimento: adminProcedure
       .input(z.object({
-        id: z.number().int().positive(),
-        status: documentStatusSchema.optional(),
-        observation: z.string().optional(),
+        regularizacaoId: idSchema,
+        itemId: idSchema,
+        valor: dinheiro.refine((v) => Number(v) > 0, "O valor deve ser maior que zero"),
+        data: dataIso,
+        observacao: z.string().trim().max(2000).optional(),
+        bpoLancamentoId: idSchema.optional(),
       }))
-      .mutation(async ({ input }) => {
-        const { id, ...fields } = input;
-        const [updated] = await getDb()
-          .update(regularizacaoDocuments)
-          .set({ ...fields, updatedAt: new Date() })
-          .where(eq(regularizacaoDocuments.id, id))
-          .returning();
-        if (!updated) {
-          throw new TRPCError({ code: "NOT_FOUND", message: "Documento não encontrado" });
+      .mutation(async ({ input, ctx }) => {
+        try {
+          const [criado] = await getDb().insert(regularizacaoRecebimentos).values({
+            regularizacaoId: input.regularizacaoId,
+            itemId: input.itemId,
+            valor: input.valor,
+            data: input.data,
+            observacao: input.observacao || null,
+            origem: input.bpoLancamentoId ? "bpo" : "manual",
+            bpoLancamentoId: input.bpoLancamentoId ?? null,
+            criadoPor: ctx.user.id,
+          }).returning();
+          return criado;
+        } catch (err) {
+          if (String(err instanceof Error ? err.message : err).includes("regularizacao_recebimentos_item_fk"))
+            throw new TRPCError({ code: "BAD_REQUEST", message: "O item escolhido não pertence a este processo." });
+          erroDoBanco(err);
         }
-        return updated;
       }),
 
-    upload: adminProcedure
-      .input(z.object({
-        id: z.number().int().positive(),
-        fileName: z.string().trim().min(1).max(255),
-        mimeType: z.enum(["application/pdf", "image/jpeg", "image/png"]),
-        base64: z.string().min(1),
-      }))
-      .mutation(async ({ input }) => {
-        const [document] = await getDb()
-          .select()
-          .from(regularizacaoDocuments)
-          .where(eq(regularizacaoDocuments.id, input.id))
-          .limit(1);
-        if (!document) {
-          throw new TRPCError({ code: "NOT_FOUND", message: "Documento não encontrado" });
-        }
-
-        const maxSize = driveConfigured() ? 3 * 1024 * 1024 : 10 * 1024 * 1024;
-        const buffer = Buffer.from(input.base64, "base64");
-        if (buffer.length > maxSize) {
-          throw new TRPCError({ code: "PAYLOAD_TOO_LARGE", message: driveConfigured() ? "O arquivo deve ter no máximo 3 MiB" : "O arquivo deve ter no máximo 10 MB" });
-        }
-        const safeName = input.fileName.replace(/[^a-zA-Z0-9._-]/g, "-");
-        const [regularizacao] = await getDb().select({ leadId: regularizacoes.leadId })
-          .from(regularizacoes).where(eq(regularizacoes.id, document.regularizacaoId)).limit(1);
-        const fields = regularizacao?.leadId && driveConfigured()
-          ? { driveFileId: await uploadPrivateDocument(regularizacao.leadId, null, "regularizacao", safeName, input.mimeType, buffer), fileUrl: null }
-          : { fileUrl: (await storagePut(
-              `regularizacoes/${document.regularizacaoId}/${Date.now()}-${safeName}`,
-              buffer,
-              input.mimeType,
-            )).url, driveFileId: null };
-        const [updated] = await getDb()
-          .update(regularizacaoDocuments)
-          .set({ ...fields, uploadedFileName: input.fileName, uploadedMimeType: input.mimeType, status: "received", updatedAt: new Date() })
-          .where(and(
-            eq(regularizacaoDocuments.id, input.id),
-            eq(regularizacaoDocuments.regularizacaoId, document.regularizacaoId),
-          ))
-          .returning();
-        return updated;
+    cancelarRecebimento: adminProcedure
+      .input(z.object({ id: idSchema, motivo: z.string().trim().min(3, "Informe o motivo do cancelamento").max(500) }))
+      .mutation(async ({ input, ctx }) => {
+        const [alterado] = await getDb().update(regularizacaoRecebimentos)
+          .set({ status: "cancelado", motivoCancelamento: input.motivo, atualizadoPor: ctx.user.id })
+          .where(and(eq(regularizacaoRecebimentos.id, input.id), eq(regularizacaoRecebimentos.status, "confirmado")))
+          .returning({ id: regularizacaoRecebimentos.id });
+        if (!alterado) throw new TRPCError({ code: "BAD_REQUEST", message: "Recebimento inexistente ou já cancelado." });
+        return { success: true };
       }),
 
-    content: adminProcedure
-      .input(z.object({ id: z.number().int().positive() }))
-      .query(async ({ input }) => {
-        const [document] = await getDb().select().from(regularizacaoDocuments).where(eq(regularizacaoDocuments.id, input.id)).limit(1);
-        if (!document?.driveFileId) throw new TRPCError({ code: "NOT_FOUND" });
-        const data = await readPrivateDocument(document.driveFileId);
-        return { fileName: document.uploadedFileName ?? document.name, mimeType: document.uploadedMimeType ?? "application/octet-stream", base64: data.toString("base64") };
-      }),
-
-    remove: adminProcedure
-      .input(z.object({ id: z.number().int().positive() }))
-      .mutation(async ({ input }) => {
-        const deleted = await getDb()
-          .delete(regularizacaoDocuments)
-          .where(eq(regularizacaoDocuments.id, input.id))
-          .returning({ id: regularizacaoDocuments.id });
-        if (!deleted.length) {
-          throw new TRPCError({ code: "NOT_FOUND", message: "Documento não encontrado" });
+    reativarRecebimento: adminProcedure
+      .input(z.object({ id: idSchema }))
+      .mutation(async ({ input, ctx }) => {
+        try {
+          const [alterado] = await getDb().update(regularizacaoRecebimentos)
+            .set({ status: "confirmado", motivoCancelamento: null, atualizadoPor: ctx.user.id })
+            .where(and(eq(regularizacaoRecebimentos.id, input.id), eq(regularizacaoRecebimentos.status, "cancelado")))
+            .returning({ id: regularizacaoRecebimentos.id });
+          if (!alterado) throw new TRPCError({ code: "BAD_REQUEST", message: "Recebimento inexistente ou já confirmado." });
+        } catch (err) {
+          erroDoBanco(err);
         }
         return { success: true };
       }),

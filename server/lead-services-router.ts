@@ -250,7 +250,7 @@ async function ensureLinkedRecord(service: typeof leadServices.$inferSelect, lea
       clientName: contact.name,
       clientPhone: contact.phone || null,
       type: "",
-      status: "analysis",
+      status: "em_analise",
       address: leadFullAddress(lead),
       responsible: "",
       leadId: lead.id,

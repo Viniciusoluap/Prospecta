@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import { Link } from "wouter";
-import { ArrowLeft, Building2, FileText, Pencil, Plus, Upload } from "lucide-react";
+import { ArrowLeft, Building2, Pencil } from "lucide-react";
 import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -14,18 +14,12 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Textarea } from "@/components/ui/textarea";
 import { trpc } from "@/lib/trpc";
 import { LinkedServiceQueue } from "./LinkedServiceQueue";
+import { EtapasProcesso, FinanceiroRegularizacaoTabela } from "@/components/regularizacao/ProcessoRegularizacao";
+import { STATUS_PROCESSO, rotuloStatusProcesso, type StatusProcesso } from "@shared/financeiro/regularizacao";
 
-const STATUSES = ["analysis", "documentation", "protocol", "registry", "completed", "cancelled"] as const;
-type Status = (typeof STATUSES)[number];
-
-const STATUS_LABELS: Record<Status, string> = {
-  analysis: "Em análise",
-  documentation: "Documentação",
-  protocol: "Protocolado",
-  registry: "Em cartório",
-  completed: "Concluído",
-  cancelled: "Cancelado",
-};
+// EPIC-020 Lote 6 (30): Status do Processo com 3 opções, independente das etapas.
+const STATUSES = STATUS_PROCESSO;
+type Status = StatusProcesso;
 
 // EPIC-017 (story 1.3): processos nascem do vínculo no CRM; aqui o profissional
 // completa apenas os dados técnicos. Cliente e telefone vêm do lead.
@@ -46,21 +40,11 @@ function currency(value: string | null) {
   return formatCurrency(Number(value ?? 0));
 }
 
-function fileToBase64(file: File): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onerror = () => reject(new Error("Não foi possível ler o arquivo"));
-    reader.onload = () => resolve(String(reader.result).split(",")[1] ?? "");
-    reader.readAsDataURL(file);
-  });
-}
-
 export default function AdminRegularizacoes() {
   const [filter, setFilter] = useState<Status | "all">("all");
   const [selectedId, setSelectedId] = useState<number>();
   const [editOpen, setEditOpen] = useState(false);
   const [form, setForm] = useState(EMPTY_FORM);
-  const [documentName, setDocumentName] = useState("");
 
   const listQuery = trpc.regularizacao.list.useQuery(filter === "all" ? undefined : { status: filter });
   const detailQuery = trpc.regularizacao.get.useQuery(
@@ -80,38 +64,11 @@ export default function AdminRegularizacoes() {
     onSuccess: async () => { toast.success("Processo atualizado"); setEditOpen(false); await refresh(); },
     onError: error => toast.error(error.message),
   });
-  const createDocument = trpc.regularizacao.documents.create.useMutation({
-    onSuccess: async () => { setDocumentName(""); toast.success("Documento incluído"); await refresh(); },
-    onError: error => toast.error(error.message),
-  });
-  const updateDocument = trpc.regularizacao.documents.update.useMutation({
-    onSuccess: refresh,
-    onError: error => toast.error(error.message),
-  });
-  const uploadDocument = trpc.regularizacao.documents.upload.useMutation({
-    onSuccess: async () => { toast.success("Arquivo enviado"); await refresh(); },
-    onError: error => toast.error(error.message),
-  });
-
-  async function openDocument(id: number, fallbackName: string) {
-    try {
-      const content = await utils.regularizacao.documents.content.fetch({ id });
-      const bytes = Uint8Array.from(atob(content.base64), char => char.charCodeAt(0));
-      const url = URL.createObjectURL(new Blob([bytes], { type: content.mimeType }));
-      const link = document.createElement("a");
-      link.href = url;
-      link.download = content.fileName || fallbackName || "documento";
-      document.body.appendChild(link);
-      link.click();
-      link.remove();
-      window.setTimeout(() => URL.revokeObjectURL(url), 60_000);
-    } catch (error) { toast.error(error instanceof Error ? error.message : "Falha ao consultar documento"); }
-  }
 
   const records = listQuery.data ?? [];
   const totals = useMemo(() => ({
-    active: records.filter(record => !["completed", "cancelled"].includes(record.status)).length,
-    completed: records.filter(record => record.status === "completed").length,
+    active: records.filter(record => !["concluido", "cancelado"].includes(record.status)).length,
+    completed: records.filter(record => record.status === "concluido").length,
     value: records.reduce((sum, record) => sum + Number(record.serviceValue), 0),
   }), [records]);
   const selected = detailQuery.data;
@@ -122,7 +79,7 @@ export default function AdminRegularizacoes() {
         <div className="mx-auto flex max-w-7xl flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
           <div className="flex min-w-0 flex-col gap-2 sm:flex-row sm:items-center sm:gap-4">
             <Link href="/admin"><Button variant="ghost" className="w-fit gap-2 text-gray-200 hover:text-white"><ArrowLeft className="h-4 w-4" />Voltar</Button></Link>
-            <div className="min-w-0"><h1 className="text-2xl font-bold text-[#C9A961]">Regularizações</h1><p className="text-sm text-gray-400">Processos imobiliários e documentos</p></div>
+            <div className="min-w-0"><h1 className="text-2xl font-bold text-[#C9A961]">Regularizações</h1><p className="text-sm text-gray-400">Processos imobiliários, etapas e financeiro</p></div>
           </div>
         </div>
       </header>
@@ -131,7 +88,7 @@ export default function AdminRegularizacoes() {
         <LinkedServiceQueue module="regularizacoes" title="Regularizações" onRecordsCreated={() => void refresh()} />
         <p className="rounded-md border border-white/10 bg-[#243345] p-3 text-sm text-gray-200">
           Novos processos nascem do CRM: no cadastro do lead, vincule o serviço “Regularização imobiliária”.
-          O processo aparece aqui com os dados do cliente; complete tipo, responsável, matrícula e valores em “Editar dados do processo”.
+          O processo aparece aqui com os dados do cliente; complete tipo, responsável, matrícula e valor do serviço em “Editar dados do processo”.
         </p>
         <div className="grid gap-4 sm:grid-cols-3">
           <Metric label="Processos ativos" value={String(totals.active)} />
@@ -143,7 +100,7 @@ export default function AdminRegularizacoes() {
           <Label>Status</Label>
           <Select value={filter} onValueChange={value => setFilter(value as Status | "all")}>
             <SelectTrigger className="bg-[#2C3E50]"><SelectValue /></SelectTrigger>
-            <SelectContent><SelectItem value="all">Todos</SelectItem>{STATUSES.map(status => <SelectItem key={status} value={status}>{STATUS_LABELS[status]}</SelectItem>)}</SelectContent>
+            <SelectContent><SelectItem value="all">Todos</SelectItem>{STATUSES.map(status => <SelectItem key={status} value={status}>{rotuloStatusProcesso(status)}</SelectItem>)}</SelectContent>
           </Select>
         </div>
 
@@ -156,7 +113,7 @@ export default function AdminRegularizacoes() {
               {records.map(record => (
                 <div key={record.id}>
                 <button key={record.id} onClick={() => setSelectedId(record.id)} className={`w-full rounded-md border p-3 text-left ${selectedId === record.id ? "border-[#C9A961]" : "border-white/10"}`}>
-                  <div className="flex items-start justify-between gap-2"><strong>{record.clientName}</strong><Badge variant="secondary">{STATUS_LABELS[record.status as Status] ?? record.status}</Badge></div>
+                  <div className="flex items-start justify-between gap-2"><strong>{record.clientName}</strong><Badge variant="secondary">{rotuloStatusProcesso(record.status)}</Badge></div>
                   {!record.type.trim() || !record.responsible.trim()
                     ? <p className="mt-1 text-sm font-semibold text-amber-300">Aguardando dados técnicos</p>
                     : <p className="mt-1 text-sm text-gray-300">{record.type} · {record.responsible}</p>}
@@ -200,42 +157,22 @@ export default function AdminRegularizacoes() {
                     <div><p className="text-xs text-gray-300">Tipo / responsável</p><p>{selected.type || "—"} · {selected.responsible || "—"}</p></div>
                     <div><p className="text-xs text-gray-300">Imóvel</p><p>{selected.address || "—"}</p></div>
                     <div><p className="text-xs text-gray-300">Matrícula / cartório</p><p>{selected.registration || "—"} · {selected.registryOffice || "—"}</p></div>
-                    <Field label="Etapa do processo">
+                    <Field label="Status do processo">
                       <Select value={selected.status} onValueChange={status => updateMutation.mutate({ id: selected.id, status: status as Status })}>
-                        <SelectTrigger className="bg-[#1A2332]"><SelectValue /></SelectTrigger>
-                        <SelectContent>{STATUSES.map(status => <SelectItem key={status} value={status}>{STATUS_LABELS[status]}</SelectItem>)}</SelectContent>
+                        <SelectTrigger className="bg-[#1A2332]"><SelectValue>{rotuloStatusProcesso(selected.status)}</SelectValue></SelectTrigger>
+                        <SelectContent>{STATUSES.map(status => <SelectItem key={status} value={status}>{rotuloStatusProcesso(status)}</SelectItem>)}</SelectContent>
                       </Select>
-                    </Field>
-                    <Field label="Valor pago">
-                      <CurrencyInput className="bg-[#1A2332]" defaultValue={Number(selected.paidValue)} onBlurValue={value => updateMutation.mutate({ id: selected.id, paidValue: value })} />
                     </Field>
                   </div>
 
-                  <section className="space-y-3">
-                    <h2 className="flex items-center gap-2 font-semibold text-[#C9A961]"><FileText className="h-4 w-4" />Documentos</h2>
-                    <div className="flex gap-2"><Input className="bg-[#1A2332]" placeholder="Nome do documento exigido" value={documentName} onChange={e => setDocumentName(e.target.value)} /><Button variant="outline" disabled={!documentName} onClick={() => createDocument.mutate({ regularizacaoId: selected.id, name: documentName })}><Plus className="h-4 w-4" /></Button></div>
-                    {selected.documents.map(document => (
-                      <div key={document.id} className="rounded-md border border-white/10 p-3">
-                        <div className="flex flex-wrap items-center justify-between gap-3">
-                          <div><p className="font-medium">{document.name}</p>{document.driveFileId
-                            ? <button type="button" className="text-sm text-[#C9A961] underline" onClick={() => void openDocument(document.id, document.name)}>Abrir arquivo</button>
-                            : document.fileUrl && <a className="text-sm text-[#C9A961] underline" href={document.fileUrl} target="_blank" rel="noreferrer">Abrir arquivo</a>}</div>
-                          <div className="flex items-center gap-2">
-                            <Select value={document.status} onValueChange={status => updateDocument.mutate({ id: document.id, status: status as "pending" | "requested" | "received" | "approved" | "rejected" })}>
-                              <SelectTrigger className="w-36 bg-[#1A2332]"><SelectValue /></SelectTrigger>
-                              <SelectContent>{["pending", "requested", "received", "approved", "rejected"].map(status => <SelectItem key={status} value={status}>{status}</SelectItem>)}</SelectContent>
-                            </Select>
-                            <label className="cursor-pointer rounded-md border border-white/20 p-2" title="Enviar arquivo"><Upload className="h-4 w-4" /><input className="hidden" type="file" accept="application/pdf,image/jpeg,image/png" onChange={async event => {
-                              const file = event.target.files?.[0];
-                              if (!file) return;
-                              if (file.size > 10 * 1024 * 1024) return toast.error("O arquivo deve ter no máximo 10 MB");
-                              uploadDocument.mutate({ id: document.id, fileName: file.name, mimeType: file.type as "application/pdf" | "image/jpeg" | "image/png", base64: await fileToBase64(file) });
-                            }} /></label>
-                          </div>
-                        </div>
-                      </div>
-                    ))}
-                  </section>
+                  <EtapasProcesso regularizacaoId={selected.id} etapas={selected.etapas} progressoEtapas={selected.progressoEtapas} onMudou={() => void refresh()} />
+                  <FinanceiroRegularizacaoTabela
+                    regularizacaoId={selected.id}
+                    financeiro={selected.financeiro}
+                    recebimentos={selected.recebimentos}
+                    itensComRecebimento={selected.itensComRecebimento}
+                    onMudou={() => void refresh()}
+                  />
                 </div>
               )}
             </CardContent>

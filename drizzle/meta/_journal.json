@@ -323,6 +323,13 @@
       "when": 1791858700000,
       "tag": "0045_incorporation_units",
       "breakpoints": true
+    },
+    {
+      "idx": 46,
+      "version": "7",
+      "when": 1791900000000,
+      "tag": "0046_lote6_regularizacao",
+      "breakpoints": true
     }
   ]
 }
