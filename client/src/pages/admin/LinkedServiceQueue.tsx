@@ -4,17 +4,20 @@ import { trpc } from "@/lib/trpc";
 
 type Module = "obras" | "tarefas" | "regularizacoes" | "comissoes" | "projetos" | "avaliacoes" | "financiamentos";
 
-/** Módulos em que o vínculo com o lead já cria o registro real (EPIC-017). */
-const AUTO_RECORD_MODULES = ["projetos", "regularizacoes"] as const;
+/**
+ * Módulos em que o vínculo com o lead já cria o registro real (EPIC-017).
+ * Financiamentos entram pelo pedido A7: vínculos antigos viram registros ao abrir a fila.
+ */
+const AUTO_RECORD_MODULES = ["projetos", "regularizacoes", "financiamentos"] as const;
 type AutoRecordModule = (typeof AUTO_RECORD_MODULES)[number];
 const isAutoRecordModule = (module: Module): module is AutoRecordModule =>
   (AUTO_RECORD_MODULES as readonly string[]).includes(module);
 
 /**
  * Demandas vinculadas no CRM que ainda não têm registro operacional.
- * - Projetos/Regularizações: o registro é criado automaticamente com os dados
+ * - Projetos/Regularizações/Financiamentos: o registro é criado automaticamente com os dados
  *   do lead (inclusive para demandas antigas), sem cadastro manual.
- * - Avaliações/Financiamentos: `onStart` abre o formulário já com o lead
+ * - Avaliações: `onStart` abre o formulário já com o lead
  *   escolhido; o profissional informa só os dados técnicos do serviço.
  */
 export function LinkedServiceQueue({
