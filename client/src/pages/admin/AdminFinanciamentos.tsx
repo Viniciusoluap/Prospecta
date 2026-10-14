@@ -1,5 +1,5 @@
 import { AcoesExcluir } from "@/components/AcoesExcluir";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Link } from "wouter";
 import {
   ArrowLeft,
@@ -55,6 +55,97 @@ function moeda(valor: string | number | null | undefined) {
 
 function numero(formData: FormData, nome: string) {
   return Number(formData.get(nome) || 0);
+}
+
+type ItemLista = {
+  id: number;
+  leadId: number | null;
+  clienteNome: string;
+  imovel: string | null;
+  banco: Banco | null;
+  status: Status;
+  valorImovel: string;
+  valorFinanciado: string;
+};
+
+/**
+ * Pedido 14/10/2026: etapa, valor total e valor financiado editados direto na
+ * lista, sem abrir janela. A etapa é só do financiamento (não muda o lead no CRM).
+ */
+function CartaoFinanciamento({ financiamento, checklistTotal, checklistConcluido, onEtapa, salvandoEtapa, onDetalhes }: {
+  financiamento: ItemLista;
+  checklistTotal: number;
+  checklistConcluido: number;
+  onEtapa: (status: Status) => void;
+  salvandoEtapa: boolean;
+  onDetalhes: () => void;
+}) {
+  const utils = trpc.useUtils();
+  const [valorTotal, setValorTotal] = useState(Number(financiamento.valorImovel ?? 0));
+  const [valorFinanciado, setValorFinanciado] = useState(Number(financiamento.valorFinanciado ?? 0));
+  useEffect(() => {
+    setValorTotal(Number(financiamento.valorImovel ?? 0));
+    setValorFinanciado(Number(financiamento.valorFinanciado ?? 0));
+  }, [financiamento.valorImovel, financiamento.valorFinanciado]);
+  const alterado = valorTotal !== Number(financiamento.valorImovel ?? 0) || valorFinanciado !== Number(financiamento.valorFinanciado ?? 0);
+  const invalido = valorFinanciado > valorTotal;
+  const salvarValores = trpc.financiamentos.atualizarValores.useMutation({
+    onSuccess: async () => {
+      await Promise.all([utils.financiamentos.list.invalidate(), utils.financiamentos.getById.invalidate()]);
+      toast.success("Valores salvos");
+    },
+    onError: erro => toast.error(erro.message),
+  });
+  return (
+    <div className="rounded-lg bg-[#1A2332] p-4 text-white">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div className="min-w-[220px] flex-1">
+          <p className="font-semibold text-white">{financiamento.clienteNome}</p>
+          <p className="text-xs text-gray-300">
+            {financiamento.imovel || "Imóvel a definir"} •{" "}
+            {financiamento.banco ? FINANCIAMENTO_BANCO_LABELS[financiamento.banco] : "Banco a definir"}
+          </p>
+          <p className="mt-1 text-xs text-gray-300">Checklist {checklistConcluido}/{checklistTotal}</p>
+        </div>
+        <div className="w-full sm:w-56">
+          <Label className="text-xs text-gray-300">Etapa do financiamento</Label>
+          <Select value={financiamento.status} onValueChange={valor => onEtapa(valor as Status)} disabled={salvandoEtapa}>
+            <SelectTrigger className="mt-1 border-[#C9A961]/40 bg-[#2C3E50] text-white" aria-label={`Etapa de ${financiamento.clienteNome}`}>
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {FINANCIAMENTO_STATUS.map(status => (
+                <SelectItem key={status} value={status}>{FINANCIAMENTO_STATUS_LABELS[status]}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+      </div>
+      <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-[1fr_1fr_auto] sm:items-end">
+        <div className="min-w-0">
+          <Label className="text-xs text-gray-300">Valor total</Label>
+          <CurrencyInput value={valorTotal} onChange={setValorTotal} aria-label={`Valor total de ${financiamento.clienteNome}`} className="mt-1 border-[#C9A961]/40 bg-[#2C3E50] text-white" />
+        </div>
+        <div className="min-w-0">
+          <Label className="text-xs text-gray-300">Valor financiado</Label>
+          <CurrencyInput value={valorFinanciado} onChange={setValorFinanciado} aria-label={`Valor financiado de ${financiamento.clienteNome}`} className="mt-1 border-[#C9A961]/40 bg-[#2C3E50] text-white" />
+        </div>
+        <Button
+          type="button"
+          className="bg-[#C9A961] text-[#1A2332] hover:bg-[#E6CA88]"
+          disabled={!alterado || invalido || salvarValores.isPending}
+          onClick={() => salvarValores.mutate({ id: financiamento.id, valorImovel: valorTotal, valorFinanciado })}
+        >
+          Salvar valores
+        </Button>
+      </div>
+      {invalido && <p className="mt-2 text-xs text-red-300">O valor financiado não pode superar o valor total.</p>}
+      <div className="mt-3 flex flex-wrap gap-4 text-sm">
+        <button type="button" onClick={onDetalhes} className="text-[#E6CA88] underline">Checklist e demais dados</button>
+        {financiamento.leadId && <Link href={`/admin/crm/${financiamento.leadId}`} className="text-[#E6CA88] underline">Abrir cadastro CRM</Link>}
+      </div>
+    </div>
+  );
 }
 
 export default function AdminFinanciamentos() {
@@ -272,41 +363,15 @@ export default function AdminFinanciamentos() {
               <div className="space-y-2">
                 {processos.map(
                   ({ financiamento, checklistTotal, checklistConcluido }) => (
-                    <div key={financiamento.id} className="rounded-lg bg-[#1A2332]">
-                    <button
-                      onClick={() => setSelecionado(financiamento.id)}
-                      className="flex w-full flex-wrap items-center justify-between gap-3 p-4 text-left hover:ring-1 hover:ring-[#C9A961]/50"
-                    >
-                      <div className="min-w-[220px] flex-1">
-                        <p className="font-semibold">
-                          {financiamento.clienteNome}
-                        </p>
-                        <p className="text-xs text-gray-400">
-                          {financiamento.imovel || "Imóvel a definir"} •{" "}
-                          {financiamento.banco
-                            ? FINANCIAMENTO_BANCO_LABELS[financiamento.banco]
-                            : "Banco a definir"}
-                        </p>
-                      </div>
-                      <div className="text-sm">
-                        <p className="font-bold text-[#C9A961]">
-                          {moeda(financiamento.valorFinanciado)}
-                        </p>
-                        <p className="text-xs text-gray-500">
-                          de {moeda(financiamento.valorImovel)}
-                        </p>
-                      </div>
-                      <div className="min-w-32 text-sm">
-                        <p>
-                          {FINANCIAMENTO_STATUS_LABELS[financiamento.status]}
-                        </p>
-                        <p className="text-xs text-gray-500">
-                          Checklist {checklistConcluido}/{checklistTotal}
-                        </p>
-                      </div>
-                    </button>
-                    {financiamento.leadId && <Link href={`/admin/crm/${financiamento.leadId}`} className="inline-block px-4 pb-3 text-sm text-[#E6CA88] underline">Abrir cadastro CRM</Link>}
-                    </div>
+                    <CartaoFinanciamento
+                      key={financiamento.id}
+                      financiamento={financiamento}
+                      checklistTotal={checklistTotal}
+                      checklistConcluido={checklistConcluido}
+                      onEtapa={status => atualizarStatus.mutate({ id: financiamento.id, status })}
+                      salvandoEtapa={atualizarStatus.isPending}
+                      onDetalhes={() => setSelecionado(financiamento.id)}
+                    />
                   )
                 )}
               </div>
