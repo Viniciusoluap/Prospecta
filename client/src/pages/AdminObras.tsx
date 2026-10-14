@@ -10,7 +10,7 @@ import { getLoginUrl } from "@/const";
 import { useEffect, useMemo, useState } from "react";
 import { FILTROS_OBRAS_VAZIOS, filtrarObras, filtrosAtivos, type FiltrosObras, type OrdemObras } from "@shared/obras-filtro";
 import { OBRA_STATUS_TODOS } from "@shared/obra-status";
-import { AcoesExcluirCancelar } from "@/components/AcoesExcluirCancelar";
+import { AcoesExcluir } from "@/components/AcoesExcluir";
 import { Input } from "@/components/ui/input";
 import { LinkedServiceQueue } from "./admin/LinkedServiceQueue";
 
@@ -35,7 +35,6 @@ export default function AdminObras() {
     enabled: isAuthenticated && user?.role === "admin",
   });
   const excluirObra = trpc.construction.deleteProject.useMutation();
-  const cancelarObra = trpc.construction.cancelProject.useMutation();
   const [filtros, setFiltros] = useState<FiltrosObras>(FILTROS_OBRAS_VAZIOS);
   const set = <K extends keyof FiltrosObras>(campo: K, valor: FiltrosObras[K]) => setFiltros((f) => ({ ...f, [campo]: valor }));
   // Item 01: todos os filtros funcionam juntos (shared/obras-filtro, igual ao Santa Fé).
@@ -246,8 +245,7 @@ export default function AdminObras() {
                         Ver Detalhes
                       </Button>
                     </Link>
-                    <AcoesExcluirCancelar rotulo={project.title} cancelado={project.status === "cancelled"}
-                      onCancelar={async () => { await cancelarObra.mutateAsync({ projectId: project.id }); await refetch(); }}
+                    <AcoesExcluir rotulo={project.title}
                       onExcluir={async () => { await excluirObra.mutateAsync({ projectId: project.id }); await refetch(); }} />
                   </div>
                 </CardContent>

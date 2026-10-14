@@ -1,4 +1,4 @@
-import { AcoesExcluirCancelar } from "@/components/AcoesExcluirCancelar";
+import { AcoesExcluir } from "@/components/AcoesExcluir";
 import { useState } from "react";
 import { Link } from "wouter";
 import {
@@ -109,11 +109,6 @@ export default function AdminFinanciamentos() {
     onSuccess: async () => {
       await utils.financiamentos.list.invalidate();
       setSelecionado(null);
-    },
-  });
-  const cancelar = trpc.financiamentos.cancel.useMutation({
-    onSuccess: async () => {
-      await Promise.all([utils.financiamentos.list.invalidate(), utils.financiamentos.getById.invalidate()]);
     },
   });
   const atualizar = trpc.financiamentos.update.useMutation({
@@ -472,11 +467,9 @@ export default function AdminFinanciamentos() {
                 >
                   <Pencil className="mr-2 h-4 w-4" /> Editar dados e vínculos
                 </Button>
-                <AcoesExcluirCancelar
+                <AcoesExcluir
                   compacto
                   rotulo={detalhe.financiamento.clienteNome ?? "financiamento"}
-                  cancelado={detalhe.financiamento.status === "cancelado"}
-                  onCancelar={async () => { await cancelar.mutateAsync({ id: detalhe.financiamento.id }); }}
                   onExcluir={async () => { await excluir.mutateAsync({ id: detalhe.financiamento.id }); }}
                 />
               </div>

@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import { toast } from "sonner";
-import { AlertTriangle, Ban, Plus, RotateCcw, Trash2, UserPlus } from "lucide-react";
+import { AlertTriangle, Plus, Trash2, UserPlus } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -177,14 +177,9 @@ const ETAPA_LABEL: Record<string, string> = Object.fromEntries(SERVICOS_PROGRESS
 const SEM_ETAPA = "__sem_etapa__";
 
 function Historico({ titulo, movimentos, onMudou }: { titulo: string; movimentos: Movimento[]; onMudou: () => void }) {
-  const [cancelando, setCancelando] = useState<Movimento | null>(null);
-  const [motivo, setMotivo] = useState("");
-  const cancelar = trpc.obraFinanceiro.cancelarMovimento.useMutation({
-    onSuccess: () => { toast.success("Movimento cancelado. O histórico foi preservado."); setCancelando(null); setMotivo(""); onMudou(); },
-    onError: (e) => toast.error(e.message),
-  });
-  const reativar = trpc.obraFinanceiro.reativarMovimento.useMutation({
-    onSuccess: () => { toast.success("Movimento reativado."); onMudou(); },
+  const [excluindo, setExcluindo] = useState<Movimento | null>(null);
+  const excluir = trpc.obraFinanceiro.excluirMovimento.useMutation({
+    onSuccess: () => { toast.success("Lançamento excluído."); setExcluindo(null); onMudou(); },
     onError: (e) => toast.error(e.message),
   });
   return (
@@ -196,33 +191,25 @@ function Historico({ titulo, movimentos, onMudou }: { titulo: string; movimentos
         <div className="overflow-x-auto rounded-md border border-[#C9A961]/20">
           <table className="w-full text-sm">
             <thead className="bg-[#1A2332] text-gray-400 text-xs uppercase">
-              <tr><th className="p-2 text-left">Data</th><th className="p-2 text-left">Descrição</th><th className="p-2 text-left">Origem</th><th className="p-2 text-right">Valor</th><th className="p-2 text-left">Situação</th><th className="p-2" /></tr>
+              <tr><th className="p-2 text-left">Data</th><th className="p-2 text-left">Descrição</th><th className="p-2 text-left">Origem</th><th className="p-2 text-right">Valor</th><th className="p-2" /></tr>
             </thead>
             <tbody>
               {movimentos.map((m) => (
-                <tr key={m.id} className={`border-t border-white/5 ${m.status === "cancelado" ? "opacity-60 line-through decoration-gray-500" : ""}`}>
+                <tr key={m.id} className="border-t border-white/5">
                   <td className="p-2 whitespace-nowrap text-gray-300">{dataBr(m.data)}</td>
                   <td className="p-2 text-gray-200">
                     {m.descricao}
                     {m.categoria && <span className="ml-2 text-[10px] uppercase text-gray-400">{CATEGORIA_LABEL[m.categoria]}</span>}
                     {m.etapa && <span className="ml-2 text-[10px] uppercase text-gray-400">· {ETAPA_LABEL[m.etapa] ?? m.etapa}</span>}
-                    {m.observacao && <span className="block text-xs text-gray-500 no-underline">{m.observacao}</span>}
+                    {m.observacao && <span className="block text-xs text-gray-500">{m.observacao}</span>}
                     {m.bpo && <span className="block text-xs text-gray-500">BPO: {m.bpo.descricao}{m.bpo.pago === false ? " — não está mais pago!" : ""}</span>}
-                    {m.status === "cancelado" && m.motivoCancelamento && <span className="block text-xs text-red-300">Cancelado: {m.motivoCancelamento}</span>}
                   </td>
                   <td className="p-2 text-gray-400">{ORIGEM_LABEL[m.origem]}</td>
                   <td className="p-2 text-right text-gray-100 whitespace-nowrap">{brlDecimal(m.valor)}</td>
-                  <td className="p-2 text-gray-400">{m.status === "confirmado" ? "Confirmado" : "Cancelado"}</td>
                   <td className="p-2 text-right whitespace-nowrap">
-                    {m.status === "confirmado" ? (
-                      <Button size="sm" variant="ghost" className="text-red-300 hover:text-red-200" onClick={() => setCancelando(m)} aria-label={`Cancelar ${m.descricao}`}>
-                        <Ban className="h-4 w-4" />
-                      </Button>
-                    ) : (
-                      <Button size="sm" variant="ghost" className="text-[#C9A961]" disabled={reativar.isPending} onClick={() => reativar.mutate({ id: m.id })} aria-label={`Reativar ${m.descricao}`}>
-                        <RotateCcw className="h-4 w-4" />
-                      </Button>
-                    )}
+                    <Button size="sm" variant="ghost" className="text-red-300 hover:text-red-200" onClick={() => setExcluindo(m)} aria-label={`Excluir ${m.descricao}`}>
+                      <Trash2 className="h-4 w-4" />
+                    </Button>
                   </td>
                 </tr>
               ))}
@@ -230,17 +217,15 @@ function Historico({ titulo, movimentos, onMudou }: { titulo: string; movimentos
           </table>
         </div>
       )}
-      <Dialog open={!!cancelando} onOpenChange={(o) => !o && setCancelando(null)}>
+      <Dialog open={!!excluindo} onOpenChange={(o) => !o && setExcluindo(null)}>
         <DialogContent className="bg-[#1A2332] border-[#C9A961]/30 text-white">
-          <DialogHeader><DialogTitle className="text-[#C9A961]">Cancelar lançamento</DialogTitle></DialogHeader>
+          <DialogHeader><DialogTitle className="text-[#C9A961]">Excluir lançamento</DialogTitle></DialogHeader>
           <p className="text-sm text-gray-300">
-            {cancelando?.descricao} — {brlDecimal(cancelando?.valor)}. O lançamento continua no histórico e deixa de entrar nos totais.
-            {cancelando?.origem === "bpo" && " O lançamento original no BPO não é alterado (isto desvincula o BPO desta obra)."}
+            {excluindo?.descricao} — {brlDecimal(excluindo?.valor)}. O lançamento será removido definitivamente e sai dos totais. Esta ação não pode ser desfeita.
+            {excluindo?.origem === "bpo" && " O lançamento original no BPO não é alterado (só deixa de estar vinculado a esta obra)."}
           </p>
-          <Label className="text-gray-300">Motivo</Label>
-          <Textarea value={motivo} onChange={(e) => setMotivo(e.target.value)} className={campo} rows={2} />
-          <Button disabled={cancelar.isPending || motivo.trim().length < 3} onClick={() => cancelando && cancelar.mutate({ id: cancelando.id, motivo })} className="bg-red-500 hover:bg-red-600">
-            Confirmar cancelamento
+          <Button disabled={excluir.isPending} onClick={() => excluindo && excluir.mutate({ id: excluindo.id })} className="bg-red-500 hover:bg-red-600">
+            Excluir definitivamente
           </Button>
         </DialogContent>
       </Dialog>

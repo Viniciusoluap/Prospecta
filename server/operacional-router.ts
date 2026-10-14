@@ -570,7 +570,7 @@ export const comissoesRouter = router({
         )[0]
       );
     }),
-  /** Item 03: comissão paga é registro contábil e não é excluída. */
+  /** Item 03 + pedido A6: exclusão definitiva (inclusive comissão paga). */
   delete: adminProcedure
     .input(idInput)
     .mutation(async ({ ctx, input }) => {
@@ -668,7 +668,7 @@ export const projetosRouter = router({
         )[0]
       );
     }),
-  /** Item 03: exclusão definitiva (bloqueada com pagamento registrado). */
+  /** Item 03 + pedido A6: exclusão definitiva. */
   delete: adminProcedure
     .input(idInput)
     .mutation(async ({ ctx, input }) => {
@@ -676,10 +676,6 @@ export const projetosRouter = router({
       if (!excluido) throw new TRPCError({ code: "NOT_FOUND", message: "Registro não encontrado" });
       return { id: input.id };
     }),
-  /** Item 03: cancelar mantém o registro e o histórico. */
-  cancel: adminProcedure.input(idInput).mutation(async ({ input }) =>
-    found((await getDb().update(projects).set({ status: "cancelado", updatedAt: new Date() })
-      .where(eq(projects.id, input.id)).returning({ id: projects.id }))[0])),
 });
 
 export const mapaRouter = router({

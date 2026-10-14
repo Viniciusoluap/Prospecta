@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { toast } from "sonner";
-import { ArrowDown, ArrowUp, Ban, ListChecks, Pencil, Plus, RotateCcw, Trash2, Wallet } from "lucide-react";
+import { ArrowDown, ArrowUp, ListChecks, Pencil, Plus, Trash2, Wallet } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
@@ -129,17 +129,15 @@ export function FinanceiroRegularizacaoTabela({ regularizacaoId, financeiro, rec
 }) {
   const [item, setItem] = useState<{ id?: number; nome: string; grupo: GrupoFinanceiro; previsto: string | null } | null>(null);
   const [recebendo, setRecebendo] = useState<number | null>(null);
-  const [cancelando, setCancelando] = useState<Recebimento | null>(null);
-  const [motivo, setMotivo] = useState("");
+  const [excluindo, setExcluindo] = useState<Recebimento | null>(null);
   const erro = (e: { message: string }) => toast.error(e.message);
   const criarItem = trpc.regularizacao.financeiro.criarItem.useMutation({ onSuccess: () => { toast.success("Item incluído"); setItem(null); onMudou(); }, onError: erro });
   const editarItem = trpc.regularizacao.financeiro.editarItem.useMutation({ onSuccess: () => { toast.success("Item atualizado"); setItem(null); onMudou(); }, onError: erro });
   const excluirItem = trpc.regularizacao.financeiro.excluirItem.useMutation({ onSuccess: () => { toast.success("Item excluído"); onMudou(); }, onError: erro });
-  const cancelar = trpc.regularizacao.financeiro.cancelarRecebimento.useMutation({
-    onSuccess: () => { toast.success("Recebimento cancelado. O histórico foi preservado."); setCancelando(null); setMotivo(""); onMudou(); },
+  const excluir = trpc.regularizacao.financeiro.excluirRecebimento.useMutation({
+    onSuccess: () => { toast.success("Recebimento excluído."); setExcluindo(null); onMudou(); },
     onError: erro,
   });
-  const reativar = trpc.regularizacao.financeiro.reativarRecebimento.useMutation({ onSuccess: () => { toast.success("Recebimento reativado."); onMudou(); }, onError: erro });
 
   const salvarItem = () => {
     if (!item) return;
@@ -216,20 +214,17 @@ export function FinanceiroRegularizacaoTabela({ regularizacaoId, financeiro, rec
               </thead>
               <tbody>
                 {recebimentos.map((r) => (
-                  <tr key={r.id} className={`border-t border-white/5 ${r.status === "cancelado" ? "opacity-60" : ""}`}>
+                  <tr key={r.id} className="border-t border-white/5">
                     <td className="p-2 whitespace-nowrap">{dataBr(r.data)}</td>
                     <td className="p-2">
-                      <span className={r.status === "cancelado" ? "line-through" : ""}>{r.item}</span>
+                      <span>{r.item}</span>
                       {r.observacao && <span className="block text-xs text-gray-400">{r.observacao}</span>}
                       {r.bpoDescricao && <span className="block text-xs text-gray-400">BPO: {r.bpoDescricao}</span>}
-                      {r.status === "cancelado" && r.motivoCancelamento && <span className="block text-xs text-red-300">Cancelado: {r.motivoCancelamento}</span>}
                     </td>
                     <td className="p-2 text-gray-300">{ORIGEM_LABEL[r.origem]}</td>
                     <td className="p-2 text-right whitespace-nowrap">{brl(centavosDe(r.valor) ?? 0)}</td>
                     <td className="p-2 text-right">
-                      {r.status === "confirmado"
-                        ? <Button size="icon" variant="ghost" className="text-red-300" aria-label="Cancelar recebimento" onClick={() => setCancelando(r)}><Ban className="h-4 w-4" /></Button>
-                        : <Button size="icon" variant="ghost" className="text-[#C9A961]" aria-label="Reativar recebimento" disabled={reativar.isPending} onClick={() => reativar.mutate({ id: r.id })}><RotateCcw className="h-4 w-4" /></Button>}
+                      <Button size="icon" variant="ghost" className="text-red-300" aria-label="Excluir recebimento" onClick={() => setExcluindo(r)}><Trash2 className="h-4 w-4" /></Button>
                     </td>
                   </tr>
                 ))}
@@ -264,16 +259,14 @@ export function FinanceiroRegularizacaoTabela({ regularizacaoId, financeiro, rec
           onFechar={() => setRecebendo(null)} onMudou={onMudou} />
       )}
 
-      <Dialog open={!!cancelando} onOpenChange={(o) => !o && setCancelando(null)}>
+      <Dialog open={!!excluindo} onOpenChange={(o) => !o && setExcluindo(null)}>
         <DialogContent className="bg-[#1A2332] text-white">
-          <DialogHeader><DialogTitle>Cancelar recebimento</DialogTitle></DialogHeader>
+          <DialogHeader><DialogTitle>Excluir recebimento</DialogTitle></DialogHeader>
           <p className="text-sm text-gray-300">
-            {cancelando?.item} — {cancelando ? brl(centavosDe(cancelando.valor) ?? 0) : ""}. O recebimento continua no histórico e deixa de entrar nos totais.
-            {cancelando?.origem === "bpo" && " O lançamento original no BPO não é alterado (o valor volta a ficar disponível)."}
+            {excluindo?.item} — {excluindo ? brl(centavosDe(excluindo.valor) ?? 0) : ""}. O recebimento será removido definitivamente e sai dos totais. Esta ação não pode ser desfeita.
+            {excluindo?.origem === "bpo" && " O lançamento original no BPO não é alterado (o valor volta a ficar disponível)."}
           </p>
-          <Label>Motivo</Label>
-          <Textarea className={campo} value={motivo} onChange={(e) => setMotivo(e.target.value)} rows={2} />
-          <Button className="bg-red-500 hover:bg-red-600" disabled={cancelar.isPending || motivo.trim().length < 3} onClick={() => cancelando && cancelar.mutate({ id: cancelando.id, motivo })}>Confirmar cancelamento</Button>
+          <Button className="bg-red-500 hover:bg-red-600" disabled={excluir.isPending} onClick={() => excluindo && excluir.mutate({ id: excluindo.id })}>Excluir definitivamente</Button>
         </DialogContent>
       </Dialog>
     </section>

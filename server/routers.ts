@@ -863,21 +863,13 @@ export const appRouter = router({
         return { success: true };
       }),
 
-    // Item 01/03: excluir obra definitivamente (só admin). Bloqueada quando há
-    // movimentos financeiros, investidores, medições ou comissões: use cancelar.
+    // Item 01/03 + pedido A6: excluir obra definitivamente (só admin), junto com
+    // movimentos financeiros, aportes, medições e comissões dela.
     deleteProject: adminProcedure
       .input(z.object({ projectId: z.number().int().positive() }))
       .mutation(async ({ ctx, input }) => {
         const { excluido } = await excluirDefinitivo("obra", input.projectId, ctx.user);
         if (!excluido) throw new TRPCError({ code: "NOT_FOUND", message: "Obra não encontrada" });
-        return { success: true };
-      }),
-
-    // Item 03: cancelar mantém a obra e todo o histórico.
-    cancelProject: adminProcedure
-      .input(z.object({ projectId: z.number().int().positive() }))
-      .mutation(async ({ input }) => {
-        await db.updateProject(input.projectId, { status: "cancelled" });
         return { success: true };
       }),
 

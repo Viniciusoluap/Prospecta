@@ -40,7 +40,6 @@ const MENSAGENS_BANCO: Record<string, string> = {
   BPO_LANCAMENTO_NAO_PAGO: "Só lançamentos do BPO já pagos/recebidos podem ser vinculados.",
   BPO_NATUREZA_INCOMPATIVEL: "Pagamentos usam despesas do BPO; recebimentos usam receitas do BPO.",
   BPO_LANCAMENTO_INEXISTENTE: "Lançamento do BPO não encontrado.",
-  MOVIMENTO_NAO_PODE_SER_APAGADO: "Movimentos não são apagados: cancele para preservar o histórico.",
 };
 
 function traduzirErroBanco(err: unknown): never {
@@ -336,7 +335,6 @@ export const obraFinanceiroRouter = router({
     const db = getDb();
     const [atual] = await db.select().from(obraMovimentos).where(eq(obraMovimentos.id, input.id)).limit(1);
     if (!atual) throw new TRPCError({ code: "NOT_FOUND", message: "Movimento não encontrado" });
-    if (atual.status !== "confirmado") throw new TRPCError({ code: "BAD_REQUEST", message: "Reative o movimento antes de editar." });
     if (atual.origem === "bpo" && centavosDe(atual.valor) !== centavosDe(input.valor))
       throw new TRPCError({ code: "BAD_REQUEST", message: "O valor de um movimento do BPO só muda no próprio BPO: desvincule e vincule novamente." });
     try {
@@ -353,28 +351,10 @@ export const obraFinanceiroRouter = router({
     return { success: true };
   }),
 
-  cancelarMovimento: adminProcedure.input(z.object({
-    id: z.number().int().positive(),
-    motivo: z.string().trim().min(3, "Informe o motivo do cancelamento").max(500),
-  })).mutation(async ({ input, ctx }) => {
-    const [alterado] = await getDb().update(obraMovimentos)
-      .set({ status: "cancelado", motivoCancelamento: input.motivo, atualizadoPor: ctx.user.id })
-      .where(and(eq(obraMovimentos.id, input.id), eq(obraMovimentos.status, "confirmado")))
-      .returning({ id: obraMovimentos.id });
-    if (!alterado) throw new TRPCError({ code: "BAD_REQUEST", message: "Movimento inexistente ou já cancelado." });
-    return { success: true };
-  }),
-
-  reativarMovimento: adminProcedure.input(z.object({ id: z.number().int().positive() })).mutation(async ({ input, ctx }) => {
-    try {
-      const [alterado] = await getDb().update(obraMovimentos)
-        .set({ status: "confirmado", motivoCancelamento: null, atualizadoPor: ctx.user.id })
-        .where(and(eq(obraMovimentos.id, input.id), eq(obraMovimentos.status, "cancelado")))
-        .returning({ id: obraMovimentos.id });
-      if (!alterado) throw new TRPCError({ code: "BAD_REQUEST", message: "Movimento inexistente ou já confirmado." });
-    } catch (err) {
-      traduzirErroBanco(err);
-    }
+  /** Pedido A6: excluir apaga o movimento de vez (e o histórico dele). */
+  excluirMovimento: adminProcedure.input(z.object({ id: z.number().int().positive() })).mutation(async ({ input }) => {
+    const [apagado] = await getDb().delete(obraMovimentos).where(eq(obraMovimentos.id, input.id)).returning({ id: obraMovimentos.id });
+    if (!apagado) throw new TRPCError({ code: "NOT_FOUND", message: "Movimento não encontrado (talvez já excluído)." });
     return { success: true };
   }),
 });

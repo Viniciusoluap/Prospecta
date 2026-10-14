@@ -1,4 +1,4 @@
-import { AcoesExcluirCancelar } from "@/components/AcoesExcluirCancelar";
+import { AcoesExcluir } from "@/components/AcoesExcluir";
 import { useState } from "react";
 import { Link } from "wouter";
 import { trpc } from "@/lib/trpc";
@@ -46,7 +46,6 @@ export default function AdminProjetos() {
   const create = trpc.projetos.create.useMutation();
   const update = trpc.projetos.update.useMutation();
   const remove = trpc.projetos.delete.useMutation();
-  const cancel = trpc.projetos.cancel.useMutation();
   const engenheiros = trpc.projetos.engenheiros.useQuery();
   const [buscaEngenheiro, setBuscaEngenheiro] = useState("");
   const [form, setForm] = useState(blank);
@@ -169,10 +168,8 @@ export default function AdminProjetos() {
                   >
                     Detalhes / editar
                   </Button>
-                  <AcoesExcluirCancelar
+                  <AcoesExcluir
                     rotulo={r.name}
-                    cancelado={r.status === "cancelado"}
-                    onCancelar={async () => { await cancel.mutateAsync({ id: r.id }); await list.refetch(); }}
                     onExcluir={async () => { await remove.mutateAsync({ id: r.id }); await list.refetch(); }}
                   />
                 </div>

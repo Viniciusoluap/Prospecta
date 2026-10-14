@@ -251,14 +251,6 @@ export const financiamentoRouter = router({
       return { success: true } as const;
     }),
 
-  /** Item 03: cancelar mantém o registro e o histórico. */
-  cancel: adminProcedure
-    .input(z.object({ id: z.number().int().positive() }))
-    .mutation(async ({ input }) => {
-      await getDb().update(financiamentos).set({ status: "cancelado", updatedAt: new Date() }).where(eq(financiamentos.id, input.id));
-      return { success: true } as const;
-    }),
-
   checklistDocumentContent: adminProcedure
     .input(z.object({ id: z.number().int().positive() }))
     .query(async ({ input }) => {
