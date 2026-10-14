@@ -1734,7 +1734,9 @@ export const obraMovimentos = pgTable("obra_movimentos", {
   id: serial("id").primaryKey(),
   projectId: integer("project_id").notNull().references(() => constructionProjects.id, { onDelete: "restrict" }),
   natureza: varchar("natureza", { length: 20 }).$type<"entrada" | "recebimento_cef" | "pagamento">().notNull(),
-  categoria: varchar("categoria", { length: 30 }).$type<"terreno" | "comissao" | "empreiteiro" | "fornecedor" | "outros" | "nao_detalhado" | null>(),
+  categoria: varchar("categoria", { length: 30 }).$type<"terreno" | "comissao" | "empreiteiro" | "fornecedor" | "outros" | "nao_detalhado" | "mao_de_obra" | "material" | null>(),
+  // Etapa da obra (chave de SERVICOS_PROGRESSO), só em pagamentos (migração 0050).
+  etapa: varchar("etapa", { length: 40 }),
   descricao: varchar("descricao", { length: 255 }).notNull(),
   valor: decimal("valor", { precision: 15, scale: 2 }).notNull(),
   data: date("data", { mode: "string" }).notNull(),

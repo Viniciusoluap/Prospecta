@@ -271,8 +271,16 @@ async function ensureLinkedRecord(service: typeof leadServices.$inferSelect, lea
   return { service: updated, state: inserted ? "created" as const : "already_linked" as const };
 }
 
+/**
+ * Módulos cujas demandas antigas (sem registro) são convertidas ao abrir a fila.
+ * Pedido A7 (13/10/2026): financiamentos vinculados antes da criação automática
+ * (Lote 3, 11/10) ficavam presos em "Aguardando início", sem caminho para operar.
+ */
+export const MATERIALIZE_MODULES = [...AUTO_RECORD_MODULES, "financiamentos"] as const;
+export type MaterializeModule = (typeof MATERIALIZE_MODULES)[number];
+
 /** Converte demandas antigas ainda sem registro (criadas antes do EPIC-017). */
-export async function materializePendingServices(module: AutoRecordModule) {
+export async function materializePendingServices(module: MaterializeModule) {
   const database = getDb();
   const pending = await database.select({ service: leadServices, lead: leads })
     .from(leadServices).innerJoin(leads, eq(leads.id, leadServices.leadId))
@@ -280,6 +288,13 @@ export async function materializePendingServices(module: AutoRecordModule) {
       sql`${leadServices.operationalRecordId} IS NULL`));
   const results: Array<{ serviceId: number; state: string }> = [];
   for (const { service, lead } of pending) {
+    if (module === "financiamentos") {
+      // Mesmo caminho do vínculo novo: reaproveita financiamento órfão inequívoco
+      // do lead; senão cria o registro mínimo com os dados do lead e o checklist.
+      const result = await ensureFinanciamentoRecord(service, lead);
+      results.push({ serviceId: service.id, state: result.workState });
+      continue;
+    }
     const result = await ensureLinkedRecord(service, lead);
     results.push({ serviceId: service.id, state: result.state });
   }
@@ -556,7 +571,7 @@ export const leadServicesRouter = router({
   }),
   /** Cria os registros reais das demandas antigas que ainda aguardam configuração. */
   materializePending: adminProcedure.input(z.object({
-    module: z.enum(AUTO_RECORD_MODULES),
+    module: z.enum(MATERIALIZE_MODULES),
   })).mutation(async ({ input }) => {
     await ensureLeadServicesSchema();
     const results = await materializePendingServices(input.module);

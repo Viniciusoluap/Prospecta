@@ -351,6 +351,13 @@
       "when": 1791900000003,
       "tag": "0049_project_engineer_user",
       "breakpoints": true
+    },
+    {
+      "idx": 50,
+      "version": "7",
+      "when": 1791900000004,
+      "tag": "0050_obra_pagamento_categoria_etapa",
+      "breakpoints": true
     }
   ]
 }

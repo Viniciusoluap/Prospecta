@@ -18,8 +18,17 @@ import { ProgressoObraAba } from "@/components/obra/ProgressoObraAba";
 import { FotosObraAba } from "@/components/obra/FotosObraAba";
 import { RelatorioObraBotao } from "@/components/obra/RelatorioObraBotao";
 import { CustosAba, ValoresOperacaoAba, calcularAoVivo, formInicial, type FormFinanceiro } from "@/components/obra/FinanceiroObra";
-import { OBRA_STATUS_SELECIONAVEIS, isObraStatusSelecionavel, obraStatusLabel } from "@shared/obra-status";
+import { OBRA_STATUS_SELECIONAVEIS, obraStatusLabel } from "@shared/obra-status";
 import { toast } from "sonner";
+
+const ABAS_OBRA = [
+  { valor: "info", rotulo: "Informações", Icone: Building2 },
+  { valor: "mcmv", rotulo: "Valores da Operação", Icone: DollarSign },
+  { valor: "valores", rotulo: "Custos", Icone: DollarSign },
+  { valor: "progresso", rotulo: "Progresso", Icone: FileText },
+  { valor: "fotos", rotulo: "Fotos", Icone: Image },
+  { valor: "relatorios", rotulo: "Relatórios", Icone: FileText },
+] as const;
 
 export default function AdminEditarObra() {
   const { id } = useParams<{ id: string }>();
@@ -220,31 +229,19 @@ export default function AdminEditarObra() {
       {/* Content */}
       <div className="container py-8">
         <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
-          <TabsList className="grid w-full grid-cols-6 bg-[#1A2332]/60 border border-[#C9A961]/20 h-auto min-h-10">
-            <TabsTrigger value="info" className="text-gray-200 hover:text-white focus-visible:ring-[#C9A961] data-[state=active]:bg-[#C9A961] data-[state=active]:text-[#1A2332]">
-              <Building2 className="h-4 w-4 mr-1" />
-              <span className="hidden md:inline">Informações</span>
-            </TabsTrigger>
-            <TabsTrigger value="mcmv" className="text-gray-200 hover:text-white focus-visible:ring-[#C9A961] data-[state=active]:bg-[#C9A961] data-[state=active]:text-[#1A2332]">
-              <DollarSign className="h-4 w-4 mr-1" />
-              <span className="hidden md:inline">Valores da Operação</span>
-            </TabsTrigger>
-            <TabsTrigger value="valores" className="text-gray-200 hover:text-white focus-visible:ring-[#C9A961] data-[state=active]:bg-[#C9A961] data-[state=active]:text-[#1A2332]">
-              <DollarSign className="h-4 w-4 mr-1" />
-              <span className="hidden md:inline">Custos</span>
-            </TabsTrigger>
-            <TabsTrigger value="progresso" className="text-gray-200 hover:text-white focus-visible:ring-[#C9A961] data-[state=active]:bg-[#C9A961] data-[state=active]:text-[#1A2332]">
-              <FileText className="h-4 w-4 mr-1" />
-              <span className="hidden md:inline">Progresso</span>
-            </TabsTrigger>
-            <TabsTrigger value="fotos" className="text-gray-200 hover:text-white focus-visible:ring-[#C9A961] data-[state=active]:bg-[#C9A961] data-[state=active]:text-[#1A2332]">
-              <Image className="h-4 w-4 mr-1" />
-              <span className="hidden md:inline">Fotos</span>
-            </TabsTrigger>
-            <TabsTrigger value="relatorios" className="text-gray-200 hover:text-white focus-visible:ring-[#C9A961] data-[state=active]:bg-[#C9A961] data-[state=active]:text-[#1A2332]">
-              <FileText className="h-4 w-4 mr-1" />
-              <span className="hidden md:inline">Relatórios</span>
-            </TabsTrigger>
+          {/* Abas em grade responsiva (2 → 3 → 6 colunas); o rótulo quebra dentro da
+              própria aba em vez de invadir a vizinha (pedido A2, 13/10/2026). */}
+          <TabsList className="grid h-auto w-full grid-cols-2 gap-1 border border-[#C9A961]/20 bg-[#1A2332]/60 p-1 sm:grid-cols-3 xl:grid-cols-6">
+            {ABAS_OBRA.map(({ valor, rotulo, Icone }) => (
+              <TabsTrigger
+                key={valor}
+                value={valor}
+                className="h-auto min-h-10 min-w-0 whitespace-normal px-2 py-2 text-center leading-tight text-gray-200 hover:text-white focus-visible:ring-[#C9A961] data-[state=active]:bg-[#C9A961] data-[state=active]:text-[#1A2332]"
+              >
+                <Icone className="h-4 w-4" aria-hidden />
+                <span className="min-w-0 break-words">{rotulo}</span>
+              </TabsTrigger>
+            ))}
           </TabsList>
 
           {/* ABA 1: INFORMAÇÕES BÁSICAS */}
@@ -327,11 +324,6 @@ export default function AdminEditarObra() {
                         {OBRA_STATUS_SELECIONAVEIS.map((valor) => (
                           <SelectItem key={valor} value={valor}>{obraStatusLabel(valor)}</SelectItem>
                         ))}
-                        {!isObraStatusSelecionavel(project.status) && (
-                          <SelectItem value={project.status} disabled>
-                            {obraStatusLabel(project.status)} (classificação antiga — mantida até ser trocada)
-                          </SelectItem>
-                        )}
                       </SelectContent>
                     </Select>
                   </div>

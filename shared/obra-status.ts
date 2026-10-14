@@ -2,17 +2,14 @@
 // Antes, a tela oferecia 25 valores, o servidor aceitava 5 e o banco tinha
 // outros 15: qualquer escolha fora da interseção gerava `invalid_value`.
 
-export const OBRA_STATUS_SELECIONAVEIS = [
+// Pedido A1 (13/10/2026): o seletor da edição oferece exatamente as mesmas
+// situações do filtro da lista de obras, na mesma ordem.
+export const OBRA_STATUS_TODOS = [
   "planning",
   "aprovacao",
   "contrato_prospecta",
   "laudo_cef",
   "conformidade_cef",
-] as const;
-
-// Valores ainda presentes no enum do banco e em registros antigos. Não são
-// oferecidos no seletor, mas uma obra que já os tenha continua salvando.
-export const OBRA_STATUS_LEGADOS = [
   "alvara",
   "art",
   "assinatura_cef",
@@ -29,10 +26,7 @@ export const OBRA_STATUS_LEGADOS = [
   "cancelled",
 ] as const;
 
-export const OBRA_STATUS_TODOS = [
-  ...OBRA_STATUS_SELECIONAVEIS,
-  ...OBRA_STATUS_LEGADOS,
-] as const;
+export const OBRA_STATUS_SELECIONAVEIS = OBRA_STATUS_TODOS;
 
 export type ObraStatus = (typeof OBRA_STATUS_TODOS)[number];
 

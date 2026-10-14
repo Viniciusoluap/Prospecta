@@ -14,6 +14,7 @@ import type { AppRouter } from "../../../../server/routers";
 import { parseNumeroBR } from "@shared/numero-br";
 import { calcularObra, centavosDe, lerPercentualDigitado, type Indicador, type Natureza, type ResultadoObra } from "@shared/financeiro/obra";
 import { calcularComissaoObra } from "@shared/financeiro/comissao";
+import { SERVICOS_PROGRESSO } from "@shared/financeiro/progresso";
 
 // EPIC-020 Lote 2 — abas "Valores da Operação" e "Custos". Os campos
 // automáticos são calculados ao vivo pelo mesmo motor usado no servidor e
@@ -169,7 +170,11 @@ function Alertas({ calculo }: { calculo: ResultadoObra }) {
 const ORIGEM_LABEL = { manual: "Manual", bpo: "BPO", migracao: "Migrado" } as const;
 const CATEGORIA_LABEL: Record<string, string> = {
   terreno: "Terreno", comissao: "Comissão", empreiteiro: "Empreiteiro", fornecedor: "Fornecedor", outros: "Outros", nao_detalhado: "Não detalhado (migrado)",
+  mao_de_obra: "Mão de obra", material: "Material",
 };
+const CATEGORIAS_PAGAMENTO = ["empreiteiro", "terreno", "comissao", "fornecedor", "outros", "mao_de_obra", "material"] as const;
+const ETAPA_LABEL: Record<string, string> = Object.fromEntries(SERVICOS_PROGRESSO.map((s) => [s.chave, s.nome]));
+const SEM_ETAPA = "__sem_etapa__";
 
 function Historico({ titulo, movimentos, onMudou }: { titulo: string; movimentos: Movimento[]; onMudou: () => void }) {
   const [cancelando, setCancelando] = useState<Movimento | null>(null);
@@ -200,6 +205,7 @@ function Historico({ titulo, movimentos, onMudou }: { titulo: string; movimentos
                   <td className="p-2 text-gray-200">
                     {m.descricao}
                     {m.categoria && <span className="ml-2 text-[10px] uppercase text-gray-400">{CATEGORIA_LABEL[m.categoria]}</span>}
+                    {m.etapa && <span className="ml-2 text-[10px] uppercase text-gray-400">· {ETAPA_LABEL[m.etapa] ?? m.etapa}</span>}
                     {m.observacao && <span className="block text-xs text-gray-500 no-underline">{m.observacao}</span>}
                     {m.bpo && <span className="block text-xs text-gray-500">BPO: {m.bpo.descricao}{m.bpo.pago === false ? " — não está mais pago!" : ""}</span>}
                     {m.status === "cancelado" && m.motivoCancelamento && <span className="block text-xs text-red-300">Cancelado: {m.motivoCancelamento}</span>}
@@ -252,11 +258,12 @@ function NovoMovimento({ projectId, natureza, rotulo, onMudou }: { projectId: nu
   const [data, setData] = useState(hoje);
   const [observacao, setObservacao] = useState("");
   const [categoria, setCategoria] = useState<string>("empreiteiro");
+  const [etapa, setEtapa] = useState<string>(SEM_ETAPA);
   const disponiveis = trpc.obraFinanceiro.bpoDisponiveis.useQuery({ natureza }, { enabled: aberto && origem === "bpo" });
   const adicionar = trpc.obraFinanceiro.adicionarMovimento.useMutation({
     onSuccess: () => {
       toast.success("Lançamento registrado.");
-      setAberto(false); setDescricao(""); setValor(null); setObservacao(""); setBpoId(""); setOrigem("manual"); setData(hoje);
+      setAberto(false); setDescricao(""); setValor(null); setObservacao(""); setBpoId(""); setOrigem("manual"); setData(hoje); setEtapa(SEM_ETAPA);
       onMudou();
     },
     onError: (e) => toast.error(e.message),
@@ -282,14 +289,26 @@ function NovoMovimento({ projectId, natureza, rotulo, onMudou }: { projectId: nu
               </Select>
             </div>
             {natureza === "pagamento" && (
-              <div>
-                <Label className="text-gray-300">Categoria</Label>
-                <Select value={categoria} onValueChange={setCategoria}>
-                  <SelectTrigger className={campo}><SelectValue /></SelectTrigger>
-                  <SelectContent>
-                    {["empreiteiro", "terreno", "comissao", "fornecedor", "outros"].map((c) => <SelectItem key={c} value={c}>{CATEGORIA_LABEL[c]}</SelectItem>)}
-                  </SelectContent>
-                </Select>
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                <div className="min-w-0">
+                  <Label className="text-gray-300">Categoria</Label>
+                  <Select value={categoria} onValueChange={setCategoria}>
+                    <SelectTrigger className={campo}><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      {CATEGORIAS_PAGAMENTO.map((c) => <SelectItem key={c} value={c}>{CATEGORIA_LABEL[c]}</SelectItem>)}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="min-w-0">
+                  <Label className="text-gray-300">Etapa</Label>
+                  <Select value={etapa} onValueChange={setEtapa}>
+                    <SelectTrigger className={campo}><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value={SEM_ETAPA}>Sem etapa</SelectItem>
+                      {SERVICOS_PROGRESSO.map((s) => <SelectItem key={s.chave} value={s.chave}>{s.nome}</SelectItem>)}
+                    </SelectContent>
+                  </Select>
+                </div>
               </div>
             )}
             {origem === "bpo" && (
@@ -324,6 +343,7 @@ function NovoMovimento({ projectId, natureza, rotulo, onMudou }: { projectId: nu
                 projectId,
                 natureza,
                 categoria: natureza === "pagamento" ? (categoria as "empreiteiro") : undefined,
+                etapa: natureza === "pagamento" && etapa !== SEM_ETAPA ? etapa : undefined,
                 descricao,
                 valor: valor!,
                 data,

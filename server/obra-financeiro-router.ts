@@ -14,6 +14,7 @@ import {
 } from "../drizzle/schema.js";
 import { calcularObra, centavosDe, reaisDeCentavos, type EntradasObra } from "../shared/financeiro/obra.js";
 import { calcularComissaoObra } from "../shared/financeiro/comissao.js";
+import { SERVICOS_PROGRESSO } from "../shared/financeiro/progresso.js";
 import { adminProcedure, protectedProcedure, router } from "./_core/trpc.js";
 import { getDb } from "./db.js";
 
@@ -30,7 +31,9 @@ const taxaMensal = z.string().trim().regex(/^\d{1,3}(\.\d{1,4})?$/, "Taxa mensal
 const dataIso = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Data inválida");
 
 const NATUREZAS = ["entrada", "recebimento_cef", "pagamento"] as const;
-const CATEGORIAS = ["terreno", "comissao", "empreiteiro", "fornecedor", "outros"] as const;
+const CATEGORIAS = ["terreno", "comissao", "empreiteiro", "fornecedor", "outros", "mao_de_obra", "material"] as const;
+// Etapas da obra = serviços da Medição por serviço (pedido de 13/10/2026).
+const ETAPAS = SERVICOS_PROGRESSO.map((s) => s.chave) as [string, ...string[]];
 
 const MENSAGENS_BANCO: Record<string, string> = {
   BPO_ALOCACAO_EXCEDIDA: "Este lançamento do BPO já está totalmente alocado (ou o valor ultrapassa o disponível).",
@@ -291,6 +294,7 @@ export const obraFinanceiroRouter = router({
     projectId: z.number().int().positive(),
     natureza: z.enum(NATUREZAS),
     categoria: z.enum(CATEGORIAS).optional(),
+    etapa: z.enum(ETAPAS).optional(),
     descricao: z.string().trim().min(2).max(255),
     valor: dinheiro.refine((v) => Number(v) > 0, "O valor deve ser maior que zero"),
     data: dataIso,
@@ -300,11 +304,14 @@ export const obraFinanceiroRouter = router({
     await carregarObra(input.projectId);
     if ((input.natureza === "pagamento") !== !!input.categoria)
       throw new TRPCError({ code: "BAD_REQUEST", message: input.natureza === "pagamento" ? "Informe a categoria do pagamento." : "Recebimentos não têm categoria." });
+    if (input.etapa && input.natureza !== "pagamento")
+      throw new TRPCError({ code: "BAD_REQUEST", message: "Só pagamentos têm etapa da obra." });
     try {
       const [criado] = await getDb().insert(obraMovimentos).values({
         projectId: input.projectId,
         natureza: input.natureza,
         categoria: input.natureza === "pagamento" ? input.categoria! : null,
+        etapa: input.natureza === "pagamento" ? input.etapa ?? null : null,
         descricao: input.descricao,
         valor: input.valor,
         data: input.data,
