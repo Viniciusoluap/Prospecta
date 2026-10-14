@@ -199,18 +199,9 @@ export const regularizacaoRouter = router({
   remove: adminProcedure
     .input(z.object({ id: idSchema }))
     .mutation(async ({ ctx, input }) => {
-      // Item 03: exclusão definitiva; com recebimentos é recusada e orienta a cancelar.
+      // Item 03 + pedido A6: exclusão definitiva, junto com os recebimentos.
       await assertRegularizacaoExists(input.id);
       await excluirDefinitivo("regularizacao", input.id, ctx.user);
-      return { success: true };
-    }),
-
-  /** Item 03: cancelar mantém o processo e o histórico. */
-  cancel: adminProcedure
-    .input(z.object({ id: idSchema }))
-    .mutation(async ({ input }) => {
-      await assertRegularizacaoExists(input.id);
-      await getDb().update(regularizacoes).set({ status: "cancelado", updatedAt: new Date() }).where(eq(regularizacoes.id, input.id));
       return { success: true };
     }),
 
@@ -353,29 +344,12 @@ export const regularizacaoRouter = router({
         }
       }),
 
-    cancelarRecebimento: adminProcedure
-      .input(z.object({ id: idSchema, motivo: z.string().trim().min(3, "Informe o motivo do cancelamento").max(500) }))
-      .mutation(async ({ input, ctx }) => {
-        const [alterado] = await getDb().update(regularizacaoRecebimentos)
-          .set({ status: "cancelado", motivoCancelamento: input.motivo, atualizadoPor: ctx.user.id })
-          .where(and(eq(regularizacaoRecebimentos.id, input.id), eq(regularizacaoRecebimentos.status, "confirmado")))
-          .returning({ id: regularizacaoRecebimentos.id });
-        if (!alterado) throw new TRPCError({ code: "BAD_REQUEST", message: "Recebimento inexistente ou já cancelado." });
-        return { success: true };
-      }),
-
-    reativarRecebimento: adminProcedure
+    /** Pedido A6: excluir apaga o recebimento de vez (e o histórico dele). */
+    excluirRecebimento: adminProcedure
       .input(z.object({ id: idSchema }))
-      .mutation(async ({ input, ctx }) => {
-        try {
-          const [alterado] = await getDb().update(regularizacaoRecebimentos)
-            .set({ status: "confirmado", motivoCancelamento: null, atualizadoPor: ctx.user.id })
-            .where(and(eq(regularizacaoRecebimentos.id, input.id), eq(regularizacaoRecebimentos.status, "cancelado")))
-            .returning({ id: regularizacaoRecebimentos.id });
-          if (!alterado) throw new TRPCError({ code: "BAD_REQUEST", message: "Recebimento inexistente ou já confirmado." });
-        } catch (err) {
-          erroDoBanco(err);
-        }
+      .mutation(async ({ input }) => {
+        const [apagado] = await getDb().delete(regularizacaoRecebimentos).where(eq(regularizacaoRecebimentos.id, input.id)).returning({ id: regularizacaoRecebimentos.id });
+        if (!apagado) throw new TRPCError({ code: "NOT_FOUND", message: "Recebimento não encontrado (talvez já excluído)." });
         return { success: true };
       }),
   }),

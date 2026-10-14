@@ -21,6 +21,7 @@ describe("EPIC-004 - Regularização", () => {
     expect(procedures["etapas.criar"]).toBeDefined();
     expect(procedures["etapas.mover"]).toBeDefined();
     expect(procedures["financeiro.adicionarRecebimento"]).toBeDefined();
-    expect(procedures["financeiro.cancelarRecebimento"]).toBeDefined();
+    expect(procedures["financeiro.excluirRecebimento"]).toBeDefined();
+    expect(procedures["financeiro.cancelarRecebimento"]).toBeUndefined();
   });
 });

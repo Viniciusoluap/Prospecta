@@ -137,8 +137,9 @@ describe("API financeira da obra — validações", () => {
     expect(gravacoes.find((g) => g.metodo === "insert")!.valores).toMatchObject({ origem: "bpo", bpoLancamentoId: 10, criadoPor: 42, categoria: null });
   });
 
-  it("cancelamento exige motivo", async () => {
-    await expect(caller("admin").obraFinanceiro.cancelarMovimento({ id: 1, motivo: "" })).rejects.toMatchObject({ code: "BAD_REQUEST" });
+  it("pedido A6: não existe mais cancelar movimento, só excluir (e só admin)", async () => {
+    await expect(caller("admin").obraFinanceiro.excluirMovimento({ id: 0 })).rejects.toMatchObject({ code: "BAD_REQUEST" });
+    expect(Object.keys(obraFinanceiroRouter._def.procedures)).not.toContain("cancelarMovimento");
   });
 });
 
