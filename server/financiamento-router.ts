@@ -209,6 +209,37 @@ export const financiamentoRouter = router({
       return updated;
     }),
 
+  /**
+   * Pedido 14/10/2026: valor total (imóvel) e valor financiado editados direto
+   * na lista. Só mexe no financiamento — a etapa do lead no CRM é outra coisa.
+   */
+  atualizarValores: adminProcedure
+    .input(
+      z
+        .object({
+          id: z.number().int().positive(),
+          valorImovel: z.number().nonnegative().max(1e12),
+          valorFinanciado: z.number().nonnegative().max(1e12),
+        })
+        .refine((v) => v.valorFinanciado <= v.valorImovel, {
+          message: "O valor financiado não pode superar o valor total",
+          path: ["valorFinanciado"],
+        })
+    )
+    .mutation(async ({ input }) => {
+      const [updated] = await getDb()
+        .update(financiamentos)
+        .set({
+          valorImovel: input.valorImovel.toFixed(2),
+          valorFinanciado: input.valorFinanciado.toFixed(2),
+          updatedAt: new Date(),
+        })
+        .where(eq(financiamentos.id, input.id))
+        .returning({ id: financiamentos.id });
+      if (!updated) throw new TRPCError({ code: "NOT_FOUND", message: "Financiamento não encontrado" });
+      return updated;
+    }),
+
   updateChecklist: adminProcedure
     .input(
       z.object({
