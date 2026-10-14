@@ -1,4 +1,4 @@
-import { useEffect, useState, type ChangeEvent } from "react";
+import { useState, type ChangeEvent } from "react";
 import { toast } from "sonner";
 import { trpc } from "@/lib/trpc";
 import { lerDueDiligence, progressoDueDiligence, type DueDiligence } from "../../../../shared/incorporacao/due-diligence";
@@ -17,10 +17,11 @@ export function DueDiligenceEditor({ estudoId, json }: { estudoId: number; json:
   const [dados, setDados] = useState<DueDiligence>(() => lerDueDiligence(json));
   const [alterado, setAlterado] = useState(false);
   const save = trpc.incorporacao.dueDiligence.save.useMutation({
-    onSuccess: ({ json: next }) => { setSalvo(next); setAlterado(false); toast.success("Due Diligence salva"); },
+    // O estado local já é a versão salva: não reler a prop `json`, que ainda é a do carregamento
+    // da página (reler aqui apagava da tela a etapa recém-salva e causava conflito no próximo salvar).
+    onSuccess: ({ json: next }) => { setSalvo(next); setDados(lerDueDiligence(next)); setAlterado(false); toast.success("Due Diligence salva"); void utils.incorporacao.getById.invalidate({ id: estudoId }); },
     onError: (error) => toast.error(error.message),
   });
-  useEffect(() => { if (!alterado) { setSalvo(json); setDados(lerDueDiligence(json)); } }, [json, alterado]);
   function change(fn: (current: DueDiligence) => DueDiligence) { setDados(fn); setAlterado(true); }
   function edit(id: string, fn: (etapa: Etapa) => Etapa) {
     change((current) => ({ ...current, etapas: current.etapas.map((e) => e.id === id ? fn(e) : e) }));
