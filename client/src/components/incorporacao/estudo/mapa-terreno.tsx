@@ -1,3 +1,4 @@
+
 import { useEffect, useRef, useState } from "react";
 import type { Feature, Polygon, LineString } from "geojson";
 import {
@@ -5,21 +6,24 @@ import {
   intersect, difference, featureCollection, area as turfArea,
   length as turfLength, polygonToLine,
 } from "@turf/turf";
-import { trpc } from "@/lib/trpc";
+import { salvarApp } from "./compat/acoes";
 
-// Mapa do terreno com base de satélite (Esri World Imagery, keyless) e camadas
-// de estudo sobre o KML: cursos d'água/nascentes, APP (faixa de proteção
+// Mapa do terreno com base de SATÉLITE colorida (Esri World Imagery, keyless) e
+// camadas de estudo sobre o KML: cursos d'água/nascentes, APP (faixa de proteção
 // calculada por buffer dos rios), rodovias e linhas de transmissão — obtidas do
-// OpenStreetMap via Overpass API (sem chave). Best-effort: se o Overpass não
-// responder, o mapa continua mostrando o terreno normalmente.
-// Porta direta do componente equivalente do Grupo Santa Fé, adaptada de Next.js
-// (server action) para tRPC.
+// OpenStreetMap via Overpass API (sem chave). Tudo best-effort: se o Overpass
+// não responder, o mapa continua mostrando o terreno normalmente.
+//
+// A área de APP dentro do terreno é sempre calculada automaticamente aqui e
+// salva no estudo (salvarApp) assim que o cálculo termina — sem exigir nenhuma
+// ação do usuário — para alimentar a aba Viabilidade (regra: "área de APP
+// sempre tem que ser calculada automaticamente").
 
 interface Props {
-  geojson: string;
-  center?: [number, number];
+  geojson: string; // Feature<Polygon> serializado
+  center?: [number, number]; // [lat, lng]
   height?: number;
-  estudoId?: number;
+  estudoId?: string; // quando informado, persiste a APP calculada automaticamente
 }
 
 interface OverpassElement {
@@ -31,12 +35,13 @@ interface OverpassElement {
   members?: { type: string; role?: string; geometry?: { lat: number; lon: number }[] }[];
 }
 
-type Ponto = [number, number];
+type Ponto = [number, number]; // [lng, lat]
 
 function mesmoPonto(a: Ponto, b: Ponto): boolean {
   return Math.abs(a[0] - b[0]) < 1e-9 && Math.abs(a[1] - b[1]) < 1e-9;
 }
 
+/** Costura trechos de way (relações multipolígono do OSM) em anéis fechados. */
 function montarAneis(trechos: Ponto[][]): Ponto[][] {
   const pendentes = trechos.filter((t) => t.length > 1).map((t) => [...t]);
   const aneis: Ponto[][] = [];
@@ -68,7 +73,7 @@ function montarAneis(trechos: Ponto[][]): Ponto[][] {
 }
 
 const CORES = {
-  terreno: "#C9A961",
+  terreno: "#F5C400",
   agua: "#38bdf8",
   app: "#22c55e",
   rodovia: "#f97316",
@@ -76,6 +81,10 @@ const CORES = {
   nascente: "#0ea5e9",
 };
 
+// Largura da APP hídrica conforme o Código Florestal (Lei 12.651/2012, Art. 4º, I),
+// em função da largura do curso d'água. Legislação municipal pode ser mais
+// restritiva (ex.: Imperatriz/MA aplica 500 m na margem do Tocantins) — por isso
+// o usuário pode forçar uma largura no seletor.
 function larguraAppCodigoFlorestal(larguraRioM: number): number {
   if (larguraRioM < 10) return 30;
   if (larguraRioM < 50) return 50;
@@ -93,8 +102,6 @@ export function MapaTerreno({ geojson, center, height = 420, estudoId }: Props) 
   const [resumo, setResumo] = useState<{ agua: number; nascentes: number; rodovias: number; transmissao: number } | null>(null);
   const [appModo, setAppModo] = useState<AppModo>("auto");
   const [appCalculada, setAppCalculada] = useState<{ areaM2: number; larguraM: number | null } | null>(null);
-
-  const saveAppMutation = trpc.incorporacao.saveApp.useMutation();
 
   useEffect(() => {
     let cancelled = false;
@@ -114,9 +121,10 @@ export function MapaTerreno({ geojson, center, height = 420, estudoId }: Props) 
         mapRef.current = null;
       }
 
-      const map = L.map(ref.current).setView(center ?? [-5.526, -47.479], 15);
+      const map = L.map(ref.current).setView(center ?? [-6.5, -49.879], 15);
       mapRef.current = map;
 
+      // Base satélite colorida + rótulos/vias por cima (keyless).
       L.tileLayer(
         "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
         { attribution: "© Esri, Maxar, Earthstar Geographics", maxZoom: 19 }
@@ -136,7 +144,11 @@ export function MapaTerreno({ geojson, center, height = 420, estudoId }: Props) 
         /* bounds vazio */
       }
 
-      const [minX, minY, maxX, maxY] = turfBbox(feature);
+      // ─── Camadas de estudo (Overpass) ───────────────────────────────────────
+      const [minX, minY, maxX, maxY] = turfBbox(feature); // [W,S,E,N]
+      // Além das LINHAS de curso d'água, busca também os POLÍGONOS de água
+      // (rios largos como o Tocantins são mapeados como natural=water/riverbank,
+      // não como linha) — sem eles a faixa de APP na margem do rio não aparecia.
       const query =
         `[out:json][timeout:25];(` +
         `way["waterway"](${minY},${minX},${maxY},${maxX});` +
@@ -161,6 +173,8 @@ export function MapaTerreno({ geojson, center, height = 420, estudoId }: Props) 
           const contagem = { agua: 0, nascentes: 0, rodovias: 0, transmissao: 0 };
           const linhasAgua: { geom: LineString; tipo: string; larguraTag: number | null }[] = [];
           const aneisAgua: Ponto[][] = [];
+          // Acumula a área de APP DENTRO do terreno — calculada automaticamente,
+          // sem qualquer ação do usuário, para alimentar a aba Viabilidade.
           let appAreaTotalM2 = 0;
           let appLarguraMax: number | null = null;
 
@@ -172,6 +186,8 @@ export function MapaTerreno({ geojson, center, height = 420, estudoId }: Props) 
               contagem.nascentes++;
               continue;
             }
+            // Relações multipolígono de água (rios grandes): costura os trechos
+            // externos em anéis fechados.
             if (el.type === "relation" && tags.natural === "water" && el.members) {
               const trechos = el.members
                 .filter((m) => m.type === "way" && (m.role === "outer" || !m.role) && m.geometry && m.geometry.length > 1)
@@ -204,6 +220,10 @@ export function MapaTerreno({ geojson, center, height = 420, estudoId }: Props) 
             }
           }
 
+          // Corpos d'água (polígonos): desenha a lâmina d'água e a faixa de APP
+          // medida a partir da MARGEM. Largura da APP: automática pelo Código
+          // Florestal (estimando a largura do rio por área/perímetro) ou forçada
+          // pelo usuário no seletor (ex.: 500 m — lei municipal de Imperatriz).
           for (const anel of aneisAgua) {
             try {
               const agua = turfPolygon([anel]);
@@ -211,6 +231,7 @@ export function MapaTerreno({ geojson, center, height = 420, estudoId }: Props) 
                 .bindTooltip("Corpo d'água").addTo(map);
               contagem.agua++;
 
+              // Largura média ≈ 2 × área / perímetro (boa aproximação p/ formas alongadas).
               const areaM2 = turfArea(agua);
               const perimetroKm = turfLength(polygonToLine(agua) as Feature, { units: "kilometers" });
               const larguraRioM = perimetroKm > 0 ? (2 * areaM2) / (perimetroKm * 1000) : 0;
@@ -225,6 +246,7 @@ export function MapaTerreno({ geojson, center, height = 420, estudoId }: Props) 
               L.geoJSON(banda, { style: { color: CORES.app, weight: 1, fillColor: CORES.app, fillOpacity: 0.3 } })
                 .bindTooltip(`APP ${w} m da margem (${origem})`).addTo(map);
 
+              // Só conta a parte da faixa que cai DENTRO do terreno.
               const bandaDentro = intersect(featureCollection([banda as Feature<Polygon>, feature]));
               if (bandaDentro) appAreaTotalM2 += turfArea(bandaDentro);
               appLarguraMax = appLarguraMax == null ? w : Math.max(appLarguraMax, w);
@@ -233,6 +255,8 @@ export function MapaTerreno({ geojson, center, height = 420, estudoId }: Props) 
             }
           }
 
+          // APP dos cursos d'água em LINHA: usa a tag width do OSM quando existir;
+          // sem tag, assume rio (10–50 m → APP 50 m) ou córrego (<10 m → APP 30 m).
           for (const { geom, tipo, larguraTag } of linhasAgua) {
             try {
               const w =
@@ -258,12 +282,11 @@ export function MapaTerreno({ geojson, center, height = 420, estudoId }: Props) 
             setResumo(contagem);
             setAppCalculada({ areaM2: appAreaTotalM2, larguraM: appLarguraMax });
             if (estudoId) {
-              saveAppMutation.mutate({
-                id: estudoId,
+              salvarApp(estudoId, {
                 areaM2: appAreaTotalM2,
                 larguraM: appLarguraMax,
                 origem: appModo,
-              });
+              }).catch(() => { /* melhor esforço — não bloqueia a visualização do mapa */ });
             }
           }
         }
@@ -281,13 +304,12 @@ export function MapaTerreno({ geojson, center, height = 420, estudoId }: Props) 
         mapRef.current = null;
       }
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [geojson, center, appModo, estudoId]);
 
   return (
     <div className="space-y-2">
-      <div ref={ref} style={{ height, width: "100%" }} className="rounded-lg overflow-hidden border border-[#C9A961]/20" />
-      <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-[11px] text-gray-400">
+      <div ref={ref} style={{ height, width: "100%" }} className="border border-gray-200" />
+      <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-[11px] text-gray-500">
         {[
           { c: CORES.terreno, l: "Terreno" },
           { c: CORES.agua, l: "Curso d'água" },
@@ -297,41 +319,39 @@ export function MapaTerreno({ geojson, center, height = 420, estudoId }: Props) 
           { c: CORES.transmissao, l: "L. transmissão" },
         ].map(({ c, l }) => (
           <span key={l} className="flex items-center gap-1">
-            <span className="inline-block w-3 h-2 rounded-sm" style={{ background: c }} /> {l}
+            <span className="inline-block w-3 h-2" style={{ background: c }} /> {l}
           </span>
         ))}
         <label className="flex items-center gap-1.5">
-          <span className="text-gray-500">Faixa de APP:</span>
+          <span className="text-gray-400">Faixa de APP:</span>
           <select
             value={appModo}
             onChange={(e) => setAppModo(e.target.value as AppModo)}
-            className="border border-[#C9A961]/30 bg-[#2C3E50] text-gray-200 px-1.5 py-0.5 text-[11px] rounded focus:outline-none focus:border-[#C9A961]"
+            className="border border-gray-200 bg-white px-1.5 py-0.5 text-[11px] focus:outline-none focus:border-[var(--brand-yellow)]"
           >
             <option value="auto">Automática (Código Florestal)</option>
             <option value="30">30 m</option>
             <option value="50">50 m</option>
             <option value="100">100 m</option>
             <option value="200">200 m</option>
-            <option value="500">500 m</option>
+            <option value="500">500 m (ex.: lei municipal de Imperatriz)</option>
           </select>
         </label>
-        {carregandoCamadas && <span className="text-gray-500">carregando camadas…</span>}
+        {carregandoCamadas && <span className="text-gray-400">carregando camadas…</span>}
         {resumo && !carregandoCamadas && (
-          <span className="text-gray-500">
+          <span className="text-gray-400">
             {resumo.agua} cursos d&apos;água · {resumo.nascentes} nascentes · {resumo.rodovias} vias · {resumo.transmissao} linhas AT
           </span>
         )}
       </div>
       {appCalculada && !carregandoCamadas && (
-        <p className="text-[11px] font-bold text-[#00FF00] bg-[#00FF00]/10 border border-[#00FF00]/20 rounded px-2.5 py-1.5">
+        <p className="text-[11px] font-bold text-green-700 bg-green-50 border border-green-100 px-2.5 py-1.5">
           APP calculada automaticamente dentro do terreno: {Math.round(appCalculada.areaM2).toLocaleString("pt-BR")} m²
-          {appCalculada.larguraM != null && ` (faixa de ${appCalculada.larguraM} m)`} — salva no estudo.
+          {appCalculada.larguraM != null && ` (faixa de ${appCalculada.larguraM} m)`} — já enviada para a aba Viabilidade.
         </p>
       )}
-      <p className="text-[10px] text-gray-500">
-        Largura automática conforme o Código Florestal (Lei 12.651/2012, Art. 4º): rios com menos de 10 m → 30 m; 10–50 m → 50 m;
-        50–200 m → 100 m; 200–600 m → 200 m; acima de 600 m → 500 m — estimada pela geometria do rio. Legislação municipal pode ser
-        mais restritiva — nesse caso selecione a faixa manualmente. Confirme sempre com o órgão ambiental competente.
+      <p className="text-[10px] text-gray-400">
+        Largura automática conforme o Código Florestal (Lei 12.651/2012, Art. 4º): rios com menos de 10 m → 30 m; 10–50 m → 50 m; 50–200 m → 100 m; 200–600 m → 200 m; acima de 600 m → 500 m — estimada pela geometria do rio. Legislação municipal pode ser mais restritiva (ex.: Imperatriz/MA aplica 500 m na margem do Tocantins) — nesse caso selecione a faixa manualmente. Confirme sempre com o órgão ambiental competente. A área de APP dentro do terreno é sempre recalculada e salva automaticamente.
       </p>
     </div>
   );

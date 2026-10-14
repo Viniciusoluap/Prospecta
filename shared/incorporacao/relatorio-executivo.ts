@@ -1,68 +1,40 @@
-// Relatório Executivo de Incorporação — consolida, num único modelo testável,
-// todos os temas pedidos (terreno/mapas/APP/restrições, dados
-// cadastrais/urbanísticos, mercado/referências, estudo de massa/cenários,
-// quadro de áreas, mix de produtos, custos/receitas/VGV,
-// VPL/TIR/ROI/payback/fluxo de caixa, impostos/comissões/permutas,
-// negociações/proposta aceita, documentos/licenças/pendências,
-// cronograma/tarefas/responsáveis/riscos, premissas/fontes/data/versão).
+// Relatório Executivo de Incorporação (Lote 6 do hardening) — consolida TODOS
+// os sub-módulos do estudo (EstudoIncorporacao) em um único modelo de dados,
+// sem nenhuma chamada de IA e sem I/O: lê só o que já está salvo no estudo.
 //
-// Função pura, sem I/O: recebe o registro de `incorporation_studies` (via
-// `incorporacao.getById`, que já traz tudo numa única query) e devolve um
-// modelo com uma entrada por seção. Cada seção nunca é omitida: ou carrega
-// `dado` (com uma lista de `pendencias` pontuais quando algum subitem dentro
-// dela ainda falta), ou é inteiramente `pendente` com uma mensagem explícita
-// quando não há nenhum dado para aquele tema. A renderização em PDF
-// (RelatorioExecutivo.tsx) só decide COMO desenhar — toda a regra de "o que
-// está faltando" vive aqui, testável sem depender de jsPDF/DOM.
+// Regra central (não negociável): uma seção sem dado NUNCA é omitida — ela
+// aparece no modelo como `{ pendencia: "<mensagem legível>" }`, para que a
+// renderização do PDF sempre imprima uma linha de pendência explícita em vez
+// de simplesmente não mostrar a seção.
+//
+// Separação arquitetural pedida no Lote 6: esta função é pura e testável
+// isoladamente; a geração do PDF (jsPDF/autotable, difícil de testar) fica em
+// relatorio-tab.tsx, que só lê o modelo abaixo e desenha.
 
 import {
-  PARAMETROS_DEFAULT,
-  calcularPotencial,
-  type ParametrosUrbanisticos,
-  type PotencialConstrutivo,
-} from "./urbanismo.js";
-import { calcularQuadroAreas, type ItemQuadroAreas, type ResultadoQuadroAreas } from "./quadro-areas.js";
-import { calcularMix, type ItemMixProduto, type ResultadoMix } from "./mix-produtos.js";
-import {
-  calcularPrecificacaoPorComparaveis,
-  type AtributoComparavel,
-  type Comparavel,
-  type ResultadoPrecificacao,
-} from "./precificacao.js";
-import {
-  resumoPesquisaPrimaria,
-  type Entrevistado,
-  type ResumoPesquisaPrimaria,
-} from "./pesquisa-primaria.js";
-import {
   calcularLoteamento,
+  type FluxoMesLote,
   type PremissasLoteamento,
   type ResultadoLoteamento,
-  type PerfilVendas,
+  type ResultadoMix,
 } from "./viabilidade-economica.js";
-import {
-  calcularOrcamentoParametrizado,
-  type PremissasOrcamentoParametrizado,
-  type ResultadoOrcamentoParametrizado,
-} from "./orcamento-parametrizado.js";
-import {
-  resumoOrcamentoPreliminar,
-  type ItemOrcamentoPreliminar,
-  type ResumoOrcamentoPreliminar,
-} from "./orcamento-preliminar.js";
-import { resumoOrcamentoObra, type ItemOrcamentoObra, type ResumoOrcamentoObra } from "./orcamento-obra.js";
+import { montarPremissasLoteamento } from "./premissas-loteamento.js";
+import { calcularQuadroAreas, type ItemQuadroAreas, type ResultadoQuadroAreas } from "./quadro-areas.js";
 import {
   resumoNegociacao,
   type DadosNegociacao,
   type ResumoNegociacao,
-  type Proposta,
 } from "./negociacao.js";
-import { resumoRegistro, type DocumentoRegistro, type ResumoRegistro } from "./registro-incorporacao.js";
 import {
   resumoAprovacaoProjeto,
   type ProcessoAprovacao,
   type ResumoAprovacaoProjeto,
 } from "./aprovacao-projeto.js";
+import {
+  resumoRegistro,
+  type DocumentoRegistro,
+  type ResumoRegistro,
+} from "./registro-incorporacao.js";
 import {
   resumoCronogramaObra,
   type MedicaoMensal,
@@ -74,258 +46,217 @@ import {
   type MarcoLancamento,
   type ResumoPlanejamentoLancamento,
 } from "./planejamento-lancamento.js";
+import {
+  calcularPrecificacaoPorComparaveis,
+  type AtributoComparavel,
+  type Comparavel,
+  type ResultadoPrecificacao,
+} from "./precificacao.js";
+import {
+  resumoPesquisaPrimaria,
+  type Entrevistado,
+  type ResumoPesquisaPrimaria,
+} from "./pesquisa-primaria.js";
+import type { EstudoData } from "./estudo-data.js";
 
-// ─── Tipo genérico de seção ─────────────────────────────────────────────────
-//
-// Toda seção do relatório carrega OU um `dado` (com eventuais `pendencias`
-// pontuais de subitens que faltam dentro dela) OU é inteiramente `pendente`
-// com uma mensagem explícita — nunca é simplesmente omitida.
+/** Toda seção do relatório é OU um dado presente, OU uma pendência explícita — nunca omitida. */
+export type Secao<T> = { dado: T; pendencia?: undefined } | { dado?: undefined; pendencia: string };
 
-export type Secao<T> =
-  | { status: "ok"; dado: T; pendencias: string[] }
-  | { status: "pendente"; pendencia: string };
-
-function ok<T>(dado: T, pendencias: string[] = []): Secao<T> {
-  return { status: "ok", dado, pendencias };
+export function temDado<T>(s: Secao<T>): s is { dado: T } {
+  return (s as { dado?: T }).dado !== undefined;
 }
-function pendente<T>(pendencia: string): Secao<T> {
-  return { status: "pendente", pendencia };
+
+function okSecao<T>(dado: T): Secao<T> {
+  return { dado };
 }
 
+function pendenciaSecao<T>(msg: string): Secao<T> {
+  return { pendencia: msg };
+}
+
+/** Faz JSON.parse defensivo — nunca lança, retorna null em qualquer falha. */
 function parseJson<T>(json: string | null | undefined): T | null {
   if (!json) return null;
   try {
-    return JSON.parse(json) as T;
+    const v = JSON.parse(json);
+    return v == null ? null : (v as T);
   } catch {
     return null;
   }
 }
-function numOrNull(v: string | null | undefined): number | null {
-  if (v == null || v === "") return null;
-  const n = parseFloat(v);
-  return Number.isFinite(n) ? n : null;
-}
 
-// ─── Entrada: o registro de incorporation_studies que o relatório precisa ──
+// ─── 1. Terreno / mapas / APP / restrições ──────────────────────────────────
 
-export interface EstudoParaRelatorioExecutivo {
-  versionNumber?: number | null;
-  staff?: { id: number; name: string | null }[];
-  name: string;
-  city: string;
-  state: string;
-  areaM2: string;
-  perimeterM: string;
-  latitude: string | null;
-  longitude: string | null;
-  appAreaM2: string | null;
-  appWidthM: string | null;
-  appOrigin: string | null;
-
-  urbanParametersJson: string | null;
-  potentialJson: string | null;
-  urbanisticOpinion: string | null;
-  propertyRegistration?: string | null;
-  carRegistration?: string | null;
-  officialZoning?: string | null;
-  zoningSource?: string | null;
-
-  cityResearchJson: string | null;
-  marketStudyJson: string | null;
-  comparablePricingJson: string | null;
-  primaryResearchJson: string | null;
-
-  massScenariosJson: string | null;
-  selectedScenarioId: string | null;
-
-  areasBoardJson: string | null;
-
-  productMixJson: string | null;
-
-  parameterizedBudgetJson: string | null;
-  preliminaryBudgetJson: string | null;
-  workBudgetJson: string | null;
-
-  lottingJson: string | null;
-
-  landNegotiationJson: string | null;
-
-  incorporationRegistrationJson: string | null;
-  projectApprovalJson: string | null;
-
-  physicalFinancialScheduleJson: string | null;
-  launchPlanJson: string | null;
-}
-
-// ─── 1. Terreno, mapas, APP e restrições ───────────────────────────────────
-
-export interface TerrenoDado {
+export interface DadoTerreno {
   areaM2: number;
   perimetroM: number;
-  centro: { lat: number; lng: number } | null;
-  app: { areaM2: number; larguraM: number | null; origem: string | null } | null;
+  centroLat: number | null;
+  centroLng: number | null;
+  appAreaM2: number | null;
+  appLarguraM: number | null;
+  appOrigem: string | null;
+  appPendencia: string | null; // explícita quando a APP automática ainda não foi calculada
 }
 
-function montarTerreno(e: EstudoParaRelatorioExecutivo): Secao<TerrenoDado> {
-  const areaM2 = numOrNull(e.areaM2) ?? 0;
-  if (areaM2 <= 0) {
-    return pendente("Pendência: terreno ainda não delimitado (KML/mapa) para este estudo.");
-  }
-  const lat = numOrNull(e.latitude);
-  const lng = numOrNull(e.longitude);
-  const appAreaM2 = numOrNull(e.appAreaM2);
-  const pendencias: string[] = [];
-  if (appAreaM2 == null) {
-    pendencias.push("Pendência: área de APP (faixa de preservação permanente) ainda não calculada automaticamente para este terreno.");
-  }
-  return ok(
-    {
-      areaM2,
-      perimetroM: numOrNull(e.perimeterM) ?? 0,
-      centro: lat != null && lng != null ? { lat, lng } : null,
-      app: appAreaM2 != null ? { areaM2: appAreaM2, larguraM: numOrNull(e.appWidthM), origem: e.appOrigin ?? null } : null,
-    },
-    pendencias
-  );
-}
-
-// ─── 2. Dados cadastrais / urbanísticos ────────────────────────────────────
-
-export interface DadosCadastraisDado {
-  parametros: ParametrosUrbanisticos;
-  potencial: PotencialConstrutivo;
-  opiniao: string | null;
-  areaMediaUnidadeM2: number | null;
-  propertyRegistration: string | null;
-  carRegistration: string | null;
-  officialZoning: string | null;
-  zoningSource: string | null;
-}
-
-function montarDadosCadastraisUrbanisticos(e: EstudoParaRelatorioExecutivo): Secao<DadosCadastraisDado> {
-  const parametrosSalvos = parseJson<Partial<ParametrosUrbanisticos>>(e.urbanParametersJson);
-  if (!parametrosSalvos) {
-    return pendente("Pendência: parâmetros urbanísticos (Plano Diretor) ainda não cadastrados para este estudo.");
-  }
-  const parametros: ParametrosUrbanisticos = { ...PARAMETROS_DEFAULT, ...parametrosSalvos };
-  const areaTerrenoM2 = numOrNull(e.areaM2) ?? 0;
-  const potencialSalvo = parseJson<{ areaMediaUnidadeM2?: number }>(e.potentialJson);
-  const areaMediaUnidadeM2 = potencialSalvo?.areaMediaUnidadeM2 ?? null;
-  const potencial = calcularPotencial(areaTerrenoM2, parametros, areaMediaUnidadeM2 ?? undefined);
-
-  const pendencias: string[] = [];
-  if (areaMediaUnidadeM2 == null) {
-    pendencias.push("Pendência: área média por unidade não informada — capacidade vertical e vagas exigidas não puderam ser estimadas.");
-  }
-  if (!e.propertyRegistration?.trim()) pendencias.push("Pendência: matrícula do imóvel não informada; consultar o cartório de registro.");
-  if (!e.carRegistration?.trim()) pendencias.push("Pendência: CAR não informado; verificar aplicabilidade e consultar o órgão ambiental.");
-  if (!e.officialZoning?.trim() || !e.zoningSource?.trim()) pendencias.push("Pendência: zoneamento oficial sem classificação e fonte verificável da prefeitura.");
-  return ok({ parametros, potencial, opiniao: e.urbanisticOpinion ?? null, areaMediaUnidadeM2,
-    propertyRegistration: e.propertyRegistration?.trim() || null,
-    carRegistration: e.carRegistration?.trim() || null,
-    officialZoning: e.officialZoning?.trim() || null,
-    zoningSource: e.zoningSource?.trim() || null,
-  }, pendencias);
-}
-
-// ─── 3. Mercado / referências ──────────────────────────────────────────────
-
-interface CidadeResearch {
-  populacao: number;
-  crescimentoAnualPct: number;
-  pibPerCapita: number;
-  principaisAtividades: string[];
-  rendaMediaMensal: number;
-  deficitHabitacional: string;
-  resumo: string;
-}
-interface MercadoStudy {
-  precoM2Lote: number;
-  precoM2Casa: number;
-  precoM2Apartamento: number;
-  velocidadeVendas: string;
-  demandaPorProduto: { produto: string; demanda: string; publico: string }[];
-  concorrentes: { nome: string; produto: string; faixaPreco: string }[];
-  comparaveis: { descricao: string; preco: number; area: number; precoPorM2: number }[];
-  oportunidades: string;
-  riscos: string;
-  /** Persistidos desde a correção do Lote 6 (antes eram descartados ao salvar). Podem faltar em estudos salvos antes da correção. */
-  fontes?: string[];
-  confiabilidade?: "alta" | "media" | "baixa";
-}
-
-export interface MercadoReferenciasDado {
-  cidade: CidadeResearch | null;
-  mercado: MercadoStudy | null;
-  fontes: string[] | null;
-  confiabilidade: "alta" | "media" | "baixa" | null;
-  precificacao: ResultadoPrecificacao | null;
-  pesquisaPrimaria: ResumoPesquisaPrimaria | null;
-}
-
-function montarMercadoReferencias(e: EstudoParaRelatorioExecutivo): Secao<MercadoReferenciasDado> {
-  const cidade = parseJson<CidadeResearch>(e.cityResearchJson);
-  const mercado = parseJson<MercadoStudy>(e.marketStudyJson);
-  const dadosPrecificacao = parseJson<{ atributos?: AtributoComparavel[]; notasNovo?: number[]; comparaveis?: Comparavel[] }>(
-    e.comparablePricingJson
-  );
-  const dadosPesquisaPrimaria = parseJson<{ entrevistados?: Entrevistado[] }>(e.primaryResearchJson);
-
-  const temPrecificacao = !!dadosPrecificacao?.atributos?.length;
-  const temPesquisaPrimaria = !!dadosPesquisaPrimaria?.entrevistados?.length;
-
-  if (!cidade && !mercado && !temPrecificacao && !temPesquisaPrimaria) {
-    return pendente(
-      "Pendência: pesquisa de mercado (cidade + imobiliário), precificação por comparáveis e pesquisa primária com compradores ainda não realizadas para este estudo."
+function montarTerreno(estudo: EstudoData): Secao<DadoTerreno> {
+  const temMapa = !!estudo.geojson && estudo.areaM2 > 0;
+  if (!temMapa) {
+    return pendenciaSecao(
+      "Terreno ainda não delimitado no mapa (KML) nesta aba — área, perímetro e APP automática dependem do desenho do polígono em Terreno."
     );
   }
+  return okSecao({
+    areaM2: estudo.areaM2,
+    perimetroM: estudo.perimetroM,
+    centroLat: estudo.centroLat,
+    centroLng: estudo.centroLng,
+    appAreaM2: estudo.appAreaM2,
+    appLarguraM: estudo.appLarguraM,
+    appOrigem: estudo.appOrigem,
+    appPendencia:
+      estudo.appAreaM2 == null
+        ? "APP automática ainda não calculada para este terreno (sem retorno do mapa/Overpass nem largura manual definida)."
+        : null,
+  });
+}
 
-  const pendencias: string[] = [];
-  if (!cidade && !mercado) {
-    pendencias.push("Pendência: pesquisa da cidade e do mercado imobiliário (IA ou manual) ainda não realizada.");
-  } else if (!mercado?.fontes || mercado.fontes.length === 0) {
-    pendencias.push("Pendência: fontes da pesquisa de mercado não registradas para este estudo.");
-  }
-  if (!temPrecificacao) {
-    pendencias.push("Pendência: precificação por comparáveis ponderados ainda não cadastrada.");
-  }
-  if (!temPesquisaPrimaria) {
-    pendencias.push("Pendência: pesquisa primária com compradores ainda não realizada.");
-  }
+// ─── 2. Dados cadastrais / urbanísticos ─────────────────────────────────────
 
-  const precificacao = temPrecificacao
-    ? calcularPrecificacaoPorComparaveis(
-        dadosPrecificacao!.atributos!,
-        dadosPrecificacao!.notasNovo ?? dadosPrecificacao!.atributos!.map(() => 0),
-        dadosPrecificacao!.comparaveis ?? []
-      )
-    : null;
-  const pesquisaPrimaria = temPesquisaPrimaria ? resumoPesquisaPrimaria(dadosPesquisaPrimaria!.entrevistados!) : null;
+export interface DadoCadastral {
+  parametros: Record<string, unknown> | null;
+  potencial: Record<string, unknown> | null;
+  parecerUrbanistico: string | null;
+  matriculaImovel: string | null;
+  carRegistro: string | null;
+  zoneamentoOficial: string | null;
+  zoneamentoFonte: string | null;
+  matriculaPendencia: string | null;
+  carPendencia: string | null;
+  zoneamentoOficialPendencia: string | null;
+}
 
-  return ok(
-    {
-      cidade: cidade ?? null,
-      mercado: mercado ?? null,
-      fontes: mercado?.fontes ?? null,
-      confiabilidade: mercado?.confiabilidade ?? null,
-      precificacao,
-      pesquisaPrimaria,
-    },
-    pendencias
+const MATRICULA_PENDENCIA =
+  "Matrícula do imóvel não informada: consulte o cartório de registro de imóveis.";
+const CAR_PENDENCIA =
+  "CAR (Cadastro Ambiental Rural) não informado: verifique a aplicabilidade e consulte o órgão ambiental.";
+const ZONEAMENTO_PENDENCIA =
+  "Zoneamento oficial não informado com fonte: consulte a prefeitura/plano diretor.";
+
+function montarDadosCadastrais(estudo: EstudoData): Secao<DadoCadastral> {
+  const parametros = parseJson<Record<string, unknown>>(estudo.parametrosJson);
+  const potencial = parseJson<Record<string, unknown>>(estudo.potencialJson);
+  const parecerUrbanistico = estudo.urbanismoParecer ?? null;
+
+  const matriculaImovel = estudo.matriculaImovel?.trim() || null;
+  const carRegistro = estudo.carRegistro?.trim() || null;
+  const zoneamentoOficial = estudo.zoneamentoOficial?.trim() || null;
+  const zoneamentoFonte = estudo.zoneamentoFonte?.trim() || null;
+  if (!parametros && !potencial && !parecerUrbanistico && !matriculaImovel && !carRegistro && !zoneamentoOficial) {
+    return pendenciaSecao(
+      "Parâmetros urbanísticos, potencial construtivo e parecer ainda não cadastrados nesta aba. Além disso: " +
+        [MATRICULA_PENDENCIA, CAR_PENDENCIA, ZONEAMENTO_PENDENCIA].join(" ")
+    );
+  }
+  return okSecao({
+    parametros,
+    potencial,
+    parecerUrbanistico,
+    matriculaImovel, carRegistro, zoneamentoOficial, zoneamentoFonte,
+    matriculaPendencia: matriculaImovel ? null : MATRICULA_PENDENCIA,
+    carPendencia: carRegistro ? null : CAR_PENDENCIA,
+    zoneamentoOficialPendencia: zoneamentoOficial && zoneamentoFonte ? null : ZONEAMENTO_PENDENCIA,
+  });
+}
+
+// ─── 3. Mercado / referências ───────────────────────────────────────────────
+
+interface CidadeDados {
+  populacao?: number;
+  crescimentoAnualPct?: number;
+  pibPerCapita?: number;
+  rendaMediaMensal?: number;
+  deficitHabitacional?: string;
+  resumo?: string;
+}
+interface MercadoDados {
+  fontes?: string[];
+  confiabilidade?: string;
+  precoM2Lote?: number;
+  precoM2Casa?: number;
+  precoM2Apartamento?: number;
+  velocidadeVendas?: string;
+  oportunidades?: string;
+  riscos?: string;
+  demandaPorProduto?: { produto: string; demanda: string; publico: string }[];
+  concorrentes?: { nome: string; produto: string; faixaPreco: string }[];
+}
+
+export interface DadoMercado {
+  cidade: CidadeDados | null;
+  mercado: MercadoDados | null;
+  precificacaoComparaveis: ResultadoPrecificacao | null;
+  pesquisaPrimaria: ResumoPesquisaPrimaria | null;
+  fontesPendencia: string | null;
+  fontes: string[] | null;
+  confiabilidade: string | null;
+}
+
+const FONTES_PESQUISA_IA_PENDENCIA =
+  "Fontes/confiabilidade da pesquisa de mercado por IA não constam deste estudo. Para estudos anteriores, refaça a pesquisa se precisar desses dados; não é possível reconstruí-los com segurança.";
+
+function montarMercado(estudo: EstudoData): Secao<DadoMercado> {
+  const cidade = parseJson<CidadeDados>(estudo.pesquisaCidadeJson);
+  const mercado = parseJson<MercadoDados>(estudo.estudoMercadoJson);
+
+  let precificacaoComparaveis: ResultadoPrecificacao | null = null;
+  const comp = parseJson<{ atributos: AtributoComparavel[]; notasNovo: number[]; comparaveis: Comparavel[] }>(
+    estudo.precificacaoComparaveisJson
   );
+  if (comp?.atributos?.length) {
+    try {
+      precificacaoComparaveis = calcularPrecificacaoPorComparaveis(
+        comp.atributos,
+        comp.notasNovo ?? [],
+        comp.comparaveis ?? []
+      );
+    } catch {
+      precificacaoComparaveis = null;
+    }
+  }
+
+  let pesquisaPrimaria: ResumoPesquisaPrimaria | null = null;
+  const prim = parseJson<{ entrevistados: Entrevistado[] }>(estudo.pesquisaPrimariaJson);
+  if (prim?.entrevistados?.length) {
+    try {
+      pesquisaPrimaria = resumoPesquisaPrimaria(prim.entrevistados);
+    } catch {
+      pesquisaPrimaria = null;
+    }
+  }
+
+  if (!cidade && !mercado && !precificacaoComparaveis && !pesquisaPrimaria) {
+    return pendenciaSecao(
+      "Pesquisa de cidade & mercado, precificação por comparáveis e pesquisa primária ainda não realizadas nesta aba. " +
+        FONTES_PESQUISA_IA_PENDENCIA
+    );
+  }
+  const fontes = Array.isArray(mercado?.fontes) ? mercado.fontes.filter((f): f is string => typeof f === "string" && !!f.trim()) : [];
+  return okSecao({ cidade, mercado, precificacaoComparaveis, pesquisaPrimaria,
+    fontes: fontes.length ? fontes : null,
+    confiabilidade: mercado?.confiabilidade || null,
+    fontesPendencia: fontes.length ? null : FONTES_PESQUISA_IA_PENDENCIA,
+  });
 }
 
 // ─── 4. Estudo de massa / cenários ──────────────────────────────────────────
 
 interface CenarioMassaKpis {
   lotesVendaveis: number;
-  lotesPublicos: number;
   areaVendavelM2: number;
-  areaPublicaM2: number;
   aproveitamento: number;
   vgv: number;
 }
-interface CenarioMassaResumo {
+interface CenarioMassaDados {
   id: string;
   testadaLoteM: number;
   profundidadeLoteM: number;
@@ -333,561 +264,462 @@ interface CenarioMassaResumo {
   kpis: CenarioMassaKpis;
 }
 
-export interface EstudoMassaDado {
-  cenario: CenarioMassaResumo;
+export interface DadoMassa {
+  cenario: CenarioMassaDados;
   totalCenarios: number;
-  eraSelecaoExplicita: boolean;
 }
 
-function montarEstudoMassa(e: EstudoParaRelatorioExecutivo): Secao<EstudoMassaDado> {
-  const massa = parseJson<{ cenarios?: CenarioMassaResumo[] }>(e.massScenariosJson);
+function montarMassa(estudo: EstudoData): Secao<DadoMassa> {
+  const massa = parseJson<{ cenarios?: CenarioMassaDados[] }>(estudo.massaCenariosJson);
   const cenarios = massa?.cenarios ?? [];
   if (cenarios.length === 0) {
-    return pendente("Pendência: estudo de massa (parcelamento gerativo) ainda não gerado para este terreno.");
+    return pendenciaSecao("Estudo de massa ainda não gerado nesta aba (nenhum cenário calculado).");
   }
-  const selecionado = cenarios.find((c) => c.id === e.selectedScenarioId);
-  const cenario = selecionado ?? cenarios[0];
-  const pendencias: string[] = [];
-  if (!selecionado) {
-    pendencias.push("Observação: nenhum cenário foi marcado como selecionado — exibindo o primeiro gerado.");
-  }
-  return ok({ cenario, totalCenarios: cenarios.length, eraSelecaoExplicita: !!selecionado }, pendencias);
+  const cenario = cenarios.find((c) => c.id === estudo.cenarioEscolhidoId) ?? cenarios[0];
+  return okSecao({ cenario, totalCenarios: cenarios.length });
 }
 
 // ─── 5. Quadro de áreas ─────────────────────────────────────────────────────
 
-export interface QuadroAreasDado {
-  resultado: ResultadoQuadroAreas;
+export interface DadoQuadroAreas {
   itens: ItemQuadroAreas[];
+  coeficienteAproveitamento: number;
+  resultado: ResultadoQuadroAreas;
 }
 
-function montarQuadroAreas(e: EstudoParaRelatorioExecutivo): Secao<QuadroAreasDado> {
-  const salvo = parseJson<{ coeficienteAproveitamento?: number; itens?: ItemQuadroAreas[] }>(e.areasBoardJson);
-  if (!salvo?.itens || salvo.itens.length === 0) {
-    return pendente("Pendência: quadro de áreas (NBR 12721) ainda não preenchido.");
+function montarQuadroAreas(estudo: EstudoData): Secao<DadoQuadroAreas> {
+  const salvo = parseJson<{ itens?: ItemQuadroAreas[]; coeficienteAproveitamento?: number }>(estudo.quadroAreasJson);
+  const itens = salvo?.itens ?? [];
+  if (itens.length === 0) {
+    return pendenciaSecao("Quadro de áreas (NBR 12721) ainda não preenchido nesta aba.");
   }
-  const areaTerrenoM2 = numOrNull(e.areaM2) ?? 0;
-  const resultado = calcularQuadroAreas(salvo.itens, areaTerrenoM2, salvo.coeficienteAproveitamento ?? 1);
-  return ok({ resultado, itens: salvo.itens });
+  const coeficienteAproveitamento = salvo?.coeficienteAproveitamento ?? 1;
+  const resultado = calcularQuadroAreas(itens, estudo.areaM2, coeficienteAproveitamento);
+  return okSecao({ itens, coeficienteAproveitamento, resultado });
+}
+
+// ─── Núcleo comum: motor de viabilidade (atual) + fallback legado (EVE) ─────
+
+interface ViabilidadeLegadoResultado {
+  vgv: number;
+  custoTerreno: number;
+  custoTotal: number;
+  lucroBruto: number;
+  margemLiquida: number;
+  vpl: number;
+  tir: number | null; // a.m.
+  paybackMes: number | null;
+  exposicaoMaxima: number;
+  fluxo?: {
+    mes: number;
+    receitas: number;
+    custosObra: number;
+    custoTerreno: number;
+    saldoMes: number;
+    saldoAcumulado: number;
+  }[];
+}
+
+interface ViabilidadeLegado {
+  resultado: ViabilidadeLegadoResultado;
+}
+
+function montarViabilidade(estudo: EstudoData): {
+  premissas: PremissasLoteamento | null;
+  r: ResultadoLoteamento | null;
+  legado: ViabilidadeLegado | null;
+} {
+  const premissas = montarPremissasLoteamento(estudo);
+  const r = premissas ? calcularLoteamento(premissas) : null;
+  const legado = !premissas ? parseJson<ViabilidadeLegado>(estudo.viabilidadeJson) : null;
+  return { premissas, r, legado };
 }
 
 // ─── 6. Mix de produtos ─────────────────────────────────────────────────────
 
-export interface MixProdutosDado {
-  resultado: ResultadoMix;
+export interface DadoMixProdutos {
+  mix: ResultadoMix;
 }
 
-function montarMixProdutos(e: EstudoParaRelatorioExecutivo): Secao<MixProdutosDado> {
-  const itens = parseJson<ItemMixProduto[]>(e.productMixJson);
-  if (!itens || !Array.isArray(itens) || !itens.some((i) => i.quantidade > 0)) {
-    return pendente("Pendência: mix de produtos (lotes/casas/apartamentos) ainda não cadastrado.");
+function montarMixProdutos(r: ResultadoLoteamento | null): Secao<DadoMixProdutos> {
+  if (!r) {
+    return pendenciaSecao(
+      "Mix de produtos depende do motor de viabilidade (aba Viabilidade), ainda não configurado para este estudo."
+    );
   }
-  return ok({ resultado: calcularMix(itens) });
-}
-
-// ─── Reconstrução das premissas de Viabilidade Econômica a partir do JSON ──
-// `lottingJson` guarda o formulário tal como preenchido na UI (percentuais em
-// 0-100, não em fração 0-1) — mesma conversão de `paraMotor` em
-// ViabilidadeEconomica.tsx, duplicada aqui porque é lógica de apresentação
-// de formulário, não pertence ao motor puro de viabilidade-economica.ts.
-
-interface PremissasFormSalvas {
-  areaBrutaM2: number;
-  pctAreaPublica: number;
-  pctAreaVerde: number;
-  pctSistemaViario: number;
-  pctFaixaServidao: number;
-  duracaoVendasMeses: number;
-  perfilVendas: PerfilVendas;
-  entradaPct: number;
-  prazoParcelamentoMeses: number;
-  jurosClienteMensal: number;
-  indexacaoMensal: number;
-  vendasAVistaPct: number;
-  descontoAVistaPct: number;
-  inadimplenciaPct: number;
-  comissaoPctVgv: number;
-  despesasGeraisPctVgv: number;
-  impostosPctVgv: number;
-  taxaIncorporacaoPctVgv: number;
-  inicioObraMes: number;
-  duracaoObraMeses: number;
-  inicioVendasMes: number;
-  custoInfraM2Lote: number;
-  projetosLicencas: number;
-  marketing: number;
-  registroPorUnidade: number;
-  contingenciaPctInfra: number;
-  bdiPct: number;
-  taxaAdministracaoObraPct: number;
-  manutencaoPctObra: number;
-  inccObraMensal: number;
-  permutaPctVgv: number;
-  taxaDescontoAnual: number;
-}
-
-const DEFAULTS_FORM_EVE: PremissasFormSalvas = {
-  areaBrutaM2: 100_000,
-  pctAreaPublica: 10,
-  pctAreaVerde: 5,
-  pctSistemaViario: 25,
-  pctFaixaServidao: 0,
-  duracaoVendasMeses: 24,
-  perfilVendas: "lancamento_forte",
-  entradaPct: 10,
-  prazoParcelamentoMeses: 180,
-  jurosClienteMensal: 0.52,
-  indexacaoMensal: 0.4,
-  vendasAVistaPct: 5,
-  descontoAVistaPct: 10,
-  inadimplenciaPct: 5,
-  comissaoPctVgv: 5,
-  despesasGeraisPctVgv: 3,
-  impostosPctVgv: 6.58,
-  taxaIncorporacaoPctVgv: 1,
-  inicioObraMes: 0,
-  duracaoObraMeses: 24,
-  inicioVendasMes: 12,
-  custoInfraM2Lote: 245,
-  projetosLicencas: 500_000,
-  marketing: 500_000,
-  registroPorUnidade: 400,
-  contingenciaPctInfra: 10,
-  bdiPct: 10,
-  taxaAdministracaoObraPct: 10,
-  manutencaoPctObra: 1.5,
-  inccObraMensal: 0.3,
-  permutaPctVgv: 40,
-  taxaDescontoAnual: 12,
-};
-
-function construirPremissasViabilidade(
-  raw: Partial<PremissasFormSalvas> & { itensMix?: ItemMixProduto[] },
-  areaTerrenoM2: number,
-  appAreaM2: number
-): PremissasLoteamento {
-  const f: PremissasFormSalvas = { ...DEFAULTS_FORM_EVE, ...raw };
-  const itensMix = raw.itensMix && raw.itensMix.length > 0 ? raw.itensMix : [];
-  const pctAPP = f.areaBrutaM2 > 0 ? appAreaM2 / f.areaBrutaM2 : 0;
-  const pct = (v: number) => v / 100;
-  return {
-    areaBrutaM2: f.areaBrutaM2,
-    pctAreaPublica: pct(f.pctAreaPublica),
-    pctAreaVerde: pct(f.pctAreaVerde),
-    pctSistemaViario: pct(f.pctSistemaViario),
-    pctAPP,
-    pctFaixaServidao: pct(f.pctFaixaServidao),
-    itensMix,
-    duracaoVendasMeses: f.duracaoVendasMeses,
-    perfilVendas: f.perfilVendas,
-    entradaPct: pct(f.entradaPct),
-    prazoParcelamentoMeses: f.prazoParcelamentoMeses,
-    jurosClienteMensal: pct(f.jurosClienteMensal),
-    indexacaoMensal: pct(f.indexacaoMensal),
-    vendasAVistaPct: pct(f.vendasAVistaPct),
-    descontoAVistaPct: pct(f.descontoAVistaPct),
-    inadimplenciaPct: pct(f.inadimplenciaPct),
-    comissaoPctVgv: pct(f.comissaoPctVgv),
-    despesasGeraisPctVgv: pct(f.despesasGeraisPctVgv),
-    impostosPctVgv: pct(f.impostosPctVgv),
-    taxaIncorporacaoPctVgv: pct(f.taxaIncorporacaoPctVgv),
-    inicioObraMes: f.inicioObraMes,
-    duracaoObraMeses: f.duracaoObraMeses,
-    inicioVendasMes: f.inicioVendasMes,
-    custoInfraM2Lote: f.custoInfraM2Lote,
-    projetosLicencas: f.projetosLicencas,
-    marketing: f.marketing,
-    registroPorUnidade: f.registroPorUnidade,
-    contingenciaPctInfra: pct(f.contingenciaPctInfra),
-    bdiPct: pct(f.bdiPct),
-    taxaAdministracaoObraPct: pct(f.taxaAdministracaoObraPct),
-    manutencaoPctObra: pct(f.manutencaoPctObra),
-    inccObraMensal: pct(f.inccObraMensal),
-    permutaPctVgv: pct(f.permutaPctVgv),
-    taxaDescontoAnual: pct(f.taxaDescontoAnual),
-  };
-}
-
-interface ViabilidadeComputada {
-  premissas: PremissasLoteamento;
-  resultado: ResultadoLoteamento;
-}
-
-function viabilidadeComputada(e: EstudoParaRelatorioExecutivo): ViabilidadeComputada | null {
-  const raw = parseJson<Partial<PremissasFormSalvas> & { itensMix?: ItemMixProduto[] }>(e.lottingJson);
-  if (!raw || !raw.itensMix || raw.itensMix.length === 0) return null;
-  const areaTerrenoM2 = numOrNull(e.areaM2) ?? 0;
-  const appAreaM2 = numOrNull(e.appAreaM2) ?? 0;
-  const premissas = construirPremissasViabilidade(raw, areaTerrenoM2, appAreaM2);
-  return { premissas, resultado: calcularLoteamento(premissas) };
+  return okSecao({ mix: r.mix });
 }
 
 // ─── 7. Custos / receitas / VGV ─────────────────────────────────────────────
 
-export interface CustosReceitasVgvDado {
-  parametrizado: ResultadoOrcamentoParametrizado | null;
-  preliminar: ResumoOrcamentoPreliminar | null;
-  obra: ResumoOrcamentoObra | null;
-  vgvBruto: number | null;
-  vgvLiquido: number | null;
-  origemVgv: "viabilidade_economica" | "mix_de_produtos" | null;
+export type DadoCustosReceitasVgv =
+  | {
+      modo: "motor_atual";
+      vgvGross: number;
+      vgvNet: number;
+      custoInfra: number;
+      custosPreVenda: number;
+      custosDuranteVenda: number;
+      custoTotal: number;
+      custoTotalNominal: number;
+      custosDetalhados: { taxaAdministracaoObra: number; manutencao: number; taxaIncorporacao: number };
+    }
+  | {
+      modo: "legado";
+      vgv: number;
+      custoTerreno: number;
+      custoTotal: number;
+      lucroBruto: number;
+    };
+
+function montarCustosReceitasVgv(
+  r: ResultadoLoteamento | null,
+  legado: ViabilidadeLegado | null
+): Secao<DadoCustosReceitasVgv> {
+  if (r) {
+    return okSecao({
+      modo: "motor_atual",
+      vgvGross: r.vgvGross,
+      vgvNet: r.vgvNet,
+      custoInfra: r.custoInfra,
+      custosPreVenda: r.custosPreVenda,
+      custosDuranteVenda: r.custosDuranteVenda,
+      custoTotal: r.custoTotal,
+      custoTotalNominal: r.custoTotalNominal,
+      custosDetalhados: r.custosDetalhados,
+    });
+  }
+  if (legado?.resultado) {
+    return okSecao({
+      modo: "legado",
+      vgv: legado.resultado.vgv,
+      custoTerreno: legado.resultado.custoTerreno,
+      custoTotal: legado.resultado.custoTotal,
+      lucroBruto: legado.resultado.lucroBruto,
+    });
+  }
+  return pendenciaSecao(
+    "Custos, receitas e VGV dependem da aba Viabilidade (motor determinístico atual ou estudo legado), ainda não configurados."
+  );
 }
 
-function montarCustosReceitasVgv(e: EstudoParaRelatorioExecutivo, eve: ViabilidadeComputada | null): Secao<CustosReceitasVgvDado> {
-  const premissasParametrizado = parseJson<PremissasOrcamentoParametrizado>(e.parameterizedBudgetJson);
-  const parametrizado =
-    premissasParametrizado && premissasParametrizado.itens?.length > 0
-      ? calcularOrcamentoParametrizado(premissasParametrizado)
-      : null;
+// ─── 8. VPL / TIR / ROI / payback / fluxo de caixa ──────────────────────────
 
-  const itensPreliminar = parseJson<{ itens?: ItemOrcamentoPreliminar[] }>(e.preliminaryBudgetJson)?.itens ?? null;
-  const preliminar =
-    itensPreliminar && itensPreliminar.length > 0
-      ? resumoOrcamentoPreliminar(itensPreliminar, parametrizado?.custoTotal ?? null)
-      : null;
+export interface FluxoCaixaLinha {
+  mes: number;
+  receitaBruta: number;
+  custoTotalMes: number;
+  saldoMes: number;
+  saldoAcumulado: number;
+}
 
-  const itensObra = parseJson<{ itens?: ItemOrcamentoObra[] }>(e.workBudgetJson)?.itens ?? null;
-  const obra =
-    itensObra && itensObra.length > 0 ? resumoOrcamentoObra(itensObra, preliminar?.totalOrcado ?? null) : null;
+export type DadoIndicadoresFinanceiros =
+  | {
+      modo: "motor_atual";
+      vpl: number;
+      tirAnual: number | null;
+      roi: number;
+      margemLiquida: number;
+      paybackMes: number | null;
+      exposicaoMaxima: number;
+      fluxo: FluxoCaixaLinha[];
+    }
+  | {
+      modo: "legado";
+      vpl: number;
+      tirMensal: number | null;
+      margemLiquida: number;
+      paybackMes: number | null;
+      exposicaoMaxima: number;
+      fluxo: FluxoCaixaLinha[];
+    };
 
-  const mix = parseJson<ItemMixProduto[]>(e.productMixJson);
-  const mixCalculado = mix && mix.some((i) => i.quantidade > 0) ? calcularMix(mix) : null;
+function fluxoAtualParaLinhas(fluxo: FluxoMesLote[]): FluxoCaixaLinha[] {
+  return fluxo.map((f) => ({
+    mes: f.mes,
+    receitaBruta: f.receitaBruta,
+    custoTotalMes: f.custoPreVenda + f.custoDuranteVenda,
+    saldoMes: f.saldoMes,
+    saldoAcumulado: f.saldoAcumulado,
+  }));
+}
 
-  let vgvBruto: number | null = null;
-  let vgvLiquido: number | null = null;
-  let origemVgv: CustosReceitasVgvDado["origemVgv"] = null;
-  if (eve) {
-    vgvBruto = eve.resultado.vgvGross;
-    vgvLiquido = eve.resultado.vgvNet;
-    origemVgv = "viabilidade_economica";
-  } else if (mixCalculado) {
-    vgvBruto = mixCalculado.vgv;
-    origemVgv = "mix_de_produtos";
+function montarIndicadoresFinanceiros(
+  r: ResultadoLoteamento | null,
+  legado: ViabilidadeLegado | null
+): Secao<DadoIndicadoresFinanceiros> {
+  if (r) {
+    return okSecao({
+      modo: "motor_atual",
+      vpl: r.vpl,
+      tirAnual: r.tirAnual,
+      roi: r.roi,
+      margemLiquida: r.margemLiquida,
+      paybackMes: r.paybackMes,
+      exposicaoMaxima: r.exposicaoMaxima,
+      fluxo: fluxoAtualParaLinhas(r.fluxo),
+    });
   }
+  if (legado?.resultado) {
+    const fluxo = (legado.resultado.fluxo ?? []).map((f) => ({
+      mes: f.mes,
+      receitaBruta: f.receitas,
+      custoTotalMes: f.custosObra + f.custoTerreno,
+      saldoMes: f.saldoMes,
+      saldoAcumulado: f.saldoAcumulado,
+    }));
+    return okSecao({
+      modo: "legado",
+      vpl: legado.resultado.vpl,
+      tirMensal: legado.resultado.tir,
+      margemLiquida: legado.resultado.margemLiquida,
+      paybackMes: legado.resultado.paybackMes,
+      exposicaoMaxima: legado.resultado.exposicaoMaxima,
+      fluxo,
+    });
+  }
+  return pendenciaSecao(
+    "VPL, TIR, ROI, payback e fluxo de caixa dependem da aba Viabilidade (motor determinístico atual ou estudo legado), ainda não configurados."
+  );
+}
 
-  if (!parametrizado && !preliminar && !obra && vgvBruto == null) {
-    return pendente(
-      "Pendência: nenhum orçamento (parametrizado, preliminar ou da obra) nem VGV disponível — cadastre o mix de produtos ou a viabilidade econômica, e os orçamentos de obra."
+// ─── 9. Impostos / comissões / permutas ─────────────────────────────────────
+
+export interface DadoImpostosComissoesPermutas {
+  comissaoPct: number;
+  despesasGeraisPct: number;
+  impostosPct: number;
+  permutaPct: number;
+  comissaoValor: number;
+  despesasGeraisValor: number;
+  impostosValor: number;
+  permutaValorTerreneiro: number;
+  observacao: string;
+}
+
+const OBS_IMPOSTOS =
+  "Estimativa baseada nas premissas de viabilidade (aba Viabilidade) — não é um controle de pagamentos real, apenas a projeção do motor determinístico.";
+
+function montarImpostosComissoesPermutas(
+  premissas: PremissasLoteamento | null,
+  r: ResultadoLoteamento | null
+): Secao<DadoImpostosComissoesPermutas> {
+  if (!premissas || !r) {
+    return pendenciaSecao(
+      "Impostos, comissões e permuta dependem das premissas do motor de viabilidade atual (aba Viabilidade), ainda não configuradas. " +
+        "Estudos no formato legado (EVE) não têm esses percentuais extraídos neste relatório."
     );
   }
-
-  const pendencias: string[] = [];
-  if (!parametrizado) pendencias.push("Pendência: orçamento parametrizado ainda não cadastrado.");
-  if (!preliminar) pendencias.push("Pendência: orçamento preliminar ainda não cadastrado.");
-  if (!obra) pendencias.push("Pendência: orçamento executivo da obra (orçado x realizado) ainda não cadastrado.");
-  if (vgvBruto == null) {
-    pendencias.push("Pendência: VGV ainda não calculável — nem o mix de produtos nem a viabilidade econômica estão preenchidos.");
-  } else if (vgvLiquido == null) {
-    pendencias.push(
-      "Pendência: VGV líquido depende das premissas de impostos/comissão/despesas da Viabilidade Econômica (EVE), ainda não calculada."
-    );
-  }
-
-  return ok({ parametrizado, preliminar, obra, vgvBruto, vgvLiquido, origemVgv }, pendencias);
-}
-
-// ─── 8. VPL / TIR / ROI / payback / fluxo de caixa ─────────────────────────
-
-export interface ViabilidadeEconomicaDado {
-  resultado: ResultadoLoteamento;
-}
-
-function montarViabilidadeEconomica(eve: ViabilidadeComputada | null): Secao<ViabilidadeEconomicaDado> {
-  if (!eve) {
-    return pendente(
-      "Pendência: viabilidade econômica (EVE) ainda não calculada — informe as premissas na aba \"Viabilidade Econômica\" para obter VPL, TIR, ROI, payback e fluxo de caixa."
-    );
-  }
-  const pendencias: string[] = [];
-  if (eve.resultado.tirMensal == null) {
-    pendencias.push("Pendência: TIR não encontrada (fluxo de caixa sem troca de sinal no intervalo analisado).");
-  }
-  if (eve.resultado.paybackMes == null) {
-    pendencias.push("Pendência: payback não atingido dentro do horizonte de fluxo de caixa projetado.");
-  }
-  return ok({ resultado: eve.resultado }, pendencias);
-}
-
-// ─── 9. Impostos / comissões / permutas ────────────────────────────────────
-
-export interface ImpostosComissoesPermutasDado {
-  rotulo: string;
-  percentuais: {
-    impostosPctVgv: number;
-    comissaoPctVgv: number;
-    permutaPctVgv: number;
-    despesasGeraisPctVgv: number;
-    taxaIncorporacaoPctVgv: number;
-  };
-  valores: {
-    impostos: number;
-    comissao: number;
-    despesasGerais: number;
-    taxaIncorporacao: number;
-    permuta: number;
-  };
-  vgvGross: number;
-}
-
-function montarImpostosComissoesPermutas(eve: ViabilidadeComputada | null): Secao<ImpostosComissoesPermutasDado> {
-  if (!eve) {
-    return pendente(
-      "Pendência: percentuais de impostos, comissão e permuta ainda não definidos — dependem das premissas da Viabilidade Econômica (EVE), ainda não calculada."
-    );
-  }
-  const { premissas, resultado } = eve;
-  const vgv = resultado.vgvGross;
-  return ok({
-    rotulo: "estimativa baseada nas premissas de viabilidade",
-    percentuais: {
-      impostosPctVgv: premissas.impostosPctVgv,
-      comissaoPctVgv: premissas.comissaoPctVgv,
-      permutaPctVgv: premissas.permutaPctVgv,
-      despesasGeraisPctVgv: premissas.despesasGeraisPctVgv,
-      taxaIncorporacaoPctVgv: premissas.taxaIncorporacaoPctVgv,
-    },
-    valores: {
-      // impostos/comissão/despesas: valor = vgvGross × percentual, mesma
-      // fórmula aplicada dentro de calcularLoteamento() em
-      // viabilidade-economica.ts (ver `comissao`/`despesas`/`impostos`
-      // locais naquela função) — recalculada aqui porque o motor devolve
-      // apenas o agregado `custosDuranteVenda`, não os três valores
-      // separados.
-      impostos: vgv * premissas.impostosPctVgv,
-      comissao: vgv * premissas.comissaoPctVgv,
-      despesasGerais: vgv * premissas.despesasGeraisPctVgv,
-      taxaIncorporacao: resultado.custosDetalhados.taxaIncorporacao,
-      // permuta: recebiveis.terreneiro já é o valor efetivamente calculado
-      // pelo motor (soma mês a mês de receitaBruta × permutaPctVgv sobre o
-      // total recebido, líquido de inadimplência) — valor real, não
-      // reconstruído.
-      permuta: resultado.recebiveis.terreneiro,
-    },
-    vgvGross: vgv,
+  return okSecao({
+    comissaoPct: premissas.comissaoPctVgv,
+    despesasGeraisPct: premissas.despesasGeraisPctVgv,
+    impostosPct: premissas.impostosPctVgv,
+    permutaPct: premissas.permutaPctVgv,
+    comissaoValor: r.vgvGross * premissas.comissaoPctVgv,
+    despesasGeraisValor: r.vgvGross * premissas.despesasGeraisPctVgv,
+    impostosValor: r.vgvGross * premissas.impostosPctVgv,
+    permutaValorTerreneiro: r.recebiveis.terreneiro,
+    observacao: OBS_IMPOSTOS,
   });
 }
 
 // ─── 10. Negociações / proposta aceita ──────────────────────────────────────
 
-export interface NegociacoesDado {
-  proprietarioNome: string;
-  proprietarioContato: string;
+export interface DadoNegociacao {
   resumo: ResumoNegociacao;
-  propostas: Proposta[];
+  proprietarioNome: string;
 }
 
-function montarNegociacoes(e: EstudoParaRelatorioExecutivo, eve: ViabilidadeComputada | null): Secao<NegociacoesDado> {
-  const dados = parseJson<DadosNegociacao>(e.landNegotiationJson);
-  if (!dados || !dados.propostas || dados.propostas.length === 0) {
-    return pendente("Pendência: nenhuma negociação de terreno registrada para este estudo.");
+function montarNegociacao(estudo: EstudoData, vgvReferencia: number): Secao<DadoNegociacao> {
+  const dados = parseJson<DadosNegociacao>(estudo.negociacaoTerrenoJson);
+  if (!dados || !Array.isArray(dados.propostas) || dados.propostas.length === 0) {
+    return pendenciaSecao("Negociação do terreno ainda não registrada nesta aba (nenhuma proposta cadastrada).");
   }
-  const vgvGross = eve?.resultado.vgvGross ?? dados.vgvGrossManual ?? 0;
-  const resumo = resumoNegociacao(dados, vgvGross);
-  const pendencias: string[] = [];
-  if (!resumo.fechada) {
-    pendencias.push(
-      `Pendência: nenhuma proposta foi aceita até o momento — status atual: ${resumo.propostaAtual?.status ?? "sem proposta"}.`
+  const resumo = resumoNegociacao(dados, vgvReferencia);
+  return okSecao({ resumo, proprietarioNome: dados.proprietarioNome ?? "—" });
+}
+
+// ─── 11. Documentos / licenças / pendências ─────────────────────────────────
+
+export interface DadoDocumentosLicencas {
+  aprovacaoProjeto: ResumoAprovacaoProjeto | null;
+  registroIncorporacao: ResumoRegistro | null;
+}
+
+function montarDocumentosLicencas(estudo: EstudoData): Secao<DadoDocumentosLicencas> {
+  const aprovacao = parseJson<{ processos?: ProcessoAprovacao[] }>(estudo.aprovacaoProjetoJson);
+  const registro = parseJson<{ documentos?: DocumentoRegistro[] }>(estudo.registroIncorporacaoJson);
+  const processos = aprovacao?.processos ?? [];
+  const documentos = registro?.documentos ?? [];
+
+  if (processos.length === 0 && documentos.length === 0) {
+    return pendenciaSecao(
+      "Aprovação do projeto (licenças/órgãos) e registro da incorporação (documentos do art. 32) ainda não cadastrados nestas abas."
     );
   }
-  return ok(
-    { proprietarioNome: dados.proprietarioNome ?? "", proprietarioContato: dados.proprietarioContato ?? "", resumo, propostas: dados.propostas },
-    pendencias
-  );
+  return okSecao({
+    aprovacaoProjeto: processos.length > 0 ? resumoAprovacaoProjeto(processos) : null,
+    registroIncorporacao: documentos.length > 0 ? resumoRegistro(documentos) : null,
+  });
 }
 
-// ─── 11. Documentos / licenças / pendências ────────────────────────────────
+// ─── 12. Cronograma / tarefas / responsáveis / riscos ───────────────────────
 
-export interface DocumentosLicencasDado {
-  registro: ResumoRegistro | null;
-  aprovacao: ResumoAprovacaoProjeto | null;
-}
-
-function montarDocumentosLicencas(e: EstudoParaRelatorioExecutivo): Secao<DocumentosLicencasDado> {
-  const documentos = parseJson<{ documentos?: DocumentoRegistro[] }>(e.incorporationRegistrationJson)?.documentos ?? null;
-  const processos = parseJson<{ processos?: ProcessoAprovacao[] }>(e.projectApprovalJson)?.processos ?? null;
-
-  if ((!documentos || documentos.length === 0) && (!processos || processos.length === 0)) {
-    return pendente(
-      "Pendência: nenhum documento do registro de incorporação (art. 32 da Lei 4.591/64) nem processo de aprovação de projeto cadastrado."
-    );
-  }
-  const pendencias: string[] = [];
-  if (!documentos || documentos.length === 0) pendencias.push("Pendência: checklist de documentos para registro da incorporação ainda não cadastrado.");
-  if (!processos || processos.length === 0) pendencias.push("Pendência: processos de aprovação de projeto junto aos órgãos competentes ainda não cadastrados.");
-
-  return ok(
-    {
-      registro: documentos && documentos.length > 0 ? resumoRegistro(documentos) : null,
-      aprovacao: processos && processos.length > 0 ? resumoAprovacaoProjeto(processos) : null,
-    },
-    pendencias
-  );
-}
-
-// ─── 12. Cronograma / tarefas / responsáveis / riscos ──────────────────────
-
-export interface CronogramaDado {
-  obra: ResumoCronogramaObra | null;
-  lancamento: ResumoPlanejamentoLancamento | null;
+export interface DadoCronograma {
+  cronogramaObra: ResumoCronogramaObra | null;
+  planejamentoLancamento: ResumoPlanejamentoLancamento | null;
+  responsavelDoEstudo: string | null;
   responsaveisPorTarefa: { tarefa: string; responsavel: string }[];
   riscosExecucao: { descricao: string; impacto: string; mitigacao: string; responsavel: string; status: string }[];
+  responsavelPorTarefaPendencia: string | null;
+  riscosExecucaoPendencia: string | null;
 }
 
-function montarCronograma(e: EstudoParaRelatorioExecutivo, eve: ViabilidadeComputada | null): Secao<CronogramaDado> {
-  const schedule = parseJson<{ medicoes?: MedicaoMensal[]; duracaoObraMeses?: number; riscos?: RiscoExecucao[] }>(e.physicalFinancialScheduleJson);
-  const medicoes = schedule?.medicoes ?? null;
-  const marcos = parseJson<{ marcos?: MarcoLancamento[] }>(e.launchPlanJson)?.marcos ?? null;
-  const equipe = new Map((e.staff ?? []).map((u) => [u.id, u.name ?? `Usuário ${u.id}`]));
-  const tarefas = [...(medicoes ?? []).map((m) => ({ tarefa: `Medição do mês ${m.mes + 1}`, id: m.responsavelId })),
-    ...(marcos ?? []).map((m) => ({ tarefa: m.nome, id: m.responsavelId }))];
-  const responsaveisPorTarefa = tarefas.filter((t) => t.id && equipe.has(t.id))
-    .map((t) => ({ tarefa: t.tarefa, responsavel: equipe.get(t.id!)! }));
-  const riscosExecucao = (schedule?.riscos ?? []).map((r) => ({ descricao: r.descricao, impacto: r.impacto,
-    mitigacao: r.mitigacao, responsavel: equipe.get(r.responsavelId ?? -1) ?? "Não atribuído", status: r.status }));
+const RESPONSAVEL_POR_TAREFA_PENDENCIA =
+  "Há marcos ou medições sem responsável individual atribuído.";
+const RISCOS_EXECUCAO_PENDENCIA =
+  "Nenhum risco de execução foi registrado no cronograma. Verifique e registre os riscos ou documente a ausência após análise.";
 
-  if ((!medicoes || medicoes.length === 0) && (!marcos || marcos.length === 0)) {
-    return pendente("Pendência: cronograma físico-financeiro de obra e marcos do planejamento de lançamento ainda não cadastrados.");
+function montarCronograma(estudo: EstudoData): Secao<DadoCronograma> {
+  const obra = parseJson<{ medicoes?: MedicaoMensal[]; riscos?: RiscoExecucao[] }>(estudo.cronogramaObraJson);
+  const lancamento = parseJson<{ marcos?: MarcoLancamento[] }>(estudo.planejamentoLancamentoJson);
+  const medicoes = obra?.medicoes ?? [];
+  const marcos = lancamento?.marcos ?? [];
+  // No Prospecta o responsável é o id numérico do usuário; a chave do mapa é texto nos dois sistemas.
+  const usuarios = new Map((estudo.colaboradores ?? []).map((u) => [String(u.id), u.nome]));
+  const tarefas = [
+    ...medicoes.map((m) => ({ tarefa: `Medição do mês ${m.mes + 1}`, responsavelId: m.responsavelId })),
+    ...marcos.map((m) => ({ tarefa: m.nome, responsavelId: m.responsavelId })),
+  ];
+  const responsaveisPorTarefa = tarefas.filter((t) => t.responsavelId && usuarios.has(String(t.responsavelId)))
+    .map((t) => ({ tarefa: t.tarefa, responsavel: usuarios.get(String(t.responsavelId))! }));
+  const riscosExecucao = (obra?.riscos ?? []).map((r) => ({ descricao: r.descricao, impacto: r.impacto,
+    mitigacao: r.mitigacao, responsavel: usuarios.get(String(r.responsavelId ?? "")) ?? "Não atribuído", status: r.status }));
+
+  if (medicoes.length === 0 && marcos.length === 0) {
+    return pendenciaSecao(
+      "Cronograma de obra (curva S) e planejamento do lançamento (marcos) ainda não cadastrados nestas abas. " +
+        `${RESPONSAVEL_POR_TAREFA_PENDENCIA} ${RISCOS_EXECUCAO_PENDENCIA}`
+    );
   }
 
-  // Duração informada manualmente no próprio cronograma tem prioridade; na
-  // ausência, cai para a duração de obra usada nas premissas da Viabilidade
-  // Econômica (quando ela existir).
-  const duracaoObraMeses = schedule?.duracaoObraMeses || eve?.premissas.duracaoObraMeses || null;
-  const pendencias: string[] = [];
-  if (!medicoes || medicoes.length === 0) pendencias.push("Pendência: cronograma físico-financeiro de obra (curva S) ainda não cadastrado.");
-  if (!marcos || marcos.length === 0) pendencias.push("Pendência: marcos do planejamento de lançamento ainda não cadastrados.");
-  if (responsaveisPorTarefa.length < tarefas.length) pendencias.push("Pendência: marcos ou medições sem responsável individual atribuído.");
-  if (!riscosExecucao.length) pendencias.push("Pendência: riscos de execução ainda não registrados no cronograma.");
-
-  return ok(
-    {
-      obra: medicoes && medicoes.length > 0 ? resumoCronogramaObra(medicoes, duracaoObraMeses) : null,
-      lancamento: marcos && marcos.length > 0 ? resumoPlanejamentoLancamento(marcos) : null,
-      responsaveisPorTarefa, riscosExecucao,
-    },
-    pendencias
-  );
+  const premissas = montarPremissasLoteamento(estudo);
+  return okSecao({
+    cronogramaObra: medicoes.length > 0 ? resumoCronogramaObra(medicoes, premissas?.duracaoObraMeses) : null,
+    planejamentoLancamento: marcos.length > 0 ? resumoPlanejamentoLancamento(marcos) : null,
+    responsavelDoEstudo: estudo.responsavel ?? null,
+    responsaveisPorTarefa, riscosExecucao,
+    responsavelPorTarefaPendencia: responsaveisPorTarefa.length === tarefas.length ? null : RESPONSAVEL_POR_TAREFA_PENDENCIA,
+    riscosExecucaoPendencia: riscosExecucao.length ? null : RISCOS_EXECUCAO_PENDENCIA,
+  });
 }
 
-// ─── 13. Premissas, fontes, data e versão ──────────────────────────────────
+// ─── 13. Premissas / fontes / data / versão ─────────────────────────────────
 
-export interface PremissasFontesDataVersaoDado {
-  geradoEm: string; // ISO — timestamp real do momento da geração do PDF
-  versao: number | null;
-  premissasViabilidade: {
-    impostosPctVgv: number;
-    comissaoPctVgv: number;
-    permutaPctVgv: number;
-    despesasGeraisPctVgv: number;
-    taxaIncorporacaoPctVgv: number;
-    taxaDescontoAnual: number;
-  } | null;
-  parametrosUrbanisticosRelevantes: { zona: string; taxaOcupacao: number; coefAproveitamento: number; loteMinimoM2: number } | null;
-  fontesPesquisaMercado: string[] | null;
+export interface PremissaNumerica {
+  label: string;
+  valor: string;
 }
 
-function montarPremissasFontesDataVersao(
-  e: EstudoParaRelatorioExecutivo,
+export interface DadoPremissasFontesVersao {
+  geradoEm: string; // timestamp ISO real, no momento da geração do PDF
+  premissasNumericas: Secao<PremissaNumerica[]>;
+  versao: Secao<string>;
+  fontesPesquisaMercado: Secao<string>;
+}
+
+function formatPct(v: number): string {
+  return `${(v * 100).toFixed(2)}%`;
+}
+
+function montarPremissasFontesVersao(
+  premissas: PremissasLoteamento | null,
   geradoEm: Date,
-  raw: (Partial<PremissasFormSalvas> & { itensMix?: ItemMixProduto[] }) | null,
-  mercado: MercadoStudy | null
-): Secao<PremissasFontesDataVersaoDado> {
-  const parametrosSalvos = parseJson<Partial<ParametrosUrbanisticos>>(e.urbanParametersJson);
-  const pendencias: string[] = [];
+  estudo: EstudoData
+): DadoPremissasFontesVersao {
+  const mercado = parseJson<MercadoDados>(estudo.estudoMercadoJson);
+  const fontes = Array.isArray(mercado?.fontes) ? mercado.fontes.filter((f): f is string => typeof f === "string" && !!f.trim()) : [];
+  const premissasNumericas: Secao<PremissaNumerica[]> = premissas
+    ? okSecao([
+        { label: "Comissão sobre VGV", valor: formatPct(premissas.comissaoPctVgv) },
+        { label: "Despesas gerais sobre VGV", valor: formatPct(premissas.despesasGeraisPctVgv) },
+        { label: "Impostos sobre VGV", valor: formatPct(premissas.impostosPctVgv) },
+        { label: "Permuta do terreneiro sobre VGV", valor: formatPct(premissas.permutaPctVgv) },
+        { label: "Área pública (urbanístico)", valor: formatPct(premissas.pctAreaPublica) },
+        { label: "Área verde (urbanístico)", valor: formatPct(premissas.pctAreaVerde) },
+        { label: "Sistema viário (urbanístico)", valor: formatPct(premissas.pctSistemaViario) },
+        { label: "APP (automática, do mapa)", valor: formatPct(premissas.pctAPP) },
+        { label: "Faixa de servidão (urbanístico)", valor: formatPct(premissas.pctFaixaServidao) },
+        { label: "Taxa de desconto (VPL/TMA) a.a.", valor: formatPct(premissas.taxaDescontoAnual) },
+      ])
+    : pendenciaSecao(
+        "Premissas numéricas de viabilidade (impostos, comissão, permuta, parâmetros urbanísticos, taxa de desconto) ainda não configuradas na aba Viabilidade."
+      );
 
-  let premissasViabilidade: PremissasFontesDataVersaoDado["premissasViabilidade"] = null;
-  if (raw) {
-    const f: PremissasFormSalvas = { ...DEFAULTS_FORM_EVE, ...raw };
-    premissasViabilidade = {
-      impostosPctVgv: f.impostosPctVgv,
-      comissaoPctVgv: f.comissaoPctVgv,
-      permutaPctVgv: f.permutaPctVgv,
-      despesasGeraisPctVgv: f.despesasGeraisPctVgv,
-      taxaIncorporacaoPctVgv: f.taxaIncorporacaoPctVgv,
-      taxaDescontoAnual: f.taxaDescontoAnual,
-    };
-  } else {
-    pendencias.push("Pendência: premissas de viabilidade econômica (impostos/comissão/permuta) ainda não preenchidas.");
-  }
-
-  let parametrosUrbanisticosRelevantes: PremissasFontesDataVersaoDado["parametrosUrbanisticosRelevantes"] = null;
-  if (parametrosSalvos) {
-    const p = { ...PARAMETROS_DEFAULT, ...parametrosSalvos };
-    parametrosUrbanisticosRelevantes = {
-      zona: p.zona,
-      taxaOcupacao: p.taxaOcupacao,
-      coefAproveitamento: p.coefAproveitamento,
-      loteMinimoM2: p.loteMinimoM2,
-    };
-  } else {
-    pendencias.push("Pendência: parâmetros urbanísticos ainda não cadastrados.");
-  }
-
-  const fontesPesquisaMercado = mercado?.fontes && mercado.fontes.length > 0 ? mercado.fontes : null;
-  if (!fontesPesquisaMercado) {
-    pendencias.push("Pendência: fontes da pesquisa de mercado não registradas.");
-  }
-
-  if (!e.versionNumber) pendencias.push("Pendência: histórico de versões indisponível para este estudo.");
-
-  return ok(
-    {
-      geradoEm: geradoEm.toISOString(),
-      versao: e.versionNumber ?? null,
-      premissasViabilidade,
-      parametrosUrbanisticosRelevantes,
-      fontesPesquisaMercado,
-    },
-    pendencias
-  );
+  return {
+    geradoEm: geradoEm.toISOString(),
+    premissasNumericas,
+    versao: estudo.versaoNumero ? okSecao(`Versão ${estudo.versaoNumero} (retrato salvo no histórico)`) : pendenciaSecao(
+      "Histórico de versões indisponível para este estudo. Este PDF reflete o estado atual no momento da geração."
+    ),
+    fontesPesquisaMercado: fontes.length ? okSecao(fontes.join("; ")) : pendenciaSecao(FONTES_PESQUISA_IA_PENDENCIA),
+  };
 }
 
-// ─── Modelo final ───────────────────────────────────────────────────────────
+// ─── Modelo consolidado ──────────────────────────────────────────────────────
 
 export interface RelatorioExecutivoModel {
-  terreno: Secao<TerrenoDado>;
-  dadosCadastraisUrbanisticos: Secao<DadosCadastraisDado>;
-  mercadoReferencias: Secao<MercadoReferenciasDado>;
-  estudoMassa: Secao<EstudoMassaDado>;
-  quadroAreas: Secao<QuadroAreasDado>;
-  mixProdutos: Secao<MixProdutosDado>;
-  custosReceitasVgv: Secao<CustosReceitasVgvDado>;
-  viabilidadeEconomica: Secao<ViabilidadeEconomicaDado>;
-  impostosComissoesPermutas: Secao<ImpostosComissoesPermutasDado>;
-  negociacoes: Secao<NegociacoesDado>;
-  documentosLicencas: Secao<DocumentosLicencasDado>;
-  cronograma: Secao<CronogramaDado>;
-  premissasFontesDataVersao: Secao<PremissasFontesDataVersaoDado>;
+  nome: string;
+  municipio: string;
+  estado: string;
+  terreno: Secao<DadoTerreno>;
+  dadosCadastrais: Secao<DadoCadastral>;
+  mercado: Secao<DadoMercado>;
+  massa: Secao<DadoMassa>;
+  quadroAreas: Secao<DadoQuadroAreas>;
+  mixProdutos: Secao<DadoMixProdutos>;
+  custosReceitasVgv: Secao<DadoCustosReceitasVgv>;
+  indicadoresFinanceiros: Secao<DadoIndicadoresFinanceiros>;
+  impostosComissoesPermutas: Secao<DadoImpostosComissoesPermutas>;
+  negociacao: Secao<DadoNegociacao>;
+  documentosLicencas: Secao<DadoDocumentosLicencas>;
+  cronograma: Secao<DadoCronograma>;
+  premissasFontesVersao: DadoPremissasFontesVersao;
+  parecerIa: Secao<string>;
 }
 
 /**
- * Monta o modelo completo do Relatório Executivo a partir do registro de
- * `incorporation_studies`. Função pura (exceto o relógio, que pode ser
- * injetado via `geradoEm` para tornar os testes determinísticos — a UI que
- * gera o PDF não precisa passar nada, o padrão é `new Date()` no instante da
- * chamada).
+ * Monta o modelo consolidado do Relatório Executivo de Incorporação a partir
+ * de um único estudo (EstudoIncorporacao) — função pura, sem I/O, sem React,
+ * testável isoladamente. Nunca lança excessão: qualquer dado ausente ou JSON
+ * corrompido se transforma em `{ pendencia: "..." }` na seção correspondente.
  */
 export function montarRelatorioExecutivo(
-  e: EstudoParaRelatorioExecutivo,
+  estudo: EstudoData,
   geradoEm: Date = new Date()
 ): RelatorioExecutivoModel {
-  const eve = viabilidadeComputada(e);
-  const rawViabilidade = parseJson<Partial<PremissasFormSalvas> & { itensMix?: ItemMixProduto[] }>(e.lottingJson);
-  const mercado = parseJson<MercadoStudy>(e.marketStudyJson);
+  const { premissas, r, legado } = montarViabilidade(estudo);
+  const vgvReferencia = r?.vgvGross ?? legado?.resultado?.vgv ?? 0;
 
   return {
-    terreno: montarTerreno(e),
-    dadosCadastraisUrbanisticos: montarDadosCadastraisUrbanisticos(e),
-    mercadoReferencias: montarMercadoReferencias(e),
-    estudoMassa: montarEstudoMassa(e),
-    quadroAreas: montarQuadroAreas(e),
-    mixProdutos: montarMixProdutos(e),
-    custosReceitasVgv: montarCustosReceitasVgv(e, eve),
-    viabilidadeEconomica: montarViabilidadeEconomica(eve),
-    impostosComissoesPermutas: montarImpostosComissoesPermutas(eve),
-    negociacoes: montarNegociacoes(e, eve),
-    documentosLicencas: montarDocumentosLicencas(e),
-    cronograma: montarCronograma(e, eve),
-    premissasFontesDataVersao: montarPremissasFontesDataVersao(e, geradoEm, rawViabilidade, mercado),
+    nome: estudo.nome,
+    municipio: estudo.municipio,
+    estado: estudo.estado,
+    terreno: montarTerreno(estudo),
+    dadosCadastrais: montarDadosCadastrais(estudo),
+    mercado: montarMercado(estudo),
+    massa: montarMassa(estudo),
+    quadroAreas: montarQuadroAreas(estudo),
+    mixProdutos: montarMixProdutos(r),
+    custosReceitasVgv: montarCustosReceitasVgv(r, legado),
+    indicadoresFinanceiros: montarIndicadoresFinanceiros(r, legado),
+    impostosComissoesPermutas: montarImpostosComissoesPermutas(premissas, r),
+    negociacao: montarNegociacao(estudo, vgvReferencia),
+    documentosLicencas: montarDocumentosLicencas(estudo),
+    cronograma: montarCronograma(estudo),
+    premissasFontesVersao: montarPremissasFontesVersao(premissas, geradoEm, estudo),
+    parecerIa: estudo.parecerIa
+      ? okSecao(estudo.parecerIa)
+      : pendenciaSecao("Parecer de viabilidade por IA ainda não gerado para este estudo."),
   };
 }

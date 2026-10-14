@@ -1,9 +1,8 @@
-// Estudo de massa GENERATIVO — motor de parcelamento urbano. Porta direta da
-// lógica do Grupo Santa Fé, sem alteração de algoritmo.
+// Estudo de massa GENERATIVO — motor de parcelamento urbano.
 //
-// Pipeline: polígono da gleba (lng/lat) -> projeção local em metros ->
-// malha viária orientada por um ângulo -> quadras (2 faixas de lotes + via) ->
-// lotes com testada/profundidade -> clip à gleba -> KPIs (lotes, área vendável,
+// Pipeline: polígono da gleba (lng/lat) → projeção local em metros →
+// malha viária orientada por um ângulo → quadras (2 faixas de lotes + via) →
+// lotes com testada/profundidade → clip à gleba → KPIs (lotes, área vendável,
 // aproveitamento, VGV). Um ALGORITMO GENÉTICO busca o conjunto de parâmetros
 // (ângulo da malha, testada, profundidade, largura de via) que maximiza o VGV.
 //
@@ -18,18 +17,21 @@
 import { booleanPointInPolygon, intersect, area, polygon as turfPolygon, featureCollection, point } from "@turf/turf";
 import type { Feature, Polygon, Position } from "geojson";
 
+// ─── Tipos ───────────────────────────────────────────────────────────────────
+
 export interface ParametrosMassa {
-  larguraViaM: number;
-  testadaLoteM: number;
-  profundidadeLoteM: number;
-  loteMinimoM2: number;
-  comprimentoMaxQuadraM: number;
-  percentInstitucional: number;
-  percentAreaVerde: number;
-  precoM2Lote: number;
+  larguraViaM: number;        // largura das vias (m)
+  testadaLoteM: number;       // frente do lote (m)
+  profundidadeLoteM: number;  // fundo do lote (m)
+  loteMinimoM2: number;       // área mínima legal do lote
+  comprimentoMaxQuadraM: number; // comprimento máximo de quadra (m)
+  percentInstitucional: number;  // 0..1
+  percentAreaVerde: number;      // 0..1
+  precoM2Lote: number;           // R$/m² para VGV
 }
 
 export interface LoteGerado {
+  /** Anel do lote em [lng, lat] (fechado). */
   anel: Position[];
   areaM2: number;
   tipo: "vendavel" | "area_publica";
@@ -47,17 +49,19 @@ export interface CenarioMassa {
     lotesPublicos: number;
     areaVendavelM2: number;
     areaPublicaM2: number;
-    aproveitamento: number;
+    aproveitamento: number; // areaVendavel / areaGleba
     vgv: number;
   };
 }
 
 interface Genoma {
-  angulo: number;
-  testada: number;
-  profundidade: number;
-  via: number;
+  angulo: number;       // 0..180 graus
+  testada: number;      // m
+  profundidade: number; // m
+  via: number;          // m
 }
+
+// ─── Projeção local (equiretangular) ────────────────────────────────────────
 
 const M_POR_GRAU_LAT = 110_540;
 
@@ -80,8 +84,10 @@ function rotacionar(p: Position, anguloGraus: number): [number, number] {
   return [p[0] * cos - p[1] * sin, p[0] * sin + p[1] * cos];
 }
 
+// ─── Geração de um cenário (dado um genoma) ─────────────────────────────────
+
 interface FramePoly {
-  poly: Feature<Polygon>;
+  poly: Feature<Polygon>;       // polígono no frame rotacionado (metros)
   bbox: [number, number, number, number];
 }
 
@@ -97,6 +103,7 @@ function prepararFrame(anelMetros: Position[], angulo: number): FramePoly {
   return { poly: turfPolygon([rot]), bbox: [minX, minY, maxX, maxY] };
 }
 
+/** Gera os retângulos de lote no frame rotacionado. exato=true faz clip geométrico. */
 function gerarLotesFrame(
   frame: FramePoly,
   g: Genoma,
@@ -115,6 +122,7 @@ function gerarLotesFrame(
   for (let y = minY + g.via; y + quadraAltura <= maxY + quadraAltura; y += pitchY) {
     for (let x0 = minX + g.via; x0 < maxX; x0 += pitchX) {
       const xFim = Math.min(x0 + p.comprimentoMaxQuadraM, maxX);
+      // duas faixas de lotes por quadra (frente para cada via)
       for (const faixa of [0, 1]) {
         const yBase = y + faixa * g.profundidade;
         if (yBase + g.profundidade > maxY) continue;
@@ -132,6 +140,7 @@ function gerarLotesFrame(
             retangulos.push(clipped.geometry.coordinates[0]);
             areas.push(aM2);
           } else {
+            // aproximação: 5 pontos de amostragem dentro do retângulo
             const cx = x + g.testada / 2, cy = yBase + g.profundidade / 2;
             const pontos: Position[] = [
               [cx, cy],
@@ -163,6 +172,53 @@ export function areaPlanar(anel: Position[]): number {
   return Math.abs(s / 2);
 }
 
+// ─── Validação de parâmetros ────────────────────────────────────────────────
+
+/**
+ * Valida os parâmetros do estudo de massa antes de rodar o motor generativo.
+ * Retorna uma mensagem amigável (pt-BR) descrevendo o primeiro problema
+ * encontrado, ou `null` quando os parâmetros são válidos.
+ *
+ * Importante: `testadaLoteM`, `profundidadeLoteM` e `comprimentoMaxQuadraM`
+ * são usados como passo de incremento em laços `for` dentro de
+ * `gerarLotesFrame`. Um valor zero ou negativo nesses campos trava o
+ * navegador em loop infinito — por isso são validados aqui antes de
+ * qualquer geração, em vez de deixar o motor falhar silenciosamente ou
+ * travar a página.
+ */
+export function validarParametrosMassa(p: ParametrosMassa): string | null {
+  if (!Number.isFinite(p.larguraViaM) || p.larguraViaM < 0) {
+    return "Largura da via deve ser um número maior ou igual a 0.";
+  }
+  if (!Number.isFinite(p.testadaLoteM) || p.testadaLoteM <= 0) {
+    return "Testada do lote deve ser um número maior que 0.";
+  }
+  if (!Number.isFinite(p.profundidadeLoteM) || p.profundidadeLoteM <= 0) {
+    return "Profundidade do lote deve ser um número maior que 0.";
+  }
+  if (!Number.isFinite(p.loteMinimoM2) || p.loteMinimoM2 < 0) {
+    return "Lote mínimo não pode ser negativo.";
+  }
+  if (!Number.isFinite(p.comprimentoMaxQuadraM) || p.comprimentoMaxQuadraM <= 0) {
+    return "Comprimento máximo da quadra deve ser um número maior que 0.";
+  }
+  if (!Number.isFinite(p.percentInstitucional) || p.percentInstitucional < 0 || p.percentInstitucional >= 1) {
+    return "% institucional deve ser um número entre 0 e 100%.";
+  }
+  if (!Number.isFinite(p.percentAreaVerde) || p.percentAreaVerde < 0 || p.percentAreaVerde >= 1) {
+    return "% área verde deve ser um número entre 0 e 100%.";
+  }
+  if (p.percentInstitucional + p.percentAreaVerde >= 1) {
+    return "A soma de % institucional e % área verde deve ser menor que 100%.";
+  }
+  if (!Number.isFinite(p.precoM2Lote) || p.precoM2Lote <= 0) {
+    return "Preço do lote (R$/m²) deve ser um número maior que 0.";
+  }
+  return null;
+}
+
+// ─── Fitness (aproximado) ────────────────────────────────────────────────────
+
 function avaliarGenoma(
   anelMetros: Position[],
   g: Genoma,
@@ -174,8 +230,10 @@ function avaliarGenoma(
   const areaTotal = areas.reduce((s, a) => s + a, 0);
   const reservaPublica = (p.percentInstitucional + p.percentAreaVerde) * areaGleba;
   const areaVendavel = Math.max(0, areaTotal - reservaPublica);
-  return areaVendavel * p.precoM2Lote;
+  return areaVendavel * p.precoM2Lote; // fitness = VGV aproximado
 }
+
+// ─── Algoritmo genético ──────────────────────────────────────────────────────
 
 function aleatorio(min: number, max: number, rnd: () => number): number {
   return min + (max - min) * rnd();
@@ -197,46 +255,6 @@ export interface OpcoesGeracao {
   geracoes?: number;
   seed?: number;
   nCenarios?: number;
-}
-
-/**
- * Valida os parâmetros do estudo de massa antes de rodar o motor generativo.
- *
- * `testadaLoteM`, `profundidadeLoteM`, `larguraViaM` e `comprimentoMaxQuadraM`
- * controlam o passo (`pitch`) das varreduras em `gerarLotesFrame` — se
- * qualquer um deles chegar zerado ou negativo (ex.: um campo numérico que o
- * usuário deixou em branco, ou um valor inválido que foi parseado para 0), o
- * laço correspondente nunca avança e o navegador congela em loop infinito.
- * Chamar esta função antes de `gerarCenariosMassa` evita esse cenário e
- * permite mostrar uma mensagem amigável em vez de travar a página.
- *
- * Retorna `null` quando os parâmetros são válidos, ou uma mensagem amigável
- * (sem stack trace) explicando o que corrigir.
- */
-export function validarParametrosMassa(p: ParametrosMassa): string | null {
-  const camposPositivos: { campo: keyof ParametrosMassa; label: string }[] = [
-    { campo: "testadaLoteM", label: "testada do lote" },
-    { campo: "profundidadeLoteM", label: "profundidade do lote" },
-    { campo: "larguraViaM", label: "largura da via" },
-    { campo: "comprimentoMaxQuadraM", label: "comprimento máximo da quadra" },
-    { campo: "loteMinimoM2", label: "lote mínimo" },
-  ];
-
-  const invalidos = camposPositivos.filter(({ campo }) => !Number.isFinite(p[campo]) || p[campo] <= 0);
-  if (invalidos.length > 0) {
-    const lista = invalidos.map((c) => c.label).join(", ");
-    return `Verifique o(s) parâmetro(s) ${lista}: devem ser números maiores que zero.`;
-  }
-
-  if (p.percentInstitucional < 0 || p.percentAreaVerde < 0) {
-    return "Os percentuais de institucional e de área verde não podem ser negativos.";
-  }
-
-  if (p.percentInstitucional + p.percentAreaVerde >= 1) {
-    return "A soma dos percentuais de institucional e área verde deve ser menor que 100% (0 a 1).";
-  }
-
-  return null;
 }
 
 /**
@@ -274,6 +292,7 @@ export function gerarCenariosMassa(
     };
   }
 
+  // População inicial + avaliação
   let populacao = Array.from({ length: pop }, () => {
     const g = genomaAleatorio();
     return { g, fit: avaliarGenoma(anelMetros, g, params, areaGleba) };
@@ -284,8 +303,9 @@ export function gerarCenariosMassa(
     const elite = populacao.slice(0, Math.max(2, Math.floor(pop / 4)));
     const filhos: typeof populacao = [...elite];
     while (filhos.length < pop) {
-      const pai = populacao[Math.floor((rnd() * pop) / 2)].g;
-      const mae = populacao[Math.floor((rnd() * pop) / 2)].g;
+      // torneio simples
+      const pai = populacao[Math.floor(rnd() * pop / 2)].g;
+      const mae = populacao[Math.floor(rnd() * pop / 2)].g;
       const mix = rnd();
       const filho: Genoma = {
         angulo: pai.angulo * mix + mae.angulo * (1 - mix),
@@ -293,6 +313,7 @@ export function gerarCenariosMassa(
         profundidade: pai.profundidade * mix + mae.profundidade * (1 - mix),
         via: pai.via * mix + mae.via * (1 - mix),
       };
+      // mutação gaussiana leve
       if (rnd() < 0.5) filho.angulo = clamp(filho.angulo + (rnd() - 0.5) * 40, ...bounds.angulo);
       if (rnd() < 0.3) filho.testada = clamp(filho.testada + (rnd() - 0.5) * 4, ...bounds.testada);
       if (rnd() < 0.3) filho.profundidade = clamp(filho.profundidade + (rnd() - 0.5) * 8, ...bounds.profundidade);
@@ -303,6 +324,7 @@ export function gerarCenariosMassa(
 
   populacao.sort((a, b) => b.fit - a.fit);
 
+  // Seleciona os N melhores com ângulos suficientemente distintos
   const escolhidos: typeof populacao = [];
   for (const ind of populacao) {
     if (escolhidos.every((e) => Math.abs(e.g.angulo - ind.g.angulo) > 12)) {
@@ -314,10 +336,12 @@ export function gerarCenariosMassa(
     escolhidos.push(populacao[escolhidos.length]);
   }
 
+  // Desenho exato dos vencedores
   return escolhidos.map((ind, idx) => {
     const frame = prepararFrame(anelMetros, ind.g.angulo);
     const { retangulos, areas } = gerarLotesFrame(frame, ind.g, params, true);
 
+    // Ordena por área (menores primeiro) para converter em área pública
     const ordem = retangulos
       .map((r, i) => ({ r, a: areas[i] }))
       .sort((x, y) => x.a - y.a);
@@ -327,6 +351,7 @@ export function gerarCenariosMassa(
     const lotes: LoteGerado[] = ordem.map(({ r, a }) => {
       const tipo: LoteGerado["tipo"] = acumPublica < reservaNecessaria ? "area_publica" : "vendavel";
       if (tipo === "area_publica") acumPublica += a;
+      // volta do frame rotacionado → metros → lng/lat
       const anel = r.map((pt) => proj.paraGeo(rotacionar(pt, ind.g.angulo)));
       return { anel, areaM2: Math.round(a), tipo };
     });

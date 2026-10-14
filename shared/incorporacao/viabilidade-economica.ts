@@ -13,6 +13,7 @@
 import { calcularMix, type ItemMixProduto, type ResultadoMix } from "./mix-produtos.js";
 
 export type { ItemMixProduto, ResultadoMix };
+export { calcularMix };
 
 // ─── vpl/tir/payback (portados de eve.ts) ────────────────────────────────────
 
