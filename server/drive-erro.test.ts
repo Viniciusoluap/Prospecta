@@ -2,6 +2,10 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { descreverErroDrive, ErroDrive, lerCorpoErroGoogle } from "../shared/drive-erro";
 import { tryDriveUpload } from "./drive-documents";
 
+// Sem isto o teste consultaria a conexão OAuth do banco configurado no ambiente
+// (na Vercel, o de produção — onde o Drive está conectado) e o resultado mudaria.
+vi.mock("./google-drive-oauth.js", () => ({ conexaoOAuth: async () => null, tokenOAuth: async () => "token-de-teste" }));
+
 describe("motivo real do Google Drive (item 09)", () => {
   it("lê o reason do corpo de erro da Drive API", () => {
     expect(lerCorpoErroGoogle({ error: { code: 403, message: "Service Accounts do not have storage quota.", errors: [{ reason: "storageQuotaExceeded", domain: "usageLimits" }] } }))
