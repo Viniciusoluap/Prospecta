@@ -1,3 +1,4 @@
+import { ROTULO_DOCUMENTO } from "../shared/drive-estrutura.js";
 import { TRPCError } from "@trpc/server";
 import { and, desc, eq, isNull, sql } from "drizzle-orm";
 import { z } from "zod";
@@ -79,7 +80,7 @@ export const leadDocumentsRouter = router({
         return { id: existing[0].id, duplicate: true };
       }
       const safeName = input.fileName.replace(/[\\/\x00-\x1f]/g, "_").slice(0, 255);
-      const { driveFileId, note } = await tryDriveUpload(() => uploadPrivateDocument(leadId, input.serviceId ?? null, input.type, safeName, input.mimeType, data));
+      const { driveFileId, note } = await tryDriveUpload(() => uploadPrivateDocument({ leadId, serviceId: input.serviceId ?? null, categoria: input.type, rotulo: ROTULO_DOCUMENTO[input.type] ?? "Documento", nomeOriginal: safeName, mimeType: input.mimeType, data }));
       let savedId: number;
       if (driveFileId) {
         const [saved] = await db.insert(leadDocuments).values({

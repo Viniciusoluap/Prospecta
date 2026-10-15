@@ -12,7 +12,8 @@ import { readPrivateDbFile } from "./private-document-files.js";
 import { isValidPortalDocument } from "./portal-router.js";
 
 /** Levantamento topográfico do estudo (Topografia 3D) — mesmo armazenamento privado dos documentos. */
-export const ITEM_LEVANTAMENTO = "levantamento_topografico";
+export { ITEM_LEVANTAMENTO } from "./drive-pastas.js";
+import { ITEM_LEVANTAMENTO } from "./drive-pastas.js";
 const EXTENSOES_LEVANTAMENTO = [".csv", ".txt", ".xyz", ".dxf"];
 const mimeLevantamento = z.enum(["text/csv", "text/plain", "application/dxf"]);
 /** Levantamento: arquivo de texto (pontos CSV/TXT/XYZ ou DXF ASCII) com extensão aceita pelo Santa Fé. */
