@@ -4,7 +4,6 @@ import { requireRole } from "./_core/rbac.js";
 import { protectedProcedure, router } from "./_core/trpc.js";
 import { origemDaRequisicao } from "../shared/google-drive-oauth.js";
 import { desconectarOAuth, estadoOAuth, salvarCredencialOAuth } from "./google-drive-oauth.js";
-import { diagnosticarDrive } from "./drive-documents.js";
 
 // Configurações → Google Drive (só administrador). O JSON do cliente OAuth chega
 // aqui, é validado e guardado criptografado; o arquivo nunca é devolvido à tela.
@@ -27,6 +26,7 @@ export const googleDriveRouter = router({
   }),
   testar: protectedProcedure.mutation(async ({ ctx }) => {
     requireRole(ctx, ["admin"]);
-    return diagnosticarDrive();
+    const { diagnosticarDriveComFotos } = await import("./imovel-fotos.js");
+    return diagnosticarDriveComFotos();
   }),
 });

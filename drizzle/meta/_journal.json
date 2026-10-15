@@ -379,6 +379,13 @@
       "when": 1791900000007,
       "tag": "0053_vgv_valor_aprovado",
       "breakpoints": true
+    },
+    {
+      "idx": 54,
+      "version": "7",
+      "when": 1791900000008,
+      "tag": "0054_imovel_fotos",
+      "breakpoints": true
     }
   ]
 }

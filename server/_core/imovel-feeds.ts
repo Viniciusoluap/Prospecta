@@ -10,11 +10,18 @@ import type { Imovel } from "../../drizzle/schema.js";
  * omitidos (nunca inventados).
  */
 
-function parseImagens(fotos: string | null): string[] {
+/**
+ * Pedido de 15/10: fotos ficam no Drive e são servidas por /api/imovel-foto/<id>;
+ * os portais precisam do endereço completo. Foto embutida (data:) não vai ao feed.
+ */
+function parseImagens(fotos: string | null, siteUrl: string): string[] {
   if (!fotos) return [];
   try {
     const parsed = JSON.parse(fotos);
-    return Array.isArray(parsed) ? parsed.filter((v) => typeof v === "string") : [];
+    if (!Array.isArray(parsed)) return [];
+    return parsed
+      .filter((v): v is string => typeof v === "string")
+      .flatMap((v) => (v.startsWith("/") ? [`${siteUrl.replace(/\/+$/, "")}${v}`] : /^https?:\/\//.test(v) ? [v] : []));
   } catch {
     return [];
   }
@@ -82,7 +89,7 @@ export { XML_HEADERS };
 export function gerarFeedZap(imoveis: Imovel[], siteUrl: string): string {
   const items = imoveis
     .map((p) => {
-      const imagens = parseImagens(p.fotos);
+      const imagens = parseImagens(p.fotos, siteUrl);
       return `    <Listing>
       <ListingID>${p.id}</ListingID>
       <Title><![CDATA[${p.titulo}]]></Title>
@@ -130,7 +137,7 @@ ${items}
 export function gerarFeedVivaReal(imoveis: Imovel[], siteUrl: string): string {
   const items = imoveis
     .map((p) => {
-      const imagens = parseImagens(p.fotos);
+      const imagens = parseImagens(p.fotos, siteUrl);
       return `    <Listing>
       <ListingID>VR-${p.id}</ListingID>
       <Title><![CDATA[${p.titulo}]]></Title>
@@ -178,7 +185,7 @@ ${items}
 export function gerarFeedOlx(imoveis: Imovel[], siteUrl: string): string {
   const items = imoveis
     .map((p) => {
-      const imagens = parseImagens(p.fotos);
+      const imagens = parseImagens(p.fotos, siteUrl);
       return `  <advert>
     <id><![CDATA[PROS-${p.id}]]></id>
     <url>${siteUrl}/imoveis/${p.slug}</url>
@@ -220,7 +227,7 @@ ${items}
 export function gerarFeedChavesNaMao(imoveis: Imovel[], siteUrl: string): string {
   const items = imoveis
     .map((p) => {
-      const imagens = parseImagens(p.fotos);
+      const imagens = parseImagens(p.fotos, siteUrl);
       return `  <imovel>
     <id>${p.id}</id>
     <tipo>${TIPO_CHAVESNAMAO[p.tipo] ?? "Casa"}</tipo>

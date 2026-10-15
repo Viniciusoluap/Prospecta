@@ -2325,13 +2325,18 @@ export const appRouter = router({
       )
       .mutation(async ({ input, ctx }) => {
         requireRole(ctx, ["admin"]);
-        return db.createImovel({
+        const criado = await db.createImovel({
           ...input,
+          fotos: "[]",
           preco: input.preco.toString(),
           areaM2: input.areaM2?.toString(),
           latitude: input.latitude?.toString(),
           longitude: input.longitude?.toString(),
         } as any);
+        // Pedido de 15/10: fotos vão para o Google Drive (Imóveis/<Título (nº)>/01 - Fotos).
+        const { aplicarFotosImovel, lerFotos } = await import("./imovel-fotos.js");
+        const fotos = await aplicarFotosImovel(criado.id, lerFotos(input.fotos), ctx.user.id);
+        return { ...criado, fotos: JSON.stringify(fotos) };
       }),
 
     update: protectedProcedure
@@ -2367,7 +2372,7 @@ export const appRouter = router({
       )
       .mutation(async ({ input, ctx }) => {
         requireRole(ctx, ["admin"]);
-        const { id, ...data } = input;
+        const { id, fotos, ...data } = input;
         await db.updateImovel(id, {
           ...data,
           preco: data.preco?.toString(),
@@ -2375,6 +2380,10 @@ export const appRouter = router({
           latitude: data.latitude?.toString(),
           longitude: data.longitude?.toString(),
         } as any);
+        if (fotos !== undefined) {
+          const { aplicarFotosImovel, lerFotos } = await import("./imovel-fotos.js");
+          await aplicarFotosImovel(id, lerFotos(fotos), ctx.user.id);
+        }
         return { success: true };
       }),
   }),

@@ -7,6 +7,7 @@ import { BROKER_PROPERTY_TYPES, brokerLeadStage, isPropertyPhoto, MAX_BROKER_PHO
 import { protectedProcedure, router } from "./_core/trpc.js";
 import { getDb } from "./db.js";
 import { listarComissoesDeObras } from "./operacional-router.js";
+import { aplicarFotosImovel } from "./imovel-fotos.js";
 import { requireBrokerContext } from "./profile-context.js";
 
 const propertyInput = z.object({
@@ -146,7 +147,7 @@ export const brokerPortalRouter = router({
           bairro: input.bairro,
           cidade: input.cidade,
           estado: input.estado?.toUpperCase(),
-          fotos: JSON.stringify(input.fotos),
+          fotos: "[]",
           destaque: false,
           publicadoSite: false,
           publicadoZap: false,
@@ -157,7 +158,9 @@ export const brokerPortalRouter = router({
           reviewStatus: "pending",
         })
         .returning();
-      return property;
+      // Pedido de 15/10: fotos vão para o Google Drive (Imóveis/<Título (nº)>/01 - Fotos).
+      const fotos = await aplicarFotosImovel(property.id, input.fotos, userId);
+      return { ...property, fotos: JSON.stringify(fotos) };
     }),
 
   // Portal do corretor (15/10): acompanhamento das etapas do CRM, somente

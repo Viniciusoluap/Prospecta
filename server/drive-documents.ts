@@ -2,9 +2,9 @@ import { createHash, createSign } from "node:crypto";
 import { descreverErroDrive, ErroDrive, lerCorpoErroGoogle, type EtapaDrive } from "../shared/drive-erro.js";
 import { and, eq, isNotNull, isNull } from "drizzle-orm";
 import {
-  financiamentoChecklistItems, financiamentos, incorporationRegistrationDocuments, leadDocuments, portalContractDocuments, portalContracts,
+  financiamentoChecklistItems, financiamentos, imoveis, imovelFotos, incorporationRegistrationDocuments, leadDocuments, portalContractDocuments, portalContracts,
 } from "../drizzle/schema.js";
-import { CHAVE_RAIZ, nomeArquivo, pastaLegada, PROPRIEDADE_PASTA, ROTULO_DOCUMENTO, type PastaAlvo } from "../shared/drive-estrutura.js";
+import { caminhoImovel, CHAVE_RAIZ, nomeArquivo, nomeFotoImovel, pastaLegada, PASTAS_IMOVEL, PROPRIEDADE_PASTA, ROTULO_DOCUMENTO, type PastaAlvo } from "../shared/drive-estrutura.js";
 import { getDb } from "./db.js";
 import { caminhoDocumentoCliente, destinoDocumentoEstudo } from "./drive-pastas.js";
 import { conexaoOAuth, tokenOAuth } from "./google-drive-oauth.js";
@@ -181,6 +181,48 @@ export async function uploadPrivateIncorporationDocument(studyId: number, itemId
   const pasta = await pastaDoCaminho(fonte, root, destino.caminho);
   await assertNotPublic(fonte, pasta);
   return uploadToFolder(fonte, pasta, nomeArquivo(destino.rotulo, new Date(), name, mimeType), mimeType, data);
+}
+
+/**
+ * Pedido de 15/10: Imóveis/<Título (nº id)>/ com o checklist fixo de pastas
+ * (01 - Fotos, 02 - Documentos, 03 - Plantas, 04 - Propostas). Devolve a pasta
+ * de fotos já criada/renomeada.
+ */
+async function pastaFotosImovel(fonte: FonteDrive, imovel: { id: number; titulo: string }): Promise<string> {
+  const root = await prepararRaiz(fonte);
+  const base = { id: imovel.id, numero: imovel.id, nome: imovel.titulo };
+  let fotos = "";
+  for (const p of PASTAS_IMOVEL) {
+    const id = await pastaDoCaminho(fonte, root, caminhoImovel(base, p.chave));
+    if (p.chave === "fotos") fotos = id;
+  }
+  await assertNotPublic(fonte, fotos);
+  return fotos;
+}
+
+/** Grava as fotos do imóvel em "01 - Fotos" como "Foto NN — dd-mm-aaaa.ext"; devolve os IDs na mesma ordem. */
+export async function uploadFotosImovel(imovel: { id: number; titulo: string }, fotos: { ordem: number; mime: string; data: Buffer }[]): Promise<string[]> {
+  const fonte = await fonteObrigatoria();
+  const pasta = await pastaFotosImovel(fonte, imovel);
+  const ids: string[] = [];
+  for (const f of fotos) ids.push(await uploadToFolder(fonte, pasta, nomeFotoImovel(f.ordem, new Date(), f.mime), f.mime, f.data));
+  return ids;
+}
+
+/** Mantém a numeração das fotos igual à ordem do anúncio (e a pasta com o título atual). */
+export async function organizarFotosImovel(imovel: { id: number; titulo: string }, fotos: { driveFileId: string; mime: string; criadaEm: Date }[]): Promise<void> {
+  if (!fotos.length) return;
+  const fonte = await fonteObrigatoria();
+  const pasta = await pastaFotosImovel(fonte, imovel);
+  for (let i = 0; i < fotos.length; i++) await moverArquivo(fonte, fotos[i].driveFileId, pasta, nomeFotoImovel(i + 1, fotos[i].criadaEm, fotos[i].mime));
+}
+
+/** Foto retirada do anúncio vai para a lixeira do Drive (recuperável por 30 dias). */
+export async function enviarParaLixeira(fileId: string): Promise<void> {
+  const fonte = await fonteObrigatoria();
+  await driveFetch(fonte, `https://www.googleapis.com/drive/v3/files/${encodeURIComponent(fileId)}?supportsAllDrives=true&fields=id`, {
+    method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ trashed: true }),
+  });
 }
 
 async function uploadToFolder(fonte: FonteDrive, categoryFolder: string, name: string, mimeType: string, data: Buffer): Promise<string> {
@@ -415,6 +457,17 @@ async function reorganizar(fonte: FonteDrive, root: string): Promise<ResultadoOr
   for (const e of estudos) {
     const destino = destinoDocumentoEstudo(e.studyId, e.itemId);
     await mover(e.driveFileId!, destino.then((d) => d.caminho), nomeArquivo((await destino).rotulo, e.createdAt, e.fileName, e.mimeType ?? ""));
+  }
+
+  // Pedido de 15/10: fotos de imóveis em Imóveis/<Título (nº)>/01 - Fotos, numeradas na ordem de envio.
+  const fotos = await db.select({ foto: imovelFotos, titulo: imoveis.titulo }).from(imovelFotos)
+    .innerJoin(imoveis, eq(imoveis.id, imovelFotos.imovelId)).where(isNotNull(imovelFotos.driveFileId)).orderBy(imovelFotos.imovelId, imovelFotos.id);
+  const posicao = new Map<number, number>();
+  for (const f of fotos) {
+    const n = (posicao.get(f.foto.imovelId) ?? 0) + 1;
+    posicao.set(f.foto.imovelId, n);
+    await mover(f.foto.driveFileId!, Promise.resolve(caminhoImovel({ id: f.foto.imovelId, numero: f.foto.imovelId, nome: f.titulo }, "fotos")),
+      nomeFotoImovel(n, f.foto.createdAt, f.foto.mime));
   }
 
   for (const item of await filhos(fonte, root)) {
