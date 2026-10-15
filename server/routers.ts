@@ -1514,6 +1514,11 @@ export const appRouter = router({
             : undefined,
         };
         await db.updateLead(id, dbData);
+        // Pedido de 15/10: VGV das obras do cliente acompanha o Valor Aprovado.
+        if (data.approvedValue !== undefined) {
+          const { sincronizarVgvDoLead } = await import("./obra-financeiro-router.js");
+          await sincronizarVgvDoLead(id);
+        }
         if (stage && (stage !== lead.stage || lead.stageClassificationPending))
           await db.updateLeadPipelineStage(id, stage, ctx.user.id);
         return { success: true };

@@ -67,7 +67,7 @@ describe("API financeira da obra — permissões", () => {
 
 describe("API financeira da obra — validações", () => {
   it("campos calculados não existem na API: só entradas são aceitas", async () => {
-    const { db, gravacoes } = fakeDb([[obra], []]);
+    const { db, gravacoes } = fakeDb([[{ obra, valorAprovado: null }], []]);
     vi.mocked(getDb).mockReturnValue(db as never);
     await caller("admin").obraFinanceiro.salvarValores({
       projectId: 35, vgv: "170000.00", financiamento: "140000", fgts: "0", subsidio: "8234", custoTerreno: "10000",
@@ -89,7 +89,7 @@ describe("API financeira da obra — validações", () => {
     await expect(caller("admin").obraFinanceiro.definirInvestidores({ projectId: 35, participacoes: [{ investidorId: 1, percentual: "100.5" }] }))
       .rejects.toMatchObject({ code: "BAD_REQUEST" });
 
-    const { db } = fakeDb([[obra], [{ role: "corretor", active: true }]]);
+    const { db } = fakeDb([[{ obra, valorAprovado: null }], [{ role: "corretor", active: true }]]);
     vi.mocked(getDb).mockReturnValue(db as never);
     await expect(caller("admin").obraFinanceiro.salvarValores({
       projectId: 35, vgv: null, financiamento: null, fgts: null, subsidio: null, custoTerreno: null,
@@ -98,7 +98,7 @@ describe("API financeira da obra — validações", () => {
   });
 
   it("soma de investidores acima de 100% e investidor repetido são recusados", async () => {
-    const { db } = fakeDb([[obra], [obra]]);
+    const { db } = fakeDb([[{ obra, valorAprovado: null }], [{ obra, valorAprovado: null }]]);
     vi.mocked(getDb).mockReturnValue(db as never);
     await expect(caller("admin").obraFinanceiro.definirInvestidores({
       projectId: 35, participacoes: [{ investidorId: 1, percentual: "70" }, { investidorId: 2, percentual: "40" }],
@@ -110,7 +110,7 @@ describe("API financeira da obra — validações", () => {
   });
 
   it("pagamento exige categoria; recebimento não aceita; valor zero é recusado", async () => {
-    const { db } = fakeDb([[obra], [obra]]);
+    const { db } = fakeDb([[{ obra, valorAprovado: null }], [{ obra, valorAprovado: null }]]);
     vi.mocked(getDb).mockReturnValue(db as never);
     await expect(caller("admin").obraFinanceiro.adicionarMovimento({ projectId: 35, natureza: "pagamento", descricao: "Empreiteiro", valor: "100", data: "2026-10-12" }))
       .rejects.toThrow("categoria");
@@ -121,7 +121,7 @@ describe("API financeira da obra — validações", () => {
   });
 
   it("traduz o bloqueio de duplicidade do banco em mensagem compreensível", async () => {
-    const { db } = fakeDb([[obra], new Error("BPO_ALOCACAO_EXCEDIDA: disponível R$ 2000.00")]);
+    const { db } = fakeDb([[{ obra, valorAprovado: null }], new Error("BPO_ALOCACAO_EXCEDIDA: disponível R$ 2000.00")]);
     vi.mocked(getDb).mockReturnValue(db as never);
     await expect(caller("admin").obraFinanceiro.adicionarMovimento({
       projectId: 35, natureza: "recebimento_cef", descricao: "CEF", valor: "2500", data: "2026-10-12", bpoLancamentoId: 10,
@@ -129,7 +129,7 @@ describe("API financeira da obra — validações", () => {
   });
 
   it("registra quem lançou e marca a origem BPO quando há vínculo", async () => {
-    const { db, gravacoes } = fakeDb([[obra], (v: unknown) => [v]]);
+    const { db, gravacoes } = fakeDb([[{ obra, valorAprovado: null }], (v: unknown) => [v]]);
     vi.mocked(getDb).mockReturnValue(db as never);
     await caller("admin", 42).obraFinanceiro.adicionarMovimento({
       projectId: 35, natureza: "entrada", descricao: "Entrada", valor: "2000", data: "2026-10-12", bpoLancamentoId: 10,
@@ -150,7 +150,7 @@ describe("Lote 3 — comissão da obra pelo CRM (item 32)", () => {
   };
 
   it("com corretor e % da obra, grava o valor calculado (Teste G: 230.000 × 5% = 11.500,00) e ignora o digitado", async () => {
-    const { db, gravacoes } = fakeDb([[{ ...obra, leadId: 24, commissionPct: null }], [{ id: 9, nome: "Chaleilson", percentualPadrao: null }], []]);
+    const { db, gravacoes } = fakeDb([[{ obra: { ...obra, leadId: 24, commissionPct: null }, valorAprovado: "230000.00" }], [{ id: 9, nome: "Chaleilson", percentualPadrao: null }], []]);
     vi.mocked(getDb).mockReturnValue(db as never);
     await caller("admin").obraFinanceiro.salvarValores({ ...entrada, comissaoPercentual: "5" });
     const gravado = gravacoes.find((g) => g.metodo === "update")!.valores as Record<string, unknown>;
@@ -159,14 +159,14 @@ describe("Lote 3 — comissão da obra pelo CRM (item 32)", () => {
   });
 
   it("sem % da obra usa o padrão do corretor", async () => {
-    const { db, gravacoes } = fakeDb([[{ ...obra, leadId: 24, commissionPct: null }], [{ id: 9, nome: "C", percentualPadrao: "4.0000" }], []]);
+    const { db, gravacoes } = fakeDb([[{ obra: { ...obra, leadId: 24, commissionPct: null }, valorAprovado: "230000.00" }], [{ id: 9, nome: "C", percentualPadrao: "4.0000" }], []]);
     vi.mocked(getDb).mockReturnValue(db as never);
     await caller("admin").obraFinanceiro.salvarValores({ ...entrada, comissaoPercentual: null });
     expect((gravacoes.find((g) => g.metodo === "update")!.valores as Record<string, unknown>).commissionAmount).toBe("9200.00");
   });
 
   it("obra com corretor sem regra: não inventa percentual nem reaproveita valor digitado/antigo", async () => {
-    const { db, gravacoes } = fakeDb([[{ ...obra, leadId: 24, commissionPct: null }], [{ id: 9, nome: "C", percentualPadrao: null }], []]);
+    const { db, gravacoes } = fakeDb([[{ obra: { ...obra, leadId: 24, commissionPct: null }, valorAprovado: "230000.00" }], [{ id: 9, nome: "C", percentualPadrao: null }], []]);
     vi.mocked(getDb).mockReturnValue(db as never);
     await caller("admin").obraFinanceiro.salvarValores({ ...entrada, comissaoPercentual: null });
     const gravado = gravacoes.find((g) => g.metodo === "update")!.valores as Record<string, unknown>;
@@ -174,8 +174,24 @@ describe("Lote 3 — comissão da obra pelo CRM (item 32)", () => {
     expect(gravado.commissionPct).toBeNull();
   });
 
+  it("obra com lead: VGV gravado é o Valor Aprovado do CRM, nunca o digitado (pedido 15/10)", async () => {
+    const { db, gravacoes } = fakeDb([[{ obra: { ...obra, leadId: 24, commissionPct: null }, valorAprovado: "195000.00" }], [{ id: 9, nome: "C", percentualPadrao: "4.0000" }], []]);
+    vi.mocked(getDb).mockReturnValue(db as never);
+    await caller("admin").obraFinanceiro.salvarValores({ ...entrada, vgv: "999999.00", comissaoPercentual: null });
+    const gravado = gravacoes.find((g) => g.metodo === "update")!.valores as Record<string, unknown>;
+    expect(gravado.vgv).toBe("195000.00");
+    expect(gravado.commissionAmount).toBe("7800.00");
+  });
+
+  it("obra sem lead: VGV continua digitado", async () => {
+    const { db, gravacoes } = fakeDb([[{ obra: { ...obra, leadId: null, commissionPct: null }, valorAprovado: null }], []]);
+    vi.mocked(getDb).mockReturnValue(db as never);
+    await caller("admin").obraFinanceiro.salvarValores({ ...entrada, vgv: "150000.00", comissaoPercentual: null });
+    expect((gravacoes.find((g) => g.metodo === "update")!.valores as Record<string, unknown>).vgv).toBe("150000.00");
+  });
+
   it("obra sem corretor: comissão é o valor informado", async () => {
-    const { db, gravacoes } = fakeDb([[{ ...obra, leadId: null, commissionPct: null }], []]);
+    const { db, gravacoes } = fakeDb([[{ obra: { ...obra, leadId: null, commissionPct: null }, valorAprovado: null }], []]);
     vi.mocked(getDb).mockReturnValue(db as never);
     await caller("admin").obraFinanceiro.salvarValores({ ...entrada, comissao: "5000", comissaoPercentual: null });
     expect((gravacoes.find((g) => g.metodo === "update")!.valores as Record<string, unknown>).commissionAmount).toBe("5000");

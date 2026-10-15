@@ -16,6 +16,13 @@ import { BROKER_PROPERTY_TYPES, MAX_BROKER_PHOTOS } from "@shared/broker-portal"
 
 const money = (value: string | number) =>
   Number(value).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
+const STATUS_OBRA: Record<string, string> = {
+  dados_incompletos: "Dados incompletos",
+  pendente: "Pendente",
+  parcial: "Paga parcialmente",
+  paga: "Paga",
+};
+
 /** Reduz a foto no aparelho (máx. 1200 px, JPEG) — mesmo padrão do cadastro do admin. */
 function compressImage(file: File): Promise<string> {
   return new Promise((resolve, reject) => {
@@ -52,6 +59,9 @@ export default function BrokerPortal() {
     enabled: path.includes("imoveis") || path === "/corretor",
   });
   const commissions = trpc.brokerPortal.commissions.useQuery(undefined, {
+    enabled: path.includes("comissoes") || path === "/corretor",
+  });
+  const obraCommissions = trpc.brokerPortal.obraCommissions.useQuery(undefined, {
     enabled: path.includes("comissoes") || path === "/corretor",
   });
   const myLeads = trpc.brokerPortal.leads.useQuery(undefined, {
@@ -183,7 +193,7 @@ export default function BrokerPortal() {
                 <CardTitle>Minhas comissões</CardTitle>
               </CardHeader>
               <CardContent className="text-4xl font-black text-[#C9A961]">
-                {commissions.data?.length ?? 0}
+                {(commissions.data?.length ?? 0) + (obraCommissions.data?.length ?? 0)}
               </CardContent>
             </Card>
             <BrokerLeads
@@ -350,6 +360,38 @@ export default function BrokerPortal() {
               </p>
             </div>
             <div className="space-y-3">
+              {/* Pedido de 15/10: comissões das obras (VGV × %), as mesmas do painel do admin. */}
+              {obraCommissions.data?.map(item => (
+                <Card key={`obra-${item.obraId}`}>
+                  <CardContent className="grid gap-3 p-4 md:grid-cols-5">
+                    <div>
+                      <p className="text-xs text-slate-500">Obra · cliente</p>
+                      <p className="font-semibold">{item.obra}</p>
+                      <p className="text-xs text-slate-500">{item.cliente}</p>
+                    </div>
+                    <div>
+                      <p className="text-xs text-slate-500">VGV · %</p>
+                      <p>{item.vgv ? money(item.vgv) : "VGV não informado"}</p>
+                      <p className="text-xs text-slate-500">
+                        {item.percentual ? `${Number(item.percentual).toLocaleString("pt-BR", { maximumFractionDigits: 4 })}%` : "sem percentual"}
+                      </p>
+                    </div>
+                    <div>
+                      <p className="text-xs text-slate-500">Comissão</p>
+                      <p className="font-semibold">{item.valorCentavos === null ? "—" : money(item.valorCentavos / 100)}</p>
+                    </div>
+                    <div>
+                      <p className="text-xs text-slate-500">Pago · saldo</p>
+                      <p>{money(item.pagoCentavos / 100)}</p>
+                      <p className="text-xs text-slate-500">saldo {item.saldoCentavos === null ? "—" : money(item.saldoCentavos / 100)}</p>
+                    </div>
+                    <div>
+                      <p className="text-xs text-slate-500">Situação</p>
+                      <Badge>{STATUS_OBRA[item.status] ?? item.status}</Badge>
+                    </div>
+                  </CardContent>
+                </Card>
+              ))}
               {commissions.data?.map(item => (
                 <Card key={item.id}>
                   <CardContent className="grid gap-3 p-4 md:grid-cols-4">
@@ -374,7 +416,7 @@ export default function BrokerPortal() {
                   </CardContent>
                 </Card>
               ))}
-              {commissions.data?.length === 0 && (
+              {commissions.data?.length === 0 && obraCommissions.data?.length === 0 && (
                 <Card>
                   <CardContent className="p-10 text-center text-slate-500">
                     Nenhuma comissão vinculada ao seu cadastro.

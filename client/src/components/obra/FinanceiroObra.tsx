@@ -426,7 +426,11 @@ export function ValoresOperacaoAba({ projectId, resumo, form, setForm, calculo, 
       <Card className="bg-[#1A2332]/60 border-[#C9A961]/20">
         <CardHeader><CardTitle className="text-[#C9A961] text-lg">Composição da operação</CardTitle></CardHeader>
         <CardContent className="grid grid-cols-1 md:grid-cols-2 gap-6">
-          <div className="space-y-1"><Label className="text-gray-300">VGV (R$)</Label><CampoDecimal valor={form.vgv} onChange={set("vgv")} prefixo="R$" /></div>
+          {/* Pedido de 15/10: obra com cliente no CRM tem VGV = Valor Aprovado do lead (não editável aqui). */}
+          {resumo.obra.vgvAutomatico
+            ? <Leitura label="VGV (R$) · automático" valor={form.vgv ? brlDecimal(form.vgv) : "Valor Aprovado não informado no CRM"}
+                ajuda="Vem do Valor Aprovado do cliente no CRM. Para alterar, edite o lead." />
+            : <div className="space-y-1"><Label className="text-gray-300">VGV (R$)</Label><CampoDecimal valor={form.vgv} onChange={set("vgv")} prefixo="R$" /></div>}
           <div className="space-y-1"><Label className="text-gray-300">Financiamento CEF (R$)</Label><CampoDecimal valor={form.financiamento} onChange={set("financiamento")} prefixo="R$" /></div>
           <div className="space-y-1"><Label className="text-gray-300">FGTS (R$)</Label><CampoDecimal valor={form.fgts} onChange={set("fgts")} prefixo="R$" /></div>
           <div className="space-y-1"><Label className="text-gray-300">Subsídio (R$)</Label><CampoDecimal valor={form.subsidio} onChange={set("subsidio")} prefixo="R$" /></div>

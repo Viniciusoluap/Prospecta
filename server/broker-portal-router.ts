@@ -6,6 +6,7 @@ import { imoveis, leads, operationalCommissions } from "../drizzle/schema.js";
 import { BROKER_PROPERTY_TYPES, brokerLeadStage, isPropertyPhoto, MAX_BROKER_PHOTOS } from "../shared/broker-portal.js";
 import { protectedProcedure, router } from "./_core/trpc.js";
 import { getDb } from "./db.js";
+import { listarComissoesDeObras } from "./operacional-router.js";
 import { requireBrokerContext } from "./profile-context.js";
 
 const propertyInput = z.object({
@@ -169,6 +170,24 @@ export const brokerPortalRouter = router({
       .where(and(eq(leads.brokerId, brokerId), isNull(leads.deletedAt)))
       .orderBy(desc(leads.updatedAt));
     return rows.map(row => ({ ...row, ...brokerLeadStage(row.stage) }));
+  }),
+
+  // Pedido de 15/10: comissões calculadas das obras dos leads deste corretor
+  // (VGV × %), as mesmas do painel do admin — antes o portal só lia as manuais.
+  obraCommissions: protectedProcedure.query(async ({ ctx }) => {
+    const { brokerId } = requireBrokerContext(ctx.user);
+    const linhas = await listarComissoesDeObras(brokerId);
+    return linhas.map(l => ({
+      obraId: l.obraId,
+      obra: l.obra,
+      cliente: l.cliente,
+      vgv: l.vgv,
+      percentual: l.calculo.percentual,
+      valorCentavos: l.calculo.valorCentavos,
+      pagoCentavos: l.calculo.pagoCentavos,
+      saldoCentavos: l.calculo.saldoCentavos,
+      status: l.calculo.status,
+    }));
   }),
 
   commissions: protectedProcedure.query(async ({ ctx }) => {
