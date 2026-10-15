@@ -1207,6 +1207,19 @@ export const pluggySettings = pgTable("pluggy_settings", {
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });
 export type PluggySetting = typeof pluggySettings.$inferSelect;
+
+/** Google Drive com a conta Google do dono (OAuth). Linha única (id = 1); segredos criptografados. */
+export const googleDriveOauth = pgTable("google_drive_oauth", {
+  id: integer("id").primaryKey().default(1),
+  clientId: text("client_id").notNull(),
+  clientSecretEncrypted: text("client_secret_encrypted").notNull(),
+  refreshTokenEncrypted: text("refresh_token_encrypted"),
+  accountEmail: varchar("account_email", { length: 320 }),
+  rootFolderId: text("root_folder_id"),
+  connectedAt: timestamp("connected_at"),
+  updatedByUserId: integer("updated_by_user_id").references(() => users.id, { onDelete: "set null" }),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
 export type InsertPluggySetting = typeof pluggySettings.$inferInsert;
 
 export const bankAccounts = pgTable("bank_accounts", {

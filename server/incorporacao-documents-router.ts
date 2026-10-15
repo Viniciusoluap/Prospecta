@@ -74,10 +74,10 @@ async function latestEvent(studyId: number, itemId: string) {
 }
 
 export const incorporacaoDocumentsRouter = router({
-  available: protectedProcedure.query(({ ctx }) => {
+  available: protectedProcedure.query(async ({ ctx }) => {
     requireRole(ctx, ["admin"]);
     // Sem Drive (ou com o Drive recusando), o arquivo fica no banco: o envio sempre funciona.
-    return { configured: true, drive: driveConfigured() };
+    return { configured: true, drive: await driveConfigured() };
   }),
   list: protectedProcedure.input(z.object({ studyId: z.number().int().positive() })).query(async ({ ctx, input }) => {
     requireRole(ctx, ["admin"]);

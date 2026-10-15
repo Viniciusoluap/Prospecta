@@ -15,6 +15,7 @@ import { createContext } from "../server/_core/context.js";
 import { getDb, getUserByEmail } from "../server/db.js";
 import { appRouter } from "../server/routers.js";
 import obraFotosRouter from "../server/routes/obra-fotos.js";
+import googleDriveRotas from "../server/routes/google-drive.js";
 import { checkAndSendReminder } from "../server/mcmv-rules-reminder.js";
 
 const app = express();
@@ -133,6 +134,7 @@ app.use("/api", async (req, res, next) => {
   try {
     const router = express.Router();
     router.use(obraFotosRouter);
+    router.use(googleDriveRotas);
     router.post("/asaas/webhook", handleAsaasWebhook);
     router.use("/trpc", createExpressMiddleware({ router: appRouter, createContext }));
     router(req, res, next);

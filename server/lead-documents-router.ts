@@ -26,7 +26,7 @@ export function authorizedLead(user: Pick<User, "id" | "role" | "active" | "lead
 
 export const leadDocumentsRouter = router({
   // O banco guarda o arquivo quando o Drive não está disponível: o envio sempre funciona.
-  available: protectedProcedure.query(() => ({ configured: true, drive: driveConfigured() })),
+  available: protectedProcedure.query(async () => ({ configured: true, drive: await driveConfigured() })),
   /** Teste real do Google Drive (só admin): mostra em que etapa e por que falha. */
   diagnoseDrive: protectedProcedure.mutation(async ({ ctx }) => {
     requireRole(ctx, ["admin"]);
