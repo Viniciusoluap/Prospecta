@@ -252,13 +252,19 @@ export async function diagnosticarDrive(): Promise<DiagnosticoDrive> {
     await driveFetch(fonte, `https://www.googleapis.com/drive/v3/files/${encodeURIComponent(teste)}?supportsAllDrives=true`, { method: "DELETE" }, "upload").catch(() => undefined);
     etapas.push({ etapa: "Gravação de arquivo de teste", ok: true });
     await prepararRaiz(fonte);
+    let pendentes = 0;
     if (ultimaOrganizacao) {
       const o = ultimaOrganizacao;
+      pendentes = o.falhas;
       ultimaOrganizacao = null;
       etapas.push({
         etapa: `Organização das pastas: ${o.arquivosMovidos} arquivo(s) movido(s), ${o.pastasRemovidas} pasta(s) antiga(s) enviada(s) para a lixeira${o.ignorados ? `, ${o.ignorados} não encontrado(s) no Drive` : ""}${o.falhas ? `, ${o.falhas} pendente(s) — será tentado de novo` : ""}`,
         ok: o.falhas === 0,
       });
+    }
+    if (pendentes) {
+      return { configurado: true, ok: false, modo: fonte.modo, email, driveCompartilhado, etapas,
+        explicacao: `O Google Drive está funcionando e os novos arquivos são gravados normalmente, mas ${pendentes} arquivo(s) antigo(s) ainda não foram reorganizados. O sistema tenta de novo no próximo envio ou no próximo teste.` };
     }
     return { configurado: true, ok: true, modo: fonte.modo, email, driveCompartilhado, etapas, explicacao: null };
   } catch (error) {
@@ -314,6 +320,8 @@ async function prepararRaiz(fonte: FonteDrive): Promise<string> {
         }, "pasta_raiz");
       }
       ultimaOrganizacao = resultado;
+      // Com pendências a raiz fica sem etiqueta e a próxima gravação tenta de novo.
+      if (resultado.falhas) preparacoes.delete(root);
       return root;
     })();
     preparacoes.set(root, pronta);
@@ -343,7 +351,7 @@ async function moverArquivo(fonte: FonteDrive, fileId: string, destino: string, 
 async function filhos(fonte: FonteDrive, pasta: string): Promise<ArquivoDrive[]> {
   const query = new URLSearchParams({
     q: `'${escapeSearch(pasta)}' in parents and trashed = false`,
-    fields: "files(id,mimeType,appProperties)", pageSize: "1000", supportsAllDrives: "true", includeItemsFromAllDrives: "true",
+    fields: "files(id,name,mimeType,appProperties)", pageSize: "1000", supportsAllDrives: "true", includeItemsFromAllDrives: "true",
   });
   const r = await driveFetch(fonte, `https://www.googleapis.com/drive/v3/files?${query}`);
   return ((await r.json()) as { files?: ArquivoDrive[] }).files ?? [];
@@ -410,7 +418,7 @@ async function reorganizar(fonte: FonteDrive, root: string): Promise<ResultadoOr
   }
 
   for (const item of await filhos(fonte, root)) {
-    if (item.mimeType !== PASTA_MIME || !pastaLegada(item.appProperties)) continue;
+    if (item.mimeType !== PASTA_MIME || !pastaLegada(item)) continue;
     try {
       resultado.pastasRemovidas += (await removerPastaVazia(fonte, item.id)).removidas;
     } catch {
