@@ -88,3 +88,27 @@ describe("aplicarDigitacao — campos de percentual (D-01)", () => {
     expect(aplicarDigitacao("2.345").numero).toBe(2345);
   });
 });
+
+// Pedido de 15/10: dinheiro com pontos de milhar já durante a digitação.
+import { cursorAposMascara, mascararDinheiro } from "../client/src/lib/numero-input";
+describe("mascararDinheiro", () => {
+  it("põe os pontos de milhar enquanto digita", () => {
+    expect(mascararDinheiro("180000")).toEqual({ texto: "180.000", numero: 180000 });
+    expect(mascararDinheiro("1.000.0005")).toEqual({ texto: "10.000.005", numero: 10000005 });
+    expect(mascararDinheiro("1000000,5")).toEqual({ texto: "1.000.000,5", numero: 1000000.5 });
+    expect(mascararDinheiro("1.000.000,999")).toEqual({ texto: "1.000.000,99", numero: 1000000.99 });
+  });
+  it("ponto no fim vira vírgula; zeros à esquerda e letras somem", () => {
+    expect(mascararDinheiro("1.500.")).toEqual({ texto: "1.500,", numero: 1500 });
+    expect(mascararDinheiro("00R$ 12a")).toEqual({ texto: "12", numero: 12 });
+    expect(mascararDinheiro(",5")).toEqual({ texto: "0,5", numero: 0.5 });
+    expect(mascararDinheiro("")).toEqual({ texto: "", numero: 0 });
+  });
+  it("blur exibe com milhar e duas casas", () => {
+    expect(formatarNumeroParaEdicao(1000000, { agrupar: true })).toBe("1.000.000,00");
+  });
+  it("cursor fica depois do mesmo dígito", () => {
+    expect(cursorAposMascara("1800005", 7, "1.800.005")).toBe(9);
+    expect(cursorAposMascara("1.80X0.000", 4, "180.000")).toBe(3);
+  });
+});

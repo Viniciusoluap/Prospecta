@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { Link, useLocation } from "wouter";
 import { trpc } from "@/lib/trpc";
+import { formatCurrency } from "@/lib/format";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -480,7 +481,7 @@ export default function AdminCRM() {
                                 </Badge>
                                 {lead.income && (
                                   <span className="text-xs text-[#C9A961]">
-                                    R$ {Number(lead.income).toLocaleString("pt-BR")}
+                                    {formatCurrency(Number(lead.income))}
                                   </span>
                                 )}
                               </div>
@@ -547,7 +548,7 @@ export default function AdminCRM() {
                         </td>
                         <td className="p-4 text-gray-400 text-sm">{responsibleName(lead)}</td>
                         <td className="p-4 text-[#C9A961] text-sm">
-                          {lead.income ? `R$ ${Number(lead.income).toLocaleString("pt-BR")}` : "—"}
+                          {lead.income ? formatCurrency(Number(lead.income)) : "—"}
                         </td>
                         <td className="p-4">
                           {lead.deletedAt ? (

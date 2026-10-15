@@ -26,6 +26,8 @@ const TIPO_ZAP: Record<string, string> = {
   lote: "Lot",
   terreno: "Lot",
   comercial: "Commercial Premises",
+  sala_comercial: "Office",
+  galpao: "Warehouse",
   chacara: "Farm",
 };
 
@@ -35,6 +37,8 @@ const TIPO_VIVAREAL: Record<string, string> = {
   lote: "Terreno / Lote",
   terreno: "Terreno / Lote",
   comercial: "Sala Comercial",
+  sala_comercial: "Sala Comercial",
+  galpao: "Galpão / Depósito / Armazém",
   chacara: "Sítio / Chácara",
 };
 
@@ -44,6 +48,8 @@ const TIPO_CHAVESNAMAO: Record<string, string> = {
   lote: "Terreno/Lote",
   terreno: "Terreno/Lote",
   comercial: "Comercial/Industrial",
+  sala_comercial: "Comercial/Industrial",
+  galpao: "Comercial/Industrial",
   chacara: "Chácara/Sítio/Fazenda",
 };
 
@@ -55,6 +61,8 @@ function olxCategoryCode(tipo: string, status: string): string {
     lote: "2060",
     terreno: "2060",
     comercial: "2080",
+    sala_comercial: "2080",
+    galpao: "2080",
     chacara: "2070",
   };
   return map[tipo] ?? "2020";

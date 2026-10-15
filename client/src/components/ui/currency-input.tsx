@@ -1,7 +1,11 @@
-import { useEffect, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
-import { formatarNumeroParaEdicao, aplicarDigitacao } from "@/lib/numero-input";
+import { cursorAposMascara, formatarNumeroParaEdicao, mascararDinheiro } from "@/lib/numero-input";
+
+// Pedido de 15/10: valor sempre exibido como "R$ 1.000.000,00" — pontos de
+// milhar já durante a digitação e duas casas ao sair do campo.
+const comMilhar = (valor: number | null | undefined) => formatarNumeroParaEdicao(valor, { agrupar: true });
 
 // Campo de dinheiro com entrada por vírgula (padrão brasileiro) e prefixo
 // "R$". Mesma lógica de buffer de texto usada em
@@ -45,7 +49,14 @@ export function CurrencyInput(props: CurrencyInputProps) {
   const valorInicial = controlado ? (resto as { value: number }).value : (resto as { defaultValue?: number | null }).defaultValue ?? 0;
 
   const [numero, setNumero] = useState<number>(() => (Number.isFinite(valorInicial) ? valorInicial : 0));
-  const [texto, setTexto] = useState<string>(() => formatarNumeroParaEdicao(valorInicial));
+  const [texto, setTexto] = useState<string>(() => comMilhar(valorInicial));
+  const inputRef = useRef<HTMLInputElement>(null);
+  const cursorPendente = useRef<number | null>(null);
+  useLayoutEffect(() => {
+    if (cursorPendente.current == null || !inputRef.current) return;
+    inputRef.current.setSelectionRange(cursorPendente.current, cursorPendente.current);
+    cursorPendente.current = null;
+  }, [texto]);
 
   // Modo controlado: se o valor externo mudar por outra via (ex.: dados
   // carregados do servidor depois do primeiro render), ressincroniza o
@@ -56,20 +67,23 @@ export function CurrencyInput(props: CurrencyInputProps) {
     if (valorControlado === undefined) return;
     if (Number.isFinite(valorControlado) && valorControlado !== numero) {
       setNumero(valorControlado);
-      setTexto(formatarNumeroParaEdicao(valorControlado));
+      setTexto(comMilhar(valorControlado));
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [valorControlado]);
 
-  function onChangeTexto(valorTexto: string) {
-    const { texto: novoTexto, numero: novoNumero } = aplicarDigitacao(valorTexto);
+  function onChangeTexto(valorTexto: string, cursor: number | null) {
+    const { texto: novoTexto, numero: novoNumero } = mascararDinheiro(valorTexto);
+    if (cursor != null && document.activeElement === inputRef.current) {
+      cursorPendente.current = cursorAposMascara(valorTexto, cursor, novoTexto);
+    }
     setTexto(novoTexto);
     setNumero(novoNumero);
     if (controlado) (resto as { onChange: (v: number) => void }).onChange(novoNumero);
   }
 
   function onBlur() {
-    setTexto(formatarNumeroParaEdicao(numero));
+    setTexto(comMilhar(numero));
     onBlurValue?.(numero);
   }
 
@@ -82,10 +96,11 @@ export function CurrencyInput(props: CurrencyInputProps) {
       </span>
       <Input
         id={id}
+        ref={inputRef}
         type="text"
         inputMode="decimal"
         value={texto}
-        onChange={e => onChangeTexto(e.target.value)}
+        onChange={e => onChangeTexto(e.target.value, e.target.selectionStart)}
         onBlur={onBlur}
         placeholder={placeholder ?? "0,00"}
         required={required}

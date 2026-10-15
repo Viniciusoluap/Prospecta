@@ -24,12 +24,12 @@ import { lerPercentualDigitado } from "@shared/financeiro/obra";
  */
 export function formatarNumeroParaEdicao(
   valor: number | null | undefined,
-  opcoes: { minimumFractionDigits?: number; maximumFractionDigits?: number } = {}
+  opcoes: { minimumFractionDigits?: number; maximumFractionDigits?: number; agrupar?: boolean } = {}
 ): string {
   if (valor == null || !Number.isFinite(valor) || valor === 0) return "";
-  const { minimumFractionDigits = 2, maximumFractionDigits = 2 } = opcoes;
+  const { minimumFractionDigits = 2, maximumFractionDigits = 2, agrupar = false } = opcoes;
   return valor.toLocaleString("pt-BR", {
-    useGrouping: false,
+    useGrouping: agrupar,
     minimumFractionDigits,
     maximumFractionDigits,
   });
@@ -56,4 +56,34 @@ export function reformatarAoSairDoCampo(
   opcoes?: { minimumFractionDigits?: number; maximumFractionDigits?: number }
 ): string {
   return formatarNumeroParaEdicao(numero, opcoes);
+}
+
+/**
+ * Pedido de 15/10 — dinheiro sempre no padrão "1.000.000,00": a máscara põe os
+ * pontos de milhar enquanto a pessoa digita ("180000" -> "180.000"). Ponto
+ * digitado é milhar (já está no texto formatado); vírgula é decimal (máx. 2
+ * casas); um ponto digitado no fim vira vírgula (teclado sem vírgula).
+ */
+export function mascararDinheiro(valorTexto: string): { texto: string; numero: number } {
+  let bruto = valorTexto.replace(/[^\d.,]/g, "");
+  if (bruto.endsWith(".") && !bruto.includes(",")) bruto = `${bruto.slice(0, -1)},`;
+  const virgula = bruto.indexOf(",");
+  const inteiroBruto = (virgula >= 0 ? bruto.slice(0, virgula) : bruto).replace(/\D/g, "");
+  const decimais = virgula >= 0 ? bruto.slice(virgula + 1).replace(/\D/g, "").slice(0, 2) : "";
+  const inteiro = inteiroBruto.replace(/^0+(?=\d)/, "");
+  if (!inteiro && virgula < 0) return { texto: "", numero: 0 };
+  const agrupado = (inteiro || "0").replace(/\B(?=(\d{3})+(?!\d))/g, ".");
+  const texto = virgula >= 0 ? `${agrupado},${decimais}` : agrupado;
+  return { texto, numero: Number(`${inteiro || "0"}.${decimais || "0"}`) };
+}
+
+/** Posição do cursor no texto mascarado: mesma quantidade de dígitos/vírgula à esquerda. */
+export function cursorAposMascara(textoDigitado: string, cursor: number, textoMascarado: string): number {
+  const alvo = textoDigitado.slice(0, cursor).replace(/[^\d,]/g, "").length;
+  if (alvo === 0) return 0;
+  let vistos = 0;
+  for (let i = 0; i < textoMascarado.length; i++) {
+    if (/[\d,]/.test(textoMascarado[i]) && ++vistos === alvo) return i + 1;
+  }
+  return textoMascarado.length;
 }
