@@ -16,7 +16,7 @@ import { calcularObra, centavosDe, reaisDeCentavos, type EntradasObra } from "..
 import { calcularComissaoObra } from "../shared/financeiro/comissao.js";
 import { SERVICOS_PROGRESSO } from "../shared/financeiro/progresso.js";
 import { adminProcedure, protectedProcedure, router } from "./_core/trpc.js";
-import { getDb } from "./db.js";
+import { getAllProjects, getDb } from "./db.js";
 
 // EPIC-020 Lote 2 — Valores da Operação e Custos. Os campos calculados nunca
 // são gravados nem aceitos pela API: são derivados a cada leitura pelo motor
@@ -390,31 +390,22 @@ export const obraFinanceiroRouter = router({
   }),
 });
 
-// Acesso do Empreiteiro (17.2 / 22): somente as próprias obras e o próprio
-// lucro; nenhum dado de investidor, cliente ou da empresa, nenhuma edição.
+// Portal do Empreiteiro (17.2 / 22 e pedido de 15/10): somente as obras em que
+// ele é o empreiteiro vinculado. A lista tem os mesmos campos da lista do admin
+// (mesmo card e filtros) e os números da aba Relatórios: o lucro previsto DELE,
+// o VGV e o valor a receber do banco de cada obra.
 export const empreiteiroRouter = router({
   minhasObras: protectedProcedure.query(async ({ ctx }) => {
     if (ctx.user.role !== "empreiteiro") throw new TRPCError({ code: "FORBIDDEN", message: "Acesso exclusivo de empreiteiros." });
-    const obras = await getDb().select({ id: constructionProjects.id }).from(constructionProjects)
-      .where(eq(constructionProjects.contractorUserId, ctx.user.id));
+    const obras = await getAllProjects(ctx.user.id);
     const resultado = [];
-    for (const { id } of obras) {
-      const r = await calcularResumoObra(id);
-      const [obra] = await getDb().select({
-        title: constructionProjects.title,
-        address: constructionProjects.address,
-        city: constructionProjects.city,
-        progress: constructionProjects.progress,
-        progressMeasuredPct: constructionProjects.progressMeasuredPct,
-      }).from(constructionProjects).where(eq(constructionProjects.id, id)).limit(1);
+    for (const obra of obras) {
+      const r = await calcularResumoObra(obra.id);
       resultado.push({
-        id,
-        title: obra.title,
-        address: obra.address,
-        city: obra.city,
-        progress: obra.progress,
-        progressMeasuredPct: obra.progressMeasuredPct,
+        ...obra,
         percentualEmpreiteiro: r.valores.percentualEmpreiteiro,
+        vgvCentavos: centavosDe(r.valores.vgv),
+        receberBanco: r.calculo.receberBanco,
         lucroEmpreiteiro: r.calculo.lucroEmpreiteiro,
       });
     }

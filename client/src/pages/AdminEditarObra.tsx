@@ -30,16 +30,25 @@ const ABAS_OBRA = [
   { valor: "relatorios", rotulo: "Relatórios", Icone: FileText },
 ] as const;
 
-export default function AdminEditarObra() {
+/**
+ * Pedido de 15/10: o empreiteiro usa este mesmo painel nas obras vinculadas a ele.
+ * Informações, Valores da Operação e Custos previstos ficam só leitura; Pagamentos,
+ * Progresso, Fotos e Relatórios funcionam como no admin. O servidor confere o vínculo
+ * (server/obra-acesso.ts).
+ */
+export default function AdminEditarObra({ modo = "admin" }: { modo?: "admin" | "empreiteiro" }) {
   const { id } = useParams<{ id: string }>();
   const projectId = parseInt(id || "0");
   const { user, isAuthenticated, loading: authLoading } = useAuth();
+  const ehEmpreiteiro = modo === "empreiteiro";
+  const papelPermitido = ehEmpreiteiro ? "empreiteiro" : "admin";
+  const voltarPara = ehEmpreiteiro ? "/empreiteiro" : "/admin/obras";
   const [, setLocation] = useLocation();
   const [activeTab, setActiveTab] = useState("info");
 
   const { data: project, isLoading, refetch } = trpc.construction.getProjectDetails.useQuery(
     { projectId },
-    { enabled: isAuthenticated && user?.role === "admin" && !!projectId }
+    { enabled: isAuthenticated && user?.role === papelPermitido && !!projectId }
   );
 
   const updateMutation = trpc.construction.updateProject.useMutation({
@@ -70,7 +79,7 @@ export default function AdminEditarObra() {
   const [cefBranch, setCefBranch] = useState("");
 
   // Valores da Operação e Custos (Lote 2)
-  const resumoQuery = trpc.obraFinanceiro.resumo.useQuery({ projectId }, { enabled: isAuthenticated && user?.role === "admin" && !!projectId });
+  const resumoQuery = trpc.obraFinanceiro.resumo.useQuery({ projectId }, { enabled: isAuthenticated && user?.role === papelPermitido && !!projectId });
   const resumo = resumoQuery.data;
   const [formFin, setFormFin] = useState<FormFinanceiro | null>(null);
   useEffect(() => {
@@ -91,10 +100,10 @@ export default function AdminEditarObra() {
   }, [authLoading, isAuthenticated]);
 
   useEffect(() => {
-    if (!authLoading && isAuthenticated && user?.role !== "admin") {
+    if (!authLoading && isAuthenticated && user?.role !== papelPermitido) {
       setLocation("/");
     }
-  }, [authLoading, isAuthenticated, user, setLocation]);
+  }, [authLoading, isAuthenticated, user, setLocation, papelPermitido]);
 
   useEffect(() => {
     if (project) {
@@ -175,7 +184,7 @@ export default function AdminEditarObra() {
     );
   }
 
-  if (user?.role !== "admin") {
+  if (user?.role !== papelPermitido) {
     return null;
   }
 
@@ -193,7 +202,7 @@ export default function AdminEditarObra() {
         <Card className="bg-[#1A2332]/60 border-[#C9A961]/20">
           <CardContent className="pt-6">
             <p className="text-gray-300">Obra não encontrada.</p>
-            <Link href="/admin/obras">
+            <Link href={voltarPara}>
               <Button className="mt-4 bg-[#C9A961] hover:bg-[#B8985A] text-[#1A2332]">
                 Voltar para Lista
               </Button>
@@ -210,7 +219,7 @@ export default function AdminEditarObra() {
       <div className="border-b border-[#C9A961]/20 bg-[#1A2332]/80 backdrop-blur-sm">
         <div className="container py-8">
           <div className="flex items-center gap-4 mb-4">
-            <Link href="/admin/obras">
+            <Link href={voltarPara}>
               <Button variant="ghost" size="sm" className="text-[#C9A961] hover:text-[#FFD700]">
                 <ArrowLeft className="h-4 w-4 mr-2" />
                 Voltar
@@ -220,6 +229,7 @@ export default function AdminEditarObra() {
           <div className="flex items-center justify-between">
             <div>
               <h1 className="text-3xl font-bold text-[#C9A961] mb-2">Editar Obra</h1>
+              {ehEmpreiteiro && <p className="text-xs text-gray-400 mb-1">Informações, Valores da Operação e Custos previstos são definidos pela empresa (somente leitura).</p>}
               <p className="text-gray-400">{project.title}</p>
             </div>
           </div>
@@ -246,6 +256,7 @@ export default function AdminEditarObra() {
 
           {/* ABA 1: INFORMAÇÕES BÁSICAS */}
           <TabsContent value="info" className="mt-6">
+            <fieldset disabled={ehEmpreiteiro} className="contents">
             <Card className="bg-[#1A2332]/60 border-[#C9A961]/20 backdrop-blur-sm">
               <CardHeader>
                 <CardTitle className="text-[#C9A961]">Informações Básicas</CardTitle>
@@ -377,10 +388,12 @@ export default function AdminEditarObra() {
                 </div>
               </CardContent>
             </Card>
+            </fieldset>
           </TabsContent>
 
           {/* ABA VALORES DA OPERAÇÃO */}
           <TabsContent value="mcmv" className="mt-6 space-y-6">
+            <fieldset disabled={ehEmpreiteiro} className="contents">
             <Card className="bg-[#1A2332]/60 border-[#C9A961]/20 backdrop-blur-sm">
               <CardHeader>
                 <CardTitle className="text-[#C9A961]">Valores da Operação</CardTitle>
@@ -416,24 +429,27 @@ export default function AdminEditarObra() {
             ) : (
               <Loader2 className="h-6 w-6 animate-spin text-[#C9A961]" />
             )}
+            </fieldset>
           </TabsContent>
 
           {/* ABA CUSTOS */}
           <TabsContent value="valores" className="mt-6">
             {resumo && formFin && calculo ? (
-              <CustosAba projectId={projectId} resumo={resumo} form={formFin} setForm={setFormFin} calculo={calculo} corretor={project.crm.brokerName} onMudou={() => resumoQuery.refetch()} />
+              <CustosAba projectId={projectId} resumo={resumo} form={formFin} setForm={setFormFin} calculo={calculo} corretor={project.crm.brokerName} onMudou={() => resumoQuery.refetch()} modoEmpreiteiro={ehEmpreiteiro} />
             ) : (
               <Loader2 className="h-6 w-6 animate-spin text-[#C9A961]" />
             )}
           </TabsContent>
 
           <TabsContent value="progresso" className="mt-6 space-y-4">
-            <Link href={`/admin/obras/${projectId}/medicoes`}>
-              <Button variant="outline" className="border-[#C9A961]/40 text-[#C9A961] hover:bg-[#C9A961]/10 gap-2">
-                <BarChart3 className="h-4 w-4" />
-                Ver Medições da CEF
-              </Button>
-            </Link>
+            {!ehEmpreiteiro && (
+              <Link href={`/admin/obras/${projectId}/medicoes`}>
+                <Button variant="outline" className="border-[#C9A961]/40 text-[#C9A961] hover:bg-[#C9A961]/10 gap-2">
+                  <BarChart3 className="h-4 w-4" />
+                  Ver Medições da CEF
+                </Button>
+              </Link>
+            )}
             <ProgressoObraAba projectId={projectId} />
           </TabsContent>
 
@@ -539,7 +555,8 @@ export default function AdminEditarObra() {
           </TabsContent>
         </Tabs>
 
-        <div className="mt-6 flex justify-end">
+        {/* Salvar grava Informações e Valores: o empreiteiro não altera esses dados. */}
+        {!ehEmpreiteiro && <div className="mt-6 flex justify-end">
           <Button
             onClick={handleSave}
             disabled={salvando}
@@ -557,7 +574,7 @@ export default function AdminEditarObra() {
               </>
             )}
           </Button>
-        </div>
+        </div>}
       </div>
     </div>
   );

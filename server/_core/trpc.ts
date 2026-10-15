@@ -107,7 +107,12 @@ export const adminProcedure = t.procedure.use(
       throw new TRPCError({ code: "FORBIDDEN", message: NOT_ADMIN_ERR_MSG });
     }
 
-    if (!canAccessAdminProcedure(ctx.user, opts.path)) {
+    // Portal do Empreiteiro (15/10): procedimentos de obra liberados só nas obras dele.
+    const empreiteiroLiberado =
+      ctx.user.role === "empreiteiro" && (ctx.user.active ?? true) &&
+      (await (await import("../obra-acesso.js")).autorizarEmpreiteiro(ctx.user.id, opts.path, await opts.getRawInput()));
+
+    if (!empreiteiroLiberado && !canAccessAdminProcedure(ctx.user, opts.path)) {
       throw new TRPCError({
         code: "FORBIDDEN",
         message: "Sem permissão para este módulo",

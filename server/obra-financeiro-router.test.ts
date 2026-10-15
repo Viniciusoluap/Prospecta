@@ -1,9 +1,9 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { getDb } from "./db";
+import { getAllProjects, getDb } from "./db";
 import { router } from "./_core/trpc";
 import { empreiteiroRouter, obraFinanceiroRouter } from "./obra-financeiro-router";
 
-vi.mock("./db", () => ({ getDb: vi.fn() }));
+vi.mock("./db", () => ({ getDb: vi.fn(), getAllProjects: vi.fn(async () => []) }));
 
 const app = router({ obraFinanceiro: obraFinanceiroRouter, empreiteiro: empreiteiroRouter });
 const caller = (role: string, id = 99) => app.createCaller({ user: { id, role, active: true }, req: {}, res: {} } as never);
@@ -45,12 +45,18 @@ const obra = { id: 35, contractorUserId: null };
 beforeEach(() => vi.clearAllMocks());
 
 describe("API financeira da obra — permissões", () => {
-  it("só administradores acessam (corretor, colaborador, cliente e empreiteiro recebem FORBIDDEN)", async () => {
-    for (const role of ["corretor", "colaborador", "cliente", "empreiteiro"]) {
+  it("só administradores acessam (corretor, colaborador e cliente recebem FORBIDDEN)", async () => {
+    for (const role of ["corretor", "colaborador", "cliente"]) {
       await expect(caller(role).obraFinanceiro.resumo({ projectId: 35 })).rejects.toMatchObject({ code: "FORBIDDEN" });
       await expect(caller(role).obraFinanceiro.adicionarMovimento({ projectId: 35, natureza: "entrada", descricao: "x", valor: "10", data: "2026-10-12" }))
         .rejects.toMatchObject({ code: "FORBIDDEN" });
     }
+    // Empreiteiro (15/10): só na obra vinculada a ele e só pagamentos — ver portal-empreiteiro.test.ts.
+    await expect(caller("empreiteiro").obraFinanceiro.adicionarMovimento({ projectId: 35, natureza: "entrada", descricao: "x", valor: "10", data: "2026-10-12" }))
+      .rejects.toMatchObject({ code: "FORBIDDEN" });
+    const { db } = fakeDb([[{ id: 12 }]]);
+    vi.mocked(getDb).mockReturnValue(db as never);
+    await expect(caller("empreiteiro").obraFinanceiro.resumo({ projectId: 35 })).rejects.toMatchObject({ code: "FORBIDDEN" });
   });
 
   it("portal do empreiteiro recusa outros papéis", async () => {
@@ -59,9 +65,8 @@ describe("API financeira da obra — permissões", () => {
   });
 
   it("empreiteiro só consulta obras vinculadas a ele (filtro pelo próprio id)", async () => {
-    const { db } = fakeDb([[]]);
-    vi.mocked(getDb).mockReturnValue(db as never);
     await expect(caller("empreiteiro", 7).empreiteiro.minhasObras()).resolves.toEqual([]);
+    expect(vi.mocked(getAllProjects)).toHaveBeenCalledWith(7);
   });
 });
 
