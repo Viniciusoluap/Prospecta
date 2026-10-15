@@ -508,8 +508,11 @@ export type ProjetoDaLista = ConstructionProject & {
   crmResponsibleName: string | null;
 };
 
-/** Lista administrativa de obras, com os nomes usados nos filtros (item 01). */
-export async function getAllProjects(): Promise<ProjetoDaLista[]> {
+/**
+ * Lista administrativa de obras, com os nomes usados nos filtros (item 01).
+ * Com `somenteEmpreiteiroId`, só as obras desse empreiteiro (portal, 15/10).
+ */
+export async function getAllProjects(somenteEmpreiteiroId?: number): Promise<ProjetoDaLista[]> {
   const db = getDb();
   const contractor = alias(users, "contractor");
   const crmResponsible = alias(users, "crm_responsible");
@@ -522,6 +525,7 @@ export async function getAllProjects(): Promise<ProjetoDaLista[]> {
     .leftJoin(leads, eq(leads.id, constructionProjects.leadId))
     .leftJoin(contractor, eq(contractor.id, constructionProjects.contractorUserId))
     .leftJoin(crmResponsible, eq(crmResponsible.id, leads.responsibleUserId))
+    .where(somenteEmpreiteiroId === undefined ? undefined : eq(constructionProjects.contractorUserId, somenteEmpreiteiroId))
     .orderBy(desc(constructionProjects.createdAt));
   return rows.map((row) => ({
     ...aplicarTipoProjetoOficial(row),

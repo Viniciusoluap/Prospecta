@@ -797,8 +797,9 @@ export const appRouter = router({
             message: "Obra não encontrada",
           });
         }
-        // Verificar se o usuário é o proprietário ou admin
-        if (project.userId !== ctx.user.id && ctx.user.role !== "admin") {
+        // Proprietário, admin ou (pedido de 15/10) o empreiteiro vinculado à obra.
+        const empreiteiroDaObra = ctx.user.role === "empreiteiro" && project.contractorUserId === ctx.user.id;
+        if (project.userId !== ctx.user.id && ctx.user.role !== "admin" && !empreiteiroDaObra) {
           throw new TRPCError({ code: "FORBIDDEN", message: "Acesso negado" });
         }
         return project;

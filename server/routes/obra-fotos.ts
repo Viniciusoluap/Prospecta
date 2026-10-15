@@ -33,10 +33,13 @@ router.post("/obras/:projectId/fotos", async (req: Request, res: Response) => {
     if (!usuario) return res.status(401).json({ error: "Sessão expirada. Entre novamente." });
     // Item 06 (revisão do Codex no Santa Fé #180, mesma regra aqui): equipe com o
     // módulo Obras envia, como já faz pelas telas de obra (router "construction").
-    if (!podeGerenciarFotos({ id: usuario.id, papel: usuario.role, acessoObras: canAccessAdminProcedure(usuario, "construction.fotos") }))
-      return res.status(403).json({ error: "Sem permissão para enviar fotos desta obra." });
     const projectId = idValido(String(req.params.projectId));
     if (!projectId) return res.status(400).json({ error: "Obra inválida." });
+    // Pedido de 15/10: o empreiteiro vinculado também envia fotos da própria obra.
+    const [dona] = await getDb().select({ empreiteiroId: constructionProjects.contractorUserId })
+      .from(constructionProjects).where(eq(constructionProjects.id, projectId)).limit(1);
+    if (!podeGerenciarFotos({ id: usuario.id, papel: usuario.role, acessoObras: canAccessAdminProcedure(usuario, "construction.fotos") }, { empreiteiroId: dona?.empreiteiroId ?? null }))
+      return res.status(403).json({ error: "Sem permissão para enviar fotos desta obra." });
 
     const { image, caption, takenAt, includeInReport } = (req.body ?? {}) as Record<string, unknown>;
     const base64 = lerDataUrl(image);
@@ -83,16 +86,16 @@ router.get("/obra-foto/:photoId", async (req: Request, res: Response) => {
     const photoId = idValido(String(req.params.photoId));
     if (!photoId) return res.status(404).json({ error: "Foto não encontrada" });
     const resultado = await getDb().execute(sql`
-      SELECT f.mime, encode(f.data, 'base64') AS b64, p.user_id, p.lead_id
+      SELECT f.mime, encode(f.data, 'base64') AS b64, p.user_id, p.lead_id, p.contractor_user_id
       FROM construction_photo_files f
       JOIN construction_photos ph ON ph.id = f.photo_id
       JOIN construction_projects p ON p.id = ph.project_id
       WHERE f.photo_id = ${photoId}`);
-    const linha = (resultado as unknown as { rows: { mime: string; b64: string; user_id: number | null; lead_id: number | null }[] }).rows[0];
+    const linha = (resultado as unknown as { rows: { mime: string; b64: string; user_id: number | null; lead_id: number | null; contractor_user_id: number | null }[] }).rows[0];
     if (!linha) return res.status(404).json({ error: "Foto não encontrada" });
     const pode = podeVerFotosDaObra(
       { id: usuario.id, papel: usuario.role, leadId: usuario.leadId ?? null, acessoObras: canAccessAdminProcedure(usuario, "construction.fotos") },
-      { usuarioId: linha.user_id, leadId: linha.lead_id }
+      { usuarioId: linha.user_id, leadId: linha.lead_id, empreiteiroId: linha.contractor_user_id }
     );
     if (!pode) return res.status(404).json({ error: "Foto não encontrada" });
     const corpo = Buffer.from(linha.b64, "base64");

@@ -100,6 +100,12 @@ function Router() {
           <BrokerPortal />
         </BrokerRoute>
       </Route>
+      <Route path="/empreiteiro/obras/editar/:id">
+        <AdminEditarObra modo="empreiteiro" />
+      </Route>
+      <Route path="/empreiteiro/obras/:id">
+        <ObraDetalhes empreiteiro />
+      </Route>
       <Route path="/empreiteiro">
         <EmpreiteiroPortal />
       </Route>

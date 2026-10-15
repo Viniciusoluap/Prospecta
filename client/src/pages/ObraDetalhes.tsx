@@ -48,13 +48,16 @@ const ETAPA_COR = { concluida: "bg-green-500", em_andamento: "bg-[#C9A961]", pen
 const exibirIndicador = (i: { ok: true; centavos: number } | { ok: false; motivo: string }) =>
   i.ok ? (i.centavos / 100).toLocaleString("pt-BR", { style: "currency", currency: "BRL" }) : i.motivo;
 
-export default function ObraDetalhes({ admin = false }: { admin?: boolean }) {
+/** `empreiteiro` (pedido de 15/10): a mesma página do admin, aberta pelo portal do empreiteiro. */
+export default function ObraDetalhes({ admin: adminProp = false, empreiteiro = false }: { admin?: boolean; empreiteiro?: boolean }) {
+  const admin = adminProp || empreiteiro;
   const { id } = useParams<{ id: string }>();
   const { loading: authLoading, isAuthenticated } = useAuth();
   const [, setLocation] = useLocation();
   const projectId = Number(id);
-  const backTo = admin ? "/admin/obras" : "/obras";
-  const backLabel = admin ? "Voltar para Obras" : "Voltar para Minhas Obras";
+  const backTo = empreiteiro ? "/empreiteiro" : admin ? "/admin/obras" : "/obras";
+  const backLabel = admin && !empreiteiro ? "Voltar para Obras" : "Voltar para Minhas Obras";
+  const editarEm = empreiteiro ? "/empreiteiro/obras/editar" : "/admin/obras/editar";
 
   const { data: project, isLoading, error } = trpc.construction.getProjectDetails.useQuery(
     { projectId },
@@ -132,7 +135,7 @@ export default function ObraDetalhes({ admin = false }: { admin?: boolean }) {
             </div>
           </div>
           {admin && (
-            <Link href={`/admin/obras/editar/${project.id}`}>
+            <Link href={`${editarEm}/${project.id}`}>
               <Button variant="outline" className="mt-4 border-[#C9A961] text-[#C9A961] hover:bg-[#C9A961]/10">
                 Editar Obra
               </Button>

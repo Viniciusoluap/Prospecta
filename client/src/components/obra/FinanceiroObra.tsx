@@ -233,7 +233,7 @@ function Historico({ titulo, movimentos, onMudou }: { titulo: string; movimentos
   );
 }
 
-function NovoMovimento({ projectId, natureza, rotulo, onMudou }: { projectId: number; natureza: Natureza; rotulo: string; onMudou: () => void }) {
+function NovoMovimento({ projectId, natureza, rotulo, onMudou, permitirBpo = true }: { projectId: number; natureza: Natureza; rotulo: string; onMudou: () => void; permitirBpo?: boolean }) {
   const hoje = new Date().toISOString().slice(0, 10);
   const [aberto, setAberto] = useState(false);
   const [origem, setOrigem] = useState<"manual" | "bpo">("manual");
@@ -263,7 +263,7 @@ function NovoMovimento({ projectId, natureza, rotulo, onMudou }: { projectId: nu
         <DialogContent className="bg-[#1A2332] border-[#C9A961]/30 text-white max-w-lg">
           <DialogHeader><DialogTitle className="text-[#C9A961]">{rotulo}</DialogTitle></DialogHeader>
           <div className="space-y-3">
-            <div>
+            {permitirBpo && <div>
               <Label className="text-gray-300">Origem</Label>
               <Select value={origem} onValueChange={(v) => setOrigem(v as "manual" | "bpo")}>
                 <SelectTrigger className={campo}><SelectValue /></SelectTrigger>
@@ -272,7 +272,7 @@ function NovoMovimento({ projectId, natureza, rotulo, onMudou }: { projectId: nu
                   <SelectItem value="bpo">Vincular lançamento do BPO Financeiro</SelectItem>
                 </SelectContent>
               </Select>
-            </div>
+            </div>}
             {natureza === "pagamento" && (
               <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                 <div className="min-w-0">
@@ -530,16 +530,22 @@ export function ValoresOperacaoAba({ projectId, resumo, form, setForm, calculo, 
   );
 }
 
-export function CustosAba({ projectId, resumo, form, setForm, calculo, corretor, onMudou }: {
+export function CustosAba({ projectId, resumo, form, setForm, calculo, corretor, onMudou, modoEmpreiteiro = false }: {
   projectId: number; resumo: Resumo; form: FormFinanceiro; setForm: (f: FormFinanceiro) => void; calculo: ResultadoObra; corretor: string | null; onMudou: () => void;
+  /** Portal do Empreiteiro (15/10): Custos previstos só leitura; Pagamentos liberados, sem vincular o BPO da empresa. */
+  modoEmpreiteiro?: boolean;
 }) {
   const set = (k: keyof FormFinanceiro) => (v: string | null) => setForm({ ...form, [k]: v });
   const empreiteiros = trpc.obraFinanceiro.listarEmpreiteiros.useQuery();
   const pagamentos = useMemo(() => porNatureza(resumo, "pagamento"), [resumo]);
   return (
     <div className="space-y-6">
+      <fieldset disabled={modoEmpreiteiro} className="contents">
       <Card className="bg-[#1A2332]/60 border-[#C9A961]/20">
-        <CardHeader><CardTitle className="text-[#C9A961] text-lg">Custos previstos</CardTitle></CardHeader>
+        <CardHeader>
+          <CardTitle className="text-[#C9A961] text-lg">Custos previstos</CardTitle>
+          {modoEmpreiteiro && <CardDescription className="text-gray-400">Somente leitura: definidos pela empresa.</CardDescription>}
+        </CardHeader>
         <CardContent className="grid grid-cols-1 md:grid-cols-2 gap-6">
           <div className="space-y-1">
             <Label className="text-gray-300">Orçamento Previsto (R$)</Label>
@@ -570,6 +576,7 @@ export function CustosAba({ projectId, resumo, form, setForm, calculo, corretor,
           <Leitura label="Corretor vinculado" valor={corretor ?? "Sem corretor no lead"} ajuda="Vem do lead no CRM." />
         </CardContent>
       </Card>
+      </fieldset>
 
       <Card className="bg-[#1A2332]/60 border-[#C9A961]/20">
         <CardHeader>
@@ -577,7 +584,7 @@ export function CustosAba({ projectId, resumo, form, setForm, calculo, corretor,
           <CardDescription className="text-gray-400">Total Gasto = soma dos pagamentos efetivamente realizados · Saldo Restante = VGV − Total Gasto (não é lucro nem saldo bancário)</CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
-          <NovoMovimento projectId={projectId} natureza="pagamento" rotulo="Adicionar Pagamento" onMudou={onMudou} />
+          <NovoMovimento projectId={projectId} natureza="pagamento" rotulo="Adicionar Pagamento" onMudou={onMudou} permitirBpo={!modoEmpreiteiro} />
           <Historico titulo="Histórico de pagamentos" movimentos={pagamentos} onMudou={onMudou} />
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             <Calculado label="Total Gasto na Obra" indicador={calculo.totalGasto} destaque />

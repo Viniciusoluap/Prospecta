@@ -32,6 +32,9 @@ export function hasPageBackButton(location: string) {
     "/admin/obras",
     "/admin/obras/editar/",
     "/admin/obras/",
+    // Portal do Empreiteiro (15/10): as telas de obra têm "Voltar" próprio.
+    "/empreiteiro",
+    "/empreiteiro/obras/",
     "/admin",
     // Central Administrativa: tem retorno próprio; o botão fixo cobria o título (EPIC-017, story 3.1).
     "/admin/acesso",
