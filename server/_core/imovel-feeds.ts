@@ -10,11 +10,18 @@ import type { Imovel } from "../../drizzle/schema.js";
  * omitidos (nunca inventados).
  */
 
-function parseImagens(fotos: string | null): string[] {
+/**
+ * Pedido de 15/10: fotos ficam no Drive e são servidas por /api/imovel-foto/<id>;
+ * os portais precisam do endereço completo. Foto embutida (data:) não vai ao feed.
+ */
+function parseImagens(fotos: string | null, siteUrl: string): string[] {
   if (!fotos) return [];
   try {
     const parsed = JSON.parse(fotos);
-    return Array.isArray(parsed) ? parsed.filter((v) => typeof v === "string") : [];
+    if (!Array.isArray(parsed)) return [];
+    return parsed
+      .filter((v): v is string => typeof v === "string")
+      .flatMap((v) => (v.startsWith("/") ? [`${siteUrl.replace(/\/+$/, "")}${v}`] : /^https?:\/\//.test(v) ? [v] : []));
   } catch {
     return [];
   }
@@ -26,6 +33,8 @@ const TIPO_ZAP: Record<string, string> = {
   lote: "Lot",
   terreno: "Lot",
   comercial: "Commercial Premises",
+  sala_comercial: "Office",
+  galpao: "Warehouse",
   chacara: "Farm",
 };
 
@@ -35,6 +44,8 @@ const TIPO_VIVAREAL: Record<string, string> = {
   lote: "Terreno / Lote",
   terreno: "Terreno / Lote",
   comercial: "Sala Comercial",
+  sala_comercial: "Sala Comercial",
+  galpao: "Galpão / Depósito / Armazém",
   chacara: "Sítio / Chácara",
 };
 
@@ -44,6 +55,8 @@ const TIPO_CHAVESNAMAO: Record<string, string> = {
   lote: "Terreno/Lote",
   terreno: "Terreno/Lote",
   comercial: "Comercial/Industrial",
+  sala_comercial: "Comercial/Industrial",
+  galpao: "Comercial/Industrial",
   chacara: "Chácara/Sítio/Fazenda",
 };
 
@@ -55,6 +68,8 @@ function olxCategoryCode(tipo: string, status: string): string {
     lote: "2060",
     terreno: "2060",
     comercial: "2080",
+    sala_comercial: "2080",
+    galpao: "2080",
     chacara: "2070",
   };
   return map[tipo] ?? "2020";
@@ -74,7 +89,7 @@ export { XML_HEADERS };
 export function gerarFeedZap(imoveis: Imovel[], siteUrl: string): string {
   const items = imoveis
     .map((p) => {
-      const imagens = parseImagens(p.fotos);
+      const imagens = parseImagens(p.fotos, siteUrl);
       return `    <Listing>
       <ListingID>${p.id}</ListingID>
       <Title><![CDATA[${p.titulo}]]></Title>
@@ -122,7 +137,7 @@ ${items}
 export function gerarFeedVivaReal(imoveis: Imovel[], siteUrl: string): string {
   const items = imoveis
     .map((p) => {
-      const imagens = parseImagens(p.fotos);
+      const imagens = parseImagens(p.fotos, siteUrl);
       return `    <Listing>
       <ListingID>VR-${p.id}</ListingID>
       <Title><![CDATA[${p.titulo}]]></Title>
@@ -170,7 +185,7 @@ ${items}
 export function gerarFeedOlx(imoveis: Imovel[], siteUrl: string): string {
   const items = imoveis
     .map((p) => {
-      const imagens = parseImagens(p.fotos);
+      const imagens = parseImagens(p.fotos, siteUrl);
       return `  <advert>
     <id><![CDATA[PROS-${p.id}]]></id>
     <url>${siteUrl}/imoveis/${p.slug}</url>
@@ -212,7 +227,7 @@ ${items}
 export function gerarFeedChavesNaMao(imoveis: Imovel[], siteUrl: string): string {
   const items = imoveis
     .map((p) => {
-      const imagens = parseImagens(p.fotos);
+      const imagens = parseImagens(p.fotos, siteUrl);
       return `  <imovel>
     <id>${p.id}</id>
     <tipo>${TIPO_CHAVESNAMAO[p.tipo] ?? "Casa"}</tipo>

@@ -34,7 +34,8 @@ import {
 const MONEY = new Intl.NumberFormat("pt-BR", {
   style: "currency",
   currency: "BRL",
-  maximumFractionDigits: 0,
+  minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
 });
 const NUMBER = new Intl.NumberFormat("pt-BR");
 const TABS = [

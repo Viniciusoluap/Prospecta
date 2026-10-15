@@ -1,18 +1,21 @@
 import { randomUUID } from "node:crypto";
 import { TRPCError } from "@trpc/server";
-import { and, asc, desc, eq, or } from "drizzle-orm";
+import { and, asc, desc, eq, isNull, or } from "drizzle-orm";
 import { z } from "zod";
-import { imoveis, operationalCommissions } from "../drizzle/schema.js";
+import { imoveis, leads, operationalCommissions } from "../drizzle/schema.js";
+import { BROKER_PROPERTY_TYPES, brokerLeadStage, isPropertyPhoto, MAX_BROKER_PHOTOS } from "../shared/broker-portal.js";
 import { protectedProcedure, router } from "./_core/trpc.js";
 import { getDb } from "./db.js";
+import { listarComissoesDeObras } from "./operacional-router.js";
+import { aplicarFotosImovel } from "./imovel-fotos.js";
 import { requireBrokerContext } from "./profile-context.js";
-import { storagePut } from "./storage.js";
 
 const propertyInput = z.object({
   titulo: z.string().trim().min(2).max(255),
   descricao: z.string().trim().max(5000).optional(),
-  tipo: z.string().trim().min(1).max(100),
-  preco: z.number().nonnegative(),
+  // Portal do corretor (15/10): tipo só pelas opções da lista.
+  tipo: z.enum(BROKER_PROPERTY_TYPES.map(t => t.value) as [string, ...string[]]),
+  preco: z.number().positive(),
   quartos: z.number().int().nonnegative().optional(),
   banheiros: z.number().int().nonnegative().optional(),
   vagas: z.number().int().nonnegative().optional(),
@@ -21,7 +24,9 @@ const propertyInput = z.object({
   bairro: z.string().trim().max(100).optional(),
   cidade: z.string().trim().min(1).max(100),
   estado: z.string().trim().length(2).optional(),
-  fotos: z.array(z.string().url()).max(20).default([]),
+  // Fotos comprimidas no aparelho e gravadas no próprio imóvel (mesmo formato
+  // do cadastro do admin). O storage externo antigo nunca foi configurado.
+  fotos: z.array(z.string().refine(isPropertyPhoto, "Foto inválida")).max(MAX_BROKER_PHOTOS).default([]),
 });
 
 const imageMime = z.enum(["image/jpeg", "image/png", "image/webp"]);
@@ -142,7 +147,7 @@ export const brokerPortalRouter = router({
           bairro: input.bairro,
           cidade: input.cidade,
           estado: input.estado?.toUpperCase(),
-          fotos: JSON.stringify(input.fotos),
+          fotos: "[]",
           destaque: false,
           publicadoSite: false,
           publicadoZap: false,
@@ -153,38 +158,40 @@ export const brokerPortalRouter = router({
           reviewStatus: "pending",
         })
         .returning();
-      return property;
+      // Pedido de 15/10: fotos vão para o Google Drive (Imóveis/<Título (nº)>/01 - Fotos).
+      const fotos = await aplicarFotosImovel(property.id, input.fotos, userId);
+      return { ...property, fotos: JSON.stringify(fotos) };
     }),
 
-  uploadPropertyImage: protectedProcedure
-    .input(
-      z.object({
-        fileName: z.string().trim().min(1).max(255),
-        mimeType: imageMime,
-        base64: z.string().min(8),
-      })
-    )
-    .mutation(async ({ ctx, input }) => {
-      const { userId } = requireBrokerContext(ctx.user);
-      const buffer = Buffer.from(input.base64, "base64");
-      if (!isValidPropertyImage(buffer, input.mimeType)) {
-        throw new TRPCError({
-          code: "BAD_REQUEST",
-          message: "Envie JPG, PNG ou WebP válido de até 8 MiB",
-        });
-      }
-      const extension =
-        input.mimeType === "image/png"
-          ? "png"
-          : input.mimeType === "image/webp"
-            ? "webp"
-            : "jpg";
-      return storagePut(
-        `corretores/imoveis/${userId}/${randomUUID()}.${extension}`,
-        buffer,
-        input.mimeType
-      );
-    }),
+  // Portal do corretor (15/10): acompanhamento das etapas do CRM, somente
+  // leitura e só dos leads vinculados a este corretor.
+  leads: protectedProcedure.query(async ({ ctx }) => {
+    const { brokerId } = requireBrokerContext(ctx.user);
+    const rows = await getDb()
+      .select({ id: leads.id, name: leads.name, city: leads.city, stage: leads.stage, updatedAt: leads.updatedAt })
+      .from(leads)
+      .where(and(eq(leads.brokerId, brokerId), isNull(leads.deletedAt)))
+      .orderBy(desc(leads.updatedAt));
+    return rows.map(row => ({ ...row, ...brokerLeadStage(row.stage) }));
+  }),
+
+  // Pedido de 15/10: comissões calculadas das obras dos leads deste corretor
+  // (VGV × %), as mesmas do painel do admin — antes o portal só lia as manuais.
+  obraCommissions: protectedProcedure.query(async ({ ctx }) => {
+    const { brokerId } = requireBrokerContext(ctx.user);
+    const linhas = await listarComissoesDeObras(brokerId);
+    return linhas.map(l => ({
+      obraId: l.obraId,
+      obra: l.obra,
+      cliente: l.cliente,
+      vgv: l.vgv,
+      percentual: l.calculo.percentual,
+      valorCentavos: l.calculo.valorCentavos,
+      pagoCentavos: l.calculo.pagoCentavos,
+      saldoCentavos: l.calculo.saldoCentavos,
+      status: l.calculo.status,
+    }));
+  }),
 
   commissions: protectedProcedure.query(async ({ ctx }) => {
     const { brokerId } = requireBrokerContext(ctx.user);

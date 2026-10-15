@@ -372,6 +372,20 @@
       "when": 1791900000006,
       "tag": "0052_google_drive_oauth",
       "breakpoints": true
+    },
+    {
+      "idx": 53,
+      "version": "7",
+      "when": 1791900000007,
+      "tag": "0053_vgv_valor_aprovado",
+      "breakpoints": true
+    },
+    {
+      "idx": 54,
+      "version": "7",
+      "when": 1791900000008,
+      "tag": "0054_imovel_fotos",
+      "breakpoints": true
     }
   ]
 }

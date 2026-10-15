@@ -24,6 +24,8 @@ const TIPOS = [
   "lote",
   "terreno",
   "comercial",
+  "sala_comercial",
+  "galpao",
   "chacara",
 ];
 const TIPO_LABELS: Record<string, string> = {
@@ -32,6 +34,8 @@ const TIPO_LABELS: Record<string, string> = {
   lote: "Lote",
   terreno: "Terreno",
   comercial: "Comercial",
+  sala_comercial: "Sala comercial",
+  galpao: "Galpão",
   chacara: "Chácara",
 };
 const STATUS_OPTIONS = [

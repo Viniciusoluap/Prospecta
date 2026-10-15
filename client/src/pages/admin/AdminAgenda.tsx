@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { trpc } from "@/lib/trpc";
+import { useAuth } from "@/_core/hooks/useAuth";
 import { Button } from "@/components/ui/button";
 import {
   VISIT_STATUS,
@@ -39,6 +40,10 @@ export default function AdminAgenda({
   const list = trpc.agenda.list.useQuery();
   const taskList = trpc.tasks.list.useQuery();
   const options = trpc.agenda.options.useQuery();
+  // Portal do corretor (15/10): o vínculo de corretor/responsável vem da sessão
+  // no servidor, então esses dois campos não aparecem para o corretor.
+  const { user } = useAuth();
+  const ehCorretor = user?.role === "corretor";
   const create = trpc.agenda.create.useMutation();
   const update = trpc.agenda.update.useMutation();
   const remove = trpc.agenda.delete.useMutation();
@@ -267,20 +272,24 @@ export default function AdminAgenda({
           optional
           options={ids(options.data?.properties)}
         />
-        <Choice
-          label="Corretor (opcional)"
-          value={form.brokerId}
-          onChange={v => set("brokerId", v)}
-          optional
-          options={ids(options.data?.brokers)}
-        />
-        <Choice
-          label="Colaborador responsável (opcional)"
-          value={form.responsibleId}
-          onChange={v => set("responsibleId", v)}
-          optional
-          options={ids(options.data?.responsibles)}
-        />
+        {!ehCorretor && (
+          <>
+            <Choice
+              label="Corretor (opcional)"
+              value={form.brokerId}
+              onChange={v => set("brokerId", v)}
+              optional
+              options={ids(options.data?.brokers)}
+            />
+            <Choice
+              label="Colaborador responsável (opcional)"
+              value={form.responsibleId}
+              onChange={v => set("responsibleId", v)}
+              optional
+              options={ids(options.data?.responsibles)}
+            />
+          </>
+        )}
         <Choice
           label="Tipo"
           value={form.visitType}
@@ -304,7 +313,7 @@ export default function AdminAgenda({
         </Field>
         {(
           [
-            ["clientName", "Cliente sem lead"],
+            ["clientName", "Nome do cliente sem lead"],
             ["clientPhone", "Telefone"],
             ["notes", "Observações"],
           ] as const

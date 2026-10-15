@@ -423,7 +423,7 @@ async function commissionTarget(input: z.infer<typeof commissionInput>) {
  * para sincronizar. Comissões cadastradas à mão para a mesma obra são
  * mostradas lado a lado e as divergências sinalizadas — nunca sobrescritas.
  */
-export async function listarComissoesDeObras() {
+export async function listarComissoesDeObras(somenteCorretorId?: number) {
   const db = getDb();
   const pago = sql<string>`COALESCE((SELECT SUM(${obraMovimentos.valor}) FROM ${obraMovimentos} WHERE ${obraMovimentos.projectId} = ${constructionProjects.id} AND ${obraMovimentos.natureza} = 'pagamento' AND ${obraMovimentos.categoria} = 'comissao' AND ${obraMovimentos.status} = 'confirmado'), 0)`;
   const [obras, manuais] = await Promise.all([
@@ -432,7 +432,8 @@ export async function listarComissoesDeObras() {
         obraId: constructionProjects.id,
         obra: constructionProjects.title,
         status: constructionProjects.status,
-        vgv: constructionProjects.vgv,
+        // Pedido de 15/10: VGV da obra com lead = Valor Aprovado do CRM.
+        vgv: leads.approvedValue,
         percentualObra: constructionProjects.commissionPct,
         leadId: leads.id,
         cliente: leads.name,
@@ -445,6 +446,7 @@ export async function listarComissoesDeObras() {
       .innerJoin(leads, eq(leads.id, constructionProjects.leadId))
       .innerJoin(users, eq(users.id, leads.brokerId))
       .leftJoin(brokerProfiles, eq(brokerProfiles.userId, users.id))
+      .where(somenteCorretorId === undefined ? undefined : eq(leads.brokerId, somenteCorretorId))
       .orderBy(asc(users.name), asc(constructionProjects.title)),
     db
       .select({ id: commissions.id, obraId: commissions.constructionProjectId, brokerId: commissions.brokerId, amount: commissions.amount, percent: commissions.percent, status: commissions.status })
@@ -490,9 +492,10 @@ export const comissoesRouter = router({
           id: constructionProjects.id,
           name: constructionProjects.title,
           contractValue: constructionProjects.contractValue,
-          vgv: constructionProjects.vgv,
+          vgv: sql<string | null>`CASE WHEN ${constructionProjects.leadId} IS NULL THEN ${constructionProjects.vgv} ELSE ${leads.approvedValue} END`,
         })
         .from(constructionProjects)
+        .leftJoin(leads, eq(leads.id, constructionProjects.leadId))
         .orderBy(asc(constructionProjects.title)),
     ]);
     return {

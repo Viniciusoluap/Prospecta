@@ -6,7 +6,7 @@ import { leadActivities, leadDocuments, leads, leadServices, type User } from ".
 import { protectedProcedure, router } from "./_core/trpc.js";
 import { hasRole, requireRole } from "./_core/rbac.js";
 import { getDb } from "./db.js";
-import { diagnosticarDrive, documentHash, driveConfigured, readPrivateDocument, tryDriveUpload, uploadPrivateDocument } from "./drive-documents.js";
+import { documentHash, driveConfigured, readPrivateDocument, tryDriveUpload, uploadPrivateDocument } from "./drive-documents.js";
 import { readPrivateDbFile } from "./private-document-files.js";
 import { requireClientContext } from "./profile-context.js";
 import { isValidPortalDocument } from "./portal-router.js";
@@ -31,7 +31,8 @@ export const leadDocumentsRouter = router({
   /** Teste real do Google Drive (só admin): mostra em que etapa e por que falha. */
   diagnoseDrive: protectedProcedure.mutation(async ({ ctx }) => {
     requireRole(ctx, ["admin"]);
-    return diagnosticarDrive();
+    const { diagnosticarDriveComFotos } = await import("./imovel-fotos.js");
+    return diagnosticarDriveComFotos();
   }),
   request: protectedProcedure
     .input(z.object({ leadId: z.number().int().positive(), serviceId: z.number().int().positive().optional(), type: category }))

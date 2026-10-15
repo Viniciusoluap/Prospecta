@@ -1302,6 +1302,19 @@ export const imoveis = pgTable("imoveis", {
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });
+
+// Pedido de 15/10: fotos de imóveis gravadas no Google Drive. A coluna "data"
+// (bytea, só quando o Drive falha) é lida/gravada por SQL explícito em
+// server/imovel-fotos.ts.
+export const imovelFotos = pgTable("imovel_fotos", {
+  id: serial("id").primaryKey(),
+  imovelId: integer("imovel_id").notNull().references(() => imoveis.id, { onDelete: "cascade" }),
+  mime: varchar("mime", { length: 40 }).notNull(),
+  sizeBytes: integer("size_bytes").notNull(),
+  driveFileId: varchar("drive_file_id", { length: 255 }),
+  createdBy: integer("created_by"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
 export type Imovel = typeof imoveis.$inferSelect;
 export type InsertImovel = typeof imoveis.$inferInsert;
 
