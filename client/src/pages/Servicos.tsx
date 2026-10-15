@@ -74,7 +74,7 @@ const services = [
     title: "Regularização Imobiliária",
     description:
       "Serviço em estruturação para apoiar a regularização documental de imóveis junto a cartório e prefeitura.",
-    items: ["Em breve — fale com a nossa equipe para mais informações"],
+    items: [],
     cta: { label: "Falar com a equipe", href: "/contato" },
     emBreve: true,
   },
@@ -122,9 +122,7 @@ export default function Servicos() {
                   </div>
                   <div className="md:col-span-2 p-8">
                     <p className="text-gray-300 leading-relaxed mb-5">{description}</p>
-                    {emBreve ? (
-                      <p className="text-sm text-[#C9A961]/80 italic">{items[0]}</p>
-                    ) : (
+                    {emBreve ? null : (
                       <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                         {items.map((item) => (
                           <div key={item} className="flex items-start gap-2">

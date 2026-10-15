@@ -213,9 +213,10 @@ export default function AdminObras() {
                     <div className="flex items-center gap-2 text-gray-300">
                       <DollarSign className="h-4 w-4 text-[#C9A961]" />
                       <span className="text-sm">
-                        {project.constructionCost
-                          ? `R$ ${parseFloat(project.constructionCost).toLocaleString("pt-BR", { minimumFractionDigits: 2 })}`
-                          : "Sem orçamento"}
+                        {/* Mesmo campo "Orçamento Previsto" do editor da obra (Valores da Operação/Custos). */}
+                        {project.contractValue
+                          ? `Orçamento ${parseFloat(project.contractValue).toLocaleString("pt-BR", { style: "currency", currency: "BRL" })}`
+                          : "Orçamento não informado"}
                       </span>
                     </div>
                   </div>
