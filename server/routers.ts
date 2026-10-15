@@ -52,6 +52,7 @@ import {
   mapaRouter,
 } from "./operacional-router.js";
 import { configuracoesRouter, primeiroAcessoRouter } from "./configuracoes-router.js";
+import { googleDriveRouter } from "./google-drive-router.js";
 import { relatoriosRouter } from "./relatorios-router.js";
 import { taxRouter } from "./tax-router.js";
 import {
@@ -151,6 +152,7 @@ export const appRouter = router({
   projetos: projetosRouter,
   mapa: mapaRouter,
   configuracoes: configuracoesRouter,
+  googleDrive: googleDriveRouter,
   primeiroAcesso: primeiroAcessoRouter,
   relatorios: relatoriosRouter,
   tax: taxRouter,

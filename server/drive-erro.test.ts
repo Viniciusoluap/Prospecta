@@ -64,3 +64,15 @@ describe("tryDriveUpload: o envio nunca se perde", () => {
     expect(await tryDriveUpload(async () => "abc")).toEqual({ driveFileId: "abc", note: null });
   });
 });
+
+describe("mensagens do modo OAuth (conta Google do dono)", () => {
+  it("Drive da conta conectada sem espaço", () => {
+    expect(descreverErroDrive(new ErroDrive("upload", 403, "storageQuotaExceeded", "The user's Drive storage quota has been exceeded."))).toMatch(/sem espaço livre/);
+  });
+  it("autorização revogada pede para reconectar", () => {
+    expect(descreverErroDrive(new ErroDrive("autenticacao", 400, "oauth_invalid_grant", undefined))).toMatch(/Conectar Google Drive/);
+  });
+  it("não conectado orienta Configurações", () => {
+    expect(descreverErroDrive(new Error("Google Drive não conectado"))).toMatch(/Configurações → Google Drive/);
+  });
+});

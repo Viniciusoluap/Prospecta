@@ -1,19 +1,46 @@
 import { createHash, createSign } from "node:crypto";
 import { descreverErroDrive, ErroDrive, lerCorpoErroGoogle, type EtapaDrive } from "../shared/drive-erro.js";
+import { conexaoOAuth, tokenOAuth } from "./google-drive-oauth.js";
 
 const scope = "https://www.googleapis.com/auth/drive";
 let cachedToken: { value: string; expiresAt: number } | undefined;
 
-export function driveConfigured(): boolean {
+/**
+ * De onde vêm os arquivos: a conta Google do dono conectada em Configurações
+ * (OAuth — preferida) ou a conta de serviço das variáveis de ambiente (legado).
+ */
+export type FonteDrive = { modo: "oauth"; rootFolder: string; email: string | null } | { modo: "conta_servico"; rootFolder: string };
+
+function contaServicoConfigurada(): boolean {
   return Boolean(process.env.GOOGLE_DRIVE_SERVICE_ACCOUNT_EMAIL && process.env.GOOGLE_DRIVE_PRIVATE_KEY && process.env.GOOGLE_DRIVE_ROOT_FOLDER_ID);
 }
 
-function config() {
-  if (!driveConfigured()) throw new Error("Google Drive da Prospecta não configurado");
+async function fontes(): Promise<FonteDrive[]> {
+  const lista: FonteDrive[] = [];
+  const oauth = await conexaoOAuth();
+  if (oauth) lista.push({ modo: "oauth", ...oauth });
+  if (contaServicoConfigurada()) lista.push({ modo: "conta_servico", rootFolder: process.env.GOOGLE_DRIVE_ROOT_FOLDER_ID! });
+  return lista;
+}
+
+export async function fonteDrive(): Promise<FonteDrive | null> {
+  return (await fontes())[0] ?? null;
+}
+
+export async function driveConfigured(): Promise<boolean> {
+  return Boolean(await fonteDrive());
+}
+
+async function fonteObrigatoria(): Promise<FonteDrive> {
+  const f = await fonteDrive();
+  if (!f) throw new Error("Google Drive da Prospecta não configurado");
+  return f;
+}
+
+function contaServico() {
   return {
     email: process.env.GOOGLE_DRIVE_SERVICE_ACCOUNT_EMAIL!,
     privateKey: process.env.GOOGLE_DRIVE_PRIVATE_KEY!.replace(/\\n/g, "\n"),
-    rootFolder: process.env.GOOGLE_DRIVE_ROOT_FOLDER_ID!,
   };
 }
 
@@ -21,9 +48,10 @@ function base64url(value: string | Buffer) {
   return Buffer.from(value).toString("base64url");
 }
 
-async function accessToken(): Promise<string> {
+async function accessToken(fonte: FonteDrive): Promise<string> {
+  if (fonte.modo === "oauth") return tokenOAuth();
   if (cachedToken && cachedToken.expiresAt > Date.now() + 60_000) return cachedToken.value;
-  const { email, privateKey } = config();
+  const { email, privateKey } = contaServico();
   const now = Math.floor(Date.now() / 1000);
   const unsigned = `${base64url(JSON.stringify({ alg: "RS256", typ: "JWT" }))}.${base64url(JSON.stringify({ iss: email, scope, aud: "https://oauth2.googleapis.com/token", iat: now, exp: now + 3600 }))}`;
   const signer = createSign("RSA-SHA256");
@@ -44,8 +72,8 @@ async function accessToken(): Promise<string> {
   return cachedToken.value;
 }
 
-async function driveFetch(url: string, init: RequestInit = {}, etapa: EtapaDrive = "pasta"): Promise<Response> {
-  const token = await accessToken();
+async function driveFetch(fonte: FonteDrive, url: string, init: RequestInit = {}, etapa: EtapaDrive = "pasta"): Promise<Response> {
+  const token = await accessToken(fonte);
   const response = await fetch(url, { ...init, headers: { ...init.headers, Authorization: `Bearer ${token}` } });
   if (!response.ok) {
     const { motivo, detalhe } = lerCorpoErroGoogle(await response.json().catch(() => null));
@@ -58,7 +86,7 @@ function escapeSearch(value: string): string {
   return value.replace(/\\/g, "\\\\").replace(/'/g, "\\'");
 }
 
-async function folder(parent: string, name: string): Promise<string> {
+async function folder(fonte: FonteDrive, parent: string, name: string): Promise<string> {
   const query = new URLSearchParams({
     q: `'${escapeSearch(parent)}' in parents and name = '${escapeSearch(name)}' and mimeType = 'application/vnd.google-apps.folder' and trashed = false`,
     fields: "files(id,name,parents),nextPageToken",
@@ -66,19 +94,19 @@ async function folder(parent: string, name: string): Promise<string> {
     supportsAllDrives: "true",
     includeItemsFromAllDrives: "true",
   });
-  const found = await driveFetch(`https://www.googleapis.com/drive/v3/files?${query}`);
+  const found = await driveFetch(fonte, `https://www.googleapis.com/drive/v3/files?${query}`);
   const items = await found.json() as { files?: { id: string }[] };
   if ((items.files?.length ?? 0) > 1) throw new Error("Pasta duplicada no Google Drive; exige revisão administrativa");
   if (items.files?.length) return items.files[0].id;
-  const created = await driveFetch("https://www.googleapis.com/drive/v3/files?fields=id&supportsAllDrives=true", {
+  const created = await driveFetch(fonte, "https://www.googleapis.com/drive/v3/files?fields=id&supportsAllDrives=true", {
     method: "POST", headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ name, mimeType: "application/vnd.google-apps.folder", parents: [parent] }),
   });
   return ((await created.json()) as { id: string }).id;
 }
 
-async function assertNotPublic(fileId: string, etapa: EtapaDrive = "permissoes"): Promise<void> {
-  const response = await driveFetch(`https://www.googleapis.com/drive/v3/files/${encodeURIComponent(fileId)}/permissions?fields=permissions(type)&supportsAllDrives=true`, {}, etapa);
+async function assertNotPublic(fonte: FonteDrive, fileId: string, etapa: EtapaDrive = "permissoes"): Promise<void> {
+  const response = await driveFetch(fonte, `https://www.googleapis.com/drive/v3/files/${encodeURIComponent(fileId)}/permissions?fields=permissions(type)&supportsAllDrives=true`, {}, etapa);
   const result = await response.json() as { permissions?: { type: string }[] };
   if (result.permissions?.some(permission => permission.type === "anyone")) {
     throw new Error("Pasta do Google Drive com acesso público; upload recusado");
@@ -90,35 +118,37 @@ export function documentHash(data: Buffer): string {
 }
 
 export async function uploadPrivateDocument(leadId: number, serviceId: number | null, category: string, name: string, mimeType: string, data: Buffer): Promise<string> {
-  const root = config().rootFolder;
-  await assertNotPublic(root, "pasta_raiz");
+  const fonte = await fonteObrigatoria();
+  const root = fonte.rootFolder;
+  await assertNotPublic(fonte, root, "pasta_raiz");
   // IDs, not customer names, keep personal information out of folder labels.
-  const customer = await folder(root, `cliente-${leadId}`);
-  const service = await folder(customer, serviceId ? `servico-${serviceId}` : "crm");
-  const categoryFolder = await folder(service, category);
-  await assertNotPublic(categoryFolder);
-  return uploadToFolder(categoryFolder, name, mimeType, data);
+  const customer = await folder(fonte, root, `cliente-${leadId}`);
+  const service = await folder(fonte, customer, serviceId ? `servico-${serviceId}` : "crm");
+  const categoryFolder = await folder(fonte, service, category);
+  await assertNotPublic(fonte, categoryFolder);
+  return uploadToFolder(fonte, categoryFolder, name, mimeType, data);
 }
 
 /** Estudos são independentes de leads: usam uma árvore própria para evitar colisões de IDs. */
 export async function uploadPrivateIncorporationDocument(studyId: number, itemId: string, name: string, mimeType: string, data: Buffer): Promise<string> {
-  const root = config().rootFolder;
-  await assertNotPublic(root, "pasta_raiz");
-  const study = await folder(root, `incorporacao-${studyId}`);
-  const registration = await folder(study, "registro");
-  const item = await folder(registration, itemId);
-  await assertNotPublic(item);
-  return uploadToFolder(item, name, mimeType, data);
+  const fonte = await fonteObrigatoria();
+  const root = fonte.rootFolder;
+  await assertNotPublic(fonte, root, "pasta_raiz");
+  const study = await folder(fonte, root, `incorporacao-${studyId}`);
+  const registration = await folder(fonte, study, "registro");
+  const item = await folder(fonte, registration, itemId);
+  await assertNotPublic(fonte, item);
+  return uploadToFolder(fonte, item, name, mimeType, data);
 }
 
-async function uploadToFolder(categoryFolder: string, name: string, mimeType: string, data: Buffer): Promise<string> {
+async function uploadToFolder(fonte: FonteDrive, categoryFolder: string, name: string, mimeType: string, data: Buffer): Promise<string> {
   const metadata = JSON.stringify({ name, parents: [categoryFolder] });
-  const session = await driveFetch("https://www.googleapis.com/upload/drive/v3/files?uploadType=resumable&fields=id&supportsAllDrives=true", {
+  const session = await driveFetch(fonte, "https://www.googleapis.com/upload/drive/v3/files?uploadType=resumable&fields=id&supportsAllDrives=true", {
     method: "POST", headers: { "Content-Type": "application/json; charset=UTF-8", "X-Upload-Content-Type": mimeType, "X-Upload-Content-Length": String(data.length) }, body: metadata,
   }, "upload");
   const location = session.headers.get("location");
   if (!location || new URL(location).hostname !== "www.googleapis.com") throw new Error("Sessão de upload do Google Drive inválida");
-  const response = await driveFetch(location, {
+  const response = await driveFetch(fonte, location, {
     method: "PUT", headers: { "Content-Type": mimeType, "Content-Length": String(data.length) }, body: Uint8Array.from(data),
   }, "upload");
   const result = await response.json() as { id?: string };
@@ -126,14 +156,27 @@ async function uploadToFolder(categoryFolder: string, name: string, mimeType: st
   return result.id;
 }
 
+/** Lê pela fonte atual; arquivo gravado antes por outra fonte (ex.: conta de serviço) é lido por ela. */
 export async function readPrivateDocument(fileId: string): Promise<Buffer> {
-  const response = await driveFetch(`https://www.googleapis.com/drive/v3/files/${encodeURIComponent(fileId)}?alt=media&supportsAllDrives=true`, {}, "leitura");
-  return Buffer.from(await response.arrayBuffer());
+  const lista = await fontes();
+  if (!lista.length) throw new Error("Google Drive da Prospecta não configurado");
+  let ultimoErro: unknown;
+  for (const fonte of lista) {
+    try {
+      const response = await driveFetch(fonte, `https://www.googleapis.com/drive/v3/files/${encodeURIComponent(fileId)}?alt=media&supportsAllDrives=true`, {}, "leitura");
+      return Buffer.from(await response.arrayBuffer());
+    } catch (erro) { ultimoErro = erro; }
+  }
+  throw ultimoErro;
 }
 
 export interface DiagnosticoDrive {
   configurado: boolean;
   ok: boolean;
+  /** "oauth" = conta Google do dono conectada em Configurações; "conta_servico" = legado. */
+  modo: FonteDrive["modo"] | null;
+  /** Conta Google conectada (só no modo OAuth). */
+  email: string | null;
   /** Pasta raiz dentro de um Drive compartilhado (Workspace); fora dele contas de serviço não têm espaço. */
   driveCompartilhado: boolean | null;
   etapas: { etapa: string; ok: boolean }[];
@@ -146,27 +189,29 @@ export interface DiagnosticoDrive {
  */
 export async function diagnosticarDrive(): Promise<DiagnosticoDrive> {
   const etapas: DiagnosticoDrive["etapas"] = [];
-  if (!driveConfigured()) return { configurado: false, ok: false, driveCompartilhado: null, etapas, explicacao: descreverErroDrive(new Error("não configurado")) };
+  const fonte = await fonteDrive();
+  if (!fonte) return { configurado: false, ok: false, modo: null, email: null, driveCompartilhado: null, etapas, explicacao: descreverErroDrive(new Error("não configurado")) };
+  const email = fonte.modo === "oauth" ? fonte.email : null;
   let driveCompartilhado: boolean | null = null;
   try {
-    cachedToken = undefined;
-    await accessToken();
-    etapas.push({ etapa: "Autenticação da conta de serviço", ok: true });
-    const root = config().rootFolder;
-    const meta = await driveFetch(`https://www.googleapis.com/drive/v3/files/${encodeURIComponent(root)}?fields=id,driveId,mimeType,capabilities(canAddChildren)&supportsAllDrives=true`, {}, "pasta_raiz");
-    const info = await meta.json() as { driveId?: string; mimeType?: string; capabilities?: { canAddChildren?: boolean } };
-    driveCompartilhado = Boolean(info.driveId);
+    if (fonte.modo === "oauth") { await tokenOAuth(true); etapas.push({ etapa: `Autorização da conta Google${email ? ` (${email})` : ""}`, ok: true }); }
+    else { cachedToken = undefined; await accessToken(fonte); etapas.push({ etapa: "Autenticação da conta de serviço", ok: true }); }
+    const root = fonte.rootFolder;
+    const meta = await driveFetch(fonte, `https://www.googleapis.com/drive/v3/files/${encodeURIComponent(root)}?fields=id,driveId,mimeType,trashed,capabilities(canAddChildren)&supportsAllDrives=true`, {}, "pasta_raiz");
+    const info = await meta.json() as { driveId?: string; mimeType?: string; trashed?: boolean; capabilities?: { canAddChildren?: boolean } };
+    if (fonte.modo === "conta_servico") driveCompartilhado = Boolean(info.driveId);
     if (info.mimeType !== "application/vnd.google-apps.folder") throw new Error("O ID configurado não é uma pasta");
+    if (info.trashed) throw new ErroDrive("pasta_raiz", 404, "notFound", "pasta na lixeira");
     if (info.capabilities?.canAddChildren === false) throw new ErroDrive("pasta_raiz", 403, "insufficientFilePermissions", undefined);
     etapas.push({ etapa: "Acesso à pasta raiz", ok: true });
-    await assertNotPublic(root, "pasta_raiz");
+    await assertNotPublic(fonte, root, "pasta_raiz");
     etapas.push({ etapa: "Pasta privada (sem link público)", ok: true });
-    const teste = await uploadToFolder(root, `teste-conexao-${Date.now()}.txt`, "text/plain", Buffer.alloc(1024, 46));
-    await driveFetch(`https://www.googleapis.com/drive/v3/files/${encodeURIComponent(teste)}?supportsAllDrives=true`, { method: "DELETE" }, "upload").catch(() => undefined);
+    const teste = await uploadToFolder(fonte, root, `teste-conexao-${Date.now()}.txt`, "text/plain", Buffer.alloc(1024, 46));
+    await driveFetch(fonte, `https://www.googleapis.com/drive/v3/files/${encodeURIComponent(teste)}?supportsAllDrives=true`, { method: "DELETE" }, "upload").catch(() => undefined);
     etapas.push({ etapa: "Gravação de arquivo de teste", ok: true });
-    return { configurado: true, ok: true, driveCompartilhado, etapas, explicacao: null };
+    return { configurado: true, ok: true, modo: fonte.modo, email, driveCompartilhado, etapas, explicacao: null };
   } catch (error) {
-    return { configurado: true, ok: false, driveCompartilhado, etapas, explicacao: descreverErroDrive(error) };
+    return { configurado: true, ok: false, modo: fonte.modo, email, driveCompartilhado, etapas, explicacao: descreverErroDrive(error) };
   }
 }
 
@@ -176,7 +221,7 @@ export async function diagnosticarDrive(): Promise<DiagnosticoDrive> {
  * motivo legível; quem chama guarda o arquivo no banco. O upload nunca se perde.
  */
 export async function tryDriveUpload(upload: () => Promise<string>): Promise<{ driveFileId: string | null; note: string | null }> {
-  if (!driveConfigured()) return { driveFileId: null, note: null };
+  if (!(await driveConfigured())) return { driveFileId: null, note: null };
   try {
     return { driveFileId: await upload(), note: null };
   } catch (error) {
