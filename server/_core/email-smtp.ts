@@ -194,7 +194,7 @@ export function paymentConfirmedTemplate(data: {
             
             <div class="success-box">
               <h2 style="margin: 0; color: #28a745;">✅ Pagamento Aprovado</h2>
-              <p style="font-size: 24px; margin: 10px 0;"><strong>R$ ${(data.amount / 100).toFixed(2)}</strong></p>
+              <p style="font-size: 24px; margin: 10px 0;"><strong>${(data.amount / 100).toLocaleString("pt-BR", { style: "currency", currency: "BRL" })}</strong></p>
             </div>
             
             <p>Seu pagamento foi confirmado com sucesso!</p>
