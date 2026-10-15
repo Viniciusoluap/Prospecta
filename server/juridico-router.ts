@@ -112,7 +112,7 @@ export const juridicoRouter = router({
     const fileName = `${contract.number.replace(/[^a-zA-Z0-9_-]/g, "-")}-${Date.now()}.pdf`;
     const leadId = contract.leadId;
     const { driveFileId } = leadId
-      ? await tryDriveUpload(() => uploadPrivateDocument(leadId, null, "juridico", fileName, "application/pdf", buffer))
+      ? await tryDriveUpload(() => uploadPrivateDocument({ leadId, serviceId: null, categoria: "juridico", rotulo: `Contrato ${contract.number}`, nomeOriginal: fileName, mimeType: "application/pdf", data: buffer }))
       : { driveFileId: null };
     if (driveFileId) {
       const [document] = await db.insert(portalContractDocuments).values({

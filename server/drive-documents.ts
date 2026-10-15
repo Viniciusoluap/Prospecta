@@ -1,5 +1,12 @@
 import { createHash, createSign } from "node:crypto";
 import { descreverErroDrive, ErroDrive, lerCorpoErroGoogle, type EtapaDrive } from "../shared/drive-erro.js";
+import { and, eq, isNotNull, isNull } from "drizzle-orm";
+import {
+  financiamentoChecklistItems, financiamentos, incorporationRegistrationDocuments, leadDocuments, portalContractDocuments, portalContracts,
+} from "../drizzle/schema.js";
+import { CHAVE_RAIZ, nomeArquivo, pastaLegada, PROPRIEDADE_PASTA, ROTULO_DOCUMENTO, type PastaAlvo } from "../shared/drive-estrutura.js";
+import { getDb } from "./db.js";
+import { caminhoDocumentoCliente, destinoDocumentoEstudo } from "./drive-pastas.js";
 import { conexaoOAuth, tokenOAuth } from "./google-drive-oauth.js";
 
 const scope = "https://www.googleapis.com/auth/drive";
@@ -86,23 +93,51 @@ function escapeSearch(value: string): string {
   return value.replace(/\\/g, "\\\\").replace(/'/g, "\\'");
 }
 
-async function folder(fonte: FonteDrive, parent: string, name: string): Promise<string> {
+const PASTA_MIME = "application/vnd.google-apps.folder";
+
+interface ArquivoDrive { id: string; name?: string; parents?: string[]; mimeType?: string; appProperties?: Record<string, string> }
+
+/**
+ * Pasta do sistema achada pela etiqueta interna (appProperties), não pelo nome:
+ * se o nome exibido mudou (cliente renomeado), renomeia; se está em outro
+ * lugar, move para `parent`. Só cria quando não existe nenhuma.
+ */
+async function pastaGerenciada(fonte: FonteDrive, parent: string, alvo: PastaAlvo): Promise<string> {
   const query = new URLSearchParams({
-    q: `'${escapeSearch(parent)}' in parents and name = '${escapeSearch(name)}' and mimeType = 'application/vnd.google-apps.folder' and trashed = false`,
-    fields: "files(id,name,parents),nextPageToken",
-    pageSize: "2",
+    q: `appProperties has { key='${PROPRIEDADE_PASTA}' and value='${escapeSearch(alvo.chave)}' } and mimeType = '${PASTA_MIME}' and trashed = false`,
+    fields: "files(id,name,parents)",
+    orderBy: "createdTime",
+    pageSize: "10",
     supportsAllDrives: "true",
     includeItemsFromAllDrives: "true",
   });
   const found = await driveFetch(fonte, `https://www.googleapis.com/drive/v3/files?${query}`);
-  const items = await found.json() as { files?: { id: string }[] };
-  if ((items.files?.length ?? 0) > 1) throw new Error("Pasta duplicada no Google Drive; exige revisão administrativa");
-  if (items.files?.length) return items.files[0].id;
+  const existente = ((await found.json()) as { files?: ArquivoDrive[] }).files?.[0];
+  if (existente) {
+    const params = new URLSearchParams({ supportsAllDrives: "true", fields: "id" });
+    const pais = existente.parents ?? [];
+    if (!pais.includes(parent)) {
+      params.set("addParents", parent);
+      if (pais.length) params.set("removeParents", pais.join(","));
+    }
+    if (existente.name !== alvo.nome || !pais.includes(parent)) {
+      await driveFetch(fonte, `https://www.googleapis.com/drive/v3/files/${encodeURIComponent(existente.id)}?${params}`, {
+        method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name: alvo.nome }),
+      });
+    }
+    return existente.id;
+  }
   const created = await driveFetch(fonte, "https://www.googleapis.com/drive/v3/files?fields=id&supportsAllDrives=true", {
     method: "POST", headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ name, mimeType: "application/vnd.google-apps.folder", parents: [parent] }),
+    body: JSON.stringify({ name: alvo.nome, mimeType: PASTA_MIME, parents: [parent], appProperties: { [PROPRIEDADE_PASTA]: alvo.chave } }),
   });
   return ((await created.json()) as { id: string }).id;
+}
+
+async function pastaDoCaminho(fonte: FonteDrive, raiz: string, caminho: PastaAlvo[]): Promise<string> {
+  let atual = raiz;
+  for (const alvo of caminho) atual = await pastaGerenciada(fonte, atual, alvo);
+  return atual;
 }
 
 async function assertNotPublic(fonte: FonteDrive, fileId: string, etapa: EtapaDrive = "permissoes"): Promise<void> {
@@ -117,28 +152,35 @@ export function documentHash(data: Buffer): string {
   return createHash("sha256").update(data).digest("hex");
 }
 
-export async function uploadPrivateDocument(leadId: number, serviceId: number | null, category: string, name: string, mimeType: string, data: Buffer): Promise<string> {
-  const fonte = await fonteObrigatoria();
-  const root = fonte.rootFolder;
-  await assertNotPublic(fonte, root, "pasta_raiz");
-  // IDs, not customer names, keep personal information out of folder labels.
-  const customer = await folder(fonte, root, `cliente-${leadId}`);
-  const service = await folder(fonte, customer, serviceId ? `servico-${serviceId}` : "crm");
-  const categoryFolder = await folder(fonte, service, category);
-  await assertNotPublic(fonte, categoryFolder);
-  return uploadToFolder(fonte, categoryFolder, name, mimeType, data);
+export interface DocumentoClienteDrive {
+  leadId: number;
+  serviceId: number | null;
+  /** Tipo do documento (rg, cnh…) ou categoria fixa (juridico, financiamento_checklist). */
+  categoria: string;
+  /** Texto do nome do arquivo: "RG", "Contrato CT-12 assinado"… */
+  rotulo: string;
+  nomeOriginal: string | null;
+  mimeType: string;
+  data: Buffer;
 }
 
-/** Estudos são independentes de leads: usam uma árvore própria para evitar colisões de IDs. */
+/** Clientes/<Nome (nº id)>/<Área>/<Rótulo — dd-mm-aaaa.ext> */
+export async function uploadPrivateDocument(doc: DocumentoClienteDrive): Promise<string> {
+  const fonte = await fonteObrigatoria();
+  const root = await prepararRaiz(fonte);
+  const pasta = await pastaDoCaminho(fonte, root, await caminhoDocumentoCliente(doc.leadId, doc.serviceId, doc.categoria));
+  await assertNotPublic(fonte, pasta);
+  return uploadToFolder(fonte, pasta, nomeArquivo(doc.rotulo, new Date(), doc.nomeOriginal, doc.mimeType), doc.mimeType, doc.data);
+}
+
+/** Incorporação/<Estudo (nº id)>/<Etapa>/<Documento — dd-mm-aaaa.ext> */
 export async function uploadPrivateIncorporationDocument(studyId: number, itemId: string, name: string, mimeType: string, data: Buffer): Promise<string> {
   const fonte = await fonteObrigatoria();
-  const root = fonte.rootFolder;
-  await assertNotPublic(fonte, root, "pasta_raiz");
-  const study = await folder(fonte, root, `incorporacao-${studyId}`);
-  const registration = await folder(fonte, study, "registro");
-  const item = await folder(fonte, registration, itemId);
-  await assertNotPublic(fonte, item);
-  return uploadToFolder(fonte, item, name, mimeType, data);
+  const root = await prepararRaiz(fonte);
+  const destino = await destinoDocumentoEstudo(studyId, itemId);
+  const pasta = await pastaDoCaminho(fonte, root, destino.caminho);
+  await assertNotPublic(fonte, pasta);
+  return uploadToFolder(fonte, pasta, nomeArquivo(destino.rotulo, new Date(), name, mimeType), mimeType, data);
 }
 
 async function uploadToFolder(fonte: FonteDrive, categoryFolder: string, name: string, mimeType: string, data: Buffer): Promise<string> {
@@ -209,6 +251,15 @@ export async function diagnosticarDrive(): Promise<DiagnosticoDrive> {
     const teste = await uploadToFolder(fonte, root, `teste-conexao-${Date.now()}.txt`, "text/plain", Buffer.alloc(1024, 46));
     await driveFetch(fonte, `https://www.googleapis.com/drive/v3/files/${encodeURIComponent(teste)}?supportsAllDrives=true`, { method: "DELETE" }, "upload").catch(() => undefined);
     etapas.push({ etapa: "Gravação de arquivo de teste", ok: true });
+    await prepararRaiz(fonte);
+    if (ultimaOrganizacao) {
+      const o = ultimaOrganizacao;
+      ultimaOrganizacao = null;
+      etapas.push({
+        etapa: `Organização das pastas: ${o.arquivosMovidos} arquivo(s) movido(s), ${o.pastasRemovidas} pasta(s) antiga(s) enviada(s) para a lixeira${o.ignorados ? `, ${o.ignorados} não encontrado(s) no Drive` : ""}${o.falhas ? `, ${o.falhas} pendente(s) — será tentado de novo` : ""}`,
+        ok: o.falhas === 0,
+      });
+    }
     return { configurado: true, ok: true, modo: fonte.modo, email, driveCompartilhado, etapas, explicacao: null };
   } catch (error) {
     return { configurado: true, ok: false, modo: fonte.modo, email, driveCompartilhado, etapas, explicacao: descreverErroDrive(error) };
@@ -230,4 +281,141 @@ export async function tryDriveUpload(upload: () => Promise<string>): Promise<{ d
     console.error("[drive] gravação recusada; arquivo guardado no banco:", error instanceof Error ? error.message : "erro desconhecido");
     return { driveFileId: null, note };
   }
+}
+
+// ─── Organização das pastas ──────────────────────────────────────────────────
+
+export interface ResultadoOrganizacao { arquivosMovidos: number; falhas: number; pastasRemovidas: number; /** Arquivo que não existe mais no Drive (apagado pelo dono ou de outra conta). */ ignorados: number }
+
+const preparacoes = new Map<string, Promise<string>>();
+
+/**
+ * Na primeira vez que o sistema usa uma pasta raiz (ou depois da troca para
+ * esta estrutura), reorganiza o que já estava gravado e marca a raiz com a
+ * etiqueta interna. Se algum arquivo não puder ser movido, não marca: a
+ * próxima gravação tenta de novo.
+ */
+async function prepararRaiz(fonte: FonteDrive): Promise<string> {
+  const root = fonte.rootFolder;
+  let pronta = preparacoes.get(root);
+  if (!pronta) {
+    pronta = (async () => {
+      await assertNotPublic(fonte, root, "pasta_raiz");
+      const info = await driveFetch(fonte, `https://www.googleapis.com/drive/v3/files/${encodeURIComponent(root)}?fields=appProperties&supportsAllDrives=true`, {}, "pasta_raiz");
+      const { appProperties } = await info.json() as ArquivoDrive;
+      if (appProperties?.[PROPRIEDADE_PASTA] === CHAVE_RAIZ) return root;
+      const resultado = await reorganizar(fonte, root).catch((erro) => {
+        console.error("[drive] organização das pastas falhou:", erro instanceof Error ? erro.message : "erro desconhecido");
+        return { arquivosMovidos: 0, falhas: 1, pastasRemovidas: 0, ignorados: 0 };
+      });
+      if (!resultado.falhas) {
+        await driveFetch(fonte, `https://www.googleapis.com/drive/v3/files/${encodeURIComponent(root)}?supportsAllDrives=true&fields=id`, {
+          method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ appProperties: { [PROPRIEDADE_PASTA]: CHAVE_RAIZ } }),
+        }, "pasta_raiz");
+      }
+      ultimaOrganizacao = resultado;
+      return root;
+    })();
+    preparacoes.set(root, pronta);
+    pronta.catch(() => preparacoes.delete(root));
+  }
+  return pronta;
+}
+
+let ultimaOrganizacao: ResultadoOrganizacao | null = null;
+
+/** Move e renomeia um arquivo; devolve false quando já estava no lugar certo. */
+async function moverArquivo(fonte: FonteDrive, fileId: string, destino: string, nome: string): Promise<boolean> {
+  const r = await driveFetch(fonte, `https://www.googleapis.com/drive/v3/files/${encodeURIComponent(fileId)}?fields=name,parents&supportsAllDrives=true`, {}, "leitura");
+  const info = await r.json() as ArquivoDrive;
+  const pais = info.parents ?? [];
+  if (pais.length === 1 && pais[0] === destino && info.name === nome) return false;
+  const params = new URLSearchParams({ supportsAllDrives: "true", fields: "id" });
+  if (!pais.includes(destino)) params.set("addParents", destino);
+  const remover = pais.filter((p) => p !== destino);
+  if (remover.length) params.set("removeParents", remover.join(","));
+  await driveFetch(fonte, `https://www.googleapis.com/drive/v3/files/${encodeURIComponent(fileId)}?${params}`, {
+    method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name: nome }),
+  });
+  return true;
+}
+
+async function filhos(fonte: FonteDrive, pasta: string): Promise<ArquivoDrive[]> {
+  const query = new URLSearchParams({
+    q: `'${escapeSearch(pasta)}' in parents and trashed = false`,
+    fields: "files(id,mimeType,appProperties)", pageSize: "1000", supportsAllDrives: "true", includeItemsFromAllDrives: "true",
+  });
+  const r = await driveFetch(fonte, `https://www.googleapis.com/drive/v3/files?${query}`);
+  return ((await r.json()) as { files?: ArquivoDrive[] }).files ?? [];
+}
+
+/** Manda para a lixeira do Drive pastas antigas sem nenhum arquivo dentro (nunca apaga arquivo). */
+async function removerPastaVazia(fonte: FonteDrive, pasta: string): Promise<{ vazia: boolean; removidas: number }> {
+  let vazia = true;
+  let removidas = 0;
+  for (const item of await filhos(fonte, pasta)) {
+    if (item.mimeType !== PASTA_MIME) { vazia = false; continue; }
+    const sub = await removerPastaVazia(fonte, item.id);
+    removidas += sub.removidas;
+    if (!sub.vazia) vazia = false;
+  }
+  if (vazia) {
+    await driveFetch(fonte, `https://www.googleapis.com/drive/v3/files/${encodeURIComponent(pasta)}?supportsAllDrives=true&fields=id`, {
+      method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ trashed: true }),
+    });
+    removidas += 1;
+  }
+  return { vazia, removidas };
+}
+
+async function reorganizar(fonte: FonteDrive, root: string): Promise<ResultadoOrganizacao> {
+  const db = getDb();
+  const resultado: ResultadoOrganizacao = { arquivosMovidos: 0, falhas: 0, pastasRemovidas: 0, ignorados: 0 };
+  const mover = async (fileId: string, caminho: Promise<PastaAlvo[]>, nome: string) => {
+    try {
+      if (await moverArquivo(fonte, fileId, await pastaDoCaminho(fonte, root, await caminho), nome)) resultado.arquivosMovidos += 1;
+    } catch (erro) {
+      // Sem acesso ao arquivo (apagado no Drive ou gravado por outra conta): não há o que mover.
+      if (erro instanceof ErroDrive && erro.status === 404 && erro.etapa === "leitura") { resultado.ignorados += 1; return; }
+      resultado.falhas += 1;
+      console.error("[drive] arquivo não reorganizado:", erro instanceof Error ? erro.message : "erro desconhecido");
+    }
+  };
+
+  const docs = await db.select().from(leadDocuments).where(and(isNotNull(leadDocuments.driveFileId), isNull(leadDocuments.deletedAt)));
+  for (const d of docs) {
+    await mover(d.driveFileId!, caminhoDocumentoCliente(d.leadId, d.serviceId, d.type),
+      nomeArquivo(ROTULO_DOCUMENTO[d.type] ?? "Documento", d.uploadedAt ?? d.createdAt, d.fileName, d.mimeType ?? ""));
+  }
+  const contratos = await db.select({ doc: portalContractDocuments, leadId: portalContracts.leadId, numero: portalContracts.number })
+    .from(portalContractDocuments).innerJoin(portalContracts, eq(portalContracts.id, portalContractDocuments.contractId))
+    .where(isNotNull(portalContractDocuments.driveFileId));
+  for (const c of contratos) {
+    if (!c.leadId) continue;
+    await mover(c.doc.driveFileId!, caminhoDocumentoCliente(c.leadId, null, "juridico"),
+      nomeArquivo(`Contrato ${c.numero}${c.doc.type === "assinado" ? " assinado" : ""}`, c.doc.createdAt, c.doc.name, "application/pdf"));
+  }
+  const checklist = await db.select({ item: financiamentoChecklistItems, leadId: financiamentos.leadId })
+    .from(financiamentoChecklistItems).innerJoin(financiamentos, eq(financiamentos.id, financiamentoChecklistItems.financiamentoId))
+    .where(isNotNull(financiamentoChecklistItems.documentoDriveFileId));
+  for (const c of checklist) {
+    if (!c.leadId) continue;
+    await mover(c.item.documentoDriveFileId!, caminhoDocumentoCliente(c.leadId, null, "financiamento_checklist"),
+      nomeArquivo(c.item.item, c.item.enviadoEm ?? c.item.createdAt, c.item.documentoNome, c.item.documentoMime ?? ""));
+  }
+  const estudos = await db.select().from(incorporationRegistrationDocuments).where(isNotNull(incorporationRegistrationDocuments.driveFileId));
+  for (const e of estudos) {
+    const destino = destinoDocumentoEstudo(e.studyId, e.itemId);
+    await mover(e.driveFileId!, destino.then((d) => d.caminho), nomeArquivo((await destino).rotulo, e.createdAt, e.fileName, e.mimeType ?? ""));
+  }
+
+  for (const item of await filhos(fonte, root)) {
+    if (item.mimeType !== PASTA_MIME || !pastaLegada(item.appProperties)) continue;
+    try {
+      resultado.pastasRemovidas += (await removerPastaVazia(fonte, item.id)).removidas;
+    } catch {
+      resultado.falhas += 1;
+    }
+  }
+  return resultado;
 }

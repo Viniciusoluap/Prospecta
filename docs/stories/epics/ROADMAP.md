@@ -65,6 +65,11 @@ Implementado primeiro no Prospecta; precisa ser portado para o Santa Fé com a m
 - **EPIC-018:** corretor sem foto/especialidades no cadastro; comissão com corretor, imóvel ou obra
   cadastrados (sem texto livre), valor sugerido por percentual × valor cadastrado; "construção" → "Obra".
 - **EPIC-019:** verificar se a Central Administrativa do Santa Fé tem o mesmo problema de retorno/layout.
+- **Documentos do cliente no Atendimento (15/10/2026):** a Prospecta envia RG, CNH, comprovantes,
+  IR, FGTS etc. pela ficha do cliente (`lead_documents`) e pelo checklist do Financiamento no Portal,
+  e esses arquivos vão para `Clientes/<Nome (nº)>/<Área>` no Google Drive. O Santa Fé não tem esse
+  envio de documentos do cliente; ao portar, usar a mesma estrutura de pastas
+  (`src/lib/drive-estrutura.ts` + `uploadDocumentoCliente`, já prontos no Santa Fé).
 
 ## Paridade com o Grupo Santa Fé (Lote 5 — Estudo de Massa Generativo) — RESOLVIDA (12/10/2026)
 

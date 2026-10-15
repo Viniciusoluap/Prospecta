@@ -361,7 +361,7 @@ export const portalRouter = router({
           message: "Envie PDF, JPG ou PNG válido de até 3 MiB",
         });
       }
-      const { driveFileId } = await tryDriveUpload(() => uploadPrivateDocument(leadId, null, "financiamento_checklist", input.fileName, input.mimeType, buffer));
+      const { driveFileId } = await tryDriveUpload(() => uploadPrivateDocument({ leadId, serviceId: null, categoria: "financiamento_checklist", rotulo: request.item.item, nomeOriginal: input.fileName, mimeType: input.mimeType, data: buffer }));
       const update = db.update(financiamentoChecklistItems).set({
         documentoDriveFileId: driveFileId,
         documentoUrl: null,
@@ -526,7 +526,7 @@ export const portalRouter = router({
         });
       }
       const safeNumber = contract.number.replace(/[^a-zA-Z0-9_-]/g, "-");
-      const { driveFileId } = await tryDriveUpload(() => uploadPrivateDocument(leadId, null, "juridico", `${safeNumber}-${Date.now()}.pdf`, input.mimeType, buffer));
+      const { driveFileId } = await tryDriveUpload(() => uploadPrivateDocument({ leadId, serviceId: null, categoria: "juridico", rotulo: `Contrato ${contract.number} assinado`, nomeOriginal: `${safeNumber}.pdf`, mimeType: input.mimeType, data: buffer }));
       if (driveFileId) {
         await db.batch([
           db.insert(portalContractDocuments).values({ contractId: contract.id, name: input.fileName, type: "assinado", driveFileId }),
