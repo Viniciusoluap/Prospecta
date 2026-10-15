@@ -1,564 +1,465 @@
-import { describe, it, expect } from "vitest";
-import {
-  montarRelatorioExecutivo,
-  type EstudoParaRelatorioExecutivo,
-} from "../shared/incorporacao/relatorio-executivo";
+import { describe, expect, it } from "vitest";
+import { montarRelatorioExecutivo, temDado } from "../shared/incorporacao/relatorio-executivo";
+import type { EstudoData } from "../shared/incorporacao/estudo-data";
 
-function estudoVazio(): EstudoParaRelatorioExecutivo {
+// Lote 6 — Relatório Executivo de Incorporação: toda seção, quando o dado
+// existe, retorna `{ dado }`; quando não existe, retorna `{ pendencia }`
+// explícita — nunca lança exceção, nunca "desaparece" silenciosamente.
+
+function baseEstudo(overrides: Partial<EstudoData> = {}): EstudoData {
   return {
-    name: "Loteamento Teste",
-    city: "São Luís",
-    state: "MA",
-    areaM2: "0",
-    perimeterM: "0",
-    latitude: null,
-    longitude: null,
+    id: "estudo-1",
+    nome: "Residencial Teste",
+    municipio: "Belém",
+    estado: "PA",
+    status: "em_estudo",
+    responsavel: null,
+    kmlUrl: null,
+    geojson: null,
+    areaM2: 0,
+    perimetroM: 0,
+    centroLat: null,
+    centroLng: null,
     appAreaM2: null,
-    appWidthM: null,
-    appOrigin: null,
-
-    urbanParametersJson: null,
-    potentialJson: null,
-    urbanisticOpinion: null,
-
-    cityResearchJson: null,
-    marketStudyJson: null,
-    comparablePricingJson: null,
-    primaryResearchJson: null,
-
-    massScenariosJson: null,
-    selectedScenarioId: null,
-
-    areasBoardJson: null,
-
-    productMixJson: null,
-
-    parameterizedBudgetJson: null,
-    preliminaryBudgetJson: null,
-    workBudgetJson: null,
-
-    lottingJson: null,
-
-    landNegotiationJson: null,
-
-    incorporationRegistrationJson: null,
-    projectApprovalJson: null,
-
-    physicalFinancialScheduleJson: null,
-    launchPlanJson: null,
+    appLarguraM: null,
+    appOrigem: null,
+    elevacaoJson: null,
+    levantamentoUrl: null,
+    parametrosJson: null,
+    potencialJson: null,
+    urbanismoParecer: null,
+    pesquisaCidadeJson: null,
+    estudoMercadoJson: null,
+    precificacaoComparaveisJson: null,
+    pesquisaPrimariaJson: null,
+    quadroAreasJson: null,
+    orcamentoParametrizadoJson: null,
+    businessPlanJson: null,
+    negociacaoTerrenoJson: null,
+    projetistasJson: null,
+    aprovacaoProjetoJson: null,
+    registroIncorporacaoJson: null,
+    orcamentoPreliminarJson: null,
+    planejamentoLancamentoJson: null,
+    fornecedoresLancamentoJson: null,
+    materialPublicitarioJson: null,
+    lancamentoImobiliarioJson: null,
+    projetosExecutivosJson: null,
+    orcamentoObraJson: null,
+    cronogramaObraJson: null,
+    atendimentoClientesJson: null,
+    massaCenariosJson: null,
+    cenarioEscolhidoId: null,
+    mixJson: null,
+    viabilidadeJson: null,
+    parecerIa: null,
+    loteamentoJson: null,
+    relatorios: "[]",
+    ...overrides,
   };
 }
 
-function estudoCompleto(): EstudoParaRelatorioExecutivo {
-  return {
-    ...estudoVazio(),
-    areaM2: "100000",
-    perimeterM: "1400",
-    latitude: "-2.53",
-    longitude: "-44.30",
-    appAreaM2: "5000",
-    appWidthM: "30",
-    appOrigin: "automatica",
+const GERADO_EM = new Date("2026-10-12T15:30:00.000Z");
 
-    urbanParametersJson: JSON.stringify({
-      zona: "ZR-2",
-      taxaOcupacao: 0.6,
-      coefAproveitamento: 1.2,
-      recuoFrontalM: 3,
-      recuoLateralM: 1.5,
-      recuoFundosM: 3,
-      loteMinimoM2: 250,
-      testadaMinimaM: 10,
-      gabaritoPavimentos: 2,
-      percentInstitucional: 0.05,
-      percentAreaVerde: 0.1,
-      percentViario: 0.2,
-      vagasPorUnidade: 1,
-    }),
-    potentialJson: JSON.stringify({ areaMediaUnidadeM2: 80 }),
-    urbanisticOpinion: "Zona residencial compatível com o empreendimento.",
+describe("montarRelatorioExecutivo — terreno", () => {
+  it("pendência quando não há mapa desenhado", () => {
+    const m = montarRelatorioExecutivo(baseEstudo(), GERADO_EM);
+    expect(temDado(m.terreno)).toBe(false);
+    if (!temDado(m.terreno)) expect(m.terreno.pendencia).toMatch(/Terreno ainda não delimitado/);
+  });
 
-    cityResearchJson: JSON.stringify({
-      populacao: 50000,
-      crescimentoAnualPct: 2,
-      pibPerCapita: 20000,
-      principaisAtividades: ["Comércio"],
-      rendaMediaMensal: 3000,
-      deficitHabitacional: "alto",
-      resumo: "Cidade em crescimento.",
-    }),
-    marketStudyJson: JSON.stringify({
-      precoM2Lote: 500,
-      precoM2Casa: 2500,
-      precoM2Apartamento: 4000,
-      velocidadeVendas: "media",
-      demandaPorProduto: [],
-      concorrentes: [],
-      comparaveis: [],
-      oportunidades: "",
-      riscos: "",
-      fontes: ["IBGE", "ZAP Imóveis"],
-      confiabilidade: "alta",
-    }),
-    comparablePricingJson: JSON.stringify({
-      atributos: [{ nome: "Localização", peso: 3 }],
-      notasNovo: [3],
-      comparaveis: [{ nome: "Concorrente A", precoM2: 480, notas: [3] }],
-    }),
-    primaryResearchJson: JSON.stringify({
-      entrevistados: [
-        {
-          id: "1",
-          nome: "João",
-          faixaEtaria: "26-35",
-          faixaRenda: "4_8sm",
-          temImovelProprio: false,
-          interesseComprar12Meses: true,
-          tiposInteresse: ["lote"],
-          notaApartamento: 0,
-          notaCasaCondominio: 0,
-          notaCasaRuaAberta: 0,
-          tamanhoIdealM2: 200,
-          quartosNecessarios: 3,
-          itensImportancia: {},
-        },
-      ],
-    }),
-
-    massScenariosJson: JSON.stringify({
-      params: {},
-      cenarios: [
-        {
-          id: "cenario-1",
-          anguloVia: 10,
-          testadaLoteM: 12,
-          profundidadeLoteM: 30,
-          larguraViaM: 10,
-          lotes: [],
-          kpis: {
-            lotesVendaveis: 100,
-            lotesPublicos: 10,
-            areaVendavelM2: 60000,
-            areaPublicaM2: 10000,
-            aproveitamento: 0.6,
-            vgv: 30000000,
-          },
-        },
-      ],
-    }),
-    selectedScenarioId: "cenario-1",
-
-    areasBoardJson: JSON.stringify({
-      coeficienteAproveitamento: 1.2,
-      itens: [
-        {
-          pavimento: "Térreo",
-          areaConstCobertaM2: 1000,
-          areaConstDescobertaM2: 0,
-          areaUrbanizadaM2: 0,
-          areaDescontarM2: 0,
-          areaComputavelM2: 1000,
-          areaPrivativaM2: 800,
-        },
-      ],
-    }),
-
-    productMixJson: JSON.stringify([{ nome: "Lotes", quantidade: 100, areaUnidadeM2: 300, precoM2: 500 }]),
-
-    parameterizedBudgetJson: JSON.stringify({
-      itens: [{ pavimento: "Torre A", areaM2: 5000, coeficienteEquivalencia: 1 }],
-      custoM2Equivalente: 2000,
-      passivoAmbiental: 0,
-      decoracaoEquipamentos: 100000,
-      projetos: 200000,
-      previsaoInfra: 50000,
-      outros: 0,
-    }),
-    preliminaryBudgetJson: JSON.stringify({ itens: [{ id: "1", categoria: "Estrutura", valorOrcado: 3000000 }] }),
-    workBudgetJson: JSON.stringify({
-      itens: [{ id: "1", categoria: "Estrutura", valorOrcado: 3000000, valorRealizado: 1500000 }],
-    }),
-
-    lottingJson: JSON.stringify({
-      areaBrutaM2: 100000,
-      pctAreaPublica: 10,
-      pctAreaVerde: 5,
-      pctSistemaViario: 25,
-      pctFaixaServidao: 0,
-      duracaoVendasMeses: 12,
-      perfilVendas: "constante",
-      entradaPct: 10,
-      prazoParcelamentoMeses: 24,
-      jurosClienteMensal: 0.5,
-      indexacaoMensal: 0.4,
-      vendasAVistaPct: 10,
-      descontoAVistaPct: 10,
-      inadimplenciaPct: 5,
-      comissaoPctVgv: 5,
-      despesasGeraisPctVgv: 3,
-      impostosPctVgv: 6.58,
-      taxaIncorporacaoPctVgv: 1,
-      inicioObraMes: 0,
-      duracaoObraMeses: 12,
-      inicioVendasMes: 6,
-      custoInfraM2Lote: 200,
-      projetosLicencas: 100000,
-      marketing: 100000,
-      registroPorUnidade: 400,
-      contingenciaPctInfra: 10,
-      bdiPct: 10,
-      taxaAdministracaoObraPct: 10,
-      manutencaoPctObra: 1.5,
-      inccObraMensal: 0.3,
-      permutaPctVgv: 20,
-      taxaDescontoAnual: 12,
-      itensMix: [{ nome: "Lotes", quantidade: 100, areaUnidadeM2: 300, precoM2: 500 }],
-    }),
-
-    landNegotiationJson: JSON.stringify({
-      proprietarioNome: "Zé da Silva",
-      proprietarioContato: "(98) 99999-9999",
-      vgvGrossManual: 0,
-      propostas: [
-        { id: "1", data: "2026-01-10", autor: "grupo", tipo: "compra_avista", valorTotal: 1000000, status: "aceita" },
-      ],
-    }),
-
-    incorporationRegistrationJson: JSON.stringify({
-      documentos: [
-        { id: "1", nome: "Título de propriedade do terreno", status: "obtido" },
-        { id: "2", nome: "Certidão negativa de ônus reais", status: "pendente" },
-      ],
-    }),
-    projectApprovalJson: JSON.stringify({
-      processos: [
-        { id: "1", orgao: "Prefeitura (projeto arquitetônico)", status: "aprovado" },
-        { id: "2", orgao: "Corpo de Bombeiros", status: "exigencia" },
-      ],
-    }),
-
-    physicalFinancialScheduleJson: JSON.stringify({
-      medicoes: [{ id: "1", mes: 0, avancoFisicoAcumuladoPct: 10 }],
-      duracaoObraMeses: 12,
-    }),
-    launchPlanJson: JSON.stringify({ marcos: [{ id: "1", nome: "Definição da data do evento", status: "concluido" }] }),
-  };
-}
-
-describe("montarRelatorioExecutivo — estudo totalmente vazio", () => {
-  const modelo = montarRelatorioExecutivo(estudoVazio());
-
-  it("terreno fica pendente quando não há área delimitada", () => {
-    expect(modelo.terreno.status).toBe("pendente");
-  });
-  it("dados cadastrais/urbanísticos ficam pendentes sem parâmetros urbanísticos", () => {
-    expect(modelo.dadosCadastraisUrbanisticos.status).toBe("pendente");
-  });
-  it("mercado/referências ficam pendentes sem nenhuma pesquisa", () => {
-    expect(modelo.mercadoReferencias.status).toBe("pendente");
-  });
-  it("estudo de massa fica pendente sem cenários gerados", () => {
-    expect(modelo.estudoMassa.status).toBe("pendente");
-  });
-  it("quadro de áreas fica pendente sem itens", () => {
-    expect(modelo.quadroAreas.status).toBe("pendente");
-  });
-  it("mix de produtos fica pendente sem itens com quantidade", () => {
-    expect(modelo.mixProdutos.status).toBe("pendente");
-  });
-  it("custos/receitas/VGV ficam pendentes sem nenhum orçamento nem VGV", () => {
-    expect(modelo.custosReceitasVgv.status).toBe("pendente");
-  });
-  it("viabilidade econômica (VPL/TIR/ROI/payback/fluxo) fica pendente sem EVE calculada", () => {
-    expect(modelo.viabilidadeEconomica.status).toBe("pendente");
-  });
-  it("impostos/comissões/permutas ficam pendentes sem EVE calculada", () => {
-    expect(modelo.impostosComissoesPermutas.status).toBe("pendente");
-  });
-  it("negociações ficam pendentes sem nenhuma proposta registrada", () => {
-    expect(modelo.negociacoes.status).toBe("pendente");
-  });
-  it("documentos/licenças ficam pendentes sem registro nem aprovação", () => {
-    expect(modelo.documentosLicencas.status).toBe("pendente");
-  });
-  it("cronograma fica pendente sem medições nem marcos", () => {
-    expect(modelo.cronograma.status).toBe("pendente");
-  });
-  it("premissas/fontes/data/versão nunca fica pendente (sempre há ao menos o timestamp) mas lista pendências pontuais", () => {
-    expect(modelo.premissasFontesDataVersao.status).toBe("ok");
-    if (modelo.premissasFontesDataVersao.status === "ok") {
-      expect(modelo.premissasFontesDataVersao.dado.premissasViabilidade).toBeNull();
-      expect(modelo.premissasFontesDataVersao.dado.parametrosUrbanisticosRelevantes).toBeNull();
-      expect(modelo.premissasFontesDataVersao.dado.fontesPesquisaMercado).toBeNull();
-      // versão do estudo é sempre pendência explícita (sem sistema de versionamento)
-      expect(modelo.premissasFontesDataVersao.pendencias.some((p) => p.includes("histórico de versões"))).toBe(true);
+  it("dado presente quando há geojson + área, com pendência de APP embutida se faltar", () => {
+    const m = montarRelatorioExecutivo(
+      baseEstudo({ geojson: '{"type":"Feature"}', areaM2: 50_000, perimetroM: 1200 }),
+      GERADO_EM
+    );
+    expect(temDado(m.terreno)).toBe(true);
+    if (temDado(m.terreno)) {
+      expect(m.terreno.dado.areaM2).toBe(50_000);
+      expect(m.terreno.dado.appPendencia).toMatch(/APP automática ainda não calculada/);
     }
   });
 
-  it("nenhuma seção é omitida: todas as 13 chaves do modelo estão presentes", () => {
-    const chaves = Object.keys(modelo);
-    expect(chaves).toHaveLength(13);
-    for (const chave of chaves) {
-      const secao = (modelo as Record<string, { status: string }>)[chave];
-      expect(["ok", "pendente"]).toContain(secao.status);
-    }
+  it("sem pendência de APP quando appAreaM2 já foi calculada", () => {
+    const m = montarRelatorioExecutivo(
+      baseEstudo({ geojson: '{"type":"Feature"}', areaM2: 50_000, appAreaM2: 1200 }),
+      GERADO_EM
+    );
+    if (temDado(m.terreno)) expect(m.terreno.dado.appPendencia).toBeNull();
   });
 });
 
-describe("montarRelatorioExecutivo — estudo completo", () => {
-  const modelo = montarRelatorioExecutivo(estudoCompleto());
+describe("montarRelatorioExecutivo — dados cadastrais/urbanísticos", () => {
+  it("pendência quando parametros/potencial/parecer ausentes", () => {
+    const m = montarRelatorioExecutivo(baseEstudo(), GERADO_EM);
+    expect(temDado(m.dadosCadastrais)).toBe(false);
+  });
 
-  it("terreno: área, perímetro, centro e APP presentes, sem pendências pontuais de APP", () => {
-    expect(modelo.terreno.status).toBe("ok");
-    if (modelo.terreno.status === "ok") {
-      expect(modelo.terreno.dado.areaM2).toBe(100000);
-      expect(modelo.terreno.dado.centro).toEqual({ lat: -2.53, lng: -44.3 });
-      expect(modelo.terreno.dado.app?.areaM2).toBe(5000);
-      expect(modelo.terreno.pendencias).toHaveLength(0);
+  it("dado presente quando parametrosJson existe, mas sempre lista matrícula/CAR/zoneamento como pendência", () => {
+    const m = montarRelatorioExecutivo(
+      baseEstudo({ parametrosJson: JSON.stringify({ coefAproveitamento: 1.5 }) }),
+      GERADO_EM
+    );
+    expect(temDado(m.dadosCadastrais)).toBe(true);
+    if (temDado(m.dadosCadastrais)) {
+      expect(m.dadosCadastrais.dado.matriculaPendencia).toMatch(/Matrícula/);
+      expect(m.dadosCadastrais.dado.carPendencia).toMatch(/CAR/);
+      expect(m.dadosCadastrais.dado.zoneamentoOficialPendencia).toMatch(/Zoneamento oficial/);
     }
   });
 
-  it("dados cadastrais/urbanísticos: potencial calculado, mas matrícula/CAR/zoneamento sempre pendência estrutural", () => {
-    expect(modelo.dadosCadastraisUrbanisticos.status).toBe("ok");
-    if (modelo.dadosCadastraisUrbanisticos.status === "ok") {
-      expect(modelo.dadosCadastraisUrbanisticos.dado.potencial.areaEdificavelMaxM2).toBeGreaterThan(0);
-      expect(
-        modelo.dadosCadastraisUrbanisticos.pendencias.some((p) => p.includes("matrícula"))
-      ).toBe(true);
-    }
-  });
-
-  it("dados formais informados entram no relatório e removem somente suas pendências", () => {
-    const modelo = montarRelatorioExecutivo({ ...estudoCompleto(),
-      propertyRegistration: "12345 — Cartório 1º Ofício",
-      carRegistration: "MA-123",
-      officialZoning: "Zona residencial",
-      zoningSource: "Lei municipal 42/2025",
-    });
-    expect(modelo.dadosCadastraisUrbanisticos.status).toBe("ok");
-    if (modelo.dadosCadastraisUrbanisticos.status !== "ok") throw new Error("Parâmetros não carregados");
-    expect(modelo.dadosCadastraisUrbanisticos.dado.propertyRegistration).toContain("12345");
-    expect(modelo.dadosCadastraisUrbanisticos.pendencias.some((p) => /matrícula|CAR|zoneamento oficial/i.test(p))).toBe(false);
-  });
-
-  it("mercado/referências: cidade, mercado (com fontes), precificação e pesquisa primária todos presentes", () => {
-    expect(modelo.mercadoReferencias.status).toBe("ok");
-    if (modelo.mercadoReferencias.status === "ok") {
-      expect(modelo.mercadoReferencias.dado.cidade?.populacao).toBe(50000);
-      expect(modelo.mercadoReferencias.dado.fontes).toEqual(["IBGE", "ZAP Imóveis"]);
-      expect(modelo.mercadoReferencias.dado.precificacao?.comparaveisValidos).toBe(1);
-      expect(modelo.mercadoReferencias.dado.pesquisaPrimaria?.totalEntrevistados).toBe(1);
-      expect(modelo.mercadoReferencias.pendencias).toHaveLength(0);
-    }
-  });
-
-  it("estudo de massa: cenário selecionado reconhecido, sem observação de seleção implícita", () => {
-    expect(modelo.estudoMassa.status).toBe("ok");
-    if (modelo.estudoMassa.status === "ok") {
-      expect(modelo.estudoMassa.dado.cenario.id).toBe("cenario-1");
-      expect(modelo.estudoMassa.dado.eraSelecaoExplicita).toBe(true);
-    }
-  });
-
-  it("quadro de áreas calculado a partir dos itens salvos", () => {
-    expect(modelo.quadroAreas.status).toBe("ok");
-    if (modelo.quadroAreas.status === "ok") {
-      expect(modelo.quadroAreas.dado.resultado.areaConstCobertaTotalM2).toBe(1000);
-    }
-  });
-
-  it("mix de produtos calculado (VGV = qtd × área × preço/m²)", () => {
-    expect(modelo.mixProdutos.status).toBe("ok");
-    if (modelo.mixProdutos.status === "ok") {
-      expect(modelo.mixProdutos.dado.resultado.vgv).toBe(100 * 300 * 500);
-    }
-  });
-
-  it("custos/receitas/VGV: parametrizado, preliminar, obra e VGV (via viabilidade) todos presentes", () => {
-    expect(modelo.custosReceitasVgv.status).toBe("ok");
-    if (modelo.custosReceitasVgv.status === "ok") {
-      expect(modelo.custosReceitasVgv.dado.parametrizado).not.toBeNull();
-      expect(modelo.custosReceitasVgv.dado.preliminar).not.toBeNull();
-      expect(modelo.custosReceitasVgv.dado.obra).not.toBeNull();
-      expect(modelo.custosReceitasVgv.dado.origemVgv).toBe("viabilidade_economica");
-      expect(modelo.custosReceitasVgv.dado.vgvLiquido).not.toBeNull();
-      expect(modelo.custosReceitasVgv.pendencias).toHaveLength(0);
-    }
-  });
-
-  it("viabilidade econômica: VPL/TIR/ROI/payback e fluxo de caixa mês a mês presentes", () => {
-    expect(modelo.viabilidadeEconomica.status).toBe("ok");
-    if (modelo.viabilidadeEconomica.status === "ok") {
-      const r = modelo.viabilidadeEconomica.dado.resultado;
-      expect(r.vgvGross).toBeCloseTo(100 * 300 * 500, 2);
-      expect(r.fluxo.length).toBeGreaterThan(0);
-      expect(typeof r.vpl).toBe("number");
-    }
-  });
-
-  it("impostos/comissões/permutas: percentuais e valores derivados do motor, com rótulo de estimativa", () => {
-    expect(modelo.impostosComissoesPermutas.status).toBe("ok");
-    if (modelo.impostosComissoesPermutas.status === "ok") {
-      const d = modelo.impostosComissoesPermutas.dado;
-      expect(d.rotulo).toBe("estimativa baseada nas premissas de viabilidade");
-      expect(d.percentuais.impostosPctVgv).toBeCloseTo(0.0658, 4);
-      expect(d.valores.impostos).toBeCloseTo(d.vgvGross * 0.0658, 2);
-      expect(d.valores.permuta).toBeGreaterThan(0);
-    }
-  });
-
-  it("negociações: proposta aceita reconhecida (fechada = true)", () => {
-    expect(modelo.negociacoes.status).toBe("ok");
-    if (modelo.negociacoes.status === "ok") {
-      expect(modelo.negociacoes.dado.resumo.fechada).toBe(true);
-      expect(modelo.negociacoes.pendencias).toHaveLength(0);
-    }
-  });
-
-  it("documentos/licenças: registro e aprovação com pendentes/exigências expostos", () => {
-    expect(modelo.documentosLicencas.status).toBe("ok");
-    if (modelo.documentosLicencas.status === "ok") {
-      expect(modelo.documentosLicencas.dado.registro?.pendentes.length).toBe(1);
-      expect(modelo.documentosLicencas.dado.aprovacao?.comExigencia.length).toBe(1);
-    }
-  });
-
-  it("cronograma: avanço físico x financeiro e marcos presentes, mas responsável/riscos sempre pendência estrutural", () => {
-    expect(modelo.cronograma.status).toBe("ok");
-    if (modelo.cronograma.status === "ok") {
-      expect(modelo.cronograma.dado.obra?.avancoFisicoAtualPct).toBe(10);
-      expect(modelo.cronograma.dado.lancamento?.concluidos).toBe(1);
-      expect(modelo.cronograma.pendencias.some((p) => p.includes("sem responsável individual"))).toBe(true);
-    }
-  });
-
-  it("cronograma mostra responsáveis e riscos de execução salvos", () => {
-    const completo = estudoCompleto();
-    const modelo = montarRelatorioExecutivo({ ...completo, staff: [{ id: 1, name: "Ana" }],
-      physicalFinancialScheduleJson: JSON.stringify({ medicoes: [{ id: "1", mes: 0, avancoFisicoAcumuladoPct: 30, responsavelId: 1 }],
-        riscos: [{ id: "R1", descricao: "Atraso licença", impacto: "alto", mitigacao: "Protocolar cedo", responsavelId: 1, status: "aberto" }] }),
-      launchPlanJson: JSON.stringify({ marcos: [{ id: "L1", nome: "Lançar", status: "pendente", responsavelId: 1 }] }),
-      versionNumber: 2,
-    });
-    expect(modelo.cronograma.status).toBe("ok");
-    if (modelo.cronograma.status !== "ok") throw new Error("Cronograma esperado");
-    expect(modelo.cronograma.dado.responsaveisPorTarefa).toHaveLength(2);
-    expect(modelo.cronograma.dado.riscosExecucao[0].responsavel).toBe("Ana");
-    expect(modelo.cronograma.pendencias.some((p) => p.includes("sem responsável"))).toBe(false);
-    if (modelo.premissasFontesDataVersao.status === "ok") expect(modelo.premissasFontesDataVersao.dado.versao).toBe(2);
-  });
-
-  it("premissas/fontes/data/versão: premissas e fontes presentes, versão ainda pendência", () => {
-    expect(modelo.premissasFontesDataVersao.status).toBe("ok");
-    if (modelo.premissasFontesDataVersao.status === "ok") {
-      expect(modelo.premissasFontesDataVersao.dado.premissasViabilidade?.impostosPctVgv).toBeCloseTo(6.58, 2);
-      expect(modelo.premissasFontesDataVersao.dado.fontesPesquisaMercado).toEqual(["IBGE", "ZAP Imóveis"]);
-      expect(new Date(modelo.premissasFontesDataVersao.dado.geradoEm).getTime()).not.toBeNaN();
-      expect(modelo.premissasFontesDataVersao.pendencias.some((p) => p.includes("histórico de versões"))).toBe(true);
-    }
+  it("JSON corrompido nunca lança exceção", () => {
+    expect(() =>
+      montarRelatorioExecutivo(baseEstudo({ parametrosJson: "{invalido" }), GERADO_EM)
+    ).not.toThrow();
   });
 });
 
-describe("montarRelatorioExecutivo — timestamp de geração é injetável e determinístico", () => {
-  it("usa a data passada explicitamente em vez do relógio real", () => {
-    const data = new Date("2026-03-15T12:00:00.000Z");
-    const modelo = montarRelatorioExecutivo(estudoVazio(), data);
-    if (modelo.premissasFontesDataVersao.status === "ok") {
-      expect(modelo.premissasFontesDataVersao.dado.geradoEm).toBe(data.toISOString());
-    } else {
-      throw new Error("premissasFontesDataVersao deveria sempre estar ok");
+describe("montarRelatorioExecutivo — mercado/referências", () => {
+  it("pendência quando nada foi pesquisado", () => {
+    const m = montarRelatorioExecutivo(baseEstudo(), GERADO_EM);
+    expect(temDado(m.mercado)).toBe(false);
+  });
+
+  it("dado presente quando há pesquisa de cidade", () => {
+    const m = montarRelatorioExecutivo(
+      baseEstudo({ pesquisaCidadeJson: JSON.stringify({ populacao: 500_000, resumo: "Cidade em crescimento." }) }),
+      GERADO_EM
+    );
+    expect(temDado(m.mercado)).toBe(true);
+    if (temDado(m.mercado)) {
+      expect(m.mercado.dado.cidade?.populacao).toBe(500_000);
+      expect(m.mercado.dado.fontesPendencia).toMatch(/não constam/);
     }
   });
-});
 
-describe("montarRelatorioExecutivo — robustez contra JSON corrompido", () => {
-  it("nunca lança exceção e trata campos corrompidos como pendência", () => {
-    const estudo: EstudoParaRelatorioExecutivo = {
-      ...estudoCompleto(),
-      urbanParametersJson: "{isto não é json",
-      landNegotiationJson: "[não, é, json}",
-      productMixJson: "não é array",
-    };
-    expect(() => montarRelatorioExecutivo(estudo)).not.toThrow();
-    const modelo = montarRelatorioExecutivo(estudo);
-    expect(modelo.dadosCadastraisUrbanisticos.status).toBe("pendente");
-    expect(modelo.negociacoes.status).toBe("pendente");
-    expect(modelo.mixProdutos.status).toBe("pendente");
-  });
-});
-
-describe("montarRelatorioExecutivo — terreno com dados parciais", () => {
-  it("terreno presente mas sem APP calculada gera pendência pontual (não omite a seção)", () => {
-    const estudo: EstudoParaRelatorioExecutivo = { ...estudoCompleto(), appAreaM2: null, appWidthM: null, appOrigin: null };
-    const modelo = montarRelatorioExecutivo(estudo);
-    expect(modelo.terreno.status).toBe("ok");
-    if (modelo.terreno.status === "ok") {
-      expect(modelo.terreno.dado.app).toBeNull();
-      expect(modelo.terreno.pendencias.some((p) => p.includes("APP"))).toBe(true);
+  it("preserva fontes da pesquisa salva e mantém lacuna explícita nos estudos legados", () => {
+    const atual = montarRelatorioExecutivo(baseEstudo({
+      estudoMercadoJson: JSON.stringify({ precoM2Lote: 250, fontes: ["IBGE", "Prefeitura"], confiabilidade: "média" }),
+    }), GERADO_EM);
+    expect(temDado(atual.mercado)).toBe(true);
+    if (temDado(atual.mercado)) {
+      expect(atual.mercado.dado.fontes).toEqual(["IBGE", "Prefeitura"]);
+      expect(atual.mercado.dado.fontesPendencia).toBeNull();
     }
+    expect(temDado(atual.premissasFontesVersao.fontesPesquisaMercado)).toBe(true);
+    const legado = montarRelatorioExecutivo(baseEstudo({ estudoMercadoJson: JSON.stringify({ precoM2Lote: 250 }) }), GERADO_EM);
+    expect(temDado(legado.premissasFontesVersao.fontesPesquisaMercado)).toBe(false);
   });
-});
 
-describe("montarRelatorioExecutivo — mercado presente sem fontes (dado salvo antes da correção do bug)", () => {
-  it("gera pendência explícita de fontes em vez de omitir a seção", () => {
-    const estudo: EstudoParaRelatorioExecutivo = {
-      ...estudoCompleto(),
-      marketStudyJson: JSON.stringify({
-        precoM2Lote: 500,
-        precoM2Casa: 2500,
-        precoM2Apartamento: 4000,
-        velocidadeVendas: "media",
-        demandaPorProduto: [],
-        concorrentes: [],
-        comparaveis: [],
-        oportunidades: "",
-        riscos: "",
-        // sem fontes/confiabilidade — simula estudo salvo antes da correção do bug
+  it("dado presente quando há pesquisa primária com entrevistados", () => {
+    const m = montarRelatorioExecutivo(
+      baseEstudo({
+        pesquisaPrimariaJson: JSON.stringify({
+          entrevistados: [
+            {
+              id: "1",
+              nome: "Fulano",
+              faixaEtaria: "26-35",
+              faixaRenda: "4_8sm",
+              temImovelProprio: false,
+              interesseComprar12Meses: true,
+              tiposInteresse: ["lote"],
+              notaApartamento: 0,
+              notaCasaCondominio: 0,
+              notaCasaRuaAberta: 4,
+              tamanhoIdealM2: 250,
+              quartosNecessarios: 3,
+              itensImportancia: {},
+            },
+          ],
+        }),
       }),
-    };
-    const modelo = montarRelatorioExecutivo(estudo);
-    expect(modelo.mercadoReferencias.status).toBe("ok");
-    if (modelo.mercadoReferencias.status === "ok") {
-      expect(modelo.mercadoReferencias.dado.fontes).toBeNull();
-      expect(modelo.mercadoReferencias.pendencias.some((p) => p.includes("Fontes") || p.includes("fontes"))).toBe(true);
-    }
+      GERADO_EM
+    );
+    expect(temDado(m.mercado)).toBe(true);
+    if (temDado(m.mercado)) expect(m.mercado.dado.pesquisaPrimaria?.totalEntrevistados).toBe(1);
   });
 });
 
-describe("montarRelatorioExecutivo — custos/VGV sem viabilidade, apenas mix de produtos", () => {
-  it("usa VGV bruto do mix e marca VGV líquido como pendência (depende da EVE)", () => {
-    const estudo: EstudoParaRelatorioExecutivo = { ...estudoCompleto(), lottingJson: null };
-    const modelo = montarRelatorioExecutivo(estudo);
-    expect(modelo.custosReceitasVgv.status).toBe("ok");
-    if (modelo.custosReceitasVgv.status === "ok") {
-      expect(modelo.custosReceitasVgv.dado.origemVgv).toBe("mix_de_produtos");
-      expect(modelo.custosReceitasVgv.dado.vgvBruto).toBe(100 * 300 * 500);
-      expect(modelo.custosReceitasVgv.dado.vgvLiquido).toBeNull();
-      expect(modelo.custosReceitasVgv.pendencias.some((p) => p.includes("VGV líquido"))).toBe(true);
-    }
-    expect(modelo.viabilidadeEconomica.status).toBe("pendente");
-    expect(modelo.impostosComissoesPermutas.status).toBe("pendente");
+describe("montarRelatorioExecutivo — estudo de massa/cenários", () => {
+  it("pendência quando não há cenário gerado", () => {
+    const m = montarRelatorioExecutivo(baseEstudo(), GERADO_EM);
+    expect(temDado(m.massa)).toBe(false);
+  });
+
+  it("dado presente usa o cenário escolhido quando existe", () => {
+    const cenarios = [
+      { id: "a", testadaLoteM: 10, profundidadeLoteM: 25, larguraViaM: 12, kpis: { lotesVendaveis: 100, areaVendavelM2: 40_000, aproveitamento: 0.6, vgv: 20_000_000 } },
+      { id: "b", testadaLoteM: 12, profundidadeLoteM: 30, larguraViaM: 14, kpis: { lotesVendaveis: 80, areaVendavelM2: 38_000, aproveitamento: 0.55, vgv: 18_000_000 } },
+    ];
+    const m = montarRelatorioExecutivo(
+      baseEstudo({ massaCenariosJson: JSON.stringify({ cenarios }), cenarioEscolhidoId: "b" }),
+      GERADO_EM
+    );
+    expect(temDado(m.massa)).toBe(true);
+    if (temDado(m.massa)) expect(m.massa.dado.cenario.id).toBe("b");
   });
 });
 
-describe("montarRelatorioExecutivo — negociação sem proposta aceita", () => {
-  it("mostra a proposta mais recente e marca como pendência a falta de aceite", () => {
-    const estudo: EstudoParaRelatorioExecutivo = {
-      ...estudoCompleto(),
-      landNegotiationJson: JSON.stringify({
-        proprietarioNome: "Zé",
-        proprietarioContato: "x",
-        vgvGrossManual: 0,
-        propostas: [
-          { id: "1", data: "2026-01-05", autor: "grupo", tipo: "compra_avista", valorTotal: 900000, status: "em_analise" },
+describe("montarRelatorioExecutivo — quadro de áreas", () => {
+  it("pendência quando não há itens cadastrados", () => {
+    const m = montarRelatorioExecutivo(baseEstudo(), GERADO_EM);
+    expect(temDado(m.quadroAreas)).toBe(false);
+  });
+
+  it("dado presente calcula o resultado a partir dos itens salvos", () => {
+    const m = montarRelatorioExecutivo(
+      baseEstudo({
+        areaM2: 10_000,
+        quadroAreasJson: JSON.stringify({
+          coeficienteAproveitamento: 2,
+          itens: [
+            {
+              pavimento: "Térreo",
+              areaConstCobertaM2: 500,
+              areaConstDescobertaM2: 0,
+              areaUrbanizadaM2: 0,
+              areaDescontarM2: 0,
+              areaComputavelM2: 500,
+              areaPrivativaM2: 400,
+            },
+          ],
+        }),
+      }),
+      GERADO_EM
+    );
+    expect(temDado(m.quadroAreas)).toBe(true);
+    if (temDado(m.quadroAreas)) expect(m.quadroAreas.dado.resultado.areaComputavelTotalM2).toBe(500);
+  });
+});
+
+describe("montarRelatorioExecutivo — mix de produtos / custos-receitas-VGV / indicadores financeiros", () => {
+  it("pendência nas três seções quando não há viabilidade (nem atual nem legada)", () => {
+    const m = montarRelatorioExecutivo(baseEstudo(), GERADO_EM);
+    expect(temDado(m.mixProdutos)).toBe(false);
+    expect(temDado(m.custosReceitasVgv)).toBe(false);
+    expect(temDado(m.indicadoresFinanceiros)).toBe(false);
+  });
+
+  it("dado presente (motor atual) quando loteamentoJson existe", () => {
+    const m = montarRelatorioExecutivo(baseEstudo({ loteamentoJson: JSON.stringify({}) }), GERADO_EM);
+    expect(temDado(m.mixProdutos)).toBe(true);
+    expect(temDado(m.custosReceitasVgv)).toBe(true);
+    expect(temDado(m.indicadoresFinanceiros)).toBe(true);
+    if (temDado(m.custosReceitasVgv)) expect(m.custosReceitasVgv.dado.modo).toBe("motor_atual");
+    if (temDado(m.indicadoresFinanceiros)) {
+      expect(m.indicadoresFinanceiros.dado.modo).toBe("motor_atual");
+      expect(m.indicadoresFinanceiros.dado.fluxo.length).toBeGreaterThan(0);
+    }
+  });
+
+  it("custos-receitas-VGV e indicadores financeiros caem para o modo legado (EVE) quando só há viabilidadeJson", () => {
+    const legado = {
+      resultado: {
+        vgv: 1_000_000,
+        custoTerreno: 100_000,
+        custoTotal: 600_000,
+        lucroBruto: 400_000,
+        margemLiquida: 0.4,
+        vpl: 300_000,
+        tir: 0.01,
+        paybackMes: 18,
+        exposicaoMaxima: 50_000,
+        fluxo: [
+          { mes: 0, receitas: 0, custosObra: 10_000, custoTerreno: 0, indiretos: 0, comissao: 0, saldoMes: -10_000, saldoAcumulado: -10_000 },
         ],
-      }),
+      },
     };
-    const modelo = montarRelatorioExecutivo(estudo);
-    expect(modelo.negociacoes.status).toBe("ok");
-    if (modelo.negociacoes.status === "ok") {
-      expect(modelo.negociacoes.dado.resumo.fechada).toBe(false);
-      expect(modelo.negociacoes.pendencias.some((p) => p.includes("nenhuma proposta foi aceita"))).toBe(true);
+    const m = montarRelatorioExecutivo(baseEstudo({ viabilidadeJson: JSON.stringify(legado) }), GERADO_EM);
+    expect(temDado(m.custosReceitasVgv)).toBe(true);
+    if (temDado(m.custosReceitasVgv)) {
+      expect(m.custosReceitasVgv.dado.modo).toBe("legado");
+      if (m.custosReceitasVgv.dado.modo === "legado") expect(m.custosReceitasVgv.dado.vgv).toBe(1_000_000);
     }
+    expect(temDado(m.indicadoresFinanceiros)).toBe(true);
+    if (temDado(m.indicadoresFinanceiros)) {
+      expect(m.indicadoresFinanceiros.dado.modo).toBe("legado");
+      expect(m.indicadoresFinanceiros.dado.fluxo).toHaveLength(1);
+    }
+    // Mix de produtos não existe no formato legado (produto único) — pendência explícita, não omissão.
+    expect(temDado(m.mixProdutos)).toBe(false);
+  });
+
+  it("viabilidadeJson corrompido nunca lança exceção e vira pendência", () => {
+    expect(() => montarRelatorioExecutivo(baseEstudo({ viabilidadeJson: "{quebrado" }), GERADO_EM)).not.toThrow();
+    const m = montarRelatorioExecutivo(baseEstudo({ viabilidadeJson: "{quebrado" }), GERADO_EM);
+    expect(temDado(m.custosReceitasVgv)).toBe(false);
+  });
+});
+
+describe("montarRelatorioExecutivo — impostos/comissões/permutas", () => {
+  it("pendência quando não há premissas do motor atual", () => {
+    const m = montarRelatorioExecutivo(baseEstudo(), GERADO_EM);
+    expect(temDado(m.impostosComissoesPermutas)).toBe(false);
+  });
+
+  it("pendência mesmo com estudo legado (percentuais não extraídos do formato antigo)", () => {
+    const m = montarRelatorioExecutivo(
+      baseEstudo({ viabilidadeJson: JSON.stringify({ resultado: { vgv: 1, custoTerreno: 1, custoTotal: 1, lucroBruto: 1, margemLiquida: 0, vpl: 1, tir: 0, paybackMes: 1, exposicaoMaxima: 1 } }) }),
+      GERADO_EM
+    );
+    expect(temDado(m.impostosComissoesPermutas)).toBe(false);
+  });
+
+  it("dado presente quando há premissas do motor atual, rotulado como estimativa", () => {
+    const m = montarRelatorioExecutivo(baseEstudo({ loteamentoJson: JSON.stringify({}) }), GERADO_EM);
+    expect(temDado(m.impostosComissoesPermutas)).toBe(true);
+    if (temDado(m.impostosComissoesPermutas)) {
+      expect(m.impostosComissoesPermutas.dado.observacao).toMatch(/estimativa baseada nas premissas/i);
+      expect(m.impostosComissoesPermutas.dado.comissaoValor).toBeGreaterThanOrEqual(0);
+    }
+  });
+});
+
+describe("montarRelatorioExecutivo — negociações/proposta aceita", () => {
+  it("pendência quando não há propostas registradas", () => {
+    const m = montarRelatorioExecutivo(baseEstudo(), GERADO_EM);
+    expect(temDado(m.negociacao)).toBe(false);
+  });
+
+  it("dado presente reflete a proposta aceita", () => {
+    const dados = {
+      proprietarioNome: "José",
+      proprietarioContato: "11999999999",
+      propostas: [
+        { id: "1", data: "2026-01-01", autor: "grupo_santa_fe", tipo: "compra_avista", valorTotal: 500_000, status: "aceita" },
+      ],
+    };
+    const m = montarRelatorioExecutivo(baseEstudo({ negociacaoTerrenoJson: JSON.stringify(dados) }), GERADO_EM);
+    expect(temDado(m.negociacao)).toBe(true);
+    if (temDado(m.negociacao)) {
+      expect(m.negociacao.dado.resumo.fechada).toBe(true);
+      expect(m.negociacao.dado.proprietarioNome).toBe("José");
+    }
+  });
+});
+
+describe("montarRelatorioExecutivo — documentos/licenças/pendências", () => {
+  it("pendência quando nada foi cadastrado", () => {
+    const m = montarRelatorioExecutivo(baseEstudo(), GERADO_EM);
+    expect(temDado(m.documentosLicencas)).toBe(false);
+  });
+
+  it("dado presente a partir do registro da incorporação", () => {
+    const m = montarRelatorioExecutivo(
+      baseEstudo({
+        registroIncorporacaoJson: JSON.stringify({
+          documentos: [{ id: "1", nome: "Certidão X", status: "pendente" }],
+        }),
+      }),
+      GERADO_EM
+    );
+    expect(temDado(m.documentosLicencas)).toBe(true);
+    if (temDado(m.documentosLicencas)) {
+      expect(m.documentosLicencas.dado.registroIncorporacao?.pendentes).toHaveLength(1);
+      expect(m.documentosLicencas.dado.aprovacaoProjeto).toBeNull();
+    }
+  });
+});
+
+describe("montarRelatorioExecutivo — cronograma/tarefas/responsáveis/riscos", () => {
+  it("pendência quando nada foi cadastrado, mencionando os gaps estruturais", () => {
+    const m = montarRelatorioExecutivo(baseEstudo(), GERADO_EM);
+    expect(temDado(m.cronograma)).toBe(false);
+    if (!temDado(m.cronograma)) {
+      expect(m.cronograma.pendencia).toMatch(/sem responsável individual/);
+      expect(m.cronograma.pendencia).toMatch(/Nenhum risco de execução/);
+    }
+  });
+
+  it("dado presente traz o responsável do estudo como contexto geral (não por tarefa)", () => {
+    const m = montarRelatorioExecutivo(
+      baseEstudo({
+        responsavel: "Maria Incorporadora",
+        cronogramaObraJson: JSON.stringify({ medicoes: [{ id: "1", mes: 0, avancoFisicoAcumuladoPct: 50 }] }),
+      }),
+      GERADO_EM
+    );
+    expect(temDado(m.cronograma)).toBe(true);
+    if (temDado(m.cronograma)) {
+      expect(m.cronograma.dado.responsavelDoEstudo).toBe("Maria Incorporadora");
+      expect(m.cronograma.dado.responsavelPorTarefaPendencia).toMatch(/sem responsável individual/);
+      expect(m.cronograma.dado.riscosExecucaoPendencia).toMatch(/Nenhum risco de execução/);
+      expect(m.cronograma.dado.cronogramaObra?.avancoFisicoAtualPct).toBe(50);
+    }
+  });
+
+  it("mostra responsáveis por medição e riscos registrados sem confundir com pesquisa de mercado", () => {
+    const m = montarRelatorioExecutivo(baseEstudo({
+      colaboradores: [{ id: "U1", nome: "Ana" }],
+      cronogramaObraJson: JSON.stringify({
+        medicoes: [{ id: "M1", mes: 0, avancoFisicoAcumuladoPct: 20, responsavelId: "U1" }],
+        riscos: [{ id: "R1", descricao: "Atraso de licença", impacto: "alto", mitigacao: "Protocolar cedo", responsavelId: "U1", status: "aberto" }],
+      }),
+    }), GERADO_EM);
+    expect(temDado(m.cronograma)).toBe(true);
+    if (!temDado(m.cronograma)) throw new Error("Cronograma esperado");
+    expect(m.cronograma.dado.responsaveisPorTarefa).toEqual([{ tarefa: "Medição do mês 1", responsavel: "Ana" }]);
+    expect(m.cronograma.dado.riscosExecucao[0].descricao).toBe("Atraso de licença");
+    expect(m.cronograma.dado.riscosExecucaoPendencia).toBeNull();
+  });
+});
+
+describe("montarRelatorioExecutivo — premissas/fontes/data/versão", () => {
+  it("sempre retorna dado (data/hora real de geração), nunca pendência no nível da seção", () => {
+    const m = montarRelatorioExecutivo(baseEstudo(), GERADO_EM);
+    expect(m.premissasFontesVersao.geradoEm).toBe(GERADO_EM.toISOString());
+  });
+
+  it("premissasNumericas é pendência quando não há motor de viabilidade configurado", () => {
+    const m = montarRelatorioExecutivo(baseEstudo(), GERADO_EM);
+    expect(temDado(m.premissasFontesVersao.premissasNumericas)).toBe(false);
+  });
+
+  it("premissasNumericas lista os percentuais quando o motor está configurado", () => {
+    const m = montarRelatorioExecutivo(baseEstudo({ loteamentoJson: JSON.stringify({}) }), GERADO_EM);
+    expect(temDado(m.premissasFontesVersao.premissasNumericas)).toBe(true);
+    if (temDado(m.premissasFontesVersao.premissasNumericas)) {
+      expect(m.premissasFontesVersao.premissasNumericas.dado.length).toBeGreaterThan(0);
+    }
+  });
+
+  it("versão e fontes da pesquisa de mercado são SEMPRE pendência explícita (gaps estruturais, nunca inventados)", () => {
+    const m = montarRelatorioExecutivo(baseEstudo({ loteamentoJson: JSON.stringify({}) }), GERADO_EM);
+    expect(temDado(m.premissasFontesVersao.versao)).toBe(false);
+    expect(temDado(m.premissasFontesVersao.fontesPesquisaMercado)).toBe(false);
+  });
+});
+
+describe("montarRelatorioExecutivo — parecer de IA", () => {
+  it("pendência quando não há parecer salvo", () => {
+    const m = montarRelatorioExecutivo(baseEstudo(), GERADO_EM);
+    expect(temDado(m.parecerIa)).toBe(false);
+  });
+
+  it("dado presente quando há parecer salvo", () => {
+    const m = montarRelatorioExecutivo(baseEstudo({ parecerIa: "Viável." }), GERADO_EM);
+    expect(temDado(m.parecerIa)).toBe(true);
+    if (temDado(m.parecerIa)) expect(m.parecerIa.dado).toBe("Viável.");
+  });
+});
+
+describe("montarRelatorioExecutivo — robustez geral", () => {
+  it("nunca lança exceção mesmo com todos os campos JSON corrompidos", () => {
+    const corrompido = baseEstudo({
+      geojson: "{quebrado",
+      parametrosJson: "{quebrado",
+      potencialJson: "{quebrado",
+      pesquisaCidadeJson: "{quebrado",
+      estudoMercadoJson: "{quebrado",
+      precificacaoComparaveisJson: "{quebrado",
+      pesquisaPrimariaJson: "{quebrado",
+      quadroAreasJson: "{quebrado",
+      negociacaoTerrenoJson: "{quebrado",
+      aprovacaoProjetoJson: "{quebrado",
+      registroIncorporacaoJson: "{quebrado",
+      cronogramaObraJson: "{quebrado",
+      planejamentoLancamentoJson: "{quebrado",
+      massaCenariosJson: "{quebrado",
+      loteamentoJson: "{quebrado",
+      viabilidadeJson: "{quebrado",
+    });
+    expect(() => montarRelatorioExecutivo(corrompido, GERADO_EM)).not.toThrow();
   });
 });

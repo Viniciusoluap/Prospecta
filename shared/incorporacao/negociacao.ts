@@ -36,7 +36,8 @@ export interface Proposta {
 export interface DadosNegociacao {
   proprietarioNome: string;
   proprietarioContato: string;
-  vgvGrossManual: number;
+  /** Legado: VGV digitado à mão antes da Viabilidade existir. Hoje o VGV vem da Viabilidade (igual ao Santa Fé). */
+  vgvGrossManual?: number;
   propostas: Proposta[];
 }
 

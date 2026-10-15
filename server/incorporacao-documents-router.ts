@@ -1,7 +1,7 @@
 import { TRPCError } from "@trpc/server";
 import { and, desc, eq, sql } from "drizzle-orm";
 import { z } from "zod";
-import { incorporationRegistrationDocuments } from "../drizzle/schema.js";
+import { incorporationRegistrationDocuments, incorporationStudies } from "../drizzle/schema.js";
 import { DOCUMENTOS_PADRAO_REGISTRO, type DocumentoRegistro } from "../shared/incorporacao/registro-incorporacao.js";
 import { lerDueDiligence } from "../shared/incorporacao/due-diligence.js";
 import { protectedProcedure, router } from "./_core/trpc.js";
@@ -11,6 +11,15 @@ import { documentHash, driveConfigured, readPrivateDocument, tryDriveUpload, upl
 import { readPrivateDbFile } from "./private-document-files.js";
 import { isValidPortalDocument } from "./portal-router.js";
 
+/** Levantamento topográfico do estudo (Topografia 3D) — mesmo armazenamento privado dos documentos. */
+export const ITEM_LEVANTAMENTO = "levantamento_topografico";
+const EXTENSOES_LEVANTAMENTO = [".csv", ".txt", ".xyz", ".dxf"];
+const mimeLevantamento = z.enum(["text/csv", "text/plain", "application/dxf"]);
+/** Levantamento: arquivo de texto (pontos CSV/TXT/XYZ ou DXF ASCII) com extensão aceita pelo Santa Fé. */
+export function levantamentoValido(fileName: string, data: Buffer) {
+  const nome = fileName.toLowerCase();
+  return EXTENSOES_LEVANTAMENTO.some((ext) => nome.endsWith(ext)) && data.length > 0 && !data.includes(0);
+}
 const itemInput = z.object({ studyId: z.number().int().positive(), itemId: z.string().min(1).max(120) });
 const mime = z.enum(["application/pdf", "image/jpeg", "image/png"]);
 
@@ -18,6 +27,7 @@ const mime = z.enum(["application/pdf", "image/jpeg", "image/png"]);
 export async function requireRegistrationItem(studyId: number, itemId: string) {
   const study = await getIncorporationStudyById(studyId);
   if (!study) throw new TRPCError({ code: "NOT_FOUND", message: "Estudo não encontrado" });
+  if (itemId === ITEM_LEVANTAMENTO) return;
   if (itemId.startsWith("dd_")) {
     const [, stageId, documentId, extra] = itemId.split("_");
     if (extra || !stageId || !documentId ||
@@ -34,6 +44,13 @@ export async function requireRegistrationItem(studyId: number, itemId: string) {
     } catch { /* checklist antigo ilegível: manter os itens padrão */ }
   }
   if (!documents.some(doc => doc.id === itemId)) throw new TRPCError({ code: "NOT_FOUND", message: "Item do checklist não encontrado" });
+}
+
+/** `surveyUrl` aponta para o documento privado (não há URL pública): a tela abre pelo `content`. */
+async function marcarLevantamento(studyId: number, enviado: boolean) {
+  await getDb().update(incorporationStudies)
+    .set({ surveyUrl: enviado ? `documento:${ITEM_LEVANTAMENTO}` : null, updatedAt: new Date() })
+    .where(eq(incorporationStudies.id, studyId));
 }
 
 type DocumentEvent = typeof incorporationRegistrationDocuments.$inferSelect;
@@ -70,13 +87,20 @@ export const incorporacaoDocumentsRouter = router({
     return currentRegistrationDocuments(events);
   }),
   upload: protectedProcedure.input(itemInput.extend({
-    fileName: z.string().min(1).max(255), mimeType: mime, base64: z.string().min(8).max(4_200_000),
+    fileName: z.string().min(1).max(255), mimeType: z.union([mime, mimeLevantamento]), base64: z.string().min(8).max(4_200_000),
   })).mutation(async ({ ctx, input }) => {
     requireRole(ctx, ["admin"]);
     await requireRegistrationItem(input.studyId, input.itemId);
     const data = Buffer.from(input.base64, "base64");
-    if (data.length > 3 * 1024 * 1024 || !isValidPortalDocument(data, input.mimeType))
-      throw new TRPCError({ code: "BAD_REQUEST", message: "Envie PDF, JPG ou PNG válido de até 3 MiB" });
+    const levantamento = input.itemId === ITEM_LEVANTAMENTO;
+    if (levantamento) {
+      if (data.length > 3 * 1024 * 1024 || !mimeLevantamento.safeParse(input.mimeType).success || !levantamentoValido(input.fileName, data))
+        throw new TRPCError({ code: "BAD_REQUEST", message: "Envie o levantamento em CSV, TXT, XYZ ou DXF de até 3 MiB" });
+    } else {
+      const tipo = mime.safeParse(input.mimeType);
+      if (!tipo.success || data.length > 3 * 1024 * 1024 || !isValidPortalDocument(data, tipo.data))
+        throw new TRPCError({ code: "BAD_REQUEST", message: "Envie PDF, JPG ou PNG válido de até 3 MiB" });
+    }
     const hash = documentHash(data);
     const previous = await latestEvent(input.studyId, input.itemId);
     if (previous?.action === "uploaded" && previous.sha256 === hash)
@@ -89,6 +113,7 @@ export const incorporacaoDocumentsRouter = router({
         fileName: safeName, mimeType: input.mimeType, fileSize: data.length, sha256: hash,
         performedByUserId: ctx.user.id,
       }).returning({ id: incorporationRegistrationDocuments.id });
+      if (levantamento) await marcarLevantamento(input.studyId, true);
       return { id: saved.id, duplicate: false, storage: "drive", storageNote: null };
     }
     // Evento e bytes na mesma instrução: nunca fica referência sem arquivo.
@@ -100,6 +125,7 @@ export const incorporacaoDocumentsRouter = router({
       SELECT id, ${input.mimeType}, ${data.length}, decode(${data.toString("base64")}, 'base64') FROM ev
       RETURNING document_id AS id`);
     const id = Number((result as unknown as { rows: { id: number }[] }).rows[0].id);
+    if (levantamento) await marcarLevantamento(input.studyId, true);
     return { id, duplicate: false, storage: "banco", storageNote: note };
   }),
   content: protectedProcedure.input(itemInput).query(async ({ ctx, input }) => {
@@ -126,6 +152,7 @@ export const incorporacaoDocumentsRouter = router({
     await getDb().insert(incorporationRegistrationDocuments).values({
       studyId: input.studyId, itemId: input.itemId, action: "unlinked", performedByUserId: ctx.user.id,
     });
+    if (input.itemId === ITEM_LEVANTAMENTO) await marcarLevantamento(input.studyId, false);
     return { success: true };
   }),
 });

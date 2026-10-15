@@ -1,4 +1,4 @@
-import { useEffect, useState, useRef } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Link, useParams } from "wouter";
 import { trpc } from "@/lib/trpc";
 import { Button } from "@/components/ui/button";
@@ -8,20 +8,9 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { toast } from "sonner";
 import { ArrowLeft } from "lucide-react";
-import { TerrenoTopografia } from "@/components/incorporacao/TerrenoTopografia";
-import { EstudoMercado } from "@/components/incorporacao/EstudoMercado";
-import { EstudoMassa } from "@/components/incorporacao/EstudoMassa";
-import { OrcamentoNegociacao } from "@/components/incorporacao/OrcamentoNegociacao";
-import { BusinessPlan } from "@/components/incorporacao/BusinessPlan";
-import { ProjetistasAprovacao } from "@/components/incorporacao/ProjetistasAprovacao";
-import { RegistroOrcamentoPreliminar } from "@/components/incorporacao/RegistroOrcamentoPreliminar";
-import { LancamentoMarketing } from "@/components/incorporacao/LancamentoMarketing";
-import { LancamentoImobiliario } from "@/components/incorporacao/LancamentoImobiliario";
-import { ObraExecutiva } from "@/components/incorporacao/ObraExecutiva";
-import { AtendimentoRelatorio } from "@/components/incorporacao/AtendimentoRelatorio";
-import { ViabilidadeEconomica } from "@/components/incorporacao/ViabilidadeEconomica";
-import { DueDiligenceEditor } from "@/components/incorporacao/DueDiligenceEditor";
-import { UnidadesEditor } from "@/components/incorporacao/UnidadesEditor";
+import { IncorporacaoDetail } from "@/components/incorporacao/estudo/incorporacao-detail";
+import { registrarRecarregamentoEstudo } from "@/components/incorporacao/estudo/compat/acoes";
+import { paraEstudoData } from "@shared/incorporacao/estudo-data";
 
 const STATUS_OPTIONS = [
   { value: "in_study", label: "Em estudo" },
@@ -36,25 +25,6 @@ const TIPOS = [
   { value: "loteamento", label: "Loteamento" },
 ] as const;
 
-const MODULOS = [
-  ["dados", "Dados Gerais"], ["diligencia", "Due Diligence"], ["terreno", "Terreno e Topografia"],
-  ["mercado", "Inteligência de Mercado"], ["massa", "Estudo de Massa Generativa"],
-  ["orcamento", "Orçamento e Negociação"], ["business", "Business/Investidores"],
-  ["projeto", "Projeto Aprovado"], ["registro", "Registro e Orçamento"],
-  ["lancamento", "Planejamento do Lançamento"], ["unidades", "Unidades à Venda"],
-  ["obra", "Obra Executiva"], ["relatorio", "Atendimento e Relatório"],
-  ["viabilidade", "Viabilidade Econômica"],
-] as const;
-const MODULOS_DESMEMBRAMENTO = [
-  ["dados", "Dados Gerais"], ["diligencia", "Due Diligence"], ["terreno", "Terreno"],
-  ["topografia", "Topografia"], ["mercado", "Inteligência de Mercado"], ["massa", "Estudo de Massa Generativa"],
-  ["orcamento", "Orçamento Parametrizado"], ["negociacao", "Negociação do Terreno"],
-  ["business", "Business/Investidores"], ["projeto", "Projeto Aprovado"], ["unidades", "Unidades à Venda"],
-  ["lancamento", "Planejamento do Lançamento"], ["fornecedores", "Contratação de Fornecedores"],
-  ["material", "Material Publicitário"], ["atendimento", "Atendimento aos Clientes"],
-  ["relatorio", "Relatório Executivo"], ["viabilidade", "Viabilidade Econômica"],
-] as const;
-
 export default function AdminIncorporacaoDetail() {
   const { id } = useParams<{ id: string }>();
   const utils = trpc.useUtils();
@@ -63,23 +33,13 @@ export default function AdminIncorporacaoDetail() {
   const { data: versoes = [] } = trpc.incorporacao.versions.useQuery({ id: Number(id) }, { enabled: !!Number(id) });
   const { data: equipe = [] } = trpc.incorporacao.staff.useQuery();
   const [erroVersao, setErroVersao] = useState("");
-  const [moduloAtivo, setModuloAtivo] = useState<(typeof MODULOS)[number][0] | (typeof MODULOS_DESMEMBRAMENTO)[number][0]>("dados");
-  const [alterado, setAlterado] = useState(false);
-  // Marca "há alterações" depois do evento de digitação: atualizar o estado do
-  // pai durante a fase de captura fazia a primeira tecla de cada campo se perder.
-  const alteradoRef = useRef(false);
-  const marcarAlterado = () => {
-    if (alteradoRef.current) return;
-    alteradoRef.current = true;
-    setTimeout(() => setAlterado(true), 0);
-  };
-
-  useEffect(() => {
-    if (!alterado) return;
-    const avisar = (event: BeforeUnloadEvent) => { event.preventDefault(); event.returnValue = ""; };
-    window.addEventListener("beforeunload", avisar);
-    return () => window.removeEventListener("beforeunload", avisar);
-  }, [alterado]);
+  // As abas do estudo (portadas do Santa Fé) recarregam o estudo depois de cada gravação.
+  useEffect(() => { registrarRecarregamentoEstudo(() => utils.incorporacao.getById.invalidate({ id: Number(id) })); }, [id, utils]);
+  const estudoSf = useMemo(() => estudo ? {
+    ...paraEstudoData(estudo),
+    versaoNumero: versoes[0]?.revision ?? null,
+    colaboradores: equipe.filter((u) => u.active).map((u) => ({ id: String(u.id), nome: u.name ?? "" })),
+  } : null, [estudo, versoes, equipe]);
 
   async function baixarVersao(revision: number) {
     setErroVersao("");
@@ -118,8 +78,6 @@ export default function AdminIncorporacaoDetail() {
   const updateMutation = trpc.incorporacao.update.useMutation({
     onSuccess: () => {
       toast.success("Estudo atualizado!");
-      alteradoRef.current = false;
-      setAlterado(false);
       utils.incorporacao.getById.invalidate({ id: Number(id) });
       utils.incorporacao.list.invalidate();
     },
@@ -155,7 +113,7 @@ export default function AdminIncorporacaoDetail() {
     );
   }
 
-  if (!estudo) {
+  if (!estudo || !estudoSf) {
     return (
       <div className="min-h-screen bg-[#1A2332] text-white flex items-center justify-center">
         <p className="text-gray-400">Estudo não encontrado.</p>
@@ -166,7 +124,7 @@ export default function AdminIncorporacaoDetail() {
   return (
     <div className="min-h-screen bg-[#1A2332] text-white">
       <div className="bg-[#0F1923] border-b border-[#C9A961]/20 px-6 py-4">
-        <div className="max-w-4xl mx-auto flex items-center gap-4">
+        <div className="max-w-6xl mx-auto flex items-center gap-4">
           <Link href="/admin/incorporacao">
             <Button variant="ghost" size="icon" className="text-gray-400 hover:text-white">
               <ArrowLeft className="h-5 w-5" />
@@ -176,19 +134,12 @@ export default function AdminIncorporacaoDetail() {
         </div>
       </div>
 
-      <div className="max-w-4xl mx-auto px-6 py-6 space-y-6" onInputCapture={marcarAlterado} onChangeCapture={marcarAlterado}>
-        <nav aria-label="Módulos do estudo" className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-2">
-          {(estudo.incorporationType === "desmembramento_simples" ? MODULOS_DESMEMBRAMENTO : MODULOS.filter(([idModulo]) => idModulo !== "diligencia")).map(([idModulo, nome]) => (
-            <button key={idModulo} type="button" onClick={() => setModuloAtivo(idModulo)}
-              aria-current={moduloAtivo === idModulo ? "page" : undefined}
-              className={`min-w-0 rounded-md border px-3 py-3 text-left text-sm font-medium break-words ${moduloAtivo === idModulo ? "border-[#C9A961] bg-[#C9A961] text-[#1A2332]" : "border-[#C9A961]/30 bg-[#0F1923] text-gray-200 hover:border-[#C9A961]"}`}>
-              {nome}
-            </button>
-          ))}
-        </nav>
-        {estudo.incorporationType === "desmembramento_simples" && <div hidden={moduloAtivo !== "diligencia"}><DueDiligenceEditor estudoId={estudo.id} json={estudo.dueDiligenceJson} /></div>}
-        <div hidden={moduloAtivo !== "dados"} className="space-y-6">
-        <Card className="bg-[#1A2332]/60 border-[#C9A961]/20 backdrop-blur-sm">
+      {/* Estrutura, cálculos e gráficos idênticos ao Grupo Santa Fé (item 10); só as cores são as da Prospecta. */}
+      <div className="bg-[#F4F4F2] text-[var(--brand-dark)] min-h-screen" style={{ "--brand-dark": "#1A2332", "--brand-yellow": "#C9A961" } as React.CSSProperties}>
+      <div className="max-w-6xl mx-auto px-4 sm:px-6 py-6">
+        <IncorporacaoDetail estudo={estudoSf} dadosGerais={
+        <div className="space-y-6">
+        <Card className="bg-[#1A2332] border-[#C9A961]/20 text-white">
           <CardHeader>
             <CardTitle className="text-white text-lg">Dados Gerais</CardTitle>
           </CardHeader>
@@ -258,7 +209,7 @@ export default function AdminIncorporacaoDetail() {
           </CardContent>
         </Card>
 
-        <Card className="bg-[#1A2332]/60 border-[#C9A961]/20 text-white">
+        <Card className="bg-[#1A2332] border-[#C9A961]/20 text-white">
           <CardHeader><CardTitle>Histórico de versões</CardTitle></CardHeader>
           <CardContent className="space-y-2">
             <p className="text-sm text-gray-300">Cada alteração salva um retrato. O período anterior à ativação deste histórico não pode ser reconstruído.</p>
@@ -272,122 +223,8 @@ export default function AdminIncorporacaoDetail() {
           </CardContent>
         </Card>
         </div>
-
-        <div hidden={moduloAtivo !== "terreno" && moduloAtivo !== "topografia"}>
-        <TerrenoTopografia
-          estudoId={estudo.id}
-          geojson={estudo.geojson}
-          areaM2={estudo.areaM2}
-          perimeterM={estudo.perimeterM}
-          elevationJson={estudo.elevationJson}
-          secao={estudo.incorporationType === "desmembramento_simples" ? moduloAtivo === "topografia" ? "topografia" : "terreno" : undefined}
-        />
-        </div>
-
-        <div hidden={moduloAtivo !== "mercado"}>
-        <EstudoMercado
-          estudoId={estudo.id}
-          city={estudo.city}
-          state={estudo.state}
-          cityResearchJson={estudo.cityResearchJson}
-          marketStudyJson={estudo.marketStudyJson}
-          comparablePricingJson={estudo.comparablePricingJson}
-          primaryResearchJson={estudo.primaryResearchJson}
-        />
-        </div>
-
-        <div hidden={moduloAtivo !== "massa"}>
-        <EstudoMassa
-          estudoId={estudo.id}
-          geojson={estudo.geojson}
-          areaM2={estudo.areaM2}
-          latitude={estudo.latitude}
-          longitude={estudo.longitude}
-          urbanParametersJson={estudo.urbanParametersJson}
-          potentialJson={estudo.potentialJson}
-          massScenariosJson={estudo.massScenariosJson}
-          selectedScenarioId={estudo.selectedScenarioId}
-          areasBoardJson={estudo.areasBoardJson}
-        />
-        </div>
-
-        <div hidden={moduloAtivo !== "orcamento" && moduloAtivo !== "negociacao"}>
-        <OrcamentoNegociacao
-          estudoId={estudo.id}
-          parameterizedBudgetJson={estudo.parameterizedBudgetJson}
-          landNegotiationJson={estudo.landNegotiationJson}
-          secao={estudo.incorporationType === "desmembramento_simples" ? moduloAtivo === "negociacao" ? "negociacao" : "orcamento" : undefined}
-        />
-        </div>
-
-        <div hidden={moduloAtivo !== "business"}>
-        <BusinessPlan estudoId={estudo.id} businessPlanJson={estudo.businessPlanJson} />
-        </div>
-
-        <div hidden={moduloAtivo !== "projeto"}>
-        <ProjetistasAprovacao
-          estudoId={estudo.id}
-          designersJson={estudo.designersJson}
-          projectApprovalJson={estudo.projectApprovalJson}
-          secao={estudo.incorporationType === "desmembramento_simples" ? "aprovacao" : undefined}
-        />
-        </div>
-
-        <div hidden={moduloAtivo !== "registro"}>
-        <RegistroOrcamentoPreliminar
-          estudoId={estudo.id}
-          incorporationRegistrationJson={estudo.incorporationRegistrationJson}
-          preliminaryBudgetJson={estudo.preliminaryBudgetJson}
-          parameterizedBudgetJson={estudo.parameterizedBudgetJson}
-        />
-        </div>
-
-        <div hidden={moduloAtivo !== "lancamento" && moduloAtivo !== "fornecedores" && moduloAtivo !== "material"}>
-        <LancamentoMarketing
-          estudoId={estudo.id}
-          launchPlanJson={estudo.launchPlanJson}
-          launchSuppliersJson={estudo.launchSuppliersJson}
-          marketingMaterialJson={estudo.marketingMaterialJson}
-          secao={estudo.incorporationType === "desmembramento_simples" ? moduloAtivo === "fornecedores" ? "fornecedores" : moduloAtivo === "material" ? "material" : "planejamento" : undefined}
-        />
-        </div>
-
-        <div hidden={moduloAtivo !== "unidades"}>
-        {estudo.incorporationType === "desmembramento_simples" ? <UnidadesEditor estudoId={estudo.id} /> : <LancamentoImobiliario
-          estudoId={estudo.id}
-          productMixJson={estudo.productMixJson}
-          realEstateLaunchJson={estudo.realEstateLaunchJson}
-        />}
-        </div>
-
-        <div hidden={moduloAtivo !== "obra"}>
-        <ObraExecutiva
-          estudoId={estudo.id}
-          executiveProjectsJson={estudo.executiveProjectsJson}
-          workBudgetJson={estudo.workBudgetJson}
-          physicalFinancialScheduleJson={estudo.physicalFinancialScheduleJson}
-          preliminaryBudgetJson={estudo.preliminaryBudgetJson}
-        />
-        </div>
-
-        <div hidden={moduloAtivo !== "relatorio" && moduloAtivo !== "atendimento"}>
-        <AtendimentoRelatorio
-          estudoId={estudo.id}
-          customerServiceJson={estudo.customerServiceJson}
-          estudo={{ ...estudo, versionNumber: versoes[0]?.revision ?? null, staff: equipe }}
-          secao={estudo.incorporationType === "desmembramento_simples" ? moduloAtivo === "atendimento" ? "atendimento" : "relatorio" : undefined}
-        />
-        </div>
-
-        <div hidden={moduloAtivo !== "viabilidade"}>
-        <ViabilidadeEconomica
-          estudoId={estudo.id}
-          areaM2={estudo.areaM2}
-          appAreaM2={estudo.appAreaM2}
-          productMixJson={estudo.productMixJson}
-          lottingJson={estudo.lottingJson}
-        />
-        </div>
+        } />
+      </div>
       </div>
     </div>
   );
