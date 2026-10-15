@@ -377,7 +377,7 @@ function ComissoesDeObras({ dados, carregando, erro }: { dados?: LinhaObra[]; ca
           {linhas.map(l => (
             <tr key={l.obraId}>
               <td>{l.corretor}<br /><span className="text-xs text-slate-500">{l.cliente}</span></td>
-              <td><a className="underline" href={`/admin/obras/${l.obraId}/editar`}>{l.obra}</a></td>
+              <td><a className="underline" href={`/admin/obras/editar/${l.obraId}`}>{l.obra}</a></td>
               <td>
                 {l.vgv ? money(Number(l.vgv)) : "VGV não informado"}<br />
                 <span className="text-xs">{l.calculo.percentual ? `${Number(l.calculo.percentual).toLocaleString("pt-BR", { maximumFractionDigits: 4 })}% (${l.calculo.fontePercentual === "obra" ? "da obra" : "padrão do corretor"})` : "sem percentual"}</span>

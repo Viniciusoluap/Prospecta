@@ -44,17 +44,9 @@ const statusColors: Record<string, string> = {
   conformidade_cef: "bg-teal-600",
 };
 
-const stageStatusColors = {
-  pending: "bg-gray-500",
-  in_progress: "bg-blue-500",
-  completed: "bg-green-500",
-};
-
-const stageStatusLabels = {
-  pending: "Pendente",
-  in_progress: "Em Andamento",
-  completed: "Concluída",
-};
+const ETAPA_COR = { concluida: "bg-green-500", em_andamento: "bg-[#C9A961]", pendente: "bg-gray-500" } as const;
+const exibirIndicador = (i: { ok: true; centavos: number } | { ok: false; motivo: string }) =>
+  i.ok ? (i.centavos / 100).toLocaleString("pt-BR", { style: "currency", currency: "BRL" }) : i.motivo;
 
 export default function ObraDetalhes({ admin = false }: { admin?: boolean }) {
   const { id } = useParams<{ id: string }>();
@@ -67,6 +59,11 @@ export default function ObraDetalhes({ admin = false }: { admin?: boolean }) {
   const { data: project, isLoading, error } = trpc.construction.getProjectDetails.useQuery(
     { projectId },
     { enabled: isAuthenticated && Number.isInteger(projectId) && projectId > 0 }
+  );
+  // Etapas, resumo financeiro e estatísticas: os mesmos números do editor da obra.
+  const { data: detalhe } = trpc.obraProgresso.detalhe.useQuery(
+    { projectId },
+    { enabled: admin && isAuthenticated && Number.isInteger(projectId) && projectId > 0 }
   );
 
   // Redirect para login se não autenticado
@@ -178,69 +175,28 @@ export default function ObraDetalhes({ admin = false }: { admin?: boolean }) {
                     </CardDescription>
                   </CardHeader>
                   <CardContent>
-                    {!project.stages || project.stages.length === 0 ? (
+                    {!detalhe || detalhe.etapas.length === 0 ? (
                       <div className="text-center py-8 text-gray-400">
                         <Clock className="h-12 w-12 mx-auto mb-3 opacity-50" />
-                        <p>Nenhuma etapa cadastrada ainda</p>
+                        <p>{detalhe ? "Nenhuma etapa com incidência no acompanhamento do progresso" : "Carregando etapas…"}</p>
                       </div>
                     ) : (
-                      <div className="space-y-4">
-                        {project.stages.map((stage, index) => (
-                          <div key={stage.id} className="flex gap-4">
-                            {/* Timeline Line */}
-                            <div className="flex flex-col items-center">
-                              <div
-                                className={`w-10 h-10 rounded-full ${stageStatusColors[stage.status]} flex items-center justify-center flex-shrink-0`}
-                              >
-                                {stage.status === "completed" ? (
-                                  <CheckCircle2 className="h-5 w-5 text-white" />
-                                ) : (
-                                  <span className="text-white font-semibold">{index + 1}</span>
-                                )}
-                              </div>
-                              {index < project.stages.length - 1 && (
-                                <div className="w-0.5 h-full bg-[#C9A961]/20 mt-2" />
-                              )}
-                            </div>
-
-                            {/* Stage Content */}
-                            <div className="flex-1 pb-6">
-                              <div className="flex items-start justify-between mb-2">
-                                <div>
-                                  <h4 className="text-white font-semibold">{stage.name}</h4>
-                                  {stage.description && (
-                                    <p className="text-sm text-gray-400 mt-1">{stage.description}</p>
-                                  )}
+                      <div className="space-y-3">
+                        {detalhe.etapas.map((etapa, index) => (
+                          <div key={etapa.chave} className={`rounded-lg border p-3 ${etapa.situacao === "em_andamento" ? "border-[#C9A961]/60 bg-[#C9A961]/5" : "border-[#C9A961]/15"}`}>
+                            <div className="flex items-center justify-between gap-3 mb-2">
+                              <div className="flex items-center gap-3 min-w-0">
+                                <span className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-xs font-semibold text-white ${ETAPA_COR[etapa.situacao]}`}>
+                                  {etapa.situacao === "concluida" ? <CheckCircle2 className="h-4 w-4" /> : index + 1}
+                                </span>
+                                <div className="min-w-0">
+                                  <p className="text-white font-semibold truncate">{etapa.nome}</p>
+                                  <p className="text-xs text-gray-400">Incidência {formatarPercentual(etapa.incidencia)} · {formatarPercentual(etapa.execucaoObra)} da obra</p>
                                 </div>
-                                <Badge className={`${stageStatusColors[stage.status]} text-white border-0 ml-2`}>
-                                  {stageStatusLabels[stage.status]}
-                                </Badge>
                               </div>
-
-                              <div className="flex flex-wrap gap-4 mt-3 text-sm">
-                                {stage.startDate && (
-                                  <span className="text-gray-400 flex items-center gap-1">
-                                    <Calendar className="h-4 w-4" />
-                                    Início: {new Date(stage.startDate).toLocaleDateString("pt-BR")}
-                                  </span>
-                                )}
-                                {stage.endDate && (
-                                  <span className="text-gray-400 flex items-center gap-1">
-                                    <Calendar className="h-4 w-4" />
-                                    Fim: {new Date(stage.endDate).toLocaleDateString("pt-BR")}
-                                  </span>
-                                )}
-                                {stage.actualCost && (
-                                  <span className="text-gray-400 flex items-center gap-1">
-                                    <DollarSign className="h-4 w-4" />
-                                    {new Intl.NumberFormat("pt-BR", {
-                                      style: "currency",
-                                      currency: "BRL",
-                                    }).format(stage.actualCost)}
-                                  </span>
-                                )}
-                              </div>
+                              <span className="text-sm font-bold text-[#C9A961] shrink-0">{formatarPercentual(etapa.execucao)}</span>
                             </div>
+                            <Progress value={etapa.execucao} className="h-2" />
                           </div>
                         ))}
                       </div>
@@ -361,29 +317,19 @@ export default function ObraDetalhes({ admin = false }: { admin?: boolean }) {
                   Resumo Financeiro
                 </CardTitle>
               </CardHeader>
-              <CardContent className="space-y-4">
-                {project.constructionCost && (
-                  <div>
-                    <p className="text-sm text-gray-500 mb-1">Orçamento Previsto</p>
-                    <p className="text-2xl font-bold text-white">
-                      {new Intl.NumberFormat("pt-BR", {
-                        style: "currency",
-                        currency: "BRL",
-                      }).format(parseFloat(project.constructionCost))}
-                    </p>
+              <CardContent className="space-y-3">
+                {!detalhe ? <p className="text-sm text-gray-400">Carregando…</p> : ([
+                  ["Orçamento Previsto", exibirIndicador(detalhe.financeiro.orcamentoPrevisto)],
+                  ["Valor a Receber do Banco", exibirIndicador(detalhe.financeiro.receberBanco)],
+                  ["PLS Real (%)", detalhe.financeiro.plsReal.ok ? formatarPercentual(detalhe.financeiro.plsReal.percentual) : detalhe.financeiro.plsReal.motivo],
+                  ["Gasto Obra Realizado", exibirIndicador(detalhe.financeiro.gastoObraRealizado)],
+                  ["Saldo Restante", exibirIndicador(detalhe.financeiro.saldoRestante)],
+                ] as const).map(([rotulo, valor]) => (
+                  <div key={rotulo} className="flex items-start justify-between gap-3 border-b border-white/5 pb-2 last:border-0">
+                    <span className="text-sm text-gray-400">{rotulo}</span>
+                    <span className="text-right text-sm font-semibold text-white">{valor}</span>
                   </div>
-                )}
-                {project.constructionSpent && (
-                  <div>
-                    <p className="text-sm text-gray-500 mb-1">Custo Atual</p>
-                    <p className="text-xl font-semibold text-[#C9A961]">
-                      {new Intl.NumberFormat("pt-BR", {
-                        style: "currency",
-                        currency: "BRL",
-                      }).format(parseFloat(project.constructionSpent))}
-                    </p>
-                  </div>
-                )}
+                ))}
               </CardContent>
             </Card>
 
@@ -398,17 +344,15 @@ export default function ObraDetalhes({ admin = false }: { admin?: boolean }) {
               <CardContent className="space-y-3">
                 <div className="flex items-center justify-between">
                   <span className="text-gray-400 text-sm">Total de Etapas</span>
-                  <span className="text-white font-semibold">{project.stages?.length || 0}</span>
+                  <span className="text-white font-semibold">{detalhe?.estatisticas.totalEtapas ?? "—"}</span>
                 </div>
                 <div className="flex items-center justify-between">
                   <span className="text-gray-400 text-sm">Etapas Concluídas</span>
-                  <span className="text-white font-semibold">
-                    {project.stages?.filter((s) => s.status === "completed").length || 0}
-                  </span>
+                  <span className="text-white font-semibold">{detalhe?.estatisticas.etapasConcluidas ?? "—"}</span>
                 </div>
                 <div className="flex items-center justify-between">
                   <span className="text-gray-400 text-sm">Total de Fotos</span>
-                  <span className="text-white font-semibold">{project.photos?.length || 0}</span>
+                  <span className="text-white font-semibold">{detalhe?.estatisticas.totalFotos ?? project.photos?.length ?? 0}</span>
                 </div>
               </CardContent>
             </Card>

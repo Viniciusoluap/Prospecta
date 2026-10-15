@@ -1,5 +1,5 @@
 import { TRPCError } from "@trpc/server";
-import { asc, desc, eq } from "drizzle-orm";
+import { asc, count, desc, eq } from "drizzle-orm";
 import { z } from "zod";
 import {
   constructionPhotos,
@@ -15,6 +15,7 @@ import {
   type ItemProgressoEntrada,
 } from "../shared/financeiro/progresso.js";
 import { LIMITE_LEGENDA } from "../shared/obra-fotos.js";
+import { montarDetalheObra } from "../shared/financeiro/detalhe-obra.js";
 import { adminProcedure, router } from "./_core/trpc.js";
 import { getDb, getObraDadosCrm } from "./db.js";
 import { calcularResumoObra } from "./obra-financeiro-router.js";
@@ -64,6 +65,16 @@ export async function carregarProgresso(projectId: number) {
 
 export const obraProgressoRouter = router({
   obter: adminProcedure.input(projectIdInput).query(({ input }) => carregarProgresso(input.projectId)),
+
+  /** Tela de detalhes: etapas, resumo financeiro e estatísticas iguais ao editor da obra. */
+  detalhe: adminProcedure.input(projectIdInput).query(async ({ input }) => {
+    const [progresso, resumo, [fotos]] = await Promise.all([
+      carregarProgresso(input.projectId),
+      calcularResumoObra(input.projectId),
+      getDb().select({ total: count() }).from(constructionPhotos).where(eq(constructionPhotos.projectId, input.projectId)),
+    ]);
+    return montarDetalheObra(progresso.calculo, resumo.calculo, Number(fotos?.total ?? 0));
+  }),
 
   salvar: adminProcedure.input(z.object({
     projectId: z.number().int().positive(),

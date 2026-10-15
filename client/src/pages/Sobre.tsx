@@ -61,9 +61,9 @@ export default function Sobre() {
               <CardContent className="p-8 grid grid-cols-2 md:grid-cols-4 gap-4 text-center">
                 {[
                   { value: "2020", label: "Ano de fundação" },
-                  { value: "Mais de 300", label: "Imóveis negociados" },
-                  { value: "Mais de 150", label: "Clientes atendidos" },
-                  { value: "Mais de 100", label: "Obras acompanhadas" },
+                  { value: "+300", label: "Imóveis negociados" },
+                  { value: "+150", label: "Clientes atendidos" },
+                  { value: "+100", label: "Obras acompanhadas" },
                 ].map(({ value, label }) => (
                   <div key={label} className="border border-[#C9A961]/10 rounded-lg p-4">
                     <p className="text-[#C9A961] font-black text-2xl">{value}</p>
