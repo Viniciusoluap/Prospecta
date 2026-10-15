@@ -238,3 +238,18 @@ Itens 01–09 estão em produção; o 10 continua bloqueado.
   "Testar Google Drive". Hipótese: conta Google pessoal (sem Drive compartilhado) → pasta no "Meu Drive"
   continua com `storageQuotaExceeded`. Alternativa proposta: conectar o Drive pela conta do próprio dono (OAuth).
 - **Item 10:** continua bloqueado até a revisão do dono.
+
+## Item 10 — Incorporação espelha o Grupo Santa Fé (15/10/2026, Claude) — PUBLICADO (#118)
+
+- Decisão do dono: o Santa Fé é a referência total da Incorporação (layout, contas, gráficos).
+  Única diferença de origem Prospecta: Desmembramento Simples + Due Diligence (já existe nos dois).
+- Abas portadas sem alteração de lógica em `client/src/components/incorporacao/estudo/`
+  (mesmos nomes de arquivo do SF `web/src/app/admin/incorporacao/_components/`). A pasta
+  `compat/` liga as Server Actions do SF às rotas tRPC do Prospecta.
+- Libs do SF adotadas: `shared/incorporacao/premissas-loteamento.ts`, `relatorio-executivo.ts`,
+  `massa.ts`, `shared/geo/relevo.ts`, `shared/geo/gmaps.ts`; 3D com `three`/`@react-three/*` (mesmas versões).
+- Negociação/Business Plan/Cronograma passam a usar VGV, custo total e duração da Viabilidade
+  (antes digitados). Estudo 1: permuta 6% R$ 840.000 → R$ 755.985,60; BP 100% → 10,25% de R$ 3,9 mi.
+- Due Diligence: o banco gravava; a tela voltava ao estado antigo após salvar (corrigido).
+- Levantamento topográfico (CSV/TXT/XYZ/DXF) usa o documento privado `levantamento_topografico`.
+- Sem migration. Paridade futura: rodar o mesmo port script/diff contra o SF ao alterar o módulo.
