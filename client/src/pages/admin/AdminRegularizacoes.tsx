@@ -107,22 +107,24 @@ export default function AdminRegularizacoes() {
         <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.5fr)]">
           <Card className="border-[#C9A961]/20 bg-[#2C3E50] text-white">
             <CardHeader><CardTitle>Processos</CardTitle></CardHeader>
-            <CardContent className="space-y-2">
+            <CardContent className="space-y-3">
               {listQuery.isLoading && <p className="text-gray-300">Carregando...</p>}
               {!listQuery.isLoading && !records.length && <p className="text-gray-300">Nenhum processo encontrado.</p>}
               {records.map(record => (
-                <div key={record.id}>
-                <button key={record.id} onClick={() => setSelectedId(record.id)} className={`w-full rounded-md border p-3 text-left ${selectedId === record.id ? "border-[#C9A961]" : "border-white/10"}`}>
-                  <div className="flex items-start justify-between gap-2"><strong>{record.clientName}</strong><Badge variant="secondary">{rotuloStatusProcesso(record.status)}</Badge></div>
-                  {/* Pedido de 16/10: sem o aviso "Aguardando dados técnicos"; tipo e responsável só aparecem quando existem. */}
-                  {record.type.trim() && record.responsible.trim() && <p className="mt-1 text-sm text-gray-300">{record.type} · {record.responsible}</p>}
-                  <p className="text-sm text-[#C9A961]">{currency(record.serviceValue)}</p>
-                </button>
-                <div className="flex flex-wrap items-center justify-between gap-2 py-1">
-                  {record.leadId ? <Link href={`/admin/crm/${record.leadId}`} className="text-sm text-[#E6CA88] underline">Abrir cadastro CRM</Link> : <span />}
-                  <AcoesExcluir compacto rotulo={record.clientName}
-                    onExcluir={async () => { await removeMutation.mutateAsync({ id: record.id }); if (selectedId === record.id) setSelectedId(undefined); await listQuery.refetch(); }} />
-                </div>
+                // Pedido de 16/10: o botão Excluir fica dentro do quadro do próprio cliente,
+                // separado por uma linha, para não parecer pertencer ao processo de baixo.
+                <div key={record.id} className={`rounded-md border p-3 ${selectedId === record.id ? "border-[#C9A961]" : "border-white/10"}`}>
+                  <button type="button" onClick={() => setSelectedId(record.id)} className="w-full text-left">
+                    <div className="flex items-start justify-between gap-2"><strong>{record.clientName}</strong><Badge variant="secondary">{rotuloStatusProcesso(record.status)}</Badge></div>
+                    {/* Pedido de 16/10: sem o aviso "Aguardando dados técnicos"; tipo e responsável só aparecem quando existem. */}
+                    {record.type.trim() && record.responsible.trim() && <p className="mt-1 text-sm text-gray-300">{record.type} · {record.responsible}</p>}
+                    <p className="text-sm text-[#C9A961]">{currency(record.serviceValue)}</p>
+                  </button>
+                  <div className="mt-3 flex flex-wrap items-center justify-between gap-2 border-t border-white/10 pt-2">
+                    {record.leadId ? <Link href={`/admin/crm/${record.leadId}`} className="text-sm text-[#E6CA88] underline">Abrir cadastro CRM</Link> : <span />}
+                    <AcoesExcluir rotulo={record.clientName}
+                      onExcluir={async () => { await removeMutation.mutateAsync({ id: record.id }); if (selectedId === record.id) setSelectedId(undefined); await listQuery.refetch(); }} />
+                  </div>
                 </div>
               ))}
             </CardContent>
