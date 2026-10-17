@@ -4,6 +4,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import * as db from "./db.js";
 import { appRouter } from "./routers.js";
 import { podeUsarModulo } from "./_core/rbac.js";
+import { excluirDefinitivo } from "./exclusao-definitiva.js";
 
 const caller = (role: string, permissoes: string[], active = true) =>
   appRouter.createCaller({ user: { id: 7, role, active, permissions: JSON.stringify(permissoes) }, req: {}, res: {} } as never);
@@ -36,5 +37,28 @@ describe("colaborador — mesmos poderes do admin nos módulos liberados", () =>
     expect(podeUsarModulo({ role: "colaborador", permissions: "[]" }, [])).toBe(true);
     for (const role of ["corretor", "cliente", "empreiteiro"])
       expect(podeUsarModulo({ role, permissions: '["obras"]' }, "obras")).toBe(false);
+  });
+
+  it("revisão do Codex (PR #130): serviço do CRM que mexe em outro módulo exige esse módulo", async () => {
+    const banco = vi.spyOn(db, "getDb");
+    const soCrm = caller("colaborador", ["crm"]);
+    await expect(soCrm.leadServices.create({ leadId: 3, serviceType: "obra_cliente" })).rejects.toMatchObject({ code: "FORBIDDEN" });
+    await expect(soCrm.leadServices.linkProcess({ id: 1, operationalModule: "financiamentos", operationalRecordId: 2 })).rejects.toMatchObject({ code: "FORBIDDEN" });
+    expect(banco).not.toHaveBeenCalled();
+  });
+
+  it("revisão do Codex (PR #130): a fila de um módulo exige o próprio módulo", async () => {
+    const banco = vi.spyOn(db, "getDb");
+    const soAgenda = caller("colaborador", ["agenda"]);
+    await expect(soAgenda.leadServices.listForModule({ module: "financiamentos" })).rejects.toMatchObject({ code: "FORBIDDEN" });
+    await expect(soAgenda.leadServices.materializePending({ module: "regularizacoes" })).rejects.toMatchObject({ code: "FORBIDDEN" });
+    expect(banco).not.toHaveBeenCalled();
+  });
+
+  it("exclusão definitiva confere o módulo do registro, mesmo vinda de outro módulo", async () => {
+    const banco = vi.spyOn(db, "getDb");
+    await expect(excluirDefinitivo("obra", 10, { role: "colaborador", active: true, permissions: '["crm"]' }))
+      .rejects.toMatchObject({ code: "FORBIDDEN" });
+    expect(banco).not.toHaveBeenCalled();
   });
 });

@@ -36,6 +36,33 @@ export function requireModule(
   if (!podeUsarModulo(ctx.user, modulos)) throw new TRPCError({ code: "FORBIDDEN", message });
 }
 
+/**
+ * Módulo do painel de cada destino de serviço do CRM (`operationalModule`) e de
+ * cada exclusão definitiva. Revisão do Codex no PR #130: o que o serviço cria,
+ * altera ou exclui em outro módulo exige a permissão daquele módulo.
+ */
+export const MODULO_DO_DESTINO: Readonly<Record<string, AdminModule>> = {
+  obras: "obras", obra: "obras",
+  projetos: "projetos", projeto: "projetos",
+  regularizacoes: "regularizacao", regularizacao: "regularizacao",
+  financiamentos: "financiamentos", financiamento: "financiamentos",
+  avaliacoes: "avaliacoes", avaliacao: "avaliacoes",
+  comissoes: "comissoes", comissao: "comissoes",
+  tarefas: "agenda",
+  juridico: "juridico",
+  bpo_financeiro: "bpo",
+  estudo: "incorporacao",
+};
+
+/** Exige o módulo do destino (sem módulo conhecido, basta o acesso já checado). */
+export function requireModuloDoDestino(
+  ctx: { user: { role: string; permissions?: string | null; active?: boolean | null } },
+  destino: string | null | undefined
+): void {
+  const modulo = MODULO_DO_DESTINO[destino ?? ""];
+  if (modulo) requireModule(ctx, modulo);
+}
+
 export function podeUsarModulo(
   user: { role: string; permissions?: string | null; active?: boolean | null },
   modulos: AdminModule | readonly AdminModule[]
