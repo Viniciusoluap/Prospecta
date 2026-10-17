@@ -257,6 +257,14 @@ export default function Navbar() {
                   </Link>
                 </DropdownMenuItem>
               )}
+              {user?.role === "empreiteiro" && (
+                <DropdownMenuItem asChild>
+                  <Link href="/empreiteiro">
+                    <Building2 className="mr-2 h-4 w-4" />
+                    Minhas Obras
+                  </Link>
+                </DropdownMenuItem>
+              )}
               {(user?.role === "admin" || user?.role === "colaborador") && (
                 <DropdownMenuItem asChild>
                   <Link href="/admin">
