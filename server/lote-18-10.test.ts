@@ -61,3 +61,18 @@ describe("item 14 — etapas da obra no portal do cliente", () => {
     expect(etapas.find(e => e.chave === "vidros")).toBeUndefined(); // incidência 0
   });
 });
+
+describe("itens 10 e 11 — painel do lead para quem só tem CRM (revisão do Codex no PR #133)", () => {
+  it("agenda a visita pelo CRM; contrato continua exigindo o Jurídico", async () => {
+    const { canAccessAdminProcedure } = await import("./_core/trpc");
+    const soCrm = { role: "colaborador", permissions: JSON.stringify(["crm"]) };
+    expect(canAccessAdminProcedure(soCrm, "portal.admin.visitOptions")).toBe(true);
+    expect(canAccessAdminProcedure(soCrm, "portal.admin.scheduleVisit")).toBe(true);
+    expect(canAccessAdminProcedure(soCrm, "juridico.createFromLead")).toBe(false);
+  });
+  it("valor do contrato com ponto decimal não é multiplicado por 100", async () => {
+    const { parseNumeroBR } = await import("../shared/numero-br");
+    expect(parseNumeroBR("1234.56")).toBe(1234.56);
+    expect(parseNumeroBR("1.234,56")).toBe(1234.56);
+  });
+});

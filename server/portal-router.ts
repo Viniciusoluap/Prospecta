@@ -22,6 +22,8 @@ import { carregarProgresso } from "./obra-progresso-router.js";
 import { etapasDoProgresso } from "../shared/financeiro/detalhe-obra.js";
 import { adminProcedure, protectedProcedure, router } from "./_core/trpc.js";
 import { getAssignableUserById, getDb } from "./db.js";
+import { agendarVisitaDoLead, opcoesDaVisitaDoLead } from "./operacional-router.js";
+import { visitInput } from "../shared/operacional.js";
 import { readPrivateDocument, tryDriveUpload, uploadPrivateDocument } from "./drive-documents.js";
 import { readPrivateDbFile } from "./private-document-files.js";
 import { isClientRole, requireClientContext } from "./profile-context.js";
@@ -602,6 +604,11 @@ export const portalRouter = router({
     }),
 
   admin: router({
+    // Agendamento de visita pelo lead (item 10): autorizado pelo CRM, gravado na Agenda.
+    visitOptions: adminProcedure.query(() => opcoesDaVisitaDoLead()),
+    scheduleVisit: adminProcedure
+      .input(visitInput.and(z.object({ leadId: z.number().int().positive() })))
+      .mutation(({ input }) => agendarVisitaDoLead(input)),
     overview: adminProcedure
       .input(z.object({ leadId: z.number().int().positive() }))
       .query(async ({ input }) => {

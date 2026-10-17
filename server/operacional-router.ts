@@ -141,6 +141,19 @@ async function visitValues(input: z.infer<typeof visitInput>) {
     updatedAt: new Date(),
   };
 }
+/**
+ * Item 10 (18/10) — "Agendamento de visita" no painel do lead: grava na mesma
+ * tabela da Agenda, mas é ação do CRM (revisão do Codex no PR #133: quem tem só
+ * CRM agenda pelo lead, como no Santa Fé). Sempre preso a um lead existente.
+ */
+export async function opcoesDaVisitaDoLead() {
+  const { brokers, responsibles } = await options();
+  return { brokers, responsibles };
+}
+export async function agendarVisitaDoLead(input: z.infer<typeof visitInput> & { leadId: number }) {
+  return found((await getDb().insert(visits).values(await visitValues(input)).returning())[0]);
+}
+
 /** Item 06: corretor só vê e altera as próprias visitas; o vínculo vem da sessão. */
 function corretorDaSessao(user: { id: number; role: string }): number | null {
   return user.role === "corretor" ? user.id : null;

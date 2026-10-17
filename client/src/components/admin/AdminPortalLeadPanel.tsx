@@ -12,6 +12,9 @@ import { CONTRATO_TIPOS } from "@shared/juridico";
 import { VISIT_TYPES } from "@shared/operacional";
 import { rotulo } from "@shared/rotulos";
 import { mutarComProgresso } from "@/lib/envio-progresso";
+import { useAuth } from "@/_core/hooks/useAuth";
+import { parseNumeroBR } from "@shared/numero-br";
+import { parsePermissions } from "@shared/admin-permissions";
 
 const campo = "bg-[#1A2332] text-white placeholder:text-gray-400 border-[#C9A961]/30";
 const seletor = "h-9 w-full rounded-md border border-[#C9A961]/30 bg-[#1A2332] px-2 text-sm text-white";
@@ -28,7 +31,11 @@ function lerBase64(file: File): Promise<string> {
 
 export function AdminPortalLeadPanel({ leadId, defaultEmail }: { leadId: number; defaultEmail?: string | null }) {
   const overview = trpc.portal.admin.overview.useQuery({ leadId });
-  const opcoes = trpc.agenda.options.useQuery();
+  // Agendamento é ação do CRM (mesmo acesso deste painel); contrato exige o
+  // módulo Jurídico, como no Santa Fé (revisão do Codex no PR #133).
+  const opcoes = trpc.portal.admin.visitOptions.useQuery();
+  const { user } = useAuth();
+  const podeJuridico = user?.role === "admin" || (user?.role === "colaborador" && parsePermissions(user.permissions).includes("juridico"));
   const utils = trpc.useUtils();
   const [email, setEmail] = useState(defaultEmail ?? "");
   const [password, setPassword] = useState("");
@@ -38,6 +45,9 @@ export function AdminPortalLeadPanel({ leadId, defaultEmail }: { leadId: number;
   // Item 11 (18/10): contrato nasce no Jurídico, vinculado ao lead.
   const [contrato, setContrato] = useState<{ tipo: (typeof CONTRATO_TIPOS)[number]; valor: string }>({ tipo: "construcao", valor: "" });
   const [anexando, setAnexando] = useState<number | null>(null);
+  // Contrato escolhido para o anexo; só vira "anexando" quando um PDF válido é
+  // selecionado — cancelar o seletor ou recusar o arquivo não trava os botões.
+  const contratoDoAnexo = useRef<number | null>(null);
   const arquivoRef = useRef<HTMLInputElement>(null);
   const [message, setMessage] = useState("");
 
@@ -45,7 +55,7 @@ export function AdminPortalLeadPanel({ leadId, defaultEmail }: { leadId: number;
     await Promise.all([overview.refetch(), utils.agenda.list.invalidate(), utils.juridico.list.invalidate()]);
   };
   const provision = trpc.portal.admin.provisionAccess.useMutation({ onSuccess: () => { toast.success("Acesso do cliente atualizado"); setPassword(""); overview.refetch(); }, onError: e => toast.error(e.message) });
-  const agendar = trpc.agenda.create.useMutation({
+  const agendar = trpc.portal.admin.scheduleVisit.useMutation({
     onSuccess: async () => {
       toast.success("Visita agendada e incluída na Agenda");
       setVisita({ quando: "", responsavel: "", corretor: "", tipo: "imovel", observacoes: "" });
@@ -68,12 +78,14 @@ export function AdminPortalLeadPanel({ leadId, defaultEmail }: { leadId: number;
 
   async function anexarPdf(file?: File) {
     if (arquivoRef.current) arquivoRef.current.value = "";
-    const contractId = anexando;
+    const contractId = contratoDoAnexo.current;
+    contratoDoAnexo.current = null;
     if (!file || !contractId) return;
     if (file.type !== "application/pdf" || file.size > 3 * 1024 * 1024) {
       toast.error("Envie um PDF de até 3 MiB");
       return;
     }
+    setAnexando(contractId);
     try {
       await mutarComProgresso("juridico.uploadDocument", { contractId, name: file.name, type: "contrato_gerado", base64: await lerBase64(file) }, { item: "PDF" });
       toast.success("PDF anexado ao contrato");
@@ -121,15 +133,18 @@ export function AdminPortalLeadPanel({ leadId, defaultEmail }: { leadId: number;
           })}>Agendar visita</Button>
         </div>
 
-        <div className="space-y-2">
+        {podeJuridico ? <div className="space-y-2">
           <Label className="text-gray-200 flex gap-2"><FileText className="h-4 w-4"/>Contrato (Jurídico)</Label>
           <select aria-label="Tipo de contrato" value={contrato.tipo} onChange={e=>setContrato({...contrato,tipo:e.target.value as (typeof CONTRATO_TIPOS)[number]})} className={seletor}>
             {CONTRATO_TIPOS.map(t => <option key={t} value={t}>{rotulo(t)}</option>)}
           </select>
           <Input aria-label="Valor do contrato" inputMode="decimal" value={contrato.valor} onChange={e=>setContrato({...contrato,valor:e.target.value})} placeholder="Valor (opcional)" className={campo}/>
-          <Button size="sm" disabled={criarContrato.isPending} onClick={()=>criarContrato.mutate({ leadId, type: contrato.tipo, value: Number(contrato.valor.replace(/\./g,"").replace(",",".")) || 0 })}>Criar contrato no Jurídico</Button>
+          <Button size="sm" disabled={criarContrato.isPending} onClick={()=>criarContrato.mutate({ leadId, type: contrato.tipo, value: parseNumeroBR(contrato.valor) })}>Criar contrato no Jurídico</Button>
           <p className="text-xs text-gray-300">Número do Jurídico e dados do cliente preenchidos automaticamente.</p>
-        </div>
+        </div> : <div className="space-y-2">
+          <Label className="text-gray-200 flex gap-2"><FileText className="h-4 w-4"/>Contrato (Jurídico)</Label>
+          <p className="text-xs text-gray-300">Criar contrato, pedir assinatura e anexar PDF exigem acesso ao módulo Jurídico.</p>
+        </div>}
       </div>
 
       <div className="space-y-2">
@@ -158,15 +173,15 @@ export function AdminPortalLeadPanel({ leadId, defaultEmail }: { leadId: number;
               <p className="font-semibold break-words">{c.number} · {rotulo(c.type)}</p>
               <p className="text-xs text-gray-300">Situação: {rotulo(c.status)} · Assinatura: {rotulo(c.signatureStatus)}</p>
             </div>
-            <div className="flex flex-wrap gap-2">
+            {podeJuridico && <div className="flex flex-wrap gap-2">
               <Link href={`/admin/juridico?contrato=${c.id}`}><Button size="sm" variant="outline" className={botaoClaro}><ExternalLink className="mr-1 h-3 w-3"/>Abrir no Jurídico</Button></Link>
               <Button size="sm" variant="outline" className={botaoClaro} disabled={assinatura.isPending || c.signatureStatus === "assinado" || c.signatureStatus === "solicitado"} onClick={()=>assinatura.mutate({ id: c.id, signatureStatus: "solicitado" })}>
                 {c.signatureStatus === "solicitado" ? "Assinatura solicitada" : "Solicitar assinatura"}
               </Button>
-              <Button size="sm" variant="outline" className={botaoClaro} disabled={anexando !== null} onClick={()=>{ setAnexando(c.id); arquivoRef.current?.click(); }}>
-                <Paperclip className="mr-1 h-3 w-3"/>Anexar PDF
+              <Button size="sm" variant="outline" className={botaoClaro} disabled={anexando !== null} onClick={()=>{ contratoDoAnexo.current = c.id; arquivoRef.current?.click(); }}>
+                <Paperclip className="mr-1 h-3 w-3"/>{anexando === c.id ? "Enviando…" : "Anexar PDF"}
               </Button>
-            </div>
+            </div>}
           </div>
         )) : <p className="text-xs text-gray-300">Nenhum contrato para este cliente. Contratos criados no Jurídico para ele também aparecem aqui.</p>}
         <input ref={arquivoRef} type="file" accept="application/pdf" className="sr-only" aria-label="Selecionar PDF do contrato" onChange={e => void anexarPdf(e.target.files?.[0])} />
