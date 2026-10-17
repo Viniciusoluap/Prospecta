@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { rotulo } from "../shared/rotulos";
+import { rotulo, rotuloAssinatura } from "../shared/rotulos";
 import { recusaAindaVisivel, isPropertyPhotoOrSaved } from "../shared/broker-portal";
 import { etapasDoProgresso } from "../shared/financeiro/detalhe-obra";
 import { calcularProgresso, itensProgressoIniciais } from "../shared/financeiro/progresso";
@@ -11,7 +11,8 @@ describe("item 16 — nomes em português", () => {
     expect(rotulo("planning")).toBe("Planejamento");
     expect(rotulo("pre_analise")).toBe("Pré-análise");
     expect(rotulo("followup")).toBe("Projetos e Vistorias");
-    expect(rotulo("solicitado")).toBe("Assinatura solicitada");
+    expect(rotulo("solicitado")).toBe("Solicitado");
+    expect(rotuloAssinatura("solicitado")).toBe("Assinatura solicitada");
     expect(rotulo("pending")).toBe("Pendente");
   });
   it("código desconhecido nunca aparece com sublinhado", () => {
@@ -74,5 +75,12 @@ describe("itens 10 e 11 — painel do lead para quem só tem CRM (revisão do Co
     const { parseNumeroBR } = await import("../shared/numero-br");
     expect(parseNumeroBR("1234.56")).toBe(1234.56);
     expect(parseNumeroBR("1.234,56")).toBe(1234.56);
+  });
+});
+
+describe("revisão do Codex (18/10) — limite de envio da Vercel", () => {
+  it("barra envio acima de 4,2 MB antes de enviar", async () => {
+    const { mutarComProgresso } = await import("../client/src/lib/envio-progresso");
+    await expect(mutarComProgresso("x.y", { fotos: ["a".repeat(4_300_000)] })).rejects.toThrow(/limite de 4 MB/);
   });
 });

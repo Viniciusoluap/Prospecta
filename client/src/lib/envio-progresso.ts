@@ -63,7 +63,16 @@ export type OpcoesEnvio = {
 };
 
 /** Chama uma mutação do tRPC (ex.: "portal.uploadSignedContract") mostrando o progresso de envio. */
+/**
+ * A Vercel recusa corpos acima de 4,5 MB antes de chegar ao servidor (revisão do
+ * Codex, 18/10): o envio é barrado antes, com uma orientação clara.
+ */
+export const LIMITE_ENVIO_BYTES = 4_200_000;
+export const MENSAGEM_LIMITE_ENVIO = "O envio passa do limite de 4 MB por vez. Envie menos fotos ou arquivos agora e acrescente os outros depois, pela edição.";
+
 export async function mutarComProgresso<T = unknown>(procedimento: string, entrada: unknown, opcoes: OpcoesEnvio = {}): Promise<T> {
+  const serializado = superjson.serialize(entrada);
+  if (JSON.stringify(serializado).length > LIMITE_ENVIO_BYTES) throw new Error(MENSAGEM_LIMITE_ENVIO);
   const item = opcoes.item ?? "arquivo";
   const estado = (fracao: number): NonNullable<EstadoEnvio> =>
     opcoes.tamanhos?.length
@@ -71,7 +80,7 @@ export async function mutarComProgresso<T = unknown>(procedimento: string, entra
       : { item, atual: opcoes.atual ?? 1, total: opcoes.total ?? 1, fracao };
   publicarEnvio(estado(0));
   try {
-    const { status, dados } = await enviarJsonComProgresso(`/api/trpc/${procedimento}`, superjson.serialize(entrada), fracao =>
+    const { status, dados } = await enviarJsonComProgresso(`/api/trpc/${procedimento}`, serializado, fracao =>
       publicarEnvio(estado(fracao))
     );
     const corpo = dados as { result?: { data?: unknown }; error?: { json?: { message?: string } } } | null;

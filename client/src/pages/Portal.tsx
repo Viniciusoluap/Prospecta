@@ -3,7 +3,7 @@ import { formatarPercentual, progressoDaObra } from "@shared/financeiro/progress
 import { Link, useLocation } from "wouter";
 import { FINANCIAMENTO_STATUS } from "@shared/financiamento";
 import { obraStatusLabel } from "@shared/obra-status";
-import { rotulo } from "@shared/rotulos";
+import { rotulo, rotuloAssinatura } from "@shared/rotulos";
 import {
   Building2,
   CalendarDays,
@@ -622,7 +622,7 @@ export default function Portal() {
                       <CardTitle className="text-lg">
                         Contrato {contract.number}
                       </CardTitle>
-                      <Badge>{rotulo(contract.signatureStatus)}</Badge>
+                      <Badge>{rotuloAssinatura(contract.signatureStatus)}</Badge>
                     </div>
                   </CardHeader>
                   <CardContent className="space-y-3">
