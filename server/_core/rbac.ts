@@ -63,11 +63,15 @@ export function requireModuloDoDestino(
   if (modulo) requireModule(ctx, modulo);
 }
 
-/** Operações em lote que mexem em todos os módulos de serviço exigem todos eles. */
+/**
+ * Operações em lote (importação do Trello, reconciliação) podem criar ou
+ * reclassificar serviço para qualquer destino: exigem o CRM e todos os módulos
+ * de destino do mapa acima.
+ */
 export function requireTodosOsModulosDeServico(
   ctx: { user: { role: string; permissions?: string | null; active?: boolean | null } }
 ): void {
-  for (const m of ["crm", "obras", "projetos", "regularizacao", "financiamentos", "avaliacoes"] as const) requireModule(ctx, m);
+  for (const m of Array.from(new Set<AdminModule>(["crm", ...Object.values(MODULO_DO_DESTINO)]))) requireModule(ctx, m);
 }
 
 export function podeUsarModulo(

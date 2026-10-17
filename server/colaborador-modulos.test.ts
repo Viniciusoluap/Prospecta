@@ -72,4 +72,11 @@ describe("colaborador — mesmos poderes do admin nos módulos liberados", () =>
     expect(criar).not.toHaveBeenCalled();
     expect(banco).not.toHaveBeenCalled();
   });
+
+  it("revisão do Codex (#131): importação em lote exige também Agenda, Jurídico e BPO", async () => {
+    const banco = vi.spyOn(db, "getDb");
+    const semJuridico = caller("colaborador", ["crm", "obras", "projetos", "regularizacao", "financiamentos", "avaliacoes", "comissoes", "agenda", "bpo", "incorporacao"]);
+    await expect(semJuridico.leadServices.backfillFromTrello()).rejects.toMatchObject({ code: "FORBIDDEN" });
+    expect(banco).not.toHaveBeenCalled();
+  });
 });
