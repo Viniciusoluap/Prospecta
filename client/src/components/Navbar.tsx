@@ -14,13 +14,10 @@ import { trpc } from "@/lib/trpc";
 import {
   User,
   LogOut,
-  ShoppingBag,
   Settings,
   Phone,
   Menu,
   Home as HomeIcon,
-  FileText,
-  DollarSign,
   Gift,
   Building2,
   Bell,
@@ -43,6 +40,19 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
+
+/** Menu do celular: as mesmas opções e a mesma ordem do menu do computador. */
+const MENU_PRINCIPAL = [
+  { href: "/", label: "Início", icon: HomeIcon },
+  { href: "/imoveis", label: "Imóveis", icon: Building2 },
+  { href: "/servicos", label: "Serviços", icon: Wrench },
+  { href: "/sobre", label: "Sobre Nós", icon: Info },
+  { href: "/cursos", label: "Cursos", icon: GraduationCap },
+  { href: "/instituto", label: "Instituto", icon: HandHeart },
+  { href: "/contato", label: "Contato", icon: Phone },
+  { href: "/sorteios", label: "Sorteios", icon: Gift },
+  { href: "/instalar-aplicativo", label: "Instalar app", icon: Download },
+] as const;
 
 export default function Navbar() {
   const { user, isAuthenticated } = useAuth();
@@ -81,139 +91,19 @@ export default function Navbar() {
               </SheetHeader>
               <ScrollArea className="flex-1 min-h-0">
                 <div className="flex flex-col gap-4 px-1 pb-8">
-                  {/* Início */}
-                  <Link href="/" onClick={closeMobileMenu}>
-                    <Button
-                      variant="ghost"
-                      className="w-full justify-start text-base"
-                    >
-                      <HomeIcon className="mr-3 h-5 w-5" />
-                      Início
-                    </Button>
-                  </Link>
-
-                  {/* Jornada imobiliária consolidada */}
-                  <Link href="/imoveis" onClick={closeMobileMenu}>
-                    <Button
-                      variant="ghost"
-                      className="w-full justify-start text-base"
-                    >
-                      <Building2 className="mr-3 h-5 w-5" />
-                      Imóveis
-                    </Button>
-                  </Link>
-
-                  {/* Instalar aplicativo */}
-                  <Link href="/instalar-aplicativo" onClick={closeMobileMenu}>
-                    <Button
-                      variant="ghost"
-                      className="w-full justify-start text-base"
-                    >
-                      <Download className="mr-3 h-5 w-5" />
-                      Instalar aplicativo
-                    </Button>
-                  </Link>
-
-                  {/* Institucional */}
-                  <div className="px-3 py-2">
-                    <h3 className="text-sm font-semibold text-muted-foreground mb-3">
-                      Institucional
-                    </h3>
-                    <div className="flex flex-col gap-2">
-                      <Link href="/servicos" onClick={closeMobileMenu}>
+                  {/* Mesmas opções e ordem do menu do computador (pedido de 17/10/2026). */}
+                  <div className="flex flex-col gap-1">
+                    {MENU_PRINCIPAL.map(({ href, label, icon: Icone }) => (
+                      <Link key={href} href={href} onClick={closeMobileMenu}>
                         <Button
                           variant="ghost"
-                          className="w-full justify-start"
+                          className="w-full justify-start text-base"
                         >
-                          <Wrench className="mr-3 h-4 w-4" />
-                          Serviços
+                          <Icone className="mr-3 h-5 w-5" />
+                          {label}
                         </Button>
                       </Link>
-                      <Link href="/sobre" onClick={closeMobileMenu}>
-                        <Button
-                          variant="ghost"
-                          className="w-full justify-start"
-                        >
-                          <Info className="mr-3 h-4 w-4" />
-                          Sobre Nós
-                        </Button>
-                      </Link>
-                      <Link href="/cursos" onClick={closeMobileMenu}>
-                        <Button
-                          variant="ghost"
-                          className="w-full justify-start"
-                        >
-                          <GraduationCap className="mr-3 h-4 w-4" />
-                          Cursos
-                        </Button>
-                      </Link>
-                      <Link href="/instituto" onClick={closeMobileMenu}>
-                        <Button
-                          variant="ghost"
-                          className="w-full justify-start"
-                        >
-                          <HandHeart className="mr-3 h-4 w-4" />
-                          Instituto
-                        </Button>
-                      </Link>
-                      <Link href="/contato" onClick={closeMobileMenu}>
-                        <Button
-                          variant="ghost"
-                          className="w-full justify-start"
-                        >
-                          <Phone className="mr-3 h-4 w-4" />
-                          Contato
-                        </Button>
-                      </Link>
-                    </div>
-                  </div>
-
-                  {/* Divisor */}
-                  <div className="border-t my-2" />
-
-                  {/* Ecossistema VFX Capital */}
-                  <div className="px-3 py-2">
-                    <h3 className="text-sm font-semibold text-muted-foreground mb-3">
-                      Ecossistema VFX Capital
-                    </h3>
-                    <div className="flex flex-col gap-2">
-                      <Link href="/sorteios" onClick={closeMobileMenu}>
-                        <Button
-                          variant="ghost"
-                          className="w-full justify-start"
-                        >
-                          <Gift className="mr-3 h-4 w-4" />
-                          Sorteios
-                        </Button>
-                      </Link>
-                      <Link href="/produtos" onClick={closeMobileMenu}>
-                        <Button
-                          variant="ghost"
-                          className="w-full justify-start"
-                        >
-                          <ShoppingBag className="mr-3 h-4 w-4" />
-                          Produtos
-                        </Button>
-                      </Link>
-                      <Link href="/como-funciona" onClick={closeMobileMenu}>
-                        <Button
-                          variant="ghost"
-                          className="w-full justify-start"
-                        >
-                          <FileText className="mr-3 h-4 w-4" />
-                          Como Funciona
-                        </Button>
-                      </Link>
-                      <Link href="/comprar-utef" onClick={closeMobileMenu}>
-                        <Button
-                          variant="ghost"
-                          className="w-full justify-start"
-                        >
-                          <DollarSign className="mr-3 h-4 w-4" />
-                          Comprar UTEFs
-                        </Button>
-                      </Link>
-                    </div>
+                    ))}
                   </div>
 
                   {/* Divisor */}
@@ -364,6 +254,14 @@ export default function Navbar() {
                   <Link href="/corretor">
                     <Building2 className="mr-2 h-4 w-4" />
                     Portal do Corretor
+                  </Link>
+                </DropdownMenuItem>
+              )}
+              {user?.role === "empreiteiro" && (
+                <DropdownMenuItem asChild>
+                  <Link href="/empreiteiro">
+                    <Building2 className="mr-2 h-4 w-4" />
+                    Minhas Obras
                   </Link>
                 </DropdownMenuItem>
               )}
