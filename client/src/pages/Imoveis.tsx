@@ -12,6 +12,7 @@ import { trpc } from "@/lib/trpc";
 import { ArrowLeft, Bed, Bath, Car, Ruler, MapPin, Search, Building2, FileText, BarChart3 } from "lucide-react";
 import type { inferRouterOutputs } from "@trpc/server";
 import type { AppRouter } from "../../../server/routers";
+import { rotulo } from "@shared/rotulos";
 
 type Imovel = inferRouterOutputs<AppRouter>["imoveis"]["list"][number];
 
@@ -119,12 +120,12 @@ export default function Imoveis() {
             <Card className="bg-[#1A2332]/60 border-[#C9A961]/20 backdrop-blur-sm">
               <CardContent className="p-6 grid gap-4 md:grid-cols-4">
                 <div className="relative">
-                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-500" />
+                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
                   <Input
                     placeholder="Buscar por título, bairro, cidade..."
                     value={busca}
                     onChange={(e) => setBusca(e.target.value)}
-                    className="pl-9 bg-[#2C3E50] border-[#C9A961]/20 text-gray-200 placeholder:text-gray-500"
+                    className="pl-9 bg-[#2C3E50] border-[#C9A961]/20 text-gray-200 placeholder:text-gray-400"
                   />
                 </div>
                 <Select value={tipo} onValueChange={setTipo}>
@@ -134,7 +135,7 @@ export default function Imoveis() {
                   <SelectContent>
                     <SelectItem value="todos">Todos os tipos</SelectItem>
                     {tipos.map((t) => (
-                      <SelectItem key={t} value={t}>{t}</SelectItem>
+                      <SelectItem key={t} value={t}>{rotulo(t)}</SelectItem>
                     ))}
                   </SelectContent>
                 </Select>
@@ -155,7 +156,7 @@ export default function Imoveis() {
                   placeholder="Preço máximo (R$)"
                   value={precoMax}
                   onChange={(e) => setPrecoMax(e.target.value)}
-                  className="bg-[#2C3E50] border-[#C9A961]/20 text-gray-200 placeholder:text-gray-500"
+                  className="bg-[#2C3E50] border-[#C9A961]/20 text-gray-200 placeholder:text-gray-400"
                 />
               </CardContent>
             </Card>

@@ -4,6 +4,7 @@ import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle }
 import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
 import Navbar from "@/components/Navbar";
+import { EcossistemaVfx } from "@/components/EcossistemaVfx";
 import SEO from "@/components/SEO";
 import { trpc } from "@/lib/trpc";
 import { formatCurrency, formatUtef, formatDate } from "@/const";
@@ -174,6 +175,10 @@ export default function Sorteios() {
               </Card>
             )}
           </div>
+        </div>
+        {/* Pedido de 18/10 (item 1): abaixo dos sorteios, o mesmo ecossistema da Home. */}
+        <div className="mt-12">
+          <EcossistemaVfx />
         </div>
       </main>
     </div>

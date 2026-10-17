@@ -21,6 +21,7 @@ import {
   parseArray,
   Rows,
 } from "./OperationalUI";
+import { rotulo } from "@shared/rotulos";
 type Check = { text: string; done: boolean };
 type FileLink = { name: string; url: string };
 const blank = () => ({
@@ -131,7 +132,7 @@ export default function AdminProjetos() {
               </td>
               <td>{r.engineer}</td>
               <td>
-                {r.status}
+                {rotulo(r.status)}
                 <br />
                 {r.deadline
                   ? new Date(r.deadline).toLocaleDateString("pt-BR")

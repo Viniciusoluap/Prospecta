@@ -111,7 +111,7 @@ export default function InstalarApp() {
                     <li>Confirme a inclusão.</li>
                     <li>Abra o aplicativo pelo ícone criado na tela inicial.</li>
                   </ol>
-                  <p className="text-xs text-gray-500">
+                  <p className="text-xs text-gray-400">
                     O caminho exato pode variar conforme a versão do iOS e do Safari ou Google Chrome.
                   </p>
                 </CardContent>
@@ -128,7 +128,7 @@ export default function InstalarApp() {
                     <li>Confirme a instalação.</li>
                     <li>Acesse o aplicativo pelo ícone criado.</li>
                   </ol>
-                  <p className="text-xs text-gray-500">
+                  <p className="text-xs text-gray-400">
                     Quando o Google Chrome oferece a instalação nativa, o botão "Instalar aplicativo" acima já aciona esse mecanismo.
                   </p>
                 </CardContent>
@@ -148,7 +148,7 @@ export default function InstalarApp() {
               </CardContent>
             </Card>
 
-            <p className="text-xs text-gray-500">
+            <p className="text-xs text-gray-400">
               Este não é um aplicativo publicado na App Store ou no Google Play — é o próprio sistema
               Prospecta Construções, instalado como aplicativo (PWA) direto do navegador.
             </p>

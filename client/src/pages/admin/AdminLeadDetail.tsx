@@ -23,6 +23,7 @@ import { LeadDocuments } from "@/components/LeadDocuments";
 import { LEAD_SERVICE_LABELS, LEAD_SERVICE_MODULE_ROUTES, LEAD_SERVICE_PRIMARY_TYPES, type LeadServiceType } from "../../../../shared/lead-services";
 import { LEAD_PIPELINE_STAGES, LEGACY_STAGE_LABELS } from "../../../../shared/lead-pipeline";
 import { LEAD_TEMPERATURAS, LEAD_TEMPERATURA_CONFIG, leadTemperaturaRotulo } from "../../../../shared/lead-temperature";
+import { rotulo } from "@shared/rotulos";
 
 const STAGES = LEAD_PIPELINE_STAGES;
 const STAGE_COLORS: Record<string, string> = Object.fromEntries(STAGES.map(stage => [stage.key, stage.color]));
@@ -350,13 +351,13 @@ export default function AdminLeadDetail() {
                   className={`px-3 py-1 rounded-full text-xs font-medium transition-all ${
                     idx <= currentStageIdx
                       ? `${STAGE_COLORS[stage.key]} text-white`
-                      : "bg-[#2C3E50] text-gray-500"
+                      : "bg-[#2C3E50] text-gray-400"
                   }`}
                 >
                   {stage.label}
                 </button>
                 {idx < STAGES.length - 1 && (
-                  <ChevronRight className={`h-3 w-3 ${idx < currentStageIdx ? "text-[#C9A961]" : "text-gray-700"}`} />
+                  <ChevronRight className={`h-3 w-3 ${idx < currentStageIdx ? "text-[#C9A961]" : "text-gray-200"}`} />
                 )}
               </div>
             ))}
@@ -565,19 +566,19 @@ export default function AdminLeadDetail() {
                       </div>
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center justify-between gap-2">
-                          <span className="text-xs text-[#C9A961] font-medium uppercase">{activity.type}</span>
-                          <span className="text-xs text-gray-500 whitespace-nowrap">{formatDate(activity.createdAt)}</span>
+                          <span className="text-xs text-[#C9A961] font-medium uppercase">{rotulo(activity.type)}</span>
+                          <span className="text-xs text-gray-400 whitespace-nowrap">{formatDate(activity.createdAt)}</span>
                         </div>
                         <p className="text-sm text-gray-300 mt-1 whitespace-pre-wrap">{activity.description}</p>
                         {activity.performedBy && (
-                          <span className="text-xs text-gray-500 mt-1">— {activity.performedBy}</span>
+                          <span className="text-xs text-gray-400 mt-1">— {activity.performedBy}</span>
                         )}
                       </div>
                     </div>
                   ))}
                 </div>
               ) : (
-                <div className="text-center py-8 text-gray-500">
+                <div className="text-center py-8 text-gray-400">
                   <MessageSquare className="h-8 w-8 mx-auto mb-2 opacity-30" />
                   <p className="text-sm">Nenhuma atividade registrada</p>
                 </div>

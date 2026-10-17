@@ -2,20 +2,14 @@
 // salvam por Server Actions com os nomes abaixo. Aqui cada uma chama a rota
 // tRPC equivalente do Prospecta e, como o `revalidatePath` do Santa Fé, recarrega
 // o estudo na tela. A regra de negócio fica nas abas, idêntica nos dois sistemas.
-import { createTRPCClient, httpBatchLink } from "@trpc/client";
-import superjson from "superjson";
+import { createTRPCClient } from "@trpc/client";
+import { linksDoCliente } from "@/lib/trpc-links";
 import { toast } from "sonner";
 import type { AppRouter } from "../../../../../../server/routers";
 import type { DueDiligence } from "@shared/incorporacao/due-diligence";
 import type { ErroAcao } from "./acao-resultado";
 
-const api = createTRPCClient<AppRouter>({
-  links: [httpBatchLink({
-    url: "/api/trpc",
-    transformer: superjson,
-    fetch: (input, init) => globalThis.fetch(input, { ...(init ?? {}), credentials: "include" }),
-  })],
-});
+const api = createTRPCClient<AppRouter>({ links: linksDoCliente() });
 
 let recarregar: () => Promise<unknown> = async () => undefined;
 /** A página do estudo registra aqui como recarregar o estudo depois de cada gravação. */

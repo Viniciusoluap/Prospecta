@@ -91,7 +91,7 @@ export default function ObraDetalhes({ admin: adminProp = false, empreiteiro = f
       <div className="min-h-screen bg-gradient-to-b from-[#1A2332] to-[#0F1419] flex items-center justify-center">
         <Card className="bg-white/5 border-[#C9A961]/20 backdrop-blur-sm max-w-md">
           <CardContent className="text-center py-12">
-            <HardHat className="h-16 w-16 text-gray-500 mx-auto mb-4" />
+            <HardHat className="h-16 w-16 text-gray-400 mx-auto mb-4" />
             <h3 className="text-xl font-bold text-white mb-2">Obra não encontrada</h3>
             <p className="text-gray-400 mb-6">{error ? "Não foi possível carregar esta obra." : "Esta obra não existe ou você não tem permissão para acessá-la."}</p>
             <Button onClick={() => setLocation(backTo)} className="bg-[#C9A961] hover:bg-[#B89851] text-[#1A2332]">
@@ -159,10 +159,11 @@ export default function ObraDetalhes({ admin: adminProp = false, empreiteiro = f
           {/* Main Content */}
           <div className="lg:col-span-2 space-y-6">
             <Tabs defaultValue="timeline" className="w-full">
-              <TabsList className="grid w-full grid-cols-3 bg-white/5">
-                <TabsTrigger value="timeline">Timeline</TabsTrigger>
-                <TabsTrigger value="photos">Fotos ({project.photos?.length || 0})</TabsTrigger>
-                <TabsTrigger value="info">Informações</TabsTrigger>
+              {/* Item 17 (18/10): abas legíveis no fundo escuro. */}
+              <TabsList className="grid h-auto w-full grid-cols-3 gap-1 border border-[#C9A961]/20 bg-white/5 p-1 text-gray-100">
+                <TabsTrigger value="timeline" className="min-h-9 data-[state=active]:bg-[#C9A961] data-[state=active]:text-[#1A2332]">Etapas</TabsTrigger>
+                <TabsTrigger value="photos" className="min-h-9 data-[state=active]:bg-[#C9A961] data-[state=active]:text-[#1A2332]">Fotos ({project.photos?.length || 0})</TabsTrigger>
+                <TabsTrigger value="info" className="min-h-9 data-[state=active]:bg-[#C9A961] data-[state=active]:text-[#1A2332]">Informações</TabsTrigger>
               </TabsList>
 
               {/* Timeline Tab */}
@@ -268,19 +269,19 @@ export default function ObraDetalhes({ admin: adminProp = false, empreiteiro = f
                     <div className="grid grid-cols-2 gap-6">
                       {project.projectType && (
                         <div>
-                          <p className="text-sm text-gray-500 mb-1">Tipo de Projeto</p>
+                          <p className="text-sm text-gray-400 mb-1">Tipo de Projeto</p>
                           <p className="text-white font-medium">{project.projectType}</p>
                         </div>
                       )}
                       {project.totalArea && (
                         <div>
-                          <p className="text-sm text-gray-500 mb-1">Área Total</p>
+                          <p className="text-sm text-gray-400 mb-1">Área Total</p>
                           <p className="text-white font-medium">{project.totalArea}m²</p>
                         </div>
                       )}
                       {project.startDate && (
                         <div>
-                          <p className="text-sm text-gray-500 mb-1">Data de Início</p>
+                          <p className="text-sm text-gray-400 mb-1">Data de Início</p>
                           <p className="text-white font-medium">
                             {new Date(project.startDate).toLocaleDateString("pt-BR")}
                           </p>
@@ -288,7 +289,7 @@ export default function ObraDetalhes({ admin: adminProp = false, empreiteiro = f
                       )}
                       {project.estimatedEndDate && (
                         <div>
-                          <p className="text-sm text-gray-500 mb-1">Previsão de Término</p>
+                          <p className="text-sm text-gray-400 mb-1">Previsão de Término</p>
                           <p className="text-white font-medium">
                             {new Date(project.estimatedEndDate).toLocaleDateString("pt-BR")}
                           </p>
@@ -298,7 +299,7 @@ export default function ObraDetalhes({ admin: adminProp = false, empreiteiro = f
 
                     {project.notes && (
                       <div>
-                        <p className="text-sm text-gray-500 mb-2">Observações</p>
+                        <p className="text-sm text-gray-400 mb-2">Observações</p>
                         <p className="text-white bg-white/5 p-4 rounded-lg border border-[#C9A961]/10">
                           {project.notes}
                         </p>

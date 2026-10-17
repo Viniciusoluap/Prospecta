@@ -29,6 +29,7 @@ import {
   optionalId,
   Rows,
 } from "./OperationalUI";
+import { rotulo } from "@shared/rotulos";
 // EPIC-018 (stories 2.2–2.5): corretor, imóvel e obra vêm dos cadastros reais;
 // o valor é sugerido pelo percentual de referência e continua editável.
 const blank = () => ({
@@ -161,7 +162,7 @@ export default function AdminComissoes() {
               <br />
               {c.paidAt ? `Pago: ${dateTime(c.paidAt)}` : "Não pago"}
             </td>
-            <td>{c.status}</td>
+            <td>{rotulo(c.status)}</td>
             <td>
               <div className="flex gap-2">
                 <Button
@@ -389,7 +390,7 @@ function ComissoesDeObras({ dados, carregando, erro }: { dados?: LinhaObra[]; ca
                 {[...l.calculo.pendencias, ...l.alertas].map(t => <p key={t} className="mt-1 text-xs text-amber-800">{t}</p>)}
                 {l.registrosManuais.map(m => (
                   <p key={m.id} className="mt-1 text-xs text-slate-600">
-                    Comissão manual #{m.id}: {money(m.amount)} · {Number(m.percent).toLocaleString("pt-BR")}% · {m.status}
+                    Comissão manual #{m.id}: {money(m.amount)} · {Number(m.percent).toLocaleString("pt-BR")}% · {rotulo(m.status)}
                   </p>
                 ))}
               </td>

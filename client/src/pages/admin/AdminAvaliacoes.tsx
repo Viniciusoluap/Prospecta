@@ -364,7 +364,7 @@ export default function AdminAvaliacoes() {
         {/* Lista */}
         {avaliacoes.length === 0 ? (
           <Card className="bg-[#2C3E50] border-[#C9A961]/20">
-            <CardContent className="py-12 text-center text-gray-500">
+            <CardContent className="py-12 text-center text-gray-400">
               <ClipboardCheck className="h-12 w-12 mx-auto mb-3 opacity-20" />
               <p>Nenhuma avaliação encontrada</p>
             </CardContent>
@@ -390,7 +390,7 @@ export default function AdminAvaliacoes() {
                             <Badge className={`${STATUS_COLORS[a.status]} text-white`}>{STATUS_LABELS[a.status]}</Badge>
                           </CardTitle>
                           <p className="text-sm text-gray-300 mt-1">{a.clienteNome} • {a.endereco}, {a.bairro} — {a.cidade}/{a.estado}</p>
-                          <p className="text-xs text-gray-500 mt-0.5">{TIPO_LABELS[a.tipo] ?? a.tipo} • {a.avaliador}</p>
+                          <p className="text-xs text-gray-400 mt-0.5">{TIPO_LABELS[a.tipo] ?? a.tipo} • {a.avaliador}</p>
                         </div>
                         <div className="text-right">
                           {a.valorEstimado && <p className="text-[#C9A961] font-bold text-lg">{formatCurrencyBR(a.valorEstimado)}</p>}

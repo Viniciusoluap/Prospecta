@@ -502,7 +502,7 @@ export default function AdminAgregador({
 
         {itens.length === 0 ? (
           <Card className="bg-[#2C3E50] border-[#C9A961]/20">
-            <CardContent className="py-12 text-center text-gray-500">
+            <CardContent className="py-12 text-center text-gray-400">
               <Rss className="h-12 w-12 mx-auto mb-3 opacity-20" />
               <p>Nenhum imóvel agregado encontrado</p>
             </CardContent>
@@ -543,7 +543,7 @@ export default function AdminAgregador({
                           {item.cidade}/{item.estado}
                           {item.areaM2 ? ` • ${item.areaM2} m²` : ""}
                         </p>
-                        <p className="text-xs text-gray-500 mt-0.5">
+                        <p className="text-xs text-gray-400 mt-0.5">
                           {DOCUMENTO_LABELS[item.documentoTipo] ??
                             item.documentoTipo}
                           {item.urlFonte && (

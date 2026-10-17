@@ -147,14 +147,14 @@ export default function Contato() {
                       <Phone className="h-4 w-4 text-[#C9A961] mt-0.5 shrink-0" />
                       <div>
                         <p className="font-bold text-sm">(99) 98139-2210</p>
-                        <p className="text-xs text-gray-500">Telefone / WhatsApp</p>
+                        <p className="text-xs text-gray-400">Telefone / WhatsApp</p>
                       </div>
                     </a>
                     <div className="flex items-start gap-3 text-gray-300">
                       <MapPin className="h-4 w-4 text-[#C9A961] mt-0.5 shrink-0" />
                       <div>
                         <p className="font-bold text-sm">R. Gonçalves Dias, 1993 — Juçara</p>
-                        <p className="text-xs text-gray-500">CEP 65900-545 · Imperatriz-MA</p>
+                        <p className="text-xs text-gray-400">CEP 65900-545 · Imperatriz-MA</p>
                       </div>
                     </div>
                     <div className="flex items-start gap-3 text-gray-300">

@@ -1,6 +1,9 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { formatarPercentual, progressoDaObra } from "@shared/financeiro/progresso";
 import { Link, useLocation } from "wouter";
+import { FINANCIAMENTO_STATUS } from "@shared/financiamento";
+import { obraStatusLabel } from "@shared/obra-status";
+import { rotulo } from "@shared/rotulos";
 import {
   Building2,
   CalendarDays,
@@ -11,7 +14,6 @@ import {
   FileCheck2,
   FileText,
   Home,
-  LogOut,
   MessageSquare,
   Send,
   ShoppingBag,
@@ -20,6 +22,8 @@ import {
 } from "lucide-react";
 import { trpc } from "@/lib/trpc";
 import { LeadDocuments } from "@/components/LeadDocuments";
+import { PortalHeader } from "@/components/PortalHeader";
+import { mutarComProgresso } from "@/lib/envio-progresso";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -147,21 +151,7 @@ export default function Portal() {
       messages.refetch();
     },
   });
-  const uploadContract = trpc.portal.uploadSignedContract.useMutation({
-    onSuccess: () => {
-      toast.success("Contrato assinado enviado");
-      contracts.refetch();
-    },
-    onError: error => toast.error(error.message),
-  });
-  const uploadFinancing = trpc.portal.uploadFinancingDocument.useMutation({
-    onSuccess: () => {
-      toast.success("Documento enviado para análise");
-      financing.refetch();
-    },
-    onError: error => toast.error(error.message),
-  });
-
+  const [enviando, setEnviando] = useState(false);
   const nav = useMemo(() => {
     const items: Array<readonly [string, string, typeof Home]> = [...baseNav];
     if (navigation.data?.hasWorks)
@@ -181,20 +171,31 @@ export default function Portal() {
   }, [path]);
 
   async function onContractFile(file?: File) {
+    if (contractFileRef.current) contractFileRef.current.value = "";
     if (!file || !uploadContractId) return;
     if (file.type !== "application/pdf" || file.size > 10 * 1024 * 1024) {
       toast.error("Envie um PDF de até 10 MiB");
       return;
     }
-    uploadContract.mutate({
-      contractId: uploadContractId,
-      fileName: file.name,
-      mimeType: "application/pdf",
-      base64: await toBase64(file),
-    });
+    setEnviando(true);
+    try {
+      await mutarComProgresso("portal.uploadSignedContract", {
+        contractId: uploadContractId,
+        fileName: file.name,
+        mimeType: "application/pdf",
+        base64: await toBase64(file),
+      }, { item: "contrato" });
+      toast.success("Contrato assinado enviado");
+      await contracts.refetch();
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Falha ao enviar o contrato");
+    } finally {
+      setEnviando(false);
+    }
   }
 
   async function onFinancingFile(file?: File) {
+    if (financingFileRef.current) financingFileRef.current.value = "";
     if (!file || !uploadChecklistId || !financingId) return;
     if (
       !["application/pdf", "image/jpeg", "image/png"].includes(file.type) ||
@@ -203,37 +204,31 @@ export default function Portal() {
       toast.error("Envie PDF, JPG ou PNG de até 10 MiB");
       return;
     }
-    uploadFinancing.mutate({
-      financingId,
-      checklistItemId: uploadChecklistId,
-      fileName: file.name,
-      mimeType: file.type as "application/pdf" | "image/jpeg" | "image/png",
-      base64: await toBase64(file),
-    });
+    setEnviando(true);
+    try {
+      await mutarComProgresso("portal.uploadFinancingDocument", {
+        financingId,
+        checklistItemId: uploadChecklistId,
+        fileName: file.name,
+        mimeType: file.type as "application/pdf" | "image/jpeg" | "image/png",
+        base64: await toBase64(file),
+      }, { item: "documento" });
+      toast.success("Documento enviado para análise");
+      await financing.refetch();
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Falha ao enviar o documento");
+    } finally {
+      setEnviando(false);
+    }
   }
 
   return (
     <div className="min-h-screen bg-slate-100 text-[#1A2332]">
-      <header className="bg-[#1A2332] text-white border-b-4 border-[#C9A961]">
-        <div className="max-w-6xl mx-auto px-4 py-4 flex items-center justify-between">
-          <div>
-            <div className="font-black text-xl text-[#C9A961]">PROSPECTA</div>
-            <div className="text-xs text-slate-400">Portal do Cliente</div>
-          </div>
-          <Button
-            variant="ghost"
-            className="text-white"
-            onClick={() =>
-              logout().then(() =>
-                window.location.assign("/login")
-              )
-            }
-          >
-            <LogOut className="h-4 w-4 mr-2" />
-            Sair
-          </Button>
-        </div>
-      </header>
+      <PortalHeader
+        subtitle="Portal do Cliente"
+        fallback="/portal"
+        onLogout={() => logout().then(() => window.location.assign("/login"))}
+      />
       <nav className="bg-white border-b overflow-x-auto">
         <div className="max-w-6xl mx-auto px-4 flex min-w-max">
           {nav.map(([href, label, Icon]) => (
@@ -259,7 +254,7 @@ export default function Portal() {
                 </h1>
                 {dashboard.data?.lead.stage && (
                   <Badge className="mt-3 bg-[#C9A961] text-[#1A2332]">
-                    {dashboard.data.lead.stage.replaceAll("_", " ")}
+                    {rotulo(dashboard.data.lead.stage)}
                   </Badge>
                 )}
               </CardContent>
@@ -310,7 +305,7 @@ export default function Portal() {
                       <CardTitle>{project.title}</CardTitle>
                     </CardHeader>
                     <CardContent className="space-y-3">
-                      <Badge>{project.status}</Badge>
+                      <Badge>{obraStatusLabel(project.status)}</Badge>
                       <p className="text-sm text-slate-500">
                         {[project.address, project.city, project.state]
                           .filter(Boolean)
@@ -333,12 +328,14 @@ export default function Portal() {
         {workId && (
           <Section title={work.data?.project.title ?? "Detalhes da obra"}>
             <div className="space-y-5">
+              {work.isLoading && <p className="text-slate-500">Carregando obra...</p>}
+              {work.error && <Empty text="Não foi possível abrir esta obra. Volte e tente novamente." />}
               {work.data && (
                 <>
                   <Card>
                     <CardContent className="p-5 space-y-3">
-                      <div className="flex gap-2">
-                        <Badge>{work.data.project.status}</Badge>
+                      <div className="flex flex-wrap gap-2">
+                        <Badge>{obraStatusLabel(work.data.project.status)}</Badge>
                         <Badge variant="outline">Somente acompanhamento</Badge>
                       </div>
                       <Progress value={progressoDaObra(work.data.project.progressMeasuredPct, work.data.project.progress)} />
@@ -350,49 +347,72 @@ export default function Portal() {
                       </p>
                     </CardContent>
                   </Card>
-                  <div className="grid md:grid-cols-2 gap-4">
-                    {work.data.stages.map(stage => (
-                      <Card key={stage.id}>
-                        <CardContent className="p-4">
-                          <div className="flex justify-between gap-3">
-                            <b>{stage.name}</b>
-                            <Badge
-                              variant={
-                                stage.status === "completed"
-                                  ? "default"
-                                  : "outline"
-                              }
-                            >
-                              {stage.status.replaceAll("_", " ")}
-                            </Badge>
+
+                  {/* Pedido de 18/10: as mesmas etapas por incidência da tela da equipe, só leitura. */}
+                  <Card>
+                    <CardHeader>
+                      <CardTitle className="text-lg">Etapas da obra</CardTitle>
+                    </CardHeader>
+                    <CardContent className="space-y-4">
+                      {work.data.etapas.length === 0 && (
+                        <p className="text-sm text-slate-500">As etapas aparecerão aqui assim que a equipe registrar a primeira medição.</p>
+                      )}
+                      {work.data.etapas.map(etapa => (
+                        <div key={etapa.chave} className="space-y-1.5">
+                          <div className="flex items-start justify-between gap-3">
+                            <div className="flex min-w-0 items-center gap-2">
+                              <span className={`h-2.5 w-2.5 shrink-0 rounded-full ${ETAPA_COR[etapa.situacao]}`} aria-hidden />
+                              <b className="break-words">{etapa.nome}</b>
+                            </div>
+                            <span className="shrink-0 text-sm font-semibold">{formatarPercentual(etapa.execucao)}</span>
                           </div>
-                          {stage.description && (
-                            <p className="text-sm text-slate-500 mt-2">
-                              {stage.description}
-                            </p>
-                          )}
-                          <div className="grid grid-cols-2 gap-2 mt-3">
-                            {work.data.photos
-                              .filter(photo => photo.stageId === stage.id)
-                              .map(photo => (
-                                <a
-                                  key={photo.id}
-                                  href={photo.imageUrl}
-                                  target="_blank"
-                                  rel="noreferrer"
-                                >
-                                  <img
-                                    src={photo.imageUrl}
-                                    alt={photo.caption ?? stage.name}
-                                    className="rounded h-28 w-full object-cover"
-                                  />
-                                </a>
-                              ))}
-                          </div>
-                        </CardContent>
-                      </Card>
-                    ))}
-                  </div>
+                          <Progress value={etapa.execucao} />
+                          <p className="text-xs text-slate-500">
+                            {ETAPA_SITUACAO[etapa.situacao]} · Incidência {formatarPercentual(etapa.incidencia)} · Representa {formatarPercentual(etapa.execucaoObra)} da obra
+                          </p>
+                        </div>
+                      ))}
+                    </CardContent>
+                  </Card>
+
+                  <Card>
+                    <CardHeader>
+                      <CardTitle className="text-lg">Medições salvas</CardTitle>
+                    </CardHeader>
+                    <CardContent>
+                      {work.data.medicoes.length === 0 ? (
+                        <p className="text-sm text-slate-500">Nenhuma medição registrada ainda.</p>
+                      ) : (
+                        <ul className="divide-y">
+                          {work.data.medicoes.map(medicao => (
+                            <li key={medicao.id} className="flex items-center justify-between gap-3 py-2 text-sm">
+                              <span>{date(medicao.criadoEm)}</span>
+                              <b>{formatarPercentual(Number(medicao.progresso))}</b>
+                            </li>
+                          ))}
+                        </ul>
+                      )}
+                    </CardContent>
+                  </Card>
+
+                  {work.data.photos.length > 0 && (
+                    <Card>
+                      <CardHeader>
+                        <CardTitle className="text-lg">Fotos da obra</CardTitle>
+                      </CardHeader>
+                      <CardContent className="grid grid-cols-2 gap-2 md:grid-cols-4">
+                        {work.data.photos.map(photo => (
+                          <a key={photo.id} href={photo.imageUrl} target="_blank" rel="noreferrer">
+                            <img
+                              src={photo.imageUrl}
+                              alt={photo.caption ?? "Foto da obra"}
+                              className="rounded h-28 w-full object-cover"
+                            />
+                          </a>
+                        ))}
+                      </CardContent>
+                    </Card>
+                  )}
                 </>
               )}
             </div>
@@ -411,9 +431,9 @@ export default function Portal() {
                       </CardTitle>
                     </CardHeader>
                     <CardContent className="space-y-2">
-                      <Badge>{item.status.replaceAll("_", " ")}</Badge>
+                      <Badge>{rotulo(item.status)}</Badge>
                       <p>
-                        {item.bancoOutro || item.banco || "Banco em definição"}
+                        {item.bancoOutro || (item.banco ? rotulo(item.banco) : "Banco em definição")}
                       </p>
                       <p className="text-sm text-slate-500">
                         Valor financiado: {money(item.valorFinanciado)}
@@ -438,35 +458,35 @@ export default function Portal() {
             <div className="space-y-5">
               {financing.data && (
                 <>
+                  <FinanciamentoEtapas status={financing.data.financing.status} />
                   <Card>
-                    <CardContent className="p-5 grid md:grid-cols-3 gap-4">
-                      <Info
-                        label="Status"
-                        value={financing.data.financing.status.replaceAll(
-                          "_",
-                          " "
-                        )}
-                      />
+                    <CardContent className="p-5 grid gap-4 sm:grid-cols-2 md:grid-cols-3">
+                      <Info label="Etapa atual" value={rotulo(financing.data.financing.status)} />
                       <Info
                         label="Banco"
                         value={
                           financing.data.financing.bancoOutro ||
-                          financing.data.financing.banco ||
-                          "Em definição"
+                          (financing.data.financing.banco ? rotulo(financing.data.financing.banco) : "Em definição")
                         }
                       />
                       <Info
-                        label="Valor financiado"
-                        value={money(financing.data.financing.valorFinanciado)}
+                        label="Modalidade"
+                        value={financing.data.financing.tipo ? rotulo(financing.data.financing.tipo) : "Em definição"}
                       />
+                      <Info label="Valor do imóvel" value={money(financing.data.financing.valorImovel)} />
+                      <Info label="Valor financiado" value={money(financing.data.financing.valorFinanciado)} />
                     </CardContent>
                   </Card>
+                  <h2 className="text-lg font-bold">Documentos</h2>
+                  {financing.data.checklist.length === 0 && (
+                    <Empty text="A equipe ainda não liberou documentos para você enviar." />
+                  )}
                   <div className="space-y-3">
                     {financing.data.checklist.map(item => (
                       <Card key={item.id}>
                         <CardContent className="p-4 flex flex-col md:flex-row md:items-center justify-between gap-3">
                           <div>
-                            <div className="flex items-center gap-2">
+                            <div className="flex flex-wrap items-center gap-2">
                               <FileCheck2
                                 className={`h-5 w-5 ${item.concluido ? "text-emerald-600" : "text-slate-400"}`}
                               />
@@ -474,7 +494,7 @@ export default function Portal() {
                               <Badge
                                 variant={item.concluido ? "default" : "outline"}
                               >
-                                {item.concluido ? "Concluído" : "Em andamento"}
+                                {item.concluido ? "Aprovado" : item.documentoNome ? "Enviado — em análise" : "Pendente"}
                               </Badge>
                             </div>
                             <p className="text-xs text-slate-500 mt-1">
@@ -512,7 +532,7 @@ export default function Portal() {
                                 setUploadChecklistId(item.id);
                                 financingFileRef.current?.click();
                               }}
-                              disabled={uploadFinancing.isPending}
+                              disabled={enviando}
                             >
                               <Upload className="h-4 w-4 mr-2" />
                               {item.documentoNome
@@ -546,7 +566,7 @@ export default function Portal() {
                   <CardContent className="p-4">
                     <div className="flex justify-between gap-3">
                       <p>{item.description}</p>
-                      <Badge variant="outline">{item.type}</Badge>
+                      <Badge variant="outline">{rotulo(item.type)}</Badge>
                     </div>
                     <p className="text-xs text-slate-500 mt-2">
                       {date(item.createdAt)}
@@ -572,7 +592,7 @@ export default function Portal() {
                         <p className="text-sm text-slate-500">
                           {property
                             ? `${property.titulo} — ${property.bairro ?? property.cidade}`
-                            : visit.visitType}
+                            : rotulo(visit.visitType)}
                         </p>
                         {visit.responsibleName && (
                           <p className="text-sm">
@@ -580,7 +600,7 @@ export default function Portal() {
                           </p>
                         )}
                       </div>
-                      <Badge>{visit.status}</Badge>
+                      <Badge>{rotulo(visit.status)}</Badge>
                     </div>
                   </CardContent>
                 </Card>
@@ -602,7 +622,7 @@ export default function Portal() {
                       <CardTitle className="text-lg">
                         Contrato {contract.number}
                       </CardTitle>
-                      <Badge>{contract.signatureStatus}</Badge>
+                      <Badge>{rotulo(contract.signatureStatus)}</Badge>
                     </div>
                   </CardHeader>
                   <CardContent className="space-y-3">
@@ -642,7 +662,7 @@ export default function Portal() {
                             setUploadContractId(contract.id);
                             contractFileRef.current?.click();
                           }}
-                          disabled={uploadContract.isPending}
+                          disabled={enviando}
                         >
                           <Upload className="h-4 w-4 mr-2" />
                           Enviar PDF
@@ -717,7 +737,7 @@ export default function Portal() {
                       </p>
                     </div>
                     <div className="text-right">
-                      <Badge>{item.paymentStatus}</Badge>
+                      <Badge>{rotulo(item.paymentStatus)}</Badge>
                       <p className="text-sm mt-2">
                         {money(Number(item.totalPaid) / 100)}
                       </p>
@@ -789,7 +809,7 @@ export default function Portal() {
                         {date(item.createdAt)}
                       </p>
                     </div>
-                    <Badge>{item.status}</Badge>
+                    <Badge>{rotulo(item.status)}</Badge>
                   </CardContent>
                 </Card>
               ))}
@@ -801,6 +821,51 @@ export default function Portal() {
         )}
       </main>
     </div>
+  );
+}
+
+const ETAPA_COR = { concluida: "bg-green-500", em_andamento: "bg-[#C9A961]", pendente: "bg-slate-400" } as const;
+const ETAPA_SITUACAO = { concluida: "Concluída", em_andamento: "Em andamento", pendente: "Não iniciada" } as const;
+
+/** Etapas do financiamento (só leitura): a atual em destaque, as anteriores concluídas. */
+function FinanciamentoEtapas({ status }: { status: string }) {
+  if (status === "cancelado") {
+    return (
+      <Card>
+        <CardContent className="p-4 text-sm font-semibold text-red-700">Financiamento cancelado.</CardContent>
+      </Card>
+    );
+  }
+  const etapas = FINANCIAMENTO_STATUS.filter(etapa => etapa !== "cancelado");
+  const atual = etapas.indexOf(status as (typeof etapas)[number]);
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="text-lg">Etapas do financiamento</CardTitle>
+      </CardHeader>
+      <CardContent>
+        <ol className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
+          {etapas.map((etapa, index) => {
+            const feita = atual >= 0 && index < atual;
+            const corrente = index === atual;
+            return (
+              <li
+                key={etapa}
+                aria-current={corrente ? "step" : undefined}
+                className={`flex items-center gap-2 rounded-lg border px-3 py-2 text-sm ${corrente ? "border-[#C9A961] bg-[#1A2332] font-bold text-[#C9A961]" : feita ? "border-emerald-200 bg-emerald-50 text-emerald-800" : "border-slate-200 bg-white text-slate-600"}`}
+              >
+                <span
+                  className={`grid h-6 w-6 shrink-0 place-items-center rounded-full text-xs ${corrente ? "bg-[#C9A961] text-[#1A2332]" : feita ? "bg-emerald-600 text-white" : "bg-slate-200 text-slate-700"}`}
+                >
+                  {feita ? "✓" : index + 1}
+                </span>
+                {rotulo(etapa)}
+              </li>
+            );
+          })}
+        </ol>
+      </CardContent>
+    </Card>
   );
 }
 

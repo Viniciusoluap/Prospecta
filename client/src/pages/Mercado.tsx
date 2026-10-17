@@ -100,9 +100,9 @@ export default function Mercado() {
             <Card className="bg-[#1A2332]/60 border-[#C9A961]/20 backdrop-blur-sm">
               <CardContent className="p-6 grid gap-4 md:grid-cols-3">
                 <div className="relative">
-                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-500" />
+                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
                   <Input placeholder="Buscar por título, bairro..." value={busca} onChange={(e) => setBusca(e.target.value)}
-                    className="pl-9 bg-[#2C3E50] border-[#C9A961]/20 text-gray-200 placeholder:text-gray-500" />
+                    className="pl-9 bg-[#2C3E50] border-[#C9A961]/20 text-gray-200 placeholder:text-gray-400" />
                 </div>
                 <Select value={fonte} onValueChange={setFonte}>
                   <SelectTrigger className="bg-[#2C3E50] border-[#C9A961]/20 text-gray-200">

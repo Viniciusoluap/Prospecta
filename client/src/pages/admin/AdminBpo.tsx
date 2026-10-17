@@ -36,6 +36,7 @@ import {
 } from "lucide-react";
 import TaxAccountingPanel from "./TaxAccountingPanel";
 import AdminRelatorios from "./AdminRelatorios";
+import { rotulo } from "@shared/rotulos";
 
 function formatCurrencyBR(value: number | string | null | undefined) {
   if (!value) return formatCurrency(0);
@@ -768,7 +769,7 @@ export default function AdminBpo({ initialTab }: { initialTab?: Aba } = {}) {
             </CardHeader>
             <CardContent>
               {clientes.length === 0 ? (
-                <div className="text-center py-12 text-gray-500">
+                <div className="text-center py-12 text-gray-400">
                   <Building2 className="h-12 w-12 mx-auto mb-3 opacity-20" />
                   <p>Nenhum cliente BPO cadastrado</p>
                 </div>
@@ -783,8 +784,8 @@ export default function AdminBpo({ initialTab }: { initialTab?: Aba } = {}) {
                         <p className="text-white font-medium">
                           {c.razaoSocial}
                         </p>
-                        <p className="text-xs text-gray-500">
-                          {c.responsavel} • {c.telefone} • status: {c.status}
+                        <p className="text-xs text-gray-400">
+                          {c.responsavel} • {c.telefone} • situação: {rotulo(c.status)}
                         </p>
                       </div>
                       <span className="font-bold text-[#C9A961]">
@@ -809,7 +810,7 @@ export default function AdminBpo({ initialTab }: { initialTab?: Aba } = {}) {
             </CardHeader>
             <CardContent>
               {(aba === "cobrancas" ? cobrancas : despesas).length === 0 ? (
-                <div className="text-center py-12 text-gray-500">
+                <div className="text-center py-12 text-gray-400">
                   <Receipt className="h-12 w-12 mx-auto mb-3 opacity-20" />
                   <p>Nenhum lançamento encontrado</p>
                 </div>
@@ -825,8 +826,8 @@ export default function AdminBpo({ initialTab }: { initialTab?: Aba } = {}) {
                           <p className="text-white font-medium">
                             {l.descricao}
                           </p>
-                          <p className="text-xs text-gray-500">
-                            {clienteNome(l)} • {l.tipo} • vence{" "}
+                          <p className="text-xs text-gray-400">
+                            {clienteNome(l)} • {rotulo(l.tipo)} • vence{" "}
                             {new Date(l.vencimento).toLocaleDateString("pt-BR")}{" "}
                             • comp. {l.competencia}
                             {l.pago && l.pagoEm
@@ -875,7 +876,7 @@ export default function AdminBpo({ initialTab }: { initialTab?: Aba } = {}) {
             </CardHeader>
             <CardContent>
               {dreRows.length === 0 ? (
-                <div className="text-center py-12 text-gray-500">
+                <div className="text-center py-12 text-gray-400">
                   <BarChart3 className="h-12 w-12 mx-auto mb-3 opacity-20" />
                   <p>Sem lançamentos para consolidar</p>
                 </div>
@@ -930,7 +931,7 @@ export default function AdminBpo({ initialTab }: { initialTab?: Aba } = {}) {
               </CardHeader>
               <CardContent>
                 {contas.length === 0 ? (
-                  <div className="text-center py-12 text-gray-500">
+                  <div className="text-center py-12 text-gray-400">
                     <Landmark className="h-12 w-12 mx-auto mb-3 opacity-20" />
                     <p>Nenhuma conta bancária cadastrada</p>
                   </div>
@@ -945,8 +946,8 @@ export default function AdminBpo({ initialTab }: { initialTab?: Aba } = {}) {
                           <p className="text-white font-medium">
                             {c.banco} — ag. {c.agencia || "—"} / cc {c.conta}
                           </p>
-                          <p className="text-xs text-gray-500">
-                            {c.tipo} •{" "}
+                          <p className="text-xs text-gray-400">
+                            {rotulo(c.tipo)} •{" "}
                             {c.pluggyAccountId
                               ? "sincronização automática habilitada"
                               : "sem Pluggy — saldo manual"}

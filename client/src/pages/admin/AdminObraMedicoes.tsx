@@ -261,7 +261,7 @@ export default function AdminObraMedicoes() {
           </CardHeader>
           <CardContent>
             {medicoes.length === 0 ? (
-              <div className="text-center py-12 text-gray-500">
+              <div className="text-center py-12 text-gray-400">
                 <Building2 className="h-12 w-12 mx-auto mb-3 opacity-30" />
                 <p>Nenhuma medição registrada ainda.</p>
                 <p className="text-sm mt-1">Clique em "Registrar Medição" para começar.</p>

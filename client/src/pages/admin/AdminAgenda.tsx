@@ -21,6 +21,7 @@ import {
   optionalId,
   Rows,
 } from "./OperationalUI";
+import { rotulo } from "@shared/rotulos";
 
 const blank = () => ({
   leadId: "",
@@ -184,7 +185,7 @@ export default function AdminAgenda({
             <td>
               {dateTime(v.scheduledAt)}
               <br />
-              {v.visitType}
+              {rotulo(v.visitType)}
             </td>
             <td>
               {leadName || v.clientName}
@@ -192,7 +193,7 @@ export default function AdminAgenda({
               {propertyTitle || "Sem imóvel"}
             </td>
             <td>{brokerName || v.responsibleName || "Não atribuído"}</td>
-            <td>{v.status}</td>
+            <td>{rotulo(v.status)}</td>
             <td>
               <div className="flex gap-2">
                 <Button

@@ -327,7 +327,7 @@ export default function Perfil() {
               <div className="text-center">
                 <h2 className="text-xl font-semibold text-white">{user?.name || "Usuário"}</h2>
                 <p className="text-gray-400 text-sm">{user?.email}</p>
-                <p className="text-xs text-gray-500 mt-1">Clique na câmera para alterar a foto</p>
+                <p className="text-xs text-gray-400 mt-1">Clique na câmera para alterar a foto</p>
               </div>
             </div>
           </CardContent>
@@ -352,7 +352,7 @@ export default function Perfil() {
                     value={formData.name}
                     onChange={(e) => handleChange("name", e.target.value)}
                     placeholder="Seu nome completo"
-                    className="bg-[#2a3a4a] border-[#3a4a5a] text-white placeholder:text-gray-500"
+                    className="bg-[#2a3a4a] border-[#3a4a5a] text-white placeholder:text-gray-400"
                   />
                 </div>
                 <div className="space-y-2">
@@ -363,7 +363,7 @@ export default function Perfil() {
                     value={formData.email}
                     onChange={(e) => handleChange("email", e.target.value)}
                     placeholder="seu@email.com"
-                    className="bg-[#2a3a4a] border-[#3a4a5a] text-white placeholder:text-gray-500"
+                    className="bg-[#2a3a4a] border-[#3a4a5a] text-white placeholder:text-gray-400"
                   />
                 </div>
               </div>
@@ -379,7 +379,7 @@ export default function Perfil() {
                       onChange={(e) => handleCPFChange(e.target.value)}
                       placeholder="000.000.000-00"
                       maxLength={14}
-                      className={`bg-[#2a3a4a] border-[#3a4a5a] text-white placeholder:text-gray-500 pr-10 ${
+                      className={`bg-[#2a3a4a] border-[#3a4a5a] text-white placeholder:text-gray-400 pr-10 ${
                         cpfValidation 
                           ? cpfValidation.valid 
                             ? "border-green-500" 
@@ -397,7 +397,7 @@ export default function Perfil() {
                       </div>
                     )}
                   </div>
-                  <p className={`text-xs ${cpfValidation?.valid === false ? "text-red-400" : "text-gray-500"}`}>
+                  <p className={`text-xs ${cpfValidation?.valid === false ? "text-red-400" : "text-gray-400"}`}>
                     {cpfValidation?.valid === false ? cpfValidation.message : "Necessário para pagamentos"}
                   </p>
                 </div>
@@ -409,7 +409,7 @@ export default function Perfil() {
                     onChange={(e) => handleChange("phone", formatPhone(e.target.value))}
                     placeholder="(00) 00000-0000"
                     maxLength={15}
-                    className="bg-[#2a3a4a] border-[#3a4a5a] text-white placeholder:text-gray-500"
+                    className="bg-[#2a3a4a] border-[#3a4a5a] text-white placeholder:text-gray-400"
                   />
                 </div>
               </div>
@@ -423,7 +423,7 @@ export default function Perfil() {
                   onChange={(e) => handleChange("address", e.target.value)}
                   placeholder="Rua, número, complemento, bairro"
                   rows={2}
-                  className="bg-[#2a3a4a] border-[#3a4a5a] text-white placeholder:text-gray-500 resize-none"
+                  className="bg-[#2a3a4a] border-[#3a4a5a] text-white placeholder:text-gray-400 resize-none"
                 />
               </div>
 
@@ -436,7 +436,7 @@ export default function Perfil() {
                     value={formData.city}
                     onChange={(e) => handleChange("city", e.target.value)}
                     placeholder="Sua cidade"
-                    className="bg-[#2a3a4a] border-[#3a4a5a] text-white placeholder:text-gray-500"
+                    className="bg-[#2a3a4a] border-[#3a4a5a] text-white placeholder:text-gray-400"
                   />
                 </div>
                 <div className="space-y-2">
@@ -462,7 +462,7 @@ export default function Perfil() {
                     onChange={(e) => handleChange("zipCode", formatCEP(e.target.value))}
                     placeholder="00000-000"
                     maxLength={9}
-                    className="bg-[#2a3a4a] border-[#3a4a5a] text-white placeholder:text-gray-500"
+                    className="bg-[#2a3a4a] border-[#3a4a5a] text-white placeholder:text-gray-400"
                   />
                 </div>
               </div>

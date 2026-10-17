@@ -29,3 +29,16 @@ export function brokerLeadStage(stage: string): { stageLabel: string; stageIndex
     totalStages: LEAD_PIPELINE_STAGES.length,
   };
 }
+
+/** Item 8 (18/10): o corretor vê o cadastro recusado por 3 dias; depois ele some da lista dele. */
+export const DIAS_AVISO_RECUSA = 3;
+
+export function recusaAindaVisivel(recusadoEm: Date | string, agora: Date = new Date()): boolean {
+  const quando = new Date(recusadoEm).getTime();
+  return Number.isFinite(quando) && agora.getTime() - quando < DIAS_AVISO_RECUSA * 24 * 60 * 60 * 1000;
+}
+
+/** Foto do formulário de edição: nova (data URL) ou já gravada no imóvel. */
+export function isPropertyPhotoOrSaved(value: string): boolean {
+  return isPropertyPhoto(value) || /^\/api\/imovel-foto\/\d{1,9}$/.test(value);
+}

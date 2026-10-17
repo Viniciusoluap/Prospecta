@@ -12,6 +12,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { toast } from "sonner";
+import { rotulo } from "@shared/rotulos";
 import {
   ArrowLeft,
   Building2,
@@ -20,6 +21,7 @@ import {
   Pencil,
   Eye,
   Ban,
+  Trash2,
 } from "lucide-react";
 
 const STATUS_LABELS: Record<string, string> = {
@@ -61,7 +63,15 @@ export default function AdminImoveis({
 
   const updateMutation = trpc.imoveis.update.useMutation({
     onSuccess: () => {
-      toast.success("Imóvel excluído.");
+      toast.success("Imóvel marcado como vendido e retirado do site.");
+      refetch();
+    },
+    onError: e => toast.error(e.message),
+  });
+  // Item 8 (18/10): exclusão definitiva — o imóvel some desta lista e do site.
+  const deleteMutation = trpc.imoveis.delete.useMutation({
+    onSuccess: () => {
+      toast.success("Imóvel excluído definitivamente.");
       refetch();
     },
     onError: e => toast.error(e.message),
@@ -134,12 +144,12 @@ export default function AdminImoveis({
         )}
         <div className="flex flex-col sm:flex-row gap-4">
           <div className="relative flex-1">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-500" />
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
             <Input
               placeholder="Buscar por título, bairro, tipo..."
               value={busca}
               onChange={e => setBusca(e.target.value)}
-              className="pl-9 bg-[#2C3E50] border-[#C9A961]/30 text-white placeholder:text-gray-500"
+              className="pl-9 bg-[#2C3E50] border-[#C9A961]/30 text-white placeholder:text-gray-400"
             />
           </div>
           <Select value={status} onValueChange={setStatus}>
@@ -214,9 +224,19 @@ export default function AdminImoveis({
                             Destaque
                           </span>
                         )}
+                        {imovel.reviewStatus === "pending" && (
+                          <span className="ml-1 text-[10px] bg-amber-400 text-[#1A2332] font-black px-1.5 py-0.5 uppercase">
+                            Aguardando revisão
+                          </span>
+                        )}
+                        {imovel.reviewStatus === "rejected" && (
+                          <span className="ml-1 text-[10px] bg-red-600 text-white font-black px-1.5 py-0.5 uppercase">
+                            Recusado
+                          </span>
+                        )}
                       </td>
                       <td className="px-4 py-3 hidden md:table-cell text-gray-300">
-                        {imovel.tipo}
+                        {rotulo(imovel.tipo)}
                       </td>
                       <td className="px-4 py-3 hidden lg:table-cell text-gray-300">
                         {[imovel.bairro, imovel.cidade]
@@ -280,6 +300,25 @@ export default function AdminImoveis({
                             }}
                           >
                             <Ban className="h-4 w-4" />
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-8 w-8 text-gray-400 hover:text-red-400"
+                            title="Excluir definitivamente"
+                            aria-label={`Excluir definitivamente ${imovel.titulo}`}
+                            disabled={deleteMutation.isPending}
+                            onClick={() => {
+                              if (
+                                !confirm(
+                                  `Excluir definitivamente "${imovel.titulo}"? O imóvel e as fotos saem do sistema e do site. Esta ação não pode ser desfeita.`
+                                )
+                              )
+                                return;
+                              deleteMutation.mutate({ id: imovel.id });
+                            }}
+                          >
+                            <Trash2 className="h-4 w-4" />
                           </Button>
                         </div>
                       </td>

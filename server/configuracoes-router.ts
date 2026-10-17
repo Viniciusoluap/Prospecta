@@ -64,16 +64,19 @@ export const configuracoesRouter = router({
     active: users.active,
     permissions: users.permissions,
     leadId: users.leadId,
+    // Item 12 (18/10): o cliente aparece pelo nome e telefone do CRM, não "cliente #71".
+    leadName: leads.name,
+    leadPhone: leads.phone,
     lastSignedIn: users.lastSignedIn,
     createdAt: users.createdAt,
-  }).from(users).orderBy(users.name)),
+  }).from(users).leftJoin(leads, eq(users.leadId, leads.id)).orderBy(users.name)),
 
   // A senha inicial nunca é digitada pelo admin: cria a conta com um hash placeholder
   // inutilizável (ninguém consegue logar com ele) e manda um email pro próprio usuário
   // definir a senha real pelo link de primeiro acesso.
   /** Item 05: clientes do CRM ainda sem conta (para ligar a conta de cliente). */
   leadsSemConta: adminProcedure.query(async () => getDb()
-    .select({ id: leads.id, name: leads.name, email: leads.email })
+    .select({ id: leads.id, name: leads.name, email: leads.email, phone: leads.phone })
     .from(leads)
     .leftJoin(users, eq(users.leadId, leads.id))
     .where(and(isNull(leads.deletedAt), isNull(users.id)))

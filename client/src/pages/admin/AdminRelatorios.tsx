@@ -207,7 +207,7 @@ export default function AdminRelatorios({
         </div>
 
         {isLoading || !data ? (
-          <p className="text-gray-500">Carregando indicadores...</p>
+          <p className="text-gray-400">Carregando indicadores...</p>
         ) : (
           <>
             <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
@@ -253,7 +253,7 @@ export default function AdminRelatorios({
                       {data.avaliacoes.total}
                     </p>
                     {data.avaliacoes.mediaValorEstimado != null && (
-                      <p className="text-[10px] text-gray-500">
+                      <p className="text-[10px] text-gray-400">
                         média{" "}
                         {formatCurrencyBR(data.avaliacoes.mediaValorEstimado)}
                       </p>
@@ -491,7 +491,7 @@ export default function AdminRelatorios({
                 </CardHeader>
                 <CardContent className="space-y-2">
                   {data.corretorRanking.length === 0 ? (
-                    <p className="text-gray-500 text-sm">
+                    <p className="text-gray-400 text-sm">
                       Nenhuma comissão registrada ainda.
                     </p>
                   ) : (

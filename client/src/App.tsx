@@ -68,6 +68,7 @@ import DefinirSenha from "./pages/DefinirSenha";
 import Portal from "./pages/Portal";
 import { PortalRoute } from "./components/PortalRoute";
 import { GlobalBackButton } from "./components/GlobalBackButton";
+import { BarraEnvioGlobal } from "./components/BarraEnvio";
 import BrokerPortal from "./pages/BrokerPortal";
 import EmpreiteiroPortal from "./pages/EmpreiteiroPortal";
 import { BrokerRoute } from "./components/BrokerRoute";
@@ -79,7 +80,7 @@ function Router() {
     <Switch>
       <Route path="/login" component={Login} />
       <Route path="/definir-senha/:token" component={DefinirSenha} />
-      <Route path="/portal/:rest*">
+      <Route path="/portal/*">
         <PortalRoute>
           <Portal />
         </PortalRoute>
@@ -89,7 +90,7 @@ function Router() {
           <Portal />
         </PortalRoute>
       </Route>
-      <Route path="/corretor/:rest*">
+      <Route path="/corretor/*">
         <BrokerRoute>
           <BrokerPortal />
         </BrokerRoute>
@@ -400,6 +401,7 @@ function App() {
           <Toaster />
           <Router />
           <GlobalBackButton />
+          <BarraEnvioGlobal />
           <WhatsAppFloat />
         </TooltipProvider>
       </ThemeProvider>

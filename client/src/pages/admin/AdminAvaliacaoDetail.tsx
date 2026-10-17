@@ -16,6 +16,7 @@ import {
   ArrowLeft, Home, TreePine, CheckCircle2, XCircle, MinusCircle,
   Sparkles, Loader2, Paperclip, X, FileText, FileImage, Trash2, Pencil, Printer,
 } from "lucide-react";
+import { rotulo } from "@shared/rotulos";
 
 type ItemState = { ok: boolean | null; nota: string };
 type ChecklistData = {
@@ -263,7 +264,7 @@ export default function AdminAvaliacaoDetail() {
         <Card className="bg-[#2C3E50] border-[#C9A961]/20">
           <CardHeader><CardTitle className="text-[#C9A961] text-base">Dados Gerais</CardTitle></CardHeader>
           <CardContent className="grid grid-cols-2 md:grid-cols-4 gap-3 text-sm">
-            <div><p className="text-gray-300 text-xs">Tipo</p><p className="text-white">{avaliacao.tipo}</p></div>
+            <div><p className="text-gray-300 text-xs">Tipo</p><p className="text-white">{rotulo(avaliacao.tipo)}</p></div>
             <div><p className="text-gray-300 text-xs">Finalidade</p><p className="text-white">{avaliacao.finalidade}</p></div>
             <div><p className="text-gray-300 text-xs">Metodologia</p><p className="text-white">{avaliacao.metodologia}</p></div>
             <div><p className="text-gray-300 text-xs">Avaliador</p><p className="text-white">{avaliacao.avaliador}</p></div>
@@ -327,7 +328,7 @@ export default function AdminAvaliacaoDetail() {
                     <AccordionTrigger className="text-sm text-white hover:no-underline">
                       <div className="flex items-center gap-2 flex-1">
                         <span className="font-bold uppercase text-xs tracking-wide text-[#C9A961]">{group.label}</span>
-                        <span className="text-xs text-gray-500 ml-auto mr-2">
+                        <span className="text-xs text-gray-400 ml-auto mr-2">
                           {groupNC > 0 && <span className="text-red-400 mr-2">{groupNC} NC</span>}
                           {groupVerified}/{group.items.length}
                         </span>
@@ -340,12 +341,12 @@ export default function AdminAvaliacaoDetail() {
                           return (
                             <div key={item.key} className="flex items-start gap-2 py-1">
                               <button onClick={() => setItemOk(item.key, state.ok === true ? null : true)} className="shrink-0 mt-0.5">
-                                <CheckCircle2 className={`h-4 w-4 ${state.ok === true ? "text-green-500" : "text-gray-600"}`} />
+                                <CheckCircle2 className={`h-4 w-4 ${state.ok === true ? "text-green-500" : "text-gray-300"}`} />
                               </button>
                               <button onClick={() => setItemOk(item.key, state.ok === false ? null : false)} className="shrink-0 mt-0.5">
-                                <XCircle className={`h-4 w-4 ${state.ok === false ? "text-red-400" : "text-gray-600"}`} />
+                                <XCircle className={`h-4 w-4 ${state.ok === false ? "text-red-400" : "text-gray-300"}`} />
                               </button>
-                              {state.ok === null && <MinusCircle className="h-4 w-4 text-gray-700 shrink-0 mt-0.5" />}
+                              {state.ok === null && <MinusCircle className="h-4 w-4 text-gray-200 shrink-0 mt-0.5" />}
                               <div className="flex-1">
                                 <p className={`text-sm ${state.ok === false ? "text-red-300" : "text-gray-300"}`}>{item.label}</p>
                                 {state.ok === false && (
@@ -380,7 +381,7 @@ export default function AdminAvaliacaoDetail() {
                   </div>
                 ))}
                 {checklist.fotos.length < MAX_FOTOS && (
-                  <label className="w-20 h-20 border border-dashed border-gray-600 rounded flex items-center justify-center cursor-pointer hover:border-[#C9A961] text-gray-500">
+                  <label className="w-20 h-20 border border-dashed border-gray-600 rounded flex items-center justify-center cursor-pointer hover:border-[#C9A961] text-gray-400">
                     <Paperclip className="h-4 w-4" />
                     <input type="file" accept="image/*" multiple className="hidden" onChange={handleFotoChange} />
                   </label>
@@ -412,7 +413,7 @@ export default function AdminAvaliacaoDetail() {
           </CardHeader>
           <CardContent>
             {!sugestao ? (
-              <p className="text-gray-500 text-sm">Nenhuma sugestão gerada ainda. Preencha o checklist antes para um resultado mais preciso.</p>
+              <p className="text-gray-400 text-sm">Nenhuma sugestão gerada ainda. Preencha o checklist antes para um resultado mais preciso.</p>
             ) : (
               <div className="space-y-3">
                 <div className="grid grid-cols-3 gap-3">
@@ -482,14 +483,14 @@ export default function AdminAvaliacaoDetail() {
               <div key={idx} className="flex items-center gap-2 bg-[#1A2332] rounded px-3 py-2">
                 {doc.tipo.startsWith("image/") ? <FileImage className="h-4 w-4 text-blue-400 shrink-0" /> : <FileText className="h-4 w-4 text-gray-400 shrink-0" />}
                 <a href={doc.url} download={doc.nome} className="text-sm text-white flex-1 truncate hover:underline">{doc.nome}</a>
-                <span className="text-xs text-gray-500">{formatSize(doc.tamanho)}</span>
-                <button onClick={() => removeDocumento(idx)} className="text-gray-500 hover:text-red-400">
+                <span className="text-xs text-gray-400">{formatSize(doc.tamanho)}</span>
+                <button onClick={() => removeDocumento(idx)} className="text-gray-400 hover:text-red-400">
                   <Trash2 className="h-4 w-4" />
                 </button>
               </div>
             ))}
             {documentos.length < MAX_DOCUMENTOS && (
-              <label className="flex items-center gap-2 border border-dashed border-gray-600 rounded px-3 py-2 cursor-pointer hover:border-[#C9A961] text-gray-500 text-sm w-fit">
+              <label className="flex items-center gap-2 border border-dashed border-gray-600 rounded px-3 py-2 cursor-pointer hover:border-[#C9A961] text-gray-400 text-sm w-fit">
                 <Paperclip className="h-4 w-4" /> Anexar documento
                 <input type="file" accept="image/*,application/pdf" multiple className="hidden" onChange={handleDocumentoChange} />
               </label>
