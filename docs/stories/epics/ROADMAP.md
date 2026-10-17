@@ -87,6 +87,17 @@ Uma sessão inicial do Prospecta (PR #91) tinha corrigido o `parseNumeroBR` em s
 digitar qualquer decimal com vírgula na prática. Corrigido antes do merge com um buffer de texto por
 campo (mesmo padrão do Santa Fé: o `<Input>` exibe o buffer, reformatado só no blur).
 
+## Pendência de paridade — Lote 18/10/2026 (revisão de imóveis do corretor)
+
+- **Origem:** pedido de 18/10 (item 8) — imóvel recusado aparece como "Recusado" para o
+  corretor por 3 dias e depois some; exclusão definitiva pelo admin.
+- **Prospecta:** implementado (`imoveis.reviewed_at`, `imovel_recusado_avisos`, migração 0056).
+- **Grupo Santa Fé:** a exclusão definitiva e o editar/excluir do corretor (só o próprio
+  imóvel) foram feitos no mesmo lote; **o SF não tem fluxo de revisão** (o cadastro do corretor
+  é publicado direto, sem "Pendente/Aprovado/Recusado"). Portar o fluxo de revisão inteiro
+  (situação da revisão, recusa e aviso de 3 dias) é uma story própria — **pendente**, não é
+  exceção de paridade.
+
 ## Coordenação entre trilhas
 
 - Trilha Claude (EPIC-000/001/003/005/008/009/010) e trilha Codex (EPIC-002/004/006/007) trabalham em branches separadas no mesmo repositório Prospecta.
