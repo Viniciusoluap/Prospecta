@@ -32,7 +32,7 @@ import { paymentSettingsRouter } from "./payment-settings-router.js";
 import { regularizacaoRouter } from "./regularizacao-router.js";
 import { portalRouter } from "./portal-router.js";
 import { whatsappRouter } from "./whatsapp-router.js";
-import { podeUsarModulo, requireModule, requireRole } from "./_core/rbac.js";
+import { podeUsarModulo, requireModule, requireModuloDoDestino, requireRole } from "./_core/rbac.js";
 import { encryptSecret, decryptSecret } from "./_core/secret-vault.js";
 import {
   authenticatePluggy,
@@ -1356,6 +1356,8 @@ export const appRouter = router({
       )
       .mutation(async ({ input, ctx }) => {
         requireModule(ctx, "crm");
+        // Serviços marcados no cadastro criam registros nos módulos de destino.
+        for (const serviceType of input.services ?? []) requireModuloDoDestino(ctx, LEAD_SERVICE_MODULE[serviceType]);
         await assertLeadAssignment(input);
         // Roteamento automático por cidade
         let responsible: "sarah" | "vinicius" | "bianca" = "sarah";

@@ -61,4 +61,15 @@ describe("colaborador — mesmos poderes do admin nos módulos liberados", () =>
       .rejects.toMatchObject({ code: "FORBIDDEN" });
     expect(banco).not.toHaveBeenCalled();
   });
+
+  it("cadastro de lead com serviço e operações em lote também exigem os módulos de destino", async () => {
+    const banco = vi.spyOn(db, "getDb");
+    const criar = vi.spyOn(db, "createLead");
+    const soCrm = caller("colaborador", ["crm"]);
+    await expect(soCrm.leads.create({ name: "Cliente", phone: "99999999", services: ["obra_cliente"] } as never)).rejects.toMatchObject({ code: "FORBIDDEN" });
+    await expect(soCrm.leadServices.backfillFromTrello()).rejects.toMatchObject({ code: "FORBIDDEN" });
+    await expect(soCrm.leadServices.reconcile({ dryRun: true })).rejects.toMatchObject({ code: "FORBIDDEN" });
+    expect(criar).not.toHaveBeenCalled();
+    expect(banco).not.toHaveBeenCalled();
+  });
 });

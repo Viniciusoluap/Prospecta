@@ -11,7 +11,7 @@ import { leadContact, leadFullAddress } from "../shared/lead-snapshot.js";
 import { selectProcessReference } from "../shared/service-reconciliation.js";
 import { tipoProjetoDoServico } from "../shared/obra-crm.js";
 import { adminProcedure, router } from "./_core/trpc.js";
-import { requireModuloDoDestino } from "./_core/rbac.js";
+import { requireModuloDoDestino, requireTodosOsModulosDeServico } from "./_core/rbac.js";
 import { getDb } from "./db.js";
 import { excluirDefinitivo } from "./exclusao-definitiva.js";
 
@@ -550,6 +550,7 @@ export const leadServicesRouter = router({
 
   /** Revisão idempotente dos vínculos antigos; resultados ambíguos ficam intocados. */
   reconcile: adminProcedure.input(z.object({ dryRun: z.boolean().default(true) })).mutation(async ({ input, ctx }) => {
+    requireTodosOsModulosDeServico(ctx);
     const database = getDb();
     const services = await database.select().from(leadServices).orderBy(leadServices.id);
     const results: Array<{ serviceId: number; leadId: number; module: string | null; state: string }> = [];
@@ -711,7 +712,8 @@ export const leadServicesRouter = router({
     return { success: true };
   }),
 
-  backfillFromTrello: adminProcedure.mutation(async () => {
+  backfillFromTrello: adminProcedure.mutation(async ({ ctx }) => {
+    requireTodosOsModulosDeServico(ctx);
     await ensureLeadServicesSchema();
     const database = getDb();
     const migrated = await database.select().from(leads).where(sql`${leads.notes} like '%trello.com/c/%'`);

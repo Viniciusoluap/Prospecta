@@ -63,6 +63,13 @@ export function requireModuloDoDestino(
   if (modulo) requireModule(ctx, modulo);
 }
 
+/** Operações em lote que mexem em todos os módulos de serviço exigem todos eles. */
+export function requireTodosOsModulosDeServico(
+  ctx: { user: { role: string; permissions?: string | null; active?: boolean | null } }
+): void {
+  for (const m of ["crm", "obras", "projetos", "regularizacao", "financiamentos", "avaliacoes"] as const) requireModule(ctx, m);
+}
+
 export function podeUsarModulo(
   user: { role: string; permissions?: string | null; active?: boolean | null },
   modulos: AdminModule | readonly AdminModule[]
