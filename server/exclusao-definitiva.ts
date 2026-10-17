@@ -13,6 +13,7 @@ import {
 } from "../drizzle/schema.js";
 import type { ModuloExclusao } from "../shared/exclusao.js";
 import { getDb } from "./db.js";
+import { MODULO_DO_DESTINO, podeUsarModulo } from "./_core/rbac.js";
 
 type Db = ReturnType<typeof getDb>;
 
@@ -89,11 +90,11 @@ function apagar(db: Db, modulo: ModuloExclusao, id: number) {
  * Exclui definitivamente o registro e tudo o que só existe por causa dele.
  * Registro inexistente (já excluído) não é erro.
  */
-export async function excluirDefinitivo(modulo: ModuloExclusao, id: number, ator: { role: string; active?: boolean | null }): Promise<{ excluido: boolean }> {
+export async function excluirDefinitivo(modulo: ModuloExclusao, id: number, ator: { role: string; active?: boolean | null; permissions?: string | null }): Promise<{ excluido: boolean }> {
   // Pedido de 17/10/2026: o colaborador faz tudo o que o admin faz nos módulos
-  // liberados — inclusive excluir. Quem chama já passou pela trava do módulo.
-  if (!(ator.active ?? true) || (ator.role !== "admin" && ator.role !== "colaborador"))
-    throw new TRPCError({ code: "FORBIDDEN", message: "Somente a equipe pode excluir." });
+  // liberados — inclusive excluir —, sempre conferindo o módulo do registro.
+  if (!podeUsarModulo(ator, MODULO_DO_DESTINO[modulo]))
+    throw new TRPCError({ code: "FORBIDDEN", message: "Sem permissão para excluir neste módulo." });
   const db = getDb();
   const info = await servicoVinculado(db, modulo, id);
   if (!info) return { excluido: false };

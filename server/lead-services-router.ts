@@ -11,6 +11,7 @@ import { leadContact, leadFullAddress } from "../shared/lead-snapshot.js";
 import { selectProcessReference } from "../shared/service-reconciliation.js";
 import { tipoProjetoDoServico } from "../shared/obra-crm.js";
 import { adminProcedure, router } from "./_core/trpc.js";
+import { requireModuloDoDestino, requireTodosOsModulosDeServico } from "./_core/rbac.js";
 import { getDb } from "./db.js";
 import { excluirDefinitivo } from "./exclusao-definitiva.js";
 
@@ -538,13 +539,18 @@ export async function createLeadServiceWithAutomation(input: z.infer<typeof serv
 export const leadServicesRouter = router({
   listForModule: adminProcedure.input(z.object({
     module: z.enum(["obras", "tarefas", "regularizacoes", "comissoes", "projetos", "avaliacoes", "financiamentos"]),
-  })).query(async ({ input }) => getDb().select({ service: leadServices, lead: leads })
-    .from(leadServices).innerJoin(leads, eq(leads.id, leadServices.leadId))
-    .where(and(eq(leadServices.operationalModule, input.module), ne(leadServices.status, "cancelled")))
-    .orderBy(desc(leadServices.createdAt))),
+  })).query(async ({ ctx, input }) => {
+    // A fila de cada módulo exige o próprio módulo (revisão do Codex no PR #130).
+    requireModuloDoDestino(ctx, input.module);
+    return getDb().select({ service: leadServices, lead: leads })
+      .from(leadServices).innerJoin(leads, eq(leads.id, leadServices.leadId))
+      .where(and(eq(leadServices.operationalModule, input.module), ne(leadServices.status, "cancelled")))
+      .orderBy(desc(leadServices.createdAt));
+  }),
 
   /** Revisão idempotente dos vínculos antigos; resultados ambíguos ficam intocados. */
   reconcile: adminProcedure.input(z.object({ dryRun: z.boolean().default(true) })).mutation(async ({ input, ctx }) => {
+    requireTodosOsModulosDeServico(ctx);
     const database = getDb();
     const services = await database.select().from(leadServices).orderBy(leadServices.id);
     const results: Array<{ serviceId: number; leadId: number; module: string | null; state: string }> = [];
@@ -572,7 +578,8 @@ export const leadServicesRouter = router({
   /** Cria os registros reais das demandas antigas que ainda aguardam configuração. */
   materializePending: adminProcedure.input(z.object({
     module: z.enum(MATERIALIZE_MODULES),
-  })).mutation(async ({ input }) => {
+  })).mutation(async ({ ctx, input }) => {
+    requireModuloDoDestino(ctx, input.module);
     await ensureLeadServicesSchema();
     const results = await materializePendingServices(input.module);
     return { created: results.filter(result => result.state === "created").length, results };
@@ -582,14 +589,18 @@ export const leadServicesRouter = router({
     getDb().select().from(leadServices).where(eq(leadServices.leadId, input.leadId)).orderBy(desc(leadServices.createdAt))
   ),
 
-  create: adminProcedure.input(serviceInput).mutation(async ({ input }) =>
-    (await createLeadServiceWithAutomation(input)).service
-  ),
+  // O serviço cria o registro no módulo de destino: exige também esse módulo.
+  create: adminProcedure.input(serviceInput).mutation(async ({ ctx, input }) => {
+    requireModuloDoDestino(ctx, LEAD_SERVICE_MODULE[input.serviceType]);
+    return (await createLeadServiceWithAutomation(input)).service;
+  }),
 
-  update: adminProcedure.input(serviceInput.partial().extend({ id: z.number().int().positive() })).mutation(async ({ input }) => {
+  update: adminProcedure.input(serviceInput.partial().extend({ id: z.number().int().positive() })).mutation(async ({ ctx, input }) => {
     const { id, serviceType, ...data } = input;
     const [previous] = await getDb().select().from(leadServices).where(eq(leadServices.id, id)).limit(1);
     if (!previous) throw new Error("Serviço não encontrado");
+    requireModuloDoDestino(ctx, previous.operationalModule);
+    if (serviceType) requireModuloDoDestino(ctx, LEAD_SERVICE_MODULE[serviceType]);
     if (data.leadId && data.leadId !== previous.leadId) throw new Error("A identidade do lead não pode ser alterada neste vínculo");
     const [updated] = await getDb().update(leadServices).set({
       ...data,
@@ -608,7 +619,8 @@ export const leadServicesRouter = router({
     id: z.number().int().positive(),
     operationalModule: z.enum(["obras", "regularizacoes", "financiamentos", "projetos"]),
     operationalRecordId: z.number().int().positive(),
-  })).mutation(async ({ input }) => {
+  })).mutation(async ({ ctx, input }) => {
+    requireModuloDoDestino(ctx, input.operationalModule);
     const database = getDb();
     const [service] = await database.select().from(leadServices).where(eq(leadServices.id, input.id)).limit(1);
     if (!service || LEAD_SERVICE_MODULE[service.serviceType as keyof typeof LEAD_SERVICE_MODULE] !== input.operationalModule)
@@ -642,7 +654,9 @@ export const leadServicesRouter = router({
   setStatus: adminProcedure.input(z.object({
     id: z.number().int().positive(),
     status: z.enum(["active", "paused", "completed", "cancelled"]),
-  })).mutation(async ({ input }) => {
+  })).mutation(async ({ ctx, input }) => {
+    const [atual] = await getDb().select({ operationalModule: leadServices.operationalModule }).from(leadServices).where(eq(leadServices.id, input.id)).limit(1);
+    requireModuloDoDestino(ctx, atual?.operationalModule);
     const [updated] = await getDb().update(leadServices).set({
       status: input.status, ...(input.status === "cancelled" ? { idempotencyKey: null } : {}), updatedAt: new Date(),
     })
@@ -651,10 +665,11 @@ export const leadServicesRouter = router({
     return updated;
   }),
 
-  unlinkProcess: adminProcedure.input(z.object({ id: z.number().int().positive() })).mutation(async ({ input }) => {
+  unlinkProcess: adminProcedure.input(z.object({ id: z.number().int().positive() })).mutation(async ({ ctx, input }) => {
     const database = getDb();
     const [service] = await database.select().from(leadServices).where(eq(leadServices.id, input.id)).limit(1);
     if (!service) throw new Error("Serviço não encontrado");
+    requireModuloDoDestino(ctx, service.operationalModule);
     const module = service.operationalModule as LinkableModule | null;
     // Limpa lead_service_id do registro operacional dos dois lados — obras,
     // projetos e regularizações têm índice único em lead_service_id, então
@@ -677,6 +692,8 @@ export const leadServicesRouter = router({
   // com as mesmas proteções da exclusão definitiva. O lead permanece.
   remove: adminProcedure.input(z.object({ id: z.number().int().positive() })).mutation(async ({ ctx, input }) => {
     const database = getDb();
+    const [servico] = await database.select({ operationalModule: leadServices.operationalModule }).from(leadServices).where(eq(leadServices.id, input.id)).limit(1);
+    requireModuloDoDestino(ctx, servico?.operationalModule);
     const vinculados = await Promise.all([
       database.select({ id: constructionProjects.id }).from(constructionProjects).where(eq(constructionProjects.leadServiceId, input.id)).then(r => r.map(x => ["obra", x.id] as const)),
       database.select({ id: financiamentos.id }).from(financiamentos).where(eq(financiamentos.leadServiceId, input.id)).then(r => r.map(x => ["financiamento", x.id] as const)),
@@ -695,7 +712,8 @@ export const leadServicesRouter = router({
     return { success: true };
   }),
 
-  backfillFromTrello: adminProcedure.mutation(async () => {
+  backfillFromTrello: adminProcedure.mutation(async ({ ctx }) => {
+    requireTodosOsModulosDeServico(ctx);
     await ensureLeadServicesSchema();
     const database = getDb();
     const migrated = await database.select().from(leads).where(sql`${leads.notes} like '%trello.com/c/%'`);
