@@ -386,6 +386,13 @@
       "when": 1791900000008,
       "tag": "0054_imovel_fotos",
       "breakpoints": true
+    },
+    {
+      "idx": 55,
+      "version": "7",
+      "when": 1791900000009,
+      "tag": "0055_permissoes_colaborador",
+      "breakpoints": true
     }
   ]
 }

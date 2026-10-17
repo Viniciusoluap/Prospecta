@@ -41,14 +41,15 @@ export default function AdminEditarObra({ modo = "admin" }: { modo?: "admin" | "
   const projectId = parseInt(id || "0");
   const { user, isAuthenticated, loading: authLoading } = useAuth();
   const ehEmpreiteiro = modo === "empreiteiro";
-  const papelPermitido = ehEmpreiteiro ? "empreiteiro" : "admin";
+  // O colaborador com o módulo Obras usa o painel como o admin (pedido de 17/10/2026).
+  const papelOk = ehEmpreiteiro ? user?.role === "empreiteiro" : user?.role === "admin" || user?.role === "colaborador";
   const voltarPara = ehEmpreiteiro ? "/empreiteiro" : "/admin/obras";
   const [, setLocation] = useLocation();
   const [activeTab, setActiveTab] = useState("info");
 
   const { data: project, isLoading, refetch } = trpc.construction.getProjectDetails.useQuery(
     { projectId },
-    { enabled: isAuthenticated && user?.role === papelPermitido && !!projectId }
+    { enabled: isAuthenticated && papelOk && !!projectId }
   );
 
   const updateMutation = trpc.construction.updateProject.useMutation({
@@ -79,7 +80,7 @@ export default function AdminEditarObra({ modo = "admin" }: { modo?: "admin" | "
   const [cefBranch, setCefBranch] = useState("");
 
   // Valores da Operação e Custos (Lote 2)
-  const resumoQuery = trpc.obraFinanceiro.resumo.useQuery({ projectId }, { enabled: isAuthenticated && user?.role === papelPermitido && !!projectId });
+  const resumoQuery = trpc.obraFinanceiro.resumo.useQuery({ projectId }, { enabled: isAuthenticated && papelOk && !!projectId });
   const resumo = resumoQuery.data;
   const [formFin, setFormFin] = useState<FormFinanceiro | null>(null);
   useEffect(() => {
@@ -100,10 +101,10 @@ export default function AdminEditarObra({ modo = "admin" }: { modo?: "admin" | "
   }, [authLoading, isAuthenticated]);
 
   useEffect(() => {
-    if (!authLoading && isAuthenticated && user?.role !== papelPermitido) {
+    if (!authLoading && isAuthenticated && !papelOk) {
       setLocation("/");
     }
-  }, [authLoading, isAuthenticated, user, setLocation, papelPermitido]);
+  }, [authLoading, isAuthenticated, user, setLocation, papelOk]);
 
   useEffect(() => {
     if (project) {
@@ -184,7 +185,7 @@ export default function AdminEditarObra({ modo = "admin" }: { modo?: "admin" | "
     );
   }
 
-  if (user?.role !== papelPermitido) {
+  if (!papelOk) {
     return null;
   }
 

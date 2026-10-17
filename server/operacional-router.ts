@@ -365,11 +365,6 @@ export const corretoresRouter = router({
       return { id: input.id };
     }),
   delete: adminProcedure.input(idInput).mutation(async ({ ctx, input }) => {
-    if (ctx.user.role !== "admin")
-      throw new TRPCError({
-        code: "FORBIDDEN",
-        message: "Somente administrador pode excluir corretores",
-      });
     if (ctx.user.id === input.id)
       throw new TRPCError({
         code: "BAD_REQUEST",

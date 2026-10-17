@@ -32,7 +32,7 @@ import { paymentSettingsRouter } from "./payment-settings-router.js";
 import { regularizacaoRouter } from "./regularizacao-router.js";
 import { portalRouter } from "./portal-router.js";
 import { whatsappRouter } from "./whatsapp-router.js";
-import { requireRole } from "./_core/rbac.js";
+import { podeUsarModulo, requireModule, requireRole } from "./_core/rbac.js";
 import { encryptSecret, decryptSecret } from "./_core/secret-vault.js";
 import {
   authenticatePluggy,
@@ -268,8 +268,8 @@ export const appRouter = router({
         })
       )
       .mutation(async ({ input, ctx }) => {
-        // Apenas admin pode criar sorteios
-        requireRole(ctx, ["admin"]);
+        // Admin ou colaborador com o Ecossistema de Sorteio liberado
+        requireModule(ctx, "sorteios");
         return db.createDraw(input);
       }),
 
@@ -282,7 +282,7 @@ export const appRouter = router({
       )
       .mutation(async ({ input, ctx }) => {
         // Apenas admin pode realizar sorteio
-        requireRole(ctx, ["admin"]);
+        requireModule(ctx, "sorteios");
 
         const draw = await db.getDrawById(input.drawId);
         if (!draw) {
@@ -623,8 +623,8 @@ export const appRouter = router({
         })
       )
       .mutation(async ({ input, ctx }) => {
-        // Apenas admin pode criar produtos
-        requireRole(ctx, ["admin"]);
+        // Admin ou colaborador com o Ecossistema de Sorteio liberado
+        requireModule(ctx, "sorteios");
         return db.createProduct(input);
       }),
 
@@ -643,7 +643,7 @@ export const appRouter = router({
         })
       )
       .mutation(async ({ input, ctx }) => {
-        requireRole(ctx, ["admin"]);
+        requireModule(ctx, "sorteios");
         const base64Data = input.base64.replace(
           /^data:image\/[a-zA-Z0-9.+-]+;base64,/,
           ""
@@ -779,9 +779,9 @@ export const appRouter = router({
       return db.getProjectsByUserId(ctx.user.id);
     }),
 
-    // Listar TODAS as obras (apenas admin)
+    // Listar TODAS as obras (admin ou colaborador com Obras)
     allProjects: protectedProcedure.query(async ({ ctx }) => {
-      requireRole(ctx, ["admin"]);
+      requireModule(ctx, "obras");
       await ensureLeadServicesSchema();
       return db.getAllProjects();
     }),
@@ -799,7 +799,7 @@ export const appRouter = router({
         }
         // Proprietário, admin ou (pedido de 15/10) o empreiteiro vinculado à obra.
         const empreiteiroDaObra = ctx.user.role === "empreiteiro" && project.contractorUserId === ctx.user.id;
-        if (project.userId !== ctx.user.id && ctx.user.role !== "admin" && !empreiteiroDaObra) {
+        if (project.userId !== ctx.user.id && !podeUsarModulo(ctx.user, "obras") && !empreiteiroDaObra) {
           throw new TRPCError({ code: "FORBIDDEN", message: "Acesso negado" });
         }
         return project;
@@ -897,7 +897,7 @@ export const appRouter = router({
             message: "Obra não encontrada",
           });
         }
-        if (project.userId !== ctx.user.id && ctx.user.role !== "admin") {
+        if (project.userId !== ctx.user.id && !podeUsarModulo(ctx.user, "obras")) {
           throw new TRPCError({ code: "FORBIDDEN", message: "Acesso negado" });
         }
         const stage = await db.createStage(input);
@@ -930,7 +930,7 @@ export const appRouter = router({
         const project = await db.getProjectById(stage.projectId);
         if (
           !project ||
-          (project.userId !== ctx.user.id && ctx.user.role !== "admin")
+          (project.userId !== ctx.user.id && !podeUsarModulo(ctx.user, "obras"))
         ) {
           throw new TRPCError({ code: "FORBIDDEN", message: "Acesso negado" });
         }
@@ -952,7 +952,7 @@ export const appRouter = router({
         const project = await db.getProjectById(stage.projectId);
         if (
           !project ||
-          (project.userId !== ctx.user.id && ctx.user.role !== "admin")
+          (project.userId !== ctx.user.id && !podeUsarModulo(ctx.user, "obras"))
         ) {
           throw new TRPCError({ code: "FORBIDDEN", message: "Acesso negado" });
         }
@@ -1045,7 +1045,7 @@ export const appRouter = router({
 
     // Listar TODOS os orçamentos (apenas admin)
     getAll: protectedProcedure.query(async ({ ctx }) => {
-      requireRole(ctx, ["admin"]);
+      requireModule(ctx, "projetos");
       return db.getAllBudgetRequests();
     }),
 
@@ -1053,7 +1053,7 @@ export const appRouter = router({
     getById: protectedProcedure
       .input(z.object({ id: z.number() }))
       .query(async ({ input, ctx }) => {
-        requireRole(ctx, ["admin"]);
+        requireModule(ctx, "projetos");
         const request = await db.getBudgetRequestById(input.id);
         if (!request) {
           throw new TRPCError({
@@ -1082,7 +1082,7 @@ export const appRouter = router({
         })
       )
       .mutation(async ({ input, ctx }) => {
-        requireRole(ctx, ["admin"]);
+        requireModule(ctx, "projetos");
         const { id, ...updates } = input;
 
         // Buscar dados do orçamento antes de atualizar
@@ -1125,7 +1125,7 @@ export const appRouter = router({
     delete: protectedProcedure
       .input(z.object({ id: z.number() }))
       .mutation(async ({ input, ctx }) => {
-        requireRole(ctx, ["admin"]);
+        requireModule(ctx, "projetos");
         await db.deleteBudgetRequest(input.id);
         return { success: true };
       }),
@@ -1135,19 +1135,19 @@ export const appRouter = router({
   analytics: router({
     // Obter estatísticas gerais (apenas admin)
     getStats: protectedProcedure.query(async ({ ctx }) => {
-      requireRole(ctx, ["admin"]);
+      requireModule(ctx, []);
       return db.getAnalyticsStats();
     }),
 
     // Obter orçamentos por status (apenas admin)
     getBudgetRequestsByStatus: protectedProcedure.query(async ({ ctx }) => {
-      requireRole(ctx, ["admin"]);
+      requireModule(ctx, []);
       return db.getBudgetRequestsByStatus();
     }),
 
     // Obter obras por status (apenas admin)
     getProjectsByStatus: protectedProcedure.query(async ({ ctx }) => {
-      requireRole(ctx, ["admin"]);
+      requireModule(ctx, []);
       return db.getProjectsByStatus();
     }),
 
@@ -1155,19 +1155,19 @@ export const appRouter = router({
     getRecentBudgetRequests: protectedProcedure
       .input(z.object({ limit: z.number().optional() }))
       .query(async ({ input, ctx }) => {
-        requireRole(ctx, ["admin"]);
+        requireModule(ctx, []);
         return db.getRecentBudgetRequests(input.limit);
       }),
 
     getManagementDashboard: protectedProcedure.query(async ({ ctx }) => {
-      requireRole(ctx, ["admin"]);
+      requireModule(ctx, []);
       return db.getManagementDashboardData();
     }),
 
     saveMonthlyGoal: protectedProcedure
       .input(z.object({ value: z.number().min(0).max(1_000_000_000) }))
       .mutation(async ({ ctx, input }) => {
-        requireRole(ctx, ["admin"]);
+        requireModule(ctx, []);
         await db.saveDashboardSetting(
           "monthly_sales_goal",
           String(input.value)
@@ -1180,7 +1180,7 @@ export const appRouter = router({
   emails: router({
     // Listar todos os emails (apenas admin)
     getAll: protectedProcedure.query(async ({ ctx }) => {
-      requireRole(ctx, ["admin"]);
+      requireModule(ctx, []);
       return db.getAllEmailLogs();
     }),
 
@@ -1188,7 +1188,7 @@ export const appRouter = router({
     getRecent: protectedProcedure
       .input(z.object({ limit: z.number().optional() }))
       .query(async ({ input, ctx }) => {
-        requireRole(ctx, ["admin"]);
+        requireModule(ctx, []);
         return db.getRecentEmailLogs(input.limit);
       }),
 
@@ -1196,7 +1196,7 @@ export const appRouter = router({
     getById: protectedProcedure
       .input(z.object({ id: z.number() }))
       .query(async ({ input, ctx }) => {
-        requireRole(ctx, ["admin"]);
+        requireModule(ctx, []);
         const email = await db.getEmailLogById(input.id);
         if (!email) {
           throw new TRPCError({
@@ -1256,7 +1256,7 @@ export const appRouter = router({
     deletionContext: protectedProcedure
       .input(z.object({ id: z.number().int().positive() }))
       .query(async ({ input, ctx }) => {
-        requireRole(ctx, ["admin"]);
+        requireModule(ctx, "crm");
         const lead = await db.getLeadById(input.id);
         if (!lead) throw new TRPCError({ code: "NOT_FOUND" });
         return db.getLeadDeletionContext(input.id);
@@ -1265,7 +1265,7 @@ export const appRouter = router({
     softDelete: protectedProcedure
       .input(z.object({ id: z.number().int().positive() }))
       .mutation(async ({ input, ctx }) => {
-        requireRole(ctx, ["admin"]);
+        requireModule(ctx, "crm");
         const changed = await db.setLeadDeleted(input.id, ctx.user.id, true);
         if (!changed) throw new TRPCError({ code: "CONFLICT", message: "Lead inexistente ou já excluído" });
         return { success: true };
@@ -1274,7 +1274,7 @@ export const appRouter = router({
     restore: protectedProcedure
       .input(z.object({ id: z.number().int().positive() }))
       .mutation(async ({ input, ctx }) => {
-        requireRole(ctx, ["admin"]);
+        requireModule(ctx, "crm");
         const changed = await db.setLeadDeleted(input.id, ctx.user.id, false);
         if (!changed) throw new TRPCError({ code: "CONFLICT", message: "Lead inexistente ou ativo" });
         return { success: true };
@@ -1293,20 +1293,20 @@ export const appRouter = router({
           .optional()
       )
       .query(async ({ input, ctx }) => {
-        requireRole(ctx, ["admin"]);
+        requireModule(ctx, "crm");
         return db.getAllLeads(input || {});
       }),
 
     /** Responsáveis e corretores reais (EPIC-017, stories 1.6 e 1.8). */
     assignmentOptions: protectedProcedure.query(async ({ ctx }) => {
-      requireRole(ctx, ["admin"]);
+      requireModule(ctx, "crm");
       return db.getLeadAssignmentOptions();
     }),
 
     getById: protectedProcedure
       .input(z.object({ id: z.number() }))
       .query(async ({ input, ctx }) => {
-        requireRole(ctx, ["admin"]);
+        requireModule(ctx, "crm");
         const lead = await db.getLeadById(input.id);
         if (!lead) throw new TRPCError({ code: "NOT_FOUND" });
         const [activities, documents, followUps] = await Promise.all([
@@ -1355,7 +1355,7 @@ export const appRouter = router({
         })
       )
       .mutation(async ({ input, ctx }) => {
-        requireRole(ctx, ["admin"]);
+        requireModule(ctx, "crm");
         await assertLeadAssignment(input);
         // Roteamento automático por cidade
         let responsible: "sarah" | "vinicius" | "bianca" = "sarah";
@@ -1482,7 +1482,7 @@ export const appRouter = router({
         })
       )
       .mutation(async ({ input, ctx }) => {
-        requireRole(ctx, ["admin"]);
+        requireModule(ctx, "crm");
         const { id, stage, ...data } = input;
         await assertLeadAssignment(data);
         const lead = await db.getLeadById(id);
@@ -1545,7 +1545,7 @@ export const appRouter = router({
         })
       )
       .mutation(async ({ input, ctx }) => {
-        requireRole(ctx, ["admin"]);
+        requireModule(ctx, "crm");
         await db.addLeadActivity({
           ...input,
           performedBy: input.performedBy || "vinicius",
@@ -1575,7 +1575,7 @@ export const appRouter = router({
         })
       )
       .mutation(async ({ input, ctx }) => {
-        requireRole(ctx, ["admin"]);
+        requireModule(ctx, "crm");
         if (input.fileName || input.fileUrl || (input.status && input.status !== "pending")) {
           throw new TRPCError({ code: "BAD_REQUEST", message: "Use o envio autenticado ao Google Drive para registrar arquivos" });
         }
@@ -1601,14 +1601,14 @@ export const appRouter = router({
         })
       )
       .mutation(async ({ input, ctx }) => {
-        requireRole(ctx, ["admin"]);
+        requireModule(ctx, "crm");
         const { id, ...data } = input;
         await db.updateLeadDocument(id, { ...data, reviewedAt: new Date() });
         return { success: true };
       }),
 
     stats: protectedProcedure.query(async ({ ctx }) => {
-      requireRole(ctx, ["admin"]);
+      requireModule(ctx, "crm");
       return db.getLeadStats();
     }),
   }),
@@ -1626,7 +1626,7 @@ export const appRouter = router({
           .optional()
       )
       .query(async ({ input, ctx }) => {
-        requireRole(ctx, ["admin"]);
+        requireModule(ctx, "agenda");
         const rows = await db.getAllTasks(input?.assignedTo);
         return input?.status ? rows.filter(task => task.status === input.status) : rows;
       }),
@@ -1634,13 +1634,13 @@ export const appRouter = router({
     // Responsáveis selecionáveis: apenas administradores e colaboradores ativos,
     // carregados do banco — nunca uma lista fixa de nomes.
     assignableUsers: protectedProcedure.query(async ({ ctx }) => {
-      requireRole(ctx, ["admin"]);
+      requireModule(ctx, "agenda");
       return db.getAssignableUsers();
     }),
 
     // Leads elegíveis para vínculo: exclui excluídos (soft delete) e rejeitados.
     leadOptions: protectedProcedure.query(async ({ ctx }) => {
-      requireRole(ctx, ["admin"]);
+      requireModule(ctx, "agenda");
       return db.getAssignableLeadOptions();
     }),
 
@@ -1661,7 +1661,7 @@ export const appRouter = router({
         })
       )
       .mutation(async ({ input, ctx }) => {
-        requireRole(ctx, ["admin"]);
+        requireModule(ctx, "agenda");
         const assignee = await db.getAssignableUserById(input.assignedTo);
         if (!assignee) {
           throw new TRPCError({
@@ -1704,7 +1704,7 @@ export const appRouter = router({
         })
       )
       .mutation(async ({ input, ctx }) => {
-        requireRole(ctx, ["admin"]);
+        requireModule(ctx, "agenda");
         const { id, assignedTo, ...data } = input;
         if (!(await db.getTaskById(id))) {
           throw new TRPCError({ code: "NOT_FOUND", message: "Tarefa não encontrada" });
@@ -1763,7 +1763,7 @@ export const appRouter = router({
     list: protectedProcedure
       .input(z.object({ projectId: z.number() }))
       .query(async ({ input, ctx }) => {
-        requireRole(ctx, ["admin"]);
+        requireModule(ctx, "obras");
         const db = await import("./db.js").then(m => m.getDb());
         if (!db) return [];
         const { sql } = await import("drizzle-orm");
@@ -1817,7 +1817,7 @@ export const appRouter = router({
         })
       )
       .mutation(async ({ input, ctx }) => {
-        requireRole(ctx, ["admin"]);
+        requireModule(ctx, "obras");
         const db = await import("./db.js").then(m => m.getDb());
         if (!db)
           throw new TRPCError({
@@ -1851,7 +1851,7 @@ export const appRouter = router({
         })
       )
       .mutation(async ({ input, ctx }) => {
-        requireRole(ctx, ["admin"]);
+        requireModule(ctx, "obras");
         const db = await import("./db.js").then(m => m.getDb());
         if (!db)
           throw new TRPCError({
@@ -1887,7 +1887,7 @@ export const appRouter = router({
         })
       )
       .mutation(async ({ input, ctx }) => {
-        requireRole(ctx, ["admin"]);
+        requireModule(ctx, "obras");
         const db = await import("./db.js").then(m => m.getDb());
         if (!db)
           throw new TRPCError({
@@ -1919,7 +1919,7 @@ export const appRouter = router({
           .optional()
       )
       .query(async ({ ctx }) => {
-        requireRole(ctx, ["admin"]);
+        requireModule(ctx, "bpo");
         return db.getAllFinancialTransactions
           ? db.getAllFinancialTransactions()
           : [];
@@ -1952,7 +1952,7 @@ export const appRouter = router({
         })
       )
       .mutation(async ({ input, ctx }) => {
-        requireRole(ctx, ["admin"]);
+        requireModule(ctx, "bpo");
         if (db.createFinancialTransaction) {
           return db.createFinancialTransaction({
             ...input,
@@ -1972,7 +1972,7 @@ export const appRouter = router({
         })
       )
       .mutation(async ({ input, ctx }) => {
-        requireRole(ctx, ["admin"]);
+        requireModule(ctx, "bpo");
         await db.updateFinancialTransactionStatus(input.id, input.status);
         return { success: true };
       }),
@@ -2002,7 +2002,7 @@ export const appRouter = router({
           })
         )
         .mutation(async ({ input, ctx }) => {
-          requireRole(ctx, ["admin"]);
+          requireModule(ctx, "bpo");
           return db.createBpoClient({
             ...input,
             servicos: JSON.stringify(input.servicos),
@@ -2019,7 +2019,7 @@ export const appRouter = router({
           })
         )
         .mutation(async ({ input, ctx }) => {
-          requireRole(ctx, ["admin"]);
+          requireModule(ctx, "bpo");
           await db.updateBpoClientStatus(input.id, input.status);
           return { success: true };
         }),
@@ -2272,7 +2272,7 @@ export const appRouter = router({
           .optional()
       )
       .query(async ({ input, ctx }) => {
-        const isAdmin = ctx.user?.role === "admin";
+        const isAdmin = !!ctx.user && podeUsarModulo(ctx.user, "imoveis");
         return db.getAllImoveis({
           status: input?.status,
           tipo: input?.tipo,
@@ -2325,7 +2325,7 @@ export const appRouter = router({
         })
       )
       .mutation(async ({ input, ctx }) => {
-        requireRole(ctx, ["admin"]);
+        requireModule(ctx, "imoveis");
         const criado = await db.createImovel({
           ...input,
           fotos: "[]",
@@ -2372,7 +2372,7 @@ export const appRouter = router({
         })
       )
       .mutation(async ({ input, ctx }) => {
-        requireRole(ctx, ["admin"]);
+        requireModule(ctx, "imoveis");
         const { id, fotos, ...data } = input;
         await db.updateImovel(id, {
           ...data,
@@ -2556,7 +2556,7 @@ export const appRouter = router({
     delete: protectedProcedure
       .input(z.object({ id: z.number() }))
       .mutation(async ({ input, ctx }) => {
-        requireRole(ctx, ["admin"]);
+        requireModule(ctx, "avaliacoes");
         // Item 03: remove também o serviço do CRM que só existia para ela.
         await excluirDefinitivo("avaliacao", input.id, ctx.user);
         return { success: true };
@@ -2740,7 +2740,7 @@ export const appRouter = router({
     importarParaCatalogo: protectedProcedure
       .input(z.object({ id: z.number() }))
       .mutation(async ({ input, ctx }) => {
-        requireRole(ctx, ["admin"]);
+        requireModule(ctx, "imoveis");
         const imovel = await db.importarAgregadorParaCatalogo(input.id);
         if (!imovel) throw new TRPCError({ code: "NOT_FOUND" });
         return imovel;
@@ -2760,19 +2760,19 @@ export const appRouter = router({
     dueDiligence: incorporationDueDiligenceRouter,
     units: incorporationUnitsRouter,
     staff: protectedProcedure.query(async ({ ctx }) => {
-      requireRole(ctx, ["admin"]);
+      requireModule(ctx, "incorporacao");
       return db.getIncorporationStaff();
     }),
     versions: protectedProcedure
       .input(z.object({ id: z.number().int() }))
       .query(async ({ input, ctx }) => {
-        requireRole(ctx, ["admin"]);
+        requireModule(ctx, "incorporacao");
         return db.getIncorporationStudyVersions(input.id);
       }),
     versionSnapshot: protectedProcedure
       .input(z.object({ id: z.number().int(), revision: z.number().int().positive() }))
       .query(async ({ input, ctx }) => {
-        requireRole(ctx, ["admin"]);
+        requireModule(ctx, "incorporacao");
         const version = await db.getIncorporationStudyVersion(input.id, input.revision);
         if (!version) throw new TRPCError({ code: "NOT_FOUND", message: "Versão não encontrada" });
         return version;
@@ -2786,14 +2786,14 @@ export const appRouter = router({
           .optional()
       )
       .query(async ({ input, ctx }) => {
-        requireRole(ctx, ["admin"]);
+        requireModule(ctx, "incorporacao");
         return db.getAllIncorporationStudies(input);
       }),
 
     getById: protectedProcedure
       .input(z.object({ id: z.number() }))
       .query(async ({ input, ctx }) => {
-        requireRole(ctx, ["admin"]);
+        requireModule(ctx, "incorporacao");
         const estudo = await db.getIncorporationStudyById(input.id);
         if (!estudo) throw new TRPCError({ code: "NOT_FOUND" });
         return estudo;
@@ -2818,7 +2818,7 @@ export const appRouter = router({
         })
       )
       .mutation(async ({ input, ctx }) => {
-        requireRole(ctx, ["admin"]);
+        requireModule(ctx, "incorporacao");
         return db.createIncorporationStudy({
           ...input,
           latitude: input.latitude?.toString(),
@@ -2847,7 +2847,7 @@ export const appRouter = router({
         })
       )
       .mutation(async ({ input, ctx }) => {
-        requireRole(ctx, ["admin"]);
+        requireModule(ctx, "incorporacao");
         const { id, ...data } = input;
         await db.updateIncorporationStudy(id, {
           ...data,
@@ -2860,7 +2860,7 @@ export const appRouter = router({
     uploadKml: protectedProcedure
       .input(z.object({ id: z.number(), kmlContent: z.string().min(1) }))
       .mutation(async ({ input, ctx }) => {
-        requireRole(ctx, ["admin"]);
+        requireModule(ctx, "incorporacao");
         const estudo = await db.getIncorporationStudyById(input.id);
         if (!estudo) throw new TRPCError({ code: "NOT_FOUND" });
         let terreno;
@@ -2899,7 +2899,7 @@ export const appRouter = router({
         })
       )
       .mutation(async ({ input, ctx }) => {
-        requireRole(ctx, ["admin"]);
+        requireModule(ctx, "incorporacao");
         const { id, ...bbox } = input;
         let grid;
         try {
@@ -2927,7 +2927,7 @@ export const appRouter = router({
         })
       )
       .mutation(async ({ input, ctx }) => {
-        requireRole(ctx, ["admin"]);
+        requireModule(ctx, "incorporacao");
         await db.updateIncorporationStudy(input.id, {
           appAreaM2: input.areaM2.toString(),
           appWidthM: input.larguraM?.toString(),
@@ -2945,7 +2945,7 @@ export const appRouter = router({
         })
       )
       .mutation(async ({ input, ctx }) => {
-        requireRole(ctx, ["admin"]);
+        requireModule(ctx, "incorporacao");
         let resultado;
         try {
           resultado = await pesquisarMercado(input.municipio, input.estado);
@@ -2974,7 +2974,7 @@ export const appRouter = router({
     savePrecificacao: protectedProcedure
       .input(z.object({ id: z.number(), dataJson: z.string().min(1) }))
       .mutation(async ({ input, ctx }) => {
-        requireRole(ctx, ["admin"]);
+        requireModule(ctx, "incorporacao");
         await db.updateIncorporationStudy(input.id, {
           comparablePricingJson: input.dataJson,
         });
@@ -2984,7 +2984,7 @@ export const appRouter = router({
     savePesquisaPrimaria: protectedProcedure
       .input(z.object({ id: z.number(), dataJson: z.string().min(1) }))
       .mutation(async ({ input, ctx }) => {
-        requireRole(ctx, ["admin"]);
+        requireModule(ctx, "incorporacao");
         await db.updateIncorporationStudy(input.id, {
           primaryResearchJson: input.dataJson,
         });
@@ -3001,7 +3001,7 @@ export const appRouter = router({
         })
       )
       .mutation(async ({ input, ctx }) => {
-        requireRole(ctx, ["admin"]);
+        requireModule(ctx, "incorporacao");
         await db.updateIncorporationStudy(input.id, {
           urbanParametersJson: input.parametrosJson,
           potentialJson: input.potencialJson,
@@ -3019,7 +3019,7 @@ export const appRouter = router({
         })
       )
       .mutation(async ({ input, ctx }) => {
-        requireRole(ctx, ["admin"]);
+        requireModule(ctx, "incorporacao");
         await db.updateIncorporationStudy(input.id, {
           massScenariosJson: input.dataJson,
           selectedScenarioId: input.selectedScenarioId,
@@ -3030,7 +3030,7 @@ export const appRouter = router({
     saveAreasBoard: protectedProcedure
       .input(z.object({ id: z.number(), dataJson: z.string().min(1) }))
       .mutation(async ({ input, ctx }) => {
-        requireRole(ctx, ["admin"]);
+        requireModule(ctx, "incorporacao");
         await db.updateIncorporationStudy(input.id, {
           areasBoardJson: input.dataJson,
         });
@@ -3040,7 +3040,7 @@ export const appRouter = router({
     saveOrcamentoParametrizado: protectedProcedure
       .input(z.object({ id: z.number(), dataJson: z.string().min(1) }))
       .mutation(async ({ input, ctx }) => {
-        requireRole(ctx, ["admin"]);
+        requireModule(ctx, "incorporacao");
         await db.updateIncorporationStudy(input.id, {
           parameterizedBudgetJson: input.dataJson,
         });
@@ -3050,7 +3050,7 @@ export const appRouter = router({
     saveNegociacaoTerreno: protectedProcedure
       .input(z.object({ id: z.number(), dataJson: z.string().min(1) }))
       .mutation(async ({ input, ctx }) => {
-        requireRole(ctx, ["admin"]);
+        requireModule(ctx, "incorporacao");
         await db.updateIncorporationStudy(input.id, {
           landNegotiationJson: input.dataJson,
         });
@@ -3060,7 +3060,7 @@ export const appRouter = router({
     saveBusinessPlan: protectedProcedure
       .input(z.object({ id: z.number(), dataJson: z.string().min(1) }))
       .mutation(async ({ input, ctx }) => {
-        requireRole(ctx, ["admin"]);
+        requireModule(ctx, "incorporacao");
         await db.updateIncorporationStudy(input.id, {
           businessPlanJson: input.dataJson,
         });
@@ -3070,7 +3070,7 @@ export const appRouter = router({
     saveProjetistas: protectedProcedure
       .input(z.object({ id: z.number(), dataJson: z.string().min(1) }))
       .mutation(async ({ input, ctx }) => {
-        requireRole(ctx, ["admin"]);
+        requireModule(ctx, "incorporacao");
         await db.updateIncorporationStudy(input.id, {
           designersJson: input.dataJson,
         });
@@ -3080,7 +3080,7 @@ export const appRouter = router({
     saveAprovacaoProjeto: protectedProcedure
       .input(z.object({ id: z.number(), dataJson: z.string().min(1) }))
       .mutation(async ({ input, ctx }) => {
-        requireRole(ctx, ["admin"]);
+        requireModule(ctx, "incorporacao");
         await db.updateIncorporationStudy(input.id, {
           projectApprovalJson: input.dataJson,
         });
@@ -3090,7 +3090,7 @@ export const appRouter = router({
     saveRegistroIncorporacao: protectedProcedure
       .input(z.object({ id: z.number(), dataJson: z.string().min(1) }))
       .mutation(async ({ input, ctx }) => {
-        requireRole(ctx, ["admin"]);
+        requireModule(ctx, "incorporacao");
         await db.updateIncorporationStudy(input.id, {
           incorporationRegistrationJson: input.dataJson,
         });
@@ -3100,7 +3100,7 @@ export const appRouter = router({
     saveOrcamentoPreliminar: protectedProcedure
       .input(z.object({ id: z.number(), dataJson: z.string().min(1) }))
       .mutation(async ({ input, ctx }) => {
-        requireRole(ctx, ["admin"]);
+        requireModule(ctx, "incorporacao");
         await db.updateIncorporationStudy(input.id, {
           preliminaryBudgetJson: input.dataJson,
         });
@@ -3110,7 +3110,7 @@ export const appRouter = router({
     savePlanejamentoLancamento: protectedProcedure
       .input(z.object({ id: z.number(), dataJson: z.string().min(1) }))
       .mutation(async ({ input, ctx }) => {
-        requireRole(ctx, ["admin"]);
+        requireModule(ctx, "incorporacao");
         await validateStudySchedule(input.dataJson, "marcos");
         await db.updateIncorporationStudy(input.id, {
           launchPlanJson: input.dataJson,
@@ -3121,7 +3121,7 @@ export const appRouter = router({
     saveFornecedoresLancamento: protectedProcedure
       .input(z.object({ id: z.number(), dataJson: z.string().min(1) }))
       .mutation(async ({ input, ctx }) => {
-        requireRole(ctx, ["admin"]);
+        requireModule(ctx, "incorporacao");
         await db.updateIncorporationStudy(input.id, {
           launchSuppliersJson: input.dataJson,
         });
@@ -3131,7 +3131,7 @@ export const appRouter = router({
     saveMaterialPublicitario: protectedProcedure
       .input(z.object({ id: z.number(), dataJson: z.string().min(1) }))
       .mutation(async ({ input, ctx }) => {
-        requireRole(ctx, ["admin"]);
+        requireModule(ctx, "incorporacao");
         await db.updateIncorporationStudy(input.id, {
           marketingMaterialJson: input.dataJson,
         });
@@ -3141,7 +3141,7 @@ export const appRouter = router({
     saveMixProdutos: protectedProcedure
       .input(z.object({ id: z.number(), dataJson: z.string().min(1) }))
       .mutation(async ({ input, ctx }) => {
-        requireRole(ctx, ["admin"]);
+        requireModule(ctx, "incorporacao");
         await db.updateIncorporationStudy(input.id, {
           productMixJson: input.dataJson,
         });
@@ -3151,7 +3151,7 @@ export const appRouter = router({
     saveLancamentoImobiliario: protectedProcedure
       .input(z.object({ id: z.number(), dataJson: z.string().min(1) }))
       .mutation(async ({ input, ctx }) => {
-        requireRole(ctx, ["admin"]);
+        requireModule(ctx, "incorporacao");
         const estudo = await db.getIncorporationStudyById(input.id);
         if (!estudo) throw new TRPCError({ code: "NOT_FOUND" });
         if (estudo.incorporationType === "desmembramento_simples")
@@ -3165,7 +3165,7 @@ export const appRouter = router({
     saveProjetosExecutivos: protectedProcedure
       .input(z.object({ id: z.number(), dataJson: z.string().min(1) }))
       .mutation(async ({ input, ctx }) => {
-        requireRole(ctx, ["admin"]);
+        requireModule(ctx, "incorporacao");
         await db.updateIncorporationStudy(input.id, {
           executiveProjectsJson: input.dataJson,
         });
@@ -3175,7 +3175,7 @@ export const appRouter = router({
     saveOrcamentoObra: protectedProcedure
       .input(z.object({ id: z.number(), dataJson: z.string().min(1) }))
       .mutation(async ({ input, ctx }) => {
-        requireRole(ctx, ["admin"]);
+        requireModule(ctx, "incorporacao");
         await db.updateIncorporationStudy(input.id, {
           workBudgetJson: input.dataJson,
         });
@@ -3185,7 +3185,7 @@ export const appRouter = router({
     saveCronogramaObra: protectedProcedure
       .input(z.object({ id: z.number(), dataJson: z.string().min(1) }))
       .mutation(async ({ input, ctx }) => {
-        requireRole(ctx, ["admin"]);
+        requireModule(ctx, "incorporacao");
         await validateStudySchedule(input.dataJson, "medicoes");
         await db.updateIncorporationStudy(input.id, {
           physicalFinancialScheduleJson: input.dataJson,
@@ -3196,7 +3196,7 @@ export const appRouter = router({
     saveAtendimentoClientes: protectedProcedure
       .input(z.object({ id: z.number(), dataJson: z.string().min(1) }))
       .mutation(async ({ input, ctx }) => {
-        requireRole(ctx, ["admin"]);
+        requireModule(ctx, "incorporacao");
         await db.updateIncorporationStudy(input.id, {
           customerServiceJson: input.dataJson,
         });
@@ -3206,7 +3206,7 @@ export const appRouter = router({
     saveViabilidade: protectedProcedure
       .input(z.object({ id: z.number(), dataJson: z.string().min(1) }))
       .mutation(async ({ input, ctx }) => {
-        requireRole(ctx, ["admin"]);
+        requireModule(ctx, "incorporacao");
         await db.updateIncorporationStudy(input.id, {
           lottingJson: input.dataJson,
         });

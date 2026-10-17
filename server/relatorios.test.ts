@@ -10,8 +10,9 @@ describe("EPIC-012 S-07 (Etapa 5) - Central de Relatorios", () => {
     expect(procedures["relatorios.exportComissoesCsv"]).toBeDefined();
   });
 
-  it("o modulo relatorios existe no catalogo de permissoes", () => {
-    expect(ADMIN_MODULES).toContain("relatorios");
+  it("relatorios entrou no BPO Financeiro (17/10/2026)", () => {
+    expect(ADMIN_MODULES).not.toContain("relatorios");
+    expect(ADMIN_MODULES).toContain("bpo");
   });
 
   it("um colaborador so acessa relatorios com a permissao concedida", () => {

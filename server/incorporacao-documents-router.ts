@@ -5,7 +5,7 @@ import { incorporationRegistrationDocuments, incorporationStudies } from "../dri
 import { DOCUMENTOS_PADRAO_REGISTRO, type DocumentoRegistro } from "../shared/incorporacao/registro-incorporacao.js";
 import { lerDueDiligence } from "../shared/incorporacao/due-diligence.js";
 import { protectedProcedure, router } from "./_core/trpc.js";
-import { requireRole } from "./_core/rbac.js";
+import { requireModule } from "./_core/rbac.js";
 import { getDb, getIncorporationStudyById } from "./db.js";
 import { documentHash, driveConfigured, readPrivateDocument, tryDriveUpload, uploadPrivateIncorporationDocument } from "./drive-documents.js";
 import { readPrivateDbFile } from "./private-document-files.js";
@@ -76,12 +76,12 @@ async function latestEvent(studyId: number, itemId: string) {
 
 export const incorporacaoDocumentsRouter = router({
   available: protectedProcedure.query(async ({ ctx }) => {
-    requireRole(ctx, ["admin"]);
+    requireModule(ctx, "incorporacao");
     // Sem Drive (ou com o Drive recusando), o arquivo fica no banco: o envio sempre funciona.
     return { configured: true, drive: await driveConfigured() };
   }),
   list: protectedProcedure.input(z.object({ studyId: z.number().int().positive() })).query(async ({ ctx, input }) => {
-    requireRole(ctx, ["admin"]);
+    requireModule(ctx, "incorporacao");
     if (!await getIncorporationStudyById(input.studyId)) throw new TRPCError({ code: "NOT_FOUND" });
     const events = await getDb().select().from(incorporationRegistrationDocuments)
       .where(eq(incorporationRegistrationDocuments.studyId, input.studyId));
@@ -90,7 +90,7 @@ export const incorporacaoDocumentsRouter = router({
   upload: protectedProcedure.input(itemInput.extend({
     fileName: z.string().min(1).max(255), mimeType: z.union([mime, mimeLevantamento]), base64: z.string().min(8).max(4_200_000),
   })).mutation(async ({ ctx, input }) => {
-    requireRole(ctx, ["admin"]);
+    requireModule(ctx, "incorporacao");
     await requireRegistrationItem(input.studyId, input.itemId);
     const data = Buffer.from(input.base64, "base64");
     const levantamento = input.itemId === ITEM_LEVANTAMENTO;
@@ -130,7 +130,7 @@ export const incorporacaoDocumentsRouter = router({
     return { id, duplicate: false, storage: "banco", storageNote: note };
   }),
   content: protectedProcedure.input(itemInput).query(async ({ ctx, input }) => {
-    requireRole(ctx, ["admin"]);
+    requireModule(ctx, "incorporacao");
     await requireRegistrationItem(input.studyId, input.itemId);
     const current = await latestEvent(input.studyId, input.itemId);
     if (!current || current.action !== "uploaded" || (!current.driveFileId && current.storage !== "banco") || !current.mimeType)
@@ -146,7 +146,7 @@ export const incorporacaoDocumentsRouter = router({
     }
   }),
   unlink: protectedProcedure.input(itemInput).mutation(async ({ ctx, input }) => {
-    requireRole(ctx, ["admin"]);
+    requireModule(ctx, "incorporacao");
     await requireRegistrationItem(input.studyId, input.itemId);
     const current = await latestEvent(input.studyId, input.itemId);
     if (!current || current.action !== "uploaded") throw new TRPCError({ code: "NOT_FOUND" });

@@ -260,7 +260,7 @@ export default function Navbar() {
                           onClick={closeMobileMenu}
                         />
                       )}
-                      {user?.role === "admin" && (
+                      {(user?.role === "admin" || user?.role === "colaborador") && (
                         <AccountLink
                           href="/admin"
                           label="Painel Admin"
@@ -367,7 +367,7 @@ export default function Navbar() {
                   </Link>
                 </DropdownMenuItem>
               )}
-              {user?.role === "admin" && (
+              {(user?.role === "admin" || user?.role === "colaborador") && (
                 <DropdownMenuItem asChild>
                   <Link href="/admin">
                     <Settings className="mr-2 h-4 w-4" />

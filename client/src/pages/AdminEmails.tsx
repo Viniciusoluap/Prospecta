@@ -29,7 +29,7 @@ export default function AdminEmails() {
 
   // Redirecionar se não autenticado ou não admin
   useEffect(() => {
-    if (!authLoading && (!isAuthenticated || user?.role !== "admin")) {
+    if (!authLoading && (!isAuthenticated || !(user?.role === "admin" || user?.role === "colaborador"))) {
       window.location.href = getLoginUrl();
     }
   }, [authLoading, isAuthenticated, user]);

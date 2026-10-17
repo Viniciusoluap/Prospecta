@@ -21,7 +21,7 @@ function destinoDoPerfil(role: string | undefined): string {
     case "portal": return "/portal";
     case "corretor": return "/corretor";
     case "empreiteiro": return "/empreiteiro";
-    case "painel": return role === "admin" ? "/admin" : "/admin/acesso";
+    case "painel": return "/admin";
     default: return "/";
   }
 }

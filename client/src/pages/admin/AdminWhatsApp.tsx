@@ -45,7 +45,7 @@ export default function AdminWhatsApp() {
   const [mensagem, setMensagem] = useState("");
 
   const conexao = trpc.whatsapp.minhaConexao.useQuery();
-  const conexoesCorretores = trpc.whatsapp.conexoesCorretores.useQuery(undefined, { enabled: role === "admin" });
+  const conexoesCorretores = trpc.whatsapp.conexoesCorretores.useQuery(undefined, { enabled: role === "admin" || role === "colaborador" });
   const leadsQuery = trpc.whatsapp.leadsParaEnvio.useQuery();
   const historico = trpc.whatsapp.historico.useQuery();
 
@@ -134,19 +134,7 @@ export default function AdminWhatsApp() {
         {/* Conexão */}
         {activeTab === "conexao" && (
           <div className="space-y-5">
-            {role === "colaborador" && (
-              <Card className={cardCls}>
-                <CardHeader><CardTitle className="text-sm text-gray-300">WhatsApp Business (Admin)</CardTitle></CardHeader>
-                <CardContent>
-                  {conexao.data ? (
-                    <div className="space-y-2"><StatusConexao status={conexao.data.status} />{conexao.data.numero && <p className="text-xs text-gray-400">{conexao.data.numero}</p>}</div>
-                  ) : <p className="text-sm text-gray-400">Nenhuma conexão configurada pelo administrador.</p>}
-                  <p className="text-xs text-gray-500 mt-3">Como colaborador, você usa a conexão do administrador. Contate o admin para gerenciar.</p>
-                </CardContent>
-              </Card>
-            )}
-
-            {(role === "admin" || role === "corretor") && (
+            {(role === "admin" || role === "colaborador" || role === "corretor") && (
               <Card className={cardCls}>
                 <CardHeader><CardTitle className="text-sm text-gray-300">Minha Conexão WhatsApp Business</CardTitle></CardHeader>
                 <CardContent className="space-y-4">
@@ -180,7 +168,7 @@ export default function AdminWhatsApp() {
               </Card>
             )}
 
-            {role === "admin" && (
+            {(role === "admin" || role === "colaborador") && (
               <Card className={cardCls}>
                 <CardHeader><CardTitle className="text-sm text-gray-300">Conexões dos Corretores {conexoesCorretores.data && conexoesCorretores.data.length > 0 && `(${conexoesCorretores.data.length})`}</CardTitle></CardHeader>
                 <CardContent>
@@ -207,7 +195,7 @@ export default function AdminWhatsApp() {
             {!conexaoAtiva && (
               <div className="flex items-center gap-3 border border-yellow-500/30 bg-yellow-500/10 p-4 rounded">
                 <AlertCircle size={18} className="text-yellow-400 shrink-0" />
-                <p className="text-sm text-yellow-200">{role === "colaborador" ? "A conexão WhatsApp do administrador não está ativa. Contate o admin." : "Configure sua conexão WhatsApp Business na aba Conexão."}</p>
+                <p className="text-sm text-yellow-200">Configure sua conexão WhatsApp Business na aba Conexão.</p>
               </div>
             )}
             <div className={`grid grid-cols-1 lg:grid-cols-2 gap-5 ${!conexaoAtiva ? "opacity-50 pointer-events-none" : ""}`}>

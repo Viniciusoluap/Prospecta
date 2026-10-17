@@ -21,7 +21,7 @@ export default function AdminOrcamentos() {
   const [adminNotes, setAdminNotes] = useState("");
 
   const { data: requests, isLoading, refetch } = trpc.budgetRequests.getAll.useQuery(undefined, {
-    enabled: isAuthenticated && user?.role === "admin",
+    enabled: isAuthenticated && (user?.role === "admin" || user?.role === "colaborador"),
   });
 
   const updateMutation = trpc.budgetRequests.update.useMutation({
@@ -52,7 +52,7 @@ export default function AdminOrcamentos() {
   }, [authLoading, isAuthenticated]);
 
   useEffect(() => {
-    if (!authLoading && isAuthenticated && user?.role !== "admin") {
+    if (!authLoading && isAuthenticated && !(user?.role === "admin" || user?.role === "colaborador")) {
       setLocation("/");
     }
   }, [authLoading, isAuthenticated, user, setLocation]);
@@ -87,7 +87,7 @@ export default function AdminOrcamentos() {
     );
   }
 
-  if (user?.role !== "admin") {
+  if (!(user?.role === "admin" || user?.role === "colaborador")) {
     return null;
   }
 
