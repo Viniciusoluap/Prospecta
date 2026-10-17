@@ -41,35 +41,54 @@ const requireUser = t.middleware(async opts => {
 
 export const protectedProcedure = t.procedure.use(requireUser);
 
+/**
+ * Módulo exigido do colaborador em cada router (pedido de 17/10/2026). Lista
+ * vazia = tela comum do painel, aberta a qualquer colaborador ativo. Router fora
+ * do mapa (integração bancária, configurações de pagamento, usuários e acessos,
+ * Google Drive) é só do admin.
+ */
 const procedureModules: Record<string, AdminModule | AdminModule[]> = {
+  draws: "sorteios",
+  products: "sorteios",
   construction: "obras",
-  budgetRequests: "projetos",
-  analytics: "dashboard",
-  emails: "dashboard",
-  leads: "crm",
-  tasks: ["dashboard", "agenda"],
-  brokerCommissions: "comissoes",
   obraMedicoes: "obras",
-  financialTransactions: ["bpo", "contabilidade"],
-  bpo: ["bpo", "contabilidade", "relatorios"],
-  pluggySettings: "banco",
-  bancario: "banco",
-  imoveis: ["imoveis", "agregador"],
-  avaliacoes: "avaliacoes",
-  agregador: ["imoveis", "agregador"],
-  incorporacao: "projetos",
-  regularizacao: "regularizacao",
+  obraFinanceiro: "obras",
+  obraProgresso: "obras",
+  budgetRequests: "projetos",
+  analytics: [],
+  emails: [],
+  leads: "crm",
   portal: "crm",
+  leadServices: "crm",
+  leadDocuments: "crm",
+  tasks: "agenda",
+  agenda: "agenda",
+  brokerCommissions: "comissoes",
+  comissoes: "comissoes",
+  financialTransactions: "bpo",
+  bpo: "bpo",
+  relatorios: "bpo",
+  tax: "bpo",
+  imoveis: "imoveis",
+  agregador: "imoveis",
+  avaliacoes: "avaliacoes",
+  incorporacao: "incorporacao",
+  regularizacao: "regularizacao",
   whatsapp: "whatsapp",
   financiamentos: "financiamentos",
   juridico: "juridico",
-  relatorios: ["bpo", "contabilidade", "relatorios"],
-  tax: ["bpo", "contabilidade", "relatorios"],
-  agenda: ["agenda", "dashboard"],
   corretores: "corretores",
-  comissoes: "comissoes",
   projetos: "projetos",
   mapa: "mapa",
+};
+
+/** A fila de serviços do CRM aparece dentro de cada módulo operacional. */
+const MODULOS_DA_FILA_DO_CRM: AdminModule[] = [
+  "crm", "obras", "agenda", "regularizacao", "comissoes", "projetos", "avaliacoes", "financiamentos",
+];
+const procedimentoModules: Record<string, AdminModule[]> = {
+  "leadServices.listForModule": MODULOS_DA_FILA_DO_CRM,
+  "leadServices.materializePending": MODULOS_DA_FILA_DO_CRM,
 };
 
 /**
@@ -90,13 +109,10 @@ export function canAccessAdminProcedure(
   if (user.role === "admin") return true;
   if (user.role === "corretor") return ROUTERS_DO_CORRETOR.has(routerName);
   if (user.role !== "colaborador") return false;
-  const requiredModule = procedureModules[routerName];
-  const requiredModules = Array.isArray(requiredModule)
-    ? requiredModule
-    : requiredModule
-      ? [requiredModule]
-      : [];
-  return podeAcessarAlgum(acesso, requiredModules);
+  const requiredModule = procedimentoModules[path] ?? procedureModules[routerName];
+  if (requiredModule === undefined) return false;
+  const requiredModules = Array.isArray(requiredModule) ? requiredModule : [requiredModule];
+  return requiredModules.length === 0 || podeAcessarAlgum(acesso, requiredModules);
 }
 
 export const adminProcedure = t.procedure.use(

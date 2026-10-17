@@ -47,6 +47,36 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import {
+  parsePermissions,
+  type AdminModule,
+} from "../../../shared/admin-permissions";
+
+/** As 15 opções do painel, na ordem do Painel Administrativo (pedido de 17/10/2026). */
+const MODULOS_DO_PAINEL: {
+  modulo: AdminModule;
+  href: string;
+  rotulo: string;
+  Icone: typeof Users;
+  cor: string;
+  corIcone: string;
+}[] = [
+  { modulo: "crm", href: "/admin/crm", rotulo: "CRM / Pipeline", Icone: Users, cor: "border-blue-500/30 hover:bg-blue-500/10", corIcone: "text-blue-400" },
+  { modulo: "obras", href: "/admin/obras", rotulo: "Obras", Icone: HardHat, cor: "border-orange-500/30 hover:bg-orange-500/10", corIcone: "text-orange-400" },
+  { modulo: "agenda", href: "/admin/tarefas-agenda", rotulo: "Tarefas e Agenda", Icone: CheckSquare, cor: "border-purple-500/30 hover:bg-purple-500/10", corIcone: "text-purple-400" },
+  { modulo: "corretores", href: "/admin/corretores", rotulo: "Corretores", Icone: UserCheck, cor: "border-pink-500/30 hover:bg-pink-500/10", corIcone: "text-pink-400" },
+  { modulo: "regularizacao", href: "/admin/regularizacoes", rotulo: "Regularizações", Icone: FileCheck2, cor: "border-teal-500/30 hover:bg-teal-500/10", corIcone: "text-teal-400" },
+  { modulo: "comissoes", href: "/admin/comissoes", rotulo: "Comissões", Icone: CheckSquare, cor: "border-[#C9A961]/30", corIcone: "text-[#C9A961]" },
+  { modulo: "projetos", href: "/admin/projetos", rotulo: "Projetos", Icone: CheckSquare, cor: "border-[#C9A961]/30", corIcone: "text-[#C9A961]" },
+  { modulo: "mapa", href: "/admin/mapa", rotulo: "Mapa operacional", Icone: CheckSquare, cor: "border-[#C9A961]/30", corIcone: "text-[#C9A961]" },
+  { modulo: "avaliacoes", href: "/admin/avaliacoes", rotulo: "Avaliações", Icone: ClipboardCheck, cor: "border-cyan-500/30 hover:bg-cyan-500/10", corIcone: "text-cyan-400" },
+  { modulo: "imoveis", href: "/admin/imoveis", rotulo: "Imóveis", Icone: Building2, cor: "border-amber-500/30 hover:bg-amber-500/10", corIcone: "text-amber-400" },
+  { modulo: "incorporacao", href: "/admin/incorporacao", rotulo: "Incorporação", Icone: Mountain, cor: "border-orange-500/30 hover:bg-orange-500/10", corIcone: "text-orange-400" },
+  { modulo: "whatsapp", href: "/admin/whatsapp", rotulo: "WhatsApp", Icone: MessageCircle, cor: "border-green-500/30 hover:bg-green-500/10", corIcone: "text-green-400" },
+  { modulo: "bpo", href: "/admin/bpo", rotulo: "BPO Financeiro", Icone: Receipt, cor: "border-[#C9A961]/30 hover:bg-[#C9A961]/10", corIcone: "text-[#C9A961]" },
+  { modulo: "financiamentos", href: "/admin/financiamentos", rotulo: "Financiamentos", Icone: Landmark, cor: "border-blue-500/30 hover:bg-blue-500/10", corIcone: "text-blue-400" },
+  { modulo: "juridico", href: "/admin/juridico", rotulo: "Jurídico", Icone: Scale, cor: "border-purple-500/30 hover:bg-purple-500/10", corIcone: "text-purple-400" },
+];
 
 export default function Admin() {
   const { user, isAuthenticated, loading: authLoading } = useAuth();
@@ -114,7 +144,15 @@ export default function Admin() {
     );
   }
 
-  if (!isAuthenticated || user?.role !== "admin") {
+  const ehAdmin = user?.role === "admin";
+  const permissoes = ehAdmin ? null : parsePermissions(user?.permissions);
+  const liberado = (m: AdminModule) => ehAdmin || !!permissoes?.includes(m);
+  const modulosVisiveis = MODULOS_DO_PAINEL.filter(item => liberado(item.modulo));
+  const podeSorteios = liberado("sorteios");
+
+  // Pedido de 17/10/2026: o colaborador ativo usa o mesmo Painel Administrativo,
+  // só com os módulos que o admin liberou para ele.
+  if (!isAuthenticated || !(ehAdmin || (user?.role === "colaborador" && user?.active !== false))) {
     return (
       <div className="min-h-screen flex flex-col">
         <Navbar />
@@ -123,7 +161,7 @@ export default function Admin() {
             <Alert variant="destructive">
               <AlertCircle className="h-4 w-4" />
               <AlertDescription>
-                Acesso negado. Apenas administradores podem acessar esta página.
+                Acesso negado. Apenas a equipe administrativa pode acessar esta página.
               </AlertDescription>
             </Alert>
             {!isAuthenticated && (
@@ -203,7 +241,9 @@ export default function Admin() {
             <div>
               <h1 className="text-3xl font-bold">Painel Administrativo</h1>
               <p className="text-muted-foreground">
-                Gerencie sorteios e produtos do ecossistema
+                {podeSorteios
+                  ? "Gerencie sorteios e produtos do ecossistema"
+                  : `Olá, ${user?.name ?? ""}. Estes são os seus módulos liberados.`}
               </p>
             </div>
           </div>
@@ -218,134 +258,28 @@ export default function Admin() {
             </CardHeader>
             <CardContent>
               <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
-                <Link href="/admin/crm">
-                  <Button
-                    variant="outline"
-                    className="w-full h-20 flex flex-col gap-2 border-blue-500/30 hover:bg-blue-500/10"
-                  >
-                    <Users className="h-5 w-5 text-blue-400" />
-                    <span>CRM / Pipeline</span>
-                  </Button>
-                </Link>
-                <Link href="/admin/obras">
-                  <Button
-                    variant="outline"
-                    className="w-full h-20 flex flex-col gap-2 border-orange-500/30 hover:bg-orange-500/10"
-                  >
-                    <HardHat className="h-5 w-5 text-orange-400" />
-                    <span>Obras</span>
-                  </Button>
-                </Link>
-                <Link href="/admin/tarefas-agenda">
-                  <Button
-                    variant="outline"
-                    className="w-full h-20 flex flex-col gap-2 border-purple-500/30 hover:bg-purple-500/10"
-                  >
-                    <CheckSquare className="h-5 w-5 text-purple-400" />
-                    <span>Tarefas e Agenda</span>
-                  </Button>
-                </Link>
-                <Link href="/admin/corretores">
-                  <Button
-                    variant="outline"
-                    className="w-full h-20 flex flex-col gap-2 border-pink-500/30 hover:bg-pink-500/10"
-                  >
-                    <UserCheck className="h-5 w-5 text-pink-400" />
-                    <span>Corretores</span>
-                  </Button>
-                </Link>
-                <Link href="/admin/regularizacoes">
-                  <Button
-                    variant="outline"
-                    className="w-full h-20 flex flex-col gap-2 border-teal-500/30 hover:bg-teal-500/10"
-                  >
-                    <FileCheck2 className="h-5 w-5 text-teal-400" />
-                    <span>Regularizações</span>
-                  </Button>
-                </Link>
-                {[
-                  { href: "/admin/comissoes", label: "Comissões" },
-                  { href: "/admin/projetos", label: "Projetos" },
-                  { href: "/admin/mapa", label: "Mapa operacional" },
-                ].map(item => (
+                {modulosVisiveis.map(item => (
                   <Link key={item.href} href={item.href}>
                     <Button
                       variant="outline"
-                      className="w-full h-20 flex flex-col gap-2 border-[#C9A961]/30"
+                      className={`w-full h-20 flex flex-col gap-2 ${item.cor}`}
                     >
-                      <CheckSquare className="h-5 w-5 text-[#C9A961]" />
-                      <span>{item.label}</span>
+                      <item.Icone className={`h-5 w-5 ${item.corIcone}`} />
+                      <span>{item.rotulo}</span>
                     </Button>
                   </Link>
                 ))}
-                <Link href="/admin/avaliacoes">
-                  <Button
-                    variant="outline"
-                    className="w-full h-20 flex flex-col gap-2 border-cyan-500/30 hover:bg-cyan-500/10"
-                  >
-                    <ClipboardCheck className="h-5 w-5 text-cyan-400" />
-                    <span>Avaliações</span>
-                  </Button>
-                </Link>
-                <Link href="/admin/imoveis">
-                  <Button
-                    variant="outline"
-                    className="w-full h-20 flex flex-col gap-2 border-amber-500/30 hover:bg-amber-500/10"
-                  >
-                    <Building2 className="h-5 w-5 text-amber-400" />
-                    <span>Imóveis</span>
-                  </Button>
-                </Link>
-                <Link href="/admin/incorporacao">
-                  <Button
-                    variant="outline"
-                    className="w-full h-20 flex flex-col gap-2 border-orange-500/30 hover:bg-orange-500/10"
-                  >
-                    <Mountain className="h-5 w-5 text-orange-400" />
-                    <span>Incorporação</span>
-                  </Button>
-                </Link>
-                <Link href="/admin/whatsapp">
-                  <Button
-                    variant="outline"
-                    className="w-full h-20 flex flex-col gap-2 border-green-500/30 hover:bg-green-500/10"
-                  >
-                    <MessageCircle className="h-5 w-5 text-green-400" />
-                    <span>WhatsApp</span>
-                  </Button>
-                </Link>
-                <Link href="/admin/bpo">
-                  <Button
-                    variant="outline"
-                    className="w-full h-20 flex flex-col gap-2 border-[#C9A961]/30 hover:bg-[#C9A961]/10"
-                  >
-                    <Receipt className="h-5 w-5 text-[#C9A961]" />
-                    <span>BPO Financeiro</span>
-                  </Button>
-                </Link>
-                <Link href="/admin/financiamentos">
-                  <Button
-                    variant="outline"
-                    className="w-full h-20 flex flex-col gap-2 border-blue-500/30 hover:bg-blue-500/10"
-                  >
-                    <Landmark className="h-5 w-5 text-blue-400" />
-                    <span>Financiamentos</span>
-                  </Button>
-                </Link>
-                <Link href="/admin/juridico">
-                  <Button
-                    variant="outline"
-                    className="w-full h-20 flex flex-col gap-2 border-purple-500/30 hover:bg-purple-500/10"
-                  >
-                    <Scale className="h-5 w-5 text-purple-400" />
-                    <span>Jurídico</span>
-                  </Button>
-                </Link>
               </div>
+              {modulosVisiveis.length === 0 && (
+                <p className="text-sm text-muted-foreground">
+                  Nenhum módulo liberado. Peça ao administrador para liberar o acesso.
+                </p>
+              )}
             </CardContent>
           </Card>
 
-          {/* Links Secundários */}
+          {/* Links Secundários — API Contas e Usuários e Acessos são só do admin */}
+          {ehAdmin && (
           <Card>
             <CardHeader>
               <CardTitle>Outras Ferramentas</CardTitle>
@@ -373,7 +307,9 @@ export default function Admin() {
               </div>
             </CardContent>
           </Card>
+          )}
 
+          {podeSorteios && (
           <Tabs defaultValue="draws" className="w-full">
             <TabsList className="grid w-full grid-cols-2">
               <TabsTrigger value="draws">Sorteios</TabsTrigger>
@@ -675,6 +611,7 @@ export default function Admin() {
               </Card>
             </TabsContent>
           </Tabs>
+          )}
         </div>
       </main>
     </div>

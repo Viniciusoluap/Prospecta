@@ -3,7 +3,7 @@ import { and, eq, isNull } from "drizzle-orm";
 import { z } from "zod";
 import { incorporationStudies } from "../drizzle/schema.js";
 import { dueDiligenceSchema, lerDueDiligence } from "../shared/incorporacao/due-diligence.js";
-import { requireRole } from "./_core/rbac.js";
+import { requireModule } from "./_core/rbac.js";
 import { protectedProcedure, router } from "./_core/trpc.js";
 import { getDb } from "./db.js";
 
@@ -13,7 +13,7 @@ export const incorporationDueDiligenceRouter = router({
     expectedJson: z.string().max(500_000).nullable(),
     next: dueDiligenceSchema,
   })).mutation(async ({ ctx, input }) => {
-    requireRole(ctx, ["admin"]);
+    requireModule(ctx, "incorporacao");
     const previous = lerDueDiligence(input.expectedJson);
     if (input.next.versao !== previous.versao + 1)
       throw new TRPCError({ code: "BAD_REQUEST", message: "Versão inválida da Due Diligence" });

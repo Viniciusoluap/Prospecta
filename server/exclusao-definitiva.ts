@@ -12,7 +12,6 @@ import {
   operationalProjects, regularizacaoDocuments, regularizacaoRecebimentos, regularizacoes,
 } from "../drizzle/schema.js";
 import type { ModuloExclusao } from "../shared/exclusao.js";
-import { podeAdministrarSeguranca } from "../shared/perfis-acesso.js";
 import { getDb } from "./db.js";
 
 type Db = ReturnType<typeof getDb>;
@@ -91,9 +90,10 @@ function apagar(db: Db, modulo: ModuloExclusao, id: number) {
  * Registro inexistente (já excluído) não é erro.
  */
 export async function excluirDefinitivo(modulo: ModuloExclusao, id: number, ator: { role: string; active?: boolean | null }): Promise<{ excluido: boolean }> {
-  // Item 06: exclusão definitiva é ação de segurança — só admin ativo (como no Santa Fé).
-  if (!podeAdministrarSeguranca({ perfil: ator.role, ativo: ator.active ?? true }))
-    throw new TRPCError({ code: "FORBIDDEN", message: "Somente o administrador pode excluir." });
+  // Pedido de 17/10/2026: o colaborador faz tudo o que o admin faz nos módulos
+  // liberados — inclusive excluir. Quem chama já passou pela trava do módulo.
+  if (!(ator.active ?? true) || (ator.role !== "admin" && ator.role !== "colaborador"))
+    throw new TRPCError({ code: "FORBIDDEN", message: "Somente a equipe pode excluir." });
   const db = getDb();
   const info = await servicoVinculado(db, modulo, id);
   if (!info) return { excluido: false };

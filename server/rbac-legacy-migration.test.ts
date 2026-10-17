@@ -29,10 +29,11 @@ describe("EPIC-012 S-08 (Etapa 6) - RBAC granular em routers legados", () => {
     expect(canAccessAdminProcedure(corretor, "bancario.sincronizar")).toBe(false);
   });
 
-  it("colaborador com permissao 'banco' acessa bancario.*", () => {
-    const colaborador = { role: "colaborador", permissions: JSON.stringify(["banco"]) };
-    expect(canAccessAdminProcedure(colaborador, "bancario.contas.list")).toBe(true);
-    expect(canAccessAdminProcedure(colaborador, "bancario.transacoes.listByConta")).toBe(true);
+  it("integração bancária (API Contas) é só do admin, mesmo com a chave antiga 'banco' gravada", () => {
+    const colaborador = { role: "colaborador", permissions: JSON.stringify(["banco", "bpo"]) };
+    expect(canAccessAdminProcedure(colaborador, "bancario.contas.list")).toBe(false);
+    expect(canAccessAdminProcedure(colaborador, "pluggySettings.status")).toBe(false);
+    expect(canAccessAdminProcedure({ role: "admin", permissions: "[]" }, "bancario.contas.list")).toBe(true);
   });
 
   it("colaborador sem permissao 'avaliacoes' nao acessa avaliacoes.*", () => {

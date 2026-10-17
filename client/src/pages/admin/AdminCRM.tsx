@@ -67,7 +67,7 @@ export default function AdminCRM() {
   // EPIC-017 (stories 1.6/1.8): sem renda/tipo de renda; responsável e corretor
   // vêm dos usuários realmente cadastrados.
   const [newLead, setNewLead] = useState(emptyLead);
-  const { data: assignment } = trpc.leads.assignmentOptions.useQuery(undefined, { enabled: user?.role === "admin" });
+  const { data: assignment } = trpc.leads.assignmentOptions.useQuery(undefined, { enabled: (user?.role === "admin" || user?.role === "colaborador") });
   const responsibleName = (lead: { responsibleUserId?: number | null; responsible: string }) =>
     (lead.responsibleUserId && assignment?.responsibles.find(item => item.id === lead.responsibleUserId)?.name) ||
     LEGACY_RESPONSIBLE_LABELS[lead.responsible] || "—";
@@ -105,7 +105,7 @@ export default function AdminCRM() {
     l.phone.includes(search) || (l.city || "").toLowerCase().includes(search.toLowerCase())
   );
 
-  if (user?.role !== "admin") return null;
+  if (!(user?.role === "admin" || user?.role === "colaborador")) return null;
 
   const handleCreate = () => {
     if (!newLead.name) {

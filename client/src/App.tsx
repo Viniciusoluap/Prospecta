@@ -1,7 +1,7 @@
 import { Toaster } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import NotFound from "@/pages/NotFound";
-import { Route, Switch } from "wouter";
+import { Redirect, Route, Switch } from "wouter";
 import ErrorBoundary from "./components/ErrorBoundary";
 import { ThemeProvider } from "./contexts/ThemeContext";
 import { ProtectedRoute } from "./components/ProtectedRoute";
@@ -53,7 +53,6 @@ import AdminIncorporacaoDetail from "./pages/admin/AdminIncorporacaoDetail";
 import AdminFinanciamentos from "./pages/admin/AdminFinanciamentos";
 import AdminJuridico from "./pages/admin/AdminJuridico";
 import AdminConfiguracoes from "./pages/admin/AdminConfiguracoes";
-import AdminAcesso from "./pages/admin/AdminAcesso";
 import Servicos from "./pages/Servicos";
 import Sobre from "./pages/Sobre";
 import Contato from "./pages/Contato";
@@ -138,14 +137,13 @@ function Router() {
         </ProtectedRoute>
       </Route>
       <Route path="/admin">
-        <AdminRoute>
+        <AdminRoute allowStaffHome>
           <Admin />
         </AdminRoute>
       </Route>
+      {/* A Central Administrativa do colaborador virou o próprio Painel (17/10/2026). */}
       <Route path="/admin/acesso">
-        <AdminRoute allowStaffHome>
-          <AdminAcesso />
-        </AdminRoute>
+        <Redirect to="/admin" />
       </Route>
       <Route path="/converter-produto/:id">
         <ProtectedRoute>
@@ -206,12 +204,12 @@ function Router() {
         </AdminRoute>
       </Route>
       <Route path="/admin/dashboard">
-        <AdminRoute module="dashboard">
+        <AdminRoute allowStaffHome>
           <AdminDashboard />
         </AdminRoute>
       </Route>
       <Route path="/admin/emails">
-        <AdminRoute module="dashboard">
+        <AdminRoute allowStaffHome>
           <AdminEmails />
         </AdminRoute>
       </Route>
@@ -231,18 +229,18 @@ function Router() {
         </AdminRoute>
       </Route>
       <Route path="/admin/contabilidade">
-        <AdminRoute modules={["bpo", "contabilidade", "relatorios"]}>
+        <AdminRoute module="bpo">
           <AdminBpo initialTab="contabilidade" />
         </AdminRoute>
       </Route>
       {/* Compatibilidade temporária para favoritos antigos; não aparece mais na interface. */}
       <Route path="/admin/financeiro">
-        <AdminRoute modules={["bpo", "contabilidade", "relatorios"]}>
+        <AdminRoute module="bpo">
           <AdminBpo initialTab="contabilidade" />
         </AdminRoute>
       </Route>
       <Route path="/admin/tarefas">
-        <AdminRoute modules={["dashboard", "agenda"]}>
+        <AdminRoute module="agenda">
           <AdminTarefasAgenda initialView="tarefas" />
         </AdminRoute>
       </Route>
@@ -252,12 +250,12 @@ function Router() {
         </AdminRoute>
       </Route>
       <Route path="/admin/agenda">
-        <AdminRoute modules={["dashboard", "agenda"]}>
+        <AdminRoute module="agenda">
           <AdminTarefasAgenda initialView="agenda" />
         </AdminRoute>
       </Route>
       <Route path="/admin/tarefas-agenda">
-        <AdminRoute modules={["dashboard", "agenda"]}>
+        <AdminRoute module="agenda">
           <AdminTarefasAgenda />
         </AdminRoute>
       </Route>
@@ -282,7 +280,7 @@ function Router() {
         </AdminRoute>
       </Route>
       <Route path="/admin/bpo">
-        <AdminRoute modules={["bpo", "contabilidade", "relatorios"]}>
+        <AdminRoute module="bpo">
           <AdminBpo />
         </AdminRoute>
       </Route>
@@ -292,12 +290,12 @@ function Router() {
         </AdminRoute>
       </Route>
       <Route path="/admin/agregador">
-        <AdminRoute modules={["imoveis", "agregador"]}>
+        <AdminRoute module="imoveis">
           <AdminImoveisHub initialView="captacao" />
         </AdminRoute>
       </Route>
       <Route path="/admin/relatorios">
-        <AdminRoute modules={["bpo", "contabilidade", "relatorios"]}>
+        <AdminRoute module="bpo">
           <AdminBpo initialTab="relatorios" />
         </AdminRoute>
       </Route>
@@ -337,17 +335,17 @@ function Router() {
         </AdminRoute>
       </Route>
       <Route path="/admin/imoveis">
-        <AdminRoute modules={["imoveis", "agregador"]}>
+        <AdminRoute module="imoveis">
           <AdminImoveisHub />
         </AdminRoute>
       </Route>
       <Route path="/admin/incorporacao/:id">
-        <AdminRoute module="projetos">
+        <AdminRoute module="incorporacao">
           <AdminIncorporacaoDetail />
         </AdminRoute>
       </Route>
       <Route path="/admin/incorporacao">
-        <AdminRoute module="projetos">
+        <AdminRoute module="incorporacao">
           <AdminIncorporacao />
         </AdminRoute>
       </Route>

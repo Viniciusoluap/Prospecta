@@ -19,7 +19,7 @@ export default function NovaObra() {
   // EPIC-017 (story 1.4): obra nasce sempre de um lead do CRM.
   const [leadId, setLeadId] = useState<number | null>(null);
   const { data: leads = [], isLoading: leadsLoading } = trpc.construction.leadOptions.useQuery(undefined, {
-    enabled: !loading && user?.role === "admin",
+    enabled: !loading && (user?.role === "admin" || user?.role === "colaborador"),
   });
   const create = trpc.construction.createAdminProject.useMutation({
     onSuccess: project => {
@@ -80,7 +80,7 @@ export default function NovaObra() {
                 <div className="space-y-2"><Label htmlFor="estimatedEndDate">Previsão de término</Label><Input id="estimatedEndDate" name="estimatedEndDate" type="date" className="bg-[#111B29] text-white" /></div>
               </div>
               <div className="space-y-2"><Label htmlFor="notes">Observações</Label><Textarea id="notes" name="notes" className="bg-[#111B29] text-white placeholder:text-gray-400" /></div>
-              <div className="flex flex-wrap gap-3"><Button type="submit" disabled={create.isPending || loading || user?.role !== "admin" || !leadId} className="bg-[#C9A961] text-[#1A2332] hover:bg-[#E1BF78]">{create.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}Cadastrar Obra</Button><Link href="/admin/obras"><Button type="button" variant="outline" className="text-white">Cancelar</Button></Link></div>
+              <div className="flex flex-wrap gap-3"><Button type="submit" disabled={create.isPending || loading || !(user?.role === "admin" || user?.role === "colaborador") || !leadId} className="bg-[#C9A961] text-[#1A2332] hover:bg-[#E1BF78]">{create.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}Cadastrar Obra</Button><Link href="/admin/obras"><Button type="button" variant="outline" className="text-white">Cancelar</Button></Link></div>
             </form>
           </CardContent>
         </Card>

@@ -1,21 +1,24 @@
 import { and, desc, eq, inArray, isNull } from "drizzle-orm";
+import { TRPCError } from "@trpc/server";
 import { z } from "zod";
 import { leads, users, whatsappConnections, whatsappMessages } from "../drizzle/schema.js";
 import { enviarWhatsappBusiness, normalizarStatusWebhook } from "./_core/whatsapp-business.js";
 import { decryptSecret, encryptSecret } from "./_core/secret-vault.js";
-import { requireRole } from "./_core/rbac.js";
+import { requireModule } from "./_core/rbac.js";
 import { adminProcedure, protectedProcedure, router } from "./_core/trpc.js";
 import { getDb } from "./db.js";
 
+/** Dono da conexão: o colaborador usa (e configura) a conexão da empresa, que é a do admin. */
+async function donoDaConexao(userId: number, role: string): Promise<number | null> {
+  if (role !== "colaborador") return userId;
+  const [admin] = await getDb().select({ id: users.id }).from(users).where(eq(users.role, "admin")).orderBy(users.id).limit(1);
+  return admin?.id ?? null;
+}
+
 async function conexaoParaPapel(userId: number, role: string) {
-  const db = getDb();
-  if (role === "colaborador") {
-    const [admin] = await db.select({ id: users.id }).from(users).where(eq(users.role, "admin")).limit(1);
-    if (!admin) return null;
-    const [conn] = await db.select().from(whatsappConnections).where(eq(whatsappConnections.userId, admin.id)).limit(1);
-    return conn ?? null;
-  }
-  const [conn] = await db.select().from(whatsappConnections).where(eq(whatsappConnections.userId, userId)).limit(1);
+  const dono = await donoDaConexao(userId, role);
+  if (!dono) return null;
+  const [conn] = await getDb().select().from(whatsappConnections).where(eq(whatsappConnections.userId, dono)).limit(1);
   return conn ?? null;
 }
 
@@ -27,7 +30,7 @@ export const whatsappRouter = router({
   }),
 
   conexoesCorretores: protectedProcedure.query(async ({ ctx }) => {
-    requireRole(ctx, ["admin"]);
+    requireModule(ctx, "whatsapp");
     const db = getDb();
     const corretores = await db.select({ id: users.id, name: users.name }).from(users).where(eq(users.role, "corretor"));
     if (corretores.length === 0) return [];
@@ -46,7 +49,7 @@ export const whatsappRouter = router({
 
   historico: adminProcedure.query(async ({ ctx }) => {
     const db = getDb();
-    if (ctx.user.role === "admin") {
+    if (ctx.user.role === "admin" || ctx.user.role === "colaborador") {
       return db.select().from(whatsappMessages).orderBy(desc(whatsappMessages.createdAt)).limit(100);
     }
     const conn = await conexaoParaPapel(ctx.user.id, ctx.user.role);
@@ -57,17 +60,19 @@ export const whatsappRouter = router({
   salvarConexao: protectedProcedure
     .input(z.object({ token: z.string().min(1), phoneNumberId: z.string().min(1), numero: z.string().min(1) }))
     .mutation(async ({ ctx, input }) => {
-      requireRole(ctx, ["admin", "corretor"]);
+      if (ctx.user.role !== "corretor") requireModule(ctx, "whatsapp");
+      const dono = await donoDaConexao(ctx.user.id, ctx.user.role);
+      if (!dono) throw new TRPCError({ code: "BAD_REQUEST", message: "Nenhum administrador para guardar a conexão da empresa" });
       const db = getDb();
       const tokenEncrypted = encryptSecret(input.token);
-      const [existing] = await db.select({ id: whatsappConnections.id }).from(whatsappConnections).where(eq(whatsappConnections.userId, ctx.user.id)).limit(1);
+      const [existing] = await db.select({ id: whatsappConnections.id }).from(whatsappConnections).where(eq(whatsappConnections.userId, dono)).limit(1);
       if (existing) {
         await db.update(whatsappConnections)
           .set({ provider: "business", tokenEncrypted, phoneNumberId: input.phoneNumberId, numero: input.numero, status: "conectado", updatedAt: new Date() })
           .where(eq(whatsappConnections.id, existing.id));
       } else {
         await db.insert(whatsappConnections).values({
-          userId: ctx.user.id, provider: "business", tokenEncrypted,
+          userId: dono, provider: "business", tokenEncrypted,
           phoneNumberId: input.phoneNumberId, numero: input.numero, status: "conectado",
         });
       }
@@ -75,8 +80,9 @@ export const whatsappRouter = router({
     }),
 
   desconectar: protectedProcedure.mutation(async ({ ctx }) => {
-    requireRole(ctx, ["admin", "corretor"]);
-    await getDb().delete(whatsappConnections).where(eq(whatsappConnections.userId, ctx.user.id));
+    if (ctx.user.role !== "corretor") requireModule(ctx, "whatsapp");
+    const dono = await donoDaConexao(ctx.user.id, ctx.user.role);
+    if (dono) await getDb().delete(whatsappConnections).where(eq(whatsappConnections.userId, dono));
     return { success: true };
   }),
 

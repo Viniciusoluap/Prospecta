@@ -61,19 +61,19 @@ export default function AdminObraMedicoes() {
   // Fetch project details
   const { data: project, isLoading: loadingProject } = trpc.construction.getProjectDetails.useQuery(
     { projectId },
-    { enabled: !!projectId && user?.role === "admin" }
+    { enabled: !!projectId && (user?.role === "admin" || user?.role === "colaborador") }
   );
 
   // Indicadores financeiros saem do motor único (EPIC-020 Lote 2).
   const { data: resumo } = trpc.obraFinanceiro.resumo.useQuery(
     { projectId },
-    { enabled: !!projectId && user?.role === "admin" }
+    { enabled: !!projectId && (user?.role === "admin" || user?.role === "colaborador") }
   );
 
   // Fetch measurements
   const { data: medicoes = [], refetch } = trpc.obraMedicoes.list.useQuery(
     { projectId },
-    { enabled: !!projectId && user?.role === "admin" }
+    { enabled: !!projectId && (user?.role === "admin" || user?.role === "colaborador") }
   );
 
   const createMutation = trpc.obraMedicoes.create.useMutation({
@@ -96,7 +96,7 @@ export default function AdminObraMedicoes() {
     onError: (e) => toast.error(e.message),
   });
 
-  if (user?.role !== "admin") return null;
+  if (!(user?.role === "admin" || user?.role === "colaborador")) return null;
 
   if (loadingProject) {
     return (

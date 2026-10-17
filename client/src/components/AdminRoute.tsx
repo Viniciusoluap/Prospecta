@@ -45,7 +45,7 @@ export function AdminRoute({
     if (!loading && user && !allowed) {
       // Cada perfil volta para a própria área (item 02).
       setLocation(
-        user.role === "colaborador" ? "/admin/acesso"
+        user.role === "colaborador" ? "/admin"
           : user.role === "corretor" ? "/corretor"
           : user.role === "empreiteiro" ? "/empreiteiro"
           : user.role === "cliente" || user.role === "user" ? "/portal" : "/",

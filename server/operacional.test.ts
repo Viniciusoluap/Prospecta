@@ -284,10 +284,10 @@ describe("Etapa 4 — autorização aplicada antes do banco", () => {
       )
     ).toBe(false);
   });
-  it("funcionário não pode excluir conta mesmo com acesso a Corretores", async () => {
+  it("colaborador sem o módulo Corretores não exclui corretor (com o módulo, faz como o admin)", async () => {
     await expect(
       app
-        .createCaller(context("colaborador", ["corretores"]))
+        .createCaller(context("colaborador", ["mapa"]))
         .corretores.delete({ id: 4 })
     ).rejects.toMatchObject({ code: "FORBIDDEN" });
     expect(getDb).not.toHaveBeenCalled();

@@ -113,7 +113,7 @@ export default function AdminBrokerDirectory() {
                 >
                   Perfil / editar
                 </Button>
-                {user?.role === "admin" && (
+                {(user?.role === "admin" || user?.role === "colaborador") && (
                   <DeleteButton
                     onDelete={async () => {
                       await remove.mutateAsync({ id: r.id });

@@ -14,7 +14,7 @@ export default function AdminObras() {
   const [, setLocation] = useLocation();
 
   const { data: projects, isLoading, error, refetch } = trpc.construction.allProjects.useQuery(undefined, {
-    enabled: isAuthenticated && user?.role === "admin",
+    enabled: isAuthenticated && (user?.role === "admin" || user?.role === "colaborador"),
   });
   const excluirObra = trpc.construction.deleteProject.useMutation();
 
@@ -25,7 +25,7 @@ export default function AdminObras() {
   }, [authLoading, isAuthenticated]);
 
   useEffect(() => {
-    if (!authLoading && isAuthenticated && user?.role !== "admin") {
+    if (!authLoading && isAuthenticated && !(user?.role === "admin" || user?.role === "colaborador")) {
       setLocation("/");
     }
   }, [authLoading, isAuthenticated, user, setLocation]);
@@ -38,7 +38,7 @@ export default function AdminObras() {
     );
   }
 
-  if (user?.role !== "admin") {
+  if (!(user?.role === "admin" || user?.role === "colaborador")) {
     return null;
   }
 

@@ -105,10 +105,10 @@ export function OperationalPage({
   onNew?: () => void;
   embedded?: boolean;
 }) {
-  // Story 3.1: o administrador volta ao Painel Administrativo (onde entrou após
-  // o login); colaboradores e corretores voltam à Central Administrativa.
+  // Admin e colaborador voltam ao Painel Administrativo (onde entraram após o
+  // login); o corretor volta ao Portal do Corretor.
   const { user } = useAuth();
-  const backHref = user?.role === "admin" ? "/admin" : "/admin/acesso";
+  const backHref = user?.role === "corretor" ? "/corretor" : "/admin";
   const content = (
     <main
       className={

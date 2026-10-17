@@ -3,7 +3,7 @@ import { eq, sql } from "drizzle-orm";
 import { z } from "zod";
 import { incorporationStudies, incorporationUnits, incorporationUnitEvents } from "../drizzle/schema.js";
 import { chaveUnidade, vendasLegadas } from "../shared/incorporacao/unidades.js";
-import { requireRole } from "./_core/rbac.js";
+import { requireModule } from "./_core/rbac.js";
 import { protectedProcedure, router } from "./_core/trpc.js";
 import { getDb } from "./db.js";
 
@@ -32,7 +32,7 @@ function conflict(): never { throw new TRPCError({ code: "CONFLICT", message: "E
 
 export const incorporationUnitsRouter = router({
   list: protectedProcedure.input(z.object({ studyId })).query(async ({ ctx, input }) => {
-    requireRole(ctx, ["admin"]);
+    requireModule(ctx, "incorporacao");
     const [units, legacy] = await Promise.all([
       getDb().select().from(incorporationUnits).where(eq(incorporationUnits.studyId, input.studyId)).orderBy(incorporationUnits.code),
       pendingLegacy(input.studyId),
@@ -40,7 +40,7 @@ export const incorporationUnitsRouter = router({
     return { units, legacyPending: legacy.pending, legacyInvalid: legacy.invalido };
   }),
   create: protectedProcedure.input(z.object({ studyId, code: z.string().trim().min(1).max(120), kind: z.string().trim().min(1).max(40) })).mutation(async ({ ctx, input }) => {
-    requireRole(ctx, ["admin"]); await study(input.studyId);
+    requireModule(ctx, "incorporacao"); await study(input.studyId);
     const codeKey = chaveUnidade(input.code);
     if (!codeKey || codeKey.length > 120) throw new TRPCError({ code: "BAD_REQUEST" });
     const rows = await getDb().execute(sql`WITH created AS (
@@ -54,7 +54,7 @@ export const incorporationUnitsRouter = router({
     return { success: true };
   }),
   transition: protectedProcedure.input(z.object({ studyId, unitId: studyId, action: z.enum(["reservar", "vender", "liberar"]), buyer: z.string().trim().max(255).optional(), salePrice: price.optional() })).mutation(async ({ ctx, input }) => {
-    requireRole(ctx, ["admin"]);
+    requireModule(ctx, "incorporacao");
     const legacy = await pendingLegacy(input.studyId);
     if (legacy.invalido || legacy.pending.length) throw new TRPCError({ code: "PRECONDITION_FAILED", message: "Concilie as vendas históricas antes de alterar o inventário." });
     if (input.action === "vender" && (!input.buyer?.trim() || !input.salePrice)) throw new TRPCError({ code: "BAD_REQUEST", message: "Comprador e valor são obrigatórios" });
@@ -73,7 +73,7 @@ export const incorporationUnitsRouter = router({
     return { success: true };
   }),
   reconcile: protectedProcedure.input(z.object({ studyId, saleId: z.string().min(1).max(120), kind: z.string().trim().min(1).max(40) })).mutation(async ({ ctx, input }) => {
-    requireRole(ctx, ["admin"]);
+    requireModule(ctx, "incorporacao");
     const legacy = await pendingLegacy(input.studyId);
     if (legacy.invalido) throw new TRPCError({ code: "PRECONDITION_FAILED", message: "Vendas históricas ambíguas: revise os dados originais." });
     const sale = legacy.pending.find((v) => v.id === input.saleId);
