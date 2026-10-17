@@ -2336,6 +2336,8 @@ export const appRouter = router({
         requireModule(ctx, "imoveis");
         const criado = await db.createImovel({
           ...input,
+          // Revisão do Codex (18/10): só imóvel aprovado fica publicado no site.
+          ...(input.reviewStatus && input.reviewStatus !== "approved" ? { publicadoSite: false } : {}),
           fotos: "[]",
           preco: input.preco.toString(),
           areaM2: input.areaM2?.toString(),
@@ -2382,9 +2384,12 @@ export const appRouter = router({
       .mutation(async ({ input, ctx }) => {
         requireModule(ctx, "imoveis");
         const { id, fotos, ...data } = input;
-        const anterior = data.reviewStatus ? await db.getImovelById(id) : null;
+        const anterior = await db.getImovelById(id);
+        const revisao = data.reviewStatus ?? anterior?.reviewStatus;
         await db.updateImovel(id, {
           ...data,
+          // Revisão do Codex (18/10): só imóvel aprovado fica publicado no site.
+          ...(revisao && revisao !== "approved" ? { publicadoSite: false } : {}),
           // Item 8 (18/10): data da decisão de revisão (aviso de 3 dias ao corretor).
           ...(data.reviewStatus && anterior?.reviewStatus !== data.reviewStatus ? { reviewedAt: new Date() } : {}),
           preco: data.preco?.toString(),
