@@ -103,20 +103,24 @@ export const configuracoesRouter = router({
     if (existing) throw new TRPCError({ code: "CONFLICT", message: "E-mail já cadastrado" });
     if (input.role === "corretor" && (!input.creci?.trim() || !input.phone?.trim()))
       throw new TRPCError({ code: "BAD_REQUEST", message: "Corretor exige CRECI e telefone." });
+    // Item 13 (18/10) + revisão do Codex (PR #133): nome e telefone do cliente
+    // vêm sempre do cadastro do CRM, nunca do que foi digitado.
+    let doCrm: { name: string; phone: string | null } | null = null;
     if (input.role === "cliente") {
       if (!input.leadId) throw new TRPCError({ code: "BAD_REQUEST", message: "Escolha o cliente do CRM a que esta conta pertence." });
-      const [lead] = await db.select({ id: leads.id, deletedAt: leads.deletedAt }).from(leads).where(eq(leads.id, input.leadId)).limit(1);
+      const [lead] = await db.select({ id: leads.id, deletedAt: leads.deletedAt, name: leads.name, phone: leads.phone }).from(leads).where(eq(leads.id, input.leadId)).limit(1);
       if (!lead || lead.deletedAt) throw new TRPCError({ code: "NOT_FOUND", message: "Cliente do CRM não encontrado." });
       const [dono] = await db.select({ id: users.id }).from(users).where(eq(users.leadId, input.leadId)).limit(1);
       if (dono) throw new TRPCError({ code: "CONFLICT", message: "Este cliente do CRM já tem uma conta de acesso." });
+      doCrm = { name: lead.name, phone: lead.phone };
     }
     const values = {
       openId: `admin:${email}`,
-      name: input.name,
+      name: doCrm?.name || input.name,
       email,
       passwordHash: hashPassword(randomBytes(32).toString("hex")),
       role: input.role,
-      phone: input.phone || null,
+      phone: doCrm ? doCrm.phone || null : input.phone || null,
       creci: input.creci || null,
       permissions: JSON.stringify(normalizarPermissoes(input.role, normalizePermissions(input.permissions), ADMIN_MODULES)),
       leadId: input.role === "cliente" ? input.leadId! : null,
@@ -135,7 +139,7 @@ export const configuracoesRouter = router({
     } else {
       [created] = await db.insert(users).values(values).returning({ id: users.id });
     }
-    const emailEnviado = await enviarLinkDefinicaoSenha(created.id, input.name, email, true);
+    const emailEnviado = await enviarLinkDefinicaoSenha(created.id, values.name, email, true);
     return { ...created, emailEnviado };
   }),
 
@@ -158,10 +162,14 @@ export const configuracoesRouter = router({
     if (current.role === "admin" && current.active && (input.role !== "admin" || !input.active)) await ensureAnotherAdmin(input.id);
     // Item 05: vínculo do cliente com o lead do CRM (um lead, uma conta).
     const leadId = input.role === "cliente" ? (input.leadId ?? current.leadId ?? null) : null;
+    let doCrm: { name: string; phone: string | null } | null = null;
     if (input.role === "cliente") {
       if (!leadId) throw new TRPCError({ code: "BAD_REQUEST", message: "Escolha o cliente do CRM a que esta conta pertence." });
       const [dono] = await db.select({ id: users.id }).from(users).where(and(eq(users.leadId, leadId), ne(users.id, input.id))).limit(1);
       if (dono) throw new TRPCError({ code: "CONFLICT", message: "Este cliente do CRM já tem uma conta de acesso." });
+      const [lead] = await db.select({ name: leads.name, phone: leads.phone, deletedAt: leads.deletedAt }).from(leads).where(eq(leads.id, leadId)).limit(1);
+      if (!lead || lead.deletedAt) throw new TRPCError({ code: "NOT_FOUND", message: "Cliente do CRM não encontrado." });
+      doCrm = { name: lead.name, phone: lead.phone };
     }
     // Revisão do Codex (PR #111): mesma exigência do cadastro — corretor sempre
     // com telefone e CRECI, inclusive quando um usuário existente vira corretor.
@@ -174,9 +182,9 @@ export const configuracoesRouter = router({
     // Troca de perfil ou desativação encerra as sessões antigas (sessionVersion).
     const encerrarSessao = current.role !== input.role || (current.active && !input.active);
     const [updated] = await db.update(users).set({
-      name: input.name,
+      name: doCrm?.name || input.name,
       role: input.role,
-      phone: input.phone || null,
+      phone: doCrm ? doCrm.phone || null : input.phone || null,
       creci: input.creci || null,
       active: input.active,
       leadId,
