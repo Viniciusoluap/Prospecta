@@ -87,16 +87,17 @@ Uma sessão inicial do Prospecta (PR #91) tinha corrigido o `parseNumeroBR` em s
 digitar qualquer decimal com vírgula na prática. Corrigido antes do merge com um buffer de texto por
 campo (mesmo padrão do Santa Fé: o `<Input>` exibe o buffer, reformatado só no blur).
 
-## Pendência de paridade — Lote 18/10/2026 (revisão de imóveis do corretor)
+## Paridade resolvida — Lote 18/10/2026 (revisão de imóveis e Portal do Corretor)
 
-- **Origem:** pedido de 18/10 (item 8) — imóvel recusado aparece como "Recusado" para o
-  corretor por 3 dias e depois some; exclusão definitiva pelo admin.
+- **Origem:** pedido de 18/10 (itens 3, 4 e 8) — revisão do cadastro do corretor
+  (Pendente/Aprovado/Recusado), edição volta para revisão e sai do site, recusado visível por
+  3 dias, recusado excluído vira aviso só com o título; barra de envio com percentual.
 - **Prospecta:** implementado (`imoveis.reviewed_at`, `imovel_recusado_avisos`, migração 0056).
-- **Grupo Santa Fé:** a exclusão definitiva e o editar/excluir do corretor (só o próprio
-  imóvel) foram feitos no mesmo lote; **o SF não tem fluxo de revisão** (o cadastro do corretor
-  é publicado direto, sem "Pendente/Aprovado/Recusado"). Portar o fluxo de revisão inteiro
-  (situação da revisão, recusa e aviso de 3 dias) é uma story própria — **pendente**, não é
-  exceção de paridade.
+- **Grupo Santa Fé:** portado no mesmo lote, por pedido do dono (18/10): `imoveis.revisaoStatus`,
+  `revisadoEm`, `cadastradoPorId` e `imovel_recusado_avisos` (migração
+  `20261018130000_revisao_imoveis_corretor`); Portal do Corretor próprio em `/corretor` (Início,
+  Imóveis, Minhas Comissões, Agenda e WhatsApp), igual ao `BrokerPortal` da Prospecta; todos os
+  envios de arquivo do SF mostram o percentual real (rota `/api/envio`). **Sem pendência.**
 
 ## Coordenação entre trilhas
 
