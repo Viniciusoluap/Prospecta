@@ -2,7 +2,7 @@ import { TRPCError } from "@trpc/server";
 import { asc, desc, eq, sql } from "drizzle-orm";
 import { z } from "zod";
 import { imoveis, leads, portalChatMessages, portalContractDocuments, portalContracts } from "../drizzle/schema.js";
-import { ASSINATURA_STATUS, CONTRATO_STATUS, contratoInputSchema } from "../shared/juridico.js";
+import { ASSINATURA_STATUS, CONTRATO_STATUS, CONTRATO_TIPOS, contratoInputSchema } from "../shared/juridico.js";
 import { adminProcedure, router } from "./_core/trpc.js";
 import { getDb } from "./db.js";
 import { readPrivateDocument, tryDriveUpload, uploadPrivateDocument } from "./drive-documents.js";
@@ -51,6 +51,33 @@ export const juridicoRouter = router({
       description: input.description || "",
       clauses: input.clauses || "",
       value: input.value.toFixed(2),
+    }).returning();
+    return created;
+  }),
+
+  // Item 11 (18/10): contrato criado pelo lead nasce no Jurídico (fonte única),
+  // já vinculado ao lead, com os dados do cliente e a numeração do Jurídico.
+  createFromLead: adminProcedure.input(z.object({
+    leadId: z.number().int().positive(),
+    type: z.enum(CONTRATO_TIPOS),
+    value: z.number().nonnegative().default(0),
+  })).mutation(async ({ input }) => {
+    const db = getDb();
+    const [lead] = await db.select({ id: leads.id, name: leads.name, cpf: leads.cpf, deletedAt: leads.deletedAt })
+      .from(leads).where(eq(leads.id, input.leadId)).limit(1);
+    if (!lead || lead.deletedAt) throw new TRPCError({ code: "NOT_FOUND", message: "Lead não encontrado no CRM" });
+    const [created] = await db.insert(portalContracts).values({
+      number: `PRO-${Date.now()}`,
+      type: input.type,
+      status: "rascunho",
+      partyA: "Prospecta Construções",
+      partyB: lead.name,
+      partyBDocument: lead.cpf || null,
+      leadId: lead.id,
+      value: input.value.toFixed(2),
+      description: "",
+      clauses: "",
+      signatureStatus: "pendente",
     }).returning();
     return created;
   }),

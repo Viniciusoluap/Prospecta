@@ -231,7 +231,7 @@ export default function AdminFinanceiro() {
           </CardHeader>
           <CardContent>
             {transactions.length === 0 ? (
-              <div className="text-center py-12 text-gray-500">
+              <div className="text-center py-12 text-gray-400">
                 <DollarSign className="h-12 w-12 mx-auto mb-3 opacity-20" />
                 <p>Nenhum lançamento encontrado</p>
               </div>
@@ -254,7 +254,7 @@ export default function AdminFinanceiro() {
                             <StatusIcon size={10} /> {status.label}
                           </span>
                         </div>
-                        <p className="text-xs text-gray-500 mt-0.5">
+                        <p className="text-xs text-gray-400 mt-0.5">
                           {[t.category, t.vendor, t.responsible, t.dueDate ? `vence ${new Date(t.dueDate).toLocaleDateString("pt-BR")}` : null].filter(Boolean).join(" • ")}
                         </p>
                       </div>

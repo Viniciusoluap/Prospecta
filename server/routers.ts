@@ -73,6 +73,7 @@ import {
   pickWinningNumber,
 } from "../shared/raffle.js";
 import { brokerPortalRouter } from "./broker-portal-router.js";
+import { geoRouter } from "./geo-router.js";
 import { empreiteiroRouter, obraFinanceiroRouter } from "./obra-financeiro-router.js";
 import { obraProgressoRouter } from "./obra-progresso-router.js";
 import { LEAD_PIPELINE_KEYS } from "../shared/lead-pipeline.js";
@@ -159,6 +160,7 @@ export const appRouter = router({
   leadServices: leadServicesRouter,
   leadDocuments: leadDocumentsRouter,
   brokerPortal: brokerPortalRouter,
+  geo: geoRouter,
   obraFinanceiro: obraFinanceiroRouter,
   obraProgresso: obraProgressoRouter,
   empreiteiro: empreiteiroRouter,
@@ -1336,6 +1338,8 @@ export const appRouter = router({
             ])
             .optional(),
           temperature: z.enum(LEAD_TEMPERATURAS).optional(),
+          // Item 9 (18/10): o cadastro escolhe o estágio do funil (antes "Tipo de Lead").
+          stage: z.enum(LEAD_PIPELINE_KEYS).optional(),
           // Renda/tipo de renda saíram do formulário (EPIC-017, story 1.6) e
           // seguem aceitos apenas por compatibilidade com integrações antigas.
           income: z.string().optional(),
@@ -1364,7 +1368,7 @@ export const appRouter = router({
         const city = (input.city || "").toLowerCase();
         if (city.includes("canaa") || city.includes("parauapebas"))
           responsible = "bianca";
-        const { services = [], ...leadInput } = input;
+        const { services = [], stage, ...leadInput } = input;
         const lead = await db.createLead({
           ...leadInput,
           phone: input.phone ?? "",
@@ -1379,6 +1383,8 @@ export const appRouter = router({
           description: "Lead criado no sistema",
           performedBy: "vinicius",
         });
+        // Mesma rotina da mudança de etapa no funil (histórico e automações).
+        if (stage && stage !== "lead_new") await db.updateLeadPipelineStage(lead.id, stage, ctx.user.id);
         for (const serviceType of services)
           await createLeadServiceWithAutomation({
             leadId: lead.id,
@@ -2376,8 +2382,11 @@ export const appRouter = router({
       .mutation(async ({ input, ctx }) => {
         requireModule(ctx, "imoveis");
         const { id, fotos, ...data } = input;
+        const anterior = data.reviewStatus ? await db.getImovelById(id) : null;
         await db.updateImovel(id, {
           ...data,
+          // Item 8 (18/10): data da decisão de revisão (aviso de 3 dias ao corretor).
+          ...(data.reviewStatus && anterior?.reviewStatus !== data.reviewStatus ? { reviewedAt: new Date() } : {}),
           preco: data.preco?.toString(),
           areaM2: data.areaM2?.toString(),
           latitude: data.latitude?.toString(),
@@ -2388,6 +2397,15 @@ export const appRouter = router({
           await aplicarFotosImovel(id, lerFotos(fotos), ctx.user.id);
         }
         return { success: true };
+      }),
+
+    // Item 8 (18/10): exclusão definitiva — o imóvel some da lista do admin e do site.
+    delete: protectedProcedure
+      .input(z.object({ id: z.number().int().positive() }))
+      .mutation(async ({ input, ctx }) => {
+        requireModule(ctx, "imoveis");
+        const { excluirImovelDefinitivo } = await import("./imovel-exclusao.js");
+        return excluirImovelDefinitivo(input.id);
       }),
   }),
 

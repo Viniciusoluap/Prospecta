@@ -1,6 +1,6 @@
 import { useEffect, useMemo } from "react";
 import { useLocation } from "wouter";
-import { BarChart3, Building2, HardHat, Landmark, Loader2, LogOut, TrendingUp, Wallet } from "lucide-react";
+import { BarChart3, Building2, HardHat, Landmark, Loader2, TrendingUp, Wallet } from "lucide-react";
 import { Bar, BarChart, CartesianGrid, Cell, Legend, Pie, PieChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { Button } from "@/components/ui/button";
@@ -8,6 +8,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ListaObras } from "@/components/obra/ListaObras";
 import { formatCurrency } from "@/lib/format";
+import { PortalHeader } from "@/components/PortalHeader";
 import { trpc } from "@/lib/trpc";
 import { totaisDoEmpreiteiro } from "@shared/portal-empreiteiro";
 
@@ -37,19 +38,14 @@ export default function EmpreiteiroPortal() {
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-[#1A2332] via-[#2C3E50] to-[#1A2332] text-white">
-      <div className="border-b border-[#C9A961]/20 bg-[#1A2332]/80 backdrop-blur-sm">
-        <div className="container flex flex-wrap items-center justify-between gap-3 py-6">
-          <div>
-            <h1 className="flex items-center gap-3 text-3xl font-bold text-[#C9A961]"><HardHat className="h-8 w-8" /> Acesso do Empreiteiro</h1>
-            <p className="mt-1 text-gray-400">Obras em que você é o empreiteiro vinculado à Prospecta Construções.</p>
-          </div>
-          <div className="flex items-center gap-3 text-sm text-gray-300">
-            <span className="hidden sm:inline">{user?.name}</span>
-            <Button variant="ghost" size="sm" className="gap-2 text-gray-300 hover:text-[#C9A961]" onClick={() => logout()}>
-              <LogOut className="h-4 w-4" /> Sair
-            </Button>
-          </div>
-        </div>
+      <PortalHeader
+        subtitle={`Portal do Empreiteiro · ${user?.name ?? ""}`}
+        fallback="/empreiteiro"
+        onLogout={() => logout()}
+      />
+      <div className="container pt-6">
+        <h1 className="flex items-center gap-3 text-2xl font-bold text-[#C9A961] sm:text-3xl"><HardHat className="h-8 w-8" /> Acesso do Empreiteiro</h1>
+        <p className="mt-1 text-gray-300">Obras em que você é o empreiteiro vinculado à Prospecta Construções.</p>
       </div>
 
       <div className="container py-8">
@@ -134,7 +130,7 @@ export default function EmpreiteiroPortal() {
                     </Card>
                   </div>
                 )}
-                <p className="text-xs text-gray-500">
+                <p className="text-xs text-gray-400">
                   Lucro previsto: estimativa sobre o lucro da operação após a participação dos investidores, com o seu percentual
                   definido pela empresa. A receber do banco: base contratual da CEF menos o que já foi recebido.
                 </p>
@@ -157,7 +153,7 @@ function Indicador({ Icone, titulo, valor, nota, destaque = false }: {
         <div className="min-w-0">
           <p className="text-sm text-gray-400">{titulo}</p>
           <p className={`text-2xl font-bold ${destaque ? "text-[#F4D37D]" : "text-white"}`}>{valor}</p>
-          <p className="mt-1 text-xs text-gray-500">{nota}</p>
+          <p className="mt-1 text-xs text-gray-400">{nota}</p>
         </div>
       </CardContent>
     </Card>

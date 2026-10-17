@@ -30,6 +30,7 @@ import {
   Plus,
 } from "lucide-react";
 import { toast } from "sonner";
+import { rotulo } from "@shared/rotulos";
 
 const regimes = {
   simples_nacional: "Simples Nacional",
@@ -148,7 +149,7 @@ export default function TaxAccountingPanel() {
             <p className="mt-1 text-xl font-bold text-amber-300">
               {money(data.estimatedTax)}
             </p>
-            <p className="text-xs text-gray-500">
+            <p className="text-xs text-gray-400">
               alíquota {data.rate.toFixed(2)}%
             </p>
           </CardContent>
@@ -538,7 +539,7 @@ export default function TaxAccountingPanel() {
                 <div key={item.id} className="rounded bg-[#1A2332] p-3">
                   <p className="font-medium text-white">{item.name}</p>
                   <p className="text-xs text-gray-400">
-                    {item.status} • alíquota informada{" "}
+                    {rotulo(item.status)} • alíquota informada{" "}
                     {Number(item.retRate).toFixed(2)}% • afetação:{" "}
                     {item.affectedAssets ? "confirmada" : "pendente"}
                   </p>

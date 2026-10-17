@@ -32,13 +32,17 @@ export interface DetalheObra {
 }
 
 /** Etapas = serviços com incidência na obra; concluída = 100% executada. */
-export function montarDetalheObra(progresso: ResultadoProgresso, financeiro: ResultadoObra, totalFotos: number): DetalheObra {
-  const etapas = progresso.itens
+export function etapasDoProgresso(progresso: ResultadoProgresso): EtapaDetalhe[] {
+  return progresso.itens
     .filter((i) => i.incidencia > 0)
     .map((i): EtapaDetalhe => ({
       chave: i.chave, nome: i.nome, incidencia: i.incidencia, execucao: i.execucao, execucaoObra: i.execucaoObra,
       situacao: i.execucao >= 100 ? "concluida" : i.execucao > 0 ? "em_andamento" : "pendente",
     }));
+}
+
+export function montarDetalheObra(progresso: ResultadoProgresso, financeiro: ResultadoObra, totalFotos: number): DetalheObra {
+  const etapas = etapasDoProgresso(progresso);
   return {
     etapas,
     financeiro: {

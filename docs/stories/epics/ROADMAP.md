@@ -87,6 +87,18 @@ Uma sessão inicial do Prospecta (PR #91) tinha corrigido o `parseNumeroBR` em s
 digitar qualquer decimal com vírgula na prática. Corrigido antes do merge com um buffer de texto por
 campo (mesmo padrão do Santa Fé: o `<Input>` exibe o buffer, reformatado só no blur).
 
+## Paridade resolvida — Lote 18/10/2026 (revisão de imóveis e Portal do Corretor)
+
+- **Origem:** pedido de 18/10 (itens 3, 4 e 8) — revisão do cadastro do corretor
+  (Pendente/Aprovado/Recusado), edição volta para revisão e sai do site, recusado visível por
+  3 dias, recusado excluído vira aviso só com o título; barra de envio com percentual.
+- **Prospecta:** implementado (`imoveis.reviewed_at`, `imovel_recusado_avisos`, migração 0056).
+- **Grupo Santa Fé:** portado no mesmo lote, por pedido do dono (18/10): `imoveis.revisaoStatus`,
+  `revisadoEm`, `cadastradoPorId` e `imovel_recusado_avisos` (migração
+  `20261018130000_revisao_imoveis_corretor`); Portal do Corretor próprio em `/corretor` (Início,
+  Imóveis, Minhas Comissões, Agenda e WhatsApp), igual ao `BrokerPortal` da Prospecta; todos os
+  envios de arquivo do SF mostram o percentual real (rota `/api/envio`). **Sem pendência.**
+
 ## Coordenação entre trilhas
 
 - Trilha Claude (EPIC-000/001/003/005/008/009/010) e trilha Codex (EPIC-002/004/006/007) trabalham em branches separadas no mesmo repositório Prospecta.

@@ -10,6 +10,7 @@ import {
   DialogDescription,
 } from "@/components/ui/dialog";
 import { toast } from "sonner";
+import { rotulo } from "@shared/rotulos";
 import { useAuth } from "@/_core/hooks/useAuth";
 
 export const inputClass =
@@ -78,7 +79,7 @@ export function Choice({
   );
 }
 export const choices = (items: readonly string[]) =>
-  items.map(value => ({ value, label: value.replaceAll("_", " ") }));
+  items.map(value => ({ value, label: rotulo(value) }));
 export const ids = (items: { id: number; name: string | null }[] | undefined) =>
   (items || []).map(item => ({
     value: String(item.id),

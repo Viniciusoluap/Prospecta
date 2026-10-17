@@ -1,6 +1,8 @@
 import { useRef, useState } from "react";
 import { Link, useLocation } from "wouter";
-import { Building2, Camera, DollarSign, Home, LogOut, Plus, Upload, CalendarDays, MessageCircle, X } from "lucide-react";
+import { Building2, Camera, DollarSign, Home, Pencil, Plus, Trash2, Upload, CalendarDays, MessageCircle, X } from "lucide-react";
+import { PortalHeader } from "@/components/PortalHeader";
+import { mutarComProgresso } from "@/lib/envio-progresso";
 import { trpc } from "@/lib/trpc";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { Button } from "@/components/ui/button";
@@ -12,7 +14,21 @@ import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { toast } from "sonner";
 import { LEAD_PIPELINE_STAGES } from "@shared/lead-pipeline";
-import { BROKER_PROPERTY_TYPES, MAX_BROKER_PHOTOS } from "@shared/broker-portal";
+import { BROKER_PROPERTY_TYPES, DIAS_AVISO_RECUSA, MAX_BROKER_PHOTOS } from "@shared/broker-portal";
+import type { inferRouterOutputs } from "@trpc/server";
+import type { AppRouter } from "../../../server/routers";
+import { rotulo } from "@shared/rotulos";
+
+type BrokerProperty = inferRouterOutputs<AppRouter>["brokerPortal"]["properties"][number];
+
+function parseFotos(json: string | null): string[] {
+  try {
+    const lista = JSON.parse(json || "[]");
+    return Array.isArray(lista) ? lista.filter((f): f is string => typeof f === "string") : [];
+  } catch {
+    return [];
+  }
+}
 
 const money = (value: string | number) =>
   Number(value).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
@@ -67,19 +83,33 @@ export default function BrokerPortal() {
   const myLeads = trpc.brokerPortal.leads.useQuery(undefined, {
     enabled: path === "/corretor",
   });
+  // Item 3 (18/10): o mesmo formulário cadastra e edita o próprio imóvel.
   const [creating, setCreating] = useState(false);
+  const [editing, setEditing] = useState<BrokerProperty | null>(null);
   const [images, setImages] = useState<string[]>([]);
   const fileRef = useRef<HTMLInputElement>(null);
   const [processing, setProcessing] = useState(false);
-  const create = trpc.brokerPortal.createProperty.useMutation({
+  const [enviando, setEnviando] = useState(false);
+  const remove = trpc.brokerPortal.deleteProperty.useMutation({
     onSuccess: async () => {
-      toast.success("Imóvel enviado para revisão");
-      setCreating(false);
-      setImages([]);
+      toast.success("Imóvel excluído");
       await utils.brokerPortal.properties.invalidate();
     },
     onError: error => toast.error(error.message),
   });
+
+  function openForm(property: BrokerProperty | null) {
+    setEditing(property);
+    setImages(property ? parseFotos(property.fotos) : []);
+    setCreating(true);
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  }
+
+  function closeForm() {
+    setCreating(false);
+    setEditing(null);
+    setImages([]);
+  }
 
   async function addImages(files: FileList | null) {
     if (!files?.length) return;
@@ -100,7 +130,7 @@ export default function BrokerPortal() {
     }
   }
 
-  function submit(event: React.FormEvent<HTMLFormElement>) {
+  async function submit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const data = new FormData(event.currentTarget);
     if (!(Number(data.get("preco")) > 0)) {
@@ -109,7 +139,7 @@ export default function BrokerPortal() {
     }
     const optionalNumber = (name: string) =>
       data.get(name) ? Number(data.get(name)) : undefined;
-    create.mutate({
+    const dados = {
       titulo: String(data.get("titulo") || ""),
       descricao: String(data.get("descricao") || "") || undefined,
       tipo: String(data.get("tipo") || ""),
@@ -123,7 +153,25 @@ export default function BrokerPortal() {
       cidade: String(data.get("cidade") || ""),
       estado: String(data.get("estado") || "") || undefined,
       fotos: images,
-    });
+    };
+    // Item 4 (18/10): progresso real do envio, foto a foto.
+    const progresso = { item: "foto", tamanhos: images.filter(foto => foto.startsWith("data:")).map(foto => foto.length) };
+    setEnviando(true);
+    try {
+      if (editing) {
+        await mutarComProgresso("brokerPortal.updateProperty", { ...dados, id: editing.id }, progresso);
+        toast.success("Alterações enviadas para revisão");
+      } else {
+        await mutarComProgresso("brokerPortal.createProperty", dados, progresso);
+        toast.success("Imóvel enviado para revisão");
+      }
+      closeForm();
+      await utils.brokerPortal.properties.invalidate();
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Falha ao enviar o imóvel");
+    } finally {
+      setEnviando(false);
+    }
   }
 
   const nav = [
@@ -137,32 +185,11 @@ export default function BrokerPortal() {
 
   return (
     <div className="min-h-screen bg-slate-100 text-[#1A2332]">
-      <header className="border-b-4 border-[#C9A961] bg-[#1A2332] text-white">
-        {/* Logo e nome no centro: à esquerda fica o botão "Voltar" fixo da página. */}
-        <div className="mx-auto grid max-w-6xl grid-cols-[1fr_auto_1fr] items-center gap-2 px-4 py-4">
-          <div />
-          <div className="text-center">
-            <div className="text-xl font-black text-[#C9A961]">PROSPECTA</div>
-            <div className="text-xs text-slate-400">
-              Portal do Corretor · {user?.name}
-            </div>
-          </div>
-          <div className="flex justify-end">
-            <Button
-              variant="ghost"
-              className="text-white"
-              onClick={() =>
-                logout().then(() =>
-                  window.location.assign("/login")
-                )
-              }
-            >
-              <LogOut className="mr-2 h-4 w-4" />
-              Sair
-            </Button>
-          </div>
-        </div>
-      </header>
+      <PortalHeader
+        subtitle={`Portal do Corretor · ${user?.name ?? ""}`}
+        fallback="/corretor"
+        onLogout={() => logout().then(() => window.location.assign("/login"))}
+      />
       <nav className="overflow-x-auto border-b bg-white">
         <div className="mx-auto flex max-w-6xl min-w-max px-4">
           {nav.map(([href, label, Icon]) => (
@@ -185,7 +212,7 @@ export default function BrokerPortal() {
                 <CardTitle>Imóveis disponíveis</CardTitle>
               </CardHeader>
               <CardContent className="text-4xl font-black text-[#C9A961]">
-                {properties.data?.length ?? 0}
+                {properties.data?.filter(p => p.reviewStatus === "approved").length ?? 0}
               </CardContent>
             </Card>
             <Card>
@@ -211,7 +238,7 @@ export default function BrokerPortal() {
                   Consulte o catálogo e envie novos imóveis para revisão.
                 </p>
               </div>
-              <Button onClick={() => setCreating(value => !value)}>
+              <Button onClick={() => (creating ? closeForm() : openForm(null))}>
                 <Plus className="mr-2 h-4 w-4" />
                 Novo imóvel
               </Button>
@@ -219,18 +246,21 @@ export default function BrokerPortal() {
             {creating && (
               <Card>
                 <CardHeader>
-                  <CardTitle>Cadastrar imóvel</CardTitle>
+                  <CardTitle>{editing ? "Editar imóvel" : "Cadastrar imóvel"}</CardTitle>
+                  {editing && (
+                    <p className="text-sm text-slate-500">Ao salvar, o imóvel volta para a revisão da equipe antes de aparecer no site.</p>
+                  )}
                 </CardHeader>
                 <CardContent>
-                  <form className="grid gap-4 md:grid-cols-2" onSubmit={submit}>
-                    <Field name="titulo" label="Título" required />
+                  <form key={editing?.id ?? "novo"} className="grid gap-4 md:grid-cols-2" onSubmit={submit}>
+                    <Field name="titulo" label="Título" required defaultValue={editing?.titulo ?? ""} />
                     <div>
                       <Label htmlFor="tipo">Tipo</Label>
                       <select
                         id="tipo"
                         name="tipo"
                         required
-                        defaultValue=""
+                        defaultValue={editing?.tipo ?? ""}
                         className="border-input bg-transparent h-9 w-full rounded-md border px-3 text-base shadow-xs md:text-sm"
                       >
                         <option value="" disabled>
@@ -245,21 +275,21 @@ export default function BrokerPortal() {
                     </div>
                     <div>
                       <Label htmlFor="preco">Preço</Label>
-                      <CurrencyInput id="preco" name="preco" required placeholder="0,00" />
+                      <CurrencyInput id="preco" name="preco" required placeholder="0,00" defaultValue={editing ? Number(editing.preco) : undefined} />
                     </div>
-                    <Field name="areaM2" label="Área (m²)" type="number" />
-                    <Field name="quartos" label="Quartos" type="number" />
-                    <Field name="banheiros" label="Banheiros" type="number" />
-                    <Field name="vagas" label="Vagas" type="number" />
-                    <Field name="cidade" label="Cidade" required />
-                    <Field name="estado" label="UF" maxLength={2} />
-                    <Field name="bairro" label="Bairro" />
+                    <Field name="areaM2" label="Área (m²)" type="number" defaultValue={editing?.areaM2 ?? ""} />
+                    <Field name="quartos" label="Quartos" type="number" defaultValue={editing?.quartos ?? ""} />
+                    <Field name="banheiros" label="Banheiros" type="number" defaultValue={editing?.banheiros ?? ""} />
+                    <Field name="vagas" label="Vagas" type="number" defaultValue={editing?.vagas ?? ""} />
+                    <Field name="cidade" label="Cidade" required defaultValue={editing?.cidade ?? ""} />
+                    <Field name="estado" label="UF" maxLength={2} defaultValue={editing?.estado ?? ""} />
+                    <Field name="bairro" label="Bairro" defaultValue={editing?.bairro ?? ""} />
                     <div className="md:col-span-2">
-                      <Field name="endereco" label="Endereço" />
+                      <Field name="endereco" label="Endereço" defaultValue={editing?.endereco ?? ""} />
                     </div>
                     <div className="md:col-span-2">
                       <Label>Descrição</Label>
-                      <Textarea name="descricao" />
+                      <Textarea name="descricao" defaultValue={editing?.descricao ?? ""} />
                     </div>
                     <div className="md:col-span-2 space-y-3">
                       {/* Sem "capture": o iPad/celular oferece câmera, fotos e arquivos. */}
@@ -303,13 +333,15 @@ export default function BrokerPortal() {
                         </div>
                       )}
                     </div>
-                    <Button
-                      className="md:col-span-2"
-                      disabled={create.isPending || processing}
-                    >
-                      <Upload className="mr-2 h-4 w-4" />
-                      Enviar para revisão
-                    </Button>
+                    <div className="flex flex-col gap-2 sm:flex-row md:col-span-2">
+                      <Button className="sm:flex-1" disabled={enviando || processing}>
+                        <Upload className="mr-2 h-4 w-4" />
+                        {enviando ? "Enviando..." : editing ? "Salvar e enviar para revisão" : "Enviar para revisão"}
+                      </Button>
+                      <Button type="button" variant="outline" onClick={closeForm} disabled={enviando}>
+                        Cancelar
+                      </Button>
+                    </div>
                   </form>
                 </CardContent>
               </Card>
@@ -328,6 +360,8 @@ export default function BrokerPortal() {
                     </div>
                   </CardHeader>
                   <CardContent>
+                    {!property.excluido && (
+                      <>
                     <p className="font-bold text-[#C9A961]">
                       {money(property.preco)}
                     </p>
@@ -335,15 +369,53 @@ export default function BrokerPortal() {
                       {property.bairro ? `${property.bairro}, ` : ""}
                       {property.cidade}/{property.estado}
                     </p>
+                      </>
+                    )}
                     {property.createdByMe && (
-                      <p className="mt-2 text-xs">
-                        Revisão:{" "}
-                        {property.reviewStatus === "pending"
-                          ? "Pendente"
-                          : property.reviewStatus === "rejected"
-                            ? "Reprovado"
-                            : "Aprovado"}
+                      <div className="mt-2 flex flex-wrap items-center gap-2 text-xs">
+                        <span>Revisão:</span>
+                        <Badge
+                          className={
+                            property.reviewStatus === "rejected"
+                              ? "bg-red-600 text-white"
+                              : property.reviewStatus === "pending"
+                                ? "bg-amber-500 text-[#1A2332]"
+                                : "bg-emerald-600 text-white"
+                          }
+                        >
+                          {property.reviewStatus === "pending"
+                            ? "Pendente"
+                            : property.reviewStatus === "rejected"
+                              ? "Recusado"
+                              : "Aprovado"}
+                        </Badge>
+                      </div>
+                    )}
+                    {property.createdByMe && property.reviewStatus === "rejected" && (
+                      <p className="mt-1 text-xs text-slate-500">
+                        {property.excluido ? "Cadastro excluído pela equipe. " : ""}Este aviso some da sua lista em até {DIAS_AVISO_RECUSA} dias.
                       </p>
+                    )}
+                    {property.createdByMe && !property.excluido && (
+                      <div className="mt-3 flex gap-2">
+                        <Button size="sm" variant="outline" onClick={() => openForm(property)} disabled={enviando}>
+                          <Pencil className="mr-1 h-4 w-4" />
+                          Editar
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          className="border-red-300 text-red-700 hover:bg-red-50"
+                          disabled={remove.isPending}
+                          onClick={() => {
+                            if (confirm(`Excluir definitivamente "${property.titulo}"? Esta ação não pode ser desfeita.`))
+                              remove.mutate({ id: property.id });
+                          }}
+                        >
+                          <Trash2 className="mr-1 h-4 w-4" />
+                          Excluir
+                        </Button>
+                      </div>
                     )}
                   </CardContent>
                 </Card>
@@ -411,7 +483,7 @@ export default function BrokerPortal() {
                     </div>
                     <div>
                       <p className="text-xs text-slate-500">Status</p>
-                      <Badge>{item.status}</Badge>
+                      <Badge>{rotulo(item.status)}</Badge>
                     </div>
                   </CardContent>
                 </Card>

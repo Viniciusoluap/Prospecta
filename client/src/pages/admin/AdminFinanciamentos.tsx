@@ -355,7 +355,7 @@ export default function AdminFinanciamentos() {
             {isLoading ? (
               <p className="py-10 text-center text-gray-300">Carregando…</p>
             ) : processos.length === 0 ? (
-              <div className="py-12 text-center text-gray-500">
+              <div className="py-12 text-center text-gray-400">
                 <Building2 className="mx-auto mb-3 h-12 w-12 opacity-30" />
                 <p>Nenhum financiamento encontrado</p>
               </div>

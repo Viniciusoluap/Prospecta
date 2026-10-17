@@ -156,19 +156,19 @@ export default function Obras() {
                   <div className="grid grid-cols-2 gap-4 pt-2">
                     {project.projectType && (
                       <div>
-                        <p className="text-xs text-gray-500">Tipo</p>
+                        <p className="text-xs text-gray-400">Tipo</p>
                         <p className="text-sm text-white font-medium">{project.projectType}</p>
                       </div>
                     )}
                     {project.totalArea && (
                       <div>
-                        <p className="text-xs text-gray-500">Área</p>
+                        <p className="text-xs text-gray-400">Área</p>
                         <p className="text-sm text-white font-medium">{project.totalArea}m²</p>
                       </div>
                     )}
                     {project.startDate && (
                       <div>
-                        <p className="text-xs text-gray-500">Início</p>
+                        <p className="text-xs text-gray-400">Início</p>
                         <p className="text-sm text-white font-medium flex items-center gap-1">
                           <Calendar className="h-3 w-3" />
                           {new Date(project.startDate).toLocaleDateString("pt-BR")}
@@ -177,7 +177,7 @@ export default function Obras() {
                     )}
                     {project.constructionCost && (
                       <div>
-                        <p className="text-xs text-gray-500">Orçamento</p>
+                        <p className="text-xs text-gray-400">Orçamento</p>
                         <p className="text-sm text-white font-medium">
                           {new Intl.NumberFormat("pt-BR", {
                             style: "currency",

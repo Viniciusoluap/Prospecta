@@ -82,7 +82,7 @@ export default function Instituto() {
                 <CardContent className="p-8 flex flex-col items-center justify-center text-center min-h-[220px]">
                   <HandHeart className="h-12 w-12 text-[#C9A961]/40 mb-4" />
                   <p className="text-gray-400 text-sm">Galeria de ações e parcerias</p>
-                  <p className="text-gray-600 text-xs mt-1">Conteúdo será adicionado conforme o instituto for estruturado</p>
+                  <p className="text-gray-300 text-xs mt-1">Conteúdo será adicionado conforme o instituto for estruturado</p>
                 </CardContent>
               </Card>
             </div>

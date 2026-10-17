@@ -208,7 +208,7 @@ export default function AdminWhatsApp() {
                 </CardHeader>
                 <CardContent className="space-y-3">
                   <div className="relative">
-                    <Search size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500" />
+                    <Search size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
                     <Input placeholder="Buscar lead..." value={searchLead} onChange={(e) => setSearchLead(e.target.value)} className={`${inputCls} pl-8`} />
                   </div>
                   <div className="space-y-1 max-h-64 overflow-y-auto">
@@ -221,7 +221,7 @@ export default function AdminWhatsApp() {
                         </label>
                       );
                     })}
-                    {filteredLeads.length === 0 && <p className="text-xs text-gray-500 text-center py-4">Nenhum lead encontrado.</p>}
+                    {filteredLeads.length === 0 && <p className="text-xs text-gray-400 text-center py-4">Nenhum lead encontrado.</p>}
                   </div>
                   <button onClick={() => setSelectedLeads(leads.map((l) => l.id))} className="flex items-center gap-1 text-xs font-bold text-gray-400 hover:text-white">
                     <Users size={12} /> Selecionar todos ({leads.length})
@@ -245,7 +245,7 @@ export default function AdminWhatsApp() {
                     <Label className="text-gray-300">Mensagem</Label>
                     <textarea rows={5} value={mensagem} onChange={(e) => setMensagem(e.target.value)} placeholder="Digite a mensagem ou selecione um template..."
                       className={`${inputCls} w-full rounded-md px-3 py-2.5 text-sm mt-1 resize-none font-mono`} />
-                    <p className="text-xs text-gray-500 mt-1">{mensagem.length} caracteres</p>
+                    <p className="text-xs text-gray-400 mt-1">{mensagem.length} caracteres</p>
                   </div>
                   <Button onClick={handleEnviar} disabled={enviar.isPending || selectedLeads.length === 0 || !mensagem.trim()} className="bg-green-600 hover:bg-green-700 text-white font-bold">
                     <Send className="h-4 w-4 mr-2" /> {enviar.isPending ? "Enviando..." : `Enviar para ${selectedLeads.length} contato${selectedLeads.length !== 1 ? "s" : ""}`}
@@ -278,11 +278,11 @@ export default function AdminWhatsApp() {
           <Card className={cardCls}>
             <CardHeader className="flex flex-row items-center justify-between">
               <CardTitle className="text-sm text-gray-300">Mensagens Enviadas</CardTitle>
-              <span className="text-xs text-gray-500">{historico.data?.length ?? 0} registros</span>
+              <span className="text-xs text-gray-400">{historico.data?.length ?? 0} registros</span>
             </CardHeader>
             <CardContent>
               {!historico.data?.length ? (
-                <div className="py-10 text-center"><MessageCircle size={32} className="text-gray-600 mx-auto mb-2" /><p className="text-sm text-gray-400">Nenhuma mensagem enviada ainda.</p></div>
+                <div className="py-10 text-center"><MessageCircle size={32} className="text-gray-300 mx-auto mb-2" /><p className="text-sm text-gray-400">Nenhuma mensagem enviada ainda.</p></div>
               ) : (
                 <div className="overflow-x-auto">
                   <table className="w-full text-sm">
@@ -299,10 +299,10 @@ export default function AdminWhatsApp() {
                         const badge = STATUS_BADGE[m.status] ?? STATUS_BADGE.enviada;
                         return (
                           <tr key={m.id} className="hover:bg-[#1A2332]/50">
-                            <td className="px-4 py-3"><p className="font-medium text-white">{m.nomeDestinatario ?? m.destinatario}</p><p className="text-xs text-gray-500">{m.destinatario}</p></td>
+                            <td className="px-4 py-3"><p className="font-medium text-white">{m.nomeDestinatario ?? m.destinatario}</p><p className="text-xs text-gray-400">{m.destinatario}</p></td>
                             <td className="px-4 py-3 hidden md:table-cell max-w-xs"><p className="text-xs text-gray-400 truncate">{m.mensagem}</p></td>
                             <td className="px-4 py-3"><span className={`inline-flex items-center px-2 py-0.5 text-xs font-bold rounded ${badge.bg} ${badge.text}`}>{badge.label}</span>{m.erroMsg && <p className="text-xs text-red-400 mt-0.5">{m.erroMsg}</p>}</td>
-                            <td className="px-4 py-3 hidden lg:table-cell text-xs text-gray-500">{new Date(m.createdAt).toLocaleString("pt-BR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" })}</td>
+                            <td className="px-4 py-3 hidden lg:table-cell text-xs text-gray-400">{new Date(m.createdAt).toLocaleString("pt-BR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" })}</td>
                           </tr>
                         );
                       })}

@@ -31,6 +31,11 @@ export default function AdminConfiguracoes() {
   const [leadNovo, setLeadNovo] = useState("");
   const [leadEdit, setLeadEdit] = useState("");
   const [buscaLead, setBuscaLead] = useState("");
+  // Item 12 (18/10): conta de cliente usa nome e telefone do cadastro no CRM.
+  const [nomeNovo, setNomeNovo] = useState("");
+  const [foneNovo, setFoneNovo] = useState("");
+  const [nomeEdit, setNomeEdit] = useState("");
+  const [foneEdit, setFoneEdit] = useState("");
   const { data: leadsSemConta = [] } = trpc.configuracoes.leadsSemConta.useQuery();
 
   useEffect(() => {
@@ -39,7 +44,27 @@ export default function AdminConfiguracoes() {
     setAtivo(usuario.active);
     setPapel(usuario.role === "user" ? "cliente" : usuario.role);
     setLeadEdit(usuario.leadId ? String(usuario.leadId) : "");
+    setNomeEdit(usuario.leadName || usuario.name || "");
+    setFoneEdit(usuario.leadPhone || usuario.phone || "");
   }, [usuario]);
+
+  /** Ao escolher o cliente do CRM, nome e telefone vêm do cadastro dele. */
+  function escolherLead(valor: string, alvo: "novo" | "edit") {
+    const lead = leadsSemConta.find(l => String(l.id) === valor);
+    const atual = alvo === "edit" && usuario?.leadId && String(usuario.leadId) === valor
+      ? { name: usuario.leadName, phone: usuario.leadPhone }
+      : lead;
+    if (alvo === "novo") setLeadNovo(valor);
+    else setLeadEdit(valor);
+    if (!atual) return;
+    if (alvo === "novo") {
+      if (atual.name) setNomeNovo(atual.name);
+      setFoneNovo(atual.phone || "");
+    } else {
+      if (atual.name) setNomeEdit(atual.name);
+      setFoneEdit(atual.phone || "");
+    }
+  }
 
   const refresh = () => utils.configuracoes.listUsers.invalidate();
   const criar = trpc.configuracoes.createUser.useMutation({
@@ -73,7 +98,7 @@ export default function AdminConfiguracoes() {
     if (!usuario) return;
     const data = new FormData(event.currentTarget);
     atualizar.mutate({ id: usuario.id, name: String(data.get("name") || ""), role: papel, active: ativo,
-      phone: String(data.get("phone") || "") || null, creci: String(data.get("creci") || "") || null,
+      phone: String(data.get("phone") || "") || null, creci: papel === "corretor" ? String(data.get("creci") || "") || null : usuario.creci,
       permissions: papel === "colaborador" ? permissoes : [],
       leadId: papel === "cliente" && leadEdit ? Number(leadEdit) : null });
   }
@@ -81,22 +106,22 @@ export default function AdminConfiguracoes() {
   return <div className="min-h-screen bg-[#1A2332] text-white">
     <header className="border-b border-[#C9A961]/20 bg-[#0F1923] px-4 py-4 md:px-6"><div className="mx-auto flex max-w-7xl items-center justify-between gap-4">
       <div className="flex items-center gap-3"><Link href="/admin"><Button variant="ghost" size="icon"><ArrowLeft /></Button></Link><Settings className="text-[#C9A961]" /><div><h1 className="text-2xl font-bold text-[#C9A961]">Configurações</h1><p className="text-sm text-gray-400">Usuários, papéis, permissões e Google Drive</p></div></div>
-      <Button onClick={() => setNovo(true)} className="bg-[#C9A961] font-bold text-[#1A2332]"><Plus className="mr-2 h-4 w-4" /> Novo usuário</Button>
+      <Button onClick={() => { setNomeNovo(""); setFoneNovo(""); setLeadNovo(""); setNovo(true); }} className="bg-[#C9A961] font-bold text-[#1A2332]"><Plus className="mr-2 h-4 w-4" /> Novo usuário</Button>
     </div></header>
     <main className="mx-auto max-w-7xl p-4 md:p-6"><Card className="border-[#C9A961]/20 bg-[#2C3E50]"><CardContent className="space-y-2 pt-6">
       {isLoading ? <p className="text-gray-300">Carregando…</p> : usuarios.map(item => <button key={item.id} onClick={() => setEditId(item.id)} className="flex w-full flex-wrap items-center justify-between gap-3 rounded-lg bg-[#1A2332] p-4 text-left hover:ring-1 hover:ring-[#C9A961]/50">
-        <div className="flex items-center gap-3"><UserCog className={item.active ? "text-green-400" : "text-gray-600"} /><div><p className="font-semibold text-white">{item.name || "Sem nome"}</p><p className="text-xs text-gray-400">{item.email}</p></div></div>
+        <div className="flex items-center gap-3"><UserCog className={item.active ? "text-green-400" : "text-gray-300"} /><div><p className="font-semibold text-white">{item.name || "Sem nome"}</p><p className="text-xs text-gray-400">{item.email}</p></div></div>
         <div className="text-right"><p className="text-sm text-[#C9A961]">{ROLE_LABEL[item.role === "user" ? "cliente" : item.role] ?? item.role}</p><p className="text-xs text-gray-400">{item.active ? "Ativo" : "Inativo"} · {parsePermissions(item.permissions).length} permissões</p></div>
       </button>)}
     </CardContent></Card>
     <div className="mt-6"><GoogleDriveCard /></div></main>
 
     <Dialog open={novo} onOpenChange={setNovo}><DialogContent className="border-[#C9A961]/30 bg-[#1A2332] text-white"><DialogHeader><DialogTitle>Novo usuário</DialogTitle></DialogHeader>
-      <form onSubmit={handleNovo} className="grid gap-4 md:grid-cols-2"><Campo name="name" label="Nome" required /><Campo name="email" label="E-mail" type="email" required />
+      <form onSubmit={handleNovo} className="grid gap-4 md:grid-cols-2"><Campo name="name" label={papelNovo === "cliente" ? "Nome (do CRM)" : "Nome"} required value={nomeNovo} onChange={setNomeNovo} readOnly={papelNovo === "cliente"} /><Campo name="email" label="E-mail" type="email" required />
         <div><Label>Perfil</Label><Select value={papelNovo} onValueChange={(v) => setPapelNovo(v as typeof papelNovo)}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent>{ROLES.map(role => <SelectItem key={role} value={role}>{ROLE_LABEL[role]}</SelectItem>)}</SelectContent></Select></div>
-        <Campo name="phone" label={papelNovo === "corretor" ? "Telefone *" : "Telefone"} required={papelNovo === "corretor"} />
+        <Campo name="phone" label={papelNovo === "corretor" ? "Telefone *" : papelNovo === "cliente" ? "Telefone (do CRM)" : "Telefone"} required={papelNovo === "corretor"} value={foneNovo} onChange={setFoneNovo} readOnly={papelNovo === "cliente"} />
         {papelNovo === "corretor" && <Campo name="creci" label="CRECI *" required />}
-        {papelNovo === "cliente" && <div className="md:col-span-2"><Label>Cliente do CRM *</Label><Input value={buscaLead} onChange={(e) => setBuscaLead(e.target.value)} placeholder="Pesquisar cliente" className="mt-1 border-[#C9A961]/30 bg-[#2C3E50]" /><select value={leadNovo} onChange={(e) => setLeadNovo(e.target.value)} className="mt-1 h-9 w-full rounded-md border border-[#C9A961]/30 bg-[#2C3E50] px-2 text-sm"><option value="">Selecione</option>{leadsSemConta.filter((l) => !buscaLead.trim() || `${l.name} ${l.email ?? ""}`.toLowerCase().includes(buscaLead.trim().toLowerCase())).slice(0, 200).map((l) => <option key={l.id} value={l.id}>{l.name}{l.email ? ` · ${l.email}` : ""}</option>)}</select></div>}
+        {papelNovo === "cliente" && <div className="md:col-span-2"><Label>Cliente do CRM *</Label><Input value={buscaLead} onChange={(e) => setBuscaLead(e.target.value)} placeholder="Pesquisar cliente" className="mt-1 border-[#C9A961]/30 bg-[#2C3E50]" /><select aria-label="Cliente do CRM" value={leadNovo} onChange={(e) => escolherLead(e.target.value, "novo")} className="mt-1 h-9 w-full rounded-md border border-[#C9A961]/30 bg-[#2C3E50] px-2 text-sm"><option value="">Selecione</option>{leadsSemConta.filter((l) => !buscaLead.trim() || `${l.name} ${l.email ?? ""}`.toLowerCase().includes(buscaLead.trim().toLowerCase())).slice(0, 200).map((l) => <option key={l.id} value={l.id}>{l.name}{l.phone ? ` · ${l.phone}` : ""}{l.email ? ` · ${l.email}` : ""}</option>)}</select></div>}
         {papelNovo === "colaborador" && <fieldset className="md:col-span-2"><legend className="mb-1 text-sm">Módulos liberados</legend><div className="grid gap-1 sm:grid-cols-2">{ADMIN_MODULES.map((m) => <label key={m} className="flex items-center gap-2 text-xs"><input type="checkbox" checked={permissoesNovo.includes(m)} onChange={() => setPermissoesNovo((c) => c.includes(m) ? c.filter((x) => x !== m) : [...c, m])} className="accent-[#C9A961]" />{ADMIN_MODULE_LABELS[m]}</label>)}</div></fieldset>}
         {papelNovo === "empreiteiro" && <p className="text-xs text-gray-300 md:col-span-2">O empreiteiro vê só as obras em que for escolhido como empreiteiro (na tela da obra).</p>}
         <p className="text-xs text-gray-300 md:col-span-2">O usuário recebe um email para definir a própria senha — ninguém mais vê ou digita a senha dele.</p>
@@ -105,9 +130,9 @@ export default function AdminConfiguracoes() {
 
     <Dialog open={!!usuario} onOpenChange={open => !open && setEditId(null)}><DialogContent className="max-h-[92vh] max-w-3xl overflow-y-auto border-[#C9A961]/30 bg-[#1A2332] text-white">{usuario && <>
       <DialogHeader><DialogTitle>Gerenciar acesso — {usuario.name}</DialogTitle></DialogHeader><form onSubmit={handleEditar} className="space-y-5">
-        <div className="grid gap-4 md:grid-cols-2"><Campo name="name" label="Nome" defaultValue={usuario.name || ""} required /><Campo name="phone" label="Telefone" defaultValue={usuario.phone || ""} /><Campo name="creci" label="CRECI" defaultValue={usuario.creci || ""} />
+        <div className="grid gap-4 md:grid-cols-2"><Campo name="name" label={papel === "cliente" ? "Nome (do CRM)" : "Nome"} required value={nomeEdit} onChange={setNomeEdit} readOnly={papel === "cliente"} /><Campo name="phone" label={papel === "corretor" ? "Telefone *" : papel === "cliente" ? "Telefone (do CRM)" : "Telefone"} required={papel === "corretor"} value={foneEdit} onChange={setFoneEdit} readOnly={papel === "cliente"} />{papel === "corretor" && <Campo name="creci" label="CRECI *" required defaultValue={usuario.creci || ""} />}
           <div><Label>Perfil</Label><Select value={papel} onValueChange={value => setPapel(value as typeof papel)}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent>{ROLES.map(role => <SelectItem key={role} value={role}>{ROLE_LABEL[role]}</SelectItem>)}</SelectContent></Select></div>
-          {papel === "cliente" && <div className="md:col-span-2"><Label>Cliente do CRM *</Label><Input value={buscaLead} onChange={(e) => setBuscaLead(e.target.value)} placeholder="Pesquisar cliente" className="mt-1 border-[#C9A961]/30 bg-[#2C3E50]" /><select value={leadEdit} onChange={(e) => setLeadEdit(e.target.value)} className="mt-1 h-9 w-full rounded-md border border-[#C9A961]/30 bg-[#2C3E50] px-2 text-sm"><option value="">Selecione</option>{usuario.leadId && <option value={usuario.leadId}>Atual: cliente #{usuario.leadId}</option>}{leadsSemConta.filter((l) => !buscaLead.trim() || `${l.name} ${l.email ?? ""}`.toLowerCase().includes(buscaLead.trim().toLowerCase())).slice(0, 200).map((l) => <option key={l.id} value={l.id}>{l.name}{l.email ? ` · ${l.email}` : ""}</option>)}</select></div>}
+          {papel === "cliente" && <div className="md:col-span-2"><Label>Cliente do CRM *</Label><Input value={buscaLead} onChange={(e) => setBuscaLead(e.target.value)} placeholder="Pesquisar cliente" className="mt-1 border-[#C9A961]/30 bg-[#2C3E50]" /><select aria-label="Cliente do CRM" value={leadEdit} onChange={(e) => escolherLead(e.target.value, "edit")} className="mt-1 h-9 w-full rounded-md border border-[#C9A961]/30 bg-[#2C3E50] px-2 text-sm"><option value="">Selecione</option>{usuario.leadId && <option value={usuario.leadId}>Atual: {usuario.leadName || "cliente sem nome"}{usuario.leadPhone ? ` · ${usuario.leadPhone}` : ""}</option>}{leadsSemConta.filter((l) => !buscaLead.trim() || `${l.name} ${l.email ?? ""}`.toLowerCase().includes(buscaLead.trim().toLowerCase())).slice(0, 200).map((l) => <option key={l.id} value={l.id}>{l.name}{l.phone ? ` · ${l.phone}` : ""}{l.email ? ` · ${l.email}` : ""}</option>)}</select></div>}
         </div>
         <p className="text-xs text-gray-400">Trocar o perfil ou desativar encerra as sessões abertas do usuário.</p><label className="flex items-center justify-between rounded-lg bg-[#2C3E50] p-3"><span>Usuário ativo</span><Switch checked={ativo} onCheckedChange={setAtivo} /></label>
         {papel === "colaborador" && <div><div className="mb-2 flex items-center gap-2"><Shield className="h-4 w-4 text-[#C9A961]" /><h3 className="font-semibold">Módulos liberados (colaborador)</h3></div><div className="grid gap-2 sm:grid-cols-2 md:grid-cols-3">{ADMIN_MODULES.map(module => <label key={module} className="flex items-center gap-2 rounded bg-[#2C3E50] p-2 text-sm"><input type="checkbox" checked={permissoes.includes(module)} onChange={() => setPermissoes(current => current.includes(module) ? current.filter(p => p !== module) : [...current, module])} className="accent-[#C9A961]" />{ADMIN_MODULE_LABELS[module]}</label>)}</div></div>}
@@ -118,6 +143,8 @@ export default function AdminConfiguracoes() {
   </div>;
 }
 
-function Campo({ name, label, type = "text", required, defaultValue }: { name: string; label: string; type?: string; required?: boolean; defaultValue?: string }) {
-  return <div><Label htmlFor={name}>{label}</Label><Input id={name} name={name} type={type} required={required} defaultValue={defaultValue} className="mt-1 border-[#C9A961]/30 bg-[#2C3E50]" /></div>;
+// Item 13 (18/10): para conta de cliente, nome e telefone vêm do CRM (só leitura).
+function Campo({ name, label, type = "text", required, defaultValue, value, onChange, readOnly }: { name: string; label: string; type?: string; required?: boolean; defaultValue?: string; value?: string; onChange?: (valor: string) => void; readOnly?: boolean }) {
+  const controlado = onChange ? { value: value ?? "", onChange: (e: React.ChangeEvent<HTMLInputElement>) => onChange(e.target.value) } : { defaultValue };
+  return <div><Label htmlFor={name}>{label}</Label><Input id={name} name={name} type={type} required={required} readOnly={readOnly} {...controlado} className="mt-1 read-only:opacity-80 border-[#C9A961]/30 bg-[#2C3E50] text-white placeholder:text-gray-400" /></div>;
 }

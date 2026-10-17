@@ -138,12 +138,12 @@ function Calculado({ label, indicador, destaque, ajuda }: { label: string; indic
   const negativo = indicador.ok && indicador.centavos < 0;
   return (
     <div className="space-y-1">
-      <Label className="text-gray-300">{label} <span className="text-[10px] uppercase tracking-wider text-gray-500">automático</span></Label>
+      <Label className="text-gray-300">{label} <span className="text-[10px] uppercase tracking-wider text-gray-400">automático</span></Label>
       <div className={`rounded-md border px-3 py-2 text-sm ${campoLeitura} ${destaque ? "font-semibold text-[#F4D37D]" : ""} ${negativo ? "!text-red-300 border-red-400/40" : ""}`} aria-readonly="true">
         {indicador.ok ? brl(indicador.centavos) : <span className="text-amber-300 text-xs">{indicador.motivo}</span>}
       </div>
       {negativo && <p className="text-xs text-red-300">Valor negativo — verifique os lançamentos.</p>}
-      {ajuda && <p className="text-xs text-gray-500">{ajuda}</p>}
+      {ajuda && <p className="text-xs text-gray-400">{ajuda}</p>}
     </div>
   );
 }
@@ -153,7 +153,7 @@ function Leitura({ label, valor, ajuda }: { label: string; valor: string; ajuda?
     <div className="space-y-1">
       <Label className="text-gray-300">{label}</Label>
       <div className={`rounded-md border px-3 py-2 text-sm ${campoLeitura}`} aria-readonly="true">{valor}</div>
-      {ajuda && <p className="text-xs text-gray-500">{ajuda}</p>}
+      {ajuda && <p className="text-xs text-gray-400">{ajuda}</p>}
     </div>
   );
 }
@@ -186,7 +186,7 @@ function Historico({ titulo, movimentos, onMudou }: { titulo: string; movimentos
     <div className="space-y-2">
       <p className="text-sm font-semibold text-gray-200">{titulo}</p>
       {movimentos.length === 0 ? (
-        <p className="text-xs text-gray-500">Nenhum lançamento.</p>
+        <p className="text-xs text-gray-400">Nenhum lançamento.</p>
       ) : (
         <div className="overflow-x-auto rounded-md border border-[#C9A961]/20">
           <table className="w-full text-sm">
@@ -201,8 +201,8 @@ function Historico({ titulo, movimentos, onMudou }: { titulo: string; movimentos
                     {m.descricao}
                     {m.categoria && <span className="ml-2 text-[10px] uppercase text-gray-400">{CATEGORIA_LABEL[m.categoria]}</span>}
                     {m.etapa && <span className="ml-2 text-[10px] uppercase text-gray-400">· {ETAPA_LABEL[m.etapa] ?? m.etapa}</span>}
-                    {m.observacao && <span className="block text-xs text-gray-500">{m.observacao}</span>}
-                    {m.bpo && <span className="block text-xs text-gray-500">BPO: {m.bpo.descricao}{m.bpo.pago === false ? " — não está mais pago!" : ""}</span>}
+                    {m.observacao && <span className="block text-xs text-gray-400">{m.observacao}</span>}
+                    {m.bpo && <span className="block text-xs text-gray-400">BPO: {m.bpo.descricao}{m.bpo.pago === false ? " — não está mais pago!" : ""}</span>}
                   </td>
                   <td className="p-2 text-gray-400">{ORIGEM_LABEL[m.origem]}</td>
                   <td className="p-2 text-right text-gray-100 whitespace-nowrap">{brlDecimal(m.valor)}</td>
@@ -311,8 +311,8 @@ function NovoMovimento({ projectId, natureza, rotulo, onMudou, permitirBpo = tru
                     ))}
                   </SelectContent>
                 </Select>
-                {disponiveis.data?.length === 0 && <p className="text-xs text-gray-500 mt-1">Nenhum lançamento pago com saldo disponível no BPO.</p>}
-                {escolhido && <p className="text-xs text-gray-500 mt-1">Você pode alocar parte do valor; o restante continua disponível para outras obrigações.</p>}
+                {disponiveis.data?.length === 0 && <p className="text-xs text-gray-400 mt-1">Nenhum lançamento pago com saldo disponível no BPO.</p>}
+                {escolhido && <p className="text-xs text-gray-400 mt-1">Você pode alocar parte do valor; o restante continua disponível para outras obrigações.</p>}
               </div>
             )}
             <div><Label className="text-gray-300">Descrição</Label><Input value={descricao} onChange={(e) => setDescricao(e.target.value)} className={campo} /></div>
@@ -378,7 +378,7 @@ function Investidores({ form, setForm, calculo }: { form: FormFinanceiro; setFor
           <Button type="button" variant="outline" className="border-[#C9A961]/40 text-[#C9A961]" onClick={() => setNovoAberto(true)}><UserPlus className="h-4 w-4" /></Button>
         </div>
       </div>
-      {form.investidores.length === 0 && <p className="text-xs text-gray-500">Nenhum investidor nesta obra.</p>}
+      {form.investidores.length === 0 && <p className="text-xs text-gray-400">Nenhum investidor nesta obra.</p>}
       {form.investidores.map((inv, idx) => (
         <div key={inv.investidorId} className="grid grid-cols-1 md:grid-cols-[1fr_160px_1fr_auto] gap-3 items-end">
           <Leitura label="Investidor" valor={inv.nome} />
@@ -550,7 +550,7 @@ export function CustosAba({ projectId, resumo, form, setForm, calculo, corretor,
           <div className="space-y-1">
             <Label className="text-gray-300">Orçamento Previsto (R$)</Label>
             <CampoDecimal valor={form.orcamentoPrevisto} onChange={set("orcamentoPrevisto")} prefixo="R$" />
-            <p className="text-xs text-gray-500">Orçamento da construção. Não inclui terreno nem comissão.</p>
+            <p className="text-xs text-gray-400">Orçamento da construção. Não inclui terreno nem comissão.</p>
           </div>
           <div className="space-y-1">
             <Label className="text-gray-300">Empreiteiro</Label>
@@ -562,7 +562,7 @@ export function CustosAba({ projectId, resumo, form, setForm, calculo, corretor,
                 {(empreiteiros.data ?? []).map((e) => <SelectItem key={e.id} value={String(e.id)}>{e.name || e.email}</SelectItem>)}
               </SelectContent>
             </Select>
-            <p className="text-xs text-gray-500">
+            <p className="text-xs text-gray-400">
               Usuários com papel "empreiteiro" (Configurações → Usuários).
               {resumo.obra.tipoContratoLegado && ` Tipo de contrato antigo preservado: ${resumo.obra.tipoContratoLegado}.`}
             </p>
@@ -570,7 +570,7 @@ export function CustosAba({ projectId, resumo, form, setForm, calculo, corretor,
           <div className="space-y-1">
             <Label className="text-gray-300">Custo do Terreno (R$)</Label>
             <CampoDecimal valor={form.custoTerreno} onChange={set("custoTerreno")} prefixo="R$" />
-            <p className="text-xs text-gray-500">Valor contratual previsto; pagamentos do terreno entram no histórico.</p>
+            <p className="text-xs text-gray-400">Valor contratual previsto; pagamentos do terreno entram no histórico.</p>
           </div>
           <ComissaoCampos resumo={resumo} form={form} setForm={setForm} />
           <Leitura label="Corretor vinculado" valor={corretor ?? "Sem corretor no lead"} ajuda="Vem do lead no CRM." />
@@ -608,7 +608,7 @@ function ComissaoCampos({ resumo, form, setForm }: { resumo: Resumo; form: FormF
           <Label className="text-gray-300">Percentual de Comissão (%)</Label>
           <CampoDecimal valor={form.comissaoPercentual} onChange={(v) => setForm({ ...form, comissaoPercentual: v })} casas={4} sufixo="%"
             placeholder={padrao ? `Padrão do corretor: ${Number(padrao).toLocaleString("pt-BR", { maximumFractionDigits: 4 })}%` : "Sem regra cadastrada"} />
-          <p className="text-xs text-gray-500">Vazio usa o percentual padrão do corretor (Corretores). Nunca é presumido.</p>
+          <p className="text-xs text-gray-400">Vazio usa o percentual padrão do corretor (Corretores). Nunca é presumido.</p>
         </div>
       )}
       {c.valorCentavos !== null ? (

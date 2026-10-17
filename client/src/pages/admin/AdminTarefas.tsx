@@ -371,7 +371,7 @@ export default function AdminTarefas({
         {/* Tasks List */}
         {tasks.length === 0 ? (
           <Card className="bg-[#2C3E50] border-[#C9A961]/20">
-            <CardContent className="py-12 text-center text-gray-500">
+            <CardContent className="py-12 text-center text-gray-400">
               <CheckSquare className="h-12 w-12 mx-auto mb-3 opacity-20" />
               <p>Nenhuma tarefa encontrada</p>
             </CardContent>
@@ -417,7 +417,7 @@ export default function AdminTarefas({
                             {task.description}
                           </p>
                         )}
-                        <div className="flex items-center gap-4 mt-2 text-xs text-gray-500">
+                        <div className="flex items-center gap-4 mt-2 text-xs text-gray-400">
                           <span className="flex items-center gap-1">
                             <User className="h-3 w-3" /> {task.assignedTo}
                           </span>

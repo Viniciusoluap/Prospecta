@@ -190,7 +190,7 @@ export default function ConfiguracoesPagamento() {
                   placeholder="$aact_prod_..."
                   value={asaasApiKey}
                   onChange={e => setAsaasApiKey(e.target.value)}
-                  className="bg-white/10 border-white/20 text-white placeholder:text-gray-500"
+                  className="bg-white/10 border-white/20 text-white placeholder:text-gray-400"
                 />
                 <p className="text-sm text-gray-400">
                   {statusQuery.data?.configured
@@ -241,7 +241,7 @@ export default function ConfiguracoesPagamento() {
                   placeholder="Token para validar webhooks"
                   value={asaasWebhookToken}
                   onChange={e => setAsaasWebhookToken(e.target.value)}
-                  className="bg-white/10 border-white/20 text-white placeholder:text-gray-500"
+                  className="bg-white/10 border-white/20 text-white placeholder:text-gray-400"
                 />
                 <p className="text-sm text-gray-400">
                   Token de autenticação para validar requisições de webhook

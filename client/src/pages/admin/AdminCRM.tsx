@@ -17,7 +17,7 @@ import {
   Thermometer, User, ArrowLeft, Flame, Snowflake, TrendingUp, Trash2, RotateCcw
 } from "lucide-react";
 import { LEAD_SERVICE_LABELS, LEAD_SERVICE_PRIMARY_TYPES, type LeadServiceType } from "../../../../shared/lead-services";
-import { LEAD_PIPELINE_STAGES, LEGACY_STAGE_LABELS } from "../../../../shared/lead-pipeline";
+import { LEAD_PIPELINE_STAGES, LEGACY_STAGE_LABELS, type LeadPipelineStage } from "../../../../shared/lead-pipeline";
 import { LEAD_TEMPERATURAS, LEAD_TEMPERATURA_CONFIG, leadTemperaturaRotulo, type LeadTemperatura } from "../../../../shared/lead-temperature";
 
 const STAGES = LEAD_PIPELINE_STAGES;
@@ -50,7 +50,7 @@ const LEGACY_RESPONSIBLE_LABELS: Record<string, string> = {
 const NONE = "none";
 const emptyLead = () => ({
   name: "", phone: "", email: "", cpf: "", address: "", neighborhood: "", city: "", state: "",
-  notes: "", type: "new_lead" as any, temperature: "cold" as LeadTemperatura, services: [] as LeadServiceType[],
+  notes: "", stage: "lead_new" as LeadPipelineStage, temperature: "cold" as LeadTemperatura, services: [] as LeadServiceType[],
   responsibleUserId: NONE, brokerId: NONE,
 });
 
@@ -283,16 +283,15 @@ export default function AdminCRM() {
                     </Select>
                   </div>
                   <div>
-                    <Label className="text-gray-300">Tipo de Lead</Label>
-                    <Select value={newLead.type} onValueChange={v => setNewLead(p => ({ ...p, type: v as any }))}>
+                    <Label className="text-gray-300">Estágio</Label>
+                    <Select value={newLead.stage} onValueChange={v => setNewLead(p => ({ ...p, stage: v as LeadPipelineStage }))}>
                       <SelectTrigger className="bg-white/10 border-white/20 text-white">
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="new_lead">Lead Novo</SelectItem>
-                        <SelectItem value="broker">Corretor</SelectItem>
-                        <SelectItem value="supplier">Fornecedor</SelectItem>
-                        <SelectItem value="vip">VIP</SelectItem>
+                        {LEAD_PIPELINE_STAGES.map(etapa => (
+                          <SelectItem key={etapa.key} value={etapa.key}>{etapa.label}</SelectItem>
+                        ))}
                       </SelectContent>
                     </Select>
                   </div>
@@ -490,7 +489,7 @@ export default function AdminCRM() {
                         </Link>
                       ))}
                       {stageLeads.length === 0 && (
-                        <div className="text-center text-gray-600 text-xs py-4">Nenhum lead</div>
+                        <div className="text-center text-gray-300 text-xs py-4">Nenhum lead</div>
                       )}
                     </div>
                   </div>
@@ -568,7 +567,7 @@ export default function AdminCRM() {
                   })}
                   {filtered.length === 0 && (
                     <tr>
-                      <td colSpan={8} className="p-8 text-center text-gray-500">
+                      <td colSpan={8} className="p-8 text-center text-gray-400">
                         Nenhum lead encontrado
                       </td>
                     </tr>

@@ -2,6 +2,8 @@ import { eq, and, desc, sql, like, isNull, inArray, asc, ne } from "drizzle-orm"
 import { drizzle } from "drizzle-orm/neon-http";
 import { alias } from "drizzle-orm/pg-core";
 import { neon } from "@neondatabase/serverless";
+import { LEAD_PIPELINE_STAGES, LEGACY_STAGE_LABELS } from "../shared/lead-pipeline.js";
+import { rotulo } from "../shared/rotulos.js";
 
 import {
   InsertUser, users, User,
@@ -922,6 +924,12 @@ export async function updateLead(id: number, data: Partial<InsertLead>): Promise
   await db.update(leads).set({ ...data, updatedAt: new Date() }).where(eq(leads.id, id));
 }
 
+// Item 16 (18/10): o histórico mostra o nome da etapa, nunca o código interno.
+const ROTULOS_ESTAGIO: Record<string, string> = {
+  ...LEGACY_STAGE_LABELS,
+  ...Object.fromEntries(LEAD_PIPELINE_STAGES.map(s => [s.key, s.label])),
+};
+
 export async function updateLeadPipelineStage(id: number, stage: string, actorId: number): Promise<boolean> {
   const db = getDb();
   const result = await db.execute(sql`
@@ -937,7 +945,7 @@ export async function updateLeadPipelineStage(id: number, stage: string, actorId
     ), audit AS (
       INSERT INTO lead_activities (lead_id, type, description, performed_by, metadata)
       SELECT id, 'status_change'::lead_activity_type,
-             'Estágio alterado de "' || old_stage || '" para "' || ${stage} || '"', ${String(actorId)},
+             'Estágio alterado de "' || COALESCE(${JSON.stringify(ROTULOS_ESTAGIO)}::jsonb ->> old_stage, old_stage) || '" para "' || ${rotulo(stage)} || '"', ${String(actorId)},
              ${JSON.stringify({ operation: "pipeline_stage_change", stage })}
       FROM changed RETURNING id
     )

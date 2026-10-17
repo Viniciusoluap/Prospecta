@@ -393,6 +393,13 @@
       "when": 1791900000009,
       "tag": "0055_permissoes_colaborador",
       "breakpoints": true
+    },
+    {
+      "idx": 56,
+      "version": "7",
+      "when": 1791900000010,
+      "tag": "0056_imovel_recusado_aviso",
+      "breakpoints": true
     }
   ]
 }

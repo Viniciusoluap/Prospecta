@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Link, useLocation, useParams } from "wouter";
+import { CampoLocalizacao } from "@/components/CampoLocalizacao";
+import { mutarComProgresso } from "@/lib/envio-progresso";
 import { trpc } from "@/lib/trpc";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -16,7 +18,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { toast } from "sonner";
-import { ArrowLeft, ImagePlus, X, MapPin } from "lucide-react";
+import { ArrowLeft, ImagePlus, X } from "lucide-react";
 
 const TIPOS = [
   "casa",
@@ -80,22 +82,6 @@ function compressImage(file: File): Promise<string> {
     };
     img.src = url;
   });
-}
-
-function parseMapsInput(input: string): { lat: number; lng: number } | null {
-  const s = input.trim();
-  const bare = s.match(/^(-?\d+\.?\d*)\s*,\s*(-?\d+\.?\d*)$/);
-  if (bare) {
-    const lat = parseFloat(bare[1]);
-    const lng = parseFloat(bare[2]);
-    if (lat >= -90 && lat <= 90 && lng >= -180 && lng <= 180)
-      return { lat, lng };
-  }
-  const at = s.match(/@(-?\d+\.\d+),(-?\d+\.\d+)/);
-  if (at) return { lat: parseFloat(at[1]), lng: parseFloat(at[2]) };
-  const q = s.match(/[?&]q=(-?\d+\.?\d*),(-?\d+\.?\d*)/);
-  if (q) return { lat: parseFloat(q[1]), lng: parseFloat(q[2]) };
-  return null;
 }
 
 interface FormState {
@@ -168,8 +154,6 @@ export default function AdminImovelForm() {
   const [coords, setCoords] = useState<{ lat: number; lng: number } | null>(
     null
   );
-  const [pasteValue, setPasteValue] = useState("");
-  const [parseError, setParseError] = useState(false);
   const [drag, setDrag] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
   const hydrated = useRef(false);
@@ -198,8 +182,11 @@ export default function AdminImovelForm() {
         publicadoOlx: !!imovel.publicadoOlx,
         publicadoViva: !!imovel.publicadoViva,
         publicadoChavesNaMao: !!imovel.publicadoChavesNaMao,
-        reviewStatus:
-          (imovel.reviewStatus as FormState["reviewStatus"]) ?? "approved",
+        reviewStatus: (["pending", "approved", "rejected"] as const).includes(
+          imovel.reviewStatus as FormState["reviewStatus"]
+        )
+          ? (imovel.reviewStatus as FormState["reviewStatus"])
+          : "pending",
       });
       setSlugTocado(true);
       setAreaM2Texto(imovel.areaM2 ? formatarNumeroParaEdicao(Number(imovel.areaM2)) : "");
@@ -259,38 +246,10 @@ export default function AdminImovelForm() {
       return a;
     });
 
-  const handleApplyPaste = () => {
-    const parsed = parseMapsInput(pasteValue);
-    if (!parsed) {
-      setParseError(true);
-      return;
-    }
-    setParseError(false);
-    setPasteValue("");
-    setCoords(parsed);
-  };
+  // Item 4 (18/10): envio com progresso real, foto a foto.
+  const [isPending, setIsPending] = useState(false);
 
-  const createMutation = trpc.imoveis.create.useMutation({
-    onSuccess: () => {
-      toast.success("Imóvel cadastrado!");
-      utils.imoveis.list.invalidate();
-      navigate("/admin/imoveis");
-    },
-    onError: e => toast.error(e.message),
-  });
-
-  const updateMutation = trpc.imoveis.update.useMutation({
-    onSuccess: () => {
-      toast.success("Imóvel atualizado!");
-      utils.imoveis.list.invalidate();
-      navigate("/admin/imoveis");
-    },
-    onError: e => toast.error(e.message),
-  });
-
-  const isPending = createMutation.isPending || updateMutation.isPending;
-
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!form.titulo || !form.tipo || !form.cidade || !form.preco) {
       toast.error(
@@ -323,13 +282,22 @@ export default function AdminImovelForm() {
       publicadoChavesNaMao: form.publicadoChavesNaMao,
       reviewStatus: form.reviewStatus,
     };
-    if (isEdit) {
-      updateMutation.mutate({ id: Number(id), ...payload });
-    } else {
-      createMutation.mutate({
-        slug: form.slug || slugify(form.titulo),
-        ...payload,
-      });
+    const progresso = { item: "foto", tamanhos: fotos.filter(f => f.startsWith("data:")).map(f => f.length) };
+    setIsPending(true);
+    try {
+      if (isEdit) {
+        await mutarComProgresso("imoveis.update", { id: Number(id), ...payload }, progresso);
+        toast.success("Imóvel atualizado!");
+      } else {
+        await mutarComProgresso("imoveis.create", { slug: form.slug || slugify(form.titulo), ...payload }, progresso);
+        toast.success("Imóvel cadastrado!");
+      }
+      await utils.imoveis.list.invalidate();
+      navigate("/admin/imoveis");
+    } catch (erro) {
+      toast.error(erro instanceof Error ? erro.message : "Falha ao salvar o imóvel");
+    } finally {
+      setIsPending(false);
     }
   };
 
@@ -556,7 +524,7 @@ export default function AdminImovelForm() {
               <p className="text-sm text-gray-300 font-medium">
                 Clique ou arraste as fotos aqui
               </p>
-              <p className="text-xs text-gray-500">
+              <p className="text-xs text-gray-400">
                 {fotos.length}/{MAX_FOTOS} fotos
               </p>
               <input
@@ -625,48 +593,7 @@ export default function AdminImovelForm() {
             <p className="text-xs font-bold text-[#C9A961]/80 uppercase tracking-widest">
               Localização Exata
             </p>
-            <div className="flex gap-2">
-              <Input
-                value={pasteValue}
-                onChange={e => {
-                  setPasteValue(e.target.value);
-                  setParseError(false);
-                }}
-                onKeyDown={e => {
-                  if (e.key === "Enter") {
-                    e.preventDefault();
-                    handleApplyPaste();
-                  }
-                }}
-                placeholder="Cole: -6.4854, -49.8935 ou link do Google Maps"
-                className={`flex-1 bg-[#2C3E50] text-white ${parseError ? "border-red-500" : "border-[#C9A961]/30"}`}
-              />
-              <Button
-                type="button"
-                onClick={handleApplyPaste}
-                className="bg-[#C9A961] hover:bg-[#B8985A] text-[#1A2332] font-bold"
-              >
-                Marcar
-              </Button>
-            </div>
-            {parseError && (
-              <p className="text-xs text-red-400">
-                Não foi possível identificar as coordenadas.
-              </p>
-            )}
-            {coords && (
-              <p className="text-xs text-gray-400 flex items-center gap-1.5">
-                <MapPin className="h-3.5 w-3.5 text-[#C9A961]" />
-                {coords.lat.toFixed(6)}, {coords.lng.toFixed(6)}
-                <button
-                  type="button"
-                  onClick={() => setCoords(null)}
-                  className="ml-1 text-red-400 hover:text-red-300 underline"
-                >
-                  Remover
-                </button>
-              </p>
-            )}
+            <CampoLocalizacao coords={coords} onChange={setCoords} />
           </section>
 
           <section className="space-y-3">
@@ -681,21 +608,17 @@ export default function AdminImovelForm() {
             )}
             <div className="max-w-xs">
               <Label className="text-gray-300">Situação da revisão</Label>
-              <Select
+              {/* Item 7 (18/10): seletor nativo — o anterior aparecia vazio. */}
+              <select
+                aria-label="Situação da revisão"
                 value={form.reviewStatus}
-                onValueChange={(value: FormState["reviewStatus"]) =>
-                  set("reviewStatus", value)
-                }
+                onChange={e => set("reviewStatus", e.target.value as FormState["reviewStatus"])}
+                className="mt-1 h-9 w-full rounded-md border border-[#C9A961]/30 bg-[#2C3E50] px-3 text-sm text-white"
               >
-                <SelectTrigger className="mt-1 bg-[#2C3E50] border-[#C9A961]/30 text-white">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="pending">Pendente</SelectItem>
-                  <SelectItem value="approved">Aprovado</SelectItem>
-                  <SelectItem value="rejected">Rejeitado</SelectItem>
-                </SelectContent>
-              </Select>
+                <option value="pending">Pendente</option>
+                <option value="approved">Aprovado</option>
+                <option value="rejected">Recusado</option>
+              </select>
             </div>
             <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
               {(

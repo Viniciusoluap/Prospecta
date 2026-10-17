@@ -176,19 +176,20 @@ export default function AdminIncorporacao() {
             <CardContent className="py-16 text-center">
               <Mountain className="h-16 w-16 text-[#C9A961]/40 mx-auto mb-4" />
               <p className="text-gray-300 font-medium">Nenhum estudo de incorporação ainda</p>
-              <p className="text-gray-500 text-sm mt-1">Crie um estudo para começar o planejamento do empreendimento.</p>
+              <p className="text-gray-400 text-sm mt-1">Crie um estudo para começar o planejamento do empreendimento.</p>
             </CardContent>
           </Card>
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
             {estudos.map((e: any) => (
               <Link key={e.id} href={`/admin/incorporacao/${e.id}`}>
-                <Card className="bg-[#1A2332]/60 border-[#C9A961]/20 backdrop-blur-sm hover:border-[#C9A961]/60 transition-all cursor-pointer h-full">
+                <Card className="bg-[#1A2332]/60 border-[#C9A961]/20 backdrop-blur-sm hover:border-[#C9A961]/60 transition-all cursor-pointer h-full min-w-0 overflow-hidden">
                   <CardHeader className="pb-2">
-                    <div className="flex items-center justify-between gap-2">
-                      <CardTitle className="text-white text-base truncate">{e.name}</CardTitle>
-                      <div className="flex items-center gap-2">
-                        <Badge className={STATUS_COLORS[e.status] ?? "bg-gray-500/20 text-gray-300"}>{STATUS_LABELS[e.status] ?? "Classificação pendente"}</Badge>
+                    {/* Item 6 (18/10): no celular o nome quebra linha e o selo/lixeira ficam dentro do quadro. */}
+                    <div className="flex min-w-0 items-start justify-between gap-2">
+                      <CardTitle className="min-w-0 flex-1 break-words text-base leading-snug text-white">{e.name}</CardTitle>
+                      <div className="flex shrink-0 flex-col items-end gap-1 sm:flex-row sm:items-center sm:gap-2">
+                        <Badge className={`max-w-[8.5rem] whitespace-normal text-center leading-tight ${STATUS_COLORS[e.status] ?? "bg-gray-500/20 text-gray-300"}`}>{STATUS_LABELS[e.status] ?? "Classificação pendente"}</Badge>
                         <AcoesExcluir compacto rotulo={e.name} onExcluir={async () => { await deleteMutation.mutateAsync({ id: e.id }); await utils.incorporacao.list.invalidate(); }} />
                       </div>
                     </div>
@@ -197,7 +198,7 @@ export default function AdminIncorporacao() {
                     <p className="text-xs text-gray-400 flex items-center gap-1 mb-3">
                       <MapPin className="h-3 w-3" /> {e.city}/{e.state}
                     </p>
-                    <div className="text-xs text-gray-500">
+                    <div className="text-xs text-gray-400">
                       <span className="text-gray-400">Área: </span>
                       <span className="font-bold text-white">{hectares(e.areaM2)}</span>
                     </div>

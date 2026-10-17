@@ -18,8 +18,12 @@ import {
 } from "../drizzle/schema.js";
 import { hashPassword } from "./_core/auth-utils.js";
 import { requireRole } from "./_core/rbac.js";
+import { carregarProgresso } from "./obra-progresso-router.js";
+import { etapasDoProgresso } from "../shared/financeiro/detalhe-obra.js";
 import { adminProcedure, protectedProcedure, router } from "./_core/trpc.js";
 import { getAssignableUserById, getDb } from "./db.js";
+import { agendarVisitaDoLead, opcoesDaVisitaDoLead } from "./operacional-router.js";
+import { visitInput } from "../shared/operacional.js";
 import { readPrivateDocument, tryDriveUpload, uploadPrivateDocument } from "./drive-documents.js";
 import { readPrivateDbFile } from "./private-document-files.js";
 import { isClientRole, requireClientContext } from "./profile-context.js";
@@ -219,7 +223,12 @@ export const portalRouter = router({
           .where(eq(constructionPhotos.projectId, project.id))
           .orderBy(desc(constructionPhotos.takenAt)),
       ]);
-      return { project, stages, photos };
+      // Pedido de 18/10: o cliente acompanha (só leitura) as etapas por incidência
+      // e as medições salvas — os mesmos números da tela da equipe, sem valores.
+      const progresso = await carregarProgresso(project.id);
+      const etapas = etapasDoProgresso(progresso.calculo);
+      const medicoes = progresso.historico.map(({ id, progresso: pct, criadoEm }) => ({ id, progresso: pct, criadoEm }));
+      return { project, stages, photos, etapas, medicoes };
     }),
 
   financings: protectedProcedure.query(async ({ ctx }) => {
@@ -595,6 +604,11 @@ export const portalRouter = router({
     }),
 
   admin: router({
+    // Agendamento de visita pelo lead (item 10): autorizado pelo CRM, gravado na Agenda.
+    visitOptions: adminProcedure.query(() => opcoesDaVisitaDoLead()),
+    scheduleVisit: adminProcedure
+      .input(visitInput.and(z.object({ leadId: z.number().int().positive() })))
+      .mutation(({ input }) => agendarVisitaDoLead(input)),
     overview: adminProcedure
       .input(z.object({ leadId: z.number().int().positive() }))
       .query(async ({ input }) => {
@@ -660,7 +674,9 @@ export const portalRouter = router({
             .set({
               leadId: input.leadId,
               passwordHash,
+              // Item 12 (18/10): nome e telefone vêm do cadastro do cliente no CRM.
               name: lead.name,
+              phone: lead.phone || existing.phone,
               sessionVersion: sql`${users.sessionVersion} + 1`,
               updatedAt: new Date(),
             })
@@ -673,6 +689,7 @@ export const portalRouter = router({
             openId: `portal:${email}`,
             email,
             name: lead.name,
+            phone: lead.phone || null,
             role: "cliente",
             leadId: input.leadId,
             passwordHash,

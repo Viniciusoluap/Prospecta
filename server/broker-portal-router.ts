@@ -2,13 +2,14 @@ import { randomUUID } from "node:crypto";
 import { TRPCError } from "@trpc/server";
 import { and, asc, desc, eq, isNull, or } from "drizzle-orm";
 import { z } from "zod";
-import { imoveis, leads, operationalCommissions } from "../drizzle/schema.js";
-import { BROKER_PROPERTY_TYPES, brokerLeadStage, isPropertyPhoto, MAX_BROKER_PHOTOS } from "../shared/broker-portal.js";
+import { imoveis, imovelRecusadoAvisos, leads, operationalCommissions } from "../drizzle/schema.js";
+import { BROKER_PROPERTY_TYPES, brokerLeadStage, isPropertyPhoto, isPropertyPhotoOrSaved, MAX_BROKER_PHOTOS, recusaAindaVisivel } from "../shared/broker-portal.js";
 import { protectedProcedure, router } from "./_core/trpc.js";
 import { getDb } from "./db.js";
 import { listarComissoesDeObras } from "./operacional-router.js";
 import { aplicarFotosImovel } from "./imovel-fotos.js";
 import { requireBrokerContext } from "./profile-context.js";
+import { excluirImovelDefinitivo } from "./imovel-exclusao.js";
 
 const propertyInput = z.object({
   titulo: z.string().trim().min(2).max(255),
@@ -28,6 +29,23 @@ const propertyInput = z.object({
   // do cadastro do admin). O storage externo antigo nunca foi configurado.
   fotos: z.array(z.string().refine(isPropertyPhoto, "Foto inválida")).max(MAX_BROKER_PHOTOS).default([]),
 });
+
+// Item 3 (18/10): na edição, a lista mistura fotos já gravadas e fotos novas.
+const propertyUpdateInput = propertyInput.extend({
+  id: z.number().int().positive(),
+  fotos: z.array(z.string().refine(isPropertyPhotoOrSaved, "Foto inválida")).max(MAX_BROKER_PHOTOS).default([]),
+});
+
+/** Imóvel cadastrado por este corretor — edição e exclusão só do próprio registro. */
+async function imovelDoCorretor(id: number, userId: number) {
+  const [row] = await getDb()
+    .select({ id: imoveis.id })
+    .from(imoveis)
+    .where(and(eq(imoveis.id, id), eq(imoveis.createdByUserId, userId)))
+    .limit(1);
+  if (!row) throw new TRPCError({ code: "NOT_FOUND", message: "Imóvel não encontrado entre os seus cadastros" });
+  return row;
+}
 
 const imageMime = z.enum(["image/jpeg", "image/png", "image/webp"]);
 
@@ -107,6 +125,9 @@ export const brokerPortalRouter = router({
         fotos: imoveis.fotos,
         publicadoSite: imoveis.publicadoSite,
         reviewStatus: imoveis.reviewStatus,
+        reviewedAt: imoveis.reviewedAt,
+        updatedAt: imoveis.updatedAt,
+        endereco: imoveis.endereco,
         createdByUserId: imoveis.createdByUserId,
         createdAt: imoveis.createdAt,
       })
@@ -118,10 +139,51 @@ export const brokerPortalRouter = router({
         )
       )
       .orderBy(desc(imoveis.createdAt));
-    return rows.map(row => ({
-      ...row,
-      createdByMe: row.createdByUserId === userId,
-    }));
+    const agora = new Date();
+    // Item 8 (18/10): recusado aparece por 3 dias ao corretor e depois some da lista dele.
+    const visiveis = rows.filter(
+      row => row.reviewStatus !== "rejected" || recusaAindaVisivel(row.reviewedAt ?? row.updatedAt, agora)
+    );
+    const avisos = (
+      await getDb()
+        .select()
+        .from(imovelRecusadoAvisos)
+        .where(eq(imovelRecusadoAvisos.brokerUserId, userId))
+        .orderBy(desc(imovelRecusadoAvisos.recusadoEm))
+    ).filter(aviso => recusaAindaVisivel(aviso.recusadoEm, agora));
+    return [
+      ...avisos.map(aviso => ({
+        id: -aviso.id,
+        slug: "",
+        titulo: aviso.titulo,
+        descricao: null,
+        tipo: "",
+        status: "disponivel" as const,
+        preco: "0",
+        quartos: null,
+        banheiros: null,
+        vagas: null,
+        areaM2: null,
+        bairro: null,
+        cidade: "",
+        estado: null,
+        fotos: "[]",
+        publicadoSite: false,
+        reviewStatus: "rejected",
+        reviewedAt: aviso.recusadoEm,
+        updatedAt: aviso.recusadoEm,
+        endereco: null,
+        createdByUserId: userId,
+        createdAt: aviso.createdAt,
+        createdByMe: true,
+        excluido: true,
+      })),
+      ...visiveis.map(row => ({
+        ...row,
+        createdByMe: row.createdByUserId === userId,
+        excluido: false,
+      })),
+    ];
   }),
 
   createProperty: protectedProcedure
@@ -161,6 +223,47 @@ export const brokerPortalRouter = router({
       // Pedido de 15/10: fotos vão para o Google Drive (Imóveis/<Título (nº)>/01 - Fotos).
       const fotos = await aplicarFotosImovel(property.id, input.fotos, userId);
       return { ...property, fotos: JSON.stringify(fotos) };
+    }),
+
+  // Item 3 (18/10): o corretor edita só o próprio imóvel; a edição volta para a
+  // revisão do admin (sai do site até ser aprovada de novo).
+  updateProperty: protectedProcedure
+    .input(propertyUpdateInput)
+    .mutation(async ({ ctx, input }) => {
+      const { userId } = requireBrokerContext(ctx.user);
+      await imovelDoCorretor(input.id, userId);
+      await getDb()
+        .update(imoveis)
+        .set({
+          titulo: input.titulo,
+          descricao: input.descricao ?? null,
+          tipo: input.tipo,
+          preco: input.preco.toFixed(2),
+          quartos: input.quartos ?? null,
+          banheiros: input.banheiros ?? null,
+          vagas: input.vagas ?? null,
+          areaM2: input.areaM2 == null ? null : input.areaM2.toFixed(2),
+          endereco: input.endereco ?? null,
+          bairro: input.bairro ?? null,
+          cidade: input.cidade,
+          estado: input.estado?.toUpperCase() ?? null,
+          reviewStatus: "pending",
+          reviewedAt: null,
+          publicadoSite: false,
+          updatedAt: new Date(),
+        })
+        .where(and(eq(imoveis.id, input.id), eq(imoveis.createdByUserId, userId)));
+      await aplicarFotosImovel(input.id, input.fotos, userId);
+      return { success: true } as const;
+    }),
+
+  // Item 3 (18/10): exclusão definitiva, só do próprio cadastro.
+  deleteProperty: protectedProcedure
+    .input(z.object({ id: z.number().int().positive() }))
+    .mutation(async ({ ctx, input }) => {
+      const { userId } = requireBrokerContext(ctx.user);
+      await imovelDoCorretor(input.id, userId);
+      return excluirImovelDefinitivo(input.id, { avisarCorretor: false });
     }),
 
   // Portal do corretor (15/10): acompanhamento das etapas do CRM, somente

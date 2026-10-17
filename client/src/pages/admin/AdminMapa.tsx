@@ -10,6 +10,7 @@ import {
   Rows,
 } from "./OperationalUI";
 import "leaflet/dist/leaflet.css";
+import { rotulo } from "@shared/rotulos";
 
 type Point = {
   id: number;
@@ -136,13 +137,13 @@ export default function AdminMapa() {
             <td>
               {p.title}
               <br />
-              {p.type}
+              {rotulo(p.type)}
             </td>
             <td>
               {p.neighborhood} — {p.city}
             </td>
             <td>{money(p.price)}</td>
-            <td>{p.status}</td>
+            <td>{rotulo(p.status)}</td>
             <td>
               {p.hasCoordinates
                 ? `${p.latitude}, ${p.longitude}`

@@ -8,6 +8,7 @@ import { Label } from "@/components/ui/label";
 import { trpc } from "@/lib/trpc";
 import { comprimirImagem, enviarJsonComProgresso, mensagemErroEnvio, pareceImagem } from "@/lib/comprimir-imagem";
 import { LIMITE_LEGENDA } from "@shared/obra-fotos";
+import { publicarEnvio } from "@/lib/envio-progresso";
 
 // EPIC-020 Lote 4 (item 28) — galeria de fotos da obra. Envio de várias fotos
 // em sequência, com progresso por arquivo; a tela nunca fica presa em
@@ -51,7 +52,10 @@ export function FotosObraAba({ projectId, fotos, onMudou }: { projectId: number;
           const { status, dados } = await enviarJsonComProgresso(
             `/api/obras/${projectId}/fotos`,
             { image: dataUrl, caption: legenda.trim() || null, takenAt: new Date(f.lastModified || Date.now()).toISOString(), includeInReport: true },
-            (fracao) => marcar(i, { fracao })
+            (fracao) => {
+              marcar(i, { fracao });
+              publicarEnvio({ item: "foto", atual: i + 1, total: arquivos.length, fracao });
+            }
           );
           if (status < 200 || status >= 300) throw new Error(mensagemErroEnvio(status, dados));
           marcar(i, { estado: "ok", fracao: 1 });
@@ -61,6 +65,7 @@ export function FotosObraAba({ projectId, fotos, onMudou }: { projectId: number;
         }
       }
     } finally {
+      publicarEnvio(null);
       setOcupado(false);
       if (entrada.current) entrada.current.value = "";
       if (enviados) {
@@ -153,7 +158,7 @@ export function FotosObraAba({ projectId, fotos, onMudou }: { projectId: number;
                       <Button size="sm" onClick={() => salvarFoto(foto, { caption: editando.texto.trim() || null })} disabled={atualizar.isPending}>OK</Button>
                     </div>
                   ) : (
-                    <p className="text-gray-200">{foto.caption || <span className="text-gray-500">Sem legenda</span>}</p>
+                    <p className="text-gray-200">{foto.caption || <span className="text-gray-400">Sem legenda</span>}</p>
                   )}
                   <p className="text-xs text-gray-400">{new Date(foto.takenAt).toLocaleDateString("pt-BR")}</p>
                   <div className="flex flex-wrap items-center gap-2">

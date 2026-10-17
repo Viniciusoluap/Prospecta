@@ -1299,8 +1299,20 @@ export const imoveis = pgTable("imoveis", {
   reviewStatus: varchar("review_status", { length: 30 })
     .default("approved")
     .notNull(),
+  // Item 8 (18/10): quando a revisão foi decidida — o corretor vê "Recusado" por 3 dias.
+  reviewedAt: timestamp("reviewed_at"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+// Item 8 (18/10): imóvel recusado e excluído pelo admin continua aparecendo como
+// "Recusado" para o corretor que o cadastrou, até 3 dias depois da recusa.
+export const imovelRecusadoAvisos = pgTable("imovel_recusado_avisos", {
+  id: serial("id").primaryKey(),
+  brokerUserId: integer("broker_user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  titulo: varchar("titulo", { length: 255 }).notNull(),
+  recusadoEm: timestamp("recusado_em").notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 
 // Pedido de 15/10: fotos de imóveis gravadas no Google Drive. A coluna "data"
