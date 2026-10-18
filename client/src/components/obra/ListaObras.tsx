@@ -92,6 +92,14 @@ export function ListaObras({ projects, caminhoEditar, caminhoDetalhes, filtroRes
                   </label>
                   <IntervaloDatas titulo="Período de execução" de={filtros.periodoDe} ate={filtros.periodoAte} onDe={(v) => set("periodoDe", v)} onAte={(v) => set("periodoAte", v)} />
                   <IntervaloDatas titulo="Data de criação" de={filtros.criadoDe} ate={filtros.criadoAte} onDe={(v) => set("criadoDe", v)} onAte={(v) => set("criadoAte", v)} />
+                  {/* Pedido de 18/10: obras com medição solicitada ou já recebida (paga). */}
+                  <label className="min-w-0">Medições
+                    <select value={filtros.medicao} onChange={(e) => set("medicao", e.target.value as FiltrosObras["medicao"])} className="mt-1 h-9 w-full rounded-md border border-[#C9A961]/30 bg-[#1A2332] px-2 text-sm text-white">
+                      <option value="">Todas</option>
+                      <option value="solicitada">Com medição solicitada ({projects.filter((p) => p.medicoesSolicitadas > 0).length})</option>
+                      <option value="recebida">Com medição recebida — paga ({projects.filter((p) => p.medicoesRecebidas > 0).length})</option>
+                    </select>
+                  </label>
                 </div>
                 <div className="flex flex-wrap items-center justify-between gap-3 text-xs text-gray-300">
                   <label className="flex items-center gap-2">Ordenar

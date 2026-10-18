@@ -1,6 +1,6 @@
 import { TRPCError } from "@trpc/server";
 import { eq } from "drizzle-orm";
-import { constructionPhotos, constructionProjects, obraMovimentos } from "../drizzle/schema.js";
+import { constructionPhotos, constructionProgressHistory, constructionProjects, obraMovimentos } from "../drizzle/schema.js";
 import { getDb } from "./db.js";
 
 // Portal do Empreiteiro (pedido de 15/10/2026). O empreiteiro usa o mesmo painel
@@ -9,7 +9,7 @@ import { getDb } from "./db.js";
 // Pagamentos, Progresso, Fotos e Relatórios. Gêmeo em
 // Grupo-Santa-Fe/web/src/lib/obras/acesso-empreiteiro.ts.
 
-type Alvo = "projectId" | "photoId" | "movimentoId";
+type Alvo = "projectId" | "photoId" | "movimentoId" | "medicaoId";
 
 /** Procedimentos de obra liberados ao empreiteiro e como achar a obra no input. */
 export const PROCEDIMENTOS_DO_EMPREITEIRO: Readonly<Record<string, Alvo>> = {
@@ -22,6 +22,11 @@ export const PROCEDIMENTOS_DO_EMPREITEIRO: Readonly<Record<string, Alvo>> = {
   "obraProgresso.relatorio": "projectId",
   "obraProgresso.atualizarFoto": "photoId",
   "obraProgresso.excluirFoto": "photoId",
+  // Pedido de 18/10: o empreiteiro também solicita, confirma, edita e exclui medições.
+  "obraProgresso.solicitarMedicao": "medicaoId",
+  "obraProgresso.confirmarRecebimento": "medicaoId",
+  "obraProgresso.editarMedicao": "medicaoId",
+  "obraProgresso.excluirMedicao": "medicaoId",
 };
 
 /** Listas usadas só para exibir nomes nos campos somente leitura do painel. */
@@ -61,6 +66,13 @@ export async function autorizarEmpreiteiro(userId: number, path: string, input: 
     if (id) {
       const [f] = await getDb().select({ projectId: constructionPhotos.projectId }).from(constructionPhotos).where(eq(constructionPhotos.id, id)).limit(1);
       projectId = f?.projectId ?? null;
+    }
+  } else if (alvo === "medicaoId") {
+    const id = idDo(input, "medicaoId");
+    if (id) {
+      const [m] = await getDb().select({ projectId: constructionProgressHistory.projectId }).from(constructionProgressHistory)
+        .where(eq(constructionProgressHistory.id, id)).limit(1);
+      projectId = m?.projectId ?? null;
     }
   } else {
     const id = idDo(input, "id");

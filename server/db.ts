@@ -17,7 +17,7 @@ import {
   productConversions, ProductConversion, InsertProductConversion,
   constructionProjects, ConstructionProject, InsertConstructionProject,
   constructionStages, ConstructionStage, InsertConstructionStage,
-  constructionPhotos, ConstructionPhoto, InsertConstructionPhoto,
+  constructionPhotos, constructionProgressHistory, ConstructionPhoto, InsertConstructionPhoto,
   projectBudgetRequests, ProjectBudgetRequest, InsertProjectBudgetRequest,
   emailLogs, EmailLog,
   userNotifications, UserNotification, InsertUserNotification,
@@ -508,6 +508,9 @@ export type ProjetoDaLista = ConstructionProject & {
   clientName: string | null;
   contractorName: string | null;
   crmResponsibleName: string | null;
+  /** Pedido de 18/10: medições aguardando o banco e medições já recebidas (filtro da lista). */
+  medicoesSolicitadas: number;
+  medicoesRecebidas: number;
 };
 
 /**
@@ -529,7 +532,15 @@ export async function getAllProjects(somenteEmpreiteiroId?: number): Promise<Pro
     .leftJoin(crmResponsible, eq(crmResponsible.id, leads.responsibleUserId))
     .where(somenteEmpreiteiroId === undefined ? undefined : eq(constructionProjects.contractorUserId, somenteEmpreiteiroId))
     .orderBy(desc(constructionProjects.createdAt));
+  const medicoes = await db.select({
+    projectId: constructionProgressHistory.projectId,
+    solicitadas: sql<number>`count(*) filter (where ${constructionProgressHistory.requestedAt} is not null and ${constructionProgressHistory.receivedAt} is null)::int`,
+    recebidas: sql<number>`count(*) filter (where ${constructionProgressHistory.receivedAt} is not null)::int`,
+  }).from(constructionProgressHistory).groupBy(constructionProgressHistory.projectId);
+  const porObra = new Map(medicoes.map((m) => [m.projectId, m]));
   return rows.map((row) => ({
+    medicoesSolicitadas: Number(porObra.get(row.project.id)?.solicitadas ?? 0),
+    medicoesRecebidas: Number(porObra.get(row.project.id)?.recebidas ?? 0),
     ...aplicarTipoProjetoOficial(row),
     clientName: row.clientName ?? row.project.mcmvClientName ?? null,
     contractorName: row.contractorName ?? null,

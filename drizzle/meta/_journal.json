@@ -400,6 +400,13 @@
       "when": 1791900000010,
       "tag": "0056_imovel_recusado_aviso",
       "breakpoints": true
+    },
+    {
+      "idx": 57,
+      "version": "7",
+      "when": 1791900000011,
+      "tag": "0057_medicao_solicitacao_recebimento",
+      "breakpoints": true
     }
   ]
 }
