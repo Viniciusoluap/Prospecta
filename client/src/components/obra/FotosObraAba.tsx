@@ -58,6 +58,8 @@ export function FotosObraAba({ projectId, fotos, onMudou }: { projectId: number;
             }
           );
           if (status < 200 || status >= 300) throw new Error(mensagemErroEnvio(status, dados));
+          // Só conta como enviada com a confirmação do servidor (id da foto gravada).
+          if (typeof (dados as { id?: unknown } | null)?.id !== "number") throw new Error(`O servidor não confirmou a gravação (código ${status}). Tente novamente.`);
           marcar(i, { estado: "ok", fracao: 1 });
           enviados++;
         } catch (e) {

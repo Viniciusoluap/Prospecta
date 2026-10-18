@@ -1,8 +1,9 @@
 import { TRPCError } from "@trpc/server";
-import { and, asc, count, desc, eq, isNull } from "drizzle-orm";
+import { and, asc, count, desc, eq, inArray, isNull } from "drizzle-orm";
 import { alias } from "drizzle-orm/pg-core";
 import { z } from "zod";
 import {
+  constructionPci,
   constructionPhotos,
   constructionProgressHistory,
   constructionProgressItems,
@@ -19,6 +20,15 @@ import { LIMITE_LEGENDA } from "../shared/obra-fotos.js";
 import { montarDetalheObra } from "../shared/financeiro/detalhe-obra.js";
 import { baseDaMedicao, estimarMedicoes, situacaoDaMedicao } from "../shared/financeiro/medicoes.js";
 import { centavosDe } from "../shared/financeiro/obra.js";
+import {
+  dadosPlsPadrao,
+  ehTipoMedicao,
+  normalizarDadosMedicao,
+  validarDadosMedicao,
+  type DadosMedicaoCaixa,
+  type TipoMedicao,
+} from "../shared/medicao-caixa.js";
+import type { DadosPci } from "./caixa/pci.js";
 import { adminProcedure, router } from "./_core/trpc.js";
 import { getDb, getObraDadosCrm } from "./db.js";
 import { calcularResumoObra } from "./obra-financeiro-router.js";
@@ -28,9 +38,26 @@ import { calcularResumoObra } from "./obra-financeiro-router.js";
 // das execuções ponderadas, calculada por shared/financeiro/progresso.ts.
 
 const percentual4 = z.string().trim().regex(/^\d{1,3}(\.\d{1,4})?$/, "Percentual inválido (até 4 casas decimais)");
+// Pedido de 18/10: a incidência vinculada da PCI chega com até 15 casas.
+const percentualIncidencia = z.string().trim().regex(/^\d{1,3}(\.\d{1,15})?$/, "Incidência inválida");
 const projectIdInput = z.object({ projectId: z.number().int().positive() });
 const medicaoIdInput = z.object({ medicaoId: z.number().int().positive() });
-const itensMedicao = z.array(z.object({ chave: z.string().trim().min(1).max(40), incidencia: percentual4, execucao: percentual4 })).length(20);
+const itensMedicao = z.array(z.object({ chave: z.string().trim().min(1).max(40), incidencia: percentualIncidencia, execucao: percentual4 })).length(20);
+const tipoMedicao = z.enum(["pls", "repactuacao", "alteracao"]);
+
+/** "3.100001699200050" (numeric do banco) → "3.10000169920005". */
+export function normalizarPercentual(v: string | number): string {
+  const t = String(v);
+  return t.includes(".") ? t.replace(/0+$/, "").replace(/\.$/, "") : t;
+}
+
+/** Tipo + campos da CAIXA validados (ou erro 400). */
+function dadosCaixaValidados(tipo: TipoMedicao, entrada: unknown): DadosMedicaoCaixa {
+  const dados = normalizarDadosMedicao(tipo, entrada);
+  const erros = validarDadosMedicao(tipo, dados);
+  if (erros.length) throw new TRPCError({ code: "BAD_REQUEST", message: erros.join(" ") });
+  return dados;
+}
 
 async function medicaoOuErro(medicaoId: number) {
   const [m] = await getDb().select().from(constructionProgressHistory).where(eq(constructionProgressHistory.id, medicaoId)).limit(1);
@@ -95,6 +122,8 @@ export async function carregarProgresso(projectId: number) {
       recebidaEm: constructionProgressHistory.receivedAt,
       recebidaPor: recebedor.name,
       editadaEm: constructionProgressHistory.updatedAt,
+      tipo: constructionProgressHistory.measurementType,
+      dadosCaixa: constructionProgressHistory.caixaData,
     }).from(constructionProgressHistory)
       .leftJoin(users, eq(users.id, constructionProgressHistory.createdBy))
       .leftJoin(solicitante, eq(solicitante.id, constructionProgressHistory.requestedBy))
@@ -104,8 +133,23 @@ export async function carregarProgresso(projectId: number) {
       .limit(100),
   ]);
   const itens: ItemProgressoEntrada[] = mesclarComPadrao(
-    salvos.map((s) => ({ chave: s.serviceKey, incidencia: s.incidencePct, execucao: s.executionPct }))
+    salvos.map((s) => ({ chave: s.serviceKey, incidencia: normalizarPercentual(s.incidencePct), execucao: normalizarPercentual(s.executionPct) }))
   );
+  // Pedido de 18/10: fotos de cada medição e a PCI da CAIXA vinculada à obra.
+  const ids = historico.map((h) => h.id);
+  const [fotosMedicao, [pci]] = await Promise.all([
+    ids.length
+      ? db.select({ id: constructionPhotos.id, medicaoId: constructionPhotos.progressHistoryId, imageUrl: constructionPhotos.imageUrl, caption: constructionPhotos.caption })
+          .from(constructionPhotos).where(inArray(constructionPhotos.progressHistoryId, ids)).orderBy(asc(constructionPhotos.id))
+      : Promise.resolve([]),
+    db.select({
+      fileName: constructionPci.fileName,
+      uploadedAt: constructionPci.uploadedAt,
+      linkedAt: constructionPci.linkedAt,
+      parsed: constructionPci.parsed,
+    }).from(constructionPci).where(eq(constructionPci.projectId, projectId)).limit(1),
+  ]);
+  const dadosPci = (pci?.parsed ?? null) as DadosPci | null;
   // Pedido de 18/10: valor estimado de cada medição (Y × avanço da medição).
   const base = baseDaMedicao({
     financiamento: centavosDe(obra.financedAmount),
@@ -123,11 +167,34 @@ export async function carregarProgresso(projectId: number) {
     baseMedicao: base,
     historico: historico.map((h) => ({
       ...h,
+      itens: h.itens.map((i) => ({ ...i, incidencia: normalizarPercentual(i.incidencia) })),
       progresso: Number(h.progresso),
       somaIncidencia: Number(h.somaIncidencia),
       situacao: situacaoDaMedicao(h),
       estimativa: estimativas.get(h.id)!,
+      tipo: (ehTipoMedicao(h.tipo) ? h.tipo : "pls") as TipoMedicao,
+      dadosCaixa: (h.dadosCaixa ?? null) as DadosMedicaoCaixa | null,
+      fotos: fotosMedicao.filter((f) => f.medicaoId === h.id).map(({ id, imageUrl, caption }) => ({ id, imageUrl, caption })),
     })),
+    pci: pci && dadosPci
+      ? {
+          arquivo: pci.fileName,
+          enviadaEm: pci.uploadedAt,
+          vinculadaEm: pci.linkedAt,
+          formato: dadosPci.formato,
+          incidencias: dadosPci.incidencias.map((v) => normalizarPercentual(String(v))),
+          proponente: dadosPci.identificacao?.proponente ?? "",
+          contrato: dadosPci.contrato,
+          prazoMeses: dadosPci.prazoMeses,
+          dataContratacao: dadosPci.dataContratacao,
+        }
+      : null,
+    /** Valores iniciais dos campos da PLS (alvará e Selo Casa Azul vêm da PCI). */
+    plsPadrao: dadosPlsPadrao({
+      alvaraEmissao: dadosPci?.alvaraEmissao ?? null,
+      alvaraVigencia: dadosPci?.alvaraVigencia ?? null,
+      seloCasaAzul: dadosPci?.seloCasaAzul ?? false,
+    }),
   };
 }
 
@@ -146,11 +213,14 @@ export const obraProgressoRouter = router({
 
   salvar: adminProcedure.input(z.object({
     projectId: z.number().int().positive(),
-    itens: z.array(z.object({ chave: z.string().trim().min(1).max(40), incidencia: percentual4, execucao: percentual4 })).length(20),
+    itens: itensMedicao,
+    tipo: tipoMedicao.default("pls"),
+    dadosCaixa: z.unknown().optional(),
   })).mutation(async ({ input, ctx }) => {
     await obraOuErro(input.projectId);
     const calculo = calcularProgresso(input.itens);
     if (calculo.erros.length) throw new TRPCError({ code: "BAD_REQUEST", message: calculo.erros.join(" ") });
+    const dadosCaixa = input.dadosCaixa === undefined ? null : dadosCaixaValidados(input.tipo, input.dadosCaixa);
     const db = getDb();
     const agora = new Date();
     await db.batch([
@@ -171,13 +241,18 @@ export const obraProgressoRouter = router({
       db.insert(constructionProgressHistory).values({
         projectId: input.projectId,
         progressPct: calculo.progresso.toFixed(6),
-        incidenceTotalPct: calculo.somaIncidencia.toFixed(4),
+        incidenceTotalPct: calculo.somaIncidencia.toFixed(15),
         items: input.itens,
         createdBy: ctx.user.id,
         createdAt: agora,
+        measurementType: input.tipo,
+        caixaData: dadosCaixa,
       }),
     ]);
-    return { progresso: calculo.progresso, avisos: calculo.avisos };
+    const [nova] = await db.select({ id: constructionProgressHistory.id }).from(constructionProgressHistory)
+      .where(and(eq(constructionProgressHistory.projectId, input.projectId), eq(constructionProgressHistory.createdAt, agora)))
+      .orderBy(desc(constructionProgressHistory.id)).limit(1);
+    return { progresso: calculo.progresso, avisos: calculo.avisos, medicaoId: nova?.id ?? null };
   }),
 
   // Pedido de 18/10: ciclo da medição (solicitar ao banco, confirmar recebimento),
@@ -206,18 +281,24 @@ export const obraProgressoRouter = router({
   editarMedicao: adminProcedure.input(z.object({
     medicaoId: z.number().int().positive(),
     itens: itensMedicao,
+    tipo: tipoMedicao.optional(),
+    dadosCaixa: z.unknown().optional(),
   })).mutation(async ({ input, ctx }) => {
     const atual = await medicaoOuErro(input.medicaoId);
     const calculo = calcularProgresso(input.itens);
     if (calculo.erros.length) throw new TRPCError({ code: "BAD_REQUEST", message: calculo.erros.join(" ") });
+    const tipo = input.tipo ?? (ehTipoMedicao(atual.measurementType) ? atual.measurementType : "pls");
+    const dadosCaixa = input.dadosCaixa === undefined ? undefined : dadosCaixaValidados(tipo, input.dadosCaixa);
     const db = getDb();
     const agora = new Date();
     await db.update(constructionProgressHistory).set({
       progressPct: calculo.progresso.toFixed(6),
-      incidenceTotalPct: calculo.somaIncidencia.toFixed(4),
+      incidenceTotalPct: calculo.somaIncidencia.toFixed(15),
       items: input.itens,
       updatedAt: agora,
       updatedBy: ctx.user.id,
+      measurementType: tipo,
+      ...(dadosCaixa !== undefined ? { caixaData: dadosCaixa } : {}),
     }).where(eq(constructionProgressHistory.id, input.medicaoId));
     // A mais recente é a medição vigente: o progresso da obra acompanha.
     if (await ehUltimaMedicao(atual.projectId, input.medicaoId)) await aplicarMedicaoVigente(atual.projectId, input.itens, ctx.user.id, agora);
@@ -237,6 +318,39 @@ export const obraProgressoRouter = router({
       await aplicarMedicaoVigente(atual.projectId, anterior?.itens ?? null, ctx.user.id, new Date());
     }
     return { success: true };
+  }),
+
+  // Pedido de 18/10: as incidências passam a ser exatamente as da PCI enviada
+  // (1ª aba, coluna Incidência). A Execução do Item de cada serviço é mantida.
+  vincularPci: adminProcedure.input(projectIdInput).mutation(async ({ input, ctx }) => {
+    const db = getDb();
+    const [pci] = await db.select({ parsed: constructionPci.parsed }).from(constructionPci)
+      .where(eq(constructionPci.projectId, input.projectId)).limit(1);
+    if (!pci) throw new TRPCError({ code: "BAD_REQUEST", message: "Envie a PCI da obra antes de vincular." });
+    const dados = pci.parsed as DadosPci;
+    const salvos = await db.select().from(constructionProgressItems).where(eq(constructionProgressItems.projectId, input.projectId));
+    const atuais = mesclarComPadrao(salvos.map((s) => ({ chave: s.serviceKey, incidencia: normalizarPercentual(s.incidencePct), execucao: normalizarPercentual(s.executionPct) })));
+    const itens = atuais.map((i, k) => ({
+      chave: i.chave,
+      incidencia: normalizarPercentual(String(dados.incidencias[k] ?? 0)),
+      execucao: String(i.execucao ?? "0"),
+    }));
+    const calculo = calcularProgresso(itens);
+    if (calculo.erros.length) throw new TRPCError({ code: "BAD_REQUEST", message: calculo.erros.join(" ") });
+    const agora = new Date();
+    await db.batch([
+      db.delete(constructionProgressItems).where(eq(constructionProgressItems.projectId, input.projectId)),
+      db.insert(constructionProgressItems).values(itens.map((i) => ({
+        projectId: input.projectId, serviceKey: i.chave, incidencePct: i.incidencia, executionPct: i.execucao, updatedBy: ctx.user.id, updatedAt: agora,
+      }))),
+      db.update(constructionPci).set({ linkedAt: agora, linkedBy: ctx.user.id }).where(eq(constructionPci.projectId, input.projectId)),
+      // Só recalcula o progresso da obra se ela já tinha medição.
+      ...(salvos.length
+        ? [db.update(constructionProjects).set({ progressMeasuredPct: calculo.progresso.toFixed(6), progress: Math.round(calculo.progresso), updatedAt: agora })
+            .where(eq(constructionProjects.id, input.projectId))]
+        : []),
+    ] as never);
+    return { somaIncidencia: calculo.somaIncidencia, itens };
   }),
 
   atualizarFoto: adminProcedure.input(z.object({

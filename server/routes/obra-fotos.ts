@@ -1,6 +1,6 @@
 import { Router, Request, Response } from "express";
-import { eq, sql } from "drizzle-orm";
-import { constructionPhotos, constructionProjects } from "../../drizzle/schema.js";
+import { and, eq, sql } from "drizzle-orm";
+import { constructionPhotos, constructionProgressHistory, constructionProjects } from "../../drizzle/schema.js";
 import { getTokenFromRequest, verifySessionToken } from "../_core/auth-utils.js";
 import { getDb, getUserById } from "../db.js";
 import { sessaoAindaValida } from "../../shared/session.js";
@@ -41,7 +41,18 @@ router.post("/obras/:projectId/fotos", async (req: Request, res: Response) => {
     if (!podeGerenciarFotos({ id: usuario.id, papel: usuario.role, acessoObras: canAccessAdminProcedure(usuario, "construction.fotos") }, { empreiteiroId: dona?.empreiteiroId ?? null }))
       return res.status(403).json({ error: "Sem permissão para enviar fotos desta obra." });
 
-    const { image, caption, takenAt, includeInReport } = (req.body ?? {}) as Record<string, unknown>;
+    const { image, caption, takenAt, includeInReport, medicaoId } = (req.body ?? {}) as Record<string, unknown>;
+    // Pedido de 18/10: foto enviada junto com a medição (relatório fotográfico da CAIXA).
+    let progressHistoryId: number | null = null;
+    if (medicaoId !== undefined && medicaoId !== null) {
+      const id = typeof medicaoId === "number" && Number.isInteger(medicaoId) && medicaoId > 0 ? medicaoId : null;
+      const [m] = id
+        ? await getDb().select({ id: constructionProgressHistory.id }).from(constructionProgressHistory)
+            .where(and(eq(constructionProgressHistory.id, id), eq(constructionProgressHistory.projectId, projectId))).limit(1)
+        : [];
+      if (!m) return res.status(400).json({ error: "Medição não encontrada nesta obra." });
+      progressHistoryId = m.id;
+    }
     const base64 = lerDataUrl(image);
     if (!base64) return res.status(400).json({ error: "Imagem ausente ou em formato inválido." });
     const bytes = Buffer.from(base64, "base64");
@@ -68,11 +79,19 @@ router.post("/obras/:projectId/fotos", async (req: Request, res: Response) => {
         takenAt: data,
         uploadedBy: usuario.id,
         includeInReport: includeInReport !== false,
+        progressHistoryId,
       }),
       db.execute(sql`INSERT INTO construction_photo_files (photo_id, mime, size_bytes, data)
         VALUES (${photoId}, ${validacao.mime}, ${bytes.length}, decode(${base64}, 'base64'))`),
     ]);
-    return res.json({ id: photoId, imageUrl, caption: legenda, takenAt: data.toISOString(), includeInReport: includeInReport !== false });
+    // Só confirma o envio depois de conferir que a foto ficou gravada (pedido
+    // de 18/10: a tela mostrava "enviada" e a galeria continuava vazia).
+    const conferencia = await db.execute(sql`SELECT 1 AS ok FROM construction_photo_files WHERE photo_id = ${photoId}`);
+    if (!(conferencia as unknown as { rows: unknown[] }).rows.length) {
+      console.error("[obra-fotos] envio: foto não ficou gravada", { photoId, projectId });
+      return res.status(500).json({ error: "A foto não ficou gravada no banco. Tente novamente." });
+    }
+    return res.json({ id: photoId, imageUrl, caption: legenda, takenAt: data.toISOString(), includeInReport: includeInReport !== false, medicaoId: progressHistoryId });
   } catch (error) {
     console.error("[obra-fotos] envio:", error);
     return res.status(500).json({ error: "Erro ao gravar a foto. Tente novamente." });
