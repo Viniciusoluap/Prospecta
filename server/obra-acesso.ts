@@ -27,6 +27,7 @@ export const PROCEDIMENTOS_DO_EMPREITEIRO: Readonly<Record<string, Alvo>> = {
   "obraProgresso.confirmarRecebimento": "medicaoId",
   "obraProgresso.editarMedicao": "medicaoId",
   "obraProgresso.excluirMedicao": "medicaoId",
+  "obraProgresso.vincularPci": "projectId",
 };
 
 /** Listas usadas só para exibir nomes nos campos somente leitura do painel. */
