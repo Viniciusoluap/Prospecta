@@ -40,3 +40,18 @@ describe("filtros combinados de Obras (item 01)", () => {
     expect(filtrosAtivos(f({ nome: "x", status: "in_progress", ordem: "az" }))).toBe(2);
   });
 });
+
+describe("pedido de 18/10 — filtro de medições", () => {
+  const base = { codigo: "#1", nome: "A", cliente: "", status: "planning", responsaveis: [], criadoEm: "2026-10-01" };
+  const obras = [
+    { ...base, id: 1, medicoesSolicitadas: 1, medicoesRecebidas: 0 },
+    { ...base, id: 2, medicoesSolicitadas: 0, medicoesRecebidas: 2 },
+    { ...base, id: 3, medicoesSolicitadas: 0, medicoesRecebidas: 0 },
+  ];
+  it("separa obras com medição solicitada e com medição recebida", () => {
+    expect(filtrarObras(obras, f({ medicao: "solicitada" })).map((o) => o.id)).toEqual([1]);
+    expect(filtrarObras(obras, f({ medicao: "recebida" })).map((o) => o.id)).toEqual([2]);
+    expect(filtrarObras(obras, f({})).length).toBe(3);
+    expect(filtrosAtivos(f({ medicao: "recebida" }))).toBe(1);
+  });
+});

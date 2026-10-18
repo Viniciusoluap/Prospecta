@@ -605,6 +605,13 @@ export const constructionProgressHistory = pgTable("construction_progress_histor
   items: jsonb("items").$type<{ chave: string; incidencia: string; execucao: string }[]>().notNull(),
   createdBy: integer("created_by"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
+  // Pedido de 18/10: ciclo da medição — solicitada ao banco e recebida (paga).
+  requestedAt: timestamp("requested_at"),
+  requestedBy: integer("requested_by"),
+  receivedAt: timestamp("received_at"),
+  receivedBy: integer("received_by"),
+  updatedAt: timestamp("updated_at"),
+  updatedBy: integer("updated_by"),
 }, (t) => ({ porObra: index("construction_progress_history_project_idx").on(t.projectId, t.createdAt) }));
 
 export type ConstructionPhoto = typeof constructionPhotos.$inferSelect;
