@@ -68,6 +68,7 @@ export function ProgressoObraAba({ projectId, onFotosMudaram }: { projectId: num
   const [editando, setEditando] = useState<{ id: number; quando: string } | null>(null);
   const [linhas, setLinhas] = useState<Linha[] | null>(null);
   // Pedido de 18/10: tipo de medição da CAIXA, campos de cada modelo e fotos em lote.
+  const [versaoFormulario, setVersaoFormulario] = useState(0);
   const [tipo, setTipo] = useState<TipoMedicao>("pls");
   const [dadosCaixa, setDadosCaixa] = useState<DadosMedicaoCaixa | null>(null);
   const [fotosNovas, setFotosNovas] = useState<FotoNova[]>([]);
@@ -85,6 +86,7 @@ export function ProgressoObraAba({ projectId, onFotosMudaram }: { projectId: num
     setLinhas((atual) => atual!.map((l) => (l.chave === chave ? { ...l, [campo]: v } : l)));
 
   const limparFormulario = () => {
+    setVersaoFormulario(v => v + 1);
     fotosNovas.forEach((f) => URL.revokeObjectURL(f.previa));
     setFotosNovas([]);
     setTipo("pls");
@@ -106,7 +108,14 @@ export function ProgressoObraAba({ projectId, onFotosMudaram }: { projectId: num
         setEnviandoFotos(true);
         const falhas = await enviarFotosDaMedicao(projectId, medicaoId, fotosNovas);
         setEnviandoFotos(false);
-        if (falhas) toast.error(`${falhas} foto(s) não foram enviadas; a medição foi salva.`);
+        if (falhas.length) {
+          fotosNovas.filter(f => !falhas.includes(f)).forEach(f => URL.revokeObjectURL(f.previa));
+          setFotosNovas(falhas);
+          setEditando({ id: medicaoId, quando: editando?.quando ?? dataHora(new Date()) });
+          setUltimaSalva(medicaoId);
+          toast.error(`${falhas.length} foto(s) não foram enviadas; a medição foi salva. Salve novamente para reenviar somente essas fotos.`);
+          await consulta.refetch(); onFotosMudaram?.(); return;
+        }
       }
       toast.success(editando ? `Medição de ${editando.quando} alterada.` : `Medição salva (${rotuloTipoMedicao(tipo)}): progresso geral ${formatarPercentual(calculo.progresso)}.`);
       setEditando(null);
@@ -226,7 +235,7 @@ export function ProgressoObraAba({ projectId, onFotosMudaram }: { projectId: num
               </tfoot>
             </table>
           </div>
-          <CamposMedicaoCaixa key={editando?.id ?? "nova"} tipo={tipo} setTipo={setTipo} dados={dadosCaixa} setDados={setDadosCaixa} prazoPci={dados.pci?.prazoMeses ?? null} />
+          <CamposMedicaoCaixa key={`${editando?.id ?? "nova"}:${versaoFormulario}`} tipo={tipo} setTipo={setTipo} dados={dadosCaixa} setDados={setDadosCaixa} prazoPci={dados.pci?.prazoMeses ?? null} />
           <FotosMedicao tipo={tipo} fotos={fotosNovas} setFotos={setFotosNovas} existentes={fotosDaEdicao} progresso={calculo.progresso}
             onExcluirExistente={(id) => { if (confirm("Excluir esta foto da medição?")) void acao(() => excluirFoto.mutateAsync({ photoId: id }), "Foto excluída."); }} />
           {!dados.pci && <p className="text-xs text-amber-300">Para gerar o .xls e o .pdf da CAIXA, envie a PCI da obra (botão acima, ao lado de "Ver Medições da CEF").</p>}

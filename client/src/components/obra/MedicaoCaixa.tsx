@@ -265,7 +265,7 @@ export function FotosMedicao({ tipo, fotos, setFotos, existentes, onExcluirExist
               <div className="flex items-center gap-1">
                 <Input aria-label={`Legenda da foto ${f.arquivo.name}`} placeholder="Descrever foto" value={f.legenda} maxLength={250}
                   onChange={(e) => setFotos(fotos.map((x, j) => (j === i ? { ...x, legenda: e.target.value } : x)))} className={`h-7 text-xs ${campo}`} />
-                <Button type="button" size="icon" variant="ghost" className="h-6 w-6 text-gray-300" aria-label="Remover foto" onClick={() => setFotos(fotos.filter((_, j) => j !== i))}><X className="h-3 w-3" /></Button>
+                <Button type="button" size="icon" variant="ghost" className="h-6 w-6 text-gray-300" aria-label="Remover foto" onClick={() => { URL.revokeObjectURL(f.previa); setFotos(fotos.filter((_, j) => j !== i)); }}><X className="h-3 w-3" /></Button>
               </div>
             </li>
           ))}
@@ -275,9 +275,9 @@ export function FotosMedicao({ tipo, fotos, setFotos, existentes, onExcluirExist
   );
 }
 
-/** Envia as fotos novas ligadas à medição. Retorna quantas falharam. */
-export async function enviarFotosDaMedicao(projectId: number, medicaoId: number, fotos: FotoNova[]): Promise<number> {
-  let falhas = 0;
+/** Envia as fotos novas ligadas à medição. Retorna apenas as fotos que falharam, para reenvio sem duplicar as já gravadas. */
+export async function enviarFotosDaMedicao(projectId: number, medicaoId: number, fotos: FotoNova[]): Promise<FotoNova[]> {
+  const falhas: FotoNova[] = [];
   for (let i = 0; i < fotos.length; i++) {
     const f = fotos[i];
     try {
@@ -290,7 +290,7 @@ export async function enviarFotosDaMedicao(projectId: number, medicaoId: number,
       if (status < 200 || status >= 300) throw new Error(mensagemErroEnvio(status, dados));
       if (typeof (dados as { id?: unknown } | null)?.id !== "number") throw new Error("O servidor não confirmou a gravação da foto.");
     } catch (e) {
-      falhas++;
+      falhas.push(f);
       toast.error(`${f.arquivo.name}: ${e instanceof Error ? e.message : String(e)}`);
     }
   }

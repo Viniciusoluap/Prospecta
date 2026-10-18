@@ -330,3 +330,10 @@ export function normalizarDadosMedicao(tipo: TipoMedicao, entrada: unknown): Dad
   }
   return { pls, repactuacao, alteracao };
 }
+
+/** Compara a incidência de cada serviço sem arredondar para as quatro casas da tela. */
+export function incidenciasCorrespondem(itens: { chave: string; incidencia: string }[], chaves: readonly string[], incidencias: readonly number[]): boolean {
+  if (itens.length !== chaves.length || incidencias.length !== chaves.length || new Set(itens.map(i => i.chave)).size !== chaves.length) return false;
+  const mapa = new Map(itens.map(i => [i.chave, Number(i.incidencia)]));
+  return chaves.every((chave, k) => Number.isFinite(mapa.get(chave)) && Math.abs(mapa.get(chave)! - incidencias[k]) <= 1e-12);
+}

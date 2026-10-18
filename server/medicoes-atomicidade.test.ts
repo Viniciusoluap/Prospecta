@@ -1,3 +1,4 @@
+import { PgDialect } from "drizzle-orm/pg-core";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import * as banco from "./db.js";
 import { obraProgressoRouter } from "./obra-progresso-router";
@@ -21,6 +22,9 @@ function bancoComFalha(...respostas: unknown[][]) {
   };
   const db = {
     select,
+    execute: (query: Parameters<PgDialect["sqlToQuery"]>[0]) => operacao(() => {
+      if (/UPDATE construction_projects/.test(new PgDialect().sqlToQuery(query).sql)) throw new Error("falha ao restaurar progresso");
+    }),
     delete: (tabela: unknown) => ({ where: () => operacao(() => {
       if (tabela === constructionProgressHistory) estado.historicoExiste = false;
     }) }),
@@ -44,13 +48,13 @@ const caller = () => obraProgressoRouter.createCaller({ user: { id: 1, role: "ad
 
 describe("medições: falha na atualização do progresso", () => {
   it("preserva o histórico se a restauração após excluir a vigente falhar", async () => {
-    const estado = bancoComFalha([{ id: 2, projectId: 10 }], [{ id: 2 }], [{ itens }]);
+    const estado = bancoComFalha([{ id: 2, projectId: 10 }]);
     await expect(caller().excluirMedicao({ medicaoId: 2 })).rejects.toThrow("falha ao restaurar progresso");
     expect(estado().historicoExiste).toBe(true);
   });
 
   it("preserva o conteúdo anterior do histórico se editar a vigente falhar", async () => {
-    const estado = bancoComFalha([{ id: 2, projectId: 10, measurementType: "pls" }], [{ id: 2 }]);
+    const estado = bancoComFalha([{ id: 2, projectId: 10, measurementType: "pls" }], []);
     await expect(caller().editarMedicao({ medicaoId: 2, itens })).rejects.toThrow("falha ao restaurar progresso");
     expect(estado().historicoAlterado).toBe(false);
   });
