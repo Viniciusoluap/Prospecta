@@ -8,7 +8,7 @@ import { trpc } from "@/lib/trpc";
 import { lerPercentualDigitado } from "@shared/financeiro/obra";
 import { SERVICOS_PROGRESSO, calcularProgresso, formatarPercentual, mesclarComPadrao } from "@shared/financeiro/progresso";
 import { dadosMedicaoPadrao, rotuloTipoMedicao, type DadosMedicaoCaixa, type TipoMedicao } from "@shared/medicao-caixa";
-import { BotoesArquivosMedicao, CamposMedicaoCaixa, FotosMedicao, enviarFotosDaMedicao, type FotoNova } from "./MedicaoCaixa";
+import { BotoesArquivosMedicao, CamposMedicaoCaixa, FotosMedicao, copiarMedicaoNoDrive, enviarFotosDaMedicao, type FotoNova } from "./MedicaoCaixa";
 
 // EPIC-020 Lote 4 (item 27) — progresso físico por incidência. O Progresso
 // Geral é somente leitura: soma das Execuções na Obra (Incidência × Execução).
@@ -117,7 +117,9 @@ export function ProgressoObraAba({ projectId, onFotosMudaram }: { projectId: num
           await consulta.refetch(); onFotosMudaram?.(); return;
         }
       }
-      toast.success(editando ? `Medição de ${editando.quando} alterada.` : `Medição salva (${rotuloTipoMedicao(tipo)}): progresso geral ${formatarPercentual(calculo.progresso)}.`);
+      // Pedido de 18/10: cópia preenchida (.xls/.pdf) no Google Drive da obra.
+      const notaDrive = medicaoId && consulta.data?.pci ? await copiarMedicaoNoDrive(medicaoId) : "";
+      toast.success((editando ? `Medição de ${editando.quando} alterada.` : `Medição salva (${rotuloTipoMedicao(tipo)}): progresso geral ${formatarPercentual(calculo.progresso)}.`) + notaDrive);
       setEditando(null);
       setUltimaSalva(medicaoId);
       limparFormulario();

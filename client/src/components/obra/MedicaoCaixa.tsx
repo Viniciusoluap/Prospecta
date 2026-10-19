@@ -77,6 +77,22 @@ function CampoNumero({ valor, onChange, rotulo, sufixo }: { valor: number | null
   );
 }
 
+/**
+ * Pedido de 18/10: cópia do .xls/.pdf preenchidos no Google Drive da obra
+ * (Obras/<Obra>/Medições CAIXA). Devolve o complemento da mensagem de sucesso.
+ */
+export async function copiarMedicaoNoDrive(medicaoId: number): Promise<string> {
+  try {
+    const resposta = await fetch(`/api/obras/medicoes/${medicaoId}/drive`, { method: "POST", credentials: "include" });
+    const r = (await resposta.json().catch(() => null)) as { drive?: string } | null;
+    if (resposta.ok && r?.drive === "ok") return " Arquivos .xls e .pdf salvos no Google Drive da obra.";
+    if (resposta.ok && r?.drive === "indisponivel") return " Google Drive não conectado: baixe os arquivos pelos botões da medição.";
+  } catch {
+    // sem rede: os arquivos continuam no download
+  }
+  return " Não foi possível copiar para o Google Drive agora: baixe os arquivos pelos botões da medição.";
+}
+
 /** Baixa um arquivo gerado pelo servidor; erro vira aviso na tela. */
 export async function baixarArquivo(url: string, nomePadrao: string) {
   const resposta = await fetch(url, { credentials: "include" });
@@ -162,8 +178,9 @@ export function PciObra({ projectId }: { projectId: number }) {
         publicarEnvio({ item: "arquivo", atual: 1, total: 1, fracao })
       );
       if (status < 200 || status >= 300) throw new Error(mensagemErroEnvio(status, dados));
-      const r = dados as { proponente?: string; formato?: string };
-      toast.success(`PCI enviada${r.proponente ? ` (${r.proponente})` : ""}. Clique em "Vincular PCI" para usar as incidências dela.`);
+      const r = dados as { proponente?: string; formato?: string; drive?: "ok" | "indisponivel" | "erro" | null };
+      const notaDrive = r.drive === "ok" ? " Original guardada no Google Drive da obra." : r.drive === "erro" ? " (Não foi possível copiar para o Google Drive; a PCI ficou guardada no sistema.)" : "";
+      toast.success(`PCI enviada${r.proponente ? ` (${r.proponente})` : ""}. Clique em "Vincular PCI" para usar as incidências dela.${notaDrive}`);
       await utils.obraProgresso.obter.invalidate({ projectId });
     } catch (e) {
       toast.error(e instanceof Error ? e.message : String(e));

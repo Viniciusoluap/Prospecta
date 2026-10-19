@@ -4,7 +4,7 @@ import { and, eq, isNotNull, isNull } from "drizzle-orm";
 import {
   financiamentoChecklistItems, financiamentos, imoveis, imovelFotos, incorporationRegistrationDocuments, leadDocuments, portalContractDocuments, portalContracts,
 } from "../drizzle/schema.js";
-import { caminhoImovel, CHAVE_RAIZ, nomeArquivo, nomeFotoImovel, pastaLegada, PASTAS_IMOVEL, PROPRIEDADE_PASTA, ROTULO_DOCUMENTO, type PastaAlvo } from "../shared/drive-estrutura.js";
+import { caminhoImovel, caminhoMedicoesObra, CHAVE_RAIZ, nomeArquivo, nomeFotoImovel, pastaLegada, PASTAS_IMOVEL, PROPRIEDADE_PASTA, ROTULO_DOCUMENTO, type PastaAlvo } from "../shared/drive-estrutura.js";
 import { getDb } from "./db.js";
 import { caminhoDocumentoCliente, destinoDocumentoEstudo } from "./drive-pastas.js";
 import { conexaoOAuth, tokenOAuth } from "./google-drive-oauth.js";
@@ -181,6 +181,15 @@ export async function uploadPrivateIncorporationDocument(studyId: number, itemId
   const pasta = await pastaDoCaminho(fonte, root, destino.caminho);
   await assertNotPublic(fonte, pasta);
   return uploadToFolder(fonte, pasta, nomeArquivo(destino.rotulo, new Date(), name, mimeType), mimeType, data);
+}
+
+/** Obras/<Obra (nº id)>/Medições CAIXA/<Rótulo — dd-mm-aaaa.ext> (PCI original e medições preenchidas). */
+export async function uploadArquivoMedicaoObra(obra: { id: number; titulo: string }, doc: { rotulo: string; nomeOriginal: string; mime: string; data: Buffer }): Promise<string> {
+  const fonte = await fonteObrigatoria();
+  const root = await prepararRaiz(fonte);
+  const pasta = await pastaDoCaminho(fonte, root, caminhoMedicoesObra({ id: obra.id, numero: obra.id, nome: obra.titulo }));
+  await assertNotPublic(fonte, pasta);
+  return uploadToFolder(fonte, pasta, nomeArquivo(doc.rotulo, new Date(), doc.nomeOriginal, doc.mime), doc.mime, doc.data);
 }
 
 /**
