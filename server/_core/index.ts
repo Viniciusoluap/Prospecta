@@ -8,6 +8,7 @@ import { createContext } from "./context.js";
 import { serveStatic, setupVite } from "./vite.js";
 import { registerStripeWebhook } from "./stripeWebhook.js";
 import obraFotosRouter from "../routes/obra-fotos.js";
+import obraMedicaoCaixaRouter from "../routes/obra-medicao-caixa.js";
 import imovelFotosRouter from "../routes/imovel-fotos.js";
 import googleDriveRotas from "../routes/google-drive.js";
 import imovelFeedsRouter from "../routes/imovel-feeds.js";
@@ -120,6 +121,7 @@ async function startServer() {
 
   // Upload de fotos
   app.use("/api", obraFotosRouter);
+  app.use("/api", obraMedicaoCaixaRouter);
   app.use("/api", imovelFotosRouter);
   app.use("/api", googleDriveRotas);
   // Feeds XML de imóveis (ZAP/OLX/VivaReal/Chaves na Mão)

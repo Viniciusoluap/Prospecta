@@ -576,6 +576,8 @@ export const constructionPhotos = pgTable("construction_photos", {
   uploadedBy: integer("uploaded_by"),
   // EPIC-020 Lote 4: foto marcada para entrar no relatório executivo.
   includeInReport: boolean("include_in_report").default(true).notNull(),
+  // Pedido de 18/10: foto enviada junto com uma medição (relatório fotográfico da CAIXA).
+  progressHistoryId: integer("progress_history_id"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 
@@ -587,11 +589,37 @@ export const constructionPhotoFiles = pgTable("construction_photo_files", {
   sizeBytes: integer("size_bytes").notNull(),
 });
 
+// Pedido de 18/10: PCI (Proposta de Construção Individual da CAIXA) da obra.
+// O arquivo (coluna "data", bytea) é lido/gravado só por SQL explícito em
+// server/routes/obra-medicao-caixa.ts; "parsed" guarda o que foi lido dele.
+export const constructionPciVersions = pgTable("construction_pci_versions", {
+  id: serial("id").primaryKey(),
+  projectId: integer("project_id").notNull().references(() => constructionProjects.id, { onDelete: "cascade" }),
+  checksum: varchar("checksum", { length: 32 }).notNull(),
+  fileName: varchar("file_name", { length: 255 }).notNull(),
+  uploadedBy: integer("uploaded_by"),
+  uploadedAt: timestamp("uploaded_at").defaultNow().notNull(),
+  parsed: jsonb("parsed").notNull(),
+});
+
+export const constructionPci = pgTable("construction_pci", {
+  projectId: integer("project_id").primaryKey().references(() => constructionProjects.id, { onDelete: "cascade" }),
+  fileName: varchar("file_name", { length: 255 }).notNull(),
+  sizeBytes: integer("size_bytes").notNull(),
+  parsed: jsonb("parsed").notNull(),
+  uploadedBy: integer("uploaded_by"),
+  uploadedAt: timestamp("uploaded_at").defaultNow().notNull(),
+  linkedAt: timestamp("linked_at"),
+  linkedBy: integer("linked_by"),
+  versionId: integer("version_id").references(() => constructionPciVersions.id, { onDelete: "no action" }),
+});
+
 // EPIC-020 Lote 4 (item 27): progresso por incidência (20 serviços por obra).
 export const constructionProgressItems = pgTable("construction_progress_items", {
   projectId: integer("project_id").notNull().references(() => constructionProjects.id, { onDelete: "cascade" }),
   serviceKey: varchar("service_key", { length: 40 }).notNull(),
-  incidencePct: decimal("incidence_pct", { precision: 7, scale: 4 }).notNull(),
+  // Pedido de 18/10: 15 casas para guardar a incidência exata da PCI da CAIXA.
+  incidencePct: decimal("incidence_pct", { precision: 20, scale: 15 }).notNull(),
   executionPct: decimal("execution_pct", { precision: 7, scale: 4 }).default("0").notNull(),
   updatedBy: integer("updated_by"),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
@@ -599,9 +627,10 @@ export const constructionProgressItems = pgTable("construction_progress_items", 
 
 export const constructionProgressHistory = pgTable("construction_progress_history", {
   id: serial("id").primaryKey(),
+  pciVersionId: integer("pci_version_id").references(() => constructionPciVersions.id, { onDelete: "no action" }),
   projectId: integer("project_id").notNull().references(() => constructionProjects.id, { onDelete: "cascade" }),
   progressPct: decimal("progress_pct", { precision: 9, scale: 6 }).notNull(),
-  incidenceTotalPct: decimal("incidence_total_pct", { precision: 9, scale: 4 }).notNull(),
+  incidenceTotalPct: decimal("incidence_total_pct", { precision: 20, scale: 15 }).notNull(),
   items: jsonb("items").$type<{ chave: string; incidencia: string; execucao: string }[]>().notNull(),
   createdBy: integer("created_by"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
@@ -612,6 +641,10 @@ export const constructionProgressHistory = pgTable("construction_progress_histor
   receivedBy: integer("received_by"),
   updatedAt: timestamp("updated_at"),
   updatedBy: integer("updated_by"),
+  // Pedido de 18/10: tipo da medição na CAIXA (pls, repactuacao, alteracao) e
+  // os campos de cada modelo (shared/medicao-caixa.ts).
+  measurementType: varchar("measurement_type", { length: 20 }).default("pls").notNull(),
+  caixaData: jsonb("caixa_data"),
 }, (t) => ({ porObra: index("construction_progress_history_project_idx").on(t.projectId, t.createdAt) }));
 
 export type ConstructionPhoto = typeof constructionPhotos.$inferSelect;

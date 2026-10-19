@@ -7,6 +7,8 @@ import { Input } from "@/components/ui/input";
 import { trpc } from "@/lib/trpc";
 import { lerPercentualDigitado } from "@shared/financeiro/obra";
 import { SERVICOS_PROGRESSO, calcularProgresso, formatarPercentual, mesclarComPadrao } from "@shared/financeiro/progresso";
+import { dadosMedicaoPadrao, rotuloTipoMedicao, type DadosMedicaoCaixa, type TipoMedicao } from "@shared/medicao-caixa";
+import { BotoesArquivosMedicao, CamposMedicaoCaixa, FotosMedicao, copiarMedicaoNoDrive, enviarFotosDaMedicao, type FotoNova } from "./MedicaoCaixa";
 
 // EPIC-020 Lote 4 (item 27) — progresso físico por incidência. O Progresso
 // Geral é somente leitura: soma das Execuções na Obra (Incidência × Execução).
@@ -54,7 +56,7 @@ export function BarraProgresso({ valor }: { valor: number }) {
 const reais = (centavos: number) => (centavos / 100).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
 const dataHora = (d: Date | string) => new Date(d).toLocaleString("pt-BR", { dateStyle: "short", timeStyle: "short" });
 
-export function ProgressoObraAba({ projectId }: { projectId: number }) {
+export function ProgressoObraAba({ projectId, onFotosMudaram }: { projectId: number; onFotosMudaram?: () => void }) {
   const consulta = trpc.obraProgresso.obter.useQuery({ projectId });
   const salvar = trpc.obraProgresso.salvar.useMutation();
   // Pedido de 18/10: ciclo da medição, edição e exclusão (admin, colaborador e empreiteiro).
@@ -62,31 +64,69 @@ export function ProgressoObraAba({ projectId }: { projectId: number }) {
   const confirmar = trpc.obraProgresso.confirmarRecebimento.useMutation();
   const editar = trpc.obraProgresso.editarMedicao.useMutation();
   const excluir = trpc.obraProgresso.excluirMedicao.useMutation();
+  const excluirFoto = trpc.obraProgresso.excluirFoto.useMutation();
   const [editando, setEditando] = useState<{ id: number; quando: string } | null>(null);
   const [linhas, setLinhas] = useState<Linha[] | null>(null);
+  // Pedido de 18/10: tipo de medição da CAIXA, campos de cada modelo e fotos em lote.
+  const [versaoFormulario, setVersaoFormulario] = useState(0);
+  const [tipo, setTipo] = useState<TipoMedicao>("pls");
+  const [dadosCaixa, setDadosCaixa] = useState<DadosMedicaoCaixa | null>(null);
+  const [fotosNovas, setFotosNovas] = useState<FotoNova[]>([]);
+  const [enviandoFotos, setEnviandoFotos] = useState(false);
+  const [ultimaSalva, setUltimaSalva] = useState<number | null>(null);
   useEffect(() => {
     if (consulta.data && !linhas) setLinhas(consulta.data.itens);
-  }, [consulta.data, linhas]);
+    if (consulta.data && !dadosCaixa) setDadosCaixa(dadosMedicaoPadrao("pls", consulta.data.plsPadrao, consulta.data.pci?.prazoMeses ?? null));
+  }, [consulta.data, linhas, dadosCaixa]);
   const calculo = useMemo(() => (linhas ? calcularProgresso(linhas) : null), [linhas]);
 
-  if (!consulta.data || !linhas || !calculo) return <Loader2 className="h-6 w-6 animate-spin text-[#C9A961]" />;
+  if (!consulta.data || !linhas || !calculo || !dadosCaixa) return <Loader2 className="h-6 w-6 animate-spin text-[#C9A961]" />;
   const dados = consulta.data;
   const alterar = (chave: string, campo: "incidencia" | "execucao", v: string) =>
     setLinhas((atual) => atual!.map((l) => (l.chave === chave ? { ...l, [campo]: v } : l)));
 
+  const limparFormulario = () => {
+    setVersaoFormulario(v => v + 1);
+    fotosNovas.forEach((f) => URL.revokeObjectURL(f.previa));
+    setFotosNovas([]);
+    setTipo("pls");
+    setDadosCaixa(null);
+    setLinhas(null);
+  };
+
   const gravar = async () => {
     try {
+      let medicaoId: number | null;
       if (editando) {
-        await editar.mutateAsync({ medicaoId: editando.id, itens: linhas });
-        toast.success(`Medição de ${editando.quando} alterada.`);
-        setEditando(null);
+        await editar.mutateAsync({ medicaoId: editando.id, itens: linhas, tipo, dadosCaixa });
+        medicaoId = editando.id;
       } else {
-        const r = await salvar.mutateAsync({ projectId, itens: linhas });
-        toast.success(`Medição salva: progresso geral ${formatarPercentual(r.progresso)}.`);
+        const r = await salvar.mutateAsync({ projectId, itens: linhas, tipo, dadosCaixa });
+        medicaoId = r.medicaoId;
       }
-      setLinhas(null);
+      if (medicaoId && fotosNovas.length) {
+        setEnviandoFotos(true);
+        const falhas = await enviarFotosDaMedicao(projectId, medicaoId, fotosNovas);
+        setEnviandoFotos(false);
+        if (falhas.length) {
+          fotosNovas.filter(f => !falhas.includes(f)).forEach(f => URL.revokeObjectURL(f.previa));
+          setFotosNovas(falhas);
+          setEditando({ id: medicaoId, quando: editando?.quando ?? dataHora(new Date()) });
+          setUltimaSalva(medicaoId);
+          toast.error(`${falhas.length} foto(s) não foram enviadas; a medição foi salva. Salve novamente para reenviar somente essas fotos.`);
+          await consulta.refetch(); onFotosMudaram?.(); return;
+        }
+      }
+      // Pedido de 18/10: cópia preenchida (.xls/.pdf) no Google Drive da obra.
+      const notaDrive = medicaoId && consulta.data?.pci ? await copiarMedicaoNoDrive(medicaoId) : "";
+      toast.success((editando ? `Medição de ${editando.quando} alterada.` : `Medição salva (${rotuloTipoMedicao(tipo)}): progresso geral ${formatarPercentual(calculo.progresso)}.`) + notaDrive);
+      setEditando(null);
+      setUltimaSalva(medicaoId);
+      limparFormulario();
       await consulta.refetch();
+      onFotosMudaram?.();
     } catch (e) {
+      setEnviandoFotos(false);
       toast.error(e instanceof Error ? e.message : String(e));
     }
   };
@@ -95,7 +135,8 @@ export function ProgressoObraAba({ projectId }: { projectId: number }) {
     try {
       await fn();
       toast.success(sucesso);
-      setLinhas(null);
+      // Atualizar a situação/foto não pode trocar o buffer da medição em edição.
+      if (!editando) setLinhas(null);
       await consulta.refetch();
     } catch (e) {
       toast.error(e instanceof Error ? e.message : String(e));
@@ -105,13 +146,17 @@ export function ProgressoObraAba({ projectId }: { projectId: number }) {
   const iniciarEdicao = (h: (typeof dados.historico)[number]) => {
     setEditando({ id: h.id, quando: dataHora(h.criadoEm) });
     setLinhas(mesclarComPadrao(h.itens).map((i) => ({ chave: i.chave, incidencia: String(i.incidencia), execucao: String(i.execucao) })));
+    setTipo(h.tipo);
+    setDadosCaixa(h.dadosCaixa ?? dadosMedicaoPadrao(h.tipo, { ...dados.plsPadrao, dataLevantamento: new Date(h.criadoEm).toISOString().slice(0, 10) }, dados.pci?.prazoMeses ?? null));
+    setFotosNovas([]);
     document.getElementById("medicao-por-servico")?.scrollIntoView({ behavior: "smooth" });
   };
   const cancelarEdicao = () => {
     setEditando(null);
-    setLinhas(null);
+    limparFormulario();
   };
-  const ocupado = solicitar.isPending || confirmar.isPending || excluir.isPending || editar.isPending || salvar.isPending;
+  const fotosDaEdicao = editando ? dados.historico.find((h) => h.id === editando.id)?.fotos ?? [] : [];
+  const ocupado = solicitar.isPending || confirmar.isPending || excluir.isPending || editar.isPending || salvar.isPending || enviandoFotos;
 
   return (
     <div className="space-y-6">
@@ -138,7 +183,10 @@ export function ProgressoObraAba({ projectId }: { projectId: number }) {
       <Card id="medicao-por-servico" className="bg-[#1A2332]/60 border-[#C9A961]/20 backdrop-blur-sm">
         <CardHeader>
           <CardTitle className="text-[#C9A961]">Medição por serviço</CardTitle>
-          <CardDescription className="text-gray-400">Incidência e Execução do Item são editáveis (até 4 casas decimais). Execução na Obra é automática.</CardDescription>
+          <CardDescription className="text-gray-400">
+            Incidência e Execução do Item são editáveis (até 4 casas decimais). Execução na Obra é automática.
+            {dados.pci?.vinculadaEm ? " Incidências vinculadas à PCI da CAIXA (valores exatos da planilha)." : ""}
+          </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
           {editando && (
@@ -189,10 +237,20 @@ export function ProgressoObraAba({ projectId }: { projectId: number }) {
               </tfoot>
             </table>
           </div>
+          <CamposMedicaoCaixa key={`${editando?.id ?? "nova"}:${versaoFormulario}`} tipo={tipo} setTipo={setTipo} dados={dadosCaixa} setDados={setDadosCaixa} prazoPci={dados.pci?.prazoMeses ?? null} />
+          <FotosMedicao tipo={tipo} fotos={fotosNovas} setFotos={setFotosNovas} existentes={fotosDaEdicao} progresso={calculo.progresso}
+            onExcluirExistente={(id) => { if (confirm("Excluir esta foto da medição?")) void acao(() => excluirFoto.mutateAsync({ photoId: id }), "Foto excluída."); }} />
+          {!dados.pci && <p className="text-xs text-amber-300">Para gerar o .xls e o .pdf da CAIXA, envie a PCI da obra (botão acima, ao lado de "Ver Medições da CEF").</p>}
+          {ultimaSalva && dados.pci && (
+            <div className="flex flex-wrap items-center justify-between gap-2 rounded border border-emerald-500/40 bg-emerald-500/10 p-3 text-sm text-emerald-200" role="status">
+              <span>Medição salva. Arquivos da CAIXA preenchidos:</span>
+              <BotoesArquivosMedicao medicaoId={ultimaSalva} tamanho="default" />
+            </div>
+          )}
           <div className="flex justify-end">
             <Button onClick={gravar} disabled={ocupado || calculo.erros.length > 0} className="bg-[#C9A961] hover:bg-[#B8985A] text-[#1A2332] gap-2">
-              {salvar.isPending || editar.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
-              {editando ? "Salvar alterações da medição" : "Salvar medição"}
+              {salvar.isPending || editar.isPending || enviandoFotos ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
+              {enviandoFotos ? "Enviando fotos..." : editando ? "Salvar alterações da medição" : "Salvar medição"}
             </Button>
           </div>
         </CardContent>
@@ -218,7 +276,9 @@ export function ProgressoObraAba({ projectId }: { projectId: number }) {
                   <li key={h.id} className="grid grid-cols-1 items-center gap-2 py-3 text-gray-300 md:grid-cols-[minmax(0,1.6fr)_minmax(0,1fr)_minmax(0,1fr)_minmax(0,1fr)_auto_auto]">
                     <div className="min-w-0">
                       <p>{dataHora(h.criadoEm)} — {h.autor ?? "—"}</p>
+                      <p className="text-xs text-[#C9A961]">{rotuloTipoMedicao(h.tipo)}{h.fotos.length ? ` · ${h.fotos.length} foto(s)` : ""}</p>
                       {h.editadaEm && <p className="text-xs text-gray-400">Editada em {dataHora(h.editadaEm)}</p>}
+                      {dados.pci && <div className="mt-1"><BotoesArquivosMedicao medicaoId={h.id} /></div>}
                     </div>
                     <div>
                       {h.solicitadaEm ? (
@@ -249,7 +309,7 @@ export function ProgressoObraAba({ projectId }: { projectId: number }) {
                     <p className="font-semibold text-white tabular-nums md:text-right">{formatarPercentual(h.progresso)}</p>
                     <div className="flex gap-1 md:justify-end">
                       <Button size="icon" variant="ghost" aria-label={`Editar a medição de ${dataHora(h.criadoEm)}`} disabled={ocupado} onClick={() => iniciarEdicao(h)} className="text-[#C9A961] hover:bg-[#C9A961]/10"><Pencil className="h-4 w-4" /></Button>
-                      <Button size="icon" variant="ghost" aria-label={`Excluir a medição de ${dataHora(h.criadoEm)}`} disabled={ocupado}
+                      <Button size="icon" variant="ghost" aria-label={`Excluir a medição de ${dataHora(h.criadoEm)}`} disabled={ocupado || !!editando}
                         onClick={() => { if (confirm(`Excluir definitivamente a medição de ${dataHora(h.criadoEm)}? Esta ação não pode ser desfeita.`)) void acao(() => excluir.mutateAsync({ medicaoId: h.id }), "Medição excluída."); }}
                         className="text-red-400 hover:bg-red-500/10"><Trash2 className="h-4 w-4" /></Button>
                     </div>

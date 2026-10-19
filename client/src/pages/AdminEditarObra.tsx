@@ -16,6 +16,7 @@ import { getLoginUrl } from "@/const";
 import { useEffect, useMemo, useState } from "react";
 import { ProgressoObraAba } from "@/components/obra/ProgressoObraAba";
 import { FotosObraAba } from "@/components/obra/FotosObraAba";
+import { PciObra } from "@/components/obra/MedicaoCaixa";
 import { RelatorioObraBotao } from "@/components/obra/RelatorioObraBotao";
 import { CustosAba, ValoresOperacaoAba, calcularAoVivo, formInicial, type FormFinanceiro } from "@/components/obra/FinanceiroObra";
 import { OBRA_STATUS_SELECIONAVEIS, obraStatusLabel } from "@shared/obra-status";
@@ -443,15 +444,19 @@ export default function AdminEditarObra({ modo = "admin" }: { modo?: "admin" | "
           </TabsContent>
 
           <TabsContent value="progresso" className="mt-6 space-y-4">
-            {!ehEmpreiteiro && (
-              <Link href={`/admin/obras/${projectId}/medicoes`}>
-                <Button variant="outline" className="border-[#C9A961]/40 text-[#C9A961] hover:bg-[#C9A961]/10 gap-2">
-                  <BarChart3 className="h-4 w-4" />
-                  Ver Medições da CEF
-                </Button>
-              </Link>
-            )}
-            <ProgressoObraAba projectId={projectId} />
+            {/* Pedido de 18/10: PCI da CAIXA ao lado de "Ver Medições da CEF". */}
+            <div className="flex flex-wrap items-center gap-2">
+              {!ehEmpreiteiro && (
+                <Link href={`/admin/obras/${projectId}/medicoes`}>
+                  <Button variant="outline" className="border-[#C9A961]/40 text-[#C9A961] hover:bg-[#C9A961]/10 gap-2">
+                    <BarChart3 className="h-4 w-4" />
+                    Ver Medições da CEF
+                  </Button>
+                </Link>
+              )}
+              <PciObra projectId={projectId} />
+            </div>
+            <ProgressoObraAba projectId={projectId} onFotosMudaram={() => refetch()} />
           </TabsContent>
 
           {/* ABA 4: FOTOS */}

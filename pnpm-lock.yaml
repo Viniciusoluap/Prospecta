@@ -160,6 +160,9 @@ importers:
       axios:
         specifier: ^1.12.0
         version: 1.12.2
+      cfb:
+        specifier: 1.2.2
+        version: 1.2.2
       cheerio:
         specifier: ^1.2.0
         version: 1.2.0
@@ -183,13 +186,16 @@ importers:
         version: 17.2.3
       drizzle-orm:
         specifier: ^0.44.5
-        version: 0.44.6(@neondatabase/serverless@0.10.4)(@types/pg@8.11.6)(mysql2@3.15.1)
+        version: 0.44.6(@electric-sql/pglite@0.5.10)(@neondatabase/serverless@0.10.4)(@types/pg@8.11.6)(mysql2@3.15.1)
       embla-carousel-react:
         specifier: ^8.6.0
         version: 8.6.0(react@19.2.0)
       express:
         specifier: ^4.21.2
         version: 4.21.2
+      fflate:
+        specifier: 0.8.3
+        version: 0.8.3
       framer-motion:
         specifier: ^12.23.22
         version: 12.23.22(react-dom@19.2.0(react@19.2.0))(react@19.2.0)
@@ -281,6 +287,9 @@ importers:
       '@builder.io/vite-plugin-jsx-loc':
         specifier: ^0.1.1
         version: 0.1.1(vite@7.1.9(@types/node@24.7.0)(jiti@2.6.1)(lightningcss@1.30.1)(tsx@4.20.6))
+      '@electric-sql/pglite':
+        specifier: ^0.5.10
+        version: 0.5.10
       '@tailwindcss/typography':
         specifier: ^0.5.15
         version: 0.5.19(tailwindcss@4.1.14)
@@ -764,6 +773,9 @@ packages:
 
   '@drizzle-team/brocli@0.10.2':
     resolution: {integrity: sha512-z33Il7l5dKjUgGULTqBsQBQwckHh5AbIuxhdsIxDDiZAzBOrZO6q9ogcWC65kU382AfynTfgNumVcNIjuIua6w==}
+
+  '@electric-sql/pglite@0.5.10':
+    resolution: {integrity: sha512-tXc/25U3ulOkiRQuTFdwIv+JhBqtMdAF7Gvo6CfZZWtSB4+hgC4Wr2vwK5ngvvN5PJfAAEGIsfyCVy1JhCOBYw==}
 
   '@esbuild-kit/core-utils@3.3.2':
     resolution: {integrity: sha512-sPRAnw9CdSsRmEtnsl2WXWdyquogVpB3yZ3dgwJfe8zrOzTsV7cJvmwrKVa+0ma5BoiGJ+BoqkMvawbayKUsqQ==}
@@ -3987,9 +3999,6 @@ packages:
   fflate@0.6.11:
     resolution: {integrity: sha512-3JyEFWGjFn7zHmoa9+zG1BmW7X2okcmAB+0Cnu9UFbVs/jCBnl2A8o065ZlXiw145K3eBM3uLuzrYXC0RK7eDg==}
 
-  fflate@0.8.2:
-    resolution: {integrity: sha512-cPJU47OaAoCbg0pBvzsgpTPhmhqI5eJjh/JIu8tPj5q+T7iLvW/JAYUqmE7KOB4R1ZyEhzBaIQpQpardBF5z8A==}
-
   fflate@0.8.3:
     resolution: {integrity: sha512-tbZNuJrLwGUp3zshBtdy4W+ORxZuIh8a5ilyIEQDC5rY1f3U20JMry0Ll3WBzU58EZKsEuJFXhb5gwv8CsPvgA==}
 
@@ -6832,6 +6841,8 @@ snapshots:
   '@dimforge/rapier3d-compat@0.12.0': {}
 
   '@drizzle-team/brocli@0.10.2': {}
+
+  '@electric-sql/pglite@0.5.10': {}
 
   '@esbuild-kit/core-utils@3.3.2':
     dependencies:
@@ -10692,8 +10703,9 @@ snapshots:
     transitivePeerDependencies:
       - supports-color
 
-  drizzle-orm@0.44.6(@neondatabase/serverless@0.10.4)(@types/pg@8.11.6)(mysql2@3.15.1):
+  drizzle-orm@0.44.6(@electric-sql/pglite@0.5.10)(@neondatabase/serverless@0.10.4)(@types/pg@8.11.6)(mysql2@3.15.1):
     optionalDependencies:
+      '@electric-sql/pglite': 0.5.10
       '@neondatabase/serverless': 0.10.4
       '@types/pg': 8.11.6
       mysql2: 3.15.1
@@ -10935,8 +10947,6 @@ snapshots:
       picomatch: 4.0.3
 
   fflate@0.6.11: {}
-
-  fflate@0.8.2: {}
 
   fflate@0.8.3: {}
 
@@ -11307,7 +11317,7 @@ snapshots:
     dependencies:
       '@babel/runtime': 7.28.4
       fast-png: 6.4.0
-      fflate: 0.8.2
+      fflate: 0.8.3
     optionalDependencies:
       canvg: 3.0.11
       core-js: 3.47.0
