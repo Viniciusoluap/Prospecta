@@ -8,9 +8,9 @@
  * recalcular.
  */
 import type { DadosAlteracao, DadosMedicaoCaixa, DadosPls, DadosRepactuacao, TipoMedicao } from "../../shared/medicao-caixa.js";
-import { PastaBiff8 } from "./biff8";
-import { substituirFotos, type FotoXls, type QuadroFoto } from "./biff8-imagens";
-import { ABA_ALTERACAO, ABA_PLS, ABA_REPACTUACAO, isoParaSerial, type DadosPci } from "./pci";
+import { PastaBiff8 } from "./biff8.js";
+import { substituirFotos, type FotoXls, type QuadroFoto } from "./biff8-imagens.js";
+import { ABA_ALTERACAO, ABA_PLS, ABA_REPACTUACAO, isoParaSerial, type DadosPci } from "./pci.js";
 
 export interface FotoMedicao extends FotoXls {
   legenda: string | null;

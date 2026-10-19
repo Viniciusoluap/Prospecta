@@ -7,8 +7,8 @@
  * (proponente, responsáveis técnicos, imóvel) e os dados do contrato também
  * são lidos daqui para o PDF da medição.
  */
-import { PastaBiff8, type ValorCelula } from "./biff8";
-import { PastaXlsb } from "./xlsb";
+import { PastaBiff8, type ValorCelula } from "./biff8.js";
+import { PastaXlsb } from "./xlsb.js";
 
 export const ABA_PROPOSTA = "Proposta_Constr_Individual";
 export const ABA_PLS = "PLS";
