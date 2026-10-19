@@ -1,5 +1,5 @@
 import { TRPCError } from "@trpc/server";
-import { and, asc, count, desc, eq, inArray, isNull, sql } from "drizzle-orm";
+import { and, asc, count, desc, eq, inArray, isNull, sql, type SQL } from "drizzle-orm";
 import { alias } from "drizzle-orm/pg-core";
 import { z } from "zod";
 import {
@@ -68,21 +68,31 @@ async function medicaoOuErro(medicaoId: number) {
   return m;
 }
 
-/** Lê o histórico depois de adquirir a trava; nunca restaura um predecessor lido antes da transação. */
-function sincronizarMedicaoVigente(projectId: number, userId: number) {
+/**
+ * Lê o histórico depois de adquirir a trava; nunca restaura um predecessor lido antes da transação.
+ * `condicao` (avaliada dentro do batch): só reaplica quando a medição vigente mudou — editar ou
+ * excluir uma medição antiga não pode desfazer incidências vinculadas depois (igual ao Santa Fé).
+ */
+function sincronizarMedicaoVigente(projectId: number, userId: number, condicao: SQL = sql`TRUE`) {
   const db = getDb();
   return [
-    db.execute(sql`DELETE FROM construction_progress_items WHERE project_id = ${projectId}`),
+    db.execute(sql`DELETE FROM construction_progress_items WHERE project_id = ${projectId} AND (${condicao})`),
     db.execute(sql`INSERT INTO construction_progress_items(project_id, service_key, incidence_pct, execution_pct, updated_by, updated_at)
       SELECT ${projectId}, item->>'chave', (item->>'incidencia')::numeric, (item->>'execucao')::numeric, ${userId}, now()
       FROM (SELECT items FROM construction_progress_history WHERE project_id = ${projectId} ORDER BY created_at DESC, id DESC LIMIT 1) h,
-      LATERAL jsonb_array_elements(h.items) item`),
+      LATERAL jsonb_array_elements(h.items) item WHERE (${condicao})`),
     db.execute(sql`UPDATE construction_projects SET
       progress_measured_pct = (SELECT progress_pct FROM construction_progress_history WHERE project_id = ${projectId} ORDER BY created_at DESC, id DESC LIMIT 1),
       progress = COALESCE((SELECT round(progress_pct)::integer FROM construction_progress_history WHERE project_id = ${projectId} ORDER BY created_at DESC, id DESC LIMIT 1), 0), updated_at = now()
-      WHERE id = ${projectId}`),
+      WHERE id = ${projectId} AND (${condicao})`),
   ] as const;
 }
+/** A medição editada é a mais recente da obra (avaliado depois da trava). */
+const ehVigente = (projectId: number, medicaoId: number) =>
+  sql`(SELECT id FROM construction_progress_history WHERE project_id = ${projectId} ORDER BY created_at DESC, id DESC LIMIT 1) = ${medicaoId}`;
+/** Nenhuma medição restante é posterior à excluída, isto é, a excluída era a vigente. */
+const eraVigente = (projectId: number, criadaEm: string, medicaoId: number) =>
+  sql`NOT EXISTS (SELECT 1 FROM construction_progress_history WHERE project_id = ${projectId} AND (created_at, id) > (${criadaEm}::timestamp, ${medicaoId}))`;
 const travarObra = (id: number) => getDb().execute(sql`SELECT id FROM construction_projects WHERE id = ${id} FOR UPDATE`);
 async function versaoPciParaMedicao(projectId: number, itens: { chave: string; incidencia: string }[], versionId?: number | null) {
   const db = getDb();
@@ -292,17 +302,21 @@ export const obraProgressoRouter = router({
       measurementType: tipo,
       ...(dadosCaixa !== undefined ? { caixaData: dadosCaixa } : {}),
     }).where(eq(constructionProgressHistory.id, input.medicaoId));
-    await db.batch([travarObra(atual.projectId), atualizarHistorico, ...sincronizarMedicaoVigente(atual.projectId, ctx.user.id)]);
+    await db.batch([travarObra(atual.projectId), atualizarHistorico, ...sincronizarMedicaoVigente(atual.projectId, ctx.user.id, ehVigente(atual.projectId, input.medicaoId))]);
     return { progresso: calculo.progresso };
   }),
 
   excluirMedicao: adminProcedure.input(medicaoIdInput).mutation(async ({ input, ctx }) => {
     const atual = await medicaoOuErro(input.medicaoId);
     const db = getDb();
+    // Data com microssegundos, como está no banco (o Date do JS perde a precisão).
+    const r = await db.execute(sql`SELECT created_at::text AS criada FROM construction_progress_history WHERE id = ${input.medicaoId}`);
+    const criadaEm = (r as unknown as { rows: { criada: string }[] }).rows[0]?.criada;
+    if (!criadaEm) throw new TRPCError({ code: "NOT_FOUND", message: "Medição não encontrada" });
     await db.batch([
       travarObra(atual.projectId),
       db.delete(constructionProgressHistory).where(eq(constructionProgressHistory.id, input.medicaoId)),
-      ...sincronizarMedicaoVigente(atual.projectId, ctx.user.id),
+      ...sincronizarMedicaoVigente(atual.projectId, ctx.user.id, eraVigente(atual.projectId, criadaEm, input.medicaoId)),
     ]);
     return { success: true };
   }),

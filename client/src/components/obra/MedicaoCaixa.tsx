@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { trpc } from "@/lib/trpc";
-import { blobParaDataUrl, comprimirImagem, enviarJsonComProgresso, mensagemErroEnvio, pareceImagem } from "@/lib/comprimir-imagem";
+import { blobParaDataUrl, comprimirImagem, enviarJsonComProgresso, LADO_FOTO_MEDICAO, LIMITE_FOTO_MEDICAO, mensagemErroEnvio, pareceImagem } from "@/lib/comprimir-imagem";
 import { publicarEnvio } from "@/lib/envio-progresso";
 import {
   MAX_ADICIONAIS,
@@ -298,7 +298,7 @@ export async function enviarFotosDaMedicao(projectId: number, medicaoId: number,
   for (let i = 0; i < fotos.length; i++) {
     const f = fotos[i];
     try {
-      const { dataUrl } = await comprimirImagem(f.arquivo);
+      const { dataUrl } = await comprimirImagem(f.arquivo, LADO_FOTO_MEDICAO, LIMITE_FOTO_MEDICAO);
       const { status, dados } = await enviarJsonComProgresso(
         `/api/obras/${projectId}/fotos`,
         { image: dataUrl, caption: f.legenda.trim() || null, takenAt: new Date(f.arquivo.lastModified || Date.now()).toISOString(), includeInReport: true, medicaoId },

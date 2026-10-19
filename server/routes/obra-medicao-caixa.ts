@@ -21,6 +21,9 @@ import { createHash } from "node:crypto";
 
 const router = Router();
 const LIMITE_PCI = 3 * 1024 * 1024;
+/** Resposta das funções da Vercel: até 4,5 MB. Acima disso o arquivo só vai para o Drive. */
+const LIMITE_DOWNLOAD = 4.3 * 1024 * 1024;
+const MENSAGEM_LIMITE_DOWNLOAD = "O arquivo desta medição passou de 4,3 MB (limite de download do servidor). Com o Google Drive conectado, ele fica completo em Obras/<Obra>/Medições CAIXA; para baixar por aqui, use menos fotos ou fotos menores.";
 
 async function usuarioDaSessao(req: Request) {
   const token = getTokenFromRequest(req);
@@ -73,6 +76,7 @@ router.post("/obras/:projectId/pci", async (req: Request, res: Response) => {
     const { arquivo, nome } = (req.body ?? {}) as Record<string, unknown>;
     const base64 = typeof arquivo === "string" ? arquivo.replace(/^data:[^,]*,/, "") : "";
     if (!base64 || !/^[A-Za-z0-9+/=\s]+$/.test(base64)) return res.status(400).json({ error: "Arquivo ausente ou inválido." });
+    if (base64.length > Math.ceil(LIMITE_PCI / 3) * 4 + 16) return res.status(400).json({ error: "A PCI passa de 3 MiB. Reduza as imagens da planilha antes de enviar." });
     const bytes = new Uint8Array(Buffer.from(base64, "base64"));
     if (!bytes.length) return res.status(400).json({ error: "Arquivo vazio." });
     if (bytes.length > LIMITE_PCI) return res.status(400).json({ error: "A PCI passa de 3 MiB. Reduza as imagens da planilha antes de enviar." });
@@ -206,6 +210,7 @@ router.get("/obras/medicoes/:medicaoId/arquivo.:formato(xls|pdf)", async (req: R
     if (!alvo) return;
     const r = await gerarArquivoMedicao(alvo.m, alvo.obra.titulo, String(req.params.formato) === "xls" ? "xls" : "pdf");
     if (!r.ok) return res.status(r.status).json({ error: r.error });
+    if (r.bytes.length > LIMITE_DOWNLOAD) return res.status(413).json({ error: MENSAGEM_LIMITE_DOWNLOAD });
     return enviarArquivo(res, r.bytes, r.nome, r.mime);
   } catch (error) {
     console.error("[medicao-caixa] geração:", error);
