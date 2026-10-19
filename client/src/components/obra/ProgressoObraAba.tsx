@@ -8,7 +8,7 @@ import { trpc } from "@/lib/trpc";
 import { lerPercentualDigitado } from "@shared/financeiro/obra";
 import { SERVICOS_PROGRESSO, calcularProgresso, formatarPercentual, mesclarComPadrao } from "@shared/financeiro/progresso";
 import { dadosMedicaoPadrao, rotuloTipoMedicao, type DadosMedicaoCaixa, type TipoMedicao } from "@shared/medicao-caixa";
-import { BotoesArquivosMedicao, CamposMedicaoCaixa, FotosMedicao, copiarMedicaoNoDrive, enviarFotosDaMedicao, type FotoNova } from "./MedicaoCaixa";
+import { BotoesArquivosMedicao, CamposMedicaoCaixa, FotosMedicao, FotosSalvas, copiarMedicaoNoDrive, enviarFotosDaMedicao, type FotoNova } from "./MedicaoCaixa";
 
 // EPIC-020 Lote 4 (item 27) — progresso físico por incidência. O Progresso
 // Geral é somente leitura: soma das Execuções na Obra (Incidência × Execução).
@@ -57,6 +57,7 @@ const reais = (centavos: number) => (centavos / 100).toLocaleString("pt-BR", { s
 const dataHora = (d: Date | string) => new Date(d).toLocaleString("pt-BR", { dateStyle: "short", timeStyle: "short" });
 
 export function ProgressoObraAba({ projectId, onFotosMudaram }: { projectId: number; onFotosMudaram?: () => void }) {
+  const utils = trpc.useUtils();
   const consulta = trpc.obraProgresso.obter.useQuery({ projectId });
   const salvar = trpc.obraProgresso.salvar.useMutation();
   // Pedido de 18/10: ciclo da medição, edição e exclusão (admin, colaborador e empreiteiro).
@@ -64,6 +65,7 @@ export function ProgressoObraAba({ projectId, onFotosMudaram }: { projectId: num
   const confirmar = trpc.obraProgresso.confirmarRecebimento.useMutation();
   const editar = trpc.obraProgresso.editarMedicao.useMutation();
   const excluir = trpc.obraProgresso.excluirMedicao.useMutation();
+  const atualizarFoto = trpc.obraProgresso.atualizarFoto.useMutation();
   const excluirFoto = trpc.obraProgresso.excluirFoto.useMutation();
   const [editando, setEditando] = useState<{ id: number; quando: string } | null>(null);
   const [linhas, setLinhas] = useState<Linha[] | null>(null);
@@ -114,7 +116,7 @@ export function ProgressoObraAba({ projectId, onFotosMudaram }: { projectId: num
           setEditando({ id: medicaoId, quando: editando?.quando ?? dataHora(new Date()) });
           setUltimaSalva(medicaoId);
           toast.error(`${falhas.length} foto(s) não foram enviadas; a medição foi salva. Salve novamente para reenviar somente essas fotos.`);
-          await consulta.refetch(); onFotosMudaram?.(); return;
+          await consulta.refetch(); void utils.obraProgresso.galeria.invalidate({ projectId }); onFotosMudaram?.(); return;
         }
       }
       // Pedido de 18/10: cópia preenchida (.xls/.pdf) no Google Drive da obra.
@@ -124,7 +126,7 @@ export function ProgressoObraAba({ projectId, onFotosMudaram }: { projectId: num
       setUltimaSalva(medicaoId);
       limparFormulario();
       await consulta.refetch();
-      onFotosMudaram?.();
+      void utils.obraProgresso.galeria.invalidate({ projectId }); onFotosMudaram?.();
     } catch (e) {
       setEnviandoFotos(false);
       toast.error(e instanceof Error ? e.message : String(e));
@@ -139,6 +141,8 @@ export function ProgressoObraAba({ projectId, onFotosMudaram }: { projectId: num
       // Atualizar a situação/foto não pode trocar o buffer da medição em edição.
       if (!editando) setLinhas(null);
       await consulta.refetch();
+      await utils.obraProgresso.galeria.invalidate({ projectId });
+      onFotosMudaram?.();
     } catch (e) {
       toast.error(e instanceof Error ? e.message : String(e));
     }
@@ -157,10 +161,13 @@ export function ProgressoObraAba({ projectId, onFotosMudaram }: { projectId: num
     limparFormulario();
   };
   const fotosDaEdicao = editando ? dados.historico.find((h) => h.id === editando.id)?.fotos ?? [] : [];
-  const ocupado = solicitar.isPending || confirmar.isPending || excluir.isPending || editar.isPending || salvar.isPending || enviandoFotos;
+  const ocupado = atualizarFoto.isPending || solicitar.isPending || confirmar.isPending || excluir.isPending || editar.isPending || salvar.isPending || enviandoFotos;
 
   return (
     <div className="space-y-6">
+      {dados.fotosLegadas.length > 0 && <section className="space-y-3 text-gray-200"><h3>Fotos anteriores — sem medição vinculada</h3><FotosSalvas fotos={dados.fotosLegadas} ocupado={ocupado}
+        onSalvar={(id, caption, includeInReport) => { void acao(() => atualizarFoto.mutateAsync({ photoId: id, caption, includeInReport }), "Foto atualizada."); }}
+        onExcluir={id => { if (confirm("Excluir esta foto anterior?")) void acao(() => excluirFoto.mutateAsync({ photoId: id }), "Foto excluída."); }} /></section>}
       <Card className="bg-[#1A2332]/60 border-[#C9A961]/20 backdrop-blur-sm">
         <CardHeader>
           <CardTitle className="text-[#C9A961]">Progresso Geral</CardTitle>
@@ -239,7 +246,7 @@ export function ProgressoObraAba({ projectId, onFotosMudaram }: { projectId: num
             </table>
           </div>
           <CamposMedicaoCaixa key={`${editando?.id ?? "nova"}:${versaoFormulario}`} tipo={tipo} setTipo={setTipo} dados={dadosCaixa} setDados={setDadosCaixa} prazoPci={dados.pci?.prazoMeses ?? null} />
-          <FotosMedicao tipo={tipo} fotos={fotosNovas} setFotos={setFotosNovas} existentes={fotosDaEdicao} progresso={calculo.progresso}
+          <FotosMedicao ocupado={ocupado} onAtualizarExistente={(id, caption, includeInReport) => { void acao(() => atualizarFoto.mutateAsync({ photoId: id, caption, includeInReport }), "Foto atualizada."); }} tipo={tipo} fotos={fotosNovas} setFotos={setFotosNovas} existentes={fotosDaEdicao} progresso={calculo.progresso}
             onExcluirExistente={(id) => { if (confirm("Excluir esta foto da medição?")) void acao(() => excluirFoto.mutateAsync({ photoId: id }), "Foto excluída."); }} />
           {!dados.pci && <p className="text-xs text-amber-300">Para gerar o .xls e o .pdf da CAIXA, envie a PCI da obra (botão acima, ao lado de "Ver Medições da CEF").</p>}
           {ultimaSalva && dados.pci && (
@@ -282,8 +289,8 @@ export function ProgressoObraAba({ projectId, onFotosMudaram }: { projectId: num
                       {dados.pci && <div className="mt-1"><BotoesArquivosMedicao medicaoId={h.id} /></div>}
                     </div>
                     <div>
-                      {h.emailStatus && <p className="text-xs text-gray-400">E-mail: {h.emailStatus === "sent" ? "enviado com PDF e XLS" : h.emailStatus === "failed" ? "falhou — tente reenviar" : "processando"}</p>}
-                      {h.emailPodeReenviar && <Button type="button" size="sm" variant="outline" disabled={ocupado} onClick={() => acao(() => solicitar.mutateAsync({ medicaoId: h.id }), "E-mail enviado com PDF e XLS.")}>Reenviar e-mail</Button>}
+                      {h.emailStatus && <p className="text-xs text-gray-400">E-mail: {h.emailStatus === "sent" ? "enviado com PDF e XLS" : h.emailStatus === "failed" ? "falhou — tente reenviar" : h.emailStatus === "pending" ? "alterações pendentes de envio" : "processando"}</p>}
+                      {h.emailPodeReenviar && <Button type="button" size="sm" variant="outline" disabled={ocupado} onClick={() => acao(() => solicitar.mutateAsync({ medicaoId: h.id }), "E-mail enviado com PDF e XLS.")}>{h.emailStatus === "pending" ? "Enviar versão atualizada" : "Reenviar e-mail"}</Button>}
                       {h.solicitadaEm ? (
                         <p className="text-xs text-amber-200"><Send className="mr-1 inline h-3 w-3" />Solicitada em {dataHora(h.solicitadaEm)}{h.solicitadaPor ? ` por ${h.solicitadaPor}` : ""}</p>
                       ) : (

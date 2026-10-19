@@ -103,3 +103,11 @@ it("preserva PDF e XLS anexados no transporte SMTP", async () => {
     await expect(sendEmail({ to: "empresa@example.test", subject: "Medição", html: "<p>Solicitação</p>", templateType: "admin_notification", attachments }, deps)).resolves.toBe(true);
     expect(sendMail).toHaveBeenCalledWith(expect.objectContaining({ attachments }));
 });
+
+it("não oferece reenvio quando SMTP aceitou e só a auditoria posterior falhou", async () => {
+  const { deps, mocks } = dependencies();
+  mocks.where.mockRejectedValueOnce(new Error("audit unavailable"));
+  await expect(sendEmail({ to: "empresa@example.test", subject: "Medição", html: "<p>Teste</p>", templateType: "admin_notification" }, deps)).resolves.toBe(true);
+  expect(mocks.sendMail).toHaveBeenCalledTimes(1);
+  expect(mocks.set).not.toHaveBeenCalledWith(expect.objectContaining({ status: "failed" }));
+});

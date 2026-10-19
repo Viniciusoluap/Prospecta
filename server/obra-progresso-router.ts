@@ -36,6 +36,7 @@ import { adminProcedure, router } from "./_core/trpc.js";
 import { getDb, getObraDadosCrm } from "./db.js";
 import { calcularResumoObra } from "./obra-financeiro-router.js";
 
+import { invalidarAnexosMedicao } from "./medicao-email-estado.js";
 import { solicitarComAnexos, DESTINO_MEDICOES } from "./medicao-solicitacao.js";
 import { sendEmail, adminNotificationTemplate } from "./_core/email-smtp.js";
 
@@ -155,9 +156,9 @@ export async function carregarProgresso(projectId: number) {
   );
   // Pedido de 18/10: fotos de cada medição e a PCI da CAIXA vinculada à obra.
   const ids = historico.map((h) => h.id);
-  const [fotosMedicao, [pci]] = await Promise.all([
+  const [fotosMedicao, [pci], fotosLegadas] = await Promise.all([
     ids.length
-      ? db.select({ id: constructionPhotos.id, medicaoId: constructionPhotos.progressHistoryId, imageUrl: constructionPhotos.imageUrl, caption: constructionPhotos.caption })
+      ? db.select({ id: constructionPhotos.id, medicaoId: constructionPhotos.progressHistoryId, imageUrl: constructionPhotos.imageUrl, caption: constructionPhotos.caption, includeInReport: constructionPhotos.includeInReport })
           .from(constructionPhotos).where(inArray(constructionPhotos.progressHistoryId, ids)).orderBy(asc(constructionPhotos.id))
       : Promise.resolve([]),
     db.select({
@@ -166,6 +167,7 @@ export async function carregarProgresso(projectId: number) {
       linkedAt: constructionPci.linkedAt,
       parsed: constructionPci.parsed,
     }).from(constructionPci).where(eq(constructionPci.projectId, projectId)).limit(1),
+    db.select({ id: constructionPhotos.id, imageUrl: constructionPhotos.imageUrl, caption: constructionPhotos.caption, includeInReport: constructionPhotos.includeInReport }).from(constructionPhotos).where(and(eq(constructionPhotos.projectId, projectId), isNull(constructionPhotos.progressHistoryId))),
   ]);
   const dadosPci = (pci?.parsed ?? null) as DadosPci | null;
   // Pedido de 18/10: valor estimado de cada medição (Y × avanço da medição).
@@ -183,9 +185,10 @@ export async function carregarProgresso(projectId: number) {
     /** Valor antigo digitado à mão (só exibido enquanto não houver medição). */
     progressoLegado: obra.progress,
     baseMedicao: base,
+    fotosLegadas,
     historico: historico.map((h) => ({
       ...h,
-      emailPodeReenviar: h.emailStatus === "failed" || (h.emailStatus === "sending" && !!h.emailTentativaEm && Date.now() - h.emailTentativaEm.getTime() > 120_000),
+      emailPodeReenviar: ["failed", "pending"].includes(h.emailStatus ?? "") || (h.emailStatus === "sending" && !!h.emailTentativaEm && Date.now() - h.emailTentativaEm.getTime() > 120_000),
       itens: h.itens.map((i) => ({ ...i, incidencia: normalizarPercentual(i.incidencia) })),
       progresso: Number(h.progresso),
       somaIncidencia: Number(h.somaIncidencia),
@@ -193,7 +196,7 @@ export async function carregarProgresso(projectId: number) {
       estimativa: estimativas.get(h.id)!,
       tipo: (ehTipoMedicao(h.tipo) ? h.tipo : "pls") as TipoMedicao,
       dadosCaixa: (h.dadosCaixa ?? null) as DadosMedicaoCaixa | null,
-      fotos: fotosMedicao.filter((f) => f.medicaoId === h.id).map(({ id, imageUrl, caption }) => ({ id, imageUrl, caption })),
+      fotos: fotosMedicao.filter((f) => f.medicaoId === h.id).map(({ id, imageUrl, caption, includeInReport }) => ({ id, imageUrl, caption, includeInReport })),
     })),
     pci: pci && dadosPci
       ? {
@@ -293,19 +296,24 @@ export const obraProgressoRouter = router({
               requestedAt: sql`COALESCE(${constructionProgressHistory.requestedAt}, ${tentativa})`,
               requestedBy: sql`COALESCE(${constructionProgressHistory.requestedBy}, ${ctx.user.id})`,
               requestEmailStatus: "sending", requestEmailAttemptAt: tentativa,
-            }).where(and(eq(constructionProgressHistory.id, atual.id), sql`(${constructionProgressHistory.requestedAt} IS NULL OR ${constructionProgressHistory.requestEmailStatus} = 'failed' OR (${constructionProgressHistory.requestEmailStatus} = 'sending' AND ${constructionProgressHistory.requestEmailAttemptAt} < ${new Date(tentativa.getTime() - 120_000)}))`)).returning({ id: constructionProgressHistory.id }),
+            }).where(and(eq(constructionProgressHistory.id, atual.id), sql`${constructionProgressHistory.updatedAt} IS NOT DISTINCT FROM ${atual.updatedAt?.toISOString() ?? null}`, sql`(${constructionProgressHistory.requestedAt} IS NULL OR ${constructionProgressHistory.requestEmailStatus} IN ('failed', 'pending') OR (${constructionProgressHistory.requestEmailStatus} = 'sending' AND ${constructionProgressHistory.requestEmailAttemptAt} < ${new Date(tentativa.getTime() - 120_000)}))`)).returning({ id: constructionProgressHistory.id }),
             db.execute(sql`INSERT INTO user_notifications(user_id, title, message, type, related_id, action_url)
               SELECT u.id, ${titulo}, ${mensagem}, 'construction_update', ${atual.id}, ${`/admin/obras/editar/${obra.id}`}
               FROM users u WHERE u.role = 'admin' AND u.active = true
               AND EXISTS(SELECT 1 FROM construction_progress_history h WHERE h.id = ${atual.id} AND h.request_email_attempt_at = ${tentativa})
               AND NOT EXISTS(SELECT 1 FROM user_notifications n WHERE n.user_id = u.id AND n.related_id = ${atual.id} AND n.type = 'construction_update' AND n.title LIKE 'Solicitação de medição — %')`),
+            db.execute(sql`UPDATE user_notifications SET is_read = false, read_at = NULL, message = ${`Versão atualizada. ${mensagem}`}
+              WHERE related_id = ${atual.id} AND type = 'construction_update' AND title LIKE 'Solicitação de medição — %'
+              AND user_id IN (SELECT id FROM users WHERE role = 'admin' AND active = true)
+              AND ${atual.requestEmailStatus === "pending"}
+              AND EXISTS(SELECT 1 FROM construction_progress_history h WHERE h.id = ${atual.id} AND h.request_email_attempt_at = ${tentativa})`),
           ]);
           return reserva.length > 0;
         },
         enviar: attachments => sendEmail({ to: DESTINO_MEDICOES, templateType: "admin_notification", attachments,
           ...adminNotificationTemplate({ titulo, linhas: [{ label: "Obra", valor: obra.title || String(obra.id) }, { label: "Tipo", valor: atual.measurementType }, { label: "Progresso acumulado", valor: `${Number(atual.progressPct)}%` }, { label: "Solicitante", valor: ctx.user.name || "Usuário" }] }) }),
         concluir: async enviado => { await db.update(constructionProgressHistory).set({ requestEmailStatus: enviado ? "sent" : "failed" })
-          .where(and(eq(constructionProgressHistory.id, atual.id), eq(constructionProgressHistory.requestEmailAttemptAt, tentativa))); },
+          .where(and(eq(constructionProgressHistory.id, atual.id), eq(constructionProgressHistory.requestEmailAttemptAt, tentativa), eq(constructionProgressHistory.requestEmailStatus, "sending"))); },
       });
       return { success: true, ...resultado };
     } catch (e) { throw new TRPCError({ code: "BAD_REQUEST", message: e instanceof Error ? e.message : "Erro ao solicitar medição." }); }
@@ -341,6 +349,7 @@ export const obraProgressoRouter = router({
       progressPct: calculo.progresso.toFixed(6),
       incidenceTotalPct: calculo.somaIncidencia.toFixed(15),
       items: input.itens,
+      requestEmailStatus: sql`CASE WHEN ${constructionProgressHistory.requestedAt} IS NOT NULL THEN 'pending' ELSE ${constructionProgressHistory.requestEmailStatus} END`,
       updatedAt: agora,
       updatedBy: ctx.user.id,
       measurementType: tipo,
@@ -400,20 +409,24 @@ export const obraProgressoRouter = router({
     caption: z.string().trim().max(LIMITE_LEGENDA).nullable(),
     includeInReport: z.boolean(),
   })).mutation(async ({ input }) => {
-    const [alterada] = await getDb().update(constructionPhotos)
-      .set({ caption: input.caption || null, includeInReport: input.includeInReport })
-      .where(eq(constructionPhotos.id, input.photoId))
-      .returning({ id: constructionPhotos.id });
-    if (!alterada) throw new TRPCError({ code: "NOT_FOUND", message: "Foto não encontrada" });
+    const db = getDb();
+    const [foto] = await db.select().from(constructionPhotos).where(eq(constructionPhotos.id, input.photoId)).limit(1);
+    if (!foto) throw new TRPCError({ code: "NOT_FOUND", message: "Foto não encontrada" });
+    await db.batch([
+      db.update(constructionPhotos).set({ caption: input.caption || null, includeInReport: input.includeInReport }).where(eq(constructionPhotos.id, input.photoId)),
+      ...(foto.progressHistoryId ? [invalidarAnexosMedicao(foto.progressHistoryId)] : []),
+    ]);
     return { success: true };
   }),
 
   excluirFoto: adminProcedure.input(z.object({ photoId: z.number().int().positive() })).mutation(async ({ input }) => {
-    // Os bytes saem junto (ON DELETE CASCADE em construction_photo_files).
-    const [apagada] = await getDb().delete(constructionPhotos)
-      .where(eq(constructionPhotos.id, input.photoId))
-      .returning({ id: constructionPhotos.id });
-    if (!apagada) throw new TRPCError({ code: "NOT_FOUND", message: "Foto não encontrada" });
+    const db = getDb();
+    const [foto] = await db.select().from(constructionPhotos).where(eq(constructionPhotos.id, input.photoId)).limit(1);
+    if (!foto) throw new TRPCError({ code: "NOT_FOUND", message: "Foto não encontrada" });
+    await db.batch([
+      db.delete(constructionPhotos).where(eq(constructionPhotos.id, input.photoId)),
+      ...(foto.progressHistoryId ? [invalidarAnexosMedicao(foto.progressHistoryId)] : []),
+    ]);
     return { success: true };
   }),
 

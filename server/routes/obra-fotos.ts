@@ -1,3 +1,4 @@
+import { invalidarAnexosMedicao } from "../medicao-email-estado.js";
 import { Router, Request, Response } from "express";
 import { and, eq, sql } from "drizzle-orm";
 import { constructionPhotos, constructionProgressHistory, constructionProjects } from "../../drizzle/schema.js";
@@ -82,6 +83,7 @@ router.post("/obras/:projectId/fotos", async (req: Request, res: Response) => {
         includeInReport: includeInReport !== false,
         progressHistoryId,
       }),
+      ...(progressHistoryId ? [invalidarAnexosMedicao(progressHistoryId)] : []),
       db.execute(sql`INSERT INTO construction_photo_files (photo_id, mime, size_bytes, data)
         VALUES (${photoId}, ${validacao.mime}, ${bytes.length}, decode(${base64}, 'base64'))`),
     ]);

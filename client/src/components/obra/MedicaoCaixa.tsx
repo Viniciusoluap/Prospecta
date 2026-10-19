@@ -234,11 +234,34 @@ export interface FotoNova {
   previa: string;
 }
 
-export function FotosMedicao({ tipo, fotos, setFotos, existentes, onExcluirExistente, progresso }: {
+type FotoSalva = { id: number; imageUrl: string; caption: string | null; includeInReport?: boolean };
+export function FotosSalvas({ fotos, onSalvar, onExcluir, ocupado }: {
+  fotos: FotoSalva[];
+  onSalvar?: (id: number, legenda: string | null, incluir: boolean) => void;
+  onExcluir?: (id: number) => void;
+  ocupado?: boolean;
+}) {
+  return <ul className="grid grid-cols-2 gap-3 sm:grid-cols-3">{fotos.map(f => <li key={f.id} className="space-y-2 rounded border border-current/20 p-2">
+    {/* eslint-disable-next-line @next/next/no-img-element */}
+    <img src={f.imageUrl} alt={f.caption || "Foto da obra"} loading="lazy" className="aspect-[4/3] w-full rounded object-cover" />
+    <form key={`${f.id}:${f.caption}:${f.includeInReport}`} className="space-y-2" onSubmit={e => { e.preventDefault(); const valores = new FormData(e.currentTarget); onSalvar?.(f.id, String(valores.get("legenda") ?? "").trim() || null, valores.has("incluir")); }}>
+      <label className="block text-xs">Legenda<input name="legenda" defaultValue={f.caption ?? ""} maxLength={250} disabled={ocupado} className="mt-1 w-full rounded border border-current/30 bg-transparent px-2 py-1" /></label>
+      <label className="flex gap-2 items-center text-xs"><input type="checkbox" name="incluir" defaultChecked={f.includeInReport ?? true} disabled={ocupado} />No relatório executivo</label>
+      <div className="flex flex-wrap gap-2">
+        {onSalvar && <Button type="submit" size="sm" variant="outline" disabled={ocupado}>Salvar foto</Button>}
+        {onExcluir && <Button type="button" size="sm" variant="outline" disabled={ocupado} onClick={() => onExcluir(f.id)}>Excluir foto</Button>}
+      </div>
+    </form>
+  </li>)}</ul>;
+}
+
+export function FotosMedicao({ tipo, fotos, setFotos, existentes, onExcluirExistente, onAtualizarExistente, ocupado, progresso }: {
   tipo: TipoMedicao;
   fotos: FotoNova[];
   setFotos: (f: FotoNova[]) => void;
-  existentes: { id: number; imageUrl: string; caption: string | null }[];
+  existentes: FotoSalva[];
+  onAtualizarExistente?: (id: number, legenda: string | null, incluir: boolean) => void;
+  ocupado?: boolean;
   onExcluirExistente?: (id: number) => void;
   progresso: number;
 }) {
@@ -263,19 +286,9 @@ export function FotosMedicao({ tipo, fotos, setFotos, existentes, onExcluirExist
       </div>
       {aviso && <p className="text-xs text-amber-300">{aviso}</p>}
       {total > quadros && <p className="text-xs text-amber-300">O modelo tem {quadros} quadros: só as {quadros} primeiras fotos entram no .xls e no .pdf (todas ficam na aba Fotos).</p>}
-      {(existentes.length > 0 || fotos.length > 0) && (
+      {existentes.length > 0 && <FotosSalvas fotos={existentes} onSalvar={onAtualizarExistente} onExcluir={onExcluirExistente} ocupado={ocupado} />}
+      {fotos.length > 0 && (
         <ul className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-4">
-          {existentes.map((f) => (
-            <li key={`e${f.id}`} className="space-y-1 rounded border border-[#C9A961]/20 p-1">
-              <img src={f.imageUrl} alt={f.caption ?? "Foto da medição"} className="aspect-[4/3] w-full rounded object-cover" loading="lazy" />
-              <div className="flex items-center justify-between gap-1">
-                <span className="truncate text-xs text-gray-300">{f.caption || "Sem legenda"}</span>
-                {onExcluirExistente && (
-                  <Button type="button" size="icon" variant="ghost" className="h-6 w-6 text-red-400" aria-label="Excluir foto" onClick={() => onExcluirExistente(f.id)}><Trash2 className="h-3 w-3" /></Button>
-                )}
-              </div>
-            </li>
-          ))}
           {fotos.map((f, i) => (
             <li key={f.previa} className="space-y-1 rounded border border-[#C9A961]/40 p-1">
               <img src={f.previa} alt={f.arquivo.name} className="aspect-[4/3] w-full rounded object-cover" />

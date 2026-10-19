@@ -52,6 +52,7 @@ export async function sendEmail(
   }
 
   let emailId: number | undefined;
+  let aceitoPeloSmtp = false;
   try {
     const emailLog: InsertEmailLog = {
       recipientEmail: data.to,
@@ -74,12 +75,17 @@ export async function sendEmail(
       text: data.html.replace(/<[^>]*>/g, ""),
       attachments: data.attachments,
     });
+    aceitoPeloSmtp = true;
     await deps.db
       .update(emailLogs)
       .set({ status: "sent", sentAt: new Date() })
       .where(eq(emailLogs.id, emailId));
     return true;
   } catch (erro) {
+    if (aceitoPeloSmtp) {
+      console.error("[email] SMTP aceitou o envio; falha ao atualizar a auditoria.");
+      return true;
+    }
     const motivo = descreverErroSmtp(erro);
     console.error(`[email] envio falhou: ${motivo}`);
     if (emailId) {
