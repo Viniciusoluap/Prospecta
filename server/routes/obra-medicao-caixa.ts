@@ -8,7 +8,7 @@ import { sessaoAindaValida } from "../../shared/session.js";
 import { podeGerenciarFotos } from "../../shared/obra-fotos.js";
 import { canAccessAdminProcedure } from "../_core/trpc.js";
 import { SERVICOS_PROGRESSO } from "../../shared/financeiro/progresso.js";
-import { dadosPlsPadrao, ehTipoMedicao, normalizarDadosMedicao, QUADROS_FOTO, type DadosMedicaoCaixa } from "../../shared/medicao-caixa.js";
+import { dadosPlsPadrao, incidenciasCorrespondem, ehTipoMedicao, normalizarDadosMedicao, QUADROS_FOTO, type DadosMedicaoCaixa } from "../../shared/medicao-caixa.js";
 import { lerPci, type DadosPci } from "../caixa/pci.js";
 import { gerarXlsMedicao, type FotoMedicao, type MedicaoHistorica } from "../caixa/medicao-xls.js";
 import { gerarPdfMedicao } from "../caixa/medicao-pdf.js";
@@ -18,7 +18,7 @@ import { gerarPdfMedicao } from "../caixa/medicao-pdf.js";
 // de sessão das fotos da obra (server/routes/obra-fotos.ts).
 
 const router = Router();
-const LIMITE_PCI = 6 * 1024 * 1024;
+const LIMITE_PCI = 3 * 1024 * 1024;
 
 async function usuarioDaSessao(req: Request) {
   const token = getTokenFromRequest(req);
@@ -53,8 +53,10 @@ function nomeSeguro(nome: string) {
   return nome.normalize("NFD").replace(/[̀-ͯ]/g, "").replace(/[^\w.\- ]+/g, "").trim().slice(0, 120) || "arquivo";
 }
 
-async function arquivoPci(projectId: number): Promise<{ nome: string; bytes: Uint8Array; dados: DadosPci } | null> {
-  const r = await getDb().execute(sql`SELECT file_name, encode(data, 'base64') AS b64, parsed FROM construction_pci WHERE project_id = ${projectId}`);
+async function arquivoPci(projectId: number, versionId?: number): Promise<{ nome: string; bytes: Uint8Array; dados: DadosPci } | null> {
+  const r = await getDb().execute(versionId
+    ? sql`SELECT file_name, encode(data, 'base64') AS b64, parsed FROM construction_pci_versions WHERE project_id = ${projectId} AND id = ${versionId}`
+    : sql`SELECT file_name, encode(data, 'base64') AS b64, parsed FROM construction_pci WHERE project_id = ${projectId}`);
   const linha = (r as unknown as { rows: { file_name: string; b64: string; parsed: DadosPci }[] }).rows[0];
   if (!linha) return null;
   return { nome: linha.file_name, bytes: new Uint8Array(Buffer.from(linha.b64, "base64")), dados: linha.parsed };
@@ -71,7 +73,7 @@ router.post("/obras/:projectId/pci", async (req: Request, res: Response) => {
     if (!base64 || !/^[A-Za-z0-9+/=\s]+$/.test(base64)) return res.status(400).json({ error: "Arquivo ausente ou inválido." });
     const bytes = new Uint8Array(Buffer.from(base64, "base64"));
     if (!bytes.length) return res.status(400).json({ error: "Arquivo vazio." });
-    if (bytes.length > LIMITE_PCI) return res.status(400).json({ error: "A PCI passa de 6 MB." });
+    if (bytes.length > LIMITE_PCI) return res.status(400).json({ error: "A PCI passa de 3 MiB. Reduza as imagens da planilha antes de enviar." });
     const nomeArquivo = nomeSeguro(typeof nome === "string" ? nome : "pci.xls");
     let dados: DadosPci;
     try {
@@ -83,7 +85,8 @@ router.post("/obras/:projectId/pci", async (req: Request, res: Response) => {
       INSERT INTO construction_pci (project_id, file_name, size_bytes, data, parsed, uploaded_by, uploaded_at, linked_at, linked_by)
       VALUES (${projectId}, ${nomeArquivo}, ${bytes.length}, decode(${Buffer.from(bytes).toString("base64")}, 'base64'), ${JSON.stringify(dados)}::jsonb, ${acesso.usuario.id}, now(), NULL, NULL)
       ON CONFLICT (project_id) DO UPDATE SET file_name = EXCLUDED.file_name, size_bytes = EXCLUDED.size_bytes, data = EXCLUDED.data,
-        parsed = EXCLUDED.parsed, uploaded_by = EXCLUDED.uploaded_by, uploaded_at = now(), linked_at = NULL, linked_by = NULL`);
+        parsed = EXCLUDED.parsed, uploaded_by = EXCLUDED.uploaded_by, uploaded_at = now(), linked_at = CASE WHEN md5(construction_pci.data) = md5(EXCLUDED.data) THEN construction_pci.linked_at ELSE NULL END,
+        linked_by = CASE WHEN md5(construction_pci.data) = md5(EXCLUDED.data) THEN construction_pci.linked_by ELSE NULL END`);
     const soma = dados.incidencias.reduce((s, v) => s + v, 0);
     return res.json({ arquivo: nomeArquivo, formato: dados.formato, proponente: dados.identificacao.proponente, somaIncidencia: soma });
   } catch (error) {
@@ -127,8 +130,10 @@ router.get("/obras/medicoes/:medicaoId/arquivo.:formato(xls|pdf)", async (req: R
     if (!m) return res.status(404).json({ error: "Medição não encontrada." });
     const acesso = await autorizado(req, m.projectId);
     if (!acesso.ok) return res.status(acesso.erro).json({ error: mensagens[acesso.erro] });
-    const pci = await arquivoPci(m.projectId);
+    if (!m.pciVersionId) return res.status(409).json({ error: "Esta medição não possui uma versão da PCI vinculada. Revise a medição antes de gerar os arquivos." });
+    const pci = await arquivoPci(m.projectId, m.pciVersionId);
     if (!pci) return res.status(400).json({ error: "Envie a PCI da obra (botão PCI na aba Progresso) para gerar os arquivos da CAIXA." });
+    if (!incidenciasCorrespondem(m.items, SERVICOS_PROGRESSO.map(s => s.chave), pci.dados.incidencias)) return res.status(409).json({ error: "As incidências salvas diferem da PCI desta medição. Revise a medição." });
     const formato = String(req.params.formato);
     if (formato === "xls" && pci.dados.formato !== "xls") {
       return res.status(400).json({ error: "O SIOPI só aceita .xls: envie a PCI em .xls para gerar a planilha preenchida." });

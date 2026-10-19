@@ -199,3 +199,13 @@ describe("campos da medição CAIXA", () => {
     expect(validarDadosMedicao("pls", ruim).join(" ")).toMatch(/levantamento/);
   });
 });
+
+import { incidenciasCorrespondem } from "../shared/medicao-caixa";
+it("não exporta incidências diferentes da PCI nem aceita serviços repetidos", () => {
+  const chaves = SERVICOS_PROGRESSO.map(s => s.chave);
+  const itens = SERVICOS_PROGRESSO.map(s => ({ chave: s.chave, incidencia: s.incidenciaPadrao }));
+  const pesos = itens.map(i => Number(i.incidencia));
+  expect(incidenciasCorrespondem([...itens].reverse(), chaves, pesos)).toBe(true);
+  expect(incidenciasCorrespondem(itens.map((i,k) => k === 0 ? { ...i, incidencia: "99" } : i), chaves, pesos)).toBe(false);
+  expect(incidenciasCorrespondem([...itens.slice(1), itens[1]], chaves, pesos)).toBe(false);
+});

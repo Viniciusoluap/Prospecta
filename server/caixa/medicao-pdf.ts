@@ -130,6 +130,9 @@ class Documento {
     }
     p.setFont("helvetica", "bold");
     p.setFontSize(10);
+    // Cabeçalho ocupa a metade direita; títulos longos devem caber até a margem de 200 mm.
+    const larguraTitulo = p.getTextWidth(this.titulo);
+    if (larguraTitulo > 98) p.setFontSize(10 * 98 / larguraTitulo);
     p.setTextColor(...AZUL);
     p.text(this.titulo, 150, 29, { align: "center" });
     p.setFont("helvetica", "normal");

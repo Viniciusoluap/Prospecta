@@ -592,6 +592,16 @@ export const constructionPhotoFiles = pgTable("construction_photo_files", {
 // Pedido de 18/10: PCI (Proposta de Construção Individual da CAIXA) da obra.
 // O arquivo (coluna "data", bytea) é lido/gravado só por SQL explícito em
 // server/routes/obra-medicao-caixa.ts; "parsed" guarda o que foi lido dele.
+export const constructionPciVersions = pgTable("construction_pci_versions", {
+  id: serial("id").primaryKey(),
+  projectId: integer("project_id").notNull().references(() => constructionProjects.id, { onDelete: "cascade" }),
+  checksum: varchar("checksum", { length: 32 }).notNull(),
+  fileName: varchar("file_name", { length: 255 }).notNull(),
+  uploadedBy: integer("uploaded_by"),
+  uploadedAt: timestamp("uploaded_at").defaultNow().notNull(),
+  parsed: jsonb("parsed").notNull(),
+});
+
 export const constructionPci = pgTable("construction_pci", {
   projectId: integer("project_id").primaryKey().references(() => constructionProjects.id, { onDelete: "cascade" }),
   fileName: varchar("file_name", { length: 255 }).notNull(),
@@ -601,6 +611,7 @@ export const constructionPci = pgTable("construction_pci", {
   uploadedAt: timestamp("uploaded_at").defaultNow().notNull(),
   linkedAt: timestamp("linked_at"),
   linkedBy: integer("linked_by"),
+  versionId: integer("version_id").references(() => constructionPciVersions.id, { onDelete: "no action" }),
 });
 
 // EPIC-020 Lote 4 (item 27): progresso por incidência (20 serviços por obra).
@@ -616,6 +627,7 @@ export const constructionProgressItems = pgTable("construction_progress_items", 
 
 export const constructionProgressHistory = pgTable("construction_progress_history", {
   id: serial("id").primaryKey(),
+  pciVersionId: integer("pci_version_id").references(() => constructionPciVersions.id, { onDelete: "no action" }),
   projectId: integer("project_id").notNull().references(() => constructionProjects.id, { onDelete: "cascade" }),
   progressPct: decimal("progress_pct", { precision: 9, scale: 6 }).notNull(),
   incidenceTotalPct: decimal("incidence_total_pct", { precision: 20, scale: 15 }).notNull(),

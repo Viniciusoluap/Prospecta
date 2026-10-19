@@ -1,9 +1,10 @@
 import { TRPCError } from "@trpc/server";
-import { and, asc, count, desc, eq, inArray, isNull } from "drizzle-orm";
+import { and, asc, count, desc, eq, inArray, isNull, sql } from "drizzle-orm";
 import { alias } from "drizzle-orm/pg-core";
 import { z } from "zod";
 import {
   constructionPci,
+  constructionPciVersions,
   constructionPhotos,
   constructionProgressHistory,
   constructionProgressItems,
@@ -13,6 +14,7 @@ import {
 } from "../drizzle/schema.js";
 import {
   calcularProgresso,
+  SERVICOS_PROGRESSO,
   mesclarComPadrao,
   type ItemProgressoEntrada,
 } from "../shared/financeiro/progresso.js";
@@ -22,6 +24,7 @@ import { baseDaMedicao, estimarMedicoes, situacaoDaMedicao } from "../shared/fin
 import { centavosDe } from "../shared/financeiro/obra.js";
 import {
   dadosPlsPadrao,
+  incidenciasCorrespondem,
   ehTipoMedicao,
   normalizarDadosMedicao,
   validarDadosMedicao,
@@ -65,35 +68,33 @@ async function medicaoOuErro(medicaoId: number) {
   return m;
 }
 
-async function ehUltimaMedicao(projectId: number, medicaoId: number) {
-  const [ultima] = await getDb().select({ id: constructionProgressHistory.id }).from(constructionProgressHistory)
-    .where(eq(constructionProgressHistory.projectId, projectId))
-    .orderBy(desc(constructionProgressHistory.createdAt), desc(constructionProgressHistory.id)).limit(1);
-  return ultima?.id === medicaoId;
-}
-
-/** Grava a medição vigente da obra (itens + progresso). `null` = obra sem medição. */
-async function aplicarMedicaoVigente(projectId: number, itens: { chave: string; incidencia: string; execucao: string }[] | null, userId: number, agora: Date) {
+/** Lê o histórico depois de adquirir a trava; nunca restaura um predecessor lido antes da transação. */
+function sincronizarMedicaoVigente(projectId: number, userId: number) {
   const db = getDb();
-  if (!itens) {
-    await db.batch([
-      db.delete(constructionProgressItems).where(eq(constructionProgressItems.projectId, projectId)),
-      db.update(constructionProjects).set({ progressMeasuredPct: null, progress: 0, updatedAt: agora }).where(eq(constructionProjects.id, projectId)),
-    ]);
-    return;
+  return [
+    db.execute(sql`DELETE FROM construction_progress_items WHERE project_id = ${projectId}`),
+    db.execute(sql`INSERT INTO construction_progress_items(project_id, service_key, incidence_pct, execution_pct, updated_by, updated_at)
+      SELECT ${projectId}, item->>'chave', (item->>'incidencia')::numeric, (item->>'execucao')::numeric, ${userId}, now()
+      FROM (SELECT items FROM construction_progress_history WHERE project_id = ${projectId} ORDER BY created_at DESC, id DESC LIMIT 1) h,
+      LATERAL jsonb_array_elements(h.items) item`),
+    db.execute(sql`UPDATE construction_projects SET
+      progress_measured_pct = (SELECT progress_pct FROM construction_progress_history WHERE project_id = ${projectId} ORDER BY created_at DESC, id DESC LIMIT 1),
+      progress = COALESCE((SELECT round(progress_pct)::integer FROM construction_progress_history WHERE project_id = ${projectId} ORDER BY created_at DESC, id DESC LIMIT 1), 0), updated_at = now()
+      WHERE id = ${projectId}`),
+  ] as const;
+}
+const travarObra = (id: number) => getDb().execute(sql`SELECT id FROM construction_projects WHERE id = ${id} FOR UPDATE`);
+async function versaoPciParaMedicao(projectId: number, itens: { chave: string; incidencia: string }[], versionId?: number | null) {
+  const db = getDb();
+  if (versionId) {
+    const [v] = await db.select().from(constructionPciVersions).where(eq(constructionPciVersions.id, versionId)).limit(1);
+    if (!v || v.projectId !== projectId || !incidenciasCorrespondem(itens, SERVICOS_PROGRESSO.map(s => s.chave), (v.parsed as DadosPci).incidencias)) throw new TRPCError({ code: "BAD_REQUEST", message: "As incidências devem corresponder à PCI desta medição." });
+    return versionId;
   }
-  const calculo = calcularProgresso(itens);
-  await db.batch([
-    db.delete(constructionProgressItems).where(eq(constructionProgressItems.projectId, projectId)),
-    db.insert(constructionProgressItems).values(itens.map((i) => ({
-      projectId, serviceKey: i.chave, incidencePct: i.incidencia, executionPct: i.execucao, updatedBy: userId, updatedAt: agora,
-    }))),
-    db.update(constructionProjects).set({
-      progressMeasuredPct: calculo.progresso.toFixed(6),
-      progress: Math.round(calculo.progresso),
-      updatedAt: agora,
-    }).where(eq(constructionProjects.id, projectId)),
-  ]);
+  const [pci] = await db.select().from(constructionPci).where(eq(constructionPci.projectId, projectId)).limit(1);
+  if (!pci) return null;
+  if (!pci.linkedAt || !pci.versionId || !incidenciasCorrespondem(itens, SERVICOS_PROGRESSO.map(s => s.chave), (pci.parsed as DadosPci).incidencias)) throw new TRPCError({ code: "BAD_REQUEST", message: "Vincule a PCI e use as incidências da planilha antes de salvar." });
+  return pci.versionId;
 }
 
 async function obraOuErro(projectId: number) {
@@ -108,7 +109,7 @@ const recebedor = alias(users, "medicao_recebedor");
 export async function carregarProgresso(projectId: number) {
   const db = getDb();
   const obra = await obraOuErro(projectId);
-  const [salvos, historico] = await Promise.all([
+  const [salvos, janelaHistorico] = await Promise.all([
     db.select().from(constructionProgressItems).where(eq(constructionProgressItems.projectId, projectId)),
     db.select({
       id: constructionProgressHistory.id,
@@ -130,8 +131,10 @@ export async function carregarProgresso(projectId: number) {
       .leftJoin(recebedor, eq(recebedor.id, constructionProgressHistory.receivedBy))
       .where(eq(constructionProgressHistory.projectId, projectId))
       .orderBy(desc(constructionProgressHistory.createdAt), desc(constructionProgressHistory.id))
-      .limit(100),
+      .limit(101),
   ]);
+  // O 101º registro serve de predecessor ao último exibido, sem inflar seu avanço.
+  const historico = janelaHistorico.slice(0, 100);
   const itens: ItemProgressoEntrada[] = mesclarComPadrao(
     salvos.map((s) => ({ chave: s.serviceKey, incidencia: normalizarPercentual(s.incidencePct), execucao: normalizarPercentual(s.executionPct) }))
   );
@@ -157,7 +160,7 @@ export async function carregarProgresso(projectId: number) {
     subsidio: centavosDe(obra.subsidyAmount),
     custoTerreno: centavosDe(obra.lotCost),
   });
-  const estimativas = estimarMedicoes(historico.map((h) => ({ id: h.id, progresso: Number(h.progresso), criadoEm: h.criadoEm })), base);
+  const estimativas = estimarMedicoes(janelaHistorico.map((h) => ({ id: h.id, progresso: Number(h.progresso), criadoEm: h.criadoEm })), base);
   return {
     itens: itens.map((i) => ({ chave: i.chave, incidencia: String(i.incidencia), execucao: String(i.execucao) })),
     calculo: calcularProgresso(itens),
@@ -223,36 +226,23 @@ export const obraProgressoRouter = router({
     const dadosCaixa = input.dadosCaixa === undefined ? null : dadosCaixaValidados(input.tipo, input.dadosCaixa);
     const db = getDb();
     const agora = new Date();
-    await db.batch([
-      db.delete(constructionProgressItems).where(eq(constructionProgressItems.projectId, input.projectId)),
-      db.insert(constructionProgressItems).values(input.itens.map((i) => ({
-        projectId: input.projectId,
-        serviceKey: i.chave,
-        incidencePct: i.incidencia,
-        executionPct: i.execucao,
-        updatedBy: ctx.user.id,
-        updatedAt: agora,
-      }))),
-      db.update(constructionProjects).set({
-        progressMeasuredPct: calculo.progresso.toFixed(6),
-        progress: Math.round(calculo.progresso),
-        updatedAt: agora,
-      }).where(eq(constructionProjects.id, input.projectId)),
+    const pciVersionId = await versaoPciParaMedicao(input.projectId, input.itens);
+    const resultado = await db.batch([
+      travarObra(input.projectId),
       db.insert(constructionProgressHistory).values({
         projectId: input.projectId,
         progressPct: calculo.progresso.toFixed(6),
         incidenceTotalPct: calculo.somaIncidencia.toFixed(15),
         items: input.itens,
         createdBy: ctx.user.id,
-        createdAt: agora,
+        createdAt: sql`clock_timestamp()`,
+        pciVersionId,
         measurementType: input.tipo,
         caixaData: dadosCaixa,
-      }),
+      }).returning({ id: constructionProgressHistory.id }),
+      ...sincronizarMedicaoVigente(input.projectId, ctx.user.id),
     ]);
-    const [nova] = await db.select({ id: constructionProgressHistory.id }).from(constructionProgressHistory)
-      .where(and(eq(constructionProgressHistory.projectId, input.projectId), eq(constructionProgressHistory.createdAt, agora)))
-      .orderBy(desc(constructionProgressHistory.id)).limit(1);
-    return { progresso: calculo.progresso, avisos: calculo.avisos, medicaoId: nova?.id ?? null };
+    return { progresso: calculo.progresso, avisos: calculo.avisos, medicaoId: resultado[1][0].id };
   }),
 
   // Pedido de 18/10: ciclo da medição (solicitar ao banco, confirmar recebimento),
@@ -291,7 +281,9 @@ export const obraProgressoRouter = router({
     const dadosCaixa = input.dadosCaixa === undefined ? undefined : dadosCaixaValidados(tipo, input.dadosCaixa);
     const db = getDb();
     const agora = new Date();
-    await db.update(constructionProgressHistory).set({
+    const pciVersionId = await versaoPciParaMedicao(atual.projectId, input.itens, atual.pciVersionId);
+    const atualizarHistorico = db.update(constructionProgressHistory).set({
+      pciVersionId,
       progressPct: calculo.progresso.toFixed(6),
       incidenceTotalPct: calculo.somaIncidencia.toFixed(15),
       items: input.itens,
@@ -300,23 +292,18 @@ export const obraProgressoRouter = router({
       measurementType: tipo,
       ...(dadosCaixa !== undefined ? { caixaData: dadosCaixa } : {}),
     }).where(eq(constructionProgressHistory.id, input.medicaoId));
-    // A mais recente é a medição vigente: o progresso da obra acompanha.
-    if (await ehUltimaMedicao(atual.projectId, input.medicaoId)) await aplicarMedicaoVigente(atual.projectId, input.itens, ctx.user.id, agora);
+    await db.batch([travarObra(atual.projectId), atualizarHistorico, ...sincronizarMedicaoVigente(atual.projectId, ctx.user.id)]);
     return { progresso: calculo.progresso };
   }),
 
   excluirMedicao: adminProcedure.input(medicaoIdInput).mutation(async ({ input, ctx }) => {
     const atual = await medicaoOuErro(input.medicaoId);
-    const eraUltima = await ehUltimaMedicao(atual.projectId, input.medicaoId);
     const db = getDb();
-    await db.delete(constructionProgressHistory).where(eq(constructionProgressHistory.id, input.medicaoId));
-    if (eraUltima) {
-      // A obra volta para a medição anterior (ou fica sem medição).
-      const [anterior] = await db.select({ itens: constructionProgressHistory.items }).from(constructionProgressHistory)
-        .where(eq(constructionProgressHistory.projectId, atual.projectId))
-        .orderBy(desc(constructionProgressHistory.createdAt), desc(constructionProgressHistory.id)).limit(1);
-      await aplicarMedicaoVigente(atual.projectId, anterior?.itens ?? null, ctx.user.id, new Date());
-    }
+    await db.batch([
+      travarObra(atual.projectId),
+      db.delete(constructionProgressHistory).where(eq(constructionProgressHistory.id, input.medicaoId)),
+      ...sincronizarMedicaoVigente(atual.projectId, ctx.user.id),
+    ]);
     return { success: true };
   }),
 
@@ -339,16 +326,13 @@ export const obraProgressoRouter = router({
     if (calculo.erros.length) throw new TRPCError({ code: "BAD_REQUEST", message: calculo.erros.join(" ") });
     const agora = new Date();
     await db.batch([
+      travarObra(input.projectId),
       db.delete(constructionProgressItems).where(eq(constructionProgressItems.projectId, input.projectId)),
       db.insert(constructionProgressItems).values(itens.map((i) => ({
         projectId: input.projectId, serviceKey: i.chave, incidencePct: i.incidencia, executionPct: i.execucao, updatedBy: ctx.user.id, updatedAt: agora,
       }))),
       db.update(constructionPci).set({ linkedAt: agora, linkedBy: ctx.user.id }).where(eq(constructionPci.projectId, input.projectId)),
-      // Só recalcula o progresso da obra se ela já tinha medição.
-      ...(salvos.length
-        ? [db.update(constructionProjects).set({ progressMeasuredPct: calculo.progresso.toFixed(6), progress: Math.round(calculo.progresso), updatedAt: agora })
-            .where(eq(constructionProjects.id, input.projectId))]
-        : []),
+
     ] as never);
     return { somaIncidencia: calculo.somaIncidencia, itens };
   }),
