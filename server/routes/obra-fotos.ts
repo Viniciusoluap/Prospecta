@@ -1,3 +1,4 @@
+import { invalidarAnexosMedicao } from "../medicao-email-estado.js";
 import { Router, Request, Response } from "express";
 import { and, eq, sql } from "drizzle-orm";
 import { constructionPhotos, constructionProgressHistory, constructionProjects } from "../../drizzle/schema.js";
@@ -42,6 +43,7 @@ router.post("/obras/:projectId/fotos", async (req: Request, res: Response) => {
       return res.status(403).json({ error: "Sem permissão para enviar fotos desta obra." });
 
     const { image, caption, takenAt, includeInReport, medicaoId } = (req.body ?? {}) as Record<string, unknown>;
+    if (medicaoId == null) return res.status(400).json({ error: "Adicione fotos em Progresso, dentro de uma medição." });
     // Pedido de 18/10: foto enviada junto com a medição (relatório fotográfico da CAIXA).
     let progressHistoryId: number | null = null;
     if (medicaoId !== undefined && medicaoId !== null) {
@@ -81,6 +83,7 @@ router.post("/obras/:projectId/fotos", async (req: Request, res: Response) => {
         includeInReport: includeInReport !== false,
         progressHistoryId,
       }),
+      ...(progressHistoryId ? [invalidarAnexosMedicao(progressHistoryId)] : []),
       db.execute(sql`INSERT INTO construction_photo_files (photo_id, mime, size_bytes, data)
         VALUES (${photoId}, ${validacao.mime}, ${bytes.length}, decode(${base64}, 'base64'))`),
     ]);

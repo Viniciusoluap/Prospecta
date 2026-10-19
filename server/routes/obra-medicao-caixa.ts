@@ -150,14 +150,14 @@ const ROTULO = { pls: "PLS", repactuacao: "Repactuação de Prazo", alteracao: "
  * própria medição. Usado pelo download e pela cópia no Google Drive.
  * Chamar só depois de autorizar o acesso à obra.
  */
-async function gerarArquivoMedicao(m: typeof constructionProgressHistory.$inferSelect, obraTitulo: string | null, formato: Formato): Promise<ArquivoMedicao> {
+export async function gerarArquivoMedicao(m: typeof constructionProgressHistory.$inferSelect, obraTitulo: string | null, formato: Formato): Promise<ArquivoMedicao> {
   const db = getDb();
   if (!m.pciVersionId) return { ok: false, status: 409, error: "Esta medição não possui uma versão da PCI vinculada. Revise a medição antes de gerar os arquivos." };
   const pci = await arquivoPci(m.projectId, m.pciVersionId);
   if (!pci) return { ok: false, status: 400, error: "Envie a PCI da obra (botão PCI na aba Progresso) para gerar os arquivos da CAIXA." };
   if (!incidenciasCorrespondem(m.items, SERVICOS_PROGRESSO.map(s => s.chave), pci.dados.incidencias)) return { ok: false, status: 409, error: "As incidências salvas diferem da PCI desta medição. Revise a medição." };
   if (formato === "xls" && pci.dados.formato !== "xls") {
-    return { ok: false, status: 400, error: "O SIOPI só aceita .xls: envie a PCI em .xls para gerar a planilha preenchida." };
+    return { ok: false, status: 400, error: "Para solicitar com PDF e XLS, use a PCI original em .xls. A PCI .xlsb permite PDF, mas não gera o XLS exigido para o envio." };
   }
 
   const tipo = ehTipoMedicao(m.measurementType) ? m.measurementType : "pls";

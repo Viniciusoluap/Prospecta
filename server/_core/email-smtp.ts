@@ -10,6 +10,7 @@ type EmailData = {
   to: string;
   subject: string;
   html: string;
+  attachments?: { filename: string; content: Buffer; contentType: string }[];
   recipientName?: string;
   templateType: InsertEmailLog["templateType"];
   metadata?: Record<string, unknown>;
@@ -30,6 +31,9 @@ function defaultDependencies(): EmailDependencies {
       host: ENV.smtpHost,
       port: ENV.smtpPort,
       secure: ENV.smtpPort === 465,
+      connectionTimeout: 10_000,
+      greetingTimeout: 10_000,
+      socketTimeout: 20_000,
       auth: { user: ENV.smtpUser, pass: ENV.smtpPassword },
     }),
   };
@@ -48,6 +52,7 @@ export async function sendEmail(
   }
 
   let emailId: number | undefined;
+  let aceitoPeloSmtp = false;
   try {
     const emailLog: InsertEmailLog = {
       recipientEmail: data.to,
@@ -68,13 +73,19 @@ export async function sendEmail(
       subject: data.subject,
       html: data.html,
       text: data.html.replace(/<[^>]*>/g, ""),
+      attachments: data.attachments,
     });
+    aceitoPeloSmtp = true;
     await deps.db
       .update(emailLogs)
       .set({ status: "sent", sentAt: new Date() })
       .where(eq(emailLogs.id, emailId));
     return true;
   } catch (erro) {
+    if (aceitoPeloSmtp) {
+      console.error("[email] SMTP aceitou o envio; falha ao atualizar a auditoria.");
+      return true;
+    }
     const motivo = descreverErroSmtp(erro);
     console.error(`[email] envio falhou: ${motivo}`);
     if (emailId) {

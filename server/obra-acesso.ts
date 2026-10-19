@@ -17,6 +17,7 @@ export const PROCEDIMENTOS_DO_EMPREITEIRO: Readonly<Record<string, Alvo>> = {
   "obraFinanceiro.adicionarMovimento": "projectId",
   "obraFinanceiro.excluirMovimento": "movimentoId",
   "obraProgresso.obter": "projectId",
+  "obraProgresso.galeria": "projectId",
   "obraProgresso.detalhe": "projectId",
   "obraProgresso.salvar": "projectId",
   "obraProgresso.relatorio": "projectId",
