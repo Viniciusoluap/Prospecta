@@ -6,8 +6,8 @@
  * incidências e a identificação; o .xlsb nunca é regravado.
  */
 import { unzipSync, strFromU8 } from "fflate";
-import type { ValorCelula } from "./biff8";
-import { enderecoParaPosicao } from "./biff8";
+import type { ValorCelula } from "./biff8.js";
+import { enderecoParaPosicao } from "./biff8.js";
 
 class Leitor {
   o = 0;

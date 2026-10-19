@@ -7,9 +7,9 @@
  */
 import { jsPDF } from "jspdf";
 import type { DadosAlteracao, DadosRepactuacao } from "../../shared/medicao-caixa.js";
-import { PastaBiff8 } from "./biff8";
-import { dimensoesImagem, imagensDaAba, type FotoXls } from "./biff8-imagens";
-import { ABA_PLS, type DadosPci } from "./pci";
+import { PastaBiff8 } from "./biff8.js";
+import { dimensoesImagem, imagensDaAba, type FotoXls } from "./biff8-imagens.js";
+import { ABA_PLS, type DadosPci } from "./pci.js";
 import {
   acumuladoPorEtapa,
   calcularAlteracao,
@@ -19,7 +19,7 @@ import {
   localEData,
   somarMeses,
   type EntradaMedicaoCaixa,
-} from "./medicao-xls";
+} from "./medicao-xls.js";
 
 const AZUL = [31, 56, 100] as const;
 const LILAS = [204, 204, 255] as const;

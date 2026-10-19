@@ -7,7 +7,7 @@
  * ícones e o restante dos desenhos do modelo da CAIXA.
  */
 import { createHash } from "node:crypto";
-import { PastaBiff8, R, type Registro } from "./biff8";
+import { PastaBiff8, R, type Registro } from "./biff8.js";
 
 const MAX_REGISTRO = 8224;
 
