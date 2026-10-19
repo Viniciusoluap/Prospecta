@@ -40,7 +40,7 @@ it("registra solicitação e aviso só para admin, impede duplicata e permite re
     expect(await caller.solicitarMedicao({ medicaoId: 1 })).toMatchObject({ success: true, aviso: expect.stringContaining("não foi enviado") });
     const [primeira] = await real.select().from(constructionProgressHistory).where(eq(constructionProgressHistory.id, 1));
     expect(primeira.requestEmailStatus).toBe("failed");
-    expect((await pg.query("SELECT user_id FROM user_notifications")).rows).toEqual([{ user_id: 1 }]);
+    expect((await pg.query("SELECT user_id, action_url FROM user_notifications")).rows).toEqual([{ user_id: 1, action_url: "/admin/obras/editar/10" }]);
     send.mockResolvedValue(true);
     expect(await caller.solicitarMedicao({ medicaoId: 1 })).toMatchObject({ success: true, aviso: undefined });
     const [segunda] = await real.select().from(constructionProgressHistory).where(eq(constructionProgressHistory.id, 1));

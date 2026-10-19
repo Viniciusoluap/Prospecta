@@ -295,7 +295,7 @@ export const obraProgressoRouter = router({
               requestEmailStatus: "sending", requestEmailAttemptAt: tentativa,
             }).where(and(eq(constructionProgressHistory.id, atual.id), sql`(${constructionProgressHistory.requestedAt} IS NULL OR ${constructionProgressHistory.requestEmailStatus} = 'failed' OR (${constructionProgressHistory.requestEmailStatus} = 'sending' AND ${constructionProgressHistory.requestEmailAttemptAt} < ${new Date(tentativa.getTime() - 120_000)}))`)).returning({ id: constructionProgressHistory.id }),
             db.execute(sql`INSERT INTO user_notifications(user_id, title, message, type, related_id, action_url)
-              SELECT u.id, ${titulo}, ${mensagem}, 'construction_update', ${atual.id}, ${`/admin/obras/${obra.id}/editar`}
+              SELECT u.id, ${titulo}, ${mensagem}, 'construction_update', ${atual.id}, ${`/admin/obras/editar/${obra.id}`}
               FROM users u WHERE u.role = 'admin' AND u.active = true
               AND EXISTS(SELECT 1 FROM construction_progress_history h WHERE h.id = ${atual.id} AND h.request_email_attempt_at = ${tentativa})
               AND NOT EXISTS(SELECT 1 FROM user_notifications n WHERE n.user_id = u.id AND n.related_id = ${atual.id} AND n.type = 'construction_update' AND n.title LIKE 'Solicitação de medição — %')`),
