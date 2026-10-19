@@ -150,7 +150,7 @@ const ROTULO = { pls: "PLS", repactuacao: "Repactuação de Prazo", alteracao: "
  * própria medição. Usado pelo download e pela cópia no Google Drive.
  * Chamar só depois de autorizar o acesso à obra.
  */
-async function gerarArquivoMedicao(m: typeof constructionProgressHistory.$inferSelect, obraTitulo: string | null, formato: Formato): Promise<ArquivoMedicao> {
+export async function gerarArquivoMedicao(m: typeof constructionProgressHistory.$inferSelect, obraTitulo: string | null, formato: Formato): Promise<ArquivoMedicao> {
   const db = getDb();
   if (!m.pciVersionId) return { ok: false, status: 409, error: "Esta medição não possui uma versão da PCI vinculada. Revise a medição antes de gerar os arquivos." };
   const pci = await arquivoPci(m.projectId, m.pciVersionId);

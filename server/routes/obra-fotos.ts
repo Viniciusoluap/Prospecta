@@ -42,6 +42,7 @@ router.post("/obras/:projectId/fotos", async (req: Request, res: Response) => {
       return res.status(403).json({ error: "Sem permissão para enviar fotos desta obra." });
 
     const { image, caption, takenAt, includeInReport, medicaoId } = (req.body ?? {}) as Record<string, unknown>;
+    if (medicaoId == null) return res.status(400).json({ error: "Adicione fotos em Progresso, dentro de uma medição." });
     // Pedido de 18/10: foto enviada junto com a medição (relatório fotográfico da CAIXA).
     let progressHistoryId: number | null = null;
     if (medicaoId !== undefined && medicaoId !== null) {

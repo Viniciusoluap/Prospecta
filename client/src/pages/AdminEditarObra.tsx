@@ -461,7 +461,7 @@ export default function AdminEditarObra({ modo = "admin" }: { modo?: "admin" | "
 
           {/* ABA 4: FOTOS */}
           <TabsContent value="fotos" className="mt-6">
-            <FotosObraAba projectId={projectId} fotos={project.photos} onMudou={() => refetch()} />
+            <FotosObraAba projectId={projectId} />
           </TabsContent>
 
           {/* ABA 5: RELATÓRIOS */}

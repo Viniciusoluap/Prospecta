@@ -637,6 +637,8 @@ export const constructionProgressHistory = pgTable("construction_progress_histor
   // Pedido de 18/10: ciclo da medição — solicitada ao banco e recebida (paga).
   requestedAt: timestamp("requested_at"),
   requestedBy: integer("requested_by"),
+  requestEmailStatus: varchar("request_email_status", { length: 20 }),
+  requestEmailAttemptAt: timestamp("request_email_attempt_at"),
   receivedAt: timestamp("received_at"),
   receivedBy: integer("received_by"),
   updatedAt: timestamp("updated_at"),

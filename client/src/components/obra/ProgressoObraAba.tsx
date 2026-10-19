@@ -133,8 +133,9 @@ export function ProgressoObraAba({ projectId, onFotosMudaram }: { projectId: num
 
   const acao = async (fn: () => Promise<unknown>, sucesso: string) => {
     try {
-      await fn();
-      toast.success(sucesso);
+      const r = await fn();
+      const aviso = (r as { aviso?: string } | undefined)?.aviso;
+      if (aviso) toast.error(aviso); else toast.success(sucesso);
       // Atualizar a situação/foto não pode trocar o buffer da medição em edição.
       if (!editando) setLinhas(null);
       await consulta.refetch();
@@ -281,6 +282,8 @@ export function ProgressoObraAba({ projectId, onFotosMudaram }: { projectId: num
                       {dados.pci && <div className="mt-1"><BotoesArquivosMedicao medicaoId={h.id} /></div>}
                     </div>
                     <div>
+                      {h.emailStatus && <p className="text-xs text-gray-400">E-mail: {h.emailStatus === "sent" ? "enviado com PDF e XLS" : h.emailStatus === "failed" ? "falhou — tente reenviar" : "processando"}</p>}
+                      {h.emailPodeReenviar && <Button type="button" size="sm" variant="outline" disabled={ocupado} onClick={() => acao(() => solicitar.mutateAsync({ medicaoId: h.id }), "E-mail enviado com PDF e XLS.")}>Reenviar e-mail</Button>}
                       {h.solicitadaEm ? (
                         <p className="text-xs text-amber-200"><Send className="mr-1 inline h-3 w-3" />Solicitada em {dataHora(h.solicitadaEm)}{h.solicitadaPor ? ` por ${h.solicitadaPor}` : ""}</p>
                       ) : (
