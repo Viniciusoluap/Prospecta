@@ -1,3 +1,4 @@
+import { incidenciaPciParaTexto } from "../shared/pci-upload.js";
 import { TRPCError } from "@trpc/server";
 import { and, asc, count, desc, eq, inArray, isNull, sql, type SQL } from "drizzle-orm";
 import { alias } from "drizzle-orm/pg-core";
@@ -204,7 +205,7 @@ export async function carregarProgresso(projectId: number) {
           enviadaEm: pci.uploadedAt,
           vinculadaEm: pci.linkedAt,
           formato: dadosPci.formato,
-          incidencias: dadosPci.incidencias.map((v) => normalizarPercentual(String(v))),
+          incidencias: dadosPci.incidencias.map((v) => incidenciaPciParaTexto(v)),
           proponente: dadosPci.identificacao?.proponente ?? "",
           contrato: dadosPci.contrato,
           prazoMeses: dadosPci.prazoMeses,
@@ -386,7 +387,7 @@ export const obraProgressoRouter = router({
     const atuais = mesclarComPadrao(salvos.map((s) => ({ chave: s.serviceKey, incidencia: normalizarPercentual(s.incidencePct), execucao: normalizarPercentual(s.executionPct) })));
     const itens = atuais.map((i, k) => ({
       chave: i.chave,
-      incidencia: normalizarPercentual(String(dados.incidencias[k] ?? 0)),
+      incidencia: incidenciaPciParaTexto(dados.incidencias[k] ?? 0),
       execucao: String(i.execucao ?? "0"),
     }));
     const calculo = calcularProgresso(itens);
