@@ -197,11 +197,12 @@ export default function Portal() {
   async function onFinancingFile(file?: File) {
     if (financingFileRef.current) financingFileRef.current.value = "";
     if (!file || !uploadChecklistId || !financingId) return;
+    const mimeType = file.type || (/\.xls$/i.test(file.name) ? "application/vnd.ms-excel" : "");
     if (
-      !["application/pdf", "image/jpeg", "image/png"].includes(file.type) ||
-      file.size > 10 * 1024 * 1024
+      !["application/pdf", "image/jpeg", "image/png", "application/vnd.ms-excel"].includes(mimeType) ||
+      file.size > 3 * 1024 * 1024
     ) {
-      toast.error("Envie PDF, JPG ou PNG de até 10 MiB");
+      toast.error("Envie PDF, JPG, PNG ou XLS de até 3 MiB");
       return;
     }
     setEnviando(true);
@@ -210,7 +211,7 @@ export default function Portal() {
         financingId,
         checklistItemId: uploadChecklistId,
         fileName: file.name,
-        mimeType: file.type as "application/pdf" | "image/jpeg" | "image/png",
+        mimeType: mimeType as "application/pdf" | "image/jpeg" | "image/png" | "application/vnd.ms-excel",
         base64: await toBase64(file),
       }, { item: "documento" });
       toast.success("Documento enviado para análise");
@@ -548,7 +549,7 @@ export default function Portal() {
                     ref={financingFileRef}
                     hidden
                     type="file"
-                    accept="application/pdf,image/jpeg,image/png"
+                    accept="application/pdf,image/jpeg,image/png,.xls,application/vnd.ms-excel"
                     capture="environment"
                     onChange={event => onFinancingFile(event.target.files?.[0])}
                   />

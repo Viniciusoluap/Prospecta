@@ -24,7 +24,6 @@ export const PROJECT_TYPE_LABELS: Record<string, string> = {
   projeto_estrutural: "Projeto Estrutural",
   projeto_eletrico: "Projeto Elétrico",
   projeto_hidrossanitario: "Projeto Hidrossanitário",
-  projeto_completo: "Projeto Completo",
   orcamento_obra: "Orçamento de Obra",
   laudo_tecnico: "Laudo Técnico",
   art_rrt: "ART / RRT",
@@ -174,13 +173,16 @@ export const projectInput = z
     description: notes,
     checklist: z
       .array(
-        z.object({ text: z.string().trim().min(1).max(500), done: z.boolean() })
+        z.object({ id: z.string().max(100).optional(), type: z.string().max(80).optional(), text: z.string().trim().min(1).max(500), done: z.boolean() })
       )
       .max(100),
     files: z
       .array(
         z.object({
           name,
+          itemId: z.string().max(100).optional(),
+          kind: z.enum(["editable", "pdf"]).optional(),
+          driveFileId: z.string().max(200).optional(),
           url: z
             .string()
             .url()

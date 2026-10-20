@@ -1,4 +1,7 @@
 import { AcoesExcluir } from "@/components/AcoesExcluir";
+import { uploadProjectDocument } from "@/lib/project-upload";
+import { projectChecklist, type ProjectCheck } from "@shared/projeto-documentos";
+import { toast } from "sonner";
 import { useState } from "react";
 import { Link } from "wouter";
 import { trpc } from "@/lib/trpc";
@@ -22,8 +25,8 @@ import {
   Rows,
 } from "./OperationalUI";
 import { rotulo } from "@shared/rotulos";
-type Check = { text: string; done: boolean };
-type FileLink = { name: string; url: string };
+type Check = ProjectCheck;
+type FileLink = { name: string; url: string; itemId?: string; kind?: "editable" | "pdf"; driveFileId?: string };
 const blank = () => ({
   name: "",
   types: [] as string[],
@@ -54,6 +57,9 @@ export default function AdminProjetos() {
   // EPIC-017: registro nasce do lead; cliente/telefone vêm do CRM.
   const [linkedLeadId, setLinkedLeadId] = useState<number | null>(null);
   const [open, setOpen] = useState(false);
+  const [detail, setDetail] = useState<(NonNullable<typeof list.data>)[number] | null>(null);
+  const [uploading, setUploading] = useState<string | null>(null);
+  const [progress, setProgress] = useState(0);
   const [search, setSearch] = useState("");
   const [status, setStatus] = useState("");
   const rows = (list.data || []).filter(
@@ -73,13 +79,14 @@ export default function AdminProjetos() {
     >
       <LinkedServiceQueue
         module="projetos"
+        hideCRM
         title="Projetos"
         onRecordsCreated={() => void list.refetch()}
       />
       <p className="rounded border border-slate-200 bg-white p-3 text-sm text-slate-700">
         Novos projetos nascem do CRM: no cadastro do lead, vincule o serviço
         “Projeto técnico”. O registro aparece aqui com os dados do cliente;
-        complete engenheiro, tipos, valores e prazo em “Detalhes / editar”.
+        complete engenheiro, tipos e prazo em “Editar”.
       </p>
       <nav className="flex flex-wrap gap-4 text-sm underline">
         <Link href="/admin/orcamentos">Solicitações de orçamento</Link>
@@ -107,7 +114,6 @@ export default function AdminProjetos() {
           "Projeto / cliente",
           "Engenheiro",
           "Status / prazo",
-          "Valores",
           "Checklist",
           "Ações",
         ]}
@@ -120,7 +126,7 @@ export default function AdminProjetos() {
           return (
             <tr key={r.id}>
               <td>
-                {r.name}
+                <button type="button" className="text-left font-semibold underline" onClick={() => setDetail(r)}>{r.name}</button>
                 {pendingTechnicalData && (
                   <span className="ml-2 rounded bg-amber-100 px-2 py-0.5 text-xs font-semibold text-amber-900">
                     Aguardando dados técnicos
@@ -128,7 +134,7 @@ export default function AdminProjetos() {
                 )}
                 <br />
                 {r.clientName}
-                {r.leadId && <><br /><Link href={`/admin/crm/${r.leadId}`} className="text-sm text-[#8B631D] underline">Abrir cadastro CRM</Link></>}
+
               </td>
               <td>{r.engineer}</td>
               <td>
@@ -137,11 +143,6 @@ export default function AdminProjetos() {
                 {r.deadline
                   ? new Date(r.deadline).toLocaleDateString("pt-BR")
                   : "Sem prazo"}
-              </td>
-              <td>
-                {money(r.value)}
-                <br />
-                Pago: {money(r.paidValue)}
               </td>
               <td>
                 {checks.filter(c => c.done).length}/{checks.length}
@@ -161,13 +162,13 @@ export default function AdminProjetos() {
                         engineerRegistration: r.engineerRegistration ?? "",
                         deadline: localDate(r.deadline),
                         leadId: String(r.leadId ?? ""),
-                        checklist: checks,
+                        checklist: projectChecklist(parseArray<string>(r.types), checks, PROJECT_TYPE_LABELS),
                         files: parseArray<FileLink>(r.files),
                       });
                       setOpen(true);
                     }}
                   >
-                    Detalhes / editar
+                    Editar
                   </Button>
                   <AcoesExcluir
                     rotulo={r.name}
@@ -179,6 +180,7 @@ export default function AdminProjetos() {
           );
         })}
       </Rows>
+      {detail && <div className="fixed inset-0 z-50 overflow-y-auto bg-black/60 p-4" role="dialog" aria-modal="true" aria-label="Detalhes do projeto"><div className="mx-auto my-6 max-w-3xl space-y-4 rounded bg-white p-6 text-slate-900"><div className="flex justify-between gap-3"><h2 className="text-xl font-bold">{detail.name}</h2><Button variant="outline" onClick={() => setDetail(null)}>Fechar</Button></div><dl className="grid gap-3 sm:grid-cols-2">{[["Cliente",detail.clientName],["Telefone",detail.clientPhone],["Engenheiro",detail.engineer],["Habilitação técnica",detail.engineerRegistration],["Status",rotulo(detail.status)],["Prazo",detail.deadline ? new Date(detail.deadline).toLocaleDateString("pt-BR") : "Sem prazo"],["Tipos",parseArray<string>(detail.types).map(v => PROJECT_TYPE_LABELS[v] ?? v).join(", ")],["Descrição",detail.description]].map(([label,value]) => <div key={label}><dt className="font-semibold">{label}</dt><dd>{value || "—"}</dd></div>)}</dl><h3 className="font-semibold">Checklist</h3>{projectChecklist(parseArray<string>(detail.types),parseArray<Check>(detail.checklist),PROJECT_TYPE_LABELS).map((check,i) => <p key={check.id ?? i}>{check.done ? "✓" : "○"} {check.text}</p>)}<h3 className="font-semibold">Documentos</h3>{parseArray<FileLink>(detail.files).map(file => <a className="block underline" key={file.url} href={file.url} target="_blank" rel="noopener noreferrer">{file.kind === "pdf" ? "PDF — " : file.kind === "editable" ? "Editável — " : ""}{file.name}</a>)}</div></div>}
       <Editor
         title={id ? "Detalhes do projeto" : "Novo projeto"}
         open={open}
@@ -208,8 +210,6 @@ export default function AdminProjetos() {
             ["name", "Nome", "text"],
             ["clientName", linkedLeadId ? "Cliente (do CRM)" : "Cliente", "text"],
             ["clientPhone", linkedLeadId ? "Telefone (do CRM)" : "Telefone", "tel"],
-            ["value", "Valor do projeto (R$)", "number"],
-            ["paidValue", "Valor pago (R$)", "number"],
             ["deadline", "Prazo de entrega", "datetime-local"],
           ] as const
         ).map(([key, label, type]) => (
@@ -217,9 +217,7 @@ export default function AdminProjetos() {
             <input
               className={inputClass}
               type={type}
-              step={type === "number" ? "0.01" : undefined}
-              min={type === "number" ? "0" : undefined}
-              disabled={
+                            disabled={
                 linkedLeadId !== null &&
                 (key === "clientName" || key === "clientPhone")
               }
@@ -261,12 +259,12 @@ export default function AdminProjetos() {
         <fieldset className="space-y-1 sm:col-span-2">
           <legend className="font-semibold">Tipos de projeto *</legend>
           <div className="flex flex-wrap gap-3">
-            {[...Object.keys(PROJECT_TYPE_LABELS), ...form.types.filter(t => !PROJECT_TYPE_LABELS[t])].map(tipo => (
+            {[...Object.keys(PROJECT_TYPE_LABELS), ...form.types.filter(t => t !== "projeto_completo" && !PROJECT_TYPE_LABELS[t])].map(tipo => (
               <label key={tipo} className="flex items-center gap-1 text-sm">
                 <input
                   type="checkbox"
                   checked={form.types.includes(tipo)}
-                  onChange={e => setForm(f => ({ ...f, types: e.target.checked ? [...f.types, tipo] : f.types.filter(t => t !== tipo) }))}
+                  onChange={e => setForm(f => { const types = e.target.checked ? [...f.types, tipo] : f.types.filter(t => t !== tipo); return { ...f, types, checklist: projectChecklist(types, f.checklist, PROJECT_TYPE_LABELS) }; })}
                 />
                 {PROJECT_TYPE_LABELS[tipo] ?? tipo}
               </label>
@@ -282,13 +280,7 @@ export default function AdminProjetos() {
         />
         {linkedLeadId ? (
           <Field label="Lead vinculado">
-            <Link
-              href={`/admin/crm/${linkedLeadId}`}
-              className="block p-2 text-[#8B631D] underline"
-            >
-              {leads.data?.find(l => l.id === linkedLeadId)?.name ??
-                `Lead #${linkedLeadId}`}
-            </Link>
+            <span>{leads.data?.find(l => l.id === linkedLeadId)?.name ?? `Lead #${linkedLeadId}`}</span>
           </Field>
         ) : (
           <Choice
@@ -311,7 +303,7 @@ export default function AdminProjetos() {
         <section className="space-y-3 sm:col-span-2">
           <h2 className="font-semibold">Checklist</h2>
           {form.checklist.map((c, i) => (
-            <div className="flex items-center gap-2" key={i}>
+            <div className="grid gap-2 rounded border p-3" key={c.id ?? i}>
               <input
                 type="checkbox"
                 aria-label={`Concluído: ${c.text}`}
@@ -350,6 +342,19 @@ export default function AdminProjetos() {
               >
                 Remover
               </Button>
+              <div className="flex flex-wrap gap-2">
+                {(["editable", "pdf"] as const).map(kind => <label key={kind} className="cursor-pointer rounded border px-3 py-2 text-sm">
+                  {kind === "pdf" ? "Enviar PDF" : "Enviar arquivo editável"}
+                  <input className="hidden" type="file" accept={kind === "pdf" ? ".pdf,application/pdf" : undefined} disabled={!!uploading} onChange={async e => {
+                    const file = e.target.files?.[0]; e.target.value = ""; if (!file) return;
+                    if (!id) { toast.error("Salve o projeto antes de enviar arquivos."); return; }
+                    setUploading(`${i}-${kind}`); setProgress(0);
+                    try { const uploaded = await uploadProjectDocument(`/api/projetos/${id}/documentos`, file, c.id || `legacy-${i}`, kind, setProgress); setForm(f => ({ ...f, files: [...f.files, uploaded] })); await list.refetch(); toast.success("Arquivo salvo no Google Drive."); }
+                    catch(error) { toast.error(error instanceof Error ? error.message : "Falha no envio."); } finally { setUploading(null); }
+                  }} />
+                </label>)}
+              </div>
+              {form.files.filter(file => file.itemId === (c.id || `legacy-${i}`)).map(file => <a key={file.url} href={file.url} target="_blank" rel="noopener noreferrer" className="text-sm underline">{file.kind === "pdf" ? "PDF" : "Editável"}: {file.name}</a>)}
             </div>
           ))}
           <Button
@@ -358,87 +363,16 @@ export default function AdminProjetos() {
             onClick={() =>
               setForm(f => ({
                 ...f,
-                checklist: [...f.checklist, { text: "", done: false }],
+                checklist: [...f.checklist, { id: crypto.randomUUID(), text: "", done: false }],
               }))
             }
           >
             Adicionar item
           </Button>
         </section>
-        <section className="space-y-3 sm:col-span-2">
-          <h2 className="font-semibold">Documentos — links HTTPS</h2>
-          <p className="text-sm text-slate-600">
-            Use links com acesso restrito aos responsáveis. Os documentos não
-            são publicados no site.
-          </p>
-          {form.files.map((file, i) => (
-            <div className="grid gap-2 rounded border p-3" key={i}>
-              <Field label="Nome do documento">
-                <input
-                  className={inputClass}
-                  value={file.name}
-                  onChange={e =>
-                    setForm(f => ({
-                      ...f,
-                      files: f.files.map((v, n) =>
-                        n === i ? { ...v, name: e.target.value } : v
-                      ),
-                    }))
-                  }
-                />
-              </Field>
-              <Field label="Link HTTPS">
-                <input
-                  className={inputClass}
-                  type="url"
-                  value={file.url}
-                  onChange={e =>
-                    setForm(f => ({
-                      ...f,
-                      files: f.files.map((v, n) =>
-                        n === i ? { ...v, url: e.target.value } : v
-                      ),
-                    }))
-                  }
-                />
-              </Field>
-              {file.url.startsWith("https://") && (
-                <a
-                  href={file.url}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="underline"
-                >
-                  Abrir documento
-                </a>
-              )}
-              <Button
-                type="button"
-                variant="outline"
-                onClick={() =>
-                  setForm(f => ({
-                    ...f,
-                    files: f.files.filter((_, n) => n !== i),
-                  }))
-                }
-              >
-                Remover link
-              </Button>
-            </div>
-          ))}
-          <Button
-            type="button"
-            variant="outline"
-            onClick={() =>
-              setForm(f => ({
-                ...f,
-                files: [...f.files, { name: "", url: "" }],
-              }))
-            }
-          >
-            Adicionar documento
-          </Button>
-        </section>
+        {uploading && <p role="status">Enviando ao Google Drive: {progress}%</p>}
+        <p className="text-sm text-slate-600">Até 300 MB por arquivo. Salve alterações no checklist antes de enviar arquivos para itens novos.</p>
+        {form.files.filter(file => !file.itemId).length > 0 && <section><h2 className="font-semibold">Documentos anteriores</h2>{form.files.filter(file => !file.itemId).map(file => <a className="block underline" key={file.url} href={file.url} target="_blank" rel="noopener noreferrer">{file.name}</a>)}</section>}
       </Editor>
     </OperationalPage>
   );

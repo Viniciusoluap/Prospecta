@@ -27,6 +27,7 @@ import {
   CHECKLIST_MAX_FOTOS,
 } from "../shared/avaliacao-checklist.js";
 import { gerarSugestaoValor } from "./_core/avaliacao-ia.js";
+import { buscarComparaveis } from "./_core/avaliacao-comparaveis.js";
 import { scrapeUrl } from "./_core/imovel-scraper.js";
 import { paymentSettingsRouter } from "./payment-settings-router.js";
 import { regularizacaoRouter } from "./regularizacao-router.js";
@@ -2618,6 +2619,14 @@ export const appRouter = router({
           caracteristicas: JSON.stringify(checklist),
         });
         return { success: true };
+      }),
+
+    comparaveis: adminProcedure
+      .input(z.object({ id: z.number().int().positive() }))
+      .mutation(async ({ input }) => {
+        const avaliacao = await db.getAvaliacaoById(input.id);
+        if (!avaliacao) throw new TRPCError({ code: "NOT_FOUND", message: "Avaliação não encontrada" });
+        return buscarComparaveis(avaliacao);
       }),
 
     sugerirValor: adminProcedure

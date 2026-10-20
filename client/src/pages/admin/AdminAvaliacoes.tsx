@@ -295,6 +295,8 @@ export default function AdminAvaliacoes() {
       <div className="max-w-7xl mx-auto px-6 py-6 space-y-6">
         <LinkedServiceQueue
           module="avaliacoes"
+          hideCRM
+          allowDeletePending
           title="Avaliações"
           startLabel="Solicitar avaliação"
           onStart={leadId => { setForm({ ...emptyForm(), leadId }); setAreaConstruidaTexto(""); setAreaTerrenoTexto(""); setOpen(true); }}
@@ -374,7 +376,7 @@ export default function AdminAvaliacoes() {
             {avaliacoes.map((a: any) => (
               <Card key={a.id} className="bg-[#2C3E50] border-[#C9A961]/20 hover:border-[#C9A961]/50 transition-colors">
                 <CardHeader className="pb-3">
-                  <div className="flex items-center gap-3">
+                  <div className="flex flex-wrap items-center gap-3">
                     <input
                       type="checkbox"
                       checked={selecionadas.has(a.id)}
@@ -382,8 +384,8 @@ export default function AdminAvaliacoes() {
                       onClick={(e) => e.stopPropagation()}
                       className="h-4 w-4 shrink-0 accent-[#C9A961]"
                     />
-                    <Link href={`/admin/avaliacoes/${a.id}`} className="flex-1">
-                      <div className="flex items-center justify-between cursor-pointer">
+                    <Link href={`/admin/avaliacoes/${a.id}`} className="min-w-0 flex-1">
+                      <div className="flex flex-wrap items-center justify-between gap-3 cursor-pointer">
                         <div>
                           <CardTitle className="text-white text-base flex items-center gap-2">
                             {a.numero}
@@ -391,6 +393,7 @@ export default function AdminAvaliacoes() {
                           </CardTitle>
                           <p className="text-sm text-gray-300 mt-1">{a.clienteNome} • {a.endereco}, {a.bairro} — {a.cidade}/{a.estado}</p>
                           <p className="text-xs text-gray-400 mt-0.5">{TIPO_LABELS[a.tipo] ?? a.tipo} • {a.avaliador}</p>
+                          <p className="mt-2 text-xs font-semibold text-[#E6CA88]">Abrir avaliação, checklist e IA →</p>
                         </div>
                         <div className="text-right">
                           {a.valorEstimado && <p className="text-[#C9A961] font-bold text-lg">{formatCurrencyBR(a.valorEstimado)}</p>}
@@ -398,7 +401,6 @@ export default function AdminAvaliacoes() {
                         </div>
                       </div>
                     </Link>
-                    {a.leadId && <Link href={`/admin/crm/${a.leadId}`} className="text-sm text-[#E6CA88] underline">CRM</Link>}
                     <AcoesExcluir compacto rotulo={a.numero ?? `Avaliação ${a.id}`} onExcluir={async () => { await deleteMutation.mutateAsync({ id: a.id }); await utils.avaliacoes.list.invalidate(); }} />
                   </div>
                 </CardHeader>

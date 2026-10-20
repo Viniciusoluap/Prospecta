@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { resumirComissoes } from "@shared/financeiro/comissoes-listagem";
 import type { inferRouterOutputs } from "@trpc/server";
 import type { AppRouter } from "../../../../server/routers";
 import { trpc } from "@/lib/trpc";
@@ -21,7 +22,6 @@ import {
   DeleteButton,
   Editor,
   Field,
-  ids,
   inputClass,
   localDate,
   money,
@@ -102,8 +102,8 @@ export default function AdminComissoes() {
       <LinkedServiceQueue module="comissoes" title="Comissões" />
       <ComissoesDeObras dados={obras.data} carregando={obras.isLoading} erro={obras.error?.message}
         status={status} broker={broker} setStatus={setStatus} setBroker={setBroker}
-        corretores={(brokers.data ?? []).map(b => ({ value: String(b.id), label: b.name || `#${b.id}` }))}
-        avulsas={rows.filter(r => !(obras.data ?? []).some(o => o.registrosManuais.some(m => m.id === r.commission.id)))} />
+        corretores={Array.from(new Map([...(brokers.data ?? []).map(b => ({ value: String(b.id), label: b.name || `#${b.id}` })), ...(obras.data ?? []).map(o => ({ value: String(o.corretorId), label: o.corretor || `#${o.corretorId}` }))].map(c => [c.value, c])).values())}
+        avulsas={rows} />
       <Rows
         headers={[
           "Beneficiário / negócio",
@@ -333,10 +333,9 @@ function ComissoesDeObras({ dados, carregando, erro, status, broker, setStatus, 
   avulsas: inferRouterOutputs<AppRouter>["comissoes"]["list"];
 }) {
   const linhas = (dados ?? []).filter(l => (!status || l.calculo.status === status) && (!broker || String(l.corretorId) === broker));
-  const pendente = linhas.reduce((total, l) => total + (l.calculo.saldoCentavos ?? 0), 0) / 100
-    + avulsas.filter(r => ["pendente", "aprovada"].includes(r.commission.status)).reduce((total, r) => total + Number(r.commission.amount), 0);
-  const pago = linhas.reduce((total, l) => total + l.calculo.pagoCentavos, 0) / 100
-    + avulsas.filter(r => r.commission.status === "paga").reduce((total, r) => total + Number(r.commission.amount), 0);
+  const { pendente, pago } = resumirComissoes(linhas,
+    avulsas.map(r => ({ id: r.commission.id, status: r.commission.status, valor: Number(r.commission.amount) })),
+    (dados ?? []).flatMap(o => o.registrosManuais.map(m => m.id)));
   const incompletas = (dados ?? []).filter(l => l.calculo.status === "dados_incompletos").length;
   const reais = (c: number | null) => (c === null ? "—" : money(c / 100));
   return (

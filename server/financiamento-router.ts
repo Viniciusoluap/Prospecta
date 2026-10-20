@@ -1,4 +1,6 @@
-import { and, asc, desc, eq, isNull, sql } from "drizzle-orm";
+import { notifyClientDocumentRequest } from "./document-request-notifications.js";
+import { FINANCING_DOCUMENT_MIMES, saveFinancingDocument } from "./financing-document-upload.js";
+import { and, asc, desc, eq, inArray, isNull, sql } from "drizzle-orm";
 import { z } from "zod";
 import {
   financiamentoChecklistItems,
@@ -78,8 +80,8 @@ export const financiamentoRouter = router({
       return database
         .select({
           financiamento: financiamentos,
-          checklistTotal: sql<number>`count(${financiamentoChecklistItems.id})::int`,
-          checklistConcluido: sql<number>`count(${financiamentoChecklistItems.id}) filter (where ${financiamentoChecklistItems.concluido} = true)::int`,
+          checklistTotal: sql<number>`count(${financiamentoChecklistItems.id}) filter (where ${inArray(financiamentoChecklistItems.item, FINANCIAMENTO_CHECKLIST_PADRAO.map(item => item.item))})::int`,
+          checklistConcluido: sql<number>`count(${financiamentoChecklistItems.id}) filter (where ${financiamentoChecklistItems.concluido} = true AND ${inArray(financiamentoChecklistItems.item, FINANCIAMENTO_CHECKLIST_PADRAO.map(item => item.item))})::int`,
         })
         .from(financiamentos)
         .leftJoin(
@@ -109,7 +111,9 @@ export const financiamentoRouter = router({
           asc(financiamentoChecklistItems.grupo),
           asc(financiamentoChecklistItems.id)
         );
-      return { financiamento, checklist };
+      const contact = financiamento.leadId ? await clientFieldsFromLead(financiamento.leadId) : null;
+      const current = FINANCIAMENTO_CHECKLIST_PADRAO.map(defaultItem => checklist.find(item => item.item === defaultItem.item)).filter((item): item is typeof checklist[number] => Boolean(item));
+      return { financiamento: { ...financiamento, ...(contact ?? {}) }, checklist: current, legacyChecklist: checklist.filter(item => !FINANCIAMENTO_CHECKLIST_PADRAO.some(defaultItem => defaultItem.item === item.item)) };
     }),
 
   /**
@@ -252,7 +256,13 @@ export const financiamentoRouter = router({
       })
     )
     .mutation(async ({ input }) => {
-      const [updated] = await getDb()
+      const database = getDb();
+      const [previous] = await database.select({ item: financiamentoChecklistItems, leadId: financiamentos.leadId }).from(financiamentoChecklistItems).innerJoin(financiamentos, eq(financiamentoChecklistItems.financiamentoId, financiamentos.id)).where(and(eq(financiamentoChecklistItems.id, input.id), eq(financiamentoChecklistItems.financiamentoId, input.financiamentoId))).limit(1);
+      if (!previous) throw new TRPCError({ code: "NOT_FOUND" });
+      const visible = input.visivelCliente ?? previous.item.visivelCliente;
+      const requested = input.solicitarDocumento ?? previous.item.solicitarDocumento;
+      if (requested && !visible && !previous.item.solicitarDocumento) throw new TRPCError({ code: "BAD_REQUEST", message: "Deixe o documento visível antes de solicitar" });
+      const [updated] = await database
         .update(financiamentoChecklistItems)
         .set({
           concluido: input.concluido,
@@ -271,7 +281,9 @@ export const financiamentoRouter = router({
           )
         )
         .returning();
-      return updated;
+      const shouldNotify = visible && requested && (!previous.item.solicitarDocumento || !previous.item.visivelCliente);
+      const notice = shouldNotify && previous.leadId ? await notifyClientDocumentRequest(previous.leadId, previous.item.item, "/portal/financiamento") : null;
+      return { ...updated, emailWarning: notice?.emailWarning ?? null };
     }),
 
   /** Item 03: exclusão definitiva (remove checklist e o serviço do CRM ligado). */
@@ -280,6 +292,23 @@ export const financiamentoRouter = router({
     .mutation(async ({ ctx, input }) => {
       await excluirDefinitivo("financiamento", input.id, ctx.user);
       return { success: true } as const;
+    }),
+
+  requestChecklistDocument: adminProcedure
+    .input(z.object({ financiamentoId: z.number().int().positive(), itemId: z.number().int().positive() }))
+    .mutation(async ({ input }) => {
+      const [record] = await getDb().select({ item: financiamentoChecklistItems, leadId: financiamentos.leadId }).from(financiamentoChecklistItems).innerJoin(financiamentos, eq(financiamentoChecklistItems.financiamentoId, financiamentos.id)).where(and(eq(financiamentoChecklistItems.id, input.itemId), eq(financiamentos.id, input.financiamentoId))).limit(1);
+      if (!record?.leadId || !record.item.visivelCliente) throw new TRPCError({ code: "BAD_REQUEST", message: "Cliente vinculado e documento visível são necessários" });
+      await getDb().update(financiamentoChecklistItems).set({ solicitarDocumento: true }).where(eq(financiamentoChecklistItems.id, input.itemId));
+      return notifyClientDocumentRequest(record.leadId, record.item.item, "/portal/financiamento");
+    }),
+
+  uploadChecklistDocument: adminProcedure
+    .input(z.object({ financiamentoId: z.number().int().positive(), itemId: z.number().int().positive(), fileName: z.string().min(1).max(255), mimeType: z.enum(FINANCING_DOCUMENT_MIMES), base64: z.string().min(8).max(4_200_000) }))
+    .mutation(async ({ input }) => {
+      const [record] = await getDb().select({ item: financiamentoChecklistItems, leadId: financiamentos.leadId }).from(financiamentoChecklistItems).innerJoin(financiamentos, eq(financiamentoChecklistItems.financiamentoId, financiamentos.id)).where(and(eq(financiamentoChecklistItems.id, input.itemId), eq(financiamentos.id, input.financiamentoId))).limit(1);
+      if (!record?.leadId) throw new TRPCError({ code: "NOT_FOUND", message: "Financiamento sem cliente vinculado" });
+      return saveFinancingDocument({ itemId: record.item.id, financingId: input.financiamentoId, leadId: record.leadId, label: record.item.item, ...input });
     }),
 
   checklistDocumentContent: adminProcedure

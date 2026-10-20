@@ -1,3 +1,5 @@
+import { projectChecklist } from "../shared/projeto-documentos.js";
+import { PROJECT_TYPE_LABELS } from "../shared/operacional.js";
 import { TRPCError } from "@trpc/server";
 import { and, asc, desc, eq, inArray, isNull, ne, sql } from "drizzle-orm";
 import { z } from "zod";
@@ -600,7 +602,7 @@ function projectValues(
     // EPIC-017: com lead vinculado, cliente e telefone seguem o CRM.
     ...(lead ? { clientName: lead.name, clientPhone: lead.phone ?? "" } : {}),
     types: JSON.stringify(d.types),
-    checklist: JSON.stringify(d.checklist),
+    checklist: JSON.stringify(projectChecklist(d.types, d.checklist, PROJECT_TYPE_LABELS)),
     files: JSON.stringify(d.files),
     value: d.value.toFixed(2),
     paidValue: d.paidValue.toFixed(2),
@@ -673,7 +675,7 @@ export const projetosRouter = router({
         (
           await getDb()
             .update(projects)
-            .set({ ...projectValues(input.data, lead), ...engenheiro })
+            .set({ ...projectValues(input.data, lead), ...engenheiro, files: sql`${projects.files}` })
             .where(eq(projects.id, input.id))
             .returning()
         )[0]
