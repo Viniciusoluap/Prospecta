@@ -205,6 +205,8 @@ export const leadDocTypeEnum = pgEnum("lead_doc_type", [
   "income_proof_irpf",
   "fgts",
   "spouse_docs",
+  "spouse_income_proof",
+  "birth_marriage_certificate",
   "pis",
   "other",
 ]);

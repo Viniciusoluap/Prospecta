@@ -106,7 +106,8 @@ export function CurrencyInput(props: CurrencyInputProps) {
         required={required}
         disabled={disabled}
         aria-label={props["aria-label"]}
-        className={cn("pl-9", className)}
+        className={cn("w-full min-w-0", className)}
+        style={{ paddingInlineStart: "2.75rem" }}
       />
       {name && <input type="hidden" name={name} value={numero} />}
     </div>

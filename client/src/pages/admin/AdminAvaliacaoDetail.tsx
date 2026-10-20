@@ -103,7 +103,7 @@ export default function AdminAvaliacaoDetail() {
   const params = useParams<{ id: string }>();
   const id = parseInt(params.id, 10);
 
-  const { data: avaliacao, refetch } = trpc.avaliacoes.getById.useQuery({ id }, { enabled: !isNaN(id) });
+  const { data: avaliacao, refetch, error: loadError, isLoading } = trpc.avaliacoes.getById.useQuery({ id }, { enabled: !isNaN(id) });
   const { data: catalog } = trpc.avaliacoes.getChecklistCatalog.useQuery(
     { tipo: parseChecklist(avaliacao?.caracteristicas).tipoChecklist },
     { enabled: !!avaliacao }
@@ -143,6 +143,14 @@ export default function AdminAvaliacaoDetail() {
     onSuccess: (data) => { setSugestao(data); toast.success("Sugestão gerada!"); refetch(); },
     onError: (e) => toast.error(e.message),
   });
+
+  const comparaveisMutation = trpc.avaliacoes.comparaveis.useMutation({
+    onError: (e) => toast.error(e.message),
+  });
+
+  if (!isLoading && (!avaliacao || loadError)) {
+    return <div className="min-h-screen bg-[#1A2332] p-6 text-white"><Link href="/admin/avaliacoes" className="text-[#E6CA88] underline">Voltar às avaliações</Link><p role="alert" className="my-4">{loadError?.message ?? "Avaliação não encontrada."}</p><Button onClick={() => refetch()}>Tentar novamente</Button></div>;
+  }
 
   if (!avaliacao) {
     return (
@@ -398,12 +406,17 @@ export default function AdminAvaliacaoDetail() {
         {/* Sugestão de valor via IA */}
         <Card className="bg-[#2C3E50] border-[#C9A961]/20">
           <CardHeader>
-            <div className="flex items-center justify-between">
+            <div className="flex flex-wrap items-center justify-between gap-3">
               <CardTitle className="text-[#C9A961] text-base">Sugestão de Valor (IA)</CardTitle>
               <Button
                 size="sm"
-                onClick={() => sugerirValorMutation.mutate({ id })}
-                disabled={sugerirValorMutation.isPending}
+                onClick={async () => {
+                  try {
+                    await updateChecklistMutation.mutateAsync({ id, ...checklist });
+                    sugerirValorMutation.mutate({ id });
+                  } catch { /* mutation displays the actual save error */ }
+                }}
+                disabled={sugerirValorMutation.isPending || updateChecklistMutation.isPending}
                 className="bg-[#C9A961] hover:bg-[#B8985A] text-[#1A2332] font-bold"
               >
                 {sugerirValorMutation.isPending ? <Loader2 className="h-4 w-4 mr-1 animate-spin" /> : <Sparkles className="h-4 w-4 mr-1" />}
@@ -416,7 +429,7 @@ export default function AdminAvaliacaoDetail() {
               <p className="text-gray-400 text-sm">Nenhuma sugestão gerada ainda. Preencha o checklist antes para um resultado mais preciso.</p>
             ) : (
               <div className="space-y-3">
-                <div className="grid grid-cols-3 gap-3">
+                <div className="grid gap-3 sm:grid-cols-3">
                   <div><p className="text-gray-400 text-xs">Valor sugerido</p><p className="text-[#C9A961] font-bold text-xl">{formatCurrencyBR(sugestao.valorSugerido)}</p></div>
                   <div><p className="text-gray-400 text-xs">Faixa</p><p className="text-white text-sm">{formatCurrencyBR(sugestao.valorMin)} – {formatCurrencyBR(sugestao.valorMax)}</p></div>
                   <div><p className="text-gray-400 text-xs">Confiabilidade</p><Badge className="bg-blue-600 text-white">{sugestao.confiabilidade}</Badge></div>
@@ -431,16 +444,32 @@ export default function AdminAvaliacaoDetail() {
                     </div>
                   </div>
                 )}
-                {sugestao.metodologia && <p className="text-xs text-gray-400 italic">{sugestao.metodologia}</p>}
+                {sugestao.metodologia && <p className="text-xs text-gray-300 italic">{sugestao.metodologia}</p>}
+                {sugestao.observacoes && <p className="text-xs text-gray-300">{sugestao.observacoes}</p>}
+                {sugestao.fontes?.length > 0 && <p className="break-words text-xs text-gray-300">Fontes: {sugestao.fontes.join(" · ")}</p>}
                 <Button
                   size="sm" variant="outline"
-                  onClick={() => setValorEstimado(String(sugestao.valorSugerido))}
+                  onClick={() => { setValorEstimado(String(sugestao.valorSugerido)); updateMutation.mutate({ id, valorEstimado: sugestao.valorSugerido }); }}
                   className="border-[#C9A961]/30 text-[#C9A961]"
                 >
                   Usar como valor estimado
                 </Button>
               </div>
             )}
+          </CardContent>
+        </Card>
+
+        <Card className="bg-[#2C3E50] border-[#C9A961]/20 text-white">
+          <CardHeader><div className="flex flex-wrap items-center justify-between gap-3"><CardTitle className="text-base text-[#C9A961]">Comparáveis ZAP / VivaReal</CardTitle><Button onClick={() => comparaveisMutation.mutate({ id })} disabled={comparaveisMutation.isPending} className="bg-[#C9A961] text-[#1A2332]">{comparaveisMutation.isPending ? "Pesquisando…" : "Buscar comparáveis"}</Button></div></CardHeader>
+          <CardContent className="space-y-3">
+            <p className="text-sm text-gray-300">Pesquisa de anúncios para {avaliacao.bairro}, {avaliacao.cidade}/{avaliacao.estado}.</p>
+            {comparaveisMutation.error && <p role="alert" className="text-sm text-red-300">{comparaveisMutation.error.message}</p>}
+            {comparaveisMutation.data && <>
+              <p className="text-sm">{comparaveisMutation.data.totalEncontrados} anúncios · média {formatCurrencyBR(comparaveisMutation.data.valorMedio)} · {formatCurrencyBR(comparaveisMutation.data.precoPorM2Medio)}/m²</p>
+              {comparaveisMutation.data.comparaveis.map((c, i) => <div key={i} className="rounded bg-[#1A2332] p-3 text-sm"><p>{c.descricao}</p><p className="text-gray-300">{c.area} m² · {formatCurrencyBR(c.preco)} · {formatCurrencyBR(c.precoPorM2)}/m²</p></div>)}
+              <a href={comparaveisMutation.data.url} target="_blank" rel="noopener noreferrer" className="block text-sm text-[#E6CA88] underline">Abrir busca no ZAP</a>
+              <Button className="bg-[#C9A961] text-[#1A2332]" onClick={() => { const r = comparaveisMutation.data!; const valor = Number(avaliacao.areaConstruida) > 0 ? Math.round(r.precoPorM2Medio * Number(avaliacao.areaConstruida)) : r.valorMedio; setValorEstimado(String(valor)); updateMutation.mutate({ id, valorEstimado: valor }); }}>Aplicar valor dos comparáveis</Button>
+            </>}
           </CardContent>
         </Card>
 

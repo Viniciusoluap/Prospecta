@@ -1,6 +1,7 @@
 import { useEffect, useRef } from "react";
 import { Link } from "wouter";
 import { trpc } from "@/lib/trpc";
+import { AcoesExcluir } from "@/components/AcoesExcluir";
 
 type Module = "obras" | "tarefas" | "regularizacoes" | "comissoes" | "projetos" | "avaliacoes" | "financiamentos";
 
@@ -26,15 +27,20 @@ export function LinkedServiceQueue({
   onStart,
   startLabel = "Iniciar com dados do CRM",
   onRecordsCreated,
+  hideCRM = false,
+  allowDeletePending = false,
 }: {
   module: Module;
   title: string;
   onStart?: (leadId: number) => void;
   startLabel?: string;
   onRecordsCreated?: () => void;
+  hideCRM?: boolean;
+  allowDeletePending?: boolean;
 }) {
   const { data = [], isLoading, error, refetch } = trpc.leadServices.listForModule.useQuery({ module });
   const materialize = trpc.leadServices.materializePending.useMutation();
+  const remove = trpc.leadServices.remove.useMutation();
   const pending = data.filter(({ service }) => service.operationalRecordId === null);
   const attempted = useRef(false);
 
@@ -76,7 +82,8 @@ export function LinkedServiceQueue({
                     {startLabel}
                   </button>
                 )}
-                <Link href={`/admin/crm/${lead.id}`} className="rounded border border-[#C9A961] px-3 py-1 text-sm text-[#E6CA88] hover:bg-[#C9A961]/20">Ver lead</Link>
+                {!hideCRM && <Link href={`/admin/crm/${lead.id}`} className="rounded border border-[#C9A961] px-3 py-1 text-sm text-[#E6CA88] hover:bg-[#C9A961]/20">Ver lead</Link>}
+                {allowDeletePending && <AcoesExcluir rotulo={`Solicitação de ${title}: ${lead.name}`} onExcluir={async () => { await remove.mutateAsync({ id: service.id }); await refetch(); }} />}
               </div>
             </li>
           ))}

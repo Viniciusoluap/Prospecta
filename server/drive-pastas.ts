@@ -1,7 +1,7 @@
 // Onde cada documento fica no Google Drive (ver shared/drive-estrutura.ts).
 // Só consultas ao banco: as chamadas ao Drive ficam em drive-documents.ts.
 import { eq } from "drizzle-orm";
-import { incorporationStudies, leads, leadServices } from "../drizzle/schema.js";
+import { incorporationStudies, leads, leadServices, financiamentoChecklistItems } from "../drizzle/schema.js";
 import { areaDoServico, caminhoCliente, caminhoEstudo, type AreaCliente, type PastaAlvo } from "../shared/drive-estrutura.js";
 import { lerDueDiligence } from "../shared/incorporacao/due-diligence.js";
 import { DOCUMENTOS_PADRAO_REGISTRO, type DocumentoRegistro } from "../shared/incorporacao/registro-incorporacao.js";
@@ -18,14 +18,21 @@ const AREA_DA_CATEGORIA: Record<string, AreaCliente> = {
 export async function caminhoDocumentoCliente(leadId: number, serviceId: number | null, categoria: string): Promise<PastaAlvo[]> {
   const db = getDb();
   const [lead] = await db.select({ nome: leads.name }).from(leads).where(eq(leads.id, leadId)).limit(1);
-  let area = AREA_DA_CATEGORIA[categoria];
+  let area = categoria.startsWith("financiamento_checklist:") ? "financiamento" as AreaCliente : AREA_DA_CATEGORIA[categoria];
   if (!area) {
     const [servico] = serviceId
       ? await db.select({ tipo: leadServices.serviceType }).from(leadServices).where(eq(leadServices.id, serviceId)).limit(1)
       : [];
     area = areaDoServico(servico?.tipo ?? null);
   }
-  return caminhoCliente({ id: leadId, numero: leadId, nome: lead?.nome ?? null }, area);
+  const caminho = caminhoCliente({ id: leadId, numero: leadId, nome: lead?.nome ?? null }, area);
+  if (categoria.startsWith("financiamento_checklist:")) {
+    const [, financingId, itemId] = categoria.split(":");
+    caminho.push({ chave: `cliente:${leadId}:financiamento:${financingId}`, nome: `Financiamento (nº ${financingId})` });
+    const [checklist] = await db.select({ item: financiamentoChecklistItems.item }).from(financiamentoChecklistItems).where(eq(financiamentoChecklistItems.id, Number(itemId))).limit(1);
+    caminho.push({ chave: `cliente:${leadId}:financiamento:${financingId}:documento:${itemId}`, nome: checklist?.item ?? `Documento (nº ${itemId})` });
+  }
+  return caminho;
 }
 
 function documentosDoRegistro(json: string | null): DocumentoRegistro[] {

@@ -1,5 +1,5 @@
 import { AcoesExcluir } from "@/components/AcoesExcluir";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Link } from "wouter";
 import {
   ArrowLeft,
@@ -152,6 +152,9 @@ export default function AdminFinanciamentos() {
   const [editarAberto, setEditarAberto] = useState(false);
   const [selecionado, setSelecionado] = useState<number | null>(null);
   const [filtro, setFiltro] = useState<Status | "todos">("todos");
+  const uploadRef = useRef<HTMLInputElement>(null);
+  const [uploadItemId, setUploadItemId] = useState<number | null>(null);
+  const [uploadBusy, setUploadBusy] = useState(false);
   const utils = trpc.useUtils();
   const { data: processos = [], isLoading } = trpc.financiamentos.list.useQuery(
     filtro === "todos" ? {} : { status: filtro }
@@ -161,6 +164,22 @@ export default function AdminFinanciamentos() {
     { enabled: selecionado !== null }
   );
   const { data: options } = trpc.financiamentos.options.useQuery();
+
+  const uploadDocument = trpc.financiamentos.uploadChecklistDocument.useMutation();
+  const resendDocument = trpc.financiamentos.requestChecklistDocument.useMutation({ onSuccess: result => { if (result.emailWarning) toast.warning(result.emailWarning); else toast.success("Cliente avisado no portal e por email"); }, onError: error => toast.error(error.message) });
+  async function enviarDocumento(file?: File) {
+    if (!file || !uploadItemId || !selecionado) return;
+    const mimeType = file.type || (/\.xls$/i.test(file.name) ? "application/vnd.ms-excel" : "");
+    if (!["application/pdf", "image/jpeg", "image/png", "application/vnd.ms-excel"].includes(mimeType) || file.size > 3 * 1024 * 1024) { toast.error("Envie PDF, JPG, PNG ou XLS de até 3 MiB"); return; }
+    setUploadBusy(true);
+    try {
+      const base64 = await new Promise<string>((resolve, reject) => { const reader = new FileReader(); reader.onerror = reject; reader.onload = () => resolve(String(reader.result).split(",")[1] || ""); reader.readAsDataURL(file); });
+      await uploadDocument.mutateAsync({ financiamentoId: selecionado, itemId: uploadItemId, fileName: file.name, mimeType: mimeType as "application/pdf" | "image/jpeg" | "image/png" | "application/vnd.ms-excel", base64 });
+      toast.success("Documento salvo no Google Drive");
+      await utils.financiamentos.getById.invalidate();
+    } catch (error) { toast.error(error instanceof Error ? error.message : "Falha no envio"); }
+    finally { setUploadBusy(false); if (uploadRef.current) uploadRef.current.value = ""; }
+  }
 
   async function abrirDocumento(id: number, nome: string) {
     try {
@@ -188,7 +207,8 @@ export default function AdminFinanciamentos() {
     onError: erro => toast.error(erro.message),
   });
   const atualizarChecklist = trpc.financiamentos.updateChecklist.useMutation({
-    onSuccess: async () => {
+    onSuccess: async result => {
+      if (result.emailWarning) toast.warning(result.emailWarning);
       await Promise.all([
         utils.financiamentos.list.invalidate(),
         utils.financiamentos.getById.invalidate(),
@@ -225,17 +245,11 @@ export default function AdminFinanciamentos() {
       clienteCpf: String(dados.get("clienteCpf") || "") || null,
       clienteTel: String(dados.get("clienteTel") || ""),
       clienteEmail: String(dados.get("clienteEmail") || "") || null,
-      imovel: String(dados.get("imovel") || ""),
       tipo: String(dados.get("tipo")) as Tipo,
       banco: String(dados.get("banco")) as Banco,
       bancoOutro: String(dados.get("bancoOutro") || "") || null,
       valorImovel: numero(dados, "valorImovel"),
       valorFinanciado: numero(dados, "valorFinanciado"),
-      entrada: numero(dados, "entrada"),
-      taxa: numero(dados, "taxa"),
-      prazo: numero(dados, "prazo"),
-      parcela: numero(dados, "parcela") || null,
-      protocolo: String(dados.get("protocolo") || "") || null,
       observacoes: String(dados.get("observacoes") || "") || null,
       leadId: optionalId("leadId"),
       imovelVinculadoId: optionalId("imovelVinculadoId"),
@@ -437,6 +451,8 @@ export default function AdminFinanciamentos() {
                 <h3 className="font-semibold text-[#C9A961]">
                   Checklist documental e portal do cliente
                 </h3>
+                <p className="text-xs text-gray-300">Todos os documentos são opcionais.</p>
+                <input ref={uploadRef} type="file" className="sr-only" accept="application/pdf,image/jpeg,image/png,.xls,application/vnd.ms-excel" onChange={event => void enviarDocumento(event.target.files?.[0])} aria-label="Selecionar documento do financiamento" />
                 {detalhe.checklist.map(item => (
                   <div key={item.id} className="rounded-lg bg-[#2C3E50] p-3">
                     <label className="flex cursor-pointer items-start gap-3">
@@ -500,6 +516,8 @@ export default function AdminFinanciamentos() {
                         />
                         <Upload className="h-4 w-4" /> Solicitar documento
                       </label>
+                      <Button size="sm" type="button" variant="outline" disabled={uploadBusy} onClick={() => { setUploadItemId(item.id); uploadRef.current?.click(); }}>Enviar</Button>
+                      {item.solicitarDocumento && item.visivelCliente && <Button size="sm" type="button" variant="outline" disabled={resendDocument.isPending} onClick={() => resendDocument.mutate({ financiamentoId: detalhe.financiamento.id, itemId: item.id })}>Reenviar aviso</Button>}
                       {item.documentoNome && (item.documentoDriveFileId || !item.documentoUrl) && (
                         <button
                           type="button"
@@ -525,6 +543,7 @@ export default function AdminFinanciamentos() {
                   </div>
                 ))}
               </div>
+              {detalhe.legacyChecklist.some(item => item.documentoNome) && <details className="rounded border border-white/20 p-3"><summary>Documentos anteriores</summary>{detalhe.legacyChecklist.filter(item => item.documentoNome).map(item => <button type="button" className="block py-2 text-[#E6CA88] underline" key={item.id} onClick={() => void abrirDocumento(item.id, item.documentoNome || "documento")}>{item.item} — {item.documentoNome}</button>)}</details>}
               <div className="flex gap-2">
                 <Button
                   onClick={() => setEditarAberto(true)}
@@ -591,14 +610,6 @@ export default function AdminFinanciamentos() {
                 rotulo="CPF"
                 valorPadrao={detalhe.financiamento.clienteCpf || ""}
               />
-              <div className="md:col-span-2">
-                <Campo
-                  nome="imovel"
-                  rotulo="Descrição do imóvel"
-                  obrigatorio
-                  valorPadrao={detalhe.financiamento.imovel ?? undefined}
-                />
-              </div>
               <Selecao
                 nome="tipo"
                 rotulo="Tipo"
@@ -621,11 +632,6 @@ export default function AdminFinanciamentos() {
                 nome="bancoOutro"
                 rotulo="Outro banco"
                 valorPadrao={detalhe.financiamento.bancoOutro || ""}
-              />
-              <Campo
-                nome="protocolo"
-                rotulo="Protocolo"
-                valorPadrao={detalhe.financiamento.protocolo || ""}
               />
               <Vinculos
                 options={options}
@@ -655,30 +661,6 @@ export default function AdminFinanciamentos() {
                 rotulo="Valor financiado"
                 obrigatorio
                 valorPadrao={Number(detalhe.financiamento.valorFinanciado)}
-              />
-              <CampoMoeda
-                nome="entrada"
-                rotulo="Entrada"
-                obrigatorio
-                valorPadrao={Number(detalhe.financiamento.entrada)}
-              />
-              <CampoMoeda
-                nome="parcela"
-                rotulo="Parcela"
-                valorPadrao={detalhe.financiamento.parcela != null ? Number(detalhe.financiamento.parcela) : null}
-              />
-              <CampoPercentual
-                nome="taxa"
-                rotulo="Taxa anual (%)"
-                obrigatorio
-                valorPadrao={Number(detalhe.financiamento.taxa)}
-              />
-              <Campo
-                nome="prazo"
-                rotulo="Prazo (meses)"
-                tipo="number"
-                obrigatorio
-                valorPadrao={String(detalhe.financiamento.prazo)}
               />
               <div className="md:col-span-2">
                 <Label>Observações</Label>

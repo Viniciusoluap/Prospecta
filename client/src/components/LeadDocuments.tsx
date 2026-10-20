@@ -1,3 +1,4 @@
+import { CLIENT_DOCUMENT_CHECKLIST } from "@shared/client-document-checklist";
 import { useRef, useState } from "react";
 import { trpc } from "@/lib/trpc";
 import { Button } from "@/components/ui/button";
@@ -6,14 +7,7 @@ import { DriveDiagnostico } from "@/components/DriveDiagnostico";
 import { rotulo } from "@shared/rotulos";
 import { mutarComProgresso } from "@/lib/envio-progresso";
 
-const categories = [
-  ["rg", "RG / CNH"], ["cnh", "CNH frente e verso"],
-  ["address_proof", "Comprovante de endereço"],
-  ["income_proof_formal", "Comprovante de renda"],
-  ["income_proof_irpf", "Declaração IRPF"], ["fgts", "Extrato FGTS"],
-  ["spouse_docs", "Documentos do cônjuge / segundo titular"],
-  ["pis", "PIS"], ["other", "Outros"],
-] as const;
+const categories = CLIENT_DOCUMENT_CHECKLIST;
 type Category = typeof categories[number][0];
 
 function readBase64(file: File): Promise<string> {
@@ -28,6 +22,8 @@ function readBase64(file: File): Promise<string> {
 export function LeadDocuments({ leadId, admin = false }: { leadId?: number; admin?: boolean }) {
   const utils = trpc.useUtils();
   const list = trpc.leadDocuments.list.useQuery(leadId ? { leadId } : undefined);
+  const visibility = trpc.leadDocuments.visibility.useQuery(leadId ? { leadId } : undefined);
+  const setVisibility = trpc.leadDocuments.setVisibility.useMutation({ onSuccess: () => { void visibility.refetch(); void list.refetch(); }, onError: error => toast.error(error.message) });
   const services = trpc.leadServices.listByLead.useQuery({ leadId: leadId ?? 0 }, { enabled: admin && Boolean(leadId) });
   type ResultadoUpload = { duplicate?: boolean; storage?: string; storageNote?: string | null };
   const avisarResultado = (result: ResultadoUpload) => {
@@ -42,7 +38,7 @@ export function LeadDocuments({ leadId, admin = false }: { leadId?: number; admi
     onError: error => toast.error(error.message),
   });
   const request = trpc.leadDocuments.request.useMutation({
-    onSuccess: () => { toast.success("Documento solicitado"); void utils.leadDocuments.list.invalidate(); },
+    onSuccess: result => { toast.success("Documento solicitado no portal do cliente"); if (result.emailWarning) toast.warning(result.emailWarning); void utils.leadDocuments.list.invalidate(); },
     onError: error => toast.error(error.message),
   });
   const inputRef = useRef<HTMLInputElement>(null);
@@ -108,13 +104,16 @@ export function LeadDocuments({ leadId, admin = false }: { leadId?: number; admi
     </label>}
     <input ref={inputRef} className="sr-only" type="file" multiple accept="application/pdf,image/jpeg,image/png" onChange={event => void filesSelected(event.target.files)} aria-label="Selecionar documentos" />
     {categories.map(([key, label]) => {
+      const visible = visibility.data?.find(row => row.type === key)?.visibleToClient ?? true;
+      if (!admin && !visible) return null;
       const docs = list.data?.filter(document => document.type === key) ?? [];
       const pending = docs.some(document => document.status === "pending" && !document.canOpen);
       return <div key={key} className="rounded border border-[#C9A961]/30 p-3">
         <div className="flex flex-wrap items-center justify-between gap-2">
           <div><strong>{label}</strong><span className={`ml-2 text-xs ${suave}`}>{pending ? "Solicitado" : docs.length ? `${docs.length} registro(s)` : "Pendente"}</span></div>
           <div className="flex gap-2">
-            {admin && leadId && <Button size="sm" variant="outline" onClick={() => request.mutate({ leadId, serviceId, type: key })} disabled={request.isPending}>Solicitar</Button>}
+            {admin && leadId && <label className="flex items-center gap-2 text-xs"><input type="checkbox" checked={visible} onChange={event => setVisibility.mutate({ leadId, type: key, visibleToClient: event.target.checked })} />Visível ao cliente</label>}
+            {admin && leadId && <Button size="sm" variant="outline" onClick={() => request.mutate({ leadId, serviceId, type: key })} disabled={request.isPending || !visible}>Solicitar</Button>}
             <Button size="sm" variant="outline" disabled={busy} onClick={() => { setSelected(key); inputRef.current?.click(); }}>Enviar</Button>
           </div>
         </div>
@@ -127,5 +126,6 @@ export function LeadDocuments({ leadId, admin = false }: { leadId?: number; admi
         </div>)}
       </div>;
     })}
+    {admin && list.data?.some(doc => !categories.some(([key]) => key === doc.type)) && <details className="rounded border border-white/20 p-3"><summary>Documentos anteriores</summary>{list.data.filter(doc => !categories.some(([key]) => key === doc.type)).map(doc => <div key={doc.id} className="mt-2 flex items-center justify-between gap-2"><span>{doc.fileName || doc.type}</span>{doc.canOpen && <Button size="sm" variant="outline" onClick={() => void openDocument(doc.id)}>Consultar</Button>}</div>)}</details>}
   </div>;
 }
