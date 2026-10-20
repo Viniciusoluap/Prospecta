@@ -80,9 +80,6 @@ function CartaoFinanciamento({ financiamento, checklistTotal, checklistConcluido
   salvandoEtapa: boolean;
   onDetalhes: () => void;
 }) {
-  const uploadRef = useRef<HTMLInputElement>(null);
-  const [uploadItemId, setUploadItemId] = useState<number | null>(null);
-  const [uploadBusy, setUploadBusy] = useState(false);
   const utils = trpc.useUtils();
   const [valorTotal, setValorTotal] = useState(Number(financiamento.valorImovel ?? 0));
   const [valorFinanciado, setValorFinanciado] = useState(Number(financiamento.valorFinanciado ?? 0));
@@ -155,6 +152,9 @@ export default function AdminFinanciamentos() {
   const [editarAberto, setEditarAberto] = useState(false);
   const [selecionado, setSelecionado] = useState<number | null>(null);
   const [filtro, setFiltro] = useState<Status | "todos">("todos");
+  const uploadRef = useRef<HTMLInputElement>(null);
+  const [uploadItemId, setUploadItemId] = useState<number | null>(null);
+  const [uploadBusy, setUploadBusy] = useState(false);
   const utils = trpc.useUtils();
   const { data: processos = [], isLoading } = trpc.financiamentos.list.useQuery(
     filtro === "todos" ? {} : { status: filtro }

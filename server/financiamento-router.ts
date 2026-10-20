@@ -308,7 +308,7 @@ export const financiamentoRouter = router({
     .mutation(async ({ input }) => {
       const [record] = await getDb().select({ item: financiamentoChecklistItems, leadId: financiamentos.leadId }).from(financiamentoChecklistItems).innerJoin(financiamentos, eq(financiamentoChecklistItems.financiamentoId, financiamentos.id)).where(and(eq(financiamentoChecklistItems.id, input.itemId), eq(financiamentos.id, input.financiamentoId))).limit(1);
       if (!record?.leadId) throw new TRPCError({ code: "NOT_FOUND", message: "Financiamento sem cliente vinculado" });
-      return saveFinancingDocument({ itemId: record.item.id, financingId: input.financiamentoId, leadId: record.leadId, label: record.item.item, ...input });
+      return saveFinancingDocument({ ...input, itemId: record.item.id, leadId: record.leadId, label: record.item.item });
     }),
 
   checklistDocumentContent: adminProcedure
