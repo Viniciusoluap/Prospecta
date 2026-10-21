@@ -302,11 +302,11 @@ export default function AdminLeadDetail() {
                       </Select>
                     </div>
                     <div>
-                      <Label className="text-gray-300">Valor Simulação (R$)</Label>
+                      <Label className="text-gray-300">VGV simulado (R$)</Label>
                       <CurrencyInput value={editForm.simulationValue ? Number(editForm.simulationValue) : 0} onChange={v => setEditForm(f => ({ ...f, simulationValue: v ? String(v) : "" }))} className="bg-[#2C3E50] border-[#C9A961]/30 text-white mt-1" />
                     </div>
                     <div>
-                      <Label className="text-gray-300">Valor Aprovado (R$)</Label>
+                      <Label className="text-gray-300">Valor financiado aprovado (R$)</Label>
                       <CurrencyInput value={editForm.approvedValue ? Number(editForm.approvedValue) : 0} onChange={v => setEditForm(f => ({ ...f, approvedValue: v ? String(v) : "" }))} className="bg-[#2C3E50] border-[#C9A961]/30 text-white mt-1" />
                     </div>
                   </div>
@@ -406,8 +406,8 @@ export default function AdminLeadDetail() {
               <InfoRow label="CPF Status" value={lead.cpfStatus === "clean" ? "Limpo" : lead.cpfStatus === "restricted" ? "Restrito" : "Desconhecido"} />
               <InfoRow label="Interesse" value={(lead as any).interest === "house" ? "Casa" : (lead as any).interest === "lot" ? "Lote" : (lead as any).interest === "financing" ? "Financiamento" : "Obra"} />
               <Separator className="bg-[#C9A961]/20" />
-              <InfoRow label="Valor Simulação" value={formatCurrencyBR(lead.simulationValue)} highlight />
-              <InfoRow label="Valor Aprovado" value={formatCurrencyBR(lead.approvedValue)} highlight />
+              <InfoRow label="VGV simulado" value={formatCurrencyBR(lead.simulationValue)} highlight />
+              <InfoRow label="Valor financiado aprovado" value={formatCurrencyBR(lead.approvedValue)} highlight />
             </CardContent>
           </Card>
 
