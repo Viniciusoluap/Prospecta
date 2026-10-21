@@ -12,9 +12,9 @@ Renomear os dois valores no formulário de edição e na leitura do lead, com pa
 - Logyca segue em planejamento, fora deste lote.
 
 ## Testes
-(a) Automáticos: diff restrito às substituições previstas, git diff --check e sintaxe TSX dos três arquivos aprovados.
+(a) Automáticos: diff restrito às substituições previstas, git diff --check e sintaxe TSX dos três arquivos aprovados. Build de preview e produção na Vercel aprovados (READY). Pipeline da Prospecta: 887 testes aprovados e TypeScript sem erros.
 (b) Manuais: revisão do diff; tela autenticada ainda não verificada em navegador.
-(c) Produção: aguardar build/deploy e validar os rótulos na tela autenticada.
+(c) Produção: deploy READY confirmado e domínios de produção atribuídos. Validação visual na tela autenticada ainda pendente.
 
 ## Próximo passo exato
-Publicar a branch codex/rotulos-valores-crm-20261021 em ambos os repositórios, abrir PRs, verificar checks, fazer merge e acompanhar os deploys de produção na Vercel. Registrar resultados neste handoff.
+Implementação concluída e publicada. PR #142 mesclado: https://github.com/Viniciusoluap/Prospecta/pull/142. Commit de implementação: 1f14a828b6acc02da160e1865f36ee0b7dbf1f3b. Merge em main: 1a9d112852b52b841772d37f26313f060c1efd4e. Deploy de produção: dpl_t3R4XMbLYijArc7TibGg9aVaCreC (READY). Apenas conferir os rótulos no formulário e na leitura de um lead autenticado. Este checkpoint final fica na branch de trabalho; o handoff inicial também integra main.
