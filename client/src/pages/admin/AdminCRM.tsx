@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
+import { CurrencyInput } from "@/components/ui/currency-input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
@@ -51,7 +52,7 @@ const NONE = "none";
 const emptyLead = () => ({
   name: "", phone: "", email: "", cpf: "", address: "", neighborhood: "", city: "", state: "",
   notes: "", stage: "lead_new" as LeadPipelineStage, temperature: "cold" as LeadTemperatura, services: [] as LeadServiceType[],
-  responsibleUserId: NONE, brokerId: NONE,
+  responsibleUserId: NONE, brokerId: NONE, simulationValue: 0,
 });
 
 export default function AdminCRM() {
@@ -282,18 +283,26 @@ export default function AdminCRM() {
                       </SelectContent>
                     </Select>
                   </div>
-                  <div>
-                    <Label className="text-gray-300">Estágio</Label>
-                    <Select value={newLead.stage} onValueChange={v => setNewLead(p => ({ ...p, stage: v as LeadPipelineStage }))}>
-                      <SelectTrigger className="bg-white/10 border-white/20 text-white">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {LEAD_PIPELINE_STAGES.map(etapa => (
-                          <SelectItem key={etapa.key} value={etapa.key}>{etapa.label}</SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <div>
+                      <Label htmlFor="novo-lead-estagio" className="text-gray-300">Estágio</Label>
+                      <Select value={newLead.stage} onValueChange={v => setNewLead(p => ({ ...p, stage: v as LeadPipelineStage }))}>
+                        <SelectTrigger id="novo-lead-estagio" className="bg-white/10 border-white/20 text-white">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {LEAD_PIPELINE_STAGES.map(etapa => (
+                            <SelectItem key={etapa.key} value={etapa.key}>{etapa.label}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div>
+                      <Label htmlFor="novo-lead-vgv" className="text-gray-300">VGV simulado (R$)</Label>
+                      <CurrencyInput id="novo-lead-vgv" value={newLead.simulationValue}
+                        onChange={value => setNewLead(current => ({ ...current, simulationValue: value }))}
+                        className="bg-white/10 border-white/20 text-white" />
+                    </div>
                   </div>
                   <div>
                     <Label className="text-gray-300">Serviços solicitados</Label>
