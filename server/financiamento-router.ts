@@ -190,9 +190,8 @@ export const financiamentoRouter = router({
         .limit(1);
       const leadId = data.leadId ?? current?.leadId ?? null;
       const client = leadId ? await clientFieldsFromLead(leadId) : null;
-      const [updated] = await getDb().transaction(async tx => {
-        if (leadId) await tx.execute(sql`SELECT id FROM leads WHERE id = ${leadId} FOR UPDATE`);
-        const [record] = await tx.update(financiamentos).set({
+      const database = getDb();
+      const updateFinanciamento = database.update(financiamentos).set({
           ...data,
           clienteEmail: data.clienteEmail || null,
           ...(client ?? {}),
@@ -212,21 +211,26 @@ export const financiamentoRouter = router({
                 : data.parcela.toFixed(2),
           updatedAt: new Date(),
         }).where(eq(financiamentos.id, input.id)).returning();
-        if (!record) throw new TRPCError({ code: "NOT_FOUND", message: "Financiamento não encontrado" });
-        if (leadId && (data.valorImovel !== undefined || data.valorFinanciado !== undefined)) {
-          await tx.update(leads).set({
+      let updated;
+      if (leadId && (data.valorImovel !== undefined || data.valorFinanciado !== undefined)) {
+        const [records] = await database.batch([
+          updateFinanciamento,
+          database.update(leads).set({
             ...(data.valorImovel !== undefined ? { simulationValue: data.valorImovel.toFixed(2) } : {}),
             ...(data.valorFinanciado !== undefined ? { approvedValue: data.valorFinanciado.toFixed(2) } : {}),
             updatedAt: new Date(),
-          }).where(eq(leads.id, leadId));
-          await tx.update(financiamentos).set({
+          }).where(eq(leads.id, leadId)),
+          database.update(financiamentos).set({
             ...(data.valorImovel !== undefined ? { valorImovel: data.valorImovel.toFixed(2) } : {}),
             ...(data.valorFinanciado !== undefined ? { valorFinanciado: data.valorFinanciado.toFixed(2) } : {}),
             updatedAt: new Date(),
-          }).where(eq(financiamentos.leadId, leadId));
-        }
-        return [record];
-      });
+          }).where(eq(financiamentos.leadId, leadId)),
+        ]);
+        updated = records[0];
+      } else {
+        [updated] = await updateFinanciamento;
+      }
+      if (!updated) throw new TRPCError({ code: "NOT_FOUND", message: "Financiamento não encontrado" });
       if (leadId && (data.valorImovel !== undefined || data.valorFinanciado !== undefined)) {
         const { sincronizarVgvDoLead } = await import("./obra-financeiro-router.js");
         await sincronizarVgvDoLead(leadId);
@@ -267,23 +271,23 @@ export const financiamentoRouter = router({
         })
     )
     .mutation(async ({ input }) => {
-      const [updated] = await getDb().transaction(async tx => {
-        const [record] = await tx.select({ id: financiamentos.id, leadId: financiamentos.leadId })
-          .from(financiamentos).where(eq(financiamentos.id, input.id)).limit(1);
-        if (!record) throw new TRPCError({ code: "NOT_FOUND", message: "Financiamento não encontrado" });
-        if (record.leadId) await tx.execute(sql`SELECT id FROM leads WHERE id = ${record.leadId} FOR UPDATE`);
-        if (record.leadId) {
-          await tx.update(leads).set({ simulationValue: input.valorImovel.toFixed(2), approvedValue: input.valorFinanciado.toFixed(2), updatedAt: new Date() })
-            .where(eq(leads.id, record.leadId));
-        }
-        return tx.update(financiamentos).set({
+      const database = getDb();
+      const [record] = await database.select({ id: financiamentos.id, leadId: financiamentos.leadId })
+        .from(financiamentos).where(eq(financiamentos.id, input.id)).limit(1);
+      if (!record) throw new TRPCError({ code: "NOT_FOUND", message: "Financiamento não encontrado" });
+      const updateFinanciamentos = database.update(financiamentos).set({
           valorImovel: input.valorImovel.toFixed(2), valorFinanciado: input.valorFinanciado.toFixed(2), updatedAt: new Date(),
         }).where(record.leadId ? eq(financiamentos.leadId, record.leadId) : eq(financiamentos.id, input.id))
           .returning({ id: financiamentos.id });
-      });
+      const [updated] = record.leadId
+        ? (await database.batch([
+            database.update(leads).set({ simulationValue: input.valorImovel.toFixed(2), approvedValue: input.valorFinanciado.toFixed(2), updatedAt: new Date() })
+              .where(eq(leads.id, record.leadId)),
+            updateFinanciamentos,
+          ]))[1]
+        : await updateFinanciamentos;
       if (!updated) throw new TRPCError({ code: "NOT_FOUND", message: "Financiamento não encontrado" });
-      const [record] = await getDb().select({ leadId: financiamentos.leadId }).from(financiamentos).where(eq(financiamentos.id, input.id)).limit(1);
-      if (record?.leadId) {
+      if (record.leadId) {
         const { sincronizarVgvDoLead } = await import("./obra-financeiro-router.js");
         await sincronizarVgvDoLead(record.leadId);
       }

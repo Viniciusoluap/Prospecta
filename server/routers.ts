@@ -1531,14 +1531,15 @@ export const appRouter = router({
           const { getDb } = await import("./db.js");
           const { leads, financiamentos } = await import("../drizzle/schema.js");
           const { eq } = await import("drizzle-orm");
-          await getDb().transaction(async tx => {
-            await tx.update(leads).set({ ...dbData, updatedAt: new Date() }).where(eq(leads.id, id));
-            await tx.update(financiamentos).set({
+          const database = getDb();
+          await database.batch([
+            database.update(leads).set({ ...dbData, updatedAt: new Date() }).where(eq(leads.id, id)),
+            database.update(financiamentos).set({
               ...(dbData.simulationValue !== undefined ? { valorImovel: dbData.simulationValue } : {}),
               ...(dbData.approvedValue !== undefined ? { valorFinanciado: dbData.approvedValue } : {}),
               updatedAt: new Date(),
-            }).where(eq(financiamentos.leadId, id));
-          });
+            }).where(eq(financiamentos.leadId, id)),
+          ]);
         } else {
           await db.updateLead(id, dbData);
         }
