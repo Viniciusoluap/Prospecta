@@ -1339,6 +1339,8 @@ export const appRouter = router({
             ])
             .optional(),
           temperature: z.enum(LEAD_TEMPERATURAS).optional(),
+          simulationValue: z.number().finite().min(0).max(9_999_999_999_999.99)
+            .transform(value => value.toFixed(2)).optional(),
           // Item 9 (18/10): o cadastro escolhe o estágio do funil (antes "Tipo de Lead").
           stage: z.enum(LEAD_PIPELINE_KEYS).optional(),
           // Renda/tipo de renda saíram do formulário (EPIC-017, story 1.6) e
