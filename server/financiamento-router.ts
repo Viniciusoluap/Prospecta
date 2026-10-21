@@ -92,7 +92,7 @@ export const financiamentoRouter = router({
         .where(where)
         .groupBy(financiamentos.id)
         .orderBy(desc(financiamentos.updatedAt));
-      const leadIds = [...new Set(rows.map(row => row.financiamento.leadId).filter((id): id is number => id != null))];
+      const leadIds = Array.from(new Set(rows.map(row => row.financiamento.leadId).filter((id): id is number => id != null)));
       if (!leadIds.length) return rows;
       const values = await database.select({ id: leads.id, simulationValue: leads.simulationValue, approvedValue: leads.approvedValue })
         .from(leads).where(inArray(leads.id, leadIds));

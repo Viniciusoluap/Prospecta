@@ -145,7 +145,7 @@ export const leadDocumentsRouter = router({
         if (!data) throw new Error("Arquivo não encontrado no banco");
         if (data.length > DOCUMENT_LIMIT) throw new Error("Arquivo excede o limite de consulta");
         const offset = input.offset ?? 0;
-        return { fileName: doc.fileName, mimeType: doc.mimeType, total: data.length, base64: data.subarray(offset, offset + 1024 * 1024).toString("base64") };
+        return { fileName: doc.fileName ?? "documento", mimeType: doc.mimeType, total: data.length, base64: data.subarray(offset, offset + 1024 * 1024).toString("base64") };
       } catch {
         throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Não foi possível consultar o documento" });
       }
