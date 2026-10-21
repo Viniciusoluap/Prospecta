@@ -489,6 +489,8 @@ async function ensureFinanciamentoRecord(service: typeof leadServices.$inferSele
     clienteNome: lead.name,
     clienteTel: lead.phone,
     clienteEmail: lead.email || null,
+    valorImovel: lead.simulationValue ?? "0.00",
+    valorFinanciado: lead.approvedValue ?? "0.00",
   }).returning();
   await database.insert(financiamentoChecklistItems).values(
     FINANCIAMENTO_CHECKLIST_PADRAO.map(item => ({ financiamentoId: created.id, ...item }))

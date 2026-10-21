@@ -443,7 +443,7 @@ export async function listarComissoesDeObras(somenteCorretorId?: number) {
         obra: constructionProjects.title,
         status: constructionProjects.status,
         // Pedido de 15/10: VGV da obra com lead = Valor Aprovado do CRM.
-        vgv: leads.approvedValue,
+        vgv: leads.simulationValue,
         percentualObra: constructionProjects.commissionPct,
         leadId: leads.id,
         cliente: leads.name,
@@ -502,7 +502,7 @@ export const comissoesRouter = router({
           id: constructionProjects.id,
           name: constructionProjects.title,
           contractValue: constructionProjects.contractValue,
-          vgv: sql<string | null>`CASE WHEN ${constructionProjects.leadId} IS NULL THEN ${constructionProjects.vgv} ELSE ${leads.approvedValue} END`,
+          vgv: sql<string | null>`CASE WHEN ${constructionProjects.leadId} IS NULL THEN ${constructionProjects.vgv} ELSE ${leads.simulationValue} END`,
         })
         .from(constructionProjects)
         .leftJoin(leads, eq(leads.id, constructionProjects.leadId))

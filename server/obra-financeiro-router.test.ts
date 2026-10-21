@@ -155,7 +155,7 @@ describe("Lote 3 — comissão da obra pelo CRM (item 32)", () => {
   };
 
   it("com corretor e % da obra, grava o valor calculado (Teste G: 230.000 × 5% = 11.500,00) e ignora o digitado", async () => {
-    const { db, gravacoes } = fakeDb([[{ obra: { ...obra, leadId: 24, commissionPct: null }, valorAprovado: "230000.00" }], [{ id: 9, nome: "Chaleilson", percentualPadrao: null }], []]);
+    const { db, gravacoes } = fakeDb([[{ obra: { ...obra, leadId: 24, commissionPct: null }, valorAprovado: "200000.00", vgvSimulado: "230000.00" }], [{ id: 9, nome: "Chaleilson", percentualPadrao: null }], []]);
     vi.mocked(getDb).mockReturnValue(db as never);
     await caller("admin").obraFinanceiro.salvarValores({ ...entrada, comissaoPercentual: "5" });
     const gravado = gravacoes.find((g) => g.metodo === "update")!.valores as Record<string, unknown>;
@@ -164,14 +164,14 @@ describe("Lote 3 — comissão da obra pelo CRM (item 32)", () => {
   });
 
   it("sem % da obra usa o padrão do corretor", async () => {
-    const { db, gravacoes } = fakeDb([[{ obra: { ...obra, leadId: 24, commissionPct: null }, valorAprovado: "230000.00" }], [{ id: 9, nome: "C", percentualPadrao: "4.0000" }], []]);
+    const { db, gravacoes } = fakeDb([[{ obra: { ...obra, leadId: 24, commissionPct: null }, valorAprovado: "200000.00", vgvSimulado: "230000.00" }], [{ id: 9, nome: "C", percentualPadrao: "4.0000" }], []]);
     vi.mocked(getDb).mockReturnValue(db as never);
     await caller("admin").obraFinanceiro.salvarValores({ ...entrada, comissaoPercentual: null });
     expect((gravacoes.find((g) => g.metodo === "update")!.valores as Record<string, unknown>).commissionAmount).toBe("9200.00");
   });
 
   it("obra com corretor sem regra: não inventa percentual nem reaproveita valor digitado/antigo", async () => {
-    const { db, gravacoes } = fakeDb([[{ obra: { ...obra, leadId: 24, commissionPct: null }, valorAprovado: "230000.00" }], [{ id: 9, nome: "C", percentualPadrao: null }], []]);
+    const { db, gravacoes } = fakeDb([[{ obra: { ...obra, leadId: 24, commissionPct: null }, valorAprovado: "200000.00", vgvSimulado: "230000.00" }], [{ id: 9, nome: "C", percentualPadrao: null }], []]);
     vi.mocked(getDb).mockReturnValue(db as never);
     await caller("admin").obraFinanceiro.salvarValores({ ...entrada, comissaoPercentual: null });
     const gravado = gravacoes.find((g) => g.metodo === "update")!.valores as Record<string, unknown>;
@@ -180,12 +180,12 @@ describe("Lote 3 — comissão da obra pelo CRM (item 32)", () => {
   });
 
   it("obra com lead: VGV gravado é o Valor Aprovado do CRM, nunca o digitado (pedido 15/10)", async () => {
-    const { db, gravacoes } = fakeDb([[{ obra: { ...obra, leadId: 24, commissionPct: null }, valorAprovado: "195000.00" }], [{ id: 9, nome: "C", percentualPadrao: "4.0000" }], []]);
+    const { db, gravacoes } = fakeDb([[{ obra: { ...obra, leadId: 24, commissionPct: null }, valorAprovado: "195000.00", vgvSimulado: "230000.00" }], [{ id: 9, nome: "C", percentualPadrao: "4.0000" }], []]);
     vi.mocked(getDb).mockReturnValue(db as never);
     await caller("admin").obraFinanceiro.salvarValores({ ...entrada, vgv: "999999.00", comissaoPercentual: null });
     const gravado = gravacoes.find((g) => g.metodo === "update")!.valores as Record<string, unknown>;
     expect(gravado.vgv).toBe("195000.00");
-    expect(gravado.commissionAmount).toBe("7800.00");
+    expect(gravado.commissionAmount).toBe("9200.00");
   });
 
   it("obra sem lead: VGV continua digitado", async () => {

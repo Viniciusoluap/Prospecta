@@ -12,6 +12,7 @@ import {
   Pencil,
   Upload,
 } from "lucide-react";
+import { baixarPartes, enviarPartes, LIMITE_DOCUMENTO } from "@/lib/documentos-partes";
 import { trpc } from "@/lib/trpc";
 import { LinkedServiceQueue } from "./LinkedServiceQueue";
 import { Button } from "@/components/ui/button";
@@ -123,12 +124,12 @@ function CartaoFinanciamento({ financiamento, checklistTotal, checklistConcluido
       </div>
       <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-[1fr_1fr_auto] sm:items-end">
         <div className="min-w-0">
-          <Label className="text-xs text-gray-300">Valor total</Label>
-          <CurrencyInput value={valorTotal} onChange={setValorTotal} aria-label={`Valor total de ${financiamento.clienteNome}`} className="mt-1 border-[#C9A961]/40 bg-[#2C3E50] text-white" />
+          <Label className="text-xs text-gray-300">VGV simulado</Label>
+          <CurrencyInput value={valorTotal} onChange={setValorTotal} aria-label={`VGV simulado de ${financiamento.clienteNome}`} className="mt-1 border-[#C9A961]/40 bg-[#2C3E50] text-white" />
         </div>
         <div className="min-w-0">
-          <Label className="text-xs text-gray-300">Valor financiado</Label>
-          <CurrencyInput value={valorFinanciado} onChange={setValorFinanciado} aria-label={`Valor financiado de ${financiamento.clienteNome}`} className="mt-1 border-[#C9A961]/40 bg-[#2C3E50] text-white" />
+          <Label className="text-xs text-gray-300">Valor financiado aprovado</Label>
+          <CurrencyInput value={valorFinanciado} onChange={setValorFinanciado} aria-label={`Valor financiado aprovado de ${financiamento.clienteNome}`} className="mt-1 border-[#C9A961]/40 bg-[#2C3E50] text-white" />
         </div>
         <Button
           type="button"
@@ -170,11 +171,11 @@ export default function AdminFinanciamentos() {
   async function enviarDocumento(file?: File) {
     if (!file || !uploadItemId || !selecionado) return;
     const mimeType = file.type || (/\.xls$/i.test(file.name) ? "application/vnd.ms-excel" : "");
-    if (!["application/pdf", "image/jpeg", "image/png", "application/vnd.ms-excel"].includes(mimeType) || file.size > 3 * 1024 * 1024) { toast.error("Envie PDF, JPG, PNG ou XLS de até 3 MiB"); return; }
+    if (!["application/pdf", "image/jpeg", "image/png", "application/vnd.ms-excel"].includes(mimeType) || file.size > LIMITE_DOCUMENTO) { toast.error("Envie PDF, JPG, PNG ou XLS de até 20 MiB"); return; }
     setUploadBusy(true);
     try {
-      const base64 = await new Promise<string>((resolve, reject) => { const reader = new FileReader(); reader.onerror = reject; reader.onload = () => resolve(String(reader.result).split(",")[1] || ""); reader.readAsDataURL(file); });
-      await uploadDocument.mutateAsync({ financiamentoId: selecionado, itemId: uploadItemId, fileName: file.name, mimeType: mimeType as "application/pdf" | "image/jpeg" | "image/png" | "application/vnd.ms-excel", base64 });
+      const uploadId = await enviarPartes(file, `finance:${selecionado}:${uploadItemId}`);
+      await uploadDocument.mutateAsync({ financiamentoId: selecionado, itemId: uploadItemId, fileName: file.name, mimeType: mimeType as "application/pdf" | "image/jpeg" | "image/png" | "application/vnd.ms-excel", uploadId });
       toast.success("Documento salvo no Google Drive");
       await utils.financiamentos.getById.invalidate();
     } catch (error) { toast.error(error instanceof Error ? error.message : "Falha no envio"); }
@@ -183,16 +184,7 @@ export default function AdminFinanciamentos() {
 
   async function abrirDocumento(id: number, nome: string) {
     try {
-      const content = await utils.financiamentos.checklistDocumentContent.fetch({ id });
-      const bytes = Uint8Array.from(atob(content.base64), char => char.charCodeAt(0));
-      const url = URL.createObjectURL(new Blob([bytes]));
-      const link = document.createElement("a");
-      link.href = url;
-      link.download = nome || "documento";
-      document.body.appendChild(link);
-      link.click();
-      link.remove();
-      window.setTimeout(() => URL.revokeObjectURL(url), 60_000);
+      await baixarPartes(offset => utils.financiamentos.checklistDocumentContent.fetch({ id, offset }), nome || "documento");
     } catch (error) { toast.error(error instanceof Error ? error.message : "Falha ao consultar documento"); }
   }
 
@@ -652,13 +644,13 @@ export default function AdminFinanciamentos() {
               )}
               <CampoMoeda
                 nome="valorImovel"
-                rotulo="Valor do imóvel"
+                rotulo="VGV simulado"
                 obrigatorio
                 valorPadrao={Number(detalhe.financiamento.valorImovel)}
               />
               <CampoMoeda
                 nome="valorFinanciado"
-                rotulo="Valor financiado"
+                rotulo="Valor financiado aprovado"
                 obrigatorio
                 valorPadrao={Number(detalhe.financiamento.valorFinanciado)}
               />
