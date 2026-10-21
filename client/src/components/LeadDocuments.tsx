@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
 import { DriveDiagnostico } from "@/components/DriveDiagnostico";
 import { rotulo } from "@shared/rotulos";
+import { baixarPartes, enviarPartes, LIMITE_DOCUMENTO } from "@/lib/documentos-partes";
 import { mutarComProgresso } from "@/lib/envio-progresso";
 
 const categories = CLIENT_DOCUMENT_CHECKLIST;
@@ -53,16 +54,18 @@ export function LeadDocuments({ leadId, admin = false }: { leadId?: number; admi
     try {
       for (let i = 0; i < lista.length; i++) {
         const file = lista[i];
-        if (!["application/pdf", "image/jpeg", "image/png"].includes(file.type) || !file.size || file.size > 3 * 1024 * 1024) {
-          toast.error(`${file.name}: use PDF, JPG ou PNG de até 3 MiB`);
+        if (!["application/pdf", "image/jpeg", "image/png"].includes(file.type) || !file.size || file.size > LIMITE_DOCUMENTO) {
+          toast.error(`${file.name}: use PDF, JPG ou PNG de até 20 MiB`);
           continue;
         }
         const requestedService = list.data?.find(document => document.type === selected && document.status === "pending" && document.serviceId)?.serviceId;
         // Item 4 (18/10): progresso real de cada arquivo ("Enviando documento 2 de 4 — 65%").
         try {
+          const currentServiceId = serviceId ?? requestedService ?? undefined;
+          const uploadId = await enviarPartes(file, `lead:${leadId ?? (await utils.auth.me.fetch())?.leadId}:${currentServiceId ?? 0}:${selected}`);
           const result = await mutarComProgresso<ResultadoUpload>(
             "leadDocuments.upload",
-            { leadId, serviceId: serviceId ?? requestedService ?? undefined, type: selected, fileName: file.name, mimeType: file.type as "application/pdf" | "image/jpeg" | "image/png", base64: await readBase64(file) },
+            { leadId, serviceId: currentServiceId, type: selected, fileName: file.name, mimeType: file.type as "application/pdf" | "image/jpeg" | "image/png", uploadId },
             { item: "documento", atual: i + 1, total: lista.length }
           );
           avisarResultado(result);
@@ -79,16 +82,7 @@ export function LeadDocuments({ leadId, admin = false }: { leadId?: number; admi
 
   async function openDocument(id: number) {
     try {
-      const content = await utils.leadDocuments.content.fetch({ id });
-      const bytes = Uint8Array.from(atob(content.base64), char => char.charCodeAt(0));
-      const url = URL.createObjectURL(new Blob([bytes], { type: content.mimeType }));
-      const link = document.createElement("a");
-      link.href = url;
-      link.download = content.fileName || "documento";
-      document.body.appendChild(link);
-      link.click();
-      link.remove();
-      window.setTimeout(() => URL.revokeObjectURL(url), 60_000);
+      await baixarPartes(offset => utils.leadDocuments.content.fetch({ id, offset }), "documento");
     } catch (error) { toast.error(error instanceof Error ? error.message : "Falha ao consultar documento"); }
   }
 

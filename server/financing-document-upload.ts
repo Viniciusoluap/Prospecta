@@ -1,3 +1,4 @@
+import { DOCUMENT_LIMIT } from "./document-upload-chunks.js";
 import { eq, sql } from "drizzle-orm";
 import { TRPCError } from "@trpc/server";
 import { financiamentoChecklistItems } from "../drizzle/schema.js";
@@ -6,16 +7,16 @@ import { uploadPrivateDocument } from "./drive-documents.js";
 
 export const FINANCING_DOCUMENT_MIMES = ["application/pdf", "image/jpeg", "image/png", "application/vnd.ms-excel"] as const;
 export function validFinancingDocument(bytes: Buffer, mime: string) {
-  if (!bytes.length || bytes.length > 3 * 1024 * 1024) return false;
+  if (!bytes.length || bytes.length > DOCUMENT_LIMIT) return false;
   if (mime === "application/pdf") return bytes.subarray(0, 4).toString() === "%PDF";
   if (mime === "image/png") return bytes.subarray(0, 8).equals(Buffer.from([137,80,78,71,13,10,26,10]));
   if (mime === "image/jpeg") return bytes[0] === 255 && bytes[1] === 216 && bytes[2] === 255;
   if (mime === "application/vnd.ms-excel") return bytes.subarray(0,8).equals(Buffer.from([208,207,17,224,161,177,26,225]));
   return false;
 }
-export async function saveFinancingDocument(input: { itemId: number; financingId: number; leadId: number; label: string; fileName: string; mimeType: string; base64: string }) {
-  const data = Buffer.from(input.base64, "base64");
-  if (!validFinancingDocument(data, input.mimeType)) throw new TRPCError({ code: "BAD_REQUEST", message: "Envie PDF, JPG, PNG ou XLS válido de até 3 MiB" });
+export async function saveFinancingDocument(input: { itemId: number; financingId: number; leadId: number; label: string; fileName: string; mimeType: string; data: Buffer }) {
+  const data = input.data;
+  if (!validFinancingDocument(data, input.mimeType)) throw new TRPCError({ code: "BAD_REQUEST", message: "Envie PDF, JPG, PNG ou XLS válido de até 20 MiB" });
   const safeName = input.fileName.replace(/[\\/\x00-\x1f]/g, "_").slice(0,255);
   let driveFileId: string;
   try {

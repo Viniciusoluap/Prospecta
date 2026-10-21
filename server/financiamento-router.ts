@@ -1,3 +1,4 @@
+import { DOCUMENT_LIMIT, readUpload, clearUpload } from "./document-upload-chunks.js";
 import { notifyClientDocumentRequest } from "./document-request-notifications.js";
 import { FINANCING_DOCUMENT_MIMES, saveFinancingDocument } from "./financing-document-upload.js";
 import { and, asc, desc, eq, inArray, isNull, sql } from "drizzle-orm";
@@ -77,7 +78,7 @@ export const financiamentoRouter = router({
       const where = input?.status
         ? eq(financiamentos.status, input.status)
         : undefined;
-      return database
+      const rows = await database
         .select({
           financiamento: financiamentos,
           checklistTotal: sql<number>`count(${financiamentoChecklistItems.id}) filter (where ${inArray(financiamentoChecklistItems.item, FINANCIAMENTO_CHECKLIST_PADRAO.map(item => item.item))})::int`,
@@ -91,6 +92,18 @@ export const financiamentoRouter = router({
         .where(where)
         .groupBy(financiamentos.id)
         .orderBy(desc(financiamentos.updatedAt));
+      const leadIds = [...new Set(rows.map(row => row.financiamento.leadId).filter((id): id is number => id != null))];
+      if (!leadIds.length) return rows;
+      const values = await database.select({ id: leads.id, simulationValue: leads.simulationValue, approvedValue: leads.approvedValue })
+        .from(leads).where(inArray(leads.id, leadIds));
+      const byId = new Map(values.map(value => [value.id, value]));
+      return rows.map(row => {
+        const lead = row.financiamento.leadId && byId.get(row.financiamento.leadId);
+        return { ...row, financiamento: { ...row.financiamento,
+          valorImovel: lead ? lead.simulationValue ?? "0.00" : row.financiamento.valorImovel,
+          valorFinanciado: lead ? lead.approvedValue ?? "0.00" : row.financiamento.valorFinanciado,
+        } };
+      });
     }),
 
   getById: adminProcedure
@@ -112,8 +125,13 @@ export const financiamentoRouter = router({
           asc(financiamentoChecklistItems.id)
         );
       const contact = financiamento.leadId ? await clientFieldsFromLead(financiamento.leadId) : null;
+      const [lead] = financiamento.leadId ? await database.select({ simulationValue: leads.simulationValue, approvedValue: leads.approvedValue })
+        .from(leads).where(eq(leads.id, financiamento.leadId)).limit(1) : [];
       const current = FINANCIAMENTO_CHECKLIST_PADRAO.map(defaultItem => checklist.find(item => item.item === defaultItem.item)).filter((item): item is typeof checklist[number] => Boolean(item));
-      return { financiamento: { ...financiamento, ...(contact ?? {}) }, checklist: current, legacyChecklist: checklist.filter(item => !FINANCIAMENTO_CHECKLIST_PADRAO.some(defaultItem => defaultItem.item === item.item)) };
+      return { financiamento: { ...financiamento, ...(contact ?? {}),
+        valorImovel: lead ? lead.simulationValue ?? "0.00" : financiamento.valorImovel,
+        valorFinanciado: lead ? lead.approvedValue ?? "0.00" : financiamento.valorFinanciado,
+      }, checklist: current, legacyChecklist: checklist.filter(item => !FINANCIAMENTO_CHECKLIST_PADRAO.some(defaultItem => defaultItem.item === item.item)) };
     }),
 
   /**
@@ -129,13 +147,15 @@ export const financiamentoRouter = router({
       const database = getDb();
       const client = await clientFieldsFromLead(input.leadId);
       if (!client) throw new TRPCError({ code: "NOT_FOUND", message: "Lead não encontrado no CRM" });
+      const [leadValues] = await database.select({ simulationValue: leads.simulationValue, approvedValue: leads.approvedValue })
+        .from(leads).where(eq(leads.id, input.leadId)).limit(1);
       const [financiamento] = await database
         .insert(financiamentos)
         .values({
           ...input,
           ...client,
-          valorImovel: input.valorImovel.toFixed(2),
-          valorFinanciado: input.valorFinanciado.toFixed(2),
+          valorImovel: leadValues?.simulationValue ?? "0.00",
+          valorFinanciado: leadValues?.approvedValue ?? "0.00",
           entrada: input.entrada.toFixed(2),
           taxa: input.taxa.toFixed(4),
           parcela: input.parcela == null ? null : input.parcela.toFixed(2),
@@ -170,9 +190,9 @@ export const financiamentoRouter = router({
         .limit(1);
       const leadId = data.leadId ?? current?.leadId ?? null;
       const client = leadId ? await clientFieldsFromLead(leadId) : null;
-      const [updated] = await getDb()
-        .update(financiamentos)
-        .set({
+      const [updated] = await getDb().transaction(async tx => {
+        if (leadId) await tx.execute(sql`SELECT id FROM leads WHERE id = ${leadId} FOR UPDATE`);
+        const [record] = await tx.update(financiamentos).set({
           ...data,
           clienteEmail: data.clienteEmail || null,
           ...(client ?? {}),
@@ -191,9 +211,26 @@ export const financiamentoRouter = router({
                 ? null
                 : data.parcela.toFixed(2),
           updatedAt: new Date(),
-        })
-        .where(eq(financiamentos.id, input.id))
-        .returning();
+        }).where(eq(financiamentos.id, input.id)).returning();
+        if (!record) throw new TRPCError({ code: "NOT_FOUND", message: "Financiamento não encontrado" });
+        if (leadId && (data.valorImovel !== undefined || data.valorFinanciado !== undefined)) {
+          await tx.update(leads).set({
+            ...(data.valorImovel !== undefined ? { simulationValue: data.valorImovel.toFixed(2) } : {}),
+            ...(data.valorFinanciado !== undefined ? { approvedValue: data.valorFinanciado.toFixed(2) } : {}),
+            updatedAt: new Date(),
+          }).where(eq(leads.id, leadId));
+          await tx.update(financiamentos).set({
+            ...(data.valorImovel !== undefined ? { valorImovel: data.valorImovel.toFixed(2) } : {}),
+            ...(data.valorFinanciado !== undefined ? { valorFinanciado: data.valorFinanciado.toFixed(2) } : {}),
+            updatedAt: new Date(),
+          }).where(eq(financiamentos.leadId, leadId));
+        }
+        return [record];
+      });
+      if (leadId && (data.valorImovel !== undefined || data.valorFinanciado !== undefined)) {
+        const { sincronizarVgvDoLead } = await import("./obra-financeiro-router.js");
+        await sincronizarVgvDoLead(leadId);
+      }
       return updated;
     }),
 
@@ -214,8 +251,7 @@ export const financiamentoRouter = router({
     }),
 
   /**
-   * Pedido 14/10/2026: valor total (imóvel) e valor financiado editados direto
-   * na lista. Só mexe no financiamento — a etapa do lead no CRM é outra coisa.
+   * Valores editados na lista atualizam o lead vinculado no mesmo commit.
    */
   atualizarValores: adminProcedure
     .input(
@@ -231,16 +267,26 @@ export const financiamentoRouter = router({
         })
     )
     .mutation(async ({ input }) => {
-      const [updated] = await getDb()
-        .update(financiamentos)
-        .set({
-          valorImovel: input.valorImovel.toFixed(2),
-          valorFinanciado: input.valorFinanciado.toFixed(2),
-          updatedAt: new Date(),
-        })
-        .where(eq(financiamentos.id, input.id))
-        .returning({ id: financiamentos.id });
+      const [updated] = await getDb().transaction(async tx => {
+        const [record] = await tx.select({ id: financiamentos.id, leadId: financiamentos.leadId })
+          .from(financiamentos).where(eq(financiamentos.id, input.id)).limit(1);
+        if (!record) throw new TRPCError({ code: "NOT_FOUND", message: "Financiamento não encontrado" });
+        if (record.leadId) await tx.execute(sql`SELECT id FROM leads WHERE id = ${record.leadId} FOR UPDATE`);
+        if (record.leadId) {
+          await tx.update(leads).set({ simulationValue: input.valorImovel.toFixed(2), approvedValue: input.valorFinanciado.toFixed(2), updatedAt: new Date() })
+            .where(eq(leads.id, record.leadId));
+        }
+        return tx.update(financiamentos).set({
+          valorImovel: input.valorImovel.toFixed(2), valorFinanciado: input.valorFinanciado.toFixed(2), updatedAt: new Date(),
+        }).where(record.leadId ? eq(financiamentos.leadId, record.leadId) : eq(financiamentos.id, input.id))
+          .returning({ id: financiamentos.id });
+      });
       if (!updated) throw new TRPCError({ code: "NOT_FOUND", message: "Financiamento não encontrado" });
+      const [record] = await getDb().select({ leadId: financiamentos.leadId }).from(financiamentos).where(eq(financiamentos.id, input.id)).limit(1);
+      if (record?.leadId) {
+        const { sincronizarVgvDoLead } = await import("./obra-financeiro-router.js");
+        await sincronizarVgvDoLead(record.leadId);
+      }
       return updated;
     }),
 
@@ -296,7 +342,7 @@ export const financiamentoRouter = router({
 
   requestChecklistDocument: adminProcedure
     .input(z.object({ financiamentoId: z.number().int().positive(), itemId: z.number().int().positive() }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ ctx, input }) => {
       const [record] = await getDb().select({ item: financiamentoChecklistItems, leadId: financiamentos.leadId }).from(financiamentoChecklistItems).innerJoin(financiamentos, eq(financiamentoChecklistItems.financiamentoId, financiamentos.id)).where(and(eq(financiamentoChecklistItems.id, input.itemId), eq(financiamentos.id, input.financiamentoId))).limit(1);
       if (!record?.leadId || !record.item.visivelCliente) throw new TRPCError({ code: "BAD_REQUEST", message: "Cliente vinculado e documento visível são necessários" });
       await getDb().update(financiamentoChecklistItems).set({ solicitarDocumento: true }).where(eq(financiamentoChecklistItems.id, input.itemId));
@@ -304,15 +350,18 @@ export const financiamentoRouter = router({
     }),
 
   uploadChecklistDocument: adminProcedure
-    .input(z.object({ financiamentoId: z.number().int().positive(), itemId: z.number().int().positive(), fileName: z.string().min(1).max(255), mimeType: z.enum(FINANCING_DOCUMENT_MIMES), base64: z.string().min(8).max(4_200_000) }))
-    .mutation(async ({ input }) => {
+    .input(z.object({ financiamentoId: z.number().int().positive(), itemId: z.number().int().positive(), fileName: z.string().min(1).max(255), mimeType: z.enum(FINANCING_DOCUMENT_MIMES), base64: z.string().min(8).max(4_200_000).optional(), uploadId: z.string().optional() }))
+    .mutation(async ({ ctx, input }) => {
       const [record] = await getDb().select({ item: financiamentoChecklistItems, leadId: financiamentos.leadId }).from(financiamentoChecklistItems).innerJoin(financiamentos, eq(financiamentoChecklistItems.financiamentoId, financiamentos.id)).where(and(eq(financiamentoChecklistItems.id, input.itemId), eq(financiamentos.id, input.financiamentoId))).limit(1);
       if (!record?.leadId) throw new TRPCError({ code: "NOT_FOUND", message: "Financiamento sem cliente vinculado" });
-      return saveFinancingDocument({ ...input, itemId: record.item.id, financingId: input.financiamentoId, leadId: record.leadId, label: record.item.item });
+      const data = input.uploadId ? await readUpload(input.uploadId, ctx.user.id, `finance:${input.financiamentoId}:${input.itemId}`, input.fileName) : Buffer.from(input.base64 ?? "", "base64");
+      const result = await saveFinancingDocument({ itemId: record.item.id, financingId: input.financiamentoId, leadId: record.leadId, label: record.item.item, fileName: input.fileName, mimeType: input.mimeType, data });
+      if (input.uploadId) await clearUpload(input.uploadId, ctx.user.id);
+      return result;
     }),
 
   checklistDocumentContent: adminProcedure
-    .input(z.object({ id: z.number().int().positive() }))
+    .input(z.object({ id: z.number().int().positive(), offset: z.number().int().min(0).max(DOCUMENT_LIMIT).optional() }))
     .query(async ({ input }) => {
       const [item] = await getDb().select().from(financiamentoChecklistItems).where(eq(financiamentoChecklistItems.id, input.id)).limit(1);
       if (!item?.documentoNome || item.documentoUrl) throw new TRPCError({ code: "NOT_FOUND" });
@@ -320,6 +369,6 @@ export const financiamentoRouter = router({
         ? await readPrivateDocument(item.documentoDriveFileId)
         : await readPrivateDbFile("checklist", item.id);
       if (!data) throw new TRPCError({ code: "NOT_FOUND" });
-      return { fileName: item.documentoNome ?? "documento", base64: data.toString("base64") };
+      return { fileName: item.documentoNome ?? "documento", total: data.length, base64: data.subarray(input.offset ?? 0,(input.offset ?? 0) + 1024 * 1024).toString("base64") };
     }),
 });

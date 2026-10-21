@@ -78,6 +78,7 @@ import { geoRouter } from "./geo-router.js";
 import { empreiteiroRouter, obraFinanceiroRouter } from "./obra-financeiro-router.js";
 import { obraProgressoRouter } from "./obra-progresso-router.js";
 import { LEAD_PIPELINE_KEYS } from "../shared/lead-pipeline.js";
+import { documentChunksRouter } from "./document-upload-chunks.js";
 import { leadDocumentsRouter } from "./lead-documents-router.js";
 import { incorporacaoDocumentsRouter } from "./incorporacao-documents-router.js";
 import { incorporationDueDiligenceRouter } from "./incorporacao-due-diligence-router.js";
@@ -160,6 +161,7 @@ export const appRouter = router({
   tax: taxRouter,
   leadServices: leadServicesRouter,
   leadDocuments: leadDocumentsRouter,
+  documentChunks: documentChunksRouter,
   brokerPortal: brokerPortalRouter,
   geo: geoRouter,
   obraFinanceiro: obraFinanceiroRouter,
@@ -1525,9 +1527,23 @@ export const appRouter = router({
             ? new Date(data.followupDate)
             : undefined,
         };
-        await db.updateLead(id, dbData);
+        if (data.simulationValue !== undefined || data.approvedValue !== undefined) {
+          const { getDb } = await import("./db.js");
+          const { leads, financiamentos } = await import("../drizzle/schema.js");
+          const { eq } = await import("drizzle-orm");
+          await getDb().transaction(async tx => {
+            await tx.update(leads).set({ ...dbData, updatedAt: new Date() }).where(eq(leads.id, id));
+            await tx.update(financiamentos).set({
+              ...(dbData.simulationValue !== undefined ? { valorImovel: dbData.simulationValue } : {}),
+              ...(dbData.approvedValue !== undefined ? { valorFinanciado: dbData.approvedValue } : {}),
+              updatedAt: new Date(),
+            }).where(eq(financiamentos.leadId, id));
+          });
+        } else {
+          await db.updateLead(id, dbData);
+        }
         // Pedido de 15/10: VGV das obras do cliente acompanha o Valor Aprovado.
-        if (data.approvedValue !== undefined) {
+        if (data.simulationValue !== undefined || data.approvedValue !== undefined) {
           const { sincronizarVgvDoLead } = await import("./obra-financeiro-router.js");
           await sincronizarVgvDoLead(id);
         }

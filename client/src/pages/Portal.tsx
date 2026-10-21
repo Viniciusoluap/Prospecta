@@ -23,6 +23,7 @@ import {
 import { trpc } from "@/lib/trpc";
 import { LeadDocuments } from "@/components/LeadDocuments";
 import { PortalHeader } from "@/components/PortalHeader";
+import { baixarPartes, enviarPartes, LIMITE_DOCUMENTO } from "@/lib/documentos-partes";
 import { mutarComProgresso } from "@/lib/envio-progresso";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { Button } from "@/components/ui/button";
@@ -200,19 +201,20 @@ export default function Portal() {
     const mimeType = file.type || (/\.xls$/i.test(file.name) ? "application/vnd.ms-excel" : "");
     if (
       !["application/pdf", "image/jpeg", "image/png", "application/vnd.ms-excel"].includes(mimeType) ||
-      file.size > 3 * 1024 * 1024
+      file.size > LIMITE_DOCUMENTO
     ) {
-      toast.error("Envie PDF, JPG, PNG ou XLS de até 3 MiB");
+      toast.error("Envie PDF, JPG, PNG ou XLS de até 20 MiB");
       return;
     }
     setEnviando(true);
     try {
+      const uploadId = await enviarPartes(file, `finance:${financingId}:${uploadChecklistId}`);
       await mutarComProgresso("portal.uploadFinancingDocument", {
         financingId,
         checklistItemId: uploadChecklistId,
         fileName: file.name,
         mimeType: mimeType as "application/pdf" | "image/jpeg" | "image/png" | "application/vnd.ms-excel",
-        base64: await toBase64(file),
+        uploadId,
       }, { item: "documento" });
       toast.success("Documento enviado para análise");
       await financing.refetch();
@@ -506,9 +508,8 @@ export default function Portal() {
                                 type="button"
                                 className="text-sm underline mt-2 inline-flex items-center gap-1"
                                 onClick={() => {
-                                  void utils.portal.checklistDocumentContent.fetch({ checklistItemId: item.id }).then(content =>
-                                    openDocument(content.base64, item.documentoMime || "application/octet-stream", content.fileName)
-                                  ).catch(() => toast.error("Falha ao consultar documento"));
+                                  void baixarPartes(offset => utils.portal.checklistDocumentContent.fetch({ checklistItemId: item.id, offset }), item.documentoNome ?? "documento")
+                                    .catch(() => toast.error("Falha ao consultar documento"));
                                 }}
                               >
                                 <Download className="h-4 w-4" />

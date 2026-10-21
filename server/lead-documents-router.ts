@@ -1,3 +1,4 @@
+import { DOCUMENT_LIMIT, readUpload, clearUpload } from "./document-upload-chunks.js";
 import { notifyClientDocumentRequest } from "./document-request-notifications.js";
 import { ROTULO_DOCUMENTO } from "../shared/drive-estrutura.js";
 import { TRPCError } from "@trpc/server";
@@ -82,15 +83,16 @@ export const leadDocumentsRouter = router({
       return visibleRows.map(({ driveFileId, fileUrl, sha256, ...row }) => ({ ...row, canOpen: Boolean(driveFileId) || row.storage === "banco" }));
     }),
   upload: protectedProcedure
-    .input(z.object({ leadId: z.number().int().positive().optional(), serviceId: z.number().int().positive().optional(), type: category, fileName: z.string().min(1).max(255), mimeType: mime, base64: z.string().min(8).max(4_200_000) }))
+    .input(z.object({ leadId: z.number().int().positive().optional(), serviceId: z.number().int().positive().optional(), type: category, fileName: z.string().min(1).max(255), mimeType: mime, base64: z.string().min(8).max(4_200_000).optional(), uploadId: z.string().optional() }).refine(v => Boolean(v.base64) !== Boolean(v.uploadId)))
     .mutation(async ({ ctx, input }) => {
       const leadId = authorizedLead(ctx.user, input.leadId);
       if (!podeUsarModulo(ctx.user, "crm")) {
         const prefs = await getDb().execute(sql`SELECT visible_to_client FROM lead_document_preferences WHERE lead_id = ${leadId} AND type = ${input.type}`);
         if ((prefs as unknown as { rows: { visible_to_client: boolean }[] }).rows[0]?.visible_to_client === false) throw new TRPCError({ code: "FORBIDDEN" });
       }
-      const data = Buffer.from(input.base64, "base64");
-      if (data.length > 3 * 1024 * 1024 || !isValidPortalDocument(data, input.mimeType)) throw new TRPCError({ code: "BAD_REQUEST", message: "Envie PDF, JPG ou PNG válido de até 3 MiB" });
+      const scope = `lead:${leadId}:${input.serviceId ?? 0}:${input.type}`;
+      const data = input.uploadId ? await readUpload(input.uploadId, ctx.user.id, scope, input.fileName) : Buffer.from(input.base64!, "base64");
+      if (data.length > DOCUMENT_LIMIT || !isValidPortalDocument(data, input.mimeType)) throw new TRPCError({ code: "BAD_REQUEST", message: "Envie PDF, JPG ou PNG válido de até 20 MiB" });
       const db = getDb();
       const [lead] = await db.select({ id: leads.id }).from(leads).where(eq(leads.id, leadId)).limit(1);
       if (!lead) throw new TRPCError({ code: "NOT_FOUND", message: "Cliente não encontrado" });
@@ -123,10 +125,11 @@ export const leadDocumentsRouter = router({
         eq(leadDocuments.type, input.type), eq(leadDocuments.status, "pending"), isNull(leadDocuments.driveFileId), isNull(leadDocuments.deletedAt),
       ));
       await db.insert(leadActivities).values({ leadId, type: "document", description: `Documento ${input.type} recebido`, performedBy: `user:${ctx.user.id}` });
+      if (input.uploadId) await clearUpload(input.uploadId, ctx.user.id);
       return { id: savedId, duplicate: false, storage: driveFileId ? "drive" : "banco", storageNote: note };
     }),
   content: protectedProcedure
-    .input(z.object({ id: z.number().int().positive() }))
+    .input(z.object({ id: z.number().int().positive(), offset: z.number().int().min(0).max(DOCUMENT_LIMIT).optional() }))
     .query(async ({ ctx, input }) => {
       const db = getDb();
       const [doc] = await db.select().from(leadDocuments).where(and(eq(leadDocuments.id, input.id), isNull(leadDocuments.deletedAt))).limit(1);
@@ -136,12 +139,13 @@ export const leadDocumentsRouter = router({
         const prefs = await db.execute(sql`SELECT visible_to_client FROM lead_document_preferences WHERE lead_id = ${doc.leadId} AND type = ${doc.type}`);
         if ((prefs as unknown as { rows: { visible_to_client: boolean }[] }).rows[0]?.visible_to_client === false) throw new TRPCError({ code: "FORBIDDEN" });
       }
-      if (doc.fileSize && doc.fileSize > 3 * 1024 * 1024) throw new TRPCError({ code: "BAD_REQUEST", message: "Arquivo excede o limite de consulta" });
+
       try {
         const data = doc.driveFileId ? await readPrivateDocument(doc.driveFileId) : await readPrivateDbFile("lead", doc.id);
         if (!data) throw new Error("Arquivo não encontrado no banco");
-        if (data.length > 3 * 1024 * 1024) throw new Error("Arquivo excede o limite de consulta");
-        return { fileName: doc.fileName, mimeType: doc.mimeType, base64: data.toString("base64") };
+        if (data.length > DOCUMENT_LIMIT) throw new Error("Arquivo excede o limite de consulta");
+        const offset = input.offset ?? 0;
+        return { fileName: doc.fileName, mimeType: doc.mimeType, total: data.length, base64: data.subarray(offset, offset + 1024 * 1024).toString("base64") };
       } catch {
         throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Não foi possível consultar o documento" });
       }
