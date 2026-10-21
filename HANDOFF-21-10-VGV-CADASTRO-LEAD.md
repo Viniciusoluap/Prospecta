@@ -10,9 +10,9 @@ Incluir VGV simulado (R$) no cadastro inicial, ao lado do estágio e antes dos s
 - Sem migration e sem alterações nos valores dos clientes existentes.
 
 ## Validação
-(a) Automática: sintaxe dos arquivos alterados aprovada; diff --check aprovado. Santa Fé: 7 testes do fluxo de criação/edição aprovados localmente. Prospecta: teste de regressão adicionado; execução completa e build pendentes do pipeline Vercel (dependências locais indisponíveis).
+(a) Automática: sintaxe dos arquivos alterados aprovada; diff --check aprovado. Santa Fé: 7 testes do fluxo de criação/edição aprovados localmente. Prospecta: 894 testes aprovados no pipeline Vercel, incluindo 7 regressões do novo fluxo; TypeScript e build aprovados.
 (b) Manual: revisão do fluxo de envio, campo persistido e compatibilidade com edição/leitura.
-(c) Produção: ainda verificar build e deploy. Tela autenticada com criação real não exercitada.
+(c) Produção: build e deploy READY confirmados para os dois sistemas, com domínios de produção atribuídos. Tela autenticada com criação real não exercitada.
 
 ## Próximo passo exato
-Publicar branch codex/vgv-cadastro-lead-20261021 nos dois repositórios, abrir PRs e aguardar os checks. Com checks aprovados, merge e confirmar produção READY. Registrar commits, PRs e deployments neste handoff.
+Implementação concluída, sem pendência de código. PR #143: https://github.com/Viniciusoluap/Prospecta/pull/143 (merged). Commit de implementação: 8388d27f78a428dfe586e10ad06b09f7bf15a87a. Merge: a41f388327daf45eb43f6ed7aff8517579835029. Deploy: dpl_6oqbamMQnadyAdRUyKuzHVAt9TCR (produção READY). Conferência visual opcional: cadastrar um lead com VGV simulado e verificar o mesmo valor nos detalhes/edição; aprovado permanece apenas na edição. O handoff inicial está em main; este checkpoint final fica na branch de trabalho codex/vgv-cadastro-lead-20261021.
