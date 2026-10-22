@@ -120,7 +120,7 @@ export function ProgressoObraAba({ projectId, onFotosMudaram }: { projectId: num
         }
       }
       // Pedido de 18/10: cópia preenchida (.xls/.pdf) no Google Drive da obra.
-      const notaDrive = medicaoId && consulta.data?.pci ? await copiarMedicaoNoDrive(medicaoId) : "";
+      const notaDrive = medicaoId && consulta.data?.pci?.vinculadaEm ? await copiarMedicaoNoDrive(medicaoId) : "";
       toast.success((editando ? `Medição de ${editando.quando} alterada.` : `Medição salva (${rotuloTipoMedicao(tipo)}): progresso geral ${formatarPercentual(calculo.progresso)}.`) + notaDrive);
       const atualizado = await consulta.refetch();
       setEditando(null);

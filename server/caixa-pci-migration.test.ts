@@ -1,5 +1,6 @@
 import { PGlite } from "@electric-sql/pglite";
 import { readFileSync } from "node:fs";
+import { createHash } from "node:crypto";
 import { expect, it } from "vitest";
 
 it("mantém a PCI histórica após troca e preserva a exclusão autorizada da obra sem órfãos", async () => {
@@ -20,5 +21,24 @@ it("mantém a PCI histórica após troca e preserva a exclusão autorizada da ob
     expect((await db.query(`SELECT count(*)::int AS n FROM construction_progress_history`)).rows).toEqual([{ n: 1 }]);
     await db.exec("DELETE FROM construction_projects WHERE id=1");
     expect((await db.query("SELECT count(*)::int AS n FROM construction_pci_versions")).rows).toEqual([{ n: 0 }]);
+  } finally { await db.close(); }
+}, 30_000);
+
+it("reparse preserva a versão histórica e grava nova distribuição corrente", async () => {
+  const db = new PGlite();
+  try {
+    await db.exec(`CREATE TABLE construction_projects(id integer primary key); INSERT INTO construction_projects VALUES(1);
+      CREATE TABLE construction_progress_items(project_id integer, incidence_pct numeric(7,4));
+      CREATE TABLE construction_progress_history(id integer primary key, project_id integer REFERENCES construction_projects(id) ON DELETE CASCADE, incidence_total_pct numeric(9,4));
+      CREATE TABLE construction_photos(id integer primary key);`);
+    for (const f of ["0058_medicao_caixa_pci.sql", "0059_medicao_pci_versoes.sql"]) await db.exec(readFileSync(new URL(`../drizzle/${f}`, import.meta.url), "utf8"));
+    await db.exec(`INSERT INTO construction_pci(project_id,file_name,size_bytes,data,parsed) VALUES(1,'antiga.xls',1,decode('01','hex'),'{"incidencias":[77.9]}');
+      INSERT INTO construction_progress_history(id,project_id,incidence_total_pct,pci_version_id) SELECT 1,1,77.9,version_id FROM construction_pci WHERE project_id=1;`);
+    const hash = createHash("md5").update(Buffer.from([1])).update("|incidencias-localizadas-v2").digest("hex");
+    await db.query(`INSERT INTO construction_pci_versions(project_id,checksum,file_name,data,parsed) VALUES(1,$1,'antiga.xls',decode('01','hex'),'{"incidencias":[100]}') ON CONFLICT(project_id,checksum) DO NOTHING`, [hash]);
+    await db.query(`UPDATE construction_pci SET parsed='{"incidencias":[100]}', version_id=(SELECT id FROM construction_pci_versions WHERE project_id=1 AND checksum=$1) WHERE project_id=1`, [hash]);
+    const r = await db.query(`SELECT (SELECT parsed->'incidencias' FROM construction_pci_versions v WHERE v.id=h.pci_version_id) AS historico,
+      (SELECT parsed->'incidencias' FROM construction_pci WHERE project_id=1) AS atual FROM construction_progress_history h WHERE h.id=1`);
+    expect(r.rows).toEqual([{ historico: [77.9], atual: [100] }]);
   } finally { await db.close(); }
 }, 30_000);

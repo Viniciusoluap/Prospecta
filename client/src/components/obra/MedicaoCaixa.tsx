@@ -2,7 +2,7 @@
 import { LIMITE_PCI_BYTES, PARTE_PCI_BYTES } from "@shared/pci-upload";
 import { useRef, useState, type ReactNode } from "react";
 import { toast } from "sonner";
-import { Download, FileSpreadsheet, ImagePlus, Link2, Loader2, Trash2, Upload, X } from "lucide-react";
+import { Download, FileSpreadsheet, ImagePlus, Link2, Link2Off, Loader2, Trash2, Upload, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -164,10 +164,11 @@ export interface ResumoPci {
 }
 
 /** Botões da PCI (ao lado de "Ver Medições da CEF"). */
-export function PciObra({ projectId }: { projectId: number }) {
+export function PciObra({ projectId, onVinculoAlterado }: { projectId: number; onVinculoAlterado?: () => void }) {
   const utils = trpc.useUtils();
   const consulta = trpc.obraProgresso.obter.useQuery({ projectId });
   const vincular = trpc.obraProgresso.vincularPci.useMutation();
+  const desvincular = trpc.obraProgresso.desvincularPci.useMutation();
   const entrada = useRef<HTMLInputElement>(null);
   const [enviando, setEnviando] = useState(false);
   const pci = consulta.data?.pci ?? null;
@@ -200,6 +201,7 @@ export function PciObra({ projectId }: { projectId: number }) {
       const notaDrive = r.drive === "ok" ? " Original guardada no Google Drive da obra." : r.drive === "erro" ? " (Não foi possível copiar para o Google Drive; a PCI ficou guardada no sistema.)" : "";
       toast.success(`PCI enviada${r.proponente ? ` (${r.proponente})` : ""}. Clique em "Vincular PCI" para usar as incidências dela.${notaDrive}`);
       await utils.obraProgresso.obter.invalidate({ projectId });
+      onVinculoAlterado?.();
     } catch (e) {
       toast.error(e instanceof Error ? e.message : String(e));
     } finally {
@@ -215,9 +217,20 @@ export function PciObra({ projectId }: { projectId: number }) {
       const r = await vincular.mutateAsync({ projectId });
       toast.success(`Incidências vinculadas à PCI (total ${r.somaIncidencia.toLocaleString("pt-BR", { maximumFractionDigits: 2 })}%).`);
       await utils.obraProgresso.obter.invalidate({ projectId });
+      onVinculoAlterado?.();
     } catch (e) {
       toast.error(e instanceof Error ? e.message : String(e));
     }
+  };
+
+  const fazerDesvinculo = async () => {
+    if (!confirm("Desvincular a PCI desta obra e restaurar as incidências padrão? A execução e as medições já salvas serão mantidas.")) return;
+    try {
+      await desvincular.mutateAsync({ projectId });
+      toast.success("PCI desvinculada. Incidências padrão restauradas; a execução e o histórico foram mantidos.");
+      await utils.obraProgresso.obter.invalidate({ projectId });
+      onVinculoAlterado?.();
+    } catch (e) { toast.error(e instanceof Error ? e.message : String(e)); }
   };
 
   return (
@@ -233,6 +246,10 @@ export function PciObra({ projectId }: { projectId: number }) {
             {vincular.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Link2 className="h-4 w-4" />}
             Vincular PCI
           </Button>
+          {pci.vinculadaEm && <Button variant="outline" disabled={desvincular.isPending} onClick={fazerDesvinculo} className="border-red-400/60 text-red-300 hover:bg-red-500/10 gap-2">
+            {desvincular.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Link2Off className="h-4 w-4" />}
+            Desvincular PCI
+          </Button>}
           <button type="button" className="inline-flex items-center gap-1 text-xs text-gray-300 underline-offset-2 hover:underline"
             onClick={() => baixarArquivo(`/api/obras/${projectId}/pci`, pci.arquivo).catch((e) => toast.error(e instanceof Error ? e.message : String(e)))}>
             <FileSpreadsheet className="h-3.5 w-3.5 text-[#C9A961]" />
