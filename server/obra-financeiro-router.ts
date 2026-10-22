@@ -56,25 +56,28 @@ const paraData = (d: Date | null) => (d ? d.toISOString().slice(0, 10) : null);
 
 async function carregarObra(projectId: number) {
   const db = getDb();
-  const [linha] = await db.select({ obra: constructionProjects, valorAprovado: leads.approvedValue, vgvSimulado: leads.simulationValue })
+  const [linha] = await db.select({ obra: constructionProjects, vgvSimulado: leads.simulationValue })
     .from(constructionProjects)
     .leftJoin(leads, eq(leads.id, constructionProjects.leadId))
     .where(eq(constructionProjects.id, projectId)).limit(1);
   if (!linha) throw new TRPCError({ code: "NOT_FOUND", message: "Obra não encontrada" });
-  // Pedido de 15/10: obra com cliente no CRM tem VGV = Valor Aprovado do lead
-  // (fonte única, somente leitura na obra). Obra sem lead mantém o VGV digitado.
+  // Obra com cliente no CRM tem VGV = VGV simulado do lead (fonte única, somente
+  // leitura na obra), base também da comissão do corretor. O valor financiado
+  // aprovado é outro dado (financiamento), não o VGV — correção de 22/10.
+  // Obra sem lead mantém o VGV digitado.
   const vgvAutomatico = linha.obra.leadId !== null;
-  return { ...linha.obra, vgv: vgvAutomatico ? linha.valorAprovado : linha.obra.vgv, vgvAutomatico, baseComissao: vgvAutomatico ? linha.vgvSimulado : linha.obra.vgv };
+  const vgv = vgvAutomatico ? linha.vgvSimulado : linha.obra.vgv;
+  return { ...linha.obra, vgv, vgvAutomatico, baseComissao: vgv };
 }
 
 /**
- * Pedido de 15/10: ao mudar o Valor Aprovado no CRM, o VGV das obras do lead
+ * Ao mudar o VGV simulado no CRM, o VGV das obras do lead
  * acompanha (e a comissão gravada, quando há corretor). Os cálculos já leem o
  * valor do lead; isto mantém a coluna da obra igual para relatórios/consultas.
  */
 export async function sincronizarVgvDoLead(leadId: number) {
   const db = getDb();
-  const [lead] = await db.select({ valorAprovado: leads.approvedValue, vgvSimulado: leads.simulationValue }).from(leads).where(eq(leads.id, leadId)).limit(1);
+  const [lead] = await db.select({ vgvSimulado: leads.simulationValue }).from(leads).where(eq(leads.id, leadId)).limit(1);
   if (!lead) return;
   const corretor = await corretorDaObra(leadId);
   const obras = await db.select({ id: constructionProjects.id, pct: constructionProjects.commissionPct })
@@ -82,7 +85,7 @@ export async function sincronizarVgvDoLead(leadId: number) {
   for (const o of obras) {
     const calculada = calcularComissaoObra({ corretor, vgvCentavos: centavosDe(lead.vgvSimulado), percentualObra: o.pct, pagoCentavos: 0 });
     await db.update(constructionProjects).set({
-      vgv: lead.valorAprovado,
+      vgv: lead.vgvSimulado,
       ...(corretor ? { commissionAmount: calculada.valorCentavos !== null ? reaisDeCentavos(calculada.valorCentavos) : null } : {}),
       updatedAt: new Date(),
     }).where(eq(constructionProjects.id, o.id));
@@ -230,7 +233,7 @@ export const obraFinanceiroRouter = router({
     const pctComissao = input.comissaoPercentual === undefined ? obra.commissionPct : input.comissaoPercentual;
     // Com corretor + regra + VGV, o valor da comissão é sempre o calculado.
     const corretorObra = await corretorDaObra(obra.leadId);
-    // VGV de obra com lead vem do Valor Aprovado do CRM; o digitado é ignorado.
+    // VGV de obra com lead vem do VGV simulado do CRM; o digitado é ignorado.
     const vgv = obra.vgvAutomatico ? obra.vgv : input.vgv;
     const calculada = calcularComissaoObra({
       corretor: corretorObra,

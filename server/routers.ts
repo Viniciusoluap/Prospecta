@@ -1555,7 +1555,7 @@ export const appRouter = router({
         } else {
           await db.updateLead(id, dbData);
         }
-        // Pedido de 15/10: VGV das obras do cliente acompanha o Valor Aprovado.
+        // VGV das obras do cliente acompanha o VGV simulado.
         if (data.simulationValue !== undefined || data.approvedValue !== undefined) {
           const { sincronizarVgvDoLead } = await import("./obra-financeiro-router.js");
           await sincronizarVgvDoLead(id);
