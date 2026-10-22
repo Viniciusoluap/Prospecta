@@ -18,6 +18,7 @@
 
 ## Verificação até este checkpoint
 
-- Automática: nenhuma do lote PCI ainda; parser inspecionado por código.
+- Automática: o parser agora localiza os itens 1–20 pela numeração da coluna G, lê a incidência da coluna X na linha correspondente (113 ou 120), usa a linha localizada nas faixas mínima/máxima e recusa soma que não fecha 100%. `server/pci-legada.test.ts` usa uma tabela sintética das duas versões e testa deslocamento/total/sequência. `vitest run server/pci-legada.test.ts server/caixa-medicao.test.ts`: **21/21 passaram**. Arquivos alterados: `server/caixa/pci.ts` e teste.
 - Manual: prints examinados e comparação visual do primeiro item e total; arquivo `.xls` original não disponível localmente.
 - Produção pendente: confirmar deploy da herança de alvará; testar leitura da PCI de Mariana e o novo desvínculo com sessão autorizada depois da publicação.
+- **Ainda não concluído:** botão e mutação de desvincular; revisão da PCI já persistida com `parsed` antigo; testes de DB/permissão. O lote PCI não deve ir a merge/deploy antes desses itens e QA.
