@@ -55,6 +55,8 @@ export function BarraProgresso({ valor }: { valor: number }) {
 
 const reais = (centavos: number) => (centavos / 100).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
 const dataHora = (d: Date | string) => new Date(d).toLocaleString("pt-BR", { dateStyle: "short", timeStyle: "short" });
+const dataDoLevantamento = (data: string | null | undefined) =>
+  /^\d{4}-\d{2}-\d{2}$/.test(data ?? "") ? data!.split("-").reverse().join("/") : null;
 
 export function ProgressoObraAba({ projectId, onFotosMudaram }: { projectId: number; onFotosMudaram?: () => void }) {
   const utils = trpc.useUtils();
@@ -120,7 +122,7 @@ export function ProgressoObraAba({ projectId, onFotosMudaram }: { projectId: num
         }
       }
       // Pedido de 18/10: cópia preenchida (.xls/.pdf) no Google Drive da obra.
-      const notaDrive = medicaoId && consulta.data?.pci ? await copiarMedicaoNoDrive(medicaoId) : "";
+      const notaDrive = medicaoId && consulta.data?.pci?.vinculadaEm ? await copiarMedicaoNoDrive(medicaoId) : "";
       toast.success((editando ? `Medição de ${editando.quando} alterada.` : `Medição salva (${rotuloTipoMedicao(tipo)}): progresso geral ${formatarPercentual(calculo.progresso)}.`) + notaDrive);
       const atualizado = await consulta.refetch();
       setEditando(null);
@@ -283,7 +285,8 @@ export function ProgressoObraAba({ projectId, onFotosMudaram }: { projectId: num
                 {dados.historico.map((h) => (
                   <li key={h.id} className="grid grid-cols-1 items-center gap-2 py-3 text-gray-300 md:grid-cols-[minmax(0,1.6fr)_minmax(0,1fr)_minmax(0,1fr)_minmax(0,1fr)_auto_auto]">
                     <div className="min-w-0">
-                      <p>{dataHora(h.criadoEm)} — {h.autor ?? "—"}</p>
+                      <p>{dataDoLevantamento(h.dadosCaixa?.pls?.dataLevantamento) ?? dataHora(h.criadoEm)} — {h.autor ?? "—"}</p>
+                      {dataDoLevantamento(h.dadosCaixa?.pls?.dataLevantamento) && <p className="text-xs text-gray-400">Registrada em {dataHora(h.criadoEm)}</p>}
                       <p className="text-xs text-[#C9A961]">{rotuloTipoMedicao(h.tipo)}{h.fotos.length ? ` · ${h.fotos.length} foto(s)` : ""}</p>
                       {h.editadaEm && <p className="text-xs text-gray-400">Editada em {dataHora(h.editadaEm)}</p>}
                       {dados.pci && <div className="mt-1"><BotoesArquivosMedicao medicaoId={h.id} /></div>}
@@ -318,9 +321,9 @@ export function ProgressoObraAba({ projectId, onFotosMudaram }: { projectId: num
                     </div>
                     <p className="font-semibold text-white tabular-nums md:text-right">{formatarPercentual(h.progresso)}</p>
                     <div className="flex gap-1 md:justify-end">
-                      <Button size="icon" variant="ghost" aria-label={`Editar a medição de ${dataHora(h.criadoEm)}`} disabled={ocupado} onClick={() => iniciarEdicao(h)} className="text-[#C9A961] hover:bg-[#C9A961]/10"><Pencil className="h-4 w-4" /></Button>
-                      <Button size="icon" variant="ghost" aria-label={`Excluir a medição de ${dataHora(h.criadoEm)}`} disabled={ocupado || !!editando}
-                        onClick={() => { if (confirm(`Excluir definitivamente a medição de ${dataHora(h.criadoEm)}? Esta ação não pode ser desfeita.`)) void acao(() => excluir.mutateAsync({ medicaoId: h.id }), "Medição excluída."); }}
+                      <Button size="icon" variant="ghost" aria-label={`Editar a medição de ${dataDoLevantamento(h.dadosCaixa?.pls?.dataLevantamento) ?? dataHora(h.criadoEm)}`} disabled={ocupado} onClick={() => iniciarEdicao(h)} className="text-[#C9A961] hover:bg-[#C9A961]/10"><Pencil className="h-4 w-4" /></Button>
+                      <Button size="icon" variant="ghost" aria-label={`Excluir a medição de ${dataDoLevantamento(h.dadosCaixa?.pls?.dataLevantamento) ?? dataHora(h.criadoEm)}`} disabled={ocupado || !!editando}
+                        onClick={() => { if (confirm(`Excluir definitivamente a medição de ${dataDoLevantamento(h.dadosCaixa?.pls?.dataLevantamento) ?? dataHora(h.criadoEm)}? Esta ação não pode ser desfeita.`)) void acao(() => excluir.mutateAsync({ medicaoId: h.id }), "Medição excluída."); }}
                         className="text-red-400 hover:bg-red-500/10"><Trash2 className="h-4 w-4" /></Button>
                     </div>
                   </li>

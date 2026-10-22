@@ -16,6 +16,7 @@ import {
 import {
   calcularProgresso,
   SERVICOS_PROGRESSO,
+  restaurarIncidenciasPadrao,
   mesclarComPadrao,
   type ItemProgressoEntrada,
 } from "../shared/financeiro/progresso.js";
@@ -33,7 +34,8 @@ import {
   type DadosMedicaoCaixa,
   type TipoMedicao,
 } from "../shared/medicao-caixa.js";
-import type { DadosPci } from "./caixa/pci.js";
+import { lerPci, type DadosPci } from "./caixa/pci.js";
+import { createHash } from "node:crypto";
 import { adminProcedure, router } from "./_core/trpc.js";
 import { getDb, getObraDadosCrm } from "./db.js";
 import { calcularResumoObra } from "./obra-financeiro-router.js";
@@ -81,16 +83,22 @@ async function medicaoOuErro(medicaoId: number) {
  */
 function sincronizarMedicaoVigente(projectId: number, userId: number, condicao: SQL = sql`TRUE`) {
   const db = getDb();
+  // Ao editar/excluir uma medição antiga vinculada, o histórico não pode
+  // recolocar suas incidências na obra depois de um desvínculo explícito.
+  const podeAplicar = sql`(${condicao}) AND NOT EXISTS (
+    SELECT 1 FROM construction_pci p WHERE p.project_id = ${projectId} AND p.linked_at IS NULL
+    AND (SELECT h.pci_version_id FROM construction_progress_history h WHERE h.project_id = ${projectId}
+      ORDER BY h.created_at DESC, h.id DESC LIMIT 1) IS NOT NULL)`;
   return [
-    db.execute(sql`DELETE FROM construction_progress_items WHERE project_id = ${projectId} AND (${condicao})`),
+    db.execute(sql`DELETE FROM construction_progress_items WHERE project_id = ${projectId} AND (${podeAplicar})`),
     db.execute(sql`INSERT INTO construction_progress_items(project_id, service_key, incidence_pct, execution_pct, updated_by, updated_at)
       SELECT ${projectId}, item->>'chave', (item->>'incidencia')::numeric, (item->>'execucao')::numeric, ${userId}, now()
       FROM (SELECT items FROM construction_progress_history WHERE project_id = ${projectId} ORDER BY created_at DESC, id DESC LIMIT 1) h,
-      LATERAL jsonb_array_elements(h.items) item WHERE (${condicao})`),
+      LATERAL jsonb_array_elements(h.items) item WHERE (${podeAplicar})`),
     db.execute(sql`UPDATE construction_projects SET
       progress_measured_pct = (SELECT progress_pct FROM construction_progress_history WHERE project_id = ${projectId} ORDER BY created_at DESC, id DESC LIMIT 1),
       progress = COALESCE((SELECT round(progress_pct)::integer FROM construction_progress_history WHERE project_id = ${projectId} ORDER BY created_at DESC, id DESC LIMIT 1), 0), updated_at = now()
-      WHERE id = ${projectId} AND (${condicao})`),
+      WHERE id = ${projectId} AND (${podeAplicar})`),
   ] as const;
 }
 /** A medição editada é a mais recente da obra (avaliado depois da trava). */
@@ -109,7 +117,8 @@ async function versaoPciParaMedicao(projectId: number, itens: { chave: string; i
   }
   const [pci] = await db.select().from(constructionPci).where(eq(constructionPci.projectId, projectId)).limit(1);
   if (!pci) return null;
-  if (!pci.linkedAt || !pci.versionId || !incidenciasCorrespondem(itens, SERVICOS_PROGRESSO.map(s => s.chave), (pci.parsed as DadosPci).incidencias)) throw new TRPCError({ code: "BAD_REQUEST", message: "Vincule a PCI e use as incidências da planilha antes de salvar." });
+  if (!pci.linkedAt) return null;
+  if (!pci.versionId || !incidenciasCorrespondem(itens, SERVICOS_PROGRESSO.map(s => s.chave), (pci.parsed as DadosPci).incidencias)) throw new TRPCError({ code: "BAD_REQUEST", message: "Vincule a PCI e use as incidências da planilha antes de salvar." });
   return pci.versionId;
 }
 
@@ -389,10 +398,18 @@ export const obraProgressoRouter = router({
   // (1ª aba, coluna Incidência). A Execução do Item de cada serviço é mantida.
   vincularPci: adminProcedure.input(projectIdInput).mutation(async ({ input, ctx }) => {
     const db = getDb();
-    const [pci] = await db.select({ parsed: constructionPci.parsed }).from(constructionPci)
-      .where(eq(constructionPci.projectId, input.projectId)).limit(1);
+    const arquivo = await db.execute(sql`SELECT encode(p.data, 'base64') AS b64, p.parsed, v.parsed AS versao_parsed, p.file_name AS nome, p.uploaded_by AS autor, md5(p.data) AS checksum
+      FROM construction_pci p LEFT JOIN construction_pci_versions v ON v.id = p.version_id WHERE p.project_id = ${input.projectId}`);
+    const pci = (arquivo as unknown as { rows: { b64: string; parsed: DadosPci; versao_parsed: DadosPci | null; nome: string; autor: number | null; checksum: string }[] }).rows[0];
     if (!pci) throw new TRPCError({ code: "BAD_REQUEST", message: "Envie a PCI da obra antes de vincular." });
-    const dados = pci.parsed as DadosPci;
+    const bytes = Buffer.from(pci.b64, "base64");
+    let dados: DadosPci;
+    try { dados = lerPci(bytes); }
+    catch (e) { throw new TRPCError({ code: "BAD_REQUEST", message: e instanceof Error ? e.message : "A PCI precisa ser reenviada em formato válido." }); }
+    // Uma versão histórica mantém o JSON usado naquela medição. A releitura
+    // ganha outra versão lógica do mesmo arquivo caso o parser antigo diferisse.
+    const corrigida = JSON.stringify(dados) !== JSON.stringify(pci.parsed) || JSON.stringify(dados) !== JSON.stringify(pci.versao_parsed);
+    const checksumCorrecao = createHash("md5").update(bytes).update("|incidencias-localizadas-v2").digest("hex");
     const salvos = await db.select().from(constructionProgressItems).where(eq(constructionProgressItems.projectId, input.projectId));
     const atuais = mesclarComPadrao(salvos.map((s) => ({ chave: s.serviceKey, incidencia: normalizarPercentual(s.incidencePct), execucao: normalizarPercentual(s.executionPct) })));
     const itens = atuais.map((i, k) => ({
@@ -405,12 +422,42 @@ export const obraProgressoRouter = router({
     const agora = new Date();
     await db.batch([
       travarObra(input.projectId),
+      ...(corrigida ? [db.execute(sql`INSERT INTO construction_pci_versions(project_id, checksum, file_name, data, parsed, uploaded_by, uploaded_at)
+        VALUES (${input.projectId}, ${checksumCorrecao}, ${pci.nome}, decode(${pci.b64}, 'base64'), ${JSON.stringify(dados)}::jsonb, ${pci.autor}, now())
+        ON CONFLICT(project_id, checksum) DO NOTHING`),
+        db.execute(sql`UPDATE construction_pci SET parsed = ${JSON.stringify(dados)}::jsonb,
+          version_id = (SELECT id FROM construction_pci_versions WHERE project_id = ${input.projectId} AND checksum = ${checksumCorrecao})
+          WHERE project_id = ${input.projectId} AND md5(data) = ${pci.checksum}`)] : []),
       db.delete(constructionProgressItems).where(eq(constructionProgressItems.projectId, input.projectId)),
       db.insert(constructionProgressItems).values(itens.map((i) => ({
         projectId: input.projectId, serviceKey: i.chave, incidencePct: i.incidencia, executionPct: i.execucao, updatedBy: ctx.user.id, updatedAt: agora,
       }))),
       db.update(constructionPci).set({ linkedAt: agora, linkedBy: ctx.user.id }).where(eq(constructionPci.projectId, input.projectId)),
+      db.update(constructionProjects).set({ progressMeasuredPct: calculo.progresso.toFixed(6), progress: Math.round(calculo.progresso), updatedAt: agora }).where(eq(constructionProjects.id, input.projectId)),
 
+    ] as never);
+    return { somaIncidencia: calculo.somaIncidencia, itens };
+  }),
+
+  // Remove somente o vínculo corrente. A PCI e as versões usadas por medições
+  // anteriores permanecem guardadas para consulta e geração dos seus arquivos.
+  desvincularPci: adminProcedure.input(projectIdInput).mutation(async ({ input, ctx }) => {
+    const db = getDb();
+    const [pci] = await db.select({ linkedAt: constructionPci.linkedAt }).from(constructionPci)
+      .where(eq(constructionPci.projectId, input.projectId)).limit(1);
+    if (!pci?.linkedAt) throw new TRPCError({ code: "BAD_REQUEST", message: "Esta obra não possui PCI vinculada." });
+    const salvos = await db.select().from(constructionProgressItems).where(eq(constructionProgressItems.projectId, input.projectId));
+    const atuais = mesclarComPadrao(salvos.map(s => ({ chave: s.serviceKey, incidencia: normalizarPercentual(s.incidencePct), execucao: normalizarPercentual(s.executionPct) })));
+    const itens = restaurarIncidenciasPadrao(atuais);
+    const calculo = calcularProgresso(itens);
+    if (calculo.erros.length) throw new TRPCError({ code: "BAD_REQUEST", message: calculo.erros.join(" ") });
+    const agora = new Date();
+    await db.batch([
+      travarObra(input.projectId),
+      db.delete(constructionProgressItems).where(eq(constructionProgressItems.projectId, input.projectId)),
+      db.insert(constructionProgressItems).values(itens.map(item => ({ projectId: input.projectId, serviceKey: item.chave, incidencePct: String(item.incidencia), executionPct: String(item.execucao), updatedBy: ctx.user.id, updatedAt: agora }))),
+      db.update(constructionPci).set({ linkedAt: null, linkedBy: null }).where(eq(constructionPci.projectId, input.projectId)),
+      db.update(constructionProjects).set({ progressMeasuredPct: calculo.progresso.toFixed(6), progress: Math.round(calculo.progresso), updatedAt: agora }).where(eq(constructionProjects.id, input.projectId)),
     ] as never);
     return { somaIncidencia: calculo.somaIncidencia, itens };
   }),
