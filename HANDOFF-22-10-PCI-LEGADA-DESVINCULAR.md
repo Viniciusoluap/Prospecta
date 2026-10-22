@@ -34,6 +34,12 @@
 
 ## Estado mais recente — implementação local após o checkpoint WIP
 
+### Continuação da publicação e ajuste solicitado em 22/10
+
+- O código da PCI e do desvínculo foi publicado na branch remota, árvore `1d271f0d632728a4d0cdc87a192b92f4480664fa`, commit GitHub `b1ffa58a5aa5586e1e4a9f505e8a3c43692f2215`. PR #149 aberto. A autorização explícita do usuário para publicar nos repositórios públicos foi recebida.
+- Na continuação do PR, a data principal de cada medição no histórico passa a mostrar `dadosCaixa.pls.dataLevantamento` (dia/mês/ano). O momento de gravação permanece exibido separadamente como `Registrada em`, para auditoria. Medições antigas sem levantamento salvo mantêm a data de cadastro. A edição não altera o instante de criação.
+- Prévia, merge e produção deste PR ainda aguardam validação final. O arquivo XLS original do exemplo continua não anexado; a validação de conteúdo com esse arquivo permanece pendente.
+
 Esta seção substitui as pendências de código descritas acima. O parser já estava publicado; as mudanças abaixo estão no worktree e precisam de commit/push/preview antes de merge.
 
 - `server/obra-progresso-router.ts`: `vincularPci` relê **os bytes da PCI corrente** com o parser corrigido. Se o JSON antigo ou a versão atual divergir, cria uma nova versão lógica com checksum de bytes + identificador do parser, atualiza `parsed` e `versionId` correntes; a versão das medições históricas permanece intacta. O `desvincularPci` restaura as incidências padrão, mantém execução, arquivo original, versões e histórico, e recalcula o progresso da obra. `versaoPciParaMedicao` permite nova medição sem versão quando desvinculada; a sincronização de histórico evita repor incidências de PCI antiga depois de desvincular.
