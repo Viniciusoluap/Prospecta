@@ -180,6 +180,14 @@ async function leadDoCorretor(leadId: number | null, corretorId: number | null) 
 }
 
 export const agendaRouter = router({
+  cardDeadlines: adminProcedure.query(async ({ ctx }) => {
+    const corretorId = corretorDaSessao(ctx.user);
+    return getDb().select({ id: leads.id, name: leads.name, cardDueDate: leads.cardDueDate })
+      .from(leads).where(and(isNull(leads.deletedAt), ne(leads.stage, "finalized"),
+        sql`${leads.cardDueDate} IS NOT NULL`,
+        ...(corretorId === null ? [] : [eq(leads.brokerId, corretorId)])))
+      .orderBy(asc(leads.cardDueDate));
+  }),
   options: adminProcedure.query(async ({ ctx }) => {
     const corretorId = corretorDaSessao(ctx.user);
     if (corretorId === null) return options();

@@ -9,7 +9,7 @@ type Module = "obras" | "tarefas" | "regularizacoes" | "comissoes" | "projetos" 
  * Módulos em que o vínculo com o lead já cria o registro real (EPIC-017).
  * Financiamentos entram pelo pedido A7: vínculos antigos viram registros ao abrir a fila.
  */
-const AUTO_RECORD_MODULES = ["projetos", "regularizacoes", "financiamentos"] as const;
+const AUTO_RECORD_MODULES = ["projetos", "regularizacoes", "financiamentos", "tarefas"] as const;
 type AutoRecordModule = (typeof AUTO_RECORD_MODULES)[number];
 const isAutoRecordModule = (module: Module): module is AutoRecordModule =>
   (AUTO_RECORD_MODULES as readonly string[]).includes(module);

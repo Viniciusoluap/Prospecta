@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { Link } from "wouter";
 import { trpc } from "@/lib/trpc";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { Button } from "@/components/ui/button";
@@ -40,6 +41,7 @@ export default function AdminAgenda({
 }: { embedded?: boolean } = {}) {
   const list = trpc.agenda.list.useQuery();
   const taskList = trpc.tasks.list.useQuery();
+  const cardDeadlines = trpc.agenda.cardDeadlines.useQuery();
   const options = trpc.agenda.options.useQuery();
   // Portal do corretor (15/10): o vínculo de corretor/responsável vem da sessão
   // no servidor, então esses dois campos não aparecem para o corretor.
@@ -83,6 +85,14 @@ export default function AdminAgenda({
         <ul className="mt-2 space-y-1 text-sm">
           {(taskList.data || []).filter(task => task.dueAt && task.status !== "done" && task.status !== "cancelled" && localDate(task.dueAt).startsWith(month)).map(task =>
             <li key={task.id}>{localDate(task.dueAt!)} · {task.title} · {task.assignedTo}</li>
+          )}
+        </ul>
+      </section>
+      <section className="rounded border border-[#C9A961]/40 bg-[#243345] p-4 text-white" aria-label="Vencimentos dos cards">
+        <h2 className="font-semibold text-[#E6CA88]">Vencimentos de leads</h2>
+        <ul className="mt-2 space-y-1 text-sm">
+          {(cardDeadlines.data || []).filter(lead => lead.cardDueDate?.startsWith(day || month)).map(lead =>
+            <li key={lead.id}><Link href={`/admin/crm/${lead.id}`} className="underline text-white">{lead.cardDueDate?.split("-").reverse().join("/")} · {lead.name}</Link></li>
           )}
         </ul>
       </section>
@@ -141,6 +151,9 @@ export default function AdminAgenda({
                   (!status || v.status === status) &&
                   (!broker || v.brokerId === Number(broker))
               ).length;
+              const cardCount = (cardDeadlines.data || []).filter(lead => lead.cardDueDate === date).length;
+              const taskCount = (taskList.data || []).filter(task => task.dueAt &&
+                task.status !== "cancelled" && task.status !== "done" && localDate(task.dueAt).startsWith(date)).length;
               return (
                 <button
                   key={date}
@@ -161,6 +174,8 @@ export default function AdminAgenda({
                   <span className="block text-[#906a25]">
                     {count ? `${count} ag.` : "—"}
                   </span>
+                  {cardCount > 0 && <span className="block text-red-700">{cardCount} lead{cardCount === 1 ? "" : "s"}</span>}
+                  {taskCount > 0 && <span className="block text-blue-700">{taskCount} tarefa{taskCount === 1 ? "" : "s"}</span>}
                 </button>
               );
             }
