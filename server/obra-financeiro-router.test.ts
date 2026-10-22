@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { getAllProjects, getDb } from "./db";
 import { router } from "./_core/trpc";
-import { empreiteiroRouter, obraFinanceiroRouter } from "./obra-financeiro-router";
+import { empreiteiroRouter, obraFinanceiroRouter, sincronizarVgvDoLead } from "./obra-financeiro-router";
 
 vi.mock("./db", () => ({ getDb: vi.fn(), getAllProjects: vi.fn(async () => []) }));
 
@@ -179,13 +179,14 @@ describe("Lote 3 — comissão da obra pelo CRM (item 32)", () => {
     expect(gravado.commissionPct).toBeNull();
   });
 
-  it("obra com lead: VGV gravado é o Valor Aprovado do CRM, nunca o digitado (pedido 15/10)", async () => {
-    const { db, gravacoes } = fakeDb([[{ obra: { ...obra, leadId: 24, commissionPct: null }, valorAprovado: "195000.00", vgvSimulado: "230000.00" }], [{ id: 9, nome: "C", percentualPadrao: "4.0000" }], []]);
+  it("obra com lead: VGV gravado é o VGV simulado do CRM — nunca o valor financiado aprovado nem o digitado (correção 22/10)", async () => {
+    // Caso real do lead #92: VGV simulado R$ 291.000, financiado aprovado menor.
+    const { db, gravacoes } = fakeDb([[{ obra: { ...obra, leadId: 92, commissionPct: null }, valorAprovado: "195000.00", vgvSimulado: "291000.00" }], [{ id: 9, nome: "C", percentualPadrao: "4.0000" }], []]);
     vi.mocked(getDb).mockReturnValue(db as never);
     await caller("admin").obraFinanceiro.salvarValores({ ...entrada, vgv: "999999.00", comissaoPercentual: null });
     const gravado = gravacoes.find((g) => g.metodo === "update")!.valores as Record<string, unknown>;
-    expect(gravado.vgv).toBe("195000.00");
-    expect(gravado.commissionAmount).toBe("9200.00");
+    expect(gravado.vgv).toBe("291000.00");
+    expect(gravado.commissionAmount).toBe("11640.00"); // 291.000 × 4%
   });
 
   it("obra sem lead: VGV continua digitado", async () => {
@@ -206,5 +207,21 @@ describe("Lote 3 — comissão da obra pelo CRM (item 32)", () => {
     for (const p of ["100.01", "5.12345", "-1", "5,5"]) {
       await expect(caller("admin").obraFinanceiro.salvarValores({ ...entrada, comissaoPercentual: p })).rejects.toMatchObject({ code: "BAD_REQUEST" });
     }
+  });
+});
+
+describe("Correção 22/10 — VGV da obra acompanha o VGV simulado do lead", () => {
+  it("ao editar o lead, a obra recebe o VGV simulado (291.000) e a comissão é recalculada sobre ele", async () => {
+    const { db, gravacoes } = fakeDb([
+      [{ vgvSimulado: "291000.00" }],                       // lead
+      [{ id: 9, nome: "C", percentualPadrao: "4.0000" }],   // corretor do lead
+      [{ id: 35, pct: null }],                              // obras do lead
+      [],                                                   // update
+    ]);
+    vi.mocked(getDb).mockReturnValue(db as never);
+    await sincronizarVgvDoLead(92);
+    const gravado = gravacoes.find((g) => g.metodo === "update")!.valores as Record<string, unknown>;
+    expect(gravado.vgv).toBe("291000.00");
+    expect(gravado.commissionAmount).toBe("11640.00");
   });
 });

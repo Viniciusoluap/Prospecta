@@ -450,7 +450,7 @@ export async function listarComissoesDeObras(somenteCorretorId?: number) {
         obraId: constructionProjects.id,
         obra: constructionProjects.title,
         status: constructionProjects.status,
-        // Pedido de 15/10: VGV da obra com lead = Valor Aprovado do CRM.
+        // VGV da obra com lead = VGV simulado do CRM (base da comissão).
         vgv: leads.simulationValue,
         percentualObra: constructionProjects.commissionPct,
         leadId: leads.id,
