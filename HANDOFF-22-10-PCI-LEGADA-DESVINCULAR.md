@@ -1,5 +1,11 @@
 # Handoff — PCI legada e desvinculação (22/10/2026)
 
+## Validação da PCI antiga em produção (22/10/2026)
+
+- Uma PCI `.xls` antiga foi comparada com os bytes guardados no banco. O parser publicado encontrou os itens 1–20 nas linhas 113–132, leu a coluna X e totalizou 100,0000%. Testes automáticos locais: 34/34. Nenhum arquivo de cliente foi incluído no repositório.
+- Um vínculo criado antes do deploy da correção ainda totalizava 77,9000%. Após autorização do dono, a distribuição corrente foi reparada em transação: a versão anterior foi preservada, uma versão lógica corrigida foi criada e o JSON e as incidências dos 20 itens foram atualizados sem alterar a execução ou o histórico.
+- Leitura posterior no banco: 20 itens, incidência total **100,0000%** e nenhuma divergência entre itens e JSON da PCI. Os últimos deploys de produção dos PRs #149 e #150 estão READY. A UI autenticada não foi acessível a partir do navegador de validação; a leitura do banco confirma o estado persistido. Para futuras PCIs antigas, **Vincular PCI** reprocessa os bytes com o parser publicado.
+
 ## Situação final desta entrega (mais recente)
 
 - PR [#149](https://github.com/Viniciusoluap/Prospecta/pull/149) mesclado em `main` no commit `bffbf4f514adade30a7f22cb643735e55308e254`. Prévia do commit `812be5eb53b0538d4bda8961b0894dcef3f45e42` e deploy de produção do merge confirmados **READY** na Vercel em 22/10/2026.
