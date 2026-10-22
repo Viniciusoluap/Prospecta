@@ -11,12 +11,12 @@
 ## Testes
 (a) pnpm check passou; vitest focal de datas passou 2/2; git diff --check passou.
 (b) Validação manual de interface ainda não executada.
-(c) Migração, configuração existente de CRON_SECRET/SMTP, execução do cron e entrega real de email/notificação pendem de homologação. Nenhum email foi disparado nesta sessão.
+(c) O schema de produção foi confirmado no Neon; CRON_SECRET de produção foi configurado na Vercel. A execução agendada e a entrega real de email/notificação ainda dependem de homologação. Nenhum email foi disparado nesta sessão.
 
-Branch publicada no GitHub via conector em `fa36e72`; a prévia Vercel `EtqrUcJjUY7Dy3j6EcbF8inn7F3M` ficou READY. Produção continua sem merge/deploy.
+Branch publicada no GitHub via conector em `fa36e72`; a prévia Vercel `EtqrUcJjUY7Dy3j6EcbF8inn7F3M` ficou READY. PR #146 integrado em `main` pelo squash `73c9a2777324298b9143127e1440809ecd80b1bb`. Deploy de produção `dpl_ENeHMRfHLL6FBttmZ36w2rN2z58W` READY; domínio www.prospectaconstrucoes.com respondeu 200. Nenhum erro nos logs de produção consultados após o deploy.
 
 ## Pendências e próximo passo
-- Revisar e homologar fluxo completo antes de merge/deploy. Não publicado em produção.
+- Homologar com sessão autenticada a edição individual, a ordenação, tarefas e calendário. Verificar o primeiro resumo diário às 08h de Imperatriz; o acesso sem autorização à rota cron não foi testado conclusivamente pela ferramenta de fetch da Vercel.
 - Schema aditivo tem migration SQL e inicialização idempotente no handler Vercel. Desenvolvimento fora desse handler exige aplicar migration.
 - Um card adicionado após o resumo diário será incluído no próximo dia. Reenvio de um vencimento já avisado é suprimido; reprogramar para outra data cria novo evento.
 - Falha abrupta entre envio SMTP e registro ainda tem a janela inerente de duplicidade; não prometer entrega exatamente uma vez.
