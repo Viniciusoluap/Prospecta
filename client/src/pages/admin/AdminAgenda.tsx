@@ -23,6 +23,11 @@ import {
   Rows,
 } from "./OperationalUI";
 import { rotulo } from "@shared/rotulos";
+import {
+  agendaDay,
+  selectAgendaEntries,
+  type AgendaView,
+} from "@shared/agenda-unificada";
 
 const blank = () => ({
   leadId: "",
@@ -39,14 +44,19 @@ const blank = () => ({
 export default function AdminAgenda({
   embedded = false,
 }: { embedded?: boolean } = {}) {
-  const list = trpc.agenda.list.useQuery();
-  const taskList = trpc.tasks.list.useQuery();
-  const cardDeadlines = trpc.agenda.cardDeadlines.useQuery();
-  const options = trpc.agenda.options.useQuery();
   // Portal do corretor (15/10): o vínculo de corretor/responsável vem da sessão
   // no servidor, então esses dois campos não aparecem para o corretor.
   const { user } = useAuth();
   const ehCorretor = user?.role === "corretor";
+  const showOperationalRecords = Boolean(user) && !ehCorretor;
+  const list = trpc.agenda.list.useQuery();
+  const taskList = trpc.tasks.list.useQuery(undefined, {
+    enabled: showOperationalRecords,
+  });
+  const cardDeadlines = trpc.agenda.cardDeadlines.useQuery(undefined, {
+    enabled: showOperationalRecords,
+  });
+  const options = trpc.agenda.options.useQuery();
   const create = trpc.agenda.create.useMutation();
   const update = trpc.agenda.update.useMutation();
   const remove = trpc.agenda.delete.useMutation();
@@ -54,7 +64,8 @@ export default function AdminAgenda({
   const [editing, setEditing] = useState<number | null>(null);
   const [open, setOpen] = useState(false);
   const [status, setStatus] = useState("");
-  const [day, setDay] = useState("");
+  const [day, setDay] = useState(() => agendaDay(new Date()));
+  const [view, setView] = useState<AgendaView>("data_selecionada");
   const [broker, setBroker] = useState("");
   const [month, setMonth] = useState(localDate(new Date()).slice(0, 7));
   const set = (key: keyof ReturnType<typeof blank>, value: string) =>
@@ -62,16 +73,52 @@ export default function AdminAgenda({
   const rows = (list.data || []).filter(
     ({ visit: v }) =>
       (!status || v.status === status) &&
-      (!day || localDate(v.scheduledAt).startsWith(day)) &&
       (!broker || v.brokerId === Number(broker))
   );
+  const today = agendaDay(new Date());
+  const entries = [
+    ...rows.map(row => ({
+      kind: "appointment" as const,
+      day: agendaDay(row.visit.scheduledAt),
+      sortAt: localDate(row.visit.scheduledAt),
+      row,
+    })),
+    ...(showOperationalRecords ? cardDeadlines.data || [] : []).map(lead => ({
+      kind: "lead" as const,
+      day: agendaDay(lead.cardDueDate),
+      sortAt: agendaDay(lead.cardDueDate),
+      lead,
+    })),
+    ...(showOperationalRecords ? taskList.data || [] : []).map(task => ({
+      kind: "task" as const,
+      day: agendaDay(task.dueAt),
+      sortAt: task.dueAt ? localDate(task.dueAt) : "",
+      active: task.status !== "done" && task.status !== "cancelled",
+      task,
+    })),
+  ];
+  const visibleEntries = selectAgendaEntries(entries, view, day, today);
+  const queryError =
+    list.error ||
+    (showOperationalRecords && (taskList.error || cardDeadlines.error)) ||
+    undefined;
   return (
     <OperationalPage
       title="Agenda operacional"
-      description="Visitas e compromissos compartilhados com o Portal do Cliente. Horários no fuso do seu dispositivo."
-      loading={list.isLoading}
-      error={list.error}
-      retry={() => void list.refetch()}
+      description="Vencimentos de leads, tarefas, visitas e compromissos em um só calendário. Horários no fuso do seu dispositivo."
+      loading={
+        list.isLoading ||
+        (showOperationalRecords &&
+          (taskList.isLoading || cardDeadlines.isLoading))
+      }
+      error={queryError}
+      retry={() => {
+        void list.refetch();
+        if (showOperationalRecords) {
+          void taskList.refetch();
+          void cardDeadlines.refetch();
+        }
+      }}
       embedded={embedded}
       onNew={() => {
         setForm(blank());
@@ -79,45 +126,40 @@ export default function AdminAgenda({
         setOpen(true);
       }}
     >
-      <section className="rounded border border-[#C9A961]/40 bg-[#243345] p-4 text-white" aria-label="Prazos de tarefas">
-        <h2 className="font-semibold text-[#E6CA88]">Prazos de tarefas</h2>
-        <p className="text-sm text-gray-200">Tarefas com prazo neste mês. O prazo não cria automaticamente uma visita ou compromisso.</p>
-        <ul className="mt-2 space-y-1 text-sm">
-          {(taskList.data || []).filter(task => task.dueAt && task.status !== "done" && task.status !== "cancelled" && localDate(task.dueAt).startsWith(month)).map(task =>
-            <li key={task.id}>{localDate(task.dueAt!)} · {task.title} · {task.assignedTo}</li>
-          )}
-        </ul>
-      </section>
-      <section className="rounded border border-[#C9A961]/40 bg-[#243345] p-4 text-white" aria-label="Vencimentos dos cards">
-        <h2 className="font-semibold text-[#E6CA88]">Vencimentos de leads</h2>
-        <ul className="mt-2 space-y-1 text-sm">
-          {(cardDeadlines.data || []).filter(lead => lead.cardDueDate?.startsWith(day || month)).map(lead =>
-            <li key={lead.id}><Link href={`/admin/crm/${lead.id}`} className="underline text-white">{lead.cardDueDate?.split("-").reverse().join("/")} · {lead.name}</Link></li>
-          )}
-        </ul>
-      </section>
       <div className="grid gap-3 sm:grid-cols-3">
-        <Field label="Dia">
-          <input
-            type="date"
-            className={inputClass}
-            value={day}
-            onChange={e => setDay(e.target.value)}
-          />
-        </Field>
         <Choice
-          label="Status"
-          value={status}
-          onChange={setStatus}
-          optional
-          options={choices(VISIT_STATUS)}
+          label="Exibir"
+          value={view}
+          onChange={value => setView(value as AgendaView)}
+          options={[
+            { value: "data_selecionada", label: "Data selecionada" },
+            ...(showOperationalRecords
+              ? [
+                  { value: "leads_vencidos", label: "Leads vencidos" },
+                  { value: "leads_do_dia", label: "Leads do dia" },
+                  { value: "leads_a_vencer", label: "Leads a vencer" },
+                  { value: "todas_tarefas", label: "Todas as tarefas" },
+                ]
+              : []),
+          ]}
         />
         <Choice
-          label="Corretor"
+          label="Status dos agendamentos"
+          value={status}
+          onChange={setStatus}
+          options={[
+            { value: "", label: "Todos os status" },
+            ...choices(VISIT_STATUS),
+          ]}
+        />
+        <Choice
+          label="Corretor dos agendamentos"
           value={broker}
           onChange={setBroker}
-          optional
-          options={ids(options.data?.brokers)}
+          options={[
+            { value: "", label: "Todos os corretores" },
+            ...ids(options.data?.brokers),
+          ]}
         />
       </div>
       <section
@@ -130,7 +172,11 @@ export default function AdminAgenda({
             className={inputClass}
             value={month}
             onChange={e => {
-              if (e.target.value) setMonth(e.target.value);
+              if (e.target.value) {
+                setMonth(e.target.value);
+                setDay(`${e.target.value}-01`);
+                setView("data_selecionada");
+              }
             }}
           />
         </Field>
@@ -145,22 +191,31 @@ export default function AdminAgenda({
             },
             (_, i) => {
               const date = `${month}-${String(i + 1).padStart(2, "0")}`;
-              const count = (list.data || []).filter(
-                ({ visit: v }) =>
-                  localDate(v.scheduledAt).startsWith(date) &&
-                  (!status || v.status === status) &&
-                  (!broker || v.brokerId === Number(broker))
+              const dateEntries = selectAgendaEntries(
+                entries,
+                "data_selecionada",
+                date,
+                today
+              );
+              const count = dateEntries.filter(
+                entry => entry.kind === "appointment"
               ).length;
-              const cardCount = (cardDeadlines.data || []).filter(lead => lead.cardDueDate === date).length;
-              const taskCount = (taskList.data || []).filter(task => task.dueAt &&
-                task.status !== "cancelled" && task.status !== "done" && localDate(task.dueAt).startsWith(date)).length;
+              const cardCount = dateEntries.filter(
+                entry => entry.kind === "lead"
+              ).length;
+              const taskCount = dateEntries.filter(
+                entry => entry.kind === "task"
+              ).length;
               return (
                 <button
                   key={date}
                   type="button"
-                  onClick={() => setDay(date)}
-                  aria-pressed={day === date}
-                  className={`min-h-14 rounded border p-1 text-xs ${day === date ? "bg-amber-100" : "bg-white"}`}
+                  onClick={() => {
+                    setDay(date);
+                    setView("data_selecionada");
+                  }}
+                  aria-pressed={view === "data_selecionada" && day === date}
+                  className={`min-h-14 rounded border p-1 text-xs ${view === "data_selecionada" && day === date ? "bg-amber-100" : "bg-white"}`}
                   style={
                     i === 0
                       ? {
@@ -174,82 +229,152 @@ export default function AdminAgenda({
                   <span className="block text-[#906a25]">
                     {count ? `${count} ag.` : "—"}
                   </span>
-                  {cardCount > 0 && <span className="block text-red-700">{cardCount} lead{cardCount === 1 ? "" : "s"}</span>}
-                  {taskCount > 0 && <span className="block text-blue-700">{taskCount} tarefa{taskCount === 1 ? "" : "s"}</span>}
+                  {cardCount > 0 && (
+                    <span className="block text-red-700">
+                      {cardCount} lead{cardCount === 1 ? "" : "s"}
+                    </span>
+                  )}
+                  {taskCount > 0 && (
+                    <span className="block text-blue-700">
+                      {taskCount} tarefa{taskCount === 1 ? "" : "s"}
+                    </span>
+                  )}
                 </button>
               );
             }
           )}
         </div>
-        <Button variant="outline" onClick={() => setDay("")}>
-          Mostrar todos os dias na lista
-        </Button>
       </section>
+      <p className="text-sm font-medium" aria-live="polite">
+        {view === "data_selecionada"
+          ? `Registros de ${day.split("-").reverse().join("/")}`
+          : {
+              leads_vencidos: "Leads vencidos",
+              leads_do_dia: "Leads do dia",
+              leads_a_vencer: "Leads a vencer",
+              todas_tarefas: "Todas as tarefas",
+            }[view]}{" "}
+        · {visibleEntries.length} registro(s)
+      </p>
       <Rows
         headers={[
           "Quando",
-          "Cliente / imóvel",
+          "Cliente / tarefa / imóvel",
           "Responsável",
           "Status",
           "Ações",
         ]}
-        empty={!rows.length}
+        empty={!visibleEntries.length}
       >
-        {rows.map(({ visit: v, leadName, brokerName, propertyTitle }) => (
-          <tr key={v.id}>
-            <td>
-              {dateTime(v.scheduledAt)}
-              <br />
-              {rotulo(v.visitType)}
-            </td>
-            <td>
-              {leadName || v.clientName}
-              <br />
-              {propertyTitle || "Sem imóvel"}
-            </td>
-            <td>{brokerName || v.responsibleName || "Não atribuído"}</td>
-            <td>{rotulo(v.status)}</td>
-            <td>
-              <div className="flex gap-2">
-                <Button
-                  size="sm"
-                  variant="outline"
-                  onClick={() => {
-                    setEditing(v.id);
-                    // responsibleName é o nome persistido; localizamos o responsável
-                    // ativo correspondente para pré-selecionar o combo (fica em
-                    // branco se não houver mais um admin/colaborador ativo com esse
-                    // nome — a UI então pede uma nova seleção real).
-                    const currentResponsible = options.data?.responsibles.find(
-                      r => r.name === v.responsibleName
-                    );
-                    setForm({
-                      leadId: String(v.leadId ?? ""),
-                      propertyId: String(v.propertyId ?? ""),
-                      brokerId: String(v.brokerId ?? ""),
-                      clientName: leadName || v.clientName,
-                      clientPhone: v.clientPhone,
-                      scheduledAt: localDate(v.scheduledAt),
-                      status: v.status,
-                      visitType: v.visitType,
-                      responsibleId: currentResponsible ? String(currentResponsible.id) : "",
-                      notes: v.notes,
-                    });
-                    setOpen(true);
-                  }}
-                >
-                  Detalhes / editar
-                </Button>
-                <DeleteButton
-                  onDelete={async () => {
-                    await remove.mutateAsync({ id: v.id });
-                    await list.refetch();
-                  }}
-                />
-              </div>
-            </td>
-          </tr>
-        ))}
+        {visibleEntries.map(entry => {
+          if (entry.kind === "lead")
+            return (
+              <tr key={`lead-${entry.lead.id}`}>
+                <td>
+                  {entry.day.split("-").reverse().join("/")}
+                  <br />
+                  Lead
+                </td>
+                <td>{entry.lead.name}</td>
+                <td>—</td>
+                <td>
+                  {entry.day < today
+                    ? "Vencido"
+                    : entry.day === today
+                      ? "Vence hoje"
+                      : "A vencer"}
+                </td>
+                <td>
+                  <Link
+                    href={`/admin/crm/${entry.lead.id}`}
+                    className="underline"
+                  >
+                    Abrir lead
+                  </Link>
+                </td>
+              </tr>
+            );
+          if (entry.kind === "task")
+            return (
+              <tr key={`task-${entry.task.id}`}>
+                <td>
+                  {entry.task.dueAt ? dateTime(entry.task.dueAt) : "Sem prazo"}
+                  <br />
+                  Tarefa
+                </td>
+                <td>{entry.task.title}</td>
+                <td>{entry.task.assignedTo || "Não atribuído"}</td>
+                <td>{rotulo(entry.task.status)}</td>
+                <td>
+                  <Link
+                    href={`/admin/tarefas#tarefa-${entry.task.id}`}
+                    className="underline"
+                  >
+                    Abrir tarefa
+                  </Link>
+                </td>
+              </tr>
+            );
+          const { visit: v, leadName, brokerName, propertyTitle } = entry.row;
+          return (
+            <tr key={v.id}>
+              <td>
+                {dateTime(v.scheduledAt)}
+                <br />
+                {rotulo(v.visitType)}
+              </td>
+              <td>
+                {leadName || v.clientName}
+                <br />
+                {propertyTitle || "Sem imóvel"}
+              </td>
+              <td>{brokerName || v.responsibleName || "Não atribuído"}</td>
+              <td>{rotulo(v.status)}</td>
+              <td>
+                <div className="flex gap-2">
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => {
+                      setEditing(v.id);
+                      // responsibleName é o nome persistido; localizamos o responsável
+                      // ativo correspondente para pré-selecionar o combo (fica em
+                      // branco se não houver mais um admin/colaborador ativo com esse
+                      // nome — a UI então pede uma nova seleção real).
+                      const currentResponsible =
+                        options.data?.responsibles.find(
+                          r => r.name === v.responsibleName
+                        );
+                      setForm({
+                        leadId: String(v.leadId ?? ""),
+                        propertyId: String(v.propertyId ?? ""),
+                        brokerId: String(v.brokerId ?? ""),
+                        clientName: leadName || v.clientName,
+                        clientPhone: v.clientPhone,
+                        scheduledAt: localDate(v.scheduledAt),
+                        status: v.status,
+                        visitType: v.visitType,
+                        responsibleId: currentResponsible
+                          ? String(currentResponsible.id)
+                          : "",
+                        notes: v.notes,
+                      });
+                      setOpen(true);
+                    }}
+                  >
+                    Detalhes / editar
+                  </Button>
+                  <DeleteButton
+                    onDelete={async () => {
+                      await remove.mutateAsync({ id: v.id });
+                      await list.refetch();
+                    }}
+                  />
+                </div>
+              </td>
+            </tr>
+          );
+        })}
       </Rows>
       <Editor
         title={editing ? "Editar compromisso" : "Novo compromisso"}
