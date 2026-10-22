@@ -830,6 +830,8 @@ export const leads = pgTable("leads", {
   lgpdConsentAt: timestamp("lgpd_consent_at"),
   rejectionReason: text("rejection_reason"),
   followupDate: timestamp("followup_date"),
+  // Prazo individual do card no pipeline; independente de tarefas, visitas e follow-up.
+  cardDueDate: date("card_due_date", { mode: "string" }),
   notes: text("notes"),
   adminNotes: text("admin_notes"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
@@ -982,6 +984,7 @@ export type InsertLeadFollowUp = typeof leadFollowUps.$inferInsert;
 
 export const tasks = pgTable("tasks", {
   id: serial("id").primaryKey(),
+  leadServiceId: integer("lead_service_id").unique().references(() => leadServices.id, { onDelete: "set null" }),
   title: varchar("title", { length: 255 }).notNull(),
   description: text("description"),
   assignedTo: varchar("assigned_to", { length: 100 }).notNull(),

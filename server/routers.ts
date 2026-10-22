@@ -1343,6 +1343,7 @@ export const appRouter = router({
           temperature: z.enum(LEAD_TEMPERATURAS).optional(),
           simulationValue: z.number().finite().min(0).max(9_999_999_999_999.99)
             .transform(value => value.toFixed(2)).optional(),
+          cardDueDate: z.string().nullable().optional(),
           // Item 9 (18/10): o cadastro escolhe o estágio do funil (antes "Tipo de Lead").
           stage: z.enum(LEAD_PIPELINE_KEYS).optional(),
           // Renda/tipo de renda saíram do formulário (EPIC-017, story 1.6) e
@@ -1365,6 +1366,11 @@ export const appRouter = router({
       )
       .mutation(async ({ input, ctx }) => {
         requireModule(ctx, "crm");
+        if (input.cardDueDate !== undefined) {
+          const { validateCardDueDate } = await import("./lead-card-deadline-schema.js");
+          try { validateCardDueDate(input.cardDueDate); }
+          catch { throw new TRPCError({ code: "BAD_REQUEST", message: "Data de vencimento inválida" }); }
+        }
         // Serviços marcados no cadastro criam registros nos módulos de destino.
         for (const serviceType of input.services ?? []) requireModuloDoDestino(ctx, LEAD_SERVICE_MODULE[serviceType]);
         await assertLeadAssignment(input);
@@ -1472,6 +1478,7 @@ export const appRouter = router({
           contractType: z.enum(["obra", "financing", "both"]).optional(),
           rejectionReason: z.string().optional(),
           followupDate: z.string().optional(),
+          cardDueDate: z.string().nullable().optional(),
           notes: z.string().optional(),
           adminNotes: z.string().optional(),
           income: z.union([z.string(), z.number()]).optional(),
@@ -1497,6 +1504,11 @@ export const appRouter = router({
       .mutation(async ({ input, ctx }) => {
         requireModule(ctx, "crm");
         const { id, stage, ...data } = input;
+        if (data.cardDueDate !== undefined) {
+          const { validateCardDueDate } = await import("./lead-card-deadline-schema.js");
+          try { validateCardDueDate(data.cardDueDate); }
+          catch { throw new TRPCError({ code: "BAD_REQUEST", message: "Data de vencimento inválida" }); }
+        }
         await assertLeadAssignment(data);
         const lead = await db.getLeadById(id);
         if (!lead) throw new TRPCError({ code: "NOT_FOUND" });
