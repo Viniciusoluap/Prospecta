@@ -410,15 +410,5 @@ CREATE TABLE IF NOT EXISTS financial_transactions (
   updated_at TIMESTAMP NOT NULL DEFAULT NOW()
 );
 
--- USUÁRIO ADMIN INICIAL
--- Senha: Prospecta@2025
-INSERT INTO users ("openId", "passwordHash", name, email, role, "loginMethod", "lastSignedIn")
-VALUES (
-  'vinicius@vfxcapital.com.br',
-  'c15e40660e43d6f59bf1f3a2e3f698d0:9280334224eac6a9162173ee09cd449c24248f04d7f2cb6ca35012cc7e74f332',
-  'Vinicius Admin',
-  'vinicius@vfxcapital.com.br',
-  'admin',
-  'email',
-  NOW()
-) ON CONFLICT ("openId") DO NOTHING;
+-- O admin inicial é criado pelo setup-db.ts com INITIAL_ADMIN_PASSWORD
+-- fornecida somente por variável de ambiente, sem credencial no repositório.

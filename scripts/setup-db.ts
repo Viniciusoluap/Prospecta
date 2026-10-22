@@ -440,14 +440,17 @@ async function main() {
 
   // Criar usuário admin
   console.log("\n👤  Criando usuário admin...");
-  const adminEmail = "vinicius@vfxcapital.com.br";
-  const adminPassword = "Prospecta@2025";
+  const adminEmail = "atendimento@prospectaconstrucoes.com";
+  const adminPassword = process.env.INITIAL_ADMIN_PASSWORD;
 
   const existing = await sql`SELECT id FROM users WHERE email = ${adminEmail} LIMIT 1`;
 
   if (existing.length > 0) {
     console.log(`ℹ️   Admin já existe: ${adminEmail}`);
   } else {
+    if (!adminPassword) {
+      throw new Error("INITIAL_ADMIN_PASSWORD é obrigatória para criar o admin inicial");
+    }
     const passwordHash = hashPassword(adminPassword);
     await sql`
       INSERT INTO users ("openId", "passwordHash", name, email, role, "loginMethod", "lastSignedIn")
@@ -455,7 +458,6 @@ async function main() {
     `;
     console.log(`✅  Admin criado!`);
     console.log(`    Email: ${adminEmail}`);
-    console.log(`    Senha: ${adminPassword}`);
   }
 
   console.log("\n🎉  Tudo pronto! Acesse /login no seu site para entrar.");
