@@ -13,6 +13,8 @@
 (b) Validação manual de interface ainda não executada.
 (c) Migração, configuração existente de CRON_SECRET/SMTP, execução do cron e entrega real de email/notificação pendem de homologação. Nenhum email foi disparado nesta sessão.
 
+Branch publicada no GitHub via conector em `fa36e72`; a prévia Vercel `EtqrUcJjUY7Dy3j6EcbF8inn7F3M` ficou READY. Produção continua sem merge/deploy.
+
 ## Pendências e próximo passo
 - Revisar e homologar fluxo completo antes de merge/deploy. Não publicado em produção.
 - Schema aditivo tem migration SQL e inicialização idempotente no handler Vercel. Desenvolvimento fora desse handler exige aplicar migration.
