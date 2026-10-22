@@ -87,12 +87,12 @@ export function ProgressoObraAba({ projectId, onFotosMudaram }: { projectId: num
   const alterar = (chave: string, campo: "incidencia" | "execucao", v: string) =>
     setLinhas((atual) => atual!.map((l) => (l.chave === chave ? { ...l, [campo]: v } : l)));
 
-  const limparFormulario = () => {
+  const limparFormulario = (plsPadrao = consulta.data?.plsPadrao) => {
     setVersaoFormulario(v => v + 1);
     fotosNovas.forEach((f) => URL.revokeObjectURL(f.previa));
     setFotosNovas([]);
     setTipo("pls");
-    setDadosCaixa(null);
+    setDadosCaixa(plsPadrao ? dadosMedicaoPadrao("pls", plsPadrao, consulta.data?.pci?.prazoMeses ?? null) : null);
     setLinhas(null);
   };
 
@@ -122,10 +122,10 @@ export function ProgressoObraAba({ projectId, onFotosMudaram }: { projectId: num
       // Pedido de 18/10: cópia preenchida (.xls/.pdf) no Google Drive da obra.
       const notaDrive = medicaoId && consulta.data?.pci ? await copiarMedicaoNoDrive(medicaoId) : "";
       toast.success((editando ? `Medição de ${editando.quando} alterada.` : `Medição salva (${rotuloTipoMedicao(tipo)}): progresso geral ${formatarPercentual(calculo.progresso)}.`) + notaDrive);
+      const atualizado = await consulta.refetch();
       setEditando(null);
       setUltimaSalva(medicaoId);
-      limparFormulario();
-      await consulta.refetch();
+      limparFormulario(atualizado.data?.plsPadrao ?? dados.plsPadrao);
       void utils.obraProgresso.galeria.invalidate({ projectId }); onFotosMudaram?.();
     } catch (e) {
       setEnviandoFotos(false);
