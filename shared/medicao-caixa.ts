@@ -128,6 +128,29 @@ export function dadosPlsPadrao(opcoes: { alvaraEmissao?: string | null; alvaraVi
   };
 }
 
+/** Datas persistidas da obra prevalecem sobre a PCI na próxima medição.
+ * O histórico vem em ordem decrescente; cada campo pode ter sido informado
+ * pela primeira vez em medições diferentes. Nunca altera a medição em edição.
+ */
+export function datasAlvaraDasMedicoes(
+  medicoes: ReadonlyArray<{ pls?: Pick<DadosPls, "alvaraEmissao" | "alvaraVigencia"> | null } | null>,
+  pci: { alvaraEmissao?: string | null; alvaraVigencia?: string | null } = {},
+) {
+  let alvaraEmissao: string | null = null;
+  let alvaraVigencia: string | null = null;
+  for (const medicao of medicoes) {
+    const emissao = medicao?.pls?.alvaraEmissao;
+    const vigencia = medicao?.pls?.alvaraVigencia;
+    if (!alvaraEmissao && typeof emissao === "string" && dataValida(emissao)) alvaraEmissao = emissao;
+    if (!alvaraVigencia && typeof vigencia === "string" && dataValida(vigencia)) alvaraVigencia = vigencia;
+    if (alvaraEmissao && alvaraVigencia) break;
+  }
+  return {
+    alvaraEmissao: alvaraEmissao ?? pci.alvaraEmissao ?? null,
+    alvaraVigencia: alvaraVigencia ?? pci.alvaraVigencia ?? null,
+  };
+}
+
 export function dadosRepactuacaoPadrao(prazoOriginal: number | null = null): DadosRepactuacao {
   return { dataRepactuacao: hojeIso(), prazoOriginal, prazoProposto: null, previstoOriginal: [], acumuladoProposto: [], motivo: "" };
 }

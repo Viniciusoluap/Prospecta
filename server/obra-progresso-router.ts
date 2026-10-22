@@ -25,6 +25,7 @@ import { baseDaMedicao, estimarMedicoes, situacaoDaMedicao } from "../shared/fin
 import { centavosDe } from "../shared/financeiro/obra.js";
 import {
   dadosPlsPadrao,
+  datasAlvaraDasMedicoes,
   incidenciasCorrespondem,
   ehTipoMedicao,
   normalizarDadosMedicao,
@@ -157,7 +158,7 @@ export async function carregarProgresso(projectId: number) {
   );
   // Pedido de 18/10: fotos de cada medição e a PCI da CAIXA vinculada à obra.
   const ids = historico.map((h) => h.id);
-  const [fotosMedicao, [pci], fotosLegadas] = await Promise.all([
+  const [fotosMedicao, [pci], fotosLegadas, datasSalvas] = await Promise.all([
     ids.length
       ? db.select({ id: constructionPhotos.id, medicaoId: constructionPhotos.progressHistoryId, imageUrl: constructionPhotos.imageUrl, caption: constructionPhotos.caption, includeInReport: constructionPhotos.includeInReport })
           .from(constructionPhotos).where(inArray(constructionPhotos.progressHistoryId, ids)).orderBy(asc(constructionPhotos.id))
@@ -169,8 +170,18 @@ export async function carregarProgresso(projectId: number) {
       parsed: constructionPci.parsed,
     }).from(constructionPci).where(eq(constructionPci.projectId, projectId)).limit(1),
     db.select({ id: constructionPhotos.id, imageUrl: constructionPhotos.imageUrl, caption: constructionPhotos.caption, includeInReport: constructionPhotos.includeInReport }).from(constructionPhotos).where(and(eq(constructionPhotos.projectId, projectId), isNull(constructionPhotos.progressHistoryId))),
+    // A lista visível limita 100 medições; a data preenchida uma vez deve
+    // continuar disponível mesmo quando a primeira PLS sair dessa janela.
+    db.select({ dadosCaixa: constructionProgressHistory.caixaData })
+      .from(constructionProgressHistory)
+      .where(and(eq(constructionProgressHistory.projectId, projectId), eq(constructionProgressHistory.measurementType, "pls")))
+      .orderBy(desc(constructionProgressHistory.createdAt), desc(constructionProgressHistory.id)),
   ]);
   const dadosPci = (pci?.parsed ?? null) as DadosPci | null;
+  const datasAlvara = datasAlvaraDasMedicoes(
+    datasSalvas.map(m => ({ pls: (m.dadosCaixa as DadosMedicaoCaixa | null)?.pls })),
+    { alvaraEmissao: dadosPci?.alvaraEmissao, alvaraVigencia: dadosPci?.alvaraVigencia },
+  );
   // Pedido de 18/10: valor estimado de cada medição (Y × avanço da medição).
   const base = baseDaMedicao({
     financiamento: centavosDe(obra.financedAmount),
@@ -212,10 +223,9 @@ export async function carregarProgresso(projectId: number) {
           dataContratacao: dadosPci.dataContratacao,
         }
       : null,
-    /** Valores iniciais dos campos da PLS (alvará e Selo Casa Azul vêm da PCI). */
+    /** Datas do último preenchimento salvo na obra; PCI como reserva por campo. */
     plsPadrao: dadosPlsPadrao({
-      alvaraEmissao: dadosPci?.alvaraEmissao ?? null,
-      alvaraVigencia: dadosPci?.alvaraVigencia ?? null,
+      ...datasAlvara,
       seloCasaAzul: dadosPci?.seloCasaAzul ?? false,
     }),
   };
