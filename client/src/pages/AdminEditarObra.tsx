@@ -47,6 +47,7 @@ export default function AdminEditarObra({ modo = "admin" }: { modo?: "admin" | "
   const voltarPara = ehEmpreiteiro ? "/empreiteiro" : "/admin/obras";
   const [, setLocation] = useLocation();
   const [activeTab, setActiveTab] = useState("info");
+  const [versaoProgresso, setVersaoProgresso] = useState(0);
 
   const { data: project, isLoading, refetch } = trpc.construction.getProjectDetails.useQuery(
     { projectId },
@@ -454,14 +455,14 @@ export default function AdminEditarObra({ modo = "admin" }: { modo?: "admin" | "
                   </Button>
                 </Link>
               )}
-              <PciObra projectId={projectId} />
+              <PciObra projectId={projectId} onVinculoAlterado={() => setVersaoProgresso(v => v + 1)} />
             </div>
-            <ProgressoObraAba projectId={projectId} onFotosMudaram={() => refetch()} />
+            <ProgressoObraAba key={versaoProgresso} projectId={projectId} onFotosMudaram={() => refetch()} />
           </TabsContent>
 
           {/* ABA 4: FOTOS */}
           <TabsContent value="fotos" className="mt-6">
-            <FotosObraAba projectId={projectId} fotos={project.photos} onMudou={() => refetch()} />
+            <FotosObraAba projectId={projectId} />
           </TabsContent>
 
           {/* ABA 5: RELATÓRIOS */}

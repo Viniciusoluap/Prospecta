@@ -65,7 +65,7 @@ export function formInicial(resumo: Resumo): FormFinanceiro {
 export function comissaoAoVivo(form: FormFinanceiro, resumo: Resumo) {
   return calcularComissaoObra({
     corretor: resumo.corretor,
-    vgvCentavos: centavosDe(form.vgv),
+    vgvCentavos: centavosDe(resumo.obra.vgvAutomatico ? resumo.baseComissao : form.vgv),
     percentualObra: form.comissaoPercentual,
     pagoCentavos: resumo.comissaoCalculada.pagoCentavos,
   });

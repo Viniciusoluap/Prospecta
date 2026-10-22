@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
+import { CurrencyInput } from "@/components/ui/currency-input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
@@ -14,7 +15,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { toast } from "sonner";
 import {
   Users, Plus, Search, Filter, Phone, Mail, MapPin,
-  Thermometer, User, ArrowLeft, Flame, Snowflake, TrendingUp, Trash2, RotateCcw
+  Thermometer, User, ArrowLeft, Flame, Snowflake, TrendingUp, Trash2, RotateCcw, CalendarDays
 } from "lucide-react";
 import { LEAD_SERVICE_LABELS, LEAD_SERVICE_PRIMARY_TYPES, type LeadServiceType } from "../../../../shared/lead-services";
 import { LEAD_PIPELINE_STAGES, LEGACY_STAGE_LABELS, type LeadPipelineStage } from "../../../../shared/lead-pipeline";
@@ -51,7 +52,7 @@ const NONE = "none";
 const emptyLead = () => ({
   name: "", phone: "", email: "", cpf: "", address: "", neighborhood: "", city: "", state: "",
   notes: "", stage: "lead_new" as LeadPipelineStage, temperature: "cold" as LeadTemperatura, services: [] as LeadServiceType[],
-  responsibleUserId: NONE, brokerId: NONE,
+  responsibleUserId: NONE, brokerId: NONE, simulationValue: 0, cardDueDate: "",
 });
 
 export default function AdminCRM() {
@@ -99,6 +100,10 @@ export default function AdminCRM() {
     },
     onError: (err) => toast.error(err.message),
   });
+  const updateDeadline = trpc.leads.update.useMutation({
+    onSuccess: async () => { toast.success("Vencimento do card atualizado."); await refetch(); },
+    onError: error => toast.error(error.message),
+  });
 
   const filtered = leads.filter(l =>
     !search || l.name.toLowerCase().includes(search.toLowerCase()) ||
@@ -124,6 +129,7 @@ export default function AdminCRM() {
       notes: newLead.notes || undefined,
       responsibleUserId: newLead.responsibleUserId === NONE ? null : Number(newLead.responsibleUserId),
       brokerId: newLead.brokerId === NONE ? null : Number(newLead.brokerId),
+      cardDueDate: newLead.cardDueDate || null,
     } as any);
   };
 
@@ -136,7 +142,9 @@ export default function AdminCRM() {
     }));
   };
 
-  const getLeadsByStage = (stage: string) => filtered.filter(l => l.stage === stage);
+  const getLeadsByStage = (stage: string) => filtered.filter(l => l.stage === stage)
+    .sort((a, b) => (a.cardDueDate || "9999-12-31").localeCompare(b.cardDueDate || "9999-12-31") || a.id - b.id);
+  const today = new Intl.DateTimeFormat("en-CA", { timeZone: "America/Fortaleza", year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date());
   const pendingClassification = filtered.filter(l => l.stageClassificationPending && !l.deletedAt);
   const archiveLead = async (lead: typeof leads[number]) => {
     try {
@@ -282,18 +290,32 @@ export default function AdminCRM() {
                       </SelectContent>
                     </Select>
                   </div>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <div>
+                      <Label htmlFor="novo-lead-estagio" className="text-gray-300">Estágio</Label>
+                      <Select value={newLead.stage} onValueChange={v => setNewLead(p => ({ ...p, stage: v as LeadPipelineStage }))}>
+                        <SelectTrigger id="novo-lead-estagio" className="bg-white/10 border-white/20 text-white">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {LEAD_PIPELINE_STAGES.map(etapa => (
+                            <SelectItem key={etapa.key} value={etapa.key}>{etapa.label}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div>
+                      <Label htmlFor="novo-lead-vgv" className="text-gray-300">VGV simulado (R$)</Label>
+                      <CurrencyInput id="novo-lead-vgv" value={newLead.simulationValue}
+                        onChange={value => setNewLead(current => ({ ...current, simulationValue: value }))}
+                        className="bg-white/10 border-white/20 text-white" />
+                    </div>
+                  </div>
                   <div>
-                    <Label className="text-gray-300">Estágio</Label>
-                    <Select value={newLead.stage} onValueChange={v => setNewLead(p => ({ ...p, stage: v as LeadPipelineStage }))}>
-                      <SelectTrigger className="bg-white/10 border-white/20 text-white">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {LEAD_PIPELINE_STAGES.map(etapa => (
-                          <SelectItem key={etapa.key} value={etapa.key}>{etapa.label}</SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
+                    <Label htmlFor="novo-lead-vencimento" className="text-gray-300">Vencimento do card (opcional)</Label>
+                    <Input id="novo-lead-vencimento" type="date" value={newLead.cardDueDate}
+                      onChange={e => setNewLead(current => ({ ...current, cardDueDate: e.target.value }))}
+                      className="bg-white/10 border-white/20 text-white" />
                   </div>
                   <div>
                     <Label className="text-gray-300">Serviços solicitados</Label>
@@ -452,8 +474,7 @@ export default function AdminCRM() {
                     </div>
                     <div className="space-y-2 max-h-[600px] overflow-y-auto pr-1">
                       {stageLeads.map(lead => (
-                        <Link key={lead.id} href={`/admin/crm/${lead.id}`}>
-                          <Card className="bg-[#1A2332] border-white/10 hover:border-[#C9A961]/50 cursor-pointer transition-all">
+                          <Card key={lead.id} onClick={() => navigate(`/admin/crm/${lead.id}`)} className="bg-[#1A2332] border-white/10 hover:border-[#C9A961]/50 cursor-pointer transition-all">
                             <CardContent className="p-3 space-y-2">
                               <div className="flex items-start justify-between">
                                 <p className="text-sm font-medium text-white leading-tight">
@@ -484,9 +505,20 @@ export default function AdminCRM() {
                                   </span>
                                 )}
                               </div>
+                              <div className="flex items-center justify-end gap-1 text-xs" onClick={event => event.stopPropagation()}>
+                                <CalendarDays className="h-3 w-3 text-[#E6CA88]" aria-hidden="true" />
+                                <label className={lead.cardDueDate ? lead.cardDueDate < today ? "text-red-300" : lead.cardDueDate === today ? "text-amber-200" : "text-gray-200" : "text-gray-400"}>
+                                  <span className="sr-only">Vencimento do card de {lead.name}</span>
+                                  <input type="date" aria-label={`Vencimento do card de ${lead.name}`}
+                                    value={lead.cardDueDate || ""} disabled={updateDeadline.isPending}
+                                    onClick={event => event.stopPropagation()}
+                                    onChange={event => updateDeadline.mutate({ id: lead.id, cardDueDate: event.target.value || null })}
+                                    className="max-w-[134px] bg-transparent text-inherit [color-scheme:dark]" />
+                                  {lead.cardDueDate && <span className="sr-only">{lead.cardDueDate < today ? "Vencido" : lead.cardDueDate === today ? "Vence hoje" : "Futuro"}</span>}
+                                </label>
+                              </div>
                             </CardContent>
                           </Card>
-                        </Link>
                       ))}
                       {stageLeads.length === 0 && (
                         <div className="text-center text-gray-300 text-xs py-4">Nenhum lead</div>

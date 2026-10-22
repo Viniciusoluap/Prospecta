@@ -3,7 +3,7 @@ import { z } from "zod";
 import { TRPCError } from "@trpc/server";
 import {
   avaliacoes, constructionProjects, financiamentoChecklistItems, financiamentos,
-  leadActivities, leadServices, leads, operationalProjects, regularizacoes,
+  leadActivities, leadServices, leads, operationalProjects, regularizacoes, tasks, users,
 } from "../drizzle/schema.js";
 import { FINANCIAMENTO_CHECKLIST_PADRAO } from "../shared/financiamento.js";
 import { LEAD_SERVICE_MODULE, LEAD_SERVICE_TYPES, serviceTypeFromTrelloFields, type LeadServiceType } from "../shared/lead-services.js";
@@ -96,6 +96,8 @@ async function initializeLeadServicesSchema() {
   await database.execute(sql.raw(`ALTER TABLE "financiamentos" ALTER COLUMN "tipo" DROP NOT NULL`));
   await database.execute(sql.raw(`ALTER TABLE "financiamentos" ALTER COLUMN "banco" DROP NOT NULL`));
   await database.execute(sql.raw(`CREATE UNIQUE INDEX IF NOT EXISTS "financiamentos_lead_service_id_unique" ON "financiamentos" ("lead_service_id")`));
+  await database.execute(sql.raw(`ALTER TABLE "tasks" ADD COLUMN IF NOT EXISTS "lead_service_id" integer REFERENCES "lead_services"("id") ON DELETE set null`));
+  await database.execute(sql.raw(`CREATE UNIQUE INDEX IF NOT EXISTS "tasks_lead_service_id_unique" ON "tasks" ("lead_service_id")`));
 }
 
 const AUTO_RECORD_TABLES = ["operational_projects", "regularizacoes"] as const;
@@ -277,7 +279,7 @@ async function ensureLinkedRecord(service: typeof leadServices.$inferSelect, lea
  * Pedido A7 (13/10/2026): financiamentos vinculados antes da criação automática
  * (Lote 3, 11/10) ficavam presos em "Aguardando início", sem caminho para operar.
  */
-export const MATERIALIZE_MODULES = [...AUTO_RECORD_MODULES, "financiamentos"] as const;
+export const MATERIALIZE_MODULES = [...AUTO_RECORD_MODULES, "financiamentos", "tarefas"] as const;
 export type MaterializeModule = (typeof MATERIALIZE_MODULES)[number];
 
 /** Converte demandas antigas ainda sem registro (criadas antes do EPIC-017). */
@@ -289,6 +291,11 @@ export async function materializePendingServices(module: MaterializeModule) {
       sql`${leadServices.operationalRecordId} IS NULL`));
   const results: Array<{ serviceId: number; state: string }> = [];
   for (const { service, lead } of pending) {
+    if (module === "tarefas") {
+      const result = await ensureTaskRecord(service, lead);
+      results.push({ serviceId: service.id, state: result.workState });
+      continue;
+    }
     if (module === "financiamentos") {
       // Mesmo caminho do vínculo novo: reaproveita financiamento órfão inequívoco
       // do lead; senão cria o registro mínimo com os dados do lead e o checklist.
@@ -489,6 +496,8 @@ async function ensureFinanciamentoRecord(service: typeof leadServices.$inferSele
     clienteNome: lead.name,
     clienteTel: lead.phone,
     clienteEmail: lead.email || null,
+    valorImovel: lead.simulationValue ?? "0.00",
+    valorFinanciado: lead.approvedValue ?? "0.00",
   }).returning();
   await database.insert(financiamentoChecklistItems).values(
     FINANCIAMENTO_CHECKLIST_PADRAO.map(item => ({ financiamentoId: created.id, ...item }))
@@ -500,7 +509,32 @@ async function ensureFinanciamentoRecord(service: typeof leadServices.$inferSele
 }
 
 /** Único ponto de decisão: cada módulo que precisa nascer sozinho do vínculo tem sua regra aqui. */
+async function ensureTaskRecord(service: typeof leadServices.$inferSelect, lead: typeof leads.$inferSelect) {
+  if (service.serviceType !== "tarefa_agenda" || service.status === "cancelled")
+    return { service, workState: "not_applicable" as const };
+  const database = getDb();
+  const [assignee] = lead.responsibleUserId
+    ? await database.select({ name: users.name }).from(users).where(eq(users.id, lead.responsibleUserId)).limit(1)
+    : [];
+  const [inserted] = await database.insert(tasks).values({
+    title: service.title || `Atender ${lead.name}`,
+    description: service.description || `Tarefa criada pelo serviço do lead #${lead.id}.`,
+    assignedTo: assignee?.name || "Sem responsável",
+    relatedType: "lead", relatedId: lead.id,
+    dueAt: service.dueAt ?? null,
+    leadServiceId: service.id,
+  }).onConflictDoNothing().returning({ id: tasks.id });
+  const [record] = inserted ? [inserted] : await database.select({ id: tasks.id }).from(tasks)
+    .where(eq(tasks.leadServiceId, service.id)).limit(1);
+  if (!record) throw new Error("Não foi possível criar a tarefa do lead");
+  const [updated] = await database.update(leadServices).set({
+    operationalRecordId: record.id, status: "active", updatedAt: new Date(),
+  }).where(eq(leadServices.id, service.id)).returning();
+  return { service: updated, workState: inserted ? "created" as const : "already_linked" as const };
+}
+
 async function ensureOperationalArtifact(service: typeof leadServices.$inferSelect, lead: typeof leads.$inferSelect) {
+  if (service.serviceType === "tarefa_agenda") return ensureTaskRecord(service, lead);
   if (isWorksService(service.serviceType)) return ensureOperationalRecord(service, lead);
   if (isFinanciamentoService(service.serviceType)) return ensureFinanciamentoRecord(service, lead);
   const reconciled = await ensureLinkedRecord(service, lead);
@@ -694,6 +728,11 @@ export const leadServicesRouter = router({
     const database = getDb();
     const [servico] = await database.select({ operationalModule: leadServices.operationalModule }).from(leadServices).where(eq(leadServices.id, input.id)).limit(1);
     requireModuloDoDestino(ctx, servico?.operationalModule);
+    if (servico?.operationalModule === "tarefas") {
+      await database.delete(tasks).where(eq(tasks.leadServiceId, input.id));
+      await database.delete(leadServices).where(eq(leadServices.id, input.id));
+      return { success: true };
+    }
     const vinculados = await Promise.all([
       database.select({ id: constructionProjects.id }).from(constructionProjects).where(eq(constructionProjects.leadServiceId, input.id)).then(r => r.map(x => ["obra", x.id] as const)),
       database.select({ id: financiamentos.id }).from(financiamentos).where(eq(financiamentos.leadServiceId, input.id)).then(r => r.map(x => ["financiamento", x.id] as const)),

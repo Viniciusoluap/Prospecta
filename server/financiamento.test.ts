@@ -31,11 +31,11 @@ describe("financiamentoInputSchema", () => {
     );
   });
 
-  it("mantém o fluxo completo e o checklist da origem", () => {
+  it("mantém o fluxo e só o checklist de financiamento e imóvel", () => {
     expect(FINANCIAMENTO_STATUS).toHaveLength(8);
-    expect(FINANCIAMENTO_CHECKLIST_PADRAO).toHaveLength(15);
+    expect(FINANCIAMENTO_CHECKLIST_PADRAO).toHaveLength(12);
     expect(new Set(FINANCIAMENTO_CHECKLIST_PADRAO.map((item) => item.grupo))).toEqual(
-      new Set(["Comprador", "Imóvel", "Banco"]),
+      new Set(["Financiamento e imóvel"]),
     );
   });
 

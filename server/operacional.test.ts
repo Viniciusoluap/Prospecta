@@ -481,7 +481,7 @@ describe("Etapa 4 — persistência via procedures", () => {
     expect(values).toHaveBeenCalledWith(
       expect.objectContaining({
         types: '["arquitetura"]',
-        checklist: "[]",
+        checklist: '[{"id":"arquitetura","type":"arquitetura","text":"arquitetura","done":false}]',
         value: "100.00",
         engineerUserId: 3,
         engineer: "Eng. Ana",

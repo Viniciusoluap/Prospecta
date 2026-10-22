@@ -19,10 +19,16 @@ import obraMedicaoCaixaRouter from "../server/routes/obra-medicao-caixa.js";
 import imovelFotosRouter from "../server/routes/imovel-fotos.js";
 import googleDriveRotas from "../server/routes/google-drive.js";
 import { checkAndSendReminder } from "../server/mcmv-rules-reminder.js";
+import { ensureLeadCardDeadlineSchema } from "../server/lead-card-deadline-schema.js";
+import { sendLeadCardDueDigests } from "../server/lead-card-due-digest.js";
 
 const app = express();
 app.use(express.json({ limit: "50mb" }));
 app.use(express.urlencoded({ limit: "50mb", extended: true }));
+app.use("/api", async (_req, res, next) => {
+  try { await ensureLeadCardDeadlineSchema(); next(); }
+  catch (error) { console.error("[lead-card-deadline-schema]", error); res.status(503).json({ error: "CRM temporariamente indisponível" }); }
+});
 
 // ── Health ────────────────────────────────────
 app.get("/api/health", async (_req, res) => {
@@ -129,6 +135,13 @@ app.get("/api/cron/mcmv-reminder", async (req, res) => {
     console.error("[cron/mcmv-reminder]", err);
     return res.status(500).json({ error: "Erro interno", detail: err?.message });
   }
+});
+
+app.get("/api/cron/lead-card-due", async (req, res) => {
+  const secret = process.env.CRON_SECRET;
+  if (!secret || req.headers.authorization !== `Bearer ${secret}`) return res.status(401).json({ error: "Não autorizado" });
+  try { return res.json({ ok: true, ...(await sendLeadCardDueDigests()) }); }
+  catch (error) { console.error("[cron/lead-card-due]", error); return res.status(500).json({ error: "Falha ao processar avisos" }); }
 });
 
 // ── All other routes (tRPC, uploads, webhooks) ─

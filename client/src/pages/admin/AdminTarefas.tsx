@@ -387,6 +387,7 @@ export default function AdminTarefas({
               return (
                 <Card
                   key={task.id}
+                  id={`tarefa-${task.id}`}
                   className={`bg-[#2C3E50] ${isOverdue ? "border-red-500/50" : "border-[#C9A961]/20"}`}
                 >
                   <CardContent className="py-4 px-4">

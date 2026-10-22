@@ -27,6 +27,7 @@ import {
   CHECKLIST_MAX_FOTOS,
 } from "../shared/avaliacao-checklist.js";
 import { gerarSugestaoValor } from "./_core/avaliacao-ia.js";
+import { buscarComparaveis } from "./_core/avaliacao-comparaveis.js";
 import { scrapeUrl } from "./_core/imovel-scraper.js";
 import { paymentSettingsRouter } from "./payment-settings-router.js";
 import { regularizacaoRouter } from "./regularizacao-router.js";
@@ -77,6 +78,7 @@ import { geoRouter } from "./geo-router.js";
 import { empreiteiroRouter, obraFinanceiroRouter } from "./obra-financeiro-router.js";
 import { obraProgressoRouter } from "./obra-progresso-router.js";
 import { LEAD_PIPELINE_KEYS } from "../shared/lead-pipeline.js";
+import { documentChunksRouter } from "./document-upload-chunks.js";
 import { leadDocumentsRouter } from "./lead-documents-router.js";
 import { incorporacaoDocumentsRouter } from "./incorporacao-documents-router.js";
 import { incorporationDueDiligenceRouter } from "./incorporacao-due-diligence-router.js";
@@ -159,6 +161,7 @@ export const appRouter = router({
   tax: taxRouter,
   leadServices: leadServicesRouter,
   leadDocuments: leadDocumentsRouter,
+  documentChunks: documentChunksRouter,
   brokerPortal: brokerPortalRouter,
   geo: geoRouter,
   obraFinanceiro: obraFinanceiroRouter,
@@ -1338,6 +1341,9 @@ export const appRouter = router({
             ])
             .optional(),
           temperature: z.enum(LEAD_TEMPERATURAS).optional(),
+          simulationValue: z.number().finite().min(0).max(9_999_999_999_999.99)
+            .transform(value => value.toFixed(2)).optional(),
+          cardDueDate: z.string().nullable().optional(),
           // Item 9 (18/10): o cadastro escolhe o estágio do funil (antes "Tipo de Lead").
           stage: z.enum(LEAD_PIPELINE_KEYS).optional(),
           // Renda/tipo de renda saíram do formulário (EPIC-017, story 1.6) e
@@ -1360,6 +1366,11 @@ export const appRouter = router({
       )
       .mutation(async ({ input, ctx }) => {
         requireModule(ctx, "crm");
+        if (input.cardDueDate !== undefined) {
+          const { validateCardDueDate } = await import("./lead-card-deadline-schema.js");
+          try { validateCardDueDate(input.cardDueDate); }
+          catch { throw new TRPCError({ code: "BAD_REQUEST", message: "Data de vencimento inválida" }); }
+        }
         // Serviços marcados no cadastro criam registros nos módulos de destino.
         for (const serviceType of input.services ?? []) requireModuloDoDestino(ctx, LEAD_SERVICE_MODULE[serviceType]);
         await assertLeadAssignment(input);
@@ -1467,6 +1478,7 @@ export const appRouter = router({
           contractType: z.enum(["obra", "financing", "both"]).optional(),
           rejectionReason: z.string().optional(),
           followupDate: z.string().optional(),
+          cardDueDate: z.string().nullable().optional(),
           notes: z.string().optional(),
           adminNotes: z.string().optional(),
           income: z.union([z.string(), z.number()]).optional(),
@@ -1492,6 +1504,11 @@ export const appRouter = router({
       .mutation(async ({ input, ctx }) => {
         requireModule(ctx, "crm");
         const { id, stage, ...data } = input;
+        if (data.cardDueDate !== undefined) {
+          const { validateCardDueDate } = await import("./lead-card-deadline-schema.js");
+          try { validateCardDueDate(data.cardDueDate); }
+          catch { throw new TRPCError({ code: "BAD_REQUEST", message: "Data de vencimento inválida" }); }
+        }
         await assertLeadAssignment(data);
         const lead = await db.getLeadById(id);
         if (!lead) throw new TRPCError({ code: "NOT_FOUND" });
@@ -1522,9 +1539,24 @@ export const appRouter = router({
             ? new Date(data.followupDate)
             : undefined,
         };
-        await db.updateLead(id, dbData);
+        if (data.simulationValue !== undefined || data.approvedValue !== undefined) {
+          const { getDb } = await import("./db.js");
+          const { leads, financiamentos } = await import("../drizzle/schema.js");
+          const { eq } = await import("drizzle-orm");
+          const database = getDb();
+          await database.batch([
+            database.update(leads).set({ ...dbData, updatedAt: new Date() }).where(eq(leads.id, id)),
+            database.update(financiamentos).set({
+              ...(dbData.simulationValue !== undefined ? { valorImovel: dbData.simulationValue } : {}),
+              ...(dbData.approvedValue !== undefined ? { valorFinanciado: dbData.approvedValue } : {}),
+              updatedAt: new Date(),
+            }).where(eq(financiamentos.leadId, id)),
+          ]);
+        } else {
+          await db.updateLead(id, dbData);
+        }
         // Pedido de 15/10: VGV das obras do cliente acompanha o Valor Aprovado.
-        if (data.approvedValue !== undefined) {
+        if (data.simulationValue !== undefined || data.approvedValue !== undefined) {
           const { sincronizarVgvDoLead } = await import("./obra-financeiro-router.js");
           await sincronizarVgvDoLead(id);
         }
@@ -2618,6 +2650,14 @@ export const appRouter = router({
           caracteristicas: JSON.stringify(checklist),
         });
         return { success: true };
+      }),
+
+    comparaveis: adminProcedure
+      .input(z.object({ id: z.number().int().positive() }))
+      .mutation(async ({ input }) => {
+        const avaliacao = await db.getAvaliacaoById(input.id);
+        if (!avaliacao) throw new TRPCError({ code: "NOT_FOUND", message: "Avaliação não encontrada" });
+        return buscarComparaveis(avaliacao);
       }),
 
     sugerirValor: adminProcedure

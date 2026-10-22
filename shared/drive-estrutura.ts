@@ -72,13 +72,15 @@ export function areaDoServico(tipoServico: string | null | undefined): AreaClien
 
 /** Rótulos dos tipos de documento do cliente usados no nome do arquivo. */
 export const ROTULO_DOCUMENTO: Record<string, string> = {
-  rg: "RG",
+  rg: "RG ou CNH frente e verso",
   cnh: "CNH",
   address_proof: "Comprovante de endereço",
   income_proof_formal: "Comprovante de renda",
   income_proof_irpf: "Declaração de IR",
   fgts: "Extrato do FGTS",
-  spouse_docs: "Documentos do cônjuge",
+  spouse_docs: "RG ou CNH frente e verso (Cônjuge)",
+  spouse_income_proof: "Comprovante de renda atualizado (Cônjuge)",
+  birth_marriage_certificate: "Certidão de Nascimento ou Casamento",
   pis: "PIS",
   other: "Outro documento",
 };

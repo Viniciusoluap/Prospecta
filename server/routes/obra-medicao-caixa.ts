@@ -1,3 +1,4 @@
+import { LIMITE_PCI_BYTES, PARTE_PCI_BYTES, validarPartePci, validarMontagemPci } from "../../shared/pci-upload.js";
 import { Router, Request, Response } from "express";
 import { and, asc, eq, lt, or } from "drizzle-orm";
 import { sql } from "drizzle-orm";
@@ -20,7 +21,7 @@ import { createHash } from "node:crypto";
 // de sessão das fotos da obra (server/routes/obra-fotos.ts).
 
 const router = Router();
-const LIMITE_PCI = 3 * 1024 * 1024;
+const LIMITE_PCI = LIMITE_PCI_BYTES;
 /** Resposta das funções da Vercel: até 4,5 MB. Acima disso o arquivo só vai para o Drive. */
 const LIMITE_DOWNLOAD = 4.3 * 1024 * 1024;
 const MENSAGEM_LIMITE_DOWNLOAD = "O arquivo desta medição passou de 4,3 MB (limite de download do servidor). Com o Google Drive conectado, ele fica completo em Obras/<Obra>/Medições CAIXA; para baixar por aqui, use menos fotos ou fotos menores.";
@@ -73,14 +74,39 @@ router.post("/obras/:projectId/pci", async (req: Request, res: Response) => {
     if (!projectId) return res.status(400).json({ error: "Obra inválida." });
     const acesso = await autorizado(req, projectId);
     if (!acesso.ok) return res.status(acesso.erro).json({ error: mensagens[acesso.erro] });
-    const { arquivo, nome } = (req.body ?? {}) as Record<string, unknown>;
-    const base64 = typeof arquivo === "string" ? arquivo.replace(/^data:[^,]*,/, "") : "";
-    if (!base64 || !/^[A-Za-z0-9+/=\s]+$/.test(base64)) return res.status(400).json({ error: "Arquivo ausente ou inválido." });
-    if (base64.length > Math.ceil(LIMITE_PCI / 3) * 4 + 16) return res.status(400).json({ error: "A PCI passa de 3 MiB. Reduza as imagens da planilha antes de enviar." });
-    const bytes = new Uint8Array(Buffer.from(base64, "base64"));
-    if (!bytes.length) return res.status(400).json({ error: "Arquivo vazio." });
-    if (bytes.length > LIMITE_PCI) return res.status(400).json({ error: "A PCI passa de 3 MiB. Reduza as imagens da planilha antes de enviar." });
-    const nomeArquivo = nomeSeguro(typeof nome === "string" ? nome : "pci.xls");
+    const body = (req.body ?? {}) as Record<string, unknown>;
+    let nomeArquivo: string;
+    let bytes: Uint8Array;
+    const userId = String(acesso.usuario.id);
+    const obraId = String(projectId);
+    const db = getDb();
+    if (body.finalizar === true) {
+      if (typeof body.uploadId !== "string" || !/^[a-zA-Z0-9-]{20,64}$/.test(body.uploadId)) return res.status(400).json({ error: "Identificador de envio inválido." });
+      const r = await db.execute(sql`SELECT chunk_index, total_chunks, file_name, encode(data,'base64') AS b64 FROM pci_upload_chunks WHERE upload_id = ${body.uploadId} AND user_id = ${userId} AND project_id = ${obraId} AND created_at > now() - interval '30 minutes' ORDER BY chunk_index`);
+      const partes = (r as unknown as { rows: { chunk_index: number; total_chunks: number; file_name: string; b64: string }[] }).rows;
+      try { nomeArquivo = nomeSeguro(validarMontagemPci(partes)); }
+      catch (e) { return res.status(400).json({ error: e instanceof Error ? e.message : "Envio incompleto." }); }
+      bytes = new Uint8Array(Buffer.concat(partes.map(p => Buffer.from(p.b64, "base64"))));
+    } else if (body.chunk !== undefined) {
+      let parte;
+      try { parte = validarPartePci(body); }
+      catch (e) { return res.status(400).json({ error: e instanceof Error ? e.message : "Parte inválida." }); }
+      const data = Buffer.from(parte.chunk, "base64");
+      if (!data.length || data.length > PARTE_PCI_BYTES) return res.status(400).json({ error: "Parte da PCI maior que 1 MB." });
+      await db.execute(sql`DELETE FROM pci_upload_chunks WHERE created_at <= now() - interval '30 minutes'`);
+      const existentes = await db.execute(sql`SELECT count(DISTINCT upload_id)::int AS n FROM pci_upload_chunks WHERE user_id = ${userId} AND upload_id <> ${parte.uploadId}`);
+      if ((existentes as unknown as {rows:{n:number}[]}).rows[0].n >= 4) return res.status(429).json({error:"Aguarde os envios anteriores terminarem."});
+      const inserida = await db.execute(sql`INSERT INTO pci_upload_chunks(upload_id,chunk_index,total_chunks,user_id,project_id,file_name,data) VALUES (${parte.uploadId},${parte.chunkIndex},${parte.totalChunks},${userId},${obraId},${parte.nome},decode(${parte.chunk},'base64')) ON CONFLICT(upload_id,chunk_index) DO UPDATE SET data = EXCLUDED.data WHERE pci_upload_chunks.user_id = EXCLUDED.user_id AND pci_upload_chunks.project_id = EXCLUDED.project_id AND pci_upload_chunks.total_chunks = EXCLUDED.total_chunks AND pci_upload_chunks.file_name = EXCLUDED.file_name RETURNING chunk_index`);
+      if (!(inserida as unknown as {rows:unknown[]}).rows.length) return res.status(409).json({error:"Envio inconsistente. Selecione novamente a PCI."});
+      return res.json({ recebida: parte.chunkIndex });
+    } else {
+      // Compatibilidade com clientes antigos; arquivos novos usam partes.
+      const base64 = typeof body.arquivo === "string" ? body.arquivo.replace(/^data:[^,]*,/, "") : "";
+      if (!base64 || base64.length > Math.ceil(LIMITE_PCI / 3) * 4 + 16 || !/^[A-Za-z0-9+/=\s]+$/.test(base64)) return res.status(400).json({ error: "Arquivo ausente ou maior que 8 MB." });
+      bytes = new Uint8Array(Buffer.from(base64, "base64"));
+      nomeArquivo = nomeSeguro(typeof body.nome === "string" ? body.nome : "pci.xls");
+    }
+    if (!bytes.length || bytes.length > LIMITE_PCI) return res.status(400).json({ error: "Envie uma PCI de até 8 MB." });
     let dados: DadosPci;
     try {
       dados = lerPci(bytes);
@@ -105,6 +131,7 @@ router.post("/obras/:projectId/pci", async (req: Request, res: Response) => {
       const r = await tryDriveUpload(() => uploadArquivoMedicaoObra({ id: projectId, titulo: acesso.obra.titulo ?? "Obra" }, { rotulo: "PCI original", nomeOriginal: nomeArquivo, mime, data: Buffer.from(bytes) }));
       drive = r.driveFileId ? "ok" : r.note ? "erro" : "indisponivel";
     }
+    if (body.finalizar === true) await db.execute(sql`DELETE FROM pci_upload_chunks WHERE upload_id = ${String(body.uploadId)} AND user_id = ${userId} AND project_id = ${obraId}`);
     return res.json({ arquivo: nomeArquivo, formato: dados.formato, proponente: dados.identificacao.proponente, somaIncidencia: soma, drive });
   } catch (error) {
     console.error("[medicao-caixa] envio da PCI:", error);
@@ -120,6 +147,16 @@ router.get("/obras/:projectId/pci", async (req: Request, res: Response) => {
     if (!acesso.ok) return res.status(acesso.erro).json({ error: mensagens[acesso.erro] });
     const pci = await arquivoPci(projectId);
     if (!pci) return res.status(404).json({ error: "PCI não encontrada." });
+    const versao = createHash("sha256").update(pci.bytes).digest("hex");
+    if (req.query.parte !== undefined) {
+      const parte = Number(req.query.parte);
+      const total = Math.ceil(pci.bytes.length / PARTE_PCI_BYTES);
+      if (!Number.isInteger(parte) || parte < 0 || parte >= total) return res.status(400).json({ error: "Parte inválida." });
+      if (req.query.versao && req.query.versao !== versao) return res.status(409).json({ error: "A PCI foi alterada durante o download. Tente novamente." });
+      res.setHeader("X-PCI-Partes", String(total));
+      res.setHeader("X-PCI-Versao", versao);
+      return enviarArquivo(res, pci.bytes.slice(parte * PARTE_PCI_BYTES, (parte + 1) * PARTE_PCI_BYTES), pci.nome, "application/octet-stream");
+    }
     enviarArquivo(res, pci.bytes, pci.nome, pci.dados.formato === "xlsb" ? "application/vnd.ms-excel.sheet.binary.macroEnabled.12" : "application/vnd.ms-excel");
   } catch (error) {
     console.error("[medicao-caixa] download da PCI:", error);
@@ -150,14 +187,14 @@ const ROTULO = { pls: "PLS", repactuacao: "Repactuação de Prazo", alteracao: "
  * própria medição. Usado pelo download e pela cópia no Google Drive.
  * Chamar só depois de autorizar o acesso à obra.
  */
-async function gerarArquivoMedicao(m: typeof constructionProgressHistory.$inferSelect, obraTitulo: string | null, formato: Formato): Promise<ArquivoMedicao> {
+export async function gerarArquivoMedicao(m: typeof constructionProgressHistory.$inferSelect, obraTitulo: string | null, formato: Formato): Promise<ArquivoMedicao> {
   const db = getDb();
   if (!m.pciVersionId) return { ok: false, status: 409, error: "Esta medição não possui uma versão da PCI vinculada. Revise a medição antes de gerar os arquivos." };
   const pci = await arquivoPci(m.projectId, m.pciVersionId);
   if (!pci) return { ok: false, status: 400, error: "Envie a PCI da obra (botão PCI na aba Progresso) para gerar os arquivos da CAIXA." };
   if (!incidenciasCorrespondem(m.items, SERVICOS_PROGRESSO.map(s => s.chave), pci.dados.incidencias)) return { ok: false, status: 409, error: "As incidências salvas diferem da PCI desta medição. Revise a medição." };
   if (formato === "xls" && pci.dados.formato !== "xls") {
-    return { ok: false, status: 400, error: "O SIOPI só aceita .xls: envie a PCI em .xls para gerar a planilha preenchida." };
+    return { ok: false, status: 400, error: "Para solicitar com PDF e XLS, use a PCI original em .xls. A PCI .xlsb permite PDF, mas não gera o XLS exigido para o envio." };
   }
 
   const tipo = ehTipoMedicao(m.measurementType) ? m.measurementType : "pls";

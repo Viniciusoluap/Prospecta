@@ -42,21 +42,18 @@ export const FINANCIAMENTO_BANCO_LABELS: Record<(typeof FINANCIAMENTO_BANCOS)[nu
 };
 
 export const FINANCIAMENTO_CHECKLIST_PADRAO = [
-  { grupo: "Comprador", item: "RG e CPF" },
-  { grupo: "Comprador", item: "Certidão de nascimento ou casamento" },
-  { grupo: "Comprador", item: "Comprovante de residência" },
-  { grupo: "Comprador", item: "Comprovante de renda" },
-  { grupo: "Comprador", item: "Extratos bancários dos últimos 3 meses" },
-  { grupo: "Comprador", item: "CTPS ou contrato de trabalho" },
-  { grupo: "Imóvel", item: "Matrícula atualizada" },
-  { grupo: "Imóvel", item: "Certidão de ônus e ações reais" },
-  { grupo: "Imóvel", item: "IPTU do exercício atual" },
-  { grupo: "Imóvel", item: "Planta baixa aprovada" },
-  { grupo: "Imóvel", item: "Habite-se ou auto de conclusão" },
-  { grupo: "Banco", item: "Proposta de financiamento assinada" },
-  { grupo: "Banco", item: "Laudo de avaliação do imóvel" },
-  { grupo: "Banco", item: "Aprovação de crédito" },
-  { grupo: "Banco", item: "Minuta do contrato assinada" },
+  { grupo: "Financiamento e imóvel", item: "Certidão de inteiro teor" },
+  { grupo: "Financiamento e imóvel", item: "ART" },
+  { grupo: "Financiamento e imóvel", item: "Alvará" },
+  { grupo: "Financiamento e imóvel", item: "Memorial descritivo" },
+  { grupo: "Financiamento e imóvel", item: "Habite-se" },
+  { grupo: "Financiamento e imóvel", item: "Projeto aprovado" },
+  { grupo: "Financiamento e imóvel", item: "Conta de água" },
+  { grupo: "Financiamento e imóvel", item: "PCI em PDF" },
+  { grupo: "Financiamento e imóvel", item: "PCI em XLS" },
+  { grupo: "Financiamento e imóvel", item: "PLS" },
+  { grupo: "Financiamento e imóvel", item: "CNO e CND" },
+  { grupo: "Financiamento e imóvel", item: "Outros" },
 ] as const;
 
 const optionalText = z.string().trim().max(500).optional().nullable();

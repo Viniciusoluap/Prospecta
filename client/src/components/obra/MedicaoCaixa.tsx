@@ -1,6 +1,8 @@
+
+import { LIMITE_PCI_BYTES, PARTE_PCI_BYTES } from "@shared/pci-upload";
 import { useRef, useState, type ReactNode } from "react";
 import { toast } from "sonner";
-import { Download, FileSpreadsheet, ImagePlus, Link2, Loader2, Trash2, Upload, X } from "lucide-react";
+import { Download, FileSpreadsheet, ImagePlus, Link2, Link2Off, Loader2, Trash2, Upload, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -95,7 +97,8 @@ export async function copiarMedicaoNoDrive(medicaoId: number): Promise<string> {
 
 /** Baixa um arquivo gerado pelo servidor; erro vira aviso na tela. */
 export async function baixarArquivo(url: string, nomePadrao: string) {
-  const resposta = await fetch(url, { credentials: "include" });
+  const ehPci = /\/pci$/.test(url);
+  const resposta = await fetch(ehPci ? `${url}?parte=0` : url, { credentials: "include" });
   if (!resposta.ok) {
     let msg = `Erro ao gerar o arquivo (código ${resposta.status}).`;
     try {
@@ -108,7 +111,15 @@ export async function baixarArquivo(url: string, nomePadrao: string) {
   }
   const disposicao = resposta.headers.get("Content-Disposition") ?? "";
   const nome = /filename="([^"]+)"/.exec(disposicao)?.[1] ?? nomePadrao;
-  const blob = await resposta.blob();
+  const blobs = [await resposta.blob()];
+  const totalPartes = Number(resposta.headers.get("X-PCI-Partes") ?? 1);
+  const versao = resposta.headers.get("X-PCI-Versao") ?? "";
+  for (let parte = 1; parte < totalPartes; parte++) {
+    const proxima = await fetch(`${url}?parte=${parte}&versao=${encodeURIComponent(versao)}`, { credentials: "include" });
+    if (!proxima.ok) throw new Error("Não foi possível concluir o download da PCI. Tente novamente.");
+    blobs.push(await proxima.blob());
+  }
+  const blob = new Blob(blobs, { type: resposta.headers.get("Content-Type") ?? "application/octet-stream" });
   const link = document.createElement("a");
   link.href = URL.createObjectURL(blob);
   link.download = nome;
@@ -153,10 +164,11 @@ export interface ResumoPci {
 }
 
 /** Botões da PCI (ao lado de "Ver Medições da CEF"). */
-export function PciObra({ projectId }: { projectId: number }) {
+export function PciObra({ projectId, onVinculoAlterado }: { projectId: number; onVinculoAlterado?: () => void }) {
   const utils = trpc.useUtils();
   const consulta = trpc.obraProgresso.obter.useQuery({ projectId });
   const vincular = trpc.obraProgresso.vincularPci.useMutation();
+  const desvincular = trpc.obraProgresso.desvincularPci.useMutation();
   const entrada = useRef<HTMLInputElement>(null);
   const [enviando, setEnviando] = useState(false);
   const pci = consulta.data?.pci ?? null;
@@ -167,21 +179,29 @@ export function PciObra({ projectId }: { projectId: number }) {
       toast.error("Envie a PCI em .xls ou .xlsb (planilha da CAIXA).");
       return;
     }
-    if (arquivo.size > 3 * 1024 * 1024) {
-      toast.error("A PCI passa de 3 MiB. Reduza as imagens da planilha antes de enviar.");
+    if (arquivo.size > LIMITE_PCI_BYTES) {
+      toast.error("Envie uma PCI de até 8 MB.");
       return;
     }
     setEnviando(true);
     try {
-      const dataUrl = await blobParaDataUrl(arquivo);
-      const { status, dados } = await enviarJsonComProgresso(`/api/obras/${projectId}/pci`, { arquivo: dataUrl, nome: arquivo.name }, (fracao) =>
-        publicarEnvio({ item: "arquivo", atual: 1, total: 1, fracao })
-      );
+      const uploadId = crypto.randomUUID();
+      const totalChunks = Math.ceil(arquivo.size / PARTE_PCI_BYTES);
+      if (!totalChunks) throw new Error("Arquivo vazio.");
+      for (let chunkIndex = 0; chunkIndex < totalChunks; chunkIndex++) {
+        const dataUrl = await blobParaDataUrl(arquivo.slice(chunkIndex * PARTE_PCI_BYTES, (chunkIndex + 1) * PARTE_PCI_BYTES));
+        const parte = await enviarJsonComProgresso(`/api/obras/${projectId}/pci`, { nome: arquivo.name, uploadId, chunkIndex, totalChunks, chunk: dataUrl.split(",")[1] }, fracao =>
+          publicarEnvio({ item: "arquivo", atual: 1, total: 1, fracao: (chunkIndex + fracao) / (totalChunks + 1) }));
+        if (parte.status < 200 || parte.status >= 300) throw new Error(mensagemErroEnvio(parte.status, parte.dados));
+      }
+      const { status, dados } = await enviarJsonComProgresso(`/api/obras/${projectId}/pci`, { uploadId, finalizar: true }, () =>
+        publicarEnvio({ item: "arquivo", atual: 1, total: 1, fracao: totalChunks / (totalChunks + 1) }));
       if (status < 200 || status >= 300) throw new Error(mensagemErroEnvio(status, dados));
       const r = dados as { proponente?: string; formato?: string; drive?: "ok" | "indisponivel" | "erro" | null };
       const notaDrive = r.drive === "ok" ? " Original guardada no Google Drive da obra." : r.drive === "erro" ? " (Não foi possível copiar para o Google Drive; a PCI ficou guardada no sistema.)" : "";
       toast.success(`PCI enviada${r.proponente ? ` (${r.proponente})` : ""}. Clique em "Vincular PCI" para usar as incidências dela.${notaDrive}`);
       await utils.obraProgresso.obter.invalidate({ projectId });
+      onVinculoAlterado?.();
     } catch (e) {
       toast.error(e instanceof Error ? e.message : String(e));
     } finally {
@@ -197,9 +217,20 @@ export function PciObra({ projectId }: { projectId: number }) {
       const r = await vincular.mutateAsync({ projectId });
       toast.success(`Incidências vinculadas à PCI (total ${r.somaIncidencia.toLocaleString("pt-BR", { maximumFractionDigits: 2 })}%).`);
       await utils.obraProgresso.obter.invalidate({ projectId });
+      onVinculoAlterado?.();
     } catch (e) {
       toast.error(e instanceof Error ? e.message : String(e));
     }
+  };
+
+  const fazerDesvinculo = async () => {
+    if (!confirm("Desvincular a PCI desta obra e restaurar as incidências padrão? A execução e as medições já salvas serão mantidas.")) return;
+    try {
+      await desvincular.mutateAsync({ projectId });
+      toast.success("PCI desvinculada. Incidências padrão restauradas; a execução e o histórico foram mantidos.");
+      await utils.obraProgresso.obter.invalidate({ projectId });
+      onVinculoAlterado?.();
+    } catch (e) { toast.error(e instanceof Error ? e.message : String(e)); }
   };
 
   return (
@@ -215,6 +246,10 @@ export function PciObra({ projectId }: { projectId: number }) {
             {vincular.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Link2 className="h-4 w-4" />}
             Vincular PCI
           </Button>
+          {pci.vinculadaEm && <Button variant="outline" disabled={desvincular.isPending} onClick={fazerDesvinculo} className="border-red-400/60 text-red-300 hover:bg-red-500/10 gap-2">
+            {desvincular.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Link2Off className="h-4 w-4" />}
+            Desvincular PCI
+          </Button>}
           <button type="button" className="inline-flex items-center gap-1 text-xs text-gray-300 underline-offset-2 hover:underline"
             onClick={() => baixarArquivo(`/api/obras/${projectId}/pci`, pci.arquivo).catch((e) => toast.error(e instanceof Error ? e.message : String(e)))}>
             <FileSpreadsheet className="h-3.5 w-3.5 text-[#C9A961]" />
@@ -234,11 +269,34 @@ export interface FotoNova {
   previa: string;
 }
 
-export function FotosMedicao({ tipo, fotos, setFotos, existentes, onExcluirExistente, progresso }: {
+type FotoSalva = { id: number; imageUrl: string; caption: string | null; includeInReport?: boolean };
+export function FotosSalvas({ fotos, onSalvar, onExcluir, ocupado }: {
+  fotos: FotoSalva[];
+  onSalvar?: (id: number, legenda: string | null, incluir: boolean) => void;
+  onExcluir?: (id: number) => void;
+  ocupado?: boolean;
+}) {
+  return <ul className="grid grid-cols-2 gap-3 sm:grid-cols-3">{fotos.map(f => <li key={f.id} className="space-y-2 rounded border border-current/20 p-2">
+    {/* eslint-disable-next-line @next/next/no-img-element */}
+    <img src={f.imageUrl} alt={f.caption || "Foto da obra"} loading="lazy" className="aspect-[4/3] w-full rounded object-cover" />
+    <form key={`${f.id}:${f.caption}:${f.includeInReport}`} className="space-y-2" onSubmit={e => { e.preventDefault(); const valores = new FormData(e.currentTarget); onSalvar?.(f.id, String(valores.get("legenda") ?? "").trim() || null, valores.has("incluir")); }}>
+      <label className="block text-xs">Legenda<input name="legenda" defaultValue={f.caption ?? ""} maxLength={250} disabled={ocupado} className="mt-1 w-full rounded border border-current/30 bg-transparent px-2 py-1" /></label>
+      <label className="flex gap-2 items-center text-xs"><input type="checkbox" name="incluir" defaultChecked={f.includeInReport ?? true} disabled={ocupado} />No relatório executivo</label>
+      <div className="flex flex-wrap gap-2">
+        {onSalvar && <Button type="submit" size="sm" variant="outline" disabled={ocupado}>Salvar foto</Button>}
+        {onExcluir && <Button type="button" size="sm" variant="outline" disabled={ocupado} onClick={() => onExcluir(f.id)}>Excluir foto</Button>}
+      </div>
+    </form>
+  </li>)}</ul>;
+}
+
+export function FotosMedicao({ tipo, fotos, setFotos, existentes, onExcluirExistente, onAtualizarExistente, ocupado, progresso }: {
   tipo: TipoMedicao;
   fotos: FotoNova[];
   setFotos: (f: FotoNova[]) => void;
-  existentes: { id: number; imageUrl: string; caption: string | null }[];
+  existentes: FotoSalva[];
+  onAtualizarExistente?: (id: number, legenda: string | null, incluir: boolean) => void;
+  ocupado?: boolean;
   onExcluirExistente?: (id: number) => void;
   progresso: number;
 }) {
@@ -263,19 +321,9 @@ export function FotosMedicao({ tipo, fotos, setFotos, existentes, onExcluirExist
       </div>
       {aviso && <p className="text-xs text-amber-300">{aviso}</p>}
       {total > quadros && <p className="text-xs text-amber-300">O modelo tem {quadros} quadros: só as {quadros} primeiras fotos entram no .xls e no .pdf (todas ficam na aba Fotos).</p>}
-      {(existentes.length > 0 || fotos.length > 0) && (
+      {existentes.length > 0 && <FotosSalvas fotos={existentes} onSalvar={onAtualizarExistente} onExcluir={onExcluirExistente} ocupado={ocupado} />}
+      {fotos.length > 0 && (
         <ul className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-4">
-          {existentes.map((f) => (
-            <li key={`e${f.id}`} className="space-y-1 rounded border border-[#C9A961]/20 p-1">
-              <img src={f.imageUrl} alt={f.caption ?? "Foto da medição"} className="aspect-[4/3] w-full rounded object-cover" loading="lazy" />
-              <div className="flex items-center justify-between gap-1">
-                <span className="truncate text-xs text-gray-300">{f.caption || "Sem legenda"}</span>
-                {onExcluirExistente && (
-                  <Button type="button" size="icon" variant="ghost" className="h-6 w-6 text-red-400" aria-label="Excluir foto" onClick={() => onExcluirExistente(f.id)}><Trash2 className="h-3 w-3" /></Button>
-                )}
-              </div>
-            </li>
-          ))}
           {fotos.map((f, i) => (
             <li key={f.previa} className="space-y-1 rounded border border-[#C9A961]/40 p-1">
               <img src={f.previa} alt={f.arquivo.name} className="aspect-[4/3] w-full rounded object-cover" />

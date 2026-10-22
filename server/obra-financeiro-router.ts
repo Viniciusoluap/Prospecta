@@ -56,7 +56,7 @@ const paraData = (d: Date | null) => (d ? d.toISOString().slice(0, 10) : null);
 
 async function carregarObra(projectId: number) {
   const db = getDb();
-  const [linha] = await db.select({ obra: constructionProjects, valorAprovado: leads.approvedValue })
+  const [linha] = await db.select({ obra: constructionProjects, valorAprovado: leads.approvedValue, vgvSimulado: leads.simulationValue })
     .from(constructionProjects)
     .leftJoin(leads, eq(leads.id, constructionProjects.leadId))
     .where(eq(constructionProjects.id, projectId)).limit(1);
@@ -64,7 +64,7 @@ async function carregarObra(projectId: number) {
   // Pedido de 15/10: obra com cliente no CRM tem VGV = Valor Aprovado do lead
   // (fonte única, somente leitura na obra). Obra sem lead mantém o VGV digitado.
   const vgvAutomatico = linha.obra.leadId !== null;
-  return { ...linha.obra, vgv: vgvAutomatico ? linha.valorAprovado : linha.obra.vgv, vgvAutomatico };
+  return { ...linha.obra, vgv: vgvAutomatico ? linha.valorAprovado : linha.obra.vgv, vgvAutomatico, baseComissao: vgvAutomatico ? linha.vgvSimulado : linha.obra.vgv };
 }
 
 /**
@@ -74,13 +74,13 @@ async function carregarObra(projectId: number) {
  */
 export async function sincronizarVgvDoLead(leadId: number) {
   const db = getDb();
-  const [lead] = await db.select({ valorAprovado: leads.approvedValue }).from(leads).where(eq(leads.id, leadId)).limit(1);
+  const [lead] = await db.select({ valorAprovado: leads.approvedValue, vgvSimulado: leads.simulationValue }).from(leads).where(eq(leads.id, leadId)).limit(1);
   if (!lead) return;
   const corretor = await corretorDaObra(leadId);
   const obras = await db.select({ id: constructionProjects.id, pct: constructionProjects.commissionPct })
     .from(constructionProjects).where(eq(constructionProjects.leadId, leadId));
   for (const o of obras) {
-    const calculada = calcularComissaoObra({ corretor, vgvCentavos: centavosDe(lead.valorAprovado), percentualObra: o.pct, pagoCentavos: 0 });
+    const calculada = calcularComissaoObra({ corretor, vgvCentavos: centavosDe(lead.vgvSimulado), percentualObra: o.pct, pagoCentavos: 0 });
     await db.update(constructionProjects).set({
       vgv: lead.valorAprovado,
       ...(corretor ? { commissionAmount: calculada.valorCentavos !== null ? reaisDeCentavos(calculada.valorCentavos) : null } : {}),
@@ -132,7 +132,7 @@ export async function calcularResumoObra(projectId: number) {
   // Item 32: obra com corretor no CRM → comissão só pelo cálculo VGV × % (fonte
   // única; sem regra fica indisponível, nunca reaproveita valor antigo). Obra sem
   // corretor → valor informado manualmente.
-  const comissao = calcularComissaoObra({ corretor, vgvCentavos: centavosDe(obra.vgv), percentualObra: obra.commissionPct, pagoCentavos: pagoComissao });
+  const comissao = calcularComissaoObra({ corretor, vgvCentavos: centavosDe(obra.baseComissao), percentualObra: obra.commissionPct, pagoCentavos: pagoComissao });
   const [empreiteiro] = obra.contractorUserId
     ? await db.select({ id: users.id, name: users.name, email: users.email }).from(users).where(eq(users.id, obra.contractorUserId)).limit(1)
     : [];
@@ -182,6 +182,7 @@ export async function calcularResumoObra(projectId: number) {
     },
     corretor,
     comissaoCalculada: comissao,
+    baseComissao: obra.baseComissao,
     empreiteiro: empreiteiro ?? null,
     investidores: participacoes.map((p, i) => ({
       investidorId: p.participacao.investidorId,
@@ -233,7 +234,7 @@ export const obraFinanceiroRouter = router({
     const vgv = obra.vgvAutomatico ? obra.vgv : input.vgv;
     const calculada = calcularComissaoObra({
       corretor: corretorObra,
-      vgvCentavos: centavosDe(vgv),
+      vgvCentavos: centavosDe(obra.vgvAutomatico ? obra.baseComissao : vgv),
       percentualObra: pctComissao,
       pagoCentavos: 0,
     });

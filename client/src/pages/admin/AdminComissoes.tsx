@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { resumirComissoes } from "@shared/financeiro/comissoes-listagem";
 import type { inferRouterOutputs } from "@trpc/server";
 import type { AppRouter } from "../../../../server/routers";
 import { trpc } from "@/lib/trpc";
@@ -21,7 +22,6 @@ import {
   DeleteButton,
   Editor,
   Field,
-  ids,
   inputClass,
   localDate,
   money,
@@ -100,37 +100,10 @@ export default function AdminComissoes() {
       }}
     >
       <LinkedServiceQueue module="comissoes" title="Comissões" />
-      <ComissoesDeObras dados={obras.data} carregando={obras.isLoading} erro={obras.error?.message} />
-      <div className="grid gap-3 sm:grid-cols-2">
-        <Choice
-          label="Status"
-          value={status}
-          onChange={setStatus}
-          optional
-          options={choices(COMMISSION_STATUS)}
-        />
-        <Choice
-          label="Corretor"
-          value={broker}
-          onChange={setBroker}
-          optional
-          options={ids(brokers.data)}
-        />
-      </div>
-      <p className="rounded border bg-white p-4">
-        Pendente:{" "}
-        {money(
-          rows
-            .filter(r => r.commission.status === "pendente")
-            .reduce((sum, r) => sum + Number(r.commission.amount), 0)
-        )}{" "}
-        · Pago:{" "}
-        {money(
-          rows
-            .filter(r => r.commission.status === "paga")
-            .reduce((sum, r) => sum + Number(r.commission.amount), 0)
-        )}
-      </p>
+      <ComissoesDeObras dados={obras.data} carregando={obras.isLoading} erro={obras.error?.message}
+        status={status} broker={broker} setStatus={setStatus} setBroker={setBroker}
+        corretores={Array.from(new Map([...(brokers.data ?? []).map(b => ({ value: String(b.id), label: b.name || `#${b.id}` })), ...(obras.data ?? []).map(o => ({ value: String(o.corretorId), label: o.corretor || `#${o.corretorId}` }))].map(c => [c.value, c])).values())}
+        avulsas={rows} />
       <Rows
         headers={[
           "Beneficiário / negócio",
@@ -353,9 +326,16 @@ const STATUS_OBRA: Record<string, { label: string; cls: string }> = {
   paga: { label: "Paga", cls: "bg-green-100 text-green-900" },
 };
 type LinhaObra = inferRouterOutputs<AppRouter>["comissoes"]["obras"][number];
-function ComissoesDeObras({ dados, carregando, erro }: { dados?: LinhaObra[]; carregando: boolean; erro?: string }) {
-  const [filtro, setFiltro] = useState("");
-  const linhas = (dados ?? []).filter(l => !filtro || l.calculo.status === filtro);
+function ComissoesDeObras({ dados, carregando, erro, status, broker, setStatus, setBroker, corretores, avulsas }: {
+  dados?: LinhaObra[]; carregando: boolean; erro?: string;
+  status: string; broker: string; setStatus: (v: string) => void; setBroker: (v: string) => void;
+  corretores: { value: string; label: string }[];
+  avulsas: inferRouterOutputs<AppRouter>["comissoes"]["list"];
+}) {
+  const linhas = (dados ?? []).filter(l => (!status || l.calculo.status === status) && (!broker || String(l.corretorId) === broker));
+  const { pendente, pago } = resumirComissoes(linhas,
+    avulsas.map(r => ({ id: r.commission.id, status: r.commission.status, valor: Number(r.commission.amount) })),
+    (dados ?? []).flatMap(o => o.registrosManuais.map(m => m.id)));
   const incompletas = (dados ?? []).filter(l => l.calculo.status === "dados_incompletos").length;
   const reais = (c: number | null) => (c === null ? "—" : money(c / 100));
   return (
@@ -369,9 +349,19 @@ function ComissoesDeObras({ dados, carregando, erro }: { dados?: LinhaObra[]; ca
             {incompletas > 0 && ` ${incompletas} obra(s) com dados incompletos.`}
           </p>
         </div>
-        <Choice label="Situação" value={filtro} onChange={setFiltro} optional
-          options={Object.entries(STATUS_OBRA).map(([value, v]) => ({ value, label: v.label }))} />
+
       </div>
+      <div className="grid gap-3 sm:grid-cols-2">
+        <Field label="Status"><select className={inputClass} value={status} onChange={e => setStatus(e.target.value)}>
+          <option value="">Todos os status</option>
+          {Object.entries({ ...Object.fromEntries(COMMISSION_STATUS.map(value => [value, { label: rotulo(value) }])), ...STATUS_OBRA }).map(([value, item]) => <option key={value} value={value}>{item.label}</option>)}
+        </select></Field>
+        <Field label="Corretor"><select className={inputClass} value={broker} onChange={e => setBroker(e.target.value)}>
+          <option value="">Todos os corretores</option>{corretores.map(c => <option key={c.value} value={c.value}>{c.label}</option>)}
+        </select></Field>
+      </div>
+      <p className="rounded border bg-slate-50 p-4 text-slate-900">Pendente: {money(pendente)} · Pago: {money(pago)}</p>
+      <p className="text-xs text-slate-600">Totais dos resultados filtrados, sem duplicar os registros manuais vinculados às obras.</p>
       {erro && <p role="alert">{erro}</p>}
       {carregando ? <p className="text-sm">Carregando…</p> : (
         <Rows headers={["Corretor / cliente", "Obra", "VGV · %", "Comissão", "Pago · saldo", "Situação"]} empty={!linhas.length}>

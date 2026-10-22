@@ -45,6 +45,7 @@ function createFakeDb(responses: unknown[]) {
     insert: () => { const record: Call = { method: "insert" }; calls.push(record); return chain(record, next()); },
     update: () => { const record: Call = { method: "update" }; calls.push(record); return chain(record, next()); },
     execute: () => Promise.resolve({ rows: [] }),
+    transaction: (run: (tx: unknown) => Promise<unknown>) => run(db),
   };
   return { db, calls };
 }

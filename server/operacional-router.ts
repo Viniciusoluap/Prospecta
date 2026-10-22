@@ -1,3 +1,5 @@
+import { projectChecklist } from "../shared/projeto-documentos.js";
+import { PROJECT_TYPE_LABELS } from "../shared/operacional.js";
 import { TRPCError } from "@trpc/server";
 import { and, asc, desc, eq, inArray, isNull, ne, sql } from "drizzle-orm";
 import { z } from "zod";
@@ -178,6 +180,14 @@ async function leadDoCorretor(leadId: number | null, corretorId: number | null) 
 }
 
 export const agendaRouter = router({
+  cardDeadlines: adminProcedure.query(async ({ ctx }) => {
+    const corretorId = corretorDaSessao(ctx.user);
+    return getDb().select({ id: leads.id, name: leads.name, cardDueDate: leads.cardDueDate })
+      .from(leads).where(and(isNull(leads.deletedAt), ne(leads.stage, "finalized"),
+        sql`${leads.cardDueDate} IS NOT NULL`,
+        ...(corretorId === null ? [] : [eq(leads.brokerId, corretorId)])))
+      .orderBy(asc(leads.cardDueDate));
+  }),
   options: adminProcedure.query(async ({ ctx }) => {
     const corretorId = corretorDaSessao(ctx.user);
     if (corretorId === null) return options();
@@ -441,7 +451,7 @@ export async function listarComissoesDeObras(somenteCorretorId?: number) {
         obra: constructionProjects.title,
         status: constructionProjects.status,
         // Pedido de 15/10: VGV da obra com lead = Valor Aprovado do CRM.
-        vgv: leads.approvedValue,
+        vgv: leads.simulationValue,
         percentualObra: constructionProjects.commissionPct,
         leadId: leads.id,
         cliente: leads.name,
@@ -500,7 +510,7 @@ export const comissoesRouter = router({
           id: constructionProjects.id,
           name: constructionProjects.title,
           contractValue: constructionProjects.contractValue,
-          vgv: sql<string | null>`CASE WHEN ${constructionProjects.leadId} IS NULL THEN ${constructionProjects.vgv} ELSE ${leads.approvedValue} END`,
+          vgv: sql<string | null>`CASE WHEN ${constructionProjects.leadId} IS NULL THEN ${constructionProjects.vgv} ELSE ${leads.simulationValue} END`,
         })
         .from(constructionProjects)
         .leftJoin(leads, eq(leads.id, constructionProjects.leadId))
@@ -600,7 +610,7 @@ function projectValues(
     // EPIC-017: com lead vinculado, cliente e telefone seguem o CRM.
     ...(lead ? { clientName: lead.name, clientPhone: lead.phone ?? "" } : {}),
     types: JSON.stringify(d.types),
-    checklist: JSON.stringify(d.checklist),
+    checklist: JSON.stringify(projectChecklist(d.types, d.checklist, PROJECT_TYPE_LABELS)),
     files: JSON.stringify(d.files),
     value: d.value.toFixed(2),
     paidValue: d.paidValue.toFixed(2),
@@ -673,7 +683,7 @@ export const projetosRouter = router({
         (
           await getDb()
             .update(projects)
-            .set({ ...projectValues(input.data, lead), ...engenheiro })
+            .set({ ...projectValues(input.data, lead), ...engenheiro, files: sql`${projects.files}` })
             .where(eq(projects.id, input.id))
             .returning()
         )[0]

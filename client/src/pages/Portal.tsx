@@ -23,6 +23,7 @@ import {
 import { trpc } from "@/lib/trpc";
 import { LeadDocuments } from "@/components/LeadDocuments";
 import { PortalHeader } from "@/components/PortalHeader";
+import { baixarPartes, enviarPartes, LIMITE_DOCUMENTO } from "@/lib/documentos-partes";
 import { mutarComProgresso } from "@/lib/envio-progresso";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { Button } from "@/components/ui/button";
@@ -197,21 +198,23 @@ export default function Portal() {
   async function onFinancingFile(file?: File) {
     if (financingFileRef.current) financingFileRef.current.value = "";
     if (!file || !uploadChecklistId || !financingId) return;
+    const mimeType = file.type || (/\.xls$/i.test(file.name) ? "application/vnd.ms-excel" : "");
     if (
-      !["application/pdf", "image/jpeg", "image/png"].includes(file.type) ||
-      file.size > 10 * 1024 * 1024
+      !["application/pdf", "image/jpeg", "image/png", "application/vnd.ms-excel"].includes(mimeType) ||
+      file.size > LIMITE_DOCUMENTO
     ) {
-      toast.error("Envie PDF, JPG ou PNG de até 10 MiB");
+      toast.error("Envie PDF, JPG, PNG ou XLS de até 20 MiB");
       return;
     }
     setEnviando(true);
     try {
+      const uploadId = await enviarPartes(file, `finance:${financingId}:${uploadChecklistId}`);
       await mutarComProgresso("portal.uploadFinancingDocument", {
         financingId,
         checklistItemId: uploadChecklistId,
         fileName: file.name,
-        mimeType: file.type as "application/pdf" | "image/jpeg" | "image/png",
-        base64: await toBase64(file),
+        mimeType: mimeType as "application/pdf" | "image/jpeg" | "image/png" | "application/vnd.ms-excel",
+        uploadId,
       }, { item: "documento" });
       toast.success("Documento enviado para análise");
       await financing.refetch();
@@ -505,9 +508,8 @@ export default function Portal() {
                                 type="button"
                                 className="text-sm underline mt-2 inline-flex items-center gap-1"
                                 onClick={() => {
-                                  void utils.portal.checklistDocumentContent.fetch({ checklistItemId: item.id }).then(content =>
-                                    openDocument(content.base64, item.documentoMime || "application/octet-stream", content.fileName)
-                                  ).catch(() => toast.error("Falha ao consultar documento"));
+                                  void baixarPartes(offset => utils.portal.checklistDocumentContent.fetch({ checklistItemId: item.id, offset }), item.documentoNome ?? "documento")
+                                    .catch(() => toast.error("Falha ao consultar documento"));
                                 }}
                               >
                                 <Download className="h-4 w-4" />
@@ -548,7 +550,7 @@ export default function Portal() {
                     ref={financingFileRef}
                     hidden
                     type="file"
-                    accept="application/pdf,image/jpeg,image/png"
+                    accept="application/pdf,image/jpeg,image/png,.xls,application/vnd.ms-excel"
                     capture="environment"
                     onChange={event => onFinancingFile(event.target.files?.[0])}
                   />

@@ -1,3 +1,6 @@
+import { DOCUMENT_LIMIT, readUpload, clearUpload } from "./document-upload-chunks.js";
+import { FINANCING_DOCUMENT_MIMES, saveFinancingDocument } from "./financing-document-upload.js";
+import { FINANCIAMENTO_CHECKLIST_PADRAO } from "../shared/financiamento.js";
 import { TRPCError } from "@trpc/server";
 import { and, asc, desc, eq, gt, ne, notInArray, or, sql } from "drizzle-orm";
 import { z } from "zod";
@@ -67,7 +70,7 @@ export function isValidPortalDocument(
   buffer: Buffer,
   mimeType: z.infer<typeof allowedPortalDocumentMime>
 ): boolean {
-  if (buffer.length === 0 || buffer.length > 10 * 1024 * 1024) return false;
+  if (buffer.length === 0 || buffer.length > DOCUMENT_LIMIT) return false;
   if (mimeType === "application/pdf")
     return buffer.subarray(0, 4).toString() === "%PDF";
   if (mimeType === "image/png")
@@ -321,7 +324,7 @@ export const portalRouter = router({
           asc(financiamentoChecklistItems.grupo),
           asc(financiamentoChecklistItems.id)
         );
-      return { financing, checklist };
+      return { financing, checklist: FINANCIAMENTO_CHECKLIST_PADRAO.map(defaultItem => checklist.find(item => item.item === defaultItem.item)).filter((item): item is typeof checklist[number] => Boolean(item)) };
     }),
 
   uploadFinancingDocument: protectedProcedure
@@ -330,8 +333,8 @@ export const portalRouter = router({
         financingId: z.number().int().positive(),
         checklistItemId: z.number().int().positive(),
         fileName: z.string().trim().min(1).max(255),
-        mimeType: allowedPortalDocumentMime,
-        base64: z.string().min(8),
+        mimeType: z.enum(FINANCING_DOCUMENT_MIMES),
+        base64: z.string().min(8).max(4_200_000).optional(), uploadId: z.string().optional(),
       })
     )
     .mutation(async ({ ctx, input }) => {
@@ -363,40 +366,14 @@ export const portalRouter = router({
           code: "NOT_FOUND",
           message: "Solicitação de documento não encontrada",
         });
-      const buffer = Buffer.from(input.base64, "base64");
-      if (!isValidPortalDocument(buffer, input.mimeType) || buffer.length > 3 * 1024 * 1024) {
-        throw new TRPCError({
-          code: "BAD_REQUEST",
-          message: "Envie PDF, JPG ou PNG válido de até 3 MiB",
-        });
-      }
-      const { driveFileId } = await tryDriveUpload(() => uploadPrivateDocument({ leadId, serviceId: null, categoria: "financiamento_checklist", rotulo: request.item.item, nomeOriginal: input.fileName, mimeType: input.mimeType, data: buffer }));
-      const update = db.update(financiamentoChecklistItems).set({
-        documentoDriveFileId: driveFileId,
-        documentoUrl: null,
-        documentoNome: input.fileName,
-        documentoMime: input.mimeType,
-        enviadoEm: new Date(),
-      }).where(eq(financiamentoChecklistItems.id, request.item.id));
-      if (driveFileId) {
-        await db.batch([
-          update,
-          db.execute(sql`DELETE FROM financiamento_checklist_file_data WHERE checklist_item_id = ${request.item.id}`),
-        ]);
-      } else {
-        await db.batch([
-          update,
-          db.execute(sql`INSERT INTO financiamento_checklist_file_data (checklist_item_id, mime, size_bytes, data)
-            VALUES (${request.item.id}, ${input.mimeType}, ${buffer.length}, decode(${buffer.toString("base64")}, 'base64'))
-            ON CONFLICT (checklist_item_id) DO UPDATE SET mime = EXCLUDED.mime,
-              size_bytes = EXCLUDED.size_bytes, data = EXCLUDED.data`),
-        ]);
-      }
-      return { url: null };
+      const data = input.uploadId ? await readUpload(input.uploadId, ctx.user.id, `finance:${input.financingId}:${input.checklistItemId}`, input.fileName) : Buffer.from(input.base64 ?? "", "base64");
+      const result = await saveFinancingDocument({ itemId: request.item.id, financingId: input.financingId, leadId, label: request.item.item, fileName: input.fileName, mimeType: input.mimeType, data });
+      if (input.uploadId) await clearUpload(input.uploadId, ctx.user.id);
+      return result;
     }),
 
   checklistDocumentContent: protectedProcedure
-    .input(z.object({ checklistItemId: z.number().int().positive() }))
+    .input(z.object({ checklistItemId: z.number().int().positive(), offset: z.number().int().min(0).max(DOCUMENT_LIMIT).optional() }))
     .query(async ({ ctx, input }) => {
       const { leadId } = requireClientContext(ctx.user);
       const db = getDb();
@@ -415,7 +392,7 @@ export const portalRouter = router({
         ? await readPrivateDocument(row.item.documentoDriveFileId)
         : await readPrivateDbFile("checklist", row.item.id);
       if (!data) throw new TRPCError({ code: "NOT_FOUND" });
-      return { fileName: row.item.documentoNome ?? "documento", base64: data.toString("base64") };
+      return { fileName: row.item.documentoNome ?? "documento", total: data.length, base64: data.subarray(input.offset ?? 0,(input.offset ?? 0) + 1024 * 1024).toString("base64") };
     }),
 
   dashboard: protectedProcedure.query(async ({ ctx }) => {

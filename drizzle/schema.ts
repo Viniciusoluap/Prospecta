@@ -205,6 +205,8 @@ export const leadDocTypeEnum = pgEnum("lead_doc_type", [
   "income_proof_irpf",
   "fgts",
   "spouse_docs",
+  "spouse_income_proof",
+  "birth_marriage_certificate",
   "pis",
   "other",
 ]);
@@ -637,6 +639,8 @@ export const constructionProgressHistory = pgTable("construction_progress_histor
   // Pedido de 18/10: ciclo da medição — solicitada ao banco e recebida (paga).
   requestedAt: timestamp("requested_at"),
   requestedBy: integer("requested_by"),
+  requestEmailStatus: varchar("request_email_status", { length: 20 }),
+  requestEmailAttemptAt: timestamp("request_email_attempt_at"),
   receivedAt: timestamp("received_at"),
   receivedBy: integer("received_by"),
   updatedAt: timestamp("updated_at"),
@@ -826,6 +830,8 @@ export const leads = pgTable("leads", {
   lgpdConsentAt: timestamp("lgpd_consent_at"),
   rejectionReason: text("rejection_reason"),
   followupDate: timestamp("followup_date"),
+  // Prazo individual do card no pipeline; independente de tarefas, visitas e follow-up.
+  cardDueDate: date("card_due_date", { mode: "string" }),
   notes: text("notes"),
   adminNotes: text("admin_notes"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
@@ -978,6 +984,7 @@ export type InsertLeadFollowUp = typeof leadFollowUps.$inferInsert;
 
 export const tasks = pgTable("tasks", {
   id: serial("id").primaryKey(),
+  leadServiceId: integer("lead_service_id").unique().references(() => leadServices.id, { onDelete: "set null" }),
   title: varchar("title", { length: 255 }).notNull(),
   description: text("description"),
   assignedTo: varchar("assigned_to", { length: 100 }).notNull(),
