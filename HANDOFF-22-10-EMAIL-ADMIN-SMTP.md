@@ -8,12 +8,13 @@
 - `scripts/setup-db.ts` passa a criar o admin inicial no endereço institucional somente com `INITIAL_ADMIN_PASSWORD` de ambiente e não imprime essa senha. `scripts/migrate.sql` deixou de conter o seed com e-mail e hash de senha fixos. O login em produção lê o campo `users.email`, portanto mantém a senha atual do site.
 - As notificações institucionais e as solicitações de medição já usam o endereço institucional no código; `sendEmail` usa `SMTP_USER` como remetente.
 
-## Verificação e pendências
+## Verificação e resultado
 
 - (a) Automática: `git diff --check`, busca dos identificadores antigos no código executável, 16/16 testes de SMTP/medição e `tsc --noEmit` passaram. O wrapper `pnpm exec` tentou instalar dependências e encontrou bloqueio de scripts de build; a execução direta dos binários instalados passou.
 - (b) Manual: leitura do registro de admin e conflito no banco, leitura de volta dos dois registros após a troca, inspeção dos nomes/escopos das variáveis da Vercel sem revelar valores.
-- (c) Produção: ainda é preciso publicar o código, conferir deploy READY e enviar uma mensagem de teste com retorno SMTP e recebimento na caixa. O conector da Vercel não devolve o conteúdo sensível de `SMTP_HOST`, então um envio real determinará se host/porta e autenticação estão coerentes.
-- Próximo passo: testar, publicar PR, verificar preview e deploy de produção, fazer teste de envio e registrar resultado; se o provedor exigir senha específica de aplicativo ou servidor SMTP diferente, ajustar apenas as variáveis sensíveis.
+- (c) GitHub/Vercel: PR #152 mesclado em `main` no commit `dd1f564ab990027be63fb69cf0a6da8c5b70f215`; deploy de produção `dpl_3qp5APDgKV9jN9yQyNnRzc812xni` em estado READY.
+- (d) Envio real: formulário público Contato na URL do deploy de produção confirmou “MENSAGEM ENVIADA!”. `email_logs.id=33`, criado em 22/10/2026 às 18:10:35 UTC, registra destinatário institucional, `admin_notification`, status `sent`, `error_message=NULL` e `sent_at=18:10:36 UTC`. Isto confirma aceitação pelo servidor SMTP; o recebimento final na caixa de entrada e eventual filtragem antispam não foram inspecionados.
+- O teste criou um lead identificado como “Teste técnico SMTP Prospecta”, telefone fictício e observação explícita de desconsiderar como lead comercial. O registro foi mantido para rastreabilidade, sem apagar dados de produção.
 
 ## Paridade
 
