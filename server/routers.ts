@@ -78,6 +78,7 @@ import { brokerPortalRouter } from "./broker-portal-router.js";
 import { geoRouter } from "./geo-router.js";
 import { empreiteiroRouter, obraFinanceiroRouter } from "./obra-financeiro-router.js";
 import { obraProgressoRouter } from "./obra-progresso-router.js";
+import { obraLocalizacaoRouter } from "./obra-localizacao.js";
 import { LEAD_PIPELINE_KEYS } from "../shared/lead-pipeline.js";
 import { documentChunksRouter } from "./document-upload-chunks.js";
 import { leadDocumentsRouter } from "./lead-documents-router.js";
@@ -172,6 +173,7 @@ export const appRouter = router({
   geo: geoRouter,
   obraFinanceiro: obraFinanceiroRouter,
   obraProgresso: obraProgressoRouter,
+  obraLocalizacao: obraLocalizacaoRouter,
   empreiteiro: empreiteiroRouter,
   auth: router({
     me: publicProcedure.query(opts => opts.ctx.user),

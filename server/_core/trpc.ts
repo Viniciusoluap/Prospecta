@@ -51,6 +51,7 @@ const procedureModules: Record<string, AdminModule | AdminModule[]> = {
   draws: "sorteios",
   products: "sorteios",
   construction: "obras",
+  obraLocalizacao: "obras",
   obraMedicoes: "obras",
   obraFinanceiro: "obras",
   obraProgresso: "obras",

@@ -539,6 +539,8 @@ export const constructionProjects = pgTable("construction_projects", {
   commissionPct: decimal("commission_pct", { precision: 7, scale: 4 }),
   contractorUserId: integer("contractor_user_id").references((): AnyPgColumn => users.id, { onDelete: "set null" }),
   contractorSharePct: decimal("contractor_share_pct", { precision: 9, scale: 6 }),
+  // Lote 23/10, etapa 3: imóvel vinculado que guarda a "Localização exata" da obra (Mapa Operacional).
+  imovelId: integer("imovel_id").references((): AnyPgColumn => imoveis.id, { onDelete: "set null" }),
   notes: text("notes"),
   extraNotes: text("extra_notes"),
   createdAt: timestamp("created_at").defaultNow().notNull(),

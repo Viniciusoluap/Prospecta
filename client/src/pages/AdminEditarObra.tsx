@@ -21,6 +21,7 @@ import { RelatorioObraBotao } from "@/components/obra/RelatorioObraBotao";
 import { CustosAba, ValoresOperacaoAba, calcularAoVivo, formInicial, type FormFinanceiro } from "@/components/obra/FinanceiroObra";
 import { OBRA_STATUS_SELECIONAVEIS, obraStatusLabel } from "@shared/obra-status";
 import { toast } from "sonner";
+import { CampoLocalizacao } from "@/components/CampoLocalizacao";
 
 const ABAS_OBRA = [
   { valor: "info", rotulo: "Informações", Icone: Building2 },
@@ -82,6 +83,12 @@ export default function AdminEditarObra({ modo = "admin" }: { modo?: "admin" | "
   const [cefBranch, setCefBranch] = useState("");
 
   // Valores da Operação e Custos (Lote 2)
+  // Lote 23/10, etapa 3: "Localização exata" guardada no imóvel vinculado (Mapa Operacional).
+  const localizacaoQuery = trpc.obraLocalizacao.obter.useQuery({ projectId }, { enabled: isAuthenticated && papelOk && !!projectId });
+  const salvarLocalizacao = trpc.obraLocalizacao.salvar.useMutation();
+  const [coords, setCoords] = useState<{ lat: number; lng: number } | null>(null);
+  useEffect(() => { setCoords(localizacaoQuery.data?.coords ?? null); }, [localizacaoQuery.data]);
+  const coordsAlteradas = JSON.stringify(coords) !== JSON.stringify(localizacaoQuery.data?.coords ?? null);
   const resumoQuery = trpc.obraFinanceiro.resumo.useQuery({ projectId }, { enabled: isAuthenticated && papelOk && !!projectId });
   const resumo = resumoQuery.data;
   const [formFin, setFormFin] = useState<FormFinanceiro | null>(null);
@@ -149,6 +156,11 @@ export default function AdminEditarObra({ modo = "admin" }: { modo?: "admin" | "
     setSalvando(true);
     try {
       await updateMutation.mutateAsync(updates);
+      if (!ehEmpreiteiro && localizacaoQuery.data && coordsAlteradas) {
+        const r = await salvarLocalizacao.mutateAsync({ projectId, coords });
+        if (r.criado) toast.success("Localização salva: imóvel da obra criado (não publicado) e exibido no Mapa Operacional.");
+        await localizacaoQuery.refetch();
+      }
       if (formFin) {
         await salvarValores.mutateAsync({
           projectId,
@@ -307,6 +319,21 @@ export default function AdminEditarObra({ modo = "admin" }: { modo?: "admin" | "
                     placeholder="Rua, número, bairro, cidade, estado"
                     rows={3}
                   />
+                </div>
+
+                <div className="space-y-2">
+                  <Label className="text-gray-300">Localização exata</Label>
+                  {localizacaoQuery.isError ? (
+                    <p className="text-xs text-red-300" role="alert">Não foi possível carregar a localização da obra.</p>
+                  ) : (
+                    <CampoLocalizacao coords={coords} onChange={setCoords} />
+                  )}
+                  <p className="text-xs text-gray-400">
+                    {localizacaoQuery.data?.imovelId
+                      ? `Ponto guardado no imóvel vinculado "${localizacaoQuery.data.imovelTitulo}" (aparece no Mapa Operacional).`
+                      : "Ao salvar, o ponto cria um imóvel vinculado à obra, não publicado no site, e aparece no Mapa Operacional."}
+                    {coordsAlteradas && " Alteração ainda não salva."}
+                  </p>
                 </div>
 
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
