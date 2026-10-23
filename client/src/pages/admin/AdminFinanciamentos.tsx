@@ -312,7 +312,7 @@ export default function AdminFinanciamentos() {
               cor: "text-blue-400",
             },
             {
-              titulo: "Crédito liberado",
+              titulo: "Crédito concluído",
               valor: String(concluidos),
               icone: CheckCircle2,
               cor: "text-green-400",
