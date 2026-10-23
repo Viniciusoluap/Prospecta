@@ -4,6 +4,7 @@ import { alias } from "drizzle-orm/pg-core";
 import { neon } from "@neondatabase/serverless";
 import { LEAD_PIPELINE_STAGES, LEGACY_STAGE_LABELS } from "../shared/lead-pipeline.js";
 import { rotulo } from "../shared/rotulos.js";
+import { VINCULOS_LEAD, type VinculosLead } from "../shared/lead-exclusao-definitiva.js";
 
 import {
   InsertUser, users, User,
@@ -17,7 +18,7 @@ import {
   productConversions, ProductConversion, InsertProductConversion,
   constructionProjects, ConstructionProject, InsertConstructionProject,
   constructionStages, ConstructionStage, InsertConstructionStage,
-  constructionPhotos, constructionProgressHistory, ConstructionPhoto, InsertConstructionPhoto,
+  constructionPhotos, constructionProgressHistory, constructionPci, ConstructionPhoto, InsertConstructionPhoto,
   projectBudgetRequests, ProjectBudgetRequest, InsertProjectBudgetRequest,
   emailLogs, EmailLog,
   userNotifications, UserNotification, InsertUserNotification,
@@ -511,6 +512,8 @@ export type ProjetoDaLista = ConstructionProject & {
   /** Pedido de 18/10: medições aguardando o banco e medições já recebidas (filtro da lista). */
   medicoesSolicitadas: number;
   medicoesRecebidas: number;
+  /** Pedido de 23/10 (H5): a obra tem PCI da CAIXA vinculada (selo no card da lista). */
+  pciVinculada: boolean;
 };
 
 /**
@@ -538,7 +541,11 @@ export async function getAllProjects(somenteEmpreiteiroId?: number): Promise<Pro
     recebidas: sql<number>`count(*) filter (where ${constructionProgressHistory.receivedAt} is not null)::int`,
   }).from(constructionProgressHistory).groupBy(constructionProgressHistory.projectId);
   const porObra = new Map(medicoes.map((m) => [m.projectId, m]));
+  const pcis = await db.select({ projectId: constructionPci.projectId }).from(constructionPci)
+    .where(sql`${constructionPci.linkedAt} is not null`);
+  const comPci = new Set(pcis.map((p) => p.projectId));
   return rows.map((row) => ({
+    pciVinculada: comPci.has(row.project.id),
     medicoesSolicitadas: Number(porObra.get(row.project.id)?.solicitadas ?? 0),
     medicoesRecebidas: Number(porObra.get(row.project.id)?.recebidas ?? 0),
     ...aplicarTipoProjetoOficial(row),
@@ -1001,6 +1008,62 @@ export function leadDeletionStatement(id: number, actorId: number, deleted: bool
 export async function setLeadDeleted(id: number, actorId: number, deleted: boolean): Promise<boolean> {
   const updated = await getDb().execute(leadDeletionStatement(id, actorId, deleted));
   return Number(updated.rows[0]?.count ?? 0) === 1;
+}
+
+/** Pedido de 23/10 (H3): o que impede a exclusão definitiva de um lead. */
+export async function getLeadVinculosExclusao(id: number): Promise<VinculosLead> {
+  const r = await getDb().execute(sql`
+    SELECT
+      (SELECT count(*) FROM construction_projects WHERE lead_id = ${id})::int AS obras,
+      (SELECT count(*) FROM financiamentos WHERE lead_id = ${id})::int AS financiamentos,
+      (SELECT count(*) FROM regularizacoes WHERE lead_id = ${id})::int AS regularizacoes,
+      (SELECT count(*) FROM operational_projects WHERE lead_id = ${id})::int AS projetos,
+      (SELECT count(*) FROM avaliacoes WHERE lead_id = ${id})::int AS avaliacoes,
+      (SELECT count(*) FROM portal_contracts WHERE lead_id = ${id})::int AS contratos,
+      (SELECT count(*) FROM lead_documents WHERE lead_id = ${id} AND deleted_at IS NULL)::int AS documentos,
+      (SELECT count(*) FROM users WHERE lead_id = ${id})::int AS contas`);
+  const row = (r.rows[0] ?? {}) as Record<string, unknown>;
+  return Object.fromEntries(VINCULOS_LEAD.map(([chave]) => [chave, Number(row[chave] ?? 0)])) as VinculosLead;
+}
+
+/**
+ * Exclusão definitiva (H3), numa única instrução: só apaga lead ARQUIVADO e sem
+ * nenhum vínculo (mesmas condições de getLeadVinculosExclusao, rechecadas aqui).
+ * Leva junto histórico, follow-ups, tarefas, documentos já excluídos sem arquivo no Drive, serviços,
+ * preferências, alertas e chat do lead; mensagens de WhatsApp ficam na caixa,
+ * apenas sem o vínculo. Devolve true se o lead foi apagado.
+ */
+export async function excluirLeadArquivadoDefinitivamente(id: number): Promise<boolean> {
+  const r = await getDb().execute(sql`
+    WITH alvo AS (
+      SELECT l.id FROM leads l
+      WHERE l.id = ${id} AND l.deleted_at IS NOT NULL
+        AND NOT EXISTS (SELECT 1 FROM construction_projects WHERE lead_id = l.id)
+        AND NOT EXISTS (SELECT 1 FROM financiamentos WHERE lead_id = l.id)
+        AND NOT EXISTS (SELECT 1 FROM regularizacoes WHERE lead_id = l.id)
+        AND NOT EXISTS (SELECT 1 FROM operational_projects WHERE lead_id = l.id)
+        AND NOT EXISTS (SELECT 1 FROM avaliacoes WHERE lead_id = l.id)
+        AND NOT EXISTS (SELECT 1 FROM portal_contracts WHERE lead_id = l.id)
+        AND NOT EXISTS (SELECT 1 FROM lead_documents WHERE lead_id = l.id AND deleted_at IS NULL)
+        AND NOT EXISTS (SELECT 1 FROM users WHERE lead_id = l.id)
+      FOR UPDATE
+    ), atividades AS (
+      DELETE FROM lead_activities WHERE lead_id IN (SELECT id FROM alvo)
+    ), followups AS (
+      DELETE FROM lead_follow_ups WHERE lead_id IN (SELECT id FROM alvo)
+    ), tarefas AS (
+      DELETE FROM tasks WHERE related_type = 'lead' AND related_id IN (SELECT id FROM alvo)
+    ), documentos_excluidos AS (
+      -- Já excluídos e sem arquivo no Drive; os que têm arquivo no Drive ficam
+      -- registrados para o arquivo continuar rastreável (não há remoção no Drive).
+      DELETE FROM lead_documents WHERE deleted_at IS NOT NULL AND drive_file_id IS NULL AND lead_id IN (SELECT id FROM alvo)
+    ), whatsapp AS (
+      UPDATE whatsapp_messages SET lead_id = NULL WHERE lead_id IN (SELECT id FROM alvo)
+    ), apagado AS (
+      DELETE FROM leads WHERE id IN (SELECT id FROM alvo) RETURNING id
+    )
+    SELECT count(*)::int AS count FROM apagado`);
+  return Number(r.rows[0]?.count ?? 0) === 1;
 }
 
 export async function getLeadActivities(leadId: number): Promise<LeadActivity[]> {

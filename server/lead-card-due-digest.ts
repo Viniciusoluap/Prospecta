@@ -2,6 +2,7 @@ import { and, eq, inArray, isNotNull, isNull, lte, ne, sql } from "drizzle-orm";
 import { leads, userNotifications, users } from "../drizzle/schema.js";
 import { sendEmail } from "./_core/email-smtp.js";
 import { getDb } from "./db.js";
+import { SEPARADOR_ITENS, datasParaBR, linhaPrazoCard, tituloPrazosCards } from "../shared/notificacao-formato.js";
 import { ensureLeadCardDeadlineSchema, todayInImperatriz } from "./lead-card-deadline-schema.js";
 
 const escapeHtml = (value: string) => value.replace(/[&<>"']/g, c => ({
@@ -43,8 +44,9 @@ export async function sendLeadCardDueDigests(now = new Date()) {
       if (pending.notice.length) {
         const count = pending.notice.length;
         await database.insert(userNotifications).values({
-          userId: recipient.id, type: "system", title: `${count} card${count === 1 ? "" : "s"} precisam da sua atenção hoje`,
-          message: pending.notice.map(lead => `${lead.name} (${lead.cardDueDate})`).join("; "),
+          // H4 (23/10): título curto e um cliente por linha, com data no padrão BR.
+          userId: recipient.id, type: "system", title: tituloPrazosCards(count),
+          message: pending.notice.map(lead => linhaPrazoCard(lead.name, lead.cardDueDate)).join(SEPARADOR_ITENS),
           actionUrl: "/admin/crm",
         });
         for (const lead of pending.notice) await database.execute(sql`INSERT INTO lead_card_due_alerts
@@ -54,10 +56,10 @@ export async function sendLeadCardDueDigests(now = new Date()) {
       }
       if (pending.email.length && recipient.email) {
         const origin = process.env.SITE_URL || (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : "");
-        const lines = pending.email.map(lead => `<li>${escapeHtml(lead.name)} — ${escapeHtml(lead.cardDueDate!)} — ${origin ? `<a href="${escapeHtml(origin)}/admin/crm/${lead.id}">Abrir lead #${lead.id}</a>` : `Lead #${lead.id}`}</li>`).join("");
+        const lines = pending.email.map(lead => `<li>${escapeHtml(lead.name)} — prazo ${escapeHtml(datasParaBR(lead.cardDueDate!))} — ${origin ? `<a href="${escapeHtml(origin)}/admin/crm/${lead.id}">Abrir lead #${lead.id}</a>` : `Lead #${lead.id}`}</li>`).join("");
         const sent = await sendEmail({
           to: recipient.email,
-          subject: `[CRM] ${pending.email.length} card${pending.email.length === 1 ? "" : "s"} precisam da sua atenção hoje`,
+          subject: `[CRM] ${tituloPrazosCards(pending.email.length)}`,
           html: `<p>Estes cards precisam da sua atenção hoje:</p><ul>${lines}</ul><p>Acesse o CRM para atualizar cada card.</p>`,
           templateType: "admin_notification",
         });

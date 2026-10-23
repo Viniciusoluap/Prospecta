@@ -154,7 +154,11 @@ export function ProgressoObraAba({ projectId, onFotosMudaram }: { projectId: num
     setEditando({ id: h.id, quando: dataHora(h.criadoEm) });
     setLinhas(mesclarComPadrao(h.itens).map((i) => ({ chave: i.chave, incidencia: String(i.incidencia), execucao: String(i.execucao) })));
     setTipo(h.tipo);
-    setDadosCaixa(h.dadosCaixa ?? dadosMedicaoPadrao(h.tipo, { ...dados.plsPadrao, dataLevantamento: new Date(h.criadoEm).toISOString().slice(0, 10) }, dados.pci?.prazoMeses ?? null));
+    // H6: medição antiga sem os dados do contrato recebe os da obra (só o que nunca foi informado).
+    const pp = dados.plsPadrao;
+    setDadosCaixa(h.dadosCaixa
+      ? { ...h.dadosCaixa, pls: { ...h.dadosCaixa.pls, numeroContrato: h.dadosCaixa.pls.numeroContrato ?? pp.numeroContrato, valorImovel: h.dadosCaixa.pls.valorImovel ?? pp.valorImovel, dataContratacao: h.dadosCaixa.pls.dataContratacao ?? pp.dataContratacao } }
+      : dadosMedicaoPadrao(h.tipo, { ...pp, dataLevantamento: new Date(h.criadoEm).toISOString().slice(0, 10) }, dados.pci?.prazoMeses ?? null));
     setFotosNovas([]);
     document.getElementById("medicao-por-servico")?.scrollIntoView({ behavior: "smooth" });
   };

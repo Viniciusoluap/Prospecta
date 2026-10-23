@@ -1,3 +1,4 @@
+import { NotificacaoConteudo } from "@/components/NotificacaoConteudo";
 import { Link } from "wouter";
 import { Button } from "@/components/ui/button";
 import { APP_TITLE, APP_LOGO } from "@/const";
@@ -380,7 +381,7 @@ function NotificationBell() {
           )}
         </Button>
       </DropdownMenuTrigger>
-      <DropdownMenuContent align="end" className="w-80">
+      <DropdownMenuContent align="end" className="w-[22rem] max-w-[calc(100vw-1rem)]">
         <DropdownMenuLabel className="flex items-center justify-between">
           <span>Notificações</span>
           {unreadCount > 0 && (
@@ -395,7 +396,7 @@ function NotificationBell() {
           )}
         </DropdownMenuLabel>
         <DropdownMenuSeparator />
-        <ScrollArea className="h-[300px]">
+        <div className="max-h-[420px] overflow-y-auto">
           {unreadNotifications.length === 0 ? (
             <div className="p-4 text-center text-sm text-muted-foreground">
               Nenhuma notificação nova
@@ -412,25 +413,12 @@ function NotificationBell() {
                   )
                 }
               >
-                <div className="font-medium text-sm">{notification.title}</div>
-                <div className="text-xs text-muted-foreground mt-1">
-                  {notification.message}
-                </div>
-                <div className="text-xs text-muted-foreground mt-1">
-                  {new Date(notification.createdAt).toLocaleDateString(
-                    "pt-BR",
-                    {
-                      day: "2-digit",
-                      month: "2-digit",
-                      hour: "2-digit",
-                      minute: "2-digit",
-                    }
-                  )}
-                </div>
+                <NotificacaoConteudo notificacao={notification}
+                  quando={new Date(notification.createdAt).toLocaleString("pt-BR", { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" })} />
               </DropdownMenuItem>
             ))
           )}
-        </ScrollArea>
+        </div>
         {unreadNotifications.length > 0 && (
           <>
             <DropdownMenuSeparator />

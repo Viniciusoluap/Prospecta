@@ -7,7 +7,7 @@ import { Input } from "@/components/ui/input";
 import { AcoesExcluir } from "@/components/AcoesExcluir";
 import type { inferRouterOutputs } from "@trpc/server";
 import type { AppRouter } from "../../../../server/routers";
-import { Building2, Calendar, DollarSign, User } from "lucide-react";
+import { Building2, Calendar, DollarSign, FileCheck2, User } from "lucide-react";
 import { useMemo, useState } from "react";
 import { Link } from "wouter";
 
@@ -125,9 +125,16 @@ export function ListaObras({ projects, caminhoEditar, caminhoDetalhes, filtroRes
                         {project.address || "Endereço não informado"}
                       </CardDescription>
                     </div>
-                    <span className={`px-3 py-1 rounded-full text-sm border ${statusColors[project.status]}`}>
-                      {obraStatusLabel(project.status)}
-                    </span>
+                    <div className="flex flex-col items-end gap-1.5">
+                      <span className={`px-3 py-1 rounded-full text-sm border ${statusColors[project.status]}`}>
+                        {obraStatusLabel(project.status)}
+                      </span>
+                      {project.pciVinculada && (
+                        <span className="px-2.5 py-0.5 rounded-full text-xs border border-emerald-400/50 bg-emerald-500/15 text-emerald-300 flex items-center gap-1" title="Esta obra tem a PCI da CAIXA vinculada">
+                          <FileCheck2 className="h-3.5 w-3.5" aria-hidden="true" /> PCI vinculada
+                        </span>
+                      )}
+                    </div>
                   </div>
                 </CardHeader>
                 <CardContent>

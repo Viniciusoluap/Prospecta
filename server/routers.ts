@@ -20,6 +20,7 @@ import * as db from "./db.js";
 import { TRPCError } from "@trpc/server";
 import { validateCPF, cleanCPF } from "../shared/cpf.js";
 import { OBRA_STATUS_TODOS, validarMudancaStatusObra } from "../shared/obra-status.js";
+import { mensagemBloqueioExclusao } from "../shared/lead-exclusao-definitiva.js";
 import { LEAD_TEMPERATURAS } from "../shared/lead-temperature.js";
 import {
   getChecklistGroups,
@@ -139,6 +140,11 @@ async function assertLeadAssignment(input: { responsibleUserId?: number | null; 
     throw new TRPCError({ code: "BAD_REQUEST", message: "Responsável inválido: selecione um colaborador ou administrador cadastrado" });
   if (!check.brokerOk)
     throw new TRPCError({ code: "BAD_REQUEST", message: "Corretor inválido: selecione um corretor cadastrado" });
+}
+
+/** H3: exclusão definitiva é exclusiva do administrador (equipe com módulo CRM não pode). */
+function exigirAdministrador(user: { role?: string | null } | null | undefined) {
+  if (user?.role !== "admin") throw new TRPCError({ code: "FORBIDDEN", message: "Só o administrador pode excluir um lead definitivamente." });
 }
 
 export const appRouter = router({
@@ -1282,6 +1288,33 @@ export const appRouter = router({
         requireModule(ctx, "crm");
         const changed = await db.setLeadDeleted(input.id, ctx.user.id, false);
         if (!changed) throw new TRPCError({ code: "CONFLICT", message: "Lead inexistente ou ativo" });
+        return { success: true };
+      }),
+
+    // Pedido de 23/10 (H3): exclusão definitiva só de lead arquivado, só admin,
+    // e só sem vínculos (obra, financiamento, comissões via obra, documentos...).
+    permanentDeletionContext: adminProcedure
+      .input(z.object({ id: z.number().int().positive() }))
+      .query(async ({ input, ctx }) => {
+        exigirAdministrador(ctx.user);
+        const lead = await db.getLeadById(input.id);
+        if (!lead) throw new TRPCError({ code: "NOT_FOUND", message: "Lead não encontrado." });
+        const vinculos = await db.getLeadVinculosExclusao(input.id);
+        return { arquivado: lead.deletedAt !== null, vinculos, bloqueio: mensagemBloqueioExclusao(vinculos) };
+      }),
+
+    permanentDelete: adminProcedure
+      .input(z.object({ id: z.number().int().positive() }))
+      .mutation(async ({ input, ctx }) => {
+        exigirAdministrador(ctx.user);
+        const lead = await db.getLeadById(input.id);
+        if (!lead) throw new TRPCError({ code: "NOT_FOUND", message: "Lead não encontrado." });
+        if (lead.deletedAt === null) throw new TRPCError({ code: "BAD_REQUEST", message: "Só leads arquivados podem ser excluídos definitivamente. Arquive o lead primeiro." });
+        const bloqueio = mensagemBloqueioExclusao(await db.getLeadVinculosExclusao(input.id));
+        if (bloqueio) throw new TRPCError({ code: "CONFLICT", message: bloqueio });
+        if (!await db.excluirLeadArquivadoDefinitivamente(input.id)) {
+          throw new TRPCError({ code: "CONFLICT", message: "O lead mudou enquanto era excluído (foi recuperado ou ganhou um vínculo). Atualize a lista e tente de novo." });
+        }
         return { success: true };
       }),
 
