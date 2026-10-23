@@ -82,7 +82,7 @@ const services = [
 
 export default function Servicos() {
   return (
-    <div className="min-h-screen bg-gradient-to-br from-[#1A2332] via-[#2C3E50] to-[#1A2332]">
+    <div className="min-h-screen bg-gradient-to-br from-[#1A2332] via-[#2C3E50] to-[#1A2332] text-gray-100">
       <SEO
         title="Serviços"
         description="Conheça os serviços da Prospecta Empreendimentos: corretagem, financiamento habitacional, obras, avaliação e loteamento em Imperatriz-MA."
@@ -107,7 +107,7 @@ export default function Servicos() {
 
           <div className="max-w-5xl mx-auto space-y-6">
             {services.map(({ icon: Icon, title, description, items, cta, emBreve }) => (
-              <Card key={title} className="bg-[#1A2332]/60 border-[#C9A961]/20 backdrop-blur-sm overflow-hidden">
+              <Card key={title} className="bg-[#1A2332]/60 border-[#C9A961]/20 backdrop-blur-sm overflow-hidden text-gray-100">
                 <CardContent className="p-0 grid grid-cols-1 md:grid-cols-3">
                   <div className="bg-[#0F1923] p-8 flex flex-col justify-between gap-6">
                     <div>

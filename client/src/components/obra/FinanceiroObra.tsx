@@ -423,7 +423,7 @@ export function ValoresOperacaoAba({ projectId, resumo, form, setForm, calculo, 
   return (
     <div className="space-y-6">
       <Alertas calculo={calculo} />
-      <Card className="bg-[#1A2332]/60 border-[#C9A961]/20">
+      <Card className="bg-[#1A2332]/60 border-[#C9A961]/20 text-gray-100">
         <CardHeader><CardTitle className="text-[#C9A961] text-lg">Composição da operação</CardTitle></CardHeader>
         <CardContent className="grid grid-cols-1 md:grid-cols-2 gap-6">
           {/* Obra com cliente no CRM tem VGV = VGV simulado do lead (não editável aqui). */}
@@ -437,7 +437,7 @@ export function ValoresOperacaoAba({ projectId, resumo, form, setForm, calculo, 
         </CardContent>
       </Card>
 
-      <Card className="bg-[#1A2332]/60 border-[#C9A961]/20">
+      <Card className="bg-[#1A2332]/60 border-[#C9A961]/20 text-gray-100">
         <CardHeader>
           <CardTitle className="text-[#C9A961] text-lg">Entrada</CardTitle>
           <CardDescription className="text-gray-400">Entrada Total = VGV − Financiamento CEF − FGTS − Subsídio · Saldo = Entrada Total − Entrada Paga</CardDescription>
@@ -453,7 +453,7 @@ export function ValoresOperacaoAba({ projectId, resumo, form, setForm, calculo, 
         </CardContent>
       </Card>
 
-      <Card className="bg-[#1A2332]/60 border-[#C9A961]/20">
+      <Card className="bg-[#1A2332]/60 border-[#C9A961]/20 text-gray-100">
         <CardHeader>
           <CardTitle className="text-[#C9A961] text-lg">Caixa Econômica Federal</CardTitle>
           <CardDescription className="text-gray-400">A Receber do Banco = Financiamento + Subsídio + FGTS − Terreno − Recebido CEF · PLS Real = Recebido CEF × 100 ÷ (Financiamento + Subsídio + FGTS − Terreno)</CardDescription>
@@ -470,7 +470,7 @@ export function ValoresOperacaoAba({ projectId, resumo, form, setForm, calculo, 
         </CardContent>
       </Card>
 
-      <Card className="bg-[#1A2332]/60 border-[#C9A961]/20">
+      <Card className="bg-[#1A2332]/60 border-[#C9A961]/20 text-gray-100">
         <CardHeader><CardTitle className="text-[#C9A961] text-lg">Custos (vindos da aba Custos)</CardTitle></CardHeader>
         <CardContent className="grid grid-cols-1 md:grid-cols-2 gap-6">
           <Calculado label="Custo Construção" indicador={calculo.custoConstrucao} ajuda="Igual ao Orçamento Previsto da aba Custos." />
@@ -478,7 +478,7 @@ export function ValoresOperacaoAba({ projectId, resumo, form, setForm, calculo, 
         </CardContent>
       </Card>
 
-      <Card className="bg-[#1A2332]/60 border-[#C9A961]/20">
+      <Card className="bg-[#1A2332]/60 border-[#C9A961]/20 text-gray-100">
         <CardHeader>
           <CardTitle className="text-[#C9A961] text-lg">Distribuição dos lucros</CardTitle>
           <CardDescription className="text-gray-400">Lucro Estimado = VGV − Terreno − Comissão − Orçamento Previsto. Estimativa da operação, não é lucro contábil líquido.</CardDescription>
@@ -502,7 +502,7 @@ export function ValoresOperacaoAba({ projectId, resumo, form, setForm, calculo, 
         </CardContent>
       </Card>
 
-      <Card className="bg-[#1A2332]/60 border-[#C9A961]/20">
+      <Card className="bg-[#1A2332]/60 border-[#C9A961]/20 text-gray-100">
         <CardHeader>
           <CardTitle className="text-[#C9A961] text-lg">Pró-Soluto</CardTitle>
           <CardDescription className="text-gray-400">Pró-Soluto = Saldo da Entrada · Parcela pelo sistema Price (equivalente à HP 12C, modo END)</CardDescription>
@@ -519,7 +519,7 @@ export function ValoresOperacaoAba({ projectId, resumo, form, setForm, calculo, 
         </CardContent>
       </Card>
 
-      <Card className="bg-[#1A2332]/60 border-[#C9A961]/20">
+      <Card className="bg-[#1A2332]/60 border-[#C9A961]/20 text-gray-100">
         <CardHeader><CardTitle className="text-[#C9A961] text-lg">Prazo</CardTitle></CardHeader>
         <CardContent>
           <Leitura label="Dias de Obra" valor={calculo.diasObra.ok ? `${calculo.diasObra.dias} dias` : calculo.diasObra.motivo}
@@ -541,7 +541,7 @@ export function CustosAba({ projectId, resumo, form, setForm, calculo, corretor,
   return (
     <div className="space-y-6">
       <fieldset disabled={modoEmpreiteiro} className="contents">
-      <Card className="bg-[#1A2332]/60 border-[#C9A961]/20">
+      <Card className="bg-[#1A2332]/60 border-[#C9A961]/20 text-gray-100">
         <CardHeader>
           <CardTitle className="text-[#C9A961] text-lg">Custos previstos</CardTitle>
           {modoEmpreiteiro && <CardDescription className="text-gray-400">Somente leitura: definidos pela empresa.</CardDescription>}
@@ -578,7 +578,7 @@ export function CustosAba({ projectId, resumo, form, setForm, calculo, corretor,
       </Card>
       </fieldset>
 
-      <Card className="bg-[#1A2332]/60 border-[#C9A961]/20">
+      <Card className="bg-[#1A2332]/60 border-[#C9A961]/20 text-gray-100">
         <CardHeader>
           <CardTitle className="text-[#C9A961] text-lg">Pagamentos</CardTitle>
           <CardDescription className="text-gray-400">Total Gasto = soma dos pagamentos efetivamente realizados · Saldo Restante = VGV − Total Gasto (não é lucro nem saldo bancário)</CardDescription>

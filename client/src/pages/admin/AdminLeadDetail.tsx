@@ -145,7 +145,7 @@ export default function AdminLeadDetail() {
 
   if (!lead) {
     return (
-      <div className="min-h-screen bg-[#1A2332] flex items-center justify-center">
+      <div className="min-h-screen bg-[#1A2332] flex items-center justify-center text-gray-100">
         <div className="text-white">Carregando...</div>
       </div>
     );
@@ -463,7 +463,7 @@ export default function AdminLeadDetail() {
 
           {/* Admin Notes */}
           {lead.adminNotes && (
-            <Card className="bg-[#2C3E50] border-yellow-500/30">
+            <Card className="bg-[#2C3E50] border-yellow-500/30 text-gray-100">
               <CardHeader className="pb-3">
                 <CardTitle className="text-yellow-400 text-sm flex items-center gap-2">
                   <AlertCircle className="h-4 w-4" /> Notas Internas

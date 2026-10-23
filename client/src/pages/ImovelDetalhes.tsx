@@ -60,7 +60,7 @@ export default function ImovelDetalhes() {
 
   if (isLoading) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-[#1A2332] via-[#2C3E50] to-[#1A2332]">
+      <div className="min-h-screen bg-gradient-to-br from-[#1A2332] via-[#2C3E50] to-[#1A2332] text-gray-100">
         <Navbar />
         <main className="container py-12 max-w-5xl mx-auto space-y-6">
           <Skeleton className="h-8 w-40 bg-[#2C3E50]" />
@@ -73,7 +73,7 @@ export default function ImovelDetalhes() {
 
   if (!imovel) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-[#1A2332] via-[#2C3E50] to-[#1A2332]">
+      <div className="min-h-screen bg-gradient-to-br from-[#1A2332] via-[#2C3E50] to-[#1A2332] text-gray-100">
         <Navbar />
         <main className="container py-20 max-w-2xl mx-auto text-center">
           <Building2 className="h-20 w-20 text-[#C9A961]/50 mx-auto mb-6" />
@@ -87,7 +87,7 @@ export default function ImovelDetalhes() {
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-[#1A2332] via-[#2C3E50] to-[#1A2332]">
+    <div className="min-h-screen bg-gradient-to-br from-[#1A2332] via-[#2C3E50] to-[#1A2332] text-gray-100">
       <SEO
         title={imovel.titulo}
         description={imovel.descricao ?? `${imovel.titulo} em ${imovel.cidade} - Prospecta Empreendimentos`}
@@ -129,7 +129,7 @@ export default function ImovelDetalhes() {
                 </div>
               )}
 
-              <Card className="bg-[#1A2332]/60 border-[#C9A961]/20 backdrop-blur-sm">
+              <Card className="bg-[#1A2332]/60 border-[#C9A961]/20 backdrop-blur-sm text-gray-100">
                 <CardContent className="p-6 space-y-4">
                   <div className="flex items-start justify-between gap-4 flex-wrap">
                     <div>
@@ -181,7 +181,7 @@ export default function ImovelDetalhes() {
               </Card>
 
               {imovel.latitude && imovel.longitude && (
-                <Card className="bg-[#1A2332]/60 border-[#C9A961]/20 backdrop-blur-sm overflow-hidden">
+                <Card className="bg-[#1A2332]/60 border-[#C9A961]/20 backdrop-blur-sm overflow-hidden text-gray-100">
                   <iframe
                     title="Localização"
                     className="w-full h-72 border-0"
@@ -193,7 +193,7 @@ export default function ImovelDetalhes() {
             </div>
 
             <div className="space-y-6">
-              <Card className="bg-[#1A2332]/60 border-[#C9A961]/20 backdrop-blur-sm sticky top-24">
+              <Card className="bg-[#1A2332]/60 border-[#C9A961]/20 backdrop-blur-sm sticky top-24 text-gray-100">
                 <CardContent className="p-6 space-y-4">
                   <div>
                     <span className="text-sm text-gray-400">Valor</span>

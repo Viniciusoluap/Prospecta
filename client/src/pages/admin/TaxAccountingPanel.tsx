@@ -124,7 +124,7 @@ export default function TaxAccountingPanel() {
       </div>
 
       <div className="grid gap-4 md:grid-cols-4">
-        <Card className="bg-[#2C3E50] border-[#C9A961]/20">
+        <Card className="bg-[#2C3E50] border-[#C9A961]/20 text-gray-100">
           <CardContent className="pt-6">
             <p className="text-xs text-gray-300">Regime vigente</p>
             <p className="mt-1 font-bold text-white">
@@ -135,7 +135,7 @@ export default function TaxAccountingPanel() {
             </p>
           </CardContent>
         </Card>
-        <Card className="bg-[#2C3E50] border-green-500/30">
+        <Card className="bg-[#2C3E50] border-green-500/30 text-gray-100">
           <CardContent className="pt-6">
             <p className="text-xs text-gray-300">Receita realizada</p>
             <p className="mt-1 text-xl font-bold text-green-400">
@@ -143,7 +143,7 @@ export default function TaxAccountingPanel() {
             </p>
           </CardContent>
         </Card>
-        <Card className="bg-[#2C3E50] border-amber-500/30">
+        <Card className="bg-[#2C3E50] border-amber-500/30 text-gray-100">
           <CardContent className="pt-6">
             <p className="text-xs text-gray-300">Tributos estimados</p>
             <p className="mt-1 text-xl font-bold text-amber-300">
@@ -154,7 +154,7 @@ export default function TaxAccountingPanel() {
             </p>
           </CardContent>
         </Card>
-        <Card className="bg-[#2C3E50] border-red-500/30">
+        <Card className="bg-[#2C3E50] border-red-500/30 text-gray-100">
           <CardContent className="pt-6">
             <p className="text-xs text-gray-300">Obrigações vencidas</p>
             <p className="mt-1 text-xl font-bold text-red-300">
@@ -503,7 +503,7 @@ export default function TaxAccountingPanel() {
       </div>
 
       <div className="grid gap-4 lg:grid-cols-2">
-        <Card className="bg-[#2C3E50] border-[#C9A961]/20">
+        <Card className="bg-[#2C3E50] border-[#C9A961]/20 text-gray-100">
           <CardHeader>
             <CardTitle className="text-[#C9A961]">
               Adequações sugeridas
@@ -527,7 +527,7 @@ export default function TaxAccountingPanel() {
             )}
           </CardContent>
         </Card>
-        <Card className="bg-[#2C3E50] border-[#C9A961]/20">
+        <Card className="bg-[#2C3E50] border-[#C9A961]/20 text-gray-100">
           <CardHeader>
             <CardTitle className="text-[#C9A961]">
               RET por empreendimento
@@ -554,7 +554,7 @@ export default function TaxAccountingPanel() {
         </Card>
       </div>
 
-      <Card className="bg-[#2C3E50] border-[#C9A961]/20">
+      <Card className="bg-[#2C3E50] border-[#C9A961]/20 text-gray-100">
         <CardHeader>
           <CardTitle className="text-[#C9A961]">
             Calendário de obrigações

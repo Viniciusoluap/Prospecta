@@ -171,10 +171,10 @@ export function ProgressoObraAba({ projectId, onFotosMudaram }: { projectId: num
 
   return (
     <div className="space-y-6">
-      {dados.fotosLegadas.length > 0 && <section className="space-y-3 text-gray-200"><h3>Fotos anteriores — sem medição vinculada</h3><FotosSalvas fotos={dados.fotosLegadas} ocupado={ocupado}
+      {dados.fotosLegadas.length > 0 && <section className="space-y-3 text-gray-100"><h3 className="text-[#C9A961]">Fotos anteriores — sem medição vinculada</h3><FotosSalvas fotos={dados.fotosLegadas} ocupado={ocupado}
         onSalvar={(id, caption, includeInReport) => { void acao(() => atualizarFoto.mutateAsync({ photoId: id, caption, includeInReport }), "Foto atualizada."); }}
         onExcluir={id => { if (confirm("Excluir esta foto anterior?")) void acao(() => excluirFoto.mutateAsync({ photoId: id }), "Foto excluída."); }} /></section>}
-      <Card className="bg-[#1A2332]/60 border-[#C9A961]/20 backdrop-blur-sm">
+      <Card className="bg-[#1A2332]/60 border-[#C9A961]/20 backdrop-blur-sm text-gray-100">
         <CardHeader>
           <CardTitle className="text-[#C9A961]">Progresso Geral</CardTitle>
           <CardDescription className="text-gray-400">
@@ -194,7 +194,7 @@ export function ProgressoObraAba({ projectId, onFotosMudaram }: { projectId: num
         </CardContent>
       </Card>
 
-      <Card id="medicao-por-servico" className="bg-[#1A2332]/60 border-[#C9A961]/20 backdrop-blur-sm">
+      <Card id="medicao-por-servico" className="bg-[#1A2332]/60 border-[#C9A961]/20 backdrop-blur-sm text-gray-100">
         <CardHeader>
           <CardTitle className="text-[#C9A961]">Medição por serviço</CardTitle>
           <CardDescription className="text-gray-400">
@@ -270,7 +270,7 @@ export function ProgressoObraAba({ projectId, onFotosMudaram }: { projectId: num
         </CardContent>
       </Card>
 
-      <Card className="bg-[#1A2332]/60 border-[#C9A961]/20 backdrop-blur-sm">
+      <Card className="bg-[#1A2332]/60 border-[#C9A961]/20 backdrop-blur-sm text-gray-100">
         <CardHeader>
           <CardTitle className="text-[#C9A961] flex items-center gap-2"><History className="h-4 w-4" />Histórico de medições</CardTitle>
         </CardHeader>

@@ -53,8 +53,16 @@ export function CampoLocalizacao({
         <Input
           value={texto}
           onChange={e => {
-            setTexto(e.target.value);
+            const valor = e.target.value;
+            setTexto(valor);
             setErro(null);
+            // Pedido de 23/10: o ponto colado vale na hora, sem depender do botão "Marcar".
+            const lido = interpretarLocalizacao(valor);
+            if (lido.ok) onChange({ lat: lido.lat, lng: lido.lng });
+          }}
+          onBlur={() => {
+            // Link curto do Google (maps.app.goo.gl) precisa ser aberto pelo servidor.
+            if (texto.trim() && !interpretarLocalizacao(texto).ok) void aplicar();
           }}
           onKeyDown={e => {
             if (e.key === "Enter") {

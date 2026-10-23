@@ -78,7 +78,7 @@ export default function Imoveis() {
   }, [imoveis, busca, quartosMin, precoMax]);
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-[#1A2332] via-[#2C3E50] to-[#1A2332]">
+    <div className="min-h-screen bg-gradient-to-br from-[#1A2332] via-[#2C3E50] to-[#1A2332] text-gray-100">
       <SEO
         title="Imóveis"
         description="Confira os imóveis disponíveis da Prospecta Empreendimentos em Imperatriz - MA."
@@ -117,7 +117,7 @@ export default function Imoveis() {
               </Link>
             </div>
 
-            <Card className="bg-[#1A2332]/60 border-[#C9A961]/20 backdrop-blur-sm">
+            <Card className="bg-[#1A2332]/60 border-[#C9A961]/20 backdrop-blur-sm text-gray-100">
               <CardContent className="p-6 grid gap-4 md:grid-cols-4">
                 <div className="relative">
                   <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
@@ -164,7 +164,7 @@ export default function Imoveis() {
             {isLoading ? (
               <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6">
                 {[1, 2, 3, 4, 5, 6].map((i) => (
-                  <Card key={i} className="bg-[#1A2332]/60 border-[#C9A961]/20">
+                  <Card key={i} className="bg-[#1A2332]/60 border-[#C9A961]/20 text-gray-100">
                     <Skeleton className="h-48 w-full bg-[#2C3E50] rounded-t-lg" />
                     <CardContent className="p-4 space-y-2">
                       <Skeleton className="h-5 w-3/4 bg-[#2C3E50]" />
@@ -174,7 +174,7 @@ export default function Imoveis() {
                 ))}
               </div>
             ) : filtrados.length === 0 ? (
-              <Card className="bg-[#1A2332]/60 border-[#C9A961]/20 backdrop-blur-sm">
+              <Card className="bg-[#1A2332]/60 border-[#C9A961]/20 backdrop-blur-sm text-gray-100">
                 <CardContent className="py-16 text-center">
                   <Building2 className="h-20 w-20 text-[#C9A961]/50 mx-auto mb-6" />
                   <p className="text-2xl font-bold text-[#C9A961] mb-3">Nenhum imóvel encontrado</p>
@@ -189,7 +189,7 @@ export default function Imoveis() {
                   const foto = firstFoto(imovel.fotos);
                   return (
                     <Link key={imovel.id} href={`/imoveis/${imovel.slug}`}>
-                      <Card className="bg-[#1A2332]/60 border-[#C9A961]/20 backdrop-blur-sm hover:border-[#C9A961]/60 transition-all hover:shadow-xl hover:shadow-[#C9A961]/10 overflow-hidden cursor-pointer h-full flex flex-col">
+                      <Card className="bg-[#1A2332]/60 border-[#C9A961]/20 backdrop-blur-sm hover:border-[#C9A961]/60 transition-all hover:shadow-xl hover:shadow-[#C9A961]/10 overflow-hidden cursor-pointer h-full flex flex-col text-gray-100">
                         <div className="relative h-48 bg-[#2C3E50]">
                           {foto ? (
                             <img src={foto} alt={imovel.titulo} className="w-full h-full object-cover" />

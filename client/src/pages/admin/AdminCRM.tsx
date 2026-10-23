@@ -175,7 +175,7 @@ export default function AdminCRM() {
   };
 
   return (
-    <div className="min-h-screen overflow-x-clip bg-[#0F1419]">
+    <div className="min-h-screen overflow-x-clip bg-[#0F1419] text-gray-100">
       <div className="border-b border-white/10 bg-[#1A2332]">
         <div className="container mx-auto flex flex-col gap-4 py-4 lg:flex-row lg:items-center lg:justify-between">
           <div className="flex min-w-0 flex-col gap-2 sm:flex-row sm:items-center sm:gap-4">
@@ -372,7 +372,7 @@ export default function AdminCRM() {
       {/* Stats */}
       {stats && (
         <div className="container mx-auto px-4 py-4 grid grid-cols-2 md:grid-cols-4 gap-3">
-          <Card className="bg-[#1A2332] border-white/10">
+          <Card className="bg-[#1A2332] border-white/10 text-gray-100">
             <CardContent className="p-4 flex items-center gap-3">
               <Users className="h-8 w-8 text-[#C9A961]" />
               <div>
@@ -381,7 +381,7 @@ export default function AdminCRM() {
               </div>
             </CardContent>
           </Card>
-          <Card className="bg-[#1A2332] border-white/10">
+          <Card className="bg-[#1A2332] border-white/10 text-gray-100">
             <CardContent className="p-4 flex items-center gap-3">
               <Flame className="h-8 w-8 text-red-500" />
               <div>
@@ -390,7 +390,7 @@ export default function AdminCRM() {
               </div>
             </CardContent>
           </Card>
-          <Card className="bg-[#1A2332] border-white/10">
+          <Card className="bg-[#1A2332] border-white/10 text-gray-100">
             <CardContent className="p-4 flex items-center gap-3">
               <TrendingUp className="h-8 w-8 text-green-500" />
               <div>
@@ -399,7 +399,7 @@ export default function AdminCRM() {
               </div>
             </CardContent>
           </Card>
-          <Card className="bg-[#1A2332] border-white/10">
+          <Card className="bg-[#1A2332] border-white/10 text-gray-100">
             <CardContent className="p-4 flex items-center gap-3">
               <User className="h-8 w-8 text-purple-400" />
               <div>
@@ -550,7 +550,7 @@ export default function AdminCRM() {
       {/* List View */}
       {viewMode === "list" && (
         <div className="container mx-auto px-4 pb-8">
-          <Card className="bg-[#1A2332] border-white/10">
+          <Card className="bg-[#1A2332] border-white/10 text-gray-100">
             <div className="overflow-x-auto">
               <table className="w-full">
                 <thead>

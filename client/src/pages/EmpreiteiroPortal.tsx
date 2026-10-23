@@ -50,7 +50,7 @@ export default function EmpreiteiroPortal() {
 
       <div className="container py-8">
         <Tabs defaultValue="obras" className="w-full">
-          <TabsList className="grid h-auto w-full max-w-md grid-cols-2 gap-1 border border-[#C9A961]/20 bg-[#1A2332]/60 p-1">
+          <TabsList className="grid h-auto w-full max-w-md grid-cols-2 gap-1 border border-[#C9A961]/20 bg-[#1A2332]/60 p-1 text-gray-100">
             <TabsTrigger value="obras" className="min-h-10 gap-2 text-gray-200 data-[state=active]:bg-[#C9A961] data-[state=active]:text-[#1A2332]">
               <Building2 className="h-4 w-4" aria-hidden /> Minhas Obras
             </TabsTrigger>
@@ -87,7 +87,7 @@ export default function EmpreiteiroPortal() {
                   <p className="text-gray-400">Nenhuma obra vinculada a você no momento.</p>
                 ) : (
                   <div className="grid grid-cols-1 gap-6 xl:grid-cols-5">
-                    <Card className="border-[#C9A961]/20 bg-[#1A2332]/60 xl:col-span-3">
+                    <Card className="border-[#C9A961]/20 bg-[#1A2332]/60 xl:col-span-3 text-gray-100">
                       <CardHeader>
                         <CardTitle className="text-[#C9A961]">Por obra</CardTitle>
                         <CardDescription className="text-gray-400">VGV, valor a receber do banco e o seu lucro previsto em cada obra.</CardDescription>
@@ -107,7 +107,7 @@ export default function EmpreiteiroPortal() {
                         </ResponsiveContainer>
                       </CardContent>
                     </Card>
-                    <Card className="border-[#C9A961]/20 bg-[#1A2332]/60 xl:col-span-2">
+                    <Card className="border-[#C9A961]/20 bg-[#1A2332]/60 xl:col-span-2 text-gray-100">
                       <CardHeader>
                         <CardTitle className="text-[#C9A961]">Seu lucro por obra</CardTitle>
                         <CardDescription className="text-gray-400">Participação de cada obra no seu lucro previsto.</CardDescription>

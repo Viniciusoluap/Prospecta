@@ -305,7 +305,7 @@ export default function AdminTarefas({
         )}
         {/* Stats */}
         <div className="grid grid-cols-3 gap-4">
-          <Card className="bg-[#2C3E50] border-yellow-500/30">
+          <Card className="bg-[#2C3E50] border-yellow-500/30 text-gray-100">
             <CardContent className="pt-4 pb-4 flex items-center gap-3">
               <Clock className="h-6 w-6 text-yellow-400" />
               <div>
@@ -314,7 +314,7 @@ export default function AdminTarefas({
               </div>
             </CardContent>
           </Card>
-          <Card className="bg-[#2C3E50] border-blue-500/30">
+          <Card className="bg-[#2C3E50] border-blue-500/30 text-gray-100">
             <CardContent className="pt-4 pb-4 flex items-center gap-3">
               <CheckSquare className="h-6 w-6 text-blue-400" />
               <div>
@@ -370,7 +370,7 @@ export default function AdminTarefas({
 
         {/* Tasks List */}
         {tasks.length === 0 ? (
-          <Card className="bg-[#2C3E50] border-[#C9A961]/20">
+          <Card className="bg-[#2C3E50] border-[#C9A961]/20 text-gray-100">
             <CardContent className="py-12 text-center text-gray-400">
               <CheckSquare className="h-12 w-12 mx-auto mb-3 opacity-20" />
               <p>Nenhuma tarefa encontrada</p>

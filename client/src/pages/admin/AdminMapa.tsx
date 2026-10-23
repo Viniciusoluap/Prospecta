@@ -17,7 +17,7 @@ type Point = {
   title: string;
   latitude: string | null;
   longitude: string | null;
-  price: string;
+  price: string | null;
   hasCoordinates: boolean;
 };
 function PropertyMap({ points }: { points: Point[] }) {
@@ -48,7 +48,7 @@ function PropertyMap({ points }: { points: Point[] }) {
           const title = document.createElement("strong");
           title.textContent = p.title;
           const value = document.createElement("p");
-          value.textContent = money(p.price);
+          value.textContent = p.price === null ? "Valor não informado" : money(p.price);
           popup.append(title, value);
           L.circleMarker([Number(p.latitude), Number(p.longitude)], {
             radius: 8,
@@ -91,7 +91,7 @@ export default function AdminMapa() {
   const [status, setStatus] = useState("");
   const rows = (list.data || []).filter(
     p =>
-      `${p.title} ${p.city} ${p.neighborhood} ${p.type}`
+      `${p.title} ${p.address ?? ""} ${p.city ?? ""} ${p.neighborhood ?? ""} ${p.type}`
         .toLowerCase()
         .includes(search.toLowerCase()) &&
       (!status || p.status === status)
@@ -99,13 +99,13 @@ export default function AdminMapa() {
   return (
     <OperationalPage
       title="Mapa operacional"
-      description="Imóveis disponíveis e reservados. Vendidos e alugados ficam fora deste mapa. Coordenadas ausentes não são inventadas."
+      description="Imóveis disponíveis e reservados e obras com localização (do imóvel vinculado ou da PCI da CAIXA). Vendidos e alugados ficam fora deste mapa. Coordenadas ausentes não são inventadas."
       loading={list.isLoading}
       error={list.error}
       retry={() => void list.refetch()}
     >
       <div className="grid gap-3 sm:grid-cols-2">
-        <Field label="Buscar cidade, bairro, título ou tipo">
+        <Field label="Buscar endereço, cidade, bairro, título ou tipo">
           <input
             className={inputClass}
             value={search}
@@ -115,35 +115,35 @@ export default function AdminMapa() {
         <Choice
           label="Status"
           optional
+          emptyLabel="Todos"
           value={status}
           onChange={setStatus}
           options={[
             { value: "disponivel", label: "Disponível" },
             { value: "reservado", label: "Reservado" },
+            { value: "obra", label: "Obra (localização da PCI)" },
           ]}
         />
       </div>
       <p>
-        {rows.filter(p => p.hasCoordinates).length} imóveis no mapa ·{" "}
+        {rows.filter(p => p.hasCoordinates).length} pontos no mapa ·{" "}
         {rows.filter(p => !p.hasCoordinates).length} sem coordenadas válidas
       </p>
       <PropertyMap points={rows} />
       <Rows
-        headers={["Imóvel", "Localização", "Valor", "Status", "Coordenadas"]}
+        headers={["Imóvel", "Endereço", "Valor", "Status", "Coordenadas"]}
         empty={!rows.length}
       >
         {rows.map(p => (
-          <tr key={p.id}>
+          <tr key={p.key}>
             <td>
-              {p.title}
+              {p.obraId ? <Link href={`/admin/obras/${p.obraId}`} className="underline">{p.title}</Link> : p.title}
               <br />
-              {rotulo(p.type)}
+              {p.kind === "obra" ? "Obra" : rotulo(p.type)}
             </td>
-            <td>
-              {p.neighborhood} — {p.city}
-            </td>
-            <td>{money(p.price)}</td>
-            <td>{rotulo(p.status)}</td>
+            <td>{p.address ?? "Endereço não informado"}</td>
+            <td>{p.price === null ? "—" : money(p.price)}</td>
+            <td>{p.kind === "obra" ? "Obra (PCI)" : rotulo(p.status)}</td>
             <td>
               {p.hasCoordinates
                 ? `${p.latitude}, ${p.longitude}`

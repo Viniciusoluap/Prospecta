@@ -324,7 +324,7 @@ export default function AdminFinanciamentos() {
               cor: "text-[#C9A961]",
             },
           ].map(({ titulo, valor, icone: Icone, cor }) => (
-            <Card key={titulo} className="border-[#C9A961]/20 bg-[#2C3E50]">
+            <Card key={titulo} className="border-[#C9A961]/20 bg-[#2C3E50] text-gray-100">
               <CardContent className="flex items-center gap-3 pt-6">
                 <Icone className={`h-8 w-8 ${cor}`} />
                 <div>
@@ -356,7 +356,7 @@ export default function AdminFinanciamentos() {
           ))}
         </div>
 
-        <Card className="border-[#C9A961]/20 bg-[#2C3E50]">
+        <Card className="border-[#C9A961]/20 bg-[#2C3E50] text-gray-100">
           <CardContent className="pt-6">
             {isLoading ? (
               <p className="py-10 text-center text-gray-300">Carregando…</p>

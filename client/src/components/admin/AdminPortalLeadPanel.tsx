@@ -97,7 +97,7 @@ export function AdminPortalLeadPanel({ leadId, defaultEmail }: { leadId: number;
     }
   }
 
-  return <Card className="bg-[#2C3E50] border-[#C9A961]/20">
+  return <Card className="bg-[#2C3E50] border-[#C9A961]/20 text-gray-100">
     <CardHeader><CardTitle className="text-[#C9A961] text-sm">Portal do Cliente</CardTitle></CardHeader>
     <CardContent className="space-y-6 text-white">
       <div className="grid gap-5 lg:grid-cols-3">

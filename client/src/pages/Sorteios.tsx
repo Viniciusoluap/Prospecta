@@ -15,7 +15,7 @@ export default function Sorteios() {
   const { data: draws, isLoading } = trpc.draws.list.useQuery();
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-[#1A2332] via-[#2C3E50] to-[#1A2332]">
+    <div className="min-h-screen bg-gradient-to-br from-[#1A2332] via-[#2C3E50] to-[#1A2332] text-gray-100">
       <SEO 
         title="Sorteios"
         description="Participe dos sorteios do Ecossistema Efficaz e concorra a prêmios em UTEFs. Sorteios baseados na Loteria Federal com total transparência. Compre seus bilhetes agora!"
@@ -43,7 +43,7 @@ export default function Sorteios() {
             {isLoading ? (
               <div className="space-y-6">
                 {[1, 2].map((i) => (
-                  <Card key={i} className="bg-[#1A2332]/60 border-[#C9A961]/20">
+                  <Card key={i} className="bg-[#1A2332]/60 border-[#C9A961]/20 text-gray-100">
                     <CardHeader>
                       <Skeleton className="h-6 w-3/4 bg-[#2C3E50]" />
                       <Skeleton className="h-4 w-1/2 bg-[#2C3E50]" />
@@ -60,7 +60,7 @@ export default function Sorteios() {
                   const progress = (draw.currentAmount / draw.targetAmount) * 100;
                   
                   return (
-                    <Card key={draw.id} className="bg-[#1A2332]/60 border-[#C9A961]/20 backdrop-blur-sm hover:border-[#C9A961]/60 transition-all hover:shadow-xl hover:shadow-[#C9A961]/10">
+                    <Card key={draw.id} className="bg-[#1A2332]/60 border-[#C9A961]/20 backdrop-blur-sm hover:border-[#C9A961]/60 transition-all hover:shadow-xl hover:shadow-[#C9A961]/10 text-gray-100">
                       <CardHeader>
                         <div className="flex items-start justify-between">
                           <div className="space-y-2">
@@ -164,7 +164,7 @@ export default function Sorteios() {
                 })}
               </div>
             ) : (
-              <Card className="bg-[#1A2332]/60 border-[#C9A961]/20 backdrop-blur-sm">
+              <Card className="bg-[#1A2332]/60 border-[#C9A961]/20 backdrop-blur-sm text-gray-100">
                 <CardContent className="py-16 text-center">
                   <Target className="h-20 w-20 text-[#C9A961]/50 mx-auto mb-6" />
                   <p className="text-2xl font-bold text-[#C9A961] mb-3">Nenhum sorteio ativo no momento</p>

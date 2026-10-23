@@ -81,7 +81,7 @@ export default function AdminOrcamentos() {
 
   if (authLoading || !isAuthenticated) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-[#1A2332] via-[#2C3E50] to-[#1A2332]">
+      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-[#1A2332] via-[#2C3E50] to-[#1A2332] text-gray-100">
         <Loader2 className="h-8 w-8 animate-spin text-[#C9A961]" />
       </div>
     );
@@ -114,7 +114,7 @@ export default function AdminOrcamentos() {
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-[#1A2332] via-[#2C3E50] to-[#1A2332]">
+    <div className="min-h-screen bg-gradient-to-br from-[#1A2332] via-[#2C3E50] to-[#1A2332] text-gray-100">
       {/* Header */}
       <div className="border-b border-[#C9A961]/20 bg-[#1A2332]/80 backdrop-blur-sm">
         <div className="container py-8">
@@ -132,7 +132,7 @@ export default function AdminOrcamentos() {
             <Loader2 className="h-8 w-8 animate-spin text-[#C9A961]" />
           </div>
         ) : !requests || requests.length === 0 ? (
-          <Card className="bg-[#1A2332]/60 border-[#C9A961]/20 backdrop-blur-sm">
+          <Card className="bg-[#1A2332]/60 border-[#C9A961]/20 backdrop-blur-sm text-gray-100">
             <CardContent className="pt-6 text-center py-12">
               <MessageSquare className="h-16 w-16 text-[#C9A961]/50 mx-auto mb-4" />
               <h3 className="text-xl font-semibold text-[#C9A961] mb-2">Nenhum orçamento recebido</h3>
@@ -142,7 +142,7 @@ export default function AdminOrcamentos() {
         ) : (
           <div className="grid gap-6">
             {requests.map((request) => (
-              <Card key={request.id} className="bg-[#1A2332]/60 border-[#C9A961]/20 backdrop-blur-sm hover:border-[#C9A961]/40 transition-all">
+              <Card key={request.id} className="bg-[#1A2332]/60 border-[#C9A961]/20 backdrop-blur-sm hover:border-[#C9A961]/40 transition-all text-gray-100">
                 <CardHeader>
                   <div className="flex items-start justify-between">
                     <div className="flex-1">

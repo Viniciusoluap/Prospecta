@@ -239,8 +239,8 @@ export default function Admin() {
           <div className="flex items-center gap-3">
             <Settings className="h-8 w-8 text-primary" />
             <div>
-              <h1 className="text-3xl font-bold">Painel Administrativo</h1>
-              <p className="text-muted-foreground">
+              <h1 className="text-3xl font-bold text-white">Painel Administrativo</h1>
+              <p className="text-gray-300">
                 {podeSorteios
                   ? "Gerencie sorteios e produtos do ecossistema"
                   : `Olá, ${user?.name ?? ""}. Estes são os seus módulos liberados.`}

@@ -108,7 +108,7 @@ export default function ConfiguracoesPagamento() {
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-b from-[#1A2332] to-[#0F1419]">
+    <div className="min-h-screen bg-gradient-to-b from-[#1A2332] to-[#0F1419] text-gray-100">
       <div className="container mx-auto py-8 px-4">
         {/* Header */}
         <div className="mb-8">

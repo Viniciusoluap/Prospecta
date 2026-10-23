@@ -46,7 +46,7 @@ export default function InstalarApp() {
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-[#1A2332] via-[#2C3E50] to-[#1A2332]">
+    <div className="min-h-screen bg-gradient-to-br from-[#1A2332] via-[#2C3E50] to-[#1A2332] text-gray-100">
       <SEO
         title="Instale nosso aplicativo"
         description="Instale o aplicativo da Prospecta Construções na tela inicial do seu celular e acompanhe obras, financiamentos, documentos e serviços com mais rapidez."
@@ -93,7 +93,7 @@ export default function InstalarApp() {
             </div>
 
             <div className="grid gap-6 text-left sm:grid-cols-2">
-              <Card className="bg-[#1A2332]/60 border-[#C9A961]/20 backdrop-blur-sm">
+              <Card className="bg-[#1A2332]/60 border-[#C9A961]/20 backdrop-blur-sm text-gray-100">
                 <CardContent className="p-6 space-y-4">
                   <div className="flex items-center gap-2 text-[#C9A961] font-bold">
                     <Smartphone className="h-5 w-5" /> iPhone (Safari ou Google Chrome)
@@ -117,7 +117,7 @@ export default function InstalarApp() {
                 </CardContent>
               </Card>
 
-              <Card className="bg-[#1A2332]/60 border-[#C9A961]/20 backdrop-blur-sm">
+              <Card className="bg-[#1A2332]/60 border-[#C9A961]/20 backdrop-blur-sm text-gray-100">
                 <CardContent className="p-6 space-y-4">
                   <div className="flex items-center gap-2 text-[#C9A961] font-bold">
                     <Smartphone className="h-5 w-5" /> Android (Google Chrome)
@@ -135,7 +135,7 @@ export default function InstalarApp() {
               </Card>
             </div>
 
-            <Card className="bg-[#1A2332]/60 border-[#C9A961]/20 backdrop-blur-sm text-left">
+            <Card className="bg-[#1A2332]/60 border-[#C9A961]/20 backdrop-blur-sm text-left text-gray-100">
               <CardContent className="p-6 space-y-3">
                 <div className="flex items-center gap-2 text-[#C9A961] font-bold">
                   <CheckCircle2 className="h-5 w-5" /> Depois de instalar

@@ -118,7 +118,7 @@ export default function AdminAvaliacaoEditar() {
       </div>
 
       <div className="max-w-3xl mx-auto px-6 py-6">
-        <Card className="bg-[#2C3E50] border-[#C9A961]/20">
+        <Card className="bg-[#2C3E50] border-[#C9A961]/20 text-gray-100">
           <CardHeader><CardTitle className="text-[#C9A961] text-base">Dados Gerais</CardTitle></CardHeader>
           <CardContent className="space-y-4">
             <div className="grid grid-cols-2 gap-3">

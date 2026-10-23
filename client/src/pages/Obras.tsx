@@ -48,7 +48,7 @@ export default function Obras() {
 
   if (authLoading || isLoading) {
     return (
-      <div className="min-h-screen bg-gradient-to-b from-[#1A2332] to-[#0F1419] flex items-center justify-center">
+      <div className="min-h-screen bg-gradient-to-b from-[#1A2332] to-[#0F1419] flex items-center justify-center text-gray-100">
         <div className="text-center">
           <HardHat className="h-12 w-12 text-[#C9A961] animate-pulse mx-auto mb-4" />
           <p className="text-white">Carregando suas obras...</p>
@@ -58,7 +58,7 @@ export default function Obras() {
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-b from-[#1A2332] to-[#0F1419]">
+    <div className="min-h-screen bg-gradient-to-b from-[#1A2332] to-[#0F1419] text-gray-100">
       {/* Header */}
       <div className="bg-[#1A2332] border-b border-[#C9A961]/20">
         <div className="container mx-auto px-4 py-8">

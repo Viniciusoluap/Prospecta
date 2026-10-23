@@ -5,7 +5,7 @@ import { Link } from "wouter";
 
 export default function ComoFunciona() {
   return (
-    <div className="min-h-screen bg-gradient-to-br from-[#1A2332] via-[#2C3E50] to-[#1A2332]">
+    <div className="min-h-screen bg-gradient-to-br from-[#1A2332] via-[#2C3E50] to-[#1A2332] text-gray-100">
       <Navbar />
       
       <main className="flex-1">
@@ -34,7 +34,7 @@ export default function ComoFunciona() {
           <h2 className="text-4xl font-bold text-center mb-12 text-[#C9A961]">Passo a Passo</h2>
           
           <div className="grid md:grid-cols-3 gap-8 max-w-5xl mx-auto">
-            <Card className="bg-[#1A2332]/60 border-[#C9A961]/30 backdrop-blur-sm hover:border-[#C9A961]/60 transition-all hover:shadow-xl hover:shadow-[#C9A961]/10">
+            <Card className="bg-[#1A2332]/60 border-[#C9A961]/30 backdrop-blur-sm hover:border-[#C9A961]/60 transition-all hover:shadow-xl hover:shadow-[#C9A961]/10 text-gray-100">
               <CardHeader>
                 <div className="h-16 w-16 rounded-full bg-[#C9A961]/20 flex items-center justify-center mb-4">
                   <Ticket className="h-8 w-8 text-[#C9A961]" />
@@ -46,7 +46,7 @@ export default function ComoFunciona() {
               </CardHeader>
             </Card>
 
-            <Card className="bg-[#1A2332]/60 border-[#00FF00]/30 backdrop-blur-sm hover:border-[#00FF00]/60 transition-all hover:shadow-xl hover:shadow-[#00FF00]/10">
+            <Card className="bg-[#1A2332]/60 border-[#00FF00]/30 backdrop-blur-sm hover:border-[#00FF00]/60 transition-all hover:shadow-xl hover:shadow-[#00FF00]/10 text-gray-100">
               <CardHeader>
                 <div className="h-16 w-16 rounded-full bg-[#00FF00]/20 flex items-center justify-center mb-4">
                   <Trophy className="h-8 w-8 text-[#00FF00]" />
@@ -58,7 +58,7 @@ export default function ComoFunciona() {
               </CardHeader>
             </Card>
 
-            <Card className="bg-[#1A2332]/60 border-[#C9A961]/30 backdrop-blur-sm hover:border-[#C9A961]/60 transition-all hover:shadow-xl hover:shadow-[#C9A961]/10">
+            <Card className="bg-[#1A2332]/60 border-[#C9A961]/30 backdrop-blur-sm hover:border-[#C9A961]/60 transition-all hover:shadow-xl hover:shadow-[#C9A961]/10 text-gray-100">
               <CardHeader>
                 <div className="h-16 w-16 rounded-full bg-[#C9A961]/20 flex items-center justify-center mb-4">
                   <Coins className="h-8 w-8 text-[#C9A961]" />
@@ -77,7 +77,7 @@ export default function ComoFunciona() {
           <div className="container max-w-4xl">
             <h2 className="text-4xl font-bold text-center mb-8 text-[#C9A961]">O que é UTEF?</h2>
             
-            <Card className="bg-[#1A2332]/60 border-[#C9A961]/20 backdrop-blur-sm">
+            <Card className="bg-[#1A2332]/60 border-[#C9A961]/20 backdrop-blur-sm text-gray-100">
               <CardHeader>
                 <CardTitle className="flex items-center gap-3 text-2xl text-[#C9A961]">
                   <Coins className="h-8 w-8" />
@@ -121,7 +121,7 @@ export default function ComoFunciona() {
           <h2 className="text-4xl font-bold text-center mb-12 text-[#C9A961]">Produtos Disponíveis</h2>
           
           <div className="grid md:grid-cols-3 gap-8 max-w-5xl mx-auto">
-            <Card className="bg-[#1A2332]/60 border-[#C9A961]/20 backdrop-blur-sm hover:border-[#C9A961]/60 transition-all">
+            <Card className="bg-[#1A2332]/60 border-[#C9A961]/20 backdrop-blur-sm hover:border-[#C9A961]/60 transition-all text-gray-100">
               <CardHeader>
                 <div className="h-16 w-16 rounded-full bg-[#C9A961]/20 flex items-center justify-center mb-4">
                   <ShoppingBag className="h-8 w-8 text-[#C9A961]" />
@@ -135,7 +135,7 @@ export default function ComoFunciona() {
               </CardContent>
             </Card>
 
-            <Card className="bg-[#1A2332]/60 border-[#C9A961]/20 backdrop-blur-sm hover:border-[#C9A961]/60 transition-all">
+            <Card className="bg-[#1A2332]/60 border-[#C9A961]/20 backdrop-blur-sm hover:border-[#C9A961]/60 transition-all text-gray-100">
               <CardHeader>
                 <div className="h-16 w-16 rounded-full bg-[#C9A961]/20 flex items-center justify-center mb-4">
                   <Coins className="h-8 w-8 text-[#C9A961]" />
@@ -149,7 +149,7 @@ export default function ComoFunciona() {
               </CardContent>
             </Card>
 
-            <Card className="bg-[#1A2332]/60 border-[#C9A961]/20 backdrop-blur-sm hover:border-[#C9A961]/60 transition-all">
+            <Card className="bg-[#1A2332]/60 border-[#C9A961]/20 backdrop-blur-sm hover:border-[#C9A961]/60 transition-all text-gray-100">
               <CardHeader>
                 <div className="h-16 w-16 rounded-full bg-[#C9A961]/20 flex items-center justify-center mb-4">
                   <ShoppingBag className="h-8 w-8 text-[#C9A961]" />
@@ -171,7 +171,7 @@ export default function ComoFunciona() {
             <h2 className="text-4xl font-bold text-center mb-8 text-[#C9A961]">Transparência e Segurança</h2>
             
             <div className="grid md:grid-cols-2 gap-6">
-              <Card className="bg-[#1A2332]/60 border-[#C9A961]/20 backdrop-blur-sm hover:border-[#C9A961]/60 transition-all">
+              <Card className="bg-[#1A2332]/60 border-[#C9A961]/20 backdrop-blur-sm hover:border-[#C9A961]/60 transition-all text-gray-100">
                 <CardHeader>
                   <Shield className="h-10 w-10 text-[#00FF00] mb-3" />
                   <CardTitle className="text-2xl text-[#C9A961]">Sorteio Justo</CardTitle>
@@ -183,7 +183,7 @@ export default function ComoFunciona() {
                 </CardContent>
               </Card>
 
-              <Card className="bg-[#1A2332]/60 border-[#C9A961]/20 backdrop-blur-sm hover:border-[#C9A961]/60 transition-all">
+              <Card className="bg-[#1A2332]/60 border-[#C9A961]/20 backdrop-blur-sm hover:border-[#C9A961]/60 transition-all text-gray-100">
                 <CardHeader>
                   <FileText className="h-10 w-10 text-[#00FF00] mb-3" />
                   <CardTitle className="text-2xl text-[#C9A961]">Estrutura Legal</CardTitle>

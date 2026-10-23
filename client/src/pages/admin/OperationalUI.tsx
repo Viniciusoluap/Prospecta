@@ -54,12 +54,15 @@ export function Choice({
   onChange,
   options,
   optional = false,
+  emptyLabel = "Não vinculado",
 }: {
   label: string;
   value: string;
   onChange: (v: string) => void;
   options: { value: string; label: string }[];
   optional?: boolean;
+  /** Texto da opção vazia (filtros usam "Todos"). */
+  emptyLabel?: string;
 }) {
   return (
     <Field label={label}>
@@ -68,7 +71,7 @@ export function Choice({
         value={value}
         onChange={e => onChange(e.target.value)}
       >
-        {optional && <option value="">Não vinculado</option>}
+        {optional && <option value="">{emptyLabel}</option>}
         {options.map(o => (
           <option key={o.value} value={o.value}>
             {o.label}

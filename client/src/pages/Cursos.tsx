@@ -61,7 +61,7 @@ export default function Cursos() {
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-[#1A2332] via-[#2C3E50] to-[#1A2332]">
+    <div className="min-h-screen bg-gradient-to-br from-[#1A2332] via-[#2C3E50] to-[#1A2332] text-gray-100">
       <SEO
         title="Cursos"
         description="Formação profissional da Prospecta Empreendimentos em construção civil e mercado imobiliário. Cadastre seu interesse."
@@ -100,7 +100,7 @@ export default function Cursos() {
 
             <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
               {AREAS_INTERESSE.map(({ icon: Icon, title, description, status }) => (
-                <Card key={title} className="bg-[#1A2332]/60 border-[#C9A961]/20 backdrop-blur-sm">
+                <Card key={title} className="bg-[#1A2332]/60 border-[#C9A961]/20 backdrop-blur-sm text-gray-100">
                   <CardContent className="p-6 space-y-3">
                     <Icon className="h-8 w-8 text-[#C9A961]" />
                     <h3 className="font-bold text-white uppercase">{title}</h3>
@@ -113,7 +113,7 @@ export default function Cursos() {
               ))}
             </div>
 
-            <Card className="bg-[#1A2332]/60 border-[#C9A961]/20 backdrop-blur-sm">
+            <Card className="bg-[#1A2332]/60 border-[#C9A961]/20 backdrop-blur-sm text-gray-100">
               <CardContent className="p-8">
                 {enviado ? (
                   <div className="flex flex-col items-center justify-center py-12 text-center gap-4">

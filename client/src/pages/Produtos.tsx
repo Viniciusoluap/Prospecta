@@ -38,7 +38,7 @@ export default function Produtos() {
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-[#1A2332] via-[#2C3E50] to-[#1A2332]">
+    <div className="min-h-screen bg-gradient-to-br from-[#1A2332] via-[#2C3E50] to-[#1A2332] text-gray-100">
       {seoContent}
       <Navbar />
       
@@ -60,7 +60,7 @@ export default function Produtos() {
             </div>
 
             <Tabs defaultValue="all" className="w-full" onValueChange={(v) => setCategory(v === "all" ? undefined : v as any)}>
-              <TabsList className="grid w-full grid-cols-4 bg-[#1A2332]/60 border border-[#C9A961]/20 p-1">
+              <TabsList className="grid w-full grid-cols-4 bg-[#1A2332]/60 border border-[#C9A961]/20 p-1 text-gray-100">
                 <TabsTrigger 
                   value="all"
                   className="data-[state=active]:bg-[#C9A961] data-[state=active]:text-[#1A2332] text-gray-300"
@@ -123,7 +123,7 @@ function ProductGrid({
     return (
       <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6">
         {[1, 2, 3, 4, 5, 6].map((i) => (
-          <Card key={i} className="bg-[#1A2332]/60 border-[#C9A961]/20">
+          <Card key={i} className="bg-[#1A2332]/60 border-[#C9A961]/20 text-gray-100">
             <CardHeader>
               <Skeleton className="h-6 w-3/4 bg-[#2C3E50]" />
               <Skeleton className="h-4 w-1/2 bg-[#2C3E50]" />
@@ -139,7 +139,7 @@ function ProductGrid({
 
   if (!products || products.length === 0) {
     return (
-      <Card className="bg-[#1A2332]/60 border-[#C9A961]/20 backdrop-blur-sm">
+      <Card className="bg-[#1A2332]/60 border-[#C9A961]/20 backdrop-blur-sm text-gray-100">
         <CardContent className="py-16 text-center">
           <ShoppingBag className="h-20 w-20 text-[#C9A961]/50 mx-auto mb-6" />
           <p className="text-2xl font-bold text-[#C9A961] mb-3">Nenhum produto disponível</p>
@@ -156,7 +156,7 @@ function ProductGrid({
       {products.map((product) => (
         <Card 
           key={product.id} 
-          className="bg-[#1A2332]/60 border-[#C9A961]/20 backdrop-blur-sm hover:border-[#C9A961]/60 transition-all hover:shadow-xl hover:shadow-[#C9A961]/10 flex flex-col"
+          className="bg-[#1A2332]/60 border-[#C9A961]/20 backdrop-blur-sm hover:border-[#C9A961]/60 transition-all hover:shadow-xl hover:shadow-[#C9A961]/10 flex flex-col text-gray-100"
         >
           <CardHeader>
             <div className="flex items-start justify-between">

@@ -32,7 +32,7 @@ export default function AdminObras() {
 
   if (authLoading || !isAuthenticated) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-[#1A2332] via-[#2C3E50] to-[#1A2332]">
+      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-[#1A2332] via-[#2C3E50] to-[#1A2332] text-gray-100">
         <Loader2 className="h-8 w-8 animate-spin text-[#C9A961]" />
       </div>
     );
@@ -43,7 +43,7 @@ export default function AdminObras() {
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-[#1A2332] via-[#2C3E50] to-[#1A2332]">
+    <div className="min-h-screen bg-gradient-to-br from-[#1A2332] via-[#2C3E50] to-[#1A2332] text-gray-100">
       {/* Header */}
       <div className="border-b border-[#C9A961]/20 bg-[#1A2332]/80 backdrop-blur-sm">
         <div className="container py-8">
@@ -55,7 +55,7 @@ export default function AdminObras() {
                 </Button>
               </Link>
               <h1 className="text-3xl font-bold text-[#C9A961] mb-2">Painel Admin - Obras</h1>
-              <p className="text-gray-400">Gerencie todas as obras do sistema</p>
+              <p className="text-gray-300">Gerencie todas as obras do sistema</p>
             </div>
             <Link href="/admin/obras/nova">
               <Button className="bg-[#C9A961] hover:bg-[#B8985A] text-[#1A2332] gap-2">
@@ -81,7 +81,7 @@ export default function AdminObras() {
             </CardContent>
           </Card>
         ) : !projects || projects.length === 0 ? (
-          <Card className="bg-[#1A2332]/60 border-[#C9A961]/20 backdrop-blur-sm">
+          <Card className="bg-[#1A2332]/60 border-[#C9A961]/20 backdrop-blur-sm text-gray-100">
             <CardContent className="pt-6 text-center py-12">
               <Building2 className="h-16 w-16 text-[#C9A961]/50 mx-auto mb-4" />
               <h3 className="text-xl font-semibold text-[#C9A961] mb-2">Nenhuma obra cadastrada</h3>

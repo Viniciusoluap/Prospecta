@@ -262,7 +262,7 @@ export default function Perfil() {
 
   if (authLoading) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-[#1A2332]">
+      <div className="min-h-screen flex items-center justify-center bg-[#1A2332] text-gray-100">
         <Loader2 className="w-8 h-8 animate-spin text-[#C9A961]" />
       </div>
     );
@@ -273,7 +273,7 @@ export default function Perfil() {
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-b from-[#1A2332] to-[#0f1419] py-12">
+    <div className="min-h-screen bg-gradient-to-b from-[#1A2332] to-[#0f1419] py-12 text-gray-100">
       <div className="container max-w-2xl mx-auto px-4">
         {/* Botão Voltar */}
         <button

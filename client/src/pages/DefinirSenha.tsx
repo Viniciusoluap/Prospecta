@@ -41,7 +41,7 @@ export default function DefinirSenha() {
   }
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-[#1A2332] px-4">
+    <div className="min-h-screen flex items-center justify-center bg-[#1A2332] px-4 text-gray-100">
       <div className="w-full max-w-md space-y-6">
         <div className="text-center space-y-2">
           <h1 className="text-3xl font-bold tracking-tight text-[#C9A961]">Prospecta Empreendimentos</h1>

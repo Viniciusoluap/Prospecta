@@ -73,7 +73,7 @@ export function ListaObras({ projects, caminhoEditar, caminhoDetalhes, filtroRes
 
   return (
           <div className="grid gap-6">
-            <Card className="bg-[#1A2332]/60 border-[#C9A961]/20">
+            <Card className="bg-[#1A2332]/60 border-[#C9A961]/20 text-gray-100">
               <CardContent className="pt-6 space-y-3">
                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 text-xs text-gray-300">
                   <label>Nome da obra<Input value={filtros.nome} onChange={(e) => set("nome", e.target.value)} placeholder="Buscar obra" className="mt-1 bg-[#1A2332] border-[#C9A961]/30 text-white" /></label>
@@ -116,7 +116,7 @@ export function ListaObras({ projects, caminhoEditar, caminhoDetalhes, filtroRes
             </Card>
             {filtradas.length === 0 && <p className="text-center text-gray-400">Nenhuma obra encontrada com esses filtros.</p>}
             {filtradas.map((project) => (
-              <Card key={project.id} className="bg-[#1A2332]/60 border-[#C9A961]/20 backdrop-blur-sm hover:border-[#C9A961]/40 transition-all">
+              <Card key={project.id} className="bg-[#1A2332]/60 border-[#C9A961]/20 backdrop-blur-sm hover:border-[#C9A961]/40 transition-all text-gray-100">
                 <CardHeader>
                   <div className="flex items-start justify-between">
                     <div className="flex-1">

@@ -211,7 +211,7 @@ export default function AdminRelatorios({
         ) : (
           <>
             <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
-              <Card className="bg-[#2C3E50] border-[#C9A961]/20">
+              <Card className="bg-[#2C3E50] border-[#C9A961]/20 text-gray-100">
                 <CardContent className="pt-6 flex items-center gap-2">
                   <Home className="h-6 w-6 text-[#C9A961]" />
                   <div>
@@ -222,7 +222,7 @@ export default function AdminRelatorios({
                   </div>
                 </CardContent>
               </Card>
-              <Card className="bg-[#2C3E50] border-[#C9A961]/20">
+              <Card className="bg-[#2C3E50] border-[#C9A961]/20 text-gray-100">
                 <CardContent className="pt-6 flex items-center gap-2">
                   <Users className="h-6 w-6 text-blue-400" />
                   <div>
@@ -233,7 +233,7 @@ export default function AdminRelatorios({
                   </div>
                 </CardContent>
               </Card>
-              <Card className="bg-[#2C3E50] border-[#C9A961]/20">
+              <Card className="bg-[#2C3E50] border-[#C9A961]/20 text-gray-100">
                 <CardContent className="pt-6 flex items-center gap-2">
                   <Landmark className="h-6 w-6 text-purple-400" />
                   <div>
@@ -244,7 +244,7 @@ export default function AdminRelatorios({
                   </div>
                 </CardContent>
               </Card>
-              <Card className="bg-[#2C3E50] border-[#C9A961]/20">
+              <Card className="bg-[#2C3E50] border-[#C9A961]/20 text-gray-100">
                 <CardContent className="pt-6 flex items-center gap-2">
                   <ClipboardCheck className="h-6 w-6 text-yellow-400" />
                   <div>
@@ -261,7 +261,7 @@ export default function AdminRelatorios({
                   </div>
                 </CardContent>
               </Card>
-              <Card className="bg-[#2C3E50] border-[#C9A961]/20">
+              <Card className="bg-[#2C3E50] border-[#C9A961]/20 text-gray-100">
                 <CardContent className="pt-6 flex items-center gap-2">
                   <TrendingUp className="h-6 w-6 text-green-400" />
                   <div>
@@ -292,7 +292,7 @@ export default function AdminRelatorios({
             </div>
 
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-              <Card className="bg-[#2C3E50] border-[#C9A961]/20">
+              <Card className="bg-[#2C3E50] border-[#C9A961]/20 text-gray-100">
                 <CardHeader>
                   <CardTitle className="text-[#C9A961] text-sm">
                     Receitas Realizadas por Competência
@@ -345,7 +345,7 @@ export default function AdminRelatorios({
                 </CardContent>
               </Card>
 
-              <Card className="bg-[#2C3E50] border-[#C9A961]/20">
+              <Card className="bg-[#2C3E50] border-[#C9A961]/20 text-gray-100">
                 <CardHeader>
                   <CardTitle className="text-[#C9A961] text-sm">
                     DRE — Receitas x Despesas
@@ -375,7 +375,7 @@ export default function AdminRelatorios({
                 </CardContent>
               </Card>
 
-              <Card className="bg-[#2C3E50] border-[#C9A961]/20">
+              <Card className="bg-[#2C3E50] border-[#C9A961]/20 text-gray-100">
                 <CardHeader>
                   <CardTitle className="text-[#C9A961] text-sm">
                     Imóveis por Tipo
@@ -412,7 +412,7 @@ export default function AdminRelatorios({
                 </CardContent>
               </Card>
 
-              <Card className="bg-[#2C3E50] border-[#C9A961]/20">
+              <Card className="bg-[#2C3E50] border-[#C9A961]/20 text-gray-100">
                 <CardHeader>
                   <CardTitle className="text-[#C9A961] text-sm">
                     Avaliações por Status
@@ -454,7 +454,7 @@ export default function AdminRelatorios({
             </div>
 
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-              <Card className="bg-[#2C3E50] border-[#C9A961]/20">
+              <Card className="bg-[#2C3E50] border-[#C9A961]/20 text-gray-100">
                 <CardHeader>
                   <CardTitle className="text-[#C9A961] text-sm">
                     Funil de Leads
@@ -483,7 +483,7 @@ export default function AdminRelatorios({
                 </CardContent>
               </Card>
 
-              <Card className="bg-[#2C3E50] border-[#C9A961]/20">
+              <Card className="bg-[#2C3E50] border-[#C9A961]/20 text-gray-100">
                 <CardHeader>
                   <CardTitle className="text-[#C9A961] text-sm">
                     Ranking de Corretores (comissão paga)

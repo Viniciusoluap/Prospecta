@@ -761,7 +761,7 @@ export default function AdminBpo({ initialTab }: { initialTab?: Aba } = {}) {
         </div>
 
         {aba === "clientes" && (
-          <Card className="bg-[#2C3E50] border-[#C9A961]/20">
+          <Card className="bg-[#2C3E50] border-[#C9A961]/20 text-gray-100">
             <CardHeader>
               <CardTitle className="text-[#C9A961]">
                 Clientes BPO ({clientes.length})
@@ -800,7 +800,7 @@ export default function AdminBpo({ initialTab }: { initialTab?: Aba } = {}) {
         )}
 
         {(aba === "cobrancas" || aba === "despesas") && (
-          <Card className="bg-[#2C3E50] border-[#C9A961]/20">
+          <Card className="bg-[#2C3E50] border-[#C9A961]/20 text-gray-100">
             <CardHeader>
               <CardTitle className="text-[#C9A961]">
                 {aba === "cobrancas"
@@ -868,7 +868,7 @@ export default function AdminBpo({ initialTab }: { initialTab?: Aba } = {}) {
         )}
 
         {aba === "dre" && (
-          <Card className="bg-[#2C3E50] border-[#C9A961]/20">
+          <Card className="bg-[#2C3E50] border-[#C9A961]/20 text-gray-100">
             <CardHeader>
               <CardTitle className="text-[#C9A961]">
                 DRE por Competência
@@ -923,7 +923,7 @@ export default function AdminBpo({ initialTab }: { initialTab?: Aba } = {}) {
 
         {aba === "bancos" && (
           <div className="space-y-6">
-            <Card className="bg-[#2C3E50] border-[#C9A961]/20">
+            <Card className="bg-[#2C3E50] border-[#C9A961]/20 text-gray-100">
               <CardHeader>
                 <CardTitle className="text-[#C9A961]">
                   Contas Bancárias ({contas.length})

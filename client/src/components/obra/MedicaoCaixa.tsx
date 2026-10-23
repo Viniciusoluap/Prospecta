@@ -31,12 +31,12 @@ import {
 // tipo da medição (PLS, Repactuação, Alteração de Projeto) com os campos de
 // cada modelo, fotos em lote da medição e os arquivos .xls/.pdf preenchidos.
 
-const campo = "bg-[#2C3E50] border-[#C9A961]/30 text-white";
+const campo = "bg-[#2C3E50] border-[#C9A961]/30 text-white placeholder:text-gray-300";
 const caixaSelect = `h-9 w-full rounded-md border px-2 text-sm ${campo}`;
 
 function Rotulo({ texto, children }: { texto: string; children: ReactNode }) {
   return (
-    <label className="block space-y-1 text-sm text-gray-300">
+    <label className="block space-y-1 text-sm text-gray-200">
       <span>{texto}</span>
       {children}
     </label>
@@ -47,8 +47,8 @@ function Opcoes({ valor, opcoes, onChange, rotulo, vazio }: { valor: string; opc
   return (
     <Rotulo texto={rotulo}>
       <select aria-label={rotulo} className={caixaSelect} value={valor} onChange={(e) => onChange(e.target.value)}>
-        {vazio && <option value="">—</option>}
-        {opcoes.map((o) => <option key={o} value={o}>{o}</option>)}
+        {vazio && <option value="" className="bg-[#2C3E50] text-white">—</option>}
+        {opcoes.map((o) => <option key={o} value={o} className="bg-[#2C3E50] text-white">{o}</option>)}
       </select>
     </Rotulo>
   );
@@ -73,7 +73,7 @@ function CampoNumero({ valor, onChange, rotulo, sufixo }: { valor: number | null
       <div className="flex items-center gap-1">
         <Input aria-label={rotulo} inputMode="decimal" value={texto} className={`h-9 ${campo}`}
           onChange={(e) => { setTexto(e.target.value); onChange(numeroOuNulo(e.target.value)); }} />
-        {sufixo && <span className="text-xs text-gray-400">{sufixo}</span>}
+        {sufixo && <span className="text-xs text-gray-300">{sufixo}</span>}
       </div>
     </Rotulo>
   );
@@ -276,15 +276,15 @@ export function FotosSalvas({ fotos, onSalvar, onExcluir, ocupado }: {
   onExcluir?: (id: number) => void;
   ocupado?: boolean;
 }) {
-  return <ul className="grid grid-cols-2 gap-3 sm:grid-cols-3">{fotos.map(f => <li key={f.id} className="space-y-2 rounded border border-current/20 p-2">
+  return <ul className="grid grid-cols-2 gap-3 sm:grid-cols-3">{fotos.map(f => <li key={f.id} className="space-y-2 rounded border border-[#C9A961]/30 bg-[#1A2332]/60 p-2 text-gray-100">
     {/* eslint-disable-next-line @next/next/no-img-element */}
     <img src={f.imageUrl} alt={f.caption || "Foto da obra"} loading="lazy" className="aspect-[4/3] w-full rounded object-cover" />
     <form key={`${f.id}:${f.caption}:${f.includeInReport}`} className="space-y-2" onSubmit={e => { e.preventDefault(); const valores = new FormData(e.currentTarget); onSalvar?.(f.id, String(valores.get("legenda") ?? "").trim() || null, valores.has("incluir")); }}>
-      <label className="block text-xs">Legenda<input name="legenda" defaultValue={f.caption ?? ""} maxLength={250} disabled={ocupado} className="mt-1 w-full rounded border border-current/30 bg-transparent px-2 py-1" /></label>
-      <label className="flex gap-2 items-center text-xs"><input type="checkbox" name="incluir" defaultChecked={f.includeInReport ?? true} disabled={ocupado} />No relatório executivo</label>
+      <label className="block text-xs text-gray-100">Legenda<input name="legenda" defaultValue={f.caption ?? ""} maxLength={250} disabled={ocupado} placeholder="Descrever foto" className="mt-1 w-full rounded border border-[#C9A961]/30 bg-[#2C3E50] px-2 py-1 text-white placeholder:text-gray-300" /></label>
+      <label className="flex gap-2 items-center text-xs text-gray-100"><input type="checkbox" name="incluir" defaultChecked={f.includeInReport ?? true} disabled={ocupado} className="accent-[#C9A961]" />No relatório executivo</label>
       <div className="flex flex-wrap gap-2">
-        {onSalvar && <Button type="submit" size="sm" variant="outline" disabled={ocupado}>Salvar foto</Button>}
-        {onExcluir && <Button type="button" size="sm" variant="outline" disabled={ocupado} onClick={() => onExcluir(f.id)}>Excluir foto</Button>}
+        {onSalvar && <Button type="submit" size="sm" variant="outline" disabled={ocupado} className="border-gray-300/60 bg-transparent text-white hover:bg-white/10 hover:text-white">Salvar foto</Button>}
+        {onExcluir && <Button type="button" size="sm" variant="outline" disabled={ocupado} onClick={() => onExcluir(f.id)} className="border-red-400/60 bg-transparent text-red-300 hover:bg-red-500/10 hover:text-red-200">Excluir foto</Button>}
       </div>
     </form>
   </li>)}</ul>;
@@ -313,7 +313,7 @@ export function FotosMedicao({ tipo, fotos, setFotos, existentes, onExcluirExist
   return (
     <div className="space-y-2 rounded border border-dashed border-[#C9A961]/30 p-3">
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <p className="text-sm text-gray-300">Relatório fotográfico da medição ({total} de {quadros} quadros do modelo da CAIXA)</p>
+        <p className="text-sm text-gray-100">Relatório fotográfico da medição ({total} de {quadros} quadros do modelo da CAIXA)</p>
         <Button type="button" size="sm" variant="outline" onClick={() => entrada.current?.click()} className="border-[#C9A961]/60 bg-transparent text-[#C9A961] gap-1">
           <ImagePlus className="h-4 w-4" />Adicionar fotos (lote)
         </Button>
@@ -330,7 +330,7 @@ export function FotosMedicao({ tipo, fotos, setFotos, existentes, onExcluirExist
               <div className="flex items-center gap-1">
                 <Input aria-label={`Legenda da foto ${f.arquivo.name}`} placeholder="Descrever foto" value={f.legenda} maxLength={250}
                   onChange={(e) => setFotos(fotos.map((x, j) => (j === i ? { ...x, legenda: e.target.value } : x)))} className={`h-7 text-xs ${campo}`} />
-                <Button type="button" size="icon" variant="ghost" className="h-6 w-6 text-gray-300" aria-label="Remover foto" onClick={() => { URL.revokeObjectURL(f.previa); setFotos(fotos.filter((_, j) => j !== i)); }}><X className="h-3 w-3" /></Button>
+                <Button type="button" size="icon" variant="ghost" className="h-6 w-6 text-gray-200 hover:bg-white/10 hover:text-white" aria-label="Remover foto" onClick={() => { URL.revokeObjectURL(f.previa); setFotos(fotos.filter((_, j) => j !== i)); }}><X className="h-3 w-3" /></Button>
               </div>
             </li>
           ))}
@@ -395,7 +395,7 @@ export function CamposMedicaoCaixa({ tipo, setTipo, dados, setDados, prazoPci, c
       <div className="grid gap-3 sm:grid-cols-3">
         <Rotulo texto="Tipo de medição">
           <select aria-label="Tipo de medição" className={caixaSelect} value={tipo} onChange={(e) => trocarTipo(e.target.value as TipoMedicao)}>
-            {TIPOS_MEDICAO.map((t) => <option key={t.valor} value={t.valor}>{t.rotulo}</option>)}
+            {TIPOS_MEDICAO.map((t) => <option key={t.valor} value={t.valor} className="bg-[#2C3E50] text-white">{t.rotulo}</option>)}
           </select>
         </Rotulo>
         <Rotulo texto="Data do levantamento">
@@ -417,7 +417,7 @@ export function CamposMedicaoCaixa({ tipo, setTipo, dados, setDados, prazoPci, c
               <Input type="date" aria-label="Data da contratação" value={p.dataContratacao ?? ""} onChange={(e) => setPls({ dataContratacao: e.target.value || null })} className={`h-9 ${campo}`} />
             </Rotulo>
           </div>
-          <p className="text-[11px] text-gray-400 mt-2">Início e término previsto da obra vêm do Editar Obra (datas de início e de término previsto).</p>
+          <p className="text-[11px] text-gray-300 mt-2">Início e término previsto da obra vêm do Editar Obra (datas de início e de término previsto).</p>
         </div>
         <div className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
           <SimNao rotulo="A execução está observando as condições contratadas?" valor={p.condicoesContratadas} onChange={(v) => setPls({ condicoesContratadas: v })} />
@@ -453,7 +453,7 @@ export function CamposMedicaoCaixa({ tipo, setTipo, dados, setDados, prazoPci, c
           </div>
           {etapasRep > 0 && (
             <div className="overflow-x-auto">
-              <table className="text-xs text-gray-300">
+              <table className="text-xs text-gray-200">
                 <thead>
                   <tr><th className="pr-2 text-left">Etapa</th><th className="px-2">% acumulado previsto (original)</th><th className="px-2">% acumulado proposto</th></tr>
                 </thead>
@@ -476,7 +476,7 @@ export function CamposMedicaoCaixa({ tipo, setTipo, dados, setDados, prazoPci, c
                   ))}
                 </tbody>
               </table>
-              <p className="mt-1 text-xs text-gray-400">Previsto em branco = o do cronograma da PCI. Até a etapa da repactuação vale o % real medido.</p>
+              <p className="mt-1 text-xs text-gray-300">Previsto em branco = o do cronograma da PCI. Até a etapa da repactuação vale o % real medido.</p>
             </div>
           )}
           <Rotulo texto="Motivo/Justificativas do pedido de repactuação">
@@ -523,7 +523,7 @@ export function CamposMedicaoCaixa({ tipo, setTipo, dados, setDados, prazoPci, c
             <Textarea aria-label="Especificar sistema construtivo" value={a.especificacaoSistema} maxLength={2000} onChange={(e) => setAlt({ especificacaoSistema: e.target.value })} className={campo} />
           </Rotulo>
           <div className="overflow-x-auto">
-            <p className="mb-1 text-xs text-gray-400">Custos propostos (R$) — serviços 1 a 19; o item 20 é a soma dos serviços adicionais.</p>
+            <p className="mb-1 text-xs text-gray-300">Custos propostos (R$) — serviços 1 a 19; o item 20 é a soma dos serviços adicionais.</p>
             <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
               {a.custos.map((c, k) => (
                 <CampoNumero key={k} rotulo={`${k + 1}. ${["Barracão/projetos", "Infraestrutura", "Supraestrutura", "Paredes e Painéis", "Esquadrias", "Vidros e Plásticos", "Coberturas", "Impermeabilizações", "Revest. Internos", "Forros", "Revest. Externos", "Pinturas", "Pisos", "Acabamentos", "Inst. Elétricas", "Inst. Hidráulicas", "Esgoto e Pluviais", "Louças e Metais", "Complementos"][k]}`}
@@ -532,7 +532,7 @@ export function CamposMedicaoCaixa({ tipo, setTipo, dados, setDados, prazoPci, c
             </div>
           </div>
           <div className="space-y-2">
-            <p className="text-xs text-gray-400">Serviços adicionais (até {MAX_ADICIONAIS})</p>
+            <p className="text-xs text-gray-300">Serviços adicionais (até {MAX_ADICIONAIS})</p>
             {a.adicionais.map((s, k) => (
               <div key={k} className="flex flex-wrap items-end gap-2">
                 <div className="min-w-[200px] flex-1">
@@ -541,7 +541,7 @@ export function CamposMedicaoCaixa({ tipo, setTipo, dados, setDados, prazoPci, c
                   </Rotulo>
                 </div>
                 <CampoNumero rotulo="Custo (R$)" valor={s.custo} onChange={(v) => setAlt({ adicionais: a.adicionais.map((x, j) => (j === k ? { ...x, custo: v } : x)) })} />
-                <Button type="button" size="icon" variant="ghost" className="text-red-400" aria-label={`Remover serviço adicional ${k + 1}`} onClick={() => setAlt({ adicionais: a.adicionais.filter((_, j) => j !== k) })}><Trash2 className="h-4 w-4" /></Button>
+                <Button type="button" size="icon" variant="ghost" className="text-red-300 hover:bg-red-500/10 hover:text-red-200" aria-label={`Remover serviço adicional ${k + 1}`} onClick={() => setAlt({ adicionais: a.adicionais.filter((_, j) => j !== k) })}><Trash2 className="h-4 w-4" /></Button>
               </div>
             ))}
             {a.adicionais.length < MAX_ADICIONAIS && (

@@ -97,7 +97,7 @@ export default function ComprarBilhete() {
 
   if (isLoading) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-[#1A2332] via-[#2C3E50] to-[#1A2332]">
+      <div className="min-h-screen bg-gradient-to-br from-[#1A2332] via-[#2C3E50] to-[#1A2332] text-gray-100">
         <Navbar />
         <main className="flex-1 py-12">
           <div className="container max-w-2xl">
@@ -110,7 +110,7 @@ export default function ComprarBilhete() {
 
   if (!draw) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-[#1A2332] via-[#2C3E50] to-[#1A2332]">
+      <div className="min-h-screen bg-gradient-to-br from-[#1A2332] via-[#2C3E50] to-[#1A2332] text-gray-100">
         <Navbar />
         <main className="flex-1 py-12">
           <div className="container max-w-2xl">
@@ -127,7 +127,7 @@ export default function ComprarBilhete() {
   const totalPrice = draw.ticketPrice * quantity;
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-[#1A2332] via-[#2C3E50] to-[#1A2332]">
+    <div className="min-h-screen bg-gradient-to-br from-[#1A2332] via-[#2C3E50] to-[#1A2332] text-gray-100">
       <Navbar />
       
       <main className="flex-1 py-12">
@@ -140,7 +140,7 @@ export default function ComprarBilhete() {
           </Button>
 
           {!purchaseComplete ? (
-            <Card className="bg-[#1A2332]/60 border-[#C9A961]/20 backdrop-blur-sm">
+            <Card className="bg-[#1A2332]/60 border-[#C9A961]/20 backdrop-blur-sm text-gray-100">
               <CardHeader>
                 <CardTitle className="text-3xl text-[#C9A961]">Comprar Bilhetes</CardTitle>
                 <CardDescription className="text-gray-400 text-base">{draw.title}</CardDescription>
@@ -234,7 +234,7 @@ export default function ComprarBilhete() {
               </CardFooter>
             </Card>
           ) : (
-            <Card className="bg-[#1A2332]/60 border-[#C9A961]/20 backdrop-blur-sm">
+            <Card className="bg-[#1A2332]/60 border-[#C9A961]/20 backdrop-blur-sm text-gray-100">
               <CardHeader>
                 <CardTitle className="text-3xl flex items-center gap-3 text-[#00FF00]">
                   <CheckCircle2 className="h-8 w-8" />
