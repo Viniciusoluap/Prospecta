@@ -478,7 +478,6 @@ export default function AdminCRM() {
                             <CardContent className="p-3 space-y-2">
                               <div className="flex items-start justify-between">
                                 <p className="text-sm font-medium text-white leading-tight">
-                                  {lead.temperature === "closed" && <span className="mr-1" title="Negócio fechado">{LEAD_TEMPERATURA_CONFIG.closed.emoji}</span>}
                                   {lead.name}
                                 </p>
                                 <span className={`flex items-center gap-1 ${TEMP_COLORS[lead.temperature]}`}>
@@ -558,7 +557,6 @@ export default function AdminCRM() {
                         onClick={() => navigate(`/admin/crm/${lead.id}`)}
                         className="border-b border-white/5 hover:bg-white/5 cursor-pointer transition-colors">
                         <td className="p-4 text-white font-medium">
-                          {lead.temperature === "closed" && <span className="mr-1" title="Negócio fechado">{LEAD_TEMPERATURA_CONFIG.closed.emoji}</span>}
                           {lead.name}
                         </td>
                         <td className="p-4 text-gray-400 text-sm">{lead.phone}</td>
