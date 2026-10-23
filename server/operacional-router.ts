@@ -12,6 +12,7 @@ import {
   operationalCommissions as commissions,
   operationalProjects as projects,
   portalVisits as visits,
+  projectRevisionRequests as revisoes,
   users,
 } from "../drizzle/schema.js";
 import {
@@ -25,7 +26,15 @@ import {
 import { calcularComissaoObra } from "../shared/financeiro/comissao.js";
 import { centavosDe } from "../shared/financeiro/obra.js";
 import { adminProcedure, router } from "./_core/trpc.js";
-import { getDb } from "./db.js";
+import { createNotification, getDb } from "./db.js";
+import { sendEmail } from "./_core/email-smtp.js";
+import {
+  emailPedidoRevisao,
+  lerEntregas,
+  mensagemPedidoSalvo,
+  validarPedidoRevisao,
+  type SituacaoCanal,
+} from "../shared/projeto-revisao.js";
 import { attachCompletedProcess } from "./lead-services-router.js";
 import { excluirDefinitivo } from "./exclusao-definitiva.js";
 
@@ -688,6 +697,65 @@ export const projetosRouter = router({
             .returning()
         )[0]
       );
+    }),
+  /** Lote 23/10, etapa 2C: histórico de pedidos de revisão e entregas do projeto. */
+  revisoes: adminProcedure
+    .input(z.object({ projectId: z.number().int().positive() }))
+    .query(async ({ input }) => {
+      const rows = await getDb().select().from(revisoes)
+        .where(eq(revisoes.projectId, input.projectId))
+        .orderBy(desc(revisoes.createdAt), desc(revisoes.id));
+      return rows.map(r => ({ ...r, deliveries: lerEntregas(r.deliveries) }));
+    }),
+  /**
+   * Etapa 2C: salva o pedido (autor, data, estado) e avisa o colaborador vinculado
+   * por notificação interna e e-mail. Cada canal registra a situação real — nunca
+   * "enviado" quando não houve destinatário ou o envio falhou.
+   */
+  solicitarRevisao: adminProcedure
+    .input(z.object({ projectId: z.number().int().positive(), texto: z.string() }))
+    .mutation(async ({ ctx, input }) => {
+      let texto: string;
+      try { texto = validarPedidoRevisao(input.texto); }
+      catch (e) { throw new TRPCError({ code: "BAD_REQUEST", message: (e as Error).message }); }
+      const projeto = found((await getDb().select().from(projects).where(eq(projects.id, input.projectId)).limit(1))[0]);
+      const [colaborador] = projeto.engineerUserId
+        ? await getDb().select({ id: users.id, name: users.name, email: users.email, active: users.active })
+          .from(users).where(eq(users.id, projeto.engineerUserId)).limit(1)
+        : [];
+      const destinatario = colaborador?.active ? colaborador : null;
+      const autor = ctx.user.name || ctx.user.email || `Usuário ${ctx.user.id}`;
+      const [pedido] = await getDb().insert(revisoes).values({
+        projectId: projeto.id,
+        requestedByUserId: ctx.user.id,
+        requestedByName: autor,
+        requestText: texto,
+        status: "pendente",
+        engineerUserId: destinatario?.id ?? null,
+        notificationStatus: "sem_destinatario",
+        emailStatus: "sem_destinatario",
+      }).returning();
+      const link = `/admin/projetos?projeto=${projeto.id}`;
+      let notificacao: SituacaoCanal = "sem_destinatario";
+      let email: SituacaoCanal = "sem_destinatario";
+      if (destinatario) {
+        try {
+          await createNotification({ userId: destinatario.id, title: `Revisão solicitada — ${projeto.name}`, message: `${autor}: ${texto.slice(0, 400)}`, type: "system", relatedId: projeto.id, actionUrl: link });
+          notificacao = "enviado";
+        } catch (e) {
+          console.error("[projetos.solicitarRevisao] notificação", e);
+          notificacao = "falhou";
+        }
+        const para = destinatario.email?.trim();
+        if (para) {
+          const origem = process.env.SITE_URL || "https://www.prospectaconstrucoes.com";
+          const msg = emailPedidoRevisao({ projeto: projeto.name, cliente: projeto.clientName, autor, texto, link: `${origem}${link}` });
+          const ok = await sendEmail({ to: para, recipientName: destinatario.name ?? undefined, subject: msg.subject, html: msg.html, templateType: "admin_notification", metadata: { projectId: projeto.id, revisionId: pedido.id, kind: "project_revision" } }).catch(() => false);
+          email = ok ? "enviado" : "falhou";
+        }
+      }
+      await getDb().update(revisoes).set({ notificationStatus: notificacao, emailStatus: email, updatedAt: new Date() }).where(eq(revisoes.id, pedido.id));
+      return { id: pedido.id, notificacao, email, mensagem: mensagemPedidoSalvo(notificacao, email) };
     }),
   /** Item 03 + pedido A6: exclusão definitiva. */
   delete: adminProcedure

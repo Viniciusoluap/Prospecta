@@ -2,10 +2,11 @@ import { AcoesExcluir } from "@/components/AcoesExcluir";
 import { uploadProjectDocument } from "@/lib/project-upload";
 import { projectChecklist, type ProjectCheck } from "@shared/projeto-documentos";
 import { toast } from "sonner";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Link } from "wouter";
 import { trpc } from "@/lib/trpc";
 import { LinkedServiceQueue } from "./LinkedServiceQueue";
+import { RevisoesProjeto, SolicitarRevisaoModal } from "./ProjetoRevisoes";
 import { Button } from "@/components/ui/button";
 import { PROJECT_STATUS, PROJECT_TYPE_LABELS, projectInput } from "../../../../shared/operacional";
 import { mensagemValidacao } from "../../../../shared/erro-validacao";
@@ -62,6 +63,14 @@ export default function AdminProjetos() {
   const [progress, setProgress] = useState(0);
   const [search, setSearch] = useState("");
   const [status, setStatus] = useState("");
+  const [revisao, setRevisao] = useState<{ id: number; name: string; engineer: string } | null>(null);
+  // Link da notificação/e-mail de revisão: /admin/projetos?projeto=<id> abre o card.
+  useEffect(() => {
+    const alvo = Number(new URLSearchParams(window.location.search).get("projeto"));
+    if (!alvo || !list.data) return;
+    const achado = list.data.find(p => p.id === alvo);
+    if (achado) setDetail(achado);
+  }, [list.data]);
   const rows = ordenarProjetosPorPrazo((list.data || []).filter(
     r =>
       `${r.name} ${r.clientName} ${r.engineer}`
@@ -168,6 +177,9 @@ export default function AdminProjetos() {
                   >
                     Editar
                   </Button>
+                  <Button size="sm" variant="outline" onClick={() => setRevisao({ id: r.id, name: r.name, engineer: r.engineer })}>
+                    Solicitar revisão
+                  </Button>
                   <AcoesExcluir
                     rotulo={r.name}
                     onExcluir={async () => { await remove.mutateAsync({ id: r.id }); await list.refetch(); }}
@@ -178,7 +190,8 @@ export default function AdminProjetos() {
           );
         })}
       </Rows>
-      {detail && <div className="fixed inset-0 z-50 overflow-y-auto bg-black/60 p-4" role="dialog" aria-modal="true" aria-label="Detalhes do projeto"><div className="mx-auto my-6 max-w-3xl space-y-4 rounded bg-white p-6 text-slate-900"><div className="flex justify-between gap-3"><h2 className="text-xl font-bold">{detail.name}</h2><Button variant="outline" onClick={() => setDetail(null)}>Fechar</Button></div><dl className="grid gap-3 sm:grid-cols-2">{[["Cliente",detail.clientName],["Telefone",detail.clientPhone],["Engenheiro",detail.engineer],["Habilitação técnica",detail.engineerRegistration],["Status",rotulo(detail.status)],["Prazo",exibirDiaPrazoProjeto(detail.deadline)],["Tipos",parseArray<string>(detail.types).map(v => PROJECT_TYPE_LABELS[v] ?? v).join(", ")],["Descrição",detail.description]].map(([label,value]) => <div key={label}><dt className="font-semibold">{label}</dt><dd>{value || "—"}</dd></div>)}</dl><h3 className="font-semibold">Checklist</h3>{projectChecklist(parseArray<string>(detail.types),parseArray<Check>(detail.checklist),PROJECT_TYPE_LABELS).map((check,i) => <p key={check.id ?? i}>{check.done ? "✓" : "○"} {check.text}</p>)}<h3 className="font-semibold">Documentos</h3>{parseArray<FileLink>(detail.files).map(file => <a className="block underline" key={file.url} href={file.url} target="_blank" rel="noopener noreferrer">{file.kind === "pdf" ? "PDF — " : file.kind === "editable" ? "Editável — " : ""}{file.name}</a>)}</div></div>}
+      {detail && <div className="fixed inset-0 z-50 overflow-y-auto bg-black/60 p-4" role="dialog" aria-modal="true" aria-label="Detalhes do projeto"><div className="mx-auto my-6 max-w-3xl space-y-4 rounded bg-white p-6 text-slate-900"><div className="flex justify-between gap-3"><h2 className="text-xl font-bold">{detail.name}</h2><Button variant="outline" onClick={() => setDetail(null)}>Fechar</Button></div><dl className="grid gap-3 sm:grid-cols-2">{[["Cliente",detail.clientName],["Telefone",detail.clientPhone],["Engenheiro",detail.engineer],["Habilitação técnica",detail.engineerRegistration],["Status",rotulo(detail.status)],["Prazo",exibirDiaPrazoProjeto(detail.deadline)],["Tipos",parseArray<string>(detail.types).map(v => PROJECT_TYPE_LABELS[v] ?? v).join(", ")],["Descrição",detail.description]].map(([label,value]) => <div key={label}><dt className="font-semibold">{label}</dt><dd>{value || "—"}</dd></div>)}</dl><h3 className="font-semibold">Checklist</h3>{projectChecklist(parseArray<string>(detail.types),parseArray<Check>(detail.checklist),PROJECT_TYPE_LABELS).map((check,i) => <p key={check.id ?? i}>{check.done ? "✓" : "○"} {check.text}</p>)}<h3 className="font-semibold">Documentos</h3>{parseArray<FileLink>(detail.files).map(file => <a className="block underline" key={file.url} href={file.url} target="_blank" rel="noopener noreferrer">{file.kind === "pdf" ? "PDF — " : file.kind === "editable" ? "Editável — " : ""}{file.name}</a>)}<div className="flex justify-end"><Button variant="outline" onClick={() => setRevisao({ id: detail.id, name: detail.name, engineer: detail.engineer })}>Solicitar revisão</Button></div><RevisoesProjeto projectId={detail.id} /></div></div>}
+      {revisao && <SolicitarRevisaoModal projeto={revisao} onClose={() => setRevisao(null)} />}
       <Editor
         title={id ? "Detalhes do projeto" : "Novo projeto"}
         open={open}

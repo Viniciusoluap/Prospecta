@@ -1469,6 +1469,24 @@ export const operationalProjects = pgTable("operational_projects", {
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });
 
+// Lote 23/10, etapa 2C: pedidos de revisão de projeto (migração 0066).
+export const projectRevisionRequests = pgTable("project_revision_requests", {
+  id: serial("id").primaryKey(),
+  projectId: integer("project_id").notNull().references(() => operationalProjects.id, { onDelete: "cascade" }),
+  requestedByUserId: integer("requested_by_user_id").references((): AnyPgColumn => users.id, { onDelete: "set null" }),
+  requestedByName: varchar("requested_by_name", { length: 255 }).notNull(),
+  requestText: text("request_text").notNull(),
+  status: varchar("status", { length: 20 }).default("pendente").notNull(),
+  engineerUserId: integer("engineer_user_id").references((): AnyPgColumn => users.id, { onDelete: "set null" }),
+  notificationStatus: varchar("notification_status", { length: 20 }).notNull(),
+  emailStatus: varchar("email_status", { length: 20 }).notNull(),
+  deliveries: text("deliveries").default("[]").notNull(),
+  deliveredAt: timestamp("delivered_at"),
+  deliveredByUserId: integer("delivered_by_user_id").references((): AnyPgColumn => users.id, { onDelete: "set null" }),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
 export const portalContracts = pgTable("portal_contracts", {
   id: serial("id").primaryKey(),
   leadId: integer("lead_id").references(() => leads.id, {
