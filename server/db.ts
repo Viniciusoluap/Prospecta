@@ -17,7 +17,7 @@ import {
   productConversions, ProductConversion, InsertProductConversion,
   constructionProjects, ConstructionProject, InsertConstructionProject,
   constructionStages, ConstructionStage, InsertConstructionStage,
-  constructionPhotos, constructionProgressHistory, ConstructionPhoto, InsertConstructionPhoto,
+  constructionPhotos, constructionProgressHistory, constructionPci, ConstructionPhoto, InsertConstructionPhoto,
   projectBudgetRequests, ProjectBudgetRequest, InsertProjectBudgetRequest,
   emailLogs, EmailLog,
   userNotifications, UserNotification, InsertUserNotification,
@@ -511,6 +511,8 @@ export type ProjetoDaLista = ConstructionProject & {
   /** Pedido de 18/10: medições aguardando o banco e medições já recebidas (filtro da lista). */
   medicoesSolicitadas: number;
   medicoesRecebidas: number;
+  /** Pedido de 23/10 (H5): a obra tem PCI da CAIXA vinculada (selo no card da lista). */
+  pciVinculada: boolean;
 };
 
 /**
@@ -538,7 +540,11 @@ export async function getAllProjects(somenteEmpreiteiroId?: number): Promise<Pro
     recebidas: sql<number>`count(*) filter (where ${constructionProgressHistory.receivedAt} is not null)::int`,
   }).from(constructionProgressHistory).groupBy(constructionProgressHistory.projectId);
   const porObra = new Map(medicoes.map((m) => [m.projectId, m]));
+  const pcis = await db.select({ projectId: constructionPci.projectId }).from(constructionPci)
+    .where(sql`${constructionPci.linkedAt} is not null`);
+  const comPci = new Set(pcis.map((p) => p.projectId));
   return rows.map((row) => ({
+    pciVinculada: comPci.has(row.project.id),
     medicoesSolicitadas: Number(porObra.get(row.project.id)?.solicitadas ?? 0),
     medicoesRecebidas: Number(porObra.get(row.project.id)?.recebidas ?? 0),
     ...aplicarTipoProjetoOficial(row),
