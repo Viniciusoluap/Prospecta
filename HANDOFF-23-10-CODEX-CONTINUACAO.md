@@ -187,6 +187,8 @@ Testes:
   teste): lead 14 → lead 70; 2 documentos copiados (o excluído não), `service_id` nulo, arquivo do banco copiado com bytes
   idênticos, 2 notas, lead de origem intacto. Santa Fé `tsc` OK, eslint sem erros, teste de banco 3/3 (cópia,
   exclusões, troca de documento não afeta o original nem o arquivo, atomicidade com falha simulada, lead excluído).
+- Suíte Santa Fé completa (Postgres local) após as etapas 2C–6: 804 ok / 10 falhas — as mesmas 10 pré-existentes do
+  ambiente local registradas no E0 (eram 790 ok; +14 testes novos). Prospecta `pnpm build` OK.
 - (b) manuais: nenhum.
 - (c) produção: duplicar um lead real com documentos no Drive e abrir os documentos nos dois leads (e pelo portal do
   cliente do lead original).
