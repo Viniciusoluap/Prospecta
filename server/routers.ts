@@ -79,6 +79,7 @@ import { geoRouter } from "./geo-router.js";
 import { empreiteiroRouter, obraFinanceiroRouter } from "./obra-financeiro-router.js";
 import { obraProgressoRouter } from "./obra-progresso-router.js";
 import { obraLocalizacaoRouter } from "./obra-localizacao.js";
+import { duplicarLead } from "./lead-duplicar.js";
 import { LEAD_PIPELINE_KEYS } from "../shared/lead-pipeline.js";
 import { documentChunksRouter } from "./document-upload-chunks.js";
 import { leadDocumentsRouter } from "./lead-documents-router.js";
@@ -1266,6 +1267,14 @@ export const appRouter = router({
 
   // ========== CRM — LEADS ==========
   leads: router({
+    /** Lote 23/10, etapa 6: "Duplicar lead" — lead novo com dados e documentos, sem serviços. */
+    duplicate: protectedProcedure
+      .input(z.object({ id: z.number().int().positive() }))
+      .mutation(async ({ input, ctx }) => {
+        requireModule(ctx, "crm");
+        return duplicarLead(input.id, { id: ctx.user.id, nome: ctx.user.name || `admin:${ctx.user.id}` });
+      }),
+
     deletionContext: protectedProcedure
       .input(z.object({ id: z.number().int().positive() }))
       .query(async ({ input, ctx }) => {

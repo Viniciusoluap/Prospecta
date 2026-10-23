@@ -834,6 +834,10 @@ export const leads = pgTable("leads", {
   followupDate: timestamp("followup_date"),
   // Prazo individual do card no pipeline; independente de tarefas, visitas e follow-up.
   cardDueDate: date("card_due_date", { mode: "string" }),
+  // Lote 23/10, etapa 6: origem da duplicação ("Duplicar lead").
+  duplicatedFromLeadId: integer("duplicated_from_lead_id").references((): AnyPgColumn => leads.id, { onDelete: "set null" }),
+  duplicatedAt: timestamp("duplicated_at"),
+  duplicatedByUserId: integer("duplicated_by_user_id").references((): AnyPgColumn => users.id, { onDelete: "set null" }),
   notes: text("notes"),
   adminNotes: text("admin_notes"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
@@ -955,6 +959,8 @@ export const leadDocuments = pgTable("lead_documents", {
   /** "drive" (Google Drive) ou "banco" (lead_document_file_data), quando o Drive recusou a gravação. */
   storage: varchar("storage", { length: 10 }).default("drive").notNull(),
   storageNote: varchar("storage_note", { length: 400 }),
+  // Etapa 6: cópia feita pelo "Duplicar lead" (mesmo arquivo do Drive do documento original).
+  copiedFromDocumentId: integer("copied_from_document_id").references((): AnyPgColumn => leadDocuments.id, { onDelete: "set null" }),
   uploadedByUserId: integer("uploaded_by_user_id").references(() => users.id, { onDelete: "set null" }),
   deletedByUserId: integer("deleted_by_user_id").references(() => users.id, { onDelete: "set null" }),
   deletedAt: timestamp("deleted_at"),

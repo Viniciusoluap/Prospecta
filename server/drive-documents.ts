@@ -441,7 +441,8 @@ async function reorganizar(fonte: FonteDrive, root: string): Promise<ResultadoOr
     }
   };
 
-  const docs = await db.select().from(leadDocuments).where(and(isNotNull(leadDocuments.driveFileId), isNull(leadDocuments.deletedAt)));
+  // Cópias do "Duplicar lead" (etapa 6) usam o arquivo do documento original: ficam onde o original está.
+  const docs = await db.select().from(leadDocuments).where(and(isNotNull(leadDocuments.driveFileId), isNull(leadDocuments.deletedAt), isNull(leadDocuments.copiedFromDocumentId)));
   for (const d of docs) {
     await mover(d.driveFileId!, caminhoDocumentoCliente(d.leadId, d.serviceId, d.type),
       nomeArquivo(ROTULO_DOCUMENTO[d.type] ?? "Documento", d.uploadedAt ?? d.createdAt, d.fileName, d.mimeType ?? ""));
