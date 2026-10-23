@@ -17,7 +17,6 @@ import {
   Field,
   ids,
   inputClass,
-  localDate,
   money,
   OperationalPage,
   optionalId,
@@ -25,6 +24,7 @@ import {
   Rows,
 } from "./OperationalUI";
 import { rotulo } from "@shared/rotulos";
+import { diaPrazoProjeto, exibirDiaPrazoProjeto, ordenarProjetosPorPrazo, persistirDiaPrazoProjeto } from "@shared/projetos-prazo";
 type Check = ProjectCheck;
 type FileLink = { name: string; url: string; itemId?: string; kind?: "editable" | "pdf"; driveFileId?: string };
 const blank = () => ({
@@ -62,13 +62,13 @@ export default function AdminProjetos() {
   const [progress, setProgress] = useState(0);
   const [search, setSearch] = useState("");
   const [status, setStatus] = useState("");
-  const rows = (list.data || []).filter(
+  const rows = ordenarProjetosPorPrazo((list.data || []).filter(
     r =>
       `${r.name} ${r.clientName} ${r.engineer}`
         .toLowerCase()
         .includes(search.toLowerCase()) &&
       (!status || r.status === status)
-  );
+  ), r => r.deadline);
   return (
     <OperationalPage
       title="Projetos"
@@ -140,9 +140,7 @@ export default function AdminProjetos() {
               <td>
                 {rotulo(r.status)}
                 <br />
-                {r.deadline
-                  ? new Date(r.deadline).toLocaleDateString("pt-BR")
-                  : "Sem prazo"}
+                {exibirDiaPrazoProjeto(r.deadline)}
               </td>
               <td>
                 {checks.filter(c => c.done).length}/{checks.length}
@@ -160,7 +158,7 @@ export default function AdminProjetos() {
                         types: parseArray<string>(r.types),
                         engineerUserId: String(r.engineerUserId ?? ""),
                         engineerRegistration: r.engineerRegistration ?? "",
-                        deadline: localDate(r.deadline),
+                        deadline: diaPrazoProjeto(r.deadline) ?? "",
                         leadId: String(r.leadId ?? ""),
                         checklist: projectChecklist(parseArray<string>(r.types), checks, PROJECT_TYPE_LABELS),
                         files: parseArray<FileLink>(r.files),
@@ -180,7 +178,7 @@ export default function AdminProjetos() {
           );
         })}
       </Rows>
-      {detail && <div className="fixed inset-0 z-50 overflow-y-auto bg-black/60 p-4" role="dialog" aria-modal="true" aria-label="Detalhes do projeto"><div className="mx-auto my-6 max-w-3xl space-y-4 rounded bg-white p-6 text-slate-900"><div className="flex justify-between gap-3"><h2 className="text-xl font-bold">{detail.name}</h2><Button variant="outline" onClick={() => setDetail(null)}>Fechar</Button></div><dl className="grid gap-3 sm:grid-cols-2">{[["Cliente",detail.clientName],["Telefone",detail.clientPhone],["Engenheiro",detail.engineer],["Habilitação técnica",detail.engineerRegistration],["Status",rotulo(detail.status)],["Prazo",detail.deadline ? new Date(detail.deadline).toLocaleDateString("pt-BR") : "Sem prazo"],["Tipos",parseArray<string>(detail.types).map(v => PROJECT_TYPE_LABELS[v] ?? v).join(", ")],["Descrição",detail.description]].map(([label,value]) => <div key={label}><dt className="font-semibold">{label}</dt><dd>{value || "—"}</dd></div>)}</dl><h3 className="font-semibold">Checklist</h3>{projectChecklist(parseArray<string>(detail.types),parseArray<Check>(detail.checklist),PROJECT_TYPE_LABELS).map((check,i) => <p key={check.id ?? i}>{check.done ? "✓" : "○"} {check.text}</p>)}<h3 className="font-semibold">Documentos</h3>{parseArray<FileLink>(detail.files).map(file => <a className="block underline" key={file.url} href={file.url} target="_blank" rel="noopener noreferrer">{file.kind === "pdf" ? "PDF — " : file.kind === "editable" ? "Editável — " : ""}{file.name}</a>)}</div></div>}
+      {detail && <div className="fixed inset-0 z-50 overflow-y-auto bg-black/60 p-4" role="dialog" aria-modal="true" aria-label="Detalhes do projeto"><div className="mx-auto my-6 max-w-3xl space-y-4 rounded bg-white p-6 text-slate-900"><div className="flex justify-between gap-3"><h2 className="text-xl font-bold">{detail.name}</h2><Button variant="outline" onClick={() => setDetail(null)}>Fechar</Button></div><dl className="grid gap-3 sm:grid-cols-2">{[["Cliente",detail.clientName],["Telefone",detail.clientPhone],["Engenheiro",detail.engineer],["Habilitação técnica",detail.engineerRegistration],["Status",rotulo(detail.status)],["Prazo",exibirDiaPrazoProjeto(detail.deadline)],["Tipos",parseArray<string>(detail.types).map(v => PROJECT_TYPE_LABELS[v] ?? v).join(", ")],["Descrição",detail.description]].map(([label,value]) => <div key={label}><dt className="font-semibold">{label}</dt><dd>{value || "—"}</dd></div>)}</dl><h3 className="font-semibold">Checklist</h3>{projectChecklist(parseArray<string>(detail.types),parseArray<Check>(detail.checklist),PROJECT_TYPE_LABELS).map((check,i) => <p key={check.id ?? i}>{check.done ? "✓" : "○"} {check.text}</p>)}<h3 className="font-semibold">Documentos</h3>{parseArray<FileLink>(detail.files).map(file => <a className="block underline" key={file.url} href={file.url} target="_blank" rel="noopener noreferrer">{file.kind === "pdf" ? "PDF — " : file.kind === "editable" ? "Editável — " : ""}{file.name}</a>)}</div></div>}
       <Editor
         title={id ? "Detalhes do projeto" : "Novo projeto"}
         open={open}
@@ -196,7 +194,7 @@ export default function AdminProjetos() {
             engineerRegistration: form.engineerRegistration.trim() || null,
             value: Number(form.value),
             paidValue: Number(form.paidValue),
-            deadline: form.deadline ? new Date(form.deadline) : null,
+            deadline: form.deadline ? persistirDiaPrazoProjeto(form.deadline) : null,
           });
           if (!parsed.success) throw new Error(mensagemValidacao(parsed.error.issues as never));
           const data = parsed.data;
@@ -210,7 +208,7 @@ export default function AdminProjetos() {
             ["name", "Nome", "text"],
             ["clientName", linkedLeadId ? "Cliente (do CRM)" : "Cliente", "text"],
             ["clientPhone", linkedLeadId ? "Telefone (do CRM)" : "Telefone", "tel"],
-            ["deadline", "Prazo de entrega", "datetime-local"],
+            ["deadline", "Prazo de entrega", "date"],
           ] as const
         ).map(([key, label, type]) => (
           <Field key={key} label={label}>
