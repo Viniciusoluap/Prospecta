@@ -13,6 +13,8 @@ import { tipoProjetoDoServico } from "../shared/obra-crm.js";
 import { adminProcedure, router } from "./_core/trpc.js";
 import { requireModuloDoDestino, requireTodosOsModulosDeServico } from "./_core/rbac.js";
 import { getDb } from "./db.js";
+import { concluirRegistroDoServico, reconciliarConclusoes } from "./conclusao-servico.js";
+import { mensagemConclusao } from "../shared/conclusao-servico.js";
 import { excluirDefinitivo } from "./exclusao-definitiva.js";
 
 const serviceInput = z.object({
@@ -644,6 +646,7 @@ export const leadServicesRouter = router({
       updatedAt: new Date(),
     }).where(eq(leadServices.id, id)).returning();
     if (!updated) throw new Error("Serviço não encontrado");
+    if (data.status === "completed" && previous.status !== "completed") await concluirRegistroDoServico(updated);
     const [lead] = await getDb().select().from(leads).where(eq(leads.id, updated.leadId)).limit(1);
     if (!lead) throw new Error("Lead do serviço não encontrado");
     return (await ensureOperationalArtifact(updated, lead)).service;
@@ -696,7 +699,23 @@ export const leadServicesRouter = router({
     })
       .where(eq(leadServices.id, input.id)).returning();
     if (!updated) throw new Error("Serviço não encontrado");
-    return updated;
+    // Lote 23/10, etapa 4: "Concluir" no CRM conclui o registro do módulo (pelo ID do serviço).
+    if (input.status !== "completed") return { ...updated, conclusao: null };
+    const conclusao = await concluirRegistroDoServico(updated);
+    return { ...updated, conclusao: { ...conclusao, mensagem: mensagemConclusao(conclusao) } };
+  }),
+  /** Etapa 4: lista (ou corrige) serviços concluídos no CRM com registro do módulo ainda aberto. */
+  reconcileConclusoes: adminProcedure.input(z.object({ aplicar: z.boolean().default(false) })).mutation(async ({ ctx, input }) => {
+    requireTodosOsModulosDeServico(ctx);
+    const r = await reconciliarConclusoes(input.aplicar);
+    if (input.aplicar) for (const d of r.divergentes)
+      await getDb().insert(leadActivities).values({
+        leadId: d.leadId, type: "note",
+        description: `Reconciliação: serviço ${d.servicoId} concluído no CRM — registro ${d.registroId} de ${d.modulo} passou de "${d.statusAtual}" para concluído`,
+        performedBy: ctx.user.name || `admin:${ctx.user.id}`,
+        metadata: JSON.stringify({ kind: "conclusao_reconciliada", ...d }),
+      });
+    return r;
   }),
 
   unlinkProcess: adminProcedure.input(z.object({ id: z.number().int().positive() })).mutation(async ({ ctx, input }) => {

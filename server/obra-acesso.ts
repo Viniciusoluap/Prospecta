@@ -17,6 +17,8 @@ export const PROCEDIMENTOS_DO_EMPREITEIRO: Readonly<Record<string, Alvo>> = {
   "obraFinanceiro.adicionarMovimento": "projectId",
   "obraFinanceiro.excluirMovimento": "movimentoId",
   "obraProgresso.obter": "projectId",
+  // Lote 23/10, etapa 3: o empreiteiro só lê a localização (aba Informações é somente leitura).
+  "obraLocalizacao.obter": "projectId",
   "obraProgresso.galeria": "projectId",
   "obraProgresso.detalhe": "projectId",
   "obraProgresso.salvar": "projectId",

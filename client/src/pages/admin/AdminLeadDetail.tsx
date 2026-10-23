@@ -16,7 +16,7 @@ import { toast } from "sonner";
 import {
   ArrowLeft, User, Phone, Mail, MapPin, Flame, Snowflake, Thermometer,
   FileText, MessageSquare, ChevronRight, Clock,
-  Building2, DollarSign, Calculator, AlertCircle, Plus, Edit, Trash2, RotateCcw
+  Building2, DollarSign, Calculator, AlertCircle, Plus, Edit, Trash2, RotateCcw, Copy
 } from "lucide-react";
 import { AdminPortalLeadPanel } from "@/components/admin/AdminPortalLeadPanel";
 import { LeadDocuments } from "@/components/LeadDocuments";
@@ -24,6 +24,7 @@ import { LEAD_SERVICE_LABELS, LEAD_SERVICE_MODULE_ROUTES, LEAD_SERVICE_PRIMARY_T
 import { LEAD_PIPELINE_STAGES, LEGACY_STAGE_LABELS } from "../../../../shared/lead-pipeline";
 import { LEAD_TEMPERATURAS, LEAD_TEMPERATURA_CONFIG, leadTemperaturaRotulo } from "../../../../shared/lead-temperature";
 import { rotulo } from "@shared/rotulos";
+import { textoConfirmacaoDuplicar } from "@shared/lead-duplicar";
 
 const STAGES = LEAD_PIPELINE_STAGES;
 const STAGE_COLORS: Record<string, string> = Object.fromEntries(STAGES.map(stage => [stage.key, stage.color]));
@@ -72,6 +73,11 @@ export default function AdminLeadDetail() {
   const { data: assignment } = trpc.leads.assignmentOptions.useQuery();
   const { data: deletionContext } = trpc.leads.deletionContext.useQuery({ id: leadId }, { enabled: deleteOpen && !!leadId });
 
+  // Lote 23/10, etapa 6: "Duplicar lead" abre o lead novo.
+  const duplicateMutation = trpc.leads.duplicate.useMutation({
+    onSuccess: r => { toast.success(`Lead duplicado: nº ${r.id} com ${r.documentos} documento(s). Serviços não foram copiados.`); navigate(`/admin/crm/${r.id}`); },
+    onError: e => toast.error(e.message),
+  });
   const deleteMutation = trpc.leads.softDelete.useMutation({
     onSuccess: () => { toast.success("Lead excluído com possibilidade de recuperação."); navigate("/admin/crm"); },
     onError: error => toast.error(error.message),
@@ -117,7 +123,7 @@ export default function AdminLeadDetail() {
     onSuccess: () => { toast.success("Serviço criado e sincronizado automaticamente."); refetchServices(); },
     onError: (error) => toast.error(error.message),
   });
-  const updateServiceStatusMutation = trpc.leadServices.setStatus.useMutation({ onSuccess: () => { toast.success("Status do serviço atualizado."); refetchServices(); }, onError: error => toast.error(error.message) });
+  const updateServiceStatusMutation = trpc.leadServices.setStatus.useMutation({ onSuccess: r => { const c = r.conclusao; if (c && (c.estado === "cancelado" || c.estado === "sem_registro")) toast.warning(c.mensagem); else toast.success(c?.mensagem ?? "Status do serviço atualizado."); refetchServices(); }, onError: error => toast.error(error.message) });
   const removeServiceMutation = trpc.leadServices.remove.useMutation({ onSuccess: () => { toast.success("Serviço excluído do lead."); refetchServices(); }, onError: error => toast.error(error.message) });
 
   const handleAdvanceStage = () => {
@@ -176,10 +182,21 @@ export default function AdminLeadDetail() {
                 <span className="text-gray-400 text-sm">Lead #{lead.id}</span>
                 {lead.stageClassificationPending && <Badge className="bg-amber-700 text-white">Classificação pendente: {LEGACY_STAGE_LABELS[lead.legacyStage || lead.stage] || lead.stage}</Badge>}
                 {lead.deletedAt && <Badge className="bg-red-700 text-white">Excluído</Badge>}
+                {lead.duplicatedFromLeadId && <Link href={`/admin/crm/${lead.duplicatedFromLeadId}`}><Badge className="bg-slate-600 text-white underline">Duplicado do lead #{lead.duplicatedFromLeadId}</Badge></Link>}
               </div>
             </div>
           </div>
           <div className="flex flex-wrap gap-2">
+            {!lead.deletedAt && (
+              <Button
+                variant="outline"
+                className="text-[#C9A961] border-[#C9A961]/40"
+                disabled={duplicateMutation.isPending}
+                onClick={() => { if (window.confirm(textoConfirmacaoDuplicar(lead.name))) duplicateMutation.mutate({ id: leadId }); }}
+              >
+                <Copy className="h-4 w-4 mr-2" />{duplicateMutation.isPending ? "Duplicando…" : "Duplicar lead"}
+              </Button>
+            )}
             {lead.deletedAt ? (
               <Button onClick={() => restoreMutation.mutate({ id: leadId })} disabled={restoreMutation.isPending} variant="outline" className="text-white border-white/40"><RotateCcw className="h-4 w-4 mr-2" />Recuperar lead</Button>
             ) : (
