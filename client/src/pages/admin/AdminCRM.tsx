@@ -91,6 +91,11 @@ export default function AdminCRM() {
     onError: err => toast.error(err.message),
   });
 
+  // Pedido de 23/10 (H3): exclusão definitiva de lead arquivado (só admin).
+  const permanentDelete = trpc.leads.permanentDelete.useMutation({
+    onSuccess: () => { toast.success("Lead excluído definitivamente."); refetch(); utils.leads.stats.invalidate(); },
+    onError: (e) => toast.error(e.message),
+  });
   const createMutation = trpc.leads.create.useMutation({
     onSuccess: () => {
       toast.success("Lead criado com sucesso!");
@@ -146,6 +151,17 @@ export default function AdminCRM() {
     .sort((a, b) => (a.cardDueDate || "9999-12-31").localeCompare(b.cardDueDate || "9999-12-31") || a.id - b.id);
   const today = new Intl.DateTimeFormat("en-CA", { timeZone: "America/Fortaleza", year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date());
   const pendingClassification = filtered.filter(l => l.stageClassificationPending && !l.deletedAt);
+  const excluirDefinitivamente = async (lead: typeof leads[number]) => {
+    try {
+      const ctx = await utils.leads.permanentDeletionContext.fetch({ id: lead.id });
+      if (ctx.bloqueio) { toast.warning(ctx.bloqueio, { duration: 10000 }); return; }
+      if (window.confirm(`Excluir DEFINITIVAMENTE o lead ${lead.name}?\n\nO lead, o histórico e os follow-ups serão apagados e não poderão ser recuperados.`)) {
+        permanentDelete.mutate({ id: lead.id });
+      }
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Não foi possível verificar os vínculos deste lead.");
+    }
+  };
   const archiveLead = async (lead: typeof leads[number]) => {
     try {
       const links = await utils.leads.deletionContext.fetch({ id: lead.id });
@@ -581,10 +597,18 @@ export default function AdminCRM() {
                         </td>
                         <td className="p-4">
                           {lead.deletedAt ? (
+                            <div className="flex flex-wrap gap-2">
                             <Button variant="outline" size="sm" className="text-white border-white/20" disabled={restore.isPending}
                               onClick={e => { e.stopPropagation(); restore.mutate({ id: lead.id }); }} aria-label={`Recuperar ${lead.name}`}>
                               <RotateCcw className="h-4 w-4 mr-1" /> Recuperar
                             </Button>
+                            {user?.role === "admin" && (
+                              <Button variant="outline" size="sm" className="text-red-300 border-red-400/40 hover:bg-red-500/10" disabled={permanentDelete.isPending}
+                                onClick={e => { e.stopPropagation(); excluirDefinitivamente(lead); }} aria-label={`Excluir definitivamente ${lead.name}`}>
+                                <Trash2 className="h-4 w-4 mr-1" /> Excluir definitivamente
+                              </Button>
+                            )}
+                            </div>
                           ) : (
                             <Button variant="outline" size="sm" className="text-red-300 border-red-400/30" disabled={softDelete.isPending}
                               onClick={e => { e.stopPropagation(); archiveLead(lead); }} aria-label={`Excluir ${lead.name}`}>
