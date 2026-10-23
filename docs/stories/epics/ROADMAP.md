@@ -99,6 +99,19 @@ campo (mesmo padrão do Santa Fé: o `<Input>` exibe o buffer, reformatado só n
   Imóveis, Minhas Comissões, Agenda e WhatsApp), igual ao `BrokerPortal` da Prospecta; todos os
   envios de arquivo do SF mostram o percentual real (rota `/api/envio`). **Sem pendência.**
 
+## Decisões e dívidas técnicas registradas — Lote 23/10/2026
+
+- **Decisão do dono (23/10/2026):** na PLS, a coluna "Acumul. Aferido" da Curva de Evolução fica **em branco**
+  (é o % medido pela CAIXA, que o sistema não tem). "Acumul. Adotado" usa o % da PLS. Vale nos dois sistemas.
+  Rever se no futuro for criado o campo "% aferido pela CAIXA" ao confirmar o recebimento da medição.
+- **Dívida técnica DT-2026-10-23-01 (Prospecta, risco baixo, sem correção por ora — decisão do dono):**
+  exclusão definitiva de lead arquivado (`excluirLeadArquivadoDefinitivamente`, `server/db.ts`) roda numa única
+  instrução SQL em READ COMMITTED. Se alguém criar uma obra/financiamento para o lead arquivado no mesmo instante
+  da exclusão, o novo registro fica sem vínculo (`ON DELETE SET NULL`) em vez de bloquear. Correção sugerida:
+  executar a instrução em transação `Serializable` do driver Neon (`sql.transaction([...], { isolationLevel:
+  "Serializable" })`) ou espelhar o padrão do Santa Fé (transação serializável + `SELECT … FOR UPDATE`).
+  Origem: revisão @qa do lote 23/10 (achado 2). O Santa Fé não tem esse risco.
+
 ## Coordenação entre trilhas
 
 - Trilha Claude (EPIC-000/001/003/005/008/009/010) e trilha Codex (EPIC-002/004/006/007) trabalham em branches separadas no mesmo repositório Prospecta.
