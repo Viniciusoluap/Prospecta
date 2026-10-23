@@ -3,7 +3,8 @@ import Navbar from "@/components/Navbar";
 import { trpc } from "@/lib/trpc";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Bell, Check, CheckCheck } from "lucide-react";
+import { Bell, CheckCheck } from "lucide-react";
+import { NotificacaoConteudo } from "@/components/NotificacaoConteudo";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { getLoginUrl } from "@/const";
 
@@ -54,21 +55,6 @@ export default function Notificacoes() {
   }
 
   const unreadCount = notifications.filter(n => !n.isRead).length;
-
-  const getNotificationIcon = (type: string) => {
-    switch (type) {
-      case "draw_result":
-        return "🎉";
-      case "utef_update":
-        return "💰";
-      case "construction_update":
-        return "🏗️";
-      case "promotional":
-        return "🎁";
-      default:
-        return "📢";
-    }
-  };
 
   const handleNotificationClick = (id: number, isRead: boolean, actionUrl?: string | null) => {
     if (!isRead) {
@@ -144,44 +130,13 @@ export default function Notificacoes() {
                 >
                   <CardContent className="p-4">
                     <div className="flex items-start gap-4">
-                      {/* Ícone */}
-                      <div className="text-3xl flex-shrink-0">
-                        {getNotificationIcon(notification.type)}
+                      <div className={`flex-1 min-w-0 ${!notification.isRead ? "text-[#00FF00]" : "text-[#C9A961]"}`}>
+                        <NotificacaoConteudo notificacao={notification} maxItens={10} escuro
+                          quando={new Date(notification.createdAt).toLocaleString("pt-BR", { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" }) + (notification.isRead ? " · lida" : "")} />
                       </div>
-                      
-                      {/* Conteúdo */}
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-start justify-between gap-2">
-                          <h3 className={`font-semibold ${!notification.isRead ? 'text-[#00FF00]' : 'text-[#C9A961]'}`}>
-                            {notification.title}
-                          </h3>
-                          {!notification.isRead && (
-                            <span className="flex-shrink-0 px-2 py-1 bg-[#00FF00]/20 text-[#00FF00] text-xs font-medium rounded">
-                              Nova
-                            </span>
-                          )}
-                        </div>
-                        <p className="text-gray-300 text-sm mt-1">
-                          {notification.message}
-                        </p>
-                        <div className="flex items-center gap-4 mt-2 text-xs text-gray-400">
-                          <span>
-                            {new Date(notification.createdAt).toLocaleDateString('pt-BR', {
-                              day: '2-digit',
-                              month: 'long',
-                              year: 'numeric',
-                              hour: '2-digit',
-                              minute: '2-digit',
-                            })}
-                          </span>
-                          {notification.isRead && notification.readAt && (
-                            <span className="flex items-center gap-1">
-                              <Check className="h-3 w-3" />
-                              Lida
-                            </span>
-                          )}
-                        </div>
-                      </div>
+                      {!notification.isRead && (
+                        <span className="flex-shrink-0 px-2 py-1 bg-[#00FF00]/20 text-[#00FF00] text-xs font-medium rounded">Nova</span>
+                      )}
                     </div>
                   </CardContent>
                 </Card>
