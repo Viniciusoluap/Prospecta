@@ -117,7 +117,7 @@ export default function AdminLeadDetail() {
     onSuccess: () => { toast.success("Serviço criado e sincronizado automaticamente."); refetchServices(); },
     onError: (error) => toast.error(error.message),
   });
-  const updateServiceStatusMutation = trpc.leadServices.setStatus.useMutation({ onSuccess: () => { toast.success("Status do serviço atualizado."); refetchServices(); }, onError: error => toast.error(error.message) });
+  const updateServiceStatusMutation = trpc.leadServices.setStatus.useMutation({ onSuccess: r => { const c = r.conclusao; if (c && (c.estado === "cancelado" || c.estado === "sem_registro")) toast.warning(c.mensagem); else toast.success(c?.mensagem ?? "Status do serviço atualizado."); refetchServices(); }, onError: error => toast.error(error.message) });
   const removeServiceMutation = trpc.leadServices.remove.useMutation({ onSuccess: () => { toast.success("Serviço excluído do lead."); refetchServices(); }, onError: error => toast.error(error.message) });
 
   const handleAdvanceStage = () => {
