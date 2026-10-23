@@ -1029,7 +1029,7 @@ export async function getLeadVinculosExclusao(id: number): Promise<VinculosLead>
 /**
  * Exclusão definitiva (H3), numa única instrução: só apaga lead ARQUIVADO e sem
  * nenhum vínculo (mesmas condições de getLeadVinculosExclusao, rechecadas aqui).
- * Leva junto histórico, follow-ups, tarefas, documentos já excluídos, serviços,
+ * Leva junto histórico, follow-ups, tarefas, documentos já excluídos sem arquivo no Drive, serviços,
  * preferências, alertas e chat do lead; mensagens de WhatsApp ficam na caixa,
  * apenas sem o vínculo. Devolve true se o lead foi apagado.
  */
@@ -1054,7 +1054,9 @@ export async function excluirLeadArquivadoDefinitivamente(id: number): Promise<b
     ), tarefas AS (
       DELETE FROM tasks WHERE related_type = 'lead' AND related_id IN (SELECT id FROM alvo)
     ), documentos_excluidos AS (
-      DELETE FROM lead_documents WHERE deleted_at IS NOT NULL AND lead_id IN (SELECT id FROM alvo)
+      -- Já excluídos e sem arquivo no Drive; os que têm arquivo no Drive ficam
+      -- registrados para o arquivo continuar rastreável (não há remoção no Drive).
+      DELETE FROM lead_documents WHERE deleted_at IS NOT NULL AND drive_file_id IS NULL AND lead_id IN (SELECT id FROM alvo)
     ), whatsapp AS (
       UPDATE whatsapp_messages SET lead_id = NULL WHERE lead_id IN (SELECT id FROM alvo)
     ), apagado AS (
