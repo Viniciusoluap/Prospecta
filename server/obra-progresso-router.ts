@@ -26,7 +26,7 @@ import { baseDaMedicao, estimarMedicoes, situacaoDaMedicao } from "../shared/fin
 import { centavosDe } from "../shared/financeiro/obra.js";
 import {
   dadosPlsPadrao,
-  datasAlvaraDasMedicoes,
+  dadosFixosDasMedicoes,
   incidenciasCorrespondem,
   ehTipoMedicao,
   normalizarDadosMedicao,
@@ -187,9 +187,10 @@ export async function carregarProgresso(projectId: number) {
       .orderBy(desc(constructionProgressHistory.createdAt), desc(constructionProgressHistory.id)),
   ]);
   const dadosPci = (pci?.parsed ?? null) as DadosPci | null;
-  const datasAlvara = datasAlvaraDasMedicoes(
+  // H6: alvará, nº do contrato, valor do imóvel e contratação — informados 1x por obra.
+  const dadosFixos = dadosFixosDasMedicoes(
     datasSalvas.map(m => ({ pls: (m.dadosCaixa as DadosMedicaoCaixa | null)?.pls })),
-    { alvaraEmissao: dadosPci?.alvaraEmissao, alvaraVigencia: dadosPci?.alvaraVigencia },
+    { alvaraEmissao: dadosPci?.alvaraEmissao, alvaraVigencia: dadosPci?.alvaraVigencia, contrato: dadosPci?.contrato, valorImovel: dadosPci?.valorImovel, dataContratacao: dadosPci?.dataContratacao },
   );
   // Pedido de 18/10: valor estimado de cada medição (Y × avanço da medição).
   const base = baseDaMedicao({
@@ -234,7 +235,7 @@ export async function carregarProgresso(projectId: number) {
       : null,
     /** Datas do último preenchimento salvo na obra; PCI como reserva por campo. */
     plsPadrao: dadosPlsPadrao({
-      ...datasAlvara,
+      ...dadosFixos,
       seloCasaAzul: dadosPci?.seloCasaAzul ?? false,
     }),
   };

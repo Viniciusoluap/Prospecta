@@ -174,6 +174,8 @@ function enviarArquivo(res: Response, bytes: Uint8Array, nome: string, tipo: str
 }
 
 const dataIso = (d: Date) => new Date(d.getTime() - 3 * 3600_000).toISOString().slice(0, 10);
+/** Datas do cadastro da obra são gravadas à meia-noite UTC (campo date do formulário). */
+const dataUtc = (d: Date) => d.toISOString().slice(0, 10);
 
 type Formato = "xls" | "pdf";
 type ArquivoMedicao =
@@ -205,14 +207,19 @@ export async function gerarArquivoMedicao(m: typeof constructionProgressHistory.
   const execucoes = SERVICOS_PROGRESSO.map((s) => porChave.get(s.chave) ?? 0);
 
   // Medições anteriores (curva de evolução e "mês anterior").
-  const anterioresBrutas = await db.select({ progresso: constructionProgressHistory.progressPct, criadoEm: constructionProgressHistory.createdAt, dados: constructionProgressHistory.caixaData })
+  const anterioresBrutas = await db.select({ progresso: constructionProgressHistory.progressPct, criadoEm: constructionProgressHistory.createdAt, dados: constructionProgressHistory.caixaData, recebidaEm: constructionProgressHistory.receivedAt })
     .from(constructionProgressHistory)
     .where(and(eq(constructionProgressHistory.projectId, m.projectId), or(lt(constructionProgressHistory.createdAt, m.createdAt), and(eq(constructionProgressHistory.createdAt, m.createdAt), lt(constructionProgressHistory.id, m.id)))))
     .orderBy(asc(constructionProgressHistory.createdAt), asc(constructionProgressHistory.id));
   const anteriores: MedicaoHistorica[] = anterioresBrutas.map((a) => {
     const pls = (a.dados as DadosMedicaoCaixa | null)?.pls;
-    return { data: typeof pls?.dataLevantamento === "string" ? pls.dataLevantamento : dataIso(a.criadoEm), progresso: Number(a.progresso) };
+    // H6: medição confirmada pelo banco = "Acumul. Aferido" da curva.
+    return { data: typeof pls?.dataLevantamento === "string" ? pls.dataLevantamento : dataIso(a.criadoEm), progresso: Number(a.progresso), aferido: a.recebidaEm !== null };
   });
+  // H6: início e término previsto vêm do Editar Obra.
+  const [datas] = await db.select({ inicio: constructionProjects.startDate, termino: constructionProjects.estimatedEndDate })
+    .from(constructionProjects).where(eq(constructionProjects.id, m.projectId)).limit(1);
+  const obra = { inicio: datas?.inicio ? dataUtc(datas.inicio) : null, termino: datas?.termino ? dataUtc(datas.termino) : null };
 
   const r = await db.execute(sql`
     SELECT p.caption, f.mime, encode(f.data, 'base64') AS b64
@@ -222,7 +229,7 @@ export async function gerarArquivoMedicao(m: typeof constructionProgressHistory.
     .filter((f) => f.mime === "image/jpeg" || f.mime === "image/png")
     .map((f) => ({ dados: new Uint8Array(Buffer.from(f.b64, "base64")), tipo: f.mime === "image/png" ? "png" : "jpeg", legenda: f.caption }));
 
-  const entrada = { tipo, pci: pci.dados, execucoes, progresso: Number(m.progressPct), anteriores, dados, fotos };
+  const entrada = { tipo, pci: pci.dados, execucoes, progresso: Number(m.progressPct), anteriores, dados, fotos, obra };
   const sufixo = { pls: "PLS", repactuacao: "Repactuacao_Prazo", alteracao: "Alteracao_Projeto" }[tipo];
   const nomeBase = `${sufixo}_${nomeSeguro(obraTitulo ?? "obra").replace(/\s+/g, "_")}_${dados.pls.dataLevantamento}`;
   const [a, mes, d] = dados.pls.dataLevantamento.split("-");
