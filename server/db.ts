@@ -1020,7 +1020,7 @@ export async function getLeadVinculosExclusao(id: number): Promise<VinculosLead>
       (SELECT count(*) FROM operational_projects WHERE lead_id = ${id})::int AS projetos,
       (SELECT count(*) FROM avaliacoes WHERE lead_id = ${id})::int AS avaliacoes,
       (SELECT count(*) FROM portal_contracts WHERE lead_id = ${id})::int AS contratos,
-      (SELECT count(*) FROM lead_documents WHERE lead_id = ${id})::int AS documentos,
+      (SELECT count(*) FROM lead_documents WHERE lead_id = ${id} AND deleted_at IS NULL)::int AS documentos,
       (SELECT count(*) FROM users WHERE lead_id = ${id})::int AS contas`);
   const row = (r.rows[0] ?? {}) as Record<string, unknown>;
   return Object.fromEntries(VINCULOS_LEAD.map(([chave]) => [chave, Number(row[chave] ?? 0)])) as VinculosLead;
@@ -1028,8 +1028,8 @@ export async function getLeadVinculosExclusao(id: number): Promise<VinculosLead>
 
 /**
  * Exclusão definitiva (H3), numa única instrução: só apaga lead ARQUIVADO e sem
- * nenhum vínculo (mesmas condições de getLeadVinculosExclusao, rechecadas aqui
- * para não haver corrida). Leva junto histórico, follow-ups, serviços,
+ * nenhum vínculo (mesmas condições de getLeadVinculosExclusao, rechecadas aqui).
+ * Leva junto histórico, follow-ups, tarefas, documentos já excluídos, serviços,
  * preferências, alertas e chat do lead; mensagens de WhatsApp ficam na caixa,
  * apenas sem o vínculo. Devolve true se o lead foi apagado.
  */
@@ -1044,13 +1044,17 @@ export async function excluirLeadArquivadoDefinitivamente(id: number): Promise<b
         AND NOT EXISTS (SELECT 1 FROM operational_projects WHERE lead_id = l.id)
         AND NOT EXISTS (SELECT 1 FROM avaliacoes WHERE lead_id = l.id)
         AND NOT EXISTS (SELECT 1 FROM portal_contracts WHERE lead_id = l.id)
-        AND NOT EXISTS (SELECT 1 FROM lead_documents WHERE lead_id = l.id)
+        AND NOT EXISTS (SELECT 1 FROM lead_documents WHERE lead_id = l.id AND deleted_at IS NULL)
         AND NOT EXISTS (SELECT 1 FROM users WHERE lead_id = l.id)
       FOR UPDATE
     ), atividades AS (
       DELETE FROM lead_activities WHERE lead_id IN (SELECT id FROM alvo)
     ), followups AS (
       DELETE FROM lead_follow_ups WHERE lead_id IN (SELECT id FROM alvo)
+    ), tarefas AS (
+      DELETE FROM tasks WHERE related_type = 'lead' AND related_id IN (SELECT id FROM alvo)
+    ), documentos_excluidos AS (
+      DELETE FROM lead_documents WHERE deleted_at IS NOT NULL AND lead_id IN (SELECT id FROM alvo)
     ), whatsapp AS (
       UPDATE whatsapp_messages SET lead_id = NULL WHERE lead_id IN (SELECT id FROM alvo)
     ), apagado AS (

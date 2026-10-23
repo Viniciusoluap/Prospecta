@@ -207,14 +207,15 @@ export async function gerarArquivoMedicao(m: typeof constructionProgressHistory.
   const execucoes = SERVICOS_PROGRESSO.map((s) => porChave.get(s.chave) ?? 0);
 
   // Medições anteriores (curva de evolução e "mês anterior").
-  const anterioresBrutas = await db.select({ progresso: constructionProgressHistory.progressPct, criadoEm: constructionProgressHistory.createdAt, dados: constructionProgressHistory.caixaData, recebidaEm: constructionProgressHistory.receivedAt })
+  const anterioresBrutas = await db.select({ progresso: constructionProgressHistory.progressPct, criadoEm: constructionProgressHistory.createdAt, dados: constructionProgressHistory.caixaData })
     .from(constructionProgressHistory)
     .where(and(eq(constructionProgressHistory.projectId, m.projectId), or(lt(constructionProgressHistory.createdAt, m.createdAt), and(eq(constructionProgressHistory.createdAt, m.createdAt), lt(constructionProgressHistory.id, m.id)))))
     .orderBy(asc(constructionProgressHistory.createdAt), asc(constructionProgressHistory.id));
   const anteriores: MedicaoHistorica[] = anterioresBrutas.map((a) => {
     const pls = (a.dados as DadosMedicaoCaixa | null)?.pls;
-    // H6: medição confirmada pelo banco = "Acumul. Aferido" da curva.
-    return { data: typeof pls?.dataLevantamento === "string" ? pls.dataLevantamento : dataIso(a.criadoEm), progresso: Number(a.progresso), aferido: a.recebidaEm !== null };
+    // H6: "Acumul. Aferido" é o % medido pela CAIXA — o sistema não o tem, então fica
+    // em branco (não preencher com o PLS). Aguarda decisão do dono.
+    return { data: typeof pls?.dataLevantamento === "string" ? pls.dataLevantamento : dataIso(a.criadoEm), progresso: Number(a.progresso) };
   });
   // H6: início e término previsto vêm do Editar Obra.
   const [datas] = await db.select({ inicio: constructionProjects.startDate, termino: constructionProjects.estimatedEndDate })
