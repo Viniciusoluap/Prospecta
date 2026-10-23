@@ -20,7 +20,8 @@ export const FINANCIAMENTO_STATUS_LABELS: Record<(typeof FINANCIAMENTO_STATUS)[n
   aprovado: "Aprovado",
   contrato: "Contrato",
   registro: "Registro",
-  liberado: "Liberado",
+  // A chave persistida permanece por compatibilidade com registros e integrações antigas.
+  liberado: "Concluído",
   cancelado: "Cancelado",
 };
 
