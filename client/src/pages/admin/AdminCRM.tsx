@@ -159,7 +159,7 @@ export default function AdminCRM() {
   };
 
   return (
-    <div className="min-h-screen bg-[#0F1419]">
+    <div className="min-h-screen overflow-x-clip bg-[#0F1419]">
       <div className="border-b border-white/10 bg-[#1A2332]">
         <div className="container mx-auto flex flex-col gap-4 py-4 lg:flex-row lg:items-center lg:justify-between">
           <div className="flex min-w-0 flex-col gap-2 sm:flex-row sm:items-center sm:gap-4">
@@ -459,7 +459,7 @@ export default function AdminCRM() {
       {/* Pipeline View */}
       {viewMode === "pipeline" && (
         <div className="container mx-auto px-4 pb-8">
-          <div className="overflow-x-auto">
+          <div className="overflow-x-auto overscroll-x-contain">
             <div className="flex gap-4 min-w-max">
               {STAGES.map(stage => {
                 const stageLeads = getLeadsByStage(stage.key).filter(lead => !lead.stageClassificationPending && !lead.deletedAt);

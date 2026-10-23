@@ -40,6 +40,12 @@ export function AdminRoute({
   const { user, loading } = useAuth({ redirectOnUnauthenticated: true });
   const [, setLocation] = useLocation();
 
+  // Fundo escuro atrás das telas administrativas (sem faixa branca no overscroll).
+  useEffect(() => {
+    document.documentElement.classList.add("area-escura");
+    return () => document.documentElement.classList.remove("area-escura");
+  }, []);
+
   useEffect(() => {
     const allowed = podeAbrir(user, modules ?? (module ? [module] : []), allowStaffHome);
     if (!loading && user && !allowed) {

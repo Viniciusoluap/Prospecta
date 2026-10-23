@@ -121,6 +121,13 @@
     @apply bg-background text-foreground;
     font-family: 'Poppins', sans-serif;
   }
+  /* Áreas internas escuras (admin/CRM): o fundo atrás da página também é escuro,
+     para o "puxar" da tela no iPad (overscroll) não revelar uma faixa branca. */
+  html.area-escura,
+  html.area-escura body {
+    background-color: #0F1419;
+    overscroll-behavior-x: none;
+  }
   button:not(:disabled),
   [role="button"]:not([aria-disabled="true"]),
   [type="button"]:not(:disabled),
