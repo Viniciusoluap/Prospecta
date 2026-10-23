@@ -1,5 +1,5 @@
 import { AcoesExcluir } from "@/components/AcoesExcluir";
-import { useMemo, useState } from "react";
+import { useState } from "react";
 import { Link } from "wouter";
 import { ArrowLeft, Building2, Pencil } from "lucide-react";
 import { toast } from "sonner";
@@ -46,6 +46,7 @@ export default function AdminRegularizacoes() {
   const [form, setForm] = useState(EMPTY_FORM);
 
   const listQuery = trpc.regularizacao.list.useQuery(filter === "all" ? undefined : { status: filter });
+  const indicatorsQuery = trpc.regularizacao.indicadores.useQuery();
   const detailQuery = trpc.regularizacao.get.useQuery(
     { id: selectedId ?? 0 },
     { enabled: Boolean(selectedId) },
@@ -55,6 +56,7 @@ export default function AdminRegularizacoes() {
   const refresh = async () => {
     await Promise.all([
       utils.regularizacao.list.invalidate(),
+      utils.regularizacao.indicadores.invalidate(),
       utils.regularizacao.get.invalidate(),
     ]);
   };
@@ -66,11 +68,8 @@ export default function AdminRegularizacoes() {
   });
 
   const records = listQuery.data ?? [];
-  const totals = useMemo(() => ({
-    active: records.filter(record => !["concluido", "cancelado"].includes(record.status)).length,
-    completed: records.filter(record => record.status === "concluido").length,
-    value: records.reduce((sum, record) => sum + Number(record.serviceValue), 0),
-  }), [records]);
+  const allRecords = trpc.regularizacao.list.useQuery();
+  const active = (allRecords.data ?? []).filter(record => !["concluido", "cancelado"].includes(record.status)).length;
   const selected = detailQuery.data;
 
   return (
@@ -91,9 +90,9 @@ export default function AdminRegularizacoes() {
           O processo aparece aqui com os dados do cliente, puxados do cadastro do lead.
         </p>
         <div className="grid gap-4 sm:grid-cols-3">
-          <Metric label="Processos ativos" value={String(totals.active)} />
-          <Metric label="Concluídos" value={String(totals.completed)} />
-          <Metric label="Valor contratado" value={currency(String(totals.value))} />
+          <Metric label="Processos ativos" value={String(active)} />
+          <Metric label="Valor já recebido" value={indicatorsQuery.data ? formatCurrency(indicatorsQuery.data.recebido / 100) : "—"} />
+          <Metric label="Valor contratado" value={indicatorsQuery.data ? formatCurrency(indicatorsQuery.data.contratado / 100) : "—"} />
         </div>
 
         <div className="flex max-w-xs items-center gap-2">

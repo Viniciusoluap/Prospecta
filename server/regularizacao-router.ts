@@ -11,6 +11,7 @@ import {
   users,
 } from "../drizzle/schema.js";
 import { centavosDe } from "../shared/financeiro/obra.js";
+import { indicadoresRegularizacao } from "../shared/financeiro/indicadores-regularizacao.js";
 import {
   GRUPOS_FINANCEIROS,
   LIMITE_NOME_ETAPA,
@@ -126,6 +127,19 @@ const itemCampos = {
 };
 
 export const regularizacaoRouter = router({
+  indicadores: adminProcedure.query(async () => {
+    const db = getDb();
+    const [processos, itens, recebimentos] = await Promise.all([
+      db.select({ id: regularizacoes.id, status: regularizacoes.status }).from(regularizacoes),
+      db.select({ id: regularizacaoItensFinanceiros.id, regularizacaoId: regularizacaoItensFinanceiros.regularizacaoId,
+        chavePadrao: regularizacaoItensFinanceiros.chavePadrao, nome: regularizacaoItensFinanceiros.nome,
+        previsto: regularizacaoItensFinanceiros.previsto }).from(regularizacaoItensFinanceiros),
+      db.select({ id: regularizacaoRecebimentos.id, regularizacaoId: regularizacaoRecebimentos.regularizacaoId,
+        itemId: regularizacaoRecebimentos.itemId, valor: regularizacaoRecebimentos.valor,
+        status: regularizacaoRecebimentos.status }).from(regularizacaoRecebimentos),
+    ]);
+    return indicadoresRegularizacao(processos, itens, recebimentos);
+  }),
   list: adminProcedure
     .input(z.object({ status: z.string().max(40).optional() }).optional())
     .query(async ({ input }) => {
