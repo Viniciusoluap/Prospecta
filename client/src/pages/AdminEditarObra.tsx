@@ -329,11 +329,13 @@ export default function AdminEditarObra({ modo = "admin" }: { modo?: "admin" | "
                     <CampoLocalizacao coords={coords} onChange={setCoords} />
                   )}
                   <p className="text-xs text-gray-400">
-                    {localizacaoQuery.data?.imovelId
+                    {localizacaoQuery.data?.imovelId && localizacaoQuery.data.coords
                       ? `Ponto guardado no imóvel vinculado "${localizacaoQuery.data.imovelTitulo}" (aparece no Mapa Operacional).`
                       : localizacaoQuery.data?.pontoPci && !coords
                         ? `Ponto lido da PCI da CAIXA: ${localizacaoQuery.data.pontoPci.lat.toFixed(6)}, ${localizacaoQuery.data.pontoPci.lng.toFixed(6)} (já aparece no Mapa Operacional). Para usar outro ponto, cole-o acima e salve.`
-                        : "Ao salvar, o ponto cria um imóvel vinculado à obra, não publicado no site, e aparece no Mapa Operacional."}
+                        : localizacaoQuery.data?.imovelId
+                          ? `O imóvel vinculado "${localizacaoQuery.data.imovelTitulo}" ainda não tem ponto. Cole a localização acima e salve para aparecer no Mapa Operacional.`
+                          : "Ao salvar, o ponto cria um imóvel vinculado à obra, não publicado no site, e aparece no Mapa Operacional."}
                     {coordsAlteradas && " Alteração ainda não salva."}
                   </p>
                 </div>

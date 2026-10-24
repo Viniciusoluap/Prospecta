@@ -35,10 +35,17 @@ describe("Coordenadas da PCI da CAIXA", () => {
     expect(coordenadasDaPci("abc", "472641 W")).toBeNull();
     expect(coordenadaPciDecimal("5°75'00\" S")).toBeNull();
   });
+  it("latitude/longitude trocadas, ou sem hemisfério no formato da PCI, não viram ponto", () => {
+    expect(coordenadasDaPci("472641 W", "52948 S")).toBeNull();
+    expect(coordenadaPciDecimal(52948)).toBeNull();
+    expect(coordenadaPciDecimal("5°30′29″ S")).toBeCloseTo(-5.5080556, 6);
+  });
   it("endereço em uma linha sem repetir partes", () => {
     expect(enderecoCompleto(["Morada do Bosque, Imperatriz Maranhão", "Imperatriz", null, " "])).toBe("Morada do Bosque, Imperatriz Maranhão");
     expect(enderecoCompleto(["Rua A, 10", "Centro", "Parauapebas", "PA"])).toBe("Rua A, 10, Centro, Parauapebas, PA");
     expect(enderecoCompleto([null, ""])).toBeNull();
+    expect(enderecoCompleto(["Morada do Bosque, Imperatriz/MA", "Imperatriz", "MA"])).toBe("Morada do Bosque, Imperatriz/MA");
+    expect(enderecoCompleto(["Rua Centro, 10", "Centro", "Imperatriz"])).toBe("Rua Centro, 10, Centro, Imperatriz");
   });
 });
 
@@ -66,5 +73,23 @@ describe("Mapa operacional — imóveis + obras", () => {
     expect(r[0]).toMatchObject({ obraId: 18, price: "200000.00", address: "Morada do Bosque, Imperatriz Maranhão", hasCoordinates: true });
     expect(r[1]).toMatchObject({ obraId: null, price: "350000.00", address: "Rua B, 5, Centro, Imperatriz, MA", hasCoordinates: false });
     expect(r[2]).toMatchObject({ kind: "obra", obraId: 21, title: "Obra — JOAO", price: "260000.00", latitude: "-5.4966667", longitude: "-47.4447222", status: "obra", hasCoordinates: true });
+  });
+
+  it("imóvel vinculado sem ponto usa a PCI; obra com imóvel vendido entra pela PCI", async () => {
+    fakeDb([
+      [{ id: 5, title: "Obra — ANA", status: "reservado", type: "casa", address: null, city: "Imperatriz", neighborhood: null, state: "MA", price: "0.00", latitude: null, longitude: null, slug: "obra-27" }],
+      [
+        { id: 27, title: "ANA", address: "Residencial Aurora, Imperatriz Maranhão", city: null, state: null, vgv: "180000.00", imovelId: 5, approvedValue: null, simulationValue: null },
+        { id: 28, title: "LUCIA", address: "Residencial Aurora", city: "Imperatriz", state: "MA", vgv: "190000.00", imovelId: 77, approvedValue: null, simulationValue: null },
+      ],
+      [
+        { projectId: 27, parsed: { identificacao: { latitude: "52948 S", longitude: "472641 W" } } },
+        { projectId: 28, parsed: { identificacao: { latitude: `5°30'29.0" S`, longitude: "47°26'39.8 W" } } },
+      ],
+    ]);
+    const r = await app.createCaller(admin()).mapa.list();
+    expect(r.map(p => p.key)).toEqual(["imovel-5", "obra-28"]);
+    expect(r[0]).toMatchObject({ obraId: 27, price: "180000.00", latitude: "-5.4966667", longitude: "-47.4447222", hasCoordinates: true });
+    expect(r[1]).toMatchObject({ kind: "obra", obraId: 28, address: "Residencial Aurora, Imperatriz, MA", latitude: "-5.5080556", hasCoordinates: true });
   });
 });

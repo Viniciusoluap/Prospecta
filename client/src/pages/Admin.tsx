@@ -271,7 +271,7 @@ export default function Admin() {
                 ))}
               </div>
               {modulosVisiveis.length === 0 && (
-                <p className="text-sm text-muted-foreground">
+                <p className="text-sm text-gray-300">
                   Nenhum módulo liberado. Peça ao administrador para liberar o acesso.
                 </p>
               )}
@@ -552,7 +552,7 @@ export default function Admin() {
                             );
                           }}
                         />
-                        <p className="text-xs text-muted-foreground">
+                        <p className="text-xs text-gray-400">
                           Escolha pela câmera, biblioteca ou arquivos do
                           dispositivo. Máximo: 10 MB.
                         </p>

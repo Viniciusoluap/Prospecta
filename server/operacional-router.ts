@@ -772,9 +772,9 @@ export const projetosRouter = router({
 export const mapaRouter = router({
   /**
    * Imóveis disponíveis/reservados + obras com ponto conhecido (pedido de 23/10).
-   * Imóvel vinculado a uma obra mostra o VGV e o endereço da obra. Obra sem imóvel
-   * vinculado entra com as coordenadas da PCI da CAIXA (identificação), sem criar
-   * imóvel. Coordenada ilegível não é inventada.
+   * Imóvel vinculado a uma obra mostra o VGV e o endereço da obra e, se não tiver
+   * coordenadas, o ponto da PCI da CAIXA. Obra sem imóvel na lista entra com o ponto
+   * da PCI (identificação), sem criar imóvel. Coordenada ilegível não é inventada.
    */
   list: adminProcedure.query(async () => {
     const db = getDb();
@@ -796,8 +796,16 @@ export const mapaRouter = router({
     const vgvDaObra = (o: (typeof obras)[number]) => o.vgv ?? o.approvedValue ?? o.simulationValue ?? null;
     const obraDoImovel = new Map(obras.filter(o => o.imovelId).map(o => [o.imovelId!, o]));
     const pciDaObra = new Map(pcis.map(p => [p.projectId, (p.parsed as { identificacao?: { latitude?: unknown; longitude?: unknown } } | null)?.identificacao]));
+    const pontoPciDaObra = (obraId: number) => {
+      const id = pciDaObra.get(obraId);
+      return id ? coordenadasDaPci(id.latitude, id.longitude) : null;
+    };
     const pontosImoveis = lista.map(p => {
       const obra = obraDoImovel.get(p.id);
+      // Imóvel vinculado sem coordenadas usa o ponto da PCI da obra (sem gravar nada).
+      const pci = obra && !validCoordinates(p.latitude, p.longitude) ? pontoPciDaObra(obra.id) : null;
+      const latitude = pci ? pci.lat.toFixed(7) : p.latitude;
+      const longitude = pci ? pci.lng.toFixed(7) : p.longitude;
       return {
         key: `imovel-${p.id}`,
         id: p.id,
@@ -810,15 +818,16 @@ export const mapaRouter = router({
         neighborhood: p.neighborhood,
         address: enderecoCompleto(obra ? [obra.address, obra.city, obra.state] : [p.address, p.neighborhood, p.city, p.state]),
         price: obra ? vgvDaObra(obra) : p.price,
-        latitude: p.latitude,
-        longitude: p.longitude,
+        latitude,
+        longitude,
         slug: p.slug,
-        hasCoordinates: validCoordinates(p.latitude, p.longitude),
+        hasCoordinates: validCoordinates(latitude, longitude),
       };
     });
-    const pontosObras = obras.filter(o => !o.imovelId).flatMap(o => {
-      const id = pciDaObra.get(o.id);
-      const ponto = id ? coordenadasDaPci(id.latitude, id.longitude) : null;
+    // Obra sem imóvel na lista (sem vínculo, ou imóvel vendido/alugado) entra pelo ponto da PCI.
+    const imoveisListados = new Set(lista.map(p => p.id));
+    const pontosObras = obras.filter(o => !o.imovelId || !imoveisListados.has(o.imovelId)).flatMap(o => {
+      const ponto = pontoPciDaObra(o.id);
       if (!ponto) return [];
       return [{
         key: `obra-${o.id}`,

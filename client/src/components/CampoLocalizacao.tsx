@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { Loader2, MapPin } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
@@ -23,6 +23,8 @@ export function CampoLocalizacao({
   const [texto, setTexto] = useState("");
   const [erro, setErro] = useState<string | null>(null);
   const resolver = trpc.geo.resolverLinkCurto.useMutation();
+  // Sair do campo e clicar em "Marcar" disparam juntos: o link curto é resolvido uma vez só.
+  const resolvendo = useRef(false);
 
   const aplicar = async () => {
     const lido = interpretarLocalizacao(texto);
@@ -33,6 +35,8 @@ export function CampoLocalizacao({
       return;
     }
     if ("linkCurto" in lido) {
+      if (resolvendo.current) return;
+      resolvendo.current = true;
       try {
         const ponto = await resolver.mutateAsync({ url: lido.linkCurto });
         setErro(null);
@@ -41,6 +45,8 @@ export function CampoLocalizacao({
         toast.success("Localização lida do link do mapa.");
       } catch (e) {
         setErro(e instanceof Error ? e.message : "Não foi possível abrir o link.");
+      } finally {
+        resolvendo.current = false;
       }
       return;
     }
