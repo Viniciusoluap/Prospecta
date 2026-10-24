@@ -3,7 +3,9 @@ export async function uploadProjectDocument(endpoint: string, file: File, itemId
   if (kind === "pdf" && !/\.pdf$/i.test(file.name)) throw new Error("Nesta opção envie um arquivo PDF.");
   async function post(body: object) {
     const res = await fetch(endpoint, { method: "POST", credentials: "include", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
-    const data = await res.json();
+    // Resposta fora do JSON (ex.: rota ausente, limite da plataforma) vira mensagem legível,
+    // em vez do "The string did not match the expected pattern" do Safari.
+    const data = await res.json().catch(() => { throw new Error(`O servidor não aceitou o envio (HTTP ${res.status}). Tente novamente; se persistir, avise o suporte.`); });
     if (!res.ok) throw new Error(data.error || "Não foi possível enviar o arquivo.");
     return data;
   }
