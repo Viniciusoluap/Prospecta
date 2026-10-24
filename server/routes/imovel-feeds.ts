@@ -11,7 +11,9 @@ import {
 const router = Router();
 
 function siteUrlFromRequest(req: Request): string {
-  return `${req.protocol}://${req.get("host")}`;
+  // Atrás da Vercel o Express vê "http"; o protocolo real vem em x-forwarded-proto.
+  const proto = String(req.get("x-forwarded-proto") ?? req.protocol).split(",")[0].trim() || "https";
+  return `${proto}://${req.get("host")}`;
 }
 
 router.get("/feed/zap", async (req: Request, res: Response) => {
