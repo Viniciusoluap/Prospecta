@@ -20,7 +20,7 @@ const actions = [
 
 export default function Instituto() {
   return (
-    <div className="min-h-screen bg-gradient-to-br from-[#1A2332] via-[#2C3E50] to-[#1A2332]">
+    <div className="min-h-screen bg-gradient-to-br from-[#1A2332] via-[#2C3E50] to-[#1A2332] text-gray-100">
       <SEO
         title="Instituto Prospecta"
         description="Conheça o braço social da Prospecta Empreendimentos em Imperatriz-MA — ações sociais, ambientais e educacionais."

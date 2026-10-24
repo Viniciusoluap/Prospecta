@@ -73,7 +73,7 @@ export default function Mercado() {
   }, [listings, busca, fonte, tipo]);
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-[#1A2332] via-[#2C3E50] to-[#1A2332]">
+    <div className="min-h-screen bg-gradient-to-br from-[#1A2332] via-[#2C3E50] to-[#1A2332] text-gray-100">
       <SEO
         title="Mercado de Imóveis"
         description="Todos os imóveis disponíveis em Imperatriz-MA reunidos de OLX, Zap, Facebook e anúncios diretos, verificados pela equipe Prospecta."
@@ -97,7 +97,7 @@ export default function Mercado() {
               </p>
             </div>
 
-            <Card className="bg-[#1A2332]/60 border-[#C9A961]/20 backdrop-blur-sm">
+            <Card className="bg-[#1A2332]/60 border-[#C9A961]/20 backdrop-blur-sm text-gray-100">
               <CardContent className="p-6 grid gap-4 md:grid-cols-3">
                 <div className="relative">
                   <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
@@ -130,7 +130,7 @@ export default function Mercado() {
                 {[1, 2, 3].map((i) => <Skeleton key={i} className="h-64 w-full bg-[#2C3E50] rounded-lg" />)}
               </div>
             ) : filtrados.length === 0 ? (
-              <Card className="bg-[#1A2332]/60 border-[#C9A961]/20 backdrop-blur-sm">
+              <Card className="bg-[#1A2332]/60 border-[#C9A961]/20 backdrop-blur-sm text-gray-100">
                 <CardContent className="py-16 text-center">
                   <Search className="h-16 w-16 text-[#C9A961]/40 mx-auto mb-4" />
                   <p className="text-gray-400">Nenhum imóvel verificado encontrado no momento.</p>
@@ -142,7 +142,7 @@ export default function Mercado() {
                   const foto = firstFoto(l.imagens);
                   const preco = formatCurrencyBR(l.preco);
                   return (
-                    <Card key={l.id} className="bg-[#1A2332]/60 border-[#C9A961]/20 backdrop-blur-sm overflow-hidden hover:border-[#C9A961]/60 transition-all">
+                    <Card key={l.id} className="bg-[#1A2332]/60 border-[#C9A961]/20 backdrop-blur-sm overflow-hidden hover:border-[#C9A961]/60 transition-all text-gray-100">
                       <div className="relative h-40 bg-[#2C3E50]">
                         {foto ? (
                           <img src={foto} alt={l.titulo} className="w-full h-full object-cover" />

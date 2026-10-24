@@ -45,7 +45,7 @@ export function GoogleDriveCard() {
   }
 
   const r = testar.data;
-  return <Card className="border-[#C9A961]/20 bg-[#2C3E50]"><CardContent className="space-y-4 pt-6 text-white">
+  return <Card className="border-[#C9A961]/20 bg-[#2C3E50] text-gray-100"><CardContent className="space-y-4 pt-6 text-white">
     <div className="flex flex-wrap items-center justify-between gap-3">
       <div className="flex items-center gap-3"><HardDrive className="text-[#C9A961]" /><div>
         <h2 className="text-lg font-bold">Google Drive</h2>

@@ -193,7 +193,7 @@ export default function AdminEditarObra({ modo = "admin" }: { modo?: "admin" | "
 
   if (authLoading || !isAuthenticated) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-[#1A2332] via-[#2C3E50] to-[#1A2332]">
+      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-[#1A2332] via-[#2C3E50] to-[#1A2332] text-gray-100">
         <Loader2 className="h-8 w-8 animate-spin text-[#C9A961]" />
       </div>
     );
@@ -205,7 +205,7 @@ export default function AdminEditarObra({ modo = "admin" }: { modo?: "admin" | "
 
   if (isLoading) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-[#1A2332] via-[#2C3E50] to-[#1A2332]">
+      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-[#1A2332] via-[#2C3E50] to-[#1A2332] text-gray-100">
         <Loader2 className="h-8 w-8 animate-spin text-[#C9A961]" />
       </div>
     );
@@ -213,8 +213,8 @@ export default function AdminEditarObra({ modo = "admin" }: { modo?: "admin" | "
 
   if (!project) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-[#1A2332] via-[#2C3E50] to-[#1A2332]">
-        <Card className="bg-[#1A2332]/60 border-[#C9A961]/20">
+      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-[#1A2332] via-[#2C3E50] to-[#1A2332] text-gray-100">
+        <Card className="bg-[#1A2332]/60 border-[#C9A961]/20 text-gray-100">
           <CardContent className="pt-6">
             <p className="text-gray-300">Obra não encontrada.</p>
             <Link href={voltarPara}>
@@ -229,7 +229,7 @@ export default function AdminEditarObra({ modo = "admin" }: { modo?: "admin" | "
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-[#1A2332] via-[#2C3E50] to-[#1A2332]">
+    <div className="min-h-screen bg-gradient-to-br from-[#1A2332] via-[#2C3E50] to-[#1A2332] text-gray-100">
       {/* Header */}
       <div className="border-b border-[#C9A961]/20 bg-[#1A2332]/80 backdrop-blur-sm">
         <div className="container py-8">
@@ -256,7 +256,7 @@ export default function AdminEditarObra({ modo = "admin" }: { modo?: "admin" | "
         <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
           {/* Abas em grade responsiva (2 → 3 → 6 colunas); o rótulo quebra dentro da
               própria aba em vez de invadir a vizinha (pedido A2, 13/10/2026). */}
-          <TabsList className="grid h-auto w-full grid-cols-2 gap-1 border border-[#C9A961]/20 bg-[#1A2332]/60 p-1 sm:grid-cols-3 xl:grid-cols-6">
+          <TabsList className="grid h-auto w-full grid-cols-2 gap-1 border border-[#C9A961]/20 bg-[#1A2332]/60 p-1 sm:grid-cols-3 xl:grid-cols-6 text-gray-100">
             {ABAS_OBRA.map(({ valor, rotulo, Icone }) => (
               <TabsTrigger
                 key={valor}
@@ -272,7 +272,7 @@ export default function AdminEditarObra({ modo = "admin" }: { modo?: "admin" | "
           {/* ABA 1: INFORMAÇÕES BÁSICAS */}
           <TabsContent value="info" className="mt-6">
             <fieldset disabled={ehEmpreiteiro} className="contents">
-            <Card className="bg-[#1A2332]/60 border-[#C9A961]/20 backdrop-blur-sm">
+            <Card className="bg-[#1A2332]/60 border-[#C9A961]/20 backdrop-blur-sm text-gray-100">
               <CardHeader>
                 <CardTitle className="text-[#C9A961]">Informações Básicas</CardTitle>
                 <CardDescription className="text-gray-400">
@@ -329,9 +329,13 @@ export default function AdminEditarObra({ modo = "admin" }: { modo?: "admin" | "
                     <CampoLocalizacao coords={coords} onChange={setCoords} />
                   )}
                   <p className="text-xs text-gray-400">
-                    {localizacaoQuery.data?.imovelId
+                    {localizacaoQuery.data?.imovelId && localizacaoQuery.data.coords
                       ? `Ponto guardado no imóvel vinculado "${localizacaoQuery.data.imovelTitulo}" (aparece no Mapa Operacional).`
-                      : "Ao salvar, o ponto cria um imóvel vinculado à obra, não publicado no site, e aparece no Mapa Operacional."}
+                      : localizacaoQuery.data?.pontoPci && !coords
+                        ? `Ponto lido da PCI da CAIXA: ${localizacaoQuery.data.pontoPci.lat.toFixed(6)}, ${localizacaoQuery.data.pontoPci.lng.toFixed(6)} (já aparece no Mapa Operacional). Para usar outro ponto, cole-o acima e salve.`
+                        : localizacaoQuery.data?.imovelId
+                          ? `O imóvel vinculado "${localizacaoQuery.data.imovelTitulo}" ainda não tem ponto. Cole a localização acima e salve para aparecer no Mapa Operacional.`
+                          : "Ao salvar, o ponto cria um imóvel vinculado à obra, não publicado no site, e aparece no Mapa Operacional."}
                     {coordsAlteradas && " Alteração ainda não salva."}
                   </p>
                 </div>
@@ -424,7 +428,7 @@ export default function AdminEditarObra({ modo = "admin" }: { modo?: "admin" | "
           {/* ABA VALORES DA OPERAÇÃO */}
           <TabsContent value="mcmv" className="mt-6 space-y-6">
             <fieldset disabled={ehEmpreiteiro} className="contents">
-            <Card className="bg-[#1A2332]/60 border-[#C9A961]/20 backdrop-blur-sm">
+            <Card className="bg-[#1A2332]/60 border-[#C9A961]/20 backdrop-blur-sm text-gray-100">
               <CardHeader>
                 <CardTitle className="text-[#C9A961]">Valores da Operação</CardTitle>
                 <CardDescription className="text-gray-400">
@@ -494,7 +498,7 @@ export default function AdminEditarObra({ modo = "admin" }: { modo?: "admin" | "
 
           {/* ABA 5: RELATÓRIOS */}
           <TabsContent value="relatorios" className="mt-6">
-            <Card className="bg-[#1A2332]/60 border-[#C9A961]/20 backdrop-blur-sm">
+            <Card className="bg-[#1A2332]/60 border-[#C9A961]/20 backdrop-blur-sm text-gray-100">
               <CardHeader>
                 <CardTitle className="text-[#C9A961]">Relatórios</CardTitle>
                 <CardDescription className="text-gray-400">
@@ -504,7 +508,7 @@ export default function AdminEditarObra({ modo = "admin" }: { modo?: "admin" | "
               <CardContent className="space-y-6">
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                   {/* Relatório PDF */}
-                  <Card className="bg-[#1A2332]/40 border-[#C9A961]/20">
+                  <Card className="bg-[#1A2332]/40 border-[#C9A961]/20 text-gray-100">
                     <CardHeader>
                       <CardTitle className="text-[#C9A961] text-lg">Relatório PDF</CardTitle>
                       <CardDescription className="text-gray-400">
@@ -517,7 +521,7 @@ export default function AdminEditarObra({ modo = "admin" }: { modo?: "admin" | "
                   </Card>
 
                   {/* Relatório Excel */}
-                  <Card className="bg-[#1A2332]/40 border-[#C9A961]/20">
+                  <Card className="bg-[#1A2332]/40 border-[#C9A961]/20 text-gray-100">
                     <CardHeader>
                       <CardTitle className="text-[#C9A961] text-lg">Planilha Excel</CardTitle>
                       <CardDescription className="text-gray-400">

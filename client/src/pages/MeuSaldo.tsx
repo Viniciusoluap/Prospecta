@@ -29,7 +29,7 @@ export default function MeuSaldo() {
 
   if (authLoading) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-[#1A2332] via-[#2C3E50] to-[#1A2332]">
+      <div className="min-h-screen bg-gradient-to-br from-[#1A2332] via-[#2C3E50] to-[#1A2332] text-gray-100">
         <Navbar />
         <main className="flex-1 py-12">
           <div className="container max-w-4xl">
@@ -42,7 +42,7 @@ export default function MeuSaldo() {
 
   if (!isAuthenticated) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-[#1A2332] via-[#2C3E50] to-[#1A2332]">
+      <div className="min-h-screen bg-gradient-to-br from-[#1A2332] via-[#2C3E50] to-[#1A2332] text-gray-100">
         <Navbar />
         <main className="flex-1 py-12">
           <div className="container max-w-4xl">
@@ -92,7 +92,7 @@ export default function MeuSaldo() {
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-[#1A2332] via-[#2C3E50] to-[#1A2332]">
+    <div className="min-h-screen bg-gradient-to-br from-[#1A2332] via-[#2C3E50] to-[#1A2332] text-gray-100">
       <Navbar />
       
       <main className="flex-1 py-12">
@@ -147,7 +147,7 @@ export default function MeuSaldo() {
           </Card>
 
           {/* Histórico de Transações */}
-          <Card className="bg-[#1A2332]/60 border-[#C9A961]/20 backdrop-blur-sm">
+          <Card className="bg-[#1A2332]/60 border-[#C9A961]/20 backdrop-blur-sm text-gray-100">
             <CardHeader>
               <CardTitle className="text-2xl text-[#C9A961]">Histórico de Transações</CardTitle>
               <CardDescription className="text-gray-400 text-base">

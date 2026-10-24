@@ -172,7 +172,7 @@ export default function AdminIncorporacao() {
         {isLoading ? (
           <p className="text-gray-300">Carregando...</p>
         ) : estudos.length === 0 ? (
-          <Card className="bg-[#1A2332]/60 border-[#C9A961]/20">
+          <Card className="bg-[#1A2332]/60 border-[#C9A961]/20 text-gray-100">
             <CardContent className="py-16 text-center">
               <Mountain className="h-16 w-16 text-[#C9A961]/40 mx-auto mb-4" />
               <p className="text-gray-300 font-medium">Nenhum estudo de incorporação ainda</p>
@@ -183,7 +183,7 @@ export default function AdminIncorporacao() {
           <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
             {estudos.map((e: any) => (
               <Link key={e.id} href={`/admin/incorporacao/${e.id}`}>
-                <Card className="bg-[#1A2332]/60 border-[#C9A961]/20 backdrop-blur-sm hover:border-[#C9A961]/60 transition-all cursor-pointer h-full min-w-0 overflow-hidden">
+                <Card className="bg-[#1A2332]/60 border-[#C9A961]/20 backdrop-blur-sm hover:border-[#C9A961]/60 transition-all cursor-pointer h-full min-w-0 overflow-hidden text-gray-100">
                   <CardHeader className="pb-2">
                     {/* Item 6 (18/10): no celular o nome quebra linha e o selo/lixeira ficam dentro do quadro. */}
                     <div className="flex min-w-0 items-start justify-between gap-2">

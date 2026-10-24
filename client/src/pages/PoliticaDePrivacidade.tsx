@@ -3,7 +3,7 @@ import { Link } from "wouter";
 
 export default function PoliticaDePrivacidade() {
   return (
-    <div className="min-h-screen bg-gradient-to-b from-[#1A2332] via-[#2C3E50] to-[#1A2332]">
+    <div className="min-h-screen bg-gradient-to-b from-[#1A2332] via-[#2C3E50] to-[#1A2332] text-gray-100">
       {/* Header */}
       <div className="bg-[#1A2332]/80 backdrop-blur-sm border-b border-[#C9A961]/20 sticky top-0 z-10">
         <div className="container mx-auto px-4 py-4">

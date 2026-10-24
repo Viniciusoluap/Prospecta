@@ -303,7 +303,7 @@ export default function AdminAvaliacoes() {
         />
         {/* Indicadores */}
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-          <Card className="bg-[#2C3E50] border-[#C9A961]/20">
+          <Card className="bg-[#2C3E50] border-[#C9A961]/20 text-gray-100">
             <CardContent className="pt-6 flex items-center gap-3">
               <FileSearch className="h-7 w-7 text-[#C9A961]" />
               <div>
@@ -312,7 +312,7 @@ export default function AdminAvaliacoes() {
               </div>
             </CardContent>
           </Card>
-          <Card className="bg-[#2C3E50] border-[#C9A961]/20">
+          <Card className="bg-[#2C3E50] border-[#C9A961]/20 text-gray-100">
             <CardContent className="pt-6 flex items-center gap-3">
               <Clock className="h-7 w-7 text-yellow-500" />
               <div>
@@ -321,7 +321,7 @@ export default function AdminAvaliacoes() {
               </div>
             </CardContent>
           </Card>
-          <Card className="bg-[#2C3E50] border-[#C9A961]/20">
+          <Card className="bg-[#2C3E50] border-[#C9A961]/20 text-gray-100">
             <CardContent className="pt-6 flex items-center gap-3">
               <CheckCircle2 className="h-7 w-7 text-green-500" />
               <div>
@@ -330,7 +330,7 @@ export default function AdminAvaliacoes() {
               </div>
             </CardContent>
           </Card>
-          <Card className="bg-[#2C3E50] border-[#C9A961]/20">
+          <Card className="bg-[#2C3E50] border-[#C9A961]/20 text-gray-100">
             <CardContent className="pt-6 flex items-center gap-3">
               <XCircle className="h-7 w-7 text-red-500" />
               <div>
@@ -365,7 +365,7 @@ export default function AdminAvaliacoes() {
 
         {/* Lista */}
         {avaliacoes.length === 0 ? (
-          <Card className="bg-[#2C3E50] border-[#C9A961]/20">
+          <Card className="bg-[#2C3E50] border-[#C9A961]/20 text-gray-100">
             <CardContent className="py-12 text-center text-gray-400">
               <ClipboardCheck className="h-12 w-12 mx-auto mb-3 opacity-20" />
               <p>Nenhuma avaliação encontrada</p>
@@ -374,7 +374,7 @@ export default function AdminAvaliacoes() {
         ) : (
           <div className="space-y-3">
             {avaliacoes.map((a: any) => (
-              <Card key={a.id} className="bg-[#2C3E50] border-[#C9A961]/20 hover:border-[#C9A961]/50 transition-colors">
+              <Card key={a.id} className="bg-[#2C3E50] border-[#C9A961]/20 hover:border-[#C9A961]/50 transition-colors text-gray-100">
                 <CardHeader className="pb-3">
                   <div className="flex flex-wrap items-center gap-3">
                     <input

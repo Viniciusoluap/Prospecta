@@ -57,7 +57,7 @@ export default function Contato() {
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-[#1A2332] via-[#2C3E50] to-[#1A2332]">
+    <div className="min-h-screen bg-gradient-to-br from-[#1A2332] via-[#2C3E50] to-[#1A2332] text-gray-100">
       <SEO
         title="Contato"
         description="Entre em contato com a Prospecta Empreendimentos em Imperatriz-MA. Atendimento para financiamento, construção e imóveis."
@@ -80,7 +80,7 @@ export default function Contato() {
             </div>
 
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-              <Card className="lg:col-span-2 bg-[#1A2332]/60 border-[#C9A961]/20 backdrop-blur-sm">
+              <Card className="lg:col-span-2 bg-[#1A2332]/60 border-[#C9A961]/20 backdrop-blur-sm text-gray-100">
                 <CardContent className="p-8">
                   {enviado ? (
                     <div className="flex flex-col items-center justify-center py-16 text-center gap-4">

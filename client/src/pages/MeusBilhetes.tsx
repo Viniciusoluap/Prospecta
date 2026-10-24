@@ -18,7 +18,7 @@ export default function MeusBilhetes() {
 
   if (authLoading) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-[#1A2332] via-[#2C3E50] to-[#1A2332]">
+      <div className="min-h-screen bg-gradient-to-br from-[#1A2332] via-[#2C3E50] to-[#1A2332] text-gray-100">
         <Navbar />
         <main className="flex-1 py-12">
           <div className="container max-w-4xl">
@@ -31,7 +31,7 @@ export default function MeusBilhetes() {
 
   if (!isAuthenticated) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-[#1A2332] via-[#2C3E50] to-[#1A2332]">
+      <div className="min-h-screen bg-gradient-to-br from-[#1A2332] via-[#2C3E50] to-[#1A2332] text-gray-100">
         <Navbar />
         <main className="flex-1 py-12">
           <div className="container max-w-4xl">
@@ -79,7 +79,7 @@ export default function MeusBilhetes() {
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-[#1A2332] via-[#2C3E50] to-[#1A2332]">
+    <div className="min-h-screen bg-gradient-to-br from-[#1A2332] via-[#2C3E50] to-[#1A2332] text-gray-100">
       <Navbar />
       
       <main className="flex-1 py-12">
@@ -107,7 +107,7 @@ export default function MeusBilhetes() {
           {isLoading ? (
             <div className="space-y-4">
               {[1, 2, 3].map((i) => (
-                <Card key={i} className="bg-[#1A2332]/60 border-[#C9A961]/20">
+                <Card key={i} className="bg-[#1A2332]/60 border-[#C9A961]/20 text-gray-100">
                   <CardHeader>
                     <Skeleton className="h-6 w-3/4 bg-[#2C3E50]" />
                     <Skeleton className="h-4 w-1/2 bg-[#2C3E50]" />
@@ -118,7 +118,7 @@ export default function MeusBilhetes() {
           ) : tickets && tickets.length > 0 ? (
             <div className="space-y-4">
               {tickets.map((ticket) => (
-                <Card key={ticket.id} className="bg-[#1A2332]/60 border-[#C9A961]/20 backdrop-blur-sm hover:border-[#C9A961]/40 transition-all">
+                <Card key={ticket.id} className="bg-[#1A2332]/60 border-[#C9A961]/20 backdrop-blur-sm hover:border-[#C9A961]/40 transition-all text-gray-100">
                   <CardHeader>
                     <div className="flex items-start justify-between">
                       <div className="space-y-2">
@@ -178,7 +178,7 @@ export default function MeusBilhetes() {
               ))}
             </div>
           ) : (
-            <Card className="bg-[#1A2332]/60 border-[#C9A961]/20 backdrop-blur-sm">
+            <Card className="bg-[#1A2332]/60 border-[#C9A961]/20 backdrop-blur-sm text-gray-100">
               <CardContent className="py-16 text-center">
                 <Ticket className="h-20 w-20 text-[#C9A961]/50 mx-auto mb-6" />
                 <p className="text-2xl font-bold text-[#C9A961] mb-3">Você ainda não comprou bilhetes</p>

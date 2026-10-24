@@ -100,7 +100,7 @@ export default function AdminObraMedicoes() {
 
   if (loadingProject) {
     return (
-      <div className="min-h-screen bg-[#1A2332] flex items-center justify-center">
+      <div className="min-h-screen bg-[#1A2332] flex items-center justify-center text-gray-100">
         <Loader2 className="h-8 w-8 animate-spin text-[#C9A961]" />
       </div>
     );

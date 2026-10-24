@@ -31,7 +31,7 @@ const values = [
 
 export default function Sobre() {
   return (
-    <div className="min-h-screen bg-gradient-to-br from-[#1A2332] via-[#2C3E50] to-[#1A2332]">
+    <div className="min-h-screen bg-gradient-to-br from-[#1A2332] via-[#2C3E50] to-[#1A2332] text-gray-100">
       <SEO
         title="Sobre Nós"
         description="Conheça a Prospecta Empreendimentos — construção civil e financiamento imobiliário em Imperatriz-MA."
@@ -57,7 +57,7 @@ export default function Sobre() {
               </p>
             </div>
 
-            <Card className="bg-[#1A2332]/60 border-[#C9A961]/20 backdrop-blur-sm">
+            <Card className="bg-[#1A2332]/60 border-[#C9A961]/20 backdrop-blur-sm text-gray-100">
               <CardContent className="p-8 grid grid-cols-2 md:grid-cols-4 gap-4 text-center">
                 {[
                   { value: "2020", label: "Ano de fundação" },
@@ -96,7 +96,7 @@ export default function Sobre() {
               </div>
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-5">
                 {values.map(({ icon: Icon, title, description }) => (
-                  <Card key={title} className="bg-[#1A2332]/60 border-[#C9A961]/20 backdrop-blur-sm text-center">
+                  <Card key={title} className="bg-[#1A2332]/60 border-[#C9A961]/20 backdrop-blur-sm text-center text-gray-100">
                     <CardContent className="p-6">
                       <div className="w-12 h-12 bg-[#C9A961] rounded-full flex items-center justify-center mx-auto mb-4">
                         <Icon className="h-5 w-5 text-[#1A2332]" />
@@ -116,7 +116,7 @@ export default function Sobre() {
               </div>
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5">
                 {["Administrativo", "Equipe Comercial", "Engenharia e Obras", "Financiamento"].map((name) => (
-                  <Card key={name} className="bg-[#1A2332]/60 border-[#C9A961]/20 backdrop-blur-sm text-center">
+                  <Card key={name} className="bg-[#1A2332]/60 border-[#C9A961]/20 backdrop-blur-sm text-center text-gray-100">
                     <CardContent className="p-6">
                       <div className="w-14 h-14 bg-[#C9A961] rounded-full flex items-center justify-center mx-auto mb-3">
                         <span className="text-[#1A2332] font-black text-xl">{name[0]}</span>

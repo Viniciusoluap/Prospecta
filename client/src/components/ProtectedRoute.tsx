@@ -29,7 +29,7 @@ export function ProtectedRoute({ children }: ProtectedRouteProps) {
   // Mostra loading enquanto verifica autenticação
   if (loading) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-[#1A2332]">
+      <div className="min-h-screen flex items-center justify-center bg-[#1A2332] text-gray-100">
         <div className="text-center">
           <div className="inline-block animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-[#C9A961]"></div>
           <p className="mt-4 text-gray-400">Verificando autenticação...</p>
@@ -41,7 +41,7 @@ export function ProtectedRoute({ children }: ProtectedRouteProps) {
   // Se não está autenticado, mostra tela de redirecionamento
   if (!isAuthenticated) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-[#1A2332]">
+      <div className="min-h-screen flex items-center justify-center bg-[#1A2332] text-gray-100">
         <div className="text-center">
           <div className="inline-block animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-[#C9A961]"></div>
           <p className="mt-4 text-gray-400">Redirecionando para login...</p>

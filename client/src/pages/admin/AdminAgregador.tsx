@@ -445,25 +445,25 @@ export default function AdminAgregador({
         }
       >
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-          <Card className="bg-[#2C3E50] border-[#C9A961]/20">
+          <Card className="bg-[#2C3E50] border-[#C9A961]/20 text-gray-100">
             <CardContent className="pt-6">
               <p className="text-gray-300 text-xs">Total</p>
               <p className="text-2xl font-bold text-white">{total}</p>
             </CardContent>
           </Card>
-          <Card className="bg-[#2C3E50] border-[#C9A961]/20">
+          <Card className="bg-[#2C3E50] border-[#C9A961]/20 text-gray-100">
             <CardContent className="pt-6">
               <p className="text-gray-300 text-xs">Pendentes</p>
               <p className="text-2xl font-bold text-yellow-400">{pendentes}</p>
             </CardContent>
           </Card>
-          <Card className="bg-[#2C3E50] border-[#C9A961]/20">
+          <Card className="bg-[#2C3E50] border-[#C9A961]/20 text-gray-100">
             <CardContent className="pt-6">
               <p className="text-gray-300 text-xs">Verificados</p>
               <p className="text-2xl font-bold text-blue-400">{verificados}</p>
             </CardContent>
           </Card>
-          <Card className="bg-[#2C3E50] border-[#C9A961]/20">
+          <Card className="bg-[#2C3E50] border-[#C9A961]/20 text-gray-100">
             <CardContent className="pt-6">
               <p className="text-gray-300 text-xs">Importados</p>
               <p className="text-2xl font-bold text-green-400">{importados}</p>
@@ -501,7 +501,7 @@ export default function AdminAgregador({
         </div>
 
         {itens.length === 0 ? (
-          <Card className="bg-[#2C3E50] border-[#C9A961]/20">
+          <Card className="bg-[#2C3E50] border-[#C9A961]/20 text-gray-100">
             <CardContent className="py-12 text-center text-gray-400">
               <Rss className="h-12 w-12 mx-auto mb-3 opacity-20" />
               <p>Nenhum imóvel agregado encontrado</p>
@@ -518,7 +518,7 @@ export default function AdminAgregador({
               return (
                 <Card
                   key={item.id}
-                  className="bg-[#2C3E50] border-[#C9A961]/20"
+                  className="bg-[#2C3E50] border-[#C9A961]/20 text-gray-100"
                 >
                   <CardHeader className="pb-3">
                     <div className="flex items-center justify-between gap-3 flex-wrap">

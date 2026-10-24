@@ -178,7 +178,7 @@ export default function AdminFinanceiro() {
       <div className="max-w-7xl mx-auto px-6 py-6 space-y-6">
         {/* Summary Cards */}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-          <Card className="bg-[#2C3E50] border-green-500/30">
+          <Card className="bg-[#2C3E50] border-green-500/30 text-gray-100">
             <CardContent className="pt-6">
               <div className="flex items-center gap-3">
                 <TrendingUp className="h-8 w-8 text-green-400" />
@@ -189,7 +189,7 @@ export default function AdminFinanceiro() {
               </div>
             </CardContent>
           </Card>
-          <Card className="bg-[#2C3E50] border-red-500/30">
+          <Card className="bg-[#2C3E50] border-red-500/30 text-gray-100">
             <CardContent className="pt-6">
               <div className="flex items-center gap-3">
                 <TrendingDown className="h-8 w-8 text-red-400" />
@@ -214,7 +214,7 @@ export default function AdminFinanceiro() {
         </div>
 
         {/* Transactions List */}
-        <Card className="bg-[#2C3E50] border-[#C9A961]/20">
+        <Card className="bg-[#2C3E50] border-[#C9A961]/20 text-gray-100">
           <CardHeader>
             <div className="flex items-center justify-between">
               <CardTitle className="text-[#C9A961]">Lançamentos</CardTitle>

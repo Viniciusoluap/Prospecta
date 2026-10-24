@@ -5,6 +5,7 @@ import { and, asc, desc, eq, inArray, isNull, ne, sql } from "drizzle-orm";
 import { z } from "zod";
 import {
   brokerProfiles,
+  constructionPci,
   constructionProjects,
   imoveis,
   leads,
@@ -24,6 +25,7 @@ import {
   visitInput,
 } from "../shared/operacional.js";
 import { calcularComissaoObra } from "../shared/financeiro/comissao.js";
+import { coordenadasDaPci, enderecoCompleto } from "../shared/obra-localizacao.js";
 import { centavosDe } from "../shared/financeiro/obra.js";
 import { adminProcedure, router } from "./_core/trpc.js";
 import { createNotification, getDb } from "./db.js";
@@ -768,26 +770,84 @@ export const projetosRouter = router({
 });
 
 export const mapaRouter = router({
+  /**
+   * Imóveis disponíveis/reservados + obras com ponto conhecido (pedido de 23/10).
+   * Imóvel vinculado a uma obra mostra o VGV e o endereço da obra e, se não tiver
+   * coordenadas, o ponto da PCI da CAIXA. Obra sem imóvel na lista entra com o ponto
+   * da PCI (identificação), sem criar imóvel. Coordenada ilegível não é inventada.
+   */
   list: adminProcedure.query(async () => {
-    const properties = await getDb()
-      .select({
-        id: imoveis.id,
-        title: imoveis.titulo,
-        status: imoveis.status,
-        type: imoveis.tipo,
-        city: imoveis.cidade,
-        neighborhood: imoveis.bairro,
-        price: imoveis.preco,
-        latitude: imoveis.latitude,
-        longitude: imoveis.longitude,
-        slug: imoveis.slug,
-      })
-      .from(imoveis)
-      .where(and(ne(imoveis.status, "vendido"), ne(imoveis.status, "alugado")))
-      .orderBy(asc(imoveis.titulo));
-    return properties.map(p => ({
-      ...p,
-      hasCoordinates: validCoordinates(p.latitude, p.longitude),
-    }));
+    const db = getDb();
+    const [lista, obras, pcis] = await Promise.all([
+      db.select({
+        id: imoveis.id, title: imoveis.titulo, status: imoveis.status, type: imoveis.tipo,
+        address: imoveis.endereco, city: imoveis.cidade, neighborhood: imoveis.bairro, state: imoveis.estado,
+        price: imoveis.preco, latitude: imoveis.latitude, longitude: imoveis.longitude, slug: imoveis.slug,
+      }).from(imoveis)
+        .where(and(ne(imoveis.status, "vendido"), ne(imoveis.status, "alugado")))
+        .orderBy(asc(imoveis.titulo)),
+      db.select({
+        id: constructionProjects.id, title: constructionProjects.title, address: constructionProjects.address,
+        city: constructionProjects.city, state: constructionProjects.state, vgv: constructionProjects.vgv,
+        imovelId: constructionProjects.imovelId, approvedValue: leads.approvedValue, simulationValue: leads.simulationValue,
+      }).from(constructionProjects).leftJoin(leads, eq(leads.id, constructionProjects.leadId)),
+      db.select({ projectId: constructionPci.projectId, parsed: constructionPci.parsed }).from(constructionPci),
+    ]);
+    const vgvDaObra = (o: (typeof obras)[number]) => o.vgv ?? o.approvedValue ?? o.simulationValue ?? null;
+    const obraDoImovel = new Map(obras.filter(o => o.imovelId).map(o => [o.imovelId!, o]));
+    const pciDaObra = new Map(pcis.map(p => [p.projectId, (p.parsed as { identificacao?: { latitude?: unknown; longitude?: unknown } } | null)?.identificacao]));
+    const pontoPciDaObra = (obraId: number) => {
+      const id = pciDaObra.get(obraId);
+      return id ? coordenadasDaPci(id.latitude, id.longitude) : null;
+    };
+    const pontosImoveis = lista.map(p => {
+      const obra = obraDoImovel.get(p.id);
+      // Imóvel vinculado sem coordenadas usa o ponto da PCI da obra (sem gravar nada).
+      const pci = obra && !validCoordinates(p.latitude, p.longitude) ? pontoPciDaObra(obra.id) : null;
+      const latitude = pci ? pci.lat.toFixed(7) : p.latitude;
+      const longitude = pci ? pci.lng.toFixed(7) : p.longitude;
+      return {
+        key: `imovel-${p.id}`,
+        id: p.id,
+        kind: "imovel" as const,
+        obraId: obra?.id ?? null,
+        title: p.title,
+        status: p.status,
+        type: p.type,
+        city: p.city,
+        neighborhood: p.neighborhood,
+        address: enderecoCompleto(obra ? [obra.address, obra.city, obra.state] : [p.address, p.neighborhood, p.city, p.state]),
+        price: obra ? vgvDaObra(obra) : p.price,
+        latitude,
+        longitude,
+        slug: p.slug,
+        hasCoordinates: validCoordinates(latitude, longitude),
+      };
+    });
+    // Obra sem imóvel na lista (sem vínculo, ou imóvel vendido/alugado) entra pelo ponto da PCI.
+    const imoveisListados = new Set(lista.map(p => p.id));
+    const pontosObras = obras.filter(o => !o.imovelId || !imoveisListados.has(o.imovelId)).flatMap(o => {
+      const ponto = pontoPciDaObra(o.id);
+      if (!ponto) return [];
+      return [{
+        key: `obra-${o.id}`,
+        id: o.id,
+        kind: "obra" as const,
+        obraId: o.id,
+        title: `Obra — ${o.title}`,
+        status: "obra",
+        type: "obra",
+        city: o.city,
+        neighborhood: null,
+        address: enderecoCompleto([o.address, o.city, o.state]),
+        price: vgvDaObra(o),
+        latitude: ponto.lat.toFixed(7),
+        longitude: ponto.lng.toFixed(7),
+        slug: null,
+        hasCoordinates: true,
+      }];
+    });
+    return [...pontosImoveis, ...pontosObras];
   }),
 });
+

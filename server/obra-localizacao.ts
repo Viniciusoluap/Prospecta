@@ -4,8 +4,8 @@ import { randomBytes } from "node:crypto";
 import { TRPCError } from "@trpc/server";
 import { and, eq, isNull } from "drizzle-orm";
 import { z } from "zod";
-import { constructionProjects, imoveis } from "../drizzle/schema.js";
-import { coordenadasSalvas, imovelDaObra, normalizarCoordenadas, type Coordenadas } from "../shared/obra-localizacao.js";
+import { constructionPci, constructionProjects, imoveis } from "../drizzle/schema.js";
+import { coordenadasDaPci, coordenadasSalvas, imovelDaObra, normalizarCoordenadas, type Coordenadas } from "../shared/obra-localizacao.js";
 import { adminProcedure, router } from "./_core/trpc.js";
 import { getDb } from "./db.js";
 
@@ -16,12 +16,24 @@ async function obraOuErro(projectId: number) {
   return obra;
 }
 
+/** Ponto da identificação da PCI da CAIXA vinculada à obra (quando legível). */
+async function pontoDaPci(projectId: number) {
+  const [pci] = await getDb().select({ parsed: constructionPci.parsed }).from(constructionPci).where(eq(constructionPci.projectId, projectId)).limit(1);
+  const id = (pci?.parsed as { identificacao?: { latitude?: unknown; longitude?: unknown } } | undefined)?.identificacao;
+  return id ? coordenadasDaPci(id.latitude, id.longitude) : null;
+}
+
+/**
+ * `coords` = ponto salvo no imóvel vinculado. Sem ele, `pontoPci` traz o ponto da
+ * PCI (é o que o Mapa Operacional mostra) para a tela exibir como referência.
+ */
 export async function obterLocalizacaoObra(projectId: number) {
   const obra = await obraOuErro(projectId);
-  if (!obra.imovelId) return { imovelId: null, imovelTitulo: null, coords: null };
-  const [im] = await getDb().select({ id: imoveis.id, titulo: imoveis.titulo, latitude: imoveis.latitude, longitude: imoveis.longitude }).from(imoveis).where(eq(imoveis.id, obra.imovelId)).limit(1);
-  if (!im) return { imovelId: null, imovelTitulo: null, coords: null };
-  return { imovelId: im.id, imovelTitulo: im.titulo, coords: coordenadasSalvas(im.latitude, im.longitude) };
+  const [im] = obra.imovelId
+    ? await getDb().select({ id: imoveis.id, titulo: imoveis.titulo, latitude: imoveis.latitude, longitude: imoveis.longitude }).from(imoveis).where(eq(imoveis.id, obra.imovelId)).limit(1)
+    : [];
+  const coords = im ? coordenadasSalvas(im.latitude, im.longitude) : null;
+  return { imovelId: im?.id ?? null, imovelTitulo: im?.titulo ?? null, coords, pontoPci: coords ? null : await pontoDaPci(projectId) };
 }
 
 /**

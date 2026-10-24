@@ -43,7 +43,7 @@ export default function AdminEmails() {
 
   if (authLoading || isLoading) {
     return (
-      <div className="min-h-screen bg-gradient-to-b from-[#1A2332] via-[#2C3E50] to-[#1A2332] flex items-center justify-center">
+      <div className="min-h-screen bg-gradient-to-b from-[#1A2332] via-[#2C3E50] to-[#1A2332] flex items-center justify-center text-gray-100">
         <Loader2 className="h-8 w-8 animate-spin text-[#C9A961]" />
       </div>
     );
@@ -86,7 +86,7 @@ export default function AdminEmails() {
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-b from-[#1A2332] via-[#2C3E50] to-[#1A2332]">
+    <div className="min-h-screen bg-gradient-to-b from-[#1A2332] via-[#2C3E50] to-[#1A2332] text-gray-100">
       {/* Header */}
       <div className="bg-[#1A2332]/80 backdrop-blur-sm border-b border-[#C9A961]/20 sticky top-0 z-10">
         <div className="container mx-auto px-4 py-4 flex items-center justify-between">
@@ -104,7 +104,7 @@ export default function AdminEmails() {
       <div className="container mx-auto px-4 py-8">
         {/* Estatísticas */}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
-          <Card className="bg-[#1A2332]/60 border-[#C9A961]/20">
+          <Card className="bg-[#1A2332]/60 border-[#C9A961]/20 text-gray-100">
             <CardHeader className="pb-3">
               <CardTitle className="text-[#C9A961] text-lg">Total de Emails</CardTitle>
             </CardHeader>
@@ -113,7 +113,7 @@ export default function AdminEmails() {
             </CardContent>
           </Card>
 
-          <Card className="bg-[#1A2332]/60 border-[#C9A961]/20">
+          <Card className="bg-[#1A2332]/60 border-[#C9A961]/20 text-gray-100">
             <CardHeader className="pb-3">
               <CardTitle className="text-[#C9A961] text-lg">Pendentes</CardTitle>
             </CardHeader>
@@ -124,7 +124,7 @@ export default function AdminEmails() {
             </CardContent>
           </Card>
 
-          <Card className="bg-[#1A2332]/60 border-[#C9A961]/20">
+          <Card className="bg-[#1A2332]/60 border-[#C9A961]/20 text-gray-100">
             <CardHeader className="pb-3">
               <CardTitle className="text-[#C9A961] text-lg">Enviados</CardTitle>
             </CardHeader>
@@ -137,7 +137,7 @@ export default function AdminEmails() {
         </div>
 
         {/* Lista de Emails */}
-        <Card className="bg-[#1A2332]/60 border-[#C9A961]/20">
+        <Card className="bg-[#1A2332]/60 border-[#C9A961]/20 text-gray-100">
           <CardHeader>
             <CardTitle className="text-[#C9A961]">Histórico de Emails</CardTitle>
             <CardDescription className="text-gray-400">
@@ -193,7 +193,7 @@ export default function AdminEmails() {
 
       {/* Dialog de Visualização */}
       <Dialog open={selectedEmail !== null} onOpenChange={() => setSelectedEmail(null)}>
-        <DialogContent className="max-w-3xl max-h-[80vh] overflow-y-auto bg-[#1A2332] border-[#C9A961]/20">
+        <DialogContent className="max-w-3xl max-h-[80vh] overflow-y-auto bg-[#1A2332] border-[#C9A961]/20 text-gray-100">
           <DialogHeader>
             <DialogTitle className="text-[#C9A961]">
               {selectedEmailData?.subject}
@@ -212,7 +212,7 @@ export default function AdminEmails() {
               <div>
                 <h3 className="text-sm font-semibold text-[#C9A961] mb-2">Conteúdo HTML</h3>
                 <div 
-                  className="bg-white p-4 rounded-lg"
+                  className="bg-white p-4 rounded-lg text-gray-900"
                   dangerouslySetInnerHTML={{ __html: selectedEmailData.htmlContent }}
                 />
               </div>

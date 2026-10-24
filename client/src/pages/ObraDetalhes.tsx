@@ -77,7 +77,7 @@ export default function ObraDetalhes({ admin: adminProp = false, empreiteiro = f
 
   if (authLoading || isLoading) {
     return (
-      <div className="min-h-screen bg-gradient-to-b from-[#1A2332] to-[#0F1419] flex items-center justify-center">
+      <div className="min-h-screen bg-gradient-to-b from-[#1A2332] to-[#0F1419] flex items-center justify-center text-gray-100">
         <div className="text-center">
           <HardHat className="h-12 w-12 text-[#C9A961] animate-pulse mx-auto mb-4" />
           <p className="text-white">Carregando detalhes da obra...</p>
@@ -88,7 +88,7 @@ export default function ObraDetalhes({ admin: adminProp = false, empreiteiro = f
 
   if (!project) {
     return (
-      <div className="min-h-screen bg-gradient-to-b from-[#1A2332] to-[#0F1419] flex items-center justify-center">
+      <div className="min-h-screen bg-gradient-to-b from-[#1A2332] to-[#0F1419] flex items-center justify-center text-gray-100">
         <Card className="bg-white/5 border-[#C9A961]/20 backdrop-blur-sm max-w-md">
           <CardContent className="text-center py-12">
             <HardHat className="h-16 w-16 text-gray-400 mx-auto mb-4" />
@@ -105,7 +105,7 @@ export default function ObraDetalhes({ admin: adminProp = false, empreiteiro = f
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-b from-[#1A2332] to-[#0F1419]">
+    <div className="min-h-screen bg-gradient-to-b from-[#1A2332] to-[#0F1419] text-gray-100">
       {/* Header */}
       <div className="bg-[#1A2332] border-b border-[#C9A961]/20">
         <div className="container mx-auto px-4 py-6">

@@ -269,7 +269,7 @@ export default function AdminAvaliacaoDetail() {
 
       <div className="max-w-5xl mx-auto px-6 py-6 space-y-6">
         {/* Dados gerais */}
-        <Card className="bg-[#2C3E50] border-[#C9A961]/20">
+        <Card className="bg-[#2C3E50] border-[#C9A961]/20 text-gray-100">
           <CardHeader><CardTitle className="text-[#C9A961] text-base">Dados Gerais</CardTitle></CardHeader>
           <CardContent className="grid grid-cols-2 md:grid-cols-4 gap-3 text-sm">
             <div><p className="text-gray-300 text-xs">Tipo</p><p className="text-white">{rotulo(avaliacao.tipo)}</p></div>
@@ -284,7 +284,7 @@ export default function AdminAvaliacaoDetail() {
         </Card>
 
         {/* Checklist de vistoria */}
-        <Card className="bg-[#2C3E50] border-[#C9A961]/20">
+        <Card className="bg-[#2C3E50] border-[#C9A961]/20 text-gray-100">
           <CardHeader>
             <div className="flex items-center justify-between">
               <CardTitle className="text-[#C9A961] text-base">Checklist de Vistoria</CardTitle>
@@ -404,7 +404,7 @@ export default function AdminAvaliacaoDetail() {
         </Card>
 
         {/* Sugestão de valor via IA */}
-        <Card className="bg-[#2C3E50] border-[#C9A961]/20">
+        <Card className="bg-[#2C3E50] border-[#C9A961]/20 text-gray-100">
           <CardHeader>
             <div className="flex flex-wrap items-center justify-between gap-3">
               <CardTitle className="text-[#C9A961] text-base">Sugestão de Valor (IA)</CardTitle>
@@ -474,7 +474,7 @@ export default function AdminAvaliacaoDetail() {
         </Card>
 
         {/* Laudo e observações */}
-        <Card className="bg-[#2C3E50] border-[#C9A961]/20">
+        <Card className="bg-[#2C3E50] border-[#C9A961]/20 text-gray-100">
           <CardHeader><CardTitle className="text-[#C9A961] text-base">Laudo e Observações</CardTitle></CardHeader>
           <CardContent className="space-y-3">
             <div>
@@ -505,7 +505,7 @@ export default function AdminAvaliacaoDetail() {
         </Card>
 
         {/* Documentos */}
-        <Card className="bg-[#2C3E50] border-[#C9A961]/20">
+        <Card className="bg-[#2C3E50] border-[#C9A961]/20 text-gray-100">
           <CardHeader><CardTitle className="text-[#C9A961] text-base">Documentos ({documentos.length}/{MAX_DOCUMENTOS})</CardTitle></CardHeader>
           <CardContent className="space-y-2">
             {documentos.map((doc, idx) => (

@@ -24,7 +24,7 @@ export default function Notificacoes() {
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-[#1A2332] via-[#2C3E50] to-[#1A2332]">
+      <div className="min-h-screen bg-gradient-to-br from-[#1A2332] via-[#2C3E50] to-[#1A2332] text-gray-100">
         <Navbar />
         <div className="container py-12">
           <div className="text-center text-white">Carregando...</div>
@@ -35,10 +35,10 @@ export default function Notificacoes() {
 
   if (!isAuthenticated) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-[#1A2332] via-[#2C3E50] to-[#1A2332]">
+      <div className="min-h-screen bg-gradient-to-br from-[#1A2332] via-[#2C3E50] to-[#1A2332] text-gray-100">
         <Navbar />
         <div className="container py-12">
-          <Card className="max-w-md mx-auto bg-[#1A2332]/60 border-[#C9A961]/20 backdrop-blur-sm">
+          <Card className="max-w-md mx-auto bg-[#1A2332]/60 border-[#C9A961]/20 backdrop-blur-sm text-gray-100">
             <CardHeader>
               <CardTitle className="text-[#C9A961] text-center">Acesso Restrito</CardTitle>
             </CardHeader>
@@ -66,7 +66,7 @@ export default function Notificacoes() {
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-[#1A2332] via-[#2C3E50] to-[#1A2332]">
+    <div className="min-h-screen bg-gradient-to-br from-[#1A2332] via-[#2C3E50] to-[#1A2332] text-gray-100">
       <Navbar />
       
       <main className="container py-12">
@@ -104,7 +104,7 @@ export default function Notificacoes() {
               Carregando notificações...
             </div>
           ) : notifications.length === 0 ? (
-            <Card className="bg-[#1A2332]/60 border-[#C9A961]/20 backdrop-blur-sm">
+            <Card className="bg-[#1A2332]/60 border-[#C9A961]/20 backdrop-blur-sm text-gray-100">
               <CardContent className="py-16 text-center">
                 <Bell className="h-20 w-20 text-[#C9A961]/50 mx-auto mb-6" />
                 <h3 className="text-xl font-semibold text-[#C9A961] mb-2">
