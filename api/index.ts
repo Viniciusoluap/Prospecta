@@ -16,6 +16,7 @@ import { getDb, getUserByEmail } from "../server/db.js";
 import { appRouter } from "../server/routers.js";
 import obraFotosRouter from "../server/routes/obra-fotos.js";
 import obraMedicaoCaixaRouter from "../server/routes/obra-medicao-caixa.js";
+import projetoDocumentosRouter from "../server/routes/projeto-documentos.js";
 import imovelFotosRouter from "../server/routes/imovel-fotos.js";
 import googleDriveRotas from "../server/routes/google-drive.js";
 import { checkAndSendReminder } from "../server/mcmv-rules-reminder.js";
@@ -150,6 +151,8 @@ app.use("/api", async (req, res, next) => {
     const router = express.Router();
     router.use(obraFotosRouter);
     router.use(obraMedicaoCaixaRouter);
+    // Pedido de 24/10: envio de arquivos de Projetos (e da revisão) só existia no servidor local.
+    router.use(projetoDocumentosRouter);
     router.use(imovelFotosRouter);
     router.use(googleDriveRotas);
     router.post("/asaas/webhook", handleAsaasWebhook);
