@@ -14,10 +14,13 @@ import { EXEMPLOS_LOCALIZACAO, interpretarLocalizacao } from "@shared/geo/locali
 export function CampoLocalizacao({
   coords,
   onChange,
+  onResolvendo,
   className = "",
 }: {
   coords: { lat: number; lng: number } | null;
   onChange: (coords: { lat: number; lng: number } | null) => void;
+  /** Avisa o formulário enquanto um link curto é aberto, para não salvar o ponto antigo. */
+  onResolvendo?: (resolvendo: boolean) => void;
   className?: string;
 }) {
   const [texto, setTexto] = useState("");
@@ -37,6 +40,7 @@ export function CampoLocalizacao({
     if ("linkCurto" in lido) {
       if (resolvendo.current) return;
       resolvendo.current = true;
+      onResolvendo?.(true);
       try {
         const ponto = await resolver.mutateAsync({ url: lido.linkCurto });
         setErro(null);
@@ -47,6 +51,7 @@ export function CampoLocalizacao({
         setErro(e instanceof Error ? e.message : "Não foi possível abrir o link.");
       } finally {
         resolvendo.current = false;
+        onResolvendo?.(false);
       }
       return;
     }

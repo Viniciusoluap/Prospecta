@@ -86,6 +86,7 @@ export default function AdminEditarObra({ modo = "admin" }: { modo?: "admin" | "
   // Lote 23/10, etapa 3: "Localização exata" guardada no imóvel vinculado (Mapa Operacional).
   const localizacaoQuery = trpc.obraLocalizacao.obter.useQuery({ projectId }, { enabled: isAuthenticated && papelOk && !!projectId });
   const salvarLocalizacao = trpc.obraLocalizacao.salvar.useMutation();
+  const [localizacaoResolvendo, setLocalizacaoResolvendo] = useState(false);
   const [coords, setCoords] = useState<{ lat: number; lng: number } | null>(null);
   useEffect(() => { setCoords(localizacaoQuery.data?.coords ?? null); }, [localizacaoQuery.data]);
   const coordsAlteradas = JSON.stringify(coords) !== JSON.stringify(localizacaoQuery.data?.coords ?? null);
@@ -141,6 +142,10 @@ export default function AdminEditarObra({ modo = "admin" }: { modo?: "admin" | "
   }, [project]);
 
   const handleSave = async () => {
+    if (localizacaoResolvendo) {
+      toast.error("Aguarde: a localização ainda está sendo lida do link do mapa.");
+      return;
+    }
     const updates = {
       projectId,
       title,
@@ -326,7 +331,7 @@ export default function AdminEditarObra({ modo = "admin" }: { modo?: "admin" | "
                   {localizacaoQuery.isError ? (
                     <p className="text-xs text-red-300" role="alert">Não foi possível carregar a localização da obra.</p>
                   ) : (
-                    <CampoLocalizacao coords={coords} onChange={setCoords} />
+                    <CampoLocalizacao coords={coords} onChange={setCoords} onResolvendo={setLocalizacaoResolvendo} />
                   )}
                   <p className="text-xs text-gray-400">
                     {localizacaoQuery.data?.imovelId && localizacaoQuery.data.coords

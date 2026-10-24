@@ -8,7 +8,7 @@ import { leadActivities, leadDocuments, leads, leadServices, type User } from ".
 import { protectedProcedure, router } from "./_core/trpc.js";
 import { podeUsarModulo, requireModule, requireRole } from "./_core/rbac.js";
 import { getDb } from "./db.js";
-import { documentHash, driveConfigured, readPrivateDocument, tryDriveUpload, uploadPrivateDocument } from "./drive-documents.js";
+import { documentHash, driveConfigured, enviarParaLixeira, readPrivateDocument, tryDriveUpload, uploadPrivateDocument } from "./drive-documents.js";
 import { readPrivateDbFile } from "./private-document-files.js";
 import { requireClientContext } from "./profile-context.js";
 import { isValidPortalDocument } from "./portal-router.js";
@@ -158,7 +158,35 @@ export const leadDocumentsRouter = router({
       const [doc] = await db.select({ id: leadDocuments.id, leadId: leadDocuments.leadId, type: leadDocuments.type }).from(leadDocuments).where(and(eq(leadDocuments.id, input.id), isNull(leadDocuments.deletedAt))).limit(1);
       if (!doc) throw new TRPCError({ code: "NOT_FOUND" });
       await db.update(leadDocuments).set({ deletedAt: new Date(), deletedByUserId: ctx.user.id }).where(eq(leadDocuments.id, doc.id));
-      await db.insert(leadActivities).values({ leadId: doc.leadId, type: "document", description: `Documento ${doc.type} removido da consulta`, performedBy: `user:${ctx.user.id}` });
+      await db.insert(leadActivities).values({ leadId: doc.leadId, type: "document", description: `Documento ${ROTULO_DOCUMENTO[doc.type] ?? doc.type} removido da consulta`, performedBy: `user:${ctx.user.id}` });
       return { success: true };
+    }),
+  /**
+   * Pedido de 24/10: "Documentos anteriores" com botão de excluir de vez. Apaga o registro
+   * e o arquivo guardado no sistema (lead_document_file_data sai em cascata). Arquivo no
+   * Google Drive vai para a lixeira do Drive (recuperável por 30 dias), salvo se outro
+   * registro (ex.: lead duplicado) ainda usa o mesmo arquivo.
+   */
+  excluirDefinitivo: protectedProcedure
+    .input(z.object({ id: z.number().int().positive() }))
+    .mutation(async ({ ctx, input }) => {
+      requireModule(ctx, "crm");
+      const db = getDb();
+      const [doc] = await db.select({ id: leadDocuments.id, leadId: leadDocuments.leadId, type: leadDocuments.type, fileName: leadDocuments.fileName, driveFileId: leadDocuments.driveFileId })
+        .from(leadDocuments).where(eq(leadDocuments.id, input.id)).limit(1);
+      if (!doc) return { success: true, aviso: null as string | null };
+      let aviso: string | null = null;
+      if (doc.driveFileId) {
+        const [outro] = await db.select({ id: leadDocuments.id }).from(leadDocuments)
+          .where(and(eq(leadDocuments.driveFileId, doc.driveFileId), sql`${leadDocuments.id} <> ${doc.id}`)).limit(1);
+        if (!outro) {
+          try { await enviarParaLixeira(doc.driveFileId); }
+          catch { aviso = "O registro foi excluído, mas o arquivo não pôde ser enviado à lixeira do Google Drive."; }
+        }
+      }
+      await db.delete(leadDocuments).where(eq(leadDocuments.id, doc.id));
+      const nome = doc.fileName ? ` (${doc.fileName})` : "";
+      await db.insert(leadActivities).values({ leadId: doc.leadId, type: "document", description: `Documento ${ROTULO_DOCUMENTO[doc.type] ?? doc.type}${nome} excluído definitivamente`, performedBy: `user:${ctx.user.id}` });
+      return { success: true, aviso };
     }),
 });

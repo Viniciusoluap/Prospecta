@@ -52,16 +52,16 @@ describe("Coordenadas da PCI da CAIXA", () => {
 describe("Mapa operacional — imóveis + obras", () => {
   beforeEach(() => vi.resetAllMocks());
 
-  it("imóvel da obra mostra VGV e endereço da obra; obra sem imóvel entra pela PCI; obra sem ponto fica fora", async () => {
+  it("imóvel da obra mostra VGV e endereço da obra; obra do CRM usa o VGV simulado do lead (não o aprovado/digitado); obra sem imóvel entra pela PCI; obra sem ponto fica fora", async () => {
     fakeDb([
       [
         { id: 4, title: "Obra — MYLCA", status: "reservado", type: "casa", address: null, city: "Não informada", neighborhood: null, state: null, price: "0.00", latitude: "-5.5079369", longitude: "-47.4442404", slug: "obra-18-x" },
         { id: 9, title: "Casa à venda", status: "disponivel", type: "casa", address: "Rua B, 5", city: "Imperatriz", neighborhood: "Centro", state: "MA", price: "350000.00", latitude: null, longitude: null, slug: "casa" },
       ],
       [
-        { id: 18, title: "MYLCA", address: "Morada do Bosque, Imperatriz Maranhão", city: null, state: null, vgv: "200000.00", imovelId: 4, approvedValue: null, simulationValue: null },
-        { id: 21, title: "JOAO", address: "Rua México, Jardim América", city: null, state: null, vgv: null, imovelId: null, approvedValue: "260000.00", simulationValue: "250000.00" },
-        { id: 30, title: "SEM PCI", address: "Rua X", city: null, state: null, vgv: "1.00", imovelId: null, approvedValue: null, simulationValue: null },
+        { id: 18, title: "MYLCA", address: "Morada do Bosque, Imperatriz Maranhão", city: null, state: null, vgv: "200000.00", imovelId: 4, leadId: null, simulationValue: null },
+        { id: 21, title: "JOAO", address: "Rua México, Jardim América", city: null, state: null, vgv: "999.00", imovelId: null, leadId: 7, simulationValue: "250000.00" },
+        { id: 30, title: "SEM PCI", address: "Rua X", city: null, state: null, vgv: "1.00", imovelId: null, leadId: null, simulationValue: null },
       ],
       [
         { projectId: 18, parsed: { identificacao: { latitude: `5°30'29.0" S`, longitude: "47°26'39.8 W" } } },
@@ -72,15 +72,15 @@ describe("Mapa operacional — imóveis + obras", () => {
     expect(r.map(p => p.key)).toEqual(["imovel-4", "imovel-9", "obra-21"]);
     expect(r[0]).toMatchObject({ obraId: 18, price: "200000.00", address: "Morada do Bosque, Imperatriz Maranhão", hasCoordinates: true });
     expect(r[1]).toMatchObject({ obraId: null, price: "350000.00", address: "Rua B, 5, Centro, Imperatriz, MA", hasCoordinates: false });
-    expect(r[2]).toMatchObject({ kind: "obra", obraId: 21, title: "Obra — JOAO", price: "260000.00", latitude: "-5.4966667", longitude: "-47.4447222", status: "obra", hasCoordinates: true });
+    expect(r[2]).toMatchObject({ kind: "obra", obraId: 21, title: "Obra — JOAO", price: "250000.00", latitude: "-5.4966667", longitude: "-47.4447222", status: "obra", hasCoordinates: true });
   });
 
   it("imóvel vinculado sem ponto usa a PCI; obra com imóvel vendido entra pela PCI", async () => {
     fakeDb([
       [{ id: 5, title: "Obra — ANA", status: "reservado", type: "casa", address: null, city: "Imperatriz", neighborhood: null, state: "MA", price: "0.00", latitude: null, longitude: null, slug: "obra-27" }],
       [
-        { id: 27, title: "ANA", address: "Residencial Aurora, Imperatriz Maranhão", city: null, state: null, vgv: "180000.00", imovelId: 5, approvedValue: null, simulationValue: null },
-        { id: 28, title: "LUCIA", address: "Residencial Aurora", city: "Imperatriz", state: "MA", vgv: "190000.00", imovelId: 77, approvedValue: null, simulationValue: null },
+        { id: 27, title: "ANA", address: "Residencial Aurora, Imperatriz Maranhão", city: null, state: null, vgv: "180000.00", imovelId: 5, leadId: null, simulationValue: null },
+        { id: 28, title: "LUCIA", address: "Residencial Aurora", city: "Imperatriz", state: "MA", vgv: "190000.00", imovelId: 77, leadId: null, simulationValue: null },
       ],
       [
         { projectId: 27, parsed: { identificacao: { latitude: "52948 S", longitude: "472641 W" } } },

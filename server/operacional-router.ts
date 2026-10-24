@@ -772,7 +772,7 @@ export const projetosRouter = router({
 export const mapaRouter = router({
   /**
    * Imóveis disponíveis/reservados + obras com ponto conhecido (pedido de 23/10).
-   * Imóvel vinculado a uma obra mostra o VGV e o endereço da obra e, se não tiver
+   * Imóvel vinculado a uma obra mostra o VGV (simulado do lead, se houver) e o endereço da obra e, se não tiver
    * coordenadas, o ponto da PCI da CAIXA. Obra sem imóvel na lista entra com o ponto
    * da PCI (identificação), sem criar imóvel. Coordenada ilegível não é inventada.
    */
@@ -789,11 +789,13 @@ export const mapaRouter = router({
       db.select({
         id: constructionProjects.id, title: constructionProjects.title, address: constructionProjects.address,
         city: constructionProjects.city, state: constructionProjects.state, vgv: constructionProjects.vgv,
-        imovelId: constructionProjects.imovelId, approvedValue: leads.approvedValue, simulationValue: leads.simulationValue,
+        imovelId: constructionProjects.imovelId, leadId: constructionProjects.leadId, simulationValue: leads.simulationValue,
       }).from(constructionProjects).leftJoin(leads, eq(leads.id, constructionProjects.leadId)),
       db.select({ projectId: constructionPci.projectId, parsed: constructionPci.parsed }).from(constructionPci),
     ]);
-    const vgvDaObra = (o: (typeof obras)[number]) => o.vgv ?? o.approvedValue ?? o.simulationValue ?? null;
+    // Mesma regra do financeiro da obra (carregarObra): obra do CRM usa o VGV simulado do lead;
+    // obra sem lead usa o VGV digitado. Valor aprovado é financiamento, não VGV.
+    const vgvDaObra = (o: (typeof obras)[number]) => (o.leadId !== null ? o.simulationValue : o.vgv) ?? null;
     const obraDoImovel = new Map(obras.filter(o => o.imovelId).map(o => [o.imovelId!, o]));
     const pciDaObra = new Map(pcis.map(p => [p.projectId, (p.parsed as { identificacao?: { latitude?: unknown; longitude?: unknown } } | null)?.identificacao]));
     const pontoPciDaObra = (obraId: number) => {

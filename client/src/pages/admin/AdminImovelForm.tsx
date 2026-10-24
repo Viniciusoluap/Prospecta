@@ -151,6 +151,7 @@ export default function AdminImovelForm() {
   const [areaM2Texto, setAreaM2Texto] = useState("");
   const [slugTocado, setSlugTocado] = useState(false);
   const [fotos, setFotos] = useState<string[]>([]);
+  const [localizacaoResolvendo, setLocalizacaoResolvendo] = useState(false);
   const [coords, setCoords] = useState<{ lat: number; lng: number } | null>(
     null
   );
@@ -251,6 +252,10 @@ export default function AdminImovelForm() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (localizacaoResolvendo) {
+      toast.error("Aguarde: a localização ainda está sendo lida do link do mapa.");
+      return;
+    }
     if (!form.titulo || !form.tipo || !form.cidade || !form.preco) {
       toast.error(
         "Preencha os campos obrigatórios: título, tipo, cidade e preço."
@@ -593,7 +598,7 @@ export default function AdminImovelForm() {
             <p className="text-xs font-bold text-[#C9A961]/80 uppercase tracking-widest">
               Localização Exata
             </p>
-            <CampoLocalizacao coords={coords} onChange={setCoords} />
+            <CampoLocalizacao coords={coords} onChange={setCoords} onResolvendo={setLocalizacaoResolvendo} />
           </section>
 
           <section className="space-y-3">
