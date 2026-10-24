@@ -38,6 +38,10 @@ export function LeadDocuments({ leadId, admin = false }: { leadId?: number; admi
     onSuccess: () => { toast.success("Documento removido da consulta"); void utils.leadDocuments.list.invalidate(); },
     onError: error => toast.error(error.message),
   });
+  const excluirDefinitivo = trpc.leadDocuments.excluirDefinitivo.useMutation({
+    onSuccess: result => { toast.success("Documento excluído definitivamente"); if (result.aviso) toast.warning(result.aviso); void utils.leadDocuments.list.invalidate(); },
+    onError: error => toast.error(error.message),
+  });
   const request = trpc.leadDocuments.request.useMutation({
     onSuccess: result => { toast.success("Documento solicitado no portal do cliente"); if (result.emailWarning) toast.warning(result.emailWarning); void utils.leadDocuments.list.invalidate(); },
     onError: error => toast.error(error.message),
@@ -120,6 +124,6 @@ export function LeadDocuments({ leadId, admin = false }: { leadId?: number; admi
         </div>)}
       </div>;
     })}
-    {admin && list.data?.some(doc => !categories.some(([key]) => key === doc.type)) && <details className="rounded border border-white/20 p-3"><summary>Documentos anteriores</summary>{list.data.filter(doc => !categories.some(([key]) => key === doc.type)).map(doc => <div key={doc.id} className="mt-2 flex items-center justify-between gap-2"><span>{doc.fileName || doc.type}</span>{doc.canOpen && <Button size="sm" variant="outline" onClick={() => void openDocument(doc.id)}>Consultar</Button>}</div>)}</details>}
+    {admin && list.data?.some(doc => !categories.some(([key]) => key === doc.type)) && <details className="rounded border border-white/20 p-3"><summary>Documentos anteriores</summary>{list.data.filter(doc => !categories.some(([key]) => key === doc.type)).map(doc => <div key={doc.id} className="mt-2 flex items-center justify-between gap-2"><span className="min-w-0 break-words">{doc.fileName || doc.type}</span><div className="flex gap-2">{doc.canOpen && <Button size="sm" variant="outline" onClick={() => void openDocument(doc.id)}>Consultar</Button>}<Button size="sm" variant="outline" className="border-red-400/60 text-red-300 hover:bg-red-500/10" disabled={excluirDefinitivo.isPending} onClick={() => { if (window.confirm(`Excluir definitivamente "${doc.fileName || doc.type}"? O registro e o arquivo serão apagados e não poderão ser recuperados pelo sistema.`)) excluirDefinitivo.mutate({ id: doc.id }); }}>Remover</Button></div></div>)}</details>}
   </div>;
 }
