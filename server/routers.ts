@@ -9,7 +9,6 @@ import {
 } from "./_core/trpc.js";
 import { z } from "zod";
 import { notifyOwner } from "./_core/notification.js";
-import { stripe } from "./_core/stripe.js";
 import {
   createAsaasPayment,
   getAsaasPixQrCode,
@@ -468,8 +467,8 @@ export const appRouter = router({
           paymentMethod: input.paymentMethod,
           pixQrCode,
           pixCopyPaste,
-          stripePaymentIntentId: asaasPayment.id, // Reutilizar campo para armazenar ID do Asaas
-          stripeCheckoutSessionId: null, // Campo não usado com Asaas
+          paymentProviderId: asaasPayment.id,
+          legacyCheckoutSessionId: null,
         });
 
         // Ledger de idempotencia: a liquidacao real (confirmar bilhete, atribuir
@@ -2401,10 +2400,6 @@ export const appRouter = router({
           fotos: z.string().optional(),
           destaque: z.boolean().optional(),
           publicadoSite: z.boolean().optional(),
-          publicadoZap: z.boolean().optional(),
-          publicadoOlx: z.boolean().optional(),
-          publicadoViva: z.boolean().optional(),
-          publicadoChavesNaMao: z.boolean().optional(),
           reviewStatus: z.enum(["pending", "approved", "rejected"]).optional(),
         })
       )
@@ -2450,10 +2445,6 @@ export const appRouter = router({
           fotos: z.string().optional(),
           destaque: z.boolean().optional(),
           publicadoSite: z.boolean().optional(),
-          publicadoZap: z.boolean().optional(),
-          publicadoOlx: z.boolean().optional(),
-          publicadoViva: z.boolean().optional(),
-          publicadoChavesNaMao: z.boolean().optional(),
           reviewStatus: z.enum(["pending", "approved", "rejected"]).optional(),
         })
       )

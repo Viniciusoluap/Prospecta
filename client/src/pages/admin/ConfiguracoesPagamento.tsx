@@ -20,7 +20,7 @@ import { toast } from "sonner";
 export default function ConfiguracoesPagamento() {
   const { user, loading: authLoading } = useAuth();
   const [, navigate] = useLocation();
-  const [provider, setProvider] = useState<"asaas" | "stripe">("asaas");
+  const [provider, setProvider] = useState<"asaas">("asaas");
   const [asaasApiKey, setAsaasApiKey] = useState("");
   const [asaasWebhookToken, setAsaasWebhookToken] = useState("");
   const [pluggyClientId, setPluggyClientId] = useState("");
@@ -139,7 +139,7 @@ export default function ConfiguracoesPagamento() {
           <CardContent>
             <RadioGroup
               value={provider}
-              onValueChange={value => setProvider(value as "asaas" | "stripe")}
+              onValueChange={value => setProvider(value as "asaas")}
             >
               <div className="flex items-center space-x-2 p-4 rounded-lg border border-white/10 bg-white/5">
                 <RadioGroupItem value="asaas" id="asaas" />
@@ -150,18 +150,6 @@ export default function ConfiguracoesPagamento() {
                   <div className="font-semibold">Asaas</div>
                   <div className="text-sm text-gray-400">
                     Gateway brasileiro com PIX, Cartão e Boleto
-                  </div>
-                </Label>
-              </div>
-              <div className="flex items-center space-x-2 p-4 rounded-lg border border-white/10 bg-white/5 opacity-50">
-                <RadioGroupItem value="stripe" id="stripe" disabled />
-                <Label
-                  htmlFor="stripe"
-                  className="flex-1 cursor-not-allowed text-white"
-                >
-                  <div className="font-semibold">Stripe (Desabilitado)</div>
-                  <div className="text-sm text-gray-400">
-                    Gateway internacional - Em migração para Asaas
                   </div>
                 </Label>
               </div>

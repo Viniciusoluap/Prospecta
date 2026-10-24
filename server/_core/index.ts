@@ -6,13 +6,11 @@ import { createExpressMiddleware } from "@trpc/server/adapters/express";
 import { appRouter } from "../routers.js";
 import { createContext } from "./context.js";
 import { serveStatic, setupVite } from "./vite.js";
-import { registerStripeWebhook } from "./stripeWebhook.js";
 import obraFotosRouter from "../routes/obra-fotos.js";
 import projetoDocumentosRouter from "../routes/projeto-documentos.js";
 import obraMedicaoCaixaRouter from "../routes/obra-medicao-caixa.js";
 import imovelFotosRouter from "../routes/imovel-fotos.js";
 import googleDriveRotas from "../routes/google-drive.js";
-import imovelFeedsRouter from "../routes/imovel-feeds.js";
 import { handleAsaasWebhook } from "../asaas-webhook.js";
 import { handleWhatsappWebhook } from "../whatsapp-webhook.js";
 import { startMcmvRulesReminder } from "../mcmv-rules-reminder.js";
@@ -46,8 +44,6 @@ async function startServer() {
   const app = express();
   const server = createServer(app);
 
-  // Stripe webhook MUST be registered BEFORE express.json() for raw body
-  registerStripeWebhook(app);
   // WhatsApp Business webhook: same raw-body requirement, for HMAC verification
   app.post(
     "/api/whatsapp/webhook",
@@ -126,8 +122,6 @@ async function startServer() {
   app.use("/api", projetoDocumentosRouter);
   app.use("/api", imovelFotosRouter);
   app.use("/api", googleDriveRotas);
-  // Feeds XML de imóveis (ZAP/OLX/VivaReal/Chaves na Mão)
-  app.use("/api", imovelFeedsRouter);
   // Asaas webhook
   app.post("/api/asaas/webhook", handleAsaasWebhook);
 

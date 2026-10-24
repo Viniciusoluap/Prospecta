@@ -35,7 +35,7 @@ describe("Obras — Localização exata → imóvel vinculado (etapa 3)", () => 
     const r = await salvarLocalizacaoObra(7, { lat: -6.0675, lng: -49.9022 }, 99);
     expect(r).toEqual({ imovelId: 55, criado: true, coords: { lat: -6.0675, lng: -49.9022 } });
     const ins = chamadas.find(c => c.metodo === "insert")!.dados as Record<string, unknown>;
-    expect(ins).toMatchObject({ titulo: "Obra — Casa Maria", endereco: "Rua A, 10", cidade: "Parauapebas", status: "reservado", publicadoSite: false, publicadoZap: false, publicadoOlx: false, publicadoViva: false, publicadoChavesNaMao: false, latitude: "-6.0675000", longitude: "-49.9022000", createdByUserId: 99 });
+    expect(ins).toMatchObject({ titulo: "Obra — Casa Maria", endereco: "Rua A, 10", cidade: "Parauapebas", status: "reservado", publicadoSite: false, latitude: "-6.0675000", longitude: "-49.9022000", createdByUserId: 99 });
     expect(String(ins.slug)).toMatch(/^obra-7-[0-9a-f]{8}$/);
     expect(chamadas.find(c => c.metodo === "update")!.dados).toMatchObject({ imovelId: 55 });
   });

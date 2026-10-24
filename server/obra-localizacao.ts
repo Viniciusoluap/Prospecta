@@ -63,10 +63,6 @@ export async function salvarLocalizacaoObra(projectId: number, entrada: Coordena
     preco: "0",
     destaque: false,
     publicadoSite: false,
-    publicadoZap: false,
-    publicadoOlx: false,
-    publicadoViva: false,
-    publicadoChavesNaMao: false,
     reviewStatus: "approved",
     createdByUserId: userId,
   }).returning({ id: imoveis.id });

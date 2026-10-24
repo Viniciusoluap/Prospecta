@@ -698,7 +698,7 @@ export default function Portal() {
                       className={`max-w-[80%] rounded-lg p-3 ${message.sender === "cliente" ? "ml-auto bg-[#1A2332] text-white" : "bg-slate-100"}`}
                     >
                       <p>{message.text}</p>
-                      <p className="text-[10px] opacity-60 mt-1">
+                      <p className="text-[10px] opacity-80 mt-1">
                         {date(message.createdAt)}
                       </p>
                     </div>

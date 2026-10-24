@@ -101,10 +101,6 @@ interface FormState {
   descricao: string;
   destaque: boolean;
   publicadoSite: boolean;
-  publicadoZap: boolean;
-  publicadoOlx: boolean;
-  publicadoViva: boolean;
-  publicadoChavesNaMao: boolean;
   reviewStatus: "pending" | "approved" | "rejected";
 }
 
@@ -125,10 +121,6 @@ const EMPTY_FORM: FormState = {
   descricao: "",
   destaque: false,
   publicadoSite: true,
-  publicadoZap: false,
-  publicadoOlx: false,
-  publicadoViva: false,
-  publicadoChavesNaMao: false,
   reviewStatus: "approved",
 };
 
@@ -179,10 +171,6 @@ export default function AdminImovelForm() {
         descricao: imovel.descricao ?? "",
         destaque: !!imovel.destaque,
         publicadoSite: !!imovel.publicadoSite,
-        publicadoZap: !!imovel.publicadoZap,
-        publicadoOlx: !!imovel.publicadoOlx,
-        publicadoViva: !!imovel.publicadoViva,
-        publicadoChavesNaMao: !!imovel.publicadoChavesNaMao,
         reviewStatus: (["pending", "approved", "rejected"] as const).includes(
           imovel.reviewStatus as FormState["reviewStatus"]
         )
@@ -281,10 +269,6 @@ export default function AdminImovelForm() {
       fotos: JSON.stringify(fotos),
       destaque: form.destaque,
       publicadoSite: form.publicadoSite,
-      publicadoZap: form.publicadoZap,
-      publicadoOlx: form.publicadoOlx,
-      publicadoViva: form.publicadoViva,
-      publicadoChavesNaMao: form.publicadoChavesNaMao,
       reviewStatus: form.reviewStatus,
     };
     const progresso = { item: "foto", tamanhos: fotos.filter(f => f.startsWith("data:")).map(f => f.length) };
@@ -630,10 +614,6 @@ export default function AdminImovelForm() {
                 [
                   ["destaque", "Destaque na home"],
                   ["publicadoSite", "Publicado no site"],
-                  ["publicadoZap", "Feed Zap Imóveis"],
-                  ["publicadoOlx", "Feed OLX"],
-                  ["publicadoViva", "Feed Viva Real"],
-                  ["publicadoChavesNaMao", "Feed Chaves na Mão"],
                 ] as [keyof FormState, string][]
               ).map(([key, label]) => (
                 <label

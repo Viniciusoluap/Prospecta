@@ -79,7 +79,7 @@ export default function PoliticaDePrivacidade() {
                 <strong>4.2.</strong> Podemos compartilhar seus dados com:
               </p>
               <ul className="list-disc list-inside ml-4 space-y-2 mb-4">
-                <li><strong>Processadores de Pagamento:</strong> Para processar transações (ex: Stripe, PayPal)</li>
+                <li><strong>Processadores de Pagamento:</strong> Para processar transações (ex: Asaas)</li>
                 <li><strong>Provedores de Serviços:</strong> Para hospedagem, análise de dados e suporte técnico</li>
                 <li><strong>Autoridades Legais:</strong> Quando exigido por lei ou para proteger nossos direitos</li>
                 <li><strong>Empresas do Grupo Efficaz:</strong> Para fornecer serviços integrados</li>

@@ -17,11 +17,9 @@ describe("rotas Express publicadas na Vercel", () => {
     expect(producao).toContain("projeto-documentos");
     expect(local.filter(r => !producao.includes(r) && !SO_LOCAL.includes(r))).toEqual([]);
   });
-  it("webhooks do WhatsApp e do Stripe ficam antes do express.json (corpo bruto para a assinatura)", () => {
+  it("webhook do WhatsApp fica antes do express.json (corpo bruto para a assinatura)", () => {
     const api = readFileSync(new URL("../api/index.ts", import.meta.url), "utf8");
     const json = api.indexOf("app.use(express.json(");
-    expect(api.indexOf("registerStripeWebhook(app)")).toBeGreaterThan(-1);
-    expect(api.indexOf("registerStripeWebhook(app)")).toBeLessThan(json);
     expect(api.indexOf('"/api/whatsapp/webhook", express.raw(')).toBeGreaterThan(-1);
     expect(api.indexOf('"/api/whatsapp/webhook", express.raw(')).toBeLessThan(json);
   });

@@ -17,8 +17,6 @@ import { appRouter } from "../server/routers.js";
 import obraFotosRouter from "../server/routes/obra-fotos.js";
 import obraMedicaoCaixaRouter from "../server/routes/obra-medicao-caixa.js";
 import projetoDocumentosRouter from "../server/routes/projeto-documentos.js";
-import imovelFeedsRouter from "../server/routes/imovel-feeds.js";
-import { registerStripeWebhook } from "../server/_core/stripeWebhook.js";
 import { handleWhatsappWebhook } from "../server/whatsapp-webhook.js";
 import imovelFotosRouter from "../server/routes/imovel-fotos.js";
 import googleDriveRotas from "../server/routes/google-drive.js";
@@ -27,9 +25,8 @@ import { ensureLeadCardDeadlineSchema } from "../server/lead-card-deadline-schem
 import { sendLeadCardDueDigests } from "../server/lead-card-due-digest.js";
 
 const app = express();
-// Pedido de 24/10: webhooks publicados na Vercel. Precisam do corpo bruto (assinatura),
+// Pedido de 24/10: webhook do WhatsApp publicado na Vercel. Precisa do corpo bruto (assinatura),
 // por isso ficam antes do express.json() — igual ao servidor local (server/_core/index.ts).
-registerStripeWebhook(app);
 app.post("/api/whatsapp/webhook", express.raw({ type: "application/json" }), handleWhatsappWebhook);
 app.use(express.json({ limit: "50mb" }));
 app.use(express.urlencoded({ limit: "50mb", extended: true }));
@@ -160,8 +157,6 @@ app.use("/api", async (req, res, next) => {
     router.use(obraMedicaoCaixaRouter);
     // Pedido de 24/10: envio de arquivos de Projetos (e da revisão) só existia no servidor local.
     router.use(projetoDocumentosRouter);
-    // Feeds XML de imóveis (ZAP/OLX/VivaReal/Chaves na Mão), públicos.
-    router.use(imovelFeedsRouter);
     router.use(imovelFotosRouter);
     router.use(googleDriveRotas);
     router.post("/asaas/webhook", handleAsaasWebhook);

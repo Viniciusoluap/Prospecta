@@ -34,7 +34,7 @@ export default function AdminImoveisHub({
           <div>
             <h1 className="text-2xl font-bold text-[#C9A961]">Imóveis</h1>
             <p className="text-sm text-gray-400">
-              Catálogo, captação externa e publicação em feeds
+              Catálogo e captação externa
             </p>
           </div>
         </div>
@@ -51,7 +51,7 @@ export default function AdminImoveisHub({
             className={tabClass("captacao")}
             onClick={() => setView("captacao")}
           >
-            <Rss className="mr-1 inline h-4 w-4" /> Captação e feeds
+            <Rss className="mr-1 inline h-4 w-4" /> Captação
           </button>
         </div>
         {view === "catalogo" ? (
