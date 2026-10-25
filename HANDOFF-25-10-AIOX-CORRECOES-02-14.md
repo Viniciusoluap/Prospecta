@@ -37,3 +37,8 @@
 - `main` `00f397b31420d15c818ed80623f634695f3a991c` foi incorporado à branch AIOX, preservando BPO, Bancos, WhatsApp e as correções deste lote. As migrações AIOX foram renumeradas para `0073_empreiteiro_pro_soluto.sql` e `0074_imovel_foto_upload_key.sql`.
 - Validação após a integração: `pnpm check` passou; suíte completa passou em **142 arquivos e 1.035 testes**; `pnpm build` passou. Avisos de tamanho de chunk permanecem informativos e preexistentes. Nenhuma alteração de dados ou migração executada.
 - Próximo passo: publicar o merge controlado na branch, aguardar preview Vercel, abrir PR, conferir SHA/checks e integrar. Após merge, executar apenas as migrações aditivas 0073/0074 antes de liberar o novo código em produção.
+
+## Checkpoint 5 — migrações de produção e PR
+- PR aberto: `#169`, branch AIOX integrada ao `main`, head inicial `295051c83860d853c41dfd8b26e88cd0054d07a2`. Preview Vercel disparado; merge aguardando o resultado do deployment correspondente.
+- Banco Prospecta/Neon `SiteProspecta`, branch `production`: migrações aditivas 0073/0074 aplicadas em transação e verificadas. A coluna `construction_projects.contractor_include_pro_soluto` existe, é `NOT NULL` e tem padrão `false`; `imovel_fotos.upload_key` e o índice parcial único `imovel_fotos_upload_key_unique` existem. Nenhum backfill ou alteração de registros históricos foi executado.
+- Próximo passo: publicar este registro, aguardar novo preview do SHA exato, conferir PR/checks, fazer merge autorizado e validar o deployment de produção e erros de runtime.
