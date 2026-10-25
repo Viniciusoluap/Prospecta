@@ -2,6 +2,7 @@ import { Request, Response } from 'express';
 import { settlePaymentOrder, refundPaymentOrder } from './payment-settlement.js';
 import * as db from './db.js';
 import { decryptSecret } from './_core/secret-vault.js';
+import { sincronizarPorEvento } from './bancos.js';
 
 /**
  * Webhook do Asaas para receber notificações de pagamento
@@ -73,8 +74,16 @@ export async function handleAsaasWebhook(req: Request, res: Response) {
 
     const payload: AsaasWebhookPayload = req.body;
 
-    if (!payload.event || !payload.payment?.id) {
+    // Pedido de 25/10 (avisos em tempo real): qualquer evento autenticado do Asaas atualiza na
+    // hora o extrato das contas Asaas do BPO (falha aqui não impede o resto do webhook).
+    await sincronizarPorEvento({ provedor: 'asaas' }).catch((e) =>
+      console.error('[Asaas Webhook] Bank sync failed:', e instanceof Error ? e.message : e));
+
+    if (!payload.event) {
       return res.status(400).json({ error: 'Invalid payload' });
+    }
+    if (!payload.payment?.id) {
+      return res.status(200).json({ received: true });
     }
 
     const { event, payment } = payload;

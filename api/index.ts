@@ -4,6 +4,7 @@ import { eq } from "drizzle-orm";
 
 import { users } from "../drizzle/schema.js";
 import { handleAsaasWebhook } from "../server/asaas-webhook.js";
+import { handlePluggyWebhook } from "../server/pluggy-webhook.js";
 import {
   createSessionToken,
   hashPassword,
@@ -23,6 +24,7 @@ import googleDriveRotas from "../server/routes/google-drive.js";
 import { checkAndSendReminder } from "../server/mcmv-rules-reminder.js";
 import { ensureLeadCardDeadlineSchema } from "../server/lead-card-deadline-schema.js";
 import { sendLeadCardDueDigests } from "../server/lead-card-due-digest.js";
+import { sincronizarTodasContas } from "../server/bancos.js";
 
 const app = express();
 // Pedido de 24/10: webhook do WhatsApp publicado na Vercel. Precisa do corpo bruto (assinatura),
@@ -145,7 +147,15 @@ app.get("/api/cron/mcmv-reminder", async (req, res) => {
 app.get("/api/cron/lead-card-due", async (req, res) => {
   const secret = process.env.CRON_SECRET;
   if (!secret || req.headers.authorization !== `Bearer ${secret}`) return res.status(401).json({ error: "Não autorizado" });
-  try { return res.json({ ok: true, ...(await sendLeadCardDueDigests()) }); }
+  try {
+    const avisos = await sendLeadCardDueDigests();
+    // Pedido de 25/10: sincronização diária das contas bancárias (Asaas/Pluggy) no mesmo cron diário.
+    const bancos = await sincronizarTodasContas().catch(e => {
+      console.error("[cron/bancos]", e instanceof Error ? e.message : e);
+      return { erro: true };
+    });
+    return res.json({ ok: true, ...avisos, bancos });
+  }
   catch (error) { console.error("[cron/lead-card-due]", error); return res.status(500).json({ error: "Falha ao processar avisos" }); }
 });
 
@@ -160,6 +170,7 @@ app.use("/api", async (req, res, next) => {
     router.use(imovelFotosRouter);
     router.use(googleDriveRotas);
     router.post("/asaas/webhook", handleAsaasWebhook);
+    router.post("/pluggy/webhook", handlePluggyWebhook);
     router.use("/trpc", createExpressMiddleware({ router: appRouter, createContext }));
     router(req, res, next);
   } catch (err: any) {

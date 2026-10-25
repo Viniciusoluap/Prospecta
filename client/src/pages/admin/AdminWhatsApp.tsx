@@ -12,6 +12,7 @@ import { Label } from "@/components/ui/label";
 import { trpc } from "@/lib/trpc";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { WHATSAPP_TEMPLATES, type WhatsappTemplate } from "@shared/whatsapp/templates";
+import { ConexaoQrCode } from "@/components/whatsapp/ConexaoQrCode";
 
 const cardCls = "bg-[#2C3E50] border-[#C9A961]/20";
 const inputCls = "bg-[#1A2332] border-[#C9A961]/30 text-white";
@@ -136,13 +137,13 @@ export default function AdminWhatsApp() {
           <div className="space-y-5">
             {(role === "admin" || role === "colaborador" || role === "corretor") && (
               <Card className={cardCls}>
-                <CardHeader><CardTitle className="text-sm text-gray-300">Minha Conexão WhatsApp Business</CardTitle></CardHeader>
+                <CardHeader><CardTitle className="text-sm text-gray-300">Minha Conexão WhatsApp</CardTitle></CardHeader>
                 <CardContent className="space-y-4">
                   {conexaoAtiva ? (
                     <div className="space-y-4">
                       <div className="flex items-center gap-3 p-3 bg-green-500/10 rounded">
                         <CheckCircle2 size={20} className="text-green-400" />
-                        <div><p className="font-bold text-green-400 text-sm">Conectado via WhatsApp Business API</p>{conexao.data?.numero && <p className="text-xs text-gray-400">{conexao.data.numero}</p>}</div>
+                        <div><p className="font-bold text-green-400 text-sm">{conexao.data?.provider === "evolution" ? "Conectado pelo QR code" : "Conectado via WhatsApp Business API"}</p>{conexao.data?.numero && <p className="text-xs text-gray-400">{conexao.data.numero}</p>}</div>
                       </div>
                       <Button variant="outline" onClick={() => desconectar.mutate()} disabled={desconectar.isPending}
                         className="border-red-500/30 text-red-400 hover:bg-red-500/10">
@@ -150,7 +151,11 @@ export default function AdminWhatsApp() {
                       </Button>
                     </div>
                   ) : (
-                    <form onSubmit={(e) => { e.preventDefault(); salvarConexao.mutate({ token: businessToken, phoneNumberId: businessPhoneId, numero: businessNumero }); }} className="space-y-3">
+                    <div className="space-y-4">
+                    <ConexaoQrCode podeConfigurarServidor={role !== "corretor"} onConectado={() => utils.whatsapp.minhaConexao.invalidate()} />
+                    <details className="border-t border-[#C9A961]/10 pt-3">
+                    <summary className="cursor-pointer text-xs text-gray-300">Usar a API oficial do WhatsApp Business (Meta)</summary>
+                    <form onSubmit={(e) => { e.preventDefault(); salvarConexao.mutate({ token: businessToken, phoneNumberId: businessPhoneId, numero: businessNumero }); }} className="space-y-3 mt-3">
                       <div className="border border-blue-500/30 bg-blue-500/10 p-4 text-xs text-blue-300 rounded space-y-1">
                         <p className="font-bold">WhatsApp Business API (Meta Cloud API)</p>
                         <p>Gratuito até 1.000 conversas/mês. Requer conta Meta Business verificada.</p>
@@ -163,6 +168,8 @@ export default function AdminWhatsApp() {
                         <CheckCircle2 className="h-4 w-4 mr-2" /> Salvar e Conectar
                       </Button>
                     </form>
+                    </details>
+                    </div>
                   )}
                 </CardContent>
               </Card>
@@ -195,7 +202,7 @@ export default function AdminWhatsApp() {
             {!conexaoAtiva && (
               <div className="flex items-center gap-3 border border-yellow-500/30 bg-yellow-500/10 p-4 rounded">
                 <AlertCircle size={18} className="text-yellow-400 shrink-0" />
-                <p className="text-sm text-yellow-200">Configure sua conexão WhatsApp Business na aba Conexão.</p>
+                <p className="text-sm text-yellow-200">Conecte o WhatsApp (QR code ou API oficial) na aba Conexão.</p>
               </div>
             )}
             <div className={`grid grid-cols-1 lg:grid-cols-2 gap-5 ${!conexaoAtiva ? "opacity-50 pointer-events-none" : ""}`}>
