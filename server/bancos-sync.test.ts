@@ -4,34 +4,40 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { getDb } from "./db.js";
 import { confirmarImportacao, previaImportacao, sincronizarConta } from "./bancos.js";
 import { decryptSecret } from "./_core/secret-vault.js";
+import { bpoLancamentos } from "../drizzle/schema.js";
 
 vi.mock("./db.js", () => ({ getDb: vi.fn() }));
 vi.mock("./_core/env.js", () => ({ ENV: { cookieSecret: "segredo-de-teste" } }));
 
 type Conta = Record<string, unknown>;
-/** select() devolve as respostas em ordem; update/insert ficam registrados. */
+/**
+ * Cada select() consome a próxima resposta da fila; update/insert ficam registrados.
+ * LOTE C: inserts em bank_transactions e em bpo_lancamentos ficam em listas separadas.
+ */
 function fakeDb(selects: unknown[][]) {
   let i = 0;
   const updates: Record<string, unknown>[] = [];
   const inserts: Record<string, unknown>[] = [];
-  const cadeia = () => {
+  const lancamentos: Record<string, unknown>[] = [];
+  const cadeia = (resp: unknown[]) => {
     const c: Record<string, unknown> = {};
-    c.from = () => c;
-    c.where = () => Object.assign(Promise.resolve(selects[i] ?? []), { limit: () => Promise.resolve(selects[i++] ?? []) });
-    c.limit = () => Promise.resolve(selects[i++] ?? []);
+    for (const m of ["from", "where", "leftJoin", "orderBy", "limit"]) c[m] = () => c;
+    c.then = (ok: (v: unknown) => unknown, falha?: (e: unknown) => unknown) => Promise.resolve(resp).then(ok, falha);
     return c;
   };
   vi.mocked(getDb).mockReturnValue({
-    select: cadeia,
+    select: () => cadeia(selects[i++] ?? []),
     update: () => ({ set: (v: Record<string, unknown>) => ({ where: () => { updates.push(v); return Promise.resolve(); } }) }),
-    insert: () => ({
+    insert: (tabela: unknown) => ({
       values: (v: Record<string, unknown>[]) => {
-        inserts.push(...v);
-        return { onConflictDoNothing: () => ({ returning: () => Promise.resolve(v.map((_, k) => ({ id: k + 1 }))) }) };
+        const destino = tabela === bpoLancamentos ? lancamentos : inserts;
+        const base = destino.length;
+        destino.push(...v);
+        return { onConflictDoNothing: () => ({ returning: () => Promise.resolve(v.map((row, k) => ({ id: base + k + 1, ...row }))) }) };
       },
     }),
   } as never);
-  return { updates, inserts };
+  return { updates, inserts, lancamentos };
 }
 
 function resposta(corpo: unknown, status = 200) {
@@ -100,8 +106,8 @@ describe("sincronização por API", () => {
     const db = fakeDb([[contaAsaas()]]);
     const r = await sincronizarConta(3, vi.fn(() => resposta({}, 401)) as never);
     expect(r.ok).toBe(false);
-    expect(r.mensagem).toMatch(/recusou a chave/);
-    expect(db.updates.at(-1)).toMatchObject({ ultimoErro: expect.stringMatching(/recusou a chave/) });
+    expect(r.mensagem).toMatch(/recusou o acesso \(HTTP 401\)/);
+    expect(db.updates.at(-1)).toMatchObject({ ultimoErro: expect.stringMatching(/recusou o acesso/) });
   });
 
   it("conta de importação não sincroniza por API", async () => {

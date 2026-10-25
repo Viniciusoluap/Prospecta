@@ -352,26 +352,44 @@ export default function AdminRelatorios({
                   </CardTitle>
                 </CardHeader>
                 <CardContent>
+                  {/* LOTE C (25/10): o "bloco cinza" era o cursor padrão do Tooltip de barras
+                      do Recharts (retângulo #ccc em toda a faixa do mês; com um só mês cobre o
+                      gráfico inteiro e no celular fica preso após o toque). Cursor discreto,
+                      barras com largura máxima e aviso quando não há dados. */}
+                  {data.dreMensal.length === 0 ? (
+                    <div className="flex h-[220px] items-center justify-center text-sm text-gray-400">
+                      Sem receitas ou despesas pagas no período
+                    </div>
+                  ) : (
                   <ResponsiveContainer width="100%" height={220}>
-                    <BarChart data={data.dreMensal}>
+                    <BarChart data={data.dreMensal} barGap={4}>
                       <CartesianGrid strokeDasharray="3 3" stroke="#374151" />
                       <XAxis
                         dataKey="mes"
                         tick={{ fill: "#9CA3AF", fontSize: 11 }}
                       />
-                      <YAxis tick={{ fill: "#9CA3AF", fontSize: 11 }} />
+                      <YAxis
+                        width={70}
+                        tick={{ fill: "#9CA3AF", fontSize: 11 }}
+                        tickFormatter={v =>
+                          Number(v).toLocaleString("pt-BR", { notation: "compact", maximumFractionDigits: 1 })
+                        }
+                      />
                       <Tooltip
+                        cursor={{ fill: "rgba(201, 169, 97, 0.08)" }}
                         formatter={v => formatCurrencyBR(Number(v))}
                         contentStyle={{
                           background: "#0F1923",
                           border: "1px solid #C9A96140",
                         }}
+                        labelStyle={{ color: "#E5E7EB" }}
                       />
                       <Legend />
-                      <Bar dataKey="receitas" fill="#22C55E" name="Receitas" />
-                      <Bar dataKey="despesas" fill="#EF4444" name="Despesas" />
+                      <Bar dataKey="receitas" fill="#22C55E" name="Receitas" maxBarSize={48} />
+                      <Bar dataKey="despesas" fill="#EF4444" name="Despesas" maxBarSize={48} />
                     </BarChart>
                   </ResponsiveContainer>
+                  )}
                 </CardContent>
               </Card>
 

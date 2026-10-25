@@ -9,6 +9,8 @@ import { fetchAsaasSaldo } from "./_core/asaas-extrato.js";
 import { bankAccounts } from "../drizzle/schema.js";
 import * as db from "./db.js";
 import { confirmarImportacao, previaImportacao, registrarWebhookPluggy, sincronizarConta, tokenPluggy } from "./bancos.js";
+import { atualizarMovimentacao, movimentacoesDaConta, reprocessarMovimentacoes } from "./bpo-extrato.js";
+import { CATEGORIAS_BPO } from "../shared/financeiro/bpo-extrato.js";
 
 const dataIsoSchema = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Data inválida").nullable().optional();
 const erro = (e: unknown, padrao: string) =>
@@ -153,7 +155,18 @@ export const bancarioRouter = router({
   }),
 
   transacoes: router({
-    listByConta: adminProcedure.input(z.object({ accountId: z.number() })).query(({ input }) => db.getBankTransactionsByAccount(input.accountId)),
+    // LOTE C (25/10): cada movimentação vem com categoria, Cliente BPO e o lançamento vinculado.
+    listByConta: adminProcedure.input(z.object({ accountId: z.number() })).query(({ input }) => movimentacoesDaConta(input.accountId)),
+    atualizar: adminProcedure
+      .input(z.object({
+        id: z.number(),
+        categoria: z.enum(CATEGORIAS_BPO).optional(),
+        bpoClienteId: z.number().int().positive().nullable().optional(),
+      }))
+      .mutation(async ({ input }) => {
+        try { return await atualizarMovimentacao(input.id, { categoria: input.categoria, bpoClienteId: input.bpoClienteId }); }
+        catch (e) { throw erro(e, "Não foi possível atualizar a movimentação."); }
+      }),
     atualizarStatus: adminProcedure
       .input(z.object({ id: z.number(), status: z.enum(["pendente", "conciliado", "ignorado"]) }))
       .mutation(async ({ input }) => {
@@ -163,6 +176,12 @@ export const bancarioRouter = router({
   }),
 
   sincronizar: adminProcedure.input(z.object({ contaId: z.number() })).mutation(({ input }) => sincronizarConta(input.contaId)),
+
+  /** LOTE C (25/10): gera os lançamentos do BPO que faltam (idempotente) e recalcula saldos. */
+  reprocessar: adminProcedure.mutation(async () => {
+    try { return await reprocessarMovimentacoes(); }
+    catch (e) { throw erro(e, "Falha ao reprocessar as movimentações."); }
+  }),
 
   importar: router({
     previa: adminProcedure
@@ -185,8 +204,9 @@ export const bancarioRouter = router({
           valor: z.number().positive(),
           tipo: z.enum(["credito", "debito"]),
         })).min(1).max(20000),
+        saldoFinal: z.number().finite().nullable().optional(),
       }))
-      .mutation(({ input }) => confirmarImportacao(input.contaId, input.linhas)),
+      .mutation(({ input }) => confirmarImportacao(input.contaId, input.linhas, input.saldoFinal)),
   }),
 });
 

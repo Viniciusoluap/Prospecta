@@ -81,6 +81,7 @@ import { incorporacaoDocumentsRouter } from "./incorporacao-documents-router.js"
 import { incorporationDueDiligenceRouter } from "./incorporacao-due-diligence-router.js";
 import { incorporationUnitsRouter } from "./incorporacao-unidades-router.js";
 import { excluirDefinitivo } from "./exclusao-definitiva.js";
+import { dreDosLancamentos } from "../shared/financeiro/bpo-extrato.js";
 
 async function validateStudySchedule(dataJson: string, key: "medicoes" | "marcos") {
   if (dataJson.length > 150_000) throw new TRPCError({ code: "BAD_REQUEST", message: "Cronograma muito extenso" });
@@ -2137,24 +2138,9 @@ export const appRouter = router({
         }),
     }),
 
-    dre: adminProcedure.query(async () => {
-      const lancamentos = await db.getAllBpoLancamentos();
-      const map = new Map<string, { cobrancas: number; despesas: number }>();
-      for (const l of lancamentos) {
-        const entry = map.get(l.competencia) ?? { cobrancas: 0, despesas: 0 };
-        const valor = Number(l.valor);
-        if (l.tipo === "despesa") entry.despesas += valor;
-        else entry.cobrancas += valor;
-        map.set(l.competencia, entry);
-      }
-      return Array.from(map.entries())
-        .map(([competencia, v]) => ({
-          competencia,
-          ...v,
-          resultado: v.cobrancas - v.despesas,
-        }))
-        .sort((a, b) => b.competencia.localeCompare(a.competencia));
-    }),
+    // LOTE C (25/10): inclui os lançamentos gerados pelo extrato bancário (transferência
+    // interna não gera lançamento, então não entra). Regra em shared/financeiro/bpo-extrato.ts.
+    dre: adminProcedure.query(async () => dreDosLancamentos(await db.getAllBpoLancamentos())),
   }),
 
   // ========== Bancos (Pluggy/Meu Pluggy, Asaas e importação de extrato) ==========

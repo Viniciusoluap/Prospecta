@@ -10,7 +10,8 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { formatCurrency } from "@/lib/format";
 import { toast } from "sonner";
-import { FileUp, Landmark, Link2, Plus, RefreshCw, Trash2, ListOrdered } from "lucide-react";
+import { FileUp, Landmark, Link2, Plus, RefreshCw, Trash2, ListOrdered, Repeat } from "lucide-react";
+import { CATEGORIAS_BPO, TRANSFERENCIA_INTERNA, type CategoriaBpo } from "@shared/financeiro/bpo-extrato";
 
 const campo = "bg-[#2C3E50] border-[#C9A961]/30 text-white mt-1";
 const botaoSec = "h-7 text-xs border-[#C9A961]/30 text-[#C9A961]";
@@ -18,7 +19,7 @@ const dataBR = (d?: string | null) => (d ? d.split("-").reverse().join("/") : "�
 const PROVEDOR: Record<string, string> = { asaas: "API do Asaas", pluggy: "Pluggy (Meu Pluggy)", manual: "Importação de extrato" };
 
 type LinhaPrevia = { data: string; descricao: string; valor: number; tipo: "credito" | "debito"; jaImportada: boolean };
-type Previa = { formato: string; linhas: LinhaPrevia[]; ignoradas: number; antesDaDataInicial: number; dataInicial: string | null };
+type Previa = { formato: string; linhas: LinhaPrevia[]; ignoradas: number; antesDaDataInicial: number; dataInicial: string | null; saldoFinal: number | null };
 
 function arquivoBase64(f: File): Promise<string> {
   return new Promise((ok, falha) => {
@@ -33,7 +34,15 @@ export default function BancosPanel() {
   const utils = trpc.useUtils();
   const { data: contas = [] } = trpc.bancario.contas.list.useQuery();
   const { data: pluggy } = trpc.pluggySettings.status.useQuery();
-  const invalidar = () => utils.bancario.contas.list.invalidate();
+  const { data: clientesBpo = [] } = trpc.bpo.clientes.list.useQuery();
+  // LOTE C (25/10): o extrato alimenta Cobranças, Despesas, DRE, Contabilidade e Relatórios.
+  const invalidarBpo = () => {
+    utils.bpo.lancamentos.list.invalidate();
+    utils.bpo.dre.invalidate();
+    utils.tax.overview.invalidate();
+    utils.relatorios.overview.invalidate();
+  };
+  const invalidar = () => { utils.bancario.contas.list.invalidate(); invalidarBpo(); };
 
   // Pluggy
   const [pluggyForm, setPluggyForm] = useState({ clientId: "", clientSecret: "" });
@@ -88,6 +97,17 @@ export default function BancosPanel() {
   // Transações
   const [verConta, setVerConta] = useState<number | null>(null);
   const { data: transacoes = [] } = trpc.bancario.transacoes.listByConta.useQuery({ accountId: verConta ?? 0 }, { enabled: verConta !== null });
+  const atualizarMov = trpc.bancario.transacoes.atualizar.useMutation({
+    onSuccess: () => { utils.bancario.transacoes.listByConta.invalidate(); invalidarBpo(); },
+    onError: e => toast.error(e.message),
+  });
+  const reprocessar = trpc.bancario.reprocessar.useMutation({
+    onSuccess: r => {
+      toast.success(`${r.lancamentosCriados} lançamento(s) gerado(s) no BPO; ${r.categorizadas} movimentação(ões) categorizada(s); ${r.saldosRecalculados} saldo(s) recalculado(s).`);
+      invalidar(); utils.bancario.transacoes.listByConta.invalidate();
+    },
+    onError: e => toast.error(e.message),
+  });
 
   // Importação
   const [imp, setImp] = useState<{ contaId: number; nome: string } | null>(null);
@@ -97,7 +117,7 @@ export default function BancosPanel() {
   const lerPrevia = trpc.bancario.importar.previa.useMutation({ onSuccess: setPrevia, onError: e => toast.error(e.message) });
   const confirmar = trpc.bancario.importar.confirmar.useMutation({
     onSuccess: r => {
-      toast.success(`${r.novos} lançamento(s) importado(s).${r.recebidos - r.novos > 0 ? ` ${r.recebidos - r.novos} já existiam.` : ""}`);
+      toast.success(`${r.novos} lançamento(s) importado(s).${r.recebidos - r.novos > 0 ? ` ${r.recebidos - r.novos} já existiam.` : ""} Saldo: ${formatCurrency(r.saldo)}.`);
       fecharImportacao(); invalidar(); utils.bancario.transacoes.listByConta.invalidate();
     },
     onError: e => toast.error(e.message),
@@ -116,9 +136,16 @@ export default function BancosPanel() {
       <Card className="bg-[#2C3E50] border-[#C9A961]/20 text-gray-100">
         <CardHeader className="flex flex-row items-center justify-between gap-3 flex-wrap">
           <CardTitle className="text-[#C9A961]">Contas Bancárias ({contas.length})</CardTitle>
-          <Button onClick={() => setNovaOpen(true)} className="bg-[#C9A961] hover:bg-[#B8985A] text-[#1A2332] font-bold">
-            <Plus className="h-4 w-4 mr-2" /> Conta Bancária
-          </Button>
+          <div className="flex gap-2 flex-wrap">
+            <Button variant="outline" className="border-[#C9A961]/30 text-[#C9A961]" disabled={reprocessar.isPending}
+              title="Gera no BPO os lançamentos das movimentações que ainda não têm (não duplica) e recalcula o saldo das contas de importação."
+              onClick={() => reprocessar.mutate()}>
+              <Repeat className="h-4 w-4 mr-2" /> {reprocessar.isPending ? "Reprocessando..." : "Reprocessar movimentações"}
+            </Button>
+            <Button onClick={() => setNovaOpen(true)} className="bg-[#C9A961] hover:bg-[#B8985A] text-[#1A2332] font-bold">
+              <Plus className="h-4 w-4 mr-2" /> Conta Bancária
+            </Button>
+          </div>
         </CardHeader>
         <CardContent>
           {contas.length === 0 ? (
@@ -163,19 +190,53 @@ export default function BancosPanel() {
                   {verConta === c.id && (
                     <div className="max-h-80 overflow-y-auto border-t border-[#C9A961]/10 pt-2">
                       {transacoes.length === 0 ? <p className="text-xs text-gray-300">Nenhuma movimentação.</p> : (
-                        <table className="w-full text-xs">
-                          <tbody>
-                            {transacoes.slice(0, 300).map((t: any) => (
-                              <tr key={t.id} className="border-b border-white/5">
-                                <td className="py-1 pr-2 text-gray-300 whitespace-nowrap">{new Date(t.data).toLocaleDateString("pt-BR", { timeZone: "UTC" })}</td>
-                                <td className="py-1 pr-2 text-gray-100">{t.descricao}</td>
-                                <td className={`py-1 text-right whitespace-nowrap font-bold ${t.tipo === "credito" ? "text-green-300" : "text-red-300"}`}>
-                                  {t.tipo === "debito" ? "-" : ""}{formatCurrency(Number(t.valor))}
-                                </td>
+                        <>
+                          <p className="text-xs text-gray-300 mb-2">
+                            Cada movimentação vira um lançamento pago no BPO (entrada → Cobranças, saída → Despesas).
+                            "{TRANSFERENCIA_INTERNA}" não conta como receita nem despesa.
+                          </p>
+                          <table className="w-full text-xs">
+                            <thead className="sticky top-0 bg-[#1A2332]">
+                              <tr className="text-gray-300 text-left">
+                                <th className="p-1">Data</th><th className="p-1">Descrição</th><th className="p-1">Categoria</th>
+                                <th className="p-1">Cliente BPO</th><th className="p-1 text-right">Valor</th>
                               </tr>
-                            ))}
-                          </tbody>
-                        </table>
+                            </thead>
+                            <tbody>
+                              {transacoes.slice(0, 300).map(t => (
+                                <tr key={t.id} className="border-b border-white/5">
+                                  <td className="py-1 pr-2 text-gray-300 whitespace-nowrap">{new Date(t.data).toLocaleDateString("pt-BR", { timeZone: "UTC" })}</td>
+                                  <td className="py-1 pr-2 text-gray-100">
+                                    {t.descricao}
+                                    {!t.lancamentoId && t.categoria !== TRANSFERENCIA_INTERNA && <span className="ml-1 text-amber-300">(sem lançamento — use Reprocessar)</span>}
+                                  </td>
+                                  <td className="py-1 pr-2">
+                                    <select aria-label="Categoria" className="bg-[#2C3E50] border border-[#C9A961]/30 rounded px-1 py-0.5 text-white max-w-[11rem]"
+                                      value={t.categoria && (CATEGORIAS_BPO as readonly string[]).includes(t.categoria) ? t.categoria : ""}
+                                      disabled={atualizarMov.isPending}
+                                      onChange={e => atualizarMov.mutate({ id: t.id, categoria: e.target.value as CategoriaBpo })}>
+                                      {!(t.categoria && (CATEGORIAS_BPO as readonly string[]).includes(t.categoria)) && <option value="">—</option>}
+                                      {CATEGORIAS_BPO.map(c => <option key={c} value={c}>{c}</option>)}
+                                    </select>
+                                  </td>
+                                  <td className="py-1 pr-2">
+                                    <select aria-label="Cliente BPO" className="bg-[#2C3E50] border border-[#C9A961]/30 rounded px-1 py-0.5 text-white max-w-[11rem]"
+                                      value={t.bpoClienteId ? String(t.bpoClienteId) : ""}
+                                      disabled={atualizarMov.isPending}
+                                      onChange={e => atualizarMov.mutate({ id: t.id, bpoClienteId: e.target.value ? Number(e.target.value) : null })}>
+                                      <option value="">Nenhum</option>
+                                      {clientesBpo.map((c: any) => <option key={c.id} value={c.id}>{c.razaoSocial}</option>)}
+                                    </select>
+                                  </td>
+                                  <td className={`py-1 text-right whitespace-nowrap font-bold ${t.tipo === "credito" ? "text-green-300" : "text-red-300"}`}>
+                                    {t.tipo === "debito" ? "-" : ""}{formatCurrency(Number(t.valor))}
+                                  </td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                          {transacoes.length > 300 && <p className="text-xs text-gray-300 mt-1">Mostrando as 300 mais recentes de {transacoes.length}.</p>}
+                        </>
                       )}
                     </div>
                   )}
@@ -292,6 +353,9 @@ export default function BancosPanel() {
                 {previa.formato}: <b>{novas}</b> lançamento(s) novo(s){previa.linhas.length - novas ? `, ${previa.linhas.length - novas} já importado(s)` : ""}
                 {previa.antesDaDataInicial ? `, ${previa.antesDaDataInicial} anterior(es) a ${dataBR(previa.dataInicial)} (descartados)` : ""}
                 {previa.ignoradas ? `, ${previa.ignoradas} linha(s) não reconhecida(s)` : ""}.
+                {" "}{previa.saldoFinal !== null
+                  ? <>Saldo informado no arquivo: <b>{formatCurrency(previa.saldoFinal)}</b> (vira o saldo da conta).</>
+                  : "O arquivo não traz saldo: o saldo da conta será calculado pelas movimentações."}
               </p>
               <div className="max-h-96 overflow-y-auto border border-[#C9A961]/10 rounded">
                 <table className="w-full text-xs">
@@ -311,7 +375,7 @@ export default function BancosPanel() {
               <div className="flex gap-2">
                 <Button variant="outline" className="border-[#C9A961]/30 text-[#C9A961]" onClick={() => setPrevia(null)}>Escolher outro arquivo</Button>
                 <Button className="bg-[#C9A961] hover:bg-[#B8985A] text-[#1A2332] font-bold" disabled={!novas || confirmar.isPending}
-                  onClick={() => imp && confirmar.mutate({ contaId: imp.contaId, linhas: previa.linhas.map(({ jaImportada: _j, ...l }) => l) })}>
+                  onClick={() => imp && confirmar.mutate({ contaId: imp.contaId, linhas: previa.linhas.map(({ jaImportada: _j, ...l }) => l), saldoFinal: previa.saldoFinal })}>
                   {confirmar.isPending ? "Importando..." : `Importar ${novas} lançamento(s)`}
                 </Button>
               </div>
