@@ -1806,6 +1806,8 @@ export const whatsappConnections = pgTable("whatsapp_connections", {
   phoneNumberId: varchar("phone_number_id", { length: 60 }),
   numero: varchar("numero", { length: 30 }),
   status: varchar("status", { length: 20 }).default("desconectado").notNull(),
+  // Pedido de 25/10: conexão por QR code (provider "evolution") usa uma instância na Evolution API.
+  instancia: varchar("instancia", { length: 80 }),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });
@@ -1826,6 +1828,14 @@ export const whatsappMessages = pgTable("whatsapp_messages", {
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });
 export type WhatsappMessage = typeof whatsappMessages.$inferSelect;
+
+/** Pedido de 25/10: servidor da Evolution API (QR code). Linha única (id = 1); chave criptografada. */
+export const whatsappEvolutionSettings = pgTable("whatsapp_evolution_settings", {
+  id: integer("id").primaryKey().default(1),
+  url: varchar("url", { length: 500 }).notNull(),
+  apiKeyEncrypted: text("api_key_encrypted").notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
 export type InsertWhatsappMessage = typeof whatsappMessages.$inferInsert;
 
 

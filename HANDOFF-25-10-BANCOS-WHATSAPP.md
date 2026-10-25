@@ -25,8 +25,19 @@ Merge, deploy e migração em produção ainda dependem de autorização separad
 - `server/_core/secret-vault.ts`: valor `plain:<segredo>` gravado direto no banco é aceito e **recriptografado no primeiro uso**
   (forma de gravar as chaves sem acesso à chave do servidor).
 
+## Etapa 2 — Prospecta: WhatsApp por QR code (concluída, não publicada)
+- Migração `drizzle/0070_whatsapp_evolution.sql` (aditiva): `whatsapp_connections.instancia` e tabela
+  `whatsapp_evolution_settings` (endereço + chave criptografada do servidor; linha única).
+- `server/_core/evolution.ts`: testar servidor, estado, gerar QR (cria a instância se não existir), número conectado,
+  enviar texto, remover.
+- `server/whatsapp-router.ts`: `evolutionStatus`, `salvarEvolution` (testa antes de salvar), `conectarQr`, `statusQr`
+  (consulta a cada 3 s); `enviar` e `desconectar` funcionam para QR e para a API oficial. Env `EVOLUTION_API_URL/KEY` é reserva.
+- `client/src/components/whatsapp/ConexaoQrCode.tsx` na aba Conexão do `AdminWhatsApp.tsx` (API oficial fica em "Usar a API
+  oficial do WhatsApp Business").
+- Teste: `server/whatsapp-evolution.test.ts` (4, servidor simulado).
+
 ## Testes
-(a) Automáticos (Prospecta): `pnpm check` OK; vitest 134 arquivos / 980 testes OK; `vite build` OK.
+(a) Automáticos (Prospecta): `pnpm check` OK; vitest 135 arquivos / 984 testes OK; `vite build` OK.
 - Novos: `server/extrato-import.test.ts` (11) e `server/bancos-sync.test.ts` (7, inclui PDF real gerado no teste).
   APIs do Asaas e da Pluggy simuladas: nenhum teste toca contas reais.
 (b) Manuais: nenhum ainda.
@@ -34,6 +45,6 @@ Merge, deploy e migração em produção ainda dependem de autorização separad
     das chaves só acontece após o deploy (botões "Sincronizar"/"Testar conexão").
 
 ## Próximo passo exato
-1. Santa Fé: mesma estrutura (Prisma + migração + telas), sem as chaves da Prospecta.
-2. WhatsApp por QR (Evolution) nos dois sistemas + passo a passo do Railway para o dono.
+1. Santa Fé: Bancos (em andamento com @dev AIOX) e WhatsApp por QR (ligar o `src/lib/evolution.ts` existente à tela).
+2. Passo a passo do Railway para o dono publicar a Evolution.
 3. Após autorização de deploy: aplicar 0069 em produção e gravar as chaves da Prospecta (`plain:` → recriptografadas no 1º uso).
