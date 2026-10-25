@@ -1,12 +1,13 @@
 // Pedido de 25/10: contas bancárias do BPO por API (Asaas, Pluggy/Meu Pluggy) e por importação
 // de extrato (planilha, OFX, PDF), com data inicial por conta. Gêmeo de
 // Grupo-Santa-Fe/web/src/lib/bancos.ts.
-import { createHash } from "node:crypto";
+import { createHash, createHmac } from "node:crypto";
 import { and, eq, inArray } from "drizzle-orm";
 import { getDb } from "./db.js";
-import { bankAccounts, bankTransactions, pluggySettings, type BankAccount } from "../drizzle/schema.js";
+import { bankAccounts, bankTransactions, paymentSettings, pluggySettings, userNotifications, users, type BankAccount } from "../drizzle/schema.js";
 import { decryptSecret, encryptSecret, segredoEmTextoPuro } from "./_core/secret-vault.js";
-import { authenticatePluggy, fetchPluggyAccountBalance, fetchPluggyTransactions } from "./_core/pluggy.js";
+import { authenticatePluggy, fetchPluggyAccountBalance, fetchPluggyTransactions, garantirWebhookPluggy } from "./_core/pluggy.js";
+import { ENV } from "./_core/env.js";
 import { fetchAsaasExtrato, fetchAsaasSaldo } from "./_core/asaas-extrato.js";
 import {
   aplicarDataInicial,
@@ -100,6 +101,7 @@ export async function sincronizarConta(contaId: number, fetchImpl: typeof fetch 
       return { ok: false, mensagem: "Esta conta é alimentada por importação de extrato (botão Importar extrato)." };
     }
     const r = await gravarMovimentos(conta, movimentos, conta.provedor);
+    if (r.novos > 0) await avisarNovasMovimentacoes(conta, r.novos).catch(() => undefined);
     await db.update(bankAccounts).set({
       ultimaSincronizacao: new Date(),
       ultimoErro: null,
@@ -115,6 +117,7 @@ export async function sincronizarConta(contaId: number, fetchImpl: typeof fetch 
 
 /** Sincronização diária (cron): todas as contas ativas ligadas a uma API. */
 export async function sincronizarTodasContas(fetchImpl: typeof fetch = fetch) {
+  await recriptografarConfiguracaoAsaas().catch(() => undefined);
   const db = getDb();
   const contas = await db.select({ id: bankAccounts.id }).from(bankAccounts)
     .where(and(eq(bankAccounts.ativo, true), inArray(bankAccounts.provedor, ["asaas", "pluggy"])));
@@ -203,4 +206,63 @@ export async function confirmarImportacao(contaId: number, linhas: LinhaExtrato[
   const chaves = chavesImportacao(conta.id, mantidas, sha);
   const r = await gravarMovimentos(conta, mantidas.map((l, i) => ({ ...l, externalId: chaves[i] })), "importacao");
   return { ...r, antesDaDataInicial };
+}
+
+// ── Avisos em tempo real (pedido de 25/10) ──────────────────────────────────
+
+const SITE = () => (process.env.PUBLIC_SITE_URL || "https://www.prospectaconstrucoes.com").replace(/\/+$/, "");
+export const URL_WEBHOOK_PLUGGY = () => `${SITE()}/api/pluggy/webhook`;
+
+/** Segredo do webhook da Pluggy, derivado do segredo do servidor (nada a configurar). */
+export function segredoWebhookPluggy(): string {
+  if (!ENV.cookieSecret) throw new Error("JWT_SECRET ausente.");
+  return createHmac("sha256", ENV.cookieSecret).update("pluggy-webhook").digest("hex");
+}
+
+export async function registrarWebhookPluggy(fetchImpl: typeof fetch = fetch) {
+  return garantirWebhookPluggy(await tokenPluggy(fetchImpl), URL_WEBHOOK_PLUGGY(), segredoWebhookPluggy(), fetchImpl);
+}
+
+/** Notificação no sistema para os administradores quando entram movimentações novas. */
+async function avisarNovasMovimentacoes(conta: BankAccount, novos: number) {
+  const db = getDb();
+  const admins = await db.select({ id: users.id }).from(users).where(eq(users.role, "admin"));
+  const nome = conta.descricao ? `${conta.banco} — ${conta.descricao}` : conta.banco;
+  if (!admins.length) return;
+  await db.insert(userNotifications).values(admins.map(a => ({
+    userId: a.id,
+    title: `${novos} movimentação(ões) nova(s) — ${nome}`,
+    message: `O extrato da conta ${nome} foi atualizado automaticamente.`,
+    type: "system" as const,
+    relatedId: conta.id,
+    actionUrl: "/admin/bpo?aba=bancos",
+  })));
+}
+
+/** Evento recebido (Asaas ou Pluggy): sincroniza na hora as contas afetadas, com trava de 30 s. */
+export async function sincronizarPorEvento(filtro: { provedor: "asaas" } | { provedor: "pluggy"; itemId: string }, fetchImpl: typeof fetch = fetch) {
+  const db = getDb();
+  const contas = await db.select().from(bankAccounts).where(and(
+    eq(bankAccounts.ativo, true),
+    eq(bankAccounts.provedor, filtro.provedor),
+    filtro.provedor === "pluggy" ? eq(bankAccounts.pluggyItemId, filtro.itemId) : undefined,
+  ));
+  const agora = Date.now();
+  const resultados = [];
+  for (const c of contas) {
+    if (c.ultimaSincronizacao && agora - c.ultimaSincronizacao.getTime() < 30_000) continue;
+    resultados.push({ contaId: c.id, ...(await sincronizarConta(c.id, fetchImpl)) });
+  }
+  return resultados;
+}
+
+/** Configuração de cobranças gravada como "plain:" (carga inicial) passa a ficar criptografada. */
+export async function recriptografarConfiguracaoAsaas() {
+  const db = getDb();
+  const [s] = await db.select().from(paymentSettings).limit(1);
+  if (!s) return;
+  const set: Partial<typeof paymentSettings.$inferInsert> = {};
+  if (segredoEmTextoPuro(s.asaasApiKeyEncrypted)) set.asaasApiKeyEncrypted = encryptSecret(decryptSecret(s.asaasApiKeyEncrypted));
+  if (s.asaasWebhookTokenEncrypted && segredoEmTextoPuro(s.asaasWebhookTokenEncrypted)) set.asaasWebhookTokenEncrypted = encryptSecret(decryptSecret(s.asaasWebhookTokenEncrypted));
+  if (Object.keys(set).length) await db.update(paymentSettings).set({ ...set, updatedAt: new Date() }).where(eq(paymentSettings.id, s.id));
 }

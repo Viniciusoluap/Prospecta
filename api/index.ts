@@ -4,6 +4,7 @@ import { eq } from "drizzle-orm";
 
 import { users } from "../drizzle/schema.js";
 import { handleAsaasWebhook } from "../server/asaas-webhook.js";
+import { handlePluggyWebhook } from "../server/pluggy-webhook.js";
 import {
   createSessionToken,
   hashPassword,
@@ -169,6 +170,7 @@ app.use("/api", async (req, res, next) => {
     router.use(imovelFotosRouter);
     router.use(googleDriveRotas);
     router.post("/asaas/webhook", handleAsaasWebhook);
+    router.post("/pluggy/webhook", handlePluggyWebhook);
     router.use("/trpc", createExpressMiddleware({ router: appRouter, createContext }));
     router(req, res, next);
   } catch (err: any) {

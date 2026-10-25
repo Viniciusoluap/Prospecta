@@ -8,7 +8,7 @@ import { authenticatePluggy, createPluggyConnectToken, fetchPluggyItemAccounts, 
 import { fetchAsaasSaldo } from "./_core/asaas-extrato.js";
 import { bankAccounts } from "../drizzle/schema.js";
 import * as db from "./db.js";
-import { confirmarImportacao, previaImportacao, sincronizarConta, tokenPluggy } from "./bancos.js";
+import { confirmarImportacao, previaImportacao, registrarWebhookPluggy, sincronizarConta, tokenPluggy } from "./bancos.js";
 
 const dataIsoSchema = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Data inválida").nullable().optional();
 const erro = (e: unknown, padrao: string) =>
@@ -40,7 +40,12 @@ export const pluggySettingsRouter = router({
     }),
 
   testar: adminProcedure.mutation(async () => {
-    try { await tokenPluggy(); return { ok: true, mensagem: "Pluggy conectada." }; }
+    try {
+      await tokenPluggy();
+      // Avisos em tempo real: garante o webhook da Pluggy apontando para o sistema.
+      const aviso = await registrarWebhookPluggy().then(() => " Avisos em tempo real ativos.").catch(e => ` (Avisos em tempo real: ${e instanceof Error ? e.message : "falhou"})`);
+      return { ok: true, mensagem: `Pluggy conectada.${aviso}` };
+    }
     catch (e) { return { ok: false, mensagem: e instanceof Error ? e.message : "Falha na Pluggy." }; }
   }),
 
@@ -77,6 +82,7 @@ export const pluggySettingsRouter = router({
           });
           criadas++;
         }
+        await registrarWebhookPluggy().catch(() => undefined);
         return { encontradas: contas.length, criadas };
       } catch (e) { throw erro(e, "Falha ao ler a conexão da Pluggy."); }
     }),
