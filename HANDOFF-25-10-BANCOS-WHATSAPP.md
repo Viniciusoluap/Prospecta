@@ -128,3 +128,28 @@ Merge, deploy e migração em produção ainda dependem de autorização separad
 
 ## Conferência dos deploys (25/10 02:54 UTC)
 - Prospecta `dpl_EaLk3NYi2TXazXQDk1uNKcjeXwRx` e Santa Fé `dpl_9PGXUEEieZqcTFHibEejHtm3XMTH`: **READY**, sem erros de runtime nos 15 min seguintes. Item 1 das pendências concluído.
+
+## Lotes A–E (plano PLANO-25-10-BPO-WHATSAPP.md, autorizados pelo dono em 25/10)
+Branch: `claude/sync-mirrored-repos-bsqnz3` (nos 2 repos).
+- **Lote A — WhatsApp** (Prospecta `aa63c78`, `a928377`; Santa Fé `80e0bec`): variáveis `{{nome}}`, `{{servico}}`… preenchidas
+  por destinatário (`shared/whatsapp/variaveis.ts`), prévia e bloqueio se faltar valor; aba **Conversas**
+  (`ConversasWhatsApp.tsx`), webhook `/api/whatsapp/evolution-webhook` (registrado ao abrir a aba / conectar),
+  botão "Conversa no WhatsApp" no lead. Migração Prospecta `0071_whatsapp_conversas`; SF `20261025190000_whatsapp_conversas`.
+- **Lote B — Integrações** (Prospecta `a6a65f6`): tela única `/admin/integracoes` (Asaas, Pluggy, Evolution) com status,
+  erro real, chave mascarada, Testar/Trocar; campos de chave removidos das outras telas. Santa Fé: em andamento (agente).
+- **Lote C — Extrato → BPO** (Prospecta em `f37998d`; SF nos WIP): cada movimentação vira lançamento do BPO (1:1, categorias
+  aprovadas), transferência interna não conta; botão "Reprocessar movimentações"; DRE/Relatórios/Contabilidade usam isso.
+  Migração Prospecta `0072_bpo_extrato`; SF `20261025180000_bpo_extrato`.
+- **Lote D — erros reais Asaas/Pluggy** (Prospecta): mensagem do Asaas com motivo + dica de restrição de IP no 401.
+- **Lote E — publicar**: pendente (ver abaixo).
+
+### Próximo passo exato
+1. Concluir/commitar o Lote B do Santa Fé (`web/src/lib/bancos/asaas-central.ts`, página `/admin/integracoes`).
+2. Rodar testes + build nos 2 repos; abrir PRs; merge; conferir deploy READY.
+3. Aplicar migrações aditivas: Neon 0071 + 0072; Supabase 20261025180000 + 20261025190000.
+4. Clicar "Reprocessar movimentações" (BPO › Bancos) para as 379 movimentações do Cora.
+5. Dono: Asaas sem restrição de IP; colar chaves em Integrações (Secret da Pluggy por copiar/colar).
+
+### Testes até aqui
+(a) Prospecta 140 arquivos / 1031 testes OK; Santa Fé 875 ok + 10 falhas pré-existentes, build OK (antes do Lote B SF).
+(b) Manuais: nenhum novo. (c) Produção: tudo do Lote E.
