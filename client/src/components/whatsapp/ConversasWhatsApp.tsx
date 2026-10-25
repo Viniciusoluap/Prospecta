@@ -1,7 +1,7 @@
 // Pedido de 25/10: Conversas do WhatsApp — ver respostas dos clientes e continuar a conversa pelo sistema.
 import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
-import { Send, UserPlus } from "lucide-react";
+import { Download, RefreshCw, Send, Trash2, UserPlus } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { trpc } from "@/lib/trpc";
@@ -11,6 +11,55 @@ const formatar = (n: string) => {
   const d = n.replace(/\D/g, "").replace(/^55/, "");
   return d.length >= 10 ? `(${d.slice(0, 2)}) ${d.slice(2, -4)}-${d.slice(-4)}` : n;
 };
+
+type Midia = { tipo: string; mime: string | null; nome: string | null; tamanho: number | null; baixada: boolean };
+
+/** Pedido de 25/10 (noite): imagem em miniatura (abre grande), áudio/vídeo com player e documento para baixar. */
+function MidiaMensagem({ id, midia }: { id: number; midia: Midia }) {
+  const utils = trpc.useUtils();
+  const [grande, setGrande] = useState(false);
+  const deNovo = trpc.whatsapp.baixarMidiaDeNovo.useMutation({
+    onSuccess: () => { toast.success("Arquivo baixado."); utils.whatsapp.mensagensConversa.invalidate(); },
+    onError: e => toast.error(e.message),
+  });
+  if (!midia.baixada) {
+    const grandeDemais = (midia.tamanho ?? 0) > 10 * 1024 * 1024;
+    return (
+      <div className="mb-1 text-xs text-gray-300">
+        {grandeDemais ? "Arquivo maior que 10 MB (veja no celular)." : (
+          <button type="button" disabled={deNovo.isPending} onClick={() => deNovo.mutate({ id })} className="inline-flex items-center gap-1 underline">
+            <RefreshCw className="h-3 w-3" /> {deNovo.isPending ? "Baixando..." : "Tentar baixar de novo"}
+          </button>
+        )}
+      </div>
+    );
+  }
+  const url = `/api/whatsapp/midia/${id}`;
+  if (midia.tipo === "imagem" || midia.tipo === "figurinha") {
+    return (
+      <>
+        <button type="button" onClick={() => setGrande(true)} className="mb-1 block">
+          <img src={url} alt={midia.nome ?? "Imagem recebida"} loading="lazy" className={`rounded ${midia.tipo === "figurinha" ? "max-h-24" : "max-h-48"} max-w-full object-contain`} />
+        </button>
+        {grande && (
+          <div role="dialog" aria-label="Imagem ampliada" className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4" onClick={() => setGrande(false)}>
+            <img src={url} alt={midia.nome ?? "Imagem recebida"} className="max-h-full max-w-full object-contain" />
+          </div>
+        )}
+      </>
+    );
+  }
+  if (midia.tipo === "audio") return <audio controls preload="none" src={url} className="mb-1 max-w-full" />;
+  if (midia.tipo === "video") return <video controls preload="metadata" src={url} className="mb-1 max-h-64 max-w-full rounded" />;
+  return (
+    <a href={url} download={midia.nome ?? undefined} className="mb-1 inline-flex items-center gap-1 text-xs underline">
+      <Download className="h-3 w-3" /> {midia.nome ?? "Baixar documento"}
+    </a>
+  );
+}
+
+/** Rótulo gravado no texto ("[imagem] legenda") vira só a legenda quando o arquivo aparece. */
+const legenda = (texto: string, midia: Midia | null) => (midia?.baixada ? texto.replace(/^\[(imagem|áudio|vídeo|documento|figurinha)\]\s*/, "") : texto);
 
 export function ConversasWhatsApp({ numeroInicial }: { numeroInicial?: string | null }) {
   const utils = trpc.useUtils();
@@ -32,6 +81,18 @@ export function ConversasWhatsApp({ numeroInicial }: { numeroInicial?: string | 
     onSuccess: () => { toast.success("Lead criado no CRM."); utils.whatsapp.conversas.invalidate(); },
     onError: e => toast.error(e.message),
   });
+  // Pedido de 25/10 (noite): excluir conversa só no sistema (não apaga no celular).
+  const excluir = trpc.whatsapp.excluirConversa.useMutation({
+    onSuccess: (r, v) => {
+      toast.success(`Conversa excluída (${r.apagadas} mensagem(ns)).`);
+      if (numero && v.numero.slice(-8) === numero.replace(/\D/g, "").slice(-8)) setNumero(null);
+      utils.whatsapp.conversas.invalidate();
+    },
+    onError: e => toast.error(e.message),
+  });
+  const confirmarExclusao = (n: string, nome: string | null) => {
+    if (window.confirm(`Excluir a conversa com ${nome ?? formatar(n)}? As mensagens saem do sistema, mas continuam no celular.`)) excluir.mutate({ numero: n });
+  };
   useEffect(() => { fim.current?.scrollIntoView({ block: "end" }); }, [mensagens.data?.length]);
 
   const lista = (conversas.data ?? []).filter(c => !busca || (c.nome ?? "").toLowerCase().includes(busca.toLowerCase()) || c.numero.includes(busca.replace(/\D/g, "")));
@@ -46,15 +107,20 @@ export function ConversasWhatsApp({ numeroInicial }: { numeroInicial?: string | 
         <div className="flex-1 overflow-y-auto max-h-[560px]">
           {lista.length === 0 && <p className="p-4 text-sm text-gray-300">Nenhuma conversa ainda. As mensagens recebidas aparecem aqui sozinhas.</p>}
           {lista.map(c => (
-            <button key={c.numero} onClick={() => setNumero(c.numero)}
-              className={`w-full text-left px-3 py-3 border-b border-white/5 hover:bg-white/5 ${numero && c.numero.endsWith(numero.slice(-8)) ? "bg-[#C9A961]/10" : ""}`}>
-              <div className="flex items-center justify-between gap-2">
-                <p className="font-bold text-sm text-white truncate">{c.nome ?? formatar(c.numero)}</p>
-                {c.naoLidas > 0 && <span className="rounded-full bg-green-600 px-2 text-xs font-bold text-white">{c.naoLidas}</span>}
-              </div>
-              <p className="text-xs text-gray-300 truncate">{c.ultima}</p>
-              <p className="text-[11px] text-gray-400">{hora(c.quando)}</p>
-            </button>
+            <div key={c.numero} className={`flex items-stretch border-b border-white/5 ${numero && c.numero.endsWith(numero.slice(-8)) ? "bg-[#C9A961]/10" : ""}`}>
+              <button onClick={() => setNumero(c.numero)} className="min-w-0 flex-1 text-left px-3 py-3 hover:bg-white/5">
+                <div className="flex items-center justify-between gap-2">
+                  <p className="font-bold text-sm text-white truncate">{c.nome ?? formatar(c.numero)}</p>
+                  {c.naoLidas > 0 && <span className="rounded-full bg-green-600 px-2 text-xs font-bold text-white">{c.naoLidas}</span>}
+                </div>
+                <p className="text-xs text-gray-300 truncate">{c.ultima}</p>
+                <p className="text-[11px] text-gray-400">{hora(c.quando)}</p>
+              </button>
+              <button type="button" title="Excluir conversa" aria-label={`Excluir conversa com ${c.nome ?? formatar(c.numero)}`} disabled={excluir.isPending}
+                onClick={() => confirmarExclusao(c.numero, c.nome)} className="px-3 text-gray-400 hover:text-red-400">
+                <Trash2 className="h-4 w-4" />
+              </button>
+            </div>
           ))}
         </div>
       </div>
@@ -78,7 +144,8 @@ export function ConversasWhatsApp({ numeroInicial }: { numeroInicial?: string | 
               {(mensagens.data ?? []).map(m => (
                 <div key={m.id} className={`flex ${m.direcao === "saida" ? "justify-end" : "justify-start"}`}>
                   <div className={`max-w-[80%] rounded-lg px-3 py-2 text-sm whitespace-pre-wrap ${m.direcao === "saida" ? "bg-green-800 text-white" : "bg-[#1A2332] text-gray-100"}`}>
-                    {m.mensagem}
+                    {m.midia && <MidiaMensagem id={m.id} midia={m.midia} />}
+                    {legenda(m.mensagem, m.midia)}
                     <div className="text-[10px] text-gray-300 mt-1 text-right">{hora(m.quando)}{m.direcao === "saida" ? ` • ${m.status}` : ""}</div>
                   </div>
                 </div>

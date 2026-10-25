@@ -66,6 +66,9 @@ export type MovimentoParaLancamento = {
   tipo: TipoMovimento;
   categoria: string | null;
   bpoClienteId?: number | null;
+  // Pedido de 25/10 (noite): titular e descrição complementar entram na descrição do lançamento.
+  titular?: string | null;
+  detalhe?: string | null;
 };
 
 export type LancamentoDoExtrato = {
@@ -97,7 +100,7 @@ export function lancamentoDaMovimentacao(m: MovimentoParaLancamento): Lancamento
     tipo: m.tipo === "credito" ? "receita" : "despesa",
     categoria,
     clienteId: m.bpoClienteId ?? null,
-    descricao: (m.descricao || "Movimentação bancária").slice(0, 500),
+    descricao: descricaoDoLancamento(m),
     valor: Number(m.valor).toFixed(2),
     vencimento: quando,
     pago: true,
@@ -112,12 +115,90 @@ export function saldoPorMovimentos(movs: { tipo: TipoMovimento; valor: string | 
   return centavos / 100;
 }
 
+// ── Pedido de 25/10 (noite), itens 9 e 10: titular, regra por titular e clientes ──
+
+/** Nome comparável: sem acento, minúsculo, sem CPF/CNPJ/pontuação e sem espaços repetidos. */
+export function normalizarTitular(nome: string | null | undefined): string {
+  return sem(String(nome ?? ""))
+    .replace(/[\d.\-/*]{6,}/g, " ")
+    .replace(/[^a-z0-9& ]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 255);
+}
+
+/** "Tipo — Titular — descrição", sem repetir partes vazias ou já contidas em outra parte. */
+export function descricaoDoLancamento(m: { descricao?: string | null; titular?: string | null; detalhe?: string | null }): string {
+  const partes: string[] = [];
+  for (const p of [m.descricao, m.titular, m.detalhe]) {
+    const t = String(p ?? "").replace(/\s+/g, " ").trim();
+    if (!t) continue;
+    const n = sem(t);
+    if (partes.some(x => sem(x).includes(n))) continue;
+    // Parte nova que já contém anteriores (ex.: detalhe = "Pix enviado Fulano") substitui as menores.
+    const primeira = partes.findIndex(x => n.includes(sem(x)));
+    if (primeira >= 0) {
+      partes[primeira] = t;
+      for (let i = partes.length - 1; i > primeira; i--) if (n.includes(sem(partes[i]))) partes.splice(i, 1);
+      continue;
+    }
+    partes.push(t);
+  }
+  return (partes.join(" — ") || "Movimentação bancária").slice(0, 500);
+}
+
+export type ClienteParaSugestao = { id: number; razaoSocial: string; nomeLead?: string | null };
+
+/** Cliente BPO cujo nome (ou o nome do lead vinculado) é igual ao titular; `null` se nenhum ou ambíguo. */
+export function sugerirClientePorTitular(titular: string | null | undefined, clientes: ClienteParaSugestao[]): number | null {
+  const alvo = normalizarTitular(titular);
+  if (alvo.length < 3) return null;
+  const achados = clientes.filter(c => normalizarTitular(c.razaoSocial) === alvo || (c.nomeLead && normalizarTitular(c.nomeLead) === alvo));
+  return achados.length === 1 ? achados[0].id : null;
+}
+
+export type LancamentoResumo = { clienteId: number | null; tipo: string; valor: string | number; pago: boolean; categoria?: string | null };
+
+/** Por cliente: total recebido (cobranças pagas) e em aberto (cobranças não pagas), em reais. */
+export function resumoPorCliente(lancamentos: LancamentoResumo[]) {
+  const mapa = new Map<number, { recebido: number; emAberto: number; lancamentos: number }>();
+  for (const l of lancamentos) {
+    if (!l.clienteId || l.tipo === "despesa" || !contaNoResultado(l.categoria)) continue;
+    const e = mapa.get(l.clienteId) ?? { recebido: 0, emAberto: 0, lancamentos: 0 };
+    const centavos = Math.round(Number(l.valor) * 100);
+    if (l.pago) e.recebido += centavos; else e.emAberto += centavos;
+    e.lancamentos++;
+    mapa.set(l.clienteId, e);
+  }
+  return new Map(Array.from(mapa.entries()).map(([id, v]) => [id, { recebido: v.recebido / 100, emAberto: v.emAberto / 100, lancamentos: v.lancamentos }]));
+}
+
+export type LinhaDreCategoria = { categoria: string; entradas: number; saidas: number; resultado: number };
+
+/** DRE por categoria (transferência interna fica fora; sem categoria → "Sem categoria"). */
+export function dreDasCategorias(lancamentos: { tipo: string; valor: string | number; categoria?: string | null }[]): LinhaDreCategoria[] {
+  const mapa = new Map<string, { entradas: number; saidas: number }>();
+  for (const l of lancamentos) {
+    if (!contaNoResultado(l.categoria)) continue;
+    const chave = categoriaValida(l.categoria) ?? (l.categoria?.trim() || "Sem categoria");
+    const e = mapa.get(chave) ?? { entradas: 0, saidas: 0 };
+    const centavos = Math.round(Number(l.valor) * 100);
+    if (l.tipo === "despesa") e.saidas += centavos; else e.entradas += centavos;
+    mapa.set(chave, e);
+  }
+  const ordem = (c: string) => { const i = (CATEGORIAS_BPO as readonly string[]).indexOf(c); return i < 0 ? 999 : i; };
+  return Array.from(mapa.entries())
+    .map(([categoria, v]) => ({ categoria, entradas: v.entradas / 100, saidas: v.saidas / 100, resultado: (v.entradas - v.saidas) / 100 }))
+    .sort((a, b) => ordem(a.categoria) - ordem(b.categoria) || a.categoria.localeCompare(b.categoria));
+}
+
 export type LinhaDre = { competencia: string; cobrancas: number; despesas: number; resultado: number };
 
 /** DRE por competência a partir dos lançamentos do BPO (despesa x demais tipos). */
-export function dreDosLancamentos(lancamentos: { competencia: string; tipo: string; valor: string | number }[]): LinhaDre[] {
+export function dreDosLancamentos(lancamentos: { competencia: string; tipo: string; valor: string | number; categoria?: string | null }[]): LinhaDre[] {
   const mapa = new Map<string, { cobrancas: number; despesas: number }>();
   for (const l of lancamentos) {
+    if (!contaNoResultado(l.categoria)) continue;
     const e = mapa.get(l.competencia) ?? { cobrancas: 0, despesas: 0 };
     const centavos = Math.round(Number(l.valor) * 100);
     if (l.tipo === "despesa") e.despesas += centavos;

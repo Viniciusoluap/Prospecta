@@ -322,7 +322,7 @@ CREATE TABLE IF NOT EXISTS leads (
   type lead_type NOT NULL DEFAULT 'new_lead',
   temperature lead_temperature NOT NULL DEFAULT 'cold',
   stage lead_stage NOT NULL DEFAULT 'lead_new',
-  responsible lead_responsible NOT NULL DEFAULT 'sarah',
+  responsible lead_responsible, -- legado; sem padrão desde 25/10 (0076)
   income DECIMAL(15,2), income_type lead_income_type,
   fgts_amount DECIMAL(15,2), pis_fgts VARCHAR(20),
   has_spouse BOOLEAN DEFAULT FALSE, spouse_name VARCHAR(255),

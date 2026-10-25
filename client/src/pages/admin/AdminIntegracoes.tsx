@@ -10,6 +10,8 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { ConexaoWhatsApp } from "@/components/whatsapp/ConexaoWhatsApp";
+import { ConectarPluggy } from "@/components/bpo/ConectarPluggy";
 
 type Servico = "asaas" | "pluggy" | "whatsapp";
 type Campo = { nome: string; rotulo: string; segredo?: boolean; placeholder?: string; opcional?: boolean };
@@ -102,7 +104,8 @@ export default function AdminIntegracoes() {
     <div className="min-h-screen bg-[#1A2332] text-white">
       <header className="border-b border-[#C9A961]/20 bg-[#0F1923] px-4 py-4 md:px-6">
         <div className="mx-auto flex max-w-5xl items-center gap-3">
-          <Link href="/admin/configuracoes"><Button variant="ghost" size="icon" aria-label="Voltar"><ArrowLeft /></Button></Link>
+          {/* Pedido de 25/10 (noite), item 13: Voltar leva ao Painel. */}
+          <Link href="/admin"><Button variant="ghost" size="icon" aria-label="Voltar ao Painel"><ArrowLeft /></Button></Link>
           <Plug className="text-[#C9A961]" />
           <div>
             <h1 className="text-2xl font-bold text-[#C9A961]">Integrações</h1>
@@ -145,7 +148,7 @@ export default function AdminIntegracoes() {
             titulo="Pluggy — contas do Meu Pluggy no BPO"
             servico="pluggy"
             salvo={<p>{pluggy?.configurado ? `Client ID terminando em ${pluggy.clientIdFinal} · Client Secret terminando em ${pluggy.secretFinal}.` : "Client ID e Client Secret não salvos."}</p>}
-            extra={<p className="text-xs text-gray-300">Conectar banco e buscar contas: <Link href="/admin/bpo?aba=bancos" className="underline text-[#C9A961]">BPO › Bancos</Link>.</p>}
+            extra={<ConectarPluggy configurado={Boolean(pluggy?.configurado)} />}
             campos={[
               { nome: "clientId", rotulo: "Client ID", segredo: true },
               { nome: "clientSecret", rotulo: "Client Secret", segredo: true },
@@ -158,7 +161,7 @@ export default function AdminIntegracoes() {
             titulo="WhatsApp — servidor da Evolution (QR code)"
             servico="whatsapp"
             salvo={<p>{whatsapp?.configurado ? `Endereço ${whatsapp.url} · chave terminando em ${whatsapp.final}${FONTE(whatsapp.fonte)}.` : "Endereço e chave do servidor não salvos."}</p>}
-            extra={<p className="text-xs text-gray-300">Conectar o número (QR code) e conversas: <Link href="/admin/whatsapp" className="underline text-[#C9A961]">Central WhatsApp</Link>.</p>}
+            extra={<p className="text-xs text-gray-300">A conexão do número (QR code) fica logo abaixo; conversas e envios: <Link href="/admin/whatsapp" className="underline text-[#C9A961]">Central WhatsApp</Link>.</p>}
             campos={[
               { nome: "url", rotulo: "Endereço do servidor", placeholder: "https://evolution-xxxx.up.railway.app" },
               { nome: "apiKey", rotulo: "Chave de acesso (AUTHENTICATION_API_KEY)", segredo: true },
@@ -166,6 +169,8 @@ export default function AdminIntegracoes() {
             salvando={salvarEvolution.isPending}
             onSalvar={v => salvarEvolution.mutateAsync({ url: v.url ?? "", apiKey: v.apiKey ?? "" })}
           />
+          {/* Item 12 (25/10 noite): conexão do WhatsApp da empresa e dos corretores, saiu da Central. */}
+          <ConexaoWhatsApp role="admin" />
         </>}
       </main>
     </div>

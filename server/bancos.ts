@@ -20,11 +20,17 @@ import {
   type LinhaExtrato,
   type ResultadoLeitura,
 } from "../shared/extrato-import.js";
-import { categoriaValida, saldoPorMovimentos, sugerirCategoria } from "../shared/financeiro/bpo-extrato.js";
-import { gerarLancamentosDoExtrato, recalcularSaldoConta } from "./bpo-extrato.js";
+import { saldoPorMovimentos } from "../shared/financeiro/bpo-extrato.js";
+import { classificacaoInicial, completarMovimentacoesExistentes, contextoClassificacao, gerarLancamentosDoExtrato, recalcularSaldoConta } from "./bpo-extrato.js";
+import { sincronizarCobrancasAsaas, vincularCobrancasAoExtrato, type ResultadoCobrancas } from "./bpo-asaas.js";
 
 export type Provedor = "manual" | "asaas" | "pluggy";
-type Movimento = { externalId: string; data: string; descricao: string; valor: number; tipo: "credito" | "debito"; categoria?: string };
+type Movimento = {
+  externalId: string; data: string; descricao: string; valor: number; tipo: "credito" | "debito"; categoria?: string;
+  // Pedido de 25/10 (noite): titular, descrição complementar e texto completo da linha.
+  titular?: string | null; detalhe?: string | null; original?: string | null;
+  asaasPaymentId?: string | null;
+};
 
 const hoje = () => new Date().toISOString().slice(0, 10);
 const diasAtras = (n: number) => new Date(Date.now() - n * 86400000).toISOString().slice(0, 10);
@@ -68,22 +74,31 @@ export async function credencialDaConta(conta: Pick<BankAccount, "id" | "provedo
 /**
  * Grava movimentos (sem duplicar) respeitando a data inicial da conta. LOTE C (25/10): cada
  * movimentação nova recebe uma categoria sugerida e gera o seu lançamento pago no BPO (1:1).
+ * Pedido de 25/10 (noite): grava titular e texto original, aplica a regra do titular (ou sugere o
+ * cliente BPO pelo nome) e, nas que já existiam, completa titular/descrição sem duplicar.
  */
 export async function gravarMovimentos(conta: Pick<BankAccount, "id" | "dataInicial">, movimentos: Movimento[], origem: string) {
   const { mantidas, antesDaDataInicial } = aplicarDataInicial(movimentos.map(m => ({ ...m, data: m.data.slice(0, 10) })), conta.dataInicial);
   const db = getDb();
   let novos = 0;
   const inseridas: { tipo: "credito" | "debito"; valor: string }[] = [];
+  const jaExistentes: Movimento[] = [];
+  const ctx = await contextoClassificacao(mantidas.map(m => m.titular));
+  const detalhes = new Map(mantidas.map(m => [m.externalId, m.detalhe ?? null]));
   for (let i = 0; i < mantidas.length; i += 200) {
-    const lote = mantidas.slice(i, i + 200).map(m => ({
+    const parte = mantidas.slice(i, i + 200);
+    const lote = parte.map(m => ({
       accountId: conta.id,
       data: new Date(`${m.data}T12:00:00Z`),
       descricao: m.descricao.slice(0, 500),
       valor: m.valor.toFixed(2),
       tipo: m.tipo,
-      categoria: categoriaValida(m.categoria) ?? sugerirCategoria(m.descricao, m.tipo),
+      ...classificacaoInicial(m, ctx),
       externalId: m.externalId,
       origem,
+      titular: m.titular?.slice(0, 255) || null,
+      descricaoOriginal: m.original || null,
+      asaasPaymentId: m.asaasPaymentId || null,
     }));
     const r = await db
       .insert(bankTransactions)
@@ -94,15 +109,21 @@ export async function gravarMovimentos(conta: Pick<BankAccount, "id" | "dataInic
     const porChave = new Map(lote.map(l => [l.externalId, l]));
     const gravadas = r.flatMap(x => {
       const l = x.externalId ? porChave.get(x.externalId) : undefined;
-      return l ? [{ ...l, id: x.id, bpoClienteId: null }] : [];
+      return l ? [{ ...l, id: x.id, detalhe: detalhes.get(l.externalId) ?? null }] : [];
     });
     inseridas.push(...gravadas);
+    // Item 14: crédito de cobrança do Asaas já lançada assume aquele lançamento (não duplica).
+    await vincularCobrancasAoExtrato(gravadas);
     await gerarLancamentosDoExtrato(gravadas);
+    const novasChaves = new Set(r.map(x => x.externalId));
+    jaExistentes.push(...parte.filter(m => !novasChaves.has(m.externalId)));
   }
-  return { novos, recebidos: movimentos.length, antesDaDataInicial, liquidoNovos: saldoPorMovimentos(inseridas) };
+  const completadas = await completarMovimentacoesExistentes(jaExistentes);
+  return {
+    completadas, novos, recebidos: movimentos.length, antesDaDataInicial, liquidoNovos: saldoPorMovimentos(inseridas) };
 }
 
-export type ResultadoSync = { ok: boolean; mensagem: string; novos?: number; saldo?: number | null };
+export type ResultadoSync = { ok: boolean; mensagem: string; novos?: number; saldo?: number | null; cobrancas?: ResultadoCobrancas | null };
 
 export async function sincronizarConta(contaId: number, fetchImpl: typeof fetch = fetch): Promise<ResultadoSync> {
   const db = getDb();
@@ -111,11 +132,13 @@ export async function sincronizarConta(contaId: number, fetchImpl: typeof fetch 
   try {
     let movimentos: Movimento[];
     let saldo: number | null;
+    let chaveAsaas: string | null = null;
     // Releitura com folga: o banco pode lançar com atraso; a chave única evita duplicar.
     const ultima = conta.ultimaSincronizacao ? new Date(conta.ultimaSincronizacao.getTime() - 10 * 86400000).toISOString().slice(0, 10) : null;
     const desde = [conta.dataInicial, ultima].filter(Boolean).sort().pop() ?? diasAtras(365);
     if (conta.provedor === "asaas") {
       const chave = await credencialDaConta(conta);
+      chaveAsaas = chave;
       movimentos = await fetchAsaasExtrato(chave, desde, hoje(), fetchImpl);
       saldo = await fetchAsaasSaldo(chave, fetchImpl);
     } else if (conta.provedor === "pluggy" && conta.pluggyAccountId) {
@@ -127,12 +150,23 @@ export async function sincronizarConta(contaId: number, fetchImpl: typeof fetch 
     }
     const r = await gravarMovimentos(conta, movimentos, conta.provedor);
     if (r.novos > 0) await avisarNovasMovimentacoes(conta, r.novos).catch(() => undefined);
+    // Pedido de 25/10 (noite), item 14: cobranças emitidas no Asaas (depois do extrato, para reconciliar).
+    let cobrancas: ResultadoCobrancas | null = null;
+    let avisoCobrancas = "";
+    if (chaveAsaas) {
+      try {
+        cobrancas = await sincronizarCobrancasAsaas(chaveAsaas, conta.dataInicial ?? diasAtras(365), fetchImpl);
+        avisoCobrancas = ` Cobranças do Asaas: ${cobrancas.criadas} nova(s), ${cobrancas.atualizadas} atualizada(s), ${cobrancas.reconciliadas} reconciliada(s) com o extrato.`;
+      } catch (e) {
+        avisoCobrancas = ` (Cobranças do Asaas não lidas: ${e instanceof Error ? e.message : "falha"})`;
+      }
+    }
     await db.update(bankAccounts).set({
       ultimaSincronizacao: new Date(),
       ultimoErro: null,
       ...(saldo !== null ? { saldoAtual: saldo.toFixed(2), saldoFonte: "api" as const } : {}),
     }).where(eq(bankAccounts.id, conta.id));
-    return { ok: true, novos: r.novos, saldo, mensagem: `${r.novos} movimentação(ões) nova(s).` };
+    return { ok: true, novos: r.novos, saldo, cobrancas, mensagem: `${r.novos} movimentação(ões) nova(s).${avisoCobrancas}` };
   } catch (e) {
     const mensagem = e instanceof Error ? e.message : "Falha ao sincronizar.";
     await db.update(bankAccounts).set({ ultimoErro: mensagem.slice(0, 500) }).where(eq(bankAccounts.id, conta.id));
@@ -195,7 +229,8 @@ function decodificar(buf: Buffer) {
 
 export type PreviaImportacao = {
   formato: string;
-  linhas: (LinhaExtrato & { jaImportada: boolean })[];
+  /** `completaDados`: já importada, mas sem titular/descrição no banco — reimportar completa. */
+  linhas: (LinhaExtrato & { jaImportada: boolean; completaDados: boolean })[];
   ignoradas: number;
   antesDaDataInicial: number;
   dataInicial: string | null;
@@ -210,14 +245,19 @@ export async function previaImportacao(contaId: number, nome: string, conteudo: 
   const lido = await lerArquivoExtrato(nome, conteudo, anoPadrao);
   const { mantidas, antesDaDataInicial } = aplicarDataInicial(lido.linhas, conta.dataInicial);
   const chaves = chavesImportacao(conta.id, mantidas, sha);
-  const existentes = new Set<string>();
+  const existentes = new Map<string, { titular: string | null; descricaoOriginal: string | null }>();
   for (let i = 0; i < chaves.length; i += 500) {
-    const r = await db.select({ e: bankTransactions.externalId }).from(bankTransactions).where(inArray(bankTransactions.externalId, chaves.slice(i, i + 500)));
-    r.forEach(x => x.e && existentes.add(x.e));
+    const r = await db.select({ e: bankTransactions.externalId, titular: bankTransactions.titular, descricaoOriginal: bankTransactions.descricaoOriginal })
+      .from(bankTransactions).where(inArray(bankTransactions.externalId, chaves.slice(i, i + 500)));
+    r.forEach(x => x.e && existentes.set(x.e, x));
   }
   return {
     formato: lido.formato,
-    linhas: mantidas.map((l, i) => ({ ...l, jaImportada: existentes.has(chaves[i]) })),
+    linhas: mantidas.map((l, i) => {
+      const e = existentes.get(chaves[i]);
+      const completaDados = Boolean(e && ((l.titular && !e.titular) || (l.original && !e.descricaoOriginal)));
+      return { ...l, jaImportada: Boolean(e), completaDados };
+    }),
     ignoradas: lido.ignoradas,
     antesDaDataInicial,
     dataInicial: conta.dataInicial ?? null,

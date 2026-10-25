@@ -177,6 +177,7 @@ export async function baixarMidiaEvolution(c: EvolutionConfig, instancia: string
   const r = await chamar<{ base64?: string; mimetype?: string; fileName?: string }>(c, `/chat/getBase64FromMediaMessage/${encodeURIComponent(instancia)}`, {
     method: "POST",
     body: JSON.stringify({ message: { key: { id: externalId } }, convertToMp4: false }),
+    signal: AbortSignal.timeout(20_000), // não segura o aviso da Evolution por muito tempo
   }, fetchImpl);
   if (!r.ok) throw new Error(`A Evolution não entregou o arquivo (HTTP ${r.status})${motivo(r.data)}.`);
   const bruto = typeof r.data?.base64 === "string" ? r.data.base64.replace(/^data:[^,]*,/, "").replace(/\s+/g, "") : "";

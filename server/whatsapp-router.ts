@@ -1,8 +1,8 @@
 import { and, desc, eq, inArray, isNull } from "drizzle-orm";
 import { TRPCError } from "@trpc/server";
 import { z } from "zod";
-import { financiamentos, leadServices, leads, users, whatsappConnections, whatsappEvolutionSettings, whatsappMessages } from "../drizzle/schema.js";
-import { listaPorExtenso, preencherTemplate, primeiroNome } from "../shared/whatsapp/variaveis.js";
+import { financiamentos, imoveis, leadDocuments, leadServices, leads, users, whatsappConnections, whatsappEvolutionSettings, whatsappMessages, whatsappMidias } from "../drizzle/schema.js";
+import { documentosPendentes, listaPorExtenso, mesclarValores, preencherTemplate, primeiroNome, textoDocumentos } from "../shared/whatsapp/variaveis.js";
 import { rotulo } from "../shared/rotulos.js";
 import { enviarWhatsappBusiness, normalizarStatusWebhook } from "./_core/whatsapp-business.js";
 import { decryptSecret, encryptSecret, segredoEmTextoPuro } from "./_core/secret-vault.js";
@@ -10,10 +10,11 @@ import {
   enviarTextoEvolution, estadoInstancia, gerarQrCode, mesmoTelefone, normalizarUrlEvolution, numeroConectado, registrarWebhookEvolution, removerInstancia,
   type EvolutionConfig,
 } from "./_core/evolution.js";
-import { requireModule } from "./_core/rbac.js";
+import { podeUsarModulo, requireModule } from "./_core/rbac.js";
 import { adminProcedure, protectedProcedure, router } from "./_core/trpc.js";
 import { getDb } from "./db.js";
 import { URL_WEBHOOK_EVOLUTION, segredoWebhookEvolution } from "./whatsapp-evolution-webhook.js";
+import { baixarEGuardarMidia } from "./whatsapp-midia.js";
 
 /** Dono da conexão: o colaborador usa (e configura) a conexão da empresa, que é a do admin. */
 async function donoDaConexao(userId: number, role: string): Promise<number | null> {
@@ -57,22 +58,25 @@ const BANCOS: Record<string, string> = { caixa: "Caixa", bb: "Banco do Brasil", 
 
 /**
  * Pedido de 25/10: valores das variáveis dos templates para cada lead ({{nome}}, {{servico}}, {{corretor}},
- * {{imovel}}, {{banco}}, {{endereco}}); {{horario}}/{{documentos}} e o que faltar vêm de `extras` (preenchidos na tela).
+ * {{imovel}}, {{banco}}, {{endereco}}, {{documentos}}); {{horario}} e o que faltar vêm de `extras` (preenchidos na tela).
  */
 async function valoresDosLeads(ids: number[], remetente: string | null) {
   const db = getDb();
   if (!ids.length) return new Map<number, Record<string, string>>();
-  const [rows, servs, fins] = await Promise.all([
-    db.select({ id: leads.id, nome: leads.name, endereco: leads.address, corretor: users.name })
+  const [rows, servs, fins, docs] = await Promise.all([
+    db.select({ id: leads.id, nome: leads.name, endereco: leads.address, corretor: users.name, conjuge: leads.hasSpouse, composicao: leads.incomeComposition })
       .from(leads).leftJoin(users, eq(users.id, leads.brokerId)).where(inArray(leads.id, ids)),
     db.select({ leadId: leadServices.leadId, tipo: leadServices.serviceType, titulo: leadServices.title })
       .from(leadServices).where(inArray(leadServices.leadId, ids)),
     db.select({ leadId: financiamentos.leadId, imovel: financiamentos.imovel, banco: financiamentos.banco, bancoOutro: financiamentos.bancoOutro })
       .from(financiamentos).where(inArray(financiamentos.leadId, ids)).orderBy(desc(financiamentos.id)),
+    documentosDosLeads(ids),
   ]);
   const out = new Map<number, Record<string, string>>();
   for (const r of rows) {
     const fin = fins.find(f => f.leadId === r.id);
+    // Pedido de 25/10 (noite): {{documentos}} = pendentes do checklist do lead, por extenso.
+    const pendentes = documentosPendentes(docs.filter(d => d.leadId === r.id), Boolean(r.conjuge || r.composicao));
     out.set(r.id, {
       nome: primeiroNome(r.nome),
       servico: listaPorExtenso(servs.filter(sv => sv.leadId === r.id).map(sv => rotulo(sv.tipo))),
@@ -80,24 +84,83 @@ async function valoresDosLeads(ids: number[], remetente: string | null) {
       imovel: fin?.imovel ?? "",
       banco: fin?.bancoOutro || (fin?.banco ? (BANCOS[fin.banco] ?? rotulo(fin.banco)) : ""),
       endereco: r.endereco ?? "",
+      documentos: textoDocumentos(pendentes),
     });
   }
   return out;
 }
 
+/** Documentos (não excluídos) dos leads, com a indicação de arquivo já recebido. */
+async function documentosDosLeads(ids: number[]) {
+  const rows = await getDb().select({ leadId: leadDocuments.leadId, type: leadDocuments.type, status: leadDocuments.status, driveFileId: leadDocuments.driveFileId, storage: leadDocuments.storage })
+    .from(leadDocuments).where(and(inArray(leadDocuments.leadId, ids), isNull(leadDocuments.deletedAt)));
+  return rows.map(d => ({ leadId: d.leadId, type: d.type, status: d.status, temArquivo: Boolean(d.driveFileId) || d.storage === "banco" }));
+}
+
+type UsuarioConversa = { id: number; role: string; permissions?: string | null; active?: boolean | null };
+
+/** Corretor não mexe em conversa de lead de outro corretor (mesma regra do Santa Fé). */
+async function exigirLeadDoCorretor(user: UsuarioConversa, leadId: number | null | undefined) {
+  if (user.role !== "corretor" || !leadId) return;
+  const [l] = await getDb().select({ brokerId: leads.brokerId }).from(leads).where(eq(leads.id, leadId)).limit(1);
+  if (l && l.brokerId !== user.id) throw new TRPCError({ code: "FORBIDDEN", message: "Conversa de outro corretor." });
+}
+
+/**
+ * Pedido de 25/10 (noite): mensagem acessível ao usuário (rota da mídia e "baixar de novo"):
+ * da conexão dele e de conversa que ele pode abrir (mesma regra de mensagensConversa). Sem acesso = null.
+ */
+export async function acessoMensagemWhatsapp(user: UsuarioConversa, messageId: number) {
+  if (user.role !== "corretor" && !podeUsarModulo(user, "whatsapp")) return null;
+  const conn = await conexaoParaPapel(user.id, user.role);
+  if (!conn) return null;
+  const db = getDb();
+  const [msg] = await db.select().from(whatsappMessages).where(and(eq(whatsappMessages.id, messageId), eq(whatsappMessages.connectionId, conn.id))).limit(1);
+  if (!msg) return null;
+  if (user.role === "corretor") {
+    let leadId = msg.leadId;
+    if (!leadId) {
+      const todas = await db.select({ destinatario: whatsappMessages.destinatario, leadId: whatsappMessages.leadId }).from(whatsappMessages).where(eq(whatsappMessages.connectionId, conn.id));
+      leadId = todas.find(m => m.leadId && mesmoTelefone(m.destinatario, msg.destinatario))?.leadId ?? null;
+    }
+    try { await exigirLeadDoCorretor(user, leadId); } catch { return null; }
+  }
+  return { ...msg, instancia: conn.provider === "evolution" ? conn.instancia : null };
+}
+
 const extrasSchema = z.record(z.string(), z.string().max(500)).optional();
+// Pedido de 25/10 (noite): valores escolhidos só para um destinatário (ex.: documentos marcados).
+const extrasPorLeadSchema = z.record(z.string(), z.record(z.string(), z.string().max(1000))).optional();
 
 export const whatsappRouter = router({
   /** Prévia por destinatário: mensagem final e variáveis que ainda faltam. */
   previaEnvio: adminProcedure
-    .input(z.object({ mensagem: z.string().max(4096), ids: z.array(z.number()).max(200), extras: extrasSchema }))
+    .input(z.object({ mensagem: z.string().max(4096), ids: z.array(z.number()).max(200), extras: extrasSchema, extrasPorLead: extrasPorLeadSchema }))
     .query(async ({ ctx, input }) => {
       const valores = await valoresDosLeads(input.ids, ctx.user.name ?? null);
       return input.ids.map(id => {
-        const v = { ...(valores.get(id) ?? {}), ...Object.fromEntries(Object.entries(input.extras ?? {}).filter(([, x]) => x.trim())) };
-        return { id, ...preencherTemplate(input.mensagem, v) };
+        const porLead = input.extrasPorLead?.[String(id)];
+        // `semCampoGeral`: o que falta só com cadastro + escolhas por lead — define os campos da tela,
+        // que assim não somem enquanto a pessoa digita.
+        const semCampoGeral = preencherTemplate(input.mensagem, mesclarValores(valores.get(id), undefined, porLead)).faltando;
+        return { id, ...preencherTemplate(input.mensagem, mesclarValores(valores.get(id), input.extras, porLead)), semCampoGeral };
       });
     }),
+
+  /** Pedido de 25/10 (noite): {{imovel}} pode ser um imóvel cadastrado (busca por título/endereço). */
+  imoveisParaEnvio: adminProcedure.query(async () =>
+    getDb().select({ id: imoveis.id, titulo: imoveis.titulo, endereco: imoveis.endereco, bairro: imoveis.bairro, cidade: imoveis.cidade })
+      .from(imoveis).orderBy(imoveis.titulo).limit(1000)),
+
+  /** Pedido de 25/10 (noite): checklist de documentos de cada lead, com os pendentes marcados. */
+  documentosParaEnvio: adminProcedure.input(z.object({ ids: z.array(z.number().int().positive()).max(200) })).query(async ({ ctx, input }) => {
+    if (!input.ids.length) return [];
+    const db = getDb();
+    const q = db.select({ id: leads.id, conjuge: leads.hasSpouse, composicao: leads.incomeComposition }).from(leads);
+    const lista = await q.where(and(inArray(leads.id, input.ids), ctx.user.role === "corretor" ? eq(leads.brokerId, ctx.user.id) : undefined));
+    const docs = lista.length ? await documentosDosLeads(lista.map(l => l.id)) : [];
+    return lista.map(l => ({ id: l.id, pendentes: documentosPendentes(docs.filter(d => d.leadId === l.id), Boolean(l.conjuge || l.composicao)) }));
+  }),
 
   minhaConexao: adminProcedure.query(async ({ ctx }) => {
     const conn = await conexaoParaPapel(ctx.user.id, ctx.user.role);
@@ -222,6 +285,7 @@ export const whatsappRouter = router({
       mensagem: z.string().trim().min(1).max(4096),
       destinatarios: z.array(z.object({ id: z.number(), nome: z.string(), telefone: z.string() })).min(1).max(200),
       extras: extrasSchema,
+      extrasPorLead: extrasPorLeadSchema,
     }))
     .mutation(async ({ ctx, input }) => {
       const db = getDb();
@@ -255,8 +319,7 @@ export const whatsappRouter = router({
       let falhas = 0;
       // Pedido de 25/10: cada destinatário recebe o template já preenchido; nada sai com {{…}}.
       const valores = await valoresDosLeads(destinatarios.map(d => d.id), ctx.user.name ?? null);
-      const extras = Object.fromEntries(Object.entries(input.extras ?? {}).filter(([, x]) => x.trim()));
-      const textos = new Map(destinatarios.map(d => [d.id, preencherTemplate(input.mensagem, { ...(valores.get(d.id) ?? {}), ...extras })]));
+      const textos = new Map(destinatarios.map(d => [d.id, preencherTemplate(input.mensagem, mesclarValores(valores.get(d.id), input.extras, input.extrasPorLead?.[String(d.id)]))]));
       const pendentes = destinatarios.filter(d => textos.get(d.id)!.faltando.length);
       if (pendentes.length) {
         const nomes = Array.from(new Set(pendentes.flatMap(d => textos.get(d.id)!.faltando))).map(n => `{{${n}}}`).join(", ");
@@ -323,16 +386,47 @@ export const whatsappRouter = router({
     const todas = await db.select().from(whatsappMessages).where(eq(whatsappMessages.connectionId, conn.id)).orderBy(desc(whatsappMessages.createdAt)).limit(3000);
     const da = todas.filter(m => mesmoTelefone(m.destinatario, input.numero)).reverse();
     // Corretor não abre conversa de lead de outro corretor (mesma regra do Santa Fé).
-    if (ctx.user.role === "corretor") {
-      const leadId = da.find(m => m.leadId)?.leadId;
-      if (leadId) {
-        const [l] = await db.select({ brokerId: leads.brokerId }).from(leads).where(eq(leads.id, leadId)).limit(1);
-        if (l && l.brokerId !== ctx.user.id) throw new TRPCError({ code: "FORBIDDEN", message: "Conversa de outro corretor." });
-      }
-    }
+    await exigirLeadDoCorretor(ctx.user, da.find(m => m.leadId)?.leadId);
     const naoLidas = da.filter(m => m.direcao === "entrada" && !m.lida).map(m => m.id);
     if (naoLidas.length) await db.update(whatsappMessages).set({ lida: true }).where(inArray(whatsappMessages.id, naoLidas));
-    return da.map(m => ({ id: m.id, direcao: m.direcao, mensagem: m.mensagem, status: m.status, quando: m.createdAt }));
+    // Pedido de 25/10 (noite): mídia guardada no banco é servida por /api/whatsapp/midia/:id.
+    const comMidia = da.filter(m => m.midiaTipo).map(m => m.id);
+    const baixadas = new Set(comMidia.length
+      ? (await db.select({ messageId: whatsappMidias.messageId }).from(whatsappMidias).where(inArray(whatsappMidias.messageId, comMidia))).map(x => x.messageId)
+      : []);
+    return da.map(m => ({
+      id: m.id, direcao: m.direcao, mensagem: m.mensagem, status: m.status, quando: m.createdAt,
+      midia: m.midiaTipo ? { tipo: m.midiaTipo, mime: m.midiaMime, nome: m.midiaNome, tamanho: m.midiaTamanho, baixada: baixadas.has(m.id) } : null,
+    }));
+  }),
+
+  /**
+   * Pedido de 25/10 (noite): excluir conversa — apaga do sistema todas as mensagens daquele número
+   * (DDD + 8 últimos dígitos) da conexão; não apaga no celular. Mesma regra de acesso da conversa.
+   */
+  excluirConversa: protectedProcedure.input(z.object({ numero: z.string().min(8).max(20) })).mutation(async ({ ctx, input }) => {
+    if (ctx.user.role !== "corretor") requireModule(ctx, "whatsapp");
+    const conn = await conexaoParaPapel(ctx.user.id, ctx.user.role);
+    if (!conn) throw new TRPCError({ code: "BAD_REQUEST", message: "WhatsApp não está conectado." });
+    const db = getDb();
+    const todas = await db.select({ id: whatsappMessages.id, destinatario: whatsappMessages.destinatario, leadId: whatsappMessages.leadId })
+      .from(whatsappMessages).where(eq(whatsappMessages.connectionId, conn.id));
+    const da = todas.filter(m => mesmoTelefone(m.destinatario, input.numero));
+    await exigirLeadDoCorretor(ctx.user, da.find(m => m.leadId)?.leadId);
+    if (!da.length) return { apagadas: 0 };
+    // whatsapp_midias sai junto (ON DELETE CASCADE).
+    await db.delete(whatsappMessages).where(and(eq(whatsappMessages.connectionId, conn.id), inArray(whatsappMessages.id, da.map(m => m.id))));
+    return { apagadas: da.length };
+  }),
+
+  /** Pedido de 25/10 (noite): tenta de novo baixar a mídia da Evolution (falhou ou chegou antes do servidor). */
+  baixarMidiaDeNovo: protectedProcedure.input(z.object({ id: z.number().int().positive() })).mutation(async ({ ctx, input }) => {
+    const msg = await acessoMensagemWhatsapp(ctx.user, input.id);
+    if (!msg || !msg.midiaTipo) throw new TRPCError({ code: "NOT_FOUND", message: "Mensagem sem arquivo." });
+    if (!msg.instancia || !msg.externalId) throw new TRPCError({ code: "BAD_REQUEST", message: "Só dá para baixar de novo pela conexão por QR code." });
+    const r = await baixarEGuardarMidia(msg.id, msg.instancia, msg.externalId, msg.midiaTamanho);
+    if (!r.ok) throw new TRPCError({ code: "BAD_REQUEST", message: r.motivo ?? "Não consegui baixar o arquivo." });
+    return { ok: true };
   }),
 
   /** Contato novo da conversa vira lead (nome do WhatsApp + telefone) e as mensagens passam a apontar para ele. */

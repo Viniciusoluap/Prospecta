@@ -1184,6 +1184,8 @@ export const bpoLancamentos = pgTable("bpo_lancamentos", {
   bankTransactionId: integer("bank_transaction_id")
     .unique()
     .references((): AnyPgColumn => bankTransactions.id, { onDelete: "cascade" }),
+  // Pedido de 25/10 (noite), item 14: cobrança emitida no Asaas (id do pagamento, único).
+  asaasPaymentId: varchar("asaas_payment_id", { length: 60 }).unique(),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 export type BpoLancamento =typeof bpoLancamentos.$inferSelect;
@@ -1351,6 +1353,8 @@ export const bankTransactions = pgTable("bank_transactions", {
   // Pedido de 25/10 (noite), item 9: quem pagou/recebeu e o texto completo da linha do extrato.
   titular: varchar("titular", { length: 255 }),
   descricaoOriginal: text("descricao_original"),
+  // Item 14: id do pagamento do Asaas que gerou o crédito (reconcilia com a cobrança).
+  asaasPaymentId: varchar("asaas_payment_id", { length: 60 }),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 export type BankTransaction =typeof bankTransactions.$inferSelect;

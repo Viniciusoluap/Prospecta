@@ -38,7 +38,7 @@ describe("formatos de arquivo", () => {
     ].join("\n");
     const r = lerCsv(csv);
     expect(r.linhas).toEqual([
-      { data: "2026-10-01", descricao: "Pix recebido Cliente A", valor: 1500, tipo: "credito" },
+      { data: "2026-10-01", descricao: "Pix recebido Cliente A", valor: 1500, tipo: "credito", titular: "Cliente A" },
       { data: "2026-10-02", descricao: "Boleto fornecedor", valor: 320.4, tipo: "debito" },
     ]);
   });
@@ -86,9 +86,9 @@ describe("formatos de arquivo", () => {
       "03/10/2026 SALDO DO DIA 4.720,00",
     ], 2026);
     expect(r.linhas).toEqual([
-      { data: "2026-10-01", descricao: "PIX RECEBIDO FULANO", valor: 1000, tipo: "credito" },
-      { data: "2026-10-02", descricao: "PIX ENVIADO BELTRANO", valor: 250, tipo: "debito" },
-      { data: "2026-10-03", descricao: "TARIFA MENSAL", valor: 30, tipo: "debito" },
+      { data: "2026-10-01", descricao: "PIX RECEBIDO FULANO", valor: 1000, tipo: "credito", titular: "FULANO", original: "PIX RECEBIDO FULANO 1.000,00 5.000,00" },
+      { data: "2026-10-02", descricao: "PIX ENVIADO BELTRANO", valor: 250, tipo: "debito", titular: "BELTRANO", original: "PIX ENVIADO BELTRANO -250,00 4.750,00" },
+      { data: "2026-10-03", descricao: "TARIFA MENSAL", valor: 30, tipo: "debito", original: "TARIFA MENSAL 30,00" },
     ]);
   });
 });

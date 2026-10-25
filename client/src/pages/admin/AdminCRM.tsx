@@ -41,13 +41,6 @@ const TEMP_LABELS: Record<string, string> = Object.fromEntries(
   LEAD_TEMPERATURAS.map(t => [t, LEAD_TEMPERATURA_CONFIG[t].label])
 );
 
-// Nomes do enum legado: usados só para exibir leads antigos sem responsável real.
-const LEGACY_RESPONSIBLE_LABELS: Record<string, string> = {
-  sarah: "Sarah",
-  vinicius: "Vinicius",
-  bianca: "Bianca",
-};
-
 const NONE = "none";
 const emptyLead = () => ({
   name: "", phone: "", email: "", cpf: "", address: "", neighborhood: "", city: "", state: "",
@@ -69,9 +62,9 @@ export default function AdminCRM() {
   // vêm dos usuários realmente cadastrados.
   const [newLead, setNewLead] = useState(emptyLead);
   const { data: assignment } = trpc.leads.assignmentOptions.useQuery(undefined, { enabled: (user?.role === "admin" || user?.role === "colaborador") });
-  const responsibleName = (lead: { responsibleUserId?: number | null; responsible: string }) =>
-    (lead.responsibleUserId && assignment?.responsibles.find(item => item.id === lead.responsibleUserId)?.name) ||
-    LEGACY_RESPONSIBLE_LABELS[lead.responsible] || "—";
+  // Pedido de 25/10 (noite): sem o responsável legado (enum lead_responsible); só usuários reais.
+  const responsibleName = (lead: { responsibleUserId?: number | null }) =>
+    (lead.responsibleUserId && assignment?.responsibles.find(item => item.id === lead.responsibleUserId)?.name) || "Sem usuário";
 
   const { data: leads = [], refetch } = trpc.leads.list.useQuery({
     includeDeleted: showDeleted,

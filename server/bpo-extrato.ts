@@ -4,15 +4,20 @@
 // Crédito → receita (Cobranças), débito → despesa (Despesas). "Transferência interna"
 // não gera lançamento, então fica fora de DRE, Cobranças, Despesas e Contabilidade.
 // Regras puras em shared/financeiro/bpo-extrato.ts.
-import { and, desc, eq, inArray, isNull, or } from "drizzle-orm";
+import { and, desc, eq, getTableColumns, inArray, isNotNull, isNull, or } from "drizzle-orm";
 import { getDb } from "./db.js";
-import { bankAccounts, bankTransactions, bpoClients, bpoLancamentos } from "../drizzle/schema.js";
+import { bankAccounts, bankTransactions, bpoClients, bpoLancamentos, bpoRegrasTitular, leads, type BpoRegraTitular } from "../drizzle/schema.js";
 import {
+  TRANSFERENCIA_INTERNA,
   categoriaValida,
+  descricaoDoLancamento,
   lancamentoDaMovimentacao,
+  normalizarTitular,
   saldoPorMovimentos,
   sugerirCategoria,
+  sugerirClientePorTitular,
   type CategoriaBpo,
+  type ClienteParaSugestao,
   type MovimentoParaLancamento,
 } from "../shared/financeiro/bpo-extrato.js";
 
@@ -64,6 +69,7 @@ export async function reprocessarMovimentacoes(): Promise<ResultadoReprocessamen
       tipo: bankTransactions.tipo,
       categoria: bankTransactions.categoria,
       bpoClienteId: bankTransactions.bpoClienteId,
+      titular: bankTransactions.titular,
       lancamentoId: bpoLancamentos.id,
     })
     .from(bankTransactions)
@@ -158,6 +164,8 @@ export async function movimentacoesDaConta(accountId: number) {
       tipo: bankTransactions.tipo,
       categoria: bankTransactions.categoria,
       bpoClienteId: bankTransactions.bpoClienteId,
+      titular: bankTransactions.titular,
+      descricaoOriginal: bankTransactions.descricaoOriginal,
       status: bankTransactions.status,
       origem: bankTransactions.origem,
       lancamentoId: bpoLancamentos.id,
@@ -166,4 +174,192 @@ export async function movimentacoesDaConta(accountId: number) {
     .leftJoin(bpoLancamentos, eq(bpoLancamentos.bankTransactionId, bankTransactions.id))
     .where(eq(bankTransactions.accountId, accountId))
     .orderBy(desc(bankTransactions.data), desc(bankTransactions.id));
+}
+
+// ── Pedido de 25/10 (noite), itens 9 e 10: titular, regra por titular e sugestão de cliente ──
+
+type Db = ReturnType<typeof getDb>;
+export type Consulta = { execute(): Promise<unknown> } & PromiseLike<unknown>;
+
+/** Várias atualizações numa ida ao banco (neon-http `batch`); sem `batch`, uma a uma. */
+export async function executarLote(db: Db, consultas: Consulta[]) {
+  const comBatch = db as unknown as { batch?: (q: Consulta[]) => Promise<unknown> };
+  for (let i = 0; i < consultas.length; i += 100) {
+    const parte = consultas.slice(i, i + 100);
+    if (typeof comBatch.batch === "function" && parte.length > 1) await comBatch.batch(parte);
+    else for (const q of parte) await q;
+  }
+}
+
+export type ContextoClassificacao = { regras: Map<string, BpoRegraTitular>; clientes: ClienteParaSugestao[] };
+
+/** Regras dos titulares informados e clientes BPO (com nome do lead) para a sugestão automática. */
+export async function contextoClassificacao(titulares: (string | null | undefined)[]): Promise<ContextoClassificacao> {
+  const normalizados = Array.from(new Set(titulares.map(normalizarTitular).filter(Boolean)));
+  if (!normalizados.length) return { regras: new Map(), clientes: [] };
+  const db = getDb();
+  const regras = new Map<string, BpoRegraTitular>();
+  for (let i = 0; i < normalizados.length; i += 500) {
+    const r = await db.select().from(bpoRegrasTitular).where(inArray(bpoRegrasTitular.titularNormalizado, normalizados.slice(i, i + 500)));
+    r.forEach(x => regras.set(x.titularNormalizado, x));
+  }
+  const clientes = await db
+    .select({ id: bpoClients.id, razaoSocial: bpoClients.razaoSocial, nomeLead: leads.name })
+    .from(bpoClients)
+    .leftJoin(leads, eq(leads.id, bpoClients.leadId));
+  return { regras, clientes };
+}
+
+/** Categoria e cliente de uma movimentação nova: regra do titular > categoria do provedor > sugestão. */
+export function classificacaoInicial(
+  m: { descricao: string; tipo: "credito" | "debito"; categoria?: string | null; titular?: string | null },
+  ctx: ContextoClassificacao,
+): { categoria: CategoriaBpo; bpoClienteId: number | null } {
+  const regra = ctx.regras.get(normalizarTitular(m.titular));
+  const categoria = categoriaValida(regra?.categoria) ?? categoriaValida(m.categoria) ?? sugerirCategoria(`${m.descricao} ${m.titular ?? ""}`, m.tipo);
+  const bpoClienteId = regra?.bpoClienteId ?? sugerirClientePorTitular(m.titular, ctx.clientes);
+  return { categoria, bpoClienteId };
+}
+
+/**
+ * Mesma categoria e/ou cliente para várias movimentações (regra por titular), mantendo os
+ * lançamentos vinculados coerentes: Transferência interna remove; demais atualizam ou criam.
+ */
+export async function aplicarClassificacaoEmLote(ids: number[], mudanca: { categoria?: CategoriaBpo; bpoClienteId?: number | null }) {
+  if (!ids.length || (mudanca.categoria === undefined && mudanca.bpoClienteId === undefined)) return 0;
+  const db = getDb();
+  let total = 0;
+  for (let i = 0; i < ids.length; i += 500) {
+    const parte = ids.slice(i, i + 500);
+    const linhas = await db
+      .select({ ...getTableColumns(bankTransactions), lancamentoId: bpoLancamentos.id })
+      .from(bankTransactions)
+      .leftJoin(bpoLancamentos, eq(bpoLancamentos.bankTransactionId, bankTransactions.id))
+      .where(inArray(bankTransactions.id, parte));
+    if (!linhas.length) continue;
+    const set = {
+      ...(mudanca.categoria !== undefined ? { categoria: mudanca.categoria } : {}),
+      ...(mudanca.bpoClienteId !== undefined ? { bpoClienteId: mudanca.bpoClienteId } : {}),
+    };
+    const comLancamento = linhas.filter(l => l.lancamentoId != null).map(l => l.id);
+    if (mudanca.categoria === TRANSFERENCIA_INTERNA && comLancamento.length) {
+      try { await db.delete(bpoLancamentos).where(inArray(bpoLancamentos.bankTransactionId, comLancamento)); }
+      catch (e) { throw erroLancamentoEmUso(e); }
+    }
+    await db.update(bankTransactions).set(set).where(inArray(bankTransactions.id, linhas.map(l => l.id)));
+    if (mudanca.categoria !== TRANSFERENCIA_INTERNA) {
+      if (comLancamento.length) {
+        await db.update(bpoLancamentos).set({
+          ...(mudanca.categoria !== undefined ? { categoria: mudanca.categoria } : {}),
+          ...(mudanca.bpoClienteId !== undefined ? { clienteId: mudanca.bpoClienteId } : {}),
+        }).where(inArray(bpoLancamentos.bankTransactionId, comLancamento));
+      }
+      await gerarLancamentosDoExtrato(linhas.filter(l => l.lancamentoId == null).map(l => ({ ...l, ...set })));
+    }
+    total += linhas.length;
+  }
+  return total;
+}
+
+/** Grava (ou atualiza) a regra do titular; `undefined` mantém o que a regra já tinha. */
+export async function salvarRegraTitular(titular: string, mudanca: { categoria?: CategoriaBpo; bpoClienteId?: number | null }) {
+  const titularNormalizado = normalizarTitular(titular);
+  if (!titularNormalizado) throw new Error("Esta movimentação não tem titular para criar a regra.");
+  const db = getDb();
+  const [atual] = await db.select().from(bpoRegrasTitular).where(eq(bpoRegrasTitular.titularNormalizado, titularNormalizado)).limit(1);
+  const valores = {
+    categoria: mudanca.categoria !== undefined ? mudanca.categoria : atual?.categoria ?? null,
+    bpoClienteId: mudanca.bpoClienteId !== undefined ? mudanca.bpoClienteId : atual?.bpoClienteId ?? null,
+  };
+  if (atual) await db.update(bpoRegrasTitular).set({ ...valores, updatedAt: new Date() }).where(eq(bpoRegrasTitular.id, atual.id));
+  else await db.insert(bpoRegrasTitular).values({ titularNormalizado, ...valores }).onConflictDoNothing({ target: bpoRegrasTitular.titularNormalizado }).returning({ id: bpoRegrasTitular.id });
+  return { titularNormalizado, ...valores };
+}
+
+/**
+ * Classifica uma movimentação; com `aplicarATodasDoTitular`, grava a regra do titular e
+ * reclassifica as demais movimentações do mesmo titular (as próximas importações seguem a regra).
+ */
+export async function classificarMovimentacao(
+  id: number,
+  mudanca: { categoria?: CategoriaBpo; bpoClienteId?: number | null; aplicarATodasDoTitular?: boolean },
+) {
+  const { aplicarATodasDoTitular, ...campos } = mudanca;
+  const resultado = await atualizarMovimentacao(id, campos);
+  if (!aplicarATodasDoTitular) return { ...resultado, regra: null, outras: 0 };
+  const db = getDb();
+  const [t] = await db.select({ titular: bankTransactions.titular }).from(bankTransactions).where(eq(bankTransactions.id, id)).limit(1);
+  if (!normalizarTitular(t?.titular)) return { ...resultado, regra: null, outras: 0 };
+  const regra = await salvarRegraTitular(t!.titular!, campos);
+  const candidatas = await db
+    .select({ id: bankTransactions.id, titular: bankTransactions.titular })
+    .from(bankTransactions)
+    .where(isNotNull(bankTransactions.titular));
+  const ids = candidatas.filter(c => c.id !== id && normalizarTitular(c.titular) === regra.titularNormalizado).map(c => c.id);
+  const outras = await aplicarClassificacaoEmLote(ids, campos);
+  return { ...resultado, regra, outras };
+}
+
+export type MovimentoParaCompletar = { externalId: string; titular?: string | null; detalhe?: string | null; original?: string | null };
+
+/**
+ * Reimportação do mesmo arquivo: completa titular/descrição original das movimentações já
+ * gravadas que estão sem eles e atualiza a descrição do lançamento vinculado
+ * ("Tipo — Titular — descrição"). Se houver regra para o titular, ela é aplicada; sem regra,
+ * o cliente BPO só é sugerido quando a movimentação ainda não tem cliente.
+ */
+export async function completarMovimentacoesExistentes(movimentos: MovimentoParaCompletar[]) {
+  const comDados = movimentos.filter(m => m.titular || m.original || m.detalhe);
+  if (!comDados.length) return 0;
+  const db = getDb();
+  const porChave = new Map(comDados.map(m => [m.externalId, m]));
+  const ctx = await contextoClassificacao(comDados.map(m => m.titular));
+  const consultas: Consulta[] = [];
+  const porRegra = new Map<string, number[]>();
+  let completadas = 0;
+  const chaves = Array.from(porChave.keys());
+  for (let i = 0; i < chaves.length; i += 500) {
+    const existentes = await db
+      .select({
+        id: bankTransactions.id, externalId: bankTransactions.externalId, descricao: bankTransactions.descricao,
+        titular: bankTransactions.titular, descricaoOriginal: bankTransactions.descricaoOriginal, bpoClienteId: bankTransactions.bpoClienteId,
+      })
+      .from(bankTransactions)
+      .where(inArray(bankTransactions.externalId, chaves.slice(i, i + 500)));
+    for (const t of existentes) {
+      const m = t.externalId ? porChave.get(t.externalId) : undefined;
+      if (!m) continue;
+      const titular = t.titular || m.titular || null;
+      const descricaoOriginal = t.descricaoOriginal || m.original || null;
+      if (titular === t.titular && descricaoOriginal === t.descricaoOriginal) continue;
+      const clienteSugerido = !t.bpoClienteId && !ctx.regras.has(normalizarTitular(titular)) ? sugerirClientePorTitular(titular, ctx.clientes) : null;
+      consultas.push(db.update(bankTransactions)
+        .set({ titular, descricaoOriginal, ...(clienteSugerido ? { bpoClienteId: clienteSugerido } : {}) })
+        .where(eq(bankTransactions.id, t.id)) as unknown as Consulta);
+      consultas.push(db.update(bpoLancamentos)
+        .set({ descricao: descricaoDoLancamento({ descricao: t.descricao, titular, detalhe: m.detalhe }), ...(clienteSugerido ? { clienteId: clienteSugerido } : {}) })
+        .where(eq(bpoLancamentos.bankTransactionId, t.id)) as unknown as Consulta);
+      const norma = normalizarTitular(titular);
+      if (norma && ctx.regras.has(norma)) porRegra.set(norma, [...(porRegra.get(norma) ?? []), t.id]);
+      completadas++;
+    }
+  }
+  await executarLote(db, consultas);
+  for (const [norma, ids] of Array.from(porRegra.entries())) {
+    const regra = ctx.regras.get(norma)!;
+    await aplicarClassificacaoEmLote(ids, {
+      ...(categoriaValida(regra.categoria) ? { categoria: categoriaValida(regra.categoria)! } : {}),
+      ...(regra.bpoClienteId ? { bpoClienteId: regra.bpoClienteId } : {}),
+    });
+  }
+  return completadas;
+}
+
+/** Lançamentos com o titular da movimentação que os gerou (abas Cobranças e Despesas). */
+export async function lancamentosComTitular() {
+  return getDb()
+    .select({ ...getTableColumns(bpoLancamentos), titular: bankTransactions.titular })
+    .from(bpoLancamentos)
+    .leftJoin(bankTransactions, eq(bankTransactions.id, bpoLancamentos.bankTransactionId))
+    .orderBy(desc(bpoLancamentos.vencimento));
 }

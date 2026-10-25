@@ -11,15 +11,22 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { formatCurrency } from "@/lib/format";
 import { toast } from "sonner";
-import { FileUp, Landmark, Link2, Plus, RefreshCw, Trash2, ListOrdered, Repeat } from "lucide-react";
+import { FileUp, Landmark, Plus, RefreshCw, Trash2, ListOrdered, Repeat } from "lucide-react";
 import { CATEGORIAS_BPO, TRANSFERENCIA_INTERNA, type CategoriaBpo } from "@shared/financeiro/bpo-extrato";
+import { extensaoExtratoValida } from "@shared/extrato-import";
 
 const campo = "bg-[#2C3E50] border-[#C9A961]/30 text-white mt-1";
 const botaoSec = "h-7 text-xs border-[#C9A961]/30 text-[#C9A961]";
 const dataBR = (d?: string | null) => (d ? d.split("-").reverse().join("/") : "—");
 const PROVEDOR: Record<string, string> = { asaas: "API do Asaas", pluggy: "Pluggy (Meu Pluggy)", manual: "Importação de extrato" };
 
-type LinhaPrevia = { data: string; descricao: string; valor: number; tipo: "credito" | "debito"; jaImportada: boolean };
+type LinhaPrevia = {
+  data: string; descricao: string; valor: number; tipo: "credito" | "debito"; jaImportada: boolean; completaDados?: boolean;
+  titular?: string; detalhe?: string; original?: string;
+};
+
+// Pedido de 25/10 (noite): no iPad/Safari o seletor deixava o .ofx cinza (o iOS não conhece a
+// extensão no `accept`). O seletor aceita qualquer arquivo e a extensão é conferida no código.
 type Previa = { formato: string; linhas: LinhaPrevia[]; ignoradas: number; antesDaDataInicial: number; dataInicial: string | null; saldoFinal: number | null };
 
 function arquivoBase64(f: File): Promise<string> {
@@ -34,7 +41,6 @@ function arquivoBase64(f: File): Promise<string> {
 export default function BancosPanel() {
   const utils = trpc.useUtils();
   const { data: contas = [] } = trpc.bancario.contas.list.useQuery();
-  const { data: pluggy } = trpc.pluggySettings.status.useQuery();
   const { data: clientesBpo = [] } = trpc.bpo.clientes.list.useQuery();
   // LOTE C (25/10): o extrato alimenta Cobranças, Despesas, DRE, Contabilidade e Relatórios.
   const invalidarBpo = () => {
@@ -45,28 +51,7 @@ export default function BancosPanel() {
   };
   const invalidar = () => { utils.bancario.contas.list.invalidate(); invalidarBpo(); };
 
-  // Pluggy — LOTE B (25/10): Client ID/Secret ficam só em Configurações › Integrações.
-  const [itemForm, setItemForm] = useState({ itemId: "", dataInicial: "" });
-  const importarItem = trpc.pluggySettings.importarItem.useMutation({
-    onSuccess: r => { toast.success(`${r.encontradas} conta(s) encontrada(s), ${r.criadas} cadastrada(s).`); setItemForm({ itemId: "", dataInicial: "" }); invalidar(); },
-    onError: e => toast.error(e.message),
-  });
-  const connectToken = trpc.pluggySettings.connectToken.useMutation();
-  async function conectarMeuPluggy() {
-    try {
-      const { accessToken } = await connectToken.mutateAsync();
-      const { PluggyConnect } = await import("pluggy-connect-sdk");
-      const pc = new PluggyConnect({
-        connectToken: accessToken,
-        includeSandbox: false,
-        onSuccess: ({ item }) => importarItem.mutate({ itemId: item.id, dataInicial: itemForm.dataInicial || null }),
-        onError: e => { toast.error(e.message); },
-      });
-      await pc.init();
-    } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Não foi possível abrir a Pluggy.");
-    }
-  }
+  // Pedido de 25/10 (noite), item 8: conectar o Meu Pluggy fica em Configurações › Integrações.
 
   // Nova conta (Asaas ou importação)
   const vazio = { provedor: "asaas" as "asaas" | "manual", banco: "Asaas", conta: "", descricao: "", dataInicial: "" };
@@ -92,10 +77,17 @@ export default function BancosPanel() {
   // Transações
   const [verConta, setVerConta] = useState<number | null>(null);
   const { data: transacoes = [] } = trpc.bancario.transacoes.listByConta.useQuery({ accountId: verConta ?? 0 }, { enabled: verConta !== null });
+  // Pedido de 25/10 (noite), item 9: classificar e, se marcado, aplicar a todas do mesmo titular (regra).
+  const [aplicarTitular, setAplicarTitular] = useState(true);
   const atualizarMov = trpc.bancario.transacoes.atualizar.useMutation({
-    onSuccess: () => { utils.bancario.transacoes.listByConta.invalidate(); invalidarBpo(); },
+    onSuccess: r => {
+      if (r.outras) toast.success(`Regra salva: ${r.outras} outra(s) movimentação(ões) do mesmo titular reclassificada(s).`);
+      utils.bancario.transacoes.listByConta.invalidate(); utils.bpo.clientes.list.invalidate(); invalidarBpo();
+    },
     onError: e => toast.error(e.message),
   });
+  const classificar = (t: { id: number; titular?: string | null }, mudanca: { categoria?: CategoriaBpo; bpoClienteId?: number | null }) =>
+    atualizarMov.mutate({ id: t.id, ...mudanca, aplicarATodasDoTitular: aplicarTitular && Boolean(t.titular) });
   const reprocessar = trpc.bancario.reprocessar.useMutation({
     onSuccess: r => {
       toast.success(`${r.lancamentosCriados} lançamento(s) gerado(s) no BPO; ${r.categorizadas} movimentação(ões) categorizada(s); ${r.saldosRecalculados} saldo(s) recalculado(s).`);
@@ -112,7 +104,7 @@ export default function BancosPanel() {
   const lerPrevia = trpc.bancario.importar.previa.useMutation({ onSuccess: setPrevia, onError: e => toast.error(e.message) });
   const confirmar = trpc.bancario.importar.confirmar.useMutation({
     onSuccess: r => {
-      toast.success(`${r.novos} lançamento(s) importado(s).${r.recebidos - r.novos > 0 ? ` ${r.recebidos - r.novos} já existiam.` : ""} Saldo: ${formatCurrency(r.saldo)}.`);
+      toast.success(`${r.novos} lançamento(s) importado(s).${r.recebidos - r.novos > 0 ? ` ${r.recebidos - r.novos} já existiam.` : ""}${r.completadas ? ` ${r.completadas} completado(s) com titular/descrição.` : ""} Saldo: ${formatCurrency(r.saldo)}.`);
       fecharImportacao(); invalidar(); utils.bancario.transacoes.listByConta.invalidate();
     },
     onError: e => toast.error(e.message),
@@ -120,11 +112,13 @@ export default function BancosPanel() {
   function fecharImportacao() { setImp(null); setArquivo(null); setPrevia(null); setAnoPadrao(""); }
   async function lerArquivo() {
     if (!imp || !arquivo) return;
+    if (!extensaoExtratoValida(arquivo.name)) return toast.error("Formato não suportado. Use CSV, Excel (.xlsx/.xls), OFX ou PDF.");
     // A Vercel aceita até 4,5 MB por requisição; em base64 o arquivo cresce ~1/3.
     if (arquivo.size > 3 * 1024 * 1024) return toast.error("Arquivo acima de 3 MB. Exporte um período menor ou use OFX/CSV.");
     lerPrevia.mutate({ contaId: imp.contaId, nome: arquivo.name, base64: await arquivoBase64(arquivo), anoPadrao: anoPadrao ? Number(anoPadrao) : undefined });
   }
   const novas = previa?.linhas.filter(l => !l.jaImportada).length ?? 0;
+  const aCompletar = previa?.linhas.filter(l => l.completaDados).length ?? 0;
 
   return (
     <div className="space-y-6">
@@ -190,10 +184,14 @@ export default function BancosPanel() {
                             Cada movimentação vira um lançamento pago no BPO (entrada → Cobranças, saída → Despesas).
                             "{TRANSFERENCIA_INTERNA}" não conta como receita nem despesa.
                           </p>
+                          <label className="flex items-center gap-2 text-xs text-gray-200 mb-2">
+                            <input type="checkbox" checked={aplicarTitular} onChange={e => setAplicarTitular(e.target.checked)} />
+                            Aplicar a todas deste titular (as próximas importações e sincronizações seguem a mesma classificação)
+                          </label>
                           <table className="w-full text-xs">
                             <thead className="sticky top-0 bg-[#1A2332]">
                               <tr className="text-gray-300 text-left">
-                                <th className="p-1">Data</th><th className="p-1">Descrição</th><th className="p-1">Categoria</th>
+                                <th className="p-1">Data</th><th className="p-1">Descrição</th><th className="p-1">Titular</th><th className="p-1">Categoria</th>
                                 <th className="p-1">Cliente BPO</th><th className="p-1 text-right">Valor</th>
                               </tr>
                             </thead>
@@ -202,14 +200,15 @@ export default function BancosPanel() {
                                 <tr key={t.id} className="border-b border-white/5">
                                   <td className="py-1 pr-2 text-gray-300 whitespace-nowrap">{new Date(t.data).toLocaleDateString("pt-BR", { timeZone: "UTC" })}</td>
                                   <td className="py-1 pr-2 text-gray-100">
-                                    {t.descricao}
+                                    <span title={t.descricaoOriginal ?? undefined}>{t.descricao}</span>
                                     {!t.lancamentoId && t.categoria !== TRANSFERENCIA_INTERNA && <span className="ml-1 text-amber-300">(sem lançamento — use Reprocessar)</span>}
                                   </td>
+                                  <td className="py-1 pr-2 text-gray-100">{t.titular || <span className="text-gray-400">—</span>}</td>
                                   <td className="py-1 pr-2">
                                     <select aria-label="Categoria" className="bg-[#2C3E50] border border-[#C9A961]/30 rounded px-1 py-0.5 text-white max-w-[11rem]"
                                       value={t.categoria && (CATEGORIAS_BPO as readonly string[]).includes(t.categoria) ? t.categoria : ""}
                                       disabled={atualizarMov.isPending}
-                                      onChange={e => atualizarMov.mutate({ id: t.id, categoria: e.target.value as CategoriaBpo })}>
+                                      onChange={e => classificar(t, { categoria: e.target.value as CategoriaBpo })}>
                                       {!(t.categoria && (CATEGORIAS_BPO as readonly string[]).includes(t.categoria)) && <option value="">—</option>}
                                       {CATEGORIAS_BPO.map(c => <option key={c} value={c}>{c}</option>)}
                                     </select>
@@ -218,7 +217,7 @@ export default function BancosPanel() {
                                     <select aria-label="Cliente BPO" className="bg-[#2C3E50] border border-[#C9A961]/30 rounded px-1 py-0.5 text-white max-w-[11rem]"
                                       value={t.bpoClienteId ? String(t.bpoClienteId) : ""}
                                       disabled={atualizarMov.isPending}
-                                      onChange={e => atualizarMov.mutate({ id: t.id, bpoClienteId: e.target.value ? Number(e.target.value) : null })}>
+                                      onChange={e => classificar(t, { bpoClienteId: e.target.value ? Number(e.target.value) : null })}>
                                       <option value="">Nenhum</option>
                                       {clientesBpo.map((c: any) => <option key={c.id} value={c.id}>{c.razaoSocial}</option>)}
                                     </select>
@@ -242,29 +241,6 @@ export default function BancosPanel() {
         </CardContent>
       </Card>
 
-      <Card className="bg-[#2C3E50] border-[#C9A961]/20 text-gray-100">
-        <CardHeader><CardTitle className="text-[#C9A961]">Pluggy — contas conectadas pelo Meu Pluggy (gratuito)</CardTitle></CardHeader>
-        <CardContent className="space-y-4">
-          <p className="text-sm text-gray-300">
-            {pluggy?.configured ? "Client ID e Client Secret configurados em " : "Client ID e Client Secret ainda não configurados — informe em "}
-            <Link href="/admin/integracoes" className="underline text-[#C9A961]">Configurações › Integrações</Link>.
-            {" "}As contas conectadas no Meu Pluggy são lidas sem custo e sincronizadas todo dia.
-          </p>
-          {pluggy?.configured && (
-            <div className="border-t border-[#C9A961]/10 pt-4 space-y-3">
-              <div className="grid sm:grid-cols-2 gap-3">
-                <div><Label className="text-gray-300">Considerar movimentações a partir de</Label><Input type="date" value={itemForm.dataInicial} onChange={e => setItemForm(f => ({ ...f, dataInicial: e.target.value }))} className={campo} /></div>
-                <div><Label className="text-gray-300">ID da conexão (itemId), se já tiver</Label><Input value={itemForm.itemId} onChange={e => setItemForm(f => ({ ...f, itemId: e.target.value.trim() }))} className={campo} placeholder="opcional" /></div>
-              </div>
-              <div className="flex gap-2 flex-wrap">
-                <Button size="sm" variant="outline" className={botaoSec} disabled={connectToken.isPending} onClick={conectarMeuPluggy}><Link2 className="h-3 w-3 mr-1" /> Conectar banco (Meu Pluggy)</Button>
-                <Button size="sm" variant="outline" className={botaoSec} disabled={itemForm.itemId.length < 8 || importarItem.isPending} onClick={() => importarItem.mutate({ itemId: itemForm.itemId, dataInicial: itemForm.dataInicial || null })}>Buscar contas deste ID</Button>
-              </div>
-            </div>
-          )}
-        </CardContent>
-      </Card>
-
       <Dialog open={novaOpen} onOpenChange={setNovaOpen}>
         <DialogContent className="bg-[#1A2332] border-[#C9A961]/20 text-white max-h-[90vh] overflow-y-auto">
           <DialogHeader><DialogTitle className="text-[#C9A961]">Nova conta bancária</DialogTitle></DialogHeader>
@@ -278,7 +254,7 @@ export default function BancosPanel() {
                   <SelectItem value="manual">Importação de extrato (Cora, C6, Inter ou outro)</SelectItem>
                 </SelectContent>
               </Select>
-              <p className="text-xs text-gray-300 mt-1">Contas do Meu Pluggy entram pelo quadro "Pluggy" abaixo.</p>
+              <p className="text-xs text-gray-300 mt-1">Contas do Meu Pluggy entram por <Link href="/admin/integracoes" className="underline text-[#C9A961]">Configurações › Integrações</Link> (bloco Pluggy).</p>
             </div>
             <div><Label className="text-gray-300">Banco *</Label><Input value={nova.banco} onChange={e => setNova(n => ({ ...n, banco: e.target.value }))} className={campo} placeholder="ex.: Cora" /></div>
             <div className="grid grid-cols-2 gap-3">
@@ -326,7 +302,11 @@ export default function BancosPanel() {
           {!previa ? (
             <div className="space-y-3 mt-2">
               <p className="text-sm text-gray-300">Aceita planilha (CSV, Excel), OFX ou PDF. Prefira OFX ou CSV quando o banco oferecer: a leitura é mais precisa que a do PDF.</p>
-              <Input type="file" accept=".csv,.txt,.xlsx,.xls,.ofx,.pdf" onChange={e => { setArquivo(e.target.files?.[0] ?? null); setPrevia(null); }} className={campo} />
+              <Input type="file" onChange={e => {
+                const f = e.target.files?.[0] ?? null;
+                if (f && !extensaoExtratoValida(f.name)) toast.error("Formato não suportado. Use CSV, Excel (.xlsx/.xls), OFX ou PDF.");
+                setArquivo(f); setPrevia(null);
+              }} className={campo} />
               {arquivo?.name.toLowerCase().endsWith(".pdf") && (
                 <div><Label className="text-gray-300">Ano do extrato (se as datas do PDF vierem sem ano)</Label><Input type="number" value={anoPadrao} onChange={e => setAnoPadrao(e.target.value)} className={campo} placeholder={String(new Date().getFullYear())} /></div>
               )}
@@ -338,6 +318,7 @@ export default function BancosPanel() {
             <div className="space-y-3 mt-2">
               <p className="text-sm text-gray-200">
                 {previa.formato}: <b>{novas}</b> lançamento(s) novo(s){previa.linhas.length - novas ? `, ${previa.linhas.length - novas} já importado(s)` : ""}
+                {aCompletar ? ` (${aCompletar} será(ão) completado(s) com titular/descrição)` : ""}
                 {previa.antesDaDataInicial ? `, ${previa.antesDaDataInicial} anterior(es) a ${dataBR(previa.dataInicial)} (descartados)` : ""}
                 {previa.ignoradas ? `, ${previa.ignoradas} linha(s) não reconhecida(s)` : ""}.
                 {" "}{previa.saldoFinal !== null
@@ -346,12 +327,13 @@ export default function BancosPanel() {
               </p>
               <div className="max-h-96 overflow-y-auto border border-[#C9A961]/10 rounded">
                 <table className="w-full text-xs">
-                  <thead className="sticky top-0 bg-[#1A2332]"><tr className="text-gray-300"><th className="text-left p-1">Data</th><th className="text-left p-1">Descrição</th><th className="text-right p-1">Valor</th></tr></thead>
+                  <thead className="sticky top-0 bg-[#1A2332]"><tr className="text-gray-300"><th className="text-left p-1">Data</th><th className="text-left p-1">Descrição</th><th className="text-left p-1">Titular</th><th className="text-right p-1">Valor</th></tr></thead>
                   <tbody>
                     {previa.linhas.slice(0, 500).map((l, i) => (
                       <tr key={i} className={`border-b border-white/5 ${l.jaImportada ? "opacity-50" : ""}`}>
                         <td className="p-1 whitespace-nowrap">{dataBR(l.data)}</td>
-                        <td className="p-1">{l.descricao}{l.jaImportada ? " (já importado)" : ""}</td>
+                        <td className="p-1">{l.descricao}{l.detalhe ? ` — ${l.detalhe}` : ""}{l.jaImportada ? (l.completaDados ? " (já importado — completa titular)" : " (já importado)") : ""}</td>
+                        <td className="p-1">{l.titular ?? "—"}</td>
                         <td className={`p-1 text-right whitespace-nowrap font-bold ${l.tipo === "credito" ? "text-green-300" : "text-red-300"}`}>{l.tipo === "debito" ? "-" : ""}{formatCurrency(l.valor)}</td>
                       </tr>
                     ))}
@@ -361,9 +343,9 @@ export default function BancosPanel() {
               {previa.linhas.length > 500 && <p className="text-xs text-gray-300">Mostrando 500 de {previa.linhas.length}; todos serão importados.</p>}
               <div className="flex gap-2">
                 <Button variant="outline" className="border-[#C9A961]/30 text-[#C9A961]" onClick={() => setPrevia(null)}>Escolher outro arquivo</Button>
-                <Button className="bg-[#C9A961] hover:bg-[#B8985A] text-[#1A2332] font-bold" disabled={!novas || confirmar.isPending}
-                  onClick={() => imp && confirmar.mutate({ contaId: imp.contaId, linhas: previa.linhas.map(({ jaImportada: _j, ...l }) => l), saldoFinal: previa.saldoFinal })}>
-                  {confirmar.isPending ? "Importando..." : `Importar ${novas} lançamento(s)`}
+                <Button className="bg-[#C9A961] hover:bg-[#B8985A] text-[#1A2332] font-bold" disabled={(!novas && !aCompletar) || confirmar.isPending}
+                  onClick={() => imp && confirmar.mutate({ contaId: imp.contaId, linhas: previa.linhas.map(({ jaImportada: _j, completaDados: _c, ...l }) => l), saldoFinal: previa.saldoFinal })}>
+                  {confirmar.isPending ? "Importando..." : novas ? `Importar ${novas} lançamento(s)${aCompletar ? ` e completar ${aCompletar}` : ""}` : `Completar ${aCompletar} lançamento(s)`}
                 </Button>
               </div>
             </div>
