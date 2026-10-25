@@ -153,3 +153,16 @@ Branch: `claude/sync-mirrored-repos-bsqnz3` (nos 2 repos).
 ### Testes até aqui
 (a) Prospecta 140 arquivos / 1031 testes OK; Santa Fé 875 ok + 10 falhas pré-existentes, build OK (antes do Lote B SF).
 (b) Manuais: nenhum novo. (c) Produção: tudo do Lote E.
+
+## Lote E — publicado (25/10 ~17:35 UTC)
+- PR #167 mesclado (main `00f397b`); deploy de produção READY; sem erros de runtime.
+- Migrações aplicadas no Neon `plain-cake-26372935`: 0071 (whatsapp direcao/lida + índices) e 0072 (enum `receita`,
+  bpo_lancamentos.categoria/bank_transaction_id, bank_transactions.bpo_cliente_id, bank_accounts.saldo_fonte) — conferidas por consulta.
+- Santa Fé: PR #230 (main `a7f2668`), deploy READY, migrações Supabase aplicadas e conferidas.
+### Falta (dono)
+1. BPO › Bancos › "Reprocessar movimentações" (gera os lançamentos das 379 movimentações do Cora já importadas).
+2. Admin › Integrações: colar chave do Asaas (após tirar a restrição de IP no Asaas) e Client ID/Secret da Pluggy por copiar/colar; Testar.
+3. Admin › WhatsApp › aba Conversas: abrir uma vez (registra o webhook da Evolution); mandar mensagem de teste do celular.
+4. Railway: descartar a alteração pendente de `SERVER_URL` e apagar o token de projeto criado.
+### Testes
+(a) 1031/1031 OK, check e build OK. (b) Manuais: colunas conferidas em produção. (c) Produção: itens 1–3 acima.
