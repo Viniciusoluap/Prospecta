@@ -255,6 +255,8 @@ export const bpoLancamentoTipoEnum = pgEnum("bpo_lancamento_tipo", [
   "honorario",
   "despesa",
   "reembolso",
+  // LOTE C (25/10): entradas do extrato bancário (crédito → receita, aba Cobranças).
+  "receita",
 ]);
 export const financialTransactionStatusEnum = pgEnum(
   "financial_transaction_status",
@@ -1172,9 +1174,15 @@ export const bpoLancamentos = pgTable("bpo_lancamentos", {
   pagoEm: timestamp("pago_em"),
   competencia: varchar("competencia", { length: 7 }).notNull(),
   centroCustos: varchar("centro_custos", { length: 100 }),
+  // LOTE C (25/10): categoria (shared/financeiro/bpo-extrato.ts) e vínculo 1:1 com a
+  // movimentação bancária que gerou o lançamento (reimportar/reprocessar não duplica).
+  categoria: varchar("categoria", { length: 60 }),
+  bankTransactionId: integer("bank_transaction_id")
+    .unique()
+    .references((): AnyPgColumn => bankTransactions.id, { onDelete: "cascade" }),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
-export type BpoLancamento = typeof bpoLancamentos.$inferSelect;
+export type BpoLancamento =typeof bpoLancamentos.$inferSelect;
 export type InsertBpoLancamento = typeof bpoLancamentos.$inferInsert;
 
 // ========== GESTÃO TRIBUTÁRIA ==========
@@ -1301,9 +1309,12 @@ export const bankAccounts = pgTable("bank_accounts", {
   credencialEncrypted: text("credencial_encrypted"),
   dataInicial: date("data_inicial", { mode: "string" }),
   ultimoErro: text("ultimo_erro"),
+  // LOTE C (25/10): de onde veio o saldo atual — "extrato" (arquivo), "api" (Asaas/Pluggy)
+  // ou "calculado" (créditos − débitos das movimentações).
+  saldoFonte: varchar("saldo_fonte", { length: 20 }).$type<"extrato" | "api" | "calculado">(),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
-export type BankAccount = typeof bankAccounts.$inferSelect;
+export type BankAccount =typeof bankAccounts.$inferSelect;
 export type InsertBankAccount = typeof bankAccounts.$inferInsert;
 
 export const bankTransactions = pgTable("bank_transactions", {
@@ -1319,9 +1330,11 @@ export const bankTransactions = pgTable("bank_transactions", {
   status: bankTransactionStatusEnum("status").default("pendente").notNull(),
   externalId: varchar("external_id", { length: 255 }).unique(),
   origem: varchar("origem", { length: 20 }).default("manual").notNull(),
+  // LOTE C (25/10): Cliente BPO opcional; o lançamento vinculado acompanha.
+  bpoClienteId: integer("bpo_cliente_id").references(() => bpoClients.id, { onDelete: "set null" }),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
-export type BankTransaction = typeof bankTransactions.$inferSelect;
+export type BankTransaction =typeof bankTransactions.$inferSelect;
 export type InsertBankTransaction = typeof bankTransactions.$inferInsert;
 
 export const imovelStatusEnum = pgEnum("imovel_status", [
@@ -1824,6 +1837,9 @@ export const whatsappMessages = pgTable("whatsapp_messages", {
   status: varchar("status", { length: 20 }).default("enviada").notNull(),
   externalId: varchar("external_id", { length: 120 }),
   erroMsg: text("erro_msg"),
+  // Pedido de 25/10 (Conversas): mensagens recebidas pelo webhook da Evolution ficam aqui também.
+  direcao: varchar("direcao", { length: 10 }).default("saida").notNull(),
+  lida: boolean("lida").default(true).notNull(),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });
