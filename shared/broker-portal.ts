@@ -12,7 +12,7 @@ export const BROKER_PROPERTY_TYPES = [
   { value: "galpao", label: "Galpão" },
 ] as const;
 
-export const MAX_BROKER_PHOTOS = 15;
+export const MAX_BROKER_PHOTOS = 40;
 /** Foto já comprimida no aparelho (1200 px, JPEG): ~3 MiB em base64 é folga. */
 const MAX_PHOTO_CHARS = 4 * 1024 * 1024;
 

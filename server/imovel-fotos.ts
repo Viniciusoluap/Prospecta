@@ -14,6 +14,48 @@ export const MAX_FOTOS_IMOVEL = MAX_BROKER_PHOTOS;
 const URL_FOTO = /^\/api\/imovel-foto\/(\d{1,9})$/;
 export const urlFotoImovel = (id: number) => `/api/imovel-foto/${id}`;
 
+/** Uma requisição por foto: a chave permite repetir o envio sem criar outra foto. */
+export async function adicionarFotoImovel(imovelId: number, dataUrl: string, uploadKey: string, usuarioId: number): Promise<string> {
+  const foto = lerDataUrl(dataUrl);
+  if (!foto) throw new TRPCError({ code: "BAD_REQUEST", message: "Envie uma foto JPG, PNG ou WebP válida" });
+  const db = getDb();
+  const [imovel] = await db.select({ id: imoveis.id, titulo: imoveis.titulo }).from(imoveis).where(eq(imoveis.id, imovelId)).limit(1);
+  if (!imovel) throw new TRPCError({ code: "NOT_FOUND", message: "Imóvel não encontrado" });
+  const insercao = await db.execute(sql`INSERT INTO imovel_fotos (imovel_id, mime, size_bytes, data, created_by, upload_key)
+    VALUES (${imovelId}, ${foto.mime}, ${foto.bytes.length}, decode(${foto.bytes.toString("base64")}, 'base64'), ${usuarioId}, ${uploadKey})
+    ON CONFLICT (imovel_id, upload_key) WHERE upload_key IS NOT NULL DO NOTHING RETURNING id`);
+  const novoId = Number((insercao as unknown as { rows: { id: number }[] }).rows[0]?.id || 0);
+  const linha = novoId ? { id: novoId } : (await db.select({ id: imovelFotos.id }).from(imovelFotos)
+    .where(and(eq(imovelFotos.imovelId, imovelId), eq(imovelFotos.uploadKey, uploadKey))).limit(1))[0];
+  if (!linha) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Não foi possível localizar a foto enviada" });
+  const url = urlFotoImovel(linha.id);
+  // UPDATE atômico na linha do imóvel: duas requisições não sobrescrevem a lista entre si.
+  const atualizado = await db.execute(sql`UPDATE imoveis SET fotos = (
+      COALESCE(NULLIF(fotos, '')::jsonb, '[]'::jsonb) || jsonb_build_array(${url}::text)
+    )::text
+    WHERE id = ${imovelId}
+      AND NOT COALESCE(NULLIF(fotos, '')::jsonb, '[]'::jsonb) @> jsonb_build_array(${url}::text)
+      AND jsonb_array_length(COALESCE(NULLIF(fotos, '')::jsonb, '[]'::jsonb)) < ${MAX_FOTOS_IMOVEL}
+    RETURNING id`);
+  if (!(atualizado as unknown as { rows: { id: number }[] }).rows.length) {
+    const [atual] = await db.select({ fotos: imoveis.fotos }).from(imoveis).where(eq(imoveis.id, imovelId)).limit(1);
+    if (!lerFotos(atual?.fotos).includes(url)) {
+      if (novoId) await db.delete(imovelFotos).where(eq(imovelFotos.id, novoId));
+      throw new TRPCError({ code: "BAD_REQUEST", message: `Máximo de ${MAX_FOTOS_IMOVEL} fotos por imóvel` });
+    }
+  }
+  if (novoId && (await driveConfigured().catch(() => false))) {
+    try {
+      const [driveId] = await uploadFotosImovel(imovel, [{ ordem: 1, mime: foto.mime, data: foto.bytes }]);
+      if (driveId) await db.execute(sql`UPDATE imovel_fotos SET drive_file_id = ${driveId}, data = NULL WHERE id = ${novoId}`);
+    } catch (erro) {
+      console.error("[imovel-fotos] Drive indisponível; foto guardada no banco:", erro instanceof Error ? erro.message : "erro");
+    }
+  }
+  await organizarFotos(imovelId).catch((erro) => console.error("[imovel-fotos] organização:", erro instanceof Error ? erro.message : "erro"));
+  return url;
+}
+
 type FotoNova = { mime: string; bytes: Buffer };
 
 function lerDataUrl(valor: string): FotoNova | null {

@@ -363,7 +363,7 @@ function ComissoesDeObras({ dados, carregando, erro, status, broker, setStatus, 
       <p className="rounded border bg-slate-50 p-4 text-slate-900">Pendente: {money(pendente)} · Pago: {money(pago)}</p>
       <p className="text-xs text-slate-600">Totais dos resultados filtrados, sem duplicar os registros manuais vinculados às obras.</p>
       {erro && <p role="alert">{erro}</p>}
-      {carregando ? <p className="text-sm">Carregando…</p> : (linhas.length > 0 || rows.length === 0) ? (
+      {carregando ? <p className="text-sm">Carregando…</p> : (linhas.length > 0 || avulsas.length === 0) ? (
         <Rows headers={["Corretor / cliente", "Obra", "VGV · %", "Comissão", "Pago · saldo", "Situação"]} empty={!linhas.length}>
           {linhas.map(l => (
             <tr key={l.obraId}>

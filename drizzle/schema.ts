@@ -1391,6 +1391,7 @@ export const imovelFotos = pgTable("imovel_fotos", {
   mime: varchar("mime", { length: 40 }).notNull(),
   sizeBytes: integer("size_bytes").notNull(),
   driveFileId: varchar("drive_file_id", { length: 255 }),
+  uploadKey: varchar("upload_key", { length: 100 }),
   createdBy: integer("created_by"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });

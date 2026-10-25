@@ -204,7 +204,12 @@ export function calcularObra(e: EntradasObra): ResultadoObra {
   const valorParcela = parcelaPrice(proSoluto.ok ? proSoluto.centavos : null, e.taxaMensalPct, e.parcelas);
   const totalCalculado = valorParcela.ok && e.parcelas !== null
     ? valorParcela.centavos * e.parcelas : null;
-  const valorTotalProSoluto: Indicador = !valorParcela.ok
+  const zeroSemSaldo = proSoluto.ok && proSoluto.centavos === 0
+    && e.parcelas !== null && Number.isInteger(e.parcelas) && e.parcelas > 0
+    && percentualMicro(e.taxaMensalPct) !== null;
+  const valorTotalProSoluto: Indicador = zeroSemSaldo
+    ? ok(0)
+    : !valorParcela.ok
     ? valorParcela
     : totalCalculado !== null && Number.isSafeInteger(totalCalculado)
       ? ok(totalCalculado)

@@ -46,7 +46,7 @@ const STATUS_OPTIONS = [
   { value: "vendido", label: "Vendido" },
   { value: "alugado", label: "Alugado" },
 ];
-const MAX_FOTOS = 15;
+const MAX_FOTOS = 40;
 
 function slugify(text: string): string {
   return text
@@ -58,7 +58,7 @@ function slugify(text: string): string {
 }
 
 function compressImage(file: File): Promise<string> {
-  return new Promise(resolve => {
+  return new Promise((resolve, reject) => {
     const img = new Image();
     const url = URL.createObjectURL(file);
     img.onload = () => {
@@ -76,9 +76,27 @@ function compressImage(file: File): Promise<string> {
       const canvas = document.createElement("canvas");
       canvas.width = width;
       canvas.height = height;
-      canvas.getContext("2d")!.drawImage(img, 0, 0, width, height);
+      try {
+        const contexto = canvas.getContext("2d");
+        if (!contexto) throw new Error("Não foi possível preparar a foto neste aparelho.");
+        contexto.drawImage(img, 0, 0, width, height);
+        let qualidade = 0.82;
+        let resultado = canvas.toDataURL("image/jpeg", qualidade);
+        while (resultado.length > 3_000_000 && qualidade > 0.44) {
+          qualidade -= 0.12;
+          resultado = canvas.toDataURL("image/jpeg", qualidade);
+        }
+        if (resultado.length > 3_000_000) throw new Error("Foto grande demais após otimização.");
+        resolve(resultado);
+      } catch (erro) {
+        reject(erro);
+      } finally {
+        URL.revokeObjectURL(url);
+      }
+    };
+    img.onerror = () => {
       URL.revokeObjectURL(url);
-      resolve(canvas.toDataURL("image/jpeg", 0.82));
+      reject(new Error(`O formato de ${file.name} não é compatível com este navegador. Exporte como JPG.`));
     };
     img.src = url;
   });
@@ -150,6 +168,9 @@ export default function AdminImovelForm() {
   const [drag, setDrag] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
   const hydrated = useRef(false);
+  const createdId = useRef<number | null>(null);
+  const uploadKeys = useRef(new Map<string, string>());
+  const [uploadStatus, setUploadStatus] = useState("");
 
   useEffect(() => {
     if (isEdit && imovel && !hydrated.current) {
@@ -219,9 +240,10 @@ export default function AdminImovelForm() {
   const addFiles = useCallback(
     async (files: FileList | File[]) => {
       const imgs = Array.from(files).filter(f => f.type.startsWith("image/"));
-      const compressed = await Promise.all(
-        imgs.slice(0, MAX_FOTOS - fotos.length).map(compressImage)
-      );
+      const resultados = await Promise.allSettled(imgs.slice(0, MAX_FOTOS - fotos.length).map(compressImage));
+      const compressed = resultados.flatMap(r => r.status === "fulfilled" ? [r.value] : []);
+      const falhas = resultados.length - compressed.length;
+      if (falhas) toast.error(`${falhas} foto(s) não puderam ser preparadas. Confira o formato no aparelho.`);
       setFotos(prev => [...prev, ...compressed].slice(0, MAX_FOTOS));
     },
     [fotos.length]
@@ -266,24 +288,41 @@ export default function AdminImovelForm() {
       estado: form.estado || undefined,
       latitude: coords?.lat,
       longitude: coords?.lng,
-      fotos: JSON.stringify(fotos),
+      fotos: JSON.stringify(fotos.filter(f => !f.startsWith("data:"))),
       destaque: form.destaque,
       publicadoSite: form.publicadoSite,
       reviewStatus: form.reviewStatus,
     };
-    const progresso = { item: "foto", tamanhos: fotos.filter(f => f.startsWith("data:")).map(f => f.length) };
     setIsPending(true);
     try {
-      if (isEdit) {
-        await mutarComProgresso("imoveis.update", { id: Number(id), ...payload }, progresso);
-        toast.success("Imóvel atualizado!");
+      const imovelId = isEdit ? Number(id) : createdId.current;
+      let salvoId = imovelId;
+      if (salvoId) {
+        await mutarComProgresso("imoveis.update", { id: salvoId, ...payload });
       } else {
-        await mutarComProgresso("imoveis.create", { slug: form.slug || slugify(form.titulo), ...payload }, progresso);
-        toast.success("Imóvel cadastrado!");
+        const criado = await mutarComProgresso<{ id: number }>("imoveis.create", { slug: form.slug || slugify(form.titulo), ...payload });
+        salvoId = criado.id;
+        createdId.current = salvoId;
       }
+      const novos = fotos.filter(f => f.startsWith("data:"));
+      let ordem = [...fotos];
+      for (let i = 0; i < novos.length; i++) {
+        const foto = novos[i];
+        const chave = uploadKeys.current.get(foto) ?? crypto.randomUUID();
+        uploadKeys.current.set(foto, chave);
+        setUploadStatus(`Enviando foto ${i + 1} de ${novos.length}`);
+        const resultado = await mutarComProgresso<{ url: string }>("imoveis.adicionarFoto", { id: salvoId, foto, uploadKey: chave },
+          { item: "foto", atual: i + 1, total: novos.length });
+        ordem = ordem.map(f => f === foto ? resultado.url : f);
+        setFotos(ordem);
+      }
+      if (novos.length) await mutarComProgresso("imoveis.update", { id: salvoId, fotos: JSON.stringify(ordem) });
+      setUploadStatus("");
+      toast.success(isEdit ? "Imóvel atualizado!" : "Imóvel cadastrado!");
       await utils.imoveis.list.invalidate();
       navigate("/admin/imoveis");
     } catch (erro) {
+      setUploadStatus("Envio interrompido. Salve novamente para tentar as fotos restantes.");
       toast.error(erro instanceof Error ? erro.message : "Falha ao salvar o imóvel");
     } finally {
       setIsPending(false);
@@ -525,6 +564,9 @@ export default function AdminImovelForm() {
                 onChange={e => e.target.files && addFiles(e.target.files)}
               />
             </div>
+            {fotos.length > 0 && (
+              <p role="status" className="text-sm text-[#C9A961]">{uploadStatus}</p>
+            )}
             {fotos.length > 0 && (
               <div className="grid grid-cols-3 sm:grid-cols-5 gap-2">
                 {fotos.map((src, i) => (

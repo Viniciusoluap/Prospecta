@@ -72,7 +72,7 @@ import { brokerPortalRouter } from "./broker-portal-router.js";
 import { geoRouter } from "./geo-router.js";
 import { empreiteiroRouter, obraFinanceiroRouter } from "./obra-financeiro-router.js";
 import { obraProgressoRouter } from "./obra-progresso-router.js";
-import { obraLocalizacaoRouter } from "./obra-localizacao.js";
+import { obraLocalizacaoRouter, sincronizarImovelGeradoDaObra, garantirImovelCatalogoObra } from "./obra-localizacao.js";
 import { duplicarLead } from "./lead-duplicar.js";
 import { LEAD_PIPELINE_KEYS } from "../shared/lead-pipeline.js";
 import { documentChunksRouter } from "./document-upload-chunks.js";
@@ -758,7 +758,7 @@ export const appRouter = router({
         estimatedEndDate: z.date().optional(),
         notes: z.string().trim().optional(),
       }))
-      .mutation(async ({ input }) => {
+      .mutation(async ({ input, ctx }) => {
         const lead = await db.getLeadById(input.leadId);
         if (!lead) {
           throw new TRPCError({ code: "NOT_FOUND", message: "Lead não encontrado" });
@@ -779,6 +779,7 @@ export const appRouter = router({
           progress: 0,
         });
         await linkRecordToLead("obras", input.leadId, project.id);
+        if (project.address?.trim()) await garantirImovelCatalogoObra(project.id, ctx.user.id);
         return project;
       }),
     // Listar obras do usuário
@@ -834,6 +835,7 @@ export const appRouter = router({
           status: "planning",
           progress: 0,
         });
+        if (project.address?.trim()) await garantirImovelCatalogoObra(project.id, ctx.user.id);
         return project;
       }),
 
@@ -857,7 +859,7 @@ export const appRouter = router({
           notes: z.string().optional(),
         })
       )
-      .mutation(async ({ input }) => {
+      .mutation(async ({ input, ctx }) => {
         const { projectId, ...updates } = input;
         const project = await db.getProjectById(projectId);
         if (!project) {
@@ -871,6 +873,9 @@ export const appRouter = router({
           if (erroStatus) throw new TRPCError({ code: "BAD_REQUEST", message: erroStatus });
         }
         await db.updateProject(projectId, updates);
+        if (updates.address?.trim() || project.address?.trim()) await garantirImovelCatalogoObra(projectId, ctx.user.id);
+        if (project.imovelId && (updates.title !== undefined || updates.address !== undefined))
+          await sincronizarImovelGeradoDaObra(projectId, project.title);
         return { success: true };
       }),
 
@@ -2163,6 +2168,17 @@ export const appRouter = router({
 
   // ========== IMÓVEIS ==========
   imoveis: router({
+    adicionarFoto: protectedProcedure
+      .input(z.object({ id: z.number().int().positive(), foto: z.string().max(4_000_000), uploadKey: z.string().uuid() }))
+      .mutation(async ({ input, ctx }) => {
+        requireModule(ctx, "imoveis");
+        const { adicionarFotoImovel } = await import("./imovel-fotos.js");
+        return { url: await adicionarFotoImovel(input.id, input.foto, input.uploadKey, ctx.user.id) };
+      }),
+    obrasSemImovel: adminProcedure.query(({ ctx }) => {
+      requireModule(ctx, "imoveis");
+      return db.getObrasSemImovelCatalogo();
+    }),
     list: publicProcedure
       .input(
         z

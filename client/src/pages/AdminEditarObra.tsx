@@ -10,7 +10,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { trpc } from "@/lib/trpc";
-import { ArrowLeft, Building2, DollarSign, FileText, Image, Loader2, Save, Download, BarChart3 } from "lucide-react";
+import { ArrowLeft, Building2, DollarSign, FileText, Image, Loader2, Save, BarChart3 } from "lucide-react";
 import { Link, useLocation, useParams } from "wouter";
 import { getLoginUrl } from "@/const";
 import { useEffect, useMemo, useState } from "react";
@@ -88,7 +88,9 @@ export default function AdminEditarObra({ modo = "admin" }: { modo?: "admin" | "
   const salvarLocalizacao = trpc.obraLocalizacao.salvar.useMutation();
   const [localizacaoResolvendo, setLocalizacaoResolvendo] = useState(false);
   const [coords, setCoords] = useState<{ lat: number; lng: number } | null>(null);
-  useEffect(() => { setCoords(localizacaoQuery.data?.coords ?? null); }, [localizacaoQuery.data]);
+  // A PCI vinculada preenche o formulário sem gravar em massa; o usuário
+  // confirma o ponto ao salvar a obra. Um ponto já salvo sempre prevalece.
+  useEffect(() => { setCoords(localizacaoQuery.data?.coords ?? localizacaoQuery.data?.pontoPci ?? null); }, [localizacaoQuery.data]);
   const coordsAlteradas = JSON.stringify(coords) !== JSON.stringify(localizacaoQuery.data?.coords ?? null);
   const resumoQuery = trpc.obraFinanceiro.resumo.useQuery({ projectId }, { enabled: isAuthenticated && papelOk && !!projectId });
   const resumo = resumoQuery.data;
@@ -337,8 +339,8 @@ export default function AdminEditarObra({ modo = "admin" }: { modo?: "admin" | "
                   <p className="text-xs text-gray-400">
                     {localizacaoQuery.data?.imovelId && localizacaoQuery.data.coords
                       ? `Ponto guardado no imóvel vinculado "${localizacaoQuery.data.imovelTitulo}" (aparece no Mapa Operacional).`
-                      : localizacaoQuery.data?.pontoPci && !coords
-                        ? `Ponto lido da PCI da CAIXA: ${localizacaoQuery.data.pontoPci.lat.toFixed(6)}, ${localizacaoQuery.data.pontoPci.lng.toFixed(6)} (já aparece no Mapa Operacional). Para usar outro ponto, cole-o acima e salve.`
+                      : localizacaoQuery.data?.pontoPci
+                        ? `Ponto preenchido da PCI da CAIXA: ${localizacaoQuery.data.pontoPci.lat.toFixed(6)}, ${localizacaoQuery.data.pontoPci.lng.toFixed(6)}. Confira e salve para vincular ao cadastro da obra.`
                         : localizacaoQuery.data?.imovelId
                           ? `O imóvel vinculado "${localizacaoQuery.data.imovelTitulo}" ainda não tem ponto. Cole a localização acima e salve para aparecer no Mapa Operacional.`
                           : "Ao salvar, o ponto cria um imóvel vinculado à obra, não publicado no site, e aparece no Mapa Operacional."}
@@ -512,13 +514,12 @@ export default function AdminEditarObra({ modo = "admin" }: { modo?: "admin" | "
                 </CardDescription>
               </CardHeader>
               <CardContent className="space-y-6">
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                  {/* Relatório PDF */}
+                <div>
                   <Card className="bg-[#1A2332]/40 border-[#C9A961]/20 text-gray-100">
                     <CardHeader>
-                      <CardTitle className="text-[#C9A961] text-lg">Relatório PDF</CardTitle>
+                      <CardTitle className="text-[#C9A961] text-lg">Relatório executivo · PDF e Excel</CardTitle>
                       <CardDescription className="text-gray-400">
-                        Relatório executivo multipágina: informações, valores, custos, progresso, gráficos e fotos
+                        Os dois formatos usam as mesmas informações, valores, custos, progresso e referências das fotos.
                       </CardDescription>
                     </CardHeader>
                     <CardContent>
@@ -526,63 +527,6 @@ export default function AdminEditarObra({ modo = "admin" }: { modo?: "admin" | "
                     </CardContent>
                   </Card>
 
-                  {/* Relatório Excel */}
-                  <Card className="bg-[#1A2332]/40 border-[#C9A961]/20 text-gray-100">
-                    <CardHeader>
-                      <CardTitle className="text-[#C9A961] text-lg">Planilha Excel</CardTitle>
-                      <CardDescription className="text-gray-400">
-                        Planilha detalhada com todos os custos e medições
-                      </CardDescription>
-                    </CardHeader>
-                    <CardContent>
-                      <Button
-                        onClick={() => {
-                          if (!project) return;
-                          import("xlsx").then((XLSX) => {
-                            // Criar dados da planilha
-                            const data = [
-                              ["RELATÓRIO DA OBRA"],
-                              [""],
-                              ["Informações Básicas"],
-                              ["Título", project.title],
-                              ["Endereço", project.address || "N/A"],
-                              ["Tipo", project.crm.projectType || "N/A"],
-                              ["Área Total (m²)", project.totalArea || "N/A"],
-                              ["Status", project.status],
-                              ["Progresso (%)", project.progressMeasuredPct != null ? Number(Number(project.progressMeasuredPct).toFixed(2)) : project.progress],
-                              [""],
-                              ["Valores Financeiros (R$)"],
-                              ...([
-                                ["VGV", calculo ? formFin?.vgv : null],
-                                ["Orçamento Previsto", formFin?.orcamentoPrevisto],
-                                ["Custo do Terreno", formFin?.custoTerreno],
-                                ["Comissão", formFin?.comissao],
-                              ] as [string, string | null | undefined][]).map(([k, v]) => [k, v == null ? "não informado" : Number(v)]),
-                              ...([
-                                ["Entrada Total", calculo?.entradaTotal],
-                                ["Entrada Paga", calculo?.entradaPaga],
-                                ["Recebido CEF", calculo?.recebidoCef],
-                                ["Total Gasto na Obra", calculo?.totalGasto],
-                                ["Saldo Restante", calculo?.saldoRestante],
-                                ["Lucro Estimado", calculo?.lucroEstimado],
-                              ] as const).map(([k, i]) => [k, i?.ok ? i.centavos / 100 : "não disponível"]),
-                            ];
-                            
-                            const ws = XLSX.utils.aoa_to_sheet(data);
-                            const wb = XLSX.utils.book_new();
-                            XLSX.utils.book_append_sheet(wb, ws, "Relatório");
-                            XLSX.writeFile(wb, `relatorio-${project.title.replace(/\s+/g, "-")}.xlsx`);
-                            toast.success("Planilha Excel gerada com sucesso!");
-                          });
-                        }}
-                        className="w-full bg-[#C9A961] hover:bg-[#B8935A] text-[#1A2332]"
-                        disabled={!project}
-                      >
-                        <Download className="h-4 w-4 mr-2" />
-                        Baixar Excel
-                      </Button>
-                    </CardContent>
-                  </Card>
                 </div>
 
                 {/* Informações sobre os relatórios */}
@@ -591,7 +535,7 @@ export default function AdminEditarObra({ modo = "admin" }: { modo?: "admin" | "
                   <ul className="text-gray-400 text-sm space-y-1">
                     <li>• <strong>PDF:</strong> Relatório visual completo, ideal para apresentações e impressão</li>
                     <li>• <strong>Excel:</strong> Planilha editável com todos os dados, ideal para análises financeiras</li>
-                    <li>• O PDF usa somente dados reais da obra; campos sem informação aparecem como "Não informado"</li>
+                    <li>• Ambos usam somente dados reais da obra; campos sem informação aparecem como "Não informado"</li>
                   </ul>
                 </div>
               </CardContent>

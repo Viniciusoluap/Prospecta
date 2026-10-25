@@ -276,7 +276,7 @@ export default function AdminAgenda({
                   Lead
                 </td>
                 <td>{entry.lead.name}</td>
-                <td>—</td>
+                <td>{entry.lead.responsibleName || "Não atribuído"}</td>
                 <td>
                   {entry.day < today
                     ? "Vencido"
@@ -315,7 +315,7 @@ export default function AdminAgenda({
                 </td>
               </tr>
             );
-          const { visit: v, leadName, brokerName, propertyTitle } = entry.row;
+          const { visit: v, leadName, brokerName, leadResponsibleName, propertyTitle } = entry.row;
           return (
             <tr key={v.id}>
               <td>
@@ -328,7 +328,7 @@ export default function AdminAgenda({
                 <br />
                 {propertyTitle || "Sem imóvel"}
               </td>
-              <td>{brokerName || v.responsibleName || "Não atribuído"}</td>
+              <td>{leadResponsibleName || brokerName || v.responsibleName || "Não atribuído"}</td>
               <td>{rotulo(v.status)}</td>
               <td>
                 <div className="flex gap-2">
