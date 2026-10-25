@@ -1,26 +1,16 @@
 // Pedido de 25/10: conectar o WhatsApp escaneando um QR code (Evolution API no Railway).
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
+import { Link } from "wouter";
 import { QrCode, RefreshCw, Server } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import { trpc } from "@/lib/trpc";
 
-const inputCls = "bg-[#1A2332] border-[#C9A961]/30 text-white";
-
 export function ConexaoQrCode({ podeConfigurarServidor, onConectado }: { podeConfigurarServidor: boolean; onConectado: () => void }) {
-  const utils = trpc.useUtils();
+  // LOTE B (25/10): endereço e chave do servidor ficam só em Configurações › Integrações.
   const servidor = trpc.whatsapp.evolutionStatus.useQuery();
-  const [url, setUrl] = useState("");
-  const [apiKey, setApiKey] = useState("");
-  const [editarServidor, setEditarServidor] = useState(false);
   const [qr, setQr] = useState<string | null>(null);
 
-  const salvar = trpc.whatsapp.salvarEvolution.useMutation({
-    onSuccess: () => { toast.success("Servidor da Evolution conectado."); setApiKey(""); setEditarServidor(false); utils.whatsapp.evolutionStatus.invalidate(); },
-    onError: e => toast.error(e.message),
-  });
   const conectar = trpc.whatsapp.conectarQr.useMutation({
     onSuccess: r => {
       if (r.status === "conectado") { toast.success("WhatsApp já está conectado."); onConectado(); return; }
@@ -50,17 +40,16 @@ export function ConexaoQrCode({ podeConfigurarServidor, onConectado }: { podeCon
         <p>Conexão não oficial: use com moderação (envios em massa podem levar a bloqueio do número).</p>
       </div>
 
-      {(!configurado || editarServidor) && podeConfigurarServidor && (
-        <form className="space-y-3" onSubmit={e => { e.preventDefault(); salvar.mutate({ url, apiKey }); }}>
-          <p className="text-sm text-gray-300 flex items-center gap-2"><Server size={14} /> Servidor da Evolution (Railway)</p>
-          <div><Label className="text-gray-300">Endereço do servidor</Label><Input value={url} onChange={e => setUrl(e.target.value.trim())} placeholder="https://evolution-xxxx.up.railway.app" required className={`${inputCls} mt-1`} /></div>
-          <div><Label className="text-gray-300">Chave de acesso (AUTHENTICATION_API_KEY)</Label><Input type="password" value={apiKey} onChange={e => setApiKey(e.target.value)} required autoComplete="off" className={`${inputCls} mt-1`} /></div>
-          <Button type="submit" disabled={salvar.isPending} className="bg-[#C9A961] hover:bg-[#B8985A] text-[#1A2332] font-bold">{salvar.isPending ? "Testando..." : "Salvar e testar servidor"}</Button>
-        </form>
+      {servidor.isSuccess && !configurado && (
+        <p className="text-sm text-yellow-200 flex items-center gap-2">
+          <Server size={14} /> Servidor do WhatsApp não configurado.
+          {podeConfigurarServidor
+            ? <Link href="/admin/integracoes" className="underline text-[#C9A961]">Configurar em Integrações</Link>
+            : " Peça ao administrador para configurar em Integrações."}
+        </p>
       )}
-      {!configurado && !podeConfigurarServidor && <p className="text-sm text-yellow-200">A equipe ainda não configurou o servidor do WhatsApp.</p>}
 
-      {configurado && !editarServidor && (
+      {configurado && (
         <div className="space-y-3">
           {src ? (
             <div className="flex flex-col items-center gap-3">
@@ -75,11 +64,11 @@ export function ConexaoQrCode({ podeConfigurarServidor, onConectado }: { podeCon
               <QrCode className="h-4 w-4 mr-2" /> {conectar.isPending ? "Gerando..." : "Gerar QR code"}
             </Button>
           )}
-          {podeConfigurarServidor && (
-            <button type="button" onClick={() => setEditarServidor(true)} className="block text-xs text-gray-300 underline">
-              Trocar servidor da Evolution{servidor.data?.url ? ` (${servidor.data.url})` : ""}
-            </button>
-          )}
+          <p className="text-xs text-gray-300">
+            Servidor configurado em{" "}
+            {podeConfigurarServidor ? <Link href="/admin/integracoes" className="underline text-[#C9A961]">Integrações</Link> : "Integrações"}
+            {servidor.data?.url ? ` (${servidor.data.url})` : ""}.
+          </p>
         </div>
       )}
     </div>

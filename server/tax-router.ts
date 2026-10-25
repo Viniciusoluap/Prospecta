@@ -1,6 +1,7 @@
 import { and, desc, eq, gte, lte, sql } from "drizzle-orm";
 import { z } from "zod";
 import {
+  bpoLancamentos,
   financialTransactions,
   retProjects,
   taxObligations,
@@ -86,6 +87,23 @@ const regime = z.enum([
   "outro",
 ]);
 
+/**
+ * Receita realizada da Contabilidade: transações financeiras pagas (venda/comissão) +
+ * lançamentos pagos do BPO que não são despesa (LOTE C, 25/10: inclui as entradas do
+ * extrato bancário; transferência interna não gera lançamento, logo não entra).
+ */
+export function receitaRealizada(
+  transacoes: { type: string; amount: string | number }[],
+  lancamentosBpo: { tipo: string; valor: string | number }[] = [],
+) {
+  const centavos = (v: string | number) => Math.round(Number(v) * 100);
+  const financeiro = transacoes
+    .filter(item => item.type === "income" || item.type === "commission")
+    .reduce((total, item) => total + centavos(item.amount), 0);
+  const bpo = lancamentosBpo.filter(l => l.tipo !== "despesa").reduce((total, l) => total + centavos(l.valor), 0);
+  return { total: (financeiro + bpo) / 100, financeiro: financeiro / 100, bpo: bpo / 100 };
+}
+
 export const taxRouter = router({
   overview: adminProcedure
     .input(
@@ -125,9 +143,12 @@ export const taxRouter = router({
         .select()
         .from(retProjects)
         .orderBy(desc(retProjects.createdAt));
-      const revenue = movements
-        .filter(item => item.type === "income" || item.type === "commission")
-        .reduce((total, item) => total + Number(item.amount), 0);
+      const lancamentosBpo = await database
+        .select({ tipo: bpoLancamentos.tipo, valor: bpoLancamentos.valor })
+        .from(bpoLancamentos)
+        .where(and(eq(bpoLancamentos.pago, true), gte(bpoLancamentos.pagoEm, from), lte(bpoLancamentos.pagoEm, to)));
+      const receita = receitaRealizada(movements, lancamentosBpo);
+      const revenue = receita.total;
       const rate = Number(profile?.estimatedRate || 0);
       const estimatedTax = revenue * (rate / 100);
       const overdue = obligations.filter(
@@ -160,6 +181,8 @@ export const taxRouter = router({
         to,
         profile: profile ?? null,
         revenue,
+        revenueFinanceiro: receita.financeiro,
+        revenueBpo: receita.bpo,
         rate,
         estimatedTax,
         obligations,

@@ -3,7 +3,7 @@ import { PGlite } from "@electric-sql/pglite";
 import { describe, expect, it } from "vitest";
 
 describe("migrações aditivas AIOX", () => {
-  it("aplica 0071 e 0072 duas vezes e mantém a chave de upload única por imóvel", async () => {
+  it("aplica 0073 e 0074 duas vezes e mantém a chave de upload única por imóvel", async () => {
     const db = new PGlite();
     await db.exec(`
       CREATE TABLE construction_projects (id serial PRIMARY KEY);
@@ -14,8 +14,8 @@ describe("migrações aditivas AIOX", () => {
       );
       INSERT INTO imoveis DEFAULT VALUES;
     `);
-    const proSoluto = readFileSync(new URL("../drizzle/0071_empreiteiro_pro_soluto.sql", import.meta.url), "utf8");
-    const fotos = readFileSync(new URL("../drizzle/0072_imovel_foto_upload_key.sql", import.meta.url), "utf8");
+    const proSoluto = readFileSync(new URL("../drizzle/0073_empreiteiro_pro_soluto.sql", import.meta.url), "utf8");
+    const fotos = readFileSync(new URL("../drizzle/0074_imovel_foto_upload_key.sql", import.meta.url), "utf8");
     await db.exec(proSoluto);
     await db.exec(fotos);
     await db.exec(proSoluto);

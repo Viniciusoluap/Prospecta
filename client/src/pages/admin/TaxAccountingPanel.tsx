@@ -141,6 +141,11 @@ export default function TaxAccountingPanel() {
             <p className="mt-1 text-xl font-bold text-green-400">
               {money(data.revenue)}
             </p>
+            {data.revenueBpo > 0 && (
+              <p className="text-xs text-gray-400">
+                inclui {money(data.revenueBpo)} do BPO/extrato bancário
+              </p>
+            )}
           </CardContent>
         </Card>
         <Card className="bg-[#2C3E50] border-amber-500/30 text-gray-100">

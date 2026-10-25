@@ -13,6 +13,8 @@ import { trpc } from "@/lib/trpc";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { WHATSAPP_TEMPLATES, type WhatsappTemplate } from "@shared/whatsapp/templates";
 import { ConexaoQrCode } from "@/components/whatsapp/ConexaoQrCode";
+import { ConversasWhatsApp } from "@/components/whatsapp/ConversasWhatsApp";
+import { VARIAVEIS_TEMPLATE, variaveisDoTexto } from "@shared/whatsapp/variaveis";
 
 const cardCls = "bg-[#2C3E50] border-[#C9A961]/20";
 const inputCls = "bg-[#1A2332] border-[#C9A961]/30 text-white";
@@ -36,7 +38,9 @@ export default function AdminWhatsApp() {
   const role = user?.role ?? "cliente";
   const utils = trpc.useUtils();
 
-  const [activeTab, setActiveTab] = useState<"conexao" | "enviar" | "templates" | "historico">("conexao");
+  // Pedido de 25/10: ?aba=conversas&numero=… abre direto o chat (notificações e card do lead).
+  const params = new URLSearchParams(window.location.search);
+  const [activeTab, setActiveTab] = useState<"conexao" | "conversas" | "enviar" | "templates" | "historico">(params.get("aba") === "conversas" ? "conversas" : "conexao");
   const [businessToken, setBusinessToken] = useState("");
   const [businessPhoneId, setBusinessPhoneId] = useState("");
   const [businessNumero, setBusinessNumero] = useState("");
@@ -66,7 +70,7 @@ export default function AdminWhatsApp() {
     onSuccess: (data) => {
       if (!data.success) { toast.error(data.error ?? "Erro ao enviar"); return; }
       toast.success(`${data.enviadas} enviada(s)${data.falhas > 0 ? `, ${data.falhas} falha(s)` : ""}`, data.falhas > 0 ? { icon: "⚠️" } : undefined);
-      setSelectedLeads([]); setMensagem(""); setSelectedTemplate(null);
+      setSelectedLeads([]); setMensagem(""); setSelectedTemplate(null); setExtras({});
       utils.whatsapp.historico.invalidate();
     },
     onError: (e) => toast.error(e.message),
@@ -80,10 +84,19 @@ export default function AdminWhatsApp() {
   const totalFalhas = historico.data?.filter((m) => m.status === "falhou").length ?? 0;
   const taxaLeitura = totalEnviadas > 0 ? Math.round((totalLidas / totalEnviadas) * 100) : 0;
 
+  // Pedido de 25/10: variáveis do template preenchidas por destinatário, com prévia e campos para o que faltar.
+  const [extras, setExtras] = useState<Record<string, string>>({});
+  const usaVariaveis = variaveisDoTexto(mensagem).length > 0;
+  const previa = trpc.whatsapp.previaEnvio.useQuery(
+    { mensagem, ids: selectedLeads, extras },
+    { enabled: usaVariaveis && selectedLeads.length > 0 && mensagem.trim().length > 0 },
+  );
+  const faltando = Array.from(new Set((previa.data ?? []).flatMap((p) => p.faltando)));
   function handleEnviar() {
     if (!mensagem.trim() || selectedLeads.length === 0) return;
+    if (faltando.length) { toast.error("Preencha os campos destacados antes de enviar."); return; }
     const destinatarios = leads.filter((l) => selectedLeads.includes(l.id)).map((l) => ({ id: l.id, nome: l.name, telefone: l.phone }));
-    enviar.mutate({ mensagem, destinatarios });
+    enviar.mutate({ mensagem, destinatarios, extras });
   }
 
   return (
@@ -121,6 +134,7 @@ export default function AdminWhatsApp() {
         <div className="flex gap-1 border-b border-[#C9A961]/20 overflow-x-auto">
           {([
             { key: "conexao" as const, label: "Conexão", icon: Smartphone },
+            { key: "conversas" as const, label: "Conversas", icon: Users },
             { key: "enviar" as const, label: "Enviar Mensagem", icon: Send },
             { key: "templates" as const, label: "Templates", icon: MessageCircle },
             { key: "historico" as const, label: "Histórico", icon: Clock },
@@ -131,6 +145,8 @@ export default function AdminWhatsApp() {
             </button>
           ))}
         </div>
+
+        {activeTab === "conversas" && <ConversasWhatsApp numeroInicial={params.get("numero")} />}
 
         {/* Conexão */}
         {activeTab === "conexao" && (
@@ -152,7 +168,7 @@ export default function AdminWhatsApp() {
                     </div>
                   ) : (
                     <div className="space-y-4">
-                    <ConexaoQrCode podeConfigurarServidor={role !== "corretor"} onConectado={() => utils.whatsapp.minhaConexao.invalidate()} />
+                    <ConexaoQrCode podeConfigurarServidor={role === "admin"} onConectado={() => utils.whatsapp.minhaConexao.invalidate()} />
                     <details className="border-t border-[#C9A961]/10 pt-3">
                     <summary className="cursor-pointer text-xs text-gray-300">Usar a API oficial do WhatsApp Business (Meta)</summary>
                     <form onSubmit={(e) => { e.preventDefault(); salvarConexao.mutate({ token: businessToken, phoneNumberId: businessPhoneId, numero: businessNumero }); }} className="space-y-3 mt-3">
@@ -254,7 +270,28 @@ export default function AdminWhatsApp() {
                       className={`${inputCls} w-full rounded-md px-3 py-2.5 text-sm mt-1 resize-none font-mono`} />
                     <p className="text-xs text-gray-400 mt-1">{mensagem.length} caracteres</p>
                   </div>
-                  <Button onClick={handleEnviar} disabled={enviar.isPending || selectedLeads.length === 0 || !mensagem.trim()} className="bg-green-600 hover:bg-green-700 text-white font-bold">
+                  {usaVariaveis && selectedLeads.length > 0 && (
+                    <div className="space-y-3 border-t border-[#C9A961]/10 pt-3">
+                      {faltando.length > 0 && (
+                        <div className="space-y-2">
+                          <p className="text-xs text-yellow-200">Alguns destinatários não têm estes dados no cadastro. Informe para enviar:</p>
+                          {faltando.map((v) => (
+                            <div key={v}><Label className="text-gray-300">{VARIAVEIS_TEMPLATE[v] ?? v}</Label>
+                              <Input value={extras[v] ?? ""} onChange={(e) => setExtras((x) => ({ ...x, [v]: e.target.value }))} className={`${inputCls} mt-1`} /></div>
+                          ))}
+                        </div>
+                      )}
+                      <p className="text-xs text-gray-300">Prévia (como cada contato vai receber):</p>
+                      <div className="max-h-48 overflow-y-auto space-y-2">
+                        {(previa.data ?? []).slice(0, 20).map((p) => (
+                          <div key={p.id} className="rounded bg-[#1A2332] p-2 text-xs text-gray-100 whitespace-pre-wrap">
+                            <b className="text-[#C9A961]">{leads.find((l) => l.id === p.id)?.name}: </b>{p.texto}
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                  <Button onClick={handleEnviar} disabled={enviar.isPending || selectedLeads.length === 0 || !mensagem.trim() || faltando.length > 0} className="bg-green-600 hover:bg-green-700 text-white font-bold">
                     <Send className="h-4 w-4 mr-2" /> {enviar.isPending ? "Enviando..." : `Enviar para ${selectedLeads.length} contato${selectedLeads.length !== 1 ? "s" : ""}`}
                   </Button>
                 </CardContent>

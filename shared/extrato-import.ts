@@ -9,7 +9,24 @@ export type LinhaExtrato = {
   tipo: "credito" | "debito";
 };
 
-export type ResultadoLeitura = { linhas: LinhaExtrato[]; ignoradas: number; formato: string };
+/** `saldoFinal`: saldo informado no próprio arquivo (OFX LEDGERBAL, coluna "Saldo", última coluna do PDF). */
+export type ResultadoLeitura = { linhas: LinhaExtrato[]; ignoradas: number; formato: string; saldoFinal?: number | null };
+
+type SaldoLido = { data: string; saldo: number };
+
+/**
+ * Saldo do dia mais recente do arquivo. Em empate de data vale a última linha quando o
+ * arquivo está em ordem crescente e a primeira quando está em ordem decrescente.
+ */
+export function saldoMaisRecente(saldos: SaldoLido[]): number | null {
+  if (!saldos.length) return null;
+  const crescente = saldos[0].data <= saldos[saldos.length - 1].data;
+  let melhor = saldos[0];
+  for (const s of saldos.slice(1)) {
+    if (s.data > melhor.data || (s.data === melhor.data && crescente)) melhor = s;
+  }
+  return melhor.saldo;
+}
 
 const sem = (s: string) => s.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase().trim();
 
@@ -78,7 +95,9 @@ export function lerOfx(texto: string): ResultadoLeitura {
     const l = linha(dataIso(campo(bloco, "DTPOSTED")), campo(bloco, "MEMO") || campo(bloco, "NAME"), assinado);
     if (l) linhas.push(l); else ignoradas++;
   }
-  return { linhas, ignoradas, formato: "OFX" };
+  const bal = texto.match(/<LEDGERBAL>[\s\S]*?<BALAMT>([^<\r\n]+)/i)?.[1]?.trim();
+  const saldoFinal = bal ? valorMonetario(bal.replace(",", ".")) : null;
+  return { linhas, ignoradas, formato: "OFX", saldoFinal };
 }
 
 // ── Planilha (CSV ou Excel já convertido em linhas) ─────────────────────────
@@ -87,6 +106,7 @@ const COL_DESC = ["descricao", "historico", "lancamento", "detalhe", "detalhes",
 const COL_VALOR = ["valor", "valor (r$)", "valor r$", "amount", "montante", "quantia"];
 const COL_CRED = ["credito", "entrada", "entradas", "creditos", "credito (r$)", "entrada (r$)"];
 const COL_DEB = ["debito", "saida", "saidas", "debitos", "debito (r$)", "saida (r$)"];
+const COL_SALDO = ["saldo", "saldo (r$)", "saldo r$", "saldo final", "saldo do dia", "balance"];
 const COL_TIPO = ["tipo", "natureza", "d/c", "c/d", "tipo transacao", "tipo de transacao"];
 
 function acharColuna(cab: string[], nomes: string[]) {
@@ -95,22 +115,26 @@ function acharColuna(cab: string[], nomes: string[]) {
 }
 
 export function lerTabela(tabela: unknown[][], formato = "Planilha"): ResultadoLeitura {
-  let cabIdx = -1, iData = -1, iDesc = -1, iValor = -1, iCred = -1, iDeb = -1, iTipo = -1;
+  let cabIdx = -1, iData = -1, iDesc = -1, iValor = -1, iCred = -1, iDeb = -1, iTipo = -1, iSaldo = -1;
   for (let r = 0; r < Math.min(tabela.length, 40); r++) {
     const cab = (tabela[r] ?? []).map(c => sem(String(c ?? "")));
     const d = acharColuna(cab, COL_DATA);
     const v = acharColuna(cab, COL_VALOR), c = acharColuna(cab, COL_CRED), b = acharColuna(cab, COL_DEB);
     if (d >= 0 && (v >= 0 || c >= 0 || b >= 0)) {
       cabIdx = r; iData = d; iValor = v; iCred = c; iDeb = b;
-      iDesc = acharColuna(cab, COL_DESC); iTipo = acharColuna(cab, COL_TIPO);
+      iDesc = acharColuna(cab, COL_DESC); iTipo = acharColuna(cab, COL_TIPO); iSaldo = acharColuna(cab, COL_SALDO);
       break;
     }
   }
   if (cabIdx < 0) throw new Error("Não encontrei as colunas de data e valor. A planilha precisa ter um cabeçalho com \"Data\" e \"Valor\" (ou \"Crédito\"/\"Débito\").");
   const linhas: LinhaExtrato[] = [];
+  const saldos: SaldoLido[] = [];
   let ignoradas = 0;
   for (const row of tabela.slice(cabIdx + 1)) {
     if (!row || row.every(c => c === null || c === undefined || String(c).trim() === "")) continue;
+    const dataLinha = dataIso(row[iData]);
+    const saldoLinha = iSaldo >= 0 ? valorMonetario(row[iSaldo]) : null;
+    if (dataLinha && saldoLinha !== null) saldos.push({ data: dataLinha, saldo: saldoLinha });
     let valor: number | null;
     if (iValor >= 0) {
       valor = valorMonetario(row[iValor]);
@@ -121,11 +145,15 @@ export function lerTabela(tabela: unknown[][], formato = "Planilha"): ResultadoL
       valor = cr ? Math.abs(cr) : db ? -Math.abs(db) : null;
     }
     const descricao = iDesc >= 0 ? String(row[iDesc] ?? "") : "";
-    if (/^saldo\b/i.test(sem(descricao))) { ignoradas++; continue; }
-    const l = linha(dataIso(row[iData]), descricao, valor);
+    if (/^saldo\b/i.test(sem(descricao))) {
+      // Linha "Saldo do dia" sem coluna própria de saldo: o valor dela é o saldo.
+      if (iSaldo < 0 && dataLinha && valor !== null) saldos.push({ data: dataLinha, saldo: valor });
+      ignoradas++; continue;
+    }
+    const l = linha(dataLinha, descricao, valor);
     if (l) linhas.push(l); else ignoradas++;
   }
-  return { linhas, ignoradas, formato };
+  return { linhas, ignoradas, formato, saldoFinal: saldoMaisRecente(saldos) };
 }
 
 export function lerCsv(texto: string): ResultadoLeitura {
@@ -153,6 +181,7 @@ const PALAVRAS_DEBITO = /\b(debito|pagamento|pago|enviado|enviada|saida|tarifa|c
 
 export function lerTextoPdf(linhasTexto: string[], anoPadrao?: number): ResultadoLeitura {
   const linhas: LinhaExtrato[] = [];
+  const saldos: SaldoLido[] = [];
   let ignoradas = 0;
   for (const bruta of linhasTexto) {
     const t = bruta.replace(/\s+/g, " ").trim();
@@ -170,12 +199,18 @@ export function lerTextoPdf(linhasTexto: string[], anoPadrao?: number): Resultad
     const alvo = valores.length >= 2 ? valores[valores.length - 2] : valores[0];
     let valor = valorMonetario(alvo[0]);
     const descricao = resto.slice(0, valores[0].index).trim();
-    if (/^saldo\b/.test(sem(descricao))) continue;
+    // Com dois ou mais valores, a última coluna é o saldo; numa linha "Saldo ..." o único valor é o saldo.
+    const ehSaldo = /^saldo\b/.test(sem(descricao));
+    if (valores.length >= 2 || ehSaldo) {
+      const saldo = valorMonetario(valores[valores.length - 1][0]);
+      if (saldo !== null) saldos.push({ data, saldo });
+    }
+    if (ehSaldo) continue;
     if (valor !== null && valor > 0 && PALAVRAS_DEBITO.test(sem(descricao))) valor = -valor;
     const l = linha(data, descricao, valor);
     if (l) linhas.push(l); else ignoradas++;
   }
-  return { linhas, ignoradas, formato: "PDF" };
+  return { linhas, ignoradas, formato: "PDF", saldoFinal: saldoMaisRecente(saldos) };
 }
 
 /** Aplica a data inicial da conta: o que for anterior não pertence a esta empresa. */

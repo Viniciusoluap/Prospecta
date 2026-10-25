@@ -26,7 +26,7 @@ describe("EPIC-007 S-02 - BPO (clientes e lancamentos)", () => {
 
   it("enums tem os valores esperados", () => {
     expect(bpoClientStatusEnum.enumValues).toEqual(["ativo", "pausado", "encerrado"]);
-    expect(bpoLancamentoTipoEnum.enumValues).toEqual(["honorario", "despesa", "reembolso"]);
+    expect(bpoLancamentoTipoEnum.enumValues).toEqual(["honorario", "despesa", "reembolso", "receita"]);
   });
 
   it("expoe as procedures de clientes, lancamentos e DRE no router", () => {

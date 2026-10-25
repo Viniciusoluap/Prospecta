@@ -13,6 +13,7 @@ import imovelFotosRouter from "../routes/imovel-fotos.js";
 import googleDriveRotas from "../routes/google-drive.js";
 import { handleAsaasWebhook } from "../asaas-webhook.js";
 import { handlePluggyWebhook } from "../pluggy-webhook.js";
+import { handleEvolutionWebhook } from "../whatsapp-evolution-webhook.js";
 import { handleWhatsappWebhook } from "../whatsapp-webhook.js";
 import { startMcmvRulesReminder } from "../mcmv-rules-reminder.js";
 import { getUserByEmail } from "../db.js";
@@ -126,6 +127,7 @@ async function startServer() {
   // Asaas webhook
   app.post("/api/asaas/webhook", handleAsaasWebhook);
   app.post("/api/pluggy/webhook", handlePluggyWebhook);
+  app.post("/api/whatsapp/evolution-webhook", handleEvolutionWebhook);
 
   // tRPC API
   app.use(
