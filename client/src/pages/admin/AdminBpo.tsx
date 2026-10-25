@@ -636,7 +636,7 @@ export default function AdminBpo({ initialTab }: { initialTab?: Aba } = {}) {
             <CardHeader>
               <CardTitle className="text-[#C9A961]">
                 {aba === "cobrancas"
-                  ? "Cobranças (honorários/reembolsos)"
+                  ? "Cobranças (honorários, reembolsos e entradas do extrato)"
                   : "Despesas"}
               </CardTitle>
             </CardHeader>
@@ -659,7 +659,9 @@ export default function AdminBpo({ initialTab }: { initialTab?: Aba } = {}) {
                             {l.descricao}
                           </p>
                           <p className="text-xs text-gray-400">
-                            {clienteNome(l)} • {rotulo(l.tipo)} • vence{" "}
+                            {clienteNome(l)} • {rotulo(l.tipo)}
+                            {l.categoria ? ` • ${l.categoria}` : ""}
+                            {l.bankTransactionId ? " • extrato bancário" : ""} • vence{" "}
                             {new Date(l.vencimento).toLocaleDateString("pt-BR")}{" "}
                             • comp. {l.competencia}
                             {l.pago && l.pagoEm

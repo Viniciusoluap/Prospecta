@@ -4,11 +4,14 @@ import { eq } from "drizzle-orm";
 import { z } from "zod";
 import { adminProcedure, router } from "./_core/trpc.js";
 import { encryptSecret } from "./_core/secret-vault.js";
-import { authenticatePluggy, createPluggyConnectToken, fetchPluggyItemAccounts, fetchPluggyItemConnector } from "./_core/pluggy.js";
+import { autenticarPluggyDetalhado, createPluggyConnectToken, mensagemRecusaPluggy, fetchPluggyItemAccounts, fetchPluggyItemConnector } from "./_core/pluggy.js";
 import { fetchAsaasSaldo } from "./_core/asaas-extrato.js";
+import { chaveAsaasCentral } from "./_core/asaas.js";
 import { bankAccounts } from "../drizzle/schema.js";
 import * as db from "./db.js";
 import { confirmarImportacao, previaImportacao, registrarWebhookPluggy, sincronizarConta, tokenPluggy } from "./bancos.js";
+import { atualizarMovimentacao, movimentacoesDaConta, reprocessarMovimentacoes } from "./bpo-extrato.js";
+import { CATEGORIAS_BPO } from "../shared/financeiro/bpo-extrato.js";
 
 const dataIsoSchema = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Data inválida").nullable().optional();
 const erro = (e: unknown, padrao: string) =>
@@ -29,8 +32,8 @@ export const pluggySettingsRouter = router({
   save: adminProcedure
     .input(z.object({ clientId: z.string().trim().min(1), clientSecret: z.string().trim().min(1) }))
     .mutation(async ({ input }) => {
-      const token = await authenticatePluggy(input.clientId, input.clientSecret);
-      if (!token) throw new TRPCError({ code: "BAD_REQUEST", message: "Credenciais Pluggy inválidas ou API indisponível" });
+      const r = await autenticarPluggyDetalhado(input.clientId, input.clientSecret);
+      if (!r.ok) throw new TRPCError({ code: "BAD_REQUEST", message: mensagemRecusaPluggy(r.status, r.mensagem) });
       await db.savePluggySetting({
         clientIdEncrypted: encryptSecret(input.clientId),
         clientSecretEncrypted: encryptSecret(input.clientSecret),
@@ -107,8 +110,14 @@ export const bancarioRouter = router({
       .mutation(async ({ input }) => {
         let saldo = input.saldoAtual ?? 0;
         if (input.provedor === "asaas") {
-          if (!input.apiKey) throw new TRPCError({ code: "BAD_REQUEST", message: "Informe a chave de API do Asaas." });
-          try { saldo = await fetchAsaasSaldo(input.apiKey); }
+          // LOTE B (25/10): sem chave própria, valida e usa a chave central (Integrações).
+          let chave = input.apiKey;
+          if (!chave) {
+            const central = await chaveAsaasCentral().catch(() => null);
+            if (!central) throw new TRPCError({ code: "BAD_REQUEST", message: "Cadastre a chave do Asaas em Configurações › Integrações." });
+            chave = central.apiKey;
+          }
+          try { saldo = await fetchAsaasSaldo(chave); }
           catch (e) { throw erro(e, "Chave do Asaas não aceita."); }
         }
         const conta = await db.createBankAccount({
@@ -153,7 +162,18 @@ export const bancarioRouter = router({
   }),
 
   transacoes: router({
-    listByConta: adminProcedure.input(z.object({ accountId: z.number() })).query(({ input }) => db.getBankTransactionsByAccount(input.accountId)),
+    // LOTE C (25/10): cada movimentação vem com categoria, Cliente BPO e o lançamento vinculado.
+    listByConta: adminProcedure.input(z.object({ accountId: z.number() })).query(({ input }) => movimentacoesDaConta(input.accountId)),
+    atualizar: adminProcedure
+      .input(z.object({
+        id: z.number(),
+        categoria: z.enum(CATEGORIAS_BPO).optional(),
+        bpoClienteId: z.number().int().positive().nullable().optional(),
+      }))
+      .mutation(async ({ input }) => {
+        try { return await atualizarMovimentacao(input.id, { categoria: input.categoria, bpoClienteId: input.bpoClienteId }); }
+        catch (e) { throw erro(e, "Não foi possível atualizar a movimentação."); }
+      }),
     atualizarStatus: adminProcedure
       .input(z.object({ id: z.number(), status: z.enum(["pendente", "conciliado", "ignorado"]) }))
       .mutation(async ({ input }) => {
@@ -163,6 +183,12 @@ export const bancarioRouter = router({
   }),
 
   sincronizar: adminProcedure.input(z.object({ contaId: z.number() })).mutation(({ input }) => sincronizarConta(input.contaId)),
+
+  /** LOTE C (25/10): gera os lançamentos do BPO que faltam (idempotente) e recalcula saldos. */
+  reprocessar: adminProcedure.mutation(async () => {
+    try { return await reprocessarMovimentacoes(); }
+    catch (e) { throw erro(e, "Falha ao reprocessar as movimentações."); }
+  }),
 
   importar: router({
     previa: adminProcedure
@@ -185,8 +211,9 @@ export const bancarioRouter = router({
           valor: z.number().positive(),
           tipo: z.enum(["credito", "debito"]),
         })).min(1).max(20000),
+        saldoFinal: z.number().finite().nullable().optional(),
       }))
-      .mutation(({ input }) => confirmarImportacao(input.contaId, input.linhas)),
+      .mutation(({ input }) => confirmarImportacao(input.contaId, input.linhas, input.saldoFinal)),
   }),
 });
 

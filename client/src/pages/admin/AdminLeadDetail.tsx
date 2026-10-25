@@ -403,6 +403,12 @@ export default function AdminLeadDetail() {
             <CardContent className="space-y-3 text-sm">
               <InfoRow label="Nome" value={lead.name} />
               <InfoRow label="Telefone" value={lead.phone} icon={<Phone className="h-3 w-3" />} />
+              {/* Pedido de 25/10: abre o chat deste lead na Central WhatsApp (aba Conversas). */}
+              {lead.phone && (
+                <Link href={`/admin/whatsapp?aba=conversas&numero=${lead.phone.replace(/\D/g, "")}`}>
+                  <Button size="sm" variant="outline" className="h-7 text-xs border-green-500/40 text-green-300 mt-1">Conversa no WhatsApp</Button>
+                </Link>
+              )}
               <InfoRow label="Email" value={lead.email} icon={<Mail className="h-3 w-3" />} />
               <InfoRow label="CPF" value={lead.cpf} />
               <InfoRow label="Endereço" value={[lead.address, lead.neighborhood].filter(Boolean).join(", ") || null} icon={<MapPin className="h-3 w-3" />} />

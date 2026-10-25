@@ -2,7 +2,7 @@ import { and, avg, count, eq, gte, lte } from "drizzle-orm";
 import { z } from "zod";
 import {
   imoveis, leads, financiamentos, avaliacoes, financialTransactions,
-  operationalCommissions, users,
+  operationalCommissions, users, bpoLancamentos,
 } from "../drizzle/schema.js";
 import { getDb } from "./db.js";
 import { adminProcedure, router } from "./_core/trpc.js";
@@ -131,6 +131,34 @@ export function buildComissoesExportNovas(rows: ComissaoNovaFullRow[]): Comissao
   });
 }
 
+export type DreMensalLinha = { mes: string; receitas: number; despesas: number; resultado: number };
+
+/**
+ * DRE mensal dos Relatórios: transações financeiras pagas + lançamentos pagos do BPO
+ * (LOTE C, 25/10: inclui os gerados pelo extrato bancário; transferência interna não gera
+ * lançamento). Somas em centavos para não acumular erro de arredondamento.
+ */
+export function montarDreMensal(
+  transacoes: { competency: string | null; paidAt: Date | null; type: string; amount: string | number }[],
+  lancamentosBpo: { competencia: string; tipo: string; valor: string | number }[] = [],
+): DreMensalLinha[] {
+  const mapa = new Map<string, { receitas: number; despesas: number }>();
+  const somar = (mes: string, receita: boolean, valor: string | number) => {
+    const e = mapa.get(mes) ?? { receitas: 0, despesas: 0 };
+    const centavos = Math.round(Number(valor) * 100);
+    if (receita) e.receitas += centavos; else e.despesas += centavos;
+    mapa.set(mes, e);
+  };
+  for (const t of transacoes) {
+    const mes = t.competency ?? (t.paidAt ? t.paidAt.toISOString().slice(0, 7) : "sem-competencia");
+    somar(mes, t.type === "income" || t.type === "commission", t.amount);
+  }
+  for (const l of lancamentosBpo) somar(l.competencia, l.tipo !== "despesa", l.valor);
+  return Array.from(mapa.entries())
+    .map(([mes, v]) => ({ mes, receitas: v.receitas / 100, despesas: v.despesas / 100, resultado: (v.receitas - v.despesas) / 100 }))
+    .sort((a, b) => a.mes.localeCompare(b.mes));
+}
+
 export const relatoriosRouter = router({
   overview: adminProcedure
     .input(z.object({ from: z.string().optional(), to: z.string().optional() }).optional())
@@ -149,6 +177,7 @@ export const relatoriosRouter = router({
         avaliacoesPorStatus,
         transacoesPagas,
         comissoesNovas,
+        lancamentosBpoPagos,
       ] = await Promise.all([
         database.select({ n: count() }).from(imoveis).then((r) => r[0]?.n ?? 0),
         database.select({ tipo: imoveis.tipo, n: count() }).from(imoveis).groupBy(imoveis.tipo),
@@ -173,25 +202,20 @@ export const relatoriosRouter = router({
           .from(operationalCommissions)
           .leftJoin(users, eq(operationalCommissions.brokerId, users.id))
           .where(eq(operationalCommissions.beneficiary, "corretor")),
+        database
+          .select({ competencia: bpoLancamentos.competencia, tipo: bpoLancamentos.tipo, valor: bpoLancamentos.valor })
+          .from(bpoLancamentos)
+          .where(and(eq(bpoLancamentos.pago, true), gte(bpoLancamentos.pagoEm, from), lte(bpoLancamentos.pagoEm, to))),
       ]);
 
-      const dreMap = new Map<string, { receitas: number; despesas: number }>();
-      for (const t of transacoesPagas) {
-        const mes = t.competency ?? (t.paidAt ? t.paidAt.toISOString().slice(0, 7) : "sem-competencia");
-        const entry = dreMap.get(mes) ?? { receitas: 0, despesas: 0 };
-        const valor = Number(t.amount);
-        if (t.type === "income" || t.type === "commission") entry.receitas += valor;
-        else entry.despesas += valor;
-        dreMap.set(mes, entry);
-      }
-      const dreMensal = Array.from(dreMap.entries())
-        .map(([mes, v]) => ({ mes, ...v, resultado: v.receitas - v.despesas }))
-        .sort((a, b) => a.mes.localeCompare(b.mes));
+      const dreMensal = montarDreMensal(transacoesPagas, lancamentosBpoPagos);
 
       const totalReceitas = dreMensal.reduce((s, m) => s + m.receitas, 0);
       const totalDespesas = dreMensal.reduce((s, m) => s + m.despesas, 0);
-      const vendasNoPeriodo = transacoesPagas.filter((t) => t.type === "income" || t.type === "commission").length;
-      const ticketMedio = vendasNoPeriodo > 0 ? Math.round(totalReceitas / vendasNoPeriodo) : 0;
+      // Ticket médio continua sendo das vendas (transações financeiras), não do extrato.
+      const vendas = transacoesPagas.filter((t) => t.type === "income" || t.type === "commission");
+      const receitaVendas = vendas.reduce((s, t) => s + Number(t.amount), 0);
+      const ticketMedio = vendas.length > 0 ? Math.round(receitaVendas / vendas.length) : 0;
 
       const corretorRanking = buildCorretorRanking([], comissoesNovas);
 

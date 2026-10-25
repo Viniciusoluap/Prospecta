@@ -286,13 +286,13 @@ export default function Admin() {
             </CardHeader>
             <CardContent>
               <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-                <Link href="/admin/configuracoes-pagamento">
+                <Link href="/admin/integracoes">
                   <Button
                     variant="outline"
                     className="w-full h-14 flex flex-col gap-1 text-sm"
                   >
                     <Settings className="h-4 w-4" />
-                    <span>API Contas</span>
+                    <span>Integrações</span>
                   </Button>
                 </Link>
                 <Link href="/admin/configuracoes">

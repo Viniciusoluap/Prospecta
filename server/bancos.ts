@@ -6,8 +6,9 @@ import { and, eq, inArray } from "drizzle-orm";
 import { getDb } from "./db.js";
 import { bankAccounts, bankTransactions, paymentSettings, pluggySettings, userNotifications, users, type BankAccount } from "../drizzle/schema.js";
 import { decryptSecret, encryptSecret, segredoEmTextoPuro } from "./_core/secret-vault.js";
-import { authenticatePluggy, fetchPluggyAccountBalance, fetchPluggyTransactions, garantirWebhookPluggy } from "./_core/pluggy.js";
+import { autenticarPluggyDetalhado, fetchPluggyAccountBalance, mensagemRecusaPluggy, fetchPluggyTransactions, garantirWebhookPluggy } from "./_core/pluggy.js";
 import { ENV } from "./_core/env.js";
+import { chaveAsaasCentral } from "./_core/asaas.js";
 import { fetchAsaasExtrato, fetchAsaasSaldo } from "./_core/asaas-extrato.js";
 import {
   aplicarDataInicial,
@@ -19,6 +20,8 @@ import {
   type LinhaExtrato,
   type ResultadoLeitura,
 } from "../shared/extrato-import.js";
+import { categoriaValida, saldoPorMovimentos, sugerirCategoria } from "../shared/financeiro/bpo-extrato.js";
+import { gerarLancamentosDoExtrato, recalcularSaldoConta } from "./bpo-extrato.js";
 
 export type Provedor = "manual" | "asaas" | "pluggy";
 type Movimento = { externalId: string; data: string; descricao: string; valor: number; tipo: "credito" | "debito"; categoria?: string };
@@ -37,44 +40,66 @@ async function lerSegredo(valor: string, regravar: (cifrado: string) => Promise<
 export async function tokenPluggy(fetchImpl: typeof fetch = fetch): Promise<string> {
   const db = getDb();
   const [s] = await db.select().from(pluggySettings).limit(1);
-  if (!s?.isActive) throw new Error("Configure o Client ID e o Client Secret da Pluggy nesta aba.");
+  if (!s?.isActive) throw new Error("Configure o Client ID e o Client Secret da Pluggy em Configurações › Integrações.");
   const clientId = await lerSegredo(s.clientIdEncrypted, v => db.update(pluggySettings).set({ clientIdEncrypted: v }).where(eq(pluggySettings.id, s.id)));
   const clientSecret = await lerSegredo(s.clientSecretEncrypted, v => db.update(pluggySettings).set({ clientSecretEncrypted: v }).where(eq(pluggySettings.id, s.id)));
-  const token = await authenticatePluggy(clientId, clientSecret, fetchImpl);
-  if (!token) throw new Error("A Pluggy recusou o Client ID/Secret (ou está fora do ar).");
-  return token;
+  const r = await autenticarPluggyDetalhado(clientId, clientSecret, fetchImpl);
+  if (!r.ok) throw new Error(mensagemRecusaPluggy(r.status, r.mensagem));
+  return r.token;
 }
 
-async function credencialDaConta(conta: BankAccount) {
-  if (!conta.credencialEncrypted) throw new Error("Esta conta não tem a chave de API cadastrada.");
+/**
+ * LOTE B (25/10): conta Asaas sem chave própria usa a chave central (Integrações / ASAAS_API_KEY).
+ * Contas antigas com chave própria continuam usando a delas.
+ */
+export async function credencialDaConta(conta: Pick<BankAccount, "id" | "provedor" | "credencialEncrypted">) {
+  if (!conta.credencialEncrypted) {
+    if (conta.provedor === "asaas") {
+      const central = await chaveAsaasCentral();
+      if (central) return central.apiKey;
+      throw new Error("Cadastre a chave do Asaas em Configurações › Integrações.");
+    }
+    throw new Error("Esta conta não tem a chave de API cadastrada.");
+  }
   const db = getDb();
   return lerSegredo(conta.credencialEncrypted, v => db.update(bankAccounts).set({ credencialEncrypted: v }).where(eq(bankAccounts.id, conta.id)));
 }
 
-/** Grava movimentos (sem duplicar) respeitando a data inicial da conta. */
+/**
+ * Grava movimentos (sem duplicar) respeitando a data inicial da conta. LOTE C (25/10): cada
+ * movimentação nova recebe uma categoria sugerida e gera o seu lançamento pago no BPO (1:1).
+ */
 export async function gravarMovimentos(conta: Pick<BankAccount, "id" | "dataInicial">, movimentos: Movimento[], origem: string) {
   const { mantidas, antesDaDataInicial } = aplicarDataInicial(movimentos.map(m => ({ ...m, data: m.data.slice(0, 10) })), conta.dataInicial);
   const db = getDb();
   let novos = 0;
+  const inseridas: { tipo: "credito" | "debito"; valor: string }[] = [];
   for (let i = 0; i < mantidas.length; i += 200) {
-    const lote = mantidas.slice(i, i + 200);
+    const lote = mantidas.slice(i, i + 200).map(m => ({
+      accountId: conta.id,
+      data: new Date(`${m.data}T12:00:00Z`),
+      descricao: m.descricao.slice(0, 500),
+      valor: m.valor.toFixed(2),
+      tipo: m.tipo,
+      categoria: categoriaValida(m.categoria) ?? sugerirCategoria(m.descricao, m.tipo),
+      externalId: m.externalId,
+      origem,
+    }));
     const r = await db
       .insert(bankTransactions)
-      .values(lote.map(m => ({
-        accountId: conta.id,
-        data: new Date(`${m.data}T12:00:00Z`),
-        descricao: m.descricao.slice(0, 500),
-        valor: m.valor.toFixed(2),
-        tipo: m.tipo,
-        categoria: m.categoria?.slice(0, 100) ?? null,
-        externalId: m.externalId,
-        origem,
-      })))
+      .values(lote)
       .onConflictDoNothing({ target: bankTransactions.externalId })
-      .returning({ id: bankTransactions.id });
+      .returning({ id: bankTransactions.id, externalId: bankTransactions.externalId });
     novos += r.length;
+    const porChave = new Map(lote.map(l => [l.externalId, l]));
+    const gravadas = r.flatMap(x => {
+      const l = x.externalId ? porChave.get(x.externalId) : undefined;
+      return l ? [{ ...l, id: x.id, bpoClienteId: null }] : [];
+    });
+    inseridas.push(...gravadas);
+    await gerarLancamentosDoExtrato(gravadas);
   }
-  return { novos, recebidos: movimentos.length, antesDaDataInicial };
+  return { novos, recebidos: movimentos.length, antesDaDataInicial, liquidoNovos: saldoPorMovimentos(inseridas) };
 }
 
 export type ResultadoSync = { ok: boolean; mensagem: string; novos?: number; saldo?: number | null };
@@ -105,7 +130,7 @@ export async function sincronizarConta(contaId: number, fetchImpl: typeof fetch 
     await db.update(bankAccounts).set({
       ultimaSincronizacao: new Date(),
       ultimoErro: null,
-      ...(saldo !== null ? { saldoAtual: saldo.toFixed(2) } : {}),
+      ...(saldo !== null ? { saldoAtual: saldo.toFixed(2), saldoFonte: "api" as const } : {}),
     }).where(eq(bankAccounts.id, conta.id));
     return { ok: true, novos: r.novos, saldo, mensagem: `${r.novos} movimentação(ões) nova(s).` };
   } catch (e) {
@@ -174,6 +199,8 @@ export type PreviaImportacao = {
   ignoradas: number;
   antesDaDataInicial: number;
   dataInicial: string | null;
+  /** Saldo informado no arquivo (null quando o arquivo não traz saldo). */
+  saldoFinal: number | null;
 };
 
 export async function previaImportacao(contaId: number, nome: string, conteudo: Buffer, anoPadrao?: number): Promise<PreviaImportacao> {
@@ -194,10 +221,11 @@ export async function previaImportacao(contaId: number, nome: string, conteudo: 
     ignoradas: lido.ignoradas,
     antesDaDataInicial,
     dataInicial: conta.dataInicial ?? null,
+    saldoFinal: lido.saldoFinal ?? null,
   };
 }
 
-export async function confirmarImportacao(contaId: number, linhas: LinhaExtrato[]) {
+export async function confirmarImportacao(contaId: number, linhas: LinhaExtrato[], saldoFinal?: number | null) {
   const db = getDb();
   const [conta] = await db.select().from(bankAccounts).where(eq(bankAccounts.id, contaId)).limit(1);
   if (!conta) throw new Error("Conta não encontrada.");
@@ -205,7 +233,34 @@ export async function confirmarImportacao(contaId: number, linhas: LinhaExtrato[
   const { mantidas, antesDaDataInicial } = aplicarDataInicial(linhas, conta.dataInicial);
   const chaves = chavesImportacao(conta.id, mantidas, sha);
   const r = await gravarMovimentos(conta, mantidas.map((l, i) => ({ ...l, externalId: chaves[i] })), "importacao");
-  return { ...r, antesDaDataInicial };
+  const saldo = await atualizarSaldoAposImportacao(conta, r.liquidoNovos, saldoFinal);
+  return { ...r, antesDaDataInicial, saldo };
+}
+
+/**
+ * LOTE C (25/10): saldo da conta depois de importar.
+ * 1) O arquivo trouxe saldo → vale o do arquivo.
+ * 2) Conta por API (Asaas/Pluggy) → mantém o saldo informado pela API.
+ * 3) Saldo anterior veio de um arquivo → soma o líquido das movimentações novas.
+ * 4) Senão → créditos − débitos de todas as movimentações da conta.
+ */
+export async function atualizarSaldoAposImportacao(
+  conta: Pick<BankAccount, "id" | "provedor" | "saldoAtual" | "saldoFonte">,
+  liquidoNovos: number,
+  saldoFinal?: number | null,
+): Promise<number> {
+  const db = getDb();
+  if (saldoFinal !== null && saldoFinal !== undefined && Number.isFinite(saldoFinal)) {
+    await db.update(bankAccounts).set({ saldoAtual: saldoFinal.toFixed(2), saldoFonte: "extrato" }).where(eq(bankAccounts.id, conta.id));
+    return saldoFinal;
+  }
+  if (conta.provedor === "asaas" || conta.provedor === "pluggy") return Number(conta.saldoAtual ?? 0);
+  if (conta.saldoFonte === "extrato") {
+    const saldo = Math.round((Number(conta.saldoAtual ?? 0) + liquidoNovos) * 100) / 100;
+    await db.update(bankAccounts).set({ saldoAtual: saldo.toFixed(2) }).where(eq(bankAccounts.id, conta.id));
+    return saldo;
+  }
+  return recalcularSaldoConta(conta.id);
 }
 
 // ── Avisos em tempo real (pedido de 25/10) ──────────────────────────────────
