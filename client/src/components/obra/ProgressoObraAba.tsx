@@ -287,15 +287,15 @@ export function ProgressoObraAba({ projectId, onFotosMudaram }: { projectId: num
               </p>
               <ul className="divide-y divide-[#C9A961]/10 text-sm">
                 {dados.historico.map((h) => (
-                  <li key={h.id} className="grid grid-cols-1 items-center gap-2 py-3 text-gray-300 md:grid-cols-[minmax(0,1.6fr)_minmax(0,1fr)_minmax(0,1fr)_minmax(0,1fr)_auto_auto]">
-                    <div className="min-w-0">
+                  <li key={h.id} className="grid min-w-0 grid-cols-1 gap-4 py-4 text-gray-300 lg:grid-cols-2">
+                    <div className="min-w-0 break-words">
                       <p>{dataDoLevantamento(h.dadosCaixa?.pls?.dataLevantamento) ?? dataHora(h.criadoEm)} — {h.autor ?? "—"}</p>
                       {dataDoLevantamento(h.dadosCaixa?.pls?.dataLevantamento) && <p className="text-xs text-gray-400">Registrada em {dataHora(h.criadoEm)}</p>}
                       <p className="text-xs text-[#C9A961]">{rotuloTipoMedicao(h.tipo)}{h.fotos.length ? ` · ${h.fotos.length} foto(s)` : ""}</p>
                       {h.editadaEm && <p className="text-xs text-gray-400">Editada em {dataHora(h.editadaEm)}</p>}
                       {dados.pci && <div className="mt-1"><BotoesArquivosMedicao medicaoId={h.id} /></div>}
                     </div>
-                    <div>
+                    <div className="flex min-w-0 flex-col items-start gap-2">
                       {h.emailStatus && <p className="text-xs text-gray-400">E-mail: {h.emailStatus === "sent" ? "enviado com PDF e XLS" : h.emailStatus === "failed" ? "falhou — tente reenviar" : h.emailStatus === "pending" ? "alterações pendentes de envio" : "processando"}</p>}
                       {h.emailPodeReenviar && <Button type="button" size="sm" variant="outline" disabled={ocupado} onClick={() => acao(() => solicitar.mutateAsync({ medicaoId: h.id }), "E-mail enviado com PDF e XLS.")}>{h.emailStatus === "pending" ? "Enviar versão atualizada" : "Reenviar e-mail"}</Button>}
                       {h.solicitadaEm ? (
@@ -306,7 +306,7 @@ export function ProgressoObraAba({ projectId, onFotosMudaram }: { projectId: num
                         </Button>
                       )}
                     </div>
-                    <div>
+                    <div className="flex min-w-0 flex-col items-start gap-2">
                       {h.recebidaEm ? (
                         <p className="text-xs text-emerald-300"><CheckCircle2 className="mr-1 inline h-3 w-3" />Recebida em {dataHora(h.recebidaEm)}{h.recebidaPor ? ` por ${h.recebidaPor}` : ""}</p>
                       ) : (
@@ -316,15 +316,15 @@ export function ProgressoObraAba({ projectId, onFotosMudaram }: { projectId: num
                         </Button>
                       )}
                     </div>
-                    <div className="md:text-right">
+                    <div className="min-w-0">
                       <p className="text-xs text-gray-400">Valor estimado</p>
-                      <p className="font-semibold text-white tabular-nums">{h.estimativa.valorCentavos === null ? "—" : reais(h.estimativa.valorCentavos)}</p>
+                      <p className="break-words font-semibold text-white tabular-nums">{h.estimativa.valorCentavos === null ? "—" : reais(h.estimativa.valorCentavos)}</p>
                       <p className={`text-xs ${h.estimativa.aviso ? "text-amber-300" : "text-gray-400"}`}>
                         {h.estimativa.aviso ?? `${formatarPercentual(h.estimativa.percentualDaMedicao)} nesta medição`}
                       </p>
                     </div>
-                    <p className="font-semibold text-white tabular-nums md:text-right">{formatarPercentual(h.progresso)}</p>
-                    <div className="flex gap-1 md:justify-end">
+                    <div className="min-w-0"><p className="text-xs text-gray-400">Progresso acumulado</p><p className="font-semibold text-white tabular-nums">{formatarPercentual(h.progresso)}</p></div>
+                    <div className="flex flex-wrap gap-1 lg:justify-end">
                       <Button size="icon" variant="ghost" aria-label={`Editar a medição de ${dataDoLevantamento(h.dadosCaixa?.pls?.dataLevantamento) ?? dataHora(h.criadoEm)}`} disabled={ocupado} onClick={() => iniciarEdicao(h)} className="text-[#C9A961] hover:bg-[#C9A961]/10"><Pencil className="h-4 w-4" /></Button>
                       <Button size="icon" variant="ghost" aria-label={`Excluir a medição de ${dataDoLevantamento(h.dadosCaixa?.pls?.dataLevantamento) ?? dataHora(h.criadoEm)}`} disabled={ocupado || !!editando}
                         onClick={() => { if (confirm(`Excluir definitivamente a medição de ${dataDoLevantamento(h.dadosCaixa?.pls?.dataLevantamento) ?? dataHora(h.criadoEm)}? Esta ação não pode ser desfeita.`)) void acao(() => excluir.mutateAsync({ medicaoId: h.id }), "Medição excluída."); }}

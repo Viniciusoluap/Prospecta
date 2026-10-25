@@ -543,6 +543,7 @@ export const constructionProjects = pgTable("construction_projects", {
   commissionPct: decimal("commission_pct", { precision: 7, scale: 4 }),
   contractorUserId: integer("contractor_user_id").references((): AnyPgColumn => users.id, { onDelete: "set null" }),
   contractorSharePct: decimal("contractor_share_pct", { precision: 9, scale: 6 }),
+  contractorIncludeProSoluto: boolean("contractor_include_pro_soluto").default(false).notNull(),
   // Lote 23/10, etapa 3: imóvel vinculado que guarda a "Localização exata" da obra (Mapa Operacional).
   imovelId: integer("imovel_id").references((): AnyPgColumn => imoveis.id, { onDelete: "set null" }),
   notes: text("notes"),
@@ -1403,6 +1404,7 @@ export const imovelFotos = pgTable("imovel_fotos", {
   mime: varchar("mime", { length: 40 }).notNull(),
   sizeBytes: integer("size_bytes").notNull(),
   driveFileId: varchar("drive_file_id", { length: 255 }),
+  uploadKey: varchar("upload_key", { length: 100 }),
   createdBy: integer("created_by"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });

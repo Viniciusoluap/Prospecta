@@ -52,6 +52,7 @@ export interface DadosRelatorioObra {
     taxaMensalPct: string | null;
     parcelas: number | null;
     percentualEmpreiteiro: string | null;
+    incluirProSolutoBaseEmpreiteiro?: boolean;
   };
   calculo: ResultadoObra;
   empreiteiro: string | null;
@@ -195,6 +196,7 @@ export function montarRelatorioObra(d: DadosRelatorioObra): RelatorioObra {
       { rotulo: "Taxa mensal", valor: v.taxaMensalPct === null ? NAO_INFORMADO : pct(v.taxaMensalPct, 4) },
       { rotulo: "Quantidade de parcelas", valor: v.parcelas === null ? NAO_INFORMADO : String(v.parcelas) },
       { rotulo: "Valor da parcela", valor: ind(c.valorParcela) },
+      { rotulo: "Valor total do Pró-Soluto", valor: ind(c.valorTotalProSoluto) },
       { rotulo: "Dias de obra", valor: c.diasObra.ok ? `${c.diasObra.dias} dias` : `Não calculado — ${c.diasObra.motivo}` },
       { rotulo: "Base do PLS", valor: ind(c.basePls) },
       { rotulo: "PLS Real", valor: c.plsReal.ok ? formatarPercentual(c.plsReal.percentual) : `Não calculado — ${c.plsReal.motivo}` },
@@ -202,6 +204,8 @@ export function montarRelatorioObra(d: DadosRelatorioObra): RelatorioObra {
       { rotulo: "Gasto realizado na obra", valor: ind(c.gastoObraRealizado) },
       { rotulo: "Lucro estimado", valor: ind(c.lucroEstimado) },
       { rotulo: "Lucro dos investidores", valor: ind(c.lucroInvestidores) },
+      { rotulo: "Pró-Soluto na base do empreiteiro", valor: v.incluirProSolutoBaseEmpreiteiro ? "Sim" : "Não" },
+      { rotulo: "Base do empreiteiro", valor: ind(c.baseEmpreiteiro) },
       { rotulo: "Lucro do empreiteiro", valor: `${ind(c.lucroEmpreiteiro)}${d.empreiteiro && v.percentualEmpreiteiro ? ` (${pct(v.percentualEmpreiteiro, 4)})` : ""}` },
       { rotulo: "Lucro da empresa", valor: ind(c.lucroEmpresa) },
     ],

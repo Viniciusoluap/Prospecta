@@ -4,6 +4,7 @@ import { Download, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { trpc } from "@/lib/trpc";
 import { gerarPdfRelatorioObra } from "@/lib/relatorio-obra-pdf";
+import { gerarExcelRelatorioObra } from "@/lib/relatorio-obra-xlsx";
 import { montarRelatorioObra, progressoParaRelatorio, verificarCompletude } from "@shared/relatorio-obra";
 import { calcularProgresso } from "@shared/financeiro/progresso";
 import { obraStatusLabel } from "@shared/obra-status";
@@ -15,7 +16,7 @@ export function RelatorioObraBotao({ projectId }: { projectId: number }) {
   const utils = trpc.useUtils();
   const [gerando, setGerando] = useState(false);
 
-  const gerar = async () => {
+  const gerar = async (formato: "pdf" | "xlsx") => {
     setGerando(true);
     try {
       const d = await utils.obraProgresso.relatorio.fetch({ projectId });
@@ -35,6 +36,7 @@ export function RelatorioObraBotao({ projectId }: { projectId: number }) {
           taxaMensalPct: r.valores.taxaMensalPct,
           parcelas: r.valores.parcelas,
           percentualEmpreiteiro: r.valores.percentualEmpreiteiro,
+          incluirProSolutoBaseEmpreiteiro: r.valores.incluirProSolutoBaseEmpreiteiro,
         },
         calculo: r.calculo,
         empreiteiro: r.empreiteiro?.name ?? null,
@@ -49,13 +51,16 @@ export function RelatorioObraBotao({ projectId }: { projectId: number }) {
       });
       const faltas = verificarCompletude(relatorio);
       if (faltas.length) throw new Error(`Relatório incompleto: ${faltas.join("; ")}`);
-      await gerarPdfRelatorioObra(
+      const fotos = d.fotos.map((f) => ({ url: f.imageUrl, legenda: f.caption, data: f.takenAt }));
+      const nome = `relatorio-executivo-${d.info.titulo.normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-zA-Z0-9]+/g, "-").toLowerCase()}`;
+      if (formato === "pdf") await gerarPdfRelatorioObra(
         relatorio,
         { empresa: "Prospecta", logoUrl: "/logo.webp", primaria: [201, 169, 97], escura: [26, 35, 50] },
-        d.fotos.map((f) => ({ url: f.imageUrl, legenda: f.caption, data: f.takenAt })),
-        `relatorio-executivo-${d.info.titulo.normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-zA-Z0-9]+/g, "-").toLowerCase()}.pdf`
+        fotos,
+        `${nome}.pdf`
       );
-      toast.success("Relatório PDF gerado.");
+      else await gerarExcelRelatorioObra(relatorio, fotos, `${nome}.xlsx`);
+      toast.success(`Relatório ${formato === "pdf" ? "PDF" : "Excel"} gerado.`);
     } catch (e) {
       toast.error(e instanceof Error ? e.message : String(e));
     } finally {
@@ -64,9 +69,13 @@ export function RelatorioObraBotao({ projectId }: { projectId: number }) {
   };
 
   return (
-    <Button onClick={gerar} disabled={gerando} className="w-full bg-[#C9A961] hover:bg-[#B8935A] text-[#1A2332]">
-      {gerando ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Download className="h-4 w-4 mr-2" />}
-      {gerando ? "Gerando..." : "Baixar PDF"}
-    </Button>
+    <div className="grid gap-2 sm:grid-cols-2">
+      {(["pdf", "xlsx"] as const).map(formato => (
+        <Button key={formato} onClick={() => void gerar(formato)} disabled={gerando} className="w-full bg-[#C9A961] hover:bg-[#B8935A] text-[#1A2332]">
+          {gerando ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Download className="h-4 w-4 mr-2" />}
+          {gerando ? "Gerando..." : `Baixar ${formato === "pdf" ? "PDF" : "Excel"}`}
+        </Button>
+      ))}
+    </div>
   );
 }

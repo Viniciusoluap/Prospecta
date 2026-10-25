@@ -3,7 +3,6 @@ import { uploadProjectDocument } from "@/lib/project-upload";
 import { projectChecklist, type ProjectCheck } from "@shared/projeto-documentos";
 import { toast } from "sonner";
 import { useEffect, useState } from "react";
-import { Link } from "wouter";
 import { trpc } from "@/lib/trpc";
 import { LinkedServiceQueue } from "./LinkedServiceQueue";
 import { RevisoesProjeto, SolicitarRevisaoModal } from "./ProjetoRevisoes";
@@ -97,11 +96,6 @@ export default function AdminProjetos() {
         “Projeto técnico”. O registro aparece aqui com os dados do cliente;
         complete engenheiro, tipos e prazo em “Editar”.
       </p>
-      <nav className="flex flex-wrap gap-4 text-sm underline">
-        <Link href="/admin/orcamentos">Solicitações de orçamento</Link>
-        <Link href="/admin/incorporacao">Estudos de incorporação</Link>
-        <Link href="/admin/obras">Obras</Link>
-      </nav>
       <div className="grid gap-3 sm:grid-cols-2">
         <Field label="Buscar projeto, cliente ou engenheiro">
           <input

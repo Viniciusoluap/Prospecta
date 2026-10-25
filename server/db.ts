@@ -1292,6 +1292,21 @@ export async function getAllImoveis(filters?: { status?: string; tipo?: string; 
   return query.orderBy(desc(imoveis.createdAt));
 }
 
+/** Vista administrativa das obras com endereço que ainda não têm imóvel vinculado.
+ * Nenhum dado é publicado no catálogo público nem alterado por esta leitura. */
+export async function getObrasSemImovelCatalogo() {
+  return getDb().select({
+    id: constructionProjects.id,
+    titulo: constructionProjects.title,
+    endereco: constructionProjects.address,
+    cidade: constructionProjects.city,
+    estado: constructionProjects.state,
+    status: constructionProjects.status,
+  }).from(constructionProjects)
+    .where(and(isNull(constructionProjects.imovelId), sql`trim(coalesce(${constructionProjects.address}, '')) <> ''`))
+    .orderBy(desc(constructionProjects.createdAt));
+}
+
 export async function getImovelById(id: number): Promise<Imovel | undefined> {
   const db = getDb();
   const result = await db.select().from(imoveis).where(eq(imoveis.id, id)).limit(1);

@@ -18,11 +18,11 @@ import { Link } from "wouter";
 export type ObraDaLista = inferRouterOutputs<AppRouter>["construction"]["allProjects"][number];
 
 function IntervaloDatas({ titulo, de, ate, onDe, onAte }: { titulo: string; de: string; ate: string; onDe: (v: string) => void; onAte: (v: string) => void }) {
-  const campo = "mt-1 w-full min-w-0 bg-[#1A2332] border-[#C9A961]/30 text-white";
+  const campo = "mt-1 block h-10 w-full min-w-0 max-w-full bg-[#1A2332] border-[#C9A961]/30 text-white";
   return (
     <fieldset className="min-w-0">
       <legend>{titulo}</legend>
-      <div className="grid grid-cols-2 gap-2">
+      <div className="grid grid-cols-1 gap-2 lg:grid-cols-2">
         <label className="min-w-0 text-[11px] text-gray-400">De<Input type="date" aria-label={`${titulo}: de`} value={de} onChange={(e) => onDe(e.target.value)} className={campo} /></label>
         <label className="min-w-0 text-[11px] text-gray-400">Até<Input type="date" aria-label={`${titulo}: até`} value={ate} onChange={(e) => onAte(e.target.value)} className={campo} /></label>
       </div>
@@ -83,7 +83,7 @@ export function ListaObras({ projects, caminhoEditar, caminhoDetalhes, filtroRes
                 </div>
                 {/* Datas com espaço próprio: cada intervalo ocupa a sua coluna, com "De" e "Até"
                     lado a lado e encolhendo junto (pedido A3, 13/10/2026). */}
-                <div className="grid grid-cols-1 gap-3 text-xs text-gray-300 md:grid-cols-2 xl:grid-cols-3">
+                <div className="grid min-w-0 grid-cols-1 gap-4 text-xs text-gray-300 lg:grid-cols-2 2xl:grid-cols-3">
                   <label className="min-w-0">Situação
                     <select value={filtros.status} onChange={(e) => set("status", e.target.value)} className="mt-1 h-9 w-full rounded-md border border-[#C9A961]/30 bg-[#1A2332] px-2 text-sm text-white">
                       <option value="">Todas</option>

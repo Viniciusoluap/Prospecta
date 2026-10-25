@@ -154,6 +154,7 @@ export async function calcularResumoObra(projectId: number) {
     dataTerminoPrevista: paraData(obra.estimatedEndDate),
     investidores: participacoes.map((p) => ({ id: p.participacao.investidorId, percentual: p.participacao.percentual })),
     percentualEmpreiteiro: obra.contractorUserId ? obra.contractorSharePct : null,
+    incluirProSolutoBaseEmpreiteiro: obra.contractorIncludeProSoluto,
     movimentos: movimentos.map((m) => ({ natureza: m.mov.natureza, valorCentavos: centavosDe(m.mov.valor)!, status: m.mov.status })),
   };
   const calculo = calcularObra(entradas);
@@ -181,6 +182,7 @@ export async function calcularResumoObra(projectId: number) {
       dataInicio: entradas.dataInicio,
       dataTerminoPrevista: entradas.dataTerminoPrevista,
       percentualEmpreiteiro: obra.contractorSharePct,
+      incluirProSolutoBaseEmpreiteiro: obra.contractorIncludeProSoluto,
       comissaoPercentual: obra.commissionPct,
     },
     corretor,
@@ -227,6 +229,7 @@ export const obraFinanceiroRouter = router({
     parcelas: z.number().int().min(0).max(600).nullable(),
     empreiteiroId: z.number().int().positive().nullable(),
     percentualEmpreiteiro: percentual.nullable(),
+    incluirProSolutoBaseEmpreiteiro: z.boolean().default(false),
   })).mutation(async ({ input }) => {
     const obra = await carregarObra(input.projectId);
     await exigirEmpreiteiro(input.empreiteiroId);
@@ -256,6 +259,7 @@ export const obraFinanceiroRouter = router({
       installmentQty: input.parcelas,
       contractorUserId: input.empreiteiroId,
       contractorSharePct: input.empreiteiroId ? input.percentualEmpreiteiro : null,
+      contractorIncludeProSoluto: input.empreiteiroId ? input.incluirProSolutoBaseEmpreiteiro : false,
       updatedAt: new Date(),
     }).where(eq(constructionProjects.id, input.projectId));
     return { success: true };

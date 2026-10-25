@@ -433,7 +433,7 @@ export default function AdminCRM() {
           </SelectTrigger>
           <SelectContent>
             <SelectItem value="all">Todas</SelectItem>
-            <SelectItem value="closed">🤝 Negócio fechado</SelectItem>
+            <SelectItem value="closed">Negócio fechado</SelectItem>
             <SelectItem value="hot">Quente</SelectItem>
             <SelectItem value="warm">Morno</SelectItem>
             <SelectItem value="cold">Frio</SelectItem>
