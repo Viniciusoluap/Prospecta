@@ -322,6 +322,14 @@ export const whatsappRouter = router({
     const db = getDb();
     const todas = await db.select().from(whatsappMessages).where(eq(whatsappMessages.connectionId, conn.id)).orderBy(desc(whatsappMessages.createdAt)).limit(3000);
     const da = todas.filter(m => mesmoTelefone(m.destinatario, input.numero)).reverse();
+    // Corretor não abre conversa de lead de outro corretor (mesma regra do Santa Fé).
+    if (ctx.user.role === "corretor") {
+      const leadId = da.find(m => m.leadId)?.leadId;
+      if (leadId) {
+        const [l] = await db.select({ brokerId: leads.brokerId }).from(leads).where(eq(leads.id, leadId)).limit(1);
+        if (l && l.brokerId !== ctx.user.id) throw new TRPCError({ code: "FORBIDDEN", message: "Conversa de outro corretor." });
+      }
+    }
     const naoLidas = da.filter(m => m.direcao === "entrada" && !m.lida).map(m => m.id);
     if (naoLidas.length) await db.update(whatsappMessages).set({ lida: true }).where(inArray(whatsappMessages.id, naoLidas));
     return da.map(m => ({ id: m.id, direcao: m.direcao, mensagem: m.mensagem, status: m.status, quando: m.createdAt }));
