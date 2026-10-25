@@ -42,3 +42,10 @@
 - PR aberto: `#169`, branch AIOX integrada ao `main`, head inicial `295051c83860d853c41dfd8b26e88cd0054d07a2`. Preview Vercel disparado; merge aguardando o resultado do deployment correspondente.
 - Banco Prospecta/Neon `SiteProspecta`, branch `production`: migrações aditivas 0073/0074 aplicadas em transação e verificadas. A coluna `construction_projects.contractor_include_pro_soluto` existe, é `NOT NULL` e tem padrão `false`; `imovel_fotos.upload_key` e o índice parcial único `imovel_fotos_upload_key_unique` existem. Nenhum backfill ou alteração de registros históricos foi executado.
 - Próximo passo: publicar este registro, aguardar novo preview do SHA exato, conferir PR/checks, fazer merge autorizado e validar o deployment de produção e erros de runtime.
+
+
+## Checkpoint final — merge e produção
+- PR #169 integrado em `main` no SHA `20879e563664e79fcba392438ad66883b038ce9f`. Deployment Vercel de produção `dpl_ASTg4JCjUP9baR8zS9bMixC3A22U` ficou READY.
+- Smoke test em `https://site-prospecta.vercel.app/`: HTTP 200. Varredura de erros de runtime após o deploy: nenhum erro encontrado.
+- Banco: 0073/0074 aplicadas e verificadas antes do merge. Nenhum backfill histórico 09/10 executado. A correção 01 permaneceu intocada.
+- Entrega: código, banco aditivo, merge e deploy concluídos. Pendências de homologação humana: Safari/iPad, comparação visual de um PDF/Excel real, upload real com Drive e aprovação específica para backfill histórico.
