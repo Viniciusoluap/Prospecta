@@ -1,4 +1,11 @@
+import { useLocation } from "wouter";
+
+/** Pedido de 25/10: na Central WhatsApp o botão cobria o "enviar resposta" das Conversas. */
+export const esconderWhatsAppFloat = (rota: string) => rota.startsWith("/admin/whatsapp");
+
 export default function WhatsAppFloat() {
+  const [rota] = useLocation();
+  if (esconderWhatsAppFloat(rota)) return null;
   return (
     <a
       href="https://wa.me/5599981392210"

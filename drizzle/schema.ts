@@ -811,7 +811,8 @@ export const leads = pgTable("leads", {
   stageClassificationPending: boolean("stage_classification_pending").default(false).notNull(),
   deletedAt: timestamp("deleted_at"),
   deletedByUserId: integer("deleted_by_user_id").references((): AnyPgColumn => users.id, { onDelete: "set null" }),
-  responsible: leadResponsibleEnum("responsible").default("sarah").notNull(),
+  // Pedido de 25/10 (noite): enum legado sem padrão 'sarah' e opcional (migração 0076).
+  responsible: leadResponsibleEnum("responsible"),
   // EPIC-017: responsável e corretor apontam para usuários reais do sistema.
   // O enum legado `responsible` é mantido só para leitura de registros antigos.
   responsibleUserId: integer("responsible_user_id").references((): AnyPgColumn => users.id, { onDelete: "set null" }),
@@ -1155,6 +1156,8 @@ export const bpoClients = pgTable("bpo_clients", {
   diaVencimento: integer("dia_vencimento").default(10).notNull(),
   dataInicio: timestamp("data_inicio").notNull(),
   observacoes: text("observacoes").default("").notNull(),
+  // Pedido de 25/10 (noite), item 10: cliente BPO ligado ao lead do CRM (opcional; fornecedor/terceiro fica sem).
+  leadId: integer("lead_id").references((): AnyPgColumn => leads.id, { onDelete: "set null" }),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });
@@ -1185,6 +1188,18 @@ export const bpoLancamentos = pgTable("bpo_lancamentos", {
 });
 export type BpoLancamento =typeof bpoLancamentos.$inferSelect;
 export type InsertBpoLancamento = typeof bpoLancamentos.$inferInsert;
+
+// Pedido de 25/10 (noite), item 9: regra por titular — classificou uma vez, as próximas
+// movimentações do mesmo titular (nome normalizado) saem com a mesma categoria/cliente.
+export const bpoRegrasTitular = pgTable("bpo_regras_titular", {
+  id: serial("id").primaryKey(),
+  titularNormalizado: varchar("titular_normalizado", { length: 255 }).notNull().unique(),
+  categoria: varchar("categoria", { length: 60 }),
+  bpoClienteId: integer("bpo_cliente_id").references(() => bpoClients.id, { onDelete: "set null" }),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+export type BpoRegraTitular = typeof bpoRegrasTitular.$inferSelect;
 
 // ========== GESTÃO TRIBUTÁRIA ==========
 
@@ -1333,6 +1348,9 @@ export const bankTransactions = pgTable("bank_transactions", {
   origem: varchar("origem", { length: 20 }).default("manual").notNull(),
   // LOTE C (25/10): Cliente BPO opcional; o lançamento vinculado acompanha.
   bpoClienteId: integer("bpo_cliente_id").references(() => bpoClients.id, { onDelete: "set null" }),
+  // Pedido de 25/10 (noite), item 9: quem pagou/recebeu e o texto completo da linha do extrato.
+  titular: varchar("titular", { length: 255 }),
+  descricaoOriginal: text("descricao_original"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 export type BankTransaction =typeof bankTransactions.$inferSelect;
@@ -1842,10 +1860,23 @@ export const whatsappMessages = pgTable("whatsapp_messages", {
   // Pedido de 25/10 (Conversas): mensagens recebidas pelo webhook da Evolution ficam aqui também.
   direcao: varchar("direcao", { length: 10 }).default("saida").notNull(),
   lida: boolean("lida").default(true).notNull(),
+  // Pedido de 25/10 (noite): mídia recebida (imagem|audio|video|documento|figurinha); bytes em whatsapp_midias.
+  midiaTipo: varchar("midia_tipo", { length: 20 }),
+  midiaMime: varchar("midia_mime", { length: 120 }),
+  midiaNome: varchar("midia_nome", { length: 255 }),
+  midiaTamanho: integer("midia_tamanho"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });
 export type WhatsappMessage = typeof whatsappMessages.$inferSelect;
+
+// Pedido de 25/10 (noite): arquivo da mídia no próprio banco (migração 0076). A coluna
+// "conteudo" (bytea) é lida/gravada só por SQL explícito em server/whatsapp-midia.ts.
+export const whatsappMidias = pgTable("whatsapp_midias", {
+  id: serial("id").primaryKey(),
+  messageId: integer("message_id").notNull().unique().references(() => whatsappMessages.id, { onDelete: "cascade" }),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
 
 /** Pedido de 25/10: servidor da Evolution API (QR code). Linha única (id = 1); chave criptografada. */
 export const whatsappEvolutionSettings = pgTable("whatsapp_evolution_settings", {
