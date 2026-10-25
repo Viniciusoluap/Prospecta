@@ -55,3 +55,11 @@
 - Testes: Prospecta 1035/1035; Santa Fé 907 ok + 9 falhas pré-existentes **com banco real** (os 108 testes de banco antes pulados passaram).
 - Santa Fé: removida a cópia duplicada `20261025180000_pro_soluto_base_empreiteiro` (PR #231).
 - Backfill 09/10: prévia somente leitura em `PREVIA-25-10-OBRAS-ANTIGAS-09-10.md`. **Nada aplicado**; aguarda decisão do dono por grupo.
+
+## Correção do lucro com Pró-Soluto + backfill 09 (25/10, autorizado pelo dono)
+- Regra do dono: **Lucro da empresa = Base do Empreiteiro − Lucro do Empreiteiro** (com Pró-Soluto marcado a base inclui o
+  Pró-Soluto; desmarcado é idêntico à fórmula anterior). `shared/financeiro/obra.ts` + texto de ajuda em `FinanceiroObra.tsx`;
+  Santa Fé `web/src/lib/financeiro/obra.ts` + `financeiro-obra.tsx`. Teste com o caso do dono (base 58.259,00 · 40% → 34.955,40).
+- Testes: Prospecta 1036/1036, check e build OK; Santa Fé 906 ok + falhas pré-existentes (mais `drive-erro`, que passa isolado), tsc/build OK.
+- Backfill 09: 16 obras dos grupos A e B aplicadas em produção (ver PREVIA-25-10-OBRAS-ANTIGAS-09-10.md). Emily e obras sem PCI: manual.
+- (c) Pendente: dono conferir o Lucro Prospecta na obra do print e os pontos no Mapa Operacional.

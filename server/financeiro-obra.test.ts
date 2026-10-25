@@ -94,7 +94,7 @@ describe("Teste C — Distribuição dos lucros", () => {
     expect(valor(r.lucroEmpreiteiro)).toBe(R("6300"));
     expect(valor(r.lucroEmpresa)).toBe(R("25200"));
   });
-  it("Pró-Soluto só altera a base do empreiteiro quando marcado; lucro residual segue a fórmula existente", () => {
+  it("Pró-Soluto só altera a base do empreiteiro quando marcado; lucro da empresa = base − lucro do empreiteiro", () => {
     const entrada = obra({ taxaMensalPct: 0, parcelas: 2, percentualEmpreiteiro: 20 });
     const desmarcado = calcularObra(entrada);
     const marcado = calcularObra({ ...entrada, incluirProSolutoBaseEmpreiteiro: true });
@@ -103,7 +103,8 @@ describe("Teste C — Distribuição dos lucros", () => {
     expect(valor(marcado.valorTotalProSoluto)).toBe(R("21766"));
     expect(valor(marcado.baseEmpreiteiro)).toBe(R("66766"));
     expect(valor(marcado.lucroEmpreiteiro)).toBe(R("13353.20"));
-    expect(valor(marcado.lucroEmpresa)).toBe(R("31646.80"));
+    expect(valor(marcado.lucroEmpresa)).toBe(R("53412.80"));
+    expect(valor(marcado.lucroEmpresa)).toBe(valor(marcado.baseEmpreiteiro) - valor(marcado.lucroEmpreiteiro));
     expect(valor(desmarcado.lucroEmpresa)).toBe(R("36000"));
     expect(valor(calcularObra({ ...entrada, incluirProSolutoBaseEmpreiteiro: false }).lucroEmpresa)).toBe(R("36000"));
     expect(valor(marcado.lucroEstimado)).toBe(valor(desmarcado.lucroEstimado));
@@ -204,5 +205,14 @@ describe("Dias de obra e conversões", () => {
     const r = calcularObra(obra({ movimentos: [mov("pagamento", "57795")] }));
     expect(valor(r.custoConstrucao)).toBe(R("110000"));
     expect(valor(r.saldoRestante)).toBe(R("112205"));
+  });
+});
+
+describe("Lucro da empresa com Pró-Soluto na base (caso do dono, 25/10)", () => {
+  it("base R$ 58.259,00 e 40% → empreiteiro R$ 23.303,60 e empresa R$ 34.955,40", () => {
+    const base = 5_825_900;
+    const empreiteiro = aplicarPercentual(base, percentualMicro(40)!);
+    expect(empreiteiro).toBe(2_330_360);
+    expect(base - empreiteiro).toBe(3_495_540);
   });
 });

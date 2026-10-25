@@ -51,3 +51,9 @@ Supabase `giulchozonhzyopmgmkv`: só 2 obras (Alessandra Bernardo, Joelson da Cr
 ## Decisão pedida ao dono
 1. Grupo A (11 obras): aplicar? 2. Grupo B (5 obras): aplicar com ponto repetido? 3. Grupo C: conferir a PCI da Emily.
 4. Item 10: vincular as 7 obras com endereço específico? (as 3 genéricas ficam para depois)
+
+## APLICADO em 25/10 (autorizado pelo dono: grupos A e B)
+- 16 obras (13, 14, 15, 16, 17, 20, 21, 23, 24, 25, 27, 28, 31, 32, 35, 36) ganharam imóvel **não publicado** (status reservado,
+  preço 0, slug `obra-<id>-…`) com o ponto da PCI e vínculo `construction_projects.imovel_id` — imóveis 6–21. Conferido: 0 imóveis soltos.
+- Emily (19): **não** aplicado — o dono preenche manualmente. Obras sem coordenada na PCI: ficam sem vínculo; o dono preenche.
+- Para desfazer uma obra: apagar o imóvel `obra-<id>-…` correspondente (o vínculo volta a nulo).
