@@ -10,9 +10,9 @@ Branch: `claude/sync-mirrored-repos-bsqnz3` nos 2 repos.
 
 ## Andamento
 - [ ] Prospecta Agente A: BPO (itens 8, 9, 10, 11) + Regularização (6, 7) — migração 0075
-- [ ] Prospecta Agente B: WhatsApp (1, 2, 4 + botão flutuante) + Imóveis (3) + Sarah (5) — migração 0076
+- [x] Prospecta Agente B: WhatsApp (1, 2, 4 + botão flutuante), Imóveis (3), Sarah (5), item 12 — commit f9bd460. check/build OK; suíte 1084/1087 (3 falhas em arquivos do Agente A em andamento). Migração 0076 (mídia + leads.responsible sem default/NULL). Pendente prod: aplicar 0076 ANTES do deploy; prévia+reconciliação imóveis; `UPDATE leads SET responsible=NULL WHERE responsible='sarah'` (61) após prévia.
 - [ ] Itens 12 (opção B: admin conecta em Integrações; corretor no portal dele) → Agente B; 13 (Voltar → Painel) e 14 (cobranças emitidas do Asaas) → Agente A — autorizados 25/10 20:45
-- [ ] Santa Fé porte (mesmos itens)
+- [ ] Santa Fé porte — agente WhatsApp/Imóveis/Sarah/12 em andamento (migração 20261025230000_whatsapp_midia); BPO depois do Agente A
 - [ ] Publicação (testes, migrações prod, PRs, merge, deploy) + dados (16 imóveis, Sarah)
 
 ## Próximo passo exato
