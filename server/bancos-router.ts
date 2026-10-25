@@ -163,7 +163,7 @@ export const bancarioRouter = router({
       .input(z.object({
         contaId: z.number(),
         nome: z.string().min(1).max(255),
-        base64: z.string().min(1).max(14_000_000),
+        base64: z.string().min(1).max(4_300_000),
         anoPadrao: z.number().int().min(1990).max(2100).optional(),
       }))
       .mutation(async ({ input }) => {

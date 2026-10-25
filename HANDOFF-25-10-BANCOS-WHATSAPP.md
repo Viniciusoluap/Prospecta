@@ -36,15 +36,53 @@ Merge, deploy e migração em produção ainda dependem de autorização separad
   oficial do WhatsApp Business").
 - Teste: `server/whatsapp-evolution.test.ts` (4, servidor simulado).
 
+## Etapa 3 — Santa Fé: WhatsApp por QR code (concluída, não publicada)
+- `web/src/lib/evolution.ts` reescrito como gêmeo do da Prospecta (antes era código sem uso).
+- `web/src/lib/whatsapp/evolution-config.ts`: servidor salvo na tabela `configuracoes` (chave criptografada via
+  `web/src/lib/segredo.ts`); sem migração. Env `EVOLUTION_API_URL/KEY` é reserva.
+- `web/src/lib/actions/whatsapp.ts`: `statusServidorEvolution`, `salvarServidorEvolution`, `conectarWhatsappQr`,
+  `statusWhatsappQr` (devolvem `{ erro }` legível, pois o Next esconde mensagens de erro em produção).
+- `/api/whatsapp/enviar` e `/api/whatsapp/desconectar` funcionam para QR e API oficial.
+- Tela: `web/src/app/admin/whatsapp/_components/conexao-qr-code.tsx` dentro da aba Conexão.
+- Teste: `web/src/lib/__tests__/whatsapp-evolution.test.ts` (4, servidor simulado). tsc OK; eslint 0 erros.
+
+## Etapa 4 — Santa Fé: BPO › Bancos (concluída pelo @dev AIOX, não commitada/publicada)
+- Migração aditiva `web/prisma/migrations/20261025120000_bancos_provedores/migration.sql` (`IF NOT EXISTS`):
+  `contas_bancarias.provedor/credencialEncrypted/dataInicial(DATE)/ultimoErro`, `transacoes_bancarias.origem`, tabela
+  `pluggy_settings` (linha única id=1, Client ID/Secret criptografados). Aplicada só no banco local (`db execute`, 2x, sem drift).
+  `prisma migrate deploy` falha por problema antigo (`migration_lock.toml` = sqlite) — não é desta etapa.
+- `web/src/lib/extrato-import.ts` (gêmeo de `shared/extrato-import.ts`), `web/src/lib/bancos/asaas-extrato.ts`,
+  `web/src/lib/bancos/pluggy.ts`, `web/src/lib/bancos.ts` (Prisma; sync, cron, prévia/confirmação, PDF via unpdf, Excel via xlsx).
+- `web/src/lib/segredo.ts`: `plain:` + `segredoEmTextoPuro` (o commit de WhatsApp `e22573c` já importa essa função — **commitar
+  junto**, senão `evolution-config.ts` não compila).
+- `web/src/lib/actions/banco.ts`: server actions (`exigirModuloAcao("bpo")`, credenciais com `somenteEquipe`), erros via
+  `capturarErroAcao`. Remover conta agora só desativa (igual à Prospecta). `/api/banco/sincronizar` usa a mesma lógica.
+- Cron: sincronização diária dentro de `/api/cron/lead-card-due` (sem cron novo). Env `PLUGGY_CLIENT_ID/SECRET` vira reserva.
+- Tela: `web/src/app/admin/bpo/_components/bancos-panel.tsx` na aba Contas Bancárias (`bpo-client.tsx`, `page.tsx`).
+- Deps: `unpdf@1.9.1`, `pluggy-connect-sdk@2.14.2`, `xlsx@0.18.5` (o SF não tinha leitor de planilha).
+- Testes: `web/src/lib/__tests__/extrato-import.test.ts` (11) e `bancos-sync.db.test.ts` (9, banco local real + PDF real com jspdf).
+
 ## Testes
 (a) Automáticos (Prospecta): `pnpm check` OK; vitest 135 arquivos / 984 testes OK; `vite build` OK.
 - Novos: `server/extrato-import.test.ts` (11) e `server/bancos-sync.test.ts` (7, inclui PDF real gerado no teste).
   APIs do Asaas e da Pluggy simuladas: nenhum teste toca contas reais.
+(a) Automáticos (Santa Fé, Bancos): vitest completo 828 ok / 10 falhas pré-existentes conhecidas + 1 arquivo
+    (`api-acesso-modulos.test.ts`) que não carrega por `server-only` em `whatsapp/evolution-config.ts` (frente WhatsApp);
+    novos 20/20 ok; tsc 1 erro só em `whatsapp-evolution.test.ts` (frente WhatsApp); eslint 0; `npm run build` OK.
 (b) Manuais: nenhum ainda.
 (c) Pendente em produção: este ambiente não acessa api.asaas.com nem api.pluggy.ai (bloqueio de rede), então o teste real
     das chaves só acontece após o deploy (botões "Sincronizar"/"Testar conexão").
 
 ## Próximo passo exato
-1. Santa Fé: Bancos (em andamento com @dev AIOX) e WhatsApp por QR (ligar o `src/lib/evolution.ts` existente à tela).
+1. Santa Fé: commitar Bancos (Etapa 4) junto com `segredo.ts`; WhatsApp por QR (ligar o `src/lib/evolution.ts` existente à tela).
 2. Passo a passo do Railway para o dono publicar a Evolution.
 3. Após autorização de deploy: aplicar 0069 em produção e gravar as chaves da Prospecta (`plain:` → recriptografadas no 1º uso).
+
+## Fechamento do lote (25/10)
+- Santa Fé: suíte completa 835 passando + as mesmas 10 falhas pré-existentes do ambiente local; tsc OK; build OK.
+  Corrigidos: tipo no teste do WhatsApp e `vi.mock("server-only")` em `api-acesso-modulos.test.ts`.
+- Prospecta: limite do arquivo de extrato alinhado à Vercel (3 MB na tela; base64 ≤ 4,3 MB no servidor). 984 testes OK.
+- PRs em rascunho abertos nos dois repositórios. Merge/deploy/migrações em produção aguardam autorização.
+- Próximo passo exato: com autorização → aplicar `0069`/`0070` (Neon) e `20261025120000_bancos_provedores` (Supabase),
+  merge + deploy, gravar chaves da Prospecta como `plain:` (Asaas na conta "Asaas"; Pluggy em `pluggy_settings`),
+  clicar "Sincronizar"/"Testar conexão" e conferir; dono publica a Evolution no Railway e conecta o QR.

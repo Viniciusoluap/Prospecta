@@ -105,7 +105,8 @@ export default function BancosPanel() {
   function fecharImportacao() { setImp(null); setArquivo(null); setPrevia(null); setAnoPadrao(""); }
   async function lerArquivo() {
     if (!imp || !arquivo) return;
-    if (arquivo.size > 10 * 1024 * 1024) return toast.error("Arquivo acima de 10 MB.");
+    // A Vercel aceita até 4,5 MB por requisição; em base64 o arquivo cresce ~1/3.
+    if (arquivo.size > 3 * 1024 * 1024) return toast.error("Arquivo acima de 3 MB. Exporte um período menor ou use OFX/CSV.");
     lerPrevia.mutate({ contaId: imp.contaId, nome: arquivo.name, base64: await arquivoBase64(arquivo), anoPadrao: anoPadrao ? Number(anoPadrao) : undefined });
   }
   const novas = previa?.linhas.filter(l => !l.jaImportada).length ?? 0;
