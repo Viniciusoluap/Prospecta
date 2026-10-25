@@ -181,6 +181,7 @@ export default function AdminEditarObra({ modo = "admin" }: { modo?: "admin" | "
           parcelas: formFin.parcelas,
           empreiteiroId: formFin.empreiteiroId,
           percentualEmpreiteiro: formFin.percentualEmpreiteiro,
+          incluirProSolutoBaseEmpreiteiro: formFin.incluirProSolutoBaseEmpreiteiro,
         });
         await definirInvestidores.mutateAsync({
           projectId,
