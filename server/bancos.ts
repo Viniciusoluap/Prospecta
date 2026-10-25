@@ -6,8 +6,9 @@ import { and, eq, inArray } from "drizzle-orm";
 import { getDb } from "./db.js";
 import { bankAccounts, bankTransactions, paymentSettings, pluggySettings, userNotifications, users, type BankAccount } from "../drizzle/schema.js";
 import { decryptSecret, encryptSecret, segredoEmTextoPuro } from "./_core/secret-vault.js";
-import { authenticatePluggy, fetchPluggyAccountBalance, fetchPluggyTransactions, garantirWebhookPluggy } from "./_core/pluggy.js";
+import { autenticarPluggyDetalhado, fetchPluggyAccountBalance, mensagemRecusaPluggy, fetchPluggyTransactions, garantirWebhookPluggy } from "./_core/pluggy.js";
 import { ENV } from "./_core/env.js";
+import { chaveAsaasCentral } from "./_core/asaas.js";
 import { fetchAsaasExtrato, fetchAsaasSaldo } from "./_core/asaas-extrato.js";
 import {
   aplicarDataInicial,
@@ -39,16 +40,27 @@ async function lerSegredo(valor: string, regravar: (cifrado: string) => Promise<
 export async function tokenPluggy(fetchImpl: typeof fetch = fetch): Promise<string> {
   const db = getDb();
   const [s] = await db.select().from(pluggySettings).limit(1);
-  if (!s?.isActive) throw new Error("Configure o Client ID e o Client Secret da Pluggy nesta aba.");
+  if (!s?.isActive) throw new Error("Configure o Client ID e o Client Secret da Pluggy em Configurações › Integrações.");
   const clientId = await lerSegredo(s.clientIdEncrypted, v => db.update(pluggySettings).set({ clientIdEncrypted: v }).where(eq(pluggySettings.id, s.id)));
   const clientSecret = await lerSegredo(s.clientSecretEncrypted, v => db.update(pluggySettings).set({ clientSecretEncrypted: v }).where(eq(pluggySettings.id, s.id)));
-  const token = await authenticatePluggy(clientId, clientSecret, fetchImpl);
-  if (!token) throw new Error("A Pluggy recusou o Client ID/Secret (ou está fora do ar).");
-  return token;
+  const r = await autenticarPluggyDetalhado(clientId, clientSecret, fetchImpl);
+  if (!r.ok) throw new Error(mensagemRecusaPluggy(r.status, r.mensagem));
+  return r.token;
 }
 
-async function credencialDaConta(conta: BankAccount) {
-  if (!conta.credencialEncrypted) throw new Error("Esta conta não tem a chave de API cadastrada.");
+/**
+ * LOTE B (25/10): conta Asaas sem chave própria usa a chave central (Integrações / ASAAS_API_KEY).
+ * Contas antigas com chave própria continuam usando a delas.
+ */
+export async function credencialDaConta(conta: Pick<BankAccount, "id" | "provedor" | "credencialEncrypted">) {
+  if (!conta.credencialEncrypted) {
+    if (conta.provedor === "asaas") {
+      const central = await chaveAsaasCentral();
+      if (central) return central.apiKey;
+      throw new Error("Cadastre a chave do Asaas em Configurações › Integrações.");
+    }
+    throw new Error("Esta conta não tem a chave de API cadastrada.");
+  }
   const db = getDb();
   return lerSegredo(conta.credencialEncrypted, v => db.update(bankAccounts).set({ credencialEncrypted: v }).where(eq(bankAccounts.id, conta.id)));
 }

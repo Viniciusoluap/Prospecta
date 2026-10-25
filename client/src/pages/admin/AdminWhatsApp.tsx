@@ -168,7 +168,7 @@ export default function AdminWhatsApp() {
                     </div>
                   ) : (
                     <div className="space-y-4">
-                    <ConexaoQrCode podeConfigurarServidor={role !== "corretor"} onConectado={() => utils.whatsapp.minhaConexao.invalidate()} />
+                    <ConexaoQrCode podeConfigurarServidor={role === "admin"} onConectado={() => utils.whatsapp.minhaConexao.invalidate()} />
                     <details className="border-t border-[#C9A961]/10 pt-3">
                     <summary className="cursor-pointer text-xs text-gray-300">Usar a API oficial do WhatsApp Business (Meta)</summary>
                     <form onSubmit={(e) => { e.preventDefault(); salvarConexao.mutate({ token: businessToken, phoneNumberId: businessPhoneId, numero: businessNumero }); }} className="space-y-3 mt-3">

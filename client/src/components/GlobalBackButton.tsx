@@ -71,6 +71,7 @@ export function hasPageBackButton(location: string) {
     "/admin/financiamentos",
     "/admin/juridico",
     "/admin/configuracoes",
+    "/admin/integracoes",
     "/regulamento",
     "/termos-de-uso",
     "/politica-de-privacidade",

@@ -7,7 +7,7 @@ import { rotulo } from "../shared/rotulos.js";
 import { enviarWhatsappBusiness, normalizarStatusWebhook } from "./_core/whatsapp-business.js";
 import { decryptSecret, encryptSecret, segredoEmTextoPuro } from "./_core/secret-vault.js";
 import {
-  enviarTextoEvolution, estadoInstancia, gerarQrCode, mesmoTelefone, normalizarUrlEvolution, numeroConectado, registrarWebhookEvolution, removerInstancia, testarEvolution,
+  enviarTextoEvolution, estadoInstancia, gerarQrCode, mesmoTelefone, normalizarUrlEvolution, numeroConectado, registrarWebhookEvolution, removerInstancia,
   type EvolutionConfig,
 } from "./_core/evolution.js";
 import { requireModule } from "./_core/rbac.js";
@@ -22,7 +22,7 @@ async function donoDaConexao(userId: number, role: string): Promise<number | nul
   return admin?.id ?? null;
 }
 
-async function conexaoParaPapel(userId: number, role: string) {
+export async function conexaoParaPapel(userId: number, role: string) {
   const dono = await donoDaConexao(userId, role);
   if (!dono) return null;
   const [conn] = await getDb().select().from(whatsappConnections).where(eq(whatsappConnections.userId, dono)).limit(1);
@@ -30,7 +30,7 @@ async function conexaoParaPapel(userId: number, role: string) {
 }
 
 /** Servidor da Evolution (QR code): o salvo pela tela tem precedência; variáveis de ambiente são o reserva. */
-export async function configEvolution(): Promise<EvolutionConfig | null> {
+export async function configEvolution(): Promise<(EvolutionConfig & { fonte: "banco" | "env" }) | null> {
   const db = getDb();
   const [s] = await db.select().from(whatsappEvolutionSettings).where(eq(whatsappEvolutionSettings.id, 1)).limit(1);
   if (s) {
@@ -38,15 +38,15 @@ export async function configEvolution(): Promise<EvolutionConfig | null> {
     if (segredoEmTextoPuro(s.apiKeyEncrypted)) {
       await db.update(whatsappEvolutionSettings).set({ apiKeyEncrypted: encryptSecret(apiKey) }).where(eq(whatsappEvolutionSettings.id, 1));
     }
-    return { url: normalizarUrlEvolution(s.url), apiKey };
+    return { url: normalizarUrlEvolution(s.url), apiKey, fonte: "banco" };
   }
   const url = process.env.EVOLUTION_API_URL, apiKey = process.env.EVOLUTION_API_KEY;
-  return url && apiKey ? { url, apiKey } : null;
+  return url && apiKey ? { url: normalizarUrlEvolution(url), apiKey, fonte: "env" } : null;
 }
 
 async function exigirEvolution(): Promise<EvolutionConfig> {
   const c = await configEvolution();
-  if (!c) throw new TRPCError({ code: "BAD_REQUEST", message: "Informe primeiro o endereço e a chave do servidor da Evolution (Railway)." });
+  if (!c) throw new TRPCError({ code: "BAD_REQUEST", message: "Servidor do WhatsApp não configurado: informe o endereço e a chave em Configurações › Integrações." });
   return c;
 }
 
@@ -111,18 +111,7 @@ export const whatsappRouter = router({
     return { configurado: Boolean(s) || Boolean(process.env.EVOLUTION_API_URL && process.env.EVOLUTION_API_KEY), url: s?.url ?? null };
   }),
 
-  salvarEvolution: protectedProcedure
-    .input(z.object({ url: z.string().trim().url("Endereço inválido (comece com https://)"), apiKey: z.string().trim().min(8) }))
-    .mutation(async ({ ctx, input }) => {
-      requireModule(ctx, "whatsapp");
-      if (ctx.user.role === "corretor") throw new TRPCError({ code: "FORBIDDEN", message: "Só a equipe configura o servidor." });
-      try { await testarEvolution(input); } catch (e) { throw erroEvolution(e); }
-      const db = getDb();
-      const valores = { url: normalizarUrlEvolution(input.url), apiKeyEncrypted: encryptSecret(input.apiKey), updatedAt: new Date() };
-      await db.insert(whatsappEvolutionSettings).values({ id: 1, ...valores })
-        .onConflictDoUpdate({ target: whatsappEvolutionSettings.id, set: valores });
-      return { success: true };
-    }),
+  // LOTE B (25/10): endereço e chave da Evolution são salvos só em Configurações › Integrações (integracoes.salvarEvolution).
 
   /** Gera (ou renova) o QR code da conexão do usuário — a da empresa para admin/colaborador. */
   conectarQr: protectedProcedure.mutation(async ({ ctx }) => {

@@ -4,8 +4,9 @@ import { eq } from "drizzle-orm";
 import { z } from "zod";
 import { adminProcedure, router } from "./_core/trpc.js";
 import { encryptSecret } from "./_core/secret-vault.js";
-import { authenticatePluggy, createPluggyConnectToken, fetchPluggyItemAccounts, fetchPluggyItemConnector } from "./_core/pluggy.js";
+import { autenticarPluggyDetalhado, createPluggyConnectToken, mensagemRecusaPluggy, fetchPluggyItemAccounts, fetchPluggyItemConnector } from "./_core/pluggy.js";
 import { fetchAsaasSaldo } from "./_core/asaas-extrato.js";
+import { chaveAsaasCentral } from "./_core/asaas.js";
 import { bankAccounts } from "../drizzle/schema.js";
 import * as db from "./db.js";
 import { confirmarImportacao, previaImportacao, registrarWebhookPluggy, sincronizarConta, tokenPluggy } from "./bancos.js";
@@ -31,8 +32,8 @@ export const pluggySettingsRouter = router({
   save: adminProcedure
     .input(z.object({ clientId: z.string().trim().min(1), clientSecret: z.string().trim().min(1) }))
     .mutation(async ({ input }) => {
-      const token = await authenticatePluggy(input.clientId, input.clientSecret);
-      if (!token) throw new TRPCError({ code: "BAD_REQUEST", message: "Credenciais Pluggy inválidas ou API indisponível" });
+      const r = await autenticarPluggyDetalhado(input.clientId, input.clientSecret);
+      if (!r.ok) throw new TRPCError({ code: "BAD_REQUEST", message: mensagemRecusaPluggy(r.status, r.mensagem) });
       await db.savePluggySetting({
         clientIdEncrypted: encryptSecret(input.clientId),
         clientSecretEncrypted: encryptSecret(input.clientSecret),
@@ -109,8 +110,14 @@ export const bancarioRouter = router({
       .mutation(async ({ input }) => {
         let saldo = input.saldoAtual ?? 0;
         if (input.provedor === "asaas") {
-          if (!input.apiKey) throw new TRPCError({ code: "BAD_REQUEST", message: "Informe a chave de API do Asaas." });
-          try { saldo = await fetchAsaasSaldo(input.apiKey); }
+          // LOTE B (25/10): sem chave própria, valida e usa a chave central (Integrações).
+          let chave = input.apiKey;
+          if (!chave) {
+            const central = await chaveAsaasCentral().catch(() => null);
+            if (!central) throw new TRPCError({ code: "BAD_REQUEST", message: "Cadastre a chave do Asaas em Configurações › Integrações." });
+            chave = central.apiKey;
+          }
+          try { saldo = await fetchAsaasSaldo(chave); }
           catch (e) { throw erro(e, "Chave do Asaas não aceita."); }
         }
         const conta = await db.createBankAccount({

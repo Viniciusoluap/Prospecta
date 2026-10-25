@@ -38,8 +38,9 @@ export async function autenticarPluggyDetalhado(clientId: string, clientSecret: 
   } catch (e) {
     return { ok: false, status: null, mensagem: e instanceof Error ? e.message : "sem resposta" };
   }
-  let data: { apiKey?: string; message?: unknown; codeDescription?: unknown; error?: unknown } | null = null;
-  try { data = (await res.json()) as typeof data; } catch { /* corpo vazio */ }
+  type Corpo = { apiKey?: string; message?: unknown; codeDescription?: unknown; error?: unknown };
+  let data: Corpo | null = null;
+  try { data = (await res.json()) as Corpo; } catch { /* corpo vazio */ }
   if (!res.ok) {
     const m = [data?.message, data?.codeDescription, data?.error].find(v => typeof v === "string" && v.trim());
     return { ok: false, status: res.status ?? null, mensagem: typeof m === "string" ? m.trim().slice(0, 300) : "sem detalhe" };

@@ -48,6 +48,7 @@ import {
   mapaRouter,
 } from "./operacional-router.js";
 import { configuracoesRouter, primeiroAcessoRouter } from "./configuracoes-router.js";
+import { integracoesRouter } from "./integracoes-router.js";
 import { googleDriveRouter } from "./google-drive-router.js";
 import { relatoriosRouter } from "./relatorios-router.js";
 import { taxRouter } from "./tax-router.js";
@@ -158,6 +159,7 @@ export const appRouter = router({
   projetos: projetosRouter,
   mapa: mapaRouter,
   configuracoes: configuracoesRouter,
+  integracoes: integracoesRouter,
   googleDrive: googleDriveRouter,
   primeiroAcesso: primeiroAcessoRouter,
   relatorios: relatoriosRouter,

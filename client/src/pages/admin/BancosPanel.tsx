@@ -1,6 +1,7 @@
 // Pedido de 25/10: BPO › Bancos — contas por API (Asaas, Pluggy/Meu Pluggy) e importação de
 // extrato (planilha, OFX, PDF) com prévia, sempre respeitando a data inicial de cada conta.
 import { useState } from "react";
+import { Link } from "wouter";
 import { trpc } from "@/lib/trpc";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -44,14 +45,8 @@ export default function BancosPanel() {
   };
   const invalidar = () => { utils.bancario.contas.list.invalidate(); invalidarBpo(); };
 
-  // Pluggy
-  const [pluggyForm, setPluggyForm] = useState({ clientId: "", clientSecret: "" });
+  // Pluggy — LOTE B (25/10): Client ID/Secret ficam só em Configurações › Integrações.
   const [itemForm, setItemForm] = useState({ itemId: "", dataInicial: "" });
-  const salvarPluggy = trpc.pluggySettings.save.useMutation({
-    onSuccess: () => { toast.success("Credenciais da Pluggy salvas."); setPluggyForm({ clientId: "", clientSecret: "" }); utils.pluggySettings.status.invalidate(); },
-    onError: e => toast.error(e.message),
-  });
-  const testarPluggy = trpc.pluggySettings.testar.useMutation({ onSuccess: r => (r.ok ? toast.success(r.mensagem) : toast.error(r.mensagem)) });
   const importarItem = trpc.pluggySettings.importarItem.useMutation({
     onSuccess: r => { toast.success(`${r.encontradas} conta(s) encontrada(s), ${r.criadas} cadastrada(s).`); setItemForm({ itemId: "", dataInicial: "" }); invalidar(); },
     onError: e => toast.error(e.message),
@@ -74,7 +69,7 @@ export default function BancosPanel() {
   }
 
   // Nova conta (Asaas ou importação)
-  const vazio = { provedor: "asaas" as "asaas" | "manual", banco: "Asaas", conta: "", descricao: "", apiKey: "", dataInicial: "" };
+  const vazio = { provedor: "asaas" as "asaas" | "manual", banco: "Asaas", conta: "", descricao: "", dataInicial: "" };
   const [novaOpen, setNovaOpen] = useState(false);
   const [nova, setNova] = useState(vazio);
   const criar = trpc.bancario.contas.create.useMutation({
@@ -82,8 +77,8 @@ export default function BancosPanel() {
     onError: e => toast.error(e.message),
   });
 
-  // Editar data inicial / chave
-  const [edit, setEdit] = useState<{ id: number; dataInicial: string; apiKey: string; provedor: string } | null>(null);
+  // Editar data inicial (a chave do Asaas é a central, em Integrações)
+  const [edit, setEdit] = useState<{ id: number; dataInicial: string } | null>(null);
   const atualizar = trpc.bancario.contas.update.useMutation({
     onSuccess: () => { toast.success("Conta atualizada."); setEdit(null); invalidar(); },
     onError: e => toast.error(e.message),
@@ -180,8 +175,8 @@ export default function BancosPanel() {
                     <Button size="sm" variant="outline" className={botaoSec} onClick={() => setVerConta(verConta === c.id ? null : c.id)}>
                       <ListOrdered className="h-3 w-3 mr-1" /> {verConta === c.id ? "Ocultar" : "Movimentações"}
                     </Button>
-                    <Button size="sm" variant="outline" className={botaoSec} onClick={() => setEdit({ id: c.id, dataInicial: c.dataInicial ?? "", apiKey: "", provedor: c.provedor })}>
-                      Data inicial{c.provedor === "asaas" ? " / chave" : ""}
+                    <Button size="sm" variant="outline" className={botaoSec} onClick={() => setEdit({ id: c.id, dataInicial: c.dataInicial ?? "" })}>
+                      Data inicial
                     </Button>
                     <Button size="sm" variant="outline" className="h-7 text-xs border-red-400/40 text-red-300" onClick={() => confirm(`Remover a conta ${c.banco}? As movimentações já gravadas continuam no histórico.`) && remover.mutate({ id: c.id })}>
                       <Trash2 className="h-3 w-3 mr-1" /> Remover
@@ -251,17 +246,10 @@ export default function BancosPanel() {
         <CardHeader><CardTitle className="text-[#C9A961]">Pluggy — contas conectadas pelo Meu Pluggy (gratuito)</CardTitle></CardHeader>
         <CardContent className="space-y-4">
           <p className="text-sm text-gray-300">
-            {pluggy?.configured ? "Credenciais da Pluggy salvas." : "Informe o Client ID e o Client Secret da aplicação criada no painel da Pluggy."}
+            {pluggy?.configured ? "Client ID e Client Secret configurados em " : "Client ID e Client Secret ainda não configurados — informe em "}
+            <Link href="/admin/integracoes" className="underline text-[#C9A961]">Configurações › Integrações</Link>.
             {" "}As contas conectadas no Meu Pluggy são lidas sem custo e sincronizadas todo dia.
           </p>
-          <div className="grid sm:grid-cols-2 gap-3">
-            <div><Label className="text-gray-300">Client ID</Label><Input value={pluggyForm.clientId} onChange={e => setPluggyForm(f => ({ ...f, clientId: e.target.value }))} className={campo} autoComplete="off" /></div>
-            <div><Label className="text-gray-300">Client Secret</Label><Input type="password" value={pluggyForm.clientSecret} onChange={e => setPluggyForm(f => ({ ...f, clientSecret: e.target.value }))} className={campo} autoComplete="off" /></div>
-          </div>
-          <div className="flex gap-2 flex-wrap">
-            <Button size="sm" disabled={!pluggyForm.clientId || !pluggyForm.clientSecret || salvarPluggy.isPending} onClick={() => salvarPluggy.mutate(pluggyForm)} className="bg-[#C9A961] hover:bg-[#B8985A] text-[#1A2332] font-bold">Salvar credenciais</Button>
-            {pluggy?.configured && <Button size="sm" variant="outline" className={botaoSec} disabled={testarPluggy.isPending} onClick={() => testarPluggy.mutate()}>Testar conexão</Button>}
-          </div>
           {pluggy?.configured && (
             <div className="border-t border-[#C9A961]/10 pt-4 space-y-3">
               <div className="grid sm:grid-cols-2 gap-3">
@@ -298,15 +286,17 @@ export default function BancosPanel() {
               <div><Label className="text-gray-300">Descrição</Label><Input value={nova.descricao} onChange={e => setNova(n => ({ ...n, descricao: e.target.value }))} className={campo} placeholder="ex.: Conta PJ" /></div>
             </div>
             {nova.provedor === "asaas" && (
-              <div><Label className="text-gray-300">Chave de API do Asaas *</Label><Input type="password" value={nova.apiKey} onChange={e => setNova(n => ({ ...n, apiKey: e.target.value }))} className={campo} autoComplete="off" placeholder="$aact_prod_..." /></div>
+              <p className="text-xs text-gray-300">
+                Usa a chave do Asaas configurada em <Link href="/admin/integracoes" className="underline text-[#C9A961]">Configurações › Integrações</Link>.
+              </p>
             )}
             <div>
               <Label className="text-gray-300">Considerar movimentações a partir de</Label>
               <Input type="date" value={nova.dataInicial} onChange={e => setNova(n => ({ ...n, dataInicial: e.target.value }))} className={campo} />
               <p className="text-xs text-gray-300 mt-1">Movimentações anteriores a esta data não são gravadas (não pertencem a esta empresa).</p>
             </div>
-            <Button className="w-full bg-[#C9A961] hover:bg-[#B8985A] text-[#1A2332] font-bold" disabled={criar.isPending || !nova.banco || (nova.provedor === "asaas" && !nova.apiKey)}
-              onClick={() => criar.mutate({ provedor: nova.provedor, banco: nova.banco, conta: nova.conta || undefined, descricao: nova.descricao || undefined, apiKey: nova.apiKey || undefined, dataInicial: nova.dataInicial || null })}>
+            <Button className="w-full bg-[#C9A961] hover:bg-[#B8985A] text-[#1A2332] font-bold" disabled={criar.isPending || !nova.banco}
+              onClick={() => criar.mutate({ provedor: nova.provedor, banco: nova.banco, conta: nova.conta || undefined, descricao: nova.descricao || undefined, dataInicial: nova.dataInicial || null })}>
               {criar.isPending ? "Validando..." : "Cadastrar conta"}
             </Button>
           </div>
@@ -323,11 +313,8 @@ export default function BancosPanel() {
                 <Input type="date" value={edit.dataInicial} onChange={e => setEdit({ ...edit, dataInicial: e.target.value })} className={campo} />
                 <p className="text-xs text-gray-300 mt-1">Vale para as próximas sincronizações e importações. O que já foi gravado continua.</p>
               </div>
-              {edit.provedor === "asaas" && (
-                <div><Label className="text-gray-300">Nova chave de API (deixe em branco para manter)</Label><Input type="password" value={edit.apiKey} onChange={e => setEdit({ ...edit, apiKey: e.target.value })} className={campo} autoComplete="off" /></div>
-              )}
               <Button className="w-full bg-[#C9A961] hover:bg-[#B8985A] text-[#1A2332] font-bold" disabled={atualizar.isPending}
-                onClick={() => atualizar.mutate({ id: edit.id, dataInicial: edit.dataInicial || null, apiKey: edit.apiKey || undefined })}>Salvar</Button>
+                onClick={() => atualizar.mutate({ id: edit.id, dataInicial: edit.dataInicial || null })}>Salvar</Button>
             </div>
           )}
         </DialogContent>
