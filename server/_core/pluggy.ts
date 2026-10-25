@@ -9,9 +9,19 @@ export type PluggyTransaction = {
   categoria?: string;
 };
 
-export async function authenticatePluggy(clientId: string, clientSecret: string): Promise<string | null> {
+export type PluggyAccount = {
+  id: string;
+  nome: string;
+  numero: string | null;
+  tipo: string;
+  saldo: number | null;
+};
+
+type Fetch = typeof fetch;
+
+export async function authenticatePluggy(clientId: string, clientSecret: string, fetchImpl: Fetch = fetch): Promise<string | null> {
   try {
-    const res = await fetch(`${PLUGGY_API}/auth`, {
+    const res = await fetchImpl(`${PLUGGY_API}/auth`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ clientId, clientSecret }),
@@ -24,27 +34,81 @@ export async function authenticatePluggy(clientId: string, clientSecret: string)
   }
 }
 
-export async function fetchPluggyTransactions(token: string, accountId: string): Promise<PluggyTransaction[]> {
-  const res = await fetch(`${PLUGGY_API}/transactions?accountId=${accountId}&pageSize=100`, {
-    headers: { "X-API-KEY": token },
-  });
-  if (!res.ok) return [];
-  const data = (await res.json()) as {
-    results: { id: string; date: string; description: string; amount: number; type: string; category?: string }[];
-  };
-  return data.results.map((t) => ({
-    externalId: t.id,
-    data: t.date,
-    descricao: t.description,
-    valor: Math.abs(t.amount),
-    tipo: t.type === "CREDIT" ? "credito" : "debito",
-    categoria: t.category,
-  }));
+/**
+ * Transações da conta a partir de `desde` (AAAA-MM-DD), percorrendo todas as páginas.
+ * Pedido de 25/10: a data inicial da conta vira o filtro `from` da Pluggy.
+ */
+export async function fetchPluggyTransactions(
+  token: string,
+  accountId: string,
+  desde?: string | null,
+  fetchImpl: Fetch = fetch
+): Promise<PluggyTransaction[]> {
+  const out: PluggyTransaction[] = [];
+  for (let page = 1; page <= 50; page++) {
+    const params = new URLSearchParams({ accountId, pageSize: "500", page: String(page) });
+    if (desde) params.set("from", desde);
+    const res = await fetchImpl(`${PLUGGY_API}/transactions?${params}`, { headers: { "X-API-KEY": token } });
+    if (!res.ok) throw new Error(`A Pluggy recusou a leitura das transações (HTTP ${res.status}).`);
+    const data = (await res.json()) as {
+      totalPages?: number;
+      results: { id: string; date: string; description: string; amount: number; type: string; category?: string }[];
+    };
+    for (const t of data.results ?? []) {
+      out.push({
+        externalId: t.id,
+        data: t.date,
+        descricao: t.description,
+        valor: Math.abs(t.amount),
+        tipo: t.type === "CREDIT" ? "credito" : "debito",
+        categoria: t.category,
+      });
+    }
+    if (!data.totalPages || page >= data.totalPages) break;
+  }
+  return out;
 }
 
-export async function fetchPluggyAccountBalance(token: string, accountId: string): Promise<number | null> {
-  const res = await fetch(`${PLUGGY_API}/accounts/${accountId}`, { headers: { "X-API-KEY": token } });
+export async function fetchPluggyAccountBalance(token: string, accountId: string, fetchImpl: Fetch = fetch): Promise<number | null> {
+  const res = await fetchImpl(`${PLUGGY_API}/accounts/${accountId}`, { headers: { "X-API-KEY": token } });
   if (!res.ok) return null;
   const data = (await res.json()) as { balance: number };
   return data.balance ?? null;
+}
+
+/** Contas de uma conexão (item) — usado para cadastrar sozinho as contas do Meu Pluggy. */
+export async function fetchPluggyItemAccounts(token: string, itemId: string, fetchImpl: Fetch = fetch): Promise<PluggyAccount[]> {
+  const res = await fetchImpl(`${PLUGGY_API}/accounts?itemId=${encodeURIComponent(itemId)}`, { headers: { "X-API-KEY": token } });
+  if (!res.ok) throw new Error(`A Pluggy não encontrou a conexão informada (HTTP ${res.status}).`);
+  const data = (await res.json()) as {
+    results: { id: string; name?: string; marketingName?: string; number?: string; type?: string; subtype?: string; balance?: number }[];
+  };
+  return (data.results ?? []).map(a => ({
+    id: a.id,
+    nome: a.marketingName || a.name || "Conta",
+    numero: a.number ?? null,
+    tipo: a.subtype || a.type || "",
+    saldo: typeof a.balance === "number" ? a.balance : null,
+  }));
+}
+
+/** Nome da instituição de uma conexão (ex.: "C6 Bank" via Meu Pluggy). */
+export async function fetchPluggyItemConnector(token: string, itemId: string, fetchImpl: Fetch = fetch): Promise<string | null> {
+  const res = await fetchImpl(`${PLUGGY_API}/items/${encodeURIComponent(itemId)}`, { headers: { "X-API-KEY": token } });
+  if (!res.ok) return null;
+  const data = (await res.json()) as { connector?: { name?: string } };
+  return data.connector?.name ?? null;
+}
+
+/** Token de 30 minutos para abrir o Pluggy Connect na tela (conectar via Meu Pluggy). */
+export async function createPluggyConnectToken(token: string, fetchImpl: Fetch = fetch): Promise<string> {
+  const res = await fetchImpl(`${PLUGGY_API}/connect_token`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "X-API-KEY": token },
+    body: JSON.stringify({}),
+  });
+  if (!res.ok) throw new Error(`A Pluggy não liberou a conexão (HTTP ${res.status}).`);
+  const data = (await res.json()) as { accessToken?: string };
+  if (!data.accessToken) throw new Error("A Pluggy não devolveu o token de conexão.");
+  return data.accessToken;
 }

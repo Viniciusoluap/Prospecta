@@ -26,7 +26,15 @@ export function encryptSecret(value: string): string {
     .join(".");
 }
 
+// Pedido de 25/10: credenciais gravadas pela equipe direto no banco (sem acesso à chave do
+// servidor) entram como "plain:<valor>" e são recriptografadas no primeiro uso.
+const TEXTO_PURO = "plain:";
+export function segredoEmTextoPuro(value: string | null | undefined): boolean {
+  return Boolean(value?.startsWith(TEXTO_PURO));
+}
+
 export function decryptSecret(value: string): string {
+  if (value.startsWith(TEXTO_PURO)) return value.slice(TEXTO_PURO.length);
   const [iv, tag, encrypted] = value
     .split(".")
     .map(part => Buffer.from(part, "base64url"));

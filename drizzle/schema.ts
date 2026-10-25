@@ -1294,6 +1294,13 @@ export const bankAccounts = pgTable("bank_accounts", {
   pluggyAccountId: varchar("pluggy_account_id", { length: 120 }),
   webhookUrl: varchar("webhook_url", { length: 500 }),
   ultimaSincronizacao: timestamp("ultima_sincronizacao"),
+  // Pedido de 25/10: de onde vêm as movimentações (API do Asaas, Pluggy/Meu Pluggy ou só
+  // importação de extrato), a chave da API da própria conta (criptografada) e a data a partir
+  // da qual as movimentações pertencem a esta empresa (anteriores são ignoradas).
+  provedor: varchar("provedor", { length: 20 }).default("manual").notNull(),
+  credencialEncrypted: text("credencial_encrypted"),
+  dataInicial: date("data_inicial", { mode: "string" }),
+  ultimoErro: text("ultimo_erro"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 export type BankAccount = typeof bankAccounts.$inferSelect;
@@ -1311,6 +1318,7 @@ export const bankTransactions = pgTable("bank_transactions", {
   categoria: varchar("categoria", { length: 100 }),
   status: bankTransactionStatusEnum("status").default("pendente").notNull(),
   externalId: varchar("external_id", { length: 255 }).unique(),
+  origem: varchar("origem", { length: 20 }).default("manual").notNull(),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 export type BankTransaction = typeof bankTransactions.$inferSelect;

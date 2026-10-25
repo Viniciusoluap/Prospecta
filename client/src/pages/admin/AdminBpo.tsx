@@ -31,11 +31,11 @@ import {
   BarChart3,
   Plus,
   Landmark,
-  RefreshCw,
   BookOpen,
 } from "lucide-react";
 import TaxAccountingPanel from "./TaxAccountingPanel";
 import AdminRelatorios from "./AdminRelatorios";
+import BancosPanel from "./BancosPanel";
 import { rotulo } from "@shared/rotulos";
 
 function formatCurrencyBR(value: number | string | null | undefined) {
@@ -86,16 +86,6 @@ const emptyLancamentoForm = {
   centroCustos: "",
 };
 
-const emptyContaForm = {
-  banco: "",
-  agencia: "",
-  conta: "",
-  tipo: "corrente" as "corrente" | "poupanca" | "pagamento" | "investimento",
-  descricao: "",
-  saldoAtual: "0",
-  pluggyAccountId: "",
-};
-
 export default function AdminBpo({ initialTab }: { initialTab?: Aba } = {}) {
   const requestedTab = new URLSearchParams(window.location.search).get(
     "aba"
@@ -116,16 +106,13 @@ export default function AdminBpo({ initialTab }: { initialTab?: Aba } = {}) {
   );
   const [clienteOpen, setClienteOpen] = useState(false);
   const [lancamentoOpen, setLancamentoOpen] = useState(false);
-  const [contaOpen, setContaOpen] = useState(false);
   const [clienteForm, setClienteForm] = useState(emptyClienteForm);
   const [lancamentoForm, setLancamentoForm] = useState(emptyLancamentoForm);
-  const [contaForm, setContaForm] = useState(emptyContaForm);
 
   const utils = trpc.useUtils();
   const { data: clientes = [] } = trpc.bpo.clientes.list.useQuery();
   const { data: lancamentos = [] } = trpc.bpo.lancamentos.list.useQuery();
   const { data: dreRows = [] } = trpc.bpo.dre.useQuery();
-  const { data: contas = [] } = trpc.bancario.contas.list.useQuery();
 
   const createCliente = trpc.bpo.clientes.create.useMutation({
     onSuccess: () => {
@@ -153,26 +140,6 @@ export default function AdminBpo({ initialTab }: { initialTab?: Aba } = {}) {
       toast.success("Marcado como pago!");
       utils.bpo.lancamentos.list.invalidate();
       utils.bpo.dre.invalidate();
-    },
-    onError: e => toast.error(e.message),
-  });
-
-  const createConta = trpc.bancario.contas.create.useMutation({
-    onSuccess: () => {
-      toast.success("Conta bancária cadastrada!");
-      utils.bancario.contas.list.invalidate();
-      setContaOpen(false);
-      setContaForm(emptyContaForm);
-    },
-    onError: e => toast.error(e.message),
-  });
-
-  const sincronizar = trpc.bancario.sincronizar.useMutation({
-    onSuccess: r => {
-      if (r.ok)
-        toast.success(`${r.sincronizados} transação(ões) sincronizada(s)!`);
-      else toast.warning(r.mensagem);
-      utils.bancario.contas.list.invalidate();
     },
     onError: e => toast.error(e.message),
   });
@@ -403,141 +370,6 @@ export default function AdminBpo({ initialTab }: { initialTab?: Aba } = {}) {
                     className="w-full bg-[#C9A961] hover:bg-[#B8985A] text-[#1A2332] font-bold"
                   >
                     Cadastrar Cliente
-                  </Button>
-                </div>
-              </DialogContent>
-            </Dialog>
-
-            <Dialog open={contaOpen} onOpenChange={setContaOpen}>
-              <DialogTrigger asChild>
-                <Button
-                  variant="outline"
-                  className="border-[#C9A961]/30 text-[#C9A961]"
-                >
-                  <Plus className="h-4 w-4 mr-2" /> Conta Bancária
-                </Button>
-              </DialogTrigger>
-              <DialogContent className="bg-[#1A2332] border-[#C9A961]/20 text-white max-h-[90vh] overflow-y-auto">
-                <DialogHeader>
-                  <DialogTitle className="text-[#C9A961]">
-                    Nova Conta Bancária
-                  </DialogTitle>
-                </DialogHeader>
-                <div className="space-y-4 mt-4">
-                  <div className="grid grid-cols-2 gap-4">
-                    <div className="col-span-2">
-                      <Label className="text-gray-300">Banco *</Label>
-                      <Input
-                        value={contaForm.banco}
-                        onChange={e =>
-                          setContaForm(f => ({ ...f, banco: e.target.value }))
-                        }
-                        className="bg-[#2C3E50] border-[#C9A961]/30 text-white mt-1"
-                        placeholder="ex: Banco do Brasil"
-                      />
-                    </div>
-                    <div>
-                      <Label className="text-gray-300">Agência</Label>
-                      <Input
-                        value={contaForm.agencia}
-                        onChange={e =>
-                          setContaForm(f => ({ ...f, agencia: e.target.value }))
-                        }
-                        className="bg-[#2C3E50] border-[#C9A961]/30 text-white mt-1"
-                      />
-                    </div>
-                    <div>
-                      <Label className="text-gray-300">Conta *</Label>
-                      <Input
-                        value={contaForm.conta}
-                        onChange={e =>
-                          setContaForm(f => ({ ...f, conta: e.target.value }))
-                        }
-                        className="bg-[#2C3E50] border-[#C9A961]/30 text-white mt-1"
-                      />
-                    </div>
-                    <div>
-                      <Label className="text-gray-300">Tipo</Label>
-                      <Select
-                        value={contaForm.tipo}
-                        onValueChange={(v: any) =>
-                          setContaForm(f => ({ ...f, tipo: v }))
-                        }
-                      >
-                        <SelectTrigger className="bg-[#2C3E50] border-[#C9A961]/30 text-white mt-1">
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="corrente">Corrente</SelectItem>
-                          <SelectItem value="poupanca">Poupança</SelectItem>
-                          <SelectItem value="pagamento">Pagamento</SelectItem>
-                          <SelectItem value="investimento">
-                            Investimento
-                          </SelectItem>
-                        </SelectContent>
-                      </Select>
-                    </div>
-                    <div>
-                      <Label className="text-gray-300">Saldo Atual (R$)</Label>
-                      <CurrencyInput
-                        value={contaForm.saldoAtual ? Number(contaForm.saldoAtual) : 0}
-                        onChange={v =>
-                          setContaForm(f => ({
-                            ...f,
-                            saldoAtual: v ? String(v) : "",
-                          }))
-                        }
-                        className="bg-[#2C3E50] border-[#C9A961]/30 text-white mt-1"
-                      />
-                    </div>
-                    <div className="col-span-2">
-                      <Label className="text-gray-300">Descrição</Label>
-                      <Input
-                        value={contaForm.descricao}
-                        onChange={e =>
-                          setContaForm(f => ({
-                            ...f,
-                            descricao: e.target.value,
-                          }))
-                        }
-                        className="bg-[#2C3E50] border-[#C9A961]/30 text-white mt-1"
-                      />
-                    </div>
-                    <div className="col-span-2">
-                      <Label className="text-gray-300">
-                        Pluggy Account ID (opcional)
-                      </Label>
-                      <Input
-                        value={contaForm.pluggyAccountId}
-                        onChange={e =>
-                          setContaForm(f => ({
-                            ...f,
-                            pluggyAccountId: e.target.value,
-                          }))
-                        }
-                        className="bg-[#2C3E50] border-[#C9A961]/30 text-white mt-1"
-                        placeholder="preencha para habilitar sincronização automática"
-                      />
-                    </div>
-                  </div>
-                  <Button
-                    onClick={() =>
-                      createConta.mutate({
-                        ...contaForm,
-                        saldoAtual: parseFloat(contaForm.saldoAtual) || 0,
-                        agencia: contaForm.agencia || undefined,
-                        descricao: contaForm.descricao || undefined,
-                        pluggyAccountId: contaForm.pluggyAccountId || undefined,
-                      })
-                    }
-                    disabled={
-                      createConta.isPending ||
-                      !contaForm.banco ||
-                      !contaForm.conta
-                    }
-                    className="w-full bg-[#C9A961] hover:bg-[#B8985A] text-[#1A2332] font-bold"
-                  >
-                    Cadastrar Conta
                   </Button>
                 </div>
               </DialogContent>
@@ -921,67 +753,7 @@ export default function AdminBpo({ initialTab }: { initialTab?: Aba } = {}) {
           </Card>
         )}
 
-        {aba === "bancos" && (
-          <div className="space-y-6">
-            <Card className="bg-[#2C3E50] border-[#C9A961]/20 text-gray-100">
-              <CardHeader>
-                <CardTitle className="text-[#C9A961]">
-                  Contas Bancárias ({contas.length})
-                </CardTitle>
-              </CardHeader>
-              <CardContent>
-                {contas.length === 0 ? (
-                  <div className="text-center py-12 text-gray-400">
-                    <Landmark className="h-12 w-12 mx-auto mb-3 opacity-20" />
-                    <p>Nenhuma conta bancária cadastrada</p>
-                  </div>
-                ) : (
-                  <div className="space-y-2">
-                    {contas.map((c: any) => (
-                      <div
-                        key={c.id}
-                        className="flex items-center justify-between p-3 bg-[#1A2332] rounded-lg gap-3 flex-wrap"
-                      >
-                        <div>
-                          <p className="text-white font-medium">
-                            {c.banco} — ag. {c.agencia || "—"} / cc {c.conta}
-                          </p>
-                          <p className="text-xs text-gray-400">
-                            {rotulo(c.tipo)} •{" "}
-                            {c.pluggyAccountId
-                              ? "sincronização automática habilitada"
-                              : "sem Pluggy — saldo manual"}
-                            {c.ultimaSincronizacao
-                              ? ` • última sinc. ${new Date(c.ultimaSincronizacao).toLocaleString("pt-BR")}`
-                              : ""}
-                          </p>
-                        </div>
-                        <div className="flex items-center gap-3">
-                          <span className="font-bold text-[#C9A961]">
-                            {formatCurrencyBR(c.saldoAtual)}
-                          </span>
-                          {c.pluggyAccountId && (
-                            <Button
-                              size="sm"
-                              variant="outline"
-                              className="h-7 text-xs border-[#C9A961]/30 text-[#C9A961]"
-                              onClick={() =>
-                                sincronizar.mutate({ contaId: c.id })
-                              }
-                              disabled={sincronizar.isPending}
-                            >
-                              <RefreshCw className="h-3 w-3 mr-1" /> Sincronizar
-                            </Button>
-                          )}
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </CardContent>
-            </Card>
-          </div>
-        )}
+        {aba === "bancos" && <BancosPanel />}
 
         {aba === "contabilidade" && <TaxAccountingPanel />}
         {aba === "relatorios" && <AdminRelatorios embedded />}
