@@ -60,6 +60,7 @@ export default function AdminImoveis({
     isLoading,
     refetch,
   } = trpc.imoveis.list.useQuery({ adminView: true });
+  const obrasSemImovel = trpc.imoveis.obrasSemImovel.useQuery();
 
   const updateMutation = trpc.imoveis.update.useMutation({
     onSuccess: () => {
@@ -329,6 +330,21 @@ export default function AdminImoveis({
             </table>
           </div>
         </div>
+        <section className="rounded-lg border border-[#C9A961]/20 bg-[#2C3E50]/40 p-4">
+          <h2 className="font-semibold text-[#C9A961]">Obras com endereço sem imóvel vinculado</h2>
+          <p className="mt-1 text-xs text-gray-300">Visíveis somente no catálogo administrativo. A localização confirmada na obra cria o vínculo; nenhum anúncio é publicado automaticamente.</p>
+          {obrasSemImovel.isError && <p role="alert" className="mt-3 text-sm text-red-300">Não foi possível carregar as obras: {obrasSemImovel.error.message}</p>}
+          {obrasSemImovel.isLoading && <p className="mt-3 text-sm text-gray-300">Carregando obras…</p>}
+          <ul className="mt-3 grid gap-2 sm:grid-cols-2">
+            {(obrasSemImovel.data ?? []).filter(obra => !busca.trim() || `${obra.titulo} ${obra.endereco} ${obra.cidade ?? ""}`.toLowerCase().includes(busca.toLowerCase())).map(obra => (
+              <li key={obra.id} className="min-w-0 rounded border border-[#C9A961]/20 p-3 text-sm">
+                <Link href={`/admin/obras/editar/${obra.id}`} className="font-semibold text-white underline">Obra #{obra.id} · {obra.titulo}</Link>
+                <p className="break-words text-gray-300">{[obra.endereco, obra.cidade, obra.estado].filter(Boolean).join(", ")}</p>
+                <p className="text-xs text-gray-400">Imóvel vinculado: ainda não cadastrado · publicação: não</p>
+              </li>
+            ))}
+          </ul>
+        </section>
       </div>
     </div>
   );

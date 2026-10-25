@@ -94,6 +94,28 @@ describe("Teste C — Distribuição dos lucros", () => {
     expect(valor(r.lucroEmpreiteiro)).toBe(R("6300"));
     expect(valor(r.lucroEmpresa)).toBe(R("25200"));
   });
+  it("Pró-Soluto só altera a base do empreiteiro quando marcado; lucro residual segue a fórmula existente", () => {
+    const entrada = obra({ taxaMensalPct: 0, parcelas: 2, percentualEmpreiteiro: 20 });
+    const desmarcado = calcularObra(entrada);
+    const marcado = calcularObra({ ...entrada, incluirProSolutoBaseEmpreiteiro: true });
+    expect(valor(desmarcado.baseEmpreiteiro)).toBe(R("45000"));
+    expect(valor(marcado.valorParcela)).toBe(R("10883"));
+    expect(valor(marcado.valorTotalProSoluto)).toBe(R("21766"));
+    expect(valor(marcado.baseEmpreiteiro)).toBe(R("66766"));
+    expect(valor(marcado.lucroEmpreiteiro)).toBe(R("13353.20"));
+    expect(valor(marcado.lucroEmpresa)).toBe(R("31646.80"));
+    expect(valor(desmarcado.lucroEmpresa)).toBe(R("36000"));
+    expect(valor(calcularObra({ ...entrada, incluirProSolutoBaseEmpreiteiro: false }).lucroEmpresa)).toBe(R("36000"));
+    expect(valor(marcado.lucroEstimado)).toBe(valor(desmarcado.lucroEstimado));
+  });
+  it("diferencia parcela ausente e zero e não modifica a base antiga com a opção desmarcada", () => {
+    const ausente = calcularObra(obra({ percentualEmpreiteiro: 20 }));
+    expect(ausente.valorTotalProSoluto.ok).toBe(false);
+    expect(valor(ausente.baseEmpreiteiro)).toBe(R("45000"));
+    expect(calcularObra(obra({ percentualEmpreiteiro: 20, incluirProSolutoBaseEmpreiteiro: true })).baseEmpreiteiro.ok).toBe(false);
+    const zero = calcularObra(obra({ vgv: R("148234"), taxaMensalPct: 0, parcelas: 2, incluirProSolutoBaseEmpreiteiro: true }));
+    expect(valor(zero.valorTotalProSoluto)).toBe(0);
+  });
 
   it("Lucro Estimado usa Orçamento Previsto, nunca o Total Gasto", () => {
     const comGastos = calcularObra(obra({ movimentos: [mov("pagamento", "90000")] }));

@@ -57,7 +57,6 @@ import AdminIntegracoes from "./pages/admin/AdminIntegracoes";
 import Servicos from "./pages/Servicos";
 import Sobre from "./pages/Sobre";
 import Contato from "./pages/Contato";
-import Mercado from "./pages/Mercado";
 import Cursos from "./pages/Cursos";
 import Instituto from "./pages/Instituto";
 import InstalarApp from "./pages/InstalarApp";
@@ -119,7 +118,7 @@ function Router() {
       <Route path="/servicos" component={Servicos} />
       <Route path="/sobre" component={Sobre} />
       <Route path="/contato" component={Contato} />
-      <Route path="/mercado" component={Mercado} />
+      <Route path="/mercado"><Redirect to="/imoveis" /></Route>
       <Route path="/cursos" component={Cursos} />
       <Route path="/instituto" component={Instituto} />
       <Route path="/instalar-aplicativo" component={InstalarApp} />
@@ -293,7 +292,7 @@ function Router() {
       </Route>
       <Route path="/admin/agregador">
         <AdminRoute module="imoveis">
-          <AdminImoveisHub initialView="captacao" />
+          <Redirect to="/admin/imoveis" />
         </AdminRoute>
       </Route>
       <Route path="/admin/relatorios">

@@ -36,6 +36,7 @@ export interface FormFinanceiro {
   parcelas: number | null;
   empreiteiroId: number | null;
   percentualEmpreiteiro: string | null;
+  incluirProSolutoBaseEmpreiteiro: boolean;
   investidores: { investidorId: number; nome: string; percentual: string }[];
 }
 
@@ -57,6 +58,7 @@ export function formInicial(resumo: Resumo): FormFinanceiro {
     parcelas: v.parcelas,
     empreiteiroId: resumo.empreiteiro?.id ?? null,
     percentualEmpreiteiro: v.percentualEmpreiteiro,
+    incluirProSolutoBaseEmpreiteiro: v.incluirProSolutoBaseEmpreiteiro,
     investidores: resumo.investidores.map((i) => ({ investidorId: i.investidorId, nome: i.nome, percentual: i.percentual })),
   };
 }
@@ -86,6 +88,7 @@ export function calcularAoVivo(form: FormFinanceiro, resumo: Resumo, datas: { in
     dataTerminoPrevista: datas.termino || null,
     investidores: form.investidores.map((i) => ({ id: i.investidorId, percentual: i.percentual })),
     percentualEmpreiteiro: form.empreiteiroId ? form.percentualEmpreiteiro : null,
+    incluirProSolutoBaseEmpreiteiro: !!form.empreiteiroId && form.incluirProSolutoBaseEmpreiteiro,
     movimentos: resumo.movimentos.map((m) => ({ natureza: m.natureza, valorCentavos: centavosDe(m.valor)!, status: m.status })),
   });
 }
@@ -495,9 +498,16 @@ export function ValoresOperacaoAba({ projectId, resumo, form, setForm, calculo, 
                 <CampoDecimal valor={form.percentualEmpreiteiro} onChange={set("percentualEmpreiteiro")} casas={6} sufixo="%" placeholder="0" />
               ) : <div className={`rounded-md border px-3 py-2 text-sm ${campoLeitura}`}>—</div>}
             </div>
-            <Calculado label="Base do Empreiteiro" indicador={calculo.baseEmpreiteiro} ajuda="Lucro Estimado − Lucro dos Investidores" />
+            <Calculado label="Base do Empreiteiro" indicador={calculo.baseEmpreiteiro} ajuda="Lucro Estimado − Lucro dos Investidores, acrescido do Pró-Soluto total quando selecionado" />
             <Calculado label="Lucro do Empreiteiro" indicador={calculo.lucroEmpreiteiro} />
           </div>
+          <label className="flex items-start gap-2 text-sm text-gray-200">
+            <input type="checkbox" checked={form.incluirProSolutoBaseEmpreiteiro}
+              disabled={!form.empreiteiroId}
+              onChange={e => setForm({ ...form, incluirProSolutoBaseEmpreiteiro: e.target.checked })}
+              className="mt-1 h-4 w-4 shrink-0 accent-[#C9A961]" />
+            Incluir Valor Total do Pró-Soluto na Base do Empreiteiro
+          </label>
           <Calculado label={`Lucro ${nomeEmpresa}`} indicador={calculo.lucroEmpresa} destaque ajuda="Lucro Estimado − Lucro dos Investidores − Lucro do Empreiteiro" />
         </CardContent>
       </Card>
@@ -516,6 +526,7 @@ export function ValoresOperacaoAba({ projectId, resumo, form, setForm, calculo, 
               onChange={(e) => { const t = e.target.value.replace(/\D/g, ""); setForm({ ...form, parcelas: t ? Number(t) : null }); }} />
           </div>
           <Calculado label="Valor da Parcela" indicador={calculo.valorParcela} destaque />
+          <Calculado label="VALOR TOTAL DO PRÓ-SOLUTO" indicador={calculo.valorTotalProSoluto} ajuda="Valor da parcela × quantidade de parcelas." />
         </CardContent>
       </Card>
 

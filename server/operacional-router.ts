@@ -2,6 +2,7 @@ import { projectChecklist } from "../shared/projeto-documentos.js";
 import { PROJECT_TYPE_LABELS } from "../shared/operacional.js";
 import { TRPCError } from "@trpc/server";
 import { and, asc, desc, eq, inArray, isNull, ne, sql } from "drizzle-orm";
+import { alias } from "drizzle-orm/pg-core";
 import { z } from "zod";
 import {
   brokerProfiles,
@@ -193,8 +194,10 @@ async function leadDoCorretor(leadId: number | null, corretorId: number | null) 
 export const agendaRouter = router({
   cardDeadlines: adminProcedure.query(async ({ ctx }) => {
     const corretorId = corretorDaSessao(ctx.user);
-    return getDb().select({ id: leads.id, name: leads.name, cardDueDate: leads.cardDueDate })
-      .from(leads).where(and(isNull(leads.deletedAt), ne(leads.stage, "finalized"),
+    const responsavelLead = alias(users, "responsavel_lead_agenda");
+    return getDb().select({ id: leads.id, name: leads.name, cardDueDate: leads.cardDueDate, responsibleName: responsavelLead.name })
+      .from(leads).leftJoin(responsavelLead, eq(leads.responsibleUserId, responsavelLead.id))
+      .where(and(isNull(leads.deletedAt), ne(leads.stage, "finalized"),
         sql`${leads.cardDueDate} IS NOT NULL`,
         ...(corretorId === null ? [] : [eq(leads.brokerId, corretorId)])))
       .orderBy(asc(leads.cardDueDate));
@@ -214,15 +217,18 @@ export const agendaRouter = router({
   }),
   list: adminProcedure.query(async ({ ctx }) => {
     const corretorId = corretorDaSessao(ctx.user);
+    const responsavelLead = alias(users, "responsavel_lead_visita");
     return getDb()
       .select({
         visit: visits,
         leadName: leads.name,
         brokerName: users.name,
+        leadResponsibleName: responsavelLead.name,
         propertyTitle: imoveis.titulo,
       })
       .from(visits)
       .leftJoin(leads, eq(visits.leadId, leads.id))
+      .leftJoin(responsavelLead, eq(leads.responsibleUserId, responsavelLead.id))
       .leftJoin(users, eq(visits.brokerId, users.id))
       .leftJoin(imoveis, eq(visits.propertyId, imoveis.id))
       .where(corretorId === null ? undefined : eq(visits.brokerId, corretorId))

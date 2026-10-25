@@ -74,6 +74,44 @@ export async function salvarLocalizacaoObra(projectId: number, entrada: Coordena
   return salvarLocalizacaoObra(projectId, coords, userId);
 }
 
+/** Só espelha campos da obra em imóveis que esta rotina criou; preserva anúncios manuais,
+ * status comercial, preço, fotos e qualquer título posteriormente editado pela equipe. */
+export async function sincronizarImovelGeradoDaObra(projectId: number, tituloAnterior: string) {
+  const obra = await obraOuErro(projectId);
+  if (!obra.imovelId) return;
+  const [imovel] = await getDb().select({
+    id: imoveis.id, slug: imoveis.slug, titulo: imoveis.titulo,
+  }).from(imoveis).where(eq(imoveis.id, obra.imovelId)).limit(1);
+  if (!imovel?.slug.startsWith(`obra-${projectId}-`)) return;
+  const dados = imovelDaObra({ id: obra.id, titulo: obra.title, endereco: obra.address, cidade: obra.city, estado: obra.state });
+  await getDb().update(imoveis).set({
+    endereco: dados.endereco,
+    cidade: dados.cidade,
+    estado: dados.estado,
+    ...(imovel.titulo === `Obra — ${tituloAnterior}`.slice(0, 255) ? { titulo: dados.titulo } : {}),
+    updatedAt: new Date(),
+  }).where(eq(imoveis.id, imovel.id));
+}
+
+/** Novos cadastros/edições com endereço passam ao catálogo interno, sem publicação.
+ * Obras antigas são mostradas pela vista de leitura até reconciliação aprovada. */
+export async function garantirImovelCatalogoObra(projectId: number, userId: number | null) {
+  const obra = await obraOuErro(projectId);
+  if (!obra.address?.trim() || obra.imovelId) return;
+  const dados = imovelDaObra({ id: obra.id, titulo: obra.title, endereco: obra.address, cidade: obra.city, estado: obra.state });
+  const db = getDb();
+  const [novo] = await db.insert(imoveis).values({
+    ...dados,
+    slug: `obra-${projectId}-${randomBytes(4).toString("hex")}`,
+    tipo: "casa", status: "reservado", preco: "0",
+    destaque: false, publicadoSite: false, reviewStatus: "approved",
+    createdByUserId: userId,
+  }).returning({ id: imoveis.id });
+  const vinculado = await db.update(constructionProjects).set({ imovelId: novo.id, updatedAt: new Date() })
+    .where(and(eq(constructionProjects.id, projectId), isNull(constructionProjects.imovelId))).returning({ id: constructionProjects.id });
+  if (!vinculado.length) await db.delete(imoveis).where(eq(imoveis.id, novo.id));
+}
+
 const coordsInput = z.object({ lat: z.number(), lng: z.number() }).nullable();
 
 export const obraLocalizacaoRouter = router({
