@@ -46,28 +46,48 @@ export function validateAsaasConfiguration(config: AsaasClientConfig): void {
   }
 }
 
-async function readDefaultConfig(): Promise<AsaasClientConfig> {
-  const environment = ENV.asaasEnvironment;
-  if (environment !== "sandbox" && environment !== "production") {
-    throw new AsaasConfigurationError(
-      "ASAAS_ENVIRONMENT deve ser sandbox ou production"
-    );
-  }
-  if (ENV.asaasApiKey) return { apiKey: ENV.asaasApiKey, environment };
+/** Ambiente pela chave: "$aact_prod..." é produção; o resto ("$aact_hmlg...", "$aact_test...") é sandbox. */
+export function ambienteDaChaveAsaas(apiKey: string): AsaasEnvironment {
+  return apiKey.trim().startsWith("$aact_prod") ? "production" : "sandbox";
+}
 
-  try {
-    const saved = await getPaymentSetting();
-    if (saved?.isActive && saved.asaasApiKeyEncrypted) {
-      const savedEnvironment =
-        saved.asaasEnvironment === "production" ? "production" : "sandbox";
-      return {
-        apiKey: decryptSecret(saved.asaasApiKeyEncrypted),
-        environment: savedEnvironment,
-      };
+export type ChaveAsaasCentral = AsaasClientConfig & { fonte: "env" | "banco" };
+
+/**
+ * LOTE B (25/10): chave central do Asaas (Integrações). A variável ASAAS_API_KEY tem
+ * precedência; senão vale a chave salva em payment_settings. null = nada configurado.
+ */
+export async function chaveAsaasCentral(): Promise<ChaveAsaasCentral | null> {
+  if (ENV.asaasApiKey) {
+    const environment = ENV.asaasEnvironment;
+    if (environment !== "sandbox" && environment !== "production") {
+      throw new AsaasConfigurationError(
+        "ASAAS_ENVIRONMENT deve ser sandbox ou production"
+      );
     }
-  } catch {
+    return { apiKey: ENV.asaasApiKey, environment, fonte: "env" };
+  }
+  const saved = await getPaymentSetting();
+  if (saved?.isActive && saved.asaasApiKeyEncrypted) {
+    return {
+      apiKey: decryptSecret(saved.asaasApiKeyEncrypted),
+      environment:
+        saved.asaasEnvironment === "production" ? "production" : "sandbox",
+      fonte: "banco",
+    };
+  }
+  return null;
+}
+
+async function readDefaultConfig(): Promise<AsaasClientConfig> {
+  let central: ChaveAsaasCentral | null = null;
+  try {
+    central = await chaveAsaasCentral();
+  } catch (error) {
+    if (error instanceof AsaasConfigurationError) throw error;
     // Normalize missing database/configuration into the safe error below.
   }
+  if (central) return { apiKey: central.apiKey, environment: central.environment };
   throw new AsaasConfigurationError("ASAAS_API_KEY não está configurada");
 }
 
