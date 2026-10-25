@@ -49,3 +49,9 @@
 - Smoke test em `https://site-prospecta.vercel.app/`: HTTP 200. Varredura de erros de runtime após o deploy: nenhum erro encontrado.
 - Banco: 0073/0074 aplicadas e verificadas antes do merge. Nenhum backfill histórico 09/10 executado. A correção 01 permaneceu intocada.
 - Entrega: código, banco aditivo, merge e deploy concluídos. Pendências de homologação humana: Safari/iPad, comparação visual de um PDF/Excel real, upload real com Drive e aprovação específica para backfill histórico.
+
+## Revisão Claude (25/10, após o merge)
+- Conferido em produção: colunas 0073/0074 (Neon) e Pró-Soluto/sha256 (Supabase); deploys READY sem erros de runtime.
+- Testes: Prospecta 1035/1035; Santa Fé 907 ok + 9 falhas pré-existentes **com banco real** (os 108 testes de banco antes pulados passaram).
+- Santa Fé: removida a cópia duplicada `20261025180000_pro_soluto_base_empreiteiro` (PR #231).
+- Backfill 09/10: prévia somente leitura em `PREVIA-25-10-OBRAS-ANTIGAS-09-10.md`. **Nada aplicado**; aguarda decisão do dono por grupo.
