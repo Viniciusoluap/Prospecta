@@ -6,8 +6,8 @@ import { describe, expect, it } from "vitest";
 const rotas = (arquivo: string) =>
   [...readFileSync(new URL(arquivo, import.meta.url), "utf8").matchAll(/from "(?:\.\.\/server)?\/?\.{0,2}\/?routes\/([\w-]+)\.js"/g)].map(m => m[1]);
 
-// Rotas só do servidor local, ainda não publicadas na Vercel (registradas no handoff de 24/10).
-const SO_LOCAL = ["imovel-feeds"];
+// Rotas só do servidor local, ainda não publicadas na Vercel (nenhuma desde 24/10).
+const SO_LOCAL: string[] = [];
 
 describe("rotas Express publicadas na Vercel", () => {
   it("toda rota do servidor local também está em api/index.ts", () => {
@@ -16,5 +16,11 @@ describe("rotas Express publicadas na Vercel", () => {
     expect(local.length).toBeGreaterThan(0);
     expect(producao).toContain("projeto-documentos");
     expect(local.filter(r => !producao.includes(r) && !SO_LOCAL.includes(r))).toEqual([]);
+  });
+  it("webhook do WhatsApp fica antes do express.json (corpo bruto para a assinatura)", () => {
+    const api = readFileSync(new URL("../api/index.ts", import.meta.url), "utf8");
+    const json = api.indexOf("app.use(express.json(");
+    expect(api.indexOf('"/api/whatsapp/webhook", express.raw(')).toBeGreaterThan(-1);
+    expect(api.indexOf('"/api/whatsapp/webhook", express.raw(')).toBeLessThan(json);
   });
 });

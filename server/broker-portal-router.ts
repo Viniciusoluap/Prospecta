@@ -212,10 +212,6 @@ export const brokerPortalRouter = router({
           fotos: "[]",
           destaque: false,
           publicadoSite: false,
-          publicadoZap: false,
-          publicadoOlx: false,
-          publicadoViva: false,
-          publicadoChavesNaMao: false,
           createdByUserId: userId,
           reviewStatus: "pending",
         })

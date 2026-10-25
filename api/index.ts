@@ -17,6 +17,7 @@ import { appRouter } from "../server/routers.js";
 import obraFotosRouter from "../server/routes/obra-fotos.js";
 import obraMedicaoCaixaRouter from "../server/routes/obra-medicao-caixa.js";
 import projetoDocumentosRouter from "../server/routes/projeto-documentos.js";
+import { handleWhatsappWebhook } from "../server/whatsapp-webhook.js";
 import imovelFotosRouter from "../server/routes/imovel-fotos.js";
 import googleDriveRotas from "../server/routes/google-drive.js";
 import { checkAndSendReminder } from "../server/mcmv-rules-reminder.js";
@@ -24,6 +25,9 @@ import { ensureLeadCardDeadlineSchema } from "../server/lead-card-deadline-schem
 import { sendLeadCardDueDigests } from "../server/lead-card-due-digest.js";
 
 const app = express();
+// Pedido de 24/10: webhook do WhatsApp publicado na Vercel. Precisa do corpo bruto (assinatura),
+// por isso ficam antes do express.json() — igual ao servidor local (server/_core/index.ts).
+app.post("/api/whatsapp/webhook", express.raw({ type: "application/json" }), handleWhatsappWebhook);
 app.use(express.json({ limit: "50mb" }));
 app.use(express.urlencoded({ limit: "50mb", extended: true }));
 app.use("/api", async (_req, res, next) => {

@@ -358,8 +358,10 @@ export const tickets = pgTable("tickets", {
   paymentMethod: varchar("payment_method", { length: 50 }).default("pix"),
   pixQrCode: text("pix_qr_code"),
   pixCopyPaste: text("pix_copy_paste"),
-  stripePaymentIntentId: varchar("stripe_payment_intent_id", { length: 255 }),
-  stripeCheckoutSessionId: varchar("stripe_checkout_session_id", {
+  // ID do pagamento no Asaas. A coluna mantém o nome legado do banco (sem migração).
+  paymentProviderId: varchar("stripe_payment_intent_id", { length: 255 }),
+  // Coluna legada sem uso (nome antigo mantido no banco, sem migração).
+  legacyCheckoutSessionId: varchar("stripe_checkout_session_id", {
     length: 255,
   }),
   createdAt: timestamp("created_at").defaultNow().notNull(),
@@ -1342,6 +1344,7 @@ export const imoveis = pgTable("imoveis", {
   fotos: text("fotos"),
   destaque: boolean("destaque").default(false).notNull(),
   publicadoSite: boolean("publicado_site").default(true).notNull(),
+  // Colunas legadas dos feeds XML (retirados em 24/10); mantidas no banco, sem uso.
   publicadoZap: boolean("publicado_zap").default(false).notNull(),
   publicadoOlx: boolean("publicado_olx").default(false).notNull(),
   publicadoViva: boolean("publicado_viva").default(false).notNull(),

@@ -367,18 +367,6 @@ export async function getTicketsByUserId(userId: number): Promise<Ticket[]> {
   return db.select().from(tickets).where(eq(tickets.userId, userId)).orderBy(desc(tickets.createdAt));
 }
 
-export async function getTicketByStripeSessionId(sessionId: string) {
-  const db = getDb();
-  const result = await db.select().from(tickets).where(eq(tickets.stripeCheckoutSessionId, sessionId)).limit(1);
-  return result[0] ?? null;
-}
-
-export async function getTicketByStripePaymentIntentId(paymentIntentId: string) {
-  const db = getDb();
-  const result = await db.select().from(tickets).where(eq(tickets.stripePaymentIntentId, paymentIntentId)).limit(1);
-  return result[0] ?? null;
-}
-
 export async function updateTicketPaymentStatus(ticketId: number, status: 'pending' | 'confirmed' | 'failed') {
   const db = getDb();
   await db.update(tickets).set({ paymentStatus: status }).where(eq(tickets.id, ticketId));

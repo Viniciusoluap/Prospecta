@@ -107,7 +107,7 @@ export default function ProjetosOrcamentos() {
                   <div className="text-center p-8">
                     <Home className="h-24 w-24 text-[#C9A961] mx-auto mb-4" />
                     <p className="text-gray-600 font-medium">Planta Baixa 47m²</p>
-                    <p className="text-sm text-gray-500 mt-2">
+                    <p className="text-sm text-gray-600 mt-2">
                       2 quartos • 1 banheiro<br />
                       Sala • Cozinha • Área de serviço
                     </p>
@@ -120,7 +120,7 @@ export default function ProjetosOrcamentos() {
                   rel="noopener noreferrer"
                   className="w-full"
                 >
-                  <Button className="w-full bg-[#C9A961] hover:bg-[#b89851] text-white gap-2">
+                  <Button className="w-full bg-[#C9A961] hover:bg-[#b89851] text-[#1A2332] gap-2">
                     <ExternalLink className="h-4 w-4" />
                     Ver Projeto 3D Interativo (Planner5D)
                   </Button>
@@ -142,7 +142,7 @@ export default function ProjetosOrcamentos() {
                 </CardHeader>
                 <CardContent>
                   <div className="text-center py-6">
-                    <p className="text-5xl font-bold text-[#C9A961] mb-2">
+                    <p className="text-5xl font-bold text-[#8a7238] mb-2">
                       R$ 215.000
                     </p>
                     <p className="text-gray-600">
@@ -348,7 +348,7 @@ export default function ProjetosOrcamentos() {
         <div className="container mx-auto max-w-6xl">
           <div className="text-center mb-12">
             <h2 className="text-4xl font-bold text-[#1A2332] mb-4">
-              Outros <span className="text-[#C9A961]">Projetos</span>
+              Outros <span className="text-[#8a7238]">Projetos</span>
             </h2>
             <p className="text-xl text-gray-600">
               Temos diversas opções de plantas e tamanhos
@@ -362,8 +362,8 @@ export default function ProjetosOrcamentos() {
                 <CardDescription>3 quartos • 1 banheiro</CardDescription>
               </CardHeader>
               <CardContent>
-                <p className="text-3xl font-bold text-[#C9A961] mb-4">R$ 260.000</p>
-                <Button variant="outline" className="w-full border-[#C9A961] text-[#C9A961] hover:bg-[#C9A961] hover:text-white">
+                <p className="text-3xl font-bold text-[#8a7238] mb-4">R$ 260.000</p>
+                <Button variant="outline" className="w-full border-[#C9A961] text-[#8a7238] hover:bg-[#C9A961] hover:text-[#1A2332]">
                   Ver Detalhes
                 </Button>
               </CardContent>
@@ -375,8 +375,8 @@ export default function ProjetosOrcamentos() {
                 <CardDescription>3 quartos • 2 banheiros</CardDescription>
               </CardHeader>
               <CardContent>
-                <p className="text-3xl font-bold text-[#C9A961] mb-4">R$ 305.000</p>
-                <Button variant="outline" className="w-full border-[#C9A961] text-[#C9A961] hover:bg-[#C9A961] hover:text-white">
+                <p className="text-3xl font-bold text-[#8a7238] mb-4">R$ 305.000</p>
+                <Button variant="outline" className="w-full border-[#C9A961] text-[#8a7238] hover:bg-[#C9A961] hover:text-[#1A2332]">
                   Ver Detalhes
                 </Button>
               </CardContent>
@@ -388,8 +388,8 @@ export default function ProjetosOrcamentos() {
                 <CardDescription>4 quartos • 2 banheiros</CardDescription>
               </CardHeader>
               <CardContent>
-                <p className="text-3xl font-bold text-[#C9A961] mb-4">R$ 380.000</p>
-                <Button variant="outline" className="w-full border-[#C9A961] text-[#C9A961] hover:bg-[#C9A961] hover:text-white">
+                <p className="text-3xl font-bold text-[#8a7238] mb-4">R$ 380.000</p>
+                <Button variant="outline" className="w-full border-[#C9A961] text-[#8a7238] hover:bg-[#C9A961] hover:text-[#1A2332]">
                   Ver Detalhes
                 </Button>
               </CardContent>

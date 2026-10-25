@@ -81,7 +81,7 @@ export default function FAQ() {
     },
     {
       question: "Como funciona o pagamento?",
-      answer: "Aceitamos pagamentos via PIX (instantâneo) e cartão de crédito (através do Stripe). Para PIX, basta escanear o QR Code ou copiar o código. Para cartão, você será redirecionado para uma página segura de pagamento."
+      answer: "Aceitamos pagamentos via PIX (instantâneo) e cartão de crédito, processados pelo Asaas. Para PIX, basta escanear o QR Code ou copiar o código. Para cartão, você será redirecionado para uma página segura de pagamento."
     },
     {
       question: "Meus dados estão seguros?",

@@ -191,7 +191,7 @@ export default function AdminAgregador({
               </Link>
               <div>
                 <h1 className="text-2xl font-bold text-[#C9A961]">
-                  Agregador / Feeds
+                  Agregador / Captação
                 </h1>
                 <p className="text-gray-400 text-sm">
                   Imóveis captados em portais externos — verificação antes de
