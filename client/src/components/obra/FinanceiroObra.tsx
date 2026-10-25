@@ -508,7 +508,7 @@ export function ValoresOperacaoAba({ projectId, resumo, form, setForm, calculo, 
               className="mt-1 h-4 w-4 shrink-0 accent-[#C9A961]" />
             Incluir Valor Total do Pró-Soluto na Base do Empreiteiro
           </label>
-          <Calculado label={`Lucro ${nomeEmpresa}`} indicador={calculo.lucroEmpresa} destaque ajuda="Lucro Estimado − Lucro dos Investidores − Lucro do Empreiteiro" />
+          <Calculado label={`Lucro ${nomeEmpresa}`} indicador={calculo.lucroEmpresa} destaque ajuda="Base do Empreiteiro − Lucro do Empreiteiro" />
         </CardContent>
       </Card>
 
