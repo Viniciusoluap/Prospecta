@@ -339,7 +339,7 @@ async function main() {
       type lead_type NOT NULL DEFAULT 'new_lead',
       temperature lead_temperature NOT NULL DEFAULT 'cold',
       stage lead_stage NOT NULL DEFAULT 'lead_new',
-      responsible lead_responsible NOT NULL DEFAULT 'sarah',
+      responsible lead_responsible,
       income DECIMAL(15,2),
       income_type lead_income_type,
       fgts_amount DECIMAL(15,2),

@@ -17,6 +17,8 @@ import { createContext } from "../server/_core/context.js";
 import { getDb, getUserByEmail } from "../server/db.js";
 import { appRouter } from "../server/routers.js";
 import obraFotosRouter from "../server/routes/obra-fotos.js";
+// Pedido de 25/10 (noite): mídia das conversas do WhatsApp guardada no banco.
+import whatsappMidiaRouter from "../server/whatsapp-midia.js";
 import obraMedicaoCaixaRouter from "../server/routes/obra-medicao-caixa.js";
 import projetoDocumentosRouter from "../server/routes/projeto-documentos.js";
 import { handleWhatsappWebhook } from "../server/whatsapp-webhook.js";
@@ -165,6 +167,7 @@ app.use("/api", async (req, res, next) => {
   try {
     const router = express.Router();
     router.use(obraFotosRouter);
+    router.use(whatsappMidiaRouter);
     router.use(obraMedicaoCaixaRouter);
     // Pedido de 24/10: envio de arquivos de Projetos (e da revisão) só existia no servidor local.
     router.use(projetoDocumentosRouter);

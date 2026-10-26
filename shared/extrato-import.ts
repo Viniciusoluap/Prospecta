@@ -7,6 +7,12 @@ export type LinhaExtrato = {
   descricao: string;
   valor: number; // sempre positivo
   tipo: "credito" | "debito";
+  // Pedido de 25/10 (noite), item 9: quem pagou/recebeu, descrição complementar e o texto
+  // completo da linha. Só aparecem quando o arquivo traz. Não entram na chave de importação
+  // (reimportar o mesmo arquivo continua sem duplicar e completa as linhas antigas).
+  titular?: string;
+  detalhe?: string;
+  original?: string;
 };
 
 /** `saldoFinal`: saldo informado no próprio arquivo (OFX LEDGERBAL, coluna "Saldo", última coluna do PDF). */
@@ -78,9 +84,47 @@ export function dataIso(entrada: unknown): string | null {
   return null;
 }
 
-function linha(data: string | null, descricao: string, valor: number | null): LinhaExtrato | null {
+const limpo = (s: unknown, max: number) => String(s ?? "").replace(/\s+/g, " ").trim().slice(0, max);
+
+type Extras = { titular?: string | null; detalhe?: string | null; original?: string | null };
+
+function linha(data: string | null, descricao: string, valor: number | null, extras: Extras = {}): LinhaExtrato | null {
   if (!data || valor === null || valor === 0) return null;
-  return { data, descricao: descricao.replace(/\s+/g, " ").trim().slice(0, 500) || "Movimentação", valor: Math.abs(valor), tipo: valor < 0 ? "debito" : "credito" };
+  const l: LinhaExtrato = { data, descricao: limpo(descricao, 500) || "Movimentação", valor: Math.abs(valor), tipo: valor < 0 ? "debito" : "credito" };
+  const titular = limpo(extras.titular, 255), detalhe = limpo(extras.detalhe, 500), original = limpo(extras.original, 2000);
+  if (titular) l.titular = titular;
+  if (detalhe && sem(detalhe) !== sem(l.descricao)) l.detalhe = detalhe;
+  if (original && sem(original) !== sem(l.descricao)) l.original = original;
+  return l;
+}
+
+// ── Titular (quem pagou/recebeu) ────────────────────────────────────────────
+// Tipos de transação que os bancos escrevem antes do nome (Cora, C6, Inter, Asaas…).
+const TIPO_ANTES_DO_NOME = new RegExp(
+  "^(?:transf(?:erencia)?\\.?\\s+pix\\s+(?:enviada|recebida)|pix\\s+(?:enviado|recebido|enviada|recebida)|" +
+  "pgto\\.?\\s+qr\\s+code\\s+pix|pagamento\\s+(?:qr\\s+code\\s+)?pix|pix\\s+qr\\s+code|transf(?:erencia)?\\.?\\s+(?:enviada|recebida)|" +
+  "ted\\s+(?:enviada|recebida)|doc\\s+(?:enviado|recebido)|pagamento\\s+de\\s+boleto|boleto\\s+pago|transferencia\\s+pix|pix)\\b",
+);
+const SO_TIPO = /^(?:pix|ted|doc|transf|transferencia|pagamento|pgto|boleto|tarifa|saque|deposito|compra|recebimento|qr|code|enviad[oa]|recebid[oa]|de|para|\s|[-–:|.])+$/;
+
+/** Nome depois do tipo da transação ("Pix recebido - Fulano" → "Fulano"); `null` quando não há nome. */
+export function extrairTitular(texto: string | null | undefined): string | null {
+  const original = String(texto ?? "").normalize("NFC").replace(/\s+/g, " ").trim();
+  if (!original) return null;
+  const base = original.normalize("NFD").replace(/[̀-ͯ]/g, "");
+  const minusculo = base.toLowerCase();
+  const m = minusculo.match(TIPO_ANTES_DO_NOME);
+  // Sem tipo conhecido, só aceita "TIPO - NOME" quando a primeira parte é um tipo.
+  let resto: string;
+  if (m) resto = (base.length === original.length ? original : base).slice(m[0].length);
+  else {
+    const partes = original.split(/\s[-–|]\s/);
+    if (partes.length < 2 || !SO_TIPO.test(sem(partes[0]))) return null;
+    resto = partes.slice(1).join(" - ");
+  }
+  resto = resto.replace(/^[\s\-–:|.]+/, "").replace(/^(?:de|para|p\/)\s+/i, "").replace(/^[\s\-–:|.]+/, "").trim();
+  if (!/[a-zA-ZÀ-ÿ]{2}/.test(resto) || SO_TIPO.test(sem(resto))) return null;
+  return resto.slice(0, 255);
 }
 
 // ── OFX ─────────────────────────────────────────────────────────────────────
@@ -92,7 +136,14 @@ export function lerOfx(texto: string): ResultadoLeitura {
     const valor = valorMonetario(campo(bloco, "TRNAMT").replace(",", "."));
     const tipoOfx = campo(bloco, "TRNTYPE").toUpperCase();
     const assinado = valor !== null && valor > 0 && tipoOfx === "DEBIT" ? -valor : valor;
-    const l = linha(dataIso(campo(bloco, "DTPOSTED")), campo(bloco, "MEMO") || campo(bloco, "NAME"), assinado);
+    const memo = campo(bloco, "MEMO"), nome = campo(bloco, "NAME");
+    // NAME costuma ser o titular; quando o NAME é só o tipo ("PIX RECEBIDO"), o nome vem no MEMO.
+    const nomeEhTipo = !nome || SO_TIPO.test(sem(nome)) || TIPO_ANTES_DO_NOME.test(sem(nome));
+    const titular = memo && nome && !nomeEhTipo ? nome : extrairTitular(memo || nome) ?? (memo && nome && sem(memo) !== sem(nome) ? extrairTitular(nome) : null);
+    const l = linha(dataIso(campo(bloco, "DTPOSTED")), memo || nome, assinado, {
+      titular,
+      original: [nome, memo].filter((x, i, a) => x && a.findIndex(y => sem(y) === sem(x)) === i).join(" | "),
+    });
     if (l) linhas.push(l); else ignoradas++;
   }
   const bal = texto.match(/<LEDGERBAL>[\s\S]*?<BALAMT>([^<\r\n]+)/i)?.[1]?.trim();
@@ -108,14 +159,25 @@ const COL_CRED = ["credito", "entrada", "entradas", "creditos", "credito (r$)", 
 const COL_DEB = ["debito", "saida", "saidas", "debitos", "debito (r$)", "saida (r$)"];
 const COL_SALDO = ["saldo", "saldo (r$)", "saldo r$", "saldo final", "saldo do dia", "balance"];
 const COL_TIPO = ["tipo", "natureza", "d/c", "c/d", "tipo transacao", "tipo de transacao"];
+// Pedido de 25/10 (noite): colunas do titular e da descrição complementar (Cora: "Identificação" e "Descrição").
+const COL_TITULAR = [
+  "identificacao", "nome", "titular", "favorecido", "pagador", "beneficiario", "contraparte", "destinatario",
+  "remetente", "origem/destino", "nome do pagador", "nome do favorecido", "razao social", "nome/razao social",
+  "cliente/fornecedor", "pagador/recebedor", "recebedor",
+];
+const COL_DETALHE = [
+  "descricao", "historico", "detalhe", "detalhes", "memo", "observacao", "observacoes", "complemento",
+  "mensagem", "informacoes adicionais", "descricao complementar",
+];
 
-function acharColuna(cab: string[], nomes: string[]) {
-  const i = cab.findIndex(c => nomes.includes(c));
-  return i >= 0 ? i : cab.findIndex(c => nomes.some(n => n.length > 3 && c.startsWith(n)));
+function acharColuna(cab: string[], nomes: string[], excluir: number[] = []) {
+  const livre = (i: number) => !excluir.includes(i);
+  const i = cab.findIndex((c, k) => livre(k) && nomes.includes(c));
+  return i >= 0 ? i : cab.findIndex((c, k) => livre(k) && nomes.some(n => n.length > 3 && c.startsWith(n)));
 }
 
 export function lerTabela(tabela: unknown[][], formato = "Planilha"): ResultadoLeitura {
-  let cabIdx = -1, iData = -1, iDesc = -1, iValor = -1, iCred = -1, iDeb = -1, iTipo = -1, iSaldo = -1;
+  let cabIdx = -1, iData = -1, iDesc = -1, iValor = -1, iCred = -1, iDeb = -1, iTipo = -1, iSaldo = -1, iTitular = -1, iDetalhe = -1;
   for (let r = 0; r < Math.min(tabela.length, 40); r++) {
     const cab = (tabela[r] ?? []).map(c => sem(String(c ?? "")));
     const d = acharColuna(cab, COL_DATA);
@@ -123,6 +185,10 @@ export function lerTabela(tabela: unknown[][], formato = "Planilha"): ResultadoL
     if (d >= 0 && (v >= 0 || c >= 0 || b >= 0)) {
       cabIdx = r; iData = d; iValor = v; iCred = c; iDeb = b;
       iDesc = acharColuna(cab, COL_DESC); iTipo = acharColuna(cab, COL_TIPO); iSaldo = acharColuna(cab, COL_SALDO);
+      // A coluna da descrição (chave de importação) não muda; titular e detalhe são colunas extras.
+      const usadas = [d, v, c, b, iDesc, iTipo, iSaldo].filter(x => x >= 0);
+      iTitular = acharColuna(cab, COL_TITULAR, usadas);
+      iDetalhe = acharColuna(cab, COL_DETALHE, [...usadas, iTitular]);
       break;
     }
   }
@@ -150,7 +216,14 @@ export function lerTabela(tabela: unknown[][], formato = "Planilha"): ResultadoL
       if (iSaldo < 0 && dataLinha && valor !== null) saldos.push({ data: dataLinha, saldo: valor });
       ignoradas++; continue;
     }
-    const l = linha(dataLinha, descricao, valor);
+    const detalhe = iDetalhe >= 0 ? String(row[iDetalhe] ?? "") : "";
+    const titular = (iTitular >= 0 ? String(row[iTitular] ?? "").trim() : "") || extrairTitular(detalhe) || extrairTitular(descricao);
+    const numericas = new Set([iData, iValor, iCred, iDeb, iSaldo, iTipo]);
+    const original = row
+      .map((c, k) => (numericas.has(k) ? "" : limpo(c instanceof Date ? "" : c, 500)))
+      .filter(Boolean)
+      .join(" | ");
+    const l = linha(dataLinha, descricao, valor, { titular, detalhe, original });
     if (l) linhas.push(l); else ignoradas++;
   }
   return { linhas, ignoradas, formato, saldoFinal: saldoMaisRecente(saldos) };
@@ -207,10 +280,16 @@ export function lerTextoPdf(linhasTexto: string[], anoPadrao?: number): Resultad
     }
     if (ehSaldo) continue;
     if (valor !== null && valor > 0 && PALAVRAS_DEBITO.test(sem(descricao))) valor = -valor;
-    const l = linha(data, descricao, valor);
+    const l = linha(data, descricao, valor, { titular: extrairTitular(descricao), original: resto });
     if (l) linhas.push(l); else ignoradas++;
   }
   return { linhas, ignoradas, formato: "PDF", saldoFinal: saldoMaisRecente(saldos) };
+}
+
+/** Pedido de 25/10 (noite): extensões aceitas (o seletor do iPad não filtra .ofx; a conferência é aqui). */
+export const EXTENSOES_EXTRATO = ["csv", "txt", "xlsx", "xls", "ofx", "pdf"] as const;
+export function extensaoExtratoValida(nome: string): boolean {
+  return (EXTENSOES_EXTRATO as readonly string[]).includes(nome.toLowerCase().split(".").pop() ?? "");
 }
 
 /** Aplica a data inicial da conta: o que for anterior não pertence a esta empresa. */

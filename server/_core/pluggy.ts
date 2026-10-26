@@ -7,6 +7,8 @@ export type PluggyTransaction = {
   valor: number;
   tipo: "credito" | "debito";
   categoria?: string;
+  /** Pedido de 25/10 (noite): quem pagou (crédito) ou recebeu (débito), quando a Pluggy informa. */
+  titular?: string;
 };
 
 export type PluggyAccount = {
@@ -82,10 +84,16 @@ export async function fetchPluggyTransactions(
     if (!res.ok) throw new Error(`A Pluggy recusou a leitura das transações (HTTP ${res.status}).`);
     const data = (await res.json()) as {
       totalPages?: number;
-      results: { id: string; date: string; description: string; amount: number; type: string; category?: string }[];
+      results: {
+        id: string; date: string; description: string; amount: number; type: string; category?: string;
+        paymentData?: { payer?: { name?: string | null } | null; receiver?: { name?: string | null } | null } | null;
+      }[];
     };
     for (const t of data.results ?? []) {
+      const parte = t.type === "CREDIT" ? t.paymentData?.payer : t.paymentData?.receiver;
+      const titular = parte?.name?.trim();
       out.push({
+        ...(titular ? { titular } : {}),
         externalId: t.id,
         data: t.date,
         descricao: t.description,

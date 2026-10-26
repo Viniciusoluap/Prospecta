@@ -10,7 +10,7 @@ import { chaveAsaasCentral } from "./_core/asaas.js";
 import { bankAccounts } from "../drizzle/schema.js";
 import * as db from "./db.js";
 import { confirmarImportacao, previaImportacao, registrarWebhookPluggy, sincronizarConta, tokenPluggy } from "./bancos.js";
-import { atualizarMovimentacao, movimentacoesDaConta, reprocessarMovimentacoes } from "./bpo-extrato.js";
+import { classificarMovimentacao, movimentacoesDaConta, reprocessarMovimentacoes } from "./bpo-extrato.js";
 import { CATEGORIAS_BPO } from "../shared/financeiro/bpo-extrato.js";
 
 const dataIsoSchema = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Data inválida").nullable().optional();
@@ -169,9 +169,15 @@ export const bancarioRouter = router({
         id: z.number(),
         categoria: z.enum(CATEGORIAS_BPO).optional(),
         bpoClienteId: z.number().int().positive().nullable().optional(),
+        // Pedido de 25/10 (noite): grava a regra do titular e reclassifica as demais dele.
+        aplicarATodasDoTitular: z.boolean().optional(),
       }))
       .mutation(async ({ input }) => {
-        try { return await atualizarMovimentacao(input.id, { categoria: input.categoria, bpoClienteId: input.bpoClienteId }); }
+        try {
+          return await classificarMovimentacao(input.id, {
+            categoria: input.categoria, bpoClienteId: input.bpoClienteId, aplicarATodasDoTitular: input.aplicarATodasDoTitular,
+          });
+        }
         catch (e) { throw erro(e, "Não foi possível atualizar a movimentação."); }
       }),
     atualizarStatus: adminProcedure
@@ -210,6 +216,9 @@ export const bancarioRouter = router({
           descricao: z.string().max(500),
           valor: z.number().positive(),
           tipo: z.enum(["credito", "debito"]),
+          titular: z.string().max(255).optional(),
+          detalhe: z.string().max(500).optional(),
+          original: z.string().max(2000).optional(),
         })).min(1).max(20000),
         saldoFinal: z.number().finite().nullable().optional(),
       }))

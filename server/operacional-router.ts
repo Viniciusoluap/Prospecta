@@ -26,7 +26,7 @@ import {
   visitInput,
 } from "../shared/operacional.js";
 import { calcularComissaoObra } from "../shared/financeiro/comissao.js";
-import { coordenadasDaPci, enderecoCompleto } from "../shared/obra-localizacao.js";
+import { coordenadasDaPci, enderecoCompleto, vgvDaObra as vgvDaObraCompartilhado } from "../shared/obra-localizacao.js";
 import { centavosDe } from "../shared/financeiro/obra.js";
 import { adminProcedure, router } from "./_core/trpc.js";
 import { createNotification, getDb } from "./db.js";
@@ -801,7 +801,7 @@ export const mapaRouter = router({
     ]);
     // Mesma regra do financeiro da obra (carregarObra): obra do CRM usa o VGV simulado do lead;
     // obra sem lead usa o VGV digitado. Valor aprovado é financiamento, não VGV.
-    const vgvDaObra = (o: (typeof obras)[number]) => (o.leadId !== null ? o.simulationValue : o.vgv) ?? null;
+    const vgvDaObra = (o: (typeof obras)[number]) => vgvDaObraCompartilhado(o); // mesma regra da lista de imóveis
     const obraDoImovel = new Map(obras.filter(o => o.imovelId).map(o => [o.imovelId!, o]));
     const pciDaObra = new Map(pcis.map(p => [p.projectId, (p.parsed as { identificacao?: { latitude?: unknown; longitude?: unknown } } | null)?.identificacao]));
     const pontoPciDaObra = (obraId: number) => {

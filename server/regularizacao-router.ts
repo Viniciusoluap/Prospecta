@@ -1,5 +1,5 @@
 import { TRPCError } from "@trpc/server";
-import { and, asc, desc, eq, sql } from "drizzle-orm";
+import { and, asc, desc, eq, getTableColumns, sql } from "drizzle-orm";
 import { z } from "zod";
 import {
   bpoLancamentos,
@@ -126,6 +126,21 @@ const itemCampos = {
   previsto: dinheiro,
 };
 
+/**
+ * Pedido de 25/10 (noite), item 7: cada processo da lista vem com o Total geral (previsto) da
+ * tabela financeira — soma do previsto de todos os itens, mesmo valor da linha "Total geral".
+ * Uma consulta só (junção com os itens, agrupada por processo).
+ */
+export async function listarProcessos(status?: string) {
+  return getDb()
+    .select({ ...getTableColumns(regularizacoes), totalPrevisto: sql<string>`coalesce(sum(${regularizacaoItensFinanceiros.previsto}), 0)` })
+    .from(regularizacoes)
+    .leftJoin(regularizacaoItensFinanceiros, eq(regularizacaoItensFinanceiros.regularizacaoId, regularizacoes.id))
+    .where(status ? eq(regularizacoes.status, status) : undefined)
+    .groupBy(regularizacoes.id)
+    .orderBy(desc(regularizacoes.updatedAt));
+}
+
 export const regularizacaoRouter = router({
   indicadores: adminProcedure.query(async () => {
     const db = getDb();
@@ -142,13 +157,7 @@ export const regularizacaoRouter = router({
   }),
   list: adminProcedure
     .input(z.object({ status: z.string().max(40).optional() }).optional())
-    .query(async ({ input }) => {
-      return getDb()
-        .select()
-        .from(regularizacoes)
-        .where(input?.status ? eq(regularizacoes.status, input.status) : undefined)
-        .orderBy(desc(regularizacoes.updatedAt));
-    }),
+    .query(async ({ input }) => listarProcessos(input?.status)),
 
   get: adminProcedure
     .input(z.object({ id: idSchema }))

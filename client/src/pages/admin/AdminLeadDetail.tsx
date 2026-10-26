@@ -71,6 +71,8 @@ export default function AdminLeadDetail() {
   const { data: services = [], refetch: refetchServices } = trpc.leadServices.listByLead.useQuery({ leadId }, { enabled: !!leadId });
   // EPIC-017 (stories 1.6/1.8): responsável e corretor são usuários reais.
   const { data: assignment } = trpc.leads.assignmentOptions.useQuery();
+  // Só admin acessa o BPO; para os demais a consulta é recusada e o quadro não aparece.
+  const bpoResumo = trpc.bpo.clientes.resumoPorLead.useQuery({ leadId }, { enabled: !!leadId, retry: false });
   const { data: deletionContext } = trpc.leads.deletionContext.useQuery({ id: leadId }, { enabled: deleteOpen && !!leadId });
 
   // Lote 23/10, etapa 6: "Duplicar lead" abre o lead novo.
@@ -100,7 +102,7 @@ export default function AdminLeadDetail() {
         spouseName: lead.spouseName || "", incomeComposition: lead.incomeComposition || false,
         cpfStatus: lead.cpfStatus || "unknown",
         temperature: lead.temperature || "cold",
-        stage: lead.stage, responsible: lead.responsible,
+        stage: lead.stage,
         cardDueDate: lead.cardDueDate || "",
         notes: lead.notes || "", adminNotes: lead.adminNotes || "",
         simulationValue: lead.simulationValue || "", approvedValue: lead.approvedValue || "",
@@ -151,10 +153,10 @@ export default function AdminLeadDetail() {
     );
   }
 
-  const legacyResponsible = ({ sarah: "Sarah", vinicius: "Vinicius", bianca: "Bianca" } as Record<string, string>)[lead.responsible] ?? "";
+  // Pedido de 25/10 (noite): o responsável legado (enum lead_responsible) não aparece mais; só usuários reais.
   const responsibleName = lead.responsibleUserId
     ? assignment?.responsibles.find(item => item.id === lead.responsibleUserId)?.name || `Usuário #${lead.responsibleUserId} (inativo)`
-    : legacyResponsible || "—";
+    : "Sem usuário";
   const brokerName = lead.brokerId ? assignment?.brokers.find(item => item.id === lead.brokerId)?.name || `Corretor #${lead.brokerId}` : "Nenhum";
   const currentStageIdx = STAGES.findIndex(s => s.key === lead.stage);
   const canAdvance = !lead.deletedAt && currentStageIdx >= 0 && currentStageIdx < STAGES.length - 1;
@@ -287,7 +289,7 @@ export default function AdminLeadDetail() {
                           <SelectValue />
                         </SelectTrigger>
                         <SelectContent>
-                          <SelectItem value="none">{legacyResponsible ? `Sem usuário (antigo: ${legacyResponsible})` : "Não definido"}</SelectItem>
+                          <SelectItem value="none">Sem usuário</SelectItem>
                           {assignment?.responsibles.map(item => (
                             <SelectItem key={item.id} value={String(item.id)}>{item.name || item.email}</SelectItem>
                           ))}
@@ -341,7 +343,7 @@ export default function AdminLeadDetail() {
                   <Button
                     onClick={() => {
                       // Renda saiu do formulário (story 1.6); o valor legado não é reenviado.
-                      const { income: _income, responsible: _legacyResponsible, responsibleUserId, brokerId, ...form } = editForm;
+                      const { income: _income, responsibleUserId, brokerId, ...form } = editForm;
                       updateMutation.mutate({
                         id: leadId, ...form,
                         cardDueDate: editForm.cardDueDate || null,
@@ -408,6 +410,13 @@ export default function AdminLeadDetail() {
                 <Link href={`/admin/whatsapp?aba=conversas&numero=${lead.phone.replace(/\D/g, "")}`}>
                   <Button size="sm" variant="outline" className="h-7 text-xs border-green-500/40 text-green-300 mt-1">Conversa no WhatsApp</Button>
                 </Link>
+              )}
+              {/* Pedido de 25/10 (noite): quanto este cliente já pagou na conta (BPO, só admin). */}
+              {bpoResumo.data && bpoResumo.data.clientes.length > 0 && (
+                <div className="rounded border border-[#C9A961]/20 px-2 py-1 text-xs text-gray-200">
+                  BPO: recebido <span className="text-green-300 font-bold">{formatCurrency(bpoResumo.data.totalRecebido)}</span>
+                  {bpoResumo.data.totalEmAberto > 0 && <> · em aberto <span className="text-yellow-200 font-bold">{formatCurrency(bpoResumo.data.totalEmAberto)}</span></>}
+                </div>
               )}
               <InfoRow label="Email" value={lead.email} icon={<Mail className="h-3 w-3" />} />
               <InfoRow label="CPF" value={lead.cpf} />

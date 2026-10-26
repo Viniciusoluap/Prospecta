@@ -82,7 +82,7 @@ import { incorporacaoDocumentsRouter } from "./incorporacao-documents-router.js"
 import { incorporationDueDiligenceRouter } from "./incorporacao-due-diligence-router.js";
 import { incorporationUnitsRouter } from "./incorporacao-unidades-router.js";
 import { excluirDefinitivo } from "./exclusao-definitiva.js";
-import { dreDosLancamentos } from "../shared/financeiro/bpo-extrato.js";
+import { bpoRouter } from "./bpo-router.js";
 
 async function validateStudySchedule(dataJson: string, key: "medicoes" | "marcos") {
   if (dataJson.length > 150_000) throw new TRPCError({ code: "BAD_REQUEST", message: "Cronograma muito extenso" });
@@ -1420,16 +1420,12 @@ export const appRouter = router({
         // Serviços marcados no cadastro criam registros nos módulos de destino.
         for (const serviceType of input.services ?? []) requireModuloDoDestino(ctx, LEAD_SERVICE_MODULE[serviceType]);
         await assertLeadAssignment(input);
-        // Roteamento automático por cidade
-        let responsible: "sarah" | "vinicius" | "bianca" = "sarah";
-        const city = (input.city || "").toLowerCase();
-        if (city.includes("canaa") || city.includes("parauapebas"))
-          responsible = "bianca";
+        // Pedido de 25/10 (noite): o enum legado `responsible` ('sarah'…) não é mais preenchido;
+        // o responsável é o usuário real (responsibleUserId).
         const { services = [], stage, ...leadInput } = input;
         const lead = await db.createLead({
           ...leadInput,
           phone: input.phone ?? "",
-          responsible,
           stage: "lead_new",
           temperature: input.temperature || "cold",
           type: input.type || "new_lead",
@@ -1463,10 +1459,7 @@ export const appRouter = router({
         })
       )
       .mutation(async ({ input }) => {
-        let responsible: "sarah" | "vinicius" | "bianca" = "sarah";
-        const city = (input.city || "").toLowerCase();
-        if (city.includes("canaa") || city.includes("parauapebas"))
-          responsible = "bianca";
+        // Pedido de 25/10 (noite): sem responsável legado ('sarah') por padrão.
         const lead = await db.createLead({
           name: input.name,
           phone: input.phone,
@@ -1475,7 +1468,6 @@ export const appRouter = router({
           state: input.state,
           notes: input.notes,
           sourceChannel: input.sourceChannel,
-          responsible,
           stage: "lead_new",
           temperature: "cold",
           type: "new_lead",
@@ -1517,7 +1509,6 @@ export const appRouter = router({
           state: z.string().optional(),
           stage: z.enum(LEAD_PIPELINE_KEYS).optional(),
           temperature: z.enum(LEAD_TEMPERATURAS).optional(),
-          responsible: z.enum(["sarah", "vinicius", "bianca"]).optional(),
           cpfStatus: z.enum(["clean", "restricted", "unknown"]).optional(),
           simulationValue: z.union([z.string(), z.number()]).optional(),
           approvedValue: z.union([z.string(), z.number()]).optional(),
@@ -2065,90 +2056,8 @@ export const appRouter = router({
   }),
 
   // ========== BPO (terceirização contábil) ==========
-  bpo: router({
-    clientes: router({
-      list: adminProcedure.query(async () => {
-        return db.getAllBpoClients();
-      }),
-
-      create: protectedProcedure
-        .input(
-          z.object({
-            razaoSocial: z.string().min(2),
-            cnpj: z.string().optional(),
-            cpf: z.string().optional(),
-            responsavel: z.string().min(1),
-            email: z.string().optional(),
-            telefone: z.string().min(1),
-            servicos: z.array(z.string()).default([]),
-            honorarios: z.number(),
-            diaVencimento: z.number().optional(),
-            dataInicio: z.union([z.string(), z.date()]),
-            observacoes: z.string().optional(),
-          })
-        )
-        .mutation(async ({ input, ctx }) => {
-          requireModule(ctx, "bpo");
-          return db.createBpoClient({
-            ...input,
-            servicos: JSON.stringify(input.servicos),
-            honorarios: input.honorarios.toString(),
-            dataInicio: new Date(input.dataInicio),
-          } as any);
-        }),
-
-      updateStatus: protectedProcedure
-        .input(
-          z.object({
-            id: z.number(),
-            status: z.enum(["ativo", "pausado", "encerrado"]),
-          })
-        )
-        .mutation(async ({ input, ctx }) => {
-          requireModule(ctx, "bpo");
-          await db.updateBpoClientStatus(input.id, input.status);
-          return { success: true };
-        }),
-    }),
-
-    lancamentos: router({
-      list: adminProcedure.query(async () => {
-        return db.getAllBpoLancamentos();
-      }),
-
-      create: adminProcedure
-        .input(
-          z.object({
-            clienteId: z.number().optional(),
-            clienteNomeLivre: z.string().optional(),
-            tipo: z.enum(["honorario", "despesa", "reembolso"]),
-            descricao: z.string().min(1),
-            valor: z.number(),
-            vencimento: z.union([z.string(), z.date()]),
-            competencia: z.string().min(7).max(7),
-            centroCustos: z.string().optional(),
-          })
-        )
-        .mutation(async ({ input }) => {
-          return db.createBpoLancamento({
-            ...input,
-            valor: input.valor.toString(),
-            vencimento: new Date(input.vencimento),
-          } as any);
-        }),
-
-      marcarPago: adminProcedure
-        .input(z.object({ id: z.number() }))
-        .mutation(async ({ input }) => {
-          await db.marcarBpoLancamentoPago(input.id);
-          return { success: true };
-        }),
-    }),
-
-    // LOTE C (25/10): inclui os lançamentos gerados pelo extrato bancário (transferência
-    // interna não gera lançamento, então não entra). Regra em shared/financeiro/bpo-extrato.ts.
-    dre: adminProcedure.query(async () => dreDosLancamentos(await db.getAllBpoLancamentos())),
-  }),
+  // Pedido de 25/10 (noite): clientes, lançamentos e DRE em server/bpo-router.ts.
+  bpo: bpoRouter,
 
   // ========== Bancos (Pluggy/Meu Pluggy, Asaas e importação de extrato) ==========
   pluggySettings: pluggySettingsRouter,

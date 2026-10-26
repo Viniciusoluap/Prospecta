@@ -91,8 +91,11 @@ export default function AdminRegularizacoes() {
         </p>
         <div className="grid gap-4 sm:grid-cols-3">
           <Metric label="Processos ativos" value={String(active)} />
-          <Metric label="Valor já recebido" value={indicatorsQuery.data ? formatCurrency(indicatorsQuery.data.recebido / 100) : "—"} />
-          <Metric label="Valor contratado" value={indicatorsQuery.data ? formatCurrency(indicatorsQuery.data.contratado / 100) : "—"} />
+          {/* Pedido de 25/10 (noite): fórmula embaixo do valor, igual Valores da Operação. Regra em shared/financeiro/indicadores-regularizacao.ts. */}
+          <Metric label="Valor já recebido" value={indicatorsQuery.data ? formatCurrency(indicatorsQuery.data.recebido / 100) : "—"}
+            ajuda="Soma dos recebimentos confirmados dos itens de receita própria (Projetos, PCI, Água, Despachante, CND/CNO) dos processos não cancelados." />
+          <Metric label="Valor contratado" value={indicatorsQuery.data ? formatCurrency(indicatorsQuery.data.contratado / 100) : "—"}
+            ajuda="Soma do previsto dos itens de receita própria (Projetos, PCI, Água, Despachante, CND/CNO) dos processos não cancelados." />
         </div>
 
         <div className="flex max-w-xs items-center gap-2">
@@ -117,7 +120,8 @@ export default function AdminRegularizacoes() {
                     <div className="flex items-start justify-between gap-2"><strong>{record.clientName}</strong><Badge variant="secondary">{rotuloStatusProcesso(record.status)}</Badge></div>
                     {/* Pedido de 16/10: sem o aviso "Aguardando dados técnicos"; tipo e responsável só aparecem quando existem. */}
                     {record.type.trim() && record.responsible.trim() && <p className="mt-1 text-sm text-gray-300">{record.type} · {record.responsible}</p>}
-                    <p className="text-sm text-[#C9A961]">{currency(record.serviceValue)}</p>
+                    {/* Pedido de 25/10 (noite): Total geral (previsto) do financeiro do processo. */}
+                    <p className="text-sm text-[#C9A961]" title="Total geral (previsto) da tabela financeira do processo">{currency(record.totalPrevisto)}</p>
                   </button>
                   <div className="mt-3 flex flex-wrap items-center justify-between gap-2 border-t border-white/10 pt-2">
                     {record.leadId ? <Link href={`/admin/crm/${record.leadId}`} className="text-sm text-[#E6CA88] underline">Abrir cadastro CRM</Link> : <span />}
@@ -216,6 +220,6 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
   return <div className="space-y-1"><Label>{label}</Label>{children}</div>;
 }
 
-function Metric({ label, value }: { label: string; value: string }) {
-  return <Card className="border-[#C9A961]/20 bg-[#2C3E50] text-white"><CardContent className="flex items-center gap-3 pt-6"><Building2 className="h-6 w-6 text-[#C9A961]" /><div><p className="text-xs text-gray-300">{label}</p><p className="text-xl font-bold">{value}</p></div></CardContent></Card>;
+function Metric({ label, value, ajuda }: { label: string; value: string; ajuda?: string }) {
+  return <Card className="border-[#C9A961]/20 bg-[#2C3E50] text-white"><CardContent className="flex items-center gap-3 pt-6"><Building2 className="h-6 w-6 shrink-0 text-[#C9A961]" /><div><p className="text-xs text-gray-300">{label}</p><p className="text-xl font-bold">{value}</p>{ajuda && <p className="mt-1 text-xs text-gray-400">{ajuda}</p>}</div></CardContent></Card>;
 }

@@ -7,6 +7,8 @@ import { appRouter } from "../routers.js";
 import { createContext } from "./context.js";
 import { serveStatic, setupVite } from "./vite.js";
 import obraFotosRouter from "../routes/obra-fotos.js";
+// Pedido de 25/10 (noite): mídia das conversas do WhatsApp guardada no banco.
+import whatsappMidiaRouter from "../whatsapp-midia.js";
 import projetoDocumentosRouter from "../routes/projeto-documentos.js";
 import obraMedicaoCaixaRouter from "../routes/obra-medicao-caixa.js";
 import imovelFotosRouter from "../routes/imovel-fotos.js";
@@ -120,6 +122,7 @@ async function startServer() {
 
   // Upload de fotos
   app.use("/api", obraFotosRouter);
+  app.use("/api", whatsappMidiaRouter);
   app.use("/api", obraMedicaoCaixaRouter);
   app.use("/api", projetoDocumentosRouter);
   app.use("/api", imovelFotosRouter);

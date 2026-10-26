@@ -1,7 +1,8 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { keepPreviousData } from "@tanstack/react-query";
 import { Link } from "wouter";
 import {
-  ArrowLeft, MessageCircle, CheckCircle2, Clock, AlertCircle, Wifi, WifiOff,
+  ArrowLeft, MessageCircle, Clock, AlertCircle,
   Search, Send, Smartphone, Eye, Users,
 } from "lucide-react";
 import { toast } from "sonner";
@@ -12,9 +13,11 @@ import { Label } from "@/components/ui/label";
 import { trpc } from "@/lib/trpc";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { WHATSAPP_TEMPLATES, type WhatsappTemplate } from "@shared/whatsapp/templates";
-import { ConexaoQrCode } from "@/components/whatsapp/ConexaoQrCode";
+import { ConexaoWhatsApp } from "@/components/whatsapp/ConexaoWhatsApp";
+import { abaInicialCentral, abasCentralWhatsapp, linkConexaoWhatsapp, type AbaCentral } from "@shared/whatsapp/central";
 import { ConversasWhatsApp } from "@/components/whatsapp/ConversasWhatsApp";
 import { VARIAVEIS_TEMPLATE, variaveisDoTexto } from "@shared/whatsapp/variaveis";
+import { CampoDocumentos, CampoImovel, CampoTexto, textoDocumentosMarcados } from "@/components/whatsapp/CamposVariaveisEnvio";
 
 const cardCls = "bg-[#2C3E50] border-[#C9A961]/20";
 const inputCls = "bg-[#1A2332] border-[#C9A961]/30 text-white";
@@ -26,13 +29,6 @@ const STATUS_BADGE: Record<string, { label: string; bg: string; text: string }> 
   falhou: { label: "Falhou", bg: "bg-red-500/20", text: "text-red-300" },
 };
 
-function StatusConexao({ status }: { status: string }) {
-  if (status === "conectado") {
-    return <span className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-green-500/10 text-green-400 text-xs font-bold rounded"><Wifi size={12} /> Conectado</span>;
-  }
-  return <span className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-gray-500/10 text-gray-400 text-xs font-bold rounded"><WifiOff size={12} /> Desconectado</span>;
-}
-
 export default function AdminWhatsApp() {
   const { user } = useAuth();
   const role = user?.role ?? "cliente";
@@ -40,37 +36,23 @@ export default function AdminWhatsApp() {
 
   // Pedido de 25/10: ?aba=conversas&numero=… abre direto o chat (notificações e card do lead).
   const params = new URLSearchParams(window.location.search);
-  const [activeTab, setActiveTab] = useState<"conexao" | "conversas" | "enviar" | "templates" | "historico">(params.get("aba") === "conversas" ? "conversas" : "conexao");
-  const [businessToken, setBusinessToken] = useState("");
-  const [businessPhoneId, setBusinessPhoneId] = useState("");
-  const [businessNumero, setBusinessNumero] = useState("");
+  // Item 12 (25/10 noite): abre em Conversas; a aba de conexão existe só para quem não é admin.
+  const [activeTab, setActiveTab] = useState<AbaCentral>(abaInicialCentral(role, params.get("aba")));
+  useEffect(() => { if (!abasCentralWhatsapp(role).includes(activeTab)) setActiveTab("conversas"); }, [role, activeTab]);
   const [selectedLeads, setSelectedLeads] = useState<number[]>([]);
   const [searchLead, setSearchLead] = useState("");
   const [selectedTemplate, setSelectedTemplate] = useState<WhatsappTemplate | null>(null);
   const [mensagem, setMensagem] = useState("");
 
   const conexao = trpc.whatsapp.minhaConexao.useQuery();
-  const conexoesCorretores = trpc.whatsapp.conexoesCorretores.useQuery(undefined, { enabled: role === "admin" || role === "colaborador" });
   const leadsQuery = trpc.whatsapp.leadsParaEnvio.useQuery();
   const historico = trpc.whatsapp.historico.useQuery();
 
-  const salvarConexao = trpc.whatsapp.salvarConexao.useMutation({
-    onSuccess: () => {
-      toast.success("WhatsApp Business configurado com sucesso!");
-      setBusinessToken(""); setBusinessPhoneId(""); setBusinessNumero("");
-      utils.whatsapp.minhaConexao.invalidate();
-    },
-    onError: (e) => toast.error(e.message),
-  });
-  const desconectar = trpc.whatsapp.desconectar.useMutation({
-    onSuccess: () => { toast.success("WhatsApp desconectado"); utils.whatsapp.minhaConexao.invalidate(); },
-    onError: (e) => toast.error(e.message),
-  });
   const enviar = trpc.whatsapp.enviar.useMutation({
     onSuccess: (data) => {
       if (!data.success) { toast.error(data.error ?? "Erro ao enviar"); return; }
       toast.success(`${data.enviadas} enviada(s)${data.falhas > 0 ? `, ${data.falhas} falha(s)` : ""}`, data.falhas > 0 ? { icon: "⚠️" } : undefined);
-      setSelectedLeads([]); setMensagem(""); setSelectedTemplate(null); setExtras({});
+      setSelectedLeads([]); setMensagem(""); setSelectedTemplate(null); setExtras({}); setDocsGeral({ marcados: [], livre: "" }); setDocsUnico(null);
       utils.whatsapp.historico.invalidate();
     },
     onError: (e) => toast.error(e.message),
@@ -85,18 +67,44 @@ export default function AdminWhatsApp() {
   const taxaLeitura = totalEnviadas > 0 ? Math.round((totalLidas / totalEnviadas) * 100) : 0;
 
   // Pedido de 25/10: variáveis do template preenchidas por destinatário, com prévia e campos para o que faltar.
+  // Pedido de 25/10 (noite): os campos não somem a cada letra — a lista vem de `semCampoGeral` (não depende
+  // do que está sendo digitado), a prévia espera a digitação parar e mantém o resultado anterior.
   const [extras, setExtras] = useState<Record<string, string>>({});
-  const usaVariaveis = variaveisDoTexto(mensagem).length > 0;
+  const [docsGeral, setDocsGeral] = useState({ marcados: [] as string[], livre: "" });
+  const [docsUnico, setDocsUnico] = useState<{ leadId: number; marcados: string[]; livre: string } | null>(null);
+  const variaveis = variaveisDoTexto(mensagem);
+  const usaVariaveis = variaveis.length > 0;
+  const usaDocumentos = variaveis.includes("documentos");
+  const unico = selectedLeads.length === 1 ? selectedLeads[0] : null;
+  const docsLead = trpc.whatsapp.documentosParaEnvio.useQuery({ ids: unico ? [unico] : [] }, { enabled: usaDocumentos && unico !== null });
+  // Um destinatário: o checklist dele já vem com os pendentes marcados.
+  useEffect(() => {
+    const d = docsLead.data?.[0];
+    if (unico !== null && d && d.id === unico && docsUnico?.leadId !== unico) setDocsUnico({ leadId: unico, marcados: d.pendentes, livre: "" });
+  }, [docsLead.data, unico, docsUnico?.leadId]);
+  const extrasEnvio: Record<string, string> = { ...extras, ...(usaDocumentos && unico === null ? { documentos: textoDocumentosMarcados(docsGeral.marcados, docsGeral.livre) } : {}) };
+  const extrasPorLead = usaDocumentos && unico !== null && docsUnico?.leadId === unico
+    ? { [String(unico)]: { documentos: textoDocumentosMarcados(docsUnico.marcados, docsUnico.livre) } } : undefined;
+  const [entradaPrevia, setEntradaPrevia] = useState({ extras: extrasEnvio, extrasPorLead });
+  const chaveEntrada = JSON.stringify({ extrasEnvio, extrasPorLead });
+  useEffect(() => {
+    const t = setTimeout(() => setEntradaPrevia({ extras: extrasEnvio, extrasPorLead }), 400);
+    return () => clearTimeout(t);
+  }, [chaveEntrada]); // eslint-disable-line react-hooks/exhaustive-deps
   const previa = trpc.whatsapp.previaEnvio.useQuery(
-    { mensagem, ids: selectedLeads, extras },
-    { enabled: usaVariaveis && selectedLeads.length > 0 && mensagem.trim().length > 0 },
+    { mensagem, ids: selectedLeads, ...entradaPrevia },
+    { enabled: usaVariaveis && selectedLeads.length > 0 && mensagem.trim().length > 0, placeholderData: keepPreviousData },
   );
-  const faltando = Array.from(new Set((previa.data ?? []).flatMap((p) => p.faltando)));
+  // Campos que aparecem: o que falta no cadastro de algum destinatário (documentos de 1 destinatário tem checklist próprio).
+  const campos = Array.from(new Set((previa.data ?? []).flatMap((p) => p.semCampoGeral ?? []))).filter((v) => !(v === "documentos" && unico !== null));
+  const camposVazios = campos.filter((v) => !(extrasEnvio[v] ?? "").trim());
+  const docsUnicoVazio = usaDocumentos && unico !== null && docsUnico?.leadId === unico && !textoDocumentosMarcados(docsUnico.marcados, docsUnico.livre);
+  const bloqueado = camposVazios.length > 0 || docsUnicoVazio;
   function handleEnviar() {
     if (!mensagem.trim() || selectedLeads.length === 0) return;
-    if (faltando.length) { toast.error("Preencha os campos destacados antes de enviar."); return; }
+    if (bloqueado) { toast.error("Preencha os campos destacados antes de enviar."); return; }
     const destinatarios = leads.filter((l) => selectedLeads.includes(l.id)).map((l) => ({ id: l.id, nome: l.name, telefone: l.phone }));
-    enviar.mutate({ mensagem, destinatarios, extras });
+    enviar.mutate({ mensagem, destinatarios, extras: extrasEnvio, extrasPorLead });
   }
 
   return (
@@ -133,12 +141,12 @@ export default function AdminWhatsApp() {
         {/* Tabs */}
         <div className="flex gap-1 border-b border-[#C9A961]/20 overflow-x-auto">
           {([
-            { key: "conexao" as const, label: "Conexão", icon: Smartphone },
             { key: "conversas" as const, label: "Conversas", icon: Users },
             { key: "enviar" as const, label: "Enviar Mensagem", icon: Send },
             { key: "templates" as const, label: "Templates", icon: MessageCircle },
             { key: "historico" as const, label: "Histórico", icon: Clock },
-          ]).map(({ key, label, icon: Icon }) => (
+            { key: "conexao" as const, label: "Minha conexão", icon: Smartphone },
+          ]).filter(({ key }) => abasCentralWhatsapp(role).includes(key)).map(({ key, label, icon: Icon }) => (
             <button key={key} onClick={() => setActiveTab(key)}
               className={`flex shrink-0 items-center gap-2 rounded-t px-4 py-3 text-xs font-bold uppercase tracking-wide border-b-2 transition-colors whitespace-nowrap ${activeTab === key ? "border-[#C9A961] bg-[#C9A961]/10 text-[#C9A961]" : "border-transparent text-gray-500 hover:bg-white/5 hover:text-white"}`}>
               <Icon size={14} /> {label}
@@ -149,76 +157,19 @@ export default function AdminWhatsApp() {
         {activeTab === "conversas" && <ConversasWhatsApp numeroInicial={params.get("numero")} />}
 
         {/* Conexão */}
-        {activeTab === "conexao" && (
-          <div className="space-y-5">
-            {(role === "admin" || role === "colaborador" || role === "corretor") && (
-              <Card className={cardCls}>
-                <CardHeader><CardTitle className="text-sm text-gray-300">Minha Conexão WhatsApp</CardTitle></CardHeader>
-                <CardContent className="space-y-4">
-                  {conexaoAtiva ? (
-                    <div className="space-y-4">
-                      <div className="flex items-center gap-3 p-3 bg-green-500/10 rounded">
-                        <CheckCircle2 size={20} className="text-green-400" />
-                        <div><p className="font-bold text-green-400 text-sm">{conexao.data?.provider === "evolution" ? "Conectado pelo QR code" : "Conectado via WhatsApp Business API"}</p>{conexao.data?.numero && <p className="text-xs text-gray-400">{conexao.data.numero}</p>}</div>
-                      </div>
-                      <Button variant="outline" onClick={() => desconectar.mutate()} disabled={desconectar.isPending}
-                        className="border-red-500/30 text-red-400 hover:bg-red-500/10">
-                        <WifiOff className="h-4 w-4 mr-2" /> {desconectar.isPending ? "Removendo..." : "Remover conexão"}
-                      </Button>
-                    </div>
-                  ) : (
-                    <div className="space-y-4">
-                    <ConexaoQrCode podeConfigurarServidor={role === "admin"} onConectado={() => utils.whatsapp.minhaConexao.invalidate()} />
-                    <details className="border-t border-[#C9A961]/10 pt-3">
-                    <summary className="cursor-pointer text-xs text-gray-300">Usar a API oficial do WhatsApp Business (Meta)</summary>
-                    <form onSubmit={(e) => { e.preventDefault(); salvarConexao.mutate({ token: businessToken, phoneNumberId: businessPhoneId, numero: businessNumero }); }} className="space-y-3 mt-3">
-                      <div className="border border-blue-500/30 bg-blue-500/10 p-4 text-xs text-blue-300 rounded space-y-1">
-                        <p className="font-bold">WhatsApp Business API (Meta Cloud API)</p>
-                        <p>Gratuito até 1.000 conversas/mês. Requer conta Meta Business verificada.</p>
-                        <a href="https://developers.facebook.com/docs/whatsapp/cloud-api/get-started" target="_blank" rel="noopener noreferrer" className="inline-block mt-1 font-bold underline">Ver guia de configuração →</a>
-                      </div>
-                      <div><Label className="text-gray-300">Token de Acesso Permanente</Label><Input value={businessToken} onChange={(e) => setBusinessToken(e.target.value)} placeholder="EAAxxxxxxxx..." required className={`${inputCls} mt-1`} /></div>
-                      <div><Label className="text-gray-300">Phone Number ID</Label><Input value={businessPhoneId} onChange={(e) => setBusinessPhoneId(e.target.value)} placeholder="1234567890" required className={`${inputCls} mt-1`} /></div>
-                      <div><Label className="text-gray-300">Número WhatsApp</Label><Input value={businessNumero} onChange={(e) => setBusinessNumero(e.target.value)} placeholder="+55 94 9 9999-9999" required className={`${inputCls} mt-1`} /></div>
-                      <Button type="submit" disabled={salvarConexao.isPending} className="bg-[#C9A961] hover:bg-[#B8985A] text-[#1A2332] font-bold">
-                        <CheckCircle2 className="h-4 w-4 mr-2" /> Salvar e Conectar
-                      </Button>
-                    </form>
-                    </details>
-                    </div>
-                  )}
-                </CardContent>
-              </Card>
-            )}
-
-            {(role === "admin" || role === "colaborador") && (
-              <Card className={cardCls}>
-                <CardHeader><CardTitle className="text-sm text-gray-300">Conexões dos Corretores {conexoesCorretores.data && conexoesCorretores.data.length > 0 && `(${conexoesCorretores.data.length})`}</CardTitle></CardHeader>
-                <CardContent>
-                  {!conexoesCorretores.data?.length ? <p className="text-sm text-gray-400">Nenhum corretor cadastrado.</p> : (
-                    <div className="divide-y divide-[#C9A961]/10">
-                      {conexoesCorretores.data.map((c) => (
-                        <div key={c.userId} className="flex items-center gap-4 py-3">
-                          <div className="w-8 h-8 bg-[#1A2332] flex items-center justify-center text-[#C9A961] font-black text-sm shrink-0 rounded">{c.nome[0]}</div>
-                          <div className="flex-1 min-w-0"><p className="font-bold text-white text-sm truncate">{c.nome}</p>{c.numero && <p className="text-xs text-gray-400">{c.numero}</p>}</div>
-                          <StatusConexao status={c.status} />
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </CardContent>
-              </Card>
-            )}
-          </div>
-        )}
-
+        {/* Item 12 (25/10 noite): só corretor/colaborador; o admin conecta em Configurações › Integrações. */}
+        {activeTab === "conexao" && role !== "admin" && <ConexaoWhatsApp role={role} />}
         {/* Enviar */}
         {activeTab === "enviar" && (
           <div className="space-y-4">
             {!conexaoAtiva && (
               <div className="flex items-center gap-3 border border-yellow-500/30 bg-yellow-500/10 p-4 rounded">
                 <AlertCircle size={18} className="text-yellow-400 shrink-0" />
-                <p className="text-sm text-yellow-200">Conecte o WhatsApp (QR code ou API oficial) na aba Conexão.</p>
+                <p className="text-sm text-yellow-200">
+                  {role === "admin"
+                    ? <>Conecte o WhatsApp (QR code ou API oficial) em <Link href={linkConexaoWhatsapp(role)} className="underline text-[#C9A961]">Configurações › Integrações</Link>.</>
+                    : <>Conecte o seu WhatsApp (QR code) na aba <button type="button" className="underline text-[#C9A961]" onClick={() => setActiveTab("conexao")}>Minha conexão</button>.</>}
+                </p>
               </div>
             )}
             <div className={`grid grid-cols-1 lg:grid-cols-2 gap-5 ${!conexaoAtiva ? "opacity-50 pointer-events-none" : ""}`}>
@@ -272,12 +223,26 @@ export default function AdminWhatsApp() {
                   </div>
                   {usaVariaveis && selectedLeads.length > 0 && (
                     <div className="space-y-3 border-t border-[#C9A961]/10 pt-3">
-                      {faltando.length > 0 && (
+                      {usaDocumentos && unico !== null && docsUnico?.leadId === unico && (
+                        <div>
+                          <Label className="text-gray-300">Documentos (pendentes do cliente já marcados)</Label>
+                          <CampoDocumentos marcados={docsUnico.marcados} livre={docsUnico.livre} pendentes={docsLead.data?.[0]?.pendentes}
+                            onChange={(marcados, livre) => setDocsUnico({ leadId: unico, marcados, livre })} />
+                          {docsUnicoVazio && <p className="mt-1 text-xs text-yellow-200">Marque ao menos um documento.</p>}
+                        </div>
+                      )}
+                      {usaDocumentos && unico === null && <p className="text-xs text-gray-300">Cada contato recebe a lista dos documentos pendentes dele.</p>}
+                      {campos.length > 0 && (
                         <div className="space-y-2">
                           <p className="text-xs text-yellow-200">Alguns destinatários não têm estes dados no cadastro. Informe para enviar:</p>
-                          {faltando.map((v) => (
-                            <div key={v}><Label className="text-gray-300">{VARIAVEIS_TEMPLATE[v] ?? v}</Label>
-                              <Input value={extras[v] ?? ""} onChange={(e) => setExtras((x) => ({ ...x, [v]: e.target.value }))} className={`${inputCls} mt-1`} /></div>
+                          {campos.map((v) => v === "imovel" ? (
+                            <div key={v}><Label className="text-gray-300">{VARIAVEIS_TEMPLATE.imovel}</Label>
+                              <CampoImovel valor={extras.imovel ?? ""} onChange={(t) => setExtras((x) => ({ ...x, imovel: t }))} /></div>
+                          ) : v === "documentos" ? (
+                            <div key={v}><Label className="text-gray-300">Documentos (para quem não tem pendentes no checklist)</Label>
+                              <CampoDocumentos marcados={docsGeral.marcados} livre={docsGeral.livre} onChange={(marcados, livre) => setDocsGeral({ marcados, livre })} /></div>
+                          ) : (
+                            <CampoTexto key={v} nome={v} valor={extras[v] ?? ""} onChange={(t) => setExtras((x) => ({ ...x, [v]: t }))} />
                           ))}
                         </div>
                       )}
@@ -291,7 +256,7 @@ export default function AdminWhatsApp() {
                       </div>
                     </div>
                   )}
-                  <Button onClick={handleEnviar} disabled={enviar.isPending || selectedLeads.length === 0 || !mensagem.trim() || faltando.length > 0} className="bg-green-600 hover:bg-green-700 text-white font-bold">
+                  <Button onClick={handleEnviar} disabled={enviar.isPending || selectedLeads.length === 0 || !mensagem.trim() || bloqueado} className="bg-green-600 hover:bg-green-700 text-white font-bold">
                     <Send className="h-4 w-4 mr-2" /> {enviar.isPending ? "Enviando..." : `Enviar para ${selectedLeads.length} contato${selectedLeads.length !== 1 ? "s" : ""}`}
                   </Button>
                 </CardContent>

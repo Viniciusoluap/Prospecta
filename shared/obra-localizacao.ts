@@ -26,13 +26,56 @@ export function coordenadasSalvas(lat: unknown, lng: unknown): Coordenadas | nul
 
 /** Dados do imóvel criado para a obra (sem publicação em nenhum canal). */
 export function imovelDaObra(obra: { id: number | string; titulo: string; endereco: string | null; cidade: string | null; estado: string | null }) {
+  // Pedido de 25/10 (noite): sem cidade na obra, tenta deduzir do endereço ("…, Imperatriz Maranhão").
+  const deduzido = obra.cidade?.trim() ? null : cidadeEstadoDoEndereco(obra.endereco);
   return {
     titulo: `Obra — ${obra.titulo}`.slice(0, 255),
     descricao: `Ponto da obra nº ${obra.id}, criado automaticamente pela Localização exata. Não publicado.`,
     endereco: obra.endereco?.trim() || null,
-    cidade: obra.cidade?.trim() || "Não informada",
-    estado: obra.estado?.trim().slice(0, 2) || null,
+    cidade: obra.cidade?.trim() || deduzido?.cidade || "Não informada",
+    estado: obra.estado?.trim().slice(0, 2) || deduzido?.estado || null,
   };
+}
+
+const ESTADOS: Record<string, string> = {
+  acre: "AC", alagoas: "AL", amapa: "AP", amazonas: "AM", bahia: "BA", ceara: "CE", "distrito federal": "DF", "espirito santo": "ES",
+  goias: "GO", maranhao: "MA", "mato grosso": "MT", "mato grosso do sul": "MS", "minas gerais": "MG", para: "PA", paraiba: "PB",
+  parana: "PR", pernambuco: "PE", piaui: "PI", "rio de janeiro": "RJ", "rio grande do norte": "RN", "rio grande do sul": "RS",
+  rondonia: "RO", roraima: "RR", "santa catarina": "SC", "sao paulo": "SP", sergipe: "SE", tocantins: "TO",
+};
+const SIGLAS = new Set(Object.values(ESTADOS));
+const semAcento = (t: string) => t.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
+
+/**
+ * Pedido de 25/10 (noite): cidade/UF do último trecho do endereço, só quando ele termina com o
+ * estado ("Imperatriz Maranhão", "Imperatriz/MA", "Imperatriz - MA"). Sem estado = null (bairro não vira cidade).
+ */
+export function cidadeEstadoDoEndereco(endereco: string | null | undefined): { cidade: string; estado: string } | null {
+  const ultimo = (endereco ?? "").split(",").pop()?.trim() ?? "";
+  if (!ultimo || /\d/.test(ultimo)) return null;
+  // "Vila Maranhão", "Jardim Goiás"… são bairros, não cidade + estado.
+  const valida = (cidade: string) => Boolean(cidade) && !/^(vila|jardim|jd\.?|bairro|parque|residencial|res\.|conjunto|setor|loteamento|condominio|condomínio|quadra|rua|avenida|av\.?)(\s|$)/i.test(cidade);
+  const sigla = /^(.+?)\s*(?:[/-]\s*|\s+)([A-Z]{2})$/.exec(ultimo);
+  if (sigla && SIGLAS.has(sigla[2])) return valida(sigla[1].trim()) ? { cidade: sigla[1].trim(), estado: sigla[2] } : null;
+  const normal = semAcento(ultimo);
+  for (const [nome, uf] of Object.entries(ESTADOS).sort((a, b) => b[0].length - a[0].length)) {
+    if (normal.endsWith(` ${nome}`) || normal.endsWith(`/${nome}`) || normal.endsWith(`-${nome}`)) {
+      const cidade = ultimo.slice(0, ultimo.length - nome.length).replace(/[\s/-]+$/, "").trim();
+      return valida(cidade) ? { cidade, estado: uf } : null;
+    }
+  }
+  return null;
+}
+
+/** Mesma regra do financeiro da obra e do Mapa Operacional: obra do CRM usa o VGV simulado do lead; sem lead, o VGV digitado. */
+export function vgvDaObra(o: { leadId: number | null | undefined; simulationValue?: string | null; vgv?: string | null }): string | null {
+  return (o.leadId != null ? o.simulationValue : o.vgv) ?? null;
+}
+
+/** Pedido de 25/10 (noite): coluna Localização da lista de imóveis — endereço completo, sem "Não informada" repetido. */
+export function localizacaoImovel(i: { endereco?: string | null; bairro?: string | null; cidade?: string | null; estado?: string | null }): string {
+  const cidade = i.cidade && i.cidade.trim() !== "Não informada" ? i.cidade : null;
+  return enderecoCompleto([i.endereco, i.bairro, cidade, i.estado]) ?? "Não informada";
 }
 
 /**

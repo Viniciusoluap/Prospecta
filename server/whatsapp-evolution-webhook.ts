@@ -5,9 +5,10 @@ import type { Request, Response } from "express";
 import { and, eq } from "drizzle-orm";
 import { leads, userNotifications, whatsappConnections, whatsappMessages } from "../drizzle/schema.js";
 import { ENV } from "./_core/env.js";
-import { mesmoTelefone, textoDaMensagem } from "./_core/evolution.js";
+import { LIMITE_MIDIA, mesmoTelefone, midiaDaMensagem, textoDaMensagem } from "./_core/evolution.js";
 import { normalizarStatusWebhook } from "./_core/whatsapp-business.js";
 import { getDb } from "./db.js";
+import { baixarEGuardarMidia } from "./whatsapp-midia.js";
 
 const SITE = () => (process.env.PUBLIC_SITE_URL || "https://www.prospectaconstrucoes.com").replace(/\/+$/, "");
 export const URL_WEBHOOK_EVOLUTION = () => `${SITE()}/api/whatsapp/evolution-webhook`;
@@ -66,11 +67,18 @@ export async function processarEventoEvolution(ev: Evento): Promise<string> {
       const deMim = Boolean(d?.key?.fromMe);
       const todos = await db.select({ id: leads.id, nome: leads.name, phone: leads.phone }).from(leads);
       const lead = todos.find(l => mesmoTelefone(l.phone, numero));
-      await db.insert(whatsappMessages).values({
+      const midia = midiaDaMensagem(d?.message);
+      const [gravada] = await db.insert(whatsappMessages).values({
         connectionId: conn.id, leadId: lead?.id ?? null, destinatario: numero,
         nomeDestinatario: lead?.nome ?? d?.pushName ?? null, mensagem: textoDaMensagem(d?.message).slice(0, 4000),
         externalId: id ?? null, status: deMim ? "enviada" : "recebida", direcao: deMim ? "saida" : "entrada", lida: deMim,
-      });
+        ...(midia ? { midiaTipo: midia.tipo, midiaMime: midia.mime, midiaNome: midia.nome, midiaTamanho: midia.tamanho } : {}),
+      }).returning({ id: whatsappMessages.id });
+      // Pedido de 25/10 (noite): o arquivo (até 10 MB) é buscado na Evolution e guardado no banco.
+      // Falha não derruba o aviso: a mensagem fica com o rótulo e a tela oferece "tentar baixar de novo".
+      if (midia && id && gravada && conn.instancia && !(midia.tamanho && midia.tamanho > LIMITE_MIDIA)) {
+        await baixarEGuardarMidia(gravada.id, conn.instancia, id, midia.tamanho);
+      }
       if (!deMim) {
         novas++;
         await db.insert(userNotifications).values({

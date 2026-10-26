@@ -37,6 +37,16 @@ import TaxAccountingPanel from "./TaxAccountingPanel";
 import AdminRelatorios from "./AdminRelatorios";
 import BancosPanel from "./BancosPanel";
 import { rotulo } from "@shared/rotulos";
+import { CATEGORIAS_BPO, TRANSFERENCIA_INTERNA } from "@shared/financeiro/bpo-extrato";
+import { situacaoDoLancamento } from "@shared/financeiro/bpo-asaas";
+
+// Pedido de 25/10 (noite), item 11: categorias do "+ Lançamento" (transferência interna não é receita nem despesa).
+const CATEGORIAS_LANCAMENTO = CATEGORIAS_BPO.filter(c => c !== TRANSFERENCIA_INTERNA);
+const SITUACAO: Record<string, { texto: string; cor: string }> = {
+  pago: { texto: "PAGO", cor: "text-green-500" },
+  vencido: { texto: "VENCIDO", cor: "text-red-400" },
+  aberto: { texto: "EM ABERTO", cor: "text-amber-300" },
+};
 
 function formatCurrencyBR(value: number | string | null | undefined) {
   if (!value) return formatCurrency(0);
@@ -62,6 +72,8 @@ const SERVICOS_OPCOES = [
 ];
 
 const emptyClienteForm = {
+  // Pedido de 25/10 (noite), item 10: lead do CRM (dados vêm dele) ou cadastro livre (fornecedor/terceiro).
+  leadId: null as number | null,
   razaoSocial: "",
   cnpj: "",
   cpf: "",
@@ -78,7 +90,8 @@ const emptyClienteForm = {
 const emptyLancamentoForm = {
   clienteId: "",
   clienteNomeLivre: "",
-  tipo: "honorario" as "honorario" | "despesa" | "reembolso",
+  tipo: "cobranca" as "cobranca" | "despesa",
+  categoria: "",
   descricao: "",
   valor: "",
   vencimento: "",
@@ -108,18 +121,29 @@ export default function AdminBpo({ initialTab }: { initialTab?: Aba } = {}) {
   const [lancamentoOpen, setLancamentoOpen] = useState(false);
   const [clienteForm, setClienteForm] = useState(emptyClienteForm);
   const [lancamentoForm, setLancamentoForm] = useState(emptyLancamentoForm);
+  const [modoCliente, setModoCliente] = useState<"lead" | "livre">("lead");
+  const [buscaLead, setBuscaLead] = useState("");
+  const [clienteAberto, setClienteAberto] = useState<number | null>(null);
+  const [dreVisao, setDreVisao] = useState<"competencia" | "categoria">("competencia");
+  const { data: leadsAchados = [], isFetching: buscandoLeads } = trpc.bpo.clientes.buscarLeads.useQuery(
+    { q: buscaLead.trim() },
+    { enabled: clienteOpen && modoCliente === "lead" && buscaLead.trim().length >= 2 && !clienteForm.leadId },
+  );
 
   const utils = trpc.useUtils();
   const { data: clientes = [] } = trpc.bpo.clientes.list.useQuery();
   const { data: lancamentos = [] } = trpc.bpo.lancamentos.list.useQuery();
   const { data: dreRows = [] } = trpc.bpo.dre.useQuery();
+  const { data: dreCategorias = [] } = trpc.bpo.dreCategorias.useQuery();
 
   const createCliente = trpc.bpo.clientes.create.useMutation({
-    onSuccess: () => {
-      toast.success("Cliente BPO cadastrado!");
+    onSuccess: r => {
+      toast.success(`Cliente BPO cadastrado!${r.vinculadas ? ` ${r.vinculadas} movimentação(ões) do mesmo nome vinculada(s).` : ""}`);
       utils.bpo.clientes.list.invalidate();
+      utils.bpo.lancamentos.list.invalidate();
       setClienteOpen(false);
       setClienteForm(emptyClienteForm);
+      setBuscaLead("");
     },
     onError: e => toast.error(e.message),
   });
@@ -129,6 +153,8 @@ export default function AdminBpo({ initialTab }: { initialTab?: Aba } = {}) {
       toast.success("Lançamento registrado!");
       utils.bpo.lancamentos.list.invalidate();
       utils.bpo.dre.invalidate();
+      utils.bpo.dreCategorias.invalidate();
+      utils.bpo.clientes.list.invalidate();
       setLancamentoOpen(false);
       setLancamentoForm(emptyLancamentoForm);
     },
@@ -140,6 +166,7 @@ export default function AdminBpo({ initialTab }: { initialTab?: Aba } = {}) {
       toast.success("Marcado como pago!");
       utils.bpo.lancamentos.list.invalidate();
       utils.bpo.dre.invalidate();
+      utils.bpo.clientes.list.invalidate();
     },
     onError: e => toast.error(e.message),
   });
@@ -194,11 +221,52 @@ export default function AdminBpo({ initialTab }: { initialTab?: Aba } = {}) {
                   </DialogTitle>
                 </DialogHeader>
                 <div className="space-y-4 mt-4">
+                  <div className="flex gap-2">
+                    {(["lead", "livre"] as const).map(m => (
+                      <button key={m} type="button"
+                        onClick={() => { setModoCliente(m); setClienteForm(emptyClienteForm); setBuscaLead(""); }}
+                        className={`px-3 py-1 rounded-full text-xs font-bold border ${modoCliente === m ? "bg-[#C9A961] text-[#1A2332] border-[#C9A961]" : "border-[#C9A961]/30 text-gray-300"}`}>
+                        {m === "lead" ? "Lead do CRM" : "Cadastro livre (fornecedor/terceiro)"}
+                      </button>
+                    ))}
+                  </div>
+                  {modoCliente === "lead" && (
+                    <div>
+                      <Label className="text-gray-300">Buscar lead (nome ou telefone)</Label>
+                      {clienteForm.leadId ? (
+                        <div className="mt-1 flex items-center justify-between gap-2 rounded bg-[#2C3E50] p-2 text-sm">
+                          <span>{clienteForm.razaoSocial} — dados do CRM</span>
+                          <Button size="sm" variant="ghost" className="h-7 text-xs text-[#C9A961]"
+                            onClick={() => setClienteForm(emptyClienteForm)}>Trocar</Button>
+                        </div>
+                      ) : (
+                        <>
+                          <Input value={buscaLead} onChange={e => setBuscaLead(e.target.value)} placeholder="ex.: Maria ou 18 99..."
+                            className="bg-[#2C3E50] border-[#C9A961]/30 text-white mt-1" />
+                          {buscaLead.trim().length >= 2 && (
+                            <div className="mt-1 max-h-48 overflow-y-auto rounded border border-[#C9A961]/20">
+                              {buscandoLeads && <p className="p-2 text-xs text-gray-400">Buscando…</p>}
+                              {!buscandoLeads && leadsAchados.length === 0 && <p className="p-2 text-xs text-gray-400">Nenhum lead encontrado.</p>}
+                              {leadsAchados.map(l => (
+                                <button key={l.id} type="button" className="block w-full p-2 text-left text-sm hover:bg-[#2C3E50]"
+                                  onClick={() => setClienteForm(f => ({
+                                    ...f, leadId: l.id, razaoSocial: l.name, cpf: l.cpf ?? "", telefone: l.phone ?? "", email: l.email ?? "",
+                                  }))}>
+                                  {l.name} <span className="text-xs text-gray-400">{l.phone}</span>
+                                </button>
+                              ))}
+                            </div>
+                          )}
+                        </>
+                      )}
+                    </div>
+                  )}
                   <div className="grid grid-cols-2 gap-4">
                     <div className="col-span-2">
-                      <Label className="text-gray-300">Razão Social *</Label>
+                      <Label className="text-gray-300">Nome / Razão Social *</Label>
                       <Input
                         value={clienteForm.razaoSocial}
+                        disabled={Boolean(clienteForm.leadId)}
                         onChange={e =>
                           setClienteForm(f => ({
                             ...f,
@@ -222,6 +290,7 @@ export default function AdminBpo({ initialTab }: { initialTab?: Aba } = {}) {
                       <Label className="text-gray-300">CPF</Label>
                       <Input
                         value={clienteForm.cpf}
+                        disabled={Boolean(clienteForm.leadId)}
                         onChange={e =>
                           setClienteForm(f => ({ ...f, cpf: e.target.value }))
                         }
@@ -229,9 +298,10 @@ export default function AdminBpo({ initialTab }: { initialTab?: Aba } = {}) {
                       />
                     </div>
                     <div>
-                      <Label className="text-gray-300">Responsável *</Label>
+                      <Label className="text-gray-300">Responsável</Label>
                       <Input
                         value={clienteForm.responsavel}
+                        placeholder="igual ao nome, se vazio"
                         onChange={e =>
                           setClienteForm(f => ({
                             ...f,
@@ -242,9 +312,10 @@ export default function AdminBpo({ initialTab }: { initialTab?: Aba } = {}) {
                       />
                     </div>
                     <div>
-                      <Label className="text-gray-300">Telefone *</Label>
+                      <Label className="text-gray-300">Telefone</Label>
                       <Input
                         value={clienteForm.telefone}
+                        disabled={Boolean(clienteForm.leadId)}
                         onChange={e =>
                           setClienteForm(f => ({
                             ...f,
@@ -258,6 +329,7 @@ export default function AdminBpo({ initialTab }: { initialTab?: Aba } = {}) {
                       <Label className="text-gray-300">Email</Label>
                       <Input
                         value={clienteForm.email}
+                        disabled={Boolean(clienteForm.leadId)}
                         onChange={e =>
                           setClienteForm(f => ({ ...f, email: e.target.value }))
                         }
@@ -266,7 +338,7 @@ export default function AdminBpo({ initialTab }: { initialTab?: Aba } = {}) {
                     </div>
                     <div>
                       <Label className="text-gray-300">
-                        Honorário Mensal (R$) *
+                        Honorário mensal (R$, opcional)
                       </Label>
                       <CurrencyInput
                         value={clienteForm.honorarios ? Number(clienteForm.honorarios) : 0}
@@ -294,7 +366,7 @@ export default function AdminBpo({ initialTab }: { initialTab?: Aba } = {}) {
                       />
                     </div>
                     <div className="col-span-2">
-                      <Label className="text-gray-300">Data de Início *</Label>
+                      <Label className="text-gray-300">Data de início (opcional)</Label>
                       <Input
                         type="date"
                         value={clienteForm.dataInicio}
@@ -353,19 +425,16 @@ export default function AdminBpo({ initialTab }: { initialTab?: Aba } = {}) {
                     onClick={() =>
                       createCliente.mutate({
                         ...clienteForm,
-                        honorarios: parseFloat(clienteForm.honorarios),
+                        leadId: clienteForm.leadId,
+                        honorarios: clienteForm.honorarios ? parseFloat(clienteForm.honorarios) : null,
                         diaVencimento:
-                          parseInt(clienteForm.diaVencimento) || 10,
-                        dataInicio: clienteForm.dataInicio,
+                          Math.min(31, Math.max(1, parseInt(clienteForm.diaVencimento) || 10)),
+                        dataInicio: clienteForm.dataInicio || null,
                       })
                     }
                     disabled={
                       createCliente.isPending ||
-                      !clienteForm.razaoSocial ||
-                      !clienteForm.responsavel ||
-                      !clienteForm.telefone ||
-                      !clienteForm.honorarios ||
-                      !clienteForm.dataInicio
+                      (modoCliente === "lead" ? !clienteForm.leadId : clienteForm.razaoSocial.trim().length < 2)
                     }
                     className="w-full bg-[#C9A961] hover:bg-[#B8985A] text-[#1A2332] font-bold"
                   >
@@ -401,9 +470,22 @@ export default function AdminBpo({ initialTab }: { initialTab?: Aba } = {}) {
                           <SelectValue />
                         </SelectTrigger>
                         <SelectContent>
-                          <SelectItem value="honorario">Honorário</SelectItem>
+                          <SelectItem value="cobranca">Cobrança</SelectItem>
                           <SelectItem value="despesa">Despesa</SelectItem>
-                          <SelectItem value="reembolso">Reembolso</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div>
+                      <Label className="text-gray-300">Categoria *</Label>
+                      <Select
+                        value={lancamentoForm.categoria || undefined}
+                        onValueChange={v => setLancamentoForm(f => ({ ...f, categoria: v }))}
+                      >
+                        <SelectTrigger className="bg-[#2C3E50] border-[#C9A961]/30 text-white mt-1">
+                          <SelectValue placeholder="Escolha" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {CATEGORIAS_LANCAMENTO.map(c => <SelectItem key={c} value={c}>{c}</SelectItem>)}
                         </SelectContent>
                       </Select>
                     </div>
@@ -527,12 +609,14 @@ export default function AdminBpo({ initialTab }: { initialTab?: Aba } = {}) {
                           : undefined,
                         clienteNomeLivre:
                           lancamentoForm.clienteNomeLivre || undefined,
+                        categoria: lancamentoForm.categoria as (typeof CATEGORIAS_LANCAMENTO)[number],
                         valor: parseFloat(lancamentoForm.valor),
                         centroCustos: lancamentoForm.centroCustos || undefined,
                       })
                     }
                     disabled={
                       createLancamento.isPending ||
+                      !lancamentoForm.categoria ||
                       !lancamentoForm.descricao ||
                       !lancamentoForm.valor ||
                       !lancamentoForm.vencimento ||
@@ -607,22 +691,39 @@ export default function AdminBpo({ initialTab }: { initialTab?: Aba } = {}) {
                 </div>
               ) : (
                 <div className="space-y-2">
-                  {clientes.map((c: any) => (
-                    <div
-                      key={c.id}
-                      className="flex items-center justify-between p-3 bg-[#1A2332] rounded-lg gap-3 flex-wrap"
-                    >
-                      <div>
-                        <p className="text-white font-medium">
-                          {c.razaoSocial}
-                        </p>
-                        <p className="text-xs text-gray-400">
-                          {c.responsavel} • {c.telefone} • situação: {rotulo(c.status)}
-                        </p>
-                      </div>
-                      <span className="font-bold text-[#C9A961]">
-                        {formatCurrencyBR(c.honorarios)}/mês
-                      </span>
+                  {/* Pedido de 25/10 (noite), item 10: total recebido e em aberto por cliente; clique expande os lançamentos. */}
+                  {clientes.map(c => (
+                    <div key={c.id} className="p-3 bg-[#1A2332] rounded-lg">
+                      <button type="button" className="flex w-full items-center justify-between gap-3 flex-wrap text-left"
+                        onClick={() => setClienteAberto(clienteAberto === c.id ? null : c.id)}>
+                        <div>
+                          <p className="text-white font-medium">
+                            {c.razaoSocial}
+                            {c.leadId ? <span className="ml-2 text-xs text-[#C9A961]">lead do CRM</span> : null}
+                          </p>
+                          <p className="text-xs text-gray-400">
+                            {[c.telefone, `situação: ${rotulo(c.status)}`, Number(c.honorarios) > 0 ? `${formatCurrencyBR(c.honorarios)}/mês` : ""].filter(Boolean).join(" • ")}
+                          </p>
+                        </div>
+                        <div className="text-right text-sm">
+                          <p className="text-green-400 font-bold">Recebido {formatCurrencyBR(c.totalRecebido)}</p>
+                          <p className="text-amber-300">Em aberto {formatCurrencyBR(c.totalEmAberto)}</p>
+                        </div>
+                      </button>
+                      {clienteAberto === c.id && (
+                        <div className="mt-2 border-t border-white/10 pt-2 space-y-1">
+                          {lancamentos.filter(l => l.clienteId === c.id).length === 0
+                            ? <p className="text-xs text-gray-400">Nenhum lançamento deste cliente.</p>
+                            : lancamentos.filter(l => l.clienteId === c.id).map(l => (
+                              <div key={l.id} className="flex justify-between gap-2 text-xs">
+                                <span className="text-gray-200">{new Date(l.vencimento).toLocaleDateString("pt-BR", { timeZone: "UTC" })} • {l.descricao}</span>
+                                <span className={`whitespace-nowrap font-bold ${l.tipo === "despesa" ? "text-red-400" : "text-green-400"}`}>
+                                  {formatCurrencyBR(l.valor)} <span className={SITUACAO[situacaoDoLancamento(l)].cor}>{SITUACAO[situacaoDoLancamento(l)].texto}</span>
+                                </span>
+                              </div>
+                            ))}
+                        </div>
+                      )}
                     </div>
                   ))}
                 </div>
@@ -636,7 +737,7 @@ export default function AdminBpo({ initialTab }: { initialTab?: Aba } = {}) {
             <CardHeader>
               <CardTitle className="text-[#C9A961]">
                 {aba === "cobrancas"
-                  ? "Cobranças (honorários, reembolsos e entradas do extrato)"
+                  ? "Cobranças (entradas do extrato, cobranças do Asaas e lançamentos)"
                   : "Despesas"}
               </CardTitle>
             </CardHeader>
@@ -659,8 +760,11 @@ export default function AdminBpo({ initialTab }: { initialTab?: Aba } = {}) {
                             {l.descricao}
                           </p>
                           <p className="text-xs text-gray-400">
-                            {clienteNome(l)} • {rotulo(l.tipo)}
-                            {l.categoria ? ` • ${l.categoria}` : ""}
+                            {clienteNome(l)}
+                            {l.titular && l.titular !== clienteNome(l) ? ` • titular: ${l.titular}` : ""}
+                            {" • "}{l.tipo === "receita" ? "Cobrança" : rotulo(l.tipo)}
+                            {` • ${l.categoria || "sem categoria"}`}
+                            {l.asaasPaymentId ? " • Asaas" : ""}
                             {l.bankTransactionId ? " • extrato bancário" : ""} • vence{" "}
                             {new Date(l.vencimento).toLocaleDateString("pt-BR")}{" "}
                             • comp. {l.competencia}
@@ -686,11 +790,9 @@ export default function AdminBpo({ initialTab }: { initialTab?: Aba } = {}) {
                               Marcar pago
                             </Button>
                           )}
-                          {l.pago && (
-                            <span className="text-xs font-bold text-green-500">
-                              PAGO
-                            </span>
-                          )}
+                          <span className={`text-xs font-bold ${SITUACAO[situacaoDoLancamento(l)].cor}`}>
+                            {SITUACAO[situacaoDoLancamento(l)].texto}
+                          </span>
                         </div>
                       </div>
                     )
@@ -704,12 +806,48 @@ export default function AdminBpo({ initialTab }: { initialTab?: Aba } = {}) {
         {aba === "dre" && (
           <Card className="bg-[#2C3E50] border-[#C9A961]/20 text-gray-100">
             <CardHeader>
-              <CardTitle className="text-[#C9A961]">
-                DRE por Competência
+              <CardTitle className="text-[#C9A961] flex flex-wrap items-center justify-between gap-2">
+                <span>DRE por {dreVisao === "competencia" ? "Competência" : "Categoria"}</span>
+                <span className="flex gap-2">
+                  {(["competencia", "categoria"] as const).map(v => (
+                    <button key={v} type="button" onClick={() => setDreVisao(v)}
+                      className={`px-3 py-1 rounded-full text-xs font-bold border ${dreVisao === v ? "bg-[#C9A961] text-[#1A2332] border-[#C9A961]" : "border-[#C9A961]/30 text-gray-300"}`}>
+                      {v === "competencia" ? "Por competência" : "Por categoria"}
+                    </button>
+                  ))}
+                </span>
               </CardTitle>
             </CardHeader>
             <CardContent>
-              {dreRows.length === 0 ? (
+              {dreVisao === "categoria" ? (
+                dreCategorias.length === 0 ? (
+                  <p className="text-center py-12 text-gray-400">Sem lançamentos para consolidar</p>
+                ) : (
+                  <div className="overflow-x-auto">
+                    <p className="text-xs text-gray-400 mb-2">"{TRANSFERENCIA_INTERNA}" fica fora (não é receita nem despesa).</p>
+                    <table className="w-full text-sm">
+                      <thead>
+                        <tr className="text-left text-gray-300 text-xs uppercase">
+                          <th className="py-2 pr-4">Categoria</th>
+                          <th className="py-2 pr-4 text-right">Entradas</th>
+                          <th className="py-2 pr-4 text-right">Saídas</th>
+                          <th className="py-2 pr-4 text-right">Resultado</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {dreCategorias.map(r => (
+                          <tr key={r.categoria} className="border-t border-[#C9A961]/10">
+                            <td className="py-2 pr-4 text-white font-medium">{r.categoria}</td>
+                            <td className="py-2 pr-4 text-right text-green-400 font-bold">{formatCurrencyBR(r.entradas)}</td>
+                            <td className="py-2 pr-4 text-right text-red-400 font-bold">{formatCurrencyBR(r.saidas)}</td>
+                            <td className={`py-2 pr-4 text-right font-black ${r.resultado >= 0 ? "text-green-300" : "text-red-300"}`}>{formatCurrencyBR(r.resultado)}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )
+              ) : dreRows.length === 0 ? (
                 <div className="text-center py-12 text-gray-400">
                   <BarChart3 className="h-12 w-12 mx-auto mb-3 opacity-20" />
                   <p>Sem lançamentos para consolidar</p>

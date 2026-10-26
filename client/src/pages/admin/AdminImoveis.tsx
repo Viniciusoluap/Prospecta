@@ -1,4 +1,5 @@
 import { useMemo, useState } from "react";
+import { localizacaoImovel } from "@shared/obra-localizacao";
 import { Link } from "wouter";
 import { trpc } from "@/lib/trpc";
 import { Button } from "@/components/ui/button";
@@ -84,7 +85,7 @@ export default function AdminImoveis({
       if (busca.trim()) {
         const termo = busca.trim().toLowerCase();
         if (
-          !`${i.titulo} ${i.bairro ?? ""} ${i.cidade} ${i.tipo}`
+          !`${i.titulo} ${i.endereco ?? ""} ${i.bairro ?? ""} ${i.cidade} ${i.tipo}`
             .toLowerCase()
             .includes(termo)
         )
@@ -240,9 +241,8 @@ export default function AdminImoveis({
                         {rotulo(imovel.tipo)}
                       </td>
                       <td className="px-4 py-3 hidden lg:table-cell text-gray-300">
-                        {[imovel.bairro, imovel.cidade]
-                          .filter(Boolean)
-                          .join(", ")}
+                        {/* Pedido de 25/10 (noite): endereço completo (imóveis gerados de obra vinham "Não informada"). */}
+                        {localizacaoImovel(imovel)}
                       </td>
                       <td className="px-4 py-3 text-right font-bold text-[#00FF00]">
                         {formatCurrencyBR(imovel.preco)}
