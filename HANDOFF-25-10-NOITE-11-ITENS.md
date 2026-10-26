@@ -29,3 +29,10 @@ Ver lista acima; cada agente reporta arquivos e testes; Claude revisa, commita, 
 
 ## Ordem de publicação Prospecta
 1. Aplicar 0075 e 0076 no Neon (aditivas). 2. Merge/deploy. 3. Reconciliar imóveis + limpar Sarah (com aval do dono). 4. Dono reimporta OFX da Cora.
+
+## Checkpoint Codex — 26/10, revisão de publicação
+- Implementação remota confirmada em `5a8f6b42ecd71dc1eb59965df866ee46db7b370c`; PR [#171](https://github.com/Viniciusoluap/Prospecta/pull/171) aberto e sem conflito, prévia Vercel com status de sucesso. O código não foi refeito.
+- (a) Automáticos: 147 arquivos/1.087 testes, `check` e build aprovados na validação anterior. As migrações SQL `0075` (13 comandos) e `0076` (7 comandos) passaram em transações na branch Neon de prévia `preview/claude/sync-mirrored-repos-bsqnz3`; conferidos 9 campos e 2 tabelas criados.
+- (b) Manual: inspeção da configuração e do esquema de produção. A branch de produção Neon ainda não recebeu `0075`/`0076`. A tentativa de criar uma branch adicional de teste encontrou o limite de branches; a branch de prévia existente foi usada.
+- (c) Produção: migrações, merge/deploy e reconciliação dos 16 imóveis/61 leads continuam pendentes. A corretora Sarah (usuária 15) permanece fora da limpeza. Sem alteração de dados de produção neste checkpoint.
+- Próximo passo exato: aplicar os SQLs `0075` e `0076` em produção antes do merge/deploy, verificar campos e tabelas, mesclar o PR #171 e validar o deploy. Só então obter a prévia da reconciliação dos imóveis e da limpeza dos 61 valores legados, aplicar a mudança aprovada e conferir contagens. O diário automático do Drizzle termina em `0060`; esses SQLs posteriores são geridos manualmente, não via `db:push`.
