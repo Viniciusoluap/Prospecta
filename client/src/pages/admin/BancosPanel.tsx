@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { Link } from "wouter";
 import { trpc } from "@/lib/trpc";
+import { ConectarPluggy } from "@/components/bpo/ConectarPluggy";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -131,6 +132,7 @@ export default function BancosPanel() {
               onClick={() => reprocessar.mutate()}>
               <Repeat className="h-4 w-4 mr-2" /> {reprocessar.isPending ? "Reprocessando..." : "Reprocessar movimentações"}
             </Button>
+            <ConectarPluggy />
             <Button onClick={() => setNovaOpen(true)} className="bg-[#C9A961] hover:bg-[#B8985A] text-[#1A2332] font-bold">
               <Plus className="h-4 w-4 mr-2" /> Conta Bancária
             </Button>

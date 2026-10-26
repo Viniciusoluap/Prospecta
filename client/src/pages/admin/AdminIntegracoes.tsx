@@ -11,7 +11,6 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { ConexaoWhatsApp } from "@/components/whatsapp/ConexaoWhatsApp";
-import { ConectarPluggy } from "@/components/bpo/ConectarPluggy";
 
 type Servico = "asaas" | "pluggy" | "whatsapp";
 type Campo = { nome: string; rotulo: string; segredo?: boolean; placeholder?: string; opcional?: boolean };
@@ -148,7 +147,7 @@ export default function AdminIntegracoes() {
             titulo="Pluggy — contas do Meu Pluggy no BPO"
             servico="pluggy"
             salvo={<p>{pluggy?.configurado ? `Client ID terminando em ${pluggy.clientIdFinal} · Client Secret terminando em ${pluggy.secretFinal}.` : "Client ID e Client Secret não salvos."}</p>}
-            extra={<ConectarPluggy configurado={Boolean(pluggy?.configurado)} />}
+            extra={<p className="text-xs text-gray-300">Conectar as contas do banco: BPO › Bancos › “Conectar conta Pluggy”.</p>}
             campos={[
               { nome: "clientId", rotulo: "Client ID", segredo: true },
               { nome: "clientSecret", rotulo: "Client Secret", segredo: true },
