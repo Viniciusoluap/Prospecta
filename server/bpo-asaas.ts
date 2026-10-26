@@ -36,10 +36,17 @@ const dia = (d: Date | null | undefined) => (d ? d.toISOString().slice(0, 10) : 
  * 4) senão → cria o lançamento (em aberto, vencido ou pago).
  */
 export async function sincronizarCobrancasAsaas(apiKey: string, desde: string, fetchImpl: typeof fetch = fetch): Promise<ResultadoCobrancas> {
-  const cobrancas = (await fetchAsaasCobrancas(apiKey, desde, fetchImpl)).filter(c => situacaoCobrancaAsaas(c.status) !== null);
+  const db = getDb();
+  // Cliente do Asaas só é consultado para cobrança nova ou ainda sem cliente BPO.
+  const comCliente = new Set(
+    (await db.select({ pid: bpoLancamentos.asaasPaymentId }).from(bpoLancamentos)
+      .where(and(isNotNull(bpoLancamentos.asaasPaymentId), isNotNull(bpoLancamentos.clienteId))))
+      .map(l => l.pid as string),
+  );
+  const cobrancas = (await fetchAsaasCobrancas(apiKey, desde, fetchImpl, id => !comCliente.has(id)))
+    .filter(c => situacaoCobrancaAsaas(c.status) !== null);
   const resultado: ResultadoCobrancas = { recebidas: cobrancas.length, criadas: 0, atualizadas: 0, reconciliadas: 0 };
   if (!cobrancas.length) return resultado;
-  const db = getDb();
   const ids = cobrancas.map(c => c.id);
 
   const existentes = new Map<string, typeof bpoLancamentos.$inferSelect>();

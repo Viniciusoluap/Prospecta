@@ -80,10 +80,20 @@ export type AsaasCobranca = {
   descricao: string;
   clienteNome: string | null;
   clienteDocumento: string | null;
+  clienteAsaasId: string | null;
 };
 
-/** Cobranças criadas a partir de `desde` (todas as situações), com nome e CPF/CNPJ do cliente. */
-export async function fetchAsaasCobrancas(apiKey: string, desde: string, fetchImpl: Fetch = fetch): Promise<AsaasCobranca[]> {
+/**
+ * Cobranças criadas a partir de `desde` (todas as situações). Nome e CPF/CNPJ do cliente só são
+ * buscados para as cobranças em que `precisaCliente` responder sim (evita uma chamada por cliente
+ * a cada sincronização).
+ */
+export async function fetchAsaasCobrancas(
+  apiKey: string,
+  desde: string,
+  fetchImpl: Fetch = fetch,
+  precisaCliente: (pagamentoId: string) => boolean | Promise<boolean> = () => true,
+): Promise<AsaasCobranca[]> {
   type Pagamento = {
     id: string; status?: string; value?: number; netValue?: number; dueDate?: string; paymentDate?: string | null;
     clientPaymentDate?: string | null; confirmedDate?: string | null; description?: string | null; customer?: string; deleted?: boolean;
@@ -96,7 +106,9 @@ export async function fetchAsaasCobrancas(apiKey: string, desde: string, fetchIm
     if (!data.hasMore) break;
   }
   const clientes = new Map<string, { nome: string | null; documento: string | null }>();
-  for (const id of Array.from(new Set(brutos.map(p => p.customer).filter((c): c is string => Boolean(c))))) {
+  const buscar = new Set<string>();
+  for (const p of brutos) if (p.customer && (await precisaCliente(p.id))) buscar.add(p.customer);
+  for (const id of Array.from(buscar)) {
     try {
       const c = await getAsaas<{ name?: string; cpfCnpj?: string }>(apiKey, `/customers/${encodeURIComponent(id)}`, fetchImpl);
       clientes.set(id, { nome: c.name?.trim() || null, documento: c.cpfCnpj?.replace(/\D/g, "") || null });
@@ -113,5 +125,6 @@ export async function fetchAsaasCobrancas(apiKey: string, desde: string, fetchIm
     descricao: (p.description ?? "").trim(),
     clienteNome: p.customer ? clientes.get(p.customer)?.nome ?? null : null,
     clienteDocumento: p.customer ? clientes.get(p.customer)?.documento ?? null : null,
+    clienteAsaasId: p.customer ?? null,
   }));
 }

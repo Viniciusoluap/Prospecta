@@ -38,6 +38,7 @@ export type CobrancaAsaas = {
   descricao: string;
   clienteNome: string | null;
   clienteDocumento: string | null;
+  clienteAsaasId?: string | null;
 };
 
 export type ClienteBpoParaCobranca = ClienteParaSugestao & { documentos?: (string | null | undefined)[] };
