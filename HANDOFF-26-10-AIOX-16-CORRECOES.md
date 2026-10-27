@@ -73,3 +73,15 @@ Concluir a auditoria das 16 correções nos dois repositórios, publicar a matri
 ### Próximo passo exato
 
 Concluir as lacunas funcionais e a paridade do Santa Fé, criar testes das exclusões/vínculos/revisões/templates, executar typecheck/suítes/builds e publicar o próximo checkpoint antes de qualquer migração de produção.
+
+## Retomada pelo Claude — 27/10/2026
+- Base: `origin/codex/aiox-16-correcoes-20261026` (Prospecta `dcc2828`, Santa Fé `edea685`) trazida para a branch
+  `claude/sync-mirrored-repos-bsqnz3` por fast-forward (nada descartado). O lote noturno de 25/10 já está em `main` (PRs #171/#234).
+- Removida a cópia duplicada `drizzle/0077_bpo_vinculos_operacionais.sql` (idêntica à `0080_bpo_vinculos_operacionais.sql`;
+  sequência final 0077 pluggy v2 · 0078 projetos · 0079 templates · 0080 vínculos BPO · 0081 exclusão/edição auditável).
+- Atenção: o Codex validou mais coisas depois do último checkpoint publicado (ex.: lacuna WhatsApp Santa Fé com 43 testes),
+  mas esses commits locais **não chegaram ao GitHub** antes do limite de uso. Só o que está no remoto foi aproveitado.
+- O texto do "prompt mestre" com os aceites das correções 01–16 não está versionado; pedido ao dono para continuar sem inventar requisitos.
+
+### Próximo passo exato
+Receber o prompt mestre (01–16) → montar matriz requisito × situação (feito / parcial / falta) nos dois repos → executar as lacunas.
