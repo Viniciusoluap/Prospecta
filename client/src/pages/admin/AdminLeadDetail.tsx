@@ -105,7 +105,7 @@ export default function AdminLeadDetail() {
         stage: lead.stage,
         cardDueDate: lead.cardDueDate || "",
         notes: lead.notes || "", adminNotes: lead.adminNotes || "",
-        simulationValue: lead.simulationValue || "", approvedValue: lead.approvedValue || "",
+        negotiatedValue: lead.negotiatedValue || "", simulationValue: lead.simulationValue || "", approvedValue: lead.approvedValue || "",
         interest: (lead as any).interest || "financing", type: lead.type || "new_lead",
       });
     }
@@ -328,6 +328,9 @@ export default function AdminLeadDetail() {
                         className="bg-[#2C3E50] border-[#C9A961]/30 text-white mt-1 [color-scheme:dark]" />
                     </div>
                     <div>
+                      <Label className="text-gray-300">Valor negociado para venda (R$)</Label>
+                      <CurrencyInput value={Number(editForm.negotiatedValue || 0)} onChange={v => setEditForm(f => ({ ...f, negotiatedValue: v ? String(v) : "" }))} className="bg-[#2C3E50] border-[#C9A961]/30 text-white mt-1" />
+                    </div><div>
                       <Label className="text-gray-300">VGV simulado (R$)</Label>
                       <CurrencyInput value={editForm.simulationValue ? Number(editForm.simulationValue) : 0} onChange={v => setEditForm(f => ({ ...f, simulationValue: v ? String(v) : "" }))} className="bg-[#2C3E50] border-[#C9A961]/30 text-white mt-1" />
                     </div>
@@ -350,6 +353,7 @@ export default function AdminLeadDetail() {
                         stage: STAGES.some(s => s.key === editForm.stage) ? editForm.stage : undefined,
                         responsibleUserId: responsibleUserId && responsibleUserId !== "none" ? Number(responsibleUserId) : null,
                         brokerId: brokerId && brokerId !== "none" ? Number(brokerId) : null,
+                        negotiatedValue: editForm.negotiatedValue ? Number(editForm.negotiatedValue) : null,
                         simulationValue: editForm.simulationValue ? parseFloat(editForm.simulationValue) : undefined,
                         approvedValue: editForm.approvedValue ? parseFloat(editForm.approvedValue) : undefined,
                       });
@@ -446,6 +450,7 @@ export default function AdminLeadDetail() {
               <InfoRow label="CPF Status" value={lead.cpfStatus === "clean" ? "Limpo" : lead.cpfStatus === "restricted" ? "Restrito" : "Desconhecido"} />
               <InfoRow label="Interesse" value={(lead as any).interest === "house" ? "Casa" : (lead as any).interest === "lot" ? "Lote" : (lead as any).interest === "financing" ? "Financiamento" : "Obra"} />
               <Separator className="bg-[#C9A961]/20" />
+              <InfoRow label="Valor negociado para venda" value={formatCurrencyBR(lead.negotiatedValue)} />
               <InfoRow label="VGV simulado" value={formatCurrencyBR(lead.simulationValue)} highlight />
               <InfoRow label="Valor financiado aprovado" value={formatCurrencyBR(lead.approvedValue)} highlight />
               <InfoRow label="Vencimento do card" value={lead.cardDueDate ? lead.cardDueDate.split("-").reverse().join("/") : "Sem data"} />

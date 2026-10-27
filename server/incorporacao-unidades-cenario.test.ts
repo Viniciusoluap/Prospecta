@@ -14,6 +14,8 @@ beforeAll(async () => {
  const cols = getTableConfig(incorporationStudies).columns.map((c) => `"${c.name}" ${c.name === "id" ? "serial PRIMARY KEY" : /^(varchar|text|integer|numeric|boolean|timestamp|double|date)/.test(c.getSQLType()) ? c.getSQLType() : "text"}`);
  await pg.exec(`CREATE TABLE incorporation_studies (${cols.join(",")}); CREATE TABLE users(id integer primary key); INSERT INTO users VALUES(1); CREATE TABLE leads(id integer primary key, name text, phone text, deleted_at timestamp); INSERT INTO leads VALUES(7,'Cliente CRM','99',null);`);
  await pg.exec(readFileSync(new URL("../drizzle/0045_incorporation_units.sql", import.meta.url), "utf8"));
+ await pg.exec(readFileSync(new URL("../drizzle/0092_lead_valor_negociado.sql", import.meta.url), "utf8"));
+ await pg.exec(readFileSync(new URL("../drizzle/0092_lead_valor_negociado.sql", import.meta.url), "utf8"));
  const m = readFileSync(new URL("../drizzle/0090_unidades_cenario.sql", import.meta.url), "utf8"); await pg.exec(m); await pg.exec(m);
  await pg.query("INSERT INTO incorporation_studies(id,incorporation_type,mass_scenarios_json,selected_scenario_id,area_m2,sem_kml) VALUES(1,'loteamento',$1,'A',1000,false)", [JSON.stringify({ params: { precoM2Lote: 100 }, cenarios: [cenario] })]);
  vi.spyOn(banco,"getDb").mockReturnValue(drizzle(pg) as never);
@@ -41,4 +43,11 @@ it("preserva venda e reserva e não recria excluída ao trocar cenário", async 
 it("recusa outro estudo e perfil sem módulo",async()=>{
  const u=(await caller.list({studyId:1})).units[0]; await expect(caller.delete({studyId:2,unitId:u.id})).rejects.toThrow();
  const c=incorporationUnitsRouter.createCaller({user:{id:2,role:"colaborador",active:true,permissions:JSON.stringify(["obras"])},req:{},res:{}} as never); await expect(c.synchronize({studyId:1})).rejects.toThrow();
+});
+
+it("CRM retorna somente o preço comercial cadastrado, mantendo ausência e centavos", async () => {
+ expect((await caller.clients())[0]).toMatchObject({id:7,valorNegociado:null});
+ await pg.exec("UPDATE leads SET negotiated_value=23123.45 WHERE id=7");
+ expect((await caller.clients())[0]).toMatchObject({nome:"Cliente CRM",valorNegociado:"23123.45"});
+ await expect(pg.exec("UPDATE leads SET negotiated_value=-1 WHERE id=7")).rejects.toThrow();
 });

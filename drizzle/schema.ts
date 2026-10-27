@@ -867,6 +867,7 @@ export const leads = pgTable("leads", {
   incomeComposition: boolean("income_composition").default(false),
   cpfStatus: leadCpfStatusEnum("cpf_status").default("unknown"),
   simulationValue: decimal("simulation_value", { precision: 15, scale: 2 }),
+  negotiatedValue: decimal("negotiated_value", { precision: 15, scale: 2 }),
   approvedValue: decimal("approved_value", { precision: 15, scale: 2 }),
   contractType: leadContractTypeEnum("contract_type"),
   sourceChannel: varchar("source_channel", { length: 100 }),

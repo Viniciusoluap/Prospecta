@@ -1403,6 +1403,7 @@ export const appRouter = router({
           temperature: z.enum(LEAD_TEMPERATURAS).optional(),
           simulationValue: z.number().finite().min(0).max(9_999_999_999_999.99)
             .transform(value => value.toFixed(2)).optional(),
+          negotiatedValue: z.number().finite().min(0).max(9_999_999_999_999.99).transform(v => v.toFixed(2)).nullable().optional(),
           cardDueDate: z.string().nullable().optional(),
           // Item 9 (18/10): o cadastro escolhe o estágio do funil (antes "Tipo de Lead").
           stage: z.enum(LEAD_PIPELINE_KEYS).optional(),
@@ -1526,6 +1527,7 @@ export const appRouter = router({
           cpfStatus: z.enum(["clean", "restricted", "unknown"]).optional(),
           simulationValue: z.union([z.string(), z.number()]).optional(),
           approvedValue: z.union([z.string(), z.number()]).optional(),
+          negotiatedValue: z.number().finite().min(0).max(9_999_999_999_999.99).transform(v => v.toFixed(2)).nullable().optional(),
           contractType: z.enum(["obra", "financing", "both"]).optional(),
           rejectionReason: z.string().optional(),
           followupDate: z.string().optional(),

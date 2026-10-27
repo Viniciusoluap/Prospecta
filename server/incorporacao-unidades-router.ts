@@ -34,7 +34,7 @@ function conflict(): never { throw new TRPCError({ code: "CONFLICT", message: "E
 export const incorporationUnitsRouter = router({
   clients: protectedProcedure.input(z.object({ query: z.string().max(120).optional() }).optional()).query(async ({ ctx, input }) => {
     requireModule(ctx, "incorporacao"); requireModule(ctx, "crm");
-    return getDb().select({ id: leads.id, nome: leads.name, telefone: leads.phone }).from(leads)
+    return getDb().select({ id: leads.id, nome: leads.name, telefone: leads.phone, valorNegociado: leads.negotiatedValue }).from(leads)
       .where(and(isNull(leads.deletedAt), input?.query ? ilike(leads.name, `%${input.query}%`) : undefined)).orderBy(leads.name).limit(200);
   }),
   synchronize: protectedProcedure.input(z.object({ studyId })).mutation(async ({ ctx, input }) => {
