@@ -161,7 +161,7 @@ async function unidades(estudoId: string) {
   return {
     unidades: r.units.map((u) => ({
       id: String(u.id), codigo: u.code, tipo: u.kind, status: u.status, comprador: u.buyer,
-      valorVenda: u.salePrice ?? null, compradorLeadId: u.buyerLeadId ? String(u.buyerLeadId) : null, cenarioId: u.scenarioId, criadoEm: new Date(u.createdAt).toISOString(), atualizadoEm: new Date(u.updatedAt).toISOString(),
+      valorVenda: u.salePrice ?? null, revisao: u.revision, compradorLeadId: u.buyerLeadId ? String(u.buyerLeadId) : null, cenarioId: u.scenarioId, criadoEm: new Date(u.createdAt).toISOString(), atualizadoEm: new Date(u.updatedAt).toISOString(),
     })),
     legacyPending: r.legacyPending, legacyInvalid: r.legacyInvalid,
   };
@@ -233,7 +233,7 @@ export function excluirEstudoMassa(estudoId: string, estudoMassaId: string) {
 
 export function clientesUnidades(query = "") { return capturar(async () => (await inc.units.clients.query({ query })).map((l) => ({ ...l, id: String(l.id) }))); }
 export function sincronizarUnidades(estudoId: string) { return capturar(() => inc.units.synchronize.mutate({ studyId: id(estudoId) })); }
-export function editarUnidade(estudoId: string, unidadeId: string, d: { status: "disponivel" | "reservada" | "vendida"; comprador: string | null; compradorLeadId: string | null; valor: string | null; esperadoEm: string }) {
-  return capturar(() => inc.units.edit.mutate({ studyId: id(estudoId), unitId: Number(unidadeId), status: d.status, buyer: d.comprador, buyerLeadId: d.compradorLeadId ? Number(d.compradorLeadId) : null, salePrice: d.valor, expectedAt: d.esperadoEm }));
+export function editarUnidade(estudoId: string, unidadeId: string, d: { status: "disponivel" | "reservada" | "vendida"; comprador: string | null; compradorLeadId: string | null; valor: string | null; revisao: number }) {
+  return capturar(() => inc.units.edit.mutate({ studyId: id(estudoId), unitId: Number(unidadeId), status: d.status, buyer: d.comprador, buyerLeadId: d.compradorLeadId ? Number(d.compradorLeadId) : null, salePrice: d.valor, expectedRevision: d.revisao }));
 }
 export function excluirUnidade(estudoId: string, unidadeId: string) { return capturar(() => inc.units.delete.mutate({ studyId: id(estudoId), unitId: Number(unidadeId) })); }

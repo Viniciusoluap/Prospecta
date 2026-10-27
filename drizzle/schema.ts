@@ -1884,6 +1884,7 @@ export const incorporationUnits = pgTable("incorporation_units", {
   kind: varchar("kind", { length: 40 }).notNull(),
   status: varchar("status", { length: 20 }).default("disponivel").notNull(),
   buyerLeadId: integer("buyer_lead_id").references(() => leads.id, { onDelete: "set null" }),
+  revision: integer("revision").default(0).notNull(),
   sourceKey: varchar("source_key", { length: 255 }),
   scenarioId: varchar("scenario_id", { length: 120 }),
   deletedAt: timestamp("deleted_at"),

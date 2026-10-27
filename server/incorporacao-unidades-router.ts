@@ -41,8 +41,10 @@ export const incorporationUnitsRouter = router({
     requireModule(ctx, "incorporacao"); await study(input.studyId);
     return sincronizarUnidadesCenario(input.studyId, ctx.user.id);
   }),
-  edit: protectedProcedure.input(z.object({ studyId, unitId: studyId, status: z.enum(["disponivel", "reservada", "vendida"]), buyer: z.string().trim().max(255).nullable(), buyerLeadId: studyId.nullable(), salePrice: price.nullable(), expectedAt: z.string().datetime() })).mutation(async ({ ctx, input }) => {
+  edit: protectedProcedure.input(z.object({ studyId, unitId: studyId, status: z.enum(["disponivel", "reservada", "vendida"]), buyer: z.string().trim().max(255).nullable(), buyerLeadId: studyId.nullable(), salePrice: price.nullable(), expectedRevision: z.number().int().nonnegative() })).mutation(async ({ ctx, input }) => {
     requireModule(ctx, "incorporacao"); await study(input.studyId);
+    const legacy = await pendingLegacy(input.studyId);
+    if (legacy.invalido || legacy.pending.length) throw new TRPCError({ code: "PRECONDITION_FAILED", message: "Concilie as vendas históricas antes de alterar o inventário." });
     let buyer = input.buyer;
     if (input.buyerLeadId) {
       requireModule(ctx, "crm");
@@ -53,7 +55,7 @@ export const incorporationUnitsRouter = router({
     if (input.status === "vendida" && (!buyer || !input.salePrice)) throw new TRPCError({ code: "BAD_REQUEST", message: "Informe comprador e valor para vender." });
     const r = await getDb().execute(sql`WITH anterior AS MATERIALIZED (
       SELECT * FROM incorporation_units WHERE id = ${input.unitId} AND study_id = ${input.studyId} AND deleted_at IS NULL
-        AND date_trunc('milliseconds', updated_at) = ${input.expectedAt}::timestamptz
+        AND revision = ${input.expectedRevision}
         AND (status <> 'vendida' OR ${input.status} = 'vendida') FOR UPDATE
     ), changed AS (
       UPDATE incorporation_units u SET status = ${input.status}, buyer = ${buyer}, buyer_lead_id = ${input.buyerLeadId},
