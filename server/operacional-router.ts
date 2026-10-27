@@ -659,9 +659,16 @@ export const projetosRouter = router({
       .where(and(eq(users.active, true), inArray(users.role, ["colaborador", "admin"])))
       .orderBy(asc(users.name))
   ),
-  list: adminProcedure.query(async () =>
-    getDb().select().from(projects).orderBy(desc(projects.updatedAt))
-  ),
+  list: adminProcedure.query(async () => {
+    const [lista, pendentes] = await Promise.all([
+      getDb().select().from(projects).orderBy(desc(projects.updatedAt)),
+      getDb().select({ projectId: revisoes.projectId, total: sql<number>`count(*)::int` })
+        .from(revisoes).where(eq(revisoes.status, "pendente")).groupBy(revisoes.projectId),
+    ]);
+    const porProjeto = new Map(pendentes.map(item => [item.projectId, item.total]));
+    return lista.map(projeto => ({ ...projeto, pendingRevisionCount: porProjeto.get(projeto.id) ?? 0 }))
+      .sort((a, b) => Number(b.pendingRevisionCount > 0) - Number(a.pendingRevisionCount > 0));
+  }),
   getById: adminProcedure
     .input(idInput)
     .query(async ({ input }) =>
@@ -733,16 +740,24 @@ export const projetosRouter = router({
         : [];
       const destinatario = colaborador?.active ? colaborador : null;
       const autor = ctx.user.name || ctx.user.email || `Usuário ${ctx.user.id}`;
-      const [pedido] = await getDb().insert(revisoes).values({
-        projectId: projeto.id,
-        requestedByUserId: ctx.user.id,
-        requestedByName: autor,
-        requestText: texto,
-        status: "pendente",
-        engineerUserId: destinatario?.id ?? null,
-        notificationStatus: "sem_destinatario",
-        emailStatus: "sem_destinatario",
-      }).returning();
+      const [pedido] = await getDb().transaction(async tx => {
+        await tx.execute(sql`SELECT id FROM operational_projects WHERE id = ${projeto.id} FOR UPDATE`);
+        const [jaPendente] = await tx.select({ id: revisoes.id }).from(revisoes)
+          .where(and(eq(revisoes.projectId, projeto.id), eq(revisoes.status, "pendente"))).limit(1);
+        const inserido = await tx.insert(revisoes).values({
+          projectId: projeto.id,
+          requestedByUserId: ctx.user.id,
+          requestedByName: autor,
+          requestText: texto,
+          status: "pendente",
+          previousProjectStatus: jaPendente ? null : projeto.status,
+          engineerUserId: destinatario?.id ?? null,
+          notificationStatus: "sem_destinatario",
+          emailStatus: "sem_destinatario",
+        }).returning();
+        await tx.update(projects).set({ status: "revisao", updatedAt: new Date() }).where(eq(projects.id, projeto.id));
+        return inserido;
+      });
       const link = `/admin/projetos?projeto=${projeto.id}`;
       let notificacao: SituacaoCanal = "sem_destinatario";
       let email: SituacaoCanal = "sem_destinatario";

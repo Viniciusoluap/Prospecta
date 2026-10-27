@@ -35,6 +35,13 @@ describe("titular e descrição no extrato", () => {
     expect(r.linhas[0]).toMatchObject({ descricao: "Transf Pix enviada", titular: "Pedreiro Zé", detalhe: "Diária semana 2", tipo: "debito", valor: 800 });
   });
 
+  it("Cora: preserva NSU como referência estável e usa-o na idempotência", () => {
+    const r = lerCsv("Data;Transação;Identificação;Descrição;NSU;Valor\n10/01/2026;Transf Pix enviada;Pedreiro Zé;Diária;E123;-800,00");
+    expect(r.linhas[0]).toMatchObject({ titular: "Pedreiro Zé", detalhe: "Diária", identificadorBancario: "E123" });
+    const hash = (s: string) => s;
+    expect(chavesImportacao(7, r.linhas, hash)[0]).toContain("ref:e123");
+  });
+
   it("a chave de importação não muda com o titular (reimportar não duplica)", () => {
     const h = (s: string) => s;
     const sem = [{ data: "2026-01-02", descricao: "Transf Pix enviada", valor: 350, tipo: "debito" as const }];

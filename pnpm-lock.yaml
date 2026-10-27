@@ -308,6 +308,9 @@ importers:
       '@types/nodemailer':
         specifier: ^7.0.4
         version: 7.0.4
+      '@types/pg':
+        specifier: 8.11.6
+        version: 8.11.6
       '@types/qrcode':
         specifier: ^1.5.6
         version: 1.5.6

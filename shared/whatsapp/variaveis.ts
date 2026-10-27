@@ -5,11 +5,12 @@ import { CLIENT_DOCUMENT_CHECKLIST } from "../client-document-checklist.js";
 export const VARIAVEIS_TEMPLATE: Record<string, string> = {
   nome: "Nome do cliente",
   servico: "Serviço",
+  servicos: "Serviços",
   corretor: "Corretor",
   imovel: "Imóvel",
   banco: "Banco",
   horario: "Horário",
-  endereco: "Endereço",
+  dia: "Dia/data da visita",
   documentos: "Documentos",
 };
 
@@ -72,5 +73,12 @@ export function textoDocumentos(chaves: string[]): string {
  */
 export function mesclarValores(valores: Record<string, string> | undefined, extras?: Record<string, string>, porLead?: Record<string, string>) {
   const limpo = (o?: Record<string, string>) => Object.fromEntries(Object.entries(o ?? {}).filter(([, v]) => typeof v === "string" && v.trim()));
-  return { ...limpo(extras), ...limpo(valores), ...limpo(porLead) };
+  const mesclado = { ...limpo(extras), ...limpo(valores), ...limpo(porLead) };
+  // Serviços nunca são inferidos do cadastro: exigem escolha explícita neste envio.
+  for (const chave of ["servico", "servicos"]) {
+    delete mesclado[chave];
+    const escolhido = porLead?.[chave]?.trim() || extras?.[chave]?.trim();
+    if (escolhido) mesclado[chave] = escolhido;
+  }
+  return mesclado;
 }

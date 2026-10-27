@@ -1,11 +1,9 @@
-// Pedido de 25/10 (noite), item 12 (opção B): a conexão do admin sai da Central WhatsApp e vai para
-// Configurações › Integrações; corretor (e colaborador, que não acessa Integrações) conecta pela aba
-// "Minha conexão" da Central. A Central abre em Conversas.
-export type AbaCentral = "conexao" | "conversas" | "enviar" | "templates" | "historico";
+// A conexão fica em Serviços › WhatsApp para todos os perfis autorizados. A Central abre em
+// Conversas e não expõe a antiga aba Histórico; os registros permanecem no banco para métricas.
+export type AbaCentral = "conexao" | "conversas" | "enviar" | "templates";
 
 export function abasCentralWhatsapp(role: string): AbaCentral[] {
-  const base: AbaCentral[] = ["conversas", "enviar", "templates", "historico"];
-  return role === "admin" ? base : [...base, "conexao"];
+  return ["conversas", "enviar", "templates", "conexao"];
 }
 
 export function abaInicialCentral(role: string, pedida: string | null): AbaCentral {
@@ -14,4 +12,4 @@ export function abaInicialCentral(role: string, pedida: string | null): AbaCentr
 }
 
 /** Onde cada papel conecta o número (QR code). */
-export const linkConexaoWhatsapp = (role: string) => (role === "admin" ? "/admin/integracoes" : "/admin/whatsapp?aba=conexao");
+export const linkConexaoWhatsapp = (_role: string) => "/admin/whatsapp?aba=conexao";

@@ -113,6 +113,8 @@ describe("Item 2 — variáveis {{imovel}} e {{documentos}}", () => {
 
   it("precedência: escolha por lead > cadastro > campo geral (que só completa o que falta)", () => {
     expect(mesclarValores({ imovel: "Casa A" }, { imovel: "Casa B", horario: "10h" })).toEqual({ imovel: "Casa A", horario: "10h" });
+    expect(preencherTemplate("{{servico}}", mesclarValores({ servico: "Todos do cadastro" })).faltando).toEqual(["servico"]);
+    expect(mesclarValores({ servico: "Todos do cadastro" }, { servico: "Somente escolhido" }).servico).toBe("Somente escolhido");
     expect(mesclarValores({ documentos: "PIS" }, { documentos: "RG" }, { documentos: "CNH" }).documentos).toBe("CNH");
     expect(mesclarValores({ imovel: "" }, { imovel: "  " }).imovel).toBeUndefined();
     expect(preencherTemplate("{{imovel}} {{documentos}}", mesclarValores({}, {})).faltando).toEqual(["imovel", "documentos"]);
@@ -230,6 +232,7 @@ describe("Item 4 — mídia nas conversas", () => {
   it("só imagem/áudio/vídeo abrem no navegador; html, svg e documentos baixam como arquivo", () => {
     expect(tipoDeEntrega("image/jpeg", "imagem")).toEqual({ mime: "image/jpeg", inline: true });
     expect(tipoDeEntrega("audio/ogg", "audio")).toEqual({ mime: "audio/ogg", inline: true });
+    expect(tipoDeEntrega("application/pdf", "documento")).toEqual({ mime: "application/pdf", inline: true });
     expect(tipoDeEntrega("text/html", "documento")).toEqual({ mime: "application/octet-stream", inline: false });
     expect(tipoDeEntrega("image/svg+xml", "imagem")).toEqual({ mime: "application/octet-stream", inline: false });
   });
@@ -287,16 +290,16 @@ describe("Item 4 — mídia nas conversas", () => {
   });
 });
 
-describe("Item 12 — conexão fora da Central para o admin (opção B)", () => {
+describe("Conexão consolidada em Serviços › WhatsApp", () => {
   beforeEach(() => vi.resetAllMocks());
 
-  it("admin: Central sem a aba de conexão (abre em Conversas) e conexão em Integrações; corretor mantém a própria conexão", () => {
-    expect(abasCentralWhatsapp("admin")).toEqual(["conversas", "enviar", "templates", "historico"]);
+  it("admin e corretor acessam a conexão na Central, sem aba Histórico", () => {
+    expect(abasCentralWhatsapp("admin")).toEqual(["conversas", "enviar", "templates", "conexao"]);
     expect(abasCentralWhatsapp("corretor")).toContain("conexao");
-    expect(abaInicialCentral("admin", "conexao")).toBe("conversas");
+    expect(abaInicialCentral("admin", "conexao")).toBe("conexao");
     expect(abaInicialCentral("admin", null)).toBe("conversas");
     expect(abaInicialCentral("corretor", "conexao")).toBe("conexao");
-    expect(linkConexaoWhatsapp("admin")).toBe("/admin/integracoes");
+    expect(linkConexaoWhatsapp("admin")).toBe("/admin/whatsapp?aba=conexao");
     expect(linkConexaoWhatsapp("corretor")).toBe("/admin/whatsapp?aba=conexao");
   });
 

@@ -113,6 +113,7 @@ export function OperationalPage({
   // login); o corretor volta ao Portal do Corretor.
   const { user } = useAuth();
   const backHref = user?.role === "corretor" ? "/corretor" : "/admin";
+  const categoriaFinanceira = ({ "Projetos": "projetos", "Obras": "obras", "Regularizações": "regularizacoes", "Comissões": "comissoes", "Avaliações": "avaliacoes", "Financiamentos": "financiamentos", "Incorporação": "incorporacao" } as Record<string, string>)[title];
   const content = (
     <main
       className={
@@ -133,6 +134,7 @@ export function OperationalPage({
             )}
             <h1 className="text-3xl font-bold text-[#906a25]">{title}</h1>
             <p className="mt-2 text-slate-600">{description}</p>
+            {categoriaFinanceira && user?.role === "admin" && <Link className="mt-2 inline-block text-sm underline" href={`/admin/bpo?aba=cobrancas&categoriaOperacional=${categoriaFinanceira}`}>Financeiro deste módulo</Link>}
           </div>
           {onNew && <Button onClick={onNew} className="shrink-0">Novo cadastro</Button>}
         </header>

@@ -56,8 +56,9 @@ async function usuarioDaSessao(req: Request) {
   return usuario;
 }
 
-/** Só imagem/áudio/vídeo abrem no navegador; o resto (html, svg, pdf…) baixa como arquivo. */
+/** Mídia passiva e PDF abrem no visualizador; HTML/SVG seguem como download. */
 export function tipoDeEntrega(mime: string | null | undefined, tipo: string | null | undefined): { mime: string; inline: boolean } {
+  if (mime?.toLowerCase().split(";")[0].trim() === "application/pdf") return { mime: "application/pdf", inline: true };
   const m = (mime ?? "").toLowerCase();
   const seguro = /^(image\/(jpeg|png|webp|gif)|audio\/[\w.+-]+|video\/[\w.+-]+)$/.test(m);
   if (seguro && tipo !== "documento") return { mime: m, inline: true };

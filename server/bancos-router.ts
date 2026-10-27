@@ -12,6 +12,7 @@ import * as db from "./db.js";
 import { confirmarImportacao, previaImportacao, registrarWebhookPluggy, sincronizarConta, tokenPluggy } from "./bancos.js";
 import { classificarMovimentacao, movimentacoesDaConta, reprocessarMovimentacoes } from "./bpo-extrato.js";
 import { CATEGORIAS_BPO } from "../shared/financeiro/bpo-extrato.js";
+import { limparContaComBackup, previaLimpezaConta } from "./bpo-auditoria.js";
 
 const dataIsoSchema = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Data inválida").nullable().optional();
 const erro = (e: unknown, padrao: string) =>
@@ -150,10 +151,11 @@ export const bancarioRouter = router({
         return { success: true };
       }),
 
-    delete: adminProcedure.input(z.object({ id: z.number() })).mutation(async ({ input }) => {
-      await db.deleteBankAccount(input.id);
-      return { success: true };
-    }),
+    previaExclusao: adminProcedure.input(z.object({ id: z.number().int().positive() }))
+      .query(({ input }) => previaLimpezaConta(input.id)),
+
+    delete: adminProcedure.input(z.object({ id: z.number().int().positive(), confirmarRotulo: z.string().min(1) }))
+      .mutation(async ({ input, ctx }) => limparContaComBackup(input.id, input.confirmarRotulo, ctx.user.id)),
 
     atualizarSaldo: adminProcedure.input(z.object({ id: z.number(), saldo: z.number() })).mutation(async ({ input }) => {
       await db.updateBankAccountSaldo(input.id, input.saldo);

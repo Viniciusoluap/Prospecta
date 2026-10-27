@@ -72,8 +72,8 @@ describe("formatos de arquivo", () => {
 <STMTTRN><TRNTYPE>DEBIT<DTPOSTED>20261002<TRNAMT>-89.90<FITID>2<NAME>TARIFA</STMTTRN>
 </BANKTRANLIST></STMTRS></STMTTRNRS></BANKMSGSRSV1></OFX>`;
     expect(lerOfx(ofx).linhas).toEqual([
-      { data: "2026-10-01", descricao: "PIX RECEBIDO", valor: 1500, tipo: "credito" },
-      { data: "2026-10-02", descricao: "TARIFA", valor: 89.9, tipo: "debito" },
+      { data: "2026-10-01", descricao: "PIX RECEBIDO", valor: 1500, tipo: "credito", identificadorBancario: "1" },
+      { data: "2026-10-02", descricao: "TARIFA", valor: 89.9, tipo: "debito", identificadorBancario: "2" },
     ]);
   });
 
