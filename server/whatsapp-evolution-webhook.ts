@@ -70,7 +70,8 @@ export async function processarEventoEvolution(ev: Evento): Promise<string> {
       const midia = midiaDaMensagem(d?.message);
       const [gravada] = await db.insert(whatsappMessages).values({
         connectionId: conn.id, leadId: lead?.id ?? null, destinatario: numero,
-        nomeDestinatario: lead?.nome ?? d?.pushName ?? null, mensagem: textoDaMensagem(d?.message).slice(0, 4000),
+        // `pushName` em eventos fromMe é o dono da sessão, não o destinatário.
+        nomeDestinatario: lead?.nome ?? (!deMim ? d?.pushName : null) ?? null, mensagem: textoDaMensagem(d?.message).slice(0, 4000),
         externalId: id ?? null, status: deMim ? "enviada" : "recebida", direcao: deMim ? "saida" : "entrada", lida: deMim,
         ...(midia ? { midiaTipo: midia.tipo, midiaMime: midia.mime, midiaNome: midia.nome, midiaTamanho: midia.tamanho } : {}),
       }).returning({ id: whatsappMessages.id });

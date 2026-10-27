@@ -5,11 +5,12 @@ import { CLIENT_DOCUMENT_CHECKLIST } from "../client-document-checklist.js";
 export const VARIAVEIS_TEMPLATE: Record<string, string> = {
   nome: "Nome do cliente",
   servico: "Serviço",
+  servicos: "Serviços",
   corretor: "Corretor",
   imovel: "Imóvel",
   banco: "Banco",
   horario: "Horário",
-  endereco: "Endereço",
+  dia: "Dia/data da visita",
   documentos: "Documentos",
 };
 

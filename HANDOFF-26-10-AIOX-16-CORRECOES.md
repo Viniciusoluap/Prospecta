@@ -53,3 +53,23 @@ Auditar, implementar, testar e publicar as correções 01–16 do prompt mestre 
 ## Próximo passo exato
 
 Concluir a auditoria das 16 correções nos dois repositórios, publicar a matriz de lacunas neste Handoff e iniciar o primeiro lote técnico com testes focados.
+
+## Checkpoint de retomada — 26/10/2026, noite
+
+- Recuperados e integrados, sem descarte, os sete checkpoints locais deixados pela execução AIOX interrompida.
+- Correções 10/11: migração para Pluggy `/v2/transactions` com cursor, erro detalhado e preservação do identificador bancário; importador Cora ampliado.
+- Correção 16: estrutura aditiva para prioridade de revisão/documentos versionados e helper de nome canônico iniciados; UI e transações de revisão ainda pendentes.
+- Correções 01–08: correção da identidade `fromMe`, modelos profissionais, variável `dia`, backend inicial de templates e remoção da aba Histórico iniciados; CRUD completo, visualizador e paridade Santa Fé pendentes.
+- Correções 09/12: prévia de impacto, backup lógico, limpeza transacional e edição auditável iniciados.
+- Correções 13–15: categorias operacionais separadas da classificação contábil, catálogo de registros reais e importação CRM idempotente iniciados.
+- Migrações Prospecta renumeradas sequencialmente para `0077`–`0081`, evitando cinco arquivos concorrentes com o mesmo número.
+
+### Testes deste checkpoint
+
+- (a) Automáticos: instalação do Prospecta ainda em conclusão; suíte focada ainda não validada.
+- (b) Manuais: commits parciais inventariados, cherry-picks revisados e conflito de imports resolvido preservando os dois blocos.
+- (c) Produção: nenhuma migração ou dado alterado; merge/deploy ainda não executados.
+
+### Próximo passo exato
+
+Concluir as lacunas funcionais e a paridade do Santa Fé, criar testes das exclusões/vínculos/revisões/templates, executar typecheck/suítes/builds e publicar o próximo checkpoint antes de qualquer migração de produção.

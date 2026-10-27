@@ -32,6 +32,7 @@ import {
   Plus,
   Landmark,
   BookOpen,
+  Pencil,
 } from "lucide-react";
 import TaxAccountingPanel from "./TaxAccountingPanel";
 import AdminRelatorios from "./AdminRelatorios";
@@ -39,6 +40,10 @@ import BancosPanel from "./BancosPanel";
 import { rotulo } from "@shared/rotulos";
 import { CATEGORIAS_BPO, TRANSFERENCIA_INTERNA } from "@shared/financeiro/bpo-extrato";
 import { situacaoDoLancamento } from "@shared/financeiro/bpo-asaas";
+import {
+  CATEGORIAS_DESPESA_OPERACIONAL, CATEGORIAS_RECEITA_OPERACIONAL,
+  ROTULOS_CATEGORIA_OPERACIONAL, TIPOS_DESPESA_OBRA,
+} from "@shared/financeiro/bpo-operacional";
 
 // Pedido de 25/10 (noite), item 11: categorias do "+ Lançamento" (transferência interna não é receita nem despesa).
 const CATEGORIAS_LANCAMENTO = CATEGORIAS_BPO.filter(c => c !== TRANSFERENCIA_INTERNA);
@@ -63,14 +68,6 @@ type Aba =
   | "contabilidade"
   | "relatorios";
 
-const SERVICOS_OPCOES = [
-  "contas_pagar",
-  "contas_receber",
-  "folha",
-  "fiscal",
-  "conciliacao",
-];
-
 const emptyClienteForm = {
   // Pedido de 25/10 (noite), item 10: lead do CRM (dados vêm dele) ou cadastro livre (fornecedor/terceiro).
   leadId: null as number | null,
@@ -80,7 +77,6 @@ const emptyClienteForm = {
   responsavel: "",
   email: "",
   telefone: "",
-  servicos: [] as string[],
   honorarios: "",
   diaVencimento: "10",
   dataInicio: "",
@@ -97,6 +93,10 @@ const emptyLancamentoForm = {
   vencimento: "",
   competencia: "",
   centroCustos: "",
+  categoriaOperacional: "",
+  vinculoOperacionalId: "",
+  tipoDespesaObra: "",
+  etapaObra: "",
 };
 
 export default function AdminBpo({ initialTab }: { initialTab?: Aba } = {}) {
@@ -135,6 +135,7 @@ export default function AdminBpo({ initialTab }: { initialTab?: Aba } = {}) {
   const { data: lancamentos = [] } = trpc.bpo.lancamentos.list.useQuery();
   const { data: dreRows = [] } = trpc.bpo.dre.useQuery();
   const { data: dreCategorias = [] } = trpc.bpo.dreCategorias.useQuery();
+  const { data: catalogoOperacional } = trpc.bpo.lancamentos.catalogoOperacional.useQuery();
 
   const createCliente = trpc.bpo.clientes.create.useMutation({
     onSuccess: r => {
@@ -144,6 +145,14 @@ export default function AdminBpo({ initialTab }: { initialTab?: Aba } = {}) {
       setClienteOpen(false);
       setClienteForm(emptyClienteForm);
       setBuscaLead("");
+    },
+    onError: e => toast.error(e.message),
+  });
+
+  const importarClientes = trpc.bpo.clientes.importarCrm.useMutation({
+    onSuccess: r => {
+      toast.success(`CRM sincronizado: ${r.inseridos} novo(s), ${r.atualizados} atualizado(s), ${r.inalterados} sem alteração.`);
+      utils.bpo.clientes.list.invalidate();
     },
     onError: e => toast.error(e.message),
   });
@@ -167,6 +176,15 @@ export default function AdminBpo({ initialTab }: { initialTab?: Aba } = {}) {
       utils.bpo.lancamentos.list.invalidate();
       utils.bpo.dre.invalidate();
       utils.bpo.clientes.list.invalidate();
+    },
+    onError: e => toast.error(e.message),
+  });
+  const [editando, setEditando] = useState<any | null>(null);
+  const editarLancamento = trpc.bpo.lancamentos.editar.useMutation({
+    onSuccess: () => {
+      toast.success("Lançamento atualizado e registrado no histórico.");
+      setEditando(null);
+      utils.bpo.lancamentos.list.invalidate(); utils.bpo.dre.invalidate(); utils.bpo.dreCategorias.invalidate(); utils.bpo.clientes.list.invalidate();
     },
     onError: e => toast.error(e.message),
   });
@@ -205,6 +223,9 @@ export default function AdminBpo({ initialTab }: { initialTab?: Aba } = {}) {
             </div>
           </div>
           <div className="flex flex-wrap gap-2">
+            <Button variant="outline" className="border-[#C9A961]/30 text-[#C9A961]" disabled={importarClientes.isPending} onClick={() => importarClientes.mutate()}>
+              {importarClientes.isPending ? "Importando…" : "Importar clientes"}
+            </Button>
             <Dialog open={clienteOpen} onOpenChange={setClienteOpen}>
               <DialogTrigger asChild>
                 <Button
@@ -380,33 +401,6 @@ export default function AdminBpo({ initialTab }: { initialTab?: Aba } = {}) {
                       />
                     </div>
                     <div className="col-span-2">
-                      <Label className="text-gray-300 block mb-1">
-                        Serviços Contratados
-                      </Label>
-                      <div className="flex flex-wrap gap-2">
-                        {SERVICOS_OPCOES.map(s => {
-                          const active = clienteForm.servicos.includes(s);
-                          return (
-                            <button
-                              key={s}
-                              type="button"
-                              onClick={() =>
-                                setClienteForm(f => ({
-                                  ...f,
-                                  servicos: active
-                                    ? f.servicos.filter(x => x !== s)
-                                    : [...f.servicos, s],
-                                }))
-                              }
-                              className={`px-3 py-1 rounded-full text-xs font-bold border ${active ? "bg-[#C9A961] text-[#1A2332] border-[#C9A961]" : "border-[#C9A961]/30 text-gray-300"}`}
-                            >
-                              {s.replace("_", " ")}
-                            </button>
-                          );
-                        })}
-                      </div>
-                    </div>
-                    <div className="col-span-2">
                       <Label className="text-gray-300">Observações</Label>
                       <Textarea
                         value={clienteForm.observacoes}
@@ -476,7 +470,7 @@ export default function AdminBpo({ initialTab }: { initialTab?: Aba } = {}) {
                       </Select>
                     </div>
                     <div>
-                      <Label className="text-gray-300">Categoria *</Label>
+                      <Label className="text-gray-300">Classificação contábil *</Label>
                       <Select
                         value={lancamentoForm.categoria || undefined}
                         onValueChange={v => setLancamentoForm(f => ({ ...f, categoria: v }))}
@@ -489,6 +483,46 @@ export default function AdminBpo({ initialTab }: { initialTab?: Aba } = {}) {
                         </SelectContent>
                       </Select>
                     </div>
+                    <div>
+                      <Label className="text-gray-300">Categoria operacional *</Label>
+                      <Select value={lancamentoForm.categoriaOperacional || undefined} onValueChange={v => setLancamentoForm(f => ({ ...f, categoriaOperacional: v, vinculoOperacionalId: "", tipoDespesaObra: "", etapaObra: "" }))}>
+                        <SelectTrigger className="bg-[#2C3E50] border-[#C9A961]/30 text-white mt-1"><SelectValue placeholder="Escolha" /></SelectTrigger>
+                        <SelectContent>
+                          {(lancamentoForm.tipo === "cobranca" ? CATEGORIAS_RECEITA_OPERACIONAL : CATEGORIAS_DESPESA_OPERACIONAL).map(c => <SelectItem key={c} value={c}>{ROTULOS_CATEGORIA_OPERACIONAL[c]}</SelectItem>)}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    {lancamentoForm.categoriaOperacional && (
+                      <div className="col-span-2">
+                        <Label className="text-gray-300">Registro vinculado *</Label>
+                        <Select value={lancamentoForm.vinculoOperacionalId || undefined} onValueChange={v => {
+                          const opcoes = (catalogoOperacional?.[lancamentoForm.categoriaOperacional as keyof typeof catalogoOperacional] ?? []) as any[];
+                          const escolhido = opcoes.find(o => o.id === v);
+                          setLancamentoForm(f => ({ ...f, vinculoOperacionalId: v, clienteNomeLivre: escolhido?.clienteNome || f.clienteNomeLivre }));
+                        }}>
+                          <SelectTrigger className="bg-[#2C3E50] border-[#C9A961]/30 text-white mt-1"><SelectValue placeholder="Selecione um cadastro real" /></SelectTrigger>
+                          <SelectContent>{((catalogoOperacional?.[lancamentoForm.categoriaOperacional as keyof typeof catalogoOperacional] ?? []) as any[]).map(o => <SelectItem key={o.id} value={o.id}>{o.rotulo}{o.clienteNome ? ` — ${o.clienteNome}` : ""}</SelectItem>)}</SelectContent>
+                        </Select>
+                      </div>
+                    )}
+                    {lancamentoForm.tipo === "despesa" && lancamentoForm.categoriaOperacional === "obras" && (
+                      <>
+                        <div>
+                          <Label className="text-gray-300">Tipo de despesa *</Label>
+                          <Select value={lancamentoForm.tipoDespesaObra || undefined} onValueChange={v => setLancamentoForm(f => ({ ...f, tipoDespesaObra: v }))}>
+                            <SelectTrigger className="bg-[#2C3E50] border-[#C9A961]/30 text-white mt-1"><SelectValue placeholder="Escolha" /></SelectTrigger>
+                            <SelectContent>{TIPOS_DESPESA_OBRA.map(t => <SelectItem key={t} value={t}>{t.replaceAll("_", " ")}</SelectItem>)}</SelectContent>
+                          </Select>
+                        </div>
+                        <div>
+                          <Label className="text-gray-300">Etapa da obra</Label>
+                          <Select value={lancamentoForm.etapaObra || "none"} onValueChange={v => setLancamentoForm(f => ({ ...f, etapaObra: v === "none" ? "" : v }))}>
+                            <SelectTrigger className="bg-[#2C3E50] border-[#C9A961]/30 text-white mt-1"><SelectValue /></SelectTrigger>
+                            <SelectContent><SelectItem value="none">Não informada</SelectItem>{catalogoOperacional?.etapasObra.map(e => <SelectItem key={e.chave} value={e.chave}>{e.nome}</SelectItem>)}</SelectContent>
+                          </Select>
+                        </div>
+                      </>
+                    )}
                     <div>
                       <Label className="text-gray-300">Cliente BPO</Label>
                       <Select
@@ -779,6 +813,10 @@ export default function AdminBpo({ initialTab }: { initialTab?: Aba } = {}) {
                           >
                             {formatCurrencyBR(l.valor)}
                           </span>
+                          <Button size="sm" variant="outline" className="h-7 text-xs border-[#C9A961]/30 text-[#C9A961]"
+                            onClick={() => setEditando({ ...l, valor: String(l.valor), vencimento: new Date(l.vencimento).toISOString().slice(0, 10), motivo: "", observacoes: l.observacoes ?? "" })}>
+                            <Pencil className="h-3 w-3 mr-1" /> Editar
+                          </Button>
                           {!l.pago && (
                             <Button
                               size="sm"
@@ -898,6 +936,32 @@ export default function AdminBpo({ initialTab }: { initialTab?: Aba } = {}) {
         {aba === "contabilidade" && <TaxAccountingPanel />}
         {aba === "relatorios" && <AdminRelatorios embedded />}
       </div>
+
+      <Dialog open={Boolean(editando)} onOpenChange={o => !o && setEditando(null)}>
+        <DialogContent className="bg-[#1A2332] border-[#C9A961]/20 text-white max-h-[90vh] overflow-y-auto">
+          <DialogHeader><DialogTitle className="text-[#C9A961]">Editar lançamento</DialogTitle></DialogHeader>
+          {editando && <div className="grid grid-cols-2 gap-4">
+            <div className="col-span-2"><Label>Descrição</Label><Input value={editando.descricao} onChange={e => setEditando({ ...editando, descricao: e.target.value })} className="bg-[#2C3E50] border-[#C9A961]/30" /></div>
+            <div><Label>Valor (R$)</Label><Input type="number" min="0.01" step="0.01" value={editando.valor} onChange={e => setEditando({ ...editando, valor: e.target.value })} className="bg-[#2C3E50] border-[#C9A961]/30" /></div>
+            <div><Label>Categoria contábil</Label><select value={editando.categoria ?? ""} onChange={e => setEditando({ ...editando, categoria: e.target.value })} className="w-full h-10 bg-[#2C3E50] border border-[#C9A961]/30 rounded px-2">
+              {CATEGORIAS_LANCAMENTO.map(c => <option key={c}>{c}</option>)}
+            </select></div>
+            <div><Label>Vencimento</Label><Input type="date" value={editando.vencimento} onChange={e => setEditando({ ...editando, vencimento: e.target.value })} className="bg-[#2C3E50] border-[#C9A961]/30" /></div>
+            <div><Label>Competência</Label><Input type="month" value={editando.competencia} onChange={e => setEditando({ ...editando, competencia: e.target.value })} className="bg-[#2C3E50] border-[#C9A961]/30" /></div>
+            <div className="col-span-2"><Label>Centro de custos</Label><Input value={editando.centroCustos ?? ""} onChange={e => setEditando({ ...editando, centroCustos: e.target.value })} className="bg-[#2C3E50] border-[#C9A961]/30" /></div>
+            <div className="col-span-2"><Label>Observações</Label><Textarea value={editando.observacoes ?? ""} onChange={e => setEditando({ ...editando, observacoes: e.target.value })} className="bg-[#2C3E50] border-[#C9A961]/30" /></div>
+            <div className="col-span-2"><Label>Motivo da alteração *</Label><Textarea value={editando.motivo} onChange={e => setEditando({ ...editando, motivo: e.target.value })} placeholder="Obrigatório para a trilha de auditoria" className="bg-[#2C3E50] border-[#C9A961]/30" /></div>
+            {(editando.asaasPaymentId || editando.bankTransactionId) && <p className="col-span-2 text-xs text-amber-300">Este é um ajuste interno. A origem externa e a conciliação serão preservadas.</p>}
+            <Button className="col-span-2 bg-[#C9A961] text-[#1A2332]" disabled={editarLancamento.isPending || editando.motivo.trim().length < 3}
+              onClick={() => editarLancamento.mutate({
+                id: editando.id, version: editando.version, motivo: editando.motivo, descricao: editando.descricao,
+                valor: Number(editando.valor), categoria: editando.categoria, clienteId: editando.clienteId,
+                clienteNomeLivre: editando.clienteNomeLivre, vencimento: editando.vencimento, competencia: editando.competencia,
+                centroCustos: editando.centroCustos, observacoes: editando.observacoes,
+              })}>{editarLancamento.isPending ? "Salvando..." : "Salvar com auditoria"}</Button>
+          </div>}
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

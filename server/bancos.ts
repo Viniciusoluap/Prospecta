@@ -29,6 +29,7 @@ type Movimento = {
   externalId: string; data: string; descricao: string; valor: number; tipo: "credito" | "debito"; categoria?: string;
   // Pedido de 25/10 (noite): titular, descrição complementar e texto completo da linha.
   titular?: string | null; detalhe?: string | null; original?: string | null;
+  identificadorBancario?: string | null;
   asaasPaymentId?: string | null;
 };
 
@@ -98,6 +99,7 @@ export async function gravarMovimentos(conta: Pick<BankAccount, "id" | "dataInic
       origem,
       titular: m.titular?.slice(0, 255) || null,
       descricaoOriginal: m.original || null,
+      identificadorBancario: m.identificadorBancario?.slice(0, 255) || null,
       asaasPaymentId: m.asaasPaymentId || null,
     }));
     const r = await db
@@ -143,7 +145,7 @@ export async function sincronizarConta(contaId: number, fetchImpl: typeof fetch 
       saldo = await fetchAsaasSaldo(chave, fetchImpl);
     } else if (conta.provedor === "pluggy" && conta.pluggyAccountId) {
       const token = await tokenPluggy(fetchImpl);
-      movimentos = await fetchPluggyTransactions(token, conta.pluggyAccountId, desde, fetchImpl);
+      movimentos = await fetchPluggyTransactions(token, conta.pluggyAccountId, desde, fetchImpl, conta.pluggyItemId);
       saldo = await fetchPluggyAccountBalance(token, conta.pluggyAccountId, fetchImpl);
     } else {
       return { ok: false, mensagem: "Esta conta é alimentada por importação de extrato (botão Importar extrato)." };

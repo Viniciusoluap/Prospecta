@@ -2,8 +2,8 @@ import { useEffect, useState } from "react";
 import { keepPreviousData } from "@tanstack/react-query";
 import { Link } from "wouter";
 import {
-  ArrowLeft, MessageCircle, Clock, AlertCircle,
-  Search, Send, Smartphone, Eye, Users,
+  ArrowLeft, MessageCircle, AlertCircle,
+  Search, Send, Smartphone, Eye, Users, Plus, Save,
 } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
@@ -12,7 +12,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { trpc } from "@/lib/trpc";
 import { useAuth } from "@/_core/hooks/useAuth";
-import { WHATSAPP_TEMPLATES, type WhatsappTemplate } from "@shared/whatsapp/templates";
+import type { WhatsappTemplate } from "@shared/whatsapp/templates";
 import { ConexaoWhatsApp } from "@/components/whatsapp/ConexaoWhatsApp";
 import { abaInicialCentral, abasCentralWhatsapp, linkConexaoWhatsapp, type AbaCentral } from "@shared/whatsapp/central";
 import { ConversasWhatsApp } from "@/components/whatsapp/ConversasWhatsApp";
@@ -43,16 +43,25 @@ export default function AdminWhatsApp() {
   const [searchLead, setSearchLead] = useState("");
   const [selectedTemplate, setSelectedTemplate] = useState<WhatsappTemplate | null>(null);
   const [mensagem, setMensagem] = useState("");
+  const [servicosSelecionados, setServicosSelecionados] = useState<string[]>([]);
+  const [editor, setEditor] = useState<{ id?: number; nome: string; categoria: string; conteudo: string } | null>(null);
 
   const conexao = trpc.whatsapp.minhaConexao.useQuery();
   const leadsQuery = trpc.whatsapp.leadsParaEnvio.useQuery();
   const historico = trpc.whatsapp.historico.useQuery();
+  const templatesQuery = trpc.whatsapp.templates.useQuery();
+  const servicosQuery = trpc.whatsapp.servicosDisponiveis.useQuery();
+  const templates = templatesQuery.data ?? [];
+  const salvarTemplate = trpc.whatsapp.salvarTemplate.useMutation({
+    onSuccess: () => { toast.success("Template salvo."); setEditor(null); utils.whatsapp.templates.invalidate(); },
+    onError: (e) => toast.error(e.message),
+  });
 
   const enviar = trpc.whatsapp.enviar.useMutation({
     onSuccess: (data) => {
       if (!data.success) { toast.error(data.error ?? "Erro ao enviar"); return; }
       toast.success(`${data.enviadas} enviada(s)${data.falhas > 0 ? `, ${data.falhas} falha(s)` : ""}`, data.falhas > 0 ? { icon: "⚠️" } : undefined);
-      setSelectedLeads([]); setMensagem(""); setSelectedTemplate(null); setExtras({}); setDocsGeral({ marcados: [], livre: "" }); setDocsUnico(null);
+      setSelectedLeads([]); setMensagem(""); setSelectedTemplate(null); setExtras({}); setServicosSelecionados([]); setDocsGeral({ marcados: [], livre: "" }); setDocsUnico(null);
       utils.whatsapp.historico.invalidate();
     },
     onError: (e) => toast.error(e.message),
@@ -75,6 +84,7 @@ export default function AdminWhatsApp() {
   const variaveis = variaveisDoTexto(mensagem);
   const usaVariaveis = variaveis.length > 0;
   const usaDocumentos = variaveis.includes("documentos");
+  const usaServicos = variaveis.includes("servico") || variaveis.includes("servicos");
   const unico = selectedLeads.length === 1 ? selectedLeads[0] : null;
   const docsLead = trpc.whatsapp.documentosParaEnvio.useQuery({ ids: unico ? [unico] : [] }, { enabled: usaDocumentos && unico !== null });
   // Um destinatário: o checklist dele já vem com os pendentes marcados.
@@ -82,9 +92,14 @@ export default function AdminWhatsApp() {
     const d = docsLead.data?.[0];
     if (unico !== null && d && d.id === unico && docsUnico?.leadId !== unico) setDocsUnico({ leadId: unico, marcados: d.pendentes, livre: "" });
   }, [docsLead.data, unico, docsUnico?.leadId]);
-  const extrasEnvio: Record<string, string> = { ...extras, ...(usaDocumentos && unico === null ? { documentos: textoDocumentosMarcados(docsGeral.marcados, docsGeral.livre) } : {}) };
-  const extrasPorLead = usaDocumentos && unico !== null && docsUnico?.leadId === unico
-    ? { [String(unico)]: { documentos: textoDocumentosMarcados(docsUnico.marcados, docsUnico.livre) } } : undefined;
+  const textoServicos = servicosSelecionados.map(v => servicosQuery.data?.find(s => s.value === v)?.label ?? v).join(", ");
+  const extrasEnvio: Record<string, string> = { ...extras,
+    ...(usaServicos ? { servico: textoServicos, servicos: textoServicos } : {}),
+    ...(usaDocumentos && unico === null ? { documentos: textoDocumentosMarcados(docsGeral.marcados, docsGeral.livre) } : {}) };
+  const extrasPorLead = Object.fromEntries(selectedLeads.map(id => [String(id), {
+    ...(usaDocumentos && unico === id && docsUnico?.leadId === id ? { documentos: textoDocumentosMarcados(docsUnico.marcados, docsUnico.livre) } : {}),
+    ...(usaServicos ? { servico: textoServicos, servicos: textoServicos } : {}),
+  }]));
   const [entradaPrevia, setEntradaPrevia] = useState({ extras: extrasEnvio, extrasPorLead });
   const chaveEntrada = JSON.stringify({ extrasEnvio, extrasPorLead });
   useEffect(() => {
@@ -99,7 +114,7 @@ export default function AdminWhatsApp() {
   const campos = Array.from(new Set((previa.data ?? []).flatMap((p) => p.semCampoGeral ?? []))).filter((v) => !(v === "documentos" && unico !== null));
   const camposVazios = campos.filter((v) => !(extrasEnvio[v] ?? "").trim());
   const docsUnicoVazio = usaDocumentos && unico !== null && docsUnico?.leadId === unico && !textoDocumentosMarcados(docsUnico.marcados, docsUnico.livre);
-  const bloqueado = camposVazios.length > 0 || docsUnicoVazio;
+  const bloqueado = camposVazios.length > 0 || docsUnicoVazio || (usaServicos && !servicosSelecionados.length);
   function handleEnviar() {
     if (!mensagem.trim() || selectedLeads.length === 0) return;
     if (bloqueado) { toast.error("Preencha os campos destacados antes de enviar."); return; }
@@ -144,7 +159,6 @@ export default function AdminWhatsApp() {
             { key: "conversas" as const, label: "Conversas", icon: Users },
             { key: "enviar" as const, label: "Enviar Mensagem", icon: Send },
             { key: "templates" as const, label: "Templates", icon: MessageCircle },
-            { key: "historico" as const, label: "Histórico", icon: Clock },
             { key: "conexao" as const, label: "Minha conexão", icon: Smartphone },
           ]).filter(({ key }) => abasCentralWhatsapp(role).includes(key)).map(({ key, label, icon: Icon }) => (
             <button key={key} onClick={() => setActiveTab(key)}
@@ -157,8 +171,7 @@ export default function AdminWhatsApp() {
         {activeTab === "conversas" && <ConversasWhatsApp numeroInicial={params.get("numero")} />}
 
         {/* Conexão */}
-        {/* Item 12 (25/10 noite): só corretor/colaborador; o admin conecta em Configurações › Integrações. */}
-        {activeTab === "conexao" && role !== "admin" && <ConexaoWhatsApp role={role} />}
+        {activeTab === "conexao" && <ConexaoWhatsApp role={role} />}
         {/* Enviar */}
         {activeTab === "enviar" && (
           <div className="space-y-4">
@@ -166,9 +179,7 @@ export default function AdminWhatsApp() {
               <div className="flex items-center gap-3 border border-yellow-500/30 bg-yellow-500/10 p-4 rounded">
                 <AlertCircle size={18} className="text-yellow-400 shrink-0" />
                 <p className="text-sm text-yellow-200">
-                  {role === "admin"
-                    ? <>Conecte o WhatsApp (QR code ou API oficial) em <Link href={linkConexaoWhatsapp(role)} className="underline text-[#C9A961]">Configurações › Integrações</Link>.</>
-                    : <>Conecte o seu WhatsApp (QR code) na aba <button type="button" className="underline text-[#C9A961]" onClick={() => setActiveTab("conexao")}>Minha conexão</button>.</>}
+                  Conecte o WhatsApp (QR code ou API oficial) na aba <button type="button" className="underline text-[#C9A961]" onClick={() => setActiveTab("conexao")}>Minha conexão</button>.
                 </p>
               </div>
             )}
@@ -209,10 +220,10 @@ export default function AdminWhatsApp() {
                   <div>
                     <Label className="text-gray-300">Template</Label>
                     <select value={selectedTemplate?.id ?? ""}
-                      onChange={(e) => { const t = WHATSAPP_TEMPLATES.find((t) => t.id === e.target.value) ?? null; setSelectedTemplate(t); setMensagem(t?.body ?? ""); }}
+                      onChange={(e) => { const t = templates.find((t) => t.id === e.target.value) ?? null; setSelectedTemplate(t); setMensagem(t?.body ?? ""); setServicosSelecionados([]); }}
                       className={`${inputCls} w-full rounded-md px-3 py-2 text-sm mt-1`}>
                       <option value="">— Selecione um template —</option>
-                      {WHATSAPP_TEMPLATES.map((t) => <option key={t.id} value={t.id}>{t.category} — {t.name}</option>)}
+                      {templates.map((t) => <option key={t.id} value={t.id}>{t.category} — {t.name}</option>)}
                     </select>
                   </div>
                   <div>
@@ -223,6 +234,7 @@ export default function AdminWhatsApp() {
                   </div>
                   {usaVariaveis && selectedLeads.length > 0 && (
                     <div className="space-y-3 border-t border-[#C9A961]/10 pt-3">
+                      {usaServicos && <div><Label className="text-gray-300">Serviços da mensagem</Label><div className="mt-2 grid gap-2 sm:grid-cols-2">{(servicosQuery.data ?? []).map(s => <label key={s.value} className="flex items-center gap-2 text-xs text-gray-200"><input type="checkbox" className="accent-[#C9A961]" checked={servicosSelecionados.includes(s.value)} onChange={() => setServicosSelecionados(v => v.includes(s.value) ? v.filter(x => x !== s.value) : [...v, s.value])}/>{s.label}</label>)}</div>{!servicosSelecionados.length && <p className="mt-1 text-xs text-yellow-200">Selecione ao menos um serviço.</p>}</div>}
                       {usaDocumentos && unico !== null && docsUnico?.leadId === unico && (
                         <div>
                           <Label className="text-gray-300">Documentos (pendentes do cliente já marcados)</Label>

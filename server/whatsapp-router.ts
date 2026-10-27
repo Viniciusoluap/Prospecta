@@ -1,9 +1,11 @@
 import { and, desc, eq, inArray, isNull } from "drizzle-orm";
 import { TRPCError } from "@trpc/server";
 import { z } from "zod";
-import { financiamentos, imoveis, leadDocuments, leadServices, leads, users, whatsappConnections, whatsappEvolutionSettings, whatsappMessages, whatsappMidias } from "../drizzle/schema.js";
+import { financiamentos, imoveis, leadDocuments, leadServices, leads, users, whatsappConnections, whatsappEvolutionSettings, whatsappMessages, whatsappMidias, whatsappTemplates } from "../drizzle/schema.js";
 import { documentosPendentes, listaPorExtenso, mesclarValores, preencherTemplate, primeiroNome, textoDocumentos } from "../shared/whatsapp/variaveis.js";
 import { rotulo } from "../shared/rotulos.js";
+import { LEAD_SERVICE_TYPES } from "../shared/lead-services.js";
+import { VARIAVEIS_TEMPLATE_PERMITIDAS, WHATSAPP_TEMPLATES } from "../shared/whatsapp/templates.js";
 import { enviarWhatsappBusiness, normalizarStatusWebhook } from "./_core/whatsapp-business.js";
 import { decryptSecret, encryptSecret, segredoEmTextoPuro } from "./_core/secret-vault.js";
 import {
@@ -131,8 +133,39 @@ export async function acessoMensagemWhatsapp(user: UsuarioConversa, messageId: n
 const extrasSchema = z.record(z.string(), z.string().max(500)).optional();
 // Pedido de 25/10 (noite): valores escolhidos só para um destinatário (ex.: documentos marcados).
 const extrasPorLeadSchema = z.record(z.string(), z.record(z.string(), z.string().max(1000))).optional();
+const templateSchema = z.object({
+  id: z.number().int().positive().optional(),
+  nome: z.string().trim().min(2).max(120),
+  categoria: z.string().trim().min(2).max(80),
+  conteudo: z.string().trim().min(2).max(4096),
+});
+const variaveisPermitidas = new Set<string>(VARIAVEIS_TEMPLATE_PERMITIDAS);
+function validarConteudoTemplate(conteudo: string) {
+  const invalidas = Array.from(conteudo.matchAll(/\{\{\s*([a-zA-Z_]+)\s*\}\}/g)).map((m) => m[1].toLowerCase()).filter((v) => !variaveisPermitidas.has(v));
+  if (invalidas.length) throw new TRPCError({ code: "BAD_REQUEST", message: `Variáveis inválidas: ${Array.from(new Set(invalidas)).map(v => `{{${v}}}`).join(", ")}.` });
+}
 
 export const whatsappRouter = router({
+  templates: adminProcedure.query(async () => {
+    const rows = await getDb().select().from(whatsappTemplates).where(eq(whatsappTemplates.ativo, true)).orderBy(whatsappTemplates.categoria, whatsappTemplates.nome);
+    return rows.length ? rows.map(t => ({ id: String(t.id), name: t.nome, category: t.categoria, body: t.conteudo })) : WHATSAPP_TEMPLATES;
+  }),
+
+  salvarTemplate: protectedProcedure.input(templateSchema).mutation(async ({ ctx, input }) => {
+    if (ctx.user.role !== "admin") throw new TRPCError({ code: "FORBIDDEN", message: "Somente o administrador pode alterar templates." });
+    validarConteudoTemplate(input.conteudo);
+    const dados = { nome: input.nome, categoria: input.categoria, conteudo: input.conteudo, atualizadoPorId: ctx.user.id, updatedAt: new Date() };
+    if (input.id) {
+      const [r] = await getDb().update(whatsappTemplates).set(dados).where(eq(whatsappTemplates.id, input.id)).returning();
+      if (!r) throw new TRPCError({ code: "NOT_FOUND", message: "Template não encontrado." });
+      return { id: r.id };
+    }
+    const slug = `personalizado-${Date.now()}-${ctx.user.id}`;
+    const [r] = await getDb().insert(whatsappTemplates).values({ slug, ...dados, criadoPorId: ctx.user.id }).returning();
+    return { id: r.id };
+  }),
+
+  servicosDisponiveis: adminProcedure.query(() => LEAD_SERVICE_TYPES.map(value => ({ value, label: rotulo(value) }))),
   /** Prévia por destinatário: mensagem final e variáveis que ainda faltam. */
   previaEnvio: adminProcedure
     .input(z.object({ mensagem: z.string().max(4096), ids: z.array(z.number()).max(200), extras: extrasSchema, extrasPorLead: extrasPorLeadSchema }))
@@ -369,6 +402,13 @@ export const whatsappRouter = router({
       if (!g.nome && m.nomeDestinatario) g.nome = m.nomeDestinatario;
       if (!g.leadId && m.leadId) g.leadId = m.leadId;
       if (m.direcao === "entrada" && !m.lida) g.naoLidas++;
+    }
+    const contatos = await getDb().select({ id: leads.id, nome: leads.name, telefone: leads.phone }).from(leads).where(isNull(leads.deletedAt));
+    for (const g of grupos) {
+      const lead = contatos.find(l => mesmoTelefone(l.telefone, g.numero));
+      const publico = msgs.find(m => m.direcao === "entrada" && mesmoTelefone(m.destinatario, g.numero) && m.nomeDestinatario)?.nomeDestinatario;
+      g.nome = lead?.nome ?? publico ?? null;
+      g.leadId = lead?.id ?? g.leadId;
     }
     // Corretor vê só conversas dos próprios leads ou sem lead.
     if (ctx.user.role === "corretor") {

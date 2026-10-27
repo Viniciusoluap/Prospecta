@@ -70,6 +70,14 @@ export default function BancosPanel() {
     onError: e => toast.error(e.message),
   });
   const remover = trpc.bancario.contas.delete.useMutation({ onSuccess: () => { toast.success("Conta removida."); invalidar(); } });
+  const [limpeza, setLimpeza] = useState<any | null>(null);
+  const [confirmacaoLimpeza, setConfirmacaoLimpeza] = useState("");
+  async function abrirLimpeza(id: number) {
+    try {
+      setLimpeza(await utils.bancario.contas.previaExclusao.fetch({ id }));
+      setConfirmacaoLimpeza("");
+    } catch (e) { toast.error(e instanceof Error ? e.message : "Não foi possível calcular o impacto."); }
+  }
   const sincronizar = trpc.bancario.sincronizar.useMutation({
     onSuccess: r => { r.ok ? toast.success(r.mensagem) : toast.error(r.mensagem); invalidar(); utils.bancario.transacoes.listByConta.invalidate(); },
     onError: e => toast.error(e.message),
@@ -174,7 +182,7 @@ export default function BancosPanel() {
                     <Button size="sm" variant="outline" className={botaoSec} onClick={() => setEdit({ id: c.id, dataInicial: c.dataInicial ?? "" })}>
                       Data inicial
                     </Button>
-                    <Button size="sm" variant="outline" className="h-7 text-xs border-red-400/40 text-red-300" onClick={() => confirm(`Remover a conta ${c.banco}? As movimentações já gravadas continuam no histórico.`) && remover.mutate({ id: c.id })}>
+                    <Button size="sm" variant="outline" className="h-7 text-xs border-red-400/40 text-red-300" onClick={() => void abrirLimpeza(c.id)}>
                       <Trash2 className="h-3 w-3 mr-1" /> Remover
                     </Button>
                   </div>
@@ -242,6 +250,29 @@ export default function BancosPanel() {
           )}
         </CardContent>
       </Card>
+
+      <Dialog open={Boolean(limpeza)} onOpenChange={o => !o && setLimpeza(null)}>
+        <DialogContent className="bg-[#1A2332] border-[#C9A961]/20 text-white">
+          <DialogHeader><DialogTitle className="text-red-300">Excluir conta e dados importados</DialogTitle></DialogHeader>
+          {limpeza && <div className="space-y-4 text-sm">
+            <p>Será criado um backup lógico antes da limpeza. Cobranças do Asaas e lançamentos já usados em Obras/Regularizações serão preservados e apenas desconciliados.</p>
+            <div className="rounded border border-white/10 p-3 space-y-1">
+              <p><strong>{limpeza.transacoes}</strong> movimentações bancárias</p>
+              <p><strong>{limpeza.lancamentosRemovidos}</strong> lançamentos exclusivamente importados serão removidos</p>
+              <p><strong>{limpeza.lancamentosPreservados}</strong> lançamentos legítimos serão preservados</p>
+            </div>
+            <Label>Digite exatamente: <strong>{limpeza.contaRotulo}</strong></Label>
+            <Input value={confirmacaoLimpeza} onChange={e => setConfirmacaoLimpeza(e.target.value)} className={campo} />
+            <Button className="w-full bg-red-700 hover:bg-red-800" disabled={remover.isPending || confirmacaoLimpeza !== limpeza.contaRotulo}
+              onClick={() => remover.mutate({ id: limpeza.contaId, confirmarRotulo: confirmacaoLimpeza }, { onSuccess: r => {
+                toast.success(`Limpeza concluída. Backup #${r.backupId}; ${r.lancamentosPreservados} lançamento(s) preservado(s).`);
+                setLimpeza(null); invalidar();
+              }, onError: e => toast.error(e.message) })}>
+              {remover.isPending ? "Criando backup e limpando..." : "Confirmar limpeza segura"}
+            </Button>
+          </div>}
+        </DialogContent>
+      </Dialog>
 
       <Dialog open={novaOpen} onOpenChange={setNovaOpen}>
         <DialogContent className="bg-[#1A2332] border-[#C9A961]/20 text-white max-h-[90vh] overflow-y-auto">

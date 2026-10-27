@@ -13,6 +13,7 @@ export type LinhaExtrato = {
   titular?: string;
   detalhe?: string;
   original?: string;
+  identificadorBancario?: string;
 };
 
 /** `saldoFinal`: saldo informado no próprio arquivo (OFX LEDGERBAL, coluna "Saldo", última coluna do PDF). */
@@ -86,15 +87,17 @@ export function dataIso(entrada: unknown): string | null {
 
 const limpo = (s: unknown, max: number) => String(s ?? "").replace(/\s+/g, " ").trim().slice(0, max);
 
-type Extras = { titular?: string | null; detalhe?: string | null; original?: string | null };
+type Extras = { titular?: string | null; detalhe?: string | null; original?: string | null; identificadorBancario?: string | null };
 
 function linha(data: string | null, descricao: string, valor: number | null, extras: Extras = {}): LinhaExtrato | null {
   if (!data || valor === null || valor === 0) return null;
   const l: LinhaExtrato = { data, descricao: limpo(descricao, 500) || "Movimentação", valor: Math.abs(valor), tipo: valor < 0 ? "debito" : "credito" };
   const titular = limpo(extras.titular, 255), detalhe = limpo(extras.detalhe, 500), original = limpo(extras.original, 2000);
+  const identificadorBancario = limpo(extras.identificadorBancario, 255);
   if (titular) l.titular = titular;
   if (detalhe && sem(detalhe) !== sem(l.descricao)) l.detalhe = detalhe;
   if (original && sem(original) !== sem(l.descricao)) l.original = original;
+  if (identificadorBancario) l.identificadorBancario = identificadorBancario;
   return l;
 }
 
@@ -169,6 +172,10 @@ const COL_DETALHE = [
   "descricao", "historico", "detalhe", "detalhes", "memo", "observacao", "observacoes", "complemento",
   "mensagem", "informacoes adicionais", "descricao complementar",
 ];
+const COL_ID_BANCARIO = [
+  "identificador bancario", "id transacao", "id da transacao", "codigo transacao", "codigo da transacao",
+  "nsu", "end to end", "endtoendid", "e2eid", "autenticacao", "protocolo",
+];
 
 function acharColuna(cab: string[], nomes: string[], excluir: number[] = []) {
   const livre = (i: number) => !excluir.includes(i);
@@ -177,7 +184,7 @@ function acharColuna(cab: string[], nomes: string[], excluir: number[] = []) {
 }
 
 export function lerTabela(tabela: unknown[][], formato = "Planilha"): ResultadoLeitura {
-  let cabIdx = -1, iData = -1, iDesc = -1, iValor = -1, iCred = -1, iDeb = -1, iTipo = -1, iSaldo = -1, iTitular = -1, iDetalhe = -1;
+  let cabIdx = -1, iData = -1, iDesc = -1, iValor = -1, iCred = -1, iDeb = -1, iTipo = -1, iSaldo = -1, iTitular = -1, iDetalhe = -1, iIdBancario = -1;
   for (let r = 0; r < Math.min(tabela.length, 40); r++) {
     const cab = (tabela[r] ?? []).map(c => sem(String(c ?? "")));
     const d = acharColuna(cab, COL_DATA);
@@ -189,6 +196,7 @@ export function lerTabela(tabela: unknown[][], formato = "Planilha"): ResultadoL
       const usadas = [d, v, c, b, iDesc, iTipo, iSaldo].filter(x => x >= 0);
       iTitular = acharColuna(cab, COL_TITULAR, usadas);
       iDetalhe = acharColuna(cab, COL_DETALHE, [...usadas, iTitular]);
+      iIdBancario = acharColuna(cab, COL_ID_BANCARIO, [...usadas, iTitular, iDetalhe]);
       break;
     }
   }
@@ -218,12 +226,13 @@ export function lerTabela(tabela: unknown[][], formato = "Planilha"): ResultadoL
     }
     const detalhe = iDetalhe >= 0 ? String(row[iDetalhe] ?? "") : "";
     const titular = (iTitular >= 0 ? String(row[iTitular] ?? "").trim() : "") || extrairTitular(detalhe) || extrairTitular(descricao);
+    const identificadorBancario = iIdBancario >= 0 ? String(row[iIdBancario] ?? "").trim() : "";
     const numericas = new Set([iData, iValor, iCred, iDeb, iSaldo, iTipo]);
     const original = row
       .map((c, k) => (numericas.has(k) ? "" : limpo(c instanceof Date ? "" : c, 500)))
       .filter(Boolean)
       .join(" | ");
-    const l = linha(dataLinha, descricao, valor, { titular, detalhe, original });
+    const l = linha(dataLinha, descricao, valor, { titular, detalhe, original, identificadorBancario });
     if (l) linhas.push(l); else ignoradas++;
   }
   return { linhas, ignoradas, formato, saldoFinal: saldoMaisRecente(saldos) };
@@ -306,6 +315,7 @@ export function aplicarDataInicial<T extends { data: string }>(linhas: T[], data
 export function chavesImportacao(contaId: number, linhas: LinhaExtrato[], hash: (s: string) => string): string[] {
   const vistos = new Map<string, number>();
   return linhas.map(l => {
+    if (l.identificadorBancario?.trim()) return `imp:${contaId}:ref:${hash(sem(l.identificadorBancario))}`;
     const base = `${l.data}|${l.tipo}|${l.valor.toFixed(2)}|${sem(l.descricao)}`;
     const n = (vistos.get(base) ?? 0) + 1;
     vistos.set(base, n);
