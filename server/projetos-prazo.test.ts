@@ -15,4 +15,9 @@ describe("prazo civil dos projetos", () => {
       { id: 3, prazo: "2026-10-23" }, { id: 2, prazo: "2026-10-22" }, { id: 1, prazo: "2026-10-23" }];
     expect(ordenarProjetosPorPrazo(itens, p => p.prazo).map(p => p.id)).toEqual([2, 1, 3, 4, 9]);
   });
+
+  it("mantém revisão pendente acima da ordenação por prazo", () => {
+    const itens = [{ id: 1, prazo: "2026-01-01", revisao: false }, { id: 2, prazo: "2027-01-01", revisao: true }];
+    expect(ordenarProjetosPorPrazo(itens, p => p.prazo, p => p.revisao).map(p => p.id)).toEqual([2, 1]);
+  });
 });

@@ -1,6 +1,5 @@
-// Pedido de 25/10 (noite), item 12 (opção B): a conexão do admin sai da Central WhatsApp e vai para
-// Configurações › Integrações; corretor (e colaborador, que não acessa Integrações) conecta pela aba
-// "Minha conexão" da Central. A Central abre em Conversas.
+// A conexão fica em Serviços › WhatsApp para todos os perfis autorizados. A Central abre em
+// Conversas e não expõe a antiga aba Histórico; os registros permanecem no banco para métricas.
 export type AbaCentral = "conexao" | "conversas" | "enviar" | "templates";
 
 export function abasCentralWhatsapp(role: string): AbaCentral[] {

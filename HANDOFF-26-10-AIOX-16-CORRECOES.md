@@ -73,3 +73,33 @@ Concluir a auditoria das 16 correções nos dois repositórios, publicar a matri
 ### Próximo passo exato
 
 Concluir as lacunas funcionais e a paridade do Santa Fé, criar testes das exclusões/vínculos/revisões/templates, executar typecheck/suítes/builds e publicar o próximo checkpoint antes de qualquer migração de produção.
+
+## Checkpoint de retomada — 27/10/2026, validação 1
+
+- Correções 04–08: a tela de Templates passou a usar os registros persistentes, ganhou criação/edição, prévia e validação; a seção visual de Histórico foi removida, preservando a consulta usada pelos indicadores.
+- Correção 05: seleção múltipla dos serviços reais e bloqueio do envio sem seleção confirmados no compositor.
+- Correção 14: corrigido o contrato interno da importação CRM idempotente para sempre fornecer a lista vazia de serviços legados.
+- Correção 16: mocks dos testes atualizados para validar a nova transação de solicitação de revisão sem enfraquecer o bloqueio concorrente.
+
+### Testes deste checkpoint
+
+- TypeScript: `./node_modules/.bin/tsc --noEmit` — aprovado.
+- Focados: 8 arquivos, 62 testes; a primeira execução identificou 4 falhas de expectativas/mocks anteriores à nova regra. Após correção, os 23 testes afetados (`projeto-revisao` e `whatsapp-noite`) passaram.
+- O `pnpm check` não foi usado porque o wrapper tentou purgar `node_modules` sem TTY; o binário TypeScript local equivalente foi executado diretamente, sem alterar dependências.
+- Produção: nenhuma migração, merge ou deploy executado neste checkpoint.
+
+### Próximo passo exato
+
+Executar a suíte completa e o build, revisar migrações 0077–0081, integrar as conclusões paralelas do Santa Fé e publicar os commits remotos antes das ações de banco/merge/deploy.
+
+## Checkpoint de validação — 27/10/2026, lote BPO/WhatsApp/Projetos
+
+- Removida a cópia antiga `0077_bpo_vinculos_operacionais.sql`; a versão válida permanece sequencial em `0080`, evitando duas migrações com o mesmo conteúdo.
+- O teste PGlite do BPO agora aplica as migrações 0077/0080/0081 e cobre a exigência do vínculo operacional; passou 9/9.
+- Build de produção Vite + bundle do servidor aprovado. Há apenas avisos conhecidos de tamanho de chunks e import estático/dinâmico do jsPDF.
+- Suíte ampla: 146 arquivos e 1.092 testes passaram; um worker encerrou por limite de heap de 2 GB antes do último arquivo. Não houve falha de asserção nesta execução. A validação será completada em lotes para reiniciar memória entre processos.
+- Produção continua inalterada neste checkpoint.
+
+### Próximo passo exato
+
+Concluir a suíte em lotes, publicar a branch remota, abrir PR e validar migrações em banco seguro antes de merge/deploy.

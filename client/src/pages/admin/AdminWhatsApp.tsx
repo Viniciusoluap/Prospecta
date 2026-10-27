@@ -22,13 +22,6 @@ import { CampoDocumentos, CampoImovel, CampoTexto, textoDocumentosMarcados } fro
 const cardCls = "bg-[#2C3E50] border-[#C9A961]/20";
 const inputCls = "bg-[#1A2332] border-[#C9A961]/30 text-white";
 
-const STATUS_BADGE: Record<string, { label: string; bg: string; text: string }> = {
-  enviada: { label: "Enviada", bg: "bg-gray-500/20", text: "text-gray-300" },
-  entregue: { label: "Entregue", bg: "bg-blue-500/20", text: "text-blue-300" },
-  lida: { label: "Lida", bg: "bg-green-500/20", text: "text-green-300" },
-  falhou: { label: "Falhou", bg: "bg-red-500/20", text: "text-red-300" },
-};
-
 export default function AdminWhatsApp() {
   const { user } = useAuth();
   const role = user?.role ?? "cliente";
@@ -279,60 +272,38 @@ export default function AdminWhatsApp() {
 
         {/* Templates */}
         {activeTab === "templates" && (
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            {WHATSAPP_TEMPLATES.map((t) => (
-              <Card key={t.id} className={cardCls}>
-                <CardContent className="p-5">
-                  <div className="flex items-start justify-between mb-2">
-                    <div><p className="font-bold text-white text-sm">{t.name}</p><span className="text-[10px] font-bold bg-[#C9A961]/20 text-[#C9A961] px-2 py-0.5 rounded uppercase">{t.category}</span></div>
-                    <Button size="sm" onClick={() => { setSelectedTemplate(t); setMensagem(t.body); setActiveTab("enviar"); }} className="bg-[#C9A961] hover:bg-[#B8985A] text-[#1A2332] font-bold text-xs">Usar</Button>
+          <div className="space-y-4">
+            <div className="flex items-center justify-between gap-3">
+              <p className="text-sm text-gray-300">Gerencie os modelos usados na aba Enviar Mensagem.</p>
+              <Button onClick={() => setEditor({ nome: "", categoria: "", conteudo: "" })} className="bg-[#C9A961] text-[#1A2332] hover:bg-[#B8985A]"><Plus className="mr-2 h-4 w-4" />Novo template</Button>
+            </div>
+            {editor && (
+              <Card className={cardCls}>
+                <CardContent className="grid gap-3 p-5">
+                  <div className="grid gap-3 sm:grid-cols-2">
+                    <div><Label className="text-gray-300">Nome</Label><Input className={inputCls} value={editor.nome} onChange={e => setEditor({ ...editor, nome: e.target.value })} /></div>
+                    <div><Label className="text-gray-300">Finalidade</Label><Input className={inputCls} value={editor.categoria} onChange={e => setEditor({ ...editor, categoria: e.target.value })} /></div>
                   </div>
-                  <p className="text-xs text-gray-400 leading-relaxed mt-3 whitespace-pre-line">{t.body}</p>
+                  <div><Label className="text-gray-300">Conteúdo</Label><textarea rows={7} className={`${inputCls} mt-1 w-full rounded-md px-3 py-2 text-sm`} value={editor.conteudo} onChange={e => setEditor({ ...editor, conteudo: e.target.value })} /></div>
+                  <p className="whitespace-pre-wrap rounded bg-[#1A2332] p-3 text-xs text-gray-300"><b className="text-[#C9A961]">Prévia:</b><br />{editor.conteudo || "Digite o conteúdo do template."}</p>
+                  <div className="flex gap-2"><Button disabled={salvarTemplate.isPending || editor.nome.trim().length < 2 || editor.categoria.trim().length < 2 || editor.conteudo.trim().length < 2} onClick={() => salvarTemplate.mutate(editor)} className="bg-green-600 hover:bg-green-700"><Save className="mr-2 h-4 w-4" />Salvar</Button><Button variant="outline" onClick={() => setEditor(null)}>Cancelar</Button></div>
                 </CardContent>
               </Card>
-            ))}
+            )}
+            <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+              {templates.map((t) => (
+                <Card key={t.id} className={cardCls}>
+                  <CardContent className="p-5">
+                    <div className="mb-2 flex items-start justify-between gap-2">
+                      <div><p className="text-sm font-bold text-white">{t.name}</p><span className="rounded bg-[#C9A961]/20 px-2 py-0.5 text-[10px] font-bold uppercase text-[#C9A961]">{t.category}</span></div>
+                      <Button size="sm" variant="outline" onClick={() => setEditor({ id: /^\d+$/.test(t.id) ? Number(t.id) : undefined, nome: t.name, categoria: t.category, conteudo: t.body })}>Editar</Button>
+                    </div>
+                    <p className="mt-3 whitespace-pre-line text-xs leading-relaxed text-gray-400">{t.body}</p>
+                  </CardContent>
+                </Card>
+              ))}
+            </div>
           </div>
-        )}
-
-        {/* Histórico */}
-        {activeTab === "historico" && (
-          <Card className={cardCls}>
-            <CardHeader className="flex flex-row items-center justify-between">
-              <CardTitle className="text-sm text-gray-300">Mensagens Enviadas</CardTitle>
-              <span className="text-xs text-gray-400">{historico.data?.length ?? 0} registros</span>
-            </CardHeader>
-            <CardContent>
-              {!historico.data?.length ? (
-                <div className="py-10 text-center"><MessageCircle size={32} className="text-gray-300 mx-auto mb-2" /><p className="text-sm text-gray-400">Nenhuma mensagem enviada ainda.</p></div>
-              ) : (
-                <div className="overflow-x-auto">
-                  <table className="w-full text-sm">
-                    <thead>
-                      <tr className="bg-[#1A2332]">
-                        <th className="px-4 py-3 text-left text-xs font-black text-[#C9A961] uppercase">Contato</th>
-                        <th className="px-4 py-3 text-left text-xs font-black text-[#C9A961] uppercase hidden md:table-cell">Mensagem</th>
-                        <th className="px-4 py-3 text-left text-xs font-black text-[#C9A961] uppercase">Status</th>
-                        <th className="px-4 py-3 text-left text-xs font-black text-[#C9A961] uppercase hidden lg:table-cell">Data/Hora</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-[#C9A961]/10">
-                      {historico.data.map((m) => {
-                        const badge = STATUS_BADGE[m.status] ?? STATUS_BADGE.enviada;
-                        return (
-                          <tr key={m.id} className="hover:bg-[#1A2332]/50">
-                            <td className="px-4 py-3"><p className="font-medium text-white">{m.nomeDestinatario ?? m.destinatario}</p><p className="text-xs text-gray-400">{m.destinatario}</p></td>
-                            <td className="px-4 py-3 hidden md:table-cell max-w-xs"><p className="text-xs text-gray-400 truncate">{m.mensagem}</p></td>
-                            <td className="px-4 py-3"><span className={`inline-flex items-center px-2 py-0.5 text-xs font-bold rounded ${badge.bg} ${badge.text}`}>{badge.label}</span>{m.erroMsg && <p className="text-xs text-red-400 mt-0.5">{m.erroMsg}</p>}</td>
-                            <td className="px-4 py-3 hidden lg:table-cell text-xs text-gray-400">{new Date(m.createdAt).toLocaleString("pt-BR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" })}</td>
-                          </tr>
-                        );
-                      })}
-                    </tbody>
-                  </table>
-                </div>
-              )}
-            </CardContent>
-          </Card>
         )}
       </div>
     </div>

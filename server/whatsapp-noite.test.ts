@@ -287,16 +287,16 @@ describe("Item 4 — mídia nas conversas", () => {
   });
 });
 
-describe("Item 12 — conexão fora da Central para o admin (opção B)", () => {
+describe("Conexão consolidada em Serviços › WhatsApp", () => {
   beforeEach(() => vi.resetAllMocks());
 
-  it("admin: Central sem a aba de conexão (abre em Conversas) e conexão em Integrações; corretor mantém a própria conexão", () => {
-    expect(abasCentralWhatsapp("admin")).toEqual(["conversas", "enviar", "templates", "historico"]);
+  it("admin e corretor acessam a conexão na Central, sem aba Histórico", () => {
+    expect(abasCentralWhatsapp("admin")).toEqual(["conversas", "enviar", "templates", "conexao"]);
     expect(abasCentralWhatsapp("corretor")).toContain("conexao");
-    expect(abaInicialCentral("admin", "conexao")).toBe("conversas");
+    expect(abaInicialCentral("admin", "conexao")).toBe("conexao");
     expect(abaInicialCentral("admin", null)).toBe("conversas");
     expect(abaInicialCentral("corretor", "conexao")).toBe("conexao");
-    expect(linkConexaoWhatsapp("admin")).toBe("/admin/integracoes");
+    expect(linkConexaoWhatsapp("admin")).toBe("/admin/whatsapp?aba=conexao");
     expect(linkConexaoWhatsapp("corretor")).toBe("/admin/whatsapp?aba=conexao");
   });
 

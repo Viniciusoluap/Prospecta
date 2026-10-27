@@ -210,7 +210,7 @@ export const bpoRouter = router({
       for (const lead of crm) {
         const atual = porLead.get(lead.id);
         if (!atual) {
-          await tx.insert(bpoClients).values(montarClienteBpo({}, lead));
+          await tx.insert(bpoClients).values(montarClienteBpo({ servicos: [] }, lead));
           inseridos++;
           continue;
         }

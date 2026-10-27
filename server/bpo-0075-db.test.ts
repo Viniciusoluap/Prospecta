@@ -14,6 +14,7 @@ import { classificarMovimentacao } from "./bpo-extrato.js";
 import { bpoRouter, montarClienteBpo } from "./bpo-router.js";
 import { sincronizarCobrancasAsaas } from "./bpo-asaas.js";
 import { listarProcessos } from "./regularizacao-router.js";
+import { validarDetalhesOperacionais } from "../shared/financeiro/bpo-operacional.js";
 
 const sqlDe = (arquivo: string) => readFileSync(new URL(`../drizzle/${arquivo}`, import.meta.url), "utf8");
 
@@ -25,6 +26,7 @@ const ANTES_0075 = `
   CREATE TYPE bank_transaction_status AS ENUM ('pendente','conciliado','ignorado');
   CREATE TABLE leads (id serial PRIMARY KEY, name varchar(255) NOT NULL, phone varchar(20) NOT NULL, email varchar(320),
     cpf varchar(14), deleted_at timestamp);
+  CREATE TABLE users (id serial PRIMARY KEY);
   CREATE TABLE bpo_clients (
     id serial PRIMARY KEY, razao_social varchar(255) NOT NULL, cnpj varchar(20), cpf varchar(14),
     responsavel varchar(255) NOT NULL, email varchar(255), telefone varchar(20) NOT NULL,
@@ -65,6 +67,9 @@ beforeEach(async () => {
   await pg.exec(ANTES_0075);
   await pg.exec(sqlDe("0072_bpo_extrato.sql"));
   await pg.exec(sqlDe("0075_bpo_titular_clientes.sql"));
+  await pg.exec(sqlDe("0077_banco_identificador_pluggy_v2.sql"));
+  await pg.exec(sqlDe("0080_bpo_vinculos_operacionais.sql"));
+  await pg.exec(sqlDe("0081_bpo_exclusao_edicao_auditavel.sql"));
   db = drizzle(pg);
   vi.mocked(getDb).mockReturnValue(db as never);
   await pg.exec("INSERT INTO bank_accounts (banco, provedor) VALUES ('Cora', 'manual'), ('Asaas', 'asaas')");
@@ -123,12 +128,12 @@ describe("item 10 — cadastro de cliente BPO", () => {
 });
 
 describe("item 11 — + Lançamento", () => {
-  it("Cobrança grava 'receita' com categoria; Despesa grava 'despesa'; categoria é obrigatória", async () => {
+  it("exige categoria e vínculo operacional reais antes de gravar", async () => {
     const base = { descricao: "Medição", valor: 100, vencimento: "2026-10-10", competencia: "2026-10" };
-    const c = await admin().lancamentos.create({ ...base, tipo: "cobranca", categoria: "Recebimento de cliente", clienteNomeLivre: "Fulano" });
-    expect(c).toMatchObject({ tipo: "receita", categoria: "Recebimento de cliente", clienteNomeLivre: "Fulano", valor: "100.00" });
-    const d = await admin().lancamentos.create({ ...base, tipo: "despesa", categoria: "Material" });
-    expect(d).toMatchObject({ tipo: "despesa", categoria: "Material" });
+    await expect(admin().lancamentos.create({ ...base, tipo: "cobranca", categoria: "Recebimento de cliente", clienteNomeLivre: "Fulano" } as never)).rejects.toThrow();
+    expect(() => validarDetalhesOperacionais({ tipo: "cobranca", categoriaOperacional: "obras", vinculoOperacionalId: "obra-1" })).not.toThrow();
+    expect(() => validarDetalhesOperacionais({ tipo: "despesa", categoriaOperacional: "obras", vinculoOperacionalId: "obra-1", tipoDespesaObra: "material", etapaObra: "infraestrutura" })).not.toThrow();
+    expect(() => validarDetalhesOperacionais({ tipo: "despesa", categoriaOperacional: "obras", vinculoOperacionalId: "obra-1" })).toThrow();
     await expect(admin().lancamentos.create({ ...base, tipo: "cobranca" } as never)).rejects.toThrow();
     await expect(admin().lancamentos.create({ ...base, tipo: "honorario", categoria: "Outros" } as never)).rejects.toThrow();
     await expect(admin().lancamentos.create({ ...base, tipo: "despesa", categoria: "Transferência interna" } as never)).rejects.toThrow();
