@@ -24,11 +24,22 @@ Agente: Dex (@dev) · branch `claude/lote2-22-correcoes-20261027` (nos dois repo
   - [x] `AdminIncorporacaoDetail.tsx` (Dados Gerais: "Nome do empreendimento", Responsável = select admin/colaborador/engenheiro salvo por ID, 4 campos removidos do formulário) e `AdminIncorporacao.tsx` (diálogo de criação: mesmo rótulo e select)
   - [x] `relatorio-tab.tsx`: rótulo "Estudo preliminar…" na seção de massa do PDF
   - Testes: `pnpm vitest run server/incorporacao` → 29 arquivos / 242 testes OK; `tsc --noEmit` limpo nos meus arquivos (erros restantes só em `server/caixa/pci-gerador.ts`, de outro agente)
-- [ ] Etapa 4 — porte SF (migração `20261027120000_incorporacao_estudos_salvos`, prisma, actions, UI)
-- [ ] Etapa 5 — typecheck + testes nos dois repos
+- [x] Etapa 4 — porte SF
+  - Migração `web/prisma/migrations/20261027120000_incorporacao_estudos_salvos/migration.sql` (não aplicada em produção; RLS + revoke anon/authenticated): colunas `semKml`, `lotesAvulsosJson`, `responsavelId` em `estudos_incorporacao`; tabela `estudos_massa_salvos` (índice único parcial nome+versão entre ativos).
+  - `web/prisma/schema.prisma`: campos + `model EstudoMassaSalvo` + relações em `Usuario` (`prisma format` realinhou o bloco).
+  - Puros: `web/src/lib/geo/massa.ts` (mesmo motor do Prospecta), `web/src/lib/incorporacao/{massa-quadro-areas,lotes-avulsos,estudos-massa}.ts`.
+  - Servidor: `web/src/lib/incorporacao/estudos-massa-db.ts` (server-only; **`obterCenarioPrincipal(estudoId)`**), `web/src/lib/actions/estudos-massa.ts` (salvarSemKml, salvarLotesAvulsos, listar/abrir/salvar/marcarPrincipal/excluir, `cenarioPrincipalDoEstudo`), `web/src/lib/incorporacao/responsaveis.ts`; `web/src/lib/actions/incorporacao.ts` (`lerResponsavel` por ID; criar/editar não gravam mais matrícula/CAR/zoneamento).
+  - UI: `_components/{camadas-base.ts,lotes-avulsos-editor.tsx,seletor-responsavel.tsx}` (novos), `massa-tab.tsx`, `mapa-massa.tsx`, `mapa-terreno.tsx`, `terreno-tab.tsx`, `topografia-tab.tsx`, `relatorio-tab.tsx`, `incorporacao-detail.tsx`; páginas `[id]/page.tsx`, `[id]/editar/page.tsx`, `novo/page.tsx`. `_components/cadastro-formal-fields.tsx` removido (só renderizava os 4 campos retirados).
+- [x] Etapa 5 — validação final
+  - Prospecta: `pnpm check` limpo nos meus arquivos (restam erros só em `server/caixa/pci-gerador.ts`, outro agente); `pnpm vitest run server/incorporacao` → 29 arquivos/242 testes OK.
+  - SF: `npx tsc --noEmit` limpo; eslint sem erros nos meus arquivos; `incorporacao-massa-lote2.test.ts` + `massa.test.ts` (46) OK; `estudos-massa.db.test.ts` (5, banco local) OK.
+  - Suíte completa Prospecta: 156 arquivos / 1191 testes OK.
+  - Suíte completa SF (banco local): 137/143 arquivos, 1017/1027 testes; as 10 falhas estão em arquivos fora do meu escopo: os já conhecidos (exclusao-definitiva, medicao-drive, pci-upload, projeto-engenheiro) + bancos-sync e bpo-extrato (área BPO/Bancos do Codex — asserções de importação bancária, sem relação com incorporação).
+  - Obs. ambiente local SF: `prisma db push` remove o DEFAULT de `estudos_incorporacao_versoes.id` (migração 20261012091000 tem `DEFAULT gen_random_uuid()`); restaurei no banco local com `ALTER TABLE estudos_incorporacao_versoes ALTER COLUMN id SET DEFAULT gen_random_uuid();` — não afeta produção.
 
 ## Cenário principal (para ondas 12, 15, 20)
 - Prospecta: `obterCenarioPrincipal(studyId)` em `server/incorporacao-estudos-massa-router.ts`; tRPC `incorporacao.massStudies.principal({ studyId })`.
+- SF: `obterCenarioPrincipal(estudoId)` em `web/src/lib/incorporacao/estudos-massa-db.ts` (server-only); action `cenarioPrincipalDoEstudo(estudoId)` em `web/src/lib/actions/estudos-massa.ts`.
 - Retorno `CenarioPrincipal` (`shared/incorporacao/estudos-massa.ts`): `{ origem: "estudo_salvo"|"legado"|"lotes_avulsos", estudoSalvoId, nome, versao, cenarioId, tipologia, precoM2Lote, lotes: [{quadra, lote, areaM2, testadaM, profundidadeM}], quadroAreas }`.
 - Precedência: estudo salvo principal → colunas legadas → lotes avulsos (sem KML).
 
@@ -40,5 +51,11 @@ Agente: Dex (@dev) · branch `claude/lote2-22-correcoes-20261027` (nos dois repo
 - Estudos antigos: na 1ª listagem, colunas legadas viram "Estudo anterior (importado)" principal (INSERT condicional idempotente).
 - Matrícula/CAR/Zoneamento: saem do formulário; colunas e relatório executivo preservados (update não envia mais esses campos).
 
+## Pendências / limitações
+- Cul-de-sac simplificado (via-tronco + ruas sem saída com balão recortado à poligonal); ligação com o sistema viário externo não modelada — registrado em `limitacoes` do cenário e exibido na tela.
+- Restrições (APP, faixas etc.) sem geometria própria: descontadas proporcionalmente (lotes menores convertidos em "não parcelável"); a APP calculada no mapa do Terreno entra como padrão.
+- Campos de parâmetros da massa ainda usam o buffer de texto pt-BR existente (não o `NumeroInput` da AD-01, que estava em construção por outro agente) — trocar quando a correção 21 estabilizar.
+- Validação visual (desktop/tablet/mobile) e em produção pendentes; migrações não aplicadas (orquestrador aplica).
+
 ## Próximo passo
-Etapa 4 — porte SF: copiar `massa.ts` → `web/src/lib/geo/massa.ts` (imports @turf/* separados), puros → `web/src/lib/incorporacao/{massa-quadro-areas,lotes-avulsos,estudos-massa}.ts`, prisma (EstudoIncorporacao: semKml, lotesAvulsosJson, responsavelId; model EstudoMassaSalvo), migração `20261027120000_incorporacao_estudos_salvos`, actions em `web/src/lib/actions/incorporacao.ts` (+ `obterCenarioPrincipal`), componentes em `web/src/app/admin/incorporacao/_components/`, `editar/page.tsx`, `novo/page.tsx`, `[id]/page.tsx`.
+Grupo concluído no código. Pendente: orquestrador commitar; aplicar migrações (Prospecta 0084, SF 20261027120000); validação visual desktop/tablet/mobile; ondas 12/15/20 devem consumir `obterCenarioPrincipal`.

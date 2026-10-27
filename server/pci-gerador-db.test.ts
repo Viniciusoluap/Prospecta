@@ -11,6 +11,8 @@ vi.mock("./obra-localizacao.js", () => ({ obterLocalizacaoObra: vi.fn(async () =
 
 import { gravarModeloPci, pciGeradorRouter, pciModelosRouter } from "./pci-gerador.js";
 import { lerPci } from "./caixa/pci.js";
+import { gerarPlanilhaPci } from "./caixa/pci-gerador.js";
+import { formularioPciVazio } from "../shared/pci-gerador.js";
 
 const MODELO = new Uint8Array(readFileSync(new URL("./caixa/__fixtures__/pci-modelo-anonimo.xls", import.meta.url)));
 const pg = new PGlite();
@@ -43,11 +45,17 @@ it("modelos versionados: nova versão vira atual; arquivo repetido só volta a s
   expect(await caller.listar()).toEqual([]);
   const v1 = await gravarModeloPci("pci-v1.xls", MODELO, 1, "primeira");
   expect(v1).toMatchObject({ versao: 1, formato: "xls", repetido: false });
-  const copia = new Uint8Array(MODELO);
-  const v2 = await gravarModeloPci("pci-v2.xls", Uint8Array.from([...copia]).map((b, i) => (i === copia.length - 1 ? b : b)), 1, null);
-  expect(v2.repetido).toBe(true);
+  const repetido = await gravarModeloPci("pci-copia.xls", new Uint8Array(MODELO), 1, null);
+  expect(repetido).toMatchObject({ versao: 1, repetido: true });
   await expect(gravarModeloPci("pci.xls", new Uint8Array([0x50, 0x4b, 3, 4]), 1, null)).rejects.toThrow(/não é um \.xls válido/);
   await expect(gravarModeloPci("pci.xlsx", MODELO, 1, null)).rejects.toThrow(/\.xls, \.xlsm ou \.xlsb/);
+  // Nova versão (arquivo diferente) vira a atual; dá para voltar à anterior.
+  const outro = gerarPlanilhaPci(MODELO, "xls", formularioPciVazio()).bytes;
+  const v2 = await gravarModeloPci("pci-v2.xls", outro, 1, null);
+  expect(v2).toMatchObject({ versao: 2, repetido: false });
+  expect((await caller.listar()).map((m) => [m.versao, m.atual])).toEqual([[2, true], [1, false]]);
+  await caller.definirAtual({ id: v1.id });
+  await pg.exec("DELETE FROM pci_models WHERE version = 2");
   const lista = await caller.listar();
   expect(lista).toHaveLength(1);
   expect(lista[0]).toMatchObject({ versao: 1, atual: true, autor: "Admin", observacao: "primeira" });
