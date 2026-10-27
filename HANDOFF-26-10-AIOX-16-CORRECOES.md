@@ -96,3 +96,10 @@ Receber o prompt mestre (01–16) → montar matriz requisito × situação (fei
 ### Próximo passo exato
 Quando o dono avisar: `git fetch`, trazer o novo HEAD do Codex para `claude/sync-mirrored-repos-bsqnz3` (fast-forward/merge,
 sem descartar nada), reauditar as linhas "?" da matriz e seguir FASE 2 (BPO 09–15) → FASE 3 (01–08, 16) → FASE 4.
+
+## Decisão do dono — 27/10/2026
+- As 16 correções serão feitas **100% pelo Codex** na branch `codex/aiox-16-correcoes-20261026`. O Claude não mexe mais nelas.
+- O que o Claude deixou para o Codex aproveitar, na branch `claude/sync-mirrored-repos-bsqnz3`: o prompt mestre versionado,
+  a matriz preliminar e (só na Prospecta) a remoção da migração duplicada `drizzle/0077_bpo_vinculos_operacionais.sql`
+  (idêntica à `0080`). O Codex deve trazer esses arquivos ou repetir a remoção na branch dele.
+- O Claude vai assumir outro trabalho, diferente e em paralelo, em branch separada, sem tocar nos arquivos das 16 correções.
