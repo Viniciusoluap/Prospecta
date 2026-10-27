@@ -11,13 +11,15 @@ import { canAccessAdminProcedure } from "../_core/trpc.js";
 import { SERVICOS_PROGRESSO } from "../../shared/financeiro/progresso.js";
 import { dadosPlsPadrao, incidenciasCorrespondem, ehTipoMedicao, normalizarDadosMedicao, QUADROS_FOTO, type DadosMedicaoCaixa } from "../../shared/medicao-caixa.js";
 import { lerPci, type DadosPci } from "../caixa/pci.js";
-import { gerarXlsMedicao, type FotoMedicao, type MedicaoHistorica } from "../caixa/medicao-xls.js";
+import type { FotoMedicao, MedicaoHistorica } from "../caixa/medicao-xls.js";
 import { gerarPdfMedicao } from "../caixa/medicao-pdf.js";
 import { tryDriveUpload, uploadArquivoMedicaoObra } from "../drive-documents.js";
 import { createHash } from "node:crypto";
 
-// Pedido de 18/10 — PCI da CAIXA por obra e arquivos da medição (.xls para o
-// SIOPI e .pdf para assinatura). Rotas Express puras, com a mesma verificação
+// Pedido de 18/10 — PCI da CAIXA por obra e arquivo da medição (.pdf para
+// assinatura). Lote 02, correção 01: a medição (PLS, Repactuação e Alteração,
+// que compartilham o mesmo arquivo) não é mais gerada em .xls; a PCI continua
+// em Excel. Rotas Express puras, com a mesma verificação
 // de sessão das fotos da obra (server/routes/obra-fotos.ts).
 
 const router = Router();
@@ -177,7 +179,7 @@ const dataIso = (d: Date) => new Date(d.getTime() - 3 * 3600_000).toISOString().
 /** Datas do cadastro da obra são gravadas à meia-noite UTC (campo date do formulário). */
 const dataUtc = (d: Date) => d.toISOString().slice(0, 10);
 
-type Formato = "xls" | "pdf";
+type Formato = "pdf";
 type ArquivoMedicao =
   | { ok: true; bytes: Uint8Array; nome: string; mime: string; rotulo: string }
   | { ok: false; status: number; error: string };
@@ -185,19 +187,18 @@ const ROTULO = { pls: "PLS", repactuacao: "Repactuação de Prazo", alteracao: "
 
 /**
  * Pedido de 18/10: a PCI original nunca é alterada; cada medição gera uma CÓPIA
- * preenchida (.xls para o SIOPI e .pdf) a partir da versão da PCI gravada na
- * própria medição. Usado pelo download e pela cópia no Google Drive.
+ * preenchida em .pdf a partir da versão da PCI gravada na própria medição
+ * (Lote 02, correção 01: sem .xls). O PDF não depende do .xls: lê a PCI .xls
+ * ou .xlsb e só usa o BIFF8 para o logotipo, quando houver.
+ * Usado pelo download, pelo e-mail e pela cópia no Google Drive.
  * Chamar só depois de autorizar o acesso à obra.
  */
-export async function gerarArquivoMedicao(m: typeof constructionProgressHistory.$inferSelect, obraTitulo: string | null, formato: Formato): Promise<ArquivoMedicao> {
+export async function gerarArquivoMedicao(m: typeof constructionProgressHistory.$inferSelect, obraTitulo: string | null, _formato: Formato = "pdf"): Promise<ArquivoMedicao> {
   const db = getDb();
   if (!m.pciVersionId) return { ok: false, status: 409, error: "Esta medição não possui uma versão da PCI vinculada. Revise a medição antes de gerar os arquivos." };
   const pci = await arquivoPci(m.projectId, m.pciVersionId);
   if (!pci) return { ok: false, status: 400, error: "Envie a PCI da obra (botão PCI na aba Progresso) para gerar os arquivos da CAIXA." };
   if (!incidenciasCorrespondem(m.items, SERVICOS_PROGRESSO.map(s => s.chave), pci.dados.incidencias)) return { ok: false, status: 409, error: "As incidências salvas diferem da PCI desta medição. Revise a medição." };
-  if (formato === "xls" && pci.dados.formato !== "xls") {
-    return { ok: false, status: 400, error: "Para solicitar com PDF e XLS, use a PCI original em .xls. A PCI .xlsb permite PDF, mas não gera o XLS exigido para o envio." };
-  }
 
   const tipo = ehTipoMedicao(m.measurementType) ? m.measurementType : "pls";
   const dados: DadosMedicaoCaixa = m.caixaData
@@ -235,7 +236,6 @@ export async function gerarArquivoMedicao(m: typeof constructionProgressHistory.
   const nomeBase = `${sufixo}_${nomeSeguro(obraTitulo ?? "obra").replace(/\s+/g, "_")}_${dados.pls.dataLevantamento}`;
   const [a, mes, d] = dados.pls.dataLevantamento.split("-");
   const rotulo = `${ROTULO[tipo]} (levantamento ${d}-${mes}-${a})`;
-  if (formato === "xls") return { ok: true, bytes: gerarXlsMedicao(pci.bytes, entrada), nome: `${nomeBase}.xls`, mime: "application/vnd.ms-excel", rotulo };
   return { ok: true, bytes: gerarPdfMedicao(pci.bytes, entrada), nome: `${nomeBase}.pdf`, mime: "application/pdf", rotulo };
 }
 
@@ -249,11 +249,13 @@ async function medicaoAutorizada(req: Request, res: Response) {
   return { m, obra: acesso.obra };
 }
 
-router.get("/obras/medicoes/:medicaoId/arquivo.:formato(xls|pdf)", async (req: Request, res: Response) => {
+// Lote 02, correção 01: só .pdf. Pedidos antigos de .xls caem no 404 padrão;
+// cópias .xls já gravadas no Drive e e-mails já enviados seguem preservados.
+router.get("/obras/medicoes/:medicaoId/arquivo.:formato(pdf)", async (req: Request, res: Response) => {
   try {
     const alvo = await medicaoAutorizada(req, res);
     if (!alvo) return;
-    const r = await gerarArquivoMedicao(alvo.m, alvo.obra.titulo, String(req.params.formato) === "xls" ? "xls" : "pdf");
+    const r = await gerarArquivoMedicao(alvo.m, alvo.obra.titulo, "pdf");
     if (!r.ok) return res.status(r.status).json({ error: r.error });
     if (r.bytes.length > LIMITE_DOWNLOAD) return res.status(413).json({ error: MENSAGEM_LIMITE_DOWNLOAD });
     return enviarArquivo(res, r.bytes, r.nome, r.mime);
@@ -264,8 +266,9 @@ router.get("/obras/medicoes/:medicaoId/arquivo.:formato(xls|pdf)", async (req: R
 });
 
 /**
- * Pedido de 18/10: depois de salvar a medição (e enviar as fotos), guarda o .xls
- * e o .pdf preenchidos em Obras/<Obra>/Medições CAIXA no Google Drive. Nunca
+ * Pedido de 18/10: depois de salvar a medição (e enviar as fotos), guarda o
+ * .pdf preenchido em Obras/<Obra>/Medições CAIXA no Google Drive (Lote 02,
+ * correção 01: sem .xls; arquivos antigos no Drive não são apagados). Nunca
  * desfaz a medição: sem Drive, os arquivos seguem no download.
  */
 router.post("/obras/medicoes/:medicaoId/drive", async (req: Request, res: Response) => {
@@ -273,12 +276,9 @@ router.post("/obras/medicoes/:medicaoId/drive", async (req: Request, res: Respon
     const alvo = await medicaoAutorizada(req, res);
     if (!alvo) return;
     let algum = false;
-    for (const formato of ["xls", "pdf"] as const) {
+    for (const formato of ["pdf"] as const) {
       const arq = await gerarArquivoMedicao(alvo.m, alvo.obra.titulo, formato);
-      if (!arq.ok) {
-        if (arq.status === 400) continue; // PCI .xlsb: não há .xls, só o .pdf
-        return res.json({ drive: "erro", nota: arq.error });
-      }
+      if (!arq.ok) return res.json({ drive: "erro", nota: arq.error });
       const r = await tryDriveUpload(() => uploadArquivoMedicaoObra({ id: alvo.obra.id, titulo: alvo.obra.titulo ?? "Obra" }, { rotulo: arq.rotulo, nomeOriginal: arq.nome, mime: arq.mime, data: Buffer.from(arq.bytes) }));
       if (!r.driveFileId) return res.json({ drive: r.note ? "erro" : "indisponivel", nota: r.note });
       algum = true;

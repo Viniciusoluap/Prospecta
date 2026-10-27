@@ -23,6 +23,8 @@ import obraMedicaoCaixaRouter from "../server/routes/obra-medicao-caixa.js";
 import projetoDocumentosRouter from "../server/routes/projeto-documentos.js";
 import { handleWhatsappWebhook } from "../server/whatsapp-webhook.js";
 import imovelFotosRouter from "../server/routes/imovel-fotos.js";
+// Lote 2, correção 04: documentos do usuário (perfil Engenheiro) guardados no banco.
+import usuarioDocumentosRouter from "../server/usuario-documentos.js";
 import googleDriveRotas from "../server/routes/google-drive.js";
 import { checkAndSendReminder } from "../server/mcmv-rules-reminder.js";
 import { ensureLeadCardDeadlineSchema } from "../server/lead-card-deadline-schema.js";
@@ -172,6 +174,7 @@ app.use("/api", async (req, res, next) => {
     // Pedido de 24/10: envio de arquivos de Projetos (e da revisão) só existia no servidor local.
     router.use(projetoDocumentosRouter);
     router.use(imovelFotosRouter);
+    router.use(usuarioDocumentosRouter);
     router.use(googleDriveRotas);
     router.post("/asaas/webhook", handleAsaasWebhook);
     router.post("/pluggy/webhook", handlePluggyWebhook);

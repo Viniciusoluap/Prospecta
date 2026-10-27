@@ -36,7 +36,8 @@ import {
 } from "../shared/medicao-caixa.js";
 import { lerPci, type DadosPci } from "./caixa/pci.js";
 import { createHash } from "node:crypto";
-import { adminProcedure, router } from "./_core/trpc.js";
+import { adminProcedure, protectedProcedure, router } from "./_core/trpc.js";
+import { podeVerDetalhesObra } from "./obra-acesso.js";
 import { getDb, getObraDadosCrm } from "./db.js";
 import { calcularResumoObra } from "./obra-financeiro-router.js";
 
@@ -120,6 +121,17 @@ async function versaoPciParaMedicao(projectId: number, itens: { chave: string; i
   if (!pci.linkedAt) return null;
   if (!pci.versionId || !incidenciasCorrespondem(itens, SERVICOS_PROGRESSO.map(s => s.chave), (pci.parsed as DadosPci).incidencias)) throw new TRPCError({ code: "BAD_REQUEST", message: "Vincule a PCI e use as incidências da planilha antes de salvar." });
   return pci.versionId;
+}
+
+/** Fotos e medições da obra para a galeria (Editar Obra e Detalhes). */
+async function carregarGaleria(projectId: number) {
+  const [fotos, medicoes] = await Promise.all([
+    getDb().select({ id: constructionPhotos.id, medicaoId: constructionPhotos.progressHistoryId, url: constructionPhotos.imageUrl, legenda: constructionPhotos.caption })
+      .from(constructionPhotos).where(eq(constructionPhotos.projectId, projectId)).orderBy(asc(constructionPhotos.id)),
+    getDb().select({ id: constructionProgressHistory.id, progresso: constructionProgressHistory.progressPct, criadoEm: constructionProgressHistory.createdAt })
+      .from(constructionProgressHistory).where(eq(constructionProgressHistory.projectId, projectId)),
+  ]);
+  return { fotos, medicoes: medicoes.map(m => ({ ...m, progresso: Number(m.progresso) })) };
 }
 
 async function obraOuErro(projectId: number) {
@@ -242,14 +254,20 @@ export async function carregarProgresso(projectId: number) {
 }
 
 export const obraProgressoRouter = router({
-  galeria: adminProcedure.input(projectIdInput).query(async ({ input }) => {
-    const [fotos, medicoes] = await Promise.all([
-      getDb().select({ id: constructionPhotos.id, medicaoId: constructionPhotos.progressHistoryId, url: constructionPhotos.imageUrl, legenda: constructionPhotos.caption })
-        .from(constructionPhotos).where(eq(constructionPhotos.projectId, input.projectId)).orderBy(asc(constructionPhotos.id)),
-      getDb().select({ id: constructionProgressHistory.id, progresso: constructionProgressHistory.progressPct, criadoEm: constructionProgressHistory.createdAt })
-        .from(constructionProgressHistory).where(eq(constructionProgressHistory.projectId, input.projectId)),
-    ]);
-    return { fotos, medicoes: medicoes.map(m => ({ ...m, progresso: Number(m.progresso) })) };
+  galeria: adminProcedure.input(projectIdInput).query(({ input }) => carregarGaleria(input.projectId)),
+
+  /**
+   * Lote 02, correção 02: a mesma galeria por medição, em Detalhes da Obra. Liberada
+   * exatamente a quem já vê as fotos em Detalhes (regra de getProjectDetails):
+   * proprietário, admin/colaborador com Obras e empreiteiro vinculado. Só leitura,
+   * mesmos arquivos e metadados (sem duplicar armazenamento).
+   */
+  galeriaDetalhes: protectedProcedure.input(projectIdInput).query(async ({ input, ctx }) => {
+    const [obra] = await getDb().select({ userId: constructionProjects.userId, contractorUserId: constructionProjects.contractorUserId })
+      .from(constructionProjects).where(eq(constructionProjects.id, input.projectId)).limit(1);
+    if (!obra) throw new TRPCError({ code: "NOT_FOUND", message: "Obra não encontrada" });
+    if (!podeVerDetalhesObra(ctx.user, obra)) throw new TRPCError({ code: "FORBIDDEN", message: "Acesso negado" });
+    return carregarGaleria(input.projectId);
   }),
 
   obter: adminProcedure.input(projectIdInput).query(({ input }) => carregarProgresso(input.projectId)),
@@ -303,7 +321,7 @@ export const obraProgressoRouter = router({
     const db = getDb();
     let tentativa = new Date();
     const titulo = `Solicitação de medição — ${obra.title || `Obra ${obra.id}`}`.slice(0, 255);
-    const mensagem = `${atual.measurementType.toUpperCase()} · ${Number(atual.progressPct).toLocaleString("pt-BR")}% acumulado · ${ctx.user.name || "Usuário"}. Destino do PDF e XLS: ${DESTINO_MEDICOES}. Consulte o estado do envio na medição.`;
+    const mensagem = `${atual.measurementType.toUpperCase()} · ${Number(atual.progressPct).toLocaleString("pt-BR")}% acumulado · ${ctx.user.name || "Usuário"}. Destino do PDF: ${DESTINO_MEDICOES}. Consulte o estado do envio na medição.`;
     try {
       const resultado = await solicitarComAnexos({
         gerar: async formato => {

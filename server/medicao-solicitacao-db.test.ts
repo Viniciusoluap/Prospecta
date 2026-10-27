@@ -8,7 +8,7 @@ import * as email from "./_core/email-smtp.js";
 import { constructionProgressHistory, constructionProjects } from "../drizzle/schema.js";
 import { invalidarAnexosMedicao } from "./medicao-email-estado.js";
 import { obraProgressoRouter } from "./obra-progresso-router.js";
-vi.mock("./routes/obra-medicao-caixa.js", () => ({ gerarArquivoMedicao: vi.fn(async (_m, _obra, formato) => ({ ok: true, bytes: new Uint8Array([1,2]), nome: `PLS.${formato}`, mime: formato === "pdf" ? "application/pdf" : "application/vnd.ms-excel" })) }));
+vi.mock("./routes/obra-medicao-caixa.js", () => ({ gerarArquivoMedicao: vi.fn(async (_m, _obra, formato) => ({ ok: true, bytes: new Uint8Array([1,2]), nome: `PLS.${formato}`, mime: "application/pdf" })) }));
 
 it("registra solicitação e aviso só para admin, impede duplicata e permite reenvio após falha SMTP", async () => {
   const pg = new PGlite();
@@ -57,6 +57,6 @@ it("registra solicitação e aviso só para admin, impede duplicata e permite re
     expect(send).toHaveBeenCalledTimes(3);
     expect((await pg.query("SELECT user_id, is_read FROM user_notifications")).rows).toEqual([{ user_id: 1, is_read: false }]);
     expect((await real.select().from(constructionProgressHistory))[0].requestedAt).toEqual(primeira.requestedAt);
-    expect(send).toHaveBeenLastCalledWith(expect.objectContaining({ to: "atendimento@prospectaconstrucoes.com", attachments: expect.arrayContaining([expect.objectContaining({ filename: "PLS.pdf" }), expect.objectContaining({ filename: "PLS.xls" })]) }));
+    expect(send).toHaveBeenLastCalledWith(expect.objectContaining({ to: "atendimento@prospectaconstrucoes.com", attachments: [expect.objectContaining({ filename: "PLS.pdf", contentType: "application/pdf" })] }));
   } finally { vi.restoreAllMocks(); await pg.close(); }
 }, 30_000);

@@ -12,6 +12,11 @@ export interface EstudoData {
   tipoIncorporacao?: string | null;
   dueDiligenceJson?: string | null;
   responsavel: string | null;
+  /** Correção 08: responsável por ID de usuário (o texto acima é o legado/exibição). */
+  responsavelId?: string | null;
+  /** Correção 06 (AD-03): estudo sem KML + lotes avulsos (JSON). */
+  semKml?: boolean;
+  lotesAvulsosJson?: string | null;
   versaoNumero?: number | null;
   colaboradores?: { id: string; nome: string }[];
   matriculaImovel?: string | null;
@@ -81,6 +86,9 @@ export function paraEstudoData(linha: LinhaEstudoProspecta): EstudoData {
     tipoIncorporacao: r.incorporationType,
     dueDiligenceJson: r.dueDiligenceJson,
     responsavel: r.responsible,
+    responsavelId: r.responsibleUserId != null ? String(r.responsibleUserId) : null,
+    semKml: r.semKml === true,
+    lotesAvulsosJson: r.looseLotsJson ?? null,
     matriculaImovel: r.propertyRegistration,
     carRegistro: r.carRegistration,
     zoneamentoOficial: r.officialZoning,

@@ -25,6 +25,7 @@ import {
 } from "./OperationalUI";
 import { rotulo } from "@shared/rotulos";
 import { diaPrazoProjeto, exibirDiaPrazoProjeto, ordenarProjetosPorPrazo, persistirDiaPrazoProjeto } from "@shared/projetos-prazo";
+import { creaAoTrocarEngenheiro, formatarCrea } from "@shared/engenheiro";
 type Check = ProjectCheck;
 type FileLink = { name: string; url: string; itemId?: string; kind?: "editable" | "pdf"; driveFileId?: string };
 const blank = () => ({
@@ -245,13 +246,17 @@ export default function AdminProjetos() {
             value={form.engineerUserId}
             onChange={e => {
               const escolhido = engenheiros.data?.find(u => String(u.id) === e.target.value);
-              setForm(f => ({ ...f, engineerUserId: e.target.value, engineer: escolhido?.name ?? f.engineer }));
+              // Correção 04: o CREA do perfil Engenheiro preenche a habilitação (sem inventar quando não houver).
+              setForm(f => {
+                const anterior = engenheiros.data?.find(u => String(u.id) === f.engineerUserId);
+                return { ...f, engineerUserId: e.target.value, engineer: escolhido?.name ?? f.engineer, engineerRegistration: creaAoTrocarEngenheiro(f.engineerRegistration, anterior, escolhido) };
+              });
             }}
           >
             <option value="">{form.engineer && !form.engineerUserId ? `Registro anterior: ${form.engineer}` : "Selecione"}</option>
             {(engenheiros.data ?? [])
               .filter(u => !buscaEngenheiro.trim() || (u.name ?? "").toLowerCase().includes(buscaEngenheiro.trim().toLowerCase()) || String(u.id) === form.engineerUserId)
-              .map(u => <option key={u.id} value={u.id}>{u.name}{u.role === "admin" ? " (admin)" : ""}</option>)}
+              .map(u => <option key={u.id} value={u.id}>{u.name}{u.role === "admin" ? " (admin)" : ""}{u.crea ? ` · ${formatarCrea(u.crea, u.creaUf)}` : ""}</option>)}
           </select>
         </Field>
         <Field label="Habilitação técnica (CREA/CAU), se necessária">

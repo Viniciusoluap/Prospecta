@@ -29,7 +29,8 @@ import {
 
 // Pedido de 18/10 — medição no formato da CAIXA: PCI da obra (enviar/vincular),
 // tipo da medição (PLS, Repactuação, Alteração de Projeto) com os campos de
-// cada modelo, fotos em lote da medição e os arquivos .xls/.pdf preenchidos.
+// cada modelo, fotos em lote da medição e o arquivo .pdf preenchido (Lote 02,
+// correção 01: a medição não é mais gerada em .xls; a PCI continua em Excel).
 
 const campo = "bg-[#2C3E50] border-[#C9A961]/30 text-white placeholder:text-gray-300";
 const caixaSelect = `h-9 w-full rounded-md border px-2 text-sm ${campo}`;
@@ -80,19 +81,19 @@ function CampoNumero({ valor, onChange, rotulo, sufixo }: { valor: number | null
 }
 
 /**
- * Pedido de 18/10: cópia do .xls/.pdf preenchidos no Google Drive da obra
+ * Pedido de 18/10: cópia do .pdf preenchido no Google Drive da obra
  * (Obras/<Obra>/Medições CAIXA). Devolve o complemento da mensagem de sucesso.
  */
 export async function copiarMedicaoNoDrive(medicaoId: number): Promise<string> {
   try {
     const resposta = await fetch(`/api/obras/medicoes/${medicaoId}/drive`, { method: "POST", credentials: "include" });
     const r = (await resposta.json().catch(() => null)) as { drive?: string } | null;
-    if (resposta.ok && r?.drive === "ok") return " Arquivos .xls e .pdf salvos no Google Drive da obra.";
-    if (resposta.ok && r?.drive === "indisponivel") return " Google Drive não conectado: baixe os arquivos pelos botões da medição.";
+    if (resposta.ok && r?.drive === "ok") return " Arquivo .pdf salvo no Google Drive da obra.";
+    if (resposta.ok && r?.drive === "indisponivel") return " Google Drive não conectado: baixe o arquivo pelo botão da medição.";
   } catch {
     // sem rede: os arquivos continuam no download
   }
-  return " Não foi possível copiar para o Google Drive agora: baixe os arquivos pelos botões da medição.";
+  return " Não foi possível copiar para o Google Drive agora: baixe o arquivo pelo botão da medição.";
 }
 
 /** Baixa um arquivo gerado pelo servidor; erro vira aviso na tela. */
@@ -130,8 +131,9 @@ export async function baixarArquivo(url: string, nomePadrao: string) {
 }
 
 export function BotoesArquivosMedicao({ medicaoId, tamanho = "sm" }: { medicaoId: number; tamanho?: "sm" | "default" }) {
-  const [baixando, setBaixando] = useState<"xls" | "pdf" | null>(null);
-  const baixar = async (formato: "xls" | "pdf") => {
+  // Lote 02, correção 01: só o .pdf (PLS, Repactuação e Alteração compartilham o arquivo).
+  const [baixando, setBaixando] = useState<"pdf" | null>(null);
+  const baixar = async (formato: "pdf") => {
     setBaixando(formato);
     try {
       await baixarArquivo(`/api/obras/medicoes/${medicaoId}/arquivo.${formato}`, `medicao.${formato}`);
@@ -143,7 +145,7 @@ export function BotoesArquivosMedicao({ medicaoId, tamanho = "sm" }: { medicaoId
   };
   return (
     <div className="flex flex-wrap gap-1">
-      {(["xls", "pdf"] as const).map((f) => (
+      {(["pdf"] as const).map((f) => (
         <Button key={f} size={tamanho} variant="outline" disabled={baixando !== null} onClick={() => baixar(f)}
           className="border-[#C9A961]/60 bg-transparent text-[#C9A961] gap-1" aria-label={`Baixar a medição em .${f}`}>
           {baixando === f ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Download className="h-3.5 w-3.5" />}.{f}
@@ -320,7 +322,7 @@ export function FotosMedicao({ tipo, fotos, setFotos, existentes, onExcluirExist
         <input ref={entrada} type="file" accept="image/*" multiple className="hidden" onChange={(e) => adicionar(Array.from(e.target.files ?? []))} />
       </div>
       {aviso && <p className="text-xs text-amber-300">{aviso}</p>}
-      {total > quadros && <p className="text-xs text-amber-300">O modelo tem {quadros} quadros: só as {quadros} primeiras fotos entram no .xls e no .pdf (todas ficam na aba Fotos).</p>}
+      {total > quadros && <p className="text-xs text-amber-300">O modelo tem {quadros} quadros: só as {quadros} primeiras fotos entram no .pdf (todas ficam na aba Fotos).</p>}
       {existentes.length > 0 && <FotosSalvas fotos={existentes} onSalvar={onAtualizarExistente} onExcluir={onExcluirExistente} ocupado={ocupado} />}
       {fotos.length > 0 && (
         <ul className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-4">

@@ -28,6 +28,8 @@ import {
 import { calcularComissaoObra } from "../shared/financeiro/comissao.js";
 import { coordenadasDaPci, enderecoCompleto, vgvDaObra as vgvDaObraCompartilhado } from "../shared/obra-localizacao.js";
 import { centavosDe } from "../shared/financeiro/obra.js";
+// Lote 2, correção 04: lista de engenheiros enriquecida com o perfil (CREA).
+import { listarEngenheiros } from "./usuario-documentos.js";
 import { adminProcedure, router } from "./_core/trpc.js";
 import { createNotification, getDb } from "./db.js";
 import { sendEmail } from "./_core/email-smtp.js";
@@ -653,12 +655,8 @@ async function resolverEngenheiro(d: z.infer<typeof projectInput>, anterior: str
 
 export const projetosRouter = router({
   options: adminProcedure.query(async () => (await options()).leads),
-  /** Colaboradores (e admins) ativos que podem ser engenheiro responsável. */
-  engenheiros: adminProcedure.query(async () =>
-    getDb().select({ id: users.id, name: users.name, role: users.role }).from(users)
-      .where(and(eq(users.active, true), inArray(users.role, ["colaborador", "admin"])))
-      .orderBy(asc(users.name))
-  ),
+  /** Colaboradores (e admins) ativos que podem ser engenheiro responsável, com o perfil Engenheiro (CREA) quando houver. */
+  engenheiros: adminProcedure.query(async () => listarEngenheiros()),
   list: adminProcedure.query(async () =>
     getDb().select().from(projects).orderBy(desc(projects.updatedAt))
   ),

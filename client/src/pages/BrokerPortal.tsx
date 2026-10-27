@@ -8,6 +8,7 @@ import { useAuth } from "@/_core/hooks/useAuth";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import { NumeroInput } from "@/components/ui/numero-input";
 import { CurrencyInput } from "@/components/ui/currency-input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
@@ -277,7 +278,10 @@ export default function BrokerPortal() {
                       <Label htmlFor="preco">Preço</Label>
                       <CurrencyInput id="preco" name="preco" required placeholder="0,00" defaultValue={editing ? Number(editing.preco) : undefined} />
                     </div>
-                    <Field name="areaM2" label="Área (m²)" type="number" defaultValue={editing?.areaM2 ?? ""} />
+                    <div>
+                      <Label htmlFor="areaM2">Área (m²)</Label>
+                      <NumeroInput id="areaM2" name="areaM2" sufixo="m²" negativo={false} defaultValue={editing?.areaM2 != null && editing.areaM2 !== "" ? Number(editing.areaM2) : null} />
+                    </div>
                     <Field name="quartos" label="Quartos" type="number" defaultValue={editing?.quartos ?? ""} />
                     <Field name="banheiros" label="Banheiros" type="number" defaultValue={editing?.banheiros ?? ""} />
                     <Field name="vagas" label="Vagas" type="number" defaultValue={editing?.vagas ?? ""} />

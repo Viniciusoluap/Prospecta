@@ -2,6 +2,7 @@ import { useState, useMemo } from "react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { NumeroInput } from "@/components/ui/numero-input";
 import { Label } from "@/components/ui/label";
 import { Slider } from "@/components/ui/slider";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -278,10 +279,12 @@ export default function SimuladorFinanciamento() {
                   {usarFGTS && (
                     <div className="pl-8 space-y-2">
                       <Label className="text-white/70 text-sm">Saldo do FGTS</Label>
-                      <Input
-                        type="number"
+                      <NumeroInput
+                        prefixo="R$"
+                        negativo={false}
+                        vazioQuandoZero
                         value={valorFGTS}
-                        onChange={(e) => setValorFGTS(Number(e.target.value))}
+                        onChange={(v) => setValorFGTS(v ?? 0)}
                         className="bg-white/10 border-primary/30 text-white"
                         placeholder="Digite o valor do FGTS"
                       />

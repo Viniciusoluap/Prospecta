@@ -1773,12 +1773,39 @@ export const incorporationStudies = pgTable("incorporation_studies", {
   scheduleJson: text("schedule_json"),
   aiOpinion: text("ai_opinion"),
   lottingJson: text("lotting_json"),
+  // Lote 2 (migração 0084): estudo sem KML (06), lotes avulsos (06) e responsável por ID (08).
+  semKml: boolean("sem_kml").default(false).notNull(),
+  looseLotsJson: text("loose_lots_json"),
+  responsibleUserId: integer("responsible_user_id").references((): AnyPgColumn => users.id, { onDelete: "set null" }),
   reportsJson: text("reports_json").default("[]").notNull(),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });
 export type IncorporationStudy = typeof incorporationStudies.$inferSelect;
 export type InsertIncorporationStudy = typeof incorporationStudies.$inferInsert;
+
+// Lote 2, correção 11 (AD-04, migração 0084): estudos de massa salvos. O principal é
+// espelhado em mass_scenarios_json/selected_scenario_id/product_mix_json do estudo.
+export const incorporationMassStudies = pgTable("incorporation_mass_studies", {
+  id: serial("id").primaryKey(),
+  studyId: integer("study_id").notNull().references(() => incorporationStudies.id, { onDelete: "cascade" }),
+  name: varchar("name", { length: 120 }).notNull(),
+  version: integer("version").default(1).notNull(),
+  previousId: integer("previous_id").references((): AnyPgColumn => incorporationMassStudies.id, { onDelete: "set null" }),
+  paramsJson: text("params_json"),
+  scenariosJson: text("scenarios_json").notNull(),
+  referencePolygon: text("reference_polygon"),
+  selectedScenarioId: varchar("selected_scenario_id", { length: 120 }),
+  indicatorsJson: text("indicators_json"),
+  areasJson: text("areas_json"),
+  isPrincipal: boolean("is_principal").default(false).notNull(),
+  createdByUserId: integer("created_by_user_id").references((): AnyPgColumn => users.id, { onDelete: "set null" }),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+  deletedAt: timestamp("deleted_at"),
+  deletedByUserId: integer("deleted_by_user_id").references((): AnyPgColumn => users.id, { onDelete: "set null" }),
+}, (t) => ({ byStudy: index("incorporation_mass_studies_study_idx").on(t.studyId, t.id) }));
+export type IncorporationMassStudy = typeof incorporationMassStudies.$inferSelect;
 
 // Anexos do checklist: o último evento por estudo/item determina o anexo
 // vigente. Arquivos antigos e desvinculações continuam auditáveis.
@@ -2001,4 +2028,38 @@ export const regularizacaoRecebimentosHistorico = pgTable("regularizacao_recebim
   depois: jsonb("depois").notNull(),
   usuarioId: integer("usuario_id"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+// Lote 2, correção 04 (AD-02, migração 0083): perfil Engenheiro = colaborador +
+// dados profissionais. "active" false = deixou de ser engenheiro (dados preservados).
+export const engineerProfiles = pgTable("engineer_profiles", {
+  userId: integer("user_id").primaryKey().references(() => users.id, { onDelete: "cascade" }),
+  active: boolean("active").default(true).notNull(),
+  phone: varchar("phone", { length: 20 }),
+  cep: varchar("cep", { length: 9 }),
+  street: varchar("street", { length: 255 }),
+  number: varchar("number", { length: 20 }),
+  complement: varchar("complement", { length: 120 }),
+  district: varchar("district", { length: 120 }),
+  city: varchar("city", { length: 120 }),
+  state: varchar("state", { length: 2 }),
+  creaNumber: varchar("crea_number", { length: 30 }),
+  creaState: varchar("crea_state", { length: 2 }),
+  additionalCreas: jsonb("additional_creas").default([]).notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+  updatedBy: integer("updated_by").references(() => users.id, { onDelete: "set null" }),
+});
+
+// Documentos do usuário (documento pessoal, anuidade/carteirinha CREA, outros). A coluna
+// "content" (bytea) é lida/gravada só por SQL explícito em server/usuario-documentos.ts.
+export const userDocuments = pgTable("user_documents", {
+  id: serial("id").primaryKey(),
+  userId: integer("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  category: varchar("category", { length: 30 }).notNull(),
+  originalName: varchar("original_name", { length: 255 }).notNull(),
+  mime: varchar("mime", { length: 150 }).notNull(),
+  sizeBytes: integer("size_bytes").notNull(),
+  uploadedBy: integer("uploaded_by").references(() => users.id, { onDelete: "set null" }),
+  uploadedAt: timestamp("uploaded_at").defaultNow().notNull(),
 });

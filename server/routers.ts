@@ -34,6 +34,7 @@ import { regularizacaoRouter } from "./regularizacao-router.js";
 import { portalRouter } from "./portal-router.js";
 import { whatsappRouter } from "./whatsapp-router.js";
 import { podeUsarModulo, requireModule, requireModuloDoDestino, requireRole } from "./_core/rbac.js";
+import { podeVerDetalhesObra } from "./obra-acesso.js";
 import { bancarioRouter, pluggySettingsRouter } from "./bancos-router.js";
 import { parseKmlTerreno } from "./_core/geo/kml.js";
 import { fetchElevationGrid } from "./_core/geo/elevacao.js";
@@ -77,10 +78,14 @@ import { obraLocalizacaoRouter, sincronizarImovelGeradoDaObra, garantirImovelCat
 import { duplicarLead } from "./lead-duplicar.js";
 import { LEAD_PIPELINE_KEYS } from "../shared/lead-pipeline.js";
 import { documentChunksRouter } from "./document-upload-chunks.js";
+// Lote 2, correção 04: perfil Engenheiro e documentos do usuário.
+import { engenheirosRouter } from "./usuario-documentos.js";
 import { leadDocumentsRouter } from "./lead-documents-router.js";
 import { incorporacaoDocumentsRouter } from "./incorporacao-documents-router.js";
 import { incorporationDueDiligenceRouter } from "./incorporacao-due-diligence-router.js";
 import { incorporationUnitsRouter } from "./incorporacao-unidades-router.js";
+import { incorporationMassStudiesRouter } from "./incorporacao-estudos-massa-router.js";
+import { prepararLotesAvulsosParaGravar } from "../shared/incorporacao/lotes-avulsos.js";
 import { excluirDefinitivo } from "./exclusao-definitiva.js";
 import { bpoRouter } from "./bpo-router.js";
 
@@ -167,6 +172,7 @@ export const appRouter = router({
   leadServices: leadServicesRouter,
   leadDocuments: leadDocumentsRouter,
   documentChunks: documentChunksRouter,
+  engenheiros: engenheirosRouter,
   brokerPortal: brokerPortalRouter,
   geo: geoRouter,
   obraFinanceiro: obraFinanceiroRouter,
@@ -810,8 +816,8 @@ export const appRouter = router({
           });
         }
         // Proprietário, admin ou (pedido de 15/10) o empreiteiro vinculado à obra.
-        const empreiteiroDaObra = ctx.user.role === "empreiteiro" && project.contractorUserId === ctx.user.id;
-        if (project.userId !== ctx.user.id && !podeUsarModulo(ctx.user, "obras") && !empreiteiroDaObra) {
+        // Regra única, também usada pela galeria de Detalhes (Lote 02, correção 02).
+        if (!podeVerDetalhesObra(ctx.user, project)) {
           throw new TRPCError({ code: "FORBIDDEN", message: "Acesso negado" });
         }
         return project;
@@ -2592,6 +2598,7 @@ export const appRouter = router({
     documents: incorporacaoDocumentsRouter,
     dueDiligence: incorporationDueDiligenceRouter,
     units: incorporationUnitsRouter,
+    massStudies: incorporationMassStudiesRouter,
     staff: protectedProcedure.query(async ({ ctx }) => {
       requireModule(ctx, "incorporacao");
       return db.getIncorporationStaff();
@@ -2642,6 +2649,7 @@ export const appRouter = router({
           latitude: z.number().optional(),
           longitude: z.number().optional(),
           responsible: z.string().optional(),
+          responsibleUserId: z.number().int().positive().nullable().optional(),
           incorporationType: z.enum(["desmembramento_simples", "residencial", "vertical", "loteamento"]),
           propertyRef: z.string().optional(),
           propertyRegistration: z.string().max(500).nullable().optional(),
@@ -2652,8 +2660,10 @@ export const appRouter = router({
       )
       .mutation(async ({ input, ctx }) => {
         requireModule(ctx, "incorporacao");
+        const responsavel = await db.resolveIncorporationResponsible(input.responsibleUserId);
         return db.createIncorporationStudy({
           ...input,
+          ...responsavel,
           latitude: input.latitude?.toString(),
           longitude: input.longitude?.toString(),
         } as any);
@@ -2670,6 +2680,7 @@ export const appRouter = router({
           latitude: z.number().optional(),
           longitude: z.number().optional(),
           responsible: z.string().optional(),
+          responsibleUserId: z.number().int().positive().nullable().optional(),
           status: z.enum(["in_study", "unfeasible", "in_progress", "completed"]).optional(),
           incorporationType: z.enum(["desmembramento_simples", "residencial", "vertical", "loteamento"]).optional(),
           propertyRef: z.string().optional(),
@@ -2682,11 +2693,37 @@ export const appRouter = router({
       .mutation(async ({ input, ctx }) => {
         requireModule(ctx, "incorporacao");
         const { id, ...data } = input;
+        // Correção 08: responsável salvo por ID; o texto legado recebe o nome (exibição/estudos antigos).
+        const responsavel = data.responsibleUserId === undefined ? {} : await db.resolveIncorporationResponsible(data.responsibleUserId);
         await db.updateIncorporationStudy(id, {
           ...data,
+          ...responsavel,
           latitude: data.latitude?.toString(),
           longitude: data.longitude?.toString(),
         } as any);
+        return { success: true };
+      }),
+
+    // Correção 06 (AD-03): "Este empreendimento não possui KML" + lotes avulsos.
+    saveSemKml: protectedProcedure
+      .input(z.object({ id: z.number().int().positive(), semKml: z.boolean() }))
+      .mutation(async ({ input, ctx }) => {
+        requireModule(ctx, "incorporacao");
+        const estudo = await db.getIncorporationStudyById(input.id);
+        if (!estudo) throw new TRPCError({ code: "NOT_FOUND" });
+        await db.updateIncorporationStudy(input.id, { semKml: input.semKml });
+        return { success: true };
+      }),
+
+    saveLotesAvulsos: protectedProcedure
+      .input(z.object({ id: z.number().int().positive(), dataJson: z.string().max(2_000_000) }))
+      .mutation(async ({ input, ctx }) => {
+        requireModule(ctx, "incorporacao");
+        const estudo = await db.getIncorporationStudyById(input.id);
+        if (!estudo) throw new TRPCError({ code: "NOT_FOUND" });
+        const preparado = prepararLotesAvulsosParaGravar(input.dataJson);
+        if (!preparado.ok) throw new TRPCError({ code: "BAD_REQUEST", message: preparado.erro });
+        await db.updateIncorporationStudy(input.id, { looseLotsJson: preparado.json });
         return { success: true };
       }),
 

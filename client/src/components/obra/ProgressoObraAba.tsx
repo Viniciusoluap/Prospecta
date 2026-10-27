@@ -121,7 +121,7 @@ export function ProgressoObraAba({ projectId, onFotosMudaram }: { projectId: num
           await consulta.refetch(); void utils.obraProgresso.galeria.invalidate({ projectId }); onFotosMudaram?.(); return;
         }
       }
-      // Pedido de 18/10: cópia preenchida (.xls/.pdf) no Google Drive da obra.
+      // Pedido de 18/10: cópia preenchida (.pdf; Lote 02 sem .xls) no Google Drive da obra.
       const notaDrive = medicaoId && consulta.data?.pci?.vinculadaEm ? await copiarMedicaoNoDrive(medicaoId) : "";
       toast.success((editando ? `Medição de ${editando.quando} alterada.` : `Medição salva (${rotuloTipoMedicao(tipo)}): progresso geral ${formatarPercentual(calculo.progresso)}.`) + notaDrive);
       const atualizado = await consulta.refetch();
@@ -254,7 +254,7 @@ export function ProgressoObraAba({ projectId, onFotosMudaram }: { projectId: num
           <CamposMedicaoCaixa key={`${editando?.id ?? "nova"}:${versaoFormulario}`} tipo={tipo} setTipo={setTipo} dados={dadosCaixa} setDados={setDadosCaixa} prazoPci={dados.pci?.prazoMeses ?? null} />
           <FotosMedicao ocupado={ocupado} onAtualizarExistente={(id, caption, includeInReport) => { void acao(() => atualizarFoto.mutateAsync({ photoId: id, caption, includeInReport }), "Foto atualizada."); }} tipo={tipo} fotos={fotosNovas} setFotos={setFotosNovas} existentes={fotosDaEdicao} progresso={calculo.progresso}
             onExcluirExistente={(id) => { if (confirm("Excluir esta foto da medição?")) void acao(() => excluirFoto.mutateAsync({ photoId: id }), "Foto excluída."); }} />
-          {!dados.pci && <p className="text-xs text-amber-300">Para gerar o .xls e o .pdf da CAIXA, envie a PCI da obra (botão acima, ao lado de "Ver Medições da CEF").</p>}
+          {!dados.pci && <p className="text-xs text-amber-300">Para gerar o .pdf da CAIXA, envie a PCI da obra (botão acima, ao lado de "Ver Medições da CEF").</p>}
           {ultimaSalva && dados.pci && (
             <div className="flex flex-wrap items-center justify-between gap-2 rounded border border-emerald-500/40 bg-emerald-500/10 p-3 text-sm text-emerald-200" role="status">
               <span>Medição salva. Arquivos da CAIXA preenchidos:</span>
@@ -296,8 +296,8 @@ export function ProgressoObraAba({ projectId, onFotosMudaram }: { projectId: num
                       {dados.pci && <div className="mt-1"><BotoesArquivosMedicao medicaoId={h.id} /></div>}
                     </div>
                     <div className="flex min-w-0 flex-col items-start gap-2">
-                      {h.emailStatus && <p className="text-xs text-gray-400">E-mail: {h.emailStatus === "sent" ? "enviado com PDF e XLS" : h.emailStatus === "failed" ? "falhou — tente reenviar" : h.emailStatus === "pending" ? "alterações pendentes de envio" : "processando"}</p>}
-                      {h.emailPodeReenviar && <Button type="button" size="sm" variant="outline" disabled={ocupado} onClick={() => acao(() => solicitar.mutateAsync({ medicaoId: h.id }), "E-mail enviado com PDF e XLS.")}>{h.emailStatus === "pending" ? "Enviar versão atualizada" : "Reenviar e-mail"}</Button>}
+                      {h.emailStatus && <p className="text-xs text-gray-400">E-mail: {h.emailStatus === "sent" ? "enviado" : h.emailStatus === "failed" ? "falhou — tente reenviar" : h.emailStatus === "pending" ? "alterações pendentes de envio" : "processando"}</p>}
+                      {h.emailPodeReenviar && <Button type="button" size="sm" variant="outline" disabled={ocupado} onClick={() => acao(() => solicitar.mutateAsync({ medicaoId: h.id }), "E-mail enviado com o PDF.")}>{h.emailStatus === "pending" ? "Enviar versão atualizada" : "Reenviar e-mail"}</Button>}
                       {h.solicitadaEm ? (
                         <p className="text-xs text-amber-200"><Send className="mr-1 inline h-3 w-3" />Solicitada em {dataHora(h.solicitadaEm)}{h.solicitadaPor ? ` por ${h.solicitadaPor}` : ""}</p>
                       ) : (

@@ -1,18 +1,14 @@
-import { useEffect, useState } from "react";
-import { Input } from "@/components/ui/input";
-import { cn } from "@/lib/utils";
-import { formatarNumeroParaEdicao, aplicarDigitacao } from "@/lib/numero-input";
+import { NumeroInput } from "@/components/ui/numero-input";
 
-// Campo de percentual com entrada por vírgula e sufixo "%". Mesmo padrão
-// de buffer de texto do `CurrencyInput` (ver esse arquivo para o porquê).
+// Campo de percentual com sufixo "%". Desde 27/10 (correção 21/AD-01) é um
+// wrapper do `NumeroInput` — API pública inalterada.
 //
 // Importante: o número que entra/sai deste componente está na MESMA
-// escala em que o campo já guardava o valor antes da migração — este
-// componente não multiplica nem divide por 100. Ex.: um campo que hoje
-// guarda `6` para "6%" continua recebendo/entregando `6`; um campo que
-// guarda a fração `0.06` continua recebendo/entregando `0.06` (e nesse
-// caso o sufixo "%" é só cosmético — quem chama decide a escala, igual
-// já decidia com o `<input type="number">` anterior).
+// escala em que o campo já guardava o valor — este componente não
+// multiplica nem divide por 100. Ex.: um campo que guarda `6` para "6%"
+// continua recebendo/entregando `6`; um campo que guarda a fração `0.06`
+// continua recebendo/entregando `0.06` (o sufixo "%" é só cosmético).
+// Percentual: ponto é decimal ("2.345" = 2,345%), igual ao Santa Fé.
 type PercentInputProps = {
   className?: string;
   placeholder?: string;
@@ -20,6 +16,7 @@ type PercentInputProps = {
   disabled?: boolean;
   id?: string;
   "aria-label"?: string;
+  /** Casas decimais aceitas/exibidas (padrão 2; índices usam 4). */
   maximumFractionDigits?: number;
   // Opcional: disparado no blur com o número final já convertido — mesmo
   // propósito do `onBlurValue` do `CurrencyInput`.
@@ -34,54 +31,30 @@ type PercentInputProps = {
 export function PercentInput(props: PercentInputProps) {
   const { className, placeholder, required, disabled, id, maximumFractionDigits = 2, onBlurValue, ...resto } = props;
   const controlado = "onChange" in resto && typeof resto.onChange === "function";
-  const valorInicial = controlado ? (resto as { value: number }).value : (resto as { defaultValue?: number | null }).defaultValue ?? 0;
-
-  const [numero, setNumero] = useState<number>(() => (Number.isFinite(valorInicial) ? valorInicial : 0));
-  const [texto, setTexto] = useState<string>(() => formatarNumeroParaEdicao(valorInicial, { maximumFractionDigits }));
-
-  const valorControlado = controlado ? (resto as { value: number }).value : undefined;
-  useEffect(() => {
-    if (valorControlado === undefined) return;
-    if (Number.isFinite(valorControlado) && valorControlado !== numero) {
-      setNumero(valorControlado);
-      setTexto(formatarNumeroParaEdicao(valorControlado, { maximumFractionDigits }));
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [valorControlado]);
-
-  function onChangeTexto(valorTexto: string) {
-    const { texto: novoTexto, numero: novoNumero } = aplicarDigitacao(valorTexto, { percentual: true });
-    setTexto(novoTexto);
-    setNumero(novoNumero);
-    if (controlado) (resto as { onChange: (v: number) => void }).onChange(novoNumero);
-  }
-
-  function onBlur() {
-    setTexto(formatarNumeroParaEdicao(numero, { maximumFractionDigits }));
-    onBlurValue?.(numero);
-  }
-
-  const name = "name" in resto ? resto.name : undefined;
+  const modo = controlado
+    ? {
+        value: Number.isFinite((resto as { value: number }).value) ? (resto as { value: number }).value : 0,
+        onChange: (v: number | null) => (resto as { onChange: (v: number) => void }).onChange(v ?? 0),
+      }
+    : { defaultValue: (resto as { defaultValue?: number | null }).defaultValue ?? 0 };
 
   return (
-    <div className="relative">
-      <Input
-        id={id}
-        type="text"
-        inputMode="decimal"
-        value={texto}
-        onChange={e => onChangeTexto(e.target.value)}
-        onBlur={onBlur}
-        placeholder={placeholder ?? "0,00"}
-        required={required}
-        disabled={disabled}
-        aria-label={props["aria-label"]}
-        className={cn("pr-7", className)}
-      />
-      <span className="absolute right-3 top-1/2 -translate-y-1/2 text-sm text-muted-foreground pointer-events-none">
-        %
-      </span>
-      {name && <input type="hidden" name={name} value={numero} />}
-    </div>
+    <NumeroInput
+      {...modo}
+      id={id}
+      name={"name" in resto ? resto.name : undefined}
+      valorOcultoVazio="0"
+      sufixo="%"
+      casas={maximumFractionDigits}
+      casasMinimas={Math.min(2, maximumFractionDigits)}
+      pontoDecimal
+      vazioQuandoZero
+      onBlurValue={onBlurValue ? v => onBlurValue(v ?? 0) : undefined}
+      placeholder={placeholder ?? "0,00"}
+      required={required}
+      disabled={disabled}
+      aria-label={props["aria-label"]}
+      className={className}
+    />
   );
 }

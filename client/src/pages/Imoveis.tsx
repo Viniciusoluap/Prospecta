@@ -4,6 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
+import { NumeroInput } from "@/components/ui/numero-input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
 import Navbar from "@/components/Navbar";
@@ -146,11 +147,12 @@ export default function Imoveis() {
                     <SelectItem value="4">4+</SelectItem>
                   </SelectContent>
                 </Select>
-                <Input
-                  type="number"
+                <NumeroInput
+                  negativo={false}
+                  aria-label="Preço máximo (R$)"
                   placeholder="Preço máximo (R$)"
-                  value={precoMax}
-                  onChange={(e) => setPrecoMax(e.target.value)}
+                  value={precoMax ? Number(precoMax) : null}
+                  onChange={(v) => setPrecoMax(v == null ? "" : String(v))}
                   className="bg-[#2C3E50] border-[#C9A961]/20 text-gray-200 placeholder:text-gray-400"
                 />
               </CardContent>

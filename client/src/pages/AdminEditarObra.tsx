@@ -5,6 +5,7 @@ import { Input } from "@/components/ui/input";
 import { CurrencyInput } from "@/components/ui/currency-input";
 import { PercentInput } from "@/components/ui/percent-input";
 import { formatarNumeroParaEdicao, aplicarDigitacao } from "@/lib/numero-input";
+import { NumeroInput } from "@/components/ui/numero-input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -68,7 +69,6 @@ export default function AdminEditarObra({ modo = "admin" }: { modo?: "admin" | "
   // diretamente ao número já parseado e cada tecla apagaria a vírgula
   // decimal digitada. Campos de dinheiro/percentual usam
   // `CurrencyInput`/`PercentInput`, que já cuidam do próprio buffer.
-  const [totalAreaTexto, setTotalAreaTexto] = useState("");
   const [status, setStatus] = useState<string>("planning");
   const [startDate, setStartDate] = useState("");
   const [estimatedEndDate, setEstimatedEndDate] = useState("");
@@ -123,7 +123,6 @@ export default function AdminEditarObra({ modo = "admin" }: { modo?: "admin" | "
       setTitle(project.title || "");
       setAddress(project.address || "");
       setTotalArea(project.totalArea?.toString() || "");
-      setTotalAreaTexto(project.totalArea ? formatarNumeroParaEdicao(Number(project.totalArea), { minimumFractionDigits: 0, maximumFractionDigits: 0 }) : "");
       setStatus(project.status);
       setStartDate(project.startDate ? new Date(project.startDate).toISOString().split("T")[0] : "");
       setEstimatedEndDate(project.estimatedEndDate ? new Date(project.estimatedEndDate).toISOString().split("T")[0] : "");
@@ -351,19 +350,14 @@ export default function AdminEditarObra({ modo = "admin" }: { modo?: "admin" | "
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                   <div className="space-y-2">
                     <Label htmlFor="totalArea" className="text-gray-300">Área Total (m²)</Label>
-                    <Input
+                    <NumeroInput
                       id="totalArea"
-                      type="text"
-                      inputMode="decimal"
-                      value={totalAreaTexto}
-                      onChange={(e) => {
-                        const { texto, numero } = aplicarDigitacao(e.target.value);
-                        setTotalAreaTexto(texto);
-                        setTotalArea(numero ? String(numero) : "");
-                      }}
-                      onBlur={() => setTotalAreaTexto(totalArea ? formatarNumeroParaEdicao(Number(totalArea), { minimumFractionDigits: 0, maximumFractionDigits: 0 }) : "")}
+                      sufixo="m²"
+                      negativo={false}
+                      value={totalArea ? Number(totalArea) : null}
+                      onChange={(numero) => setTotalArea(numero ? String(numero) : "")}
                       className="bg-[#2C3E50] border-[#C9A961]/30 text-white"
-                      placeholder="Ex: 47"
+                      placeholder="Ex: 47,00"
                     />
                   </div>
 
