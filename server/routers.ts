@@ -1,3 +1,4 @@
+import { sincronizarUnidadesCenario } from "./incorporacao-unidades-cenario.js";
 import { referenciasAtendimento, vincularAtendimento } from "../shared/incorporacao/atendimento-clientes.js";
 import { COOKIE_NAME } from "../shared/const.js";
 import { getSessionCookieOptions } from "./_core/cookies.js";
@@ -2731,6 +2732,7 @@ export const appRouter = router({
         const preparado = prepararLotesAvulsosParaGravar(input.dataJson);
         if (!preparado.ok) throw new TRPCError({ code: "BAD_REQUEST", message: preparado.erro });
         await db.updateIncorporationStudy(input.id, { looseLotsJson: preparado.json });
+        await sincronizarUnidadesCenario(input.id, ctx.user.id);
         return { success: true };
       }),
 
@@ -2901,6 +2903,7 @@ export const appRouter = router({
           massScenariosJson: input.dataJson,
           selectedScenarioId: input.selectedScenarioId,
         });
+        await sincronizarUnidadesCenario(input.id, ctx.user.id);
         return { success: true };
       }),
 
