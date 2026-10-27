@@ -1,5 +1,13 @@
 # HANDOFF 26/10 — AIOX, 16 correções
 
+## Gate de entrega — 27/10/2026
+
+- PR Prospecta #172 aberto. Preview anterior READY com 1.101 testes aprovados, mas função registrou erro TypeScript no construtor Pool por dependência de tipos indireta.
+- @types/pg 8.11.6 promovido a dependência de desenvolvimento direta, reutilizando versão já presente no lockfile. Nenhuma atualização de versão de bibliotecas de negócio.
+- Corrigido comando Vercel para executar explicitamente os dois testes previstos: o separador antigo fazia a suíte completa repetir em cada deploy. Suíte completa já aprovada e registrada.
+- Matrizes individuais das 16 correções e limites reais em docs/handoff/IMPLEMENTATION_STATUS.md.
+- Migrações 0083 e SF baixas parciais aplicadas; verificação de contagens mantém todos os lançamentos. SF PR #235 mergeado em 8e809239, produção em build na última consulta.
+
 ## Retomada após limite dos agentes — 27/10/2026, entrega controlada
 
 - Trabalho interrompido recuperado dos worktrees e protegido em commits: Prospecta 038f8f3 e Santa Fé cb9647c; integrados na branch de trabalho.
