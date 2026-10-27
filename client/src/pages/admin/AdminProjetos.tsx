@@ -1,6 +1,6 @@
 import { AcoesExcluir } from "@/components/AcoesExcluir";
 import { uploadProjectDocument } from "@/lib/project-upload";
-import { projectChecklist, type ProjectCheck } from "@shared/projeto-documentos";
+import { projectChecklist, reconcileProjectChecklist, type ProjectCheck } from "@shared/projeto-documentos";
 import { toast } from "sonner";
 import { useEffect, useState } from "react";
 import { trpc } from "@/lib/trpc";
@@ -29,7 +29,7 @@ import { creaAoTrocarEngenheiro, formatarCrea } from "@shared/engenheiro";
 import { ORGAOS_APROVACAO } from "@shared/incorporacao/aprovacao-projeto";
 import { STATUS_APROVACAO_EXTERNA, rotuloStatusAprovacao } from "@shared/incorporacao/projeto-sincronizacao";
 type Check = ProjectCheck;
-type FileLink = { name: string; url: string; itemId?: string; kind?: "editable" | "pdf"; driveFileId?: string };
+type FileLink = { name: string; originalName?: string; version?: number; documentId?: number; url: string; itemId?: string; kind?: "editable" | "pdf"; driveFileId?: string };
 const blank = () => ({
   name: "",
   types: [] as string[],
@@ -85,7 +85,19 @@ export default function AdminProjetos() {
         .toLowerCase()
         .includes(search.toLowerCase()) &&
       (!status || r.status === status)
-  ), r => r.deadline);
+  ), r => r.deadline, r => r.pendingRevisionCount > 0 || r.status === "revisao");
+
+  async function excluirDocumento(file: FileLink) {
+    if (!id || !file.documentId) return;
+    const response = await fetch(`/api/projetos/${id}/documentos`, {
+      method: "POST", credentials: "include", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "delete", documentId: file.documentId }),
+    });
+    const result = await response.json();
+    if (!response.ok) throw new Error(result.error || "Não foi possível remover o documento.");
+    setForm(current => ({ ...current, files: result.files, checklist: result.checklist }));
+    await list.refetch();
+  }
   return (
     <OperationalPage
       title="Projetos"
@@ -137,7 +149,7 @@ export default function AdminProjetos() {
           const pendingTechnicalData =
             !r.engineer.trim() || !parseArray<string>(r.types).length;
           return (
-            <tr key={r.id}>
+            <tr key={r.id} className={r.pendingRevisionCount > 0 || r.status === "revisao" ? "bg-amber-100 ring-2 ring-inset ring-amber-500" : undefined}>
               <td>
                 <button type="button" className="text-left font-semibold underline" onClick={() => setDetail(r)}>{r.name}</button>
                 {r.incorporationStudyId && (
@@ -149,6 +161,9 @@ export default function AdminProjetos() {
                   <span className="ml-2 rounded bg-amber-100 px-2 py-0.5 text-xs font-semibold text-amber-900">
                     Aguardando dados técnicos
                   </span>
+                )}
+                {(r.pendingRevisionCount > 0 || r.status === "revisao") && (
+                  <span className="ml-2 rounded bg-amber-700 px-2 py-0.5 text-xs font-bold text-white">REVISÃO PRIORITÁRIA</span>
                 )}
                 <br />
                 {r.clientName}
@@ -359,14 +374,8 @@ export default function AdminProjetos() {
                 type="checkbox"
                 aria-label={`Concluído: ${c.text}`}
                 checked={c.done}
-                onChange={e =>
-                  setForm(f => ({
-                    ...f,
-                    checklist: f.checklist.map((v, n) =>
-                      n === i ? { ...v, done: e.target.checked } : v
-                    ),
-                  }))
-                }
+                disabled
+                title="O item é concluído automaticamente quando PDF e editável válidos estão anexados."
               />
               <input
                 aria-label={`Item ${i + 1}`}
@@ -400,12 +409,13 @@ export default function AdminProjetos() {
                     const file = e.target.files?.[0]; e.target.value = ""; if (!file) return;
                     if (!id) { toast.error("Salve o projeto antes de enviar arquivos."); return; }
                     setUploading(`${i}-${kind}`); setProgress(0);
-                    try { const uploaded = await uploadProjectDocument(`/api/projetos/${id}/documentos`, file, c.id || `legacy-${i}`, kind, setProgress); setForm(f => ({ ...f, files: [...f.files, uploaded] })); await list.refetch(); toast.success("Arquivo salvo no Google Drive."); }
+                    try { const uploaded = await uploadProjectDocument(`/api/projetos/${id}/documentos`, file, c.id || `legacy-${i}`, kind, setProgress); setForm(f => { const files = [...f.files.filter(existing => !(existing.itemId === uploaded.itemId && existing.kind === uploaded.kind)), uploaded]; return { ...f, files, checklist: reconcileProjectChecklist(f.checklist, files.filter(doc => doc.itemId && doc.kind).map(doc => ({ itemId: doc.itemId!, kind: doc.kind! }))) }; }); await list.refetch(); toast.success("Arquivo salvo no Google Drive."); }
                     catch(error) { toast.error(error instanceof Error ? error.message : "Falha no envio."); } finally { setUploading(null); }
                   }} />
                 </label>)}
               </div>
-              {form.files.filter(file => file.itemId === (c.id || `legacy-${i}`)).map(file => <a key={file.url} href={file.url} target="_blank" rel="noopener noreferrer" className="text-sm underline">{file.kind === "pdf" ? "PDF" : "Editável"}: {file.name}</a>)}
+              <div className="flex gap-2 text-xs"><span className={c.pdfDone ? "font-bold text-emerald-700" : "text-slate-500"}>PDF {c.pdfDone ? "✓" : "○"}</span><span className={c.editableDone ? "font-bold text-emerald-700" : "text-slate-500"}>Editável {c.editableDone ? "✓" : "○"}</span></div>
+              {form.files.filter(file => file.itemId === (c.id || `legacy-${i}`)).map(file => <div key={file.url} className="flex items-center gap-2 text-sm"><a href={file.url} target="_blank" rel="noopener noreferrer" className="underline">{file.kind === "pdf" ? "PDF" : "Editável"}: {file.name}</a>{file.originalName && <span className="text-xs text-slate-500">original: {file.originalName}</span>}{file.documentId && <Button type="button" size="sm" variant="outline" onClick={() => void excluirDocumento(file)}>Excluir</Button>}</div>)}
             </div>
           ))}
           <Button

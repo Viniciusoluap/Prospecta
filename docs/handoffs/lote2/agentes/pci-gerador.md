@@ -10,7 +10,7 @@ Branch `claude/lote2-22-correcoes-20261027` nos dois repos. Sem commits deste ag
 - NOVOS: `shared/pci-gerador.ts` (campos/mapa de células, normalização, pré-preenchimento, engenheiro, totais, pendências, formato do modelo),
   `server/caixa/pci-gerador.ts` (XLS via PastaBiff8 + cache das fórmulas + imagem no quadro da poligonal; XLSM via XML no zip/fflate; leitura xls/xlsm/xlsb; PDF jsPDF+autotable),
   `server/pci-gerador.ts` (routers `pciGerador` [módulo Obras] e `pciModelos` [só admin] + rotas Express POST `/api/pci-modelos` (partes de 1 MB em `pci_upload_chunks`, project_id='pci-modelo'), GET `/api/pci-modelos/:id/arquivo`, GET `/api/obras/:projectId/pci-geradas/:id/(planilha|pdf)` com `?parte=`),
-  `drizzle/0082_pci_gerador.sql` (pci_models, pci_generator_drafts, pci_generated; RLS),
+  `drizzle/0087_pci_gerador.sql` (pci_models, pci_generator_drafts, pci_generated; RLS),
   `client/src/components/obra/GeradorPciAba.tsx`, `client/src/components/admin/SubPciAtual.tsx`, `client/src/lib/pci-gerador-arquivos.ts`,
   `server/pci-gerador.test.ts`, `server/pci-gerador-db.test.ts`.
 - ALTERADOS (mínimo): `drizzle/schema.ts` (3 tabelas após constructionPci), `server/routers.ts` (2 linhas + import), `server/_core/trpc.ts` (`pciGerador: "obras"`), `api/index.ts` + `server/_core/index.ts` (rotas), `client/src/pages/AdminEditarObra.tsx` (aba), `client/src/pages/admin/AdminIntegracoes.tsx` (1 linha + import).

@@ -10,7 +10,7 @@ Agente: Dex (@dev) · branch `claude/lote2-22-correcoes-20261027` (nos dois repo
   - `shared/incorporacao/estudos-massa.ts`: regras dos estudos salvos + **`cenarioPrincipalDe`** (consulta do cenário principal).
   - Testes: `server/incorporacao-massa-lote2.test.ts` (21) + `server/incorporacao-massa.test.ts` (25) — passando.
 - [x] Etapa 2 — servidor (Prospecta)
-  - `drizzle/0084_incorporacao_sem_kml_estudos_salvos.sql` (não aplicada): colunas `sem_kml`, `loose_lots_json`, `responsible_user_id`; tabela `incorporation_mass_studies` (RLS habilitado).
+  - `drizzle/0089_incorporacao_sem_kml_estudos_salvos.sql` (não aplicada): colunas `sem_kml`, `loose_lots_json`, `responsible_user_id`; tabela `incorporation_mass_studies` (RLS habilitado).
   - `drizzle/schema.ts`: colunas + `incorporationMassStudies`.
   - `server/incorporacao-estudos-massa-router.ts` (`incorporacao.massStudies.{list,get,save,setPrincipal,delete,principal}`) + `obterCenarioPrincipal(studyId)`.
   - `server/routers.ts`: `saveSemKml`, `saveLotesAvulsos`, `responsibleUserId` em create/update; `server/db.ts`: `getIncorporationStaff` (+ `role`, `engenheiro`), `resolveIncorporationResponsible`.

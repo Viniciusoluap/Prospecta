@@ -25,7 +25,12 @@ function fakeDb(respostas: unknown[]) {
     c.then = (ok: (v: unknown) => unknown, erro: (e: unknown) => unknown) => { resultado ??= valor(); return Promise.resolve(resultado).then(ok, erro); };
     return c;
   };
-  vi.mocked(getDb).mockReturnValue({ select: () => cadeia("select"), insert: () => cadeia("insert"), update: () => cadeia("update") } as never);
+  const banco = {
+    select: () => cadeia("select"), insert: () => cadeia("insert"), update: () => cadeia("update"),
+    execute: async () => undefined,
+    transaction: async <T>(fn: (tx: unknown) => Promise<T>) => fn(banco),
+  };
+  vi.mocked(getDb).mockReturnValue(banco as never);
   return chamadas;
 }
 
@@ -35,7 +40,7 @@ describe("Projetos — solicitar revisão (etapa 2C)", () => {
   beforeEach(() => vi.resetAllMocks());
 
   it("salva o pedido com autor e avisa o colaborador por notificação e e-mail", async () => {
-    const chamadas = fakeDb([[projeto], [{ id: 12, name: "Eng. Carla", email: "carla@example.com", active: true }], [{ id: 31 }], []]);
+    const chamadas = fakeDb([[projeto], [{ id: 12, name: "Eng. Carla", email: "carla@example.com", active: true }], [], [{ id: 31 }], [], []]);
     vi.mocked(createNotification).mockResolvedValue({} as never);
     vi.mocked(sendEmail).mockResolvedValue(true);
     const r = await app.createCaller(admin()).projetos.solicitarRevisao({ projectId: 5, texto: "  Ajustar a planta baixa  " });
@@ -43,11 +48,11 @@ describe("Projetos — solicitar revisão (etapa 2C)", () => {
     expect(chamadas[0]).toMatchObject({ metodo: "insert", dados: expect.objectContaining({ projectId: 5, requestedByUserId: 99, requestedByName: "Ana Admin", requestText: "Ajustar a planta baixa", status: "pendente", engineerUserId: 12 }) });
     expect(createNotification).toHaveBeenCalledWith(expect.objectContaining({ userId: 12, type: "system", relatedId: 5, actionUrl: "/admin/projetos?projeto=5" }));
     expect(sendEmail).toHaveBeenCalledWith(expect.objectContaining({ to: "carla@example.com", metadata: expect.objectContaining({ revisionId: 31, kind: "project_revision" }) }));
-    expect(chamadas[1]).toMatchObject({ metodo: "update", dados: expect.objectContaining({ notificationStatus: "enviado", emailStatus: "enviado" }) });
+    expect(chamadas.at(-1)).toMatchObject({ metodo: "update", dados: expect.objectContaining({ notificationStatus: "enviado", emailStatus: "enviado" }) });
   });
 
   it("sem colaborador vinculado: salva, não notifica ninguém e avisa com clareza", async () => {
-    const chamadas = fakeDb([[{ ...projeto, engineerUserId: null }], [{ id: 32 }], []]);
+    const chamadas = fakeDb([[{ ...projeto, engineerUserId: null }], [], [{ id: 32 }], [], []]);
     const r = await app.createCaller(admin()).projetos.solicitarRevisao({ projectId: 5, texto: "Trocar fachada" });
     expect(r).toMatchObject({ notificacao: "sem_destinatario", email: "sem_destinatario", mensagem: { tipo: "aviso" } });
     expect(r.mensagem.texto).toMatch(/ninguém foi notificado/);
@@ -57,11 +62,11 @@ describe("Projetos — solicitar revisão (etapa 2C)", () => {
   });
 
   it("colaborador sem e-mail ou falha SMTP nunca vira 'enviado'", async () => {
-    fakeDb([[projeto], [{ id: 12, name: "Eng", email: null, active: true }], [{ id: 33 }], []]);
+    fakeDb([[projeto], [{ id: 12, name: "Eng", email: null, active: true }], [], [{ id: 33 }], [], []]);
     vi.mocked(createNotification).mockResolvedValue({} as never);
     expect(await app.createCaller(admin()).projetos.solicitarRevisao({ projectId: 5, texto: "x" })).toMatchObject({ notificacao: "enviado", email: "sem_destinatario" });
     vi.resetAllMocks();
-    fakeDb([[projeto], [{ id: 12, name: "Eng", email: "e@example.com", active: true }], [{ id: 34 }], []]);
+    fakeDb([[projeto], [{ id: 12, name: "Eng", email: "e@example.com", active: true }], [], [{ id: 34 }], [], []]);
     vi.mocked(createNotification).mockRejectedValue(new Error("db"));
     vi.mocked(sendEmail).mockResolvedValue(false);
     const r = await app.createCaller(admin()).projetos.solicitarRevisao({ projectId: 5, texto: "x" });

@@ -32,8 +32,8 @@ beforeAll(async () => {
   await pg.query("INSERT INTO construction_pci VALUES (10, $1)", [MODELO]);
   await pg.exec(readFileSync(new URL("../drizzle/0061_pci_upload_chunks.sql", import.meta.url), "utf8"));
   // Aplica duas vezes: migração idempotente.
-  await pg.exec(readFileSync(new URL("../drizzle/0082_pci_gerador.sql", import.meta.url), "utf8"));
-  await pg.exec(readFileSync(new URL("../drizzle/0082_pci_gerador.sql", import.meta.url), "utf8"));
+  await pg.exec(readFileSync(new URL("../drizzle/0087_pci_gerador.sql", import.meta.url), "utf8"));
+  await pg.exec(readFileSync(new URL("../drizzle/0087_pci_gerador.sql", import.meta.url), "utf8"));
   vi.spyOn(banco, "getDb").mockReturnValue(drizzle(pg) as never);
 });
 afterAll(() => pg.close());

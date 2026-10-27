@@ -14,6 +14,9 @@ import { classificarMovimentacao } from "./bpo-extrato.js";
 import { bpoRouter, montarClienteBpo } from "./bpo-router.js";
 import { sincronizarCobrancasAsaas } from "./bpo-asaas.js";
 import { listarProcessos } from "./regularizacao-router.js";
+import { validarDetalhesOperacionais } from "../shared/financeiro/bpo-operacional.js";
+import { registrarRecebimento } from "./bpo-recebimentos.js";
+import { resumoPorCliente } from "../shared/financeiro/bpo-extrato.js";
 
 const sqlDe = (arquivo: string) => readFileSync(new URL(`../drizzle/${arquivo}`, import.meta.url), "utf8");
 
@@ -25,6 +28,7 @@ const ANTES_0075 = `
   CREATE TYPE bank_transaction_status AS ENUM ('pendente','conciliado','ignorado');
   CREATE TABLE leads (id serial PRIMARY KEY, name varchar(255) NOT NULL, phone varchar(20) NOT NULL, email varchar(320),
     cpf varchar(14), deleted_at timestamp);
+  CREATE TABLE users (id serial PRIMARY KEY);
   CREATE TABLE bpo_clients (
     id serial PRIMARY KEY, razao_social varchar(255) NOT NULL, cnpj varchar(20), cpf varchar(14),
     responsavel varchar(255) NOT NULL, email varchar(255), telefone varchar(20) NOT NULL,
@@ -65,6 +69,11 @@ beforeEach(async () => {
   await pg.exec(ANTES_0075);
   await pg.exec(sqlDe("0072_bpo_extrato.sql"));
   await pg.exec(sqlDe("0075_bpo_titular_clientes.sql"));
+  await pg.exec(sqlDe("0077_banco_identificador_pluggy_v2.sql"));
+  await pg.exec(sqlDe("0080_bpo_vinculos_operacionais.sql"));
+  await pg.exec(sqlDe("0081_bpo_exclusao_edicao_auditavel.sql"));
+  await pg.exec(sqlDe("0082_bpo_request_key.sql"));
+  await pg.exec(sqlDe("0083_bpo_recebimentos_parciais.sql"));
   db = drizzle(pg);
   vi.mocked(getDb).mockReturnValue(db as never);
   await pg.exec("INSERT INTO bank_accounts (banco, provedor) VALUES ('Cora', 'manual'), ('Asaas', 'asaas')");
@@ -92,6 +101,13 @@ describe("migração 0075", () => {
 });
 
 describe("item 10 — cadastro de cliente BPO", () => {
+  it("importação CRM reutiliza cliente livre por documento e preserva honorários", async () => {
+    await pg.exec("INSERT INTO leads(name,phone,cpf) VALUES('Ana CRM','11999','123.456.789-00'); INSERT INTO bpo_clients(razao_social,cpf,responsavel,telefone,honorarios,data_inicio) VALUES('Ana livre','12345678900','Ana','11999',750,now())");
+    const r = await admin().clientes.importarCrm();
+    expect(r).toMatchObject({ inseridos: 0, atualizados: 1 });
+    expect((await linhas("SELECT lead_id, honorarios::text FROM bpo_clients"))[0]).toEqual({ lead_id: 1, honorarios: "750.00" });
+    expect(await admin().clientes.importarCrm()).toMatchObject({ inseridos: 0, atualizados: 0, inalterados: 1 });
+  });
   it("o caso que falhava: só o nome (sem honorários, responsável, telefone e data de início) agora cadastra", async () => {
     const c = await admin().clientes.create({ razaoSocial: "Fornecedor Areia Boa" });
     expect(c).toMatchObject({ razaoSocial: "Fornecedor Areia Boa", responsavel: "Fornecedor Areia Boa", telefone: "", honorarios: "0.00", diaVencimento: 10, leadId: null });
@@ -123,12 +139,41 @@ describe("item 10 — cadastro de cliente BPO", () => {
 });
 
 describe("item 11 — + Lançamento", () => {
-  it("Cobrança grava 'receita' com categoria; Despesa grava 'despesa'; categoria é obrigatória", async () => {
+  it("recebimentos parciais são auditáveis e idempotentes sem duplicar receitas", async () => {
+    await pg.exec("INSERT INTO users(id) VALUES(1); INSERT INTO bpo_lancamentos(tipo,descricao,valor,vencimento,competencia) VALUES('receita','Parcela',100,now(),'2026-10')");
+    const entrada = { id: 1, requestKey: "recebimento-1", valor: 40, recebidoEm: new Date("2026-10-10T12:00:00Z") };
+    const parcial = await registrarRecebimento(entrada, 1);
+    expect(parcial).toMatchObject({ valorRecebido: "40.00", pago: false });
+    expect(resumoPorCliente([{ ...parcial, clienteId: 1 }]).get(1)).toMatchObject({ recebido: 40, emAberto: 60 });
+    await registrarRecebimento(entrada, 1);
+    await expect(registrarRecebimento({ ...entrada, requestKey: "excesso", valor: 61 }, 1)).rejects.toThrow(/supera/);
+    expect(await registrarRecebimento({ ...entrada, requestKey: "restante", valor: 60 }, 1)).toMatchObject({ valorRecebido: "100.00", pago: true });
+    expect((await linhas("select count(*)::int n from bpo_lancamentos"))[0]).toEqual({ n: 1 });
+    expect((await linhas("select count(*)::int n from bpo_recebimentos"))[0]).toEqual({ n: 2 });
+    expect((await linhas("select count(*)::int n from bpo_lancamento_historico"))[0]).toEqual({ n: 2 });
+  });
+  it("retry conserva a mesma cobrança e uma nova chave permite outra parcela", async () => {
+    await pg.exec(`CREATE TABLE construction_projects(id serial primary key,title text,lead_id int);
+      CREATE TABLE operational_commissions(id serial primary key,property text);
+      CREATE TABLE operational_projects(id serial primary key,name text,client_name text);
+      CREATE TABLE avaliacoes(id serial primary key,numero text,cliente_nome text);
+      CREATE TABLE imoveis(id serial primary key,titulo text);
+      CREATE TABLE incorporation_studies(id serial primary key,name text);
+      CREATE TABLE financiamentos(id serial primary key,cliente_nome text);
+      CREATE TABLE tasks(id serial primary key,title text);
+      INSERT INTO construction_projects(title) VALUES('Obra teste');`);
+    const entrada = { requestKey: "d72942db-3366-4334-ae04-70b83aa7f7c1", tipo: "cobranca" as const, descricao: "Parcela", valor: 100, vencimento: "2026-10-10", competencia: "2026-10", categoria: "Recebimento de cliente" as const, categoriaOperacional: "obras", vinculoOperacionalId: "1" };
+    const primeiro = await admin().lancamentos.create(entrada);
+    expect((await admin().lancamentos.create(entrada)).id).toBe(primeiro.id);
+    expect((await admin().lancamentos.create({ ...entrada, requestKey: "d72942db-3366-4334-ae04-70b83aa7f7c2" })).id).not.toBe(primeiro.id);
+    expect((await linhas("select count(*)::int n from bpo_lancamentos"))[0]).toEqual({ n: 2 });
+  });
+  it("exige categoria e vínculo operacional reais antes de gravar", async () => {
     const base = { descricao: "Medição", valor: 100, vencimento: "2026-10-10", competencia: "2026-10" };
-    const c = await admin().lancamentos.create({ ...base, tipo: "cobranca", categoria: "Recebimento de cliente", clienteNomeLivre: "Fulano" });
-    expect(c).toMatchObject({ tipo: "receita", categoria: "Recebimento de cliente", clienteNomeLivre: "Fulano", valor: "100.00" });
-    const d = await admin().lancamentos.create({ ...base, tipo: "despesa", categoria: "Material" });
-    expect(d).toMatchObject({ tipo: "despesa", categoria: "Material" });
+    await expect(admin().lancamentos.create({ ...base, tipo: "cobranca", categoria: "Recebimento de cliente", clienteNomeLivre: "Fulano" } as never)).rejects.toThrow();
+    expect(() => validarDetalhesOperacionais({ tipo: "cobranca", categoriaOperacional: "obras", vinculoOperacionalId: "obra-1" })).not.toThrow();
+    expect(() => validarDetalhesOperacionais({ tipo: "despesa", categoriaOperacional: "obras", vinculoOperacionalId: "obra-1", tipoDespesaObra: "material", etapaObra: "infraestrutura" })).not.toThrow();
+    expect(() => validarDetalhesOperacionais({ tipo: "despesa", categoriaOperacional: "obras", vinculoOperacionalId: "obra-1" })).toThrow();
     await expect(admin().lancamentos.create({ ...base, tipo: "cobranca" } as never)).rejects.toThrow();
     await expect(admin().lancamentos.create({ ...base, tipo: "honorario", categoria: "Outros" } as never)).rejects.toThrow();
     await expect(admin().lancamentos.create({ ...base, tipo: "despesa", categoria: "Transferência interna" } as never)).rejects.toThrow();

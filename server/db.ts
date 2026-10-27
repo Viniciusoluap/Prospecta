@@ -1,8 +1,9 @@
 import { TRPCError } from "@trpc/server";
 import { eq, and, desc, sql, like, isNull, inArray, asc, ne } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/neon-http";
+import { drizzle as drizzleSession } from "drizzle-orm/neon-serverless";
 import { alias } from "drizzle-orm/pg-core";
-import { neon } from "@neondatabase/serverless";
+import { neon, Pool, neonConfig } from "@neondatabase/serverless";
 import { LEAD_PIPELINE_STAGES, LEGACY_STAGE_LABELS } from "../shared/lead-pipeline.js";
 import { rotulo } from "../shared/rotulos.js";
 import { VINCULOS_LEAD, type VinculosLead } from "../shared/lead-exclusao-definitiva.js";
@@ -59,8 +60,15 @@ export function getDb(): DrizzleDb {
       process.env.DATABASE_URL_UNPOOLED ||
       process.env.POSTGRES_URL_NON_POOLING;
     if (!connectionString) throw new Error("DATABASE_URL is not set");
-    const sql = neon(connectionString);
-    _db = drizzle(sql);
+    // Node 24 supplies WebSocket natively. Interactive transactions need a session;
+    // the HTTP driver cannot run the callbacks used by CRM, reviews and uploads.
+    neonConfig.webSocketConstructor = globalThis.WebSocket;
+    const pool = new Pool({ connectionString, max: 5, idleTimeoutMillis: 10000, connectionTimeoutMillis: 10000 });
+    const httpDb = drizzle(neon(connectionString));
+    const sessionDb = drizzleSession(pool);
+    // Keep the existing HTTP batch API; route only interactive transactions to WebSocket.
+    httpDb.transaction = sessionDb.transaction.bind(sessionDb) as unknown as typeof httpDb.transaction;
+    _db = httpDb;
   }
   return _db;
 }
@@ -1534,7 +1542,7 @@ export async function createBpoLancamento(data: InsertBpoLancamento): Promise<Bp
 
 export async function marcarBpoLancamentoPago(id: number): Promise<void> {
   const db = getDb();
-  await db.update(bpoLancamentos).set({ pago: true, pagoEm: new Date() }).where(eq(bpoLancamentos.id, id));
+  await db.update(bpoLancamentos).set({ pago: true, pagoEm: new Date(), valorRecebido: sql`${bpoLancamentos.valor}` }).where(eq(bpoLancamentos.id, id));
 }
 
 // ========== Pluggy (integração bancária — credenciais) ==========

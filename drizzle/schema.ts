@@ -1218,15 +1218,63 @@ export const bpoLancamentos = pgTable("bpo_lancamentos", {
   // LOTE C (25/10): categoria (shared/financeiro/bpo-extrato.ts) e vínculo 1:1 com a
   // movimentação bancária que gerou o lançamento (reimportar/reprocessar não duplica).
   categoria: varchar("categoria", { length: 60 }),
+  // Categoria operacional e vínculo persistente com o módulo de origem. A
+  // classificação contábil acima continua independente para DRE/tributação.
+  categoriaOperacional: varchar("categoria_operacional", { length: 40 }),
+  vinculoOperacionalId: varchar("vinculo_operacional_id", { length: 80 }),
+  vinculoOperacionalRotulo: varchar("vinculo_operacional_rotulo", { length: 255 }),
+  tipoDespesaObra: varchar("tipo_despesa_obra", { length: 30 }),
+  etapaObra: varchar("etapa_obra", { length: 80 }),
   bankTransactionId: integer("bank_transaction_id")
     .unique()
     .references((): AnyPgColumn => bankTransactions.id, { onDelete: "cascade" }),
   // Pedido de 25/10 (noite), item 14: cobrança emitida no Asaas (id do pagamento, único).
   asaasPaymentId: varchar("asaas_payment_id", { length: 60 }).unique(),
+  observacoes: text("observacoes"),
+  origemEfetiva: varchar("origem_efetiva", { length: 30 }).default("manual").notNull(),
+  requestKey: varchar("request_key", { length: 80 }).unique(),
+  valorRecebido: decimal("valor_recebido", { precision: 15, scale: 2 }).default("0").notNull(),
+  version: integer("version").default(1).notNull(),
   createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });
 export type BpoLancamento =typeof bpoLancamentos.$inferSelect;
 export type InsertBpoLancamento = typeof bpoLancamentos.$inferInsert;
+
+export const bpoRecebimentos = pgTable("bpo_recebimentos", {
+  id: serial("id").primaryKey(),
+  lancamentoId: integer("lancamento_id").notNull().references(() => bpoLancamentos.id, { onDelete: "restrict" }),
+  requestKey: varchar("request_key", { length: 80 }).notNull().unique(),
+  valor: decimal("valor", { precision: 15, scale: 2 }).notNull(),
+  recebidoEm: timestamp("recebido_em").notNull(),
+  registradoPorUserId: integer("registrado_por_user_id").references(() => users.id, { onDelete: "set null" }),
+  observacoes: text("observacoes"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export const bpoLancamentoHistorico = pgTable("bpo_lancamento_historico", {
+  id: serial("id").primaryKey(),
+  lancamentoId: integer("lancamento_id").references(() => bpoLancamentos.id, { onDelete: "set null" }),
+  lancamentoReferencia: integer("lancamento_referencia").notNull(),
+  versaoAnterior: integer("versao_anterior").notNull(),
+  alteradoPorUserId: integer("alterado_por_user_id").references(() => users.id, { onDelete: "set null" }),
+  motivo: text("motivo").notNull(),
+  antesJson: text("antes_json").notNull(),
+  depoisJson: text("depois_json").notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export const bpoContaLimpezaBackups = pgTable("bpo_conta_limpeza_backups", {
+  id: serial("id").primaryKey(),
+  contaReferencia: integer("conta_referencia").notNull(),
+  contaRotulo: varchar("conta_rotulo", { length: 255 }).notNull(),
+  snapshotJson: text("snapshot_json").notNull(),
+  transacoes: integer("transacoes").notNull(),
+  lancamentosRemovidos: integer("lancamentos_removidos").notNull(),
+  lancamentosPreservados: integer("lancamentos_preservados").notNull(),
+  criadoPorUserId: integer("criado_por_user_id").references(() => users.id, { onDelete: "set null" }),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
 
 // Pedido de 25/10 (noite), item 9: regra por titular — classificou uma vez, as próximas
 // movimentações do mesmo titular (nome normalizado) saem com a mesma categoria/cliente.
@@ -1390,6 +1438,7 @@ export const bankTransactions = pgTable("bank_transactions", {
   // Pedido de 25/10 (noite), item 9: quem pagou/recebeu e o texto completo da linha do extrato.
   titular: varchar("titular", { length: 255 }),
   descricaoOriginal: text("descricao_original"),
+  identificadorBancario: varchar("identificador_bancario", { length: 255 }),
   // Item 14: id do pagamento do Asaas que gerou o crédito (reconcilia com a cobrança).
   asaasPaymentId: varchar("asaas_payment_id", { length: 60 }),
   createdAt: timestamp("created_at").defaultNow().notNull(),
@@ -1581,6 +1630,7 @@ export const projectRevisionRequests = pgTable("project_revision_requests", {
   requestedByName: varchar("requested_by_name", { length: 255 }).notNull(),
   requestText: text("request_text").notNull(),
   status: varchar("status", { length: 20 }).default("pendente").notNull(),
+  previousProjectStatus: varchar("previous_project_status", { length: 40 }),
   engineerUserId: integer("engineer_user_id").references((): AnyPgColumn => users.id, { onDelete: "set null" }),
   notificationStatus: varchar("notification_status", { length: 20 }).notNull(),
   emailStatus: varchar("email_status", { length: 20 }).notNull(),
@@ -1590,6 +1640,31 @@ export const projectRevisionRequests = pgTable("project_revision_requests", {
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });
+
+/** Arquivos normalizados do módulo Projetos; o JSON legado permanece como cache de compatibilidade. */
+export const projectDocuments = pgTable("project_documents", {
+  id: serial("id").primaryKey(),
+  projectId: integer("project_id").notNull().references(() => operationalProjects.id, { onDelete: "cascade" }),
+  revisionId: integer("revision_id").references(() => projectRevisionRequests.id, { onDelete: "set null" }),
+  itemId: varchar("item_id", { length: 100 }).notNull(),
+  kind: varchar("kind", { length: 20 }).notNull(),
+  originalName: varchar("original_name", { length: 255 }).notNull(),
+  canonicalName: varchar("canonical_name", { length: 255 }).notNull(),
+  mime: varchar("mime", { length: 150 }).notNull(),
+  size: integer("size").notNull(),
+  version: integer("version").notNull(),
+  driveFileId: varchar("drive_file_id", { length: 200 }),
+  url: text("url"),
+  status: varchar("status", { length: 20 }).default("uploading").notNull(),
+  replacedById: integer("replaced_by_id").references((): AnyPgColumn => projectDocuments.id, { onDelete: "set null" }),
+  uploadedByUserId: integer("uploaded_by_user_id").references((): AnyPgColumn => users.id, { onDelete: "set null" }),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+  deletedAt: timestamp("deleted_at"),
+}, table => ({
+  projectItemKindVersionUnique: uniqueIndex("project_documents_project_item_kind_version_uq").on(table.projectId, table.itemId, table.kind, table.version),
+  activeLookup: index("project_documents_active_idx").on(table.projectId, table.itemId, table.kind, table.status),
+}));
 
 export const portalContracts = pgTable("portal_contracts", {
   id: serial("id").primaryKey(),
@@ -1969,6 +2044,20 @@ export const whatsappEvolutionSettings = pgTable("whatsapp_evolution_settings", 
   apiKeyEncrypted: text("api_key_encrypted").notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });
+
+export const whatsappTemplates = pgTable("whatsapp_templates", {
+  id: serial("id").primaryKey(),
+  slug: varchar("slug", { length: 80 }).notNull().unique(),
+  nome: varchar("nome", { length: 120 }).notNull(),
+  categoria: varchar("categoria", { length: 80 }).notNull(),
+  conteudo: text("conteudo").notNull(),
+  ativo: boolean("ativo").default(true).notNull(),
+  criadoPorId: integer("criado_por_id"),
+  atualizadoPorId: integer("atualizado_por_id"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+export type WhatsappTemplateRecord = typeof whatsappTemplates.$inferSelect;
 export type InsertWhatsappMessage = typeof whatsappMessages.$inferInsert;
 
 

@@ -81,7 +81,7 @@ describe("sincronização por API", () => {
     expect(db.updates.at(-1)).toMatchObject({ saldoAtual: "1234.50", ultimoErro: null });
   });
 
-  it("Pluggy: autentica, lê transações com from = data inicial e atualiza o saldo", async () => {
+  it("Pluggy: autentica, lê transações v2 com dateFrom e atualiza o saldo", async () => {
     const db = fakeDb([
       [{ id: 4, provedor: "pluggy", pluggyAccountId: "acc-1", dataInicial: "2026-08-15", ultimaSincronizacao: null }],
       [{ id: 1, isActive: true, clientIdEncrypted: "plain:cid", clientSecretEncrypted: "plain:csec" }],
@@ -92,7 +92,7 @@ describe("sincronização por API", () => {
         return resposta({ apiKey: "tok" });
       }
       if (url.includes("/transactions?")) {
-        expect(url).toContain("from=2026-08-15");
+        expect(url).toContain("dateFrom=2026-08-15");
         return resposta({ totalPages: 1, results: [{ id: "t1", date: "2026-09-01T00:00:00Z", description: "Pix", amount: 70, type: "CREDIT" }] });
       }
       return resposta({ balance: 70 });
@@ -145,6 +145,18 @@ describe("importação de extrato", () => {
   it("formato desconhecido dá erro claro", async () => {
     fakeDb([[{ id: 7, dataInicial: null }]]);
     await expect(previaImportacao(7, "extrato.docx", Buffer.from("x"))).rejects.toThrow(/Formato não suportado/);
+  });
+
+  it("OFX com FITID reconhece a chave legada e não duplica ao melhorar a extração", async () => {
+    const conta = { id: 7, provedor: "manual", dataInicial: null };
+    const arquivo = Buffer.from("<OFX><STMTTRN><DTPOSTED>20261001<TRNAMT>10.00<MEMO>PIX RECEBIDO<FITID>abc</STMTTRN></OFX>");
+    const { chavesImportacao } = await import("../shared/extrato-import.js");
+    const { createHash } = await import("node:crypto");
+    const hash = (s: string) => createHash("sha256").update(s).digest("hex").slice(0, 32);
+    const legada = chavesImportacao(7, [{ data: "2026-10-01", tipo: "credito", descricao: "PIX RECEBIDO", valor: 10 }], hash)[0];
+    fakeDb([[conta], [{ externalId: legada }], [{ e: legada }]]);
+    const previa = await previaImportacao(7, "cora.ofx", arquivo);
+    expect(previa.linhas[0]).toMatchObject({ identificadorBancario: "abc", jaImportada: true });
   });
 });
 

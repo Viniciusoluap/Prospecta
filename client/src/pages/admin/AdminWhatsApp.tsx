@@ -2,8 +2,8 @@ import { useEffect, useState } from "react";
 import { keepPreviousData } from "@tanstack/react-query";
 import { Link } from "wouter";
 import {
-  ArrowLeft, MessageCircle, Clock, AlertCircle,
-  Search, Send, Smartphone, Eye, Users,
+  ArrowLeft, MessageCircle, AlertCircle,
+  Search, Send, Smartphone, Eye, Users, Plus, Save,
 } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
@@ -12,7 +12,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { trpc } from "@/lib/trpc";
 import { useAuth } from "@/_core/hooks/useAuth";
-import { WHATSAPP_TEMPLATES, type WhatsappTemplate } from "@shared/whatsapp/templates";
+import type { WhatsappTemplate } from "@shared/whatsapp/templates";
 import { ConexaoWhatsApp } from "@/components/whatsapp/ConexaoWhatsApp";
 import { abaInicialCentral, abasCentralWhatsapp, linkConexaoWhatsapp, type AbaCentral } from "@shared/whatsapp/central";
 import { ConversasWhatsApp } from "@/components/whatsapp/ConversasWhatsApp";
@@ -21,13 +21,6 @@ import { CampoDocumentos, CampoImovel, CampoTexto, textoDocumentosMarcados } fro
 
 const cardCls = "bg-[#2C3E50] border-[#C9A961]/20";
 const inputCls = "bg-[#1A2332] border-[#C9A961]/30 text-white";
-
-const STATUS_BADGE: Record<string, { label: string; bg: string; text: string }> = {
-  enviada: { label: "Enviada", bg: "bg-gray-500/20", text: "text-gray-300" },
-  entregue: { label: "Entregue", bg: "bg-blue-500/20", text: "text-blue-300" },
-  lida: { label: "Lida", bg: "bg-green-500/20", text: "text-green-300" },
-  falhou: { label: "Falhou", bg: "bg-red-500/20", text: "text-red-300" },
-};
 
 export default function AdminWhatsApp() {
   const { user } = useAuth();
@@ -43,16 +36,25 @@ export default function AdminWhatsApp() {
   const [searchLead, setSearchLead] = useState("");
   const [selectedTemplate, setSelectedTemplate] = useState<WhatsappTemplate | null>(null);
   const [mensagem, setMensagem] = useState("");
+  const [servicosSelecionados, setServicosSelecionados] = useState<string[]>([]);
+  const [editor, setEditor] = useState<{ id?: number; nome: string; categoria: string; conteudo: string } | null>(null);
 
   const conexao = trpc.whatsapp.minhaConexao.useQuery();
   const leadsQuery = trpc.whatsapp.leadsParaEnvio.useQuery();
   const historico = trpc.whatsapp.historico.useQuery();
+  const templatesQuery = trpc.whatsapp.templates.useQuery();
+  const servicosQuery = trpc.whatsapp.servicosDisponiveis.useQuery();
+  const templates = templatesQuery.data ?? [];
+  const salvarTemplate = trpc.whatsapp.salvarTemplate.useMutation({
+    onSuccess: () => { toast.success("Template salvo."); setEditor(null); utils.whatsapp.templates.invalidate(); },
+    onError: (e) => toast.error(e.message),
+  });
 
   const enviar = trpc.whatsapp.enviar.useMutation({
     onSuccess: (data) => {
       if (!data.success) { toast.error(data.error ?? "Erro ao enviar"); return; }
       toast.success(`${data.enviadas} enviada(s)${data.falhas > 0 ? `, ${data.falhas} falha(s)` : ""}`, data.falhas > 0 ? { icon: "⚠️" } : undefined);
-      setSelectedLeads([]); setMensagem(""); setSelectedTemplate(null); setExtras({}); setDocsGeral({ marcados: [], livre: "" }); setDocsUnico(null);
+      setSelectedLeads([]); setMensagem(""); setSelectedTemplate(null); setExtras({}); setServicosSelecionados([]); setDocsGeral({ marcados: [], livre: "" }); setDocsUnico(null);
       utils.whatsapp.historico.invalidate();
     },
     onError: (e) => toast.error(e.message),
@@ -75,6 +77,7 @@ export default function AdminWhatsApp() {
   const variaveis = variaveisDoTexto(mensagem);
   const usaVariaveis = variaveis.length > 0;
   const usaDocumentos = variaveis.includes("documentos");
+  const usaServicos = variaveis.includes("servico") || variaveis.includes("servicos");
   const unico = selectedLeads.length === 1 ? selectedLeads[0] : null;
   const docsLead = trpc.whatsapp.documentosParaEnvio.useQuery({ ids: unico ? [unico] : [] }, { enabled: usaDocumentos && unico !== null });
   // Um destinatário: o checklist dele já vem com os pendentes marcados.
@@ -82,9 +85,14 @@ export default function AdminWhatsApp() {
     const d = docsLead.data?.[0];
     if (unico !== null && d && d.id === unico && docsUnico?.leadId !== unico) setDocsUnico({ leadId: unico, marcados: d.pendentes, livre: "" });
   }, [docsLead.data, unico, docsUnico?.leadId]);
-  const extrasEnvio: Record<string, string> = { ...extras, ...(usaDocumentos && unico === null ? { documentos: textoDocumentosMarcados(docsGeral.marcados, docsGeral.livre) } : {}) };
-  const extrasPorLead = usaDocumentos && unico !== null && docsUnico?.leadId === unico
-    ? { [String(unico)]: { documentos: textoDocumentosMarcados(docsUnico.marcados, docsUnico.livre) } } : undefined;
+  const textoServicos = servicosSelecionados.map(v => servicosQuery.data?.find(s => s.value === v)?.label ?? v).join(", ");
+  const extrasEnvio: Record<string, string> = { ...extras,
+    ...(usaServicos ? { servico: textoServicos, servicos: textoServicos } : {}),
+    ...(usaDocumentos && unico === null ? { documentos: textoDocumentosMarcados(docsGeral.marcados, docsGeral.livre) } : {}) };
+  const extrasPorLead = Object.fromEntries(selectedLeads.map(id => [String(id), {
+    ...(usaDocumentos && unico === id && docsUnico?.leadId === id ? { documentos: textoDocumentosMarcados(docsUnico.marcados, docsUnico.livre) } : {}),
+    ...(usaServicos ? { servico: textoServicos, servicos: textoServicos } : {}),
+  }]));
   const [entradaPrevia, setEntradaPrevia] = useState({ extras: extrasEnvio, extrasPorLead });
   const chaveEntrada = JSON.stringify({ extrasEnvio, extrasPorLead });
   useEffect(() => {
@@ -96,10 +104,10 @@ export default function AdminWhatsApp() {
     { enabled: usaVariaveis && selectedLeads.length > 0 && mensagem.trim().length > 0, placeholderData: keepPreviousData },
   );
   // Campos que aparecem: o que falta no cadastro de algum destinatário (documentos de 1 destinatário tem checklist próprio).
-  const campos = Array.from(new Set((previa.data ?? []).flatMap((p) => p.semCampoGeral ?? []))).filter((v) => !(v === "documentos" && unico !== null));
+  const campos = Array.from(new Set([...(previa.data ?? []).flatMap((p) => p.semCampoGeral ?? []), ...variaveis.filter(v => v === "dia" || v === "horario")])).filter((v) => !(v === "documentos" && unico !== null) && v !== "servico" && v !== "servicos");
   const camposVazios = campos.filter((v) => !(extrasEnvio[v] ?? "").trim());
   const docsUnicoVazio = usaDocumentos && unico !== null && docsUnico?.leadId === unico && !textoDocumentosMarcados(docsUnico.marcados, docsUnico.livre);
-  const bloqueado = camposVazios.length > 0 || docsUnicoVazio;
+  const bloqueado = camposVazios.length > 0 || docsUnicoVazio || (usaServicos && !servicosSelecionados.length);
   function handleEnviar() {
     if (!mensagem.trim() || selectedLeads.length === 0) return;
     if (bloqueado) { toast.error("Preencha os campos destacados antes de enviar."); return; }
@@ -144,7 +152,6 @@ export default function AdminWhatsApp() {
             { key: "conversas" as const, label: "Conversas", icon: Users },
             { key: "enviar" as const, label: "Enviar Mensagem", icon: Send },
             { key: "templates" as const, label: "Templates", icon: MessageCircle },
-            { key: "historico" as const, label: "Histórico", icon: Clock },
             { key: "conexao" as const, label: "Minha conexão", icon: Smartphone },
           ]).filter(({ key }) => abasCentralWhatsapp(role).includes(key)).map(({ key, label, icon: Icon }) => (
             <button key={key} onClick={() => setActiveTab(key)}
@@ -157,8 +164,7 @@ export default function AdminWhatsApp() {
         {activeTab === "conversas" && <ConversasWhatsApp numeroInicial={params.get("numero")} />}
 
         {/* Conexão */}
-        {/* Item 12 (25/10 noite): só corretor/colaborador; o admin conecta em Configurações › Integrações. */}
-        {activeTab === "conexao" && role !== "admin" && <ConexaoWhatsApp role={role} />}
+        {activeTab === "conexao" && <ConexaoWhatsApp role={role} />}
         {/* Enviar */}
         {activeTab === "enviar" && (
           <div className="space-y-4">
@@ -166,9 +172,7 @@ export default function AdminWhatsApp() {
               <div className="flex items-center gap-3 border border-yellow-500/30 bg-yellow-500/10 p-4 rounded">
                 <AlertCircle size={18} className="text-yellow-400 shrink-0" />
                 <p className="text-sm text-yellow-200">
-                  {role === "admin"
-                    ? <>Conecte o WhatsApp (QR code ou API oficial) em <Link href={linkConexaoWhatsapp(role)} className="underline text-[#C9A961]">Configurações › Integrações</Link>.</>
-                    : <>Conecte o seu WhatsApp (QR code) na aba <button type="button" className="underline text-[#C9A961]" onClick={() => setActiveTab("conexao")}>Minha conexão</button>.</>}
+                  Conecte o WhatsApp (QR code ou API oficial) na aba <button type="button" className="underline text-[#C9A961]" onClick={() => setActiveTab("conexao")}>Minha conexão</button>.
                 </p>
               </div>
             )}
@@ -209,10 +213,10 @@ export default function AdminWhatsApp() {
                   <div>
                     <Label className="text-gray-300">Template</Label>
                     <select value={selectedTemplate?.id ?? ""}
-                      onChange={(e) => { const t = WHATSAPP_TEMPLATES.find((t) => t.id === e.target.value) ?? null; setSelectedTemplate(t); setMensagem(t?.body ?? ""); }}
+                      onChange={(e) => { const t = templates.find((t) => t.id === e.target.value) ?? null; setSelectedTemplate(t); setMensagem(t?.body ?? ""); setServicosSelecionados([]); }}
                       className={`${inputCls} w-full rounded-md px-3 py-2 text-sm mt-1`}>
                       <option value="">— Selecione um template —</option>
-                      {WHATSAPP_TEMPLATES.map((t) => <option key={t.id} value={t.id}>{t.category} — {t.name}</option>)}
+                      {templates.map((t) => <option key={t.id} value={t.id}>{t.category} — {t.name}</option>)}
                     </select>
                   </div>
                   <div>
@@ -223,6 +227,7 @@ export default function AdminWhatsApp() {
                   </div>
                   {usaVariaveis && selectedLeads.length > 0 && (
                     <div className="space-y-3 border-t border-[#C9A961]/10 pt-3">
+                      {usaServicos && <div><Label className="text-gray-300">Serviços da mensagem</Label><div className="mt-2 grid gap-2 sm:grid-cols-2">{(servicosQuery.data ?? []).map(s => <label key={s.value} className="flex items-center gap-2 text-xs text-gray-200"><input type="checkbox" className="accent-[#C9A961]" checked={servicosSelecionados.includes(s.value)} onChange={() => setServicosSelecionados(v => v.includes(s.value) ? v.filter(x => x !== s.value) : [...v, s.value])}/>{s.label}</label>)}</div>{!servicosSelecionados.length && <p className="mt-1 text-xs text-yellow-200">Selecione ao menos um serviço.</p>}</div>}
                       {usaDocumentos && unico !== null && docsUnico?.leadId === unico && (
                         <div>
                           <Label className="text-gray-300">Documentos (pendentes do cliente já marcados)</Label>
@@ -267,60 +272,38 @@ export default function AdminWhatsApp() {
 
         {/* Templates */}
         {activeTab === "templates" && (
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            {WHATSAPP_TEMPLATES.map((t) => (
-              <Card key={t.id} className={cardCls}>
-                <CardContent className="p-5">
-                  <div className="flex items-start justify-between mb-2">
-                    <div><p className="font-bold text-white text-sm">{t.name}</p><span className="text-[10px] font-bold bg-[#C9A961]/20 text-[#C9A961] px-2 py-0.5 rounded uppercase">{t.category}</span></div>
-                    <Button size="sm" onClick={() => { setSelectedTemplate(t); setMensagem(t.body); setActiveTab("enviar"); }} className="bg-[#C9A961] hover:bg-[#B8985A] text-[#1A2332] font-bold text-xs">Usar</Button>
+          <div className="space-y-4">
+            <div className="flex items-center justify-between gap-3">
+              <p className="text-sm text-gray-300">Gerencie os modelos usados na aba Enviar Mensagem.</p>
+              <Button onClick={() => setEditor({ nome: "", categoria: "", conteudo: "" })} className="bg-[#C9A961] text-[#1A2332] hover:bg-[#B8985A]"><Plus className="mr-2 h-4 w-4" />Novo template</Button>
+            </div>
+            {editor && (
+              <Card className={cardCls}>
+                <CardContent className="grid gap-3 p-5">
+                  <div className="grid gap-3 sm:grid-cols-2">
+                    <div><Label className="text-gray-300">Nome</Label><Input className={inputCls} value={editor.nome} onChange={e => setEditor({ ...editor, nome: e.target.value })} /></div>
+                    <div><Label className="text-gray-300">Finalidade</Label><Input className={inputCls} value={editor.categoria} onChange={e => setEditor({ ...editor, categoria: e.target.value })} /></div>
                   </div>
-                  <p className="text-xs text-gray-400 leading-relaxed mt-3 whitespace-pre-line">{t.body}</p>
+                  <div><Label className="text-gray-300">Conteúdo</Label><textarea rows={7} className={`${inputCls} mt-1 w-full rounded-md px-3 py-2 text-sm`} value={editor.conteudo} onChange={e => setEditor({ ...editor, conteudo: e.target.value })} /></div>
+                  <p className="whitespace-pre-wrap rounded bg-[#1A2332] p-3 text-xs text-gray-300"><b className="text-[#C9A961]">Prévia:</b><br />{editor.conteudo || "Digite o conteúdo do template."}</p>
+                  <div className="flex gap-2"><Button disabled={salvarTemplate.isPending || editor.nome.trim().length < 2 || editor.categoria.trim().length < 2 || editor.conteudo.trim().length < 2} onClick={() => salvarTemplate.mutate(editor)} className="bg-green-600 hover:bg-green-700"><Save className="mr-2 h-4 w-4" />Salvar</Button><Button variant="outline" onClick={() => setEditor(null)}>Cancelar</Button></div>
                 </CardContent>
               </Card>
-            ))}
+            )}
+            <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+              {templates.map((t) => (
+                <Card key={t.id} className={cardCls}>
+                  <CardContent className="p-5">
+                    <div className="mb-2 flex items-start justify-between gap-2">
+                      <div><p className="text-sm font-bold text-white">{t.name}</p><span className="rounded bg-[#C9A961]/20 px-2 py-0.5 text-[10px] font-bold uppercase text-[#C9A961]">{t.category}</span></div>
+                      <Button size="sm" variant="outline" onClick={() => setEditor({ id: /^\d+$/.test(t.id) ? Number(t.id) : undefined, nome: t.name, categoria: t.category, conteudo: t.body })}>Editar</Button>
+                    </div>
+                    <p className="mt-3 whitespace-pre-line text-xs leading-relaxed text-gray-400">{t.body}</p>
+                  </CardContent>
+                </Card>
+              ))}
+            </div>
           </div>
-        )}
-
-        {/* Histórico */}
-        {activeTab === "historico" && (
-          <Card className={cardCls}>
-            <CardHeader className="flex flex-row items-center justify-between">
-              <CardTitle className="text-sm text-gray-300">Mensagens Enviadas</CardTitle>
-              <span className="text-xs text-gray-400">{historico.data?.length ?? 0} registros</span>
-            </CardHeader>
-            <CardContent>
-              {!historico.data?.length ? (
-                <div className="py-10 text-center"><MessageCircle size={32} className="text-gray-300 mx-auto mb-2" /><p className="text-sm text-gray-400">Nenhuma mensagem enviada ainda.</p></div>
-              ) : (
-                <div className="overflow-x-auto">
-                  <table className="w-full text-sm">
-                    <thead>
-                      <tr className="bg-[#1A2332]">
-                        <th className="px-4 py-3 text-left text-xs font-black text-[#C9A961] uppercase">Contato</th>
-                        <th className="px-4 py-3 text-left text-xs font-black text-[#C9A961] uppercase hidden md:table-cell">Mensagem</th>
-                        <th className="px-4 py-3 text-left text-xs font-black text-[#C9A961] uppercase">Status</th>
-                        <th className="px-4 py-3 text-left text-xs font-black text-[#C9A961] uppercase hidden lg:table-cell">Data/Hora</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-[#C9A961]/10">
-                      {historico.data.map((m) => {
-                        const badge = STATUS_BADGE[m.status] ?? STATUS_BADGE.enviada;
-                        return (
-                          <tr key={m.id} className="hover:bg-[#1A2332]/50">
-                            <td className="px-4 py-3"><p className="font-medium text-white">{m.nomeDestinatario ?? m.destinatario}</p><p className="text-xs text-gray-400">{m.destinatario}</p></td>
-                            <td className="px-4 py-3 hidden md:table-cell max-w-xs"><p className="text-xs text-gray-400 truncate">{m.mensagem}</p></td>
-                            <td className="px-4 py-3"><span className={`inline-flex items-center px-2 py-0.5 text-xs font-bold rounded ${badge.bg} ${badge.text}`}>{badge.label}</span>{m.erroMsg && <p className="text-xs text-red-400 mt-0.5">{m.erroMsg}</p>}</td>
-                            <td className="px-4 py-3 hidden lg:table-cell text-xs text-gray-400">{new Date(m.createdAt).toLocaleString("pt-BR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" })}</td>
-                          </tr>
-                        );
-                      })}
-                    </tbody>
-                  </table>
-                </div>
-              )}
-            </CardContent>
-          </Card>
         )}
       </div>
     </div>

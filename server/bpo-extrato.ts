@@ -31,7 +31,7 @@ export async function gerarLancamentosDoExtrato(movimentos: MovimentoParaLancame
   for (let i = 0; i < valores.length; i += LOTE) {
     const r = await db
       .insert(bpoLancamentos)
-      .values(valores.slice(i, i + LOTE))
+      .values(valores.slice(i, i + LOTE).map(v => ({ ...v, origemEfetiva: "extrato" })))
       .onConflictDoNothing({ target: bpoLancamentos.bankTransactionId })
       .returning({ id: bpoLancamentos.id });
     criados += r.length;

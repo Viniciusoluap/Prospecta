@@ -24,7 +24,7 @@ import {
   statusInternoAposSituacaoExterna,
 } from "../shared/incorporacao/projeto-sincronizacao.js";
 
-const MIGRACAO = readFileSync(new URL("../drizzle/0086_projeto_incorporacao.sql", import.meta.url), "utf8");
+const MIGRACAO = readFileSync(new URL("../drizzle/0091_projeto_incorporacao.sql", import.meta.url), "utf8");
 const BASE = `
   CREATE TABLE users (id serial PRIMARY KEY, name text, email varchar(320), role varchar(20) NOT NULL, active boolean DEFAULT true NOT NULL);
   CREATE TABLE incorporation_studies (id serial PRIMARY KEY, name varchar(255) NOT NULL, project_approval_json text,
