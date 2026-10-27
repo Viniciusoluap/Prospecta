@@ -14,6 +14,7 @@ import obraMedicaoCaixaRouter from "../routes/obra-medicao-caixa.js";
 import imovelFotosRouter from "../routes/imovel-fotos.js";
 // Lote 2, correção 04: documentos do usuário (perfil Engenheiro) guardados no banco.
 import usuarioDocumentosRouter from "../usuario-documentos.js";
+import pciGeradorRotas from "../pci-gerador.js";
 import googleDriveRotas from "../routes/google-drive.js";
 import { handleAsaasWebhook } from "../asaas-webhook.js";
 import { handlePluggyWebhook } from "../pluggy-webhook.js";
@@ -129,6 +130,7 @@ async function startServer() {
   app.use("/api", projetoDocumentosRouter);
   app.use("/api", imovelFotosRouter);
   app.use("/api", usuarioDocumentosRouter);
+  app.use("/api", pciGeradorRotas);
   app.use("/api", googleDriveRotas);
   // Asaas webhook
   app.post("/api/asaas/webhook", handleAsaasWebhook);

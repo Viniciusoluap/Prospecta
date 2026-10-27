@@ -623,6 +623,43 @@ export const constructionPci = pgTable("construction_pci", {
   versionId: integer("version_id").references(() => constructionPciVersions.id, { onDelete: "no action" }),
 });
 
+// Lote 2, correção 03 (AD-06, migração 0082): Gerador de PCI. Modelos oficiais
+// versionados e PCIs geradas por obra. As colunas bytea ("data", "sheet_data",
+// "pdf_data") são lidas/gravadas só por SQL explícito em server/pci-gerador.ts.
+export const pciModels = pgTable("pci_models", {
+  id: serial("id").primaryKey(),
+  version: integer("version").notNull().unique(),
+  fileName: varchar("file_name", { length: 255 }).notNull(),
+  format: varchar("format", { length: 5 }).notNull(),
+  sizeBytes: integer("size_bytes").notNull(),
+  checksum: varchar("checksum", { length: 64 }).notNull(),
+  isCurrent: boolean("is_current").default(false).notNull(),
+  notes: text("notes"),
+  uploadedBy: integer("uploaded_by").references((): AnyPgColumn => users.id, { onDelete: "set null" }),
+  uploadedAt: timestamp("uploaded_at").defaultNow().notNull(),
+});
+
+export const pciGeneratorDrafts = pgTable("pci_generator_drafts", {
+  projectId: integer("project_id").primaryKey().references(() => constructionProjects.id, { onDelete: "cascade" }),
+  formData: jsonb("form_data").notNull(),
+  updatedBy: integer("updated_by").references((): AnyPgColumn => users.id, { onDelete: "set null" }),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+export const pciGenerated = pgTable("pci_generated", {
+  id: serial("id").primaryKey(),
+  projectId: integer("project_id").notNull().references(() => constructionProjects.id, { onDelete: "cascade" }),
+  modelId: integer("model_id").references(() => pciModels.id, { onDelete: "set null" }),
+  modelVersion: integer("model_version").notNull(),
+  formData: jsonb("form_data").notNull(),
+  warnings: jsonb("warnings").default([]).notNull(),
+  sheetFileName: varchar("sheet_file_name", { length: 255 }).notNull(),
+  sheetFormat: varchar("sheet_format", { length: 5 }).notNull(),
+  pdfFileName: varchar("pdf_file_name", { length: 255 }).notNull(),
+  createdBy: integer("created_by").references((): AnyPgColumn => users.id, { onDelete: "set null" }),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
 // EPIC-020 Lote 4 (item 27): progresso por incidência (20 serviços por obra).
 export const constructionProgressItems = pgTable("construction_progress_items", {
   projectId: integer("project_id").notNull().references(() => constructionProjects.id, { onDelete: "cascade" }),
@@ -1521,9 +1558,20 @@ export const operationalProjects = pgTable("operational_projects", {
   description: text("description").default("").notNull(),
   checklist: text("checklist").default("[]").notNull(),
   files: text("files").default("[]").notNull(),
+  // Lote 2, correção 07 (migração 0086): projeto gerado por um processo de
+  // Incorporação › Projeto Aprovado. Chave única (estudo, processo) → upsert.
+  incorporationStudyId: integer("incorporation_study_id").references((): AnyPgColumn => incorporationStudies.id, { onDelete: "set null" }),
+  approvalProcessId: varchar("approval_process_id", { length: 100 }),
+  /** Situação de aprovação externa (órgão) — separada do andamento técnico em `status`. */
+  approvalAuthority: varchar("approval_authority", { length: 120 }),
+  approvalProtocol: varchar("approval_protocol", { length: 120 }),
+  approvalStatus: varchar("approval_status", { length: 30 }),
+  approvalNotes: text("approval_notes"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
-});
+}, (table) => ({
+  incorporationProcessUnique: uniqueIndex("operational_projects_incorporation_process_unique").on(table.incorporationStudyId, table.approvalProcessId),
+}));
 
 // Lote 23/10, etapa 2C: pedidos de revisão de projeto (migração 0066).
 export const projectRevisionRequests = pgTable("project_revision_requests", {

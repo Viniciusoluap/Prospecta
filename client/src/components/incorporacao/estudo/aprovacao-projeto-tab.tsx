@@ -1,6 +1,9 @@
 
 import { useMemo, useState, useTransition } from "react";
-import { Plus, Trash2, Save, Loader2, CheckCircle2, Stamp, AlertTriangle } from "lucide-react";
+import { Plus, Trash2, Save, Loader2, CheckCircle2, Stamp, AlertTriangle, ExternalLink } from "lucide-react";
+import { trpc } from "@/lib/trpc";
+import { creaAoTrocarEngenheiro, formatarCrea } from "@shared/engenheiro";
+import { rotulo } from "@shared/rotulos";
 import {
   resumoAprovacaoProjeto,
   ORGAOS_APROVACAO,
@@ -56,6 +59,23 @@ export function AprovacaoProjetoTab({ estudo }: { estudo: EstudoData }) {
   const [salvo, setSalvo] = useState(false);
 
   const resumo = useMemo(() => resumoAprovacaoProjeto(dados.processos), [dados]);
+  // Correção 07: cada processo salvo é também um registro em Projetos.
+  const engenheiros = trpc.projetoIncorporacao.engenheiros.useQuery();
+  const vinculos = trpc.projetoIncorporacao.vinculos.useQuery({ estudoId: Number(estudo.id) });
+  const projetoDoProcesso = useMemo(() => new Map((vinculos.data ?? []).map((v) => [v.processoId, v])), [vinculos.data]);
+
+  function escolherEngenheiro(id: string, valor: string) {
+    setDados((d) => ({
+      processos: d.processos.map((p) => {
+        if (p.id !== id) return p;
+        const anterior = engenheiros.data?.find((u) => u.id === p.engenheiroId);
+        const novo = engenheiros.data?.find((u) => String(u.id) === valor);
+        const registro = creaAoTrocarEngenheiro(p.engenheiroRegistro ?? "", anterior, novo);
+        return { ...p, engenheiroId: novo?.id, engenheiro: novo?.name ?? undefined, engenheiroRegistro: registro || undefined };
+      }),
+    }));
+    marcarAlterado();
+  }
 
   function marcarAlterado() { setSalvo(false); }
 
@@ -64,6 +84,8 @@ export function AprovacaoProjetoTab({ estudo }: { estudo: EstudoData }) {
     marcarAlterado();
   }
   function removerProcesso(id: string) {
+    // Correção 07: o projeto vinculado não é apagado — perde o vínculo e fica cancelado, com documentos preservados.
+    if (projetoDoProcesso.has(id) && !window.confirm("Excluir este processo? Ao salvar, o projeto vinculado em Projetos será arquivado como cancelado (checklist e documentos são preservados).")) return;
     setDados((d) => ({ processos: d.processos.filter((p) => p.id !== id) }));
     marcarAlterado();
   }
@@ -74,8 +96,9 @@ export function AprovacaoProjetoTab({ estudo }: { estudo: EstudoData }) {
 
   function salvarDados() {
     startTransition(async () => {
-      await salvarAprovacaoProjeto(estudo.id, JSON.stringify(dados));
-      setSalvo(true);
+      const r = await salvarAprovacaoProjeto(estudo.id, JSON.stringify(dados));
+      await vinculos.refetch();
+      if ("ok" in r) setSalvo(true);
     });
   }
 
@@ -94,6 +117,7 @@ export function AprovacaoProjetoTab({ estudo }: { estudo: EstudoData }) {
         </div>
         <p className="text-[11px] text-gray-400 max-w-xl">
           Um processo por órgão. A etapa fica concluída quando todos os processos cadastrados estiverem aprovados.
+          Cada processo salvo aparece também em Projetos (checklist, documentos e revisões).
         </p>
       </div>
 
@@ -117,7 +141,7 @@ export function AprovacaoProjetoTab({ estudo }: { estudo: EstudoData }) {
 
       <div className="bg-white border border-gray-100 p-4">
         <div className="overflow-x-auto">
-          <table className="text-xs min-w-[760px] w-full">
+          <table className="text-xs min-w-[940px] w-full">
             <thead>
               <tr>
                 <th className="text-left text-[10px] font-bold text-gray-400 uppercase tracking-wide px-1 pb-1 w-52">Órgão</th>
@@ -125,6 +149,7 @@ export function AprovacaoProjetoTab({ estudo }: { estudo: EstudoData }) {
                 <th className="text-left text-[10px] font-bold text-gray-400 uppercase tracking-wide px-1 pb-1 w-32">Prazo previsto</th>
                 <th className="text-left text-[10px] font-bold text-gray-400 uppercase tracking-wide px-1 pb-1 w-32">Status</th>
                 <th className="text-left text-[10px] font-bold text-gray-400 uppercase tracking-wide px-1 pb-1 w-40">Observações</th>
+                <th className="text-left text-[10px] font-bold text-gray-400 uppercase tracking-wide px-1 pb-1 w-44">Engenheiro</th>
                 <th />
               </tr>
             </thead>
@@ -145,7 +170,19 @@ export function AprovacaoProjetoTab({ estudo }: { estudo: EstudoData }) {
                   </td>
                   <td className="px-1 py-1"><input value={p.observacoes ?? ""} onChange={(e) => upd(p.id, "observacoes", e.target.value)} className={inputCls} placeholder="Observações" /></td>
                   <td className="px-1 py-1">
-                    <button type="button" onClick={() => removerProcesso(p.id)} className="text-gray-300 hover:text-red-500 flex justify-center"><Trash2 size={14} /></button>
+                    <select value={p.engenheiroId ? String(p.engenheiroId) : ""} onChange={(e) => escolherEngenheiro(p.id, e.target.value)} className={inputCls} aria-label="Engenheiro do processo">
+                      <option value="">{p.engenheiro && !p.engenheiroId ? p.engenheiro : "Selecione"}</option>
+                      {(engenheiros.data ?? []).map((u) => <option key={u.id} value={u.id}>{u.name}{u.crea ? ` · ${formatarCrea(u.crea, u.creaUf)}` : ""}</option>)}
+                    </select>
+                  </td>
+                  <td className="px-1 py-1">
+                    <div className="flex items-center gap-2">
+                      {projetoDoProcesso.get(p.id) && (
+                        <a href={`/admin/projetos?projeto=${projetoDoProcesso.get(p.id)!.projetoId}`} title={`Abrir em Projetos — andamento: ${rotulo(projetoDoProcesso.get(p.id)!.status)}`}
+                          className="text-gray-400 hover:text-[var(--brand-dark)]"><ExternalLink size={14} /></a>
+                      )}
+                      <button type="button" onClick={() => removerProcesso(p.id)} title="Excluir processo (o projeto vinculado é arquivado como cancelado)" className="text-gray-300 hover:text-red-500 flex justify-center"><Trash2 size={14} /></button>
+                    </div>
                   </td>
                 </tr>
               ))}

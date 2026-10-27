@@ -14,7 +14,16 @@ Agente: Dex (@dev) · branch `claude/lote2-22-correcoes-20261027` (nos dois repo
   - `drizzle/schema.ts`: colunas + `incorporationMassStudies`.
   - `server/incorporacao-estudos-massa-router.ts` (`incorporacao.massStudies.{list,get,save,setPrincipal,delete,principal}`) + `obterCenarioPrincipal(studyId)`.
   - `server/routers.ts`: `saveSemKml`, `saveLotesAvulsos`, `responsibleUserId` em create/update; `server/db.ts`: `getIncorporationStaff` (+ `role`, `engenheiro`), `resolveIncorporationResponsible`.
-- [ ] Etapa 3 — UI Prospecta (compat/acoes já tem as ações; falta Terreno sem KML, Dados Gerais, Massa + Estudos Salvos, mapas satélite)
+- [x] Etapa 3 — UI Prospecta
+  - [x] `compat/acoes.ts`: salvarSemKml, salvarLotesAvulsos, listar/abrir/salvar/marcarPrincipal/excluir estudos de massa
+  - [x] `camadas-base.ts` (Esri World Imagery + ruas/rótulos Esri + alternância OSM + escala) usado em `mapa-terreno.tsx` e `mapa-massa.tsx` (Stamen removido — serviço desativado)
+  - [x] `mapa-massa.tsx`: cores por destinação, balões, tooltip quadra/lote
+  - [x] `massa-tab.tsx`: tipologia, restrições, rótulo preliminar, quadro de áreas, inviabilidade, salvar/nova versão/novo, Estudos Salvos (abrir, principal, excluir c/ confirmação), aviso sem poligonal
+  - [x] `lotes-avulsos-editor.tsx` (novo: `SemKmlToggle` + CRUD de lotes avulsos) usado em `terreno-tab.tsx`
+  - [x] `incorporacao-detail.tsx`: gating por `terrenoLiberado` (inclui Relatório Executivo); `topografia-tab.tsx`: aviso sem poligonal
+  - [x] `AdminIncorporacaoDetail.tsx` (Dados Gerais: "Nome do empreendimento", Responsável = select admin/colaborador/engenheiro salvo por ID, 4 campos removidos do formulário) e `AdminIncorporacao.tsx` (diálogo de criação: mesmo rótulo e select)
+  - [x] `relatorio-tab.tsx`: rótulo "Estudo preliminar…" na seção de massa do PDF
+  - Testes: `pnpm vitest run server/incorporacao` → 29 arquivos / 242 testes OK; `tsc --noEmit` limpo nos meus arquivos (erros restantes só em `server/caixa/pci-gerador.ts`, de outro agente)
 - [ ] Etapa 4 — porte SF (migração `20261027120000_incorporacao_estudos_salvos`, prisma, actions, UI)
 - [ ] Etapa 5 — typecheck + testes nos dois repos
 
@@ -32,4 +41,4 @@ Agente: Dex (@dev) · branch `claude/lote2-22-correcoes-20261027` (nos dois repo
 - Matrícula/CAR/Zoneamento: saem do formulário; colunas e relatório executivo preservados (update não envia mais esses campos).
 
 ## Próximo passo
-Etapa 3: reescrever `massa-tab.tsx` (erro de typecheck atual nas linhas 24/72), terreno-tab (checkbox + lotes avulsos), incorporacao-detail (gating por `terrenoLiberado`), AdminIncorporacaoDetail (Dados Gerais), mapas.
+Etapa 4 — porte SF: copiar `massa.ts` → `web/src/lib/geo/massa.ts` (imports @turf/* separados), puros → `web/src/lib/incorporacao/{massa-quadro-areas,lotes-avulsos,estudos-massa}.ts`, prisma (EstudoIncorporacao: semKml, lotesAvulsosJson, responsavelId; model EstudoMassaSalvo), migração `20261027120000_incorporacao_estudos_salvos`, actions em `web/src/lib/actions/incorporacao.ts` (+ `obterCenarioPrincipal`), componentes em `web/src/app/admin/incorporacao/_components/`, `editar/page.tsx`, `novo/page.tsx`, `[id]/page.tsx`.

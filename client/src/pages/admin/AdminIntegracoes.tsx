@@ -11,6 +11,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { ConexaoWhatsApp } from "@/components/whatsapp/ConexaoWhatsApp";
+import { SubPciAtual } from "@/components/admin/SubPciAtual";
 
 type Servico = "asaas" | "pluggy" | "whatsapp";
 type Campo = { nome: string; rotulo: string; segredo?: boolean; placeholder?: string; opcional?: boolean };
@@ -170,6 +171,7 @@ export default function AdminIntegracoes() {
           />
           {/* Item 12 (25/10 noite): conexão do WhatsApp da empresa e dos corretores, saiu da Central. */}
           <ConexaoWhatsApp role="admin" />
+          <SubPciAtual />
         </>}
       </main>
     </div>

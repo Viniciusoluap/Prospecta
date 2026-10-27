@@ -55,6 +55,8 @@ const procedureModules: Record<string, AdminModule | AdminModule[]> = {
   obraMedicoes: "obras",
   obraFinanceiro: "obras",
   obraProgresso: "obras",
+  // Lote 2, correção 03: Gerador de PCI. `pciModelos` fica fora do mapa (só admin).
+  pciGerador: "obras",
   budgetRequests: "projetos",
   analytics: [],
   emails: [],

@@ -80,6 +80,8 @@ import { LEAD_PIPELINE_KEYS } from "../shared/lead-pipeline.js";
 import { documentChunksRouter } from "./document-upload-chunks.js";
 // Lote 2, correção 04: perfil Engenheiro e documentos do usuário.
 import { engenheirosRouter } from "./usuario-documentos.js";
+import { pciGeradorRouter, pciModelosRouter } from "./pci-gerador.js";
+import { projetoIncorporacaoRouter, salvarAprovacaoProjetoSincronizado } from "./projeto-incorporacao-sync.js";
 import { leadDocumentsRouter } from "./lead-documents-router.js";
 import { incorporacaoDocumentsRouter } from "./incorporacao-documents-router.js";
 import { incorporationDueDiligenceRouter } from "./incorporacao-due-diligence-router.js";
@@ -173,11 +175,15 @@ export const appRouter = router({
   leadDocuments: leadDocumentsRouter,
   documentChunks: documentChunksRouter,
   engenheiros: engenheirosRouter,
+  projetoIncorporacao: projetoIncorporacaoRouter,
   brokerPortal: brokerPortalRouter,
   geo: geoRouter,
   obraFinanceiro: obraFinanceiroRouter,
   obraProgresso: obraProgressoRouter,
   obraLocalizacao: obraLocalizacaoRouter,
+  // Lote 2, correção 03: Gerador de PCI (Obras) e modelos oficiais (só admin).
+  pciGerador: pciGeradorRouter,
+  pciModelos: pciModelosRouter,
   empreiteiro: empreiteiroRouter,
   auth: router({
     me: publicProcedure.query(opts => opts.ctx.user),
@@ -2951,10 +2957,9 @@ export const appRouter = router({
       .input(z.object({ id: z.number(), dataJson: z.string().min(1) }))
       .mutation(async ({ input, ctx }) => {
         requireModule(ctx, "incorporacao");
-        await db.updateIncorporationStudy(input.id, {
-          projectApprovalJson: input.dataJson,
-        });
-        return { success: true };
+        // Correção 07: cada processo também é um registro em Projetos (upsert, sem duplicar).
+        const { vinculos } = await salvarAprovacaoProjetoSincronizado(input.id, input.dataJson);
+        return { success: true, vinculos };
       }),
 
     saveRegistroIncorporacao: protectedProcedure

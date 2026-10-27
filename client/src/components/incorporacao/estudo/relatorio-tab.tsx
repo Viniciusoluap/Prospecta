@@ -24,6 +24,7 @@ import {
   type DadoPremissasFontesVersao,
 } from "@shared/incorporacao/relatorio-executivo";
 import type { EstudoData } from "./incorporacao-detail";
+import { ROTULO_ESTUDO_PRELIMINAR } from "@shared/incorporacao/massa";
 
 // Relatório Executivo de Incorporação (Lote 6 do hardening): consolida os 13
 // temas pedidos — terreno/mapas/APP/restrições, dados cadastrais/urbanísticos,
@@ -310,7 +311,7 @@ function secaoMassa(doc: jsPDF, y: number, secao: Secao<DadoMassa>): number {
         `${c.larguraViaM} m`,
       ]]
     );
-    return paragrafo(doc, y, `Cenário escolhido entre ${d.totalCenarios} cenário(s) gerado(s) para este estudo.`);
+    return paragrafo(doc, y, `Cenário escolhido entre ${d.totalCenarios} cenário(s) gerado(s) para este estudo. ${ROTULO_ESTUDO_PRELIMINAR}.`);
   });
 }
 

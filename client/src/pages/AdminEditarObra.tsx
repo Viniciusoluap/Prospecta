@@ -11,12 +11,13 @@ import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { trpc } from "@/lib/trpc";
-import { ArrowLeft, Building2, DollarSign, FileText, Image, Loader2, Save, BarChart3 } from "lucide-react";
+import { ArrowLeft, Building2, DollarSign, FileSpreadsheet, FileText, Image, Loader2, Save, BarChart3 } from "lucide-react";
 import { Link, useLocation, useParams } from "wouter";
 import { getLoginUrl } from "@/const";
 import { useEffect, useMemo, useState } from "react";
 import { ProgressoObraAba } from "@/components/obra/ProgressoObraAba";
 import { FotosObraAba } from "@/components/obra/FotosObraAba";
+import { GeradorPciAba } from "@/components/obra/GeradorPciAba";
 import { PciObra } from "@/components/obra/MedicaoCaixa";
 import { RelatorioObraBotao } from "@/components/obra/RelatorioObraBotao";
 import { CustosAba, ValoresOperacaoAba, calcularAoVivo, formInicial, type FormFinanceiro } from "@/components/obra/FinanceiroObra";
@@ -29,7 +30,10 @@ const ABAS_OBRA = [
   { valor: "mcmv", rotulo: "Valores da Operação", Icone: DollarSign },
   { valor: "valores", rotulo: "Custos", Icone: DollarSign },
   { valor: "progresso", rotulo: "Progresso", Icone: FileText },
-  { valor: "fotos", rotulo: "Fotos", Icone: Image },
+  // Lote 02, correção 03: a aba "Fotos" virou "Gerador de PCI" (a galeria por medição
+  // continua em Detalhes da Obra e logo abaixo do gerador). O empreiteiro não usa o
+  // gerador: para ele a aba continua "Fotos", só com a galeria.
+  { valor: "fotos", rotulo: "Gerador de PCI", Icone: FileSpreadsheet },
   { valor: "relatorios", rotulo: "Relatórios", Icone: FileText },
 ] as const;
 
@@ -264,7 +268,7 @@ export default function AdminEditarObra({ modo = "admin" }: { modo?: "admin" | "
           {/* Abas em grade responsiva (2 → 3 → 6 colunas); o rótulo quebra dentro da
               própria aba em vez de invadir a vizinha (pedido A2, 13/10/2026). */}
           <TabsList className="grid h-auto w-full grid-cols-2 gap-1 border border-[#C9A961]/20 bg-[#1A2332]/60 p-1 sm:grid-cols-3 xl:grid-cols-6 text-gray-100">
-            {ABAS_OBRA.map(({ valor, rotulo, Icone }) => (
+            {ABAS_OBRA.map(({ valor, rotulo, Icone }) => ehEmpreiteiro && valor === "fotos" ? { valor, rotulo: "Fotos", Icone: Image } : { valor, rotulo, Icone }).map(({ valor, rotulo, Icone }) => (
               <TabsTrigger
                 key={valor}
                 value={valor}
@@ -493,8 +497,9 @@ export default function AdminEditarObra({ modo = "admin" }: { modo?: "admin" | "
             <ProgressoObraAba key={versaoProgresso} projectId={projectId} onFotosMudaram={() => refetch()} />
           </TabsContent>
 
-          {/* ABA 4: FOTOS */}
-          <TabsContent value="fotos" className="mt-6">
+          {/* ABA 4: GERADOR DE PCI (admin/colaborador com Obras) + galeria por medição */}
+          <TabsContent value="fotos" className="mt-6 space-y-6">
+            {!ehEmpreiteiro && activeTab === "fotos" && <GeradorPciAba projectId={projectId} />}
             <FotosObraAba projectId={projectId} />
           </TabsContent>
 

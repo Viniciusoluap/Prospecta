@@ -39,6 +39,7 @@ import { orcamentoObraPreenchidoDoJson } from "@shared/incorporacao/orcamento-ob
 import { obraConcluidaDoJson } from "@shared/incorporacao/cronograma-obra";
 import { atendimentoTodosConcluidosDoJson } from "@shared/incorporacao/atendimento-clientes";
 import { UnidadesTab } from "./unidades-tab";
+import { terrenoLiberado } from "@shared/incorporacao/lotes-avulsos";
 
 import type { EstudoData } from "@shared/incorporacao/estudo-data";
 export type { EstudoData };
@@ -92,7 +93,7 @@ const FASES: Fase[] = [
     numero: 2,
     titulo: "Novos Negócios",
     etapas: [
-      { id: "terreno", numero: "2.1", titulo: "Documentos do Terreno", componente: TerrenoTab, concluida: (e) => !!e.geojson },
+      { id: "terreno", numero: "2.1", titulo: "Documentos do Terreno", componente: TerrenoTab, concluida: (e) => !!e.geojson || (!!e.semKml && !!e.lotesAvulsosJson && e.lotesAvulsosJson !== "[]") },
       { id: "topografia", numero: "2.1", titulo: "Topografia 3D", componente: TopografiaTab, concluida: (e) => !!e.elevacaoJson },
       { id: "mercado", numero: "2.2", titulo: "Inteligência de Mercado", componente: MercadoTab, concluida: (e) => !!e.pesquisaCidadeJson || !!e.estudoMercadoJson || !!e.precificacaoComparaveisJson || pesquisaPrimariaPreenchidaDoJson(e.pesquisaPrimariaJson) },
       { id: "massa", numero: "2.3", titulo: "Estudo de Massa e Quadro de Áreas", componente: MassaTab, concluida: (e) => !!e.massaCenariosJson },
@@ -273,7 +274,8 @@ export function IncorporacaoDetail({ estudo, dadosGerais }: { estudo: EstudoData
     alteradoRef.current = true;
     setTimeout(() => setAlterado(true), 0);
   };
-  const temTerreno = !!estudo.geojson;
+  // Correção 06: com KML ou com "não possui KML", as etapas dependentes do terreno ficam liberadas.
+  const temTerreno = terrenoLiberado(estudo);
 
   const progresso = useMemo(() => calcularProgresso(estudo), [estudo]);
 
@@ -355,7 +357,7 @@ export function IncorporacaoDetail({ estudo, dadosGerais }: { estudo: EstudoData
         {visitados.includes("relatorio") && <div hidden={!relatorioAtivo}><RelatorioTab estudo={estudo} /></div>}
       </div>
       {!temTerreno && etapaId !== "terreno" && etapaId !== "dados" && (
-        <p className="text-xs text-gray-500 mt-3">Envie o KML do terreno para habilitar as análises.</p>
+        <p className="text-xs text-gray-500 mt-3">Envie o KML do terreno ou marque &quot;Este empreendimento não possui KML&quot; na aba Terreno para habilitar as análises.</p>
       )}
     </div>
   );

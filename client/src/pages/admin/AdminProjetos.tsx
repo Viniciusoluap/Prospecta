@@ -26,6 +26,8 @@ import {
 import { rotulo } from "@shared/rotulos";
 import { diaPrazoProjeto, exibirDiaPrazoProjeto, ordenarProjetosPorPrazo, persistirDiaPrazoProjeto } from "@shared/projetos-prazo";
 import { creaAoTrocarEngenheiro, formatarCrea } from "@shared/engenheiro";
+import { ORGAOS_APROVACAO } from "@shared/incorporacao/aprovacao-projeto";
+import { STATUS_APROVACAO_EXTERNA, rotuloStatusAprovacao } from "@shared/incorporacao/projeto-sincronizacao";
 type Check = ProjectCheck;
 type FileLink = { name: string; url: string; itemId?: string; kind?: "editable" | "pdf"; driveFileId?: string };
 const blank = () => ({
@@ -44,6 +46,12 @@ const blank = () => ({
   description: "",
   checklist: [] as Check[],
   files: [] as FileLink[],
+  // Correção 07: situação de aprovação externa (só para projeto vindo da Incorporação).
+  incorporationStudyId: null as number | null,
+  approvalAuthority: "",
+  approvalProtocol: "",
+  approvalStatus: "",
+  approvalNotes: "",
 });
 export default function AdminProjetos() {
   const list = trpc.projetos.list.useQuery();
@@ -95,7 +103,8 @@ export default function AdminProjetos() {
       <p className="rounded border border-slate-200 bg-white p-3 text-sm text-slate-700">
         Novos projetos nascem do CRM: no cadastro do lead, vincule o serviço
         “Projeto técnico”. O registro aparece aqui com os dados do cliente;
-        complete engenheiro, tipos e prazo em “Editar”.
+        complete engenheiro, tipos e prazo em “Editar”. Processos de aprovação
+        salvos em Incorporação › Projeto Aprovado também geram projetos aqui (sem lead).
       </p>
       <div className="grid gap-3 sm:grid-cols-2">
         <Field label="Buscar projeto, cliente ou engenheiro">
@@ -131,6 +140,11 @@ export default function AdminProjetos() {
             <tr key={r.id}>
               <td>
                 <button type="button" className="text-left font-semibold underline" onClick={() => setDetail(r)}>{r.name}</button>
+                {r.incorporationStudyId && (
+                  <a className="ml-2 rounded bg-sky-100 px-2 py-0.5 text-xs font-semibold text-sky-900 underline" href={`/admin/incorporacao/${r.incorporationStudyId}`}>
+                    Incorporação{r.approvalProcessId ? ` · ${rotuloStatusAprovacao(r.approvalStatus)}` : " · processo excluído"}
+                  </a>
+                )}
                 {pendingTechnicalData && (
                   <span className="ml-2 rounded bg-amber-100 px-2 py-0.5 text-xs font-semibold text-amber-900">
                     Aguardando dados técnicos
@@ -166,6 +180,11 @@ export default function AdminProjetos() {
                         leadId: String(r.leadId ?? ""),
                         checklist: projectChecklist(parseArray<string>(r.types), checks, PROJECT_TYPE_LABELS),
                         files: parseArray<FileLink>(r.files),
+                        incorporationStudyId: r.approvalProcessId ? r.incorporationStudyId : null,
+                        approvalAuthority: r.approvalAuthority ?? "",
+                        approvalProtocol: r.approvalProtocol ?? "",
+                        approvalStatus: r.approvalStatus ?? "",
+                        approvalNotes: r.approvalNotes ?? "",
                       });
                       setOpen(true);
                     }}
@@ -185,7 +204,7 @@ export default function AdminProjetos() {
           );
         })}
       </Rows>
-      {detail && <div className="fixed inset-0 z-50 overflow-y-auto bg-black/60 p-4" role="dialog" aria-modal="true" aria-label="Detalhes do projeto"><div className="mx-auto my-6 max-w-3xl space-y-4 rounded bg-white p-6 text-slate-900"><div className="flex justify-between gap-3"><h2 className="text-xl font-bold">{detail.name}</h2><Button variant="outline" onClick={() => setDetail(null)}>Fechar</Button></div><dl className="grid gap-3 sm:grid-cols-2">{[["Cliente",detail.clientName],["Telefone",detail.clientPhone],["Engenheiro",detail.engineer],["Habilitação técnica",detail.engineerRegistration],["Status",rotulo(detail.status)],["Prazo",exibirDiaPrazoProjeto(detail.deadline)],["Tipos",parseArray<string>(detail.types).map(v => PROJECT_TYPE_LABELS[v] ?? v).join(", ")],["Descrição",detail.description]].map(([label,value]) => <div key={label}><dt className="font-semibold">{label}</dt><dd>{value || "—"}</dd></div>)}</dl><h3 className="font-semibold">Checklist</h3>{projectChecklist(parseArray<string>(detail.types),parseArray<Check>(detail.checklist),PROJECT_TYPE_LABELS).map((check,i) => <p key={check.id ?? i}>{check.done ? "✓" : "○"} {check.text}</p>)}<h3 className="font-semibold">Documentos</h3>{parseArray<FileLink>(detail.files).map(file => <a className="block underline" key={file.url} href={file.url} target="_blank" rel="noopener noreferrer">{file.kind === "pdf" ? "PDF — " : file.kind === "editable" ? "Editável — " : ""}{file.name}</a>)}<div className="flex justify-end"><Button variant="outline" onClick={() => setRevisao({ id: detail.id, name: detail.name, engineer: detail.engineer })}>Solicitar revisão</Button></div><RevisoesProjeto projectId={detail.id} /></div></div>}
+      {detail && <div className="fixed inset-0 z-50 overflow-y-auto bg-black/60 p-4" role="dialog" aria-modal="true" aria-label="Detalhes do projeto"><div className="mx-auto my-6 max-w-3xl space-y-4 rounded bg-white p-6 text-slate-900"><div className="flex justify-between gap-3"><h2 className="text-xl font-bold">{detail.name}</h2><Button variant="outline" onClick={() => setDetail(null)}>Fechar</Button></div><dl className="grid gap-3 sm:grid-cols-2">{[["Cliente",detail.clientName],["Telefone",detail.clientPhone],["Engenheiro",detail.engineer],["Habilitação técnica",detail.engineerRegistration],["Status",rotulo(detail.status)],["Prazo",exibirDiaPrazoProjeto(detail.deadline)],["Tipos",parseArray<string>(detail.types).map(v => PROJECT_TYPE_LABELS[v] ?? v).join(", ")],["Descrição",detail.description],...(detail.incorporationStudyId ? [["Órgão (aprovação externa)",detail.approvalAuthority],["Protocolo",detail.approvalProtocol],["Situação de aprovação externa",detail.approvalProcessId ? rotuloStatusAprovacao(detail.approvalStatus) : "Processo excluído na Incorporação"],["Observações do processo",detail.approvalNotes]] : [])].map(([label,value]) => <div key={label}><dt className="font-semibold">{label}</dt><dd>{value || "—"}</dd></div>)}</dl>{detail.incorporationStudyId && <a className="block text-sm font-semibold underline" href={`/admin/incorporacao/${detail.incorporationStudyId}`}>Abrir o estudo de Incorporação (Projeto Aprovado)</a>}<h3 className="font-semibold">Checklist</h3>{projectChecklist(parseArray<string>(detail.types),parseArray<Check>(detail.checklist),PROJECT_TYPE_LABELS).map((check,i) => <p key={check.id ?? i}>{check.done ? "✓" : "○"} {check.text}</p>)}<h3 className="font-semibold">Documentos</h3>{parseArray<FileLink>(detail.files).map(file => <a className="block underline" key={file.url} href={file.url} target="_blank" rel="noopener noreferrer">{file.kind === "pdf" ? "PDF — " : file.kind === "editable" ? "Editável — " : ""}{file.name}</a>)}<div className="flex justify-end"><Button variant="outline" onClick={() => setRevisao({ id: detail.id, name: detail.name, engineer: detail.engineer })}>Solicitar revisão</Button></div><RevisoesProjeto projectId={detail.id} /></div></div>}
       {revisao && <SolicitarRevisaoModal projeto={revisao} onClose={() => setRevisao(null)} />}
       <Editor
         title={id ? "Detalhes do projeto" : "Novo projeto"}
@@ -203,6 +222,14 @@ export default function AdminProjetos() {
             value: Number(form.value),
             paidValue: Number(form.paidValue),
             deadline: form.deadline ? persistirDiaPrazoProjeto(form.deadline) : null,
+            // Correção 07: só projeto vinculado a processo envia a situação externa (volta ao estudo).
+            ...(form.incorporationStudyId ? {
+              approvalAuthority: form.approvalAuthority || null,
+              approvalProtocol: form.approvalProtocol.trim() || null,
+              approvalStatus: form.approvalStatus || null,
+              approvalNotes: form.approvalNotes.trim() || null,
+            } : { approvalAuthority: undefined, approvalProtocol: undefined, approvalStatus: undefined, approvalNotes: undefined }),
+            incorporationStudyId: undefined,
           });
           if (!parsed.success) throw new Error(mensagemValidacao(parsed.error.issues as never));
           const data = parsed.data;
@@ -214,7 +241,7 @@ export default function AdminProjetos() {
         {(
           [
             ["name", "Nome", "text"],
-            ["clientName", linkedLeadId ? "Cliente (do CRM)" : "Cliente", "text"],
+            ["clientName", linkedLeadId ? "Cliente (do CRM)" : form.incorporationStudyId ? "Empreendimento (da Incorporação)" : "Cliente", "text"],
             ["clientPhone", linkedLeadId ? "Telefone (do CRM)" : "Telefone", "tel"],
             ["deadline", "Prazo de entrega", "date"],
           ] as const
@@ -224,7 +251,7 @@ export default function AdminProjetos() {
               className={inputClass}
               type={type}
                             disabled={
-                linkedLeadId !== null &&
+                (linkedLeadId !== null || form.incorporationStudyId !== null) &&
                 (key === "clientName" || key === "clientPhone")
               }
               value={form[key]}
@@ -282,6 +309,20 @@ export default function AdminProjetos() {
           </div>
           {!form.types.length && <p className="text-xs text-amber-700">Obrigatório: selecione ao menos um tipo.</p>}
         </fieldset>
+        {form.incorporationStudyId !== null && (
+          <fieldset className="grid gap-3 rounded border border-sky-200 p-3 sm:col-span-2 sm:grid-cols-2">
+            <legend className="px-1 font-semibold">Aprovação externa (sincronizada com a Incorporação)</legend>
+            <Choice label="Órgão" value={form.approvalAuthority} onChange={v => setForm(f => ({ ...f, approvalAuthority: v }))} options={ORGAOS_APROVACAO.map(o => ({ value: o, label: o }))} />
+            <Field label="Protocolo">
+              <input className={inputClass} value={form.approvalProtocol} onChange={e => setForm(f => ({ ...f, approvalProtocol: e.target.value }))} />
+            </Field>
+            <Choice label="Situação de aprovação externa" value={form.approvalStatus} onChange={v => setForm(f => ({ ...f, approvalStatus: v }))} options={STATUS_APROVACAO_EXTERNA} />
+            <Field label="Observações do processo">
+              <input className={inputClass} value={form.approvalNotes} onChange={e => setForm(f => ({ ...f, approvalNotes: e.target.value }))} />
+            </Field>
+            <p className="text-xs text-slate-600 sm:col-span-2">O status abaixo é o andamento técnico interno; a situação acima é a do órgão. Prazo e engenheiro também voltam ao processo.</p>
+          </fieldset>
+        )}
         <Choice
           label="Status"
           value={form.status}
