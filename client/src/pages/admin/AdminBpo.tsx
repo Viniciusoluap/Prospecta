@@ -38,7 +38,7 @@ import TaxAccountingPanel from "./TaxAccountingPanel";
 import AdminRelatorios from "./AdminRelatorios";
 import BancosPanel from "./BancosPanel";
 import { rotulo } from "@shared/rotulos";
-import { CATEGORIAS_BPO, TRANSFERENCIA_INTERNA } from "@shared/financeiro/bpo-extrato";
+import { CATEGORIAS_BPO, TRANSFERENCIA_INTERNA, recebidoDoLancamento } from "@shared/financeiro/bpo-extrato";
 import { situacaoDoLancamento } from "@shared/financeiro/bpo-asaas";
 import {
   CATEGORIAS_DESPESA_OPERACIONAL, CATEGORIAS_RECEITA_OPERACIONAL,
@@ -176,6 +176,11 @@ export default function AdminBpo({ initialTab }: { initialTab?: Aba } = {}) {
     onError: e => toast.error(e.message),
   });
   const [editando, setEditando] = useState<any | null>(null);
+  const [recebendo, setRecebendo] = useState<{ id: number; requestKey: string; valor: number; saldo: number; recebidoEm: string; observacoes: string } | null>(null);
+  const receber = trpc.bpo.lancamentos.receber.useMutation({
+    onSuccess: () => { setRecebendo(null); toast.success("Recebimento registrado."); utils.bpo.lancamentos.list.invalidate(); utils.bpo.clientes.list.invalidate(); },
+    onError: e => toast.error(e.message),
+  });
   const editarLancamento = trpc.bpo.lancamentos.editar.useMutation({
     onSuccess: () => {
       toast.success("Lançamento atualizado e registrado no histórico.");
@@ -185,8 +190,10 @@ export default function AdminBpo({ initialTab }: { initialTab?: Aba } = {}) {
     onError: e => toast.error(e.message),
   });
 
-  const cobrancas = lancamentos.filter((l: any) => l.tipo !== "despesa");
-  const despesas = lancamentos.filter((l: any) => l.tipo === "despesa");
+  const filtroOperacional = new URLSearchParams(window.location.search);
+  const filtrados = lancamentos.filter(l => (!filtroOperacional.get("categoriaOperacional") || l.categoriaOperacional === filtroOperacional.get("categoriaOperacional")) && (!filtroOperacional.get("vinculoOperacionalId") || l.vinculoOperacionalId === filtroOperacional.get("vinculoOperacionalId")));
+  const cobrancas = filtrados.filter((l: any) => l.tipo !== "despesa");
+  const despesas = filtrados.filter((l: any) => l.tipo === "despesa");
   const clienteNome = (l: any) =>
     clientes.find((c: any) => c.id === l.clienteId)?.razaoSocial ??
     l.clienteNomeLivre ??
@@ -764,6 +771,7 @@ export default function AdminBpo({ initialTab }: { initialTab?: Aba } = {}) {
                               ? ` • pago em ${new Date(l.pagoEm).toLocaleDateString("pt-BR")}`
                               : ""}
                           </p>
+                          {l.tipo !== "despesa" && <p className="text-xs text-gray-300">Recebido {formatCurrencyBR(recebidoDoLancamento(l))} · Saldo {formatCurrencyBR(Number(l.valor) - recebidoDoLancamento(l))}</p>}
                           {l.categoriaOperacional && l.vinculoOperacionalId && (() => {
                             const opcoes = (catalogoOperacional?.[catalogoDaCategoria(l.tipo === "despesa" ? "despesa" : "cobranca", l.categoriaOperacional) as keyof typeof catalogoOperacional] ?? []) as any[];
                             const registro = opcoes.find(o => o.id === l.vinculoOperacionalId);
@@ -780,7 +788,8 @@ export default function AdminBpo({ initialTab }: { initialTab?: Aba } = {}) {
                             onClick={() => setEditando({ ...l, valor: String(l.valor), vencimento: new Date(l.vencimento).toISOString().slice(0, 10), motivo: "", observacoes: l.observacoes ?? "" })}>
                             <Pencil className="h-3 w-3 mr-1" /> Editar
                           </Button>
-                          {!l.pago && (
+                          {!l.pago && l.tipo !== "despesa" && !l.asaasPaymentId && !l.bankTransactionId && <Button size="sm" onClick={() => setRecebendo({ id: l.id, requestKey: crypto.randomUUID(), valor: Number(l.valor) - recebidoDoLancamento(l), saldo: Number(l.valor) - recebidoDoLancamento(l), recebidoEm: new Date().toISOString().slice(0, 10), observacoes: "" })}>Registrar recebimento</Button>}
+                          {!l.pago && (l.tipo === "despesa" || l.asaasPaymentId || l.bankTransactionId) && (
                             <Button
                               size="sm"
                               variant="outline"
@@ -900,6 +909,11 @@ export default function AdminBpo({ initialTab }: { initialTab?: Aba } = {}) {
         {aba === "relatorios" && <AdminRelatorios embedded />}
       </div>
 
+      <Dialog open={Boolean(recebendo)} onOpenChange={o => !o && setRecebendo(null)}>
+        <DialogContent className="bg-[#1A2332] text-white"><DialogHeader><DialogTitle>Registrar recebimento</DialogTitle></DialogHeader>
+          {recebendo && <div className="space-y-3"><p>Saldo {formatCurrencyBR(recebendo.saldo)}</p><Label>Valor recebido</Label><CurrencyInput value={recebendo.valor} onChange={v => setRecebendo({ ...recebendo, valor: v })}/><Label>Data</Label><Input type="date" value={recebendo.recebidoEm} onChange={e => setRecebendo({ ...recebendo, recebidoEm: e.target.value })}/><Label>Observações</Label><Textarea value={recebendo.observacoes} onChange={e => setRecebendo({ ...recebendo, observacoes: e.target.value })}/><Button disabled={receber.isPending || recebendo.valor <= 0 || recebendo.valor > recebendo.saldo} onClick={() => receber.mutate(recebendo)}>Confirmar recebimento</Button></div>}
+        </DialogContent>
+      </Dialog>
       <Dialog open={Boolean(editando)} onOpenChange={o => !o && setEditando(null)}>
         <DialogContent className="bg-[#1A2332] border-[#C9A961]/20 text-white max-h-[90vh] overflow-y-auto">
           <DialogHeader><DialogTitle className="text-[#C9A961]">Editar lançamento</DialogTitle></DialogHeader>

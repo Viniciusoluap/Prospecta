@@ -1196,12 +1196,24 @@ export const bpoLancamentos = pgTable("bpo_lancamentos", {
   observacoes: text("observacoes"),
   origemEfetiva: varchar("origem_efetiva", { length: 30 }).default("manual").notNull(),
   requestKey: varchar("request_key", { length: 80 }).unique(),
+  valorRecebido: decimal("valor_recebido", { precision: 15, scale: 2 }).default("0").notNull(),
   version: integer("version").default(1).notNull(),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });
 export type BpoLancamento =typeof bpoLancamentos.$inferSelect;
 export type InsertBpoLancamento = typeof bpoLancamentos.$inferInsert;
+
+export const bpoRecebimentos = pgTable("bpo_recebimentos", {
+  id: serial("id").primaryKey(),
+  lancamentoId: integer("lancamento_id").notNull().references(() => bpoLancamentos.id, { onDelete: "restrict" }),
+  requestKey: varchar("request_key", { length: 80 }).notNull().unique(),
+  valor: decimal("valor", { precision: 15, scale: 2 }).notNull(),
+  recebidoEm: timestamp("recebido_em").notNull(),
+  registradoPorUserId: integer("registrado_por_user_id").references(() => users.id, { onDelete: "set null" }),
+  observacoes: text("observacoes"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
 
 export const bpoLancamentoHistorico = pgTable("bpo_lancamento_historico", {
   id: serial("id").primaryKey(),

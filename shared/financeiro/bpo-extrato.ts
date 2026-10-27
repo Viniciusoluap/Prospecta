@@ -157,7 +157,11 @@ export function sugerirClientePorTitular(titular: string | null | undefined, cli
   return achados.length === 1 ? achados[0].id : null;
 }
 
-export type LancamentoResumo = { clienteId: number | null; tipo: string; valor: string | number; pago: boolean; categoria?: string | null };
+export type LancamentoResumo = { clienteId: number | null; tipo: string; valor: string | number; pago: boolean; categoria?: string | null; valorRecebido?: string | number | null };
+
+export function recebidoDoLancamento(l: { valor: string | number; pago: boolean; valorRecebido?: string | number | null }) {
+  return l.pago ? Number(l.valor) : Math.min(Number(l.valor), Math.max(0, Number(l.valorRecebido ?? 0)));
+}
 
 /** Por cliente: total recebido (cobranças pagas) e em aberto (cobranças não pagas), em reais. */
 export function resumoPorCliente(lancamentos: LancamentoResumo[]) {
@@ -166,7 +170,9 @@ export function resumoPorCliente(lancamentos: LancamentoResumo[]) {
     if (!l.clienteId || l.tipo === "despesa" || !contaNoResultado(l.categoria)) continue;
     const e = mapa.get(l.clienteId) ?? { recebido: 0, emAberto: 0, lancamentos: 0 };
     const centavos = Math.round(Number(l.valor) * 100);
-    if (l.pago) e.recebido += centavos; else e.emAberto += centavos;
+    const recebido = Math.round(recebidoDoLancamento(l) * 100);
+    e.recebido += recebido;
+    e.emAberto += centavos - recebido;
     e.lancamentos++;
     mapa.set(l.clienteId, e);
   }

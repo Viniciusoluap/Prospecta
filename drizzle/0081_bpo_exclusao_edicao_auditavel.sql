@@ -8,7 +8,7 @@ ALTER TABLE "bpo_lancamentos" ADD COLUMN IF NOT EXISTS "updated_at" timestamp DE
 UPDATE "bpo_lancamentos"
 SET "origem_efetiva" = CASE
   WHEN "asaas_payment_id" IS NOT NULL THEN 'asaas'
-  WHEN "bank_transaction_id" IS NOT NULL THEN 'extrato'
+  WHEN "bank_transaction_id" IS NOT NULL THEN 'legado'
   ELSE 'manual'
 END
 WHERE "origem_efetiva" = 'manual';

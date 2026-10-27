@@ -15,6 +15,8 @@ import { bpoRouter, montarClienteBpo } from "./bpo-router.js";
 import { sincronizarCobrancasAsaas } from "./bpo-asaas.js";
 import { listarProcessos } from "./regularizacao-router.js";
 import { validarDetalhesOperacionais } from "../shared/financeiro/bpo-operacional.js";
+import { registrarRecebimento } from "./bpo-recebimentos.js";
+import { resumoPorCliente } from "../shared/financeiro/bpo-extrato.js";
 
 const sqlDe = (arquivo: string) => readFileSync(new URL(`../drizzle/${arquivo}`, import.meta.url), "utf8");
 
@@ -71,6 +73,7 @@ beforeEach(async () => {
   await pg.exec(sqlDe("0080_bpo_vinculos_operacionais.sql"));
   await pg.exec(sqlDe("0081_bpo_exclusao_edicao_auditavel.sql"));
   await pg.exec(sqlDe("0082_bpo_request_key.sql"));
+  await pg.exec(sqlDe("0083_bpo_recebimentos_parciais.sql"));
   db = drizzle(pg);
   vi.mocked(getDb).mockReturnValue(db as never);
   await pg.exec("INSERT INTO bank_accounts (banco, provedor) VALUES ('Cora', 'manual'), ('Asaas', 'asaas')");
@@ -136,6 +139,19 @@ describe("item 10 — cadastro de cliente BPO", () => {
 });
 
 describe("item 11 — + Lançamento", () => {
+  it("recebimentos parciais são auditáveis e idempotentes sem duplicar receitas", async () => {
+    await pg.exec("INSERT INTO users(id) VALUES(1); INSERT INTO bpo_lancamentos(tipo,descricao,valor,vencimento,competencia) VALUES('receita','Parcela',100,now(),'2026-10')");
+    const entrada = { id: 1, requestKey: "recebimento-1", valor: 40, recebidoEm: new Date("2026-10-10T12:00:00Z") };
+    const parcial = await registrarRecebimento(entrada, 1);
+    expect(parcial).toMatchObject({ valorRecebido: "40.00", pago: false });
+    expect(resumoPorCliente([{ ...parcial, clienteId: 1 }]).get(1)).toMatchObject({ recebido: 40, emAberto: 60 });
+    await registrarRecebimento(entrada, 1);
+    await expect(registrarRecebimento({ ...entrada, requestKey: "excesso", valor: 61 }, 1)).rejects.toThrow(/supera/);
+    expect(await registrarRecebimento({ ...entrada, requestKey: "restante", valor: 60 }, 1)).toMatchObject({ valorRecebido: "100.00", pago: true });
+    expect((await linhas("select count(*)::int n from bpo_lancamentos"))[0]).toEqual({ n: 1 });
+    expect((await linhas("select count(*)::int n from bpo_recebimentos"))[0]).toEqual({ n: 2 });
+    expect((await linhas("select count(*)::int n from bpo_lancamento_historico"))[0]).toEqual({ n: 2 });
+  });
   it("retry conserva a mesma cobrança e uma nova chave permite outra parcela", async () => {
     await pg.exec(`CREATE TABLE construction_projects(id serial primary key,title text,lead_id int);
       CREATE TABLE operational_commissions(id serial primary key,property text);

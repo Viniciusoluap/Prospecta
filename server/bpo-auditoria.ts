@@ -108,13 +108,15 @@ export type EdicaoLancamento = {
 export async function editarLancamentoAuditavel(input: EdicaoLancamento, userId: number) {
   const resultado = await getDb().execute(sql`
     WITH anterior AS (
-      SELECT * FROM bpo_lancamentos WHERE id = ${input.id} AND version = ${input.version} FOR UPDATE
+      SELECT * FROM bpo_lancamentos WHERE id = ${input.id} AND version = ${input.version}
+        AND valor_recebido <= ${input.valor.toFixed(2)} FOR UPDATE
     ), atualizado AS (
       UPDATE bpo_lancamentos l SET
         descricao = ${input.descricao}, valor = ${input.valor.toFixed(2)}, categoria = ${input.categoria},
         cliente_id = ${input.clienteId ?? null}, cliente_nome_livre = ${input.clienteId ? null : input.clienteNomeLivre ?? null},
         vencimento = ${input.vencimento}, competencia = ${input.competencia}, centro_custos = ${input.centroCustos ?? null},
         observacoes = ${input.observacoes ?? null}, version = l.version + 1, updated_at = now(),
+        pago = CASE WHEN l.valor_recebido > 0 THEN l.valor_recebido = ${input.valor.toFixed(2)} ELSE l.pago END,
         categoria_operacional = ${input.categoriaOperacional ?? null}, vinculo_operacional_id = ${input.vinculoOperacionalId ?? null},
         vinculo_operacional_rotulo = ${input.vinculoOperacionalRotulo ?? null},
         tipo_despesa_obra = ${input.tipoDespesaObra ?? null}, etapa_obra = ${input.etapaObra ?? null}

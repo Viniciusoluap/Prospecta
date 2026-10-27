@@ -1,5 +1,16 @@
 # HANDOFF 26/10 — AIOX, 16 correções
 
+## Retomada após limite dos agentes — 27/10/2026, entrega controlada
+
+- Trabalho interrompido recuperado dos worktrees e protegido em commits: Prospecta 038f8f3 e Santa Fé cb9647c; integrados na branch de trabalho.
+- Recebimentos parciais implementados com chave idempotente, limite do saldo, histórico e quitação apenas no total. Testes adicionais: Prospecta arquivo BPO 12/12; Santa Fé 5/5 testes de baixas. TypeScript Santa Fé aprovado.
+- Prospecta: transações interativas agora usam sessão Neon WebSocket nativa do Node 24, preservando consultas e batch HTTP existentes. Teste real SELECT 1/transação e rollback aprovados sem alterações de dados.
+- Migrações de produção já aplicadas: Prospecta 0077–0082; Santa Fé projeto_documentos, identificador Pluggy, auditoria BPO, índice CRM sem exclusão, templates e vínculos operacionais.
+- Revisão automática rejeitou a antiga migração CRM por conter exclusões; alternativa aditiva aplicada com sucesso, sem apagar clientes nem reescrever vínculos. Coluna histórica servicos preservada.
+- Backups aiox_backup_20261027 preservados. Registros bancários legados com origem não comprovada protegidos como legado.
+- Ainda aplicar: Prospecta 0083 e Santa Fé 20261027150000 (recebimentos parciais), após publicação deste checkpoint.
+- Pendências reais: build remoto dos últimos ajustes, PR/merge, deploy produção e smoke. Validação de dispositivos físicos iPhone/Android/PWA não realizada nesta sessão; não declarar aceite físico.
+
 ## Pré-entrega autorizada — 27/10/2026
 
 - Autorização reiterada pelo proprietário para concluir, migrar, merge e deploy.
@@ -26,6 +37,17 @@
 - (b) Manuais: revisão estática; nenhum navegador/dispositivo real usado nesta etapa.
 - (c) Produção: nenhuma migração aplicada, nenhum deploy e nenhuma mensagem real enviada. Publicação remota será feita pelo agente principal após integração.
 - Próximo passo exato: integrar o commit desta branch, publicar checkpoint e realizar smoke test autenticado dos documentos/templates.
+
+## Recebimentos parciais — 27/10/2026
+
+- Etapa adicional solicitada pelo orquestrador para fechar Correção 13: criar baixas parciais sem duplicar receita e manter parcelas como lançamentos independentes.
+- Migração aditiva `0083_bpo_recebimentos_parciais.sql`: acumulado `valor_recebido` e tabela imutável `bpo_recebimentos`, com chave única por envio e referência restritiva para preservar rastreabilidade.
+- API de recebimento bloqueia o lançamento em transação, impede valor maior que saldo, registra antes/depois no histórico e só marca pago quando totaliza a cobrança. Repetir requestKey não soma novamente. Fontes Asaas/extrato devem ser baixadas na plataforma de origem/conciliação.
+- Interface oferece Registrar recebimento com valor, data e observações e mostra recebido/saldo. Totais por cliente consideram valores parciais. DRE por competência mantém valor original da receita, sem lançar uma segunda receita por baixa.
+- Quitação manual pela rota antiga também usa o serviço auditável. Edição impede reduzir valor abaixo do já recebido e recalcula pago se o valor total aumentar.
+- Navegação reversa disponível no cabeçalho dos módulos operacionais para financeiro filtrado por categoria; financeiro aceita também `vinculoOperacionalId` como filtro persistente no URL.
+- Teste PGlite focado aprovado: 40 + 60 completa 100, retry não duplica, 61 sobre saldo de 60 é bloqueado, ficam 1 cobrança, 2 baixas e 2 históricos.
+- Próximo passo: confirmar typecheck/testes finais deste lote, integrar commit, publicar checkpoint e aplicar 0083 em ambiente seguro antes do deploy. Nenhuma produção alterada nesta etapa.
 
 ## Auditoria final BPO — 27/10/2026, início
 
