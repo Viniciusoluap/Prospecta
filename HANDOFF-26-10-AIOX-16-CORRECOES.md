@@ -85,3 +85,14 @@ Concluir as lacunas funcionais e a paridade do Santa Fé, criar testes das exclu
 
 ### Próximo passo exato
 Receber o prompt mestre (01–16) → montar matriz requisito × situação (feito / parcial / falta) nos dois repos → executar as lacunas.
+
+## Checkpoint Claude — 27/10/2026 (prompt mestre versionado + matriz)
+- Prompt mestre das 16 correções salvo em `docs/stories/epics/epic-021-aiox-16-correcoes/PROMPT-MESTRE-26-10.md`.
+- Matriz preliminar (somente leitura do código publicado) em `.../MATRIZ-16-CORRECOES.md`.
+- Atenção: a Correção 01 move as conexões do WhatsApp de Integrações para Serviços › WhatsApp (inverte o item 12 de 25/10).
+- Decisão do dono (opção 1): aguardar o Codex publicar os commits locais pendentes da branch
+  `codex/aiox-16-correcoes-20261026` (limite de uso libera às 02:16) antes de qualquer código novo, para não haver retrabalho.
+
+### Próximo passo exato
+Quando o dono avisar: `git fetch`, trazer o novo HEAD do Codex para `claude/sync-mirrored-repos-bsqnz3` (fast-forward/merge,
+sem descartar nada), reauditar as linhas "?" da matriz e seguir FASE 2 (BPO 09–15) → FASE 3 (01–08, 16) → FASE 4.
