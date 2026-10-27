@@ -1,3 +1,5 @@
+import { sincronizarUnidadesCenario } from "./incorporacao-unidades-cenario.js";
+import { referenciasAtendimento, vincularAtendimento } from "../shared/incorporacao/atendimento-clientes.js";
 import { COOKIE_NAME } from "../shared/const.js";
 import { getSessionCookieOptions } from "./_core/cookies.js";
 import { systemRouter } from "./_core/systemRouter.js";
@@ -34,6 +36,7 @@ import { regularizacaoRouter } from "./regularizacao-router.js";
 import { portalRouter } from "./portal-router.js";
 import { whatsappRouter } from "./whatsapp-router.js";
 import { podeUsarModulo, requireModule, requireModuloDoDestino, requireRole } from "./_core/rbac.js";
+import { podeVerDetalhesObra } from "./obra-acesso.js";
 import { bancarioRouter, pluggySettingsRouter } from "./bancos-router.js";
 import { parseKmlTerreno } from "./_core/geo/kml.js";
 import { fetchElevationGrid } from "./_core/geo/elevacao.js";
@@ -77,10 +80,16 @@ import { obraLocalizacaoRouter, sincronizarImovelGeradoDaObra, garantirImovelCat
 import { duplicarLead } from "./lead-duplicar.js";
 import { LEAD_PIPELINE_KEYS } from "../shared/lead-pipeline.js";
 import { documentChunksRouter } from "./document-upload-chunks.js";
+// Lote 2, correção 04: perfil Engenheiro e documentos do usuário.
+import { engenheirosRouter } from "./usuario-documentos.js";
+import { pciGeradorRouter, pciModelosRouter } from "./pci-gerador.js";
+import { projetoIncorporacaoRouter, salvarAprovacaoProjetoSincronizado } from "./projeto-incorporacao-sync.js";
 import { leadDocumentsRouter } from "./lead-documents-router.js";
 import { incorporacaoDocumentsRouter } from "./incorporacao-documents-router.js";
 import { incorporationDueDiligenceRouter } from "./incorporacao-due-diligence-router.js";
 import { incorporationUnitsRouter } from "./incorporacao-unidades-router.js";
+import { incorporationMassStudiesRouter } from "./incorporacao-estudos-massa-router.js";
+import { prepararLotesAvulsosParaGravar } from "../shared/incorporacao/lotes-avulsos.js";
 import { excluirDefinitivo } from "./exclusao-definitiva.js";
 import { bpoRouter } from "./bpo-router.js";
 
@@ -167,11 +176,16 @@ export const appRouter = router({
   leadServices: leadServicesRouter,
   leadDocuments: leadDocumentsRouter,
   documentChunks: documentChunksRouter,
+  engenheiros: engenheirosRouter,
+  projetoIncorporacao: projetoIncorporacaoRouter,
   brokerPortal: brokerPortalRouter,
   geo: geoRouter,
   obraFinanceiro: obraFinanceiroRouter,
   obraProgresso: obraProgressoRouter,
   obraLocalizacao: obraLocalizacaoRouter,
+  // Lote 2, correção 03: Gerador de PCI (Obras) e modelos oficiais (só admin).
+  pciGerador: pciGeradorRouter,
+  pciModelos: pciModelosRouter,
   empreiteiro: empreiteiroRouter,
   auth: router({
     me: publicProcedure.query(opts => opts.ctx.user),
@@ -810,8 +824,8 @@ export const appRouter = router({
           });
         }
         // Proprietário, admin ou (pedido de 15/10) o empreiteiro vinculado à obra.
-        const empreiteiroDaObra = ctx.user.role === "empreiteiro" && project.contractorUserId === ctx.user.id;
-        if (project.userId !== ctx.user.id && !podeUsarModulo(ctx.user, "obras") && !empreiteiroDaObra) {
+        // Regra única, também usada pela galeria de Detalhes (Lote 02, correção 02).
+        if (!podeVerDetalhesObra(ctx.user, project)) {
           throw new TRPCError({ code: "FORBIDDEN", message: "Acesso negado" });
         }
         return project;
@@ -1389,6 +1403,7 @@ export const appRouter = router({
           temperature: z.enum(LEAD_TEMPERATURAS).optional(),
           simulationValue: z.number().finite().min(0).max(9_999_999_999_999.99)
             .transform(value => value.toFixed(2)).optional(),
+          negotiatedValue: z.number().finite().min(0).max(9_999_999_999_999.99).transform(v => v.toFixed(2)).nullable().optional(),
           cardDueDate: z.string().nullable().optional(),
           // Item 9 (18/10): o cadastro escolhe o estágio do funil (antes "Tipo de Lead").
           stage: z.enum(LEAD_PIPELINE_KEYS).optional(),
@@ -1512,6 +1527,7 @@ export const appRouter = router({
           cpfStatus: z.enum(["clean", "restricted", "unknown"]).optional(),
           simulationValue: z.union([z.string(), z.number()]).optional(),
           approvedValue: z.union([z.string(), z.number()]).optional(),
+          negotiatedValue: z.number().finite().min(0).max(9_999_999_999_999.99).transform(v => v.toFixed(2)).nullable().optional(),
           contractType: z.enum(["obra", "financing", "both"]).optional(),
           rejectionReason: z.string().optional(),
           followupDate: z.string().optional(),
@@ -2592,6 +2608,7 @@ export const appRouter = router({
     documents: incorporacaoDocumentsRouter,
     dueDiligence: incorporationDueDiligenceRouter,
     units: incorporationUnitsRouter,
+    massStudies: incorporationMassStudiesRouter,
     staff: protectedProcedure.query(async ({ ctx }) => {
       requireModule(ctx, "incorporacao");
       return db.getIncorporationStaff();
@@ -2642,6 +2659,7 @@ export const appRouter = router({
           latitude: z.number().optional(),
           longitude: z.number().optional(),
           responsible: z.string().optional(),
+          responsibleUserId: z.number().int().positive().nullable().optional(),
           incorporationType: z.enum(["desmembramento_simples", "residencial", "vertical", "loteamento"]),
           propertyRef: z.string().optional(),
           propertyRegistration: z.string().max(500).nullable().optional(),
@@ -2652,8 +2670,10 @@ export const appRouter = router({
       )
       .mutation(async ({ input, ctx }) => {
         requireModule(ctx, "incorporacao");
+        const responsavel = await db.resolveIncorporationResponsible(input.responsibleUserId);
         return db.createIncorporationStudy({
           ...input,
+          ...responsavel,
           latitude: input.latitude?.toString(),
           longitude: input.longitude?.toString(),
         } as any);
@@ -2670,6 +2690,7 @@ export const appRouter = router({
           latitude: z.number().optional(),
           longitude: z.number().optional(),
           responsible: z.string().optional(),
+          responsibleUserId: z.number().int().positive().nullable().optional(),
           status: z.enum(["in_study", "unfeasible", "in_progress", "completed"]).optional(),
           incorporationType: z.enum(["desmembramento_simples", "residencial", "vertical", "loteamento"]).optional(),
           propertyRef: z.string().optional(),
@@ -2682,11 +2703,38 @@ export const appRouter = router({
       .mutation(async ({ input, ctx }) => {
         requireModule(ctx, "incorporacao");
         const { id, ...data } = input;
+        // Correção 08: responsável salvo por ID; o texto legado recebe o nome (exibição/estudos antigos).
+        const responsavel = data.responsibleUserId === undefined ? {} : await db.resolveIncorporationResponsible(data.responsibleUserId);
         await db.updateIncorporationStudy(id, {
           ...data,
+          ...responsavel,
           latitude: data.latitude?.toString(),
           longitude: data.longitude?.toString(),
         } as any);
+        return { success: true };
+      }),
+
+    // Correção 06 (AD-03): "Este empreendimento não possui KML" + lotes avulsos.
+    saveSemKml: protectedProcedure
+      .input(z.object({ id: z.number().int().positive(), semKml: z.boolean() }))
+      .mutation(async ({ input, ctx }) => {
+        requireModule(ctx, "incorporacao");
+        const estudo = await db.getIncorporationStudyById(input.id);
+        if (!estudo) throw new TRPCError({ code: "NOT_FOUND" });
+        await db.updateIncorporationStudy(input.id, { semKml: input.semKml });
+        return { success: true };
+      }),
+
+    saveLotesAvulsos: protectedProcedure
+      .input(z.object({ id: z.number().int().positive(), dataJson: z.string().max(2_000_000) }))
+      .mutation(async ({ input, ctx }) => {
+        requireModule(ctx, "incorporacao");
+        const estudo = await db.getIncorporationStudyById(input.id);
+        if (!estudo) throw new TRPCError({ code: "NOT_FOUND" });
+        const preparado = prepararLotesAvulsosParaGravar(input.dataJson);
+        if (!preparado.ok) throw new TRPCError({ code: "BAD_REQUEST", message: preparado.erro });
+        await db.updateIncorporationStudy(input.id, { looseLotsJson: preparado.json });
+        await sincronizarUnidadesCenario(input.id, ctx.user.id);
         return { success: true };
       }),
 
@@ -2857,6 +2905,7 @@ export const appRouter = router({
           massScenariosJson: input.dataJson,
           selectedScenarioId: input.selectedScenarioId,
         });
+        await sincronizarUnidadesCenario(input.id, ctx.user.id);
         return { success: true };
       }),
 
@@ -2914,10 +2963,9 @@ export const appRouter = router({
       .input(z.object({ id: z.number(), dataJson: z.string().min(1) }))
       .mutation(async ({ input, ctx }) => {
         requireModule(ctx, "incorporacao");
-        await db.updateIncorporationStudy(input.id, {
-          projectApprovalJson: input.dataJson,
-        });
-        return { success: true };
+        // Correção 07: cada processo também é um registro em Projetos (upsert, sem duplicar).
+        const { vinculos } = await salvarAprovacaoProjetoSincronizado(input.id, input.dataJson);
+        return { success: true, vinculos };
       }),
 
     saveRegistroIncorporacao: protectedProcedure
@@ -3030,8 +3078,18 @@ export const appRouter = router({
       .input(z.object({ id: z.number(), dataJson: z.string().min(1) }))
       .mutation(async ({ input, ctx }) => {
         requireModule(ctx, "incorporacao");
+        const refs = referenciasAtendimento(input.dataJson);
+        if (refs.clientes.length) requireModule(ctx, "crm");
+        const { incorporationUnits: unitsTable, leads: leadsTable } = await import("../drizzle/schema.js");
+        const { and: andWhere, eq: eqWhere, isNull: nullWhere, inArray: inWhere } = await import("drizzle-orm");
+        const banco = (await import("./db.js")).getDb();
+        const [clientes, unidades] = await Promise.all([
+          refs.clientes.length ? banco.select({ id: leadsTable.id, nome: leadsTable.name }).from(leadsTable).where(andWhere(inWhere(leadsTable.id, refs.clientes.map(Number)), nullWhere(leadsTable.deletedAt))) : Promise.resolve([]),
+          refs.unidades.length ? banco.select({ id: unitsTable.id, codigo: unitsTable.code }).from(unitsTable).where(andWhere(eqWhere(unitsTable.studyId, input.id), inWhere(unitsTable.id, refs.unidades.map(Number)), nullWhere(unitsTable.deletedAt))) : Promise.resolve([]),
+        ]);
+        const json = vincularAtendimento(input.dataJson, clientes.map((c) => ({ ...c, id: String(c.id) })), unidades.map((u) => ({ ...u, id: String(u.id) })));
         await db.updateIncorporationStudy(input.id, {
-          customerServiceJson: input.dataJson,
+          customerServiceJson: json,
         });
         return { success: true };
       }),

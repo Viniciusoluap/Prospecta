@@ -1,3 +1,4 @@
+import { TRPCError } from "@trpc/server";
 import { eq, and, desc, sql, like, isNull, inArray, asc, ne } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/neon-http";
 import { drizzle as drizzleSession } from "drizzle-orm/neon-serverless";
@@ -35,7 +36,7 @@ import {
   imoveis, Imovel, InsertImovel,
   avaliacoes, Avaliacao, InsertAvaliacao,
   agregadorImoveis, AgregadorImovel, InsertAgregadorImovel,
-  incorporationStudies, IncorporationStudy, InsertIncorporationStudy,
+  incorporationStudies, IncorporationStudy, InsertIncorporationStudy, engineerProfiles,
   incorporationStudyVersions,
   bpoClients, BpoClient, InsertBpoClient,
   bpoLancamentos, BpoLancamento, InsertBpoLancamento,
@@ -1486,9 +1487,28 @@ export async function getIncorporationStudyVersion(studyId: number, revision: nu
 
 export async function getIncorporationStaff() {
   const db = getDb();
-  return db.select({ id: users.id, name: users.name, active: users.active }).from(users)
+  // Lote 2 (AD-02/08): engenheiro = colaborador com perfil de engenheiro ativo.
+  const rows = await db.select({ id: users.id, name: users.name, active: users.active, role: users.role, engineerActive: engineerProfiles.active })
+    .from(users)
+    .leftJoin(engineerProfiles, eq(engineerProfiles.userId, users.id))
     .where(inArray(users.role, ["admin", "colaborador"]))
     .orderBy(users.name);
+  return rows.map(({ engineerActive, ...u }) => ({ ...u, engenheiro: engineerActive === true }));
+}
+
+/**
+ * Correção 08: responsável do estudo por ID (usuário ativo, admin ou colaborador).
+ * O texto legado `responsible` recebe o nome para exibição e estudos antigos.
+ */
+export async function resolveIncorporationResponsible(userId: number | null | undefined): Promise<{ responsibleUserId?: number | null; responsible?: string | null }> {
+  if (userId === undefined) return {};
+  if (userId === null) return { responsibleUserId: null, responsible: null };
+  const db = getDb();
+  const [u] = await db.select({ id: users.id, name: users.name, active: users.active, role: users.role }).from(users).where(eq(users.id, userId)).limit(1);
+  if (!u || !u.active || !["admin", "colaborador"].includes(u.role)) {
+    throw new TRPCError({ code: "BAD_REQUEST", message: "Responsável inválido ou inativo." });
+  }
+  return { responsibleUserId: u.id, responsible: (u.name ?? "").slice(0, 120) || null };
 }
 
 // ========== BPO (financeiro — clientes de terceirização contábil) ==========

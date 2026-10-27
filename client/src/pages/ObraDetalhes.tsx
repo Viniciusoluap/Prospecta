@@ -7,6 +7,7 @@ import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { trpc } from "@/lib/trpc";
+import { GaleriaMedicoes } from "@/components/obra/GaleriaMedicoes";
 import {
   HardHat,
   ArrowLeft,
@@ -67,6 +68,12 @@ export default function ObraDetalhes({ admin: adminProp = false, empreiteiro = f
   const { data: detalhe } = trpc.obraProgresso.detalhe.useQuery(
     { projectId },
     { enabled: admin && isAuthenticated && Number.isInteger(projectId) && projectId > 0 }
+  );
+
+  // Lote 02, correção 02: fotos agrupadas por medição, mesma regra de acesso de getProjectDetails.
+  const galeria = trpc.obraProgresso.galeriaDetalhes.useQuery(
+    { projectId },
+    { enabled: isAuthenticated && Number.isInteger(projectId) && projectId > 0 && !!project }
   );
 
   // Redirect para login se não autenticado
@@ -218,38 +225,27 @@ export default function ObraDetalhes({ admin: adminProp = false, empreiteiro = f
                       Galeria de Fotos
                     </CardTitle>
                     <CardDescription className="text-gray-400">
-                      Registro fotográfico do progresso da obra
+                      Registro fotográfico organizado por medição
                     </CardDescription>
                   </CardHeader>
                   <CardContent>
+                    {/* Lote 02, correção 02: mesma galeria por medição do Editar Obra (só visualização). */}
                     {!project.photos || project.photos.length === 0 ? (
                       <div className="text-center py-12 text-gray-400">
                         <ImageIcon className="h-16 w-16 mx-auto mb-4 opacity-50" />
                         <p>Nenhuma foto adicionada ainda</p>
                         <p className="text-sm mt-2">As fotos serão adicionadas pela equipe de construção</p>
                       </div>
+                    ) : galeria.isLoading ? (
+                      <p role="status" className="text-gray-300">Carregando fotos…</p>
+                    ) : galeria.error ? (
+                      <div role="alert" className="space-y-2 text-gray-300">
+                        <p>{galeria.error.message}</p>
+                        <Button type="button" variant="outline" size="sm" onClick={() => galeria.refetch()} className="border-[#C9A961] text-[#C9A961] hover:bg-[#C9A961]/10">Tentar novamente</Button>
+                      </div>
                     ) : (
-                      <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
-                        {project.photos.map((photo) => (
-                          <div
-                            key={photo.id}
-                            className="relative aspect-square rounded-lg overflow-hidden bg-white/5 group cursor-pointer"
-                          >
-                            <img
-                              src={photo.imageUrl}
-                              alt={photo.caption || "Foto da obra"}
-                              className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-300"
-                            />
-                            <div className="absolute inset-0 bg-gradient-to-t from-black/60 to-transparent opacity-0 group-hover:opacity-100 transition-opacity">
-                              <div className="absolute bottom-0 left-0 right-0 p-3">
-                                {photo.caption && <p className="text-white text-sm font-medium">{photo.caption}</p>}
-                                <p className="text-gray-300 text-xs mt-1">
-                                  {new Date(photo.takenAt).toLocaleDateString("pt-BR")}
-                                </p>
-                              </div>
-                            </div>
-                          </div>
-                        ))}
+                      <div className="text-gray-100">
+                        <GaleriaMedicoes fotos={galeria.data?.fotos ?? []} medicoes={galeria.data?.medicoes ?? []} />
                       </div>
                     )}
                   </CardContent>

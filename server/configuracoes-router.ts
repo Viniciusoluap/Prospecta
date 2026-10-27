@@ -2,7 +2,9 @@ import { randomBytes } from "crypto";
 import { TRPCError } from "@trpc/server";
 import { and, count, eq, gt, isNull, ne, sql } from "drizzle-orm";
 import { z } from "zod";
-import { brokerProfiles, leads, users } from "../drizzle/schema.js";
+import { brokerProfiles, engineerProfiles, leads, users } from "../drizzle/schema.js";
+import { validarPerfilEngenheiro } from "../shared/engenheiro.js";
+import { definirPerfilEngenheiroAtivo, gravarPerfilEngenheiro } from "./usuario-documentos.js";
 import { normalizarPermissoes } from "../shared/perfis-acesso.js";
 import { ADMIN_MODULES, normalizePermissions } from "../shared/admin-permissions.js";
 import { tokenPrimeiroAcessoAindaValido } from "../shared/session.js";
@@ -69,7 +71,10 @@ export const configuracoesRouter = router({
     leadPhone: leads.phone,
     lastSignedIn: users.lastSignedIn,
     createdAt: users.createdAt,
-  }).from(users).leftJoin(leads, eq(users.leadId, leads.id)).orderBy(users.name)),
+    // Lote 2, correção 04: "Engenheiro" = colaborador com perfil de engenheiro ativo.
+    engenheiro: sql<boolean>`coalesce(${engineerProfiles.active}, false) AND ${users.role} = 'colaborador'`,
+  }).from(users).leftJoin(leads, eq(users.leadId, leads.id))
+    .leftJoin(engineerProfiles, eq(engineerProfiles.userId, users.id)).orderBy(users.name)),
 
   // A senha inicial nunca é digitada pelo admin: cria a conta com um hash placeholder
   // inutilizável (ninguém consegue logar com ele) e manda um email pro próprio usuário
@@ -96,9 +101,16 @@ export const configuracoesRouter = router({
     creci: z.string().trim().max(40).optional().nullable(),
     permissions: permissionsSchema.default([]),
     leadId: z.number().int().positive().optional().nullable(),
-  })).mutation(async ({ input }) => {
+    // Lote 2, correção 04: perfil "Engenheiro" = colaborador + dados profissionais.
+    engenheiro: z.boolean().optional(),
+    crea: z.string().max(60).optional().nullable(),
+    creaUf: z.string().max(4).optional().nullable(),
+  })).mutation(async ({ ctx, input }) => {
     const db = getDb();
     const email = input.email.toLowerCase();
+    const perfilEngenheiro = input.engenheiro ? validarPerfilEngenheiro({ telefone: input.phone, crea: input.crea, creaUf: input.creaUf }) : null;
+    if (perfilEngenheiro && input.role !== "colaborador") throw new TRPCError({ code: "BAD_REQUEST", message: "Engenheiro é cadastrado como colaborador." });
+    if (perfilEngenheiro && !perfilEngenheiro.ok) throw new TRPCError({ code: "BAD_REQUEST", message: perfilEngenheiro.erro });
     const [existing] = await db.select({ id: users.id }).from(users).where(eq(users.email, email)).limit(1);
     if (existing) throw new TRPCError({ code: "CONFLICT", message: "E-mail já cadastrado" });
     if (input.role === "corretor" && (!input.creci?.trim() || !input.phone?.trim()))
@@ -139,6 +151,7 @@ export const configuracoesRouter = router({
     } else {
       [created] = await db.insert(users).values(values).returning({ id: users.id });
     }
+    if (perfilEngenheiro?.ok) await gravarPerfilEngenheiro(created.id, perfilEngenheiro.dados, ctx.user.id);
     const emailEnviado = await enviarLinkDefinicaoSenha(created.id, values.name, email, true);
     return { ...created, emailEnviado };
   }),
@@ -152,7 +165,10 @@ export const configuracoesRouter = router({
     active: z.boolean(),
     permissions: permissionsSchema,
     leadId: z.number().int().positive().optional().nullable(),
+    // Lote 2, correção 04: liga/desliga o perfil Engenheiro (dados preservados).
+    engenheiro: z.boolean().optional(),
   })).mutation(async ({ ctx, input }) => {
+    if (input.engenheiro && input.role !== "colaborador") throw new TRPCError({ code: "BAD_REQUEST", message: "Engenheiro é cadastrado como colaborador." });
     const db = getDb();
     const [current] = await db.select().from(users).where(eq(users.id, input.id)).limit(1);
     if (!current) throw new TRPCError({ code: "NOT_FOUND", message: "Usuário não encontrado" });
@@ -192,6 +208,7 @@ export const configuracoesRouter = router({
       ...(encerrarSessao ? { sessionVersion: sql`${users.sessionVersion} + 1` } : {}),
       updatedAt: new Date(),
     }).where(eq(users.id, input.id)).returning({ id: users.id });
+    if (input.engenheiro !== undefined) await definirPerfilEngenheiroAtivo(input.id, input.engenheiro && input.role === "colaborador", ctx.user.id);
     return updated;
   }),
 

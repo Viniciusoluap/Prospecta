@@ -45,7 +45,7 @@ const NONE = "none";
 const emptyLead = () => ({
   name: "", phone: "", email: "", cpf: "", address: "", neighborhood: "", city: "", state: "",
   notes: "", stage: "lead_new" as LeadPipelineStage, temperature: "cold" as LeadTemperatura, services: [] as LeadServiceType[],
-  responsibleUserId: NONE, brokerId: NONE, simulationValue: 0, cardDueDate: "",
+  responsibleUserId: NONE, brokerId: NONE, negotiatedValue: null as number | null, simulationValue: 0, cardDueDate: "",
 });
 
 export default function AdminCRM() {
@@ -314,6 +314,9 @@ export default function AdminCRM() {
                       </Select>
                     </div>
                     <div>
+                      <Label htmlFor="novo-lead-negociado" className="text-gray-300">Valor negociado para venda (R$)</Label>
+                      <CurrencyInput id="novo-lead-negociado" value={newLead.negotiatedValue ?? 0} onChange={value => setNewLead(current => ({ ...current, negotiatedValue: value || null }))} className="bg-white/10 border-white/20 text-white" />
+                    </div><div>
                       <Label htmlFor="novo-lead-vgv" className="text-gray-300">VGV simulado (R$)</Label>
                       <CurrencyInput id="novo-lead-vgv" value={newLead.simulationValue}
                         onChange={value => setNewLead(current => ({ ...current, simulationValue: value }))}

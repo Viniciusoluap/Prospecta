@@ -161,7 +161,7 @@ async function unidades(estudoId: string) {
   return {
     unidades: r.units.map((u) => ({
       id: String(u.id), codigo: u.code, tipo: u.kind, status: u.status, comprador: u.buyer,
-      valorVenda: u.salePrice ?? null, criadoEm: new Date(u.createdAt).toISOString(), atualizadoEm: new Date(u.updatedAt).toISOString(),
+      valorVenda: u.salePrice ?? null, revisao: u.revision, compradorLeadId: u.buyerLeadId ? String(u.buyerLeadId) : null, cenarioId: u.scenarioId, criadoEm: new Date(u.createdAt).toISOString(), atualizadoEm: new Date(u.updatedAt).toISOString(),
     })),
     legacyPending: r.legacyPending, legacyInvalid: r.legacyInvalid,
   };
@@ -179,3 +179,61 @@ export function mudarEstadoUnidade(estudoId: string, unidadeId: string, acao: "r
 export function conciliarVendaLegada(estudoId: string, vendaId: string, tipo: string) {
   return capturar(async () => { await inc.units.reconcile.mutate({ studyId: id(estudoId), saleId: vendaId, kind: tipo }); return unidades(estudoId); });
 }
+
+// ─── Lote 2 · correção 06: estudo sem KML e lotes avulsos ──────────────────
+export function salvarSemKml(estudoId: string, semKml: boolean) {
+  return gravar(() => inc.saveSemKml.mutate({ id: id(estudoId), semKml }));
+}
+export function salvarLotesAvulsos(estudoId: string, dadosJson: string) {
+  return gravar(() => inc.saveLotesAvulsos.mutate({ id: id(estudoId), dataJson: dadosJson }));
+}
+
+// ─── Lote 2 · correção 11: estudos de massa salvos ─────────────────────────
+export type ModoSalvarEstudoMassa = "novo" | "nova_versao" | "atualizar";
+export interface DadosEstudoMassa {
+  modo: ModoSalvarEstudoMassa;
+  id?: string | null;
+  nome: string;
+  parametros: unknown;
+  cenarios: unknown[];
+  cenarioEscolhidoId: string | null;
+  principal?: boolean;
+}
+export function listarEstudosMassa(estudoId: string) {
+  return capturar(() => inc.massStudies.list.query({ studyId: id(estudoId) }));
+}
+export function abrirEstudoMassa(estudoId: string, estudoMassaId: string) {
+  return capturar(() => inc.massStudies.get.query({ studyId: id(estudoId), id: Number(estudoMassaId) }));
+}
+export function salvarEstudoMassa(estudoId: string, d: DadosEstudoMassa) {
+  return capturar(async () => {
+    const r = await inc.massStudies.save.mutate({
+      studyId: id(estudoId), mode: d.modo, id: d.id ? Number(d.id) : undefined, name: d.nome,
+      paramsJson: d.parametros ? JSON.stringify(d.parametros) : null, scenariosJson: JSON.stringify(d.cenarios),
+      selectedScenarioId: d.cenarioEscolhidoId, makePrincipal: !!d.principal,
+    });
+    await recarregar();
+    return r;
+  });
+}
+export function marcarEstudoMassaPrincipal(estudoId: string, estudoMassaId: string) {
+  return capturar(async () => {
+    await inc.massStudies.setPrincipal.mutate({ studyId: id(estudoId), id: Number(estudoMassaId) });
+    await recarregar();
+    return { ok: true as const };
+  });
+}
+export function excluirEstudoMassa(estudoId: string, estudoMassaId: string) {
+  return capturar(async () => {
+    await inc.massStudies.delete.mutate({ studyId: id(estudoId), id: Number(estudoMassaId) });
+    await recarregar();
+    return { ok: true as const };
+  });
+}
+
+export function clientesUnidades(query = "") { return capturar(async () => (await inc.units.clients.query({ query })).map((l) => ({ ...l, id: String(l.id) }))); }
+export function sincronizarUnidades(estudoId: string) { return capturar(() => inc.units.synchronize.mutate({ studyId: id(estudoId) })); }
+export function editarUnidade(estudoId: string, unidadeId: string, d: { status: "disponivel" | "reservada" | "vendida"; comprador: string | null; compradorLeadId: string | null; valor: string | null; revisao: number }) {
+  return capturar(() => inc.units.edit.mutate({ studyId: id(estudoId), unitId: Number(unidadeId), status: d.status, buyer: d.comprador, buyerLeadId: d.compradorLeadId ? Number(d.compradorLeadId) : null, salePrice: d.valor, expectedRevision: d.revisao }));
+}
+export function excluirUnidade(estudoId: string, unidadeId: string) { return capturar(() => inc.units.delete.mutate({ studyId: id(estudoId), unitId: Number(unidadeId) })); }

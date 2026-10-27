@@ -2,6 +2,7 @@ import { useAuth } from "@/_core/hooks/useAuth";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import { NumeroInput } from "@/components/ui/numero-input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -75,7 +76,7 @@ export default function NovaObra() {
               </div>
               <div className="grid gap-4 sm:grid-cols-2">
                 <div className="space-y-2"><Label htmlFor="projectType">Tipo de projeto</Label><Input id="projectType" name="projectType" className="bg-[#111B29] text-white placeholder:text-gray-400" /></div>
-                <div className="space-y-2"><Label htmlFor="totalArea">Área total (m²)</Label><Input id="totalArea" name="totalArea" type="number" min="0.01" step="0.01" className="bg-[#111B29] text-white" /></div>
+                <div className="space-y-2"><Label htmlFor="totalArea">Área total (m²)</Label><NumeroInput id="totalArea" name="totalArea" sufixo="m²" negativo={false} className="bg-[#111B29] text-white" /></div>
                 <div className="space-y-2"><Label htmlFor="startDate">Data de início</Label><Input id="startDate" name="startDate" type="date" className="bg-[#111B29] text-white" /></div>
                 <div className="space-y-2"><Label htmlFor="estimatedEndDate">Previsão de término</Label><Input id="estimatedEndDate" name="estimatedEndDate" type="date" className="bg-[#111B29] text-white" /></div>
               </div>

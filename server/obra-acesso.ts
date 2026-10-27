@@ -2,6 +2,7 @@ import { TRPCError } from "@trpc/server";
 import { eq } from "drizzle-orm";
 import { constructionPhotos, constructionProgressHistory, constructionProjects, obraMovimentos } from "../drizzle/schema.js";
 import { getDb } from "./db.js";
+import { podeUsarModulo } from "./_core/rbac.js";
 
 // Portal do Empreiteiro (pedido de 15/10/2026). O empreiteiro usa o mesmo painel
 // "Editar Obra" do admin, mas só nas obras em que é o empreiteiro vinculado e só
@@ -33,6 +34,20 @@ export const PROCEDIMENTOS_DO_EMPREITEIRO: Readonly<Record<string, Alvo>> = {
   "obraProgresso.vincularPci": "projectId",
   "obraProgresso.desvincularPci": "projectId",
 };
+
+/**
+ * Quem abre Detalhes da Obra (construction.getProjectDetails): o proprietário,
+ * admin/colaborador com Obras ou o empreiteiro vinculado. Lote 02, correção 02:
+ * a galeria por medição em Detalhes usa exatamente esta regra (sem ampliar acesso).
+ */
+export function podeVerDetalhesObra(
+  user: { id: number; role: string; permissions?: string | null; active?: boolean | null },
+  obra: { userId: number | null; contractorUserId: number | null },
+): boolean {
+  if (obra.userId === user.id) return true;
+  if (podeUsarModulo(user, "obras")) return true;
+  return user.role === "empreiteiro" && obra.contractorUserId === user.id;
+}
 
 /** Listas usadas só para exibir nomes nos campos somente leitura do painel. */
 export const LISTAS_DO_EMPREITEIRO = new Set(["obraFinanceiro.listarEmpreiteiros", "obraFinanceiro.listarInvestidores"]);

@@ -34,3 +34,12 @@ describe("VGV simulado no cadastro do lead", () => {
     expect(vi.mocked(db.createLead).mock.calls[0][0]).not.toHaveProperty("approvedValue");
   });
 });
+
+it("valor negociado é independente da simulação e persiste centavos", async () => {
+ await caller().leads.create({name:"Cliente teste",simulationValue:300000,negotiatedValue:231123.45});
+ expect(db.createLead).toHaveBeenCalledWith(expect.objectContaining({simulationValue:"300000.00",negotiatedValue:"231123.45"}));
+});
+it.each([-1, Infinity, NaN, 10_000_000_000_000])("recusa preço comercial inválido %s",async negotiatedValue=>{
+ await expect(caller().leads.create({name:"Cliente teste",negotiatedValue})).rejects.toMatchObject({code:"BAD_REQUEST"});
+ expect(db.createLead).not.toHaveBeenCalled();
+});

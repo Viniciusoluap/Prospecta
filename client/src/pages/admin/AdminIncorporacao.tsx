@@ -45,20 +45,21 @@ function hectares(m2: string | number): string {
 export default function AdminIncorporacao() {
   const [open, setOpen] = useState(false);
   const [status, setStatus] = useState<FiltroSituacao>("todos");
-  const [form, setForm] = useState<{ name: string; city: string; state: string; address: string; responsible: string; incorporationType: Tipo | "" }>({ name: "", city: "", state: "MA", address: "", responsible: "", incorporationType: "" });
+  const [form, setForm] = useState<{ name: string; city: string; state: string; address: string; responsibleUserId: string; incorporationType: Tipo | "" }>({ name: "", city: "", state: "MA", address: "", responsibleUserId: "nenhum", incorporationType: "" });
 
   const { data: estudos = [], isLoading, refetch } = trpc.incorporacao.list.useQuery({
     status: status === "todos" ? undefined : status,
   });
 
   const utils = trpc.useUtils();
+  const { data: equipe = [] } = trpc.incorporacao.staff.useQuery();
   const deleteMutation = trpc.incorporacao.delete.useMutation();
   const createMutation = trpc.incorporacao.create.useMutation({
     onSuccess: () => {
       toast.success("Estudo criado!");
       refetch();
       setOpen(false);
-      setForm({ name: "", city: "", state: "MA", address: "", responsible: "", incorporationType: "" });
+      setForm({ name: "", city: "", state: "MA", address: "", responsibleUserId: "nenhum", incorporationType: "" });
     },
     onError: (e) => toast.error(e.message),
   });
@@ -73,7 +74,7 @@ export default function AdminIncorporacao() {
       city: form.city,
       state: form.state || undefined,
       address: form.address || undefined,
-      responsible: form.responsible || undefined,
+      responsibleUserId: form.responsibleUserId !== "nenhum" ? Number(form.responsibleUserId) : undefined,
       incorporationType: form.incorporationType,
     });
   };
@@ -107,7 +108,7 @@ export default function AdminIncorporacao() {
               </DialogHeader>
               <div className="space-y-4 mt-2">
                 <div>
-                  <Label className="text-gray-300">Nome do estudo *</Label>
+                  <Label className="text-gray-300">Nome do empreendimento *</Label>
                   <Input value={form.name} onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
                     placeholder="Ex.: Loteamento Jardim das Palmeiras"
                     className="bg-[#2C3E50] border-[#C9A961]/30 text-white mt-1" />
@@ -133,9 +134,17 @@ export default function AdminIncorporacao() {
                 </div>
                 <div>
                   <Label className="text-gray-300">Responsável</Label>
-                  <Input value={form.responsible} onChange={(e) => setForm((f) => ({ ...f, responsible: e.target.value }))}
-                    placeholder="Opcional"
-                    className="bg-[#2C3E50] border-[#C9A961]/30 text-white mt-1" />
+                  <Select value={form.responsibleUserId} onValueChange={(v) => setForm((f) => ({ ...f, responsibleUserId: v }))}>
+                    <SelectTrigger className="bg-[#2C3E50] border-[#C9A961]/30 text-white mt-1"><SelectValue placeholder="Opcional" /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="nenhum">Sem responsável definido</SelectItem>
+                      {equipe.filter((u) => u.active).map((u) => (
+                        <SelectItem key={u.id} value={String(u.id)}>
+                          {u.name ?? `Usuário ${u.id}`} — {u.engenheiro ? "Engenheiro" : u.role === "admin" ? "Administrador" : "Colaborador"}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
                 </div>
                 <div>
                   <Label className="text-gray-300">Tipo de incorporação *</Label>

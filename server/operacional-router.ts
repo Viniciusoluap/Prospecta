@@ -28,6 +28,8 @@ import {
 import { calcularComissaoObra } from "../shared/financeiro/comissao.js";
 import { coordenadasDaPci, enderecoCompleto, vgvDaObra as vgvDaObraCompartilhado } from "../shared/obra-localizacao.js";
 import { centavosDe } from "../shared/financeiro/obra.js";
+// Lote 2, correção 04: lista de engenheiros enriquecida com o perfil (CREA).
+import { listarEngenheiros } from "./usuario-documentos.js";
 import { adminProcedure, router } from "./_core/trpc.js";
 import { createNotification, getDb } from "./db.js";
 import { sendEmail } from "./_core/email-smtp.js";
@@ -40,6 +42,7 @@ import {
 } from "../shared/projeto-revisao.js";
 import { attachCompletedProcess } from "./lead-services-router.js";
 import { excluirDefinitivo } from "./exclusao-definitiva.js";
+import { refletirProjetoNoEstudo, removerProcessoDoEstudo, vinculoDoProjeto } from "./projeto-incorporacao-sync.js";
 
 const idInput = z.object({ id: z.number().int().positive() });
 function found<T>(row: T | undefined): T {
@@ -653,12 +656,8 @@ async function resolverEngenheiro(d: z.infer<typeof projectInput>, anterior: str
 
 export const projetosRouter = router({
   options: adminProcedure.query(async () => (await options()).leads),
-  /** Colaboradores (e admins) ativos que podem ser engenheiro responsável. */
-  engenheiros: adminProcedure.query(async () =>
-    getDb().select({ id: users.id, name: users.name, role: users.role }).from(users)
-      .where(and(eq(users.active, true), inArray(users.role, ["colaborador", "admin"])))
-      .orderBy(asc(users.name))
-  ),
+  /** Colaboradores (e admins) ativos que podem ser engenheiro responsável, com o perfil Engenheiro (CREA) quando houver. */
+  engenheiros: adminProcedure.query(async () => listarEngenheiros()),
   list: adminProcedure.query(async () => {
     const [lista, pendentes] = await Promise.all([
       getDb().select().from(projects).orderBy(desc(projects.updatedAt)),
@@ -703,7 +702,7 @@ export const projetosRouter = router({
       const [atual] = await getDb().select({ engineer: projects.engineer }).from(projects).where(eq(projects.id, input.id)).limit(1);
       if (!atual) throw new TRPCError({ code: "NOT_FOUND", message: "Registro não encontrado" });
       const engenheiro = await resolverEngenheiro(input.data, atual.engineer);
-      return found(
+      const salvo = found(
         (
           await getDb()
             .update(projects)
@@ -712,6 +711,9 @@ export const projetosRouter = router({
             .returning()
         )[0]
       );
+      // Correção 07: projeto vindo da Incorporação devolve os dados compartilhados ao processo.
+      await refletirProjetoNoEstudo(salvo.id);
+      return salvo;
     }),
   /** Lote 23/10, etapa 2C: histórico de pedidos de revisão e entregas do projeto. */
   revisoes: adminProcedure
@@ -784,8 +786,11 @@ export const projetosRouter = router({
   delete: adminProcedure
     .input(idInput)
     .mutation(async ({ ctx, input }) => {
+      const vinculo = await vinculoDoProjeto(input.id);
       const { excluido } = await excluirDefinitivo("projeto", input.id, ctx.user);
       if (!excluido) throw new TRPCError({ code: "NOT_FOUND", message: "Registro não encontrado" });
+      // Correção 07: o processo de aprovação correspondente sai do Projeto Aprovado.
+      if (vinculo) await removerProcessoDoEstudo(vinculo);
       return { id: input.id };
     }),
 });

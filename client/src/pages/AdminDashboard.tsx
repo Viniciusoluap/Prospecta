@@ -3,6 +3,8 @@ import { Link } from "wouter";
 import { trpc } from "@/lib/trpc";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { NumeroInput } from "@/components/ui/numero-input";
+import { formatarNumero } from "@shared/numero-mascara";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { commissionBusinessTypeLabel } from "../../../shared/operacional";
 import {
@@ -571,13 +573,14 @@ export default function AdminDashboard() {
             </div>
             <Panel title="Definir meta mensal padrão">
               <div className="flex gap-2 max-w-md">
-                <Input
-                  type="number"
-                  min="0"
-                  placeholder={String(m.goal || 0)}
-                  value={goalDraft}
-                  onChange={e => setGoalDraft(e.target.value)}
+                <NumeroInput
+                  prefixo="R$"
+                  min={0}
+                  placeholder={formatarNumero(m.goal || 0)}
+                  value={goalDraft ? Number(goalDraft) : null}
+                  onChange={v => setGoalDraft(v == null ? "" : String(v))}
                   className="bg-[#101923] border-white/10"
+                  classeContainer="flex-1"
                 />
                 <Button
                   onClick={() => saveGoal.mutate({ value: number(goalDraft) })}

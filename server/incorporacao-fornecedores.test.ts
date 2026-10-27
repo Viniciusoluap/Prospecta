@@ -11,13 +11,13 @@ describe("resumoFornecedoresLancamento", () => {
     expect(r.contratados).toBe(2);
   });
 
-  it("soma o valor total contratado apenas dos contratados/entregues", () => {
+  it("soma o valor total contratado apenas do status contratado", () => {
     const r = resumoFornecedoresLancamento([
       fornecedor({ status: "contratado", valorContratado: 1000 }),
       fornecedor({ status: "entregue", valorContratado: 500 }),
       fornecedor({ status: "orcamento", valorContratado: 9999 }),
     ]);
-    expect(r.valorTotalContratado).toBe(1500);
+    expect(r.valorTotalContratado).toBe(1000);
   });
 });
 
@@ -33,4 +33,19 @@ describe("fornecedoresTodosContratadosDoJson", () => {
     const parcial = JSON.stringify({ fornecedores: [fornecedor({ status: "contratado" }), fornecedor({ status: "orcamento" })] });
     expect(fornecedoresTodosContratadosDoJson(parcial)).toBe(false);
   });
+});
+
+// Lote 2: orçamento inclui todos os status; contrato considera apenas Contratado.
+it("separa orçamento e contrato, preserva valor legado e acompanha edição/exclusão/status", () => {
+  const lista = [
+    fornecedor({ id: "1", status: "contratado", valorOrcado: 2000.25, valorContratado: 1800.50 }),
+    fornecedor({ id: "2", status: "orcamento", valorOrcado: 500.10, valorContratado: 999 }),
+    fornecedor({ id: "3", status: "entregue", valorContratado: 250.20 }),
+  ];
+  expect(resumoFornecedoresLancamento(lista)).toMatchObject({ valorTotalOrcado: 2750.55, valorTotalContratado: 1800.50 });
+  expect(resumoFornecedoresLancamento(lista.slice(1))).toMatchObject({ valorTotalOrcado: 750.30, valorTotalContratado: 0 });
+  lista[1].status = "contratado";
+  lista[1].valorContratado = 450.25;
+  expect(resumoFornecedoresLancamento(lista)).toMatchObject({ valorTotalOrcado: 2750.55, valorTotalContratado: 2250.75 });
+  expect(resumoFornecedoresLancamento([fornecedor({ valorOrcado: Number.NaN, valorContratado: Infinity, status: "contratado" })])).toMatchObject({ valorTotalOrcado: 0, valorTotalContratado: 0 });
 });

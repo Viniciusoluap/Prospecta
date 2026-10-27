@@ -1,4 +1,5 @@
 
+import "./incorporacao-workspace.css";
 import { useEffect, useMemo, useState, useRef, type ReactNode } from "react";
 import { TerrenoTab } from "./terreno-tab";
 import { TopografiaTab } from "./topografia-tab";
@@ -39,6 +40,7 @@ import { orcamentoObraPreenchidoDoJson } from "@shared/incorporacao/orcamento-ob
 import { obraConcluidaDoJson } from "@shared/incorporacao/cronograma-obra";
 import { atendimentoTodosConcluidosDoJson } from "@shared/incorporacao/atendimento-clientes";
 import { UnidadesTab } from "./unidades-tab";
+import { terrenoLiberado } from "@shared/incorporacao/lotes-avulsos";
 
 import type { EstudoData } from "@shared/incorporacao/estudo-data";
 export type { EstudoData };
@@ -92,7 +94,7 @@ const FASES: Fase[] = [
     numero: 2,
     titulo: "Novos Negócios",
     etapas: [
-      { id: "terreno", numero: "2.1", titulo: "Documentos do Terreno", componente: TerrenoTab, concluida: (e) => !!e.geojson },
+      { id: "terreno", numero: "2.1", titulo: "Documentos do Terreno", componente: TerrenoTab, concluida: (e) => !!e.geojson || (!!e.semKml && !!e.lotesAvulsosJson && e.lotesAvulsosJson !== "[]") },
       { id: "topografia", numero: "2.1", titulo: "Topografia 3D", componente: TopografiaTab, concluida: (e) => !!e.elevacaoJson },
       { id: "mercado", numero: "2.2", titulo: "Inteligência de Mercado", componente: MercadoTab, concluida: (e) => !!e.pesquisaCidadeJson || !!e.estudoMercadoJson || !!e.precificacaoComparaveisJson || pesquisaPrimariaPreenchidaDoJson(e.pesquisaPrimariaJson) },
       { id: "massa", numero: "2.3", titulo: "Estudo de Massa e Quadro de Áreas", componente: MassaTab, concluida: (e) => !!e.massaCenariosJson },
@@ -273,7 +275,8 @@ export function IncorporacaoDetail({ estudo, dadosGerais }: { estudo: EstudoData
     alteradoRef.current = true;
     setTimeout(() => setAlterado(true), 0);
   };
-  const temTerreno = !!estudo.geojson;
+  // Correção 06: com KML ou com "não possui KML", as etapas dependentes do terreno ficam liberadas.
+  const temTerreno = terrenoLiberado(estudo);
 
   const progresso = useMemo(() => calcularProgresso(estudo), [estudo]);
 
@@ -285,22 +288,26 @@ export function IncorporacaoDetail({ estudo, dadosGerais }: { estudo: EstudoData
   }, [alterado]);
 
   return (
-    <div>
+    <div className="incorporacao-workspace">
+      <header className="incorporacao-intro flex flex-wrap items-start justify-between gap-3">
+        <div className="min-w-0"><p className="text-[10px] font-bold uppercase tracking-widest text-gray-500">Desenvolvimento imobiliário</p><h2 className="mt-1 break-words text-xl font-black">{estudo.nome}</h2><p className="mt-1 text-sm text-gray-600">{estudo.municipio}/{estudo.estado}{estudo.responsavel ? ` · ${estudo.responsavel}` : ""}</p></div>
+        <span className="rounded-full border border-gray-200 bg-white px-3 py-1.5 text-xs font-bold">{progresso.geral.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}% concluído</span>
+      </header>
       {/* Progresso — auto-computado, sem checklist manual */}
       <div className="bg-white border border-gray-100 p-3 mb-3">
         <div className="flex items-center justify-between mb-2">
           <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">Progresso do estudo</p>
           <p className="text-xs font-black text-[var(--brand-dark)]">{progresso.geral}% concluído</p>
         </div>
-        <div className="flex gap-1.5">
+        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
           {FASES.map((f, i) => {
             const pf = progresso.porFase[i];
             return (
               <div key={f.id} className="flex-1 min-w-0">
-                <div className="h-1.5 bg-gray-100 overflow-hidden">
+                <div className="h-2 rounded-full bg-gray-100 overflow-hidden">
                   <div className="h-full bg-[var(--brand-yellow)] transition-all" style={{ width: `${pf.pct}%` }} />
                 </div>
-                <p className="text-[9px] text-gray-400 mt-1 truncate">{f.numero}. {f.titulo} ({pf.concluidas}/{pf.total})</p>
+                <p className="text-[10px] text-gray-500 mt-2 break-words">{f.numero}. {f.titulo} ({pf.concluidas}/{pf.total})</p>
               </div>
             );
           })}
@@ -355,7 +362,7 @@ export function IncorporacaoDetail({ estudo, dadosGerais }: { estudo: EstudoData
         {visitados.includes("relatorio") && <div hidden={!relatorioAtivo}><RelatorioTab estudo={estudo} /></div>}
       </div>
       {!temTerreno && etapaId !== "terreno" && etapaId !== "dados" && (
-        <p className="text-xs text-gray-500 mt-3">Envie o KML do terreno para habilitar as análises.</p>
+        <p className="text-xs text-gray-500 mt-3">Envie o KML do terreno ou marque &quot;Este empreendimento não possui KML&quot; na aba Terreno para habilitar as análises.</p>
       )}
     </div>
   );

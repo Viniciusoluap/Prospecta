@@ -25,6 +25,13 @@ const TIPOS = [
   { value: "loteamento", label: "Loteamento" },
 ] as const;
 
+const SEM_RESPONSAVEL = "nenhum";
+
+function papelResponsavel(u: { role: string; engenheiro?: boolean; active: boolean }) {
+  const papel = u.engenheiro ? "Engenheiro" : u.role === "admin" ? "Administrador" : "Colaborador";
+  return u.active ? papel : `${papel} (inativo)`;
+}
+
 export default function AdminIncorporacaoDetail() {
   const { id } = useParams<{ id: string }>();
   const utils = trpc.useUtils();
@@ -54,8 +61,9 @@ export default function AdminIncorporacaoDetail() {
     } catch (e) { setErroVersao(e instanceof Error ? e.message : "Falha ao obter a versão"); }
   }
 
-  const [form, setForm] = useState({ name: "", city: "", state: "", address: "", responsible: "", status: "in_study", incorporationType: "",
-    propertyRegistration: "", carRegistration: "", officialZoning: "", zoningSource: "" });
+  // Correção 08: Matrícula, CAR e Zoneamento saíram do formulário (colunas e
+  // relatório preservados); o responsável é escolhido entre os usuários e salvo por ID.
+  const [form, setForm] = useState({ name: "", city: "", state: "", address: "", responsibleUserId: SEM_RESPONSAVEL, status: "in_study", incorporationType: "" });
 
   useEffect(() => {
     if (estudo) {
@@ -64,16 +72,15 @@ export default function AdminIncorporacaoDetail() {
         city: estudo.city ?? "",
         state: estudo.state ?? "",
         address: estudo.address ?? "",
-        responsible: estudo.responsible ?? "",
+        responsibleUserId: estudo.responsibleUserId != null ? String(estudo.responsibleUserId) : SEM_RESPONSAVEL,
         status: STATUS_OPTIONS.some((option) => option.value === estudo.status) ? estudo.status : "",
         incorporationType: estudo.incorporationType ?? "",
-        propertyRegistration: estudo.propertyRegistration ?? "",
-        carRegistration: estudo.carRegistration ?? "",
-        officialZoning: estudo.officialZoning ?? "",
-        zoningSource: estudo.zoningSource ?? "",
       });
     }
   }, [estudo]);
+
+  // Usuários ativos admin/colaborador (+ o responsável atual, mesmo inativo, para não sumir da tela).
+  const opcoesResponsavel = equipe.filter((u) => u.active || (estudo?.responsibleUserId != null && u.id === estudo.responsibleUserId));
 
   const updateMutation = trpc.incorporacao.update.useMutation({
     onSuccess: () => {
@@ -85,6 +92,7 @@ export default function AdminIncorporacaoDetail() {
   });
 
   const handleSave = () => {
+    const responsavelEscolhido = form.responsibleUserId === SEM_RESPONSAVEL ? null : Number(form.responsibleUserId);
     if (!form.status) {
       toast.error("Classifique a situação antiga deste estudo antes de salvar.");
       return;
@@ -95,13 +103,11 @@ export default function AdminIncorporacaoDetail() {
       city: form.city,
       state: form.state || undefined,
       address: form.address || undefined,
-      responsible: form.responsible || undefined,
+      // só envia quando o responsável mudou (estudos antigos mantêm o texto legado
+      // até alguém escolher um usuário; responsável inativo não é revalidado)
+      ...(responsavelEscolhido !== (estudo?.responsibleUserId ?? null) ? { responsibleUserId: responsavelEscolhido } : {}),
       status: form.status as "in_study" | "unfeasible" | "in_progress" | "completed",
       incorporationType: form.incorporationType ? form.incorporationType as (typeof TIPOS)[number]["value"] : undefined,
-      propertyRegistration: form.propertyRegistration.trim() || null,
-      carRegistration: form.carRegistration.trim() || null,
-      officialZoning: form.officialZoning.trim() || null,
-      zoningSource: form.zoningSource.trim() || null,
     });
   };
 
@@ -146,7 +152,7 @@ export default function AdminIncorporacaoDetail() {
           <CardContent className="space-y-4">
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div className="sm:col-span-2">
-                <Label className="text-gray-300">Nome do estudo</Label>
+                <Label className="text-gray-300">Nome do empreendimento</Label>
                 <Input value={form.name} onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
                   className="bg-[#2C3E50] border-[#C9A961]/30 text-white mt-1" />
               </div>
@@ -168,8 +174,18 @@ export default function AdminIncorporacaoDetail() {
               </div>
               <div>
                 <Label className="text-gray-300">Responsável</Label>
-                <Input value={form.responsible} onChange={(e) => setForm((f) => ({ ...f, responsible: e.target.value }))}
-                  className="bg-[#2C3E50] border-[#C9A961]/30 text-white mt-1" />
+                <Select value={form.responsibleUserId} onValueChange={(v) => setForm((f) => ({ ...f, responsibleUserId: v }))}>
+                  <SelectTrigger className="bg-[#2C3E50] border-[#C9A961]/30 text-white mt-1"><SelectValue placeholder="Selecione o responsável" /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value={SEM_RESPONSAVEL}>Sem responsável definido</SelectItem>
+                    {opcoesResponsavel.map((u) => (
+                      <SelectItem key={u.id} value={String(u.id)}>{u.name ?? `Usuário ${u.id}`} — {papelResponsavel(u)}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                {estudo.responsibleUserId == null && estudo.responsible && (
+                  <p className="text-xs text-gray-400 mt-1">Registrado antes como texto: “{estudo.responsible}”. Selecione o usuário correspondente.</p>
+                )}
               </div>
               <div>
                 <Label className="text-gray-300">Situação</Label>
@@ -189,18 +205,6 @@ export default function AdminIncorporacaoDetail() {
                   <SelectContent>{TIPOS.map((tipo) => <SelectItem key={tipo.value} value={tipo.value}>{tipo.label}</SelectItem>)}</SelectContent>
                 </Select>
               </div>
-              {([
-                ["propertyRegistration", "Matrícula do imóvel"],
-                ["carRegistration", "Registro CAR (se aplicável)"],
-                ["officialZoning", "Zoneamento oficial"],
-                ["zoningSource", "Fonte oficial do zoneamento"],
-              ] as const).map(([key, label]) => (
-                <div key={key}>
-                  <Label className="text-gray-300">{label}</Label>
-                  <Input value={form[key]} maxLength={500} onChange={(e) => setForm((f) => ({ ...f, [key]: e.target.value }))}
-                    className="bg-[#2C3E50] border-[#C9A961]/30 text-white mt-1" />
-                </div>
-              ))}
             </div>
             <Button onClick={handleSave} disabled={updateMutation.isPending}
               className="bg-[#C9A961] hover:bg-[#B8985A] text-[#1A2332] font-bold">

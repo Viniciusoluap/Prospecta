@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { ORGAOS_APROVACAO } from "./incorporacao/aprovacao-projeto.js";
 const id = z.number().int().positive();
 const name = z.string().trim().min(2).max(255);
 const money = z.number().finite().min(0).max(9999999999999.99);
@@ -171,6 +172,12 @@ export const projectInput = z
     deadline: z.coerce.date().nullable(),
     leadId: id.nullable(),
     description: notes,
+    // Correção 07: situação de aprovação externa — só vale para projeto vindo da
+    // Incorporação (ver shared/incorporacao/projeto-sincronizacao.ts). Ausente = não altera.
+    approvalAuthority: z.enum(ORGAOS_APROVACAO).nullable().optional(),
+    approvalProtocol: z.string().trim().max(120).nullable().optional(),
+    approvalStatus: z.enum(["nao_protocolado", "protocolado", "em_analise", "exigencia", "aprovado", "indeferido"]).nullable().optional(),
+    approvalNotes: z.string().trim().max(2000).nullable().optional(),
     checklist: z
       .array(
         z.object({ id: z.string().max(100).optional(), type: z.string().max(80).optional(), text: z.string().trim().min(1).max(500), done: z.boolean() })

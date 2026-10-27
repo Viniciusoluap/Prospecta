@@ -9,6 +9,7 @@ import {
 import type { ModoRelevo } from "./viewer-3d";
 import type { EstudoData } from "./incorporacao-detail";
 import type { Feature, Polygon } from "geojson";
+import { AVISO_SEM_POLIGONAL } from "@shared/incorporacao/lotes-avulsos";
 
 const Viewer3D = dynamic(() => import("./viewer-3d").then((m) => m.Viewer3D), {
   ssr: false,
@@ -84,8 +85,11 @@ export function TopografiaTab({ estudo }: { estudo: EstudoData }) {
 
   return (
     <div className="space-y-4">
+      {!estudo.geojson && (
+        <p className="text-xs text-amber-800 bg-amber-50 border border-amber-200 px-3 py-2">{AVISO_SEM_POLIGONAL}</p>
+      )}
       <div className="bg-white border border-gray-100 p-4 flex items-center gap-3 flex-wrap">
-        <button onClick={gerar} disabled={busy}
+        <button onClick={gerar} disabled={busy || !estudo.geojson}
           className="flex items-center gap-1.5 text-xs font-bold px-4 py-2 bg-[var(--brand-dark)] text-[var(--brand-yellow)] hover:opacity-90 disabled:opacity-50">
           {busy ? <Loader2 size={14} className="animate-spin" /> : <Mountain size={14} />}
           {busy ? "Processando relevo..." : grid ? "Regenerar topografia 3D" : "Gerar topografia 3D real"}
