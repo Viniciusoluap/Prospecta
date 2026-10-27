@@ -17,9 +17,11 @@ export async function previaLimpezaConta(contaId: number): Promise<PreviaLimpeza
     SELECT a.id AS "contaId", concat_ws(' · ', a.banco, nullif(a.conta, '')) AS "contaRotulo",
       count(DISTINCT t.id)::int AS transacoes,
       count(DISTINCT l.id) FILTER (WHERE l.id IS NOT NULL AND l.asaas_payment_id IS NULL
+        AND l.origem_efetiva = 'extrato' AND l.vinculo_operacional_id IS NULL
         AND NOT EXISTS (SELECT 1 FROM obra_movimentos om WHERE om.bpo_lancamento_id = l.id)
         AND NOT EXISTS (SELECT 1 FROM regularizacao_recebimentos rr WHERE rr.bpo_lancamento_id = l.id))::int AS "lancamentosRemovidos",
       count(DISTINCT l.id) FILTER (WHERE l.id IS NOT NULL AND (l.asaas_payment_id IS NOT NULL
+        OR l.origem_efetiva <> 'extrato' OR l.vinculo_operacional_id IS NOT NULL
         OR EXISTS (SELECT 1 FROM obra_movimentos om WHERE om.bpo_lancamento_id = l.id)
         OR EXISTS (SELECT 1 FROM regularizacao_recebimentos rr WHERE rr.bpo_lancamento_id = l.id)))::int AS "lancamentosPreservados",
       count(DISTINCT l.id) FILTER (WHERE l.id IS NOT NULL AND (
@@ -53,7 +55,7 @@ export async function limparContaComBackup(contaId: number, confirmarRotulo: str
       SELECT t.* FROM bank_transactions t JOIN conta a ON a.id = t.account_id
     ), lancamentos AS (
       SELECT l.*,
-        (l.asaas_payment_id IS NOT NULL
+        (l.asaas_payment_id IS NOT NULL OR l.origem_efetiva <> 'extrato' OR l.vinculo_operacional_id IS NOT NULL
           OR EXISTS (SELECT 1 FROM obra_movimentos om WHERE om.bpo_lancamento_id = l.id)
           OR EXISTS (SELECT 1 FROM regularizacao_recebimentos rr WHERE rr.bpo_lancamento_id = l.id)) AS preservar
       FROM bpo_lancamentos l JOIN movimentos t ON t.id = l.bank_transaction_id
@@ -74,7 +76,7 @@ export async function limparContaComBackup(contaId: number, confirmarRotulo: str
       FROM conta a RETURNING id
     ), preservados AS (
       UPDATE bpo_lancamentos l SET bank_transaction_id = NULL,
-        origem_efetiva = CASE WHEN l.asaas_payment_id IS NOT NULL THEN 'asaas' ELSE 'operacional' END,
+        origem_efetiva = CASE WHEN l.asaas_payment_id IS NOT NULL THEN 'asaas' ELSE l.origem_efetiva END,
         updated_at = now(), version = version + 1
       WHERE l.id IN (SELECT id FROM lancamentos WHERE preservar)
       RETURNING l.id
@@ -99,6 +101,8 @@ export type EdicaoLancamento = {
   id: number; version: number; motivo: string; descricao: string; valor: number;
   categoria: string; clienteId?: number | null; clienteNomeLivre?: string | null;
   vencimento: Date; competencia: string; centroCustos?: string | null; observacoes?: string | null;
+  categoriaOperacional?: string | null; vinculoOperacionalId?: string | null; vinculoOperacionalRotulo?: string | null;
+  tipoDespesaObra?: string | null; etapaObra?: string | null;
 };
 
 export async function editarLancamentoAuditavel(input: EdicaoLancamento, userId: number) {
@@ -110,7 +114,10 @@ export async function editarLancamentoAuditavel(input: EdicaoLancamento, userId:
         descricao = ${input.descricao}, valor = ${input.valor.toFixed(2)}, categoria = ${input.categoria},
         cliente_id = ${input.clienteId ?? null}, cliente_nome_livre = ${input.clienteId ? null : input.clienteNomeLivre ?? null},
         vencimento = ${input.vencimento}, competencia = ${input.competencia}, centro_custos = ${input.centroCustos ?? null},
-        observacoes = ${input.observacoes ?? null}, version = l.version + 1, updated_at = now()
+        observacoes = ${input.observacoes ?? null}, version = l.version + 1, updated_at = now(),
+        categoria_operacional = ${input.categoriaOperacional ?? null}, vinculo_operacional_id = ${input.vinculoOperacionalId ?? null},
+        vinculo_operacional_rotulo = ${input.vinculoOperacionalRotulo ?? null},
+        tipo_despesa_obra = ${input.tipoDespesaObra ?? null}, etapa_obra = ${input.etapaObra ?? null}
       FROM anterior a WHERE l.id = a.id RETURNING l.*
     ), auditoria AS (
       INSERT INTO bpo_lancamento_historico

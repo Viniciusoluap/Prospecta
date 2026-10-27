@@ -104,7 +104,7 @@ export default function AdminWhatsApp() {
     { enabled: usaVariaveis && selectedLeads.length > 0 && mensagem.trim().length > 0, placeholderData: keepPreviousData },
   );
   // Campos que aparecem: o que falta no cadastro de algum destinatário (documentos de 1 destinatário tem checklist próprio).
-  const campos = Array.from(new Set((previa.data ?? []).flatMap((p) => p.semCampoGeral ?? []))).filter((v) => !(v === "documentos" && unico !== null));
+  const campos = Array.from(new Set([...(previa.data ?? []).flatMap((p) => p.semCampoGeral ?? []), ...variaveis.filter(v => v === "dia" || v === "horario")])).filter((v) => !(v === "documentos" && unico !== null) && v !== "servico" && v !== "servicos");
   const camposVazios = campos.filter((v) => !(extrasEnvio[v] ?? "").trim());
   const docsUnicoVazio = usaDocumentos && unico !== null && docsUnico?.leadId === unico && !textoDocumentosMarcados(docsUnico.marcados, docsUnico.livre);
   const bloqueado = camposVazios.length > 0 || docsUnicoVazio || (usaServicos && !servicosSelecionados.length);

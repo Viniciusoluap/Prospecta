@@ -145,6 +145,7 @@ export function lerOfx(texto: string): ResultadoLeitura {
     const titular = memo && nome && !nomeEhTipo ? nome : extrairTitular(memo || nome) ?? (memo && nome && sem(memo) !== sem(nome) ? extrairTitular(nome) : null);
     const l = linha(dataIso(campo(bloco, "DTPOSTED")), memo || nome, assinado, {
       titular,
+      identificadorBancario: campo(bloco, "FITID"),
       original: [nome, memo].filter((x, i, a) => x && a.findIndex(y => sem(y) === sem(x)) === i).join(" | "),
     });
     if (l) linhas.push(l); else ignoradas++;

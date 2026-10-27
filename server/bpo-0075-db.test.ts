@@ -70,6 +70,7 @@ beforeEach(async () => {
   await pg.exec(sqlDe("0077_banco_identificador_pluggy_v2.sql"));
   await pg.exec(sqlDe("0080_bpo_vinculos_operacionais.sql"));
   await pg.exec(sqlDe("0081_bpo_exclusao_edicao_auditavel.sql"));
+  await pg.exec(sqlDe("0082_bpo_request_key.sql"));
   db = drizzle(pg);
   vi.mocked(getDb).mockReturnValue(db as never);
   await pg.exec("INSERT INTO bank_accounts (banco, provedor) VALUES ('Cora', 'manual'), ('Asaas', 'asaas')");
@@ -97,6 +98,13 @@ describe("migração 0075", () => {
 });
 
 describe("item 10 — cadastro de cliente BPO", () => {
+  it("importação CRM reutiliza cliente livre por documento e preserva honorários", async () => {
+    await pg.exec("INSERT INTO leads(name,phone,cpf) VALUES('Ana CRM','11999','123.456.789-00'); INSERT INTO bpo_clients(razao_social,cpf,responsavel,telefone,honorarios,data_inicio) VALUES('Ana livre','12345678900','Ana','11999',750,now())");
+    const r = await admin().clientes.importarCrm();
+    expect(r).toMatchObject({ inseridos: 0, atualizados: 1 });
+    expect((await linhas("SELECT lead_id, honorarios::text FROM bpo_clients"))[0]).toEqual({ lead_id: 1, honorarios: "750.00" });
+    expect(await admin().clientes.importarCrm()).toMatchObject({ inseridos: 0, atualizados: 0, inalterados: 1 });
+  });
   it("o caso que falhava: só o nome (sem honorários, responsável, telefone e data de início) agora cadastra", async () => {
     const c = await admin().clientes.create({ razaoSocial: "Fornecedor Areia Boa" });
     expect(c).toMatchObject({ razaoSocial: "Fornecedor Areia Boa", responsavel: "Fornecedor Areia Boa", telefone: "", honorarios: "0.00", diaVencimento: 10, leadId: null });
@@ -128,6 +136,22 @@ describe("item 10 — cadastro de cliente BPO", () => {
 });
 
 describe("item 11 — + Lançamento", () => {
+  it("retry conserva a mesma cobrança e uma nova chave permite outra parcela", async () => {
+    await pg.exec(`CREATE TABLE construction_projects(id serial primary key,title text,lead_id int);
+      CREATE TABLE operational_commissions(id serial primary key,property text);
+      CREATE TABLE operational_projects(id serial primary key,name text,client_name text);
+      CREATE TABLE avaliacoes(id serial primary key,numero text,cliente_nome text);
+      CREATE TABLE imoveis(id serial primary key,titulo text);
+      CREATE TABLE incorporation_studies(id serial primary key,name text);
+      CREATE TABLE financiamentos(id serial primary key,cliente_nome text);
+      CREATE TABLE tasks(id serial primary key,title text);
+      INSERT INTO construction_projects(title) VALUES('Obra teste');`);
+    const entrada = { requestKey: "d72942db-3366-4334-ae04-70b83aa7f7c1", tipo: "cobranca" as const, descricao: "Parcela", valor: 100, vencimento: "2026-10-10", competencia: "2026-10", categoria: "Recebimento de cliente" as const, categoriaOperacional: "obras", vinculoOperacionalId: "1" };
+    const primeiro = await admin().lancamentos.create(entrada);
+    expect((await admin().lancamentos.create(entrada)).id).toBe(primeiro.id);
+    expect((await admin().lancamentos.create({ ...entrada, requestKey: "d72942db-3366-4334-ae04-70b83aa7f7c2" })).id).not.toBe(primeiro.id);
+    expect((await linhas("select count(*)::int n from bpo_lancamentos"))[0]).toEqual({ n: 2 });
+  });
   it("exige categoria e vínculo operacional reais antes de gravar", async () => {
     const base = { descricao: "Medição", valor: 100, vencimento: "2026-10-10", competencia: "2026-10" };
     await expect(admin().lancamentos.create({ ...base, tipo: "cobranca", categoria: "Recebimento de cliente", clienteNomeLivre: "Fulano" } as never)).rejects.toThrow();

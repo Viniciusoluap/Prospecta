@@ -36,6 +36,10 @@ export function categoriaOperacionalValida(tipo: "cobranca" | "despesa", categor
   return (permitidas as readonly string[]).includes(categoria);
 }
 
+export function catalogoDaCategoria(tipo: "cobranca" | "despesa", categoria: string) {
+  return tipo === "despesa" && categoria === "comissoes" ? "imoveis" : categoria;
+}
+
 export function validarDetalhesOperacionais(input: {
   tipo: "cobranca" | "despesa";
   categoriaOperacional: string;

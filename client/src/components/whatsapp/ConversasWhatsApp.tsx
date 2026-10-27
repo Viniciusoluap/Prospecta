@@ -1,7 +1,7 @@
 // Pedido de 25/10: Conversas do WhatsApp — ver respostas dos clientes e continuar a conversa pelo sistema.
 import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
-import { Download, RefreshCw, Send, Trash2, UserPlus } from "lucide-react";
+import { ArrowLeft, Download, RefreshCw, Send, Trash2, UserPlus, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { trpc } from "@/lib/trpc";
@@ -52,9 +52,15 @@ function MidiaMensagem({ id, midia }: { id: number; midia: Midia }) {
   if (midia.tipo === "audio") return <audio controls preload="none" src={url} className="mb-1 max-w-full" />;
   if (midia.tipo === "video") return <video controls preload="metadata" src={url} className="mb-1 max-h-64 max-w-full rounded" />;
   return (
-    <a href={url} download={midia.nome ?? undefined} className="mb-1 inline-flex items-center gap-1 text-xs underline">
-      <Download className="h-3 w-3" /> {midia.nome ?? "Baixar documento"}
-    </a>
+    <>
+      <button type="button" onClick={() => setGrande(true)} className="mb-1 inline-flex items-center gap-1 text-xs underline"><Download className="h-3 w-3" />{midia.nome ?? "Abrir documento"}</button>
+      {grande && <div role="dialog" aria-modal="true" aria-label="Visualizador de documento" className="fixed inset-0 z-50 flex flex-col bg-black/80 p-3 sm:p-6">
+        <div className="flex items-center justify-between bg-[#1A2332] p-3 text-white"><button type="button" onClick={() => setGrande(false)} className="inline-flex items-center gap-2 text-sm font-bold"><ArrowLeft size={16}/>Voltar à conversa</button><button type="button" aria-label="Fechar documento" onClick={() => setGrande(false)}><X size={18}/></button></div>
+        {midia.mime === "application/pdf" || midia.nome?.toLowerCase().endsWith(".pdf")
+          ? <iframe src={url} title={midia.nome ?? "Documento PDF"} className="min-h-0 flex-1 bg-white" />
+          : <div className="bg-white p-5 text-gray-900"><p>Este tipo de arquivo deve ser aberto no aplicativo compatível.</p><a href={url} target="_blank" rel="noopener noreferrer" download={midia.nome ?? undefined} className="mt-3 inline-block underline">Baixar ou abrir arquivo em outra aba</a></div>}
+      </div>}
+    </>
   );
 }
 

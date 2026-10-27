@@ -1195,6 +1195,7 @@ export const bpoLancamentos = pgTable("bpo_lancamentos", {
   asaasPaymentId: varchar("asaas_payment_id", { length: 60 }).unique(),
   observacoes: text("observacoes"),
   origemEfetiva: varchar("origem_efetiva", { length: 30 }).default("manual").notNull(),
+  requestKey: varchar("request_key", { length: 80 }).unique(),
   version: integer("version").default(1).notNull(),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),

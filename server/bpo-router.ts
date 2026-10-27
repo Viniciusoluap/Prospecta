@@ -24,6 +24,7 @@ import { aplicarClassificacaoEmLote, lancamentosComTitular } from "./bpo-extrato
 import {
   CATEGORIAS_DESPESA_OPERACIONAL, CATEGORIAS_RECEITA_OPERACIONAL,
   validarDetalhesOperacionais,
+  catalogoDaCategoria,
 } from "../shared/financeiro/bpo-operacional.js";
 import { SERVICOS_PROGRESSO } from "../shared/financeiro/progresso.js";
 import { editarLancamentoAuditavel } from "./bpo-auditoria.js";
@@ -156,6 +157,7 @@ export async function catalogoVinculosOperacionais() {
 }
 
 export const lancamentoBpoSchema = z.object({
+  requestKey: z.string().uuid(),
   // Item 11: Cobrança grava o tipo "receita" (o mesmo das entradas do extrato).
   tipo: z.enum(["cobranca", "despesa"]),
   categoria: z.enum(CATEGORIAS_MANUAIS, { message: "Escolha a categoria." }),
@@ -203,20 +205,26 @@ export const bpoRouter = router({
       await tx.execute(sql`select pg_advisory_xact_lock(hashtext('bpo_importar_clientes_crm'))`);
       const [crm, existentes] = await Promise.all([
         tx.select({ id: leads.id, name: leads.name, phone: leads.phone, email: leads.email, cpf: leads.cpf }).from(leads).where(isNull(leads.deletedAt)),
-        tx.select().from(bpoClients).where(isNotNull(bpoClients.leadId)),
+        tx.select().from(bpoClients),
       ]);
       const porLead = new Map(existentes.map(c => [c.leadId!, c]));
       let inseridos = 0, atualizados = 0, inalterados = 0;
       for (const lead of crm) {
-        const atual = porLead.get(lead.id);
+        const documento = (lead.cpf ?? "").replace(/\D/g, "");
+        const candidatos = documento.length >= 11 ? existentes.filter(c => (c.cpf ?? c.cnpj ?? "").replace(/\D/g, "") === documento) : [];
+        if (!porLead.has(lead.id) && candidatos.length > 1) throw new TRPCError({ code: "CONFLICT", message: "Há cadastros BPO duplicados com o mesmo documento. Revise-os antes de importar." });
+        if (!porLead.has(lead.id) && candidatos[0]?.leadId && candidatos[0].leadId !== lead.id) throw new TRPCError({ code: "CONFLICT", message: "O documento do CRM já pertence a outro cliente importado. Revise os cadastros duplicados no CRM." });
+        const atual = porLead.get(lead.id) ?? candidatos[0];
         if (!atual) {
-          await tx.insert(bpoClients).values(montarClienteBpo({ servicos: [] }, lead));
+          const [novo] = await tx.insert(bpoClients).values(montarClienteBpo({ servicos: [] }, lead)).returning();
+          existentes.push(novo);
           inseridos++;
           continue;
         }
-        const dados = { razaoSocial: lead.name, cpf: lead.cpf || null, email: lead.email || null, telefone: lead.phone || "", updatedAt: new Date() };
-        if (atual.razaoSocial !== dados.razaoSocial || atual.cpf !== dados.cpf || atual.email !== dados.email || atual.telefone !== dados.telefone) {
+        const dados = { leadId: lead.id, razaoSocial: lead.name, cpf: lead.cpf || null, email: lead.email || null, telefone: lead.phone || "", updatedAt: new Date() };
+        if (atual.leadId !== lead.id || atual.razaoSocial !== dados.razaoSocial || atual.cpf !== dados.cpf || atual.email !== dados.email || atual.telefone !== dados.telefone) {
           await tx.update(bpoClients).set(dados).where(eq(bpoClients.id, atual.id)); atualizados++;
+          atual.leadId = lead.id;
         } else inalterados++;
       }
       return { elegiveis: crm.length, inseridos, atualizados, inalterados };
@@ -243,7 +251,7 @@ export const bpoRouter = router({
       try { validarDetalhesOperacionais(input); }
       catch (e) { throw new TRPCError({ code: "BAD_REQUEST", message: e instanceof Error ? e.message : "Vínculo operacional inválido." }); }
       const catalogo = await catalogoVinculosOperacionais();
-      const opcoes = catalogo[input.categoriaOperacional as keyof typeof catalogo];
+      const opcoes = catalogo[catalogoDaCategoria(input.tipo, input.categoriaOperacional) as keyof typeof catalogo];
       const vinculo = Array.isArray(opcoes) ? (opcoes as VinculoOperacional[]).find(o => o.id === input.vinculoOperacionalId) : null;
       if (!vinculo) throw new TRPCError({ code: "NOT_FOUND", message: "Registro operacional não encontrado." });
       if (input.clienteId) {
@@ -265,8 +273,12 @@ export const bpoRouter = router({
         vinculoOperacionalRotulo: vinculo.rotulo,
         tipoDespesaObra: input.tipoDespesaObra || null,
         etapaObra: input.etapaObra || null,
-      }).returning();
-      return criado;
+        requestKey: input.requestKey,
+      }).onConflictDoNothing({ target: bpoLancamentos.requestKey }).returning();
+      if (criado) return criado;
+      const [anterior] = await db.getDb().select().from(bpoLancamentos).where(eq(bpoLancamentos.requestKey, input.requestKey)).limit(1);
+      if (!anterior || anterior.valor !== input.valor.toFixed(2) || anterior.descricao !== input.descricao || anterior.vinculoOperacionalId !== input.vinculoOperacionalId) throw new TRPCError({ code: "CONFLICT", message: "Chave de envio já utilizada para outro lançamento." });
+      return anterior;
     }),
 
     marcarPago: adminProcedure.input(z.object({ id: z.number() })).mutation(async ({ input }) => {
@@ -280,7 +292,22 @@ export const bpoRouter = router({
       clienteId: z.number().int().positive().nullable().optional(), clienteNomeLivre: texto(255),
       vencimento: z.union([z.string(), z.date()]), competencia: z.string().regex(/^\d{4}-\d{2}$/),
       centroCustos: texto(100), observacoes: z.string().max(5000).optional().nullable(),
-    })).mutation(async ({ input, ctx }) => editarLancamentoAuditavel({ ...input, vencimento: new Date(input.vencimento) }, ctx.user.id)),
+      categoriaOperacional: texto(40), vinculoOperacionalId: texto(80), tipoDespesaObra: texto(30), etapaObra: texto(80),
+    })).mutation(async ({ input, ctx }) => {
+      const [antes] = await db.getDb().select().from(bpoLancamentos).where(eq(bpoLancamentos.id, input.id)).limit(1);
+      if (!antes) throw new TRPCError({ code: "NOT_FOUND" });
+      let rotulo: string | null = null;
+      if (input.categoriaOperacional) {
+        const tipo = antes.tipo === "despesa" ? "despesa" : "cobranca";
+        validarDetalhesOperacionais({ ...input, tipo, categoriaOperacional: input.categoriaOperacional });
+        const catalogo = await catalogoVinculosOperacionais();
+        const opcoes = catalogo[catalogoDaCategoria(tipo, input.categoriaOperacional) as keyof typeof catalogo] as VinculoOperacional[];
+        const registro = opcoes?.find(o => o.id === input.vinculoOperacionalId);
+        if (!registro) throw new TRPCError({ code: "BAD_REQUEST", message: "Registro operacional não encontrado." });
+        rotulo = registro.rotulo;
+      } else if (input.vinculoOperacionalId) throw new TRPCError({ code: "BAD_REQUEST", message: "Selecione a categoria operacional." });
+      return editarLancamentoAuditavel({ ...input, vinculoOperacionalRotulo: rotulo, vencimento: new Date(input.vencimento) }, ctx.user.id);
+    }),
   }),
 
   // LOTE C (25/10): inclui os lançamentos gerados pelo extrato bancário (transferência
