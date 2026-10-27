@@ -1,5 +1,14 @@
 # HANDOFF 26/10 — AIOX, 16 correções
 
+## Publicação remota confirmada — 27/10/2026
+
+- Branch: `codex/aiox-16-correcoes-20261026`.
+- Checkpoint publicado: `2fc4649b75b2934a1f9f014117e4acc7f9080888`.
+- HEAD local de origem preservado: `82f0d938d3e68bd91d46162e1b0ea22463f6f063`.
+- Publicação por conector GitHub em commit consolidado; a árvore remota foi comparada com a árvore local e é idêntica (`1196c2874cb68a4e075a0ada1106d9886190482b`).
+- Todos os arquivos e Handoffs pendentes deste HEAD estão protegidos no GitHub. Os hashes dos commits locais originais não foram reescritos.
+- Este checkpoint não representa merge, aplicação de migrações nem deploy. Pendências de validação permanecem registradas abaixo.
+
 ## Identificação
 
 - Repositório: `Viniciusoluap/Prospecta`
