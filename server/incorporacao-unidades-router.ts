@@ -1,11 +1,13 @@
 import { TRPCError } from "@trpc/server";
-import { eq, sql } from "drizzle-orm";
+import { and, eq, isNull, ilike, sql } from "drizzle-orm";
 import { z } from "zod";
-import { incorporationStudies, incorporationUnits, incorporationUnitEvents } from "../drizzle/schema.js";
+import { incorporationStudies, incorporationUnits, incorporationUnitEvents, leads } from "../drizzle/schema.js";
 import { chaveUnidade, vendasLegadas } from "../shared/incorporacao/unidades.js";
 import { requireModule } from "./_core/rbac.js";
 import { protectedProcedure, router } from "./_core/trpc.js";
 import { getDb } from "./db.js";
+
+import { sincronizarUnidadesCenario } from "./incorporacao-unidades-cenario.js";
 
 const studyId = z.number().int().positive();
 const price = z.string().regex(/^\d{1,13}(\.\d{1,2})?$/).refine((v) => Number(v) > 0);
@@ -14,7 +16,6 @@ async function study(id: number) {
   const [record] = await getDb().select({ id: incorporationStudies.id, type: incorporationStudies.incorporationType, legacy: incorporationStudies.realEstateLaunchJson })
     .from(incorporationStudies).where(eq(incorporationStudies.id, id));
   if (!record) throw new TRPCError({ code: "NOT_FOUND" });
-  if (record.type !== "desmembramento_simples") throw new TRPCError({ code: "BAD_REQUEST", message: "Inventário exclusivo de Desmembramento Simples" });
   return record;
 }
 
@@ -31,10 +32,57 @@ async function pendingLegacy(id: number) {
 function conflict(): never { throw new TRPCError({ code: "CONFLICT", message: "Estado da unidade alterado por outra operação. Atualize a lista." }); }
 
 export const incorporationUnitsRouter = router({
+  clients: protectedProcedure.input(z.object({ query: z.string().max(120).optional() }).optional()).query(async ({ ctx, input }) => {
+    requireModule(ctx, "incorporacao"); requireModule(ctx, "crm");
+    return getDb().select({ id: leads.id, nome: leads.name, telefone: leads.phone }).from(leads)
+      .where(and(isNull(leads.deletedAt), input?.query ? ilike(leads.name, `%${input.query}%`) : undefined)).orderBy(leads.name).limit(200);
+  }),
+  synchronize: protectedProcedure.input(z.object({ studyId })).mutation(async ({ ctx, input }) => {
+    requireModule(ctx, "incorporacao"); await study(input.studyId);
+    return sincronizarUnidadesCenario(input.studyId, ctx.user.id);
+  }),
+  edit: protectedProcedure.input(z.object({ studyId, unitId: studyId, status: z.enum(["disponivel", "reservada", "vendida"]), buyer: z.string().trim().max(255).nullable(), buyerLeadId: studyId.nullable(), salePrice: price.nullable(), expectedAt: z.string().datetime() })).mutation(async ({ ctx, input }) => {
+    requireModule(ctx, "incorporacao"); await study(input.studyId);
+    let buyer = input.buyer;
+    if (input.buyerLeadId) {
+      requireModule(ctx, "crm");
+      const [l] = await getDb().select({ name: leads.name }).from(leads).where(and(eq(leads.id, input.buyerLeadId), isNull(leads.deletedAt)));
+      if (!l) throw new TRPCError({ code: "BAD_REQUEST", message: "Cliente do CRM não encontrado." });
+      buyer = l.name;
+    }
+    if (input.status === "vendida" && (!buyer || !input.salePrice)) throw new TRPCError({ code: "BAD_REQUEST", message: "Informe comprador e valor para vender." });
+    const r = await getDb().execute(sql`WITH anterior AS MATERIALIZED (
+      SELECT * FROM incorporation_units WHERE id = ${input.unitId} AND study_id = ${input.studyId} AND deleted_at IS NULL
+        AND date_trunc('milliseconds', updated_at) = ${input.expectedAt}::timestamptz
+        AND (status <> 'vendida' OR ${input.status} = 'vendida') FOR UPDATE
+    ), changed AS (
+      UPDATE incorporation_units u SET status = ${input.status}, buyer = ${buyer}, buyer_lead_id = ${input.buyerLeadId},
+        sale_price = ${input.salePrice}::numeric, updated_at = now() FROM anterior a WHERE u.id = a.id RETURNING u.id
+    ), audit AS (
+      INSERT INTO incorporation_unit_events(unit_id, previous_status, next_status, buyer, sale_price, performed_by_user_id)
+      SELECT c.id, a.status, ${input.status}, ${buyer}, ${input.salePrice}::numeric, ${ctx.user.id} FROM changed c JOIN anterior a ON a.id = c.id RETURNING id
+    ) SELECT id FROM audit`);
+    if (!r.rows.length) throw new TRPCError({ code: "CONFLICT", message: "Atualize a unidade. Vendas concluídas só permitem corrigir comprador e valor, preservando o vínculo comercial." });
+    return { success: true };
+  }),
+  delete: protectedProcedure.input(z.object({ studyId, unitId: studyId })).mutation(async ({ ctx, input }) => {
+    requireModule(ctx, "incorporacao"); await study(input.studyId);
+    const r = await getDb().execute(sql`WITH changed AS (
+      UPDATE incorporation_units u SET deleted_at = now(), updated_at = now() WHERE id = ${input.unitId} AND study_id = ${input.studyId}
+      AND deleted_at IS NULL AND status = 'disponivel'
+      AND NOT EXISTS (SELECT 1 FROM incorporation_unit_events e WHERE e.unit_id = u.id AND e.next_status IN ('vendida', 'reservada'))
+      RETURNING id, status
+    ), audit AS (
+      INSERT INTO incorporation_unit_events(unit_id, previous_status, next_status, performed_by_user_id)
+      SELECT id, status, 'excluida', ${ctx.user.id} FROM changed RETURNING id
+    ) SELECT id FROM audit`);
+    if (!r.rows.length) throw new TRPCError({ code: "PRECONDITION_FAILED", message: "Exclusão bloqueada: há reserva, venda ou histórico comercial. Revise os vínculos antes de excluir." });
+    return { success: true };
+  }),
   list: protectedProcedure.input(z.object({ studyId })).query(async ({ ctx, input }) => {
     requireModule(ctx, "incorporacao");
     const [units, legacy] = await Promise.all([
-      getDb().select().from(incorporationUnits).where(eq(incorporationUnits.studyId, input.studyId)).orderBy(incorporationUnits.code),
+      getDb().select().from(incorporationUnits).where(and(eq(incorporationUnits.studyId, input.studyId), isNull(incorporationUnits.deletedAt))).orderBy(incorporationUnits.code),
       pendingLegacy(input.studyId),
     ]);
     return { units, legacyPending: legacy.pending, legacyInvalid: legacy.invalido };
@@ -63,7 +111,7 @@ export const incorporationUnitsRouter = router({
     const rows = await getDb().execute(sql`WITH changed AS (
       UPDATE incorporation_units SET status = ${next}, buyer = ${input.action === "vender" ? input.buyer!.trim() : null},
         sale_price = ${input.action === "vender" ? input.salePrice! : null}, updated_at = now()
-      WHERE id = ${input.unitId} AND study_id = ${input.studyId} AND status IN (${sql.join(expected.map((v) => sql`${v}`), sql`, `)})
+      WHERE id = ${input.unitId} AND study_id = ${input.studyId} AND deleted_at IS NULL AND status IN (${sql.join(expected.map((v) => sql`${v}`), sql`, `)})
       RETURNING id, status, buyer, sale_price
     ), audit AS (
       INSERT INTO incorporation_unit_events (unit_id, previous_status, next_status, buyer, sale_price, performed_by_user_id)

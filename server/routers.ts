@@ -1,3 +1,4 @@
+import { referenciasAtendimento, vincularAtendimento } from "../shared/incorporacao/atendimento-clientes.js";
 import { COOKIE_NAME } from "../shared/const.js";
 import { getSessionCookieOptions } from "./_core/cookies.js";
 import { systemRouter } from "./_core/systemRouter.js";
@@ -3072,8 +3073,18 @@ export const appRouter = router({
       .input(z.object({ id: z.number(), dataJson: z.string().min(1) }))
       .mutation(async ({ input, ctx }) => {
         requireModule(ctx, "incorporacao");
+        const refs = referenciasAtendimento(input.dataJson);
+        if (refs.clientes.length) requireModule(ctx, "crm");
+        const { incorporationUnits: unitsTable, leads: leadsTable } = await import("../drizzle/schema.js");
+        const { and: andWhere, eq: eqWhere, isNull: nullWhere, inArray: inWhere } = await import("drizzle-orm");
+        const banco = (await import("./db.js")).getDb();
+        const [clientes, unidades] = await Promise.all([
+          refs.clientes.length ? banco.select({ id: leadsTable.id, nome: leadsTable.name }).from(leadsTable).where(andWhere(inWhere(leadsTable.id, refs.clientes.map(Number)), nullWhere(leadsTable.deletedAt))) : Promise.resolve([]),
+          refs.unidades.length ? banco.select({ id: unitsTable.id, codigo: unitsTable.code }).from(unitsTable).where(andWhere(eqWhere(unitsTable.studyId, input.id), inWhere(unitsTable.id, refs.unidades.map(Number)), nullWhere(unitsTable.deletedAt))) : Promise.resolve([]),
+        ]);
+        const json = vincularAtendimento(input.dataJson, clientes.map((c) => ({ ...c, id: String(c.id) })), unidades.map((u) => ({ ...u, id: String(u.id) })));
         await db.updateIncorporationStudy(input.id, {
-          customerServiceJson: input.dataJson,
+          customerServiceJson: json,
         });
         return { success: true };
       }),

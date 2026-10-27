@@ -9,6 +9,7 @@ import { calcularMix, type ItemMixProduto } from "@shared/incorporacao/viabilida
 import { salvarLancamentoImobiliario } from "./compat/acoes";
 import { formatCurrency } from "./compat/util";
 import { NumeroBRField } from "./compat/numero-br-field";
+import { UnidadesTab } from "./unidades-tab";
 import type { EstudoData } from "./incorporacao-detail";
 
 // Lançamento Imobiliário (4.4 Lançamento, Marketing e Vendas) — painel do
@@ -42,7 +43,7 @@ function projecaoDoMix(estudo: EstudoData): { totalUnidades: number | null; vgv:
 const inputCls = "w-full text-sm border border-gray-200 px-2 py-1.5 focus:outline-none focus:border-[var(--brand-yellow)]";
 const numCls = "w-full text-sm border border-gray-200 px-2 py-1.5 text-right focus:outline-none focus:border-[var(--brand-yellow)]";
 
-export function LancamentoImobiliarioTab({ estudo }: { estudo: EstudoData }) {
+function LancamentoLegadoTab({ estudo }: { estudo: EstudoData }) {
   const [dados, setDados] = useState<Dados>(() => {
     if (estudo.lancamentoImobiliarioJson) {
       try {
@@ -152,3 +153,6 @@ function Kpi({ label, valor, destaque }: { label: string; valor: string; destaqu
     </div>
   );
 }
+
+/** Inventário único: histórico do lançamento é conciliado sem apagar o JSON original. */
+export function LancamentoImobiliarioTab({ estudo }: { estudo: EstudoData }) { return <UnidadesTab estudoId={estudo.id} />; }

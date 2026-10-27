@@ -1,3 +1,4 @@
+import { sincronizarUnidadesCenario } from "./incorporacao-unidades-cenario.js";
 // Estudos de massa salvos (Lote 2, correção 11 · AD-04).
 //
 // Cada estudo salvo é uma linha própria (nome, versão, parâmetros, cenários,
@@ -232,13 +233,14 @@ export const incorporationMassStudiesRouter = router({
         massId = nova.id;
       } catch (err) { conflitoVersao(err); }
     }
-    if (principal) await marcarPrincipal(input.studyId, massId);
+    if (principal) { await marcarPrincipal(input.studyId, massId); await sincronizarUnidadesCenario(input.studyId, ctx.user.id); }
     return paraEstudoSalvo(await linha(input.studyId, massId), false);
   }),
 
   setPrincipal: protectedProcedure.input(z.object({ studyId: id, id })).mutation(async ({ ctx, input }) => {
     requireModule(ctx, "incorporacao");
     await marcarPrincipal(input.studyId, input.id);
+    await sincronizarUnidadesCenario(input.studyId, ctx.user.id);
     return { success: true };
   }),
 
