@@ -31,4 +31,4 @@ Concluir a verificação de navegação autenticada e responsividade, mantendo s
 O diagnóstico de integração apresenta contagem e destinos sanitizados quando não há correspondência. Tokens, credenciais, query e fragmentos não são devolvidos. Reconhecimento de destino legado exige nome exato e host permitido e rejeita ambiguidades; a recuperação continua limitada ao endpoint canônico.
 (a) Automáticas: 33 testes focados (diagnóstico e permissões) e TypeScript aprovados. Revisão aprovada; diff check limpo.
 (b) Manuais: verificação do complemento na versão publicada ainda pendente.
-(c) Publicação do complemento: preparar PR, acompanhar checks e confirmar produção antes de concluir o aceite. A publicação anterior de Regularizações permanece concluída.
+(c) Publicação do complemento: PR #178 mergeado, commit 28bff0a95c74fe59858e547986825e0c35afdc3d. Build de produção READY e domínio oficial associado. A publicação anterior de Regularizações permanece concluída. Próximo passo: verificar o diagnóstico administrativo autenticado, preservando a distinção entre teste da interface, configuração e entrega efetiva de eventos.
