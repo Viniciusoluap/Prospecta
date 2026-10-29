@@ -67,7 +67,10 @@ describe("Integrações — status mascarado", () => {
       const caller = createIntegracoesRouter(deps).createCaller(ctx(role));
       await expect(caller.status()).rejects.toMatchObject({ code: "FORBIDDEN" });
       await expect(caller.salvarPluggy({ clientId: "a", clientSecret: "b" })).rejects.toMatchObject({ code: "FORBIDDEN" });
+      await expect(caller.verificarWebhookAsaas()).rejects.toMatchObject({ code: "FORBIDDEN" });
+      await expect(caller.recuperarWebhookAsaas()).rejects.toMatchObject({ code: "FORBIDDEN" });
     }
+    expect(deps.fetchImpl).not.toHaveBeenCalled();
   });
 });
 
