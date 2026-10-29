@@ -8,7 +8,7 @@ import { sql, type SQL } from "drizzle-orm";
 import {
   caminhoEquipe, caminhoFotosObra, caminhoGeradorPci, caminhoImovel, caminhoMedicoesObra, caminhoModelosPci, caminhoOrcamentoEstudo,
   caminhoWhatsappCliente, caminhoWhatsappSemCliente, nomeArquivo, nomeDocumentoEquipe, nomeFotoImovel, nomeFotoObra, nomeMidiaWhatsapp,
-  nomeModeloPci, nomePciGerada, nomePlanilhaOrcamento, ROTULO_DOCUMENTO, type EntidadeDrive, type PastaAlvo,
+  nomeModeloPci, nomePciGerada, nomePlanilhaOrcamento, ROTULO_DOCUMENTO, type EntidadeRegistro, type PastaAlvo,
 } from "../shared/drive-estrutura.js";
 import { MIME_MODELO_PCI, type FormatoModeloPci } from "../shared/pci-gerador.js";
 import { getDb } from "./db.js";
@@ -427,7 +427,8 @@ export const fontePorTipo = (tipo: string) => FONTES_ARQUIVOS.find((f) => f.tipo
 
 // ─── Registros existentes e arquivos em uso ──────────────────────────────────
 
-const TABELA_ENTIDADE: Record<EntidadeDrive, string> = {
+const TABELA_ENTIDADE: Record<EntidadeRegistro, string> = {
+  projeto: "operational_projects", // portfólio de projeto sem lead (cliente:projeto-<id>)
   cliente: "leads", // lead apenas arquivado (deleted_at) continua existindo: não é órfão
   obra: "construction_projects",
   incorporacao: "incorporation_studies",
@@ -436,7 +437,7 @@ const TABELA_ENTIDADE: Record<EntidadeDrive, string> = {
 };
 
 /** Quais destes ids ainda existem no banco. */
-export async function registrosExistentes(entidade: EntidadeDrive, ids: number[]): Promise<Set<number>> {
+export async function registrosExistentes(entidade: EntidadeRegistro, ids: number[]): Promise<Set<number>> {
   if (!ids.length) return new Set();
   const lista = sql.join(ids.map((id) => sql`${id}`), sql`, `);
   const rows = await linhas<{ id: number }>(sql`SELECT id FROM ${sql.raw(TABELA_ENTIDADE[entidade])} WHERE id IN (${lista})`);
@@ -458,4 +459,27 @@ export async function arquivosEmUso(ids: string[]): Promise<Set<string>> {
   const partes = COLUNAS_DRIVE.map(([t, c]) => sql`SELECT ${sql.raw(c)}::text AS id FROM ${sql.raw(t)} WHERE ${sql.raw(c)} IN (${lista})`);
   const rows = await linhas<{ id: string }>(sql.join(partes, sql` UNION `));
   return new Set(rows.map((r) => String(r.id)));
+}
+
+/**
+ * Onde um arquivo ainda usado deve ficar agora (documento de outro lead — cópia
+ * do "Duplicar lead" — ou mídia de WhatsApp que perdeu o lead). Usado antes de
+ * mandar a pasta de um lead excluído para a lixeira.
+ */
+export async function destinoAtualDoArquivo(driveFileId: string): Promise<DestinoDrive | null> {
+  const [doc] = await linhas(sql`SELECT id, lead_id, service_id, type, file_name, mime_type, uploaded_at, created_at FROM lead_documents
+    WHERE drive_file_id = ${driveFileId} ORDER BY deleted_at NULLS FIRST, id LIMIT 1`);
+  if (doc) return destinoDocLead(doc)();
+  const [midia] = await linhas(consultaMidias(sql`m.drive_file_id = ${driveFileId}`, 1));
+  if (midia) return destinoMidia(midia);
+  return null;
+}
+
+/** Arquivos no Drive ligados ao lead (documentos e mídias de WhatsApp) — lidos antes da exclusão. */
+export async function arquivosDoLead(leadId: number): Promise<string[]> {
+  const rows = await linhas<{ id: string }>(sql`
+    SELECT drive_file_id AS id FROM lead_documents WHERE lead_id = ${leadId} AND drive_file_id IS NOT NULL
+    UNION SELECT m.drive_file_id FROM whatsapp_midias m JOIN whatsapp_messages w ON w.id = m.message_id
+      WHERE w.lead_id = ${leadId} AND m.drive_file_id IS NOT NULL`);
+  return rows.map((r) => String(r.id));
 }

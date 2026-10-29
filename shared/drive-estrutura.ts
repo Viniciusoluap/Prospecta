@@ -358,3 +358,23 @@ export function idDaChaveEntidade(entidade: EntidadeDrive, chave: string | null 
   const m = new RegExp(`^${entidade}:(\\d{1,9})$`).exec(chave ?? "");
   return m ? Number(m[1]) : null;
 }
+
+/** Registro dono de uma pasta de entidade; "projeto" = portfólio sem lead (`cliente:projeto-<id>`). */
+export type EntidadeRegistro = EntidadeDrive | "projeto";
+
+/** Etiqueta da pasta de portfólio do projeto (server/drive-documents.ts → iniciarUploadProjetoDrive). */
+export const chaveProjetoPortfolio = (id: string | number) => `projeto-${id}`;
+
+/**
+ * "cliente:19" → { cliente, 19 }; "cliente:projeto-5" → { projeto, 5 }; "obra:7" → { obra, 7 }…
+ * Subpastas ("cliente:19:atendimento") e etiquetas desconhecidas → null (nunca tocadas).
+ */
+export function entidadeDaChave(chave: string | null | undefined): { entidade: EntidadeRegistro; id: number } | null {
+  const projeto = /^cliente:projeto-(\d{1,9})$/.exec(chave ?? "");
+  if (projeto) return { entidade: "projeto", id: Number(projeto[1]) };
+  for (const { entidade } of CATEGORIAS_ENTIDADE) {
+    const id = idDaChaveEntidade(entidade, chave);
+    if (id !== null) return { entidade, id };
+  }
+  return null;
+}

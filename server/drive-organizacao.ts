@@ -11,8 +11,8 @@
 // processa em lotes; a próxima continua de onde parou (cursor em drive_sync_state).
 // Nada de exclusão permanente: só lixeira do Drive (recuperável por 30 dias).
 import { sql } from "drizzle-orm";
-import { CATEGORIAS_ENTIDADE, chaveEntidade, idDaChaveEntidade, type EntidadeDrive } from "../shared/drive-estrutura.js";
-import { arquivosEmUso, FONTES_ARQUIVOS, planilhaImportada, registrosExistentes, type DestinoDrive, type FonteArquivos } from "./drive-arquivos.js";
+import { CATEGORIAS_ENTIDADE, chaveEntidade, chaveProjetoPortfolio, entidadeDaChave, type EntidadeDrive, type EntidadeRegistro } from "../shared/drive-estrutura.js";
+import { arquivosDoLead, arquivosEmUso, destinoAtualDoArquivo, FONTES_ARQUIVOS, planilhaImportada, registrosExistentes, type DestinoDrive, type FonteArquivos } from "./drive-arquivos.js";
 import {
   arquivoNaPastaPorPrefixo, arquivosNaPasta, driveConfigured, lixeiraPorId, moverArquivoParaDestino, pastaPorChave, subpastasDaCategoria,
   uploadArquivoNoCaminho, type CachePastas,
@@ -37,6 +37,8 @@ export interface RelatorioOrganizacao {
   /** true quando tudo foi percorrido dentro do prazo; false = a próxima execução continua. */
   concluido: boolean;
   motivo: string | null;
+  /** Proteção acionada (ex.: órfãs demais numa página) — nada foi apagado. */
+  aviso: string | null;
 }
 
 export interface CursorOrganizacao {
@@ -56,7 +58,7 @@ export interface DependenciasOrganizador {
   arquivosNaPasta(pastaId: string): Promise<string[]>;
   pastaPorChave(chave: string): Promise<{ id: string } | null>;
   emUso(ids: string[]): Promise<Set<string>>;
-  existentes(entidade: EntidadeDrive, ids: number[]): Promise<Set<number>>;
+  existentes(entidade: EntidadeRegistro, ids: number[]): Promise<Set<number>>;
   lixeira(id: string): Promise<void>;
   fila: { listar(limite: number): Promise<ItemFila[]>; remover(id: number): Promise<void>; falhou(id: number): Promise<void> };
   estado: { ler(): Promise<CursorOrganizacao>; gravar(cursor: CursorOrganizacao, relatorio: RelatorioOrganizacao): Promise<void> };
@@ -102,7 +104,7 @@ export async function organizarDrive(deps: DependenciasOrganizador, opcoes: Opco
   const temTempo = () => deps.agora() - inicio < prazoMs;
   const r: RelatorioOrganizacao = {
     iniciadoEm: new Date(inicio).toISOString(), terminadoEm: "", enviados: 0, reconhecidos: 0, movidos: 0, ignorados: 0,
-    pastasOrfasNaLixeira: 0, pastasAguardando: 0, arquivosNaLixeira: 0, falhas: 0, concluido: false, motivo: null,
+    pastasOrfasNaLixeira: 0, pastasAguardando: 0, arquivosNaLixeira: 0, falhas: 0, concluido: false, motivo: null, aviso: null,
   };
   const fim = () => ({ ...r, terminadoEm: new Date(deps.agora()).toISOString() });
 
@@ -201,13 +203,26 @@ export async function organizarDrive(deps: DependenciasOrganizador, opcoes: Opco
     if (!cat) { orfaosCompleto = true; o.categoria = 0; o.pagina = null; break; }
     try {
       const { pastas, proximaPagina } = await deps.subpastas(cat.chaveCategoria, o.pagina);
+      // Só pastas de entidade com etiqueta; em Clientes também o portfólio de projeto sem lead.
       const comId = pastas.flatMap((p) => {
-        const id = idDaChaveEntidade(cat.entidade, p.chave);
-        return id === null ? [] : [{ pasta: p.id, id }];
+        const e = entidadeDaChave(p.chave);
+        return e && (e.entidade === cat.entidade || (cat.entidade === "cliente" && e.entidade === "projeto")) ? [{ pasta: p.id, ...e }] : [];
       });
-      const existem = await deps.existentes(cat.entidade, comId.map((p) => p.id));
+      const orfas: typeof comId = [];
+      for (const entidade of Array.from(new Set(comId.map((p) => p.entidade)))) {
+        const doTipo = comId.filter((p) => p.entidade === entidade);
+        const existem = await deps.existentes(entidade, doTipo.map((p) => p.id));
+        orfas.push(...doTipo.filter((p) => !existem.has(p.id)));
+      }
+      // Proteção (mesma regra do Santa Fé): muitas "órfãs" de uma vez indicam banco errado/vazio — não apaga nada.
+      if (orfas.length > 25 && orfas.length * 2 > comId.length) {
+        r.aviso = `Organização das pastas suspensa: ${orfas.length} de ${comId.length} pastas em "${cat.chaveCategoria}" parecem sem registro no banco. Nada foi apagado; confira a conexão do banco e do Drive.`;
+        if (proximaPagina) o.pagina = proximaPagina;
+        else { o.categoria += 1; o.pagina = null; }
+        continue;
+      }
       let paginaInteira = true;
-      for (const p of comId.filter((x) => !existem.has(x.id))) {
+      for (const p of orfas) {
         if (!temTempo() || orfasNestaExecucao >= maxOrfas) { paginaInteira = false; break; }
         try {
           if ((await lixeiraPastaSegura(deps, p.pasta)) === "lixeira") { r.pastasOrfasNaLixeira += 1; orfasNestaExecucao += 1; }
@@ -316,14 +331,65 @@ export async function ultimaOrganizacaoDrive(): Promise<{ relatorio: RelatorioOr
  * com arquivo ainda em uso → fila, e o organizador resolve.
  */
 export async function lixeiraDaEntidade(entidade: EntidadeDrive, id: number, deps: DependenciasOrganizador = dependenciasReais()): Promise<void> {
-  const chave = chaveEntidade(entidade, id);
+  await lixeiraDaChave(chaveEntidade(entidade, id), deps);
+}
+
+/** Pedido de 29/10: projeto excluído → pasta de portfólio `projeto-<id>` para a lixeira. */
+export async function lixeiraDoProjeto(id: number, deps: DependenciasOrganizador = dependenciasReais()): Promise<void> {
+  await lixeiraDaChave(chaveProjetoPortfolio(id), deps);
+}
+
+async function lixeiraDaChave(chave: string, deps: DependenciasOrganizador): Promise<void> {
   try {
     if (!(await deps.configurado())) return;
     if ((await lixeiraPorChave(deps, chave)) === "em_uso") await enfileirarLixeira("pasta", chave);
   } catch (e) {
-    console.error(`[drive] pasta (${entidade}) não foi para a lixeira agora; fica pendente:`, mensagem(e));
+    console.error("[drive] pasta não foi para a lixeira agora; fica pendente:", mensagem(e));
     await enfileirarLixeira("pasta", chave);
   }
+}
+
+/** Arquivos do lead no Drive, lidos ANTES da exclusão definitiva (depois os vínculos somem). */
+export async function arquivosDoLeadNoDrive(leadId: number): Promise<string[]> {
+  try { return await arquivosDoLead(leadId); } catch { return []; }
+}
+
+/**
+ * Lead excluído definitivamente: antes de mandar Clientes/<Nome (nº id)> para a
+ * lixeira, tira de dentro dela o que ainda é usado (documento compartilhado com
+ * lead duplicado, mídia de WhatsApp que fica na caixa sem o lead). Se algo não
+ * puder ser movido, a pasta fica para o sincronizador (fila). Nunca lança.
+ */
+export async function lixeiraDoLead(
+  leadId: number, arquivos: string[], deps: DependenciasOrganizador = dependenciasReais(),
+  destinoDe: (driveFileId: string) => Promise<DestinoDrive | null> = destinoAtualDoArquivo,
+): Promise<void> {
+  const chave = chaveEntidade("cliente", leadId);
+  try {
+    if (!(await deps.configurado())) return;
+    const emUso = arquivos.length ? await deps.emUso(arquivos) : new Set<string>();
+    const cache: CachePastas = new Map();
+    let pendente = false;
+    for (const id of Array.from(emUso)) {
+      const destino = await destinoDe(id);
+      if (!destino || (await deps.mover(id, destino, cache)) === "falha") pendente = true;
+    }
+    if (pendente) { await enfileirarLixeira("pasta", chave); return; }
+    await lixeiraDaChave(chave, deps);
+  } catch (e) {
+    console.error("[drive] pasta do lead não foi para a lixeira agora; fica pendente:", mensagem(e));
+    await enfileirarLixeira("pasta", chave);
+  }
+}
+
+/**
+ * Fim do cron diário (/api/cron/lead-card-due): organiza o Drive com o tempo que
+ * sobra (no máximo 45 s, sem passar de ~50 s desde o início da requisição).
+ */
+export async function organizarDriveNoCron(inicioRequisicao: number): Promise<RelatorioOrganizacao | { emAndamento: true } | { pulado: true }> {
+  const prazoMs = Math.min(45_000, 50_000 - (Date.now() - inicioRequisicao));
+  if (prazoMs < 5_000) return { pulado: true };
+  return organizarDriveAgora({ prazoMs });
 }
 
 /** Arquivo individual para a lixeira, se nenhum outro registro usa o mesmo arquivo. Nunca lança. */
