@@ -34,6 +34,9 @@ beforeAll(async () => {
   // Aplica duas vezes: migração idempotente.
   await pg.exec(readFileSync(new URL("../drizzle/0087_pci_gerador.sql", import.meta.url), "utf8"));
   await pg.exec(readFileSync(new URL("../drizzle/0087_pci_gerador.sql", import.meta.url), "utf8"));
+  // Lote 03: exclusão lógica, relatório de compatibilidade e auditoria (idempotente).
+  await pg.exec(readFileSync(new URL("../drizzle/0096_pci_lote3.sql", import.meta.url), "utf8"));
+  await pg.exec(readFileSync(new URL("../drizzle/0096_pci_lote3.sql", import.meta.url), "utf8"));
   vi.spyOn(banco, "getDb").mockReturnValue(drizzle(pg) as never);
 });
 afterAll(() => pg.close());
@@ -97,7 +100,8 @@ it("sem modelo .xls/.xlsm atual: gerar pede o modelo certo", async () => {
   await pg.exec("UPDATE pci_models SET format = 'xlsb'");
   const caller = pciGeradorRouter.createCaller(ctx);
   expect((await caller.obter({ projectId: 11 })).avisoModelo).toMatch(/\.xlsb/);
-  await expect(caller.gerar({ projectId: 11, formulario: {} })).rejects.toThrow(/\.xls ou \.xlsm/);
+  // Lote 03, correção 10: sem versão .xls compatível, bloqueia pedindo a .xls (nunca gera xlsm/renomeia).
+  await expect(caller.gerar({ projectId: 11, formulario: {} })).rejects.toThrow(/Envie a versão \.xls do modelo oficial/);
   await pg.exec("UPDATE pci_models SET is_current = false");
-  await expect(caller.gerar({ projectId: 11, formulario: {} })).rejects.toThrow(/Sub PCI atual/);
+  await expect(caller.gerar({ projectId: 11, formulario: {} })).rejects.toThrow(/PCI da CAIXA/);
 });

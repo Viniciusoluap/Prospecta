@@ -19,8 +19,10 @@ import {
   SECOES_PCI,
   SERVICOS_CUSTO_PCI,
   SERVICO_OUTROS_PCI,
+  analisarCronogramaPci,
   aplicarEngenheiroPci,
   calcularTotaisPci,
+  errosPci,
   numeroPci,
   pendenciasPci,
   type CampoPci,
@@ -37,7 +39,19 @@ type Engenheiro = { id: string; nome: string | null; email: string | null; telef
 function Campo({ campo, valor, onChange }: { campo: CampoPci; valor: string | number | null; onChange: (v: string | number | null) => void }) {
   const id = `pci-${campo.id}`;
   let controle;
-  if (campo.tipo === "numero" || campo.tipo === "inteiro") {
+  if (campo.tipo === "lista") {
+    // Lote 03, correção 07: lista do modelo oficial — grava a opção exata, mostra sem espaços nas pontas.
+    const opcoes = campo.opcoes ?? [];
+    const foraDaLista = valor !== null && valor !== "" && !opcoes.includes(String(valor));
+    controle = (
+      <select id={id} value={valor === null ? "" : String(valor)} onChange={(e) => onChange(e.target.value || null)} aria-invalid={foraDaLista || undefined}
+        className={`w-full rounded-md border px-3 py-2 text-sm ${campoCls} ${foraDaLista ? "border-red-400" : ""}`}>
+        <option value="">— selecione —</option>
+        {foraDaLista && <option value={String(valor)} disabled>{String(valor)} (fora da lista oficial)</option>}
+        {opcoes.map((o) => <option key={o} value={o}>{o.trim()}</option>)}
+      </select>
+    );
+  } else if (campo.tipo === "numero" || campo.tipo === "inteiro") {
     controle = <NumeroInput id={id} value={numeroPci(valor)} onChange={onChange} casas={campo.tipo === "inteiro" ? 0 : 2} negativo={false} className={campoCls} />;
   } else if (campo.tipo === "data") {
     controle = <Input id={id} type="date" value={typeof valor === "string" ? valor : ""} onChange={(e) => onChange(e.target.value || null)} className={campoCls} />;
@@ -86,6 +100,9 @@ export function GeradorPciAba({ projectId }: { projectId: number }) {
 
   const totais = useMemo(() => (form ? calcularTotaisPci(form) : null), [form]);
   const pendencias = useMemo(() => (form ? pendenciasPci(form) : []), [form]);
+  // Lote 03, correção 06: validação do cronograma durante a digitação (o servidor valida de novo).
+  const cronograma = useMemo(() => (form ? analisarCronogramaPci(form) : null), [form]);
+  const erros = useMemo(() => (form ? errosPci(form, { paraGerar: false }) : []), [form]);
 
   if (consulta.isLoading || (!form && !consulta.error)) return <p role="status" className="text-slate-100">Carregando o Gerador de PCI…</p>;
   if (consulta.error || !consulta.data || !form) return <div role="alert" className="text-slate-100">{consulta.error?.message ?? "Erro ao carregar."} <button type="button" className="underline" onClick={() => consulta.refetch()}>Tentar novamente</button></div>;
@@ -136,7 +153,7 @@ export function GeradorPciAba({ projectId }: { projectId: number }) {
     finally { setBaixando(null); }
   }
 
-  const secaoCampos = (secao: SecaoPci) => CAMPOS_PCI.filter((c) => c.secao === secao).map((c) => <Campo key={c.id} campo={c} valor={form.campos[c.id] ?? null} onChange={(v) => setCampo(c.id, v)} />);
+  const secaoCampos = (secao: SecaoPci) => CAMPOS_PCI.filter((c) => c.secao === secao && (!c.visivel || c.visivel(form.campos))).map((c) => <Campo key={c.id} campo={c} valor={form.campos[c.id] ?? null} onChange={(v) => setCampo(c.id, v)} />);
   const podeGerar = !!d.modelo && d.modelo.formato !== "xlsb";
 
   return (
@@ -162,6 +179,12 @@ export function GeradorPciAba({ projectId }: { projectId: number }) {
         </div>
       </div>
       {d.avisoModelo && <p role="alert" className="flex items-start gap-2 rounded-md border border-yellow-500/40 bg-yellow-500/10 p-2 text-sm text-yellow-100"><AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" /> {d.avisoModelo}</p>}
+      {erros.length > 0 && (
+        <div role="alert" className="rounded-md border border-red-500/40 bg-red-500/10 p-2 text-sm text-red-100">
+          <p className="font-semibold">Corrija antes de salvar ou gerar:</p>
+          <ul className="ml-5 mt-1 list-disc">{erros.map((p) => <li key={p}>{p}</li>)}</ul>
+        </div>
+      )}
       {pendencias.length > 0 && (
         <details className="rounded-md border border-yellow-500/30 bg-yellow-500/5 p-2 text-sm text-yellow-100">
           <summary className="cursor-pointer">{pendencias.length} pendência(s) para conferir antes de enviar à CAIXA (não impedem gerar)</summary>
@@ -209,14 +232,30 @@ export function GeradorPciAba({ projectId }: { projectId: number }) {
             {s.id === "cronograma" && (
               <div className="sm:col-span-2">
                 {prazo < 1 ? <p className="text-sm text-gray-300">Informe o prazo (meses) para montar o cronograma.</p> : (
-                  <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
-                    {Array.from({ length: prazo }, (_, k) => (
-                      <div key={k}>
-                        <label className="mb-1 block text-xs text-gray-300" htmlFor={`pci-etapa-${k}`}>Etapa {k + 1} — % acumulado</label>
-                        <NumeroInput id={`pci-etapa-${k}`} value={form.cronograma[k] ?? null} negativo={false} max={100} sufixo="%" className={campoCls}
-                          onChange={(v) => { const c = Array.from({ length: prazo }, (_, j) => form.cronograma[j] ?? null); c[k] = v; setForm({ ...form, cronograma: c }); }} />
-                      </div>
-                    ))}
+                  <div className="overflow-x-auto">
+                    <p className="mb-2 text-xs text-gray-300">Informe o % ACUMULADO da obra ao fim de cada etapa (0,00 a 100,00, sem diminuir; a última etapa termina em 100,00). A etapa 0 é o pré-executado. O incremental é a diferença entre etapas consecutivas.</p>
+                    <table className="w-full text-sm">
+                      <thead><tr className="text-left text-gray-400"><th className="p-1">Etapa</th><th className="p-1">% acumulado proposto</th><th className="p-1 text-right">% da etapa (incremental)</th><th className="p-1">Validação</th></tr></thead>
+                      <tbody>
+                        <tr className="border-t border-white/10"><td className="p-1">0</td><td className="p-1">{brl(cronograma?.etapa0 ?? 0)}% (pré-executado)</td><td className="p-1 text-right">{brl(cronograma?.etapa0 ?? 0)}</td><td /></tr>
+                        {Array.from({ length: prazo }, (_, k) => {
+                          const problemas = [...(cronograma?.erros.filter((e) => e.etapa === k + 1).map((e) => ({ m: e.mensagem, erro: e.tipo === "valor" })) ?? []), ...(cronograma?.avisos.filter((a) => a.etapa === k + 1).map((a) => ({ m: a.mensagem, erro: false })) ?? [])];
+                          const inc = cronograma?.incrementais[k] ?? null;
+                          return (
+                            <tr key={k} className="border-t border-white/10 align-top">
+                              <td className="p-1"><label htmlFor={`pci-etapa-${k}`}>{k + 1}</label></td>
+                              <td className="p-1 min-w-[130px]">
+                                <NumeroInput id={`pci-etapa-${k}`} value={form.cronograma[k] ?? null} negativo={false} casas={2} pontoDecimal sufixo="%" aria-invalid={problemas.some((p) => p.erro) || undefined}
+                                  className={`${campoCls} ${problemas.some((p) => p.erro) ? "border-red-400" : ""}`}
+                                  onChange={(v) => { const c = Array.from({ length: prazo }, (_, j) => form.cronograma[j] ?? null); c[k] = v; setForm({ ...form, cronograma: c }); }} />
+                              </td>
+                              <td className="p-1 text-right">{inc === null ? "—" : brl(inc)}</td>
+                              <td className="p-1 text-xs">{problemas.map((p) => <span key={p.m} className={`block ${p.erro ? "text-red-300" : "text-yellow-200"}`}>{p.m}</span>)}</td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
                   </div>
                 )}
               </div>

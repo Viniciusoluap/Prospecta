@@ -637,6 +637,23 @@ export const pciModels = pgTable("pci_models", {
   notes: text("notes"),
   uploadedBy: integer("uploaded_by").references((): AnyPgColumn => users.id, { onDelete: "set null" }),
   uploadedAt: timestamp("uploaded_at").defaultNow().notNull(),
+  // Lote 03 (migração 0096): exclusão lógica, relatório de compatibilidade e confirmação de mudança crítica.
+  deletedAt: timestamp("deleted_at"),
+  deletedBy: integer("deleted_by").references((): AnyPgColumn => users.id, { onDelete: "set null" }),
+  compatReport: jsonb("compat_report"),
+  awaitingConfirmation: boolean("awaiting_confirmation").default(false).notNull(),
+  confirmedBy: integer("confirmed_by").references((): AnyPgColumn => users.id, { onDelete: "set null" }),
+  confirmedAt: timestamp("confirmed_at"),
+});
+
+/** Lote 03 (migração 0096): auditoria das operações com o modelo oficial da PCI. */
+export const pciModelAudit = pgTable("pci_model_audit", {
+  id: serial("id").primaryKey(),
+  modelId: integer("model_id").notNull().references(() => pciModels.id, { onDelete: "cascade" }),
+  action: varchar("action", { length: 30 }).notNull(),
+  userId: integer("user_id").references((): AnyPgColumn => users.id, { onDelete: "set null" }),
+  details: jsonb("details"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 
 export const pciGeneratorDrafts = pgTable("pci_generator_drafts", {

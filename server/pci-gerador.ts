@@ -13,10 +13,12 @@ import { z } from "zod";
 import { constructionProjects, leads } from "../drizzle/schema.js";
 import {
   LIMITE_MODELO_PCI_BYTES,
+  MENSAGEM_SAIDA_XLS_PCI,
   MENSAGEM_XLSB_SO_LEITURA,
   MIME_MODELO_PCI,
   formatoModeloPci,
   nomeArquivoPciGerada,
+  errosPci,
   normalizarFormularioPci,
   pendenciasPci,
   preencherPciAutomatico,
@@ -30,6 +32,7 @@ import { vgvDaObra } from "../shared/obra-localizacao.js";
 import { getTokenFromRequest, verifySessionToken } from "./_core/auth-utils.js";
 import { adminProcedure, canAccessAdminProcedure, router } from "./_core/trpc.js";
 import { gerarPdfPci, gerarPlanilhaPci, lerFormularioPci, validarModeloPci } from "./caixa/pci-gerador.js";
+import { compararEstruturasPci, lerEstruturaModeloPci, xlsCompativelCom, type EstruturaModeloPci, type RelatorioCompatibilidadePci } from "./caixa/pci-modelo-estrutura.js";
 import { getDb, getUserById } from "./db.js";
 import { obterLocalizacaoObra } from "./obra-localizacao.js";
 import { listarEngenheiros } from "./usuario-documentos.js";
@@ -48,53 +51,149 @@ export const podeUsarGeradorPci = (u: { role: string; permissions?: string | nul
 export type ModeloPciResumo = {
   id: number; versao: number; arquivo: string; formato: FormatoModeloPci; tamanho: number; atual: boolean;
   enviadoEm: Date; autor: string | null; observacao: string | null;
+  /** Lote 03, correção 10: versão com mudança crítica aguardando confirmação do admin. */
+  aguardandoConfirmacao: boolean;
+  relatorio: RelatorioCompatibilidadePci | null;
+  /** Lote 03, correção 09b: quantas PCIs geradas usam esta versão. */
+  pcisGeradas: number;
 };
 
+/** Versões não excluídas (a exclusão é lógica: o arquivo fica para as PCIs já geradas). */
 export async function listarModelosPci(): Promise<ModeloPciResumo[]> {
   const r = await getDb().execute(sql`
-    SELECT m.id, m.version, m.file_name, m.format, m.size_bytes, m.is_current, m.uploaded_at, m.notes, u.name AS autor
-    FROM pci_models m LEFT JOIN users u ON u.id = m.uploaded_by ORDER BY m.version DESC`);
-  return linhas<{ id: number; version: number; file_name: string; format: FormatoModeloPci; size_bytes: number; is_current: boolean; uploaded_at: string | Date; notes: string | null; autor: string | null }>(r)
-    .map((l) => ({ id: l.id, versao: l.version, arquivo: l.file_name, formato: l.format, tamanho: l.size_bytes, atual: l.is_current, enviadoEm: new Date(l.uploaded_at), autor: l.autor, observacao: l.notes }));
+    SELECT m.id, m.version, m.file_name, m.format, m.size_bytes, m.is_current, m.uploaded_at, m.notes, m.awaiting_confirmation, m.compat_report, u.name AS autor,
+      (SELECT count(*) FROM pci_generated g WHERE g.model_id = m.id)::int AS usos
+    FROM pci_models m LEFT JOIN users u ON u.id = m.uploaded_by WHERE m.deleted_at IS NULL ORDER BY m.version DESC`);
+  return linhas<{ id: number; version: number; file_name: string; format: FormatoModeloPci; size_bytes: number; is_current: boolean; uploaded_at: string | Date; notes: string | null; awaiting_confirmation: boolean; compat_report: RelatorioCompatibilidadePci | null; autor: string | null; usos: number }>(r)
+    .map((l) => ({ id: l.id, versao: l.version, arquivo: l.file_name, formato: l.format, tamanho: l.size_bytes, atual: l.is_current, enviadoEm: new Date(l.uploaded_at), autor: l.autor, observacao: l.notes,
+      aguardandoConfirmacao: !!l.awaiting_confirmation, relatorio: l.compat_report ?? null, pcisGeradas: Number(l.usos) }));
 }
 
 export async function modeloAtualPci(): Promise<ModeloPciResumo | null> {
   return (await listarModelosPci()).find((m) => m.atual) ?? null;
 }
 
+/** Bytes de uma versão — inclusive excluída (o download da versão usada por uma PCI gerada continua). */
 async function bytesDoModelo(id: number): Promise<{ arquivo: string; formato: FormatoModeloPci; versao: number; bytes: Uint8Array } | null> {
   const r = await getDb().execute(sql`SELECT file_name, format, version, encode(data, 'base64') AS b64 FROM pci_models WHERE id = ${id}`);
   const l = linhas<{ file_name: string; format: FormatoModeloPci; version: number; b64: string }>(r)[0];
   return l ? { arquivo: l.file_name, formato: l.format, versao: l.version, bytes: new Uint8Array(Buffer.from(l.b64, "base64")) } : null;
 }
 
-export async function definirModeloAtualPci(id: number) {
-  const db = getDb();
-  const existe = linhas<{ id: number }>(await db.execute(sql`SELECT id FROM pci_models WHERE id = ${id}`));
-  if (!existe.length) throw new TRPCError({ code: "NOT_FOUND", message: "Modelo não encontrado." });
-  await db.execute(sql`UPDATE pci_models SET is_current = false WHERE is_current AND id <> ${id}`);
-  await db.execute(sql`UPDATE pci_models SET is_current = true WHERE id = ${id}`);
+async function auditarModeloPci(modeloId: number, acao: "enviar" | "tornar_atual" | "confirmar_critica" | "excluir", usuarioId: number | null, detalhes: Record<string, unknown>) {
+  await getDb().execute(sql`INSERT INTO pci_model_audit (model_id, action, user_id, details) VALUES (${modeloId}, ${acao}, ${usuarioId}, ${JSON.stringify(detalhes)}::jsonb)`);
 }
 
-/** Grava uma nova versão (e a torna atual). Mesmo arquivo já enviado só volta a ser o atual. */
+export const MENSAGEM_CONFIRMAR_CRITICA_PCI = "Esta versão tem mudanças críticas em relação ao mapeamento (veja o relatório de compatibilidade). Confirme explicitamente para usá-la como atual.";
+
+/**
+ * Torna a versão a atual. Versão excluída não pode; versão com mudança crítica
+ * só com `confirmarCritica` (Lote 03, correção 10).
+ */
+export async function definirModeloAtualPci(id: number, opcoes: { usuarioId?: number | null; confirmarCritica?: boolean } = {}) {
+  const db = getDb();
+  const m = linhas<{ id: number; version: number; deleted_at: string | null; awaiting_confirmation: boolean }>(await db.execute(sql`SELECT id, version, deleted_at, awaiting_confirmation FROM pci_models WHERE id = ${id}`))[0];
+  if (!m || m.deleted_at) throw new TRPCError({ code: "NOT_FOUND", message: "Modelo não encontrado." });
+  if (m.awaiting_confirmation && !opcoes.confirmarCritica) throw new TRPCError({ code: "PRECONDITION_FAILED", message: MENSAGEM_CONFIRMAR_CRITICA_PCI });
+  await db.execute(sql`UPDATE pci_models SET is_current = false WHERE is_current AND id <> ${id}`);
+  await db.execute(sql`UPDATE pci_models SET is_current = true, awaiting_confirmation = false,
+    confirmed_by = CASE WHEN awaiting_confirmation THEN ${opcoes.usuarioId ?? null}::int ELSE confirmed_by END,
+    confirmed_at = CASE WHEN awaiting_confirmation THEN now() ELSE confirmed_at END WHERE id = ${id}`);
+  await auditarModeloPci(id, m.awaiting_confirmation ? "confirmar_critica" : "tornar_atual", opcoes.usuarioId ?? null, { versao: m.version });
+}
+
+/** Estrutura de uma versão gravada (para comparar e escolher a base .xls). */
+async function estruturaDoModelo(id: number): Promise<{ versao: number; formato: FormatoModeloPci; estrutura: EstruturaModeloPci } | null> {
+  const m = await bytesDoModelo(id);
+  if (!m) return null;
+  try { return { versao: m.versao, formato: m.formato, estrutura: lerEstruturaModeloPci(m.bytes, m.formato) }; }
+  catch { return null; }
+}
+
+/**
+ * Grava uma nova versão. Lê a estrutura, compara com a versão atual e guarda o
+ * relatório. Sem mudança crítica, vira a atual; com mudança crítica, fica
+ * aguardando a confirmação explícita do admin (Lote 03, correção 10).
+ * Mesmo arquivo já enviado (não excluído) só volta a ser o atual.
+ */
 export async function gravarModeloPci(nome: string, bytes: Uint8Array, autorId: number, observacao: string | null) {
   if (!bytes.length || bytes.length > LIMITE_MODELO_PCI_BYTES) throw new Error("Envie um modelo de até 8 MB.");
   const formato = formatoModeloPci(nome, bytes);
   validarModeloPci(bytes, formato);
   const checksum = createHash("sha256").update(bytes).digest("hex");
   const db = getDb();
-  const igual = linhas<{ id: number; version: number }>(await db.execute(sql`SELECT id, version FROM pci_models WHERE checksum = ${checksum} LIMIT 1`))[0];
+  const igual = linhas<{ id: number; version: number; compat_report: RelatorioCompatibilidadePci | null; awaiting_confirmation: boolean }>(await db.execute(sql`SELECT id, version, compat_report, awaiting_confirmation FROM pci_models WHERE checksum = ${checksum} AND deleted_at IS NULL LIMIT 1`))[0];
   if (igual) {
-    await definirModeloAtualPci(igual.id);
-    return { id: igual.id, versao: igual.version, formato, repetido: true };
+    if (!igual.awaiting_confirmation) await definirModeloAtualPci(igual.id, { usuarioId: autorId });
+    return { id: igual.id, versao: igual.version, formato, repetido: true, aguardandoConfirmacao: igual.awaiting_confirmation, relatorio: igual.compat_report };
   }
-  await db.execute(sql`UPDATE pci_models SET is_current = false WHERE is_current`);
+  const estrutura = lerEstruturaModeloPci(bytes, formato);
+  const atual = await modeloAtualPci();
+  const anterior = atual ? await estruturaDoModelo(atual.id) : null;
+  const relatorio = compararEstruturasPci(anterior ? { versao: anterior.versao, estrutura: anterior.estrutura } : null, estrutura);
+  if (formato !== "xls") {
+    const base = await baseXlsCompativel(estrutura, null);
+    if (!base) relatorio.avisos.push("Não há versão .xls compatível com este modelo: a geração de PCI ficará bloqueada até o envio da versão .xls.");
+    else relatorio.avisos.push(`A PCI será gerada em .xls a partir da versão v${base.versao} (.xls compatível).`);
+  }
+  const vira = !relatorio.critico;
+  if (vira) await db.execute(sql`UPDATE pci_models SET is_current = false WHERE is_current`);
   const r = await db.execute(sql`
-    INSERT INTO pci_models (version, file_name, format, size_bytes, checksum, data, is_current, notes, uploaded_by)
-    SELECT COALESCE(MAX(version), 0) + 1, ${nome}, ${formato}, ${bytes.length}, ${checksum}, decode(${Buffer.from(bytes).toString("base64")}, 'base64'), true, ${observacao}, ${autorId}
+    INSERT INTO pci_models (version, file_name, format, size_bytes, checksum, data, is_current, notes, uploaded_by, compat_report, awaiting_confirmation)
+    SELECT COALESCE(MAX(version), 0) + 1, ${nome}, ${formato}, ${bytes.length}, ${checksum}, decode(${Buffer.from(bytes).toString("base64")}, 'base64'), ${vira}, ${observacao}, ${autorId},
+      ${JSON.stringify(relatorio)}::jsonb, ${!vira}
     FROM pci_models RETURNING id, version`);
   const l = linhas<{ id: number; version: number }>(r)[0];
-  return { id: l.id, versao: l.version, formato, repetido: false };
+  await auditarModeloPci(l.id, "enviar", autorId, { versao: l.version, arquivo: nome, formato, critico: relatorio.critico });
+  return { id: l.id, versao: l.version, formato, repetido: false, aguardandoConfirmacao: !vira, relatorio };
+}
+
+/** Prévia da exclusão: nome/versão e quantas PCIs geradas usam a versão. */
+export async function previaExclusaoModeloPci(id: number) {
+  const m = linhas<{ id: number; version: number; file_name: string; is_current: boolean; deleted_at: string | null; usos: number }>(await getDb().execute(sql`
+    SELECT id, version, file_name, is_current, deleted_at, (SELECT count(*) FROM pci_generated g WHERE g.model_id = pci_models.id)::int AS usos FROM pci_models WHERE id = ${id}`))[0];
+  if (!m || m.deleted_at) throw new TRPCError({ code: "NOT_FOUND", message: "Modelo não encontrado." });
+  return { id: m.id, versao: m.version, arquivo: m.file_name, atual: m.is_current, pcisGeradas: Number(m.usos) };
+}
+
+/**
+ * Lote 03, correção 09b: exclusão LÓGICA de uma versão (deleted_at/deleted_by). A
+ * versão atual não pode ser excluída. O arquivo é preservado: as PCIs geradas
+ * continuam vinculadas e o download da versão usada segue funcionando.
+ */
+export async function excluirModeloPci(id: number, usuarioId: number) {
+  const previa = await previaExclusaoModeloPci(id);
+  if (previa.atual) throw new TRPCError({ code: "PRECONDITION_FAILED", message: "A versão atual não pode ser excluída. Torne outra versão atual antes." });
+  const r = await getDb().execute(sql`UPDATE pci_models SET deleted_at = now(), deleted_by = ${usuarioId} WHERE id = ${id} AND deleted_at IS NULL AND NOT is_current RETURNING id`);
+  if (!linhas(r).length) throw new TRPCError({ code: "CONFLICT", message: "A versão mudou durante a exclusão. Atualize a lista e tente de novo." });
+  await auditarModeloPci(id, "excluir", usuarioId, { versao: previa.versao, arquivo: previa.arquivo, pcisGeradas: previa.pcisGeradas });
+  return previa;
+}
+
+/**
+ * Lote 03, correção 10: base .xls para a saída. Modelo .xls → ele mesmo. Modelo
+ * .xlsm/.xlsb → a versão .xls (não excluída) mais recente com a mesma estrutura.
+ */
+async function baseXlsCompativel(referencia: EstruturaModeloPci, ignorarId: number | null) {
+  const xls = linhas<{ id: number; version: number }>(await getDb().execute(sql`SELECT id, version FROM pci_models WHERE format = 'xls' AND deleted_at IS NULL ORDER BY version DESC`));
+  for (const c of xls) {
+    if (c.id === ignorarId) continue;
+    const e = await estruturaDoModelo(c.id);
+    if (e && xlsCompativelCom(e.estrutura, referencia)) return { id: c.id, versao: c.version };
+  }
+  return null;
+}
+
+export async function modeloParaGerarPci(atual: ModeloPciResumo) {
+  if (atual.formato === "xls") {
+    const m = await bytesDoModelo(atual.id);
+    return m ? { id: atual.id, ...m, aviso: null as string | null } : null;
+  }
+  const ref = await estruturaDoModelo(atual.id);
+  const base = ref ? await baseXlsCompativel(ref.estrutura, atual.id) : null;
+  if (!base) throw new TRPCError({ code: "PRECONDITION_FAILED", message: MENSAGEM_SAIDA_XLS_PCI });
+  const m = await bytesDoModelo(base.id);
+  return m ? { id: base.id, ...m, aviso: `Modelo atual v${atual.versao} (.${atual.formato}): planilha gerada em .xls a partir da versão v${base.versao}, de mesma estrutura.` } : null;
 }
 
 // ─── formulário da obra ──────────────────────────────────────────────────────
@@ -157,15 +256,18 @@ async function salvarRascunho(projectId: number, form: FormularioPci, autorId: n
 export async function gerarPciDaObra(projectId: number, entrada: unknown, autor: { id: number; name: string | null }) {
   const form = normalizarFormularioPci(entrada);
   const obra = await obraDoGerador(projectId);
+  // Lote 03, correção 06/07: valores inválidos, cronograma incompleto ou fora da lista bloqueiam.
+  const erros = errosPci(form, { paraGerar: true });
+  if (erros.length) throw new TRPCError({ code: "BAD_REQUEST", message: `Corrija antes de gerar: ${erros.join(" ")}` });
   const atual = await modeloAtualPci();
-  if (!atual) throw new TRPCError({ code: "PRECONDITION_FAILED", message: "Nenhum modelo de PCI cadastrado. Envie o modelo oficial em Integrações › Sub PCI atual." });
-  if (atual.formato === "xlsb") throw new TRPCError({ code: "PRECONDITION_FAILED", message: MENSAGEM_XLSB_SO_LEITURA });
-  const modelo = await bytesDoModelo(atual.id);
+  if (!atual) throw new TRPCError({ code: "PRECONDITION_FAILED", message: "Nenhum modelo de PCI cadastrado. Envie o modelo oficial em Integrações › PCI da CAIXA." });
+  const modelo = await modeloParaGerarPci(atual);
   if (!modelo) throw new TRPCError({ code: "NOT_FOUND", message: "Modelo não encontrado." });
   await salvarRascunho(projectId, form, autor.id);
   let planilha;
   try {
     planilha = gerarPlanilhaPci(modelo.bytes, modelo.formato, form);
+    if (modelo.aviso) planilha.avisos.unshift(modelo.aviso);
   } catch (e) {
     throw new TRPCError({ code: "BAD_REQUEST", message: e instanceof Error ? e.message : "Não foi possível preencher o modelo." });
   }
@@ -175,7 +277,7 @@ export async function gerarPciDaObra(projectId: number, entrada: unknown, autor:
   const nomePdf = nomeArquivoPciGerada(form.campos.proponenteNome, obra.title, modelo.versao, "pdf");
   const r = await getDb().execute(sql`
     INSERT INTO pci_generated (project_id, model_id, model_version, form_data, warnings, sheet_file_name, sheet_format, sheet_data, pdf_file_name, pdf_data, created_by, created_at)
-    VALUES (${projectId}, ${atual.id}, ${modelo.versao}, ${JSON.stringify(form)}::jsonb, ${JSON.stringify(planilha.avisos)}::jsonb, ${nomePlanilha}, ${planilha.formato},
+    VALUES (${projectId}, ${modelo.id}, ${modelo.versao}, ${JSON.stringify(form)}::jsonb, ${JSON.stringify(planilha.avisos)}::jsonb, ${nomePlanilha}, ${planilha.formato},
       decode(${Buffer.from(planilha.bytes).toString("base64")}, 'base64'), ${nomePdf}, decode(${Buffer.from(pdf).toString("base64")}, 'base64'), ${autor.id}, ${agora})
     RETURNING id`);
   return { id: linhas<{ id: number }>(r)[0].id, avisos: planilha.avisos, pendencias: pendenciasPci(form) };
@@ -193,9 +295,14 @@ const erroLegivel = (e: unknown): never => {
 /** Só admin: o router não está no mapa de módulos do colaborador (server/_core/trpc.ts). */
 export const pciModelosRouter = router({
   listar: adminProcedure.query(() => listarModelosPci()),
-  definirAtual: adminProcedure.input(z.object({ id: z.number().int().positive() })).mutation(async ({ input }) => {
-    await definirModeloAtualPci(input.id);
+  definirAtual: adminProcedure.input(z.object({ id: z.number().int().positive(), confirmarCritica: z.boolean().optional() })).mutation(async ({ input, ctx }) => {
+    await definirModeloAtualPci(input.id, { usuarioId: ctx.user.id, confirmarCritica: input.confirmarCritica === true });
     return { ok: true };
+  }),
+  previaExclusao: adminProcedure.input(z.object({ id: z.number().int().positive() })).query(({ input }) => previaExclusaoModeloPci(input.id)),
+  excluir: adminProcedure.input(z.object({ id: z.number().int().positive(), confirmar: z.literal(true) })).mutation(async ({ input, ctx }) => {
+    const r = await excluirModeloPci(input.id, ctx.user.id);
+    return { ok: true, versao: r.versao, pcisGeradas: r.pcisGeradas };
   }),
 });
 
@@ -210,7 +317,7 @@ export const pciGeradorRouter = router({
     const engenheiros = (await listarEngenheiros()).map((e) => ({ id: String(e.id), nome: e.name, email: e.email, telefone: e.telefone, crea: e.crea, creaUf: e.creaUf, engenheiro: e.engenheiro }));
     return {
       modelo: modelo ? { versao: modelo.versao, arquivo: modelo.arquivo, formato: modelo.formato, enviadoEm: modelo.enviadoEm } : null,
-      avisoModelo: !modelo ? "Nenhum modelo de PCI cadastrado. O admin envia o modelo oficial em Integrações › Sub PCI atual." : modelo.formato === "xlsb" ? MENSAGEM_XLSB_SO_LEITURA : null,
+      avisoModelo: !modelo ? "Nenhum modelo de PCI cadastrado. O admin envia o modelo oficial em Integrações › PCI da CAIXA." : modelo.formato !== "xls" ? `Modelo atual em .${modelo.formato}: a PCI é gerada em .xls a partir da versão .xls compatível (sem ela, a geração é bloqueada).` : null,
       formulario,
       origem: rascunho ? ("rascunho" as const) : ("automatico" as const),
       rascunhoEm: rascunho ? new Date(rascunho.updated_at) : null,
@@ -224,6 +331,8 @@ export const pciGeradorRouter = router({
     try {
       await obraDoGerador(input.projectId);
       const form = normalizarFormularioPci(input.formulario);
+      const erros = errosPci(form, { paraGerar: false });
+      if (erros.length) throw new TRPCError({ code: "BAD_REQUEST", message: `Corrija antes de salvar: ${erros.join(" ")}` });
       await salvarRascunho(input.projectId, form, ctx.user.id);
       return { ok: true, pendencias: pendenciasPci(form) };
     } catch (e) { return erroLegivel(e); }
@@ -299,7 +408,7 @@ rotas.post("/pci-modelos", async (req: Request, res: Response) => {
       try { r = await gravarModeloPci(nome, bytes, usuario.id, observacao); }
       catch (e) { return res.status(400).json({ error: e instanceof Error ? e.message : "Modelo inválido." }); }
       finally { await db.execute(sql`DELETE FROM pci_upload_chunks WHERE upload_id = ${body.uploadId} AND user_id = ${userId} AND project_id = ${ESCOPO_MODELO}`); }
-      return res.json({ ...r, aviso: r.formato === "xlsb" ? MENSAGEM_XLSB_SO_LEITURA : null });
+      return res.json({ ...r, aviso: r.aguardandoConfirmacao ? MENSAGEM_CONFIRMAR_CRITICA_PCI : r.formato === "xlsb" ? MENSAGEM_XLSB_SO_LEITURA : null });
     }
     // Parte do envio: mesmas regras do envio da PCI da obra (1 MB por parte, até 8 MB).
     let parte;

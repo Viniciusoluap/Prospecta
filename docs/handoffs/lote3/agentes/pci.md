@@ -2,12 +2,13 @@
 
 - Branch `claude/lote3-18-correcoes-20261029` (sem commit — orquestrador commita).
 
-## Feito (Prospecta, typecheck ok)
-- 05: `client/src/pages/AdminEditarObra.tsx` — galeria só para empreiteiro na aba fotos. SF `editar-obra-client.tsx` idem.
-- 07: `shared/pci-listas.ts` (gerado do JSON por script em scratchpad), `shared/pci-gerador.ts` (tipo "lista", campos novos Q63, AL63, AS89, DATec N76/X76/N77/X77, norma L79/V79, fabricante G83, AN140, AS161, M163/AA163, AG155, G165, G245; AH64; longitude sem AC58).
-- 06: `numeroPci` = lerNumero; `analisarCronogramaPci`, `errosPci`, `alertaPrazoPci`, `limiteBdiPci`; `shared/pci-curvas.ts` (Curvas_padrão conferida na fixture).
-- 10: `server/caixa/biff8.ts` lê DV (71 no oficial), `temCelula`; `PastaXlsx.validacoesDeDados`; `server/caixa/pci-modelo-estrutura.ts` (estrutura + relatório); `gerarPlanilhaPci` só gera .xls.
+## Prospecta — implementado (typecheck ok; 126 testes dos arquivos PCI/PLS passando)
+- 05 `client/src/pages/AdminEditarObra.tsx`: galeria só para empreiteiro na aba fotos.
+- 06/07 `shared/pci-gerador.ts`, `shared/pci-listas.ts` (gerado do JSON), `shared/pci-curvas.ts`; UI `client/src/components/obra/GeradorPciAba.tsx` (selects, campos condicionais, cronograma com incremental/erros); servidor rejeita salvar/gerar (`errosPci`).
+- 08 `server/caixa/pci.ts` (cronograma de AS161/AI, AH64 como reserva da vigência), `server/caixa/medicao-xls.ts` (`situacaoDaPls`, AV78, U110/U111), `server/caixa/medicao-pdf.ts` (status, "pendente: …"), `server/routes/obra-medicao-caixa.ts` (aferido = received_at; relê a PCI), `shared/medicao-caixa.ts` + `MedicaoCaixa.tsx` (listas oficiais da Alteração).
+- 09b/10 `drizzle/0096_pci_lote3.sql`, `drizzle/schema.ts`, `server/pci-gerador.ts` (exclusão lógica, prévia, auditoria, relatório, confirmação crítica, base .xls), `server/caixa/biff8.ts` (DV), `server/caixa/pci-modelo-estrutura.ts`, `server/caixa/pci-gerador.ts` (só .xls, DV do xlsm), `client/src/components/admin/SubPciAtual.tsx`.
+- Testes: `server/pci-lote3.test.ts`, `server/pci-lote3-db.test.ts`, ajustes em `server/pci-gerador.test.ts` ("Rede de Esgoto" etc.) e `server/pci-gerador-db.test.ts`.
 
 ## Pendente
-- Prospecta: server/pci-gerador.ts (erros no salvar/gerar, base .xls, exclusão lógica, confirmação crítica), migração 0096, schema, SubPciAtual, GeradorPciAba (seletores, incremental), PLS 08 (medicao-xls/pdf, pci.ts, rota), medicao-caixa opções Alteração, testes, MAPEAMENTO-PCI-SISTEMA.md.
-- SF: espelhar tudo.
+- SF: espelhar tudo (em andamento).
+- `docs/handoffs/lote3/MAPEAMENTO-PCI-SISTEMA.md`.

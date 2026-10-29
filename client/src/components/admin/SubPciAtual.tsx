@@ -4,7 +4,7 @@
 // Grupo-Santa-Fe/web/src/components/admin/sub-pci-atual.tsx.
 import { useRef, useState } from "react";
 import { toast } from "sonner";
-import { Download, FileSpreadsheet, Loader2, Upload } from "lucide-react";
+import { AlertTriangle, Download, FileSpreadsheet, Loader2, Trash2, Upload } from "lucide-react";
 import { trpc } from "@/lib/trpc";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -24,6 +24,12 @@ export function SubPciAtual() {
     onSuccess: async () => { toast.success("Modelo atual alterado."); await utils.pciModelos.listar.invalidate(); },
     onError: (e) => toast.error(e.message),
   });
+  // Lote 03, correção 09b: exclusão lógica por versão (não a atual), com prévia e confirmação.
+  const excluir = trpc.pciModelos.excluir.useMutation({
+    onSuccess: async (r) => { toast.success(`Versão ${r.versao} excluída. O arquivo segue guardado para as PCIs já geradas.`); await utils.pciModelos.listar.invalidate(); },
+    onError: (e) => toast.error(e.message),
+  });
+  const [relatorioAberto, setRelatorioAberto] = useState<number | null>(null);
   const entrada = useRef<HTMLInputElement>(null);
   const [enviando, setEnviando] = useState(false);
   const [observacao, setObservacao] = useState("");
@@ -44,8 +50,11 @@ export function SubPciAtual() {
       }
       const fim = await enviarJsonComProgresso("/api/pci-modelos", { uploadId, finalizar: true, observacao });
       if (fim.status < 200 || fim.status >= 300) throw new Error(mensagemErroEnvio(fim.status, fim.dados));
-      const d = fim.dados as { versao: number; repetido: boolean; aviso: string | null };
-      toast.success(d.repetido ? `Este arquivo já era a versão ${d.versao}; ela voltou a ser a atual.` : `Modelo enviado: versão ${d.versao} (atual).`);
+      const d = fim.dados as { id: number; versao: number; repetido: boolean; aviso: string | null; aguardandoConfirmacao: boolean };
+      if (d.aguardandoConfirmacao) {
+        toast.warning(`Versão ${d.versao} enviada com mudanças críticas: confira o relatório de compatibilidade e confirme para torná-la atual.`, { duration: 12000 });
+        setRelatorioAberto(d.id);
+      } else toast.success(d.repetido ? `Este arquivo já era a versão ${d.versao}; ela voltou a ser a atual.` : `Modelo enviado: versão ${d.versao} (atual).`);
       if (d.aviso) toast.warning(d.aviso, { duration: 10000 });
       setObservacao("");
       await utils.pciModelos.listar.invalidate();
@@ -63,9 +72,10 @@ export function SubPciAtual() {
       <CardHeader><CardTitle className="flex items-center gap-2 text-[#C9A961]"><FileSpreadsheet className="h-5 w-5" /> PCI da CAIXA — modelo oficial</CardTitle></CardHeader>
       <CardContent className="space-y-3">
         <p className="text-sm text-gray-300">
-          O Gerador de PCI (Editar Obra) preenche o modelo marcado como atual. Envie aqui cada nova versão da planilha oficial
-          (.xls ou .xlsm; .xlsb fica guardado, mas só é lido — para gerar, envie também a versão .xls/.xlsm). O arquivo não é reconstruído:
-          só os campos de digitação são preenchidos. O envio de PCI das obras continua igual.
+          O Gerador de PCI (Editar Obra) preenche o modelo marcado como atual e gera sempre a planilha em .xls (formato aceito pela CAIXA).
+          Envie aqui cada nova versão da planilha oficial (.xls, .xlsm ou .xlsb). Para .xlsm/.xlsb, a geração usa a versão .xls compatível
+          mais recente; sem ela, fica bloqueada até o envio da .xls. Cada envio é comparado com a versão anterior (relatório de
+          compatibilidade); mudanças críticas só valem após confirmação. O envio de PCI das obras continua igual.
         </p>
         <div className="flex flex-wrap items-center gap-2">
           <input ref={entrada} type="file" accept=".xls,.xlsm,.xlsb" className="hidden" onChange={(e) => void enviar(e.target.files?.[0])} />
@@ -85,7 +95,15 @@ export function SubPciAtual() {
                 <tbody>
                   {lista.map((m) => (
                     <tr key={m.id} className="border-t border-white/10">
-                      <td className="p-1 font-semibold">v{m.versao}{m.atual && <span className="ml-2 rounded bg-green-700/60 px-1.5 py-0.5 text-xs">atual</span>}</td>
+                      <td className="p-1 font-semibold">v{m.versao}{m.atual && <span className="ml-2 rounded bg-green-700/60 px-1.5 py-0.5 text-xs">atual</span>}
+                        {m.aguardandoConfirmacao && <span className="ml-2 rounded bg-yellow-700/60 px-1.5 py-0.5 text-xs">aguarda confirmação</span>}
+                        {m.relatorio && (
+                          <button type="button" className="block text-xs font-normal text-[#C9A961] underline" onClick={() => setRelatorioAberto(relatorioAberto === m.id ? null : m.id)}>
+                            {relatorioAberto === m.id ? "ocultar relatório" : `relatório de compatibilidade${m.relatorio.critico ? " (crítico)" : ""}`}
+                          </button>
+                        )}
+                        {relatorioAberto === m.id && m.relatorio && <RelatorioCompatibilidade r={m.relatorio} />}
+                      </td>
                       <td className="p-1 break-all">{m.arquivo} <span className="text-xs text-gray-400">(.{m.formato}, {tamanho(m.tamanho)})</span>{m.observacao && <span className="block text-xs text-gray-400">{m.observacao}</span>}</td>
                       <td className="p-1 whitespace-nowrap">{new Date(m.enviadoEm).toLocaleString("pt-BR")}</td>
                       <td className="p-1">{m.autor ?? "—"}</td>
@@ -97,8 +115,22 @@ export function SubPciAtual() {
                           </Button>
                           {!m.atual && (
                             <Button size="sm" variant="outline" className={botaoSec} disabled={definirAtual.isPending}
-                              onClick={() => { if (confirm(`Usar a versão ${m.versao} como modelo atual?`)) definirAtual.mutate({ id: m.id }); }}>
-                              Tornar atual
+                              onClick={() => {
+                                if (m.aguardandoConfirmacao) {
+                                  const texto = `A versão ${m.versao} tem mudanças críticas:\n- ${(m.relatorio?.criticas ?? []).slice(0, 8).join("\n- ")}\n\nConfirma usar esta versão como modelo atual mesmo assim?`;
+                                  if (confirm(texto)) definirAtual.mutate({ id: m.id, confirmarCritica: true });
+                                } else if (confirm(`Usar a versão ${m.versao} como modelo atual?`)) definirAtual.mutate({ id: m.id });
+                              }}>
+                              {m.aguardandoConfirmacao ? "Confirmar e tornar atual" : "Tornar atual"}
+                            </Button>
+                          )}
+                          {!m.atual && (
+                            <Button size="sm" variant="outline" className="border-red-400/50 text-red-300 hover:bg-red-500/10" disabled={excluir.isPending} aria-label={`Excluir a versão ${m.versao}`}
+                              onClick={() => {
+                                const texto = `Excluir a versão ${m.versao} (${m.arquivo})?\n\n${m.pcisGeradas} PCI(s) gerada(s) usam esta versão. A exclusão só a retira da lista: o arquivo fica guardado e os downloads dessas PCIs continuam funcionando.`;
+                                if (confirm(texto)) excluir.mutate({ id: m.id, confirmar: true });
+                              }}>
+                              <Trash2 className="h-3.5 w-3.5" />
                             </Button>
                           )}
                         </div>
@@ -111,5 +143,36 @@ export function SubPciAtual() {
           )}
       </CardContent>
     </Card>
+  );
+}
+
+type Relatorio = {
+  versaoAnterior: number | null; abasAdicionadas: string[]; abasRemovidas: string[];
+  celulasAlteradas: { celula: string; antes: string; depois: string }[]; listasAdicionadas: string[]; listasRemovidas: string[];
+  listasAlteradas: { lista: string }[]; criticas: string[]; avisos: string[]; critico: boolean;
+};
+
+/** Lote 03, correção 10: relatório guardado junto da versão. */
+function RelatorioCompatibilidade({ r }: { r: Relatorio }) {
+  const linha = (rotulo: string, itens: string[]) => itens.length ? <li>{rotulo}: {itens.slice(0, 12).join(", ")}{itens.length > 12 ? ` (+${itens.length - 12})` : ""}</li> : null;
+  return (
+    <div className="mt-1 max-w-xl rounded border border-white/10 bg-[#1A2332] p-2 text-xs font-normal text-gray-200">
+      <p>{r.versaoAnterior ? `Comparado com a versão ${r.versaoAnterior}.` : "Primeira versão: comparada só com o mapeamento do sistema."}</p>
+      {r.criticas.length > 0 && (
+        <div className="mt-1 text-yellow-200"><AlertTriangle className="mr-1 inline h-3.5 w-3.5" />Mudanças críticas:
+          <ul className="ml-4 list-disc">{r.criticas.slice(0, 20).map((c) => <li key={c}>{c}</li>)}</ul>
+        </div>
+      )}
+      <ul className="ml-4 mt-1 list-disc">
+        {linha("Abas adicionadas", r.abasAdicionadas)}
+        {linha("Abas removidas", r.abasRemovidas)}
+        {linha("Células alteradas", r.celulasAlteradas.map((c) => `${c.celula} (${c.antes} → ${c.depois})`))}
+        {linha("Listas adicionadas", r.listasAdicionadas)}
+        {linha("Listas removidas", r.listasRemovidas)}
+        {linha("Listas alteradas", r.listasAlteradas.map((l) => l.lista))}
+        {r.avisos.map((a) => <li key={a}>{a}</li>)}
+        {!r.criticas.length && !r.avisos.length && !r.abasAdicionadas.length && !r.abasRemovidas.length && !r.celulasAlteradas.length && !r.listasAdicionadas.length && !r.listasRemovidas.length && !r.listasAlteradas.length && <li>Sem diferenças de estrutura.</li>}
+      </ul>
+    </div>
   );
 }

@@ -17,6 +17,7 @@ import {
   TRANSFERENCIA_INTERNA,
   dreDasCategorias,
   dreDosLancamentos,
+  filtrarPorCompetencia,
   normalizarTitular,
   resumoPorCliente,
 } from "../shared/financeiro/bpo-extrato.js";
@@ -31,6 +32,7 @@ import {
 import { SERVICOS_PROGRESSO } from "../shared/financeiro/progresso.js";
 import { editarLancamentoAuditavel } from "./bpo-auditoria.js";
 import { registrarRecebimento } from "./bpo-recebimentos.js";
+import { combinarPagamentos, excluirLancamentosEmLote, previaCombinacao, previaExclusaoLote } from "./bpo-lote.js";
 import { aplicarVinculosEmMassa, previaVinculosEmMassa, sugestoesDoLancamento, vincularLancamentoACliente } from "./bpo-vinculo-cliente.js";
 
 const texto = (max: number) => z.string().trim().max(max).optional().nullable();
@@ -198,6 +200,24 @@ export function categoriaNaEdicao(
   return antes.categoria || categoriaContabilDaOperacional(tipo, op, depois.tipoDespesaObra);
 }
 
+const entradaLoteSchema = z.object({
+  aba: z.enum(["cobrancas", "despesas"]),
+  modo: z.enum(["selecionados", "tudo"]),
+  ids: z.array(z.number().int().positive()).max(5000).optional(),
+  filtros: z.object({
+    busca: z.string().max(200).nullish(), clienteId: z.union([z.string(), z.number()]).nullish(),
+    mes: z.string().regex(/^\d{2}$/).nullish(), ano: z.string().regex(/^\d{4}$/).nullish(),
+    status: z.enum(["todas", "pendentes", "pagas", "vencidas", "parciais"]).nullish(),
+    tipo: z.enum(["todos", "honorario", "reembolso", "outros"]).nullish(),
+    categoriaOperacional: z.string().max(40).nullish(), vinculoOperacionalId: z.string().max(80).nullish(),
+  }).optional(),
+});
+
+const filtroDreSchema = z.object({
+  mes: z.string().regex(/^(0[1-9]|1[0-2])$/).nullish(),
+  ano: z.string().regex(/^\d{4}$/).nullish(),
+}).optional();
+
 export const bpoRouter = router({
   clientes: router({
     list: adminProcedure.query(() => clientesComTotais()),
@@ -267,7 +287,11 @@ export const bpoRouter = router({
   }),
 
   lancamentos: router({
-    receber: adminProcedure.input(z.object({ id: z.number().int().positive(), requestKey: z.string().uuid(), valor: z.number().positive(), recebidoEm: z.string().date(), observacoes: z.string().trim().max(1000).optional() })).mutation(({ input, ctx }) => registrarRecebimento({ ...input, recebidoEm: new Date(`${input.recebidoEm}T12:00:00Z`) }, ctx.user.id)),
+    receber: adminProcedure.input(z.object({ id: z.number().int().positive(), requestKey: z.string().uuid(), valor: z.number().positive(), recebidoEm: z.string().date(), observacoes: z.string().trim().max(1000).optional() })).mutation(async ({ input, ctx }) => {
+      const [l] = await db.getDb().select({ combinadaEmId: bpoLancamentos.combinadaEmId }).from(bpoLancamentos).where(eq(bpoLancamentos.id, input.id)).limit(1);
+      if (l?.combinadaEmId) throw new TRPCError({ code: "BAD_REQUEST", message: `Cobrança combinada na #${l.combinadaEmId}: registre o recebimento nela.` });
+      return registrarRecebimento({ ...input, recebidoEm: new Date(`${input.recebidoEm}T12:00:00Z`) }, ctx.user.id);
+    }),
     list: adminProcedure.query(() => lancamentosComTitular()),
 
     catalogoOperacional: adminProcedure.query(() => catalogoVinculosOperacionais()),
@@ -282,6 +306,17 @@ export const bpoRouter = router({
     })).mutation(async ({ input, ctx }) => {
       try { return await vincularLancamentoACliente(input, ctx.user.id); }
       catch (e) { throw new TRPCError({ code: "BAD_REQUEST", message: e instanceof Error ? e.message : "Falha ao vincular." }); }
+    }),
+    // Lote 3, item 16: seleção em lote — excluir (selecionados ou aba inteira com filtros) e combinar.
+    previaExclusao: adminProcedure.input(entradaLoteSchema).query(({ input }) => previaExclusaoLote(input)),
+    excluirLote: adminProcedure.input(entradaLoteSchema.extend({ confirmacao: z.string() })).mutation(async ({ input, ctx }) => {
+      try { return await excluirLancamentosEmLote(input, ctx.user.id); }
+      catch (e) { throw new TRPCError({ code: "BAD_REQUEST", message: e instanceof Error ? e.message : "Falha ao excluir." }); }
+    }),
+    previaCombinacao: adminProcedure.input(z.object({ ids: z.array(z.number().int().positive()).min(1).max(200) })).query(({ input }) => previaCombinacao(input.ids)),
+    combinar: adminProcedure.input(z.object({ ids: z.array(z.number().int().positive()).min(2).max(200), requestKey: z.string().uuid() })).mutation(async ({ input, ctx }) => {
+      try { return await combinarPagamentos(input, ctx.user.id); }
+      catch (e) { throw new TRPCError({ code: "BAD_REQUEST", message: e instanceof Error ? e.message : "Falha ao combinar." }); }
     }),
     previaVinculos: adminProcedure.query(async () => previaVinculosEmMassa(await catalogoVinculosOperacionais())),
     aplicarVinculos: adminProcedure.input(z.object({ itens: z.array(z.object({
@@ -329,6 +364,7 @@ export const bpoRouter = router({
     marcarPago: adminProcedure.input(z.object({ id: z.number() })).mutation(async ({ input, ctx }) => {
       const [l] = await db.getDb().select().from(bpoLancamentos).where(eq(bpoLancamentos.id, input.id)).limit(1);
       if (!l) throw new TRPCError({ code: "NOT_FOUND" });
+      if (l.combinadaEmId) throw new TRPCError({ code: "BAD_REQUEST", message: `Cobrança combinada na #${l.combinadaEmId}: registre o pagamento nela.` });
       if (!l.pago && l.tipo !== "despesa" && !l.asaasPaymentId && !l.bankTransactionId) {
         await registrarRecebimento({ id: l.id, requestKey: `quitar-${l.id}-${l.version}`, valor: Number(l.valor) - Number(l.valorRecebido), recebidoEm: new Date() }, ctx.user.id);
         return { success: true };
@@ -367,8 +403,11 @@ export const bpoRouter = router({
 
   // LOTE C (25/10): inclui os lançamentos gerados pelo extrato bancário (transferência
   // interna não gera lançamento, então não entra). Regra em shared/financeiro/bpo-extrato.ts.
-  dre: adminProcedure.query(async () => dreDosLancamentos(await db.getAllBpoLancamentos())),
+  // Lote 3, item 15: filtros Mês/Ano por competência (vazio = todos), nas duas visões do DRE.
+  dre: adminProcedure.input(filtroDreSchema).query(async ({ input }) => dreDosLancamentos(filtrarPorCompetencia(await db.getAllBpoLancamentos(), input))),
   /** Pedido de 25/10 (noite): DRE por categoria (transferência interna fora). */
-  dreCategorias: adminProcedure.query(async () => dreDasCategorias(await db.getAllBpoLancamentos())),
+  dreCategorias: adminProcedure.input(filtroDreSchema).query(async ({ input }) => dreDasCategorias(filtrarPorCompetencia(await db.getAllBpoLancamentos(), input))),
+  /** Anos com lançamento (opções do filtro de Ano do DRE). */
+  dreAnos: adminProcedure.query(async () => Array.from(new Set((await db.getAllBpoLancamentos()).map(l => l.competencia.slice(0, 4)).filter(a => /^\d{4}$/.test(a)))).sort().reverse()),
 });
 

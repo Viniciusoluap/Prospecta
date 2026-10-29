@@ -147,7 +147,9 @@ export interface RelatorioCompatibilidadePci {
 
 const chaveLista = (l: ListaEstruturaPci) => `${l.aba}!${l.intervalo}`;
 /** Opções legíveis (cache de fórmula zerado no arquivo vira "0": não dá para comparar o conteúdo). */
-const opcoesLegiveis = (o: string[] | null) => !!o && o.length > 0 && o.some((x) => x !== "0" && x.trim() !== "");
+const opcoesLegiveis = (o: string[] | null, referencia: string | null = null) =>
+  !!o && o.length > 0 && (referencia === null ? o.some((x) => x.trim() !== "") : o.every((x) => x !== "0" && x.trim() !== ""));
+const semEspacos = (o: readonly string[] | null) => (o ?? []).map((x) => x.trim());
 const iguais = (a: readonly string[] | null, b: readonly string[] | null) => JSON.stringify(a) === JSON.stringify(b);
 
 /** Intervalo "AI47:AJ47 Q63:V66" cobre a célula "AI47"? */
@@ -196,7 +198,7 @@ export function compararEstruturasPci(anterior: { versao: number; estrutura: Est
       for (const [k, l] of Array.from(depois)) {
         const x = antes.get(k);
         if (!x) r.listasAdicionadas.push(k);
-        else if (opcoesLegiveis(x.opcoes) && opcoesLegiveis(l.opcoes) ? !iguais(x.opcoes, l.opcoes) : x.referencia !== l.referencia || (x.opcoes?.length ?? 0) !== (l.opcoes?.length ?? 0)) {
+        else if (opcoesLegiveis(x.opcoes, x.referencia) && opcoesLegiveis(l.opcoes, l.referencia) ? !iguais(x.opcoes, l.opcoes) : x.referencia !== l.referencia || (x.opcoes?.length ?? 0) !== (l.opcoes?.length ?? 0)) {
           r.listasAlteradas.push({ lista: k, antes: x.opcoes, depois: l.opcoes });
         }
       }
@@ -216,11 +218,17 @@ export function compararEstruturasPci(anterior: { versao: number; estrutura: Est
         r.listasDivergentesDoSistema.push({ celula: esperado.celula, esperado: esperado.opcoes, encontrado: [] });
         continue;
       }
-      if (!opcoesLegiveis(achada.opcoes)) {
+      if (!opcoesLegiveis(achada.opcoes, achada.referencia)) {
+        // Cache das fórmulas da lista zerado no arquivo: confere só a quantidade de opções.
         if ((achada.opcoes?.length ?? 0) !== esperado.opcoes.length) r.listasDivergentesDoSistema.push({ celula: esperado.celula, esperado: esperado.opcoes, encontrado: achada.opcoes ?? [] });
         continue;
       }
-      if (!iguais(achada.opcoes, [...esperado.opcoes])) r.listasDivergentesDoSistema.push({ celula: esperado.celula, esperado: esperado.opcoes, encontrado: achada.opcoes ?? [] });
+      if (iguais(achada.opcoes, [...esperado.opcoes])) continue;
+      if (iguais(semEspacos(achada.opcoes), semEspacos(esperado.opcoes))) {
+        r.avisos.push(`Lista da célula ${esperado.celula}: mesmas opções do mapeamento, com diferença só de espaços; o sistema grava o texto do mapeamento oficial.`);
+        continue;
+      }
+      r.listasDivergentesDoSistema.push({ celula: esperado.celula, esperado: esperado.opcoes, encontrado: achada.opcoes ?? [] });
     }
     for (const d of r.listasDivergentesDoSistema) {
       r.criticas.push(d.encontrado.length ? `Lista da célula ${d.celula} mudou em relação ao mapeamento do sistema (${d.encontrado.length} opções; o sistema usa ${d.esperado.length}).` : `A célula ${d.celula} não tem mais lista de validação.`);

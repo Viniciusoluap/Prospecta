@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Link } from "wouter";
 import { trpc } from "@/lib/trpc";
 import { Button } from "@/components/ui/button";
@@ -39,8 +39,9 @@ import AdminRelatorios from "./AdminRelatorios";
 import BancosPanel from "./BancosPanel";
 import { CamposCategoriaLancamento, categoriaLancamentoCompleta } from "@/components/bpo/CamposCategoriaLancamento";
 import { SugerirVinculosDialog, VinculoClienteLancamento } from "@/components/bpo/VinculoClienteLancamento";
+import { BarraLote } from "@/components/bpo/LoteLancamentos";
 import { rotulo } from "@shared/rotulos";
-import { TRANSFERENCIA_INTERNA, recebidoDoLancamento } from "@shared/financeiro/bpo-extrato";
+import { MESES_DRE, TRANSFERENCIA_INTERNA, recebidoDoLancamento } from "@shared/financeiro/bpo-extrato";
 import { situacaoDoLancamento } from "@shared/financeiro/bpo-asaas";
 import { ROTULOS_CATEGORIA_OPERACIONAL, catalogoDaCategoria } from "@shared/financeiro/bpo-operacional";
 
@@ -119,12 +120,22 @@ export default function AdminBpo({ initialTab }: { initialTab?: Aba } = {}) {
   const [requestKey, setRequestKey] = useState(() => crypto.randomUUID());
   const [clienteAberto, setClienteAberto] = useState<number | null>(null);
   const [dreVisao, setDreVisao] = useState<"competencia" | "categoria">("competencia");
+  // Lote 3, item 16/17: seleção em lote e ação em massa de vínculos.
+  const [selecionados, setSelecionados] = useState<number[]>([]);
+  const [sugerirVinculosOpen, setSugerirVinculosOpen] = useState(false);
+  useEffect(() => { setSelecionados([]); }, [aba]);
 
   const utils = trpc.useUtils();
   const { data: clientes = [] } = trpc.bpo.clientes.list.useQuery();
   const { data: lancamentos = [] } = trpc.bpo.lancamentos.list.useQuery();
-  const { data: dreRows = [] } = trpc.bpo.dre.useQuery();
-  const { data: dreCategorias = [] } = trpc.bpo.dreCategorias.useQuery();
+  // Lote 3, item 15: filtros Mês/Ano do DRE (competência), aplicados no servidor às duas visões.
+  const [dreMes, setDreMes] = useState("");
+  const [dreAno, setDreAno] = useState("");
+  const filtroDre = { mes: dreMes || null, ano: dreAno || null };
+  const { data: dreRows = [] } = trpc.bpo.dre.useQuery(filtroDre);
+  const { data: dreCategorias = [] } = trpc.bpo.dreCategorias.useQuery(filtroDre);
+  const { data: dreAnos = [] } = trpc.bpo.dreAnos.useQuery();
+  const dreTotal = dreRows.reduce((t: { cobrancas: number; despesas: number }, r: any) => ({ cobrancas: t.cobrancas + Math.round(r.cobrancas * 100), despesas: t.despesas + Math.round(r.despesas * 100) }), { cobrancas: 0, despesas: 0 });
   const { data: catalogoOperacional } = trpc.bpo.lancamentos.catalogoOperacional.useQuery();
 
   const createCliente = trpc.bpo.clientes.create.useMutation({
@@ -674,6 +685,14 @@ export default function AdminBpo({ initialTab }: { initialTab?: Aba } = {}) {
               </CardTitle>
             </CardHeader>
             <CardContent>
+              <BarraLote
+                aba={aba}
+                visiveis={(aba === "cobrancas" ? cobrancas : despesas).map((l: any) => l.id)}
+                selecionados={selecionados}
+                setSelecionados={setSelecionados}
+                filtros={{ categoriaOperacional: filtroOperacional.get("categoriaOperacional"), vinculoOperacionalId: filtroOperacional.get("vinculoOperacionalId") }}
+                onSugerirVinculos={() => setSugerirVinculosOpen(true)}
+              />
               {(aba === "cobrancas" ? cobrancas : despesas).length === 0 ? (
                 <div className="text-center py-12 text-gray-400">
                   <Receipt className="h-12 w-12 mx-auto mb-3 opacity-20" />
@@ -687,6 +706,9 @@ export default function AdminBpo({ initialTab }: { initialTab?: Aba } = {}) {
                         key={l.id}
                         className="flex items-center justify-between p-3 bg-[#1A2332] rounded-lg gap-3 flex-wrap"
                       >
+                        <input type="checkbox" className="h-4 w-4 shrink-0" aria-label={`Selecionar ${l.descricao}`}
+                          checked={selecionados.includes(l.id)}
+                          onChange={e => setSelecionados(e.target.checked ? [...selecionados, l.id] : selecionados.filter(id => id !== l.id))} />
                         <div className="flex-1 min-w-[200px]">
                           <p className="text-white font-medium">
                             {l.descricao}
@@ -763,6 +785,24 @@ export default function AdminBpo({ initialTab }: { initialTab?: Aba } = {}) {
               </CardTitle>
             </CardHeader>
             <CardContent>
+              <div className="mb-4 flex flex-wrap items-end gap-3">
+                <div className="min-w-[160px] flex-1 sm:flex-none">
+                  <Label className="text-gray-300">Mês</Label>
+                  <select aria-label="Mês do DRE" value={dreMes} onChange={e => setDreMes(e.target.value)} className="mt-1 h-10 w-full rounded-md border border-[#C9A961]/30 bg-[#1A2332] px-2 text-white">
+                    <option value="">Todos os meses</option>
+                    {MESES_DRE.map(([v, n]) => <option key={v} value={v}>{n}</option>)}
+                  </select>
+                </div>
+                <div className="min-w-[120px] flex-1 sm:flex-none">
+                  <Label className="text-gray-300">Ano</Label>
+                  <select aria-label="Ano do DRE" value={dreAno} onChange={e => setDreAno(e.target.value)} className="mt-1 h-10 w-full rounded-md border border-[#C9A961]/30 bg-[#1A2332] px-2 text-white">
+                    <option value="">Todos os anos</option>
+                    {Array.from(new Set([...dreAnos, ...(dreAno ? [dreAno] : [])])).map(a => <option key={a} value={a}>{a}</option>)}
+                  </select>
+                </div>
+                {(dreMes || dreAno) && <Button variant="ghost" size="sm" className="text-gray-300" onClick={() => { setDreMes(""); setDreAno(""); }}>Limpar filtros</Button>}
+                <p className="w-full text-xs text-gray-400">Filtra pela competência do lançamento.</p>
+              </div>
               {dreVisao === "categoria" ? (
                 dreCategorias.length === 0 ? (
                   <p className="text-center py-12 text-gray-400">Sem lançamentos para consolidar</p>
@@ -829,6 +869,12 @@ export default function AdminBpo({ initialTab }: { initialTab?: Aba } = {}) {
                           </td>
                         </tr>
                       ))}
+                      <tr className="border-t-2 border-[#C9A961]/40">
+                        <td className="py-2 pr-4 text-xs font-bold uppercase text-gray-300">Total</td>
+                        <td className="py-2 pr-4 text-right text-green-400 font-black">{formatCurrencyBR(dreTotal.cobrancas / 100)}</td>
+                        <td className="py-2 pr-4 text-right text-red-400 font-black">{formatCurrencyBR(dreTotal.despesas / 100)}</td>
+                        <td className={`py-2 pr-4 text-right font-black ${dreTotal.cobrancas - dreTotal.despesas >= 0 ? "text-green-300" : "text-red-300"}`}>{formatCurrencyBR((dreTotal.cobrancas - dreTotal.despesas) / 100)}</td>
+                      </tr>
                     </tbody>
                   </table>
                 </div>
@@ -843,6 +889,7 @@ export default function AdminBpo({ initialTab }: { initialTab?: Aba } = {}) {
         {aba === "relatorios" && <AdminRelatorios embedded />}
       </div>
 
+      <SugerirVinculosDialog open={sugerirVinculosOpen} onOpenChange={setSugerirVinculosOpen} />
       <Dialog open={Boolean(recebendo)} onOpenChange={o => !o && setRecebendo(null)}>
         <DialogContent className="bg-[#1A2332] text-white"><DialogHeader><DialogTitle>Registrar recebimento</DialogTitle></DialogHeader>
           {recebendo && <div className="space-y-3"><p>Saldo {formatCurrencyBR(recebendo.saldo)}</p><Label>Valor recebido</Label><CurrencyInput value={recebendo.valor} onChange={v => setRecebendo({ ...recebendo, valor: v })}/><Label>Data</Label><Input type="date" value={recebendo.recebidoEm} onChange={e => setRecebendo({ ...recebendo, recebidoEm: e.target.value })}/><Label>Observações</Label><Textarea value={recebendo.observacoes} onChange={e => setRecebendo({ ...recebendo, observacoes: e.target.value })}/><Button disabled={receber.isPending || recebendo.valor <= 0 || recebendo.valor > recebendo.saldo} onClick={() => receber.mutate(recebendo)}>Confirmar recebimento</Button></div>}

@@ -215,3 +215,23 @@ export function dreDosLancamentos(lancamentos: { competencia: string; tipo: stri
     .map(([competencia, v]) => ({ competencia, cobrancas: v.cobrancas / 100, despesas: v.despesas / 100, resultado: (v.cobrancas - v.despesas) / 100 }))
     .sort((a, b) => b.competencia.localeCompare(a.competencia));
 }
+
+// ── Lote 3, item 15 (29/10): filtros Mês/Ano do DRE, aplicados pela competência (AAAA-MM). ──
+export type FiltroCompetencia = { mes?: string | null; ano?: string | null };
+
+/** `mes` "01".."12" (vazio = todos os meses) e `ano` "AAAA" (vazio = todos os anos). */
+export function competenciaNoFiltro(competencia: string, f: FiltroCompetencia | null | undefined): boolean {
+  if (!f) return true;
+  if (f.ano && !competencia.startsWith(`${f.ano}-`)) return false;
+  if (f.mes && competencia.slice(5, 7) !== f.mes) return false;
+  return true;
+}
+
+export function filtrarPorCompetencia<T extends { competencia: string }>(lancamentos: T[], f: FiltroCompetencia | null | undefined): T[] {
+  return f && (f.mes || f.ano) ? lancamentos.filter(l => competenciaNoFiltro(l.competencia, f)) : lancamentos;
+}
+
+export const MESES_DRE = [
+  ["01", "Janeiro"], ["02", "Fevereiro"], ["03", "Março"], ["04", "Abril"], ["05", "Maio"], ["06", "Junho"],
+  ["07", "Julho"], ["08", "Agosto"], ["09", "Setembro"], ["10", "Outubro"], ["11", "Novembro"], ["12", "Dezembro"],
+] as const;
