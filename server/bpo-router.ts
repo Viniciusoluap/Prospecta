@@ -31,6 +31,7 @@ import {
 import { SERVICOS_PROGRESSO } from "../shared/financeiro/progresso.js";
 import { editarLancamentoAuditavel } from "./bpo-auditoria.js";
 import { registrarRecebimento } from "./bpo-recebimentos.js";
+import { aplicarVinculosEmMassa, previaVinculosEmMassa, sugestoesDoLancamento, vincularLancamentoACliente } from "./bpo-vinculo-cliente.js";
 
 const texto = (max: number) => z.string().trim().max(max).optional().nullable();
 
@@ -105,7 +106,7 @@ export async function clientesComTotais() {
     d.select({ cliente: bpoClients, nomeLead: leads.name }).from(bpoClients)
       .leftJoin(leads, eq(leads.id, bpoClients.leadId)).orderBy(bpoClients.razaoSocial),
     d.select({ clienteId: bpoLancamentos.clienteId, tipo: bpoLancamentos.tipo, valor: bpoLancamentos.valor, valorRecebido: bpoLancamentos.valorRecebido, pago: bpoLancamentos.pago, categoria: bpoLancamentos.categoria })
-      .from(bpoLancamentos).where(isNotNull(bpoLancamentos.clienteId)),
+      .from(bpoLancamentos).where(and(isNotNull(bpoLancamentos.clienteId), isNull(bpoLancamentos.combinadaEmId))),
   ]);
   const totais = resumoPorCliente(lancs);
   return clientes.map(({ cliente, nomeLead }) => ({
@@ -130,24 +131,26 @@ export async function resumoBpoDoLead(leadId: number) {
 
 const CATEGORIAS_MANUAIS = CATEGORIAS_BPO.filter(c => c !== TRANSFERENCIA_INTERNA) as [string, ...string[]];
 
-export type VinculoOperacional = { id: string; rotulo: string; clienteNome: string | null; href: string };
+export type VinculoOperacional = { id: string; rotulo: string; clienteNome: string | null; href: string; leadId?: string | null };
 
 /** Catálogo real dos módulos; rótulo é só apresentação, o vínculo é sempre pelo ID. */
 export async function catalogoVinculosOperacionais() {
   const d = db.getDb();
   const [obras, regs, comissoes, projetos, avals, propriedades, incorporacoes, financs, tarefasLista] = await Promise.all([
-    d.select({ id: constructionProjects.id, rotulo: constructionProjects.title, clienteNome: leads.name }).from(constructionProjects).leftJoin(leads, eq(leads.id, constructionProjects.leadId)),
-    d.select({ id: regularizacoes.id, rotulo: regularizacoes.type, clienteNome: regularizacoes.clientName }).from(regularizacoes),
+    d.select({ id: constructionProjects.id, rotulo: constructionProjects.title, clienteNome: leads.name, leadId: constructionProjects.leadId }).from(constructionProjects).leftJoin(leads, eq(leads.id, constructionProjects.leadId)),
+    d.select({ id: regularizacoes.id, rotulo: regularizacoes.type, clienteNome: regularizacoes.clientName, leadId: regularizacoes.leadId }).from(regularizacoes),
     d.select({ id: operationalCommissions.id, rotulo: operationalCommissions.property }).from(operationalCommissions),
-    d.select({ id: operationalProjects.id, rotulo: operationalProjects.name, clienteNome: operationalProjects.clientName }).from(operationalProjects),
-    d.select({ id: avaliacoes.id, rotulo: avaliacoes.numero, clienteNome: avaliacoes.clienteNome }).from(avaliacoes),
+    d.select({ id: operationalProjects.id, rotulo: operationalProjects.name, clienteNome: operationalProjects.clientName, leadId: operationalProjects.leadId }).from(operationalProjects),
+    d.select({ id: avaliacoes.id, rotulo: avaliacoes.numero, clienteNome: avaliacoes.clienteNome, leadId: avaliacoes.leadId }).from(avaliacoes),
     d.select({ id: imoveis.id, rotulo: imoveis.titulo }).from(imoveis),
     d.select({ id: incorporationStudies.id, rotulo: incorporationStudies.name }).from(incorporationStudies),
-    d.select({ id: financiamentos.id, rotulo: financiamentos.clienteNome, clienteNome: financiamentos.clienteNome }).from(financiamentos),
+    d.select({ id: financiamentos.id, rotulo: financiamentos.clienteNome, clienteNome: financiamentos.clienteNome, leadId: financiamentos.leadId }).from(financiamentos),
     d.select({ id: tasks.id, rotulo: tasks.title }).from(tasks),
   ]);
   const map = <T extends { id: number; rotulo: string }>(xs: T[], base: string): VinculoOperacional[] => xs.map(x => ({
     id: String(x.id), rotulo: x.rotulo, clienteNome: "clienteNome" in x ? String(x.clienteNome ?? "") || null : null, href: `${base}/${x.id}`,
+    // Lote 3, item 17: lead do registro operacional (sinal "ID interno" para vincular cliente).
+    leadId: "leadId" in x && x.leadId != null ? String(x.leadId) : null,
   }));
   return {
     obras: map(obras, "/admin/obras"), regularizacoes: map(regs, "/admin/regularizacoes"),
@@ -268,6 +271,23 @@ export const bpoRouter = router({
     list: adminProcedure.query(() => lancamentosComTitular()),
 
     catalogoOperacional: adminProcedure.query(() => catalogoVinculosOperacionais()),
+
+    // Lote 3, item 17: "Cadastro livre" → cliente do CRM (sugestão por prioridade + confirmação).
+    sugestoesCliente: adminProcedure.input(z.object({ id: z.number().int().positive() }))
+      .query(async ({ input }) => sugestoesDoLancamento(input.id, await catalogoVinculosOperacionais())),
+    vincularCliente: adminProcedure.input(z.object({
+      id: z.number().int().positive(), version: z.number().int().positive(),
+      clienteId: z.number().int().positive().nullable().optional(), leadId: z.number().int().positive().nullable().optional(),
+      motivo: z.string().trim().min(3).max(500).default("confirmado na edição do lançamento"),
+    })).mutation(async ({ input, ctx }) => {
+      try { return await vincularLancamentoACliente(input, ctx.user.id); }
+      catch (e) { throw new TRPCError({ code: "BAD_REQUEST", message: e instanceof Error ? e.message : "Falha ao vincular." }); }
+    }),
+    previaVinculos: adminProcedure.query(async () => previaVinculosEmMassa(await catalogoVinculosOperacionais())),
+    aplicarVinculos: adminProcedure.input(z.object({ itens: z.array(z.object({
+      id: z.number().int().positive(), version: z.number().int().positive(),
+      clienteId: z.number().int().positive().nullable().optional(), leadId: z.number().int().positive().nullable().optional(),
+    })).min(1).max(500) })).mutation(({ input, ctx }) => aplicarVinculosEmMassa(input.itens, ctx.user.id)),
 
     create: adminProcedure.input(lancamentoBpoSchema).mutation(async ({ input }) => {
       try { validarDetalhesOperacionais(input); }

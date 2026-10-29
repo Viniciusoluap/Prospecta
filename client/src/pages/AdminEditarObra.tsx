@@ -497,10 +497,12 @@ export default function AdminEditarObra({ modo = "admin" }: { modo?: "admin" | "
             <ProgressoObraAba key={versaoProgresso} projectId={projectId} onFotosMudaram={() => refetch()} />
           </TabsContent>
 
-          {/* ABA 4: GERADOR DE PCI (admin/colaborador com Obras) + galeria por medição */}
+          {/* ABA 4: GERADOR DE PCI (admin/colaborador com Obras). Lote 03, correção 05:
+              a "Galeria de Fotos" saiu desta aba para admin/colaborador (segue em
+              Progresso/Detalhes); para o empreiteiro a aba é "Fotos" e mostra só a galeria. */}
           <TabsContent value="fotos" className="mt-6 space-y-6">
             {!ehEmpreiteiro && activeTab === "fotos" && <GeradorPciAba projectId={projectId} />}
-            <FotosObraAba projectId={projectId} />
+            {ehEmpreiteiro && <FotosObraAba projectId={projectId} />}
           </TabsContent>
 
           {/* ABA 5: RELATÓRIOS */}

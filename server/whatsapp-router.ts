@@ -127,7 +127,7 @@ async function vinculoManual(connectionId: number, numero: string): Promise<numb
 
 /** Quem pode mexer nas conversas: corretor (as próprias) ou quem tem o módulo WhatsApp. */
 function exigirAcessoConversas(ctx: { user: UsuarioConversa }) {
-  if (ctx.user.role !== "corretor") requireModule(ctx as never, "whatsapp");
+  if (ctx.user.role !== "corretor") requireModule(ctx, "whatsapp");
 }
 
 /**

@@ -1236,6 +1236,8 @@ export const bpoLancamentos = pgTable("bpo_lancamentos", {
   requestKey: varchar("request_key", { length: 80 }).unique(),
   valorRecebido: decimal("valor_recebido", { precision: 15, scale: 2 }).default("0").notNull(),
   version: integer("version").default(1).notNull(),
+  // Lote 3, item 16: cobrança original combinada na nova cobrança (soma); a original não é apagada.
+  combinadaEmId: integer("combinada_em_id").references((): AnyPgColumn => bpoLancamentos.id, { onDelete: "set null" }),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });
@@ -1262,6 +1264,19 @@ export const bpoLancamentoHistorico = pgTable("bpo_lancamento_historico", {
   motivo: text("motivo").notNull(),
   antesJson: text("antes_json").notNull(),
   depoisJson: text("depois_json").notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+// Lote 3, item 16: backup recuperável das exclusões em lote de cobranças/despesas.
+export const bpoLancamentoExclusoesBackup = pgTable("bpo_lancamento_exclusoes_backup", {
+  id: serial("id").primaryKey(),
+  modo: varchar("modo", { length: 20 }).notNull(),
+  aba: varchar("aba", { length: 20 }).notNull(),
+  filtrosJson: text("filtros_json").default("{}").notNull(),
+  quantidade: integer("quantidade").notNull(),
+  protegidos: integer("protegidos").default(0).notNull(),
+  snapshotJson: text("snapshot_json").notNull(),
+  criadoPorUserId: integer("criado_por_user_id").references(() => users.id, { onDelete: "set null" }),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 

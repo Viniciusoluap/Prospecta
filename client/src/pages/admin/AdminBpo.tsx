@@ -38,6 +38,7 @@ import TaxAccountingPanel from "./TaxAccountingPanel";
 import AdminRelatorios from "./AdminRelatorios";
 import BancosPanel from "./BancosPanel";
 import { CamposCategoriaLancamento, categoriaLancamentoCompleta } from "@/components/bpo/CamposCategoriaLancamento";
+import { SugerirVinculosDialog, VinculoClienteLancamento } from "@/components/bpo/VinculoClienteLancamento";
 import { rotulo } from "@shared/rotulos";
 import { TRANSFERENCIA_INTERNA, recebidoDoLancamento } from "@shared/financeiro/bpo-extrato";
 import { situacaoDoLancamento } from "@shared/financeiro/bpo-asaas";
@@ -857,6 +858,8 @@ export default function AdminBpo({ initialTab }: { initialTab?: Aba } = {}) {
             <div><Label>Competência</Label><Input type="month" value={editando.competencia} onChange={e => setEditando({ ...editando, competencia: e.target.value })} className="bg-[#2C3E50] border-[#C9A961]/30" /></div>
             <div><Label>Cliente BPO</Label><select className="w-full bg-[#2C3E50] p-2" value={editando.clienteId ?? ""} onChange={e => setEditando({ ...editando, clienteId: e.target.value ? Number(e.target.value) : null })}><option value="">Cadastro livre</option>{clientes.map(c => <option key={c.id} value={c.id}>{c.razaoSocial}</option>)}</select></div>
             {!editando.clienteId && <div><Label>Nome / identificação</Label><Input value={editando.clienteNomeLivre ?? ""} onChange={e => setEditando({ ...editando, clienteNomeLivre: e.target.value })} className="bg-[#2C3E50] border-[#C9A961]/30" /></div>}
+            {!editando.clienteId && <VinculoClienteLancamento lancamento={editando} clientes={clientes}
+              onVinculado={r => setEditando({ ...editando, clienteId: r.clienteId, clienteNomeLivre: null, version: r.version })} />}
             <div className="col-span-2"><Label>Observações</Label><Textarea value={editando.observacoes ?? ""} onChange={e => setEditando({ ...editando, observacoes: e.target.value })} className="bg-[#2C3E50] border-[#C9A961]/30" /></div>
             <CamposCategoriaLancamento
               tipo={editando.tipo === "despesa" ? "despesa" : "cobranca"}

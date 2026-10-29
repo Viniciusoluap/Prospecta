@@ -224,7 +224,10 @@ export default function AdminRelatorios({
                   <div>
                     <p className="text-gray-300 text-xs flex items-center gap-1">
                       VGV de Obras
-                      <span title={AJUDA_VGV_DE_OBRAS} aria-label={AJUDA_VGV_DE_OBRAS}>
+                      <span
+                        title={AJUDA_VGV_DE_OBRAS}
+                        aria-label={AJUDA_VGV_DE_OBRAS}
+                      >
                         <Info className="h-3 w-3 text-gray-400" />
                       </span>
                     </p>
@@ -343,34 +346,47 @@ export default function AdminRelatorios({
                       Sem receitas ou despesas pagas no período
                     </div>
                   ) : (
-                  <ResponsiveContainer width="100%" height={220}>
-                    <BarChart data={data.dreMensal} barGap={4}>
-                      <CartesianGrid strokeDasharray="3 3" stroke="#374151" />
-                      <XAxis
-                        dataKey="mes"
-                        tick={{ fill: "#9CA3AF", fontSize: 11 }}
-                      />
-                      <YAxis
-                        width={70}
-                        tick={{ fill: "#9CA3AF", fontSize: 11 }}
-                        tickFormatter={v =>
-                          Number(v).toLocaleString("pt-BR", { notation: "compact", maximumFractionDigits: 1 })
-                        }
-                      />
-                      <Tooltip
-                        cursor={{ fill: "rgba(201, 169, 97, 0.08)" }}
-                        formatter={v => formatCurrencyBR(Number(v))}
-                        contentStyle={{
-                          background: "#0F1923",
-                          border: "1px solid #C9A96140",
-                        }}
-                        labelStyle={{ color: "#E5E7EB" }}
-                      />
-                      <Legend />
-                      <Bar dataKey="receitas" fill="#22C55E" name="Receitas" maxBarSize={48} />
-                      <Bar dataKey="despesas" fill="#EF4444" name="Despesas" maxBarSize={48} />
-                    </BarChart>
-                  </ResponsiveContainer>
+                    <ResponsiveContainer width="100%" height={220}>
+                      <BarChart data={data.dreMensal} barGap={4}>
+                        <CartesianGrid strokeDasharray="3 3" stroke="#374151" />
+                        <XAxis
+                          dataKey="mes"
+                          tick={{ fill: "#9CA3AF", fontSize: 11 }}
+                        />
+                        <YAxis
+                          width={70}
+                          tick={{ fill: "#9CA3AF", fontSize: 11 }}
+                          tickFormatter={v =>
+                            Number(v).toLocaleString("pt-BR", {
+                              notation: "compact",
+                              maximumFractionDigits: 1,
+                            })
+                          }
+                        />
+                        <Tooltip
+                          cursor={{ fill: "rgba(201, 169, 97, 0.08)" }}
+                          formatter={v => formatCurrencyBR(Number(v))}
+                          contentStyle={{
+                            background: "#0F1923",
+                            border: "1px solid #C9A96140",
+                          }}
+                          labelStyle={{ color: "#E5E7EB" }}
+                        />
+                        <Legend />
+                        <Bar
+                          dataKey="receitas"
+                          fill="#22C55E"
+                          name="Receitas"
+                          maxBarSize={48}
+                        />
+                        <Bar
+                          dataKey="despesas"
+                          fill="#EF4444"
+                          name="Despesas"
+                          maxBarSize={48}
+                        />
+                      </BarChart>
+                    </ResponsiveContainer>
                   )}
                 </CardContent>
               </Card>
@@ -422,7 +438,10 @@ export default function AdminRelatorios({
                   )}
                   <ul className="mt-2 space-y-1 text-xs">
                     {data.numerosDeObra.map((f, i) => (
-                      <li key={f.chave} className="flex items-center justify-between gap-2">
+                      <li
+                        key={f.chave}
+                        className="flex items-center justify-between gap-2"
+                      >
                         <span className="flex items-center gap-2 text-gray-300">
                           <span
                             className="inline-block h-3 w-3 rounded-sm"
@@ -464,7 +483,10 @@ export default function AdminRelatorios({
                             .replace("reservados + vendidos", "res. + vend.")
                         }
                       />
-                      <YAxis allowDecimals={false} tick={{ fill: "#9CA3AF", fontSize: 11 }} />
+                      <YAxis
+                        allowDecimals={false}
+                        tick={{ fill: "#9CA3AF", fontSize: 11 }}
+                      />
                       <Tooltip
                         cursor={{ fill: "rgba(201, 169, 97, 0.08)" }}
                         contentStyle={{
@@ -474,17 +496,35 @@ export default function AdminRelatorios({
                         labelStyle={{ color: "#E5E7EB" }}
                       />
                       <Legend />
-                      <Bar dataKey="disponiveis" stackId="u" fill="#22C55E" name="Disponível" maxBarSize={56} />
-                      <Bar dataKey="reservados" stackId="u" fill="#F59E0B" name="Reservado" maxBarSize={56} />
-                      <Bar dataKey="vendidos" stackId="u" fill="#EF4444" name="Vendido" maxBarSize={56} />
+                      <Bar
+                        dataKey="disponiveis"
+                        stackId="u"
+                        fill="#22C55E"
+                        name="Disponível"
+                        maxBarSize={56}
+                      />
+                      <Bar
+                        dataKey="reservados"
+                        stackId="u"
+                        fill="#F59E0B"
+                        name="Reservado"
+                        maxBarSize={56}
+                      />
+                      <Bar
+                        dataKey="vendidos"
+                        stackId="u"
+                        fill="#EF4444"
+                        name="Vendido"
+                        maxBarSize={56}
+                      />
                     </BarChart>
                   </ResponsiveContainer>
                   <p className="mt-2 text-[11px] text-gray-400">
                     Situação atual (não depende do período). Unidades excluídas
                     ficam fora. Catálogo: só imóveis aprovados, sem os pontos de
                     localização de obras. Não há vínculo entre imóvel do
-                    catálogo e unidade de incorporação, então nenhuma unidade
-                    é contada nos dois grupos.
+                    catálogo e unidade de incorporação, então nenhuma unidade é
+                    contada nos dois grupos.
                   </p>
                 </CardContent>
               </Card>
@@ -515,7 +555,11 @@ export default function AdminRelatorios({
                     </div>
                   ))}
                   <p className="pt-1 text-xs text-gray-300">
-                    Total: <span className="font-bold text-white">{data.funilLeads.total}</span> lead(s)
+                    Total:{" "}
+                    <span className="font-bold text-white">
+                      {data.funilLeads.total}
+                    </span>{" "}
+                    lead(s)
                   </p>
                   <p className="text-[11px] text-gray-400">
                     Leads ativos do CRM (excluídos ficam fora) criados no
@@ -551,10 +595,9 @@ export default function AdminRelatorios({
                     ))
                   )}
                   <p className="text-[11px] text-gray-400">
-                    Valor efetivamente pago, pela data do pagamento:
-                    pagamentos de comissão das obras (corretor do lead da obra)
-                    e comissões cadastradas como pagas, sem contar duas vezes a
-                    mesma obra.
+                    Valor efetivamente pago, pela data do pagamento: pagamentos
+                    de comissão das obras (corretor do lead da obra) e comissões
+                    cadastradas como pagas, sem contar duas vezes a mesma obra.
                   </p>
                 </CardContent>
               </Card>
