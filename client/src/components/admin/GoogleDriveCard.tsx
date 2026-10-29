@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type ChangeEvent } from "react";
-import { CheckCircle2, CloudUpload, HardDrive, Link2, Loader2, Unplug } from "lucide-react";
+import { CheckCircle2, CloudUpload, FolderSync, HardDrive, Link2, Loader2, Unplug } from "lucide-react";
 import { toast } from "sonner";
 import { trpc } from "@/lib/trpc";
 import { Button } from "@/components/ui/button";
@@ -25,6 +25,17 @@ export function GoogleDriveCard() {
   });
   const desconectar = trpc.googleDrive.desconectar.useMutation({ onSuccess: () => { toast.success("Google Drive desconectado."); void utils.googleDrive.status.invalidate(); }, onError: (e) => toast.error(e.message) });
   const testar = trpc.googleDrive.testar.useMutation({ onError: (e) => toast.error(e.message) });
+  // Pedido de 29/10: "Organizar Drive agora" (o mesmo roda todo dia pelo cron) e o último relatório.
+  const ultima = trpc.googleDrive.ultimaOrganizacao.useQuery(undefined, { enabled: Boolean(status?.conectado) });
+  const organizar = trpc.googleDrive.organizar.useMutation({
+    onSuccess: (r) => {
+      if ("emAndamento" in r) toast.info("A organização do Drive já está em andamento. Aguarde um minuto e atualize.");
+      else if (r.motivo) toast.error(r.motivo);
+      else toast.success(r.concluido ? "Drive organizado." : "Parte organizada; clique de novo (ou aguarde o cron diário) para continuar.");
+      void utils.googleDrive.ultimaOrganizacao.invalidate();
+    },
+    onError: (e) => toast.error(e.message),
+  });
 
   // Resultado da volta do Google (/admin/configuracoes?drive=ok|erro&motivo=...).
   useEffect(() => {
@@ -81,6 +92,28 @@ export function GoogleDriveCard() {
         </div>
       </li>
     </ol>
+    {status?.conectado && <div className="rounded-lg bg-[#1A2332] p-3 text-sm">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div><p className="font-semibold">Organizar Drive</p>
+          <p className="text-xs text-gray-400">Envia ao Drive o que está só no sistema, coloca cada arquivo na pasta certa e manda para a lixeira do Drive (recuperável por 30 dias) as pastas de registros excluídos. Roda sozinho todo dia.</p></div>
+        <Button type="button" variant="outline" disabled={organizar.isPending} onClick={() => organizar.mutate()}>
+          {organizar.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <FolderSync className="mr-2 h-4 w-4" />}Organizar Drive agora
+        </Button>
+      </div>
+      {ultima.data?.relatorio && (() => {
+        const o = ultima.data.relatorio;
+        return <div className="mt-2 text-xs text-gray-300">
+          <p>Última organização: {ultima.data.executadoEm ? new Date(ultima.data.executadoEm).toLocaleString("pt-BR") : "—"}{o.concluido ? " (completa)" : " (parcial — continua na próxima)"}</p>
+          {o.aviso && <p className="text-amber-300">{o.aviso}</p>}
+          {o.motivo ? <p className="text-amber-300">{o.motivo}</p> : <ul className="mt-1 list-disc pl-5">
+            <li>{o.enviados} arquivo(s) enviado(s) ao Drive{o.reconhecidos ? `, ${o.reconhecidos} já existente(s) reconhecido(s)` : ""}</li>
+            <li>{o.movidos} arquivo(s) movido(s)/renomeado(s){o.ignorados ? `, ${o.ignorados} não encontrado(s) no Drive` : ""}</li>
+            <li>{o.pastasOrfasNaLixeira} pasta(s) de registros excluídos e {o.arquivosNaLixeira} arquivo(s) enviados à lixeira do Drive{o.pastasAguardando ? `; ${o.pastasAguardando} aguardando reorganização` : ""}</li>
+            {o.falhas > 0 && <li className="text-amber-300">{o.falhas} falha(s) — será tentado de novo</li>}
+          </ul>}
+        </div>;
+      })()}
+    </div>}
     {r && <div role="status" className={`rounded-lg border p-3 text-sm ${r.ok ? "border-green-500/40 bg-green-500/10 text-green-200" : "border-amber-500/40 bg-amber-500/10 text-amber-100"}`}>
       <p>{r.ok ? "Google Drive funcionando: os próximos arquivos serão gravados no Drive." : "Google Drive indisponível. Os arquivos continuam guardados com segurança no banco do sistema."}</p>
       {r.etapas.length > 0 && <ul className="mt-1 list-disc pl-5 text-xs">{r.etapas.map((e) => <li key={e.etapa}>{e.etapa}: ok</li>)}</ul>}

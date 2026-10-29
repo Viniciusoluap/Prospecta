@@ -544,9 +544,8 @@ export const portalRouter = router({
         .where(and(eq(portalContractDocuments.id, input.id), eq(portalContracts.leadId, leadId)))
         .limit(1);
       if (!row || row.document.url) throw new TRPCError({ code: "NOT_FOUND" });
-      const data = row.document.driveFileId
-        ? await readPrivateDocument(row.document.driveFileId)
-        : await readPrivateDbFile("contract", row.document.id);
+      // Cópia no banco (fallback) tem prioridade; o Drive pode ter só a cópia organizada (29/10).
+      const data = (await readPrivateDbFile("contract", row.document.id)) ?? (row.document.driveFileId ? await readPrivateDocument(row.document.driveFileId) : null);
       if (!data) throw new TRPCError({ code: "NOT_FOUND" });
       return { fileName: row.document.name, base64: data.toString("base64") };
     }),

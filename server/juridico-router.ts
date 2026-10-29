@@ -171,9 +171,8 @@ export const juridicoRouter = router({
   documentContent: adminProcedure.input(z.object({ id: z.number().int().positive() })).query(async ({ input }) => {
     const [document] = await getDb().select().from(portalContractDocuments).where(eq(portalContractDocuments.id, input.id)).limit(1);
     if (!document || document.url) throw new TRPCError({ code: "NOT_FOUND" });
-    const data = document.driveFileId
-      ? await readPrivateDocument(document.driveFileId)
-      : await readPrivateDbFile("contract", document.id);
+    // Cópia no banco (fallback) tem prioridade; o Drive pode ter só a cópia organizada (29/10).
+    const data = (await readPrivateDbFile("contract", document.id)) ?? (document.driveFileId ? await readPrivateDocument(document.driveFileId) : null);
     if (!data) throw new TRPCError({ code: "NOT_FOUND" });
     return { fileName: document.name, base64: data.toString("base64") };
   }),

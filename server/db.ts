@@ -1017,7 +1017,9 @@ export async function getLeadVinculosExclusao(id: number): Promise<VinculosLead>
       (SELECT count(*) FROM operational_projects WHERE lead_id = ${id})::int AS projetos,
       (SELECT count(*) FROM avaliacoes WHERE lead_id = ${id})::int AS avaliacoes,
       (SELECT count(*) FROM portal_contracts WHERE lead_id = ${id})::int AS contratos,
-      (SELECT count(*) FROM lead_documents WHERE lead_id = ${id} AND deleted_at IS NULL)::int AS documentos,
+      -- Pedido de 29/10 (paridade com o Santa Fé): documento com cópia no Drive não bloqueia
+      -- (a pasta vai para a lixeira do Drive); só documento guardado apenas no banco bloqueia.
+      (SELECT count(*) FROM lead_documents WHERE lead_id = ${id} AND deleted_at IS NULL AND drive_file_id IS NULL)::int AS documentos,
       (SELECT count(*) FROM users WHERE lead_id = ${id})::int AS contas`);
   const row = (r.rows[0] ?? {}) as Record<string, unknown>;
   return Object.fromEntries(VINCULOS_LEAD.map(([chave]) => [chave, Number(row[chave] ?? 0)])) as VinculosLead;
@@ -1026,7 +1028,8 @@ export async function getLeadVinculosExclusao(id: number): Promise<VinculosLead>
 /**
  * Exclusão definitiva (H3), numa única instrução: só apaga lead ARQUIVADO e sem
  * nenhum vínculo (mesmas condições de getLeadVinculosExclusao, rechecadas aqui).
- * Leva junto histórico, follow-ups, tarefas, documentos já excluídos sem arquivo no Drive, serviços,
+ * Leva junto histórico, follow-ups, tarefas, documentos já excluídos (a pasta do cliente no Drive vai
+ * para a lixeira depois, em leads.permanentDelete — pedido de 29/10), serviços,
  * preferências, alertas e chat do lead; mensagens de WhatsApp ficam na caixa,
  * apenas sem o vínculo. Devolve true se o lead foi apagado.
  */
@@ -1041,7 +1044,7 @@ export async function excluirLeadArquivadoDefinitivamente(id: number): Promise<b
         AND NOT EXISTS (SELECT 1 FROM operational_projects WHERE lead_id = l.id)
         AND NOT EXISTS (SELECT 1 FROM avaliacoes WHERE lead_id = l.id)
         AND NOT EXISTS (SELECT 1 FROM portal_contracts WHERE lead_id = l.id)
-        AND NOT EXISTS (SELECT 1 FROM lead_documents WHERE lead_id = l.id AND deleted_at IS NULL)
+        AND NOT EXISTS (SELECT 1 FROM lead_documents WHERE lead_id = l.id AND deleted_at IS NULL AND drive_file_id IS NULL)
         AND NOT EXISTS (SELECT 1 FROM users WHERE lead_id = l.id)
       FOR UPDATE
     ), atividades AS (
@@ -1051,9 +1054,9 @@ export async function excluirLeadArquivadoDefinitivamente(id: number): Promise<b
     ), tarefas AS (
       DELETE FROM tasks WHERE related_type = 'lead' AND related_id IN (SELECT id FROM alvo)
     ), documentos_excluidos AS (
-      -- Já excluídos e sem arquivo no Drive; os que têm arquivo no Drive ficam
-      -- registrados para o arquivo continuar rastreável (não há remoção no Drive).
-      DELETE FROM lead_documents WHERE deleted_at IS NOT NULL AND drive_file_id IS NULL AND lead_id IN (SELECT id FROM alvo)
+      -- Pedido de 29/10: todos os documentos do lead (os ativos já estão no Drive); a pasta do
+      -- cliente vai para a lixeira do Drive logo depois; cópias usadas por outro lead são movidas antes.
+      DELETE FROM lead_documents WHERE lead_id IN (SELECT id FROM alvo)
     ), whatsapp AS (
       UPDATE whatsapp_messages SET lead_id = NULL WHERE lead_id IN (SELECT id FROM alvo)
     ), apagado AS (
