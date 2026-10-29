@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   areaDoServico, caminhoCliente, caminhoEquipe, caminhoFotosObra, caminhoGeradorPci, caminhoMedicoesObra, caminhoModelosPci, caminhoEstudo,
   caminhoOrcamentoEstudo, caminhoWhatsappCliente, caminhoWhatsappSemCliente, chaveEntidade, dataArquivo, extensaoArquivo, idDaChaveEntidade,
-  limparNome, nomeArquivo, nomeComNumero, nomeDocumentoEquipe, nomeFotoObra, nomeMidiaWhatsapp, nomeModeloPci, nomePciGerada,
+  entidadeDaChave, limparNome, nomeArquivo, nomeComNumero, nomeDocumentoEquipe, nomeFotoObra, nomeMidiaWhatsapp, nomeModeloPci, nomePciGerada,
   nomePlanilhaOrcamento, pastaLegada,
 } from "../shared/drive-estrutura";
 
@@ -130,5 +130,11 @@ describe("organização completa do Drive (29/10)", () => {
     expect(idDaChaveEntidade("obra", "obra:abc")).toBeNull();
     expect(idDaChaveEntidade("equipe", "equipe:4")).toBe(4);
     expect(idDaChaveEntidade("incorporacao", undefined)).toBeNull();
+    expect(entidadeDaChave("cliente:19")).toEqual({ entidade: "cliente", id: 19 });
+    expect(entidadeDaChave("cliente:projeto-5")).toEqual({ entidade: "projeto", id: 5 });
+    expect(entidadeDaChave("imovel:3")).toEqual({ entidade: "imovel", id: 3 });
+    expect(entidadeDaChave("obra:7:fotos")).toBeNull();
+    expect(entidadeDaChave("projeto-5")).toBeNull();
+    expect(entidadeDaChave(null)).toBeNull();
   });
 });

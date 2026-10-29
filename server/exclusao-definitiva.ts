@@ -13,7 +13,7 @@ import {
 } from "../drizzle/schema.js";
 import type { ModuloExclusao } from "../shared/exclusao.js";
 import { getDb } from "./db.js";
-import { lixeiraDaEntidade, lixeiraDoArquivo } from "./drive-organizacao.js";
+import { lixeiraDaEntidade, lixeiraDoArquivo, lixeiraDoProjeto } from "./drive-organizacao.js";
 import { MODULO_DO_DESTINO, podeUsarModulo } from "./_core/rbac.js";
 
 type Db = ReturnType<typeof getDb>;
@@ -123,6 +123,7 @@ export async function excluirDefinitivo(modulo: ModuloExclusao, id: number, ator
   // Pedido de 29/10: o banco primeiro; depois a lixeira do Drive (nunca bloqueia a exclusão).
   if (modulo === "obra") await lixeiraDaEntidade("obra", id);
   if (modulo === "estudo") await lixeiraDaEntidade("incorporacao", id);
+  if (modulo === "projeto") await lixeiraDoProjeto(id); // portfólio "projeto-<id>"
   for (const arquivo of arquivos) await lixeiraDoArquivo(arquivo);
   return { excluido: true };
 }

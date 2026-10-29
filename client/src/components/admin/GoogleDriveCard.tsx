@@ -104,6 +104,7 @@ export function GoogleDriveCard() {
         const o = ultima.data.relatorio;
         return <div className="mt-2 text-xs text-gray-300">
           <p>Última organização: {ultima.data.executadoEm ? new Date(ultima.data.executadoEm).toLocaleString("pt-BR") : "—"}{o.concluido ? " (completa)" : " (parcial — continua na próxima)"}</p>
+          {o.aviso && <p className="text-amber-300">{o.aviso}</p>}
           {o.motivo ? <p className="text-amber-300">{o.motivo}</p> : <ul className="mt-1 list-disc pl-5">
             <li>{o.enviados} arquivo(s) enviado(s) ao Drive{o.reconhecidos ? `, ${o.reconhecidos} já existente(s) reconhecido(s)` : ""}</li>
             <li>{o.movidos} arquivo(s) movido(s)/renomeado(s){o.ignorados ? `, ${o.ignorados} não encontrado(s) no Drive` : ""}</li>

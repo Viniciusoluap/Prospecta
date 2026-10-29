@@ -91,7 +91,7 @@ import { incorporationUnitsRouter } from "./incorporacao-unidades-router.js";
 import { incorporationMassStudiesRouter } from "./incorporacao-estudos-massa-router.js";
 import { prepararLotesAvulsosParaGravar } from "../shared/incorporacao/lotes-avulsos.js";
 import { excluirDefinitivo } from "./exclusao-definitiva.js";
-import { atualizarPlanilhaOrcamentoNoDrive, lixeiraDaEntidade } from "./drive-organizacao.js";
+import { arquivosDoLeadNoDrive, atualizarPlanilhaOrcamentoNoDrive, lixeiraDoLead } from "./drive-organizacao.js";
 import { bpoRouter } from "./bpo-router.js";
 
 async function validateStudySchedule(dataJson: string, key: "medicoes" | "marcos") {
@@ -1340,12 +1340,15 @@ export const appRouter = router({
         if (lead.deletedAt === null) throw new TRPCError({ code: "BAD_REQUEST", message: "Só leads arquivados podem ser excluídos definitivamente. Arquive o lead primeiro." });
         const bloqueio = mensagemBloqueioExclusao(await db.getLeadVinculosExclusao(input.id));
         if (bloqueio) throw new TRPCError({ code: "CONFLICT", message: bloqueio });
+        // Arquivos do lead no Drive lidos antes: depois da exclusão os vínculos somem.
+        const arquivosNoDrive = await arquivosDoLeadNoDrive(input.id);
         if (!await db.excluirLeadArquivadoDefinitivamente(input.id)) {
           throw new TRPCError({ code: "CONFLICT", message: "O lead mudou enquanto era excluído (foi recuperado ou ganhou um vínculo). Atualize a lista e tente de novo." });
         }
         // Pedido de 29/10: a pasta Clientes/<Nome (nº id)> vai para a lixeira do Drive (30 dias).
-        // Arquivo ainda usado (mídia de WhatsApp, cópia de lead duplicado) é reorganizado antes pelo "Organizar Drive".
-        await lixeiraDaEntidade("cliente", input.id);
+        // Antes, documentos compartilhados com lead duplicado e mídias de WhatsApp saem da pasta;
+        // se algo falhar, a pasta fica para o "Organizar Drive".
+        await lixeiraDoLead(input.id, arquivosNoDrive);
         return { success: true };
       }),
 

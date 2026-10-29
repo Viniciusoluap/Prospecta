@@ -604,7 +604,8 @@ async function listarFilhos(fonte: FonteDrive, pasta: string, pageToken?: string
  */
 export async function subpastasDaCategoria(chaveCategoria: string, pageToken?: string | null): Promise<{ pastas: { id: string; chave: string | null }[]; proximaPagina: string | null }> {
   const fonte = await fonteObrigatoria();
-  const categoria = (await pastasComEtiqueta(fonte, chaveCategoria))[0];
+  // Só a categoria dentro da raiz atual (pasta de outra raiz/conta nunca é tocada).
+  const categoria = (await pastasComEtiqueta(fonte, chaveCategoria)).find((p) => (p.parents ?? []).includes(fonte.rootFolder));
   if (!categoria) return { pastas: [], proximaPagina: null };
   const r = await listarFilhos(fonte, categoria.id, pageToken ?? undefined, true);
   return { pastas: r.itens.map((p) => ({ id: p.id, chave: p.appProperties?.[PROPRIEDADE_PASTA] ?? null })), proximaPagina: r.proximaPagina };

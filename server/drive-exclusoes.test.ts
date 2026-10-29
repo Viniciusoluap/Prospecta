@@ -3,7 +3,7 @@
 // Equipe/<Nome (nº id)>/<categoria>. Sem chamar o Google.
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import * as db from "./db.js";
-import { lixeiraDaEntidade, lixeiraDoArquivo } from "./drive-organizacao.js";
+import { arquivosDoLeadNoDrive, lixeiraDaEntidade, lixeiraDoArquivo, lixeiraDoLead, lixeiraDoProjeto } from "./drive-organizacao.js";
 import { excluirDefinitivo } from "./exclusao-definitiva.js";
 import { excluirImovelDefinitivo } from "./imovel-exclusao.js";
 import { fontePorTipo } from "./drive-arquivos.js";
@@ -12,6 +12,9 @@ import { appRouter } from "./routers.js";
 vi.mock("./drive-organizacao.js", () => ({
   lixeiraDaEntidade: vi.fn(async () => undefined),
   lixeiraDoArquivo: vi.fn(async () => undefined),
+  lixeiraDoProjeto: vi.fn(async () => undefined),
+  lixeiraDoLead: vi.fn(async () => undefined),
+  arquivosDoLeadNoDrive: vi.fn(async () => ["doc-drive", "midia-drive"]),
   copiarParaDrive: vi.fn(async () => false),
   atualizarPlanilhaOrcamentoNoDrive: vi.fn(async () => undefined),
 }));
@@ -43,6 +46,8 @@ beforeEach(() => {
   vi.restoreAllMocks();
   vi.mocked(lixeiraDaEntidade).mockReset();
   vi.mocked(lixeiraDoArquivo).mockReset();
+  vi.mocked(lixeiraDoLead).mockReset();
+  vi.mocked(lixeiraDoProjeto).mockReset();
 });
 
 describe("exclusão definitiva → lixeira do Drive", () => {
@@ -68,6 +73,12 @@ describe("exclusão definitiva → lixeira do Drive", () => {
     expect(lixeiraDaEntidade).not.toHaveBeenCalled();
   });
 
+  it("projeto: pasta de portfólio projeto-<id>", async () => {
+    fakeDb([[{ leadServiceId: null }]]);
+    await excluirDefinitivo("projeto", 12, admin);
+    expect(lixeiraDoProjeto).toHaveBeenCalledWith(12);
+  });
+
   it("registro já excluído: nada no Drive", async () => {
     fakeDb([[]]);
     await expect(excluirDefinitivo("obra", 9, admin)).resolves.toEqual({ excluido: false });
@@ -81,18 +92,20 @@ describe("exclusão definitiva → lixeira do Drive", () => {
     expect(lixeiraDoArquivo).toHaveBeenCalledWith("f1");
   });
 
-  it("lead excluído definitivamente: pasta cliente:<id> (só depois de apagar no banco)", async () => {
+  it("lead excluído definitivamente: arquivos lidos antes, pasta cliente:<id> depois de apagar no banco", async () => {
     vi.spyOn(db, "getLeadById").mockResolvedValue({ id: 5, name: "LEAD", deletedAt: new Date("2026-10-20") } as never);
     vi.spyOn(db, "getLeadVinculosExclusao").mockResolvedValue({ obras: 0, financiamentos: 0, regularizacoes: 0, projetos: 0, avaliacoes: 0, contratos: 0, documentos: 0, contas: 0 });
     const apagar = vi.spyOn(db, "excluirLeadArquivadoDefinitivamente").mockResolvedValue(true);
     const caller = appRouter.createCaller({ user: { id: 1, role: "admin", active: true }, req: {}, res: {} } as never);
     await caller.leads.permanentDelete({ id: 5 });
     expect(apagar).toHaveBeenCalledWith(5);
-    expect(lixeiraDaEntidade).toHaveBeenCalledWith("cliente", 5);
+    expect(arquivosDoLeadNoDrive).toHaveBeenCalledWith(5);
+    expect(lixeiraDoLead).toHaveBeenCalledWith(5, ["doc-drive", "midia-drive"]);
+    expect(vi.mocked(arquivosDoLeadNoDrive).mock.invocationCallOrder[0]).toBeLessThan(apagar.mock.invocationCallOrder[0]);
     apagar.mockResolvedValue(false);
-    vi.mocked(lixeiraDaEntidade).mockClear();
+    vi.mocked(lixeiraDoLead).mockClear();
     await expect(caller.leads.permanentDelete({ id: 5 })).rejects.toMatchObject({ code: "CONFLICT" });
-    expect(lixeiraDaEntidade).not.toHaveBeenCalled();
+    expect(lixeiraDoLead).not.toHaveBeenCalled();
   });
 
   it("usuário excluído: pasta equipe:<id>", async () => {

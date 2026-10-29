@@ -4,7 +4,7 @@
 import { describe, expect, it, vi } from "vitest";
 import type { ArquivoNoDrive, ArquivoPendente, FonteArquivos } from "./drive-arquivos.js";
 import {
-  copiarParaDrive, lixeiraDaEntidade, lixeiraDoArquivo, organizarDrive, type CursorOrganizacao, type DependenciasOrganizador, type RelatorioOrganizacao,
+  copiarParaDrive, lixeiraDaEntidade, lixeiraDoArquivo, lixeiraDoLead, lixeiraDoProjeto, organizarDrive, type CursorOrganizacao, type DependenciasOrganizador, type RelatorioOrganizacao,
 } from "./drive-organizacao.js";
 
 vi.mock("./db.js", () => ({ getDb: vi.fn(() => ({ execute: vi.fn(() => Promise.resolve({ rows: [] })) })) }));
@@ -169,7 +169,73 @@ describe("Organizar Drive — pastas órfãs", () => {
   });
 });
 
+describe("Organizar Drive — proteções dos órfãos (paridade com o Santa Fé)", () => {
+  it("portfólio de projeto sem lead (cliente:projeto-<id>) é conferido contra os projetos", async () => {
+    const existentes = vi.fn(async (entidade: string, ids: number[]) => new Set(entidade === "projeto" ? ids.filter((i) => i === 1) : ids));
+    const f = depsFalsas({
+      subpastas: async (cat) => ({ pastas: cat === "clientes" ? [{ id: "c1", chave: "cliente:1" }, { id: "pp1", chave: "cliente:projeto-1" }, { id: "pp2", chave: "cliente:projeto-2" }] : [], proximaPagina: null }),
+      existentes,
+    });
+    await organizarDrive(f.deps);
+    expect(existentes).toHaveBeenCalledWith("projeto", [1, 2]);
+    expect(f.lixeira.mock.calls.map((c) => c[0])).toEqual(["pp2"]);
+  });
+
+  it("mais de 25 órfãs numa página e mais da metade dela: nada é apagado e o relatório avisa", async () => {
+    const pastas = Array.from({ length: 40 }, (_, i) => ({ id: `p${i + 1}`, chave: `cliente:${i + 1}` }));
+    const f = depsFalsas({
+      subpastas: async (cat) => ({ pastas: cat === "clientes" ? pastas : [], proximaPagina: null }),
+      existentes: async (_e, ids) => new Set(ids.filter((i) => i > 30)), // 30 de 40 "sem registro"
+    });
+    const r = await organizarDrive(f.deps, { maxOrfas: 100 });
+    expect(f.lixeira).not.toHaveBeenCalled();
+    expect(r.aviso).toContain("Nada foi apagado");
+  });
+
+  it("até 25 órfãs (ou menos da metade) segue normalmente", async () => {
+    const pastas = Array.from({ length: 60 }, (_, i) => ({ id: `p${i + 1}`, chave: `cliente:${i + 1}` }));
+    const f = depsFalsas({
+      subpastas: async (cat) => ({ pastas: cat === "clientes" ? pastas : [], proximaPagina: null }),
+      existentes: async (_e, ids) => new Set(ids.filter((i) => i > 26)), // 26 de 60: menos da metade
+    });
+    const r = await organizarDrive(f.deps, { maxOrfas: 100 });
+    expect(f.lixeira).toHaveBeenCalledTimes(26);
+    expect(r.aviso).toBeNull();
+  });
+});
+
 describe("Lixeira nas exclusões", () => {
+  it("lead: tira da pasta os arquivos ainda usados (doc compartilhado, mídia) e depois manda a pasta para a lixeira", async () => {
+    const ordem: string[] = [];
+    let devolvida = false;
+    const f = depsFalsas({
+      emUso: async (ids) => new Set(ids.filter((i) => i !== "so-do-lead")),
+      mover: vi.fn(async (id: string) => { ordem.push(`mover:${id}`); return "movido" as const; }),
+      pastaPorChave: async (c) => { if (devolvida || c !== "cliente:5") return null; devolvida = true; return { id: "pasta-lead" }; },
+      lixeira: vi.fn(async (id: string) => { ordem.push(`lixeira:${id}`); }),
+    });
+    await lixeiraDoLead(5, ["so-do-lead", "copia", "midia"], f.deps, async () => destino);
+    expect(ordem).toEqual(["mover:copia", "mover:midia", "lixeira:pasta-lead"]);
+  });
+
+  it("lead: se não der para mover algo, a pasta NÃO vai para a lixeira agora (fica para o sincronizador)", async () => {
+    const f = depsFalsas({
+      emUso: async (ids) => new Set(ids),
+      mover: vi.fn(async () => "falha" as const),
+      pastaPorChave: async () => ({ id: "pasta-lead" }),
+    });
+    await lixeiraDoLead(5, ["copia"], f.deps, async () => destino);
+    expect(f.lixeira).not.toHaveBeenCalled();
+  });
+
+  it("projeto: pasta de portfólio projeto-<id>", async () => {
+    const pedidas: string[] = [];
+    const f = depsFalsas({ pastaPorChave: async (c) => { pedidas.push(c); return pedidas.length === 1 ? { id: "pf" } : null; } });
+    await lixeiraDoProjeto(12, f.deps);
+    expect(pedidas[0]).toBe("projeto-12");
+    expect(f.lixeira).toHaveBeenCalledWith("pf");
+  });
+
   it("lead/obra/estudo/imóvel/usuário: a pasta da entidade (pela etiqueta) vai para a lixeira", async () => {
     for (const [entidade, chave] of [["cliente", "cliente:5"], ["obra", "obra:5"], ["incorporacao", "incorporacao:5"], ["imovel", "imovel:5"], ["equipe", "equipe:5"]] as const) {
       const pedidas: string[] = [];
