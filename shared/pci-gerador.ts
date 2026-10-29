@@ -723,7 +723,10 @@ export const MIME_MODELO_PCI: Record<FormatoModeloPci, string> = {
   xlsb: "application/vnd.ms-excel.sheet.binary.macroEnabled.12",
 };
 export const MENSAGEM_XLSB_SO_LEITURA =
-  "O modelo atual está em .xlsb, formato que o sistema só consegue ler. Para gerar a PCI, envie em Integrações › Sub PCI atual a versão .xls ou .xlsm do mesmo modelo oficial da CAIXA.";
+  "O modelo atual está em .xlsb, formato que o sistema só consegue ler. A PCI é gerada sempre em .xls: envie em Integrações › PCI da CAIXA a versão .xls do mesmo modelo oficial.";
+/** Lote 03, correção 10: saída obrigatória em .xls real (BIFF8). */
+export const MENSAGEM_SAIDA_XLS_PCI =
+  "Envie a versão .xls do modelo oficial. A PCI é gerada sempre em .xls (formato aceito pela CAIXA) e não há versão .xls do modelo compatível com o modelo atual.";
 
 /** Formato pela extensão, conferido pela assinatura do arquivo. */
 export function formatoModeloPci(nome: string, bytes: Uint8Array): FormatoModeloPci {
