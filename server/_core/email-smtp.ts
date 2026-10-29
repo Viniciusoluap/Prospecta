@@ -3,7 +3,7 @@ import { eq } from "drizzle-orm";
 import { getDb } from "../db.js";
 import { emailLogs, InsertEmailLog } from "../../drizzle/schema.js";
 import { ENV } from "./env.js";
-import { descreverErroSmtp } from "../../shared/email-erro.js";
+import { descreverErroSmtp, falhaTemporariaSmtp } from "../../shared/email-erro.js";
 import { IDENTIDADE_EMAIL, REMETENTE_EMAIL, rodapeEmail } from "../../shared/email-identidade.js";
 
 type EmailData = {
@@ -19,7 +19,11 @@ type EmailData = {
 type EmailDependencies = {
   db: ReturnType<typeof getDb>;
   transport: Pick<ReturnType<typeof nodemailer.createTransport>, "sendMail">;
+  /** Pausa antes de repetir uma falha temporária; injetável nos testes. */
+  esperar?: (ms: number) => Promise<void>;
 };
+
+const esperarPadrao = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
 
 function defaultDependencies(): EmailDependencies {
   if (!ENV.smtpHost || !ENV.smtpUser || !ENV.smtpPassword) {
@@ -67,14 +71,22 @@ export async function sendEmail(
     emailId = result[0]?.id;
     if (!emailId) return false;
 
-    await deps.transport.sendMail({
+    const mensagem = {
       from: `"${REMETENTE_EMAIL}" <${ENV.smtpUser || "no-reply@prospecta.local"}>`,
       to: data.to,
       subject: data.subject,
       html: data.html,
       text: data.html.replace(/<[^>]*>/g, ""),
       attachments: data.attachments,
-    });
+    };
+    try {
+      await deps.transport.sendMail(mensagem);
+    } catch (erro) {
+      // Recusa temporária do provedor (ex.: 27/10, aviso diário do CRM): repete uma vez.
+      if (!falhaTemporariaSmtp(erro)) throw erro;
+      await (deps.esperar ?? esperarPadrao)(3_000);
+      await deps.transport.sendMail(mensagem);
+    }
     aceitoPeloSmtp = true;
     await deps.db
       .update(emailLogs)

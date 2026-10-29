@@ -111,3 +111,33 @@ it("não oferece reenvio quando SMTP aceitou e só a auditoria posterior falhou"
   expect(mocks.sendMail).toHaveBeenCalledTimes(1);
   expect(mocks.set).not.toHaveBeenCalledWith(expect.objectContaining({ status: "failed" }));
 });
+
+describe("Email service — falha temporária do provedor", () => {
+  const data = {
+    to: "recipient@example.test",
+    subject: "Aviso",
+    html: "<p>Aviso</p>",
+    templateType: "admin_notification" as const,
+  };
+
+  it("repete uma vez quando o provedor recusa a mensagem (EMESSAGE)", async () => {
+    const { deps, mocks } = dependencies();
+    mocks.sendMail
+      .mockRejectedValueOnce(Object.assign(new Error("rejected"), { code: "EMESSAGE", responseCode: 550 }))
+      .mockResolvedValueOnce({ messageId: "retry-ok" });
+    const esperar = vi.fn().mockResolvedValue(undefined);
+    await expect(sendEmail(data, { ...deps, esperar })).resolves.toBe(true);
+    expect(mocks.sendMail).toHaveBeenCalledTimes(2);
+    expect(esperar).toHaveBeenCalledTimes(1);
+    expect(mocks.set).toHaveBeenCalledWith(expect.objectContaining({ status: "sent" }));
+  });
+
+  it("não repete falha de autenticação", async () => {
+    const { deps, mocks } = dependencies();
+    mocks.sendMail.mockRejectedValue(Object.assign(new Error("auth"), { code: "EAUTH", responseCode: 535 }));
+    const esperar = vi.fn().mockResolvedValue(undefined);
+    await expect(sendEmail(data, { ...deps, esperar })).resolves.toBe(false);
+    expect(mocks.sendMail).toHaveBeenCalledTimes(1);
+    expect(esperar).not.toHaveBeenCalled();
+  });
+});
