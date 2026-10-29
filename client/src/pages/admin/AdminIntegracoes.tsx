@@ -147,6 +147,11 @@ export default function AdminIntegracoes() {
                 {webhookAsaas.error && <p role="alert" className="mt-2 text-red-300">{webhookAsaas.error.message}</p>}
                 {webhookAsaas.data && <div role="status" className="mt-2 space-y-1">
                   <p>{webhookAsaas.data.mensagem}</p>
+                  {!webhookAsaas.data.encontrado && <div className="text-xs text-gray-300">
+                    <p>Webhooks consultados nesta conta: {webhookAsaas.data.totalWebhooks}. Confira os destinos abaixo; nenhuma configuração foi alterada.</p>
+                    <ul className="mt-1 space-y-1">{webhookAsaas.data.destinos.map((destino, index) => <li key={index} className="break-all">{destino.nome}: {destino.endereco}</li>)}</ul>
+                    {webhookAsaas.data.totalWebhooks > webhookAsaas.data.destinos.length && <p>Exibindo os primeiros {webhookAsaas.data.destinos.length} destinos.</p>}
+                  </div>}
                   {webhookAsaas.data.encontrado && <p>Ambiente: {webhookAsaas.data.ambiente}. URL: {webhookAsaas.data.urlCorreta ? "correta" : "precisa atualizar"}. Token: {webhookAsaas.data.tokenConfere === null ? "não informado pelo provedor" : webhookAsaas.data.tokenConfere ? "confere" : "divergente"}. Fila: {webhookAsaas.data.interrompido ? "interrompida" : "ativa"}. Webhook: {webhookAsaas.data.ativo ? "habilitado" : "desabilitado"}.</p>}
                 </div>}
               </div>
