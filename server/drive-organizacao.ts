@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 // Pedido de 29/10: "Organizar Drive" — reconciliação idempotente e retomável
 // entre o banco e o Google Drive (mesma regra no Grupo Santa Fé):
 //   a) envia ao Drive o que está só no banco (preenche drive_file_id);
@@ -53,7 +54,7 @@ export interface DependenciasOrganizador {
   fontes: FonteArquivos[];
   upload(destino: DestinoDrive, mime: string, dados: Buffer, cache: CachePastas): Promise<string>;
   mover(fileId: string, destino: DestinoDrive, cache: CachePastas): Promise<"movido" | "no_lugar" | "ignorado" | "falha">;
-  adotar(chavePasta: string, prefixo: string): Promise<string | null>;
+  adotar(chavePasta: string, prefixo: string, md5: string): Promise<string | null>;
   subpastas(chaveCategoria: string, pagina: string | null): Promise<{ pastas: { id: string; chave: string | null }[]; proximaPagina: string | null }>;
   arquivosNaPasta(pastaId: string): Promise<string[]>;
   pastaPorChave(chave: string): Promise<{ id: string } | null>;
@@ -153,11 +154,14 @@ export async function organizarDrive(deps: DependenciasOrganizador, opcoes: Opco
         posicao.set(fonte.tipo, item.id);
         try {
           const destino = await item.destino();
-          let id = item.adotarPrefixo ? await deps.adotar(destino.caminho[destino.caminho.length - 1].chave, item.adotarPrefixo) : null;
+          const dados = await item.carregar();
+          if (!dados?.length) continue;
+          // Só adota cópia antiga com o MESMO conteúdo (MD5); senão envia os bytes do banco.
+          let id = item.adotarPrefixo
+            ? await deps.adotar(destino.caminho[destino.caminho.length - 1].chave, item.adotarPrefixo, createHash("md5").update(dados).digest("hex"))
+            : null;
           if (id) r.reconhecidos += 1;
           else {
-            const dados = await item.carregar();
-            if (!dados?.length) continue;
             id = await deps.upload(destino, item.mime, dados, cache);
             r.enviados += 1;
           }
@@ -280,7 +284,7 @@ export const dependenciasReais = (): DependenciasOrganizador => ({
   fontes: FONTES_ARQUIVOS,
   upload: (destino, mime, dados, cache) => uploadArquivoNoCaminho(destino, mime, dados, cache),
   mover: (fileId, destino, cache) => moverArquivoParaDestino(fileId, destino, cache),
-  adotar: (chavePasta, prefixo) => arquivoNaPastaPorPrefixo(chavePasta, prefixo),
+  adotar: (chavePasta, prefixo, md5) => arquivoNaPastaPorPrefixo(chavePasta, prefixo, md5),
   subpastas: (chave, pagina) => subpastasDaCategoria(chave, pagina),
   arquivosNaPasta: (id) => arquivosNaPasta(id),
   pastaPorChave: (chave) => pastaPorChave(chave),

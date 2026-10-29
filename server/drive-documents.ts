@@ -611,17 +611,22 @@ export async function subpastasDaCategoria(chaveCategoria: string, pageToken?: s
   return { pastas: r.itens.map((p) => ({ id: p.id, chave: p.appProperties?.[PROPRIEDADE_PASTA] ?? null })), proximaPagina: r.proximaPagina };
 }
 
-/** Arquivo da pasta cujo nome começa com `prefixo` (o mais recente). */
-export async function arquivoNaPastaPorPrefixo(chavePasta: string, prefixo: string): Promise<string | null> {
+/**
+ * Arquivo da pasta cujo nome começa com `prefixo` e cujo conteúdo é o mesmo
+ * (MD5 do Drive = MD5 dos bytes do banco). Sem conteúdo igual, não adota nada:
+ * uma versão antiga da PCI nunca é confundida com a atual.
+ */
+export async function arquivoNaPastaPorPrefixo(chavePasta: string, prefixo: string, md5: string): Promise<string | null> {
   const fonte = await fonteObrigatoria();
   const pasta = (await pastasComEtiqueta(fonte, chavePasta))[0];
   if (!pasta) return null;
   const query = new URLSearchParams({
     q: `'${escapeSearch(pasta.id)}' in parents and trashed = false and name contains '${escapeSearch(prefixo)}' and mimeType != '${PASTA_MIME}'`,
-    fields: "files(id,name)", pageSize: "50", orderBy: "createdTime desc", supportsAllDrives: "true", includeItemsFromAllDrives: "true",
+    fields: "files(id,name,md5Checksum)", pageSize: "50", orderBy: "createdTime desc", supportsAllDrives: "true", includeItemsFromAllDrives: "true",
   });
   const r = await driveFetch(fonte, `https://www.googleapis.com/drive/v3/files?${query}`);
-  const achado = (((await r.json()) as { files?: ArquivoDrive[] }).files ?? []).find((f) => (f.name ?? "").startsWith(prefixo));
+  const achado = (((await r.json()) as { files?: (ArquivoDrive & { md5Checksum?: string })[] }).files ?? [])
+    .find((f) => (f.name ?? "").startsWith(prefixo) && f.md5Checksum === md5);
   return achado?.id ?? null;
 }
 

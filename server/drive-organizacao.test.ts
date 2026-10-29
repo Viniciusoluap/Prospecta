@@ -104,6 +104,18 @@ describe("Organizar Drive — envio do que está só no banco", () => {
     expect(fonte.gravados).toEqual({ 9: "antigo" });
   });
 
+  it("só adota a cópia antiga com o mesmo conteúdo (MD5 dos bytes do banco); senão envia", async () => {
+    const fonte = fonteFalsa("pci_original", [9]);
+    const original = fonte.pendentes!.bind(fonte);
+    fonte.pendentes = async (filtro) => (await original(filtro)).map((i) => ({ ...i, adotarPrefixo: "PCI original — " }));
+    const md5s: string[] = [];
+    const f = depsFalsas({ fontes: [fonte], adotar: async (_pasta, _prefixo, md5) => { md5s.push(md5); return null; } });
+    const r = await organizarDrive(f.deps);
+    expect(md5s).toHaveLength(1);
+    expect(md5s[0]).toMatch(/^[0-9a-f]{32}$/);
+    expect(r).toMatchObject({ enviados: 1, reconhecidos: 0 });
+  });
+
   it("sem Drive configurado não faz nada e explica", async () => {
     const f = depsFalsas({ configurado: async () => false, fontes: [fonteFalsa("x", [1])] });
     const r = await organizarDrive(f.deps);

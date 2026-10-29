@@ -72,14 +72,14 @@ const destinoUsuarioDoc = (l: Linha): DestinoDrive => ({
 const usuarioDocumentos: FonteArquivos = {
   tipo: "usuario_documento",
   async pendentes(f) {
-    const rows = await linhas(sql`SELECT d.id, d.user_id, d.category, d.original_name, d.mime, d.uploaded_at, u.name AS nome
+    const rows = await linhas(sql`SELECT d.id, d.user_id, d.category, d.original_name, d.mime, d.uploaded_at, d.uploaded_at::text AS uploaded_at_exato, u.name AS nome
       FROM user_documents d JOIN users u ON u.id = d.user_id
       WHERE d.drive_file_id IS NULL AND ${filtroId(sql`d.id`, f)} ORDER BY d.id LIMIT ${f.limite}`);
     return rows.map((l) => ({
       tipo: this.tipo, id: num(l.id), mime: String(l.mime), destino: pronto(destinoUsuarioDoc(l)),
       carregar: () => b64(sql`SELECT encode(content, 'base64') AS b64 FROM user_documents WHERE id = ${num(l.id)}`),
       // Só grava se o documento não foi substituído durante o envio.
-      gravar: async (id) => { await getDb().execute(sql`UPDATE user_documents SET drive_file_id = ${id} WHERE id = ${num(l.id)} AND drive_file_id IS NULL AND uploaded_at = ${data(l.uploaded_at)}`); },
+      gravar: async (id) => { await getDb().execute(sql`UPDATE user_documents SET drive_file_id = ${id} WHERE id = ${num(l.id)} AND drive_file_id IS NULL AND uploaded_at = ${String(l.uploaded_at_exato)}::timestamp`); },
     }));
   },
   async noDrive(aposId, limite) {
@@ -200,7 +200,7 @@ const destinoPciOriginal = (l: Linha): DestinoDrive => ({
 const pciOriginal: FonteArquivos = {
   tipo: "pci_original",
   async pendentes(f) {
-    const rows = await linhas(sql`SELECT c.project_id, c.file_name, c.uploaded_at, p.title AS titulo
+    const rows = await linhas(sql`SELECT c.project_id, c.file_name, c.uploaded_at, c.uploaded_at::text AS uploaded_at_exato, p.title AS titulo
       FROM construction_pci c JOIN construction_projects p ON p.id = c.project_id
       WHERE c.drive_file_id IS NULL AND ${filtroId(sql`c.project_id`, f)} ORDER BY c.project_id LIMIT ${f.limite}`);
     return rows.map((l) => ({
@@ -208,7 +208,7 @@ const pciOriginal: FonteArquivos = {
       // Antes de 29/10 a cópia era gravada sem guardar a referência: adota a que já existe.
       adotarPrefixo: "PCI original — ",
       carregar: () => b64(sql`SELECT encode(data, 'base64') AS b64 FROM construction_pci WHERE project_id = ${num(l.project_id)}`),
-      gravar: async (id) => { await getDb().execute(sql`UPDATE construction_pci SET drive_file_id = ${id} WHERE project_id = ${num(l.project_id)} AND drive_file_id IS NULL AND uploaded_at = ${data(l.uploaded_at)}`); },
+      gravar: async (id) => { await getDb().execute(sql`UPDATE construction_pci SET drive_file_id = ${id} WHERE project_id = ${num(l.project_id)} AND drive_file_id IS NULL AND uploaded_at = ${String(l.uploaded_at_exato)}::timestamp`); },
     }));
   },
   async noDrive(aposId, limite) {
