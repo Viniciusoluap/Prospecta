@@ -31,6 +31,7 @@ import { checkAndSendReminder } from "../server/mcmv-rules-reminder.js";
 import { ensureLeadCardDeadlineSchema } from "../server/lead-card-deadline-schema.js";
 import { sendLeadCardDueDigests } from "../server/lead-card-due-digest.js";
 import { sincronizarTodasContas } from "../server/bancos.js";
+import { cronOrganizarDrive } from "../server/routes/drive-organizar-cron.js";
 
 const app = express();
 // Pedido de 24/10: webhook do WhatsApp publicado na Vercel. Precisa do corpo bruto (assinatura),
@@ -164,6 +165,9 @@ app.get("/api/cron/lead-card-due", async (req, res) => {
   }
   catch (error) { console.error("[cron/lead-card-due]", error); return res.status(500).json({ error: "Falha ao processar avisos" }); }
 });
+
+// Pedido de 29/10: "Organizar Drive" diário (lotes com prazo de ~45 s; retoma na próxima).
+app.get("/api/cron/organizar-drive", cronOrganizarDrive);
 
 // ── All other routes (tRPC, uploads, webhooks) ─
 app.use("/api", async (req, res, next) => {

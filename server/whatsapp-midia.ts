@@ -16,19 +16,20 @@ export async function guardarMidia(messageId: number, base64: string, dados: { m
   const tamanho = Buffer.byteLength(base64, "base64");
   if (!tamanho || tamanho > LIMITE_MIDIA) return false;
   const db = getDb();
-  const anterior = (await db.execute(sql`SELECT drive_file_id FROM whatsapp_midias WHERE message_id = ${messageId}`) as unknown as Linhas<{ drive_file_id: string | null }>).rows[0];
   // Pedido de 29/10: arquivo trocado → a cópia antiga do Drive vai para a lixeira e a nova é enviada.
-  const r = await db.execute(sql`INSERT INTO whatsapp_midias (message_id, conteudo) VALUES (${messageId}, decode(${base64}, 'base64'))
-    ON CONFLICT (message_id) DO UPDATE SET conteudo = EXCLUDED.conteudo, drive_file_id = NULL RETURNING id`);
+  const r = await db.execute(sql`WITH antes AS (SELECT drive_file_id FROM whatsapp_midias WHERE message_id = ${messageId})
+    INSERT INTO whatsapp_midias (message_id, conteudo) VALUES (${messageId}, decode(${base64}, 'base64'))
+    ON CONFLICT (message_id) DO UPDATE SET conteudo = EXCLUDED.conteudo, drive_file_id = NULL
+    RETURNING id, (SELECT drive_file_id FROM antes) AS anterior`);
   await db.update(whatsappMessages).set({
     midiaTamanho: tamanho,
     ...(dados.mime ? { midiaMime: dados.mime } : {}),
     ...(dados.nome ? { midiaNome: dados.nome } : {}),
     updatedAt: new Date(),
   }).where(eq(whatsappMessages.id, messageId));
-  const midiaId = (r as unknown as Linhas<{ id: number }>).rows[0]?.id;
-  if (anterior?.drive_file_id) await lixeiraDoArquivo(anterior.drive_file_id);
-  if (midiaId) await copiarParaDrive("whatsapp_midia", Number(midiaId));
+  const gravada = (r as unknown as Linhas<{ id: number; anterior: string | null }>).rows?.[0];
+  if (gravada?.anterior) await lixeiraDoArquivo(gravada.anterior);
+  if (gravada?.id) await copiarParaDrive("whatsapp_midia", Number(gravada.id));
   return true;
 }
 

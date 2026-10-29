@@ -15,6 +15,7 @@
   },
   "crons": [
     { "path": "/api/cron/mcmv-reminder", "schedule": "0 8 * * *" },
-    { "path": "/api/cron/lead-card-due", "schedule": "0 11 * * *" }
+    { "path": "/api/cron/lead-card-due", "schedule": "0 11 * * *" },
+    { "path": "/api/cron/organizar-drive", "schedule": "0 6 * * *" }
   ]
 }
