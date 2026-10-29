@@ -37,17 +37,12 @@ import {
 import TaxAccountingPanel from "./TaxAccountingPanel";
 import AdminRelatorios from "./AdminRelatorios";
 import BancosPanel from "./BancosPanel";
+import { CamposCategoriaLancamento, categoriaLancamentoCompleta } from "@/components/bpo/CamposCategoriaLancamento";
 import { rotulo } from "@shared/rotulos";
-import { CATEGORIAS_BPO, TRANSFERENCIA_INTERNA, recebidoDoLancamento } from "@shared/financeiro/bpo-extrato";
+import { TRANSFERENCIA_INTERNA, recebidoDoLancamento } from "@shared/financeiro/bpo-extrato";
 import { situacaoDoLancamento } from "@shared/financeiro/bpo-asaas";
-import {
-  CATEGORIAS_DESPESA_OPERACIONAL, CATEGORIAS_RECEITA_OPERACIONAL,
-  ROTULOS_CATEGORIA_OPERACIONAL, TIPOS_DESPESA_OBRA,
-  catalogoDaCategoria,
-} from "@shared/financeiro/bpo-operacional";
+import { ROTULOS_CATEGORIA_OPERACIONAL, catalogoDaCategoria } from "@shared/financeiro/bpo-operacional";
 
-// Pedido de 25/10 (noite), item 11: categorias do "+ Lançamento" (transferência interna não é receita nem despesa).
-const CATEGORIAS_LANCAMENTO = CATEGORIAS_BPO.filter(c => c !== TRANSFERENCIA_INTERNA);
 const SITUACAO: Record<string, { texto: string; cor: string }> = {
   pago: { texto: "PAGO", cor: "text-green-500" },
   vencido: { texto: "VENCIDO", cor: "text-red-400" },
@@ -88,12 +83,10 @@ const emptyLancamentoForm = {
   clienteId: "",
   clienteNomeLivre: "",
   tipo: "cobranca" as "cobranca" | "despesa",
-  categoria: "",
   descricao: "",
   valor: "",
   vencimento: "",
   competencia: "",
-  centroCustos: "",
   categoriaOperacional: "",
   vinculoOperacionalId: "",
   tipoDespesaObra: "",
@@ -421,7 +414,7 @@ export default function AdminBpo({ initialTab }: { initialTab?: Aba } = {}) {
                       <Select
                         value={lancamentoForm.tipo}
                         onValueChange={(v: any) =>
-                          setLancamentoForm(f => ({ ...f, tipo: v }))
+                          setLancamentoForm(f => ({ ...f, tipo: v, categoriaOperacional: "", vinculoOperacionalId: "", tipoDespesaObra: "", etapaObra: "" }))
                         }
                       >
                         <SelectTrigger className="bg-[#2C3E50] border-[#C9A961]/30 text-white mt-1">
@@ -433,60 +426,13 @@ export default function AdminBpo({ initialTab }: { initialTab?: Aba } = {}) {
                         </SelectContent>
                       </Select>
                     </div>
-                    <div>
-                      <Label className="text-gray-300">Classificação contábil *</Label>
-                      <Select
-                        value={lancamentoForm.categoria || undefined}
-                        onValueChange={v => setLancamentoForm(f => ({ ...f, categoria: v }))}
-                      >
-                        <SelectTrigger className="bg-[#2C3E50] border-[#C9A961]/30 text-white mt-1">
-                          <SelectValue placeholder="Escolha" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {CATEGORIAS_LANCAMENTO.map(c => <SelectItem key={c} value={c}>{c}</SelectItem>)}
-                        </SelectContent>
-                      </Select>
-                    </div>
-                    <div>
-                      <Label className="text-gray-300">Categoria operacional *</Label>
-                      <Select value={lancamentoForm.categoriaOperacional || undefined} onValueChange={v => setLancamentoForm(f => ({ ...f, categoriaOperacional: v, vinculoOperacionalId: "", tipoDespesaObra: "", etapaObra: "" }))}>
-                        <SelectTrigger className="bg-[#2C3E50] border-[#C9A961]/30 text-white mt-1"><SelectValue placeholder="Escolha" /></SelectTrigger>
-                        <SelectContent>
-                          {(lancamentoForm.tipo === "cobranca" ? CATEGORIAS_RECEITA_OPERACIONAL : CATEGORIAS_DESPESA_OPERACIONAL).map(c => <SelectItem key={c} value={c}>{ROTULOS_CATEGORIA_OPERACIONAL[c]}</SelectItem>)}
-                        </SelectContent>
-                      </Select>
-                    </div>
-                    {lancamentoForm.categoriaOperacional && (
-                      <div className="col-span-2">
-                        <Label className="text-gray-300">Registro vinculado *</Label>
-                        <Select value={lancamentoForm.vinculoOperacionalId || undefined} onValueChange={v => {
-                          const opcoes = (catalogoOperacional?.[catalogoDaCategoria(lancamentoForm.tipo, lancamentoForm.categoriaOperacional) as keyof typeof catalogoOperacional] ?? []) as any[];
-                          const escolhido = opcoes.find(o => o.id === v);
-                          setLancamentoForm(f => ({ ...f, vinculoOperacionalId: v, clienteNomeLivre: escolhido?.clienteNome || f.clienteNomeLivre }));
-                        }}>
-                          <SelectTrigger className="bg-[#2C3E50] border-[#C9A961]/30 text-white mt-1"><SelectValue placeholder="Selecione um cadastro real" /></SelectTrigger>
-                          <SelectContent>{((catalogoOperacional?.[catalogoDaCategoria(lancamentoForm.tipo, lancamentoForm.categoriaOperacional) as keyof typeof catalogoOperacional] ?? []) as any[]).map(o => <SelectItem key={o.id} value={o.id}>{o.rotulo}{o.clienteNome ? ` — ${o.clienteNome}` : ""}</SelectItem>)}</SelectContent>
-                        </Select>
-                      </div>
-                    )}
-                    {lancamentoForm.tipo === "despesa" && lancamentoForm.categoriaOperacional === "obras" && (
-                      <>
-                        <div>
-                          <Label className="text-gray-300">Tipo de despesa *</Label>
-                          <Select value={lancamentoForm.tipoDespesaObra || undefined} onValueChange={v => setLancamentoForm(f => ({ ...f, tipoDespesaObra: v }))}>
-                            <SelectTrigger className="bg-[#2C3E50] border-[#C9A961]/30 text-white mt-1"><SelectValue placeholder="Escolha" /></SelectTrigger>
-                            <SelectContent>{TIPOS_DESPESA_OBRA.map(t => <SelectItem key={t} value={t}>{t.replaceAll("_", " ")}</SelectItem>)}</SelectContent>
-                          </Select>
-                        </div>
-                        <div>
-                          <Label className="text-gray-300">Etapa da obra</Label>
-                          <Select value={lancamentoForm.etapaObra || "none"} onValueChange={v => setLancamentoForm(f => ({ ...f, etapaObra: v === "none" ? "" : v }))}>
-                            <SelectTrigger className="bg-[#2C3E50] border-[#C9A961]/30 text-white mt-1"><SelectValue /></SelectTrigger>
-                            <SelectContent><SelectItem value="none">Não informada</SelectItem>{catalogoOperacional?.etapasObra.map(e => <SelectItem key={e.chave} value={e.chave}>{e.nome}</SelectItem>)}</SelectContent>
-                          </Select>
-                        </div>
-                      </>
-                    )}
+                    <CamposCategoriaLancamento
+                      tipo={lancamentoForm.tipo}
+                      catalogo={catalogoOperacional as any}
+                      valor={lancamentoForm}
+                      onChange={v => setLancamentoForm(f => ({ ...f, ...v }))}
+                      onVinculo={o => setLancamentoForm(f => ({ ...f, clienteNomeLivre: o?.clienteNome || f.clienteNomeLivre }))}
+                    />
                     <div>
                       <Label className="text-gray-300">Cliente BPO</Label>
                       <Select
@@ -584,19 +530,6 @@ export default function AdminBpo({ initialTab }: { initialTab?: Aba } = {}) {
                         className="bg-[#2C3E50] border-[#C9A961]/30 text-white mt-1"
                       />
                     </div>
-                    <div>
-                      <Label className="text-gray-300">Centro de Custos</Label>
-                      <Input
-                        value={lancamentoForm.centroCustos}
-                        onChange={e =>
-                          setLancamentoForm(f => ({
-                            ...f,
-                            centroCustos: e.target.value,
-                          }))
-                        }
-                        className="bg-[#2C3E50] border-[#C9A961]/30 text-white mt-1"
-                      />
-                    </div>
                   </div>
                   <Button
                     onClick={() =>
@@ -608,14 +541,13 @@ export default function AdminBpo({ initialTab }: { initialTab?: Aba } = {}) {
                           : undefined,
                         clienteNomeLivre:
                           lancamentoForm.clienteNomeLivre || undefined,
-                        categoria: lancamentoForm.categoria as (typeof CATEGORIAS_LANCAMENTO)[number],
                         valor: parseFloat(lancamentoForm.valor),
-                        centroCustos: lancamentoForm.centroCustos || undefined,
+                        vinculoOperacionalId: lancamentoForm.vinculoOperacionalId || null,
                       })
                     }
                     disabled={
                       createLancamento.isPending ||
-                      !lancamentoForm.categoria ||
+                      !categoriaLancamentoCompleta(lancamentoForm.tipo, lancamentoForm) ||
                       !lancamentoForm.descricao ||
                       !lancamentoForm.valor ||
                       !lancamentoForm.vencimento ||
@@ -762,6 +694,7 @@ export default function AdminBpo({ initialTab }: { initialTab?: Aba } = {}) {
                             {clienteNome(l)}
                             {l.titular && l.titular !== clienteNome(l) ? ` • titular: ${l.titular}` : ""}
                             {" • "}{l.tipo === "receita" ? "Cobrança" : rotulo(l.tipo)}
+                            {l.categoriaOperacional ? ` • ${(ROTULOS_CATEGORIA_OPERACIONAL as Record<string, string>)[l.categoriaOperacional] ?? l.categoriaOperacional}` : ""}
                             {` • ${l.categoria || "sem categoria"}`}
                             {l.asaasPaymentId ? " • Asaas" : ""}
                             {l.bankTransactionId ? " • extrato bancário" : ""} • vence{" "}
@@ -919,27 +852,27 @@ export default function AdminBpo({ initialTab }: { initialTab?: Aba } = {}) {
           <DialogHeader><DialogTitle className="text-[#C9A961]">Editar lançamento</DialogTitle></DialogHeader>
           {editando && <div className="grid grid-cols-2 gap-4">
             <div className="col-span-2"><Label>Descrição</Label><Input value={editando.descricao} onChange={e => setEditando({ ...editando, descricao: e.target.value })} className="bg-[#2C3E50] border-[#C9A961]/30" /></div>
-            <div><Label>Valor (R$)</Label><Input type="number" min="0.01" step="0.01" value={editando.valor} onChange={e => setEditando({ ...editando, valor: e.target.value })} className="bg-[#2C3E50] border-[#C9A961]/30" /></div>
-            <div><Label>Categoria contábil</Label><select value={editando.categoria ?? ""} onChange={e => setEditando({ ...editando, categoria: e.target.value })} className="w-full h-10 bg-[#2C3E50] border border-[#C9A961]/30 rounded px-2">
-              {CATEGORIAS_LANCAMENTO.map(c => <option key={c}>{c}</option>)}
-            </select></div>
+            <div><Label>Valor (R$)</Label><CurrencyInput value={editando.valor ? Number(editando.valor) : 0} onChange={v => setEditando({ ...editando, valor: v ? String(v) : "" })} className="bg-[#2C3E50] border-[#C9A961]/30" /></div>
             <div><Label>Vencimento</Label><Input type="date" value={editando.vencimento} onChange={e => setEditando({ ...editando, vencimento: e.target.value })} className="bg-[#2C3E50] border-[#C9A961]/30" /></div>
             <div><Label>Competência</Label><Input type="month" value={editando.competencia} onChange={e => setEditando({ ...editando, competencia: e.target.value })} className="bg-[#2C3E50] border-[#C9A961]/30" /></div>
-            <div className="col-span-2"><Label>Centro de custos</Label><Input value={editando.centroCustos ?? ""} onChange={e => setEditando({ ...editando, centroCustos: e.target.value })} className="bg-[#2C3E50] border-[#C9A961]/30" /></div>
             <div><Label>Cliente BPO</Label><select className="w-full bg-[#2C3E50] p-2" value={editando.clienteId ?? ""} onChange={e => setEditando({ ...editando, clienteId: e.target.value ? Number(e.target.value) : null })}><option value="">Cadastro livre</option>{clientes.map(c => <option key={c.id} value={c.id}>{c.razaoSocial}</option>)}</select></div>
             {!editando.clienteId && <div><Label>Nome / identificação</Label><Input value={editando.clienteNomeLivre ?? ""} onChange={e => setEditando({ ...editando, clienteNomeLivre: e.target.value })} className="bg-[#2C3E50] border-[#C9A961]/30" /></div>}
             <div className="col-span-2"><Label>Observações</Label><Textarea value={editando.observacoes ?? ""} onChange={e => setEditando({ ...editando, observacoes: e.target.value })} className="bg-[#2C3E50] border-[#C9A961]/30" /></div>
-            <div><Label>Categoria operacional</Label><select className="w-full bg-[#2C3E50] p-2" value={editando.categoriaOperacional ?? ""} onChange={e => setEditando({ ...editando, categoriaOperacional: e.target.value, vinculoOperacionalId: "", tipoDespesaObra: "", etapaObra: "" })}><option value="">Sem vínculo</option>{(editando.tipo === "despesa" ? CATEGORIAS_DESPESA_OPERACIONAL : CATEGORIAS_RECEITA_OPERACIONAL).map(c => <option key={c} value={c}>{ROTULOS_CATEGORIA_OPERACIONAL[c]}</option>)}</select></div>
-            {editando.categoriaOperacional && <div><Label>Registro vinculado</Label><select className="w-full bg-[#2C3E50] p-2" value={editando.vinculoOperacionalId ?? ""} onChange={e => setEditando({ ...editando, vinculoOperacionalId: e.target.value })}><option value="">Selecione</option>{((catalogoOperacional?.[catalogoDaCategoria(editando.tipo === "despesa" ? "despesa" : "cobranca", editando.categoriaOperacional) as keyof typeof catalogoOperacional] ?? []) as any[]).map(o => <option key={o.id} value={o.id}>{o.rotulo}</option>)}</select></div>}
-            {editando.tipo === "despesa" && editando.categoriaOperacional === "obras" && <><div><Label>Tipo de despesa</Label><select className="w-full bg-[#2C3E50] p-2" value={editando.tipoDespesaObra ?? ""} onChange={e => setEditando({ ...editando, tipoDespesaObra: e.target.value })}><option value="">Selecione</option>{TIPOS_DESPESA_OBRA.map(t => <option key={t} value={t}>{t.replaceAll("_", " ")}</option>)}</select></div><div><Label>Etapa</Label><select className="w-full bg-[#2C3E50] p-2" value={editando.etapaObra ?? ""} onChange={e => setEditando({ ...editando, etapaObra: e.target.value })}><option value="">Não informada</option>{catalogoOperacional?.etapasObra.map(e => <option key={e.chave} value={e.chave}>{e.nome}</option>)}</select></div></>}
+            <CamposCategoriaLancamento
+              tipo={editando.tipo === "despesa" ? "despesa" : "cobranca"}
+              catalogo={catalogoOperacional as any}
+              opcional
+              valor={{ categoriaOperacional: editando.categoriaOperacional ?? "", vinculoOperacionalId: editando.vinculoOperacionalId ?? "", tipoDespesaObra: editando.tipoDespesaObra ?? "", etapaObra: editando.etapaObra ?? "" }}
+              onChange={v => setEditando({ ...editando, ...v })}
+            />
             <div className="col-span-2"><Label>Motivo da alteração *</Label><Textarea value={editando.motivo} onChange={e => setEditando({ ...editando, motivo: e.target.value })} placeholder="Obrigatório para a trilha de auditoria" className="bg-[#2C3E50] border-[#C9A961]/30" /></div>
             {(editando.asaasPaymentId || editando.bankTransactionId) && <p className="col-span-2 text-xs text-amber-300">Este é um ajuste interno. A origem externa e a conciliação serão preservadas.</p>}
-            <Button className="col-span-2 bg-[#C9A961] text-[#1A2332]" disabled={editarLancamento.isPending || editando.motivo.trim().length < 3}
+            <Button className="col-span-2 bg-[#C9A961] text-[#1A2332]" disabled={editarLancamento.isPending || editando.motivo.trim().length < 3 || !categoriaLancamentoCompleta(editando.tipo === "despesa" ? "despesa" : "cobranca", { categoriaOperacional: editando.categoriaOperacional ?? "", vinculoOperacionalId: editando.vinculoOperacionalId ?? "", tipoDespesaObra: editando.tipoDespesaObra ?? "", etapaObra: editando.etapaObra ?? "" }, true)}
               onClick={() => editarLancamento.mutate({
                 id: editando.id, version: editando.version, motivo: editando.motivo, descricao: editando.descricao,
-                valor: Number(editando.valor), categoria: editando.categoria, clienteId: editando.clienteId,
+                valor: Number(editando.valor), clienteId: editando.clienteId,
                 clienteNomeLivre: editando.clienteNomeLivre, vencimento: editando.vencimento, competencia: editando.competencia,
-                centroCustos: editando.centroCustos, observacoes: editando.observacoes,
+                observacoes: editando.observacoes,
                 categoriaOperacional: editando.categoriaOperacional, vinculoOperacionalId: editando.vinculoOperacionalId,
                 tipoDespesaObra: editando.tipoDespesaObra, etapaObra: editando.etapaObra,
               })}>{editarLancamento.isPending ? "Salvando..." : "Salvar com auditoria"}</Button>

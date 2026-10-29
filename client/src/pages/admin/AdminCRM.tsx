@@ -76,17 +76,17 @@ export default function AdminCRM() {
   const { data: stats } = trpc.leads.stats.useQuery();
   const utils = trpc.useUtils();
   const softDelete = trpc.leads.softDelete.useMutation({
-    onSuccess: async () => { toast.success("Lead arquivado. Os vínculos e históricos foram preservados."); await Promise.all([refetch(), utils.leads.stats.invalidate()]); },
+    onSuccess: async () => { toast.success("Lead arquivado. Os vínculos e históricos foram preservados."); await Promise.all([refetch(), utils.leads.stats.invalidate(), utils.whatsapp.leadsParaEnvio.invalidate()]); },
     onError: err => toast.error(err.message),
   });
   const restore = trpc.leads.restore.useMutation({
-    onSuccess: async () => { toast.success("Lead recuperado."); await Promise.all([refetch(), utils.leads.stats.invalidate()]); },
+    onSuccess: async () => { toast.success("Lead recuperado."); await Promise.all([refetch(), utils.leads.stats.invalidate(), utils.whatsapp.leadsParaEnvio.invalidate()]); },
     onError: err => toast.error(err.message),
   });
 
   // Pedido de 23/10 (H3): exclusão definitiva de lead arquivado (só admin).
   const permanentDelete = trpc.leads.permanentDelete.useMutation({
-    onSuccess: () => { toast.success("Lead excluído definitivamente."); refetch(); utils.leads.stats.invalidate(); },
+    onSuccess: () => { toast.success("Lead excluído definitivamente."); refetch(); utils.leads.stats.invalidate(); utils.whatsapp.leadsParaEnvio.invalidate(); },
     onError: (e) => toast.error(e.message),
   });
   const createMutation = trpc.leads.create.useMutation({

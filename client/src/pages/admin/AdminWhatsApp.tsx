@@ -18,6 +18,7 @@ import { abaInicialCentral, abasCentralWhatsapp, linkConexaoWhatsapp, type AbaCe
 import { ConversasWhatsApp } from "@/components/whatsapp/ConversasWhatsApp";
 import { VARIAVEIS_TEMPLATE, variaveisDoTexto } from "@shared/whatsapp/variaveis";
 import { CampoDocumentos, CampoImovel, CampoTexto, textoDocumentosMarcados } from "@/components/whatsapp/CamposVariaveisEnvio";
+import { PERIODOS_DASHBOARD, PERIODO_PADRAO, ROTULO_PERIODO, alternarTodosVisiveis, podarSelecao, type PeriodoDashboard } from "@shared/whatsapp/conversas";
 
 const cardCls = "bg-[#2C3E50] border-[#C9A961]/20";
 const inputCls = "bg-[#1A2332] border-[#C9A961]/30 text-white";
@@ -40,8 +41,11 @@ export default function AdminWhatsApp() {
   const [editor, setEditor] = useState<{ id?: number; nome: string; categoria: string; conteudo: string } | null>(null);
 
   const conexao = trpc.whatsapp.minhaConexao.useQuery();
-  const leadsQuery = trpc.whatsapp.leadsParaEnvio.useQuery();
-  const historico = trpc.whatsapp.historico.useQuery();
+  // Lote 03, correção 03: destinatários sempre atualizados com o CRM (ao abrir, ao voltar à aba e ao focar a janela).
+  const leadsQuery = trpc.whatsapp.leadsParaEnvio.useQuery(undefined, { refetchOnMount: "always", refetchOnWindowFocus: true });
+  // Lote 03, correção 04: indicadores contados no servidor, no período escolhido (padrão: 30 dias).
+  const [periodo, setPeriodo] = useState<PeriodoDashboard>(PERIODO_PADRAO);
+  const resumo = trpc.whatsapp.resumoEnvios.useQuery({ periodo });
   const templatesQuery = trpc.whatsapp.templates.useQuery();
   const servicosQuery = trpc.whatsapp.servicosDisponiveis.useQuery();
   const templates = templatesQuery.data ?? [];
@@ -55,18 +59,23 @@ export default function AdminWhatsApp() {
       if (!data.success) { toast.error(data.error ?? "Erro ao enviar"); return; }
       toast.success(`${data.enviadas} enviada(s)${data.falhas > 0 ? `, ${data.falhas} falha(s)` : ""}`, data.falhas > 0 ? { icon: "⚠️" } : undefined);
       setSelectedLeads([]); setMensagem(""); setSelectedTemplate(null); setExtras({}); setServicosSelecionados([]); setDocsGeral({ marcados: [], livre: "" }); setDocsUnico(null);
-      utils.whatsapp.historico.invalidate();
+      utils.whatsapp.resumoEnvios.invalidate(); utils.whatsapp.historico.invalidate();
     },
     onError: (e) => toast.error(e.message),
   });
 
   const leads = leadsQuery.data ?? [];
   const filteredLeads = leads.filter((l) => !searchLead || l.name.toLowerCase().includes(searchLead.toLowerCase()) || l.phone.includes(searchLead));
+  const idsVisiveis = filteredLeads.map((l) => l.id);
+  const todosVisiveisMarcados = idsVisiveis.length > 0 && idsVisiveis.every((id) => selectedLeads.includes(id));
+  const { refetch: recarregarLeads } = leadsQuery;
+  useEffect(() => { if (activeTab === "enviar") recarregarLeads(); }, [activeTab, recarregarLeads]);
+  // Lead excluído no CRM durante a seleção sai da seleção.
+  useEffect(() => { if (leadsQuery.data) setSelectedLeads((s) => podarSelecao(s, leadsQuery.data.map((l) => l.id))); }, [leadsQuery.data]);
   const conexaoAtiva = conexao.data?.status === "conectado";
-  const totalEnviadas = historico.data?.length ?? 0;
-  const totalLidas = historico.data?.filter((m) => m.status === "lida").length ?? 0;
-  const totalFalhas = historico.data?.filter((m) => m.status === "falhou").length ?? 0;
-  const taxaLeitura = totalEnviadas > 0 ? Math.round((totalLidas / totalEnviadas) * 100) : 0;
+  const totalEnviadas = resumo.data?.enviadas ?? 0;
+  const totalFalhas = resumo.data?.falhas ?? 0;
+  const taxaLeitura = resumo.data?.taxaLeitura ?? 0;
 
   // Pedido de 25/10: variáveis do template preenchidas por destinatário, com prévia e campos para o que faltar.
   // Pedido de 25/10 (noite): os campos não somem a cada letra — a lista vem de `semCampoGeral` (não depende
@@ -127,6 +136,17 @@ export default function AdminWhatsApp() {
 
       <div className="max-w-6xl mx-auto px-6 py-6 space-y-5">
         {/* KPIs */}
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <p className="text-xs text-gray-300">
+            Mensagens: <b className="text-white">{ROTULO_PERIODO[periodo]}</b> · enviadas = entregues ao WhatsApp (enviada, entregue ou lida); falhas contadas à parte.
+          </p>
+          <label className="flex items-center gap-2 text-xs text-gray-300">
+            Período
+            <select value={periodo} onChange={(e) => setPeriodo(e.target.value as PeriodoDashboard)} className={`${inputCls} rounded-md px-2 py-1 text-xs`}>
+              {PERIODOS_DASHBOARD.map((p) => <option key={p} value={p}>{ROTULO_PERIODO[p]}</option>)}
+            </select>
+          </label>
+        </div>
         <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
           {[
             { label: "Leads Disponíveis", value: leads.length, icon: Users, color: "text-[#C9A961]" },
@@ -201,8 +221,8 @@ export default function AdminWhatsApp() {
                     })}
                     {filteredLeads.length === 0 && <p className="text-xs text-gray-400 text-center py-4">Nenhum lead encontrado.</p>}
                   </div>
-                  <button onClick={() => setSelectedLeads(leads.map((l) => l.id))} className="flex items-center gap-1 text-xs font-bold text-gray-400 hover:text-white">
-                    <Users size={12} /> Selecionar todos ({leads.length})
+                  <button onClick={() => setSelectedLeads((s) => alternarTodosVisiveis(s, idsVisiveis))} disabled={!idsVisiveis.length} className="flex items-center gap-1 text-xs font-bold text-gray-400 hover:text-white">
+                    <Users size={12} /> {todosVisiveisMarcados ? "Desmarcar todos" : "Selecionar todos"} ({filteredLeads.length})
                   </button>
                 </CardContent>
               </Card>

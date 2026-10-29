@@ -25,6 +25,8 @@ import {
   CATEGORIAS_DESPESA_OPERACIONAL, CATEGORIAS_RECEITA_OPERACIONAL,
   validarDetalhesOperacionais,
   catalogoDaCategoria,
+  categoriaContabilDaOperacional,
+  categoriaSemVinculo,
 } from "../shared/financeiro/bpo-operacional.js";
 import { SERVICOS_PROGRESSO } from "../shared/financeiro/progresso.js";
 import { editarLancamentoAuditavel } from "./bpo-auditoria.js";
@@ -161,7 +163,9 @@ export const lancamentoBpoSchema = z.object({
   requestKey: z.string().uuid(),
   // Item 11: Cobrança grava o tipo "receita" (o mesmo das entradas do extrato).
   tipo: z.enum(["cobranca", "despesa"]),
-  categoria: z.enum(CATEGORIAS_MANUAIS, { message: "Escolha a categoria." }),
+  // Item 12 (lote 3): a classificação contábil saiu da tela; quando não vier, o servidor deriva
+  // da Categoria Operacional (categoriaContabilDaOperacional).
+  categoria: z.enum(CATEGORIAS_MANUAIS, { message: "Escolha a categoria." }).optional(),
   clienteId: z.number().int().positive().nullable().optional(),
   clienteNomeLivre: z.string().trim().max(255).optional().nullable(),
   descricao: z.string().trim().min(1).max(500),
@@ -170,10 +174,26 @@ export const lancamentoBpoSchema = z.object({
   competencia: z.string().regex(/^\d{4}-\d{2}$/, "Competência no formato AAAA-MM"),
   centroCustos: z.string().trim().max(100).optional().nullable(),
   categoriaOperacional: z.string().trim().max(40),
-  vinculoOperacionalId: z.string().trim().max(80),
+  vinculoOperacionalId: z.string().trim().max(80).optional().nullable(),
   tipoDespesaObra: z.string().trim().max(30).optional().nullable(),
   etapaObra: z.string().trim().max(80).optional().nullable(),
 });
+
+/**
+ * Item 12: sem classificação contábil na tela, a edição mantém a `categoria` gravada (extrato,
+ * Asaas e lançamentos antigos preservam o histórico) e só recalcula pela Categoria Operacional quando
+ * ela (ou o tipo da despesa de obra) muda, ou quando o lançamento ainda não tinha categoria.
+ */
+export function categoriaNaEdicao(
+  tipo: "cobranca" | "despesa",
+  antes: { categoria: string | null; categoriaOperacional: string | null; tipoDespesaObra: string | null },
+  depois: { categoriaOperacional?: string | null; tipoDespesaObra?: string | null },
+): string {
+  const op = depois.categoriaOperacional || null;
+  const mudou = op !== (antes.categoriaOperacional || null) || (depois.tipoDespesaObra || null) !== (antes.tipoDespesaObra || null);
+  if (op && (mudou || !antes.categoria)) return categoriaContabilDaOperacional(tipo, op, depois.tipoDespesaObra);
+  return antes.categoria || categoriaContabilDaOperacional(tipo, op, depois.tipoDespesaObra);
+}
 
 export const bpoRouter = router({
   clientes: router({
@@ -252,10 +272,13 @@ export const bpoRouter = router({
     create: adminProcedure.input(lancamentoBpoSchema).mutation(async ({ input }) => {
       try { validarDetalhesOperacionais(input); }
       catch (e) { throw new TRPCError({ code: "BAD_REQUEST", message: e instanceof Error ? e.message : "Vínculo operacional inválido." }); }
-      const catalogo = await catalogoVinculosOperacionais();
-      const opcoes = catalogo[catalogoDaCategoria(input.tipo, input.categoriaOperacional) as keyof typeof catalogo];
-      const vinculo = Array.isArray(opcoes) ? (opcoes as VinculoOperacional[]).find(o => o.id === input.vinculoOperacionalId) : null;
-      if (!vinculo) throw new TRPCError({ code: "NOT_FOUND", message: "Registro operacional não encontrado." });
+      let vinculo: VinculoOperacional | null = null;
+      if (!categoriaSemVinculo(input.categoriaOperacional)) {
+        const catalogo = await catalogoVinculosOperacionais();
+        const opcoes = catalogo[catalogoDaCategoria(input.tipo, input.categoriaOperacional) as keyof typeof catalogo];
+        vinculo = Array.isArray(opcoes) ? (opcoes as VinculoOperacional[]).find(o => o.id === input.vinculoOperacionalId) ?? null : null;
+        if (!vinculo) throw new TRPCError({ code: "NOT_FOUND", message: "Registro operacional não encontrado." });
+      }
       if (input.clienteId) {
         const [c] = await db.getDb().select({ id: bpoClients.id }).from(bpoClients).where(eq(bpoClients.id, input.clienteId)).limit(1);
         if (!c) throw new TRPCError({ code: "NOT_FOUND", message: "Cliente BPO não encontrado." });
@@ -264,22 +287,22 @@ export const bpoRouter = router({
         clienteId: input.clienteId ?? null,
         clienteNomeLivre: input.clienteId ? null : input.clienteNomeLivre || null,
         tipo: input.tipo === "cobranca" ? "receita" : "despesa",
-        categoria: input.categoria,
+        categoria: input.categoria ?? categoriaContabilDaOperacional(input.tipo, input.categoriaOperacional, input.tipoDespesaObra),
         descricao: input.descricao,
         valor: input.valor.toFixed(2),
         vencimento: new Date(input.vencimento),
         competencia: input.competencia,
         centroCustos: input.centroCustos || null,
         categoriaOperacional: input.categoriaOperacional,
-        vinculoOperacionalId: input.vinculoOperacionalId,
-        vinculoOperacionalRotulo: vinculo.rotulo,
+        vinculoOperacionalId: vinculo ? input.vinculoOperacionalId : null,
+        vinculoOperacionalRotulo: vinculo?.rotulo ?? null,
         tipoDespesaObra: input.tipoDespesaObra || null,
         etapaObra: input.etapaObra || null,
         requestKey: input.requestKey,
       }).onConflictDoNothing({ target: bpoLancamentos.requestKey }).returning();
       if (criado) return criado;
       const [anterior] = await db.getDb().select().from(bpoLancamentos).where(eq(bpoLancamentos.requestKey, input.requestKey)).limit(1);
-      if (!anterior || anterior.valor !== input.valor.toFixed(2) || anterior.descricao !== input.descricao || anterior.vinculoOperacionalId !== input.vinculoOperacionalId) throw new TRPCError({ code: "CONFLICT", message: "Chave de envio já utilizada para outro lançamento." });
+      if (!anterior || anterior.valor !== input.valor.toFixed(2) || anterior.descricao !== input.descricao || (anterior.vinculoOperacionalId ?? null) !== (input.vinculoOperacionalId || null)) throw new TRPCError({ code: "CONFLICT", message: "Chave de envio já utilizada para outro lançamento." });
       return anterior;
     }),
 
@@ -296,17 +319,20 @@ export const bpoRouter = router({
 
     editar: adminProcedure.input(z.object({
       id: z.number().int().positive(), version: z.number().int().positive(), motivo: z.string().trim().min(3).max(500),
-      descricao: z.string().trim().min(1).max(500), valor: z.number().positive(), categoria: z.enum(CATEGORIAS_MANUAIS),
+      descricao: z.string().trim().min(1).max(500), valor: z.number().positive(), categoria: z.enum(CATEGORIAS_MANUAIS).optional(),
       clienteId: z.number().int().positive().nullable().optional(), clienteNomeLivre: texto(255),
       vencimento: z.union([z.string(), z.date()]), competencia: z.string().regex(/^\d{4}-\d{2}$/),
+      // Item 12: centro de custos saiu da tela; ausente = mantém o valor gravado.
       centroCustos: texto(100), observacoes: z.string().max(5000).optional().nullable(),
       categoriaOperacional: texto(40), vinculoOperacionalId: texto(80), tipoDespesaObra: texto(30), etapaObra: texto(80),
     })).mutation(async ({ input, ctx }) => {
       const [antes] = await db.getDb().select().from(bpoLancamentos).where(eq(bpoLancamentos.id, input.id)).limit(1);
       if (!antes) throw new TRPCError({ code: "NOT_FOUND" });
       let rotulo: string | null = null;
-      if (input.categoriaOperacional) {
-        const tipo = antes.tipo === "despesa" ? "despesa" : "cobranca";
+      const tipo = antes.tipo === "despesa" ? "despesa" : "cobranca";
+      if (input.categoriaOperacional && categoriaSemVinculo(input.categoriaOperacional)) {
+        validarDetalhesOperacionais({ ...input, tipo, categoriaOperacional: input.categoriaOperacional });
+      } else if (input.categoriaOperacional) {
         validarDetalhesOperacionais({ ...input, tipo, categoriaOperacional: input.categoriaOperacional });
         const catalogo = await catalogoVinculosOperacionais();
         const opcoes = catalogo[catalogoDaCategoria(tipo, input.categoriaOperacional) as keyof typeof catalogo] as VinculoOperacional[];
@@ -314,7 +340,8 @@ export const bpoRouter = router({
         if (!registro) throw new TRPCError({ code: "BAD_REQUEST", message: "Registro operacional não encontrado." });
         rotulo = registro.rotulo;
       } else if (input.vinculoOperacionalId) throw new TRPCError({ code: "BAD_REQUEST", message: "Selecione a categoria operacional." });
-      return editarLancamentoAuditavel({ ...input, vinculoOperacionalRotulo: rotulo, vencimento: new Date(input.vencimento) }, ctx.user.id);
+      const categoria = input.categoria ?? categoriaNaEdicao(tipo, antes, input);
+      return editarLancamentoAuditavel({ ...input, categoria, vinculoOperacionalRotulo: rotulo, vencimento: new Date(input.vencimento) }, ctx.user.id);
     }),
   }),
 

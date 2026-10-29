@@ -65,6 +65,7 @@ export default function AdminLeadDetail() {
   const [editForm, setEditForm] = useState<Record<string, any>>({});
   const [serviceType, setServiceType] = useState<LeadServiceType>("obra_cliente");
 
+  const utils = trpc.useUtils();
   const { data: lead, refetch } = trpc.leads.getById.useQuery({ id: leadId }, {
     enabled: !!leadId,
   });
@@ -81,11 +82,11 @@ export default function AdminLeadDetail() {
     onError: e => toast.error(e.message),
   });
   const deleteMutation = trpc.leads.softDelete.useMutation({
-    onSuccess: () => { toast.success("Lead excluído com possibilidade de recuperação."); navigate("/admin/crm"); },
+    onSuccess: () => { toast.success("Lead excluído com possibilidade de recuperação."); utils.whatsapp.leadsParaEnvio.invalidate(); navigate("/admin/crm"); },
     onError: error => toast.error(error.message),
   });
   const restoreMutation = trpc.leads.restore.useMutation({
-    onSuccess: () => { toast.success("Lead recuperado."); refetch(); },
+    onSuccess: () => { toast.success("Lead recuperado."); refetch(); utils.whatsapp.leadsParaEnvio.invalidate(); },
     onError: error => toast.error(error.message),
   });
 

@@ -114,7 +114,8 @@ export async function editarLancamentoAuditavel(input: EdicaoLancamento, userId:
       UPDATE bpo_lancamentos l SET
         descricao = ${input.descricao}, valor = ${input.valor.toFixed(2)}, categoria = ${input.categoria},
         cliente_id = ${input.clienteId ?? null}, cliente_nome_livre = ${input.clienteId ? null : input.clienteNomeLivre ?? null},
-        vencimento = ${input.vencimento}, competencia = ${input.competencia}, centro_custos = ${input.centroCustos ?? null},
+        vencimento = ${input.vencimento}, competencia = ${input.competencia},
+        centro_custos = ${input.centroCustos === undefined ? sql`l.centro_custos` : input.centroCustos},
         observacoes = ${input.observacoes ?? null}, version = l.version + 1, updated_at = now(),
         pago = CASE WHEN l.valor_recebido > 0 THEN l.valor_recebido = ${input.valor.toFixed(2)} ELSE l.pago END,
         categoria_operacional = ${input.categoriaOperacional ?? null}, vinculo_operacional_id = ${input.vinculoOperacionalId ?? null},
