@@ -12,7 +12,7 @@
 // Nada de exclusão permanente: só lixeira do Drive (recuperável por 30 dias).
 import { sql } from "drizzle-orm";
 import { CATEGORIAS_ENTIDADE, chaveEntidade, idDaChaveEntidade, type EntidadeDrive } from "../shared/drive-estrutura.js";
-import { arquivosEmUso, FONTES_ARQUIVOS, registrosExistentes, type DestinoDrive, type FonteArquivos } from "./drive-arquivos.js";
+import { arquivosEmUso, FONTES_ARQUIVOS, planilhaImportada, registrosExistentes, type DestinoDrive, type FonteArquivos } from "./drive-arquivos.js";
 import {
   arquivoNaPastaPorPrefixo, arquivosNaPasta, driveConfigured, lixeiraPorId, moverArquivoParaDestino, pastaPorChave, subpastasDaCategoria,
   uploadArquivoNoCaminho, type CachePastas,
@@ -356,5 +356,29 @@ export async function copiarParaDrive(tipo: string, id: number, deps: Dependenci
   } catch (e) {
     console.error(`[drive] cópia (${tipo}) pendente; o organizador tenta de novo:`, mensagem(e));
     return false;
+  }
+}
+
+/**
+ * Orçamento da incorporação salvo: se a planilha importada mudou (ou foi
+ * retirada), a cópia antiga vai para a lixeira e a nova é enviada para
+ * Incorporação/<Estudo>/Orçamento. Mesma planilha → nada a fazer. Nunca lança.
+ */
+export async function atualizarPlanilhaOrcamentoNoDrive(studyId: number): Promise<void> {
+  try {
+    const db = getDb();
+    const r = await db.execute(sql`SELECT parameterized_budget_json AS json, budget_import_drive_file_id AS drive, budget_import_sha256 AS sha
+      FROM incorporation_studies WHERE id = ${studyId}`);
+    const l = (r as unknown as Linhas<{ json: string | null; drive: string | null; sha: string | null }>).rows[0];
+    if (!l) return;
+    const planilha = planilhaImportada(l.json);
+    if (planilha && planilha.sha256 === l.sha && l.drive) return;
+    if (l.drive || l.sha) {
+      await db.execute(sql`UPDATE incorporation_studies SET budget_import_drive_file_id = NULL, budget_import_sha256 = NULL WHERE id = ${studyId}`);
+      if (l.drive) await lixeiraDoArquivo(l.drive);
+    }
+    if (planilha) await copiarParaDrive("orcamento_estudo", studyId);
+  } catch (e) {
+    console.error("[drive] planilha do orçamento pendente:", mensagem(e));
   }
 }

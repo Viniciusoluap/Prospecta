@@ -32,6 +32,7 @@ import { centavosDe } from "../shared/financeiro/obra.js";
 import { listarEngenheiros } from "./usuario-documentos.js";
 import { adminProcedure, router } from "./_core/trpc.js";
 import { createNotification, getDb } from "./db.js";
+import { lixeiraDaEntidade } from "./drive-organizacao.js";
 import { sendEmail } from "./_core/email-smtp.js";
 import {
   emailPedidoRevisao,
@@ -413,14 +414,15 @@ export const corretoresRouter = router({
         code: "BAD_REQUEST",
         message: "Não exclua seu próprio acesso",
       });
-    return found(
-      (
-        await getDb()
-          .delete(users)
-          .where(and(eq(users.id, input.id), eq(users.role, "corretor")))
-          .returning({ id: users.id })
-      )[0]
-    );
+    const apagado = (
+      await getDb()
+        .delete(users)
+        .where(and(eq(users.id, input.id), eq(users.role, "corretor")))
+        .returning({ id: users.id })
+    )[0];
+    // Pedido de 29/10: a pasta Equipe/<Nome (nº id)> vai para a lixeira do Drive.
+    if (apagado) await lixeiraDaEntidade("equipe", apagado.id);
+    return found(apagado);
   }),
 });
 

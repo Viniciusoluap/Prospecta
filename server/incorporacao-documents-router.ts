@@ -137,7 +137,10 @@ export const incorporacaoDocumentsRouter = router({
       throw new TRPCError({ code: "NOT_FOUND" });
     if (current.fileSize && current.fileSize > 3 * 1024 * 1024) throw new TRPCError({ code: "BAD_REQUEST" });
     try {
-      const data = current.driveFileId ? await readPrivateDocument(current.driveFileId) : await readPrivateDbFile("incorporacao", current.id);
+      // Guardado no banco (fallback) continua sendo lido do banco, mesmo depois da cópia no Drive (29/10).
+      const data = current.storage === "banco"
+        ? (await readPrivateDbFile("incorporacao", current.id)) ?? (current.driveFileId ? await readPrivateDocument(current.driveFileId) : null)
+        : await readPrivateDocument(current.driveFileId!);
       if (!data) throw new Error("Arquivo não encontrado no banco");
       if (data.length > 3 * 1024 * 1024) throw new Error("Arquivo excede o limite");
       return { fileName: current.fileName, mimeType: current.mimeType, base64: data.toString("base64") };

@@ -13,6 +13,7 @@ import {
 } from "../drizzle/schema.js";
 import type { ModuloExclusao } from "../shared/exclusao.js";
 import { getDb } from "./db.js";
+import { lixeiraDaEntidade, lixeiraDoArquivo } from "./drive-organizacao.js";
 import { MODULO_DO_DESTINO, podeUsarModulo } from "./_core/rbac.js";
 
 type Db = ReturnType<typeof getDb>;
@@ -49,6 +50,19 @@ async function servicoVinculado(db: Db, modulo: ModuloExclusao, id: number): Pro
       return r ? { leadServiceId: null } : null;
     }
   }
+}
+
+/** Arquivos no Drive que só existem por causa do registro e ficam fora da pasta da entidade (pasta do cliente). */
+async function arquivosNoDrive(db: Db, modulo: ModuloExclusao, id: number): Promise<string[]> {
+  if (modulo === "financiamento") {
+    const r = await db.select({ f: financiamentoChecklistItems.documentoDriveFileId }).from(financiamentoChecklistItems).where(eq(financiamentoChecklistItems.financiamentoId, id));
+    return r.flatMap((x) => (x.f ? [x.f] : []));
+  }
+  if (modulo === "regularizacao") {
+    const r = await db.select({ f: regularizacaoDocuments.driveFileId }).from(regularizacaoDocuments).where(eq(regularizacaoDocuments.regularizacaoId, id));
+    return r.flatMap((x) => (x.f ? [x.f] : []));
+  }
+  return [];
 }
 
 /** Exclusões do módulo, em ordem (executadas num único batch = transação no Neon). */
@@ -98,6 +112,7 @@ export async function excluirDefinitivo(modulo: ModuloExclusao, id: number, ator
   const db = getDb();
   const info = await servicoVinculado(db, modulo, id);
   if (!info) return { excluido: false };
+  const arquivos = await arquivosNoDrive(db, modulo, id);
   const passos = apagar(db, modulo, id);
   // O serviço do CRM existia só para este registro; o lead e seus documentos ficam
   // (documentos do serviço passam ao "CRM geral" pelo ON DELETE SET NULL).
@@ -105,5 +120,9 @@ export async function excluirDefinitivo(modulo: ModuloExclusao, id: number, ator
     ? [...passos, db.delete(leadServices).where(eq(leadServices.id, info.leadServiceId))]
     : passos;
   await db.batch(comServico as unknown as Parameters<Db["batch"]>[0]);
+  // Pedido de 29/10: o banco primeiro; depois a lixeira do Drive (nunca bloqueia a exclusão).
+  if (modulo === "obra") await lixeiraDaEntidade("obra", id);
+  if (modulo === "estudo") await lixeiraDaEntidade("incorporacao", id);
+  for (const arquivo of arquivos) await lixeiraDoArquivo(arquivo);
   return { excluido: true };
 }

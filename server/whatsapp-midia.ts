@@ -7,6 +7,7 @@ import { getTokenFromRequest, verifySessionToken } from "./_core/auth-utils.js";
 import { LIMITE_MIDIA, baixarMidiaEvolution } from "./_core/evolution.js";
 import { sessaoAindaValida } from "../shared/session.js";
 import { getDb, getUserById } from "./db.js";
+import { copiarParaDrive, lixeiraDoArquivo } from "./drive-organizacao.js";
 
 type Linhas<T> = { rows: T[] };
 
@@ -15,14 +16,19 @@ export async function guardarMidia(messageId: number, base64: string, dados: { m
   const tamanho = Buffer.byteLength(base64, "base64");
   if (!tamanho || tamanho > LIMITE_MIDIA) return false;
   const db = getDb();
-  await db.execute(sql`INSERT INTO whatsapp_midias (message_id, conteudo) VALUES (${messageId}, decode(${base64}, 'base64'))
-    ON CONFLICT (message_id) DO UPDATE SET conteudo = EXCLUDED.conteudo`);
+  const anterior = (await db.execute(sql`SELECT drive_file_id FROM whatsapp_midias WHERE message_id = ${messageId}`) as unknown as Linhas<{ drive_file_id: string | null }>).rows[0];
+  // Pedido de 29/10: arquivo trocado → a cópia antiga do Drive vai para a lixeira e a nova é enviada.
+  const r = await db.execute(sql`INSERT INTO whatsapp_midias (message_id, conteudo) VALUES (${messageId}, decode(${base64}, 'base64'))
+    ON CONFLICT (message_id) DO UPDATE SET conteudo = EXCLUDED.conteudo, drive_file_id = NULL RETURNING id`);
   await db.update(whatsappMessages).set({
     midiaTamanho: tamanho,
     ...(dados.mime ? { midiaMime: dados.mime } : {}),
     ...(dados.nome ? { midiaNome: dados.nome } : {}),
     updatedAt: new Date(),
   }).where(eq(whatsappMessages.id, messageId));
+  const midiaId = (r as unknown as Linhas<{ id: number }>).rows[0]?.id;
+  if (anterior?.drive_file_id) await lixeiraDoArquivo(anterior.drive_file_id);
+  if (midiaId) await copiarParaDrive("whatsapp_midia", Number(midiaId));
   return true;
 }
 
