@@ -14,6 +14,7 @@ import { centavosDe } from "../shared/financeiro/obra.js";
 import { indicadoresRegularizacao } from "../shared/financeiro/indicadores-regularizacao.js";
 import {
   GRUPOS_FINANCEIROS,
+  planejarValoresPadrao,
   LIMITE_NOME_ETAPA,
   LIMITE_NOME_ITEM,
   LIMITE_OBSERVACAO_ETAPA,
@@ -283,6 +284,36 @@ export const regularizacaoRouter = router({
 
   // ── Tabela financeira (31) ──────────────────────────────────────────
   financeiro: router({
+    gerarValorPadrao: adminProcedure
+      .input(z.object({ regularizacaoId: idSchema, confirmarSubstituicao: z.boolean().default(false) }))
+      .mutation(async ({ input }) => getDb().transaction(async (tx) => {
+        // Serializa cliques concorrentes e preserva os IDs ligados aos recebimentos.
+        const [processo] = await tx.select({ id: regularizacoes.id }).from(regularizacoes)
+          .where(eq(regularizacoes.id, input.regularizacaoId)).for("update");
+        if (!processo) throw new TRPCError({ code: "NOT_FOUND", message: "Regularização não encontrada" });
+        const existentes = await tx.select().from(regularizacaoItensFinanceiros)
+          .where(eq(regularizacaoItensFinanceiros.regularizacaoId, input.regularizacaoId));
+        let plano;
+        try { plano = planejarValoresPadrao(existentes); }
+        catch (error) { throw new TRPCError({ code: "BAD_REQUEST", message: error instanceof Error ? error.message : "Revise os itens financeiros." }); }
+        const substituir = plano.some(item => item.substituir);
+        if (substituir && !input.confirmarSubstituicao)
+          throw new TRPCError({ code: "CONFLICT", message: "Existem valores previstos diferentes. Confirme a substituição pelo padrão." });
+        for (const { padrao, atual, previsto } of plano) {
+          if (atual) {
+            await tx.update(regularizacaoItensFinanceiros).set({ previsto, chavePadrao: padrao.chave, updatedAt: new Date() })
+              .where(eq(regularizacaoItensFinanceiros.id, atual.id));
+          } else {
+            await tx.insert(regularizacaoItensFinanceiros).values({
+              regularizacaoId: input.regularizacaoId, chavePadrao: padrao.chave,
+              nome: padrao.nome, grupo: padrao.grupo, ordem: padrao.ordem, previsto,
+            });
+          }
+        }
+        await tx.update(regularizacoes).set({ updatedAt: new Date() }).where(eq(regularizacoes.id, input.regularizacaoId));
+        return { success: true };
+      })),
+
     criarItem: adminProcedure
       .input(z.object({ regularizacaoId: idSchema, ...itemCampos }))
       .mutation(async ({ input }) => {

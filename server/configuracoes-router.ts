@@ -11,6 +11,7 @@ import { tokenPrimeiroAcessoAindaValido } from "../shared/session.js";
 import { hashPassword } from "./_core/auth-utils.js";
 import { adminProcedure, publicProcedure, router } from "./_core/trpc.js";
 import { getDb } from "./db.js";
+import { lixeiraDaEntidade } from "./drive-organizacao.js";
 
 const managedRole = z.enum(["admin", "corretor", "colaborador", "cliente", "empreiteiro"]);
 const permissionsSchema = z.array(z.enum(ADMIN_MODULES)).max(ADMIN_MODULES.length);
@@ -240,6 +241,8 @@ export const configuracoesRouter = router({
     if (!current) throw new TRPCError({ code: "NOT_FOUND", message: "Usuário não encontrado" });
     if (current.role === "admin" && current.active) await ensureAnotherAdmin(input.id);
     await db.delete(users).where(eq(users.id, input.id));
+    // Pedido de 29/10: Equipe/<Nome (nº id)> (documentos do usuário) vai para a lixeira do Drive.
+    await lixeiraDaEntidade("equipe", input.id);
     return { success: true } as const;
   }),
 });

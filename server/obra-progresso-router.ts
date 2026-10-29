@@ -1,4 +1,5 @@
 import { incidenciaPciParaTexto } from "../shared/pci-upload.js";
+import { lixeiraDoArquivo } from "./drive-organizacao.js";
 import { TRPCError } from "@trpc/server";
 import { and, asc, count, desc, eq, inArray, isNull, sql, type SQL } from "drizzle-orm";
 import { alias } from "drizzle-orm/pg-core";
@@ -504,6 +505,8 @@ export const obraProgressoRouter = router({
       db.delete(constructionPhotos).where(eq(constructionPhotos.id, input.photoId)),
       ...(foto.progressHistoryId ? [invalidarAnexosMedicao(foto.progressHistoryId)] : []),
     ]);
+    // Pedido de 29/10: a cópia no Drive vai para a lixeira (nunca bloqueia a exclusão).
+    await lixeiraDoArquivo(foto.driveFileId);
     return { success: true };
   }),
 

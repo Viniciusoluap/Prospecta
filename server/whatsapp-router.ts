@@ -18,6 +18,7 @@ import {
 import { podeUsarModulo, requireModule } from "./_core/rbac.js";
 import { adminProcedure, protectedProcedure, router } from "./_core/trpc.js";
 import { getDb } from "./db.js";
+import { lixeiraDoArquivo } from "./drive-organizacao.js";
 import { URL_WEBHOOK_EVOLUTION, segredoWebhookEvolution } from "./whatsapp-evolution-webhook.js";
 import { baixarEGuardarMidia } from "./whatsapp-midia.js";
 
@@ -555,8 +556,12 @@ export const whatsappRouter = router({
     const da = todas.filter(m => mesmoTelefone(m.destinatario, input.numero));
     await exigirLeadDoCorretor(ctx.user, (await vinculoManual(conn.id, input.numero)) ?? da.find(m => m.leadId)?.leadId);
     if (!da.length) return { apagadas: 0 };
+    const naDrive = await db.select({ driveFileId: whatsappMidias.driveFileId }).from(whatsappMidias)
+      .where(inArray(whatsappMidias.messageId, da.map(m => m.id)));
     // whatsapp_midias sai junto (ON DELETE CASCADE).
     await db.delete(whatsappMessages).where(and(eq(whatsappMessages.connectionId, conn.id), inArray(whatsappMessages.id, da.map(m => m.id))));
+    // Pedido de 29/10: as cópias das mídias no Drive vão para a lixeira depois.
+    for (const m of naDrive) await lixeiraDoArquivo(m.driveFileId);
     return { apagadas: da.length };
   }),
 

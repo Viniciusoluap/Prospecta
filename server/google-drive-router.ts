@@ -24,6 +24,17 @@ export const googleDriveRouter = router({
     await desconectarOAuth(ctx.user!.id);
     return { success: true };
   }),
+  /** Pedido de 29/10: botão "Organizar Drive agora" (mesma rotina do cron diário). */
+  organizar: protectedProcedure.mutation(async ({ ctx }) => {
+    requireRole(ctx, ["admin"]);
+    const { organizarDriveAgora } = await import("./drive-organizacao.js");
+    return organizarDriveAgora({ prazoMs: 45_000 });
+  }),
+  ultimaOrganizacao: protectedProcedure.query(async ({ ctx }) => {
+    requireRole(ctx, ["admin"]);
+    const { ultimaOrganizacaoDrive } = await import("./drive-organizacao.js");
+    return ultimaOrganizacaoDrive();
+  }),
   testar: protectedProcedure.mutation(async ({ ctx }) => {
     requireRole(ctx, ["admin"]);
     const { diagnosticarDriveComFotos } = await import("./imovel-fotos.js");

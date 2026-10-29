@@ -7,6 +7,7 @@ import { getDb, getUserById } from "../db.js";
 import { sessaoAindaValida } from "../../shared/session.js";
 import { lerDataUrl, podeGerenciarFotos, podeVerFotosDaObra, validarFotoObra } from "../../shared/obra-fotos.js";
 import { canAccessAdminProcedure } from "../_core/trpc.js";
+import { copiarParaDrive } from "../drive-organizacao.js";
 
 // EPIC-020 Lote 4 (item 28) — fotos da obra gravadas no próprio banco.
 // Antes: /api/upload-photo mandava para um storage externo que nunca foi
@@ -94,6 +95,8 @@ router.post("/obras/:projectId/fotos", async (req: Request, res: Response) => {
       console.error("[obra-fotos] envio: foto não ficou gravada", { photoId, projectId });
       return res.status(500).json({ error: "A foto não ficou gravada no banco. Tente novamente." });
     }
+    // Pedido de 29/10: cópia em Obras/<Obra>/Fotos/<Medição> no Google Drive (falha fica pendente).
+    await copiarParaDrive("foto_obra", photoId);
     return res.json({ id: photoId, imageUrl, caption: legenda, takenAt: data.toISOString(), includeInReport: includeInReport !== false, medicaoId: progressHistoryId });
   } catch (error) {
     console.error("[obra-fotos] envio:", error);

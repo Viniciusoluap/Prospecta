@@ -13,6 +13,7 @@ import { decryptSecret, encryptSecret } from "./_core/secret-vault.js";
 import { whatsappEvolutionSettings } from "../drizzle/schema.js";
 import * as db from "./db.js";
 import { conexaoParaPapel, configEvolution } from "./whatsapp-router.js";
+import { verificarWebhookAsaas } from "../shared/asaas-webhook-recovery.js";
 
 type Fonte = "env" | "banco";
 export type EstadoWhatsapp = "conectado" | "aguardando_qr" | "desconectado" | "sem_conexao";
@@ -94,7 +95,17 @@ const ROTULO_ESTADO: Record<EstadoWhatsapp, string> = {
 };
 
 export function createIntegracoesRouter(deps: IntegracoesDeps = defaultDeps) {
+  async function webhookAsaas(recuperar: boolean) {
+    const [asaas, webhook] = await Promise.all([deps.lerAsaas(), deps.lerWebhookAsaas()]);
+    if (!asaas || !webhook) throw new TRPCError({ code: "BAD_REQUEST", message: "Configure a chave de API e o token do webhook antes de verificar a sincronização." });
+    return verificarWebhookAsaas({ apiKey: asaas.apiKey, token: webhook.token,
+      environment: ambienteDaChaveAsaas(asaas.apiKey), canonicalUrl: URL_WEBHOOK_ASAAS(),
+      legacyName: "SiteProspecta", legacyHosts: ["prospectaconstrucoes.manus.space", "prospectaconstrucoes.com", "site-prospecta.vercel.app", "site-prospecta-viniciusoluaps-projects.vercel.app", "site-prospecta-git-main-viniciusoluaps-projects.vercel.app"],
+    }, recuperar, deps.fetchImpl);
+  }
   return router({
+    verificarWebhookAsaas: adminProcedure.query(() => webhookAsaas(false)),
+    recuperarWebhookAsaas: adminProcedure.mutation(() => webhookAsaas(true)),
     /** O que está salvo em cada serviço — sem nenhum segredo, só os 4 últimos caracteres. */
     status: adminProcedure.query(async () => {
       const [asaas, asaasNoBanco, webhook, pluggy, evolution] = await Promise.all([

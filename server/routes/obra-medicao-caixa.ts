@@ -123,7 +123,8 @@ router.post("/obras/:projectId/pci", async (req: Request, res: Response) => {
       VALUES (${projectId}, ${nomeArquivo}, ${bytes.length}, decode(${Buffer.from(bytes).toString("base64")}, 'base64'), ${JSON.stringify(dados)}::jsonb, ${acesso.usuario.id}, now(), NULL, NULL)
       ON CONFLICT (project_id) DO UPDATE SET file_name = EXCLUDED.file_name, size_bytes = EXCLUDED.size_bytes, data = EXCLUDED.data,
         parsed = EXCLUDED.parsed, uploaded_by = EXCLUDED.uploaded_by, uploaded_at = now(), linked_at = CASE WHEN md5(construction_pci.data) = md5(EXCLUDED.data) THEN construction_pci.linked_at ELSE NULL END,
-        linked_by = CASE WHEN md5(construction_pci.data) = md5(EXCLUDED.data) THEN construction_pci.linked_by ELSE NULL END`);
+        linked_by = CASE WHEN md5(construction_pci.data) = md5(EXCLUDED.data) THEN construction_pci.linked_by ELSE NULL END,
+        drive_file_id = CASE WHEN md5(construction_pci.data) = md5(EXCLUDED.data) THEN construction_pci.drive_file_id ELSE NULL END`);
     const soma = dados.incidencias.reduce((s, v) => s + v, 0);
     // Pedido de 18/10: a PCI original (intacta) também fica no Google Drive da obra,
     // uma cópia por versão. Sem Drive, a versão continua guardada no banco.
@@ -132,6 +133,8 @@ router.post("/obras/:projectId/pci", async (req: Request, res: Response) => {
       const mime = dados.formato === "xlsb" ? "application/vnd.ms-excel.sheet.binary.macroEnabled.12" : "application/vnd.ms-excel";
       const r = await tryDriveUpload(() => uploadArquivoMedicaoObra({ id: projectId, titulo: acesso.obra.titulo ?? "Obra" }, { rotulo: "PCI original", nomeOriginal: nomeArquivo, mime, data: Buffer.from(bytes) }));
       drive = r.driveFileId ? "ok" : r.note ? "erro" : "indisponivel";
+      // Pedido de 29/10: guarda a referência da cópia (sem ela, o "Organizar Drive" envia depois).
+      if (r.driveFileId) await getDb().execute(sql`UPDATE construction_pci SET drive_file_id = ${r.driveFileId} WHERE project_id = ${projectId}`);
     }
     if (body.finalizar === true) await db.execute(sql`DELETE FROM pci_upload_chunks WHERE upload_id = ${String(body.uploadId)} AND user_id = ${userId} AND project_id = ${obraId}`);
     return res.json({ arquivo: nomeArquivo, formato: dados.formato, proponente: dados.identificacao.proponente, somaIncidencia: soma, drive });

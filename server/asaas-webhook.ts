@@ -1,4 +1,5 @@
 import { Request, Response } from 'express';
+import { timingSafeEqual } from 'node:crypto';
 import { settlePaymentOrder, refundPaymentOrder } from './payment-settlement.js';
 import * as db from './db.js';
 import { decryptSecret } from './_core/secret-vault.js';
@@ -68,20 +69,30 @@ export async function handleAsaasWebhook(req: Request, res: Response) {
     }
 
     const receivedToken = req.headers['asaas-access-token'];
-    if (!receivedToken || receivedToken !== webhookToken) {
+    const received = typeof receivedToken === 'string' ? Buffer.from(receivedToken) : null;
+    const expected = Buffer.from(webhookToken);
+    if (!received || received.length !== expected.length || !timingSafeEqual(received, expected)) {
       return res.status(401).json({ error: 'Unauthorized: invalid webhook token' });
     }
 
+    // Rejeitar corpo inválido antes de consultar/sincronizar contas. JSON null,
+    // arrays e eventos sem nome não são notificações válidas do Asaas.
     const payload: AsaasWebhookPayload = req.body;
+    if (!payload || typeof payload !== 'object' || Array.isArray(payload)
+      || typeof payload.event !== 'string' || !payload.event.trim()) {
+      return res.status(400).json({ error: 'Invalid payload' });
+    }
+    if (['PAYMENT_RECEIVED', 'PAYMENT_CONFIRMED', 'PAYMENT_REFUNDED'].includes(payload.event)
+      && (typeof payload.payment?.id !== 'string' || !payload.payment.id.trim())) {
+      return res.status(400).json({ error: 'Invalid payment payload' });
+    }
+    if (payload.event === 'INTEGRATION_HEALTH_CHECK') return res.status(200).json({ received: true });
 
     // Pedido de 25/10 (avisos em tempo real): qualquer evento autenticado do Asaas atualiza na
     // hora o extrato das contas Asaas do BPO (falha aqui não impede o resto do webhook).
     await sincronizarPorEvento({ provedor: 'asaas' }).catch((e) =>
       console.error('[Asaas Webhook] Bank sync failed:', e instanceof Error ? e.message : e));
 
-    if (!payload.event) {
-      return res.status(400).json({ error: 'Invalid payload' });
-    }
     if (!payload.payment?.id) {
       return res.status(200).json({ received: true });
     }

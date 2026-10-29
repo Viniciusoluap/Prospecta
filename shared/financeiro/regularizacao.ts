@@ -141,6 +141,35 @@ export const ITENS_FINANCEIROS_PADRAO: { chave: string; nome: string; grupo: Gru
   { chave: "averbacao", nome: "Averbação", grupo: "casa_pronta", ordem: 17 },
 ];
 
+/** Valores previstos independentes, em centavos. Aplicados somente por ação explícita. */
+export const VALORES_PREVISTOS_PADRAO: Readonly<Record<string, number>> = Object.freeze({
+  projetos: 250000, pci: 200000, impressoes: 10000, agua: 30000,
+  despachante: 200000, cert_inteiro_teor: 10200, art: 40000, alvara: 60000,
+  vistoria_cef: 75000, tx_ass_cef: 200000, seguro_cef: 70000, itbi: 70000,
+  registro_cartorio: 200000, encargos_obra: 0, habite_se: 70000,
+  cnd_cno: 200000, averbacao: 200000,
+});
+
+/** Reconhece itens legados sem chave, preservando seus IDs e recebimentos. */
+export function planejarValoresPadrao<T extends { id: number | string; chavePadrao: string | null; nome: string; grupo: string; previsto: string | number }>(itens: readonly T[]) {
+  const normalizar = (nome: string) => nome.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/[^a-z0-9]/g, "");
+  return ITENS_FINANCEIROS_PADRAO.map(padrao => {
+    const candidatos = itens.filter(item => item.chavePadrao === padrao.chave || (!item.chavePadrao && item.grupo === padrao.grupo && normalizar(item.nome) === normalizar(padrao.nome)));
+    if (candidatos.length > 1) throw new Error(`Há mais de um item correspondente a ${padrao.nome}. Revise os itens antes de aplicar o padrão.`);
+    const atual = candidatos[0];
+    const previstoCentavos = VALORES_PREVISTOS_PADRAO[padrao.chave];
+    const anterior = atual ? centavosDe(atual.previsto) ?? 0 : 0;
+    return { padrao, atual, previsto: (previstoCentavos / 100).toFixed(2), substituir: anterior !== 0 && anterior !== previstoCentavos };
+  });
+}
+
+/** A página derivada continua válida depois de exclusões, sem alterar a seleção. */
+export function paginarProcessos<T>(registros: readonly T[], pagina: number) {
+  const totalPaginas = Math.max(1, Math.ceil(registros.length / 4));
+  const paginaAtual = Math.min(Math.max(1, pagina), totalPaginas);
+  return { paginaAtual, totalPaginas, registros: registros.slice((paginaAtual - 1) * 4, paginaAtual * 4) };
+}
+
 export const LIMITE_NOME_ITEM = 120;
 
 export interface ItemFinanceiroEntrada {

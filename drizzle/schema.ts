@@ -588,6 +588,8 @@ export const constructionPhotos = pgTable("construction_photos", {
   // Pedido de 18/10: foto enviada junto com uma medição (relatório fotográfico da CAIXA).
   progressHistoryId: integer("progress_history_id"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
+  // Pedido de 29/10: cópia em Obras/<Obra>/Fotos/<Medição> no Google Drive (null = pendente).
+  driveFileId: text("drive_file_id"),
 });
 
 // EPIC-020 Lote 4 (item 28): bytes das fotos no próprio banco. A coluna
@@ -621,6 +623,8 @@ export const constructionPci = pgTable("construction_pci", {
   linkedAt: timestamp("linked_at"),
   linkedBy: integer("linked_by"),
   versionId: integer("version_id").references(() => constructionPciVersions.id, { onDelete: "no action" }),
+  // Pedido de 29/10: cópia da PCI original em Obras/<Obra>/Medições CAIXA (null = pendente).
+  driveFileId: text("drive_file_id"),
 });
 
 // Lote 2, correção 03 (AD-06, migração 0082): Gerador de PCI. Modelos oficiais
@@ -644,6 +648,8 @@ export const pciModels = pgTable("pci_models", {
   awaitingConfirmation: boolean("awaiting_confirmation").default(false).notNull(),
   confirmedBy: integer("confirmed_by").references((): AnyPgColumn => users.id, { onDelete: "set null" }),
   confirmedAt: timestamp("confirmed_at"),
+  // Pedido de 29/10: cópia em Modelos/PCI CAIXA no Google Drive (null = pendente).
+  driveFileId: text("drive_file_id"),
 });
 
 /** Lote 03 (migração 0096): auditoria das operações com o modelo oficial da PCI. */
@@ -675,6 +681,9 @@ export const pciGenerated = pgTable("pci_generated", {
   pdfFileName: varchar("pdf_file_name", { length: 255 }).notNull(),
   createdBy: integer("created_by").references((): AnyPgColumn => users.id, { onDelete: "set null" }),
   createdAt: timestamp("created_at").defaultNow().notNull(),
+  // Pedido de 29/10: cópias em Obras/<Obra>/Gerador de PCI no Google Drive (null = pendente).
+  sheetDriveFileId: text("sheet_drive_file_id"),
+  pdfDriveFileId: text("pdf_drive_file_id"),
 });
 
 // EPIC-020 Lote 4 (item 27): progresso por incidência (20 serviços por obra).
@@ -1910,6 +1919,9 @@ export const incorporationStudies = pgTable("incorporation_studies", {
   selectedScenarioId: varchar("selected_scenario_id", { length: 120 }),
   areasBoardJson: text("areas_board_json"),
   parameterizedBudgetJson: text("parameterized_budget_json"),
+  // Pedido de 29/10: cópia da planilha importada em Incorporação/<Estudo>/Orçamento.
+  budgetImportDriveFileId: text("budget_import_drive_file_id"),
+  budgetImportSha256: varchar("budget_import_sha256", { length: 64 }),
   landNegotiationJson: text("land_negotiation_json"),
   businessPlanJson: text("business_plan_json"),
   designersJson: text("designers_json"),
@@ -2068,6 +2080,8 @@ export const whatsappMidias = pgTable("whatsapp_midias", {
   id: serial("id").primaryKey(),
   messageId: integer("message_id").notNull().unique().references(() => whatsappMessages.id, { onDelete: "cascade" }),
   createdAt: timestamp("created_at").defaultNow().notNull(),
+  // Pedido de 29/10: cópia no Google Drive (cliente/Atendimento/WhatsApp ou WhatsApp sem cliente).
+  driveFileId: text("drive_file_id"),
 });
 
 /**
@@ -2252,4 +2266,25 @@ export const userDocuments = pgTable("user_documents", {
   sizeBytes: integer("size_bytes").notNull(),
   uploadedBy: integer("uploaded_by").references(() => users.id, { onDelete: "set null" }),
   uploadedAt: timestamp("uploaded_at").defaultNow().notNull(),
+  // Pedido de 29/10: cópia em Equipe/<Nome (nº id)>/<Categoria> no Google Drive (null = pendente).
+  driveFileId: text("drive_file_id"),
+});
+
+// Pedido de 29/10 (migração 0093): arquivo/pasta que não foi para a lixeira do Drive
+// na hora da exclusão; o "Organizar Drive" tenta de novo.
+export const driveTrashQueue = pgTable("drive_trash_queue", {
+  id: serial("id").primaryKey(),
+  kind: varchar("kind", { length: 10 }).notNull(),
+  target: text("target").notNull(),
+  attempts: integer("attempts").default(0).notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+}, (t) => ({ kindTarget: uniqueIndex("drive_trash_queue_kind_target_key").on(t.kind, t.target) }));
+
+/** Linha única (id = 1): retomada e último relatório do "Organizar Drive". */
+export const driveSyncState = pgTable("drive_sync_state", {
+  id: integer("id").primaryKey().default(1),
+  cursor: jsonb("cursor").default({}).notNull(),
+  lastReport: jsonb("last_report"),
+  lastRunAt: timestamp("last_run_at"),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });

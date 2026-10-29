@@ -1,7 +1,7 @@
 import { AcoesExcluir } from "@/components/AcoesExcluir";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Link } from "wouter";
-import { ArrowLeft, Building2, Pencil } from "lucide-react";
+import { ArrowLeft, Building2, ChevronLeft, ChevronRight, Pencil, WandSparkles } from "lucide-react";
 import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -14,7 +14,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { trpc } from "@/lib/trpc";
 import { LinkedServiceQueue } from "./LinkedServiceQueue";
 import { EtapasProcesso, FinanceiroRegularizacaoTabela } from "@/components/regularizacao/ProcessoRegularizacao";
-import { STATUS_PROCESSO, rotuloStatusProcesso, type StatusProcesso } from "@shared/financeiro/regularizacao";
+import { STATUS_PROCESSO, paginarProcessos, rotuloStatusProcesso, type StatusProcesso } from "@shared/financeiro/regularizacao";
 
 // EPIC-020 Lote 6 (30): Status do Processo com 3 opções, independente das etapas.
 const STATUSES = STATUS_PROCESSO;
@@ -41,6 +41,8 @@ function currency(value: string | null) {
 
 export default function AdminRegularizacoes() {
   const [filter, setFilter] = useState<Status | "all">("all");
+  const [page, setPage] = useState(1);
+  const [confirmDefaultTarget, setConfirmDefaultTarget] = useState<{ id: number; nome: string }>();
   const [selectedId, setSelectedId] = useState<number>();
   const [editOpen, setEditOpen] = useState(false);
   const [form, setForm] = useState(EMPTY_FORM);
@@ -67,9 +69,18 @@ export default function AdminRegularizacoes() {
     onError: error => toast.error(error.message),
   });
 
+  const defaultMutation = trpc.regularizacao.financeiro.gerarValorPadrao.useMutation({
+    onSuccess: async () => { setConfirmDefaultTarget(undefined); toast.success("Valores previstos preenchidos. Você pode editá-los normalmente."); await refresh(); },
+    onError: (error, input) => {
+      if (error.data?.code === "CONFLICT") setConfirmDefaultTarget({ id: input.regularizacaoId, nome: utils.regularizacao.get.getData({ id: input.regularizacaoId })?.clientName ?? "Processo selecionado" });
+      else toast.error(error.message);
+    },
+  });
   const records = listQuery.data ?? [];
-  const allRecords = trpc.regularizacao.list.useQuery();
-  const active = (allRecords.data ?? []).filter(record => !["concluido", "cancelado"].includes(record.status)).length;
+  const { paginaAtual, totalPaginas, registros: pageRecords } = paginarProcessos(records, page);
+  useEffect(() => {
+    if (!listQuery.isFetching) setPage(paginaAtual);
+  }, [paginaAtual, listQuery.isFetching]);
   const selected = detailQuery.data;
 
   return (
@@ -90,17 +101,17 @@ export default function AdminRegularizacoes() {
           O processo aparece aqui com os dados do cliente, puxados do cadastro do lead.
         </p>
         <div className="grid gap-4 sm:grid-cols-3">
-          <Metric label="Processos ativos" value={String(active)} />
-          {/* Pedido de 25/10 (noite): fórmula embaixo do valor, igual Valores da Operação. Regra em shared/financeiro/indicadores-regularizacao.ts. */}
-          <Metric label="Valor já recebido" value={indicatorsQuery.data ? formatCurrency(indicatorsQuery.data.recebido / 100) : "—"}
-            ajuda="Soma dos recebimentos confirmados dos itens de receita própria (Projetos, PCI, Água, Despachante, CND/CNO) dos processos não cancelados." />
           <Metric label="Valor contratado" value={indicatorsQuery.data ? formatCurrency(indicatorsQuery.data.contratado / 100) : "—"}
             ajuda="Soma do previsto dos itens de receita própria (Projetos, PCI, Água, Despachante, CND/CNO) dos processos não cancelados." />
+          <Metric label="Valor já recebido" value={indicatorsQuery.data ? formatCurrency(indicatorsQuery.data.recebido / 100) : "—"}
+            ajuda="Soma dos recebimentos confirmados dos itens de receita própria (Projetos, PCI, Água, Despachante, CND/CNO) dos processos não cancelados." />
+          <Metric label="A receber" value={indicatorsQuery.data ? formatCurrency((indicatorsQuery.data.contratado - indicatorsQuery.data.recebido) / 100) : "—"}
+            ajuda="Valor contratado menos valor já recebido." />
         </div>
 
         <div className="flex max-w-xs items-center gap-2">
           <Label>Status</Label>
-          <Select value={filter} onValueChange={value => setFilter(value as Status | "all")}>
+          <Select value={filter} disabled={defaultMutation.isPending} onValueChange={value => { setFilter(value as Status | "all"); setPage(1); }}>
             <SelectTrigger className="bg-[#2C3E50]"><SelectValue /></SelectTrigger>
             <SelectContent><SelectItem value="all">Todos</SelectItem>{STATUSES.map(status => <SelectItem key={status} value={status}>{rotuloStatusProcesso(status)}</SelectItem>)}</SelectContent>
           </Select>
@@ -108,15 +119,22 @@ export default function AdminRegularizacoes() {
 
         <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.5fr)]">
           <Card className="border-[#C9A961]/20 bg-[#2C3E50] text-white">
-            <CardHeader><CardTitle>Processos</CardTitle></CardHeader>
+            <CardHeader className="flex flex-row flex-wrap items-center justify-between gap-3">
+              <CardTitle>Processos ({records.length})</CardTitle>
+              <nav aria-label="Páginas de processos" className="flex items-center gap-2">
+                <Button type="button" variant="outline" size="icon" className="h-9 w-9 rounded-full border-[#C9A961]/60" aria-label="Página anterior" disabled={paginaAtual === 1 || listQuery.isFetching} onClick={() => setPage(paginaAtual - 1)}><ChevronLeft className="h-4 w-4" /></Button>
+                <span aria-live="polite" className="text-xs text-gray-300">{paginaAtual} de {totalPaginas}</span>
+                <Button type="button" variant="outline" size="icon" className="h-9 w-9 rounded-full border-[#C9A961]/60" aria-label="Próxima página" disabled={paginaAtual === totalPaginas || listQuery.isFetching} onClick={() => setPage(paginaAtual + 1)}><ChevronRight className="h-4 w-4" /></Button>
+              </nav>
+            </CardHeader>
             <CardContent className="space-y-3">
               {listQuery.isLoading && <p className="text-gray-300">Carregando...</p>}
               {!listQuery.isLoading && !records.length && <p className="text-gray-300">Nenhum processo encontrado.</p>}
-              {records.map(record => (
+              {pageRecords.map(record => (
                 // Pedido de 16/10: o botão Excluir fica dentro do quadro do próprio cliente,
                 // separado por uma linha, para não parecer pertencer ao processo de baixo.
                 <div key={record.id} className={`rounded-md border p-3 ${selectedId === record.id ? "border-[#C9A961]" : "border-white/10"}`}>
-                  <button type="button" onClick={() => setSelectedId(record.id)} className="w-full text-left">
+                  <button type="button" disabled={defaultMutation.isPending} onClick={() => setSelectedId(record.id)} className="w-full text-left disabled:opacity-60">
                     <div className="flex items-start justify-between gap-2"><strong>{record.clientName}</strong><Badge variant="secondary">{rotuloStatusProcesso(record.status)}</Badge></div>
                     {/* Pedido de 16/10: sem o aviso "Aguardando dados técnicos"; tipo e responsável só aparecem quando existem. */}
                     {record.type.trim() && record.responsible.trim() && <p className="mt-1 text-sm text-gray-300">{record.type} · {record.responsible}</p>}
@@ -126,7 +144,7 @@ export default function AdminRegularizacoes() {
                   <div className="mt-3 flex flex-wrap items-center justify-between gap-2 border-t border-white/10 pt-2">
                     {record.leadId ? <Link href={`/admin/crm/${record.leadId}`} className="text-sm text-[#E6CA88] underline">Abrir cadastro CRM</Link> : <span />}
                     <AcoesExcluir rotulo={record.clientName}
-                      onExcluir={async () => { await removeMutation.mutateAsync({ id: record.id }); if (selectedId === record.id) setSelectedId(undefined); await listQuery.refetch(); }} />
+                      onExcluir={async () => { await removeMutation.mutateAsync({ id: record.id }); if (selectedId === record.id) setSelectedId(undefined); await refresh(); }} />
                   </div>
                 </div>
               ))}
@@ -139,6 +157,7 @@ export default function AdminRegularizacoes() {
               {!selected && <p className="text-gray-300">Selecione um processo para acompanhar o workflow.</p>}
               {selected && (
                 <div className="space-y-6">
+                  <div className="flex flex-wrap items-center justify-between gap-3">
                   <Button
                     variant="outline"
                     className="gap-2 border-[#C9A961]/60 text-[#E6CA88]"
@@ -160,6 +179,10 @@ export default function AdminRegularizacoes() {
                   >
                     <Pencil className="h-4 w-4" />Editar dados do processo
                   </Button>
+                  <Button type="button" variant="outline" disabled={defaultMutation.isPending} className="gap-2 border-[#C9A961]/60 text-[#E6CA88]" onClick={() => defaultMutation.mutate({ regularizacaoId: selected.id })}>
+                    <WandSparkles className="h-4 w-4" />{defaultMutation.isPending ? "Preenchendo..." : "Gerar valor padrão"}
+                  </Button>
+                  </div>
                   <div className="grid gap-4 sm:grid-cols-2">
                     <div><p className="text-xs text-gray-300">Cliente</p><p>{selected.clientName}{selected.clientPhone ? ` · ${selected.clientPhone}` : ""}</p></div>
                     <div><p className="text-xs text-gray-300">Tipo / responsável</p><p>{selected.type || "—"} · {selected.responsible || "—"}</p></div>
@@ -188,6 +211,16 @@ export default function AdminRegularizacoes() {
         </div>
       </main>
 
+      <Dialog open={confirmDefaultTarget !== undefined} onOpenChange={open => { if (!open && !defaultMutation.isPending) setConfirmDefaultTarget(undefined); }}>
+        <DialogContent className="bg-[#1A2332] text-white">
+          <DialogHeader><DialogTitle>Substituir valores previstos?</DialogTitle></DialogHeader>
+          <p><strong>{confirmDefaultTarget?.nome}</strong> já tem valores previstos diferentes. Aplicar a tabela padrão substituirá esses valores. Os recebimentos serão preservados e os valores continuarão editáveis.</p>
+          <div className="flex justify-end gap-3">
+            <Button variant="outline" disabled={defaultMutation.isPending} onClick={() => setConfirmDefaultTarget(undefined)}>Cancelar</Button>
+            <Button disabled={defaultMutation.isPending} onClick={() => { if (confirmDefaultTarget) defaultMutation.mutate({ regularizacaoId: confirmDefaultTarget.id, confirmarSubstituicao: true }); }}>Aplicar padrão</Button>
+          </div>
+        </DialogContent>
+      </Dialog>
       <Dialog open={editOpen} onOpenChange={setEditOpen}>
         <DialogContent className="max-h-[90vh] overflow-y-auto bg-[#1A2332] text-white">
           <DialogHeader><DialogTitle>Dados do processo</DialogTitle></DialogHeader>

@@ -141,7 +141,10 @@ export const leadDocumentsRouter = router({
       }
 
       try {
-        const data = doc.driveFileId ? await readPrivateDocument(doc.driveFileId) : await readPrivateDbFile("lead", doc.id);
+        // Guardado no banco (fallback) continua sendo lido do banco, mesmo depois da cópia no Drive (29/10).
+        const data = doc.storage === "banco"
+          ? (await readPrivateDbFile("lead", doc.id)) ?? (doc.driveFileId ? await readPrivateDocument(doc.driveFileId) : null)
+          : await readPrivateDocument(doc.driveFileId!);
         if (!data) throw new Error("Arquivo não encontrado no banco");
         if (data.length > DOCUMENT_LIMIT) throw new Error("Arquivo excede o limite de consulta");
         const offset = input.offset ?? 0;

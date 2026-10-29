@@ -23,6 +23,7 @@ import { getTokenFromRequest, verifySessionToken } from "./_core/auth-utils.js";
 import { protectedProcedure, router } from "./_core/trpc.js";
 import { clearUpload, readUpload } from "./document-upload-chunks.js";
 import { getDb, getUserById } from "./db.js";
+import { copiarParaDrive, lixeiraDoArquivo } from "./drive-organizacao.js";
 
 type Linhas<T> = { rows: T[] };
 
@@ -164,9 +165,13 @@ export const engenheirosRouter = router({
     const base64 = Buffer.from(dados).toString("base64");
     const db = getDb();
     let id: number;
+    let driveAnterior: string | null = null;
     if (input.substituirId) {
+      const [antes] = await db.select({ driveFileId: userDocuments.driveFileId }).from(userDocuments)
+        .where(and(eq(userDocuments.id, input.substituirId), eq(userDocuments.userId, input.userId))).limit(1);
+      driveAnterior = antes?.driveFileId ?? null;
       const r = await db.execute(sql`UPDATE user_documents SET category = ${input.categoria}, original_name = ${v.nome}, mime = ${v.mime},
-          size_bytes = ${dados.length}, content = decode(${base64}, 'base64'), uploaded_by = ${ctx.user.id}, uploaded_at = now()
+          size_bytes = ${dados.length}, content = decode(${base64}, 'base64'), uploaded_by = ${ctx.user.id}, uploaded_at = now(), drive_file_id = NULL
         WHERE id = ${input.substituirId} AND user_id = ${input.userId} RETURNING id`);
       const linha = (r as unknown as Linhas<{ id: number }>).rows[0];
       if (!linha) throw new TRPCError({ code: "NOT_FOUND", message: "Documento a substituir não encontrado." });
@@ -177,15 +182,20 @@ export const engenheirosRouter = router({
       id = Number((r as unknown as Linhas<{ id: number }>).rows[0].id);
     }
     await clearUpload(input.uploadId, ctx.user.id);
-    return { id, nome: v.nome, tamanho: dados.length };
+    // Pedido de 29/10: cópia em Equipe/<Nome (nº id)>/<Categoria> no Google Drive. O banco continua
+    // servindo a tela; sem Drive (ou com falha) fica pendente para o "Organizar Drive".
+    if (driveAnterior) await lixeiraDoArquivo(driveAnterior);
+    const noDrive = await copiarParaDrive("usuario_documento", id);
+    return { id, nome: v.nome, tamanho: dados.length, noDrive };
   }),
 
   excluirDocumento: protectedProcedure.input(z.object({ userId: z.number().int().positive(), id: z.number().int().positive() }))
     .mutation(async ({ ctx, input }) => {
       acessar(ctx.user, input.userId, true);
       const apagados = await getDb().delete(userDocuments)
-        .where(and(eq(userDocuments.id, input.id), eq(userDocuments.userId, input.userId))).returning({ id: userDocuments.id });
+        .where(and(eq(userDocuments.id, input.id), eq(userDocuments.userId, input.userId))).returning({ id: userDocuments.id, driveFileId: userDocuments.driveFileId });
       if (!apagados.length) throw new TRPCError({ code: "NOT_FOUND", message: "Documento não encontrado." });
+      await lixeiraDoArquivo(apagados[0].driveFileId); // Pedido de 29/10: cópia do Drive para a lixeira
       return { success: true } as const;
     }),
 });

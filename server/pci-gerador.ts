@@ -34,6 +34,7 @@ import { adminProcedure, canAccessAdminProcedure, router } from "./_core/trpc.js
 import { gerarPdfPci, gerarPlanilhaPci, lerFormularioPci, validarModeloPci } from "./caixa/pci-gerador.js";
 import { compararEstruturasPci, lerEstruturaModeloPci, xlsCompativelCom, type EstruturaModeloPci, type RelatorioCompatibilidadePci } from "./caixa/pci-modelo-estrutura.js";
 import { getDb, getUserById } from "./db.js";
+import { copiarParaDrive } from "./drive-organizacao.js";
 import { obterLocalizacaoObra } from "./obra-localizacao.js";
 import { listarEngenheiros } from "./usuario-documentos.js";
 
@@ -145,6 +146,8 @@ export async function gravarModeloPci(nome: string, bytes: Uint8Array, autorId: 
     FROM pci_models RETURNING id, version`);
   const l = linhas<{ id: number; version: number }>(r)[0];
   await auditarModeloPci(l.id, "enviar", autorId, { versao: l.version, arquivo: nome, formato, critico: relatorio.critico });
+  // Pedido de 29/10: cópia em Modelos/PCI CAIXA no Google Drive (falha fica pendente).
+  await copiarParaDrive("modelo_pci", Number(l.id));
   return { id: l.id, versao: l.version, formato, repetido: false, aguardandoConfirmacao: !vira, relatorio };
 }
 
@@ -280,7 +283,11 @@ export async function gerarPciDaObra(projectId: number, entrada: unknown, autor:
     VALUES (${projectId}, ${modelo.id}, ${modelo.versao}, ${JSON.stringify(form)}::jsonb, ${JSON.stringify(planilha.avisos)}::jsonb, ${nomePlanilha}, ${planilha.formato},
       decode(${Buffer.from(planilha.bytes).toString("base64")}, 'base64'), ${nomePdf}, decode(${Buffer.from(pdf).toString("base64")}, 'base64'), ${autor.id}, ${agora})
     RETURNING id`);
-  return { id: linhas<{ id: number }>(r)[0].id, avisos: planilha.avisos, pendencias: pendenciasPci(form) };
+  const id = Number(linhas<{ id: number }>(r)[0].id);
+  // Pedido de 29/10: cópias em Obras/<Obra (nº id)>/Gerador de PCI (falha fica pendente).
+  await copiarParaDrive("pci_gerada_planilha", id);
+  await copiarParaDrive("pci_gerada_pdf", id);
+  return { id, avisos: planilha.avisos, pendencias: pendenciasPci(form) };
 }
 
 // ─── tRPC ────────────────────────────────────────────────────────────────────

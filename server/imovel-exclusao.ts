@@ -7,7 +7,7 @@ import { eq } from "drizzle-orm";
 import { imoveis, imovelFotos, imovelRecusadoAvisos } from "../drizzle/schema.js";
 import { recusaAindaVisivel } from "../shared/broker-portal.js";
 import { getDb } from "./db.js";
-import { enviarParaLixeira } from "./drive-documents.js";
+import { lixeiraDaEntidade, lixeiraDoArquivo } from "./drive-organizacao.js";
 
 type Db = ReturnType<typeof getDb>;
 
@@ -35,6 +35,9 @@ export async function excluirImovelDefinitivo(id: number, { avisarCorretor = tru
     db.delete(imoveis).where(eq(imoveis.id, id)), // imovel_fotos sai em cascata; visitas/contratos ficam sem o imóvel
   ];
   await db.batch(passos as unknown as Parameters<Db["batch"]>[0]);
-  for (const foto of fotos) if (foto.driveFileId) await enviarParaLixeira(foto.driveFileId).catch(() => undefined);
+  // Pedido de 29/10: a pasta Imóveis/<Título (nº id)> inteira vai para a lixeira do Drive;
+  // fotos que estejam fora dela também (falha fica pendente para o "Organizar Drive").
+  await lixeiraDaEntidade("imovel", id);
+  for (const foto of fotos) await lixeiraDoArquivo(foto.driveFileId);
   return { excluido: true };
 }
