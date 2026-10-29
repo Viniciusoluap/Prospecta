@@ -21,5 +21,17 @@
 - Edição mantém a `categoria` gravada e só recalcula se a operacional/tipo de despesa muda.
 - Integração (cliente atribuído à movimentação bancária/regra por titular) conta como sinal forte (ID da integração).
 
-## Em execução
-- Testes unitários/DB das 5 correções nos dois repos. Banco local SF próprio: santafe_bpo_lote3 (não usar o santafe_lote2 compartilhado com db push).
+## Testes
+- P: server/bpo-lote3.test.ts (21 testes: mapeamento categoria, validação sem vínculo, sugestão único/ambíguo/nome, EXCLUIR, protegidos, filtros, combinar válido/bloqueado, DRE mês/ano, PGlite: criação sem contábil, Excluir tudo com backup/histórico, combinar, vínculo sem duplicar) — 21/21 OK. pluggy.test + bancos-sync.test 18/18 OK; bpo-auditoria-final 3/3 OK.
+- SF: src/lib/__tests__/bpo-lote3.test.ts (puros, 16 com bpo-operacional) OK; bpo-lote3.db.test.ts (4, banco local santafe_bpo_lote3) OK; suíte BPO+bancos+relatórios 81/82 — única falha é PRÉ-EXISTENTE (bancos-sync.db "Asaas: lê a partir da data inicial…": "Cannot read properties of undefined (reading 'toUpperCase')", arquivo asaas-extrato não alterado neste lote).
+- Pendente de validação em produção: migrações P 0095 e SF 20261029111000_bpo_lote3 (não aplicadas); Pluggy real sem pageSize (sem credencial aqui).
+
+## Pendências / riscos
+- Pluggy v2: filtro de data não enviado (documentação inacessível pelo proxy). Se a v2 aceitar filtro de data, pode ser reintroduzido para reduzir páginas (limite seguro 200 páginas mantido).
+- Restauração do backup de exclusão em lote: dados ficam em bpo_lancamento_exclusoes_backup (snapshot JSON); não há botão de restaurar na tela (recuperação por script/SQL).
+- Prospecta não tem filtros de busca/mês/ano/status em Cobranças/Despesas (diferença anterior a este lote); "Excluir tudo" respeita os filtros existentes (categoria/vínculo operacional da URL).
+
+## Estado final (29/10)
+- P: `pnpm check` (tsc) limpo; suíte relacionada 13 arquivos OK + bpo-0075-db 12/12 (fixture atualizada: aplica 0095 e colunas lead_id do catálogo).
+- SF: `npx tsc --noEmit` limpo; eslint nos arquivos alterados sem erro (1 warning pré-existente em bpo/[id]/page.tsx); testes BPO 81/82 (falha Asaas pré-existente).
+- Próximo passo: orquestrador commitar; aplicar migrações P 0095 e SF 20261029111000_bpo_lote3 só com autorização; validar Pluggy real e telas (desktop/iPad/iPhone). Banco local SF próprio: santafe_bpo_lote3 (não usar o santafe_lote2 compartilhado com db push).
