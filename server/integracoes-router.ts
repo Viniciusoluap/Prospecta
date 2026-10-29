@@ -100,7 +100,7 @@ export function createIntegracoesRouter(deps: IntegracoesDeps = defaultDeps) {
     if (!asaas || !webhook) throw new TRPCError({ code: "BAD_REQUEST", message: "Configure a chave de API e o token do webhook antes de verificar a sincronização." });
     return verificarWebhookAsaas({ apiKey: asaas.apiKey, token: webhook.token,
       environment: ambienteDaChaveAsaas(asaas.apiKey), canonicalUrl: URL_WEBHOOK_ASAAS(),
-      legacyName: "SiteProspecta", legacyHosts: ["prospectaconstrucoes.com", "site-prospecta.vercel.app", "site-prospecta-viniciusoluaps-projects.vercel.app", "site-prospecta-git-main-viniciusoluaps-projects.vercel.app"],
+      legacyName: "SiteProspecta", legacyHosts: ["prospectaconstrucoes.manus.space", "prospectaconstrucoes.com", "site-prospecta.vercel.app", "site-prospecta-viniciusoluaps-projects.vercel.app", "site-prospecta-git-main-viniciusoluaps-projects.vercel.app"],
     }, recuperar, deps.fetchImpl);
   }
   return router({
