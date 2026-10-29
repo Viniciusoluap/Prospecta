@@ -93,6 +93,10 @@ export default function AdminIntegracoes() {
   const aposSalvar = (msg: string) => async () => { toast.success(msg); await utils.integracoes.status.invalidate(); };
   const onError = (e: { message: string }) => toast.error(e.message);
   const salvarAsaas = trpc.integracoes.salvarAsaas.useMutation({ onSuccess: aposSalvar("Asaas salvo."), onError });
+  const webhookAsaas = trpc.integracoes.verificarWebhookAsaas.useQuery(undefined, { enabled: false, retry: false });
+  const recuperarWebhook = trpc.integracoes.recuperarWebhookAsaas.useMutation({
+    onSuccess: async result => { toast.success(result.mensagem); await webhookAsaas.refetch(); }, onError,
+  });
   const salvarPluggy = trpc.integracoes.salvarPluggy.useMutation({ onSuccess: aposSalvar("Pluggy salva."), onError });
   const salvarEvolution = trpc.integracoes.salvarEvolution.useMutation({ onSuccess: aposSalvar("Servidor do WhatsApp salvo."), onError });
 
@@ -134,6 +138,17 @@ export default function AdminIntegracoes() {
                   </Button>
                 </div>
                 <p className="mt-1 text-xs text-gray-300">No Asaas: Integrações › Webhooks, use o mesmo token salvo aqui. O ambiente (produção/sandbox) é reconhecido pela chave ($aact_prod… = produção).</p>
+                <div className="mt-3 flex flex-wrap gap-2">
+                  <Button type="button" size="sm" variant="outline" className={botaoSec} disabled={webhookAsaas.isFetching || recuperarWebhook.isPending} onClick={() => void webhookAsaas.refetch()}>Verificar webhook</Button>
+                  <Button type="button" size="sm" variant="outline" className={botaoSec} disabled={webhookAsaas.isFetching || recuperarWebhook.isPending || !asaas.webhookConfigurado} onClick={() => {
+                    if (window.confirm("Conferir o endpoint e atualizar somente o webhook deste sistema com a URL e o token salvos, ativando a fila? Os eventos pendentes poderão ser reenviados.")) recuperarWebhook.mutate();
+                  }}>{recuperarWebhook.isPending ? "Recuperando…" : "Recuperar sincronização"}</Button>
+                </div>
+                {webhookAsaas.error && <p role="alert" className="mt-2 text-red-300">{webhookAsaas.error.message}</p>}
+                {webhookAsaas.data && <div role="status" className="mt-2 space-y-1">
+                  <p>{webhookAsaas.data.mensagem}</p>
+                  {webhookAsaas.data.encontrado && <p>Ambiente: {webhookAsaas.data.ambiente}. URL: {webhookAsaas.data.urlCorreta ? "correta" : "precisa atualizar"}. Token: {webhookAsaas.data.tokenConfere === null ? "não informado pelo provedor" : webhookAsaas.data.tokenConfere ? "confere" : "divergente"}. Fila: {webhookAsaas.data.interrompido ? "interrompida" : "ativa"}. Webhook: {webhookAsaas.data.ativo ? "habilitado" : "desabilitado"}.</p>}
+                </div>}
               </div>
             )}
             campos={[
