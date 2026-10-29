@@ -32,5 +32,20 @@ Migrações: nenhuma.
 - [AUTO-DECISION] SF não tem filtro De/Até nos Relatórios: usa o período fixo da tela (12 meses). Paridade do filtro = pendência.
 - Ticket Médio da P deixou de ser receita/transações e passou a VGV/obras (pedido 14).
 
+## Etapa 2 (pedido do orquestrador após 97204b0 / 0f30da3)
+- SF: filtro De/Até nos Relatórios (paridade com from/to da P). searchParams `relDe`/`relAte` (AAAA-MM-DD) lidos em
+  `web/src/app/admin/bpo/page.tsx` → `periodoDosParametros` (`web/src/lib/financeiro/relatorios-bpo-dados.ts`): padrão = últimos
+  12 meses; data inválida ignorada; De > Até troca. Aplicado a VGV de Obras, Ticket, Números de Obra, Funil e Ranking.
+  `BpoRelatorios` ganhou inputs De/Até (router.replace, scroll:false) e "Voltar aos últimos 12 meses"; texto explica que
+  Receita/DRE/vendas seguem 12 meses fixos e Unidades é a situação atual. Teste novo `web/src/lib/__tests__/relatorios-bpo-periodo.test.ts` (3).
+- P: SQL do overview validado contra Postgres local: base `prospecta_rel_tpl` criada aplicando todas as `drizzle/*.sql`
+  em ordem (7 migrações antigas falham por lacunas históricas — 0019, 0027, 0028, 0032, 0033, 0046, 0051, todas de
+  regularização/lead_services; nenhuma afeta as tabelas do overview). Teste temporário (drizzle node-postgres, `pg` via
+  symlink temporário) semeou obras/leads/comissões/unidades e conferiu valores exatos de 14/18: passou. Teste e symlink
+  removidos (o arquivo `server/__tmp_relatorios_overview_pg.test.ts` entrou no WIP ef1f0cc e está DELETADO no working tree
+  — manter a deleção). Cópia para repetir: scratchpad `relatorios-overview-pg.test.ts.txt`.
+- Testes: SF 20/20 (unit 19 + DB 1), `tsc` ok, eslint 0 erros (1 warning `SugerirVinculosModal` do agente BPO).
+
 ## Pendências
-- SF: filtro De/Até nos Relatórios (P tem). - P: overview não testado contra banco (só typecheck + funções puras).
+- Manual: abrir as duas telas no navegador (no SF confirmar que, ao mudar o filtro, a aba Relatórios continua aberta).
+- Produção: conferir valores reais.

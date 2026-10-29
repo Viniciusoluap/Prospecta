@@ -208,15 +208,15 @@ export async function gerarArquivoMedicao(m: typeof constructionProgressHistory.
   const execucoes = SERVICOS_PROGRESSO.map((s) => porChave.get(s.chave) ?? 0);
 
   // Medições anteriores (curva de evolução e "mês anterior").
-  const anterioresBrutas = await db.select({ progresso: constructionProgressHistory.progressPct, criadoEm: constructionProgressHistory.createdAt, dados: constructionProgressHistory.caixaData })
+  const anterioresBrutas = await db.select({ progresso: constructionProgressHistory.progressPct, criadoEm: constructionProgressHistory.createdAt, dados: constructionProgressHistory.caixaData, recebidaEm: constructionProgressHistory.receivedAt })
     .from(constructionProgressHistory)
     .where(and(eq(constructionProgressHistory.projectId, m.projectId), or(lt(constructionProgressHistory.createdAt, m.createdAt), and(eq(constructionProgressHistory.createdAt, m.createdAt), lt(constructionProgressHistory.id, m.id)))))
     .orderBy(asc(constructionProgressHistory.createdAt), asc(constructionProgressHistory.id));
   const anteriores: MedicaoHistorica[] = anterioresBrutas.map((a) => {
     const pls = (a.dados as DadosMedicaoCaixa | null)?.pls;
-    // H6: "Acumul. Aferido" é o % medido pela CAIXA — o sistema não o tem, então fica
-    // em branco (não preencher com o PLS). Aguarda decisão do dono.
-    return { data: typeof pls?.dataLevantamento === "string" ? pls.dataLevantamento : dataIso(a.criadoEm), progresso: Number(a.progresso) };
+    // Lote 03, correção 08: "Acumul. Aferido" = medição anterior CONFIRMADA como recebida
+    // pela CAIXA (received_at). Sem confirmação, fica em branco e o PDF sinaliza.
+    return { data: typeof pls?.dataLevantamento === "string" ? pls.dataLevantamento : dataIso(a.criadoEm), progresso: Number(a.progresso), aferido: !!a.recebidaEm };
   });
   // H6: início e término previsto vêm do Editar Obra.
   const [datas] = await db.select({ inicio: constructionProjects.startDate, termino: constructionProjects.estimatedEndDate })
@@ -231,7 +231,11 @@ export async function gerarArquivoMedicao(m: typeof constructionProgressHistory.
     .filter((f) => f.mime === "image/jpeg" || f.mime === "image/png")
     .map((f) => ({ dados: new Uint8Array(Buffer.from(f.b64, "base64")), tipo: f.mime === "image/png" ? "png" : "jpeg", legenda: f.caption }));
 
-  const entrada = { tipo, pci: pci.dados, execucoes, progresso: Number(m.progressPct), anteriores, dados, fotos, obra };
+  // Lote 03, correção 08: relê a PCI desta versão (cronograma, valor e alvará
+  // recalculados das entradas, não do cache gravado no envio); falha → dados salvos.
+  let dadosPci = pci.dados;
+  try { dadosPci = { ...lerPci(pci.bytes), incidencias: pci.dados.incidencias }; } catch { /* mantém os dados salvos */ }
+  const entrada = { tipo, pci: dadosPci, execucoes, progresso: Number(m.progressPct), anteriores, dados, fotos, obra };
   const sufixo = { pls: "PLS", repactuacao: "Repactuacao_Prazo", alteracao: "Alteracao_Projeto" }[tipo];
   const nomeBase = `${sufixo}_${nomeSeguro(obraTitulo ?? "obra").replace(/\s+/g, "_")}_${dados.pls.dataLevantamento}`;
   const [a, mes, d] = dados.pls.dataLevantamento.split("-");

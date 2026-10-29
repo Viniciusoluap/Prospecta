@@ -15,6 +15,7 @@ import { toast } from "sonner";
 import { FileUp, Landmark, Plus, RefreshCw, Trash2, ListOrdered, Repeat } from "lucide-react";
 import { CATEGORIAS_BPO, TRANSFERENCIA_INTERNA, type CategoriaBpo } from "@shared/financeiro/bpo-extrato";
 import { extensaoExtratoValida } from "@shared/extrato-import";
+import { CONFIRMACAO_EXCLUSAO, confirmacaoExclusaoValida } from "@shared/financeiro/bpo-lote";
 
 const campo = "bg-[#2C3E50] border-[#C9A961]/30 text-white mt-1";
 const botaoSec = "h-7 text-xs border-[#C9A961]/30 text-[#C9A961]";
