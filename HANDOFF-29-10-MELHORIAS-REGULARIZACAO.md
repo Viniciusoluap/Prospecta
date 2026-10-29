@@ -22,7 +22,7 @@ Definições versionadas consultadas e trabalho separado entre desenvolvimento, 
 ## Validações
 (a) Automáticas: git diff --check aprovado; revisão independente QA aprovada. Prospecta: 24 testes focados do desenvolvimento aprovados, além de 54 testes na revisão integrada; TypeScript e build Vite aprovados.
 (b) Manuais: aceite visual autenticado e de navegação ainda pendente.
-(c) Publicação: PR e build de publicação ainda em preparação.
+(c) Publicação: PR #177 mergeado; commit 9a4c15b3544df729929c4512c860779638bd8e83. Build de produção READY, domínio oficial associado: https://www.prospectaconstrucoes.com. Endpoint público de saúde respondeu HTTP 200 com banco conectado. Consulta inicial de logs error/fatal do deployment publicado não retornou registros; isso não substitui aceite autenticado.
 
 ## Próximo passo
-Confirmar checks do PR e builds; efetuar merge autorizado, acompanhar publicação e validar navegação autenticada. Registrar limitações reais sem declarar aceite visual integral antecipadamente.
+Concluir a verificação de navegação autenticada e responsividade, mantendo separados os resultados automáticos, manuais e as pendências. Não repetir merge ou deploy: publicação funcional concluída. Branch de trabalho preservada, sem reset ou force push; este checkpoint de documentação está salvo na branch de continuidade.
