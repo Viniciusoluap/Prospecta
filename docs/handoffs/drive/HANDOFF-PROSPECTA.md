@@ -48,6 +48,15 @@ Status: implementação concluída na branch; **migração 0093 NÃO aplicada em
 (c) produção: aplicar a migração 0093; clicar "Organizar Drive agora" até o relatório indicar "completa"; conferir Equipe/<engenheiro>;
     excluir um lead de teste arquivado e ver a pasta na lixeira do Drive.
 
+## Paridade com a revisão do PR #239 do Santa Fé — 29/10
+- P1 (pasta órfã com arquivo em uso): a Prospecta já mantinha a pasta (lista recursiva e paginada + `arquivosEmUso`).
+  Alinhado com o Santa Fé: `lixeiraPastaSegura` agora tenta antes levar cada arquivo em uso para a pasta do registro
+  dono (`destinoDe` = `destinoAtualDoArquivo`) e só manda a pasta para a lixeira se nada continuar em uso; senão fica
+  (`pastasAguardando`) e a fila/organizador tenta de novo. Vale para órfãs, fila e exclusões.
+- P2 (fila durável da lixeira): já existia (`drive_trash_queue`, 0093) — sem mudança. O Santa Fé ganhou a gêmea `drive_lixeira_pendente`.
+- P3 (fotos de imóveis sem limite): não se aplica — não há varredura de fotos fora do laço com prazo/lote.
+- Testes (a): 2 casos novos em `server/drive-organizacao.test.ts`; `drive-organizacao`/`drive-exclusoes`/`drive-estrutura` 46/46; `pnpm check` limpo.
+
 ## Próximo passo exato
 Orquestrador: revisar, aplicar `drizzle/0093_drive_organizacao.sql` em produção, merge e deploy; depois rodar o botão
 "Organizar Drive agora" (ou esperar o cron diário) até o ciclo concluir.

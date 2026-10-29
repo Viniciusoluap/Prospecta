@@ -2,7 +2,7 @@
 // pastas órfãs na lixeira) e lixeira nas exclusões. Sem chamar o Google: as
 // dependências do Drive e do banco são falsas.
 import { describe, expect, it, vi } from "vitest";
-import type { ArquivoNoDrive, ArquivoPendente, FonteArquivos } from "./drive-arquivos.js";
+import type { ArquivoNoDrive, ArquivoPendente, DestinoDrive, FonteArquivos } from "./drive-arquivos.js";
 import {
   copiarParaDrive, lixeiraDaEntidade, lixeiraDoArquivo, lixeiraDoLead, lixeiraDoProjeto, organizarDrive, type CursorOrganizacao, type DependenciasOrganizador, type RelatorioOrganizacao,
 } from "./drive-organizacao.js";
@@ -165,6 +165,38 @@ describe("Organizar Drive — pastas órfãs", () => {
       existentes: async () => new Set(),
       arquivosNaPasta: async () => ["arq-1", "arq-2"],
       emUso: async (ids) => new Set(ids.filter((i) => i === "arq-2")),
+    });
+    const r = await organizarDrive(f.deps);
+    expect(f.lixeira).not.toHaveBeenCalled();
+    expect(r.pastasAguardando).toBe(1);
+  });
+
+  it("pasta órfã: o arquivo em uso vai antes para a pasta do dono e só então a pasta vai para a lixeira (mesma regra do Santa Fé)", async () => {
+    const naPasta = new Set(["arq-1", "arq-2"]);
+    const destino = { caminho: [{ chave: "cliente:9", nome: "Dono (nº 9)" }], nome: "RG.pdf" } as unknown as DestinoDrive;
+    const mover = vi.fn(async (id: string) => { naPasta.delete(id); return "movido" as const; });
+    const f = depsFalsas({
+      subpastas: async (cat) => ({ pastas: cat === "clientes" ? [{ id: "p3", chave: "cliente:3" }] : [], proximaPagina: null }),
+      existentes: async () => new Set(),
+      arquivosNaPasta: async () => Array.from(naPasta),
+      emUso: async (ids) => new Set(ids.filter((i) => i === "arq-2")),
+      destinoDe: async (id) => (id === "arq-2" ? destino : null),
+      mover,
+    });
+    const r = await organizarDrive(f.deps);
+    expect(mover).toHaveBeenCalledWith("arq-2", destino, expect.any(Map));
+    expect(f.lixeira).toHaveBeenCalledWith("p3");
+    expect(r).toMatchObject({ pastasOrfasNaLixeira: 1, pastasAguardando: 0 });
+  });
+
+  it("pasta órfã: se o arquivo em uso não sair (falha ao mover), a pasta fica", async () => {
+    const f = depsFalsas({
+      subpastas: async (cat) => ({ pastas: cat === "clientes" ? [{ id: "p3", chave: "cliente:3" }] : [], proximaPagina: null }),
+      existentes: async () => new Set(),
+      arquivosNaPasta: async () => ["arq-2"],
+      emUso: async (ids) => new Set(ids),
+      destinoDe: async () => ({ caminho: [], nome: "x" }) as unknown as DestinoDrive,
+      mover: vi.fn(async () => { throw new Error("falha simulada"); }),
     });
     const r = await organizarDrive(f.deps);
     expect(f.lixeira).not.toHaveBeenCalled();

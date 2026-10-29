@@ -59,6 +59,8 @@ export interface DependenciasOrganizador {
   arquivosNaPasta(pastaId: string): Promise<string[]>;
   pastaPorChave(chave: string): Promise<{ id: string } | null>;
   emUso(ids: string[]): Promise<Set<string>>;
+  /** Pasta certa do registro dono de um arquivo ainda em uso (null = sem destino conhecido). */
+  destinoDe?(driveFileId: string): Promise<DestinoDrive | null>;
   existentes(entidade: EntidadeRegistro, ids: number[]): Promise<Set<number>>;
   lixeira(id: string): Promise<void>;
   fila: { listar(limite: number): Promise<ItemFila[]>; remover(id: number): Promise<void>; falhou(id: number): Promise<void> };
@@ -77,10 +79,33 @@ export interface OpcoesOrganizador {
 
 const mensagem = (e: unknown) => (e instanceof Error ? e.message : "erro desconhecido");
 
-/** Pasta → lixeira só se nenhum arquivo dentro dela ainda é usado por um registro. */
-async function lixeiraPastaSegura(deps: DependenciasOrganizador, pastaId: string): Promise<"lixeira" | "em_uso"> {
+/** Quais arquivos dentro da pasta (em qualquer nível) algum registro ainda usa. */
+async function emUsoNaPasta(deps: DependenciasOrganizador, pastaId: string): Promise<Set<string>> {
   const ids = await deps.arquivosNaPasta(pastaId);
-  if (ids.length && (await deps.emUso(ids)).size) return "em_uso";
+  return ids.length ? deps.emUso(ids) : new Set<string>();
+}
+
+/**
+ * Pasta → lixeira só se nenhum arquivo dentro dela ainda é usado por um registro
+ * (mesma regra do Santa Fé). Os em uso vão antes para a pasta do registro dono;
+ * se algum não sair, a pasta fica ("em_uso") e o organizador tenta de novo.
+ */
+async function lixeiraPastaSegura(deps: DependenciasOrganizador, pastaId: string): Promise<"lixeira" | "em_uso"> {
+  let usados = await emUsoNaPasta(deps, pastaId);
+  if (usados.size) {
+    if (!deps.destinoDe) return "em_uso";
+    const cache: CachePastas = new Map();
+    for (const id of Array.from(usados)) {
+      try {
+        const destino = await deps.destinoDe(id);
+        if (destino) await deps.mover(id, destino, cache);
+      } catch (e) {
+        console.error("[drive-organizar] arquivo em uso não saiu da pasta:", mensagem(e));
+      }
+    }
+    usados = await emUsoNaPasta(deps, pastaId);
+    if (usados.size) return "em_uso";
+  }
   await deps.lixeira(pastaId);
   return "lixeira";
 }
@@ -289,6 +314,7 @@ export const dependenciasReais = (): DependenciasOrganizador => ({
   arquivosNaPasta: (id) => arquivosNaPasta(id),
   pastaPorChave: (chave) => pastaPorChave(chave),
   emUso: (ids) => arquivosEmUso(ids),
+  destinoDe: (id) => destinoAtualDoArquivo(id),
   existentes: (entidade, ids) => registrosExistentes(entidade, ids),
   lixeira: (id) => lixeiraPorId(id),
   fila: {
