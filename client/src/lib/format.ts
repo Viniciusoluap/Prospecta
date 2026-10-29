@@ -29,5 +29,8 @@ export function formatCurrency(valorEmReais: number): string {
  */
 export function formatPercent(valor: number, maximumFractionDigits = 2): string {
   const numero = Number.isFinite(valor) ? valor : 0;
-  return `${numero.toLocaleString("pt-BR", { maximumFractionDigits })}%`;
+  // Padrão numérico global (lote 3): sempre 2 casas ("6,00%"), salvo quem
+  // pede menos casas explicitamente.
+  const minimumFractionDigits = Math.min(2, maximumFractionDigits);
+  return `${numero.toLocaleString("pt-BR", { minimumFractionDigits, maximumFractionDigits })}%`;
 }

@@ -30,6 +30,7 @@ import {
   Rows,
 } from "./OperationalUI";
 import { rotulo } from "@shared/rotulos";
+import { formatarNumero } from "@shared/numero-mascara";
 // EPIC-018 (stories 2.2–2.5): corretor, imóvel e obra vêm dos cadastros reais;
 // o valor é sugerido pelo percentual de referência e continua editável.
 const blank = () => ({
@@ -380,7 +381,7 @@ function ComissoesDeObras({ dados, carregando, erro, status, broker, setStatus, 
                 {[...l.calculo.pendencias, ...l.alertas].map(t => <p key={t} className="mt-1 text-xs text-amber-800">{t}</p>)}
                 {l.registrosManuais.map(m => (
                   <p key={m.id} className="mt-1 text-xs text-slate-600">
-                    Comissão manual #{m.id}: {money(m.amount)} · {Number(m.percent).toLocaleString("pt-BR")}% · {rotulo(m.status)}
+                    Comissão manual #{m.id}: {money(m.amount)} · {formatarNumero(Number(m.percent), { casas: 2 })}% · {rotulo(m.status)}
                   </p>
                 ))}
               </td>

@@ -1,6 +1,7 @@
 import { useMemo, useState } from "react";
 import { Link } from "wouter";
 import { trpc } from "@/lib/trpc";
+import { formatarNumero } from "@shared/numero-mascara";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -83,8 +84,9 @@ export default function AdminRelatorios({
         r.data,
         r.corretor,
         r.referencia ?? "",
-        r.valorTotal.toFixed(2),
-        r.pago.toFixed(2),
+        // Padrão numérico global (lote 3): 1.000.000,00 também na exportação.
+        formatarNumero(r.valorTotal, { casas: 2 }),
+        formatarNumero(r.pago, { casas: 2 }),
         r.status,
       ].join(";")
     );

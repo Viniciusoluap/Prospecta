@@ -199,7 +199,7 @@ export default function BancosPanel() {
                             <input type="checkbox" checked={aplicarTitular} onChange={e => setAplicarTitular(e.target.checked)} />
                             Aplicar a todas deste titular (as próximas importações e sincronizações seguem a mesma classificação)
                           </label>
-                          <table className="w-full text-xs">
+                          <table className="w-full min-w-[640px] text-xs">
                             <thead className="sticky top-0 bg-[#1A2332]">
                               <tr className="text-gray-300 text-left">
                                 <th className="p-1">Data</th><th className="p-1">Descrição</th><th className="p-1">Titular</th><th className="p-1">Categoria</th>
@@ -294,7 +294,7 @@ export default function BancosPanel() {
               <p className="text-xs text-gray-300 mt-1">Contas do Meu Pluggy entram por <Link href="/admin/integracoes" className="underline text-[#C9A961]">Configurações › Integrações</Link> (bloco Pluggy).</p>
             </div>
             <div><Label className="text-gray-300">Banco *</Label><Input value={nova.banco} onChange={e => setNova(n => ({ ...n, banco: e.target.value }))} className={campo} placeholder="ex.: Cora" /></div>
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <div><Label className="text-gray-300">Conta</Label><Input value={nova.conta} onChange={e => setNova(n => ({ ...n, conta: e.target.value }))} className={campo} /></div>
               <div><Label className="text-gray-300">Descrição</Label><Input value={nova.descricao} onChange={e => setNova(n => ({ ...n, descricao: e.target.value }))} className={campo} placeholder="ex.: Conta PJ" /></div>
             </div>
@@ -362,8 +362,8 @@ export default function BancosPanel() {
                   ? <>Saldo informado no arquivo: <b>{formatCurrency(previa.saldoFinal)}</b> (vira o saldo da conta).</>
                   : "O arquivo não traz saldo: o saldo da conta será calculado pelas movimentações."}
               </p>
-              <div className="max-h-96 overflow-y-auto border border-[#C9A961]/10 rounded">
-                <table className="w-full text-xs">
+              <div className="max-h-96 overflow-auto border border-[#C9A961]/10 rounded">
+                <table className="w-full min-w-[560px] text-xs">
                   <thead className="sticky top-0 bg-[#1A2332]"><tr className="text-gray-300"><th className="text-left p-1">Data</th><th className="text-left p-1">Descrição</th><th className="text-left p-1">Titular</th><th className="text-right p-1">Valor</th></tr></thead>
                   <tbody>
                     {previa.linhas.slice(0, 500).map((l, i) => (

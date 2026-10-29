@@ -139,6 +139,37 @@
   input[type="radio"]:not(:disabled) {
     @apply cursor-pointer;
   }
+
+  /* Correção 11 (lote 3, 29/10) — layout global. Gêmeo de
+     `web/src/app/globals.css` no Grupo Santa Fé.
+     Datas/meses nativos: o Safari do iPhone/iPad dá a eles uma largura
+     mínima intrínseca e ignora `width: 100%`, o que empurra grades e corta
+     modais. Sem aparência nativa no iOS eles passam a respeitar o contêiner
+     (o seletor nativo continua abrindo ao tocar). Selects também não podem
+     forçar largura maior que a coluna. */
+  input[type="date"],
+  input[type="month"],
+  input[type="time"],
+  input[type="week"],
+  input[type="datetime-local"],
+  select {
+    min-width: 0;
+    max-width: 100%;
+  }
+  @supports (-webkit-touch-callout: none) {
+    input[type="date"],
+    input[type="month"],
+    input[type="time"],
+    input[type="week"],
+    input[type="datetime-local"] {
+      -webkit-appearance: none;
+      appearance: none;
+      min-height: 2.25rem;
+    }
+  }
+  input::-webkit-date-and-time-value {
+    text-align: left;
+  }
 }
 
 @layer components {

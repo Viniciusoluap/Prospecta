@@ -319,7 +319,7 @@ function NovoMovimento({ projectId, natureza, rotulo, onMudou, permitirBpo = tru
               </div>
             )}
             <div><Label className="text-gray-300">Descrição</Label><Input value={descricao} onChange={(e) => setDescricao(e.target.value)} className={campo} /></div>
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <div><Label className="text-gray-300">Valor</Label><CampoDecimal valor={valor} onChange={setValor} prefixo="R$" placeholder="0,00" /></div>
               <div><Label className="text-gray-300">Data</Label><Input type="date" value={data} onChange={(e) => setData(e.target.value)} className={campo} /></div>
             </div>

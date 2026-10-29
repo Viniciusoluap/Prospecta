@@ -251,8 +251,8 @@ export default function AdminBpo({ initialTab }: { initialTab?: Aba } = {}) {
                 </DialogHeader>
                 <div className="space-y-4 mt-4">
                   <p className="text-sm text-gray-300">Cadastro livre para clientes avulsos, fornecedores e terceiros. Para clientes do CRM, utilize Importar clientes.</p>
-                  <div className="grid grid-cols-2 gap-4">
-                    <div className="col-span-2">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <div className="sm:col-span-2">
                       <Label className="text-gray-300">Nome / Razão Social *</Label>
                       <Input
                         value={clienteForm.razaoSocial}
@@ -315,7 +315,7 @@ export default function AdminBpo({ initialTab }: { initialTab?: Aba } = {}) {
                         className="bg-[#2C3E50] border-[#C9A961]/30 text-white mt-1"
                       />
                     </div>
-                    <div className="col-span-2">
+                    <div className="sm:col-span-2">
                       <Label className="text-gray-300">Email</Label>
                       <Input
                         value={clienteForm.email}
@@ -355,7 +355,7 @@ export default function AdminBpo({ initialTab }: { initialTab?: Aba } = {}) {
                         className="bg-[#2C3E50] border-[#C9A961]/30 text-white mt-1"
                       />
                     </div>
-                    <div className="col-span-2">
+                    <div className="sm:col-span-2">
                       <Label className="text-gray-300">Data de início (opcional)</Label>
                       <Input
                         type="date"
@@ -369,7 +369,7 @@ export default function AdminBpo({ initialTab }: { initialTab?: Aba } = {}) {
                         className="bg-[#2C3E50] border-[#C9A961]/30 text-white mt-1"
                       />
                     </div>
-                    <div className="col-span-2">
+                    <div className="sm:col-span-2">
                       <Label className="text-gray-300">Observações</Label>
                       <Textarea
                         value={clienteForm.observacoes}
@@ -420,7 +420,7 @@ export default function AdminBpo({ initialTab }: { initialTab?: Aba } = {}) {
                   </DialogTitle>
                 </DialogHeader>
                 <div className="space-y-4 mt-4">
-                  <div className="grid grid-cols-2 gap-4">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                     <div>
                       <Label className="text-gray-300">Tipo</Label>
                       <Select
@@ -472,7 +472,7 @@ export default function AdminBpo({ initialTab }: { initialTab?: Aba } = {}) {
                       </Select>
                     </div>
                     {!lancamentoForm.clienteId && (
-                      <div className="col-span-2">
+                      <div className="sm:col-span-2">
                         <Label className="text-gray-300">
                           Nome (cliente/lead sem cadastro BPO)
                         </Label>
@@ -488,7 +488,7 @@ export default function AdminBpo({ initialTab }: { initialTab?: Aba } = {}) {
                         />
                       </div>
                     )}
-                    <div className="col-span-2">
+                    <div className="sm:col-span-2">
                       <Label className="text-gray-300">Descrição *</Label>
                       <Input
                         value={lancamentoForm.descricao}
@@ -898,8 +898,8 @@ export default function AdminBpo({ initialTab }: { initialTab?: Aba } = {}) {
       <Dialog open={Boolean(editando)} onOpenChange={o => !o && setEditando(null)}>
         <DialogContent className="bg-[#1A2332] border-[#C9A961]/20 text-white max-h-[90vh] overflow-y-auto">
           <DialogHeader><DialogTitle className="text-[#C9A961]">Editar lançamento</DialogTitle></DialogHeader>
-          {editando && <div className="grid grid-cols-2 gap-4">
-            <div className="col-span-2"><Label>Descrição</Label><Input value={editando.descricao} onChange={e => setEditando({ ...editando, descricao: e.target.value })} className="bg-[#2C3E50] border-[#C9A961]/30" /></div>
+          {editando && <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div className="sm:col-span-2"><Label>Descrição</Label><Input value={editando.descricao} onChange={e => setEditando({ ...editando, descricao: e.target.value })} className="bg-[#2C3E50] border-[#C9A961]/30" /></div>
             <div><Label>Valor (R$)</Label><CurrencyInput value={editando.valor ? Number(editando.valor) : 0} onChange={v => setEditando({ ...editando, valor: v ? String(v) : "" })} className="bg-[#2C3E50] border-[#C9A961]/30" /></div>
             <div><Label>Vencimento</Label><Input type="date" value={editando.vencimento} onChange={e => setEditando({ ...editando, vencimento: e.target.value })} className="bg-[#2C3E50] border-[#C9A961]/30" /></div>
             <div><Label>Competência</Label><Input type="month" value={editando.competencia} onChange={e => setEditando({ ...editando, competencia: e.target.value })} className="bg-[#2C3E50] border-[#C9A961]/30" /></div>
@@ -907,7 +907,7 @@ export default function AdminBpo({ initialTab }: { initialTab?: Aba } = {}) {
             {!editando.clienteId && <div><Label>Nome / identificação</Label><Input value={editando.clienteNomeLivre ?? ""} onChange={e => setEditando({ ...editando, clienteNomeLivre: e.target.value })} className="bg-[#2C3E50] border-[#C9A961]/30" /></div>}
             {!editando.clienteId && <VinculoClienteLancamento lancamento={editando} clientes={clientes}
               onVinculado={r => setEditando({ ...editando, clienteId: r.clienteId, clienteNomeLivre: null, version: r.version })} />}
-            <div className="col-span-2"><Label>Observações</Label><Textarea value={editando.observacoes ?? ""} onChange={e => setEditando({ ...editando, observacoes: e.target.value })} className="bg-[#2C3E50] border-[#C9A961]/30" /></div>
+            <div className="sm:col-span-2"><Label>Observações</Label><Textarea value={editando.observacoes ?? ""} onChange={e => setEditando({ ...editando, observacoes: e.target.value })} className="bg-[#2C3E50] border-[#C9A961]/30" /></div>
             <CamposCategoriaLancamento
               tipo={editando.tipo === "despesa" ? "despesa" : "cobranca"}
               catalogo={catalogoOperacional as any}
@@ -915,9 +915,9 @@ export default function AdminBpo({ initialTab }: { initialTab?: Aba } = {}) {
               valor={{ categoriaOperacional: editando.categoriaOperacional ?? "", vinculoOperacionalId: editando.vinculoOperacionalId ?? "", tipoDespesaObra: editando.tipoDespesaObra ?? "", etapaObra: editando.etapaObra ?? "" }}
               onChange={v => setEditando({ ...editando, ...v })}
             />
-            <div className="col-span-2"><Label>Motivo da alteração *</Label><Textarea value={editando.motivo} onChange={e => setEditando({ ...editando, motivo: e.target.value })} placeholder="Obrigatório para a trilha de auditoria" className="bg-[#2C3E50] border-[#C9A961]/30" /></div>
-            {(editando.asaasPaymentId || editando.bankTransactionId) && <p className="col-span-2 text-xs text-amber-300">Este é um ajuste interno. A origem externa e a conciliação serão preservadas.</p>}
-            <Button className="col-span-2 bg-[#C9A961] text-[#1A2332]" disabled={editarLancamento.isPending || editando.motivo.trim().length < 3 || !categoriaLancamentoCompleta(editando.tipo === "despesa" ? "despesa" : "cobranca", { categoriaOperacional: editando.categoriaOperacional ?? "", vinculoOperacionalId: editando.vinculoOperacionalId ?? "", tipoDespesaObra: editando.tipoDespesaObra ?? "", etapaObra: editando.etapaObra ?? "" }, true)}
+            <div className="sm:col-span-2"><Label>Motivo da alteração *</Label><Textarea value={editando.motivo} onChange={e => setEditando({ ...editando, motivo: e.target.value })} placeholder="Obrigatório para a trilha de auditoria" className="bg-[#2C3E50] border-[#C9A961]/30" /></div>
+            {(editando.asaasPaymentId || editando.bankTransactionId) && <p className="sm:col-span-2 text-xs text-amber-300">Este é um ajuste interno. A origem externa e a conciliação serão preservadas.</p>}
+            <Button className="sm:col-span-2 bg-[#C9A961] text-[#1A2332]" disabled={editarLancamento.isPending || editando.motivo.trim().length < 3 || !categoriaLancamentoCompleta(editando.tipo === "despesa" ? "despesa" : "cobranca", { categoriaOperacional: editando.categoriaOperacional ?? "", vinculoOperacionalId: editando.vinculoOperacionalId ?? "", tipoDespesaObra: editando.tipoDespesaObra ?? "", etapaObra: editando.etapaObra ?? "" }, true)}
               onClick={() => editarLancamento.mutate({
                 id: editando.id, version: editando.version, motivo: editando.motivo, descricao: editando.descricao,
                 valor: Number(editando.valor), clienteId: editando.clienteId,

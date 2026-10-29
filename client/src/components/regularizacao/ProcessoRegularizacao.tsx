@@ -4,6 +4,7 @@ import { ArrowDown, ArrowUp, ListChecks, Pencil, Plus, Trash2, Wallet } from "lu
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
+import { NumeroInput } from "@/components/ui/numero-input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
@@ -92,8 +93,8 @@ export function EtapasProcesso({ regularizacaoId, etapas, progressoEtapas, onMud
             <div className="space-y-1"><Label>Nome da etapa *</Label><Input className={campo} maxLength={120} value={editando?.nome ?? ""} onChange={(e) => setEditando({ ...editando, nome: e.target.value })} /></div>
             <div className="space-y-1">
               <Label>Progresso (%)</Label>
-              <Input className={campo} type="number" min={0} max={100} step={1} value={editando?.progresso ?? 0}
-                onChange={(e) => setEditando({ ...editando, progresso: Math.max(0, Math.min(100, Math.round(Number(e.target.value) || 0))) })} />
+              <NumeroInput className={campo} casas={0} sufixo="%" min={0} max={100} aria-label="Progresso (%)" value={editando?.progresso ?? 0}
+                onChange={(v) => setEditando({ ...editando, progresso: Math.max(0, Math.min(100, Math.round(v ?? 0))) })} />
             </div>
             <div className="space-y-1"><Label>Observações</Label><Textarea className={campo} maxLength={2000} value={editando?.observacoes ?? ""} onChange={(e) => setEditando({ ...editando, observacoes: e.target.value })} /></div>
             <Button className="w-full bg-[#C9A961] text-[#1A2332]" disabled={criar.isPending || editar.isPending || (editando?.nome ?? "").trim().length < 2} onClick={salvar}>Salvar etapa</Button>
