@@ -42,7 +42,7 @@ import {
   type FormularioPci,
   type ValorCampoPci,
 } from "../../shared/pci-gerador.js";
-import { PastaBiff8, type ValorCelula } from "./biff8.js";
+import { PastaBiff8, colunaParaLetras, type ValidacaoDados, type ValorCelula } from "./biff8.js";
 import { substituirFotos } from "./biff8-imagens.js";
 import { formatarCoordenada, isoParaSerial, serialParaIso } from "./pci.js";
 import { PastaXlsb } from "./xlsb.js";
@@ -255,6 +255,8 @@ const escaparXml = (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;")
 const desescaparXml = (s: string) =>
   s.replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&quot;/g, '"').replace(/&apos;/g, "'").replace(/&#(\d+);/g, (_, n) => String.fromCharCode(Number(n))).replace(/&amp;/g, "&");
 
+const TIPOS_DV: Record<string, number> = { none: 0, whole: 1, decimal: 2, list: 3, date: 4, time: 5, textLength: 6, custom: 7 };
+
 function colunaParaIndice(col: string): number {
   let n = 0;
   for (const ch of col) n = n * 26 + (ch.charCodeAt(0) - 64);
@@ -329,10 +331,57 @@ export class PastaXlsx {
     return Number.isFinite(n) ? n : null;
   }
 
+  temCelula(aba: string, endereco: string): boolean {
+    return !!this.celulaXml(strFromU8(this.arquivos[this.caminho(aba)]), endereco.toUpperCase());
+  }
+
   ehFormula(aba: string, endereco: string): boolean {
     const xml = strFromU8(this.arquivos[this.caminho(aba)]);
     const cel = this.celulaXml(xml, endereco.toUpperCase());
     return !!cel && /<f[\s>/]/.test(cel.texto);
+  }
+
+  /**
+   * Lote 03, correção 10: validações de dados do tipo lista da aba (`<dataValidation>`
+   * e a extensão x14). Listas por intervalo da própria aba (ou de outra aba) são resolvidas.
+   */
+  validacoesDeDados(aba: string): ValidacaoDados[] {
+    const xml = strFromU8(this.arquivos[this.caminho(aba)]);
+    const out: ValidacaoDados[] = [];
+    const resolver = (f: string): { opcoes: string[] | null; referencia: string | null } => {
+      const t = desescaparXml(f.trim());
+      if (/^".*"$/.test(t)) return { opcoes: t.slice(1, -1).split(","), referencia: null };
+      const m = /^(?:'?([^'!]+)'?!)?\$?([A-Z]+)\$?(\d+)(?::\$?([A-Z]+)\$?(\d+))?$/.exec(t);
+      if (!m) return { opcoes: null, referencia: t };
+      const alvo = m[1] ?? aba;
+      if (!this.abasPorNome.has(alvo)) return { opcoes: null, referencia: t };
+      const c1 = colunaParaIndice(m[2]), r1 = Number(m[3]), c2 = m[4] ? colunaParaIndice(m[4]) : c1, r2 = m[5] ? Number(m[5]) : r1;
+      const opcoes: string[] = [];
+      for (let r = r1; r <= r2; r++) {
+        for (let col = c1; col <= c2; col++) {
+          const v = this.ler(alvo, `${colunaParaLetras(col - 1)}${r}`);
+          if (v !== null && v !== "") opcoes.push(String(v));
+        }
+      }
+      return { opcoes, referencia: t };
+    };
+    for (const m of Array.from(xml.matchAll(/<dataValidation\b([^>]*)>([\s\S]*?)<\/dataValidation>/g))) {
+      const attrs = m[1];
+      const tipoTexto = /\btype="([^"]+)"/.exec(attrs)?.[1] ?? "none";
+      const sqref = /\bsqref="([^"]+)"/.exec(attrs)?.[1] ?? "";
+      const f1 = /<formula1>([\s\S]*?)<\/formula1>/.exec(m[2])?.[1];
+      const r = tipoTexto === "list" && f1 !== undefined ? resolver(f1) : { opcoes: null, referencia: f1 ?? null };
+      out.push({ aba, intervalo: sqref, tipo: TIPOS_DV[tipoTexto] ?? 0, ...r, permiteBranco: /\ballowBlank="(1|true)"/.test(attrs) });
+    }
+    for (const m of Array.from(xml.matchAll(/<x14:dataValidation\b([^>]*)>([\s\S]*?)<\/x14:dataValidation>/g))) {
+      const attrs = m[1];
+      const tipoTexto = /\btype="([^"]+)"/.exec(attrs)?.[1] ?? "none";
+      const sqref = /<xm:sqref>([\s\S]*?)<\/xm:sqref>/.exec(m[2])?.[1] ?? "";
+      const f1 = /<x14:formula1>\s*<xm:f>([\s\S]*?)<\/xm:f>/.exec(m[2])?.[1];
+      const r = tipoTexto === "list" && f1 !== undefined ? resolver(f1) : { opcoes: null, referencia: f1 ?? null };
+      out.push({ aba, intervalo: sqref, tipo: TIPOS_DV[tipoTexto] ?? 0, ...r, permiteBranco: /\ballowBlank="(1|true)"/.test(attrs) });
+    }
+    return out;
   }
 
   /** Grava valores; não sobrescreve fórmulas (vão para `recusadas`). */

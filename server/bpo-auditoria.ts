@@ -1,5 +1,6 @@
 import { sql } from "drizzle-orm";
 import { getDb } from "./db.js";
+import { CONFIRMACAO_EXCLUSAO, confirmacaoExclusaoValida } from "../shared/financeiro/bpo-lote.js";
 
 export type PreviaLimpezaConta = {
   contaId: number;
@@ -42,9 +43,10 @@ export async function previaLimpezaConta(contaId: number): Promise<PreviaLimpeza
  * Um único comando SQL garante backup, desvinculação das receitas legítimas e limpeza atômica.
  * A credencial criptografada da conta é deliberadamente excluída do snapshot.
  */
-export async function limparContaComBackup(contaId: number, confirmarRotulo: string, userId: number) {
+export async function limparContaComBackup(contaId: number, confirmacao: string, userId: number) {
+  // Lote 3, item 13B: confirmação digitando EXCLUIR (case-sensitive, sem acento).
+  if (!confirmacaoExclusaoValida(confirmacao)) throw new Error(`Digite ${CONFIRMACAO_EXCLUSAO} para confirmar a exclusão da conta.`);
   const previa = await previaLimpezaConta(contaId);
-  if (confirmarRotulo.trim() !== previa.contaRotulo) throw new Error("Digite exatamente o nome da conta exibido para confirmar a limpeza.");
   const resultado = await getDb().execute(sql`
     WITH conta AS (
       SELECT id, banco, agencia, conta, tipo, descricao, saldo_atual, ativo, pluggy_item_id,
@@ -86,13 +88,13 @@ export async function limparContaComBackup(contaId: number, confirmarRotulo: str
         AND (SELECT count(*) FROM preservados) >= 0
       RETURNING a.id
     )
-    SELECT (SELECT id FROM backup)::int AS "backupId",
+    SELECT (SELECT id FROM backup)::int AS "backupId", now() AS "excluidaEm", ${userId}::int AS "excluidaPorUserId",
       (SELECT count(*) FROM removida)::int AS removidas,
       ${previa.transacoes}::int AS transacoes,
       ${previa.lancamentosRemovidos}::int AS "lancamentosRemovidos",
       ${previa.lancamentosPreservados}::int AS "lancamentosPreservados"
   `);
-  const row = primeira<{ backupId: number; removidas: number; transacoes: number; lancamentosRemovidos: number; lancamentosPreservados: number }>(resultado);
+  const row = primeira<{ backupId: number; excluidaEm: string; excluidaPorUserId: number; removidas: number; transacoes: number; lancamentosRemovidos: number; lancamentosPreservados: number }>(resultado);
   if (!row?.removidas) throw new Error("A conta mudou durante a confirmação. Atualize a prévia e tente novamente.");
   return row;
 }

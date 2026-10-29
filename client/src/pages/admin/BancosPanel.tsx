@@ -69,7 +69,7 @@ export default function BancosPanel() {
     onSuccess: () => { toast.success("Conta atualizada."); setEdit(null); invalidar(); },
     onError: e => toast.error(e.message),
   });
-  const remover = trpc.bancario.contas.delete.useMutation({ onSuccess: () => { toast.success("Conta removida."); invalidar(); } });
+  const remover = trpc.bancario.contas.delete.useMutation();
   const [limpeza, setLimpeza] = useState<any | null>(null);
   const [confirmacaoLimpeza, setConfirmacaoLimpeza] = useState("");
   async function abrirLimpeza(id: number) {
@@ -255,20 +255,23 @@ export default function BancosPanel() {
         <DialogContent className="bg-[#1A2332] border-[#C9A961]/20 text-white">
           <DialogHeader><DialogTitle className="text-red-300">Excluir conta e dados importados</DialogTitle></DialogHeader>
           {limpeza && <div className="space-y-4 text-sm">
-            <p>Será criado um backup lógico antes da limpeza. Cobranças do Asaas e lançamentos já usados em Obras/Regularizações serão preservados e apenas desconciliados.</p>
+            {/* Lote 3, item 13B: prévia completa + confirmação digitando EXCLUIR; o backup registra usuário e data. */}
+            <p>Conta: <strong>{limpeza.contaRotulo}</strong></p>
             <div className="rounded border border-white/10 p-3 space-y-1">
-              <p><strong>{limpeza.transacoes}</strong> movimentações bancárias</p>
-              <p><strong>{limpeza.lancamentosRemovidos}</strong> lançamentos exclusivamente importados serão removidos</p>
-              <p><strong>{limpeza.lancamentosPreservados}</strong> lançamentos legítimos serão preservados</p>
+              <p><strong>{limpeza.transacoes}</strong> movimentação(ões) bancária(s) serão removidas</p>
+              <p><strong>{limpeza.lancamentosRemovidos}</strong> lançamento(s) exclusivamente importado(s) do extrato serão removidos</p>
+              <p><strong>{limpeza.lancamentosPreservados}</strong> lançamento(s) serão preservados (Asaas, manuais, com vínculo operacional ou usados em Obras/Regularizações) — apenas desconciliados</p>
+              <p><strong>{limpeza.vinculosOperacionais}</strong> vínculo(s) com Obras/Regularizações serão mantidos</p>
             </div>
-            <Label>Digite exatamente: <strong>{limpeza.contaRotulo}</strong></Label>
-            <Input value={confirmacaoLimpeza} onChange={e => setConfirmacaoLimpeza(e.target.value)} className={campo} />
-            <Button className="w-full bg-red-700 hover:bg-red-800" disabled={remover.isPending || confirmacaoLimpeza !== limpeza.contaRotulo}
-              onClick={() => remover.mutate({ id: limpeza.contaId, confirmarRotulo: confirmacaoLimpeza }, { onSuccess: r => {
-                toast.success(`Limpeza concluída. Backup #${r.backupId}; ${r.lancamentosPreservados} lançamento(s) preservado(s).`);
+            <p className="text-xs text-gray-300">Antes de remover, é gravado um backup (conta, movimentações e lançamentos) com o seu usuário e a data, para auditoria e recuperação. A credencial da conta não entra no backup.</p>
+            <Label>Para confirmar, digite <strong>{CONFIRMACAO_EXCLUSAO}</strong></Label>
+            <Input value={confirmacaoLimpeza} onChange={e => setConfirmacaoLimpeza(e.target.value)} autoComplete="off" className={campo} />
+            <Button className="w-full bg-red-700 hover:bg-red-800" disabled={remover.isPending || !confirmacaoExclusaoValida(confirmacaoLimpeza)}
+              onClick={() => remover.mutate({ id: limpeza.contaId, confirmacao: confirmacaoLimpeza }, { onSuccess: r => {
+                toast.success(`Conta excluída. Backup #${r.backupId} registrado em ${new Date(r.excluidaEm).toLocaleString("pt-BR")}; ${r.lancamentosPreservados} lançamento(s) preservado(s).`);
                 setLimpeza(null); invalidar();
               }, onError: e => toast.error(e.message) })}>
-              {remover.isPending ? "Criando backup e limpando..." : "Confirmar limpeza segura"}
+              {remover.isPending ? "Criando backup e excluindo..." : "Excluir conta com backup"}
             </Button>
           </div>}
         </DialogContent>
