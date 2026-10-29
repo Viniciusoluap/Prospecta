@@ -2038,6 +2038,21 @@ export const whatsappMidias = pgTable("whatsapp_midias", {
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 
+/**
+ * Lote 03, correção 02 (migração 0094): vínculo manual conversa ↔ lead, com prioridade sobre a
+ * inferência pelo telefone. phone_key = DDD + 8 últimos dígitos (chaveTelefone).
+ */
+export const whatsappConversationLinks = pgTable("whatsapp_conversation_links", {
+  id: serial("id").primaryKey(),
+  connectionId: integer("connection_id").notNull().references(() => whatsappConnections.id, { onDelete: "cascade" }),
+  phoneKey: varchar("phone_key", { length: 20 }).notNull(),
+  leadId: integer("lead_id").notNull().references(() => leads.id, { onDelete: "cascade" }),
+  linkedBy: integer("linked_by").references(() => users.id, { onDelete: "set null" }),
+  linkedAt: timestamp("linked_at").defaultNow().notNull(),
+}, (t) => ({
+  connPhone: uniqueIndex("whatsapp_conversation_links_conn_phone_uidx").on(t.connectionId, t.phoneKey),
+}));
+
 /** Pedido de 25/10: servidor da Evolution API (QR code). Linha única (id = 1); chave criptografada. */
 export const whatsappEvolutionSettings = pgTable("whatsapp_evolution_settings", {
   id: integer("id").primaryKey().default(1),

@@ -37,6 +37,36 @@
         "SE",
         "TO"
       ],
+      "opcoes_exibicao": [
+        "AC",
+        "AL",
+        "AP",
+        "AM",
+        "BA",
+        "CE",
+        "DF",
+        "ES",
+        "GO",
+        "MA",
+        "MT",
+        "MS",
+        "MG",
+        "PA",
+        "PB",
+        "PR",
+        "PE",
+        "PI",
+        "RR",
+        "RO",
+        "RJ",
+        "RN",
+        "RS",
+        "SC",
+        "SP",
+        "SE",
+        "TO"
+      ],
+      "opcoes_com_espaco_extra": false,
       "fonte": "literal: \"AC,AL,AP,AM,BA,CE,DF,ES,GO,MA,MT,MS,MG,PA,PB,PR,PE,PI,RR,RO,RJ,RN,RS,SC,SP,SE,TO\"",
       "permite_branco": true,
       "estilo_erro": "parar",
@@ -78,6 +108,36 @@
         "SE",
         "TO"
       ],
+      "opcoes_exibicao": [
+        "AC",
+        "AL",
+        "AP",
+        "AM",
+        "BA",
+        "CE",
+        "DF",
+        "ES",
+        "GO",
+        "MA",
+        "MT",
+        "MS",
+        "MG",
+        "PA",
+        "PB",
+        "PR",
+        "PE",
+        "PI",
+        "RR",
+        "RO",
+        "RJ",
+        "RN",
+        "RS",
+        "SC",
+        "SP",
+        "SE",
+        "TO"
+      ],
+      "opcoes_com_espaco_extra": false,
       "fonte": "literal: \"AC,AL,AP,AM,BA,CE,DF,ES,GO,MA,MT,MS,MG,PA,PB,PR,PE,PI,RR,RO,RJ,RN,RS,SC,SP,SE,TO\"",
       "permite_branco": true,
       "estilo_erro": "parar",
@@ -119,6 +179,36 @@
         "SE",
         "TO"
       ],
+      "opcoes_exibicao": [
+        "AC",
+        "AL",
+        "AP",
+        "AM",
+        "BA",
+        "CE",
+        "DF",
+        "ES",
+        "GO",
+        "MA",
+        "MT",
+        "MS",
+        "MG",
+        "PA",
+        "PB",
+        "PR",
+        "PE",
+        "PI",
+        "RR",
+        "RO",
+        "RJ",
+        "RN",
+        "RS",
+        "SC",
+        "SP",
+        "SE",
+        "TO"
+      ],
+      "opcoes_com_espaco_extra": false,
       "fonte": "literal: \"AC,AL,AP,AM,BA,CE,DF,ES,GO,MA,MT,MS,MG,PA,PB,PR,PE,PI,RR,RO,RJ,RN,RS,SC,SP,SE,TO\"",
       "permite_branco": true,
       "estilo_erro": "parar",
@@ -138,6 +228,14 @@
         "Cerâmica/Porcelanato",
         "Outros"
       ],
+      "opcoes_exibicao": [
+        "Sem revestimento",
+        "Pintura/Textura/Grafiato",
+        "Pint./Text./Grafto. e det. em Pedra/Cerâmica",
+        "Cerâmica/Porcelanato",
+        "Outros"
+      ],
+      "opcoes_com_espaco_extra": false,
       "fonte": "intervalo Proposta_Constr_Individual!$BC$2:$BC$7",
       "permite_branco": true,
       "estilo_erro": "parar",
@@ -157,6 +255,14 @@
         "Cerâmica/Porcelanato",
         "Outros"
       ],
+      "opcoes_exibicao": [
+        "Sem revestimento",
+        "Pintura/Textura/Grafiato",
+        "Pint./Text./Grafto. e det. em Pedra/Cerâmica",
+        "Cerâmica/Porcelanato",
+        "Outros"
+      ],
+      "opcoes_com_espaco_extra": false,
       "fonte": "intervalo Proposta_Constr_Individual!$BC$2:$BC$7",
       "permite_branco": true,
       "estilo_erro": "parar",
@@ -173,6 +279,11 @@
         "N",
         "S"
       ],
+      "opcoes_exibicao": [
+        "N",
+        "S"
+      ],
+      "opcoes_com_espaco_extra": false,
       "fonte": "literal: \"N,S\"",
       "permite_branco": true,
       "estilo_erro": "parar",
@@ -189,6 +300,11 @@
         "Residencial",
         "Comercial"
       ],
+      "opcoes_exibicao": [
+        "Residencial",
+        "Comercial"
+      ],
+      "opcoes_com_espaco_extra": false,
       "fonte": "literal: \"Residencial,Comercial\"",
       "permite_branco": true,
       "estilo_erro": "parar",
@@ -210,6 +326,16 @@
         "Laje Impermeabilizada",
         "Outros"
       ],
+      "opcoes_exibicao": [
+        "Telha Metálica c/ Platibanda",
+        "Telha Metálica s/ Platibanda",
+        "Telha de Fibrocimto. c/ Platibanda",
+        "Telha de Fibrocimto. s/ Platibanda",
+        "Telha de Cerâmica/Concreto",
+        "Laje Impermeabilizada",
+        "Outros"
+      ],
+      "opcoes_com_espaco_extra": false,
       "fonte": "intervalo Proposta_Constr_Individual!$BB$2:$BB$8",
       "permite_branco": true,
       "estilo_erro": "parar",
@@ -229,6 +355,14 @@
         "Laje+Forro",
         "Outros"
       ],
+      "opcoes_exibicao": [
+        "Telha aparente",
+        "Forro",
+        "Laje",
+        "Laje+Forro",
+        "Outros"
+      ],
+      "opcoes_com_espaco_extra": false,
       "fonte": "intervalo Proposta_Constr_Individual!$BA$2:$BA$6",
       "permite_branco": true,
       "estilo_erro": "parar",
@@ -246,6 +380,12 @@
         "Linha Média",
         "Linha Luxo"
       ],
+      "opcoes_exibicao": [
+        "Linha Popular",
+        "Linha Média",
+        "Linha Luxo"
+      ],
+      "opcoes_com_espaco_extra": false,
       "fonte": "intervalo Proposta_Constr_Individual!$BG$2:$BG$4",
       "permite_branco": true,
       "estilo_erro": "parar",
@@ -266,6 +406,15 @@
         "Aço",
         "Outros"
       ],
+      "opcoes_exibicao": [
+        "Alvenaria",
+        "Gesso",
+        "Madeira",
+        "Concreto",
+        "Aço",
+        "Outros"
+      ],
+      "opcoes_com_espaco_extra": false,
       "fonte": "intervalo Proposta_Constr_Individual!$BF$2:$BF$7",
       "permite_branco": true,
       "estilo_erro": "parar",
@@ -287,6 +436,16 @@
         "Granito/Mármore",
         "Outros"
       ],
+      "opcoes_exibicao": [
+        "Cimentado",
+        "Cerâmica Comercial",
+        "Pedra",
+        "Porcelanato 1ª",
+        "Porcelanato 2ª",
+        "Granito/Mármore",
+        "Outros"
+      ],
+      "opcoes_com_espaco_extra": false,
       "fonte": "intervalo Proposta_Constr_Individual!$BD$2:$BD$8",
       "permite_branco": true,
       "estilo_erro": "parar",
@@ -311,6 +470,19 @@
         "Granito/Mármore",
         "Outros"
       ],
+      "opcoes_exibicao": [
+        "Cimentado",
+        "Cerâmica Comercial",
+        "Pedra",
+        "Vinílico",
+        "Emborrachado",
+        "Porcelanato 1ª",
+        "Porcelanato 2ª",
+        "Laminado",
+        "Granito/Mármore",
+        "Outros"
+      ],
+      "opcoes_com_espaco_extra": false,
       "fonte": "intervalo Proposta_Constr_Individual!$BE$2:$BE$11",
       "permite_branco": true,
       "estilo_erro": "parar",
@@ -329,6 +501,13 @@
         "Fossa e Sumidouro",
         "Outra"
       ],
+      "opcoes_exibicao": [
+        "Rede de Esgoto",
+        "Fossa e Filtro",
+        "Fossa e Sumidouro",
+        "Outra"
+      ],
+      "opcoes_com_espaco_extra": false,
       "fonte": "intervalo Proposta_Constr_Individual!$BI$2:$BI$5",
       "permite_branco": true,
       "estilo_erro": "parar",
@@ -347,6 +526,13 @@
         "Eólica",
         "Outra"
       ],
+      "opcoes_exibicao": [
+        "Nenhuma",
+        "Fotovoltaica",
+        "Eólica",
+        "Outra"
+      ],
+      "opcoes_com_espaco_extra": false,
       "fonte": "intervalo Proposta_Constr_Individual!$BK$2:$BK$5",
       "permite_branco": true,
       "estilo_erro": "parar",
@@ -364,6 +550,12 @@
         "Poço",
         "Outra"
       ],
+      "opcoes_exibicao": [
+        "Concessionária",
+        "Poço",
+        "Outra"
+      ],
+      "opcoes_com_espaco_extra": false,
       "fonte": "intervalo Proposta_Constr_Individual!$BH$2:$BH$4",
       "permite_branco": true,
       "estilo_erro": "parar",
@@ -381,6 +573,12 @@
         "Interna ao terreno",
         "Outra"
       ],
+      "opcoes_exibicao": [
+        "Rede de Água Pluvial",
+        "Interna ao terreno",
+        "Outra"
+      ],
+      "opcoes_com_espaco_extra": false,
       "fonte": "intervalo Proposta_Constr_Individual!$BJ$2:$BJ$4",
       "permite_branco": true,
       "estilo_erro": "parar",
@@ -395,10 +593,17 @@
       "campo_sistema": "finalidade",
       "opcoes": [
         "Aq.Terreno e Constr. FGTS",
+        " Constr.Terr.Próprio FGTS",
+        "Aq.Terreno e Constr. SBPE",
+        " Constr.Terr.Próprio SBPE"
+      ],
+      "opcoes_exibicao": [
+        "Aq.Terreno e Constr. FGTS",
         "Constr.Terr.Próprio FGTS",
         "Aq.Terreno e Constr. SBPE",
         "Constr.Terr.Próprio SBPE"
       ],
+      "opcoes_com_espaco_extra": true,
       "fonte": "literal: \"Aq.Terreno e Constr. FGTS, Constr.Terr.Próprio FGTS,Aq.Terreno e Constr. SBPE, Constr.Terr.Próprio SBPE\"",
       "permite_branco": true,
       "estilo_erro": "parar",
@@ -416,6 +621,12 @@
         "Normal",
         "Alto"
       ],
+      "opcoes_exibicao": [
+        "Baixo",
+        "Normal",
+        "Alto"
+      ],
+      "opcoes_com_espaco_extra": false,
       "fonte": "literal: \"Baixo,Normal,Alto\"",
       "permite_branco": true,
       "estilo_erro": "parar",
@@ -434,6 +645,13 @@
         "3",
         "4+"
       ],
+      "opcoes_exibicao": [
+        "1",
+        "2",
+        "3",
+        "4+"
+      ],
+      "opcoes_com_espaco_extra": false,
       "fonte": "literal: \"1,2,3,4+\"",
       "permite_branco": true,
       "estilo_erro": "parar",
@@ -450,6 +668,11 @@
         "Coberta(s)",
         "Descoberta(s)"
       ],
+      "opcoes_exibicao": [
+        "Coberta(s)",
+        "Descoberta(s)"
+      ],
+      "opcoes_com_espaco_extra": false,
       "fonte": "literal: \"Coberta(s),Descoberta(s)\"",
       "permite_branco": true,
       "estilo_erro": "parar",
@@ -468,6 +691,13 @@
         "Externa coberta",
         "Externa descoberta"
       ],
+      "opcoes_exibicao": [
+        "Não",
+        "Interna",
+        "Externa coberta",
+        "Externa descoberta"
+      ],
+      "opcoes_com_espaco_extra": false,
       "fonte": "intervalo Proposta_Constr_Individual!$BL$2:$BL$5",
       "permite_branco": true,
       "estilo_erro": "parar",
@@ -486,6 +716,13 @@
         "Cozinha+Copa",
         "Cozinha americana"
       ],
+      "opcoes_exibicao": [
+        "Cozinha",
+        "Cozinha+A.Serviço",
+        "Cozinha+Copa",
+        "Cozinha americana"
+      ],
+      "opcoes_com_espaco_extra": false,
       "fonte": "intervalo Proposta_Constr_Individual!$BM$2:$BM$5",
       "permite_branco": true,
       "estilo_erro": "parar",
@@ -503,6 +740,12 @@
         "Aquecimento solar",
         "Aquecimento à gás"
       ],
+      "opcoes_exibicao": [
+        "Não",
+        "Aquecimento solar",
+        "Aquecimento à gás"
+      ],
+      "opcoes_com_espaco_extra": false,
       "fonte": "intervalo Proposta_Constr_Individual!$BO$2:$BO$4",
       "permite_branco": true,
       "estilo_erro": "parar",
@@ -519,6 +762,11 @@
         "Sim",
         "Não"
       ],
+      "opcoes_exibicao": [
+        "Sim",
+        "Não"
+      ],
+      "opcoes_com_espaco_extra": false,
       "fonte": "literal: \"Sim,Não\"",
       "permite_branco": true,
       "estilo_erro": "parar",
@@ -535,6 +783,11 @@
         "Sim",
         "Não"
       ],
+      "opcoes_exibicao": [
+        "Sim",
+        "Não"
+      ],
+      "opcoes_com_espaco_extra": false,
       "fonte": "literal: \"Sim,Não\"",
       "permite_branco": true,
       "estilo_erro": "parar",
@@ -551,6 +804,11 @@
         "Sim",
         "Não"
       ],
+      "opcoes_exibicao": [
+        "Sim",
+        "Não"
+      ],
+      "opcoes_com_espaco_extra": false,
       "fonte": "literal: \"Sim,Não\"",
       "permite_branco": true,
       "estilo_erro": "parar",
@@ -567,6 +825,11 @@
         "Sim",
         "Não"
       ],
+      "opcoes_exibicao": [
+        "Sim",
+        "Não"
+      ],
+      "opcoes_com_espaco_extra": false,
       "fonte": "literal: \"Sim,Não\"",
       "permite_branco": true,
       "estilo_erro": "parar",
@@ -583,6 +846,11 @@
         "Sim",
         "Não"
       ],
+      "opcoes_exibicao": [
+        "Sim",
+        "Não"
+      ],
+      "opcoes_com_espaco_extra": false,
       "fonte": "literal: \"Sim,Não\"",
       "permite_branco": true,
       "estilo_erro": "parar",
@@ -599,6 +867,11 @@
         "Sim",
         "Não"
       ],
+      "opcoes_exibicao": [
+        "Sim",
+        "Não"
+      ],
+      "opcoes_com_espaco_extra": false,
       "fonte": "literal: \"Sim,Não\"",
       "permite_branco": true,
       "estilo_erro": "parar",
@@ -615,6 +888,11 @@
         "Sim",
         "Não"
       ],
+      "opcoes_exibicao": [
+        "Sim",
+        "Não"
+      ],
+      "opcoes_com_espaco_extra": false,
       "fonte": "literal: \"Sim,Não\"",
       "permite_branco": true,
       "estilo_erro": "parar",
@@ -631,6 +909,11 @@
         "Sim",
         "Não"
       ],
+      "opcoes_exibicao": [
+        "Sim",
+        "Não"
+      ],
+      "opcoes_com_espaco_extra": false,
       "fonte": "literal: \"Sim,Não\"",
       "permite_branco": true,
       "estilo_erro": "parar",
@@ -648,6 +931,12 @@
         "Isolada(parte empr.não-condom.)",
         "Condomínio"
       ],
+      "opcoes_exibicao": [
+        "Isolada",
+        "Isolada(parte empr.não-condom.)",
+        "Condomínio"
+      ],
+      "opcoes_com_espaco_extra": false,
       "fonte": "intervalo Proposta_Constr_Individual!$BN$2:$BN$4",
       "permite_branco": true,
       "estilo_erro": "parar",
@@ -664,6 +953,11 @@
         "Apresentado",
         "Não apresentado"
       ],
+      "opcoes_exibicao": [
+        "Apresentado",
+        "Não apresentado"
+      ],
+      "opcoes_com_espaco_extra": false,
       "fonte": "literal: \"Apresentado,Não apresentado\"",
       "permite_branco": true,
       "estilo_erro": "parar",
@@ -680,6 +974,11 @@
         "Apresentado",
         "Não apresentado"
       ],
+      "opcoes_exibicao": [
+        "Apresentado",
+        "Não apresentado"
+      ],
+      "opcoes_com_espaco_extra": false,
       "fonte": "literal: \"Apresentado,Não apresentado\"",
       "permite_branco": true,
       "estilo_erro": "parar",
@@ -696,6 +995,11 @@
         "Apresentado",
         "Não apresentado"
       ],
+      "opcoes_exibicao": [
+        "Apresentado",
+        "Não apresentado"
+      ],
+      "opcoes_com_espaco_extra": false,
       "fonte": "literal: \"Apresentado,Não apresentado\"",
       "permite_branco": true,
       "estilo_erro": "parar",
@@ -712,6 +1016,11 @@
         "Apresentado",
         "Não apresentado"
       ],
+      "opcoes_exibicao": [
+        "Apresentado",
+        "Não apresentado"
+      ],
+      "opcoes_com_espaco_extra": false,
       "fonte": "literal: \"Apresentado,Não apresentado\"",
       "permite_branco": true,
       "estilo_erro": "parar",
@@ -728,6 +1037,11 @@
         "Apresentado",
         "Não apresentado"
       ],
+      "opcoes_exibicao": [
+        "Apresentado",
+        "Não apresentado"
+      ],
+      "opcoes_com_espaco_extra": false,
       "fonte": "literal: \"Apresentado,Não apresentado\"",
       "permite_branco": true,
       "estilo_erro": "parar",
@@ -744,6 +1058,11 @@
         "Construtora",
         "Profissional Autônomo"
       ],
+      "opcoes_exibicao": [
+        "Construtora",
+        "Profissional Autônomo"
+      ],
+      "opcoes_com_espaco_extra": false,
       "fonte": "literal: \"Construtora,Profissional Autônomo\"",
       "permite_branco": true,
       "estilo_erro": "parar",
@@ -763,6 +1082,14 @@
         "3",
         "4+"
       ],
+      "opcoes_exibicao": [
+        "0",
+        "1",
+        "2",
+        "3",
+        "4+"
+      ],
+      "opcoes_com_espaco_extra": false,
       "fonte": "literal: \"0,1,2,3,4+\"",
       "permite_branco": true,
       "estilo_erro": "parar",
@@ -782,6 +1109,14 @@
         "3",
         "4+"
       ],
+      "opcoes_exibicao": [
+        "0",
+        "1",
+        "2",
+        "3",
+        "4+"
+      ],
+      "opcoes_com_espaco_extra": false,
       "fonte": "literal: \"0,1,2,3,4+\"",
       "permite_branco": true,
       "estilo_erro": "parar",
@@ -801,6 +1136,14 @@
         "3",
         "4+"
       ],
+      "opcoes_exibicao": [
+        "0",
+        "1",
+        "2",
+        "3",
+        "4+"
+      ],
+      "opcoes_com_espaco_extra": false,
       "fonte": "literal: \"0,1,2,3,4+\"",
       "permite_branco": true,
       "estilo_erro": "parar",
@@ -820,6 +1163,14 @@
         "3",
         "4+"
       ],
+      "opcoes_exibicao": [
+        "0",
+        "1",
+        "2",
+        "3",
+        "4+"
+      ],
+      "opcoes_com_espaco_extra": false,
       "fonte": "literal: \"0,1,2,3,4+\"",
       "permite_branco": true,
       "estilo_erro": "parar",
@@ -837,6 +1188,12 @@
         "Apresentado comprovação de Licenciamento Declaratório",
         "Não apresentado"
       ],
+      "opcoes_exibicao": [
+        "Apresentado projeto aprovado",
+        "Apresentado comprovação de Licenciamento Declaratório",
+        "Não apresentado"
+      ],
+      "opcoes_com_espaco_extra": false,
       "fonte": "literal: \"Apresentado projeto aprovado,Apresentado comprovação de Licenciamento Declaratório,Não apresentado\"",
       "permite_branco": true,
       "estilo_erro": "parar",
@@ -854,6 +1211,12 @@
         "Não",
         "Não se aplica"
       ],
+      "opcoes_exibicao": [
+        "Sim",
+        "Não",
+        "Não se aplica"
+      ],
+      "opcoes_com_espaco_extra": false,
       "fonte": "literal: \"Sim,Não,Não se aplica\"",
       "permite_branco": true,
       "estilo_erro": "parar",
@@ -871,6 +1234,12 @@
         "Não",
         "Não se aplica"
       ],
+      "opcoes_exibicao": [
+        "Sim",
+        "Não",
+        "Não se aplica"
+      ],
+      "opcoes_com_espaco_extra": false,
       "fonte": "literal: \"Sim,Não,Não se aplica\"",
       "permite_branco": true,
       "estilo_erro": "parar",
@@ -888,6 +1257,12 @@
         "Não",
         "Não se aplica"
       ],
+      "opcoes_exibicao": [
+        "Sim",
+        "Não",
+        "Não se aplica"
+      ],
+      "opcoes_com_espaco_extra": false,
       "fonte": "literal: \"Sim,Não,Não se aplica\"",
       "permite_branco": true,
       "estilo_erro": "parar",
@@ -905,6 +1280,12 @@
         "Não",
         "Não se aplica"
       ],
+      "opcoes_exibicao": [
+        "Sim",
+        "Não",
+        "Não se aplica"
+      ],
+      "opcoes_com_espaco_extra": false,
       "fonte": "literal: \"Sim,Não,Não se aplica\"",
       "permite_branco": true,
       "estilo_erro": "parar",
@@ -922,6 +1303,12 @@
         "In loco",
         "Em fábrica"
       ],
+      "opcoes_exibicao": [
+        "Pré-fabricadas em canteiro",
+        "In loco",
+        "Em fábrica"
+      ],
+      "opcoes_com_espaco_extra": false,
       "fonte": "literal: \"Pré-fabricadas em canteiro,In loco,Em fábrica\"",
       "permite_branco": true,
       "estilo_erro": "parar",
@@ -943,6 +1330,22 @@
         "Conv:Paredes de concreto moldada no local NBR nº 16055",
         "Conv:Painéis de Paredes de concreto Pré-moldados NBR nº 16475",
         "Conv:Painéis de PVC preenchidos com concreto NBR nº 17077",
+        "Conv:Light Wood Frame NBR nº 16936 ",
+        "Conv:Light Steel Framing NBR nº 16970",
+        "Conv:Painel leve modular - pré-fabricado_NBR nº 17073",
+        "Conv:Parede Concreto Celular moldada no local NBR nº 17071",
+        "Inovador:especificar sistema",
+        "Outros (escolher se não encontrou na lista a solução convencional que pretende usar)"
+      ],
+      "opcoes_exibicao": [
+        "Conv:Alvenaria estrutural",
+        "Conv:Estrut Concreto, Aço ou Madeira/Vedação blocos cerâmico",
+        "Conv:Estrut Concreto, Aço ou Madeira/Vedação blocos concreto",
+        "Conv:Estrut Concreto, Aço ou Madeira/Vedação blocos gesso",
+        "Conv:Estrut Concreto, Aço ou Madeira/Vedação blocos solo-cimento",
+        "Conv:Paredes de concreto moldada no local NBR nº 16055",
+        "Conv:Painéis de Paredes de concreto Pré-moldados NBR nº 16475",
+        "Conv:Painéis de PVC preenchidos com concreto NBR nº 17077",
         "Conv:Light Wood Frame NBR nº 16936",
         "Conv:Light Steel Framing NBR nº 16970",
         "Conv:Painel leve modular - pré-fabricado_NBR nº 17073",
@@ -950,6 +1353,7 @@
         "Inovador:especificar sistema",
         "Outros (escolher se não encontrou na lista a solução convencional que pretende usar)"
       ],
+      "opcoes_com_espaco_extra": true,
       "fonte": "intervalo Proposta_Constr_Individual!$BB$95:$BB$108",
       "permite_branco": true,
       "estilo_erro": "parar",
@@ -970,6 +1374,15 @@
         "Madeira",
         "Outros"
       ],
+      "opcoes_exibicao": [
+        "Alumínio",
+        "Ferro",
+        "Vidro Temperado",
+        "PVC",
+        "Madeira",
+        "Outros"
+      ],
+      "opcoes_com_espaco_extra": false,
       "fonte": "intervalo Proposta_Constr_Individual!$BQ$2:$BQ$7",
       "permite_branco": true,
       "estilo_erro": "parar",
@@ -997,6 +1410,22 @@
         "Árdosia",
         "Granito/Mármore 1ª"
       ],
+      "opcoes_exibicao": [
+        "Cimentado",
+        "Cerâmica Comercial",
+        "São Tomé",
+        "Emborrachado",
+        "Granita",
+        "Formicado",
+        "Porcelanato 2ª",
+        "Granito/Mármore 2ª",
+        "Pintura/Textura",
+        "Grafiato",
+        "Cerâmica Extra",
+        "Árdosia",
+        "Granito/Mármore 1ª"
+      ],
+      "opcoes_com_espaco_extra": false,
       "fonte": "intervalo Proposta_Constr_Individual!$BP$2:$BP$14",
       "permite_branco": true,
       "estilo_erro": "parar",
@@ -1016,6 +1445,14 @@
         "Alumínio",
         "Não se aplica"
       ],
+      "opcoes_exibicao": [
+        "Madeira",
+        "Aço",
+        "EPS",
+        "Alumínio",
+        "Não se aplica"
+      ],
+      "opcoes_com_espaco_extra": false,
       "fonte": "literal: \"Madeira,Aço,EPS,Alumínio,Não se aplica\"",
       "permite_branco": true,
       "estilo_erro": "parar",
@@ -1032,6 +1469,11 @@
         "0",
         "1"
       ],
+      "opcoes_exibicao": [
+        "0",
+        "1"
+      ],
+      "opcoes_com_espaco_extra": false,
       "fonte": "literal: \"0,1\"",
       "permite_branco": true,
       "estilo_erro": "parar",
@@ -1048,6 +1490,11 @@
         "0",
         "1"
       ],
+      "opcoes_exibicao": [
+        "0",
+        "1"
+      ],
+      "opcoes_com_espaco_extra": false,
       "fonte": "literal: \"0,1\"",
       "permite_branco": true,
       "estilo_erro": "parar",
@@ -1064,6 +1511,11 @@
         "0",
         "1"
       ],
+      "opcoes_exibicao": [
+        "0",
+        "1"
+      ],
+      "opcoes_com_espaco_extra": false,
       "fonte": "literal: \"0,1\"",
       "permite_branco": true,
       "estilo_erro": "parar",
@@ -1080,6 +1532,11 @@
         "0",
         "1"
       ],
+      "opcoes_exibicao": [
+        "0",
+        "1"
+      ],
+      "opcoes_com_espaco_extra": false,
       "fonte": "literal: \"0,1\"",
       "permite_branco": true,
       "estilo_erro": "parar",
@@ -1097,6 +1554,12 @@
         "1",
         "2"
       ],
+      "opcoes_exibicao": [
+        "0",
+        "1",
+        "2"
+      ],
+      "opcoes_com_espaco_extra": false,
       "fonte": "literal: \"0,1,2\"",
       "permite_branco": true,
       "estilo_erro": "parar",
@@ -1114,6 +1577,12 @@
         "1",
         "2"
       ],
+      "opcoes_exibicao": [
+        "0",
+        "1",
+        "2"
+      ],
+      "opcoes_com_espaco_extra": false,
       "fonte": "literal: \"0,1,2\"",
       "permite_branco": true,
       "estilo_erro": "parar",
@@ -1131,6 +1600,12 @@
         "1",
         "2"
       ],
+      "opcoes_exibicao": [
+        "0",
+        "1",
+        "2"
+      ],
+      "opcoes_com_espaco_extra": false,
       "fonte": "literal: \"0,1,2\"",
       "permite_branco": true,
       "estilo_erro": "parar",
@@ -1149,6 +1624,13 @@
         "2",
         "3"
       ],
+      "opcoes_exibicao": [
+        "0",
+        "1",
+        "2",
+        "3"
+      ],
+      "opcoes_com_espaco_extra": false,
       "fonte": "literal: \"0,1,2,3\"",
       "permite_branco": true,
       "estilo_erro": "parar",
@@ -1165,6 +1647,11 @@
         "0",
         "2"
       ],
+      "opcoes_exibicao": [
+        "0",
+        "2"
+      ],
+      "opcoes_com_espaco_extra": false,
       "fonte": "literal: \"0,2\"",
       "permite_branco": true,
       "estilo_erro": "parar",
@@ -1181,6 +1668,11 @@
         "0",
         "2"
       ],
+      "opcoes_exibicao": [
+        "0",
+        "2"
+      ],
+      "opcoes_com_espaco_extra": false,
       "fonte": "literal: \"0,2\"",
       "permite_branco": true,
       "estilo_erro": "parar",
@@ -1197,6 +1689,11 @@
         "Sim",
         "Não"
       ],
+      "opcoes_exibicao": [
+        "Sim",
+        "Não"
+      ],
+      "opcoes_com_espaco_extra": false,
       "fonte": "literal: \"Sim,Não\"",
       "permite_branco": true,
       "estilo_erro": "parar",
@@ -1213,6 +1710,11 @@
         "Sim",
         "Não"
       ],
+      "opcoes_exibicao": [
+        "Sim",
+        "Não"
+      ],
+      "opcoes_com_espaco_extra": false,
       "fonte": "literal: \"Sim,Não\"",
       "permite_branco": true,
       "estilo_erro": "parar",
@@ -1229,6 +1731,11 @@
         "sim",
         "não"
       ],
+      "opcoes_exibicao": [
+        "sim",
+        "não"
+      ],
+      "opcoes_com_espaco_extra": false,
       "fonte": "literal: \"sim,não\"",
       "permite_branco": true,
       "estilo_erro": "parar",
@@ -1245,6 +1752,11 @@
         "sim",
         "não"
       ],
+      "opcoes_exibicao": [
+        "sim",
+        "não"
+      ],
+      "opcoes_com_espaco_extra": false,
       "fonte": "literal: \"sim,não\"",
       "permite_branco": true,
       "estilo_erro": "parar",
@@ -1261,6 +1773,11 @@
         "sim",
         "não"
       ],
+      "opcoes_exibicao": [
+        "sim",
+        "não"
+      ],
+      "opcoes_com_espaco_extra": false,
       "fonte": "literal: \"sim,não\"",
       "permite_branco": true,
       "estilo_erro": "parar",
@@ -1277,6 +1794,11 @@
         "sim",
         "não"
       ],
+      "opcoes_exibicao": [
+        "sim",
+        "não"
+      ],
+      "opcoes_com_espaco_extra": false,
       "fonte": "literal: \"sim,não\"",
       "permite_branco": true,
       "estilo_erro": "parar",
@@ -1293,6 +1815,11 @@
         "sim",
         "não"
       ],
+      "opcoes_exibicao": [
+        "sim",
+        "não"
+      ],
+      "opcoes_com_espaco_extra": false,
       "fonte": "literal: \"sim,não\"",
       "permite_branco": true,
       "estilo_erro": "parar",
@@ -1334,6 +1861,36 @@
         "SE",
         "TO"
       ],
+      "opcoes_exibicao": [
+        "AC",
+        "AL",
+        "AP",
+        "AM",
+        "BA",
+        "CE",
+        "DF",
+        "ES",
+        "GO",
+        "MA",
+        "MT",
+        "MS",
+        "MG",
+        "PA",
+        "PB",
+        "PR",
+        "PE",
+        "PI",
+        "RR",
+        "RO",
+        "RJ",
+        "RN",
+        "RS",
+        "SC",
+        "SP",
+        "SE",
+        "TO"
+      ],
+      "opcoes_com_espaco_extra": false,
       "fonte": "literal: \"AC,AL,AP,AM,BA,CE,DF,ES,GO,MA,MT,MS,MG,PA,PB,PR,PE,PI,RR,RO,RJ,RN,RS,SC,SP,SE,TO\"",
       "permite_branco": true,
       "estilo_erro": "parar",
@@ -1375,6 +1932,36 @@
         "SE",
         "TO"
       ],
+      "opcoes_exibicao": [
+        "AC",
+        "AL",
+        "AP",
+        "AM",
+        "BA",
+        "CE",
+        "DF",
+        "ES",
+        "GO",
+        "MA",
+        "MT",
+        "MS",
+        "MG",
+        "PA",
+        "PB",
+        "PR",
+        "PE",
+        "PI",
+        "RR",
+        "RO",
+        "RJ",
+        "RN",
+        "RS",
+        "SC",
+        "SP",
+        "SE",
+        "TO"
+      ],
+      "opcoes_com_espaco_extra": false,
       "fonte": "literal: \"AC,AL,AP,AM,BA,CE,DF,ES,GO,MA,MT,MS,MG,PA,PB,PR,PE,PI,RR,RO,RJ,RN,RS,SC,SP,SE,TO\"",
       "permite_branco": true,
       "estilo_erro": "parar",
@@ -1416,6 +2003,36 @@
         "SE",
         "TO"
       ],
+      "opcoes_exibicao": [
+        "AC",
+        "AL",
+        "AP",
+        "AM",
+        "BA",
+        "CE",
+        "DF",
+        "ES",
+        "GO",
+        "MA",
+        "MT",
+        "MS",
+        "MG",
+        "PA",
+        "PB",
+        "PR",
+        "PE",
+        "PI",
+        "RR",
+        "RO",
+        "RJ",
+        "RN",
+        "RS",
+        "SC",
+        "SP",
+        "SE",
+        "TO"
+      ],
+      "opcoes_com_espaco_extra": false,
       "fonte": "literal: \"AC,AL,AP,AM,BA,CE,DF,ES,GO,MA,MT,MS,MG,PA,PB,PR,PE,PI,RR,RO,RJ,RN,RS,SC,SP,SE,TO\"",
       "permite_branco": true,
       "estilo_erro": "parar",
@@ -1432,6 +2049,11 @@
         "N",
         "S"
       ],
+      "opcoes_exibicao": [
+        "N",
+        "S"
+      ],
+      "opcoes_com_espaco_extra": false,
       "fonte": "literal: \"N,S\"",
       "permite_branco": true,
       "estilo_erro": "parar",
@@ -1467,6 +2089,30 @@
         "95%",
         "100%"
       ],
+      "opcoes_exibicao": [
+        "0%",
+        "5%",
+        "10%",
+        "15%",
+        "20%",
+        "25%",
+        "30%",
+        "35%",
+        "40%",
+        "45%",
+        "50%",
+        "55%",
+        "60%",
+        "65%",
+        "70%",
+        "75%",
+        "80%",
+        "85%",
+        "90%",
+        "95%",
+        "100%"
+      ],
+      "opcoes_com_espaco_extra": false,
       "fonte": "literal: \"0%,5%,10%,15%,20%,25%,30%,35%,40%,45%,50%,55%,60%,65%,70%,75%,80%,85%,90%,95%,100%\"",
       "permite_branco": true,
       "estilo_erro": "parar",
@@ -1484,6 +2130,12 @@
         "Não",
         "Não se aplica"
       ],
+      "opcoes_exibicao": [
+        "Sim",
+        "Não",
+        "Não se aplica"
+      ],
+      "opcoes_com_espaco_extra": false,
       "fonte": "literal: \"Sim,Não,Não se aplica\"",
       "permite_branco": true,
       "estilo_erro": "parar",
@@ -1500,6 +2152,11 @@
         "Sim",
         "Não"
       ],
+      "opcoes_exibicao": [
+        "Sim",
+        "Não"
+      ],
+      "opcoes_com_espaco_extra": false,
       "fonte": "literal: \"Sim,Não\"",
       "permite_branco": true,
       "estilo_erro": "parar",
@@ -1516,6 +2173,11 @@
         "Sim",
         "Não"
       ],
+      "opcoes_exibicao": [
+        "Sim",
+        "Não"
+      ],
+      "opcoes_com_espaco_extra": false,
       "fonte": "literal: \"Sim,Não\"",
       "permite_branco": true,
       "estilo_erro": "parar",
@@ -1532,6 +2194,11 @@
         "sim",
         "não"
       ],
+      "opcoes_exibicao": [
+        "sim",
+        "não"
+      ],
+      "opcoes_com_espaco_extra": false,
       "fonte": "literal: \"sim,não\"",
       "permite_branco": true,
       "estilo_erro": "parar",
@@ -1548,6 +2215,11 @@
         "sim",
         "não"
       ],
+      "opcoes_exibicao": [
+        "sim",
+        "não"
+      ],
+      "opcoes_com_espaco_extra": false,
       "fonte": "literal: \"sim,não\"",
       "permite_branco": true,
       "estilo_erro": "parar",
@@ -1565,6 +2237,12 @@
         "In loco",
         "Em fábrica"
       ],
+      "opcoes_exibicao": [
+        "Pré-fabricadas em canteiro",
+        "In loco",
+        "Em fábrica"
+      ],
+      "opcoes_com_espaco_extra": false,
       "fonte": "literal: \"Pré-fabricadas em canteiro,In loco,Em fábrica\"",
       "permite_branco": true,
       "estilo_erro": "parar",
@@ -1583,6 +2261,13 @@
         "EPS",
         "Não se aplica"
       ],
+      "opcoes_exibicao": [
+        "Metálica",
+        "Madeira",
+        "EPS",
+        "Não se aplica"
+      ],
+      "opcoes_com_espaco_extra": false,
       "fonte": "literal: \"Metálica,Madeira,EPS,Não se aplica\"",
       "permite_branco": true,
       "estilo_erro": "parar",
@@ -1600,6 +2285,12 @@
         "Não",
         "Não se aplica"
       ],
+      "opcoes_exibicao": [
+        "Sim",
+        "Não",
+        "Não se aplica"
+      ],
+      "opcoes_com_espaco_extra": false,
       "fonte": "literal: \"Sim,Não,Não se aplica\"",
       "permite_branco": true,
       "estilo_erro": "parar",
@@ -1617,6 +2308,12 @@
         "Não",
         "Não se aplica"
       ],
+      "opcoes_exibicao": [
+        "Sim",
+        "Não",
+        "Não se aplica"
+      ],
+      "opcoes_com_espaco_extra": false,
       "fonte": "literal: \"Sim,Não,Não se aplica\"",
       "permite_branco": true,
       "estilo_erro": "parar",
@@ -1633,6 +2330,11 @@
         "Sim",
         "Não"
       ],
+      "opcoes_exibicao": [
+        "Sim",
+        "Não"
+      ],
+      "opcoes_com_espaco_extra": false,
       "fonte": "literal: \"Sim,Não\"",
       "permite_branco": true,
       "estilo_erro": "parar",
@@ -1649,6 +2351,11 @@
         "Sim",
         "Não"
       ],
+      "opcoes_exibicao": [
+        "Sim",
+        "Não"
+      ],
+      "opcoes_com_espaco_extra": false,
       "fonte": "literal: \"Sim,Não\"",
       "permite_branco": true,
       "estilo_erro": "parar",
@@ -1665,6 +2372,11 @@
         "Sim",
         "Não"
       ],
+      "opcoes_exibicao": [
+        "Sim",
+        "Não"
+      ],
+      "opcoes_com_espaco_extra": false,
       "fonte": "literal: \"Sim,Não\"",
       "permite_branco": true,
       "estilo_erro": "parar",
@@ -1681,6 +2393,11 @@
         "Sim",
         "Não"
       ],
+      "opcoes_exibicao": [
+        "Sim",
+        "Não"
+      ],
+      "opcoes_com_espaco_extra": false,
       "fonte": "literal: \"Sim,Não\"",
       "permite_branco": true,
       "estilo_erro": "parar",
@@ -1697,6 +2414,11 @@
         "Sim",
         "Não"
       ],
+      "opcoes_exibicao": [
+        "Sim",
+        "Não"
+      ],
+      "opcoes_com_espaco_extra": false,
       "fonte": "literal: \"Sim,Não\"",
       "permite_branco": true,
       "estilo_erro": "parar",
@@ -1713,6 +2435,11 @@
         "Sim",
         "Não"
       ],
+      "opcoes_exibicao": [
+        "Sim",
+        "Não"
+      ],
+      "opcoes_com_espaco_extra": false,
       "fonte": "literal: \"Sim,Não\"",
       "permite_branco": true,
       "estilo_erro": "parar",
@@ -1729,6 +2456,11 @@
         "Sim",
         "Não"
       ],
+      "opcoes_exibicao": [
+        "Sim",
+        "Não"
+      ],
+      "opcoes_com_espaco_extra": false,
       "fonte": "literal: \"Sim,Não\"",
       "permite_branco": true,
       "estilo_erro": "parar",
@@ -1745,6 +2477,11 @@
         "Sim",
         "Não"
       ],
+      "opcoes_exibicao": [
+        "Sim",
+        "Não"
+      ],
+      "opcoes_com_espaco_extra": false,
       "fonte": "literal: \"Sim,Não\"",
       "permite_branco": true,
       "estilo_erro": "parar",
@@ -1761,6 +2498,11 @@
         "Sim",
         "Não"
       ],
+      "opcoes_exibicao": [
+        "Sim",
+        "Não"
+      ],
+      "opcoes_com_espaco_extra": false,
       "fonte": "literal: \"Sim,Não\"",
       "permite_branco": true,
       "estilo_erro": "parar",
@@ -1777,6 +2519,11 @@
         "Sim",
         "Não"
       ],
+      "opcoes_exibicao": [
+        "Sim",
+        "Não"
+      ],
+      "opcoes_com_espaco_extra": false,
       "fonte": "literal: \"Sim,Não\"",
       "permite_branco": true,
       "estilo_erro": "parar",
@@ -1793,6 +2540,11 @@
         "Sim",
         "Não"
       ],
+      "opcoes_exibicao": [
+        "Sim",
+        "Não"
+      ],
+      "opcoes_com_espaco_extra": false,
       "fonte": "literal: \"Sim,Não\"",
       "permite_branco": true,
       "estilo_erro": "parar",
@@ -1809,6 +2561,11 @@
         "Sim",
         "Não"
       ],
+      "opcoes_exibicao": [
+        "Sim",
+        "Não"
+      ],
+      "opcoes_com_espaco_extra": false,
       "fonte": "literal: \"Sim,Não\"",
       "permite_branco": true,
       "estilo_erro": "parar",
@@ -1825,6 +2582,11 @@
         "Sim",
         "Não"
       ],
+      "opcoes_exibicao": [
+        "Sim",
+        "Não"
+      ],
+      "opcoes_com_espaco_extra": false,
       "fonte": "literal: \"Sim,Não\"",
       "permite_branco": true,
       "estilo_erro": "parar",
@@ -1841,6 +2603,11 @@
         "Sim",
         "Não"
       ],
+      "opcoes_exibicao": [
+        "Sim",
+        "Não"
+      ],
+      "opcoes_com_espaco_extra": false,
       "fonte": "literal: \"Sim,Não\"",
       "permite_branco": true,
       "estilo_erro": "parar",
@@ -1857,6 +2624,11 @@
         "Sim",
         "Não"
       ],
+      "opcoes_exibicao": [
+        "Sim",
+        "Não"
+      ],
+      "opcoes_com_espaco_extra": false,
       "fonte": "literal: \"Sim,Não\"",
       "permite_branco": true,
       "estilo_erro": "parar",
@@ -1873,6 +2645,11 @@
         "Sim",
         "Não"
       ],
+      "opcoes_exibicao": [
+        "Sim",
+        "Não"
+      ],
+      "opcoes_com_espaco_extra": false,
       "fonte": "literal: \"Sim,Não\"",
       "permite_branco": true,
       "estilo_erro": "parar",
@@ -1890,6 +2667,12 @@
         "Exclusão",
         "Não se aplica"
       ],
+      "opcoes_exibicao": [
+        "Inclusão",
+        "Exclusão",
+        "Não se aplica"
+      ],
+      "opcoes_com_espaco_extra": false,
       "fonte": "literal: \"Inclusão,Exclusão,Não se aplica\"",
       "permite_branco": true,
       "estilo_erro": "parar",
@@ -1907,6 +2690,12 @@
         "Exclusão",
         "Não se aplica"
       ],
+      "opcoes_exibicao": [
+        "Inclusão",
+        "Exclusão",
+        "Não se aplica"
+      ],
+      "opcoes_com_espaco_extra": false,
       "fonte": "literal: \"Inclusão,Exclusão,Não se aplica\"",
       "permite_branco": true,
       "estilo_erro": "parar",
@@ -1926,6 +2715,14 @@
         "3",
         "4+"
       ],
+      "opcoes_exibicao": [
+        "0",
+        "1",
+        "2",
+        "3",
+        "4+"
+      ],
+      "opcoes_com_espaco_extra": false,
       "fonte": "literal: \"0,1,2,3,4+\"",
       "permite_branco": true,
       "estilo_erro": "parar",
@@ -1945,6 +2742,14 @@
         "3",
         "4+"
       ],
+      "opcoes_exibicao": [
+        "0",
+        "1",
+        "2",
+        "3",
+        "4+"
+      ],
+      "opcoes_com_espaco_extra": false,
       "fonte": "literal: \"0,1,2,3,4+\"",
       "permite_branco": true,
       "estilo_erro": "parar",
@@ -1964,6 +2769,14 @@
         "3",
         "4+"
       ],
+      "opcoes_exibicao": [
+        "0",
+        "1",
+        "2",
+        "3",
+        "4+"
+      ],
+      "opcoes_com_espaco_extra": false,
       "fonte": "literal: \"0,1,2,3,4+\"",
       "permite_branco": true,
       "estilo_erro": "parar",
@@ -1983,6 +2796,14 @@
         "3",
         "4+"
       ],
+      "opcoes_exibicao": [
+        "0",
+        "1",
+        "2",
+        "3",
+        "4+"
+      ],
+      "opcoes_com_espaco_extra": false,
       "fonte": "literal: \"0,1,2,3,4+\"",
       "permite_branco": true,
       "estilo_erro": "parar",
@@ -2002,6 +2823,14 @@
         "3",
         "4+"
       ],
+      "opcoes_exibicao": [
+        "0",
+        "1",
+        "2",
+        "3",
+        "4+"
+      ],
+      "opcoes_com_espaco_extra": false,
       "fonte": "literal: \"0,1,2,3,4+\"",
       "permite_branco": true,
       "estilo_erro": "parar",
@@ -2018,6 +2847,11 @@
         "Coberta(s)",
         "Descoberta(s)"
       ],
+      "opcoes_exibicao": [
+        "Coberta(s)",
+        "Descoberta(s)"
+      ],
+      "opcoes_com_espaco_extra": false,
       "fonte": "literal: \"Coberta(s),Descoberta(s)\"",
       "permite_branco": true,
       "estilo_erro": "parar",
@@ -2036,6 +2870,13 @@
         "3",
         "4+"
       ],
+      "opcoes_exibicao": [
+        "1",
+        "2",
+        "3",
+        "4+"
+      ],
+      "opcoes_com_espaco_extra": false,
       "fonte": "literal: \"1,2,3,4+\"",
       "permite_branco": true,
       "estilo_erro": "parar",
@@ -2054,6 +2895,13 @@
         "Cozinha+Copa",
         "Cozinha americana"
       ],
+      "opcoes_exibicao": [
+        "Cozinha",
+        "Cozinha+A.Serviço",
+        "Cozinha+Copa",
+        "Cozinha americana"
+      ],
+      "opcoes_com_espaco_extra": false,
       "fonte": "intervalo Alteração_Projeto_Especific!$BO$2:$BO$5",
       "permite_branco": true,
       "estilo_erro": "parar",
@@ -2072,6 +2920,13 @@
         "Externa coberta",
         "Externa descoberta"
       ],
+      "opcoes_exibicao": [
+        "Não",
+        "Interna",
+        "Externa coberta",
+        "Externa descoberta"
+      ],
+      "opcoes_com_espaco_extra": false,
       "fonte": "intervalo Alteração_Projeto_Especific!$BN$2:$BN$5",
       "permite_branco": true,
       "estilo_erro": "parar",
@@ -2092,6 +2947,15 @@
         "Aço",
         "Outros"
       ],
+      "opcoes_exibicao": [
+        "Alvenaria",
+        "Gesso",
+        "Madeira",
+        "Concreto",
+        "Aço",
+        "Outros"
+      ],
+      "opcoes_com_espaco_extra": false,
       "fonte": "intervalo Alteração_Projeto_Especific!$BH$2:$BH$7",
       "permite_branco": true,
       "estilo_erro": "parar",
@@ -2109,6 +2973,12 @@
         "Linha Média",
         "Linha Luxo"
       ],
+      "opcoes_exibicao": [
+        "Linha Popular",
+        "Linha Média",
+        "Linha Luxo"
+      ],
+      "opcoes_com_espaco_extra": false,
       "fonte": "intervalo Alteração_Projeto_Especific!$BI$2:$BI$4",
       "permite_branco": true,
       "estilo_erro": "parar",
@@ -2128,6 +2998,14 @@
         "Laje+Forro",
         "Outros"
       ],
+      "opcoes_exibicao": [
+        "Telha aparente",
+        "Forro",
+        "Laje",
+        "Laje+Forro",
+        "Outros"
+      ],
+      "opcoes_com_espaco_extra": false,
       "fonte": "intervalo Alteração_Projeto_Especific!$BA$2:$BA$6",
       "permite_branco": true,
       "estilo_erro": "parar",
@@ -2149,6 +3027,16 @@
         "Laje Impermeabilizada",
         "Outros"
       ],
+      "opcoes_exibicao": [
+        "Telha Metálica c/ Platibanda",
+        "Telha Metálica s/ Platibanda",
+        "Telha de Fibrocimto. c/ Platibanda",
+        "Telha de Fibrocimto. s/ Platibanda",
+        "Telha de Cerâmica/Concreto",
+        "Laje Impermeabilizada",
+        "Outros"
+      ],
+      "opcoes_com_espaco_extra": false,
       "fonte": "intervalo Alteração_Projeto_Especific!$BB$2:$BB$8",
       "permite_branco": true,
       "estilo_erro": "parar",
@@ -2168,6 +3056,14 @@
         "Cerâmica/Porcelanato",
         "Outros"
       ],
+      "opcoes_exibicao": [
+        "Sem revestimento",
+        "Pintura/Textura/Grafiato",
+        "Pint./Text./Grafto. e det. em Pedra/Cerâmica",
+        "Cerâmica/Porcelanato",
+        "Outros"
+      ],
+      "opcoes_com_espaco_extra": false,
       "fonte": "intervalo Alteração_Projeto_Especific!$BC$2:$BC$7",
       "permite_branco": true,
       "estilo_erro": "parar",
@@ -2187,6 +3083,14 @@
         "Cerâmica/Porcelanato",
         "Outros"
       ],
+      "opcoes_exibicao": [
+        "Sem revestimento",
+        "Pintura/Textura/Grafiato",
+        "Pint./Text./Grafto. e det. em Pedra/Cerâmica",
+        "Cerâmica/Porcelanato",
+        "Outros"
+      ],
+      "opcoes_com_espaco_extra": false,
       "fonte": "intervalo Alteração_Projeto_Especific!$BC$2:$BC$7",
       "permite_branco": true,
       "estilo_erro": "parar",
@@ -2204,6 +3108,12 @@
         "Interna ao terreno",
         "Outra"
       ],
+      "opcoes_exibicao": [
+        "Rede de Água Pluvial",
+        "Interna ao terreno",
+        "Outra"
+      ],
+      "opcoes_com_espaco_extra": false,
       "fonte": "intervalo Alteração_Projeto_Especific!$BL$2:$BL$4",
       "permite_branco": true,
       "estilo_erro": "parar",
@@ -2221,6 +3131,12 @@
         "Poço",
         "Outra"
       ],
+      "opcoes_exibicao": [
+        "Concessionária",
+        "Poço",
+        "Outra"
+      ],
+      "opcoes_com_espaco_extra": false,
       "fonte": "intervalo Alteração_Projeto_Especific!$BJ$2:$BJ$4",
       "permite_branco": true,
       "estilo_erro": "parar",
@@ -2238,6 +3154,12 @@
         "Poço",
         "Outra"
       ],
+      "opcoes_exibicao": [
+        "Concessionária",
+        "Poço",
+        "Outra"
+      ],
+      "opcoes_com_espaco_extra": false,
       "fonte": "intervalo Alteração_Projeto_Especific!$BJ$2:$BJ$4",
       "permite_branco": true,
       "estilo_erro": "parar",
@@ -2256,6 +3178,13 @@
         "Eólica",
         "Outra"
       ],
+      "opcoes_exibicao": [
+        "Nenhuma",
+        "Fotovoltaica",
+        "Eólica",
+        "Outra"
+      ],
+      "opcoes_com_espaco_extra": false,
       "fonte": "intervalo Alteração_Projeto_Especific!$BM$2:$BM$5",
       "permite_branco": true,
       "estilo_erro": "parar",
@@ -2274,6 +3203,13 @@
         "Eólica",
         "Outra"
       ],
+      "opcoes_exibicao": [
+        "Nenhuma",
+        "Fotovoltaica",
+        "Eólica",
+        "Outra"
+      ],
+      "opcoes_com_espaco_extra": false,
       "fonte": "intervalo Alteração_Projeto_Especific!$BM$2:$BM$5",
       "permite_branco": true,
       "estilo_erro": "parar",
@@ -2292,6 +3228,13 @@
         "Fossa e Sumidouro",
         "Outra"
       ],
+      "opcoes_exibicao": [
+        "Rede de Esgoto",
+        "Fossa e Filtro",
+        "Fossa e Sumidouro",
+        "Outra"
+      ],
+      "opcoes_com_espaco_extra": false,
       "fonte": "intervalo Alteração_Projeto_Especific!$BK$2:$BK$5",
       "permite_branco": true,
       "estilo_erro": "parar",
@@ -2316,6 +3259,19 @@
         "Granito/Mármore",
         "Outros"
       ],
+      "opcoes_exibicao": [
+        "Cimentado",
+        "Cerâmica Comercial",
+        "Pedra",
+        "Vinílico",
+        "Emborrachado",
+        "Porcelanato 1ª",
+        "Porcelanato 2ª",
+        "Laminado",
+        "Granito/Mármore",
+        "Outros"
+      ],
+      "opcoes_com_espaco_extra": false,
       "fonte": "intervalo Alteração_Projeto_Especific!$BG$2:$BG$11",
       "permite_branco": true,
       "estilo_erro": "parar",
@@ -2343,6 +3299,22 @@
         "Porcelanato de 1ª",
         "Cerâmica/pintura"
       ],
+      "opcoes_exibicao": [
+        "Cimentado",
+        "Cerâmica Comercial",
+        "São Tomé",
+        "Emborrachado",
+        "Granita",
+        "Formicado",
+        "Porcelanato 2ª",
+        "Granito/Mármore 2ª",
+        "Pintura/Textura",
+        "Grafiato",
+        "Cerâmica Extra",
+        "Porcelanato de 1ª",
+        "Cerâmica/pintura"
+      ],
+      "opcoes_com_espaco_extra": false,
       "fonte": "intervalo Alteração_Projeto_Especific!$BE$2:$BE$14",
       "permite_branco": true,
       "estilo_erro": "parar",
@@ -2364,6 +3336,16 @@
         "Granito/Mármore",
         "Outros"
       ],
+      "opcoes_exibicao": [
+        "Cimentado",
+        "Cerâmica Comercial",
+        "Pedra",
+        "Porcelanato 1ª",
+        "Porcelanato 2ª",
+        "Granito/Mármore",
+        "Outros"
+      ],
+      "opcoes_com_espaco_extra": false,
       "fonte": "intervalo Alteração_Projeto_Especific!$BF$2:$BF$8",
       "permite_branco": true,
       "estilo_erro": "parar",
@@ -2385,6 +3367,16 @@
         "Granito/Mármore",
         "Outros"
       ],
+      "opcoes_exibicao": [
+        "Cimentado",
+        "Cerâmica Comercial",
+        "Pedra",
+        "Porcelanato 1ª",
+        "Porcelanato 2ª",
+        "Granito/Mármore",
+        "Outros"
+      ],
+      "opcoes_com_espaco_extra": false,
       "fonte": "intervalo Alteração_Projeto_Especific!$BF$2:$BF$8",
       "permite_branco": true,
       "estilo_erro": "parar",
@@ -2405,6 +3397,15 @@
         "Madeira",
         "Outros"
       ],
+      "opcoes_exibicao": [
+        "Alumínio",
+        "Ferro",
+        "Vidro Temperado",
+        "PVC",
+        "Madeira",
+        "Outros"
+      ],
+      "opcoes_com_espaco_extra": false,
       "fonte": "intervalo Alteração_Projeto_Especific!$BD$2:$BD$7",
       "permite_branco": true,
       "estilo_erro": "parar",
@@ -2425,6 +3426,15 @@
         "Madeira",
         "Outros"
       ],
+      "opcoes_exibicao": [
+        "Alumínio",
+        "Ferro",
+        "Vidro Temperado",
+        "PVC",
+        "Madeira",
+        "Outros"
+      ],
+      "opcoes_com_espaco_extra": false,
       "fonte": "intervalo Alteração_Projeto_Especific!$BD$2:$BD$7",
       "permite_branco": true,
       "estilo_erro": "parar",
@@ -2442,6 +3452,12 @@
         "Aquecimento solar",
         "Aquecimento à gás"
       ],
+      "opcoes_exibicao": [
+        "Não",
+        "Aquecimento solar",
+        "Aquecimento à gás"
+      ],
+      "opcoes_com_espaco_extra": false,
       "fonte": "intervalo Alteração_Projeto_Especific!$BQ$2:$BQ$4",
       "permite_branco": true,
       "estilo_erro": "parar",
@@ -2459,6 +3475,12 @@
         "Aquecimento solar",
         "Aquecimento à gás"
       ],
+      "opcoes_exibicao": [
+        "Não",
+        "Aquecimento solar",
+        "Aquecimento à gás"
+      ],
+      "opcoes_com_espaco_extra": false,
       "fonte": "intervalo Alteração_Projeto_Especific!$BQ$2:$BQ$4",
       "permite_branco": true,
       "estilo_erro": "parar",
@@ -2476,6 +3498,12 @@
         "Aquecimento solar",
         "Aquecimento à gás"
       ],
+      "opcoes_exibicao": [
+        "Não",
+        "Aquecimento solar",
+        "Aquecimento à gás"
+      ],
+      "opcoes_com_espaco_extra": false,
       "fonte": "intervalo Alteração_Projeto_Especific!$BQ$2:$BQ$4",
       "permite_branco": true,
       "estilo_erro": "parar",
@@ -2493,6 +3521,12 @@
         "Aquecimento solar",
         "Aquecimento à gás"
       ],
+      "opcoes_exibicao": [
+        "Não",
+        "Aquecimento solar",
+        "Aquecimento à gás"
+      ],
+      "opcoes_com_espaco_extra": false,
       "fonte": "intervalo Alteração_Projeto_Especific!$BQ$2:$BQ$4",
       "permite_branco": true,
       "estilo_erro": "parar",
@@ -2510,6 +3544,12 @@
         "Aquecimento solar",
         "Aquecimento à gás"
       ],
+      "opcoes_exibicao": [
+        "Não",
+        "Aquecimento solar",
+        "Aquecimento à gás"
+      ],
+      "opcoes_com_espaco_extra": false,
       "fonte": "intervalo Alteração_Projeto_Especific!$BQ$2:$BQ$4",
       "permite_branco": true,
       "estilo_erro": "parar",
@@ -2526,6 +3566,11 @@
         "Construtora",
         "Profissional Autônomo"
       ],
+      "opcoes_exibicao": [
+        "Construtora",
+        "Profissional Autônomo"
+      ],
+      "opcoes_com_espaco_extra": false,
       "fonte": "literal: \"Construtora,Profissional Autônomo\"",
       "permite_branco": true,
       "estilo_erro": "parar",
@@ -2546,6 +3591,21 @@
         "Conv:Paredes de concreto moldada no local NBR nº 16055",
         "Conv:Painéis de Paredes de concreto Pré-moldados NBR nº 16475",
         "Conv:Painéis de PVC preenchidos com concreto NBR nº 17077",
+        "Conv:Light Wood Frame NBR nº 16936 ",
+        "Conv:Light Steel Framing NBR nº 16970",
+        "Conv:Painel leve modular - pré-fabricado_NBR nº 17073",
+        "Conv:Parede Concreto Celular moldada no local NBR nº 17071",
+        "Inovador:especificar sistema",
+        "Outros (escolher se não encontrou na lista a solução convencional que pretende usar)"
+      ],
+      "opcoes_exibicao": [
+        "Conv:Alvenaria estrutural",
+        "Conv:Estrut Concreto, Aço ou Madeira/Vedação blocos cerâmico",
+        "Conv:Estrut Concreto, Aço ou Madeira/Vedação blocos concreto",
+        "Conv:Estrut Concreto, Aço ou Madeira/Vedação blocos gesso",
+        "Conv:Paredes de concreto moldada no local NBR nº 16055",
+        "Conv:Painéis de Paredes de concreto Pré-moldados NBR nº 16475",
+        "Conv:Painéis de PVC preenchidos com concreto NBR nº 17077",
         "Conv:Light Wood Frame NBR nº 16936",
         "Conv:Light Steel Framing NBR nº 16970",
         "Conv:Painel leve modular - pré-fabricado_NBR nº 17073",
@@ -2553,6 +3613,7 @@
         "Inovador:especificar sistema",
         "Outros (escolher se não encontrou na lista a solução convencional que pretende usar)"
       ],
+      "opcoes_com_espaco_extra": true,
       "fonte": "intervalo Alteração_Projeto_Especific!$AZ$93:$AZ$105",
       "permite_branco": true,
       "estilo_erro": "parar",
