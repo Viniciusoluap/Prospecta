@@ -1,0 +1,4 @@
+@import "../../client/src/index.css";
+/* O harness fica fora de client/: inclui as classes dos componentes reais e do próprio harness. */
+@source "../../client/src";
+@source "./main.tsx";
