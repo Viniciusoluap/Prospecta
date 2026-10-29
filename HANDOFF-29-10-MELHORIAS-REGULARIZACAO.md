@@ -21,8 +21,14 @@ Definições versionadas consultadas e trabalho separado entre desenvolvimento, 
 
 ## Validações
 (a) Automáticas: git diff --check aprovado; revisão independente QA aprovada. Prospecta: 24 testes focados do desenvolvimento aprovados, além de 54 testes na revisão integrada; TypeScript e build Vite aprovados.
-(b) Manuais: aceite visual autenticado e de navegação ainda pendente.
-(c) Publicação: PR e build de publicação ainda em preparação.
+(b) Manuais: em produção Prospecta, navegação autenticada conferiu ordem e fórmula dos indicadores, quatro processos por página, avanço/retorno, preservação do detalhe selecionado, contagem conforme filtro e retorno à primeira página ao filtrar. Botão de preenchimento padrão visível no topo dos detalhes. Nenhum dado financeiro foi alterado nessa verificação manual. Gravação manual do padrão, exclusões e aceite em todos os dispositivos permanecem pendentes; os testes transacionais automatizados estão aprovados.
+(c) Publicação: PR #177 mergeado; commit 9a4c15b3544df729929c4512c860779638bd8e83. Build de produção READY, domínio oficial associado: https://www.prospectaconstrucoes.com. Endpoint público de saúde respondeu HTTP 200 com banco conectado. Consulta inicial de logs error/fatal do deployment publicado não retornou registros; isso não substitui aceite autenticado.
 
 ## Próximo passo
-Confirmar checks do PR e builds; efetuar merge autorizado, acompanhar publicação e validar navegação autenticada. Registrar limitações reais sem declarar aceite visual integral antecipadamente.
+Concluir a verificação de navegação autenticada e responsividade, mantendo separados os resultados automáticos, manuais e as pendências. Não repetir merge ou deploy: publicação funcional concluída. Branch de trabalho preservada, sem reset ou force push; este checkpoint de documentação está salvo na branch de continuidade.
+
+## Complemento de diagnóstico administrativo
+O diagnóstico de integração apresenta contagem e destinos sanitizados quando não há correspondência. Tokens, credenciais, query e fragmentos não são devolvidos. Reconhecimento de destino legado exige nome exato e host permitido e rejeita ambiguidades; a recuperação continua limitada ao endpoint canônico.
+(a) Automáticas: 33 testes focados (diagnóstico e permissões) e TypeScript aprovados. Revisão aprovada; diff check limpo.
+(b) Manuais: verificação do complemento na versão publicada ainda pendente.
+(c) Publicação do complemento: preparar PR, acompanhar checks e confirmar produção antes de concluir o aceite. A publicação anterior de Regularizações permanece concluída.
