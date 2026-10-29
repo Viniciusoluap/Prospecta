@@ -49,9 +49,14 @@ function MidiaMensagem({ id, midia }: { id: number; midia: Midia }) {
           <img src={url} alt={midia.nome ?? "Imagem recebida"} loading="lazy" className={`rounded ${midia.tipo === "figurinha" ? "max-h-24" : "max-h-48"} max-w-full object-contain`} />
         </button>
         {grande && (
-          <div role="dialog" aria-label="Imagem ampliada" className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4" onClick={() => setGrande(false)}>
-            <img src={url} alt={midia.nome ?? "Imagem recebida"} className="max-h-full max-w-full object-contain" />
-          </div>
+          <Dialog open onOpenChange={aberto => { if (!aberto) setGrande(false); }}>
+            <DialogContent aria-describedby={undefined} showCloseButton={false} className="flex items-center justify-center border-0 bg-transparent p-0 shadow-none sm:max-w-4xl">
+              <DialogTitle className="sr-only">Imagem ampliada</DialogTitle>
+              <button type="button" aria-label="Fechar imagem" onClick={() => setGrande(false)} className="flex justify-center">
+                <img src={url} alt={midia.nome ?? "Imagem recebida"} className="max-h-[calc(100dvh-2rem)] max-w-full object-contain" />
+              </button>
+            </DialogContent>
+          </Dialog>
         )}
       </>
     );
@@ -61,12 +66,13 @@ function MidiaMensagem({ id, midia }: { id: number; midia: Midia }) {
   return (
     <>
       <button type="button" onClick={() => setGrande(true)} className="mb-1 inline-flex items-center gap-1 text-xs underline"><Download className="h-3 w-3" />{midia.nome ?? "Abrir documento"}</button>
-      {grande && <div role="dialog" aria-modal="true" aria-label="Visualizador de documento" className="fixed inset-0 z-50 flex flex-col bg-black/80 p-3 sm:p-6">
+      {grande && <Dialog open onOpenChange={aberto => { if (!aberto) setGrande(false); }}><DialogContent aria-describedby={undefined} showCloseButton={false} className="flex h-[calc(100dvh-2rem)] flex-col gap-0 overflow-hidden p-0 sm:max-w-4xl">
+        <DialogTitle className="sr-only">Visualizador de documento</DialogTitle>
         <div className="flex items-center justify-between bg-[#1A2332] p-3 text-white"><button type="button" onClick={() => setGrande(false)} className="inline-flex items-center gap-2 text-sm font-bold"><ArrowLeft size={16}/>Voltar à conversa</button><button type="button" aria-label="Fechar documento" onClick={() => setGrande(false)}><X size={18}/></button></div>
         {midia.mime === "application/pdf" || midia.nome?.toLowerCase().endsWith(".pdf")
           ? <iframe src={url} title={midia.nome ?? "Documento PDF"} className="min-h-0 flex-1 bg-white" />
           : <div className="bg-white p-5 text-gray-900"><p>Este tipo de arquivo deve ser aberto no aplicativo compatível.</p><a href={url} target="_blank" rel="noopener noreferrer" download={midia.nome ?? undefined} className="mt-3 inline-block underline">Baixar ou abrir arquivo em outra aba</a></div>}
-      </div>}
+      </DialogContent></Dialog>}
     </>
   );
 }
