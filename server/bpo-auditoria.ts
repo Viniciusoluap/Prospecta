@@ -125,6 +125,10 @@ export async function editarLancamentoAuditavel(input: EdicaoLancamento, userId:
         vinculo_operacional_rotulo = ${input.vinculoOperacionalRotulo ?? null},
         tipo_despesa_obra = ${input.tipoDespesaObra ?? null}, etapa_obra = ${input.etapaObra ?? null}
       FROM anterior a WHERE l.id = a.id RETURNING l.*
+    ), movimentacao AS (
+      -- Revisão do PR #180 (P2): lançamento do extrato — a movimentação de origem acompanha o cliente.
+      UPDATE bank_transactions b SET bpo_cliente_id = u.cliente_id
+      FROM atualizado u WHERE b.id = u.bank_transaction_id AND b.bpo_cliente_id IS DISTINCT FROM u.cliente_id RETURNING b.id
     ), auditoria AS (
       INSERT INTO bpo_lancamento_historico
         (lancamento_id, lancamento_referencia, versao_anterior, alterado_por_user_id, motivo, antes_json, depois_json)

@@ -130,6 +130,11 @@ export async function vincularLancamentoACliente(input: { id: number; version: n
       .set({ clienteId, clienteNomeLivre: null, version: antes.version + 1, updatedAt: new Date() })
       .where(and(eq(bpoLancamentos.id, antes.id), eq(bpoLancamentos.version, antes.version), isNull(bpoLancamentos.combinadaEmId))).returning();
     if (!depois) throw new Error("O lançamento foi alterado por outra pessoa. Atualize a tela.");
+    // Revisão do PR #180 (P2): lançamento vindo do extrato — a movimentação de origem passa a apontar para o
+    // mesmo cliente (senão atualizarMovimentacao, ao recategorizar em Bancos, reconstrói o cliente antigo).
+    if (antes.bankTransactionId != null) {
+      await tx.update(bankTransactions).set({ bpoClienteId: clienteId }).where(eq(bankTransactions.id, antes.bankTransactionId));
+    }
     await tx.insert(bpoLancamentoHistorico).values({
       lancamentoId: antes.id, lancamentoReferencia: antes.id, versaoAnterior: antes.version, alteradoPorUserId: userId,
       motivo: `Vínculo com cliente do CRM: ${input.motivo}`.slice(0, 1000),

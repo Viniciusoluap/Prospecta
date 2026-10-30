@@ -12,6 +12,8 @@ import { getDb } from "./db.js";
 import { bpoRouter, categoriaNaEdicao } from "./bpo-router.js";
 import { previaVinculosEmMassa, sugestoesDoLancamento, vincularLancamentoACliente } from "./bpo-vinculo-cliente.js";
 import { combinarPagamentos, excluirLancamentosEmLote, previaExclusaoLote } from "./bpo-lote.js";
+import { atualizarMovimentacao } from "./bpo-extrato.js";
+import { editarLancamentoAuditavel } from "./bpo-auditoria.js";
 import { categoriaContabilDaOperacional, validarDetalhesOperacionais } from "../shared/financeiro/bpo-operacional.js";
 import { montarCandidatos, normalizarTelefone, similaridadeNome, sugerirClientesParaLancamento } from "../shared/financeiro/bpo-vinculo-cliente.js";
 import { confirmacaoExclusaoValida, filtrarLancamentosLote, motivosProtecao, validarCombinacao } from "../shared/financeiro/bpo-lote.js";
@@ -331,6 +333,22 @@ describe("item 17 — vincular Cadastro livre ao CRM (banco)", () => {
     expect(pedro.automatico).toBeNull();
     expect(pedro.ambiguo).toBe(true);
     expect(p.itens.find(i => i.lancamentoId === 1)?.automatico).not.toBeNull();
+  });
+
+  it("revisão PR #180 (P2): vincular lançamento do extrato atualiza o cliente da movimentação; recategorizar em Bancos mantém o vínculo", async () => {
+    await pg.exec("INSERT INTO bpo_clients (razao_social, responsavel, telefone, honorarios, data_inicio) VALUES ('Outro', 'Y', '', 0, now())");
+    await lanc(", cliente_nome_livre, bank_transaction_id, pago, valor_recebido, categoria", "('receita','Pix extrato',10,'2026-10-05','2026-10','Fulano',1,true,10,'Recebimento de cliente')");
+    const [{ id, version }] = await linhas<{ id: number; version: number }>("SELECT id, version FROM bpo_lancamentos WHERE bank_transaction_id = 1");
+    await vincularLancamentoACliente({ id, version, clienteId: 1, motivo: "teste" }, 1);
+    expect(await linhas("SELECT bpo_cliente_id FROM bank_transactions WHERE id = 1")).toEqual([{ bpo_cliente_id: 1 }]);
+    await atualizarMovimentacao(1, { categoria: "Outros" });
+    expect(await linhas(`SELECT cliente_id, categoria FROM bpo_lancamentos WHERE id = ${id}`)).toEqual([{ cliente_id: 1, categoria: "Outros" }]);
+    // A edição auditada que troca o cliente também leva a movimentação junto.
+    const [{ version: v2 }] = await linhas<{ version: number }>(`SELECT version FROM bpo_lancamentos WHERE id = ${id}`);
+    await editarLancamentoAuditavel({ id, version: v2, motivo: "troca", descricao: "Pix extrato", valor: 10, categoria: "Outros", clienteId: 2, vencimento: new Date("2026-10-05"), competencia: "2026-10" }, 1);
+    expect(await linhas("SELECT bpo_cliente_id FROM bank_transactions WHERE id = 1")).toEqual([{ bpo_cliente_id: 2 }]);
+    await atualizarMovimentacao(1, { categoria: "Recebimento de cliente" });
+    expect(await linhas(`SELECT cliente_id FROM bpo_lancamentos WHERE id = ${id}`)).toEqual([{ cliente_id: 2 }]);
   });
 
   it("versão desatualizada não altera nada", async () => {
