@@ -5,7 +5,7 @@ import { financiamentos, imoveis, leadDocuments, leadServices, leads, users, wha
 import { documentosPendentes, listaPorExtenso, mesclarValores, preencherTemplate, primeiroNome, textoDocumentos } from "../shared/whatsapp/variaveis.js";
 import { rotulo } from "../shared/rotulos.js";
 import {
-  PERIODOS_DASHBOARD, PERIODO_PADRAO, STATUS_ENVIO_SUCESSO, candidatosVinculo, chaveTelefone, inicioPeriodo, resolverLeadConversa, taxaLeitura,
+  LOTE_ENVIO_WHATSAPP, PERIODOS_DASHBOARD, PERIODO_PADRAO, STATUS_ENVIO_SUCESSO, candidatosVinculo, etapaParaFiltro, chaveTelefone, inicioPeriodo, resolverLeadConversa, taxaLeitura,
 } from "../shared/whatsapp/conversas.js";
 import { LEAD_SERVICE_TYPES } from "../shared/lead-services.js";
 import { VARIAVEIS_TEMPLATE_PERMITIDAS, WHATSAPP_TEMPLATES } from "../shared/whatsapp/templates.js";
@@ -325,11 +325,13 @@ export const whatsappRouter = router({
   }),
 
   // Item 06: corretor só vê os próprios leads. Lote 03, correção 03: só leads ativos do CRM
-  // (não excluídos — mesmo critério da lista do CRM e do envio).
+  // (não excluídos — mesmo critério da lista do CRM e do envio). Pedido de 30/10: cada lead leva a etapa
+  // do CRM para o filtro da aba Enviar; lista completa, sem paginação ("Selecionar todos" pega a etapa inteira).
   leadsParaEnvio: adminProcedure.query(async ({ ctx }) =>
-    getDb().select({ id: leads.id, name: leads.name, phone: leads.phone }).from(leads)
+    (await getDb().select({ id: leads.id, name: leads.name, phone: leads.phone, stage: leads.stage, stageClassificationPending: leads.stageClassificationPending }).from(leads)
       .where(and(isNull(leads.deletedAt), ctx.user.role === "corretor" ? eq(leads.brokerId, ctx.user.id) : undefined))
-      .orderBy(desc(leads.createdAt))),
+      .orderBy(desc(leads.createdAt)))
+      .map(({ stage, stageClassificationPending, ...l }) => ({ ...l, etapa: etapaParaFiltro({ stage, stageClassificationPending }) }))),
 
   /**
    * Lote 03, correção 04: indicadores do dashboard contados no banco (não sobre o histórico de 100).
@@ -407,7 +409,7 @@ export const whatsappRouter = router({
   enviar: adminProcedure
     .input(z.object({
       mensagem: z.string().trim().min(1).max(4096),
-      destinatarios: z.array(z.object({ id: z.number(), nome: z.string(), telefone: z.string() })).min(1).max(200),
+      destinatarios: z.array(z.object({ id: z.number(), nome: z.string(), telefone: z.string() })).min(1).max(LOTE_ENVIO_WHATSAPP),
       extras: extrasSchema,
       extrasPorLead: extrasPorLeadSchema,
     }))

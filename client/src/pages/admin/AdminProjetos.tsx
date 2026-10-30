@@ -102,7 +102,6 @@ export default function AdminProjetos() {
   return (
     <OperationalPage
       title="Projetos"
-      description="Ciclo de engenharia: orçamento, execução, revisão, aprovação e conclusão, com checklist e documentos."
       loading={list.isLoading}
       error={list.error}
       retry={() => void list.refetch()}

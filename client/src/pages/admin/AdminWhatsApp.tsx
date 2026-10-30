@@ -18,7 +18,8 @@ import { abaInicialCentral, abasCentralWhatsapp, linkConexaoWhatsapp, type AbaCe
 import { ConversasWhatsApp } from "@/components/whatsapp/ConversasWhatsApp";
 import { VARIAVEIS_TEMPLATE, variaveisDoTexto } from "@shared/whatsapp/variaveis";
 import { CampoDocumentos, CampoImovel, CampoTexto, textoDocumentosMarcados } from "@/components/whatsapp/CamposVariaveisEnvio";
-import { PERIODOS_DASHBOARD, PERIODO_PADRAO, ROTULO_PERIODO, alternarTodosVisiveis, podarSelecao, type PeriodoDashboard } from "@shared/whatsapp/conversas";
+import { ETAPA_TODAS, LOTE_ENVIO_WHATSAPP, PERIODOS_DASHBOARD, PERIODO_PADRAO, ROTULO_PERIODO, alternarTodosVisiveis, filtrarDestinatarios, limparVisiveis, lotesDeEnvio, podarSelecao, resumoSelecao, type PeriodoDashboard } from "@shared/whatsapp/conversas";
+import { LEAD_PIPELINE_STAGES } from "@shared/lead-pipeline";
 
 const cardCls = "bg-[#2C3E50] border-[#C9A961]/20";
 const inputCls = "bg-[#1A2332] border-[#C9A961]/30 text-white";
@@ -35,6 +36,8 @@ export default function AdminWhatsApp() {
   useEffect(() => { if (!abasCentralWhatsapp(role).includes(activeTab)) setActiveTab("conversas"); }, [role, activeTab]);
   const [selectedLeads, setSelectedLeads] = useState<number[]>([]);
   const [searchLead, setSearchLead] = useState("");
+  const [etapaFiltro, setEtapaFiltro] = useState<string>(ETAPA_TODAS);
+  const [enviandoLotes, setEnviandoLotes] = useState(false);
   const [selectedTemplate, setSelectedTemplate] = useState<WhatsappTemplate | null>(null);
   const [mensagem, setMensagem] = useState("");
   const [servicosSelecionados, setServicosSelecionados] = useState<string[]>([]);
@@ -54,20 +57,15 @@ export default function AdminWhatsApp() {
     onError: (e) => toast.error(e.message),
   });
 
-  const enviar = trpc.whatsapp.enviar.useMutation({
-    onSuccess: (data) => {
-      if (!data.success) { toast.error(data.error ?? "Erro ao enviar"); return; }
-      toast.success(`${data.enviadas} enviada(s)${data.falhas > 0 ? `, ${data.falhas} falha(s)` : ""}`, data.falhas > 0 ? { icon: "⚠️" } : undefined);
-      setSelectedLeads([]); setMensagem(""); setSelectedTemplate(null); setExtras({}); setServicosSelecionados([]); setDocsGeral({ marcados: [], livre: "" }); setDocsUnico(null);
-      utils.whatsapp.resumoEnvios.invalidate(); utils.whatsapp.historico.invalidate();
-    },
-    onError: (e) => toast.error(e.message),
-  });
+  const enviar = trpc.whatsapp.enviar.useMutation();
 
   const leads = leadsQuery.data ?? [];
-  const filteredLeads = leads.filter((l) => !searchLead || l.name.toLowerCase().includes(searchLead.toLowerCase()) || l.phone.includes(searchLead));
+  // Pedido de 30/10: busca combinada com a etapa do CRM. A seleção feita antes de trocar o filtro é mantida;
+  // "Selecionar todos" e "Limpar" agem só sobre os visíveis.
+  const filteredLeads = filtrarDestinatarios(leads, searchLead, etapaFiltro);
   const idsVisiveis = filteredLeads.map((l) => l.id);
   const todosVisiveisMarcados = idsVisiveis.length > 0 && idsVisiveis.every((id) => selectedLeads.includes(id));
+  const selecao = resumoSelecao(selectedLeads, idsVisiveis);
   const { refetch: recarregarLeads } = leadsQuery;
   useEffect(() => { if (activeTab === "enviar") recarregarLeads(); }, [activeTab, recarregarLeads]);
   // Lead excluído no CRM durante a seleção sai da seleção.
@@ -109,7 +107,7 @@ export default function AdminWhatsApp() {
     return () => clearTimeout(t);
   }, [chaveEntrada]); // eslint-disable-line react-hooks/exhaustive-deps
   const previa = trpc.whatsapp.previaEnvio.useQuery(
-    { mensagem, ids: selectedLeads, ...entradaPrevia },
+    { mensagem, ids: selectedLeads.slice(0, LOTE_ENVIO_WHATSAPP), ...entradaPrevia },
     { enabled: usaVariaveis && selectedLeads.length > 0 && mensagem.trim().length > 0, placeholderData: keepPreviousData },
   );
   // Campos que aparecem: o que falta no cadastro de algum destinatário (documentos de 1 destinatário tem checklist próprio).
@@ -117,11 +115,28 @@ export default function AdminWhatsApp() {
   const camposVazios = campos.filter((v) => !(extrasEnvio[v] ?? "").trim());
   const docsUnicoVazio = usaDocumentos && unico !== null && docsUnico?.leadId === unico && !textoDocumentosMarcados(docsUnico.marcados, docsUnico.livre);
   const bloqueado = camposVazios.length > 0 || docsUnicoVazio || (usaServicos && !servicosSelecionados.length);
-  function handleEnviar() {
+  async function handleEnviar() {
     if (!mensagem.trim() || selectedLeads.length === 0) return;
     if (bloqueado) { toast.error("Preencha os campos destacados antes de enviar."); return; }
     const destinatarios = leads.filter((l) => selectedLeads.includes(l.id)).map((l) => ({ id: l.id, nome: l.name, telefone: l.phone }));
-    enviar.mutate({ mensagem, destinatarios, extras: extrasEnvio, extrasPorLead });
+    // Pedido de 30/10: seleção grande (ex.: todos de uma etapa) vai em lotes; cada lead recebe a própria mensagem.
+    let enviadas = 0, falhas = 0, erro: string | null = null;
+    setEnviandoLotes(true);
+    try {
+      for (const lote of lotesDeEnvio(destinatarios)) {
+        const r = await enviar.mutateAsync({ mensagem, destinatarios: lote, extras: extrasEnvio, extrasPorLead: Object.fromEntries(lote.map((d) => [String(d.id), extrasPorLead[String(d.id)]])) });
+        if (!r.success) { erro = r.error ?? "Erro ao enviar"; break; }
+        enviadas += r.enviadas; falhas += r.falhas;
+      }
+    } catch (e) {
+      erro = e instanceof Error ? e.message : "Erro ao enviar";
+    } finally {
+      setEnviandoLotes(false);
+    }
+    if (enviadas + falhas > 0) { utils.whatsapp.resumoEnvios.invalidate(); utils.whatsapp.historico.invalidate(); }
+    if (erro) { toast.error(enviadas + falhas > 0 ? `${erro} (${enviadas} já enviada(s) antes do erro)` : erro); return; }
+    toast.success(`${enviadas} enviada(s)${falhas > 0 ? `, ${falhas} falha(s)` : ""}`, falhas > 0 ? { icon: "⚠️" } : undefined);
+    setSelectedLeads([]); setMensagem(""); setSelectedTemplate(null); setExtras({}); setServicosSelecionados([]); setDocsGeral({ marcados: [], livre: "" }); setDocsUnico(null);
   }
 
   return (
@@ -199,9 +214,13 @@ export default function AdminWhatsApp() {
             <div className={`grid grid-cols-1 lg:grid-cols-2 gap-5 ${!conexaoAtiva ? "opacity-50 pointer-events-none" : ""}`}>
               <Card className={cardCls}>
                 <CardHeader>
-                  <CardTitle className="text-sm text-gray-300 flex items-center justify-between">
+                  <CardTitle className="text-sm text-gray-300 flex flex-wrap items-center justify-between gap-2">
                     <span>Destinatários{selectedLeads.length > 0 && <span className="text-[#C9A961]"> ({selectedLeads.length})</span>}</span>
-                    {selectedLeads.length > 0 && <button onClick={() => setSelectedLeads([])} className="text-xs text-red-400 hover:underline">Limpar</button>}
+                    <select value={etapaFiltro} onChange={(e) => setEtapaFiltro(e.target.value)} aria-label="Filtrar por etapa do lead"
+                      className="w-full sm:w-auto max-w-full min-w-0 rounded border border-[#C9A961]/30 bg-[#1A2332] px-2 py-1.5 text-xs font-normal text-white">
+                      <option value={ETAPA_TODAS}>Todas as etapas</option>
+                      {LEAD_PIPELINE_STAGES.map((e) => <option key={e.key} value={e.key}>{e.label}</option>)}
+                    </select>
                   </CardTitle>
                 </CardHeader>
                 <CardContent className="space-y-3">
@@ -221,9 +240,17 @@ export default function AdminWhatsApp() {
                     })}
                     {filteredLeads.length === 0 && <p className="text-xs text-gray-400 text-center py-4">Nenhum lead encontrado.</p>}
                   </div>
-                  <button onClick={() => setSelectedLeads((s) => alternarTodosVisiveis(s, idsVisiveis))} disabled={!idsVisiveis.length} className="flex items-center gap-1 text-xs font-bold text-gray-400 hover:text-white">
-                    <Users size={12} /> {todosVisiveisMarcados ? "Desmarcar todos" : "Selecionar todos"} ({filteredLeads.length})
-                  </button>
+                  <div className="space-y-1">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <button onClick={() => setSelectedLeads((s) => alternarTodosVisiveis(s, idsVisiveis))} disabled={!idsVisiveis.length} className="flex items-center gap-1 text-xs font-bold text-gray-400 hover:text-white">
+                        <Users size={12} /> {todosVisiveisMarcados ? "Desmarcar todos" : "Selecionar todos"} ({filteredLeads.length})
+                      </button>
+                      {selecao.visiveis > 0 && <button onClick={() => setSelectedLeads((s) => limparVisiveis(s, idsVisiveis))} className="text-xs text-red-400 hover:underline">Limpar</button>}
+                    </div>
+                    <p className="text-xs text-gray-400">
+                      {selecao.total} selecionado{selecao.total === 1 ? "" : "s"} no total{selecao.foraDoFiltro > 0 ? ` (${selecao.foraDoFiltro} fora deste filtro)` : ""}
+                    </p>
+                  </div>
                 </CardContent>
               </Card>
 
@@ -281,8 +308,8 @@ export default function AdminWhatsApp() {
                       </div>
                     </div>
                   )}
-                  <Button onClick={handleEnviar} disabled={enviar.isPending || selectedLeads.length === 0 || !mensagem.trim() || bloqueado} className="bg-green-600 hover:bg-green-700 text-white font-bold">
-                    <Send className="h-4 w-4 mr-2" /> {enviar.isPending ? "Enviando..." : `Enviar para ${selectedLeads.length} contato${selectedLeads.length !== 1 ? "s" : ""}`}
+                  <Button onClick={handleEnviar} disabled={enviandoLotes || selectedLeads.length === 0 || !mensagem.trim() || bloqueado} className="bg-green-600 hover:bg-green-700 text-white font-bold">
+                    <Send className="h-4 w-4 mr-2" /> {enviandoLotes ? "Enviando..." : `Enviar para ${selectedLeads.length} contato${selectedLeads.length !== 1 ? "s" : ""}`}
                   </Button>
                 </CardContent>
               </Card>
