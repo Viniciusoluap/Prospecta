@@ -1304,6 +1304,10 @@ export const bpoLancamentoExclusoesBackup = pgTable("bpo_lancamento_exclusoes_ba
   snapshotJson: text("snapshot_json").notNull(),
   criadoPorUserId: integer("criado_por_user_id").references(() => users.id, { onDelete: "set null" }),
   createdAt: timestamp("created_at").defaultNow().notNull(),
+  // Lote 4: restauração a partir do backup (uma vez só; resumo em JSON).
+  restauradoEm: timestamp("restaurado_em"),
+  restauradoPorUserId: integer("restaurado_por_user_id").references(() => users.id, { onDelete: "set null" }),
+  restauracaoJson: text("restauracao_json"),
 });
 
 export const bpoContaLimpezaBackups = pgTable("bpo_conta_limpeza_backups", {
