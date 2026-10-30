@@ -1,7 +1,7 @@
 import { useMemo, useState } from "react";
 import { Link } from "wouter";
 import { trpc } from "@/lib/trpc";
-import { formatarNumero } from "@shared/numero-mascara";
+import { montarCsvComissoes, nomeArquivoCsvComissoes } from "@shared/comissoes-csv";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -76,26 +76,12 @@ export default function AdminRelatorios({
 
   async function exportarCsv() {
     const result = await exportQuery.refetch();
-    const rows = result.data ?? [];
-    const header = "Origem;Data;Corretor;Referência;Valor Total;Pago;Status";
-    const linhas = rows.map(r =>
-      [
-        r.origem,
-        r.data,
-        r.corretor,
-        r.referencia ?? "",
-        // Padrão numérico global (lote 3): 1.000.000,00 também na exportação.
-        formatarNumero(r.valorTotal, { casas: 2 }),
-        formatarNumero(r.pago, { casas: 2 }),
-        r.status,
-      ].join(";")
-    );
-    const csv = "﻿" + [header, ...linhas].join("\n");
+    const csv = montarCsvComissoes(result.data ?? []);
     const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
-    a.download = `comissoes-${new Date().toISOString().slice(0, 10)}.csv`;
+    a.download = nomeArquivoCsvComissoes();
     a.click();
     URL.revokeObjectURL(url);
   }
