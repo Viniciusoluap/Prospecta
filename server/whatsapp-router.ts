@@ -1,4 +1,4 @@
-import { and, desc, eq, gte, inArray, isNull, sql } from "drizzle-orm";
+import { and, desc, eq, gte, inArray, isNotNull, isNull, sql } from "drizzle-orm";
 import { TRPCError } from "@trpc/server";
 import { z } from "zod";
 import { financiamentos, imoveis, leadDocuments, leadServices, leads, users, whatsappConnections, whatsappConversationLinks, whatsappEvolutionSettings, whatsappMessages, whatsappMidias, whatsappTemplates } from "../drizzle/schema.js";
@@ -575,7 +575,8 @@ export const whatsappRouter = router({
   }),
 
   /**
-   * Lote 03, correção 01: exclusão em lote — numa transação, apaga só as mensagens (e mídias, por cascata)
+   * Lote 03, correção 01: exclusão em lote — numa transação, apaga só as mensagens (e mídias, por cascata;
+   * as cópias no Drive vão para a lixeira depois)
    * das conversas escolhidas, nesta conexão. Não apaga no celular (a integração não permite), não toca em
    * leads, documentos nem vínculos. Auditoria: log estruturado sem dados pessoais (quem, quantas, quando).
    */
@@ -585,11 +586,19 @@ export const whatsappRouter = router({
     if (!conn) throw new TRPCError({ code: "BAD_REQUEST", message: "WhatsApp não está conectado." });
     const p = await planoExclusaoConversas(ctx.user, conn.id, input.numeros);
     if (!p.ids.length) return { conversas: 0, apagadas: 0 };
-    await getDb().transaction(async tx => {
+    // Revisão do PR #180 (P2): como em excluirConversa, as cópias das mídias no Drive são coletadas antes
+    // (whatsapp_midias sai por cascata) e vão para a lixeira depois da transação (falha → drive_trash_queue).
+    const naDrive = await getDb().transaction(async tx => {
+      const ids: (string | null)[] = [];
       for (let i = 0; i < p.ids.length; i += 1000) {
-        await tx.delete(whatsappMessages).where(and(eq(whatsappMessages.connectionId, conn.id), inArray(whatsappMessages.id, p.ids.slice(i, i + 1000))));
+        const lote = p.ids.slice(i, i + 1000);
+        ids.push(...(await tx.select({ driveFileId: whatsappMidias.driveFileId }).from(whatsappMidias)
+          .where(and(inArray(whatsappMidias.messageId, lote), isNotNull(whatsappMidias.driveFileId)))).map(m => m.driveFileId));
+        await tx.delete(whatsappMessages).where(and(eq(whatsappMessages.connectionId, conn.id), inArray(whatsappMessages.id, lote)));
       }
+      return ids;
     });
+    for (const driveFileId of Array.from(new Set(naDrive))) await lixeiraDoArquivo(driveFileId);
     console.info(JSON.stringify({ evento: "whatsapp.conversas_excluidas", usuarioId: ctx.user.id, papel: ctx.user.role, conexaoId: conn.id, conversas: p.conversas, mensagens: p.mensagens, em: new Date().toISOString() }));
     return { conversas: p.conversas, apagadas: p.mensagens };
   }),

@@ -5,6 +5,8 @@ import { PGlite } from "@electric-sql/pglite";
 import { drizzle } from "drizzle-orm/pglite";
 import { getTableConfig, type PgTable } from "drizzle-orm/pg-core";
 import { readFileSync } from "node:fs";
+const lixeira = vi.hoisted(() => vi.fn(async (_id: string | null | undefined) => undefined));
+vi.mock("./drive-organizacao.js", async orig => ({ ...(await orig<typeof import("./drive-organizacao.js")>()), lixeiraDoArquivo: lixeira }));
 import * as banco from "./db.js";
 import { financiamentos, leadDocuments, leadServices, leads, users, whatsappConnections, whatsappMessages, whatsappMidias } from "../drizzle/schema.js";
 import { router } from "./_core/trpc.js";
@@ -35,7 +37,7 @@ function ddl(t: PgTable) {
 
 beforeAll(async () => {
   for (const t of [users, leads, leadServices, financiamentos, leadDocuments, whatsappConnections, whatsappMessages]) await pg.exec(ddl(t));
-  await pg.exec(`CREATE TABLE whatsapp_midias (id serial PRIMARY KEY, message_id integer NOT NULL UNIQUE REFERENCES whatsapp_messages(id) ON DELETE CASCADE, created_at timestamp DEFAULT now());`);
+  await pg.exec(`CREATE TABLE whatsapp_midias (id serial PRIMARY KEY, message_id integer NOT NULL UNIQUE REFERENCES whatsapp_messages(id) ON DELETE CASCADE, drive_file_id varchar(255), created_at timestamp DEFAULT now());`);
   const m = readFileSync(new URL("../drizzle/0094_whatsapp_vinculo.sql", import.meta.url), "utf8");
   await pg.exec(m); await pg.exec(m); // idempotente
   vi.spyOn(banco, "getDb").mockReturnValue(drizzle(pg) as never);
@@ -117,7 +119,8 @@ describe("01 — exclusão de conversas em lote", () => {
     await msg(3, "5511955554444");
     const fica = await msg(3, "5521944443333");
     await msg(4, "5599981392210"); // outra conexão: não é tocada
-    await pg.query(`INSERT INTO whatsapp_midias (message_id) VALUES ($1)`, [a1]);
+    await pg.query(`INSERT INTO whatsapp_midias (message_id, drive_file_id) VALUES ($1, 'drive-a1')`, [a1]);
+    lixeira.mockClear();
     expect(await admin.whatsapp.previaExclusaoConversas({ numeros: ["99981392210", "5511955554444"] })).toEqual({ conversas: 2, mensagens: 3 });
 
     const log = vi.spyOn(console, "info").mockImplementation(() => undefined);
@@ -125,6 +128,8 @@ describe("01 — exclusão de conversas em lote", () => {
     expect((await pg.query(`SELECT id FROM whatsapp_messages WHERE connection_id = 3`)).rows).toEqual([{ id: fica }]);
     expect(await contar(`SELECT count(*) n FROM whatsapp_messages WHERE connection_id = 4`)).toBe(1);
     expect(await contar(`SELECT count(*) n FROM whatsapp_midias`)).toBe(0);
+    // Revisão PR #180 (P2): a cópia da mídia no Drive vai para a lixeira, como em excluirConversa.
+    expect(lixeira.mock.calls).toEqual([["drive-a1"]]);
     expect(await contar(`SELECT count(*) n FROM leads`)).toBe(4); // CRM intacto
     const registro = String(log.mock.calls.at(-1)?.[0]);
     log.mockRestore();
