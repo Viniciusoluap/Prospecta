@@ -20,7 +20,7 @@ import { CONFIRMACAO_EXCLUSAO, confirmacaoExclusaoValida } from "@shared/finance
 const campo = "bg-[#2C3E50] border-[#C9A961]/30 text-white mt-1";
 const botaoSec = "h-7 text-xs border-[#C9A961]/30 text-[#C9A961]";
 const dataBR = (d?: string | null) => (d ? d.split("-").reverse().join("/") : "—");
-const PROVEDOR: Record<string, string> = { asaas: "API do Asaas", pluggy: "Pluggy (Meu Pluggy)", manual: "Importação de extrato" };
+const PROVEDOR: Record<string, string> = { asaas: "API do Asaas", pluggy: "Pluggy (Meu Pluggy)", inter: "API do Banco Inter (beta)", manual: "Importação de extrato" };
 
 type LinhaPrevia = {
   data: string; descricao: string; valor: number; tipo: "credito" | "debito"; jaImportada: boolean; completaDados?: boolean;
@@ -56,7 +56,9 @@ export default function BancosPanel() {
   // Pedido de 25/10 (noite), item 8: conectar o Meu Pluggy fica em Configurações › Integrações.
 
   // Nova conta (Asaas ou importação)
-  const vazio = { provedor: "asaas" as "asaas" | "manual", banco: "Asaas", conta: "", descricao: "", dataInicial: "" };
+  const vazio = { provedor: "asaas" as "asaas" | "manual" | "inter", banco: "Asaas", conta: "", descricao: "", dataInicial: "", clientId: "", clientSecret: "", certificado: "", chave: "", contaCorrente: "" };
+  // Lote 4: "API do Banco Inter (beta)" só aparece com BANCO_INTER_API=1 no servidor.
+  const interApi = trpc.bancario.contas.interHabilitado.useQuery().data === true;
   const [novaOpen, setNovaOpen] = useState(false);
   const [nova, setNova] = useState(vazio);
   const criar = trpc.bancario.contas.create.useMutation({
@@ -169,7 +171,7 @@ export default function BancosPanel() {
                     <span className="font-bold text-[#C9A961]">{formatCurrency(Number(c.saldoAtual ?? 0))}</span>
                   </div>
                   <div className="flex gap-2 flex-wrap">
-                    {(c.provedor === "asaas" || c.provedor === "pluggy") && (
+                    {(c.provedor === "asaas" || c.provedor === "pluggy" || c.provedor === "inter") && (
                       <Button size="sm" variant="outline" className={botaoSec} disabled={sincronizar.isPending} onClick={() => sincronizar.mutate({ contaId: c.id })}>
                         <RefreshCw className="h-3 w-3 mr-1" /> Sincronizar
                       </Button>
@@ -284,10 +286,11 @@ export default function BancosPanel() {
           <div className="space-y-3 mt-2">
             <div>
               <Label className="text-gray-300">Como as movimentações chegam</Label>
-              <Select value={nova.provedor} onValueChange={(v: "asaas" | "manual") => setNova(n => ({ ...n, provedor: v, banco: v === "asaas" ? "Asaas" : "" }))}>
+              <Select value={nova.provedor} onValueChange={(v: "asaas" | "manual" | "inter") => setNova(n => ({ ...n, provedor: v, banco: v === "asaas" ? "Asaas" : v === "inter" ? "Inter" : "" }))}>
                 <SelectTrigger className={campo}><SelectValue /></SelectTrigger>
                 <SelectContent>
                   <SelectItem value="asaas">API do Asaas (automático)</SelectItem>
+                  {interApi && <SelectItem value="inter">API do Banco Inter PJ (beta, automático)</SelectItem>}
                   <SelectItem value="manual">Importação de extrato (Cora, C6, Inter ou outro)</SelectItem>
                 </SelectContent>
               </Select>
@@ -298,6 +301,18 @@ export default function BancosPanel() {
               <div><Label className="text-gray-300">Conta</Label><Input value={nova.conta} onChange={e => setNova(n => ({ ...n, conta: e.target.value }))} className={campo} /></div>
               <div><Label className="text-gray-300">Descrição</Label><Input value={nova.descricao} onChange={e => setNova(n => ({ ...n, descricao: e.target.value }))} className={campo} placeholder="ex.: Conta PJ" /></div>
             </div>
+            {nova.provedor === "inter" && (
+              <div className="space-y-2 rounded border border-white/10 p-3">
+                <p className="text-xs text-gray-300">Internet Banking PJ do Inter › Integrações: crie a integração com "Consultar extrato e saldo" e baixe o certificado (.crt) e a chave (.key). Tudo é validado no Inter e salvo criptografado.</p>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div><Label className="text-gray-300">Client ID *</Label><Input value={nova.clientId} onChange={e => setNova(n => ({ ...n, clientId: e.target.value }))} className={campo} autoComplete="off" /></div>
+                  <div><Label className="text-gray-300">Client Secret *</Label><Input type="password" value={nova.clientSecret} onChange={e => setNova(n => ({ ...n, clientSecret: e.target.value }))} className={campo} autoComplete="off" /></div>
+                </div>
+                <div><Label className="text-gray-300">Certificado (.crt) *</Label><textarea rows={3} value={nova.certificado} onChange={e => setNova(n => ({ ...n, certificado: e.target.value }))} className={`${campo} w-full rounded border px-2 py-1 font-mono text-xs`} placeholder="-----BEGIN CERTIFICATE-----" /></div>
+                <div><Label className="text-gray-300">Chave privada (.key) *</Label><textarea rows={3} value={nova.chave} onChange={e => setNova(n => ({ ...n, chave: e.target.value }))} className={`${campo} w-full rounded border px-2 py-1 font-mono text-xs`} placeholder="-----BEGIN PRIVATE KEY-----" /></div>
+                <div><Label className="text-gray-300">Conta corrente (só se a integração tiver mais de uma)</Label><Input value={nova.contaCorrente} onChange={e => setNova(n => ({ ...n, contaCorrente: e.target.value }))} className={campo} /></div>
+              </div>
+            )}
             {nova.provedor === "asaas" && (
               <p className="text-xs text-gray-300">
                 Usa a chave do Asaas configurada em <Link href="/admin/integracoes" className="underline text-[#C9A961]">Configurações › Integrações</Link>.
@@ -309,7 +324,8 @@ export default function BancosPanel() {
               <p className="text-xs text-gray-300 mt-1">Movimentações anteriores a esta data não são gravadas (não pertencem a esta empresa).</p>
             </div>
             <Button className="w-full bg-[#C9A961] hover:bg-[#B8985A] text-[#1A2332] font-bold" disabled={criar.isPending || !nova.banco}
-              onClick={() => criar.mutate({ provedor: nova.provedor, banco: nova.banco, conta: nova.conta || undefined, descricao: nova.descricao || undefined, dataInicial: nova.dataInicial || null })}>
+              onClick={() => criar.mutate({ provedor: nova.provedor, banco: nova.banco, conta: nova.conta || undefined, descricao: nova.descricao || undefined, dataInicial: nova.dataInicial || null,
+                ...(nova.provedor === "inter" ? { inter: { clientId: nova.clientId, clientSecret: nova.clientSecret, certificado: nova.certificado, chave: nova.chave, contaCorrente: nova.contaCorrente || null } } : {}) })}>
               {criar.isPending ? "Validando..." : "Cadastrar conta"}
             </Button>
           </div>

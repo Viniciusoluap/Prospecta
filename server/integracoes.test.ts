@@ -104,7 +104,8 @@ describe("Integrações — testar com a mensagem real", () => {
   it("Pluggy 401 sem trial: sem a dica do plano", async () => {
     const { caller } = setup({ fetchImpl: vi.fn(() => resp({ message: "Invalid credentials" }, 401)) as never });
     const r = await caller.testar({ servico: "pluggy" });
-    expect(r.mensagem).toBe("A Pluggy recusou (HTTP 401): Invalid credentials");
+    expect(r.mensagem).toMatch(/^A Pluggy recusou \(HTTP 401\): Invalid credentials\. Credencial inválida/);
+    expect(r.mensagem).not.toMatch(/plano gratuito/);
   });
 
   it("WhatsApp: servidor ok e estado da conexão", async () => {

@@ -6,6 +6,7 @@ import { adminProcedure, router } from "./_core/trpc.js";
 import { encryptSecret } from "./_core/secret-vault.js";
 import { autenticarPluggyDetalhado, createPluggyConnectToken, mensagemRecusaPluggy, fetchPluggyItemAccounts, fetchPluggyItemConnector } from "./_core/pluggy.js";
 import { fetchAsaasSaldo } from "./_core/asaas-extrato.js";
+import { criarFetchMtls, fetchInterSaldo, interHabilitado, tokenInter, validarCredencialInter } from "./_core/inter.js";
 import { chaveAsaasCentral } from "./_core/asaas.js";
 import { bankAccounts } from "../drizzle/schema.js";
 import * as db from "./db.js";
@@ -95,6 +96,8 @@ export const pluggySettingsRouter = router({
 export const bancarioRouter = router({
   contas: router({
     list: adminProcedure.query(async () => (await db.getAllBankAccounts()).map(semSegredo)),
+    /** Lote 4: o cadastro mostra "API do Banco Inter (beta)" só com BANCO_INTER_API=1. */
+    interHabilitado: adminProcedure.query(() => interHabilitado()),
 
     create: adminProcedure
       .input(z.object({
@@ -104,9 +107,14 @@ export const bancarioRouter = router({
         tipo: z.enum(["corrente", "poupanca", "pagamento", "investimento"]).optional(),
         descricao: z.string().optional(),
         saldoAtual: z.number().optional(),
-        provedor: z.enum(["manual", "asaas"]).default("manual"),
+        provedor: z.enum(["manual", "asaas", "inter"]).default("manual"),
         apiKey: z.string().trim().optional(),
         dataInicial: dataIsoSchema,
+        // Lote 4 (beta, desligado por padrão): credencial da integração do Banco Inter PJ.
+        inter: z.object({
+          clientId: z.string().max(200), clientSecret: z.string().max(500),
+          certificado: z.string().max(20000), chave: z.string().max(20000), contaCorrente: z.string().max(30).nullish(),
+        }).optional(),
       }))
       .mutation(async ({ input }) => {
         let saldo = input.saldoAtual ?? 0;
@@ -121,15 +129,26 @@ export const bancarioRouter = router({
           try { saldo = await fetchAsaasSaldo(chave); }
           catch (e) { throw erro(e, "Chave do Asaas não aceita."); }
         }
+        let credencialInter: string | null = null;
+        if (input.provedor === "inter") {
+          // Lote 4: valida a credencial no próprio Inter (token + saldo) antes de salvar, criptografada.
+          if (!interHabilitado()) throw new TRPCError({ code: "BAD_REQUEST", message: "O conector do Banco Inter está desligado (beta)." });
+          try {
+            const cred = validarCredencialInter(input.inter ?? {});
+            const f = criarFetchMtls(cred);
+            saldo = (await fetchInterSaldo(await tokenInter(cred, f), cred, f)) ?? 0;
+            credencialInter = JSON.stringify(cred);
+          } catch (e) { throw erro(e, "Credencial do Inter não aceita."); }
+        }
         const conta = await db.createBankAccount({
           banco: input.banco,
           agencia: input.agencia || null,
-          conta: input.conta || (input.provedor === "asaas" ? "Asaas" : "—"),
+          conta: input.conta || (input.provedor === "asaas" ? "Asaas" : input.provedor === "inter" ? "Inter" : "—"),
           tipo: input.tipo ?? "corrente",
           descricao: input.descricao || null,
           saldoAtual: saldo.toFixed(2),
           provedor: input.provedor,
-          credencialEncrypted: input.apiKey ? encryptSecret(input.apiKey) : null,
+          credencialEncrypted: credencialInter ? encryptSecret(credencialInter) : input.apiKey ? encryptSecret(input.apiKey) : null,
           dataInicial: input.dataInicial ?? null,
         });
         return semSegredo(conta);
