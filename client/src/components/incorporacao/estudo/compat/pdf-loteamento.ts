@@ -5,7 +5,7 @@
 import { jsPDF } from "jspdf";
 import autoTable from "jspdf-autotable";
 import type { CenariosLoteamento, ResultadoLoteamento } from "@shared/incorporacao/viabilidade-economica";
-import { formatCurrency } from "./util";
+import { formatCurrency, formatArea } from "./util";
 
 export interface MetaRelatorio {
   nome: string;
@@ -77,7 +77,7 @@ function pctStr(v: number, casas = 1) {
 }
 
 function m2Str(v: number) {
-  return `${Math.round(v).toLocaleString("pt-BR")} m²`;
+  return formatArea(v);
 }
 
 /** Agrega o fluxo mensal em recebimentos por ano (bruto, incorporador, terreneiro). */
