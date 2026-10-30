@@ -51,7 +51,7 @@ export async function salvarCredencialOAuth(texto: string, usuarioId: number, or
 
 export async function clienteOAuth() {
   const l = await linha();
-  if (!l) throw new Error("Envie primeiro o JSON do cliente OAuth em Configurações → Google Drive.");
+  if (!l) throw new Error("Envie primeiro o JSON do cliente OAuth em Integrações → Google Drive.");
   return { clientId: l.clientId, clientSecret: decryptSecret(l.clientSecretEncrypted) };
 }
 

@@ -5,7 +5,7 @@ import { protectedProcedure, router } from "./_core/trpc.js";
 import { origemDaRequisicao } from "../shared/google-drive-oauth.js";
 import { desconectarOAuth, estadoOAuth, salvarCredencialOAuth } from "./google-drive-oauth.js";
 
-// Configurações → Google Drive (só administrador). O JSON do cliente OAuth chega
+// Integrações → Google Drive (só administrador). O JSON do cliente OAuth chega
 // aqui, é validado e guardado criptografado; o arquivo nunca é devolvido à tela.
 const origem = (req: { get(nome: string): string | undefined }) => origemDaRequisicao(req.get("x-forwarded-host") ?? req.get("host"));
 

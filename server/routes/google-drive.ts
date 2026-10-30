@@ -8,7 +8,7 @@ import { clienteOAuth, concluirConexao, segredoEstado } from "../google-drive-oa
 
 // Conexão do Google Drive com a conta Google do dono (OAuth). Só administradores.
 // "conectar" leva ao consentimento do Google; "callback" recebe o código, grava o
-// token criptografado e volta para Configurações com o resultado.
+// token criptografado e volta para Integrações com o resultado.
 
 const router = Router();
 
@@ -21,7 +21,7 @@ async function adminDaSessao(req: Request) {
 }
 
 const voltar = (res: Response, resultado: "ok" | "erro", motivo?: string) =>
-  res.redirect(302, `/admin/configuracoes?drive=${resultado}${motivo ? `&motivo=${encodeURIComponent(motivo.slice(0, 300))}` : ""}`);
+  res.redirect(302, `/admin/integracoes?drive=${resultado}${motivo ? `&motivo=${encodeURIComponent(motivo.slice(0, 300))}` : ""}`);
 
 router.get("/google-drive/conectar", async (req: Request, res: Response) => {
   try {

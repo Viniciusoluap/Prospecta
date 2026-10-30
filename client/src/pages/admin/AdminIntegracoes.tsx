@@ -1,4 +1,4 @@
-// LOTE B (25/10): Configurações › Integrações — Asaas, Pluggy e WhatsApp (Evolution) num lugar só.
+// LOTE B (25/10): Configurações › Integrações — Asaas, Pluggy, WhatsApp (Evolution) e Google Drive num lugar só.
 // Cada bloco testa ao abrir e no botão Testar (mensagem real do serviço), mostra só os 4 últimos
 // caracteres da chave salva e permite trocar (o servidor valida antes de salvar).
 import { useState, type ReactNode } from "react";
@@ -10,6 +10,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { GoogleDriveCard } from "@/components/admin/GoogleDriveCard";
 import { SubPciAtual } from "@/components/admin/SubPciAtual";
 
 type Servico = "asaas" | "pluggy" | "whatsapp";
@@ -112,7 +113,7 @@ export default function AdminIntegracoes() {
           <Plug className="text-[#C9A961]" />
           <div>
             <h1 className="text-2xl font-bold text-[#C9A961]">Integrações</h1>
-            <p className="text-sm text-gray-400">Asaas, Pluggy e WhatsApp — cada chave fica salva só aqui.</p>
+            <p className="text-sm text-gray-400">Asaas, Pluggy, WhatsApp e Google Drive — conexões e configurações em um só lugar.</p>
           </div>
         </div>
       </header>
@@ -189,6 +190,7 @@ export default function AdminIntegracoes() {
             onSalvar={v => salvarEvolution.mutateAsync({ url: v.url ?? "", apiKey: v.apiKey ?? "" })}
           />
           {/* Lote 03, correção 09: "Minha Conexão WhatsApp" e "Conexões dos Corretores" ficam só na Central WhatsApp (aba Minha conexão). */}
+          <GoogleDriveCard />
           <SubPciAtual />
         </>}
       </main>
