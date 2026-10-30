@@ -34,3 +34,14 @@ export function formatPercent(valor: number, maximumFractionDigits = 2): string 
   const minimumFractionDigits = Math.min(2, maximumFractionDigits);
   return `${numero.toLocaleString("pt-BR", { minimumFractionDigits, maximumFractionDigits })}%`;
 }
+
+/**
+ * Formata uma área em m² para exibição, sempre com 2 casas decimais
+ * (decisão do dono de 30/10/2026): `formatArea(1234.5)` -> "1.234,50 m²".
+ * Só exibição — não arredonda nada que vá para cálculo. Gêmeo de
+ * `formatArea` do Santa Fé (`web/src/lib/utils.ts`).
+ */
+export function formatArea(valorM2: number): string {
+  const numero = Number.isFinite(valorM2) ? valorM2 : 0;
+  return `${numero.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} m²`;
+}

@@ -205,7 +205,7 @@ beforeEach(async () => {
   pg = new PGlite();
   await pg.exec(BASE);
   for (const f of ["0072_bpo_extrato.sql", "0075_bpo_titular_clientes.sql", "0077_banco_identificador_pluggy_v2.sql", "0080_bpo_vinculos_operacionais.sql",
-    "0081_bpo_exclusao_edicao_auditavel.sql", "0082_bpo_request_key.sql", "0083_bpo_recebimentos_parciais.sql", "0095_bpo_lote3.sql", "0095_bpo_lote3.sql"]) await pg.exec(sqlDe(f));
+    "0081_bpo_exclusao_edicao_auditavel.sql", "0082_bpo_request_key.sql", "0083_bpo_recebimentos_parciais.sql", "0095_bpo_lote3.sql", "0095_bpo_lote3.sql", "0097_bpo_restaurar_exclusoes.sql"]) await pg.exec(sqlDe(f));
   await pg.exec(`
     CREATE TABLE obra_movimentos (id serial PRIMARY KEY, bpo_lancamento_id integer REFERENCES bpo_lancamentos(id) ON DELETE RESTRICT);
     CREATE TABLE regularizacao_recebimentos (id serial PRIMARY KEY, bpo_lancamento_id integer REFERENCES bpo_lancamentos(id) ON DELETE RESTRICT);

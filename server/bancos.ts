@@ -10,6 +10,7 @@ import { autenticarPluggyDetalhado, fetchPluggyAccountBalance, mensagemRecusaPlu
 import { ENV } from "./_core/env.js";
 import { chaveAsaasCentral } from "./_core/asaas.js";
 import { fetchAsaasExtrato, fetchAsaasSaldo } from "./_core/asaas-extrato.js";
+import { criarFetchMtls, fetchInterExtrato, fetchInterSaldo, interHabilitado, lerCredencialInter, tokenInter, type CredencialInter, type FetchInter } from "./_core/inter.js";
 import {
   aplicarDataInicial,
   chavesImportacao,
@@ -24,7 +25,7 @@ import { saldoPorMovimentos } from "../shared/financeiro/bpo-extrato.js";
 import { classificacaoInicial, completarMovimentacoesExistentes, contextoClassificacao, gerarLancamentosDoExtrato, recalcularSaldoConta } from "./bpo-extrato.js";
 import { sincronizarCobrancasAsaas, vincularCobrancasAoExtrato, type ResultadoCobrancas } from "./bpo-asaas.js";
 
-export type Provedor = "manual" | "asaas" | "pluggy";
+export type Provedor = "manual" | "asaas" | "pluggy" | "inter";
 type Movimento = {
   externalId: string; data: string; descricao: string; valor: number; tipo: "credito" | "debito"; categoria?: string;
   // Pedido de 25/10 (noite): titular, descrição complementar e texto completo da linha.
@@ -127,7 +128,12 @@ export async function gravarMovimentos(conta: Pick<BankAccount, "id" | "dataInic
 
 export type ResultadoSync = { ok: boolean; mensagem: string; novos?: number; saldo?: number | null; cobrancas?: ResultadoCobrancas | null };
 
-export async function sincronizarConta(contaId: number, fetchImpl: typeof fetch = fetch): Promise<ResultadoSync> {
+export async function sincronizarConta(
+  contaId: number,
+  fetchImpl: typeof fetch = fetch,
+  /** Lote 4: o Inter exige certificado de cliente (mTLS); nos testes vem simulado. */
+  fetchInter: (c: CredencialInter) => FetchInter = criarFetchMtls,
+): Promise<ResultadoSync> {
   const db = getDb();
   const [conta] = await db.select().from(bankAccounts).where(eq(bankAccounts.id, contaId)).limit(1);
   if (!conta) throw new Error("Conta não encontrada.");
@@ -147,6 +153,14 @@ export async function sincronizarConta(contaId: number, fetchImpl: typeof fetch 
       const token = await tokenPluggy(fetchImpl);
       movimentos = await fetchPluggyTransactions(token, conta.pluggyAccountId, desde, fetchImpl, conta.pluggyItemId);
       saldo = await fetchPluggyAccountBalance(token, conta.pluggyAccountId, fetchImpl);
+    } else if (conta.provedor === "inter") {
+      // Lote 4: conector do Banco Inter (API Banking), desligado por padrão (BANCO_INTER_API=1 liga).
+      if (!interHabilitado()) return { ok: false, mensagem: "O conector do Banco Inter está desligado (beta). Use Importar extrato." };
+      const cred = lerCredencialInter(await credencialDaConta(conta));
+      const f = fetchInter(cred);
+      const token = await tokenInter(cred, f);
+      movimentos = await fetchInterExtrato(token, cred, desde, hoje(), f);
+      saldo = await fetchInterSaldo(token, cred, f);
     } else {
       return { ok: false, mensagem: "Esta conta é alimentada por importação de extrato (botão Importar extrato)." };
     }
@@ -181,7 +195,7 @@ export async function sincronizarTodasContas(fetchImpl: typeof fetch = fetch) {
   await recriptografarConfiguracaoAsaas().catch(() => undefined);
   const db = getDb();
   const contas = await db.select({ id: bankAccounts.id }).from(bankAccounts)
-    .where(and(eq(bankAccounts.ativo, true), inArray(bankAccounts.provedor, ["asaas", "pluggy"])));
+    .where(and(eq(bankAccounts.ativo, true), inArray(bankAccounts.provedor, interHabilitado() ? ["asaas", "pluggy", "inter"] : ["asaas", "pluggy"])));
   const resultados = [];
   for (const c of contas) resultados.push({ contaId: c.id, ...(await sincronizarConta(c.id, fetchImpl)) });
   return { contas: contas.length, ok: resultados.filter(r => r.ok).length, resultados };

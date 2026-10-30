@@ -33,6 +33,7 @@ import { SERVICOS_PROGRESSO } from "../shared/financeiro/progresso.js";
 import { editarLancamentoAuditavel } from "./bpo-auditoria.js";
 import { registrarRecebimento } from "./bpo-recebimentos.js";
 import { combinarPagamentos, excluirLancamentosEmLote, previaCombinacao, previaExclusaoLote } from "./bpo-lote.js";
+import { listarExclusoesEmLote, previaRestauracaoExclusao, restaurarExclusaoEmLote } from "./bpo-restauracao.js";
 import { mensagemLancamentoCombinado } from "../shared/financeiro/bpo-lote.js";
 import { aplicarVinculosEmMassa, previaVinculosEmMassa, sugestoesDoLancamento, vincularLancamentoACliente } from "./bpo-vinculo-cliente.js";
 
@@ -313,6 +314,16 @@ export const bpoRouter = router({
     excluirLote: adminProcedure.input(entradaLoteSchema.extend({ confirmacao: z.string() })).mutation(async ({ input, ctx }) => {
       try { return await excluirLancamentosEmLote(input, ctx.user.id); }
       catch (e) { throw new TRPCError({ code: "BAD_REQUEST", message: e instanceof Error ? e.message : "Falha ao excluir." }); }
+    }),
+    // Lote 4: lista das exclusões em lote e "Restaurar" a partir do backup (prévia + confirmação).
+    exclusoesEmLote: adminProcedure.query(() => listarExclusoesEmLote()),
+    previaRestauracao: adminProcedure.input(z.object({ backupId: z.number().int().positive() })).query(async ({ input }) => {
+      try { return await previaRestauracaoExclusao(input.backupId, catalogoVinculosOperacionais); }
+      catch (e) { throw new TRPCError({ code: "BAD_REQUEST", message: e instanceof Error ? e.message : "Falha ao calcular a prévia." }); }
+    }),
+    restaurarExclusao: adminProcedure.input(z.object({ backupId: z.number().int().positive(), confirmacao: z.string() })).mutation(async ({ input, ctx }) => {
+      try { return await restaurarExclusaoEmLote(input, ctx.user.id, catalogoVinculosOperacionais); }
+      catch (e) { throw new TRPCError({ code: "BAD_REQUEST", message: e instanceof Error ? e.message : "Falha ao restaurar." }); }
     }),
     previaCombinacao: adminProcedure.input(z.object({ ids: z.array(z.number().int().positive()).min(1).max(200) })).query(({ input }) => previaCombinacao(input.ids)),
     combinar: adminProcedure.input(z.object({ ids: z.array(z.number().int().positive()).min(2).max(200), requestKey: z.string().uuid() })).mutation(async ({ input, ctx }) => {

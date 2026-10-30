@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import dynamic from "./compat/dynamic";
 import { AlertTriangle, CheckCircle2, FolderOpen, Grid3x3, Loader2, Save, Send, Star, Trash2, Trophy, CopyPlus } from "lucide-react";
-import { formatCurrency, parseNumeroBR } from "./compat/util";
+import { formatCurrency, parseNumeroBR, formatArea } from "./compat/util";
 import {
   gerarCenariosMassa, validarParametrosMassa, ROTULO_ESTUDO_PRELIMINAR, TIPOLOGIAS_MASSA,
   type CenarioMassa, type ParametrosMassa, type TipologiaMassa,
@@ -58,7 +58,7 @@ function formatarCampos(p: ParametrosMassa): Record<CampoNumerico, string> {
   }, {} as Record<CampoNumerico, string>);
 }
 
-const m2 = (v: number) => `${v.toLocaleString("pt-BR", { maximumFractionDigits: 2 })} m²`;
+const m2 = (v: number) => formatArea(v);
 const pct = (v: number) => `${(v * 100).toLocaleString("pt-BR", { maximumFractionDigits: 1 })}%`;
 
 function parseJson<T>(json: string | null | undefined): T | null {
@@ -376,7 +376,7 @@ export function MassaTab({ estudo }: { estudo: EstudoData }) {
                   </div>
                   <p className="font-black text-[var(--brand-dark)] text-xl leading-none mb-1">{c.kpis.lotesVendaveis} lotes</p>
                   <p className="text-[11px] text-gray-500">
-                    {c.kpis.areaVendavelM2.toLocaleString("pt-BR")} m² vendáveis · {(c.kpis.aproveitamento * 100).toFixed(0)}% aproveitamento
+                    {formatArea(c.kpis.areaVendavelM2)} vendáveis · {(c.kpis.aproveitamento * 100).toFixed(0)}% aproveitamento
                   </p>
                   <p className="text-sm font-bold text-green-600 mt-1">VGV {formatCurrency(c.kpis.vgv)}</p>
                   <p className="text-[10px] text-gray-600 mt-1">
