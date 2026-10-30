@@ -1546,7 +1546,7 @@ export async function createBpoLancamento(data: InsertBpoLancamento): Promise<Bp
 
 export async function marcarBpoLancamentoPago(id: number): Promise<void> {
   const db = getDb();
-  await db.update(bpoLancamentos).set({ pago: true, pagoEm: new Date(), valorRecebido: sql`${bpoLancamentos.valor}` }).where(eq(bpoLancamentos.id, id));
+  await db.update(bpoLancamentos).set({ pago: true, pagoEm: new Date(), valorRecebido: sql`${bpoLancamentos.valor}` }).where(and(eq(bpoLancamentos.id, id), isNull(bpoLancamentos.combinadaEmId)));
 }
 
 // ========== Pluggy (integração bancária — credenciais) ==========

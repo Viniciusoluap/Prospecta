@@ -10,6 +10,7 @@ import {
 } from "../shared/financeiro/bpo-vinculo-cliente.js";
 import { normalizarTitular } from "../shared/financeiro/bpo-extrato.js";
 import { catalogoDaCategoria } from "../shared/financeiro/bpo-operacional.js";
+import { exigirNaoCombinada } from "../shared/financeiro/bpo-lote.js";
 
 type LancamentoLivre = {
   id: number; version: number; clienteId: number | null; clienteNomeLivre: string | null; descricao: string;
@@ -95,6 +96,7 @@ export async function vincularLancamentoACliente(input: { id: number; version: n
   const { montarClienteBpo } = await import("./bpo-router.js");
   return getDb().transaction(async tx => {
     const [antes] = await tx.select().from(bpoLancamentos).where(eq(bpoLancamentos.id, input.id)).limit(1);
+    if (antes) exigirNaoCombinada(antes);
     if (!antes || antes.version !== input.version) throw new Error("O lançamento foi alterado por outra pessoa. Atualize a tela.");
     let clienteId = input.clienteId ?? null;
     let criado = false;
@@ -126,7 +128,7 @@ export async function vincularLancamentoACliente(input: { id: number; version: n
     }
     const [depois] = await tx.update(bpoLancamentos)
       .set({ clienteId, clienteNomeLivre: null, version: antes.version + 1, updatedAt: new Date() })
-      .where(and(eq(bpoLancamentos.id, antes.id), eq(bpoLancamentos.version, antes.version))).returning();
+      .where(and(eq(bpoLancamentos.id, antes.id), eq(bpoLancamentos.version, antes.version), isNull(bpoLancamentos.combinadaEmId))).returning();
     if (!depois) throw new Error("O lançamento foi alterado por outra pessoa. Atualize a tela.");
     await tx.insert(bpoLancamentoHistorico).values({
       lancamentoId: antes.id, lancamentoReferencia: antes.id, versaoAnterior: antes.version, alteradoPorUserId: userId,

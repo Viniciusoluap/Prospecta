@@ -1,6 +1,7 @@
-import { sql } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import { getDb } from "./db.js";
-import { CONFIRMACAO_EXCLUSAO, confirmacaoExclusaoValida } from "../shared/financeiro/bpo-lote.js";
+import { bpoLancamentos } from "../drizzle/schema.js";
+import { CONFIRMACAO_EXCLUSAO, confirmacaoExclusaoValida, exigirNaoCombinada } from "../shared/financeiro/bpo-lote.js";
 
 export type PreviaLimpezaConta = {
   contaId: number;
@@ -110,7 +111,7 @@ export type EdicaoLancamento = {
 export async function editarLancamentoAuditavel(input: EdicaoLancamento, userId: number) {
   const resultado = await getDb().execute(sql`
     WITH anterior AS (
-      SELECT * FROM bpo_lancamentos WHERE id = ${input.id} AND version = ${input.version}
+      SELECT * FROM bpo_lancamentos WHERE id = ${input.id} AND version = ${input.version} AND combinada_em_id IS NULL
         AND valor_recebido <= ${input.valor.toFixed(2)} FOR UPDATE
     ), atualizado AS (
       UPDATE bpo_lancamentos l SET
@@ -133,6 +134,10 @@ export async function editarLancamentoAuditavel(input: EdicaoLancamento, userId:
     SELECT u.*, EXISTS(SELECT 1 FROM auditoria) AS auditado FROM atualizado u
   `);
   const row = primeira<Record<string, unknown>>(resultado);
-  if (!row) throw new Error("O lançamento foi alterado por outra pessoa. Atualize a tela antes de salvar novamente.");
+  if (!row) {
+    const [l] = await getDb().select({ combinadaEmId: bpoLancamentos.combinadaEmId }).from(bpoLancamentos).where(eq(bpoLancamentos.id, input.id)).limit(1);
+    if (l) exigirNaoCombinada(l);
+    throw new Error("O lançamento foi alterado por outra pessoa. Atualize a tela antes de salvar novamente.");
+  }
   return row;
 }

@@ -273,6 +273,32 @@ describe("item 16 — exclusão em lote e combinar pagamentos (banco)", () => {
   });
 });
 
+describe("revisão PR (P1) — original já combinada não aceita baixa/edição/vínculo (lista antiga aberta)", () => {
+  beforeEach(async () => {
+    await pg.exec("INSERT INTO bpo_clients (razao_social, responsavel, telefone, honorarios, data_inicio) VALUES ('Cli', 'X', '', 0, now())");
+    await lanc(", cliente_nome_livre", "('receita','A',100,'2026-10-10','2026-10','Ana'), ('receita','B',50,'2026-10-05','2026-10','Ana')");
+  });
+
+  it("receber, quitar, editar e vincular recusam a original; a combinada segue aceitando a baixa", async () => {
+    const r = await combinarPagamentos({ ids: [1, 2], requestKey: "8d0a3f4e-1d55-4a8c-9c16-7a9a2c0d1e09" }, 1);
+    const msg = new RegExp(`combinada na cobrança #${r.novaId}`);
+    const [{ version }] = await linhas<{ version: number }>("SELECT version FROM bpo_lancamentos WHERE id = 1");
+    await expect(admin().lancamentos.receber({ id: 1, requestKey: "8d0a3f4e-1d55-4a8c-9c16-7a9a2c0d1e10", valor: 40, recebidoEm: "2026-10-30" })).rejects.toThrow(msg);
+    await expect(admin().lancamentos.marcarPago({ id: 1 })).rejects.toThrow(msg);
+    await expect(admin().lancamentos.editar({ id: 1, version, motivo: "editar velha", descricao: "x", valor: 100, vencimento: "2026-10-10", competencia: "2026-10" })).rejects.toThrow(msg);
+    // Camada de serviço (corrida: a checagem do router passou antes da combinação).
+    const { registrarRecebimento } = await import("./bpo-recebimentos.js");
+    const { editarLancamentoAuditavel } = await import("./bpo-auditoria.js");
+    await expect(registrarRecebimento({ id: 1, requestKey: "8d0a3f4e-1d55-4a8c-9c16-7a9a2c0d1e11", valor: 40, recebidoEm: new Date() }, 1)).rejects.toThrow(msg);
+    await expect(editarLancamentoAuditavel({ id: 1, version, motivo: "x", descricao: "x", valor: 100, categoria: "Outros", vencimento: new Date(), competencia: "2026-10" }, 1)).rejects.toThrow(msg);
+    await expect(vincularLancamentoACliente({ id: 1, version, clienteId: 1, motivo: "x" }, 1)).rejects.toThrow(msg);
+    expect(await linhas("SELECT pago, valor_recebido, cliente_id, version FROM bpo_lancamentos WHERE id = 1")).toEqual([{ pago: false, valor_recebido: "0.00", cliente_id: null, version }]);
+    expect(await linhas("SELECT count(*)::int n FROM bpo_recebimentos WHERE lancamento_id = 1")).toEqual([{ n: 0 }]);
+    await admin().lancamentos.marcarPago({ id: r.novaId });
+    expect(await linhas(`SELECT pago FROM bpo_lancamentos WHERE id = ${r.novaId}`)).toEqual([{ pago: true }]);
+  });
+});
+
 describe("item 17 — vincular Cadastro livre ao CRM (banco)", () => {
   beforeEach(async () => {
     await pg.exec(`

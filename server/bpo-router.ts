@@ -33,6 +33,7 @@ import { SERVICOS_PROGRESSO } from "../shared/financeiro/progresso.js";
 import { editarLancamentoAuditavel } from "./bpo-auditoria.js";
 import { registrarRecebimento } from "./bpo-recebimentos.js";
 import { combinarPagamentos, excluirLancamentosEmLote, previaCombinacao, previaExclusaoLote } from "./bpo-lote.js";
+import { mensagemLancamentoCombinado } from "../shared/financeiro/bpo-lote.js";
 import { aplicarVinculosEmMassa, previaVinculosEmMassa, sugestoesDoLancamento, vincularLancamentoACliente } from "./bpo-vinculo-cliente.js";
 
 const texto = (max: number) => z.string().trim().max(max).optional().nullable();
@@ -289,7 +290,7 @@ export const bpoRouter = router({
   lancamentos: router({
     receber: adminProcedure.input(z.object({ id: z.number().int().positive(), requestKey: z.string().uuid(), valor: z.number().positive(), recebidoEm: z.string().date(), observacoes: z.string().trim().max(1000).optional() })).mutation(async ({ input, ctx }) => {
       const [l] = await db.getDb().select({ combinadaEmId: bpoLancamentos.combinadaEmId }).from(bpoLancamentos).where(eq(bpoLancamentos.id, input.id)).limit(1);
-      if (l?.combinadaEmId) throw new TRPCError({ code: "BAD_REQUEST", message: `Cobrança combinada na #${l.combinadaEmId}: registre o recebimento nela.` });
+      if (l?.combinadaEmId) throw new TRPCError({ code: "BAD_REQUEST", message: mensagemLancamentoCombinado(l.combinadaEmId) });
       return registrarRecebimento({ ...input, recebidoEm: new Date(`${input.recebidoEm}T12:00:00Z`) }, ctx.user.id);
     }),
     list: adminProcedure.query(() => lancamentosComTitular()),
@@ -364,7 +365,7 @@ export const bpoRouter = router({
     marcarPago: adminProcedure.input(z.object({ id: z.number() })).mutation(async ({ input, ctx }) => {
       const [l] = await db.getDb().select().from(bpoLancamentos).where(eq(bpoLancamentos.id, input.id)).limit(1);
       if (!l) throw new TRPCError({ code: "NOT_FOUND" });
-      if (l.combinadaEmId) throw new TRPCError({ code: "BAD_REQUEST", message: `Cobrança combinada na #${l.combinadaEmId}: registre o pagamento nela.` });
+      if (l.combinadaEmId) throw new TRPCError({ code: "BAD_REQUEST", message: mensagemLancamentoCombinado(l.combinadaEmId) });
       if (!l.pago && l.tipo !== "despesa" && !l.asaasPaymentId && !l.bankTransactionId) {
         await registrarRecebimento({ id: l.id, requestKey: `quitar-${l.id}-${l.version}`, valor: Number(l.valor) - Number(l.valorRecebido), recebidoEm: new Date() }, ctx.user.id);
         return { success: true };
@@ -384,6 +385,7 @@ export const bpoRouter = router({
     })).mutation(async ({ input, ctx }) => {
       const [antes] = await db.getDb().select().from(bpoLancamentos).where(eq(bpoLancamentos.id, input.id)).limit(1);
       if (!antes) throw new TRPCError({ code: "NOT_FOUND" });
+      if (antes.combinadaEmId) throw new TRPCError({ code: "BAD_REQUEST", message: mensagemLancamentoCombinado(antes.combinadaEmId) });
       let rotulo: string | null = null;
       const tipo = antes.tipo === "despesa" ? "despesa" : "cobranca";
       if (input.categoriaOperacional && categoriaSemVinculo(input.categoriaOperacional)) {
