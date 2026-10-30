@@ -86,3 +86,8 @@
 - Migrações aplicadas em produção: Neon 0094, 0095, 0096; Supabase 20261029110000, 20261029111000, 20261029112000 (todas aditivas/idempotentes).
 - PRs abertos (rascunho): Prospecta #180, Santa Fé #242 — aguardando build da Vercel e revisão automática.
 - Próximo passo exato: build verde + achados de revisão tratados → marcar pronto, merge, conferir deploy de produção READY e erros de runtime na Vercel; depois relatório final (a)/(b)/(c). Pendências de produção: Safari real, Pluggy real, m² com 2 casas na incorporação (decisão do dono), CSV de comissões no SF.
+
+## L11 — achados da revisão automática (Codex) corrigidos (30/10 ~01:15 UTC)
+- Paridade SF #242: P1 combinadas (8877790) receber/quitar/editar/vincular recusam combinada_em_id, também no SQL; P2 listas PCI (7ff83a9). Achados #180: P2 WhatsApp lote → lixeiraDoArquivo (07a87b1); P2 gerador .xlsb/.xlsm com base .xls compatível (servidor expõe baseCompativelDisponivel; e54665b); P2 vínculo de lançamento do extrato atualiza bank_transactions.bpo_cliente_id (vínculo e edição; 116df74).
+- Testes: (a) pnpm check OK; vitest completo 173 arquivos / 1393 testes OK. (b) nenhum manual. (c) produção pendente. Sem migração nova.
+- Próximo passo: responder/resolver as threads do #180 e #242 e seguir o L10 (build verde → merge).
