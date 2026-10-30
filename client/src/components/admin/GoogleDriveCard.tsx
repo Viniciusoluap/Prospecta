@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 
 /**
- * Configurações → Google Drive: o dono envia o JSON do cliente OAuth ("Aplicativo
+ * Integrações → Google Drive: o dono envia o JSON do cliente OAuth ("Aplicativo
  * da Web") e conecta a própria conta Google. Os arquivos do sistema passam a ir
  * para a pasta "Prospecta — Documentos do sistema" no Drive dele.
  */
@@ -37,7 +37,7 @@ export function GoogleDriveCard() {
     onError: (e) => toast.error(e.message),
   });
 
-  // Resultado da volta do Google (/admin/configuracoes?drive=ok|erro&motivo=...).
+  // Resultado da volta do Google (/admin/integracoes?drive=ok|erro&motivo=...).
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const drive = params.get("drive");

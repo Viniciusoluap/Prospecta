@@ -1,8 +1,7 @@
 import { FormEvent, useEffect, useState } from "react";
 import { Link } from "wouter";
-import { ArrowLeft, KeyRound, Plug, Plus, Settings, Shield, Trash2, UserCog } from "lucide-react";
+import { ArrowLeft, KeyRound, Plus, Settings, Shield, Trash2, UserCog } from "lucide-react";
 import { trpc } from "@/lib/trpc";
-import { GoogleDriveCard } from "@/components/admin/GoogleDriveCard";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -115,9 +114,9 @@ export default function AdminConfiguracoes() {
   }
 
   return <div className="min-h-screen bg-[#1A2332] text-white">
-    <header className="border-b border-[#C9A961]/20 bg-[#0F1923] px-4 py-4 md:px-6"><div className="mx-auto flex max-w-7xl items-center justify-between gap-4">
-      <div className="flex items-center gap-3"><Link href="/admin"><Button variant="ghost" size="icon"><ArrowLeft /></Button></Link><Settings className="text-[#C9A961]" /><div><h1 className="text-2xl font-bold text-[#C9A961]">Configurações</h1><p className="text-sm text-gray-400">Usuários, papéis, permissões, integrações e Google Drive</p></div></div>
-      <div className="flex flex-wrap gap-2"><Link href="/admin/integracoes"><Button variant="outline" className="border-[#C9A961]/40 text-[#C9A961]"><Plug className="mr-2 h-4 w-4" /> Integrações (Asaas, Pluggy, WhatsApp)</Button></Link><Button onClick={() => { setNomeNovo(""); setFoneNovo(""); setLeadNovo(""); setNovo(true); }} className="bg-[#C9A961] font-bold text-[#1A2332]"><Plus className="mr-2 h-4 w-4" /> Novo usuário</Button></div>
+    <header className="border-b border-[#C9A961]/20 bg-[#0F1923] px-4 py-4 md:px-6"><div className="mx-auto flex max-w-7xl flex-wrap items-center justify-between gap-4">
+      <div className="flex items-center gap-3"><Link href="/admin"><Button variant="ghost" size="icon"><ArrowLeft /></Button></Link><Settings className="text-[#C9A961]" /><div><h1 className="text-2xl font-bold text-[#C9A961]">Usuários e acesso</h1><p className="text-sm text-gray-400">Cadastro de usuários, papéis e permissões</p></div></div>
+      <div className="flex flex-wrap gap-2"><Button onClick={() => { setNomeNovo(""); setFoneNovo(""); setLeadNovo(""); setNovo(true); }} className="bg-[#C9A961] font-bold text-[#1A2332]"><Plus className="mr-2 h-4 w-4" /> Novo usuário</Button></div>
     </div></header>
     <main className="mx-auto max-w-7xl p-4 md:p-6"><Card className="border-[#C9A961]/20 bg-[#2C3E50] text-gray-100"><CardContent className="space-y-2 pt-6">
       {isLoading ? <p className="text-gray-300">Carregando…</p> : usuarios.map(item => <button key={item.id} onClick={() => setEditId(item.id)} className="flex w-full flex-wrap items-center justify-between gap-3 rounded-lg bg-[#1A2332] p-4 text-left hover:ring-1 hover:ring-[#C9A961]/50">
@@ -125,7 +124,7 @@ export default function AdminConfiguracoes() {
         <div className="text-right"><p className="text-sm text-[#C9A961]">{item.engenheiro ? ROLE_LABEL.engenheiro : ROLE_LABEL[item.role === "user" ? "cliente" : item.role] ?? item.role}</p><p className="text-xs text-gray-400">{item.active ? "Ativo" : "Inativo"} · {parsePermissions(item.permissions).length} permissões</p></div>
       </button>)}
     </CardContent></Card>
-    <div className="mt-6"><GoogleDriveCard /></div></main>
+    </main>
 
     <Dialog open={novo} onOpenChange={setNovo}><DialogContent className="border-[#C9A961]/30 bg-[#1A2332] text-white"><DialogHeader><DialogTitle>Novo usuário</DialogTitle></DialogHeader>
       <form onSubmit={handleNovo} className="grid gap-4 md:grid-cols-2"><Campo name="name" label={papelNovo === "cliente" ? "Nome (do CRM)" : "Nome"} required value={nomeNovo} onChange={setNomeNovo} readOnly={papelNovo === "cliente"} /><Campo name="email" label="E-mail" type="email" required />
