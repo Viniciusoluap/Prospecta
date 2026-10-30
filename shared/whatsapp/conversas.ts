@@ -99,3 +99,57 @@ export function textoConfirmacaoExclusao(conversas: number, mensagens: number): 
   const m = `${mensagens} mensage${mensagens === 1 ? "m" : "ns"}`;
   return `Excluir ${c} (${m}) do sistema? As mensagens e arquivos saem só daqui: continuam no celular, porque o WhatsApp não permite apagar por aqui. Leads e documentos do CRM não são alterados.`;
 }
+
+// ── Pedido de 30/10: filtro por etapa do lead na aba "Enviar mensagem" ──
+
+/** Valor do select que mostra todos os destinatários (sem filtro de etapa). */
+export const ETAPA_TODAS = "todas";
+
+export type DestinatarioEnvio = { id: number; name: string; phone: string; etapa: string | null };
+
+/**
+ * Etapa do lead para o filtro: a mesma do CRM (`leads.stage`). Lead com etapa antiga aguardando
+ * classificação não entra em nenhuma etapa (como no quadro do CRM) e só aparece em "Todas as etapas".
+ */
+export function etapaParaFiltro(lead: { stage: string; stageClassificationPending?: boolean | null }): string | null {
+  return lead.stageClassificationPending ? null : lead.stage;
+}
+
+/**
+ * Destinatários visíveis: busca (nome ou telefone, como antes) combinada com a etapa do CRM.
+ * `etapa` vazia ou "todas" não filtra; lead sem etapa classificada só aparece em "todas".
+ */
+export function filtrarDestinatarios<T extends DestinatarioEnvio>(lista: T[], busca: string, etapa: string): T[] {
+  const termo = busca.toLowerCase();
+  const porEtapa = Boolean(etapa) && etapa !== ETAPA_TODAS;
+  return lista.filter((l) =>
+    (!busca || l.name.toLowerCase().includes(termo) || l.phone.includes(busca)) &&
+    (!porEtapa || l.etapa === etapa));
+}
+
+/** "Limpar" age só sobre os visíveis: tira da seleção o que está na lista filtrada e mantém o resto. */
+export function limparVisiveis<T>(sel: T[], visiveis: T[]): T[] {
+  const v = new Set(visiveis);
+  return sel.filter((x) => !v.has(x));
+}
+
+/** Contagem para a tela: total selecionado, quantos estão visíveis e quantos ficaram fora do filtro. */
+export function resumoSelecao<T>(sel: T[], visiveis: T[]): { total: number; visiveis: number; foraDoFiltro: number } {
+  const v = new Set(visiveis);
+  const noFiltro = sel.filter((x) => v.has(x)).length;
+  return { total: sel.length, visiveis: noFiltro, foraDoFiltro: sel.length - noFiltro };
+}
+
+/**
+ * Tamanho de cada requisição de envio em massa (teto de `whatsapp.enviar`). A tela divide a seleção
+ * em lotes e manda um após o outro, para que "Selecionar todos" de uma etapa grande envie a todos.
+ * O servidor continua mandando uma mensagem individual por destinatário (não é grupo).
+ */
+export const LOTE_ENVIO_WHATSAPP = 200;
+
+export function lotesDeEnvio<T>(lista: T[], tamanho = LOTE_ENVIO_WHATSAPP): T[][] {
+  const n = Math.max(1, Math.floor(tamanho));
+  const lotes: T[][] = [];
+  for (let i = 0; i < lista.length; i += n) lotes.push(lista.slice(i, i + n));
+  return lotes;
+}

@@ -201,6 +201,10 @@ describe("03 — destinatários só de leads ativos", () => {
     expect(lista.map(l => l.name)).not.toContain("André Renan");
     expect(lista).toHaveLength(3);
     expect((await corretor.whatsapp.leadsParaEnvio()).map(l => l.id).sort()).toEqual([10, 13]);
+    // Pedido de 30/10: cada destinatário leva a etapa do CRM; etapa pendente de classificação fica sem etapa.
+    await pg.exec(`UPDATE leads SET stage = 'measurements' WHERE id = 10; UPDATE leads SET stage = 'followup', stage_classification_pending = true WHERE id = 13;`);
+    const comEtapa = await admin.whatsapp.leadsParaEnvio();
+    expect(Object.fromEntries(comEtapa.map(l => [l.id, l.etapa]))).toEqual({ 10: "measurements", 11: "lead_new", 13: null });
     expect((await admin.whatsapp.previaEnvio({ mensagem: "Oi {{nome}}", ids: [10, 12] })).map(p => p.id)).toEqual([10]);
     expect((await admin.whatsapp.documentosParaEnvio({ ids: [10, 12] })).map(d => d.id)).toEqual([10]);
   });
