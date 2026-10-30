@@ -99,7 +99,7 @@ export default function AdminFinanceiro() {
                 <DialogTitle className="text-[#C9A961]">Registrar Transação</DialogTitle>
               </DialogHeader>
               <div className="space-y-4 mt-4">
-                <div className="grid grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div>
                     <Label className="text-gray-300">Tipo</Label>
                     <Select value={form.type} onValueChange={v => setForm(f => ({ ...f, type: v }))}>
@@ -115,7 +115,7 @@ export default function AdminFinanceiro() {
                     <Label className="text-gray-300">Valor (R$)</Label>
                     <CurrencyInput value={form.amount ? Number(form.amount) : 0} onChange={v => setForm(f => ({ ...f, amount: v ? String(v) : "" }))} className="bg-[#2C3E50] border-[#C9A961]/30 text-white mt-1" />
                   </div>
-                  <div className="col-span-2">
+                  <div className="sm:col-span-2">
                     <Label className="text-gray-300">Descrição</Label>
                     <Input value={form.description} onChange={e => setForm(f => ({ ...f, description: e.target.value }))} className="bg-[#2C3E50] border-[#C9A961]/30 text-white mt-1" />
                   </div>

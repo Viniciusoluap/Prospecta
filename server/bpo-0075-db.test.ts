@@ -74,6 +74,7 @@ beforeEach(async () => {
   await pg.exec(sqlDe("0081_bpo_exclusao_edicao_auditavel.sql"));
   await pg.exec(sqlDe("0082_bpo_request_key.sql"));
   await pg.exec(sqlDe("0083_bpo_recebimentos_parciais.sql"));
+  await pg.exec(sqlDe("0095_bpo_lote3.sql")); // lote 3: combinada_em_id (filtro das listas/DRE)
   db = drizzle(pg);
   vi.mocked(getDb).mockReturnValue(db as never);
   await pg.exec("INSERT INTO bank_accounts (banco, provedor) VALUES ('Cora', 'manual'), ('Asaas', 'asaas')");
@@ -155,11 +156,11 @@ describe("item 11 — + Lançamento", () => {
   it("retry conserva a mesma cobrança e uma nova chave permite outra parcela", async () => {
     await pg.exec(`CREATE TABLE construction_projects(id serial primary key,title text,lead_id int);
       CREATE TABLE operational_commissions(id serial primary key,property text);
-      CREATE TABLE operational_projects(id serial primary key,name text,client_name text);
-      CREATE TABLE avaliacoes(id serial primary key,numero text,cliente_nome text);
+      CREATE TABLE operational_projects(id serial primary key,name text,client_name text,lead_id int);
+      CREATE TABLE avaliacoes(id serial primary key,numero text,cliente_nome text,lead_id int);
       CREATE TABLE imoveis(id serial primary key,titulo text);
       CREATE TABLE incorporation_studies(id serial primary key,name text);
-      CREATE TABLE financiamentos(id serial primary key,cliente_nome text);
+      CREATE TABLE financiamentos(id serial primary key,cliente_nome text,lead_id int);
       CREATE TABLE tasks(id serial primary key,title text);
       INSERT INTO construction_projects(title) VALUES('Obra teste');`);
     const entrada = { requestKey: "d72942db-3366-4334-ae04-70b83aa7f7c1", tipo: "cobranca" as const, descricao: "Parcela", valor: 100, vencimento: "2026-10-10", competencia: "2026-10", categoria: "Recebimento de cliente" as const, categoriaOperacional: "obras", vinculoOperacionalId: "1" };

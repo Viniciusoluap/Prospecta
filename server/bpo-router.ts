@@ -17,6 +17,7 @@ import {
   TRANSFERENCIA_INTERNA,
   dreDasCategorias,
   dreDosLancamentos,
+  filtrarPorCompetencia,
   normalizarTitular,
   resumoPorCliente,
 } from "../shared/financeiro/bpo-extrato.js";
@@ -25,10 +26,15 @@ import {
   CATEGORIAS_DESPESA_OPERACIONAL, CATEGORIAS_RECEITA_OPERACIONAL,
   validarDetalhesOperacionais,
   catalogoDaCategoria,
+  categoriaContabilDaOperacional,
+  categoriaSemVinculo,
 } from "../shared/financeiro/bpo-operacional.js";
 import { SERVICOS_PROGRESSO } from "../shared/financeiro/progresso.js";
 import { editarLancamentoAuditavel } from "./bpo-auditoria.js";
 import { registrarRecebimento } from "./bpo-recebimentos.js";
+import { combinarPagamentos, excluirLancamentosEmLote, previaCombinacao, previaExclusaoLote } from "./bpo-lote.js";
+import { mensagemLancamentoCombinado } from "../shared/financeiro/bpo-lote.js";
+import { aplicarVinculosEmMassa, previaVinculosEmMassa, sugestoesDoLancamento, vincularLancamentoACliente } from "./bpo-vinculo-cliente.js";
 
 const texto = (max: number) => z.string().trim().max(max).optional().nullable();
 
@@ -103,7 +109,7 @@ export async function clientesComTotais() {
     d.select({ cliente: bpoClients, nomeLead: leads.name }).from(bpoClients)
       .leftJoin(leads, eq(leads.id, bpoClients.leadId)).orderBy(bpoClients.razaoSocial),
     d.select({ clienteId: bpoLancamentos.clienteId, tipo: bpoLancamentos.tipo, valor: bpoLancamentos.valor, valorRecebido: bpoLancamentos.valorRecebido, pago: bpoLancamentos.pago, categoria: bpoLancamentos.categoria })
-      .from(bpoLancamentos).where(isNotNull(bpoLancamentos.clienteId)),
+      .from(bpoLancamentos).where(and(isNotNull(bpoLancamentos.clienteId), isNull(bpoLancamentos.combinadaEmId))),
   ]);
   const totais = resumoPorCliente(lancs);
   return clientes.map(({ cliente, nomeLead }) => ({
@@ -128,24 +134,26 @@ export async function resumoBpoDoLead(leadId: number) {
 
 const CATEGORIAS_MANUAIS = CATEGORIAS_BPO.filter(c => c !== TRANSFERENCIA_INTERNA) as [string, ...string[]];
 
-export type VinculoOperacional = { id: string; rotulo: string; clienteNome: string | null; href: string };
+export type VinculoOperacional = { id: string; rotulo: string; clienteNome: string | null; href: string; leadId?: string | null };
 
 /** Catálogo real dos módulos; rótulo é só apresentação, o vínculo é sempre pelo ID. */
 export async function catalogoVinculosOperacionais() {
   const d = db.getDb();
   const [obras, regs, comissoes, projetos, avals, propriedades, incorporacoes, financs, tarefasLista] = await Promise.all([
-    d.select({ id: constructionProjects.id, rotulo: constructionProjects.title, clienteNome: leads.name }).from(constructionProjects).leftJoin(leads, eq(leads.id, constructionProjects.leadId)),
-    d.select({ id: regularizacoes.id, rotulo: regularizacoes.type, clienteNome: regularizacoes.clientName }).from(regularizacoes),
+    d.select({ id: constructionProjects.id, rotulo: constructionProjects.title, clienteNome: leads.name, leadId: constructionProjects.leadId }).from(constructionProjects).leftJoin(leads, eq(leads.id, constructionProjects.leadId)),
+    d.select({ id: regularizacoes.id, rotulo: regularizacoes.type, clienteNome: regularizacoes.clientName, leadId: regularizacoes.leadId }).from(regularizacoes),
     d.select({ id: operationalCommissions.id, rotulo: operationalCommissions.property }).from(operationalCommissions),
-    d.select({ id: operationalProjects.id, rotulo: operationalProjects.name, clienteNome: operationalProjects.clientName }).from(operationalProjects),
-    d.select({ id: avaliacoes.id, rotulo: avaliacoes.numero, clienteNome: avaliacoes.clienteNome }).from(avaliacoes),
+    d.select({ id: operationalProjects.id, rotulo: operationalProjects.name, clienteNome: operationalProjects.clientName, leadId: operationalProjects.leadId }).from(operationalProjects),
+    d.select({ id: avaliacoes.id, rotulo: avaliacoes.numero, clienteNome: avaliacoes.clienteNome, leadId: avaliacoes.leadId }).from(avaliacoes),
     d.select({ id: imoveis.id, rotulo: imoveis.titulo }).from(imoveis),
     d.select({ id: incorporationStudies.id, rotulo: incorporationStudies.name }).from(incorporationStudies),
-    d.select({ id: financiamentos.id, rotulo: financiamentos.clienteNome, clienteNome: financiamentos.clienteNome }).from(financiamentos),
+    d.select({ id: financiamentos.id, rotulo: financiamentos.clienteNome, clienteNome: financiamentos.clienteNome, leadId: financiamentos.leadId }).from(financiamentos),
     d.select({ id: tasks.id, rotulo: tasks.title }).from(tasks),
   ]);
   const map = <T extends { id: number; rotulo: string }>(xs: T[], base: string): VinculoOperacional[] => xs.map(x => ({
     id: String(x.id), rotulo: x.rotulo, clienteNome: "clienteNome" in x ? String(x.clienteNome ?? "") || null : null, href: `${base}/${x.id}`,
+    // Lote 3, item 17: lead do registro operacional (sinal "ID interno" para vincular cliente).
+    leadId: "leadId" in x && x.leadId != null ? String(x.leadId) : null,
   }));
   return {
     obras: map(obras, "/admin/obras"), regularizacoes: map(regs, "/admin/regularizacoes"),
@@ -161,7 +169,9 @@ export const lancamentoBpoSchema = z.object({
   requestKey: z.string().uuid(),
   // Item 11: Cobrança grava o tipo "receita" (o mesmo das entradas do extrato).
   tipo: z.enum(["cobranca", "despesa"]),
-  categoria: z.enum(CATEGORIAS_MANUAIS, { message: "Escolha a categoria." }),
+  // Item 12 (lote 3): a classificação contábil saiu da tela; quando não vier, o servidor deriva
+  // da Categoria Operacional (categoriaContabilDaOperacional).
+  categoria: z.enum(CATEGORIAS_MANUAIS, { message: "Escolha a categoria." }).optional(),
   clienteId: z.number().int().positive().nullable().optional(),
   clienteNomeLivre: z.string().trim().max(255).optional().nullable(),
   descricao: z.string().trim().min(1).max(500),
@@ -170,10 +180,44 @@ export const lancamentoBpoSchema = z.object({
   competencia: z.string().regex(/^\d{4}-\d{2}$/, "Competência no formato AAAA-MM"),
   centroCustos: z.string().trim().max(100).optional().nullable(),
   categoriaOperacional: z.string().trim().max(40),
-  vinculoOperacionalId: z.string().trim().max(80),
+  vinculoOperacionalId: z.string().trim().max(80).optional().nullable(),
   tipoDespesaObra: z.string().trim().max(30).optional().nullable(),
   etapaObra: z.string().trim().max(80).optional().nullable(),
 });
+
+/**
+ * Item 12: sem classificação contábil na tela, a edição mantém a `categoria` gravada (extrato,
+ * Asaas e lançamentos antigos preservam o histórico) e só recalcula pela Categoria Operacional quando
+ * ela (ou o tipo da despesa de obra) muda, ou quando o lançamento ainda não tinha categoria.
+ */
+export function categoriaNaEdicao(
+  tipo: "cobranca" | "despesa",
+  antes: { categoria: string | null; categoriaOperacional: string | null; tipoDespesaObra: string | null },
+  depois: { categoriaOperacional?: string | null; tipoDespesaObra?: string | null },
+): string {
+  const op = depois.categoriaOperacional || null;
+  const mudou = op !== (antes.categoriaOperacional || null) || (depois.tipoDespesaObra || null) !== (antes.tipoDespesaObra || null);
+  if (op && (mudou || !antes.categoria)) return categoriaContabilDaOperacional(tipo, op, depois.tipoDespesaObra);
+  return antes.categoria || categoriaContabilDaOperacional(tipo, op, depois.tipoDespesaObra);
+}
+
+const entradaLoteSchema = z.object({
+  aba: z.enum(["cobrancas", "despesas"]),
+  modo: z.enum(["selecionados", "tudo"]),
+  ids: z.array(z.number().int().positive()).max(5000).optional(),
+  filtros: z.object({
+    busca: z.string().max(200).nullish(), clienteId: z.union([z.string(), z.number()]).nullish(),
+    mes: z.string().regex(/^\d{2}$/).nullish(), ano: z.string().regex(/^\d{4}$/).nullish(),
+    status: z.enum(["todas", "pendentes", "pagas", "vencidas", "parciais"]).nullish(),
+    tipo: z.enum(["todos", "honorario", "reembolso", "outros"]).nullish(),
+    categoriaOperacional: z.string().max(40).nullish(), vinculoOperacionalId: z.string().max(80).nullish(),
+  }).optional(),
+});
+
+const filtroDreSchema = z.object({
+  mes: z.string().regex(/^(0[1-9]|1[0-2])$/).nullish(),
+  ano: z.string().regex(/^\d{4}$/).nullish(),
+}).optional();
 
 export const bpoRouter = router({
   clientes: router({
@@ -244,18 +288,53 @@ export const bpoRouter = router({
   }),
 
   lancamentos: router({
-    receber: adminProcedure.input(z.object({ id: z.number().int().positive(), requestKey: z.string().uuid(), valor: z.number().positive(), recebidoEm: z.string().date(), observacoes: z.string().trim().max(1000).optional() })).mutation(({ input, ctx }) => registrarRecebimento({ ...input, recebidoEm: new Date(`${input.recebidoEm}T12:00:00Z`) }, ctx.user.id)),
+    receber: adminProcedure.input(z.object({ id: z.number().int().positive(), requestKey: z.string().uuid(), valor: z.number().positive(), recebidoEm: z.string().date(), observacoes: z.string().trim().max(1000).optional() })).mutation(async ({ input, ctx }) => {
+      const [l] = await db.getDb().select({ combinadaEmId: bpoLancamentos.combinadaEmId }).from(bpoLancamentos).where(eq(bpoLancamentos.id, input.id)).limit(1);
+      if (l?.combinadaEmId) throw new TRPCError({ code: "BAD_REQUEST", message: mensagemLancamentoCombinado(l.combinadaEmId) });
+      return registrarRecebimento({ ...input, recebidoEm: new Date(`${input.recebidoEm}T12:00:00Z`) }, ctx.user.id);
+    }),
     list: adminProcedure.query(() => lancamentosComTitular()),
 
     catalogoOperacional: adminProcedure.query(() => catalogoVinculosOperacionais()),
 
+    // Lote 3, item 17: "Cadastro livre" → cliente do CRM (sugestão por prioridade + confirmação).
+    sugestoesCliente: adminProcedure.input(z.object({ id: z.number().int().positive() }))
+      .query(async ({ input }) => sugestoesDoLancamento(input.id, await catalogoVinculosOperacionais())),
+    vincularCliente: adminProcedure.input(z.object({
+      id: z.number().int().positive(), version: z.number().int().positive(),
+      clienteId: z.number().int().positive().nullable().optional(), leadId: z.number().int().positive().nullable().optional(),
+      motivo: z.string().trim().min(3).max(500).default("confirmado na edição do lançamento"),
+    })).mutation(async ({ input, ctx }) => {
+      try { return await vincularLancamentoACliente(input, ctx.user.id); }
+      catch (e) { throw new TRPCError({ code: "BAD_REQUEST", message: e instanceof Error ? e.message : "Falha ao vincular." }); }
+    }),
+    // Lote 3, item 16: seleção em lote — excluir (selecionados ou aba inteira com filtros) e combinar.
+    previaExclusao: adminProcedure.input(entradaLoteSchema).query(({ input }) => previaExclusaoLote(input)),
+    excluirLote: adminProcedure.input(entradaLoteSchema.extend({ confirmacao: z.string() })).mutation(async ({ input, ctx }) => {
+      try { return await excluirLancamentosEmLote(input, ctx.user.id); }
+      catch (e) { throw new TRPCError({ code: "BAD_REQUEST", message: e instanceof Error ? e.message : "Falha ao excluir." }); }
+    }),
+    previaCombinacao: adminProcedure.input(z.object({ ids: z.array(z.number().int().positive()).min(1).max(200) })).query(({ input }) => previaCombinacao(input.ids)),
+    combinar: adminProcedure.input(z.object({ ids: z.array(z.number().int().positive()).min(2).max(200), requestKey: z.string().uuid() })).mutation(async ({ input, ctx }) => {
+      try { return await combinarPagamentos(input, ctx.user.id); }
+      catch (e) { throw new TRPCError({ code: "BAD_REQUEST", message: e instanceof Error ? e.message : "Falha ao combinar." }); }
+    }),
+    previaVinculos: adminProcedure.query(async () => previaVinculosEmMassa(await catalogoVinculosOperacionais())),
+    aplicarVinculos: adminProcedure.input(z.object({ itens: z.array(z.object({
+      id: z.number().int().positive(), version: z.number().int().positive(),
+      clienteId: z.number().int().positive().nullable().optional(), leadId: z.number().int().positive().nullable().optional(),
+    })).min(1).max(500) })).mutation(({ input, ctx }) => aplicarVinculosEmMassa(input.itens, ctx.user.id)),
+
     create: adminProcedure.input(lancamentoBpoSchema).mutation(async ({ input }) => {
       try { validarDetalhesOperacionais(input); }
       catch (e) { throw new TRPCError({ code: "BAD_REQUEST", message: e instanceof Error ? e.message : "Vínculo operacional inválido." }); }
-      const catalogo = await catalogoVinculosOperacionais();
-      const opcoes = catalogo[catalogoDaCategoria(input.tipo, input.categoriaOperacional) as keyof typeof catalogo];
-      const vinculo = Array.isArray(opcoes) ? (opcoes as VinculoOperacional[]).find(o => o.id === input.vinculoOperacionalId) : null;
-      if (!vinculo) throw new TRPCError({ code: "NOT_FOUND", message: "Registro operacional não encontrado." });
+      let vinculo: VinculoOperacional | null = null;
+      if (!categoriaSemVinculo(input.categoriaOperacional)) {
+        const catalogo = await catalogoVinculosOperacionais();
+        const opcoes = catalogo[catalogoDaCategoria(input.tipo, input.categoriaOperacional) as keyof typeof catalogo];
+        vinculo = Array.isArray(opcoes) ? (opcoes as VinculoOperacional[]).find(o => o.id === input.vinculoOperacionalId) ?? null : null;
+        if (!vinculo) throw new TRPCError({ code: "NOT_FOUND", message: "Registro operacional não encontrado." });
+      }
       if (input.clienteId) {
         const [c] = await db.getDb().select({ id: bpoClients.id }).from(bpoClients).where(eq(bpoClients.id, input.clienteId)).limit(1);
         if (!c) throw new TRPCError({ code: "NOT_FOUND", message: "Cliente BPO não encontrado." });
@@ -264,28 +343,29 @@ export const bpoRouter = router({
         clienteId: input.clienteId ?? null,
         clienteNomeLivre: input.clienteId ? null : input.clienteNomeLivre || null,
         tipo: input.tipo === "cobranca" ? "receita" : "despesa",
-        categoria: input.categoria,
+        categoria: input.categoria ?? categoriaContabilDaOperacional(input.tipo, input.categoriaOperacional, input.tipoDespesaObra),
         descricao: input.descricao,
         valor: input.valor.toFixed(2),
         vencimento: new Date(input.vencimento),
         competencia: input.competencia,
         centroCustos: input.centroCustos || null,
         categoriaOperacional: input.categoriaOperacional,
-        vinculoOperacionalId: input.vinculoOperacionalId,
-        vinculoOperacionalRotulo: vinculo.rotulo,
+        vinculoOperacionalId: vinculo ? input.vinculoOperacionalId : null,
+        vinculoOperacionalRotulo: vinculo?.rotulo ?? null,
         tipoDespesaObra: input.tipoDespesaObra || null,
         etapaObra: input.etapaObra || null,
         requestKey: input.requestKey,
       }).onConflictDoNothing({ target: bpoLancamentos.requestKey }).returning();
       if (criado) return criado;
       const [anterior] = await db.getDb().select().from(bpoLancamentos).where(eq(bpoLancamentos.requestKey, input.requestKey)).limit(1);
-      if (!anterior || anterior.valor !== input.valor.toFixed(2) || anterior.descricao !== input.descricao || anterior.vinculoOperacionalId !== input.vinculoOperacionalId) throw new TRPCError({ code: "CONFLICT", message: "Chave de envio já utilizada para outro lançamento." });
+      if (!anterior || anterior.valor !== input.valor.toFixed(2) || anterior.descricao !== input.descricao || (anterior.vinculoOperacionalId ?? null) !== (input.vinculoOperacionalId || null)) throw new TRPCError({ code: "CONFLICT", message: "Chave de envio já utilizada para outro lançamento." });
       return anterior;
     }),
 
     marcarPago: adminProcedure.input(z.object({ id: z.number() })).mutation(async ({ input, ctx }) => {
       const [l] = await db.getDb().select().from(bpoLancamentos).where(eq(bpoLancamentos.id, input.id)).limit(1);
       if (!l) throw new TRPCError({ code: "NOT_FOUND" });
+      if (l.combinadaEmId) throw new TRPCError({ code: "BAD_REQUEST", message: mensagemLancamentoCombinado(l.combinadaEmId) });
       if (!l.pago && l.tipo !== "despesa" && !l.asaasPaymentId && !l.bankTransactionId) {
         await registrarRecebimento({ id: l.id, requestKey: `quitar-${l.id}-${l.version}`, valor: Number(l.valor) - Number(l.valorRecebido), recebidoEm: new Date() }, ctx.user.id);
         return { success: true };
@@ -296,17 +376,21 @@ export const bpoRouter = router({
 
     editar: adminProcedure.input(z.object({
       id: z.number().int().positive(), version: z.number().int().positive(), motivo: z.string().trim().min(3).max(500),
-      descricao: z.string().trim().min(1).max(500), valor: z.number().positive(), categoria: z.enum(CATEGORIAS_MANUAIS),
+      descricao: z.string().trim().min(1).max(500), valor: z.number().positive(), categoria: z.enum(CATEGORIAS_MANUAIS).optional(),
       clienteId: z.number().int().positive().nullable().optional(), clienteNomeLivre: texto(255),
       vencimento: z.union([z.string(), z.date()]), competencia: z.string().regex(/^\d{4}-\d{2}$/),
+      // Item 12: centro de custos saiu da tela; ausente = mantém o valor gravado.
       centroCustos: texto(100), observacoes: z.string().max(5000).optional().nullable(),
       categoriaOperacional: texto(40), vinculoOperacionalId: texto(80), tipoDespesaObra: texto(30), etapaObra: texto(80),
     })).mutation(async ({ input, ctx }) => {
       const [antes] = await db.getDb().select().from(bpoLancamentos).where(eq(bpoLancamentos.id, input.id)).limit(1);
       if (!antes) throw new TRPCError({ code: "NOT_FOUND" });
+      if (antes.combinadaEmId) throw new TRPCError({ code: "BAD_REQUEST", message: mensagemLancamentoCombinado(antes.combinadaEmId) });
       let rotulo: string | null = null;
-      if (input.categoriaOperacional) {
-        const tipo = antes.tipo === "despesa" ? "despesa" : "cobranca";
+      const tipo = antes.tipo === "despesa" ? "despesa" : "cobranca";
+      if (input.categoriaOperacional && categoriaSemVinculo(input.categoriaOperacional)) {
+        validarDetalhesOperacionais({ ...input, tipo, categoriaOperacional: input.categoriaOperacional });
+      } else if (input.categoriaOperacional) {
         validarDetalhesOperacionais({ ...input, tipo, categoriaOperacional: input.categoriaOperacional });
         const catalogo = await catalogoVinculosOperacionais();
         const opcoes = catalogo[catalogoDaCategoria(tipo, input.categoriaOperacional) as keyof typeof catalogo] as VinculoOperacional[];
@@ -314,14 +398,18 @@ export const bpoRouter = router({
         if (!registro) throw new TRPCError({ code: "BAD_REQUEST", message: "Registro operacional não encontrado." });
         rotulo = registro.rotulo;
       } else if (input.vinculoOperacionalId) throw new TRPCError({ code: "BAD_REQUEST", message: "Selecione a categoria operacional." });
-      return editarLancamentoAuditavel({ ...input, vinculoOperacionalRotulo: rotulo, vencimento: new Date(input.vencimento) }, ctx.user.id);
+      const categoria = input.categoria ?? categoriaNaEdicao(tipo, antes, input);
+      return editarLancamentoAuditavel({ ...input, categoria, vinculoOperacionalRotulo: rotulo, vencimento: new Date(input.vencimento) }, ctx.user.id);
     }),
   }),
 
   // LOTE C (25/10): inclui os lançamentos gerados pelo extrato bancário (transferência
   // interna não gera lançamento, então não entra). Regra em shared/financeiro/bpo-extrato.ts.
-  dre: adminProcedure.query(async () => dreDosLancamentos(await db.getAllBpoLancamentos())),
+  // Lote 3, item 15: filtros Mês/Ano por competência (vazio = todos), nas duas visões do DRE.
+  dre: adminProcedure.input(filtroDreSchema).query(async ({ input }) => dreDosLancamentos(filtrarPorCompetencia(await db.getAllBpoLancamentos(), input))),
   /** Pedido de 25/10 (noite): DRE por categoria (transferência interna fora). */
-  dreCategorias: adminProcedure.query(async () => dreDasCategorias(await db.getAllBpoLancamentos())),
+  dreCategorias: adminProcedure.input(filtroDreSchema).query(async ({ input }) => dreDasCategorias(filtrarPorCompetencia(await db.getAllBpoLancamentos(), input))),
+  /** Anos com lançamento (opções do filtro de Ano do DRE). */
+  dreAnos: adminProcedure.query(async () => Array.from(new Set((await db.getAllBpoLancamentos()).map(l => l.competencia.slice(0, 4)).filter(a => /^\d{4}$/.test(a)))).sort().reverse()),
 });
 

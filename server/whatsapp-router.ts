@@ -1,9 +1,12 @@
-import { and, desc, eq, inArray, isNull } from "drizzle-orm";
+import { and, desc, eq, gte, inArray, isNotNull, isNull, sql } from "drizzle-orm";
 import { TRPCError } from "@trpc/server";
 import { z } from "zod";
-import { financiamentos, imoveis, leadDocuments, leadServices, leads, users, whatsappConnections, whatsappEvolutionSettings, whatsappMessages, whatsappMidias, whatsappTemplates } from "../drizzle/schema.js";
+import { financiamentos, imoveis, leadDocuments, leadServices, leads, users, whatsappConnections, whatsappConversationLinks, whatsappEvolutionSettings, whatsappMessages, whatsappMidias, whatsappTemplates } from "../drizzle/schema.js";
 import { documentosPendentes, listaPorExtenso, mesclarValores, preencherTemplate, primeiroNome, textoDocumentos } from "../shared/whatsapp/variaveis.js";
 import { rotulo } from "../shared/rotulos.js";
+import {
+  PERIODOS_DASHBOARD, PERIODO_PADRAO, STATUS_ENVIO_SUCESSO, candidatosVinculo, chaveTelefone, inicioPeriodo, resolverLeadConversa, taxaLeitura,
+} from "../shared/whatsapp/conversas.js";
 import { LEAD_SERVICE_TYPES } from "../shared/lead-services.js";
 import { VARIAVEIS_TEMPLATE_PERMITIDAS, WHATSAPP_TEMPLATES } from "../shared/whatsapp/templates.js";
 import { enviarWhatsappBusiness, normalizarStatusWebhook } from "./_core/whatsapp-business.js";
@@ -68,7 +71,7 @@ async function valoresDosLeads(ids: number[], remetente: string | null) {
   if (!ids.length) return new Map<number, Record<string, string>>();
   const [rows, servs, fins, docs] = await Promise.all([
     db.select({ id: leads.id, nome: leads.name, endereco: leads.address, corretor: users.name, conjuge: leads.hasSpouse, composicao: leads.incomeComposition })
-      .from(leads).leftJoin(users, eq(users.id, leads.brokerId)).where(inArray(leads.id, ids)),
+      .from(leads).leftJoin(users, eq(users.id, leads.brokerId)).where(and(inArray(leads.id, ids), isNull(leads.deletedAt))),
     db.select({ leadId: leadServices.leadId, tipo: leadServices.serviceType, titulo: leadServices.title })
       .from(leadServices).where(inArray(leadServices.leadId, ids)),
     db.select({ leadId: financiamentos.leadId, imovel: financiamentos.imovel, banco: financiamentos.banco, bancoOutro: financiamentos.bancoOutro })
@@ -109,6 +112,63 @@ async function exigirLeadDoCorretor(user: UsuarioConversa, leadId: number | null
   if (l && l.brokerId !== user.id) throw new TRPCError({ code: "FORBIDDEN", message: "Conversa de outro corretor." });
 }
 
+/** Lote 03, correção 02: vínculos manuais (botão "Vincular lead") da conexão, por chave do telefone. */
+async function vinculosDaConexao(connectionId: number): Promise<Map<string, number>> {
+  const rows = await getDb().select({ phoneKey: whatsappConversationLinks.phoneKey, leadId: whatsappConversationLinks.leadId })
+    .from(whatsappConversationLinks).where(eq(whatsappConversationLinks.connectionId, connectionId));
+  return new Map(rows.map(r => [r.phoneKey, r.leadId]));
+}
+
+/** Lead do vínculo manual da conversa (tem prioridade sobre a inferência pelo telefone). */
+async function vinculoManual(connectionId: number, numero: string): Promise<number | null> {
+  const [v] = await getDb().select({ leadId: whatsappConversationLinks.leadId }).from(whatsappConversationLinks)
+    .where(and(eq(whatsappConversationLinks.connectionId, connectionId), eq(whatsappConversationLinks.phoneKey, chaveTelefone(numero)))).limit(1);
+  return v?.leadId ?? null;
+}
+
+/** Quem pode mexer nas conversas: corretor (as próprias) ou quem tem o módulo WhatsApp. */
+function exigirAcessoConversas(ctx: { user: UsuarioConversa }) {
+  if (ctx.user.role !== "corretor") requireModule(ctx, "whatsapp");
+}
+
+/**
+ * Lote 03, correção 01: o que a exclusão em lote vai apagar — só mensagens (e mídias, por cascata) da
+ * conexão, das conversas escolhidas. O corretor só exclui conversas dos próprios leads ou sem lead
+ * (mesma resolução da lista: vínculo manual > telefone > lead gravado); se alguma for de outro, nada é apagado.
+ */
+async function planoExclusaoConversas(user: UsuarioConversa, connectionId: number, numeros: string[]) {
+  const db = getDb();
+  const chaves = new Set(numeros.map(chaveTelefone).filter(c => c.length >= 10));
+  const todas = await db.select({ id: whatsappMessages.id, destinatario: whatsappMessages.destinatario, leadId: whatsappMessages.leadId })
+    .from(whatsappMessages).where(eq(whatsappMessages.connectionId, connectionId));
+  const porChave = new Map<string, { ids: number[]; gravado: number | null }>();
+  for (const m of todas) {
+    const k = chaveTelefone(m.destinatario);
+    if (!chaves.has(k)) continue;
+    const g = porChave.get(k) ?? { ids: [], gravado: null };
+    g.ids.push(m.id);
+    if (!g.gravado && m.leadId) g.gravado = m.leadId;
+    porChave.set(k, g);
+  }
+  if (user.role === "corretor" && porChave.size) {
+    const [vinculos, contatos] = await Promise.all([
+      vinculosDaConexao(connectionId),
+      db.select({ id: leads.id, telefone: leads.phone, brokerId: leads.brokerId }).from(leads).where(isNull(leads.deletedAt)),
+    ]);
+    for (const [k, g] of Array.from(porChave.entries())) {
+      const manual = vinculos.get(k);
+      const { leadId } = resolverLeadConversa({
+        manual: manual && contatos.some(l => l.id === manual) ? manual : null,
+        porTelefone: contatos.find(l => chaveTelefone(l.telefone) === k)?.id,
+        gravado: g.gravado,
+      });
+      await exigirLeadDoCorretor(user, leadId);
+    }
+  }
+  const ids = Array.from(porChave.values()).flatMap(g => g.ids);
+  return { conversas: porChave.size, mensagens: ids.length, ids };
+}
+
 /**
  * Pedido de 25/10 (noite): mensagem acessível ao usuário (rota da mídia e "baixar de novo"):
  * da conexão dele e de conversa que ele pode abrir (mesma regra de mensagensConversa). Sem acesso = null.
@@ -121,7 +181,7 @@ export async function acessoMensagemWhatsapp(user: UsuarioConversa, messageId: n
   const [msg] = await db.select().from(whatsappMessages).where(and(eq(whatsappMessages.id, messageId), eq(whatsappMessages.connectionId, conn.id))).limit(1);
   if (!msg) return null;
   if (user.role === "corretor") {
-    let leadId = msg.leadId;
+    let leadId = (await vinculoManual(conn.id, msg.destinatario)) ?? msg.leadId;
     if (!leadId) {
       const todas = await db.select({ destinatario: whatsappMessages.destinatario, leadId: whatsappMessages.leadId }).from(whatsappMessages).where(eq(whatsappMessages.connectionId, conn.id));
       leadId = todas.find(m => m.leadId && mesmoTelefone(m.destinatario, msg.destinatario))?.leadId ?? null;
@@ -172,7 +232,8 @@ export const whatsappRouter = router({
     .input(z.object({ mensagem: z.string().max(4096), ids: z.array(z.number()).max(200), extras: extrasSchema, extrasPorLead: extrasPorLeadSchema }))
     .query(async ({ ctx, input }) => {
       const valores = await valoresDosLeads(input.ids, ctx.user.name ?? null);
-      return input.ids.map(id => {
+      // Lote 03, correção 03: lead excluído no CRM some da prévia (valoresDosLeads só traz os ativos).
+      return input.ids.filter(id => valores.has(id)).map(id => {
         const porLead = input.extrasPorLead?.[String(id)];
         // `semCampoGeral`: o que falta só com cadastro + escolhas por lead — define os campos da tela,
         // que assim não somem enquanto a pessoa digita.
@@ -191,7 +252,7 @@ export const whatsappRouter = router({
     if (!input.ids.length) return [];
     const db = getDb();
     const q = db.select({ id: leads.id, conjuge: leads.hasSpouse, composicao: leads.incomeComposition }).from(leads);
-    const lista = await q.where(and(inArray(leads.id, input.ids), ctx.user.role === "corretor" ? eq(leads.brokerId, ctx.user.id) : undefined));
+    const lista = await q.where(and(inArray(leads.id, input.ids), isNull(leads.deletedAt), ctx.user.role === "corretor" ? eq(leads.brokerId, ctx.user.id) : undefined));
     const docs = lista.length ? await documentosDosLeads(lista.map(l => l.id)) : [];
     return lista.map(l => ({ id: l.id, pendentes: documentosPendentes(docs.filter(d => d.leadId === l.id), Boolean(l.conjuge || l.composicao)) }));
   }),
@@ -263,11 +324,40 @@ export const whatsappRouter = router({
     });
   }),
 
-  // Item 06: corretor só vê os próprios leads.
-  leadsParaEnvio: adminProcedure.query(async ({ ctx }) => {
-    const q = getDb().select({ id: leads.id, name: leads.name, phone: leads.phone }).from(leads);
-    return (ctx.user.role === "corretor" ? q.where(eq(leads.brokerId, ctx.user.id)) : q).orderBy(desc(leads.createdAt));
-  }),
+  // Item 06: corretor só vê os próprios leads. Lote 03, correção 03: só leads ativos do CRM
+  // (não excluídos — mesmo critério da lista do CRM e do envio).
+  leadsParaEnvio: adminProcedure.query(async ({ ctx }) =>
+    getDb().select({ id: leads.id, name: leads.name, phone: leads.phone }).from(leads)
+      .where(and(isNull(leads.deletedAt), ctx.user.role === "corretor" ? eq(leads.brokerId, ctx.user.id) : undefined))
+      .orderBy(desc(leads.createdAt))),
+
+  /**
+   * Lote 03, correção 04: indicadores do dashboard contados no banco (não sobre o histórico de 100).
+   * Enviadas = saída com status enviada/entregue/lida (falhas fora); lidas e falhas no mesmo período.
+   * Mesmo escopo do histórico: admin/colaborador veem tudo; os demais, a própria conexão.
+   */
+  resumoEnvios: adminProcedure
+    .input(z.object({ periodo: z.enum(PERIODOS_DASHBOARD).default(PERIODO_PADRAO) }).optional())
+    .query(async ({ ctx, input }) => {
+      const periodo = input?.periodo ?? PERIODO_PADRAO;
+      const desde = inicioPeriodo(periodo);
+      const vazio = { periodo, desde: desde?.toISOString() ?? null, enviadas: 0, lidas: 0, falhas: 0, taxaLeitura: 0 };
+      let escopo;
+      if (ctx.user.role !== "admin" && ctx.user.role !== "colaborador") {
+        const conn = await conexaoParaPapel(ctx.user.id, ctx.user.role);
+        if (!conn) return vazio;
+        escopo = eq(whatsappMessages.connectionId, conn.id);
+      }
+      const sucesso = sql.join(STATUS_ENVIO_SUCESSO.map(st => sql`${st}`), sql`, `);
+      const [r] = await getDb().select({
+        enviadas: sql<number>`count(*) filter (where ${whatsappMessages.status} in (${sucesso}))`.mapWith(Number),
+        lidas: sql<number>`count(*) filter (where ${whatsappMessages.status} = 'lida')`.mapWith(Number),
+        falhas: sql<number>`count(*) filter (where ${whatsappMessages.status} = 'falhou')`.mapWith(Number),
+      }).from(whatsappMessages)
+        .where(and(eq(whatsappMessages.direcao, "saida"), escopo, desde ? gte(whatsappMessages.createdAt, desde) : undefined));
+      const enviadas = Number(r?.enviadas ?? 0), lidas = Number(r?.lidas ?? 0);
+      return { ...vazio, enviadas, lidas, falhas: Number(r?.falhas ?? 0), taxaLeitura: taxaLeitura(enviadas, lidas) };
+    }),
 
   historico: adminProcedure.query(async ({ ctx }) => {
     const db = getDb();
@@ -396,20 +486,31 @@ export const whatsappRouter = router({
     const conn = await conexaoParaPapel(ctx.user.id, ctx.user.role);
     if (!conn) return [];
     const msgs = await getDb().select().from(whatsappMessages).where(eq(whatsappMessages.connectionId, conn.id)).orderBy(desc(whatsappMessages.createdAt)).limit(2000);
-    const grupos: { numero: string; nome: string | null; leadId: number | null; ultima: string; quando: Date; naoLidas: number }[] = [];
+    const grupos: { numero: string; nome: string | null; leadId: number | null; vinculo: "manual" | "telefone" | "mensagem" | null; ultima: string; quando: Date; naoLidas: number }[] = [];
     for (const m of msgs) {
       let g = grupos.find(x => mesmoTelefone(x.numero, m.destinatario));
-      if (!g) { g = { numero: m.destinatario.replace(/\D/g, ""), nome: m.nomeDestinatario, leadId: m.leadId, ultima: m.mensagem, quando: m.createdAt, naoLidas: 0 }; grupos.push(g); }
+      if (!g) { g = { numero: m.destinatario.replace(/\D/g, ""), nome: m.nomeDestinatario, leadId: m.leadId, vinculo: null, ultima: m.mensagem, quando: m.createdAt, naoLidas: 0 }; grupos.push(g); }
       if (!g.nome && m.nomeDestinatario) g.nome = m.nomeDestinatario;
       if (!g.leadId && m.leadId) g.leadId = m.leadId;
       if (m.direcao === "entrada" && !m.lida) g.naoLidas++;
     }
-    const contatos = await getDb().select({ id: leads.id, nome: leads.name, telefone: leads.phone }).from(leads).where(isNull(leads.deletedAt));
+    const [contatos, vinculos] = await Promise.all([
+      getDb().select({ id: leads.id, nome: leads.name, telefone: leads.phone }).from(leads).where(isNull(leads.deletedAt)),
+      vinculosDaConexao(conn.id),
+    ]);
     for (const g of grupos) {
-      const lead = contatos.find(l => mesmoTelefone(l.telefone, g.numero));
+      // Lote 03, correção 02: o vínculo manual (lead ativo) vence a inferência pelo telefone.
+      const manual = vinculos.get(chaveTelefone(g.numero));
+      const r = resolverLeadConversa({
+        manual: manual && contatos.some(l => l.id === manual) ? manual : null,
+        porTelefone: contatos.find(l => mesmoTelefone(l.telefone, g.numero))?.id,
+        gravado: g.leadId,
+      });
+      const lead = r.leadId ? contatos.find(l => l.id === r.leadId) : undefined;
       const publico = msgs.find(m => m.direcao === "entrada" && mesmoTelefone(m.destinatario, g.numero) && m.nomeDestinatario)?.nomeDestinatario;
       g.nome = lead?.nome ?? publico ?? null;
-      g.leadId = lead?.id ?? g.leadId;
+      g.leadId = r.leadId;
+      g.vinculo = r.origem;
     }
     // Corretor vê só conversas dos próprios leads ou sem lead.
     if (ctx.user.role === "corretor") {
@@ -427,7 +528,7 @@ export const whatsappRouter = router({
     const todas = await db.select().from(whatsappMessages).where(eq(whatsappMessages.connectionId, conn.id)).orderBy(desc(whatsappMessages.createdAt)).limit(3000);
     const da = todas.filter(m => mesmoTelefone(m.destinatario, input.numero)).reverse();
     // Corretor não abre conversa de lead de outro corretor (mesma regra do Santa Fé).
-    await exigirLeadDoCorretor(ctx.user, da.find(m => m.leadId)?.leadId);
+    await exigirLeadDoCorretor(ctx.user, (await vinculoManual(conn.id, input.numero)) ?? da.find(m => m.leadId)?.leadId);
     const naoLidas = da.filter(m => m.direcao === "entrada" && !m.lida).map(m => m.id);
     if (naoLidas.length) await db.update(whatsappMessages).set({ lida: true }).where(inArray(whatsappMessages.id, naoLidas));
     // Pedido de 25/10 (noite): mídia guardada no banco é servida por /api/whatsapp/midia/:id.
@@ -453,7 +554,7 @@ export const whatsappRouter = router({
     const todas = await db.select({ id: whatsappMessages.id, destinatario: whatsappMessages.destinatario, leadId: whatsappMessages.leadId })
       .from(whatsappMessages).where(eq(whatsappMessages.connectionId, conn.id));
     const da = todas.filter(m => mesmoTelefone(m.destinatario, input.numero));
-    await exigirLeadDoCorretor(ctx.user, da.find(m => m.leadId)?.leadId);
+    await exigirLeadDoCorretor(ctx.user, (await vinculoManual(conn.id, input.numero)) ?? da.find(m => m.leadId)?.leadId);
     if (!da.length) return { apagadas: 0 };
     const naDrive = await db.select({ driveFileId: whatsappMidias.driveFileId }).from(whatsappMidias)
       .where(inArray(whatsappMidias.messageId, da.map(m => m.id)));
@@ -462,6 +563,99 @@ export const whatsappRouter = router({
     // Pedido de 29/10: as cópias das mídias no Drive vão para a lixeira depois.
     for (const m of naDrive) await lixeiraDoArquivo(m.driveFileId);
     return { apagadas: da.length };
+  }),
+
+  /** Lote 03, correção 01: prévia da exclusão em lote (quantas conversas e mensagens). */
+  previaExclusaoConversas: protectedProcedure.input(z.object({ numeros: z.array(z.string().min(8).max(20)).min(1).max(500) })).query(async ({ ctx, input }) => {
+    exigirAcessoConversas(ctx);
+    const conn = await conexaoParaPapel(ctx.user.id, ctx.user.role);
+    if (!conn) return { conversas: 0, mensagens: 0 };
+    const p = await planoExclusaoConversas(ctx.user, conn.id, input.numeros);
+    return { conversas: p.conversas, mensagens: p.mensagens };
+  }),
+
+  /**
+   * Lote 03, correção 01: exclusão em lote — numa transação, apaga só as mensagens (e mídias, por cascata;
+   * as cópias no Drive vão para a lixeira depois)
+   * das conversas escolhidas, nesta conexão. Não apaga no celular (a integração não permite), não toca em
+   * leads, documentos nem vínculos. Auditoria: log estruturado sem dados pessoais (quem, quantas, quando).
+   */
+  excluirConversas: protectedProcedure.input(z.object({ numeros: z.array(z.string().min(8).max(20)).min(1).max(500) })).mutation(async ({ ctx, input }) => {
+    exigirAcessoConversas(ctx);
+    const conn = await conexaoParaPapel(ctx.user.id, ctx.user.role);
+    if (!conn) throw new TRPCError({ code: "BAD_REQUEST", message: "WhatsApp não está conectado." });
+    const p = await planoExclusaoConversas(ctx.user, conn.id, input.numeros);
+    if (!p.ids.length) return { conversas: 0, apagadas: 0 };
+    // Revisão do PR #180 (P2): como em excluirConversa, as cópias das mídias no Drive são coletadas antes
+    // (whatsapp_midias sai por cascata) e vão para a lixeira depois da transação (falha → drive_trash_queue).
+    const naDrive = await getDb().transaction(async tx => {
+      const ids: (string | null)[] = [];
+      for (let i = 0; i < p.ids.length; i += 1000) {
+        const lote = p.ids.slice(i, i + 1000);
+        ids.push(...(await tx.select({ driveFileId: whatsappMidias.driveFileId }).from(whatsappMidias)
+          .where(and(inArray(whatsappMidias.messageId, lote), isNotNull(whatsappMidias.driveFileId)))).map(m => m.driveFileId));
+        await tx.delete(whatsappMessages).where(and(eq(whatsappMessages.connectionId, conn.id), inArray(whatsappMessages.id, lote)));
+      }
+      return ids;
+    });
+    for (const driveFileId of Array.from(new Set(naDrive))) await lixeiraDoArquivo(driveFileId);
+    console.info(JSON.stringify({ evento: "whatsapp.conversas_excluidas", usuarioId: ctx.user.id, papel: ctx.user.role, conexaoId: conn.id, conversas: p.conversas, mensagens: p.mensagens, em: new Date().toISOString() }));
+    return { conversas: p.conversas, apagadas: p.mensagens };
+  }),
+
+  /**
+   * Lote 03, correção 02: candidatos para vincular a conversa — leads ativos (corretor: os próprios), por
+   * nome, telefone normalizado ou CPF. Sem termo, traz os que têm o mesmo telefone da conversa.
+   */
+  buscarLeadsParaVincular: protectedProcedure.input(z.object({ numero: z.string().min(8).max(20), termo: z.string().max(100).default("") })).query(async ({ ctx, input }) => {
+    exigirAcessoConversas(ctx);
+    const lista = await getDb().select({ id: leads.id, nome: leads.name, telefone: leads.phone, cpf: leads.cpf }).from(leads)
+      .where(and(isNull(leads.deletedAt), ctx.user.role === "corretor" ? eq(leads.brokerId, ctx.user.id) : undefined));
+    return candidatosVinculo(lista, input.termo, input.numero);
+  }),
+
+  /** Lote 03, correção 02: vincula (ou troca) o lead da conversa. Não altera o cadastro do lead. */
+  vincularLead: protectedProcedure.input(z.object({ numero: z.string().min(8).max(20), leadId: z.number().int().positive() })).mutation(async ({ ctx, input }) => {
+    exigirAcessoConversas(ctx);
+    const conn = await conexaoParaPapel(ctx.user.id, ctx.user.role);
+    if (!conn) throw new TRPCError({ code: "BAD_REQUEST", message: "WhatsApp não está conectado." });
+    const phoneKey = chaveTelefone(input.numero);
+    if (phoneKey.length < 10) throw new TRPCError({ code: "BAD_REQUEST", message: "Número da conversa inválido." });
+    const db = getDb();
+    const [lead] = await db.select({ id: leads.id, brokerId: leads.brokerId }).from(leads).where(and(eq(leads.id, input.leadId), isNull(leads.deletedAt))).limit(1);
+    if (!lead) throw new TRPCError({ code: "NOT_FOUND", message: "Lead não encontrado ou excluído do CRM." });
+    if (ctx.user.role === "corretor" && lead.brokerId !== ctx.user.id) throw new TRPCError({ code: "FORBIDDEN", message: "Esse lead é de outro corretor." });
+    const msgs = await db.select({ id: whatsappMessages.id, destinatario: whatsappMessages.destinatario, leadId: whatsappMessages.leadId })
+      .from(whatsappMessages).where(eq(whatsappMessages.connectionId, conn.id));
+    const da = msgs.filter(m => chaveTelefone(m.destinatario) === phoneKey);
+    // Corretor não "toma" conversa já vinculada a lead de outro corretor.
+    await exigirLeadDoCorretor(ctx.user, (await vinculoManual(conn.id, input.numero)) ?? da.find(m => m.leadId)?.leadId);
+    await db.transaction(async tx => {
+      await tx.insert(whatsappConversationLinks).values({ connectionId: conn.id, phoneKey, leadId: lead.id, linkedBy: ctx.user.id })
+        .onConflictDoUpdate({ target: [whatsappConversationLinks.connectionId, whatsappConversationLinks.phoneKey], set: { leadId: lead.id, linkedBy: ctx.user.id, linkedAt: new Date() } });
+      if (da.length) await tx.update(whatsappMessages).set({ leadId: lead.id }).where(inArray(whatsappMessages.id, da.map(m => m.id)));
+    });
+    return { leadId: lead.id };
+  }),
+
+  /** Lote 03, correção 02: desfaz o vínculo manual; a conversa volta a ser identificada pelo telefone. */
+  desvincularLead: protectedProcedure.input(z.object({ numero: z.string().min(8).max(20) })).mutation(async ({ ctx, input }) => {
+    exigirAcessoConversas(ctx);
+    const conn = await conexaoParaPapel(ctx.user.id, ctx.user.role);
+    if (!conn) throw new TRPCError({ code: "BAD_REQUEST", message: "WhatsApp não está conectado." });
+    const phoneKey = chaveTelefone(input.numero);
+    const manual = await vinculoManual(conn.id, input.numero);
+    if (!manual) return { ok: true };
+    await exigirLeadDoCorretor(ctx.user, manual);
+    const db = getDb();
+    const msgs = await db.select({ id: whatsappMessages.id, destinatario: whatsappMessages.destinatario, leadId: whatsappMessages.leadId })
+      .from(whatsappMessages).where(eq(whatsappMessages.connectionId, conn.id));
+    const ids = msgs.filter(m => chaveTelefone(m.destinatario) === phoneKey && m.leadId === manual).map(m => m.id);
+    await db.transaction(async tx => {
+      await tx.delete(whatsappConversationLinks).where(and(eq(whatsappConversationLinks.connectionId, conn.id), eq(whatsappConversationLinks.phoneKey, phoneKey)));
+      if (ids.length) await tx.update(whatsappMessages).set({ leadId: null }).where(inArray(whatsappMessages.id, ids));
+    });
+    return { ok: true };
   }),
 
   /** Pedido de 25/10 (noite): tenta de novo baixar a mídia da Evolution (falhou ou chegou antes do servidor). */
@@ -475,11 +669,18 @@ export const whatsappRouter = router({
   }),
 
   /** Contato novo da conversa vira lead (nome do WhatsApp + telefone) e as mensagens passam a apontar para ele. */
-  criarLeadDaConversa: protectedProcedure.input(z.object({ numero: z.string().min(8).max(20), nome: z.string().trim().max(255).optional() })).mutation(async ({ ctx, input }) => {
+  // Lote 03, correção 02: antes de criar, avisa se já há lead ativo com o mesmo telefone (evita duplicado);
+  // a tela oferece "Vincular lead" e só cria com `forcar`. O lead criado já fica vinculado à conversa.
+  criarLeadDaConversa: protectedProcedure.input(z.object({ numero: z.string().min(8).max(20), nome: z.string().trim().max(255).optional(), forcar: z.boolean().optional() })).mutation(async ({ ctx, input }) => {
     if (ctx.user.role !== "corretor") requireModule(ctx, "whatsapp");
     const conn = await conexaoParaPapel(ctx.user.id, ctx.user.role);
     if (!conn) throw new TRPCError({ code: "BAD_REQUEST", message: "WhatsApp não está conectado." });
     const db = getDb();
+    if (!input.forcar) {
+      const ativos = await db.select({ id: leads.id, phone: leads.phone }).from(leads).where(isNull(leads.deletedAt));
+      const iguais = ativos.filter(l => mesmoTelefone(l.phone, input.numero)).length;
+      if (iguais) throw new TRPCError({ code: "CONFLICT", message: `Já existe ${iguais === 1 ? "um lead" : `${iguais} leads`} com este telefone no CRM. Use "Vincular lead" para não duplicar.` });
+    }
     const d = input.numero.replace(/\D/g, "").replace(/^55/, "");
     const [lead] = await db.insert(leads).values({
       name: input.nome || `WhatsApp ${d}`, phone: d,
@@ -488,6 +689,11 @@ export const whatsappRouter = router({
     const msgs = await db.select({ id: whatsappMessages.id, destinatario: whatsappMessages.destinatario }).from(whatsappMessages).where(eq(whatsappMessages.connectionId, conn.id));
     const ids = msgs.filter(m => mesmoTelefone(m.destinatario, input.numero)).map(m => m.id);
     if (ids.length) await db.update(whatsappMessages).set({ leadId: lead.id }).where(inArray(whatsappMessages.id, ids));
+    const phoneKey = chaveTelefone(input.numero);
+    if (phoneKey.length >= 10) {
+      await db.insert(whatsappConversationLinks).values({ connectionId: conn.id, phoneKey, leadId: lead.id, linkedBy: ctx.user.id })
+        .onConflictDoUpdate({ target: [whatsappConversationLinks.connectionId, whatsappConversationLinks.phoneKey], set: { leadId: lead.id, linkedBy: ctx.user.id, linkedAt: new Date() } });
+    }
     return { leadId: lead.id };
   }),
 
@@ -497,7 +703,8 @@ export const whatsappRouter = router({
     if (!conn || conn.status !== "conectado") throw new TRPCError({ code: "BAD_REQUEST", message: "WhatsApp não está conectado." });
     const db = getDb();
     const todos = await db.select({ id: leads.id, nome: leads.name, phone: leads.phone, brokerId: leads.brokerId }).from(leads);
-    const lead = todos.find(l => mesmoTelefone(l.phone, input.numero));
+    const manual = await vinculoManual(conn.id, input.numero);
+    const lead = (manual ? todos.find(l => l.id === manual) : undefined) ?? todos.find(l => mesmoTelefone(l.phone, input.numero));
     if (ctx.user.role === "corretor" && lead && lead.brokerId !== ctx.user.id) throw new TRPCError({ code: "FORBIDDEN", message: "Conversa de outro corretor." });
     let externalId: string | null = null;
     if (conn.provider === "evolution" && conn.instancia) {

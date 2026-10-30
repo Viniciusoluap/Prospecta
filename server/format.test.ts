@@ -31,12 +31,13 @@ describe("formatCurrency", () => {
 });
 
 describe("formatPercent", () => {
-  it("formata um percentual já na escala percentual (6 -> '6%')", () => {
-    expect(formatPercent(6)).toBe("6%");
+  it("formata um percentual já na escala percentual com 2 casas (6 -> '6,00%') — padrão lote 3", () => {
+    expect(formatPercent(6)).toBe("6,00%");
   });
 
   it("formata com casas decimais quando houver", () => {
-    expect(formatPercent(9.5)).toBe("9,5%");
+    expect(formatPercent(9.5)).toBe("9,50%");
+    expect(formatPercent(1234.5)).toBe("1.234,50%");
   });
 
   it("respeita maximumFractionDigits customizado", () => {
@@ -44,11 +45,11 @@ describe("formatPercent", () => {
   });
 
   it("trata NaN/Infinity como zero", () => {
-    expect(formatPercent(NaN)).toBe("0%");
-    expect(formatPercent(Infinity)).toBe("0%");
+    expect(formatPercent(NaN)).toBe("0,00%");
+    expect(formatPercent(Infinity)).toBe("0,00%");
   });
 
   it("formata zero", () => {
-    expect(formatPercent(0)).toBe("0%");
+    expect(formatPercent(0)).toBe("0,00%");
   });
 });

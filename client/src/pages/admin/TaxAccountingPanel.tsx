@@ -123,7 +123,7 @@ export default function TaxAccountingPanel() {
         cálculo oficial do tributo.
       </div>
 
-      <div className="grid gap-4 md:grid-cols-4">
+      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <Card className="bg-[#2C3E50] border-[#C9A961]/20 text-gray-100">
           <CardContent className="pt-6">
             <p className="text-xs text-gray-300">Regime vigente</p>
@@ -179,7 +179,7 @@ export default function TaxAccountingPanel() {
               <Building2 className="mr-2 h-4 w-4" /> Configurar tributação
             </Button>
           </DialogTrigger>
-          <DialogContent className="bg-[#1A2332] border-[#C9A961]/20 text-white">
+          <DialogContent className="bg-[#1A2332] border-[#C9A961]/20 text-white sm:max-w-2xl">
             <DialogHeader>
               <DialogTitle className="text-[#C9A961]">
                 Configuração tributária
@@ -292,7 +292,7 @@ export default function TaxAccountingPanel() {
               <CalendarClock className="mr-2 h-4 w-4" /> Nova obrigação
             </Button>
           </DialogTrigger>
-          <DialogContent className="bg-[#1A2332] border-[#C9A961]/20 text-white">
+          <DialogContent className="bg-[#1A2332] border-[#C9A961]/20 text-white sm:max-w-2xl">
             <DialogHeader>
               <DialogTitle className="text-[#C9A961]">
                 Obrigação tributária
@@ -389,7 +389,7 @@ export default function TaxAccountingPanel() {
               <BadgeDollarSign className="mr-2 h-4 w-4" /> Novo RET
             </Button>
           </DialogTrigger>
-          <DialogContent className="bg-[#1A2332] border-[#C9A961]/20 text-white">
+          <DialogContent className="bg-[#1A2332] border-[#C9A961]/20 text-white sm:max-w-2xl">
             <DialogHeader>
               <DialogTitle className="text-[#C9A961]">
                 Empreendimento e RET

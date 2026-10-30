@@ -3,7 +3,8 @@
 import { createHmac, timingSafeEqual } from "node:crypto";
 import type { Request, Response } from "express";
 import { and, eq } from "drizzle-orm";
-import { leads, userNotifications, whatsappConnections, whatsappMessages } from "../drizzle/schema.js";
+import { leads, userNotifications, whatsappConnections, whatsappConversationLinks, whatsappMessages } from "../drizzle/schema.js";
+import { chaveTelefone } from "../shared/whatsapp/conversas.js";
 import { ENV } from "./_core/env.js";
 import { LIMITE_MIDIA, mesmoTelefone, midiaDaMensagem, textoDaMensagem } from "./_core/evolution.js";
 import { normalizarStatusWebhook } from "./_core/whatsapp-business.js";
@@ -66,7 +67,10 @@ export async function processarEventoEvolution(ev: Evento): Promise<string> {
       const numero = jid.split("@")[0];
       const deMim = Boolean(d?.key?.fromMe);
       const todos = await db.select({ id: leads.id, nome: leads.name, phone: leads.phone }).from(leads);
-      const lead = todos.find(l => mesmoTelefone(l.phone, numero));
+      // Lote 03, correção 02: o vínculo manual da conversa vale mais que o telefone.
+      const [vinculo] = await db.select({ leadId: whatsappConversationLinks.leadId }).from(whatsappConversationLinks)
+        .where(and(eq(whatsappConversationLinks.connectionId, conn.id), eq(whatsappConversationLinks.phoneKey, chaveTelefone(numero)))).limit(1);
+      const lead = (vinculo ? todos.find(l => l.id === vinculo.leadId) : undefined) ?? todos.find(l => mesmoTelefone(l.phone, numero));
       const midia = midiaDaMensagem(d?.message);
       const [gravada] = await db.insert(whatsappMessages).values({
         connectionId: conn.id, leadId: lead?.id ?? null, destinatario: numero,

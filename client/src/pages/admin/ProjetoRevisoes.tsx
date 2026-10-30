@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
+import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
 import { trpc } from "@/lib/trpc";
 import { uploadProjectDocument } from "@/lib/project-upload";
 import { LIMITE_PEDIDO_REVISAO, ROTULO_SITUACAO_REVISAO, rotuloCanal, validarPedidoRevisao, type SituacaoRevisao } from "@shared/projeto-revisao";
@@ -15,9 +16,10 @@ export function SolicitarRevisaoModal({ projeto, onClose }: { projeto: { id: num
   const solicitar = trpc.projetos.solicitarRevisao.useMutation();
   const utils = trpc.useUtils();
   return (
-    <div className="fixed inset-0 z-50 overflow-y-auto bg-black/60 p-4" role="dialog" aria-modal="true" aria-label="Solicitar revisão">
+    <Dialog open onOpenChange={aberto => { if (!aberto && !solicitar.isPending) onClose(); }}>
+      <DialogContent aria-label="Solicitar revisão" className="bg-white text-slate-900 sm:max-w-xl">
       <form
-        className="mx-auto my-10 max-w-xl space-y-3 rounded bg-white p-6 text-slate-900"
+        className="space-y-3"
         onSubmit={async e => {
           e.preventDefault();
           try {
@@ -31,8 +33,8 @@ export function SolicitarRevisaoModal({ projeto, onClose }: { projeto: { id: num
           }
         }}
       >
-        <h2 className="text-xl font-bold">Solicitar revisão — {projeto.name}</h2>
-        <p className="text-sm text-slate-600">Colaborador vinculado: {projeto.engineer.trim() || "nenhum (o pedido será salvo, mas ninguém será notificado)"}</p>
+        <DialogTitle className="text-xl font-bold">Solicitar revisão — {projeto.name}</DialogTitle>
+        <DialogDescription className="text-sm text-slate-600">Colaborador vinculado: {projeto.engineer.trim() || "nenhum (o pedido será salvo, mas ninguém será notificado)"}</DialogDescription>
         <label className="block text-sm font-semibold" htmlFor="pedido-revisao">Modificação solicitada</label>
         <textarea id="pedido-revisao" className={`${inputClass} min-h-40`} maxLength={LIMITE_PEDIDO_REVISAO} value={texto} onChange={e => setTexto(e.target.value)} required />
         <p className="text-xs text-slate-500">{texto.length}/{LIMITE_PEDIDO_REVISAO}</p>
@@ -41,7 +43,8 @@ export function SolicitarRevisaoModal({ projeto, onClose }: { projeto: { id: num
           <Button type="submit" disabled={solicitar.isPending}>{solicitar.isPending ? "Salvando…" : "Enviar pedido"}</Button>
         </div>
       </form>
-    </div>
+      </DialogContent>
+    </Dialog>
   );
 }
 

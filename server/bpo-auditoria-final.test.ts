@@ -26,7 +26,8 @@ afterEach(async () => { await pg.close(); });
 describe("limpeza financeira por origem", () => {
   it("remove somente derivado exclusivo do extrato, preservando manual conciliado, Asaas, operação e outra conta", async () => {
     expect(await previaLimpezaConta(1)).toMatchObject({ transacoes: 4, lancamentosRemovidos: 1, lancamentosPreservados: 3 });
-    await limparContaComBackup(1, "Cora · 123", 9);
+    const r = await limparContaComBackup(1, "EXCLUIR", 9);
+    expect(r).toMatchObject({ excluidaPorUserId: 9, lancamentosRemovidos: 1, lancamentosPreservados: 3 });
     expect((await pg.query("select id,bank_transaction_id from bpo_lancamentos order by id")).rows).toEqual([
       { id: 2, bank_transaction_id: null }, { id: 3, bank_transaction_id: null }, { id: 4, bank_transaction_id: null }, { id: 5, bank_transaction_id: 5 },
     ]);
@@ -34,9 +35,12 @@ describe("limpeza financeira por origem", () => {
     expect(JSON.parse(backup.snapshot_json).lancamentos).toHaveLength(4);
     expect((await pg.query("select id from bank_accounts")).rows).toEqual([{ id: 2 }]);
   });
-  it("confirmação incorreta não altera dados", async () => {
-    await expect(limparContaComBackup(1, "Outra", 9)).rejects.toThrow(/exatamente/);
+  it("13B: só aceita EXCLUIR (case-sensitive, sem acento); outra confirmação não altera dados", async () => {
+    for (const errado of ["Cora · 123", "excluir", "Excluir", "EXCLUÍR", ""]) {
+      await expect(limparContaComBackup(1, errado, 9)).rejects.toThrow(/EXCLUIR/);
+    }
     expect((await pg.query("select count(*)::int n from bank_transactions")).rows[0]).toEqual({ n: 5 });
+    expect((await pg.query("select count(*)::int n from bpo_conta_limpeza_backups")).rows[0]).toEqual({ n: 0 });
   });
   it("despesa de comissão usa imóveis; receita usa comissões", () => {
     expect(catalogoDaCategoria("despesa", "comissoes")).toBe("imoveis");

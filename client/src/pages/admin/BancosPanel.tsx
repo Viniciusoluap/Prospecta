@@ -15,6 +15,7 @@ import { toast } from "sonner";
 import { FileUp, Landmark, Plus, RefreshCw, Trash2, ListOrdered, Repeat } from "lucide-react";
 import { CATEGORIAS_BPO, TRANSFERENCIA_INTERNA, type CategoriaBpo } from "@shared/financeiro/bpo-extrato";
 import { extensaoExtratoValida } from "@shared/extrato-import";
+import { CONFIRMACAO_EXCLUSAO, confirmacaoExclusaoValida } from "@shared/financeiro/bpo-lote";
 
 const campo = "bg-[#2C3E50] border-[#C9A961]/30 text-white mt-1";
 const botaoSec = "h-7 text-xs border-[#C9A961]/30 text-[#C9A961]";
@@ -69,7 +70,7 @@ export default function BancosPanel() {
     onSuccess: () => { toast.success("Conta atualizada."); setEdit(null); invalidar(); },
     onError: e => toast.error(e.message),
   });
-  const remover = trpc.bancario.contas.delete.useMutation({ onSuccess: () => { toast.success("Conta removida."); invalidar(); } });
+  const remover = trpc.bancario.contas.delete.useMutation();
   const [limpeza, setLimpeza] = useState<any | null>(null);
   const [confirmacaoLimpeza, setConfirmacaoLimpeza] = useState("");
   async function abrirLimpeza(id: number) {
@@ -198,7 +199,7 @@ export default function BancosPanel() {
                             <input type="checkbox" checked={aplicarTitular} onChange={e => setAplicarTitular(e.target.checked)} />
                             Aplicar a todas deste titular (as próximas importações e sincronizações seguem a mesma classificação)
                           </label>
-                          <table className="w-full text-xs">
+                          <table className="w-full min-w-[640px] text-xs">
                             <thead className="sticky top-0 bg-[#1A2332]">
                               <tr className="text-gray-300 text-left">
                                 <th className="p-1">Data</th><th className="p-1">Descrição</th><th className="p-1">Titular</th><th className="p-1">Categoria</th>
@@ -255,20 +256,23 @@ export default function BancosPanel() {
         <DialogContent className="bg-[#1A2332] border-[#C9A961]/20 text-white">
           <DialogHeader><DialogTitle className="text-red-300">Excluir conta e dados importados</DialogTitle></DialogHeader>
           {limpeza && <div className="space-y-4 text-sm">
-            <p>Será criado um backup lógico antes da limpeza. Cobranças do Asaas e lançamentos já usados em Obras/Regularizações serão preservados e apenas desconciliados.</p>
+            {/* Lote 3, item 13B: prévia completa + confirmação digitando EXCLUIR; o backup registra usuário e data. */}
+            <p>Conta: <strong>{limpeza.contaRotulo}</strong></p>
             <div className="rounded border border-white/10 p-3 space-y-1">
-              <p><strong>{limpeza.transacoes}</strong> movimentações bancárias</p>
-              <p><strong>{limpeza.lancamentosRemovidos}</strong> lançamentos exclusivamente importados serão removidos</p>
-              <p><strong>{limpeza.lancamentosPreservados}</strong> lançamentos legítimos serão preservados</p>
+              <p><strong>{limpeza.transacoes}</strong> movimentação(ões) bancária(s) serão removidas</p>
+              <p><strong>{limpeza.lancamentosRemovidos}</strong> lançamento(s) exclusivamente importado(s) do extrato serão removidos</p>
+              <p><strong>{limpeza.lancamentosPreservados}</strong> lançamento(s) serão preservados (Asaas, manuais, com vínculo operacional ou usados em Obras/Regularizações) — apenas desconciliados</p>
+              <p><strong>{limpeza.vinculosOperacionais}</strong> vínculo(s) com Obras/Regularizações serão mantidos</p>
             </div>
-            <Label>Digite exatamente: <strong>{limpeza.contaRotulo}</strong></Label>
-            <Input value={confirmacaoLimpeza} onChange={e => setConfirmacaoLimpeza(e.target.value)} className={campo} />
-            <Button className="w-full bg-red-700 hover:bg-red-800" disabled={remover.isPending || confirmacaoLimpeza !== limpeza.contaRotulo}
-              onClick={() => remover.mutate({ id: limpeza.contaId, confirmarRotulo: confirmacaoLimpeza }, { onSuccess: r => {
-                toast.success(`Limpeza concluída. Backup #${r.backupId}; ${r.lancamentosPreservados} lançamento(s) preservado(s).`);
+            <p className="text-xs text-gray-300">Antes de remover, é gravado um backup (conta, movimentações e lançamentos) com o seu usuário e a data, para auditoria e recuperação. A credencial da conta não entra no backup.</p>
+            <Label>Para confirmar, digite <strong>{CONFIRMACAO_EXCLUSAO}</strong></Label>
+            <Input value={confirmacaoLimpeza} onChange={e => setConfirmacaoLimpeza(e.target.value)} autoComplete="off" className={campo} />
+            <Button className="w-full bg-red-700 hover:bg-red-800" disabled={remover.isPending || !confirmacaoExclusaoValida(confirmacaoLimpeza)}
+              onClick={() => remover.mutate({ id: limpeza.contaId, confirmacao: confirmacaoLimpeza }, { onSuccess: r => {
+                toast.success(`Conta excluída. Backup #${r.backupId} registrado em ${new Date(r.excluidaEm).toLocaleString("pt-BR")}; ${r.lancamentosPreservados} lançamento(s) preservado(s).`);
                 setLimpeza(null); invalidar();
               }, onError: e => toast.error(e.message) })}>
-              {remover.isPending ? "Criando backup e limpando..." : "Confirmar limpeza segura"}
+              {remover.isPending ? "Criando backup e excluindo..." : "Excluir conta com backup"}
             </Button>
           </div>}
         </DialogContent>
@@ -290,7 +294,7 @@ export default function BancosPanel() {
               <p className="text-xs text-gray-300 mt-1">Contas do Meu Pluggy entram por <Link href="/admin/integracoes" className="underline text-[#C9A961]">Configurações › Integrações</Link> (bloco Pluggy).</p>
             </div>
             <div><Label className="text-gray-300">Banco *</Label><Input value={nova.banco} onChange={e => setNova(n => ({ ...n, banco: e.target.value }))} className={campo} placeholder="ex.: Cora" /></div>
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <div><Label className="text-gray-300">Conta</Label><Input value={nova.conta} onChange={e => setNova(n => ({ ...n, conta: e.target.value }))} className={campo} /></div>
               <div><Label className="text-gray-300">Descrição</Label><Input value={nova.descricao} onChange={e => setNova(n => ({ ...n, descricao: e.target.value }))} className={campo} placeholder="ex.: Conta PJ" /></div>
             </div>
@@ -358,8 +362,8 @@ export default function BancosPanel() {
                   ? <>Saldo informado no arquivo: <b>{formatCurrency(previa.saldoFinal)}</b> (vira o saldo da conta).</>
                   : "O arquivo não traz saldo: o saldo da conta será calculado pelas movimentações."}
               </p>
-              <div className="max-h-96 overflow-y-auto border border-[#C9A961]/10 rounded">
-                <table className="w-full text-xs">
+              <div className="max-h-96 overflow-auto border border-[#C9A961]/10 rounded">
+                <table className="w-full min-w-[560px] text-xs">
                   <thead className="sticky top-0 bg-[#1A2332]"><tr className="text-gray-300"><th className="text-left p-1">Data</th><th className="text-left p-1">Descrição</th><th className="text-left p-1">Titular</th><th className="text-right p-1">Valor</th></tr></thead>
                   <tbody>
                     {previa.linhas.slice(0, 500).map((l, i) => (

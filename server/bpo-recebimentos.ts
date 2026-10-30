@@ -1,6 +1,7 @@
-import { sql } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import { getDb } from "./db.js";
-import type { BpoLancamento } from "../drizzle/schema.js";
+import { bpoLancamentos, type BpoLancamento } from "../drizzle/schema.js";
+import { exigirNaoCombinada } from "../shared/financeiro/bpo-lote.js";
 
 export async function registrarRecebimento(input: { id: number; requestKey: string; valor: number; recebidoEm: Date; observacoes?: string }, userId: number): Promise<BpoLancamento> {
   const cents = Math.round(input.valor * 100);
@@ -13,7 +14,7 @@ export async function registrarRecebimento(input: { id: number; requestKey: stri
     novo AS (
       INSERT INTO bpo_recebimentos(lancamento_id,request_key,valor,recebido_em,registrado_por_user_id,observacoes)
       SELECT a.id, ${input.requestKey}, ${valor}::numeric, ${input.recebidoEm}, ${userId}, ${input.observacoes ?? null}
-      FROM anterior a WHERE a.tipo <> 'despesa' AND a.asaas_payment_id IS NULL AND a.bank_transaction_id IS NULL AND NOT a.pago
+      FROM anterior a WHERE a.tipo <> 'despesa' AND a.combinada_em_id IS NULL AND a.asaas_payment_id IS NULL AND a.bank_transaction_id IS NULL AND NOT a.pago
         AND a.valor_recebido + ${valor}::numeric <= a.valor AND NOT EXISTS(SELECT 1 FROM existente)
       ON CONFLICT(request_key) DO NOTHING RETURNING *
     ), atualizado AS (
@@ -31,7 +32,12 @@ export async function registrarRecebimento(input: { id: number; requestKey: stri
       (SELECT row_to_json(a) FROM anterior a WHERE EXISTS(SELECT 1 FROM existente e WHERE e.lancamento_id = a.id AND e.valor = ${valor}::numeric))) AS registro
   `);
   const row = r.rows?.[0] as { registro?: Record<string, unknown> } | undefined;
-  if (!row?.registro) throw new Error("Recebimento não registrado: confira o saldo, a origem e a chave de envio. O valor não pode superar o saldo da cobrança.");
+  if (!row?.registro) {
+    // Original de "Combinar pagamentos" (lista antiga aberta): mensagem específica.
+    const [l] = await getDb().select({ combinadaEmId: bpoLancamentos.combinadaEmId }).from(bpoLancamentos).where(eq(bpoLancamentos.id, input.id)).limit(1);
+    if (l) exigirNaoCombinada(l);
+    throw new Error("Recebimento não registrado: confira o saldo, a origem e a chave de envio. O valor não pode superar o saldo da cobrança.");
+  }
   const registro = Object.fromEntries(Object.entries(row.registro).map(([key, value]) => [key.replace(/_([a-z])/g, (_, letter: string) => letter.toUpperCase()), value]));
   // row_to_json encodes numeric as JSON numbers; retain Drizzle's decimal/date contract.
   for (const key of ["valor", "valorRecebido"]) registro[key] = Number(registro[key]).toFixed(2);

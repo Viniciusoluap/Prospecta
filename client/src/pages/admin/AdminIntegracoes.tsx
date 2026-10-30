@@ -10,7 +10,6 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { ConexaoWhatsApp } from "@/components/whatsapp/ConexaoWhatsApp";
 import { SubPciAtual } from "@/components/admin/SubPciAtual";
 
 type Servico = "asaas" | "pluggy" | "whatsapp";
@@ -181,7 +180,7 @@ export default function AdminIntegracoes() {
             titulo="WhatsApp — servidor da Evolution (QR code)"
             servico="whatsapp"
             salvo={<p>{whatsapp?.configurado ? `Endereço ${whatsapp.url} · chave terminando em ${whatsapp.final}${FONTE(whatsapp.fonte)}.` : "Endereço e chave do servidor não salvos."}</p>}
-            extra={<p className="text-xs text-gray-300">A conexão do número (QR code) fica logo abaixo; conversas e envios: <Link href="/admin/whatsapp" className="underline text-[#C9A961]">Central WhatsApp</Link>.</p>}
+            extra={<p className="text-xs text-gray-300">A conexão do número (QR code), as conexões dos corretores, as conversas e os envios ficam na <Link href="/admin/whatsapp?aba=conexao" className="underline text-[#C9A961]">Central WhatsApp</Link>.</p>}
             campos={[
               { nome: "url", rotulo: "Endereço do servidor", placeholder: "https://evolution-xxxx.up.railway.app" },
               { nome: "apiKey", rotulo: "Chave de acesso (AUTHENTICATION_API_KEY)", segredo: true },
@@ -189,8 +188,7 @@ export default function AdminIntegracoes() {
             salvando={salvarEvolution.isPending}
             onSalvar={v => salvarEvolution.mutateAsync({ url: v.url ?? "", apiKey: v.apiKey ?? "" })}
           />
-          {/* Item 12 (25/10 noite): conexão do WhatsApp da empresa e dos corretores, saiu da Central. */}
-          <ConexaoWhatsApp role="admin" />
+          {/* Lote 03, correção 09: "Minha Conexão WhatsApp" e "Conexões dos Corretores" ficam só na Central WhatsApp (aba Minha conexão). */}
           <SubPciAtual />
         </>}
       </main>

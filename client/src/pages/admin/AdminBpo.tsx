@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Link } from "wouter";
 import { trpc } from "@/lib/trpc";
 import { Button } from "@/components/ui/button";
@@ -37,17 +37,14 @@ import {
 import TaxAccountingPanel from "./TaxAccountingPanel";
 import AdminRelatorios from "./AdminRelatorios";
 import BancosPanel from "./BancosPanel";
+import { CamposCategoriaLancamento, categoriaLancamentoCompleta } from "@/components/bpo/CamposCategoriaLancamento";
+import { SugerirVinculosDialog, VinculoClienteLancamento } from "@/components/bpo/VinculoClienteLancamento";
+import { BarraLote } from "@/components/bpo/LoteLancamentos";
 import { rotulo } from "@shared/rotulos";
-import { CATEGORIAS_BPO, TRANSFERENCIA_INTERNA, recebidoDoLancamento } from "@shared/financeiro/bpo-extrato";
+import { MESES_DRE, TRANSFERENCIA_INTERNA, recebidoDoLancamento } from "@shared/financeiro/bpo-extrato";
 import { situacaoDoLancamento } from "@shared/financeiro/bpo-asaas";
-import {
-  CATEGORIAS_DESPESA_OPERACIONAL, CATEGORIAS_RECEITA_OPERACIONAL,
-  ROTULOS_CATEGORIA_OPERACIONAL, TIPOS_DESPESA_OBRA,
-  catalogoDaCategoria,
-} from "@shared/financeiro/bpo-operacional";
+import { ROTULOS_CATEGORIA_OPERACIONAL, catalogoDaCategoria } from "@shared/financeiro/bpo-operacional";
 
-// Pedido de 25/10 (noite), item 11: categorias do "+ Lançamento" (transferência interna não é receita nem despesa).
-const CATEGORIAS_LANCAMENTO = CATEGORIAS_BPO.filter(c => c !== TRANSFERENCIA_INTERNA);
 const SITUACAO: Record<string, { texto: string; cor: string }> = {
   pago: { texto: "PAGO", cor: "text-green-500" },
   vencido: { texto: "VENCIDO", cor: "text-red-400" },
@@ -88,12 +85,10 @@ const emptyLancamentoForm = {
   clienteId: "",
   clienteNomeLivre: "",
   tipo: "cobranca" as "cobranca" | "despesa",
-  categoria: "",
   descricao: "",
   valor: "",
   vencimento: "",
   competencia: "",
-  centroCustos: "",
   categoriaOperacional: "",
   vinculoOperacionalId: "",
   tipoDespesaObra: "",
@@ -125,12 +120,22 @@ export default function AdminBpo({ initialTab }: { initialTab?: Aba } = {}) {
   const [requestKey, setRequestKey] = useState(() => crypto.randomUUID());
   const [clienteAberto, setClienteAberto] = useState<number | null>(null);
   const [dreVisao, setDreVisao] = useState<"competencia" | "categoria">("competencia");
+  // Lote 3, item 16/17: seleção em lote e ação em massa de vínculos.
+  const [selecionados, setSelecionados] = useState<number[]>([]);
+  const [sugerirVinculosOpen, setSugerirVinculosOpen] = useState(false);
+  useEffect(() => { setSelecionados([]); }, [aba]);
 
   const utils = trpc.useUtils();
   const { data: clientes = [] } = trpc.bpo.clientes.list.useQuery();
   const { data: lancamentos = [] } = trpc.bpo.lancamentos.list.useQuery();
-  const { data: dreRows = [] } = trpc.bpo.dre.useQuery();
-  const { data: dreCategorias = [] } = trpc.bpo.dreCategorias.useQuery();
+  // Lote 3, item 15: filtros Mês/Ano do DRE (competência), aplicados no servidor às duas visões.
+  const [dreMes, setDreMes] = useState("");
+  const [dreAno, setDreAno] = useState("");
+  const filtroDre = { mes: dreMes || null, ano: dreAno || null };
+  const { data: dreRows = [] } = trpc.bpo.dre.useQuery(filtroDre);
+  const { data: dreCategorias = [] } = trpc.bpo.dreCategorias.useQuery(filtroDre);
+  const { data: dreAnos = [] } = trpc.bpo.dreAnos.useQuery();
+  const dreTotal = dreRows.reduce((t: { cobrancas: number; despesas: number }, r: any) => ({ cobrancas: t.cobrancas + Math.round(r.cobrancas * 100), despesas: t.despesas + Math.round(r.despesas * 100) }), { cobrancas: 0, despesas: 0 });
   const { data: catalogoOperacional } = trpc.bpo.lancamentos.catalogoOperacional.useQuery();
 
   const createCliente = trpc.bpo.clientes.create.useMutation({
@@ -246,8 +251,8 @@ export default function AdminBpo({ initialTab }: { initialTab?: Aba } = {}) {
                 </DialogHeader>
                 <div className="space-y-4 mt-4">
                   <p className="text-sm text-gray-300">Cadastro livre para clientes avulsos, fornecedores e terceiros. Para clientes do CRM, utilize Importar clientes.</p>
-                  <div className="grid grid-cols-2 gap-4">
-                    <div className="col-span-2">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <div className="sm:col-span-2">
                       <Label className="text-gray-300">Nome / Razão Social *</Label>
                       <Input
                         value={clienteForm.razaoSocial}
@@ -310,7 +315,7 @@ export default function AdminBpo({ initialTab }: { initialTab?: Aba } = {}) {
                         className="bg-[#2C3E50] border-[#C9A961]/30 text-white mt-1"
                       />
                     </div>
-                    <div className="col-span-2">
+                    <div className="sm:col-span-2">
                       <Label className="text-gray-300">Email</Label>
                       <Input
                         value={clienteForm.email}
@@ -350,7 +355,7 @@ export default function AdminBpo({ initialTab }: { initialTab?: Aba } = {}) {
                         className="bg-[#2C3E50] border-[#C9A961]/30 text-white mt-1"
                       />
                     </div>
-                    <div className="col-span-2">
+                    <div className="sm:col-span-2">
                       <Label className="text-gray-300">Data de início (opcional)</Label>
                       <Input
                         type="date"
@@ -364,7 +369,7 @@ export default function AdminBpo({ initialTab }: { initialTab?: Aba } = {}) {
                         className="bg-[#2C3E50] border-[#C9A961]/30 text-white mt-1"
                       />
                     </div>
-                    <div className="col-span-2">
+                    <div className="sm:col-span-2">
                       <Label className="text-gray-300">Observações</Label>
                       <Textarea
                         value={clienteForm.observacoes}
@@ -415,13 +420,13 @@ export default function AdminBpo({ initialTab }: { initialTab?: Aba } = {}) {
                   </DialogTitle>
                 </DialogHeader>
                 <div className="space-y-4 mt-4">
-                  <div className="grid grid-cols-2 gap-4">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                     <div>
                       <Label className="text-gray-300">Tipo</Label>
                       <Select
                         value={lancamentoForm.tipo}
                         onValueChange={(v: any) =>
-                          setLancamentoForm(f => ({ ...f, tipo: v }))
+                          setLancamentoForm(f => ({ ...f, tipo: v, categoriaOperacional: "", vinculoOperacionalId: "", tipoDespesaObra: "", etapaObra: "" }))
                         }
                       >
                         <SelectTrigger className="bg-[#2C3E50] border-[#C9A961]/30 text-white mt-1">
@@ -433,60 +438,13 @@ export default function AdminBpo({ initialTab }: { initialTab?: Aba } = {}) {
                         </SelectContent>
                       </Select>
                     </div>
-                    <div>
-                      <Label className="text-gray-300">Classificação contábil *</Label>
-                      <Select
-                        value={lancamentoForm.categoria || undefined}
-                        onValueChange={v => setLancamentoForm(f => ({ ...f, categoria: v }))}
-                      >
-                        <SelectTrigger className="bg-[#2C3E50] border-[#C9A961]/30 text-white mt-1">
-                          <SelectValue placeholder="Escolha" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {CATEGORIAS_LANCAMENTO.map(c => <SelectItem key={c} value={c}>{c}</SelectItem>)}
-                        </SelectContent>
-                      </Select>
-                    </div>
-                    <div>
-                      <Label className="text-gray-300">Categoria operacional *</Label>
-                      <Select value={lancamentoForm.categoriaOperacional || undefined} onValueChange={v => setLancamentoForm(f => ({ ...f, categoriaOperacional: v, vinculoOperacionalId: "", tipoDespesaObra: "", etapaObra: "" }))}>
-                        <SelectTrigger className="bg-[#2C3E50] border-[#C9A961]/30 text-white mt-1"><SelectValue placeholder="Escolha" /></SelectTrigger>
-                        <SelectContent>
-                          {(lancamentoForm.tipo === "cobranca" ? CATEGORIAS_RECEITA_OPERACIONAL : CATEGORIAS_DESPESA_OPERACIONAL).map(c => <SelectItem key={c} value={c}>{ROTULOS_CATEGORIA_OPERACIONAL[c]}</SelectItem>)}
-                        </SelectContent>
-                      </Select>
-                    </div>
-                    {lancamentoForm.categoriaOperacional && (
-                      <div className="col-span-2">
-                        <Label className="text-gray-300">Registro vinculado *</Label>
-                        <Select value={lancamentoForm.vinculoOperacionalId || undefined} onValueChange={v => {
-                          const opcoes = (catalogoOperacional?.[catalogoDaCategoria(lancamentoForm.tipo, lancamentoForm.categoriaOperacional) as keyof typeof catalogoOperacional] ?? []) as any[];
-                          const escolhido = opcoes.find(o => o.id === v);
-                          setLancamentoForm(f => ({ ...f, vinculoOperacionalId: v, clienteNomeLivre: escolhido?.clienteNome || f.clienteNomeLivre }));
-                        }}>
-                          <SelectTrigger className="bg-[#2C3E50] border-[#C9A961]/30 text-white mt-1"><SelectValue placeholder="Selecione um cadastro real" /></SelectTrigger>
-                          <SelectContent>{((catalogoOperacional?.[catalogoDaCategoria(lancamentoForm.tipo, lancamentoForm.categoriaOperacional) as keyof typeof catalogoOperacional] ?? []) as any[]).map(o => <SelectItem key={o.id} value={o.id}>{o.rotulo}{o.clienteNome ? ` — ${o.clienteNome}` : ""}</SelectItem>)}</SelectContent>
-                        </Select>
-                      </div>
-                    )}
-                    {lancamentoForm.tipo === "despesa" && lancamentoForm.categoriaOperacional === "obras" && (
-                      <>
-                        <div>
-                          <Label className="text-gray-300">Tipo de despesa *</Label>
-                          <Select value={lancamentoForm.tipoDespesaObra || undefined} onValueChange={v => setLancamentoForm(f => ({ ...f, tipoDespesaObra: v }))}>
-                            <SelectTrigger className="bg-[#2C3E50] border-[#C9A961]/30 text-white mt-1"><SelectValue placeholder="Escolha" /></SelectTrigger>
-                            <SelectContent>{TIPOS_DESPESA_OBRA.map(t => <SelectItem key={t} value={t}>{t.replaceAll("_", " ")}</SelectItem>)}</SelectContent>
-                          </Select>
-                        </div>
-                        <div>
-                          <Label className="text-gray-300">Etapa da obra</Label>
-                          <Select value={lancamentoForm.etapaObra || "none"} onValueChange={v => setLancamentoForm(f => ({ ...f, etapaObra: v === "none" ? "" : v }))}>
-                            <SelectTrigger className="bg-[#2C3E50] border-[#C9A961]/30 text-white mt-1"><SelectValue /></SelectTrigger>
-                            <SelectContent><SelectItem value="none">Não informada</SelectItem>{catalogoOperacional?.etapasObra.map(e => <SelectItem key={e.chave} value={e.chave}>{e.nome}</SelectItem>)}</SelectContent>
-                          </Select>
-                        </div>
-                      </>
-                    )}
+                    <CamposCategoriaLancamento
+                      tipo={lancamentoForm.tipo}
+                      catalogo={catalogoOperacional as any}
+                      valor={lancamentoForm}
+                      onChange={v => setLancamentoForm(f => ({ ...f, ...v }))}
+                      onVinculo={o => setLancamentoForm(f => ({ ...f, clienteNomeLivre: o?.clienteNome || f.clienteNomeLivre }))}
+                    />
                     <div>
                       <Label className="text-gray-300">Cliente BPO</Label>
                       <Select
@@ -514,7 +472,7 @@ export default function AdminBpo({ initialTab }: { initialTab?: Aba } = {}) {
                       </Select>
                     </div>
                     {!lancamentoForm.clienteId && (
-                      <div className="col-span-2">
+                      <div className="sm:col-span-2">
                         <Label className="text-gray-300">
                           Nome (cliente/lead sem cadastro BPO)
                         </Label>
@@ -530,7 +488,7 @@ export default function AdminBpo({ initialTab }: { initialTab?: Aba } = {}) {
                         />
                       </div>
                     )}
-                    <div className="col-span-2">
+                    <div className="sm:col-span-2">
                       <Label className="text-gray-300">Descrição *</Label>
                       <Input
                         value={lancamentoForm.descricao}
@@ -584,19 +542,6 @@ export default function AdminBpo({ initialTab }: { initialTab?: Aba } = {}) {
                         className="bg-[#2C3E50] border-[#C9A961]/30 text-white mt-1"
                       />
                     </div>
-                    <div>
-                      <Label className="text-gray-300">Centro de Custos</Label>
-                      <Input
-                        value={lancamentoForm.centroCustos}
-                        onChange={e =>
-                          setLancamentoForm(f => ({
-                            ...f,
-                            centroCustos: e.target.value,
-                          }))
-                        }
-                        className="bg-[#2C3E50] border-[#C9A961]/30 text-white mt-1"
-                      />
-                    </div>
                   </div>
                   <Button
                     onClick={() =>
@@ -608,14 +553,13 @@ export default function AdminBpo({ initialTab }: { initialTab?: Aba } = {}) {
                           : undefined,
                         clienteNomeLivre:
                           lancamentoForm.clienteNomeLivre || undefined,
-                        categoria: lancamentoForm.categoria as (typeof CATEGORIAS_LANCAMENTO)[number],
                         valor: parseFloat(lancamentoForm.valor),
-                        centroCustos: lancamentoForm.centroCustos || undefined,
+                        vinculoOperacionalId: lancamentoForm.vinculoOperacionalId || null,
                       })
                     }
                     disabled={
                       createLancamento.isPending ||
-                      !lancamentoForm.categoria ||
+                      !categoriaLancamentoCompleta(lancamentoForm.tipo, lancamentoForm) ||
                       !lancamentoForm.descricao ||
                       !lancamentoForm.valor ||
                       !lancamentoForm.vencimento ||
@@ -741,6 +685,14 @@ export default function AdminBpo({ initialTab }: { initialTab?: Aba } = {}) {
               </CardTitle>
             </CardHeader>
             <CardContent>
+              <BarraLote
+                aba={aba}
+                visiveis={(aba === "cobrancas" ? cobrancas : despesas).map((l: any) => l.id)}
+                selecionados={selecionados}
+                setSelecionados={setSelecionados}
+                filtros={{ categoriaOperacional: filtroOperacional.get("categoriaOperacional"), vinculoOperacionalId: filtroOperacional.get("vinculoOperacionalId") }}
+                onSugerirVinculos={() => setSugerirVinculosOpen(true)}
+              />
               {(aba === "cobrancas" ? cobrancas : despesas).length === 0 ? (
                 <div className="text-center py-12 text-gray-400">
                   <Receipt className="h-12 w-12 mx-auto mb-3 opacity-20" />
@@ -754,6 +706,9 @@ export default function AdminBpo({ initialTab }: { initialTab?: Aba } = {}) {
                         key={l.id}
                         className="flex items-center justify-between p-3 bg-[#1A2332] rounded-lg gap-3 flex-wrap"
                       >
+                        <input type="checkbox" className="h-4 w-4 shrink-0" aria-label={`Selecionar ${l.descricao}`}
+                          checked={selecionados.includes(l.id)}
+                          onChange={e => setSelecionados(e.target.checked ? [...selecionados, l.id] : selecionados.filter(id => id !== l.id))} />
                         <div className="flex-1 min-w-[200px]">
                           <p className="text-white font-medium">
                             {l.descricao}
@@ -762,6 +717,7 @@ export default function AdminBpo({ initialTab }: { initialTab?: Aba } = {}) {
                             {clienteNome(l)}
                             {l.titular && l.titular !== clienteNome(l) ? ` • titular: ${l.titular}` : ""}
                             {" • "}{l.tipo === "receita" ? "Cobrança" : rotulo(l.tipo)}
+                            {l.categoriaOperacional ? ` • ${(ROTULOS_CATEGORIA_OPERACIONAL as Record<string, string>)[l.categoriaOperacional] ?? l.categoriaOperacional}` : ""}
                             {` • ${l.categoria || "sem categoria"}`}
                             {l.asaasPaymentId ? " • Asaas" : ""}
                             {l.bankTransactionId ? " • extrato bancário" : ""} • vence{" "}
@@ -829,6 +785,24 @@ export default function AdminBpo({ initialTab }: { initialTab?: Aba } = {}) {
               </CardTitle>
             </CardHeader>
             <CardContent>
+              <div className="mb-4 flex flex-wrap items-end gap-3">
+                <div className="min-w-[160px] flex-1 sm:flex-none">
+                  <Label className="text-gray-300">Mês</Label>
+                  <select aria-label="Mês do DRE" value={dreMes} onChange={e => setDreMes(e.target.value)} className="mt-1 h-10 w-full rounded-md border border-[#C9A961]/30 bg-[#1A2332] px-2 text-white">
+                    <option value="">Todos os meses</option>
+                    {MESES_DRE.map(([v, n]) => <option key={v} value={v}>{n}</option>)}
+                  </select>
+                </div>
+                <div className="min-w-[120px] flex-1 sm:flex-none">
+                  <Label className="text-gray-300">Ano</Label>
+                  <select aria-label="Ano do DRE" value={dreAno} onChange={e => setDreAno(e.target.value)} className="mt-1 h-10 w-full rounded-md border border-[#C9A961]/30 bg-[#1A2332] px-2 text-white">
+                    <option value="">Todos os anos</option>
+                    {Array.from(new Set([...dreAnos, ...(dreAno ? [dreAno] : [])])).map(a => <option key={a} value={a}>{a}</option>)}
+                  </select>
+                </div>
+                {(dreMes || dreAno) && <Button variant="ghost" size="sm" className="text-gray-300" onClick={() => { setDreMes(""); setDreAno(""); }}>Limpar filtros</Button>}
+                <p className="w-full text-xs text-gray-400">Filtra pela competência do lançamento.</p>
+              </div>
               {dreVisao === "categoria" ? (
                 dreCategorias.length === 0 ? (
                   <p className="text-center py-12 text-gray-400">Sem lançamentos para consolidar</p>
@@ -895,6 +869,12 @@ export default function AdminBpo({ initialTab }: { initialTab?: Aba } = {}) {
                           </td>
                         </tr>
                       ))}
+                      <tr className="border-t-2 border-[#C9A961]/40">
+                        <td className="py-2 pr-4 text-xs font-bold uppercase text-gray-300">Total</td>
+                        <td className="py-2 pr-4 text-right text-green-400 font-black">{formatCurrencyBR(dreTotal.cobrancas / 100)}</td>
+                        <td className="py-2 pr-4 text-right text-red-400 font-black">{formatCurrencyBR(dreTotal.despesas / 100)}</td>
+                        <td className={`py-2 pr-4 text-right font-black ${dreTotal.cobrancas - dreTotal.despesas >= 0 ? "text-green-300" : "text-red-300"}`}>{formatCurrencyBR((dreTotal.cobrancas - dreTotal.despesas) / 100)}</td>
+                      </tr>
                     </tbody>
                   </table>
                 </div>
@@ -909,6 +889,7 @@ export default function AdminBpo({ initialTab }: { initialTab?: Aba } = {}) {
         {aba === "relatorios" && <AdminRelatorios embedded />}
       </div>
 
+      <SugerirVinculosDialog open={sugerirVinculosOpen} onOpenChange={setSugerirVinculosOpen} />
       <Dialog open={Boolean(recebendo)} onOpenChange={o => !o && setRecebendo(null)}>
         <DialogContent className="bg-[#1A2332] text-white"><DialogHeader><DialogTitle>Registrar recebimento</DialogTitle></DialogHeader>
           {recebendo && <div className="space-y-3"><p>Saldo {formatCurrencyBR(recebendo.saldo)}</p><Label>Valor recebido</Label><CurrencyInput value={recebendo.valor} onChange={v => setRecebendo({ ...recebendo, valor: v })}/><Label>Data</Label><Input type="date" value={recebendo.recebidoEm} onChange={e => setRecebendo({ ...recebendo, recebidoEm: e.target.value })}/><Label>Observações</Label><Textarea value={recebendo.observacoes} onChange={e => setRecebendo({ ...recebendo, observacoes: e.target.value })}/><Button disabled={receber.isPending || recebendo.valor <= 0 || recebendo.valor > recebendo.saldo} onClick={() => receber.mutate(recebendo)}>Confirmar recebimento</Button></div>}
@@ -917,29 +898,31 @@ export default function AdminBpo({ initialTab }: { initialTab?: Aba } = {}) {
       <Dialog open={Boolean(editando)} onOpenChange={o => !o && setEditando(null)}>
         <DialogContent className="bg-[#1A2332] border-[#C9A961]/20 text-white max-h-[90vh] overflow-y-auto">
           <DialogHeader><DialogTitle className="text-[#C9A961]">Editar lançamento</DialogTitle></DialogHeader>
-          {editando && <div className="grid grid-cols-2 gap-4">
-            <div className="col-span-2"><Label>Descrição</Label><Input value={editando.descricao} onChange={e => setEditando({ ...editando, descricao: e.target.value })} className="bg-[#2C3E50] border-[#C9A961]/30" /></div>
-            <div><Label>Valor (R$)</Label><Input type="number" min="0.01" step="0.01" value={editando.valor} onChange={e => setEditando({ ...editando, valor: e.target.value })} className="bg-[#2C3E50] border-[#C9A961]/30" /></div>
-            <div><Label>Categoria contábil</Label><select value={editando.categoria ?? ""} onChange={e => setEditando({ ...editando, categoria: e.target.value })} className="w-full h-10 bg-[#2C3E50] border border-[#C9A961]/30 rounded px-2">
-              {CATEGORIAS_LANCAMENTO.map(c => <option key={c}>{c}</option>)}
-            </select></div>
+          {editando && <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div className="sm:col-span-2"><Label>Descrição</Label><Input value={editando.descricao} onChange={e => setEditando({ ...editando, descricao: e.target.value })} className="bg-[#2C3E50] border-[#C9A961]/30" /></div>
+            <div><Label>Valor (R$)</Label><CurrencyInput value={editando.valor ? Number(editando.valor) : 0} onChange={v => setEditando({ ...editando, valor: v ? String(v) : "" })} className="bg-[#2C3E50] border-[#C9A961]/30" /></div>
             <div><Label>Vencimento</Label><Input type="date" value={editando.vencimento} onChange={e => setEditando({ ...editando, vencimento: e.target.value })} className="bg-[#2C3E50] border-[#C9A961]/30" /></div>
             <div><Label>Competência</Label><Input type="month" value={editando.competencia} onChange={e => setEditando({ ...editando, competencia: e.target.value })} className="bg-[#2C3E50] border-[#C9A961]/30" /></div>
-            <div className="col-span-2"><Label>Centro de custos</Label><Input value={editando.centroCustos ?? ""} onChange={e => setEditando({ ...editando, centroCustos: e.target.value })} className="bg-[#2C3E50] border-[#C9A961]/30" /></div>
             <div><Label>Cliente BPO</Label><select className="w-full bg-[#2C3E50] p-2" value={editando.clienteId ?? ""} onChange={e => setEditando({ ...editando, clienteId: e.target.value ? Number(e.target.value) : null })}><option value="">Cadastro livre</option>{clientes.map(c => <option key={c.id} value={c.id}>{c.razaoSocial}</option>)}</select></div>
             {!editando.clienteId && <div><Label>Nome / identificação</Label><Input value={editando.clienteNomeLivre ?? ""} onChange={e => setEditando({ ...editando, clienteNomeLivre: e.target.value })} className="bg-[#2C3E50] border-[#C9A961]/30" /></div>}
-            <div className="col-span-2"><Label>Observações</Label><Textarea value={editando.observacoes ?? ""} onChange={e => setEditando({ ...editando, observacoes: e.target.value })} className="bg-[#2C3E50] border-[#C9A961]/30" /></div>
-            <div><Label>Categoria operacional</Label><select className="w-full bg-[#2C3E50] p-2" value={editando.categoriaOperacional ?? ""} onChange={e => setEditando({ ...editando, categoriaOperacional: e.target.value, vinculoOperacionalId: "", tipoDespesaObra: "", etapaObra: "" })}><option value="">Sem vínculo</option>{(editando.tipo === "despesa" ? CATEGORIAS_DESPESA_OPERACIONAL : CATEGORIAS_RECEITA_OPERACIONAL).map(c => <option key={c} value={c}>{ROTULOS_CATEGORIA_OPERACIONAL[c]}</option>)}</select></div>
-            {editando.categoriaOperacional && <div><Label>Registro vinculado</Label><select className="w-full bg-[#2C3E50] p-2" value={editando.vinculoOperacionalId ?? ""} onChange={e => setEditando({ ...editando, vinculoOperacionalId: e.target.value })}><option value="">Selecione</option>{((catalogoOperacional?.[catalogoDaCategoria(editando.tipo === "despesa" ? "despesa" : "cobranca", editando.categoriaOperacional) as keyof typeof catalogoOperacional] ?? []) as any[]).map(o => <option key={o.id} value={o.id}>{o.rotulo}</option>)}</select></div>}
-            {editando.tipo === "despesa" && editando.categoriaOperacional === "obras" && <><div><Label>Tipo de despesa</Label><select className="w-full bg-[#2C3E50] p-2" value={editando.tipoDespesaObra ?? ""} onChange={e => setEditando({ ...editando, tipoDespesaObra: e.target.value })}><option value="">Selecione</option>{TIPOS_DESPESA_OBRA.map(t => <option key={t} value={t}>{t.replaceAll("_", " ")}</option>)}</select></div><div><Label>Etapa</Label><select className="w-full bg-[#2C3E50] p-2" value={editando.etapaObra ?? ""} onChange={e => setEditando({ ...editando, etapaObra: e.target.value })}><option value="">Não informada</option>{catalogoOperacional?.etapasObra.map(e => <option key={e.chave} value={e.chave}>{e.nome}</option>)}</select></div></>}
-            <div className="col-span-2"><Label>Motivo da alteração *</Label><Textarea value={editando.motivo} onChange={e => setEditando({ ...editando, motivo: e.target.value })} placeholder="Obrigatório para a trilha de auditoria" className="bg-[#2C3E50] border-[#C9A961]/30" /></div>
-            {(editando.asaasPaymentId || editando.bankTransactionId) && <p className="col-span-2 text-xs text-amber-300">Este é um ajuste interno. A origem externa e a conciliação serão preservadas.</p>}
-            <Button className="col-span-2 bg-[#C9A961] text-[#1A2332]" disabled={editarLancamento.isPending || editando.motivo.trim().length < 3}
+            {!editando.clienteId && <VinculoClienteLancamento lancamento={editando} clientes={clientes}
+              onVinculado={r => setEditando({ ...editando, clienteId: r.clienteId, clienteNomeLivre: null, version: r.version })} />}
+            <div className="sm:col-span-2"><Label>Observações</Label><Textarea value={editando.observacoes ?? ""} onChange={e => setEditando({ ...editando, observacoes: e.target.value })} className="bg-[#2C3E50] border-[#C9A961]/30" /></div>
+            <CamposCategoriaLancamento
+              tipo={editando.tipo === "despesa" ? "despesa" : "cobranca"}
+              catalogo={catalogoOperacional as any}
+              opcional
+              valor={{ categoriaOperacional: editando.categoriaOperacional ?? "", vinculoOperacionalId: editando.vinculoOperacionalId ?? "", tipoDespesaObra: editando.tipoDespesaObra ?? "", etapaObra: editando.etapaObra ?? "" }}
+              onChange={v => setEditando({ ...editando, ...v })}
+            />
+            <div className="sm:col-span-2"><Label>Motivo da alteração *</Label><Textarea value={editando.motivo} onChange={e => setEditando({ ...editando, motivo: e.target.value })} placeholder="Obrigatório para a trilha de auditoria" className="bg-[#2C3E50] border-[#C9A961]/30" /></div>
+            {(editando.asaasPaymentId || editando.bankTransactionId) && <p className="sm:col-span-2 text-xs text-amber-300">Este é um ajuste interno. A origem externa e a conciliação serão preservadas.</p>}
+            <Button className="sm:col-span-2 bg-[#C9A961] text-[#1A2332]" disabled={editarLancamento.isPending || editando.motivo.trim().length < 3 || !categoriaLancamentoCompleta(editando.tipo === "despesa" ? "despesa" : "cobranca", { categoriaOperacional: editando.categoriaOperacional ?? "", vinculoOperacionalId: editando.vinculoOperacionalId ?? "", tipoDespesaObra: editando.tipoDespesaObra ?? "", etapaObra: editando.etapaObra ?? "" }, true)}
               onClick={() => editarLancamento.mutate({
                 id: editando.id, version: editando.version, motivo: editando.motivo, descricao: editando.descricao,
-                valor: Number(editando.valor), categoria: editando.categoria, clienteId: editando.clienteId,
+                valor: Number(editando.valor), clienteId: editando.clienteId,
                 clienteNomeLivre: editando.clienteNomeLivre, vencimento: editando.vencimento, competencia: editando.competencia,
-                centroCustos: editando.centroCustos, observacoes: editando.observacoes,
+                observacoes: editando.observacoes,
                 categoriaOperacional: editando.categoriaOperacional, vinculoOperacionalId: editando.vinculoOperacionalId,
                 tipoDespesaObra: editando.tipoDespesaObra, etapaObra: editando.etapaObra,
               })}>{editarLancamento.isPending ? "Salvando..." : "Salvar com auditoria"}</Button>

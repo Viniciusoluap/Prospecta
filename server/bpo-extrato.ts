@@ -361,5 +361,7 @@ export async function lancamentosComTitular() {
     .select({ ...getTableColumns(bpoLancamentos), titular: bankTransactions.titular })
     .from(bpoLancamentos)
     .leftJoin(bankTransactions, eq(bankTransactions.id, bpoLancamentos.bankTransactionId))
+    // Lote 3, item 16: originais combinadas saem da lista e dos totais (a nova cobrança as soma).
+    .where(isNull(bpoLancamentos.combinadaEmId))
     .orderBy(desc(bpoLancamentos.vencimento));
 }

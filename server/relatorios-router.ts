@@ -1,9 +1,15 @@
-import { and, avg, count, eq, gte, lte } from "drizzle-orm";
+import { and, count, eq, gte, isNotNull, isNull, lte } from "drizzle-orm";
 import { z } from "zod";
 import {
-  imoveis, leads, financiamentos, avaliacoes, financialTransactions,
+  imoveis, leads, financiamentos, financialTransactions,
   operationalCommissions, users, bpoLancamentos,
+  constructionProjects, obraMovimentos, incorporationUnits,
 } from "../drizzle/schema.js";
+import { LEAD_PIPELINE_KEYS, LEAD_PIPELINE_STAGES } from "../shared/lead-pipeline.js";
+import {
+  chaveData, funilDeLeads, indicadoresDeObras, noPeriodo, numerosDeObra,
+  rankingDeCorretores, unidadesDisponiveis, type Periodo,
+} from "../shared/financeiro/relatorios-indicadores.js";
 import { getDb } from "./db.js";
 import { adminProcedure, router } from "./_core/trpc.js";
 
@@ -167,25 +173,78 @@ export const relatoriosRouter = router({
       const from = input?.from ? new Date(input.from) : monthsAgo(11);
       const to = input?.to ? new Date(input.to) : new Date();
 
+      const periodo: Periodo = { de: chaveData(from)!, ate: chaveData(to)! };
+
       const [
         totalImoveis,
-        imoveisPorTipo,
-        totalLeads,
-        leadsPorStage,
+        leadsAtivos,
         totalFinanciamentos,
-        avaliacoesAgg,
-        avaliacoesPorStatus,
+        obras,
+        pagamentosComissaoObra,
+        comissoesCadastradas,
+        unidadesIncorporacao,
+        imoveisCatalogo,
+        pontosDeObra,
         transacoesPagas,
-        comissoesNovas,
         lancamentosBpoPagos,
       ] = await Promise.all([
         database.select({ n: count() }).from(imoveis).then((r) => r[0]?.n ?? 0),
-        database.select({ tipo: imoveis.tipo, n: count() }).from(imoveis).groupBy(imoveis.tipo),
-        database.select({ n: count() }).from(leads).then((r) => r[0]?.n ?? 0),
-        database.select({ stage: leads.stage, n: count() }).from(leads).groupBy(leads.stage),
+        // 18.2: só leads ativos (excluídos ficam fora); etapa pela regra do CRM.
+        database
+          .select({ stage: leads.stage, pendente: leads.stageClassificationPending, createdAt: leads.createdAt })
+          .from(leads)
+          .where(isNull(leads.deletedAt)),
         database.select({ n: count() }).from(financiamentos).then((r) => r[0]?.n ?? 0),
-        database.select({ n: count(), media: avg(avaliacoes.valorEstimado) }).from(avaliacoes).then((r) => r[0]),
-        database.select({ status: avaliacoes.status, n: count() }).from(avaliacoes).groupBy(avaliacoes.status),
+        // 14 / 18.1: obras com o VGV simulado do lead (regra de vgvDaObra).
+        database
+          .select({
+            id: constructionProjects.id,
+            status: constructionProjects.status,
+            dataInicio: constructionProjects.startDate,
+            criadoEm: constructionProjects.createdAt,
+            leadId: constructionProjects.leadId,
+            vgvLead: leads.simulationValue,
+            vgv: constructionProjects.vgv,
+            financiamento: constructionProjects.financedAmount,
+            fgts: constructionProjects.fgtsAmount,
+            subsidio: constructionProjects.subsidyAmount,
+          })
+          .from(constructionProjects)
+          .leftJoin(leads, eq(leads.id, constructionProjects.leadId)),
+        // 18.3: pagamentos de comissão confirmados das obras → corretor do lead da obra.
+        database
+          .select({
+            obraId: obraMovimentos.projectId,
+            corretorId: leads.brokerId,
+            corretor: users.name,
+            valor: obraMovimentos.valor,
+            data: obraMovimentos.data,
+          })
+          .from(obraMovimentos)
+          .innerJoin(constructionProjects, eq(constructionProjects.id, obraMovimentos.projectId))
+          .leftJoin(leads, eq(leads.id, constructionProjects.leadId))
+          .leftJoin(users, eq(users.id, leads.brokerId))
+          .where(and(
+            eq(obraMovimentos.natureza, "pagamento"),
+            eq(obraMovimentos.categoria, "comissao"),
+            eq(obraMovimentos.status, "confirmado"),
+          )),
+        database
+          .select({
+            obraId: operationalCommissions.constructionProjectId,
+            corretorId: operationalCommissions.brokerId,
+            corretor: users.name,
+            valor: operationalCommissions.amount,
+            status: operationalCommissions.status,
+            pagoEm: operationalCommissions.paidAt,
+          })
+          .from(operationalCommissions)
+          .leftJoin(users, eq(operationalCommissions.brokerId, users.id))
+          .where(eq(operationalCommissions.beneficiary, "corretor")),
+        // 18.4: estoque atual (sem período).
+        database.select({ status: incorporationUnits.status, deletedAt: incorporationUnits.deletedAt }).from(incorporationUnits),
+        database.select({ id: imoveis.id, status: imoveis.status, reviewStatus: imoveis.reviewStatus }).from(imoveis),
+        database.select({ imovelId: constructionProjects.imovelId }).from(constructionProjects).where(isNotNull(constructionProjects.imovelId)),
         database.select().from(financialTransactions).where(
           and(
             eq(financialTransactions.status, "paid"),
@@ -194,50 +253,45 @@ export const relatoriosRouter = router({
           ),
         ),
         database
-          .select({
-            brokerName: users.name,
-            amount: operationalCommissions.amount,
-            status: operationalCommissions.status,
-          })
-          .from(operationalCommissions)
-          .leftJoin(users, eq(operationalCommissions.brokerId, users.id))
-          .where(eq(operationalCommissions.beneficiary, "corretor")),
-        database
           .select({ competencia: bpoLancamentos.competencia, tipo: bpoLancamentos.tipo, valor: bpoLancamentos.valor })
           .from(bpoLancamentos)
           .where(and(eq(bpoLancamentos.pago, true), gte(bpoLancamentos.pagoEm, from), lte(bpoLancamentos.pagoEm, to))),
       ]);
 
       const dreMensal = montarDreMensal(transacoesPagas, lancamentosBpoPagos);
-
       const totalReceitas = dreMensal.reduce((s, m) => s + m.receitas, 0);
       const totalDespesas = dreMensal.reduce((s, m) => s + m.despesas, 0);
-      // Ticket médio continua sendo das vendas (transações financeiras), não do extrato.
-      const vendas = transacoesPagas.filter((t) => t.type === "income" || t.type === "commission");
-      const receitaVendas = vendas.reduce((s, t) => s + Number(t.amount), 0);
-      const ticketMedio = vendas.length > 0 ? Math.round(receitaVendas / vendas.length) : 0;
 
-      const corretorRanking = buildCorretorRanking([], comissoesNovas);
+      const vgvObras = indicadoresDeObras(obras, periodo);
+      const chavesPipeline = new Set<string>(LEAD_PIPELINE_KEYS);
+      const funil = funilDeLeads(
+        LEAD_PIPELINE_STAGES,
+        leadsAtivos
+          .filter((l) => noPeriodo(l.createdAt, periodo))
+          .map((l) => ({ etapa: !l.pendente && chavesPipeline.has(l.stage) ? l.stage : null })),
+      );
+      const pontos = new Set(pontosDeObra.map((p) => p.imovelId));
+      const unidades = unidadesDisponiveis(
+        unidadesIncorporacao.map((u) => ({ status: u.status, excluida: u.deletedAt !== null })),
+        imoveisCatalogo.map((i) => ({ status: i.status, aprovado: i.reviewStatus === "approved", pontoDeObra: pontos.has(i.id) })),
+      );
 
       return {
         from: from.toISOString(),
         to: to.toISOString(),
         totalImoveis,
-        imoveisPorTipo,
-        totalLeads,
-        leadsPorStage,
+        totalLeads: funil.total,
         totalFinanciamentos,
-        avaliacoes: {
-          total: avaliacoesAgg?.n ?? 0,
-          mediaValorEstimado: avaliacoesAgg?.media ? Number(avaliacoesAgg.media) : null,
-          porStatus: avaliacoesPorStatus,
-        },
+        vgvObras,
+        numerosDeObra: numerosDeObra(vgvObras),
+        funilLeads: funil,
+        unidadesDisponiveis: unidades,
         dreMensal,
         totalReceitas,
         totalDespesas,
         resultado: totalReceitas - totalDespesas,
-        ticketMedio,
-        corretorRanking,
+        ticketMedio: vgvObras.ticketMedio,
+        corretorRanking: rankingDeCorretores(pagamentosComissaoObra, comissoesCadastradas, periodo),
       };
     }),
 

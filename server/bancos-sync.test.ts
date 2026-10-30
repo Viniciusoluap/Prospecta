@@ -81,7 +81,7 @@ describe("sincronização por API", () => {
     expect(db.updates.at(-1)).toMatchObject({ saldoAtual: "1234.50", ultimoErro: null });
   });
 
-  it("Pluggy: autentica, lê transações v2 com dateFrom e atualiza o saldo", async () => {
+  it("Pluggy: autentica, lê transações v2 sem pageSize (corte por data local) e atualiza o saldo", async () => {
     const db = fakeDb([
       [{ id: 4, provedor: "pluggy", pluggyAccountId: "acc-1", dataInicial: "2026-08-15", ultimaSincronizacao: null }],
       [{ id: 1, isActive: true, clientIdEncrypted: "plain:cid", clientSecretEncrypted: "plain:csec" }],
@@ -92,8 +92,12 @@ describe("sincronização por API", () => {
         return resposta({ apiKey: "tok" });
       }
       if (url.includes("/transactions?")) {
-        expect(url).toContain("dateFrom=2026-08-15");
-        return resposta({ totalPages: 1, results: [{ id: "t1", date: "2026-09-01T00:00:00Z", description: "Pix", amount: 70, type: "CREDIT" }] });
+        expect(url).not.toContain("pageSize");
+        expect(url).not.toContain("dateFrom");
+        return resposta({ totalPages: 1, results: [
+          { id: "t0", date: "2026-08-14T00:00:00Z", description: "Antes da data inicial", amount: 1, type: "CREDIT" },
+          { id: "t1", date: "2026-09-01T00:00:00Z", description: "Pix", amount: 70, type: "CREDIT" },
+        ] });
       }
       return resposta({ balance: 70 });
     });

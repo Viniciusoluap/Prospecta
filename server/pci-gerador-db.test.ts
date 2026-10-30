@@ -7,6 +7,11 @@ import * as banco from "./db.js";
 vi.mock("./usuario-documentos.js", () => ({
   listarEngenheiros: vi.fn(async () => [{ id: 7, name: "Eng. Ana", email: "ana@x.y", role: "colaborador", engenheiro: true, telefone: null, crea: "998877", creaUf: "PI", creasAdicionais: [] }]),
 }));
+// Não há .xlsb de teste: o "xlsb" é o próprio .xls lido como .xls (abas/células), sem listas — como no .xlsb real.
+vi.mock("./caixa/pci-modelo-estrutura.js", async (orig) => {
+  const o = await orig<typeof import("./caixa/pci-modelo-estrutura.js")>();
+  return { ...o, lerEstruturaModeloPci: (bytes: Uint8Array, formato: "xls" | "xlsm" | "xlsb") => formato === "xlsb" ? { ...o.lerEstruturaModeloPci(bytes, "xls"), formato, listas: null } : o.lerEstruturaModeloPci(bytes, formato) };
+});
 vi.mock("./obra-localizacao.js", () => ({ obterLocalizacaoObra: vi.fn(async () => ({ coords: { lat: -5.5, lng: -47.5 }, pontoPci: null })) }));
 
 import { gravarModeloPci, pciGeradorRouter, pciModelosRouter } from "./pci-gerador.js";
@@ -34,6 +39,9 @@ beforeAll(async () => {
   // Aplica duas vezes: migração idempotente.
   await pg.exec(readFileSync(new URL("../drizzle/0087_pci_gerador.sql", import.meta.url), "utf8"));
   await pg.exec(readFileSync(new URL("../drizzle/0087_pci_gerador.sql", import.meta.url), "utf8"));
+  // Lote 03: exclusão lógica, relatório de compatibilidade e auditoria (idempotente).
+  await pg.exec(readFileSync(new URL("../drizzle/0096_pci_lote3.sql", import.meta.url), "utf8"));
+  await pg.exec(readFileSync(new URL("../drizzle/0096_pci_lote3.sql", import.meta.url), "utf8"));
   vi.spyOn(banco, "getDb").mockReturnValue(drizzle(pg) as never);
 });
 afterAll(() => pg.close());
@@ -93,11 +101,31 @@ it("formulário: pré-preenchimento (PCI vinculada > CRM), rascunho, geração e
   expect(Buffer.compare(Buffer.from(pci.data), Buffer.from(MODELO))).toBe(0);
 });
 
+it("revisão PR #180: modelo .xlsb atual com base .xls compatível libera a geração (e o servidor informa)", async () => {
+  const caller = pciGeradorRouter.createCaller(ctx);
+  expect(await caller.obter({ projectId: 11 })).toMatchObject({ baseCompativelDisponivel: true, baseXlsVersao: 1, avisoModelo: null });
+  await pg.exec("UPDATE pci_models SET is_current = false");
+  await pg.query("INSERT INTO pci_models (version, file_name, format, size_bytes, checksum, data, is_current) VALUES (9, 'pci-v9.xlsb', 'xlsb', $1, 'x', $2, true)", [MODELO.length, MODELO]);
+  try {
+    const d = await caller.obter({ projectId: 11 });
+    expect(d).toMatchObject({ modelo: { versao: 9, formato: "xlsb" }, baseCompativelDisponivel: true, baseXlsVersao: 1 });
+    expect(d.avisoModelo).toMatch(/a partir da versão v1/);
+    const r = await caller.gerar({ projectId: 11, formulario: d.formulario });
+    expect(r.avisos[0]).toMatch(/v9 \(\.xlsb\).*versão v1/);
+    // Sem a base .xls (excluída): o servidor avisa e a tela bloqueia.
+    await pg.exec("UPDATE pci_models SET deleted_at = now() WHERE version = 1");
+    expect(await caller.obter({ projectId: 11 })).toMatchObject({ baseCompativelDisponivel: false, baseXlsVersao: null, avisoModelo: expect.stringMatching(/não há versão \.xls compatível/) });
+  } finally {
+    await pg.exec("DELETE FROM pci_generated WHERE model_version = 9; DELETE FROM pci_models WHERE version = 9; UPDATE pci_models SET deleted_at = NULL, is_current = true WHERE version = 1");
+  }
+});
+
 it("sem modelo .xls/.xlsm atual: gerar pede o modelo certo", async () => {
   await pg.exec("UPDATE pci_models SET format = 'xlsb'");
   const caller = pciGeradorRouter.createCaller(ctx);
-  expect((await caller.obter({ projectId: 11 })).avisoModelo).toMatch(/\.xlsb/);
-  await expect(caller.gerar({ projectId: 11, formulario: {} })).rejects.toThrow(/\.xls ou \.xlsm/);
+  expect(await caller.obter({ projectId: 11 })).toMatchObject({ baseCompativelDisponivel: false, avisoModelo: expect.stringMatching(/\.xlsb/) });
+  // Lote 03, correção 10: sem versão .xls compatível, bloqueia pedindo a .xls (nunca gera xlsm/renomeia).
+  await expect(caller.gerar({ projectId: 11, formulario: {} })).rejects.toThrow(/Envie a versão \.xls do modelo oficial/);
   await pg.exec("UPDATE pci_models SET is_current = false");
-  await expect(caller.gerar({ projectId: 11, formulario: {} })).rejects.toThrow(/Sub PCI atual/);
+  await expect(caller.gerar({ projectId: 11, formulario: {} })).rejects.toThrow(/PCI da CAIXA/);
 });

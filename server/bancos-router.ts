@@ -154,8 +154,12 @@ export const bancarioRouter = router({
     previaExclusao: adminProcedure.input(z.object({ id: z.number().int().positive() }))
       .query(({ input }) => previaLimpezaConta(input.id)),
 
-    delete: adminProcedure.input(z.object({ id: z.number().int().positive(), confirmarRotulo: z.string().min(1) }))
-      .mutation(async ({ input, ctx }) => limparContaComBackup(input.id, input.confirmarRotulo, ctx.user.id)),
+    // Lote 3, item 13B: confirmação digitando EXCLUIR; auditoria = backup com usuário e data.
+    delete: adminProcedure.input(z.object({ id: z.number().int().positive(), confirmacao: z.string().min(1) }))
+      .mutation(async ({ input, ctx }) => {
+        try { return await limparContaComBackup(input.id, input.confirmacao, ctx.user.id); }
+        catch (e) { throw new TRPCError({ code: "BAD_REQUEST", message: e instanceof Error ? e.message : "Falha ao excluir a conta." }); }
+      }),
 
     atualizarSaldo: adminProcedure.input(z.object({ id: z.number(), saldo: z.number() })).mutation(async ({ input }) => {
       await db.updateBankAccountSaldo(input.id, input.saldo);

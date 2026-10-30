@@ -641,8 +641,25 @@ export const pciModels = pgTable("pci_models", {
   notes: text("notes"),
   uploadedBy: integer("uploaded_by").references((): AnyPgColumn => users.id, { onDelete: "set null" }),
   uploadedAt: timestamp("uploaded_at").defaultNow().notNull(),
+  // Lote 03 (migração 0096): exclusão lógica, relatório de compatibilidade e confirmação de mudança crítica.
+  deletedAt: timestamp("deleted_at"),
+  deletedBy: integer("deleted_by").references((): AnyPgColumn => users.id, { onDelete: "set null" }),
+  compatReport: jsonb("compat_report"),
+  awaitingConfirmation: boolean("awaiting_confirmation").default(false).notNull(),
+  confirmedBy: integer("confirmed_by").references((): AnyPgColumn => users.id, { onDelete: "set null" }),
+  confirmedAt: timestamp("confirmed_at"),
   // Pedido de 29/10: cópia em Modelos/PCI CAIXA no Google Drive (null = pendente).
   driveFileId: text("drive_file_id"),
+});
+
+/** Lote 03 (migração 0096): auditoria das operações com o modelo oficial da PCI. */
+export const pciModelAudit = pgTable("pci_model_audit", {
+  id: serial("id").primaryKey(),
+  modelId: integer("model_id").notNull().references(() => pciModels.id, { onDelete: "cascade" }),
+  action: varchar("action", { length: 30 }).notNull(),
+  userId: integer("user_id").references((): AnyPgColumn => users.id, { onDelete: "set null" }),
+  details: jsonb("details"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 
 export const pciGeneratorDrafts = pgTable("pci_generator_drafts", {
@@ -1245,6 +1262,8 @@ export const bpoLancamentos = pgTable("bpo_lancamentos", {
   requestKey: varchar("request_key", { length: 80 }).unique(),
   valorRecebido: decimal("valor_recebido", { precision: 15, scale: 2 }).default("0").notNull(),
   version: integer("version").default(1).notNull(),
+  // Lote 3, item 16: cobrança original combinada na nova cobrança (soma); a original não é apagada.
+  combinadaEmId: integer("combinada_em_id").references((): AnyPgColumn => bpoLancamentos.id, { onDelete: "set null" }),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });
@@ -1271,6 +1290,19 @@ export const bpoLancamentoHistorico = pgTable("bpo_lancamento_historico", {
   motivo: text("motivo").notNull(),
   antesJson: text("antes_json").notNull(),
   depoisJson: text("depois_json").notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+// Lote 3, item 16: backup recuperável das exclusões em lote de cobranças/despesas.
+export const bpoLancamentoExclusoesBackup = pgTable("bpo_lancamento_exclusoes_backup", {
+  id: serial("id").primaryKey(),
+  modo: varchar("modo", { length: 20 }).notNull(),
+  aba: varchar("aba", { length: 20 }).notNull(),
+  filtrosJson: text("filtros_json").default("{}").notNull(),
+  quantidade: integer("quantidade").notNull(),
+  protegidos: integer("protegidos").default(0).notNull(),
+  snapshotJson: text("snapshot_json").notNull(),
+  criadoPorUserId: integer("criado_por_user_id").references(() => users.id, { onDelete: "set null" }),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 
@@ -2051,6 +2083,21 @@ export const whatsappMidias = pgTable("whatsapp_midias", {
   // Pedido de 29/10: cópia no Google Drive (cliente/Atendimento/WhatsApp ou WhatsApp sem cliente).
   driveFileId: text("drive_file_id"),
 });
+
+/**
+ * Lote 03, correção 02 (migração 0094): vínculo manual conversa ↔ lead, com prioridade sobre a
+ * inferência pelo telefone. phone_key = DDD + 8 últimos dígitos (chaveTelefone).
+ */
+export const whatsappConversationLinks = pgTable("whatsapp_conversation_links", {
+  id: serial("id").primaryKey(),
+  connectionId: integer("connection_id").notNull().references(() => whatsappConnections.id, { onDelete: "cascade" }),
+  phoneKey: varchar("phone_key", { length: 20 }).notNull(),
+  leadId: integer("lead_id").notNull().references(() => leads.id, { onDelete: "cascade" }),
+  linkedBy: integer("linked_by").references(() => users.id, { onDelete: "set null" }),
+  linkedAt: timestamp("linked_at").defaultNow().notNull(),
+}, (t) => ({
+  connPhone: uniqueIndex("whatsapp_conversation_links_conn_phone_uidx").on(t.connectionId, t.phoneKey),
+}));
 
 /** Pedido de 25/10: servidor da Evolution API (QR code). Linha única (id = 1); chave criptografada. */
 export const whatsappEvolutionSettings = pgTable("whatsapp_evolution_settings", {

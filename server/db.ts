@@ -1534,7 +1534,8 @@ export async function updateBpoClientStatus(id: number, status: "ativo" | "pausa
 
 export async function getAllBpoLancamentos(): Promise<BpoLancamento[]> {
   const db = getDb();
-  return db.select().from(bpoLancamentos).orderBy(desc(bpoLancamentos.vencimento));
+  // Lote 3, item 16: cobranças combinadas em outra ficam fora (a nova cobrança já soma os valores).
+  return db.select().from(bpoLancamentos).where(isNull(bpoLancamentos.combinadaEmId)).orderBy(desc(bpoLancamentos.vencimento));
 }
 
 export async function createBpoLancamento(data: InsertBpoLancamento): Promise<BpoLancamento> {
@@ -1545,7 +1546,7 @@ export async function createBpoLancamento(data: InsertBpoLancamento): Promise<Bp
 
 export async function marcarBpoLancamentoPago(id: number): Promise<void> {
   const db = getDb();
-  await db.update(bpoLancamentos).set({ pago: true, pagoEm: new Date(), valorRecebido: sql`${bpoLancamentos.valor}` }).where(eq(bpoLancamentos.id, id));
+  await db.update(bpoLancamentos).set({ pago: true, pagoEm: new Date(), valorRecebido: sql`${bpoLancamentos.valor}` }).where(and(eq(bpoLancamentos.id, id), isNull(bpoLancamentos.combinadaEmId)));
 }
 
 // ========== Pluggy (integração bancária — credenciais) ==========

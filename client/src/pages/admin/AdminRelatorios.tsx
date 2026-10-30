@@ -1,6 +1,7 @@
 import { useMemo, useState } from "react";
 import { Link } from "wouter";
 import { trpc } from "@/lib/trpc";
+import { formatarNumero } from "@shared/numero-mascara";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -25,45 +26,19 @@ import {
   Home,
   Users,
   Landmark,
-  ClipboardCheck,
+  HardHat,
   TrendingUp,
   DollarSign,
   Download,
+  Info,
 } from "lucide-react";
+import {
+  AJUDA_VGV_DE_OBRAS,
+  MENSAGEM_RANKING_VAZIO,
+  NOTA_NUMEROS_DE_OBRA,
+} from "@shared/financeiro/relatorios-indicadores";
 
-const PIE_COLORS = [
-  "#C9A961",
-  "#1A2332",
-  "#6B7280",
-  "#D1D5DB",
-  "#4B5563",
-  "#9CA3AF",
-  "#374151",
-  "#E5E7EB",
-];
-
-const STAGE_LABELS: Record<string, string> = {
-  lead_new: "Lead Novo",
-  attending: "Em Atendimento",
-  waiting_docs: "Aguardando Docs",
-  analysis: "Em Análise",
-  caixa_register: "Cadastro Caixa",
-  approval: "Em Aprovação",
-  approved: "Aprovado",
-  rejected: "Reprovado",
-  followup: "Projetos e Vistorias",
-  in_process: "Cliente em Processo",
-  done: "Concluído",
-};
-
-const AVALIACAO_STATUS_LABELS: Record<string, string> = {
-  solicitada: "Solicitada",
-  vistoria: "Vistoria",
-  elaboracao: "Elaboração",
-  revisao: "Revisão",
-  entregue: "Entregue",
-  cancelada: "Cancelada",
-};
+const CORES_NUMEROS_OBRA = ["#C9A961", "#3B82F6", "#22C55E", "#A855F7"];
 
 function formatCurrencyBR(value: number | string | null | undefined) {
   if (value === null || value === undefined) return "R$ 0,00";
@@ -94,10 +69,10 @@ export default function AdminRelatorios({
     enabled: false,
   });
 
-  const funilTotal = useMemo(() => {
-    if (!data) return 1;
-    return data.leadsPorStage.reduce((s, l) => s + l.n, 0) || 1;
-  }, [data]);
+  const numerosObraGrafico = useMemo(
+    () => (data ? data.numerosDeObra.filter(f => f.fatia > 0) : []),
+    [data]
+  );
 
   async function exportarCsv() {
     const result = await exportQuery.refetch();
@@ -109,8 +84,9 @@ export default function AdminRelatorios({
         r.data,
         r.corretor,
         r.referencia ?? "",
-        r.valorTotal.toFixed(2),
-        r.pago.toFixed(2),
+        // Padrão numérico global (lote 3): 1.000.000,00 também na exportação.
+        formatarNumero(r.valorTotal, { casas: 2 }),
+        formatarNumero(r.pago, { casas: 2 }),
         r.status,
       ].join(";")
     );
@@ -148,7 +124,7 @@ export default function AdminRelatorios({
                   Relatórios e Exportações
                 </h1>
                 <p className="text-gray-400 text-sm">
-                  Indicadores consolidados — imóveis, leads, avaliações,
+                  Indicadores consolidados — imóveis, leads, obras,
                   financiamentos e financeiro
                 </p>
               </div>
@@ -226,7 +202,7 @@ export default function AdminRelatorios({
                 <CardContent className="pt-6 flex items-center gap-2">
                   <Users className="h-6 w-6 text-blue-400" />
                   <div>
-                    <p className="text-gray-300 text-xs">Leads</p>
+                    <p className="text-gray-300 text-xs">Leads no período</p>
                     <p className="text-xl font-bold text-white">
                       {data.totalLeads}
                     </p>
@@ -246,18 +222,24 @@ export default function AdminRelatorios({
               </Card>
               <Card className="bg-[#2C3E50] border-[#C9A961]/20 text-gray-100">
                 <CardContent className="pt-6 flex items-center gap-2">
-                  <ClipboardCheck className="h-6 w-6 text-yellow-400" />
+                  <HardHat className="h-6 w-6 text-yellow-400" />
                   <div>
-                    <p className="text-gray-300 text-xs">Avaliações</p>
-                    <p className="text-xl font-bold text-white">
-                      {data.avaliacoes.total}
+                    <p className="text-gray-300 text-xs flex items-center gap-1">
+                      VGV de Obras
+                      <span
+                        title={AJUDA_VGV_DE_OBRAS}
+                        aria-label={AJUDA_VGV_DE_OBRAS}
+                      >
+                        <Info className="h-3 w-3 text-gray-400" />
+                      </span>
                     </p>
-                    {data.avaliacoes.mediaValorEstimado != null && (
-                      <p className="text-[10px] text-gray-400">
-                        média{" "}
-                        {formatCurrencyBR(data.avaliacoes.mediaValorEstimado)}
-                      </p>
-                    )}
+                    <p className="text-lg font-bold text-white">
+                      {formatCurrencyBR(data.vgvObras.vgvTotal)}
+                    </p>
+                    <p className="text-[10px] text-gray-400">
+                      {data.vgvObras.obrasElegiveis} obra(s) · data de início
+                      (ou de criação, sem início)
+                    </p>
                   </div>
                 </CardContent>
               </Card>
@@ -267,7 +249,12 @@ export default function AdminRelatorios({
                   <div>
                     <p className="text-gray-300 text-xs">Ticket médio</p>
                     <p className="text-lg font-bold text-white">
-                      {formatCurrencyBR(data.ticketMedio)}
+                      {data.ticketMedio === null
+                        ? "—"
+                        : formatCurrencyBR(data.ticketMedio)}
+                    </p>
+                    <p className="text-[10px] text-gray-400">
+                      VGV total ÷ nº de obras
                     </p>
                   </div>
                 </CardContent>
@@ -361,34 +348,47 @@ export default function AdminRelatorios({
                       Sem receitas ou despesas pagas no período
                     </div>
                   ) : (
-                  <ResponsiveContainer width="100%" height={220}>
-                    <BarChart data={data.dreMensal} barGap={4}>
-                      <CartesianGrid strokeDasharray="3 3" stroke="#374151" />
-                      <XAxis
-                        dataKey="mes"
-                        tick={{ fill: "#9CA3AF", fontSize: 11 }}
-                      />
-                      <YAxis
-                        width={70}
-                        tick={{ fill: "#9CA3AF", fontSize: 11 }}
-                        tickFormatter={v =>
-                          Number(v).toLocaleString("pt-BR", { notation: "compact", maximumFractionDigits: 1 })
-                        }
-                      />
-                      <Tooltip
-                        cursor={{ fill: "rgba(201, 169, 97, 0.08)" }}
-                        formatter={v => formatCurrencyBR(Number(v))}
-                        contentStyle={{
-                          background: "#0F1923",
-                          border: "1px solid #C9A96140",
-                        }}
-                        labelStyle={{ color: "#E5E7EB" }}
-                      />
-                      <Legend />
-                      <Bar dataKey="receitas" fill="#22C55E" name="Receitas" maxBarSize={48} />
-                      <Bar dataKey="despesas" fill="#EF4444" name="Despesas" maxBarSize={48} />
-                    </BarChart>
-                  </ResponsiveContainer>
+                    <ResponsiveContainer width="100%" height={220}>
+                      <BarChart data={data.dreMensal} barGap={4}>
+                        <CartesianGrid strokeDasharray="3 3" stroke="#374151" />
+                        <XAxis
+                          dataKey="mes"
+                          tick={{ fill: "#9CA3AF", fontSize: 11 }}
+                        />
+                        <YAxis
+                          width={70}
+                          tick={{ fill: "#9CA3AF", fontSize: 11 }}
+                          tickFormatter={v =>
+                            Number(v).toLocaleString("pt-BR", {
+                              notation: "compact",
+                              maximumFractionDigits: 1,
+                            })
+                          }
+                        />
+                        <Tooltip
+                          cursor={{ fill: "rgba(201, 169, 97, 0.08)" }}
+                          formatter={v => formatCurrencyBR(Number(v))}
+                          contentStyle={{
+                            background: "#0F1923",
+                            border: "1px solid #C9A96140",
+                          }}
+                          labelStyle={{ color: "#E5E7EB" }}
+                        />
+                        <Legend />
+                        <Bar
+                          dataKey="receitas"
+                          fill="#22C55E"
+                          name="Receitas"
+                          maxBarSize={48}
+                        />
+                        <Bar
+                          dataKey="despesas"
+                          fill="#EF4444"
+                          name="Despesas"
+                          maxBarSize={48}
+                        />
+                      </BarChart>
+                    </ResponsiveContainer>
                   )}
                 </CardContent>
               </Card>
@@ -396,77 +396,138 @@ export default function AdminRelatorios({
               <Card className="bg-[#2C3E50] border-[#C9A961]/20 text-gray-100">
                 <CardHeader>
                   <CardTitle className="text-[#C9A961] text-sm">
-                    Imóveis por Tipo
+                    Números de Obra
                   </CardTitle>
                 </CardHeader>
                 <CardContent>
-                  <ResponsiveContainer width="100%" height={220}>
-                    <PieChart>
-                      <Pie
-                        data={data.imoveisPorTipo}
-                        dataKey="n"
-                        nameKey="tipo"
-                        cx="50%"
-                        cy="50%"
-                        outerRadius={80}
-                        label
+                  {numerosObraGrafico.length === 0 ? (
+                    <div className="flex h-[220px] items-center justify-center text-sm text-gray-400">
+                      Nenhuma obra com VGV no período
+                    </div>
+                  ) : (
+                    <ResponsiveContainer width="100%" height={220}>
+                      <PieChart>
+                        <Pie
+                          data={numerosObraGrafico}
+                          dataKey="fatia"
+                          nameKey="nome"
+                          cx="50%"
+                          cy="50%"
+                          outerRadius={80}
+                        >
+                          {numerosObraGrafico.map(f => (
+                            <Cell
+                              key={f.chave}
+                              fill={
+                                CORES_NUMEROS_OBRA[
+                                  data.numerosDeObra.findIndex(
+                                    n => n.chave === f.chave
+                                  )
+                                ]
+                              }
+                            />
+                          ))}
+                        </Pie>
+                        <Tooltip
+                          formatter={v => formatCurrencyBR(Number(v))}
+                          contentStyle={{
+                            background: "#0F1923",
+                            border: "1px solid #C9A96140",
+                          }}
+                        />
+                      </PieChart>
+                    </ResponsiveContainer>
+                  )}
+                  <ul className="mt-2 space-y-1 text-xs">
+                    {data.numerosDeObra.map((f, i) => (
+                      <li
+                        key={f.chave}
+                        className="flex items-center justify-between gap-2"
                       >
-                        {data.imoveisPorTipo.map((_, i) => (
-                          <Cell
-                            key={i}
-                            fill={PIE_COLORS[i % PIE_COLORS.length]}
+                        <span className="flex items-center gap-2 text-gray-300">
+                          <span
+                            className="inline-block h-3 w-3 rounded-sm"
+                            style={{ backgroundColor: CORES_NUMEROS_OBRA[i] }}
                           />
-                        ))}
-                      </Pie>
-                      <Tooltip
-                        contentStyle={{
-                          background: "#0F1923",
-                          border: "1px solid #C9A96140",
-                        }}
-                      />
-                      <Legend />
-                    </PieChart>
-                  </ResponsiveContainer>
+                          {f.nome}
+                        </span>
+                        <span className="font-bold text-white">
+                          {formatCurrencyBR(f.valor)}
+                        </span>
+                      </li>
+                    ))}
+                  </ul>
+                  <p className="mt-2 text-[11px] text-gray-400">
+                    {NOTA_NUMEROS_DE_OBRA}
+                    {data.vgvObras.obrasSemEntrada > 0 &&
+                      ` A entrada não inclui ${data.vgvObras.obrasSemEntrada} obra(s) sem financiamento, FGTS ou subsídio informados.`}
+                  </p>
                 </CardContent>
               </Card>
 
               <Card className="bg-[#2C3E50] border-[#C9A961]/20 text-gray-100">
                 <CardHeader>
                   <CardTitle className="text-[#C9A961] text-sm">
-                    Avaliações por Status
+                    Unidades Disponíveis
                   </CardTitle>
                 </CardHeader>
                 <CardContent>
                   <ResponsiveContainer width="100%" height={220}>
-                    <PieChart>
-                      <Pie
-                        data={data.avaliacoes.porStatus.map(s => ({
-                          ...s,
-                          label: AVALIACAO_STATUS_LABELS[s.status] ?? s.status,
-                        }))}
-                        dataKey="n"
-                        nameKey="label"
-                        cx="50%"
-                        cy="50%"
-                        outerRadius={80}
-                        label
-                      >
-                        {data.avaliacoes.porStatus.map((_, i) => (
-                          <Cell
-                            key={i}
-                            fill={PIE_COLORS[i % PIE_COLORS.length]}
-                          />
-                        ))}
-                      </Pie>
+                    <BarChart data={data.unidadesDisponiveis.barras}>
+                      <CartesianGrid strokeDasharray="3 3" stroke="#374151" />
+                      <XAxis
+                        dataKey="nome"
+                        tick={{ fill: "#9CA3AF", fontSize: 10 }}
+                        interval={0}
+                        tickFormatter={v =>
+                          String(v)
+                            .replace("Incorporação", "Incorp.")
+                            .replace("reservados + vendidos", "res. + vend.")
+                        }
+                      />
+                      <YAxis
+                        allowDecimals={false}
+                        tick={{ fill: "#9CA3AF", fontSize: 11 }}
+                      />
                       <Tooltip
+                        cursor={{ fill: "rgba(201, 169, 97, 0.08)" }}
                         contentStyle={{
                           background: "#0F1923",
                           border: "1px solid #C9A96140",
                         }}
+                        labelStyle={{ color: "#E5E7EB" }}
                       />
                       <Legend />
-                    </PieChart>
+                      <Bar
+                        dataKey="disponiveis"
+                        stackId="u"
+                        fill="#22C55E"
+                        name="Disponível"
+                        maxBarSize={56}
+                      />
+                      <Bar
+                        dataKey="reservados"
+                        stackId="u"
+                        fill="#F59E0B"
+                        name="Reservado"
+                        maxBarSize={56}
+                      />
+                      <Bar
+                        dataKey="vendidos"
+                        stackId="u"
+                        fill="#EF4444"
+                        name="Vendido"
+                        maxBarSize={56}
+                      />
+                    </BarChart>
                   </ResponsiveContainer>
+                  <p className="mt-2 text-[11px] text-gray-400">
+                    Situação atual (não depende do período). Unidades excluídas
+                    ficam fora. Catálogo: só imóveis aprovados, sem os pontos de
+                    localização de obras. Não há vínculo entre imóvel do
+                    catálogo e unidade de incorporação, então nenhuma unidade é
+                    contada nos dois grupos.
+                  </p>
                 </CardContent>
               </Card>
             </div>
@@ -479,38 +540,46 @@ export default function AdminRelatorios({
                   </CardTitle>
                 </CardHeader>
                 <CardContent className="space-y-2">
-                  {data.leadsPorStage.map(s => {
-                    const pct = Math.round((s.n / funilTotal) * 100);
-                    return (
-                      <div key={s.stage}>
-                        <div className="flex justify-between text-xs text-gray-300 mb-0.5">
-                          <span>{STAGE_LABELS[s.stage] ?? s.stage}</span>
-                          <span>
-                            {s.n} ({pct}%)
-                          </span>
-                        </div>
-                        <div className="h-2 bg-[#1A2332] rounded-full overflow-hidden">
-                          <div
-                            className="h-full bg-[#C9A961]"
-                            style={{ width: `${pct}%` }}
-                          />
-                        </div>
+                  {data.funilLeads.etapas.map(s => (
+                    <div key={s.key}>
+                      <div className="flex justify-between text-xs text-gray-300 mb-0.5">
+                        <span>{s.label}</span>
+                        <span>
+                          {s.n} ({s.pct}%)
+                        </span>
                       </div>
-                    );
-                  })}
+                      <div className="h-2 bg-[#1A2332] rounded-full overflow-hidden">
+                        <div
+                          className="h-full bg-[#C9A961]"
+                          style={{ width: `${s.pct}%` }}
+                        />
+                      </div>
+                    </div>
+                  ))}
+                  <p className="pt-1 text-xs text-gray-300">
+                    Total:{" "}
+                    <span className="font-bold text-white">
+                      {data.funilLeads.total}
+                    </span>{" "}
+                    lead(s)
+                  </p>
+                  <p className="text-[11px] text-gray-400">
+                    Leads ativos do CRM (excluídos ficam fora) criados no
+                    período, pela etapa atual do pipeline.
+                  </p>
                 </CardContent>
               </Card>
 
               <Card className="bg-[#2C3E50] border-[#C9A961]/20 text-gray-100">
                 <CardHeader>
                   <CardTitle className="text-[#C9A961] text-sm">
-                    Ranking de Corretores (comissão paga)
+                    Ranking de Corretores (comissão paga no período)
                   </CardTitle>
                 </CardHeader>
                 <CardContent className="space-y-2">
                   {data.corretorRanking.length === 0 ? (
                     <p className="text-gray-400 text-sm">
-                      Nenhuma comissão registrada ainda.
+                      {MENSAGEM_RANKING_VAZIO}.
                     </p>
                   ) : (
                     data.corretorRanking.map((c, i) => (
@@ -527,6 +596,11 @@ export default function AdminRelatorios({
                       </div>
                     ))
                   )}
+                  <p className="text-[11px] text-gray-400">
+                    Valor efetivamente pago, pela data do pagamento: pagamentos
+                    de comissão das obras (corretor do lead da obra) e comissões
+                    cadastradas como pagas, sem contar duas vezes a mesma obra.
+                  </p>
                 </CardContent>
               </Card>
             </div>

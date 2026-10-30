@@ -1,5 +1,7 @@
-import { sql } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import { getDb } from "./db.js";
+import { bpoLancamentos } from "../drizzle/schema.js";
+import { CONFIRMACAO_EXCLUSAO, confirmacaoExclusaoValida, exigirNaoCombinada } from "../shared/financeiro/bpo-lote.js";
 
 export type PreviaLimpezaConta = {
   contaId: number;
@@ -42,9 +44,10 @@ export async function previaLimpezaConta(contaId: number): Promise<PreviaLimpeza
  * Um único comando SQL garante backup, desvinculação das receitas legítimas e limpeza atômica.
  * A credencial criptografada da conta é deliberadamente excluída do snapshot.
  */
-export async function limparContaComBackup(contaId: number, confirmarRotulo: string, userId: number) {
+export async function limparContaComBackup(contaId: number, confirmacao: string, userId: number) {
+  // Lote 3, item 13B: confirmação digitando EXCLUIR (case-sensitive, sem acento).
+  if (!confirmacaoExclusaoValida(confirmacao)) throw new Error(`Digite ${CONFIRMACAO_EXCLUSAO} para confirmar a exclusão da conta.`);
   const previa = await previaLimpezaConta(contaId);
-  if (confirmarRotulo.trim() !== previa.contaRotulo) throw new Error("Digite exatamente o nome da conta exibido para confirmar a limpeza.");
   const resultado = await getDb().execute(sql`
     WITH conta AS (
       SELECT id, banco, agencia, conta, tipo, descricao, saldo_atual, ativo, pluggy_item_id,
@@ -86,13 +89,13 @@ export async function limparContaComBackup(contaId: number, confirmarRotulo: str
         AND (SELECT count(*) FROM preservados) >= 0
       RETURNING a.id
     )
-    SELECT (SELECT id FROM backup)::int AS "backupId",
+    SELECT (SELECT id FROM backup)::int AS "backupId", now() AS "excluidaEm", ${userId}::int AS "excluidaPorUserId",
       (SELECT count(*) FROM removida)::int AS removidas,
       ${previa.transacoes}::int AS transacoes,
       ${previa.lancamentosRemovidos}::int AS "lancamentosRemovidos",
       ${previa.lancamentosPreservados}::int AS "lancamentosPreservados"
   `);
-  const row = primeira<{ backupId: number; removidas: number; transacoes: number; lancamentosRemovidos: number; lancamentosPreservados: number }>(resultado);
+  const row = primeira<{ backupId: number; excluidaEm: string; excluidaPorUserId: number; removidas: number; transacoes: number; lancamentosRemovidos: number; lancamentosPreservados: number }>(resultado);
   if (!row?.removidas) throw new Error("A conta mudou durante a confirmação. Atualize a prévia e tente novamente.");
   return row;
 }
@@ -108,19 +111,24 @@ export type EdicaoLancamento = {
 export async function editarLancamentoAuditavel(input: EdicaoLancamento, userId: number) {
   const resultado = await getDb().execute(sql`
     WITH anterior AS (
-      SELECT * FROM bpo_lancamentos WHERE id = ${input.id} AND version = ${input.version}
+      SELECT * FROM bpo_lancamentos WHERE id = ${input.id} AND version = ${input.version} AND combinada_em_id IS NULL
         AND valor_recebido <= ${input.valor.toFixed(2)} FOR UPDATE
     ), atualizado AS (
       UPDATE bpo_lancamentos l SET
         descricao = ${input.descricao}, valor = ${input.valor.toFixed(2)}, categoria = ${input.categoria},
         cliente_id = ${input.clienteId ?? null}, cliente_nome_livre = ${input.clienteId ? null : input.clienteNomeLivre ?? null},
-        vencimento = ${input.vencimento}, competencia = ${input.competencia}, centro_custos = ${input.centroCustos ?? null},
+        vencimento = ${input.vencimento}, competencia = ${input.competencia},
+        centro_custos = ${input.centroCustos === undefined ? sql`l.centro_custos` : input.centroCustos},
         observacoes = ${input.observacoes ?? null}, version = l.version + 1, updated_at = now(),
         pago = CASE WHEN l.valor_recebido > 0 THEN l.valor_recebido = ${input.valor.toFixed(2)} ELSE l.pago END,
         categoria_operacional = ${input.categoriaOperacional ?? null}, vinculo_operacional_id = ${input.vinculoOperacionalId ?? null},
         vinculo_operacional_rotulo = ${input.vinculoOperacionalRotulo ?? null},
         tipo_despesa_obra = ${input.tipoDespesaObra ?? null}, etapa_obra = ${input.etapaObra ?? null}
       FROM anterior a WHERE l.id = a.id RETURNING l.*
+    ), movimentacao AS (
+      -- Revisão do PR #180 (P2): lançamento do extrato — a movimentação de origem acompanha o cliente.
+      UPDATE bank_transactions b SET bpo_cliente_id = u.cliente_id
+      FROM atualizado u WHERE b.id = u.bank_transaction_id AND b.bpo_cliente_id IS DISTINCT FROM u.cliente_id RETURNING b.id
     ), auditoria AS (
       INSERT INTO bpo_lancamento_historico
         (lancamento_id, lancamento_referencia, versao_anterior, alterado_por_user_id, motivo, antes_json, depois_json)
@@ -130,6 +138,10 @@ export async function editarLancamentoAuditavel(input: EdicaoLancamento, userId:
     SELECT u.*, EXISTS(SELECT 1 FROM auditoria) AS auditado FROM atualizado u
   `);
   const row = primeira<Record<string, unknown>>(resultado);
-  if (!row) throw new Error("O lançamento foi alterado por outra pessoa. Atualize a tela antes de salvar novamente.");
+  if (!row) {
+    const [l] = await getDb().select({ combinadaEmId: bpoLancamentos.combinadaEmId }).from(bpoLancamentos).where(eq(bpoLancamentos.id, input.id)).limit(1);
+    if (l) exigirNaoCombinada(l);
+    throw new Error("O lançamento foi alterado por outra pessoa. Atualize a tela antes de salvar novamente.");
+  }
   return row;
 }
