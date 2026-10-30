@@ -4,7 +4,7 @@ import { trpc } from "@/lib/trpc";
 import { formatCurrency } from "@/lib/format";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { CurrencyInput } from "@/components/ui/currency-input";
@@ -15,7 +15,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { toast } from "sonner";
 import {
   Users, Plus, Search, Filter, Phone, Mail, MapPin,
-  Thermometer, User, ArrowLeft, Flame, Snowflake, TrendingUp, Trash2, RotateCcw, CalendarDays
+  Thermometer, ArrowLeft, ArrowRight, Flame, Snowflake, Trash2, RotateCcw, CalendarDays
 } from "lucide-react";
 import { LEAD_SERVICE_LABELS, LEAD_SERVICE_PRIMARY_TYPES, type LeadServiceType } from "../../../../shared/lead-services";
 import { LEAD_PIPELINE_STAGES, LEGACY_STAGE_LABELS, type LeadPipelineStage } from "../../../../shared/lead-pipeline";
@@ -73,7 +73,6 @@ export default function AdminCRM() {
     temperature: filterTemp !== "all" ? filterTemp : undefined,
   });
 
-  const { data: stats } = trpc.leads.stats.useQuery();
   const utils = trpc.useUtils();
   const softDelete = trpc.leads.softDelete.useMutation({
     onSuccess: async () => { toast.success("Lead arquivado. Os vínculos e históricos foram preservados."); await Promise.all([refetch(), utils.leads.stats.invalidate(), utils.whatsapp.leadsParaEnvio.invalidate()]); },
@@ -365,47 +364,15 @@ export default function AdminCRM() {
         </div>
       </div>
 
-      {/* Stats */}
-      {stats && (
-        <div className="container mx-auto px-4 py-4 grid grid-cols-2 md:grid-cols-4 gap-3">
-          <Card className="bg-[#1A2332] border-white/10 text-gray-100">
-            <CardContent className="p-4 flex items-center gap-3">
-              <Users className="h-8 w-8 text-[#C9A961]" />
-              <div>
-                <p className="text-2xl font-bold text-white">{stats.total}</p>
-                <p className="text-xs text-gray-400">Total Leads</p>
-              </div>
-            </CardContent>
-          </Card>
-          <Card className="bg-[#1A2332] border-white/10 text-gray-100">
-            <CardContent className="p-4 flex items-center gap-3">
-              <Flame className="h-8 w-8 text-red-500" />
-              <div>
-                <p className="text-2xl font-bold text-white">{stats.hot}</p>
-                <p className="text-xs text-gray-400">Leads Quentes</p>
-              </div>
-            </CardContent>
-          </Card>
-          <Card className="bg-[#1A2332] border-white/10 text-gray-100">
-            <CardContent className="p-4 flex items-center gap-3">
-              <TrendingUp className="h-8 w-8 text-green-500" />
-              <div>
-                <p className="text-2xl font-bold text-white">{stats.approved}</p>
-                <p className="text-xs text-gray-400">Aprovado e Follow up</p>
-              </div>
-            </CardContent>
-          </Card>
-          <Card className="bg-[#1A2332] border-white/10 text-gray-100">
-            <CardContent className="p-4 flex items-center gap-3">
-              <User className="h-8 w-8 text-purple-400" />
-              <div>
-                <p className="text-2xl font-bold text-white">{pendingClassification.length}</p>
-                <p className="text-xs text-gray-400">A classificar</p>
-              </div>
-            </CardContent>
-          </Card>
-        </div>
-      )}
+      <div className="container mx-auto px-4 py-4">
+        <Button asChild variant="outline" className="h-auto min-h-11 w-full justify-start gap-3 whitespace-normal border-[#C9A961]/40 bg-[#1A2332] px-4 py-3 text-left text-[#E6CA88] hover:bg-[#C9A961]/10 hover:text-[#E6CA88] sm:w-auto">
+          <Link href="/admin/tarefas-agenda">
+            <CalendarDays className="h-5 w-5 shrink-0" aria-hidden="true" />
+            <span>Tarefas e Agendamentos</span>
+            <ArrowRight className="ml-auto h-4 w-4 shrink-0" aria-hidden="true" />
+          </Link>
+        </Button>
+      </div>
 
       {/* Filters */}
       <div className="container mx-auto px-4 pb-4 flex flex-wrap gap-3">
