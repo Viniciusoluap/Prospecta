@@ -2243,6 +2243,7 @@ export const regularizacaoRecebimentosHistorico = pgTable("regularizacao_recebim
 export const engineerProfiles = pgTable("engineer_profiles", {
   userId: integer("user_id").primaryKey().references(() => users.id, { onDelete: "cascade" }),
   active: boolean("active").default(true).notNull(),
+  cpf: varchar("cpf", { length: 14 }),
   phone: varchar("phone", { length: 20 }),
   cep: varchar("cep", { length: 9 }),
   street: varchar("street", { length: 255 }),
