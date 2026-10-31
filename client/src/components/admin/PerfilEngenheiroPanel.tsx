@@ -1,6 +1,7 @@
 // Lote 2, correção 04 (AD-02): dados profissionais e documentos do Engenheiro, em
 // Configurações › Usuários. Só o admin edita; o próprio usuário pode consultar.
 import { FormEvent, useEffect, useState } from "react";
+import { formatCPF } from "@shared/cpf";
 import { Download, Eye, FileArchive, Plus, RefreshCw, Trash2, Upload, X } from "lucide-react";
 import { toast } from "sonner";
 import { trpc } from "@/lib/trpc";
@@ -14,8 +15,8 @@ import {
   type CategoriaDocumentoUsuario,
 } from "@shared/engenheiro";
 
-type Form = { telefone: string; cep: string; logradouro: string; numero: string; complemento: string; bairro: string; cidade: string; uf: string; crea: string; creaUf: string; creasAdicionais: { numero: string; uf: string }[] };
-const VAZIO: Form = { telefone: "", cep: "", logradouro: "", numero: "", complemento: "", bairro: "", cidade: "", uf: "", crea: "", creaUf: "", creasAdicionais: [] };
+type Form = { cpf: string; telefone: string; cep: string; logradouro: string; numero: string; complemento: string; bairro: string; cidade: string; uf: string; crea: string; creaUf: string; creasAdicionais: { numero: string; uf: string }[] };
+const VAZIO: Form = { cpf: "", telefone: "", cep: "", logradouro: "", numero: "", complemento: "", bairro: "", cidade: "", uf: "", crea: "", creaUf: "", creasAdicionais: [] };
 const campo = "mt-1 border-[#C9A961]/30 bg-[#2C3E50] text-white placeholder:text-gray-400";
 const seletor = "mt-1 h-9 w-full rounded-md border border-[#C9A961]/30 bg-[#2C3E50] px-2 text-sm text-white";
 const tamanho = (b: number) => b >= 1024 * 1024 ? `${(b / 1024 / 1024).toFixed(1).replace(".", ",")} MB` : `${Math.max(1, Math.round(b / 1024))} KB`;
@@ -31,7 +32,7 @@ export function PerfilEngenheiroPanel({ userId }: { userId: number }) {
   useEffect(() => {
     if (!dados) return;
     const p = dados.perfil;
-    setForm({ telefone: p.telefone ?? "", cep: p.cep ?? "", logradouro: p.logradouro ?? "", numero: p.numero ?? "", complemento: p.complemento ?? "", bairro: p.bairro ?? "", cidade: p.cidade ?? "", uf: p.uf ?? "", crea: p.crea ?? "", creaUf: p.creaUf ?? "", creasAdicionais: p.creasAdicionais });
+    setForm({ cpf: formatCPF(p.cpf ?? ""), telefone: p.telefone ?? "", cep: p.cep ?? "", logradouro: p.logradouro ?? "", numero: p.numero ?? "", complemento: p.complemento ?? "", bairro: p.bairro ?? "", cidade: p.cidade ?? "", uf: p.uf ?? "", crea: p.crea ?? "", creaUf: p.creaUf ?? "", creasAdicionais: p.creasAdicionais });
   }, [dados]);
 
   const recarregar = () => utils.engenheiros.perfil.invalidate({ userId });
@@ -91,6 +92,7 @@ export function PerfilEngenheiroPanel({ userId }: { userId: number }) {
         <div><Label>Bairro</Label><Input value={form.bairro} onChange={set("bairro")} className={campo} /></div>
         <div><Label>Cidade</Label><Input value={form.cidade} onChange={set("cidade")} className={campo} /></div>
         <div><Label>UF</Label><select aria-label="UF do endereço" value={form.uf} onChange={set("uf")} className={seletor}><option value="">—</option>{UFS.map(uf => <option key={uf} value={uf}>{uf}</option>)}</select></div>
+        <div><Label htmlFor={`engenheiro-cpf-${userId}`}>CPF do engenheiro</Label><Input id={`engenheiro-cpf-${userId}`} name="cpf" value={form.cpf} onChange={e => setForm(f => ({ ...f, cpf: formatCPF(e.target.value) }))} className={campo} inputMode="numeric" maxLength={14} placeholder="000.000.000-00" /></div>
         <div className="md:col-span-3 space-y-2">
           <Label>CREAs adicionais (outros estados)</Label>
           {form.creasAdicionais.map((c, i) => <div key={i} className="flex gap-2">

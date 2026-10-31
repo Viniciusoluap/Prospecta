@@ -76,6 +76,7 @@ export async function listarEngenheiros(opcoes: { apenasEngenheiros?: boolean } 
 /** Grava (ou reativa) o perfil Engenheiro. Só chamado depois da checagem de admin. */
 export async function gravarPerfilEngenheiro(userId: number, dados: PerfilEngenheiroDados, autorId: number | null) {
   const valores = {
+    ...(dados.cpf !== undefined ? { cpf: dados.cpf } : {}),
     active: true, phone: dados.telefone, cep: dados.cep, street: dados.logradouro, number: dados.numero,
     complement: dados.complemento, district: dados.bairro, city: dados.cidade, state: dados.uf,
     creaNumber: dados.crea, creaState: dados.creaUf, additionalCreas: dados.creasAdicionais,
@@ -127,6 +128,7 @@ export const engenheirosRouter = router({
       podeGerenciar: acesso.gerenciar,
       engenheiro: u.role === "colaborador" && p?.active === true,
       perfil: {
+        cpf: p?.cpf ?? null,
         telefone: p?.phone ?? u.phone ?? null, cep: p?.cep ?? null, logradouro: p?.street ?? null, numero: p?.number ?? null,
         complemento: p?.complement ?? null, bairro: p?.district ?? null, cidade: p?.city ?? null, uf: p?.state ?? null,
         crea: p?.creaNumber ?? null, creaUf: p?.creaState ?? null, creasAdicionais: lerCreasAdicionais(p?.additionalCreas),
@@ -137,6 +139,7 @@ export const engenheirosRouter = router({
 
   salvarPerfil: protectedProcedure.input(z.object({
     userId: z.number().int().positive(),
+    cpf: z.string().max(20).nullish(),
     telefone: z.string().max(40).nullish(), cep: z.string().max(20).nullish(), logradouro: z.string().max(300).nullish(),
     numero: z.string().max(40).nullish(), complemento: z.string().max(200).nullish(), bairro: z.string().max(200).nullish(),
     cidade: z.string().max(200).nullish(), uf: z.string().max(4).nullish(), crea: z.string().max(60).nullish(), creaUf: z.string().max(4).nullish(),
