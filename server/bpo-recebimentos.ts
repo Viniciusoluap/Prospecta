@@ -9,7 +9,7 @@ export async function registrarRecebimento(input: { id: number; requestKey: stri
   const valor = (cents / 100).toFixed(2);
   // Única instrução atômica: o driver Neon HTTP não suporta transações interativas.
   const r = await getDb().execute(sql`
-    WITH anterior AS MATERIALIZED (SELECT * FROM bpo_lancamentos WHERE id = ${input.id} FOR UPDATE),
+    WITH anterior AS MATERIALIZED (SELECT * FROM bpo_lancamentos WHERE exclusao_lote_backup_id IS NULL AND id = ${input.id} FOR UPDATE),
     existente AS MATERIALIZED (SELECT * FROM bpo_recebimentos WHERE request_key = ${input.requestKey}),
     novo AS (
       INSERT INTO bpo_recebimentos(lancamento_id,request_key,valor,recebido_em,registrado_por_user_id,observacoes)
@@ -34,7 +34,7 @@ export async function registrarRecebimento(input: { id: number; requestKey: stri
   const row = r.rows?.[0] as { registro?: Record<string, unknown> } | undefined;
   if (!row?.registro) {
     // Original de "Combinar pagamentos" (lista antiga aberta): mensagem específica.
-    const [l] = await getDb().select({ combinadaEmId: bpoLancamentos.combinadaEmId }).from(bpoLancamentos).where(eq(bpoLancamentos.id, input.id)).limit(1);
+    const [l] = await getDb().select({ combinadaEmId: bpoLancamentos.combinadaEmId, exclusaoLoteBackupId: bpoLancamentos.exclusaoLoteBackupId }).from(bpoLancamentos).where(eq(bpoLancamentos.id, input.id)).limit(1);
     if (l) exigirNaoCombinada(l);
     throw new Error("Recebimento não registrado: confira o saldo, a origem e a chave de envio. O valor não pode superar o saldo da cobrança.");
   }

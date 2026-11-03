@@ -255,7 +255,7 @@ export const relatoriosRouter = router({
         database
           .select({ competencia: bpoLancamentos.competencia, tipo: bpoLancamentos.tipo, valor: bpoLancamentos.valor })
           .from(bpoLancamentos)
-          .where(and(eq(bpoLancamentos.pago, true), gte(bpoLancamentos.pagoEm, from), lte(bpoLancamentos.pagoEm, to))),
+          .where(and(isNull(bpoLancamentos.exclusaoLoteBackupId), eq(bpoLancamentos.pago, true), gte(bpoLancamentos.pagoEm, from), lte(bpoLancamentos.pagoEm, to))),
       ]);
 
       const dreMensal = montarDreMensal(transacoesPagas, lancamentosBpoPagos);

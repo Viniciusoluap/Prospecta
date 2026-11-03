@@ -30,7 +30,7 @@ export async function carregarCandidatosCrm(): Promise<CandidatoCliente[]> {
 }
 
 async function lancamentosLivres(ids?: number[]): Promise<LancamentoLivre[]> {
-  const filtros = [isNull(bpoLancamentos.clienteId), isNull(bpoLancamentos.combinadaEmId)];
+  const filtros = [isNull(bpoLancamentos.clienteId), isNull(bpoLancamentos.combinadaEmId), isNull(bpoLancamentos.exclusaoLoteBackupId)];
   if (ids) filtros.push(inArray(bpoLancamentos.id, ids.length ? ids : [0]));
   return getDb().select({
     id: bpoLancamentos.id, version: bpoLancamentos.version, clienteId: bpoLancamentos.clienteId,
@@ -128,7 +128,7 @@ export async function vincularLancamentoACliente(input: { id: number; version: n
     }
     const [depois] = await tx.update(bpoLancamentos)
       .set({ clienteId, clienteNomeLivre: null, version: antes.version + 1, updatedAt: new Date() })
-      .where(and(eq(bpoLancamentos.id, antes.id), eq(bpoLancamentos.version, antes.version), isNull(bpoLancamentos.combinadaEmId))).returning();
+      .where(and(eq(bpoLancamentos.id, antes.id), eq(bpoLancamentos.version, antes.version), isNull(bpoLancamentos.combinadaEmId), isNull(bpoLancamentos.exclusaoLoteBackupId))).returning();
     if (!depois) throw new Error("O lançamento foi alterado por outra pessoa. Atualize a tela.");
     // Revisão do PR #180 (P2): lançamento vindo do extrato — a movimentação de origem passa a apontar para o
     // mesmo cliente (senão atualizarMovimentacao, ao recategorizar em Bancos, reconstrói o cliente antigo).

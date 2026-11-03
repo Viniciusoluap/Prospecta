@@ -110,7 +110,7 @@ export async function clientesComTotais() {
     d.select({ cliente: bpoClients, nomeLead: leads.name }).from(bpoClients)
       .leftJoin(leads, eq(leads.id, bpoClients.leadId)).orderBy(bpoClients.razaoSocial),
     d.select({ clienteId: bpoLancamentos.clienteId, tipo: bpoLancamentos.tipo, valor: bpoLancamentos.valor, valorRecebido: bpoLancamentos.valorRecebido, pago: bpoLancamentos.pago, categoria: bpoLancamentos.categoria })
-      .from(bpoLancamentos).where(and(isNotNull(bpoLancamentos.clienteId), isNull(bpoLancamentos.combinadaEmId))),
+      .from(bpoLancamentos).where(and(isNotNull(bpoLancamentos.clienteId), isNull(bpoLancamentos.combinadaEmId), isNull(bpoLancamentos.exclusaoLoteBackupId))),
   ]);
   const totais = resumoPorCliente(lancs);
   return clientes.map(({ cliente, nomeLead }) => ({
@@ -205,6 +205,8 @@ export function categoriaNaEdicao(
 const entradaLoteSchema = z.object({
   aba: z.enum(["cobrancas", "despesas"]),
   modo: z.enum(["selecionados", "tudo"]),
+  limpezaAjustes: z.boolean().optional(),
+  previaToken: z.string().max(64).optional(),
   ids: z.array(z.number().int().positive()).max(5000).optional(),
   filtros: z.object({
     busca: z.string().max(200).nullish(), clienteId: z.union([z.string(), z.number()]).nullish(),
@@ -290,7 +292,8 @@ export const bpoRouter = router({
 
   lancamentos: router({
     receber: adminProcedure.input(z.object({ id: z.number().int().positive(), requestKey: z.string().uuid(), valor: z.number().positive(), recebidoEm: z.string().date(), observacoes: z.string().trim().max(1000).optional() })).mutation(async ({ input, ctx }) => {
-      const [l] = await db.getDb().select({ combinadaEmId: bpoLancamentos.combinadaEmId }).from(bpoLancamentos).where(eq(bpoLancamentos.id, input.id)).limit(1);
+      const [l] = await db.getDb().select({ combinadaEmId: bpoLancamentos.combinadaEmId, exclusaoLoteBackupId: bpoLancamentos.exclusaoLoteBackupId }).from(bpoLancamentos).where(eq(bpoLancamentos.id, input.id)).limit(1);
+      if (l?.exclusaoLoteBackupId != null) throw new TRPCError({ code: "BAD_REQUEST", message: "Lançamento excluído na limpeza de ajustes. Restaure o lote antes de alterar." });
       if (l?.combinadaEmId) throw new TRPCError({ code: "BAD_REQUEST", message: mensagemLancamentoCombinado(l.combinadaEmId) });
       return registrarRecebimento({ ...input, recebidoEm: new Date(`${input.recebidoEm}T12:00:00Z`) }, ctx.user.id);
     }),
@@ -376,6 +379,7 @@ export const bpoRouter = router({
     marcarPago: adminProcedure.input(z.object({ id: z.number() })).mutation(async ({ input, ctx }) => {
       const [l] = await db.getDb().select().from(bpoLancamentos).where(eq(bpoLancamentos.id, input.id)).limit(1);
       if (!l) throw new TRPCError({ code: "NOT_FOUND" });
+      if (l.exclusaoLoteBackupId != null) throw new TRPCError({ code: "BAD_REQUEST", message: "Lançamento excluído na limpeza de ajustes. Restaure o lote antes de alterar." });
       if (l.combinadaEmId) throw new TRPCError({ code: "BAD_REQUEST", message: mensagemLancamentoCombinado(l.combinadaEmId) });
       if (!l.pago && l.tipo !== "despesa" && !l.asaasPaymentId && !l.bankTransactionId) {
         await registrarRecebimento({ id: l.id, requestKey: `quitar-${l.id}-${l.version}`, valor: Number(l.valor) - Number(l.valorRecebido), recebidoEm: new Date() }, ctx.user.id);
@@ -396,6 +400,7 @@ export const bpoRouter = router({
     })).mutation(async ({ input, ctx }) => {
       const [antes] = await db.getDb().select().from(bpoLancamentos).where(eq(bpoLancamentos.id, input.id)).limit(1);
       if (!antes) throw new TRPCError({ code: "NOT_FOUND" });
+      if (antes.exclusaoLoteBackupId != null) throw new TRPCError({ code: "BAD_REQUEST", message: "Lançamento excluído na limpeza de ajustes. Restaure o lote antes de alterar." });
       if (antes.combinadaEmId) throw new TRPCError({ code: "BAD_REQUEST", message: mensagemLancamentoCombinado(antes.combinadaEmId) });
       let rotulo: string | null = null;
       const tipo = antes.tipo === "despesa" ? "despesa" : "cobranca";

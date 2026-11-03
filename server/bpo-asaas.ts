@@ -85,6 +85,7 @@ export async function sincronizarCobrancasAsaas(apiKey: string, desde: string, f
     const desejado = lancamentoDaCobranca(c, clienteId);
     const atual = existentes.get(c.id);
     if (atual) {
+      if (atual.exclusaoLoteBackupId != null) continue;
       const set: Partial<typeof bpoLancamentos.$inferInsert> = {};
       // Já reconciliado com o extrato: o dinheiro entrou; valor e pagamento ficam os do banco.
       if (!atual.bankTransactionId) {
@@ -95,7 +96,7 @@ export async function sincronizarCobrancasAsaas(apiKey: string, desde: string, f
       if (dia(atual.vencimento) !== dia(desejado.vencimento)) { set.vencimento = desejado.vencimento; set.competencia = desejado.competencia; }
       if (!atual.clienteId && clienteId) { set.clienteId = clienteId; set.clienteNomeLivre = null; }
       if (Object.keys(set).length) {
-        consultas.push(db.update(bpoLancamentos).set(set).where(eq(bpoLancamentos.id, atual.id)) as unknown as Consulta);
+        consultas.push(db.update(bpoLancamentos).set(set).where(and(eq(bpoLancamentos.id, atual.id), isNull(bpoLancamentos.exclusaoLoteBackupId))) as unknown as Consulta);
         resultado.atualizadas++;
       }
       continue;
@@ -129,7 +130,7 @@ export async function sincronizarCobrancasAsaas(apiKey: string, desde: string, f
       vencimento: lancamentoDaCobranca(c, clienteId).vencimento,
       descricao: descricaoDaCobranca(c),
       ...(clienteId ? { clienteId, clienteNomeLivre: null } : c.clienteNome ? { clienteNomeLivre: c.clienteNome } : {}),
-    }).where(eq(bpoLancamentos.id, lancamentoId)) as unknown as Consulta;
+    }).where(and(eq(bpoLancamentos.id, lancamentoId), isNull(bpoLancamentos.exclusaoLoteBackupId))) as unknown as Consulta;
   }
 
   await executarLote(db, consultas);
@@ -159,7 +160,7 @@ export async function vincularCobrancasAoExtrato(movs: { id: number; asaasPaymen
     const lancamentoId = porPagamento.get(m.asaasPaymentId!);
     if (!lancamentoId) continue;
     consultas.push(db.update(bpoLancamentos).set({ bankTransactionId: m.id, pago: true, pagoEm: m.data, valor: m.valor })
-      .where(eq(bpoLancamentos.id, lancamentoId)) as unknown as Consulta);
+      .where(and(eq(bpoLancamentos.id, lancamentoId), isNull(bpoLancamentos.exclusaoLoteBackupId))) as unknown as Consulta);
   }
   await executarLote(db, consultas);
   return consultas.length;

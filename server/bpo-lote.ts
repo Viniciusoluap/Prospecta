@@ -3,6 +3,7 @@
 // (Asaas, extrato, baixa, obra, regularização, combinação) nunca são apagados. Toda exclusão grava
 // backup JSON recuperável (bpo_lancamento_exclusoes_backup) e histórico por lançamento, em transação.
 // Gêmeo no Santa Fé: web/src/lib/actions/bpo-lote.ts.
+import { createHash } from "node:crypto";
 import { and, eq, inArray, isNull, ne, sql, getTableColumns } from "drizzle-orm";
 import { getDb } from "./db.js";
 import { bpoClients, bpoLancamentoExclusoesBackup, bpoLancamentoHistorico, bpoLancamentos } from "../drizzle/schema.js";
@@ -12,14 +13,14 @@ import {
 } from "../shared/financeiro/bpo-lote.js";
 
 export type AbaLote = "cobrancas" | "despesas";
-export type EntradaLote = { aba: AbaLote; modo: "selecionados" | "tudo"; ids?: number[]; filtros?: FiltrosLote };
+export type EntradaLote = { aba: AbaLote; modo: "selecionados" | "tudo"; ids?: number[]; filtros?: FiltrosLote; limpezaAjustes?: boolean; previaToken?: string };
 type Executor = Pick<ReturnType<typeof getDb>, "select">;
 
 const contagem = (q: ReturnType<typeof sql>) => sql<number>`(${q})::int`;
 
 function consultaAba(d: Executor, aba: AbaLote, ids?: number[]) {
   const l = bpoLancamentos;
-  const filtros = [isNull(l.combinadaEmId), aba === "despesas" ? eq(l.tipo, "despesa") : ne(l.tipo, "despesa")];
+  const filtros = [isNull(l.exclusaoLoteBackupId), isNull(l.combinadaEmId), aba === "despesas" ? eq(l.tipo, "despesa") : ne(l.tipo, "despesa")];
   if (ids) filtros.push(inArray(l.id, ids.length ? ids : [0]));
   return d.select({
     ...getTableColumns(l),
@@ -37,34 +38,49 @@ const comProtecao = (x: Linha) => ({ ...x, transacaoBancaria: x.bankTransactionI
 async function alcance(d: Executor, input: EntradaLote) {
   const todos = await consultaAba(d, input.aba);
   const base = input.modo === "tudo" ? filtrarLancamentosLote(todos, input.filtros ?? {}) : todos.filter(x => (input.ids ?? []).includes(x.id));
-  return { totalAba: todos.length, ...resumirExclusao(todos.length, base.map(comProtecao), input.modo === "selecionados" ? (input.ids ?? []).length : 0) };
+  return { totalAba: todos.length, ...resumirExclusao(todos.length, base.map(comProtecao), input.modo === "selecionados" ? (input.ids ?? []).length : 0, input.limpezaAjustes === true) };
 }
 
 export async function previaExclusaoLote(input: EntradaLote) {
-  const { resumo } = await alcance(getDb(), input);
-  return resumo;
+  const { resumo, excluiveis } = await alcance(getDb(), input);
+  return { ...resumo, previaToken: tokenDaPrevia(excluiveis) };
 }
+
+const tokenDaPrevia = (linhas: { id: number }[]) => createHash("sha256").update(JSON.stringify([...linhas].sort((a, b) => a.id - b.id))).digest("hex");
 
 export async function excluirLancamentosEmLote(input: EntradaLote & { confirmacao: string }, userId: number) {
   if (!confirmacaoExclusaoValida(input.confirmacao)) throw new Error(`Digite ${CONFIRMACAO_EXCLUSAO} para confirmar a exclusão.`);
   if (input.modo === "selecionados" && !(input.ids ?? []).length) throw new Error("Selecione ao menos um lançamento.");
   return getDb().transaction(async tx => {
     await tx.execute(sql`select pg_advisory_xact_lock(hashtext('bpo_exclusao_lote'))`);
-    const { resumo, excluiveis } = await alcance(tx, input);
+    let { resumo, excluiveis } = await alcance(tx, input);
+    // Bloqueia as linhas alcançadas e relê o snapshot depois do lock; qualquer alteração da
+    // prévia (inclusive importação nova) exige nova confirmação no modo de ajustes.
+    if (input.limpezaAjustes) {
+      if (excluiveis.length) await tx.execute(sql`SELECT id FROM bpo_lancamentos WHERE id IN (${sql.join(excluiveis.map(x => sql`${x.id}`), sql`, `)}) ORDER BY id FOR UPDATE`);
+      ({ resumo, excluiveis } = await alcance(tx, input));
+      if (!input.previaToken || input.previaToken !== tokenDaPrevia(excluiveis)) throw new Error("Os lançamentos mudaram desde a prévia. Atualize a prévia e confirme novamente.");
+    }
     if (!excluiveis.length) return { ...resumo, excluidos: 0, backupId: null as number | null };
     const ids = excluiveis.map(x => x.id);
     const [backup] = await tx.insert(bpoLancamentoExclusoesBackup).values({
-      modo: input.modo, aba: input.aba, filtrosJson: JSON.stringify(input.modo === "tudo" ? input.filtros ?? {} : { ids: input.ids }),
-      quantidade: ids.length, protegidos: resumo.protegidos, snapshotJson: JSON.stringify(excluiveis), criadoPorUserId: userId,
+      modo: input.modo, aba: input.aba, filtrosJson: JSON.stringify({ ...(input.modo === "tudo" ? input.filtros ?? {} : { ids: input.ids }), ...(input.limpezaAjustes ? { limpezaAjustes: true } : {}) }),
+      quantidade: ids.length, protegidos: resumo.protegidos, snapshotJson: JSON.stringify(excluiveis.map(x => input.limpezaAjustes ? { ...x, __limpezaAjustes: true } : x)), criadoPorUserId: userId,
     }).returning({ id: bpoLancamentoExclusoesBackup.id });
     await tx.insert(bpoLancamentoHistorico).values(excluiveis.map(x => ({
       lancamentoId: x.id, lancamentoReferencia: x.id, versaoAnterior: x.version, alteradoPorUserId: userId,
-      motivo: `Excluído em lote (${input.modo === "tudo" ? "Excluir tudo" : "Excluir selecionados"}; backup #${backup.id})`,
+      motivo: `${input.limpezaAjustes ? "Limpeza local de ajustes" : "Excluído em lote"} (${input.modo === "tudo" ? "Excluir tudo" : "Excluir selecionados"}; backup #${backup.id})`,
       antesJson: JSON.stringify(x), depoisJson: JSON.stringify({ excluido: true, backupId: backup.id }),
     })));
+    if (input.limpezaAjustes) {
+      const alterados = await tx.update(bpoLancamentos).set({ exclusaoLoteBackupId: backup.id, version: sql`${bpoLancamentos.version} + 1`, updatedAt: new Date() })
+        .where(and(inArray(bpoLancamentos.id, ids), isNull(bpoLancamentos.exclusaoLoteBackupId))).returning({ id: bpoLancamentos.id });
+      if (alterados.length !== ids.length) throw new Error("Algum lançamento mudou durante a confirmação. Atualize a prévia e tente novamente.");
+      return { ...resumo, excluidos: alterados.length, backupId: backup.id };
+    }
     // Revalida a proteção no próprio DELETE: se algo mudou desde a leitura, nada é apagado.
     const apagados = await tx.delete(bpoLancamentos).where(and(
-      inArray(bpoLancamentos.id, ids),
+      inArray(bpoLancamentos.id, ids), isNull(bpoLancamentos.exclusaoLoteBackupId),
       isNull(bpoLancamentos.asaasPaymentId), isNull(bpoLancamentos.bankTransactionId), isNull(bpoLancamentos.combinadaEmId),
       eq(bpoLancamentos.pago, false), sql`${bpoLancamentos.valorRecebido} = 0`,
       sql`NOT EXISTS (SELECT 1 FROM bpo_recebimentos r WHERE r.lancamento_id = ${bpoLancamentos.id})`,
@@ -106,7 +122,7 @@ export async function combinarPagamentos(input: { ids: number[]; requestKey: str
     for (const o of linhas) {
       const [depois] = await tx.update(bpoLancamentos)
         .set({ combinadaEmId: nova.id, version: o.version + 1, updatedAt: new Date() })
-        .where(and(eq(bpoLancamentos.id, o.id), eq(bpoLancamentos.version, o.version), isNull(bpoLancamentos.combinadaEmId))).returning();
+        .where(and(eq(bpoLancamentos.id, o.id), eq(bpoLancamentos.version, o.version), isNull(bpoLancamentos.combinadaEmId), isNull(bpoLancamentos.exclusaoLoteBackupId))).returning();
       if (!depois) throw new Error("Uma das cobranças foi alterada por outra pessoa. Atualize a tela.");
       await tx.insert(bpoLancamentoHistorico).values({
         lancamentoId: o.id, lancamentoReferencia: o.id, versaoAnterior: o.version, alteradoPorUserId: userId,

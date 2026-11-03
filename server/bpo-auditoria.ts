@@ -111,7 +111,7 @@ export type EdicaoLancamento = {
 export async function editarLancamentoAuditavel(input: EdicaoLancamento, userId: number) {
   const resultado = await getDb().execute(sql`
     WITH anterior AS (
-      SELECT * FROM bpo_lancamentos WHERE id = ${input.id} AND version = ${input.version} AND combinada_em_id IS NULL
+      SELECT * FROM bpo_lancamentos WHERE exclusao_lote_backup_id IS NULL AND id = ${input.id} AND version = ${input.version} AND combinada_em_id IS NULL
         AND valor_recebido <= ${input.valor.toFixed(2)} FOR UPDATE
     ), atualizado AS (
       UPDATE bpo_lancamentos l SET
@@ -139,7 +139,7 @@ export async function editarLancamentoAuditavel(input: EdicaoLancamento, userId:
   `);
   const row = primeira<Record<string, unknown>>(resultado);
   if (!row) {
-    const [l] = await getDb().select({ combinadaEmId: bpoLancamentos.combinadaEmId }).from(bpoLancamentos).where(eq(bpoLancamentos.id, input.id)).limit(1);
+    const [l] = await getDb().select({ combinadaEmId: bpoLancamentos.combinadaEmId, exclusaoLoteBackupId: bpoLancamentos.exclusaoLoteBackupId }).from(bpoLancamentos).where(eq(bpoLancamentos.id, input.id)).limit(1);
     if (l) exigirNaoCombinada(l);
     throw new Error("O lançamento foi alterado por outra pessoa. Atualize a tela antes de salvar novamente.");
   }

@@ -1,5 +1,5 @@
 import { TRPCError } from "@trpc/server";
-import { and, asc, desc, eq, getTableColumns, sql } from "drizzle-orm";
+import { isNull, and, asc, desc, eq, getTableColumns, sql } from "drizzle-orm";
 import { z } from "zod";
 import {
   bpoLancamentos,
@@ -362,7 +362,7 @@ export const regularizacaoRouter = router({
         pagoEm: bpoLancamentos.pagoEm,
         alocado: sql<string>`bpo_valor_alocado(${bpoLancamentos.id}, NULL, NULL)`,
       }).from(bpoLancamentos)
-        .where(and(eq(bpoLancamentos.pago, true), sql`${bpoLancamentos.tipo} <> 'despesa'`))
+        .where(and(isNull(bpoLancamentos.exclusaoLoteBackupId), eq(bpoLancamentos.pago, true), sql`${bpoLancamentos.tipo} <> 'despesa'`))
         .orderBy(asc(bpoLancamentos.vencimento));
       return linhas
         .map((l) => ({ ...l, disponivelCentavos: centavosDe(l.valor)! - centavosDe(l.alocado)! }))

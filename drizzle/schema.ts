@@ -1264,6 +1264,8 @@ export const bpoLancamentos = pgTable("bpo_lancamentos", {
   version: integer("version").default(1).notNull(),
   // Lote 3, item 16: cobrança original combinada na nova cobrança (soma); a original não é apagada.
   combinadaEmId: integer("combinada_em_id").references((): AnyPgColumn => bpoLancamentos.id, { onDelete: "set null" }),
+  /** Limpeza local reversível: mantém chaves externas e relações sem entrar nos totais do BPO. */
+  exclusaoLoteBackupId: integer("exclusao_lote_backup_id"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });

@@ -54,10 +54,11 @@ beforeEach(async () => {
     "0097_bpo_restaurar_exclusoes.sql", "0097_bpo_restaurar_exclusoes.sql"]) await pg.exec(sqlDe(f));
   await pg.exec(`
     ALTER TABLE users ADD COLUMN name text;
-    CREATE TABLE obra_movimentos (id serial PRIMARY KEY, bpo_lancamento_id integer REFERENCES bpo_lancamentos(id) ON DELETE RESTRICT);
-    CREATE TABLE regularizacao_recebimentos (id serial PRIMARY KEY, bpo_lancamento_id integer REFERENCES bpo_lancamentos(id) ON DELETE RESTRICT);
+    CREATE TABLE obra_movimentos (id serial PRIMARY KEY, bpo_lancamento_id integer REFERENCES bpo_lancamentos(id) ON DELETE RESTRICT, status varchar(12) DEFAULT 'confirmado', valor numeric(15,2) DEFAULT 1);
+    CREATE TABLE regularizacao_recebimentos (id serial PRIMARY KEY, bpo_lancamento_id integer REFERENCES bpo_lancamentos(id) ON DELETE RESTRICT, status varchar(12) DEFAULT 'confirmado', valor numeric(15,2) DEFAULT 1);
     INSERT INTO users (name) VALUES ('Admin Teste');
     INSERT INTO bpo_clients (razao_social, responsavel, telefone, honorarios, data_inicio) VALUES ('Cliente Apagado', 'X', '', 0, now());`);
+  await pg.exec(sqlDe("0099_bpo_limpeza_ajustes.sql"));
   vi.mocked(getDb).mockReturnValue(drizzle(pg) as never);
 });
 afterEach(async () => { await pg.close(); });

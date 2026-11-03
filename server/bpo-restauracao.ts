@@ -68,10 +68,35 @@ async function planoDoBackup(d: Executor, snapshotJson: string, carregarCatalogo
   }, COLUNAS_LANCAMENTO, COLUNAS_DATA_LANCAMENTO);
 }
 
+/** Backups de ajustes reativam a própria linha: nunca recriam recebimentos ou chaves externas. */
+const ehBackupAjustes = (snapshotJson: string) => {
+  const itens = lerSnapshot(snapshotJson);
+  if (itens.some(i => i.__limpezaAjustes === true) && !itens.every(i => i.__limpezaAjustes === true)) throw new Error("Backup corrompido: mistura de exclusão e limpeza de ajustes.");
+  return itens.length > 0 && itens.every(i => i.__limpezaAjustes === true);
+};
+
+async function planoArquivado(d: Executor, backupId: number, snapshotJson: string): Promise<PlanoRestauracao> {
+  const snapshot = lerSnapshot(snapshotJson);
+  const ids = snapshot.map(s => Number(s.id));
+  const atuais = ids.length ? await d.select().from(bpoLancamentos).where(inArray(bpoLancamentos.id, ids)) : [];
+  const porId = new Map(atuais.map(l => [l.id, l]));
+  const itens = snapshot.map(s => {
+    const atual = porId.get(Number(s.id));
+    const proprio = atual?.exclusaoLoteBackupId === backupId;
+    return { id: String(s.id), descricao: String(s.descricao ?? ""), valor: Number(s.valor ?? 0), vencimento: s.vencimento ? String(s.vencimento) : null,
+      clienteNome: s.clienteNome ? String(s.clienteNome) : null, acao: proprio ? "restaurar" as const : "ja_existe" as const,
+      avisos: proprio ? [] : [atual ? "O lançamento não pertence mais a esta limpeza; será mantido sem alteração." : "O lançamento não existe mais; esta limpeza não recria registros nem vínculos externos."],
+      dados: atual ?? {},
+    };
+  });
+  return { itens, restaurar: itens.filter(i => i.acao === "restaurar").length, jaExistem: itens.filter(i => i.acao !== "restaurar").length,
+    comAviso: itens.filter(i => i.avisos.length > 0).length };
+}
+
 export async function previaRestauracaoExclusao(backupId: number, carregarCatalogo: CarregarCatalogo) {
   const [b] = await getDb().select().from(bpoLancamentoExclusoesBackup).where(eq(bpoLancamentoExclusoesBackup.id, backupId));
   if (!b) throw new Error("Exclusão em lote não encontrada.");
-  const plano = await planoDoBackup(getDb(), b.snapshotJson, carregarCatalogo);
+  const plano = ehBackupAjustes(b.snapshotJson) ? await planoArquivado(getDb(), b.id, b.snapshotJson) : await planoDoBackup(getDb(), b.snapshotJson, carregarCatalogo);
   return {
     backupId: b.id, aba: b.aba, criadoEm: b.createdAt.toISOString(), restauradoEm: b.restauradoEm?.toISOString() ?? null,
     restaurar: plano.restaurar, jaExistem: plano.jaExistem, comAviso: plano.comAviso,
@@ -86,10 +111,25 @@ export async function restaurarExclusaoEmLote(input: { backupId: number; confirm
     const [b] = await tx.select().from(bpoLancamentoExclusoesBackup).where(eq(bpoLancamentoExclusoesBackup.id, input.backupId));
     if (!b) throw new Error("Exclusão em lote não encontrada.");
     if (b.restauradoEm) throw new Error(`Esta exclusão já foi restaurada em ${b.restauradoEm.toLocaleString("pt-BR", { timeZone: "America/Sao_Paulo" })}.`);
-    const plano = await planoDoBackup(tx, b.snapshotJson, carregarCatalogo);
-    const avisos: string[] = [];
+    const ajustes = ehBackupAjustes(b.snapshotJson);
+    if (ajustes) {
+      const ids = lerSnapshot(b.snapshotJson).map(s => Number(s.id));
+      if (ids.length) await tx.execute(sql`SELECT id FROM bpo_lancamentos WHERE id IN (${sql.join(ids.map(id => sql`${id}`), sql`, `)}) ORDER BY id FOR UPDATE`);
+    }
+    const plano = ajustes ? await planoArquivado(tx, b.id, b.snapshotJson) : await planoDoBackup(tx, b.snapshotJson, carregarCatalogo);
+    const avisos: string[] = ajustes ? plano.itens.flatMap(i => i.avisos.map(a => `${i.descricao || `#${i.id}`}: ${a}`)) : [];
     for (const item of plano.itens) {
       if (item.acao !== "restaurar") continue;
+      if (ajustes) {
+        const [alterado] = await tx.update(bpoLancamentos)
+          .set({ exclusaoLoteBackupId: null, version: sql`${bpoLancamentos.version} + 1`, updatedAt: new Date() })
+          .where(and(eq(bpoLancamentos.id, Number(item.id)), eq(bpoLancamentos.exclusaoLoteBackupId, b.id))).returning();
+        if (!alterado) throw new Error("A limpeza mudou durante a restauração. Atualize a prévia.");
+        await tx.insert(bpoLancamentoHistorico).values({ lancamentoId: alterado.id, lancamentoReferencia: alterado.id,
+          versaoAnterior: Number(item.dados.version), alteradoPorUserId: userId, motivo: `Restaurado da limpeza local de ajustes (backup #${b.id})`,
+          antesJson: JSON.stringify(item.dados), depoisJson: JSON.stringify(alterado) });
+        continue;
+      }
       const versaoAnterior = Number(item.dados.version ?? 1) || 1;
       const dados = { ...item.dados, version: versaoAnterior + 1 } as InsertBpoLancamento;
       const [criado] = await tx.insert(bpoLancamentos).values(dados).returning({ id: bpoLancamentos.id });

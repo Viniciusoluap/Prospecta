@@ -54,12 +54,13 @@ export function BarraLote({ aba, visiveis, selecionados, setSelecionados, filtro
 function ExcluirLoteDialog({ aba, modo, ids, filtros, onFechar }: { aba: Aba; modo: "selecionados" | "tudo"; ids: number[]; filtros: FiltrosLote; onFechar: (ok: boolean) => void }) {
   const utils = trpc.useUtils();
   const [confirmacao, setConfirmacao] = useState("");
-  const entrada = { aba, modo, ...(modo === "selecionados" ? { ids } : { filtros }) };
+  const [limpezaAjustes, setLimpezaAjustes] = useState(false);
+  const entrada = { aba, modo, limpezaAjustes, ...(modo === "selecionados" ? { ids } : { filtros }) };
   const { data: previa, isFetching } = trpc.bpo.lancamentos.previaExclusao.useQuery(entrada);
   const excluir = trpc.bpo.lancamentos.excluirLote.useMutation({
     onSuccess: r => {
       toast.success(`${r.excluidos} lançamento(s) excluído(s)${r.backupId ? ` · backup #${r.backupId}` : ""}. ${r.protegidos} protegido(s) preservado(s).`);
-      utils.bpo.lancamentos.list.invalidate(); utils.bpo.dre.invalidate(); utils.bpo.dreCategorias.invalidate(); utils.bpo.clientes.list.invalidate();
+      utils.bpo.lancamentos.exclusoesEmLote.invalidate(); utils.bpo.dreAnos.invalidate(); utils.bpo.lancamentos.list.invalidate(); utils.bpo.dre.invalidate(); utils.bpo.dreCategorias.invalidate(); utils.bpo.clientes.list.invalidate();
       onFechar(true);
     },
     onError: e => toast.error(e.message),
@@ -69,6 +70,11 @@ function ExcluirLoteDialog({ aba, modo, ids, filtros, onFechar }: { aba: Aba; mo
       <DialogContent className="bg-[#1A2332] border-[#C9A961]/20 text-white max-h-[90vh] overflow-y-auto">
         <DialogHeader><DialogTitle className="text-red-300">{modo === "tudo" ? `Excluir tudo — ${aba === "cobrancas" ? "Cobranças" : "Despesas"}` : "Excluir selecionados"}</DialogTitle></DialogHeader>
         {isFetching && !previa && <p className="text-sm text-gray-400">Calculando impacto…</p>}
+        <label className="flex items-start gap-2 text-sm">
+          <input type="checkbox" checked={limpezaAjustes} disabled={excluir.isPending} onChange={e => { setLimpezaAjustes(e.target.checked); setConfirmacao(""); }} className="mt-1" />
+          <span>Limpeza temporária de ajustes: incluir pagos, importados e vinculados.</span>
+        </label>
+        {limpezaAjustes && <p className="text-xs text-amber-200">Os lançamentos saem das listas e totais do BPO e podem voltar em Exclusões em lote → Restaurar. Recebimentos e vínculos ficam preservados. Nenhuma cobrança é cancelada no Asaas e nenhum movimento bancário é apagado.</p>}
         {previa && <div className="space-y-3 text-sm">
           <div className="grid grid-cols-2 gap-2 rounded border border-white/10 p-3">
             <p>Total da aba: <strong>{previa.totalAba}</strong></p>
@@ -83,8 +89,8 @@ function ExcluirLoteDialog({ aba, modo, ids, filtros, onFechar }: { aba: Aba; mo
           <p className="text-xs text-gray-300">Antes de apagar, é gravado um backup JSON recuperável e o histórico de cada lançamento (usuário e data). Somente administradores.</p>
           <Label>Para confirmar, digite <strong>{CONFIRMACAO_EXCLUSAO}</strong></Label>
           <Input value={confirmacao} onChange={e => setConfirmacao(e.target.value)} autoComplete="off" className="bg-[#2C3E50] border-[#C9A961]/30" />
-          <Button className="w-full bg-red-700 hover:bg-red-800" disabled={!previa.excluiveis || !confirmacaoExclusaoValida(confirmacao) || excluir.isPending}
-            onClick={() => excluir.mutate({ ...entrada, confirmacao })}>
+          <Button className="w-full bg-red-700 hover:bg-red-800" disabled={isFetching || !previa.excluiveis || !confirmacaoExclusaoValida(confirmacao) || excluir.isPending}
+            onClick={() => excluir.mutate({ ...entrada, confirmacao, previaToken: previa.previaToken })}>
             {excluir.isPending ? "Gravando backup e excluindo…" : `Excluir ${previa.excluiveis} lançamento(s)`}
           </Button>
         </div>}
