@@ -18,11 +18,11 @@ export async function previaLimpezaConta(contaId: number): Promise<PreviaLimpeza
   const resultado = await getDb().execute(sql`
     SELECT a.id AS "contaId", concat_ws(' · ', a.banco, nullif(a.conta, '')) AS "contaRotulo",
       count(DISTINCT t.id)::int AS transacoes,
-      count(DISTINCT l.id) FILTER (WHERE l.id IS NOT NULL AND l.asaas_payment_id IS NULL
+      count(DISTINCT l.id) FILTER (WHERE l.id IS NOT NULL AND l.exclusao_lote_backup_id IS NULL AND l.asaas_payment_id IS NULL
         AND l.origem_efetiva = 'extrato' AND l.vinculo_operacional_id IS NULL
         AND NOT EXISTS (SELECT 1 FROM obra_movimentos om WHERE om.bpo_lancamento_id = l.id)
         AND NOT EXISTS (SELECT 1 FROM regularizacao_recebimentos rr WHERE rr.bpo_lancamento_id = l.id))::int AS "lancamentosRemovidos",
-      count(DISTINCT l.id) FILTER (WHERE l.id IS NOT NULL AND (l.asaas_payment_id IS NOT NULL
+      count(DISTINCT l.id) FILTER (WHERE l.id IS NOT NULL AND (l.exclusao_lote_backup_id IS NOT NULL OR l.asaas_payment_id IS NOT NULL
         OR l.origem_efetiva <> 'extrato' OR l.vinculo_operacional_id IS NOT NULL
         OR EXISTS (SELECT 1 FROM obra_movimentos om WHERE om.bpo_lancamento_id = l.id)
         OR EXISTS (SELECT 1 FROM regularizacao_recebimentos rr WHERE rr.bpo_lancamento_id = l.id)))::int AS "lancamentosPreservados",
@@ -40,15 +40,14 @@ export async function previaLimpezaConta(contaId: number): Promise<PreviaLimpeza
   return row;
 }
 
-/**
- * Um único comando SQL garante backup, desvinculação das receitas legítimas e limpeza atômica.
- * A credencial criptografada da conta é deliberadamente excluída do snapshot.
- */
+/** Backup, desvinculação e limpeza são atômicos. O snapshot exclui a credencial da conta. */
 export async function limparContaComBackup(contaId: number, confirmacao: string, userId: number) {
   // Lote 3, item 13B: confirmação digitando EXCLUIR (case-sensitive, sem acento).
   if (!confirmacaoExclusaoValida(confirmacao)) throw new Error(`Digite ${CONFIRMACAO_EXCLUSAO} para confirmar a exclusão da conta.`);
-  const previa = await previaLimpezaConta(contaId);
-  const resultado = await getDb().execute(sql`
+  return getDb().transaction(async tx => {
+    // Serializa com o arquivamento e a restauração antes de decidir quais linhas preservar.
+    await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext('bpo_exclusao_lote'))`);
+    const resultado = await tx.execute(sql`
     WITH conta AS (
       SELECT id, banco, agencia, conta, tipo, descricao, saldo_atual, ativo, pluggy_item_id,
         pluggy_account_id, webhook_url, ultima_sincronizacao, provedor, data_inicial,
@@ -58,7 +57,7 @@ export async function limparContaComBackup(contaId: number, confirmacao: string,
       SELECT t.* FROM bank_transactions t JOIN conta a ON a.id = t.account_id
     ), lancamentos AS (
       SELECT l.*,
-        (l.asaas_payment_id IS NOT NULL OR l.origem_efetiva <> 'extrato' OR l.vinculo_operacional_id IS NOT NULL
+        (l.exclusao_lote_backup_id IS NOT NULL OR l.asaas_payment_id IS NOT NULL OR l.origem_efetiva <> 'extrato' OR l.vinculo_operacional_id IS NOT NULL
           OR EXISTS (SELECT 1 FROM obra_movimentos om WHERE om.bpo_lancamento_id = l.id)
           OR EXISTS (SELECT 1 FROM regularizacao_recebimentos rr WHERE rr.bpo_lancamento_id = l.id)) AS preservar
       FROM bpo_lancamentos l JOIN movimentos t ON t.id = l.bank_transaction_id
@@ -76,7 +75,7 @@ export async function limparContaComBackup(contaId: number, confirmacao: string,
         (SELECT count(*) FROM lancamentos WHERE NOT preservar)::int,
         (SELECT count(*) FROM lancamentos WHERE preservar)::int,
         ${userId}
-      FROM conta a RETURNING id
+      FROM conta a RETURNING id, transacoes, lancamentos_removidos, lancamentos_preservados
     ), preservados AS (
       UPDATE bpo_lancamentos l SET bank_transaction_id = NULL,
         origem_efetiva = CASE WHEN l.asaas_payment_id IS NOT NULL THEN 'asaas' ELSE l.origem_efetiva END,
@@ -91,13 +90,15 @@ export async function limparContaComBackup(contaId: number, confirmacao: string,
     )
     SELECT (SELECT id FROM backup)::int AS "backupId", now() AS "excluidaEm", ${userId}::int AS "excluidaPorUserId",
       (SELECT count(*) FROM removida)::int AS removidas,
-      ${previa.transacoes}::int AS transacoes,
-      ${previa.lancamentosRemovidos}::int AS "lancamentosRemovidos",
-      ${previa.lancamentosPreservados}::int AS "lancamentosPreservados"
+      (SELECT transacoes FROM backup)::int AS transacoes,
+      (SELECT lancamentos_removidos FROM backup)::int AS "lancamentosRemovidos",
+      (SELECT lancamentos_preservados FROM backup)::int AS "lancamentosPreservados"
   `);
-  const row = primeira<{ backupId: number; excluidaEm: string; excluidaPorUserId: number; removidas: number; transacoes: number; lancamentosRemovidos: number; lancamentosPreservados: number }>(resultado);
-  if (!row?.removidas) throw new Error("A conta mudou durante a confirmação. Atualize a prévia e tente novamente.");
-  return row;
+    const row = primeira<{ backupId: number; excluidaEm: string; excluidaPorUserId: number; removidas: number; transacoes: number; lancamentosRemovidos: number; lancamentosPreservados: number }>(resultado);
+    if (!row?.backupId) throw new Error("Conta bancária não encontrada.");
+    if (!row.removidas) throw new Error("A conta mudou durante a confirmação. Atualize a prévia e tente novamente.");
+    return row;
+  });
 }
 
 export type EdicaoLancamento = {

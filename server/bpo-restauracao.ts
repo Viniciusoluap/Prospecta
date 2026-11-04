@@ -83,9 +83,14 @@ async function planoArquivado(d: Executor, backupId: number, snapshotJson: strin
   const itens = snapshot.map(s => {
     const atual = porId.get(Number(s.id));
     const proprio = atual?.exclusaoLoteBackupId === backupId;
+    const avisos = proprio
+      ? s.bankTransactionId != null && atual?.bankTransactionId == null
+        ? ["A movimentação bancária original foi removida: o lançamento volta sem esse vínculo, preservando os dados atuais."]
+        : []
+      : [atual ? "O lançamento não pertence mais a esta limpeza; será mantido sem alteração." : "O lançamento não existe mais; esta limpeza não recria registros nem vínculos externos."];
     return { id: String(s.id), descricao: String(s.descricao ?? ""), valor: Number(s.valor ?? 0), vencimento: s.vencimento ? String(s.vencimento) : null,
       clienteNome: s.clienteNome ? String(s.clienteNome) : null, acao: proprio ? "restaurar" as const : "ja_existe" as const,
-      avisos: proprio ? [] : [atual ? "O lançamento não pertence mais a esta limpeza; será mantido sem alteração." : "O lançamento não existe mais; esta limpeza não recria registros nem vínculos externos."],
+      avisos,
       dados: atual ?? {},
     };
   });
@@ -118,18 +123,24 @@ export async function restaurarExclusaoEmLote(input: { backupId: number; confirm
     }
     const plano = ajustes ? await planoArquivado(tx, b.id, b.snapshotJson) : await planoDoBackup(tx, b.snapshotJson, carregarCatalogo);
     const avisos: string[] = ajustes ? plano.itens.flatMap(i => i.avisos.map(a => `${i.descricao || `#${i.id}`}: ${a}`)) : [];
-    for (const item of plano.itens) {
+    if (ajustes && plano.restaurar) {
+      // Uma atualização e um INSERT de histórico por lote, inclusive para centenas de linhas.
+      // O lock acima mantém o plano estável; o marcador limita a restauração ao próprio backup.
+      const itens = plano.itens.filter(item => item.acao === "restaurar");
+      const antesPorId = new Map(itens.map(item => [Number(item.id), item.dados]));
+      const alterados = await tx.update(bpoLancamentos)
+        .set({ exclusaoLoteBackupId: null, version: sql`${bpoLancamentos.version} + 1`, updatedAt: new Date() })
+        .where(and(inArray(bpoLancamentos.id, itens.map(item => Number(item.id))), eq(bpoLancamentos.exclusaoLoteBackupId, b.id))).returning();
+      if (alterados.length !== itens.length) throw new Error("A limpeza mudou durante a restauração. Atualize a prévia.");
+      await tx.insert(bpoLancamentoHistorico).values(alterados.map(alterado => {
+        const antes = antesPorId.get(alterado.id)!;
+        return { lancamentoId: alterado.id, lancamentoReferencia: alterado.id,
+          versaoAnterior: Number(antes.version), alteradoPorUserId: userId, motivo: `Restaurado da limpeza local de ajustes (backup #${b.id})`,
+          antesJson: JSON.stringify(antes), depoisJson: JSON.stringify(alterado) };
+      }));
+    }
+    for (const item of ajustes ? [] : plano.itens) {
       if (item.acao !== "restaurar") continue;
-      if (ajustes) {
-        const [alterado] = await tx.update(bpoLancamentos)
-          .set({ exclusaoLoteBackupId: null, version: sql`${bpoLancamentos.version} + 1`, updatedAt: new Date() })
-          .where(and(eq(bpoLancamentos.id, Number(item.id)), eq(bpoLancamentos.exclusaoLoteBackupId, b.id))).returning();
-        if (!alterado) throw new Error("A limpeza mudou durante a restauração. Atualize a prévia.");
-        await tx.insert(bpoLancamentoHistorico).values({ lancamentoId: alterado.id, lancamentoReferencia: alterado.id,
-          versaoAnterior: Number(item.dados.version), alteradoPorUserId: userId, motivo: `Restaurado da limpeza local de ajustes (backup #${b.id})`,
-          antesJson: JSON.stringify(item.dados), depoisJson: JSON.stringify(alterado) });
-        continue;
-      }
       const versaoAnterior = Number(item.dados.version ?? 1) || 1;
       const dados = { ...item.dados, version: versaoAnterior + 1 } as InsertBpoLancamento;
       const [criado] = await tx.insert(bpoLancamentos).values(dados).returning({ id: bpoLancamentos.id });

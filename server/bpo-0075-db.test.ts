@@ -75,6 +75,7 @@ beforeEach(async () => {
   await pg.exec(sqlDe("0082_bpo_request_key.sql"));
   await pg.exec(sqlDe("0083_bpo_recebimentos_parciais.sql"));
   await pg.exec(sqlDe("0095_bpo_lote3.sql")); // lote 3: combinada_em_id (filtro das listas/DRE)
+  await pg.exec("ALTER TABLE bpo_lancamentos ADD COLUMN exclusao_lote_backup_id integer");
   db = drizzle(pg);
   vi.mocked(getDb).mockReturnValue(db as never);
   await pg.exec("INSERT INTO bank_accounts (banco, provedor) VALUES ('Cora', 'manual'), ('Asaas', 'asaas')");

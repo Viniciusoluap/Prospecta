@@ -72,7 +72,7 @@ export async function sincronizarCobrancasAsaas(apiKey: string, desde: string, f
       .from(bankTransactions)
       .innerJoin(bankAccounts, eq(bankAccounts.id, bankTransactions.accountId))
       .innerJoin(bpoLancamentos, eq(bpoLancamentos.bankTransactionId, bankTransactions.id))
-      .where(and(eq(bankAccounts.provedor, "asaas"), eq(bankTransactions.tipo, "credito"), isNull(bankTransactions.asaasPaymentId), isNull(bpoLancamentos.asaasPaymentId)));
+      .where(and(eq(bankAccounts.provedor, "asaas"), eq(bankTransactions.tipo, "credito"), isNull(bankTransactions.asaasPaymentId), isNull(bpoLancamentos.asaasPaymentId), isNull(bpoLancamentos.exclusaoLoteBackupId)));
     candidatos = linhas.filter((l): l is typeof l & { lancamentoId: number } => l.lancamentoId != null);
     return candidatos;
   };

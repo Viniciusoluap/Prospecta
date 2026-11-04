@@ -57,9 +57,15 @@ export async function excluirLancamentosEmLote(input: EntradaLote & { confirmaca
     // Bloqueia as linhas alcançadas e relê o snapshot depois do lock; qualquer alteração da
     // prévia (inclusive importação nova) exige nova confirmação no modo de ajustes.
     if (input.limpezaAjustes) {
-      if (excluiveis.length) await tx.execute(sql`SELECT id FROM bpo_lancamentos WHERE id IN (${sql.join(excluiveis.map(x => sql`${x.id}`), sql`, `)}) ORDER BY id FOR UPDATE`);
+      const bloqueados = new Set<number>();
+      if (excluiveis.length) {
+        const resultado = await tx.execute<{ id: number }>(sql`SELECT id FROM bpo_lancamentos WHERE id IN (${sql.join(excluiveis.map(x => sql`${x.id}`), sql`, `)}) ORDER BY id FOR UPDATE`);
+        for (const { id } of resultado.rows) bloqueados.add(id);
+      }
       ({ resumo, excluiveis } = await alcance(tx, input));
-      if (!input.previaToken || input.previaToken !== tokenDaPrevia(excluiveis)) throw new Error("Os lançamentos mudaram desde a prévia. Atualize a prévia e confirme novamente.");
+      if (excluiveis.some(lancamento => !bloqueados.has(lancamento.id)) || !input.previaToken || input.previaToken !== tokenDaPrevia(excluiveis)) {
+        throw new Error("Os lançamentos mudaram desde a prévia. Atualize a prévia e confirme novamente.");
+      }
     }
     if (!excluiveis.length) return { ...resumo, excluidos: 0, backupId: null as number | null };
     const ids = excluiveis.map(x => x.id);

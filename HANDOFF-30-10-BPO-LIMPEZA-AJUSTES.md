@@ -31,3 +31,15 @@ Fechar desenho transacional com orquestração, implementar com paridade, testar
 - Código em andamento preservado na branch de trabalho, sem PR nem merge de produção nesta etapa.
 - Verificações finais de integridade, regressão e escala ainda pendentes; não tratar este checkpoint como entrega concluída.
 - Próximo passo: concluir testes e revisão independente, aplicar a migração aditiva sob a orquestração e publicar somente após os gates. Nenhuma limpeza de dados de produção executada.
+
+## Etapa 3 — validação local da Prospecta
+
+- O modo de ajustes arquiva cobranças e despesas com baixa, extrato bancário ou referência Asaas. O administrador usa a prévia, confirma o lote e pode restaurar os registros pelo histórico. A prévia é recusada se os candidatos mudarem ou se algum lançamento do conjunto final não tiver sido bloqueado pela transação.
+- A sincronização Asaas mantém a identidade externa arquivada fora das novas conciliações. A remoção de conta bancária é serializada com a limpeza do BPO e preserva os lançamentos arquivados e o backup. A referência da conta removida fica ausente e a restauração informa essa condição. A reimportação por outra identidade bancária é um fluxo separado.
+- Automáticos em banco isolado PGlite. As sete suítes do BPO passaram com 82 testes. As duas suítes afetadas pelo último ajuste passaram novamente com 12 testes. O cenário de 823 lançamentos validou arquivamento e restauração com IDs e vínculos, preservando 188 lançamentos fora do lote. TypeScript e build da aplicação passaram.
+- Manuais. Revisão do código de prévia, arquivamento, restauração e sincronização. Validação autenticada no navegador fica para depois da publicação.
+- Produção. Migração 0099, merge, deploy e verificação publicados pendentes de liberação. Nenhum lançamento de produção foi arquivado ou excluído nesta etapa.
+
+## Próximo passo da publicação
+
+Publicar a árvore validada na branch já preservada, passar pelos gates do PR e aplicar a migração 0099 com o fluxo de publicação antes de validar o modal em produção.
