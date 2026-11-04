@@ -1,5 +1,5 @@
 import { TRPCError } from "@trpc/server";
-import { and, asc, eq, inArray, sql } from "drizzle-orm";
+import { isNull, and, asc, eq, inArray, sql } from "drizzle-orm";
 import { z } from "zod";
 import {
   bpoLancamentos,
@@ -322,7 +322,7 @@ export const obraFinanceiroRouter = router({
       pagoEm: bpoLancamentos.pagoEm,
       competencia: bpoLancamentos.competencia,
       alocado,
-    }).from(bpoLancamentos).where(and(eq(bpoLancamentos.pago, true), tipoOk)).orderBy(asc(bpoLancamentos.vencimento));
+    }).from(bpoLancamentos).where(and(isNull(bpoLancamentos.exclusaoLoteBackupId), eq(bpoLancamentos.pago, true), tipoOk)).orderBy(asc(bpoLancamentos.vencimento));
     return linhas
       .map((l) => ({ ...l, disponivelCentavos: centavosDe(l.valor)! - centavosDe(l.alocado)! }))
       .filter((l) => l.disponivelCentavos > 0);

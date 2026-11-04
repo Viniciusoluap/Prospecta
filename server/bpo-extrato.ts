@@ -4,7 +4,8 @@
 // Crédito → receita (Cobranças), débito → despesa (Despesas). "Transferência interna"
 // não gera lançamento, então fica fora de DRE, Cobranças, Despesas e Contabilidade.
 // Regras puras em shared/financeiro/bpo-extrato.ts.
-import { and, desc, eq, getTableColumns, inArray, isNotNull, isNull, or } from "drizzle-orm";
+import { and, desc, eq, getTableColumns, inArray, isNotNull, isNull, notExists, or } from "drizzle-orm";
+import { alias } from "drizzle-orm/pg-core";
 import { getDb } from "./db.js";
 import { bankAccounts, bankTransactions, bpoClients, bpoLancamentos, bpoRegrasTitular, leads, type BpoRegraTitular } from "../drizzle/schema.js";
 import {
@@ -24,9 +25,38 @@ import {
 const LOTE = 200;
 
 /** Gera (sem duplicar) os lançamentos das movimentações informadas. Devolve quantos foram criados. */
-export async function gerarLancamentosDoExtrato(movimentos: MovimentoParaLancamento[]): Promise<number> {
-  const valores = movimentos.map(lancamentoDaMovimentacao).filter((l): l is NonNullable<typeof l> => l !== null);
+export async function gerarLancamentosDoExtrato(movimentos: (MovimentoParaLancamento & { asaasPaymentId?: string | null })[]): Promise<number> {
   const db = getDb();
+  const comPagamento = movimentos.filter(m => m.tipo === "credito" && m.asaasPaymentId);
+  const conhecidos = new Set<string>();
+  const vinculos = alias(bpoLancamentos, "vinculos_existentes");
+  for (let i = 0; i < comPagamento.length; i += LOTE) {
+    const lote = comPagamento.slice(i, i + LOTE);
+    const cobrancas = await db.select({ pid: bpoLancamentos.asaasPaymentId, bankTransactionId: bpoLancamentos.bankTransactionId })
+      .from(bpoLancamentos)
+      .where(inArray(bpoLancamentos.asaasPaymentId, lote.map(m => m.asaasPaymentId!)));
+    const porPagamento = new Map(cobrancas.map(c => [c.pid!, c]));
+    const consultas: Consulta[] = [];
+    for (const m of lote) {
+      const pid = m.asaasPaymentId!;
+      const cobranca = porPagamento.get(pid);
+      if (!cobranca || conhecidos.has(pid)) continue;
+      conhecidos.add(pid);
+      if (cobranca.bankTransactionId !== null) continue;
+      // O vínculo e o estado do pagamento acompanham o extrato mesmo durante a limpeza.
+      // A linha mantém seu marcador de arquivamento e volta com o vínculo na restauração.
+      consultas.push(db.update(bpoLancamentos)
+        .set({ bankTransactionId: m.id, pago: true, pagoEm: m.data instanceof Date ? m.data : new Date(m.data), valor: String(m.valor) })
+        .where(and(
+          eq(bpoLancamentos.asaasPaymentId, pid),
+          isNull(bpoLancamentos.bankTransactionId),
+          notExists(db.select({ id: vinculos.id }).from(vinculos).where(eq(vinculos.bankTransactionId, m.id))),
+        )) as unknown as Consulta);
+    }
+    await executarLote(db, consultas);
+  }
+  const valores = movimentos.filter(m => m.tipo !== "credito" || !m.asaasPaymentId || !conhecidos.has(m.asaasPaymentId))
+    .map(lancamentoDaMovimentacao).filter((l): l is NonNullable<typeof l> => l !== null);
   let criados = 0;
   for (let i = 0; i < valores.length; i += LOTE) {
     const r = await db
@@ -69,6 +99,7 @@ export async function reprocessarMovimentacoes(): Promise<ResultadoReprocessamen
       tipo: bankTransactions.tipo,
       categoria: bankTransactions.categoria,
       bpoClienteId: bankTransactions.bpoClienteId,
+      asaasPaymentId: bankTransactions.asaasPaymentId,
       titular: bankTransactions.titular,
       lancamentoId: bpoLancamentos.id,
     })
@@ -126,7 +157,7 @@ export async function atualizarMovimentacao(id: number, mudanca: { categoria?: C
     if (!cli) throw new Error("Cliente BPO não encontrado.");
   }
   const [existente] = await db
-    .select({ id: bpoLancamentos.id })
+    .select({ id: bpoLancamentos.id, exclusaoLoteBackupId: bpoLancamentos.exclusaoLoteBackupId })
     .from(bpoLancamentos)
     .where(eq(bpoLancamentos.bankTransactionId, id))
     .limit(1);
@@ -137,16 +168,16 @@ export async function atualizarMovimentacao(id: number, mudanca: { categoria?: C
   const desejado = lancamentoDaMovimentacao({ ...t, ...novo });
 
   // Remove primeiro o lançamento (pode falhar se já estiver alocado) e só então grava a movimentação.
-  if (!desejado && existente) {
-    try { await db.delete(bpoLancamentos).where(eq(bpoLancamentos.id, existente.id)); }
+  if (!desejado && existente && existente.exclusaoLoteBackupId == null) {
+    try { await db.delete(bpoLancamentos).where(and(eq(bpoLancamentos.id, existente.id), isNull(bpoLancamentos.exclusaoLoteBackupId))); }
     catch (e) { throw erroLancamentoEmUso(e); }
   }
   await db.update(bankTransactions).set(novo).where(eq(bankTransactions.id, id));
-  if (desejado && existente) {
+  if (desejado && existente && existente.exclusaoLoteBackupId == null) {
     await db.update(bpoLancamentos)
       .set({ categoria: desejado.categoria, clienteId: desejado.clienteId, tipo: desejado.tipo })
-      .where(eq(bpoLancamentos.id, existente.id));
-  } else if (desejado) {
+      .where(and(eq(bpoLancamentos.id, existente.id), isNull(bpoLancamentos.exclusaoLoteBackupId)));
+  } else if (desejado && !existente) {
     await gerarLancamentosDoExtrato([{ ...t, ...novo }]);
   }
   return { categoria: novo.categoria, bpoClienteId: novo.bpoClienteId ?? null, lancamento: desejado ? "vinculado" : "nenhum" };
@@ -243,7 +274,7 @@ export async function aplicarClassificacaoEmLote(ids: number[], mudanca: { categ
     };
     const comLancamento = linhas.filter(l => l.lancamentoId != null).map(l => l.id);
     if (mudanca.categoria === TRANSFERENCIA_INTERNA && comLancamento.length) {
-      try { await db.delete(bpoLancamentos).where(inArray(bpoLancamentos.bankTransactionId, comLancamento)); }
+      try { await db.delete(bpoLancamentos).where(and(inArray(bpoLancamentos.bankTransactionId, comLancamento), isNull(bpoLancamentos.exclusaoLoteBackupId))); }
       catch (e) { throw erroLancamentoEmUso(e); }
     }
     await db.update(bankTransactions).set(set).where(inArray(bankTransactions.id, linhas.map(l => l.id)));
@@ -252,7 +283,7 @@ export async function aplicarClassificacaoEmLote(ids: number[], mudanca: { categ
         await db.update(bpoLancamentos).set({
           ...(mudanca.categoria !== undefined ? { categoria: mudanca.categoria } : {}),
           ...(mudanca.bpoClienteId !== undefined ? { clienteId: mudanca.bpoClienteId } : {}),
-        }).where(inArray(bpoLancamentos.bankTransactionId, comLancamento));
+        }).where(and(inArray(bpoLancamentos.bankTransactionId, comLancamento), isNull(bpoLancamentos.exclusaoLoteBackupId)));
       }
       await gerarLancamentosDoExtrato(linhas.filter(l => l.lancamentoId == null).map(l => ({ ...l, ...set })));
     }
@@ -338,7 +369,7 @@ export async function completarMovimentacoesExistentes(movimentos: MovimentoPara
         .where(eq(bankTransactions.id, t.id)) as unknown as Consulta);
       consultas.push(db.update(bpoLancamentos)
         .set({ descricao: descricaoDoLancamento({ descricao: t.descricao, titular, detalhe: m.detalhe }), ...(clienteSugerido ? { clienteId: clienteSugerido } : {}) })
-        .where(eq(bpoLancamentos.bankTransactionId, t.id)) as unknown as Consulta);
+        .where(and(eq(bpoLancamentos.bankTransactionId, t.id), isNull(bpoLancamentos.exclusaoLoteBackupId))) as unknown as Consulta);
       const norma = normalizarTitular(titular);
       if (norma && ctx.regras.has(norma)) porRegra.set(norma, [...(porRegra.get(norma) ?? []), t.id]);
       completadas++;
@@ -362,6 +393,6 @@ export async function lancamentosComTitular() {
     .from(bpoLancamentos)
     .leftJoin(bankTransactions, eq(bankTransactions.id, bpoLancamentos.bankTransactionId))
     // Lote 3, item 16: originais combinadas saem da lista e dos totais (a nova cobrança as soma).
-    .where(isNull(bpoLancamentos.combinadaEmId))
+    .where(and(isNull(bpoLancamentos.combinadaEmId), isNull(bpoLancamentos.exclusaoLoteBackupId)))
     .orderBy(desc(bpoLancamentos.vencimento));
 }

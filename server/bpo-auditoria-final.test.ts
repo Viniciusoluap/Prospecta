@@ -11,7 +11,7 @@ beforeEach(async () => {
   await pg.exec(`
     CREATE TABLE bank_accounts (id int primary key,banco text,agencia text,conta text,tipo text,descricao text,saldo_atual numeric,ativo boolean,pluggy_item_id text,pluggy_account_id text,webhook_url text,ultima_sincronizacao timestamp,provedor text,data_inicial date,ultimo_erro text,saldo_fonte text,created_at timestamp);
     CREATE TABLE bank_transactions (id int primary key,account_id int references bank_accounts(id) on delete cascade);
-    CREATE TABLE bpo_lancamentos (id int primary key,bank_transaction_id int references bank_transactions(id) on delete cascade,asaas_payment_id text,origem_efetiva text,vinculo_operacional_id text,updated_at timestamp,version int default 1);
+    CREATE TABLE bpo_lancamentos (id int primary key,bank_transaction_id int references bank_transactions(id) on delete cascade,asaas_payment_id text,origem_efetiva text,vinculo_operacional_id text,updated_at timestamp,version int default 1,exclusao_lote_backup_id int);
     CREATE TABLE obra_movimentos (bpo_lancamento_id int references bpo_lancamentos(id));
     CREATE TABLE regularizacao_recebimentos (bpo_lancamento_id int references bpo_lancamentos(id));
     CREATE TABLE bpo_conta_limpeza_backups (id serial primary key,conta_referencia int,conta_rotulo text,snapshot_json text,transacoes int,lancamentos_removidos int,lancamentos_preservados int,criado_por_user_id int);

@@ -23,7 +23,7 @@ import {
 } from "../shared/extrato-import.js";
 import { saldoPorMovimentos } from "../shared/financeiro/bpo-extrato.js";
 import { classificacaoInicial, completarMovimentacoesExistentes, contextoClassificacao, gerarLancamentosDoExtrato, recalcularSaldoConta } from "./bpo-extrato.js";
-import { sincronizarCobrancasAsaas, vincularCobrancasAoExtrato, type ResultadoCobrancas } from "./bpo-asaas.js";
+import { sincronizarCobrancasAsaas, type ResultadoCobrancas } from "./bpo-asaas.js";
 
 export type Provedor = "manual" | "asaas" | "pluggy" | "inter";
 type Movimento = {
@@ -116,7 +116,6 @@ export async function gravarMovimentos(conta: Pick<BankAccount, "id" | "dataInic
     });
     inseridas.push(...gravadas);
     // Item 14: crédito de cobrança do Asaas já lançada assume aquele lançamento (não duplica).
-    await vincularCobrancasAoExtrato(gravadas);
     await gerarLancamentosDoExtrato(gravadas);
     const novasChaves = new Set(r.map(x => x.externalId));
     jaExistentes.push(...parte.filter(m => !novasChaves.has(m.externalId)));
