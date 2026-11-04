@@ -1,7 +1,7 @@
 // Pedido de 25/10 (noite), item 14: cobranças emitidas no Asaas → aba Cobranças do BPO.
 // Roda junto com a sincronização da conta Asaas (botão Sincronizar, cron diário e webhook).
 // Regras puras em shared/financeiro/bpo-asaas.ts. Nunca cria dois lançamentos para o mesmo dinheiro.
-import { and, eq, inArray, isNotNull, isNull } from "drizzle-orm";
+import { and, eq, inArray, isNotNull, isNull, sql } from "drizzle-orm";
 import { getDb } from "./db.js";
 import { bankAccounts, bankTransactions, bpoClients, bpoLancamentos, leads } from "../drizzle/schema.js";
 import { fetchAsaasCobrancas, type AsaasCobranca } from "./_core/asaas-extrato.js";
@@ -72,7 +72,7 @@ export async function sincronizarCobrancasAsaas(apiKey: string, desde: string, f
       .from(bankTransactions)
       .innerJoin(bankAccounts, eq(bankAccounts.id, bankTransactions.accountId))
       .innerJoin(bpoLancamentos, eq(bpoLancamentos.bankTransactionId, bankTransactions.id))
-      .where(and(eq(bankAccounts.provedor, "asaas"), eq(bankTransactions.tipo, "credito"), isNull(bankTransactions.asaasPaymentId), isNull(bpoLancamentos.asaasPaymentId), isNull(bpoLancamentos.exclusaoLoteBackupId)));
+      .where(and(eq(bankAccounts.provedor, "asaas"), eq(bankTransactions.tipo, "credito"), isNull(bankTransactions.asaasPaymentId), isNull(bpoLancamentos.asaasPaymentId)));
     candidatos = linhas.filter((l): l is typeof l & { lancamentoId: number } => l.lancamentoId != null);
     return candidatos;
   };
@@ -124,13 +124,18 @@ export async function sincronizarCobrancasAsaas(apiKey: string, desde: string, f
   }
 
   function vincular(lancamentoId: number, c: AsaasCobranca, clienteId: number | null) {
+    const ativo = sql`${bpoLancamentos.exclusaoLoteBackupId} IS NULL`;
+    // Um crédito arquivado pode adquirir a identidade do pagamento sem mudar sua exibição ou seus valores.
     return db.update(bpoLancamentos).set({
       asaasPaymentId: c.id,
-      pago: true,
-      vencimento: lancamentoDaCobranca(c, clienteId).vencimento,
-      descricao: descricaoDaCobranca(c),
-      ...(clienteId ? { clienteId, clienteNomeLivre: null } : c.clienteNome ? { clienteNomeLivre: c.clienteNome } : {}),
-    }).where(and(eq(bpoLancamentos.id, lancamentoId), isNull(bpoLancamentos.exclusaoLoteBackupId))) as unknown as Consulta;
+      pago: sql`CASE WHEN ${ativo} THEN true ELSE ${bpoLancamentos.pago} END`,
+      vencimento: sql`CASE WHEN ${ativo} THEN ${lancamentoDaCobranca(c, clienteId).vencimento.toISOString()}::timestamp ELSE ${bpoLancamentos.vencimento} END`,
+      descricao: sql`CASE WHEN ${ativo} THEN ${descricaoDaCobranca(c)} ELSE ${bpoLancamentos.descricao} END`,
+      ...(clienteId
+        ? { clienteId: sql`CASE WHEN ${ativo} THEN ${clienteId}::integer ELSE ${bpoLancamentos.clienteId} END`,
+            clienteNomeLivre: sql`CASE WHEN ${ativo} THEN null ELSE ${bpoLancamentos.clienteNomeLivre} END` }
+        : c.clienteNome ? { clienteNomeLivre: sql`CASE WHEN ${ativo} THEN ${c.clienteNome} ELSE ${bpoLancamentos.clienteNomeLivre} END` } : {}),
+    }).where(and(eq(bpoLancamentos.id, lancamentoId), isNull(bpoLancamentos.asaasPaymentId))) as unknown as Consulta;
   }
 
   await executarLote(db, consultas);
@@ -141,27 +146,4 @@ export async function sincronizarCobrancasAsaas(apiKey: string, desde: string, f
     resultado.criadas += r.length;
   }
   return resultado;
-}
-
-/**
- * Lado do extrato: crédito novo com id de pagamento do Asaas assume o lançamento da cobrança
- * (marca pago, valor do banco) em vez de gerar outro. Chamado antes de gerar os lançamentos.
- */
-export async function vincularCobrancasAoExtrato(movs: { id: number; asaasPaymentId?: string | null; valor: string; data: Date; tipo: "credito" | "debito" }[]) {
-  const comPagamento = movs.filter(m => m.asaasPaymentId && m.tipo === "credito");
-  if (!comPagamento.length) return 0;
-  const db = getDb();
-  const cobrancas = await db.select({ id: bpoLancamentos.id, pid: bpoLancamentos.asaasPaymentId })
-    .from(bpoLancamentos)
-    .where(and(inArray(bpoLancamentos.asaasPaymentId, comPagamento.map(m => m.asaasPaymentId!)), isNull(bpoLancamentos.bankTransactionId), isNotNull(bpoLancamentos.asaasPaymentId)));
-  const porPagamento = new Map(cobrancas.map(c => [c.pid, c.id]));
-  const consultas: Consulta[] = [];
-  for (const m of comPagamento) {
-    const lancamentoId = porPagamento.get(m.asaasPaymentId!);
-    if (!lancamentoId) continue;
-    consultas.push(db.update(bpoLancamentos).set({ bankTransactionId: m.id, pago: true, pagoEm: m.data, valor: m.valor })
-      .where(and(eq(bpoLancamentos.id, lancamentoId), isNull(bpoLancamentos.exclusaoLoteBackupId))) as unknown as Consulta);
-  }
-  await executarLote(db, consultas);
-  return consultas.length;
 }

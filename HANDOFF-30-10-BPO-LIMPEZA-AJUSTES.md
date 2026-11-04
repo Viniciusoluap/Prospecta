@@ -43,3 +43,11 @@ Fechar desenho transacional com orquestração, implementar com paridade, testar
 ## Próximo passo da publicação
 
 Publicar a árvore validada na branch já preservada, passar pelos gates do PR e aplicar a migração 0099 com o fluxo de publicação antes de validar o modal em produção.
+
+## Etapa 4 — correções da revisão do PR #186
+
+- O gerador do extrato e o reprocessamento associam o crédito tardio à cobrança Asaas já existente. A associação atualiza o pagamento pela data e pelo valor bancários e conserva o marcador durante a limpeza. Créditos já vinculados ou já processados não criam outra receita.
+- A busca por identidade usa também o crédito arquivado que ainda não tinha ID de pagamento. A sincronização grava a identidade no mesmo lançamento e na movimentação, mantendo o crédito arquivado e seus demais dados.
+- As regressões cobrem crédito tardio processado durante o arquivamento, crédito encontrado pelo reprocessamento após a restauração e conciliação por valor e data de crédito arquivado, com repetição idempotente.
+- A migração aditiva 0099 já foi aplicada e conferida pelo orquestrador. As correções da revisão reutilizam o esquema existente. Nenhum lançamento de produção foi arquivado ou excluído.
+- Validação final local. Sete suítes do BPO passaram com 84 testes. TypeScript, build e diff-check passaram. O deploy e o teste de prévia em produção seguem no fluxo do PR.

@@ -4,7 +4,8 @@
 // Crédito → receita (Cobranças), débito → despesa (Despesas). "Transferência interna"
 // não gera lançamento, então fica fora de DRE, Cobranças, Despesas e Contabilidade.
 // Regras puras em shared/financeiro/bpo-extrato.ts.
-import { and, desc, eq, getTableColumns, inArray, isNotNull, isNull, or } from "drizzle-orm";
+import { and, desc, eq, getTableColumns, inArray, isNotNull, isNull, notExists, or } from "drizzle-orm";
+import { alias } from "drizzle-orm/pg-core";
 import { getDb } from "./db.js";
 import { bankAccounts, bankTransactions, bpoClients, bpoLancamentos, bpoRegrasTitular, leads, type BpoRegraTitular } from "../drizzle/schema.js";
 import {
@@ -26,13 +27,36 @@ const LOTE = 200;
 /** Gera (sem duplicar) os lançamentos das movimentações informadas. Devolve quantos foram criados. */
 export async function gerarLancamentosDoExtrato(movimentos: (MovimentoParaLancamento & { asaasPaymentId?: string | null })[]): Promise<number> {
   const db = getDb();
-  // O tombstone do pagamento também cobre extrato que chegou depois da limpeza.
-  // Assim um webhook tardio não recria a mesma receita com outra chave bancária.
-  const pagamentos = movimentos.flatMap(m => m.asaasPaymentId ? [m.asaasPaymentId] : []);
-  const removidos = pagamentos.length ? await db.select({ pid: bpoLancamentos.asaasPaymentId }).from(bpoLancamentos)
-    .where(and(inArray(bpoLancamentos.asaasPaymentId, pagamentos), isNotNull(bpoLancamentos.exclusaoLoteBackupId))) : [];
-  const ignorados = new Set(removidos.map(r => r.pid));
-  const valores = movimentos.filter(m => !m.asaasPaymentId || !ignorados.has(m.asaasPaymentId)).map(lancamentoDaMovimentacao).filter((l): l is NonNullable<typeof l> => l !== null);
+  const comPagamento = movimentos.filter(m => m.tipo === "credito" && m.asaasPaymentId);
+  const conhecidos = new Set<string>();
+  const vinculos = alias(bpoLancamentos, "vinculos_existentes");
+  for (let i = 0; i < comPagamento.length; i += LOTE) {
+    const lote = comPagamento.slice(i, i + LOTE);
+    const cobrancas = await db.select({ pid: bpoLancamentos.asaasPaymentId, bankTransactionId: bpoLancamentos.bankTransactionId })
+      .from(bpoLancamentos)
+      .where(inArray(bpoLancamentos.asaasPaymentId, lote.map(m => m.asaasPaymentId!)));
+    const porPagamento = new Map(cobrancas.map(c => [c.pid!, c]));
+    const consultas: Consulta[] = [];
+    for (const m of lote) {
+      const pid = m.asaasPaymentId!;
+      const cobranca = porPagamento.get(pid);
+      if (!cobranca || conhecidos.has(pid)) continue;
+      conhecidos.add(pid);
+      if (cobranca.bankTransactionId !== null) continue;
+      // O vínculo e o estado do pagamento acompanham o extrato mesmo durante a limpeza.
+      // A linha mantém seu marcador de arquivamento e volta com o vínculo na restauração.
+      consultas.push(db.update(bpoLancamentos)
+        .set({ bankTransactionId: m.id, pago: true, pagoEm: m.data instanceof Date ? m.data : new Date(m.data), valor: String(m.valor) })
+        .where(and(
+          eq(bpoLancamentos.asaasPaymentId, pid),
+          isNull(bpoLancamentos.bankTransactionId),
+          notExists(db.select({ id: vinculos.id }).from(vinculos).where(eq(vinculos.bankTransactionId, m.id))),
+        )) as unknown as Consulta);
+    }
+    await executarLote(db, consultas);
+  }
+  const valores = movimentos.filter(m => m.tipo !== "credito" || !m.asaasPaymentId || !conhecidos.has(m.asaasPaymentId))
+    .map(lancamentoDaMovimentacao).filter((l): l is NonNullable<typeof l> => l !== null);
   let criados = 0;
   for (let i = 0; i < valores.length; i += LOTE) {
     const r = await db

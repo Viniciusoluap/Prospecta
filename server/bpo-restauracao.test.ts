@@ -12,7 +12,7 @@ import { getDb } from "./db.js";
 import { bpoRouter } from "./bpo-router.js";
 import { combinarPagamentos, excluirLancamentosEmLote, previaExclusaoLote } from "./bpo-lote.js";
 import { listarExclusoesEmLote, previaRestauracaoExclusao, restaurarExclusaoEmLote } from "./bpo-restauracao.js";
-import { gerarLancamentosDoExtrato, lancamentosComTitular } from "./bpo-extrato.js";
+import { gerarLancamentosDoExtrato, lancamentosComTitular, reprocessarMovimentacoes } from "./bpo-extrato.js";
 import { limparContaComBackup, previaLimpezaConta } from "./bpo-auditoria.js";
 import { sincronizarCobrancasAsaas } from "./bpo-asaas.js";
 import { dreDosLancamentos } from "../shared/financeiro/bpo-extrato.js";
@@ -152,17 +152,39 @@ describe("limpeza de ajustes — integridade e restauração em lote", () => {
     expect(await linhas("SELECT exclusao_lote_backup_id FROM bpo_lancamentos")).toEqual([{ exclusao_lote_backup_id: null }]);
   });
 
-  it("sincronização e extrato tardio do mesmo pagamento não recriam nem reativam o lançamento", async () => {
-    await pg.exec(`INSERT INTO bpo_lancamentos(tipo,descricao,valor,vencimento,competencia,pago,asaas_payment_id) VALUES ('receita','Asaas removido',100,'2026-10-10','2026-10',true,'pay_teste');
+  it.each([true, false])("reconcilia crédito tardio sem duplicar na restauração (processado antes de restaurar: %s)", async processarAntes => {
+    await pg.exec(`INSERT INTO bpo_lancamentos(tipo,descricao,valor,vencimento,competencia,pago,asaas_payment_id) VALUES ('receita','Asaas removido',150,'2026-10-10','2026-10',false,'pay_teste');
       INSERT INTO bank_accounts(banco,provedor) VALUES ('Asaas','asaas');
       INSERT INTO bank_transactions(account_id,data,descricao,valor,tipo,asaas_payment_id) VALUES (1,'2026-10-10','Crédito tardio',100,'credito','pay_teste');`);
-    await limpar();
+    const { backupId } = await limpar();
     const fetchFake = vi.fn(async () => new Response(JSON.stringify({ hasMore: false, data: [{ id: "pay_teste", status: "RECEIVED", value: 150, dueDate: "2026-10-10", description: "Alterada externamente" }] }), { status: 200, headers: { "content-type": "application/json" } }));
     expect(await sincronizarCobrancasAsaas("chave-teste", "2026-10-01", fetchFake)).toMatchObject({ criadas: 0, atualizadas: 0, reconciliadas: 0 });
-    expect(await gerarLancamentosDoExtrato([{ id: 1, data: new Date("2026-10-10"), descricao: "Crédito tardio", valor: "100", tipo: "credito", asaasPaymentId: "pay_teste" }])).toBe(0);
-    expect(await linhas("SELECT id,descricao,valor,bank_transaction_id FROM bpo_lancamentos")).toEqual([{ id: 1, descricao: "Asaas removido", valor: "100.00", bank_transaction_id: null }]);
+    if (processarAntes) {
+      const movimento = { id: 1, data: new Date("2026-10-10"), descricao: "Crédito tardio", valor: "100", tipo: "credito" as const, categoria: null, asaasPaymentId: "pay_teste" };
+      expect(await gerarLancamentosDoExtrato([movimento])).toBe(0);
+      expect(await gerarLancamentosDoExtrato([movimento])).toBe(0);
+      expect(await linhas("SELECT id,descricao,valor,pago,bank_transaction_id FROM bpo_lancamentos")).toEqual([{ id: 1, descricao: "Asaas removido", valor: "100.00", pago: true, bank_transaction_id: 1 }]);
+    }
     expect(await lancamentosComTitular()).toEqual([]);
     expect(fetchFake).toHaveBeenCalledTimes(1);
+    expect(await restaurarExclusaoEmLote({ backupId: backupId!, confirmacao: "RESTAURAR" }, 1, catalogo)).toMatchObject({ restaurados: 1 });
+    expect(await reprocessarMovimentacoes()).toMatchObject({ lancamentosCriados: 0 });
+    expect(await lancamentosComTitular()).toMatchObject([{ id: 1, valor: "100.00", pago: true, bankTransactionId: 1 }]);
+  });
+
+  it("reconcilia cobrança com o crédito arquivado sem id, sem torná-lo visível ou duplicar na restauração", async () => {
+    await pg.exec(`INSERT INTO bank_accounts(banco,provedor) VALUES ('Asaas','asaas');
+      INSERT INTO bank_transactions(account_id,data,descricao,valor,tipo) VALUES (1,'2026-10-10','Crédito',100,'credito');
+      INSERT INTO bpo_lancamentos(tipo,descricao,valor,vencimento,competencia,pago,bank_transaction_id) VALUES ('receita','Crédito',100,'2026-10-10','2026-10',true,1);`);
+    const { backupId } = await limpar();
+    const fetchFake = vi.fn(async () => new Response(JSON.stringify({ hasMore: false, data: [{ id: "pay_arquivado", status: "RECEIVED", value: 100, dueDate: "2026-10-10", description: "Asaas" }] }), { status: 200 }));
+    expect(await sincronizarCobrancasAsaas("chave-teste", "2026-10-01", fetchFake)).toMatchObject({ criadas: 0, reconciliadas: 1 });
+    expect(await sincronizarCobrancasAsaas("chave-teste", "2026-10-01", fetchFake)).toMatchObject({ criadas: 0, atualizadas: 0, reconciliadas: 0 });
+    expect(await lancamentosComTitular()).toEqual([]);
+    expect(await linhas("SELECT id,descricao,asaas_payment_id,exclusao_lote_backup_id FROM bpo_lancamentos")).toEqual([{ id: 1, descricao: "Crédito", asaas_payment_id: "pay_arquivado", exclusao_lote_backup_id: backupId }]);
+    expect(await linhas("SELECT asaas_payment_id FROM bank_transactions")).toEqual([{ asaas_payment_id: "pay_arquivado" }]);
+    expect(await restaurarExclusaoEmLote({ backupId: backupId!, confirmacao: "RESTAURAR" }, 1, catalogo)).toMatchObject({ restaurados: 1 });
+    expect(await lancamentosComTitular()).toMatchObject([{ id: 1, asaasPaymentId: "pay_arquivado", bankTransactionId: 1 }]);
   });
 
   it("excluir conta preserva o lançamento arquivado para a restauração do lote", async () => {
