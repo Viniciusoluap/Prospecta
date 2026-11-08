@@ -14,6 +14,7 @@ import {
 } from "@shared/incorporacao/negociacao";
 import { calcularLoteamento } from "@shared/incorporacao/viabilidade-economica";
 import { excluirPropostaNegociacao, salvarNegociacaoTerreno } from "./compat/acoes";
+import { exigirResultado } from "./compat/acao-resultado";
 import { cenarioEscolhido } from "@shared/incorporacao/estudos-massa";
 import type { CenarioMassa } from "@shared/incorporacao/massa";
 import { formatCurrency } from "./compat/util";
@@ -143,7 +144,8 @@ export function NegociacaoTerrenoTab({ estudo }: { estudo: EstudoData }) {
   function salvar() {
     startTransition(async () => {
       try {
-        await salvarNegociacaoTerreno(estudo.id, JSON.stringify(dados));
+        // o wrapper devolve { erroAcao } em vez de lançar: só marca como gravado se gravou de fato
+        exigirResultado(await salvarNegociacaoTerreno(estudo.id, JSON.stringify(dados)));
         setIdsGravados(new Set(dados.propostas.map((p) => p.id)));
         setSalvo(true);
       } catch (e) {

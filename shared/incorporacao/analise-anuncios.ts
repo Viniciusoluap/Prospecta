@@ -63,8 +63,15 @@ function numero(v: unknown): number | null {
   if (typeof v === "number") return Number.isFinite(v) ? v : null;
   if (typeof v !== "string") return null;
   const limpo = v.replace(/[R$\s]/g, "").replace(/m²|m2/gi, "");
-  // "1.234.567,89" → 1234567.89 ; "1234567.89" → 1234567.89
-  const norm = /,\d{1,2}$/.test(limpo) ? limpo.replace(/\./g, "").replace(",", ".") : limpo.replace(/,/g, "");
+  let norm: string;
+  if (limpo.includes(",")) {
+    // BR com vírgula: "1.234.567,89" → 1234567.89 ; US "1,234,567.89" → 1234567.89
+    norm = /^\d{1,3}(,\d{3})+(\.\d+)?$/.test(limpo) ? limpo.replace(/,/g, "") : limpo.replace(/\./g, "").replace(",", ".");
+  } else if (/^\d{1,3}(\.\d{3})+$/.test(limpo)) {
+    norm = limpo.replace(/\./g, ""); // BR só com milhar: "150.000" → 150000 (não 150)
+  } else {
+    norm = limpo;
+  }
   const n = Number(norm);
   return Number.isFinite(n) ? n : null;
 }

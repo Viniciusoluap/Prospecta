@@ -220,3 +220,14 @@ describe("Provedor Google gratuito (GEMINI_API_KEY)", () => {
     await expect(provedorGeminiBuscaGoogle.buscar(c)).rejects.toThrow(/Cota gratuita/);
   });
 });
+
+describe("Revisão Codex — formatos numéricos brasileiros", () => {
+  it("R$ 150.000 (sem centavos) vale 150.000, não 150", () => {
+    const a = analisarAnuncios([
+      { titulo: "L1", url: "https://x.exemplo/1", fonte: "x", areaM2: "300", preco: "R$ 150.000", tipologia: "lote", bairro: "a" },
+      { titulo: "L2", url: "https://x.exemplo/2", fonte: "x", areaM2: "1.200", preco: "R$ 600.000,00", tipologia: "lote", bairro: "b" },
+      { titulo: "L3", url: "https://x.exemplo/3", fonte: "x", areaM2: 250, preco: "125,000.00", tipologia: "lote", bairro: "c" },
+    ], { municipio: "X", tipologia: "lote", provedor: "t" }, "t");
+    expect(a.validos.map((v) => v.precoM2)).toEqual([500, 500, 500]);
+  });
+});

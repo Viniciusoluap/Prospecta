@@ -240,7 +240,9 @@ export function excluirUnidade(estudoId: string, unidadeId: string) { return cap
 
 /** Correção 08: exclui uma proposta gravada (com auditoria no servidor). */
 export async function excluirPropostaNegociacao(estudoId: string, propostaId: string, confirmacaoReforcada: boolean) {
-  return inc.excluirPropostaNegociacao.mutate({ id: id(estudoId), propostaId, confirmacaoReforcada });
+  const r = await inc.excluirPropostaNegociacao.mutate({ id: id(estudoId), propostaId, confirmacaoReforcada });
+  await recarregar();
+  return r;
 }
 
 /** Correção 06 — motores independentes da Inteligência de Mercado. */
@@ -253,6 +255,7 @@ export async function salvarDadosPublicos(estudoId: string, dados: Parameters<ty
 export async function pesquisarMercadoImobiliario(estudoId: string, c: { municipio: string; estado: string; bairro?: string; tipologia: "lote" | "casa" | "apartamento" | "terreno" | "outro"; areaMinM2?: number; areaMaxM2?: number }) {
   return inc.pesquisarMercadoImobiliario.mutate({ id: id(estudoId), ...c });
 }
+/** Grava e RECARREGA o estudo: Massa e Viabilidade passam a ler o novo preço de referência. */
 export async function aplicarPrecoReferenciaMercado(estudoId: string, precoM2Lote: number) {
-  return inc.aplicarPrecoReferenciaMercado.mutate({ id: id(estudoId), precoM2Lote });
+  return gravar(() => inc.aplicarPrecoReferenciaMercado.mutate({ id: id(estudoId), precoM2Lote }));
 }

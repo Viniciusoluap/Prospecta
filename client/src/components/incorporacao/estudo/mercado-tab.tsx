@@ -5,6 +5,7 @@ import { formatArea, formatCurrency } from "./compat/util";
 import { aplicarPrecoReferenciaMercado, pesquisarDadosPublicos, pesquisarMercadoImobiliario, salvarDadosPublicos } from "./compat/acoes";
 import { pesquisarDadosPublicos as consultarIbgeNoNavegador } from "@shared/incorporacao/dados-publicos";
 import type { AnaliseAnuncios, TipologiaImovel } from "@shared/incorporacao/analise-anuncios";
+import { exigirResultado } from "./compat/acao-resultado";
 import { PrecificacaoComparaveis } from "./precificacao-comparaveis";
 import { PesquisaPrimaria } from "./pesquisa-primaria";
 import type { EstudoData } from "./incorporacao-detail";
@@ -89,10 +90,10 @@ export function MercadoTab({ estudo }: { estudo: EstudoData }) {
   }
 
   async function usarMediana() {
-    if (!analise?.mediana) return;
+    if (!analise?.mediana || !(analise.tipologia === "lote" || analise.tipologia === "terreno")) return;
     const atual = mercadoSalvo?.precoM2Lote;
     if (!window.confirm(`Usar ${formatCurrency(analise.mediana)}/m² (mediana de ${analise.amostrasValidas} anúncios, confiabilidade ${analise.confiabilidade}) como preço de referência do lote?${atual ? ` O valor atual (${formatCurrency(atual)}/m²) será substituído.` : ""} Lembre: é preço ANUNCIADO, não de transação.`)) return;
-    try { await aplicarPrecoReferenciaMercado(estudo.id, analise.mediana); setPrecoAplicado(analise.mediana); }
+    try { exigirResultado(await aplicarPrecoReferenciaMercado(estudo.id, analise.mediana)); setPrecoAplicado(analise.mediana); }
     catch (e) { setErroIa(e instanceof Error ? e.message : "Falha ao aplicar o preço."); }
   }
 
@@ -309,10 +310,13 @@ function PainelAnuncios({ a, onUsar, aplicado }: { a: AnaliseAnuncios; onUsar: (
       <p className={`text-xs ${cor}`}>{a.justificativaConfiabilidade}</p>
       <p className="text-[11px] text-amber-800">{a.aviso}</p>
       {a.minimo !== null && <p className="text-[11px] text-gray-600">Mínimo {formatCurrency(a.minimo)}/m² · máximo {formatCurrency(a.maximo!)}/m² · {a.duplicados} duplicado(s) descartado(s) · {a.rejeitados.length} rejeitado(s) por informação insuficiente/incompatível · {a.validos.filter((v) => v.atipico).length} atípico(s) fora da mediana.</p>}
-      {a.mediana && a.confiabilidade !== "insuficiente" && (
+      {a.mediana && a.confiabilidade !== "insuficiente" && (a.tipologia === "lote" || a.tipologia === "terreno") && (
         <button onClick={onUsar} className="text-xs font-bold px-4 py-2 border border-gray-300 hover:border-[var(--brand-yellow)]">
           {aplicado ? `Aplicado: ${formatCurrency(aplicado)}/m² como referência do lote` : "Usar mediana como preço de referência do lote (confirmação)"}
         </button>
+      )}
+      {a.mediana && a.tipologia !== "lote" && a.tipologia !== "terreno" && (
+        <p className="text-[11px] text-gray-600">Mediana de {a.tipologia} é só referência de mercado — não é aplicável como preço do m² de lote.</p>
       )}
       {a.validos.length > 0 && (
         <div className="overflow-x-auto">
