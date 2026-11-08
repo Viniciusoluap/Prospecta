@@ -107,17 +107,67 @@ export interface PremissasLoteamento {
   permutaPctVgv: number;
 
   taxaDescontoAnual: number;
+
+  // ── Correções 09–11 (opcionais; ausentes = comportamento anterior) ──────────
+  /** Obras residenciais (construção das casas) vindas do Orçamento — rubrica separada da infraestrutura. */
+  custoObrasResidenciais?: number;
+  /** Aquisição do terreno: desembolsos programados (mês, valor). Soma = custo do terreno. */
+  desembolsosTerreno?: DesembolsoProgramado[];
+  /** Permuta física: unidades entregues ao proprietário — construídas, mas NÃO vendáveis. */
+  permutaFisicaUnidades?: number;
+  /** Captação com investidores: entrada de capital e resgate (principal + remuneração). */
+  captacoes?: CaptacaoProgramada[];
+}
+
+export interface DesembolsoProgramado { mes: number; valor: number }
+
+export interface CaptacaoProgramada {
+  nome: string;
+  capital: number;
+  mesAporte: number;
+  mesResgate: number;
+  /** Principal + remuneração pagos no resgate. */
+  valorResgate: number;
 }
 
 export interface FluxoMesLote {
   mes: number;
+  /** Comercialização (contratos assinados no mês) — não é caixa. */
+  vendasUnidades: number;
+  vendasVgv: number;
   receitaBruta: number;
   receitaVoce: number;
   receitaTerreneiro: number;
   custoPreVenda: number;
   custoDuranteVenda: number;
+  /** Aquisição do terreno paga no mês. */
+  custoTerreno: number;
+  /** Entrada de capital de investidores (não é receita). */
+  aporteCaptacao: number;
+  /** Devolução do principal captado (não é despesa). */
+  resgatePrincipal: number;
+  /** Remuneração paga ao investidor no resgate (custo financeiro). */
+  resgateRemuneracao: number;
+  /** Fluxo do PROJETO (sem captação): receitas do incorporador − custos − terreno. */
+  saldoProjeto: number;
+  saldoProjetoAcumulado: number;
+  /** Fluxo do INCORPORADOR (com captação): projeto + aportes − resgates. */
   saldoMes: number;
   saldoAcumulado: number;
+}
+
+export type StatusPayback = "recuperado" | "sem_exposicao" | "nao_recupera";
+
+export interface IndicadoresFluxo {
+  vpl: number;
+  tirMensal: number | null;
+  tirAnual: number | null;
+  /** Por que a TIR não pôde ser calculada (null quando calculada). */
+  tirMotivo: string | null;
+  paybackMes: number | null;
+  paybackStatus: StatusPayback;
+  exposicaoMaxima: number;
+  mesPico: number;
 }
 
 export interface ResultadoLoteamento {
@@ -147,6 +197,26 @@ export interface ResultadoLoteamento {
     taxaIncorporacao: number;
   };
   recebiveis: { voce: number; terreneiro: number; total: number };
+  /** Obras residenciais (construção das casas) — separada da infraestrutura. */
+  custoObrasResidenciais: number;
+  /** Aquisição do terreno (compra à vista/parcelada; zero em permuta pura). */
+  custoTerreno: number;
+  /** Custo financeiro da captação = remuneração paga aos investidores (o principal NÃO é despesa). */
+  custoFinanceiroCaptacao: number;
+  capitalCaptado: number;
+  /** Custos operacionais nominais (c/ INCC) + terreno (base para comparar a captação, sem o custo financeiro). */
+  investimentoTotal: number;
+  /** Custos operacionais nominais + terreno + custo financeiro. Lucro = recebíveis do incorporador − este valor. */
+  custoTotalProjeto: number;
+  lucroLiquido: number;
+  permutaFisica: { unidades: number; vgvEquivalente: number };
+  /** VGV de todas as unidades (inclusive as da permuta física). */
+  vgvTotalUnidades: number;
+  /** Indicadores do fluxo do PROJETO, sem a captação. */
+  projeto: IndicadoresFluxo;
+  tirMotivo: string | null;
+  paybackStatus: StatusPayback;
+  horizonteMeses: number;
   vpl: number;
   tirMensal: number | null;
   tirAnual: number | null;
@@ -201,27 +271,97 @@ export function calcularUrbanistico(p: Pick<
   };
 }
 
-/** Roda o estudo completo de viabilidade. */
+/** Payback: mês a partir do qual o saldo acumulado fica ≥ 0 até o fim, depois de ter ficado negativo. */
+export function paybackDetalhado(saldoAcumulado: number[]): { mes: number | null; status: StatusPayback } {
+  const eps = 0.005;
+  if (!saldoAcumulado.some((v) => v < -eps)) return { mes: null, status: "sem_exposicao" };
+  if (saldoAcumulado[saldoAcumulado.length - 1] < -eps) return { mes: null, status: "nao_recupera" };
+  let mes = saldoAcumulado.length - 1;
+  while (mes > 0 && saldoAcumulado[mes - 1] >= -eps) mes--;
+  return { mes, status: "recuperado" };
+}
+
+/** Nº de trocas de sinal do fluxo (zeros ignorados). TIR só é única com exatamente uma. */
+export function trocasDeSinal(fluxos: number[]): number {
+  let n = 0, ultimo = 0;
+  for (const f of fluxos) {
+    if (Math.abs(f) <= 0.005) continue;
+    const s = f > 0 ? 1 : -1;
+    if (ultimo !== 0 && s !== ultimo) n++;
+    ultimo = s;
+  }
+  return n;
+}
+
+function motivoTir(fluxos: number[]): string {
+  const eps = 0.005;
+  if (!fluxos.some((f) => f < -eps)) return "TIR não se aplica: o fluxo não tem nenhum mês com saída líquida de caixa (não há investimento a remunerar).";
+  if (!fluxos.some((f) => f > eps)) return "TIR não se aplica: o fluxo não tem nenhum mês com entrada líquida de caixa.";
+  if (trocasDeSinal(fluxos) > 1) return "TIR não é única: o fluxo troca de sinal mais de uma vez (ex.: devolução da captação no fim). Use o VPL para decidir.";
+  return "TIR não encontrada no intervalo de −99% a +100% ao mês.";
+}
+
+function indicadores(saldos: number[], taxaMensal: number): IndicadoresFluxo {
+  const acum: number[] = [];
+  let a = 0;
+  for (const s of saldos) { a += s; acum.push(round2(a)); }
+  const tirM = trocasDeSinal(saldos) === 1 ? tir(saldos) : null;
+  const menor = Math.min(0, ...acum);
+  const pb = paybackDetalhado(acum);
+  return {
+    vpl: round2(vpl(saldos, taxaMensal)),
+    tirMensal: tirM,
+    tirAnual: tirM != null ? Math.pow(1 + tirM, 12) - 1 : null,
+    tirMotivo: tirM != null ? null : motivoTir(saldos),
+    paybackMes: pb.mes,
+    paybackStatus: pb.status,
+    exposicaoMaxima: round2(Math.abs(menor)),
+    mesPico: menor < 0 ? acum.indexOf(menor) : 0,
+  };
+}
+
+/** Retira as unidades da permuta física do mix vendável (na ordem dos itens). */
+function mixVendavel(itens: ItemMixProduto[], unidadesPermuta: number): ItemMixProduto[] {
+  let restante = Math.max(0, Math.floor(unidadesPermuta || 0));
+  return itens.map((it) => {
+    if (restante <= 0) return it;
+    const tira = Math.min(restante, Math.max(0, it.quantidade));
+    restante -= tira;
+    return { ...it, quantidade: it.quantidade - tira };
+  });
+}
+
+/**
+ * Roda o estudo completo de viabilidade.
+ *
+ * Convenção temporal (Correção 11): o vetor começa no M0 (data-base, antes do início);
+ * M1 é o primeiro mês do empreendimento. Ano 1 = M0..M12, Ano 2 = M13..M24, etc.
+ * O horizonte termina no último mês com algum evento de caixa — sem meses artificiais.
+ */
 export function calcularLoteamento(p: PremissasLoteamento): ResultadoLoteamento {
   const urb = calcularUrbanistico(p);
-  const mix = calcularMix(p.itensMix);
+  const mixCompleto = calcularMix(p.itensMix);
+  const unidadesPermuta = Math.min(Math.max(0, Math.floor(p.permutaFisicaUnidades ?? 0)), mixCompleto.totalUnidades);
+  const mix = unidadesPermuta > 0 ? calcularMix(mixVendavel(p.itensMix, unidadesPermuta)) : mixCompleto;
   const vgvGross = mix.vgv;
-  const areaMediaPonderada = mix.totalUnidades > 0 ? mix.areaVendidaM2 / mix.totalUnidades : 0;
+  // custos de infraestrutura/obra incidem sobre TODAS as unidades (as da permuta física também são construídas)
+  const areaMediaPonderada = mixCompleto.totalUnidades > 0 ? mixCompleto.areaVendidaM2 / mixCompleto.totalUnidades : 0;
   const capacidadeEstimadaUnidades =
     areaMediaPonderada > 0 ? Math.floor(urb.areaVendavelM2 / areaMediaPonderada) : 0;
 
   const vgvNet = vgvGross * (1 - p.comissaoPctVgv - p.despesasGeraisPctVgv - p.impostosPctVgv);
 
-  const custoInfraBase = p.custoInfraM2Lote * mix.areaVendidaM2;
+  const custoInfraBase = p.custoInfraM2Lote * mixCompleto.areaVendidaM2;
   const custoInfra = custoInfraBase * (1 + p.bdiPct);
   const contingencia = custoInfraBase * p.contingenciaPctInfra;
-  const registroTotal = p.registroPorUnidade * mix.totalUnidades;
+  const custoObrasResidenciais = Math.max(0, p.custoObrasResidenciais ?? 0);
+  const registroTotal = p.registroPorUnidade * mixCompleto.totalUnidades;
   const taxaAdministracaoObra = custoInfra * p.taxaAdministracaoObraPct;
   const manutencao = custoInfra * p.manutencaoPctObra;
   const taxaIncorporacao = vgvGross * p.taxaIncorporacaoPctVgv;
 
   const custosPreVenda =
-    custoInfra + contingencia + p.projetosLicencas + p.marketing + registroTotal +
+    custoInfra + contingencia + custoObrasResidenciais + p.projetosLicencas + p.marketing + registroTotal +
     taxaAdministracaoObra + manutencao + taxaIncorporacao;
 
   const comissao = vgvGross * p.comissaoPctVgv;
@@ -230,19 +370,41 @@ export function calcularLoteamento(p: PremissasLoteamento): ResultadoLoteamento 
   const custosDuranteVenda = comissao + despesas + impostos;
   const custoTotal = custosPreVenda + custosDuranteVenda;
 
+  const terreno = (p.desembolsosTerreno ?? []).filter((d) => Number.isFinite(d.valor) && d.valor > 0)
+    .map((d) => ({ mes: Math.max(0, Math.round(d.mes)), valor: d.valor }));
+  const custoTerreno = terreno.reduce((s, d) => s + d.valor, 0);
+  const captacoes = (p.captacoes ?? []).filter((c) => Number.isFinite(c.capital) && c.capital > 0)
+    .map((c) => {
+      const mesAporte = Math.max(0, Math.round(c.mesAporte));
+      return { ...c, mesAporte, mesResgate: Math.max(mesAporte, Math.round(c.mesResgate)), valorResgate: Math.max(c.capital, c.valorResgate) };
+    });
+  const capitalCaptado = captacoes.reduce((s, c) => s + c.capital, 0);
+  const custoFinanceiroCaptacao = captacoes.reduce((s, c) => s + (c.valorResgate - c.capital), 0);
+
   const pesos = pesosCurvaVendas(p.duracaoVendasMeses, p.perfilVendas);
-  const horizonte =
-    Math.max(
-      p.inicioObraMes + p.duracaoObraMeses,
-      p.inicioVendasMes + pesos.length + p.prazoParcelamentoMeses
-    ) + 4;
+  const prazo = Math.max(0, Math.round(p.prazoParcelamentoMeses));
+  const temObra = p.duracaoObraMeses > 0;
+  const mesInicioProjeto = Math.max(0, Math.min(p.inicioObraMes, p.inicioVendasMes));
+  const mesManutencao = p.inicioObraMes + p.duracaoObraMeses + 3;
+  const taxaIncorpMesesN = taxaIncorporacao > 0 ? 12 : 0;
+  const ultimoMes = Math.max(
+    temObra ? p.inicioObraMes + p.duracaoObraMeses - 1 : 0,
+    p.inicioVendasMes + pesos.length - 1 + prazo,
+    manutencao > 0 ? mesManutencao : 0,
+    taxaIncorpMesesN > 0 ? mesInicioProjeto + taxaIncorpMesesN - 1 : 0,
+    ...terreno.map((d) => d.mes),
+    ...captacoes.map((c) => c.mesResgate),
+  );
+  const horizonte = Math.max(1, ultimoMes + 1);
 
   const recebimento = new Array(horizonte).fill(0);
+  const vendasVgv = new Array(horizonte).fill(0);
   const fator = 1 - p.inadimplenciaPct;
 
   for (let i = 0; i < pesos.length; i++) {
     const mesVenda = p.inicioVendasMes + i;
     const vgvCohort = vgvGross * pesos[i];
+    if (mesVenda < horizonte) vendasVgv[mesVenda] += vgvCohort;
     const vgvVista = vgvCohort * p.vendasAVistaPct;
     const vgvFinanciado = vgvCohort - vgvVista;
 
@@ -251,9 +413,13 @@ export function calcularLoteamento(p: PremissasLoteamento): ResultadoLoteamento 
     const entrada = vgvFinanciado * p.entradaPct;
     if (mesVenda < horizonte) recebimento[mesVenda] += entrada;
     const saldo = vgvFinanciado - entrada;
-    const nParc = Math.max(1, p.prazoParcelamentoMeses);
-    const parcela = saldo / nParc;
-    for (let k = 1; k <= nParc; k++) {
+    if (prazo === 0) {
+      // sem parcelamento: o saldo é recebido no próprio mês da venda (não empurra para o mês seguinte)
+      if (mesVenda < horizonte) recebimento[mesVenda] += saldo * fator;
+      continue;
+    }
+    const parcela = saldo / prazo;
+    for (let k = 1; k <= prazo; k++) {
       const mes = mesVenda + k;
       if (mes >= horizonte) break;
       const corrigida = parcela * Math.pow(1 + p.indexacaoMensal + p.jurosClienteMensal, k) * fator;
@@ -261,18 +427,18 @@ export function calcularLoteamento(p: PremissasLoteamento): ResultadoLoteamento 
     }
   }
 
-  const custoObraBaseMensal = p.duracaoObraMeses > 0 ? (custoInfra + contingencia) / p.duracaoObraMeses : 0;
-  const taxaAdmMensal = p.duracaoObraMeses > 0 ? taxaAdministracaoObra / p.duracaoObraMeses : 0;
-  const custosFixosMensal = p.duracaoObraMeses > 0
-    ? (p.projetosLicencas + p.marketing + registroTotal) / p.duracaoObraMeses
-    : 0;
-  const taxaIncorpMeses = Math.min(12, horizonte);
-  const taxaIncorpMensal = taxaIncorpMeses > 0 ? taxaIncorporacao / taxaIncorpMeses : 0;
-  const mesManutencao = p.inicioObraMes + p.duracaoObraMeses + 3;
+  const custoObraBaseMensal = temObra ? (custoInfra + contingencia + custoObrasResidenciais) / p.duracaoObraMeses : 0;
+  const taxaAdmMensal = temObra ? taxaAdministracaoObra / p.duracaoObraMeses : 0;
+  const custosFixos = p.projetosLicencas + p.marketing + registroTotal;
+  const custosFixosMensal = temObra ? custosFixos / p.duracaoObraMeses : 0;
+  const taxaIncorpMensal = taxaIncorpMesesN > 0 ? taxaIncorporacao / taxaIncorpMesesN : 0;
 
   const totalRecebido = recebimento.reduce((s, x) => s + x, 0);
+  const totalVendido = vendasVgv.reduce((s, x) => s + x, 0);
+  const taxaMensal = Math.pow(1 + p.taxaDescontoAnual, 1 / 12) - 1;
   const fluxo: FluxoMesLote[] = [];
   let acumulado = 0;
+  let acumuladoProjeto = 0;
   let obraNominalAcumulado = 0;
 
   for (let mes = 0; mes < horizonte; mes++) {
@@ -281,53 +447,70 @@ export function calcularLoteamento(p: PremissasLoteamento): ResultadoLoteamento 
     const receitaVoce = receitaBruta - receitaTerreneiro;
 
     let custoPreVenda = 0;
-    if (mes >= p.inicioObraMes && mes < p.inicioObraMes + p.duracaoObraMeses) {
+    if (temObra && mes >= p.inicioObraMes && mes < p.inicioObraMes + p.duracaoObraMeses) {
       const decorridos = mes - p.inicioObraMes;
       const obraMesNominal = custoObraBaseMensal * Math.pow(1 + p.inccObraMensal, decorridos);
       obraNominalAcumulado += obraMesNominal;
       custoPreVenda += obraMesNominal + taxaAdmMensal + custosFixosMensal;
     }
-    if (mes < taxaIncorpMeses) custoPreVenda += taxaIncorpMensal;
+    // sem obra programada, os custos fixos e da obra não podem sumir do fluxo: entram no início do projeto
+    if (!temObra && mes === mesInicioProjeto) {
+      custoPreVenda += custoInfra + contingencia + custoObrasResidenciais + taxaAdministracaoObra + custosFixos;
+      obraNominalAcumulado += custoInfra + contingencia + custoObrasResidenciais;
+    }
+    if (taxaIncorpMesesN > 0 && mes >= mesInicioProjeto && mes < mesInicioProjeto + taxaIncorpMesesN) custoPreVenda += taxaIncorpMensal;
     if (mes === mesManutencao) custoPreVenda += manutencao;
 
     const custoDuranteVenda = totalRecebido > 0 ? (receitaBruta / totalRecebido) * custosDuranteVenda : 0;
+    const custoTerrenoMes = terreno.filter((d) => d.mes === mes).reduce((s, d) => s + d.valor, 0);
+    const aporte = captacoes.filter((c) => c.mesAporte === mes).reduce((s, c) => s + c.capital, 0);
+    const resgatando = captacoes.filter((c) => c.mesResgate === mes);
+    const resgatePrincipal = resgatando.reduce((s, c) => s + c.capital, 0);
+    const resgateRemuneracao = resgatando.reduce((s, c) => s + (c.valorResgate - c.capital), 0);
 
-    const saldoMes = receitaVoce - custoPreVenda - custoDuranteVenda;
+    const saldoProjeto = receitaVoce - custoPreVenda - custoDuranteVenda - custoTerrenoMes;
+    const saldoMes = saldoProjeto + aporte - resgatePrincipal - resgateRemuneracao;
     acumulado += saldoMes;
+    acumuladoProjeto += saldoProjeto;
+    const vendaMes = vendasVgv[mes];
     fluxo.push({
       mes,
+      vendasUnidades: totalVendido > 0 ? (vendaMes / totalVendido) * mix.totalUnidades : 0,
+      vendasVgv: round2(vendaMes),
       receitaBruta: round2(receitaBruta),
       receitaVoce: round2(receitaVoce),
       receitaTerreneiro: round2(receitaTerreneiro),
       custoPreVenda: round2(custoPreVenda),
       custoDuranteVenda: round2(custoDuranteVenda),
+      custoTerreno: round2(custoTerrenoMes),
+      aporteCaptacao: round2(aporte),
+      resgatePrincipal: round2(resgatePrincipal),
+      resgateRemuneracao: round2(resgateRemuneracao),
+      saldoProjeto: round2(saldoProjeto),
+      saldoProjetoAcumulado: round2(acumuladoProjeto),
       saldoMes: round2(saldoMes),
       saldoAcumulado: round2(acumulado),
     });
   }
 
+  const obraBase = custoInfra + contingencia + custoObrasResidenciais;
   const custoObraNominalTotal = obraNominalAcumulado;
-  const custoTotalNominal = custoTotal + (custoObraNominalTotal - (custoInfra + contingencia));
+  const custoTotalNominal = custoTotal + (custoObraNominalTotal - obraBase);
 
-  const saldos = fluxo.map((f) => f.saldoMes);
-  const saldoAcum = fluxo.map((f) => f.saldoAcumulado);
-  const taxaMensal = Math.pow(1 + p.taxaDescontoAnual, 1 / 12) - 1;
-  const vplV = vpl(saldos, taxaMensal);
-  const tirM = tir(saldos);
-  const tirA = tirM != null ? Math.pow(1 + tirM, 12) - 1 : null;
-
-  const menorAcum = Math.min(0, ...saldoAcum);
-  const exposicaoMaxima = Math.abs(menorAcum);
-  const mesPico = saldoAcum.indexOf(menorAcum);
+  const incorporador = indicadores(fluxo.map((f) => f.saldoMes), taxaMensal);
+  const projeto = indicadores(fluxo.map((f) => f.saldoProjeto), taxaMensal);
 
   const recebiveisVoce = totalRecebido * (1 - p.permutaPctVgv);
   const recebiveisTerreneiro = totalRecebido * p.permutaPctVgv;
-  const lucro = recebiveisVoce - custoTotal;
-  const roi = custoTotal > 0 ? recebiveisVoce / custoTotal - 1 : 0;
+  // custos em valores NOMINAIS (com INCC), coerentes com as receitas corrigidas e com o fluxo de caixa
+  const investimentoTotal = custoTotalNominal + custoTerreno;
+  const custoTotalProjeto = investimentoTotal + custoFinanceiroCaptacao;
+  // a captação NÃO é receita e o principal NÃO é despesa: só a remuneração reduz o lucro
+  const lucro = recebiveisVoce - custoTotalProjeto;
+  const roi = custoTotalProjeto > 0 ? lucro / custoTotalProjeto : 0;
   const margemLiquida = vgvGross > 0 ? lucro / vgvGross : 0;
 
-  const unidadesNecessarias = mix.precoMedioUnidade > 0 ? Math.ceil(custoTotal / mix.precoMedioUnidade) : 0;
-  const prazoBreakEven = payback(saldoAcum);
+  const unidadesNecessarias = mix.precoMedioUnidade > 0 ? Math.ceil(custoTotalProjeto / mix.precoMedioUnidade) : 0;
 
   return {
     urbanistico: {
@@ -366,18 +549,31 @@ export function calcularLoteamento(p: PremissasLoteamento): ResultadoLoteamento 
       terreneiro: round2(recebiveisTerreneiro),
       total: round2(totalRecebido),
     },
-    vpl: round2(vplV),
-    tirMensal: tirM,
-    tirAnual: tirA,
+    custoObrasResidenciais: round2(custoObrasResidenciais),
+    custoTerreno: round2(custoTerreno),
+    custoFinanceiroCaptacao: round2(custoFinanceiroCaptacao),
+    capitalCaptado: round2(capitalCaptado),
+    investimentoTotal: round2(investimentoTotal),
+    custoTotalProjeto: round2(custoTotalProjeto),
+    lucroLiquido: round2(lucro),
+    permutaFisica: { unidades: unidadesPermuta, vgvEquivalente: round2(mixCompleto.vgv - mix.vgv) },
+    vgvTotalUnidades: round2(mixCompleto.vgv),
+    projeto,
+    tirMotivo: incorporador.tirMotivo,
+    paybackStatus: incorporador.paybackStatus,
+    horizonteMeses: horizonte,
+    vpl: incorporador.vpl,
+    tirMensal: incorporador.tirMensal,
+    tirAnual: incorporador.tirAnual,
     roi,
     margemLiquida,
-    paybackMes: prazoBreakEven,
-    exposicaoMaxima: round2(exposicaoMaxima),
-    mesPico: mesPico < 0 ? 0 : mesPico,
+    paybackMes: incorporador.paybackMes,
+    exposicaoMaxima: incorporador.exposicaoMaxima,
+    mesPico: incorporador.mesPico,
     breakEven: {
       unidadesNecessarias,
-      receitaNecessaria: round2(custoTotal),
-      prazoMes: prazoBreakEven,
+      receitaNecessaria: round2(custoTotalProjeto),
+      prazoMes: incorporador.paybackMes,
     },
     fluxo,
   };
@@ -396,7 +592,11 @@ export interface CenariosLoteamento {
  */
 export function calcularCenarios(p: PremissasLoteamento): CenariosLoteamento {
   const ajustarPreco = (fator: number): ItemMixProduto[] =>
-    p.itensMix.map((it) => ({ ...it, precoM2: it.precoM2 * fator }));
+    p.itensMix.map((it) => ({
+      ...it,
+      precoM2: it.precoM2 * fator,
+      ...(it.precoUnidade !== undefined ? { precoUnidade: it.precoUnidade * fator } : {}),
+    }));
 
   const conservador = calcularLoteamento({
     ...p,

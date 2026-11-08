@@ -58,7 +58,7 @@ export function BusinessPlanTab({ estudo }: { estudo: EstudoData }) {
     const premissas = montarPremissasLoteamento(estudo);
     if (!premissas) return null;
     try {
-      return calcularLoteamento(premissas).custoTotal;
+      return calcularLoteamento(premissas).investimentoTotal;
     } catch {
       return null;
     }
@@ -102,7 +102,7 @@ export function BusinessPlanTab({ estudo }: { estudo: EstudoData }) {
           </button>
         </div>
         <p className="text-[11px] text-gray-400 max-w-xl">
-          Uma fonte de captação por linha (fundo, investidor-anjo, sócio capitalista). O investimento total comparado abaixo vem automaticamente do custo total já calculado na Viabilidade (2.5){investimentoTotal ? `: ${formatCurrency(investimentoTotal)}` : ", quando ela estiver preenchida"}.
+          Uma fonte de captação por linha (fundo, investidor-anjo, sócio capitalista). O investimento total comparado abaixo vem automaticamente da Viabilidade (2.5) — custos operacionais + terreno, sem o custo financeiro da própria captação{investimentoTotal ? `: ${formatCurrency(investimentoTotal)}` : ", quando ela estiver preenchida"}.
         </p>
       </div>
 
@@ -115,6 +115,7 @@ export function BusinessPlanTab({ estudo }: { estudo: EstudoData }) {
                 <th className="text-left text-[10px] font-bold text-gray-400 uppercase tracking-wide px-1 pb-1 w-28">Capital (R$)</th>
                 <th className="text-left text-[10px] font-bold text-gray-400 uppercase tracking-wide px-1 pb-1 w-24">Remuneração (%)</th>
                 <th className="text-left text-[10px] font-bold text-gray-400 uppercase tracking-wide px-1 pb-1 w-24">Período</th>
+                <th className="text-left text-[10px] font-bold text-gray-400 uppercase tracking-wide px-1 pb-1 w-20">Mês do aporte</th>
                 <th className="text-left text-[10px] font-bold text-gray-400 uppercase tracking-wide px-1 pb-1 w-24">Resgate (meses)</th>
                 <th className="text-left text-[10px] font-bold text-gray-400 uppercase tracking-wide px-1 pb-1 w-28">Valor no resgate</th>
                 <th />
@@ -134,8 +135,9 @@ export function BusinessPlanTab({ estudo }: { estudo: EstudoData }) {
                         <option value="anual">Anual</option>
                       </select>
                     </td>
+                    <td className="px-1 py-1"><input type="number" min={0} value={f.mesAporte ?? 1} title="Mês do fluxo da Viabilidade em que o capital entra (M1 = 1º mês). Resgate = aporte + prazo." onChange={(e) => updFonte(f.id, "mesAporte", Math.max(0, Math.round(parseFloat(e.target.value) || 0)))} className={numCls} /></td>
                     <td className="px-1 py-1"><input type="number" value={f.prazoResgateMeses} onChange={(e) => updFonte(f.id, "prazoResgateMeses", parseFloat(e.target.value) || 0)} className={numCls} /></td>
-                    <td className="px-1 py-1 text-right font-bold text-[var(--brand-dark)]">{r ? formatCurrency(r.valorResgate) : "—"}</td>
+                    <td className="px-1 py-1 text-right font-bold text-[var(--brand-dark)]">{r ? <>{formatCurrency(r.valorResgate)}<span className="block text-[10px] font-normal text-gray-400">M{(f.mesAporte ?? 1) + Math.max(0, Math.round(f.prazoResgateMeses))} · principal {formatCurrency(f.capitalAportado)} + remuneração {formatCurrency(r.custoTotal)}</span></> : "—"}</td>
                     <td className="px-1 py-1">
                       <button type="button" onClick={() => removerFonte(f.id)} className="text-gray-300 hover:text-red-500 flex justify-center"><Trash2 size={14} /></button>
                     </td>
@@ -152,7 +154,7 @@ export function BusinessPlanTab({ estudo }: { estudo: EstudoData }) {
 
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
         <Kpi label="Capital total captado" valor={formatCurrency(resultado.capitalTotalCaptado)} />
-        <Kpi label="Custo total da captação" valor={formatCurrency(resultado.custoTotalCaptacao)} />
+        <Kpi label="Custo total da captação (despesa financeira)" valor={formatCurrency(resultado.custoTotalCaptacao)} />
         <Kpi label="% do investimento total" valor={resultado.pctDoInvestimentoTotal != null ? `${resultado.pctDoInvestimentoTotal.toFixed(1)}%` : "—"} />
         <Kpi
           label="Capital próprio necessário"
