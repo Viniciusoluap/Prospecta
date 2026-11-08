@@ -115,7 +115,7 @@ export function MercadoTab({ estudo }: { estudo: EstudoData }) {
         {/* Motor 2 */}
         <section className="bg-white border border-gray-100 p-4 space-y-3" aria-label="Inteligência artificial de mercado imobiliário">
           <p className="text-xs font-bold text-gray-500 uppercase tracking-widest flex items-center gap-1.5"><Sparkles size={13} /> IA de mercado imobiliário</p>
-          <p className="text-[11px] text-gray-600">Levanta anúncios com link verificável, descarta duplicados e incompletos, marca atípicos e calcula a mediana do R$/m². Nada é inventado.</p>
+          <p className="text-[11px] text-gray-600">Busca anúncios na web (Tavily, gratuito) e lê preço e área do próprio texto dos portais, sem IA: descarta duplicados, incompletos e ambíguos, marca atípicos e calcula a mediana do R$/m². Nada é inventado.</p>
           <div className="grid grid-cols-2 gap-2">
             <label className="text-[10px] font-bold text-gray-500 uppercase">Bairro/região<input className={inputCls} value={consulta.bairro} maxLength={120} onChange={(e) => setConsulta({ ...consulta, bairro: e.target.value })} placeholder="(todo o município)" /></label>
             <label className="text-[10px] font-bold text-gray-500 uppercase">Tipologia<select className={inputCls} value={consulta.tipologia} onChange={(e) => setConsulta({ ...consulta, tipologia: e.target.value as TipologiaImovel })}><option value="lote">Lote</option><option value="terreno">Terreno</option><option value="casa">Casa</option><option value="apartamento">Apartamento</option></select></label>
@@ -125,7 +125,7 @@ export function MercadoTab({ estudo }: { estudo: EstudoData }) {
           <button onClick={() => void buscarAnuncios()} disabled={busyIa}
             className="flex items-center gap-1.5 text-xs font-bold px-4 py-2 bg-[var(--brand-dark)] text-[var(--brand-yellow)] hover:opacity-90 disabled:opacity-50">
             {busyIa ? <Loader2 size={14} className="animate-spin" /> : <Sparkles size={14} />}
-            {busyIa ? "Pesquisando anúncios (até 2 min)…" : "Pesquisar anúncios com IA"}
+            {busyIa ? "Pesquisando anúncios…" : "Pesquisar anúncios"}
           </button>
           {avisoIa && <p className="text-xs text-amber-800 flex items-start gap-1.5"><AlertTriangle size={13} className="shrink-0 mt-0.5" />{avisoIa}</p>}
           {erroIa && <p role="alert" className="text-xs text-red-700">{erroIa}</p>}
@@ -323,8 +323,8 @@ function PainelAnuncios({ a, onUsar, aplicado }: { a: AnaliseAnuncios; onUsar: (
           <table className="w-full text-xs">
             <thead><tr className="text-left text-[10px] uppercase tracking-widest text-gray-500 border-b border-gray-100"><th className="py-1.5 pr-2">Anúncio</th><th className="py-1.5 pr-2">Fonte</th><th className="py-1.5 pr-2 text-right">Área</th><th className="py-1.5 pr-2 text-right">Preço</th><th className="py-1.5 text-right">R$/m²</th></tr></thead>
             <tbody>
-              {a.validos.map((v) => (
-                <tr key={v.url} className={`border-b border-gray-50 ${v.atipico ? "text-gray-400" : ""}`}>
+              {a.validos.map((v, i) => (
+                <tr key={`${v.url}-${i}`} className={`border-b border-gray-50 ${v.atipico ? "text-gray-400" : ""}`}>
                   <td className="py-1.5 pr-2"><a href={v.url} target="_blank" rel="noreferrer" className="underline">{v.titulo}</a>{v.bairro ? ` · ${v.bairro}` : ""}{v.atipico ? " · atípico (fora do cálculo)" : ""}</td>
                   <td className="py-1.5 pr-2">{v.fonte}</td>
                   <td className="py-1.5 pr-2 text-right whitespace-nowrap">{formatArea(v.areaM2)}</td>

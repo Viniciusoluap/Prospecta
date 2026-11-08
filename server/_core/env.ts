@@ -22,4 +22,6 @@ export const ENV = {
   /** Chave GRATUITA do Google AI Studio (Gemini + Grounding with Google Search) — provedor padrão de anúncios. */
   geminiApiKey: process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY || "",
   geminiModelo: process.env.INCORPORACAO_GEMINI_MODELO || "gemini-flash-latest",
+  /** Chave GRATUITA do Tavily (busca web, ~1.000 créditos/mês) — provedor padrão de anúncios, sem IA. */
+  tavilyApiKey: process.env.TAVILY_API_KEY || "",
 };

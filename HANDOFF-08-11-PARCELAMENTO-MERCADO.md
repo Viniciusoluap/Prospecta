@@ -168,6 +168,27 @@ Testes (a): suíte completa **185 arquivos / 1514 testes ✅**; build igual ao d
 (c) Pendente em produção: IBGE pelo navegador (CORS do IBGE não testável daqui); anúncios após
 cadastrar `GEMINI_API_KEY` no Vercel.
 
+## Etapa 6 — Via que acompanha a divisa (08/11, rodada 3) — PR #188, mergeado
+
+- `shared/incorporacao/rua-divisa.ts` (novo): Rua Simples com **traçado pela divisa (curvo)** —
+  `tracadoVia: "divisa"` em `ParametrosMassa`; seletor "Traçado da via" na tela; progresso real.
+  A via segue trechos contínuos da poligonal (quebra em cantos > 60°, mais junções de dois trechos),
+  nos dois sentidos e com duas fases, com a largura informada, do lado de dentro da gleba.
+- Lotes: frente MÍNIMA = testada sobre a borda interna da via (cresce só onde preciso para a área
+  mínima — busca binária, arredondada ao cm); fundo até a divisa oposta (máx. 2 × profundidade);
+  cabeceiras seguem a divisa vizinha; refino com lotes em leque nas curvas (raios t, 2t, 4t, 8t).
+- Garantias: cada lote é recortado pela gleba e subtraído da via e dos lotes anteriores (sem
+  sobreposição por construção); geometria limpa a 0,1 mm; qualquer falha booleana RECUSA o lote;
+  lote com furo é recusado; **frente efetiva medida após o recorte** (amostragem ≤ 25 cm) — só aceita
+  frente efetiva ≥ testada (correção do apontamento Codex no PR #188, commit `f37df3c`).
+- Morada do Bosque (KML real, estudo 5): via 3 m pela divisa → **27 lotes** com frente mínima 20 m
+  (aproveitamento 98,7%; via 3/6/10 m dá o mesmo número); **29 lotes ≥ 5.000 m² com frente mínima 17 m**.
+  Limitante = comprimento de frente (~600 m): fundo até ~270 m faz lote de 20 m ter ~5.400 m²; cabeceiras
+  rasas exigem 40–65 m de frente.
+- Desempenho: 20–40 s nesta gleba (Web Worker com progresso). Otimização possível (pendência).
+- Testes: gleba real 27 e 29, gleba sintética com dobra, determinismo, frente efetiva (caso Codex),
+  sem sobreposição lote×lote e lote×via, dentro da gleba, área e frente mínimas.
+
 ## Etapa 7 — Chave do Google (08/11)
 
 - O dono enviou uma chave do Google AI Studio. O Vercel recusou criar a variável de ambiente por esta
@@ -182,15 +203,67 @@ cadastrar `GEMINI_API_KEY` no Vercel.
 - Pendente (agente, após autorização de merge/deploy do PR #188): gravar a chave no banco de produção.
 - Testes (a): suíte **185 arquivos / 1521 ✅**.
 
+## Estado em 08/11 ~15h (fim da sessão Claude)
+
+- PRs mergeados e em produção (prospectaconstrucoes.com): **#187** (`36b3e05`) e **#188** (`05f3474`).
+  Deploy de produção do `05f3474` = READY no Vercel. Depois disso entrou na `main` o PR #189 (Codex, jurídico).
+- Suíte na última execução: **185 arquivos / 1522 testes ✅**; `tsc` limpo; build igual ao do Vercel ✅.
+- Ambiente de nuvem padrão do Claude: liberados `servicodados.ibge.gov.br` e `generativelanguage.googleapis.com`.
+- Chave Google enviada pelo dono no chat: **NÃO gravada em lugar nenhum** (retorna 402 — projeto com
+  crédito pré-pago esgotado). Recomendado ao dono apagá-la no AI Studio (ficou exposta no chat).
+- **Decisão do dono (08/11): seguir com o TAVILY** para a pesquisa de anúncios (grátis, ~1.000 buscas/mês,
+  sem cartão — conferir na página oficial). Implementação abaixo, a ser feita pelo **Codex**.
+
+## Etapa 8 — Provedor de anúncios Tavily, sem IA (08/11 ~19h) — IMPLEMENTADO PELO CLAUDE
+
+> **Codex: NÃO refazer.** O roteiro que estava aqui foi executado pelo Claude na mesma sessão,
+> depois que o dono enviou a chave. O que falta está em "Pendências" e "Próximo passo".
+
+- Chave do dono (plano gratuito "Pesquisador", 1.000 créditos/mês) **gravada no banco de produção**:
+  `dashboard_settings` → `segredo.tavily_api_key` = `plain:…` (recriptografada AES-256-GCM no 1º uso
+  pelo código novo). Não está no repositório nem no Vercel. O painel de gestão já não devolve `segredo.*`.
+- `shared/incorporacao/extracao-anuncios.ts` (novo): extração DETERMINÍSTICA do texto que o Tavily
+  devolve (páginas de listagem com vários anúncios): divide em trechos (";" e "·"); só aceita trecho com
+  exatamente UM preço de venda e UMA área; descarta aluguel/mês, parcelas/entrada/"a partir de", médias
+  ("valor médio"), preço por m², leilão, preço < R$ 1.000, área < 10 m², trecho de outra cidade, página
+  e trecho fora do município; entende "150.000", "1,2 milhão", "mil", "2 ha"; extrai bairro quando há.
+- `shared/incorporacao/analise-anuncios.ts`: `idTrecho` — anúncios distintos da MESMA página não são
+  tratados como duplicados (a deduplicação entre portais por preço+área+bairro continua).
+- `server/_core/incorporacao/mercado-anuncios.ts`: `provedorTavily` (POST api.tavily.com/search, Bearer,
+  `search_depth: basic`, `max_results: 20`, `country: brazil`; 2 consultas por pesquisa = 2 créditos;
+  cache de 12 h por consulta; mensagens para 401/403 e 429/432/433). `provedorPadrao`: Tavily > Google > Anthropic.
+- `server/_core/incorporacao/segredos-mercado.ts`: `carregarChaveTavily` (ENV `TAVILY_API_KEY` > banco);
+  rota `pesquisarMercadoImobiliario` carrega Tavily e Google. `server/_core/env.ts`: `tavilyApiKey`.
+- Tela: textos do botão "Pesquisar anúncios" (Tavily, gratuito, sem IA).
+
+Testes:
+- (a) `server/incorporacao-mercado-motores.test.ts` 33 ✅ (extração com trechos REAIS do Tavily, ambíguos,
+  aluguel/médias/parcelas, mil/milhão/hectare, mesma página, provedor com fetch simulado, 401/432, padrão,
+  chave no banco). Suíte completa: **186 arquivos / 1537 ✅**; `tsc` limpo.
+- (b) **Ao vivo** (chave do dono, 6 créditos usados): Imperatriz/MA lote → **7 anúncios reais** (OLX, VivaReal,
+  Chaves na Mão, imobiliárias locais), mediana **R$ 321,54/m²**, Q1–Q3 R$ 153–544, confiabilidade **baixa**
+  (amostra mistura glebas de 6.000–49.700 m² com lotes de ~220–600 m² → usar área mín./máx. na tela).
+  Ribeirãozinho/MA → nenhum anúncio aproveitável (informado como insuficiente, sem estimar).
+- (c) Pendente em produção: o botão na tela logada após o deploy deste PR.
+
+Chave Google mostrada no print do dono (`AQ.…`): **não usada nem testada** (o controle de segurança da
+sessão bloqueou o uso de uma chave que só aparecia em imagem, sem pedido explícito). Não está gravada.
+
 ## Pendências gerais
-- Morada do Bosque: validado com o KML real (23/25 lotes; 29 inviável — ver Etapa 5).
-- Via curva na Rua Simples não é modelada (via reta; limitação exibida no cenário).
+- Morada do Bosque: validado com o KML real — reta 23 / divisa-reta 25 / via pela divisa 27 (testada 20 m)
+  e 29 com testada mínima 17 m (Etapas 5 e 6).
 - Ponto de acesso viário informado pelo usuário não é modelado (a via sai da divisa).
-- Grade/Cul-de-sac em modo manual da área viária: só aceita se bater ±5% com o desenho (não ajusta a malha).
-- Paridade com o Santa Fé registrada em `docs/stories/epics/ROADMAP.md` (não portada).
+- Busca da via pela divisa: 20–40 s em glebas como a do Morada (otimizar: menos cadeias/refino, ou cache).
+- **IBGE pelo navegador**: validar em produção (Inteligência de Mercado → "Pesquisar dados oficiais (IBGE)");
+  o IBGE recusa acesso de fora do Brasil, por isso não foi testável daqui.
+- Pesquisa de anúncios (Tavily): implementada e testada ao vivo; falta o merge/deploy deste PR (#190) e conferir na tela logada.
+- Possível melhoria: filtro de área automático pela tipologia/estudo para subir a confiabilidade (hoje é manual).
+- Paridade com o Santa Fé registrada em `docs/stories/epics/ROADMAP.md` (não portada; incluir Tavily e via pela divisa).
 - Merge e deploy dependem de autorização do dono.
 
 ## Próximo passo exato
-Revisão do PR #187 pelo dono; em seguida validar em homologação/produção: (1) gerar cenários com o KML
-real do Morada do Bosque nas 3 tipologias; (2) botão IBGE; (3) botão de anúncios com a chave
-configurada; (4) excluir uma proposta e conferir o histórico; (5) paginação das unidades em tablet.
+1. Dono autoriza merge/deploy do PR #190 (Tavily + handoff). Após o deploy, na tela logada: Inteligência de
+   Mercado → "Pesquisar anúncios" (lote, Imperatriz) e conferir; preencher área mín./máx. para comparáveis.
+2. Validar em produção: Morada do Bosque (Rua Simples → Traçado "Acompanha a divisa"), botão IBGE,
+   exclusão de proposta, paginação das unidades em tablet.
+3. Próxima frente técnica sugerida: otimizar a busca da via pela divisa (20–40 s) e portar ao Santa Fé (ROADMAP).

@@ -136,3 +136,8 @@ Detalhes e testes em `HANDOFF-08-11-PARCELAMENTO-MERCADO.md` (PR #187).
 - [ ] Inteligência de Mercado com dois motores (IBGE gratuito + anúncios com IA) — `server/_core/incorporacao/dados-publicos.ts`, `mercado-anuncios.ts`, `shared/incorporacao/analise-anuncios.ts`
 - [ ] Unidades: exibição Q01 / L01, ordem numérica, paginação de 6
 - [ ] Negociação: excluir proposta com auditoria; permuta = VGV × % ÷ 100 com VGV da Viabilidade › cenário
+- [ ] Rua Simples com via que acompanha a divisa (traçado curvo) e lote que acompanha a divisa — `shared/incorporacao/rua-divisa.ts` (PR #188)
+- [ ] Ajuste automático da malha no modo manual da área viária (quadras mais curtas / supressão de ruas)
+- [ ] IBGE consultado pelo navegador (o IBGE recusa acesso de fora do Brasil) — `shared/incorporacao/dados-publicos.ts`
+- [ ] Chaves de integração no banco (`dashboard_settings`, `segredo.*`, criptografadas) — `server/_core/incorporacao/segredos-mercado.ts`
+- [ ] Provedor de anúncios Tavily sem IA + extração determinística — `shared/incorporacao/extracao-anuncios.ts`, `server/_core/incorporacao/mercado-anuncios.ts` (PR #190)

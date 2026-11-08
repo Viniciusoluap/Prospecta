@@ -6,6 +6,8 @@
 // interface para ser trocado no futuro sem tocar no tratamento.
 //
 // Provedores (ordem de preferência — `provedorPadrao`):
+//  0. Tavily (TAVILY_API_KEY, GRATUITO ~1.000 créditos/mês) — SEM IA: a busca traz o texto das
+//     páginas e o sistema extrai preço e área de forma determinística (extracao-anuncios.ts).
 //  1. Gemini + "Grounding with Google Search" (Google AI Studio) — chave GRATUITA (GEMINI_API_KEY),
 //     com cota gratuita do Google; sem custo dentro da cota.
 //  2. Busca web da API Anthropic (ANTHROPIC_API_KEY) — opcional, paga.
@@ -18,6 +20,7 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { ENV } from "../env.js";
 import { analisarAnuncios, type AnaliseAnuncios, type AnuncioBruto, type TipologiaImovel } from "../../../shared/incorporacao/analise-anuncios.js";
+import { extrairAnunciosDeResultado, type ResultadoBusca } from "../../../shared/incorporacao/extracao-anuncios.js";
 
 export interface ConsultaAnuncios {
   municipio: string;
@@ -127,11 +130,54 @@ export const provedorGeminiBuscaGoogle: ProvedorAnuncios = {
   },
 };
 
-/** Provedor em uso: Google gratuito quando houver GEMINI_API_KEY; senão Anthropic (se houver chave); senão o Google (que informa a falta da chave). */
+const PALAVRAS_TIPOLOGIA: Record<TipologiaImovel, string> = {
+  lote: "lote terreno", terreno: "terreno", casa: "casa", apartamento: "apartamento", outro: "imóvel",
+};
+
+/** Consultas ao buscador (2 créditos por pesquisa no plano básico do Tavily). */
+export function consultasTavily(c: ConsultaAnuncios): string[] {
+  const local = `${c.bairro ? `${c.bairro} ` : ""}${c.municipio} ${c.uf}`;
+  const t = PALAVRAS_TIPOLOGIA[c.tipologia];
+  return [`${t} à venda ${local}`, `${t} à venda ${local} preço m²`];
+}
+
+/** Provedor GRATUITO e SEM IA: Tavily (busca) + extração determinística de preço e área. */
+export const provedorTavily: ProvedorAnuncios = {
+  nome: "Tavily (busca web) + extração sem IA",
+  indisponibilidade() {
+    if (!ENV.tavilyApiKey) return "Nenhum provedor de anúncios configurado: crie a chave gratuita em tavily.com e cadastre-a como TAVILY_API_KEY no servidor (ou no banco, segredo.tavily_api_key). Os dados oficiais (IBGE) e os comparáveis manuais continuam funcionando.";
+    return null;
+  },
+  async buscar(c) {
+    const brutos: AnuncioBruto[] = [];
+    const urlsVistas = new Set<string>();
+    for (const query of consultasTavily(c)) {
+      const r = await fetch("https://api.tavily.com/search", {
+        method: "POST",
+        signal: AbortSignal.timeout(60_000),
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${ENV.tavilyApiKey}` },
+        body: JSON.stringify({ query, search_depth: "basic", max_results: 20, country: "brazil", include_answer: false }),
+      });
+      if (r.status === 401 || r.status === 403) throw new Error("A chave do Tavily foi recusada (inválida ou revogada) — confira em app.tavily.com.");
+      if (r.status === 429 || r.status === 432 || r.status === 433) throw new Error("Limite gratuito do Tavily atingido no momento (créditos do mês ou excesso de requisições) — nenhum custo foi gerado.");
+      if (!r.ok) throw new Error(`Tavily respondeu HTTP ${r.status}.`);
+      const json = (await r.json()) as { results?: ResultadoBusca[] };
+      for (const res of json.results ?? []) {
+        if (!res?.url || urlsVistas.has(res.url)) continue; // mesma página nas duas consultas
+        urlsVistas.add(res.url);
+        brutos.push(...extrairAnunciosDeResultado(res, { municipio: c.municipio, uf: c.uf, tipologia: c.tipologia }).anuncios);
+      }
+    }
+    return brutos;
+  },
+};
+
+/** Provedor em uso: Tavily (grátis, sem IA) > Google (Gemini) > Anthropic; sem chave, o Tavily informa a falta. */
 export function provedorPadrao(): ProvedorAnuncios {
+  if (ENV.tavilyApiKey) return provedorTavily;
   if (ENV.geminiApiKey) return provedorGeminiBuscaGoogle;
   if (ENV.anthropicApiKey) return provedorBuscaWebAnthropic;
-  return provedorGeminiBuscaGoogle;
+  return provedorTavily;
 }
 
 const CACHE_MS = 12 * 60 * 60 * 1000;

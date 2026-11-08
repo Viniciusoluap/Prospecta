@@ -266,3 +266,130 @@ describe("Provedor Google — mensagens de erro da chave", () => {
     await expect(provedorGeminiBuscaGoogle.buscar({ municipio: "X", uf: "MA", tipologia: "lote" })).rejects.toThrow(/crédito pré-pago esgotado.*SEM faturamento/);
   });
 });
+
+// ─── Provedor Tavily (gratuito, sem IA) + extração determinística ────────────
+import { extrairAnunciosDeResultado } from "../shared/incorporacao/extracao-anuncios";
+import { provedorTavily, consultasTavily } from "./_core/incorporacao/mercado-anuncios";
+import { CHAVE_SEGREDO_TAVILY, carregarChaveTavily } from "./_core/incorporacao/segredos-mercado";
+
+const CONSULTA_IMP = { municipio: "Imperatriz", uf: "MA", tipologia: "lote" as const };
+// trechos no formato REAL devolvido pelo Tavily em 08/11/2026 (páginas de listagem)
+const OLX = { url: "https://www.olx.com.br/imoveis/terrenos/lotes/compra/estado-ma/regiao-de-imperatriz-e-caxias/imperatriz", title: "Terreno e lotes à venda - Imperatriz - MA",
+  content: "Terreno à venda no bairro Jardim São Luís - Imperatriz/MA. 522m². R$ 450.000 ; Terreno em Trindade de Goiania. 200m² · R$ 80.000. Condomínio R$ 80.000." };
+
+describe("Extração de anúncios (sem IA)", () => {
+  it("separa os anúncios da página e só aceita trecho com UM preço e UMA área", () => {
+    const r = extrairAnunciosDeResultado({ ...OLX, content: "Terreno à venda no bairro Jardim São Luís - Imperatriz/MA. 522m². R$ 450.000" }, CONSULTA_IMP);
+    expect(r.anuncios).toHaveLength(1);
+    expect(r.anuncios[0]).toMatchObject({ preco: 450000, areaM2: 522, fonte: "olx.com.br", bairro: "Jardim São Luís", tipologia: "lote" });
+  });
+
+  it("trecho de outra cidade, preço e área separados por '·', condomínio: nada é aproveitado por engano", () => {
+    const r = extrairAnunciosDeResultado({ ...OLX, content: "Terreno em Trindade de Goiania. 200m² · R$ 80.000. Condomínio R$ 80.000." }, CONSULTA_IMP);
+    expect(r.anuncios).toHaveLength(0);
+  });
+
+  it("descarta médias de mercado, preço por m², parcelas e aluguel", () => {
+    for (const content of [
+      "Valor médio da compra de lote/terreno em Imperatriz. 312 m². R$ 1 mil/m².",
+      "-valor do M²: R$ 354,60. área 564 m²",
+      "RESIDENCIAL CIDADE NOVA - Parcelas A Partir de R$268,90 lote 200 m²",
+      "Casa para alugar 300 m² R$ 1.200,00/mês Imperatriz",
+    ]) expect(extrairAnunciosDeResultado({ ...OLX, content }, CONSULTA_IMP).anuncios).toHaveLength(0);
+  });
+
+  it("mesma área escrita duas vezes conta como uma; 'mil/milhão' e hectares", () => {
+    const a = extrairAnunciosDeResultado({ ...OLX, content: "Terreno no Centro de Imperatriz-MA, com 32.850,00 m² de área. 32850m². R$ 1.500.000." }, CONSULTA_IMP).anuncios;
+    expect(a[0]).toMatchObject({ areaM2: 32850, preco: 1500000 });
+    const b = extrairAnunciosDeResultado({ ...OLX, content: "Chácara em Imperatriz com 2 ha por R$ 1,2 milhão" }, CONSULTA_IMP).anuncios;
+    expect(b[0]).toMatchObject({ areaM2: 20000, preco: 1200000 });
+  });
+
+  it("trecho com dois preços ou duas áreas diferentes é ambíguo: recusado", () => {
+    const r = extrairAnunciosDeResultado({ ...OLX, content: "Lotes de 250 m² e 300 m² em Imperatriz por R$ 90.000" }, CONSULTA_IMP);
+    expect(r.anuncios).toHaveLength(0);
+    expect(r.descartes[0].motivo).toMatch(/ambíguo/);
+  });
+
+  it("vários anúncios da MESMA página não são confundidos com duplicados na análise", () => {
+    const content = "Lote 300 m² Imperatriz R$ 90.000 ; Lote 450 m² Imperatriz R$ 150.000 ; Lote 600 m² Imperatriz R$ 180.000";
+    const brutos = extrairAnunciosDeResultado({ ...OLX, content }, CONSULTA_IMP).anuncios;
+    const a = analisarAnuncios(brutos, { municipio: "Imperatriz", tipologia: "lote", provedor: "t" }, "t");
+    expect(a.validos).toHaveLength(3);
+    expect(a.duplicados).toBe(0);
+  });
+});
+
+describe("Provedor Tavily", () => {
+  afterEach(() => { ENV.tavilyApiKey = ""; vi.unstubAllGlobals(); });
+
+  it("sem chave: indisponível com instrução (tavily.com)", () => {
+    ENV.tavilyApiKey = "";
+    expect(provedorTavily.indisponibilidade()).toMatch(/tavily\.com/);
+  });
+
+  it("é o provedor padrão quando há chave, antes de Google e Anthropic", () => {
+    ENV.tavilyApiKey = "tvly-t"; ENV.geminiApiKey = "g"; ENV.anthropicApiKey = "a";
+    expect(provedorPadrao()).toBe(provedorTavily);
+    ENV.geminiApiKey = ""; ENV.anthropicApiKey = "";
+  });
+
+  it("envia 2 buscas básicas autenticadas e extrai os anúncios das páginas (sem repetir página)", async () => {
+    ENV.tavilyApiKey = "tvly-t";
+    const corpos: Record<string, unknown>[] = [];
+    vi.stubGlobal("fetch", vi.fn(async (url: string, init: RequestInit) => {
+      expect(url).toBe("https://api.tavily.com/search");
+      expect((init.headers as Record<string, string>).Authorization).toBe("Bearer tvly-t");
+      corpos.push(JSON.parse(String(init.body)));
+      return new Response(JSON.stringify({ results: [OLX] }), { status: 200 });
+    }));
+    const anuncios = await provedorTavily.buscar(CONSULTA_IMP);
+    expect(corpos).toHaveLength(2);
+    expect(corpos[0]).toMatchObject({ search_depth: "basic", max_results: 20 });
+    expect(corpos.map((c) => c.query)).toEqual(consultasTavily(CONSULTA_IMP));
+    expect(anuncios).toHaveLength(1); // a mesma página nas duas buscas entra uma vez; o trecho de Goiânia é descartado
+    expect(anuncios[0]).toMatchObject({ preco: 450000, areaM2: 522 });
+  });
+
+  it("401 e 432 viram mensagens claras", async () => {
+    ENV.tavilyApiKey = "tvly-t";
+    vi.stubGlobal("fetch", vi.fn(async () => new Response("{}", { status: 401 })));
+    await expect(provedorTavily.buscar(CONSULTA_IMP)).rejects.toThrow(/recusada/);
+    vi.stubGlobal("fetch", vi.fn(async () => new Response("{}", { status: 432 })));
+    await expect(provedorTavily.buscar(CONSULTA_IMP)).rejects.toThrow(/Limite gratuito/);
+  });
+
+  it("chave do Tavily no banco: 'plain:' é usada e recriptografada", async () => {
+    ENV.cookieSecret = ENV.cookieSecret || "segredo-de-teste-com-tamanho-suficiente";
+    _limparCacheChaveGemini();
+    const gravados = new Map<string, string>([[CHAVE_SEGREDO_TAVILY, "plain:tvly-xyz"]]);
+    const banco = { getDashboardSetting: async (k: string) => gravados.get(k), saveDashboardSetting: async (k: string, v: string) => { gravados.set(k, v); } };
+    expect(await carregarChaveTavily(banco)).toBe("tvly-xyz");
+    expect(ENV.tavilyApiKey).toBe("tvly-xyz");
+    expect(gravados.get(CHAVE_SEGREDO_TAVILY)!.startsWith("plain:")).toBe(false);
+  });
+});
+
+describe("Revisão Codex (PR #190) — extração", () => {
+  const PAGINA = { url: "https://portal.exemplo/imoveis/imperatriz", title: "Imóveis em Imperatriz" };
+  it("aluguel em qualquer forma ('para alugar', 'aluga-se', 'locação') é descartado", () => {
+    for (const content of [
+      "Casa para alugar em Imperatriz por R$ 1.200,00, com 300 m²",
+      "Aluga-se casa Imperatriz. R$ 1.200,00. 300 m²",
+      "Loca-se terreno Imperatriz 300 m² R$ 1.500",
+    ]) expect(extrairAnunciosDeResultado({ ...PAGINA, content }, CONSULTA_IMP).anuncios).toHaveLength(0);
+  });
+  it("município homônimo de OUTRO estado é descartado; o mesmo estado é aceito", () => {
+    const pi = { municipio: "Bom Jesus", uf: "PI", tipologia: "lote" as const };
+    const pagina = { url: "https://portal.exemplo/bom-jesus", title: "Lotes em Bom Jesus" };
+    expect(extrairAnunciosDeResultado({ ...pagina, content: "Lote em Bom Jesus/RS por R$ 150.000 com 300 m²" }, pi).anuncios).toHaveLength(0);
+    expect(extrairAnunciosDeResultado({ ...pagina, content: "Lote em Bom Jesus - RS por R$ 150.000 com 300 m²" }, pi).anuncios).toHaveLength(0);
+    expect(extrairAnunciosDeResultado({ ...pagina, content: "Lote em Bom Jesus/PI por R$ 150.000 com 300 m²" }, pi).anuncios).toHaveLength(1);
+  });
+  it("área com ponto decimal não vira um pedaço do número", () => {
+    const a = extrairAnunciosDeResultado({ ...PAGINA, content: "Lote em Imperatriz com 250.50 m² por R$ 150.000" }, CONSULTA_IMP).anuncios;
+    expect(a).toHaveLength(1);
+    expect(a[0].areaM2).toBe(250.5);
+    expect(extrairAnunciosDeResultado({ ...PAGINA, content: "Lote em Imperatriz com 1.250 m² por R$ 150.000" }, CONSULTA_IMP).anuncios[0].areaM2).toBe(1250);
+  });
+});
