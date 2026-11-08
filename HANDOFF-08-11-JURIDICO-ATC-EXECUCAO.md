@@ -19,3 +19,10 @@
 Revisar o PR isolado e o texto contratual antes do uso comercial. Aplicar a migração aditiva primeiro em banco de teste, validar os dois fluxos pelo Jurídico e pelo CRM e conferir a base atual dos trabalhos paralelos antes do merge e do deploy.
 
 O schema fica em `drizzle/schema.ts` e a migração em `drizzle/0100_juridico_modelos_atc_execucao.sql`. Segue a convenção do repositório de aplicar o SQL versionado sem avançar o journal legado. A suíte completa passou com 1.519 testes antes da checagem final de validação cadastral.
+
+## Preparação da publicação autorizada em 08/11
+
+- A main avançou para o merge do PR #188 do Claude. A simulação de merge do PR #189 foi limpa, sem sobreposição de arquivos com a alteração da main.
+- (a) A migração foi aplicada no banco de teste Neon. A leitura confirmou as cinco colunas e as três chaves estrangeiras.
+- (b) A Vercel compilou o preview do PR #189 no commit original.
+- (c) Pendentes nesta etapa: migração de produção, merge, confirmação do deploy associado ao merge e validação autenticada com uma obra real.
