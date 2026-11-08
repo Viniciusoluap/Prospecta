@@ -41,6 +41,7 @@ import { bancarioRouter, pluggySettingsRouter } from "./bancos-router.js";
 import { parseKmlTerreno } from "./_core/geo/kml.js";
 import { fetchElevationGrid } from "./_core/geo/elevacao.js";
 import { pesquisarMercado } from "./_core/incorporacao/mercado-ia.js";
+import { excluirProposta, mesclarNegociacaoParaGravar, parseNegociacao } from "../shared/incorporacao/negociacao.js";
 import { financiamentoRouter } from "./financiamento-router.js";
 import { juridicoRouter } from "./juridico-router.js";
 import {
@@ -2942,10 +2943,29 @@ export const appRouter = router({
       .input(z.object({ id: z.number(), dataJson: z.string().min(1) }))
       .mutation(async ({ input, ctx }) => {
         requireModule(ctx, "incorporacao");
+        const recebido = parseNegociacao(input.dataJson);
+        if (!recebido) throw new TRPCError({ code: "BAD_REQUEST", message: "Dados da negociação inválidos." });
+        // Correção 08: o salvamento nunca apaga a auditoria de exclusões nem ressuscita proposta excluída.
+        const atual = await db.getIncorporationStudyById(input.id);
+        const mesclado = mesclarNegociacaoParaGravar(parseNegociacao(atual?.landNegotiationJson ?? null), recebido);
         await db.updateIncorporationStudy(input.id, {
-          landNegotiationJson: input.dataJson,
+          landNegotiationJson: JSON.stringify(mesclado),
         });
         return { success: true };
+      }),
+
+    excluirPropostaNegociacao: protectedProcedure
+      .input(z.object({ id: z.number(), propostaId: z.string().min(1), confirmacaoReforcada: z.boolean().default(false) }))
+      .mutation(async ({ input, ctx }) => {
+        requireModule(ctx, "incorporacao");
+        const atual = await db.getIncorporationStudyById(input.id);
+        if (!atual) throw new TRPCError({ code: "NOT_FOUND", message: "Estudo não encontrado." });
+        const dados = parseNegociacao(atual.landNegotiationJson ?? null);
+        if (!dados) throw new TRPCError({ code: "NOT_FOUND", message: "Proposta não encontrada — salve a negociação antes de excluir." });
+        const r = excluirProposta(dados, input.propostaId, { id: ctx.user.id ?? null, nome: ctx.user.name ?? null }, new Date().toISOString(), input.confirmacaoReforcada);
+        if (!r.ok) throw new TRPCError({ code: "BAD_REQUEST", message: r.erro });
+        await db.updateIncorporationStudy(input.id, { landNegotiationJson: JSON.stringify(r.dados) });
+        return { success: true, exclusao: r.exclusao, historicoExclusoes: r.dados.historicoExclusoes ?? [] };
       }),
 
     saveBusinessPlan: protectedProcedure

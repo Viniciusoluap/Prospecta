@@ -15,8 +15,8 @@ fica **sinalizada** aqui e no relatório — não foi portada.
 | 04 | Desenho técnico universal | ✅ (etapa 2) |
 | 05 | Quantidade dinâmica | ✅ motor + testes |
 | 06 | Mercado: 2 motores independentes | ⏳ pendente |
-| 07 | Unidades: ordenação numérica + paginação 6 | 🔶 utilitários + testes prontos; tela pendente |
-| 08 | Negociação: excluir proposta + permuta % VGV | ⏳ pendente |
+| 07 | Unidades: ordenação numérica + paginação 6 | ✅ (etapa 3) |
+| 08 | Negociação: excluir proposta + permuta % VGV | ✅ (etapa 3) |
 
 ## Etapa 1 — motor de parcelamento v2 (concluída)
 
@@ -85,7 +85,34 @@ Testes:
   bundle de produção do worker executado no Chromium (29 lotes, progresso recebido).
 - (c) Pendente em produção: a tela completa logada (não há login/banco nesta sessão); teste em tablet real.
 
+## Etapa 3 — Unidades à Venda e Negociação do Terreno (concluída)
+
+Unidades (`client/.../unidades-tab.tsx`): ordenação numérica real (`compararCodigoUnidade`), exibição
+`Q01 / L01` (código persistido e chave comercial inalterados → vendas, reservas, histórico e vínculos
+preservados; nada foi renumerado no banco), 6 por página em 2 colunas × 3 linhas, setas
+anterior/próxima com "Página X / Y", desabilitadas nas pontas, filtro por status preservado, página
+reajustada após inclusão/exclusão.
+
+Negociação:
+- Causa do "R$ 0,00": o VGV vinha só das premissas salvas da Viabilidade; sem elas virava 0 e era
+  exibido como cálculo concluído. A "proposta atual" era sempre a mais recente (uma enviada posterior
+  escondia a aceita).
+- `shared/incorporacao/negociacao.ts`: `resolverVgvBruto` (Viabilidade › cenário escolhido do Estudo de
+  Massa › manual legado), `calcularPermutaFinanceira` (centavos em BigInt, %, até 4 casas),
+  `estimarProposta` ("Cálculo pendente — VGV não disponível"), `resumoNegociacaoV2` (aceita, mais
+  recente e selecionada separadas; referência = selecionada › aceita › mais recente),
+  `excluirProposta` (só a proposta indicada; aceita exige confirmação reforçada; auditoria
+  `historicoExclusoes` no próprio JSON — sem migração), `mesclarNegociacaoParaGravar`.
+  Tipo **misto** agora estima dinheiro + permuta financeira (antes só o valor em dinheiro).
+- `server/routers.ts`: `excluirPropostaNegociacao` (nova) e `saveNegociacaoTerreno` com mescla
+  protetora (nunca apaga auditoria nem ressuscita proposta excluída).
+- Tela: botão **Excluir proposta** por proposta (confirmação; aceita pede digitar EXCLUIR),
+  "Usar como atual", KPI "Valor estimado — proposta atual" com pendência explícita, quadro de
+  aceita/mais recente/referência, lista de exclusões auditadas.
+
+Testes (a): `server/incorporacao-negociacao.test.ts` 21 ✅ (9 legados + 12 novos). `tsc` limpo.
+(c) Pendente em produção: exclusão real contra o banco (rota nova) e a tela logada.
+
 ## Próximo passo exato
-Etapa 3: tela Unidades à Venda (`unidades-tab.tsx`): ordenar com `compararCodigoUnidade`, exibir
-`codigoExibicao`, paginação 6 (2 colunas × 3), setas com página atual/total. Depois Negociação
-(etapa 4) e Mercado com dois motores (etapa 5).
+Etapa 4: Mercado com dois motores independentes — `server/_core/incorporacao/` (IBGE gratuito +
+análise de anúncios com IA isolada por provedor), rotas tRPC separadas, dois botões em `mercado-tab.tsx`.

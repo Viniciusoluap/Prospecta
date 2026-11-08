@@ -237,3 +237,8 @@ export function editarUnidade(estudoId: string, unidadeId: string, d: { status: 
   return capturar(() => inc.units.edit.mutate({ studyId: id(estudoId), unitId: Number(unidadeId), status: d.status, buyer: d.comprador, buyerLeadId: d.compradorLeadId ? Number(d.compradorLeadId) : null, salePrice: d.valor, expectedRevision: d.revisao }));
 }
 export function excluirUnidade(estudoId: string, unidadeId: string) { return capturar(() => inc.units.delete.mutate({ studyId: id(estudoId), unitId: Number(unidadeId) })); }
+
+/** Correção 08: exclui uma proposta gravada (com auditoria no servidor). */
+export async function excluirPropostaNegociacao(estudoId: string, propostaId: string, confirmacaoReforcada: boolean) {
+  return inc.excluirPropostaNegociacao.mutate({ id: id(estudoId), propostaId, confirmacaoReforcada });
+}
