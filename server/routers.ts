@@ -41,6 +41,9 @@ import { bancarioRouter, pluggySettingsRouter } from "./bancos-router.js";
 import { parseKmlTerreno } from "./_core/geo/kml.js";
 import { fetchElevationGrid } from "./_core/geo/elevacao.js";
 import { pesquisarMercado } from "./_core/incorporacao/mercado-ia.js";
+import { pesquisarDadosPublicos } from "../shared/incorporacao/dados-publicos.js";
+import { pesquisarMercadoImobiliario } from "./_core/incorporacao/mercado-anuncios.js";
+import { excluirProposta, mesclarNegociacaoParaGravar, parseNegociacao } from "../shared/incorporacao/negociacao.js";
 import { financiamentoRouter } from "./financiamento-router.js";
 import { juridicoRouter } from "./juridico-router.js";
 import {
@@ -2859,6 +2862,87 @@ export const appRouter = router({
         return resultado;
       }),
 
+    // Correção 06 — motor 1: dados oficiais gratuitos (IBGE). Independente do motor 2.
+    pesquisarDadosPublicos: protectedProcedure
+      .input(z.object({ id: z.number(), municipio: z.string().min(1), estado: z.string().min(2).max(2) }))
+      .mutation(async ({ input, ctx }) => {
+        requireModule(ctx, "incorporacao");
+        const resultado = await pesquisarDadosPublicos(input.municipio, input.estado);
+        const atual = await db.getIncorporationStudyById(input.id);
+        let anterior: Record<string, unknown> = {};
+        try { anterior = atual?.cityResearchJson ? JSON.parse(atual.cityResearchJson) : {}; } catch { anterior = {}; }
+        // grava em chave própria: a pesquisa anterior (e o que o relatório lê) é preservada
+        await db.updateIncorporationStudy(input.id, { cityResearchJson: JSON.stringify({ ...anterior, dadosPublicos: resultado }) });
+        return resultado;
+      }),
+
+    /** Grava o resultado do motor 1 consultado pelo NAVEGADOR (o IBGE recusa acesso de fora do Brasil). */
+    salvarDadosPublicos: protectedProcedure
+      .input(z.object({
+        id: z.number(),
+        dados: z.object({
+          municipio: z.object({ id: z.number(), nome: z.string().max(200), uf: z.string().max(2) }).nullable(),
+          indicadores: z.array(z.object({
+            chave: z.string().max(60), indicador: z.string().max(300), valor: z.number().finite(), unidade: z.string().max(120),
+            municipio: z.string().max(220), periodo: z.string().max(40), fonte: z.string().max(300),
+            url: z.string().url().max(500).refine((u) => u.startsWith("https://servicodados.ibge.gov.br/"), "Fonte deve ser o IBGE."),
+            consultadoEm: z.string().max(40), derivado: z.string().max(300).optional(),
+            serie: z.array(z.object({ periodo: z.string().max(20), valor: z.number().finite() })).max(50).optional(),
+          })).max(40),
+          indisponiveis: z.array(z.object({ chave: z.string().max(60), indicador: z.string().max(200), motivo: z.string().max(500), url: z.string().max(500).optional() })).max(40),
+          consultadoEm: z.string().max(40),
+          fonteGeral: z.string().max(300),
+        }),
+      }))
+      .mutation(async ({ input, ctx }) => {
+        requireModule(ctx, "incorporacao");
+        const atual = await db.getIncorporationStudyById(input.id);
+        let anterior: Record<string, unknown> = {};
+        try { anterior = atual?.cityResearchJson ? JSON.parse(atual.cityResearchJson) : {}; } catch { anterior = {}; }
+        await db.updateIncorporationStudy(input.id, { cityResearchJson: JSON.stringify({ ...anterior, dadosPublicos: { ...input.dados, origemConsulta: "navegador" } }) });
+        return { success: true };
+      }),
+
+    // Correção 06 — motor 2: anúncios + análise. Falha aqui não afeta o motor 1.
+    pesquisarMercadoImobiliario: protectedProcedure
+      .input(z.object({
+        id: z.number(), municipio: z.string().min(1), estado: z.string().min(2).max(2), bairro: z.string().max(120).optional(),
+        tipologia: z.enum(["lote", "casa", "apartamento", "terreno", "outro"]),
+        areaMinM2: z.number().positive().optional(), areaMaxM2: z.number().positive().optional(),
+      }))
+      .mutation(async ({ input, ctx }) => {
+        requireModule(ctx, "incorporacao");
+        let r;
+        try {
+          r = await pesquisarMercadoImobiliario({ municipio: input.municipio, uf: input.estado, bairro: input.bairro || null, tipologia: input.tipologia, areaMinM2: input.areaMinM2, areaMaxM2: input.areaMaxM2 });
+        } catch (e) {
+          throw new TRPCError({ code: "BAD_GATEWAY", message: `Falha na pesquisa de anúncios: ${e instanceof Error ? e.message : String(e)}` });
+        }
+        if (r.status === "ok") {
+          const atual = await db.getIncorporationStudyById(input.id);
+          let anterior: Record<string, unknown> = {};
+          try { anterior = atual?.marketStudyJson ? JSON.parse(atual.marketStudyJson) : {}; } catch { anterior = {}; }
+          // NÃO altera precoM2Lote (preço definido pelo usuário): a análise fica em chave própria
+          await db.updateIncorporationStudy(input.id, { marketStudyJson: JSON.stringify({ ...anterior, analiseAnuncios: r.analise }) });
+        }
+        return r;
+      }),
+
+    /** Aplica, com confirmação explícita do usuário, a mediana analisada como preço de referência do lote. */
+    aplicarPrecoReferenciaMercado: protectedProcedure
+      .input(z.object({ id: z.number(), precoM2Lote: z.number().positive() }))
+      .mutation(async ({ input, ctx }) => {
+        requireModule(ctx, "incorporacao");
+        const atual = await db.getIncorporationStudyById(input.id);
+        let anterior: Record<string, unknown> = {};
+        try { anterior = atual?.marketStudyJson ? JSON.parse(atual.marketStudyJson) : {}; } catch { anterior = {}; }
+        await db.updateIncorporationStudy(input.id, { marketStudyJson: JSON.stringify({
+          ...anterior, precoM2Lote: input.precoM2Lote,
+          precoM2LoteOrigem: { tipo: "analise_anuncios_confirmada", anterior: anterior.precoM2Lote ?? null, por: ctx.user.id, em: new Date().toISOString() },
+        }) });
+        return { success: true };
+      }),
+
     savePrecificacao: protectedProcedure
       .input(z.object({ id: z.number(), dataJson: z.string().min(1) }))
       .mutation(async ({ input, ctx }) => {
@@ -2942,10 +3026,29 @@ export const appRouter = router({
       .input(z.object({ id: z.number(), dataJson: z.string().min(1) }))
       .mutation(async ({ input, ctx }) => {
         requireModule(ctx, "incorporacao");
+        const recebido = parseNegociacao(input.dataJson);
+        if (!recebido) throw new TRPCError({ code: "BAD_REQUEST", message: "Dados da negociação inválidos." });
+        // Correção 08: o salvamento nunca apaga a auditoria de exclusões nem ressuscita proposta excluída.
+        const atual = await db.getIncorporationStudyById(input.id);
+        const mesclado = mesclarNegociacaoParaGravar(parseNegociacao(atual?.landNegotiationJson ?? null), recebido);
         await db.updateIncorporationStudy(input.id, {
-          landNegotiationJson: input.dataJson,
+          landNegotiationJson: JSON.stringify(mesclado),
         });
         return { success: true };
+      }),
+
+    excluirPropostaNegociacao: protectedProcedure
+      .input(z.object({ id: z.number(), propostaId: z.string().min(1), confirmacaoReforcada: z.boolean().default(false) }))
+      .mutation(async ({ input, ctx }) => {
+        requireModule(ctx, "incorporacao");
+        const atual = await db.getIncorporationStudyById(input.id);
+        if (!atual) throw new TRPCError({ code: "NOT_FOUND", message: "Estudo não encontrado." });
+        const dados = parseNegociacao(atual.landNegotiationJson ?? null);
+        if (!dados) throw new TRPCError({ code: "NOT_FOUND", message: "Proposta não encontrada — salve a negociação antes de excluir." });
+        const r = excluirProposta(dados, input.propostaId, { id: ctx.user.id ?? null, nome: ctx.user.name ?? null }, new Date().toISOString(), input.confirmacaoReforcada);
+        if (!r.ok) throw new TRPCError({ code: "BAD_REQUEST", message: r.erro });
+        await db.updateIncorporationStudy(input.id, { landNegotiationJson: JSON.stringify(r.dados) });
+        return { success: true, exclusao: r.exclusao, historicoExclusoes: r.dados.historicoExclusoes ?? [] };
       }),
 
     saveBusinessPlan: protectedProcedure

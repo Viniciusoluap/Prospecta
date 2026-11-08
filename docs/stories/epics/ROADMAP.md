@@ -122,3 +122,17 @@ campo (mesmo padrão do Santa Fé: o `<Input>` exibe o buffer, reformatado só n
 ## Frente histórica de unificação Next.js
 
 A tentativa antiga de unificação por reescrita em Next.js foi definitivamente abandonada por decisão do proprietário. Ela não participa deste roadmap, não será integrada e não deve ser considerada dependência ou pendência. A abordagem oficial continua incremental na stack Vite/React + Express/tRPC + Drizzle/Neon.
+
+## Pendência de paridade → Grupo Santa Fé (registrada em 08/11/2026)
+
+Origem: prompt mestre de 08/11/2026 executado **somente no Prospecta** (o prompt proibiu alterar outros
+repositórios). Não é exceção de paridade: deve ser portado ao Santa Fé quando o dono autorizar.
+Detalhes e testes em `HANDOFF-08-11-PARCELAMENTO-MERCADO.md` (PR #187).
+
+- [ ] Motor de parcelamento v2 determinístico (lotes exatos, via informada, sem seed variável) — `shared/incorporacao/massa.ts`, `geometria-parcelamento.ts`
+- [ ] Tipologia Rua Simples — `shared/incorporacao/rua-simples.ts`
+- [ ] Área do sistema viário (automático/manual) e quadro com viário geométrico + sobras
+- [ ] Desenho técnico universal (SVG) com alternância Satélite — `shared/incorporacao/planta-tecnica.ts`
+- [ ] Inteligência de Mercado com dois motores (IBGE gratuito + anúncios com IA) — `server/_core/incorporacao/dados-publicos.ts`, `mercado-anuncios.ts`, `shared/incorporacao/analise-anuncios.ts`
+- [ ] Unidades: exibição Q01 / L01, ordem numérica, paginação de 6
+- [ ] Negociação: excluir proposta com auditoria; permuta = VGV × % ÷ 100 com VGV da Viabilidade › cenário

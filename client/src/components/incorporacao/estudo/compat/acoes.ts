@@ -237,3 +237,25 @@ export function editarUnidade(estudoId: string, unidadeId: string, d: { status: 
   return capturar(() => inc.units.edit.mutate({ studyId: id(estudoId), unitId: Number(unidadeId), status: d.status, buyer: d.comprador, buyerLeadId: d.compradorLeadId ? Number(d.compradorLeadId) : null, salePrice: d.valor, expectedRevision: d.revisao }));
 }
 export function excluirUnidade(estudoId: string, unidadeId: string) { return capturar(() => inc.units.delete.mutate({ studyId: id(estudoId), unitId: Number(unidadeId) })); }
+
+/** Correção 08: exclui uma proposta gravada (com auditoria no servidor). */
+export async function excluirPropostaNegociacao(estudoId: string, propostaId: string, confirmacaoReforcada: boolean) {
+  const r = await inc.excluirPropostaNegociacao.mutate({ id: id(estudoId), propostaId, confirmacaoReforcada });
+  await recarregar();
+  return r;
+}
+
+/** Correção 06 — motores independentes da Inteligência de Mercado. */
+export async function pesquisarDadosPublicos(estudoId: string, municipio: string, estado: string) {
+  return inc.pesquisarDadosPublicos.mutate({ id: id(estudoId), municipio, estado });
+}
+export async function salvarDadosPublicos(estudoId: string, dados: Parameters<typeof inc.salvarDadosPublicos.mutate>[0]["dados"]) {
+  return inc.salvarDadosPublicos.mutate({ id: id(estudoId), dados });
+}
+export async function pesquisarMercadoImobiliario(estudoId: string, c: { municipio: string; estado: string; bairro?: string; tipologia: "lote" | "casa" | "apartamento" | "terreno" | "outro"; areaMinM2?: number; areaMaxM2?: number }) {
+  return inc.pesquisarMercadoImobiliario.mutate({ id: id(estudoId), ...c });
+}
+/** Grava e RECARREGA o estudo: Massa e Viabilidade passam a ler o novo preço de referência. */
+export async function aplicarPrecoReferenciaMercado(estudoId: string, precoM2Lote: number) {
+  return gravar(() => inc.aplicarPrecoReferenciaMercado.mutate({ id: id(estudoId), precoM2Lote }));
+}
