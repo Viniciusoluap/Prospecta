@@ -214,66 +214,40 @@ cadastrar `GEMINI_API_KEY` no Vercel.
 - **Decisão do dono (08/11): seguir com o TAVILY** para a pesquisa de anúncios (grátis, ~1.000 buscas/mês,
   sem cartão — conferir na página oficial). Implementação abaixo, a ser feita pelo **Codex**.
 
-## PRÓXIMO PASSO (Codex) — Provedor de anúncios Tavily, sem IA
+## Etapa 8 — Provedor de anúncios Tavily, sem IA (08/11 ~19h) — IMPLEMENTADO PELO CLAUDE
 
-Objetivo: pesquisa de anúncios **sem custo e sem IA**. O Tavily busca as páginas; o sistema extrai preço e
-área do TEXTO REAL com regras determinísticas; a análise já existente (`shared/incorporacao/analise-anuncios.ts`:
-deduplicação, incompletos, atípicos/Tukey, mediana, Q1–Q3, confiabilidade) continua igual. Nada é estimado.
+> **Codex: NÃO refazer.** O roteiro que estava aqui foi executado pelo Claude na mesma sessão,
+> depois que o dono enviou a chave. O que falta está em "Pendências" e "Próximo passo".
 
-### 0. Chave (passo do dono)
-- Criar conta grátis em **tavily.com** → API key (`tvly-...`).
-- Guardar de UMA destas formas (o código deve aceitar as duas, ENV com prioridade):
-  a) Vercel → projeto `site-prospecta` → Settings → Environment Variables → `TAVILY_API_KEY` (Production) + redeploy; ou
-  b) banco (sem painel): `INSERT INTO dashboard_settings (key, value, updated_at) VALUES ('segredo.tavily_api_key', 'plain:<CHAVE>', now()) ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = now();`
-     — o valor `plain:` é recriptografado (AES-256-GCM) no primeiro uso. **Nunca** commitar a chave.
-- Esta sessão (Claude) NÃO tem permissão de variáveis de ambiente no Vercel (403).
+- Chave do dono (plano gratuito "Pesquisador", 1.000 créditos/mês) **gravada no banco de produção**:
+  `dashboard_settings` → `segredo.tavily_api_key` = `plain:…` (recriptografada AES-256-GCM no 1º uso
+  pelo código novo). Não está no repositório nem no Vercel. O painel de gestão já não devolve `segredo.*`.
+- `shared/incorporacao/extracao-anuncios.ts` (novo): extração DETERMINÍSTICA do texto que o Tavily
+  devolve (páginas de listagem com vários anúncios): divide em trechos (";" e "·"); só aceita trecho com
+  exatamente UM preço de venda e UMA área; descarta aluguel/mês, parcelas/entrada/"a partir de", médias
+  ("valor médio"), preço por m², leilão, preço < R$ 1.000, área < 10 m², trecho de outra cidade, página
+  e trecho fora do município; entende "150.000", "1,2 milhão", "mil", "2 ha"; extrai bairro quando há.
+- `shared/incorporacao/analise-anuncios.ts`: `idTrecho` — anúncios distintos da MESMA página não são
+  tratados como duplicados (a deduplicação entre portais por preço+área+bairro continua).
+- `server/_core/incorporacao/mercado-anuncios.ts`: `provedorTavily` (POST api.tavily.com/search, Bearer,
+  `search_depth: basic`, `max_results: 20`, `country: brazil`; 2 consultas por pesquisa = 2 créditos;
+  cache de 12 h por consulta; mensagens para 401/403 e 429/432/433). `provedorPadrao`: Tavily > Google > Anthropic.
+- `server/_core/incorporacao/segredos-mercado.ts`: `carregarChaveTavily` (ENV `TAVILY_API_KEY` > banco);
+  rota `pesquisarMercadoImobiliario` carrega Tavily e Google. `server/_core/env.ts`: `tavilyApiKey`.
+- Tela: textos do botão "Pesquisar anúncios" (Tavily, gratuito, sem IA).
 
-### 1. Código (arquivos e o que fazer)
-1. `server/_core/env.ts`: `tavilyApiKey: process.env.TAVILY_API_KEY || ""`.
-2. `server/_core/incorporacao/segredos-mercado.ts`: generalizar `carregarChaveGemini` para
-   `carregarChave(nomeEnv, chaveBanco, campoEnv)` e criar `carregarChaveTavily` (`segredo.tavily_api_key`).
-   Manter o filtro `segredo.%` em `server/db.ts → getManagementDashboardData` (já existe).
-3. `shared/incorporacao/extracao-anuncios.ts` (NOVO, puro, testável): `extrairAnuncio({ url, title, content, rawContent })
-   → AnuncioBruto | null`.
-   - Preço: regex BR `R\$\s?\d{1,3}(\.\d{3})+(,\d{2})?` ou `R\$\s?\d+(,\d{2})?` (reusar o parser numérico de
-     `analise-anuncios.ts`, que já trata "150.000" = 150000).
-   - Recusar aluguel: "/mês", "mensal", "aluguel", "locação" perto do preço.
-   - Área: `(\d{1,3}(\.\d{3})*|\d+)(,\d+)?\s?(m²|m2|metros quadrados)`; hectare `ha` → ×10.000.
-   - Página com VÁRIOS preços/áreas distintos (página de listagem) → recusar (ambígua) ou separar só se cada
-     bloco tiver preço+área próprios. Nunca "escolher" um número.
-   - Tipologia por palavras do título/URL (`normalizarTipologia` já existe).
-   - `fonte` = host da URL; `url` = URL do resultado.
-4. `server/_core/incorporacao/mercado-anuncios.ts`: novo `provedorTavily: ProvedorAnuncios`.
-   - `POST https://api.tavily.com/search`, header `Authorization: Bearer <chave>`, JSON:
-     `{ "query": "<tipologia> à venda <bairro> <município> <UF> preço m²", "search_depth": "basic",
-        "max_results": 20, "include_raw_content": true }`
-     (conferir nomes/limites em docs.tavily.com; `include_domains` opcional: zapimoveis.com.br, vivareal.com.br,
-     olx.com.br, imovelweb.com.br, chavesnamao.com.br — usar só o texto que o Tavily devolve; nada de raspar portal).
-   - Resposta `results[]`: `{ title, url, content, raw_content, score }` → `extrairAnuncio` → `AnuncioBruto[]`.
-   - Erros: 401/403 → "chave do Tavily inválida"; 429/432 → "cota gratuita do Tavily esgotada (sem custo)";
-     timeout 60 s. 1 busca básica = 1 crédito (2 no advanced) — usar `basic`.
-   - `provedorPadrao()`: **Tavily > Google > Anthropic** (o primeiro com chave).
-   - Rota `pesquisarMercadoImobiliario` (`server/routers.ts`): chamar `carregarChaveTavily(db)` junto do Google.
-   - Mensagem sem provedor: citar TAVILY_API_KEY (tavily.com, grátis).
-5. Cache de 12 h por consulta já existe (`mercado-anuncios.ts`) — economiza cota.
-6. UI (`client/.../mercado-tab.tsx`): só textos — "Pesquisa de anúncios (Tavily, gratuito)"; o resto já funciona.
+Testes:
+- (a) `server/incorporacao-mercado-motores.test.ts` 33 ✅ (extração com trechos REAIS do Tavily, ambíguos,
+  aluguel/médias/parcelas, mil/milhão/hectare, mesma página, provedor com fetch simulado, 401/432, padrão,
+  chave no banco). Suíte completa: **186 arquivos / 1537 ✅**; `tsc` limpo.
+- (b) **Ao vivo** (chave do dono, 6 créditos usados): Imperatriz/MA lote → **7 anúncios reais** (OLX, VivaReal,
+  Chaves na Mão, imobiliárias locais), mediana **R$ 321,54/m²**, Q1–Q3 R$ 153–544, confiabilidade **baixa**
+  (amostra mistura glebas de 6.000–49.700 m² com lotes de ~220–600 m² → usar área mín./máx. na tela).
+  Ribeirãozinho/MA → nenhum anúncio aproveitável (informado como insuficiente, sem estimar).
+- (c) Pendente em produção: o botão na tela logada após o deploy deste PR.
 
-### 2. Testes a criar (vitest, `server/incorporacao-mercado-motores.test.ts`)
-- Extração: "R$ 150.000" + "300 m²" → 150000 / 300; "R$ 1.200,00/mês" → recusado (aluguel); página com 3 preços
-  diferentes → recusada; "2 ha" → 20000 m²; sem área → recusado.
-- Provedor com `fetch` simulado: corpo da requisição (query, max_results, Bearer), leitura de `results`, 401, 429.
-- `provedorPadrao`: Tavily quando há chave, mesmo com Google/Anthropic configurados.
-- `carregarChaveTavily`: lê `plain:` do banco e recriptografa (mesmo padrão do teste da chave Google).
-
-### 3. Validação ao vivo (registrar no HANDOFF)
-- Liberar `api.tavily.com` na rede do ambiente do Codex, se necessário.
-- Consultar "lote, Imperatriz/MA" e "lote, Ribeirãozinho/MA": registrar nº de resultados, válidos, rejeitados
-  (motivos), mediana e confiabilidade. Se a maioria vier "ambígua", ajustar a query (anúncio individual) e/ou
-  `include_domains`, nunca afrouxar a regra de não estimar.
-
-### 4. Entrega
-- `pnpm exec vitest run` (suíte completa), `pnpm check`, `vite build`; commit + push; PR; merge/deploy só com
-  autorização do dono. Atualizar este HANDOFF.
+Chave Google mostrada no print do dono (`AQ.…`): **não usada nem testada** (o controle de segurança da
+sessão bloqueou o uso de uma chave que só aparecia em imagem, sem pedido explícito). Não está gravada.
 
 ## Pendências gerais
 - Morada do Bosque: validado com o KML real — reta 23 / divisa-reta 25 / via pela divisa 27 (testada 20 m)
@@ -282,12 +256,14 @@ deduplicação, incompletos, atípicos/Tukey, mediana, Q1–Q3, confiabilidade) 
 - Busca da via pela divisa: 20–40 s em glebas como a do Morada (otimizar: menos cadeias/refino, ou cache).
 - **IBGE pelo navegador**: validar em produção (Inteligência de Mercado → "Pesquisar dados oficiais (IBGE)");
   o IBGE recusa acesso de fora do Brasil, por isso não foi testável daqui.
-- Pesquisa de anúncios: **implementar o provedor Tavily** (seção acima) e cadastrar `TAVILY_API_KEY`.
+- Pesquisa de anúncios (Tavily): implementada e testada ao vivo; falta o merge/deploy deste PR (#190) e conferir na tela logada.
+- Possível melhoria: filtro de área automático pela tipologia/estudo para subir a confiabilidade (hoje é manual).
 - Paridade com o Santa Fé registrada em `docs/stories/epics/ROADMAP.md` (não portada; incluir Tavily e via pela divisa).
 - Merge e deploy dependem de autorização do dono.
 
 ## Próximo passo exato
-1. **Codex**: implementar o provedor Tavily conforme "PRÓXIMO PASSO (Codex)" acima.
-2. Dono: criar a chave em tavily.com e cadastrá-la (Vercel `TAVILY_API_KEY` ou banco `segredo.tavily_api_key`).
-3. Validar em produção: estudo de massa do Morada do Bosque (Rua Simples → Traçado "Acompanha a divisa"),
-   botão IBGE, exclusão de proposta, paginação das unidades em tablet.
+1. Dono autoriza merge/deploy do PR #190 (Tavily + handoff). Após o deploy, na tela logada: Inteligência de
+   Mercado → "Pesquisar anúncios" (lote, Imperatriz) e conferir; preencher área mín./máx. para comparáveis.
+2. Validar em produção: Morada do Bosque (Rua Simples → Traçado "Acompanha a divisa"), botão IBGE,
+   exclusão de proposta, paginação das unidades em tablet.
+3. Próxima frente técnica sugerida: otimizar a busca da via pela divisa (20–40 s) e portar ao Santa Fé (ROADMAP).

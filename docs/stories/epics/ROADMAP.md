@@ -140,4 +140,4 @@ Detalhes e testes em `HANDOFF-08-11-PARCELAMENTO-MERCADO.md` (PR #187).
 - [ ] Ajuste automático da malha no modo manual da área viária (quadras mais curtas / supressão de ruas)
 - [ ] IBGE consultado pelo navegador (o IBGE recusa acesso de fora do Brasil) — `shared/incorporacao/dados-publicos.ts`
 - [ ] Chaves de integração no banco (`dashboard_settings`, `segredo.*`, criptografadas) — `server/_core/incorporacao/segredos-mercado.ts`
-- [ ] Provedor de anúncios Tavily sem IA (em implementação pelo Codex — ver HANDOFF-08-11-PARCELAMENTO-MERCADO.md)
+- [ ] Provedor de anúncios Tavily sem IA + extração determinística — `shared/incorporacao/extracao-anuncios.ts`, `server/_core/incorporacao/mercado-anuncios.ts` (PR #190)

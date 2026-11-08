@@ -20,6 +20,8 @@ export interface AnuncioBruto {
   preco?: number | string;
   caracteristicas?: string;
   dataAnuncio?: string;
+  /** Vários anúncios na MESMA página de listagem: identifica o trecho (a URL sozinha não basta). */
+  idTrecho?: string;
 }
 
 export interface AnuncioValido {
@@ -131,10 +133,11 @@ export function analisarAnuncios(
       rejeitados.push({ anuncio: a, motivo: "Área fora da faixa de comparabilidade." });
       continue;
     }
-    if (vistos.has(url)) { duplicados++; continue; }
+    const chaveUrl = a.idTrecho ? `${url}#${a.idTrecho}` : url;
+    if (vistos.has(chaveUrl)) { duplicados++; continue; }
     const assinatura = `${Math.round(preco)}|${Math.round(area)}|${(a.bairro ?? "").trim().toLowerCase()}`;
     if (vistosConteudo.has(assinatura)) { duplicados++; continue; } // mesmo imóvel em portais diferentes
-    vistos.add(url);
+    vistos.add(chaveUrl);
     vistosConteudo.add(assinatura);
     let fonte = a.fonte?.trim() || "";
     if (!fonte) { try { fonte = new URL(url).host; } catch { fonte = "desconhecida"; } }
