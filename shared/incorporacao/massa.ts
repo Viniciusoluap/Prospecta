@@ -24,6 +24,7 @@ import {
   type FrameAnel, type ImplantacaoFrame, type LoteFrame, type Ret,
 } from "./geometria-parcelamento.js";
 import { buscarRuaSimples, gerarRuaSimplesFrame, implantacaoDoCandidatoRua, type CandidatoRua } from "./rua-simples.js";
+import { buscarViaDivisa } from "./rua-divisa.js";
 
 export { areaPlanar, rotacionar } from "./geometria-parcelamento.js";
 
@@ -62,6 +63,8 @@ export interface ParametrosMassa {
   areaSistemaViarioM2?: number;
   /** Rua Simples: "retangular" (padrão, testada × profundidade exatas) ou "divisa" (lote acompanha a divisa). */
   formatoLote?: "retangular" | "divisa";
+  /** Rua Simples: traçado "reta" (padrão) ou "divisa" (via acompanha a divisa, com curvas; lotes acompanham a divisa). */
+  tracadoVia?: "reta" | "divisa";
   /** Áreas não parceláveis informadas em m² (quando não vierem do KML/mapa). */
   appM2?: number;
   supressaoVegetalM2?: number;
@@ -216,10 +219,13 @@ export function validarParametrosMassa(p: ParametrosMassa): string | null {
     }
   }
   const areaLote = p.testadaLoteM * p.profundidadeLoteM;
+  if (p.tracadoVia !== undefined && p.tracadoVia !== "reta" && p.tracadoVia !== "divisa") {
+    return "Traçado da via inválido (use reta ou acompanha a divisa).";
+  }
   if (p.formatoLote !== undefined && p.formatoLote !== "retangular" && p.formatoLote !== "divisa") {
     return "Formato do lote inválido (use retangular ou acompanha a divisa).";
   }
-  if (p.formatoLote !== "divisa" && areaLote + 1e-9 < p.loteMinimoM2) {
+  if (p.formatoLote !== "divisa" && !(p.tipologia === "rua_simples" && p.tracadoVia === "divisa") && areaLote + 1e-9 < p.loteMinimoM2) {
     const f = (v: number) => v.toLocaleString("pt-BR", { maximumFractionDigits: 2 });
     return `Testada × profundidade (${f(p.testadaLoteM)} × ${f(p.profundidadeLoteM)} m = ${f(areaLote)} m²) é menor que a área mínima do lote (${f(p.loteMinimoM2)} m²). Ajuste as dimensões ou a área mínima — o motor não altera as dimensões informadas.`;
   }
@@ -492,6 +498,8 @@ function viasDaImplantacao(fr: FrameAnel, impl: ImplantacaoFrame): { aneis: Posi
     if (c) { pecas.push(c as Feature<Polygon | MultiPolygon>); aneis.push(...aneisDe(c.geometry as GeomArea)); }
   }
   for (const b of impl.baloes) { pecas.push(turfPolygon([b])); aneis.push(b); }
+  // traçado livre (via que acompanha a divisa): já recortado pela gleba
+  for (const v of (impl as ImplantacaoFrame & { viasLivres?: Position[][] }).viasLivres ?? []) { pecas.push(turfPolygon([v])); aneis.push(v); }
   if (pecas.length === 0) return { aneis, areaM2: 0 };
   let areaM2: number;
   try {
@@ -840,7 +848,18 @@ export function gerarEstudoMassa(
   let avaliados = 0;
   const avisos: string[] = [];
 
-  if (tipologia === "rua_simples") {
+  if (tipologia === "rua_simples" && params.tracadoVia === "divisa") {
+    progresso(0.1, "Traçando a via pela divisa");
+    const lim = manual ? (params.areaSistemaViarioM2 ?? 0) / Math.max(g.via, 1e-9) : undefined;
+    const impls = buscarViaDivisa(anelM, { testada: g.testada, profundidade: g.profundidade, via: g.via, loteMinimoM2: params.loteMinimoM2, limiteComprimentoM: lim }, 12,
+      (f) => progresso(0.1 + 0.5 * f, "Traçando a via pela divisa e implantando os lotes"));
+    avaliados = impls.length;
+    const fr0 = prepararFrameAnel(anelM, 0, Math.max(g.testada, g.profundidade, g.via) * 2);
+    impls.forEach((impl, i) => {
+      brutos.push(avaliarImplantacao(ctx, impl.chave, fr0, impl, Math.max(g.via * g.testada, 1)));
+      progresso(0.6 + 0.3 * ((i + 1) / impls.length), "Avaliando implantações candidatas");
+    });
+  } else if (tipologia === "rua_simples") {
     const passoPeca = g.via * g.testada;
     const limitePecas = manual ? Math.max(1, Math.round((params.areaSistemaViarioM2 ?? 0) / Math.max(passoPeca, 1e-9))) : undefined;
     const formatoRua = params.formatoLote === "divisa" ? { formato: "divisa" as const, loteMinimoM2: params.loteMinimoM2 } : {};

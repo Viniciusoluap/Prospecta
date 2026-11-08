@@ -1,5 +1,5 @@
 import { TRPCError } from "@trpc/server";
-import { eq, and, desc, sql, like, isNull, inArray, asc, ne } from "drizzle-orm";
+import { eq, and, desc, sql, like, notLike, isNull, inArray, asc, ne } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/neon-http";
 import { drizzle as drizzleSession } from "drizzle-orm/neon-serverless";
 import { alias } from "drizzle-orm/pg-core";
@@ -1206,7 +1206,8 @@ export async function getManagementDashboardData() {
     database.select({ id: users.id, name: users.name, role: users.role, active: users.active, createdAt: users.createdAt }).from(users),
     database.select({ amount: operationalCommissions.amount, paidAt: operationalCommissions.paidAt, brokerId: operationalCommissions.brokerId, businessType: operationalCommissions.businessType, property: operationalCommissions.property }).from(operationalCommissions).orderBy(desc(operationalCommissions.createdAt)),
     database.select({ createdAt: operationalProjects.createdAt, status: operationalProjects.status, value: operationalProjects.value }).from(operationalProjects).orderBy(desc(operationalProjects.createdAt)),
-    database.select({ key: dashboardSettings.key, value: dashboardSettings.value }).from(dashboardSettings),
+    // chaves "segredo.*" (ex.: chave do Google da pesquisa de anúncios) nunca vão para a tela
+    database.select({ key: dashboardSettings.key, value: dashboardSettings.value }).from(dashboardSettings).where(notLike(dashboardSettings.key, "segredo.%")),
   ]);
   return { transactions, accounts, bankTx, leads: leadRows, users: userRows, commissions, projects, settings };
 }

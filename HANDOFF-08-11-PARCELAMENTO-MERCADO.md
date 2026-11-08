@@ -168,6 +168,20 @@ Testes (a): suíte completa **185 arquivos / 1514 testes ✅**; build igual ao d
 (c) Pendente em produção: IBGE pelo navegador (CORS do IBGE não testável daqui); anúncios após
 cadastrar `GEMINI_API_KEY` no Vercel.
 
+## Etapa 7 — Chave do Google (08/11)
+
+- O dono enviou uma chave do Google AI Studio. O Vercel recusou criar a variável de ambiente por esta
+  sessão (403), então a chave passa a poder ficar no PRÓPRIO banco: `dashboard_settings` com a chave
+  `segredo.gemini_api_key` (valor "plain:<chave>" é recriptografado AES-256-GCM no 1º uso —
+  `server/_core/incorporacao/segredos-mercado.ts`). `GEMINI_API_KEY` no ambiente continua com prioridade.
+  O painel de gestão deixou de devolver linhas `segredo.*` ao navegador (`server/db.ts`).
+- **Teste ao vivo da chave (b)**: válida (lista 47 modelos; `gemini-flash-latest` disponível), mas TODA
+  geração responde **HTTP 402 — "Your prepayment credits are depleted"**: o projeto Google dessa chave está
+  em faturamento PRÉ-PAGO sem crédito; o nível gratuito não se aplica a ele. Mensagem clara adicionada.
+- Pendente (dono): criar a chave em um projeto **sem faturamento** no AI Studio (ou recarregar créditos).
+- Pendente (agente, após autorização de merge/deploy do PR #188): gravar a chave no banco de produção.
+- Testes (a): suíte **185 arquivos / 1521 ✅**.
+
 ## Pendências gerais
 - Morada do Bosque: validado com o KML real (23/25 lotes; 29 inviável — ver Etapa 5).
 - Via curva na Rua Simples não é modelada (via reta; limitação exibida no cenário).

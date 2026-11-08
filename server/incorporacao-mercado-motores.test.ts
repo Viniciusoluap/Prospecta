@@ -231,3 +231,38 @@ describe("Revisão Codex — formatos numéricos brasileiros", () => {
     expect(a.validos.map((v) => v.precoM2)).toEqual([500, 500, 500]);
   });
 });
+
+// ─── Chave do Google guardada no banco (sem depender do painel do Vercel) ─────
+import { carregarChaveGemini, _limparCacheChaveGemini, CHAVE_SEGREDO_GEMINI } from "./_core/incorporacao/segredos-mercado";
+
+describe("Chave do Google no banco (dashboard_settings)", () => {
+  const segredoJwt = process.env.JWT_SECRET;
+  afterEach(() => { _limparCacheChaveGemini(); ENV.geminiApiKey = ""; if (segredoJwt === undefined) delete process.env.JWT_SECRET; });
+
+  it("lê 'plain:' do banco, usa a chave e recriptografa no primeiro uso", async () => {
+    ENV.cookieSecret = ENV.cookieSecret || "segredo-de-teste-com-tamanho-suficiente";
+    const gravados = new Map<string, string>([[CHAVE_SEGREDO_GEMINI, "plain:chave-teste-123"]]);
+    const banco = { getDashboardSetting: async (k: string) => gravados.get(k), saveDashboardSetting: async (k: string, v: string) => { gravados.set(k, v); } };
+    expect(await carregarChaveGemini(banco)).toBe("chave-teste-123");
+    expect(ENV.geminiApiKey).toBe("chave-teste-123");
+    const cifrado = gravados.get(CHAVE_SEGREDO_GEMINI)!;
+    expect(cifrado.startsWith("plain:")).toBe(false);
+    expect(cifrado).not.toContain("chave-teste-123");
+    _limparCacheChaveGemini();
+    expect(await carregarChaveGemini(banco)).toBe("chave-teste-123"); // lê o valor já criptografado
+  });
+
+  it("sem chave no banco: vazio (o provedor informa a falta), sem lançar", async () => {
+    const banco = { getDashboardSetting: async () => undefined, saveDashboardSetting: async () => undefined };
+    expect(await carregarChaveGemini(banco)).toBe("");
+  });
+});
+
+describe("Provedor Google — mensagens de erro da chave", () => {
+  afterEach(() => { ENV.geminiApiKey = ""; vi.unstubAllGlobals(); });
+  it("402 (crédito pré-pago esgotado) explica como usar o nível gratuito", async () => {
+    ENV.geminiApiKey = "g-teste";
+    vi.stubGlobal("fetch", vi.fn(async () => new Response("{}", { status: 402 })));
+    await expect(provedorGeminiBuscaGoogle.buscar({ municipio: "X", uf: "MA", tipologia: "lote" })).rejects.toThrow(/crédito pré-pago esgotado.*SEM faturamento/);
+  });
+});

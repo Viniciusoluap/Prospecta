@@ -406,3 +406,80 @@ describe("Correção 01/04 — ajuste automático da malha no modo manual da ár
     }
   });
 });
+
+// ─── Rodada 3 (08/11): Rua Simples com via que ACOMPANHA A DIVISA (traçado curvo) ───
+describe("Rua Simples — via acompanha a divisa", () => {
+  const PARAMS_DIV: ParametrosMassa = { ...MORADA_REAL, tracadoVia: "divisa" };
+  const conferirDivisa = (anelGeo: Position[], centro: [number, number], c: CenarioMassa, p: ParametrosMassa) => {
+    const pj = criarProjecao(centro);
+    const gleba = turfPolygon([anelGeo.map((q) => pj.paraMetros(q))]);
+    const lotes = c.lotes.map((l) => turfPolygon([l.anel.map((q) => pj.paraMetros(q))]));
+    const ruas = (c.ruas ?? []).map((r) => turfPolygon([r.map((q) => pj.paraMetros(q))]));
+    const areaInter = (a: ReturnType<typeof turfPolygon>, b: ReturnType<typeof turfPolygon>) => {
+      const x = intersect(featureCollection([a, b]));
+      if (!x) return 0;
+      return x.geometry.type === "Polygon" ? areaPlanar(x.geometry.coordinates[0]) : x.geometry.coordinates.reduce((s, r) => s + areaPlanar(r[0]), 0);
+    };
+    lotes.forEach((lp, i) => {
+      expect(areaInter(lp, gleba)).toBeGreaterThanOrEqual(areaPlanar(lp.geometry.coordinates[0]) - 0.5); // dentro da gleba
+      expect(c.lotes[i].areaM2).toBeGreaterThanOrEqual(p.loteMinimoM2);                                  // área mínima
+      expect(c.lotes[i].testadaM ?? 0).toBeGreaterThanOrEqual(p.testadaLoteM - 1e-6);                    // frente mínima
+      for (let j = i + 1; j < lotes.length; j++) expect(areaInter(lp, lotes[j])).toBeLessThan(0.5);      // sem sobreposição
+      for (const r of ruas) expect(areaInter(lp, r)).toBeLessThan(0.5);                                   // lote não invade a via
+    });
+  };
+
+  it("Morada do Bosque (KML real), via 3 m pela divisa, frente mínima 20 m: 27 lotes válidos", () => {
+    const c = gerarEstudoMassa(ANEL_MORADA, CENTRO_MORADA, PARAMS_DIV).cenarios[0];
+    expect(c.kpis.lotesVendaveis).toBe(27);
+    expect(c.sistemaViario!.larguraM).toBe(3);
+    expect((c.limitacoes ?? []).join(" ")).toMatch(/acompanha a divisa/);
+    conferirDivisa(ANEL_MORADA, CENTRO_MORADA, c, PARAMS_DIV);
+  }, 180_000);
+
+  it("Morada do Bosque: com frente mínima de 17 m chega a 29 lotes ≥ 5.000 m²", () => {
+    const p = { ...PARAMS_DIV, testadaLoteM: 17 };
+    const c = gerarEstudoMassa(ANEL_MORADA, CENTRO_MORADA, p).cenarios[0];
+    expect(c.kpis.lotesVendaveis).toBe(29);
+    conferirDivisa(ANEL_MORADA, CENTRO_MORADA, c, p);
+  }, 180_000);
+
+  it("largura da via informada é usada (área viária ≈ largura × comprimento) e a busca é determinística", () => {
+    const anel = geo([[0, 0], [300, 0], [420, 120], [420, 380], [0, 380], [0, 0]]); // divisa com dobra (curva)
+    const p: ParametrosMassa = { ...MORADA_REAL, testadaLoteM: 20, profundidadeLoteM: 150, loteMinimoM2: 2500, larguraViaM: 6, tracadoVia: "divisa" };
+    const a = gerarEstudoMassa(anel, CENTRO, p);
+    const b = gerarEstudoMassa(anel, CENTRO, p);
+    expect(JSON.stringify(a)).toBe(JSON.stringify(b));
+    const c = a.cenarios[0];
+    expect(c.kpis.lotesVendaveis).toBeGreaterThan(5);
+    conferirDivisa(anel, CENTRO, c, p);
+  }, 180_000);
+});
+
+describe("Revisão Codex (PR #188) — frente efetiva após o recorte", () => {
+  it("divisa côncava: nenhum lote tem frente real sobre a via menor que a testada informada", async () => {
+    const { buscarViaDivisa } = await import("../shared/incorporacao/rua-divisa");
+    const { pontoDentro } = await import("../shared/incorporacao/geometria-parcelamento");
+    const anel: Position[] = [[75, 0], [42, 42], [0, 108], [-51, 51], [-88, 0], [-37, -37], [0, -95], [44, -44], [75, 0]];
+    const r = buscarViaDivisa(anel, { testada: 10, profundidade: 60, via: 8, loteMinimoM2: 200 });
+    expect(r.length).toBeGreaterThan(0);
+    // medição independente: arestas do lote cujo ponto médio (±5 cm para fora) cai dentro da via
+    const frenteReal = (lote: Position[], vias: Position[][]) => {
+      let f = 0;
+      for (let i = 0; i < lote.length - 1; i++) {
+        const [ax, ay] = lote[i], [bx, by] = lote[i + 1];
+        const L = Math.hypot(bx - ax, by - ay);
+        if (L < 1e-6) continue;
+        const mx = (ax + bx) / 2, my = (ay + by) / 2, nx = -(by - ay) / L, ny = (bx - ax) / L;
+        if ([1, -1].some((sg) => vias.some((v) => pontoDentro(v, mx + sg * 0.05 * nx, my + sg * 0.05 * ny)))) f += L;
+      }
+      return f;
+    };
+    for (const impl of r) {
+      for (const l of impl.lotes) {
+        expect(frenteReal(l.anel, impl.viasLivres)).toBeGreaterThanOrEqual(10 - 0.05);
+        expect(l.testada!).toBeGreaterThanOrEqual(10 - 1e-6);
+      }
+    }
+  }, 120_000);
+});
