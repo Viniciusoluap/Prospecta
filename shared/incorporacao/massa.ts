@@ -388,7 +388,9 @@ function gerarImplantacaoGrade(fr: FrameAnel, g: Dim, p: ParametrosMassa, ox: nu
   } else {
     limitacoes.push("Grade: a ligação do sistema viário com as vias externas à gleba não é modelada.");
   }
-  return { lotes: remanescentes, corredores: corredoresGrade(remanescentes, segmentos, g, p), baloes, limitacoes, candidatos };
+  // As ruas sem saída são derivadas dos lotes ANTES da remoção pelos balões: a rua chega até o
+  // balão (que fica conectado a ela) e o espaço dos lotes removidos vira via, não vazio.
+  return { lotes: remanescentes, corredores: corredoresGrade(baloes.length > 0 ? lotes : remanescentes, segmentos, g, p), baloes, limitacoes, candidatos };
 }
 
 /** Corredores viários (retângulos no frame) derivados dos lotes que servem. */

@@ -9,13 +9,13 @@ fica **sinalizada** aqui e no relatório — não foi portada.
 
 | # | Correção | Estado |
 |---|----------|--------|
-| 01 | Parâmetros exatos + área viária manual + quadro | ✅ motor (etapa 1) · UI pendente |
-| 02 | Determinismo + 3 cenários por critério + mensagens | ✅ motor (etapa 1) · UI pendente (remover seed `Date.now()`) |
-| 03 | Rua Simples | ✅ motor (etapa 1) · UI pendente |
-| 04 | Desenho técnico universal | ⏳ pendente |
+| 01 | Parâmetros exatos + área viária manual + quadro | ✅ motor + UI |
+| 02 | Determinismo + 3 cenários por critério + mensagens | ✅ motor + UI (seed `Date.now()` removida) |
+| 03 | Rua Simples | ✅ motor + UI |
+| 04 | Desenho técnico universal | ✅ (etapa 2) |
 | 05 | Quantidade dinâmica | ✅ motor + testes |
 | 06 | Mercado: 2 motores independentes | ⏳ pendente |
-| 07 | Unidades: ordenação numérica + paginação 6 | ⏳ pendente |
+| 07 | Unidades: ordenação numérica + paginação 6 | 🔶 utilitários + testes prontos; tela pendente |
 | 08 | Negociação: excluir proposta + permuta % VGV | ⏳ pendente |
 
 ## Etapa 1 — motor de parcelamento v2 (concluída)
@@ -59,8 +59,33 @@ Testes (a) automáticos:
 Pendente de validação (c): **KML real do Morada do Bosque não está no repositório** — os 29 lotes
 foram verificados só em geometria sintética com os mesmos parâmetros. Validar com o KML real.
 
+## Etapa 2 — UI do Estudo de Massa + desenho técnico (concluída)
+
+Arquivos:
+- `shared/incorporacao/planta-tecnica.ts` (novo): renderizador SVG puro (perímetro, vias, quadras,
+  todos os lotes, número/área/dimensões conforme zoom, largura das vias, área viária total, áreas
+  públicas, legenda, escala gráfica, norte, seleção + destaque da quadra). Mesma projeção do motor.
+- `client/.../planta-tecnica.tsx` (novo): zoom (roda, botões, pinça), pan, seleção, exportar SVG, imprimir.
+- `client/.../massa.worker.ts` + `executar-massa.ts` (novos): motor em Web Worker, progresso real,
+  um cálculo por vez; fallback para a thread principal.
+- `client/.../massa-tab.tsx`: Rua Simples, "Área do sistema viário (m²)" automático/manual, cache por
+  assinatura (sem recálculo para entradas idênticas), cartões só com cenários válidos e com o critério,
+  motivo + causas da inviabilidade, alternância **Desenho técnico** (padrão) / **Satélite** (mapa antigo).
+- `client/.../mapa-massa.tsx`: tooltip das vias genérico (agora inclui corredores).
+- `shared/incorporacao/unidades.ts`: `formatarCodigoLote`, `codigoExibicao`, `compararCodigoUnidade`
+  (numérico), `paginar` (6/página). O código persistido "Q1 / L1" NÃO muda (identidade comercial).
+- Correção no cul-de-sac: a rua sem saída chega até o balão (antes o balão ficava solto).
+
+Testes:
+- (a) `server/incorporacao-planta-unidades.test.ts` 10 ✅ (SVG desenha exatamente os lotes e vias do
+  cenário nas 3 tipologias; rótulos por zoom; seleção; zoom ancorado; ordenação; paginação; unidades
+  da Rua Simples Q01/L01…Q02/L14). Conjunto massa + v2 + planta + unidades: 96 ✅. `tsc` limpo.
+  `vite build` ✅ (worker 75,8 kB).
+- (b) Manual por mim: SVG renderizado no Chromium (Playwright) e inspecionado nas 3 tipologias;
+  bundle de produção do worker executado no Chromium (29 lotes, progresso recebido).
+- (c) Pendente em produção: a tela completa logada (não há login/banco nesta sessão); teste em tablet real.
+
 ## Próximo passo exato
-Etapa 2: UI do Estudo de Massa (`client/src/components/incorporacao/estudo/massa-tab.tsx`):
-tipologia Rua Simples, campo "Área do sistema viário (m²)" com modo automático/manual, chamar
-`gerarEstudoMassa` em Web Worker (progresso real, sem execução concorrente), mostrar critério e
-motivo/causas de inviabilidade; depois Etapa 3: desenho técnico (SVG) com alternância Satélite.
+Etapa 3: tela Unidades à Venda (`unidades-tab.tsx`): ordenar com `compararCodigoUnidade`, exibir
+`codigoExibicao`, paginação 6 (2 colunas × 3), setas com página atual/total. Depois Negociação
+(etapa 4) e Mercado com dois motores (etapa 5).
