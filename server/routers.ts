@@ -41,6 +41,8 @@ import { bancarioRouter, pluggySettingsRouter } from "./bancos-router.js";
 import { parseKmlTerreno } from "./_core/geo/kml.js";
 import { fetchElevationGrid } from "./_core/geo/elevacao.js";
 import { pesquisarMercado } from "./_core/incorporacao/mercado-ia.js";
+import { pesquisarDadosPublicos } from "./_core/incorporacao/dados-publicos.js";
+import { pesquisarMercadoImobiliario } from "./_core/incorporacao/mercado-anuncios.js";
 import { excluirProposta, mesclarNegociacaoParaGravar, parseNegociacao } from "../shared/incorporacao/negociacao.js";
 import { financiamentoRouter } from "./financiamento-router.js";
 import { juridicoRouter } from "./juridico-router.js";
@@ -2858,6 +2860,60 @@ export const appRouter = router({
           }),
         });
         return resultado;
+      }),
+
+    // Correção 06 — motor 1: dados oficiais gratuitos (IBGE). Independente do motor 2.
+    pesquisarDadosPublicos: protectedProcedure
+      .input(z.object({ id: z.number(), municipio: z.string().min(1), estado: z.string().min(2).max(2) }))
+      .mutation(async ({ input, ctx }) => {
+        requireModule(ctx, "incorporacao");
+        const resultado = await pesquisarDadosPublicos(input.municipio, input.estado);
+        const atual = await db.getIncorporationStudyById(input.id);
+        let anterior: Record<string, unknown> = {};
+        try { anterior = atual?.cityResearchJson ? JSON.parse(atual.cityResearchJson) : {}; } catch { anterior = {}; }
+        // grava em chave própria: a pesquisa anterior (e o que o relatório lê) é preservada
+        await db.updateIncorporationStudy(input.id, { cityResearchJson: JSON.stringify({ ...anterior, dadosPublicos: resultado }) });
+        return resultado;
+      }),
+
+    // Correção 06 — motor 2: anúncios + análise. Falha aqui não afeta o motor 1.
+    pesquisarMercadoImobiliario: protectedProcedure
+      .input(z.object({
+        id: z.number(), municipio: z.string().min(1), estado: z.string().min(2).max(2), bairro: z.string().max(120).optional(),
+        tipologia: z.enum(["lote", "casa", "apartamento", "terreno", "outro"]),
+        areaMinM2: z.number().positive().optional(), areaMaxM2: z.number().positive().optional(),
+      }))
+      .mutation(async ({ input, ctx }) => {
+        requireModule(ctx, "incorporacao");
+        let r;
+        try {
+          r = await pesquisarMercadoImobiliario({ municipio: input.municipio, uf: input.estado, bairro: input.bairro || null, tipologia: input.tipologia, areaMinM2: input.areaMinM2, areaMaxM2: input.areaMaxM2 });
+        } catch (e) {
+          throw new TRPCError({ code: "BAD_GATEWAY", message: `Falha na pesquisa de anúncios: ${e instanceof Error ? e.message : String(e)}` });
+        }
+        if (r.status === "ok") {
+          const atual = await db.getIncorporationStudyById(input.id);
+          let anterior: Record<string, unknown> = {};
+          try { anterior = atual?.marketStudyJson ? JSON.parse(atual.marketStudyJson) : {}; } catch { anterior = {}; }
+          // NÃO altera precoM2Lote (preço definido pelo usuário): a análise fica em chave própria
+          await db.updateIncorporationStudy(input.id, { marketStudyJson: JSON.stringify({ ...anterior, analiseAnuncios: r.analise }) });
+        }
+        return r;
+      }),
+
+    /** Aplica, com confirmação explícita do usuário, a mediana analisada como preço de referência do lote. */
+    aplicarPrecoReferenciaMercado: protectedProcedure
+      .input(z.object({ id: z.number(), precoM2Lote: z.number().positive() }))
+      .mutation(async ({ input, ctx }) => {
+        requireModule(ctx, "incorporacao");
+        const atual = await db.getIncorporationStudyById(input.id);
+        let anterior: Record<string, unknown> = {};
+        try { anterior = atual?.marketStudyJson ? JSON.parse(atual.marketStudyJson) : {}; } catch { anterior = {}; }
+        await db.updateIncorporationStudy(input.id, { marketStudyJson: JSON.stringify({
+          ...anterior, precoM2Lote: input.precoM2Lote,
+          precoM2LoteOrigem: { tipo: "analise_anuncios_confirmada", anterior: anterior.precoM2Lote ?? null, por: ctx.user.id, em: new Date().toISOString() },
+        }) });
+        return { success: true };
       }),
 
     savePrecificacao: protectedProcedure

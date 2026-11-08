@@ -242,3 +242,14 @@ export function excluirUnidade(estudoId: string, unidadeId: string) { return cap
 export async function excluirPropostaNegociacao(estudoId: string, propostaId: string, confirmacaoReforcada: boolean) {
   return inc.excluirPropostaNegociacao.mutate({ id: id(estudoId), propostaId, confirmacaoReforcada });
 }
+
+/** Correção 06 — motores independentes da Inteligência de Mercado. */
+export async function pesquisarDadosPublicos(estudoId: string, municipio: string, estado: string) {
+  return inc.pesquisarDadosPublicos.mutate({ id: id(estudoId), municipio, estado });
+}
+export async function pesquisarMercadoImobiliario(estudoId: string, c: { municipio: string; estado: string; bairro?: string; tipologia: "lote" | "casa" | "apartamento" | "terreno" | "outro"; areaMinM2?: number; areaMaxM2?: number }) {
+  return inc.pesquisarMercadoImobiliario.mutate({ id: id(estudoId), ...c });
+}
+export async function aplicarPrecoReferenciaMercado(estudoId: string, precoM2Lote: number) {
+  return inc.aplicarPrecoReferenciaMercado.mutate({ id: id(estudoId), precoM2Lote });
+}

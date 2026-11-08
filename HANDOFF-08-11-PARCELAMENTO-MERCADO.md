@@ -14,7 +14,7 @@ fica **sinalizada** aqui e no relatório — não foi portada.
 | 03 | Rua Simples | ✅ motor + UI |
 | 04 | Desenho técnico universal | ✅ (etapa 2) |
 | 05 | Quantidade dinâmica | ✅ motor + testes |
-| 06 | Mercado: 2 motores independentes | ⏳ pendente |
+| 06 | Mercado: 2 motores independentes | ✅ código + testes simulados · ao vivo pendente (ver abaixo) |
 | 07 | Unidades: ordenação numérica + paginação 6 | ✅ (etapa 3) |
 | 08 | Negociação: excluir proposta + permuta % VGV | ✅ (etapa 3) |
 
@@ -113,6 +113,45 @@ Negociação:
 Testes (a): `server/incorporacao-negociacao.test.ts` 21 ✅ (9 legados + 12 novos). `tsc` limpo.
 (c) Pendente em produção: exclusão real contra o banco (rota nova) e a tela logada.
 
+## Etapa 4 — Inteligência de Mercado com dois motores (concluída)
+
+Causa do "IA desativada…": `mercado-ia.ts` lançava erro sempre que `INCORPORACAO_IA_ATIVA` ≠ "1"
+(desligada por padrão) e a tela tinha UM botão que misturava dados da cidade e de mercado numa
+única chamada paga — sem IA, nada funcionava, nem os dados oficiais gratuitos.
+
+- Motor 1 `server/_core/incorporacao/dados-publicos.ts`: IBGE Localidades + Agregados (SIDRA), sem IA,
+  sem chave. Indicadores: população estimada (série → crescimento anual derivado), população e
+  densidade do Censo, PIB (→ PIB per capita derivado só com população do mesmo ano), pessoal ocupado,
+  salário médio. Última competência publicada; nome/unidade vindos do IBGE; conferência por
+  palavra-chave descarta variável trocada; cache 24 h; cada indicador independente.
+- Motor 2 `server/_core/incorporacao/mercado-anuncios.ts` + `shared/incorporacao/analise-anuncios.ts`:
+  provedor isolado (hoje: busca web da API Anthropic, exige ANTHROPIC_API_KEY; liga por padrão quando há
+  chave, `INCORPORACAO_IA_ATIVA=0` desliga; modelo em `INCORPORACAO_IA_MODELO`). Tratamento puro:
+  link obrigatório, deduplicação (URL canônica + mesmo imóvel em portais), rejeição de incompletos e de
+  tipologia/área incompatível, atípicos por Tukey (1,5 IQR), mediana, Q1–Q3, mín/máx, nº de amostras,
+  confiabilidade com justificativa, aviso "preço anunciado ≠ transação". Cache 12 h.
+  Não há raspagem de portais (termos de uso); não há alternativa gratuita permitida conhecida.
+- Rotas: `pesquisarDadosPublicos`, `pesquisarMercadoImobiliario`, `aplicarPrecoReferenciaMercado`
+  (só com confirmação). Resultados em chaves novas (`dadosPublicos`, `analiseAnuncios`) — pesquisa
+  legada, comparáveis manuais e `precoM2Lote` do usuário preservados.
+- Tela `mercado-tab.tsx`: dois botões independentes com estados/erros próprios; pesquisa legada exibida.
+
+Testes (a): `server/incorporacao-mercado-motores.test.ts` 14 ✅ (respostas simuladas no formato das
+APIs). Suíte completa: **185 arquivos / 1504 testes ✅**. `tsc` limpo.
+(c) Pendente em produção: **consulta ao vivo ao IBGE** (o proxy desta sessão bloqueia
+servicodados.ibge.gov.br — os IDs SIDRA 6579/9324, 4714/93/614, 5938/37, 1685/707/1606 não puderam ser
+confirmados ao vivo; se algum estiver errado, o indicador aparece como indisponível, nunca trocado) e
+**pesquisa de anúncios** (requer ANTHROPIC_API_KEY no servidor).
+
+## Pendências gerais
+- Validar Rua Simples com o **KML real do Morada do Bosque** (não está no repositório).
+- Via curva na Rua Simples não é modelada (via reta; limitação exibida no cenário).
+- Ponto de acesso viário informado pelo usuário não é modelado (a via sai da divisa).
+- Grade/Cul-de-sac em modo manual da área viária: só aceita se bater ±5% com o desenho (não ajusta a malha).
+- Paridade com o Santa Fé registrada em `docs/stories/epics/ROADMAP.md` (não portada).
+- Merge e deploy dependem de autorização do dono.
+
 ## Próximo passo exato
-Etapa 4: Mercado com dois motores independentes — `server/_core/incorporacao/` (IBGE gratuito +
-análise de anúncios com IA isolada por provedor), rotas tRPC separadas, dois botões em `mercado-tab.tsx`.
+Revisão do PR #187 pelo dono; em seguida validar em homologação/produção: (1) gerar cenários com o KML
+real do Morada do Bosque nas 3 tipologias; (2) botão IBGE; (3) botão de anúncios com a chave
+configurada; (4) excluir uma proposta e conferir o histórico; (5) paginação das unidades em tablet.

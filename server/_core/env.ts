@@ -16,4 +16,7 @@ export const ENV = {
   anthropicApiKey: process.env.ANTHROPIC_API_KEY ?? "",
   openTopographyApiKey: process.env.OPENTOPOGRAPHY_API_KEY ?? "",
   incorporacaoIaAtiva: process.env.INCORPORACAO_IA_ATIVA === "1",
+  /** Correção 06: desligamento EXPLÍCITO da pesquisa de anúncios com IA (padrão: ligada quando há ANTHROPIC_API_KEY). */
+  incorporacaoIaDesligada: process.env.INCORPORACAO_IA_ATIVA === "0",
+  incorporacaoIaModelo: process.env.INCORPORACAO_IA_MODELO || "claude-sonnet-5-5",
 };
