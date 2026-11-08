@@ -331,3 +331,78 @@ describe("Correção 05 — quantidade de lotes dinâmica", () => {
     expect(grande).toBeGreaterThan(10 * pequeno);
   });
 });
+
+// ─── Rodada 2 (08/11): gleba REAL do Morada do Bosque, lote que acompanha a divisa, ajuste da malha ───
+import { ANEL_MORADA, CENTRO_MORADA } from "./fixtures/morada-do-bosque";
+
+const MORADA_REAL: ParametrosMassa = {
+  larguraViaM: 3, testadaLoteM: 20, profundidadeLoteM: 250, loteMinimoM2: 5000, comprimentoMaxQuadraM: 580,
+  percentInstitucional: 0, percentAreaVerde: 0, precoM2Lote: 20, tipologia: "rua_simples",
+};
+
+describe("Morada do Bosque — KML real do sistema (150.095 m²)", () => {
+  it("área da poligonal real confere com o cadastro", () => {
+    const m = criarProjecao(CENTRO_MORADA);
+    expect(areaPlanar(ANEL_MORADA.map((p) => m.paraMetros(p)))).toBeGreaterThan(149_000);
+    expect(areaPlanar(ANEL_MORADA.map((p) => m.paraMetros(p)))).toBeLessThan(151_500);
+  });
+
+  it("retangular exato 20 × 250 + via 3 m: 23 lotes (não força 29)", () => {
+    const c = gerarEstudoMassa(ANEL_MORADA, CENTRO_MORADA, MORADA_REAL).cenarios[0];
+    expect(c.kpis.lotesVendaveis).toBe(23);
+    for (const l of c.lotes) expect(l.areaM2).toBeCloseTo(5000, 2);
+  });
+
+  it("lote acompanha a divisa: 25 lotes, todos ≥ 5.000 m², frente múltipla de 20 m, dentro da gleba e sem sobreposição", () => {
+    const p = { ...MORADA_REAL, formatoLote: "divisa" as const };
+    const c = gerarEstudoMassa(ANEL_MORADA, CENTRO_MORADA, p).cenarios[0];
+    expect(c.kpis.lotesVendaveis).toBe(25);
+    for (const l of c.lotes) {
+      expect(l.areaM2).toBeGreaterThanOrEqual(5000);
+      expect((l.testadaM ?? 0) % 20).toBeCloseTo(0, 6);
+      expect(l.testadaM).toBeGreaterThanOrEqual(20);
+    }
+    expect((c.limitacoes ?? []).join(" ")).toMatch(/acompanham a divisa/);
+    // mesmas verificações geométricas dos demais testes (centros de lotes adaptados a anéis irregulares)
+    const proj2 = criarProjecao(CENTRO_MORADA);
+    const gleba = turfPolygon([ANEL_MORADA.map((q) => proj2.paraMetros(q))]);
+    for (const l of c.lotes) {
+      const m = l.anel.map((q) => proj2.paraMetros(q));
+      const inter = intersect(featureCollection([turfPolygon([m]), gleba]));
+      const a = inter && inter.geometry.type === "Polygon" ? areaPlanar(inter.geometry.coordinates[0]) : 0;
+      expect(a).toBeGreaterThanOrEqual(areaPlanar(m) - 0.5);
+    }
+  });
+
+  it("determinístico também no formato divisa", () => {
+    const p = { ...MORADA_REAL, formatoLote: "divisa" as const };
+    const a = JSON.stringify(gerarEstudoMassa(ANEL_MORADA, CENTRO_MORADA, p));
+    expect(JSON.stringify(gerarEstudoMassa(ANEL_MORADA, CENTRO_MORADA, p))).toBe(a);
+  });
+});
+
+describe("Correção 01/04 — ajuste automático da malha no modo manual da área viária", () => {
+  const auto = () => gerarEstudoMassa(RETANGULO, CENTRO, BASE).cenarios[0].sistemaViario!.areaGeometricaM2;
+
+  it("via MAIOR que a da malha padrão: encurta as quadras até bater", () => {
+    const alvo = Math.round(auto() * 1.4);
+    const r = gerarEstudoMassa(RETANGULO, CENTRO, { ...BASE, modoSistemaViario: "manual", areaSistemaViarioM2: alvo });
+    expect(r.cenarios.length).toBeGreaterThan(0);
+    for (const c of r.cenarios) {
+      expect(Math.abs(c.sistemaViario!.areaGeometricaM2 - alvo)).toBeLessThanOrEqual(0.05 * alvo + 1);
+      expect((c.limitacoes ?? []).join(" ")).toMatch(/Malha ajustada automaticamente/);
+      conferirDimensoesExatas(c, BASE);
+    }
+  });
+
+  it("via MENOR que a da malha padrão: suprime ruas de menor aproveitamento até bater", () => {
+    const alvo = Math.round(auto() * 0.6);
+    const r = gerarEstudoMassa(RETANGULO, CENTRO, { ...BASE, modoSistemaViario: "manual", areaSistemaViarioM2: alvo });
+    expect(r.cenarios.length).toBeGreaterThan(0);
+    for (const c of r.cenarios) {
+      expect(Math.abs(c.sistemaViario!.areaGeometricaM2 - alvo)).toBeLessThanOrEqual(0.05 * alvo + 1);
+      expect((c.limitacoes ?? []).join(" ")).toMatch(/suprimida/);
+      semSobreposicaoEDentro(RETANGULO, c);
+    }
+  });
+});

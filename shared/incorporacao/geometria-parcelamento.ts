@@ -26,6 +26,9 @@ export interface LoteFrame {
   segmento: number;
   /** Ordem de numeração dentro da quadra (posição ao longo da via). */
   ordem: number;
+  /** Só no formato "acompanha a divisa": testada real (múltiplo da informada) e profundidade média (área ÷ testada). */
+  testada?: number;
+  profundidadeMedia?: number;
 }
 
 export interface ImplantacaoFrame {
@@ -300,4 +303,42 @@ export function prepararFrameAnel(anelMetros: Position[], angulo: number, tamanh
 
 export function round2(v: number): number {
   return Math.round(v * 100) / 100;
+}
+
+
+/** Sutherland–Hodgman: recorta o anel (côncavo ou não) pelo retângulo. Área do resultado = área da interseção. */
+export function recortarPorRetangulo(anel: Position[], r: Ret): Position[] {
+  let pts: Position[] = anel.slice(0, -1);
+  const lados: [(p: Position) => boolean, (a: Position, b: Position) => Position][] = [
+    [(p) => p[0] >= r[0], (a, b) => { const t = (r[0] - a[0]) / (b[0] - a[0]); return [r[0], a[1] + t * (b[1] - a[1])]; }],
+    [(p) => p[0] <= r[2], (a, b) => { const t = (r[2] - a[0]) / (b[0] - a[0]); return [r[2], a[1] + t * (b[1] - a[1])]; }],
+    [(p) => p[1] >= r[1], (a, b) => { const t = (r[1] - a[1]) / (b[1] - a[1]); return [a[0] + t * (b[0] - a[0]), r[1]]; }],
+    [(p) => p[1] <= r[3], (a, b) => { const t = (r[3] - a[1]) / (b[1] - a[1]); return [a[0] + t * (b[0] - a[0]), r[3]]; }],
+  ];
+  for (const [dentro, cortar] of lados) {
+    if (pts.length === 0) break;
+    const saida: Position[] = [];
+    for (let i = 0; i < pts.length; i++) {
+      const a = pts[i], b = pts[(i + 1) % pts.length];
+      const da = dentro(a), db = dentro(b);
+      if (da) saida.push(a);
+      if (da !== db) saida.push(cortar(a, b));
+    }
+    pts = saida;
+  }
+  if (pts.length < 3) return [];
+  return [...pts, pts[0]];
+}
+
+/** Distância, a partir de (x, y0) no sentido `sentido` (+1 = y crescente), até a primeira divisa da poligonal. */
+export function distanciaAteDivisa(anel: Position[], x: number, y0: number, sentido: 1 | -1): number {
+  let melhor = Infinity;
+  for (let i = 0; i < anel.length - 1; i++) {
+    const [ax, ay] = anel[i], [bx, by] = anel[i + 1];
+    if ((ax <= x) === (bx <= x)) continue;
+    const y = ay + ((x - ax) * (by - ay)) / (bx - ax);
+    const d = (y - y0) * sentido;
+    if (d > EPS_GEO && d < melhor) melhor = d;
+  }
+  return melhor;
 }

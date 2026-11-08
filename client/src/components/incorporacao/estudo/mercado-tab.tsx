@@ -2,7 +2,8 @@
 import { useState } from "react";
 import { TrendingUp, Sparkles, Loader2, Landmark, ExternalLink, AlertTriangle } from "lucide-react";
 import { formatArea, formatCurrency } from "./compat/util";
-import { aplicarPrecoReferenciaMercado, pesquisarDadosPublicos, pesquisarMercadoImobiliario } from "./compat/acoes";
+import { aplicarPrecoReferenciaMercado, pesquisarDadosPublicos, pesquisarMercadoImobiliario, salvarDadosPublicos } from "./compat/acoes";
+import { pesquisarDadosPublicos as consultarIbgeNoNavegador } from "@shared/incorporacao/dados-publicos";
 import type { AnaliseAnuncios, TipologiaImovel } from "@shared/incorporacao/analise-anuncios";
 import { PrecificacaoComparaveis } from "./precificacao-comparaveis";
 import { PesquisaPrimaria } from "./pesquisa-primaria";
@@ -60,7 +61,18 @@ export function MercadoTab({ estudo }: { estudo: EstudoData }) {
 
   async function buscarPublicos() {
     setBusyPub(true); setErroPub(null);
-    try { setPublicos(await pesquisarDadosPublicos(estudo.id, estudo.municipio, estudo.estado)); }
+    try {
+      // 1º o navegador (no Brasil) consulta o IBGE direto — o IBGE recusa acessos do servidor (EUA).
+      const local = await consultarIbgeNoNavegador(estudo.municipio, estudo.estado);
+      const falhaRede = !local.municipio && local.indisponiveis.some((i) => i.chave === "municipio" && /indisponível/.test(i.motivo));
+      if (!falhaRede) {
+        setPublicos(local);
+        await salvarDadosPublicos(estudo.id, local);
+        return;
+      }
+      // reserva: consulta pelo servidor
+      setPublicos(await pesquisarDadosPublicos(estudo.id, estudo.municipio, estudo.estado));
+    }
     catch (e) { setErroPub(e instanceof Error ? e.message : "Falha ao consultar o IBGE."); }
     finally { setBusyPub(false); }
   }

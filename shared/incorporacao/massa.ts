@@ -60,6 +60,8 @@ export interface ParametrosMassa {
   modoSistemaViario?: ModoSistemaViario;
   /** Área do sistema viário informada (m²) — só vale no modo manual. */
   areaSistemaViarioM2?: number;
+  /** Rua Simples: "retangular" (padrão, testada × profundidade exatas) ou "divisa" (lote acompanha a divisa). */
+  formatoLote?: "retangular" | "divisa";
   /** Áreas não parceláveis informadas em m² (quando não vierem do KML/mapa). */
   appM2?: number;
   supressaoVegetalM2?: number;
@@ -78,6 +80,9 @@ export interface LoteGerado {
   /** Identificação (só lotes vendáveis): quadra e nº do lote na quadra. */
   quadra?: string;
   numero?: string;
+  /** Formato "acompanha a divisa": testada real e profundidade média (área ÷ testada). */
+  testadaM?: number;
+  profundidadeMediaM?: number;
 }
 
 export type CriterioCenario = "maior_area_vendavel" | "melhor_eficiencia_viaria" | "alternativa_distinta";
@@ -211,7 +216,10 @@ export function validarParametrosMassa(p: ParametrosMassa): string | null {
     }
   }
   const areaLote = p.testadaLoteM * p.profundidadeLoteM;
-  if (areaLote + 1e-9 < p.loteMinimoM2) {
+  if (p.formatoLote !== undefined && p.formatoLote !== "retangular" && p.formatoLote !== "divisa") {
+    return "Formato do lote inválido (use retangular ou acompanha a divisa).";
+  }
+  if (p.formatoLote !== "divisa" && areaLote + 1e-9 < p.loteMinimoM2) {
     const f = (v: number) => v.toLocaleString("pt-BR", { maximumFractionDigits: 2 });
     return `Testada × profundidade (${f(p.testadaLoteM)} × ${f(p.profundidadeLoteM)} m = ${f(areaLote)} m²) é menor que a área mínima do lote (${f(p.loteMinimoM2)} m²). Ajuste as dimensões ou a área mínima — o motor não altera as dimensões informadas.`;
   }
@@ -307,7 +315,13 @@ function passosMalha(g: Dim, p: ParametrosMassa): { px: number; py: number } {
   return { px: p.tipologia === "cul_de_sac" ? 2 * comp + g.via : comp + g.via, py: 2 * g.profundidade + g.via };
 }
 
-function gerarImplantacaoGrade(fr: FrameAnel, g: Dim, p: ParametrosMassa, ox: number, oy: number, comBaloes: boolean): ImplantacaoFrame {
+/** Chave da rua horizontal que dá frente ao lote (grade: por linha; cul-de-sac: por linha e trecho). */
+function chaveRuaFrente(p: ParametrosMassa, linha: number, faixa: 0 | 1, segmento: number): string {
+  const m = faixa === 0 ? linha : linha + 1;
+  return p.tipologia === "cul_de_sac" ? `${m}:${segmento}` : `${m}`;
+}
+
+function gerarImplantacaoGrade(fr: FrameAnel, g: Dim, p: ParametrosMassa, ox: number, oy: number, comBaloes: boolean, ruasExcluidas?: Set<string>): ImplantacaoFrame {
   const [minX, minY, maxX, maxY] = fr.bbox;
   const { py: pitchY } = passosMalha(g, p);
   const segmentos = segmentosQuadra(minX, maxX, g, p, ox);
@@ -323,6 +337,7 @@ function gerarImplantacaoGrade(fr: FrameAnel, g: Dim, p: ParametrosMassa, ox: nu
       for (const faixa of [0, 1] as const) {
         const yBase = y + faixa * g.profundidade;
         if (yBase + g.profundidade < minY || yBase > maxY) continue;
+        if (ruasExcluidas?.has(chaveRuaFrente(p, linha, faixa, segmento))) continue; // rua suprimida no ajuste da malha
         for (let i = 0; i < n; i++) {
           // no cul-de-sac os lotes começam junto à via-tronco (lado oposto ao balão)
           const x = seg.ladoBalao === -1 ? seg.x1 - (i + 1) * g.testada : seg.x0 + i * g.testada;
@@ -609,6 +624,7 @@ function montarCenario(ctx: Ctx, idx: number, b: Bruto, criterio: CriterioCenari
     tipo,
     ...(uso ? { uso } : {}),
     ...(numeracao.get(l) ?? {}),
+    ...(l.testada !== undefined ? { testadaM: round2(l.testada), profundidadeMediaM: round2(l.profundidadeMedia ?? 0) } : {}),
   }));
 
   const vendaveis = lotes.filter((l) => l.tipo === "vendavel");
@@ -827,7 +843,8 @@ export function gerarEstudoMassa(
   if (tipologia === "rua_simples") {
     const passoPeca = g.via * g.testada;
     const limitePecas = manual ? Math.max(1, Math.round((params.areaSistemaViarioM2 ?? 0) / Math.max(passoPeca, 1e-9))) : undefined;
-    const opcoesRua = manual ? { limitePecas, aparar: false } : {};
+    const formatoRua = params.formatoLote === "divisa" ? { formato: "divisa" as const, loteMinimoM2: params.loteMinimoM2 } : {};
+    const opcoesRua = manual ? { limitePecas, aparar: false, ...formatoRua } : formatoRua;
     progresso(0.1, "Varrendo orientações e posições da via");
     const cands: CandidatoRua[] = buscarRuaSimples(anelM, g, opcoesRua, 24);
     avaliados = cands.length;
@@ -839,52 +856,90 @@ export function gerarEstudoMassa(
       progresso(0.6 + 0.3 * ((i + 1) / cands.length), "Avaliando implantações candidatas");
     });
   } else {
-    const celula = Math.max(g.testada, g.profundidade, g.via, params.comprimentoMaxQuadraM / 4) * 2;
-    const frames = new Map<number, FrameAnel>();
-    const frameDe = (ang: number) => { let f = frames.get(ang); if (!f) { f = prepararFrameAnel(anelM, ang, celula); frames.set(ang, f); } return f; };
-    const { px, py } = passosMalha(g, ctx.params);
-    interface Av { ang: number; ox: number; oy: number; n: number }
-    const avs: Av[] = [];
-    const vistos = new Set<string>();
-    const avaliar = (ang: number, ox: number, oy: number) => {
-      const chave = `${ang}|${ox.toFixed(4)}|${oy.toFixed(4)}`;
-      if (vistos.has(chave)) return;
-      vistos.add(chave);
-      const impl = gerarImplantacaoGrade(frameDe(ang), g, ctx.params, ox, oy, false);
-      avaliados++;
-      if (impl.lotes.length > 0) avs.push({ ang, ox, oy, n: impl.lotes.length });
-    };
-    const set = new Set<number>(angulosDasArestas(anelM, 8));
-    for (let a = 0; a < 180; a += 10) set.add(a);
-    const grossos = Array.from(set).sort((a, b) => a - b);
-    progresso(0.08, "Varredura de orientações da malha");
-    grossos.forEach((a, i) => { avaliar(a, 0, 0); progresso(0.08 + 0.2 * ((i + 1) / grossos.length), "Varredura de orientações da malha"); });
-    const ordenar = (a: Av, b: Av) => b.n - a.n || a.ang - b.ang || a.ox - b.ox || a.oy - b.oy;
-    const melhores: number[] = [];
-    for (const a of [...avs].sort(ordenar)) { if (!melhores.includes(a.ang)) melhores.push(a.ang); if (melhores.length >= 6) break; }
-    const fases = [0, 1 / 3, 2 / 3];
-    melhores.forEach((base, bi) => {
-      for (const da of [-5, -2.5, -1, 0, 1, 2.5, 5]) {
-        const ang = Math.round((((base + da) % 180) + 180) % 180 * 1000) / 1000;
-        for (const fx of fases) for (const fy of fases) avaliar(ang, fx * px, fy * py);
+    // AJUSTE DA MALHA (modo manual da área viária): além do comprimento máximo informado, testa
+    // quadras mais curtas (mais ruas transversais → mais via) e, se ainda sobrar via, suprime ruas
+    // horizontais de menor aproveitamento (menos via). Nunca passa do comprimento máximo informado.
+    const nMax = Math.max(1, Math.floor(params.comprimentoMaxQuadraM / g.testada + 1e-9));
+    const variantesN = manual
+      ? Array.from(new Set([nMax, Math.round(nMax * 0.75), Math.round(nMax / 2), Math.round(nMax / 3), Math.round(nMax / 4), 2]))
+        .filter((n) => n >= 1 && n <= nMax).sort((a, b) => b - a)
+      : [nMax];
+    const alvo = params.areaSistemaViarioM2 ?? 0;
+    const tolV = tolerClViaria(alvo, Math.max(g.via * g.testada, 1));
+    variantesN.forEach((nLotesQuadra, vi) => {
+      const compVar = nLotesQuadra === nMax ? params.comprimentoMaxQuadraM : nLotesQuadra * g.testada + 1e-6;
+      const pz: ParametrosMassa = { ...ctx.params, comprimentoMaxQuadraM: compVar };
+      const base = vi / variantesN.length, faixaP = 1 / variantesN.length;
+      const prog = (f: number, etapa: string) => progresso(base + faixaP * f * 0.9, etapa);
+      const celula = Math.max(g.testada, g.profundidade, g.via, compVar / 4) * 2;
+      const frames = new Map<number, FrameAnel>();
+      const frameDe = (ang: number) => { let f = frames.get(ang); if (!f) { f = prepararFrameAnel(anelM, ang, celula); frames.set(ang, f); } return f; };
+      const { px, py } = passosMalha(g, pz);
+      interface Av { ang: number; ox: number; oy: number; n: number }
+      const avs: Av[] = [];
+      const vistos = new Set<string>();
+      const avaliar = (ang: number, ox: number, oy: number) => {
+        const chave = `${ang}|${ox.toFixed(4)}|${oy.toFixed(4)}`;
+        if (vistos.has(chave)) return;
+        vistos.add(chave);
+        const impl = gerarImplantacaoGrade(frameDe(ang), g, pz, ox, oy, false);
+        avaliados++;
+        if (impl.lotes.length > 0) avs.push({ ang, ox, oy, n: impl.lotes.length });
+      };
+      const set = new Set<number>(angulosDasArestas(anelM, 8));
+      for (let a = 0; a < 180; a += 10) set.add(a);
+      const grossos = Array.from(set).sort((a, b) => a - b);
+      grossos.forEach((a, i) => { avaliar(a, 0, 0); prog(0.08 + 0.2 * ((i + 1) / grossos.length), "Varredura de orientações da malha"); });
+      const ordenar = (a: Av, b: Av) => b.n - a.n || a.ang - b.ang || a.ox - b.ox || a.oy - b.oy;
+      const melhores: number[] = [];
+      for (const a of [...avs].sort(ordenar)) { if (!melhores.includes(a.ang)) melhores.push(a.ang); if (melhores.length >= (manual ? 3 : 6)) break; }
+      const fases = [0, 1 / 3, 2 / 3];
+      melhores.forEach((baseAng, bi) => {
+        for (const da of [-5, -2.5, -1, 0, 1, 2.5, 5]) {
+          const ang = Math.round((((baseAng + da) % 180) + 180) % 180 * 1000) / 1000;
+          for (const fx of fases) for (const fy of fases) avaliar(ang, fx * px, fy * py);
+        }
+        prog(0.28 + 0.3 * ((bi + 1) / melhores.length), "Refinando posição da malha");
+      });
+      // no máximo 2 variações por orientação, 24 candidatos (8 por variante no ajuste) para avaliação completa
+      const porAngulo = new Map<number, number>();
+      const finalistas: Av[] = [];
+      for (const a of [...avs].sort(ordenar)) {
+        const n = porAngulo.get(a.ang) ?? 0;
+        if (n >= 2) continue;
+        porAngulo.set(a.ang, n + 1);
+        finalistas.push(a);
+        if (finalistas.length >= (manual ? 8 : 24)) break;
       }
-      progresso(0.28 + 0.3 * ((bi + 1) / melhores.length), "Refinando posição da malha");
-    });
-    // no máximo 2 variações por orientação, 24 candidatos para avaliação completa
-    const porAngulo = new Map<number, number>();
-    const finalistas: Av[] = [];
-    for (const a of [...avs].sort(ordenar)) {
-      const n = porAngulo.get(a.ang) ?? 0;
-      if (n >= 2) continue;
-      porAngulo.set(a.ang, n + 1);
-      finalistas.push(a);
-      if (finalistas.length >= 24) break;
-    }
-    finalistas.forEach((a, i) => {
-      const fr = frameDe(a.ang);
-      const impl = gerarImplantacaoGrade(fr, g, ctx.params, a.ox, a.oy, true);
-      brutos.push(avaliarImplantacao(ctx, `${a.ang}|${a.ox.toFixed(4)}|${a.oy.toFixed(4)}`, fr, impl, Math.max(g.via * g.testada, 1)));
-      progresso(0.6 + 0.3 * ((i + 1) / finalistas.length), "Desenhando vias e balões");
+      finalistas.forEach((a, i) => {
+        const fr = frameDe(a.ang);
+        const chaveBase = `${a.ang}|${a.ox.toFixed(4)}|${a.oy.toFixed(4)}|q${nLotesQuadra}`;
+        let impl = gerarImplantacaoGrade(fr, g, pz, a.ox, a.oy, true);
+        let bruto = avaliarImplantacao(ctx, chaveBase, fr, impl, Math.max(g.via * g.testada, 1));
+        const ajustes: string[] = [];
+        if (compVar !== params.comprimentoMaxQuadraM) ajustes.push(`quadras de até ${(nLotesQuadra * g.testada).toLocaleString("pt-BR")} m (máximo informado: ${params.comprimentoMaxQuadraM.toLocaleString("pt-BR")} m)`);
+        if (manual && bruto.vias.areaM2 > alvo + tolV) {
+          // suprime ruas horizontais de menor aproveitamento até a via desenhada caber no valor informado
+          const excluidas = new Set<string>();
+          for (let iter = 0; iter < 60 && bruto.vias.areaM2 > alvo + tolV && bruto.nVendaveis > 0; iter++) {
+            const cont = new Map<string, number>();
+            for (const l of impl.lotes) { const k = chaveRuaFrente(pz, l.linha, l.faixa, l.segmento); cont.set(k, (cont.get(k) ?? 0) + 1); }
+            const pior = Array.from(cont.entries()).sort((x, y) => x[1] - y[1] || (x[0] < y[0] ? -1 : 1))[0];
+            if (!pior) break;
+            excluidas.add(pior[0]);
+            const implNovo = gerarImplantacaoGrade(fr, g, pz, a.ox, a.oy, true, excluidas);
+            const brutoNovo = avaliarImplantacao(ctx, `${chaveBase}|x${excluidas.size}`, fr, implNovo, Math.max(g.via * g.testada, 1));
+            // nunca aceita um passo que elimine todos os lotes: o valor informado fica como divergência técnica
+            if (brutoNovo.nVendaveis === 0) { excluidas.delete(pior[0]); break; }
+            impl = implNovo;
+            bruto = brutoNovo;
+          }
+          if (excluidas.size > 0) ajustes.push(`${excluidas.size} rua(s) suprimida(s) para a via desenhada se aproximar da área informada`);
+        }
+        if (ajustes.length > 0) bruto.impl = { ...bruto.impl, limitacoes: [`Malha ajustada automaticamente: ${ajustes.join("; ")}.`, ...bruto.impl.limitacoes] };
+        brutos.push(bruto);
+        prog(0.6 + 0.4 * ((i + 1) / finalistas.length), "Desenhando vias e balões");
+      });
     });
   }
 

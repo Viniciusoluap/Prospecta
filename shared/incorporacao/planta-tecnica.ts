@@ -85,7 +85,9 @@ export function montarModeloPlanta(glebaGeo: Position[], cenario: CenarioMassa, 
     return {
       idx, anel, tipo: l.tipo, uso: l.uso, quadra: l.quadra, numero: l.numero,
       codigo: l.quadra && l.numero ? formatarCodigoLote(l.quadra, l.numero) : null,
-      areaM2: l.areaM2 || areaPlanar(anel), testadaM: d0, profundidadeM: d1, centro: centroide(anel), angulo: ang,
+      // lote que acompanha a divisa: anel irregular → usa testada real e profundidade média do motor
+      areaM2: l.areaM2 || areaPlanar(anel), testadaM: l.testadaM ?? d0, profundidadeM: l.profundidadeMediaM ?? d1,
+      centro: centroide(anel), angulo: ang,
     };
   });
   const porQuadra = new Map<string, LotePlanta[]>();

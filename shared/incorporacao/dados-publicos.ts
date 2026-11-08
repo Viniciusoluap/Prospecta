@@ -8,6 +8,12 @@
 // referência devolvido pela fonte (não assume que o dado é do ano corrente). O nome e a
 // unidade exibidos são os retornados pelo IBGE; uma palavra-chave esperada confere que a
 // variável é a pretendida (se a tabela mudar, o indicador é descartado, não trocado).
+//
+// ONDE RODA: no NAVEGADOR do usuário (preferencial). O IBGE recusa conexões vindas de
+// fora do Brasil (verificado em 08/11/2026: TLS reset a partir de datacenter nos EUA — a
+// produção no Vercel roda em iad1/EUA). O navegador, no Brasil, consulta direto e o
+// servidor só grava o resultado (`salvarDadosPublicos`). A rota de servidor
+// `pesquisarDadosPublicos` continua como reserva.
 
 const BASE = "https://servicodados.ibge.gov.br/api";
 const TIMEOUT_MS = 15_000;

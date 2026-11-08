@@ -19,4 +19,7 @@ export const ENV = {
   /** Correção 06: desligamento EXPLÍCITO da pesquisa de anúncios com IA (padrão: ligada quando há ANTHROPIC_API_KEY). */
   incorporacaoIaDesligada: process.env.INCORPORACAO_IA_ATIVA === "0",
   incorporacaoIaModelo: process.env.INCORPORACAO_IA_MODELO || "claude-sonnet-5-5",
+  /** Chave GRATUITA do Google AI Studio (Gemini + Grounding with Google Search) — provedor padrão de anúncios. */
+  geminiApiKey: process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY || "",
+  geminiModelo: process.env.INCORPORACAO_GEMINI_MODELO || "gemini-flash-latest",
 };

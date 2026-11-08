@@ -25,7 +25,7 @@ const MapaMassa = dynamic(() => import("./mapa-massa").then((m) => m.MapaMassa),
   loading: () => <div className="bg-gray-100 animate-pulse" style={{ height: 460 }} />,
 });
 
-type CampoNumerico = Exclude<keyof ParametrosMassa, "tipologia" | "modoSistemaViario">;
+type CampoNumerico = Exclude<keyof ParametrosMassa, "tipologia" | "modoSistemaViario" | "formatoLote">;
 
 const CAMPOS: { k: CampoNumerico; label: string }[] = [
   { k: "testadaLoteM", label: "Testada do lote (m)" },
@@ -351,6 +351,17 @@ export function MassaTab({ estudo }: { estudo: EstudoData }) {
               {TIPOLOGIAS_MASSA.map((t) => <option key={t.value} value={t.value}>{t.label}</option>)}
             </select>
           </div>
+          {params.tipologia === "rua_simples" && (
+            <div className="col-span-2">
+              <label htmlFor="massa-formato-lote" className="text-[10px] font-bold text-gray-500 uppercase tracking-widest block mb-1">Formato do lote</label>
+              <select id="massa-formato-lote" value={params.formatoLote ?? "retangular"}
+                onChange={(e) => { setParams((p) => ({ ...p, formatoLote: e.target.value as "retangular" | "divisa" })); setErro(null); }}
+                className="w-full text-sm border border-gray-200 px-2 py-1.5 bg-white focus:outline-none focus:border-[var(--brand-yellow)]">
+                <option value="retangular">Retangular exato (testada × profundidade)</option>
+                <option value="divisa">Acompanha a divisa (fundo até o limite, área ≥ mínima)</option>
+              </select>
+            </div>
+          )}
           {CAMPOS.map((c) => (
             <CampoTexto key={c.k} id={`massa-${c.k}`} label={c.label} valor={camposTexto[c.k]}
               onChange={(v) => upd(c.k, v)} onBlur={() => reformatarCampo(c.k)} />
@@ -386,7 +397,7 @@ export function MassaTab({ estudo }: { estudo: EstudoData }) {
         </div>
         <p className="text-[10px] text-gray-500 mt-1">
           {params.modoSistemaViario === "manual"
-            ? "Manual: o valor precisa ser compatível com o desenho (Rua Simples: define o comprimento da via; Grade/Cul-de-sac: aceito com tolerância de ±5% da área desenhada). Se não for, o motor mostra a divergência e não cria implantação fictícia."
+            ? "Manual: o motor ajusta a malha para a via desenhada bater com o valor (±5%) — Rua Simples: comprimento da via; Grade/Cul-de-sac: quadras mais curtas (nunca acima do máximo informado) ou supressão de ruas de menor aproveitamento. Se nenhum ajuste fechar, mostra a divergência e não cria implantação fictícia."
             : `Automático: usa a área geométrica das vias desenhadas${cenarioAtivo?.sistemaViario ? ` — cenário atual: ${m2(cenarioAtivo.sistemaViario.areaGeometricaM2)}` : ""}.`}
           {params.tipologia === "rua_simples" && " Na Rua Simples o comprimento máximo da quadra não se aplica (via única)."}
         </p>

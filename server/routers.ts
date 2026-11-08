@@ -41,7 +41,7 @@ import { bancarioRouter, pluggySettingsRouter } from "./bancos-router.js";
 import { parseKmlTerreno } from "./_core/geo/kml.js";
 import { fetchElevationGrid } from "./_core/geo/elevacao.js";
 import { pesquisarMercado } from "./_core/incorporacao/mercado-ia.js";
-import { pesquisarDadosPublicos } from "./_core/incorporacao/dados-publicos.js";
+import { pesquisarDadosPublicos } from "../shared/incorporacao/dados-publicos.js";
 import { pesquisarMercadoImobiliario } from "./_core/incorporacao/mercado-anuncios.js";
 import { excluirProposta, mesclarNegociacaoParaGravar, parseNegociacao } from "../shared/incorporacao/negociacao.js";
 import { financiamentoRouter } from "./financiamento-router.js";
@@ -2874,6 +2874,33 @@ export const appRouter = router({
         // grava em chave própria: a pesquisa anterior (e o que o relatório lê) é preservada
         await db.updateIncorporationStudy(input.id, { cityResearchJson: JSON.stringify({ ...anterior, dadosPublicos: resultado }) });
         return resultado;
+      }),
+
+    /** Grava o resultado do motor 1 consultado pelo NAVEGADOR (o IBGE recusa acesso de fora do Brasil). */
+    salvarDadosPublicos: protectedProcedure
+      .input(z.object({
+        id: z.number(),
+        dados: z.object({
+          municipio: z.object({ id: z.number(), nome: z.string().max(200), uf: z.string().max(2) }).nullable(),
+          indicadores: z.array(z.object({
+            chave: z.string().max(60), indicador: z.string().max(300), valor: z.number().finite(), unidade: z.string().max(120),
+            municipio: z.string().max(220), periodo: z.string().max(40), fonte: z.string().max(300),
+            url: z.string().url().max(500).refine((u) => u.startsWith("https://servicodados.ibge.gov.br/"), "Fonte deve ser o IBGE."),
+            consultadoEm: z.string().max(40), derivado: z.string().max(300).optional(),
+            serie: z.array(z.object({ periodo: z.string().max(20), valor: z.number().finite() })).max(50).optional(),
+          })).max(40),
+          indisponiveis: z.array(z.object({ chave: z.string().max(60), indicador: z.string().max(200), motivo: z.string().max(500), url: z.string().max(500).optional() })).max(40),
+          consultadoEm: z.string().max(40),
+          fonteGeral: z.string().max(300),
+        }),
+      }))
+      .mutation(async ({ input, ctx }) => {
+        requireModule(ctx, "incorporacao");
+        const atual = await db.getIncorporationStudyById(input.id);
+        let anterior: Record<string, unknown> = {};
+        try { anterior = atual?.cityResearchJson ? JSON.parse(atual.cityResearchJson) : {}; } catch { anterior = {}; }
+        await db.updateIncorporationStudy(input.id, { cityResearchJson: JSON.stringify({ ...anterior, dadosPublicos: { ...input.dados, origemConsulta: "navegador" } }) });
+        return { success: true };
       }),
 
     // Correção 06 — motor 2: anúncios + análise. Falha aqui não afeta o motor 1.

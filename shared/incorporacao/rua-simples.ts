@@ -15,7 +15,7 @@
 
 import type { Position } from "geojson";
 import {
-  EPS_GEO, angulosDasArestas, prepararFrameAnel, retAnel, retanguloDentro,
+  EPS_GEO, angulosDasArestas, areaPlanar, distanciaAteDivisa, prepararFrameAnel, recortarPorRetangulo, retAnel, retanguloDentro,
   type FrameAnel, type ImplantacaoFrame, type LoteFrame, type Ret,
 } from "./geometria-parcelamento.js";
 
@@ -32,6 +32,14 @@ export interface OpcoesRua {
   limitePecas?: number;
   /** Remove a via excedente após o último lote (padrão true). */
   aparar?: boolean;
+  /**
+   * "retangular" (padrão): lote = retângulo exato testada × profundidade.
+   * "divisa": lote acompanha a divisa — frente = testada informada (ou múltiplo dela, quando
+   * a faixa não atinge a área mínima), fundo até o limite da gleba (no máximo 2 × a
+   * profundidade informada), aceito só com área ≥ área mínima. Formato usual de chacreamento.
+   */
+  formato?: "retangular" | "divisa";
+  loteMinimoM2?: number;
 }
 
 export interface ImplantacaoRua extends ImplantacaoFrame {
@@ -89,6 +97,24 @@ export function gerarRuaSimplesFrame(
   const pecas: { ret: Ret; lotes: number }[] = [];
   let candidatos = 0;
   let pecasPossiveis = 0;
+  // formato "acompanha a divisa": faixas da frente da via até o limite da gleba
+  const divisa = opcoes.formato === "divisa";
+  const minArea = Math.max(opcoes.loteMinimoM2 ?? t * p, 1);
+  const profMax = 2 * p;
+  const acumulado: ({ x0: number; x1: number; k0: number } | null)[] = [null, null];
+  const loteDivisa = (x0: number, x1: number, lado: 0 | 1): Omit<LoteFrame, "linha" | "faixa" | "segmento" | "ordem"> | null => {
+    const sentido = lado === 0 ? 1 : -1;
+    const y0 = lado === 0 ? c + meio : c - meio;
+    // fundo = até a primeira divisa (amostrado nas laterais e no meio), limitado a 2 × a profundidade
+    const amostras = [x0 + 1e-3, (x0 + x1) / 2, x1 - 1e-3].map((x) => distanciaAteDivisa(fr.anel, x, y0, sentido));
+    const d = Math.min(profMax, Math.max(...amostras));
+    if (!Number.isFinite(d) || d <= EPS_GEO) return null;
+    const ret: Ret = lado === 0 ? [x0, y0, x1, y0 + d] : [x0, y0 - d, x1, y0];
+    const anel = recortarPorRetangulo(fr.anel, ret);
+    if (anel.length < 4) return null;
+    const area = areaPlanar(anel);
+    return { anel, area, ret, testada: x1 - x0, profundidadeMedia: area / (x1 - x0) };
+  };
   for (let k = 0; ; k++) {
     const xa = dir === 1 ? ini + inicio + k * t : fim - inicio - (k + 1) * t;
     const xb = xa + t;
@@ -97,15 +123,31 @@ export function gerarRuaSimplesFrame(
     if (!retanguloDentro(fr.ind, peca)) break;
     pecasPossiveis++;
     if (k >= maxPecas) continue; // segue só para saber quanto a poligonal comportaria
-    const lados: Ret[] = [[xa, c + meio, xb, c + meio + p], [xa, c - meio - p, xb, c - meio]];
     let n = 0;
-    lados.forEach((ret, lado) => {
-      if (retanguloDentro(fr.ind, ret)) {
-        lotes.push({ anel: retAnel(ret), area: t * p, ret, linha: 0, faixa: 0, segmento: lado, ordem: k });
-        candidatos++;
-        n++;
+    if (divisa) {
+      for (const lado of [0, 1] as const) {
+        const acc = acumulado[lado];
+        const novo = acc ? { x0: Math.min(acc.x0, xa), x1: Math.max(acc.x1, xb), k0: acc.k0 } : { x0: xa, x1: xb, k0: k };
+        const lote = loteDivisa(novo.x0, novo.x1, lado);
+        if (lote && lote.area >= minArea) {
+          lotes.push({ ...lote, linha: 0, faixa: 0, segmento: lado, ordem: novo.k0 });
+          candidatos++;
+          n++;
+          acumulado[lado] = null;
+        } else {
+          acumulado[lado] = novo;
+        }
       }
-    });
+    } else {
+      const lados: Ret[] = [[xa, c + meio, xb, c + meio + p], [xa, c - meio - p, xb, c - meio]];
+      lados.forEach((ret, lado) => {
+        if (retanguloDentro(fr.ind, ret)) {
+          lotes.push({ anel: retAnel(ret), area: t * p, ret, linha: 0, faixa: 0, segmento: lado, ordem: k });
+          candidatos++;
+          n++;
+        }
+      });
+    }
     pecas.push({ ret: peca, lotes: n });
   }
   let ultimo = pecas.length - 1;
@@ -119,6 +161,7 @@ export function gerarRuaSimplesFrame(
   return {
     lotes, corredores, baloes: [], candidatos,
     limitacoes: [
+      ...(divisa ? [`Lotes acompanham a divisa: frente de ${t.toLocaleString("pt-BR")} m (ou múltiplo, quando a faixa não atinge a área mínima), fundo até o limite da gleba (máx. ${profMax.toLocaleString("pt-BR")} m) e área ≥ ${minArea.toLocaleString("pt-BR")} m² — profundidade variável, informada por lote.`] : []),
       "Rua Simples: via única, reta, de mão dupla, com lotes dos dois lados. Curvas da via não são modeladas; a poligonal é acomodada pela escolha da orientação e do eixo.",
       "Rua Simples não inclui balão de retorno: a via termina no último lote. O acesso externo ocorre pela extremidade em que o eixo encontra o limite da gleba e deve ser confirmado em projeto (não foi informado ponto de acesso).",
     ],

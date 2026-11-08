@@ -143,8 +143,33 @@ servicodados.ibge.gov.br — os IDs SIDRA 6579/9324, 4714/93/614, 5938/37, 1685/
 confirmados ao vivo; se algum estiver errado, o indicador aparece como indisponível, nunca trocado) e
 **pesquisa de anúncios** (requer ANTHROPIC_API_KEY no servidor).
 
+## Etapa 5 — Retorno do dono (08/11, rodada 2)
+
+1. **KML real do Morada do Bosque** — estava no banco (estudo 5 "Chacreamento Morada do Bosque - Fase 1",
+   Ribeirãozinho/MA, KML "projeto aprovado Reginaldo", 150.095 m²), não no repositório. Fixture:
+   `server/fixtures/morada-do-bosque.ts`. Resultado com 20 × 250 m, área mínima 5.000 m², via 3 m:
+   **23 lotes** (retangular exato) e **25 lotes** (novo formato "acompanha a divisa").
+   **29 não é geometricamente viável** com testada ≥ 20 m e área ≥ 5.000 m² numa via única reta:
+   só ~480–490 m do eixo de 658 m têm largura ≥ 253 m (cabeceiras inclinadas; largura máx. 270,5 m);
+   29 × 5.000 = 145.000 m² exigiria aproveitar 96,6% da gleba. Testadas menores (16–19 m) também dão ~24–25.
+2. **IBGE**: o motor 1 já é gratuito (não usa Anthropic). O IBGE recusa conexões de fora do Brasil
+   (TLS reset verificado a partir do datacenter desta sessão; o Vercel roda em iad1/EUA). Agora a consulta
+   roda **no navegador do usuário** (`shared/incorporacao/dados-publicos.ts`) e o servidor só grava
+   (`salvarDadosPublicos`, aceita apenas URLs do IBGE); a rota de servidor ficou como reserva.
+3. **Rua Simples** — nova opção "Formato do lote: acompanha a divisa" (frente = testada ou múltiplo,
+   fundo até a divisa, máx. 2 × profundidade, área ≥ mínima). Via curva continua não modelada.
+4. **Ajuste da malha** (modo manual da área viária, Grade/Cul-de-sac): testa quadras mais curtas
+   (nunca acima do máximo informado) e suprime ruas de menor aproveitamento até a via desenhada bater
+   ±5%; nunca zera os lotes; o ajuste aparece nas limitações do cenário.
+5. **Chave gratuita**: provedor `provedorGeminiBuscaGoogle` (Gemini + Grounding with Google Search,
+   chave gratuita do Google AI Studio → `GEMINI_API_KEY`). Padrão quando houver chave; Anthropic opcional.
+
+Testes (a): suíte completa **185 arquivos / 1514 testes ✅**; build igual ao do Vercel ✅.
+(c) Pendente em produção: IBGE pelo navegador (CORS do IBGE não testável daqui); anúncios após
+cadastrar `GEMINI_API_KEY` no Vercel.
+
 ## Pendências gerais
-- Validar Rua Simples com o **KML real do Morada do Bosque** (não está no repositório).
+- Morada do Bosque: validado com o KML real (23/25 lotes; 29 inviável — ver Etapa 5).
 - Via curva na Rua Simples não é modelada (via reta; limitação exibida no cenário).
 - Ponto de acesso viário informado pelo usuário não é modelado (a via sai da divisa).
 - Grade/Cul-de-sac em modo manual da área viária: só aceita se bater ±5% com o desenho (não ajusta a malha).

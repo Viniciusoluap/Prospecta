@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from "vitest";
-import { pesquisarDadosPublicos, INDICADORES_IBGE, type Buscador } from "./_core/incorporacao/dados-publicos";
+import { pesquisarDadosPublicos, INDICADORES_IBGE, type Buscador } from "../shared/incorporacao/dados-publicos";
 import { pesquisarMercadoImobiliario, _limparCacheAnuncios, type ProvedorAnuncios } from "./_core/incorporacao/mercado-anuncios";
 import { analisarAnuncios, urlCanonica, AVISO_PRECO_ANUNCIADO, type AnuncioBruto } from "../shared/incorporacao/analise-anuncios";
 
@@ -174,5 +174,49 @@ describe("Motor 2 — provedor isolado, cache e independência", () => {
     const [imob, pub] = await Promise.allSettled([pesquisarMercadoImobiliario(c, quebrado), pesquisarDadosPublicos("São Luís", "MA", buscadorFalso(), AGORA)]);
     expect(imob.status).toBe("rejected");
     expect(pub.status === "fulfilled" && pub.value.indicadores.length).toBeGreaterThan(0);
+  });
+});
+
+// ─── Provedor gratuito Google (Gemini + Busca Google) ────────────────────────
+import { vi, afterEach } from "vitest";
+import { provedorGeminiBuscaGoogle, provedorPadrao, provedorBuscaWebAnthropic } from "./_core/incorporacao/mercado-anuncios";
+import { ENV } from "./_core/env";
+
+describe("Provedor Google gratuito (GEMINI_API_KEY)", () => {
+  const original = { g: ENV.geminiApiKey, a: ENV.anthropicApiKey };
+  afterEach(() => { ENV.geminiApiKey = original.g; ENV.anthropicApiKey = original.a; vi.unstubAllGlobals(); });
+  const c = { municipio: "Imperatriz", uf: "MA", tipologia: "lote" as const };
+
+  it("sem chave: indisponível com instrução da chave gratuita", () => {
+    ENV.geminiApiKey = "";
+    expect(provedorGeminiBuscaGoogle.indisponibilidade()).toMatch(/aistudio\.google\.com/);
+  });
+
+  it("é o provedor padrão quando há chave do Google (mesmo havendo chave Anthropic)", () => {
+    ENV.geminiApiKey = "g-teste"; ENV.anthropicApiKey = "a-teste";
+    expect(provedorPadrao()).toBe(provedorGeminiBuscaGoogle);
+    ENV.geminiApiKey = "";
+    expect(provedorPadrao()).toBe(provedorBuscaWebAnthropic);
+  });
+
+  it("envia a busca com Google Search e lê os anúncios da resposta", async () => {
+    ENV.geminiApiKey = "g-teste";
+    const fetchFalso = vi.fn(async (_url: string, init: RequestInit) => {
+      const corpo = JSON.parse(String(init.body));
+      expect(corpo.tools).toEqual([{ google_search: {} }]);
+      expect((init.headers as Record<string, string>)["x-goog-api-key"]).toBe("g-teste");
+      return new Response(JSON.stringify({ candidates: [{ content: { parts: [{ text: '```json\n{"anuncios":[{"titulo":"Lote 300 m²","url":"https://portal.exemplo/1","fonte":"Portal","areaM2":300,"preco":90000,"tipologia":"lote"}]}\n```' }] } }] }), { status: 200 });
+    });
+    vi.stubGlobal("fetch", fetchFalso);
+    const anuncios = await provedorGeminiBuscaGoogle.buscar(c);
+    expect(fetchFalso).toHaveBeenCalledOnce();
+    expect(String(fetchFalso.mock.calls[0][0])).toMatch(/generativelanguage\.googleapis\.com\/v1beta\/models\/.+:generateContent$/);
+    expect(anuncios).toEqual([{ titulo: "Lote 300 m²", url: "https://portal.exemplo/1", fonte: "Portal", areaM2: 300, preco: 90000, tipologia: "lote" }]);
+  });
+
+  it("cota gratuita esgotada (429) vira mensagem clara, sem custo", async () => {
+    ENV.geminiApiKey = "g-teste";
+    vi.stubGlobal("fetch", vi.fn(async () => new Response("{}", { status: 429 })));
+    await expect(provedorGeminiBuscaGoogle.buscar(c)).rejects.toThrow(/Cota gratuita/);
   });
 });

@@ -247,6 +247,9 @@ export async function excluirPropostaNegociacao(estudoId: string, propostaId: st
 export async function pesquisarDadosPublicos(estudoId: string, municipio: string, estado: string) {
   return inc.pesquisarDadosPublicos.mutate({ id: id(estudoId), municipio, estado });
 }
+export async function salvarDadosPublicos(estudoId: string, dados: Parameters<typeof inc.salvarDadosPublicos.mutate>[0]["dados"]) {
+  return inc.salvarDadosPublicos.mutate({ id: id(estudoId), dados });
+}
 export async function pesquisarMercadoImobiliario(estudoId: string, c: { municipio: string; estado: string; bairro?: string; tipologia: "lote" | "casa" | "apartamento" | "terreno" | "outro"; areaMinM2?: number; areaMaxM2?: number }) {
   return inc.pesquisarMercadoImobiliario.mutate({ id: id(estudoId), ...c });
 }
