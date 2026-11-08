@@ -1,3 +1,5 @@
+import { isNull } from "drizzle-orm";
+import { modeloNovo } from "../shared/contratos/modelos.js";
 import { DOCUMENT_LIMIT, readUpload, clearUpload } from "./document-upload-chunks.js";
 import { FINANCING_DOCUMENT_MIMES, saveFinancingDocument } from "./financing-document-upload.js";
 import { FINANCIAMENTO_CHECKLIST_PADRAO } from "../shared/financiamento.js";
@@ -504,6 +506,9 @@ export const portalRouter = router({
           code: "NOT_FOUND",
           message: "Contrato não encontrado",
         });
+      if (modeloNovo(contract.type)) throw new TRPCError({
+        code: "BAD_REQUEST", message: "O PDF com todas as assinaturas deve ser anexado pela equipe do Jurídico.",
+      });
       const buffer = Buffer.from(input.base64, "base64");
       if (!isValidSignedPdf(buffer) || buffer.length > 3 * 1024 * 1024) {
         throw new TRPCError({
@@ -718,12 +723,8 @@ export const portalRouter = router({
           description: z.string().max(4000).optional(),
         })
       )
-      .mutation(async ({ input }) => {
-        const [contract] = await getDb()
-          .insert(portalContracts)
-          .values(input)
-          .returning();
-        return contract;
+      .mutation(() => {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "Crie contratos pelo módulo Jurídico." });
       }),
 
     addDocument: adminProcedure
@@ -754,7 +755,7 @@ export const portalRouter = router({
         await getDb()
           .update(portalContracts)
           .set({ signatureStatus: input.status, updatedAt: new Date() })
-          .where(eq(portalContracts.id, input.contractId));
+          .where(and(eq(portalContracts.id, input.contractId), isNull(portalContracts.signers)));
         return { success: true };
       }),
 
