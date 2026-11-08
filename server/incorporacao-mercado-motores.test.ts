@@ -369,3 +369,27 @@ describe("Provedor Tavily", () => {
     expect(gravados.get(CHAVE_SEGREDO_TAVILY)!.startsWith("plain:")).toBe(false);
   });
 });
+
+describe("Revisão Codex (PR #190) — extração", () => {
+  const PAGINA = { url: "https://portal.exemplo/imoveis/imperatriz", title: "Imóveis em Imperatriz" };
+  it("aluguel em qualquer forma ('para alugar', 'aluga-se', 'locação') é descartado", () => {
+    for (const content of [
+      "Casa para alugar em Imperatriz por R$ 1.200,00, com 300 m²",
+      "Aluga-se casa Imperatriz. R$ 1.200,00. 300 m²",
+      "Loca-se terreno Imperatriz 300 m² R$ 1.500",
+    ]) expect(extrairAnunciosDeResultado({ ...PAGINA, content }, CONSULTA_IMP).anuncios).toHaveLength(0);
+  });
+  it("município homônimo de OUTRO estado é descartado; o mesmo estado é aceito", () => {
+    const pi = { municipio: "Bom Jesus", uf: "PI", tipologia: "lote" as const };
+    const pagina = { url: "https://portal.exemplo/bom-jesus", title: "Lotes em Bom Jesus" };
+    expect(extrairAnunciosDeResultado({ ...pagina, content: "Lote em Bom Jesus/RS por R$ 150.000 com 300 m²" }, pi).anuncios).toHaveLength(0);
+    expect(extrairAnunciosDeResultado({ ...pagina, content: "Lote em Bom Jesus - RS por R$ 150.000 com 300 m²" }, pi).anuncios).toHaveLength(0);
+    expect(extrairAnunciosDeResultado({ ...pagina, content: "Lote em Bom Jesus/PI por R$ 150.000 com 300 m²" }, pi).anuncios).toHaveLength(1);
+  });
+  it("área com ponto decimal não vira um pedaço do número", () => {
+    const a = extrairAnunciosDeResultado({ ...PAGINA, content: "Lote em Imperatriz com 250.50 m² por R$ 150.000" }, CONSULTA_IMP).anuncios;
+    expect(a).toHaveLength(1);
+    expect(a[0].areaM2).toBe(250.5);
+    expect(extrairAnunciosDeResultado({ ...PAGINA, content: "Lote em Imperatriz com 1.250 m² por R$ 150.000" }, CONSULTA_IMP).anuncios[0].areaM2).toBe(1250);
+  });
+});

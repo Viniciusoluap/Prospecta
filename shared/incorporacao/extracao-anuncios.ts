@@ -26,17 +26,18 @@ function numeroBR(txt: string): number | null {
   let norm: string;
   if (/^\d{1,3}(\.\d{3})+(,\d+)?$/.test(t)) norm = t.replace(/\./g, "").replace(",", ".");
   else if (/^\d+(,\d+)?$/.test(t)) norm = t.replace(",", ".");
-  else if (/^\d+(\.\d+)?$/.test(t)) norm = t;
+  else if (/^\d+\.\d{1,2}$/.test(t)) norm = t; // ponto decimal (250.50)
   else return null;
   const n = Number(norm);
   return Number.isFinite(n) ? n : null;
 }
 
 const RE_PRECO = /R\$\s?(\d{1,3}(?:\.\d{3})+(?:,\d{1,2})?|\d+(?:,\d{1,2})?)(?:\s*(milh(?:ão|ao|ões|oes)|mil)(?![a-zà-ú]))?/gi;
-const RE_AREA = /(\d{1,3}(?:\.\d{3})+(?:,\d+)?|\d+(?:,\d+)?)\s?(m²|m2|metros quadrados)(?![a-z])/gi;
-const RE_HECTARE = /(\d+(?:,\d+)?)\s?(ha|hectares?)(?![a-z])/gi;
+// (?<![\d.,]) impede casar só o fim de um número ("250.50" nunca vira "50"); ponto com 1–2 casas = decimal
+const RE_AREA = /(?<![\d.,])(\d{1,3}(?:\.\d{3})+(?:,\d+)?|\d+\.\d{1,2}(?!\d)|\d+(?:,\d+)?)\s?(m²|m2|metros quadrados)(?![a-z])/gi;
+const RE_HECTARE = /(?<![\d.,])(\d+(?:,\d+)?)\s?(ha|hectares?)(?![a-z])/gi;
 // palavras que tornam o trecho inadequado como anúncio de VENDA com preço total
-const RE_DESCARTE = /(\/\s*m[êe]s|\bmensa|alugu|loca[çc][ãa]o|parcela|entrada|a partir de|valor m[ée]dio|\bm[ée]dia\b|\bm[ée]dio\b|condom[íi]nio r\$|iptu|\/\s*m²|\/\s*m2|por m²|por m2|valor do m|m² r\$|leil[ãa]o|lance)/i;
+const RE_DESCARTE = /(\/\s*m[êe]s|\bmensa|\balug|\bloca[çc][ãa]o|\bloca-se|\blocar\b|parcela|entrada|a partir de|valor m[ée]dio|\bm[ée]dia\b|\bm[ée]dio\b|condom[íi]nio r\$|iptu|\/\s*m²|\/\s*m2|por m²|por m2|valor do m|m² r\$|leil[ãa]o|lance)/i;
 
 function precosDe(trecho: string): number[] {
   const out: number[] = [];
@@ -67,11 +68,20 @@ function tipologiaDoTrecho(trecho: string, padrao: TipologiaImovel): TipologiaIm
   return padrao;
 }
 
+const UFS = new Set(["ac", "al", "ap", "am", "ba", "ce", "df", "es", "go", "ma", "mt", "ms", "mg", "pa", "pb", "pr", "pe", "pi", "rj", "rn", "rs", "ro", "rr", "sc", "sp", "se", "to"]);
+
 /** Menção a OUTRA cidade no trecho ("em Trindade de Goiania", "Goiânia/GO", "Timon - MA")? */
-function mencionaOutraCidade(trecho: string, municipio: string): boolean {
+function mencionaOutraCidade(trecho: string, municipio: string, uf: string): boolean {
   const alvo = semAcento(municipio);
   const s = semAcento(trecho);
-  if (s.includes(alvo)) return false;
+  if (s.includes(alvo)) {
+    // homônimo: "Bom Jesus/RS" ou "Bom Jesus - RS" numa pesquisa de Bom Jesus/PI → outra cidade
+    const esc = alvo.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    for (const m of Array.from(s.matchAll(new RegExp(`${esc}\\s?(?:\\/|-|–|,)\\s?([a-z]{2})\\b`, "g")))) {
+      if (UFS.has(m[1]) && m[1] !== semAcento(uf)) return true;
+    }
+    return false;
+  }
   // "Cidade/UF" ou "Cidade - UF" com cidade diferente
   if (/[a-z]{3,}\s?(\/|-)\s?[a-z]{2}\b/.test(s) && /\b(ac|al|ap|am|ba|ce|df|es|go|ma|mt|ms|mg|pa|pb|pr|pe|pi|rj|rn|rs|ro|rr|sc|sp|se|to)\b/.test(s)) return true;
   // "... em Nome Próprio" (lugar) sem o município-alvo
@@ -110,7 +120,7 @@ export function extrairAnunciosDeResultado(
     if (preco < 1_000) return descartar("Preço implausível para venda (< R$ 1.000).");
     if (area < 10) return descartar("Área implausível (< 10 m²).");
     if (!paginaDoMunicipio && !semAcento(trecho).includes(semAcento(consulta.municipio))) return descartar("Página e trecho não são do município pesquisado.");
-    if (mencionaOutraCidade(trecho, consulta.municipio)) return descartar("O trecho menciona outra localidade.");
+    if (mencionaOutraCidade(trecho, consulta.municipio, consulta.uf)) return descartar("O trecho menciona outra localidade (ou o mesmo nome em outro estado).");
     anuncios.push({
       titulo: trecho.slice(0, 140),
       url: r.url,
