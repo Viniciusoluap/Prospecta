@@ -1,10 +1,14 @@
+import { randomUUID } from "node:crypto";
 import { TRPCError } from "@trpc/server";
-import { asc, desc, eq, sql } from "drizzle-orm";
+import { and, asc, desc, eq, isNull, sql } from "drizzle-orm";
 import { z } from "zod";
 import { imoveis, leads, portalChatMessages, portalContractDocuments, portalContracts } from "../drizzle/schema.js";
-import { ASSINATURA_STATUS, CONTRATO_STATUS, CONTRATO_TIPOS, contratoInputSchema } from "../shared/juridico.js";
+import { ASSINATURA_STATUS, CONTRATO_STATUS, contratoInputSchema } from "../shared/juridico.js";
 import { adminProcedure, router } from "./_core/trpc.js";
 import { getDb } from "./db.js";
+import { CAMPOS_MODELO, MODELOS_CONTRATO, modeloNovo, montarContrato, type CamposModelo } from "../shared/contratos/modelos.js";
+import { gerarPdfModelo } from "../shared/contratos/pdf.js";
+import { opcoesModelosContrato } from "./juridico-modelos.js";
 import { readPrivateDocument, tryDriveUpload, uploadPrivateDocument } from "./drive-documents.js";
 import { readPrivateDbFile } from "./private-document-files.js";
 
@@ -42,44 +46,41 @@ export const juridicoRouter = router({
     return { leads: leadOptions, properties: propertyOptions };
   }),
 
-  create: adminProcedure.input(contratoInputSchema).mutation(async ({ input }) => {
+  modelOptions: adminProcedure.query(() => opcoesModelosContrato()),
+
+  create: adminProcedure.input(z.record(z.enum(CAMPOS_MODELO), z.string().trim().max(1000))).mutation(async ({ input }) => {
+    const campos = input as CamposModelo;
+    if (!/^\d+$/.test(campos.obraId) || !Number.isSafeInteger(Number(campos.obraId))) {
+      throw new TRPCError({ code: "BAD_REQUEST", message: "Selecione uma obra." });
+    }
+    const opcoes = await opcoesModelosContrato(Number(campos.obraId));
+    const contrato = (() => {
+      try { return montarContrato(campos, opcoes); }
+      catch (error) { throw new TRPCError({ code: "BAD_REQUEST", message: (error as Error).message }); }
+    })();
     const [created] = await getDb().insert(portalContracts).values({
-      ...input,
-      number: input.number || `PRO-${Date.now()}`,
-      partyADocument: input.partyADocument || null,
-      partyBDocument: input.partyBDocument || null,
-      description: input.description || "",
-      clauses: input.clauses || "",
-      value: input.value.toFixed(2),
+      number: `PRO-${Date.now()}-${randomUUID().slice(0, 8)}`,
+      type: contrato.tipo, partyA: contrato.empresa.nome, partyADocument: contrato.empresa.documento,
+      partyB: contrato.parteB, partyBDocument: contrato.parteBDoc,
+      leadId: Number(contrato.obra.leadId), propertyId: Number(contrato.obra.imovelId), projectId: Number(contrato.obra.id),
+      contractorId: contrato.empreiteiroId ? Number(contrato.empreiteiroId) : null,
+      brokerId: contrato.corretorId ? Number(contrato.corretorId) : null,
+      signatureDate: campos.dataAssinatura, value: contrato.valor.toFixed(2),
+      description: contrato.description, clauses: contrato.clausulas, signers: contrato.assinaturas,
     }).returning();
     return created;
   }),
 
-  // Item 11 (18/10): contrato criado pelo lead nasce no Jurídico (fonte única),
-  // já vinculado ao lead, com os dados do cliente e a numeração do Jurídico.
-  createFromLead: adminProcedure.input(z.object({
-    leadId: z.number().int().positive(),
-    type: z.enum(CONTRATO_TIPOS),
-    value: z.number().nonnegative().default(0),
-  })).mutation(async ({ input }) => {
-    const db = getDb();
-    const [lead] = await db.select({ id: leads.id, name: leads.name, cpf: leads.cpf, deletedAt: leads.deletedAt })
-      .from(leads).where(eq(leads.id, input.leadId)).limit(1);
-    if (!lead || lead.deletedAt) throw new TRPCError({ code: "NOT_FOUND", message: "Lead não encontrado no CRM" });
-    const [created] = await db.insert(portalContracts).values({
-      number: `PRO-${Date.now()}`,
-      type: input.type,
-      status: "rascunho",
-      partyA: "Prospecta Construções",
-      partyB: lead.name,
-      partyBDocument: lead.cpf || null,
-      leadId: lead.id,
-      value: input.value.toFixed(2),
-      description: "",
-      clauses: "",
-      signatureStatus: "pendente",
-    }).returning();
-    return created;
+  modelPdf: adminProcedure.input(z.object({ id: z.number().int().positive() })).query(async ({ input }) => {
+    const [contrato] = await getDb().select().from(portalContracts).where(eq(portalContracts.id, input.id)).limit(1);
+    if (!contrato || !modeloNovo(contrato.type) || !contrato.signatureDate || !contrato.signers || !contrato.clauses) {
+      throw new TRPCError({ code: "NOT_FOUND", message: "Contrato ou modelo não encontrado." });
+    }
+    const doc = gerarPdfModelo({
+      numero: contrato.number, titulo: MODELOS_CONTRATO[contrato.type],
+      data: new Date(contrato.signatureDate), clausulas: contrato.clauses, assinaturas: contrato.signers,
+    });
+    return { fileName: `${contrato.number}.pdf`, base64: Buffer.from(doc.output("arraybuffer")).toString("base64") };
   }),
 
   update: adminProcedure.input(z.object({ id: z.number().int().positive(), data: contratoInputSchema }))
@@ -93,8 +94,8 @@ export const juridicoRouter = router({
         clauses: input.data.clauses || "",
         value: input.data.value.toFixed(2),
         updatedAt: new Date(),
-      }).where(eq(portalContracts.id, input.id)).returning();
-      if (!updated) throw new TRPCError({ code: "NOT_FOUND", message: "Contrato não encontrado" });
+      }).where(and(eq(portalContracts.id, input.id), isNull(portalContracts.signers))).returning();
+      if (!updated) throw new TRPCError({ code: "BAD_REQUEST", message: "Use o modelo salvo para gerar o PDF. A edição livre é exclusiva de contratos antigos." });
       return updated;
     }),
 
@@ -107,8 +108,8 @@ export const juridicoRouter = router({
       status: input.status,
       signatureStatus: input.signatureStatus,
       updatedAt: new Date(),
-    }).where(eq(portalContracts.id, input.id)).returning();
-    if (!updated) throw new TRPCError({ code: "NOT_FOUND", message: "Contrato não encontrado" });
+    }).where(and(eq(portalContracts.id, input.id), input.signatureStatus ? isNull(portalContracts.signers) : undefined)).returning();
+    if (!updated) throw new TRPCError({ code: "BAD_REQUEST", message: "Para registrar a assinatura deste modelo, anexe o PDF com todas as assinaturas." });
     return updated;
   }),
 

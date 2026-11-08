@@ -8,12 +8,11 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { toast } from "sonner";
 import { CalendarDays, ExternalLink, FileText, KeyRound, MessageSquare, Paperclip, Send } from "lucide-react";
-import { CONTRATO_TIPOS } from "@shared/juridico";
+import { modeloNovo, MODELOS_CONTRATO } from "@shared/contratos/modelos";
 import { VISIT_TYPES } from "@shared/operacional";
 import { rotulo } from "@shared/rotulos";
 import { mutarComProgresso } from "@/lib/envio-progresso";
 import { useAuth } from "@/_core/hooks/useAuth";
-import { parseNumeroBR } from "@shared/numero-br";
 import { parsePermissions } from "@shared/admin-permissions";
 
 const campo = "bg-[#1A2332] text-white placeholder:text-gray-400 border-[#C9A961]/30";
@@ -42,8 +41,6 @@ export function AdminPortalLeadPanel({ leadId, defaultEmail }: { leadId: number;
   // Item 10 (18/10): "Agendamento de visita" cria o compromisso na Agenda do sistema
   // (mesmo registro: o que muda lá aparece aqui e vice-versa).
   const [visita, setVisita] = useState({ quando: "", responsavel: "", corretor: "", tipo: "imovel", observacoes: "" });
-  // Item 11 (18/10): contrato nasce no Jurídico, vinculado ao lead.
-  const [contrato, setContrato] = useState<{ tipo: (typeof CONTRATO_TIPOS)[number]; valor: string }>({ tipo: "construcao", valor: "" });
   const [anexando, setAnexando] = useState<number | null>(null);
   // Contrato escolhido para o anexo; só vira "anexando" quando um PDF válido é
   // selecionado — cancelar o seletor ou recusar o arquivo não trava os botões.
@@ -59,14 +56,6 @@ export function AdminPortalLeadPanel({ leadId, defaultEmail }: { leadId: number;
     onSuccess: async () => {
       toast.success("Visita agendada e incluída na Agenda");
       setVisita({ quando: "", responsavel: "", corretor: "", tipo: "imovel", observacoes: "" });
-      await recarregar();
-    },
-    onError: e => toast.error(e.message),
-  });
-  const criarContrato = trpc.juridico.createFromLead.useMutation({
-    onSuccess: async created => {
-      toast.success(`Contrato ${created.number} criado no Jurídico`);
-      setContrato({ tipo: "construcao", valor: "" });
       await recarregar();
     },
     onError: e => toast.error(e.message),
@@ -135,12 +124,7 @@ export function AdminPortalLeadPanel({ leadId, defaultEmail }: { leadId: number;
 
         {podeJuridico ? <div className="space-y-2">
           <Label className="text-gray-200 flex gap-2"><FileText className="h-4 w-4"/>Contrato (Jurídico)</Label>
-          <select aria-label="Tipo de contrato" value={contrato.tipo} onChange={e=>setContrato({...contrato,tipo:e.target.value as (typeof CONTRATO_TIPOS)[number]})} className={seletor}>
-            {CONTRATO_TIPOS.map(t => <option key={t} value={t}>{rotulo(t)}</option>)}
-          </select>
-          <Input aria-label="Valor do contrato" inputMode="decimal" value={contrato.valor} onChange={e=>setContrato({...contrato,valor:e.target.value})} placeholder="Valor (opcional)" className={campo}/>
-          <Button size="sm" disabled={criarContrato.isPending} onClick={()=>criarContrato.mutate({ leadId, type: contrato.tipo, value: parseNumeroBR(contrato.valor) })}>Criar contrato no Jurídico</Button>
-          <p className="text-xs text-gray-300">Número do Jurídico e dados do cliente preenchidos automaticamente.</p>
+          <Link href={`/admin/juridico?novo=${leadId}`}><Button size="sm">Novo contrato no Jurídico</Button></Link>
         </div> : <div className="space-y-2">
           <Label className="text-gray-200 flex gap-2"><FileText className="h-4 w-4"/>Contrato (Jurídico)</Label>
           <p className="text-xs text-gray-300">Criar contrato, pedir assinatura e anexar PDF exigem acesso ao módulo Jurídico.</p>
@@ -170,14 +154,14 @@ export function AdminPortalLeadPanel({ leadId, defaultEmail }: { leadId: number;
         {overview.data?.contracts.length ? overview.data.contracts.map(c => (
           <div key={c.id} className="flex flex-wrap items-center justify-between gap-2 rounded bg-[#1A2332] p-3 text-sm">
             <div className="min-w-0">
-              <p className="font-semibold break-words">{c.number} · {rotulo(c.type)}</p>
+              <p className="font-semibold break-words">{c.number} · {modeloNovo(c.type) ? MODELOS_CONTRATO[c.type] : rotulo(c.type)}</p>
               <p className="text-xs text-gray-300">Situação: {rotulo(c.status)} · Assinatura: {rotulo(c.signatureStatus)}</p>
             </div>
             {podeJuridico && <div className="flex flex-wrap gap-2">
               <Link href={`/admin/juridico?contrato=${c.id}`}><Button size="sm" variant="outline" className={botaoClaro}><ExternalLink className="mr-1 h-3 w-3"/>Abrir no Jurídico</Button></Link>
-              <Button size="sm" variant="outline" className={botaoClaro} disabled={assinatura.isPending || c.signatureStatus === "assinado" || c.signatureStatus === "solicitado"} onClick={()=>assinatura.mutate({ id: c.id, signatureStatus: "solicitado" })}>
+              {!modeloNovo(c.type) && <Button size="sm" variant="outline" className={botaoClaro} disabled={assinatura.isPending || c.signatureStatus === "assinado" || c.signatureStatus === "solicitado"} onClick={()=>assinatura.mutate({ id: c.id, signatureStatus: "solicitado" })}>
                 {c.signatureStatus === "solicitado" ? "Assinatura solicitada" : "Solicitar assinatura"}
-              </Button>
+              </Button>}
               <Button size="sm" variant="outline" className={botaoClaro} disabled={anexando !== null} onClick={()=>{ contratoDoAnexo.current = c.id; arquivoRef.current?.click(); }}>
                 <Paperclip className="mr-1 h-3 w-3"/>{anexando === c.id ? "Enviando…" : "Anexar PDF"}
               </Button>

@@ -1731,6 +1731,11 @@ export const portalContracts = pgTable("portal_contracts", {
   }),
   value: decimal("value", { precision: 15, scale: 2 }).default("0").notNull(),
   dueAt: timestamp("due_at"),
+  signatureDate: date("signature_date", { mode: "string" }),
+  projectId: integer("project_id").references(() => constructionProjects.id, { onDelete: "set null" }),
+  contractorId: integer("contractor_id").references(() => users.id, { onDelete: "set null" }),
+  brokerId: integer("broker_id").references(() => users.id, { onDelete: "set null" }),
+  signers: jsonb("signers").$type<string[]>(),
   description: text("description"),
   clauses: text("clauses"),
   signatureStatus: varchar("signature_status", { length: 30 })
