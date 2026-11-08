@@ -287,6 +287,19 @@ motor; (c) captação ignorada; (d) payback 0 porque o caixa do M0 era 0 ≥ 0; 
 `vite build` OK. (b) manuais — aba Viabilidade renderizada no Chromium com os dados do estudo 2 (sem console errors);
 alternância Casa Pronta ↔ por m² preserva os valores. (c) produção — pendente (após merge/deploy).
 
+**Revisão Codex (2 achados, ambos procedentes) — corrigidos em ce69850:** campo "Área do lote" na Casa Pronta
+(sugerido pela média dos lotes; alerta se zerado) e coluna "Remuneração" no fluxo anual (a tabela fecha em todo ano).
+
+**Merge e deploy (autorizados no prompt 09–12):** PR #191 mergeado em `main` (cc64171). Deploy de produção
+`dpl_E5pMpTCxg972TLu6C4MYE8qQGmdv` READY, aliases prospectaconstrucoes.com / www. Verificação pós-deploy (somente
+leitura): página responde 200 no deployment de produção; versão = commit cc64171; sem erros de runtime nos 30 min
+seguintes; banco intacto (5 estudos, última alteração 13:08, antes deste trabalho — nenhum dado foi gravado).
+Não verificado: telas logadas (a sessão não tem login no sistema e o domínio é bloqueado pelo proxy daqui).
+
+**Para o dono conferir na tela logada (estudo 2):** Viabilidade → fontes "Valor do sistema" em infra, marketing e
+terreno; KPIs ROI ≈ 67%, margem ≈ 40%, payback mês 4; tabelas por ano; demonstrativo; marcar Casa Pronta (12 × 230.000)
+e clicar em Salvar premissas para gravar as fontes. Business Plan → coluna "Mês do aporte". Orçamento → "Grupo na Viabilidade".
+
 ## Pendências gerais
 - Morada do Bosque: validado com o KML real — reta 23 / divisa-reta 25 / via pela divisa 27 (testada 20 m)
   e 29 com testada mínima 17 m (Etapas 5 e 6).
@@ -300,7 +313,7 @@ alternância Casa Pronta ↔ por m² preserva os valores. (c) produção — pen
 - Merge e deploy dependem de autorização do dono.
 
 ## Próximo passo exato (atualizado na Etapa 9)
-0. PR das Correções 09–12: revisão Codex → corrigir → merge → deploy → verificação pós-deploy (somente leitura).
+0. Correções 09–12 em produção (cc64171). Falta só a conferência do dono na tela logada (lista acima) e portar ao Santa Fé (ROADMAP).
 
 ## Próximo passo anterior
 1. Dono autoriza merge/deploy do PR #190 (Tavily + handoff). Após o deploy, na tela logada: Inteligência de
