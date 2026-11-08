@@ -118,6 +118,8 @@ export const provedorGeminiBuscaGoogle: ProvedorAnuncios = {
       body: JSON.stringify({ contents: [{ role: "user", parts: [{ text: PROMPT_ANUNCIOS(c) }] }], tools: [{ google_search: {} }] }),
     });
     if (r.status === 429) throw new Error("Cota gratuita do Google esgotada no momento — tente mais tarde (nenhum custo foi gerado).");
+    if (r.status === 402) throw new Error("A chave do Google pertence a um projeto com crédito pré-pago esgotado (o Google exige pagamento nesse projeto). Para usar o nível gratuito, crie a chave em um projeto SEM faturamento no Google AI Studio (aistudio.google.com/apikey → Create API key → novo projeto) ou recarregue os créditos do projeto atual.");
+    if (r.status === 400 || r.status === 403) throw new Error(`O Google recusou a chave (HTTP ${r.status}): confira se ela é do Google AI Studio e se a API Gemini está habilitada.`);
     if (!r.ok) throw new Error(`Google respondeu HTTP ${r.status}.`);
     const json = (await r.json()) as { candidates?: { content?: { parts?: { text?: string }[] } }[] };
     const texto = (json.candidates?.[0]?.content?.parts ?? []).map((p) => p.text ?? "").join("");

@@ -43,6 +43,7 @@ import { fetchElevationGrid } from "./_core/geo/elevacao.js";
 import { pesquisarMercado } from "./_core/incorporacao/mercado-ia.js";
 import { pesquisarDadosPublicos } from "../shared/incorporacao/dados-publicos.js";
 import { pesquisarMercadoImobiliario } from "./_core/incorporacao/mercado-anuncios.js";
+import { carregarChaveGemini } from "./_core/incorporacao/segredos-mercado.js";
 import { excluirProposta, mesclarNegociacaoParaGravar, parseNegociacao } from "../shared/incorporacao/negociacao.js";
 import { financiamentoRouter } from "./financiamento-router.js";
 import { juridicoRouter } from "./juridico-router.js";
@@ -2912,6 +2913,8 @@ export const appRouter = router({
       }))
       .mutation(async ({ input, ctx }) => {
         requireModule(ctx, "incorporacao");
+        // chave do Google: variável de ambiente ou banco (dashboard_settings, criptografada)
+        await carregarChaveGemini(db);
         let r;
         try {
           r = await pesquisarMercadoImobiliario({ municipio: input.municipio, uf: input.estado, bairro: input.bairro || null, tipologia: input.tipologia, areaMinM2: input.areaMinM2, areaMaxM2: input.areaMaxM2 });
