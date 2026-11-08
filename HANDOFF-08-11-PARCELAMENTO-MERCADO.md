@@ -168,6 +168,27 @@ Testes (a): suíte completa **185 arquivos / 1514 testes ✅**; build igual ao d
 (c) Pendente em produção: IBGE pelo navegador (CORS do IBGE não testável daqui); anúncios após
 cadastrar `GEMINI_API_KEY` no Vercel.
 
+## Etapa 6 — Via que acompanha a divisa (08/11, rodada 3) — PR #188, mergeado
+
+- `shared/incorporacao/rua-divisa.ts` (novo): Rua Simples com **traçado pela divisa (curvo)** —
+  `tracadoVia: "divisa"` em `ParametrosMassa`; seletor "Traçado da via" na tela; progresso real.
+  A via segue trechos contínuos da poligonal (quebra em cantos > 60°, mais junções de dois trechos),
+  nos dois sentidos e com duas fases, com a largura informada, do lado de dentro da gleba.
+- Lotes: frente MÍNIMA = testada sobre a borda interna da via (cresce só onde preciso para a área
+  mínima — busca binária, arredondada ao cm); fundo até a divisa oposta (máx. 2 × profundidade);
+  cabeceiras seguem a divisa vizinha; refino com lotes em leque nas curvas (raios t, 2t, 4t, 8t).
+- Garantias: cada lote é recortado pela gleba e subtraído da via e dos lotes anteriores (sem
+  sobreposição por construção); geometria limpa a 0,1 mm; qualquer falha booleana RECUSA o lote;
+  lote com furo é recusado; **frente efetiva medida após o recorte** (amostragem ≤ 25 cm) — só aceita
+  frente efetiva ≥ testada (correção do apontamento Codex no PR #188, commit `f37df3c`).
+- Morada do Bosque (KML real, estudo 5): via 3 m pela divisa → **27 lotes** com frente mínima 20 m
+  (aproveitamento 98,7%; via 3/6/10 m dá o mesmo número); **29 lotes ≥ 5.000 m² com frente mínima 17 m**.
+  Limitante = comprimento de frente (~600 m): fundo até ~270 m faz lote de 20 m ter ~5.400 m²; cabeceiras
+  rasas exigem 40–65 m de frente.
+- Desempenho: 20–40 s nesta gleba (Web Worker com progresso). Otimização possível (pendência).
+- Testes: gleba real 27 e 29, gleba sintética com dobra, determinismo, frente efetiva (caso Codex),
+  sem sobreposição lote×lote e lote×via, dentro da gleba, área e frente mínimas.
+
 ## Etapa 7 — Chave do Google (08/11)
 
 - O dono enviou uma chave do Google AI Studio. O Vercel recusou criar a variável de ambiente por esta
@@ -182,15 +203,91 @@ cadastrar `GEMINI_API_KEY` no Vercel.
 - Pendente (agente, após autorização de merge/deploy do PR #188): gravar a chave no banco de produção.
 - Testes (a): suíte **185 arquivos / 1521 ✅**.
 
+## Estado em 08/11 ~15h (fim da sessão Claude)
+
+- PRs mergeados e em produção (prospectaconstrucoes.com): **#187** (`36b3e05`) e **#188** (`05f3474`).
+  Deploy de produção do `05f3474` = READY no Vercel. Depois disso entrou na `main` o PR #189 (Codex, jurídico).
+- Suíte na última execução: **185 arquivos / 1522 testes ✅**; `tsc` limpo; build igual ao do Vercel ✅.
+- Ambiente de nuvem padrão do Claude: liberados `servicodados.ibge.gov.br` e `generativelanguage.googleapis.com`.
+- Chave Google enviada pelo dono no chat: **NÃO gravada em lugar nenhum** (retorna 402 — projeto com
+  crédito pré-pago esgotado). Recomendado ao dono apagá-la no AI Studio (ficou exposta no chat).
+- **Decisão do dono (08/11): seguir com o TAVILY** para a pesquisa de anúncios (grátis, ~1.000 buscas/mês,
+  sem cartão — conferir na página oficial). Implementação abaixo, a ser feita pelo **Codex**.
+
+## PRÓXIMO PASSO (Codex) — Provedor de anúncios Tavily, sem IA
+
+Objetivo: pesquisa de anúncios **sem custo e sem IA**. O Tavily busca as páginas; o sistema extrai preço e
+área do TEXTO REAL com regras determinísticas; a análise já existente (`shared/incorporacao/analise-anuncios.ts`:
+deduplicação, incompletos, atípicos/Tukey, mediana, Q1–Q3, confiabilidade) continua igual. Nada é estimado.
+
+### 0. Chave (passo do dono)
+- Criar conta grátis em **tavily.com** → API key (`tvly-...`).
+- Guardar de UMA destas formas (o código deve aceitar as duas, ENV com prioridade):
+  a) Vercel → projeto `site-prospecta` → Settings → Environment Variables → `TAVILY_API_KEY` (Production) + redeploy; ou
+  b) banco (sem painel): `INSERT INTO dashboard_settings (key, value, updated_at) VALUES ('segredo.tavily_api_key', 'plain:<CHAVE>', now()) ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = now();`
+     — o valor `plain:` é recriptografado (AES-256-GCM) no primeiro uso. **Nunca** commitar a chave.
+- Esta sessão (Claude) NÃO tem permissão de variáveis de ambiente no Vercel (403).
+
+### 1. Código (arquivos e o que fazer)
+1. `server/_core/env.ts`: `tavilyApiKey: process.env.TAVILY_API_KEY || ""`.
+2. `server/_core/incorporacao/segredos-mercado.ts`: generalizar `carregarChaveGemini` para
+   `carregarChave(nomeEnv, chaveBanco, campoEnv)` e criar `carregarChaveTavily` (`segredo.tavily_api_key`).
+   Manter o filtro `segredo.%` em `server/db.ts → getManagementDashboardData` (já existe).
+3. `shared/incorporacao/extracao-anuncios.ts` (NOVO, puro, testável): `extrairAnuncio({ url, title, content, rawContent })
+   → AnuncioBruto | null`.
+   - Preço: regex BR `R\$\s?\d{1,3}(\.\d{3})+(,\d{2})?` ou `R\$\s?\d+(,\d{2})?` (reusar o parser numérico de
+     `analise-anuncios.ts`, que já trata "150.000" = 150000).
+   - Recusar aluguel: "/mês", "mensal", "aluguel", "locação" perto do preço.
+   - Área: `(\d{1,3}(\.\d{3})*|\d+)(,\d+)?\s?(m²|m2|metros quadrados)`; hectare `ha` → ×10.000.
+   - Página com VÁRIOS preços/áreas distintos (página de listagem) → recusar (ambígua) ou separar só se cada
+     bloco tiver preço+área próprios. Nunca "escolher" um número.
+   - Tipologia por palavras do título/URL (`normalizarTipologia` já existe).
+   - `fonte` = host da URL; `url` = URL do resultado.
+4. `server/_core/incorporacao/mercado-anuncios.ts`: novo `provedorTavily: ProvedorAnuncios`.
+   - `POST https://api.tavily.com/search`, header `Authorization: Bearer <chave>`, JSON:
+     `{ "query": "<tipologia> à venda <bairro> <município> <UF> preço m²", "search_depth": "basic",
+        "max_results": 20, "include_raw_content": true }`
+     (conferir nomes/limites em docs.tavily.com; `include_domains` opcional: zapimoveis.com.br, vivareal.com.br,
+     olx.com.br, imovelweb.com.br, chavesnamao.com.br — usar só o texto que o Tavily devolve; nada de raspar portal).
+   - Resposta `results[]`: `{ title, url, content, raw_content, score }` → `extrairAnuncio` → `AnuncioBruto[]`.
+   - Erros: 401/403 → "chave do Tavily inválida"; 429/432 → "cota gratuita do Tavily esgotada (sem custo)";
+     timeout 60 s. 1 busca básica = 1 crédito (2 no advanced) — usar `basic`.
+   - `provedorPadrao()`: **Tavily > Google > Anthropic** (o primeiro com chave).
+   - Rota `pesquisarMercadoImobiliario` (`server/routers.ts`): chamar `carregarChaveTavily(db)` junto do Google.
+   - Mensagem sem provedor: citar TAVILY_API_KEY (tavily.com, grátis).
+5. Cache de 12 h por consulta já existe (`mercado-anuncios.ts`) — economiza cota.
+6. UI (`client/.../mercado-tab.tsx`): só textos — "Pesquisa de anúncios (Tavily, gratuito)"; o resto já funciona.
+
+### 2. Testes a criar (vitest, `server/incorporacao-mercado-motores.test.ts`)
+- Extração: "R$ 150.000" + "300 m²" → 150000 / 300; "R$ 1.200,00/mês" → recusado (aluguel); página com 3 preços
+  diferentes → recusada; "2 ha" → 20000 m²; sem área → recusado.
+- Provedor com `fetch` simulado: corpo da requisição (query, max_results, Bearer), leitura de `results`, 401, 429.
+- `provedorPadrao`: Tavily quando há chave, mesmo com Google/Anthropic configurados.
+- `carregarChaveTavily`: lê `plain:` do banco e recriptografa (mesmo padrão do teste da chave Google).
+
+### 3. Validação ao vivo (registrar no HANDOFF)
+- Liberar `api.tavily.com` na rede do ambiente do Codex, se necessário.
+- Consultar "lote, Imperatriz/MA" e "lote, Ribeirãozinho/MA": registrar nº de resultados, válidos, rejeitados
+  (motivos), mediana e confiabilidade. Se a maioria vier "ambígua", ajustar a query (anúncio individual) e/ou
+  `include_domains`, nunca afrouxar a regra de não estimar.
+
+### 4. Entrega
+- `pnpm exec vitest run` (suíte completa), `pnpm check`, `vite build`; commit + push; PR; merge/deploy só com
+  autorização do dono. Atualizar este HANDOFF.
+
 ## Pendências gerais
-- Morada do Bosque: validado com o KML real (23/25 lotes; 29 inviável — ver Etapa 5).
-- Via curva na Rua Simples não é modelada (via reta; limitação exibida no cenário).
+- Morada do Bosque: validado com o KML real — reta 23 / divisa-reta 25 / via pela divisa 27 (testada 20 m)
+  e 29 com testada mínima 17 m (Etapas 5 e 6).
 - Ponto de acesso viário informado pelo usuário não é modelado (a via sai da divisa).
-- Grade/Cul-de-sac em modo manual da área viária: só aceita se bater ±5% com o desenho (não ajusta a malha).
-- Paridade com o Santa Fé registrada em `docs/stories/epics/ROADMAP.md` (não portada).
+- Busca da via pela divisa: 20–40 s em glebas como a do Morada (otimizar: menos cadeias/refino, ou cache).
+- **IBGE pelo navegador**: validar em produção (Inteligência de Mercado → "Pesquisar dados oficiais (IBGE)");
+  o IBGE recusa acesso de fora do Brasil, por isso não foi testável daqui.
+- Pesquisa de anúncios: **implementar o provedor Tavily** (seção acima) e cadastrar `TAVILY_API_KEY`.
+- Paridade com o Santa Fé registrada em `docs/stories/epics/ROADMAP.md` (não portada; incluir Tavily e via pela divisa).
 - Merge e deploy dependem de autorização do dono.
 
 ## Próximo passo exato
-Revisão do PR #187 pelo dono; em seguida validar em homologação/produção: (1) gerar cenários com o KML
-real do Morada do Bosque nas 3 tipologias; (2) botão IBGE; (3) botão de anúncios com a chave
-configurada; (4) excluir uma proposta e conferir o histórico; (5) paginação das unidades em tablet.
+1. **Codex**: implementar o provedor Tavily conforme "PRÓXIMO PASSO (Codex)" acima.
+2. Dono: criar a chave em tavily.com e cadastrá-la (Vercel `TAVILY_API_KEY` ou banco `segredo.tavily_api_key`).
+3. Validar em produção: estudo de massa do Morada do Bosque (Rua Simples → Traçado "Acompanha a divisa"),
+   botão IBGE, exclusão de proposta, paginação das unidades em tablet.
