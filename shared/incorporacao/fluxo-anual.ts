@@ -45,14 +45,14 @@ export function custosPorAno(r: ResultadoLoteamento): CustosAno[] {
   }, (a) => a.total > 0.005).map((a) => ({ ano: a.ano, preVenda: r2(a.preVenda), duranteVenda: r2(a.duranteVenda), terreno: r2(a.terreno), financeiro: r2(a.financeiro), total: r2(a.total) }));
 }
 
-export interface FluxoAno { ano: number; recebimentos: number; custos: number; aportes: number; resgatesPrincipal: number; saldoProjeto: number; saldo: number; acumulado: number }
-/** Fluxo de caixa por ano: projeto (sem captação) e incorporador (com aportes e resgates). */
+export interface FluxoAno { ano: number; recebimentos: number; custos: number; aportes: number; resgatesPrincipal: number; remuneracaoInvestidores: number; saldoProjeto: number; saldo: number; acumulado: number }
+/** Fluxo de caixa por ano. Incorporador = projeto + aportes − devolução do principal − remuneração dos investidores. */
 export function fluxoPorAno(r: ResultadoLoteamento): FluxoAno[] {
-  const anos = agrupar<FluxoAno>(r.fluxo, (ano) => ({ ano, recebimentos: 0, custos: 0, aportes: 0, resgatesPrincipal: 0, saldoProjeto: 0, saldo: 0, acumulado: 0 }), (a, f) => {
+  const anos = agrupar<FluxoAno>(r.fluxo, (ano) => ({ ano, recebimentos: 0, custos: 0, aportes: 0, resgatesPrincipal: 0, remuneracaoInvestidores: 0, saldoProjeto: 0, saldo: 0, acumulado: 0 }), (a, f) => {
     a.recebimentos += f.receitaVoce;
     a.custos += f.custoPreVenda + f.custoDuranteVenda + (f.custoTerreno ?? 0) + (f.resgateRemuneracao ?? 0);
-    a.aportes += f.aporteCaptacao ?? 0; a.resgatesPrincipal += f.resgatePrincipal ?? 0;
+    a.aportes += f.aporteCaptacao ?? 0; a.resgatesPrincipal += f.resgatePrincipal ?? 0; a.remuneracaoInvestidores += f.resgateRemuneracao ?? 0;
     a.saldoProjeto += f.saldoProjeto ?? f.saldoMes; a.saldo += f.saldoMes; a.acumulado = f.saldoAcumulado;
   }, (a) => a.recebimentos > 0.005 || a.custos > 0.005 || a.aportes > 0.005 || a.resgatesPrincipal > 0.005);
-  return anos.map((a) => ({ ano: a.ano, recebimentos: r2(a.recebimentos), custos: r2(a.custos), aportes: r2(a.aportes), resgatesPrincipal: r2(a.resgatesPrincipal), saldoProjeto: r2(a.saldoProjeto), saldo: r2(a.saldo), acumulado: r2(a.acumulado) }));
+  return anos.map((a) => ({ ano: a.ano, recebimentos: r2(a.recebimentos), custos: r2(a.custos), aportes: r2(a.aportes), resgatesPrincipal: r2(a.resgatesPrincipal), remuneracaoInvestidores: r2(a.remuneracaoInvestidores), saldoProjeto: r2(a.saldoProjeto), saldo: r2(a.saldo), acumulado: r2(a.acumulado) }));
 }

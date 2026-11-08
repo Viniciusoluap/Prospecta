@@ -185,7 +185,11 @@ describe("Correção 11 — cronogramas e convenção temporal", () => {
     const c = custosPorAno(r);
     expect(c.find((a) => a.ano === 2)!.preVenda).toBeCloseTo(r.custosDetalhados.manutencao, 2); // M15
     expect(c.find((a) => a.ano === 3)!.financeiro).toBe(100);
-    expect(fluxoPorAno(r).find((a) => a.ano === 3)!.resgatesPrincipal).toBe(1000);
+    const ano3 = fluxoPorAno(r).find((a) => a.ano === 3)!;
+    expect(ano3.resgatesPrincipal).toBe(1000);
+    expect(ano3.remuneracaoInvestidores).toBe(100);
+    // a tabela anual fecha: incorporador = projeto + aportes − principal − remuneração, em todo ano
+    for (const a of fluxoPorAno(viab2().r)) expect(a.saldo).toBeCloseTo(a.saldoProjeto + a.aportes - a.resgatesPrincipal - a.remuneracaoInvestidores, 1);
   });
   it("sem exposição de caixa: payback e TIR com estado explicativo (não '0')", () => {
     const r = calcularLoteamento({ ...base, custoInfraM2Lote: 0, comissaoPctVgv: 0 });

@@ -102,6 +102,8 @@ export function ViabilidadeTab({ estudo }: { estudo: EstudoData }) {
   });
   const form = sincronizarUrbanismo(estudo, formBase);
   const origemUrbanismo = urbanismoDoCenario(estudo);
+  const lotesOrigem = origemUrbanismo?.lotes ?? [];
+  const areaMediaLote = lotesOrigem.length > 0 ? Math.round((lotesOrigem.reduce((s, l) => s + (l.areaM2 || 0), 0) / lotesOrigem.length) * 100) / 100 : 0;
   const [mixBase, setMix] = useState<ItemMixProduto[]>(() => {
     if (salvo?.itensMix && Array.isArray(salvo.itensMix) && salvo.itensMix.length > 0) {
       return salvo.itensMix as ItemMixProduto[];
@@ -134,6 +136,8 @@ export function ViabilidadeTab({ estudo }: { estudo: EstudoData }) {
       const novo = [...mix];
       // alternar "Casa pronta" só muda a forma de cálculo: área, R$/m² e valor por unidade ficam preservados
       novo[i] = { ...novo[i], [campo]: campo === "nome" || campo === "casaPronta" ? valor : (typeof valor === "number" ? valor : parseFloat(String(valor)) || 0) };
+      // Casa Pronta sem área: sugere a área média dos lotes do cenário/lotes avulsos (editável)
+      if (campo === "casaPronta" && valor === true && !(novo[i].areaUnidadeM2 > 0) && areaMediaLote > 0) novo[i] = { ...novo[i], areaUnidadeM2: areaMediaLote };
       return novo;
     });
     setSalvoOk(false);
@@ -234,11 +238,13 @@ export function ViabilidadeTab({ estudo }: { estudo: EstudoData }) {
               </label>
               {p.casaPronta ? (
               <div className="grid grid-cols-12 gap-2 items-center">
-                <label className="col-span-5 text-[10px] font-bold text-gray-400 uppercase">Produto
+                <label className="col-span-4 text-[10px] font-bold text-gray-400 uppercase">Produto
                   <input value={p.nome} onChange={(e) => updProduto(i, "nome", e.target.value)} className="w-full text-sm border border-gray-200 px-2 py-1.5 normal-case font-normal text-gray-800" placeholder="Ex.: Casa 2 quartos" /></label>
                 <label className="col-span-2 text-[10px] font-bold text-gray-400 uppercase">Quantidade
                   <input type="number" value={p.quantidade || ""} onChange={(e) => updProduto(i, "quantidade", e.target.value)} className="w-full text-sm border border-gray-200 px-2 py-1.5 font-normal text-gray-800" placeholder="Qtd" /></label>
-                <label className="col-span-4 text-[10px] font-bold text-gray-400 uppercase">Valor de venda por unidade (R$)
+                <label className="col-span-2 text-[10px] font-bold text-gray-400 uppercase" title="Área do LOTE de cada casa (não a área construída): base do custo de infraestrutura por m².">Área do lote (m²)
+                  <NumeroBRField value={p.areaUnidadeM2} onValueChange={(v) => updProduto(i, "areaUnidadeM2", v)} className={`w-full text-sm border px-2 py-1.5 font-normal text-gray-800 ${p.areaUnidadeM2 > 0 ? "border-gray-200" : "border-red-400"}`} placeholder="m² do lote" /></label>
+                <label className="col-span-3 text-[10px] font-bold text-gray-400 uppercase">Valor de venda por unidade (R$)
                   <NumeroBRField value={p.precoUnidade ?? 0} onValueChange={(v) => updProduto(i, "precoUnidade", v)} className="w-full text-sm border border-gray-200 px-2 py-1.5 font-normal text-gray-800" placeholder="R$ por unidade" /></label>
                 <button type="button" onClick={() => removerProduto(i)}
                   className="col-span-1 text-gray-300 hover:text-red-500 flex justify-center"><Trash2 size={14} /></button>
@@ -258,6 +264,7 @@ export function ViabilidadeTab({ estudo }: { estudo: EstudoData }) {
               </div>
               )}
               <p className="text-xs text-right text-gray-500">
+                {p.casaPronta && !(p.areaUnidadeM2 > 0) ? <span className="block text-left font-bold text-red-600">Informe a área do lote: sem ela, o custo de infraestrutura por m² desta linha fica zerado.</span> : null}
                 {p.casaPronta ? `${(p.quantidade || 0).toLocaleString("pt-BR")} × ${formatCurrency(p.precoUnidade ?? 0)} = ` : null}
                 VGV do produto: <span className="font-bold text-[var(--brand-dark)]">{formatCurrency(vgvItemMix(p))}</span>
               </p>
@@ -657,9 +664,9 @@ export function ViabilidadeTab({ estudo }: { estudo: EstudoData }) {
         </div>
         <div className="bg-white border border-gray-100 p-4 overflow-x-auto">
           <p className="text-xs font-bold text-gray-500 uppercase tracking-widest mb-1">Fluxo de caixa por ano</p>
-          <p className="text-[10px] text-gray-400 mb-3">Projeto = recebimentos − desembolsos. Incorporador = projeto + aportes − devolução do principal (a remuneração já está nos desembolsos).</p>
-          <table className="w-full text-xs min-w-[560px]">
-            <thead><tr className="bg-[var(--brand-dark)]">{["Ano", "Projeto", "Aportes", "Devolução principal", "Incorporador", "Acumulado"].map((h) => <th key={h} className="text-left text-[10px] font-bold text-[var(--brand-yellow)] uppercase tracking-wider px-3 py-2">{h}</th>)}</tr></thead>
+          <p className="text-[10px] text-gray-400 mb-3">Projeto = recebimentos − custos (sem captação). Incorporador = projeto + aportes − devolução do principal − remuneração dos investidores.</p>
+          <table className="w-full text-xs min-w-[640px]">
+            <thead><tr className="bg-[var(--brand-dark)]">{["Ano", "Projeto", "Aportes", "Devolução principal", "Remuneração", "Incorporador", "Acumulado"].map((h) => <th key={h} className="text-left text-[10px] font-bold text-[var(--brand-yellow)] uppercase tracking-wider px-3 py-2">{h}</th>)}</tr></thead>
             <tbody className="divide-y divide-gray-50">
               {anosFluxo.map((a) => (
                 <tr key={a.ano}>
@@ -667,6 +674,7 @@ export function ViabilidadeTab({ estudo }: { estudo: EstudoData }) {
                   <td className={`px-3 py-2 font-bold ${a.saldoProjeto < 0 ? "text-red-500" : "text-[var(--brand-dark)]"}`}>{formatCurrency(a.saldoProjeto)}</td>
                   <td className="px-3 py-2 text-gray-600">{formatCurrency(a.aportes)}</td>
                   <td className="px-3 py-2 text-gray-600">{formatCurrency(a.resgatesPrincipal)}</td>
+                  <td className="px-3 py-2 text-gray-600">{formatCurrency(a.remuneracaoInvestidores)}</td>
                   <td className={`px-3 py-2 font-bold ${a.saldo < 0 ? "text-red-500" : "text-green-700"}`}>{formatCurrency(a.saldo)}</td>
                   <td className={`px-3 py-2 font-bold ${a.acumulado < 0 ? "text-red-500" : "text-[var(--brand-dark)]"}`}>{formatCurrency(a.acumulado)}</td>
                 </tr>
