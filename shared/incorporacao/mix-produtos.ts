@@ -10,6 +10,22 @@ export interface ItemMixProduto {
   quantidade: number;
   areaUnidadeM2: number;
   precoM2: number;
+  /**
+   * Correção 12 — "CASA PRONTA": o produto é vendido por UNIDADE (casa + lote), não por m².
+   * Marcado → VGV = quantidade × precoUnidade. Desmarcado → VGV = quantidade × área × preço/m²
+   * (cálculo original). `areaUnidadeM2`/`precoM2` são preservados ao alternar; a área continua
+   * sendo a do LOTE (base do custo de infraestrutura), nunca a área construída.
+   */
+  casaPronta?: boolean;
+  /** Valor de venda por unidade (só usado quando `casaPronta`). */
+  precoUnidade?: number;
+}
+
+/** VGV de um item do mix (por unidade quando Casa Pronta; por m² caso contrário). */
+export function vgvItemMix(it: ItemMixProduto): number {
+  const qtd = Number.isFinite(it.quantidade) ? it.quantidade : 0;
+  if (it.casaPronta) return qtd * (Number.isFinite(it.precoUnidade) ? (it.precoUnidade as number) : 0);
+  return qtd * it.areaUnidadeM2 * it.precoM2;
 }
 
 export interface ResultadoMixItem extends ItemMixProduto {
@@ -29,7 +45,7 @@ export function calcularMix(itens: ItemMixProduto[]): ResultadoMix {
   const resultado: ResultadoMixItem[] = itens.map((it) => ({
     ...it,
     areaTotalM2: it.quantidade * it.areaUnidadeM2,
-    vgv: it.quantidade * it.areaUnidadeM2 * it.precoM2,
+    vgv: vgvItemMix(it),
   }));
   const totalUnidades = resultado.reduce((s, i) => s + i.quantidade, 0);
   const areaVendidaM2 = resultado.reduce((s, i) => s + i.areaTotalM2, 0);
