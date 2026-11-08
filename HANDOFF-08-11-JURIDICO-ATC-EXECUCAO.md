@@ -26,3 +26,11 @@ O schema fica em `drizzle/schema.ts` e a migração em `drizzle/0100_juridico_mo
 - (a) A migração foi aplicada no banco de teste Neon. A leitura confirmou as cinco colunas e as três chaves estrangeiras.
 - (b) A Vercel compilou o preview do PR #189 no commit original.
 - (c) Pendentes nesta etapa: migração de produção, merge, confirmação do deploy associado ao merge e validação autenticada com uma obra real.
+
+## Produção confirmada em 08/11/2026
+
+- PR #189 integrado à main no commit `7459026c933f3524635dfd5dd9824777ea36cb5c`. Deploy de produção Vercel `dpl_HzMvinHYWmo4Vu6xcbYhsQTrKB1X` READY. Deploy anterior para referência de rollback `dpl_3U1wfcXU4GJLSVCsiCPsvq4NBDhN`.
+- Migração aditiva confirmada em produção com cinco colunas e três chaves estrangeiras. Nenhum contrato real foi criado durante a publicação.
+- (a) TypeScript e 17 testes direcionados passaram na árvore combinada com a main após o trabalho do Claude. Saúde do domínio oficial respondeu HTTP 200 e banco conectado. A rota do Jurídico recusou acesso sem sessão com HTTP 403.
+- (b) Consulta somente leitura encontrou 17 obras com cliente ativo e imóvel vinculados.
+- (c) Pendente emissão autenticada de um contrato real pelo Jurídico ou CRM. Na validação, gerar o PDF e conferir as partes, comissão, data e anexação do PDF assinado.
