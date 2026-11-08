@@ -141,3 +141,12 @@ Detalhes e testes em `HANDOFF-08-11-PARCELAMENTO-MERCADO.md` (PR #187).
 - [ ] IBGE consultado pelo navegador (o IBGE recusa acesso de fora do Brasil) — `shared/incorporacao/dados-publicos.ts`
 - [ ] Chaves de integração no banco (`dashboard_settings`, `segredo.*`, criptografadas) — `server/_core/incorporacao/segredos-mercado.ts`
 - [ ] Provedor de anúncios Tavily sem IA + extração determinística — `shared/incorporacao/extracao-anuncios.ts`, `server/_core/incorporacao/mercado-anuncios.ts` (PR #190)
+- [ ] **Correções 09–12 (Viabilidade integrada)** — `shared/incorporacao/composicao-custos.ts`, `fluxo-anual.ts`, `viabilidade-economica.ts`, `premissas-loteamento.ts`, `mix-produtos.ts`:
+  fonte de custo só "Valor manual" / "Valor do sistema" (infra e obras residenciais separadas do Orçamento; marketing =
+  fornecedores elegíveis + material publicitário sem duplicar); custo do terreno pela Negociação (à vista, parcelado,
+  permuta financeira, permuta física = unidades não vendáveis); captação (aporte, devolução do principal, remuneração =
+  único custo financeiro); lucro/ROI/margem com custos nominais; convenção M0/M1–M12 = Ano 1 e horizonte sem meses
+  artificiais (prazo 0 recebido no mês da venda); payback/TIR com estados explicativos; tabelas de vendas, recebimentos,
+  custos e fluxo por ano; demonstrativo auditável; Casa Pronta (VGV = quantidade × valor por unidade); grupo por linha
+  no Orçamento; mês do aporte no Business Plan. **Atenção:** o motor de viabilidade era cópia linha a linha do
+  `lib/finance/loteamento.ts` do Santa Fé — a divergência agora é intencional e precisa ser portada para manter a paridade.

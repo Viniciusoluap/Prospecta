@@ -249,6 +249,44 @@ Testes:
 Chave Google mostrada no print do dono (`AQ.…`): **não usada nem testada** (o controle de segurança da
 sessão bloqueou o uso de uma chave que só aparecia em imagem, sem pedido explícito). Não está gravada.
 
+## Etapa 9 — Correções 09 a 12: Viabilidade integrada (08/11 ~20h) — IMPLEMENTADO PELO CLAUDE
+Checkpoint antes de começar: tag `checkpoint/pre-correcoes-09-12-20261108` (= main 053c222, deploy de produção READY).
+
+**Diagnóstico (estudo 2, dados reais do banco):** ROI 1734% / margem 95,2% vinham de (a) infra manual de R$ 10/m²
+(≈ R$ 34,5 mil) no lugar do orçamento de R$ 1.219.803,52; (b) terreno de R$ 180.000 (compra parcelada aceita) fora do
+motor; (c) captação ignorada; (d) payback 0 porque o caixa do M0 era 0 ≥ 0; (e) "Ano 2" artificial por `floor(mes/12)`
+(M12 caía no Ano 2), parcela obrigatória no mês seguinte mesmo com prazo 0 e +4 meses de horizonte.
+
+**Concluído:**
+- 09 — fonte "Valor manual" / "Valor do sistema" para infra, marketing e terreno (manual sempre preservado).
+  Infra do sistema = grupo infraestrutura do Orçamento (19.803,52) pelo TOTAL; obras residenciais (1.200.000) em rubrica
+  separada; no modo manual o R$/m² digitado já cobre tudo (não soma de novo). Marketing do sistema = fornecedores de
+  categorias de marketing (exceto "Outro" e "não contratado"; contratado usa valor contratado) + peças não reprovadas,
+  sem duplicar (id e nome+valor) → 4.100 no estudo 2. Grupo editável por linha no Orçamento (dados antigos: pela descrição).
+- 09.6 — captação do Business Plan: aporte no "Mês do aporte" (novo campo, padrão M1), resgate = aporte + prazo com
+  principal e remuneração separados; só a remuneração (26.973,46) é custo; o principal é movimentação de capital.
+- 10 — terreno pela proposta de referência da Negociação (selecionada > aceita > mais recente; recusada não vale):
+  à vista, parcelada (entrada + parcelas), permuta financeira (% dos recebimentos), permuta física (unidades fora do VGV
+  vendável, mas construídas), misto. Modo manual: valor, parcelas, % e unidades. Card renomeado para
+  "Receitas, terreno e proprietário" separando aquisição × participação × permuta física.
+- 11 — convenção M0 data-base, M1–M12 = Ano 1; horizonte termina no último evento; tabelas Vendas / Recebimentos /
+  Custos / Fluxo de caixa por ano; fluxo do projeto (sem captação) × incorporador (com captação).
+  Payback: "sem exposição" / "não recupera" / mês; TIR só para fluxo de investimento com uma troca de sinal (senão, motivo).
+- 12 — Casa Pronta por linha do mix: Produto, Quantidade, Valor de venda por unidade; VGV = qtd × valor
+  (12 × 230.000 = 2.760.000); área do lote e R$/m² preservados ao alternar; aviso de unidades × lotes disponíveis e de
+  possível VGV duplicado (lote + casa pronta).
+- 13 — demonstrativo auditável (rubrica, módulo de origem, valor, competência, classificação, modo, entra no resultado);
+  a soma das rubricas do resultado = lucro líquido = caixa acumulado final.
+- Lucro/ROI/margem agora com custos NOMINAIS (INCC), coerentes com receitas corrigidas. Estudo 2 (Ideal):
+  lucro 1.044.568,90; custo total do projeto 1.554.405,81; ROI 67,2%; margem 40,5%; payback M4; exposição 58.664,38.
+- PDFs (executivo, custos, terreneiro) e relatório consolidado atualizados; Business Plan compara com investimento
+  (operacional nominal + terreno, sem o custo financeiro da própria captação — evita circularidade).
+
+**Testes:** (a) automáticos — `server/incorporacao-correcoes-09-12.test.ts` (dados reais do estudo 2, fixture
+`server/fixtures/estudo-2-daniel-mota.ts`) + suíte completa 187 arquivos / 1562 testes verdes, `tsc --noEmit` e
+`vite build` OK. (b) manuais — aba Viabilidade renderizada no Chromium com os dados do estudo 2 (sem console errors);
+alternância Casa Pronta ↔ por m² preserva os valores. (c) produção — pendente (após merge/deploy).
+
 ## Pendências gerais
 - Morada do Bosque: validado com o KML real — reta 23 / divisa-reta 25 / via pela divisa 27 (testada 20 m)
   e 29 com testada mínima 17 m (Etapas 5 e 6).
@@ -261,7 +299,10 @@ sessão bloqueou o uso de uma chave que só aparecia em imagem, sem pedido expl�
 - Paridade com o Santa Fé registrada em `docs/stories/epics/ROADMAP.md` (não portada; incluir Tavily e via pela divisa).
 - Merge e deploy dependem de autorização do dono.
 
-## Próximo passo exato
+## Próximo passo exato (atualizado na Etapa 9)
+0. PR das Correções 09–12: revisão Codex → corrigir → merge → deploy → verificação pós-deploy (somente leitura).
+
+## Próximo passo anterior
 1. Dono autoriza merge/deploy do PR #190 (Tavily + handoff). Após o deploy, na tela logada: Inteligência de
    Mercado → "Pesquisar anúncios" (lote, Imperatriz) e conferir; preencher área mín./máx. para comparáveis.
 2. Validar em produção: Morada do Bosque (Rua Simples → Traçado "Acompanha a divisa"), botão IBGE,

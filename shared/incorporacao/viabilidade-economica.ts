@@ -109,6 +109,8 @@ export interface PremissasLoteamento {
   taxaDescontoAnual: number;
 
   // ── Correções 09–11 (opcionais; ausentes = comportamento anterior) ──────────
+  /** Infraestrutura TOTAL vinda do Orçamento (antes do BDI). Quando definida, substitui custoInfraM2Lote × área. */
+  custoInfraBaseTotal?: number;
   /** Obras residenciais (construção das casas) vindas do Orçamento — rubrica separada da infraestrutura. */
   custoObrasResidenciais?: number;
   /** Aquisição do terreno: desembolsos programados (mês, valor). Soma = custo do terreno. */
@@ -297,6 +299,8 @@ function motivoTir(fluxos: number[]): string {
   const eps = 0.005;
   if (!fluxos.some((f) => f < -eps)) return "TIR não se aplica: o fluxo não tem nenhum mês com saída líquida de caixa (não há investimento a remunerar).";
   if (!fluxos.some((f) => f > eps)) return "TIR não se aplica: o fluxo não tem nenhum mês com entrada líquida de caixa.";
+  const primeiro = fluxos.find((f) => Math.abs(f) > eps) ?? 0;
+  if (primeiro > 0 && trocasDeSinal(fluxos) === 1) return "TIR não se aplica: o fluxo começa com entrada de caixa e termina com saída (padrão de financiamento, não de investimento). Use o VPL.";
   if (trocasDeSinal(fluxos) > 1) return "TIR não é única: o fluxo troca de sinal mais de uma vez (ex.: devolução da captação no fim). Use o VPL para decidir.";
   return "TIR não encontrada no intervalo de −99% a +100% ao mês.";
 }
@@ -305,7 +309,9 @@ function indicadores(saldos: number[], taxaMensal: number): IndicadoresFluxo {
   const acum: number[] = [];
   let a = 0;
   for (const s of saldos) { a += s; acum.push(round2(a)); }
-  const tirM = trocasDeSinal(saldos) === 1 ? tir(saldos) : null;
+  // TIR só é retorno de investimento com UMA troca de sinal e o primeiro fluxo negativo (investe → recebe)
+  const primeiroFluxo = saldos.find((f) => Math.abs(f) > 0.005) ?? 0;
+  const tirM = trocasDeSinal(saldos) === 1 && primeiroFluxo < 0 ? tir(saldos) : null;
   const menor = Math.min(0, ...acum);
   const pb = paybackDetalhado(acum);
   return {
@@ -351,7 +357,8 @@ export function calcularLoteamento(p: PremissasLoteamento): ResultadoLoteamento 
 
   const vgvNet = vgvGross * (1 - p.comissaoPctVgv - p.despesasGeraisPctVgv - p.impostosPctVgv);
 
-  const custoInfraBase = p.custoInfraM2Lote * mixCompleto.areaVendidaM2;
+  const custoInfraBase = p.custoInfraBaseTotal !== undefined && Number.isFinite(p.custoInfraBaseTotal)
+    ? Math.max(0, p.custoInfraBaseTotal) : p.custoInfraM2Lote * mixCompleto.areaVendidaM2;
   const custoInfra = custoInfraBase * (1 + p.bdiPct);
   const contingencia = custoInfraBase * p.contingenciaPctInfra;
   const custoObrasResidenciais = Math.max(0, p.custoObrasResidenciais ?? 0);

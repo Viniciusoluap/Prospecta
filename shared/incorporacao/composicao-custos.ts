@@ -198,7 +198,7 @@ export interface FontesResolvidas {
   marketing: MarketingDoSistema;
   terreno: TerrenoDoSistema;
   captacao: CaptacaoDoSistema;
-  /** Valor de infraestrutura por m² vendido que entra no motor e de onde veio. */
+  /** Valor de infraestrutura por m² vendido (exibição) e de onde veio. */
   infraM2Usado: number;
   infraOrigem: string;
   marketingUsado: number;
@@ -218,10 +218,9 @@ export function resolverFontes(estudo: EstudoData, cfg: ConfigFontes, manual: { 
   if (cfg.custoInfraFonte === "sistema") {
     if (!infra.disponivel) { infraM2Usado = 0; infraOrigem = "Sistema indisponível"; avisos.push(`Infraestrutura (sistema): ${infra.motivo}`); }
     else if (infra.custoM2Construcao != null) { infraM2Usado = infra.custoM2Construcao; infraOrigem = "Orçamento Parametrizado — custo/m² real (método construção)"; }
-    else if (areaVendidaM2 > 0) { infraM2Usado = infra.infraestruturaTotal / areaVendidaM2; infraOrigem = "Orçamento Parametrizado — infraestrutura ÷ área vendida"; }
-    else { infraM2Usado = 0; infraOrigem = "Sistema indisponível"; avisos.push("Infraestrutura (sistema): o mix não tem área vendida para ratear o custo."); }
+    else { infraM2Usado = areaVendidaM2 > 0 ? infra.infraestruturaTotal / areaVendidaM2 : 0; infraOrigem = "Orçamento Parametrizado — grupo infraestrutura (total)"; }
     if (infra.disponivel && infra.areaReferenciaM2 && areaVendidaM2 > 0 && Math.abs(infra.areaReferenciaM2 - areaVendidaM2) / areaVendidaM2 > 0.02) {
-      avisos.push(`A área de referência do Orçamento (${infra.areaReferenciaM2.toLocaleString("pt-BR")} m²) difere da área vendida do mix (${areaVendidaM2.toLocaleString("pt-BR")} m²): o custo total do orçamento foi rateado pela área VENDIDA, sem distorcer o total.`);
+      avisos.push(`A área de referência do Orçamento (${infra.areaReferenciaM2.toLocaleString("pt-BR")} m²) difere da área vendida do mix (${areaVendidaM2.toLocaleString("pt-BR")} m²): a Viabilidade usa o TOTAL do orçamento (o R$/m² exibido é esse total ÷ área vendida), sem distorcer o custo.`);
     }
   }
   let marketingUsado = manual.marketing;
@@ -239,6 +238,8 @@ export function resolverFontes(estudo: EstudoData, cfg: ConfigFontes, manual: { 
 export function aplicarFontes(base: PremissasLoteamento, f: FontesResolvidas): PremissasLoteamento {
   const cfg = f.config;
   const p: PremissasLoteamento = { ...base, custoInfraM2Lote: f.infraM2Usado, marketing: f.marketingUsado };
+  // grupo infraestrutura do orçamento entra pelo TOTAL (independe de área do mix — ex.: Casa Pronta sem área do lote)
+  if (cfg.custoInfraFonte === "sistema" && f.infra.disponivel && f.infra.custoM2Construcao == null) p.custoInfraBaseTotal = f.infra.infraestruturaTotal;
   // em modo manual, as obras residenciais estão dentro do custo/m² digitado — não somar de novo
   p.custoObrasResidenciais = cfg.custoInfraFonte === "sistema" && f.infra.disponivel ? f.infra.obrasResidenciaisTotal : 0;
   if (cfg.terrenoFonte === "sistema") {
@@ -299,7 +300,7 @@ export function composicaoFinanceira(p: PremissasLoteamento, r: ResultadoLoteame
     observacao: r.custoTerreno > 0 ? undefined : (f && cfg?.terrenoFonte === "sistema" && !f.terreno.disponivel ? f.terreno.motivo ?? undefined : "Sem desembolso em dinheiro pelo terreno.") });
 
   add({ rubrica: "Infraestrutura (com BDI)", moduloOrigem: f?.infraOrigem ?? "Viabilidade", valor: -r.custoInfra, competencia: obra, classificacao: "Investimento (obra)", modo: modo(cfg?.custoInfraFonte), entraNoResultado: true, sinal: -1,
-    observacao: `${p.custoInfraM2Lote.toLocaleString("pt-BR", { maximumFractionDigits: 2 })} R$/m² × área dos lotes (inclusive os da permuta física) × (1 + BDI).` });
+    observacao: p.custoInfraBaseTotal !== undefined ? `Total do grupo infraestrutura do orçamento × (1 + BDI) — equivale a ${p.custoInfraM2Lote.toLocaleString("pt-BR", { maximumFractionDigits: 2 })} R$/m² vendido.` : `${p.custoInfraM2Lote.toLocaleString("pt-BR", { maximumFractionDigits: 2 })} R$/m² × área dos lotes (inclusive os da permuta física) × (1 + BDI).` });
   add({ rubrica: "Contingência sobre infraestrutura", moduloOrigem: "Viabilidade", valor: -(r.custoInfra / (1 + p.bdiPct)) * p.contingenciaPctInfra, competencia: obra, classificacao: "Investimento (obra)", modo: "manual", entraNoResultado: true, sinal: -1 });
   add({ rubrica: "Obras residenciais (construção das casas)", moduloOrigem: "Orçamento Parametrizado", valor: -r.custoObrasResidenciais, competencia: obra, classificacao: "Investimento (obra)", modo: "automático", entraNoResultado: true, sinal: -1 });
   add({ rubrica: "Correção INCC da obra (valor nominal)", moduloOrigem: "Viabilidade — INCC da obra", valor: -(r.custoObraNominalTotal - (r.custoInfra + r.custoInfra / (1 + p.bdiPct) * p.contingenciaPctInfra + r.custoObrasResidenciais)), competencia: obra, classificacao: "Investimento (obra)", modo: "manual", entraNoResultado: true, sinal: -1,

@@ -32,7 +32,11 @@ describe("Correção 09 — fontes de custo (estudo 2 real)", () => {
     expect(fontes.infra.obrasResidenciaisTotal).toBeCloseTo(1_200_000, 2);
     expect(r.custoInfra).toBeCloseTo(19_803.52, 2); // rateado pela área VENDIDA e multiplicado de volta: total exato
     expect(r.custoObrasResidenciais).toBe(1_200_000);
-    expect(premissas.custoInfraM2Lote * calcularMix(premissas.itensMix).areaVendidaM2).toBeCloseTo(19_803.52, 2);
+    expect(premissas.custoInfraBaseTotal).toBeCloseTo(19_803.52, 2);
+    expect(premissas.custoInfraM2Lote * calcularMix(premissas.itensMix).areaVendidaM2).toBeCloseTo(19_803.52, 2); // R$/m² exibido
+    // Casa Pronta sem área do lote: a infraestrutura do sistema não some
+    const casa = viab2(comForm({ itensMix: [{ nome: "Casa", quantidade: 12, areaUnidadeM2: 0, precoM2: 0, casaPronta: true, precoUnidade: 230_000 }] })).r;
+    expect(casa.custoInfra).toBeCloseTo(19_803.52, 2);
     expect(r.custoTotal).toBeCloseTo(19_803.52 + 1_200_000 + 4_100 + r.vgvGross * 0.04, 1);
   });
   it("valor manual continua disponível e não soma obras residenciais (já estão no R$/m² digitado)", () => {
@@ -112,6 +116,11 @@ describe("Correção 10 — custo do terreno pela Negociação", () => {
     expect(r.tirAnual).toBeNull();
     expect(r.tirMotivo).toMatch(/não é única/);
     expect(r.projeto.tirMotivo).not.toBeNull();
+    const ag = calcularCenarios(viab2().premissas).agressivo;
+    if (ag.paybackStatus === "sem_exposicao") expect(ag.tirAnual).toBeNull(); // fluxo do tipo financiamento: sem TIR enganosa
+    const conv = calcularLoteamento({ ...base, prazoParcelamentoMeses: 12, inicioVendasMes: 6 }); // investe antes de vender
+    expect(conv.tirAnual).not.toBeNull();
+    expect(conv.tirMotivo).toBeNull();
   });
   it("à vista, com entrada, permuta financeira e permuta física", () => {
     expect(programarPagamento(180_000, 1, 1)).toEqual([{ mes: 1, valor: 180_000 }]);
