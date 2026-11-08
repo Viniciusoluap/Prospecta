@@ -236,7 +236,7 @@ export function implantarNaDivisa(anelFechado: Position[], arestas: number[], re
     return d;
   };
   /** Lote entre s0 e s1 (frente sobre a via), recortado pela gleba e livre de via/lotes; null se inviável. */
-  const loteEntre = (s0: number, s1: number, ponta: { ini?: boolean; fim?: boolean } = {}): { anel: Position[]; area: number } | null => {
+  const loteEntre = (s0: number, s1: number, ponta: { ini?: boolean; fim?: boolean } = {}): { anel: Position[]; area: number; frente: number } | null => {
     const a = { p: pontoEm(l, s0).p, d: direcao(s0) }, b = { p: pontoEm(l, s1).p, d: direcao(s1) };
     const frente = caminho(l, s0, s1);
     const fa = add(a.p, mul(a.d, Lmax)), fb = add(b.p, mul(b.d, Lmax));
@@ -264,10 +264,24 @@ export function implantarNaDivisa(anelFechado: Position[], arestas: number[], re
     const peca = poligonos(livre.geometry as Polygon | MultiPolygon).find((rs) => pontoDentro(rs[0], teste[0], teste[1]));
     if (!peca || peca.length > 1) return null; // furo no lote = geometria inválida para venda
     const anel = limpar(peca[0]);
-    return anel ? { anel, area: areaPlanar(anel) } : null;
+    if (!anel) return null;
+    // FRENTE EFETIVA: o recorte (divisa côncava, via, lotes vizinhos) pode encurtar a frente
+    // nominal s1 − s0; mede-se por amostragem (a cada ≤ 25 cm) o trecho da borda da via que
+    // continua encostado no lote.
+    const n = Math.max(4, Math.ceil((s1 - s0) / 0.25));
+    let dentro = 0;
+    for (let i = 0; i < n; i++) {
+      const sx = s0 + ((i + 0.5) / n) * (s1 - s0);
+      const px = pontoEm(l, sx).p, dx = direcao(sx);
+      const q = add(px, mul(dx, 0.02));
+      if (pontoDentro(anel, q[0], q[1])) dentro++;
+    }
+    return { anel, area: areaPlanar(anel), frente: (dentro / n) * (s1 - s0) };
   };
+  const valido = (x: { area: number; frente: number } | null): x is { anel: Position[]; area: number; frente: number } =>
+    !!x && x.area >= minArea && x.frente >= o.testada - 1e-6;
 
-  let s0 = fase, sUltimo = 0, ordem = 0;
+  let s0 = fase, sUltimo = 0, ordem = 0, s0Ultimo = 0;
   const maxFrente = 4 * o.testada;
   while (s0 + o.testada <= limite + 1e-9) {
     // frente MÍNIMA (≥ testada informada) que atinge a área mínima: testada exata quando basta;
@@ -276,30 +290,32 @@ export function implantarNaDivisa(anelFechado: Position[], arestas: number[], re
     const primeiro = lotes.length === 0 && s0 === 0;
     const pontaIni = primeiro ? { ini: true } : {};
     let lote = (primeiro ? loteEntre(s0, s1, pontaIni) : null) ?? loteEntre(s0, s1);
-    if (!lote || lote.area < minArea) {
+    if (!valido(lote)) {
       const sMax = Math.min(s0 + maxFrente, limite);
       const tenta = (sx: number) => (primeiro ? loteEntre(s0, sx, pontaIni) : null) ?? loteEntre(s0, sx);
       const loteMax = sMax > s1 + 1e-9 ? tenta(sMax) : null;
-      if (loteMax && loteMax.area >= minArea) {
+      if (valido(loteMax)) {
         let lo = s1, hi = sMax, melhor = { s: sMax, l: loteMax };
         for (let it = 0; it < 10; it++) {
           const mid = (lo + hi) / 2;
           const lm = tenta(mid);
-          if (lm && lm.area >= minArea) { hi = mid; melhor = { s: mid, l: lm }; } else lo = mid;
+          if (valido(lm)) { hi = mid; melhor = { s: mid, l: lm }; } else lo = mid;
         }
         // arredonda a frente para cima em centímetros (medida de projeto)
         const sCm = Math.min(sMax, s0 + Math.ceil((melhor.s - s0) * 100) / 100);
         const lCm = tenta(sCm);
-        s1 = lCm && lCm.area >= minArea ? sCm : melhor.s;
-        lote = lCm && lCm.area >= minArea ? lCm : melhor.l;
+        s1 = valido(lCm) ? sCm : melhor.s;
+        lote = valido(lCm) ? lCm : melhor.l;
       } else {
         lote = null;
       }
     }
-    if (lote && lote.area >= minArea) {
+    if (valido(lote)) {
       const ret = bboxDe(lote.anel);
-      lotes.push({ anel: lote.anel, area: lote.area, ret, linha: 0, faixa: 0, segmento: 0, ordem: ordem++, testada: s1 - s0, profundidadeMedia: lote.area / (s1 - s0) });
+      // testada registrada = frente EFETIVA (após o recorte), nunca a nominal
+      lotes.push({ anel: lote.anel, area: lote.area, ret, linha: 0, faixa: 0, segmento: 0, ordem: ordem++, testada: lote.frente, profundidadeMedia: lote.area / lote.frente });
       ocupados.push({ ret, f: turfPolygon([lote.anel]) });
+      s0Ultimo = s0;
       s0 = s1;
       sUltimo = s1;
     } else {
@@ -311,12 +327,12 @@ export function implantarNaDivisa(anelFechado: Position[], arestas: number[], re
   // cabeceira seguindo a divisa vizinha (sem criar lote novo, sem deixar triângulo sem dono).
   if (o.limiteComprimentoM === undefined && l.total - sUltimo > 1e-6 && l.total - sUltimo < o.testada + 1e-9) {
     const ultimo = lotes[lotes.length - 1];
-    const s0u = sUltimo - (ultimo.testada ?? o.testada);
+    const s0u = s0Ultimo; // início NOMINAL do último lote na via
     ocupados.pop();
     const ext = loteEntre(s0u, l.total, { fim: true, ini: lotes.length === 1 && s0u === 0 });
-    if (ext && ext.area >= ultimo.area) {
+    if (valido(ext) && ext.area >= ultimo.area) {
       const ret = bboxDe(ext.anel);
-      lotes[lotes.length - 1] = { ...ultimo, anel: ext.anel, area: ext.area, ret, testada: l.total - s0u, profundidadeMedia: ext.area / (l.total - s0u) };
+      lotes[lotes.length - 1] = { ...ultimo, anel: ext.anel, area: ext.area, ret, testada: ext.frente, profundidadeMedia: ext.area / ext.frente };
       ocupados.push({ ret, f: turfPolygon([ext.anel]) });
       sUltimo = l.total;
     } else {

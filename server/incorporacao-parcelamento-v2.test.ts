@@ -455,3 +455,31 @@ describe("Rua Simples — via acompanha a divisa", () => {
     conferirDivisa(anel, CENTRO, c, p);
   }, 180_000);
 });
+
+describe("Revisão Codex (PR #188) — frente efetiva após o recorte", () => {
+  it("divisa côncava: nenhum lote tem frente real sobre a via menor que a testada informada", async () => {
+    const { buscarViaDivisa } = await import("../shared/incorporacao/rua-divisa");
+    const { pontoDentro } = await import("../shared/incorporacao/geometria-parcelamento");
+    const anel: Position[] = [[75, 0], [42, 42], [0, 108], [-51, 51], [-88, 0], [-37, -37], [0, -95], [44, -44], [75, 0]];
+    const r = buscarViaDivisa(anel, { testada: 10, profundidade: 60, via: 8, loteMinimoM2: 200 });
+    expect(r.length).toBeGreaterThan(0);
+    // medição independente: arestas do lote cujo ponto médio (±5 cm para fora) cai dentro da via
+    const frenteReal = (lote: Position[], vias: Position[][]) => {
+      let f = 0;
+      for (let i = 0; i < lote.length - 1; i++) {
+        const [ax, ay] = lote[i], [bx, by] = lote[i + 1];
+        const L = Math.hypot(bx - ax, by - ay);
+        if (L < 1e-6) continue;
+        const mx = (ax + bx) / 2, my = (ay + by) / 2, nx = -(by - ay) / L, ny = (bx - ax) / L;
+        if ([1, -1].some((sg) => vias.some((v) => pontoDentro(v, mx + sg * 0.05 * nx, my + sg * 0.05 * ny)))) f += L;
+      }
+      return f;
+    };
+    for (const impl of r) {
+      for (const l of impl.lotes) {
+        expect(frenteReal(l.anel, impl.viasLivres)).toBeGreaterThanOrEqual(10 - 0.05);
+        expect(l.testada!).toBeGreaterThanOrEqual(10 - 1e-6);
+      }
+    }
+  }, 120_000);
+});
