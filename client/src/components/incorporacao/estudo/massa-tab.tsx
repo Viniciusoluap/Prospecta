@@ -25,7 +25,7 @@ const MapaMassa = dynamic(() => import("./mapa-massa").then((m) => m.MapaMassa),
   loading: () => <div className="bg-gray-100 animate-pulse" style={{ height: 460 }} />,
 });
 
-type CampoNumerico = Exclude<keyof ParametrosMassa, "tipologia" | "modoSistemaViario" | "formatoLote">;
+type CampoNumerico = Exclude<keyof ParametrosMassa, "tipologia" | "modoSistemaViario" | "formatoLote" | "tracadoVia">;
 
 const CAMPOS: { k: CampoNumerico; label: string }[] = [
   { k: "testadaLoteM", label: "Testada do lote (m)" },
@@ -353,6 +353,17 @@ export function MassaTab({ estudo }: { estudo: EstudoData }) {
           </div>
           {params.tipologia === "rua_simples" && (
             <div className="col-span-2">
+              <label htmlFor="massa-tracado-via" className="text-[10px] font-bold text-gray-500 uppercase tracking-widest block mb-1">Traçado da via</label>
+              <select id="massa-tracado-via" value={params.tracadoVia ?? "reta"}
+                onChange={(e) => { setParams((p) => ({ ...p, tracadoVia: e.target.value as "reta" | "divisa" })); setErro(null); }}
+                className="w-full text-sm border border-gray-200 px-2 py-1.5 bg-white focus:outline-none focus:border-[var(--brand-yellow)]">
+                <option value="reta">Reta</option>
+                <option value="divisa">Acompanha a divisa (com curvas)</option>
+              </select>
+            </div>
+          )}
+          {params.tipologia === "rua_simples" && params.tracadoVia !== "divisa" && (
+            <div className="col-span-2">
               <label htmlFor="massa-formato-lote" className="text-[10px] font-bold text-gray-500 uppercase tracking-widest block mb-1">Formato do lote</label>
               <select id="massa-formato-lote" value={params.formatoLote ?? "retangular"}
                 onChange={(e) => { setParams((p) => ({ ...p, formatoLote: e.target.value as "retangular" | "divisa" })); setErro(null); }}
@@ -400,6 +411,7 @@ export function MassaTab({ estudo }: { estudo: EstudoData }) {
             ? "Manual: o motor ajusta a malha para a via desenhada bater com o valor (±5%) — Rua Simples: comprimento da via; Grade/Cul-de-sac: quadras mais curtas (nunca acima do máximo informado) ou supressão de ruas de menor aproveitamento. Se nenhum ajuste fechar, mostra a divergência e não cria implantação fictícia."
             : `Automático: usa a área geométrica das vias desenhadas${cenarioAtivo?.sistemaViario ? ` — cenário atual: ${m2(cenarioAtivo.sistemaViario.areaGeometricaM2)}` : ""}.`}
           {params.tipologia === "rua_simples" && " Na Rua Simples o comprimento máximo da quadra não se aplica (via única)."}
+          {params.tipologia === "rua_simples" && params.tracadoVia === "divisa" && " Via pela divisa: a testada é a frente MÍNIMA de cada lote (maior só onde preciso para atingir a área mínima) e os lotes vão até a divisa oposta."}
         </p>
         <button onClick={() => void gerar()} disabled={gerando || !estudo.geojson}
           className="mt-4 flex items-center gap-1.5 text-xs font-bold px-5 py-2.5 bg-[var(--brand-dark)] text-[var(--brand-yellow)] hover:opacity-90 disabled:opacity-50">
