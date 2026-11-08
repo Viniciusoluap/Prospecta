@@ -1,0 +1,333 @@
+import { describe, it, expect } from "vitest";
+import { featureCollection, intersect, polygon as turfPolygon, union } from "@turf/turf";
+import type { Position } from "geojson";
+import {
+  gerarEstudoMassa, gerarCenariosMassa, criarProjecao, validarParametrosMassa, assinaturaEntradas,
+  type CenarioMassa, type ParametrosMassa, type TipologiaMassa,
+} from "../shared/incorporacao/massa";
+import { areaPlanar, retanguloDentro, criarIndiceAnel, validarPoligonal } from "../shared/incorporacao/geometria-parcelamento";
+import { parseKmlTerreno } from "./_core/geo/kml";
+
+// Testes do motor de parcelamento v2 (correções 01–05 do prompt mestre de 08/11/2026).
+// Tolerância numérica documentada: 1e-4 m em medidas lineares e 0,01 m² em áreas.
+
+const CENTRO: [number, number] = [-44.3, -2.53];
+const proj = criarProjecao(CENTRO);
+const geo = (anel: Position[]) => anel.map((p) => proj.paraGeo(p));
+const metros = (anel: Position[]) => anel.map((p) => proj.paraMetros(p));
+
+const BASE: ParametrosMassa = {
+  larguraViaM: 12, testadaLoteM: 10, profundidadeLoteM: 25, loteMinimoM2: 250,
+  comprimentoMaxQuadraM: 120, percentInstitucional: 0.05, percentAreaVerde: 0.1, precoM2Lote: 500,
+};
+const RETANGULO = geo([[-200, -125], [200, -125], [200, 125], [-200, 125], [-200, -125]]);
+const IRREGULAR = geo([[-220, -140], [180, -160], [240, 60], [60, 150], [-40, 90], [-200, 130], [-220, -140]]);
+// Gleba sintética com os parâmetros de referência do Morada do Bosque (20 × 250 m, via única).
+// NÃO é o KML real (não está no repositório): o lado norte comporta 15 lotes e o sul 14.
+const W = 10;
+const MORADA_SINTETICA = geo([[0, -255], [280, -255], [280, -5], [300, -5], [300, 255], [0, 255], [0, -255]]);
+const MORADA: ParametrosMassa = {
+  larguraViaM: W, testadaLoteM: 20, profundidadeLoteM: 250, loteMinimoM2: 5000, comprimentoMaxQuadraM: 300,
+  percentInstitucional: 0, percentAreaVerde: 0, precoM2Lote: 100, tipologia: "rua_simples",
+};
+
+function lados(anelGeo: Position[]): number[] {
+  const m = metros(anelGeo);
+  return [0, 1, 2, 3].map((i) => Math.hypot(m[i + 1][0] - m[i][0], m[i + 1][1] - m[i][1]));
+}
+
+/** Largura mínima de um polígono convexo (menor "altura" sobre as arestas). */
+function larguraMinima(m: Position[]): number {
+  let min = Infinity;
+  for (let i = 0; i < m.length - 1; i++) {
+    const [ax, ay] = m[i], [bx, by] = m[i + 1];
+    const len = Math.hypot(bx - ax, by - ay);
+    if (len < 1e-6) continue;
+    let max = 0;
+    for (const [px, py] of m) max = Math.max(max, Math.abs((bx - ax) * (py - ay) - (by - ay) * (px - ax)) / len);
+    min = Math.min(min, max);
+  }
+  return min;
+}
+
+function conferirDimensoesExatas(c: CenarioMassa, p: ParametrosMassa) {
+  for (const l of c.lotes) {
+    const [a, b, cc, d] = lados(l.anel);
+    expect(Math.abs(a - p.testadaLoteM)).toBeLessThan(1e-4);
+    expect(Math.abs(cc - p.testadaLoteM)).toBeLessThan(1e-4);
+    expect(Math.abs(b - p.profundidadeLoteM)).toBeLessThan(1e-4);
+    expect(Math.abs(d - p.profundidadeLoteM)).toBeLessThan(1e-4);
+    expect(l.areaM2).toBeCloseTo(p.testadaLoteM * p.profundidadeLoteM, 2);
+    expect(l.areaM2).toBeGreaterThanOrEqual(p.loteMinimoM2);
+  }
+  expect(c.testadaLoteM).toBe(p.testadaLoteM);
+  expect(c.profundidadeLoteM).toBe(p.profundidadeLoteM);
+  expect(c.larguraViaM).toBe(p.larguraViaM);
+}
+
+function semSobreposicaoEDentro(anelGleba: Position[], c: CenarioMassa) {
+  const gleba = metros(anelGleba);
+  const ind = criarIndiceAnel(gleba, 50);
+  const lotes = c.lotes.map((l) => metros(l.anel));
+  for (const m of lotes) {
+    // lote inteiro dentro: área do recorte = área do lote
+    const inter = intersect(featureCollection([turfPolygon([m]), turfPolygon([gleba])]));
+    const dentro = inter && inter.geometry.type === "Polygon" ? areaPlanar(inter.geometry.coordinates[0]) : 0;
+    expect(dentro).toBeGreaterThanOrEqual(areaPlanar(m) - 0.01);
+  }
+  const bbox = (m: Position[]) => [Math.min(...m.map((p) => p[0])), Math.min(...m.map((p) => p[1])), Math.max(...m.map((p) => p[0])), Math.max(...m.map((p) => p[1]))];
+  const bbs = lotes.map(bbox);
+  const ruas = (c.ruas ?? []).map(metros);
+  for (let i = 0; i < lotes.length; i++) {
+    for (let j = i + 1; j < lotes.length; j++) {
+      const [a, b] = [bbs[i], bbs[j]];
+      if (a[2] <= b[0] || b[2] <= a[0] || a[3] <= b[1] || b[3] <= a[1]) continue;
+      const x = intersect(featureCollection([turfPolygon([lotes[i]]), turfPolygon([lotes[j]])]));
+      const ax = x ? (x.geometry.type === "Polygon" ? areaPlanar(x.geometry.coordinates[0]) : 1) : 0;
+      expect(ax).toBeLessThan(0.01);
+    }
+    for (const r of ruas) {
+      const x = intersect(featureCollection([turfPolygon([lotes[i]]), turfPolygon([r])]));
+      const ax = x ? (x.geometry.type === "Polygon" ? areaPlanar(x.geometry.coordinates[0]) : 1) : 0;
+      expect(ax).toBeLessThan(0.01);
+    }
+  }
+  void ind;
+}
+
+describe("primitivas geométricas", () => {
+  it("retângulo dentro/fora de poligonal côncava (L)", () => {
+    const L: Position[] = [[0, 0], [100, 0], [100, 40], [40, 40], [40, 100], [0, 100], [0, 0]];
+    const ind = criarIndiceAnel(L, 20);
+    expect(retanguloDentro(ind, [0, 0, 100, 40])).toBe(true);   // encostado nas bordas
+    expect(retanguloDentro(ind, [10, 10, 30, 90])).toBe(true);
+    expect(retanguloDentro(ind, [30, 30, 60, 60])).toBe(false); // atravessa o canto côncavo
+    expect(retanguloDentro(ind, [50, 50, 90, 90])).toBe(false); // totalmente fora (no recorte)
+  });
+
+  it("valida poligonal: auto-interseção, não fechada, área nula", () => {
+    expect(validarPoligonal([[0, 0], [10, 10], [10, 0], [0, 10], [0, 0]])).toMatch(/auto-interseção/);
+    expect(validarPoligonal([[0, 0], [10, 0], [10, 10]])).toMatch(/3 vértices|fechado/);
+    expect(validarPoligonal([[0, 0], [10, 0], [20, 0], [0, 0]])).toMatch(/área nula/);
+    expect(validarPoligonal(RETANGULO)).toBeNull();
+  });
+
+  it("conversão de coordenadas ida/volta e área do retângulo 400 × 250", () => {
+    const m = metros(RETANGULO);
+    expect(areaPlanar(m)).toBeCloseTo(100_000, 3);
+  });
+});
+
+describe("Correção 01 — parâmetros respeitados exatamente", () => {
+  for (const tipologia of ["grid", "cul_de_sac", "rua_simples"] as TipologiaMassa[]) {
+    it(`${tipologia}: todos os lotes têm exatamente testada × profundidade e a via informada`, () => {
+      const p = { ...BASE, tipologia };
+      const r = gerarEstudoMassa(IRREGULAR, CENTRO, p);
+      expect(r.cenarios.length).toBeGreaterThan(0);
+      for (const c of r.cenarios) {
+        conferirDimensoesExatas(c, p);
+        semSobreposicaoEDentro(IRREGULAR, c);
+      }
+    });
+  }
+
+  it("20 × 250 não vira 20,3 × 273,3 (nem nenhuma outra dimensão)", () => {
+    const r = gerarEstudoMassa(MORADA_SINTETICA, CENTRO, MORADA);
+    for (const c of r.cenarios) conferirDimensoesExatas(c, MORADA);
+  });
+
+  it("via de 3 m é usada como 3 m (não 4 m ou mais)", () => {
+    const p = { ...BASE, larguraViaM: 3 };
+    const r = gerarEstudoMassa(RETANGULO, CENTRO, p);
+    for (const c of r.cenarios) expect(c.larguraViaM).toBe(3);
+    const rs = gerarEstudoMassa(RETANGULO, CENTRO, { ...p, tipologia: "rua_simples" });
+    for (const c of rs.cenarios) {
+      expect(c.larguraViaM).toBe(3);
+      expect(c.sistemaViario!.larguraM).toBe(3);
+      expect(larguraMinima(metros(c.ruas![0]))).toBeCloseTo(3, 4);
+    }
+  });
+
+  it("testada × profundidade menor que a área mínima é recusada com explicação", () => {
+    expect(validarParametrosMassa({ ...BASE, testadaLoteM: 10, profundidadeLoteM: 20, loteMinimoM2: 250 })).toMatch(/menor que a área mínima/);
+    const r = gerarEstudoMassa(RETANGULO, CENTRO, { ...BASE, profundidadeLoteM: 20 });
+    expect(r.cenarios).toEqual([]);
+    expect(r.inviabilidade?.motivo).toMatch(/não altera as dimensões/);
+  });
+
+  it("quadro de áreas fecha: bruta = não parceláveis + vendável + públicas + sobras; viário = vias desenhadas", () => {
+    const r = gerarEstudoMassa(IRREGULAR, CENTRO, { ...BASE, appM2: 5_000, faixaServidaoM2: 1_000 });
+    for (const c of r.cenarios) {
+      const q = c.quadroAreas!;
+      expect(Math.abs(q.totalNaoParcelavelM2 + q.areaLiquidaVendavelM2 + q.areaPublicaTotalM2 + (q.sobrasM2 ?? 0) - q.areaBrutaM2)).toBeLessThan(1);
+      expect(q.sistemaViarioM2).toBeCloseTo(c.sistemaViario!.areaGeometricaM2, 2);
+      // área das ruas desenhadas recalculada de forma independente (união dos anéis)
+      const pecas = (c.ruas ?? []).map((a) => turfPolygon([metros(a)]));
+      const u = pecas.length === 1 ? pecas[0] : union(featureCollection(pecas))!;
+      const polys = u.geometry.type === "Polygon" ? [u.geometry.coordinates] : u.geometry.coordinates;
+      const areaRuas = polys.reduce((s, rr) => s + areaPlanar(rr[0]) - rr.slice(1).reduce((h, x) => h + areaPlanar(x), 0), 0);
+      expect(Math.abs(areaRuas - q.sistemaViarioM2)).toBeLessThan(1);
+      expect(q.nLotes).toBe(c.lotes.filter((l) => l.tipo === "vendavel").length);
+      expect(q.vgv).toBe(c.kpis.vgv);
+    }
+  });
+});
+
+describe("Correção 02 — determinismo e cenários distintos", () => {
+  for (const tipologia of ["grid", "cul_de_sac", "rua_simples"] as TipologiaMassa[]) {
+    it(`${tipologia}: 10 execuções idênticas produzem exatamente o mesmo resultado`, () => {
+      const p = { ...BASE, tipologia };
+      const ref = JSON.stringify(gerarEstudoMassa(IRREGULAR, CENTRO, p));
+      for (let i = 0; i < 9; i++) expect(JSON.stringify(gerarEstudoMassa(IRREGULAR, CENTRO, p))).toBe(ref);
+    });
+  }
+
+  it("opções legadas (seed/população) não alteram o resultado", () => {
+    const a = gerarCenariosMassa(RETANGULO, CENTRO, BASE, { seed: 1, populacao: 4, geracoes: 2 });
+    const b = gerarCenariosMassa(RETANGULO, CENTRO, BASE, { seed: 99999, populacao: 30, geracoes: 30 });
+    expect(JSON.stringify(a)).toBe(JSON.stringify(b));
+  });
+
+  it("assinatura muda com parâmetros e é estável", () => {
+    expect(assinaturaEntradas(RETANGULO, BASE)).toBe(assinaturaEntradas(RETANGULO, { ...BASE }));
+    expect(assinaturaEntradas(RETANGULO, BASE)).not.toBe(assinaturaEntradas(RETANGULO, { ...BASE, testadaLoteM: 11 }));
+  });
+
+  it("até 3 cenários, com critério declarado, ordem estável e sem equivalentes repetidos", () => {
+    const r = gerarEstudoMassa(IRREGULAR, CENTRO, BASE);
+    expect(r.cenarios.length).toBeGreaterThan(0);
+    expect(r.cenarios.length).toBeLessThanOrEqual(3);
+    expect(r.cenarios[0].criterio).toBe("maior_area_vendavel");
+    for (const c of r.cenarios.slice(1)) expect(c.kpis.areaVendavelM2).toBeLessThanOrEqual(r.cenarios[0].kpis.areaVendavelM2);
+    const ids = r.cenarios.map((c) => c.id);
+    expect(new Set(ids).size).toBe(ids.length);
+    for (let i = 0; i < r.cenarios.length; i++) {
+      for (let j = i + 1; j < r.cenarios.length; j++) {
+        const [a, b] = [r.cenarios[i], r.cenarios[j]];
+        const iguais = a.kpis.lotesVendaveis === b.kpis.lotesVendaveis && Math.abs(a.anguloVia - b.anguloVia) < 1
+          && Math.abs((a.sistemaViario?.areaGeometricaM2 ?? 0) - (b.sistemaViario?.areaGeometricaM2 ?? 0)) < 1;
+        expect(iguais).toBe(false);
+      }
+    }
+  });
+
+  it("nenhum cenário válido: lista vazia + motivo e causas verificáveis (sem cartões inventados)", () => {
+    const pequena = geo([[-10, -10], [10, -10], [10, 10], [-10, 10], [-10, -10]]);
+    const r = gerarEstudoMassa(pequena, CENTRO, BASE);
+    expect(r.cenarios).toEqual([]);
+    expect(r.inviabilidade?.motivo).toMatch(/nenhum lote/);
+    expect(r.inviabilidade?.causas.join(" ")).toMatch(/Área insuficiente|nenhum retângulo/);
+    expect(r.inviabilidade?.motivo).not.toMatch(/Inválivel/);
+  });
+
+  it("diagnóstico distingue 'lote cabe sozinho mas não com a via'", () => {
+    // faixa de 26 m: lote 20 × 25 cabe sozinho, mas via (12) + 25 = 37 m e via + 20 = 32 m não cabem
+    const faixa = geo([[-200, -13], [200, -13], [200, 13], [-200, 13], [-200, -13]]);
+    const r = gerarEstudoMassa(faixa, CENTRO, { ...BASE, testadaLoteM: 20, percentInstitucional: 0, percentAreaVerde: 0 });
+    expect(r.cenarios).toEqual([]);
+    expect(r.inviabilidade?.causas.join(" ")).toMatch(/cabe isoladamente/);
+  });
+
+  it("poligonal auto-intersectante é recusada", () => {
+    const gravata = geo([[0, 0], [300, 300], [300, 0], [0, 300], [0, 0]]);
+    const r = gerarEstudoMassa(gravata, CENTRO, BASE);
+    expect(r.cenarios).toEqual([]);
+    expect(r.inviabilidade?.motivo).toMatch(/auto-interseção/);
+  });
+});
+
+describe("Correção 03 — Rua Simples", () => {
+  it("referência sintética Morada do Bosque (20 × 250, via única): 29 lotes quando a geometria comporta", () => {
+    const r = gerarEstudoMassa(MORADA_SINTETICA, CENTRO, MORADA);
+    const c = r.cenarios[0];
+    expect(c.kpis.lotesVendaveis).toBe(29);
+    expect(c.kpis.areaVendavelM2).toBe(29 * 5000);
+    expect(c.vias).toEqual([]); // sem balão de retorno
+    expect((c.limitacoes ?? []).join(" ")).toMatch(/não inclui balão/);
+    expect(c.ruas!.length).toBe(1);
+    // via reta de 300 m × 10 m
+    expect(c.sistemaViario!.areaGeometricaM2).toBeCloseTo(300 * W, 1);
+    // duas quadras (um lado da via cada), numeração sequencial a partir de 1
+    const porQuadra = new Map<string, number[]>();
+    for (const l of c.lotes) porQuadra.set(l.quadra!, [...(porQuadra.get(l.quadra!) ?? []), Number(l.numero)]);
+    expect(porQuadra.size).toBe(2);
+    for (const nums of Array.from(porQuadra.values())) expect([...nums].sort((a, b) => a - b)).toEqual(nums.map((_, i) => i + 1));
+    semSobreposicaoEDentro(MORADA_SINTETICA, c);
+  });
+
+  it("mesma geometria lida de um arquivo KML real (parseKmlTerreno) dá o mesmo resultado", () => {
+    const coords = MORADA_SINTETICA.map((p) => `${p[0]},${p[1]},0`).join(" ");
+    const kml = `<?xml version="1.0" encoding="UTF-8"?><kml xmlns="http://www.opengis.net/kml/2.2"><Document><Placemark><name>Gleba</name><Polygon><outerBoundaryIs><LinearRing><coordinates>${coords}</coordinates></LinearRing></outerBoundaryIs></Polygon></Placemark></Document></kml>`;
+    const t = parseKmlTerreno(kml);
+    const r = gerarEstudoMassa(t.feature.geometry.coordinates[0], CENTRO, MORADA);
+    expect(r.cenarios[0].kpis.lotesVendaveis).toBe(29);
+  });
+
+  it("geometria que não comporta 29 mostra a quantidade efetivamente viável (não força 29)", () => {
+    const menor = geo([[0, -255], [200, -255], [200, 255], [0, 255], [0, -255]]);
+    const r = gerarEstudoMassa(menor, CENTRO, MORADA);
+    expect(r.cenarios[0].kpis.lotesVendaveis).toBe(20);
+  });
+
+  it("Grade e Cul-de-sac continuam funcionando na mesma gleba", () => {
+    for (const tipologia of ["grid", "cul_de_sac"] as TipologiaMassa[]) {
+      const r = gerarEstudoMassa(RETANGULO, CENTRO, { ...BASE, tipologia });
+      expect(r.cenarios[0].kpis.lotesVendaveis).toBeGreaterThan(50);
+      expect(r.cenarios[0].tipologia).toBe(tipologia);
+    }
+    const cul = gerarEstudoMassa(RETANGULO, CENTRO, { ...BASE, tipologia: "cul_de_sac" });
+    expect((cul.cenarios[0].vias ?? []).length).toBeGreaterThan(0);
+  });
+});
+
+describe("Correção 01 — área do sistema viário manual", () => {
+  it("rua simples: valor manual compatível define o comprimento da via e o quadro", () => {
+    const area = 10 * 20 * W; // 10 peças de 20 m × 10 m
+    const r = gerarEstudoMassa(MORADA_SINTETICA, CENTRO, { ...MORADA, modoSistemaViario: "manual", areaSistemaViarioM2: area });
+    const c = r.cenarios[0];
+    expect(c.sistemaViario!.areaGeometricaM2).toBeCloseTo(area, 1);
+    expect(c.quadroAreas!.sistemaViarioM2).toBeCloseTo(area, 1);
+    expect(c.quadroAreas!.modoSistemaViario).toBe("manual");
+    expect(c.kpis.lotesVendaveis).toBe(20);
+  });
+
+  it("valor manual geometricamente inviável gera divergência, não implantação fictícia", () => {
+    const r = gerarEstudoMassa(MORADA_SINTETICA, CENTRO, { ...MORADA, modoSistemaViario: "manual", areaSistemaViarioM2: 9_000 });
+    expect(r.cenarios).toEqual([]);
+    expect(r.inviabilidade?.motivo).toMatch(/Divergência técnica/);
+  });
+
+  it("valor manual negativo ou acima da área disponível é recusado", () => {
+    expect(validarParametrosMassa({ ...BASE, modoSistemaViario: "manual", areaSistemaViarioM2: -1 })).toMatch(/negativa/);
+    const r = gerarEstudoMassa(RETANGULO, CENTRO, { ...BASE, modoSistemaViario: "manual", areaSistemaViarioM2: 200_000 });
+    expect(r.inviabilidade?.motivo).toMatch(/maior que a área disponível/);
+  });
+
+  it("grade em modo manual: aceita só se a área desenhada bater (±5%)", () => {
+    const auto = gerarEstudoMassa(RETANGULO, CENTRO, BASE).cenarios[0];
+    const geoArea = auto.sistemaViario!.areaGeometricaM2;
+    const ok = gerarEstudoMassa(RETANGULO, CENTRO, { ...BASE, modoSistemaViario: "manual", areaSistemaViarioM2: geoArea });
+    expect(ok.cenarios.length).toBeGreaterThan(0);
+    for (const c of ok.cenarios) expect(Math.abs(c.sistemaViario!.areaGeometricaM2 - geoArea)).toBeLessThanOrEqual(0.05 * geoArea + 1);
+    const ruim = gerarEstudoMassa(RETANGULO, CENTRO, { ...BASE, modoSistemaViario: "manual", areaSistemaViarioM2: 10 });
+    expect(ruim.cenarios).toEqual([]);
+    expect(ruim.inviabilidade?.motivo).toMatch(/Divergência técnica/);
+  });
+});
+
+describe("Correção 05 — quantidade de lotes dinâmica", () => {
+  it.each([
+    [80, 8], [140, 14], [300, 30], [600, 60], [1000, 100],
+  ])("faixa de %i m comporta %i lotes de 20 × 250 (dois lados)", (comprimento, esperado) => {
+    const anel = geo([[0, -255], [comprimento, -255], [comprimento, 255], [0, 255], [0, -255]]);
+    const r = gerarEstudoMassa(anel, CENTRO, MORADA);
+    expect(r.cenarios[0].kpis.lotesVendaveis).toBe(esperado);
+  });
+
+  it("grade escala com a área (sem teto fixo)", () => {
+    const pequeno = gerarEstudoMassa(geo([[0, 0], [150, 0], [150, 120], [0, 120], [0, 0]]), CENTRO, BASE).cenarios[0].kpis.lotesVendaveis;
+    const grande = gerarEstudoMassa(geo([[0, 0], [600, 0], [600, 480], [0, 480], [0, 0]]), CENTRO, BASE).cenarios[0].kpis.lotesVendaveis;
+    expect(pequeno).toBeGreaterThan(0);
+    expect(grande).toBeGreaterThan(10 * pequeno);
+  });
+});

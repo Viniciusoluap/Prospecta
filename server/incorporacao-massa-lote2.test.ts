@@ -95,7 +95,8 @@ describe("gerarCenariosMassa — quadro, tipologias e poligonal", () => {
       const q = c.quadroAreas!;
       expect(q.areaLiquidaVendavelM2).toBe(c.kpis.areaVendavelM2);
       expect(q.nLotes).toBe(c.kpis.lotesVendaveis);
-      expect(Math.abs(q.totalNaoParcelavelM2 + q.areaLiquidaVendavelM2 + q.areaPublicaTotalM2 - q.areaBrutaM2)).toBeLessThan(1);
+      // motor v2: viário = vias desenhadas; o remanescente aparece como sobras de quadra
+      expect(Math.abs(q.totalNaoParcelavelM2 + q.areaLiquidaVendavelM2 + q.areaPublicaTotalM2 + (q.sobrasM2 ?? 0) - q.areaBrutaM2)).toBeLessThan(1);
       expect(c.inviabilidade).toBeNull();
     }
   });
