@@ -28,6 +28,21 @@ export interface OpcoesViaDivisa {
   limiteComprimentoM?: number;
 }
 
+/** Ajustes da implantação por lados escolhidos (rua de cima/esquerda/direita/baixo). */
+export interface ExtrasImplantacao {
+  /** Áreas já ocupadas (outras vias, lotes de outra divisa) — subtraídas dos lotes. */
+  ocupados?: Position[][];
+  /**
+   * Fundo variável: a frente fica EXATAMENTE na testada e, quando a faixa perpendicular não atinge a
+   * área mínima, a divisa lateral do lote gira para trás (o fundo alarga) em vez de aumentar a frente.
+   */
+  fundoVariavel?: boolean;
+  /** A via ocupa a divisa escolhida inteira (não para no último lote). */
+  viaInteira?: boolean;
+  /** Fundo máximo do lote (m). Padrão: 2 × profundidade. Com vias em divisas opostas, a profundidade informada. */
+  fundoMaxM?: number;
+}
+
 export interface ImplantacaoViaDivisa extends ImplantacaoFrame {
   /** Polígonos da via já recortados pela gleba (traçado livre, não retangular). */
   viasLivres: Position[][];
@@ -204,7 +219,7 @@ function subtrairOcupados(g: Geo, ocupados: { ret: Ret; f: Feature<Polygon> }[])
 }
 
 /** Implanta os lotes ao longo de uma cadeia de divisa (um sentido, uma fase). */
-export function implantarNaDivisa(anelFechado: Position[], arestas: number[], reverso: boolean, fase: number, o: OpcoesViaDivisa, raio = 0): ImplantacaoViaDivisa | null {
+export function implantarNaDivisa(anelFechado: Position[], arestas: number[], reverso: boolean, fase: number, o: OpcoesViaDivisa, raio = 0, extras: ExtrasImplantacao = {}): ImplantacaoViaDivisa | null {
   const v = anelFechado.slice(0, -1);
   const n = v.length;
   const ccw = areaComSinal(v) > 0;
@@ -218,7 +233,8 @@ export function implantarNaDivisa(anelFechado: Position[], arestas: number[], re
   if (!viaToda) return null;
   const ocupados: { ret: Ret; f: Feature<Polygon> }[] = poligonos(viaToda.geometry as Polygon | MultiPolygon)
     .map((rs) => limpar(rs[0])).filter((a): a is Position[] => !!a).map((a) => ({ ret: bboxDe(a), f: turfPolygon([a]) }));
-  const Lmax = 2 * o.profundidade;
+  for (const a of extras.ocupados ?? []) { const c = limpar(a); if (c) ocupados.push({ ret: bboxDe(c), f: turfPolygon([c]) }); }
+  const Lmax = extras.fundoMaxM ?? 2 * o.profundidade;
   const minArea = Math.max(o.loteMinimoM2, 1);
   const lotes: LoteFrame[] = [];
   // Cabeceiras: o primeiro/último lote pode seguir a divisa vizinha à via (absorve o triângulo
@@ -247,8 +263,12 @@ export function implantarNaDivisa(anelFechado: Position[], arestas: number[], re
     return d;
   };
   /** Lote entre s0 e s1 (frente sobre a via), recortado pela gleba e livre de via/lotes; null se inviável. */
-  const loteEntre = (s0: number, s1: number, ponta: { ini?: boolean; fim?: boolean } = {}): { anel: Position[]; area: number; frente: number } | null => {
+  /** Tangente da via (sentido de implantação) no ponto s. */
+  const tangente = (sPos: number): V => unit(sub(pontoEm(l, Math.min(l.total, sPos + 0.5)).p, pontoEm(l, Math.max(0, sPos - 0.5)).p));
+  const loteEntre = (s0: number, s1: number, ponta: { ini?: boolean; fim?: boolean } = {}, giro = 0): { anel: Position[]; area: number; frente: number } | null => {
     const a = { p: pontoEm(l, s0).p, d: direcao(s0) }, b = { p: pontoEm(l, s1).p, d: direcao(s1) };
+    // fundo variável: a divisa lateral final gira para a frente (o fundo alarga; a frente não muda)
+    if (giro > 0) b.d = unit(add(mul(b.d, Math.cos(giro)), mul(tangente(s1), Math.sin(giro))));
     const frente = caminho(l, s0, s1);
     const fa = add(a.p, mul(a.d, Lmax)), fb = add(b.p, mul(b.d, Lmax));
     let fundo: V[];
@@ -301,6 +321,17 @@ export function implantarNaDivisa(anelFechado: Position[], arestas: number[], re
     const primeiro = lotes.length === 0 && s0 === 0;
     const pontaIni = primeiro ? { ini: true } : {};
     let lote = (primeiro ? loteEntre(s0, s1, pontaIni) : null) ?? loteEntre(s0, s1);
+    if (!valido(lote) && extras.fundoVariavel && s1 <= limite + 1e-9) {
+      // frente exata: gira a divisa lateral final até a área mínima (busca do menor giro, até 75°)
+      const tentaGiro = (g: number) => (primeiro ? loteEntre(s0, s1, pontaIni, g) : null) ?? loteEntre(s0, s1, {}, g);
+      const gMax = (75 * Math.PI) / 180;
+      const lMax = tentaGiro(gMax);
+      if (valido(lMax)) {
+        let lo = 0, hi = gMax, melhor = lMax;
+        for (let it = 0; it < 12; it++) { const mid = (lo + hi) / 2; const lm = tentaGiro(mid); if (valido(lm)) { hi = mid; melhor = lm; } else lo = mid; }
+        lote = melhor;
+      }
+    }
     if (!valido(lote)) {
       const sMax = Math.min(s0 + maxFrente, limite);
       const tenta = (sx: number) => (primeiro ? loteEntre(s0, sx, pontaIni) : null) ?? loteEntre(s0, sx);
@@ -350,7 +381,7 @@ export function implantarNaDivisa(anelFechado: Position[], arestas: number[], re
       ocupados.push({ ret: ultimo.ret, f: turfPolygon([ultimo.anel]) });
     }
   }
-  const sFimVia = o.limiteComprimentoM !== undefined ? limite : sUltimo;
+  const sFimVia = o.limiteComprimentoM !== undefined ? limite : extras.viaInteira ? l.total : sUltimo;
   const anelViaFinal = limpar(poligonoVia(l, sFimVia, o.via));
   const via = anelViaFinal ? seguro(() => intersect(featureCollection([turfPolygon([anelViaFinal]), gleba]))) : null;
   const viasLivres = via ? poligonos(via.geometry as Polygon | MultiPolygon).map((rs) => rs[0]) : [];
@@ -361,7 +392,7 @@ export function implantarNaDivisa(anelFechado: Position[], arestas: number[], re
       "Rua Simples não inclui balão de retorno; o acesso externo ocorre pelo início da via na divisa e deve ser confirmado em projeto.",
     ],
     arestasDivisa: arestas, comprimentoViaM: sFimVia, comprimentoDisponivelM: l.total,
-    chave: `div|${arestas.join(",")}|${reverso ? "r" : "d"}|${fase}|r${raio}`,
+    chave: `div|${arestas.join(",")}|${reverso ? "r" : "d"}|${fase}|r${raio}${extras.fundoVariavel ? "|fv" : ""}`,
   };
 }
 
@@ -395,6 +426,30 @@ export function buscarViaDivisa(anelFechado: Position[], o: OpcoesViaDivisa, max
     }
   }
   return ordenar(out).slice(0, max);
+}
+
+/** Polígono da via ao longo de toda a cadeia de arestas (recortado pela gleba). */
+export function viaDaCadeia(anelFechado: Position[], arestas: number[], via: number): Position[][] {
+  const v = anelFechado.slice(0, -1);
+  const n = v.length;
+  const ccw = areaComSinal(v) > 0;
+  const normalDentro = (i: number): V => { const u = unit(sub(v[(i + 1) % n], v[i])); return ccw ? [-u[1], u[0]] : [u[1], -u[0]]; };
+  const l = montarLinha(v, arestas, normalDentro, via, false);
+  const anelVia = limpar(poligonoVia(l, l.total, via));
+  const r = anelVia ? seguro(() => intersect(featureCollection([turfPolygon([anelVia]), turfPolygon([anelFechado])]))) : null;
+  return r ? poligonos(r.geometry as Polygon | MultiPolygon).map((rs) => rs[0]) : [];
+}
+
+/** Subtrai das áreas `a` as áreas `b` (para não contar duas vezes a via no cruzamento de duas divisas). */
+export function subtrairAreas(a: Position[][], b: Position[][]): Position[][] {
+  const out: Position[][] = [];
+  for (const anel of a) {
+    const c = limpar(anel);
+    if (!c) continue;
+    const r = subtrairOcupados(turfPolygon([c]), b.map((x) => limpar(x)).filter((x): x is Position[] => !!x).map((x) => ({ ret: bboxDe(x), f: turfPolygon([x]) })));
+    if (r) out.push(...poligonos(r.geometry as Polygon | MultiPolygon).map((rs) => rs[0]));
+  }
+  return out;
 }
 
 export { areaGeo as _areaGeo };

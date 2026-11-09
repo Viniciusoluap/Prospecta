@@ -3,10 +3,11 @@ import dynamic from "./compat/dynamic";
 import { AlertTriangle, CheckCircle2, FolderOpen, Grid3x3, Loader2, Save, Send, Star, Trash2, Trophy, CopyPlus, PenTool, Satellite } from "lucide-react";
 import { formatCurrency, parseNumeroBR, formatArea } from "./compat/util";
 import {
-  assinaturaEntradas, validarParametrosMassa, ROTULO_ESTUDO_PRELIMINAR, TIPOLOGIAS_MASSA,
+  assinaturaEntradas, criarProjecao, validarParametrosMassa, ROTULO_ESTUDO_PRELIMINAR, TIPOLOGIAS_MASSA,
   type CenarioMassa, type EstudoMassaGerado, type ParametrosMassa, type TipologiaMassa,
 } from "@shared/incorporacao/massa";
 import { executarMotorMassa } from "./executar-massa";
+import { LADOS_GLEBA, ROTULO_LADO, medirLados, type LadoGleba } from "@shared/incorporacao/lados-gleba";
 import { PlantaTecnica } from "./planta-tecnica";
 import { linhasQuadroAreas, type QuadroAreasMassa } from "@shared/incorporacao/massa-quadro-areas";
 import { AVISO_SEM_POLIGONAL, parseLotesAvulsos, resumoLotesAvulsos } from "@shared/incorporacao/lotes-avulsos";
@@ -25,7 +26,7 @@ const MapaMassa = dynamic(() => import("./mapa-massa").then((m) => m.MapaMassa),
   loading: () => <div className="bg-gray-100 animate-pulse" style={{ height: 460 }} />,
 });
 
-type CampoNumerico = Exclude<keyof ParametrosMassa, "tipologia" | "modoSistemaViario" | "formatoLote" | "tracadoVia" | "inverterLadoVia">;
+type CampoNumerico = Exclude<keyof ParametrosMassa, "tipologia" | "modoSistemaViario" | "formatoLote" | "tracadoVia" | "inverterLadoVia" | "ladosVia">;
 
 const CAMPOS: { k: CampoNumerico; label: string }[] = [
   { k: "testadaLoteM", label: "Testada do lote (m)" },
@@ -167,6 +168,18 @@ export function MassaTab({ estudo }: { estudo: EstudoData }) {
     setCamposTexto((c) => ({ ...c, [k]: formatarCampo(params[k]) }));
   }
 
+  // comprimento de cada lado da gleba (cima/esquerda/direita/baixo), medido no KML
+  const ladosMedidos = useMemo(() => {
+    if (!estudo.geojson || estudo.centroLng == null || estudo.centroLat == null) return null;
+    try {
+      const anelGeo = (JSON.parse(estudo.geojson) as Feature<Polygon>).geometry.coordinates[0];
+      const proj = criarProjecao([estudo.centroLng, estudo.centroLat]);
+      const anelM = anelGeo.map((p) => proj.paraMetros(p));
+      anelM[anelM.length - 1] = anelM[0];
+      return medirLados(anelM);
+    } catch { return null; }
+  }, [estudo.geojson, estudo.centroLng, estudo.centroLat]);
+
   async function gerar(entradas = params) {
     if (!estudo.geojson || !estudo.centroLat || !estudo.centroLng) return;
     if (gerando) return; // impede execuções concorrentes
@@ -224,8 +237,10 @@ export function MassaTab({ estudo }: { estudo: EstudoData }) {
     const nomeFinal = (modo === "novo" ? nome : aberto?.nome ?? nome).trim();
     if (!nomeFinal) { setMensagem({ tipo: "erro", texto: "Informe o nome do estudo antes de salvar." }); return false; }
     if (cenarios.length === 0) { setMensagem({ tipo: "erro", texto: "Gere ao menos um cenário antes de salvar." }); return false; }
-    const viaOposta = params.tipologia === "rua_simples" && params.tracadoVia === "divisa" && !!params.inverterLadoVia;
-    if (gerando || cenarios.some((c) => !!c.viaLadoOposto !== viaOposta)) {
+    const pelaDivisa = params.tipologia === "rua_simples" && params.tracadoVia === "divisa";
+    const ladosEscolhidos = pelaDivisa ? LADOS_GLEBA.filter((l) => params.ladosVia?.includes(l)) : [];
+    const viaOposta = pelaDivisa && ladosEscolhidos.length === 0 && !!params.inverterLadoVia;
+    if (gerando || cenarios.some((c) => !!c.viaLadoOposto !== viaOposta || (c.ladosVia ?? []).join("+") !== ladosEscolhidos.join("+"))) {
       setMensagem({ tipo: "erro", texto: "Gere os cenários com o lado selecionado da rua antes de salvar." });
       return false;
     }
@@ -262,7 +277,7 @@ export function MassaTab({ estudo }: { estudo: EstudoData }) {
     setMensagem(null);
     try {
       const completo = exigirResultado(await abrirEstudoMassa(estudo.id, s.id));
-      const p = { ...paramsIniciais(estudo), inverterLadoVia: false, ...(completo.parametros ?? {}) };
+      const p = { ...paramsIniciais(estudo), inverterLadoVia: false, ladosVia: [], ...(completo.parametros ?? {}) };
       setParams(p);
       setCamposTexto(formatarCampos(p));
       setCenarios(completo.cenarios);
@@ -411,15 +426,26 @@ export function MassaTab({ estudo }: { estudo: EstudoData }) {
               onChange={(v) => upd("areaSistemaViarioM2", v)} onBlur={() => reformatarCampo("areaSistemaViarioM2")} />
           </div>
           {params.tipologia === "rua_simples" && params.tracadoVia === "divisa" && (
-            <label title="Usa a divisa oposta à do primeiro cenário automático." className="inline-flex items-center gap-2 py-1.5 text-xs font-semibold text-gray-700">
-              <input type="checkbox" checked={params.inverterLadoVia ?? false} disabled={gerando || busy || !estudo.geojson}
-                onChange={(e) => {
-                  const entradas = { ...params, inverterLadoVia: e.target.checked };
-                  setParams(entradas);
-                  void gerar(entradas);
-                }} />
-              Trocar rua de lado
-            </label>
+            <fieldset className="flex flex-wrap items-center gap-x-4 gap-y-1 py-1.5 text-xs font-semibold text-gray-700" aria-label="Lados da gleba com rua">
+              {LADOS_GLEBA.map((lado) => {
+                const medida = ladosMedidos?.find((x) => x.lado === lado);
+                const marcado = params.ladosVia?.includes(lado) ?? false;
+                return (
+                  <label key={lado} className="inline-flex items-center gap-1.5" title={medida ? `${medida.comprimentoM.toLocaleString("pt-BR", { maximumFractionDigits: 1 })} m de divisa — cabem até ${Math.floor(medida.comprimentoM / Math.max(params.testadaLoteM, 1e-9))} frentes de ${params.testadaLoteM.toLocaleString("pt-BR")} m` : undefined}>
+                    <input type="checkbox" checked={marcado} disabled={gerando || busy || !estudo.geojson || (medida?.comprimentoM ?? 0) <= 0}
+                      onChange={(e) => {
+                        const atuais = new Set<LadoGleba>(params.ladosVia ?? []);
+                        if (e.target.checked) atuais.add(lado); else atuais.delete(lado);
+                        const entradas = { ...params, inverterLadoVia: false, ladosVia: LADOS_GLEBA.filter((l) => atuais.has(l)) };
+                        setParams(entradas);
+                        void gerar(entradas);
+                      }} />
+                    {ROTULO_LADO[lado]}
+                    {medida && medida.comprimentoM > 0 && <span className="font-normal text-gray-400">({medida.comprimentoM.toLocaleString("pt-BR", { maximumFractionDigits: 0 })} m)</span>}
+                  </label>
+                );
+              })}
+            </fieldset>
           )}
         </div>
         <p className="text-[10px] text-gray-500 mt-1">
@@ -427,7 +453,9 @@ export function MassaTab({ estudo }: { estudo: EstudoData }) {
             ? "Manual: o motor ajusta a malha para a via desenhada bater com o valor (±5%) — Rua Simples: comprimento da via; Grade/Cul-de-sac: quadras mais curtas (nunca acima do máximo informado) ou supressão de ruas de menor aproveitamento. Se nenhum ajuste fechar, mostra a divergência e não cria implantação fictícia."
             : `Automático: usa a área geométrica das vias desenhadas${cenarioAtivo?.sistemaViario ? ` — cenário atual: ${m2(cenarioAtivo.sistemaViario.areaGeometricaM2)}` : ""}.`}
           {params.tipologia === "rua_simples" && " Na Rua Simples o comprimento máximo da quadra não se aplica (via única)."}
-          {params.tipologia === "rua_simples" && params.tracadoVia === "divisa" && " Via pela divisa: a testada é a frente MÍNIMA de cada lote (maior só onde preciso para atingir a área mínima) e os lotes vão até a divisa oposta."}
+          {params.tipologia === "rua_simples" && params.tracadoVia === "divisa" && ((params.ladosVia?.length ?? 0) > 0
+            ? " Rua somente nos lados marcados: cada lote tem a frente EXATA da testada sobre a via e o fundo variável até a divisa oposta (a divisa lateral gira quando a faixa não atinge a área mínima). A quantidade máxima é o comprimento da divisa ÷ testada. Sem lado marcado, o motor escolhe a divisa automaticamente."
+            : " Via pela divisa: marque a(s) rua(s) de cima, da esquerda, da direita ou de baixo para fixar onde a via fica. Sem marcação, o motor escolhe a divisa; a testada é a frente MÍNIMA de cada lote (maior só onde preciso para atingir a área mínima) e os lotes vão até a divisa oposta.")}
         </p>
         <button onClick={() => void gerar()} disabled={gerando || busy || !estudo.geojson}
           className="mt-4 flex items-center gap-1.5 text-xs font-bold px-5 py-2.5 bg-[var(--brand-dark)] text-[var(--brand-yellow)] hover:opacity-90 disabled:opacity-50">
