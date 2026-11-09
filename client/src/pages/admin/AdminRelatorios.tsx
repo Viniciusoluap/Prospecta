@@ -35,10 +35,9 @@ import {
 import {
   AJUDA_VGV_DE_OBRAS,
   MENSAGEM_RANKING_VAZIO,
-  NOTA_NUMEROS_DE_OBRA,
 } from "@shared/financeiro/relatorios-indicadores";
 
-const CORES_NUMEROS_OBRA = ["#C9A961", "#3B82F6", "#22C55E", "#A855F7"];
+const CORES_NUMEROS_OBRA = ["#3B82F6", "#22C55E", "#A855F7", "#C9A961"];
 
 function formatCurrencyBR(value: number | string | null | undefined) {
   if (value === null || value === undefined) return "R$ 0,00";
@@ -70,7 +69,7 @@ export default function AdminRelatorios({
   });
 
   const numerosObraGrafico = useMemo(
-    () => (data ? data.numerosDeObra.filter(f => f.fatia > 0) : []),
+    () => (data ? data.numerosDeObra.filter(f => f.valor > 0) : []),
     [data]
   );
 
@@ -172,44 +171,44 @@ export default function AdminRelatorios({
           <p className="text-gray-400">Carregando indicadores...</p>
         ) : (
           <>
-            <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
+            <div className="grid grid-cols-2 md:grid-cols-3 2xl:grid-cols-6 gap-4">
               <Card className="bg-[#2C3E50] border-[#C9A961]/20 text-gray-100">
-                <CardContent className="pt-6 flex items-center gap-2">
-                  <Home className="h-6 w-6 text-[#C9A961]" />
-                  <div>
+                <CardContent className="min-w-0 px-3 pt-6 sm:px-4">
+                  <Home className="mb-2 h-5 w-5 text-[#C9A961]" />
+                  <div className="min-w-0">
                     <p className="text-gray-300 text-xs">Imóveis</p>
-                    <p className="text-xl font-bold text-white">
+                    <p className="text-xl font-bold leading-tight tabular-nums [overflow-wrap:anywhere] text-white">
                       {data.totalImoveis}
                     </p>
                   </div>
                 </CardContent>
               </Card>
               <Card className="bg-[#2C3E50] border-[#C9A961]/20 text-gray-100">
-                <CardContent className="pt-6 flex items-center gap-2">
-                  <Users className="h-6 w-6 text-blue-400" />
-                  <div>
+                <CardContent className="min-w-0 px-3 pt-6 sm:px-4">
+                  <Users className="mb-2 h-5 w-5 text-blue-400" />
+                  <div className="min-w-0">
                     <p className="text-gray-300 text-xs">Leads no período</p>
-                    <p className="text-xl font-bold text-white">
+                    <p className="text-xl font-bold leading-tight tabular-nums [overflow-wrap:anywhere] text-white">
                       {data.totalLeads}
                     </p>
                   </div>
                 </CardContent>
               </Card>
               <Card className="bg-[#2C3E50] border-[#C9A961]/20 text-gray-100">
-                <CardContent className="pt-6 flex items-center gap-2">
-                  <Landmark className="h-6 w-6 text-purple-400" />
-                  <div>
+                <CardContent className="min-w-0 px-3 pt-6 sm:px-4">
+                  <Landmark className="mb-2 h-5 w-5 text-purple-400" />
+                  <div className="min-w-0">
                     <p className="text-gray-300 text-xs">Financiamentos</p>
-                    <p className="text-xl font-bold text-white">
+                    <p className="text-xl font-bold leading-tight tabular-nums [overflow-wrap:anywhere] text-white">
                       {data.totalFinanciamentos}
                     </p>
                   </div>
                 </CardContent>
               </Card>
               <Card className="bg-[#2C3E50] border-[#C9A961]/20 text-gray-100">
-                <CardContent className="pt-6 flex items-center gap-2">
-                  <HardHat className="h-6 w-6 text-yellow-400" />
-                  <div>
+                <CardContent className="min-w-0 px-3 pt-6 sm:px-4">
+                  <HardHat className="mb-2 h-5 w-5 text-yellow-400" />
+                  <div className="min-w-0">
                     <p className="text-gray-300 text-xs flex items-center gap-1">
                       VGV de Obras
                       <span
@@ -219,7 +218,7 @@ export default function AdminRelatorios({
                         <Info className="h-3 w-3 text-gray-400" />
                       </span>
                     </p>
-                    <p className="text-lg font-bold text-white">
+                    <p className="text-lg font-bold leading-tight tabular-nums [overflow-wrap:anywhere] text-white">
                       {formatCurrencyBR(data.vgvObras.vgvTotal)}
                     </p>
                     <p className="text-[10px] text-gray-400">
@@ -230,11 +229,11 @@ export default function AdminRelatorios({
                 </CardContent>
               </Card>
               <Card className="bg-[#2C3E50] border-[#C9A961]/20 text-gray-100">
-                <CardContent className="pt-6 flex items-center gap-2">
-                  <TrendingUp className="h-6 w-6 text-green-400" />
-                  <div>
+                <CardContent className="min-w-0 px-3 pt-6 sm:px-4">
+                  <TrendingUp className="mb-2 h-5 w-5 text-green-400" />
+                  <div className="min-w-0">
                     <p className="text-gray-300 text-xs">Ticket médio</p>
-                    <p className="text-lg font-bold text-white">
+                    <p className="text-lg font-bold leading-tight tabular-nums [overflow-wrap:anywhere] text-white">
                       {data.ticketMedio === null
                         ? "—"
                         : formatCurrencyBR(data.ticketMedio)}
@@ -248,14 +247,14 @@ export default function AdminRelatorios({
               <Card
                 className={`bg-[#2C3E50] ${data.resultado >= 0 ? "border-green-500/30" : "border-red-500/30"}`}
               >
-                <CardContent className="pt-6 flex items-center gap-2">
+                <CardContent className="min-w-0 px-3 pt-6 sm:px-4">
                   <DollarSign
-                    className={`h-6 w-6 ${data.resultado >= 0 ? "text-green-400" : "text-red-400"}`}
+                    className={`mb-2 h-5 w-5 ${data.resultado >= 0 ? "text-green-400" : "text-red-400"}`}
                   />
-                  <div>
+                  <div className="min-w-0">
                     <p className="text-gray-300 text-xs">Resultado (DRE)</p>
                     <p
-                      className={`text-lg font-bold ${data.resultado >= 0 ? "text-green-400" : "text-red-400"}`}
+                      className={`text-lg font-bold leading-tight tabular-nums [overflow-wrap:anywhere] ${data.resultado >= 0 ? "text-green-400" : "text-red-400"}`}
                     >
                       {formatCurrencyBR(data.resultado)}
                     </p>
@@ -386,16 +385,20 @@ export default function AdminRelatorios({
                   </CardTitle>
                 </CardHeader>
                 <CardContent>
+                  <p className="text-sm text-gray-300">VGV total simulado</p>
+                  <p className="text-xl font-bold text-white [overflow-wrap:anywhere]">{formatCurrencyBR(data.vgvObras.vgvTotal)}</p>
                   {numerosObraGrafico.length === 0 ? (
                     <div className="flex h-[220px] items-center justify-center text-sm text-gray-400">
-                      Nenhuma obra com VGV no período
+                      {data.vgvObras.obrasElegiveis > 0
+                        ? "Nenhuma obra com composição válida no período."
+                        : "Nenhuma obra com VGV no período."}
                     </div>
                   ) : (
                     <ResponsiveContainer width="100%" height={220}>
                       <PieChart>
                         <Pie
                           data={numerosObraGrafico}
-                          dataKey="fatia"
+                          dataKey="valor"
                           nameKey="nome"
                           cx="50%"
                           cy="50%"
@@ -428,26 +431,30 @@ export default function AdminRelatorios({
                     {data.numerosDeObra.map((f, i) => (
                       <li
                         key={f.chave}
-                        className="flex items-center justify-between gap-2"
+                        className="flex flex-wrap items-center justify-between gap-x-2 gap-y-1"
                       >
                         <span className="flex items-center gap-2 text-gray-300">
                           <span
-                            className="inline-block h-3 w-3 rounded-sm"
+                            className="inline-block h-3 w-3 shrink-0 rounded-sm"
                             style={{ backgroundColor: CORES_NUMEROS_OBRA[i] }}
                           />
                           {f.nome}
                         </span>
-                        <span className="font-bold text-white">
+                        <span className="font-bold text-white [overflow-wrap:anywhere]">
                           {formatCurrencyBR(f.valor)}
                         </span>
                       </li>
                     ))}
                   </ul>
-                  <p className="mt-2 text-[11px] text-gray-400">
-                    {NOTA_NUMEROS_DE_OBRA}
-                    {data.vgvObras.obrasSemEntrada > 0 &&
-                      ` A entrada não inclui ${data.vgvObras.obrasSemEntrada} obra(s) sem financiamento, FGTS ou subsídio informados.`}
-                  </p>
+                  {data.vgvObras.obrasSemComposicao > 0 && (
+                    <div className="mt-3 border-t border-white/15 pt-2 text-xs text-gray-300 [overflow-wrap:anywhere]">
+                      <p>VGV representado na pizza <strong>{formatCurrencyBR(data.vgvObras.vgvComComposicao)}</strong></p>
+                      <p>VGV sem composição <strong>{formatCurrencyBR(data.vgvObras.vgvSemComposicao)}</strong></p>
+                      <p className="mt-1 text-gray-400">
+                        {data.vgvObras.obrasSemComposicao} obra(s) com dados de financiamento, subsídio ou FGTS incompletos ou inconsistentes.
+                      </p>
+                    </div>
+                  )}
                 </CardContent>
               </Card>
 
