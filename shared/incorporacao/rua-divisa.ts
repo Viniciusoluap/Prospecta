@@ -31,6 +31,7 @@ export interface OpcoesViaDivisa {
 export interface ImplantacaoViaDivisa extends ImplantacaoFrame {
   /** Polígonos da via já recortados pela gleba (traçado livre, não retangular). */
   viasLivres: Position[][];
+  arestasDivisa: number[];
   comprimentoViaM: number;
   /** Comprimento total do trecho de divisa disponível para a via. */
   comprimentoDisponivelM: number;
@@ -99,6 +100,16 @@ export function cadeiasDeDivisa(anelFechado: Position[], quebraGraus = 60): numb
     }
   }
   return cadeias;
+}
+
+/** Arestas seguem a ordem do mesmo anel, independentemente do sentido de implantação. */
+export function divisasOpostas(anel: Position[], referencia: number[], candidata: number[]): boolean {
+  if (candidata.some((i) => referencia.includes(i))) return false;
+  const direcao = (arestas: number[]) => sub(anel[arestas[arestas.length - 1] + 1], anel[arestas[0]]);
+  const a = direcao(referencia), b = direcao(candidata);
+  const produto = a[0] * b[0] + a[1] * b[1];
+  // Exige que as divisas estejam voltadas em sentidos opostos, com tolerância para curvas.
+  return produto < -0.5 * len(a) * len(b);
 }
 
 interface Linha { pontos: V[]; normais: V[]; offset: V[]; acum: number[]; total: number }
@@ -349,7 +360,7 @@ export function implantarNaDivisa(anelFechado: Position[], arestas: number[], re
       `Via acompanha a divisa (traçado curvo) com ${o.via.toLocaleString("pt-BR")} m de largura, do lado de dentro da gleba; lotes com frente mínima de ${o.testada.toLocaleString("pt-BR")} m sobre a via (maior só onde a faixa não atinge a área mínima), fundo até a divisa oposta (máx. ${(2 * o.profundidade).toLocaleString("pt-BR")} m) e área ≥ ${minArea.toLocaleString("pt-BR")} m². Nas curvas os lotes ficam em leque.`,
       "Rua Simples não inclui balão de retorno; o acesso externo ocorre pelo início da via na divisa e deve ser confirmado em projeto.",
     ],
-    comprimentoViaM: sFimVia, comprimentoDisponivelM: l.total,
+    arestasDivisa: arestas, comprimentoViaM: sFimVia, comprimentoDisponivelM: l.total,
     chave: `div|${arestas.join(",")}|${reverso ? "r" : "d"}|${fase}|r${raio}`,
   };
 }

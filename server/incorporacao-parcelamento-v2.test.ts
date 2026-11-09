@@ -444,6 +444,28 @@ describe("Rua Simples — via acompanha a divisa", () => {
     conferirDivisa(ANEL_MORADA, CENTRO_MORADA, c, p);
   }, 180_000);
 
+  it("Morada do Bosque: troca a via de 6 m para a divisa a leste e recalcula lotes, áreas e VGV", () => {
+    const p = { ...PARAMS_DIV, larguraViaM: 6, testadaLoteM: 17 };
+    const original = gerarEstudoMassa(ANEL_MORADA, CENTRO_MORADA, p);
+    const oposto = gerarEstudoMassa(ANEL_MORADA, CENTRO_MORADA, { ...p, inverterLadoVia: true });
+    expect(oposto.assinatura).not.toBe(original.assinatura);
+    expect(oposto.cenarios.length).toBeGreaterThan(0);
+    const longitudeVia = (c: CenarioMassa) => {
+      const xs = c.ruas!.flatMap((r) => r.slice(0, -1).map(([x]) => x));
+      return xs.reduce((s, x) => s + x, 0) / xs.length;
+    };
+    const longitudeGleba = CENTRO_MORADA[0];
+    expect(longitudeVia(original.cenarios[0])).toBeLessThan(longitudeGleba);
+    for (const c of oposto.cenarios) {
+      expect(c.viaLadoOposto).toBe(true);
+      expect(longitudeVia(c)).toBeGreaterThan(longitudeGleba);
+      expect(Math.abs(c.kpis.vgv - c.kpis.areaVendavelM2 * p.precoM2Lote)).toBeLessThanOrEqual(1);
+      expect(c.sistemaViario!.areaGeometricaM2).toBeGreaterThan(0);
+      expect(c.quadroAreas!.sistemaViarioM2).toBe(c.sistemaViario!.areaGeometricaM2);
+      conferirDivisa(ANEL_MORADA, CENTRO_MORADA, c, p);
+    }
+  }, 180_000);
+
   it("largura da via informada é usada (área viária ≈ largura × comprimento) e a busca é determinística", () => {
     const anel = geo([[0, 0], [300, 0], [420, 120], [420, 380], [0, 380], [0, 0]]); // divisa com dobra (curva)
     const p: ParametrosMassa = { ...MORADA_REAL, testadaLoteM: 20, profundidadeLoteM: 150, loteMinimoM2: 2500, larguraViaM: 6, tracadoVia: "divisa" };
