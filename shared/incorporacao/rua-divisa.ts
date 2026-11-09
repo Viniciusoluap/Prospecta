@@ -332,7 +332,8 @@ export function implantarNaDivisa(anelFechado: Position[], arestas: number[], re
         lote = melhor;
       }
     }
-    if (!valido(lote)) {
+    // frente exata (fundo variável): nunca alarga a frente de um lote do meio — a posição inviável fica livre
+    if (!valido(lote) && !extras.fundoVariavel) {
       const sMax = Math.min(s0 + maxFrente, limite);
       const tenta = (sx: number) => (primeiro ? loteEntre(s0, sx, pontaIni) : null) ?? loteEntre(s0, sx);
       const loteMax = sMax > s1 + 1e-9 ? tenta(sMax) : null;

@@ -24,7 +24,8 @@ Revisar o PR da branch `codex/parcelamento-trocar-lado-via-20261109` e conferir 
 
 **Medição no KML do Morada do Bosque (estudo 5):** cima 265,7 m · esquerda 627,8 m · direita 513,6 m · baixo 266,1 m.
 A divisa circulada (direita/leste) tem 513,6 m, não 580 m → no máximo 25 frentes de 20 m (513,6 ÷ 20 = 25,7).
-29 lotes de 20 m cabem pela rua da ESQUERDA (627,8 m).
+Pela rua da ESQUERDA (627,8 m) cabem 28 lotes com frente exata de 20 m; o 29º só cabe alargando uma frente (~29 m),
+porque a área limita: (149.378 − 3.756 de via) ÷ 5.000 = 29,1.
 
 **Concluído:**
 - `shared/incorporacao/lados-gleba.ts`: classifica cada aresta pela normal externa (norte = cima etc.), mede cada
@@ -39,7 +40,8 @@ A divisa circulada (direita/leste) tem 513,6 m, não 580 m → no máximo 25 fre
   salvar exige cenários gerados com os mesmos lados.
 
 **Resultados (Morada, testada 20, prof. 250, via 6, mín. 5.000 m²):** direita 25 lotes (todos 20,0 m; só o da ponta
-24,2 m, absorvendo a sobra) · esquerda 29 · cima+direita 28 · cima+baixo 24 · os quatro lados 25.
+24,2 m, absorvendo a sobra) · esquerda 28 (todos 20,0 m). Revisão Codex: frente nunca alarga num lote do meio; a
+primeira divisa sem lote não bloqueia as outras; divisas processadas da mais longa para a mais curta.
 Tempo: direita ~7 s, esquerda ~15 s, cima+direita ~35 s, quatro lados ~47 s.
 
 **Testes:** (a) `server/incorporacao-lados-via.test.ts` (5) + `incorporacao-parcelamento-v2.test.ts` (44, inclusive o

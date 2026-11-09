@@ -82,7 +82,10 @@ const desvioFrente = (r: ImplantacaoViaDivisa, t: number) => r.lotes.reduce((s, 
 
 /** Implanta a via nos lados marcados e os lotes com frente exata e fundo variável. Devolve as melhores variações. */
 export function buscarPorLados(anelFechado: Position[], selecionados: LadoGleba[], o: OpcoesViaDivisa, max = 6, onProgress?: (f: number) => void): ImplantacaoPorLados[] {
-  const cadeias = cadeiasDosLados(anelFechado, selecionados);
+  // divisas mais longas primeiro: o resultado não depende do vértice em que o KML começa
+  const compr = (c: number[]) => c.reduce((x, i) => x + Math.hypot(anelFechado[i + 1][0] - anelFechado[i][0], anelFechado[i + 1][1] - anelFechado[i][1]), 0);
+  const cadeias = cadeiasDosLados(anelFechado, selecionados)
+    .map((c) => ({ c, m: compr(c) })).sort((a, b) => b.m - a.m || a.c[0] - b.c[0]).map((x) => x.c);
   if (cadeias.length === 0) return [];
   const vias = cadeias.map((c) => viaDaCadeia(anelFechado, c, o.via));
   const t = o.testada;
@@ -109,11 +112,13 @@ export function buscarPorLados(anelFechado: Position[], selecionados: LadoGleba[
     return res.sort(ordenar).slice(0, quantos);
   };
   const outrasVias = (k: number) => vias.filter((_, j) => j !== k).flat();
-  const primeiras = melhoresDaCadeia(0, outrasVias(0), cadeias.length > 1 ? Math.min(max, 3) : max);
+  const primeirasLista = melhoresDaCadeia(0, outrasVias(0), cadeias.length > 1 ? Math.min(max, 3) : max);
+  // a primeira divisa pode não comportar lote: a via fica e as outras divisas ainda são avaliadas
+  const primeiras: (ImplantacaoViaDivisa | null)[] = primeirasLista.length > 0 ? primeirasLista : cadeias.length > 1 ? [null] : [];
   const resultados: ImplantacaoPorLados[] = [];
   for (const p0 of primeiras) {
-    const lotes: LoteFrame[] = [...p0.lotes];
-    const chaves = [p0.chave];
+    const lotes: LoteFrame[] = [...(p0?.lotes ?? [])];
+    const chaves = [p0?.chave ?? "sem-lotes"];
     for (let k = 1; k < cadeias.length; k++) {
       const melhor = melhoresDaCadeia(k, [...outrasVias(k), ...lotes.map((l) => l.anel)], 1)[0];
       if (melhor) { lotes.push(...melhor.lotes); chaves.push(melhor.chave); }
@@ -121,9 +126,10 @@ export function buscarPorLados(anelFechado: Position[], selecionados: LadoGleba[
     // via final: cada via só com a parte que não está em outra (cruzamento contado uma vez)
     const viasLivres: Position[][] = [];
     vias.forEach((vk, k) => viasLivres.push(...(k === 0 ? vk : subtrairAreas(vk, vias.slice(0, k).flat()))));
-    const comprimentoViaM = cadeias.reduce((s, c) => s + c.reduce((x, i) => x + Math.hypot(anelFechado[i + 1][0] - anelFechado[i][0], anelFechado[i + 1][1] - anelFechado[i][1]), 0), 0);
+    if (lotes.length === 0) continue;
+    const comprimentoViaM = cadeias.reduce((s, c) => s + compr(c), 0);
     resultados.push({
-      ...p0,
+      corredores: [], baloes: [],
       lotes: lotes.map((l, i) => ({ ...l, ordem: i })),
       candidatos: lotes.length,
       viasLivres,
