@@ -13,3 +13,10 @@
 - (c) Verificar o build do PR e abrir BPO > Relatórios com o período do print. Conferir os cartões no tablet e comparar as quatro parcelas com o VGV representado na pizza. Confirmar o valor separado das obras ainda sem composição antes de publicar em produção.
 
 Prospecta: 22 testes direcionados passaram e o build local concluiu.
+
+## Publicação em produção
+
+- PR #193 incorporado à main no commit `13868bb41faa5d86a0ea703a78b049ee85e7611e`. Deploy Vercel `dpl_M2XKH88wYcuQ1V4iCYt4MA2k8Jcc` pronto e associado ao domínio oficial. Deploy anterior para referência de rollback `dpl_Eu8WzsQYbbDKHmH1pGsdSRPHDanQ`.
+- (a) Verificação em produção do endpoint de saúde retornou HTTP 200 com banco conectado.
+- (b) O teste anterior com dados simulados verificou as margens em três larguras e a presença das quatro parcelas na pizza.
+- (c) Próximo passo de aceite: abrir BPO > Relatórios com sessão autenticada e conferir a composição do VGV com os dados reais do período.
