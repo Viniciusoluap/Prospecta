@@ -25,7 +25,7 @@ const MapaMassa = dynamic(() => import("./mapa-massa").then((m) => m.MapaMassa),
   loading: () => <div className="bg-gray-100 animate-pulse" style={{ height: 460 }} />,
 });
 
-type CampoNumerico = Exclude<keyof ParametrosMassa, "tipologia" | "modoSistemaViario" | "formatoLote" | "tracadoVia">;
+type CampoNumerico = Exclude<keyof ParametrosMassa, "tipologia" | "modoSistemaViario" | "formatoLote" | "tracadoVia" | "inverterLadoVia">;
 
 const CAMPOS: { k: CampoNumerico; label: string }[] = [
   { k: "testadaLoteM", label: "Testada do lote (m)" },
@@ -167,11 +167,11 @@ export function MassaTab({ estudo }: { estudo: EstudoData }) {
     setCamposTexto((c) => ({ ...c, [k]: formatarCampo(params[k]) }));
   }
 
-  async function gerar() {
+  async function gerar(entradas = params) {
     if (!estudo.geojson || !estudo.centroLat || !estudo.centroLng) return;
     if (gerando) return; // impede execuções concorrentes
 
-    const erroValidacao = validarParametrosMassa(params);
+    const erroValidacao = validarParametrosMassa(entradas);
     if (erroValidacao) {
       setErro(erroValidacao);
       return;
@@ -187,7 +187,7 @@ export function MassaTab({ estudo }: { estudo: EstudoData }) {
       return;
     }
     const centro: [number, number] = [estudo.centroLng, estudo.centroLat];
-    const assinatura = assinaturaEntradas(anel, params);
+    const assinatura = assinaturaEntradas(anel, entradas);
     const aplicar = (r: EstudoMassaGerado) => {
       setAvisos(r.avisos);
       setInviabilidade(r.inviabilidade);
@@ -207,7 +207,7 @@ export function MassaTab({ estudo }: { estudo: EstudoData }) {
     setGerando(true);
     setProgresso({ fracao: 0, etapa: "Iniciando" });
     try {
-      const r = await executarMotorMassa(anel, centro, params, (fracao, etapa) => setProgresso({ fracao, etapa }));
+      const r = await executarMotorMassa(anel, centro, entradas, (fracao, etapa) => setProgresso({ fracao, etapa }));
       cache.current = { assinatura, resultado: r };
       aplicar(r);
     } catch (e) {
@@ -224,6 +224,11 @@ export function MassaTab({ estudo }: { estudo: EstudoData }) {
     const nomeFinal = (modo === "novo" ? nome : aberto?.nome ?? nome).trim();
     if (!nomeFinal) { setMensagem({ tipo: "erro", texto: "Informe o nome do estudo antes de salvar." }); return false; }
     if (cenarios.length === 0) { setMensagem({ tipo: "erro", texto: "Gere ao menos um cenário antes de salvar." }); return false; }
+    const viaOposta = params.tipologia === "rua_simples" && params.tracadoVia === "divisa" && !!params.inverterLadoVia;
+    if (gerando || cenarios.some((c) => !!c.viaLadoOposto !== viaOposta)) {
+      setMensagem({ tipo: "erro", texto: "Gere os cenários com o lado selecionado da rua antes de salvar." });
+      return false;
+    }
     setBusy(true);
     setMensagem(null);
     try {
@@ -257,7 +262,7 @@ export function MassaTab({ estudo }: { estudo: EstudoData }) {
     setMensagem(null);
     try {
       const completo = exigirResultado(await abrirEstudoMassa(estudo.id, s.id));
-      const p = { ...paramsIniciais(estudo), ...(completo.parametros ?? {}) };
+      const p = { ...paramsIniciais(estudo), inverterLadoVia: false, ...(completo.parametros ?? {}) };
       setParams(p);
       setCamposTexto(formatarCampos(p));
       setCenarios(completo.cenarios);
@@ -405,6 +410,17 @@ export function MassaTab({ estudo }: { estudo: EstudoData }) {
               desabilitado={params.modoSistemaViario !== "manual"}
               onChange={(v) => upd("areaSistemaViarioM2", v)} onBlur={() => reformatarCampo("areaSistemaViarioM2")} />
           </div>
+          {params.tipologia === "rua_simples" && params.tracadoVia === "divisa" && (
+            <label title="Usa a divisa oposta à do primeiro cenário automático." className="inline-flex items-center gap-2 py-1.5 text-xs font-semibold text-gray-700">
+              <input type="checkbox" checked={params.inverterLadoVia ?? false} disabled={gerando || busy || !estudo.geojson}
+                onChange={(e) => {
+                  const entradas = { ...params, inverterLadoVia: e.target.checked };
+                  setParams(entradas);
+                  void gerar(entradas);
+                }} />
+              Trocar rua de lado
+            </label>
+          )}
         </div>
         <p className="text-[10px] text-gray-500 mt-1">
           {params.modoSistemaViario === "manual"
@@ -413,7 +429,7 @@ export function MassaTab({ estudo }: { estudo: EstudoData }) {
           {params.tipologia === "rua_simples" && " Na Rua Simples o comprimento máximo da quadra não se aplica (via única)."}
           {params.tipologia === "rua_simples" && params.tracadoVia === "divisa" && " Via pela divisa: a testada é a frente MÍNIMA de cada lote (maior só onde preciso para atingir a área mínima) e os lotes vão até a divisa oposta."}
         </p>
-        <button onClick={() => void gerar()} disabled={gerando || !estudo.geojson}
+        <button onClick={() => void gerar()} disabled={gerando || busy || !estudo.geojson}
           className="mt-4 flex items-center gap-1.5 text-xs font-bold px-5 py-2.5 bg-[var(--brand-dark)] text-[var(--brand-yellow)] hover:opacity-90 disabled:opacity-50">
           {gerando ? <Loader2 size={14} className="animate-spin" /> : <Grid3x3 size={14} />}
           {gerando ? "Calculando cenários…" : "Gerar cenários otimizados"}
@@ -581,7 +597,7 @@ export function MassaTab({ estudo }: { estudo: EstudoData }) {
                   </p>
                 </div>
                 <div className="flex gap-1.5 flex-wrap">
-                  <button onClick={() => abrir(s)} disabled={busy}
+                  <button onClick={() => abrir(s)} disabled={busy || gerando}
                     className="text-xs font-bold px-3 py-1.5 border border-gray-200 hover:border-[var(--brand-yellow)] disabled:opacity-50">Abrir / editar</button>
                   {!s.principal && (
                     <button onClick={() => marcarPrincipal(s)} disabled={busy}

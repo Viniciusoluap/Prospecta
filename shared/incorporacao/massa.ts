@@ -24,7 +24,7 @@ import {
   type FrameAnel, type ImplantacaoFrame, type LoteFrame, type Ret,
 } from "./geometria-parcelamento.js";
 import { buscarRuaSimples, gerarRuaSimplesFrame, implantacaoDoCandidatoRua, type CandidatoRua } from "./rua-simples.js";
-import { buscarViaDivisa } from "./rua-divisa.js";
+import { buscarViaDivisa, divisasOpostas } from "./rua-divisa.js";
 
 export { areaPlanar, rotacionar } from "./geometria-parcelamento.js";
 
@@ -65,6 +65,8 @@ export interface ParametrosMassa {
   formatoLote?: "retangular" | "divisa";
   /** Rua Simples: traçado "reta" (padrão) ou "divisa" (via acompanha a divisa, com curvas; lotes acompanham a divisa). */
   tracadoVia?: "reta" | "divisa";
+  /** Rua pela divisa: restringe os cenários à divisa oposta ao primeiro cenário automático. */
+  inverterLadoVia?: boolean;
   /** Áreas não parceláveis informadas em m² (quando não vierem do KML/mapa). */
   appM2?: number;
   supressaoVegetalM2?: number;
@@ -106,6 +108,7 @@ export interface SistemaViarioCenario {
 }
 
 export interface CenarioMassa {
+  viaLadoOposto?: boolean;
   id: string;
   anguloVia: number;
   testadaLoteM: number;
@@ -219,6 +222,9 @@ export function validarParametrosMassa(p: ParametrosMassa): string | null {
     }
   }
   const areaLote = p.testadaLoteM * p.profundidadeLoteM;
+  if (p.inverterLadoVia !== undefined && typeof p.inverterLadoVia !== "boolean") {
+    return "Seleção de lado da via inválida.";
+  }
   if (p.tracadoVia !== undefined && p.tracadoVia !== "reta" && p.tracadoVia !== "divisa") {
     return "Traçado da via inválido (use reta ou acompanha a divisa).";
   }
@@ -847,15 +853,19 @@ export function gerarEstudoMassa(
   let brutos: Bruto[] = [];
   let avaliados = 0;
   const avisos: string[] = [];
+  const inverterVia = tipologia === "rua_simples" && params.tracadoVia === "divisa" && params.inverterLadoVia === true;
+  const arestasPorImplantacao = new Map<string, number[]>();
+  const limiteCandidatosVia = 12;
 
   if (tipologia === "rua_simples" && params.tracadoVia === "divisa") {
     progresso(0.1, "Traçando a via pela divisa");
     const lim = manual ? (params.areaSistemaViarioM2 ?? 0) / Math.max(g.via, 1e-9) : undefined;
-    const impls = buscarViaDivisa(anelM, { testada: g.testada, profundidade: g.profundidade, via: g.via, loteMinimoM2: params.loteMinimoM2, limiteComprimentoM: lim }, 12,
+    const impls = buscarViaDivisa(anelM, { testada: g.testada, profundidade: g.profundidade, via: g.via, loteMinimoM2: params.loteMinimoM2, limiteComprimentoM: lim }, inverterVia ? Infinity : limiteCandidatosVia,
       (f) => progresso(0.1 + 0.5 * f, "Traçando a via pela divisa e implantando os lotes"));
     avaliados = impls.length;
     const fr0 = prepararFrameAnel(anelM, 0, Math.max(g.testada, g.profundidade, g.via) * 2);
     impls.forEach((impl, i) => {
+      arestasPorImplantacao.set(impl.chave, impl.arestasDivisa);
       brutos.push(avaliarImplantacao(ctx, impl.chave, fr0, impl, Math.max(g.via * g.testada, 1)));
       progresso(0.6 + 0.3 * ((i + 1) / impls.length), "Avaliando implantações candidatas");
     });
@@ -964,7 +974,22 @@ export function gerarEstudoMassa(
 
   progresso(0.92, "Selecionando cenários");
   const comLotes = brutos.filter((b) => b.nVendaveis > 0);
-  const validos = comLotes.filter((b) => !b.divergenciaViaria);
+  let validos = comLotes.filter((b) => !b.divergenciaViaria);
+  if (inverterVia) {
+    const automatico = brutos.slice(0, limiteCandidatosVia)
+      .filter((b) => b.nVendaveis > 0 && !b.divergenciaViaria).sort(compararPorVendavel)[0];
+    if (automatico) {
+      const referencia = arestasPorImplantacao.get(automatico.chave)!;
+      validos = validos.filter((b) => divisasOpostas(anelM, referencia, arestasPorImplantacao.get(b.chave)!));
+    }
+    if (!automatico || validos.length === 0) {
+      return {
+        ...vazio(tipologia, assinatura, "Nenhum cenário válido com a via na divisa oposta para esses parâmetros.",
+          ["Confira a largura da via, a testada, a área mínima dos lotes e, no modo manual, a área viária informada."]),
+        candidatosAvaliados: avaliados,
+      };
+    }
+  }
   if (validos.length === 0) {
     const sorted = [...comLotes].sort(compararPorVendavel);
     if (manual && sorted.length > 0) {
@@ -1015,7 +1040,10 @@ export function gerarEstudoMassa(
     if (alt) escolhidos.push({ b: alt, criterio: "alternativa_distinta" });
   }
 
-  const cenarios = escolhidos.map((e, i) => montarCenario(ctx, i, e.b, e.criterio));
+  const cenarios = escolhidos.map((e, i) => ({
+    ...montarCenario(ctx, i, e.b, e.criterio),
+    ...(inverterVia ? { viaLadoOposto: true } : {}),
+  }));
   if (cenarios.length < 3) avisos.push(`Foram encontradas ${cenarios.length} alternativa(s) geometricamente válida(s) e distinta(s) — nenhum cartão foi preenchido artificialmente.`);
   progresso(1, "Concluído");
   return { versaoAlgoritmo: VERSAO_ALGORITMO_MASSA, assinatura, cenarios, inviabilidade: null, avisos, candidatosAvaliados: avaliados, tipologia };
