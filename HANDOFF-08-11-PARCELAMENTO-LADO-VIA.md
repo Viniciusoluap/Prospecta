@@ -48,5 +48,10 @@ Tempo: direita ~7 s, esquerda ~15 s, cima+direita ~35 s, quatro lados ~47 s.
 legado de trocar lado) verdes; suíte completa 188 arquivos / 1569 testes e build OK. (b) Aba renderizada no Chromium com a poligonal real:
 caixas com os comprimentos; marcar "Rua da direita" gerou 25 lotes com a via só na divisa leste. (c) Produção: pendente.
 
-**Próximo passo:** autorização do dono para merge/deploy; depois conferir no estudo 5. Melhorias possíveis: acelerar
+**Merge e deploy (autorizados pelo dono em 09/11):** PR #195 mergeado em `main` (99b969f); deploy de produção
+`dpl_HzXDuDP6eUs2V78FZXz5juqQ5tvo` READY (prospectaconstrucoes.com), sem erros de runtime. Antes do merge: suíte
+completa 188 arquivos / 1571 testes verde e preview do commit final READY.
+
+**Próximo passo:** o dono conferir no estudo 5 (Estudo de Massa → Rua simples → Acompanha a divisa → marcar
+"Rua da direita" ou "Rua da esquerda"). Melhorias possíveis: acelerar
 combinações de vários lados; portar ao Santa Fé (ROADMAP).
