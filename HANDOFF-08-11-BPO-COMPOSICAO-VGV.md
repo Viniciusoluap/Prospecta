@@ -9,7 +9,7 @@
 ## Validação e próximos passos
 
 - (a) Os testes verificam conciliação em centavos, parcelas explicitamente zeradas e exclusão da pizza de obras incompletas ou com composição inconsistente. TypeScript passou.
-- (b) Inspeção do código de layout realizada. A validação visual local ficou pendente porque o Chromium não estava instalado e o pacote recebido pelo instalador era inválido.
+- (b) Chromium executou a tela compilada com dados de teste em 390, 1180 e 1536 px. O valor R$ 5.385.000,00 ficou dentro do cartão, a pizza exibiu quatro fatias e a tela mostrou o saldo sem composição.
 - (c) Verificar o build do PR e abrir BPO > Relatórios com o período do print. Conferir os cartões no tablet e comparar as quatro parcelas com o VGV representado na pizza. Confirmar o valor separado das obras ainda sem composição antes de publicar em produção.
 
 Prospecta: 22 testes direcionados passaram e o build local concluiu.
