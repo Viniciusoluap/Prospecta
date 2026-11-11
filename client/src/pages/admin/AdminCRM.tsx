@@ -102,6 +102,13 @@ export default function AdminCRM() {
     onError: error => toast.error(error.message),
   });
 
+  // Pedido de 11/11: seleção múltipla na Lista para excluir ou mudar de etapa vários leads de uma vez.
+  const [selecionados, setSelecionados] = useState<Set<number>>(new Set());
+  const [etapaEmLote, setEtapaEmLote] = useState<string>("");
+  const [emLote, setEmLote] = useState(false);
+  const moverEtapa = trpc.leads.update.useMutation();
+  const arquivarLead = trpc.leads.softDelete.useMutation();
+
   const filtered = leads.filter(l =>
     !search || l.name.toLowerCase().includes(search.toLowerCase()) ||
     l.phone.includes(search) || (l.city || "").toLowerCase().includes(search.toLowerCase())
@@ -137,6 +144,43 @@ export default function AdminCRM() {
         ? current.services.filter(item => item !== service)
         : [...current.services, service],
     }));
+  };
+
+  // só conta selecionado o que está visível na lista atual (filtros e busca)
+  const selecionadosVisiveis = filtered.filter(l => selecionados.has(l.id) && !l.deletedAt);
+  const ativosVisiveis = filtered.filter(l => !l.deletedAt);
+  const todosMarcados = ativosVisiveis.length > 0 && ativosVisiveis.every(l => selecionados.has(l.id));
+  const alternarSelecao = (id: number) => setSelecionados(atual => {
+    const novo = new Set(atual);
+    if (novo.has(id)) novo.delete(id); else novo.add(id);
+    return novo;
+  });
+  const alternarTodos = () => setSelecionados(todosMarcados ? new Set() : new Set(ativosVisiveis.map(l => l.id)));
+  const executarEmLote = async (acao: (lead: typeof leads[number]) => Promise<unknown>, rotuloOk: string) => {
+    setEmLote(true);
+    const falhas: string[] = [];
+    let ok = 0;
+    for (const lead of selecionadosVisiveis) {
+      try { await acao(lead); ok++; }
+      catch (error) { falhas.push(`${lead.name}: ${error instanceof Error ? error.message : "falha"}`); }
+    }
+    setEmLote(false);
+    setSelecionados(new Set());
+    await Promise.all([refetch(), utils.leads.stats.invalidate(), utils.whatsapp.leadsParaEnvio.invalidate()]);
+    if (ok) toast.success(`${ok} lead(s) ${rotuloOk}.`);
+    if (falhas.length) toast.error(`Não foi possível concluir ${falhas.length} lead(s): ${falhas.slice(0, 3).join("; ")}${falhas.length > 3 ? "…" : ""}`, { duration: 10000 });
+  };
+  const moverSelecionados = async () => {
+    const destino = STAGES.find(s => s.key === etapaEmLote);
+    if (!destino || !selecionadosVisiveis.length) return;
+    if (!window.confirm(`Mover ${selecionadosVisiveis.length} lead(s) para "${destino.label}"?`)) return;
+    await executarEmLote(lead => moverEtapa.mutateAsync({ id: lead.id, stage: destino.key as any }), `movido(s) para "${destino.label}"`);
+    setEtapaEmLote("");
+  };
+  const excluirSelecionados = async () => {
+    if (!selecionadosVisiveis.length) return;
+    if (!window.confirm(`Excluir logicamente ${selecionadosVisiveis.length} lead(s)?\nOs registros vinculados e históricos serão preservados (podem ser recuperados em "Ver arquivados").`)) return;
+    await executarEmLote(lead => arquivarLead.mutateAsync({ id: lead.id }), "arquivado(s)");
   };
 
   const getLeadsByStage = (stage: string) => filtered.filter(l => l.stage === stage)
@@ -515,11 +559,32 @@ export default function AdminCRM() {
       {/* List View */}
       {viewMode === "list" && (
         <div className="container mx-auto px-4 pb-8">
+          {selecionadosVisiveis.length > 0 && (
+            <div role="region" aria-label="Ações em lote" className="mb-3 flex flex-wrap items-center gap-3 rounded border border-[#C9A961]/40 bg-[#1A2332] p-3 text-sm">
+              <span className="font-semibold text-[#C9A961]">{selecionadosVisiveis.length} selecionado(s)</span>
+              <Select value={etapaEmLote} onValueChange={setEtapaEmLote}>
+                <SelectTrigger aria-label="Etapa de destino" className="w-56 bg-[#0F1419] border-white/20 text-white"><SelectValue placeholder="Mover para a etapa…" /></SelectTrigger>
+                <SelectContent>{STAGES.map(stage => <SelectItem key={stage.key} value={stage.key}>{stage.label}</SelectItem>)}</SelectContent>
+              </Select>
+              <Button size="sm" className="bg-[#C9A961] text-black hover:bg-[#C9A961]/90" disabled={!etapaEmLote || emLote} onClick={() => void moverSelecionados()}>
+                Mover selecionados
+              </Button>
+              <Button size="sm" variant="outline" className="text-red-300 border-red-400/40" disabled={emLote} onClick={() => void excluirSelecionados()}>
+                <Trash2 className="h-4 w-4 mr-1" /> Excluir selecionados
+              </Button>
+              <Button size="sm" variant="ghost" className="text-gray-300" disabled={emLote} onClick={() => setSelecionados(new Set())}>Limpar seleção</Button>
+              {emLote && <span className="text-gray-400">Processando…</span>}
+            </div>
+          )}
           <Card className="bg-[#1A2332] border-white/10 text-gray-100">
             <div className="overflow-x-auto">
               <table className="w-full">
                 <thead>
                   <tr className="border-b border-white/10">
+                    <th className="w-10 p-4">
+                      <input type="checkbox" aria-label="Selecionar todos os leads da lista" className="h-4 w-4 accent-[#C9A961]"
+                        checked={todosMarcados} disabled={!ativosVisiveis.length || emLote} onChange={alternarTodos} />
+                    </th>
                     <th className="text-left p-4 text-xs text-gray-400 font-medium">CLIENTE</th>
                     <th className="text-left p-4 text-xs text-gray-400 font-medium">CONTATO</th>
                     <th className="text-left p-4 text-xs text-gray-400 font-medium">CIDADE</th>
@@ -536,7 +601,13 @@ export default function AdminCRM() {
                     return (
                       <tr key={lead.id}
                         onClick={() => navigate(`/admin/crm/${lead.id}`)}
-                        className="border-b border-white/5 hover:bg-white/5 cursor-pointer transition-colors">
+                        className={`border-b border-white/5 hover:bg-white/5 cursor-pointer transition-colors ${selecionados.has(lead.id) ? "bg-[#C9A961]/10" : ""}`}>
+                        <td className="w-10 p-4" onClick={e => e.stopPropagation()}>
+                          {!lead.deletedAt && (
+                            <input type="checkbox" aria-label={`Selecionar ${lead.name}`} className="h-4 w-4 accent-[#C9A961]"
+                              checked={selecionados.has(lead.id)} disabled={emLote} onChange={() => alternarSelecao(lead.id)} />
+                          )}
+                        </td>
                         <td className="p-4 text-white font-medium">
                           {lead.name}
                         </td>
@@ -586,7 +657,7 @@ export default function AdminCRM() {
                   })}
                   {filtered.length === 0 && (
                     <tr>
-                      <td colSpan={8} className="p-8 text-center text-gray-400">
+                      <td colSpan={9} className="p-8 text-center text-gray-400">
                         Nenhum lead encontrado
                       </td>
                     </tr>
