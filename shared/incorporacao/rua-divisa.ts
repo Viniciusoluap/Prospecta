@@ -535,7 +535,6 @@ export function dividirZonaPorArea(anelFechado: Position[], arestas: number[], r
   let sZ0 = -1, sZ1 = -1;
   for (let x = 0; x <= l.total + 1e-9; x += 0.25) if (dentroDaZona(Math.min(x, l.total))) { if (sZ0 < 0) sZ0 = Math.min(x, l.total); sZ1 = Math.min(x, l.total); }
   if (sZ0 < 0 || sZ1 - sZ0 < minimos.frenteM * n - 1e-6) return null;
-  const alvo = areaZona / n;
   const out: { anel: Position[]; area: number; frente: number }[] = [];
   let R: G = zonaF;
   let sAnt = sZ0;
