@@ -18,7 +18,7 @@ import {
   Thermometer, ArrowLeft, ArrowRight, Flame, Snowflake, Trash2, RotateCcw, CalendarDays
 } from "lucide-react";
 import { LEAD_SERVICE_LABELS, LEAD_SERVICE_PRIMARY_TYPES, type LeadServiceType } from "../../../../shared/lead-services";
-import { LEAD_PIPELINE_STAGES, LEGACY_STAGE_LABELS, type LeadPipelineStage } from "../../../../shared/lead-pipeline";
+import { LEAD_PIPELINE_STAGES, LEGACY_STAGE_LABELS, leadAceitaVencimento, type LeadPipelineStage } from "../../../../shared/lead-pipeline";
 import { LEAD_TEMPERATURAS, LEAD_TEMPERATURA_CONFIG, leadTemperaturaRotulo, type LeadTemperatura } from "../../../../shared/lead-temperature";
 
 const STAGES = LEAD_PIPELINE_STAGES;
@@ -126,7 +126,7 @@ export default function AdminCRM() {
       notes: newLead.notes || undefined,
       responsibleUserId: newLead.responsibleUserId === NONE ? null : Number(newLead.responsibleUserId),
       brokerId: newLead.brokerId === NONE ? null : Number(newLead.brokerId),
-      cardDueDate: newLead.cardDueDate || null,
+      cardDueDate: leadAceitaVencimento(newLead.stage) ? newLead.cardDueDate || null : null,
     } as any);
   };
 
@@ -140,7 +140,9 @@ export default function AdminCRM() {
   };
 
   const getLeadsByStage = (stage: string) => filtered.filter(l => l.stage === stage)
-    .sort((a, b) => (a.cardDueDate || "9999-12-31").localeCompare(b.cardDueDate || "9999-12-31") || a.id - b.id);
+    .sort((a, b) => (leadAceitaVencimento(stage)
+      ? (a.cardDueDate || "9999-12-31").localeCompare(b.cardDueDate || "9999-12-31")
+      : 0) || a.id - b.id);
   const today = new Intl.DateTimeFormat("en-CA", { timeZone: "America/Fortaleza", year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date());
   const pendingClassification = filtered.filter(l => l.stageClassificationPending && !l.deletedAt);
   const excluirDefinitivamente = async (lead: typeof leads[number]) => {
@@ -322,12 +324,12 @@ export default function AdminCRM() {
                         className="bg-white/10 border-white/20 text-white" />
                     </div>
                   </div>
-                  <div>
+                  {leadAceitaVencimento(newLead.stage) && <div>
                     <Label htmlFor="novo-lead-vencimento" className="text-gray-300">Vencimento do card (opcional)</Label>
                     <Input id="novo-lead-vencimento" type="date" value={newLead.cardDueDate}
                       onChange={e => setNewLead(current => ({ ...current, cardDueDate: e.target.value }))}
                       className="bg-white/10 border-white/20 text-white" />
-                  </div>
+                  </div>}
                   <div>
                     <Label className="text-gray-300">Serviços solicitados</Label>
                     <p className="text-xs text-gray-400 mt-1">Selecione todos os serviços deste cliente. Os dados operacionais serão preenchidos no respectivo módulo.</p>
@@ -483,7 +485,7 @@ export default function AdminCRM() {
                                   </span>
                                 )}
                               </div>
-                              <div className="flex items-center justify-end gap-1 text-xs" onClick={event => event.stopPropagation()}>
+                              {leadAceitaVencimento(lead.stage) && <div className="flex items-center justify-end gap-1 text-xs" onClick={event => event.stopPropagation()}>
                                 <CalendarDays className="h-3 w-3 text-[#E6CA88]" aria-hidden="true" />
                                 <label className={lead.cardDueDate ? lead.cardDueDate < today ? "text-red-300" : lead.cardDueDate === today ? "text-amber-200" : "text-gray-200" : "text-gray-400"}>
                                   <span className="sr-only">Vencimento do card de {lead.name}</span>
@@ -494,7 +496,7 @@ export default function AdminCRM() {
                                     className="max-w-[134px] bg-transparent text-inherit [color-scheme:dark]" />
                                   {lead.cardDueDate && <span className="sr-only">{lead.cardDueDate < today ? "Vencido" : lead.cardDueDate === today ? "Vence hoje" : "Futuro"}</span>}
                                 </label>
-                              </div>
+                              </div>}
                             </CardContent>
                           </Card>
                       ))}

@@ -10,6 +10,7 @@ import {
   router,
 } from "./_core/trpc.js";
 import { z } from "zod";
+import { sql } from "drizzle-orm";
 import { notifyOwner } from "./_core/notification.js";
 import {
   createAsaasPayment,
@@ -82,7 +83,7 @@ import { empreiteiroRouter, obraFinanceiroRouter } from "./obra-financeiro-route
 import { obraProgressoRouter } from "./obra-progresso-router.js";
 import { obraLocalizacaoRouter, sincronizarImovelGeradoDaObra, garantirImovelCatalogoObra } from "./obra-localizacao.js";
 import { duplicarLead } from "./lead-duplicar.js";
-import { LEAD_PIPELINE_KEYS } from "../shared/lead-pipeline.js";
+import { LEAD_FINALIZED_STAGE, LEAD_PIPELINE_KEYS, leadAceitaVencimento } from "../shared/lead-pipeline.js";
 import { documentChunksRouter } from "./document-upload-chunks.js";
 // Lote 2, correção 04: perfil Engenheiro e documentos do usuário.
 import { engenheirosRouter } from "./usuario-documentos.js";
@@ -1438,7 +1439,7 @@ export const appRouter = router({
       )
       .mutation(async ({ input, ctx }) => {
         requireModule(ctx, "crm");
-        if (input.cardDueDate !== undefined) {
+        if (leadAceitaVencimento(input.stage) && input.cardDueDate !== undefined) {
           const { validateCardDueDate } = await import("./lead-card-deadline-schema.js");
           try { validateCardDueDate(input.cardDueDate); }
           catch { throw new TRPCError({ code: "BAD_REQUEST", message: "Data de vencimento inválida" }); }
@@ -1451,6 +1452,7 @@ export const appRouter = router({
         const { services = [], stage, ...leadInput } = input;
         const lead = await db.createLead({
           ...leadInput,
+          cardDueDate: leadAceitaVencimento(stage) ? leadInput.cardDueDate : null,
           phone: input.phone ?? "",
           stage: "lead_new",
           temperature: input.temperature || "cold",
@@ -1568,18 +1570,25 @@ export const appRouter = router({
       .mutation(async ({ input, ctx }) => {
         requireModule(ctx, "crm");
         const { id, stage, ...data } = input;
-        if (data.cardDueDate !== undefined) {
-          const { validateCardDueDate } = await import("./lead-card-deadline-schema.js");
-          try { validateCardDueDate(data.cardDueDate); }
-          catch { throw new TRPCError({ code: "BAD_REQUEST", message: "Data de vencimento inválida" }); }
-        }
         await assertLeadAssignment(data);
         const lead = await db.getLeadById(id);
         if (!lead) throw new TRPCError({ code: "NOT_FOUND" });
         if (lead.deletedAt) throw new TRPCError({ code: "CONFLICT", message: "Recupere o lead antes de editá-lo" });
+        const mudaEtapa = !!stage && (stage !== lead.stage || lead.stageClassificationPending);
+        const aceitaVencimento = leadAceitaVencimento(stage ?? lead.stage);
+        const vencimento = aceitaVencimento ? data.cardDueDate : null;
+        if (vencimento !== undefined) {
+          const { validateCardDueDate } = await import("./lead-card-deadline-schema.js");
+          try { validateCardDueDate(vencimento); }
+          catch { throw new TRPCError({ code: "BAD_REQUEST", message: "Data de vencimento inválida" }); }
+        }
         // Convert number fields to string for decimal columns
         const dbData: any = {
           ...data,
+          // A transição grava o prazo junto com o estágio. Edições isoladas
+          // conferem o estágio no SQL para respeitar uma finalização concorrente.
+          cardDueDate: mudaEtapa || vencimento === undefined ? undefined
+            : sql`CASE WHEN stage = ${LEAD_FINALIZED_STAGE} THEN NULL ELSE ${vencimento}::date END`,
           income:
             data.income !== undefined ? data.income.toString() : undefined,
           simulationValue:
@@ -1624,8 +1633,10 @@ export const appRouter = router({
           const { sincronizarVgvDoLead } = await import("./obra-financeiro-router.js");
           await sincronizarVgvDoLead(id);
         }
-        if (stage && (stage !== lead.stage || lead.stageClassificationPending))
-          await db.updateLeadPipelineStage(id, stage, ctx.user.id);
+        if (stage && mudaEtapa) {
+          if (vencimento === undefined || !aceitaVencimento) await db.updateLeadPipelineStage(id, stage, ctx.user.id);
+          else await db.updateLeadPipelineStage(id, stage, ctx.user.id, vencimento);
+        }
         return { success: true };
       }),
 

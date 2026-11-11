@@ -12,6 +12,12 @@ export const LEAD_PIPELINE_STAGES = [
 export type LeadPipelineStage = (typeof LEAD_PIPELINE_STAGES)[number]["key"];
 export const LEAD_PIPELINE_KEYS = LEAD_PIPELINE_STAGES.map(stage => stage.key) as [LeadPipelineStage, ...LeadPipelineStage[]];
 
+export const LEAD_FINALIZED_STAGE: LeadPipelineStage = "finalized";
+
+export function leadAceitaVencimento(stage?: string | null): boolean {
+  return stage !== LEAD_FINALIZED_STAGE;
+}
+
 export const LEGACY_STAGE_LABELS: Record<string, string> = {
   lead_new: "Lead Novo",
   attending: "Em Atendimento",

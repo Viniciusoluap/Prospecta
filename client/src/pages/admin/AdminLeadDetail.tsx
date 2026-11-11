@@ -21,7 +21,7 @@ import {
 import { AdminPortalLeadPanel } from "@/components/admin/AdminPortalLeadPanel";
 import { LeadDocuments } from "@/components/LeadDocuments";
 import { LEAD_SERVICE_LABELS, LEAD_SERVICE_MODULE_ROUTES, LEAD_SERVICE_PRIMARY_TYPES, type LeadServiceType } from "../../../../shared/lead-services";
-import { LEAD_PIPELINE_STAGES, LEGACY_STAGE_LABELS } from "../../../../shared/lead-pipeline";
+import { LEAD_PIPELINE_STAGES, LEGACY_STAGE_LABELS, leadAceitaVencimento } from "../../../../shared/lead-pipeline";
 import { LEAD_TEMPERATURAS, LEAD_TEMPERATURA_CONFIG, leadTemperaturaRotulo } from "../../../../shared/lead-temperature";
 import { rotulo } from "@shared/rotulos";
 import { textoConfirmacaoDuplicar } from "@shared/lead-duplicar";
@@ -104,7 +104,7 @@ export default function AdminLeadDetail() {
         cpfStatus: lead.cpfStatus || "unknown",
         temperature: lead.temperature || "cold",
         stage: lead.stage,
-        cardDueDate: lead.cardDueDate || "",
+        cardDueDate: leadAceitaVencimento(lead.stage) ? lead.cardDueDate || "" : "",
         notes: lead.notes || "", adminNotes: lead.adminNotes || "",
         negotiatedValue: lead.negotiatedValue || "", simulationValue: lead.simulationValue || "", approvedValue: lead.approvedValue || "",
         interest: (lead as any).interest || "financing", type: lead.type || "new_lead",
@@ -322,12 +322,12 @@ export default function AdminLeadDetail() {
                         </SelectContent>
                       </Select>
                     </div>
-                    <div>
+                    {leadAceitaVencimento(editForm.stage) && <div>
                       <Label className="text-gray-300" htmlFor="card-due-date">Vencimento deste card</Label>
                       <Input id="card-due-date" type="date" value={editForm.cardDueDate || ""}
                         onChange={e => setEditForm(f => ({ ...f, cardDueDate: e.target.value }))}
                         className="bg-[#2C3E50] border-[#C9A961]/30 text-white mt-1 [color-scheme:dark]" />
-                    </div>
+                    </div>}
                     <div>
                       <Label className="text-gray-300">Valor negociado para venda (R$)</Label>
                       <CurrencyInput value={Number(editForm.negotiatedValue || 0)} onChange={v => setEditForm(f => ({ ...f, negotiatedValue: v ? String(v) : "" }))} className="bg-[#2C3E50] border-[#C9A961]/30 text-white mt-1" />
@@ -350,7 +350,7 @@ export default function AdminLeadDetail() {
                       const { income: _income, responsibleUserId, brokerId, ...form } = editForm;
                       updateMutation.mutate({
                         id: leadId, ...form,
-                        cardDueDate: editForm.cardDueDate || null,
+                        cardDueDate: leadAceitaVencimento(editForm.stage) ? editForm.cardDueDate || null : null,
                         stage: STAGES.some(s => s.key === editForm.stage) ? editForm.stage : undefined,
                         responsibleUserId: responsibleUserId && responsibleUserId !== "none" ? Number(responsibleUserId) : null,
                         brokerId: brokerId && brokerId !== "none" ? Number(brokerId) : null,
@@ -454,7 +454,7 @@ export default function AdminLeadDetail() {
               <InfoRow label="Valor negociado para venda" value={formatCurrencyBR(lead.negotiatedValue)} />
               <InfoRow label="VGV simulado" value={formatCurrencyBR(lead.simulationValue)} highlight />
               <InfoRow label="Valor financiado aprovado" value={formatCurrencyBR(lead.approvedValue)} highlight />
-              <InfoRow label="Vencimento do card" value={lead.cardDueDate ? lead.cardDueDate.split("-").reverse().join("/") : "Sem data"} />
+              {leadAceitaVencimento(lead.stage) && <InfoRow label="Vencimento do card" value={lead.cardDueDate ? lead.cardDueDate.split("-").reverse().join("/") : "Sem data"} />}
             </CardContent>
           </Card>
 
