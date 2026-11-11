@@ -21,3 +21,15 @@ describe("Due Diligence", () => {
     expect(dueDiligenceSchema.safeParse(duplicado).success).toBe(false);
   });
 });
+
+describe("Due Diligence — reordenar tarefas e documentos", () => {
+  it("move para cima e para baixo, sem sair dos limites e sem perder itens", async () => {
+    const { moverItem } = await import("../shared/incorporacao/due-diligence");
+    const l = ["a", "b", "c"];
+    expect(moverItem(l, 0, 1)).toEqual(["b", "a", "c"]);
+    expect(moverItem(l, 2, -1)).toEqual(["a", "c", "b"]);
+    expect(moverItem(l, 0, -1)).toBe(l);
+    expect(moverItem(l, 2, 1)).toBe(l);
+    expect(l).toEqual(["a", "b", "c"]); // não altera a lista original
+  });
+});
