@@ -33,3 +33,9 @@
 ## Próximo passo
 Com autorização do dono: aplicar a 0101 no Neon de produção, mergear o PR #199 (vias públicas + anexos) e
 conferir o deploy. Paridade: registrada no ROADMAP (Santa Fé).
+
+## Merge, migração e deploy (autorizados pelo dono em 11/11)
+- Migração 0101 aplicada no Neon de produção (plain-cake-26372935) antes do merge: `mime_type` = varchar(120) e
+  tabela `incorporation_upload_parts` criada (conferido por consulta; 3 documentos existentes intactos).
+- PR #199 mergeado em `main` (0d08bc3); deploy de produção READY, sem erros de runtime.
+- (c) Pendente: no iPad, anexar foto, DWG e Word na Due Diligence e abrir/baixar cada um.
