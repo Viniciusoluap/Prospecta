@@ -18,3 +18,7 @@
 - Os estudos que receberam apenas um polígono devem reenviar o KML original em Terreno → Trocar KML. O upload antigo persistiu apenas a geometria que conseguiu extrair.
 - Paridade: o Grupo Santa Fé ainda precisa portar as quatro correções. As diferenças foram verificadas em `web/src/lib/geo/kml.ts`, `web/src/lib/incorporacao/tipo-estudo.ts` e no detalhe de Incorporação. Este lote de merge e deploy é da Prospecta.
 - A alteração de massa deve integrar com o PR #199 de Vias públicas mantendo a implementação dessa tipologia.
+
+## Compilação da API na Vercel
+
+O deploy do PR #200 ficou READY, mas o compilador da função da API sinalizou dois diagnósticos em `flattenEach` do Turf. A leitura agora percorre `Polygon`, `MultiPolygon` e `GeometryCollection` diretamente, mantendo o comportamento validado. Conferir os logs da função no próximo deploy de produção.

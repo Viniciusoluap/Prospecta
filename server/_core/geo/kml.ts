@@ -1,7 +1,7 @@
 import { kml as kmlToGeoJSON } from "@tmcw/togeojson";
 import { DOMParser } from "@xmldom/xmldom";
-import { area, centerOfMass, centroid, flattenEach, length, lineString, multiPolygon, polygon } from "@turf/turf";
-import type { Feature, Polygon } from "geojson";
+import { area, centerOfMass, centroid, length, lineString, multiPolygon, polygon } from "@turf/turf";
+import type { Feature, Geometry, Polygon, Position } from "geojson";
 import { poligonosDoTerreno, uniaoDoTerreno, type GeometriaTerreno } from "../../../shared/geo/terreno.js";
 
 export interface TerrenoGeo {
@@ -17,9 +17,9 @@ export function parseKmlTerreno(kmlText: string): TerrenoGeo {
   const partes: Feature<Polygon>[] = [];
   for (const { geometry, properties } of geojson.features) {
     if (!geometry) continue;
-    flattenEach(geometry, ({ geometry: parte }) => {
-      if (parte?.type === "Polygon") partes.push(polygon(parte.coordinates, properties ?? {}));
-    });
+    for (const aneis of aneisDosPoligonos(geometry)) {
+      partes.push(polygon(aneis, properties ?? {}));
+    }
   }
   if (partes.length === 0) {
     throw new Error("Nenhum polígono encontrado no KML. Verifique se o arquivo contém a área do terreno.");
@@ -40,6 +40,15 @@ export function parseKmlTerreno(kmlText: string): TerrenoGeo {
     perimetroM: Math.round(perimetroKm * 1000),
     centro,
   };
+}
+
+function aneisDosPoligonos(geometria: Geometry): Position[][][] {
+  switch (geometria.type) {
+    case "Polygon": return [geometria.coordinates];
+    case "MultiPolygon": return geometria.coordinates;
+    case "GeometryCollection": return geometria.geometries.flatMap(aneisDosPoligonos);
+    default: return [];
+  }
 }
 
 function centroPonderado(poligonos: ReturnType<typeof poligonosDoTerreno>): [number, number] {
