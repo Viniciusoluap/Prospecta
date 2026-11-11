@@ -143,6 +143,7 @@ Detalhes e testes em `HANDOFF-08-11-PARCELAMENTO-MERCADO.md` (PR #187).
 - [ ] Provedor de anúncios Tavily sem IA + extração determinística — `shared/incorporacao/extracao-anuncios.ts`, `server/_core/incorporacao/mercado-anuncios.ts` (PR #190)
 - [ ] Estudo de Massa: tipologia "Vias públicas" (desmembramento sem via interna, 100% de aproveitamento) — `shared/incorporacao/vias-publicas.ts`
 - [ ] Due Diligence: setas ↑ ↓ em tarefas e documentos; "Anexar" funciona com alterações pendentes (salva antes de enviar), tipo do arquivo pela extensão e abertura do anexo no clique (iPad)
+- [ ] Anexos da Due Diligence e do Registro de Incorporação: qualquer tipo de arquivo (foto/HEIC, DWG, Word, Excel, ZIP...), até 50 MB, enviados e lidos em partes; PDF/foto/texto abrem na aba, os demais são baixados com o nome original (HTML/SVG nunca abrem)
 - [ ] Rua por lados escolhidos (rua de cima/esquerda/direita/baixo, combináveis) com frente exata e fundo variável — `shared/incorporacao/lados-gleba.ts`, `rua-divisa.ts` (substitui "Trocar rua de lado")
 - [ ] **Correções 09–12 (Viabilidade integrada)** — `shared/incorporacao/composicao-custos.ts`, `fluxo-anual.ts`, `viabilidade-economica.ts`, `premissas-loteamento.ts`, `mix-produtos.ts`:
   fonte de custo só "Valor manual" / "Valor do sistema" (infra e obras residenciais separadas do Orçamento; marketing =

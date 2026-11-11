@@ -162,7 +162,7 @@ export function RegistroIncorporacaoTab({ estudo }: { estudo: EstudoData }) {
                   <td className="px-1 py-1">
                     {arquivos.filter((a) => a.itemId === doc.id).map((arquivo) => (
                       <div key={arquivo.id} className="flex items-center gap-1 mb-1 max-w-64">
-                        <button type="button" onClick={() => void abrirDocumentoRegistro(estudo.id, doc.id)}
+                        <button type="button" onClick={() => void abrirDocumentoRegistro(estudo.id, doc.id, arquivo.nome)}
                           className="text-blue-700 underline truncate min-w-0 text-left" title={`${arquivo.nome} — ${new Date(arquivo.enviadoEm).toLocaleString("pt-BR")}`}>
                           {arquivo.nome} <ExternalLink size={11} className="inline" />
                         </button>
@@ -173,7 +173,7 @@ export function RegistroIncorporacaoTab({ estudo }: { estudo: EstudoData }) {
                     <label className={`inline-flex items-center gap-1 text-[11px] font-bold px-2 py-1 border border-gray-300 ${driveAtivo && !arquivoPendente ? "cursor-pointer hover:bg-gray-50 text-gray-700" : "opacity-50 text-gray-500"}`}>
                       {arquivoPendente === doc.id ? <Loader2 size={12} className="animate-spin" /> : <Upload size={12} />}
                       {arquivos.some((a) => a.itemId === doc.id) ? "Substituir" : "Enviar"}
-                      <input type="file" accept="application/pdf,image/jpeg,image/png,image/webp" className="sr-only"
+                      <input type="file" className="sr-only"
                         disabled={!driveAtivo || arquivoPendente !== null}
                         onChange={(e) => { void enviar(doc.id, e.target.files?.[0]); e.target.value = ""; }} />
                     </label>

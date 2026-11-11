@@ -1995,7 +1995,7 @@ export const incorporationRegistrationDocuments = pgTable("incorporation_registr
   action: varchar("action", { length: 12 }).notNull(),
   driveFileId: text("drive_file_id"),
   fileName: varchar("file_name", { length: 255 }),
-  mimeType: varchar("mime_type", { length: 40 }),
+  mimeType: varchar("mime_type", { length: 120 }),
   fileSize: integer("file_size"),
   sha256: varchar("sha256", { length: 64 }),
   /** "drive" ou "banco" (incorporation_registration_file_data). */
