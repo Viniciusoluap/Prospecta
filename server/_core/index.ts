@@ -16,6 +16,7 @@ import imovelFotosRouter from "../routes/imovel-fotos.js";
 import usuarioDocumentosRouter from "../usuario-documentos.js";
 import pciGeradorRotas from "../pci-gerador.js";
 import googleDriveRotas from "../routes/google-drive.js";
+import camadasTerrenoRotas from "../routes/camadas-terreno.js";
 import { handleAsaasWebhook } from "../asaas-webhook.js";
 import { handlePluggyWebhook } from "../pluggy-webhook.js";
 import { handleEvolutionWebhook } from "../whatsapp-evolution-webhook.js";
@@ -132,6 +133,7 @@ async function startServer() {
   app.use("/api", usuarioDocumentosRouter);
   app.use("/api", pciGeradorRotas);
   app.use("/api", googleDriveRotas);
+  app.use("/api", camadasTerrenoRotas);
   // Asaas webhook
   app.post("/api/asaas/webhook", handleAsaasWebhook);
   app.post("/api/pluggy/webhook", handlePluggyWebhook);

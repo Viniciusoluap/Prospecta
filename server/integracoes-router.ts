@@ -14,6 +14,8 @@ import { whatsappEvolutionSettings } from "../drizzle/schema.js";
 import * as db from "./db.js";
 import { conexaoParaPapel, configEvolution } from "./whatsapp-router.js";
 import { verificarWebhookAsaas } from "../shared/asaas-webhook-recovery.js";
+import { removerTokenMapbox, salvarTokenMapbox, tokenMapbox } from "./_core/geo/mapbox-config.js";
+import { verificarTokenMapbox } from "../shared/geo/mapbox-token.js";
 
 type Fonte = "env" | "banco";
 export type EstadoWhatsapp = "conectado" | "aguardando_qr" | "desconectado" | "sem_conexao";
@@ -187,6 +189,24 @@ export function createIntegracoesRouter(deps: IntegracoesDeps = defaultDeps) {
         } catch (e) { throw new TRPCError({ code: "BAD_REQUEST", message: mensagemDe(e, "Não foi possível salvar.") }); }
         return { success: true as const, ambiente: environment ?? null };
       }),
+
+    /** Mapbox (opcional, 11/11): token PÚBLICO para o satélite do mapa do terreno. Sem ele, Esri. */
+    statusMapbox: adminProcedure.query(async () => {
+      const t = await tokenMapbox().catch(() => null);
+      return { configurado: Boolean(t), final: finalDaChave(t?.token), fonte: t?.fonte ?? null };
+    }),
+    testarMapbox: adminProcedure.query(async () => {
+      const t = await tokenMapbox().catch(() => null);
+      if (!t) return { ok: true, mensagem: "Sem token do Mapbox — o mapa do terreno usa o satélite da Esri (funciona sem configurar nada)." };
+      return verificarTokenMapbox(t.token, deps.fetchImpl);
+    }),
+    salvarMapbox: adminProcedure
+      .input(z.object({ token: z.string().trim().min(1, "Cole o token público do Mapbox (pk.)") }))
+      .mutation(async ({ input }) => {
+        try { return { success: true as const, ...(await salvarTokenMapbox(input.token)) }; }
+        catch (e) { throw new TRPCError({ code: "BAD_REQUEST", message: mensagemDe(e, "Não foi possível salvar.") }); }
+      }),
+    removerMapbox: adminProcedure.mutation(async () => { await removerTokenMapbox(); return { success: true as const }; }),
 
     salvarPluggy: adminProcedure
       .input(z.object({ clientId: z.string().trim().min(1, "Informe o Client ID"), clientSecret: z.string().trim().min(1, "Informe o Client Secret") }))
