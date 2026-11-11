@@ -4,7 +4,7 @@ import { drizzle } from "drizzle-orm/neon-http";
 import { drizzle as drizzleSession } from "drizzle-orm/neon-serverless";
 import { alias } from "drizzle-orm/pg-core";
 import { neon, Pool, neonConfig } from "@neondatabase/serverless";
-import { LEAD_PIPELINE_STAGES, LEGACY_STAGE_LABELS } from "../shared/lead-pipeline.js";
+import { LEAD_FINALIZED_STAGE, LEAD_PIPELINE_STAGES, LEGACY_STAGE_LABELS, leadAceitaVencimento } from "../shared/lead-pipeline.js";
 import { rotulo } from "../shared/rotulos.js";
 import { VINCULOS_LEAD, type VinculosLead } from "../shared/lead-exclusao-definitiva.js";
 
@@ -945,16 +945,23 @@ const ROTULOS_ESTAGIO: Record<string, string> = {
   ...Object.fromEntries(LEAD_PIPELINE_STAGES.map(s => [s.key, s.label])),
 };
 
-export async function updateLeadPipelineStage(id: number, stage: string, actorId: number): Promise<boolean> {
-  const db = getDb();
-  const result = await db.execute(sql`
+export async function updateLeadPipelineStage(id: number, stage: string, actorId: number, cardDueDate?: string | null): Promise<boolean> {
+  const result = await getDb().execute(leadPipelineStageStatement(id, stage, actorId, cardDueDate));
+  return Number(result.rows[0]?.count ?? 0) === 1;
+}
+
+export function leadPipelineStageStatement(id: number, stage: string, actorId: number, cardDueDate?: string | null) {
+  const vencimento = !leadAceitaVencimento(stage) ? sql`NULL`
+    : cardDueDate !== undefined ? sql`${cardDueDate}::date`
+    : sql`CASE WHEN previous.old_stage = ${LEAD_FINALIZED_STAGE} THEN NULL ELSE lead.card_due_date END`;
+  return sql`
     WITH previous AS (
       SELECT id, stage AS old_stage FROM leads
       WHERE id = ${id} AND deleted_at IS NULL AND (stage <> ${stage} OR stage_classification_pending)
       FOR UPDATE
     ), changed AS (
       UPDATE leads AS lead
-      SET stage = ${stage}, stage_classification_pending = false, updated_at = now()
+      SET stage = ${stage}, card_due_date = ${vencimento}, stage_classification_pending = false, updated_at = now()
       FROM previous WHERE lead.id = previous.id
       RETURNING lead.id, previous.old_stage
     ), audit AS (
@@ -965,8 +972,7 @@ export async function updateLeadPipelineStage(id: number, stage: string, actorId
       FROM changed RETURNING id
     )
     SELECT count(*)::integer AS count FROM audit
-  `);
-  return Number(result.rows[0]?.count ?? 0) === 1;
+  `;
 }
 
 export async function getLeadDeletionContext(id: number) {
