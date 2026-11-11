@@ -12,6 +12,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { GoogleDriveCard } from "@/components/admin/GoogleDriveCard";
 import { SubPciAtual } from "@/components/admin/SubPciAtual";
+import { MapboxCard } from "@/components/admin/MapboxCard";
 
 type Servico = "asaas" | "pluggy" | "whatsapp";
 type Campo = { nome: string; rotulo: string; segredo?: boolean; placeholder?: string; opcional?: boolean };
@@ -191,6 +192,7 @@ export default function AdminIntegracoes() {
           />
           {/* Lote 03, correção 09: "Minha Conexão WhatsApp" e "Conexões dos Corretores" ficam só na Central WhatsApp (aba Minha conexão). */}
           <GoogleDriveCard />
+          <MapboxCard />
           <SubPciAtual />
         </>}
       </main>
