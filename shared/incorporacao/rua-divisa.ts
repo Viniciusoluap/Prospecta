@@ -39,6 +39,8 @@ export interface ExtrasImplantacao {
   fundoVariavel?: boolean;
   /** A via ocupa a divisa escolhida inteira (não para no último lote). */
   viaInteira?: boolean;
+  /** A divisa JÁ é via pública: não cria via interna (lote com frente direta na divisa). */
+  semVia?: boolean;
   /** Fundo máximo do lote (m). Padrão: 2 × profundidade. Com vias em divisas opostas, a profundidade informada. */
   fundoMaxM?: number;
 }
@@ -228,11 +230,11 @@ export function implantarNaDivisa(anelFechado: Position[], arestas: number[], re
   if (l.total < o.testada) return null;
   const gleba = turfPolygon([anelFechado]);
   const limite = Math.min(l.total, o.limiteComprimentoM ?? Infinity);
-  const anelVia = limpar(poligonoVia(l, l.total, o.via));
+  const anelVia = extras.semVia ? null : limpar(poligonoVia(l, l.total, o.via));
   const viaToda = anelVia ? seguro(() => intersect(featureCollection([turfPolygon([anelVia]), gleba]))) : null;
-  if (!viaToda) return null;
-  const ocupados: { ret: Ret; f: Feature<Polygon> }[] = poligonos(viaToda.geometry as Polygon | MultiPolygon)
-    .map((rs) => limpar(rs[0])).filter((a): a is Position[] => !!a).map((a) => ({ ret: bboxDe(a), f: turfPolygon([a]) }));
+  if (!viaToda && !extras.semVia) return null;
+  const ocupados: { ret: Ret; f: Feature<Polygon> }[] = viaToda ? poligonos(viaToda.geometry as Polygon | MultiPolygon)
+    .map((rs) => limpar(rs[0])).filter((a): a is Position[] => !!a).map((a) => ({ ret: bboxDe(a), f: turfPolygon([a]) })) : [];
   for (const a of extras.ocupados ?? []) { const c = limpar(a); if (c) ocupados.push({ ret: bboxDe(c), f: turfPolygon([c]) }); }
   const Lmax = extras.fundoMaxM ?? 2 * o.profundidade;
   const minArea = Math.max(o.loteMinimoM2, 1);
@@ -383,7 +385,7 @@ export function implantarNaDivisa(anelFechado: Position[], arestas: number[], re
     }
   }
   const sFimVia = o.limiteComprimentoM !== undefined ? limite : extras.viaInteira ? l.total : sUltimo;
-  const anelViaFinal = limpar(poligonoVia(l, sFimVia, o.via));
+  const anelViaFinal = extras.semVia ? null : limpar(poligonoVia(l, sFimVia, o.via));
   const via = anelViaFinal ? seguro(() => intersect(featureCollection([turfPolygon([anelViaFinal]), gleba]))) : null;
   const viasLivres = via ? poligonos(via.geometry as Polygon | MultiPolygon).map((rs) => rs[0]) : [];
   return {
