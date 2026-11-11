@@ -15,7 +15,12 @@ let recarregar: () => Promise<unknown> = async () => undefined;
 /** A página do estudo registra aqui como recarregar o estudo depois de cada gravação. */
 /** Recarrega o estudo na tela (equivalente ao `router.refresh()` do Santa Fé). */
 export function recarregarEstudo() { return recarregar(); }
-export function registrarRecarregamentoEstudo(fn: () => Promise<unknown>) { recarregar = fn; }
+export function registrarRecarregamentoEstudo(fn: () => Promise<unknown>) {
+  recarregar = fn;
+  return () => {
+    if (recarregar === fn) recarregar = async () => undefined;
+  };
+}
 
 const id = (estudoId: string) => Number(estudoId);
 const mensagem = (e: unknown) => e instanceof Error && e.message ? e.message : "Operação falhou.";
@@ -251,13 +256,19 @@ export async function excluirPropostaNegociacao(estudoId: string, propostaId: st
 
 /** Correção 06 — motores independentes da Inteligência de Mercado. */
 export async function pesquisarDadosPublicos(estudoId: string, municipio: string, estado: string) {
-  return inc.pesquisarDadosPublicos.mutate({ id: id(estudoId), municipio, estado });
+  const r = await inc.pesquisarDadosPublicos.mutate({ id: id(estudoId), municipio, estado });
+  await recarregar();
+  return r;
 }
 export async function salvarDadosPublicos(estudoId: string, dados: Parameters<typeof inc.salvarDadosPublicos.mutate>[0]["dados"]) {
-  return inc.salvarDadosPublicos.mutate({ id: id(estudoId), dados });
+  const r = await inc.salvarDadosPublicos.mutate({ id: id(estudoId), dados });
+  await recarregar();
+  return r;
 }
 export async function pesquisarMercadoImobiliario(estudoId: string, c: { municipio: string; estado: string; bairro?: string; tipologia: "lote" | "casa" | "apartamento" | "terreno" | "outro"; areaMinM2?: number; areaMaxM2?: number }) {
-  return inc.pesquisarMercadoImobiliario.mutate({ id: id(estudoId), ...c });
+  const r = await inc.pesquisarMercadoImobiliario.mutate({ id: id(estudoId), ...c });
+  if (r.status === "ok") await recarregar();
+  return r;
 }
 /** Grava e RECARREGA o estudo: Massa e Viabilidade passam a ler o novo preço de referência. */
 export async function aplicarPrecoReferenciaMercado(estudoId: string, precoM2Lote: number) {

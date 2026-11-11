@@ -7,7 +7,7 @@ import {
 } from "../shared/incorporacao/massa";
 import { calcularQuadroAreasMassa, linhasQuadroAreas, RESTRICOES_VAZIAS } from "../shared/incorporacao/massa-quadro-areas";
 import {
-  parseLotesAvulsos, validarListaLotesAvulsos, resumoLotesAvulsos, serializarLotesAvulsos, terrenoLiberado, type LoteAvulso,
+  areaDoEstudoM2, parseLotesAvulsos, validarListaLotesAvulsos, resumoLotesAvulsos, serializarLotesAvulsos, terrenoLiberado, type LoteAvulso,
 } from "../shared/incorporacao/lotes-avulsos";
 import {
   cenarioPrincipalDe, motivoBloqueioExclusao, proximaVersao, mixDoCenario, indicadoresDoCenario, validarNomeEstudo,
@@ -176,6 +176,13 @@ describe("lotes avulsos (sem KML)", () => {
   it("resumo e JSON inválido", () => {
     expect(resumoLotesAvulsos(lotes)).toEqual({ total: 3, quadras: 2, areaTotalM2: 810, areaMediaM2: 270 });
     expect(parseLotesAvulsos("{quebrado")).toEqual([]);
+  });
+  it("a lista de estudos usa a mesma área do terreno, com ou sem KML", () => {
+    const estudo = { areaM2: "7618.25", semKml: true, looseLotsJson: serializarLotesAvulsos(lotes) };
+    expect(areaDoEstudoM2(estudo)).toBe(810);
+    expect(areaDoEstudoM2({ ...estudo, geojson: "{}" })).toBe(7618.25);
+    expect(areaDoEstudoM2({ ...estudo, looseLotsJson: "[]" })).toBeNull();
+    expect(areaDoEstudoM2({ areaM2: "0" })).toBeNull();
   });
   it("libera módulos com KML ou com a marcação sem KML", () => {
     expect(terrenoLiberado({ geojson: null, semKml: false })).toBe(false);

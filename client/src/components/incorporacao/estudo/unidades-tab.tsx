@@ -5,7 +5,7 @@ import { ChevronLeft, ChevronRight } from "lucide-react";
 import { codigoExibicao, compararCodigoUnidade, paginar } from "@shared/incorporacao/unidades";
 import { exigirResultado, type ErroAcao } from "./compat/acao-resultado";
 import { NumeroBRField } from "./compat/numero-br-field";
-import { listarUnidades, criarUnidade, conciliarVendaLegada, sincronizarUnidades, clientesUnidades, editarUnidade, excluirUnidade } from "./compat/acoes";
+import { recarregarEstudo, listarUnidades, criarUnidade, conciliarVendaLegada, sincronizarUnidades, clientesUnidades, editarUnidade, excluirUnidade } from "./compat/acoes";
 type Snapshot = Exclude<Awaited<ReturnType<typeof listarUnidades>>, ErroAcao>;
 type Unidade = Snapshot["unidades"][number];
 type Cliente = { id: string; nome: string; telefone: string; valorNegociado?: string | null };
@@ -28,10 +28,10 @@ export function UnidadesTab({ estudoId }: { estudoId: string }) {
   );
   usePendenciaManual(unidadeAlterada ? "Há uma edição de unidade sem confirmação. Use Salvar unidade para concluir." : null);
   const refresh = useCallback(async () => { setData(exigirResultado(await listarUnidades(estudoId))); }, [estudoId]);
-  useEffect(() => { let ativo = true; void (async () => { try { exigirResultado(await sincronizarUnidades(estudoId)); const r = exigirResultado(await listarUnidades(estudoId)); if (ativo) setData(r); } catch(e) { if (ativo) setError(e instanceof Error ? e.message : "Falha ao carregar unidades."); } })(); return () => { ativo = false; }; }, [estudoId]);
+  useEffect(() => { let ativo = true; void (async () => { try { exigirResultado(await sincronizarUnidades(estudoId)); void recarregarEstudo(); const r = exigirResultado(await listarUnidades(estudoId)); if (ativo) setData(r); } catch(e) { if (ativo) setError(e instanceof Error ? e.message : "Falha ao carregar unidades."); } })(); return () => { ativo = false; }; }, [estudoId]);
   useEffect(() => { let ativo = true; const timer = setTimeout(() => { void clientesUnidades(busca).then((r) => { if (ativo) setClientes(exigirResultado(r)); }).catch(() => { if (ativo) setClientes([]); }); }, 250); return () => { ativo = false; clearTimeout(timer); }; }, [busca]);
   function run(fn: () => Promise<unknown>, fechar = false) {
-    setError(""); start(async () => { try { exigirResultado(await fn()); if (fechar) setEdit(null); await refresh(); } catch (e) { setError(e instanceof Error ? e.message : "Operação falhou."); } });
+    setError(""); start(async () => { try { exigirResultado(await fn()); if (fechar) setEdit(null); await Promise.all([refresh(), recarregarEstudo()]); } catch (e) { setError(e instanceof Error ? e.message : "Operação falhou."); } });
   }
   function abrir(unit: Unidade) {
     setEdit(unit); setForm({ comprador: unit.comprador ?? "", compradorLeadId: unit.compradorLeadId ?? "", valor: Number(unit.valorVenda ?? 0), status: unit.status as typeof form.status });
