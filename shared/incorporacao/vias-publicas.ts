@@ -1,5 +1,10 @@
 // Tipologia "VIAS PÚBLICAS": desmembramento de terreno cujas divisas JÁ são vias públicas.
 //
+// 1º) Desmembramento "em faixas" (vias-publicas-faixas.ts), como nos projetos aprovados: uma via de referência com
+//     lotes de fundo fixo (metade da largura entre as divisas paralelas), lotes de costas na via de trás e uma
+//     faixa de lotes de frente para a via da ponta. Vale quando rende pelo menos tantos lotes quanto o 2º.
+// 2º) Motor por trechos (abaixo), mantido como alternativa:
+//
 // Não há via interna: toda divisa (do lado de fora e do lado de dentro, como a de uma rua com
 // balão que entra no terreno) é frente de lote. Os lotes são implantados ao longo de cada trecho
 // da divisa (quebras em cantos vivos), com frente ≥ testada sobre a via, fundo até a profundidade
@@ -11,6 +16,7 @@ import { difference, featureCollection, polygon as turfPolygon, union } from "@t
 import type { Feature, MultiPolygon, Polygon, Position } from "geojson";
 import { areaPlanar, type LoteFrame, type Ret } from "./geometria-parcelamento.js";
 import { dividirZonaPorArea, implantarNaDivisa, type ImplantacaoViaDivisa } from "./rua-divisa.js";
+import { buscarFaixas, type ResultadoFaixas } from "./vias-publicas-faixas.js";
 
 export interface OpcoesViasPublicas { testada: number; profundidade: number; loteMinimoM2: number }
 
@@ -85,7 +91,25 @@ export function completarAproveitamento(gleba: Position[], lotes: LoteFrame[], o
   const glebaF = turfPolygon([gleba]);
   const uniao = seguro(() => (lotes.length === 1 ? turfPolygon([lotes[0].anel]) : union(featureCollection(lotes.map((l) => turfPolygon([l.anel]))))));
   if (!uniao) return lotes;
-  const sobra = seguro(() => difference(featureCollection([glebaF, uniao as Geo])) as Geo | null);
+  let sobra = seguro(() => difference(featureCollection([glebaF, uniao as Geo])) as Geo | null);
+  if (sobra === null) {
+    // falha numérica do recorte de uma vez só: desconta por grupos de lotes vizinhos na numeração (e lote a lote no
+    // grupo que falhar); se ainda falhar, fica como está — nunca sobrepõe ninguém
+    let resto: Geo | null = glebaF;
+    const descontar = (fs: Geo[]) => {
+      if (!resto) return;
+      const u = fs.length === 1 ? fs[0] : (union(featureCollection(fs)) as Geo | null);
+      if (u) resto = difference(featureCollection([resto, u])) as Geo | null;
+    };
+    try {
+      for (let i = 0; i < lotes.length && resto; i += 8) {
+        const grupo = lotes.slice(i, i + 8).map((l) => turfPolygon([l.anel]) as Geo);
+        const antes: Geo = resto;
+        try { descontar(grupo); } catch { resto = antes; for (const f of grupo) descontar([f]); }
+      }
+    } catch { return lotes; }
+    sobra = resto;
+  }
   if (!sobra) return lotes;
   const pecas = poligonos(sobra.geometry as Polygon | MultiPolygon).map((rs) => rs[0]).filter((a) => areaPlanar(a) > 0.01)
     .sort((a, b) => areaPlanar(b) - areaPlanar(a));
@@ -296,6 +320,24 @@ function pontoNoAnel(anel: Position[], p: Position): boolean {
 export function buscarViasPublicas(anelFechado: Position[], o: OpcoesViasPublicas, max = 4, onProgress?: (f: number) => void): ImplantacaoViaDivisa[] {
   // ordem: trechos convexos/retos (do maior para o menor) e, por último, os côncavos — como o contorno de
   // um balão de retorno que entra no terreno, onde os lotes ficam em leque e só ocupam o que sobrou
+  // teto absoluto: ⌊área da gleba ÷ área mínima⌋ — ao atingir, não há o que melhorar
+  const tetoGleba = Math.floor(areaPlanar(anelFechado) / o.loteMinimoM2 + 1e-9);
+  const perimetro = anelFechado.slice(0, -1).reduce((s, p, i) => s + comprimento(p, anelFechado[i + 1]), 0);
+  // 1º) em faixas, como no projeto aprovado; se já chega ao teto, é o resultado
+  const trechosTodos = trechosDaDivisa(anelFechado);
+  const melhorFaixas = seguro(() => buscarFaixas(anelFechado, trechosTodos, o, completarAproveitamento))?.[0] ?? null;
+  const emFaixas = (r: ResultadoFaixas): ImplantacaoViaDivisa => ({
+    // uma quadra só, numerada na ordem do desmembramento (via de trás, faixa de ponta e via de referência)
+    lotes: r.lotes.map((l, i) => ({ ...l, linha: 0, faixa: 0 as const, segmento: 0, ordem: i })),
+    corredores: [], baloes: [], viasLivres: [], candidatos: r.lotes.length,
+    arestasDivisa: trechosTodos.flat(), comprimentoViaM: 0, comprimentoDisponivelM: perimetro, chave: `vp|${r.chave}`,
+    limitacoes: [
+      `Vias públicas: todas as divisas da gleba (por fora e por dentro) já são frente para via pública — sem via interna. Desmembramento em faixas, como no projeto aprovado: os lotes da via de referência têm fundo de ${r.profundidadeRef.toLocaleString("pt-BR", { maximumFractionDigits: 2 })} m (metade da largura entre as divisas paralelas) e frente = área mínima ÷ fundo; em balão de retorno, a frente fica na mínima e o fundo fecha a área. Os lotes da via de trás ficam de costas para eles, com as laterais na mesma linha onde as vias são paralelas e em leque nas curvas; na ponta, uma faixa de lotes tem frente para a via que cruza. As únicas restrições são área ≥ ${o.loteMinimoM2.toLocaleString("pt-BR")} m² e frente ≥ ${o.testada.toLocaleString("pt-BR")} m: fundo, laterais e frente acima da mínima variam de lote para lote (a profundidade informada é só referência, não é limite). A sobra fica nos lotes de esquina e de curva; nenhum pedaço fica sem dono — 100% de aproveitamento.`,
+      "Confirme em projeto que todas as divisas são de fato vias públicas oficiais (testada para logradouro existente).",
+    ],
+  });
+  onProgress?.(0.3);
+  if (melhorFaixas && melhorFaixas.lotes.length >= tetoGleba) { onProgress?.(0.95); return [emFaixas(melhorFaixas)]; }
   const v = anelFechado.slice(0, -1), n = v.length;
   let s2 = 0;
   for (let i = 0; i < n; i++) s2 += v[i][0] * v[(i + 1) % n][1] - v[(i + 1) % n][0] * v[i][1];
@@ -309,7 +351,7 @@ export function buscarViasPublicas(anelFechado: Position[], o: OpcoesViasPublica
   const info = trechosDaDivisa(anelFechado)
     .map((c, pos) => ({ c, pos, m: c.reduce((s, i) => s + comprimento(anelFechado[i], anelFechado[i + 1]), 0), concavo: giro(c) < -0.3 }))
     .filter((x) => x.m >= o.testada);
-  if (info.length === 0) return [];
+  if (info.length === 0) return melhorFaixas ? [emFaixas(melhorFaixas)] : [];
   const porTamanho = [...info].sort((a, b) => Number(a.concavo) - Number(b.concavo) || b.m - a.m || a.pos - b.pos);
   // 2ª ordem: o maior trecho e depois os vizinhos na sequência do contorno (côncavos sempre por último)
   const k0 = porTamanho[0].pos, N = info.length;
@@ -327,9 +369,6 @@ export function buscarViasPublicas(anelFechado: Position[], o: OpcoesViasPublica
   const total = iniciais.length * info.length + 6;
   let feitos = 0;
   const resultados: ImplantacaoViaDivisa[] = [];
-  // teto absoluto: ⌊área da gleba ÷ área mínima⌋ — ao atingir, não há o que melhorar
-  const tetoGleba = Math.floor(areaPlanar(anelFechado) / o.loteMinimoM2 + 1e-9);
-  const perimetro = anelFechado.slice(0, -1).reduce((s, p, i) => s + comprimento(p, anelFechado[i + 1]), 0);
   // cada variação: 1ª passada (zonas) → redivisão por área; para ao atingir o teto
   for (const ini of iniciais) {
     if (resultados.length && resultados[0].lotes.length >= tetoGleba) break;
@@ -345,7 +384,7 @@ export function buscarViasPublicas(anelFechado: Position[], o: OpcoesViasPublica
         const r = implantarNaDivisa(anelFechado, tr, v.reverso, v.fase, opc, v.raio, extras(lotes.map((l) => l.anel), k === 0 ? ini.fracao : 0.5));
         if (r && (!melhor || r.lotes.length > melhor.lotes.length)) melhor = r;
       }
-      onProgress?.(Math.min(0.95, ++feitos / total));
+      onProgress?.(Math.min(0.95, 0.3 + (0.7 * ++feitos) / total));
       const m = melhor as ImplantacaoViaDivisa | null;
       sentido[k] = m ? m.chave.split("|")[2] === "r" : false;
       if (m) { lotes.push(...m.lotes); m.lotes.forEach(() => doTrecho.push(k)); chaves.push(m.chave); }
@@ -353,7 +392,7 @@ export function buscarViasPublicas(anelFechado: Position[], o: OpcoesViasPublica
     const consolidado = consolidarZonas(anelFechado, lotes, doTrecho, trechos, sentido, o);
     if (resultados.length && consolidado.estimativa <= resultados[0].lotes.length) continue;
     const completos = consolidado.finalizar(6);
-    onProgress?.(Math.min(0.95, (feitos += 3) / total));
+    onProgress?.(Math.min(0.95, 0.3 + (0.7 * (feitos += 3)) / total));
     if (completos.length === 0) continue;
     resultados.push({
       lotes: completos, corredores: [], baloes: [], viasLivres: [], candidatos: completos.length,
@@ -370,5 +409,7 @@ export function buscarViasPublicas(anelFechado: Position[], o: OpcoesViasPublica
   resultados.sort((a, b) => b.lotes.length - a.lotes.length || somaArea(b) - somaArea(a) || (a.chave < b.chave ? -1 : a.chave > b.chave ? 1 : 0));
   // todas aproveitam 100% da área: o que diferencia é a quantidade de lotes — só seguem as de maior quantidade
   const maxLotes = resultados[0]?.lotes.length ?? 0;
+  // o desenho em faixas (como o aprovado) vale sempre que rende pelo menos tantos lotes quanto o motor por trechos
+  if (melhorFaixas && melhorFaixas.lotes.length >= maxLotes) return [emFaixas(melhorFaixas)];
   return resultados.filter((r) => r.lotes.length === maxLotes).slice(0, max);
 }

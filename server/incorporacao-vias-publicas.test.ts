@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { ANEL_POLIMEROS, CENTRO_POLIMEROS } from "./fixtures/polimeros-lote01-qdo";
 import { criarProjecao, gerarEstudoMassa, validarParametrosMassa, type ParametrosMassa } from "../shared/incorporacao/massa";
-import { buscarViasPublicas, completarAproveitamento, trechosDaDivisa } from "../shared/incorporacao/vias-publicas";
+import { buscarViasPublicas, completarAproveitamento, frenteNaDivisa, trechosDaDivisa } from "../shared/incorporacao/vias-publicas";
 import { areaPlanar } from "../shared/incorporacao/geometria-parcelamento";
 
 const P: ParametrosMassa = { larguraViaM: 0, testadaLoteM: 5, profundidadeLoteM: 25, loteMinimoM2: 125, comprimentoMaxQuadraM: 0,
@@ -46,4 +46,36 @@ describe("Vias públicas — desmembramento com 100% de aproveitamento", () => {
     // sem sobreposição: a soma das áreas dos lotes é a área da gleba
     expect(c.lotes.reduce((s, l) => s + l.areaM2, 0)).toBeLessThanOrEqual(areaPlanar(anel) + 0.5);
   }, 180_000);
+  it("Polímeros: desenho em faixas como o memorial aprovado — Andorinhas 7,44 × fundo fixo (125,00 m²), soma = gleba, em menos de 20 s", () => {
+    const m = criarProjecao(CENTRO_POLIMEROS);
+    const anel = ANEL_POLIMEROS.map((x) => m.paraMetros(x)); anel[anel.length - 1] = anel[0];
+    const t0 = Date.now();
+    const rs = buscarViasPublicas(anel, { testada: 5, profundidade: 25, loteMinimoM2: 125 }, 4);
+    expect(Date.now() - t0).toBeLessThan(20_000);
+    const r = rs[0];
+    expect(r.chave.startsWith("vp|faixas|")).toBe(true);
+    expect(r.lotes).toHaveLength(60);
+    expect(r.viasLivres).toEqual([]);
+    // nenhum lote abaixo da mínima, todos com frente real ≥ 5 m na divisa e um polígono só (anel fechado)
+    for (const l of r.lotes) {
+      expect(l.area).toBeGreaterThanOrEqual(125 - 0.01);
+      expect(l.area).toBeCloseTo(areaPlanar(l.anel), 6);
+      expect(frenteNaDivisa(anel, l.anel)).toBeGreaterThanOrEqual(5 - 0.01);
+      expect(l.anel[0]).toEqual(l.anel[l.anel.length - 1]);
+      expect(l.testada! * l.profundidadeMedia!).toBeCloseTo(l.area, 6);
+    }
+    // maior lote do aprovado: 141,96 m² (esquina) — aqui nenhum passa de 145
+    expect(Math.max(...r.lotes.map((l) => l.area))).toBeLessThan(145);
+    // sem sobreposição e sem sobra: a soma das áreas é a área da gleba (7.581,69 m² no KML)
+    expect(Math.abs(r.lotes.reduce((s, l) => s + l.area, 0) - areaPlanar(anel))).toBeLessThan(0.5);
+    // lotes regulares do memorial: 7,44 m de frente × 16,8 m de fundo = 125,00 m² (Andorinhas e os de costas, na Uirapurus)
+    const regulares = r.lotes.filter((l) => Math.abs(l.area - 125) <= 0.05 && Math.abs(l.testada! - 7.44) <= 0.05);
+    expect(regulares.length).toBeGreaterThanOrEqual(20);
+    // a maioria dos lotes fecha na área mínima exata; a sobra fica em poucos lotes de esquina e de curva
+    expect(r.lotes.filter((l) => Math.abs(l.area - 125) <= 0.05).length).toBeGreaterThanOrEqual(45);
+    // determinístico
+    const de = buscarViasPublicas(anel, { testada: 5, profundidade: 25, loteMinimoM2: 125 }, 4)[0];
+    expect(de.chave).toBe(r.chave);
+    expect(de.lotes.map((l) => l.area)).toEqual(r.lotes.map((l) => l.area));
+  }, 120_000);
 });
