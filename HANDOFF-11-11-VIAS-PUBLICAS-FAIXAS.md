@@ -72,3 +72,9 @@ profundidadeMedia = área ÷ testada.
 - (b) manuais (por mim): desenho gerado em SVG/PNG e comparado visualmente com a planta aprovada; bancada com outras
   formas (retângulos, L, triângulo, trapézio, quadra) — sem erro, sem lote abaixo da mínima, soma = gleba.
 - (c) pendente de validação em produção: tudo desta frente (nada publicado); tempo real na função da Vercel.
+
+## Merge e deploy (autorizados pelo dono em 11/11)
+- PR #199 mergeado em `main` (0d08bc3); deploy de produção `dpl_DF79C2VH5JFmDcrAYwvPMe1JCXzz` READY em
+  prospectaconstrucoes.com; sem erros de runtime nos primeiros minutos.
+- Decisão do dono registrada no PR: profundidade não é limite; só frente ≥ testada e área ≥ mínima; sem sobras.
+- (c) Pendente em produção: abrir o estudo 1 e conferir 60 lotes e o tempo de cálculo na Vercel.
