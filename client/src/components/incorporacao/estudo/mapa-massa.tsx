@@ -1,6 +1,7 @@
 
 import { useEffect, useRef } from "react";
-import type { Feature, Polygon, Position } from "geojson";
+import type { Position } from "geojson";
+import type { GeometriaTerreno } from "@shared/geo/terreno";
 import type { LoteGerado } from "@shared/incorporacao/massa";
 import { adicionarCamadasBase } from "./camadas-base";
 import { formatArea } from "./compat/util";
@@ -19,7 +20,7 @@ import { formatArea } from "./compat/util";
 // uma exceção do Leaflet derrubar a página.
 
 interface Props {
-  geojson: string; // Feature<Polygon> da gleba
+  geojson: string;
   lotes: LoteGerado[];
   /** Vias desenhadas (corredores + balões do cul-de-sac), [lng, lat]. */
   vias?: Position[][];
@@ -75,8 +76,8 @@ export function MapaMassa({ geojson, lotes, vias, height = 420 }: Props) {
       // antes de criar a nova — nunca duas instâncias vivas no mesmo container.
       removerMapaSeguro(mapRef);
 
-      let gleba: Feature<Polygon>;
-      try { gleba = JSON.parse(geojson) as Feature<Polygon>; } catch { return; }
+      let gleba: GeometriaTerreno;
+      try { gleba = JSON.parse(geojson) as GeometriaTerreno; } catch { return; }
 
       // o cleanup pode ter corrido enquanto aguardávamos o import/parse acima
       if (cancelled || !ref.current) return;

@@ -19,7 +19,7 @@ import {
 import { exigirResultado } from "./compat/acao-resultado";
 import { CORES_MASSA } from "./mapa-massa";
 import type { EstudoData } from "./incorporacao-detail";
-import type { Feature, Polygon } from "geojson";
+import { uniaoDoTerreno, type GeometriaTerreno } from "@shared/geo/terreno";
 
 const MapaMassa = dynamic(() => import("./mapa-massa").then((m) => m.MapaMassa), {
   ssr: false,
@@ -168,17 +168,25 @@ export function MassaTab({ estudo }: { estudo: EstudoData }) {
     setCamposTexto((c) => ({ ...c, [k]: formatarCampo(params[k]) }));
   }
 
+  const contorno = useMemo(() => {
+    try {
+      return estudo.geojson ? uniaoDoTerreno(JSON.parse(estudo.geojson) as GeometriaTerreno).geometry : null;
+    } catch {
+      return null;
+    }
+  }, [estudo.geojson]);
+
   // comprimento de cada lado da gleba (cima/esquerda/direita/baixo), medido no KML
   const ladosMedidos = useMemo(() => {
-    if (!estudo.geojson || estudo.centroLng == null || estudo.centroLat == null) return null;
+    if (contorno?.type !== "Polygon" || estudo.centroLng == null || estudo.centroLat == null) return null;
     try {
-      const anelGeo = (JSON.parse(estudo.geojson) as Feature<Polygon>).geometry.coordinates[0];
+      const anelGeo = contorno.coordinates[0];
       const proj = criarProjecao([estudo.centroLng, estudo.centroLat]);
       const anelM = anelGeo.map((p) => proj.paraMetros(p));
       anelM[anelM.length - 1] = anelM[0];
       return medirLados(anelM);
     } catch { return null; }
-  }, [estudo.geojson, estudo.centroLng, estudo.centroLat]);
+  }, [contorno, estudo.centroLng, estudo.centroLat]);
 
   async function gerar(entradas = params) {
     if (!estudo.geojson || !estudo.centroLat || !estudo.centroLng) return;
@@ -191,11 +199,12 @@ export function MassaTab({ estudo }: { estudo: EstudoData }) {
     }
 
     setErro(null);
-    let anel: Feature<Polygon>["geometry"]["coordinates"][0];
-    try {
-      anel = (JSON.parse(estudo.geojson) as Feature<Polygon>).geometry.coordinates[0];
-      if (!anel || anel.length < 4) throw new Error();
-    } catch {
+    if (contorno?.type === "MultiPolygon") {
+      setErro("O KML contém áreas separadas. Para gerar cenários de massa, use um estudo por área contínua.");
+      return;
+    }
+    const anel = contorno?.coordinates[0];
+    if (!anel || anel.length < 4) {
       setErro("Geometria da gleba inválida ou incompleta. Reenvie o KML na aba Terreno.");
       return;
     }

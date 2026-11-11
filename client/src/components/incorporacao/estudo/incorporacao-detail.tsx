@@ -244,7 +244,7 @@ const MODULOS_DESMEMBRAMENTO = [
   ["terreno", "Terreno"], ["topografia", "Topografia"], ["mercado", "Inteligência de Mercado"],
   ["massa", "Estudo de Massa Generativa"], ["orcamento-parametrizado", "Orçamento Parametrizado"],
   ["negociacao-terreno", "Negociação do Terreno"], ["business-plan", "Business/Investidores"],
-  ["projeto-aprovado", "Projeto Aprovado"], ["unidades", "Unidades à Venda"],
+  ["unidades", "Unidades à Venda"],
   ["planejamento-lancamento", "Planejamento do Lançamento"], ["contratacao-fornecedores", "Contratação de Fornecedores"],
   ["material-publicitario", "Material Publicitário"], ["atendimento-clientes", "Atendimento aos Clientes"],
 ] as const;
@@ -252,8 +252,11 @@ const MODULOS_DESMEMBRAMENTO = [
 /** Progresso por fase — auto-computado a partir do que já está preenchido no estudo (nunca manual). */
 function calcularProgresso(estudo: EstudoData) {
   const porFase = FASES.map((f) => {
-    const concluidas = f.etapas.filter((e) => e.concluida?.(estudo)).length;
-    const total = f.etapas.length;
+    const etapas = estudo.tipoIncorporacao === "desmembramento_simples"
+      ? f.etapas.filter((e) => e.id !== "projeto-aprovado")
+      : f.etapas;
+    const concluidas = etapas.filter((e) => e.concluida?.(estudo)).length;
+    const total = etapas.length;
     return { id: f.id, concluidas, total, pct: total > 0 ? Math.round((concluidas / total) * 100) : 0 };
   });
   const concluidasTotal = porFase.reduce((s, f) => s + f.concluidas, 0);
@@ -278,6 +281,7 @@ export function IncorporacaoDetail({ estudo, dadosGerais }: { estudo: EstudoData
   // Correção 06: com KML ou com "não possui KML", as etapas dependentes do terreno ficam liberadas.
   const temTerreno = terrenoLiberado(estudo);
 
+  const tituloUnidades = estudo.tipoIncorporacao === "vertical" || estudo.tipoIncorporacao === "loteamento";
   const progresso = useMemo(() => calcularProgresso(estudo), [estudo]);
 
   useEffect(() => {
@@ -333,7 +337,7 @@ export function IncorporacaoDetail({ estudo, dadosGerais }: { estudo: EstudoData
               onClick={() => { setEtapaId(modulo.id); setRelatorioAtivo(false); setVisitados((anteriores) => anteriores.includes(modulo.id) ? anteriores : [...anteriores, modulo.id]); }}
               aria-current={ativo ? "page" : undefined}
               className={`min-w-0 border px-3 py-3 text-left text-xs font-bold break-words ${ativo ? "bg-[var(--brand-dark)] text-[var(--brand-yellow)]" : disabled ? "bg-gray-50 text-gray-400 cursor-not-allowed" : "bg-white text-[var(--brand-dark)] hover:border-[var(--brand-yellow)]"}`}>
-              <span className="block text-[10px] font-normal opacity-70">{modulo.faseTitulo}</span>{modulo.titulo}
+              <span className="block text-[10px] font-normal opacity-70">{modulo.faseTitulo}</span>{tituloUnidades && modulo.id === "lancamento-imobiliario" ? "Unidades à Venda" : modulo.titulo}
             </button>
           );
         })}

@@ -47,7 +47,7 @@ export interface LotePlanta {
 }
 
 export interface ModeloPlanta {
-  gleba: Position[];
+  gleba: Position[][];
   lotes: LotePlanta[];
   ruas: Position[][];
   baloes: Position[][];
@@ -73,10 +73,10 @@ function bboxDe(aneis: Position[][]): [number, number, number, number] {
 }
 
 /** Monta o modelo métrico da planta a partir da gleba e do cenário (lng/lat). */
-export function montarModeloPlanta(glebaGeo: Position[], cenario: CenarioMassa, centro: [number, number]): ModeloPlanta {
+export function montarModeloPlanta(glebaGeo: Position[], cenario: CenarioMassa, centro: [number, number], demaisContornos: Position[][] = []): ModeloPlanta {
   const proj = criarProjecao(centro);
   const m = (anel: Position[]) => anel.map((p) => proj.paraMetros(p));
-  const gleba = m(glebaGeo);
+  const gleba = [glebaGeo, ...demaisContornos].map(m);
   const lotes: LotePlanta[] = cenario.lotes.map((l, idx) => {
     const anel = m(l.anel);
     const d0 = Math.hypot(anel[1][0] - anel[0][0], anel[1][1] - anel[0][1]);
@@ -99,7 +99,7 @@ export function montarModeloPlanta(glebaGeo: Position[], cenario: CenarioMassa, 
       return { quadra, centro: [(bb[0] + bb[2]) / 2, (bb[1] + bb[3]) / 2] as [number, number], bbox: bb };
     });
   return {
-    gleba, lotes, ruas: (cenario.ruas ?? []).map(m), baloes: (cenario.vias ?? []).map(m), bbox: bboxDe([gleba]), quadras,
+    gleba, lotes, ruas: (cenario.ruas ?? []).map(m), baloes: (cenario.vias ?? []).map(m), bbox: bboxDe(gleba), quadras,
     larguraViaM: cenario.larguraViaM,
     areaViariaM2: cenario.sistemaViario?.areaGeometricaM2 ?? cenario.quadroAreas?.sistemaViarioM2 ?? 0,
     nLotesVendaveis: cenario.kpis.lotesVendaveis,
@@ -201,7 +201,9 @@ export function renderizarPlantaSvg(modelo: ModeloPlanta, v: VistaPlanta, o: Opc
   partes.push(`</g>`);
 
   // perímetro da gleba (divisas)
-  partes.push(`<polygon data-camada="gleba" points="${pontos(modelo.gleba, v)}" fill="none" stroke="${CORES_PLANTA.gleba}" stroke-width="2" stroke-dasharray="10 4 2 4"/>`);
+  for (const anel of modelo.gleba) {
+    partes.push(`<polygon data-camada="gleba" points="${pontos(anel, v)}" fill="none" stroke="${CORES_PLANTA.gleba}" stroke-width="2" stroke-dasharray="10 4 2 4"/>`);
+  }
 
   // rótulos dos lotes conforme o zoom
   partes.push(`<g data-camada="rotulos" pointer-events="none" fill="${CORES_PLANTA.texto}" text-anchor="middle">`);

@@ -1,6 +1,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import type { Feature, Polygon, LineString } from "geojson";
+import { poligonosDoTerreno, uniaoDoTerreno, type GeometriaTerreno } from "@shared/geo/terreno";
 import {
   bbox as turfBbox, buffer as turfBuffer, lineString, polygon as turfPolygon,
   intersect, difference, featureCollection, area as turfArea,
@@ -23,7 +24,7 @@ import { formatArea } from "./compat/util";
 // sempre tem que ser calculada automaticamente").
 
 interface Props {
-  geojson: string; // Feature<Polygon> serializado
+  geojson: string;
   center?: [number, number]; // [lat, lng]
   height?: number;
   estudoId?: string; // quando informado, persiste a APP calculada automaticamente
@@ -112,9 +113,9 @@ export function MapaTerreno({ geojson, center, height = 420, estudoId }: Props) 
       const L = (await import("leaflet")).default;
       if (cancelled || !ref.current) return;
 
-      let feature: Feature<Polygon>;
+      let feature: GeometriaTerreno;
       try {
-        feature = JSON.parse(geojson) as Feature<Polygon>;
+        feature = JSON.parse(geojson) as GeometriaTerreno;
       } catch {
         return;
       }
@@ -130,7 +131,8 @@ export function MapaTerreno({ geojson, center, height = 420, estudoId }: Props) 
       // Base satélite + ruas/rótulos com alternância para mapa de ruas (correção 10).
       adicionarCamadasBase(L, map);
 
-      const terrenoLayer = L.geoJSON(feature, {
+      const poligonos = poligonosDoTerreno(feature).map(aneis => turfPolygon(aneis));
+      const terrenoLayer = L.geoJSON(featureCollection(poligonos), {
         style: { color: CORES.terreno, weight: 3, fillColor: CORES.terreno, fillOpacity: 0.12 },
       }).addTo(map);
 
@@ -141,7 +143,8 @@ export function MapaTerreno({ geojson, center, height = 420, estudoId }: Props) 
       }
 
       // ─── Camadas de estudo (Overpass) ───────────────────────────────────────
-      const [minX, minY, maxX, maxY] = turfBbox(feature); // [W,S,E,N]
+      const contorno = uniaoDoTerreno(feature);
+      const [minX, minY, maxX, maxY] = turfBbox(contorno); // [W,S,E,N]
       // Além das LINHAS de curso d'água, busca também os POLÍGONOS de água
       // (rios largos como o Tocantins são mapeados como natural=water/riverbank,
       // não como linha) — sem eles a faixa de APP na margem do rio não aparecia.
@@ -243,7 +246,7 @@ export function MapaTerreno({ geojson, center, height = 420, estudoId }: Props) 
                 .bindTooltip(`APP ${w} m da margem (${origem})`).addTo(map);
 
               // Só conta a parte da faixa que cai DENTRO do terreno.
-              const bandaDentro = intersect(featureCollection([banda as Feature<Polygon>, feature]));
+              const bandaDentro = intersect(featureCollection([banda as Feature<Polygon>, contorno]));
               if (bandaDentro) appAreaTotalM2 += turfArea(bandaDentro);
               appLarguraMax = appLarguraMax == null ? w : Math.max(appLarguraMax, w);
             } catch {
@@ -262,7 +265,7 @@ export function MapaTerreno({ geojson, center, height = 420, estudoId }: Props) 
                 : 30;
               const faixa = turfBuffer(geom, w, { units: "meters" });
               if (!faixa) continue;
-              const dentro = intersect(featureCollection([faixa as Feature<Polygon>, feature]));
+              const dentro = intersect(featureCollection([faixa as Feature<Polygon>, contorno]));
               const alvo = dentro ?? faixa;
               L.geoJSON(alvo, { style: { color: CORES.app, weight: 1, fillColor: CORES.app, fillOpacity: 0.25 } })
                 .bindTooltip(`APP ${w} m (${appModo === "auto" ? "Código Florestal" : "manual"})`).addTo(map);
