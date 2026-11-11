@@ -1916,6 +1916,8 @@ export const incorporationStudies = pgTable("incorporation_studies", {
   appAreaM2: decimal("app_area_m2", { precision: 15, scale: 2 }),
   appWidthM: decimal("app_width_m", { precision: 15, scale: 2 }),
   appOrigin: varchar("app_origin", { length: 40 }),
+  // 11/11 (migração 0102): larguras de faixa confirmadas pelo dono no mapa do terreno ({"rod:BR-010": 80, …}).
+  terrainWidthsJson: text("terrain_widths_json"),
   elevationJson: text("elevation_json"),
   surveyUrl: text("survey_url"),
   cutFillJson: text("cut_fill_json"),

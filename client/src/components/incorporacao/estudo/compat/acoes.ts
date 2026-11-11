@@ -60,6 +60,11 @@ export function salvarApp(estudoId: string, payload: { areaM2: number; larguraM:
   return gravar(() => inc.saveApp.mutate({ id: id(estudoId), ...payload }));
 }
 
+/** Larguras de faixa confirmadas no mapa do terreno ({chave: metros}); objeto vazio limpa tudo. */
+export function salvarLargurasFaixa(estudoId: string, larguras: Record<string, number>) {
+  return gravar(() => inc.saveLargurasFaixa.mutate({ id: id(estudoId), larguras }));
+}
+
 export async function salvarMassa(estudoId: string, payload: unknown, cenarioEscolhidoId?: string | null, mix?: unknown) {
   return gravar(async () => {
     await inc.saveMassa.mutate({ id: id(estudoId), dataJson: JSON.stringify(payload), selectedScenarioId: cenarioEscolhidoId ?? null });

@@ -1,6 +1,7 @@
 import { sincronizarUnidadesCenario } from "./incorporacao-unidades-cenario.js";
 import { referenciasAtendimento, vincularAtendimento } from "../shared/incorporacao/atendimento-clientes.js";
 import { COOKIE_NAME } from "../shared/const.js";
+import { limparLargurasConfirmadas } from "../shared/geo/camadas-terreno.js";
 import { getSessionCookieOptions } from "./_core/cookies.js";
 import { systemRouter } from "./_core/systemRouter.js";
 import {
@@ -2836,6 +2837,15 @@ export const appRouter = router({
           appWidthM: input.larguraM?.toString(),
           appOrigin: input.origem,
         });
+        return { success: true };
+      }),
+
+    /** 11/11: larguras de faixa (servidão/domínio) confirmadas pelo dono no mapa do terreno. */
+    saveLargurasFaixa: protectedProcedure
+      .input(z.object({ id: z.number(), larguras: z.record(z.string().max(200), z.number().positive().max(1000)) }))
+      .mutation(async ({ input, ctx }) => {
+        requireModule(ctx, "incorporacao");
+        await db.updateIncorporationStudy(input.id, { terrainWidthsJson: JSON.stringify(limparLargurasConfirmadas(input.larguras)) });
         return { success: true };
       }),
 
