@@ -1,5 +1,6 @@
 
-import { useMemo, useState, useTransition } from "react";
+import { useMemo, useState } from "react";
+import { useSalvamentoJson } from "./compat/salvamento";
 import { Plus, Trash2, Save, Loader2, CheckCircle2, PartyPopper } from "lucide-react";
 import {
   resumoLancamentoImobiliario,
@@ -53,8 +54,6 @@ function LancamentoLegadoTab({ estudo }: { estudo: EstudoData }) {
     }
     return defaults();
   });
-  const [pending, startTransition] = useTransition();
-  const [salvo, setSalvo] = useState(false);
 
   const projecao = useMemo(() => projecaoDoMix(estudo), [estudo]);
   const resumo = useMemo(
@@ -62,27 +61,17 @@ function LancamentoLegadoTab({ estudo }: { estudo: EstudoData }) {
     [dados, projecao]
   );
 
-  function marcarAlterado() { setSalvo(false); }
-
   function addVenda() {
     setDados((d) => ({ vendas: [...d.vendas, novaVenda()] }));
-    marcarAlterado();
   }
   function removerVenda(id: string) {
     setDados((d) => ({ vendas: d.vendas.filter((v) => v.id !== id) }));
-    marcarAlterado();
   }
   function upd<K extends keyof VendaLancamento>(id: string, campo: K, valor: VendaLancamento[K]) {
     setDados((d) => ({ vendas: d.vendas.map((v) => (v.id === id ? { ...v, [campo]: valor } : v)) }));
-    marcarAlterado();
   }
 
-  function salvarDados() {
-    startTransition(async () => {
-      await salvarLancamentoImobiliario(estudo.id, JSON.stringify(dados));
-      setSalvo(true);
-    });
-  }
+  const { salvar: salvarDados, pending, salvo } = useSalvamentoJson(dados, estudo.id, salvarLancamentoImobiliario);
 
   return (
     <div className="space-y-4">

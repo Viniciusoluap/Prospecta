@@ -1,5 +1,6 @@
 
-import { useMemo, useState, useTransition } from "react";
+import { useMemo, useState } from "react";
+import { useSalvamentoJson } from "./compat/salvamento";
 import { Plus, Trash2, Save, Loader2, CheckCircle2, Wallet, AlertTriangle } from "lucide-react";
 import {
   resumoOrcamentoPreliminar,
@@ -53,33 +54,21 @@ export function OrcamentoPreliminarTab({ estudo }: { estudo: EstudoData }) {
     }
     return defaults();
   });
-  const [pending, startTransition] = useTransition();
-  const [salvo, setSalvo] = useState(false);
 
   const referencia = useMemo(() => custoParametrizadoDoEstudo(estudo), [estudo]);
   const resumo = useMemo(() => resumoOrcamentoPreliminar(dados.itens, referencia), [dados, referencia]);
 
-  function marcarAlterado() { setSalvo(false); }
-
   function addItem() {
     setDados((d) => ({ itens: [...d.itens, novoItem()] }));
-    marcarAlterado();
   }
   function removerItem(id: string) {
     setDados((d) => ({ itens: d.itens.filter((i) => i.id !== id) }));
-    marcarAlterado();
   }
   function upd<K extends keyof ItemOrcamentoPreliminar>(id: string, campo: K, valor: ItemOrcamentoPreliminar[K]) {
     setDados((d) => ({ itens: d.itens.map((i) => (i.id === id ? { ...i, [campo]: valor } : i)) }));
-    marcarAlterado();
   }
 
-  function salvarDados() {
-    startTransition(async () => {
-      await salvarOrcamentoPreliminar(estudo.id, JSON.stringify(dados));
-      setSalvo(true);
-    });
-  }
+  const { salvar: salvarDados, pending, salvo } = useSalvamentoJson(dados, estudo.id, salvarOrcamentoPreliminar);
 
   return (
     <div className="space-y-4">

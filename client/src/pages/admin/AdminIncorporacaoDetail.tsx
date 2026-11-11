@@ -1,13 +1,13 @@
 import { useEffect, useMemo, useState } from "react";
-import { Link, useParams } from "wouter";
+import { Link, useLocation, useParams } from "wouter";
 import { trpc } from "@/lib/trpc";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { toast } from "sonner";
 import { ArrowLeft } from "lucide-react";
+import { SalvamentoProvider, usePendenciasIncorporacao, useSalvamento } from "@/components/incorporacao/estudo/compat/salvamento";
 import { IncorporacaoDetail } from "@/components/incorporacao/estudo/incorporacao-detail";
 import { registrarRecarregamentoEstudo } from "@/components/incorporacao/estudo/compat/acoes";
 import { paraEstudoData } from "@shared/incorporacao/estudo-data";
@@ -17,7 +17,7 @@ const STATUS_OPTIONS = [
   { value: "unfeasible", label: "Inviável" },
   { value: "in_progress", label: "Em andamento" },
   { value: "completed", label: "Concluído" },
-];
+] as const;
 const TIPOS = [
   { value: "desmembramento_simples", label: "Desmembramento Simples" },
   { value: "vertical", label: "Vertical" },
@@ -33,7 +33,15 @@ function papelResponsavel(u: { role: string; engenheiro?: boolean; active: boole
 
 export default function AdminIncorporacaoDetail() {
   const { id } = useParams<{ id: string }>();
+  return <SalvamentoProvider key={id}><DetalheEstudo id={id} /></SalvamentoProvider>;
+}
+
+const FORM_VAZIO = { name: "", city: "", state: "", address: "", responsibleUserId: SEM_RESPONSAVEL, status: "", incorporationType: "" };
+
+function DetalheEstudo({ id }: { id: string }) {
   const utils = trpc.useUtils();
+  const [, navegar] = useLocation();
+  const pendencias = usePendenciasIncorporacao();
 
   const { data: estudo, isLoading } = trpc.incorporacao.getById.useQuery({ id: Number(id) });
   const { data: versoes = [] } = trpc.incorporacao.versions.useQuery({ id: Number(id) }, { enabled: !!Number(id) });
@@ -62,53 +70,48 @@ export default function AdminIncorporacaoDetail() {
 
   // Correção 08: Matrícula, CAR e Zoneamento saíram do formulário (colunas e
   // relatório preservados); o responsável é escolhido entre os usuários e salvo por ID.
-  const [form, setForm] = useState({ name: "", city: "", state: "", address: "", responsibleUserId: SEM_RESPONSAVEL, status: "in_study", incorporationType: "" });
+  const [rascunho, setRascunho] = useState<typeof FORM_VAZIO | null>(null);
+  const form = rascunho ?? FORM_VAZIO;
+  const setForm = (editar: (anterior: typeof FORM_VAZIO) => typeof FORM_VAZIO) =>
+    setRascunho(anterior => editar(anterior ?? FORM_VAZIO));
 
   useEffect(() => {
-    if (estudo) {
-      setForm({
-        name: estudo.name ?? "",
-        city: estudo.city ?? "",
-        state: estudo.state ?? "",
-        address: estudo.address ?? "",
-        responsibleUserId: estudo.responsibleUserId != null ? String(estudo.responsibleUserId) : SEM_RESPONSAVEL,
-        status: STATUS_OPTIONS.some((option) => option.value === estudo.status) ? estudo.status : "",
-        incorporationType: estudo.incorporationType ?? "",
-      });
-    }
+    if (!estudo) return;
+    setRascunho(anterior => anterior ?? {
+      name: estudo.name ?? "",
+      city: estudo.city ?? "",
+      state: estudo.state ?? "",
+      address: estudo.address ?? "",
+      responsibleUserId: estudo.responsibleUserId != null ? String(estudo.responsibleUserId) : SEM_RESPONSAVEL,
+      status: STATUS_OPTIONS.some(option => option.value === estudo.status) ? estudo.status : "",
+      incorporationType: estudo.incorporationType ?? "",
+    });
   }, [estudo]);
 
-  // Usuários ativos admin/colaborador (+ o responsável atual, mesmo inativo, para não sumir da tela).
-  const opcoesResponsavel = equipe.filter((u) => u.active || (estudo?.responsibleUserId != null && u.id === estudo.responsibleUserId));
-
-  const updateMutation = trpc.incorporacao.update.useMutation({
-    onSuccess: () => {
-      toast.success("Estudo atualizado!");
-      utils.incorporacao.getById.invalidate({ id: Number(id) });
-      utils.incorporacao.list.invalidate();
-    },
-    onError: (e) => toast.error(e.message),
-  });
-
-  const handleSave = () => {
-    const responsavelEscolhido = form.responsibleUserId === SEM_RESPONSAVEL ? null : Number(form.responsibleUserId);
-    if (!form.status) {
-      toast.error("Classifique a situação antiga deste estudo antes de salvar.");
-      return;
-    }
-    updateMutation.mutate({
+  const opcoesResponsavel = equipe.filter(u => u.active || u.id === estudo?.responsibleUserId);
+  const updateMutation = trpc.incorporacao.update.useMutation();
+  const { salvar: handleSave, pending: salvandoDados, alterado: dadosAlterados } = useSalvamento(rascunho, async (snapshot, anterior) => {
+    if (!snapshot.name.trim() || !snapshot.city.trim()) throw new Error("Preencha o nome do empreendimento e a cidade.");
+    if (snapshot.state && snapshot.state.length !== 2) throw new Error("Informe a UF com duas letras.");
+    await updateMutation.mutateAsync({
       id: Number(id),
-      name: form.name,
-      city: form.city,
-      state: form.state || undefined,
-      address: form.address || undefined,
-      // só envia quando o responsável mudou (estudos antigos mantêm o texto legado
-      // até alguém escolher um usuário; responsável inativo não é revalidado)
-      ...(responsavelEscolhido !== (estudo?.responsibleUserId ?? null) ? { responsibleUserId: responsavelEscolhido } : {}),
-      status: form.status as "in_study" | "unfeasible" | "in_progress" | "completed",
-      incorporationType: TIPOS.find((tipo) => tipo.value === form.incorporationType)?.value,
+      name: snapshot.name !== anterior.name ? snapshot.name : undefined,
+      city: snapshot.city !== anterior.city ? snapshot.city : undefined,
+      state: snapshot.state !== anterior.state ? snapshot.state || undefined : undefined,
+      address: snapshot.address !== anterior.address ? snapshot.address : undefined,
+      responsibleUserId: snapshot.responsibleUserId !== anterior.responsibleUserId
+        ? (snapshot.responsibleUserId === SEM_RESPONSAVEL ? null : Number(snapshot.responsibleUserId))
+        : undefined,
+      status: snapshot.status !== anterior.status ? STATUS_OPTIONS.find(option => option.value === snapshot.status)?.value : undefined,
+      incorporationType: snapshot.incorporationType !== anterior.incorporationType
+        ? TIPOS.find(tipo => tipo.value === snapshot.incorporationType)?.value
+        : undefined,
     });
-  };
+    await Promise.all([
+      utils.incorporacao.getById.invalidate({ id: Number(id) }),
+      utils.incorporacao.list.invalidate(),
+    ]);
+  });
 
   if (isLoading) {
     return (
@@ -130,7 +133,14 @@ export default function AdminIncorporacaoDetail() {
     <div className="min-h-screen bg-[#1A2332] text-white">
       <div className="bg-[#0F1923] border-b border-[#C9A961]/20 px-6 py-4">
         <div className="max-w-6xl mx-auto flex items-center gap-4">
-          <Link href="/admin/incorporacao">
+          <Link href="/admin/incorporacao" onClick={async event => {
+            if (!pendencias.size || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+            event.preventDefault();
+            const resultados = await Promise.all(Array.from(pendencias.values(), item => item.salvar?.() ?? false));
+            if (resultados.every(Boolean) || window.confirm("Ainda há alterações não salvas. Sair do estudo?")) {
+              navegar("/admin/incorporacao");
+            }
+          }}>
             <Button variant="ghost" size="icon" className="text-gray-400 hover:text-white">
               <ArrowLeft className="h-5 w-5" />
             </Button>
@@ -205,9 +215,9 @@ export default function AdminIncorporacaoDetail() {
                 </Select>
               </div>
             </div>
-            <Button onClick={handleSave} disabled={updateMutation.isPending}
+            <Button onClick={handleSave} disabled={salvandoDados || !dadosAlterados}
               className="bg-[#C9A961] hover:bg-[#B8985A] text-[#1A2332] font-bold">
-              {updateMutation.isPending ? "Salvando..." : "Salvar Alterações"}
+              {salvandoDados ? "Salvando..." : dadosAlterados ? "Salvar alterações" : "Dados salvos"}
             </Button>
           </CardContent>
         </Card>

@@ -1,6 +1,7 @@
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { exigirResultado, type ErroAcao } from "./compat/acao-resultado";
+import { useSalvamento } from "./compat/salvamento";
 import { salvarDueDiligence } from "./compat/acoes";
 import { abrirDocumentoRegistro, desvincularDocumentoRegistro, enviarDocumentoRegistro, listarDocumentosRegistro } from "./compat/acoes";
 import { lerDueDiligence, moverItem as mover, progressoDueDiligence, type DueDiligence } from "@shared/incorporacao/due-diligence";
@@ -12,36 +13,28 @@ const seta = "px-1.5 text-[var(--brand-dark)] disabled:opacity-30";
 
 
 export function DueDiligenceTab({ estudoId, json }: { estudoId: string; json: string | null }) {
-  const [salvo, setSalvo] = useState(json);
+  const salvo = useRef(json);
   const [dados, setDados] = useState<DueDiligence>(() => lerDueDiligence(json));
-  const [alterado, setAlterado] = useState(false);
-  const [pendente, setPendente] = useState(false);
+  const { salvar: save, alterado, pending: pendente } = useSalvamento(dados, async snapshot => {
+    const next = { ...snapshot, versao: lerDueDiligence(salvo.current).versao + 1 };
+    salvo.current = exigirResultado(await salvarDueDiligence(estudoId, salvo.current, next));
+  });
   const [erro, setErro] = useState("");
   const [arquivos, setArquivos] = useState<Exclude<Awaited<ReturnType<typeof listarDocumentosRegistro>>, ErroAcao>["documentos"]>([]);
   const [driveAtivo, setDriveAtivo] = useState(false);
   const [busyItem, setBusyItem] = useState<string | null>(null);
   useEffect(() => { let ativo = true; listarDocumentosRegistro(estudoId).then((resp) => { const r = exigirResultado(resp); if (ativo) { setArquivos(r.documentos); setDriveAtivo(r.configurado); } }).catch(() => { if (ativo) setErro("Não foi possível consultar os arquivos."); }); return () => { ativo = false; }; }, [estudoId]);
-  function change(fn: (current: DueDiligence) => DueDiligence) { setDados(fn); setAlterado(true); }
+  function change(fn: (current: DueDiligence) => DueDiligence) { setDados(fn); }
   function edit(id: string, fn: (etapa: Etapa) => Etapa) {
     change((current) => ({ ...current, etapas: current.etapas.map((e) => e.id === id ? fn(e) : e) }));
   }
   function move(index: number, offset: number) {
     change((current) => ({ ...current, etapas: mover(current.etapas, index, offset) }));
   }
-  async function save(): Promise<boolean> {
-    setPendente(true); setErro("");
-    try {
-      const next = { ...dados, versao: dados.versao + 1 };
-      const jsonAtual = exigirResultado(await salvarDueDiligence(estudoId, salvo, next));
-      setSalvo(jsonAtual); setDados(next); setAlterado(false);
-      return true;
-    } catch (error) { setErro(error instanceof Error ? error.message : "Falha ao salvar."); return false; }
-    finally { setPendente(false); }
-  }
   async function attach(itemId: string, file: File | undefined) {
     if (!file) return;
     // o seletor de arquivo abre sempre; com alterações pendentes, salva antes de enviar (o item precisa existir no servidor)
-    if (alterado && !(await save())) return;
+    if (!(await save())) return;
     if (arquivos.some((d) => d.itemId === itemId) && !window.confirm("Substituir o arquivo? O histórico permanece.")) return;
     setBusyItem(itemId); setErro("");
     try {
@@ -66,7 +59,6 @@ export function DueDiligenceTab({ estudoId, json }: { estudoId: string; json: st
       <div className="flex gap-2"><button type="button" onClick={() => change((d) => ({ ...d, etapas: [...d.etapas, novaEtapa()] }))} className="border border-gray-300 px-3 py-2">Adicionar etapa</button>
         <button type="button" disabled={!alterado || pendente} onClick={() => void save()} className="bg-[var(--brand-dark)] text-[var(--brand-yellow)] px-3 py-2 font-bold disabled:opacity-50">{pendente ? "Salvando..." : "Salvar"}</button></div>
     </div>
-    {alterado && <p role="status" className="text-amber-800 text-sm">Há alterações não salvas.</p>}
     {erro && <p role="alert" className="text-red-700 text-sm">{erro}</p>}
     <div aria-label="Fluxograma das etapas" className="space-y-2">
       {dados.etapas.map((etapa, index) => <div key={etapa.id}>

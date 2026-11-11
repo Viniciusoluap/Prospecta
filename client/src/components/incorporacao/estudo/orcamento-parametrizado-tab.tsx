@@ -1,5 +1,6 @@
 
-import { useMemo, useState, useTransition } from "react";
+import { useMemo, useState } from "react";
+import { useSalvamentoJson } from "./compat/salvamento";
 import { Plus, Trash2, Save, Loader2, CheckCircle2, Calculator } from "lucide-react";
 import {
   calcularOrcamentoParametrizado,
@@ -53,26 +54,19 @@ export function OrcamentoParametrizadoTab({ estudo }: { estudo: EstudoData }) {
       ] : [] };
     return { ...base, metodo: "construcao" };
   });
-  const [pending, startTransition] = useTransition();
-  const [salvo, setSalvo] = useState(false);
 
   const resultado = useMemo(() => calcularOrcamentoParametrizado(dados), [dados]);
-
-  function marcarAlterado() { setSalvo(false); }
 
   function set<K extends keyof PremissasOrcamentoParametrizado>(campo: K) {
     return (valor: string) => {
       setDados((d) => ({ ...d, [campo]: parseFloat(valor) || 0 }));
-      marcarAlterado();
     };
   }
   function addItem() {
     setDados((d) => ({ ...d, itens: [...d.itens, { pavimento: "Novo pavimento", areaM2: 0, coeficienteEquivalencia: 1 }] }));
-    marcarAlterado();
   }
   function removerItem(i: number) {
     setDados((d) => ({ ...d, itens: d.itens.filter((_, j) => j !== i) }));
-    marcarAlterado();
   }
   function updItem(i: number, campo: keyof ItemOrcamentoParametrizado, valor: string | number) {
     setDados((d) => {
@@ -80,15 +74,9 @@ export function OrcamentoParametrizadoTab({ estudo }: { estudo: EstudoData }) {
       itens[i] = { ...itens[i], [campo]: campo === "pavimento" ? valor : (typeof valor === "number" ? valor : parseFloat(valor) || 0) };
       return { ...d, itens };
     });
-    marcarAlterado();
   }
 
-  function salvar() {
-    startTransition(async () => {
-      const r = await salvarOrcamentoParametrizado(estudo.id, JSON.stringify(dados));
-      setSalvo(!("erroAcao" in r));
-    });
-  }
+  const { salvar: salvar, pending, salvo } = useSalvamentoJson(dados, estudo.id, salvarOrcamentoParametrizado);
 
   return (
     <div className="space-y-4">
@@ -108,7 +96,7 @@ export function OrcamentoParametrizadoTab({ estudo }: { estudo: EstudoData }) {
         </p>
       </div>
 
-      <OrcamentoImportacao dados={dados} onChange={(d) => { setDados(d); marcarAlterado(); }} areaReferencia={urbanismoDoCenario(estudo)?.quadroAreas?.areaLiquidaVendavelM2 ?? 0} />
+      <OrcamentoImportacao dados={dados} onChange={(d) => { setDados(d); }} areaReferencia={urbanismoDoCenario(estudo)?.quadroAreas?.areaLiquidaVendavelM2 ?? 0} />
       {(dados.metodo ?? "construcao") === "construcao" && <>
       <div className="bg-white border border-gray-100 p-4">
         <div className="overflow-x-auto">

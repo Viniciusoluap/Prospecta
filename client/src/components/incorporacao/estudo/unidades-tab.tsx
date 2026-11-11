@@ -1,5 +1,6 @@
 "use client";
 import { useCallback, useEffect, useMemo, useState, useTransition } from "react";
+import { usePendenciaManual } from "./compat/salvamento";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 import { codigoExibicao, compararCodigoUnidade, paginar } from "@shared/incorporacao/unidades";
 import { exigirResultado, type ErroAcao } from "./compat/acao-resultado";
@@ -21,6 +22,11 @@ export function UnidadesTab({ estudoId }: { estudoId: string }) {
   const [pagina, setPagina] = useState(1);
   const [filtroStatus, setFiltroStatus] = useState<"todos" | "disponivel" | "reservada" | "vendida">("todos");
   const [form, setForm] = useState({ comprador: "", compradorLeadId: "", valor: 0, status: "disponivel" as "disponivel" | "reservada" | "vendida" });
+  const unidadeAlterada = edit && (
+    form.comprador !== (edit.comprador ?? "") || form.compradorLeadId !== (edit.compradorLeadId ?? "") ||
+    form.valor !== Number(edit.valorVenda ?? 0) || form.status !== edit.status
+  );
+  usePendenciaManual(unidadeAlterada ? "Há uma edição de unidade sem confirmação. Use Salvar unidade para concluir." : null);
   const refresh = useCallback(async () => { setData(exigirResultado(await listarUnidades(estudoId))); }, [estudoId]);
   useEffect(() => { let ativo = true; void (async () => { try { exigirResultado(await sincronizarUnidades(estudoId)); const r = exigirResultado(await listarUnidades(estudoId)); if (ativo) setData(r); } catch(e) { if (ativo) setError(e instanceof Error ? e.message : "Falha ao carregar unidades."); } })(); return () => { ativo = false; }; }, [estudoId]);
   useEffect(() => { let ativo = true; const timer = setTimeout(() => { void clientesUnidades(busca).then((r) => { if (ativo) setClientes(exigirResultado(r)); }).catch(() => { if (ativo) setClientes([]); }); }, 250); return () => { ativo = false; clearTimeout(timer); }; }, [busca]);

@@ -1,5 +1,6 @@
 
-import { useMemo, useState, useTransition } from "react";
+import { useMemo, useState } from "react";
+import { useSalvamentoJson } from "./compat/salvamento";
 import { Plus, Trash2, Save, Loader2, CheckCircle2, LineChart, AlertTriangle } from "lucide-react";
 import {
   resumoCronogramaObra,
@@ -53,39 +54,26 @@ export function CronogramaObraTab({ estudo }: { estudo: EstudoData }) {
     }
     return defaults();
   });
-  const [pending, startTransition] = useTransition();
-  const [salvo, setSalvo] = useState(false);
 
   const duracaoObraMeses = useMemo(() => duracaoObraDoEstudo(estudo), [estudo]);
   const resumo = useMemo(() => resumoCronogramaObra(dados.medicoes, duracaoObraMeses), [dados, duracaoObraMeses]);
 
-  function marcarAlterado() { setSalvo(false); }
-
   function addMedicao() {
     const proximoMes = dados.medicoes.length > 0 ? Math.max(...dados.medicoes.map((m) => m.mes)) + 1 : 0;
     setDados((d) => ({ ...d, medicoes: [...d.medicoes, novaMedicao(proximoMes)] }));
-    marcarAlterado();
   }
   function removerMedicao(id: string) {
     setDados((d) => ({ ...d, medicoes: d.medicoes.filter((m) => m.id !== id) }));
-    marcarAlterado();
   }
   function upd<K extends keyof MedicaoMensal>(id: string, campo: K, valor: MedicaoMensal[K]) {
     setDados((d) => ({ ...d, medicoes: d.medicoes.map((m) => (m.id === id ? { ...m, [campo]: valor } : m)) }));
-    marcarAlterado();
   }
 
   function updRisco<K extends keyof RiscoExecucao>(id: string, campo: K, valor: RiscoExecucao[K]) {
     setDados((d) => ({ ...d, riscos: d.riscos.map((r) => r.id === id ? { ...r, [campo]: valor } : r) }));
-    marcarAlterado();
   }
 
-  function salvarDados() {
-    startTransition(async () => {
-      await salvarCronogramaObra(estudo.id, JSON.stringify(dados));
-      setSalvo(true);
-    });
-  }
+  const { salvar: salvarDados, pending, salvo } = useSalvamentoJson(dados, estudo.id, salvarCronogramaObra);
 
   return (
     <div className="space-y-4">
@@ -164,7 +152,7 @@ export function CronogramaObraTab({ estudo }: { estudo: EstudoData }) {
       <div className="bg-white border border-gray-100 p-4 space-y-3">
         <div className="flex flex-wrap items-center justify-between gap-2">
           <h3 className="text-sm font-bold text-[var(--brand-dark)]">Riscos de execução</h3>
-          <button type="button" onClick={() => { setDados((d) => ({ ...d, riscos: [...d.riscos, { id: crypto.randomUUID(), descricao: "", impacto: "medio", mitigacao: "", status: "aberto" }] })); marcarAlterado(); }}
+          <button type="button" onClick={() => { setDados((d) => ({ ...d, riscos: [...d.riscos, { id: crypto.randomUUID(), descricao: "", impacto: "medio", mitigacao: "", status: "aberto" }] })); }}
             className="text-xs font-bold text-blue-700"><Plus size={12} className="inline" /> Adicionar risco</button>
         </div>
         <p className="text-xs text-gray-500">Descreva riscos de obra ou lançamento, a mitigação e o responsável. Esses dados são independentes dos riscos de mercado.</p>
@@ -181,7 +169,7 @@ export function CronogramaObraTab({ estudo }: { estudo: EstudoData }) {
           <select aria-label="Situação do risco" value={r.status} onChange={(e) => updRisco(r.id, "status", e.target.value as RiscoExecucao["status"])} className={inputCls}>
             <option value="aberto">Aberto</option><option value="mitigado">Mitigado</option>
           </select>
-          <button type="button" onClick={() => { setDados((d) => ({ ...d, riscos: d.riscos.filter((x) => x.id !== r.id) })); marcarAlterado(); }}
+          <button type="button" onClick={() => { setDados((d) => ({ ...d, riscos: d.riscos.filter((x) => x.id !== r.id) })); }}
             className="text-red-700 text-xs text-left">Remover risco</button>
         </div>)}
       </div>

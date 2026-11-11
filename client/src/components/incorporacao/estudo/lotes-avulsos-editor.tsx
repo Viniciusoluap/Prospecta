@@ -1,4 +1,5 @@
 import { useMemo, useState } from "react";
+import { useSalvamento } from "./compat/salvamento";
 import { AlertTriangle, CheckCircle2, Pencil, Plus, Save, Trash2, X } from "lucide-react";
 import { parseNumeroBR, formatArea } from "./compat/util";
 import {
@@ -64,8 +65,9 @@ function LotesAvulsosEditor({ estudo }: { estudo: EstudoData }) {
   const [lotes, setLotes] = useState<LoteAvulso[]>(() => parseLotesAvulsos(estudo.lotesAvulsosJson));
   const [rascunho, setRascunho] = useState<Rascunho>(VAZIO);
   const [editando, setEditando] = useState<string | null>(null);
-  const [alterado, setAlterado] = useState(false);
-  const [busy, setBusy] = useState(false);
+  const { salvar, alterado, pending: busy } = useSalvamento(lotes, async snapshot => {
+    exigirResultado(await salvarLotesAvulsos(estudo.id, serializarLotesAvulsos(snapshot)));
+  });
   const [mensagem, setMensagem] = useState<Mensagem>(null);
   const resumo = useMemo(() => resumoLotesAvulsos(lotes), [lotes]);
 
@@ -84,7 +86,6 @@ function LotesAvulsosEditor({ estudo }: { estudo: EstudoData }) {
     setLotes(ordenarLotesAvulsos(lista));
     setRascunho(VAZIO);
     setEditando(null);
-    setAlterado(true);
     setMensagem(null);
   }
 
@@ -94,24 +95,9 @@ function LotesAvulsosEditor({ estudo }: { estudo: EstudoData }) {
   }
 
   function remover(l: LoteAvulso) {
-    if (!window.confirm(`Remover o lote ${l.lote} da quadra ${l.quadra}? A alteração só é gravada ao clicar em "Salvar lotes".`)) return;
+    if (!window.confirm(`Remover o lote ${l.lote} da quadra ${l.quadra}?`)) return;
     setLotes((atual) => atual.filter((x) => x.id !== l.id));
     if (editando === l.id) { setEditando(null); setRascunho(VAZIO); }
-    setAlterado(true);
-  }
-
-  async function salvar() {
-    setBusy(true);
-    setMensagem(null);
-    try {
-      exigirResultado(await salvarLotesAvulsos(estudo.id, serializarLotesAvulsos(lotes)));
-      setAlterado(false);
-      setMensagem({ tipo: "ok", texto: `${lotes.length} lote(s) salvo(s).` });
-    } catch (e) {
-      setMensagem({ tipo: "erro", texto: e instanceof Error ? e.message : "Falha ao salvar os lotes." });
-    } finally {
-      setBusy(false);
-    }
   }
 
   const campo = (k: keyof Rascunho, rotulo: string, numerico = false) => (
@@ -178,7 +164,7 @@ function LotesAvulsosEditor({ estudo }: { estudo: EstudoData }) {
       <div className="flex flex-wrap items-center gap-3">
         <button type="button" onClick={salvar} disabled={busy || !alterado}
           className="flex items-center gap-1.5 text-xs font-bold px-4 py-2 bg-[var(--brand-yellow)] text-[var(--brand-dark)] hover:opacity-90 disabled:opacity-50">
-          <Save size={13} /> {busy ? "Salvando..." : "Salvar lotes"}
+          <Save size={13} /> {busy ? "Salvando..." : alterado ? "Salvar lotes" : "Lotes salvos"}
         </button>
         <p className="text-[11px] text-gray-600">
           {resumo.total} lote(s) · {resumo.quadras} quadra(s) · {formatArea(resumo.areaTotalM2)} no total{alterado ? " · alterações não salvas" : ""}
