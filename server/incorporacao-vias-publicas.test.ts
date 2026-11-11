@@ -28,15 +28,19 @@ describe("Vias públicas — desmembramento com 100% de aproveitamento", () => {
     expect(c).toHaveLength(1);
     expect(c[0].area).toBeCloseTo(100, 6);
   });
-  it("Polímeros (Lote 01 Qd O, KML real em U com balão): 58 lotes ≥ 125 m², frente ≥ 5 m, 100% de aproveitamento, viário 0", () => {
+  it("Polímeros (Lote 01 Qd O, KML real em U com balão): 60 lotes ≥ 125 m² como no projeto aprovado, frente ≥ 5 m, 100%, viário 0", () => {
     const m = criarProjecao(CENTRO_POLIMEROS);
     const anel = ANEL_POLIMEROS.map((x) => m.paraMetros(x)); anel[anel.length - 1] = anel[0];
-    expect(trechosDaDivisa(anel)).toHaveLength(5); // 2 trechos curvos (externo e balão) + 3 retos
+    expect(trechosDaDivisa(anel)).toHaveLength(5); // externo (reta + arco + reta), balão + reta interna e 3 retos
     const r = gerarEstudoMassa(ANEL_POLIMEROS, CENTRO_POLIMEROS, P);
     const c = r.cenarios[0];
-    expect(c.kpis.lotesVendaveis).toBe(58);
+    // projeto aprovado (SEPLU, processo 1769/2026): 60 lotes — o teto ⌊área ÷ 125⌋
+    expect(c.kpis.lotesVendaveis).toBe(60);
+    expect(c.kpis.lotesVendaveis).toBe(Math.floor(areaPlanar(anel) / 125));
     expect(c.kpis.areaVendavelM2).toBeCloseTo(areaPlanar(anel), 0);
     expect(c.sistemaViario!.areaGeometricaM2).toBe(0);
-    for (const l of c.lotes) expect(l.areaM2).toBeGreaterThanOrEqual(125 - 0.01);
+    for (const l of c.lotes) { expect(l.areaM2).toBeGreaterThanOrEqual(125 - 0.01); expect(l.areaM2).toBeLessThan(145); }
+    // sem sobreposição: a soma das áreas dos lotes é a área da gleba
+    expect(c.lotes.reduce((s, l) => s + l.areaM2, 0)).toBeLessThanOrEqual(areaPlanar(anel) + 0.5);
   }, 180_000);
 });

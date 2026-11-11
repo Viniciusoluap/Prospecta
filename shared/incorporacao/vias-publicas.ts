@@ -10,7 +10,7 @@
 import { difference, featureCollection, polygon as turfPolygon, union } from "@turf/turf";
 import type { Feature, MultiPolygon, Polygon, Position } from "geojson";
 import { areaPlanar, type LoteFrame, type Ret } from "./geometria-parcelamento.js";
-import { implantarNaDivisa, type ImplantacaoViaDivisa } from "./rua-divisa.js";
+import { dividirZonaPorArea, implantarNaDivisa, type ImplantacaoViaDivisa } from "./rua-divisa.js";
 
 export interface OpcoesViasPublicas { testada: number; profundidade: number; loteMinimoM2: number }
 
@@ -61,6 +61,13 @@ function distContorno(anel: Position[], p: Position): number {
   return m;
 }
 
+function distSegmento(a: Position, b: Position, p: Position): number {
+  const dx = b[0] - a[0], dy = b[1] - a[1];
+  const L2 = dx * dx + dy * dy || 1;
+  const t = Math.max(0, Math.min(1, ((p[0] - a[0]) * dx + (p[1] - a[1]) * dy) / L2));
+  return Math.hypot(p[0] - (a[0] + t * dx), p[1] - (a[1] + t * dy));
+}
+
 /** Comprimento do contorno da peça que coincide com a divisa da gleba (= frente para a via pública). */
 export function frenteNaDivisa(gleba: Position[], peca: Position[]): number {
   let f = 0;
@@ -109,6 +116,180 @@ export function completarAproveitamento(gleba: Position[], lotes: LoteFrame[], o
   return out.map((l, i) => ({ ...l, ordem: i }));
 }
 
+/** Comprimento da borda comum entre a peça e o lote (arestas da peça que estão sobre o contorno do lote). */
+function bordaComum(lote: Position[], peca: Position[]): number {
+  let f = 0;
+  for (let i = 0; i < peca.length - 1; i++) {
+    const a = peca[i], b = peca[i + 1];
+    const meio: Position = [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2];
+    if (distContorno(lote, meio) < 0.05) f += comprimento(a, b);
+  }
+  return f;
+}
+
+const paraLote = (anel: Position[], frente: number): LoteFrame => {
+  const area = areaPlanar(anel);
+  return { anel, area, ret: bbox(anel), linha: 0, faixa: 0, segmento: 0, ordem: 0, testada: frente, profundidadeMedia: area / Math.max(frente, 1e-9) };
+};
+
+/**
+ * Fecha os 100%: cada sobra vira lote (se tem frente e área próprias) ou entra na ZONA do trecho com quem divide a
+ * maior borda; cada zona contínua é então redividida em N lotes de área igual (N = área ÷ mínimo, o maior que
+ * respeita área e frente mínimas). Se a redivisão não fechar, a sobra é anexada ao lote vizinho.
+ */
+function consolidarZonas(gleba: Position[], lotes: LoteFrame[], doTrecho: number[], trechos: number[][], sentido: boolean[], o: OpcoesViasPublicas):
+  { estimativa: number; finalizar: (maxParticoes: number) => LoteFrame[] } {
+  if (lotes.length === 0) return { estimativa: 0, finalizar: () => lotes };
+  const glebaF = turfPolygon([gleba]);
+  const uniao = seguro(() => (lotes.length === 1 ? turfPolygon([lotes[0].anel]) : union(featureCollection(lotes.map((l) => turfPolygon([l.anel]))))));
+  const sobra = uniao ? seguro(() => difference(featureCollection([glebaF, uniao as Geo])) as Geo | null) : null;
+  // inclui as frestas de arredondamento entre lotes vizinhos: sem elas a zona de um trecho se parte em pedaços
+  const pecas = sobra ? poligonos(sobra.geometry as Polygon | MultiPolygon).map((rs) => rs[0]).filter((a) => areaPlanar(a) > 1e-9) : [];
+  const proprios: LoteFrame[] = [];
+  const orfas: Position[][] = [];
+  // frente de um polígono em cada trecho da divisa (arestas sobre a divisa de cada trecho)
+  const frentePorTrecho = (anel: Position[]) => {
+    const f = trechos.map(() => 0);
+    for (let i = 0; i < anel.length - 1; i++) {
+      const a = anel[i], b = anel[i + 1];
+      const meio: Position = [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2];
+      trechos.forEach((tr, k) => {
+        if (tr.some((e) => distSegmento(gleba[e], gleba[e + 1], meio) < 0.05 && distSegmento(gleba[e], gleba[e + 1], a) < 0.05 && distSegmento(gleba[e], gleba[e + 1], b) < 0.05)) f[k] += comprimento(a, b);
+      });
+    }
+    return f;
+  };
+  const argmax = (xs: number[]) => xs.reduce((m, f, k) => (f > xs[m] ? k : m), 0);
+  // cada LOTE pertence ao trecho em que tem a maior frente (um lote de outro trecho que alcançou esta rua muda de zona)
+  const trechoDoLote = lotes.map((l, i) => { const f = frentePorTrecho(l.anel); const k = argmax(f); return f[k] > 0.05 ? k : doTrecho[i]; });
+  const pecasDoTrecho = trechos.map(() => [] as Position[][]);
+  for (const peca of pecas) {
+    // toda sobra entra numa zona: com frente → trecho dessa rua; sem frente → maior borda somada com os lotes
+    const f = frentePorTrecho(peca);
+    const kf = argmax(f);
+    if (f[kf] > 0.05) { pecasDoTrecho[kf].push(peca); continue; }
+    const bordaPorTrecho = trechos.map(() => 0);
+    lotes.forEach((l, i) => { bordaPorTrecho[trechoDoLote[i]] += bordaComum(l.anel, peca); });
+    const kb = argmax(bordaPorTrecho);
+    if (bordaPorTrecho[kb] > 1e-6) pecasDoTrecho[kb].push(peca); else orfas.push(peca);
+  }
+  // sobra que é "ponte" entre duas partes da zona de um trecho passa para esse trecho (a zona fica contínua)
+  for (let volta = 0; volta < 3; volta++) {
+    let mudou = false;
+    trechos.forEach((_, k) => {
+      const outrosK = [...lotes.filter((_, i) => trechoDoLote[i] !== k).map((l) => l.anel), ...pecasDoTrecho.flatMap((ps, j) => (j === k ? [] : ps)), ...orfas];
+      const u = outrosK.length === 0 ? null : outrosK.length === 1 ? turfPolygon([outrosK[0]]) : seguro(() => union(featureCollection(outrosK.map((a) => turfPolygon([a])))));
+      const z = u ? seguro(() => difference(featureCollection([glebaF, u as Geo]))) : null;
+      if (!z) return;
+      const comps = poligonos(z.geometry as Polygon | MultiPolygon).map((rs) => rs[0]).filter((a) => areaPlanar(a) > 0.5)
+        .filter((c) => lotes.some((l, i) => trechoDoLote[i] === k && pontoNoAnel(c, centroDe(l.anel))));
+      if (comps.length < 2) return;
+      pecasDoTrecho.forEach((ps, j) => {
+        if (j === k) return;
+        for (let q = ps.length - 1; q >= 0; q--) {
+          if (comps.filter((c) => bordaComum(c, ps[q]) > 0.01).length > 1) { pecasDoTrecho[k].push(ps[q]); ps.splice(q, 1); mudou = true; }
+        }
+      });
+      for (let q = orfas.length - 1; q >= 0; q--) {
+        if (comps.filter((c) => bordaComum(c, orfas[q]) > 0.01).length > 1) { pecasDoTrecho[k].push(orfas[q]); orfas.splice(q, 1); mudou = true; }
+      }
+    });
+    if (!mudou) break;
+  }
+  const saida: LoteFrame[] = [...proprios];
+  const centro = (a: Position[]): Position => a.reduce((s2, p) => [s2[0] + p[0] / a.length, s2[1] + p[1] / a.length], [0, 0]);
+  /**
+   * Redivide por área a zona de um GRUPO de trechos vizinhos no contorno (frente contínua): a área passa de um
+   * trecho para o outro pela esquina, como no projeto — o grupo rende ⌊área ÷ mínimo⌋ lotes, não a soma dos pisos.
+   */
+  const cache = new Map<string, { lotes: LoteFrame[]; cobertos: Set<number> }>();
+  const processarGrupo = (grupo: number[]) => {
+    const chave = grupo.join(",");
+    const salvo = cache.get(chave);
+    if (salvo) return salvo;
+    const noGrupo = (k: number) => grupo.includes(k);
+    const meusIdx = lotes.map((_, i) => i).filter((i) => noGrupo(trechoDoLote[i]));
+    const outros = [...lotes.filter((_, i) => !noGrupo(trechoDoLote[i])).map((l) => l.anel), ...pecasDoTrecho.flatMap((ps, j) => (noGrupo(j) ? [] : ps)), ...orfas];
+    const uOutros = outros.length === 0 ? null : outros.length === 1 ? turfPolygon([outros[0]]) : seguro(() => union(featureCollection(outros.map((a) => turfPolygon([a])))));
+    // falha numérica na união: não redivide (nunca usar a gleba inteira como zona — sobreporia outros lotes)
+    const z = outros.length === 0 ? glebaF : uOutros ? seguro(() => difference(featureCollection([glebaF, uOutros as Geo]))) : null;
+    const componentes = z ? poligonos(z.geometry as Polygon | MultiPolygon).map((rs) => rs[0]).filter((a) => areaPlanar(a) > 0.5)
+      .filter((c) => meusIdx.some((i) => pontoNoAnel(c, centro(lotes[i].anel)))) : [];
+    const arestas = grupo.flatMap((k) => trechos[k]);
+    const res: LoteFrame[] = [];
+    const cobertos = new Set<number>();
+    for (const comp of componentes) {
+      const dentro = meusIdx.filter((i) => pontoNoAnel(comp, centro(lotes[i].anel)));
+      const area = areaPlanar(comp);
+      const sent = grupo.length === 1 ? sentido[grupo[0]] : false;
+      const minimos = { areaM2: o.loteMinimoM2, frenteM: o.testada };
+      // 1) guloso (cada lote com a área mínima) nos dois sentidos → quantidade máxima
+      const teto = Math.floor(area / o.loteMinimoM2 + 1e-9);
+      // nos dois sentidos: o resto da ponta cai num lado ou no outro, e isso muda o encaixe com as zonas vizinhas
+      let escolha = dividirZonaPorArea(gleba, arestas, sent, comp, 0, minimos, "minimo");
+      const outro = dividirZonaPorArea(gleba, arestas, !sent, comp, 0, minimos, "minimo");
+      if (outro && (!escolha || outro.length > escolha.length)) escolha = outro;
+      // 2) com a mesma quantidade (ou uma a mais, se a área der), tenta área igual entre os lotes — frentes e fundos equilibrados
+      for (const nAlvo of Array.from(new Set([teto, escolha?.length ?? 0])).filter((x) => x > 0 && x >= (escolha?.length ?? 0)).sort((a, b) => b - a)) {
+        const igual = dividirZonaPorArea(gleba, arestas, sent, comp, nAlvo, minimos) ?? dividirZonaPorArea(gleba, arestas, !sent, comp, nAlvo, minimos);
+        if (igual && igual.length >= (escolha?.length ?? 0)) { escolha = igual; break; }
+      }
+      if (escolha && escolha.length >= dentro.length) {
+        escolha.forEach((x) => res.push(paraLote(x.anel, x.frente)));
+        dentro.forEach((i) => cobertos.add(i));
+      }
+    }
+    meusIdx.filter((i) => !cobertos.has(i)).forEach((i) => res.push(lotes[i]));
+    const r = { lotes: res, cobertos };
+    cache.set(chave, r);
+    return r;
+  };
+  // trechos na ordem do contorno e área da zona de cada um (para estimar o rendimento de cada agrupamento)
+  const anel = trechos.map((_, k) => k).sort((a, b) => trechos[a][0] - trechos[b][0]);
+  const N = anel.length;
+  const areaZona = trechos.map((_, k) => lotes.reduce((s2, l, i) => s2 + (trechoDoLote[i] === k ? l.area : 0), 0) + pecasDoTrecho[k].reduce((s2, a) => s2 + areaPlanar(a), 0));
+  const particoes: number[][][] = [];
+  for (let mask = 1; mask < 1 << N; mask++) {
+    // cortes do ciclo entre anel[i] e anel[i+1]; ao menos dois cortes (um grupo só fecharia o anel inteiro)
+    const cortes = Array.from({ length: N }, (_, i) => i).filter((i) => mask & (1 << i));
+    if (N > 1 && cortes.length < 2) continue;
+    const grupos: number[][] = [];
+    for (let c = 0; c < cortes.length; c++) {
+      const ini = (cortes[c] + 1) % N, fim = cortes[(c + 1) % cortes.length];
+      const g: number[] = [];
+      for (let i = ini; ; i = (i + 1) % N) { g.push(anel[i]); if (i === fim) break; }
+      grupos.push(g);
+    }
+    particoes.push(grupos);
+  }
+  const estimar = (gs: number[][]) => gs.reduce((s2, g) => s2 + Math.floor(g.reduce((x, k) => x + areaZona[k], 0) / o.loteMinimoM2 + 1e-9), 0);
+  particoes.sort((a, b) => estimar(b) - estimar(a) || b.length - a.length);
+  const finalizar = (maxParticoes: number) => {
+    let melhor: LoteFrame[] | null = null;
+    for (const gs of particoes.slice(0, maxParticoes)) {
+      if (melhor && estimar(gs) <= melhor.length) break;
+      const lotesP = gs.flatMap((g) => processarGrupo(g).lotes);
+      // proteção: soma das áreas não pode passar da gleba (nenhuma sobreposição entre lotes de grupos diferentes)
+      if (lotesP.reduce((x, l) => x + l.area, 0) > areaPlanar(gleba) + 0.5) continue;
+      if (!melhor || lotesP.length > melhor.length) melhor = lotesP;
+    }
+    // o que não fechou (zonas sem redivisão, peças órfãs) é anexado ao lote vizinho: 100% de aproveitamento
+    return completarAproveitamento(gleba, [...saida, ...(melhor ?? lotes)], o);
+  };
+  return { estimativa: particoes.length ? estimar(particoes[0]) : lotes.length, finalizar };
+}
+
+function centroDe(a: Position[]): Position { return a.reduce((s2, p) => [s2[0] + p[0] / a.length, s2[1] + p[1] / a.length], [0, 0]); }
+
+function pontoNoAnel(anel: Position[], p: Position): boolean {
+  let dentro = false;
+  for (let i = 0, j = anel.length - 2; i < anel.length - 1; j = i++) {
+    const a = anel[i], b = anel[j];
+    if ((a[1] > p[1]) !== (b[1] > p[1]) && p[0] < ((b[0] - a[0]) * (p[1] - a[1])) / (b[1] - a[1]) + a[0]) dentro = !dentro;
+  }
+  return dentro;
+}
+
 /** Desmembra a gleba com frente para as vias públicas existentes. Devolve as melhores variações. */
 export function buscarViasPublicas(anelFechado: Position[], o: OpcoesViasPublicas, max = 4, onProgress?: (f: number) => void): ImplantacaoViaDivisa[] {
   // ordem: trechos convexos/retos (do maior para o menor) e, por último, os côncavos — como o contorno de
@@ -134,42 +315,54 @@ export function buscarViasPublicas(anelFechado: Position[], o: OpcoesViasPublica
   const ordens = [porTamanho.map((x) => x.c)];
   if (porContorno.some((x, i) => x !== porTamanho[i])) ordens.push(porContorno.map((x) => x.c));
   const opc = { testada: o.testada, profundidade: o.profundidade, via: 0, loteMinimoM2: o.loteMinimoM2 };
-  const extras = (ocupados: Position[][]) => ({ semVia: true, ocupados, fundoMaxM: o.profundidade });
+  // fundo até o meio da distância à via oposta (lotes de costas), nunca além de 2 × a profundidade informada
+  const extras = (ocupados: Position[][], fracaoFundo: number) => ({ semVia: true, ocupados, fundoAteMeio: true, fundoMaxM: 2 * o.profundidade, fracaoFundo });
   const t = o.testada;
-  const iniciais: { reverso: boolean; fase: number; raio: number; ordem: number }[] = [];
-  ordens.forEach((_, ordem) => { for (const raio of [0, 2 * t]) for (const reverso of [false, true]) iniciais.push({ reverso, fase: 0, raio, ordem }); });
-  const total = iniciais.length * info.length;
+  // variações da 1ª passada: sentido e a FRAÇÃO da travessia do primeiro trecho (o de frente longa pode ser mais
+  // fundo, deixando o lado limitado pela frente — como o contorno do balão — com lotes mais rasos)
+  const iniciais: { reverso: boolean; fase: number; raio: number; ordem: number; fracao: number }[] = [];
+  [0].forEach((ordem) => { for (const fracao of [0.57, 0.5, 0.65]) for (const reverso of [false, true]) iniciais.push({ reverso, fase: 0, raio: 2 * t, ordem, fracao }); });
+  const total = iniciais.length * info.length + 6;
   let feitos = 0;
   const resultados: ImplantacaoViaDivisa[] = [];
+  // teto absoluto: ⌊área da gleba ÷ área mínima⌋ — ao atingir, não há o que melhorar
+  const tetoGleba = Math.floor(areaPlanar(anelFechado) / o.loteMinimoM2 + 1e-9);
+  const perimetro = anelFechado.slice(0, -1).reduce((s, p, i) => s + comprimento(p, anelFechado[i + 1]), 0);
+  // cada variação: 1ª passada (zonas) → redivisão por área; para ao atingir o teto
   for (const ini of iniciais) {
+    if (resultados.length && resultados[0].lotes.length >= tetoGleba) break;
     const lotes: LoteFrame[] = [];
+    const doTrecho: number[] = []; // trecho de origem de cada lote (para redividir a zona por área)
+    const sentido: boolean[] = [];
     const chaves: string[] = [];
     const trechos = ordens[ini.ordem];
     trechos.forEach((tr, k) => {
-      const variantes = k === 0 ? [ini, { ...ini, fase: t / 2 }]
-        : [false, true].flatMap((reverso) => [0, t / 2].map((fase) => ({ reverso, fase, raio: ini.raio })));
+      const variantes = k === 0 ? [ini, { ...ini, fase: t / 2 }] : [false, true].map((reverso) => ({ reverso, fase: 0, raio: ini.raio }));
       let melhor: ImplantacaoViaDivisa | null = null;
       for (const v of variantes) {
-        const r = implantarNaDivisa(anelFechado, tr, v.reverso, v.fase, opc, v.raio, extras(lotes.map((l) => l.anel)));
+        const r = implantarNaDivisa(anelFechado, tr, v.reverso, v.fase, opc, v.raio, extras(lotes.map((l) => l.anel), k === 0 ? ini.fracao : 0.5));
         if (r && (!melhor || r.lotes.length > melhor.lotes.length)) melhor = r;
       }
-      feitos += k === 0 ? 1 : 1;
-      onProgress?.(Math.min(1, feitos / total));
+      onProgress?.(Math.min(0.95, ++feitos / total));
       const m = melhor as ImplantacaoViaDivisa | null;
-      if (m) { lotes.push(...m.lotes); chaves.push(m.chave); }
+      sentido[k] = m ? m.chave.split("|")[2] === "r" : false;
+      if (m) { lotes.push(...m.lotes); m.lotes.forEach(() => doTrecho.push(k)); chaves.push(m.chave); }
     });
-    const completos = completarAproveitamento(anelFechado, lotes, o);
+    const consolidado = consolidarZonas(anelFechado, lotes, doTrecho, trechos, sentido, o);
+    if (resultados.length && consolidado.estimativa <= resultados[0].lotes.length) continue;
+    const completos = consolidado.finalizar(6);
+    onProgress?.(Math.min(0.95, (feitos += 3) / total));
     if (completos.length === 0) continue;
-    const perimetro = anelFechado.slice(0, -1).reduce((s, p, i) => s + comprimento(p, anelFechado[i + 1]), 0);
     resultados.push({
       lotes: completos, corredores: [], baloes: [], viasLivres: [], candidatos: completos.length,
-      arestasDivisa: ordens[ini.ordem].flat(), comprimentoViaM: 0, comprimentoDisponivelM: perimetro,
-      chave: `vp|o${ini.ordem}|${ini.reverso ? "r" : "d"}|${ini.fase}|r${ini.raio}|${chaves.join("/")}`,
+      arestasDivisa: trechos.flat(), comprimentoViaM: 0, comprimentoDisponivelM: perimetro,
+      chave: `vp|o${ini.ordem}|${ini.reverso ? "r" : "d"}|f${ini.fracao}|${chaves.join("/")}`,
       limitacoes: [
-        `Vias públicas: todas as divisas da gleba (por fora e por dentro) já são frente para via pública — sem via interna. Lotes com frente ≥ ${t.toLocaleString("pt-BR")} m sobre a divisa (maior onde a faixa é rasa), fundo de até ${o.profundidade.toLocaleString("pt-BR")} m e área ≥ ${o.loteMinimoM2.toLocaleString("pt-BR")} m²; as sobras são incorporadas aos lotes vizinhos (100% de aproveitamento).`,
+        `Vias públicas: todas as divisas da gleba (por fora e por dentro) já são frente para via pública — sem via interna. Cada trecho de divisa (repartido nas esquinas pela bissetriz) é dividido em lotes de área ≥ ${o.loteMinimoM2.toLocaleString("pt-BR")} m² e frente ≥ ${t.toLocaleString("pt-BR")} m; o fundo vai até o eixo entre as vias e a frente de cada lote é a que fecha a área (testadas e fundos variam, a área total se mantém). 100% de aproveitamento.`,
         "Confirme em projeto que todas as divisas são de fato vias públicas oficiais (testada para logradouro existente).",
       ],
     });
+    resultados.sort((a, b) => b.lotes.length - a.lotes.length);
   }
   const somaArea = (r: ImplantacaoViaDivisa) => r.lotes.reduce((s, l) => s + l.area, 0);
   resultados.sort((a, b) => b.lotes.length - a.lotes.length || somaArea(b) - somaArea(a) || (a.chave < b.chave ? -1 : a.chave > b.chave ? 1 : 0));

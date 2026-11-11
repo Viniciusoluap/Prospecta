@@ -31,3 +31,28 @@ projetista). Tempo ~45 s.
 ## Próximo passo
 Autorização do dono para merge/deploy; conferir no estudo 1. Possível melhoria: aproximar dos 60 lotes do projeto
 (otimização fina das sobras) e reduzir o tempo. Paridade com o Santa Fé registrada no ROADMAP.
+
+
+## Atualização 11/11 (2ª rodada) — correção do cálculo: 58 → **60 lotes** (igual ao projeto aprovado)
+**Retorno do dono:** 58 estava errado — no projeto as frentes variam (não são todas 5 m), o fundo varia, "acha a
+proporção entre os mínimos" e há cantos não retos. Referência: Alvará SEPLU, processo 1769/2026 + memorial e planta
+(LT 02–12 com 7,44 × 16,81 = 125 m², faixa de 33,6 m entre a Rua dos Uirapurus e a Rua das Andorinhas dividida ao meio).
+
+**O que estava errado no motor e foi corrigido:**
+1. Fundo fixo em 25 m de um lado → agora o fundo vai até o **eixo entre as vias** (fração da travessia medida no
+   próprio lote) e a frente é a que fecha a área mínima — ex.: 33,6 m → fundo 16,8 m, frente 125 ÷ 16,8 = 7,44 m.
+2. O lote da ponta "dobrava a esquina" e tomava a frente da via vizinha → com vias públicas em todas as divisas a
+   esquina é repartida pela **bissetriz do ângulo** (cantos não retos), limitada até onde a bissetriz sai do terreno.
+3. Sobras na ponta de cada trecho viravam lotes maiores → **redivisão por área**: cada zona (lotes do trecho + sobras)
+   é redividida (guloso pela área mínima nos dois sentidos e, se couber, áreas iguais), e **trechos vizinhos no
+   contorno são agrupados** quando a área passa de um para o outro pela esquina (rende ⌊área do grupo ÷ 125⌋).
+4. O lado de frente longa (arco externo) fica com 57% da travessia (o balão, limitado pela frente, com 43%) — como
+   no projeto (lotes do balão ≈ 13,5 m de fundo). Testa 57%, 50% e 65% e para ao atingir o teto ⌊área ÷ mínimo⌋.
+5. Zonas robustas: zona = gleba − tudo dos outros trechos (frestas numéricas não partem a zona); sobra que liga
+   duas partes de uma zona vai para ela; nenhum lote abaixo da mínima (margem de 5 cm² no corte).
+
+**Resultado no KML real (estudo 1):** **60 lotes** (teto ⌊7.581,7 ÷ 125⌋ = 60), todos entre 125,0 e 139,3 m², frentes
+de 5,00 a ~19 m (esquinas), 100% de aproveitamento, viário 0, ~15 s.
+
+**Arquivos:** `shared/incorporacao/vias-publicas.ts` (zonas, agrupamento, redivisão), `shared/incorporacao/rua-divisa.ts`
+(`fundoAteMeio`, `fracaoFundo`, bissetriz nas esquinas, `dividirZonaPorArea`), teste atualizado (60).
