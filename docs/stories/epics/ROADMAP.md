@@ -129,15 +129,15 @@ Origem: prompt mestre de 08/11/2026 executado **somente no Prospecta** (o prompt
 repositórios). Não é exceção de paridade: deve ser portado ao Santa Fé quando o dono autorizar.
 Detalhes e testes em `HANDOFF-08-11-PARCELAMENTO-MERCADO.md` (PR #187).
 
-- [ ] Motor de parcelamento v2 determinístico (lotes exatos, via informada, sem seed variável) — `shared/incorporacao/massa.ts`, `geometria-parcelamento.ts`
-- [ ] Tipologia Rua Simples — `shared/incorporacao/rua-simples.ts`
-- [ ] Área do sistema viário (automático/manual) e quadro com viário geométrico + sobras
-- [ ] Desenho técnico universal (SVG) com alternância Satélite — `shared/incorporacao/planta-tecnica.ts`
+- [x] Motor de parcelamento v2 determinístico (lotes exatos, via informada, sem seed variável) — `shared/incorporacao/massa.ts`, `geometria-parcelamento.ts` — **portado ao Santa Fé em 11/11 (bloco 3)**
+- [x] Tipologia Rua Simples — `shared/incorporacao/rua-simples.ts` — **portado ao Santa Fé em 11/11 (bloco 3)**
+- [x] Área do sistema viário (automático/manual) e quadro com viário geométrico + sobras — **portado ao Santa Fé em 11/11 (bloco 3)**
+- [x] Desenho técnico universal (SVG) com alternância Satélite — `shared/incorporacao/planta-tecnica.ts` — **portado ao Santa Fé em 11/11 (bloco 3)**
 - [ ] Inteligência de Mercado com dois motores (IBGE gratuito + anúncios com IA) — `server/_core/incorporacao/dados-publicos.ts`, `mercado-anuncios.ts`, `shared/incorporacao/analise-anuncios.ts`
-- [ ] Unidades: exibição Q01 / L01, ordem numérica, paginação de 6
+- [x] Unidades: exibição Q01 / L01, ordem numérica, paginação de 6 — **portado ao Santa Fé em 11/11 (bloco 3)**
 - [ ] Negociação: excluir proposta com auditoria; permuta = VGV × % ÷ 100 com VGV da Viabilidade › cenário
-- [ ] Rua Simples com via que acompanha a divisa (traçado curvo) e lote que acompanha a divisa — `shared/incorporacao/rua-divisa.ts` (PR #188)
-- [ ] Ajuste automático da malha no modo manual da área viária (quadras mais curtas / supressão de ruas)
+- [x] Rua Simples com via que acompanha a divisa (traçado curvo) e lote que acompanha a divisa — `shared/incorporacao/rua-divisa.ts` (PR #188) — **portado ao Santa Fé em 11/11 (bloco 3)**
+- [x] Ajuste automático da malha no modo manual da área viária (quadras mais curtas / supressão de ruas) — **portado ao Santa Fé em 11/11 (bloco 3)**
 - [ ] IBGE consultado pelo navegador (o IBGE recusa acesso de fora do Brasil) — `shared/incorporacao/dados-publicos.ts`
 - [ ] Chaves de integração no banco (`dashboard_settings`, `segredo.*`, criptografadas) — `server/_core/incorporacao/segredos-mercado.ts`
 - [ ] Provedor de anúncios Tavily sem IA + extração determinística — `shared/incorporacao/extracao-anuncios.ts`, `server/_core/incorporacao/mercado-anuncios.ts` (PR #190)
