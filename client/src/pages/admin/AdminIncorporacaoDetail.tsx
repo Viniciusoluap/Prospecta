@@ -20,7 +20,6 @@ const STATUS_OPTIONS = [
 ];
 const TIPOS = [
   { value: "desmembramento_simples", label: "Desmembramento Simples" },
-  { value: "residencial", label: "Residencial" },
   { value: "vertical", label: "Vertical" },
   { value: "loteamento", label: "Loteamento" },
 ] as const;
@@ -107,7 +106,7 @@ export default function AdminIncorporacaoDetail() {
       // até alguém escolher um usuário; responsável inativo não é revalidado)
       ...(responsavelEscolhido !== (estudo?.responsibleUserId ?? null) ? { responsibleUserId: responsavelEscolhido } : {}),
       status: form.status as "in_study" | "unfeasible" | "in_progress" | "completed",
-      incorporationType: form.incorporationType ? form.incorporationType as (typeof TIPOS)[number]["value"] : undefined,
+      incorporationType: TIPOS.find((tipo) => tipo.value === form.incorporationType)?.value,
     });
   };
 
@@ -200,8 +199,8 @@ export default function AdminIncorporacaoDetail() {
               </div>
               <div>
                 <Label className="text-gray-300">Tipo de incorporação</Label>
-                <Select value={form.incorporationType} onValueChange={(value) => setForm((f) => ({ ...f, incorporationType: value }))}>
-                  <SelectTrigger className="bg-[#2C3E50] border-[#C9A961]/30 text-white mt-1"><SelectValue placeholder="Classificar estudo legado" /></SelectTrigger>
+                <Select value={form.incorporationType === "residencial" ? "" : form.incorporationType} onValueChange={(value) => setForm((f) => ({ ...f, incorporationType: value }))}>
+                  <SelectTrigger className="bg-[#2C3E50] border-[#C9A961]/30 text-white mt-1"><SelectValue placeholder={form.incorporationType === "residencial" ? "Residencial (legado)" : "Classificar estudo legado"} /></SelectTrigger>
                   <SelectContent>{TIPOS.map((tipo) => <SelectItem key={tipo.value} value={tipo.value}>{tipo.label}</SelectItem>)}</SelectContent>
                 </Select>
               </div>

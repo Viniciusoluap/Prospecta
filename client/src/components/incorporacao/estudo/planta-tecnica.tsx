@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Download, Maximize2, Minus, Plus, Printer } from "lucide-react";
-import type { Feature, Polygon } from "geojson";
+import { poligonosDoTerreno, type GeometriaTerreno } from "@shared/geo/terreno";
 import type { CenarioMassa } from "@shared/incorporacao/massa";
 import {
   montarModeloPlanta, renderizarPlantaSvg, rotuloLote, vistaInicial, zoomEm, type VistaPlanta,
@@ -29,8 +29,8 @@ export function PlantaTecnica({ geojson, cenario, centro, height = 520, titulo }
 
   const modelo = useMemo(() => {
     try {
-      const gleba = (JSON.parse(geojson) as Feature<Polygon>).geometry.coordinates[0];
-      return montarModeloPlanta(gleba, cenario, centro);
+      const [gleba, ...demaisContornos] = poligonosDoTerreno(JSON.parse(geojson) as GeometriaTerreno).flat();
+      return montarModeloPlanta(gleba, cenario, centro, demaisContornos);
     } catch {
       return null;
     }

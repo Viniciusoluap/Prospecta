@@ -29,7 +29,6 @@ const STATUS_COLORS: Record<string, string> = {
 type FiltroSituacao = "todos" | "in_study" | "unfeasible" | "in_progress" | "completed";
 const TIPOS = [
   { value: "desmembramento_simples", label: "Desmembramento Simples" },
-  { value: "residencial", label: "Residencial" },
   { value: "vertical", label: "Vertical" },
   { value: "loteamento", label: "Loteamento" },
 ] as const;
