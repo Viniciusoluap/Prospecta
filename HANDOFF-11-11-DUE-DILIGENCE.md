@@ -25,5 +25,9 @@ sem tipo (rejeitados como "não PDF"), e abrir o arquivo anexado usava `window.o
   arquivo abre, o sistema chama salvar e depois enviar, e o aviso de alterações some.
 - (c) Produção: pendente (conferir no iPad após o deploy). Limite de 3 MiB por arquivo continua.
 
+## Merge e deploy (autorizados pelo dono em 11/11)
+PR #197 mergeado em `main` (3bf73e9), revisão Codex sem apontamentos; deploy de produção
+`dpl_3RYiEyRE8pD75domi54R3QvnfWg4` READY (prospectaconstrucoes.com), sem erros de runtime.
+
 ## Próximo passo
-Autorização do dono para merge/deploy; conferir no iPad. Paridade com o Santa Fé registrada no ROADMAP.
+Conferir no iPad: Due Diligence → setas ↑ ↓ nas tarefas/documentos e "Anexar" (mesmo com alterações não salvas). Paridade com o Santa Fé registrada no ROADMAP.
