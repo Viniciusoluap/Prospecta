@@ -110,7 +110,9 @@ export function completarAproveitamento(gleba: Position[], lotes: LoteFrame[], o
     if (m) {
       const novo = areaPlanar(m.anel);
       const t = out[m.i].testada ?? o.testada;
-      out[m.i] = { ...out[m.i], anel: m.anel, area: novo, ret: bbox(m.anel), testada: Math.max(t, frenteNaDivisa(gleba, m.anel) || t), profundidadeMedia: novo / Math.max(t, 1e-9) };
+      // frente atualizada calculada uma vez e usada também na profundidade média (o desenho usa as duas)
+      const frente = Math.max(t, frenteNaDivisa(gleba, m.anel) || t);
+      out[m.i] = { ...out[m.i], anel: m.anel, area: novo, ret: bbox(m.anel), testada: frente, profundidadeMedia: novo / Math.max(frente, 1e-9) };
     }
   }
   return out.map((l, i) => ({ ...l, ordem: i }));

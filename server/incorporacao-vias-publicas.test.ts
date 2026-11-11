@@ -19,7 +19,10 @@ describe("Vias públicas — desmembramento com 100% de aproveitamento", () => {
     expect(soma).toBeCloseTo(1000, 1);
     expect(r.viasLivres).toEqual([]);
     expect(r.lotes.length).toBeGreaterThanOrEqual(6);
-    for (const l of r.lotes) { expect(l.area).toBeGreaterThanOrEqual(125 - 1e-6); expect(l.testada!).toBeGreaterThanOrEqual(5 - 1e-6); }
+    for (const l of r.lotes) {
+      expect(l.area).toBeGreaterThanOrEqual(125 - 1e-6); expect(l.testada!).toBeGreaterThanOrEqual(5 - 1e-6);
+      expect(l.profundidadeMedia! * l.testada!).toBeCloseTo(l.area, 6); // profundidade média coerente com a frente
+    }
   });
   it("sobra sem frente vai para o lote vizinho (nada fica sem dono)", () => {
     const ret = [[0, 0], [10, 0], [10, 10], [0, 10], [0, 0]];
