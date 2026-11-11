@@ -1,5 +1,6 @@
 
-import { useEffect, useMemo, useState, useTransition } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { useSalvamentoJson } from "./compat/salvamento";
 import { Plus, Trash2, Save, Loader2, CheckCircle2, Headset } from "lucide-react";
 import {
   resumoAtendimentoClientes,
@@ -56,32 +57,20 @@ export function AtendimentoClientesTab({ estudo }: { estudo: EstudoData }) {
     return () => { ativo = false; };
   }, [estudo.id]);
   useEffect(() => { let ativo = true; const timer = setTimeout(() => { void clientesUnidades(busca).then((r) => { if (ativo) setClientes(exigirResultado(r)); }).catch(() => { if (ativo) setClientes([]); }); }, 250); return () => { ativo = false; clearTimeout(timer); }; }, [busca]);
-  const [pending, startTransition] = useTransition();
-  const [salvo, setSalvo] = useState(false);
 
   const resumo = useMemo(() => resumoAtendimentoClientes(dados.chamados), [dados]);
 
-  function marcarAlterado() { setSalvo(false); }
-
   function addChamado() {
     setDados((d) => ({ chamados: [...d.chamados, novoChamado()] }));
-    marcarAlterado();
   }
   function removerChamado(id: string) {
     setDados((d) => ({ chamados: d.chamados.filter((c) => c.id !== id) }));
-    marcarAlterado();
   }
   function upd<K extends keyof ChamadoAtendimento>(id: string, campo: K, valor: ChamadoAtendimento[K]) {
     setDados((d) => ({ chamados: d.chamados.map((c) => (c.id === id ? { ...c, [campo]: valor } : c)) }));
-    marcarAlterado();
   }
 
-  function salvarDados() {
-    startTransition(async () => {
-      const r = await salvarAtendimentoClientes(estudo.id, JSON.stringify(dados));
-      setSalvo(!("erroAcao" in r));
-    });
-  }
+  const { salvar: salvarDados, pending, salvo } = useSalvamentoJson(dados, estudo.id, salvarAtendimentoClientes);
 
   return (
     <div className="space-y-4">
@@ -129,12 +118,12 @@ export function AtendimentoClientesTab({ estudo }: { estudo: EstudoData }) {
               {dados.chamados.map((c) => (
                 <tr key={c.id}>
                   <td className="px-1 py-1 space-y-1">
-                    <select aria-label="Cliente do CRM" value={c.clienteLeadId ?? ""} className={inputCls} onChange={(e) => { const lead = clientes.find((l) => l.id === e.target.value); setDados((d) => ({ chamados: d.chamados.map((item) => item.id === c.id ? { ...item, clienteLeadId: lead?.id, cliente: lead?.nome ?? item.cliente } : item) })); marcarAlterado(); }}>
+                    <select aria-label="Cliente do CRM" value={c.clienteLeadId ?? ""} className={inputCls} onChange={(e) => { const lead = clientes.find((l) => l.id === e.target.value); setDados((d) => ({ chamados: d.chamados.map((item) => item.id === c.id ? { ...item, clienteLeadId: lead?.id, cliente: lead?.nome ?? item.cliente } : item) })); }}>
                       <option value="">Cliente avulso</option>{c.clienteLeadId && !clientes.some((l) => l.id === c.clienteLeadId) && <option value={c.clienteLeadId}>{c.cliente}</option>}{clientes.map((l) => <option key={l.id} value={l.id}>{l.nome}</option>)}
                     </select>
                     <input aria-label="Nome do cliente avulso" disabled={!!c.clienteLeadId} value={c.cliente} onChange={(e) => upd(c.id, "cliente", e.target.value)} className={inputCls} placeholder="Nome do cliente" />
                   </td>
-                  <td className="px-1 py-1"><select aria-label="Unidade do empreendimento" value={c.unidadeId ?? ""} className={inputCls} onChange={(e) => { const unit = unidades.find((u) => u.id === e.target.value); setDados((d) => ({ chamados: d.chamados.map((item) => item.id === c.id ? { ...item, unidadeId: unit?.id, unidade: unit?.codigo ?? item.unidade } : item) })); marcarAlterado(); }}>
+                  <td className="px-1 py-1"><select aria-label="Unidade do empreendimento" value={c.unidadeId ?? ""} className={inputCls} onChange={(e) => { const unit = unidades.find((u) => u.id === e.target.value); setDados((d) => ({ chamados: d.chamados.map((item) => item.id === c.id ? { ...item, unidadeId: unit?.id, unidade: unit?.codigo ?? item.unidade } : item) })); }}>
                     <option value="">{c.unidade && !c.unidadeId ? `Registro anterior: ${c.unidade}` : "Sem unidade"}</option>{c.unidadeId && !unidades.some((u) => u.id === c.unidadeId) && <option value={c.unidadeId}>{c.unidade ?? "Unidade anterior"}</option>}{unidades.map((u) => <option key={u.id} value={u.id}>{u.codigo} · {u.status} · {u.comprador || "sem comprador"}</option>)}
                   </select></td>
                   <td className="px-1 py-1">

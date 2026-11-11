@@ -1,5 +1,6 @@
 
-import { useMemo, useState, useTransition } from "react";
+import { useMemo, useState } from "react";
+import { useSalvamentoJson } from "./compat/salvamento";
 import { Plus, Trash2, Save, Loader2, CheckCircle2, Megaphone } from "lucide-react";
 import {
   resumoMaterialPublicitario,
@@ -47,32 +48,20 @@ export function MaterialPublicitarioTab({ estudo }: { estudo: EstudoData }) {
     }
     return defaults();
   });
-  const [pending, startTransition] = useTransition();
-  const [salvo, setSalvo] = useState(false);
 
   const resumo = useMemo(() => resumoMaterialPublicitario(dados.pecas), [dados]);
 
-  function marcarAlterado() { setSalvo(false); }
-
   function addPeca() {
     setDados((d) => ({ pecas: [...d.pecas, novaPeca()] }));
-    marcarAlterado();
   }
   function removerPeca(id: string) {
     setDados((d) => ({ pecas: d.pecas.filter((p) => p.id !== id) }));
-    marcarAlterado();
   }
   function upd<K extends keyof PecaPublicitaria>(id: string, campo: K, valor: PecaPublicitaria[K]) {
     setDados((d) => ({ pecas: d.pecas.map((p) => (p.id === id ? { ...p, [campo]: valor } : p)) }));
-    marcarAlterado();
   }
 
-  function salvarDados() {
-    startTransition(async () => {
-      const resultado = await salvarMaterialPublicitario(estudo.id, JSON.stringify(dados));
-      setSalvo(!("erroAcao" in resultado));
-    });
-  }
+  const { salvar: salvarDados, pending, salvo } = useSalvamentoJson(dados, estudo.id, salvarMaterialPublicitario);
 
   return (
     <div className="space-y-4">

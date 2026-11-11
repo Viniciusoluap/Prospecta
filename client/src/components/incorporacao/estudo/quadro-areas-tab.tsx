@@ -1,5 +1,6 @@
 
-import { useMemo, useState, useTransition } from "react";
+import { useMemo, useState } from "react";
+import { useSalvamentoJson } from "./compat/salvamento";
 import { Plus, Trash2, Save, Loader2, CheckCircle2, LayoutGrid, AlertTriangle } from "lucide-react";
 import { calcularQuadroAreas, type ItemQuadroAreas } from "@shared/incorporacao/quadro-areas";
 import { salvarQuadroAreas } from "./compat/acoes";
@@ -57,30 +58,23 @@ export function QuadroAreasTab({ estudo }: { estudo: EstudoData }) {
     }
     return defaults(estudo);
   });
-  const [pending, startTransition] = useTransition();
-  const [salvo, setSalvo] = useState(false);
 
   const resultado = useMemo(
     () => calcularQuadroAreas(dados.itens, estudo.areaM2, dados.coeficienteAproveitamento),
     [dados, estudo.areaM2]
   );
 
-  function marcarAlterado() { setSalvo(false); }
-
   function updCoeficiente(valor: number) {
     setDados((d) => ({ ...d, coeficienteAproveitamento: valor }));
-    marcarAlterado();
   }
   function addItem() {
     setDados((d) => ({
       ...d,
       itens: [...d.itens, { pavimento: "Novo pavimento", areaConstCobertaM2: 0, areaConstDescobertaM2: 0, areaUrbanizadaM2: 0, areaDescontarM2: 0, areaComputavelM2: 0, areaPrivativaM2: 0 }],
     }));
-    marcarAlterado();
   }
   function removerItem(i: number) {
     setDados((d) => ({ ...d, itens: d.itens.filter((_, j) => j !== i) }));
-    marcarAlterado();
   }
   function updItem(i: number, campo: keyof ItemQuadroAreas, valor: string | number) {
     setDados((d) => {
@@ -88,15 +82,9 @@ export function QuadroAreasTab({ estudo }: { estudo: EstudoData }) {
       itens[i] = { ...itens[i], [campo]: campo === "pavimento" ? valor : (typeof valor === "number" ? valor : parseNumeroBR(valor)) };
       return { ...d, itens };
     });
-    marcarAlterado();
   }
 
-  function salvar() {
-    startTransition(async () => {
-      await salvarQuadroAreas(estudo.id, JSON.stringify(dados));
-      setSalvo(true);
-    });
-  }
+  const { salvar: salvar, pending, salvo } = useSalvamentoJson(dados, estudo.id, salvarQuadroAreas);
 
   const COLS: { campo: keyof ItemQuadroAreas; label: string }[] = [
     { campo: "areaConstCobertaM2", label: "Const. coberta" },

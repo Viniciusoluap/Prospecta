@@ -1,5 +1,6 @@
 
-import { useMemo, useState, useTransition } from "react";
+import { useMemo, useState } from "react";
+import { useSalvamentoJson } from "./compat/salvamento";
 import { Plus, Trash2, Save, Loader2, CheckCircle2, Store } from "lucide-react";
 import {
   resumoFornecedoresLancamento,
@@ -56,33 +57,21 @@ export function FornecedoresLancamentoTab({ estudo }: { estudo: EstudoData }) {
     }
     return defaults();
   });
-  const [pending, startTransition] = useTransition();
-  const [salvo, setSalvo] = useState(false);
 
   const resumo = useMemo(() => resumoFornecedoresLancamento(dados.fornecedores), [dados]);
 
-  function marcarAlterado() { setSalvo(false); }
-
   function addFornecedor() {
     setDados((d) => ({ fornecedores: [...d.fornecedores, novoFornecedor()] }));
-    marcarAlterado();
   }
   function removerFornecedor(id: string) {
     if (!confirm("Excluir este fornecedor do orçamento? Salve para confirmar a alteração.")) return;
     setDados((d) => ({ fornecedores: d.fornecedores.filter((f) => f.id !== id) }));
-    marcarAlterado();
   }
   function upd<K extends keyof FornecedorLancamento>(id: string, campo: K, valor: FornecedorLancamento[K]) {
     setDados((d) => ({ fornecedores: d.fornecedores.map((f) => (f.id === id ? { ...f, valorOrcado: f.valorOrcado ?? f.valorContratado, [campo]: valor } : f)) }));
-    marcarAlterado();
   }
 
-  function salvarDados() {
-    startTransition(async () => {
-      const resultado = await salvarFornecedoresLancamento(estudo.id, JSON.stringify(dados));
-      setSalvo(!("erroAcao" in resultado));
-    });
-  }
+  const { salvar: salvarDados, pending, salvo } = useSalvamentoJson(dados, estudo.id, salvarFornecedoresLancamento);
 
   return (
     <div className="space-y-4">

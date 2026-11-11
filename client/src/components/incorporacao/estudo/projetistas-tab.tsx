@@ -1,5 +1,6 @@
 
-import { useMemo, useState, useTransition } from "react";
+import { useMemo, useState } from "react";
+import { useSalvamentoJson } from "./compat/salvamento";
 import { Plus, Trash2, Save, Loader2, CheckCircle2, HardHat, AlertTriangle } from "lucide-react";
 import {
   resumoProjetistas,
@@ -52,32 +53,20 @@ export function ProjetistasTab({ estudo }: { estudo: EstudoData }) {
     }
     return defaults();
   });
-  const [pending, startTransition] = useTransition();
-  const [salvo, setSalvo] = useState(false);
 
   const resumo = useMemo(() => resumoProjetistas(dados.projetistas), [dados]);
 
-  function marcarAlterado() { setSalvo(false); }
-
   function addProjetista() {
     setDados((d) => ({ projetistas: [...d.projetistas, novoProjetista()] }));
-    marcarAlterado();
   }
   function removerProjetista(id: string) {
     setDados((d) => ({ projetistas: d.projetistas.filter((p) => p.id !== id) }));
-    marcarAlterado();
   }
   function upd<K extends keyof Projetista>(id: string, campo: K, valor: Projetista[K]) {
     setDados((d) => ({ projetistas: d.projetistas.map((p) => (p.id === id ? { ...p, [campo]: valor } : p)) }));
-    marcarAlterado();
   }
 
-  function salvarDados() {
-    startTransition(async () => {
-      await salvarProjetistas(estudo.id, JSON.stringify(dados));
-      setSalvo(true);
-    });
-  }
+  const { salvar: salvarDados, pending, salvo } = useSalvamentoJson(dados, estudo.id, salvarProjetistas);
 
   return (
     <div className="space-y-4">

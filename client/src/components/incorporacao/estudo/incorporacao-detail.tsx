@@ -1,6 +1,7 @@
 
 import "./incorporacao-workspace.css";
-import { useEffect, useMemo, useState, useRef, type ReactNode } from "react";
+import { useMemo, useState, type ReactNode } from "react";
+import { AvisoSalvamento } from "./compat/salvamento";
 import { TerrenoTab } from "./terreno-tab";
 import { TopografiaTab } from "./topografia-tab";
 import { MercadoTab } from "./mercado-tab";
@@ -269,27 +270,11 @@ export function IncorporacaoDetail({ estudo, dadosGerais }: { estudo: EstudoData
   const [etapaId, setEtapaId] = useState<string>("terreno");
   const [relatorioAtivo, setRelatorioAtivo] = useState(false);
   const [visitados, setVisitados] = useState<string[]>(["terreno"]);
-  const [alterado, setAlterado] = useState(false);
-  // Marca "há alterações" depois do evento de digitação: atualizar o estado do
-  // pai durante a fase de captura fazia a primeira tecla de cada campo se perder.
-  const alteradoRef = useRef(false);
-  const marcarAlterado = () => {
-    if (alteradoRef.current) return;
-    alteradoRef.current = true;
-    setTimeout(() => setAlterado(true), 0);
-  };
   // Correção 06: com KML ou com "não possui KML", as etapas dependentes do terreno ficam liberadas.
   const temTerreno = terrenoLiberado(estudo);
 
   const tituloUnidades = estudo.tipoIncorporacao === "vertical" || estudo.tipoIncorporacao === "loteamento";
   const progresso = useMemo(() => calcularProgresso(estudo), [estudo]);
-
-  useEffect(() => {
-    if (!alterado) return;
-    const avisar = (event: BeforeUnloadEvent) => { event.preventDefault(); event.returnValue = ""; };
-    window.addEventListener("beforeunload", avisar);
-    return () => window.removeEventListener("beforeunload", avisar);
-  }, [alterado]);
 
   return (
     <div className="incorporacao-workspace">
@@ -324,7 +309,7 @@ export function IncorporacaoDetail({ estudo, dadosGerais }: { estudo: EstudoData
           className={`min-w-0 border px-3 py-3 text-left text-xs font-bold break-words ${!relatorioAtivo && etapaId === "dados" ? "bg-[var(--brand-dark)] text-[var(--brand-yellow)]" : "bg-white text-[var(--brand-dark)] hover:border-[var(--brand-yellow)]"}`}>
           Dados Gerais
         </button>
-        {estudo.tipoIncorporacao === "desmembramento_simples" && <button type="button" onClick={() => { setEtapaId("diligencia"); setRelatorioAtivo(false); }}
+        {estudo.tipoIncorporacao === "desmembramento_simples" && <button type="button" onClick={() => { setEtapaId("diligencia"); setRelatorioAtivo(false); setVisitados((anteriores) => anteriores.includes("diligencia") ? anteriores : [...anteriores, "diligencia"]); }}
           aria-current={!relatorioAtivo && etapaId === "diligencia" ? "page" : undefined}
           className={`min-w-0 border px-3 py-3 text-left text-xs font-bold break-words ${!relatorioAtivo && etapaId === "diligencia" ? "bg-[var(--brand-dark)] text-[var(--brand-yellow)]" : "bg-white text-[var(--brand-dark)] hover:border-[var(--brand-yellow)]"}`}>
           Due Diligence
@@ -354,12 +339,12 @@ export function IncorporacaoDetail({ estudo, dadosGerais }: { estudo: EstudoData
           Viabilidade Econômica
         </button>}
       </nav>
-      {alterado && <p role="status" className="text-xs text-amber-800 mt-3">Há alterações nesta sessão. Salve antes de sair da página.</p>}
-      <div className="pt-5" onInputCapture={marcarAlterado} onChangeCapture={marcarAlterado}>
+      <AvisoSalvamento />
+      <div className="pt-5">
         <div hidden={relatorioAtivo || etapaId !== "dados"}>{dadosGerais}</div>
-        {estudo.tipoIncorporacao === "desmembramento_simples" && <div hidden={relatorioAtivo || etapaId !== "diligencia"}><DueDiligenceTab estudoId={estudo.id} json={estudo.dueDiligenceJson ?? null} /></div>}
-        {estudo.tipoIncorporacao === "desmembramento_simples" && etapaId === "unidades" && <UnidadesTab estudoId={estudo.id} />}
-        {MODULOS_ATIVOS.filter((modulo) => visitados.includes(modulo.id) && (estudo.tipoIncorporacao !== "desmembramento_simples" || modulo.id === "viabilidade" || MODULOS_DESMEMBRAMENTO.some(([id]) => id === modulo.id))).map((modulo) => {
+        {visitados.includes("diligencia") && <div hidden={estudo.tipoIncorporacao !== "desmembramento_simples" || relatorioAtivo || etapaId !== "diligencia"}><DueDiligenceTab estudoId={estudo.id} json={estudo.dueDiligenceJson ?? null} /></div>}
+        {visitados.includes("unidades") && <div hidden={estudo.tipoIncorporacao !== "desmembramento_simples" || relatorioAtivo || etapaId !== "unidades"}><UnidadesTab estudoId={estudo.id} /></div>}
+        {MODULOS_ATIVOS.filter((modulo) => visitados.includes(modulo.id)).map((modulo) => {
           const Componente = modulo.componente!;
           return <div key={modulo.id} hidden={relatorioAtivo || etapaId !== modulo.id}><Componente estudo={estudo} /></div>;
         })}

@@ -1,5 +1,6 @@
 
-import { useMemo, useState, useTransition } from "react";
+import { useMemo, useState } from "react";
+import { useSalvamentoJson } from "./compat/salvamento";
 import { Save, Loader2, CheckCircle2, Rocket, AlertTriangle } from "lucide-react";
 import {
   resumoPlanejamentoLancamento,
@@ -46,22 +47,14 @@ export function PlanejamentoLancamentoTab({ estudo }: { estudo: EstudoData }) {
     }
     return defaults();
   });
-  const [pending, startTransition] = useTransition();
-  const [salvo, setSalvo] = useState(false);
 
   const resumo = useMemo(() => resumoPlanejamentoLancamento(dados.marcos), [dados]);
 
   function upd(id: string, campo: "status" | "dataPrevista" | "dataRealizada" | "responsavelId", valor: string) {
     setDados((d) => ({ marcos: d.marcos.map((m) => (m.id === id ? { ...m, [campo]: valor } : m)) }));
-    setSalvo(false);
   }
 
-  function salvarDados() {
-    startTransition(async () => {
-      await salvarPlanejamentoLancamento(estudo.id, JSON.stringify(dados));
-      setSalvo(true);
-    });
-  }
+  const { salvar: salvarDados, pending, salvo } = useSalvamentoJson(dados, estudo.id, salvarPlanejamentoLancamento);
 
   return (
     <div className="space-y-4">

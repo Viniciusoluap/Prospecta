@@ -1,5 +1,5 @@
 
-import { useMemo, useState, useTransition } from "react";
+import { useMemo, useRef, useState } from "react";
 import { Plus, Trash2, Save, Loader2, CheckCircle2, Handshake, BadgeCheck, AlertTriangle } from "lucide-react";
 import {
   estimarProposta,
@@ -13,6 +13,7 @@ import {
   type TipoProposta,
 } from "@shared/incorporacao/negociacao";
 import { calcularLoteamento } from "@shared/incorporacao/viabilidade-economica";
+import { useSalvamento } from "./compat/salvamento";
 import { excluirPropostaNegociacao, salvarNegociacaoTerreno } from "./compat/acoes";
 import { exigirResultado } from "./compat/acao-resultado";
 import { cenarioEscolhido } from "@shared/incorporacao/estudos-massa";
@@ -70,11 +71,14 @@ export function NegociacaoTerrenoTab({ estudo }: { estudo: EstudoData }) {
     }
     return defaults();
   });
-  const [pending, startTransition] = useTransition();
-  const [salvo, setSalvo] = useState(false);
+  const [excluindo, setExcluindo] = useState(false);
   const [erro, setErro] = useState<string | null>(null);
   // propostas já gravadas no servidor (exclusão delas passa pela rota auditada)
-  const [idsGravados, setIdsGravados] = useState<Set<string>>(() => new Set(dados.propostas.map((p) => p.id)));
+  const idsGravados = useRef(new Set(dados.propostas.map(p => p.id)));
+  const { salvar, pending, salvo } = useSalvamento(dados, async snapshot => {
+    exigirResultado(await salvarNegociacaoTerreno(estudo.id, JSON.stringify(snapshot)));
+    idsGravados.current = new Set(snapshot.propostas.map(p => p.id));
+  });
 
   // Correção 08: VGV bruto efetivo — Viabilidade > cenário escolhido do Estudo de Massa > manual legado.
   // Antes só a Viabilidade era lida; sem premissas salvas o VGV virava 0 e a tela mostrava "R$ 0,00".
@@ -94,16 +98,12 @@ export function NegociacaoTerrenoTab({ estudo }: { estudo: EstudoData }) {
 
   const resumo = useMemo(() => resumoNegociacaoV2(dados, vgv), [dados, vgv]);
 
-  function marcarAlterado() { setSalvo(false); }
-
   function setCampo<K extends keyof DadosNegociacao>(campo: K, valor: DadosNegociacao[K]) {
     setDados((d) => ({ ...d, [campo]: valor }));
-    marcarAlterado();
   }
 
   function addProposta() {
     setDados((d) => ({ ...d, propostas: [...d.propostas, novaProposta()] }));
-    marcarAlterado();
   }
   async function removerProposta(p: Proposta) {
     setErro(null);
@@ -115,12 +115,14 @@ export function NegociacaoTerrenoTab({ estudo }: { estudo: EstudoData }) {
       if ((digitado ?? "").trim().toUpperCase() !== "EXCLUIR") return;
       reforcada = true;
     }
-    if (!idsGravados.has(p.id)) {
+    if (!idsGravados.current.has(p.id) && !pending) {
       // ainda não foi gravada: remove só da tela (não há o que auditar no servidor)
       setDados((d) => ({ ...d, propostas: d.propostas.filter((x) => x.id !== p.id), propostaSelecionadaId: d.propostaSelecionadaId === p.id ? null : d.propostaSelecionadaId }));
       return;
     }
+    setExcluindo(true);
     try {
+      if (!(await salvar())) return;
       const r = await excluirPropostaNegociacao(estudo.id, p.id, reforcada);
       setDados((d) => ({
         ...d,
@@ -128,9 +130,11 @@ export function NegociacaoTerrenoTab({ estudo }: { estudo: EstudoData }) {
         propostaSelecionadaId: d.propostaSelecionadaId === p.id ? null : d.propostaSelecionadaId,
         historicoExclusoes: r.historicoExclusoes,
       }));
-      setIdsGravados((s) => { const n = new Set(s); n.delete(p.id); return n; });
+      idsGravados.current.delete(p.id);
     } catch (e) {
       setErro(e instanceof Error ? e.message : "Falha ao excluir a proposta.");
+    } finally {
+      setExcluindo(false);
     }
   }
   function updProposta<K extends keyof Proposta>(id: string, campo: K, valor: Proposta[K]) {
@@ -138,24 +142,10 @@ export function NegociacaoTerrenoTab({ estudo }: { estudo: EstudoData }) {
       ...d,
       propostas: d.propostas.map((p) => (p.id === id ? { ...p, [campo]: valor } : p)),
     }));
-    marcarAlterado();
-  }
-
-  function salvar() {
-    startTransition(async () => {
-      try {
-        // o wrapper devolve { erroAcao } em vez de lançar: só marca como gravado se gravou de fato
-        exigirResultado(await salvarNegociacaoTerreno(estudo.id, JSON.stringify(dados)));
-        setIdsGravados(new Set(dados.propostas.map((p) => p.id)));
-        setSalvo(true);
-      } catch (e) {
-        setErro(e instanceof Error ? e.message : "Falha ao salvar a negociação.");
-      }
-    });
   }
 
   return (
-    <div className="space-y-4">
+    <fieldset disabled={excluindo} className="min-w-0 space-y-4">
       <div className="bg-white border border-gray-100 p-4">
         <div className="flex items-center justify-between gap-3 flex-wrap mb-1">
           <p className="text-xs font-bold text-gray-500 uppercase tracking-widest flex items-center gap-1.5">
@@ -308,7 +298,7 @@ export function NegociacaoTerrenoTab({ estudo }: { estudo: EstudoData }) {
           </details>
         )}
       </div>
-    </div>
+    </fieldset>
   );
 }
 

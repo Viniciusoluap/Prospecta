@@ -1,5 +1,6 @@
 
-import { useEffect, useMemo, useState, useTransition } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { useSalvamentoJson } from "./compat/salvamento";
 import { exigirResultado, type ErroAcao } from "./compat/acao-resultado";
 import { Save, Loader2, CheckCircle2, FileCheck2, Upload, ExternalLink, Unlink } from "lucide-react";
 import {
@@ -50,8 +51,6 @@ export function RegistroIncorporacaoTab({ estudo }: { estudo: EstudoData }) {
     }
     return defaults();
   });
-  const [pending, startTransition] = useTransition();
-  const [salvo, setSalvo] = useState(false);
   const [arquivos, setArquivos] = useState<Exclude<Awaited<ReturnType<typeof listarDocumentosRegistro>>, ErroAcao>["documentos"]>([]);
   const [driveAtivo, setDriveAtivo] = useState(false);
   const [avisoArquivo, setAvisoArquivo] = useState<string | null>(null);
@@ -98,15 +97,9 @@ export function RegistroIncorporacaoTab({ estudo }: { estudo: EstudoData }) {
     setDados((d) => ({
       documentos: d.documentos.map((doc) => (doc.id === id ? { ...doc, [campo]: valor } : doc)),
     }));
-    setSalvo(false);
   }
 
-  function salvarDados() {
-    startTransition(async () => {
-      await salvarRegistroIncorporacao(estudo.id, JSON.stringify(dados));
-      setSalvo(true);
-    });
-  }
+  const { salvar: salvarDados, pending, salvo } = useSalvamentoJson(dados, estudo.id, salvarRegistroIncorporacao);
 
   return (
     <div className="space-y-4">

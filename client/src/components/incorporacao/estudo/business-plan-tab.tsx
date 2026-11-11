@@ -1,5 +1,6 @@
 
-import { useMemo, useState, useTransition } from "react";
+import { useMemo, useState } from "react";
+import { useSalvamentoJson } from "./compat/salvamento";
 import { Plus, Trash2, Save, Loader2, CheckCircle2, PiggyBank } from "lucide-react";
 import {
   calcularBusinessPlan,
@@ -51,8 +52,6 @@ export function BusinessPlanTab({ estudo }: { estudo: EstudoData }) {
     }
     return defaults();
   });
-  const [pending, startTransition] = useTransition();
-  const [salvo, setSalvo] = useState(false);
 
   const investimentoTotal = useMemo(() => {
     const premissas = montarPremissasLoteamento(estudo);
@@ -66,27 +65,17 @@ export function BusinessPlanTab({ estudo }: { estudo: EstudoData }) {
 
   const resultado = useMemo(() => calcularBusinessPlan(dados.fontes, investimentoTotal), [dados, investimentoTotal]);
 
-  function marcarAlterado() { setSalvo(false); }
-
   function addFonte() {
     setDados((d) => ({ fontes: [...d.fontes, novaFonte()] }));
-    marcarAlterado();
   }
   function removerFonte(id: string) {
     setDados((d) => ({ fontes: d.fontes.filter((f) => f.id !== id) }));
-    marcarAlterado();
   }
   function updFonte<K extends keyof FonteCaptacao>(id: string, campo: K, valor: FonteCaptacao[K]) {
     setDados((d) => ({ fontes: d.fontes.map((f) => (f.id === id ? { ...f, [campo]: valor } : f)) }));
-    marcarAlterado();
   }
 
-  function salvar() {
-    startTransition(async () => {
-      await salvarBusinessPlan(estudo.id, JSON.stringify(dados));
-      setSalvo(true);
-    });
-  }
+  const { salvar: salvar, pending, salvo } = useSalvamentoJson(dados, estudo.id, salvarBusinessPlan);
 
   return (
     <div className="space-y-4">

@@ -1,5 +1,6 @@
 
-import { useMemo, useState, useTransition } from "react";
+import { useMemo, useState } from "react";
+import { useSalvamentoJson } from "./compat/salvamento";
 import { Plus, Trash2, Save, Loader2, CheckCircle2, Stamp, AlertTriangle, ExternalLink } from "lucide-react";
 import { trpc } from "@/lib/trpc";
 import { creaAoTrocarEngenheiro, formatarCrea } from "@shared/engenheiro";
@@ -55,8 +56,6 @@ export function AprovacaoProjetoTab({ estudo }: { estudo: EstudoData }) {
     }
     return defaults();
   });
-  const [pending, startTransition] = useTransition();
-  const [salvo, setSalvo] = useState(false);
 
   const resumo = useMemo(() => resumoAprovacaoProjeto(dados.processos), [dados]);
   // Correção 07: cada processo salvo é também um registro em Projetos.
@@ -74,33 +73,21 @@ export function AprovacaoProjetoTab({ estudo }: { estudo: EstudoData }) {
         return { ...p, engenheiroId: novo?.id, engenheiro: novo?.name ?? undefined, engenheiroRegistro: registro || undefined };
       }),
     }));
-    marcarAlterado();
   }
-
-  function marcarAlterado() { setSalvo(false); }
 
   function addProcesso() {
     setDados((d) => ({ processos: [...d.processos, novoProcesso()] }));
-    marcarAlterado();
   }
   function removerProcesso(id: string) {
     // Correção 07: o projeto vinculado não é apagado — perde o vínculo e fica cancelado, com documentos preservados.
     if (projetoDoProcesso.has(id) && !window.confirm("Excluir este processo? Ao salvar, o projeto vinculado em Projetos será arquivado como cancelado (checklist e documentos são preservados).")) return;
     setDados((d) => ({ processos: d.processos.filter((p) => p.id !== id) }));
-    marcarAlterado();
   }
   function upd<K extends keyof ProcessoAprovacao>(id: string, campo: K, valor: ProcessoAprovacao[K]) {
     setDados((d) => ({ processos: d.processos.map((p) => (p.id === id ? { ...p, [campo]: valor } : p)) }));
-    marcarAlterado();
   }
 
-  function salvarDados() {
-    startTransition(async () => {
-      const r = await salvarAprovacaoProjeto(estudo.id, JSON.stringify(dados));
-      await vinculos.refetch();
-      if ("ok" in r) setSalvo(true);
-    });
-  }
+  const { salvar: salvarDados, pending, salvo } = useSalvamentoJson(dados, estudo.id, salvarAprovacaoProjeto, () => { void vinculos.refetch(); });
 
   return (
     <div className="space-y-4">
