@@ -49,7 +49,7 @@ const CAMPOS_RESTRICOES: { k: CampoNumerico; label: string }[] = [
 
 const TODOS_CAMPOS = [...CAMPOS, ...CAMPOS_RESTRICOES, { k: "areaSistemaViarioM2" as CampoNumerico, label: "Área do sistema viário (m²)" }];
 
-const ROTULO_TIPOLOGIA: Record<TipologiaMassa, string> = { grid: "grade", cul_de_sac: "cul-de-sac", rua_simples: "rua simples" };
+const ROTULO_TIPOLOGIA: Record<TipologiaMassa, string> = { grid: "grade", cul_de_sac: "cul-de-sac", rua_simples: "rua simples", vias_publicas: "vias públicas" };
 
 /** Formata um número para exibição no padrão brasileiro (campo de texto). */
 function formatarCampo(v: number | undefined): string {
@@ -462,6 +462,7 @@ export function MassaTab({ estudo }: { estudo: EstudoData }) {
             ? "Manual: o motor ajusta a malha para a via desenhada bater com o valor (±5%) — Rua Simples: comprimento da via; Grade/Cul-de-sac: quadras mais curtas (nunca acima do máximo informado) ou supressão de ruas de menor aproveitamento. Se nenhum ajuste fechar, mostra a divergência e não cria implantação fictícia."
             : `Automático: usa a área geométrica das vias desenhadas${cenarioAtivo?.sistemaViario ? ` — cenário atual: ${m2(cenarioAtivo.sistemaViario.areaGeometricaM2)}` : ""}.`}
           {params.tipologia === "rua_simples" && " Na Rua Simples o comprimento máximo da quadra não se aplica (via única)."}
+          {params.tipologia === "vias_publicas" && " Vias públicas: todas as divisas da gleba (por fora e por dentro) já são frente para via pública — o motor não desenha via interna, não usa largura da via nem quadra máxima, e distribui 100% da área em lotes com frente ≥ testada, fundo de até a profundidade informada e área ≥ mínima (as sobras vão para os lotes vizinhos)."}
           {params.tipologia === "rua_simples" && params.tracadoVia === "divisa" && ((params.ladosVia?.length ?? 0) > 0
             ? " Rua somente nos lados marcados: cada lote tem a frente EXATA da testada sobre a via e o fundo variável até a divisa oposta (a divisa lateral gira quando a faixa não atinge a área mínima). A quantidade máxima é o comprimento da divisa ÷ testada. Sem lado marcado, o motor escolhe a divisa automaticamente."
             : " Via pela divisa: marque a(s) rua(s) de cima, da esquerda, da direita ou de baixo para fixar onde a via fica. Sem marcação, o motor escolhe a divisa; a testada é a frente MÍNIMA de cada lote (maior só onde preciso para atingir a área mínima) e os lotes vão até a divisa oposta.")}

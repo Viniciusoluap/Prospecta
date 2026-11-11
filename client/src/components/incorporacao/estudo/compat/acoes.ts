@@ -7,6 +7,7 @@ import { linksDoCliente } from "@/lib/trpc-links";
 import { toast } from "sonner";
 import type { AppRouter } from "../../../../../../server/routers";
 import type { DueDiligence } from "@shared/incorporacao/due-diligence";
+import { LIMITE_ANEXO_BYTES, LIMITE_ANEXO_ROTULO, MIME_GENERICO, PARTE_ANEXO_BYTES, anexoVisualizavel, mimeDoAnexo, partesDoAnexo } from "@shared/incorporacao/anexos";
 import type { ErroAcao } from "./acao-resultado";
 
 const api = createTRPCClient<AppRouter>({ links: linksDoCliente() });
@@ -100,35 +101,64 @@ async function lista(estudoId: string) {
 async function capturar<T>(fn: () => Promise<T>): Promise<T | ErroAcao> {
   try { return await fn(); } catch (e) { return { erroAcao: mensagem(e) }; }
 }
-const TIPOS = ["application/pdf", "image/jpeg", "image/png"] as const;
+function paraBase64(bytes: Uint8Array) {
+  let binario = "";
+  for (let i = 0; i < bytes.length; i += 0x8000) binario += String.fromCharCode.apply(null, bytes.subarray(i, i + 0x8000) as unknown as number[]);
+  return btoa(binario);
+}
+function idDoEnvio() {
+  const c = globalThis.crypto;
+  if (c?.randomUUID) return c.randomUUID().replace(/-/g, "");
+  return Array.from({ length: 32 }, () => Math.floor(Math.random() * 16).toString(16)).join("");
+}
 
 export function listarDocumentosRegistro(estudoId: string) { return capturar(() => lista(estudoId)); }
+/** Qualquer tipo de arquivo (foto, DWG, Word...), até 50 MB, enviado em partes de 2 MiB. */
 export function enviarDocumentoRegistro(estudoId: string, itemId: string, arquivo: File) {
   return capturar(async () => {
+    if (arquivo.size === 0) throw new Error("O arquivo está vazio.");
+    if (arquivo.size > LIMITE_ANEXO_BYTES) throw new Error(`Arquivo acima de ${LIMITE_ANEXO_ROTULO}.`);
     // iPad/Arquivos às vezes entrega o arquivo sem tipo: usa a extensão como referência
-    const porExtensao = (/\.pdf$/i.test(arquivo.name) ? "application/pdf" : /\.jpe?g$/i.test(arquivo.name) ? "image/jpeg" : /\.png$/i.test(arquivo.name) ? "image/png" : "") as string;
-    const mimeType = TIPOS.find((t) => t === (arquivo.type || porExtensao));
-    if (!mimeType) throw new Error("Envie PDF, JPG ou PNG.");
-    if (arquivo.size > 3 * 1024 * 1024) throw new Error("Arquivo acima de 3 MiB.");
-    const bytes = new Uint8Array(await arquivo.arrayBuffer()); let binario = "";
-    for (let i = 0; i < bytes.length; i++) binario += String.fromCharCode(bytes[i]);
-    const r = await inc.documents.upload.mutate({ studyId: id(estudoId), itemId, fileName: arquivo.name, mimeType, base64: btoa(binario) });
-    const nota = "storageNote" in r && r.storage === "banco" ? r.storageNote ?? null : null;
+    const mimeType = mimeDoAnexo(arquivo.name, arquivo.type);
+    const uploadId = idDoEnvio();
+    const partes = partesDoAnexo(arquivo.size);
+    for (let part = 0; part < partes; part++) {
+      const pedaco = new Uint8Array(await arquivo.slice(part * PARTE_ANEXO_BYTES, (part + 1) * PARTE_ANEXO_BYTES).arrayBuffer());
+      await inc.documents.uploadPart.mutate({ studyId: id(estudoId), itemId, uploadId, part, base64: paraBase64(pedaco) });
+    }
+    const r = await inc.documents.uploadFinish.mutate({ studyId: id(estudoId), itemId, uploadId, fileName: arquivo.name, mimeType, size: arquivo.size });
+    const nota = r.storage === "banco" ? r.storageNote ?? null : null;
     return { ...(await lista(estudoId)), armazenamento: nota ? "banco" : "drive", notaArmazenamento: nota };
   });
 }
 export function desvincularDocumentoRegistro(estudoId: string, itemId: string, _documentoId: string) {
   return capturar(async () => { await inc.documents.unlink.mutate({ studyId: id(estudoId), itemId }); return lista(estudoId); });
 }
-/** Abre o arquivo atual do item numa nova aba (o Prospecta entrega o conteúdo pelo tRPC). */
-export async function abrirDocumentoRegistro(estudoId: string, itemId: string) {
+/**
+ * Abre o arquivo atual do item: PDF/foto/texto numa nova aba; os demais (DWG, Word, HEIC...)
+ * são baixados com o nome original. `nome` (quando a tela já sabe) decide antes do servidor responder.
+ */
+export async function abrirDocumentoRegistro(estudoId: string, itemId: string, nome?: string | null) {
   // a aba é aberta no próprio clique (antes de esperar o servidor): Safari/iPad bloqueia window.open depois de um await
-  const aba = typeof window !== "undefined" ? window.open("", "_blank") : null;
+  const abrirEmAba = !nome || anexoVisualizavel(mimeDoAnexo(nome));
+  const aba = abrirEmAba && typeof window !== "undefined" ? window.open("", "_blank") : null;
   try {
-    const { base64, mimeType } = await inc.documents.content.query({ studyId: id(estudoId), itemId });
-    const bytes = Uint8Array.from(atob(base64), (c) => c.charCodeAt(0));
-    const url = URL.createObjectURL(new Blob([bytes], { type: mimeType }));
-    if (aba) { aba.opener = null; aba.location.href = url; } else window.open(url, "_blank", "noopener,noreferrer");
+    const primeira = await inc.documents.contentPart.query({ studyId: id(estudoId), itemId, part: 0 });
+    const blocos: BlobPart[] = [Uint8Array.from(atob(primeira.base64), (c) => c.charCodeAt(0))];
+    for (let part = 1; part < primeira.parts; part++) {
+      const r = await inc.documents.contentPart.query({ studyId: id(estudoId), itemId, part });
+      blocos.push(Uint8Array.from(atob(r.base64), (c) => c.charCodeAt(0)));
+    }
+    const visualizavel = anexoVisualizavel(primeira.mimeType);
+    const url = URL.createObjectURL(new Blob(blocos, { type: visualizavel ? primeira.mimeType : MIME_GENERICO }));
+    if (visualizavel) {
+      if (aba) { aba.opener = null; aba.location.href = url; } else window.open(url, "_blank", "noopener,noreferrer");
+    } else {
+      aba?.close();
+      const link = document.createElement("a");
+      link.href = url; link.download = primeira.fileName || "arquivo"; link.rel = "noopener";
+      document.body.appendChild(link); link.click(); link.remove();
+    }
     setTimeout(() => URL.revokeObjectURL(url), 60_000);
   } catch (e) { aba?.close(); toast.error(mensagem(e)); }
 }

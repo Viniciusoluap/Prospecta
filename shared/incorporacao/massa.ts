@@ -26,6 +26,7 @@ import {
 import { buscarRuaSimples, gerarRuaSimplesFrame, implantacaoDoCandidatoRua, type CandidatoRua } from "./rua-simples.js";
 import { buscarViaDivisa, divisasOpostas } from "./rua-divisa.js";
 import { buscarPorLados, LADOS_GLEBA, type LadoGleba } from "./lados-gleba.js";
+import { buscarViasPublicas } from "./vias-publicas.js";
 
 export { areaPlanar, rotacionar } from "./geometria-parcelamento.js";
 
@@ -37,12 +38,13 @@ export const ROTULO_ESTUDO_PRELIMINAR = "Estudo preliminar — não substitui pr
 /** Versão do algoritmo — entra na assinatura: mudou o algoritmo, mudou a versão. */
 export const VERSAO_ALGORITMO_MASSA = "2.0.0";
 
-export type TipologiaMassa = "grid" | "cul_de_sac" | "rua_simples";
+export type TipologiaMassa = "grid" | "cul_de_sac" | "rua_simples" | "vias_publicas";
 
 export const TIPOLOGIAS_MASSA: { value: TipologiaMassa; label: string }[] = [
   { value: "grid", label: "Grade (grid)" },
   { value: "cul_de_sac", label: "Cul-de-sac (ruas sem saída com balão)" },
   { value: "rua_simples", label: "Rua simples (via única de mão dupla)" },
+  { value: "vias_publicas", label: "Vias públicas (divisas já voltadas para vias — 100% de aproveitamento)" },
 ];
 
 export type ModoSistemaViario = "automatico" | "manual";
@@ -198,7 +200,8 @@ export function validarParametrosMassa(p: ParametrosMassa): string | null {
   if (!Number.isFinite(p.loteMinimoM2) || p.loteMinimoM2 < 0) {
     return "Lote mínimo não pode ser negativo.";
   }
-  if (!Number.isFinite(p.comprimentoMaxQuadraM) || p.comprimentoMaxQuadraM <= 0) {
+  // vias públicas: não há quadra nem via interna a desenhar — comprimento da quadra e largura da via não se aplicam
+  if (p.tipologia !== "vias_publicas" && (!Number.isFinite(p.comprimentoMaxQuadraM) || p.comprimentoMaxQuadraM <= 0)) {
     return "Comprimento máximo da quadra deve ser um número maior que 0.";
   }
   if (!Number.isFinite(p.percentInstitucional) || p.percentInstitucional < 0 || p.percentInstitucional >= 1) {
@@ -214,7 +217,7 @@ export function validarParametrosMassa(p: ParametrosMassa): string | null {
     return "Preço do lote (R$/m²) deve ser um número maior que 0.";
   }
   if (p.tipologia !== undefined && !TIPOLOGIAS_MASSA.some((t) => t.value === p.tipologia)) {
-    return "Tipologia do cenário inválida (use grid, cul-de-sac ou rua simples).";
+    return "Tipologia do cenário inválida (use grid, cul-de-sac, rua simples ou vias públicas).";
   }
   const restricoes: [keyof ParametrosMassa, string][] = [
     ["appM2", "APP"], ["supressaoVegetalM2", "Supressão vegetal"], ["faixaTransmissaoM2", "Faixa de transmissão"],
@@ -868,7 +871,18 @@ export function gerarEstudoMassa(
   const arestasPorImplantacao = new Map<string, number[]>();
   const limiteCandidatosVia = 12;
 
-  if (ladosVia) {
+  if (tipologia === "vias_publicas") {
+    progresso(0.1, "Desmembrando os lotes com frente para as vias públicas");
+    const impls = buscarViasPublicas(anelM, { testada: g.testada, profundidade: g.profundidade, loteMinimoM2: params.loteMinimoM2 }, 4,
+      (f) => progresso(0.1 + 0.8 * f, "Desmembrando os lotes com frente para as vias públicas"));
+    avaliados = impls.length;
+    const fr0 = prepararFrameAnel(anelM, 0, Math.max(g.testada, g.profundidade) * 2);
+    impls.forEach((impl) => brutos.push(avaliarImplantacao(ctx, impl.chave, fr0, impl, 1)));
+    if (impls.length === 0) {
+      return { ...vazio(tipologia, assinatura, "Nenhum lote viável com frente para as vias públicas existentes.",
+        ["Confira a testada, a profundidade e a área mínima do lote frente ao tamanho das divisas da gleba."]), candidatosAvaliados: 0 };
+    }
+  } else if (ladosVia) {
     progresso(0.1, "Traçando a via nos lados escolhidos");
     const impls = buscarPorLados(anelM, ladosVia, { testada: g.testada, profundidade: g.profundidade, via: g.via, loteMinimoM2: params.loteMinimoM2 }, 6,
       (f) => progresso(0.1 + 0.5 * f, "Implantando os lotes com frente exata e fundo variável"));

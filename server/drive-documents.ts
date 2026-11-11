@@ -267,6 +267,23 @@ export async function readPrivateDocument(fileId: string): Promise<Buffer> {
   throw ultimoErro;
 }
 
+/** Lê só um trecho do arquivo (cabeçalho Range): anexos grandes são lidos em partes. */
+export async function readPrivateDocumentRange(fileId: string, inicio: number, fim: number): Promise<Buffer> {
+  const lista = await fontes();
+  if (!lista.length) throw new Error("Google Drive da Prospecta não configurado");
+  let ultimoErro: unknown;
+  for (const fonte of lista) {
+    try {
+      const response = await driveFetch(fonte, `https://www.googleapis.com/drive/v3/files/${encodeURIComponent(fileId)}?alt=media&supportsAllDrives=true`,
+        { headers: { Range: `bytes=${inicio}-${fim - 1}` } }, "leitura");
+      const data = Buffer.from(await response.arrayBuffer());
+      // servidor que ignora o Range devolve o arquivo inteiro (200): recorta aqui
+      return response.status === 206 ? data : data.subarray(inicio, fim);
+    } catch (erro) { ultimoErro = erro; }
+  }
+  throw ultimoErro;
+}
+
 export interface DiagnosticoDrive {
   configurado: boolean;
   ok: boolean;
