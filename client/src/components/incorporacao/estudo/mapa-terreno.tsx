@@ -47,6 +47,7 @@ const vazioFc = (): FeatureCollection => featureCollection([]) as FeatureCollect
 const fc = (feats: (Feature<Geometry> | null | undefined)[]): FeatureCollection => featureCollection(feats.filter(Boolean) as Feature<Geometry>[]) as FeatureCollection;
 const dados = <K extends IdCamada>(e: Estado<K>): DadosCamadas[K] | undefined => ("dados" in e ? e.dados : undefined);
 const respondeu = (e: { estado: string }) => e.estado === "ok" || e.estado === "vazio";
+const ESTADOS_INICIAIS = Object.fromEntries(IDS_CAMADAS.map(id => [id, { estado: "carregando" }])) as Estados;
 
 async function buscarCamada(id: IdCamada, contorno: Contorno, novamente: boolean): Promise<EstadoCamada<unknown>> {
   try {
@@ -113,7 +114,8 @@ export function MapaTerreno({ geojson, center, height = 420, estudoId }: Props) 
   const [base, setBase] = useState<"satelite" | "ruas">("satelite");
   const [infoBase, setInfoBase] = useState<string | null>(null);
   const [appModo, setAppModo] = useState<AppModo>("auto");
-  const [estados, setEstados] = useState<Estados>(() => Object.fromEntries(IDS_CAMADAS.map(id => [id, { estado: "carregando" }])) as Estados);
+  // estados guardados junto do terreno a que pertencem: trocar o KML volta tudo a "consultando…"
+  const [porTerreno, setPorTerreno] = useState<{ geojson: string; estados: Estados } | null>(null);
   const ultimoSalvo = useRef<string | null>(null);
   const centroLat = center?.[0], centroLng = center?.[1];
 
@@ -175,17 +177,23 @@ export function MapaTerreno({ geojson, center, height = 420, estudoId }: Props) 
   }, [base, mapaPronto]);
 
   // ─── Camadas (servidor, uma por vez) ─────────────────────────────────────
-  const carregar = useCallback((ids: readonly IdCamada[], novamente = false) => {
+  const estados: Estados = porTerreno?.geojson === geojson ? porTerreno.estados : ESTADOS_INICIAIS;
+  const gravar = useCallback((id: IdCamada, e: Estado<IdCamada>) => {
+    setPorTerreno(p => ({ geojson, estados: { ...(p?.geojson === geojson ? p.estados : ESTADOS_INICIAIS), [id]: e } as Estados }));
+  }, [geojson]);
+  const buscar = useCallback((ids: readonly IdCamada[], novamente = false) => {
     if (!contorno) return () => undefined;
     let cancelado = false;
-    setEstados(e => ({ ...e, ...Object.fromEntries(ids.map(id => [id, { estado: "carregando" }])) }));
-    for (const id of ids) {
-      void buscarCamada(id, contorno, novamente).then(r => { if (!cancelado) setEstados(e => ({ ...e, [id]: r })); });
-    }
+    for (const id of ids) void buscarCamada(id, contorno, novamente).then(r => { if (!cancelado) gravar(id, r as Estado<IdCamada>); });
     return () => { cancelado = true; };
-  }, [contorno]);
+  }, [contorno, gravar]);
+  /** Botão "tentar de novo": volta a camada a "consultando…" e ignora o cache do servidor. */
+  const carregar = (ids: readonly IdCamada[], novamente = false) => {
+    for (const id of ids) gravar(id, { estado: "carregando" });
+    buscar(ids, novamente);
+  };
 
-  useEffect(() => carregar(IDS_CAMADAS), [carregar]);
+  useEffect(() => buscar(IDS_CAMADAS), [buscar]);
 
   // ─── Cálculos (APP depende do seletor) ───────────────────────────────────
   const hidro = dados(estados.hidrografia), osm = dados(estados.osm);
