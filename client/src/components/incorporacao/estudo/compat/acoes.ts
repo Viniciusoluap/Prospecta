@@ -100,7 +100,9 @@ const TIPOS = ["application/pdf", "image/jpeg", "image/png"] as const;
 export function listarDocumentosRegistro(estudoId: string) { return capturar(() => lista(estudoId)); }
 export function enviarDocumentoRegistro(estudoId: string, itemId: string, arquivo: File) {
   return capturar(async () => {
-    const mimeType = TIPOS.find((t) => t === arquivo.type);
+    // iPad/Arquivos às vezes entrega o arquivo sem tipo: usa a extensão como referência
+    const porExtensao = (/\.pdf$/i.test(arquivo.name) ? "application/pdf" : /\.jpe?g$/i.test(arquivo.name) ? "image/jpeg" : /\.png$/i.test(arquivo.name) ? "image/png" : "") as string;
+    const mimeType = TIPOS.find((t) => t === (arquivo.type || porExtensao));
     if (!mimeType) throw new Error("Envie PDF, JPG ou PNG.");
     if (arquivo.size > 3 * 1024 * 1024) throw new Error("Arquivo acima de 3 MiB.");
     const bytes = new Uint8Array(await arquivo.arrayBuffer()); let binario = "";
@@ -115,13 +117,15 @@ export function desvincularDocumentoRegistro(estudoId: string, itemId: string, _
 }
 /** Abre o arquivo atual do item numa nova aba (o Prospecta entrega o conteúdo pelo tRPC). */
 export async function abrirDocumentoRegistro(estudoId: string, itemId: string) {
+  // a aba é aberta no próprio clique (antes de esperar o servidor): Safari/iPad bloqueia window.open depois de um await
+  const aba = typeof window !== "undefined" ? window.open("", "_blank") : null;
   try {
     const { base64, mimeType } = await inc.documents.content.query({ studyId: id(estudoId), itemId });
     const bytes = Uint8Array.from(atob(base64), (c) => c.charCodeAt(0));
     const url = URL.createObjectURL(new Blob([bytes], { type: mimeType }));
-    window.open(url, "_blank", "noopener,noreferrer");
+    if (aba) { aba.opener = null; aba.location.href = url; } else window.open(url, "_blank", "noopener,noreferrer");
     setTimeout(() => URL.revokeObjectURL(url), 60_000);
-  } catch (e) { toast.error(mensagem(e)); }
+  } catch (e) { aba?.close(); toast.error(mensagem(e)); }
 }
 const ITEM_LEVANTAMENTO = "levantamento_topografico";
 const MIME_LEVANTAMENTO: Record<string, "text/csv" | "text/plain" | "application/dxf"> = { csv: "text/csv", txt: "text/plain", xyz: "text/plain", dxf: "application/dxf" };
