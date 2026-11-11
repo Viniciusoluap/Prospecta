@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { OPCOES_FILTRO_TAREFA, passaFiltroTarefa, tarefaAtrasada, type FiltroStatusTarefa } from "@shared/tarefas-filtro";
 import { Link } from "wouter";
 import { trpc } from "@/lib/trpc";
 import { Button } from "@/components/ui/button";
@@ -75,7 +76,9 @@ export default function AdminTarefas({
   const [open, setOpen] = useState(false);
   const [editingId, setEditingId] = useState<number | null>(null);
   const [deletingId, setDeletingId] = useState<number | null>(null);
-  const [filterStatus, setFilterStatus] = useState("all");
+  // abertura padrão: só atrasadas e as que vencem hoje; o link da Agenda (#tarefa-ID) mostra todas para achar a tarefa
+  const [filterStatus, setFilterStatus] = useState<FiltroStatusTarefa>(() =>
+    typeof window !== "undefined" && window.location.hash.startsWith("#tarefa-") ? "all" : "atrasadas_e_hoje");
   const [filterResp, setFilterResp] = useState("all");
   const [form, setForm] = useState({
     title: "",
@@ -96,7 +99,7 @@ export default function AdminTarefas({
   const { data: leads = [] } = trpc.tasks.leadOptions.useQuery();
   const { data: projects = [] } = trpc.construction.allProjects.useQuery();
   const tasks = allTasks.filter(task =>
-    (filterStatus === "all" || task.status === filterStatus) &&
+    passaFiltroTarefa(task, filterStatus) &&
     (filterResp === "all" || task.assignedTo === filterResp)
   );
 
@@ -146,13 +149,7 @@ export default function AdminTarefas({
 
   const pending = allTasks.filter(t => t.status === "pending").length;
   const inProgress = allTasks.filter(t => t.status === "in_progress").length;
-  const overdue = allTasks.filter(
-    t =>
-      t.dueAt &&
-      new Date(t.dueAt) < new Date() &&
-      t.status !== "done" &&
-      t.status !== "cancelled"
-  ).length;
+  const overdue = allTasks.filter(t => tarefaAtrasada(t)).length;
 
   return (
     <div
@@ -344,15 +341,12 @@ export default function AdminTarefas({
 
         {/* Filters */}
         <div className="flex gap-3">
-          <Select value={filterStatus} onValueChange={setFilterStatus}>
-            <SelectTrigger className="w-40 bg-[#2C3E50] border-[#C9A961]/30 text-white">
+          <Select value={filterStatus} onValueChange={v => setFilterStatus(v as FiltroStatusTarefa)}>
+            <SelectTrigger aria-label="Filtrar por status" className="w-48 bg-[#2C3E50] border-[#C9A961]/30 text-white">
               <SelectValue placeholder="Status" />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="all">Todos</SelectItem>
-              <SelectItem value="pending">Pendente</SelectItem>
-              <SelectItem value="in_progress">Em Andamento</SelectItem>
-              <SelectItem value="done">Concluída</SelectItem>
+              {OPCOES_FILTRO_TAREFA.map(o => <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>)}
             </SelectContent>
           </Select>
           <Select value={filterResp} onValueChange={setFilterResp}>
@@ -373,17 +367,13 @@ export default function AdminTarefas({
           <Card className="bg-[#2C3E50] border-[#C9A961]/20 text-gray-100">
             <CardContent className="py-12 text-center text-gray-400">
               <CheckSquare className="h-12 w-12 mx-auto mb-3 opacity-20" />
-              <p>Nenhuma tarefa encontrada</p>
+              <p>{filterStatus === "atrasadas_e_hoje" ? "Nenhuma tarefa atrasada ou com prazo hoje. Use o filtro para ver as futuras, as concluídas ou todas." : "Nenhuma tarefa encontrada"}</p>
             </CardContent>
           </Card>
         ) : (
           <div className="space-y-3">
             {tasks.map((task: any) => {
-              const isOverdue =
-                task.dueAt &&
-                new Date(task.dueAt) < new Date() &&
-                task.status !== "done" &&
-                task.status !== "cancelled";
+              const isOverdue = tarefaAtrasada(task);
               return (
                 <Card
                   key={task.id}
