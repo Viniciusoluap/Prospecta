@@ -97,6 +97,19 @@ export function resumoLotesAvulsos(lista: LoteAvulso[]): ResumoLotesAvulsos {
   };
 }
 
+/** Mesma área exibida no detalhe do terreno: poligonal ou soma dos lotes avulsos. */
+export function areaDoEstudoM2(estudo: {
+  areaM2?: string | number | null;
+  geojson?: string | null;
+  semKml?: boolean | null;
+  looseLotsJson?: string | null;
+}): number | null {
+  const area = estudo.semKml && !estudo.geojson
+    ? resumoLotesAvulsos(parseLotesAvulsos(estudo.looseLotsJson)).areaTotalM2
+    : Number(estudo.areaM2);
+  return Number.isFinite(area) && area > 0 ? area : null;
+}
+
 /** Serializa para gravação (ordenado; valida antes). */
 export function serializarLotesAvulsos(lista: LoteAvulso[]): string {
   return JSON.stringify(ordenarLotesAvulsos(lista).map((l) => ({

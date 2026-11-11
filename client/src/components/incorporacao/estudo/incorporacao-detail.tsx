@@ -41,7 +41,8 @@ import { orcamentoObraPreenchidoDoJson } from "@shared/incorporacao/orcamento-ob
 import { obraConcluidaDoJson } from "@shared/incorporacao/cronograma-obra";
 import { atendimentoTodosConcluidosDoJson } from "@shared/incorporacao/atendimento-clientes";
 import { UnidadesTab } from "./unidades-tab";
-import { terrenoLiberado } from "@shared/incorporacao/lotes-avulsos";
+import { lerDueDiligence, progressoDueDiligence } from "@shared/incorporacao/due-diligence";
+import { parseLotesAvulsos, terrenoLiberado } from "@shared/incorporacao/lotes-avulsos";
 
 import type { EstudoData } from "@shared/incorporacao/estudo-data";
 export type { EstudoData };
@@ -64,7 +65,7 @@ interface Etapa {
    * estudo — nunca exige checklist manual (regra: tudo automático). Etapas
    * "em breve" sem função ficam sempre como não concluídas.
    */
-  concluida?: (estudo: EstudoData) => boolean;
+  concluida?: (estudo: EstudoData, temUnidades: boolean) => boolean;
 }
 
 interface Fase {
@@ -72,6 +73,15 @@ interface Fase {
   numero: number;
   titulo: string;
   etapas: Etapa[];
+}
+
+function dueDiligenceConcluida(estudo: EstudoData): boolean {
+  try {
+    const { total, concluidos } = progressoDueDiligence(lerDueDiligence(estudo.dueDiligenceJson));
+    return total > 0 && total === concluidos;
+  } catch {
+    return false;
+  }
 }
 
 const FASES: Fase[] = [
@@ -88,6 +98,7 @@ const FASES: Fase[] = [
           "Diretrizes gerais do empreendimento antes de abrir o estudo de novos negócios: nome, localização, responsável e premissas iniciais — hoje preenchidos na criação do estudo.",
         concluida: (e) => !!e.nome && !!e.municipio,
       },
+      { id: "diligencia", numero: "1.2", titulo: "Due Diligence", concluida: dueDiligenceConcluida },
     ],
   },
   {
@@ -95,8 +106,8 @@ const FASES: Fase[] = [
     numero: 2,
     titulo: "Novos Negócios",
     etapas: [
-      { id: "terreno", numero: "2.1", titulo: "Documentos do Terreno", componente: TerrenoTab, concluida: (e) => !!e.geojson || (!!e.semKml && !!e.lotesAvulsosJson && e.lotesAvulsosJson !== "[]") },
-      { id: "topografia", numero: "2.1", titulo: "Topografia 3D", componente: TopografiaTab, concluida: (e) => !!e.elevacaoJson },
+      { id: "terreno", numero: "2.1", titulo: "Documentos do Terreno", componente: TerrenoTab, concluida: (e) => !!e.geojson || (!!e.semKml && parseLotesAvulsos(e.lotesAvulsosJson).length > 0) },
+      { id: "topografia", numero: "2.1", titulo: "Topografia 3D", componente: TopografiaTab, concluida: (e) => !!e.levantamentoUrl || (!!e.geojson && !!e.elevacaoJson) },
       { id: "mercado", numero: "2.2", titulo: "Inteligência de Mercado", componente: MercadoTab, concluida: (e) => !!e.pesquisaCidadeJson || !!e.estudoMercadoJson || !!e.precificacaoComparaveisJson || pesquisaPrimariaPreenchidaDoJson(e.pesquisaPrimariaJson) },
       { id: "massa", numero: "2.3", titulo: "Estudo de Massa e Quadro de Áreas", componente: MassaTab, concluida: (e) => !!e.massaCenariosJson },
       {
@@ -196,8 +207,9 @@ const FASES: Fase[] = [
         numero: "4.4",
         titulo: "Lançamento Imobiliário",
         componente: LancamentoImobiliarioTab,
-        concluida: (e) => lancamentoImobiliarioComVendasDoJson(e.lancamentoImobiliarioJson),
+        concluida: (e, temUnidades) => temUnidades || lancamentoImobiliarioComVendasDoJson(e.lancamentoImobiliarioJson),
       },
+      { id: "unidades", numero: "4.4", titulo: "Unidades à Venda", concluida: (_, temUnidades) => temUnidades },
     ],
   },
   {
@@ -250,23 +262,30 @@ const MODULOS_DESMEMBRAMENTO = [
   ["material-publicitario", "Material Publicitário"], ["atendimento-clientes", "Atendimento aos Clientes"],
 ] as const;
 
-/** Progresso por fase — auto-computado a partir do que já está preenchido no estudo (nunca manual). */
-function calcularProgresso(estudo: EstudoData) {
-  const porFase = FASES.map((f) => {
-    const etapas = estudo.tipoIncorporacao === "desmembramento_simples"
-      ? f.etapas.filter((e) => e.id !== "projeto-aprovado")
-      : f.etapas;
-    const concluidas = etapas.filter((e) => e.concluida?.(estudo)).length;
+const ETAPAS_DESMEMBRAMENTO = new Set<string>([
+  "planejamento-geral", "diligencia", "viabilidade",
+  ...MODULOS_DESMEMBRAMENTO.map(([id]) => id),
+]);
+
+export function calcularProgresso(estudo: EstudoData, temUnidades: boolean) {
+  const simples = estudo.tipoIncorporacao === "desmembramento_simples";
+  const semPoligonal = estudo.semKml && !estudo.geojson;
+  const porFase = FASES.flatMap((fase) => {
+    const etapas = fase.etapas.filter(({ id }) => {
+      const aplicavel = simples ? ETAPAS_DESMEMBRAMENTO.has(id) : id !== "diligencia" && id !== "unidades";
+      return aplicavel && !(semPoligonal && id === "massa");
+    });
+    if (!etapas.length) return [];
+    const concluidas = etapas.filter(etapa => etapa.concluida?.(estudo, temUnidades)).length;
     const total = etapas.length;
-    return { id: f.id, concluidas, total, pct: total > 0 ? Math.round((concluidas / total) * 100) : 0 };
+    return [{ id: fase.id, numero: fase.numero, titulo: fase.titulo, concluidas, total, pct: Math.round(concluidas * 100 / total) }];
   });
-  const concluidasTotal = porFase.reduce((s, f) => s + f.concluidas, 0);
-  const etapasTotal = porFase.reduce((s, f) => s + f.total, 0);
-  const geral = etapasTotal > 0 ? Math.round((concluidasTotal / etapasTotal) * 100) : 0;
-  return { porFase, geral };
+  const concluidas = porFase.reduce((s, f) => s + f.concluidas, 0);
+  const total = porFase.reduce((s, f) => s + f.total, 0);
+  return { porFase, geral: total ? Math.round(concluidas * 100 / total) : 0 };
 }
 
-export function IncorporacaoDetail({ estudo, dadosGerais }: { estudo: EstudoData; dadosGerais: ReactNode }) {
+export function IncorporacaoDetail({ estudo, dadosGerais, temUnidades }: { estudo: EstudoData; dadosGerais: ReactNode; temUnidades: boolean }) {
   const [etapaId, setEtapaId] = useState<string>("terreno");
   const [relatorioAtivo, setRelatorioAtivo] = useState(false);
   const [visitados, setVisitados] = useState<string[]>(["terreno"]);
@@ -274,7 +293,7 @@ export function IncorporacaoDetail({ estudo, dadosGerais }: { estudo: EstudoData
   const temTerreno = terrenoLiberado(estudo);
 
   const tituloUnidades = estudo.tipoIncorporacao === "vertical" || estudo.tipoIncorporacao === "loteamento";
-  const progresso = useMemo(() => calcularProgresso(estudo), [estudo]);
+  const progresso = useMemo(() => calcularProgresso(estudo, temUnidades), [estudo, temUnidades]);
 
   return (
     <div className="incorporacao-workspace">
@@ -289,17 +308,14 @@ export function IncorporacaoDetail({ estudo, dadosGerais }: { estudo: EstudoData
           <p className="text-xs font-black text-[var(--brand-dark)]">{progresso.geral}% concluído</p>
         </div>
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
-          {FASES.map((f, i) => {
-            const pf = progresso.porFase[i];
-            return (
-              <div key={f.id} className="flex-1 min-w-0">
-                <div className="h-2 rounded-full bg-gray-100 overflow-hidden">
-                  <div className="h-full bg-[var(--brand-yellow)] transition-all" style={{ width: `${pf.pct}%` }} />
-                </div>
-                <p className="text-[10px] text-gray-500 mt-2 break-words">{f.numero}. {f.titulo} ({pf.concluidas}/{pf.total})</p>
+          {progresso.porFase.map((pf) => (
+            <div key={pf.id} className="flex-1 min-w-0">
+              <div className="h-2 rounded-full bg-gray-100 overflow-hidden">
+                <div className="h-full bg-[var(--brand-yellow)] transition-all" style={{ width: `${pf.pct}%` }} />
               </div>
-            );
-          })}
+              <p className="text-[10px] text-gray-500 mt-2 break-words">{pf.numero}. {pf.titulo} ({pf.concluidas}/{pf.total})</p>
+            </div>
+          ))}
         </div>
       </div>
 

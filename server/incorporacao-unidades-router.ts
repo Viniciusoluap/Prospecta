@@ -81,6 +81,13 @@ export const incorporationUnitsRouter = router({
     if (!r.rows.length) throw new TRPCError({ code: "PRECONDITION_FAILED", message: "Exclusão bloqueada: há reserva, venda ou histórico comercial. Revise os vínculos antes de excluir." });
     return { success: true };
   }),
+  temUnidades: protectedProcedure.input(z.object({ studyId })).query(async ({ ctx, input }) => {
+    requireModule(ctx, "incorporacao");
+    const [unidade] = await getDb().select({ id: incorporationUnits.id }).from(incorporationUnits)
+      .where(and(eq(incorporationUnits.studyId, input.studyId), isNull(incorporationUnits.deletedAt)))
+      .limit(1);
+    return !!unidade;
+  }),
   list: protectedProcedure.input(z.object({ studyId })).query(async ({ ctx, input }) => {
     requireModule(ctx, "incorporacao");
     const [units, legacy] = await Promise.all([

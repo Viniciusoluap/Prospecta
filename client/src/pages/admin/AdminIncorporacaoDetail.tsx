@@ -44,11 +44,16 @@ function DetalheEstudo({ id }: { id: string }) {
   const pendencias = usePendenciasIncorporacao();
 
   const { data: estudo, isLoading } = trpc.incorporacao.getById.useQuery({ id: Number(id) });
+  const { data: temUnidades } = trpc.incorporacao.units.temUnidades.useQuery({ studyId: Number(id) }, { enabled: !!estudo });
   const { data: versoes = [] } = trpc.incorporacao.versions.useQuery({ id: Number(id) }, { enabled: !!Number(id) });
   const { data: equipe = [] } = trpc.incorporacao.staff.useQuery();
   const [erroVersao, setErroVersao] = useState("");
   // As abas do estudo (portadas do Santa Fé) recarregam o estudo depois de cada gravação.
-  useEffect(() => { registrarRecarregamentoEstudo(() => utils.incorporacao.getById.invalidate({ id: Number(id) })); }, [id, utils]);
+  useEffect(() => registrarRecarregamentoEstudo(() => Promise.all([
+    utils.incorporacao.getById.invalidate({ id: Number(id) }),
+    utils.incorporacao.list.invalidate(),
+    utils.incorporacao.units.temUnidades.invalidate({ studyId: Number(id) }),
+  ])), [id, utils]);
   const estudoSf = useMemo(() => estudo ? {
     ...paraEstudoData(estudo),
     versaoNumero: versoes[0]?.revision ?? null,
@@ -152,7 +157,7 @@ function DetalheEstudo({ id }: { id: string }) {
       {/* Estrutura, cálculos e gráficos idênticos ao Grupo Santa Fé (item 10); só as cores são as da Prospecta. */}
       <div className="bg-[#F4F4F2] text-[var(--brand-dark)] min-h-screen" style={{ "--brand-dark": "#1A2332", "--brand-yellow": "#C9A961" } as React.CSSProperties}>
       <div className="max-w-6xl mx-auto px-4 sm:px-6 py-6">
-        <IncorporacaoDetail estudo={estudoSf} dadosGerais={
+        <IncorporacaoDetail estudo={estudoSf} temUnidades={temUnidades ?? false} dadosGerais={
         <div className="space-y-6">
         <Card className="bg-[#1A2332] border-[#C9A961]/20 text-white">
           <CardHeader>

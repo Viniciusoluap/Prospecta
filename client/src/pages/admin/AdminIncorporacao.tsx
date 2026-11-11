@@ -10,6 +10,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { toast } from "sonner";
 import { ArrowLeft, Mountain, Plus, MapPin } from "lucide-react";
+import { formatArea } from "@/lib/format";
+import { areaDoEstudoM2 } from "@shared/incorporacao/lotes-avulsos";
 import { AcoesExcluir } from "@/components/AcoesExcluir";
 
 const STATUS_LABELS: Record<string, string> = {
@@ -35,10 +37,9 @@ const TIPOS = [
 type Tipo = (typeof TIPOS)[number]["value"];
 const situacaoValida = (value: string): value is FiltroSituacao => value === "todos" || value in STATUS_LABELS;
 
-function hectares(m2: string | number): string {
-  const n = typeof m2 === "string" ? parseFloat(m2) : m2;
-  if (!n) return "—";
-  return `${(n / 10_000).toLocaleString("pt-BR", { maximumFractionDigits: 2 })} ha`;
+function formatAreaDoEstudo(estudo: Parameters<typeof areaDoEstudoM2>[0]): string {
+  const area = areaDoEstudoM2(estudo);
+  return area === null ? "—" : formatArea(area);
 }
 
 export default function AdminIncorporacao() {
@@ -208,7 +209,7 @@ export default function AdminIncorporacao() {
                     </p>
                     <div className="text-xs text-gray-400">
                       <span className="text-gray-400">Área: </span>
-                      <span className="font-bold text-white">{hectares(e.areaM2)}</span>
+                      <span className="font-bold text-white">{formatAreaDoEstudo(e)}</span>
                     </div>
                   </CardContent>
                 </Card>
