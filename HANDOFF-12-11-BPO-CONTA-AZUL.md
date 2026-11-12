@@ -65,3 +65,16 @@ a importação do Conta Azul precisa ser portada (registrado no ROADMAP).
 
 ## Próximo passo
 Autorização para merge/deploy; depois portar a importação ao Santa Fé.
+
+## Merge/deploy e importação em produção (12/11, autorizados pelo dono)
+- PR #213 mergeado (eebdf3f); deploy de produção `dpl_6qBrgrsRUVPgTBqyJ4L5nK1PwLnj` READY, sem erros de runtime.
+- Estado do BPO em produção antes da importação: 60 clientes (59 do CRM) e 1.011 lançamentos, TODOS
+  arquivados pela limpeza de ajustes (879 legado + 132 Asaas, 2022–2026); 0 ativos; 0 do Conta Azul.
+  Se esse lote for restaurado, parte pode coincidir com o Conta Azul (mesmo período).
+- Importação feita por mim: NÃO concluída. A rede do ambiente bloqueia a Neon; foi criado o ambiente pessoal
+  "Grupo Efficaz — banco Prospecta" (libera só o host do banco) e um usuário temporário no banco, mas a
+  conexão direta foi barrada pelo controle de permissões. Usuário temporário apagado e conferido (0 roles),
+  senha apagada; nenhum lançamento gravado (0 com request_key contaazul:).
+- Próximo passo: dono importa pelo botão (BPO Financeiro > Importar backup Conta Azul > `Backup conta azul.zip`)
+  ou libera a permissão para eu rodar `importarContaAzul` contra a produção. Depois: conferir totais
+  (esperado 1.528 lançamentos; clientes novos dependem dos 60 já cadastrados).
