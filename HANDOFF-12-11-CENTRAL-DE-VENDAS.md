@@ -70,6 +70,11 @@ Ver `docs/stories/epics/epic-central-de-vendas/EPIC.md` (CV-01 a CV-11).
   confiança < 0,7 → "a conferir" (conta, o fluxo segue, operador avisado); lembretes D+1/D+3/D+7 (configuráveis)
   no cron diário; checklist completo → `completo` + `em_analise` + tarefa ao analista + aviso + mensagem, uma vez
   (UPDATE condicionado ao estado anterior).
+- Etapa 7 — retorno da análise (`server/central-vendas/analise.ts`, `registrarDecisao`): só admin ou analista da
+  Central, ativo; pendente → mensagem com as pendências descritas, volta a "aguardando documentos" e os lembretes
+  recomeçam da decisão; aprovado → etapa `approved_projects` (só avança), temperatura `hot`, aviso ao operador e
+  template sem valores (entra no follow-up da etapa 8); reprovado → mensagem neutra, atendimento humano, motivo só
+  em `leads.rejection_reason`. Mensagens da decisão respeitam a janela 8h–20h.
 
 ### Decisões automáticas (YOLO)
 - [AUTO-DECISION] Lead que já existia no CRM e escreve no WhatsApp → entra na Central com atendimento humano
@@ -88,7 +93,7 @@ Ver `docs/stories/epics/epic-central-de-vendas/EPIC.md` (CV-01 a CV-11).
 - `drizzle/0110_central_vendas.sql`
 
 ## Pendências
-- Etapas 7 a 11.
+- Etapas 8 a 11.
 
 ## Testes
 - (a) automáticos: `npx tsc --noEmit -p .` ✅; `server/central-vendas-0110.test.ts` ✅ (2);
@@ -107,8 +112,10 @@ Ver `docs/stories/epics/epic-central-de-vendas/EPIC.md` (CV-01 a CV-11).
   arquivo sem pista → IA só com metadados → "a conferir"; encaminhamento único mesmo com aviso repetido, nova
   verificação e arquivo extra — 1 tarefa, 1 mensagem, 1 evento; lembretes D+1/D+3/D+7 sem repetir; sem checklist;
   automação desligada).
+  `server/central-vendas-analise.test.ts` ✅ (7: as 3 decisões e suas mensagens, lembrete recomeça, janela,
+  operador/inativo/inexistente/NaN recusados, banco recusa sem `decisao_por`, só decide quem está em análise).
 - (b) manuais: nenhum.
 - (c) produção: aplicar a 0110 e ligar a Central (só com autorização do dono).
 
 ## Próximo passo exato
-Etapa 7: testes do retorno da análise (`server/central-vendas-analise.test.ts`) sobre `server/central-vendas/analise.ts`.
+Etapa 8: testes de follow-up/reativação e proteções de envio (`server/central-vendas-envio.test.ts`).
