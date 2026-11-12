@@ -62,6 +62,8 @@ describe("leitura do backup do Conta Azul", () => {
     expect(categoriaDoContaAzul("Receitas de Serviços", "", "receita")).toBe("Recebimento de cliente");
     expect(categoriaDoContaAzul("Aporte de Capital", "", "receita")).toBe("Outros");
     expect(categoriaDoContaAzul("Despesas a identificar", "tarifa pix", "despesa")).toBe("Tarifas bancárias");
+    expect(categoriaDoContaAzul("Tarifas de Notificação", "", "despesa")).toBe("Tarifas bancárias");
+    expect(categoriaDoContaAzul("Multas de Trânsito", "", "despesa")).toBe("Administrativo");
     expect(categoriaDoContaAzul("(+) Empréstimo entre empresas do grupo", "", "receita")).toBe("Transferência interna");
   });
   it("lê pessoas e financeiro, junta a linha repetida por centro de custo e lista o que fica de fora", () => {

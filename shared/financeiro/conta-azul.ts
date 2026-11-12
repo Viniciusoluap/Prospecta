@@ -89,6 +89,7 @@ export function ehTransferenciaContaAzul(categoria: string): boolean {
 const REGRAS_CONTA_AZUL: { padrao: RegExp; categoria: CategoriaBpo; tipo?: "receita" | "despesa" }[] = [
   { padrao: /\b(saldo inicial|aporte|emprestimos?|factoring|estornos?|devolucao|devolucoes|antecipacao de lucros|dividas?)\b/, categoria: "Outros" },
   { padrao: /\b(servicos terceirizados - obra|terceirizados.*obra|empreitada)\b/, categoria: "Mão de obra", tipo: "despesa" },
+  { padrao: /\bmultas? de transito\b/, categoria: "Administrativo", tipo: "despesa" },
   { padrao: /\b(despachante|engenheiro|projetista|registros?|certidao|certidoes|itbi|ancca|cnd|cartorio)\b/, categoria: "Projetos e taxas", tipo: "despesa" },
   { padrao: /\b(honorarios?|telefonia|salarios?|folha|escritorio|softwares?|sistemas?|combustive(l|is)|veiculos?|marketing|publicidade|trafego pago|viagens?|transporte|plano de saude|vale|adiantamento salarial|comisso(es)?|associacoes|manutencao|fretes?|limpeza)\b/, categoria: "Administrativo", tipo: "despesa" },
   { padrao: /\b(tarifas?|juros|multas?)\b/, categoria: "Tarifas bancárias", tipo: "despesa" },
