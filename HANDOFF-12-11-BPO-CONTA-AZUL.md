@@ -44,9 +44,10 @@ R$ 1.868.851,61; 1.394 pagos, 134 em aberto), 90 clientes novos, 352 transferên
 competências 2024-01 a 2026-11, 0 linhas com erro, ~0,4 s; segunda importação: 0 novos. Produção (Neon):
 BPO vazio hoje (consulta só leitura), então não há sobreposição com extrato.
 
-Segundo backup do Drive (`exclusive.zip`, outra empresa, mesmo formato ZIP com os 7 CSVs): 3.309
-lançamentos (503 receitas R$ 450.318,99; 2.806 despesas R$ 363.123,79), 271 pessoas, 79 transferências fora,
-0 erros. Os outros 3 ZIPs da pasta são cópias idênticas do primeiro (mesmo tamanho). Ajuste: "Multas de
+Segundo backup do Drive (`exclusive.zip`, outra empresa — **o dono confirmou que NÃO entra na Prospecta**;
+usado só para conferir o formato): mesmo ZIP com os 7 CSVs, lido sem erros. Os ZIPs `Backup conta azul.zip`,
+`CONTA AZUL.zip` e `80fe75e6-….zip` são idênticos byte a byte (SHA-256 e472b1f1…, CSVs comparados com diff):
+importar qualquer um deles uma única vez. Ajuste: "Multas de
 Trânsito" → Administrativo (antes caía em Tarifas bancárias).
 
 ## Testes
