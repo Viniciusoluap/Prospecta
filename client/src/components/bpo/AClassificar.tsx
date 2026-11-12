@@ -28,6 +28,7 @@ export type MovimentacaoAClassificar = {
 export type LancamentoAClassificar = {
   id: number; tipo: string; descricao: string; valor: string; valorRecebido: string; vencimento: string | Date; competencia: string;
   pago: boolean; categoria: string | null; centroCustos: string | null; clienteNome: string | null; asaasPaymentId: string | null; bankTransactionId: number | null;
+  clienteId: number | null;
 };
 
 function useInvalidar() {

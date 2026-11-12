@@ -176,3 +176,42 @@ já liga com segurança. Branch `claude/intelligent-ptolemy-av0qoh` (PR #214, ra
 - Tela: botão "Centros de custo" no topo do BPO (criar, renomear, ativar/desativar, uso); campo "Centro de custo"
   (ativos; valor gravado fora da lista continua como opção) no "+ Lançamento", na edição e no "Criar lançamento" da
   aba A classificar; aparece na linha de Cobranças/Despesas/A classificar.
+
+### Bloco 4 — Filtros (concluído)
+- Regras puras: `shared/financeiro/bpo-filtros.ts` (filtros da tela → filtros do lote, painel de valores,
+  movimentações, clientes, DRE por centro) e `filtrarLancamentosLote` (`shared/financeiro/bpo-lote.ts`) ganhou valor
+  mínimo/máximo (iguais = valor exato), centro de custo ("A / B" entra nos dois) e busca também pelo titular.
+- Cobranças, Despesas e A classificar: busca (cliente/titular/descrição), mês e ano da competência (movimentação: data
+  do banco), valor, status (pago, em aberto, vencido, parcial) e centro de custo; "Limpar filtros". Painel de valores
+  (quantidade, total, recebido/pago, em aberto) acompanha o filtro. Ações em lote só sobre o visível: a seleção oculta
+  é descartada e o "Excluir tudo" manda os mesmos filtros ao servidor (`entradaLoteSchema` aceita os campos novos;
+  `consultaAba` traz o titular).
+- Clientes: busca por nome (cadastro/lead) ou CPF/CNPJ (dígitos) e situação.
+- DRE: centro de custo no `filtroDreSchema` (servidor), nas duas visões.
+- Ajuste de layout: a linha de ações de Cobranças/Despesas passou a quebrar (`flex-wrap`); no iPhone ela empurrava a
+  página para 477 px de largura.
+
+### Testes (todos os blocos)
+- (a) automáticos: `server/bpo-a-classificar.test.ts` (27 testes: regras puras, extrato novo, regra por titular,
+  criar/ignorar/confirmar/receber/cancelar+restaurar, importador, Asaas aberto/pago/crédito antecipado, divisão 1→N,
+  N→1 em despesa, idempotência, chamadas simultâneas, recusas, DRE/totais sem dupla contagem, centros de custo
+  (semente idempotente, renomear combinados), filtros puros e no servidor). Suíte completa: 196 arquivos,
+  1.669 testes ✅; `npx tsc --noEmit -p .` ✅; `npx vite build` ✅ (o projeto não tem script `npm run lint`).
+- (b) manuais por mim: Playwright (Chromium, viewport iPhone 14, API simulada por `page.route`, página temporária
+  apagada): aba A classificar, diálogo Dar baixa/dividir (preenche o restante e mostra "Aplicado R$ 500,00 de
+  R$ 500,00"), Criar lançamento, Cobranças com filtros e painel, Despesas — 0 campos sobrepostos, largura 390 px, sem
+  erro de página; busca sem resultado mostra a lista vazia.
+- (c) pendente em produção: aplicar 0103/0104, fazer o UPDATE dos 134 (com autorização), ligar a conta com data de corte
+  e conferir: movimentações caem em A classificar, pagos do Conta Azul são só ligados, DRE não muda até classificar.
+
+### Riscos / decisões para o dono
+- Sem o UPDATE dos 134, os em aberto do Conta Azul continuam em Cobranças/Despesas (fora da aba A classificar), mas
+  ainda assim NÃO são baixados sozinhos pelo extrato.
+- Cobrança paga do Asaas que coincide com receita EM ABERTO do Conta Azul cria a cobrança nova (regra "em aberto não
+  baixa sozinho"); a receita do Conta Azul fica em A classificar para o dono cancelar — risco de dupla contagem até ele
+  agir.
+- Ordem de publicação: aplicar 0103 e 0104 ANTES do deploy (o código lê as colunas novas).
+
+### Próximo passo exato
+Dono revisa o PR #214 → autoriza aplicar `0103` e `0104` na Neon → autoriza o UPDATE dos 134 → merge/deploy →
+ligar a conta bancária com data de corte e validar a aba A classificar em produção.

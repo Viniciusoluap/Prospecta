@@ -44,6 +44,9 @@ import { BarraLote } from "@/components/bpo/LoteLancamentos";
 import { ImportarContaAzul } from "@/components/bpo/ImportarContaAzul";
 import { AClassificarPanel } from "@/components/bpo/AClassificar";
 import { CampoCentroCusto, CentrosCustoDialog } from "@/components/bpo/CentrosCusto";
+import { FiltrosBpo, PainelValores } from "@/components/bpo/FiltrosBpo";
+import { FILTROS_VAZIOS, filtrarClientes, filtrarMovimentacoes, filtrosDoLote, resumoDosLancamentos, type FiltrosTela } from "@shared/financeiro/bpo-filtros";
+import { filtrarLancamentosLote } from "@shared/financeiro/bpo-lote";
 import { rotulo } from "@shared/rotulos";
 import { MESES_DRE, TRANSFERENCIA_INTERNA, recebidoDoLancamento } from "@shared/financeiro/bpo-extrato";
 import { situacaoDoLancamento } from "@shared/financeiro/bpo-asaas";
@@ -139,7 +142,13 @@ export default function AdminBpo({ initialTab }: { initialTab?: Aba } = {}) {
   // Lote 3, item 15: filtros Mês/Ano do DRE (competência), aplicados no servidor às duas visões.
   const [dreMes, setDreMes] = useState("");
   const [dreAno, setDreAno] = useState("");
-  const filtroDre = { mes: dreMes || null, ano: dreAno || null };
+  const [dreCentro, setDreCentro] = useState("");
+  const filtroDre = { mes: dreMes || null, ano: dreAno || null, centroCusto: dreCentro || null };
+  // 12/11 (noite), bloco 4: filtros de Cobranças/Despesas/A classificar e de Clientes.
+  const [filtros, setFiltros] = useState<FiltrosTela>(FILTROS_VAZIOS);
+  const [clienteBusca, setClienteBusca] = useState("");
+  const [clienteStatus, setClienteStatus] = useState("todos");
+  const { data: centrosDre = [] } = trpc.bpo.centrosCusto.list.useQuery(undefined, { enabled: aba === "dre" });
   const { data: dreRows = [] } = trpc.bpo.dre.useQuery(filtroDre);
   const { data: dreCategorias = [] } = trpc.bpo.dreCategorias.useQuery(filtroDre);
   const { data: dreAnos = [] } = trpc.bpo.dreAnos.useQuery();
@@ -208,12 +217,20 @@ export default function AdminBpo({ initialTab }: { initialTab?: Aba } = {}) {
 
   const filtroOperacional = new URLSearchParams(window.location.search);
   const filtrados = lancamentos.filter(l => (!filtroOperacional.get("categoriaOperacional") || l.categoriaOperacional === filtroOperacional.get("categoriaOperacional")) && (!filtroOperacional.get("vinculoOperacionalId") || l.vinculoOperacionalId === filtroOperacional.get("vinculoOperacionalId")));
-  const cobrancas = filtrados.filter((l: any) => l.tipo !== "despesa");
-  const despesas = filtrados.filter((l: any) => l.tipo === "despesa");
   const clienteNome = (l: any) =>
     clientes.find((c: any) => c.id === l.clienteId)?.razaoSocial ??
     l.clienteNomeLivre ??
     "—";
+  // Os mesmos filtros que o "Excluir tudo" aplica no servidor (filtrarLancamentosLote): o que está oculto nunca entra.
+  const filtrosLote = filtrosDoLote(filtros);
+  const aplicarFiltros = <T extends { clienteId: number | null; clienteNomeLivre?: string | null }>(xs: T[]) =>
+    filtrarLancamentosLote(xs.map(l => ({ ...l, clienteNome: clienteNome(l) === "—" ? null : clienteNome(l) })) as any[], filtrosLote) as unknown as T[];
+  const cobrancas = aplicarFiltros(filtrados.filter((l: any) => l.tipo !== "despesa"));
+  const despesas = aplicarFiltros(filtrados.filter((l: any) => l.tipo === "despesa"));
+  const visiveisAba = new Set((aba === "cobrancas" ? cobrancas : despesas).map((l: any) => l.id));
+  const selecionadosVisiveis = selecionados.filter(id => visiveisAba.has(id));
+  const anosLancamentos = Array.from(new Set(lancamentos.map(l => l.competencia.slice(0, 4)).filter(a => /^\d{4}$/.test(a))));
+  const clientesFiltrados = filtrarClientes(clientes as any[], { busca: clienteBusca, status: clienteStatus }) as typeof clientes;
 
   const abaClass = (a: Aba) =>
     `px-4 py-2 rounded-lg text-sm font-bold transition-colors ${aba === a ? "bg-[#C9A961] text-[#1A2332]" : "bg-[#2C3E50] text-gray-300 hover:text-white"}`;
@@ -645,10 +662,23 @@ export default function AdminBpo({ initialTab }: { initialTab?: Aba } = {}) {
           <Card className="bg-[#2C3E50] border-[#C9A961]/20 text-gray-100">
             <CardHeader>
               <CardTitle className="text-[#C9A961]">
-                Clientes BPO ({clientes.length})
+                Clientes BPO ({clientesFiltrados.length}{clientesFiltrados.length !== clientes.length ? ` de ${clientes.length}` : ""})
               </CardTitle>
             </CardHeader>
             <CardContent>
+              <div className="mb-3 grid grid-cols-1 gap-3 sm:grid-cols-3">
+                <div className="col-span-full sm:col-span-2">
+                  <Label className="text-gray-300">Busca</Label>
+                  <Input aria-label="Buscar cliente" value={clienteBusca} onChange={e => setClienteBusca(e.target.value)} placeholder="nome, CPF ou CNPJ" className="mt-1 bg-[#1A2332] border-[#C9A961]/30 text-white" />
+                </div>
+                <div>
+                  <Label className="text-gray-300">Situação</Label>
+                  <select aria-label="Situação do cliente" value={clienteStatus} onChange={e => setClienteStatus(e.target.value)} className="mt-1 h-10 w-full rounded-md border border-[#C9A961]/30 bg-[#1A2332] px-2 text-white">
+                    <option value="todos">Todas</option><option value="ativo">Ativo</option><option value="pausado">Pausado</option><option value="encerrado">Encerrado</option>
+                  </select>
+                </div>
+                {(clienteBusca || clienteStatus !== "todos") && <div className="col-span-full"><Button variant="ghost" size="sm" className="text-gray-300" onClick={() => { setClienteBusca(""); setClienteStatus("todos"); }}>Limpar filtros</Button></div>}
+              </div>
               {clientes.length === 0 ? (
                 <div className="text-center py-12 text-gray-400">
                   <Building2 className="h-12 w-12 mx-auto mb-3 opacity-20" />
@@ -657,7 +687,8 @@ export default function AdminBpo({ initialTab }: { initialTab?: Aba } = {}) {
               ) : (
                 <div className="space-y-2">
                   {/* Pedido de 25/10 (noite), item 10: total recebido e em aberto por cliente; clique expande os lançamentos. */}
-                  {clientes.map(c => (
+                  {clientesFiltrados.length === 0 && <p className="text-sm text-gray-400">Nenhum cliente com esses filtros.</p>}
+                  {clientesFiltrados.map(c => (
                     <div key={c.id} className="p-3 bg-[#1A2332] rounded-lg">
                       <button type="button" className="flex w-full items-center justify-between gap-3 flex-wrap text-left"
                         onClick={() => setClienteAberto(clienteAberto === c.id ? null : c.id)}>
@@ -707,12 +738,14 @@ export default function AdminBpo({ initialTab }: { initialTab?: Aba } = {}) {
               </CardTitle>
             </CardHeader>
             <CardContent>
+              <FiltrosBpo valor={filtros} onChange={f => { setFiltros(f); setSelecionados([]); }} anos={anosLancamentos} />
+              <PainelValores resumo={resumoDosLancamentos(aba === "cobrancas" ? cobrancas : despesas)} despesa={aba === "despesas"} />
               <BarraLote
                 aba={aba}
                 visiveis={(aba === "cobrancas" ? cobrancas : despesas).map((l: any) => l.id)}
-                selecionados={selecionados}
+                selecionados={selecionadosVisiveis}
                 setSelecionados={setSelecionados}
-                filtros={{ categoriaOperacional: filtroOperacional.get("categoriaOperacional"), vinculoOperacionalId: filtroOperacional.get("vinculoOperacionalId") }}
+                filtros={{ ...filtrosLote, categoriaOperacional: filtroOperacional.get("categoriaOperacional"), vinculoOperacionalId: filtroOperacional.get("vinculoOperacionalId") }}
                 onSugerirVinculos={() => setSugerirVinculosOpen(true)}
               />
               {(aba === "cobrancas" ? cobrancas : despesas).length === 0 ? (
@@ -759,7 +792,7 @@ export default function AdminBpo({ initialTab }: { initialTab?: Aba } = {}) {
                             return registro ? <Link className="text-xs text-[#C9A961] underline" href={registro.href}>{registro.rotulo}</Link> : <p className="text-xs text-amber-300">Registro operacional indisponível</p>;
                           })()}
                         </div>
-                        <div className="flex items-center gap-3">
+                        <div className="flex flex-wrap items-center gap-3">
                           <span
                             className={`font-bold text-lg ${l.tipo === "despesa" ? "text-red-400" : "text-green-400"}`}
                           >
@@ -825,8 +858,15 @@ export default function AdminBpo({ initialTab }: { initialTab?: Aba } = {}) {
                     {Array.from(new Set([...dreAnos, ...(dreAno ? [dreAno] : [])])).map(a => <option key={a} value={a}>{a}</option>)}
                   </select>
                 </div>
-                {(dreMes || dreAno) && <Button variant="ghost" size="sm" className="text-gray-300" onClick={() => { setDreMes(""); setDreAno(""); }}>Limpar filtros</Button>}
-                <p className="w-full text-xs text-gray-400">Filtra pela competência do lançamento.</p>
+                <div className="min-w-[180px] flex-1 sm:flex-none">
+                  <Label className="text-gray-300">Centro de custo</Label>
+                  <select aria-label="Centro de custo do DRE" value={dreCentro} onChange={e => setDreCentro(e.target.value)} className="mt-1 h-10 w-full rounded-md border border-[#C9A961]/30 bg-[#1A2332] px-2 text-white">
+                    <option value="">Todos</option>
+                    {centrosDre.map(c => <option key={c.id} value={c.nome}>{c.nome}</option>)}
+                  </select>
+                </div>
+                {(dreMes || dreAno || dreCentro) && <Button variant="ghost" size="sm" className="text-gray-300" onClick={() => { setDreMes(""); setDreAno(""); setDreCentro(""); }}>Limpar filtros</Button>}
+                <p className="w-full text-xs text-gray-400">Filtra pela competência do lançamento; o centro de custo inclui os lançamentos com dois centros ("A / B").</p>
               </div>
               {dreVisao === "categoria" ? (
                 dreCategorias.length === 0 ? (
@@ -909,11 +949,18 @@ export default function AdminBpo({ initialTab }: { initialTab?: Aba } = {}) {
         )}
 
         {aba === "a_classificar" && (
+          <>
+          <FiltrosBpo valor={filtros} onChange={setFiltros} anos={anosLancamentos} />
           <AClassificarPanel
             clientes={clientes}
+            filtrar={{
+              movimentacoes: ms => filtrarMovimentacoes(ms, filtrosLote),
+              lancamentos: ls => filtrarLancamentosLote(ls, filtrosLote),
+            }}
             onReceber={l => setRecebendo({ id: l.id, requestKey: crypto.randomUUID(), valor: Number(l.valor) - Number(l.valorRecebido), saldo: Number(l.valor) - Number(l.valorRecebido), recebidoEm: new Date().toISOString().slice(0, 10), observacoes: "" })}
             onMarcarPago={id => marcarPago.mutate({ id })}
           />
+          </>
         )}
 
         {aba === "bancos" && <BancosPanel />}

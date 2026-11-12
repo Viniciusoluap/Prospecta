@@ -27,6 +27,8 @@ function consultaAba(d: Executor, aba: AbaLote, ids?: number[]) {
   return d.select({
     ...getTableColumns(l),
     clienteNome: sql<string | null>`coalesce(${bpoClients.razaoSocial}, ${l.clienteNomeLivre})`,
+    // 12/11 (noite), bloco 4: a busca da tela também acha pelo titular da movimentação.
+    titular: sql<string | null>`(SELECT t.titular FROM bank_transactions t WHERE t.id = ${l.bankTransactionId})`,
     baixas: contagem(sql`SELECT count(*) FROM bpo_recebimentos r WHERE r.lancamento_id = ${l.id}`),
     movimentosObra: contagem(sql`SELECT count(*) FROM obra_movimentos om WHERE om.bpo_lancamento_id = ${l.id}`),
     recebimentosRegularizacao: contagem(sql`SELECT count(*) FROM regularizacao_recebimentos rr WHERE rr.bpo_lancamento_id = ${l.id}`),

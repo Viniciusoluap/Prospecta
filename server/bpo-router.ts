@@ -38,6 +38,7 @@ import { listarExclusoesEmLote, previaRestauracaoExclusao, restaurarExclusaoEmLo
 import { mensagemLancamentoCombinado } from "../shared/financeiro/bpo-lote.js";
 import { importarContaAzul, previaContaAzul } from "./bpo-conta-azul.js";
 import { LIMITE_ARQUIVO_CONTA_AZUL } from "../shared/financeiro/conta-azul.js";
+import { filtrarPorCentro } from "../shared/financeiro/bpo-filtros.js";
 import {
   abertosParaBaixa, confirmarLancamentos, darBaixaComMovimentacao, contagemAClassificar, criarLancamentosDasMovimentacoes, ignorarMovimentacoes,
   lancamentosAClassificar, movimentacoesAClassificar,
@@ -228,6 +229,8 @@ const entradaLoteSchema = z.object({
     status: z.enum(["todas", "pendentes", "pagas", "vencidas", "parciais"]).nullish(),
     tipo: z.enum(["todos", "honorario", "reembolso", "outros"]).nullish(),
     categoriaOperacional: z.string().max(40).nullish(), vinculoOperacionalId: z.string().max(80).nullish(),
+    // 12/11 (noite), bloco 4: valor e centro de custo (mesmos filtros da tela).
+    valorMin: z.number().min(0).nullish(), valorMax: z.number().min(0).nullish(), centroCusto: z.string().max(100).nullish(),
   }).optional(),
 });
 
@@ -240,6 +243,8 @@ async function lancamentosDoDre() {
 const filtroDreSchema = z.object({
   mes: z.string().regex(/^(0[1-9]|1[0-2])$/).nullish(),
   ano: z.string().regex(/^\d{4}$/).nullish(),
+  // 12/11 (noite), bloco 4: centro de custo ("A / B" entra nos dois).
+  centroCusto: z.string().max(100).nullish(),
 }).optional();
 
 export const bpoRouter = router({
@@ -442,9 +447,9 @@ export const bpoRouter = router({
   // LOTE C (25/10): inclui os lançamentos gerados pelo extrato bancário (transferência
   // interna não gera lançamento, então não entra). Regra em shared/financeiro/bpo-extrato.ts.
   // Lote 3, item 15: filtros Mês/Ano por competência (vazio = todos), nas duas visões do DRE.
-  dre: adminProcedure.input(filtroDreSchema).query(async ({ input }) => dreDosLancamentos(filtrarPorCompetencia(await lancamentosDoDre(), input))),
+  dre: adminProcedure.input(filtroDreSchema).query(async ({ input }) => dreDosLancamentos(filtrarPorCentro(filtrarPorCompetencia(await lancamentosDoDre(), input), input?.centroCusto))),
   /** Pedido de 25/10 (noite): DRE por categoria (transferência interna fora). */
-  dreCategorias: adminProcedure.input(filtroDreSchema).query(async ({ input }) => dreDasCategorias(filtrarPorCompetencia(await lancamentosDoDre(), input))),
+  dreCategorias: adminProcedure.input(filtroDreSchema).query(async ({ input }) => dreDasCategorias(filtrarPorCentro(filtrarPorCompetencia(await lancamentosDoDre(), input), input?.centroCusto))),
   /** Anos com lançamento (opções do filtro de Ano do DRE). */
   dreAnos: adminProcedure.query(async () => Array.from(new Set((await lancamentosDoDre()).map(l => l.competencia.slice(0, 4)).filter(a => /^\d{4}$/.test(a)))).sort().reverse()),
 

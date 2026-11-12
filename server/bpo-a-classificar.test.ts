@@ -15,6 +15,8 @@ import { reprocessarMovimentacoes, salvarRegraTitular } from "./bpo-extrato.js";
 import { sincronizarCobrancasAsaas } from "./bpo-asaas.js";
 import { receitaEmAbertoDoContaAzul } from "../shared/financeiro/conta-azul.js";
 import { sentidoCompativel, sugestoesDeBaixa } from "../shared/financeiro/bpo-a-classificar.js";
+import { FILTROS_VAZIOS, filtrarClientes, filtrarMovimentacoes, filtrosDoLote, numeroDoCampo, resumoDosLancamentos } from "../shared/financeiro/bpo-filtros.js";
+import { filtrarLancamentosLote } from "../shared/financeiro/bpo-lote.js";
 import { centrosDoLancamento, centrosUsados, chaveCentro, lancamentoNoCentro, renomearCentroNoTexto } from "../shared/financeiro/centros-custo.js";
 
 const sqlDe = (arquivo: string) => readFileSync(new URL(`../drizzle/${arquivo}`, import.meta.url), "utf8");
@@ -445,5 +447,67 @@ describe("centros de custo (bloco 3)", () => {
     expect(criado.centroCustos).toBe("Obra Centro");
     await admin().lancamentos.editar({ id: criado.id, version: criado.version, motivo: "ajuste", descricao: "Cimento", valor: 50, vencimento: "2026-10-10", competencia: "2026-10", centroCustos: "Obra Norte" });
     expect(await linhas("SELECT centro_custos c FROM bpo_lancamentos")).toEqual([{ c: "Obra Norte" }]);
+  });
+});
+
+describe("filtros (bloco 4)", () => {
+  const base = { tipo: "receita", clienteId: 1, clienteNome: "Maria Teste", competencia: "2026-10", vencimento: "2026-10-10", pago: false, valorRecebido: "0" };
+  const lancs = [
+    { ...base, id: 1, descricao: "Honorários", valor: "300.00", centroCustos: "Prospecta Maranhao / Prospecta Para" },
+    { ...base, id: 2, descricao: "Projeto", valor: "1500.00", centroCustos: "Prospecta Para", pago: true, valorRecebido: "1500.00" },
+    { ...base, id: 3, descricao: "Taxa", valor: "80.50", centroCustos: null, competencia: "2025-10", clienteNome: null, titular: "JOAO PIX" },
+    { ...base, id: 4, descricao: "Parcela", valor: "500.00", centroCustos: "Obra", valorRecebido: "200.00", vencimento: "2099-01-01" },
+  ];
+  const ids = (f: Partial<typeof FILTROS_VAZIOS>) => filtrarLancamentosLote(lancs, filtrosDoLote({ ...FILTROS_VAZIOS, ...f }), new Date("2026-11-12T12:00:00Z")).map(l => l.id);
+
+  it("mês/ano, busca (cliente, titular, descrição), valor mínimo/máximo/exato, status e centro de custo", () => {
+    expect(numeroDoCampo("1.234,56")).toBe(1234.56);
+    expect(numeroDoCampo("R$ 80.5")).toBe(80.5);
+    expect(numeroDoCampo("abc")).toBeNull();
+    expect(ids({})).toEqual([1, 2, 3, 4]);
+    expect(ids({ mes: "10", ano: "2026" })).toEqual([1, 2, 4]);
+    expect(ids({ busca: "joao" })).toEqual([3]);
+    expect(ids({ busca: "maria" })).toEqual([1, 2, 4]);
+    expect(ids({ valorMin: "300" })).toEqual([1, 2, 4]);
+    expect(ids({ valorMax: "300,00" })).toEqual([1, 3]);
+    expect(ids({ valorMin: "80,50", valorMax: "80,50" })).toEqual([3]); // valor exato
+    expect(ids({ status: "pagas" })).toEqual([2]);
+    expect(ids({ status: "vencidas" })).toEqual([1, 3]);
+    expect(ids({ status: "pendentes" })).toEqual([4]);
+    expect(ids({ status: "parciais" })).toEqual([4]);
+    expect(ids({ centroCusto: "prospecta pará" })).toEqual([1, 2]); // o combinado entra nos dois
+    expect(ids({ centroCusto: "Prospecta Maranhao" })).toEqual([1]);
+  });
+
+  it("painel de valores soma só o visível (centavos); movimentações e clientes", () => {
+    expect(resumoDosLancamentos(lancs.filter(l => [1, 4].includes(l.id)))).toEqual({ quantidade: 2, total: 800, recebido: 200, emAberto: 600 });
+    const movs = [
+      { id: 1, data: "2026-10-01T12:00:00Z", descricao: "Pix recebido", titular: "Maria", valor: "10.00" },
+      { id: 2, data: new Date("2026-09-05T12:00:00Z"), descricao: "Tarifa", titular: null, valor: "2.50" },
+    ];
+    expect(filtrarMovimentacoes(movs, { mes: "10", ano: "2026" }).map(m => m.id)).toEqual([1]);
+    expect(filtrarMovimentacoes(movs, { busca: "tarifa", valorMax: 3 }).map(m => m.id)).toEqual([2]);
+    const clientes = [
+      { id: 1, razaoSocial: "Construtora Exemplo", cnpj: "11.222.333/0001-44", cpf: null, nomeLead: null, status: "ativo" },
+      { id: 2, razaoSocial: "Ana", cnpj: null, cpf: "123.456.789-00", nomeLead: "Ana Lima", status: "encerrado" },
+    ];
+    expect(filtrarClientes(clientes, { busca: "lima" }).map(c => c.id)).toEqual([2]);
+    expect(filtrarClientes(clientes, { busca: "11222333" }).map(c => c.id)).toEqual([1]);
+    expect(filtrarClientes(clientes, { busca: "456.789" }).map(c => c.id)).toEqual([2]);
+    expect(filtrarClientes(clientes, { status: "ativo" }).map(c => c.id)).toEqual([1]);
+  });
+
+  it("no servidor: DRE por centro de custo e \"Excluir tudo\" respeitam os filtros novos", async () => {
+    await pg.exec(`INSERT INTO bpo_lancamentos (tipo, descricao, valor, vencimento, competencia, centro_custos) VALUES
+      ('receita','A',300,'2026-10-10','2026-10','Prospecta Maranhao / Prospecta Para'),
+      ('receita','B',1500,'2026-10-10','2026-10','Prospecta Para'),
+      ('despesa','C',100,'2026-10-10','2026-10','Obra'),
+      ('receita','D',999,'2026-10-10','2026-10','Prospecta Para')`);
+    await pg.exec("UPDATE bpo_lancamentos SET a_classificar = true WHERE descricao = 'D'"); // fora do DRE
+    expect((await admin().dre({ centroCusto: "Prospecta Para" })).map(r => [r.cobrancas, r.despesas])).toEqual([[1800, 0]]);
+    expect((await admin().dre({ centroCusto: "prospecta maranhao" })).map(r => r.cobrancas)).toEqual([300]);
+    expect((await admin().dreCategorias({ centroCusto: "Obra" })).map(r => r.saidas)).toEqual([100]);
+    const p = await admin().lancamentos.previaExclusao({ aba: "cobrancas", modo: "tudo", filtros: { centroCusto: "Prospecta Para", valorMax: 500 } });
+    expect(p).toMatchObject({ totalAba: 2, alcancados: 1, excluiveis: 1 });
   });
 });
