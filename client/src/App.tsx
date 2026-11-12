@@ -37,6 +37,7 @@ import AdminProjetos from "./pages/admin/AdminProjetos";
 import AdminMapa from "./pages/admin/AdminMapa";
 import AdminRegularizacoes from "./pages/admin/AdminRegularizacoes";
 import AdminWhatsApp from "./pages/admin/AdminWhatsApp";
+import AdminCentralVendas from "./pages/admin/AdminCentralVendas";
 import AdminBpo from "./pages/admin/AdminBpo";
 import AdminObraMedicoes from "./pages/admin/AdminObraMedicoes";
 import AdminAvaliacoes from "./pages/admin/AdminAvaliacoes";
@@ -278,6 +279,12 @@ function Router() {
       <Route path="/admin/whatsapp">
         <AdminRoute module="whatsapp">
           <AdminWhatsApp />
+        </AdminRoute>
+      </Route>
+      {/* Central de Vendas (12/11/2026): módulo do CRM; configurações só do admin. */}
+      <Route path="/admin/central-vendas">
+        <AdminRoute module="crm">
+          <AdminCentralVendas />
         </AdminRoute>
       </Route>
       <Route path="/admin/bpo">

@@ -78,6 +78,8 @@ const procedureModules: Record<string, AdminModule | AdminModule[]> = {
   incorporacao: "incorporacao",
   regularizacao: "regularizacao",
   whatsapp: "whatsapp",
+  // Central de Vendas (12/11): módulo do CRM; configurações só admin (checado no router).
+  centralVendas: "crm",
   financiamentos: "financiamentos",
   juridico: "juridico",
   corretores: "corretores",

@@ -209,7 +209,9 @@ function validarConteudoTemplate(conteudo: string) {
 export const whatsappRouter = router({
   templates: adminProcedure.query(async () => {
     const rows = await getDb().select().from(whatsappTemplates).where(eq(whatsappTemplates.ativo, true)).orderBy(whatsappTemplates.categoria, whatsappTemplates.nome);
-    return rows.length ? rows.map(t => ({ id: String(t.id), name: t.nome, category: t.categoria, body: t.conteudo })) : WHATSAPP_TEMPLATES;
+    const doBanco = rows.map(t => ({ id: String(t.id), name: t.nome, category: t.categoria, body: t.conteudo }));
+    // Central de Vendas (12/11): os textos automáticos (slug cv-*) não escondem os templates padrão da tela.
+    return rows.some(t => !t.slug.startsWith("cv-")) ? doBanco : [...WHATSAPP_TEMPLATES, ...doBanco];
   }),
 
   salvarTemplate: protectedProcedure.input(templateSchema).mutation(async ({ ctx, input }) => {

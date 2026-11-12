@@ -56,6 +56,7 @@ export function hasPageBackButton(location: string) {
     "/admin/agenda",
     "/admin/tarefas-agenda",
     "/admin/whatsapp",
+    "/admin/central-vendas",
     "/admin/bpo",
     "/admin/contabilidade",
     "/admin/financeiro",
