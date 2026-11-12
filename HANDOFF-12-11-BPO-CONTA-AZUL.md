@@ -163,3 +163,16 @@ já liga com segurança. Branch `claude/intelligent-ptolemy-av0qoh` (PR #214, ra
   "faltam/passou", confirma só quando fecha). Despesa parcial mostra "Pago · Saldo" em Despesas.
 - Limite conhecido: excluir a conta bancária (limpeza com backup) zera `bpo_recebimentos.bank_transaction_id`
   (FK SET NULL); o valor recebido dos lançamentos fica.
+
+### Bloco 3 — Centros de custo (concluído)
+- Migração `drizzle/0104_bpo_centros_custo.sql` (idempotente; só insere): tabela `bpo_centros_custo` (id, nome
+  varchar(100), ativo, created_at); nome único sem diferenciar maiúsculas/acentos por índice
+  `lower(translate(btrim(nome), acentos, sem acento))` (sem extensão `unaccent`); semente com os nomes já usados em
+  `bpo_lancamentos.centro_custos`, separando "A / B" (`regexp_split_to_table`), `ON CONFLICT DO NOTHING`.
+- `centro_custos` continua texto; os combinados ficam como estão e entram no filtro dos dois.
+- `server/bpo-centros-custo.ts` + rotas `bpo.centrosCusto.{list,criar,renomear,ativar}`; renomear (transação) troca
+  só a parte correspondente nos combinados, em todos os lançamentos (inclusive arquivados); recusa nome igual a outro
+  centro (sem fusão) e "/" no nome. Regras puras: `shared/financeiro/centros-custo.ts`.
+- Tela: botão "Centros de custo" no topo do BPO (criar, renomear, ativar/desativar, uso); campo "Centro de custo"
+  (ativos; valor gravado fora da lista continua como opção) no "+ Lançamento", na edição e no "Criar lançamento" da
+  aba A classificar; aparece na linha de Cobranças/Despesas/A classificar.

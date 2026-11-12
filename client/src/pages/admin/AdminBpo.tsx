@@ -43,6 +43,7 @@ import { SugerirVinculosDialog, VinculoClienteLancamento } from "@/components/bp
 import { BarraLote } from "@/components/bpo/LoteLancamentos";
 import { ImportarContaAzul } from "@/components/bpo/ImportarContaAzul";
 import { AClassificarPanel } from "@/components/bpo/AClassificar";
+import { CampoCentroCusto, CentrosCustoDialog } from "@/components/bpo/CentrosCusto";
 import { rotulo } from "@shared/rotulos";
 import { MESES_DRE, TRANSFERENCIA_INTERNA, recebidoDoLancamento } from "@shared/financeiro/bpo-extrato";
 import { situacaoDoLancamento } from "@shared/financeiro/bpo-asaas";
@@ -97,6 +98,8 @@ const emptyLancamentoForm = {
   vinculoOperacionalId: "",
   tipoDespesaObra: "",
   etapaObra: "",
+  // 12/11 (noite): centro de custo voltou (cadastro em "Centros de custo"; opcional).
+  centroCustos: "",
 };
 
 export default function AdminBpo({ initialTab }: { initialTab?: Aba } = {}) {
@@ -243,6 +246,7 @@ export default function AdminBpo({ initialTab }: { initialTab?: Aba } = {}) {
               {importarClientes.isPending ? "Importando…" : "Importar clientes"}
             </Button>
             <ImportarContaAzul />
+            <CentrosCustoDialog />
             <Dialog open={clienteOpen} onOpenChange={setClienteOpen}>
               <DialogTrigger asChild>
                 <Button
@@ -537,6 +541,7 @@ export default function AdminBpo({ initialTab }: { initialTab?: Aba } = {}) {
                         className="bg-[#2C3E50] border-[#C9A961]/30 text-white mt-1"
                       />
                     </div>
+                    <CampoCentroCusto valor={lancamentoForm.centroCustos} onChange={v => setLancamentoForm(f => ({ ...f, centroCustos: v ?? "" }))} />
                     <div>
                       <Label className="text-gray-300">Competência *</Label>
                       <Input
@@ -565,6 +570,7 @@ export default function AdminBpo({ initialTab }: { initialTab?: Aba } = {}) {
                           lancamentoForm.clienteNomeLivre || undefined,
                         valor: parseFloat(lancamentoForm.valor),
                         vinculoOperacionalId: lancamentoForm.vinculoOperacionalId || null,
+                        centroCustos: lancamentoForm.centroCustos || null,
                       })
                     }
                     disabled={
@@ -735,6 +741,7 @@ export default function AdminBpo({ initialTab }: { initialTab?: Aba } = {}) {
                             {" • "}{l.tipo === "receita" ? "Cobrança" : rotulo(l.tipo)}
                             {l.categoriaOperacional ? ` • ${(ROTULOS_CATEGORIA_OPERACIONAL as Record<string, string>)[l.categoriaOperacional] ?? l.categoriaOperacional}` : ""}
                             {` • ${l.categoria || "sem categoria"}`}
+                            {l.centroCustos ? ` • centro de custo: ${l.centroCustos}` : ""}
                             {l.asaasPaymentId ? " • Asaas" : ""}
                             {l.bankTransactionId ? " • extrato bancário" : ""} • vence{" "}
                             {new Date(l.vencimento).toLocaleDateString("pt-BR")}{" "}
@@ -929,6 +936,7 @@ export default function AdminBpo({ initialTab }: { initialTab?: Aba } = {}) {
             <div><Label>Valor (R$)</Label><CurrencyInput value={editando.valor ? Number(editando.valor) : 0} onChange={v => setEditando({ ...editando, valor: v ? String(v) : "" })} className="bg-[#2C3E50] border-[#C9A961]/30" /></div>
             <div><Label>Vencimento</Label><Input type="date" value={editando.vencimento} onChange={e => setEditando({ ...editando, vencimento: e.target.value })} className="bg-[#2C3E50] border-[#C9A961]/30" /></div>
             <div><Label>Competência</Label><Input type="month" value={editando.competencia} onChange={e => setEditando({ ...editando, competencia: e.target.value })} className="bg-[#2C3E50] border-[#C9A961]/30" /></div>
+            <CampoCentroCusto valor={editando.centroCustos} onChange={v => setEditando({ ...editando, centroCustos: v })} />
             <div><Label>Cliente BPO</Label><select className="w-full bg-[#2C3E50] p-2" value={editando.clienteId ?? ""} onChange={e => setEditando({ ...editando, clienteId: e.target.value ? Number(e.target.value) : null })}><option value="">Cadastro livre</option>{clientes.map(c => <option key={c.id} value={c.id}>{c.razaoSocial}</option>)}</select></div>
             {!editando.clienteId && <div><Label>Nome / identificação</Label><Input value={editando.clienteNomeLivre ?? ""} onChange={e => setEditando({ ...editando, clienteNomeLivre: e.target.value })} className="bg-[#2C3E50] border-[#C9A961]/30" /></div>}
             {!editando.clienteId && <VinculoClienteLancamento lancamento={editando} clientes={clientes}
@@ -949,6 +957,7 @@ export default function AdminBpo({ initialTab }: { initialTab?: Aba } = {}) {
                 valor: Number(editando.valor), clienteId: editando.clienteId,
                 clienteNomeLivre: editando.clienteNomeLivre, vencimento: editando.vencimento, competencia: editando.competencia,
                 observacoes: editando.observacoes,
+                centroCustos: editando.centroCustos ?? null,
                 categoriaOperacional: editando.categoriaOperacional, vinculoOperacionalId: editando.vinculoOperacionalId,
                 tipoDespesaObra: editando.tipoDespesaObra, etapaObra: editando.etapaObra,
               })}>{editarLancamento.isPending ? "Salvando..." : "Salvar com auditoria"}</Button>

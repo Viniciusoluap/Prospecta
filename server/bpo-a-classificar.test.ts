@@ -15,6 +15,7 @@ import { reprocessarMovimentacoes, salvarRegraTitular } from "./bpo-extrato.js";
 import { sincronizarCobrancasAsaas } from "./bpo-asaas.js";
 import { receitaEmAbertoDoContaAzul } from "../shared/financeiro/conta-azul.js";
 import { sentidoCompativel, sugestoesDeBaixa } from "../shared/financeiro/bpo-a-classificar.js";
+import { centrosDoLancamento, centrosUsados, chaveCentro, lancamentoNoCentro, renomearCentroNoTexto } from "../shared/financeiro/centros-custo.js";
 
 const sqlDe = (arquivo: string) => readFileSync(new URL(`../drizzle/${arquivo}`, import.meta.url), "utf8");
 
@@ -60,6 +61,7 @@ async function bancoBpo() {
   await pg.exec(sqlDe("0099_bpo_limpeza_ajustes.sql"));
   await pg.exec(sqlDe("0103_bpo_a_classificar.sql"));
   await pg.exec(sqlDe("0103_bpo_a_classificar.sql")); // idempotente
+  await pg.exec(sqlDe("0104_bpo_centros_custo.sql"));
   return pg;
 }
 
@@ -387,5 +389,61 @@ describe("dividir pagamentos (bloco 2)", () => {
     await expect(baixa(4, [{ lancamentoId: 2, valor: 50 }])).rejects.toThrow(/não está em A classificar/);
     await pg.exec("UPDATE bpo_lancamentos SET bank_transaction_id = 4 WHERE id = 2");
     await expect(baixa(1, [{ lancamentoId: 2, valor: 200 }, { lancamentoId: 1, valor: 300 }])).rejects.toThrow(/já está ligado/);
+  });
+});
+
+describe("centros de custo (bloco 3)", () => {
+  it("regras: combinado \"A / B\" vale para os dois; comparação sem maiúsculas/acentos; renomear só a parte certa", () => {
+    expect(centrosDoLancamento("Prospecta Maranhao / Prospecta Para")).toEqual(["Prospecta Maranhao", "Prospecta Para"]);
+    expect(chaveCentro("  Prospecta  Pará ")).toBe("prospecta para");
+    expect(lancamentoNoCentro("Prospecta Maranhao / Prospecta Para", "PROSPECTA PARÁ")).toBe(true);
+    expect(lancamentoNoCentro("Prospecta Maranhao", "Prospecta Para")).toBe(false);
+    expect(renomearCentroNoTexto("Prospecta Maranhao / Prospecta Para", "prospecta para", "Filial Belém")).toBe("Prospecta Maranhao / Filial Belém");
+    expect(renomearCentroNoTexto("Obra X", "Obra Y", "Z")).toBeNull();
+    expect(renomearCentroNoTexto("A / B", "B", "A")).toBe("A"); // juntar não duplica
+    expect(() => renomearCentroNoTexto("A / B", "B", "x".repeat(99))).toThrow(/100 caracteres/);
+    expect(centrosUsados([{ centroCustos: "B / a" }, { centroCustos: "A" }, { centroCustos: null }])).toEqual(["a", "B"]);
+  });
+
+  it("semente da 0104: separa os combinados, ignora maiúsculas/acentos repetidos e é idempotente (só insere)", async () => {
+    await pg.exec(`INSERT INTO bpo_lancamentos (tipo, descricao, valor, vencimento, competencia, centro_custos) VALUES
+      ('despesa','a',1,now(),'2026-10','Prospecta Maranhao / Prospecta Para'), ('despesa','b',1,now(),'2026-10','Prospecta Maranhao'),
+      ('despesa','c',1,now(),'2026-10','prospecta pará'), ('despesa','d',1,now(),'2026-10',null), ('despesa','e',1,now(),'2026-10','Obra Centro');
+      DROP TABLE bpo_centros_custo;`);
+    await pg.exec(sqlDe("0104_bpo_centros_custo.sql"));
+    await pg.exec("UPDATE bpo_centros_custo SET ativo = false WHERE nome = 'Obra Centro'");
+    await pg.exec(sqlDe("0104_bpo_centros_custo.sql"));
+    const nomes = (await linhas<{ nome: string; ativo: boolean }>("SELECT nome, ativo FROM bpo_centros_custo ORDER BY id"));
+    expect(nomes).toHaveLength(3);
+    expect(nomes.map(n => chaveCentro(n.nome)).sort()).toEqual(["obra centro", "prospecta maranhao", "prospecta para"]);
+    expect(nomes.find(n => n.nome === "Obra Centro")?.ativo).toBe(false); // reaplicar não mexe no que existe
+    await expect(pg.exec("INSERT INTO bpo_centros_custo (nome) VALUES ('OBRA CENTRO')")).rejects.toThrow();
+  });
+
+  it("criar, listar com uso, renomear (inclusive nos combinados) e desativar", async () => {
+    await pg.exec(`INSERT INTO bpo_lancamentos (tipo, descricao, valor, vencimento, competencia, centro_custos) VALUES
+      ('despesa','a',1,now(),'2026-10','Prospecta Maranhao / Prospecta Para'), ('despesa','b',1,now(),'2026-10','Prospecta Para'),
+      ('despesa','c',1,now(),'2026-10','Outro')`);
+    const para = await admin().centrosCusto.criar({ nome: "Prospecta Para" });
+    await admin().centrosCusto.criar({ nome: "Prospecta Maranhao" });
+    await expect(admin().centrosCusto.criar({ nome: "prospecta  pará" })).rejects.toThrow(/Já existe/);
+    await expect(admin().centrosCusto.criar({ nome: "A/B" })).rejects.toThrow(/separador/);
+    expect((await admin().centrosCusto.list()).map(c => [c.nome, c.lancamentos])).toEqual([["Prospecta Maranhao", 1], ["Prospecta Para", 2]]);
+    await expect(admin().centrosCusto.renomear({ id: para.id, nome: "PROSPECTA MARANHÃO" })).rejects.toThrow(/Já existe/);
+    expect(await admin().centrosCusto.renomear({ id: para.id, nome: "Filial Belém" })).toMatchObject({ lancamentos: 2, centro: { nome: "Filial Belém" } });
+    expect(await linhas("SELECT centro_custos c FROM bpo_lancamentos ORDER BY id")).toEqual([
+      { c: "Prospecta Maranhao / Filial Belém" }, { c: "Filial Belém" }, { c: "Outro" },
+    ]);
+    expect(await admin().centrosCusto.ativar({ id: para.id, ativo: false })).toMatchObject({ ativo: false });
+  });
+
+  it("+ Lançamento e edição gravam o centro de custo", async () => {
+    const criado = await admin().lancamentos.create({
+      requestKey: "6c9b1d1e-1111-4a4a-9b9b-000000000001", tipo: "despesa", descricao: "Cimento", valor: 50, vencimento: "2026-10-10",
+      competencia: "2026-10", categoriaOperacional: "administrativo", centroCustos: "Obra Centro",
+    });
+    expect(criado.centroCustos).toBe("Obra Centro");
+    await admin().lancamentos.editar({ id: criado.id, version: criado.version, motivo: "ajuste", descricao: "Cimento", valor: 50, vencimento: "2026-10-10", competencia: "2026-10", centroCustos: "Obra Norte" });
+    expect(await linhas("SELECT centro_custos c FROM bpo_lancamentos")).toEqual([{ c: "Obra Norte" }]);
   });
 });

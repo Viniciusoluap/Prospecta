@@ -11,6 +11,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { formatCurrency } from "@/lib/format";
 import { CurrencyInput } from "@/components/ui/currency-input";
 import { normalizarTitular } from "@shared/financeiro/bpo-extrato";
+import { CampoCentroCusto } from "@/components/bpo/CentrosCusto";
 import { CATEGORIAS_BPO, TRANSFERENCIA_INTERNA, type CategoriaBpo } from "@shared/financeiro/bpo-extrato";
 import { CONFIRMACAO_EXCLUSAO, confirmacaoExclusaoValida } from "@shared/financeiro/bpo-lote";
 
@@ -185,6 +186,7 @@ function CriarLancamentoDialog({ ids, movs, clientes, onFechar }: { ids: number[
   const [categoria, setCategoria] = useState<string>(sugestao);
   // "manter" = cada movimentação fica com o cliente que já tinha (sugerido pelo titular).
   const [cliente, setCliente] = useState<string>(um?.bpoClienteId ? String(um.bpoClienteId) : "manter");
+  const [centroCustos, setCentroCustos] = useState<string | null>(null);
   const criar = trpc.bpo.aClassificar.criarLancamentos.useMutation({
     onSuccess: r => { toast.success(`${r.classificadas} lançamento(s) criado(s).`); onFechar(true); },
     onError: e => toast.error(e.message),
@@ -212,11 +214,13 @@ function CriarLancamentoDialog({ ids, movs, clientes, onFechar }: { ids: number[
               {clientes.map(c => <option key={c.id} value={c.id}>{c.razaoSocial}</option>)}
             </select>
           </div>
+          <CampoCentroCusto className="col-span-full" valor={centroCustos} onChange={setCentroCustos} />
         </div>
         <Button className="w-full bg-[#C9A961] hover:bg-[#B8985A] text-[#1A2332] font-bold" disabled={!categoria || criar.isPending}
           onClick={() => criar.mutate({
             ids, categoria: categoria as CategoriaBpo,
             ...(cliente === "manter" ? {} : { bpoClienteId: cliente === "nenhum" ? null : Number(cliente) }),
+            ...(centroCustos ? { centroCustos } : {}),
           })}>
           {criar.isPending ? "Criando…" : "Criar lançamento"}
         </Button>

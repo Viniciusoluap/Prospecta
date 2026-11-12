@@ -42,6 +42,7 @@ import {
   abertosParaBaixa, confirmarLancamentos, darBaixaComMovimentacao, contagemAClassificar, criarLancamentosDasMovimentacoes, ignorarMovimentacoes,
   lancamentosAClassificar, movimentacoesAClassificar,
 } from "./bpo-a-classificar.js";
+import { ativarCentroCusto, criarCentroCusto, listarCentrosCusto, renomearCentroCusto } from "./bpo-centros-custo.js";
 import { aplicarVinculosEmMassa, previaVinculosEmMassa, sugestoesDoLancamento, vincularLancamentoACliente } from "./bpo-vinculo-cliente.js";
 
 const backupContaAzulSchema = z.object({
@@ -413,7 +414,7 @@ export const bpoRouter = router({
       descricao: z.string().trim().min(1).max(500), valor: z.number().positive(), categoria: z.enum(CATEGORIAS_MANUAIS).optional(),
       clienteId: z.number().int().positive().nullable().optional(), clienteNomeLivre: texto(255),
       vencimento: z.union([z.string(), z.date()]), competencia: z.string().regex(/^\d{4}-\d{2}$/),
-      // Item 12: centro de custos saiu da tela; ausente = mantém o valor gravado.
+      // 12/11 (noite): centro de custo voltou para a tela (cadastro em bpo.centrosCusto); ausente = mantém o valor gravado.
       centroCustos: texto(100), observacoes: z.string().max(5000).optional().nullable(),
       categoriaOperacional: texto(40), vinculoOperacionalId: texto(80), tipoDespesaObra: texto(30), etapaObra: texto(80),
     })).mutation(async ({ input, ctx }) => {
@@ -483,6 +484,23 @@ export const bpoRouter = router({
     confirmar: adminProcedure.input(z.object({ ids: z.array(z.number().int().positive()).min(1).max(2000) })).mutation(async ({ input, ctx }) => {
       try { return await confirmarLancamentos(input.ids, ctx.user.id); }
       catch (e) { throw new TRPCError({ code: "BAD_REQUEST", message: e instanceof Error ? e.message : "Falha ao confirmar." }); }
+    }),
+  }),
+
+  /** Pedido de 12/11 (noite): cadastro de centros de custo (renomear também atualiza os lançamentos). */
+  centrosCusto: router({
+    list: adminProcedure.query(() => listarCentrosCusto()),
+    criar: adminProcedure.input(z.object({ nome: z.string().trim().min(2).max(100) })).mutation(async ({ input }) => {
+      try { return await criarCentroCusto(input.nome); }
+      catch (e) { throw new TRPCError({ code: "BAD_REQUEST", message: e instanceof Error ? e.message : "Falha ao criar." }); }
+    }),
+    renomear: adminProcedure.input(z.object({ id: z.number().int().positive(), nome: z.string().trim().min(2).max(100) })).mutation(async ({ input }) => {
+      try { return await renomearCentroCusto(input.id, input.nome); }
+      catch (e) { throw new TRPCError({ code: "BAD_REQUEST", message: e instanceof Error ? e.message : "Falha ao renomear." }); }
+    }),
+    ativar: adminProcedure.input(z.object({ id: z.number().int().positive(), ativo: z.boolean() })).mutation(async ({ input }) => {
+      try { return await ativarCentroCusto(input.id, input.ativo); }
+      catch (e) { throw new TRPCError({ code: "BAD_REQUEST", message: e instanceof Error ? e.message : "Falha ao salvar." }); }
     }),
   }),
 

@@ -1287,6 +1287,15 @@ export const bpoRecebimentos = pgTable("bpo_recebimentos", {
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 
+// Pedido de 12/11 (noite): cadastro de centros de custo (o lançamento guarda o nome em centro_custos; "A / B" = dois).
+export const bpoCentrosCusto = pgTable("bpo_centros_custo", {
+  id: serial("id").primaryKey(),
+  nome: varchar("nome", { length: 100 }).notNull(),
+  ativo: boolean("ativo").default(true).notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+export type BpoCentroCusto = typeof bpoCentrosCusto.$inferSelect;
+
 export const bpoLancamentoHistorico = pgTable("bpo_lancamento_historico", {
   id: serial("id").primaryKey(),
   lancamentoId: integer("lancamento_id").references(() => bpoLancamentos.id, { onDelete: "set null" }),
