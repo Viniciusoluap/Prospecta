@@ -75,7 +75,8 @@ export async function credencialDaConta(conta: Pick<BankAccount, "id" | "provedo
 
 /**
  * Grava movimentos (sem duplicar) respeitando a data inicial da conta. LOTE C (25/10): cada
- * movimentação nova recebe uma categoria sugerida e gera o seu lançamento pago no BPO (1:1).
+ * movimentação nova recebe uma categoria sugerida. Pedido de 12/11 (noite): só gera o lançamento pago
+ * (1:1) quando há correspondência segura ou regra do titular; o resto fica "A classificar".
  * Pedido de 25/10 (noite): grava titular e texto original, aplica a regra do titular (ou sugere o
  * cliente BPO pelo nome) e, nas que já existiam, completa titular/descrição sem duplicar.
  */
@@ -116,7 +117,8 @@ export async function gravarMovimentos(conta: Pick<BankAccount, "id" | "dataInic
     });
     inseridas.push(...gravadas);
     // Item 14: crédito de cobrança do Asaas já lançada assume aquele lançamento (não duplica).
-    await gerarLancamentosDoExtrato(gravadas);
+    // Pedido de 12/11 (noite): sem correspondência segura, a movimentação nova fica "A classificar".
+    await gerarLancamentosDoExtrato(gravadas, "nova");
     const novasChaves = new Set(r.map(x => x.externalId));
     jaExistentes.push(...parte.filter(m => !novasChaves.has(m.externalId)));
   }

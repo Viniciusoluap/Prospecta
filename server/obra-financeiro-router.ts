@@ -322,7 +322,7 @@ export const obraFinanceiroRouter = router({
       pagoEm: bpoLancamentos.pagoEm,
       competencia: bpoLancamentos.competencia,
       alocado,
-    }).from(bpoLancamentos).where(and(isNull(bpoLancamentos.exclusaoLoteBackupId), eq(bpoLancamentos.pago, true), tipoOk)).orderBy(asc(bpoLancamentos.vencimento));
+    }).from(bpoLancamentos).where(and(isNull(bpoLancamentos.exclusaoLoteBackupId), eq(bpoLancamentos.aClassificar, false), eq(bpoLancamentos.pago, true), tipoOk)).orderBy(asc(bpoLancamentos.vencimento));
     return linhas
       .map((l) => ({ ...l, disponivelCentavos: centavosDe(l.valor)! - centavosDe(l.alocado)! }))
       .filter((l) => l.disponivelCentavos > 0);

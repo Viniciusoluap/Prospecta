@@ -21,7 +21,7 @@ export async function registrarRecebimento(input: { id: number; requestKey: stri
       UPDATE bpo_lancamentos l SET valor_recebido = a.valor_recebido + n.valor,
         pago = a.valor_recebido + n.valor = a.valor,
         pago_em = CASE WHEN a.valor_recebido + n.valor = a.valor THEN n.recebido_em ELSE NULL END,
-        version = a.version + 1, updated_at = now()
+        version = a.version + 1, updated_at = now(), a_classificar = false
       FROM anterior a JOIN novo n ON n.lancamento_id = a.id WHERE l.id = a.id RETURNING l.*
     ), auditoria AS (
       INSERT INTO bpo_lancamento_historico(lancamento_id,lancamento_referencia,versao_anterior,alterado_por_user_id,motivo,antes_json,depois_json)

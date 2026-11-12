@@ -123,6 +123,11 @@ campo (mesmo padrão do Santa Fé: o `<Input>` exibe o buffer, reformatado só n
 
 A tentativa antiga de unificação por reescrita em Next.js foi definitivamente abandonada por decisão do proprietário. Ela não participa deste roadmap, não será integrada e não deve ser considerada dependência ou pendência. A abordagem oficial continua incremental na stack Vite/React + Express/tRPC + Drizzle/Neon.
 
+> **12/11/2026 — PARIDADE SUSPENSA por decisão do dono.** O Grupo Santa Fé está em stand-by; o trabalho segue só na
+> Prospecta. As listas abaixo continuam valendo como registro do que portar quando ele der a ordem
+> (resumo em `Grupo-Santa-Fe/HANDOFF-12-11-STANDBY-PARIDADE.md`). Novos itens: conciliação do BPO com o extrato,
+> aba "A classificar", divisão de pagamentos, centros de custo, filtros do BPO e Central de Vendas.
+
 ## Pendência de paridade → Grupo Santa Fé (registrada em 08/11/2026)
 
 Origem: prompt mestre de 08/11/2026 executado **somente no Prospecta** (o prompt proibiu alterar outros
@@ -147,6 +152,10 @@ Detalhes e testes em `HANDOFF-08-11-PARCELAMENTO-MERCADO.md` (PR #187).
 - [x] Anexos da Due Diligence e do Registro de Incorporação: qualquer tipo de arquivo (foto/HEIC, DWG, Word, Excel, ZIP...), até 50 MB, enviados e lidos em partes; PDF/foto/texto abrem na aba, os demais são baixados com o nome original (HTML/SVG nunca abrem) — **portado ao Santa Fé em 11/11 (PR #252 de lá)**
 - [x] Rua por lados escolhidos (rua de cima/esquerda/direita/baixo, combináveis) com frente exata e fundo variável — `shared/incorporacao/lados-gleba.ts`, `rua-divisa.ts` (substitui "Trocar rua de lado") — **portado ao Santa Fé em 11/11 (PR #252 de lá)**
 - [ ] BPO: importar backup ZIP do Conta Azul Pro (pessoas → clientes BPO, financeiro → lançamentos; idempotente; transferências fora; prévia) — `shared/financeiro/conta-azul.ts`, `server/bpo-conta-azul.ts`, `ImportarContaAzul.tsx` (12/11, ver `HANDOFF-12-11-BPO-CONTA-AZUL.md`)
+- [ ] **(paridade suspensa — não portar até ordem do dono)** BPO: aba "A classificar" (12/11, noite) — movimentação nova do banco só vira lançamento com correspondência segura (Asaas conhecido, Conta Azul já pago, regra por titular); o resto e os em aberto do Conta Azul esperam o dono; em aberto nunca é baixado sozinho — migração `0103_bpo_a_classificar.sql`, `server/bpo-a-classificar.ts`, `shared/financeiro/bpo-a-classificar.ts`, `client/src/components/bpo/AClassificar.tsx`
+- [ ] **(paridade suspensa)** BPO: dividir pagamentos (1 movimentação → N lançamentos; N movimentações → 1 lançamento parcial; receita e despesa) via `bpo_recebimentos.bank_transaction_id`
+- [ ] **(paridade suspensa)** BPO: cadastro de centros de custo (`0104_bpo_centros_custo.sql`) e campo nos lançamentos
+- [ ] **(paridade suspensa)** BPO: filtros (mês/ano, busca, valor, status, centro de custo) em Cobranças, Despesas, A classificar, Clientes e DRE
 - [ ] **Correções 09–12 (Viabilidade integrada)** — `shared/incorporacao/composicao-custos.ts`, `fluxo-anual.ts`, `viabilidade-economica.ts`, `premissas-loteamento.ts`, `mix-produtos.ts`:
   fonte de custo só "Valor manual" / "Valor do sistema" (infra e obras residenciais separadas do Orçamento; marketing =
   fornecedores elegíveis + material publicitário sem duplicar); custo do terreno pela Negociação (à vista, parcelado,

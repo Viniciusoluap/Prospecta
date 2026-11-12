@@ -165,7 +165,7 @@ function ExclusoesEmLoteDialog({ onFechar }: { onFechar: () => void }) {
                 <tr key={b.id} className="border-b border-white/5">
                   <td className="py-1.5 pr-2 whitespace-nowrap">{dataHora(b.criadoEm)}</td>
                   <td className="py-1.5 pr-2">{b.usuario ?? "—"}</td>
-                  <td className="py-1.5 pr-2">{b.aba === "cobrancas" ? "Cobranças" : "Despesas"}{b.modo === "tudo" ? " (Excluir tudo)" : ""}</td>
+                  <td className="py-1.5 pr-2">{b.aba === "cobrancas" ? "Cobranças" : b.aba === "a_classificar" ? "A classificar (cancelados)" : "Despesas"}{b.modo === "tudo" ? " (Excluir tudo)" : ""}</td>
                   <td className="py-1.5 pr-2 text-right">{b.quantidade}</td>
                   <td className="py-1.5 pr-2">{b.restauradoEm ? `Restaurada em ${dataHora(b.restauradoEm)}${b.restauradoPor ? ` por ${b.restauradoPor}` : ""}` : "Excluída"}</td>
                   <td className="py-1.5 text-right">{!b.restauradoEm && <Button size="sm" variant="outline" className="h-7 border-[#C9A961]/30 text-[#C9A961]" onClick={() => setRestaurando(b.id)}>Restaurar</Button>}</td>
