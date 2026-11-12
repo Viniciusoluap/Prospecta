@@ -204,7 +204,8 @@ export async function processarJobIA(job: CentralVendasJob) {
   }
   const saida = lerSaidaIA(resposta.texto);
   const { novos, qual, lgpd } = saida ? await aplicarCampos(leadId, saida, qualAntes, lgpdAntes, produtos) : { novos: 0, qual: qualAntes, lgpd: lgpdAntes };
-  const semProgresso = novos > 0 ? 0 : cv.semProgresso + 1;
+  // A saudação (primeira resposta) não conta como mensagem sem progresso.
+  const semProgresso = novos > 0 || cv.mensagensIa === 0 ? 0 : cv.semProgresso + 1;
   await db().update(centralVendasLeads).set({ semProgresso, mensagensIa: sql`${centralVendasLeads.mensagensIa} + 1`, statusAtendimento: "em_atendimento_ia", updatedAt: agora() })
     .where(eq(centralVendasLeads.leadId, leadId));
   const etapa = etapaAvancada(lead.stage, "attending");

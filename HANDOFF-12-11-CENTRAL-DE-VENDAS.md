@@ -56,6 +56,13 @@ Ver `docs/stories/epics/epic-central-de-vendas/EPIC.md` (CV-01 a CV-11).
 - Etapa 4 — distribuição e SLA: rodízio por id entre operadores ativos (`atribuirOperador`, preenche também o
   `responsibleUserId` do CRM quando vazio) e `verificarSla` (estouro → próximo operador, aviso, auditoria
   `sla_reatribuido`, relógio recomeça; sem outro operador → `sla_estourado` + aviso ao admin uma vez).
+- Etapa 5 — agente de IA (`server/central-vendas/ia.ts`): prompt com só os produtos cadastrados; saída JSON em lista
+  fechada (`lerSaidaIA` descarta qualquer campo extra, como "statusAnalise"); dados gravados nos campos do lead só
+  após o consentimento LGPD (`lgpdConsent`/`lgpdConsentAt`); toda resposta passa por `violacoesResposta` antes de
+  sair (promessa de aprovação, valor/taxa/parcela fora do cadastro, "reprovado") → bloqueada e vai para humano;
+  gatilhos por código no texto do cliente (atendente, reclamação, jurídico, negociação) nem chamam a IA; baixa
+  confiança, pedido do modelo e 3 mensagens sem progresso → humano com resumo da IA (reserva sem IA); limite mensal
+  de tokens com consumo por lead e aviso ao admin 1x/mês; falha da IA → fila com backoff → esgotou → humano.
 
 ### Decisões automáticas (YOLO)
 - [AUTO-DECISION] Lead que já existia no CRM e escreve no WhatsApp → entra na Central com atendimento humano
@@ -72,7 +79,7 @@ Ver `docs/stories/epics/epic-central-de-vendas/EPIC.md` (CV-01 a CV-11).
 - `drizzle/0110_central_vendas.sql`
 
 ## Pendências
-- Etapas 5 a 11.
+- Etapas 6 a 11.
 
 ## Testes
 - (a) automáticos: `npx tsc --noEmit -p .` ✅; `server/central-vendas-0110.test.ts` ✅ (2);
@@ -83,8 +90,12 @@ Ver `docs/stories/epics/epic-central-de-vendas/EPIC.md` (CV-01 a CV-11).
   (7 arquivos, 53 testes) ✅ com o gancho no webhook.
   `server/central-vendas-distribuicao.test.ts` ✅ (6: rodízio, inativo fora, minutos úteis com fim de semana,
   reatribuição no 16º minuto, resposta humana registrada sem reatribuir, estouro sem outro operador avisa 1x).
+  `server/central-vendas-ia.test.ts` ✅ (27: 8 respostas proibidas bloqueadas, 5 permitidas, normalização de números,
+  gatilhos, campo extra descartado, LGPD antes/depois, promessa de aprovação simulada não sai e não muda a análise,
+  condição cadastrada sai, 4 gatilhos de texto, baixa confiança, 3 sem progresso, pedido do modelo, limite de
+  tokens, falha da IA reprocessada sem resposta duplicada).
 - (b) manuais: nenhum.
 - (c) produção: aplicar a 0110 e ligar a Central (só com autorização do dono).
 
 ## Próximo passo exato
-Etapa 5: testes do agente de IA (`server/central-vendas-ia.test.ts`): regras proibidas, transferência por gatilho, limite de tokens.
+Etapa 6: testes de documentação (`server/central-vendas-documentos.test.ts`): lista após qualificação, classificação, lembretes, encaminhamento único.

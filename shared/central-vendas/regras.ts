@@ -160,16 +160,25 @@ const PROMESSA_APROVACAO = [
   /\bcom certeza (vai|sera|e|voce) (ser )?(aprovad|liberad)/,
   /\b(esta|ta) aprovad[oa]\b/,
 ];
-const VALORES = /(r\$\s?\d[\d.,]*|\d[\d.,]*\s?%|\d[\d.,]*\s?(mil|reais)\b)/g;
+const VALORES = /(r\$\s?\d[\d.,]*(\s?mil\b)?|\d[\d.,]*\s?%|\d[\d.,]*\s?mil\b|\d[\d.,]*\s?reais\b)/g;
 
-const soDigitos = (v: string) => v.replace(/\D/g, "").replace(/^0+/, "");
+/** "1.234,56" | "650,00" | "8,5" | "1234.56" | "180" (+ "mil") → número canônico em texto (null se não for número). */
+export function valorCanonico(token: string): string | null {
+  const mil = /\bmil\b/.test(token);
+  let t = (/\d[\d.,]*/.exec(token)?.[0] ?? "").replace(/[.,]+$/, "");
+  if (!t) return null;
+  if (t.includes(",")) t = t.replace(/\./g, "").replace(",", ".");
+  else if (/^\d{1,3}(\.\d{3})+$/.test(t)) t = t.replace(/\./g, "");
+  const n = Number(t);
+  return Number.isFinite(n) ? String(mil ? Math.round(n * 1000 * 100) / 100 : n) : null;
+}
 
-/** Números (só dígitos) que aparecem na base cadastrada: o que a IA pode citar. */
+/** Números que aparecem na base cadastrada (forma canônica): os únicos que a IA pode citar. */
 export function numerosPermitidos(base: string): Set<string> {
   const out = new Set<string>();
-  for (const m of Array.from(semAcento(base).matchAll(/\d[\d.,]*/g))) {
-    const d = soDigitos(m[0]);
-    if (d) { out.add(d); out.add(d.replace(/0+$/, "")); }
+  for (const m of Array.from(semAcento(base).matchAll(/\d[\d.,]*(\s?mil\b)?/g))) {
+    const v = valorCanonico(m[0]);
+    if (v) out.add(v);
   }
   return out;
 }
@@ -186,15 +195,14 @@ export function violacoesResposta(resposta: string, base: string): Violacao[] {
   if (PROMESSA_APROVACAO.some(re => re.test(t))) v.add("promessa_aprovacao");
   if (/\b(reprovad[oa]|negad[oa]|recusad[oa])\b/.test(t) && /\b(voce|seu|sua|vc)\b/.test(t)) v.add("decisao_financeira");
   const permitidos = numerosPermitidos(base);
-  const valores = Array.from(t.matchAll(VALORES)).map(m => soDigitos(m[0])).filter(Boolean);
-  const naoCadastrado = valores.some(d => !permitidos.has(d) && !permitidos.has(d.replace(/0+$/, "")));
-  if (naoCadastrado) v.add("condicao_nao_cadastrada");
+  const fora = (token: string) => { const c = valorCanonico(token); return c !== null && !permitidos.has(c); };
+  if (Array.from(t.matchAll(VALORES)).some(m => fora(m[0]))) v.add("condicao_nao_cadastrada");
   // Termo de condição comercial com número por perto ("taxa de 8", "em 60 parcelas") também precisa estar no cadastro.
   const perto = [
-    ...Array.from(t.matchAll(/\b(?:taxa|juros|parcela\w*|entrada|prestac\w*|cet)\D{0,25}?(\d[\d.,]*)/g)).map(m => m[1]),
+    ...Array.from(t.matchAll(/\b(?:taxa|juros|parcela\w*|entrada|prestac\w*|subsidio|cet)\D{0,25}?(\d[\d.,]*(\s?mil\b)?)/g)).map(m => m[1]),
     ...Array.from(t.matchAll(/(\d[\d.,]*)\s*(?:x|vezes|parcelas?|prestacoes|meses)\b/g)).map(m => m[1]),
   ];
-  if (perto.some(n => { const d = soDigitos(n); return d && !permitidos.has(d); })) v.add("condicao_nao_cadastrada");
+  if (perto.some(fora)) v.add("condicao_nao_cadastrada");
   return Array.from(v);
 }
 
