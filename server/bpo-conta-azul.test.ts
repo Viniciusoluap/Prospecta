@@ -11,8 +11,10 @@ vi.mock("./_core/env.js", () => ({ ENV: { cookieSecret: "segredo-de-teste" } }))
 
 import { getDb } from "./db.js";
 import { bpoRouter } from "./bpo-router.js";
+import { gravarMovimentos } from "./bancos.js";
+import { sincronizarCobrancasAsaas } from "./bpo-asaas.js";
 import {
-  categoriaDoContaAzul, dataContaAzul, lerBackupContaAzul, parseCsv, valorContaAzul,
+  categoriaDoContaAzul, conciliarComContaAzul, dataContaAzul, lerBackupContaAzul, parseCsv, valorContaAzul,
 } from "../shared/financeiro/conta-azul.js";
 
 const sqlDe = (arquivo: string) => readFileSync(new URL(`../drizzle/${arquivo}`, import.meta.url), "utf8");
@@ -141,9 +143,35 @@ beforeEach(async () => {
   await pg.exec(sqlDe("0083_bpo_recebimentos_parciais.sql"));
   await pg.exec(sqlDe("0095_bpo_lote3.sql")); // lote 3: combinada_em_id (filtro das listas/DRE)
   await pg.exec("ALTER TABLE bpo_lancamentos ADD COLUMN exclusao_lote_backup_id integer");
+  await pg.exec(sqlDe("0103_bpo_a_classificar.sql")); // 12/11 (noite): A classificar e divisão de pagamentos
   vi.mocked(getDb).mockReturnValue(drizzle(pg) as never);
 });
 afterEach(async () => { await pg.close(); });
+
+describe("conciliação com o extrato (regra)", () => {
+  const ca = [
+    { id: 10, tipo: "despesa", valor: "709.00", pago: true, pagoEm: "2026-04-15", vencimento: "2026-04-15" },
+    { id: 11, tipo: "despesa", valor: "709.00", pago: true, pagoEm: "2026-04-17", vencimento: "2026-04-17" },
+    { id: 12, tipo: "despesa", valor: "320.50", pago: false, pagoEm: null, vencimento: "2026-04-10" },
+    { id: 13, tipo: "receita", valor: "320.50", pago: true, pagoEm: "2026-04-10", vencimento: "2026-04-10" },
+  ];
+  it("mesmo tipo e valor, data próxima; o mais próximo vence e cada lado é usado uma vez", () => {
+    const pares = conciliarComContaAzul([
+      { id: 1, tipo: "despesa", valor: 709, data: "2026-04-16" }, // 1 dia de 10 e de 11 → empate: menor id
+      { id: 2, tipo: "despesa", valor: "709.00", data: "2026-04-17" }, // 0 dia de 11 → pega 11
+      { id: 3, tipo: "despesa", valor: 320.5, data: "2026-04-19" }, // em aberto: não concilia mais (vira sugestão em A classificar)
+      { id: 4, tipo: "despesa", valor: 709, data: "2026-04-25" }, // fora da janela de 3 dias
+      { id: 5, tipo: "despesa", valor: 999, data: "2026-04-15" }, // valor sem par
+    ], ca);
+    // 12/11 (noite): antes o em aberto (12) era baixado sozinho; agora só o já pago liga.
+    expect(Object.fromEntries(pares)).toEqual({ 1: 10, 2: 11 });
+  });
+  it("tipo diferente não concilia; em aberto não concilia nem no dia do vencimento", () => {
+    expect(conciliarComContaAzul([{ id: 1, tipo: "receita", valor: 709, data: "2026-04-15" }], ca).size).toBe(0);
+    expect(conciliarComContaAzul([{ id: 1, tipo: "despesa", valor: 320.5, data: "2026-04-21" }], ca).size).toBe(0);
+    expect(conciliarComContaAzul([{ id: 1, tipo: "despesa", valor: 320.5, data: "2026-04-10" }], ca).size).toBe(0);
+  });
+});
 
 describe("importação no BPO (banco em memória)", () => {
   it("prévia não grava; importação cria clientes e lançamentos; reimportar não duplica", async () => {
@@ -183,6 +211,50 @@ describe("importação no BPO (banco em memória)", () => {
     expect(de_novo).toMatchObject({ clientesCriados: 0, lancamentosCriados: 0, lancamentosJaImportados: 4 });
     expect((await linhas("SELECT count(*)::int n FROM bpo_lancamentos"))[0]).toEqual({ n: 4 });
     expect((await admin().contaAzul.previa({ arquivos: BACKUP })).lancamentos).toMatchObject({ novos: 0, jaImportados: 4 });
+  });
+
+  // 12/11 (noite): regra nova — só o lançamento do Conta Azul JÁ PAGO é ligado (sem mudar valor, status nem data);
+  // o em aberto não é baixado sozinho e a tarifa sem correspondência fica A classificar (antes: baixava o em
+  // aberto e criava o lançamento da tarifa na hora).
+  it("ligar a conta depois do backup: o pago do Conta Azul só é ligado; em aberto e o resto ficam A classificar", async () => {
+    await pg.exec("INSERT INTO bank_accounts (banco, provedor) VALUES ('C6', 'manual'), ('Asaas', 'asaas')");
+    await admin().contaAzul.importar({ arquivos: BACKUP });
+    const r = await gravarMovimentos({ id: 1, dataInicial: null }, [
+      // receita paga em 05/03 no Conta Azul, chega no extrato em 06/03 → só liga
+      { externalId: "c6:1", data: "2026-03-06", descricao: "Pix recebido", valor: 1500, tipo: "credito", titular: "Maria Teste" },
+      // despesa EM ABERTO no Conta Azul (venc. 10/04), paga em 12/04 → NÃO baixa sozinho
+      { externalId: "c6:2", data: "2026-04-12", descricao: "Pix enviado", valor: 320.5, tipo: "debito" },
+      // tarifa que não existia no Conta Azul → A classificar (sem lançamento)
+      { externalId: "c6:3", data: "2026-04-12", descricao: "Tarifa pix", valor: 1.99, tipo: "debito" },
+    ], "importacao");
+    expect(r.novos).toBe(3);
+    const ls = await linhas<Record<string, unknown>>("SELECT origem_efetiva o, valor::text v, pago, bank_transaction_id bt, to_char(pago_em,'YYYY-MM-DD') pe, valor_recebido::text vr, categoria, a_classificar ac FROM bpo_lancamentos ORDER BY valor");
+    expect(ls).toHaveLength(4); // só os 4 do Conta Azul
+    expect(ls.find(l => l.v === "1500.00")).toMatchObject({ o: "conta_azul", bt: 1, pago: true, pe: "2026-03-05", vr: "1500.00", ac: false });
+    expect(ls.find(l => l.v === "320.50")).toMatchObject({ o: "conta_azul", bt: null, pago: false, vr: "0.00", categoria: "Material", ac: true });
+    expect(await linhas("SELECT external_id e, a_classificar ac FROM bank_transactions ORDER BY id")).toEqual([
+      { e: "c6:1", ac: false }, { e: "c6:2", ac: true }, { e: "c6:3", ac: true },
+    ]);
+    // reimportar o mesmo extrato não muda nada
+    await gravarMovimentos({ id: 1, dataInicial: null }, [{ externalId: "c6:1", data: "2026-03-06", descricao: "Pix recebido", valor: 1500, tipo: "credito" }], "importacao");
+    expect((await linhas("SELECT count(*)::int n FROM bpo_lancamentos"))[0]).toEqual({ n: 4 });
+  });
+
+  it("cobrança do Asaas que já veio do Conta Azul assume aquela receita (não cria outra)", async () => {
+    await admin().contaAzul.importar({ arquivos: BACKUP });
+    const fetch = vi.fn((url: string) => Promise.resolve({
+      ok: true, status: 200,
+      json: async () => url.includes("/customers/") ? { name: "Maria Teste", cpfCnpj: "11122233344" }
+        : { hasMore: false, data: [
+          { id: "pay_ca", status: "RECEIVED", value: 1500, netValue: 1500, dueDate: "2026-03-05", paymentDate: "2026-03-05", customer: "cus_m", description: "Honorários" },
+          { id: "pay_novo", status: "PENDING", value: 99, dueDate: "2026-12-10", customer: "cus_m" },
+        ] },
+    } as Response));
+    const r = await sincronizarCobrancasAsaas("$aact_teste", "2026-01-01", fetch as never);
+    expect(r).toMatchObject({ criadas: 1, reconciliadas: 1 });
+    expect(await linhas("SELECT origem_efetiva o, asaas_payment_id p, valor::text v FROM bpo_lancamentos WHERE asaas_payment_id IS NOT NULL ORDER BY p"))
+      .toEqual([{ o: "conta_azul", p: "pay_ca", v: "1500.00" }, { o: "manual", p: "pay_novo", v: "99.00" }]);
+    expect(await sincronizarCobrancasAsaas("$aact_teste", "2026-01-01", fetch as never)).toMatchObject({ criadas: 0, reconciliadas: 0 });
   });
 
   it("recusa arquivo que não é backup e limita o tamanho", async () => {

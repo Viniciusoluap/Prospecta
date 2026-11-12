@@ -146,7 +146,7 @@ export const taxRouter = router({
       const lancamentosBpo = await database
         .select({ tipo: bpoLancamentos.tipo, valor: bpoLancamentos.valor })
         .from(bpoLancamentos)
-        .where(and(isNull(bpoLancamentos.exclusaoLoteBackupId), eq(bpoLancamentos.pago, true), gte(bpoLancamentos.pagoEm, from), lte(bpoLancamentos.pagoEm, to)));
+        .where(and(isNull(bpoLancamentos.exclusaoLoteBackupId), eq(bpoLancamentos.aClassificar, false), eq(bpoLancamentos.pago, true), gte(bpoLancamentos.pagoEm, from), lte(bpoLancamentos.pagoEm, to)));
       const receita = receitaRealizada(movements, lancamentosBpo);
       const revenue = receita.total;
       const rate = Number(profile?.estimatedRate || 0);

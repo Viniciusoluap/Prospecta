@@ -214,7 +214,9 @@ export default function BancosPanel() {
                                   <td className="py-1 pr-2 text-gray-300 whitespace-nowrap">{new Date(t.data).toLocaleDateString("pt-BR", { timeZone: "UTC" })}</td>
                                   <td className="py-1 pr-2 text-gray-100">
                                     <span title={t.descricaoOriginal ?? undefined}>{t.descricao}</span>
-                                    {!t.lancamentoId && t.categoria !== TRANSFERENCIA_INTERNA && <span className="ml-1 text-amber-300">(sem lançamento — use Reprocessar)</span>}
+                                    {t.aClassificar
+                                      ? <span className="ml-1 text-amber-300">(A classificar — veja a aba A classificar)</span>
+                                      : !t.lancamentoId && t.categoria !== TRANSFERENCIA_INTERNA && <span className="ml-1 text-amber-300">(sem lançamento — use Reprocessar ou veja se já deu baixa)</span>}
                                   </td>
                                   <td className="py-1 pr-2 text-gray-100">{t.titular || <span className="text-gray-400">—</span>}</td>
                                   <td className="py-1 pr-2">
@@ -322,6 +324,11 @@ export default function BancosPanel() {
               <Label className="text-gray-300">Considerar movimentações a partir de</Label>
               <Input type="date" value={nova.dataInicial} onChange={e => setNova(n => ({ ...n, dataInicial: e.target.value }))} className={campo} />
               <p className="text-xs text-gray-300 mt-1">Movimentações anteriores a esta data não são gravadas (não pertencem a esta empresa).</p>
+              <p className="text-xs text-gray-300 mt-1">
+                Lançamentos importados do Conta Azul não se repetem: a movimentação do banco com o mesmo valor e até 3 dias do
+                pagamento de um lançamento já pago é ligada a ele, sem criar outro. O resto (inclusive o que bate com um lançamento
+                em aberto) vai para a aba A classificar e só entra em Cobranças/Despesas/DRE quando você classificar.
+              </p>
             </div>
             <Button className="w-full bg-[#C9A961] hover:bg-[#B8985A] text-[#1A2332] font-bold" disabled={criar.isPending || !nova.banco}
               onClick={() => criar.mutate({ provedor: nova.provedor, banco: nova.banco, conta: nova.conta || undefined, descricao: nova.descricao || undefined, dataInicial: nova.dataInicial || null,

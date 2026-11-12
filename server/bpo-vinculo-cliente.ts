@@ -30,7 +30,7 @@ export async function carregarCandidatosCrm(): Promise<CandidatoCliente[]> {
 }
 
 async function lancamentosLivres(ids?: number[]): Promise<LancamentoLivre[]> {
-  const filtros = [isNull(bpoLancamentos.clienteId), isNull(bpoLancamentos.combinadaEmId), isNull(bpoLancamentos.exclusaoLoteBackupId)];
+  const filtros = [isNull(bpoLancamentos.clienteId), isNull(bpoLancamentos.combinadaEmId), isNull(bpoLancamentos.exclusaoLoteBackupId), eq(bpoLancamentos.aClassificar, false)];
   if (ids) filtros.push(inArray(bpoLancamentos.id, ids.length ? ids : [0]));
   return getDb().select({
     id: bpoLancamentos.id, version: bpoLancamentos.version, clienteId: bpoLancamentos.clienteId,

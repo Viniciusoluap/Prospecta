@@ -10,7 +10,7 @@ vi.mock("./_core/env.js", () => ({ ENV: { cookieSecret: "segredo-de-teste" } }))
 
 import { getDb } from "./db.js";
 import { gravarMovimentos } from "./bancos.js";
-import { classificarMovimentacao } from "./bpo-extrato.js";
+import { atualizarMovimentacao, classificarMovimentacao } from "./bpo-extrato.js";
 import { bpoRouter, montarClienteBpo } from "./bpo-router.js";
 import { sincronizarCobrancasAsaas } from "./bpo-asaas.js";
 import { listarProcessos } from "./regularizacao-router.js";
@@ -76,6 +76,7 @@ beforeEach(async () => {
   await pg.exec(sqlDe("0083_bpo_recebimentos_parciais.sql"));
   await pg.exec(sqlDe("0095_bpo_lote3.sql")); // lote 3: combinada_em_id (filtro das listas/DRE)
   await pg.exec("ALTER TABLE bpo_lancamentos ADD COLUMN exclusao_lote_backup_id integer");
+  await pg.exec(sqlDe("0103_bpo_a_classificar.sql")); // 12/11 (noite): A classificar e divisão de pagamentos
   db = drizzle(pg);
   vi.mocked(getDb).mockReturnValue(db as never);
   await pg.exec("INSERT INTO bank_accounts (banco, provedor) VALUES ('Cora', 'manual'), ('Asaas', 'asaas')");
@@ -125,6 +126,11 @@ describe("item 10 — cadastro de cliente BPO", () => {
     const c = await admin().clientes.create({ leadId: 1 });
     expect(c).toMatchObject({ razaoSocial: "Ana Lima", cpf: "123.456.789-00", telefone: "18999990000", email: "ana@ex.com", leadId: 1, vinculadas: 1 });
     expect(await linhas("SELECT bpo_cliente_id FROM bank_transactions")).toEqual([{ bpo_cliente_id: c.id }]);
+    // 12/11 (noite): a movimentação nova está "A classificar" — ganha o cliente, mas o lançamento só nasce quando
+    // o usuário classifica (antes este teste esperava o lançamento já na gravação).
+    expect(await linhas("SELECT a_classificar FROM bank_transactions")).toEqual([{ a_classificar: true }]);
+    expect(await linhas("SELECT cliente_id FROM bpo_lancamentos")).toEqual([]);
+    await admin().aClassificar.criarLancamentos({ ids: [1], categoria: "Recebimento de cliente" });
     expect(await linhas("SELECT cliente_id FROM bpo_lancamentos")).toEqual([{ cliente_id: c.id }]);
     const lista = await admin().clientes.list();
     expect(lista[0]).toMatchObject({ id: c.id, nomeLead: "Ana Lima", totalRecebido: 1000, totalEmAberto: 0 });
@@ -186,6 +192,9 @@ describe("item 9 — titular, reimportação e regra por titular", () => {
   it("reimportar o mesmo arquivo não duplica e completa titular/descrição; lançamento ganha 'Tipo — Titular'", async () => {
     const mov = { externalId: "imp:1:a", data: "2026-01-02", descricao: "Transf Pix enviada", valor: 350, tipo: "debito" as const };
     await gravarMovimentos({ id: 1, dataInicial: null }, [mov], "importacao");
+    // 12/11 (noite): nova → A classificar; o usuário classifica e o lançamento nasce (antes: na gravação).
+    expect(await linhas("SELECT descricao FROM bpo_lancamentos")).toEqual([]);
+    await atualizarMovimentacao(1, {});
     expect(await linhas("SELECT descricao FROM bpo_lancamentos")).toEqual([{ descricao: "Transf Pix enviada" }]);
     const r = await gravarMovimentos({ id: 1, dataInicial: null }, [{ ...mov, titular: "Maria Materiais", detalhe: "Cimento", original: "Transf Pix enviada | Maria Materiais | Cimento" }], "importacao");
     expect(r).toMatchObject({ novos: 0, completadas: 1 });
@@ -209,14 +218,21 @@ describe("item 9 — titular, reimportação e regra por titular", () => {
       { external_id: "b", categoria: "Material", bpo_cliente_id: 1 },
       { external_id: "c", categoria: "Outros", bpo_cliente_id: null },
     ]);
+    // 12/11 (noite): a classificação (com a regra) cria os lançamentos do titular; a de "Outra Pessoa" continua
+    // A classificar, sem lançamento (antes este teste esperava 3 lançamentos, um deles "Outros").
     expect(await linhas("SELECT categoria, cliente_id FROM bpo_lancamentos ORDER BY id")).toEqual([
-      { categoria: "Material", cliente_id: 1 }, { categoria: "Material", cliente_id: 1 }, { categoria: "Outros", cliente_id: null },
+      { categoria: "Material", cliente_id: 1 }, { categoria: "Material", cliente_id: 1 },
+    ]);
+    expect(await linhas("SELECT external_id, a_classificar FROM bank_transactions ORDER BY id")).toEqual([
+      { external_id: "a", a_classificar: false }, { external_id: "b", a_classificar: false }, { external_id: "c", a_classificar: true },
     ]);
     await gravarMovimentos({ id: 1, dataInicial: null }, [{ externalId: "d", data: "2026-02-01", descricao: "Transf Pix enviada", valor: 50, tipo: "debito", titular: "JOSÉ DEPÓSITO" }], "importacao");
-    expect(await linhas("SELECT categoria, bpo_cliente_id FROM bank_transactions WHERE external_id = 'd'")).toEqual([{ categoria: "Material", bpo_cliente_id: 1 }]);
-    // Regra com Transferência interna remove os lançamentos do titular.
+    expect(await linhas("SELECT categoria, bpo_cliente_id, a_classificar FROM bank_transactions WHERE external_id = 'd'")).toEqual([{ categoria: "Material", bpo_cliente_id: 1, a_classificar: false }]);
+    // A regra que o usuário ensinou cria o lançamento da próxima movimentação do titular.
+    expect(await linhas("SELECT l.categoria, l.cliente_id FROM bpo_lancamentos l JOIN bank_transactions t ON t.id = l.bank_transaction_id WHERE t.external_id = 'd'")).toEqual([{ categoria: "Material", cliente_id: 1 }]);
+    // Regra com Transferência interna remove os lançamentos do titular (a de "Outra Pessoa" nunca teve).
     await classificarMovimentacao(1, { categoria: "Transferência interna", aplicarATodasDoTitular: true });
-    expect(await linhas("SELECT count(*)::int AS n FROM bpo_lancamentos")).toEqual([{ n: 1 }]);
+    expect(await linhas("SELECT count(*)::int AS n FROM bpo_lancamentos")).toEqual([{ n: 0 }]);
   });
 });
 
