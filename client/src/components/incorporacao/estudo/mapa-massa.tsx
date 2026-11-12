@@ -3,7 +3,6 @@ import { useEffect, useRef, useState } from "react";
 import type { Feature, FeatureCollection, Geometry, Position } from "geojson";
 import type { GeoJSONSource, Map as MapaMl } from "maplibre-gl";
 import { bbox as turfBbox } from "@turf/turf";
-import type { GeometriaTerreno } from "@shared/geo/terreno";
 import type { LoteGerado } from "@shared/incorporacao/massa";
 import { aplicarBase, criarMapaBase, type BaseMapa } from "./mapa-base-ml";
 import { formatArea } from "./compat/util";
