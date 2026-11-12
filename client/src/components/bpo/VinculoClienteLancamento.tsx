@@ -39,7 +39,7 @@ export function VinculoClienteLancamento({ lancamento, clientes, onVinculado }: 
   const confirmar = (alvo: Alvo, motivo: string) => vincular.mutate({ id: lancamento.id, version: lancamento.version, ...alvo, motivo });
 
   return (
-    <div className="col-span-2 space-y-2 rounded-lg border border-[#C9A961]/30 p-3">
+    <div className="col-span-full space-y-2 rounded-lg border border-[#C9A961]/30 p-3">
       <p className="text-sm text-gray-200">Cadastro livre: <strong>{lancamento.clienteNomeLivre || "sem nome"}</strong></p>
       {sugestao?.sugestoes.length ? (
         <ul className="space-y-1">
