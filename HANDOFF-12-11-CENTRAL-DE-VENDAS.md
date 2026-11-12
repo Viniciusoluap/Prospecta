@@ -82,6 +82,18 @@ Ver `docs/stories/epics/epic-central-de-vendas/EPIC.md` (CV-01 a CV-11).
   5 tentativas → "falhou" + aviso ao admin; queda no meio → "incerto" (nunca reenviado sozinho). Sequências
   `followup_aprovado`, `sem_resposta` e `reativacao` com passos em dias e template; só o passo mais avançado
   vencido vai (sem rajada); o cliente responder reinicia o ciclo.
+- Etapa 9 — painel e configurações: `shared/central-vendas/indicadores.ts` (recebidos, qualificados, 1ª resposta,
+  por operador, aguardando docs, docs completos, enviados à análise, em análise, pendências, aprovados,
+  reprovados, conversão, tempo médio por etapa, origem; null → "sem dados"; CSV ";" + BOM sem telefone/CPF/renda);
+  router `centralVendas` (`server/central-vendas/router.ts`, módulo `crm`; configurações/produtos/checklists/
+  sequências/campanhas/templates/auditoria/fila só admin; operador vê só os próprios; decisão só admin/analista);
+  tela `client/src/pages/admin/AdminCentralVendas.tsx` em `/admin/central-vendas` (cartão "Central de Vendas" no
+  painel administrativo), abas Painel, Atendimentos (decisão da análise, reativar automação, encerrar),
+  Configurações (interruptor geral e por automação, modo de teste + números, operadores/analistas, horários, SLA,
+  limites, tokens, modelo, lembretes, checklist padrão, tokens de entrada gerados e mostrados 1x, Logyca, chave da
+  IA no cofre, "executar rotina agora"), Produtos, Checklists, Sequências, Campanhas (gerador de links wa.me),
+  Templates (`whatsapp_templates` slug `cv-*`) e Auditoria (eventos + fila com reprocessar).
+  `server/whatsapp-router.ts`: templates `cv-*` no banco não escondem mais os 6 templates padrão da Central WhatsApp.
 
 ### Decisões automáticas (YOLO)
 - [AUTO-DECISION] Lead que já existia no CRM e escreve no WhatsApp → entra na Central com atendimento humano
@@ -97,6 +109,8 @@ Ver `docs/stories/epics/epic-central-de-vendas/EPIC.md` (CV-01 a CV-11).
   análise, saudação do site). Resposta imediata a uma mensagem do cliente (IA, lista de documentos, confirmação de
   análise, transferência) sai na hora; o limite diário vale para todas.
 - [AUTO-DECISION] Opt-out fica até um humano reativar a automação do lead (botão na tela da Central).
+- [AUTO-DECISION] Permissão: a Central faz parte do módulo `crm` (sem módulo novo em `ADMIN_MODULES`, lista
+  espelhada com o Santa Fé e coberta por testes). Configurações só admin; analista = colaborador marcado na Central.
 - [AUTO-DECISION] Lead do site recebe a saudação `cv-saudacao` (com o pedido de consentimento LGPD) pelo WhatsApp,
   respeitando a janela 8h–20h. Texto vindo da Logyca não aciona a IA (a Logyca tem os próprios fluxos).
 
@@ -104,7 +118,8 @@ Ver `docs/stories/epics/epic-central-de-vendas/EPIC.md` (CV-01 a CV-11).
 - `drizzle/0110_central_vendas.sql`
 
 ## Pendências
-- Etapas 9 a 11.
+- Etapas 10 e 11.
+- Tela da Central não foi aberta em navegador nesta sessão (validação visual pendente).
 
 ## Testes
 - (a) automáticos: `npx tsc --noEmit -p .` ✅; `server/central-vendas-0110.test.ts` ✅ (2);
@@ -129,8 +144,13 @@ Ver `docs/stories/epics/epic-central-de-vendas/EPIC.md` (CV-01 a CV-11).
   descarta; limite diário 2 + intervalo só entre envios reais; falha → fila → reenviada 1x; 5 falhas → falhou +
   aviso; incerto não reenvia; follow-up pós-aprovação D+1/D+3; sem resposta; reativação D+30; desligada).
   Total da Central até aqui: 7 arquivos, 64 testes ✅.
+  `server/central-vendas-painel.test.ts` ✅ (6: indicadores vazios = null; indicadores batem com 4 leads de teste
+  e filtros; painel/CSV pelo router com dados reais; operadora só vê os próprios; config/produto só admin; corretor e
+  colaborador sem CRM bloqueados; token mostrado 1x e cifrado; produto/checklist/campanha com link/template
+  validado; templates padrão do WhatsApp continuam). Testes existentes de permissões/navegação/WhatsApp (8 arquivos,
+  61) ✅. `npx vite build` ✅.
 - (b) manuais: nenhum.
 - (c) produção: aplicar a 0110 e ligar a Central (só com autorização do dono).
 
 ## Próximo passo exato
-Etapa 9: indicadores (`shared/central-vendas/indicadores.ts`), router tRPC `centralVendas`, tela `/admin/central-vendas` (painel + configurações + produtos + checklists + sequências + campanhas + templates + auditoria).
+Etapa 10: testes do adaptador Logyca (`server/central-vendas-logyca.test.ts`): envio com Bearer e { number, message }, desligado por padrão, entrada com token.

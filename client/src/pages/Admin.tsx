@@ -72,6 +72,8 @@ const MODULOS_DO_PAINEL: {
   { modulo: "avaliacoes", href: "/admin/avaliacoes", rotulo: "Avaliações", Icone: ClipboardCheck, cor: "border-cyan-500/30 hover:bg-cyan-500/10", corIcone: "text-cyan-400" },
   { modulo: "imoveis", href: "/admin/imoveis", rotulo: "Imóveis", Icone: Building2, cor: "border-amber-500/30 hover:bg-amber-500/10", corIcone: "text-amber-400" },
   { modulo: "incorporacao", href: "/admin/incorporacao", rotulo: "Incorporação", Icone: Mountain, cor: "border-orange-500/30 hover:bg-orange-500/10", corIcone: "text-orange-400" },
+  // Central de Vendas (12/11/2026): faz parte do módulo CRM.
+  { modulo: "crm", href: "/admin/central-vendas", rotulo: "Central de Vendas", Icone: Users, cor: "border-emerald-500/30 hover:bg-emerald-500/10", corIcone: "text-emerald-400" },
   { modulo: "whatsapp", href: "/admin/whatsapp", rotulo: "WhatsApp", Icone: MessageCircle, cor: "border-green-500/30 hover:bg-green-500/10", corIcone: "text-green-400" },
   { modulo: "bpo", href: "/admin/bpo", rotulo: "BPO Financeiro", Icone: Receipt, cor: "border-[#C9A961]/30 hover:bg-[#C9A961]/10", corIcone: "text-[#C9A961]" },
   { modulo: "financiamentos", href: "/admin/financiamentos", rotulo: "Financiamentos", Icone: Landmark, cor: "border-blue-500/30 hover:bg-blue-500/10", corIcone: "text-blue-400" },

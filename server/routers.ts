@@ -37,6 +37,8 @@ import { paymentSettingsRouter } from "./payment-settings-router.js";
 import { regularizacaoRouter } from "./regularizacao-router.js";
 import { portalRouter } from "./portal-router.js";
 import { whatsappRouter } from "./whatsapp-router.js";
+// Central de Vendas (12/11/2026).
+import { centralVendasRouter } from "./central-vendas/router.js";
 import { podeUsarModulo, requireModule, requireModuloDoDestino, requireRole } from "./_core/rbac.js";
 import { podeVerDetalhesObra } from "./obra-acesso.js";
 import { bancarioRouter, pluggySettingsRouter } from "./bancos-router.js";
@@ -167,6 +169,7 @@ export const appRouter = router({
   regularizacao: regularizacaoRouter,
   portal: portalRouter,
   whatsapp: whatsappRouter,
+  centralVendas: centralVendasRouter,
   financiamentos: financiamentoRouter,
   juridico: juridicoRouter,
   agenda: agendaRouter,
