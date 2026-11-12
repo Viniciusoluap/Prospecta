@@ -94,6 +94,19 @@ Ver `docs/stories/epics/epic-central-de-vendas/EPIC.md` (CV-01 a CV-11).
   IA no cofre, "executar rotina agora"), Produtos, Checklists, Sequências, Campanhas (gerador de links wa.me),
   Templates (`whatsapp_templates` slug `cv-*`) e Auditoria (eventos + fila com reprocessar).
   `server/whatsapp-router.ts`: templates `cv-*` no banco não escondem mais os 6 templates padrão da Central WhatsApp.
+- Etapa 10 — adaptador Logyca (`server/central-vendas/logyca.ts`), **desligado por padrão**
+  (`config.logyca.ativo = false`): envio POST https no endpoint copiado de "Mensagens API", `Authorization: Bearer`,
+  corpo `{ "number", "message" }` (usado pela fila quando "Enviar pela Logyca" estiver ligado, com backoff);
+  entrada POST `/api/central-vendas/entrada/logyca` para o bloco "HTTP Request" (token próprio gerado na tela).
+  Conflito de dado: prevalece o Prospecta e o conflito vai para a auditoria (`conflito_logyca`).
+
+## A validar com a Logyca (a documentação não confirma)
+- Formato da resposta do envio (há ID da mensagem? status de entrega?) — hoje só `HTTP 2xx` = enviado.
+- Se o envio de **mídia** usa o mesmo endpoint/corpo (a doc cita texto e mídia; só texto foi implementado).
+- Webhooks de mensagens recebidas, API de contatos, tags e pipeline — **não implementados** (não documentados).
+- Corpo que o bloco "HTTP Request" deve mandar: definido por nós —
+  `{ "telefone", "nome"?, "email"?, "cidade"?, "mensagem"?, "idExterno"?, "campanha"?, "consentimentoLgpd"? }`
+  com `Authorization: Bearer <token de entrada da Logyca>`; confirmar se o bloco permite cabeçalho e JSON assim.
 
 ### Decisões automáticas (YOLO)
 - [AUTO-DECISION] Lead que já existia no CRM e escreve no WhatsApp → entra na Central com atendimento humano
@@ -118,7 +131,7 @@ Ver `docs/stories/epics/epic-central-de-vendas/EPIC.md` (CV-01 a CV-11).
 - `drizzle/0110_central_vendas.sql`
 
 ## Pendências
-- Etapas 10 e 11.
+- Etapa 11.
 - Tela da Central não foi aberta em navegador nesta sessão (validação visual pendente).
 
 ## Testes
@@ -149,8 +162,10 @@ Ver `docs/stories/epics/epic-central-de-vendas/EPIC.md` (CV-01 a CV-11).
   colaborador sem CRM bloqueados; token mostrado 1x e cifrado; produto/checklist/campanha com link/template
   validado; templates padrão do WhatsApp continuam). Testes existentes de permissões/navegação/WhatsApp (8 arquivos,
   61) ✅. `npx vite build` ✅.
+  `server/central-vendas-logyca.test.ts` ✅ (5: POST/Bearer/{number,message}; https obrigatório e erros sem lançar;
+  flag desligada por padrão; fila pela Logyca com falha → reprocessada; entrada com token, idempotente, sem IA).
 - (b) manuais: nenhum.
 - (c) produção: aplicar a 0110 e ligar a Central (só com autorização do dono).
 
 ## Próximo passo exato
-Etapa 10: testes do adaptador Logyca (`server/central-vendas-logyca.test.ts`): envio com Bearer e { number, message }, desligado por padrão, entrada com token.
+Etapa 11: teste ponta a ponta do critério de pronto em modo de teste (`server/central-vendas-e2e.test.ts`), suíte completa, `vite build`, handoff final.

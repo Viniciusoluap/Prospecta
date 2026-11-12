@@ -31,7 +31,7 @@ para o Grupo Santa Fé, com a mesma regra de negócio, quando o dono autorizar �
 | CV-07 | Retorno da análise e mensagens automáticas | InReview |
 | CV-08 | Follow-up, reativação e proteções de envio | InReview |
 | CV-09 | Painel de indicadores e tela de configurações | InReview |
-| CV-10 | Adaptador Logyca (desligado por padrão) | Draft |
+| CV-10 | Adaptador Logyca (desligado por padrão) | InReview |
 | CV-11 | Testes ponta a ponta em modo de teste e handoff final | Draft |
 
 ## Critério de pronto (seção 8 do prompt)
