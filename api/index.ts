@@ -33,6 +33,8 @@ import { ensureLeadCardDeadlineSchema } from "../server/lead-card-deadline-schem
 import { sendLeadCardDueDigests } from "../server/lead-card-due-digest.js";
 import { sincronizarTodasContas } from "../server/bancos.js";
 import { organizarDriveNoCron } from "../server/drive-organizacao.js";
+import centralVendasRotas from "../server/central-vendas/rotas.js";
+import { executarRotinaCentralVendas } from "../server/central-vendas/rotina.js";
 
 const app = express();
 // Pedido de 24/10: webhook do WhatsApp publicado na Vercel. Precisa do corpo bruto (assinatura),
@@ -169,7 +171,12 @@ app.get("/api/cron/lead-card-due", async (req, res) => {
       console.error("[cron/organizar-drive]", e instanceof Error ? e.message : "falha");
       return { erro: true };
     });
-    return res.json({ ok: true, ...avisos, bancos, drive });
+    // Central de Vendas (12/11): lembretes, sequências, SLA e fila no mesmo cron diário (sem cron novo).
+    const centralVendas = await executarRotinaCentralVendas({ limiteMs: 10_000 }).catch(e => {
+      console.error("[cron/central-vendas]", e instanceof Error ? e.message : "falha");
+      return { erro: true };
+    });
+    return res.json({ ok: true, ...avisos, bancos, drive, centralVendas });
   }
   catch (error) { console.error("[cron/lead-card-due]", error); return res.status(500).json({ error: "Falha ao processar avisos" }); }
 });
@@ -189,6 +196,8 @@ app.use("/api", async (req, res, next) => {
     router.use(googleDriveRotas);
     // Pedido de 11/11: camadas do mapa do terreno (APP, vegetação, servidão, UCs…) no servidor.
     router.use(camadasTerrenoRotas);
+    // Central de Vendas (12/11): entrada de leads do site e da Logyca (token próprio).
+    router.use(centralVendasRotas);
     router.post("/asaas/webhook", handleAsaasWebhook);
     router.post("/pluggy/webhook", handlePluggyWebhook);
     router.post("/whatsapp/evolution-webhook", handleEvolutionWebhook);

@@ -19,6 +19,7 @@ import googleDriveRotas from "../routes/google-drive.js";
 import camadasTerrenoRotas from "../routes/camadas-terreno.js";
 import { handleAsaasWebhook } from "../asaas-webhook.js";
 import { handlePluggyWebhook } from "../pluggy-webhook.js";
+import centralVendasRotas from "../central-vendas/rotas.js";
 import { handleEvolutionWebhook } from "../whatsapp-evolution-webhook.js";
 import { handleWhatsappWebhook } from "../whatsapp-webhook.js";
 import { startMcmvRulesReminder } from "../mcmv-rules-reminder.js";
@@ -134,6 +135,8 @@ async function startServer() {
   app.use("/api", pciGeradorRotas);
   app.use("/api", googleDriveRotas);
   app.use("/api", camadasTerrenoRotas);
+  // Central de Vendas (12/11): entrada de leads do site e da Logyca (token próprio).
+  app.use("/api", centralVendasRotas);
   // Asaas webhook
   app.post("/api/asaas/webhook", handleAsaasWebhook);
   app.post("/api/pluggy/webhook", handlePluggyWebhook);

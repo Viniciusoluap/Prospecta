@@ -84,6 +84,11 @@ export async function processarEventoEvolution(ev: Evento): Promise<string> {
       if (midia && id && gravada && conn.instancia && !(midia.tamanho && midia.tamanho > LIMITE_MIDIA)) {
         await baixarEGuardarMidia(gravada.id, conn.instancia, id, midia.tamanho);
       }
+      // Central de Vendas (12/11): mensagem recebida entra no serviço de entrada (desligado por padrão; nunca lança).
+      if (!deMim && gravada) {
+        const { aoReceberMensagemWhatsapp } = await import("./central-vendas/entrada.js");
+        await aoReceberMensagemWhatsapp({ connectionId: conn.id, messageId: gravada.id, numero, nome: d?.pushName ?? null, texto: textoDaMensagem(d?.message), temMidia: Boolean(midia), leadIdDaMensagem: lead?.id ?? null });
+      }
       if (!deMim) {
         novas++;
         await db.insert(userNotifications).values({
@@ -94,6 +99,8 @@ export async function processarEventoEvolution(ev: Evento): Promise<string> {
         });
       }
     }
+    // Central de Vendas: rodada curta (SLA e fila), no máximo uma vez por minuto.
+    await import("./central-vendas/rotina.js").then(m => m.rotinaSeNecessario()).catch(() => undefined);
     return `mensagens:${novas}`;
   }
   return "ignorado";

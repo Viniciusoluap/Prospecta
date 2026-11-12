@@ -24,7 +24,7 @@ para o Grupo Santa Fé, com a mesma regra de negócio, quando o dono autorizar �
 |---|-------|--------|
 | CV-01 | Diagnóstico, mapeamento do pipeline e plano | Done |
 | CV-02 | Migração aditiva (status, configuração, produtos, checklists, eventos, fila, sequências) | InReview |
-| CV-03 | Serviço de entrada de leads (WhatsApp, site, Logyca) com deduplicação e origem | Draft |
+| CV-03 | Serviço de entrada de leads (WhatsApp, site, Logyca) com deduplicação e origem | InReview |
 | CV-04 | Distribuição automática (rodízio) e SLA | Draft |
 | CV-05 | Agente de IA de atendimento e qualificação, com regras proibidas | Draft |
 | CV-06 | Documentação: checklist, classificação, lembretes e encaminhamento para análise | Draft |

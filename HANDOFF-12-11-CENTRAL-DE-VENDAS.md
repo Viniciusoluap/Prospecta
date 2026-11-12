@@ -44,22 +44,39 @@ Ver `docs/stories/epics/epic-central-de-vendas/EPIC.md` (CV-01 a CV-11).
 
 ## Concluído
 - Etapa 1 — diagnóstico, épico e stories (`4946d13`).
-- Etapa 2 — migração aditiva `drizzle/0110_central_vendas.sql` (12 tabelas `central_vendas_*`, idempotente,
-  nenhuma tabela existente alterada), `drizzle/schema-central-vendas.ts`, `drizzle.config.ts`.
-  O banco garante que análise pendente/aprovada/reprovada só existe com `decisao_por` (usuário humano).
+- Etapa 2 — migração aditiva `drizzle/0110_central_vendas.sql`, `drizzle/schema-central-vendas.ts` (`0eb15bd`).
+- Etapa 3 — serviço de entrada (este commit): `server/central-vendas/entrada.ts` (`receberContato` +
+  `aoReceberMensagemWhatsapp`), `rotas.ts` (POST `/api/central-vendas/entrada/site` e `/entrada/logyca`, Bearer com
+  token próprio cifrado, zod `.strict()`, 30 req/min por origem+IP), gancho de 4 linhas no webhook da Evolution,
+  rotas registradas em `api/index.ts` e `server/_core/index.ts`, rotina no cron diário existente.
+  Regras puras em `shared/central-vendas/regras.ts`; configuração em `shared/central-vendas/config.ts`.
+  **Atenção:** os módulos de servidor das etapas 4–8 (`distribuicao.ts`, `ia.ts`, `documentos.ts`, `analise.ts`,
+  `sequencias.ts`, `envio.ts`, `rotina.ts`) já entraram neste commit porque o serviço de entrada depende deles;
+  cada etapa seguinte traz os testes dela e as correções que os testes apontarem.
+
+### Decisões automáticas (YOLO)
+- [AUTO-DECISION] Lead que já existia no CRM e escreve no WhatsApp → entra na Central com atendimento humano
+  (operador = responsável atual). A IA só atende quem entrou pela Central (não muda atendimentos em curso).
+- [AUTO-DECISION] Modo de teste: números fora da lista são ignorados pela Central (nem lead, nem IA); o WhatsApp
+  continua gravando a conversa como antes. Começa **ligado**; o interruptor geral começa **desligado**.
+- [AUTO-DECISION] Lead do site recebe a saudação `cv-saudacao` (com o pedido de consentimento LGPD) pelo WhatsApp,
+  respeitando a janela 8h–20h. Texto vindo da Logyca não aciona a IA (a Logyca tem os próprios fluxos).
 
 ## Migrações criadas (NÃO aplicadas em banco real)
 - `drizzle/0110_central_vendas.sql`
 
 ## Pendências
-- Etapas 3 a 11.
+- Etapas 4 a 11.
 
 ## Testes
-- (a) automáticos: `npx tsc --noEmit -p .` ✅; `npx vitest run server/central-vendas-0110.test.ts` ✅ (2 testes:
-  aplica duas vezes, não altera `leads`, CHECKs de status, decisão só com humano, único por origem + ID externo).
+- (a) automáticos: `npx tsc --noEmit -p .` ✅; `server/central-vendas-0110.test.ts` ✅ (2);
+  `server/central-vendas-entrada.test.ts` ✅ (8: aviso repetido cria 1 lead; 3 avisos simultâneos criam 1 lead; com/sem
+  9º dígito; origem/campanha/empreendimento por `[ref:...]`; lead antigo do CRM não é recriado; modo de teste; Central
+  desligada; site exige token, valida payload, idempotente por ID externo, sem eco de telefone; Logyca desligada por
+  padrão e conflito registrado com o Prospecta prevalecendo; limitação de taxa 429). Testes existentes do WhatsApp
+  (7 arquivos, 53 testes) ✅ com o gancho no webhook.
 - (b) manuais: nenhum.
-- (c) produção: aplicar a 0110 (só com autorização do dono).
+- (c) produção: aplicar a 0110 e ligar a Central (só com autorização do dono).
 
 ## Próximo passo exato
-Etapa 3: `shared/central-vendas/*` (config e regras puras) + `server/central-vendas/entrada.ts` (deduplicação por
-`central_vendas_contatos`, `[ref:...]`) + gancho em `server/whatsapp-evolution-webhook.ts` + rotas site/Logyca.
+Etapa 4: testes de rodízio e SLA (`server/central-vendas-distribuicao.test.ts`) sobre `server/central-vendas/distribuicao.ts`.
