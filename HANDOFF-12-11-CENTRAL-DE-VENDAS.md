@@ -45,7 +45,7 @@ Ver `docs/stories/epics/epic-central-de-vendas/EPIC.md` (CV-01 a CV-11).
 ## Concluído
 - Etapa 1 — diagnóstico, épico e stories (`4946d13`).
 - Etapa 2 — migração aditiva `drizzle/0110_central_vendas.sql`, `drizzle/schema-central-vendas.ts` (`0eb15bd`).
-- Etapa 3 — serviço de entrada (este commit): `server/central-vendas/entrada.ts` (`receberContato` +
+- Etapa 3 — serviço de entrada (`f3022a1`): `server/central-vendas/entrada.ts` (`receberContato` +
   `aoReceberMensagemWhatsapp`), `rotas.ts` (POST `/api/central-vendas/entrada/site` e `/entrada/logyca`, Bearer com
   token próprio cifrado, zod `.strict()`, 30 req/min por origem+IP), gancho de 4 linhas no webhook da Evolution,
   rotas registradas em `api/index.ts` e `server/_core/index.ts`, rotina no cron diário existente.
@@ -53,36 +53,36 @@ Ver `docs/stories/epics/epic-central-de-vendas/EPIC.md` (CV-01 a CV-11).
   **Atenção:** os módulos de servidor das etapas 4–8 (`distribuicao.ts`, `ia.ts`, `documentos.ts`, `analise.ts`,
   `sequencias.ts`, `envio.ts`, `rotina.ts`) já entraram neste commit porque o serviço de entrada depende deles;
   cada etapa seguinte traz os testes dela e as correções que os testes apontarem.
-- Etapa 4 — distribuição e SLA: rodízio por id entre operadores ativos (`atribuirOperador`, preenche também o
+- Etapa 4 (`47ec117`) — distribuição e SLA: rodízio por id entre operadores ativos (`atribuirOperador`, preenche também o
   `responsibleUserId` do CRM quando vazio) e `verificarSla` (estouro → próximo operador, aviso, auditoria
   `sla_reatribuido`, relógio recomeça; sem outro operador → `sla_estourado` + aviso ao admin uma vez).
-- Etapa 5 — agente de IA (`server/central-vendas/ia.ts`): prompt com só os produtos cadastrados; saída JSON em lista
+- Etapa 5 (`c0f6481`) — agente de IA (`server/central-vendas/ia.ts`): prompt com só os produtos cadastrados; saída JSON em lista
   fechada (`lerSaidaIA` descarta qualquer campo extra, como "statusAnalise"); dados gravados nos campos do lead só
   após o consentimento LGPD (`lgpdConsent`/`lgpdConsentAt`); toda resposta passa por `violacoesResposta` antes de
   sair (promessa de aprovação, valor/taxa/parcela fora do cadastro, "reprovado") → bloqueada e vai para humano;
   gatilhos por código no texto do cliente (atendente, reclamação, jurídico, negociação) nem chamam a IA; baixa
   confiança, pedido do modelo e 3 mensagens sem progresso → humano com resumo da IA (reserva sem IA); limite mensal
   de tokens com consumo por lead e aviso ao admin 1x/mês; falha da IA → fila com backoff → esgotou → humano.
-- Etapa 6 — documentação (`server/central-vendas/documentos.ts`): checklist do lead = do produto/campanha ou o
+- Etapa 6 (`e5d113f`) — documentação (`server/central-vendas/documentos.ts`): checklist do lead = do produto/campanha ou o
   checklist padrão da configuração (nenhum documento fixo no código; sem checklist → evento `sem_checklist` +
   aviso ao operador); lista de pendentes logo após a qualificação; cada mídia recebida vira `lead_documents`
   (link `/api/whatsapp/midia/<id>` + cópia do Drive quando houver), classificada por metadados (regra → IA);
   confiança < 0,7 → "a conferir" (conta, o fluxo segue, operador avisado); lembretes D+1/D+3/D+7 (configuráveis)
   no cron diário; checklist completo → `completo` + `em_analise` + tarefa ao analista + aviso + mensagem, uma vez
   (UPDATE condicionado ao estado anterior).
-- Etapa 7 — retorno da análise (`server/central-vendas/analise.ts`, `registrarDecisao`): só admin ou analista da
+- Etapa 7 (`bf0adfc`) — retorno da análise (`server/central-vendas/analise.ts`, `registrarDecisao`): só admin ou analista da
   Central, ativo; pendente → mensagem com as pendências descritas, volta a "aguardando documentos" e os lembretes
   recomeçam da decisão; aprovado → etapa `approved_projects` (só avança), temperatura `hot`, aviso ao operador e
   template sem valores (entra no follow-up da etapa 8); reprovado → mensagem neutra, atendimento humano, motivo só
   em `leads.rejection_reason`. Mensagens da decisão respeitam a janela 8h–20h.
-- Etapa 8 — follow-up, reativação e proteções (`envio.ts`, `sequencias.ts`, `rotina.ts`): fila única com chave
+- Etapa 8 (`86f33c6`) — follow-up, reativação e proteções (`envio.ts`, `sequencias.ts`, `rotina.ts`): fila única com chave
   idempotente; opt-out "SAIR"/"PARAR" (confirmação 1x, pendentes cancelados, próximos descartados); modo de teste;
   janela 8h–20h America/Fortaleza para proativas (adiadas para a abertura + até 30 min espalhados); limite diário
   por número (adiado para o dia seguinte); intervalo aleatório entre envios seguidos; falha → backoff 1/2/4/8 min,
   5 tentativas → "falhou" + aviso ao admin; queda no meio → "incerto" (nunca reenviado sozinho). Sequências
   `followup_aprovado`, `sem_resposta` e `reativacao` com passos em dias e template; só o passo mais avançado
   vencido vai (sem rajada); o cliente responder reinicia o ciclo.
-- Etapa 9 — painel e configurações: `shared/central-vendas/indicadores.ts` (recebidos, qualificados, 1ª resposta,
+- Etapa 9 (`b50ed47`) — painel e configurações: `shared/central-vendas/indicadores.ts` (recebidos, qualificados, 1ª resposta,
   por operador, aguardando docs, docs completos, enviados à análise, em análise, pendências, aprovados,
   reprovados, conversão, tempo médio por etapa, origem; null → "sem dados"; CSV ";" + BOM sem telefone/CPF/renda);
   router `centralVendas` (`server/central-vendas/router.ts`, módulo `crm`; configurações/produtos/checklists/
@@ -94,11 +94,14 @@ Ver `docs/stories/epics/epic-central-de-vendas/EPIC.md` (CV-01 a CV-11).
   IA no cofre, "executar rotina agora"), Produtos, Checklists, Sequências, Campanhas (gerador de links wa.me),
   Templates (`whatsapp_templates` slug `cv-*`) e Auditoria (eventos + fila com reprocessar).
   `server/whatsapp-router.ts`: templates `cv-*` no banco não escondem mais os 6 templates padrão da Central WhatsApp.
-- Etapa 10 — adaptador Logyca (`server/central-vendas/logyca.ts`), **desligado por padrão**
+- Etapa 10 (`325a4ac`) — adaptador Logyca (`server/central-vendas/logyca.ts`), **desligado por padrão**
   (`config.logyca.ativo = false`): envio POST https no endpoint copiado de "Mensagens API", `Authorization: Bearer`,
   corpo `{ "number", "message" }` (usado pela fila quando "Enviar pela Logyca" estiver ligado, com backoff);
   entrada POST `/api/central-vendas/entrada/logyca` para o bloco "HTTP Request" (token próprio gerado na tela).
   Conflito de dado: prevalece o Prospecta e o conflito vai para a auditoria (`conflito_logyca`).
+
+- Etapa 11 (este commit) — teste ponta a ponta do critério de pronto (`server/central-vendas-e2e.test.ts`); analista
+  passa a ver na aba Atendimentos os leads que aguardam a decisão dele (antes via só os próprios).
 
 ## A validar com a Logyca (a documentação não confirma)
 - Formato da resposta do envio (há ID da mensagem? status de entrega?) — hoje só `HTTP 2xx` = enviado.
@@ -128,44 +131,52 @@ Ver `docs/stories/epics/epic-central-de-vendas/EPIC.md` (CV-01 a CV-11).
   respeitando a janela 8h–20h. Texto vindo da Logyca não aciona a IA (a Logyca tem os próprios fluxos).
 
 ## Migrações criadas (NÃO aplicadas em banco real)
-- `drizzle/0110_central_vendas.sql`
+- `drizzle/0110_central_vendas.sql` — só `CREATE TABLE/INDEX IF NOT EXISTS` (12 tabelas `central_vendas_*`).
+  Reversão: `DROP TABLE` das `central_vendas_*`. Nenhuma tabela existente alterada.
 
-## Pendências
-- Etapa 11.
-- Tela da Central não foi aberta em navegador nesta sessão (validação visual pendente).
+## O que o dono precisa preencher (depois do merge/deploy autorizados)
+1. Aplicar a migração 0110 no Neon (com autorização).
+2. Variáveis já existentes no sistema (nenhuma nova obrigatória): `ANTHROPIC_API_KEY` (ou a chave própria da IA na
+   tela, guardada no cofre), `JWT_SECRET` (cofre), `CRON_SECRET` (cron diário), Evolution conectada por QR code.
+3. Na tela Central de Vendas › Configurações: operadores e analistas; números de teste; checklist(s) e
+   checklist padrão; produtos/empreendimentos (descrição, preço, requisitos, condições — a IA só fala isso);
+   sequências (follow-up, sem resposta, reativação 30/60/90 — nenhuma vem criada); campanhas; gerar o token do
+   site (se o site for mandar leads) e, se for usar, o token de entrada e o endpoint/token de envio da Logyca.
+4. Ligar o interruptor geral (começa **desligado**; o modo de teste começa **ligado**).
+
+## Pendências / não feito
+- Validação visual da tela em navegador (não aberta nesta sessão; só `tsc` e `vite build`).
+- SLA em minutos depende de tráfego (aviso do WhatsApp, painel aberto) ou do cron diário — não há cron de minutos.
+- Classificação de documentos só por metadados (nome/tipo/legenda), por regra de privacidade do prompt.
+- Envio de mídia pela Logyca, resposta/ID do envio e formato do bloco HTTP Request: a validar com a Logyca.
+- Paridade Santa Fé suspensa: pendência registrada no `ROADMAP.md` da Prospecta. O `CLAUDE.md` atualizado também
+  pede registro em `HANDOFF-12-11-STANDBY-PARIDADE.md` na raiz do **Grupo Santa Fé** — não feito, porque esta
+  sessão foi proibida de mexer no repositório do Santa Fé; fica para quem tiver essa permissão.
+- Pull Request: não aberto (o coordenador abre). Merge, deploy e migração em produção: só com o dono.
 
 ## Testes
-- (a) automáticos: `npx tsc --noEmit -p .` ✅; `server/central-vendas-0110.test.ts` ✅ (2);
-  `server/central-vendas-entrada.test.ts` ✅ (8: aviso repetido cria 1 lead; 3 avisos simultâneos criam 1 lead; com/sem
-  9º dígito; origem/campanha/empreendimento por `[ref:...]`; lead antigo do CRM não é recriado; modo de teste; Central
-  desligada; site exige token, valida payload, idempotente por ID externo, sem eco de telefone; Logyca desligada por
-  padrão e conflito registrado com o Prospecta prevalecendo; limitação de taxa 429). Testes existentes do WhatsApp
-  (7 arquivos, 53 testes) ✅ com o gancho no webhook.
-  `server/central-vendas-distribuicao.test.ts` ✅ (6: rodízio, inativo fora, minutos úteis com fim de semana,
-  reatribuição no 16º minuto, resposta humana registrada sem reatribuir, estouro sem outro operador avisa 1x).
-  `server/central-vendas-ia.test.ts` ✅ (27: 8 respostas proibidas bloqueadas, 5 permitidas, normalização de números,
-  gatilhos, campo extra descartado, LGPD antes/depois, promessa de aprovação simulada não sai e não muda a análise,
-  condição cadastrada sai, 4 gatilhos de texto, baixa confiança, 3 sem progresso, pedido do modelo, limite de
-  tokens, falha da IA reprocessada sem resposta duplicada).
-  `server/central-vendas-documentos.test.ts` ✅ (6: classificação por metadados; lista após qualificação; RG/holerite/
-  arquivo sem pista → IA só com metadados → "a conferir"; encaminhamento único mesmo com aviso repetido, nova
-  verificação e arquivo extra — 1 tarefa, 1 mensagem, 1 evento; lembretes D+1/D+3/D+7 sem repetir; sem checklist;
-  automação desligada).
-  `server/central-vendas-analise.test.ts` ✅ (7: as 3 decisões e suas mensagens, lembrete recomeça, janela,
-  operador/inativo/inexistente/NaN recusados, banco recusa sem `decisao_por`, só decide quem está em análise).
-  `server/central-vendas-envio.test.ts` ✅ (8: proteções puras; opt-out; janela adia para 8h; modo de teste
-  descarta; limite diário 2 + intervalo só entre envios reais; falha → fila → reenviada 1x; 5 falhas → falhou +
-  aviso; incerto não reenvia; follow-up pós-aprovação D+1/D+3; sem resposta; reativação D+30; desligada).
-  Total da Central até aqui: 7 arquivos, 64 testes ✅.
-  `server/central-vendas-painel.test.ts` ✅ (6: indicadores vazios = null; indicadores batem com 4 leads de teste
-  e filtros; painel/CSV pelo router com dados reais; operadora só vê os próprios; config/produto só admin; corretor e
-  colaborador sem CRM bloqueados; token mostrado 1x e cifrado; produto/checklist/campanha com link/template
-  validado; templates padrão do WhatsApp continuam). Testes existentes de permissões/navegação/WhatsApp (8 arquivos,
-  61) ✅. `npx vite build` ✅.
-  `server/central-vendas-logyca.test.ts` ✅ (5: POST/Bearer/{number,message}; https obrigatório e erros sem lançar;
-  flag desligada por padrão; fila pela Logyca com falha → reprocessada; entrada com token, idempotente, sem IA).
-- (b) manuais: nenhum.
-- (c) produção: aplicar a 0110 e ligar a Central (só com autorização do dono).
+- (a) automáticos (12/11, nesta branch): `npx tsc --noEmit -p .` ✅; `npx vitest run` (suíte completa) ✅
+  **205 arquivos, 1715 testes**; `npx vite build` ✅; `git diff --check` ✅. Da Central: 10 arquivos
+  `server/central-vendas-*.test.ts` (0110, entrada, distribuição, IA, documentos, análise, envio, painel,
+  Logyca, e2e). Nenhum teste chama Anthropic, Evolution ou Logyca de verdade (envio/IA/fetch simulados) e nenhum
+  toca banco real (PGlite em memória, tabelas geradas do `drizzle/schema.ts` + 0110).
+- (b) manuais: nenhum (sem navegador nem banco real nesta sessão).
+- (c) produção: aplicar a 0110; conectar a Evolution; rodar o roteiro abaixo com um número de teste.
+
+## Teste ponta a ponta em modo de teste (roteiro manual)
+1. Configurações: modo de teste ligado, seu número na lista, você como operador e analista, salvar.
+2. Checklists: criar "MCMV" com RG, comprovante de renda e de residência. Produtos: criar código `teste` com o
+   checklist. Ligar o interruptor geral. Salvar.
+3. Do número autorizado, mandar "Olá [ref:teste]" para o WhatsApp conectado → o lead aparece no CRM atribuído a
+   você e a IA pede o consentimento LGPD.
+4. Responder SIM e os dados (nome, cidade, renda e tipo, FGTS, estado civil, composição, interesse) → chega a
+   lista de documentos.
+5. Mandar os 3 documentos (PDF/foto com nome claro, ex. "rg.pdf", "holerite.pdf", "comprovante de residencia.pdf")
+   → mensagem "encaminhado para análise" e tarefa "Análise — <nome>" na Agenda.
+6. Central de Vendas › Atendimentos → Aprovar (ou Pendente/Reprovar) → a mensagem correspondente chega.
+7. Conferir Painel (recebidos, qualificados, enviados, aprovados) e Auditoria (eventos e fila).
+8. Mandar "SAIR" → confirmação e mais nenhuma mensagem automática.
 
 ## Próximo passo exato
-Etapa 11: teste ponta a ponta do critério de pronto em modo de teste (`server/central-vendas-e2e.test.ts`), suíte completa, `vite build`, handoff final.
+Coordenador abre o PR de `claude/central-de-vendas`; com autorização do dono: merge, deploy, aplicar a 0110 e
+executar o roteiro acima. Depois, QA (`@qa`) das stories CV-02 a CV-11 e, quando o dono mandar, portar ao Santa Fé.

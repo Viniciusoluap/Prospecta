@@ -3,7 +3,7 @@
 // os próprios atendimentos. A decisão da análise exige admin ou analista marcado na Central.
 import { randomBytes } from "node:crypto";
 import { TRPCError } from "@trpc/server";
-import { and, desc, eq, inArray, isNull, like } from "drizzle-orm";
+import { and, desc, eq, inArray, isNull, like, or } from "drizzle-orm";
 import { z } from "zod";
 import { leads, users, whatsappConnections, whatsappTemplates } from "../../drizzle/schema.js";
 import {
@@ -102,13 +102,16 @@ export const centralVendasRouter = router({
   }),
 
   atendimentos: adminProcedure.input(z.object({ status: z.enum(STATUS_ATENDIMENTO).optional(), analise: z.string().max(20).optional() }).default({})).query(async ({ ctx, input }) => {
+    const decide = await podeDecidir(ctx.user.id);
+    // Operador vê os próprios; analista vê também os que aguardam a decisão dele.
+    const visiveis = ehAdmin(ctx) ? undefined : or(eq(centralVendasLeads.operadorId, ctx.user.id),
+      decide ? inArray(centralVendasLeads.statusAnalise, ["em_analise", "pendente"]) : undefined);
     const rows = await db().select({ cv: centralVendasLeads, nome: leads.name, cidade: leads.city, canal: leads.sourceChannel, operador: users.name })
       .from(centralVendasLeads).innerJoin(leads, eq(leads.id, centralVendasLeads.leadId)).leftJoin(users, eq(users.id, centralVendasLeads.operadorId))
-      .where(and(isNull(leads.deletedAt), ehAdmin(ctx) ? undefined : eq(centralVendasLeads.operadorId, ctx.user.id),
+      .where(and(isNull(leads.deletedAt), visiveis,
         input.status ? eq(centralVendasLeads.statusAtendimento, input.status) : undefined,
         input.analise ? eq(centralVendasLeads.statusAnalise, input.analise) : undefined))
       .orderBy(desc(centralVendasLeads.updatedAt)).limit(300);
-    const decide = await podeDecidir(ctx.user.id);
     return rows.map(({ cv, nome, cidade, canal, operador }) => ({
       leadId: cv.leadId, nome, cidade, origem: canal ?? cv.origem, campanha: cv.campanha, operador, operadorId: cv.operadorId,
       statusAtendimento: cv.statusAtendimento, statusDocumental: cv.statusDocumental, statusAnalise: cv.statusAnalise,

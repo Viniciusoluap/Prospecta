@@ -1,6 +1,6 @@
 # EPIC — Central de Vendas (Prospecta)
 
-Status: InProgress
+Status: InReview (todas as stories implementadas; QA e validação em produção pendentes)
 Data: 12/11/2026
 Branch: `claude/central-de-vendas`
 Especificação: `docs/prompts/central-de-vendas.md` (prompt do dono do produto)
@@ -32,7 +32,7 @@ para o Grupo Santa Fé, com a mesma regra de negócio, quando o dono autorizar �
 | CV-08 | Follow-up, reativação e proteções de envio | InReview |
 | CV-09 | Painel de indicadores e tela de configurações | InReview |
 | CV-10 | Adaptador Logyca (desligado por padrão) | InReview |
-| CV-11 | Testes ponta a ponta em modo de teste e handoff final | Draft |
+| CV-11 | Testes ponta a ponta em modo de teste e handoff final | InReview |
 
 ## Critério de pronto (seção 8 do prompt)
 
