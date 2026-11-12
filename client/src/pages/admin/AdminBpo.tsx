@@ -744,6 +744,8 @@ export default function AdminBpo({ initialTab }: { initialTab?: Aba } = {}) {
                               : ""}
                           </p>
                           {l.tipo !== "despesa" && <p className="text-xs text-gray-300">Recebido {formatCurrencyBR(recebidoDoLancamento(l))} · Saldo {formatCurrencyBR(Number(l.valor) - recebidoDoLancamento(l))}</p>}
+                          {/* Bloco 2 (12/11): despesa com pagamento parcial pelo banco (dividir pagamentos). */}
+                          {l.tipo === "despesa" && !l.pago && Number(l.valorRecebido) > 0 && <p className="text-xs text-gray-300">Pago {formatCurrencyBR(recebidoDoLancamento(l))} · Saldo {formatCurrencyBR(Number(l.valor) - recebidoDoLancamento(l))}</p>}
                           {l.categoriaOperacional && l.vinculoOperacionalId && (() => {
                             const opcoes = (catalogoOperacional?.[catalogoDaCategoria(l.tipo === "despesa" ? "despesa" : "cobranca", l.categoriaOperacional) as keyof typeof catalogoOperacional] ?? []) as any[];
                             const registro = opcoes.find(o => o.id === l.vinculoOperacionalId);

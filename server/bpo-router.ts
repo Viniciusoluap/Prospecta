@@ -39,7 +39,7 @@ import { mensagemLancamentoCombinado } from "../shared/financeiro/bpo-lote.js";
 import { importarContaAzul, previaContaAzul } from "./bpo-conta-azul.js";
 import { LIMITE_ARQUIVO_CONTA_AZUL } from "../shared/financeiro/conta-azul.js";
 import {
-  abertosParaBaixa, confirmarLancamentos, contagemAClassificar, criarLancamentosDasMovimentacoes, ignorarMovimentacoes,
+  abertosParaBaixa, confirmarLancamentos, darBaixaComMovimentacao, contagemAClassificar, criarLancamentosDasMovimentacoes, ignorarMovimentacoes,
   lancamentosAClassificar, movimentacoesAClassificar,
 } from "./bpo-a-classificar.js";
 import { aplicarVinculosEmMassa, previaVinculosEmMassa, sugestoesDoLancamento, vincularLancamentoACliente } from "./bpo-vinculo-cliente.js";
@@ -471,6 +471,14 @@ export const bpoRouter = router({
     ignorar: adminProcedure.input(z.object({ ids: z.array(z.number().int().positive()).min(1).max(2000) })).mutation(async ({ input }) => {
       try { return await ignorarMovimentacoes(input.ids); }
       catch (e) { throw new TRPCError({ code: "BAD_REQUEST", message: e instanceof Error ? e.message : "Falha ao ignorar." }); }
+    }),
+    /** Bloco 2: dar baixa / dividir — uma movimentação quita (total ou parcialmente) um ou vários lançamentos. */
+    darBaixa: adminProcedure.input(z.object({
+      movimentacaoId: z.number().int().positive(),
+      alocacoes: z.array(z.object({ lancamentoId: z.number().int().positive(), valor: z.number().positive() })).min(1).max(200),
+    })).mutation(async ({ input, ctx }) => {
+      try { return await darBaixaComMovimentacao(input, ctx.user.id); }
+      catch (e) { throw new TRPCError({ code: "BAD_REQUEST", message: e instanceof Error ? e.message : "Falha ao dar baixa." }); }
     }),
     confirmar: adminProcedure.input(z.object({ ids: z.array(z.number().int().positive()).min(1).max(2000) })).mutation(async ({ input, ctx }) => {
       try { return await confirmarLancamentos(input.ids, ctx.user.id); }

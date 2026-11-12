@@ -6,10 +6,10 @@
 // Regras puras em shared/financeiro/bpo-a-classificar.ts.
 import { and, asc, desc, eq, inArray, isNull, ne, sql } from "drizzle-orm";
 import { getDb } from "./db.js";
-import { bankAccounts, bankTransactions, bpoClients, bpoLancamentoHistorico, bpoLancamentos } from "../drizzle/schema.js";
+import { bankAccounts, bankTransactions, bpoClients, bpoLancamentoHistorico, bpoLancamentos, bpoRecebimentos } from "../drizzle/schema.js";
 import { aplicarClassificacaoEmLote } from "./bpo-extrato.js";
 import { TRANSFERENCIA_INTERNA, type CategoriaBpo } from "../shared/financeiro/bpo-extrato.js";
-import { sugestoesDeBaixa } from "../shared/financeiro/bpo-a-classificar.js";
+import { centavosDe, chaveAlocacao, resultadoDaBaixa, sugestoesDeBaixa, validarDivisao, type Alocacao } from "../shared/financeiro/bpo-a-classificar.js";
 
 const clienteNome = sql<string | null>`coalesce(${bpoClients.razaoSocial}, ${bpoLancamentos.clienteNomeLivre})`;
 
@@ -141,4 +141,70 @@ export async function abertosParaBaixa(movimentacaoId: number) {
     .limit(1000);
   const sugeridos = sugestoesDeBaixa(m, abertos).map(l => l.id);
   return { movimentacao: m, abertos, sugeridos };
+}
+
+// ── Bloco 2: dividir pagamentos (split) ─────────────────────────────────────────────────────────────
+// Uma linha em bpo_recebimentos por alocação (bank_transaction_id + request_key "bt:<mov>:<lanc>"); o lançamento
+// acumula valor_recebido e só fica pago quando recebido = valor. A movimentação não ganha lançamento próprio
+// (o dinheiro já está nos lançamentos que ela quitou), então nenhuma leitura soma o mesmo dinheiro duas vezes.
+// Tudo numa transação (sessão WebSocket em produção), com FOR UPDATE na movimentação e nos lançamentos.
+
+const assinatura = (xs: { lancamentoId: number; valor: number | string }[]) =>
+  xs.map(x => `${x.lancamentoId}:${centavosDe(x.valor)}`).sort().join("|");
+
+export type ResultadoBaixa = { movimentacaoId: number; repetida: boolean; alocacoes: { lancamentoId: number; valor: string; pago: boolean; saldo: number }[] };
+
+/** Dá baixa (total ou parcial) em um ou vários lançamentos em aberto com uma movimentação do banco. Idempotente. */
+export async function darBaixaComMovimentacao(input: { movimentacaoId: number; alocacoes: Alocacao[] }, userId: number): Promise<ResultadoBaixa> {
+  return getDb().transaction(async tx => {
+    const [m] = await tx.select().from(bankTransactions).where(eq(bankTransactions.id, input.movimentacaoId)).for("update");
+    if (!m) throw new Error("Movimentação não encontrada.");
+    const anteriores = await tx.select().from(bpoRecebimentos).where(eq(bpoRecebimentos.bankTransactionId, m.id));
+    if (anteriores.length) {
+      // Repetir a mesma chamada (duplo clique, retry) devolve o que já foi feito; outra divisão é recusada.
+      if (assinatura(anteriores) !== assinatura(input.alocacoes)) throw new Error("Esta movimentação já foi usada para dar baixa em outros lançamentos.");
+      const lancs = await tx.select().from(bpoLancamentos).where(inArray(bpoLancamentos.id, anteriores.map(r => r.lancamentoId)));
+      const porId = new Map(lancs.map(l => [l.id, l]));
+      return {
+        movimentacaoId: m.id, repetida: true,
+        alocacoes: anteriores.map(r => {
+          const l = porId.get(r.lancamentoId);
+          return { lancamentoId: r.lancamentoId, valor: r.valor, pago: Boolean(l?.pago), saldo: l ? (centavosDe(l.valor) - centavosDe(l.valorRecebido)) / 100 : 0 };
+        }),
+      };
+    }
+    if (!m.aClassificar) throw new Error("Esta movimentação não está em A classificar (já foi classificada ou conciliada). Atualize a tela.");
+    const [ligado] = await tx.select({ id: bpoLancamentos.id }).from(bpoLancamentos).where(eq(bpoLancamentos.bankTransactionId, m.id)).limit(1);
+    if (ligado) throw new Error("Esta movimentação já tem um lançamento próprio.");
+    const ids = Array.from(new Set(input.alocacoes.map(a => a.lancamentoId))).sort((a, b) => a - b);
+    const lancs = ids.length
+      ? await tx.select().from(bpoLancamentos).where(inArray(bpoLancamentos.id, ids)).orderBy(asc(bpoLancamentos.id)).for("update")
+      : [];
+    const erros = validarDivisao(m, input.alocacoes, lancs);
+    if (erros.length) throw new Error(erros.join(" "));
+    const porId = new Map(lancs.map(l => [l.id, l]));
+    const resultado: ResultadoBaixa["alocacoes"] = [];
+    for (const a of input.alocacoes) {
+      const l = porId.get(a.lancamentoId)!;
+      const valor = (Math.round(a.valor * 100) / 100).toFixed(2);
+      const r = resultadoDaBaixa(l, a.valor);
+      await tx.insert(bpoRecebimentos).values({
+        lancamentoId: l.id, requestKey: chaveAlocacao(m.id, l.id), valor, recebidoEm: m.data, registradoPorUserId: userId,
+        bankTransactionId: m.id, observacoes: `Baixa pela movimentação #${m.id} do banco (${m.descricao}).`.slice(0, 1000),
+      });
+      const [depois] = await tx.update(bpoLancamentos).set({
+        valorRecebido: r.valorRecebido, pago: r.pago, pagoEm: r.pago ? m.data : null,
+        version: l.version + 1, aClassificar: false, updatedAt: new Date(),
+      }).where(and(eq(bpoLancamentos.id, l.id), eq(bpoLancamentos.version, l.version))).returning();
+      if (!depois) throw new Error("Um dos lançamentos foi alterado por outra pessoa. Atualize a tela.");
+      await tx.insert(bpoLancamentoHistorico).values({
+        lancamentoId: l.id, lancamentoReferencia: l.id, versaoAnterior: l.version, alteradoPorUserId: userId,
+        motivo: `${r.pago ? "Quitado" : "Baixa parcial"} pela movimentação #${m.id} do banco (${valor})`,
+        antesJson: JSON.stringify(l), depoisJson: JSON.stringify(depois),
+      });
+      resultado.push({ lancamentoId: l.id, valor, pago: r.pago, saldo: r.saldo });
+    }
+    await tx.update(bankTransactions).set({ aClassificar: false, status: "conciliado" }).where(eq(bankTransactions.id, m.id));
+    return { movimentacaoId: m.id, repetida: false, alocacoes: resultado };
+  });
 }

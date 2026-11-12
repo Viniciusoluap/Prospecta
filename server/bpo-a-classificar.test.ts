@@ -287,3 +287,105 @@ describe("importação do Conta Azul e Asaas", () => {
     expect(await linhas("SELECT a_classificar FROM bank_transactions")).toEqual([{ a_classificar: false }]);
   });
 });
+
+describe("dividir pagamentos (bloco 2)", () => {
+  // 1: receita 300 (A classificar, do Conta Azul) · 2: receita 200 · 3: despesa 900 (A classificar) · 4: receita Asaas · 5: receita combinada
+  beforeEach(async () => {
+    await pg.exec(`INSERT INTO bpo_clients (razao_social, responsavel, telefone, honorarios, data_inicio) VALUES ('Cliente Z','x','',0,now());
+      INSERT INTO bpo_lancamentos (tipo, descricao, valor, vencimento, competencia, origem_efetiva, a_classificar, cliente_id, asaas_payment_id) VALUES
+      ('receita','Honorários out',300,'2026-10-10','2026-10','conta_azul',true,1,null),
+      ('receita','Projeto',200,'2026-10-12','2026-10','manual',false,1,null),
+      ('despesa','Aluguel',900,'2026-10-05','2026-10','conta_azul',true,null,null),
+      ('receita','Asaas',100,'2026-10-10','2026-10','manual',false,1,'pay_1'),
+      ('receita','Combinada',100,'2026-10-10','2026-10','manual',false,1,null);
+      UPDATE bpo_lancamentos SET combinada_em_id = 2 WHERE id = 5;`);
+    await gravarMovimentos(conta, [
+      { externalId: "s1", data: "2026-10-11", descricao: "Pix recebido", valor: 500, tipo: "credito", titular: "Cliente Z" },
+      { externalId: "s2", data: "2026-10-06", descricao: "Pix enviado", valor: 400, tipo: "debito" },
+      { externalId: "s3", data: "2026-10-20", descricao: "Pix enviado", valor: 500, tipo: "debito" },
+      { externalId: "s4", data: "2026-10-21", descricao: "Pix recebido", valor: 50, tipo: "credito" },
+    ], "importacao");
+  });
+  const baixa = (movimentacaoId: number, alocacoes: { lancamentoId: number; valor: number }[]) => admin().aClassificar.darBaixa({ movimentacaoId, alocacoes });
+  const estado = () => linhas("SELECT id, valor_recebido::text vr, pago, to_char(pago_em,'YYYY-MM-DD') pe, a_classificar ac, version v FROM bpo_lancamentos WHERE id <= 3 ORDER BY id");
+
+  it("sugestões de baixa: mesmo sentido e em aberto (inclui os A classificar), mesmo valor/cliente primeiro", async () => {
+    const r = await admin().aClassificar.abertosParaBaixa({ movimentacaoId: 1 });
+    expect(r.abertos.map(l => l.id)).toEqual([1, 2]); // sem despesa, Asaas, combinada
+    expect(r.sugeridos).toEqual([1, 2]); // nenhum com o valor 500: mesmo cliente, vencimento mais próximo (empate: menor id)
+    expect((await admin().aClassificar.abertosParaBaixa({ movimentacaoId: 2 })).abertos.map(l => l.id)).toEqual([3]);
+  });
+
+  it("1 → N: a soma tem que fechar exatamente e nenhum valor passa do saldo; depois quita os dois", async () => {
+    await expect(baixa(1, [{ lancamentoId: 1, valor: 300 }, { lancamentoId: 2, valor: 199.99 }])).rejects.toThrow(/exatamente/);
+    await expect(baixa(1, [{ lancamentoId: 1, valor: 300.01 }, { lancamentoId: 2, valor: 199.99 }])).rejects.toThrow(/passa do saldo/);
+    await expect(baixa(1, [{ lancamentoId: 1, valor: 500 }])).rejects.toThrow(/passa do saldo/);
+    await expect(baixa(1, [{ lancamentoId: 3, valor: 500 }])).rejects.toThrow(/outro sentido/);
+    await expect(baixa(1, [{ lancamentoId: 4, valor: 100 }, { lancamentoId: 2, valor: 200 }, { lancamentoId: 1, valor: 200 }])).rejects.toThrow(/Asaas/);
+    await expect(baixa(1, [{ lancamentoId: 5, valor: 100 }, { lancamentoId: 2, valor: 200 }, { lancamentoId: 1, valor: 200 }])).rejects.toThrow(/combinado/);
+    await expect(baixa(1, [{ lancamentoId: 1, valor: 250 }, { lancamentoId: 1, valor: 250 }])).rejects.toThrow(/mais de uma vez/);
+    expect(await linhas("SELECT count(*)::int n FROM bpo_recebimentos")).toEqual([{ n: 0 }]); // nada gravado nos erros
+
+    const dreAntes = await admin().dre(); // Projeto 200 + Asaas 100 (o A classificar de 300 ainda fora)
+    expect(dreAntes.map(r => r.cobrancas)).toEqual([300]);
+    const r = await baixa(1, [{ lancamentoId: 1, valor: 300 }, { lancamentoId: 2, valor: 200 }]);
+    expect(r).toMatchObject({ repetida: false, alocacoes: [{ lancamentoId: 1, valor: "300.00", pago: true, saldo: 0 }, { lancamentoId: 2, valor: "200.00", pago: true, saldo: 0 }] });
+    expect(await estado()).toEqual([
+      { id: 1, vr: "300.00", pago: true, pe: "2026-10-11", ac: false, v: 2 },
+      { id: 2, vr: "200.00", pago: true, pe: "2026-10-11", ac: false, v: 2 },
+      { id: 3, vr: "0.00", pago: false, pe: null, ac: true, v: 1 },
+    ]);
+    expect(await linhas("SELECT request_key k, bank_transaction_id bt, valor::text v FROM bpo_recebimentos ORDER BY id")).toEqual([
+      { k: "bt:1:1", bt: 1, v: "300.00" }, { k: "bt:1:2", bt: 1, v: "200.00" },
+    ]);
+    expect(await linhas("SELECT a_classificar ac, status FROM bank_transactions WHERE id = 1")).toEqual([{ ac: false, status: "conciliado" }]);
+    expect(await linhas("SELECT count(*)::int n FROM bpo_lancamento_historico")).toEqual([{ n: 2 }]);
+    // sem dupla contagem: a movimentação não ganha lançamento próprio; DRE e totais contam só os lançamentos
+    expect(await linhas("SELECT count(*)::int n FROM bpo_lancamentos WHERE bank_transaction_id IS NOT NULL")).toEqual([{ n: 0 }]);
+    // DRE por competência: +300 (o lançamento saiu de A classificar), nada do valor da movimentação somado de novo
+    expect((await admin().dre()).map(r => [r.cobrancas, r.despesas])).toEqual([[600, 0]]);
+    expect((await admin().clientes.list())[0]).toMatchObject({ totalRecebido: 500, totalEmAberto: 100 }); // 100 = cobrança Asaas em aberto
+    // reprocessar e reclassificar não criam lançamento para a movimentação que já deu baixa
+    expect((await reprocessarMovimentacoes()).lancamentosCriados).toBe(0);
+    await admin().aClassificar.criarLancamentos({ ids: [1], categoria: "Outros" }).catch(() => undefined);
+    expect(await linhas("SELECT count(*)::int n FROM bpo_lancamentos WHERE bank_transaction_id = 1")).toEqual([{ n: 0 }]);
+  });
+
+  it("idempotente: repetir a mesma divisão não duplica; outra divisão da mesma movimentação é recusada", async () => {
+    const a = [{ lancamentoId: 2, valor: 200 }, { lancamentoId: 1, valor: 300 }];
+    await baixa(1, a);
+    const de_novo = await baixa(1, [...a].reverse());
+    expect(de_novo).toMatchObject({ repetida: true });
+    await expect(baixa(1, [{ lancamentoId: 1, valor: 250 }, { lancamentoId: 2, valor: 250 }])).rejects.toThrow(/já foi usada/);
+    expect(await linhas("SELECT count(*)::int n FROM bpo_recebimentos")).toEqual([{ n: 2 }]);
+    expect(await linhas("SELECT valor_recebido::text vr FROM bpo_lancamentos WHERE id IN (1,2) ORDER BY id")).toEqual([{ vr: "300.00" }, { vr: "200.00" }]);
+  });
+
+  it("duas chamadas ao mesmo tempo: uma grava, a outra devolve a mesma baixa (sem duplicar)", async () => {
+    const a = [{ lancamentoId: 3, valor: 400 }];
+    const r = await Promise.all([baixa(2, a), baixa(2, a)]);
+    expect(r.map(x => x.repetida).sort()).toEqual([false, true]);
+    expect(await linhas("SELECT valor_recebido::text vr FROM bpo_lancamentos WHERE id = 3")).toEqual([{ vr: "400.00" }]);
+  });
+
+  it("N → 1 em despesa: pagamentos parciais acumulam e só quita quando fecha o valor", async () => {
+    const r1 = await baixa(2, [{ lancamentoId: 3, valor: 400 }]);
+    expect(r1.alocacoes[0]).toMatchObject({ pago: false, saldo: 500 });
+    expect((await estado())[2]).toEqual({ id: 3, vr: "400.00", pago: false, pe: null, ac: false, v: 2 }); // perde a flag: vai para Despesas
+    expect((await admin().lancamentos.list()).find(l => l.id === 3)).toMatchObject({ pago: false, valorRecebido: "400.00" });
+    await expect(baixa(3, [{ lancamentoId: 3, valor: 500.01 }])).rejects.toThrow(); // soma ≠ movimento e acima do saldo
+    const r2 = await baixa(3, [{ lancamentoId: 3, valor: 500 }]);
+    expect(r2.alocacoes[0]).toMatchObject({ pago: true, saldo: 0 });
+    expect((await estado())[2]).toEqual({ id: 3, vr: "900.00", pago: true, pe: "2026-10-20", ac: false, v: 3 });
+    expect((await admin().dre()).map(r => r.despesas)).toEqual([900]);
+    // lançamento já pago não recebe mais
+    await expect(baixa(4, [{ lancamentoId: 3, valor: 50 }])).rejects.toThrow();
+  });
+
+  it("recusa movimentação que não está A classificar e lançamento já ligado 1:1 a outra movimentação", async () => {
+    await admin().aClassificar.ignorar({ ids: [4] });
+    await expect(baixa(4, [{ lancamentoId: 2, valor: 50 }])).rejects.toThrow(/não está em A classificar/);
+    await pg.exec("UPDATE bpo_lancamentos SET bank_transaction_id = 4 WHERE id = 2");
+    await expect(baixa(1, [{ lancamentoId: 2, valor: 200 }, { lancamentoId: 1, valor: 300 }])).rejects.toThrow(/já está ligado/);
+  });
+});

@@ -9,6 +9,8 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { formatCurrency } from "@/lib/format";
+import { CurrencyInput } from "@/components/ui/currency-input";
+import { normalizarTitular } from "@shared/financeiro/bpo-extrato";
 import { CATEGORIAS_BPO, TRANSFERENCIA_INTERNA, type CategoriaBpo } from "@shared/financeiro/bpo-extrato";
 import { CONFIRMACAO_EXCLUSAO, confirmacaoExclusaoValida } from "@shared/financeiro/bpo-lote";
 
@@ -53,6 +55,7 @@ export function AClassificarPanel({ clientes, onReceber, onMarcarPago, filtrar }
   const [selLancs, setSelLancs] = useState<number[]>([]);
   const [criando, setCriando] = useState<number[] | null>(null);
   const [cancelando, setCancelando] = useState<number[] | null>(null);
+  const [baixando, setBaixando] = useState<MovimentacaoAClassificar | null>(null);
   // Só age sobre o que está visível (o filtro esconde o resto).
   const visMovs = new Set(movs.map(m => m.id));
   const visLancs = new Set(lancs.map(l => l.id));
@@ -105,6 +108,7 @@ export function AClassificarPanel({ clientes, onReceber, onMarcarPago, filtrar }
                   <span className={`font-bold ${m.tipo === "credito" ? "text-green-400" : "text-red-400"}`}>{m.tipo === "credito" ? "" : "−"}{formatCurrency(Number(m.valor))}</span>
                   <div className="flex w-full flex-wrap gap-2 sm:w-auto">
                     <Button size="sm" variant="outline" className={botaoSec} onClick={() => setCriando([m.id])}>Criar lançamento</Button>
+                    <Button size="sm" variant="outline" className={botaoSec} onClick={() => setBaixando(m)}>Dar baixa / dividir</Button>
                     <Button size="sm" variant="outline" className={botaoSec} disabled={ignorar.isPending} onClick={() => ignorar.mutate({ ids: [m.id] })}>Transferência interna / ignorar</Button>
                   </div>
                 </div>
@@ -169,6 +173,7 @@ export function AClassificarPanel({ clientes, onReceber, onMarcarPago, filtrar }
 
       {criando && <CriarLancamentoDialog ids={criando} movs={movs.filter(m => criando.includes(m.id))} clientes={clientes}
         onFechar={ok => { setCriando(null); if (ok) { setSelMovs([]); invalidar(); } }} />}
+      {baixando && <DarBaixaDialog mov={baixando} onFechar={ok => { setBaixando(null); if (ok) invalidar(); }} />}
       {cancelando && <CancelarDialog ids={cancelando} onFechar={ok => { setCancelando(null); if (ok) { setSelLancs([]); invalidar(); } }} />}
     </div>
   );
@@ -242,6 +247,86 @@ function CancelarDialog({ ids, onFechar }: { ids: number[]; onFechar: (ok: boole
           <Button className="w-full bg-red-700 hover:bg-red-800" disabled={isFetching || !previa.excluiveis || !confirmacaoExclusaoValida(confirmacao) || excluir.isPending}
             onClick={() => excluir.mutate({ ...entrada, confirmacao, previaToken: previa.previaToken })}>
             {excluir.isPending ? "Cancelando…" : `Cancelar ${previa.excluiveis} lançamento(s)`}
+          </Button>
+        </>}
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+/**
+ * Bloco 2: dar baixa / dividir. A movimentação quita um ou vários lançamentos em aberto do mesmo sentido
+ * (crédito ↔ cobrança, débito ↔ despesa). A soma aplicada tem que ser exatamente o valor da movimentação; valor
+ * menor que o saldo de um lançamento é baixa parcial (ele só fica pago quando o recebido fecha o valor).
+ */
+function DarBaixaDialog({ mov, onFechar }: { mov: MovimentacaoAClassificar; onFechar: (ok: boolean) => void }) {
+  const { data, isLoading, error } = trpc.bpo.aClassificar.abertosParaBaixa.useQuery({ movimentacaoId: mov.id });
+  const [valores, setValores] = useState<Record<number, number>>({});
+  const [busca, setBusca] = useState("");
+  const darBaixa = trpc.bpo.aClassificar.darBaixa.useMutation({
+    onSuccess: r => {
+      const quitados = r.alocacoes.filter(a => a.pago).length;
+      toast.success(`Baixa registrada em ${r.alocacoes.length} lançamento(s): ${quitados} quitado(s), ${r.alocacoes.length - quitados} parcial(is).`);
+      onFechar(true);
+    },
+    onError: e => toast.error(e.message),
+  });
+  const cent = (v: number | string) => Math.round(Number(v) * 100);
+  const totalMov = cent(mov.valor);
+  const escolhidos = Object.entries(valores).filter(([, v]) => v > 0).map(([id, v]) => ({ lancamentoId: Number(id), valor: v }));
+  const soma = escolhidos.reduce((t, a) => t + cent(a.valor), 0);
+  const abertos = data?.abertos ?? [];
+  const saldoDe = (l: { valor: string; valorRecebido: string }) => cent(l.valor) - cent(l.valorRecebido);
+  const acimaDoSaldo = escolhidos.some(a => { const l = abertos.find(x => x.id === a.lancamentoId); return !l || cent(a.valor) > saldoDe(l); });
+  const sugeridos = new Set(data?.sugeridos ?? []);
+  const termo = normalizarTitular(busca);
+  const lista = [
+    ...(data?.sugeridos ?? []).map(id => abertos.find(l => l.id === id)).filter((l): l is (typeof abertos)[number] => Boolean(l)),
+    ...abertos.filter(l => !sugeridos.has(l.id) && (valores[l.id] > 0 || (termo.length >= 2 && normalizarTitular(`${l.descricao} ${l.clienteNome ?? ""} ${l.valor}`).includes(termo)))),
+  ];
+  const marcar = (l: (typeof abertos)[number], on: boolean) => {
+    if (!on) { const { [l.id]: _, ...resto } = valores; setValores(resto); return; }
+    const restante = Math.max(0, totalMov - soma);
+    setValores({ ...valores, [l.id]: Math.min(saldoDe(l), restante) / 100 });
+  };
+  return (
+    <Dialog open onOpenChange={o => !o && onFechar(false)}>
+      <DialogContent className="bg-[#1A2332] border-[#C9A961]/20 text-white max-h-[90vh] overflow-y-auto sm:max-w-2xl">
+        <DialogHeader><DialogTitle className="text-[#C9A961]">Dar baixa / dividir</DialogTitle></DialogHeader>
+        <p className="text-sm text-gray-200">{dataBR(mov.data)} • {mov.titular ? `${mov.titular} — ` : ""}{mov.descricao} • <strong>{formatCurrency(totalMov / 100)}</strong> ({mov.tipo === "credito" ? "entrada: baixa cobranças" : "saída: baixa despesas"})</p>
+        {error && <p className="text-sm text-red-300">{error.message}</p>}
+        {isLoading && <p className="text-sm text-gray-400">Buscando lançamentos em aberto…</p>}
+        {data && <>
+          <div>
+            <Label className="text-gray-300">Procurar outro lançamento em aberto</Label>
+            <Input value={busca} onChange={e => setBusca(e.target.value)} placeholder="cliente, descrição ou valor" className="bg-[#2C3E50] border-[#C9A961]/30 mt-1" />
+          </div>
+          {lista.length === 0 ? <p className="text-sm text-gray-400">{abertos.length ? "Nenhuma sugestão. Procure pelo nome, descrição ou valor." : "Não há lançamentos em aberto deste sentido."}</p> : (
+            <ul className="divide-y divide-white/5 rounded border border-white/10">
+              {lista.map(l => {
+                const marcado = valores[l.id] !== undefined;
+                return (
+                  <li key={l.id} className="flex flex-wrap items-center gap-2 p-2 text-sm">
+                    <input type="checkbox" className="h-4 w-4" aria-label={`Usar ${l.descricao}`} checked={marcado} onChange={e => marcar(l, e.target.checked)} />
+                    <div className="min-w-0 flex-1 basis-48">
+                      <p className="break-words">{l.descricao}{sugeridos.has(l.id) && <span className="ml-1 text-xs text-[#C9A961]">sugestão</span>}{l.aClassificar && <span className="ml-1 text-xs text-amber-300">a classificar</span>}</p>
+                      <p className="text-xs text-gray-400">{l.clienteNome || "—"} • vence {dataBR(l.vencimento)} • saldo {formatCurrency(saldoDe(l) / 100)}{cent(l.valorRecebido) > 0 ? ` de ${formatCurrency(cent(l.valor) / 100)}` : ""}</p>
+                    </div>
+                    {marcado && <div className="w-full sm:w-40"><CurrencyInput aria-label={`Valor aplicado em ${l.descricao}`} value={valores[l.id]} onChange={v => setValores({ ...valores, [l.id]: v })} className="bg-[#2C3E50] border-[#C9A961]/30" /></div>}
+                  </li>
+                );
+              })}
+            </ul>
+          )}
+          <div className={`rounded p-2 text-sm ${soma === totalMov && !acimaDoSaldo ? "bg-green-900/30 text-green-200" : "bg-amber-900/30 text-amber-200"}`}>
+            Aplicado {formatCurrency(soma / 100)} de {formatCurrency(totalMov / 100)}
+            {soma < totalMov ? ` — faltam ${formatCurrency((totalMov - soma) / 100)}` : soma > totalMov ? ` — passou ${formatCurrency((soma - totalMov) / 100)}` : ""}
+            {acimaDoSaldo ? " — algum valor passa do saldo do lançamento" : ""}
+          </div>
+          <p className="text-xs text-gray-400">Valor menor que o saldo = baixa parcial (o lançamento fica em aberto com o saldo). A movimentação sai de A classificar e não vira lançamento próprio.</p>
+          <Button className="w-full bg-[#C9A961] hover:bg-[#B8985A] text-[#1A2332] font-bold" disabled={!escolhidos.length || soma !== totalMov || acimaDoSaldo || darBaixa.isPending}
+            onClick={() => darBaixa.mutate({ movimentacaoId: mov.id, alocacoes: escolhidos })}>
+            {darBaixa.isPending ? "Registrando…" : "Confirmar baixa"}
           </Button>
         </>}
       </DialogContent>

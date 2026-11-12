@@ -145,3 +145,21 @@ já liga com segurança. Branch `claude/intelligent-ptolemy-av0qoh` (PR #214, ra
 1. Aplicar `drizzle/0103_bpo_a_classificar.sql` (e depois `0104`), antes do deploy do código.
 2. Marcar os 134 em aberto do Conta Azul já importados (autorização separada):
    `UPDATE bpo_lancamentos SET a_classificar = true WHERE origem_efetiva='conta_azul' AND NOT pago AND exclusao_lote_backup_id IS NULL AND combinada_em_id IS NULL`
+
+### Bloco 2 — Dividir pagamentos (concluído)
+- `darBaixaComMovimentacao` (`server/bpo-a-classificar.ts`), rota `bpo.aClassificar.darBaixa`; regras puras em
+  `shared/financeiro/bpo-a-classificar.ts` (`validarDivisao`, `resultadoDaBaixa`, `chaveAlocacao`, `sugestoesDeBaixa`).
+- Uma linha em `bpo_recebimentos` por alocação (`bank_transaction_id`, `request_key = bt:<mov>:<lanc>`); atualiza
+  `valor_recebido`/`pago` (só quando recebido = valor)/`pago_em` (data do banco)/`version`/`a_classificar=false` e grava
+  `bpo_lancamento_historico`; movimentação → `a_classificar=false`, `status='conciliado'`. Tudo em `getDb().transaction`
+  com `FOR UPDATE` na movimentação e nos lançamentos + checagem de `version`. Vale para receita e despesa (função
+  própria; `registrarRecebimento` não mudou de contrato).
+- Recusa: soma ≠ valor da movimentação (centavos), valor acima do saldo, sentido trocado, lançamento pago/combinado/
+  arquivado/Asaas/ligado 1:1, repetido, movimentação fora de A classificar ou com lançamento próprio.
+- Idempotente: mesma divisão de novo devolve `repetida: true`; divisão diferente para a mesma movimentação é recusada.
+- Sem dupla contagem: a movimentação nunca ganha lançamento próprio (filtro em `gerarLancamentosDoExtrato` para
+  todos os caminhos — reprocessar, classificar, regra) e a conciliação com o Conta Azul ignora lançamento com baixa do banco.
+- Tela: botão "Dar baixa / dividir" em cada movimentação da aba (sugestões no topo, busca, valor por lançamento,
+  "faltam/passou", confirma só quando fecha). Despesa parcial mostra "Pago · Saldo" em Despesas.
+- Limite conhecido: excluir a conta bancária (limpeza com backup) zera `bpo_recebimentos.bank_transaction_id`
+  (FK SET NULL); o valor recebido dos lançamentos fica.
