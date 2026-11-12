@@ -362,7 +362,7 @@ export const regularizacaoRouter = router({
         pagoEm: bpoLancamentos.pagoEm,
         alocado: sql<string>`bpo_valor_alocado(${bpoLancamentos.id}, NULL, NULL)`,
       }).from(bpoLancamentos)
-        .where(and(isNull(bpoLancamentos.exclusaoLoteBackupId), eq(bpoLancamentos.pago, true), sql`${bpoLancamentos.tipo} <> 'despesa'`))
+        .where(and(isNull(bpoLancamentos.exclusaoLoteBackupId), eq(bpoLancamentos.aClassificar, false), eq(bpoLancamentos.pago, true), sql`${bpoLancamentos.tipo} <> 'despesa'`))
         .orderBy(asc(bpoLancamentos.vencimento));
       return linhas
         .map((l) => ({ ...l, disponivelCentavos: centavosDe(l.valor)! - centavosDe(l.alocado)! }))

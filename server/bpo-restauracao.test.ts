@@ -64,6 +64,7 @@ beforeEach(async () => {
     INSERT INTO users (name) VALUES ('Admin Teste');
     INSERT INTO bpo_clients (razao_social, responsavel, telefone, honorarios, data_inicio) VALUES ('Cliente Apagado', 'X', '', 0, now());`);
   await pg.exec(sqlDe("0099_bpo_limpeza_ajustes.sql"));
+  await pg.exec(sqlDe("0103_bpo_a_classificar.sql")); // 12/11 (noite): A classificar e divisão de pagamentos
   consultas = [];
   vi.mocked(getDb).mockReturnValue(drizzle(pg, { logger: { logQuery: query => consultas.push(query) } }) as never);
 });

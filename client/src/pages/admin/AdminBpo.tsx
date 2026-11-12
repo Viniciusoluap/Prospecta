@@ -33,6 +33,7 @@ import {
   Landmark,
   BookOpen,
   Pencil,
+  Inbox,
 } from "lucide-react";
 import TaxAccountingPanel from "./TaxAccountingPanel";
 import AdminRelatorios from "./AdminRelatorios";
@@ -41,6 +42,7 @@ import { CamposCategoriaLancamento, categoriaLancamentoCompleta } from "@/compon
 import { SugerirVinculosDialog, VinculoClienteLancamento } from "@/components/bpo/VinculoClienteLancamento";
 import { BarraLote } from "@/components/bpo/LoteLancamentos";
 import { ImportarContaAzul } from "@/components/bpo/ImportarContaAzul";
+import { AClassificarPanel } from "@/components/bpo/AClassificar";
 import { rotulo } from "@shared/rotulos";
 import { MESES_DRE, TRANSFERENCIA_INTERNA, recebidoDoLancamento } from "@shared/financeiro/bpo-extrato";
 import { situacaoDoLancamento } from "@shared/financeiro/bpo-asaas";
@@ -62,6 +64,7 @@ type Aba =
   | "clientes"
   | "cobrancas"
   | "despesas"
+  | "a_classificar"
   | "dre"
   | "bancos"
   | "contabilidade"
@@ -106,6 +109,7 @@ export default function AdminBpo({ initialTab }: { initialTab?: Aba } = {}) {
         "clientes",
         "cobrancas",
         "despesas",
+        "a_classificar",
         "dre",
         "bancos",
         "contabilidade",
@@ -138,6 +142,8 @@ export default function AdminBpo({ initialTab }: { initialTab?: Aba } = {}) {
   const { data: dreAnos = [] } = trpc.bpo.dreAnos.useQuery();
   const dreTotal = dreRows.reduce((t: { cobrancas: number; despesas: number }, r: any) => ({ cobrancas: t.cobrancas + Math.round(r.cobrancas * 100), despesas: t.despesas + Math.round(r.despesas * 100) }), { cobrancas: 0, despesas: 0 });
   const { data: catalogoOperacional } = trpc.bpo.lancamentos.catalogoOperacional.useQuery();
+  // Pedido de 12/11 (noite): contador da aba "A classificar".
+  const { data: contagemAClassificar } = trpc.bpo.aClassificar.contagem.useQuery();
 
   const createCliente = trpc.bpo.clientes.create.useMutation({
     onSuccess: r => {
@@ -175,6 +181,7 @@ export default function AdminBpo({ initialTab }: { initialTab?: Aba } = {}) {
   const marcarPago = trpc.bpo.lancamentos.marcarPago.useMutation({
     onSuccess: () => {
       toast.success("Marcado como pago!");
+      utils.bpo.aClassificar.invalidate();
       utils.bpo.lancamentos.list.invalidate();
       utils.bpo.dre.invalidate();
       utils.bpo.clientes.list.invalidate();
@@ -184,7 +191,7 @@ export default function AdminBpo({ initialTab }: { initialTab?: Aba } = {}) {
   const [editando, setEditando] = useState<any | null>(null);
   const [recebendo, setRecebendo] = useState<{ id: number; requestKey: string; valor: number; saldo: number; recebidoEm: string; observacoes: string } | null>(null);
   const receber = trpc.bpo.lancamentos.receber.useMutation({
-    onSuccess: () => { setRecebendo(null); toast.success("Recebimento registrado."); utils.bpo.lancamentos.list.invalidate(); utils.bpo.clientes.list.invalidate(); },
+    onSuccess: () => { setRecebendo(null); toast.success("Recebimento registrado."); utils.bpo.aClassificar.invalidate(); utils.bpo.lancamentos.list.invalidate(); utils.bpo.dre.invalidate(); utils.bpo.dreCategorias.invalidate(); utils.bpo.clientes.list.invalidate(); },
     onError: e => toast.error(e.message),
   });
   const editarLancamento = trpc.bpo.lancamentos.editar.useMutation({
@@ -599,6 +606,12 @@ export default function AdminBpo({ initialTab }: { initialTab?: Aba } = {}) {
           >
             <TrendingDown className="h-4 w-4 inline mr-1" /> Despesas
           </button>
+          <button
+            className={abaClass("a_classificar")}
+            onClick={() => setAba("a_classificar")}
+          >
+            <Inbox className="h-4 w-4 inline mr-1" /> A classificar{contagemAClassificar?.total ? ` (${contagemAClassificar.total})` : ""}
+          </button>
           <button className={abaClass("dre")} onClick={() => setAba("dre")}>
             <BarChart3 className="h-4 w-4 inline mr-1" /> DRE
           </button>
@@ -884,6 +897,14 @@ export default function AdminBpo({ initialTab }: { initialTab?: Aba } = {}) {
               )}
             </CardContent>
           </Card>
+        )}
+
+        {aba === "a_classificar" && (
+          <AClassificarPanel
+            clientes={clientes}
+            onReceber={l => setRecebendo({ id: l.id, requestKey: crypto.randomUUID(), valor: Number(l.valor) - Number(l.valorRecebido), saldo: Number(l.valor) - Number(l.valorRecebido), recebidoEm: new Date().toISOString().slice(0, 10), observacoes: "" })}
+            onMarcarPago={id => marcarPago.mutate({ id })}
+          />
         )}
 
         {aba === "bancos" && <BancosPanel />}

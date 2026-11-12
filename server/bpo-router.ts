@@ -20,6 +20,7 @@ import {
   filtrarPorCompetencia,
   normalizarTitular,
   resumoPorCliente,
+  type CategoriaBpo,
 } from "../shared/financeiro/bpo-extrato.js";
 import { aplicarClassificacaoEmLote, lancamentosComTitular } from "./bpo-extrato.js";
 import {
@@ -37,6 +38,10 @@ import { listarExclusoesEmLote, previaRestauracaoExclusao, restaurarExclusaoEmLo
 import { mensagemLancamentoCombinado } from "../shared/financeiro/bpo-lote.js";
 import { importarContaAzul, previaContaAzul } from "./bpo-conta-azul.js";
 import { LIMITE_ARQUIVO_CONTA_AZUL } from "../shared/financeiro/conta-azul.js";
+import {
+  abertosParaBaixa, confirmarLancamentos, contagemAClassificar, criarLancamentosDasMovimentacoes, ignorarMovimentacoes,
+  lancamentosAClassificar, movimentacoesAClassificar,
+} from "./bpo-a-classificar.js";
 import { aplicarVinculosEmMassa, previaVinculosEmMassa, sugestoesDoLancamento, vincularLancamentoACliente } from "./bpo-vinculo-cliente.js";
 
 const backupContaAzulSchema = z.object({
@@ -118,7 +123,7 @@ export async function clientesComTotais() {
     d.select({ cliente: bpoClients, nomeLead: leads.name }).from(bpoClients)
       .leftJoin(leads, eq(leads.id, bpoClients.leadId)).orderBy(bpoClients.razaoSocial),
     d.select({ clienteId: bpoLancamentos.clienteId, tipo: bpoLancamentos.tipo, valor: bpoLancamentos.valor, valorRecebido: bpoLancamentos.valorRecebido, pago: bpoLancamentos.pago, categoria: bpoLancamentos.categoria })
-      .from(bpoLancamentos).where(and(isNotNull(bpoLancamentos.clienteId), isNull(bpoLancamentos.combinadaEmId), isNull(bpoLancamentos.exclusaoLoteBackupId))),
+      .from(bpoLancamentos).where(and(isNotNull(bpoLancamentos.clienteId), isNull(bpoLancamentos.combinadaEmId), isNull(bpoLancamentos.exclusaoLoteBackupId), eq(bpoLancamentos.aClassificar, false))),
   ]);
   const totais = resumoPorCliente(lancs);
   return clientes.map(({ cliente, nomeLead }) => ({
@@ -211,7 +216,7 @@ export function categoriaNaEdicao(
 }
 
 const entradaLoteSchema = z.object({
-  aba: z.enum(["cobrancas", "despesas"]),
+  aba: z.enum(["cobrancas", "despesas", "a_classificar"]),
   modo: z.enum(["selecionados", "tudo"]),
   limpezaAjustes: z.boolean().optional(),
   previaToken: z.string().max(64).optional(),
@@ -224,6 +229,12 @@ const entradaLoteSchema = z.object({
     categoriaOperacional: z.string().max(40).nullish(), vinculoOperacionalId: z.string().max(80).nullish(),
   }).optional(),
 });
+
+/** DRE e anos: os mesmos lançamentos de db.getAllBpoLancamentos (sem combinadas, arquivados nem "A classificar"). */
+async function lancamentosDoDre() {
+  return db.getDb().select().from(bpoLancamentos)
+    .where(and(isNull(bpoLancamentos.combinadaEmId), isNull(bpoLancamentos.exclusaoLoteBackupId), eq(bpoLancamentos.aClassificar, false)));
+}
 
 const filtroDreSchema = z.object({
   mes: z.string().regex(/^(0[1-9]|1[0-2])$/).nullish(),
@@ -430,11 +441,42 @@ export const bpoRouter = router({
   // LOTE C (25/10): inclui os lançamentos gerados pelo extrato bancário (transferência
   // interna não gera lançamento, então não entra). Regra em shared/financeiro/bpo-extrato.ts.
   // Lote 3, item 15: filtros Mês/Ano por competência (vazio = todos), nas duas visões do DRE.
-  dre: adminProcedure.input(filtroDreSchema).query(async ({ input }) => dreDosLancamentos(filtrarPorCompetencia(await db.getAllBpoLancamentos(), input))),
+  dre: adminProcedure.input(filtroDreSchema).query(async ({ input }) => dreDosLancamentos(filtrarPorCompetencia(await lancamentosDoDre(), input))),
   /** Pedido de 25/10 (noite): DRE por categoria (transferência interna fora). */
-  dreCategorias: adminProcedure.input(filtroDreSchema).query(async ({ input }) => dreDasCategorias(filtrarPorCompetencia(await db.getAllBpoLancamentos(), input))),
+  dreCategorias: adminProcedure.input(filtroDreSchema).query(async ({ input }) => dreDasCategorias(filtrarPorCompetencia(await lancamentosDoDre(), input))),
   /** Anos com lançamento (opções do filtro de Ano do DRE). */
-  dreAnos: adminProcedure.query(async () => Array.from(new Set((await db.getAllBpoLancamentos()).map(l => l.competencia.slice(0, 4)).filter(a => /^\d{4}$/.test(a)))).sort().reverse()),
+  dreAnos: adminProcedure.query(async () => Array.from(new Set((await lancamentosDoDre()).map(l => l.competencia.slice(0, 4)).filter(a => /^\d{4}$/.test(a)))).sort().reverse()),
+
+  /**
+   * Pedido de 12/11 (noite): aba "A classificar" — movimentações do banco sem correspondência segura e
+   * lançamentos em aberto aguardando o dono. Nada daqui entra em Cobranças/Despesas/DRE sem ação dele.
+   */
+  aClassificar: router({
+    contagem: adminProcedure.query(() => contagemAClassificar()),
+    movimentacoes: adminProcedure.query(() => movimentacoesAClassificar()),
+    lancamentos: adminProcedure.query(() => lancamentosAClassificar()),
+    abertosParaBaixa: adminProcedure.input(z.object({ movimentacaoId: z.number().int().positive() })).query(async ({ input }) => {
+      try { return await abertosParaBaixa(input.movimentacaoId); }
+      catch (e) { throw new TRPCError({ code: "BAD_REQUEST", message: e instanceof Error ? e.message : "Falha ao buscar os lançamentos em aberto." }); }
+    }),
+    criarLancamentos: adminProcedure.input(z.object({
+      ids: z.array(z.number().int().positive()).min(1).max(2000),
+      categoria: z.enum(CATEGORIAS_MANUAIS, { message: "Escolha a categoria." }),
+      bpoClienteId: z.number().int().positive().nullable().optional(),
+      centroCustos: z.string().trim().max(100).nullable().optional(),
+    })).mutation(async ({ input }) => {
+      try { return await criarLancamentosDasMovimentacoes(input.ids, { ...input, categoria: input.categoria as CategoriaBpo }); }
+      catch (e) { throw new TRPCError({ code: "BAD_REQUEST", message: e instanceof Error ? e.message : "Falha ao criar os lançamentos." }); }
+    }),
+    ignorar: adminProcedure.input(z.object({ ids: z.array(z.number().int().positive()).min(1).max(2000) })).mutation(async ({ input }) => {
+      try { return await ignorarMovimentacoes(input.ids); }
+      catch (e) { throw new TRPCError({ code: "BAD_REQUEST", message: e instanceof Error ? e.message : "Falha ao ignorar." }); }
+    }),
+    confirmar: adminProcedure.input(z.object({ ids: z.array(z.number().int().positive()).min(1).max(2000) })).mutation(async ({ input, ctx }) => {
+      try { return await confirmarLancamentos(input.ids, ctx.user.id); }
+      catch (e) { throw new TRPCError({ code: "BAD_REQUEST", message: e instanceof Error ? e.message : "Falha ao confirmar." }); }
+    }),
+  }),
 
   /** Pedido de 12/11: backup ZIP do Conta Azul Pro (o navegador abre o ZIP e envia o texto dos CSVs). */
   contaAzul: router({

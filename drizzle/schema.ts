@@ -1266,6 +1266,8 @@ export const bpoLancamentos = pgTable("bpo_lancamentos", {
   combinadaEmId: integer("combinada_em_id").references((): AnyPgColumn => bpoLancamentos.id, { onDelete: "set null" }),
   /** Limpeza local reversível: mantém chaves externas e relações sem entrar nos totais do BPO. */
   exclusaoLoteBackupId: integer("exclusao_lote_backup_id"),
+  /** Pedido de 12/11 (noite): em aberto vindo do Conta Azul aguardando o dono classificar (fora de listas, totais e DRE). */
+  aClassificar: boolean("a_classificar").default(false).notNull(),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });
@@ -1280,6 +1282,8 @@ export const bpoRecebimentos = pgTable("bpo_recebimentos", {
   recebidoEm: timestamp("recebido_em").notNull(),
   registradoPorUserId: integer("registrado_por_user_id").references(() => users.id, { onDelete: "set null" }),
   observacoes: text("observacoes"),
+  /** Pedido de 12/11 (noite): baixa vinda de uma movimentação do banco (divisão de pagamentos, 1 → N e N → 1). */
+  bankTransactionId: integer("bank_transaction_id").references((): AnyPgColumn => bankTransactions.id, { onDelete: "set null" }),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 
@@ -1489,6 +1493,8 @@ export const bankTransactions = pgTable("bank_transactions", {
   identificadorBancario: varchar("identificador_bancario", { length: 255 }),
   // Item 14: id do pagamento do Asaas que gerou o crédito (reconcilia com a cobrança).
   asaasPaymentId: varchar("asaas_payment_id", { length: 60 }),
+  /** Pedido de 12/11 (noite): movimentação nova sem correspondência segura — só entra no BPO quando o dono classificar. */
+  aClassificar: boolean("a_classificar").default(false).notNull(),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 export type BankTransaction =typeof bankTransactions.$inferSelect;

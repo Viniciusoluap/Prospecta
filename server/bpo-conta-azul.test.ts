@@ -143,6 +143,7 @@ beforeEach(async () => {
   await pg.exec(sqlDe("0083_bpo_recebimentos_parciais.sql"));
   await pg.exec(sqlDe("0095_bpo_lote3.sql")); // lote 3: combinada_em_id (filtro das listas/DRE)
   await pg.exec("ALTER TABLE bpo_lancamentos ADD COLUMN exclusao_lote_backup_id integer");
+  await pg.exec(sqlDe("0103_bpo_a_classificar.sql")); // 12/11 (noite): A classificar e divisão de pagamentos
   vi.mocked(getDb).mockReturnValue(drizzle(pg) as never);
 });
 afterEach(async () => { await pg.close(); });
@@ -158,15 +159,17 @@ describe("conciliação com o extrato (regra)", () => {
     const pares = conciliarComContaAzul([
       { id: 1, tipo: "despesa", valor: 709, data: "2026-04-16" }, // 1 dia de 10 e de 11 → empate: menor id
       { id: 2, tipo: "despesa", valor: "709.00", data: "2026-04-17" }, // 0 dia de 11 → pega 11
-      { id: 3, tipo: "despesa", valor: 320.5, data: "2026-04-19" }, // em aberto: 9 dias do vencimento → concilia
+      { id: 3, tipo: "despesa", valor: 320.5, data: "2026-04-19" }, // em aberto: não concilia mais (vira sugestão em A classificar)
       { id: 4, tipo: "despesa", valor: 709, data: "2026-04-25" }, // fora da janela de 3 dias
       { id: 5, tipo: "despesa", valor: 999, data: "2026-04-15" }, // valor sem par
     ], ca);
-    expect(Object.fromEntries(pares)).toEqual({ 1: 10, 2: 11, 3: 12 });
+    // 12/11 (noite): antes o em aberto (12) era baixado sozinho; agora só o já pago liga.
+    expect(Object.fromEntries(pares)).toEqual({ 1: 10, 2: 11 });
   });
-  it("tipo diferente não concilia; em aberto além de 10 dias não concilia", () => {
+  it("tipo diferente não concilia; em aberto não concilia nem no dia do vencimento", () => {
     expect(conciliarComContaAzul([{ id: 1, tipo: "receita", valor: 709, data: "2026-04-15" }], ca).size).toBe(0);
     expect(conciliarComContaAzul([{ id: 1, tipo: "despesa", valor: 320.5, data: "2026-04-21" }], ca).size).toBe(0);
+    expect(conciliarComContaAzul([{ id: 1, tipo: "despesa", valor: 320.5, data: "2026-04-10" }], ca).size).toBe(0);
   });
 });
 
@@ -210,26 +213,31 @@ describe("importação no BPO (banco em memória)", () => {
     expect((await admin().contaAzul.previa({ arquivos: BACKUP })).lancamentos).toMatchObject({ novos: 0, jaImportados: 4 });
   });
 
-  it("ligar a conta depois do backup: o extrato concilia com o Conta Azul em vez de duplicar", async () => {
+  // 12/11 (noite): regra nova — só o lançamento do Conta Azul JÁ PAGO é ligado (sem mudar valor, status nem data);
+  // o em aberto não é baixado sozinho e a tarifa sem correspondência fica A classificar (antes: baixava o em
+  // aberto e criava o lançamento da tarifa na hora).
+  it("ligar a conta depois do backup: o pago do Conta Azul só é ligado; em aberto e o resto ficam A classificar", async () => {
     await pg.exec("INSERT INTO bank_accounts (banco, provedor) VALUES ('C6', 'manual'), ('Asaas', 'asaas')");
     await admin().contaAzul.importar({ arquivos: BACKUP });
     const r = await gravarMovimentos({ id: 1, dataInicial: null }, [
-      // receita paga em 05/03 no Conta Azul, chega no extrato em 06/03 → concilia
+      // receita paga em 05/03 no Conta Azul, chega no extrato em 06/03 → só liga
       { externalId: "c6:1", data: "2026-03-06", descricao: "Pix recebido", valor: 1500, tipo: "credito", titular: "Maria Teste" },
-      // despesa EM ABERTO no Conta Azul (venc. 10/04), paga em 12/04 → concilia e fica paga
+      // despesa EM ABERTO no Conta Azul (venc. 10/04), paga em 12/04 → NÃO baixa sozinho
       { externalId: "c6:2", data: "2026-04-12", descricao: "Pix enviado", valor: 320.5, tipo: "debito" },
-      // tarifa que não existia no Conta Azul → lançamento novo do extrato
+      // tarifa que não existia no Conta Azul → A classificar (sem lançamento)
       { externalId: "c6:3", data: "2026-04-12", descricao: "Tarifa pix", valor: 1.99, tipo: "debito" },
     ], "importacao");
     expect(r.novos).toBe(3);
-    const ls = await linhas<Record<string, unknown>>("SELECT origem_efetiva o, valor::text v, pago, bank_transaction_id bt, to_char(pago_em,'YYYY-MM-DD') pe, valor_recebido::text vr, categoria FROM bpo_lancamentos ORDER BY valor");
-    expect(ls).toHaveLength(5); // 4 do Conta Azul + só a tarifa nova
-    expect(ls.find(l => l.v === "1500.00")).toMatchObject({ o: "conta_azul", bt: 1, pago: true, pe: "2026-03-06" });
-    expect(ls.find(l => l.v === "320.50")).toMatchObject({ o: "conta_azul", bt: 2, pago: true, pe: "2026-04-12", vr: "320.50", categoria: "Material" });
-    expect(ls.find(l => l.v === "1.99")).toMatchObject({ o: "extrato", bt: 3 });
+    const ls = await linhas<Record<string, unknown>>("SELECT origem_efetiva o, valor::text v, pago, bank_transaction_id bt, to_char(pago_em,'YYYY-MM-DD') pe, valor_recebido::text vr, categoria, a_classificar ac FROM bpo_lancamentos ORDER BY valor");
+    expect(ls).toHaveLength(4); // só os 4 do Conta Azul
+    expect(ls.find(l => l.v === "1500.00")).toMatchObject({ o: "conta_azul", bt: 1, pago: true, pe: "2026-03-05", vr: "1500.00", ac: false });
+    expect(ls.find(l => l.v === "320.50")).toMatchObject({ o: "conta_azul", bt: null, pago: false, vr: "0.00", categoria: "Material", ac: true });
+    expect(await linhas("SELECT external_id e, a_classificar ac FROM bank_transactions ORDER BY id")).toEqual([
+      { e: "c6:1", ac: false }, { e: "c6:2", ac: true }, { e: "c6:3", ac: true },
+    ]);
     // reimportar o mesmo extrato não muda nada
     await gravarMovimentos({ id: 1, dataInicial: null }, [{ externalId: "c6:1", data: "2026-03-06", descricao: "Pix recebido", valor: 1500, tipo: "credito" }], "importacao");
-    expect((await linhas("SELECT count(*)::int n FROM bpo_lancamentos"))[0]).toEqual({ n: 5 });
+    expect((await linhas("SELECT count(*)::int n FROM bpo_lancamentos"))[0]).toEqual({ n: 4 });
   });
 
   it("cobrança do Asaas que já veio do Conta Azul assume aquela receita (não cria outra)", async () => {

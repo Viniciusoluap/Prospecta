@@ -1542,7 +1542,8 @@ export async function updateBpoClientStatus(id: number, status: "ativo" | "pausa
 export async function getAllBpoLancamentos(): Promise<BpoLancamento[]> {
   const db = getDb();
   // Lote 3, item 16: cobranças combinadas em outra ficam fora (a nova cobrança já soma os valores).
-  return db.select().from(bpoLancamentos).where(and(isNull(bpoLancamentos.combinadaEmId), isNull(bpoLancamentos.exclusaoLoteBackupId))).orderBy(desc(bpoLancamentos.vencimento));
+  // Pedido de 12/11 (noite): "A classificar" fica fora do DRE e dos totais até o usuário confirmar.
+  return db.select().from(bpoLancamentos).where(and(isNull(bpoLancamentos.combinadaEmId), isNull(bpoLancamentos.exclusaoLoteBackupId), eq(bpoLancamentos.aClassificar, false))).orderBy(desc(bpoLancamentos.vencimento));
 }
 
 export async function createBpoLancamento(data: InsertBpoLancamento): Promise<BpoLancamento> {
@@ -1553,7 +1554,7 @@ export async function createBpoLancamento(data: InsertBpoLancamento): Promise<Bp
 
 export async function marcarBpoLancamentoPago(id: number): Promise<void> {
   const db = getDb();
-  await db.update(bpoLancamentos).set({ pago: true, pagoEm: new Date(), valorRecebido: sql`${bpoLancamentos.valor}` }).where(and(eq(bpoLancamentos.id, id), isNull(bpoLancamentos.combinadaEmId), isNull(bpoLancamentos.exclusaoLoteBackupId)));
+  await db.update(bpoLancamentos).set({ pago: true, pagoEm: new Date(), valorRecebido: sql`${bpoLancamentos.valor}`, aClassificar: false }).where(and(eq(bpoLancamentos.id, id), isNull(bpoLancamentos.combinadaEmId), isNull(bpoLancamentos.exclusaoLoteBackupId)));
 }
 
 // ========== Pluggy (integração bancária — credenciais) ==========

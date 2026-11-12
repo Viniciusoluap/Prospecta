@@ -12,7 +12,8 @@ import {
   type FiltrosLote,
 } from "../shared/financeiro/bpo-lote.js";
 
-export type AbaLote = "cobrancas" | "despesas";
+// Pedido de 12/11 (noite): "a_classificar" = lançamentos em aberto aguardando o dono (Cancelar = arquivar, reversível).
+export type AbaLote = "cobrancas" | "despesas" | "a_classificar";
 export type EntradaLote = { aba: AbaLote; modo: "selecionados" | "tudo"; ids?: number[]; filtros?: FiltrosLote; limpezaAjustes?: boolean; previaToken?: string };
 type Executor = Pick<ReturnType<typeof getDb>, "select">;
 
@@ -20,7 +21,8 @@ const contagem = (q: ReturnType<typeof sql>) => sql<number>`(${q})::int`;
 
 function consultaAba(d: Executor, aba: AbaLote, ids?: number[]) {
   const l = bpoLancamentos;
-  const filtros = [isNull(l.exclusaoLoteBackupId), isNull(l.combinadaEmId), aba === "despesas" ? eq(l.tipo, "despesa") : ne(l.tipo, "despesa")];
+  const filtros = [isNull(l.exclusaoLoteBackupId), isNull(l.combinadaEmId),
+    ...(aba === "a_classificar" ? [eq(l.aClassificar, true)] : [eq(l.aClassificar, false), aba === "despesas" ? eq(l.tipo, "despesa") : ne(l.tipo, "despesa")])];
   if (ids) filtros.push(inArray(l.id, ids.length ? ids : [0]));
   return d.select({
     ...getTableColumns(l),

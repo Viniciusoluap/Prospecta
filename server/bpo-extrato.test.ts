@@ -2,7 +2,7 @@
 // Banco simulado em memória (nenhum teste toca banco real nem APIs externas).
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { getDb } from "./db.js";
-import { bankAccounts, bankTransactions, bpoClients, bpoLancamentos } from "../drizzle/schema.js";
+import { bankAccounts, bankTransactions, bpoClients, bpoLancamentos, bpoRecebimentos } from "../drizzle/schema.js";
 import { confirmarImportacao, gravarMovimentos, sincronizarConta } from "./bancos.js";
 import { atualizarMovimentacao, movimentacoesDaConta, reprocessarMovimentacoes } from "./bpo-extrato.js";
 import {
@@ -36,6 +36,8 @@ const TABELAS: [string, Tabela][] = [
   ["bank_transactions", bankTransactions as never],
   ["bpo_lancamentos", bpoLancamentos as never],
   ["bpo_clients", bpoClients as never],
+  // 12/11 (noite): baixas por divisão de pagamento (a movimentação com baixa não gera lançamento próprio).
+  ["bpo_recebimentos", bpoRecebimentos as never],
 ];
 const nomeDa = (t: unknown) => TABELAS.find(([, x]) => x === t)?.[0] ?? "outra";
 /** Coluna drizzle → [tabela, chave TS]. */
@@ -45,7 +47,7 @@ function colunaDe(col: unknown): [string, string] | null {
 }
 
 function bancoEmMemoria(inicial: Partial<Record<string, Row[]>> = {}) {
-  const dados: Record<string, Row[]> = { bank_accounts: [], bank_transactions: [], bpo_lancamentos: [], bpo_clients: [], ...inicial } as never;
+  const dados: Record<string, Row[]> = { bank_accounts: [], bank_transactions: [], bpo_lancamentos: [], bpo_clients: [], bpo_recebimentos: [], ...inicial } as never;
   const seq: Record<string, number> = {};
   for (const [n, rows] of Object.entries(dados)) seq[n] = Math.max(0, ...rows.map(r => Number(r.id) || 0));
   const opts = { bloquearDelete: false };
@@ -179,7 +181,9 @@ describe("regras puras (shared/financeiro/bpo-extrato)", () => {
 });
 
 describe("geração 1:1 dos lançamentos", () => {
-  it("cada movimentação gravada gera um lançamento pago; regravar não duplica", async () => {
+  // 12/11 (noite): regra nova — movimentação nova sem correspondência segura fica "A classificar" e só vira
+  // lançamento pago (1:1) quando o usuário classifica. Antes este teste esperava o lançamento na hora.
+  it("movimentação nova fica A classificar; classificar gera o lançamento pago; regravar não duplica", async () => {
     const { dados } = bancoEmMemoria({ bank_accounts: [conta()] });
     const movimentos = [
       mov("e1", "2026-10-01", "Pix recebido cliente", 1000, "credito"),
@@ -190,6 +194,12 @@ describe("geração 1:1 dos lançamentos", () => {
     expect(r.novos).toBe(3);
     expect(r.liquidoNovos).toBe(674.5);
     expect(dados.bank_transactions.map(t => t.categoria)).toEqual(["Recebimento de cliente", "Tarifas bancárias", "Transferência interna"]);
+    // Transferência interna: sem lançamento e sem "A classificar"; as demais esperam o usuário.
+    expect(dados.bpo_lancamentos).toHaveLength(0);
+    expect(dados.bank_transactions.map(t => Boolean(t.aClassificar))).toEqual([true, true, false]);
+    await atualizarMovimentacao(1, {});
+    await atualizarMovimentacao(2, { categoria: "Tarifas bancárias" });
+    expect(dados.bank_transactions.map(t => Boolean(t.aClassificar))).toEqual([false, false, false]);
     expect(dados.bpo_lancamentos.map(l => [l.bankTransactionId, l.tipo, l.valor, l.pago, l.competencia])).toEqual([
       [1, "receita", "1000.00", true, "2026-10"],
       [2, "despesa", "25.50", true, "2026-10"],
@@ -201,7 +211,8 @@ describe("geração 1:1 dos lançamentos", () => {
     expect(dados.bpo_lancamentos).toHaveLength(2);
   });
 
-  it("sincronização por API também gera os lançamentos e grava o saldo da API", async () => {
+  // 12/11 (noite): antes esperava os dois lançamentos na hora; agora as movimentações sem correspondência ficam A classificar.
+  it("sincronização por API grava as movimentações (A classificar) e o saldo da API", async () => {
     const { dados } = bancoEmMemoria({ bank_accounts: [conta({ id: 3, provedor: "asaas", credencialEncrypted: "plain:$aact_x" })] });
     const fetchFake = vi.fn((url: string) => Promise.resolve({
       ok: true, status: 200,
@@ -211,7 +222,8 @@ describe("geração 1:1 dos lançamentos", () => {
     } as Response));
     const r = await sincronizarConta(3, fetchFake as never);
     expect(r).toMatchObject({ ok: true, novos: 2 });
-    expect(dados.bpo_lancamentos.map(l => [l.tipo, l.categoria])).toEqual([["receita", "Recebimento de cliente"], ["despesa", "Tarifas bancárias"]]);
+    expect(dados.bank_transactions.map(t => [t.tipo, t.categoria, t.aClassificar])).toEqual([["credito", "Recebimento de cliente", true], ["debito", "Tarifas bancárias", true]]);
+    expect(dados.bpo_lancamentos).toHaveLength(0);
     expect(dados.bank_accounts[0]).toMatchObject({ saldoAtual: "900.00", saldoFonte: "api" });
   });
 });
@@ -220,9 +232,12 @@ describe("categoria e Cliente BPO na movimentação", () => {
   it("mudar para Transferência interna remove o lançamento; voltar recria; cliente acompanha", async () => {
     const { dados } = bancoEmMemoria({ bank_accounts: [conta()], bpo_clients: [{ id: 7, razaoSocial: "Cliente X" }] });
     await gravarMovimentos({ id: 1, dataInicial: null }, [mov("e1", "2026-10-01", "Pix recebido", 500, "credito")], "importacao");
-    expect(dados.bpo_lancamentos).toHaveLength(1);
+    // 12/11 (noite): nova → A classificar (antes: lançamento na hora). Escolher o cliente é classificação explícita.
+    expect(dados.bpo_lancamentos).toHaveLength(0);
+    expect(dados.bank_transactions[0].aClassificar).toBe(true);
 
     await atualizarMovimentacao(1, { bpoClienteId: 7 });
+    expect(dados.bank_transactions[0].aClassificar).toBe(false);
     expect(dados.bpo_lancamentos[0]).toMatchObject({ clienteId: 7, tipo: "receita" });
     expect(dados.bank_transactions[0].bpoClienteId).toBe(7);
 
@@ -241,6 +256,9 @@ describe("categoria e Cliente BPO na movimentação", () => {
   it("lançamento já usado em obra não é removido e a categoria não muda", async () => {
     const { dados, opts } = bancoEmMemoria({ bank_accounts: [conta()] });
     await gravarMovimentos({ id: 1, dataInicial: null }, [mov("e1", "2026-10-01", "Compra cimento material", 80, "debito")], "importacao");
+    // 12/11 (noite): a movimentação nova fica A classificar; o usuário classifica e o lançamento nasce.
+    await atualizarMovimentacao(1, { categoria: "Material" });
+    expect(dados.bpo_lancamentos).toHaveLength(1);
     opts.bloquearDelete = true;
     await expect(atualizarMovimentacao(1, { categoria: "Transferência interna" })).rejects.toThrow(/obra ou regularização/);
     expect(dados.bank_transactions[0].categoria).toBe("Material");
@@ -313,7 +331,9 @@ describe("saldo da conta na importação", () => {
     const comSaldo = await confirmarImportacao(1, linhas, 4321.09);
     expect(comSaldo.saldo).toBe(4321.09);
     expect(mem.dados.bank_accounts[0]).toMatchObject({ saldoAtual: "4321.09", saldoFonte: "extrato" });
-    expect(mem.dados.bpo_lancamentos).toHaveLength(2);
+    // 12/11 (noite): sem correspondência, as duas ficam A classificar (antes: 2 lançamentos na hora).
+    expect(mem.dados.bpo_lancamentos).toHaveLength(0);
+    expect(mem.dados.bank_transactions.filter(t => t.aClassificar)).toHaveLength(2);
 
     // Novo arquivo sem saldo numa conta cujo saldo veio do extrato: soma o líquido das novas.
     const mais = await confirmarImportacao(1, [{ data: "2026-10-05", descricao: "Pix", valor: 100, tipo: "credito" }], null);
@@ -327,7 +347,8 @@ describe("saldo da conta na importação", () => {
     // Reimportar o mesmo arquivo não duplica movimentações nem lançamentos.
     const de_novo = await confirmarImportacao(1, linhas, null);
     expect(de_novo.novos).toBe(0);
-    expect(mem.dados.bpo_lancamentos).toHaveLength(2);
+    expect(mem.dados.bank_transactions).toHaveLength(2);
+    expect(mem.dados.bpo_lancamentos).toHaveLength(0);
     expect(mem.dados.bank_accounts[0].saldoAtual).toBe("985.00");
   });
 });

@@ -97,3 +97,51 @@ Autorização para merge/deploy; depois portar a importação ao Santa Fé.
   lançamentos arquivados (legado/Asaas 2022–2026) não participam — se o lote for restaurado, pode coincidir.
 - Testes (a): `bpo-conta-azul.test.ts` 11 ✅ (regra, extrato pago/em aberto/novo, reimportação, Asaas);
   suíte 1.643 ✅; tsc ✅; vite build ✅. (c) produção: ligar a conta e conferir as abas.
+
+## Quatro blocos do dono (12/11, noite) — A classificar, dividir pagamentos, centros de custo, filtros
+
+Decisão do dono: nada do banco entra em Cobranças/Despesas/DRE sem ele classificar, exceto o que o sistema
+já liga com segurança. Branch `claude/intelligent-ptolemy-av0qoh` (PR #214, rascunho). Migrações só aditivas.
+
+### Bloco 1 — Aba "A classificar" (concluído)
+- Migração `drizzle/0103_bpo_a_classificar.sql` (idempotente, sem UPDATE): `bank_transactions.a_classificar`,
+  `bpo_lancamentos.a_classificar` (boolean NOT NULL DEFAULT false), `bpo_recebimentos.bank_transaction_id`
+  (FK ON DELETE SET NULL) + índices. Schema Drizzle atualizado.
+- Movimentação NOVA (`gravarMovimentos` → `gerarLancamentosDoExtrato(..., "nova")`):
+  crédito com `asaasPaymentId` de cobrança conhecida → como antes; bate com Conta Azul JÁ PAGO (mesmo tipo/valor,
+  até 3 dias da quitação) → só liga `bank_transaction_id` (não muda valor, status nem `pago_em`); titular com regra
+  (categoria) → cria o lançamento; Transferência interna → nada; resto → `bank_transactions.a_classificar = true`.
+- `conciliarComContaAzul` agora ignora lançamento em aberto (em aberto nunca é baixado sozinho).
+- Asaas (`server/bpo-asaas.ts`): (a) cobrança paga ↔ receita do Conta Azul já paga → assume o id (sem mudar status);
+  (b) cobrança EM ABERTO ↔ receita EM ABERTO do Conta Azul → assume o id SÓ com o mesmo cliente BPO, mesmo valor,
+  vencimento a até 3 dias e candidato único (`receitaEmAbertoDoContaAzul`); a receita sai de A classificar e passa a
+  seguir o Asaas; (c) cobrança paga ↔ receita em aberto → NÃO liga (cria a cobrança; a receita do Conta Azul continua
+  em A classificar — o dono cancela uma delas). Crédito do Asaas que chegou antes da cobrança fica A classificar e,
+  quando a cobrança paga aparece (pelo id ou pela regra valor/data de antes), o lançamento nasce ligado ao crédito.
+- `reprocessarMovimentacoes` nunca cria lançamento para movimentação A classificar; antigas (flag false) como antes.
+- Classificação explícita (`atualizarMovimentacao`, `aplicarClassificacaoEmLote` com categoria, regra por titular)
+  cria e limpa a flag. `aplicarClassificacaoEmLote` só com cliente (ex.: cadastro de cliente novo) dá o cliente à
+  movimentação A classificar, mas não cria lançamento.
+- Movimentação que deu baixa por divisão de pagamento nunca gera lançamento próprio (todos os caminhos).
+- Leitores com o filtro `a_classificar = false`: `lancamentosComTitular`, `getAllBpoLancamentos`, DRE/anos
+  (`lancamentosDoDre` no router), `clientesComTotais`, relatórios, tax, obra e regularização (listas de pagos),
+  `bpo-vinculo-cliente`, lote de Cobranças/Despesas. Novo lote `aba: "a_classificar"` (Cancelar = arquivamento
+  reversível com backup/histórico; Restaurar devolve para A classificar).
+- Importador do Conta Azul grava `a_classificar = !pago`. Receber/Marcar pago limpam a flag.
+- Rotas `bpo.aClassificar.*`: contagem, movimentacoes, lancamentos, abertosParaBaixa, criarLancamentos, ignorar, confirmar.
+- Tela: aba "A classificar (N)" em `AdminBpo.tsx` → `client/src/components/bpo/AClassificar.tsx`.
+- Testes existentes com expectativa mudada (regra nova, conscientemente):
+  - `bpo-extrato.test.ts`: "cada movimentação gera lançamento" → agora fica A classificar e o lançamento nasce ao
+    classificar; sync por API idem; troca para Transferência interna / obra / saldo da importação passam a
+    classificar antes (ou esperam 0 lançamentos). Mock ganhou a tabela `bpo_recebimentos`.
+  - `bpo-0075-db.test.ts`: cadastro de cliente vincula a movimentação, mas o lançamento só nasce ao classificar;
+    reimportação classifica antes de conferir a descrição; "aplicar a todas do titular": a de outro titular fica
+    A classificar (2 lançamentos em vez de 3; no fim 0 em vez de 1).
+  - `bpo-conta-azul.test.ts`: em aberto não concilia mais (regra e banco); o pago só é ligado com `pago_em` do
+    Conta Azul (antes ganhava a data do banco); a tarifa nova fica A classificar (4 lançamentos em vez de 5).
+- Testes novos: `server/bpo-a-classificar.test.ts`.
+
+### Passos de produção que dependem do dono (NÃO feitos)
+1. Aplicar `drizzle/0103_bpo_a_classificar.sql` (e depois `0104`), antes do deploy do código.
+2. Marcar os 134 em aberto do Conta Azul já importados (autorização separada):
+   `UPDATE bpo_lancamentos SET a_classificar = true WHERE origem_efetiva='conta_azul' AND NOT pago AND exclusao_lote_backup_id IS NULL AND combinada_em_id IS NULL`

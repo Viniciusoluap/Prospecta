@@ -1,14 +1,15 @@
-// Pedido de 25/10 (LOTE C): o extrato bancário alimenta todo o BPO Financeiro.
-// Cada movimentação (importada ou sincronizada) gera um lançamento pago em bpo_lancamentos,
-// com vínculo 1:1 por bpo_lancamentos.bank_transaction_id (único: nunca duplica).
-// Crédito → receita (Cobranças), débito → despesa (Despesas). "Transferência interna"
-// não gera lançamento, então fica fora de DRE, Cobranças, Despesas e Contabilidade.
-// Regras puras em shared/financeiro/bpo-extrato.ts.
+// Pedido de 25/10 (LOTE C): o extrato bancário alimenta todo o BPO Financeiro, com vínculo 1:1 por
+// bpo_lancamentos.bank_transaction_id (único: nunca duplica). Crédito → receita (Cobranças), débito →
+// despesa (Despesas). "Transferência interna" não gera lançamento (fora de DRE, Cobranças, Despesas e
+// Contabilidade). Regras puras em shared/financeiro/bpo-extrato.ts.
+// Pedido de 12/11 (noite): movimentação NOVA só vira lançamento quando o sistema sabe ligar com segurança
+// (cobrança Asaas conhecida, lançamento do Conta Azul já pago, regra do titular com categoria). O resto
+// fica "A classificar" (bank_transactions.a_classificar) até o dono classificar ou dar baixa.
 import { and, desc, eq, getTableColumns, inArray, isNotNull, isNull, notExists, or } from "drizzle-orm";
 import { alias } from "drizzle-orm/pg-core";
 import { getDb } from "./db.js";
 import { conciliarMovimentosComContaAzul } from "./bpo-conta-azul.js";
-import { bankAccounts, bankTransactions, bpoClients, bpoLancamentos, bpoRegrasTitular, leads, type BpoRegraTitular } from "../drizzle/schema.js";
+import { bankAccounts, bankTransactions, bpoClients, bpoLancamentos, bpoRecebimentos, bpoRegrasTitular, leads, type BpoRegraTitular } from "../drizzle/schema.js";
 import {
   TRANSFERENCIA_INTERNA,
   categoriaValida,
@@ -25,9 +26,35 @@ import {
 
 const LOTE = 200;
 
+/**
+ * Como a movimentação chegou:
+ * - "nova": acabou de ser gravada (extrato, Pluggy, Asaas, Inter) — sem correspondência segura fica A classificar;
+ * - "classificada": o usuário classificou (painel Bancos, regra por titular, aba A classificar) — cria o lançamento;
+ * - "reprocessar": backfill de movimentações antigas — cria como antes, mas nunca para as que estão A classificar.
+ */
+export type ModoGeracao = "nova" | "classificada" | "reprocessar";
+
+type MovimentoGerar = MovimentoParaLancamento & { asaasPaymentId?: string | null; aClassificar?: boolean | null };
+
+/** Movimentações que já deram baixa por divisão de pagamento (bpo_recebimentos): nunca geram lançamento próprio. */
+export async function movimentacoesComBaixa(ids: number[]): Promise<Set<number>> {
+  const r = new Set<number>();
+  const unicos = Array.from(new Set(ids));
+  for (let i = 0; i < unicos.length; i += 500) {
+    const linhas = await getDb().select({ id: bpoRecebimentos.bankTransactionId }).from(bpoRecebimentos)
+      .where(inArray(bpoRecebimentos.bankTransactionId, unicos.slice(i, i + 500)));
+    linhas.forEach(l => l.id != null && r.add(l.id));
+  }
+  return r;
+}
+
 /** Gera (sem duplicar) os lançamentos das movimentações informadas. Devolve quantos foram criados. */
-export async function gerarLancamentosDoExtrato(movimentos: (MovimentoParaLancamento & { asaasPaymentId?: string | null })[]): Promise<number> {
+export async function gerarLancamentosDoExtrato(entrada: MovimentoGerar[], modo: ModoGeracao = "classificada"): Promise<number> {
   const db = getDb();
+  if (!entrada.length) return 0;
+  // O dinheiro de uma movimentação usada na divisão de pagamentos já está nos lançamentos que ela quitou.
+  const comBaixa = await movimentacoesComBaixa(entrada.map(m => m.id));
+  const movimentos = entrada.filter(m => !comBaixa.has(m.id) && !(modo === "reprocessar" && m.aClassificar));
   const comPagamento = movimentos.filter(m => m.tipo === "credito" && m.asaasPaymentId);
   const conhecidos = new Set<string>();
   const vinculos = alias(bpoLancamentos, "vinculos_existentes");
@@ -56,11 +83,22 @@ export async function gerarLancamentosDoExtrato(movimentos: (MovimentoParaLancam
     }
     await executarLote(db, consultas);
   }
-  const desejados = movimentos.filter(m => m.tipo !== "credito" || !m.asaasPaymentId || !conhecidos.has(m.asaasPaymentId))
-    .map(lancamentoDaMovimentacao).filter((l): l is NonNullable<typeof l> => l !== null);
-  // Pedido de 12/11 (noite): o que já veio do backup do Conta Azul é conciliado, não duplicado.
+  const restantes = movimentos.filter(m => m.tipo !== "credito" || !m.asaasPaymentId || !conhecidos.has(m.asaasPaymentId));
+  const porId = new Map(restantes.map(m => [m.id, m]));
+  const desejados = restantes.map(lancamentoDaMovimentacao).filter((l): l is NonNullable<typeof l> => l !== null);
+  // Pedido de 12/11 (noite): o que já veio PAGO do backup do Conta Azul é só ligado, não duplicado.
   const doContaAzul = await conciliarMovimentosComContaAzul(desejados.map(l => ({ id: l.bankTransactionId, tipo: l.tipo, valor: l.valor, data: l.pagoEm })));
-  const valores = desejados.filter(l => !doContaAzul.has(l.bankTransactionId));
+  let valores = desejados.filter(l => !doContaAzul.has(l.bankTransactionId));
+  if (modo === "nova" && valores.length) {
+    // Só a regra que o usuário ensinou (titular com categoria) cria o lançamento; o resto vai para A classificar.
+    const ctx = await contextoClassificacao(valores.map(v => porId.get(v.bankTransactionId)?.titular));
+    const temRegra = (id: number) => categoriaValida(ctx.regras.get(normalizarTitular(porId.get(id)?.titular))?.categoria) !== null;
+    const aClassificar = valores.filter(v => !temRegra(v.bankTransactionId)).map(v => v.bankTransactionId);
+    valores = valores.filter(v => temRegra(v.bankTransactionId));
+    for (let i = 0; i < aClassificar.length; i += 500) {
+      await db.update(bankTransactions).set({ aClassificar: true }).where(inArray(bankTransactions.id, aClassificar.slice(i, i + 500)));
+    }
+  }
   let criados = 0;
   for (let i = 0; i < valores.length; i += LOTE) {
     const r = await db
@@ -105,6 +143,7 @@ export async function reprocessarMovimentacoes(): Promise<ResultadoReprocessamen
       bpoClienteId: bankTransactions.bpoClienteId,
       asaasPaymentId: bankTransactions.asaasPaymentId,
       titular: bankTransactions.titular,
+      aClassificar: bankTransactions.aClassificar,
       lancamentoId: bpoLancamentos.id,
     })
     .from(bankTransactions)
@@ -126,8 +165,8 @@ export async function reprocessarMovimentacoes(): Promise<ResultadoReprocessamen
     categorizadas += ids.length;
   }
 
-  // 2) Lançamentos que faltam (transferência interna não gera).
-  const lancamentosCriados = await gerarLancamentosDoExtrato(todas.filter(t => t.lancamentoId == null));
+  // 2) Lançamentos que faltam (transferência interna não gera; "A classificar" espera o usuário).
+  const lancamentosCriados = await gerarLancamentosDoExtrato(todas.filter(t => t.lancamentoId == null), "reprocessar");
 
   // 3) Saldo das contas de importação que ainda não têm saldo vindo de arquivo ou de API.
   const contas = await db
@@ -176,13 +215,14 @@ export async function atualizarMovimentacao(id: number, mudanca: { categoria?: C
     try { await db.delete(bpoLancamentos).where(and(eq(bpoLancamentos.id, existente.id), isNull(bpoLancamentos.exclusaoLoteBackupId))); }
     catch (e) { throw erroLancamentoEmUso(e); }
   }
-  await db.update(bankTransactions).set(novo).where(eq(bankTransactions.id, id));
+  // Classificação explícita do usuário: sai de "A classificar".
+  await db.update(bankTransactions).set({ ...novo, aClassificar: false }).where(eq(bankTransactions.id, id));
   if (desejado && existente && existente.exclusaoLoteBackupId == null) {
     await db.update(bpoLancamentos)
       .set({ categoria: desejado.categoria, clienteId: desejado.clienteId, tipo: desejado.tipo })
       .where(and(eq(bpoLancamentos.id, existente.id), isNull(bpoLancamentos.exclusaoLoteBackupId)));
   } else if (desejado && !existente) {
-    await gerarLancamentosDoExtrato([{ ...t, ...novo }]);
+    await gerarLancamentosDoExtrato([{ ...t, ...novo }], "classificada");
   }
   return { categoria: novo.categoria, bpoClienteId: novo.bpoClienteId ?? null, lancamento: desejado ? "vinculado" : "nenhum" };
 }
@@ -203,6 +243,7 @@ export async function movimentacoesDaConta(accountId: number) {
       descricaoOriginal: bankTransactions.descricaoOriginal,
       status: bankTransactions.status,
       origem: bankTransactions.origem,
+      aClassificar: bankTransactions.aClassificar,
       lancamentoId: bpoLancamentos.id,
     })
     .from(bankTransactions)
@@ -259,10 +300,14 @@ export function classificacaoInicial(
 /**
  * Mesma categoria e/ou cliente para várias movimentações (regra por titular), mantendo os
  * lançamentos vinculados coerentes: Transferência interna remove; demais atualizam ou criam.
+ * Pedido de 12/11 (noite): com categoria é classificação explícita (cria o lançamento e tira de
+ * "A classificar"); só com cliente (ex.: cadastro de cliente novo) a movimentação A classificar
+ * ganha o cliente e continua esperando o usuário.
  */
 export async function aplicarClassificacaoEmLote(ids: number[], mudanca: { categoria?: CategoriaBpo; bpoClienteId?: number | null }) {
   if (!ids.length || (mudanca.categoria === undefined && mudanca.bpoClienteId === undefined)) return 0;
   const db = getDb();
+  const explicita = mudanca.categoria !== undefined;
   let total = 0;
   for (let i = 0; i < ids.length; i += 500) {
     const parte = ids.slice(i, i + 500);
@@ -275,6 +320,7 @@ export async function aplicarClassificacaoEmLote(ids: number[], mudanca: { categ
     const set = {
       ...(mudanca.categoria !== undefined ? { categoria: mudanca.categoria } : {}),
       ...(mudanca.bpoClienteId !== undefined ? { bpoClienteId: mudanca.bpoClienteId } : {}),
+      ...(explicita ? { aClassificar: false } : {}),
     };
     const comLancamento = linhas.filter(l => l.lancamentoId != null).map(l => l.id);
     if (mudanca.categoria === TRANSFERENCIA_INTERNA && comLancamento.length) {
@@ -289,7 +335,8 @@ export async function aplicarClassificacaoEmLote(ids: number[], mudanca: { categ
           ...(mudanca.bpoClienteId !== undefined ? { clienteId: mudanca.bpoClienteId } : {}),
         }).where(and(inArray(bpoLancamentos.bankTransactionId, comLancamento), isNull(bpoLancamentos.exclusaoLoteBackupId)));
       }
-      await gerarLancamentosDoExtrato(linhas.filter(l => l.lancamentoId == null).map(l => ({ ...l, ...set })));
+      const semLancamento = linhas.filter(l => l.lancamentoId == null && (explicita || !l.aClassificar));
+      await gerarLancamentosDoExtrato(semLancamento.map(l => ({ ...l, ...set })), "classificada");
     }
     total += linhas.length;
   }
@@ -397,6 +444,7 @@ export async function lancamentosComTitular() {
     .from(bpoLancamentos)
     .leftJoin(bankTransactions, eq(bankTransactions.id, bpoLancamentos.bankTransactionId))
     // Lote 3, item 16: originais combinadas saem da lista e dos totais (a nova cobrança as soma).
-    .where(and(isNull(bpoLancamentos.combinadaEmId), isNull(bpoLancamentos.exclusaoLoteBackupId)))
+    // Pedido de 12/11 (noite): "A classificar" fica fora das listas e totais até o usuário confirmar.
+    .where(and(isNull(bpoLancamentos.combinadaEmId), isNull(bpoLancamentos.exclusaoLoteBackupId), eq(bpoLancamentos.aClassificar, false)))
     .orderBy(desc(bpoLancamentos.vencimento));
 }
