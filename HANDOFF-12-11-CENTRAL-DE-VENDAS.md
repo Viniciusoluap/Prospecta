@@ -43,15 +43,23 @@ Os status ficam numa tabela nova 1:1 (`central_vendas_leads`), não em `leads`; 
 Ver `docs/stories/epics/epic-central-de-vendas/EPIC.md` (CV-01 a CV-11).
 
 ## Concluído
-- Etapa 1 — diagnóstico, épico e stories (este commit).
+- Etapa 1 — diagnóstico, épico e stories (`4946d13`).
+- Etapa 2 — migração aditiva `drizzle/0110_central_vendas.sql` (12 tabelas `central_vendas_*`, idempotente,
+  nenhuma tabela existente alterada), `drizzle/schema-central-vendas.ts`, `drizzle.config.ts`.
+  O banco garante que análise pendente/aprovada/reprovada só existe com `decisao_por` (usuário humano).
+
+## Migrações criadas (NÃO aplicadas em banco real)
+- `drizzle/0110_central_vendas.sql`
 
 ## Pendências
-- Etapas 2 a 11.
+- Etapas 3 a 11.
 
 ## Testes
-- (a) automáticos: nenhum nesta etapa (só documentação).
-- (b) manuais: leitura do código.
-- (c) produção: nada.
+- (a) automáticos: `npx tsc --noEmit -p .` ✅; `npx vitest run server/central-vendas-0110.test.ts` ✅ (2 testes:
+  aplica duas vezes, não altera `leads`, CHECKs de status, decisão só com humano, único por origem + ID externo).
+- (b) manuais: nenhum.
+- (c) produção: aplicar a 0110 (só com autorização do dono).
 
 ## Próximo passo exato
-Etapa 2: criar `drizzle/0110_central_vendas.sql` + `drizzle/schema-central-vendas.ts` + teste PGlite.
+Etapa 3: `shared/central-vendas/*` (config e regras puras) + `server/central-vendas/entrada.ts` (deduplicação por
+`central_vendas_contatos`, `[ref:...]`) + gancho em `server/whatsapp-evolution-webhook.ts` + rotas site/Logyca.
