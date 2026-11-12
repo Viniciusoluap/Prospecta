@@ -27,7 +27,7 @@ para o Grupo Santa Fé, com a mesma regra de negócio, quando o dono autorizar �
 | CV-03 | Serviço de entrada de leads (WhatsApp, site, Logyca) com deduplicação e origem | InReview |
 | CV-04 | Distribuição automática (rodízio) e SLA | InReview |
 | CV-05 | Agente de IA de atendimento e qualificação, com regras proibidas | InReview |
-| CV-06 | Documentação: checklist, classificação, lembretes e encaminhamento para análise | Draft |
+| CV-06 | Documentação: checklist, classificação, lembretes e encaminhamento para análise | InReview |
 | CV-07 | Retorno da análise e mensagens automáticas | Draft |
 | CV-08 | Follow-up, reativação e proteções de envio | Draft |
 | CV-09 | Painel de indicadores e tela de configurações | Draft |

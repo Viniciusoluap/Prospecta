@@ -216,15 +216,15 @@ export function pendentesDoChecklist(itens: ItemChecklistLite[], recebidas: Iter
   return itens.filter(i => i.obrigatorio && !ok.has(i.chave));
 }
 
-const SINONIMOS: [string, RegExp][] = [
-  ["cnh", /\b(cnh|carteira de motorista|habilitacao)\b/],
-  ["rg", /\b(rg|identidade|carteira de identidade|cin)\b/],
-  ["address_proof", /\b(comprovante de (residencia|endereco)|conta de (luz|agua|energia)|fatura de (luz|agua|energia))\b/],
-  ["income_proof_irpf", /\b(irpf|imposto de renda|declaracao de (ir|imposto))\b/],
-  ["income_proof_formal", /\b(holerite|contracheque|contra-cheque|comprovante de renda|extrato bancario|carteira de trabalho|ctps)\b/],
-  ["fgts", /\b(fgts|extrato do fgts)\b/],
-  ["birth_marriage_certificate", /\b(certidao de (nascimento|casamento)|certidao)\b/],
-  ["pis", /\b(pis|nis|pasep)\b/],
+const SINONIMOS: [string[], RegExp][] = [
+  [["cnh", "rg"], /\b(cnh|carteira de motorista|habilitacao)\b/],
+  [["rg", "cnh"], /\b(rg|identidade|carteira de identidade|cin)\b/],
+  [["address_proof"], /\b(comprovante de (residencia|endereco)|conta de (luz|agua|energia)|fatura de (luz|agua|energia))\b/],
+  [["income_proof_irpf", "income_proof_formal"], /\b(irpf|imposto de renda|declaracao de (ir|imposto))\b/],
+  [["income_proof_formal", "spouse_income_proof"], /\b(holerite|contracheque|contra cheque|comprovante de renda|extrato bancario|carteira de trabalho|ctps)\b/],
+  [["fgts"], /\b(fgts|extrato do fgts)\b/],
+  [["birth_marriage_certificate"], /\b(certidao de (nascimento|casamento)|certidao)\b/],
+  [["pis"], /\b(pis|nis|pasep)\b/],
 ];
 
 /**
@@ -235,10 +235,12 @@ export function classificarPorNome(texto: string, itens: ItemChecklistLite[]): {
   const t = semAcento(texto).replace(/[_.-]+/g, " ");
   const porNome = itens.find(i => t.includes(semAcento(i.nome)) || new RegExp(`\\b${semAcento(i.chave).replace(/[_-]+/g, " ")}\\b`).test(t));
   if (porNome) return { chave: porNome.chave, confianca: 0.9 };
-  for (const [tipo, re] of SINONIMOS) {
+  for (const [tipos, re] of SINONIMOS) {
     if (!re.test(t)) continue;
-    const item = itens.find(i => i.tipo === tipo);
-    if (item) return { chave: item.chave, confianca: 0.8 };
+    for (const tipo of tipos) {
+      const item = itens.find(i => i.tipo === tipo);
+      if (item) return { chave: item.chave, confianca: 0.8 };
+    }
   }
   return null;
 }

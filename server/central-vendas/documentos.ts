@@ -79,7 +79,9 @@ export async function receberMidia(leadId: number, messageId: number) {
   const itens = await checklistDoLead(cv, config);
   const recebidas = await chavesRecebidas(leadId);
   const candidatos = pendentesDoChecklist(itens, recebidas).length ? pendentesDoChecklist(itens, recebidas) : itens;
-  const legenda = m.texto.replace(/^\[(imagem|documento|vídeo)\]\s*/i, "");
+  // Legenda escrita pelo cliente (o texto gravado traz "[documento] nome-do-arquivo" antes dela).
+  let legenda = m.texto.replace(/^\[(imagem|documento|vídeo)\]\s*/i, "");
+  if (m.nome && legenda.startsWith(m.nome)) legenda = legenda.slice(m.nome.length).trim();
   const texto = `${m.nome ?? ""} ${legenda}`;
   let classe = classificarPorNome(texto, candidatos) ?? classificarPorNome(texto, itens);
   if (!classe) {

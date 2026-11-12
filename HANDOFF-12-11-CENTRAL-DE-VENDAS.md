@@ -63,6 +63,13 @@ Ver `docs/stories/epics/epic-central-de-vendas/EPIC.md` (CV-01 a CV-11).
   gatilhos por código no texto do cliente (atendente, reclamação, jurídico, negociação) nem chamam a IA; baixa
   confiança, pedido do modelo e 3 mensagens sem progresso → humano com resumo da IA (reserva sem IA); limite mensal
   de tokens com consumo por lead e aviso ao admin 1x/mês; falha da IA → fila com backoff → esgotou → humano.
+- Etapa 6 — documentação (`server/central-vendas/documentos.ts`): checklist do lead = do produto/campanha ou o
+  checklist padrão da configuração (nenhum documento fixo no código; sem checklist → evento `sem_checklist` +
+  aviso ao operador); lista de pendentes logo após a qualificação; cada mídia recebida vira `lead_documents`
+  (link `/api/whatsapp/midia/<id>` + cópia do Drive quando houver), classificada por metadados (regra → IA);
+  confiança < 0,7 → "a conferir" (conta, o fluxo segue, operador avisado); lembretes D+1/D+3/D+7 (configuráveis)
+  no cron diário; checklist completo → `completo` + `em_analise` + tarefa ao analista + aviso + mensagem, uma vez
+  (UPDATE condicionado ao estado anterior).
 
 ### Decisões automáticas (YOLO)
 - [AUTO-DECISION] Lead que já existia no CRM e escreve no WhatsApp → entra na Central com atendimento humano
@@ -72,6 +79,8 @@ Ver `docs/stories/epics/epic-central-de-vendas/EPIC.md` (CV-01 a CV-11).
 - [AUTO-DECISION] SLA: a Vercel só tem o cron diário; a verificação de SLA roda a cada aviso de mensagem do
   WhatsApp (no máximo 1x por minuto), ao abrir o painel e no cron diário. Sem tráfego de mensagens, um SLA pode ser
   detectado com atraso — alternativa (manual, opcional): um pinger externo chamando o cron.
+- [AUTO-DECISION] Documento nunca vai à IA: a classificação usa só nome do arquivo, tipo e legenda (seção 5 do
+  prompt: "documentos nunca são enviados para fora do sistema"). Classificação visual pela IA ficaria a critério do dono.
 - [AUTO-DECISION] Lead do site recebe a saudação `cv-saudacao` (com o pedido de consentimento LGPD) pelo WhatsApp,
   respeitando a janela 8h–20h. Texto vindo da Logyca não aciona a IA (a Logyca tem os próprios fluxos).
 
@@ -79,7 +88,7 @@ Ver `docs/stories/epics/epic-central-de-vendas/EPIC.md` (CV-01 a CV-11).
 - `drizzle/0110_central_vendas.sql`
 
 ## Pendências
-- Etapas 6 a 11.
+- Etapas 7 a 11.
 
 ## Testes
 - (a) automáticos: `npx tsc --noEmit -p .` ✅; `server/central-vendas-0110.test.ts` ✅ (2);
@@ -94,8 +103,12 @@ Ver `docs/stories/epics/epic-central-de-vendas/EPIC.md` (CV-01 a CV-11).
   gatilhos, campo extra descartado, LGPD antes/depois, promessa de aprovação simulada não sai e não muda a análise,
   condição cadastrada sai, 4 gatilhos de texto, baixa confiança, 3 sem progresso, pedido do modelo, limite de
   tokens, falha da IA reprocessada sem resposta duplicada).
+  `server/central-vendas-documentos.test.ts` ✅ (6: classificação por metadados; lista após qualificação; RG/holerite/
+  arquivo sem pista → IA só com metadados → "a conferir"; encaminhamento único mesmo com aviso repetido, nova
+  verificação e arquivo extra — 1 tarefa, 1 mensagem, 1 evento; lembretes D+1/D+3/D+7 sem repetir; sem checklist;
+  automação desligada).
 - (b) manuais: nenhum.
 - (c) produção: aplicar a 0110 e ligar a Central (só com autorização do dono).
 
 ## Próximo passo exato
-Etapa 6: testes de documentação (`server/central-vendas-documentos.test.ts`): lista após qualificação, classificação, lembretes, encaminhamento único.
+Etapa 7: testes do retorno da análise (`server/central-vendas-analise.test.ts`) sobre `server/central-vendas/analise.ts`.
