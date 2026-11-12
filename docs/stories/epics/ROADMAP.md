@@ -156,3 +156,13 @@ Detalhes e testes em `HANDOFF-08-11-PARCELAMENTO-MERCADO.md` (PR #187).
   custos e fluxo por ano; demonstrativo auditável; Casa Pronta (VGV = quantidade × valor por unidade); grupo por linha
   no Orçamento; mês do aporte no Business Plan. **Atenção:** o motor de viabilidade era cópia linha a linha do
   `lib/finance/loteamento.ts` do Santa Fé — a divergência agora é intencional e precisa ser portada para manter a paridade.
+
+## Central de Vendas — pendência de portar ao Grupo Santa Fé (12/11/2026)
+
+Módulo novo implementado primeiro no Prospecta (`docs/prompts/central-de-vendas.md`, épico
+`epic-central-de-vendas/`, `HANDOFF-12-11-CENTRAL-DE-VENDAS.md`). A paridade está **suspensa** porque o dono
+colocou o Grupo Santa Fé em stand-by em 12/11; não é exceção de paridade.
+
+- [ ] Portar a Central de Vendas ao Grupo Santa Fé com a mesma regra de negócio (entrada/deduplicação, rodízio e
+  SLA, agente de IA com regras proibidas, checklist e encaminhamento automático para análise, retorno da análise,
+  follow-up/reativação com proteções, painel e configurações, adaptador Logyca desligado) — **aguardando ordem do dono**.
