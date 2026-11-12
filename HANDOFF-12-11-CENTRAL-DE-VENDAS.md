@@ -180,3 +180,11 @@ Ver `docs/stories/epics/epic-central-de-vendas/EPIC.md` (CV-01 a CV-11).
 ## Próximo passo exato
 Coordenador abre o PR de `claude/central-de-vendas`; com autorização do dono: merge, deploy, aplicar a 0110 e
 executar o roteiro acima. Depois, QA (`@qa`) das stories CV-02 a CV-11 e, quando o dono mandar, portar ao Santa Fé.
+
+## Integração com a main e publicação (12/11, autorizada pelo dono: "merge e deploy ao finalizar tudo")
+- `origin/main` (com o BPO do PR #214) mesclada nesta branch sem conflito.
+- Rodado pelo orquestrador na branch mesclada: `tsc` ✅, suíte completa 206 arquivos / 1.745 testes ✅, `vite build` ✅.
+- Migração `0110_central_vendas.sql` aplicada na Neon de produção (só CREATE ... IF NOT EXISTS; 12 tabelas vazias).
+- A Central entra em produção DESLIGADA (interruptor geral off, modo de teste on): nada muda para os clientes
+  até o dono configurar e ligar em /admin/central-vendas.
+- (c) Pendente em produção: roteiro manual do teste ponta a ponta (acima), com um número autorizado.
