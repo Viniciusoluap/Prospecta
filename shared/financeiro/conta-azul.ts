@@ -260,3 +260,46 @@ export function observacoesDoMovimento(m: MovimentoContaAzul): string {
     m.metodo && `Forma de pagamento: ${rotuloMetodoContaAzul(m.metodo)}.`,
   ].filter(Boolean).join(" ");
 }
+
+// ── Pedido de 12/11 (noite): conciliação com o extrato e o Asaas, sem duplicar o que veio do Conta Azul ──
+//
+// Ao ligar a mesma conta bancária no BPO, as movimentações do período do backup chegam de novo. Antes de criar
+// um lançamento, procura-se o lançamento do Conta Azul do MESMO tipo e MESMO valor, ainda não conciliado:
+// pago → data a até 3 dias da quitação; em aberto → data a até 10 dias do vencimento (paga agora).
+// Vários candidatos: o de data mais próxima; cada movimento e cada lançamento são usados uma vez só.
+
+export const JANELA_CONCILIACAO_PAGO_DIAS = 3;
+export const JANELA_CONCILIACAO_ABERTO_DIAS = 10;
+
+export type MovimentoParaConciliar = { id: number; tipo: "receita" | "despesa"; valor: string | number; data: Date | string };
+export type LancamentoContaAzulParaConciliar = {
+  id: number; tipo: string; valor: string | number; pago: boolean; pagoEm: Date | string | null; vencimento: Date | string;
+};
+
+const diaUtc = (d: Date | string) => Math.floor(new Date(typeof d === "string" && d.length === 10 ? `${d}T12:00:00Z` : d).getTime() / 86_400_000);
+const centavos = (v: string | number) => Math.round(Number(v) * 100);
+
+/** Pares movimento → lançamento do Conta Azul (id do movimento → id do lançamento). */
+export function conciliarComContaAzul(movimentos: MovimentoParaConciliar[], candidatos: LancamentoContaAzulParaConciliar[]): Map<number, number> {
+  const pares: { mov: number; lanc: number; distancia: number }[] = [];
+  const porChave = new Map<string, LancamentoContaAzulParaConciliar[]>();
+  for (const c of candidatos) {
+    const k = `${c.tipo}|${centavos(c.valor)}`;
+    porChave.set(k, [...(porChave.get(k) ?? []), c]);
+  }
+  for (const m of movimentos) {
+    const dm = diaUtc(m.data);
+    for (const c of porChave.get(`${m.tipo}|${centavos(m.valor)}`) ?? []) {
+      const ref = c.pago && c.pagoEm ? c.pagoEm : c.vencimento;
+      const distancia = Math.abs(dm - diaUtc(ref));
+      if (distancia <= (c.pago ? JANELA_CONCILIACAO_PAGO_DIAS : JANELA_CONCILIACAO_ABERTO_DIAS)) pares.push({ mov: m.id, lanc: c.id, distancia });
+    }
+  }
+  pares.sort((a, b) => a.distancia - b.distancia || a.mov - b.mov || a.lanc - b.lanc);
+  const usadosMov = new Set<number>(), usadosLanc = new Set<number>(), resultado = new Map<number, number>();
+  for (const p of pares) {
+    if (usadosMov.has(p.mov) || usadosLanc.has(p.lanc)) continue;
+    usadosMov.add(p.mov); usadosLanc.add(p.lanc); resultado.set(p.mov, p.lanc);
+  }
+  return resultado;
+}

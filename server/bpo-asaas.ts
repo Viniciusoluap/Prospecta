@@ -15,6 +15,8 @@ import {
   type CreditoCandidato,
 } from "../shared/financeiro/bpo-asaas.js";
 import { executarLote, type Consulta } from "./bpo-extrato.js";
+import { candidatosContaAzul } from "./bpo-conta-azul.js";
+import { conciliarComContaAzul } from "../shared/financeiro/conta-azul.js";
 
 export type ResultadoCobrancas = { recebidas: number; criadas: number; atualizadas: number; reconciliadas: number };
 
@@ -77,6 +79,8 @@ export async function sincronizarCobrancasAsaas(apiKey: string, desde: string, f
     return candidatos;
   };
   const usados = new Set<number>();
+  let receitasContaAzul: Awaited<ReturnType<typeof candidatosContaAzul>> | null = null;
+  const usadosContaAzul = new Set<number>();
   const consultas: Consulta[] = [];
   const novos: ReturnType<typeof lancamentoDaCobranca>[] = [];
 
@@ -120,7 +124,29 @@ export async function sincronizarCobrancasAsaas(apiKey: string, desde: string, f
         continue;
       }
     }
+    // Pedido de 12/11 (noite): a mesma receita importada do backup do Conta Azul assume a cobrança (não duplica).
+    const doContaAzul = await receitaDoContaAzul(desejado);
+    if (doContaAzul) {
+      consultas.push(db.update(bpoLancamentos).set({
+        asaasPaymentId: c.id,
+        ...(desejado.pago ? { pago: true, pagoEm: desejado.pagoEm, valorRecebido: sql`${bpoLancamentos.valor}` } : {}),
+        updatedAt: new Date(),
+      }).where(and(eq(bpoLancamentos.id, doContaAzul), isNull(bpoLancamentos.asaasPaymentId))) as unknown as Consulta);
+      resultado.reconciliadas++;
+      continue;
+    }
     novos.push(desejado);
+  }
+
+  async function receitaDoContaAzul(desejado: ReturnType<typeof lancamentoDaCobranca>): Promise<number | null> {
+    if (!receitasContaAzul) {
+      receitasContaAzul = await candidatosContaAzul(db, ["receita"], cobrancas.map(x => x.valor.toFixed(2)), true);
+    }
+    const livres = receitasContaAzul.filter(r => !usadosContaAzul.has(r.id));
+    const par = conciliarComContaAzul([{ id: 0, tipo: "receita", valor: desejado.valor, data: desejado.pagoEm ?? desejado.vencimento }], livres);
+    const id = par.get(0) ?? null;
+    if (id) usadosContaAzul.add(id);
+    return id;
   }
 
   function vincular(lancamentoId: number, c: AsaasCobranca, clienteId: number | null) {

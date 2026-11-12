@@ -322,6 +322,10 @@ export default function BancosPanel() {
               <Label className="text-gray-300">Considerar movimentações a partir de</Label>
               <Input type="date" value={nova.dataInicial} onChange={e => setNova(n => ({ ...n, dataInicial: e.target.value }))} className={campo} />
               <p className="text-xs text-gray-300 mt-1">Movimentações anteriores a esta data não são gravadas (não pertencem a esta empresa).</p>
+              <p className="text-xs text-gray-300 mt-1">
+                Lançamentos importados do Conta Azul não se repetem: a movimentação do banco com o mesmo valor e data próxima
+                (até 3 dias do pagamento, ou até 10 dias do vencimento se estava em aberto) é conciliada com eles, sem criar outro.
+              </p>
             </div>
             <Button className="w-full bg-[#C9A961] hover:bg-[#B8985A] text-[#1A2332] font-bold" disabled={criar.isPending || !nova.banco}
               onClick={() => criar.mutate({ provedor: nova.provedor, banco: nova.banco, conta: nova.conta || undefined, descricao: nova.descricao || undefined, dataInicial: nova.dataInicial || null,

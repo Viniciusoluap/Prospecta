@@ -6,7 +6,10 @@ import { and, eq, gte, inArray, isNull, lte, sql } from "drizzle-orm";
 import { getDb } from "./db.js";
 import { bpoClients, bpoLancamentos } from "../drizzle/schema.js";
 import { normalizarTitular } from "../shared/financeiro/bpo-extrato.js";
-import { lerBackupContaAzul, observacoesDoMovimento, type BackupContaAzul, type PessoaContaAzul } from "../shared/financeiro/conta-azul.js";
+import {
+  conciliarComContaAzul, lerBackupContaAzul, observacoesDoMovimento,
+  type BackupContaAzul, type MovimentoParaConciliar, type PessoaContaAzul,
+} from "../shared/financeiro/conta-azul.js";
 
 type Db = ReturnType<typeof getDb>;
 type Tx = Parameters<Parameters<Db["transaction"]>[0]>[0];
@@ -161,4 +164,51 @@ export async function importarContaAzul(arquivos: Record<string, string>) {
       linhasComErro: backup.erros.length,
     };
   });
+}
+
+/** Lançamentos do Conta Azul ainda sem movimentação bancária, com os valores informados (candidatos à conciliação). */
+export async function candidatosContaAzul(d: Db | Tx, tipos: ("receita" | "despesa")[], valores: string[], semAsaas = false) {
+  if (!valores.length || !tipos.length) return [];
+  const linhas = [];
+  const unicos = Array.from(new Set(valores));
+  for (let i = 0; i < unicos.length; i += 500) {
+    linhas.push(...await d.select({
+      id: bpoLancamentos.id, tipo: bpoLancamentos.tipo, valor: bpoLancamentos.valor, pago: bpoLancamentos.pago,
+      pagoEm: bpoLancamentos.pagoEm, vencimento: bpoLancamentos.vencimento,
+    }).from(bpoLancamentos).where(and(
+      eq(bpoLancamentos.origemEfetiva, "conta_azul"),
+      isNull(bpoLancamentos.bankTransactionId),
+      isNull(bpoLancamentos.exclusaoLoteBackupId),
+      isNull(bpoLancamentos.combinadaEmId),
+      inArray(bpoLancamentos.tipo, tipos),
+      inArray(bpoLancamentos.valor, unicos.slice(i, i + 500)),
+      ...(semAsaas ? [isNull(bpoLancamentos.asaasPaymentId)] : []),
+    )));
+  }
+  return linhas;
+}
+
+/**
+ * Pedido de 12/11 (noite): a movimentação do extrato que corresponde a um lançamento importado do Conta Azul
+ * (mesmo tipo e valor, data próxima) assume esse lançamento em vez de criar outro. Devolve os ids das
+ * movimentações conciliadas (as demais seguem para a criação normal).
+ */
+export async function conciliarMovimentosComContaAzul(movimentos: MovimentoParaConciliar[]): Promise<Set<number>> {
+  const conciliadas = new Set<number>();
+  if (!movimentos.length) return conciliadas;
+  const d = getDb();
+  const candidatos = await candidatosContaAzul(d, Array.from(new Set(movimentos.map(m => m.tipo))), movimentos.map(m => Number(m.valor).toFixed(2)));
+  if (!candidatos.length) return conciliadas;
+  const porMov = new Map(movimentos.map(m => [m.id, m]));
+  for (const [movId, lancId] of Array.from(conciliarComContaAzul(movimentos, candidatos).entries())) {
+    const m = porMov.get(movId)!;
+    const quando = m.data instanceof Date ? m.data : new Date(`${String(m.data).slice(0, 10)}T12:00:00Z`);
+    // o lançamento do Conta Azul fica com a categoria, o cliente e a descrição dele; ganha o vínculo e o pagamento
+    const r = await d.update(bpoLancamentos).set({
+      bankTransactionId: movId, pago: true, pagoEm: quando, valorRecebido: sql`${bpoLancamentos.valor}`, updatedAt: new Date(),
+    }).where(and(eq(bpoLancamentos.id, lancId), isNull(bpoLancamentos.bankTransactionId)))
+      .returning({ id: bpoLancamentos.id }).catch(() => []);
+    if (r.length) conciliadas.add(movId);
+  }
+  return conciliadas;
 }

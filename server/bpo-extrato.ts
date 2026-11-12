@@ -7,6 +7,7 @@
 import { and, desc, eq, getTableColumns, inArray, isNotNull, isNull, notExists, or } from "drizzle-orm";
 import { alias } from "drizzle-orm/pg-core";
 import { getDb } from "./db.js";
+import { conciliarMovimentosComContaAzul } from "./bpo-conta-azul.js";
 import { bankAccounts, bankTransactions, bpoClients, bpoLancamentos, bpoRegrasTitular, leads, type BpoRegraTitular } from "../drizzle/schema.js";
 import {
   TRANSFERENCIA_INTERNA,
@@ -55,8 +56,11 @@ export async function gerarLancamentosDoExtrato(movimentos: (MovimentoParaLancam
     }
     await executarLote(db, consultas);
   }
-  const valores = movimentos.filter(m => m.tipo !== "credito" || !m.asaasPaymentId || !conhecidos.has(m.asaasPaymentId))
+  const desejados = movimentos.filter(m => m.tipo !== "credito" || !m.asaasPaymentId || !conhecidos.has(m.asaasPaymentId))
     .map(lancamentoDaMovimentacao).filter((l): l is NonNullable<typeof l> => l !== null);
+  // Pedido de 12/11 (noite): o que já veio do backup do Conta Azul é conciliado, não duplicado.
+  const doContaAzul = await conciliarMovimentosComContaAzul(desejados.map(l => ({ id: l.bankTransactionId, tipo: l.tipo, valor: l.valor, data: l.pagoEm })));
+  const valores = desejados.filter(l => !doContaAzul.has(l.bankTransactionId));
   let criados = 0;
   for (let i = 0; i < valores.length; i += LOTE) {
     const r = await db

@@ -78,3 +78,22 @@ Autorização para merge/deploy; depois portar a importação ao Santa Fé.
 - Próximo passo: dono importa pelo botão (BPO Financeiro > Importar backup Conta Azul > `Backup conta azul.zip`)
   ou libera a permissão para eu rodar `importarContaAzul` contra a produção. Depois: conferir totais
   (esperado 1.528 lançamentos; clientes novos dependem dos 60 já cadastrados).
+
+## Importação feita pelo dono + proteção contra duplicidade (12/11, noite)
+- Conferido em produção: 1.528 lançamentos `conta_azul` (1.281 despesas R$ 1.868.851,61; 247 receitas
+  R$ 1.418.675,87), chaves únicas, 77 clientes novos (13 reaproveitados dos 60 existentes), última quitação
+  30/03/2026, 134 em aberto.
+- Pedido: ligar a mesma conta no BPO sem duplicar o que veio do Conta Azul.
+- Conciliação automática (`conciliarComContaAzul` em `shared/financeiro/conta-azul.ts`):
+  movimento do extrato (Pluggy/arquivo/manual) → lançamento do Conta Azul sem vínculo, mesmo tipo e valor;
+  pago: até 3 dias da quitação; em aberto: até 10 dias do vencimento (passa a pago com a data do banco).
+  O mais próximo vence; cada lado usado uma vez; o lançamento mantém categoria/cliente/descrição do Conta Azul.
+  Ligado em `gerarLancamentosDoExtrato` (todos os caminhos do extrato passam por ele) via
+  `conciliarMovimentosComContaAzul` (`server/bpo-conta-azul.ts`).
+- Cobranças do Asaas: antes de criar receita nova, a mesma receita do Conta Azul assume o id do pagamento
+  (`server/bpo-asaas.ts`, `receitaDoContaAzul`).
+- Aviso na tela Bancos (cadastro da conta).
+- Limites: valor igual e data próxima por coincidência pode conciliar o lançamento errado (raro); os 1.011
+  lançamentos arquivados (legado/Asaas 2022–2026) não participam — se o lote for restaurado, pode coincidir.
+- Testes (a): `bpo-conta-azul.test.ts` 11 ✅ (regra, extrato pago/em aberto/novo, reimportação, Asaas);
+  suíte 1.643 ✅; tsc ✅; vite build ✅. (c) produção: ligar a conta e conferir as abas.
