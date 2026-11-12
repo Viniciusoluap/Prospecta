@@ -53,12 +53,18 @@ Ver `docs/stories/epics/epic-central-de-vendas/EPIC.md` (CV-01 a CV-11).
   **Atenção:** os módulos de servidor das etapas 4–8 (`distribuicao.ts`, `ia.ts`, `documentos.ts`, `analise.ts`,
   `sequencias.ts`, `envio.ts`, `rotina.ts`) já entraram neste commit porque o serviço de entrada depende deles;
   cada etapa seguinte traz os testes dela e as correções que os testes apontarem.
+- Etapa 4 — distribuição e SLA: rodízio por id entre operadores ativos (`atribuirOperador`, preenche também o
+  `responsibleUserId` do CRM quando vazio) e `verificarSla` (estouro → próximo operador, aviso, auditoria
+  `sla_reatribuido`, relógio recomeça; sem outro operador → `sla_estourado` + aviso ao admin uma vez).
 
 ### Decisões automáticas (YOLO)
 - [AUTO-DECISION] Lead que já existia no CRM e escreve no WhatsApp → entra na Central com atendimento humano
   (operador = responsável atual). A IA só atende quem entrou pela Central (não muda atendimentos em curso).
 - [AUTO-DECISION] Modo de teste: números fora da lista são ignorados pela Central (nem lead, nem IA); o WhatsApp
   continua gravando a conversa como antes. Começa **ligado**; o interruptor geral começa **desligado**.
+- [AUTO-DECISION] SLA: a Vercel só tem o cron diário; a verificação de SLA roda a cada aviso de mensagem do
+  WhatsApp (no máximo 1x por minuto), ao abrir o painel e no cron diário. Sem tráfego de mensagens, um SLA pode ser
+  detectado com atraso — alternativa (manual, opcional): um pinger externo chamando o cron.
 - [AUTO-DECISION] Lead do site recebe a saudação `cv-saudacao` (com o pedido de consentimento LGPD) pelo WhatsApp,
   respeitando a janela 8h–20h. Texto vindo da Logyca não aciona a IA (a Logyca tem os próprios fluxos).
 
@@ -66,7 +72,7 @@ Ver `docs/stories/epics/epic-central-de-vendas/EPIC.md` (CV-01 a CV-11).
 - `drizzle/0110_central_vendas.sql`
 
 ## Pendências
-- Etapas 4 a 11.
+- Etapas 5 a 11.
 
 ## Testes
 - (a) automáticos: `npx tsc --noEmit -p .` ✅; `server/central-vendas-0110.test.ts` ✅ (2);
@@ -75,8 +81,10 @@ Ver `docs/stories/epics/epic-central-de-vendas/EPIC.md` (CV-01 a CV-11).
   desligada; site exige token, valida payload, idempotente por ID externo, sem eco de telefone; Logyca desligada por
   padrão e conflito registrado com o Prospecta prevalecendo; limitação de taxa 429). Testes existentes do WhatsApp
   (7 arquivos, 53 testes) ✅ com o gancho no webhook.
+  `server/central-vendas-distribuicao.test.ts` ✅ (6: rodízio, inativo fora, minutos úteis com fim de semana,
+  reatribuição no 16º minuto, resposta humana registrada sem reatribuir, estouro sem outro operador avisa 1x).
 - (b) manuais: nenhum.
 - (c) produção: aplicar a 0110 e ligar a Central (só com autorização do dono).
 
 ## Próximo passo exato
-Etapa 4: testes de rodízio e SLA (`server/central-vendas-distribuicao.test.ts`) sobre `server/central-vendas/distribuicao.ts`.
+Etapa 5: testes do agente de IA (`server/central-vendas-ia.test.ts`): regras proibidas, transferência por gatilho, limite de tokens.
