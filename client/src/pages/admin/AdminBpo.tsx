@@ -40,6 +40,7 @@ import BancosPanel from "./BancosPanel";
 import { CamposCategoriaLancamento, categoriaLancamentoCompleta } from "@/components/bpo/CamposCategoriaLancamento";
 import { SugerirVinculosDialog, VinculoClienteLancamento } from "@/components/bpo/VinculoClienteLancamento";
 import { BarraLote } from "@/components/bpo/LoteLancamentos";
+import { ImportarContaAzul } from "@/components/bpo/ImportarContaAzul";
 import { rotulo } from "@shared/rotulos";
 import { MESES_DRE, TRANSFERENCIA_INTERNA, recebidoDoLancamento } from "@shared/financeiro/bpo-extrato";
 import { situacaoDoLancamento } from "@shared/financeiro/bpo-asaas";
@@ -234,6 +235,7 @@ export default function AdminBpo({ initialTab }: { initialTab?: Aba } = {}) {
             <Button variant="outline" className="border-[#C9A961]/30 text-[#C9A961]" disabled={importarClientes.isPending} onClick={() => importarClientes.mutate()}>
               {importarClientes.isPending ? "Importando…" : "Importar clientes"}
             </Button>
+            <ImportarContaAzul />
             <Dialog open={clienteOpen} onOpenChange={setClienteOpen}>
               <DialogTrigger asChild>
                 <Button
@@ -429,7 +431,7 @@ export default function AdminBpo({ initialTab }: { initialTab?: Aba } = {}) {
                           setLancamentoForm(f => ({ ...f, tipo: v, categoriaOperacional: "", vinculoOperacionalId: "", tipoDespesaObra: "", etapaObra: "" }))
                         }
                       >
-                        <SelectTrigger className="bg-[#2C3E50] border-[#C9A961]/30 text-white mt-1">
+                        <SelectTrigger className="w-full bg-[#2C3E50] border-[#C9A961]/30 text-white mt-1">
                           <SelectValue />
                         </SelectTrigger>
                         <SelectContent>
@@ -456,7 +458,7 @@ export default function AdminBpo({ initialTab }: { initialTab?: Aba } = {}) {
                           }))
                         }
                       >
-                        <SelectTrigger className="bg-[#2C3E50] border-[#C9A961]/30 text-white mt-1">
+                        <SelectTrigger className="w-full bg-[#2C3E50] border-[#C9A961]/30 text-white mt-1">
                           <SelectValue />
                         </SelectTrigger>
                         <SelectContent>
@@ -531,6 +533,7 @@ export default function AdminBpo({ initialTab }: { initialTab?: Aba } = {}) {
                     <div>
                       <Label className="text-gray-300">Competência *</Label>
                       <Input
+                        type="month"
                         value={lancamentoForm.competencia}
                         onChange={e =>
                           setLancamentoForm(f => ({

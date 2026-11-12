@@ -16,7 +16,7 @@ export type ValorCategoriaLancamento = {
 type Vinculo = { id: string; rotulo: string; clienteNome: string | null };
 type Catalogo = Record<string, unknown> & { etapasObra?: { chave: string; nome: string }[] };
 
-const campo = "bg-[#2C3E50] border-[#C9A961]/30 text-white mt-1";
+const campo = "w-full bg-[#2C3E50] border-[#C9A961]/30 text-white mt-1";
 
 /**
  * Lote 3, item 12: o mesmo bloco de categoria no "Novo lançamento" e no "Editar lançamento".
@@ -39,7 +39,7 @@ export function CamposCategoriaLancamento({ tipo, valor, onChange, catalogo, opc
   const ehObra = tipo === "despesa" && valor.categoriaOperacional === "obras";
   return (
     <>
-      <div className="col-span-2 sm:col-span-1">
+      <div className="col-span-full sm:col-span-1">
         <Label className="text-gray-300">Categoria operacional{opcional ? "" : " *"}</Label>
         <Select
           value={valor.categoriaOperacional || "none"}
@@ -58,7 +58,7 @@ export function CamposCategoriaLancamento({ tipo, valor, onChange, catalogo, opc
         )}
       </div>
       {valor.categoriaOperacional && !semVinculo && (
-        <div className="col-span-2">
+        <div className="col-span-full">
           <Label className="text-gray-300">Registro vinculado *</Label>
           <Select
             value={valor.vinculoOperacionalId || undefined}
@@ -73,14 +73,14 @@ export function CamposCategoriaLancamento({ tipo, valor, onChange, catalogo, opc
       )}
       {ehObra && (
         <>
-          <div className="col-span-2 sm:col-span-1">
+          <div className="col-span-full sm:col-span-1">
             <Label className="text-gray-300">Tipo de despesa *</Label>
             <Select value={valor.tipoDespesaObra || undefined} onValueChange={v => onChange({ ...valor, tipoDespesaObra: v })}>
               <SelectTrigger className={campo}><SelectValue placeholder="Escolha" /></SelectTrigger>
               <SelectContent>{TIPOS_DESPESA_OBRA.map(t => <SelectItem key={t} value={t}>{t.replaceAll("_", " ")}</SelectItem>)}</SelectContent>
             </Select>
           </div>
-          <div className="col-span-2 sm:col-span-1">
+          <div className="col-span-full sm:col-span-1">
             <Label className="text-gray-300">Etapa da obra</Label>
             <Select value={valor.etapaObra || "none"} onValueChange={v => onChange({ ...valor, etapaObra: v === "none" ? "" : v })}>
               <SelectTrigger className={campo}><SelectValue /></SelectTrigger>

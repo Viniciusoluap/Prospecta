@@ -35,7 +35,15 @@ import { registrarRecebimento } from "./bpo-recebimentos.js";
 import { combinarPagamentos, excluirLancamentosEmLote, previaCombinacao, previaExclusaoLote } from "./bpo-lote.js";
 import { listarExclusoesEmLote, previaRestauracaoExclusao, restaurarExclusaoEmLote } from "./bpo-restauracao.js";
 import { mensagemLancamentoCombinado } from "../shared/financeiro/bpo-lote.js";
+import { importarContaAzul, previaContaAzul } from "./bpo-conta-azul.js";
+import { LIMITE_ARQUIVO_CONTA_AZUL } from "../shared/financeiro/conta-azul.js";
 import { aplicarVinculosEmMassa, previaVinculosEmMassa, sugestoesDoLancamento, vincularLancamentoACliente } from "./bpo-vinculo-cliente.js";
+
+const backupContaAzulSchema = z.object({
+  arquivos: z.record(z.string().max(120), z.string().max(LIMITE_ARQUIVO_CONTA_AZUL))
+    .refine(a => Object.keys(a).length <= 20, "O backup tem arquivos demais.")
+    .refine(a => Object.values(a).reduce((t, x) => t + x.length, 0) <= 4_000_000, "Backup grande demais para importar de uma vez (máx. 4 MB de texto)."),
+});
 
 const texto = (max: number) => z.string().trim().max(max).optional().nullable();
 
@@ -427,5 +435,14 @@ export const bpoRouter = router({
   dreCategorias: adminProcedure.input(filtroDreSchema).query(async ({ input }) => dreDasCategorias(filtrarPorCompetencia(await db.getAllBpoLancamentos(), input))),
   /** Anos com lançamento (opções do filtro de Ano do DRE). */
   dreAnos: adminProcedure.query(async () => Array.from(new Set((await db.getAllBpoLancamentos()).map(l => l.competencia.slice(0, 4)).filter(a => /^\d{4}$/.test(a)))).sort().reverse()),
+
+  /** Pedido de 12/11: backup ZIP do Conta Azul Pro (o navegador abre o ZIP e envia o texto dos CSVs). */
+  contaAzul: router({
+    previa: adminProcedure.input(backupContaAzulSchema).mutation(({ input }) => previaContaAzul(input.arquivos)),
+    importar: adminProcedure.input(backupContaAzulSchema).mutation(async ({ input }) => {
+      try { return await importarContaAzul(input.arquivos); }
+      catch (e) { throw new TRPCError({ code: "BAD_REQUEST", message: e instanceof Error ? e.message : "Falha ao importar o backup." }); }
+    }),
+  }),
 });
 
