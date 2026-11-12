@@ -20,6 +20,8 @@ export async function executarRotinaCentralVendas(opcoes: { limiteMs?: number } 
   const sequencias = await etapa("sequencias", agendarSequencias);
   const incertos = await etapa("incertos", marcarIncertos);
   const fila = await etapa("fila", () => processarFila({ limiteMs: opcoes.limiteMs ?? 30_000 }));
+  // Janelas de limitação de taxa com mais de 1 dia não servem mais.
+  await etapa("limpeza", () => linhas(sql`DELETE FROM central_vendas_limites WHERE janela < ${new Date(agora().getTime() - 86_400_000).toISOString()} RETURNING chave`));
   return { ativo: true, sla, lembretes, sequencias, incertos, fila };
 }
 

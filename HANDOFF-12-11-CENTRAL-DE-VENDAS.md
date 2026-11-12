@@ -75,6 +75,13 @@ Ver `docs/stories/epics/epic-central-de-vendas/EPIC.md` (CV-01 a CV-11).
   recomeçam da decisão; aprovado → etapa `approved_projects` (só avança), temperatura `hot`, aviso ao operador e
   template sem valores (entra no follow-up da etapa 8); reprovado → mensagem neutra, atendimento humano, motivo só
   em `leads.rejection_reason`. Mensagens da decisão respeitam a janela 8h–20h.
+- Etapa 8 — follow-up, reativação e proteções (`envio.ts`, `sequencias.ts`, `rotina.ts`): fila única com chave
+  idempotente; opt-out "SAIR"/"PARAR" (confirmação 1x, pendentes cancelados, próximos descartados); modo de teste;
+  janela 8h–20h America/Fortaleza para proativas (adiadas para a abertura + até 30 min espalhados); limite diário
+  por número (adiado para o dia seguinte); intervalo aleatório entre envios seguidos; falha → backoff 1/2/4/8 min,
+  5 tentativas → "falhou" + aviso ao admin; queda no meio → "incerto" (nunca reenviado sozinho). Sequências
+  `followup_aprovado`, `sem_resposta` e `reativacao` com passos em dias e template; só o passo mais avançado
+  vencido vai (sem rajada); o cliente responder reinicia o ciclo.
 
 ### Decisões automáticas (YOLO)
 - [AUTO-DECISION] Lead que já existia no CRM e escreve no WhatsApp → entra na Central com atendimento humano
@@ -86,6 +93,10 @@ Ver `docs/stories/epics/epic-central-de-vendas/EPIC.md` (CV-01 a CV-11).
   detectado com atraso — alternativa (manual, opcional): um pinger externo chamando o cron.
 - [AUTO-DECISION] Documento nunca vai à IA: a classificação usa só nome do arquivo, tipo e legenda (seção 5 do
   prompt: "documentos nunca são enviados para fora do sistema"). Classificação visual pela IA ficaria a critério do dono.
+- [AUTO-DECISION] Janela 8h–20h: vale para mensagens por iniciativa da empresa (lembretes, sequências, decisão da
+  análise, saudação do site). Resposta imediata a uma mensagem do cliente (IA, lista de documentos, confirmação de
+  análise, transferência) sai na hora; o limite diário vale para todas.
+- [AUTO-DECISION] Opt-out fica até um humano reativar a automação do lead (botão na tela da Central).
 - [AUTO-DECISION] Lead do site recebe a saudação `cv-saudacao` (com o pedido de consentimento LGPD) pelo WhatsApp,
   respeitando a janela 8h–20h. Texto vindo da Logyca não aciona a IA (a Logyca tem os próprios fluxos).
 
@@ -93,7 +104,7 @@ Ver `docs/stories/epics/epic-central-de-vendas/EPIC.md` (CV-01 a CV-11).
 - `drizzle/0110_central_vendas.sql`
 
 ## Pendências
-- Etapas 8 a 11.
+- Etapas 9 a 11.
 
 ## Testes
 - (a) automáticos: `npx tsc --noEmit -p .` ✅; `server/central-vendas-0110.test.ts` ✅ (2);
@@ -114,8 +125,12 @@ Ver `docs/stories/epics/epic-central-de-vendas/EPIC.md` (CV-01 a CV-11).
   automação desligada).
   `server/central-vendas-analise.test.ts` ✅ (7: as 3 decisões e suas mensagens, lembrete recomeça, janela,
   operador/inativo/inexistente/NaN recusados, banco recusa sem `decisao_por`, só decide quem está em análise).
+  `server/central-vendas-envio.test.ts` ✅ (8: proteções puras; opt-out; janela adia para 8h; modo de teste
+  descarta; limite diário 2 + intervalo só entre envios reais; falha → fila → reenviada 1x; 5 falhas → falhou +
+  aviso; incerto não reenvia; follow-up pós-aprovação D+1/D+3; sem resposta; reativação D+30; desligada).
+  Total da Central até aqui: 7 arquivos, 64 testes ✅.
 - (b) manuais: nenhum.
 - (c) produção: aplicar a 0110 e ligar a Central (só com autorização do dono).
 
 ## Próximo passo exato
-Etapa 8: testes de follow-up/reativação e proteções de envio (`server/central-vendas-envio.test.ts`).
+Etapa 9: indicadores (`shared/central-vendas/indicadores.ts`), router tRPC `centralVendas`, tela `/admin/central-vendas` (painel + configurações + produtos + checklists + sequências + campanhas + templates + auditoria).

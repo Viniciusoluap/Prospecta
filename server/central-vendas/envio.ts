@@ -89,7 +89,7 @@ async function falhar(job: CentralVendasJob, erro: string) {
   await registrarEvento({ tipo: `reprocessar_${job.tipo}`, leadId: job.leadId, payload: { job: job.id, tentativa: job.tentativas }, resultado: "erro", erro });
 }
 
-async function processarMensagem(job: CentralVendasJob, config: ConfigCentral): Promise<"enviada" | "adiada" | "descartada" | "falhou"> {
+async function processarMensagem(job: CentralVendasJob, config: ConfigCentral, aguardar: boolean): Promise<"enviada" | "adiada" | "descartada" | "falhou"> {
   const p = JSON.parse(job.payload || "{}") as PayloadMensagem;
   const cv = job.leadId ? await registroCentral(job.leadId) : null;
   const numero = job.numero ?? "";
@@ -111,6 +111,11 @@ async function processarMensagem(job: CentralVendasJob, config: ConfigCentral): 
     await db().update(centralVendasFila).set({ status: "descartado", ultimoErro: bloqueio, updatedAt: agora() }).where(eq(centralVendasFila.id, job.id));
     await registrarEvento({ tipo: "envio_bloqueado", leadId: job.leadId, payload: { job: job.id, motivo: bloqueio, template: p.template ?? null }, resultado: "bloqueado" });
     return "descartada";
+  }
+  // Intervalo aleatório entre envios seguidos (reduz o risco de bloqueio do número; QR code não é a API oficial).
+  if (aguardar) {
+    const { intervaloMinSeg: min, intervaloMaxSeg: max } = config;
+    await dependencias().dormir(Math.round((min + dependencias().aleatorio() * Math.max(0, max - min)) * 1000));
   }
   let r: ResultadoEnvio;
   try { r = await (dependencias().enviar ?? enviarPadrao)({ numero, texto: p.texto, connectionId: cv?.connectionId ?? null, config }); }
@@ -168,11 +173,7 @@ export async function processarFila(opcoes: { ids?: number[]; limiteMs?: number 
         resumo.ia++;
         continue;
       }
-      if (enviouAntes) {
-        const { intervaloMinSeg: min, intervaloMaxSeg: max } = config;
-        await dependencias().dormir(Math.round((min + dependencias().aleatorio() * Math.max(0, max - min)) * 1000));
-      }
-      const r = await processarMensagem(job, config);
+      const r = await processarMensagem(job, config, enviouAntes);
       if (r === "enviada") { resumo.enviadas++; enviouAntes = true; }
       else if (r === "adiada") resumo.adiadas++;
       else if (r === "descartada") resumo.descartadas++;
