@@ -321,3 +321,9 @@ e clicar em Salvar premissas para gravar as fontes. Business Plan → coluna "M�
 2. Validar em produção: Morada do Bosque (Rua Simples → Traçado "Acompanha a divisa"), botão IBGE,
    exclusão de proposta, paginação das unidades em tablet.
 3. Próxima frente técnica sugerida: otimizar a busca da via pela divisa (20–40 s) e portar ao Santa Fé (ROADMAP).
+
+## Correção 11/11 — formato "divisa" e área mínima (revisão Codex da PR #256 do Santa Fé)
+- `shared/incorporacao/massa.ts` (`validarParametrosMassa`): o formato "divisa" só dispensa testada × profundidade ≥
+  área mínima na Rua Simples; em Grade/Cul-de-sac (lotes retangulares) a exigência volta mesmo com o formato salvo.
+- Teste de regressão em `server/incorporacao-parcelamento-v2.test.ts` (falha sem a correção). Suíte 194/1623 ✅, tsc ✅.
+- PR #211 (Prospecta) e #257 (Santa Fé, mesmo motor). Pendente: autorização para merge/deploy.
