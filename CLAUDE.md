@@ -1,18 +1,5 @@
 # Regras do projeto Prospecta (preferências do dono)
 
-## PARIDADE SUSPENSA — Grupo Santa Fé em stand-by (decisão do dono em 12/11/2026)
-
-**Esta seção prevalece sobre a regra de "Paridade obrigatória" abaixo enquanto estiver aqui.**
-
-Por ordem expressa do proprietário em 12/11/2026, a paridade Grupo Santa Fé ↔ Prospecta está **suspensa**.
-O trabalho segue **exclusivamente no repositório da Prospecta**. O Grupo Santa Fé fica em stand-by:
-
-- Não portar nada para o Santa Fé nem exigir equivalente lá ao implementar na Prospecta.
-- Não alterar o repositório do Santa Fé, salvo pedido explícito do dono.
-- Tudo o que for feito na Prospecta deve ser registrado como pendência em
-  `HANDOFF-12-11-STANDBY-PARIDADE.md` (raiz do Grupo Santa Fé) e no `docs/stories/epics/ROADMAP.md` da Prospecta.
-- A paridade total só será retomada quando o dono der a ordem; aí esta seção é removida.
-
 ## Paridade obrigatória Grupo Santa Fé ↔ Prospecta (REGRA ABSOLUTA — estabelecida pelo usuário em 08/09/2026)
 
 **Esta regra tem prioridade máxima e vale nos dois repositórios (Grupo Santa Fé e Prospecta).**
