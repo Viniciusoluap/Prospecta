@@ -123,7 +123,7 @@ campo (mesmo padrão do Santa Fé: o `<Input>` exibe o buffer, reformatado só n
 
 A tentativa antiga de unificação por reescrita em Next.js foi definitivamente abandonada por decisão do proprietário. Ela não participa deste roadmap, não será integrada e não deve ser considerada dependência ou pendência. A abordagem oficial continua incremental na stack Vite/React + Express/tRPC + Drizzle/Neon.
 
-> **12/11/2026 — PARIDADE SUSPENSA por decisão do dono.** O Grupo Santa Fé está em stand-by; o trabalho segue só na
+> **13/11/2026 — paridade RETOMADA por ordem do dono (porte total em andamento).** Histórico: 12/11/2026 — PARIDADE SUSPENSA por decisão do dono. O Grupo Santa Fé está em stand-by; o trabalho segue só na
 > Prospecta. As listas abaixo continuam valendo como registro do que portar quando ele der a ordem
 > (resumo em `Grupo-Santa-Fe/HANDOFF-12-11-STANDBY-PARIDADE.md`). Novos itens: conciliação do BPO com o extrato,
 > aba "A classificar", divisão de pagamentos, centros de custo, filtros do BPO e Central de Vendas.
