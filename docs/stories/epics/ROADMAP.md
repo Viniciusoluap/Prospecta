@@ -28,9 +28,9 @@
 | EPIC-012 | Paridade real, navegação e arquitetura financeira | Codex / AIOX | Em andamento (S-01 a S-07, S-09, S-10 e S-11 Done; Etapas 3/P0, 4/P1, 5/P2, RBAC legado e plano de correção C1+C2 (comissões unificadas + navegação) concluídos; S-08/UAT em produção pendente) | EPIC-000 a EPIC-011 |
 | EPIC-015 | Consolidação operacional, serviços e navegação | Codex / AIOX | Ready (S-01 a S-08 planejadas) | EPIC-012, EPIC-014 |
 | EPIC-016 | Portais segmentados por perfil | Codex / AIOX | Draft (estrutura e stories planejadas; nenhuma implementação iniciada) | EPIC-002, EPIC-009, EPIC-015 |
-| EPIC-017 | Vínculo real CRM/Leads ↔ Serviços operacionais | Claude / AIOX | InReview (stories 1.1 a 1.8; migration 0031 a aplicar antes do deploy) — **paridade Santa Fé pendente** | EPIC-015 |
-| EPIC-018 | Corretores & Comissões — vínculos reais | Claude / AIOX | InReview (stories 2.1 a 2.5) — **paridade Santa Fé pendente** | EPIC-012, EPIC-017 |
-| EPIC-019 | Navegação da Central Administrativa | Claude / AIOX | InReview (story 3.1; UAT visual pendente) — **paridade Santa Fé a verificar** | — |
+| EPIC-017 | Vínculo real CRM/Leads ↔ Serviços operacionais | Claude / AIOX | InReview (stories 1.1 a 1.8; migration 0031 a aplicar antes do deploy) — **portado ao Santa Fé em 13/11** | EPIC-015 |
+| EPIC-018 | Corretores & Comissões — vínculos reais | Claude / AIOX | InReview (stories 2.1 a 2.5) — **portado ao Santa Fé em 13/11** | EPIC-012, EPIC-017 |
+| EPIC-019 | Navegação da Central Administrativa | Claude / AIOX | InReview (story 3.1; UAT visual pendente) — **Santa Fé: não se aplica (tela removida no lote de limpeza do CRM; verificado em 13/11)** | — |
 | EPIC-020 | 32 implementações auditadas (paridade Prospecta ↔ Santa Fé, motor financeiro) | Claude / AIOX | Em andamento — Lote 0 concluído e Lote 1 publicado (12/10); matriz em `epic-020-32-implementacoes-paridade/MATRIZ-PARIDADE.md` | EPIC-017, EPIC-018 |
 
 ## Decisões do dono do produto (06/09/2026)
@@ -54,7 +54,9 @@
 17. **EPIC-007 S-02 (BPO) concluída (07/09/2026)** — tabelas `bpo_clients`/`bpo_lancamentos` novas (migration `0011_typical_annihilus` aplicada em produção), router `bpo` (clientes/lançamentos/DRE), tela `AdminBpo.tsx` com abas Clientes/Cobranças/Despesas/DRE. Adaptações: sem aba "Relatórios" da origem (dados de funil/corretores já existem no CRM do Prospecta, evitando duplicação) e sem aba "Bancos" (fica para a S-03/Pluggy). Detalhes em `epic-007-financeiro-avancado/S-02-bpo-clientes-lancamentos.md`.
 18. **EPIC-007 S-03 (Integração bancária Pluggy) concluída — EPIC-007 e roadmap 100% fechados (08/09/2026)** — tabelas `bank_accounts`/`bank_transactions`/`pluggy_settings` novas (migration `0012_eminent_wraith` aplicada em produção), cliente Pluggy (`server/_core/pluggy.ts`) com fallback gracioso em 3 camadas (sem `pluggyAccountId` / sem credencial / API indisponível — nenhum caso lança erro), router `bancario` (contas/transações/sincronizar) + `pluggySettings` (credenciais **criptografadas no banco**, conforme decisão explícita do dono do produto — nunca em variável de ambiente), aba "Bancos" em `AdminBpo.tsx`. Sem credencial Pluggy real disponível ainda (decisão do dono do produto), então a sincronização de ponta a ponta não foi validada contra a API real — o formulário de credenciais valida contra a API real da Pluggy antes de salvar, então funciona assim que uma credencial real for configurada. Detalhes em `epic-007-financeiro-avancado/S-03-integracao-bancaria-pluggy.md`. **Com isso, os 10 épicos do roadmap (EPIC-000 a EPIC-010) estão Done.**
 
-## Pendências de paridade com o Grupo Santa Fé (EPIC-017/018/019 — 11/10/2026)
+## Pendências de paridade com o Grupo Santa Fé (EPIC-017/018/019 — 11/10/2026) — RESOLVIDA (13/11/2026)
+
+> 13/11: auditado item a item no Santa Fé (`HANDOFF-13-11-PARIDADE-PENDENCIAS-ANTIGAS.md` de lá). Já estavam iguais, exceto endereço no lead (EPIC-017) e corretor inativo na comissão (EPIC-018), portados. EPIC-019 não se aplica. Diferença registrada: no Santa Fé o endereço continua editável na Avaliação para não apagar endereços já digitados.
 
 Implementado primeiro no Prospecta; precisa ser portado para o Santa Fé com a mesma regra de negócio:
 
@@ -123,7 +125,7 @@ campo (mesmo padrão do Santa Fé: o `<Input>` exibe o buffer, reformatado só n
 
 A tentativa antiga de unificação por reescrita em Next.js foi definitivamente abandonada por decisão do proprietário. Ela não participa deste roadmap, não será integrada e não deve ser considerada dependência ou pendência. A abordagem oficial continua incremental na stack Vite/React + Express/tRPC + Drizzle/Neon.
 
-> **13/11/2026 — paridade RETOMADA por ordem do dono (porte total em andamento).** Histórico: 12/11/2026 — PARIDADE SUSPENSA por decisão do dono. O Grupo Santa Fé está em stand-by; o trabalho segue só na
+> **13/11/2026 — paridade RETOMADA por ordem do dono e porte total CONCLUÍDO (Santa Fé PR #261, ver `HANDOFF-13-11-PARIDADE-TOTAL.md` de lá).** Histórico: 12/11/2026 — PARIDADE SUSPENSA por decisão do dono. O Grupo Santa Fé está em stand-by; o trabalho segue só na
 > Prospecta. As listas abaixo continuam valendo como registro do que portar quando ele der a ordem
 > (resumo em `Grupo-Santa-Fe/HANDOFF-12-11-STANDBY-PARIDADE.md`). Novos itens: conciliação do BPO com o extrato,
 > aba "A classificar", divisão de pagamentos, centros de custo, filtros do BPO e Central de Vendas.
@@ -138,25 +140,25 @@ Detalhes e testes em `HANDOFF-08-11-PARCELAMENTO-MERCADO.md` (PR #187).
 - [x] Tipologia Rua Simples — `shared/incorporacao/rua-simples.ts` — **portado ao Santa Fé em 11/11 (bloco 3)**
 - [x] Área do sistema viário (automático/manual) e quadro com viário geométrico + sobras — **portado ao Santa Fé em 11/11 (bloco 3)**
 - [x] Desenho técnico universal (SVG) com alternância Satélite — `shared/incorporacao/planta-tecnica.ts` — **portado ao Santa Fé em 11/11 (bloco 3)**
-- [ ] Inteligência de Mercado com dois motores (IBGE gratuito + anúncios com IA) — `server/_core/incorporacao/dados-publicos.ts`, `mercado-anuncios.ts`, `shared/incorporacao/analise-anuncios.ts`
+- [x] Inteligência de Mercado com dois motores (IBGE gratuito + anúncios com IA) — `server/_core/incorporacao/dados-publicos.ts`, `mercado-anuncios.ts`, `shared/incorporacao/analise-anuncios.ts` — **portado ao Santa Fé em 13/11 (PR #261 de lá)**
 - [x] Unidades: exibição Q01 / L01, ordem numérica, paginação de 6 — **portado ao Santa Fé em 11/11 (bloco 3)**
-- [ ] Negociação: excluir proposta com auditoria; permuta = VGV × % ÷ 100 com VGV da Viabilidade › cenário
+- [x] Negociação: excluir proposta com auditoria; permuta = VGV × % ÷ 100 com VGV da Viabilidade › cenário — **portado ao Santa Fé em 13/11 (PR #261 de lá)**
 - [x] Rua Simples com via que acompanha a divisa (traçado curvo) e lote que acompanha a divisa — `shared/incorporacao/rua-divisa.ts` (PR #188) — **portado ao Santa Fé em 11/11 (bloco 3)**
 - [x] Ajuste automático da malha no modo manual da área viária (quadras mais curtas / supressão de ruas) — **portado ao Santa Fé em 11/11 (bloco 3)**
-- [ ] IBGE consultado pelo navegador (o IBGE recusa acesso de fora do Brasil) — `shared/incorporacao/dados-publicos.ts`
-- [ ] Chaves de integração no banco (`dashboard_settings`, `segredo.*`, criptografadas) — `server/_core/incorporacao/segredos-mercado.ts`
-- [ ] Provedor de anúncios Tavily sem IA + extração determinística — `shared/incorporacao/extracao-anuncios.ts`, `server/_core/incorporacao/mercado-anuncios.ts` (PR #190)
+- [x] IBGE consultado pelo navegador (o IBGE recusa acesso de fora do Brasil) — `shared/incorporacao/dados-publicos.ts` — **portado ao Santa Fé em 13/11 (PR #261 de lá)**
+- [x] Chaves de integração no banco (`dashboard_settings`, `segredo.*`, criptografadas) — `server/_core/incorporacao/segredos-mercado.ts` — **portado ao Santa Fé em 13/11 (PR #261 de lá)**
+- [x] Provedor de anúncios Tavily sem IA + extração determinística — `shared/incorporacao/extracao-anuncios.ts`, `server/_core/incorporacao/mercado-anuncios.ts` (PR #190) — **portado ao Santa Fé em 13/11 (PR #261 de lá)**
 - [x] Estudo de Massa: tipologia "Vias públicas" (desmembramento sem via interna, 100% de aproveitamento) — `shared/incorporacao/vias-publicas.ts` — **portado ao Santa Fé em 11/11 (PR #252 de lá)**
 - [x] Vias públicas: motor "em faixas" igual ao memorial aprovado (via de referência com fundo = metade da largura entre as divisas paralelas, lotes de costas alinhados, leque no balão e na curva, faixa de lotes na via da ponta) — `shared/incorporacao/vias-publicas-faixas.ts`, ligado em `buscarViasPublicas` (o motor por trechos fica como alternativa); ver `HANDOFF-11-11-VIAS-PUBLICAS-FAIXAS.md` — **portado ao Santa Fé em 11/11 (PR #252 de lá)**
 - [x] Due Diligence: setas ↑ ↓ em tarefas e documentos; "Anexar" funciona com alterações pendentes (salva antes de enviar), tipo do arquivo pela extensão e abertura do anexo no clique (iPad) — **portado ao Santa Fé em 11/11 (PR #252 de lá)**
 - [x] Anexos da Due Diligence e do Registro de Incorporação: qualquer tipo de arquivo (foto/HEIC, DWG, Word, Excel, ZIP...), até 50 MB, enviados e lidos em partes; PDF/foto/texto abrem na aba, os demais são baixados com o nome original (HTML/SVG nunca abrem) — **portado ao Santa Fé em 11/11 (PR #252 de lá)**
 - [x] Rua por lados escolhidos (rua de cima/esquerda/direita/baixo, combináveis) com frente exata e fundo variável — `shared/incorporacao/lados-gleba.ts`, `rua-divisa.ts` (substitui "Trocar rua de lado") — **portado ao Santa Fé em 11/11 (PR #252 de lá)**
-- [ ] BPO: importar backup ZIP do Conta Azul Pro (pessoas → clientes BPO, financeiro → lançamentos; idempotente; transferências fora; prévia) — `shared/financeiro/conta-azul.ts`, `server/bpo-conta-azul.ts`, `ImportarContaAzul.tsx` (12/11, ver `HANDOFF-12-11-BPO-CONTA-AZUL.md`)
-- [ ] **(paridade suspensa — não portar até ordem do dono)** BPO: aba "A classificar" (12/11, noite) — movimentação nova do banco só vira lançamento com correspondência segura (Asaas conhecido, Conta Azul já pago, regra por titular); o resto e os em aberto do Conta Azul esperam o dono; em aberto nunca é baixado sozinho — migração `0103_bpo_a_classificar.sql`, `server/bpo-a-classificar.ts`, `shared/financeiro/bpo-a-classificar.ts`, `client/src/components/bpo/AClassificar.tsx`
-- [ ] **(paridade suspensa)** BPO: dividir pagamentos (1 movimentação → N lançamentos; N movimentações → 1 lançamento parcial; receita e despesa) via `bpo_recebimentos.bank_transaction_id`
-- [ ] **(paridade suspensa)** BPO: cadastro de centros de custo (`0104_bpo_centros_custo.sql`) e campo nos lançamentos
-- [ ] **(paridade suspensa)** BPO: filtros (mês/ano, busca, valor, status, centro de custo) em Cobranças, Despesas, A classificar, Clientes e DRE
-- [ ] **Correções 09–12 (Viabilidade integrada)** — `shared/incorporacao/composicao-custos.ts`, `fluxo-anual.ts`, `viabilidade-economica.ts`, `premissas-loteamento.ts`, `mix-produtos.ts`:
+- [x] BPO: importar backup ZIP do Conta Azul Pro (pessoas → clientes BPO, financeiro → lançamentos; idempotente; transferências fora; prévia) — `shared/financeiro/conta-azul.ts`, `server/bpo-conta-azul.ts`, `ImportarContaAzul.tsx` (12/11, ver `HANDOFF-12-11-BPO-CONTA-AZUL.md`) — **portado ao Santa Fé em 13/11 (PR #261 de lá)**
+- [x] BPO: aba "A classificar" (12/11, noite) — movimentação nova do banco só vira lançamento com correspondência segura (Asaas conhecido, Conta Azul já pago, regra por titular); o resto e os em aberto do Conta Azul esperam o dono; em aberto nunca é baixado sozinho — migração `0103_bpo_a_classificar.sql`, `server/bpo-a-classificar.ts`, `shared/financeiro/bpo-a-classificar.ts`, `client/src/components/bpo/AClassificar.tsx` — **portado ao Santa Fé em 13/11 (PR #261 de lá)**
+- [x] BPO: dividir pagamentos (1 movimentação → N lançamentos; N movimentações → 1 lançamento parcial; receita e despesa) via `bpo_recebimentos.bank_transaction_id` — **portado ao Santa Fé em 13/11 (PR #261 de lá)**
+- [x] BPO: cadastro de centros de custo (`0104_bpo_centros_custo.sql`) e campo nos lançamentos — **portado ao Santa Fé em 13/11 (PR #261 de lá)**
+- [x] BPO: filtros (mês/ano, busca, valor, status, centro de custo) em Cobranças, Despesas, A classificar, Clientes e DRE — **portado ao Santa Fé em 13/11 (PR #261 de lá)**
+- [x] **Correções 09–12 (Viabilidade integrada)** — `shared/incorporacao/composicao-custos.ts`, `fluxo-anual.ts`, `viabilidade-economica.ts`, `premissas-loteamento.ts`, `mix-produtos.ts`: — **portado ao Santa Fé em 13/11 (PR #261 de lá)**
   fonte de custo só "Valor manual" / "Valor do sistema" (infra e obras residenciais separadas do Orçamento; marketing =
   fornecedores elegíveis + material publicitário sem duplicar); custo do terreno pela Negociação (à vista, parcelado,
   permuta financeira, permuta física = unidades não vendáveis); captação (aporte, devolução do principal, remuneração =
@@ -166,12 +168,11 @@ Detalhes e testes em `HANDOFF-08-11-PARCELAMENTO-MERCADO.md` (PR #187).
   no Orçamento; mês do aporte no Business Plan. **Atenção:** o motor de viabilidade era cópia linha a linha do
   `lib/finance/loteamento.ts` do Santa Fé — a divergência agora é intencional e precisa ser portada para manter a paridade.
 
-## Central de Vendas — pendência de portar ao Grupo Santa Fé (12/11/2026)
+## Central de Vendas — portada ao Grupo Santa Fé (12/11 → 13/11/2026)
 
 Módulo novo implementado primeiro no Prospecta (`docs/prompts/central-de-vendas.md`, épico
-`epic-central-de-vendas/`, `HANDOFF-12-11-CENTRAL-DE-VENDAS.md`). A paridade está **suspensa** porque o dono
-colocou o Grupo Santa Fé em stand-by em 12/11; não é exceção de paridade.
+`epic-central-de-vendas/`, `HANDOFF-12-11-CENTRAL-DE-VENDAS.md`). Portada ao Santa Fé em 13/11, após a retomada da paridade.
 
-- [ ] Portar a Central de Vendas ao Grupo Santa Fé com a mesma regra de negócio (entrada/deduplicação, rodízio e
+- [x] Portar a Central de Vendas ao Grupo Santa Fé com a mesma regra de negócio (entrada/deduplicação, rodízio e
   SLA, agente de IA com regras proibidas, checklist e encaminhamento automático para análise, retorno da análise,
-  follow-up/reativação com proteções, painel e configurações, adaptador Logyca desligado) — **aguardando ordem do dono**.
+  follow-up/reativação com proteções, painel e configurações, adaptador Logyca desligado) — **portado ao Santa Fé em 13/11 (PR #261 de lá)**.
