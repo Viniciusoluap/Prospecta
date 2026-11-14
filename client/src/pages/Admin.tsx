@@ -35,6 +35,7 @@ import {
   Receipt,
   Landmark,
   Scale,
+  Box,
   Shield,
   Upload,
   X,
@@ -78,6 +79,8 @@ const MODULOS_DO_PAINEL: {
   { modulo: "bpo", href: "/admin/bpo", rotulo: "BPO Financeiro", Icone: Receipt, cor: "border-[#C9A961]/30 hover:bg-[#C9A961]/10", corIcone: "text-[#C9A961]" },
   { modulo: "financiamentos", href: "/admin/financiamentos", rotulo: "Financiamentos", Icone: Landmark, cor: "border-blue-500/30 hover:bg-blue-500/10", corIcone: "text-blue-400" },
   { modulo: "juridico", href: "/admin/juridico", rotulo: "Jurídico", Icone: Scale, cor: "border-purple-500/30 hover:bg-purple-500/10", corIcone: "text-purple-400" },
+  // Maquete 3D (EPIC-022, 14/11/2026): exclusivo do Prospecta.
+  { modulo: "maquete3d", href: "/admin/maquete-3d", rotulo: "Maquete 3D", Icone: Box, cor: "border-[#C9A961]/30 hover:bg-[#C9A961]/10", corIcone: "text-[#C9A961]" },
 ];
 
 export default function Admin() {

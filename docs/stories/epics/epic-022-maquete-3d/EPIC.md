@@ -55,7 +55,7 @@ validação → visualizador e link.
 - [x] `S-01-modelo-e-regras.md`
 - [x] `S-02-banco-e-router.md`
 - [x] `S-03-motor-de-leitura.md`
-- [ ] `S-04-painel-e-revisao.md`
+- [x] `S-04-painel-e-revisao.md`
 
 ## Critérios de entrega
 

@@ -256,6 +256,11 @@ describe("router maquete3d", () => {
     await m.validar({ id });
     expect((await m.detalhe({ id })).status).toBe("validada");
     await expect(m.definirDocumentos({ id, documentos: [docProjeto] })).resolves.toEqual({ ok: true });
+
+    // Fundo da revisão: página de cada pavimento e o PDF original em partes.
+    expect((await m.detalhe({ id })).pranchas).toEqual([{ pavimentoId: "ed1-pv1", doc: 0, pagina: 1 }, { pavimentoId: "ed1-pv2", doc: 0, pagina: 2 }]);
+    expect(await m.pdfParte({ id, doc: 0, parte: 0 })).toEqual({ partes: 1, nome: "planta.pdf", base64: Buffer.from("pdf:planta.pdf").toString("base64") });
+    await expect(m.pdfParte({ id, doc: 1, parte: 0 })).rejects.toThrow("Arquivo não encontrado");
   });
 
   it("inventário sem planta baixa para com mensagem clara", async () => {

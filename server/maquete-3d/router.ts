@@ -14,7 +14,7 @@ import {
 } from "../../shared/maquete-3d/regras.js";
 import { ENV } from "../_core/env.js";
 import { adminProcedure, router } from "../_core/trpc.js";
-import { LeituraIndisponivel, agora, carregarConfig, db, salvarConfig } from "./base.js";
+import { LeituraIndisponivel, agora, carregarConfig, db, dependencias, salvarConfig } from "./base.js";
 import { avancarLeitura, iniciarLeitura, lerDocumentos } from "./leitura.js";
 
 type Ctx = { user: { id: number; role: string } };
@@ -72,6 +72,7 @@ function paraTela(m: Maquete3d) {
 }
 
 const idInput = z.object({ id: z.number().int().positive() });
+const PARTE_PDF_BYTES = 2 * 1024 * 1024;
 
 export const maquete3dRouter = router({
   config: adminProcedure.query(async () => ({ ...(await carregarConfig()), iaConfigurada: !!ENV.anthropicApiKey })),
@@ -128,6 +129,8 @@ export const maquete3dRouter = router({
       ...paraTela(m), modelo, problemas: modelo ? validarModelo(modelo) : [],
       passos: leitura.passos.map(({ chave, rotulo, estado, erro }) => ({ chave, rotulo, estado, erro: erro ?? null })),
       tokens: { entrada: leitura.tokensEntrada, saida: leitura.tokensSaida },
+      /** Em que arquivo e página está a planta de cada pavimento (fundo da revisão). */
+      pranchas: leitura.passos.filter(p => p.tipo === "estrutura" && p.pavimentoId).map(p => ({ pavimentoId: p.pavimentoId!, doc: p.doc ?? 0, pagina: p.pagina ?? 1 })),
       liberadoPorNome: liberador?.nome ?? null,
     };
   }),
@@ -205,6 +208,19 @@ export const maquete3dRouter = router({
     if (m.pagoEm && m.status !== "recusada") throw conflito("Maquete já paga: recuse o pedido antes de excluir.");
     await db().update(maquetes3d).set({ deletedAt: agora(), updatedAt: agora() }).where(eq(maquetes3d.id, m.id));
     return { ok: true };
+  }),
+
+  /** PDF original em partes de 2 MiB (a resposta da função é limitada), para a revisão desenhar a prancha ao fundo. */
+  pdfParte: adminProcedure.input(idInput.extend({ doc: z.number().int().min(0).max(MAX_DOCUMENTOS - 1), parte: z.number().int().min(0).max(40) })).query(async ({ input }) => {
+    const m = await buscar(input.id);
+    const d = lerDocumentos(m.documentos)[input.doc];
+    if (!d) throw new TRPCError({ code: "NOT_FOUND", message: "Arquivo não encontrado nesta maquete." });
+    let dados: Buffer;
+    try { dados = await dependencias().lerPdf(d, (m.projectId ?? m.studyId)!); }
+    catch { throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Não foi possível abrir o PDF original." }); }
+    const partes = Math.max(1, Math.ceil(dados.length / PARTE_PDF_BYTES));
+    if (input.parte >= partes) throw new TRPCError({ code: "BAD_REQUEST" });
+    return { partes, nome: d.nome, base64: dados.subarray(input.parte * PARTE_PDF_BYTES, (input.parte + 1) * PARTE_PDF_BYTES).toString("base64") };
   }),
 
   iniciarLeitura: adminProcedure.input(idInput).mutation(async ({ input }) => {
