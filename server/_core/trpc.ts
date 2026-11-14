@@ -80,6 +80,8 @@ const procedureModules: Record<string, AdminModule | AdminModule[]> = {
   whatsapp: "whatsapp",
   // Central de Vendas (12/11): módulo do CRM; configurações só admin (checado no router).
   centralVendas: "crm",
+  // Maquete 3D (EPIC-022): módulo próprio; preços, liberação e autorização só admin (checado no router).
+  maquete3d: "maquete3d",
   financiamentos: "financiamentos",
   juridico: "juridico",
   corretores: "corretores",
