@@ -11,10 +11,64 @@ export const ID_PADRAO = "padrao";
 export const ehPadrao = (e: { id: string }) => e.id === ID_PADRAO;
 
 export type CasaPadrao = { frente: number; fundo: number; quartos: number; pavimentos: 1 | 2; garagem: boolean };
-export type PredioPadrao = { largura: number; profundidade: number; andares: number; aptosPorAndar: number };
+export type PredioPadrao = { largura: number; profundidade: number; andares: number; aptosPorAndar: number; /** Térreo aberto (pilotis) usado como estacionamento. */ pilotis?: boolean; /** Vagas sob o pilotis, para o nome do ambiente. */ vagasNoPilotis?: number };
 
 export const LIMITES_CASA = { frente: [5, 20], fundo: [7, 30], quartos: [1, 5] } as const;
-export const LIMITES_PREDIO = { largura: [10, 60], profundidade: [9, 30], andares: [2, 40], aptosPorAndar: [2, 12] } as const;
+export const LIMITES_PREDIO = { largura: [10, 60], profundidade: [9, 30], andares: [1, 40], aptosPorAndar: [2, 12], vagasPorApto: [0, 3], subsolos: [0, 3], areaTerreno: [100, 100000] } as const;
+
+// ── Estacionamento do prédio (regra do dono, 15/11/2026): nunca sugerir mais apartamentos do que o terreno
+//    comporta em vagas. A conta é feita antes de gerar o prédio; se não fechar, os andares são reduzidos. ──
+
+/** Área por vaga já com a circulação (vaga de 2,5 × 5 m + metade do corredor de manobra de 5 m). */
+export const M2_POR_VAGA = 25;
+/** Parte da área que vira vaga em cada lugar: no pátio do lote sobram recuos, jardim e acessos; sob o pilotis, hall e pilares; no subsolo, rampa e caixa de escada. */
+export const APROVEITAMENTO_VAGAS = { patio: 0.7, pilotis: 0.75, subsolo: 0.85 } as const;
+
+export type EstacionamentoPredio = { vagasPorApto: number; pilotis: boolean; subsolos: number };
+export type ContaDoEstacionamento = {
+  vagas: { patio: number; pilotis: number; subsolos: number; total: number };
+  aptosPorAndar: number; andaresPedidos: number; andares: number; apartamentos: number; vagasNecessarias: number;
+  /** Os andares (ou os apartamentos por andar) foram reduzidos para caber no estacionamento. */
+  reduzido: boolean;
+  /** Nem um andar cabe: o prédio não é gerado. */
+  inviavel: boolean;
+};
+
+/** Apartamentos por andar que a largura comporta (cada um com ao menos 4,5 m de fachada, dos dois lados do corredor). */
+export const aptosPorAndarQueCabem = (largura: number, pedidos: number) =>
+  Math.max(2, Math.min(Math.round(entre(pedidos, LIMITES_PREDIO.aptosPorAndar)), Math.floor(entre(largura, LIMITES_PREDIO.largura) / 4.5) * 2));
+
+/** Vagas que cabem no terreno: pátio (área livre do lote), pilotis (sob o prédio) e subsolos (sob o lote). */
+export function vagasDoTerreno(areaTerreno: number, largura: number, profundidade: number, e: EstacionamentoPredio): ContaDoEstacionamento["vagas"] {
+  const projecao = entre(largura, LIMITES_PREDIO.largura) * entre(profundidade, LIMITES_PREDIO.profundidade);
+  const patio = Math.floor((Math.max(0, areaTerreno - projecao) * APROVEITAMENTO_VAGAS.patio) / M2_POR_VAGA);
+  const pilotis = e.pilotis ? Math.floor((projecao * APROVEITAMENTO_VAGAS.pilotis) / M2_POR_VAGA) : 0;
+  const subsolos = Math.round(entre(e.subsolos, LIMITES_PREDIO.subsolos)) * Math.floor((Math.max(areaTerreno, projecao) * APROVEITAMENTO_VAGAS.subsolo) / M2_POR_VAGA);
+  return { patio, pilotis, subsolos, total: patio + pilotis + subsolos };
+}
+
+/**
+ * Fecha a conta do estacionamento: se os apartamentos pedidos precisam de mais vagas do que cabem, reduz os
+ * andares até caber (e, se nem um andar couber, os apartamentos por andar). `vagasPorApto` 0 = sem exigência.
+ */
+export function contaDoEstacionamento(p: PredioPadrao, e: EstacionamentoPredio, areaTerreno: number): ContaDoEstacionamento {
+  const vagas = vagasDoTerreno(areaTerreno, p.largura, p.profundidade, e);
+  const porApto = entre(e.vagasPorApto, LIMITES_PREDIO.vagasPorApto), andaresPedidos = Math.round(entre(p.andares, LIMITES_PREDIO.andares));
+  let aptosPorAndar = aptosPorAndarQueCabem(p.largura, p.aptosPorAndar), andares = andaresPedidos, inviavel = false;
+  if (porApto > 0) {
+    const aptosQueCabem = Math.floor(vagas.total / porApto + 1e-9);
+    andares = Math.min(andaresPedidos, Math.floor(aptosQueCabem / aptosPorAndar));
+    if (andares < 1) {
+      // Nem um andar inteiro: tenta um andar com menos apartamentos (sempre em número par, dos dois lados do corredor).
+      aptosPorAndar = Math.floor(aptosQueCabem / 2) * 2;
+      andares = aptosPorAndar >= 2 ? 1 : 0;
+      inviavel = andares === 0;
+    }
+  }
+  const apartamentos = andares * aptosPorAndar;
+  return { vagas, aptosPorAndar, andaresPedidos, andares, apartamentos, vagasNecessarias: Math.max(0, Math.ceil(apartamentos * porApto - 1e-9)),
+    reduzido: andares < andaresPedidos || aptosPorAndar < aptosPorAndarQueCabem(p.largura, p.aptosPorAndar), inviavel };
+}
 
 const r2 = (n: number) => Math.round(n * 100) / 100;
 const entre = (v: number, [a, b]: readonly [number, number]) => Math.min(b, Math.max(a, v));
@@ -155,12 +209,21 @@ export function casaPadrao(p: CasaPadrao): Edificacao {
 export function predioPadrao(p: PredioPadrao): Edificacao {
   const W = r2(entre(p.largura, LIMITES_PREDIO.largura)), D = r2(entre(p.profundidade, LIMITES_PREDIO.profundidade));
   const andares = Math.round(entre(p.andares, LIMITES_PREDIO.andares));
-  const porAndar = Math.max(2, Math.min(Math.round(entre(p.aptosPorAndar, LIMITES_PREDIO.aptosPorAndar)), Math.floor(W / 4.5) * 2));
+  const porAndar = aptosPorAndarQueCabem(W, p.aptosPorAndar);
   const c0 = r2((D - 1.6) / 2), c1 = r2(c0 + 1.6);
-  const terreo = pavimento("p1", "Térreo", 0,
-    [{ nome: "Hall e áreas comuns", funcao: "area_comum", x0: 0, y0: 0, x1: W, y1: D }],
-    [{ tipo: "porta_janela", x: W / 2, y: D, largura: 2.4, altura: 2.4, entrada: true },
-      ...Array.from({ length: Math.max(1, Math.floor(W / 6)) }, (_, i) => ({ tipo: "janela" as const, x: ((i + 0.5) * W) / Math.max(1, Math.floor(W / 6)), y: 0, largura: 1.6 }))]);
+  // Térreo: hall de entrada; com pilotis, o hall fica no meio e os dois lados são estacionamento aberto para a frente.
+  const h0 = r2(W / 2 - 2.5), h1 = r2(W / 2 + 2.5), rotuloVagas = p.vagasNoPilotis ? ` (${p.vagasNoPilotis} vagas)` : "";
+  const terreo = p.pilotis
+    ? pavimento("p1", "Térreo", 0,
+      [{ nome: `Estacionamento sob pilotis${rotuloVagas}`, funcao: "garagem", x0: 0, y0: 0, x1: h0, y1: D }, { nome: "Hall de entrada", funcao: "hall", x0: h0, y0: 0, x1: h1, y1: D },
+        { nome: `Estacionamento sob pilotis${rotuloVagas}`, funcao: "garagem", x0: h1, y0: 0, x1: W, y1: D }],
+      [{ tipo: "porta_janela", x: W / 2, y: D, largura: 2.4, altura: 2.4, entrada: true },
+        { tipo: "vao", x: h0 / 2, y: D, largura: Math.max(2.4, h0 - 1.2), altura: 2.4 }, { tipo: "vao", x: (h1 + W) / 2, y: D, largura: Math.max(2.4, W - h1 - 1.2), altura: 2.4 },
+        { tipo: "porta", x: h0, y: D / 2, largura: 0.9 }, { tipo: "porta", x: h1, y: D / 2, largura: 0.9 }])
+    : pavimento("p1", "Térreo", 0,
+      [{ nome: "Hall e áreas comuns", funcao: "area_comum", x0: 0, y0: 0, x1: W, y1: D }],
+      [{ tipo: "porta_janela", x: W / 2, y: D, largura: 2.4, altura: 2.4, entrada: true },
+        ...Array.from({ length: Math.max(1, Math.floor(W / 6)) }, (_, i) => ({ tipo: "janela" as const, x: ((i + 0.5) * W) / Math.max(1, Math.floor(W / 6)), y: 0, largura: 1.6 }))]);
   const comodos: Ret[] = [{ nome: "Hall dos apartamentos", funcao: "hall", x0: 0, y0: c0, x1: W, y1: c1 }], vaos: Vao[] = [];
   const fileiraDeAptos = (quantos: number, y0: number, y1: number, corredor: number, fachada: number, primeiro: number) => {
     const largura = W / quantos, fundoBanho = corredor === y1 ? y1 - 1.9 : y0 + 1.9;

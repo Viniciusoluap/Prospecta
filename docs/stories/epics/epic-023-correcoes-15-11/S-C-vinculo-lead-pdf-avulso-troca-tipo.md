@@ -95,3 +95,10 @@ _(vazio — preencher na implementação)_
 | Data | Autor | Mudança |
 |------|-------|---------|
 | 15/11/2026 | @pm (Bob) | Story criada em Draft |
+
+## Complemento de 15/11 — estacionamento do prédio (pedido do dono depois da publicação)
+- Regra: nunca sugerir mais apartamentos do que o estacionamento do terreno comporta.
+- `shared/maquete-3d/padrao.ts`: `vagasDoTerreno`, `contaDoEstacionamento`, térreo em pilotis; `modelo.ts`: garagem coletiva a 25 m² por vaga.
+- `server/maquete-3d/router.ts` (`aplicarTipo`): calcula com a área do menor lote em que o prédio cabe (ou a área informada), reduz os andares e devolve a conta.
+- `client/src/pages/admin/AdminMaquete3D.tsx`: vagas por apartamento, pilotis, subsolos, área do terreno e o quadro "Estacionamento".
+- Testes: `maquete-3d-padrao.test.ts` (+6), `maquete-3d.test.ts` (ajustado).

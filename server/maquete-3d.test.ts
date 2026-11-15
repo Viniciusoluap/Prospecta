@@ -586,15 +586,29 @@ describe("router maquete3d", () => {
     expect(d.modelo!.implantacao!.posicoes.map(p => [p.nome, p.edificacaoId, p.unidade])).toEqual([["Q1 L1", "padrao", "Q1 / L1"], ["Q1 L2", "padrao", "Q1 / L2"]]);
     expect(pedidos).toHaveLength(0); // nenhuma chamada à IA
 
-    // Prédio: troca a construção padrão (não acumula) e redistribui.
-    expect(await colaborador().aplicarTipo({ id, tipo: "predio", predio: { largura: 24, profundidade: 14, andares: 6, aptosPorAndar: 4 } })).toMatchObject({ construcoes: 2, padrao: "Prédio padrão" });
+    // Prédio: troca a construção padrão (não acumula) e redistribui. O estacionamento é calculado com a área do
+    // lote (~3.080 m² cada): com 1 vaga por apartamento e pilotis cabem os 6 andares pedidos.
+    const comFolga = await colaborador().aplicarTipo({ id, tipo: "predio", predio: { largura: 24, profundidade: 14, andares: 6, aptosPorAndar: 4 } });
+    expect(comFolga).toMatchObject({ construcoes: 2, padrao: "Prédio padrão", estacionamento: { andaresPedidos: 6, andares: 6, apartamentos: 24, vagasNecessarias: 24, reduzido: false, vagasPorApto: 1 } });
+    expect(comFolga.estacionamento!.vagas.total).toBeGreaterThanOrEqual(24);
     d = await colaborador().detalhe({ id });
     expect(d.tipo).toBe("predio");
     expect(d.modelo!.edificacoes.map(e => e.nome)).toEqual(["Prédio padrão"]);
     expect(d.resumo).toMatchObject({ pavimentos: 7, construcoes: 2 });
+    expect(d.modelo!.edificacoes[0].pavimentos[0].comodos.map(c => c.funcao)).toEqual(["garagem", "hall", "garagem"]);
 
-    // Construção grande demais para os lotes: nenhuma entra e a tela recebe a lista dos lotes.
-    expect(await colaborador().aplicarTipo({ id, tipo: "predio", predio: { largura: 60, profundidade: 30, andares: 2, aptosPorAndar: 4 } })).toMatchObject({ construcoes: 0, semConstrucaoTotal: 2, semConstrucao: ["Q1 L1", "Q1 L2"] });
+    // Regra do dono: nunca mais apartamentos do que o estacionamento comporta. 40 andares × 12 apartamentos com
+    // 3 vagas cada não cabem no lote: o prédio sai com menos andares, e a conta volta para a tela.
+    const apertado = await colaborador().aplicarTipo({ id, tipo: "predio", predio: { largura: 30, profundidade: 16, andares: 40, aptosPorAndar: 12, vagasPorApto: 3, pilotis: true, subsolos: 0 } });
+    const e = apertado.estacionamento!;
+    expect(e).toMatchObject({ andaresPedidos: 40, reduzido: true, inviavel: false, vagasPorApto: 3 });
+    expect(e.andares).toBeLessThan(40);
+    expect(e.vagasNecessarias).toBeLessThanOrEqual(e.vagas.total);
+    expect(e.apartamentos).toBe(e.andares * e.aptosPorAndar);
+    expect((await colaborador().detalhe({ id })).modelo!.edificacoes[0].pavimentos[1].repeticoes).toBe(e.andares);
+
+    // Construção grande demais para os lotes: nem chega a gerar.
+    await expect(colaborador().aplicarTipo({ id, tipo: "predio", predio: { largura: 60, profundidade: 30, andares: 2, aptosPorAndar: 4 } })).rejects.toThrow("não cabe em nenhum lote");
 
     // Loteamento: ficam só os lotes; a maquete continua válida e pode ser validada e publicada.
     expect(await colaborador().aplicarTipo({ id, tipo: "loteamento" })).toMatchObject({ construcoes: 0, padrao: null });

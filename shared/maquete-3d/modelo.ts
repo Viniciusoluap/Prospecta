@@ -239,7 +239,9 @@ export type ResumoModelo = {
 };
 
 /** Uma vaga a cada 12,5 m² de garagem (2,5 × 5 m), no mínimo uma quando há garagem. */
-const vagasDaGaragem = (area: number) => Math.max(1, Math.floor(area / 12.5));
+// Garagem coletiva (acima de 60 m²) precisa de corredor de manobra: 25 m² por vaga, a mesma conta do estacionamento
+// do prédio padrão (shared/maquete-3d/padrao.ts).
+const vagasDaGaragem = (area: number) => (area > 60 ? Math.floor(area / 25) : Math.max(1, Math.floor(area / 12.5)));
 
 export function resumoModelo(m: ModeloMaquete): ResumoModelo {
   const r: ResumoModelo = { areaTotal: 0, pavimentos: 0, quartos: 0, suites: 0, banheiros: 0, vagas: 0, comodos: 0, edificacoes: m.edificacoes.length, lotes: m.implantacao?.lotes.length ?? 0, construcoes: m.implantacao?.posicoes.length ?? 0 };
