@@ -45,6 +45,14 @@
   andar couber, o prédio não é gerado. Térreo em pilotis vira estacionamento na maquete. Regra registrada no `CLAUDE.md`.
 - Subsolos entram na conta das vagas, mas não são desenhados na maquete.
 
+### Etapa G (correção 13) — S-G
+- Vias em 3D de verdade no visualizador (`shared/maquete-3d/vias.ts` + `visualizador/Vias.tsx`): asfalto com abaulamento,
+  sarjeta, meio-fio, calçada com faixa de serviço, eixo amarelo, bordos brancos, faixas de pedestres e linhas de
+  retenção, árvores, postes que acendem à noite, PARE e semáforo (só no cruzamento de duas vias de 14 m ou mais),
+  cruzamentos e balões, tudo seguindo o relevo e gerado por código. As vias lidas do PDF (`imp.vias`) passam a aparecer.
+- Limites conhecidos: boca do balão em canto vivo; balão cortado pela divisa é desenhado inteiro; dobra fechada da via
+  pela divisa fica em quina.
+
 ## Pendências
 - **Dono:** abrir o pedido "Polímeros (Morada do Bosque)", clicar em "Gerar maquete (ler o projeto)" e dizer como ficou a
   leitura do "ARQ 01-01-CASA PADRÃO.pdf" (é a primeira medição do leitor num projeto real).
@@ -66,11 +74,14 @@
   reais; execução do `pdfjs` dentro da função da Vercel (testado só no Node local).
 - Estacionamento — automáticos: `maquete-3d-padrao.test.ts` (20) e `maquete-3d.test.ts` (25) aprovados, incluindo a
   varredura de combinações em que os apartamentos nunca passam das vagas. A tela não foi conferida em navegador.
+- Etapa G — automáticos: `maquete-3d-vias.test.ts` (24) aprovado junto com os demais testes da maquete. Manual: capturas
+  em navegador de teste (cruzamento, balão, rua ao nível do chão, noite) sem via flutuando, faixa torta nem emenda.
+  Não verificado: fluidez em iPad e celular reais (medido só com renderização por software).
 - (c) Pendentes em produção: leitura real do PDF da casa padrão pelo leitor próprio; novo pedido por cliente do CRM com PDF avulso real; "Gerar e distribuir nos lotes" no
   Polímeros (Morada do Bosque); mapa operacional com as imagens reais de satélite e os pontos reais; CRM no iPad (rolagem e ausência de tela preta); editar um corretor em "Usuários e acesso"
   e conferir a comissão numa obra; excluir um pedido de maquete pela lista.
 
 ## Próximo passo exato
-Esperar os agentes das etapas F (branch local `etapa-f`) e G (branch local `etapa-g`), revisar cada uma, trazer para a
-branch de trabalho com `git cherry-pick`, rodar testes e publicar. Depois, ajustar o leitor da Etapa D conforme o
-resultado do dono no PDF real.
+Etapa F: o agente (branch local `etapa-f`) está corrigindo a anexação de sobras (lotes em "pente", áreas verdes
+minúsculas e contíguas, aviso da rua simples). Quando voltar: rever as imagens, trazer os commits por `git cherry-pick`,
+rodar a suíte (os três testes de `maquete-3d-vias.test.ts` que usam o motor de massa podem precisar de ajuste) e publicar.

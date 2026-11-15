@@ -72,7 +72,7 @@ function Cena({ aprimorado, fotografo, modelo, unidades, noLoteamento, lote, onL
       {noLoteamento && modelo.implantacao ? (
         <>
           <mesh rotation={[-Math.PI / 2, 0, 0]} position={[centro[0], -0.5, centro[2]]} material={m.grama} receiveShadow><planeGeometry args={[raio * 12, raio * 12]} /></mesh>
-          <Implantacao implantacao={modelo.implantacao} edificacoes={modelo.edificacoes} unidades={unidades} m={m} selecionado={lote} onSelecionar={onLote} />
+          <Implantacao implantacao={modelo.implantacao} edificacoes={modelo.edificacoes} unidades={unidades} m={m} selecionado={lote} onSelecionar={onLote} noite={h.noite} aprimorado={aprimorado} />
         </>
       ) : edificacao ? (
         <>
