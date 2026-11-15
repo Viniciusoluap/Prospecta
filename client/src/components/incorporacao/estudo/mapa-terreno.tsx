@@ -20,6 +20,9 @@ import { formatArea } from "./compat/util";
 // As camadas vêm do servidor (/api/incorporacao/camadas-terreno), uma por vez: cada
 // item da legenda tem estado próprio (carregada / sem ocorrência / indisponível com
 // "tentar de novo") — nunca mais "carregando camadas…" eterno.
+// EPIC-023 (S-E, 15/11): três situações bem separadas na legenda — "consultado: nada no entorno" (a fonte
+// respondeu sem elementos), "fonte fora do ar ou sem resposta" e "dado salvo em dd/mm/aaaa — fonte fora do ar
+// agora" (o servidor devolveu o último resultado bom guardado para este terreno).
 //
 // A APP dentro do terreno continua calculada automaticamente e salva no estudo
 // (salvarApp) para a Viabilidade e o Relatório Executivo — mesma regra de antes.
@@ -281,7 +284,7 @@ export function MapaTerreno({ geojson, center, height = 420, estudoId, largurasJ
         <Linha cor={CORES.servidao} titulo="Faixas de servidão e domínio" estado={servidaoPendente ? "carregando" : servidaoRespondeu ? "ok" : "indisponivel"}
           texto={servidao && servidao.itens.length
             ? `${formatArea(servidao.areaM2)} dentro do terreno (${fmtPct(servidao.percentual)})`
-            : servidaoRespondeu ? "nenhuma linha de transmissão, rodovia federal, ferrovia ou duto no entorno" : "fontes indisponíveis"}
+            : servidaoRespondeu ? "nenhuma linha de transmissão, rodovia federal, ferrovia ou duto no entorno" : "fontes fora do ar ou sem resposta"}
           extra={servidao && servidao.itens.length > 0 && (
             <ul className="mt-1 space-y-1.5" data-testid="itens-servidao">
               {servidao.itens.map(i => <ItemFaixa key={i.chave} item={i} onConfirmar={v => confirmarLargura(i.chave, v)} />)}
@@ -360,9 +363,15 @@ function ItemFaixa({ item, onConfirmar }: { item: ItemServidao; onConfirmar: (la
   );
 }
 
+/** dd/mm/aaaa da data em que o resultado foi salvo. */
+function dataCurta(iso?: string): string {
+  const d = iso ? new Date(iso) : null;
+  return d && !Number.isNaN(d.getTime()) ? d.toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit", year: "numeric" }) : "data desconhecida";
+}
+
 function Rotulo({ estado }: { estado: "carregando" | "ok" | "vazio" | "indisponivel" }) {
   if (estado === "carregando") return <span className="text-gray-400">consultando…</span>;
-  if (estado === "indisponivel") return <span className="font-bold text-amber-700">indisponível</span>;
+  if (estado === "indisponivel") return <span className="font-bold text-amber-700">fonte fora do ar ou sem resposta</span>;
   return null;
 }
 
@@ -382,6 +391,8 @@ function Linha({ cor, titulo, texto, estado = "ok", extra }: { cor: string; titu
 function LinhaCamada<K extends IdCamada>({ cor, titulo, e, ok, vazio, onRetry }: {
   cor: string; titulo: string; e: Estado<K>; ok: (d: DadosCamadas[K]) => string; vazio: string; onRetry: () => void;
 }) {
+  const salvo = e.estado !== "carregando" && e.desatualizado === true ? e : null;
+  const desatualizado = salvo !== null;
   return (
     <div className="flex min-w-0 items-start gap-2">
       <span className="mt-1 inline-block h-2.5 w-3 shrink-0" style={{ background: cor }} />
@@ -389,15 +400,18 @@ function LinhaCamada<K extends IdCamada>({ cor, titulo, e, ok, vazio, onRetry }:
         <span className="font-bold text-gray-700">{titulo}</span>{" "}
         {e.estado === "carregando" && <Rotulo estado="carregando" />}
         {e.estado === "ok" && "dados" in e && e.dados && <span className="text-gray-500">{ok(e.dados)}</span>}
-        {e.estado === "vazio" && <span className="text-gray-500">{vazio}</span>}
-        {e.estado === "indisponivel" && (
-          <>
-            <Rotulo estado="indisponivel" />
-            <button type="button" onClick={onRetry} className="ml-1.5 border border-gray-200 px-1.5 py-0 text-[11px] font-bold text-gray-600 hover:border-[var(--brand-yellow)]">tentar de novo</button>
-          </>
+        {e.estado === "vazio" && <span className="text-gray-500">consultado: {vazio}</span>}
+        {desatualizado && (
+          <span className="block text-[11px] font-bold text-amber-700" data-testid="camada-desatualizada">
+            dado salvo em {dataCurta(salvo?.salvoEm)} — fonte fora do ar agora
+          </span>
+        )}
+        {e.estado === "indisponivel" && <Rotulo estado="indisponivel" />}
+        {(e.estado === "indisponivel" || desatualizado) && (
+          <button type="button" onClick={onRetry} className="ml-1.5 border border-gray-200 px-1.5 py-0 text-[11px] font-bold text-gray-600 hover:border-[var(--brand-yellow)]">tentar de novo</button>
         )}
         {"fonte" in e && (
-          <span className="block text-[10px] text-gray-400" title={e.erro}>Fonte: {e.fonte}{e.estado === "indisponivel" && e.erro ? ` — ${e.erro}` : ""}</span>
+          <span className="block text-[10px] text-gray-400" title={e.erro}>Fonte: {e.fonte}{(e.estado === "indisponivel" || desatualizado) && e.erro ? ` — ${e.erro}` : ""}</span>
         )}
       </div>
     </div>

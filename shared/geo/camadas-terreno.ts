@@ -30,6 +30,13 @@ export type EstadoCamada<T> = {
   consultadoEm: string;
   erro?: string;
   dados?: T;
+  /**
+   * EPIC-023 (S-E): a fonte falhou agora e os dados são o último resultado bom salvo para este terreno.
+   * `estado` continua "ok"/"vazio" (o que a fonte respondeu da última vez); `erro` traz a falha de agora.
+   */
+  desatualizado?: boolean;
+  /** Quando o resultado salvo foi gravado (ISO) — presente sempre que o dado vem do armazenamento. */
+  salvoEm?: string;
 };
 
 // ─── Tipos dos dados normalizados ───────────────────────────────────────────
@@ -107,7 +114,13 @@ export const FONTES = {
     { url: `${EPE}/SMA/Webmap_EPE_Infraestrutura_de_Gas_Natural/MapServer/7`, campos: "DUTO_ID,Categoria,FLUIDO", tipo: "duto de escoamento" },
   ] },
   dutosIbama: { nome: "IBAMA (SIGA Geo) — dutos licenciados", url: `${PAMGIA}/21_SIGA_Geo/duto/MapServer/0`, campos: "nomeempreendimento,tipologia" },
-  overpass: { nome: "OpenStreetMap (Overpass)", urls: ["https://overpass-api.de/api/interpreter", "https://overpass.kumi.systems/api/interpreter"] },
+  // EPIC-023 (S-E): instâncias públicas conhecidas do Overpass, em ordem de preferência.
+  overpass: { nome: "OpenStreetMap (Overpass)", urls: [
+    "https://overpass-api.de/api/interpreter",
+    "https://overpass.private.coffee/api/interpreter",
+    "https://maps.mail.ru/osm/tools/overpass/api/interpreter",
+    "https://overpass.kumi.systems/api/interpreter",
+  ] },
 } as const;
 
 /** Folga de busca em volta do terreno por camada (m). APP de 500 m exige rios a até 500 m. */

@@ -5,11 +5,13 @@ import { sessaoAindaValida } from "../../shared/session.js";
 import { podeUsarModulo } from "../_core/rbac.js";
 import type { AdminModule } from "../../shared/admin-permissions.js";
 import { buscarCamadasTerreno, idsValidos, validarContorno } from "../_core/geo/camadas-terreno-busca.js";
+import { armazemCamadasBanco } from "../_core/geo/camadas-terreno-armazem.js";
 import { tokenMapbox } from "../_core/geo/mapbox-config.js";
 
 // Mapa do terreno da Incorporação (pedido de 11/11): as camadas ambientais e de
 // restrição são buscadas AQUI, no servidor (cache, timeout e espelho por fonte),
 // e o navegador pede uma camada por vez para cada item da legenda ter estado próprio.
+// EPIC-023 (S-E): repetição em falha temporária e último resultado bom salvo no banco (camadas_terreno_cache).
 // Gêmeo de Grupo-Santa-Fe/web/src/app/api/incorporacao/camadas-terreno/route.ts.
 
 const router = Router();
@@ -30,7 +32,7 @@ router.post("/incorporacao/camadas-terreno", async (req: Request, res: Response)
     let contorno;
     try { contorno = validarContorno(req.body?.geojson); }
     catch (e) { return res.status(400).json({ error: e instanceof Error ? e.message : "Contorno inválido." }); }
-    const resposta = await buscarCamadasTerreno(contorno, idsValidos(req.body?.ids), { fetchImpl: (...a) => fetch(...a) }, { ignorarCache: req.body?.novamente === true });
+    const resposta = await buscarCamadasTerreno(contorno, idsValidos(req.body?.ids), { fetchImpl: (...a) => fetch(...a), armazem: armazemCamadasBanco }, { ignorarCache: req.body?.novamente === true });
     return res.json(resposta);
   } catch (erro) {
     console.error("[camadas-terreno]", erro);
