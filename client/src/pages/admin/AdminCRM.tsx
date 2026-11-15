@@ -498,7 +498,8 @@ export default function AdminCRM() {
                         {stageLeads.length}
                       </span>
                     </div>
-                    <div className="min-h-0 flex-1 touch-pan-y space-y-2 overflow-y-auto overscroll-contain pb-2 pr-1">
+                    {/* Sem touch-action aqui: o arrasto de lado que começa em cima de um cartão precisa chegar ao trilho (revisão do Codex, PR #222). */}
+                    <div className="min-h-0 flex-1 space-y-2 overflow-y-auto overscroll-y-contain pb-2 pr-1">
                       {stageLeads.map(lead => (
                           <Card key={lead.id} onClick={() => navigate(`/admin/crm/${lead.id}`)} className="bg-[#1A2332] border-white/10 hover:border-[#C9A961]/50 cursor-pointer transition-all">
                             <CardContent className="p-3 space-y-2">
