@@ -6,7 +6,26 @@ import { PGlite } from "@electric-sql/pglite";
 import { drizzle } from "drizzle-orm/pglite";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-vi.mock("./db.js", async orig => ({ ...(await orig<typeof import("./db.js")>()), getDb: vi.fn() }));
+// As funções de payment_orders de db.ts usam a conexão interna do módulo; aqui elas são refeitas sobre o banco em
+// memória (mesmas regras: uma linha por cobrança, mudança de situação por UPDATE condicional).
+vi.mock("./db.js", async orig => {
+  const real = await orig<typeof import("./db.js")>();
+  const { and, eq } = await import("drizzle-orm");
+  const { paymentOrders } = await import("../drizzle/schema.js");
+  const getDb = vi.fn();
+  const porId = async (id: string) => (await getDb().select().from(paymentOrders).where(eq(paymentOrders.providerPaymentId, id)).limit(1))[0];
+  const mudar = async (id: string, de: string, set: Record<string, unknown>) =>
+    (await getDb().update(paymentOrders).set({ ...set, updatedAt: new Date() }).where(and(eq(paymentOrders.providerPaymentId, id), eq(paymentOrders.status, de as never))).returning())[0] ?? null;
+  return {
+    ...real, getDb,
+    getPaymentOrderByProviderId: porId,
+    createPaymentOrder: async (o: Record<string, unknown>) => (await getDb().insert(paymentOrders).values(o).onConflictDoNothing().returning())[0] ?? porId(String(o.providerPaymentId)),
+    claimPendingPaymentOrder: (id: string) => mudar(id, "pending", { status: "settled", settledAt: new Date() }),
+    demoteSettledOrderToReview: (id: string, reviewReason: string) => mudar(id, "settled", { status: "review_required", reviewReason }),
+    claimSettledPaymentOrderForChargeback: (id: string) => mudar(id, "settled", { status: "chargeback" }),
+    markPaymentOrderReview: (id: string, reviewReason: string) => mudar(id, "chargeback", { status: "review_required", reviewReason }),
+  };
+});
 vi.mock("./_core/env.js", () => ({ ENV: { cookieSecret: "segredo-de-teste", anthropicApiKey: "" } }));
 
 import * as schema from "../drizzle/schema.js";
@@ -141,9 +160,11 @@ async function criarBanco() {
   const pg = new PGlite();
   await pg.exec(ddl);
   await pg.exec(`CREATE TABLE incorporation_registration_file_data (document_id integer PRIMARY KEY, mime text, size_bytes integer, data bytea);`);
-  const migracao = readFileSync(new URL("../drizzle/0111_maquete_3d.sql", import.meta.url), "utf8");
-  await pg.exec(migracao);
-  await pg.exec(migracao); // idempotente
+  for (const arquivo of ["0111_maquete_3d.sql", "0112_maquete_3d_comercial.sql", "0113_maquete_3d_pagamento.sql"]) {
+    const migracao = readFileSync(new URL(`../drizzle/${arquivo}`, import.meta.url), "utf8");
+    await pg.exec(migracao);
+    await pg.exec(migracao); // idempotente
+  }
   return { pg, db: drizzle(pg) };
 }
 
@@ -261,6 +282,96 @@ describe("router maquete3d", () => {
     expect((await m.detalhe({ id })).pranchas).toEqual([{ pavimentoId: "ed1-pv1", doc: 0, pagina: 1 }, { pavimentoId: "ed1-pv2", doc: 0, pagina: 2 }]);
     expect(await m.pdfParte({ id, doc: 0, parte: 0 })).toEqual({ partes: 1, nome: "planta.pdf", base64: Buffer.from("pdf:planta.pdf").toString("base64") });
     await expect(m.pdfParte({ id, doc: 1, parte: 0 })).rejects.toThrow("Arquivo não encontrado");
+  });
+
+  it("publicação: só admin, só planta validada; o link público só abre maquete publicada", async () => {
+    const m = colaborador();
+    const { id } = await m.criar({ origem: "projeto", alvoId: 1, tipo: "casa", faixaPreco: "acima_150_ou_sobrado", documentos: [docProjeto] });
+    await admin().liberar({ id, nota: "PIX recebido" });
+    await m.iniciarLeitura({ id });
+    respostas.push(INVENTARIO, ESTRUTURA, AMBIENTES_TERREO, ESTRUTURA, AMBIENTES_SUPERIOR);
+    for (let i = 0; i < 6; i++) await m.avancarLeitura({ id });
+    const d = await m.detalhe({ id });
+    const publico = appRouter.createCaller({ user: null, req: {}, res: {} } as never).maquetePublica;
+    await expect(publico.porToken({ token: d.token })).rejects.toThrow("não encontrada");
+    await expect(admin().publicar({ id })).rejects.toThrow("precisa estar validada");
+    d.modelo!.pendencias[0].resolvida = true;
+    await m.salvarModelo({ id, versao: d.modeloVersao, modelo: d.modelo! });
+    await expect(admin().publicar({ id })).rejects.toThrow("Só uma planta validada");
+    await m.validar({ id });
+    await expect(m.publicar({ id })).rejects.toThrow("Só o administrador");
+    await m.salvarComercial({ id, comercial: { nome: "Residencial Jardim", localizacao: "Imperatriz — MA", preco: null, whatsapp: "5599988887777" } });
+    await expect(m.salvarComercial({ id, comercial: { nome: "x", localizacao: "", preco: null, whatsapp: "(99) 9" } })).rejects.toThrow();
+    expect((await admin().publicar({ id })).token).toBe(d.token);
+    const aberto = await publico.porToken({ token: d.token });
+    expect(aberto).toMatchObject({ titulo: "Residencial Jardim", tipo: "casa", comercial: { localizacao: "Imperatriz — MA", preco: null, whatsapp: "5599988887777" } });
+    expect(aberto.modelo.edificacoes[0].pavimentos).toHaveLength(2);
+    expect(Object.keys(aberto).sort()).toEqual(["comercial", "modelo", "tipo", "titulo"]); // nada de preço do pedido, cliente ou documentos
+    // Publicada não é mais editável na revisão; tirar do ar devolve para validada e fecha o link.
+    await expect(m.salvarModelo({ id, versao: d.modeloVersao + 1, modelo: d.modelo! })).rejects.toThrow("não está em revisão");
+    await expect(m.despublicar({ id })).rejects.toThrow("Só o administrador");
+    await admin().despublicar({ id });
+    await expect(publico.porToken({ token: d.token })).rejects.toThrow("não encontrada");
+    expect((await m.detalhe({ id })).status).toBe("validada");
+  });
+
+  it("venda pelo portal: cliente pede, paga pelo Asaas e o webhook libera sozinho (uma vez só)", async () => {
+    await banco.pg.exec(`INSERT INTO leads (name, phone) VALUES ('Ana Silva', '99999'), ('Outro', '88888');
+      UPDATE operational_projects SET lead_id = 1 WHERE id = 1;
+      INSERT INTO users ("openId", name, role, active, lead_id, cpf) VALUES ('cli', 'Ana Silva', 'cliente', true, 1, '12345678909'), ('cli2', 'Outro', 'cliente', true, 2, null);`);
+    const cobrancas: { valor: number; referencia: string; metodo: string }[] = [];
+    definirDependencias({ cobrador: {
+      criar: async p => { cobrancas.push(p); return { id: `pay_${cobrancas.length}`, link: "https://asaas.test/i/1", pixImagem: "img", pixCopiaCola: "000201" }; },
+      consultar: async id => ({ id, link: "https://asaas.test/i/1", pixImagem: "img", pixCopiaCola: "000201" }),
+    } });
+    const cliente = (id: number, leadId: number) => appRouter.createCaller({ user: { id, role: "cliente", permissions: "[]", active: true, name: "Ana Silva", leadId, cpf: "12345678909", email: null }, req: {}, res: {} } as never).portalMaquete;
+    const ana = cliente(4, 1);
+
+    // Só vê os próprios projetos; o colaborador não entra no portal do cliente.
+    expect((await ana.resumo()).projetos).toMatchObject([{ id: 1, nome: "Casa Silva", temPdf: true, maquete: null }]);
+    expect((await ana.resumo()).precos.map(p => p.preco)).toEqual([197, 297, 497]);
+    expect((await cliente(5, 2).resumo()).projetos).toEqual([]);
+    await expect(cliente(5, 2).solicitar({ projectId: 1, faixaPreco: "terrea_ate_70" })).rejects.toThrow("Projeto não encontrado");
+    await expect(caller(2, "colaborador", JSON.stringify(["maquete3d"])).portalMaquete.resumo()).rejects.toThrow("Acesso negado");
+
+    const pedido = await ana.solicitar({ projectId: 1, faixaPreco: "terrea_70_150" });
+    expect(pedido.maquete).toMatchObject({ status: "aguardando_pagamento", preco: 297, link: null });
+    expect(pedido.cobranca).toMatchObject({ id: "pay_1", pixCopiaCola: "000201" });
+    expect(cobrancas).toMatchObject([{ valor: 297, referencia: `maquete_3d_${pedido.maquete.id}`, metodo: "pix" }]);
+    // Pedir de novo não cria outra maquete nem outra cobrança.
+    expect((await ana.solicitar({ projectId: 1, faixaPreco: "acima_150_ou_sobrado" })).maquete.id).toBe(pedido.maquete.id);
+    expect(cobrancas).toHaveLength(1);
+    expect(await banco.pg.query(`SELECT purpose, principal_amount, status FROM payment_orders`).then(r => r.rows)).toEqual([{ purpose: "maquete_3d", principal_amount: 29700, status: "pending" }]);
+
+    // Webhook do Asaas: libera; reentrega não repete; o admin vê pago e com o PDF já escolhido.
+    const { settlePaymentOrder, chargebackPaymentOrder } = await import("./payment-settlement.js");
+    expect(await settlePaymentOrder("pay_1")).toMatchObject({ outcome: "maquete_liberada" });
+    expect(await settlePaymentOrder("pay_1")).toEqual({ outcome: "already_processed" });
+    expect(await admin().detalhe({ id: pedido.maquete.id })).toMatchObject({ status: "liberada", liberacaoNota: "Pagamento confirmado pelo Asaas", documentos: [docProjeto] });
+    expect((await ana.resumo()).projetos[0].maquete).toMatchObject({ status: "liberada", link: null });
+    expect((await ana.solicitar({ projectId: 1, faixaPreco: "terrea_ate_70" })).cobranca).toBeNull();
+
+    // O link só aparece para o cliente depois da publicação pelo admin.
+    await banco.pg.query(`UPDATE maquetes_3d SET status = 'publicada' WHERE id = $1`, [pedido.maquete.id]);
+    expect((await ana.resumo()).projetos[0].maquete!.link).toMatch(/^\/maquete\/.{20,}$/);
+    expect(await chargebackPaymentOrder("pay_1")).toMatchObject({ outcome: "review_required" });
+    expect(await banco.pg.query(`SELECT status, review_reason FROM payment_orders`).then(r => r.rows[0])).toMatchObject({ status: "review_required", review_reason: expect.stringContaining("chargeback de maquete 3D") });
+  });
+
+  it("venda: projeto sem PDF não gera cobrança; pagamento de pedido recusado vai para conferência", async () => {
+    await banco.pg.exec(`INSERT INTO leads (name, phone) VALUES ('Ana', '9'); UPDATE operational_projects SET lead_id = 1; UPDATE project_documents SET status = 'replaced';
+      INSERT INTO users ("openId", name, role, active, lead_id) VALUES ('cli', 'Ana', 'cliente', true, 1);`);
+    let criadas = 0;
+    definirDependencias({ cobrador: { criar: async () => ({ id: `pay_${++criadas}`, link: null, pixImagem: null, pixCopiaCola: null }), consultar: async id => ({ id, link: null, pixImagem: null, pixCopiaCola: null }) } });
+    const ana = appRouter.createCaller({ user: { id: 4, role: "cliente", permissions: "[]", active: true, name: "Ana", leadId: 1 }, req: {}, res: {} } as never).portalMaquete;
+    await expect(ana.solicitar({ projectId: 1, faixaPreco: "terrea_ate_70" })).rejects.toThrow("ainda não tem o PDF");
+    expect(criadas).toBe(0);
+    await banco.pg.exec(`UPDATE project_documents SET status = 'active' WHERE id = 1`);
+    const { maquete } = await ana.solicitar({ projectId: 1, faixaPreco: "terrea_ate_70" });
+    await admin().recusar({ id: maquete.id, motivo: "PDF ilegível" });
+    const { settlePaymentOrder } = await import("./payment-settlement.js");
+    expect(await settlePaymentOrder("pay_1")).toMatchObject({ outcome: "review_required" });
+    expect((await ana.resumo()).projetos[0].maquete).toMatchObject({ status: "recusada", recusaMotivo: "PDF ilegível" });
   });
 
   it("inventário sem planta baixa para com mensagem clara", async () => {

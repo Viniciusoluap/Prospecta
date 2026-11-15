@@ -113,3 +113,22 @@ export type DocumentoMaquete = z.infer<typeof documentoSchema>;
 /** Limites do que é enviado à IA em cada passo (o PDF vai inteiro; a soma não pode passar do teto da API). */
 export const MAX_DOCUMENTOS = 6;
 export const MAX_BYTES_DOCUMENTOS = 22 * 1024 * 1024;
+
+// ── Apresentação comercial da maquete publicada (etapa 2) ──
+// Só o que o admin informar aparece na tela inicial; campo vazio não é mostrado e nada é inventado.
+
+export const comercialSchema = z.object({
+  nome: z.string().trim().max(160).default(""),
+  localizacao: z.string().trim().max(200).default(""),
+  preco: z.number().min(0).max(1_000_000_000).nullable().default(null),
+  /** Telefone do consultor para o botão do WhatsApp (só dígitos, com DDI e DDD). */
+  whatsapp: z.string().trim().regex(/^\d{0,15}$/, "Só números, com DDI e DDD").default(""),
+});
+export type ComercialMaquete = z.infer<typeof comercialSchema>;
+
+export function lerComercial(texto: string | null | undefined): ComercialMaquete {
+  try { return comercialSchema.parse(JSON.parse(texto || "{}")); } catch { return comercialSchema.parse({}); }
+}
+
+/** Situações em que a maquete pode ser publicada (ganhar link) ou voltar para revisão. */
+export const PODE_PUBLICAR: readonly StatusMaquete[] = ["validada"];

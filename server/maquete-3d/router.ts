@@ -9,11 +9,11 @@ import { incorporationStudies, operationalProjects, projectDocuments, users } fr
 import { maquetes3d, type Maquete3d } from "../../drizzle/schema-maquete-3d.js";
 import { TIPOS_MAQUETE, lerModelo, modeloSchema, podePublicar, resumoModelo, validarModelo } from "../../shared/maquete-3d/modelo.js";
 import {
-  FAIXAS_PRECO, MAX_DOCUMENTOS, ORIGENS_MAQUETE, PODE_REVISAR, configSchema, documentoSchema, lerEstadoLeitura,
+  FAIXAS_PRECO, MAX_DOCUMENTOS, ORIGENS_MAQUETE, PODE_REVISAR, comercialSchema, configSchema, documentoSchema, lerComercial, lerEstadoLeitura,
   progressoLeitura, statusInicial, type DocumentoMaquete, type OrigemMaquete, type StatusMaquete,
 } from "../../shared/maquete-3d/regras.js";
 import { ENV } from "../_core/env.js";
-import { adminProcedure, router } from "../_core/trpc.js";
+import { adminProcedure, publicProcedure, router } from "../_core/trpc.js";
 import { LeituraIndisponivel, agora, carregarConfig, db, dependencias, salvarConfig } from "./base.js";
 import { avancarLeitura, iniciarLeitura, lerDocumentos } from "./leitura.js";
 
@@ -65,7 +65,7 @@ function paraTela(m: Maquete3d) {
     status: m.status as StatusMaquete, faixaPreco: m.faixaPreco, preco: m.preco === null ? null : Number(m.preco),
     pagoEm: m.pagoEm, liberadoEm: m.liberadoEm, liberacaoNota: m.liberacaoNota, recusaMotivo: m.recusaMotivo,
     documentos: lerDocumentos(m.documentos), modeloVersao: m.modeloVersao, revisadoEm: m.revisadoEm, publicadoEm: m.publicadoEm,
-    createdAt: m.createdAt, updatedAt: m.updatedAt,
+    createdAt: m.createdAt, updatedAt: m.updatedAt, token: m.token, comercial: lerComercial(m.comercial),
     progresso: progressoLeitura(leitura),
     resumo: modelo ? resumoModelo(modelo) : null,
   };
@@ -132,6 +132,8 @@ export const maquete3dRouter = router({
       /** Em que arquivo e página está a planta de cada pavimento (fundo da revisão). */
       pranchas: leitura.passos.filter(p => p.tipo === "estrutura" && p.pavimentoId).map(p => ({ pavimentoId: p.pavimentoId!, doc: p.doc ?? 0, pagina: p.pagina ?? 1 })),
       liberadoPorNome: liberador?.nome ?? null,
+      /** Telefone do cliente do projeto, para enviar o link da maquete pelo WhatsApp. */
+      clienteTelefone: m.projectId ? (await db().select({ t: operationalProjects.clientPhone }).from(operationalProjects).where(eq(operationalProjects.id, m.projectId)).limit(1))[0]?.t ?? null : null,
     };
   }),
 
@@ -259,5 +261,45 @@ export const maquete3dRouter = router({
     await db().update(maquetes3d).set({ status: "validada" satisfies StatusMaquete, revisadoPor: ctx.user.id, revisadoEm: agora(), updatedAt: agora() })
       .where(and(eq(maquetes3d.id, m.id), eq(maquetes3d.status, "em_revisao"), eq(maquetes3d.modeloVersao, m.modeloVersao)));
     return { ok: true };
+  }),
+
+  /** Dados da tela de apresentação (nome, localização, preço, WhatsApp). Campo vazio não aparece para o cliente. */
+  salvarComercial: adminProcedure.input(idInput.extend({ comercial: comercialSchema })).mutation(async ({ input }) => {
+    const m = await buscar(input.id);
+    await db().update(maquetes3d).set({ comercial: JSON.stringify(input.comercial), updatedAt: agora() }).where(eq(maquetes3d.id, m.id));
+    return { ok: true };
+  }),
+
+  /** Publica: o link /maquete/<token> passa a abrir para o cliente. Só planta validada, e só o admin. */
+  publicar: adminProcedure.input(idInput).mutation(async ({ ctx, input }) => {
+    exigirAdmin(ctx, "publicar a maquete");
+    const m = await buscar(input.id);
+    const modelo = lerModelo(m.modelo);
+    if (!modelo || !podePublicar(modelo)) throw new TRPCError({ code: "BAD_REQUEST", message: "A planta precisa estar validada, sem erros nem pendências." });
+    const r = await db().update(maquetes3d).set({ status: "publicada" satisfies StatusMaquete, publicadoEm: agora(), updatedAt: agora() })
+      .where(and(eq(maquetes3d.id, m.id), eq(maquetes3d.status, "validada"))).returning({ token: maquetes3d.token });
+    if (!r.length) throw conflito("Só uma planta validada pode ser publicada.");
+    return { token: r[0].token };
+  }),
+
+  /** Tira o link do ar e devolve a maquete para "validada" (para corrigir e publicar de novo). */
+  despublicar: adminProcedure.input(idInput).mutation(async ({ ctx, input }) => {
+    exigirAdmin(ctx, "tirar a maquete do ar");
+    const r = await db().update(maquetes3d).set({ status: "validada" satisfies StatusMaquete, publicadoEm: null, updatedAt: agora() })
+      .where(and(eq(maquetes3d.id, input.id), eq(maquetes3d.status, "publicada"), isNull(maquetes3d.deletedAt))).returning({ id: maquetes3d.id });
+    if (!r.length) throw conflito("Esta maquete não está publicada.");
+    return { ok: true };
+  }),
+});
+
+/** Leitura pública pelo link do cliente: só maquete publicada, só o necessário para desenhar e apresentar. */
+export const maquetePublicaRouter = router({
+  porToken: publicProcedure.input(z.object({ token: z.string().min(16).max(64) })).query(async ({ input }) => {
+    const [m] = await db().select().from(maquetes3d)
+      .where(and(eq(maquetes3d.token, input.token), eq(maquetes3d.status, "publicada"), isNull(maquetes3d.deletedAt))).limit(1);
+    const modelo = m && lerModelo(m.modelo);
+    if (!m || !modelo) throw new TRPCError({ code: "NOT_FOUND", message: "Maquete não encontrada ou ainda não publicada." });
+    const comercial = lerComercial(m.comercial);
+    return { titulo: comercial.nome || m.titulo, tipo: m.tipo, modelo, comercial };
   }),
 });

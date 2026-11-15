@@ -1,55 +1,57 @@
 # HANDOFF — Maquete 3D (EPIC-022) — 14/11/2026
 
 Branch: `claude/motor-maquetes-3d-hwqvkz`. Exclusivo do Prospecta (exceção de paridade autorizada pelo dono em
-14/11/2026 e registrada em `docs/stories/epics/ROADMAP.md`). **Nada foi aplicado em banco real nem publicado.**
-Merge, deploy e migração em produção: só com autorização do dono.
+14/11/2026 e registrada em `docs/stories/epics/ROADMAP.md`). **Regra do dono (15/11/2026, em `CLAUDE.md`): seguir até o fim das quatro etapas, aplicando as migrações
+aditivas e publicando (merge + deploy) ao fim de cada etapa, sem pedir confirmação.**
 
 ## Leia primeiro
 - `docs/stories/epics/epic-022-maquete-3d/EPIC.md` — decisões do dono, arquitetura e as 4 etapas.
 - `docs/stories/epics/epic-022-maquete-3d/PROMPT-MESTRE-14-11.md` — o que o prompt pede e em que etapa entra.
 
-## Concluído — etapa 1 inteira (base, motor de leitura e revisão)
-Commits: `feat(maquete-3d): modelo em três camadas, migração 0111, motor de leitura e router` e
-`feat(maquete-3d): painel, revisão da planta e prancha original ao fundo`.
-- Modelo em três camadas (implantação / edificação / tipologia), validação e resumo: `shared/maquete-3d/modelo.ts`.
-- Regras: faixas e preços padrão (197 / 297 / 497), situações do pedido, estado da leitura: `shared/maquete-3d/regras.ts`.
-- Migração aditiva `drizzle/0111_maquete_3d.sql` + `drizzle/schema-maquete-3d.ts` (tabelas `maquetes_3d`, `maquete_3d_config`).
-- Módulo `maquete3d` nas permissões (`shared/admin-permissions.ts`, `server/_core/trpc.ts`).
-- Motor de leitura em passos (`server/maquete-3d/leitura.ts`, `base.ts`): inventário → por pavimento paredes/aberturas
-  e cômodos/escadas → implantação → montagem. Usa Claude (`ANTHROPIC_API_KEY`), modelo `claude-opus-5-5`, saída
-  estruturada (JSON Schema), 52 s por passo. Modelo e esforço da IA são configuráveis na tela (admin).
-- Router `maquete3d` (`server/maquete-3d/router.ts`): config, salvarConfig, opcoes, documentosDisponiveis, listar, detalhe,
-  criar, definirDocumentos, liberar (admin), recusar (admin), excluir (admin), pdfParte, iniciarLeitura, avancarLeitura,
-  salvarModelo, validar.
-- Tela `/admin/maquete-3d` (`client/src/pages/admin/AdminMaquete3D.tsx`) e editor de revisão
-  (`client/src/components/maquete-3d/EditorPlanta.tsx`, `fundo-pdf.ts`), bloco no Painel e rota de retorno.
-- Nova dependência: `pdfjs-dist` (desenha a página do PDF ao fundo da revisão; carregada só quando usada).
+## Situação em 15/11/2026
+- **Etapa 1 (base, motor de leitura, revisão): publicada.** PR #218 na `main`, migração 0111 aplicada no Neon
+  (projeto `SiteProspecta`, `plain-cake-26372935`), deploy de produção da Vercel `READY`.
+- **Etapa 2 (visualizador 3D) e etapa 3 (venda pelo portal/Asaas): concluídas neste PR**, migrações 0112 e 0113.
+- **Etapa 4 (Incorporação): a fazer** — ver "Próximo passo exato".
+
+## Concluído nas etapas 2 e 3
+- Geometria do visualizador e rota do tour: `shared/maquete-3d/geometria3d.ts`.
+- Motor de mobília (regras por função do cômodo): `shared/maquete-3d/mobilia.ts`.
+- Visualizador: `client/src/components/maquete-3d/visualizador/` — casa, mobília paramétrica (`moveis/`, 34 peças),
+  materiais e texturas por código nos três estilos, céu/horário, caminhada com colisão e escadas, tour, trilha sonora.
+- Link público `/maquete/<token>` (`client/src/pages/MaquetePublica.tsx`), prévia do admin em `/admin/maquete-3d/:id/3d`,
+  dados comerciais, publicar / tirar do ar.
+- Venda: `server/maquete-3d/venda.ts` (portal), liquidação em `server/payment-settlement.ts`, tela
+  `client/src/components/maquete-3d/PortalMaquete.tsx` (menu "Maquete 3D" do portal do cliente).
+- `vite.config.ts`: o plugin que grava `data-loc` foi excluído da pasta do visualizador (quebrava a cena 3D).
 
 ## Pendências
-- **Aplicar a migração 0111 no Neon de produção** (só com autorização do dono) — sem ela a tela dá erro.
-- **Validar o motor com PDFs reais**: precisão da leitura e tempo por passo. Nunca foi chamado contra a API real.
-- `vercel.json` mantém `maxDuration: 60`. Se algum passo estourar o tempo com PDFs reais: reduzir o esforço da IA
-  na tela de configuração ou aumentar o limite da função (depende do plano da Vercel — não alterado).
-- A liberação de pedido de projeto hoje é manual pelo admin (nota obrigatória); a cobrança Asaas é da etapa 3.
-- Edição da implantação (lotes/vias) na revisão: hoje só visualização (etapa 4).
-- Etapas 2, 3 e 4 do EPIC (visualizador com mobília paramétrica, venda pelo portal/Asaas, Incorporação).
-- Falha **pré-existente**, sem relação com este trabalho (falha igual sem as mudanças):
-  `server/central-vendas-envio.test.ts > sequências > sem resposta e reativação 30/60/90 dias`.
+- **Validar o motor de leitura com PDFs reais** (precisão e tempo por passo). Nunca rodou contra a API real.
+- **Validar o visualizador em aparelhos reais** (celular Android/iPhone, notebook): aqui só rodou em navegador
+  automatizado sem placa de vídeo, onde fica lento. Ajustar qualidade padrão conforme o resultado.
+- **Um pagamento real pelo portal** (PIX) para confirmar o webhook do Asaas liberando o pedido.
+- O realismo da mobília é o de um bom configurador web, não de render de estúdio; refinar peça a peça com retorno do dono.
+- Escadas em L/U/caracol desenhadas como lance reto; garagem sem carro; envio automático por WhatsApp não feito;
+  estorno é manual no Asaas; a faixa de preço é declarada pelo cliente.
+- `vercel.json` mantém `maxDuration: 60` (ver etapa 1).
+- Falha **pré-existente**, sem relação: `server/central-vendas-envio.test.ts > sequências > sem resposta e reativação 30/60/90 dias`.
 
 ## Testes
-- (a) Automáticos: `pnpm exec vitest run server/maquete-3d.test.ts` → 16 passaram (modelo, preços, permissões, fluxo
-  projeto e incorporação, leitura passo a passo com IA simulada, erro e repetição de passo, versão na revisão,
-  PDF em partes). `server/admin-permissions.test.ts` ajustado para o novo módulo. Suíte completa: 1760 passam e 1
-  falha pré-existente (acima). `pnpm check` (tsc) e `vite build` sem erros.
-- (b) Manuais (navegador automatizado, router real, banco em memória, IA simulada): bloco no Painel; novo pedido;
-  confirmar pagamento; leitura com progresso; revisão de um sobrado (selecionar cômodo, trocar de pavimento, resolver
-  pendência, salvar, validar); tela no celular (390 px); prancha de um PDF real ao fundo, alinhada às paredes.
-- (c) Pendentes de validação em produção: migração 0111; leitura de PDFs reais pela IA; leitura de arquivo guardado
-  no Drive e no banco (Incorporação); permissão do colaborador com o módulo "Maquete 3D".
+- (a) Automáticos: `server/maquete-3d.test.ts` (19) e `server/maquete-3d-visualizador.test.ts` (12) passam: paredes
+  recortadas, colisão, escadas, cobertura, rota do tour, mobília sem sobreposição e sem tapar portas, publicação e link
+  público, venda pelo portal com cobrança simulada, webhook idempotente, chargeback. Suíte completa: 1775 passam, 1 falha
+  pré-existente. `pnpm check` e `vite build` sem erros.
+- (b) Manuais (navegador automatizado, router real, banco em memória): tela de apresentação, visão por fora, ocultar
+  telhado, vista de cima por andar, por dentro, troca dos três estilos, manhã/pôr do sol/noite, tour com legenda.
+  Foi assim que apareceu (e foi corrigido) o erro do `data-loc` ao trocar de estilo.
+- (c) Pendentes de validação em produção: leitura de PDF real; visualizador em celular real; pagamento real;
+  tela do portal com um cliente de verdade (não foi aberta em navegador).
 
-## Próximo passo exato
-1. Com autorização do dono: aplicar `drizzle/0111_maquete_3d.sql` no Neon e publicar a branch; rodar um projeto real
-   pela leitura e ajustar os pedidos à IA (`server/maquete-3d/leitura.ts`, constantes `PEDIDO_*`) conforme o resultado.
-2. Etapa 2 (visualizador): criar `client/src/components/maquete-3d/visualizador/` a partir do `ModeloMaquete` validado —
-   paredes com vãos, lajes, cobertura, escadas, colisão, visão externa/interna, depois o motor de mobília paramétrica
-   (três estilos), iluminação por horário, tour e a rota pública `/maquete/<token>`.
+## Próximo passo exato (etapa 4 — Incorporação)
+1. Aba "Maquete 3D" no estudo (`client/src/components/incorporacao/estudo/`, registrar em `AdminIncorporacaoDetail.tsx`):
+   pedir (nasce "aguardando autorização"), ver situação e abrir a maquete. O router já aceita `origem: "incorporacao"`.
+2. Implantação a partir do que o estudo já tem (KML/geojson e lotes do parcelamento) em vez de depender só do PDF:
+   preencher `modelo.implantacao` (terreno, vias, lotes com `unidade` = `incorporation_units.code`).
+3. Visualizador: desenhar a implantação (terreno, vias, lotes coloridos pela situação da unidade, construções
+   repetidas por `posicoes`) e entrar numa unidade para andar por dentro; prédio = pavimento-tipo empilhado (já funciona).
+4. Editar a implantação na revisão (`EditorPlanta.tsx`, hoje só mostra).

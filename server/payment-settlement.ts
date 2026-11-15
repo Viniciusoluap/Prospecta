@@ -17,6 +17,7 @@ export type SettlementResult =
   | { outcome: "already_processed" }
   | { outcome: "utef_credited"; userId: number; total: number; bonus: number }
   | { outcome: "ticket_confirmed"; ticketId: number; numbers: number[] }
+  | { outcome: "maquete_liberada"; orderId: number }
   | { outcome: "review_required"; reason: string };
 
 export async function settlePaymentOrder(providerPaymentId: string): Promise<SettlementResult> {
@@ -27,7 +28,21 @@ export async function settlePaymentOrder(providerPaymentId: string): Promise<Set
   if (order.purpose === "utef_purchase") {
     return settleUtefOrder(providerPaymentId);
   }
+  if (order.purpose === "maquete_3d") {
+    return settleMaqueteOrder(providerPaymentId);
+  }
   return settleTicketOrder(providerPaymentId);
+}
+
+// Maquete 3D (EPIC-022, etapa 3): pagamento confirmado libera o pedido para a equipe gerar a maquete.
+async function settleMaqueteOrder(providerPaymentId: string): Promise<SettlementResult> {
+  const claimed = await db.claimPendingPaymentOrder(providerPaymentId);
+  if (!claimed) return { outcome: "already_processed" };
+  const { liberarPorPagamento } = await import("./maquete-3d/venda.js");
+  if (!(await liberarPorPagamento(claimed))) {
+    return reviewOut(claimed, "pagamento de maquete 3D sem pedido aguardando pagamento (recusado, excluído ou já liberado)");
+  }
+  return { outcome: "maquete_liberada", orderId: claimed.id };
 }
 
 async function settleUtefOrder(providerPaymentId: string): Promise<SettlementResult> {
@@ -166,6 +181,13 @@ export async function chargebackPaymentOrder(providerPaymentId: string): Promise
 
   const claimed = await db.claimSettledPaymentOrderForChargeback(providerPaymentId);
   if (!claimed) return { outcome: "already_processed" };
+
+  if (claimed.purpose === "maquete_3d") {
+    // Serviço já prestado ou em andamento: a decisão de reverter é do administrador.
+    const reason = "chargeback de maquete 3D — requer decisão manual (recusar o pedido ou tirar o link do ar)";
+    await db.markPaymentOrderReview(claimed.providerPaymentId, reason); // já saiu de "settled" ao ser reivindicado
+    return { outcome: "review_required", reason };
+  }
 
   if (claimed.purpose === "utef_purchase") {
     const total = claimed.principalAmount + claimed.bonusAmount;

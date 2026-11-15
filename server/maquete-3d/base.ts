@@ -70,8 +70,38 @@ const leitorPadrao: LeitorPdf = async (d, alvoId) => {
   throw new LeituraIndisponivel(`Arquivo "${d.nome}" não está mais disponível no estudo.`);
 };
 
-type Dependencias = { ia: ClienteIA; lerPdf: LeitorPdf; agora: () => Date };
-const padrao: Dependencias = { ia: iaPadrao, lerPdf: leitorPadrao, agora: () => new Date() };
+/** Cobrança criada no provedor de pagamento (Asaas). */
+export type Cobranca = { id: string; link: string | null; pixImagem: string | null; pixCopiaCola: string | null };
+export type Pagador = { id: number; name: string | null; email: string | null; cpf: string | null };
+export type MetodoPagamento = "pix" | "boleto" | "cartao";
+export type Cobrador = {
+  criar: (p: { pagador: Pagador; valor: number; descricao: string; referencia: string; metodo: MetodoPagamento }) => Promise<Cobranca>;
+  consultar: (id: string) => Promise<Cobranca>;
+};
+
+const cobradorPadrao: Cobrador = {
+  criar: async ({ pagador, valor, descricao, referencia, metodo }) => {
+    const asaas = await import("../_core/asaas.js");
+    const cliente = await asaas.createOrUpdateAsaasCustomer({ name: pagador.name || "Cliente", email: pagador.email || undefined, cpfCnpj: pagador.cpf || undefined, externalReference: `user_${pagador.id}` });
+    const vencimento = new Date(agora().getTime() + 3 * 24 * 60 * 60 * 1000).toISOString().split("T")[0];
+    const pagamento = await asaas.createAsaasPayment({
+      customer: cliente.id!, billingType: metodo === "pix" ? "PIX" : metodo === "cartao" ? "CREDIT_CARD" : "BOLETO",
+      value: valor, dueDate: vencimento, description: descricao, externalReference: referencia,
+    });
+    if (!pagamento.id) throw new Error("O Asaas não devolveu o identificador da cobrança.");
+    const pix = metodo === "pix" ? await asaas.getAsaasPixQrCode(pagamento.id).catch(() => null) : null;
+    return { id: pagamento.id, link: pagamento.invoiceUrl ?? null, pixImagem: pix?.encodedImage ?? null, pixCopiaCola: pix?.payload ?? null };
+  },
+  consultar: async id => {
+    const asaas = await import("../_core/asaas.js");
+    const pagamento = await asaas.getAsaasPayment(id);
+    const pix = pagamento.billingType === "PIX" ? await asaas.getAsaasPixQrCode(id).catch(() => null) : null;
+    return { id, link: pagamento.invoiceUrl ?? null, pixImagem: pix?.encodedImage ?? null, pixCopiaCola: pix?.payload ?? null };
+  },
+};
+
+type Dependencias = { ia: ClienteIA; lerPdf: LeitorPdf; agora: () => Date; cobrador: Cobrador };
+const padrao: Dependencias = { ia: iaPadrao, lerPdf: leitorPadrao, agora: () => new Date(), cobrador: cobradorPadrao };
 let deps: Dependencias = { ...padrao };
 
 /** Só para testes: troca IA/arquivos/relógio. Sem argumento, volta ao padrão. */

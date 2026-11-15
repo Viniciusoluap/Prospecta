@@ -48,6 +48,8 @@ export const utefTransactionTypeEnum = pgEnum("utef_transaction_type", [
 export const paymentOrderPurposeEnum = pgEnum("payment_order_purpose", [
   "ticket_purchase",
   "utef_purchase",
+  // Maquete 3D (EPIC-022, migração 0113): principalAmount guarda o valor em centavos.
+  "maquete_3d",
 ]);
 export const paymentOrderStatusEnum = pgEnum("payment_order_status", [
   "pending",

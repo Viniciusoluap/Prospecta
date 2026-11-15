@@ -4,8 +4,19 @@ import react from "@vitejs/plugin-react";
 import path from "path";
 import { defineConfig } from "vite";
 
+// O plugin marca cada elemento JSX com `data-loc`. Os elementos da cena 3D (react-three-fiber) não são HTML e
+// quebram ao receber esse atributo numa atualização; por isso o visualizador da Maquete 3D fica de fora.
+const jsxLoc = jsxLocPlugin();
+const transformarJsxLoc = jsxLoc.transform as (this: unknown, code: string, id: string) => unknown;
+const jsxLocSemCena3d = {
+  ...jsxLoc,
+  transform(this: unknown, code: string, id: string) {
+    return /\/maquete-3d\/visualizador\//.test(id) ? null : transformarJsxLoc.call(this, code, id);
+  },
+} as typeof jsxLoc;
+
 export default defineConfig({
-  plugins: [react(), tailwindcss(), jsxLocPlugin()],
+  plugins: [react(), tailwindcss(), jsxLocSemCena3d],
   resolve: {
     alias: {
       "@": path.resolve(import.meta.dirname, "client", "src"),

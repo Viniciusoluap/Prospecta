@@ -1,7 +1,8 @@
 import { useLocation } from "wouter";
 
 /** Pedido de 25/10: na Central WhatsApp o botão cobria o "enviar resposta" das Conversas. */
-export const esconderWhatsAppFloat = (rota: string) => rota.startsWith("/admin/whatsapp");
+// A página da maquete do cliente (tela cheia) tem o próprio botão "Falar com consultor".
+export const esconderWhatsAppFloat = (rota: string) => rota.startsWith("/admin/whatsapp") || rota.startsWith("/maquete/") || /^\/admin\/maquete-3d\/\d+\/3d$/.test(rota);
 
 export default function WhatsAppFloat() {
   const [rota] = useLocation();
