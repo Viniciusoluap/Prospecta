@@ -121,6 +121,7 @@ O dono pede: nada pode ficar em branco; tudo preenchido, calculado e com lógica
 - `server/incorporacao-massa-malha-conectada.test.ts` (novo)
 - `server/incorporacao-parcelamento-v2.test.ts`
 - `server/incorporacao-planta-unidades.test.ts`
+- `server/incorporacao-massa.test.ts`
 - `HANDOFF-15-11-CORRECOES.md`
 
 ## Change Log
