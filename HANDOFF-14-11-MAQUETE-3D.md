@@ -8,11 +8,18 @@ aditivas e publicando (merge + deploy) ao fim de cada etapa, sem pedir confirma�
 - `docs/stories/epics/epic-022-maquete-3d/EPIC.md` — decisões do dono, arquitetura e as 4 etapas.
 - `docs/stories/epics/epic-022-maquete-3d/PROMPT-MESTRE-14-11.md` — o que o prompt pede e em que etapa entra.
 
-## Situação em 15/11/2026
-- **Etapa 1 (base, motor de leitura, revisão): publicada.** PR #218 na `main`, migração 0111 aplicada no Neon
-  (projeto `SiteProspecta`, `plain-cake-26372935`), deploy de produção da Vercel `READY`.
-- **Etapa 2 (visualizador 3D) e etapa 3 (venda pelo portal/Asaas): concluídas neste PR**, migrações 0112 e 0113.
-- **Etapa 4 (Incorporação): a fazer** — ver "Próximo passo exato".
+## Situação em 15/11/2026 — as quatro etapas entregues
+- **Etapa 1** (base, motor de leitura, revisão): PR #218, migração 0111.
+- **Etapas 2 e 3** (visualizador 3D; venda pelo portal com Asaas): PR #219, migrações 0112 e 0113.
+- **Etapa 4** (Incorporação: loteamento, condomínio, prédio): este PR, sem migração.
+- Todas as migrações foram aplicadas no Neon de produção (projeto `SiteProspecta`, `plain-cake-26372935`) e cada
+  etapa foi publicada na `main` (deploy da Vercel conferido).
+
+## Concluído na etapa 4
+- `shared/maquete-3d/implantacao.ts`: implantação a partir do terreno e do cenário escolhido do estudo de massa.
+- `maquete3d.implantacaoDoEstudo` e situação das unidades no detalhe e no link público (`server/maquete-3d/router.ts`).
+- Visualizador: `Implantacao.tsx` (terreno, ruas, lotes por situação, construções), modo "Implantação" e seleção de lote.
+- Aba "Maquete 3D" no estudo (`client/src/components/incorporacao/estudo/maquete-3d-tab.tsx`).
 
 ## Concluído nas etapas 2 e 3
 - Geometria do visualizador e rota do tour: `shared/maquete-3d/geometria3d.ts`.
@@ -39,19 +46,22 @@ aditivas e publicando (merge + deploy) ao fim de cada etapa, sem pedir confirma�
 ## Testes
 - (a) Automáticos: `server/maquete-3d.test.ts` (19) e `server/maquete-3d-visualizador.test.ts` (12) passam: paredes
   recortadas, colisão, escadas, cobertura, rota do tour, mobília sem sobreposição e sem tapar portas, publicação e link
-  público, venda pelo portal com cobrança simulada, webhook idempotente, chargeback. Suíte completa: 1775 passam, 1 falha
-  pré-existente. `pnpm check` e `vite build` sem erros.
+  público, venda pelo portal com cobrança simulada, webhook idempotente, chargeback, implantação montada do estudo com a
+  situação das unidades (21 + 12 testes). Suíte completa: 1777 passam, 1 falha pré-existente. `pnpm check` e `vite build` sem erros.
 - (b) Manuais (navegador automatizado, router real, banco em memória): tela de apresentação, visão por fora, ocultar
   telhado, vista de cima por andar, por dentro, troca dos três estilos, manhã/pôr do sol/noite, tour com legenda.
-  Foi assim que apareceu (e foi corrigido) o erro do `data-loc` ao trocar de estilo.
+  Foi assim que apareceu (e foi corrigido) o erro do `data-loc` ao trocar de estilo. Etapa 4: loteamento de exemplo com
+  48 lotes — legenda com contagem por situação, vista de cima, seleção de lote, casa modelo no terreno.
 - (c) Pendentes de validação em produção: leitura de PDF real; visualizador em celular real; pagamento real;
-  tela do portal com um cliente de verdade (não foi aberta em navegador).
+  tela do portal com um cliente de verdade e aba "Maquete 3D" do estudo (não foram abertas em navegador);
+  implantação de um estudo real (KML e estudo de massa de verdade).
 
-## Próximo passo exato (etapa 4 — Incorporação)
-1. Aba "Maquete 3D" no estudo (`client/src/components/incorporacao/estudo/`, registrar em `AdminIncorporacaoDetail.tsx`):
-   pedir (nasce "aguardando autorização"), ver situação e abrir a maquete. O router já aceita `origem: "incorporacao"`.
-2. Implantação a partir do que o estudo já tem (KML/geojson e lotes do parcelamento) em vez de depender só do PDF:
-   preencher `modelo.implantacao` (terreno, vias, lotes com `unidade` = `incorporation_units.code`).
-3. Visualizador: desenhar a implantação (terreno, vias, lotes coloridos pela situação da unidade, construções
-   repetidas por `posicoes`) e entrar numa unidade para andar por dentro; prédio = pavimento-tipo empilhado (já funciona).
-4. Editar a implantação na revisão (`EditorPlanta.tsx`, hoje só mostra).
+## Próximo passo exato (validação com dados reais — depende do dono)
+1. Rodar um projeto real de casa pelo módulo: pedir, liberar, **ler o PDF** e revisar. Ajustar os pedidos à IA em
+   `server/maquete-3d/leitura.ts` (constantes `PEDIDO_*`) conforme o que a leitura errar, e o esforço da IA se algum
+   passo passar de 60 s.
+2. Abrir a maquete publicada num celular e num notebook reais; ajustar a qualidade padrão em
+   `Visualizador.tsx` (`QUALIDADES`) e refinar os móveis que o dono apontar (`visualizador/moveis/`).
+3. Fazer um pedido real pelo portal do cliente com PIX e confirmar a liberação automática.
+4. Num estudo real de loteamento: pedir na aba "Maquete 3D", autorizar, "Montar a implantação a partir do estudo", publicar.
+5. Depois disso, as limitações listadas nas stories S-05, S-06 e S-07 (itens desmarcados) são a fila de melhorias.

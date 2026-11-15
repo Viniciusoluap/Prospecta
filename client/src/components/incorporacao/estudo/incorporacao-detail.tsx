@@ -6,6 +6,7 @@ import { TerrenoTab } from "./terreno-tab";
 import { TopografiaTab } from "./topografia-tab";
 import { MercadoTab } from "./mercado-tab";
 import { MassaTab } from "./massa-tab";
+import { Maquete3DTab } from "./maquete-3d-tab";
 import { OrcamentoParametrizadoTab } from "./orcamento-parametrizado-tab";
 import { ViabilidadeTab } from "./viabilidade-tab";
 import { QuadroAreasTab } from "./quadro-areas-tab";
@@ -110,6 +111,8 @@ const FASES: Fase[] = [
       { id: "topografia", numero: "2.1", titulo: "Topografia 3D", componente: TopografiaTab, concluida: (e) => !!e.levantamentoUrl || (!!e.geojson && !!e.elevacaoJson) },
       { id: "mercado", numero: "2.2", titulo: "Inteligência de Mercado", componente: MercadoTab, concluida: (e) => !!e.pesquisaCidadeJson || !!e.estudoMercadoJson || !!e.precificacaoComparaveisJson || pesquisaPrimariaPreenchidaDoJson(e.pesquisaPrimariaJson) },
       { id: "massa", numero: "2.3", titulo: "Estudo de Massa e Quadro de Áreas", componente: MassaTab, concluida: (e) => !!e.massaCenariosJson },
+      // Maquete 3D (EPIC-022, etapa 4): exclusivo do Prospecta.
+      { id: "maquete-3d", numero: "2.3", titulo: "Maquete 3D", componente: Maquete3DTab },
       {
         id: "orcamento-parametrizado",
         numero: "2.4",

@@ -8,7 +8,7 @@
 import { and, eq, inArray, isNull } from "drizzle-orm";
 import { maquetes3d, type Maquete3d } from "../../drizzle/schema-maquete-3d.js";
 import {
-  FUNCOES_COMODO, TIPOS_ABERTURA, TIPOS_COBERTURA, TIPOS_ESCADA, modeloSchema, type Edificacao, type Implantacao,
+  FUNCOES_COMODO, TIPOS_ABERTURA, TIPOS_COBERTURA, TIPOS_ESCADA, lerModelo, modeloSchema, type Edificacao, type Implantacao,
   type ModeloMaquete, type OrigemMedida, type Pavimento, type TipoMaquete,
 } from "../../shared/maquete-3d/modelo.js";
 import {
@@ -214,8 +214,8 @@ export function montarModelo(tipo: TipoMaquete, parciais: Record<string, unknown
     const porNome = new Map(inv.edificacoes.map((e, i) => [e.nome.trim().toLowerCase(), idEdificacao(i)]));
     pendencias.push(...imp.pendencias.map(t => `Implantação: ${t}`));
     implantacao = {
-      terreno: imp.terreno as never, vias: imp.vias as never,
-      lotes: imp.lotes.map(l => ({ id: String(l.id), nome: String(l.nome ?? ""), quadra: String(l.quadra ?? ""), poligono: l.pontos as never, areaInformada: typeof l.areaInformada === "number" && l.areaInformada > 0 ? l.areaInformada : null, unidade: null })),
+      terreno: imp.terreno as never, vias: imp.vias as never, ruas: [],
+      lotes: imp.lotes.map(l => ({ id: String(l.id), nome: String(l.nome ?? ""), quadra: String(l.quadra ?? ""), poligono: l.pontos as never, areaInformada: typeof l.areaInformada === "number" && l.areaInformada > 0 ? l.areaInformada : null, tipo: "vendavel" as const, unidade: null })),
       posicoes: imp.posicoes.flatMap(p => {
         const edificacaoId = porNome.get(String(p.edificacao ?? "").trim().toLowerCase());
         if (!edificacaoId) { pendencias.push(`Implantação: a construção "${String(p.nome || p.id)}" não corresponde a nenhuma edificação lida.`); return []; }
@@ -223,6 +223,9 @@ export function montarModelo(tipo: TipoMaquete, parciais: Record<string, unknown
       }),
     };
   }
+
+  // Implantação montada a partir do estudo de Incorporação: fica, se os PDFs não trouxerem outra.
+  if (!implantacao && parciais.implantacaoDoEstudo) implantacao = parciais.implantacaoDoEstudo as Implantacao;
 
   return modeloSchema.parse({
     tipo, edificacoes, implantacao,
@@ -241,8 +244,10 @@ async function buscar(id: number): Promise<Maquete3d | null> {
 
 /** Começa (ou recomeça do zero) a leitura. Recomeçar descarta a planta já revisada. */
 export async function iniciarLeitura(id: number): Promise<EstadoLeitura> {
+  const anterior = lerModelo((await buscar(id))?.modelo);
   const estado: EstadoLeitura = {
     ...leituraVazia(), iniciadaEm: agora().toISOString(),
+    parciais: anterior?.implantacao?.lotes.some(l => l.unidade) ? { implantacaoDoEstudo: anterior.implantacao } : {},
     passos: [{ chave: "inventario", tipo: "inventario", rotulo: "Inventário das pranchas e dos pavimentos", estado: "pendente" }],
   };
   const r = await db().update(maquetes3d)
@@ -285,7 +290,7 @@ export async function avancarLeitura(id: number): Promise<{ estado: EstadoLeitur
       estado.parciais[passo.chave] = r.json;
       if (passo.tipo === "inventario") {
         const lido = r.json as Inventario;
-        if (!lido.edificacoes?.some(e => e.pavimentos.length) && !lido.implantacao) {
+        if (!lido.edificacoes?.some(e => e.pavimentos.length) && !lido.implantacao && !estado.parciais.implantacaoDoEstudo) {
           throw new LeituraIndisponivel("Nenhuma planta baixa nem implantação foi encontrada nos arquivos escolhidos.");
         }
         lido.edificacoes = lido.edificacoes.filter(e => e.pavimentos.length);

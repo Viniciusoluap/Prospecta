@@ -148,7 +148,7 @@ describe("modelo e regras", () => {
 
 // ── Router com banco em memória ──
 
-const TABELAS = ["users", "leads", "leadServices", "operationalProjects", "projectRevisionRequests", "projectDocuments", "incorporationStudies", "incorporationRegistrationDocuments", "paymentOrders", "draws", "products"];
+const TABELAS = ["users", "leads", "leadServices", "operationalProjects", "projectRevisionRequests", "projectDocuments", "incorporationStudies", "incorporationRegistrationDocuments", "incorporationUnits", "paymentOrders", "draws", "products"];
 let ddl: string | null = null;
 async function criarBanco() {
   if (!ddl) {
@@ -306,7 +306,7 @@ describe("router maquete3d", () => {
     const aberto = await publico.porToken({ token: d.token });
     expect(aberto).toMatchObject({ titulo: "Residencial Jardim", tipo: "casa", comercial: { localizacao: "Imperatriz — MA", preco: null, whatsapp: "5599988887777" } });
     expect(aberto.modelo.edificacoes[0].pavimentos).toHaveLength(2);
-    expect(Object.keys(aberto).sort()).toEqual(["comercial", "modelo", "tipo", "titulo"]); // nada de preço do pedido, cliente ou documentos
+    expect(Object.keys(aberto).sort()).toEqual(["comercial", "modelo", "tipo", "titulo", "unidades"]); // nada de preço do pedido, cliente ou documentos
     // Publicada não é mais editável na revisão; tirar do ar devolve para validada e fecha o link.
     await expect(m.salvarModelo({ id, versao: d.modeloVersao + 1, modelo: d.modelo! })).rejects.toThrow("não está em revisão");
     await expect(m.despublicar({ id })).rejects.toThrow("Só o administrador");
@@ -372,6 +372,53 @@ describe("router maquete3d", () => {
     const { settlePaymentOrder } = await import("./payment-settlement.js");
     expect(await settlePaymentOrder("pay_1")).toMatchObject({ outcome: "review_required" });
     expect((await ana.resumo()).projetos[0].maquete).toMatchObject({ status: "recusada", recusaMotivo: "PDF ilegível" });
+  });
+
+  it("incorporação: implantação montada do estudo (terreno, ruas, lotes) com a situação das unidades", async () => {
+    // Terreno de ~111 × 110 m perto do equador; dois lotes vendáveis, uma área pública e uma rua.
+    const g = 0.001, anel = (x0: number, y0: number, x1: number, y1: number) => [[x0, y0], [x1, y0], [x1, y1], [x0, y1], [x0, y0]];
+    const cenario = { id: "c1", lotes: [
+      { anel: anel(0, 0, g / 2, g / 2), areaM2: 3000, tipo: "vendavel", quadra: "1", numero: "1" },
+      { anel: anel(g / 2, 0, g, g / 2), areaM2: 3000, tipo: "vendavel", quadra: "1", numero: "2" },
+      { anel: anel(0, g / 2, g / 4, g), areaM2: 1500, tipo: "area_publica", uso: "verde" },
+      { anel: [[0, 0], [0, 0]], areaM2: 1, tipo: "vendavel", quadra: "9", numero: "9" },
+    ], ruas: [anel(g / 4, g / 2, g, g * 0.6)], vias: [] };
+    await banco.pg.query(`UPDATE incorporation_studies SET geojson = $1, latitude = 0.0005, longitude = 0.0005, mass_scenarios_json = $2, selected_scenario_id = 'c1' WHERE id = 1`,
+      [JSON.stringify({ type: "Feature", properties: {}, geometry: { type: "Polygon", coordinates: [anel(0, 0, g, g)] } }), JSON.stringify({ params: {}, cenarios: [cenario] })]);
+    await banco.pg.exec(`INSERT INTO incorporation_units (study_id, code, code_key, kind, status) VALUES (1, 'Q1 / L1', 'Q1 / L1', 'lote', 'vendida'), (1, 'Q1 / L2', 'Q1 / L2', 'lote', 'disponivel')`);
+
+    const { id } = await colaborador().criar({ origem: "incorporacao", alvoId: 1, tipo: "loteamento", documentos: [] });
+    await expect(colaborador().implantacaoDoEstudo({ id })).rejects.toThrow("precisa estar autorizada");
+    await admin().liberar({ id });
+    expect(await colaborador().implantacaoDoEstudo({ id })).toEqual({ lotes: 3, ruas: 1, temTerreno: true, descartados: 1, semCenario: false });
+
+    const d = await colaborador().detalhe({ id });
+    const imp = d.modelo!.implantacao!;
+    expect(d.status).toBe("em_revisao");
+    expect(imp.lotes.map(l => [l.quadra, l.nome, l.tipo, l.unidade])).toEqual([["1", "1", "vendavel", "Q1 / L1"], ["1", "2", "vendavel", "Q1 / L2"], ["", "", "area_publica", null]]);
+    // Norte para cima: o lote 1 (sul-oeste no mapa) fica embaixo à esquerda na planta; medidas em metros.
+    expect(imp.terreno).toHaveLength(4);
+    expect(Math.max(...imp.terreno.map(p => p.x))).toBeCloseTo(111.32, 0);
+    expect(Math.max(...imp.terreno.map(p => p.y))).toBeCloseTo(110.54, 0);
+    expect(Math.min(...imp.lotes[0].poligono.map(p => p.y))).toBeCloseTo(55.27, 0);
+    expect(d.unidades).toEqual(expect.arrayContaining([{ codigo: "Q1 / L1", status: "vendida" }, { codigo: "Q1 / L2", status: "disponivel" }]));
+    expect(d.problemas.filter(p => p.nivel === "erro")).toEqual([]);
+
+    // Loteamento não precisa de PDF: valida, publica e o link público leva a situação das unidades (sem comprador nem preço).
+    await colaborador().validar({ id });
+    await admin().publicar({ id });
+    const aberto = await appRouter.createCaller({ user: null, req: {}, res: {} } as never).maquetePublica.porToken({ token: d.token });
+    expect(aberto.modelo.implantacao!.lotes).toHaveLength(3);
+    expect(aberto.unidades).toHaveLength(2);
+    expect(Object.keys(aberto.unidades[0]).sort()).toEqual(["codigo", "status"]);
+  });
+
+  it("incorporação: sem terreno nem estudo de massa, avisa em vez de criar implantação vazia; projeto não aceita", async () => {
+    const { id } = await admin().criar({ origem: "incorporacao", alvoId: 1, tipo: "loteamento", documentos: [] });
+    await admin().liberar({ id });
+    await expect(admin().implantacaoDoEstudo({ id })).rejects.toThrow("ainda não tem o terreno");
+    const p = await admin().criar({ origem: "projeto", alvoId: 1, tipo: "casa", faixaPreco: "terrea_ate_70", documentos: [] });
+    await expect(admin().implantacaoDoEstudo({ id: p.id })).rejects.toThrow("Só maquetes de Incorporação");
   });
 
   it("inventário sem planta baixa para com mensagem clara", async () => {

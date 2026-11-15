@@ -18,7 +18,7 @@ export default function MaquetePublica() {
   const c = maquete.data.comercial;
   return (
     <Suspense fallback={<Aviso texto="Preparando o 3D…" />}>
-      <Visualizador modelo={maquete.data.modelo} comercial={{ nome: maquete.data.titulo, logo: "/logo.webp", localizacao: c.localizacao || null, preco: c.preco, whatsapp: c.whatsapp || null }} />
+      <Visualizador modelo={maquete.data.modelo} unidades={maquete.data.unidades} comercial={{ nome: maquete.data.titulo, logo: "/logo.webp", localizacao: c.localizacao || null, preco: c.preco, whatsapp: c.whatsapp || null }} />
     </Suspense>
   );
 }
