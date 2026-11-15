@@ -33,8 +33,16 @@
   guardado por terreno e camada (`camadas_terreno_cache`, migração 0116 aplicada no Neon). A legenda separa "nada no
   entorno", "fonte fora do ar" e "dado salvo em dd/mm/aaaa".
 
+### Etapa D (correção 11) — S-D
+- Leitor próprio do PDF, sem IA e sem custo, como padrão (`server/maquete-3d/geometrico.ts` + `pdf-vetorial.ts`): escala,
+  paredes, portas, janelas, vãos, cômodos com nome e área, escadas. Uma prancha por passo. A leitura pela IA virou opção
+  em Configurações. As três maquetes paradas em "Lendo o projeto" (ids 1, 2 e 3) voltaram para "liberada" para serem lidas de novo.
+- Medido só nas plantas de teste (`server/fixtures/maquete-3d/`); os PDFs reais do dono não puderam ser abertos aqui.
+
 ## Pendências
-- Etapas D (leitura sem IA), F (Estudo de Massa: áreas separadas e malha conectada), G (vias 3D).
+- **Dono:** abrir o pedido "Polímeros (Morada do Bosque)", clicar em "Gerar maquete (ler o projeto)" e dizer como ficou a
+  leitura do "ARQ 01-01-CASA PADRÃO.pdf" (é a primeira medição do leitor num projeto real).
+- Etapas F (Estudo de Massa: áreas separadas e malha conectada), G (vias 3D).
 - Porte para o Grupo Santa Fé das correções 1, 2, 3, 4, 8, 9 e 10 (lista no ROADMAP) — sem acesso àquele repositório.
 
 ## Testes
@@ -48,10 +56,13 @@
 - Etapa E — automáticos: 51 testes das camadas (21 novos) aprovados, com rede simulada. Não verificado: a resposta
   real das fontes (EPE, IBAMA, Overpass) — o ambiente de desenvolvimento não as alcança; conferir em produção se o
   406 do OpenStreetMap sumiu.
-- (c) Pendentes em produção: novo pedido por cliente do CRM com PDF avulso real; "Gerar e distribuir nos lotes" no
+- Etapa D — automáticos: `maquete-3d-leitor.test.ts` (9) e `maquete-3d.test.ts` (25) aprovados. Não verificado: PDFs
+  reais; execução do `pdfjs` dentro da função da Vercel (testado só no Node local).
+- (c) Pendentes em produção: leitura real do PDF da casa padrão pelo leitor próprio; novo pedido por cliente do CRM com PDF avulso real; "Gerar e distribuir nos lotes" no
   Polímeros (Morada do Bosque); mapa operacional com as imagens reais de satélite e os pontos reais; CRM no iPad (rolagem e ausência de tela preta); editar um corretor em "Usuários e acesso"
   e conferir a comissão numa obra; excluir um pedido de maquete pela lista.
 
 ## Próximo passo exato
-Etapa D (`S-D-leitura-pdf-sem-ia.md`): leitor geométrico no servidor com `pdfjs-dist`. A Etapa F está em execução por
-um agente em worktree (branch local `etapa-f`); quando terminar, revisar, trazer para a branch de trabalho e publicar.
+Esperar os agentes das etapas F (branch local `etapa-f`) e G (branch local `etapa-g`), revisar cada uma, trazer para a
+branch de trabalho com `git cherry-pick`, rodar testes e publicar. Depois, ajustar o leitor da Etapa D conforme o
+resultado do dono no PDF real.

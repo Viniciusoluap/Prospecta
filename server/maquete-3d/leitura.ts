@@ -15,6 +15,8 @@ import {
   MAX_BYTES_DOCUMENTOS, PODE_LER, TIPOS_PRANCHA, documentoSchema, leituraVazia, lerEstadoLeitura, type DocumentoMaquete,
   type EstadoLeitura, type PassoLeitura, type StatusMaquete,
 } from "../../shared/maquete-3d/regras.js";
+import { MAX_PAGINAS } from "./pdf-vetorial.js";
+import { lerPagina, nomeDoPavimento, type Diagnostico, type PlantaLida } from "./geometrico.js";
 import { LeituraIndisponivel, agora, carregarConfig, db, dependencias, erroSeguro, type PdfLido, alvoDoDocumento } from "./base.js";
 
 // ── Esquemas da resposta da IA (JSON Schema, saída estruturada) ──
@@ -233,6 +235,89 @@ export function montarModelo(tipo: TipoMaquete, parciais: Record<string, unknown
   });
 }
 
+// ── Leitor geométrico (sem IA): uma prancha por passo, e a montagem junta as plantas em pavimentos ──
+
+type PranchaLida = { doc: number; pagina: number; plantas: PlantaLida[]; diagnostico: Diagnostico };
+
+async function abrirDocumento(m: Maquete3d, indice: number) {
+  const d = lerDocumentos(m.documentos)[indice];
+  if (!d) throw new LeituraIndisponivel("Um dos PDFs desta maquete não está mais na lista.");
+  const dados = await dependencias().lerPdf(d, alvoDoDocumento(m, d));
+  if (dados.length > MAX_BYTES_DOCUMENTOS) throw new LeituraIndisponivel(`O arquivo "${d.nome}" passa de ${Math.round(MAX_BYTES_DOCUMENTOS / 1048576)} MB.`);
+  try { return await dependencias().abrirPdf(dados); }
+  catch { throw new LeituraIndisponivel(`Não foi possível abrir "${d.nome}": o arquivo não é um PDF válido ou está protegido por senha.`); }
+}
+
+/** Inventário do leitor geométrico: conta as páginas e cria um passo por prancha. */
+async function passosDasPranchas(m: Maquete3d): Promise<PassoLeitura[]> {
+  const docs = lerDocumentos(m.documentos), passos: PassoLeitura[] = [];
+  if (!docs.length) throw new LeituraIndisponivel("Nenhum PDF foi escolhido para esta maquete.");
+  for (let d = 0; d < docs.length; d++) {
+    const pdf = await abrirDocumento(m, d);
+    try {
+      for (let p = 1; p <= pdf.paginas && passos.length < MAX_PAGINAS; p++) {
+        passos.push({ chave: `prancha:${d}:${p}`, tipo: "prancha", rotulo: `Leitura de ${docs[d].nome}${pdf.paginas > 1 ? ` — página ${p}` : ""}`, estado: "pendente", doc: d, pagina: p });
+      }
+    } finally { await pdf.fechar(); }
+  }
+  return [...passos, { chave: "montagem", tipo: "montagem", rotulo: "Montagem e conferência do modelo", estado: "pendente" }];
+}
+
+async function lerPrancha(m: Maquete3d, doc: number, pagina: number): Promise<PranchaLida> {
+  const pdf = await abrirDocumento(m, doc);
+  try { return { doc, pagina, ...lerPagina(await pdf.pagina(pagina)) }; }
+  finally { await pdf.fechar(); }
+}
+
+/**
+ * Junta as plantas lidas em pavimentos de uma edificação, no formato que `montarModelo` já entende.
+ * Plantas do mesmo andar com o mesmo tamanho (planta baixa e planta de layout, por exemplo) contam uma vez só.
+ * O que a planta baixa não traz (pé-direito, cobertura) sai como estimado, para a pessoa confirmar na revisão.
+ */
+export function parciaisDasPranchas(pranchas: PranchaLida[], nomesDosArquivos: string[]): { parciais: Record<string, unknown>; referencias: { pavimentoId: string; doc: number; pagina: number; alinhamento: { x: number; y: number; larguraM: number } | null }[]; motivos: string[] } {
+  type Candidata = { planta: PlantaLida; doc: number; pagina: number; nome: string; andar: number | null; larguraPt: number };
+  const candidatas: Candidata[] = [];
+  for (const pr of pranchas) for (const planta of pr.plantas) {
+    const { nome, andar } = nomeDoPavimento(planta.titulo, candidatas.length);
+    candidatas.push({ planta, doc: pr.doc, pagina: pr.pagina, nome, andar, larguraPt: 0 });
+  }
+  const unicas: Candidata[] = [];
+  for (const c of candidatas) {
+    const igual = unicas.find(u => (u.andar === c.andar || u.andar === null || c.andar === null) && u.andar === c.andar && Math.abs(u.planta.largura - c.planta.largura) < 0.25 && Math.abs(u.planta.comprimento - c.planta.comprimento) < 0.25);
+    if (!igual) { unicas.push(c); continue; }
+    // Fica a que é "planta baixa" (ou a que tem mais cômodos com nome).
+    const melhor = /BAIXA/i.test(c.planta.titulo) && !/BAIXA/i.test(igual.planta.titulo) ? c : c.planta.nomeados > igual.planta.nomeados ? c : igual;
+    unicas[unicas.indexOf(igual)] = melhor;
+  }
+  unicas.sort((a, b) => (a.andar ?? 99) - (b.andar ?? 99));
+  const motivos = pranchas.filter(p => !p.plantas.length && p.diagnostico.motivo).map(p => `${nomesDosArquivos[p.doc] ?? "PDF"}${pranchas.filter(q => q.doc === p.doc).length > 1 ? `, página ${p.pagina}` : ""}: ${p.diagnostico.motivo}`);
+  const parciais: Record<string, unknown> = {};
+  const referencias: ReturnType<typeof parciaisDasPranchas>["referencias"] = [];
+  const PE_DIREITO = 2.7, LAJE = 0.15, usados = new Set<string>();
+  const pavimentos = unicas.map((c, j) => {
+    let nome = c.nome;
+    for (let n = 2; usados.has(nome.toLowerCase()); n++) nome = `${c.nome} (${n})`;
+    usados.add(nome.toLowerCase());
+    const id = idPavimento(0, j), proximo = unicas[j + 1];
+    parciais[`estrutura:${id}`] = { paredes: c.planta.paredes, aberturas: c.planta.aberturas, pendencias: [] } satisfies Estrutura;
+    parciais[`ambientes:${id}`] = { comodos: c.planta.comodos, escadas: c.planta.escadas.map(e => ({ ...e, sobePara: "" })), pendencias: c.planta.pendencias };
+    const k = c.planta.metrosPorPonto;
+    referencias.push({ pavimentoId: id, doc: c.doc, pagina: c.pagina, alinhamento: k > 0 ? { x: -c.planta.origemPt.x * k, y: -c.planta.origemPt.y * k, larguraM: c.planta.larguraDaPaginaM } : null });
+    return { nome, nivel: j * (PE_DIREITO + LAJE), peDireito: PE_DIREITO, peDireitoConfirmado: false, repeticoes: 1, doc: c.doc, pagina: c.pagina, temProximo: !!proximo };
+  });
+  // A escada de cada pavimento leva ao pavimento de cima.
+  pavimentos.forEach((p, j) => {
+    const amb = parciais[`ambientes:${idPavimento(0, j)}`] as Ambientes;
+    amb.escadas = p.temProximo ? amb.escadas.map(e => ({ ...e, sobePara: pavimentos[j + 1].nome })) : [];
+    if (!p.temProximo) amb.pendencias = amb.pendencias.filter(t => !/^Escada lida/.test(t));
+  });
+  parciais.inventario = {
+    edificacoes: pavimentos.length ? [{ nome: "Edificação", cobertura: { tipo: "duas_aguas", inclinacao: 30, beiral: 0.5, confirmada: false }, pavimentos: pavimentos.map(({ temProximo: _t, ...p }) => p) }] : [],
+    implantacao: null, pendencias: [],
+  } satisfies Inventario;
+  return { parciais, referencias, motivos };
+}
+
 // ── Execução ──
 
 const emLeitura = (id: number) => and(eq(maquetes3d.id, id), isNull(maquetes3d.deletedAt), inArray(maquetes3d.status, [...PODE_LER]));
@@ -268,12 +353,29 @@ export async function avancarLeitura(id: number): Promise<{ estado: EstadoLeitur
   let status: StatusMaquete = "em_leitura";
   let modelo: string | undefined;
   try {
-    if (passo.tipo === "montagem") {
+    const config = await carregarConfig();
+    const geometrico = config.motor === "geometrico" || passo.tipo === "prancha";
+    if (geometrico && passo.tipo === "inventario") {
+      estado.passos = [{ ...passo, estado: "feito", erro: null }, ...(await passosDasPranchas(m))];
+    } else if (passo.tipo === "prancha") {
+      estado.parciais[passo.chave] = await lerPrancha(m, passo.doc!, passo.pagina!);
+    } else if (passo.tipo === "montagem" && estado.passos.some(p => p.tipo === "prancha")) {
+      const pranchas = estado.passos.filter(p => p.tipo === "prancha").map(p => estado.parciais[p.chave] as PranchaLida | undefined).filter((p): p is PranchaLida => !!p);
+      const r = parciaisDasPranchas(pranchas, lerDocumentos(m.documentos).map(d => d.nome));
+      const inv = r.parciais.inventario as Inventario;
+      if (!inv.edificacoes.length && !estado.parciais.implantacaoDoEstudo) {
+        throw new LeituraIndisponivel(`Nenhuma planta baixa foi reconhecida nos arquivos escolhidos. ${r.motivos.slice(0, 3).join(" ")}`.trim());
+      }
+      Object.assign(estado.parciais, r.parciais, { pranchasDosPavimentos: r.referencias, avisosDaLeitura: r.motivos });
+      modelo = JSON.stringify(montarModelo(m.tipo as TipoMaquete, estado.parciais));
+      estado.concluidaEm = agora().toISOString();
+      status = "em_revisao";
+    } else if (passo.tipo === "montagem") {
       modelo = JSON.stringify(montarModelo(m.tipo as TipoMaquete, estado.parciais));
       estado.concluidaEm = agora().toISOString();
       status = "em_revisao";
     } else {
-      const [config, pdfs] = await Promise.all([carregarConfig(), carregarPdfs(m)]);
+      const pdfs = await carregarPdfs(m);
       const inv = estado.parciais.inventario as Inventario | undefined;
       const ed = passo.edificacaoId ? inv?.edificacoes[Number(passo.edificacaoId.slice(2)) - 1] : undefined;
       const pav = ed && passo.pavimentoId ? ed.pavimentos[Number(passo.pavimentoId.split("-pv")[1]) - 1] : undefined;

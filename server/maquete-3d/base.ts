@@ -11,6 +11,7 @@ import { readPrivateDocument } from "../drive-documents.js";
 
 export const db = () => getDb();
 
+import { abrirPdf, type PdfAberto } from "./pdf-vetorial.js";
 export type PdfLido = { nome: string; base64: string };
 export type PedidoIA = {
   sistema: string; pedido: string; pdfs: PdfLido[];
@@ -117,8 +118,10 @@ const carteiroPadrao: Carteiro = async ({ para, nome, assunto, html, maqueteId, 
   return sendEmail({ to: para, subject: assunto, html, recipientName: nome, templateType: "maquete_3d", metadata: { maqueteId, motivo } });
 };
 
-type Dependencias = { ia: ClienteIA; lerPdf: LeitorPdf; agora: () => Date; cobrador: Cobrador; carteiro: Carteiro };
-const padrao: Dependencias = { ia: iaPadrao, lerPdf: leitorPadrao, agora: () => new Date(), cobrador: cobradorPadrao, carteiro: carteiroPadrao };
+/** Abre um PDF para o leitor geométrico (injetável nos testes). */
+export type AbridorPdf = (dados: Buffer) => Promise<PdfAberto>;
+type Dependencias = { ia: ClienteIA; abrirPdf: AbridorPdf; lerPdf: LeitorPdf; agora: () => Date; cobrador: Cobrador; carteiro: Carteiro };
+const padrao: Dependencias = { ia: iaPadrao, abrirPdf: dados => abrirPdf(dados), lerPdf: leitorPadrao, agora: () => new Date(), cobrador: cobradorPadrao, carteiro: carteiroPadrao };
 let deps: Dependencias = { ...padrao };
 
 /** Só para testes: troca IA/arquivos/relógio. Sem argumento, volta ao padrão. */

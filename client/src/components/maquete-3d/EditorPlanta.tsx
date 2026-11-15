@@ -56,7 +56,7 @@ type Alinhamento = { x: number; y: number; larguraM: number; opacidade: number }
 type Props = {
   modelo: ModeloMaquete; onChange: (m: ModeloMaquete) => void; somenteLeitura?: boolean;
   /** Para desenhar a prancha original ao fundo: id da maquete e a página de cada pavimento. */
-  maqueteId?: number; pranchas?: { pavimentoId: string; doc: number; pagina: number }[];
+  maqueteId?: number; pranchas?: { pavimentoId: string; doc: number; pagina: number; alinhamento?: { x: number; y: number; larguraM: number } | null }[];
 };
 
 export function EditorPlanta({ modelo, onChange, somenteLeitura = false, maqueteId, pranchas = [] }: Props) {
@@ -143,7 +143,10 @@ export function EditorPlanta({ modelo, onChange, somenteLeitura = false, maquete
     if (!pv || alinhamentos[chaveFundo]) return;
     let salvo: Alinhamento | null = null;
     try { salvo = JSON.parse(localStorage.getItem(chaveFundo) || "null"); } catch { /* sem alinhamento salvo */ }
-    setAlinhamentos(a => ({ ...a, [chaveFundo]: salvo ?? { x: r2(base.x - base.w * 0.25), y: r2(base.y - base.h * 0.25), larguraM: r2(base.w * 1.5), opacidade: 0.5 } }));
+    // O leitor próprio sabe onde a planta está na prancha: o fundo já entra alinhado.
+    const lido = pranchas.find(p => p.pavimentoId === pv.id)?.alinhamento;
+    const inicial = lido && lido.larguraM > 0 ? { x: r2(lido.x), y: r2(lido.y), larguraM: r2(lido.larguraM), opacidade: 0.5 } : { x: r2(base.x - base.w * 0.25), y: r2(base.y - base.h * 0.25), larguraM: r2(base.w * 1.5), opacidade: 0.5 };
+    setAlinhamentos(a => ({ ...a, [chaveFundo]: salvo ?? inicial }));
   }, [chaveFundo, pv, base, alinhamentos]);
   const alin = alinhamentos[chaveFundo];
   const mudarAlin = (parte: Partial<Alinhamento>) => {

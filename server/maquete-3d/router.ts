@@ -218,7 +218,13 @@ export const maquete3dRouter = router({
       passos: leitura.passos.map(({ chave, rotulo, estado, erro }) => ({ chave, rotulo, estado, erro: erro ?? null })),
       tokens: { entrada: leitura.tokensEntrada, saida: leitura.tokensSaida },
       /** Em que arquivo e página está a planta de cada pavimento (fundo da revisão). */
-      pranchas: leitura.passos.filter(p => p.tipo === "estrutura" && p.pavimentoId).map(p => ({ pavimentoId: p.pavimentoId!, doc: p.doc ?? 0, pagina: p.pagina ?? 1 })),
+      pranchas: Array.isArray(leitura.parciais.pranchasDosPavimentos)
+        ? (leitura.parciais.pranchasDosPavimentos as { pavimentoId: string; doc: number; pagina: number; alinhamento?: { x: number; y: number; larguraM: number } | null }[]).map(p => ({ pavimentoId: p.pavimentoId, doc: p.doc, pagina: p.pagina, alinhamento: p.alinhamento ?? null }))
+        : leitura.passos.filter(p => p.tipo === "estrutura" && p.pavimentoId).map(p => ({ pavimentoId: p.pavimentoId!, doc: p.doc ?? 0, pagina: p.pagina ?? 1, alinhamento: null as { x: number; y: number; larguraM: number } | null })),
+      /** O que o leitor não conseguiu ler (prancha escaneada, página sem planta): aviso para a revisão. */
+      avisosDaLeitura: Array.isArray(leitura.parciais.avisosDaLeitura) ? (leitura.parciais.avisosDaLeitura as string[]).slice(0, 12) : [],
+      /** Escala usada em cada planta lida pelo leitor próprio, para a pessoa conferir. */
+      escalas: leitura.passos.filter(p => p.tipo === "prancha").flatMap(p => ((leitura.parciais[p.chave] as { plantas?: { titulo: string; escala: number; escalaOrigem: string }[] } | undefined)?.plantas ?? []).map(pl => ({ titulo: pl.titulo, escala: pl.escala, origem: pl.escalaOrigem }))),
       liberadoPorNome: liberador?.nome ?? null,
       emailCliente: (await destinatario(m))?.email ?? null,
       unidades: await unidadesDoEstudo(m.studyId),

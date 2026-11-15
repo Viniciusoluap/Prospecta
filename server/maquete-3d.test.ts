@@ -194,6 +194,8 @@ describe("router maquete3d", () => {
         VALUES (1, 'projeto', 'uploaded', 'drive-9', 'implantacao.pdf', 'application/pdf', 10, 1),
                (1, 'memorial', 'uploaded', 'drive-8', 'memorial.pdf', 'application/pdf', 10, 1), (1, 'memorial', 'unlinked', null, null, null, null, 1);
     `);
+    // Os testes deste arquivo cobrem a leitura pela IA (simulada); o leitor próprio, que é o padrão, tem os seus abaixo.
+    await banco.pg.exec(`INSERT INTO maquete_3d_config (id, dados) VALUES (1, '{"motor":"ia"}') ON CONFLICT (id) DO UPDATE SET dados = EXCLUDED.dados`);
     pedidos = [];
     respostas = [];
     definirDependencias({
@@ -279,7 +281,7 @@ describe("router maquete3d", () => {
     await expect(m.definirDocumentos({ id, documentos: [docProjeto] })).resolves.toEqual({ ok: true });
 
     // Fundo da revisão: página de cada pavimento e o PDF original em partes.
-    expect((await m.detalhe({ id })).pranchas).toEqual([{ pavimentoId: "ed1-pv1", doc: 0, pagina: 1 }, { pavimentoId: "ed1-pv2", doc: 0, pagina: 2 }]);
+    expect((await m.detalhe({ id })).pranchas).toEqual([{ pavimentoId: "ed1-pv1", doc: 0, pagina: 1, alinhamento: null }, { pavimentoId: "ed1-pv2", doc: 0, pagina: 2, alinhamento: null }]);
     expect(await m.pdfParte({ id, doc: 0, parte: 0 })).toEqual({ partes: 1, nome: "planta.pdf", base64: Buffer.from("pdf:planta.pdf").toString("base64") });
     await expect(m.pdfParte({ id, doc: 1, parte: 0 })).rejects.toThrow("Arquivo não encontrado");
   });
@@ -606,6 +608,60 @@ describe("router maquete3d", () => {
     await colaborador().validar({ id });
     await admin().publicar({ id });
     await expect(colaborador().aplicarTipo({ id, tipo: "loteamento" })).rejects.toThrow("precisa estar liberada");
+  });
+
+  it("EPIC-023: leitor próprio (padrão) lê o sobrado em PDF vetorial sem IA — uma prancha por passo, dois pavimentos e a escada ligada", async () => {
+    await banco.pg.exec(`DELETE FROM maquete_3d_config`); // sem configuração gravada vale o padrão: leitor próprio
+    expect((await admin().config()).motor).toBe("geometrico");
+    const pdf = readFileSync(new URL("./fixtures/maquete-3d/sobrado.pdf", import.meta.url));
+    definirDependencias({ agora: () => new Date("2026-11-15T13:00:00Z"), lerPdf: async () => pdf, ia: async () => { throw new Error("a IA não pode ser chamada"); } });
+    const { id } = await colaborador().criar({ origem: "projeto", alvoId: 1, tipo: "casa", faixaPreco: "acima_150_ou_sobrado", documentos: [docProjeto] });
+    await admin().liberar({ id, nota: "PIX recebido em 15/11" });
+    expect(await colaborador().iniciarLeitura({ id })).toMatchObject({ total: 1, feitos: 0 });
+    // Inventário: um passo por página do PDF, mais a montagem.
+    expect(await colaborador().avancarLeitura({ id })).toMatchObject({ total: 4, feitos: 1, erro: null, status: "em_leitura" });
+    expect((await colaborador().detalhe({ id })).passos.map(p => p.rotulo)).toEqual(["Inventário das pranchas e dos pavimentos", "Leitura de planta.pdf — página 1", "Leitura de planta.pdf — página 2", "Montagem e conferência do modelo"]);
+    await colaborador().avancarLeitura({ id });
+    await colaborador().avancarLeitura({ id });
+    expect(await colaborador().avancarLeitura({ id })).toMatchObject({ total: 4, feitos: 4, proximo: null, status: "em_revisao", erro: null });
+
+    const d = await colaborador().detalhe({ id });
+    expect(d.tokens).toEqual({ entrada: 0, saida: 0 });
+    expect(d.escalas).toEqual([{ titulo: "PLANTA BAIXA - TÉRREO", escala: 75, origem: "texto" }, { titulo: "PLANTA BAIXA - PAVIMENTO SUPERIOR", escala: 75, origem: "texto" }]);
+    const [e] = d.modelo!.edificacoes;
+    expect(e.pavimentos.map(p => [p.nome, p.nivel, p.origemPeDireito])).toEqual([["Térreo", 0, "estimada"], ["Pavimento superior", 2.85, "estimada"]]);
+    expect(e.pavimentos[0].escadas).toMatchObject([{ destinoPavimentoId: e.pavimentos[1].id }]);
+    expect(e.pavimentos[1].escadas).toEqual([]);
+    expect(d.resumo).toMatchObject({ pavimentos: 2, quartos: 3, suites: 1, vagas: 1 });
+    expect(d.resumo!.areaTotal).toBeGreaterThan(270);
+    expect(d.resumo!.areaTotal).toBeLessThan(290);
+    // O que a planta baixa não traz fica como aviso ou pendência para a revisão — nunca é dado como certo.
+    expect(d.problemas.filter(p => p.nivel === "erro").map(p => p.mensagem)).toEqual(["Térreo: Escada lida pelos degraus: confira na revisão de que lado ela começa a subir."]);
+    expect(d.problemas.some(p => p.nivel === "aviso" && p.mensagem.includes("Pé-direito estimado"))).toBe(true);
+    expect(d.problemas.some(p => p.nivel === "aviso" && p.mensagem.includes("Cobertura estimada"))).toBe(true);
+    // A prancha entra ao fundo da revisão já alinhada com a planta lida.
+    expect(d.pranchas.map(p => [p.pavimentoId, p.doc, p.pagina])).toEqual([[e.pavimentos[0].id, 0, 1], [e.pavimentos[1].id, 0, 2]]);
+    expect(d.pranchas[0].alinhamento!.larguraM).toBeGreaterThan(30);
+    expect(d.pranchas[0].alinhamento!.x).toBeLessThan(0);
+  });
+
+  it("EPIC-023: leitor próprio diz por que não leu (arquivo que não é PDF; prancha sem planta) e a leitura pode ser refeita", async () => {
+    await banco.pg.exec(`DELETE FROM maquete_3d_config`);
+    const { id } = await colaborador().criar({ origem: "projeto", alvoId: 1, tipo: "casa", faixaPreco: "terrea_ate_70", documentos: [docProjeto] });
+    await admin().liberar({ id, nota: "PIX recebido em 15/11" });
+    await colaborador().iniciarLeitura({ id });
+    // O leitor de teste devolve um texto qualquer: não é PDF.
+    expect((await colaborador().avancarLeitura({ id })).erro).toContain("não é um PDF válido");
+    // PDF de verdade, mas sem planta baixa (uma página só com uma moldura e um texto).
+    const semPlanta = Buffer.from("%PDF-1.4\n1 0 obj<</Type/Catalog/Pages 2 0 R>>endobj\n2 0 obj<</Type/Pages/Kids[3 0 R]/Count 1>>endobj\n3 0 obj<</Type/Page/Parent 2 0 R/MediaBox[0 0 842 595]/Contents 4 0 R>>endobj\n4 0 obj<</Length 44>>stream\n10 10 m 800 10 l 800 500 l 10 500 l h S\nendstream\nendobj\ntrailer<</Root 1 0 R>>\n%%EOF");
+    definirDependencias({ agora: () => new Date("2026-11-15T13:00:00Z"), lerPdf: async () => semPlanta });
+    expect(await colaborador().avancarLeitura({ id })).toMatchObject({ total: 3, feitos: 1, erro: null });
+    await colaborador().avancarLeitura({ id });
+    const fim = await colaborador().avancarLeitura({ id });
+    expect(fim.status).toBe("em_leitura");
+    expect(fim.erro).toContain("Nenhuma planta baixa foi reconhecida");
+    expect(fim.erro).toContain("não tem desenho vetorial");
+    expect((await colaborador().detalhe({ id })).modelo).toBeNull();
   });
 
   it("preços: só admin altera; recusar e excluir só admin", async () => {

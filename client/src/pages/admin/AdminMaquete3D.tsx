@@ -16,8 +16,8 @@ const Visualizador = lazy(() => import("@/components/maquete-3d/visualizador/Vis
 import { ROTULOS_TIPO, TIPOS_MAQUETE, type ModeloMaquete, type TipoMaquete } from "@shared/maquete-3d/modelo";
 import { LIMITES_CASA, LIMITES_PREDIO, ehPadrao } from "@shared/maquete-3d/padrao";
 import {
-  ESFORCOS_IA, FAIXAS_PRECO, MAX_DOCUMENTOS, ROTULOS_FAIXA, ROTULOS_STATUS, escopoEnvioMaquete, type DocumentoMaquete, type FaixaPreco,
-  type OrigemMaquete, type StatusMaquete,
+  ESFORCOS_IA, FAIXAS_PRECO, MAX_DOCUMENTOS, MOTORES_LEITURA, ROTULOS_FAIXA, ROTULOS_MOTOR, ROTULOS_STATUS, escopoEnvioMaquete, type DocumentoMaquete, type FaixaPreco,
+  type MotorLeitura, type OrigemMaquete, type StatusMaquete,
 } from "@shared/maquete-3d/regras";
 
 const cardCls = "bg-[#2C3E50] border-[#C9A961]/20 text-white";
@@ -339,16 +339,22 @@ function Configuracoes({ admin }: { admin: boolean }) {
         </div>
         {admin && (
           <div className="grid gap-3 sm:grid-cols-3">
-            <label className="text-xs text-gray-300">Leitura do projeto pela IA
+            <label className="text-xs text-gray-300">Quem lê o PDF do projeto
+              <select className={inputCls} value={form.motor} onChange={e => setForm({ ...form, motor: e.target.value as MotorLeitura })}>
+                {MOTORES_LEITURA.map(x => <option key={x} value={x}>{ROTULOS_MOTOR[x]}</option>)}
+              </select></label>
+            {form.motor === "ia" && <><label className="text-xs text-gray-300">Leitura do projeto pela IA
               <select className={inputCls} value={form.esforcoIA} onChange={e => setForm({ ...form, esforcoIA: e.target.value as (typeof ESFORCOS_IA)[number] })}>
                 {ESFORCOS_IA.map(x => <option key={x} value={x}>{ROTULOS_ESFORCO[x]}</option>)}
               </select></label>
             <label className="text-xs text-gray-300">Modelo da IA
-              <input className={inputCls} value={form.modeloIA} onChange={e => setForm({ ...form, modeloIA: e.target.value })} /></label>
+              <input className={inputCls} value={form.modeloIA} onChange={e => setForm({ ...form, modeloIA: e.target.value })} /></label></>}
           </div>
         )}
-        {!form.iaConfigurada && <p className="text-sm text-amber-300">A chave da IA (ANTHROPIC_API_KEY) não está configurada no servidor: a leitura dos PDFs não vai funcionar até ela ser cadastrada.</p>}
-        {admin ? <Button className={btnOuro} disabled={salvar.isPending} onClick={() => salvar.mutate({ precos: form.precos, modeloIA: form.modeloIA, esforcoIA: form.esforcoIA })}><Save className="mr-1 h-4 w-4" />Salvar</Button>
+        {form.motor === "geometrico"
+          ? <p className="text-xs text-gray-400">O leitor próprio não tem custo: lê as linhas e os textos do PDF exportado do programa de desenho (CAD/Revit). PDF escaneado ou fotografado não tem linhas para ler; nesse caso a planta é desenhada na revisão ou usa-se a construção padrão.</p>
+          : !form.iaConfigurada && <p className="text-sm text-amber-300">A chave da IA (ANTHROPIC_API_KEY) não está configurada no servidor: a leitura pela IA não funciona até ela ser cadastrada. O leitor próprio não precisa de chave.</p>}
+        {admin ? <Button className={btnOuro} disabled={salvar.isPending} onClick={() => salvar.mutate({ precos: form.precos, motor: form.motor, modeloIA: form.modeloIA, esforcoIA: form.esforcoIA })}><Save className="mr-1 h-4 w-4" />Salvar</Button>
           : <p className="text-xs text-gray-400">Só o administrador altera os preços.</p>}
       </CardContent>
     </Card>
@@ -621,8 +627,10 @@ function Detalhe({ id }: { id: number }) {
               {d.status === "em_leitura" && <Button className={btnOuro} disabled={lendo} onClick={() => ler(false)}><Play className="mr-1 h-4 w-4" />{d.progresso.proximo?.estado === "erro" ? "Tentar de novo este passo" : "Continuar leitura"}</Button>}
               {(d.status === "em_revisao" || d.status === "validada" || d.status === "em_leitura") && <Button variant="outline" className={btnOutline} disabled={lendo || !d.documentos.length}
                 onClick={() => { if (window.confirm("Ler o projeto de novo apaga a planta atual e as correções feitas na revisão. Continuar?")) { setSujo(false); ler(true); } }}><RefreshCw className="mr-1 h-4 w-4" />Ler de novo do zero</Button>}
-              {lendo && <span className="text-gray-300">Lendo… cada passo leva até um minuto. Mantenha esta página aberta.</span>}
+              {lendo && <span className="text-gray-300">Lendo… mantenha esta página aberta.</span>}
             </div>
+            {d.escalas.length > 0 && <p className="text-xs text-gray-300">Escala usada: {d.escalas.map(e => `${e.titulo || "planta"} 1:${e.escala}${e.origem === "texto" ? "" : e.origem === "areas" ? " (conferida pelas áreas)" : " (suposta — confira)"}`).join(" · ")}</p>}
+            {d.avisosDaLeitura.map(a => <p key={a} className="text-xs text-amber-300">{a}</p>)}
             {!d.documentos.length && <p className="text-amber-300">{d.origem === "incorporacao" ? "Para a casa-tipo ou o prédio, escolha os PDFs do projeto. O loteamento não precisa de PDF." : "Escolha os PDFs do projeto antes de gerar."}</p>}
             {d.origem === "incorporacao" && ["liberada", "em_revisao", "validada"].includes(d.status) && (
               <div className="space-y-1 border-t border-[#C9A961]/15 pt-3">
