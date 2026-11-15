@@ -44,6 +44,10 @@ export interface LotePlanta {
   centro: [number, number];
   /** Ângulo (graus) do lado da testada — para alinhar rótulos. */
   angulo: number;
+  /** Peça irregular (lote recortado/ampliado na divisa, sobra destinada a área pública): sem "testada × profundidade" fixas. */
+  irregular?: boolean;
+  /** Furos (anéis internos) da peça, em metros. */
+  furos?: Position[][];
 }
 
 export interface ModeloPlanta {
@@ -66,6 +70,18 @@ function centroide(anel: Position[]): [number, number] {
   return [x / n, y / n];
 }
 
+/** Centroide de ÁREA (melhor que a média dos vértices em peças irregulares); cai na média quando a área é nula. */
+function centroideArea(anel: Position[]): [number, number] {
+  let a = 0, cx = 0, cy = 0;
+  for (let i = 0; i < anel.length - 1; i++) {
+    const [x0, y0] = anel[i], [x1, y1] = anel[i + 1];
+    const k = x0 * y1 - x1 * y0;
+    a += k; cx += (x0 + x1) * k; cy += (y0 + y1) * k;
+  }
+  if (Math.abs(a) < 1e-9) return centroide(anel);
+  return [cx / (3 * a), cy / (3 * a)];
+}
+
 function bboxDe(aneis: Position[][]): [number, number, number, number] {
   let a = Infinity, b = Infinity, c = -Infinity, d = -Infinity;
   for (const anel of aneis) for (const [x, y] of anel) { if (x < a) a = x; if (y < b) b = y; if (x > c) c = x; if (y > d) d = y; }
@@ -82,12 +98,15 @@ export function montarModeloPlanta(glebaGeo: Position[], cenario: CenarioMassa, 
     const d0 = Math.hypot(anel[1][0] - anel[0][0], anel[1][1] - anel[0][1]);
     const d1 = Math.hypot(anel[2][0] - anel[1][0], anel[2][1] - anel[1][1]);
     const ang = (Math.atan2(anel[1][1] - anel[0][1], anel[1][0] - anel[0][0]) * 180) / Math.PI;
+    const irregular = !!l.ajuste || !!l.origem || (l.tipo !== "vendavel" && anel.length !== 5);
     return {
       idx, anel, tipo: l.tipo, uso: l.uso, quadra: l.quadra, numero: l.numero,
       codigo: l.quadra && l.numero ? formatarCodigoLote(l.quadra, l.numero) : null,
       // lote que acompanha a divisa: anel irregular → usa testada real e profundidade média do motor
       areaM2: l.areaM2 || areaPlanar(anel), testadaM: l.testadaM ?? d0, profundidadeM: l.profundidadeMediaM ?? d1,
-      centro: centroide(anel), angulo: ang,
+      centro: centroideArea(anel), angulo: ang,
+      ...(irregular ? { irregular: true } : {}),
+      ...(l.furos && l.furos.length > 0 ? { furos: l.furos.map(m) } : {}),
     };
   });
   const porQuadra = new Map<string, LotePlanta[]>();
@@ -167,6 +186,72 @@ export function comprimentoEscalaGrafica(escala: number, alvoPx = 120): number {
   return p;
 }
 
+// ─── Rótulos sem sobreposição (R7) ──────────────────────────────────────────
+
+/** Caixa de rótulo na tela: centro, meia-largura, meia-altura e ângulo (rad). */
+export interface CaixaRotulo { cx: number; cy: number; hw: number; hh: number; ang: number }
+
+/** Caixa serializada no SVG (data-caixa) — permite conferir a ausência de sobreposição fora do navegador. */
+const caixaAttr = (c: CaixaRotulo) => [c.cx, c.cy, c.hw, c.hh, c.ang].map((n) => n.toFixed(3)).join(",");
+
+/** Duas caixas giradas se sobrepõem? (teorema do eixo separador) */
+export function colidem(a: CaixaRotulo, b: CaixaRotulo): boolean {
+  if (Math.hypot(a.cx - b.cx, a.cy - b.cy) > Math.hypot(a.hw, a.hh) + Math.hypot(b.hw, b.hh)) return false;
+  for (const t of [a.ang, a.ang + Math.PI / 2, b.ang, b.ang + Math.PI / 2]) {
+    const ux = Math.cos(t), uy = Math.sin(t);
+    const faixa = (c: CaixaRotulo) => {
+      const centro = c.cx * ux + c.cy * uy;
+      const r = Math.abs(c.hw * Math.cos(c.ang - t)) + Math.abs(c.hh * Math.sin(c.ang - t));
+      return [centro - r, centro + r];
+    };
+    const [a0, a1] = faixa(a), [b0, b1] = faixa(b);
+    if (a1 <= b0 || b1 <= a0) return false;
+  }
+  return true;
+}
+
+/** Eixo do lado maior (tela): ângulo legível (−90°..90°), comprimento e largura da peça medidos nesse eixo. */
+function eixoMaior(pts: [number, number][]): { ang: number; compr: number; larg: number } {
+  let melhor = -1, ang = 0;
+  for (let i = 0; i < pts.length - 1; i++) {
+    const d = Math.hypot(pts[i + 1][0] - pts[i][0], pts[i + 1][1] - pts[i][1]);
+    if (d > melhor) { melhor = d; ang = Math.atan2(pts[i + 1][1] - pts[i][1], pts[i + 1][0] - pts[i][0]); }
+  }
+  if (ang > Math.PI / 2) ang -= Math.PI;
+  if (ang <= -Math.PI / 2) ang += Math.PI;
+  const ux = Math.cos(ang), uy = Math.sin(ang);
+  let u0 = Infinity, u1 = -Infinity, v0 = Infinity, v1 = -Infinity;
+  for (const [x, y] of pts) {
+    const u = x * ux + y * uy, w = -x * uy + y * ux;
+    if (u < u0) u0 = u; if (u > u1) u1 = u; if (w < v0) v0 = w; if (w > v1) v1 = w;
+  }
+  return { ang, compr: u1 - u0, larg: v1 - v0 };
+}
+
+/**
+ * Escolhe o maior conjunto de linhas e a maior fonte (11 → 6,5 px) que cabem na peça e não colidem com
+ * rótulos já desenhados; devolve o <text> ou null (rótulo omitido).
+ */
+function encaixarRotulo(linhas: string[], cx: number, cy: number, eixo: { ang: number; compr: number; larg: number }, ocupados: CaixaRotulo[]): string | null {
+  for (let n = linhas.length; n >= 1; n--) {
+    for (const fs of [11, 10, 9, 8, 7, 6.5]) {
+      const fsSec = Math.max(6, fs * 0.86);
+      const largura = Math.max(linhas[0].length * fs * 0.64, ...linhas.slice(1, n).map((t) => t.length * fsSec * 0.56));
+      const altura = fs * 1.15 + (n - 1) * fsSec * 1.15;
+      if (largura > eixo.compr * 0.92 || altura > eixo.larg * 0.88) continue;
+      const caixa: CaixaRotulo = { cx, cy, hw: largura / 2 + 1, hh: altura / 2 + 1, ang: eixo.ang };
+      if (ocupados.some((c) => colidem(c, caixa))) continue;
+      ocupados.push(caixa);
+      const graus = (eixo.ang * 180) / Math.PI;
+      let y = -altura / 2 + fs * 0.92;
+      const tsp = [`<tspan x="0" y="${y.toFixed(1)}" font-weight="700" font-size="${fs}">${esc(linhas[0])}</tspan>`];
+      for (let k = 1; k < n; k++) { y += fsSec * 1.15; tsp.push(`<tspan x="0" y="${y.toFixed(1)}" font-size="${fsSec.toFixed(1)}">${esc(linhas[k])}</tspan>`); }
+      return `<text data-rotulo="lote" data-caixa="${caixaAttr(caixa)}" transform="translate(${cx.toFixed(1)},${cy.toFixed(1)}) rotate(${graus.toFixed(1)})">${tsp.join("")}</text>`;
+    }
+  }
+  return null;
+}
+
 export interface OpcoesRender {
   selecionado?: number | null;
   /** Quadra destacada (normalmente a do lote selecionado). */
@@ -196,7 +281,13 @@ export function renderizarPlantaSvg(modelo: ModeloPlanta, v: VistaPlanta, o: Opc
     const destaqueQuadra = o.quadra && l.quadra === o.quadra;
     const borda = l.idx === sel ? CORES_PLANTA.selecao : l.tipo === "vendavel" ? CORES_PLANTA.vendavelBorda : CORES_PLANTA.viaBorda;
     const larg = l.idx === sel ? 2.2 : destaqueQuadra ? 1.4 : 0.7;
-    partes.push(`<polygon data-lote="${l.idx}" points="${pontos(l.anel, v)}" fill="${corLote(l)}" fill-opacity="${destaqueQuadra || l.idx === sel ? 1 : 0.92}" stroke="${borda}" stroke-width="${larg}" style="cursor:pointer"><title>${esc(rotuloLote(l))}</title></polygon>`);
+    const estilo = `fill="${corLote(l)}" fill-opacity="${destaqueQuadra || l.idx === sel ? 1 : 0.92}" stroke="${borda}" stroke-width="${larg}" style="cursor:pointer"`;
+    if (l.furos && l.furos.length > 0) {
+      const d = [l.anel, ...l.furos].map((a) => `M${pontos(a, v).replace(/ /g, " L")} Z`).join(" ");
+      partes.push(`<path data-lote="${l.idx}" d="${d}" fill-rule="evenodd" ${estilo}><title>${esc(rotuloLote(l))}</title></path>`);
+    } else {
+      partes.push(`<polygon data-lote="${l.idx}" points="${pontos(l.anel, v)}" ${estilo}><title>${esc(rotuloLote(l))}</title></polygon>`);
+    }
   }
   partes.push(`</g>`);
 
@@ -205,44 +296,53 @@ export function renderizarPlantaSvg(modelo: ModeloPlanta, v: VistaPlanta, o: Opc
     partes.push(`<polygon data-camada="gleba" points="${pontos(anel, v)}" fill="none" stroke="${CORES_PLANTA.gleba}" stroke-width="2" stroke-dasharray="10 4 2 4"/>`);
   }
 
-  // rótulos dos lotes conforme o zoom
+  // rótulos (R7): lote antes de quadra e de via; nenhum rótulo é desenhado por cima de outro. A fonte diminui e
+  // o texto gira ao longo do lado maior até caber no lote; se não couber, o rótulo é omitido (fica na dica).
   partes.push(`<g data-camada="rotulos" pointer-events="none" fill="${CORES_PLANTA.texto}" text-anchor="middle">`);
-  for (const l of modelo.lotes) {
-    const menorPx = Math.min(l.testadaM, l.profundidadeM) * v.escala;
-    const maiorPx = Math.max(l.testadaM, l.profundidadeM) * v.escala;
-    if (menorPx < 14) continue;
-    const cx = v.tx + l.centro[0] * v.escala, cy = v.ty - l.centro[1] * v.escala;
+  const ocupados: CaixaRotulo[] = [];
+  const naTela = (p: Position): [number, number] => [v.tx + p[0] * v.escala, v.ty - p[1] * v.escala];
+  const ordemLotes = [...modelo.lotes].sort((a, b) => (a.tipo === "vendavel" ? 0 : 1) - (b.tipo === "vendavel" ? 0 : 1) || b.areaM2 - a.areaM2 || a.idx - b.idx);
+  for (const l of ordemLotes) {
+    const [cx, cy] = naTela(l.centro);
     if (cx < -50 || cy < -50 || cx > W + 50 || cy > H + 50) continue;
-    // rotaciona o texto ao longo do maior lado (legível em lotes estreitos e compridos)
-    let rot = l.profundidadeM > l.testadaM ? -(l.angulo + 90) : -l.angulo;
-    rot = ((rot % 180) + 180) % 180; if (rot > 90) rot -= 180;
-    const linhas: string[] = [];
+    const eixo = eixoMaior(l.anel.map(naTela));
+    if (eixo.compr < 10 || eixo.larg < 7) continue;
     const nome = l.tipo === "vendavel" ? (l.numero ? `L${l.numero.padStart(2, "0")}` : "") : l.tipo === "nao_parcelavel" ? "NP" : l.uso === "institucional" ? "INST" : "AV";
-    if (nome) linhas.push(`<tspan x="0" dy="0" font-weight="700" font-size="11">${esc(nome)}</tspan>`);
-    if (maiorPx >= 46 && menorPx >= 22) linhas.push(`<tspan x="0" dy="12" font-size="9.5">${esc(fmt(l.areaM2))} m²</tspan>`);
-    if (maiorPx >= 90 && menorPx >= 34) linhas.push(`<tspan x="0" dy="11" font-size="9">${esc(`${fmt(l.testadaM)} × ${fmt(l.profundidadeM)} m`)}</tspan>`);
-    partes.push(`<text transform="translate(${cx.toFixed(1)},${(cy - (linhas.length - 1) * 5).toFixed(1)}) rotate(${rot.toFixed(1)})">${linhas.join("")}</text>`);
+    if (!nome) continue;
+    const linhas = [nome, `${fmt(l.areaM2)} m²`];
+    if (l.tipo === "vendavel") linhas.push(`${fmt(l.testadaM)} × ${fmt(l.profundidadeM)} m${l.irregular ? " (méd.)" : ""}`);
+    const posto = encaixarRotulo(linhas, cx, cy, eixo, ocupados);
+    if (posto) partes.push(posto);
   }
-  // quadras
+  // quadras: "Qxx" só onde não cobre número de lote (tenta o centro e pontos ao longo do eixo maior da quadra)
   for (const q of modelo.quadras) {
     const wpx = (q.bbox[2] - q.bbox[0]) * v.escala, hpx = (q.bbox[3] - q.bbox[1]) * v.escala;
     if (Math.max(wpx, hpx) < 40) continue;
-    const cx = v.tx + q.centro[0] * v.escala, cy = v.ty - q.centro[1] * v.escala;
     const destaque = o.quadra === q.quadra;
-    partes.push(`<text x="${cx.toFixed(1)}" y="${(cy + 4).toFixed(1)}" font-size="${destaque ? 15 : 13}" font-weight="900" fill="${destaque ? CORES_PLANTA.selecao : CORES_PLANTA.quadra}" fill-opacity="0.55">Q${esc(q.quadra.padStart(2, "0"))}</text>`);
-  }
-  // largura das vias (ao longo do maior lado de cada corredor)
-  for (const r of modelo.ruas) {
-    let melhor = 0, ang = 0;
-    for (let i = 0; i < r.length - 1; i++) {
-      const d = Math.hypot(r[i + 1][0] - r[i][0], r[i + 1][1] - r[i][1]);
-      if (d > melhor) { melhor = d; ang = (Math.atan2(r[i + 1][1] - r[i][1], r[i + 1][0] - r[i][0]) * 180) / Math.PI; }
+    const fs = destaque ? 15 : 13;
+    const texto = `Q${q.quadra.padStart(2, "0")}`;
+    const [cx0, cy0] = naTela(q.centro);
+    const horizontal = wpx >= hpx;
+    const desloc = [0, 0.18, -0.18, 0.36, -0.36, 0.45, -0.45];
+    for (const f of desloc) {
+      const cx = cx0 + (horizontal ? f * wpx : 0), cy = cy0 + (horizontal ? 0 : f * hpx);
+      const caixa: CaixaRotulo = { cx, cy, hw: (texto.length * fs * 0.66) / 2 + 2, hh: fs * 0.6 + 1, ang: 0 };
+      if (ocupados.some((c) => colidem(c, caixa))) continue;
+      ocupados.push(caixa);
+      partes.push(`<text data-rotulo="quadra" data-caixa="${caixaAttr(caixa)}" x="${cx.toFixed(1)}" y="${(cy + fs * 0.35).toFixed(1)}" font-size="${fs}" font-weight="900" fill="${destaque ? CORES_PLANTA.selecao : CORES_PLANTA.quadra}" fill-opacity="0.55">${esc(texto)}</text>`);
+      break;
     }
-    if (melhor * v.escala < 140 || modelo.larguraViaM * v.escala < 9) continue;
-    const c = centroide(r);
-    const cx = v.tx + c[0] * v.escala, cy = v.ty - c[1] * v.escala;
-    let rot = -ang; rot = ((rot % 180) + 180) % 180; if (rot > 90) rot -= 180;
-    partes.push(`<text transform="translate(${cx.toFixed(1)},${(cy + 3).toFixed(1)}) rotate(${rot.toFixed(1)})" font-size="9" fill="#374151">Via ${esc(fmt(modelo.larguraViaM))} m</text>`);
+  }
+  // largura das vias (ao longo do maior lado de cada corredor), só onde não cobre outro rótulo
+  for (const r of modelo.ruas) {
+    const eixo = eixoMaior(r.map(naTela));
+    if (eixo.compr < 140 || modelo.larguraViaM * v.escala < 9) continue;
+    const [cx, cy] = naTela(centroideArea(r));
+    const texto = `Via ${fmt(modelo.larguraViaM)} m`;
+    const caixa: CaixaRotulo = { cx, cy, hw: (texto.length * 9 * 0.56) / 2 + 2, hh: 6, ang: eixo.ang };
+    if (ocupados.some((c) => colidem(c, caixa))) continue;
+    ocupados.push(caixa);
+    partes.push(`<text data-rotulo="via" data-caixa="${caixaAttr(caixa)}" transform="translate(${cx.toFixed(1)},${(cy + 3).toFixed(1)}) rotate(${((eixo.ang * 180) / Math.PI).toFixed(1)})" font-size="9" fill="#374151">${esc(texto)}</text>`);
   }
   partes.push(`</g>`);
 
@@ -283,7 +383,7 @@ export function renderizarPlantaSvg(modelo: ModeloPlanta, v: VistaPlanta, o: Opc
 
 export function rotuloLote(l: LotePlanta): string {
   const dims = `${fmt(l.testadaM)} × ${fmt(l.profundidadeM)} m`;
-  if (l.tipo === "vendavel") return `${l.codigo ?? "Lote"} · ${fmt(l.areaM2)} m² · ${dims}`;
+  if (l.tipo === "vendavel") return `${l.codigo ?? "Lote"} · ${fmt(l.areaM2)} m² · ${l.irregular ? `testada ${fmt(l.testadaM)} m, profundidade média ${fmt(l.profundidadeM)} m (lote de borda)` : dims}`;
   if (l.tipo === "nao_parcelavel") return `Não parcelável (restrição) · ${fmt(l.areaM2)} m²`;
-  return `${l.uso === "institucional" ? "Área institucional" : "Área verde"} · ${fmt(l.areaM2)} m² · ${dims}`;
+  return `${l.uso === "institucional" ? "Área institucional" : "Área verde"} · ${fmt(l.areaM2)} m²${l.irregular ? "" : ` · ${dims}`}`;
 }

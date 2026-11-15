@@ -3,8 +3,8 @@ import dynamic from "./compat/dynamic";
 import { AlertTriangle, CheckCircle2, FolderOpen, Grid3x3, Loader2, Save, Send, Star, Trash2, Trophy, CopyPlus, PenTool, Satellite } from "lucide-react";
 import { formatCurrency, parseNumeroBR, formatArea } from "./compat/util";
 import {
-  assinaturaEntradas, criarProjecao, validarParametrosMassa, ROTULO_ESTUDO_PRELIMINAR, TIPOLOGIAS_MASSA,
-  type CenarioMassa, type EstudoMassaGerado, type ParametrosMassa, type TipologiaMassa,
+  assinaturaEntradas, criarProjecao, validarParametrosMassa, viasEntornoDoOsm, ROTULO_ESTUDO_PRELIMINAR, TIPOLOGIAS_MASSA,
+  type CenarioMassa, type EntradaGleba, type EstudoMassaGerado, type ParametrosMassa, type TipologiaMassa, type ViaEntorno,
 } from "@shared/incorporacao/massa";
 import { executarMotorMassa } from "./executar-massa";
 import { LADOS_GLEBA, ROTULO_LADO, medirLados, type LadoGleba } from "@shared/incorporacao/lados-gleba";
@@ -101,6 +101,28 @@ function paramsIniciais(estudo: EstudoData): ParametrosMassa {
 
 type Mensagem = { tipo: "ok" | "erro"; texto: string } | null;
 
+const ROTA_CAMADAS = "/api/incorporacao/camadas-terreno";
+
+/**
+ * Vias públicas do entorno (camada "osm", a mesma do mapa do Terreno) para o motor ligar a malha às ruas
+ * existentes (R5). Falha na busca não impede gerar: devolve null e o motor exige só o acesso pela divisa.
+ */
+async function buscarViasEntorno(contorno: GeometriaTerreno): Promise<ViaEntorno[] | null> {
+  try {
+    const r = await fetch(ROTA_CAMADAS, {
+      method: "POST", credentials: "include", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ geojson: contorno, ids: ["osm"] }), signal: AbortSignal.timeout(25_000),
+    });
+    if (!r.ok) return null;
+    const j = await r.json().catch(() => null) as { camadas?: { osm?: { estado?: string; dados?: { vias?: unknown[] } } } } | null;
+    const osm = j?.camadas?.osm;
+    if (!osm || (osm.estado !== "ok" && osm.estado !== "vazio")) return null;
+    return viasEntornoDoOsm((osm.dados?.vias ?? []) as Parameters<typeof viasEntornoDoOsm>[0]);
+  } catch {
+    return null;
+  }
+}
+
 export function MassaTab({ estudo }: { estudo: EstudoData }) {
   const [params, setParams] = useState<ParametrosMassa>(() => paramsIniciais(estudo));
   // Buffer de texto por campo — permite digitar no padrão brasileiro
@@ -118,6 +140,8 @@ export function MassaTab({ estudo }: { estudo: EstudoData }) {
   const [avisos, setAvisos] = useState<string[]>([]);
   const [visao, setVisao] = useState<"tecnico" | "satelite">("tecnico");
   const cache = useRef<{ assinatura: string; resultado: EstudoMassaGerado } | null>(null);
+  // vias do entorno por contorno (a rota de camadas também tem cache no servidor)
+  const viasCache = useRef<{ geojson: string; vias: ViaEntorno[] } | null>(null);
   // Estudos salvos (correção 11)
   const [salvos, setSalvos] = useState<EstudoMassaSalvo[]>([]);
   const [carregandoSalvos, setCarregandoSalvos] = useState(true);
@@ -199,19 +223,26 @@ export function MassaTab({ estudo }: { estudo: EstudoData }) {
     }
 
     setErro(null);
-    if (contorno?.type === "MultiPolygon") {
-      setErro("O KML contém áreas separadas. Para gerar cenários de massa, use um estudo por área contínua.");
-      return;
-    }
-    const anel = contorno?.coordinates[0];
-    if (!anel || anel.length < 4) {
+    // KML com áreas separadas: o motor estuda cada área contínua e compõe um único resultado (furos respeitados)
+    const entrada: EntradaGleba | null = contorno?.type === "MultiPolygon" ? contorno.coordinates
+      : contorno?.type === "Polygon" ? (contorno.coordinates.length > 1 ? [contorno.coordinates] : contorno.coordinates[0]) : null;
+    const primeiro = contorno?.type === "MultiPolygon" ? contorno.coordinates[0]?.[0] : contorno?.coordinates[0];
+    if (!entrada || !primeiro || primeiro.length < 4) {
       setErro("Geometria da gleba inválida ou incompleta. Reenvie o KML na aba Terreno.");
       return;
     }
     const centro: [number, number] = [estudo.centroLng, estudo.centroLat];
-    const assinatura = assinaturaEntradas(anel, entradas);
+    setGerando(true); // bloqueia novos cliques já durante a consulta das vias
+    let vias: ViaEntorno[] | null = viasCache.current?.geojson === estudo.geojson ? viasCache.current.vias : null;
+    if (!vias && contorno) {
+      setProgresso({ fracao: 0, etapa: "Consultando as vias existentes do entorno (OpenStreetMap)" });
+      vias = await buscarViasEntorno({ type: "Feature", properties: {}, geometry: contorno });
+      if (vias) viasCache.current = { geojson: estudo.geojson, vias };
+    }
+    const avisoVias = vias ? null : "Vias do entorno (OpenStreetMap) indisponíveis agora: a ligação com as ruas existentes não pôde ser conferida — os cenários exigem acesso pela divisa e o acesso externo fica a confirmar em projeto.";
+    const assinatura = assinaturaEntradas(entrada, entradas, vias);
     const aplicar = (r: EstudoMassaGerado) => {
-      setAvisos(r.avisos);
+      setAvisos(avisoVias ? [avisoVias, ...r.avisos] : r.avisos);
       setInviabilidade(r.inviabilidade);
       if (r.cenarios.length === 0) {
         // nenhum cenário válido: mantém os anteriores fora da tela de comparação, sem inventar cartões
@@ -224,12 +255,11 @@ export function MassaTab({ estudo }: { estudo: EstudoData }) {
       setSelecionado(r.cenarios[0].id);
     };
     // mesmas entradas + mesma versão do algoritmo = mesmo resultado: reaproveita sem recalcular
-    if (cache.current?.assinatura === assinatura) { aplicar(cache.current.resultado); return; }
+    if (cache.current?.assinatura === assinatura) { setGerando(false); setProgresso(null); aplicar(cache.current.resultado); return; }
 
-    setGerando(true);
     setProgresso({ fracao: 0, etapa: "Iniciando" });
     try {
-      const r = await executarMotorMassa(anel, centro, entradas, (fracao, etapa) => setProgresso({ fracao, etapa }));
+      const r = await executarMotorMassa(entrada, centro, entradas, vias, (fracao, etapa) => setProgresso({ fracao, etapa }));
       cache.current = { assinatura, resultado: r };
       aplicar(r);
     } catch (e) {
@@ -505,7 +535,7 @@ export function MassaTab({ estudo }: { estudo: EstudoData }) {
                     <p className="text-xs font-black text-[var(--brand-dark)] uppercase flex items-center gap-1">
                       {i === 0 && <Trophy size={12} className="text-[var(--brand-yellow)]" />} Cenário {i + 1}
                     </p>
-                    <span className="text-[10px] text-gray-600">{ROTULO_TIPOLOGIA[c.tipologia ?? "grid"]} · {c.anguloVia.toLocaleString("pt-BR")}°</span>
+                    <span className="text-[10px] text-gray-600">{ROTULO_TIPOLOGIA[c.tipologia ?? "grid"]} · {c.anguloVia.toLocaleString("pt-BR")}°{c.areas && c.areas > 1 ? ` · ${c.areas} áreas` : ""}</span>
                   </div>
                   {c.criterioRotulo && <p className="text-[10px] font-bold uppercase tracking-wide text-gray-500 mb-1">{c.criterioRotulo}</p>}
                   <p className="font-black text-[var(--brand-dark)] text-xl leading-none mb-1">{c.kpis.lotesVendaveis} lotes</p>

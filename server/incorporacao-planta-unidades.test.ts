@@ -37,8 +37,9 @@ describe("Correção 04 — desenho técnico universal", () => {
         expect(svg).toContain('data-camada="escala"');
         expect(svg).toContain('data-camada="norte"');
         expect(svg).toContain(`Lotes vendáveis (${c.kpis.lotesVendaveis})`);
-        // medidas do modelo = medidas do cálculo (mesma projeção)
-        for (const l of modelo.lotes) {
+        // medidas do modelo = medidas do cálculo (mesma projeção). Etapa F: lotes recortados/ampliados na divisa e
+        // peças de sobra (áreas públicas) têm forma irregular — conferem-se os lotes retangulares inteiros
+        for (const l of modelo.lotes.filter((x) => x.tipo === "vendavel" && !x.irregular)) {
           expect(l.testadaM).toBeCloseTo(BASE.testadaLoteM, 4);
           expect(l.profundidadeM).toBeCloseTo(BASE.profundidadeLoteM, 4);
         }

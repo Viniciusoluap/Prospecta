@@ -41,7 +41,10 @@ export function implantacaoDoEstudo(geojson: string | null, centro: [number, num
   const local = (anel: Position[]): Ponto[] => bruto(anel).map(([x, y]) => ({ x: r2(x - oeste), y: r2(norte - y) }));
 
   let descartados = 0;
-  const maior = aneisTerreno.map(local).sort((a, b) => b.length - a.length)[0] ?? [];
+  // O modelo da maquete aceita UM contorno de terreno: com várias áreas separadas (KML com MultiPolygon), fica a de
+  // maior ÁREA (não a de mais vértices); os lotes e ruas de todas as áreas continuam na implantação.
+  const areaLocal = (pts: Ponto[]) => Math.abs(pts.reduce((s, p, i) => { const q = pts[(i + 1) % pts.length]; return s + p.x * q.y - q.x * p.y; }, 0) / 2);
+  const maior = aneisTerreno.map(local).map((pts) => ({ pts, area: areaLocal(pts) })).sort((a, b) => b.area - a.area)[0]?.pts ?? [];
   const lotes = (cenario?.lotes ?? []).flatMap((l, i) => {
     const poligono = local(l.anel);
     if (poligono.length < 3) { descartados++; return []; }
