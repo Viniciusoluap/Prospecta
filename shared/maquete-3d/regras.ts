@@ -22,6 +22,13 @@ export function faixaPorArea(areaM2: number, pavimentos: number): FaixaPreco {
 }
 
 export const MODELO_IA_PADRAO = "claude-opus-5-5";
+/**
+ * Quem lê o PDF. "geometrico": o leitor próprio do sistema (linhas, arcos e textos do PDF vetorial), sem custo —
+ * é o padrão desde 15/11/2026 (pedido do dono). "ia": a leitura paga pela API, só se o administrador escolher.
+ */
+export const MOTORES_LEITURA = ["geometrico", "ia"] as const;
+export type MotorLeitura = (typeof MOTORES_LEITURA)[number];
+export const ROTULOS_MOTOR: Record<MotorLeitura, string> = { geometrico: "Leitor próprio (sem custo)", ia: "IA (paga, exige chave)" };
 export const ESFORCOS_IA = ["low", "medium", "high"] as const;
 
 export const configSchema = z.object({
@@ -30,6 +37,7 @@ export const configSchema = z.object({
     terrea_70_150: z.number().min(0).max(100000).default(PRECOS_PADRAO.terrea_70_150),
     acima_150_ou_sobrado: z.number().min(0).max(100000).default(PRECOS_PADRAO.acima_150_ou_sobrado),
   }).default(PRECOS_PADRAO),
+  motor: z.enum(MOTORES_LEITURA).default("geometrico"),
   modeloIA: z.string().min(1).max(80).default(MODELO_IA_PADRAO),
   esforcoIA: z.enum(ESFORCOS_IA).default("medium"),
 });
@@ -72,7 +80,7 @@ export type TipoPrancha = (typeof TIPOS_PRANCHA)[number];
 
 export type PassoLeitura = {
   chave: string;
-  tipo: "inventario" | "estrutura" | "ambientes" | "implantacao" | "montagem";
+  tipo: "inventario" | "prancha" | "estrutura" | "ambientes" | "implantacao" | "montagem";
   rotulo: string;
   estado: "pendente" | "feito" | "erro";
   erro?: string | null;
