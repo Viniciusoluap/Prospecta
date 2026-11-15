@@ -15,7 +15,7 @@ import {
   MAX_BYTES_DOCUMENTOS, PODE_LER, TIPOS_PRANCHA, documentoSchema, leituraVazia, lerEstadoLeitura, type DocumentoMaquete,
   type EstadoLeitura, type PassoLeitura, type StatusMaquete,
 } from "../../shared/maquete-3d/regras.js";
-import { LeituraIndisponivel, agora, carregarConfig, db, dependencias, erroSeguro, type PdfLido } from "./base.js";
+import { LeituraIndisponivel, agora, carregarConfig, db, dependencias, erroSeguro, type PdfLido, alvoDoDocumento } from "./base.js";
 
 // ── Esquemas da resposta da IA (JSON Schema, saída estruturada) ──
 
@@ -140,11 +140,10 @@ export const lerDocumentos = (textoJson: string): DocumentoMaquete[] => {
 async function carregarPdfs(m: Maquete3d): Promise<PdfLido[]> {
   const docs = lerDocumentos(m.documentos);
   if (!docs.length) throw new LeituraIndisponivel("Nenhum PDF foi escolhido para esta maquete.");
-  const alvoId = (m.origem === "projeto" ? m.projectId : m.studyId)!;
   const pdfs: PdfLido[] = [];
   let total = 0;
   for (const d of docs) {
-    const dados = await dependencias().lerPdf(d, alvoId);
+    const dados = await dependencias().lerPdf(d, alvoDoDocumento(m, d));
     total += dados.length;
     if (total > MAX_BYTES_DOCUMENTOS) throw new LeituraIndisponivel(`Os PDFs escolhidos somam mais de ${Math.round(MAX_BYTES_DOCUMENTOS / 1048576)} MB. Escolha menos arquivos ou envie versões mais leves.`);
     pdfs.push({ nome: d.nome, base64: dados.toString("base64") });

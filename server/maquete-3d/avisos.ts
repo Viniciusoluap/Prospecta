@@ -19,6 +19,11 @@ export async function destinatario(m: Maquete3d): Promise<{ email: string; nome:
     const [u] = await db().select({ email: users.email, nome: users.name, papel: users.role }).from(users).where(eq(users.id, m.solicitadoPor)).limit(1);
     if (u?.papel === "cliente" && valido(u.email)) return { email: u.email, nome: u.nome ?? "Cliente" };
   }
+  if (m.leadId) {
+    // Pedido ligado direto ao cliente do CRM (sem projeto cadastrado).
+    const [c] = await db().select({ email: leads.email, nome: leads.name }).from(leads).where(eq(leads.id, m.leadId)).limit(1);
+    return valido(c?.email) ? { email: c.email, nome: c.nome ?? "Cliente" } : null;
+  }
   if (!m.projectId) return null;
   const [p] = await db().select({ leadId: operationalProjects.leadId, nome: operationalProjects.clientName }).from(operationalProjects).where(eq(operationalProjects.id, m.projectId)).limit(1);
   if (!p?.leadId) return null;

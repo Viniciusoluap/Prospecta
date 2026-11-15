@@ -56,10 +56,12 @@ export function PortalMaquete() {
   return (
     <div className="space-y-4">
       <p className="text-sm text-slate-600">Veja a sua casa em 3D antes de construir: decorada, com iluminação de manhã, no pôr do sol e à noite, e ande por dentro dos cômodos no computador ou no celular.</p>
-      {dados.projetos.length === 0 && <p className="rounded-lg border border-dashed p-6 text-center text-sm text-slate-500">Você ainda não tem projeto cadastrado. Quando o seu projeto estiver com a nossa equipe, a maquete 3D aparece aqui.</p>}
-      {dados.projetos.map(p => {
+      {dados.projetos.length === 0 && dados.avulsas.length === 0 && <p className="rounded-lg border border-dashed p-6 text-center text-sm text-slate-500">Você ainda não tem projeto cadastrado. Quando o seu projeto estiver com a nossa equipe, a maquete 3D aparece aqui.</p>}
+      {[...dados.avulsas.map(a => ({ id: -a.id, nome: a.titulo.replace(/^Maquete 3D — /, ""), temPdf: true, maquete: a as typeof a | null, semProjeto: true })),
+        ...dados.projetos.map(p => ({ ...p, semProjeto: false }))].map(p => {
         const m = p.maquete, cobranca = m ? cobrancas[m.id] : undefined, faixa = faixas[p.id] ?? dados.precos[0].faixa;
-        const podePedir = !m || m.status === "recusada";
+        // Pedido criado pela equipe sem projeto cadastrado: o cliente acompanha e paga, mas não pede de novo por aqui.
+        const podePedir = !p.semProjeto && (!m || m.status === "recusada");
         return (
           <Card key={p.id}>
             <CardHeader><CardTitle className="flex flex-wrap items-center gap-2 text-base"><Box className="h-5 w-5 text-amber-600" />{p.nome}{m && <Badge variant={m.status === "publicada" ? "default" : "secondary"}>{SITUACAO[m.status]}</Badge>}</CardTitle></CardHeader>
@@ -67,7 +69,7 @@ export function PortalMaquete() {
               {m?.status === "publicada" && m.link && (
                 <a href={m.link} target="_blank" rel="noreferrer"><Button type="button" size="lg"><Box className="mr-2 h-5 w-5" />Abrir a minha maquete 3D</Button></a>
               )}
-              {m?.status === "recusada" && <p className="text-red-600">Não foi possível produzir a maquete{m.recusaMotivo ? `: ${m.recusaMotivo}` : "."} Fale com a nossa equipe; você pode pedir de novo abaixo.</p>}
+              {m?.status === "recusada" && <p className="text-red-600">Não foi possível produzir a maquete{m.recusaMotivo ? `: ${m.recusaMotivo}` : "."} Fale com a nossa equipe{p.semProjeto ? "." : "; você pode pedir de novo abaixo."}</p>}
               {m?.status === "aguardando_aprovacao" && (
                 <p className="text-slate-600">Recebemos o seu pedido{m.preco !== null ? ` (${reais(m.preco)})` : ""}. A nossa equipe confere o projeto e aprova; depois disso o pagamento é liberado aqui e você é avisado por e-mail.</p>
               )}

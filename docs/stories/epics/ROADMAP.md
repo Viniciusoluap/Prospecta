@@ -37,7 +37,7 @@
 | EPIC-019 | Navegação da Central Administrativa | Claude / AIOX | InReview (story 3.1; UAT visual pendente) — **Santa Fé: não se aplica (tela removida no lote de limpeza do CRM; verificado em 13/11)** | — |
 | EPIC-020 | 32 implementações auditadas (paridade Prospecta ↔ Santa Fé, motor financeiro) | Claude / AIOX | Em andamento — Lote 0 concluído e Lote 1 publicado (12/10); matriz em `epic-020-32-implementacoes-paridade/MATRIZ-PARIDADE.md` | EPIC-017, EPIC-018 |
 | EPIC-022 | Maquete 3D (exclusivo Prospecta — exceção de paridade) | Claude | Em andamento — etapa 1 (base, motor de leitura e revisão) em `epic-022-maquete-3d/` | Projetos, EPIC-008 |
-| EPIC-023 | 13 correções pedidas pelo dono em 15/11 (CRM no iPad, fim de "Corretores", filtro de perfis, mapa operacional MapLibre, pedidos e leitura da Maquete 3D, camadas do terreno, Estudo de Massa conectado, vias 3D) | Claude / AIOX | Em andamento — autorizado pelo dono em 15/11 (4 decisões respondidas); Etapas A e B publicadas; etapas C–G em `epic-023-correcoes-15-11/` | EPIC-008, EPIC-018, EPIC-022 |
+| EPIC-023 | 13 correções pedidas pelo dono em 15/11 (CRM no iPad, fim de "Corretores", filtro de perfis, mapa operacional MapLibre, pedidos e leitura da Maquete 3D, camadas do terreno, Estudo de Massa conectado, vias 3D) | Claude / AIOX | Em andamento — autorizado pelo dono em 15/11 (4 decisões respondidas); Etapas A, B e C publicadas; etapas D–G em `epic-023-correcoes-15-11/` | EPIC-008, EPIC-018, EPIC-022 |
 
 ## Decisões do dono do produto (06/09/2026)
 

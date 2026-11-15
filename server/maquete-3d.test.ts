@@ -160,7 +160,7 @@ async function criarBanco() {
   const pg = new PGlite();
   await pg.exec(ddl);
   await pg.exec(`CREATE TABLE incorporation_registration_file_data (document_id integer PRIMARY KEY, mime text, size_bytes integer, data bytea);`);
-  for (const arquivo of ["0111_maquete_3d.sql", "0112_maquete_3d_comercial.sql", "0113_maquete_3d_pagamento.sql", "0114_maquete_3d_email.sql"]) {
+  for (const arquivo of ["0111_maquete_3d.sql", "0112_maquete_3d_comercial.sql", "0113_maquete_3d_pagamento.sql", "0114_maquete_3d_email.sql", "0115_maquete_3d_lead_arquivos.sql"]) {
     const migracao = readFileSync(new URL(`../drizzle/${arquivo}`, import.meta.url), "utf8");
     await pg.exec(migracao);
     await pg.exec(migracao); // idempotente
@@ -505,6 +505,107 @@ describe("router maquete3d", () => {
     await admin().iniciarLeitura({ id });
     expect((await admin().avancarLeitura({ id })).erro).toMatch(/Chave da IA não configurada/);
     expect((await admin().detalhe({ id })).modelo).toBeNull();
+  });
+
+  it("EPIC-023: pedido ligado a cliente do CRM (ou projeto, nunca os dois), com PDF avulso, portal e e-mail pelo cadastro", async () => {
+    await banco.pg.exec(`INSERT INTO leads (name, phone, email) VALUES ('Bruno Costa', '99888', 'bruno@exemplo.com')`);
+    await expect(colaborador().criar({ origem: "projeto", alvoId: 1, leadId: 1, tipo: "casa", faixaPreco: "terrea_ate_70", documentos: [] })).rejects.toThrow("não aos dois");
+    await expect(colaborador().criar({ origem: "projeto", tipo: "casa", faixaPreco: "terrea_ate_70", documentos: [] })).rejects.toThrow("projeto ou o cliente");
+    await expect(colaborador().criar({ origem: "incorporacao", alvoId: 1, leadId: 1, tipo: "casa", documentos: [] })).rejects.toThrow("ligada ao estudo");
+    await expect(colaborador().criar({ origem: "projeto", leadId: 99, tipo: "casa", faixaPreco: "terrea_ate_70", documentos: [] })).rejects.toThrow("Cliente do CRM não encontrado");
+    expect((await colaborador().clientes({ busca: "bruno" })).map(c => c.nome)).toEqual(["Bruno Costa"]);
+
+    const { id } = await colaborador().criar({ origem: "projeto", leadId: 1, tipo: "casa", faixaPreco: "terrea_ate_70", documentos: [] });
+    expect(await colaborador().detalhe({ id })).toMatchObject({ titulo: "Maquete 3D — Bruno Costa", projectId: null, leadId: 1, status: "aguardando_pagamento", preco: 197, clienteTelefone: "99888", emailCliente: "bruno@exemplo.com", documentos: [], disponiveis: [] });
+    expect((await colaborador().listar()).find(m => m.id === id)).toMatchObject({ alvo: "Bruno Costa", porCliente: true, cliente: null });
+    // A regra do banco recusa pedido de projeto sem projeto e sem cliente, e com os dois.
+    await expect(banco.pg.exec(`UPDATE maquetes_3d SET lead_id = NULL WHERE id = ${id}`)).rejects.toThrow();
+    await expect(banco.pg.exec(`UPDATE maquetes_3d SET project_id = 1 WHERE id = ${id}`)).rejects.toThrow();
+
+    // PDF avulso: sobe em partes e é anexado; arquivo que não é PDF é recusado.
+    const enviar = async (uploadId: string, nome: string, conteudo: string) => {
+      await caller(2, "colaborador", JSON.stringify(["maquete3d"])).documentChunks.part({ uploadId, part: 0, total: 1, scope: `maquete3d:${id}`, fileName: nome, base64: Buffer.from(conteudo).toString("base64") });
+      return colaborador().anexarPdf({ id, uploadId, nome });
+    };
+    await expect(enviar("11111111-1111-4111-8111-111111111111", "planta.pdf", "isto não é pdf")).rejects.toThrow("não é um PDF válido");
+    await expect(enviar("22222222-2222-4222-8222-222222222222", "planta.dwg", "%PDF-1.7 x")).rejects.toThrow("Envie um arquivo PDF");
+    const anexo = await enviar("33333333-3333-4333-8333-333333333333", "casa-bruno.pdf", "%PDF-1.7 conteúdo");
+    expect(anexo.documentos).toEqual([{ fonte: "avulso", id: anexo.id, nome: "casa-bruno.pdf" }]);
+    const d = await colaborador().detalhe({ id });
+    expect(d.documentos).toEqual(d.disponiveis);
+    const { rows } = await banco.pg.query<{ texto: string; tamanho: number }>(`SELECT convert_from(dados, 'UTF8') AS texto, tamanho FROM maquete_3d_arquivos WHERE maquete_id = $1`, [id]);
+    expect(rows).toEqual([{ texto: "%PDF-1.7 conteúdo", tamanho: Buffer.byteLength("%PDF-1.7 conteúdo") }]);
+    // PDF avulso de outro pedido não entra neste.
+    const outro = await colaborador().criar({ origem: "projeto", alvoId: 1, tipo: "casa", faixaPreco: "terrea_ate_70", documentos: [] });
+    await expect(colaborador().definirDocumentos({ id: outro.id, documentos: [{ fonte: "avulso", id: anexo.id, nome: "casa-bruno.pdf" }] })).rejects.toThrow("não pertence");
+    // Projeto com PDF próprio e avulso com o mesmo número não se confundem.
+    await colaborador().definirDocumentos({ id: outro.id, documentos: [docProjeto] });
+
+    // Incorporação também aceita PDF avulso (pedido do dono).
+    const inc = await colaborador().criar({ origem: "incorporacao", alvoId: 1, tipo: "casa", documentos: [] });
+    await caller(2, "colaborador", JSON.stringify(["maquete3d"])).documentChunks.part({ uploadId: "44444444-4444-4444-8444-444444444444", part: 0, total: 1, scope: `maquete3d:${inc.id}`, fileName: "casa-tipo.pdf", base64: Buffer.from("%PDF-1.4 y").toString("base64") });
+    expect((await colaborador().anexarPdf({ id: inc.id, uploadId: "44444444-4444-4444-8444-444444444444", nome: "casa-tipo.pdf" })).documentos).toHaveLength(1);
+    expect((await colaborador().detalhe({ id: inc.id })).disponiveis.map(x => x.fonte)).toEqual(["avulso", "incorporacao"]);
+
+    // Portal: o cliente do cadastro vê o pedido sem projeto, paga, e o e-mail de "pronta" vai para o cadastro dele.
+    await banco.pg.exec(`INSERT INTO users ("openId", name, role, active, lead_id, email) VALUES ('cli', 'Bruno Costa', 'cliente', true, 1, 'bruno@exemplo.com')`);
+    const bruno = appRouter.createCaller({ user: { id: 4, role: "cliente", permissions: "[]", active: true, name: "Bruno Costa", leadId: 1, cpf: "12345678909", email: "bruno@exemplo.com" }, req: {}, res: {} } as never).portalMaquete;
+    const resumo = await bruno.resumo();
+    expect(resumo.projetos).toEqual([]);
+    expect(resumo.avulsas).toMatchObject([{ id, status: "aguardando_pagamento", preco: 197, link: null }]);
+    const outroCliente = appRouter.createCaller({ user: { id: 5, role: "cliente", permissions: "[]", active: true, name: "Outro", leadId: 77 }, req: {}, res: {} } as never).portalMaquete;
+    expect((await outroCliente.resumo()).avulsas).toEqual([]);
+    await expect(outroCliente.pagar({ id, metodo: "pix" })).rejects.toThrow("Pedido não encontrado");
+  });
+
+  it("EPIC-023: trocar o tipo redesenha — casa ou prédio padrão em cada lote do estudo, sem PDF e sem IA; loteamento tira as construções", async () => {
+    // Terreno de ~111 × 110 m; dois lotes vendáveis de ~55 × 55 m, uma área pública e uma rua entre eles e a área pública.
+    const g = 0.001, anel = (x0: number, y0: number, x1: number, y1: number) => [[x0, y0], [x1, y0], [x1, y1], [x0, y1], [x0, y0]];
+    const cenario = { id: "c1", lotes: [
+      { anel: anel(0, 0, g / 2, g / 2), areaM2: 3000, tipo: "vendavel", quadra: "1", numero: "1" },
+      { anel: anel(g / 2, 0, g, g / 2), areaM2: 3000, tipo: "vendavel", quadra: "1", numero: "2" },
+      { anel: anel(0, g * 0.6, g, g), areaM2: 4000, tipo: "area_publica", uso: "verde" },
+    ], ruas: [anel(0, g / 2, g, g * 0.6)], vias: [] };
+    await banco.pg.query(`UPDATE incorporation_studies SET geojson = $1, latitude = 0.0005, longitude = 0.0005, mass_scenarios_json = $2, selected_scenario_id = 'c1' WHERE id = 1`,
+      [JSON.stringify({ type: "Feature", properties: {}, geometry: { type: "Polygon", coordinates: [anel(0, 0, g, g)] } }), JSON.stringify({ params: {}, cenarios: [cenario] })]);
+    const { id } = await colaborador().criar({ origem: "incorporacao", alvoId: 1, tipo: "loteamento", documentos: [] });
+    const casa = { frente: 8, fundo: 12, quartos: 2, pavimentos: 1 as const, garagem: true };
+    await expect(colaborador().aplicarTipo({ id, tipo: "casa", casa })).rejects.toThrow("precisa estar liberada");
+    await admin().liberar({ id });
+    await expect(colaborador().aplicarTipo({ id, tipo: "casa" })).rejects.toThrow("Informe o tamanho da casa");
+    await expect(colaborador().aplicarTipo({ id, tipo: "predio" })).rejects.toThrow("Informe as medidas do prédio");
+
+    // Casa: a implantação é montada do estudo na mesma chamada e cada lote vendável recebe uma casa.
+    expect(await colaborador().aplicarTipo({ id, tipo: "casa", casa })).toMatchObject({ construcoes: 2, lotes: 2, semConstrucaoTotal: 0, padrao: "Casa padrão" });
+    let d = await colaborador().detalhe({ id });
+    expect(d).toMatchObject({ tipo: "casa", status: "em_revisao" });
+    expect(d.problemas.filter(p => p.nivel === "erro")).toEqual([]);
+    expect(d.modelo!.edificacoes.map(e => e.id)).toEqual(["padrao"]);
+    expect(d.modelo!.implantacao!.posicoes.map(p => [p.nome, p.edificacaoId, p.unidade])).toEqual([["Q1 L1", "padrao", "Q1 / L1"], ["Q1 L2", "padrao", "Q1 / L2"]]);
+    expect(pedidos).toHaveLength(0); // nenhuma chamada à IA
+
+    // Prédio: troca a construção padrão (não acumula) e redistribui.
+    expect(await colaborador().aplicarTipo({ id, tipo: "predio", predio: { largura: 24, profundidade: 14, andares: 6, aptosPorAndar: 4 } })).toMatchObject({ construcoes: 2, padrao: "Prédio padrão" });
+    d = await colaborador().detalhe({ id });
+    expect(d.tipo).toBe("predio");
+    expect(d.modelo!.edificacoes.map(e => e.nome)).toEqual(["Prédio padrão"]);
+    expect(d.resumo).toMatchObject({ pavimentos: 7, construcoes: 2 });
+
+    // Construção grande demais para os lotes: nenhuma entra e a tela recebe a lista dos lotes.
+    expect(await colaborador().aplicarTipo({ id, tipo: "predio", predio: { largura: 60, profundidade: 30, andares: 2, aptosPorAndar: 4 } })).toMatchObject({ construcoes: 0, semConstrucaoTotal: 2, semConstrucao: ["Q1 L1", "Q1 L2"] });
+
+    // Loteamento: ficam só os lotes; a maquete continua válida e pode ser validada e publicada.
+    expect(await colaborador().aplicarTipo({ id, tipo: "loteamento" })).toMatchObject({ construcoes: 0, padrao: null });
+    d = await colaborador().detalhe({ id });
+    expect(d.modelo!.implantacao!.posicoes).toEqual([]);
+    expect(d.modelo!.implantacao!.lotes).toHaveLength(3);
+    expect(d.problemas.filter(p => p.nivel === "erro")).toEqual([]);
+
+    // Publicada não troca de tipo.
+    await colaborador().aplicarTipo({ id, tipo: "casa", casa });
+    await colaborador().validar({ id });
+    await admin().publicar({ id });
+    await expect(colaborador().aplicarTipo({ id, tipo: "loteamento" })).rejects.toThrow("precisa estar liberada");
   });
 
   it("preços: só admin altera; recusar e excluir só admin", async () => {

@@ -20,8 +20,15 @@
 - Mapa operacional na base nova (MapLibre, a mesma da Incorporação): alfinetes por situação, agrupamento que separa ao
   aproximar, lista para pontos no mesmo endereço, Satélite/Ruas, busca, filtro e tabela mantidos. Sem migração.
 
+### Etapa C (correções 6, 7 e 12) — S-C
+- Pedido de maquete ligado a projeto OU a cliente do CRM; PDF avulso no novo pedido e dentro do pedido (projeto e
+  Incorporação). Migração `0115_maquete_3d_lead_arquivos.sql` aplicada no Neon de produção (6 maquetes existentes válidas).
+- Painel "Tipo da maquete e construções": trocar o tipo redesenha; casa (térrea/sobrado) e prédio padrão gerados pelo
+  motor, um em cada lote vendável, com a frente para a rua; loteamento tira as construções.
+- Visualizador mostra todas as construções (antes só 24).
+
 ## Pendências
-- Etapas C (vínculo com lead, PDF avulso, casa/prédio padrão), D (leitura sem IA),
+- Etapas D (leitura sem IA),
   E (camadas do terreno), F (Estudo de Massa: áreas separadas e malha conectada), G (vias 3D).
 - Porte para o Grupo Santa Fé das correções 1, 2, 3, 4, 8, 9 e 10 (lista no ROADMAP) — sem acesso àquele repositório.
 
@@ -31,10 +38,12 @@
 - (b) Manuais: mapa operacional conferido em navegador de teste com 5 pontos fictícios e imagens de satélite
   simuladas (o ambiente não alcança os servidores de imagem): alfinetes, agrupamento, aproximação e lista do mesmo
   endereço funcionaram. O layout do CRM não foi conferido em navegador nem em iPad.
-- (c) Pendentes em produção: mapa operacional com as imagens reais de satélite e os pontos reais; CRM no iPad (rolagem e ausência de tela preta); editar um corretor em "Usuários e acesso"
+- Etapa C — automáticos: `maquete-3d-padrao.test.ts` (14) e `maquete-3d.test.ts` (23) aprovados. Manual: maquete aberta em
+  navegador de teste com 36 casas padrão nos lotes (inclusive em leque), 10 prédios e um sobrado isolado, sem erro.
+- (c) Pendentes em produção: novo pedido por cliente do CRM com PDF avulso real; "Gerar e distribuir nos lotes" no
+  Polímeros (Morada do Bosque); mapa operacional com as imagens reais de satélite e os pontos reais; CRM no iPad (rolagem e ausência de tela preta); editar um corretor em "Usuários e acesso"
   e conferir a comissão numa obra; excluir um pedido de maquete pela lista.
 
 ## Próximo passo exato
-Iniciar a Etapa C (`S-C-vinculo-lead-pdf-avulso-troca-tipo.md`): migração aditiva (coluna de lead, tabela de arquivos
-avulsos, nova regra de vínculo), formulário de novo pedido com cliente do CRM e PDF avulso, gerador de casa/prédio
-padrão e troca de tipo.
+Publicar a Etapa E (branch local `etapa-e`, commit `9b630d1`: aplicar `0116_camadas_terreno_cache.sql`, merge) e seguir
+para a Etapa D (`S-D-leitura-pdf-sem-ia.md`). A Etapa F está em execução por um agente em worktree (branch `etapa-f`).

@@ -138,3 +138,6 @@ logs/
 .cursor/
 .gemini/
 .kimi/
+
+# Cópias de trabalho de agentes paralelos (não versionar)
+.claude/worktrees/

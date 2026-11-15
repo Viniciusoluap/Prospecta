@@ -103,9 +103,9 @@ export const progressoLeitura = (e: EstadoLeitura) => ({
   proximo: e.passos.find(p => p.estado !== "feito") ?? null,
 });
 
-/** PDF escolhido para a leitura. `fonte` diz em que tabela o arquivo está cadastrado. */
+/** PDF escolhido para a leitura. `fonte` diz em que tabela o arquivo está cadastrado ("avulso" = enviado direto no pedido). */
 export const documentoSchema = z.object({
-  fonte: z.enum(["projeto", "incorporacao"]),
+  fonte: z.enum(["projeto", "incorporacao", "avulso"]),
   id: z.number().int().positive(),
   nome: z.string().max(255),
 });
@@ -114,6 +114,9 @@ export type DocumentoMaquete = z.infer<typeof documentoSchema>;
 /** Limites do que é enviado à IA em cada passo (o PDF vai inteiro; a soma não pode passar do teto da API). */
 export const MAX_DOCUMENTOS = 6;
 export const MAX_BYTES_DOCUMENTOS = 22 * 1024 * 1024;
+/** PDF avulso: o envio em partes do sistema aceita até 20 MiB por arquivo. */
+export const MAX_BYTES_PDF_AVULSO = 20 * 1024 * 1024;
+export const escopoEnvioMaquete = (maqueteId: number) => `maquete3d:${maqueteId}`;
 
 // ── Apresentação comercial da maquete publicada (etapa 2) ──
 // Só o que o admin informar aparece na tela inicial; campo vazio não é mostrado e nada é inventado.
