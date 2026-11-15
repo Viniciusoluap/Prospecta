@@ -15,6 +15,18 @@ aditivas e publicando (merge + deploy) ao fim de cada etapa, sem pedir confirma�
 - Todas as migrações foram aplicadas no Neon de produção (projeto `SiteProspecta`, `plain-cake-26372935`) e cada
   etapa foi publicada na `main` (deploy da Vercel conferido).
 
+## Aprimoramentos de 15/11 (S-08) — pedidos pelo dono depois das quatro etapas
+Botão "Aprimorar" (oclusão de ambiente, brilho, móveis detalhados, foto em alta), escadas em L/U/caracol, carro na
+garagem, tela de posicionar casas do condomínio, implantação seguindo a topografia do estudo, aprovação do pedido
+pelo admin antes da cobrança e e-mail automático (aprovado / maquete pronta). Migração 0114 (tipo de e-mail).
+Detalhes e arquivos: `docs/stories/epics/epic-022-maquete-3d/S-08-aprimoramentos.md`.
+- Testes: `server/maquete-3d.test.ts` (21) e `server/maquete-3d-visualizador.test.ts` (17). Suíte completa: 1782
+  passam, 1 falha pré-existente. `pnpm check` e `vite build` sem erros.
+- Conferido em navegador automatizado: escada em L com patamar, carro na garagem, modo Aprimorar ligado sem erros,
+  loteamento com relevo e três casas assentadas no terreno.
+- Não conferido em navegador: a tela de posicionar casas (editor), o portal do cliente com o novo fluxo e a foto em alta.
+- O e-mail depende do SMTP já configurado no sistema; nenhum e-mail real foi enviado nos testes.
+
 ## Concluído na etapa 4
 - `shared/maquete-3d/implantacao.ts`: implantação a partir do terreno e do cenário escolhido do estudo de massa.
 - `maquete3d.implantacaoDoEstudo` e situação das unidades no detalhe e no link público (`server/maquete-3d/router.ts`).

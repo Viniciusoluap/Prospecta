@@ -17,7 +17,9 @@ export function mobiliaDaEdificacao(e: Edificacao): PecaNaCena[] {
   });
 }
 
-export function Mobilia({ pecas, m, estilo, noite, luzesAte, corteAte }: {
+export function Mobilia({ pecas, m, estilo, noite, luzesAte, corteAte, aprimorado = false }: {
+  /** Modo aprimorado: os móveis desenham a versão detalhada. */
+  aprimorado?: boolean;
   pecas: PecaNaCena[]; m: Materiais; estilo: Estilo;
   /** 0 = dia, 1 = noite: liga as luzes das luminárias. */
   noite: number;
@@ -34,7 +36,7 @@ export function Mobilia({ pecas, m, estilo, noite, luzesAte, corteAte }: {
         const Desenho = CATALOGO[p.tipo];
         return Desenho ? (
           <group key={p.chave} position={[p.x, p.y + p.elevacao, p.z]} rotation={[0, p.rot, 0]}>
-            <Desenho peca={p} m={m} estilo={estilo} />
+            <Desenho peca={p} m={m} estilo={estilo} aprimorado={aprimorado} />
           </group>
         ) : null;
       })}

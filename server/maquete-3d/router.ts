@@ -8,7 +8,7 @@ import { z } from "zod";
 import { incorporationStudies, operationalProjects, projectDocuments, users } from "../../drizzle/schema.js";
 import { maquetes3d, type Maquete3d } from "../../drizzle/schema-maquete-3d.js";
 import { TIPOS_MAQUETE, lerModelo, modeloSchema, modeloVazio, podePublicar, resumoModelo, validarModelo, type TipoMaquete } from "../../shared/maquete-3d/modelo.js";
-import { implantacaoDoEstudo } from "../../shared/maquete-3d/implantacao.js";
+import { implantacaoDoEstudo, type GradeElevacao } from "../../shared/maquete-3d/implantacao.js";
 import type { CenarioMassa } from "../../shared/incorporacao/massa.js";
 import {
   FAIXAS_PRECO, MAX_DOCUMENTOS, ORIGENS_MAQUETE, PODE_REVISAR, comercialSchema, configSchema, documentoSchema, lerComercial, lerEstadoLeitura,
@@ -16,6 +16,7 @@ import {
 } from "../../shared/maquete-3d/regras.js";
 import { ENV } from "../_core/env.js";
 import { adminProcedure, publicProcedure, router } from "../_core/trpc.js";
+import { avisarMaquetePronta, avisarPedidoAprovado, destinatario } from "./avisos.js";
 import { LeituraIndisponivel, agora, carregarConfig, db, dependencias, salvarConfig } from "./base.js";
 import { avancarLeitura, iniciarLeitura, lerDocumentos } from "./leitura.js";
 
@@ -141,6 +142,7 @@ export const maquete3dRouter = router({
       /** Em que arquivo e página está a planta de cada pavimento (fundo da revisão). */
       pranchas: leitura.passos.filter(p => p.tipo === "estrutura" && p.pavimentoId).map(p => ({ pavimentoId: p.pavimentoId!, doc: p.doc ?? 0, pagina: p.pagina ?? 1 })),
       liberadoPorNome: liberador?.nome ?? null,
+      emailCliente: (await destinatario(m))?.email ?? null,
       unidades: await unidadesDoEstudo(m.studyId),
       /** Telefone do cliente do projeto, para enviar o link da maquete pelo WhatsApp. */
       clienteTelefone: m.projectId ? (await db().select({ t: operationalProjects.clientPhone }).from(operationalProjects).where(eq(operationalProjects.id, m.projectId)).limit(1))[0]?.t ?? null : null,
@@ -187,6 +189,19 @@ export const maquete3dRouter = router({
     const documentos = await conferirDocumentos(m.origem as OrigemMaquete, (m.projectId ?? m.studyId)!, input.documentos);
     await db().update(maquetes3d).set({ documentos: JSON.stringify(documentos), updatedAt: agora() }).where(eq(maquetes3d.id, m.id));
     return { ok: true };
+  }),
+
+  /**
+   * Aprova o pedido feito pelo cliente no portal: confirma (ou corrige) a faixa de preço e libera o pagamento.
+   * A partir daí o cliente paga pelo Asaas e o sistema recebe; ele é avisado por e-mail.
+   */
+  aprovarPedido: adminProcedure.input(idInput.extend({ faixaPreco: z.enum(FAIXAS_PRECO), preco: z.number().min(0).max(100000).optional() })).mutation(async ({ ctx, input }) => {
+    exigirAdmin(ctx, "aprovar o pedido de maquete");
+    const preco = (input.preco ?? (await carregarConfig()).precos[input.faixaPreco]).toFixed(2);
+    const r = await db().update(maquetes3d).set({ status: "aguardando_pagamento" satisfies StatusMaquete, faixaPreco: input.faixaPreco, preco, updatedAt: agora() })
+      .where(and(eq(maquetes3d.id, input.id), eq(maquetes3d.status, "aguardando_aprovacao"), isNull(maquetes3d.deletedAt))).returning();
+    if (!r.length) throw conflito("Este pedido não está aguardando aprovação.");
+    return { preco: Number(preco), email: await avisarPedidoAprovado(r[0]) };
   }),
 
   /**
@@ -283,7 +298,7 @@ export const maquete3dRouter = router({
     if (!["liberada", "em_revisao", "validada"].includes(m.status)) throw conflito("A maquete precisa estar autorizada (e não publicada) para montar a implantação.");
     const [estudo] = await db().select({
       geojson: incorporationStudies.geojson, lat: incorporationStudies.latitude, lng: incorporationStudies.longitude,
-      cenarios: incorporationStudies.massScenariosJson, escolhido: incorporationStudies.selectedScenarioId,
+      cenarios: incorporationStudies.massScenariosJson, escolhido: incorporationStudies.selectedScenarioId, elevacao: incorporationStudies.elevationJson,
     }).from(incorporationStudies).where(eq(incorporationStudies.id, m.studyId)).limit(1);
     let cenario: CenarioMassa | null = null;
     try {
@@ -291,18 +306,21 @@ export const maquete3dRouter = router({
       cenario = lista.find(c => c.id === estudo?.escolhido) ?? lista[0] ?? null;
     } catch { cenario = null; }
     const centro = estudo?.lat && estudo?.lng ? [Number(estudo.lng), Number(estudo.lat)] as [number, number] : null;
-    const r = implantacaoDoEstudo(estudo?.geojson ?? null, centro, cenario);
+    let elevacao: GradeElevacao | null = null;
+    try { elevacao = estudo?.elevacao ? (JSON.parse(estudo.elevacao) as GradeElevacao) : null; } catch { elevacao = null; }
+    const r = implantacaoDoEstudo(estudo?.geojson ?? null, centro, cenario, elevacao);
     if (!r || (!r.implantacao.terreno.length && !r.implantacao.lotes.length)) {
       throw new TRPCError({ code: "PRECONDITION_FAILED", message: "O estudo ainda não tem o terreno (KML) nem um estudo de massa com lotes. Cadastre-os na Incorporação e tente de novo." });
     }
     const modelo = lerModelo(m.modelo) ?? modeloVazio(m.tipo as TipoMaquete);
-    const novo = modeloSchema.parse({ ...modelo, implantacao: r.implantacao });
+    // As construções posicionadas à mão na revisão são mantidas quando a implantação é atualizada pelo estudo.
+    const novo = modeloSchema.parse({ ...modelo, implantacao: { ...r.implantacao, posicoes: modelo.implantacao?.posicoes ?? [] } });
     const g = await db().update(maquetes3d).set({
       modelo: JSON.stringify(novo), modeloVersao: m.modeloVersao + 1, status: "em_revisao" satisfies StatusMaquete,
       revisadoPor: ctx.user.id, revisadoEm: agora(), updatedAt: agora(),
     }).where(and(eq(maquetes3d.id, m.id), eq(maquetes3d.modeloVersao, m.modeloVersao), eq(maquetes3d.status, m.status))).returning({ id: maquetes3d.id });
     if (!g.length) throw conflito("A maquete foi alterada por outra pessoa. Recarregue a página.");
-    return { lotes: r.implantacao.lotes.length, ruas: r.implantacao.ruas.length, temTerreno: r.implantacao.terreno.length > 0, descartados: r.descartados, semCenario: !cenario };
+    return { lotes: r.implantacao.lotes.length, ruas: r.implantacao.ruas.length, temTerreno: r.implantacao.terreno.length > 0, temRelevo: !!r.implantacao.relevo, descartados: r.descartados, semCenario: !cenario };
   }),
 
   /** Dados da tela de apresentação (nome, localização, preço, WhatsApp). Campo vazio não aparece para o cliente. */
@@ -319,9 +337,17 @@ export const maquete3dRouter = router({
     const modelo = lerModelo(m.modelo);
     if (!modelo || !podePublicar(modelo)) throw new TRPCError({ code: "BAD_REQUEST", message: "A planta precisa estar validada, sem erros nem pendências." });
     const r = await db().update(maquetes3d).set({ status: "publicada" satisfies StatusMaquete, publicadoEm: agora(), updatedAt: agora() })
-      .where(and(eq(maquetes3d.id, m.id), eq(maquetes3d.status, "validada"))).returning({ token: maquetes3d.token });
+      .where(and(eq(maquetes3d.id, m.id), eq(maquetes3d.status, "validada"))).returning();
     if (!r.length) throw conflito("Só uma planta validada pode ser publicada.");
-    return { token: r[0].token };
+    // Projeto de cliente: o link segue por e-mail na hora. Incorporação é material interno de venda, sem destinatário.
+    return { token: r[0].token, email: r[0].origem === "projeto" ? await avisarMaquetePronta(r[0]) : null };
+  }),
+
+  /** Manda de novo o e-mail com o link (maquete já publicada). */
+  reenviarEmail: adminProcedure.input(idInput).mutation(async ({ input }) => {
+    const m = await buscar(input.id);
+    if (m.status !== "publicada") throw conflito("Só maquete publicada tem link para enviar.");
+    return avisarMaquetePronta(m);
   }),
 
   /** Tira o link do ar e devolve a maquete para "validada" (para corrigir e publicar de novo). */

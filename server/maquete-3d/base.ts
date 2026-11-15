@@ -100,8 +100,15 @@ const cobradorPadrao: Cobrador = {
   },
 };
 
-type Dependencias = { ia: ClienteIA; lerPdf: LeitorPdf; agora: () => Date; cobrador: Cobrador };
-const padrao: Dependencias = { ia: iaPadrao, lerPdf: leitorPadrao, agora: () => new Date(), cobrador: cobradorPadrao };
+/** Envio de e-mail ao cliente. Devolve true quando o servidor de e-mail aceitou a mensagem. */
+export type Carteiro = (p: { para: string; nome: string; assunto: string; html: string; maqueteId: number; motivo: "aprovado" | "pronta" }) => Promise<boolean>;
+const carteiroPadrao: Carteiro = async ({ para, nome, assunto, html, maqueteId, motivo }) => {
+  const { sendEmail } = await import("../_core/email-smtp.js");
+  return sendEmail({ to: para, subject: assunto, html, recipientName: nome, templateType: "maquete_3d", metadata: { maqueteId, motivo } });
+};
+
+type Dependencias = { ia: ClienteIA; lerPdf: LeitorPdf; agora: () => Date; cobrador: Cobrador; carteiro: Carteiro };
+const padrao: Dependencias = { ia: iaPadrao, lerPdf: leitorPadrao, agora: () => new Date(), cobrador: cobradorPadrao, carteiro: carteiroPadrao };
 let deps: Dependencias = { ...padrao };
 
 /** Só para testes: troca IA/arquivos/relógio. Sem argumento, volta ao padrão. */

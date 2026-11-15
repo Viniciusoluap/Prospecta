@@ -171,7 +171,7 @@ export function Tour({ edificacao: e, visitante, pausado, reinicio, onLocal, onL
       for (let i = 1; i < caminho.length; i++) {
         const a = caminho[i - 1], b = caminho[i];
         if (Math.hypot(a.p.x - b.p.x, a.p.y - b.p.y) < 0.05 && a.pavimentoId === b.pavimentoId) continue;
-        etapas.push({ tipo: "andar", de: a.p, para: b.p, yDe: nivel.get(a.pavimentoId) ?? 0, yPara: nivel.get(b.pavimentoId) ?? 0, pavimentoId: b.pavimentoId });
+        etapas.push({ tipo: "andar", de: a.p, para: b.p, yDe: a.y ?? nivel.get(a.pavimentoId) ?? 0, yPara: b.y ?? nivel.get(b.pavimentoId) ?? 0, pavimentoId: b.pavimentoId });
       }
       etapas.push({ tipo: "parada", indice });
       atual = { pavimentoId: parada.pavimentoId, p: parada.ponto };

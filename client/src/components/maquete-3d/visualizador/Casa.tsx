@@ -7,6 +7,7 @@ import { comprimento, type Abertura, type Edificacao, type FuncaoComodo, type Pa
 import {
   ESPESSURA_LAJE, blocosDaParede, contornoDoPavimento, pavimentosOrdenados, pontoNaParede, telhado, vaosDaParede,
 } from "@shared/maquete-3d/geometria3d";
+import { eixoDaCaracol, trechosDaEscada } from "@shared/maquete-3d/escadas";
 import type { Materiais, NomeMaterial } from "./materiais";
 
 const MOLHADOS: FuncaoComodo[] = ["banheiro", "lavabo", "cozinha", "area_servico"];
@@ -105,22 +106,45 @@ function Esquadria({ w, a, m }: { w: Parede; a: Abertura; m: Materiais }) {
 }
 
 function EscadaSolida({ pv, e, m }: { pv: Pavimento; e: Edificacao; m: Materiais }) {
-  const degraus = useMemo(() => pv.escadas.flatMap(s => {
+  // Cada escada vira lances de degraus e patamares, seguindo a forma real (reta, em L, em U, caracol, rampa).
+  const pecas = useMemo(() => pv.escadas.flatMap(s => {
     const destino = e.pavimentos.find(p => p.id === s.destinoPavimentoId);
     if (!destino) return [];
-    const subida = destino.nivel - pv.nivel, n = s.tipo === "rampa" ? 24 : s.degraus && s.degraus > 1 ? s.degraus : Math.max(2, Math.round(Math.abs(subida) / 0.175));
-    const dx = s.fim.x - s.inicio.x, dz = s.fim.y - s.inicio.y, comp = Math.hypot(dx, dz) || 1, passo = comp / n;
-    return Array.from({ length: n }, (_, i) => {
-      const t = (i + 0.5) / n, topo = (subida * (i + 1)) / n;
-      return { chave: `${s.id}-${i}`, x: s.inicio.x + dx * t, z: s.inicio.y + dz * t, giro: -Math.atan2(dz, dx), passo, largura: s.largura, topo };
+    const subida = destino.nivel - pv.nivel, trechos = trechosDaEscada(s);
+    const total = s.tipo === "rampa" ? 40 : s.degraus && s.degraus > 1 ? s.degraus : Math.max(2, Math.round(Math.abs(subida) / 0.175));
+    const blocos: { chave: string; x: number; z: number; giro: number; comp: number; largura: number; topo: number; base: number }[] = [];
+    const caracol = s.tipo === "caracol";
+    trechos.forEach((t, i) => {
+      const dx = t.b.x - t.a.x, dz = t.b.y - t.a.y, comp = Math.hypot(dx, dz) || 0.01, giro = -Math.atan2(dz, dx);
+      if (t.patamar) {
+        // Patamar: plataforma na altura em que o lance anterior terminou; cobre a quina inteira.
+        blocos.push({ chave: `${s.id}-p${i}`, x: (t.a.x + t.b.x) / 2, z: (t.a.y + t.b.y) / 2, giro, comp: comp + s.largura / 2, largura: s.largura, topo: subida * t.de, base: 0 });
+        return;
+      }
+      const n = Math.max(1, Math.round(total * (t.ate - t.de)));
+      for (let k = 0; k < n; k++) {
+        const f = (k + 0.5) / n, topo = subida * (t.de + ((t.ate - t.de) * (k + 1)) / n);
+        // A caracol é vazada: cada degrau é uma laje apoiada no mastro. As outras são maciças até o piso.
+        blocos.push({ chave: `${s.id}-${i}-${k}`, x: t.a.x + dx * f, z: t.a.y + dz * f, giro, comp: comp / n + 0.012, largura: s.largura, topo, base: caracol ? Math.max(0, topo - 0.06) : 0 });
+      }
     });
+    return [{ id: s.id, blocos, mastro: eixoDaCaracol(s), altura: Math.abs(subida) }];
   }), [pv, e]);
   return (
     <>
-      {degraus.map(d => (
-        <mesh key={d.chave} position={[d.x, d.topo / 2, d.z]} rotation={[0, d.giro, 0]} material={m.degrau} castShadow receiveShadow>
-          <boxGeometry args={[d.passo + 0.01, Math.max(0.02, d.topo), d.largura]} />
-        </mesh>
+      {pecas.map(peca => (
+        <group key={peca.id}>
+          {peca.blocos.map(d => (
+            <mesh key={d.chave} position={[d.x, (d.topo + d.base) / 2, d.z]} rotation={[0, d.giro, 0]} material={m.degrau} castShadow receiveShadow>
+              <boxGeometry args={[d.comp, Math.max(0.03, d.topo - d.base), d.largura]} />
+            </mesh>
+          ))}
+          {peca.mastro && (
+            <mesh position={[peca.mastro.x, (peca.altura + 1) / 2, peca.mastro.y]} material={m.metal} castShadow>
+              <cylinderGeometry args={[0.06, 0.06, peca.altura + 1, 14]} />
+            </mesh>
+          )}
+        </group>
       ))}
     </>
   );

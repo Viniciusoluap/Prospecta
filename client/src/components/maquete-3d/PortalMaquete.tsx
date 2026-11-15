@@ -12,7 +12,7 @@ import type { FaixaPreco, StatusMaquete } from "@shared/maquete-3d/regras";
 const reais = (v: number) => v.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
 /** Como o cliente lê cada situação do pedido. */
 const SITUACAO: Record<StatusMaquete, string> = {
-  aguardando_pagamento: "Aguardando o seu pagamento", aguardando_autorizacao: "Em análise", liberada: "Pagamento confirmado — na fila de produção",
+  aguardando_aprovacao: "Pedido enviado — aguardando a aprovação da nossa equipe", aguardando_pagamento: "Aprovado — aguardando o seu pagamento", aguardando_autorizacao: "Em análise", liberada: "Pagamento confirmado — na fila de produção",
   em_leitura: "Em produção", em_revisao: "Em produção — conferência da planta", validada: "Quase pronta — em validação final",
   publicada: "Pronta", recusada: "Pedido não aceito",
 };
@@ -41,7 +41,11 @@ export function PortalMaquete() {
   const [metodo, setMetodo] = useState<Metodo>("pix");
   const [cobrancas, setCobrancas] = useState<Record<number, Cobranca>>({});
   const solicitar = trpc.portalMaquete.solicitar.useMutation({
-    onSuccess: (r, v) => { if (r.cobranca) setCobrancas(c => ({ ...c, [v.projectId]: r.cobranca! })); void utils.portalMaquete.resumo.invalidate(); },
+    onSuccess: () => { toast.success("Pedido enviado. Avisamos por e-mail assim que for aprovado."); void utils.portalMaquete.resumo.invalidate(); },
+    onError: e => toast.error(e.message),
+  });
+  const pagar = trpc.portalMaquete.pagar.useMutation({
+    onSuccess: (r, v) => { setCobrancas(c => ({ ...c, [v.id]: r.cobranca })); },
     onError: e => toast.error(e.message),
   });
 
@@ -54,7 +58,7 @@ export function PortalMaquete() {
       <p className="text-sm text-slate-600">Veja a sua casa em 3D antes de construir: decorada, com iluminação de manhã, no pôr do sol e à noite, e ande por dentro dos cômodos no computador ou no celular.</p>
       {dados.projetos.length === 0 && <p className="rounded-lg border border-dashed p-6 text-center text-sm text-slate-500">Você ainda não tem projeto cadastrado. Quando o seu projeto estiver com a nossa equipe, a maquete 3D aparece aqui.</p>}
       {dados.projetos.map(p => {
-        const m = p.maquete, cobranca = cobrancas[p.id], faixa = faixas[p.id] ?? dados.precos[0].faixa;
+        const m = p.maquete, cobranca = m ? cobrancas[m.id] : undefined, faixa = faixas[p.id] ?? dados.precos[0].faixa;
         const podePedir = !m || m.status === "recusada";
         return (
           <Card key={p.id}>
@@ -64,14 +68,21 @@ export function PortalMaquete() {
                 <a href={m.link} target="_blank" rel="noreferrer"><Button type="button" size="lg"><Box className="mr-2 h-5 w-5" />Abrir a minha maquete 3D</Button></a>
               )}
               {m?.status === "recusada" && <p className="text-red-600">Não foi possível produzir a maquete{m.recusaMotivo ? `: ${m.recusaMotivo}` : "."} Fale com a nossa equipe; você pode pedir de novo abaixo.</p>}
-              {m && m.status !== "publicada" && m.status !== "recusada" && m.status !== "aguardando_pagamento" && (
+              {m?.status === "aguardando_aprovacao" && (
+                <p className="text-slate-600">Recebemos o seu pedido{m.preco !== null ? ` (${reais(m.preco)})` : ""}. A nossa equipe confere o projeto e aprova; depois disso o pagamento é liberado aqui e você é avisado por e-mail.</p>
+              )}
+              {m && m.status !== "publicada" && m.status !== "recusada" && m.status !== "aguardando_pagamento" && m.status !== "aguardando_aprovacao" && (
                 <p className="text-slate-600">Recebemos o seu pagamento{m.pagoEm ? ` em ${new Date(m.pagoEm).toLocaleDateString("pt-BR")}` : ""}. A nossa equipe está preparando e conferindo a maquete; quando ficar pronta, o botão para abrir aparece aqui.</p>
               )}
               {m?.status === "aguardando_pagamento" && (
                 cobranca ? <Pagamento cobranca={cobranca} /> : (
-                  <div className="flex flex-wrap items-center gap-3">
-                    <span>Valor: <strong>{m.preco !== null ? reais(m.preco) : "—"}</strong></span>
-                    <Button type="button" disabled={solicitar.isPending} onClick={() => solicitar.mutate({ projectId: p.id, faixaPreco: (m.faixaPreco as FaixaPreco) ?? faixa, metodo })}>Ver como pagar</Button>
+                  <div className="flex flex-wrap items-end gap-3">
+                    <span>Pedido aprovado. Valor: <strong>{m.preco !== null ? reais(m.preco) : "—"}</strong></span>
+                    <label className="block">Forma de pagamento
+                      <select className="mt-1 block h-10 rounded-md border px-2" value={metodo} onChange={e => setMetodo(e.target.value as Metodo)}>
+                        <option value="pix">PIX</option><option value="boleto">Boleto</option><option value="cartao">Cartão de crédito</option>
+                      </select></label>
+                    <Button type="button" size="lg" disabled={pagar.isPending} onClick={() => pagar.mutate({ id: m.id, metodo })}>Pagar agora</Button>
                   </div>
                 )
               )}
@@ -87,12 +98,8 @@ export function PortalMaquete() {
                         </label>
                       ))}
                     </fieldset>
-                    <label className="block">Forma de pagamento
-                      <select className="mt-1 block h-10 w-full max-w-xs rounded-md border px-2" value={metodo} onChange={e => setMetodo(e.target.value as Metodo)}>
-                        <option value="pix">PIX</option><option value="boleto">Boleto</option><option value="cartao">Cartão de crédito</option>
-                      </select></label>
-                    <Button type="button" size="lg" disabled={solicitar.isPending} onClick={() => solicitar.mutate({ projectId: p.id, faixaPreco: faixa, metodo })}>Pedir a minha maquete 3D</Button>
-                    <p className="text-xs text-slate-500">O valor segue o tamanho informado; a nossa equipe confere com o projeto antes de produzir. A maquete é entregue aqui no portal depois da validação.</p>
+                    <Button type="button" size="lg" disabled={solicitar.isPending} onClick={() => solicitar.mutate({ projectId: p.id, faixaPreco: faixa })}>Pedir a minha maquete 3D</Button>
+                    <p className="text-xs text-slate-500">A nossa equipe confere o tamanho com o projeto e aprova o pedido; só então o pagamento é liberado. A maquete é entregue aqui no portal e por e-mail.</p>
                   </div>
                 ) : <p className="text-slate-500">O PDF deste projeto ainda não está cadastrado. Assim que a nossa equipe incluir, você poderá pedir a maquete 3D aqui.</p>
               )}

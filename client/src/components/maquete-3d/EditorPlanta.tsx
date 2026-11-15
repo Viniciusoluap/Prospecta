@@ -4,6 +4,7 @@
 import { useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent, type ReactNode } from "react";
 import { Check, Plus, Trash2, ZoomIn, ZoomOut } from "lucide-react";
 import { useFundoPdf } from "./fundo-pdf";
+import { percursoDaEscada } from "@shared/maquete-3d/escadas";
 import { Button } from "@/components/ui/button";
 import {
   FUNCOES_COMODO, ROTULOS_FUNCAO, TIPOS_ABERTURA, TIPOS_COBERTURA, TIPOS_ESCADA, areaPoligono, centroide, comprimento,
@@ -22,7 +23,7 @@ const ROTULOS_COBERTURA: Record<(typeof TIPOS_COBERTURA)[number], string> = { la
 const COR_ABERTURA: Record<string, string> = { porta: "#F59E0B", janela: "#38BDF8", porta_janela: "#A78BFA", vao: "#94A3B8" };
 
 type Selecao = { tipo: "parede" | "abertura" | "comodo" | "escada"; id: string } | null;
-type Arrasto = { alvo: "parede"; id: string; ponta: "a" | "b" } | { alvo: "comodo" | "escada"; id: string; indice: number };
+type Arrasto = { alvo: "parede"; id: string; ponta: "a" | "b" } | { alvo: "comodo" | "escada"; id: string; indice: number } | { alvo: "construcao"; id: string; dx: number; dy: number };
 
 function Num({ valor, onChange, passo = 0.01, min }: { valor: number; onChange: (n: number) => void; passo?: number; min?: number }) {
   return <input type="number" step={passo} min={min} className={inputCls} value={Number.isFinite(valor) ? valor : 0}
@@ -64,6 +65,8 @@ export function EditorPlanta({ modelo, onChange, somenteLeitura = false, maquete
   const [sel, setSel] = useState<Selecao>(null);
   const [verImplantacao, setVerImplantacao] = useState(!modelo.edificacoes.length && !!modelo.implantacao);
   const [zoom, setZoom] = useState(1);
+  const [posSel, setPosSel] = useState<string | null>(null);
+  const [fila, setFila] = useState({ quantidade: 4, passo: 12, angulo: 0 });
   const [verFundo, setVerFundo] = useState(false);
   const [alinhamentos, setAlinhamentos] = useState<Record<string, Alinhamento>>({});
   const svgRef = useRef<SVGSVGElement>(null);
@@ -88,6 +91,47 @@ export function EditorPlanta({ modelo, onChange, somenteLeitura = false, maquete
     return { x: l.minX - margem, y: l.minY - margem, w: Math.max(l.largura, 4) + margem * 2, h: Math.max(l.altura, 4) + margem * 2 };
   }, [pv, verImplantacao, modelo.implantacao]);
   // Zoom em torno do centro: afastar mostra a prancha inteira; aproximar ajuda no ajuste fino.
+  // ── Construções na implantação (condomínio): posicionar à mão, repetir em fila, uma por lote ──
+  const mudarImp = (f: (i: NonNullable<ModeloMaquete["implantacao"]>) => NonNullable<ModeloMaquete["implantacao"]>) => { if (modelo.implantacao) onChange({ ...modelo, implantacao: f(modelo.implantacao) }); };
+  type Posicao = NonNullable<ModeloMaquete["implantacao"]>["posicoes"][number];
+  const mudarPosicao = (id: string, f: (c: Posicao) => Posicao) => mudarImp(i => ({ ...i, posicoes: i.posicoes.map(c => (c.id === id ? f(c) : c)) }));
+  /** Projeção da edificação em planta (largura × comprimento do térreo), a partir do canto de origem. */
+  const pegada = (edificacaoId: string) => {
+    const e = modelo.edificacoes.find(x => x.id === edificacaoId), t = e?.pavimentos[0];
+    const l = limites(t ? pontosDoPavimento(t) : []);
+    return { x: l.minX, y: l.minY, w: Math.max(l.largura, 3), h: Math.max(l.altura, 3) };
+  };
+  const novaPosicao = (x: number, y: number, rotacao: number, edificacaoId: string, lista: Posicao[]): Posicao => ({ id: novoId("i", lista), edificacaoId, nome: `Casa ${lista.length + 1}`, x: r2(x), y: r2(y), rotacao: r2(rotacao), unidade: null });
+  const adicionarConstrucao = () => mudarImp(i => {
+    const e = modelo.edificacoes[0];
+    if (!e) return i;
+    const nova = novaPosicao(base.x + base.w / 2, base.y + base.h / 2, 0, e.id, i.posicoes);
+    setPosSel(nova.id);
+    return { ...i, posicoes: [...i.posicoes, nova] };
+  });
+  const repetirEmFila = () => mudarImp(i => {
+    const origem = i.posicoes.find(c => c.id === posSel);
+    if (!origem) return i;
+    const rad = (fila.angulo * Math.PI) / 180, lista = [...i.posicoes];
+    for (let k = 1; k < Math.min(60, Math.max(2, fila.quantidade)); k++) lista.push({ ...novaPosicao(origem.x + Math.cos(rad) * fila.passo * k, origem.y + Math.sin(rad) * fila.passo * k, origem.rotacao, origem.edificacaoId, lista) });
+    return { ...i, posicoes: lista };
+  });
+  const umaPorLote = () => mudarImp(i => {
+    const e = modelo.edificacoes[0];
+    if (!e) return i;
+    const pg = pegada(e.id), lista: Posicao[] = [];
+    for (const l of i.lotes.filter(x => x.tipo === "vendavel" && x.poligono.length >= 3)) {
+      // Casa centrada no lote e alinhada com o maior lado dele.
+      let maior = 0, ang = 0;
+      l.poligono.forEach((a, k) => { const b = l.poligono[(k + 1) % l.poligono.length], d = Math.hypot(b.x - a.x, b.y - a.y); if (d > maior) { maior = d; ang = Math.atan2(b.y - a.y, b.x - a.x); } });
+      const c = centroide(l.poligono), cs = Math.cos(ang), sn = Math.sin(ang), cx = pg.x + pg.w / 2, cy = pg.y + pg.h / 2;
+      const p = novaPosicao(c.x - (cx * cs - cy * sn), c.y - (cx * sn + cy * cs), (ang * 180) / Math.PI, e.id, lista);
+      lista.push({ ...p, nome: [l.quadra && `Q${l.quadra}`, l.nome && `L${l.nome}`].filter(Boolean).join(" ") || p.nome, unidade: l.unidade });
+    }
+    return { ...i, posicoes: lista.slice(0, 3000) };
+  });
+  const posicao = modelo.implantacao?.posicoes.find(c => c.id === posSel) ?? null;
+
   const caixa = { x: base.x + (base.w - base.w / zoom) / 2, y: base.y + (base.h - base.h / zoom) / 2, w: base.w / zoom, h: base.h / zoom };
   const u = Math.max(caixa.w, caixa.h) / 100; // unidade visual: textos e alças proporcionais ao desenho
 
@@ -117,6 +161,7 @@ export function EditorPlanta({ modelo, onChange, somenteLeitura = false, maquete
   function aoMover(e: ReactPointerEvent) {
     const a = arrasto.current, p = a && pontoDoEvento(e);
     if (!a || !p) return;
+    if (a.alvo === "construcao") { mudarPosicao(a.id, c => ({ ...c, x: grade(p.x - a.dx), y: grade(p.y - a.dy) })); return; }
     if (a.alvo === "parede") mudarParede(a.id, w => ({ ...w, [a.ponta]: p }));
     else if (a.alvo === "comodo") mudarComodo(a.id, c => ({ ...c, poligono: c.poligono.map((q, i) => (i === a.indice ? p : q)) }));
     else mudarEscada(a.id, s => ({ ...s, poligono: s.poligono.map((q, i) => (i === a.indice ? p : q)) }));
@@ -152,7 +197,7 @@ export function EditorPlanta({ modelo, onChange, somenteLeitura = false, maquete
   function novaEscada() {
     const id = novoId("e", pv!.escadas), x = grade(caixa.x + caixa.w * 0.4), y = grade(caixa.y + caixa.h * 0.4);
     const acima = [...ed!.pavimentos].sort((a, b) => a.nivel - b.nivel).find(p => p.nivel > pv!.nivel);
-    mudarPv(p => ({ ...p, escadas: [...p.escadas, { id, tipo: "reta", poligono: [{ x, y }, { x: x + 0.9, y }, { x: x + 0.9, y: y + 3 }, { x, y: y + 3 }], inicio: { x: x + 0.45, y: y + 3 }, fim: { x: x + 0.45, y }, largura: 0.9, degraus: null, destinoPavimentoId: acima?.id ?? null, origem: "estimada" }] }));
+    mudarPv(p => ({ ...p, escadas: [...p.escadas, { id, tipo: "reta", poligono: [{ x, y }, { x: x + 0.9, y }, { x: x + 0.9, y: y + 3 }, { x, y: y + 3 }], inicio: { x: x + 0.45, y: y + 3 }, fim: { x: x + 0.45, y }, percurso: [], largura: 0.9, degraus: null, destinoPavimentoId: acima?.id ?? null, origem: "estimada" }] }));
     setSel({ tipo: "escada", id });
   }
   function excluirSelecionado() {
@@ -191,19 +236,30 @@ export function EditorPlanta({ modelo, onChange, somenteLeitura = false, maquete
       <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_300px]">
         <div className="rounded-lg border border-[#C9A961]/20 bg-[#0F1923] p-2">
           <svg ref={svgRef} viewBox={`${caixa.x} ${caixa.y} ${caixa.w} ${caixa.h}`} className="h-[60vh] w-full touch-none select-none"
-            onPointerMove={aoMover} onPointerUp={() => { arrasto.current = null; }} onPointerDown={() => setSel(null)} role="img" aria-label="Planta do pavimento">
+            onPointerMove={aoMover} onPointerUp={() => { arrasto.current = null; }} onPointerDown={() => { setSel(null); setPosSel(null); }} role="img" aria-label="Planta do pavimento">
             {fundo && alin && !verImplantacao && <image href={fundo.url} x={alin.x} y={alin.y} width={alin.larguraM} height={alin.larguraM * fundo.altura / fundo.largura} opacity={alin.opacidade} preserveAspectRatio="none" style={{ pointerEvents: "none" }} />}
             {verImplantacao && imp ? (
-              <g>
+              <g style={estilo}>
                 {imp.terreno.length > 2 && <polygon points={imp.terreno.map(p => `${p.x},${p.y}`).join(" ")} fill="#14532D33" stroke="#4ADE80" strokeWidth={u * 0.3} />}
+                {imp.ruas.map((r, i) => <polygon key={`r${i}`} points={r.map(p => `${p.x},${p.y}`).join(" ")} fill="#475569" opacity={0.75} />)}
                 {imp.vias.map(v => <polyline key={v.id} points={v.eixo.map(p => `${p.x},${p.y}`).join(" ")} fill="none" stroke="#64748B" strokeWidth={v.largura} strokeLinejoin="round" strokeLinecap="round" opacity={0.7} />)}
                 {imp.lotes.map(l => {
                   const c = centroide(l.poligono);
-                  return <g key={l.id}><polygon points={l.poligono.map(p => `${p.x},${p.y}`).join(" ")} fill="#C9A96122" stroke="#C9A961" strokeWidth={u * 0.2} />
-                    <text x={c.x} y={c.y} fontSize={u * 1.6} fill="#E5E7EB" textAnchor="middle">{[l.quadra, l.nome].filter(Boolean).join("-")}</text></g>;
+                  return <g key={l.id}><polygon points={l.poligono.map(p => `${p.x},${p.y}`).join(" ")} fill={l.tipo === "vendavel" ? "#C9A96122" : "#38BDF822"} stroke={l.tipo === "vendavel" ? "#C9A961" : "#38BDF8"} strokeWidth={u * 0.2} />
+                    <text x={c.x} y={c.y} fontSize={u * 1.6} fill="#E5E7EB" textAnchor="middle" style={{ pointerEvents: "none" }}>{[l.quadra, l.nome].filter(Boolean).join("-")}</text></g>;
                 })}
-                {imp.posicoes.map(p => <g key={p.id}><rect x={p.x} y={p.y} width={u * 4} height={u * 4} fill="#38BDF855" stroke="#38BDF8" strokeWidth={u * 0.2} transform={`rotate(${p.rotacao} ${p.x} ${p.y})`} />
-                  <text x={p.x} y={p.y - u * 0.5} fontSize={u * 1.5} fill="#E5E7EB">{p.nome}</text></g>)}
+                {/* Construções: o retângulo é a projeção da casa; arraste para mover. O canto marcado é a origem. */}
+                {imp.posicoes.map(c => {
+                  const pg = pegada(c.edificacaoId), ativo = c.id === posSel;
+                  return (
+                    <g key={c.id} transform={`translate(${c.x} ${c.y}) rotate(${c.rotacao})`} style={{ cursor: "move" }}
+                      onPointerDown={e => { e.stopPropagation(); (e.currentTarget as Element).setPointerCapture(e.pointerId); setPosSel(c.id); const p = pontoDoEvento(e); if (p) arrasto.current = { alvo: "construcao", id: c.id, dx: p.x - c.x, dy: p.y - c.y }; }}>
+                      <rect x={pg.x} y={pg.y} width={pg.w} height={pg.h} fill={ativo ? "#F472B688" : "#F472B644"} stroke={ativo ? "#FFFFFF" : "#F472B6"} strokeWidth={u * 0.3} />
+                      <circle cx={0} cy={0} r={u * 0.7} fill="#F472B6" />
+                      <text x={pg.x + pg.w / 2} y={pg.y + pg.h / 2} fontSize={u * 1.5} fill="#FFFFFF" textAnchor="middle" style={{ pointerEvents: "none" }}>{c.nome}</text>
+                    </g>
+                  );
+                })}
               </g>
             ) : pv ? (
               <g style={estilo}>
@@ -220,7 +276,8 @@ export function EditorPlanta({ modelo, onChange, somenteLeitura = false, maquete
                 {pv.escadas.map(s => (
                   <g key={s.id} onPointerDown={e => { e.stopPropagation(); setSel({ tipo: "escada", id: s.id }); }} style={{ cursor: "pointer" }}>
                     <polygon points={s.poligono.map(p => `${p.x},${p.y}`).join(" ")} fill={escada?.id === s.id ? "#F472B655" : "#F472B622"} stroke="#F472B6" strokeWidth={u * 0.2} />
-                    <line x1={s.inicio.x} y1={s.inicio.y} x2={s.fim.x} y2={s.fim.y} stroke="#F472B6" strokeWidth={u * 0.25} markerEnd="url(#seta)" />
+                    {/* Eixo real do caminho: reto, em L, em U ou em caracol. */}
+                    <polyline points={percursoDaEscada(s).map(p => `${p.x},${p.y}`).join(" ")} fill="none" stroke="#F472B6" strokeWidth={u * 0.25} markerEnd="url(#seta)" />
                   </g>
                 ))}
                 <defs><marker id="seta" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="5" markerHeight="5" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="#F472B6" /></marker></defs>
@@ -265,11 +322,45 @@ export function EditorPlanta({ modelo, onChange, somenteLeitura = false, maquete
 
         <fieldset disabled={somenteLeitura} className="space-y-3 text-sm">
           {verImplantacao && imp ? (
-            <div className="space-y-1 rounded-lg border border-[#C9A961]/20 p-3">
-              <p className="font-semibold text-[#C9A961]">Implantação</p>
-              <p>{imp.lotes.length} lote(s), {imp.vias.length} via(s), {imp.posicoes.length} construção(ões).</p>
-              <p className="text-xs text-gray-400">A edição da implantação entra com a etapa de Incorporação.</p>
-            </div>
+            <>
+              <div className="space-y-2 rounded-lg border border-[#C9A961]/20 p-3">
+                <p className="font-semibold text-[#C9A961]">Implantação</p>
+                <p>{imp.lotes.length} lote(s), {imp.ruas.length + imp.vias.length} rua(s), {imp.posicoes.length} construção(ões){imp.relevo ? ", com topografia" : ""}.</p>
+                <p className="text-xs text-gray-400">Terreno, ruas e lotes vêm do estudo de Incorporação (ou da prancha lida). As construções são posicionadas aqui.</p>
+                {modelo.edificacoes.length ? (
+                  <div className="flex flex-wrap gap-2">
+                    <Button type="button" size="sm" variant="outline" className="border-[#C9A961]/30 bg-transparent text-gray-200" onClick={adicionarConstrucao}><Plus className="mr-1 h-4 w-4" />Construção</Button>
+                    {imp.lotes.some(l => l.tipo === "vendavel") && <Button type="button" size="sm" variant="outline" className="border-[#C9A961]/30 bg-transparent text-gray-200"
+                      onClick={() => { if (!imp.posicoes.length || window.confirm("Substituir as construções atuais por uma em cada lote vendável?")) umaPorLote(); }}>Uma em cada lote</Button>}
+                    {imp.posicoes.length > 0 && <Button type="button" size="sm" variant="outline" className="border-red-400/50 bg-transparent text-red-300"
+                      onClick={() => { if (window.confirm("Remover todas as construções da implantação?")) { mudarImp(i => ({ ...i, posicoes: [] })); setPosSel(null); } }}>Remover todas</Button>}
+                  </div>
+                ) : <p className="text-xs text-amber-300">Para posicionar casas, leia primeiro o PDF da casa-tipo (ou do bloco): é ela que será repetida no terreno.</p>}
+              </div>
+              {posicao && (
+                <div className="space-y-2 rounded-lg border border-[#C9A961]/40 p-3">
+                  <p className="font-semibold">Construção selecionada</p>
+                  <Campo rotulo="Nome"><input className={inputCls} value={posicao.nome} maxLength={60} onChange={e => mudarPosicao(posicao.id, c => ({ ...c, nome: e.target.value }))} /></Campo>
+                  {modelo.edificacoes.length > 1 && <Campo rotulo="Modelo"><select className={inputCls} value={posicao.edificacaoId} onChange={e => mudarPosicao(posicao.id, c => ({ ...c, edificacaoId: e.target.value }))}>
+                    {modelo.edificacoes.map(e => <option key={e.id} value={e.id}>{e.nome}</option>)}</select></Campo>}
+                  <div className="grid grid-cols-3 gap-2">
+                    <Campo rotulo="X (m)"><Num valor={posicao.x} passo={0.1} onChange={n => mudarPosicao(posicao.id, c => ({ ...c, x: n }))} /></Campo>
+                    <Campo rotulo="Y (m)"><Num valor={posicao.y} passo={0.1} onChange={n => mudarPosicao(posicao.id, c => ({ ...c, y: n }))} /></Campo>
+                    <Campo rotulo="Giro (°)"><Num valor={posicao.rotacao} passo={5} onChange={n => mudarPosicao(posicao.id, c => ({ ...c, rotacao: Math.max(-360, Math.min(360, n)) }))} /></Campo>
+                  </div>
+                  <div className="space-y-2 border-t border-[#C9A961]/15 pt-2">
+                    <p className="text-xs text-gray-300">Repetir em fila a partir desta</p>
+                    <div className="grid grid-cols-3 gap-2">
+                      <Campo rotulo="Quantidade"><Num valor={fila.quantidade} passo={1} min={2} onChange={n => setFila({ ...fila, quantidade: Math.round(n) })} /></Campo>
+                      <Campo rotulo="Distância (m)"><Num valor={fila.passo} passo={0.5} min={1} onChange={n => setFila({ ...fila, passo: n })} /></Campo>
+                      <Campo rotulo="Direção (°)"><Num valor={fila.angulo} passo={5} onChange={n => setFila({ ...fila, angulo: n })} /></Campo>
+                    </div>
+                    <Button type="button" size="sm" variant="outline" className="border-[#C9A961]/30 bg-transparent text-gray-200" onClick={repetirEmFila}>Repetir</Button>
+                  </div>
+                  <Button type="button" size="sm" variant="outline" className="border-red-400/50 bg-transparent text-red-300" onClick={() => { mudarImp(i => ({ ...i, posicoes: i.posicoes.filter(c => c.id !== posicao.id) })); setPosSel(null); }}><Trash2 className="mr-1 h-4 w-4" />Remover esta</Button>
+                </div>
+              )}
+            </>
           ) : pv && ed ? (
             <>
               <div className="space-y-2 rounded-lg border border-[#C9A961]/20 p-3">
@@ -344,7 +435,7 @@ export function EditorPlanta({ modelo, onChange, somenteLeitura = false, maquete
               {escada && (
                 <div className="space-y-2 rounded-lg border border-[#C9A961]/40 p-3">
                   <p className="font-semibold">Escada {escada.id}</p>
-                  <Campo rotulo="Tipo"><select className={inputCls} value={escada.tipo} onChange={e => mudarEscada(escada.id, s => ({ ...s, tipo: e.target.value as Escada["tipo"] }))}>
+                  <Campo rotulo="Tipo"><select className={inputCls} value={escada.tipo} onChange={e => mudarEscada(escada.id, s => ({ ...s, tipo: e.target.value as Escada["tipo"], percurso: [] }))}>
                     {TIPOS_ESCADA.map(t => <option key={t} value={t}>{ROTULOS_ESCADA[t]}</option>)}</select></Campo>
                   <Campo rotulo="Sobe para"><select className={inputCls} value={escada.destinoPavimentoId ?? ""} onChange={e => mudarEscada(escada.id, s => ({ ...s, destinoPavimentoId: e.target.value || null }))}>
                     <option value="">— escolher —</option>{ed.pavimentos.filter(p => p.id !== pv.id).map(p => <option key={p.id} value={p.id}>{p.nome}</option>)}</select></Campo>
@@ -356,6 +447,8 @@ export function EditorPlanta({ modelo, onChange, somenteLeitura = false, maquete
                     <Campo rotulo="Chegada X"><Num valor={escada.fim.x} onChange={n => mudarEscada(escada.id, s => ({ ...s, fim: { ...s.fim, x: n } }))} /></Campo>
                     <Campo rotulo="Chegada Y"><Num valor={escada.fim.y} onChange={n => mudarEscada(escada.id, s => ({ ...s, fim: { ...s.fim, y: n } }))} /></Campo>
                   </div>
+                  <p className="text-xs text-gray-400">A linha rosa mostra o caminho da escada. Em L e em U ela dobra dentro do contorno; ajuste o contorno, a partida e a chegada até a linha seguir a prancha.</p>
+                  {escada.percurso.length > 0 && <button type="button" className="text-xs text-pink-300 underline" onClick={() => mudarEscada(escada.id, s => ({ ...s, percurso: [] }))}>Recalcular o caminho pelo tipo e pelo contorno</button>}
                   <Origem valor={escada.origem} onChange={o => mudarEscada(escada.id, s => ({ ...s, origem: o }))} />
                 </div>
               )}

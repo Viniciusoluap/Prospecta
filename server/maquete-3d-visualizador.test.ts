@@ -5,6 +5,7 @@ import { modeloSchema, type Pavimento } from "../shared/maquete-3d/modelo.js";
 import {
   apoio, blocosDaParede, comodoEm, cruzaParede, destaqueDoComodo, entrada, resolverColisao, rota, roteiroTour, segmentosDeColisao, telhado, topoDaEdificacao,
 } from "../shared/maquete-3d/geometria3d.js";
+import { eixoDaCaracol, fracaoDaSubida, percursoDaEscada, trechosDaEscada } from "../shared/maquete-3d/escadas.js";
 import { mobiliarComodo, mobiliarPavimento, sobrepoe, type PecaMobilia } from "../shared/maquete-3d/mobilia.js";
 
 const R = (x: number, y: number, w: number, h: number) => [{ x, y }, { x: x + w, y }, { x: x + w, y: y + h }, { x, y: y + h }];
@@ -114,6 +115,54 @@ describe("rota do tour", () => {
   });
 });
 
+describe("escadas com a forma real", () => {
+  const base = { id: "e", largura: 1, degraus: null, destinoPavimentoId: "s", origem: "confirmada" as const, percurso: [] };
+  const comp = (pts: { x: number; y: number }[]) => pts.slice(1).reduce((t, p, i) => t + Math.hypot(p.x - pts[i].x, p.y - pts[i].y), 0);
+
+  it("em L: dobra na quina, dentro do contorno, com patamar plano", () => {
+    // Contorno em L: sobe 3 m para o norte e vira 2 m para o leste.
+    const s = { ...base, tipo: "em_l" as const, inicio: { x: 0.5, y: 3.5 }, fim: { x: 3, y: 0.5 }, poligono: [{ x: 0, y: 0 }, { x: 3, y: 0 }, { x: 3, y: 1 }, { x: 1, y: 1 }, { x: 1, y: 4 }, { x: 0, y: 4 }] };
+    expect(percursoDaEscada(s)).toEqual([{ x: 0.5, y: 3.5 }, { x: 0.5, y: 0.5 }, { x: 3, y: 0.5 }]);
+    const t = trechosDaEscada(s);
+    expect(t.map(x => x.patamar)).toEqual([false, true, true, false]);
+    expect(t[1].de).toBeCloseTo(t[2].ate, 6);                 // o patamar não sobe
+    expect(t[0].de).toBe(0); expect(t.at(-1)!.ate).toBeCloseTo(1, 6);
+    expect(fracaoDaSubida(s, { x: 0.5, y: 0.5 })).toBeCloseTo(t[1].de, 6); // na quina, altura do patamar
+    expect(fracaoDaSubida(s, { x: 3, y: 0.5 })).toBeCloseTo(1, 6);
+  });
+
+  it("em U: vai até o fundo, atravessa o patamar e volta", () => {
+    const s = { ...base, tipo: "em_u" as const, inicio: { x: 0.5, y: 4 }, fim: { x: 1.5, y: 4 }, poligono: R(0, 0, 2, 4) };
+    expect(percursoDaEscada(s)).toEqual([{ x: 0.5, y: 4 }, { x: 0.5, y: 0.5 }, { x: 1.5, y: 0.5 }, { x: 1.5, y: 4 }]);
+    const t = trechosDaEscada(s), meio = t.find(x => x.patamar)!;
+    expect(meio.de).toBeCloseTo(0.5, 2);                       // o patamar fica a meia altura
+    expect(fracaoDaSubida(s, { x: 0.5, y: 2 })).toBeLessThan(0.5);
+    expect(fracaoDaSubida(s, { x: 1.5, y: 2 })).toBeGreaterThan(0.5);
+  });
+
+  it("caracol: gira em torno do centro, sem patamar", () => {
+    const s = { ...base, tipo: "caracol" as const, inicio: { x: 2, y: 1 }, fim: { x: 1, y: 0 }, poligono: R(0, 0, 2, 2) };
+    const pts = percursoDaEscada(s);
+    expect(pts.length).toBeGreaterThan(10);
+    for (const p of pts) expect(Math.hypot(p.x - 1, p.y - 1)).toBeCloseTo(1, 5); // sempre a 1 m do mastro
+    expect(comp(pts)).toBeGreaterThan(Math.PI);                 // mais de meia volta
+    expect(trechosDaEscada(s).every(t => !t.patamar)).toBe(true);
+    expect(eixoDaCaracol(s)).toEqual({ x: 1, y: 1 });
+  });
+
+  it("reta continua um lance só; percurso informado é respeitado; o tour sobe pela forma da escada", () => {
+    const reta = terreo.escadas[0];
+    expect(percursoDaEscada(reta)).toEqual([reta.inicio, reta.fim]);
+    expect(percursoDaEscada({ ...reta, percurso: [{ x: 7.4, y: 8 }] })).toEqual([reta.inicio, { x: 7.4, y: 8 }, reta.fim]);
+    const emL = { ...ed, pavimentos: [{ ...terreo, escadas: [{ ...reta, tipo: "em_l" as const, poligono: [{ x: 5.9, y: 6.2 }, { x: 7.9, y: 6.2 }, { x: 7.9, y: 9.9 }, { x: 6.9, y: 9.9 }, { x: 6.9, y: 7.2 }, { x: 5.9, y: 7.2 }], fim: { x: 6.1, y: 6.7 } }] }, superior] };
+    const r = rota(emL, { pavimentoId: "t", p: { x: 6, y: 8.5 } }, { pavimentoId: "s", p: { x: 2, y: 7 } });
+    const naEscada = r.filter(x => x.y !== undefined);
+    expect(naEscada.length).toBeGreaterThanOrEqual(2);
+    expect(naEscada.map(x => x.y!)).toEqual([...naEscada.map(x => x.y!)].sort((a, b) => a - b)); // sempre subindo
+    expect(naEscada.some(x => Math.abs(x.p.x - 7.4) < 0.01 && Math.abs(x.p.y - 6.7) < 0.6)).toBe(true); // passa pela quina
+  });
+});
+
 describe("motor de mobília", () => {
   const caixa = (p: PecaMobilia) => ({ x: p.x, z: p.z, rot: p.rot, w: p.largura, d: p.profundidade });
   const noPiso = (ps: PecaMobilia[]) => ps.filter(p => p.elevacao === 0 && !["tapete", "cortina", "cadeira", "cadeira_escritorio"].includes(p.tipo));
@@ -156,6 +205,17 @@ describe("motor de mobília", () => {
     const mini = { ...superior.comodos[1], poligono: R(4.06, 0.1, 2.6, 2.9) };
     expect(mobiliarComodo(mini, superior).find(p => p.tipo === "cama")!.largura).toBe(0.95);
     expect(mobiliarComodo({ ...mini, poligono: R(4.06, 0.1, 1, 1) }, superior)).toEqual([]);
+  });
+
+  it("garagem recebe carro: um na vaga simples, dois quando cabe; sem bater nas paredes", () => {
+    const garagem = (w: number, h: number) => ({ id: "g", nome: "Garagem", funcao: "garagem" as const, poligono: R(0, 0, w, h), areaInformada: null, origem: "confirmada" as const });
+    const pv = { ...superior, paredes: [], aberturas: [], comodos: [] };
+    const um = mobiliarComodo(garagem(3.2, 5.5), pv).filter(p => p.tipo === "carro");
+    expect(um).toHaveLength(1);
+    expect(um[0]).toMatchObject({ largura: 1.8, profundidade: 4.3 });
+    expect(Math.abs(Math.sin(um[0].rot))).toBeLessThan(0.01); // comprido no sentido do maior lado (5,5 m, ao longo de y)
+    expect(mobiliarComodo(garagem(6, 6), pv).filter(p => p.tipo === "carro")).toHaveLength(2);
+    expect(mobiliarComodo(garagem(2.2, 3), pv).filter(p => p.tipo === "carro")).toHaveLength(0); // não cabe: fica sem
   });
 
   it("é determinístico: a mesma planta gera sempre a mesma mobília", () => {

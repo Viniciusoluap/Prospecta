@@ -2,6 +2,7 @@
 // colisão, altura do piso (escadas e rampas), em que cômodo se está, cobertura e o roteiro do tour.
 // Convenção 3D: X = x da planta, Z = y da planta, Y = altura. Tudo em metros. Sem dependência de three.js,
 // para poder ser testado no servidor.
+import { fracaoDaSubida, trechosDaEscada } from "./escadas.js";
 import {
   areaPoligono, centroide, comprimento, limites, type Abertura, type Comodo, type Edificacao, type Escada, type Parede,
   type Pavimento, type Ponto,
@@ -134,11 +135,8 @@ export const alturaDoPavimento = (p: Pavimento, laje = ESPESSURA_LAJE) => (p.peD
 export const ESPESSURA_LAJE = 0.15;
 export const topoDaEdificacao = (e: Edificacao) => Math.max(0, ...e.pavimentos.map(p => p.nivel + alturaDoPavimento(p)));
 
-/** Fração percorrida da escada (0 na partida, 1 na chegada) para um ponto em planta. */
-export function progressoNaEscada(s: Escada, p: Ponto): number {
-  const dx = s.fim.x - s.inicio.x, dy = s.fim.y - s.inicio.y, l2 = dx * dx + dy * dy;
-  return l2 < EPS ? 0 : Math.min(1, Math.max(0, ((p.x - s.inicio.x) * dx + (p.y - s.inicio.y) * dy) / l2));
-}
+/** Fração da subida (0 na partida, 1 na chegada) para um ponto em planta, seguindo a forma real da escada. */
+export const progressoNaEscada = (s: Escada, p: Ponto): number => fracaoDaSubida(s, p);
 
 export type Apoio = { pavimentoId: string; y: number; naEscada: boolean };
 
@@ -323,7 +321,8 @@ export function roteiroTour(e: Edificacao): ParadaTour[] {
 
 // ── Rota a pé (o tour anda pelas portas e escadas, sem atravessar parede) ──
 
-export type PontoRota = { pavimentoId: string; p: Ponto };
+/** `y` vem preenchido nos pontos sobre uma escada (altura real do degrau ou do patamar). */
+export type PontoRota = { pavimentoId: string; p: Ponto; y?: number };
 
 /**
  * Caminho entre dois pontos da edificação. Grafo: o ponto interno de cada cômodo, os dois lados de cada passagem
@@ -389,8 +388,25 @@ export function rota(e: Edificacao, de: PontoRota, para: PontoRota): PontoRota[]
     nos[u].viz.forEach((d, v) => { if (dist[u] + d < dist[v]) { dist[v] = dist[u] + d; anterior[v] = u; } });
   }
   if (dist[destino] === Infinity) return [de, para];
+  const direto: PontoRota[] = [];
+  for (let i = destino; i >= 0; i = anterior[i]) direto.unshift({ pavimentoId: nos[i].pavimentoId, p: nos[i].p });
+  // Onde o caminho troca de pavimento, entra a forma real da escada (lances, patamares, caracol).
+  const perto = (a: Ponto, b: Ponto) => Math.hypot(a.x - b.x, a.y - b.y) < 0.02;
   const caminho: PontoRota[] = [];
-  for (let i = destino; i >= 0; i = anterior[i]) caminho.unshift({ pavimentoId: nos[i].pavimentoId, p: nos[i].p });
+  direto.forEach((ponto, i) => {
+    const antes = direto[i - 1];
+    if (antes && antes.pavimentoId !== ponto.pavimentoId) {
+      for (const pv of e.pavimentos) for (const s of pv.escadas) {
+        const sobe = pv.id === antes.pavimentoId && s.destinoPavimentoId === ponto.pavimentoId && perto(s.inicio, antes.p) && perto(s.fim, ponto.p);
+        const desce = pv.id === ponto.pavimentoId && s.destinoPavimentoId === antes.pavimentoId && perto(s.fim, antes.p) && perto(s.inicio, ponto.p);
+        if (!sobe && !desce) continue;
+        const base = niveis.get(pv.id) ?? 0, topo = niveis.get(s.destinoPavimentoId ?? "") ?? base;
+        const meio = trechosDaEscada(s).slice(0, -1).map(t => ({ pavimentoId: antes.pavimentoId, p: t.b, y: base + (topo - base) * t.ate }));
+        caminho.push(...(sobe ? meio : meio.reverse()));
+      }
+    }
+    caminho.push(ponto);
+  });
   return caminho;
 }
 
