@@ -11,9 +11,9 @@ describe("Permissões administrativas", () => {
     expect(parsePermissions("não-json")).toEqual([]);
   });
 
-  it("são os 16 módulos do pedido de 17/10/2026, na ordem do painel, mais a Maquete 3D (EPIC-022, 14/11/2026)", () => {
+  it("são os módulos do pedido de 17/10/2026, na ordem do painel, mais a Maquete 3D (EPIC-022) e sem Corretores (EPIC-023, 15/11/2026)", () => {
     expect([...ADMIN_MODULES]).toEqual([
-      "crm", "obras", "agenda", "corretores", "regularizacao", "comissoes", "projetos", "mapa",
+      "crm", "obras", "agenda", "regularizacao", "comissoes", "projetos", "mapa",
       "avaliacoes", "imoveis", "incorporacao", "whatsapp", "bpo", "financiamentos", "juridico", "maquete3d", "sorteios",
     ]);
     expect(ADMIN_MODULE_LABELS.sorteios).toBe("Ecossistema de Sorteio");
@@ -35,6 +35,16 @@ describe("Permissões administrativas", () => {
     expect(canAccessAdminProcedure(semObras, "construction.allProjects")).toBe(false);
     expect(canAccessAdminProcedure(semObras, "obraProgresso.obter")).toBe(false);
     expect(canAccessAdminProcedure({ ...tudo, active: false }, "leads.list")).toBe(false);
+  });
+
+  it("EPIC-023: o cadastro de corretores saiu dos módulos — só admin (em Usuários e Acessos)", () => {
+    const tudo = { role: "colaborador", permissions: JSON.stringify([...ADMIN_MODULES, "corretores"]) };
+    expect(ADMIN_MODULES).not.toContain("corretores");
+    expect(parsePermissions(tudo.permissions)).not.toContain("corretores");
+    expect(canAccessAdminProcedure(tudo, "corretores.list")).toBe(false);
+    expect(canAccessAdminProcedure({ role: "admin", permissions: "[]" }, "corretores.update")).toBe(true);
+    // As comissões continuam lendo a regra do corretor pelo módulo próprio.
+    expect(canAccessAdminProcedure(tudo, "comissoes.options")).toBe(true);
   });
 
   it("fila de serviços do CRM abre no módulo operacional", () => {

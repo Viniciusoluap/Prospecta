@@ -2,10 +2,11 @@
 // incorporação, preços padrão (só admin) e, em cada pedido, liberação/autorização, leitura do PDF e revisão da planta.
 import { Suspense, lazy, useEffect, useRef, useState } from "react";
 import { Link, useLocation, useRoute } from "wouter";
-import { ArrowLeft, Box, Check, Copy, Eye, Globe, Play, Plus, RefreshCw, Save, X } from "lucide-react";
+import { ArrowLeft, Box, Check, Copy, Eye, Globe, Play, Plus, RefreshCw, Save, Trash2, X } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { trpc } from "@/lib/trpc";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { EditorPlanta } from "@/components/maquete-3d/EditorPlanta";
@@ -75,8 +76,39 @@ function Lista() {
   const admin = user?.role === "admin";
   const lista = trpc.maquete3d.listar.useQuery({});
   const [novo, setNovo] = useState(false);
+  // EPIC-023 (S-A): excluir pela lista. Mantém o padrão do detalhe: primeiro a recusa (com motivo), depois a exclusão.
+  const utils = trpc.useUtils();
+  const [apagar, setApagar] = useState<{ id: number; titulo: string; status: string } | null>(null);
+  const [motivo, setMotivo] = useState("");
+  const recusar = trpc.maquete3d.recusar.useMutation();
+  const excluir = trpc.maquete3d.excluir.useMutation();
+  const apagando = recusar.isPending || excluir.isPending;
+  async function confirmarExclusao() {
+    if (!apagar) return;
+    try {
+      if (apagar.status !== "recusada") await recusar.mutateAsync({ id: apagar.id, motivo: motivo.trim() });
+      await excluir.mutateAsync({ id: apagar.id });
+      toast.success("Pedido excluído.");
+      setApagar(null); setMotivo("");
+    } catch (e) { falha(e); }
+    await utils.maquete3d.listar.invalidate();
+  }
   return (
     <>
+      <Dialog open={!!apagar} onOpenChange={aberto => { if (!aberto && !apagando) { setApagar(null); setMotivo(""); } }}>
+        <DialogContent className="border-[#C9A961]/30 bg-[#1A2332] text-white">
+          <DialogHeader><DialogTitle>Excluir pedido — {apagar?.titulo}</DialogTitle></DialogHeader>
+          {apagar?.status === "recusada" ? <p className="text-sm text-gray-300">Este pedido já está recusado. Confirma a exclusão?</p> : (
+            <label className="block text-sm text-gray-300">Antes de excluir, o pedido é recusado. Informe o motivo da recusa (mínimo de 5 letras):
+              <input className={`mt-1 ${inputCls}`} value={motivo} maxLength={400} onChange={e => setMotivo(e.target.value)} autoFocus /></label>
+          )}
+          <div className="flex flex-wrap justify-end gap-2">
+            <Button variant="outline" className={btnOutline} disabled={apagando} onClick={() => { setApagar(null); setMotivo(""); }}>Cancelar</Button>
+            <Button variant="outline" className="border-red-400/50 bg-transparent text-red-300" disabled={apagando || (apagar?.status !== "recusada" && motivo.trim().length < 5)} onClick={confirmarExclusao}>
+              <Trash2 className="mr-1 h-4 w-4" />{apagar?.status === "recusada" ? "Excluir" : "Recusar e excluir"}</Button>
+          </div>
+        </DialogContent>
+      </Dialog>
       <div className="flex flex-wrap items-center justify-between gap-2">
         <p className="text-sm text-gray-300">Converte o projeto em PDF em uma maquete 3D navegável. Projeto de cliente é pago; Incorporação precisa da autorização do administrador.</p>
         <Button className={btnOuro} onClick={() => setNovo(v => !v)}><Plus className="mr-1 h-4 w-4" />Novo pedido</Button>
@@ -90,7 +122,7 @@ function Lista() {
           ) : (
             <div className="overflow-x-auto">
               <table className="w-full text-left text-sm">
-                <thead className="text-xs uppercase text-gray-400"><tr><th className="py-2 pr-3">Maquete</th><th className="pr-3">Origem</th><th className="pr-3">Tipo</th><th className="pr-3">Valor</th><th className="pr-3">Situação</th><th className="pr-3">Criada em</th></tr></thead>
+                <thead className="text-xs uppercase text-gray-400"><tr><th className="py-2 pr-3">Maquete</th><th className="pr-3">Origem</th><th className="pr-3">Tipo</th><th className="pr-3">Valor</th><th className="pr-3">Situação</th><th className="pr-3">Criada em</th>{admin && <th className="text-right">Excluir</th>}</tr></thead>
                 <tbody>
                   {lista.data.map(m => (
                     <tr key={m.id} className="border-t border-[#C9A961]/10">
@@ -100,7 +132,11 @@ function Lista() {
                       <td className="pr-3">{ROTULOS_TIPO[m.tipo as TipoMaquete]}</td>
                       <td className="pr-3">{reais(m.preco)}</td>
                       <td className="pr-3"><Selo status={m.status} /></td>
-                      <td className="pr-3 text-gray-300">{dataHora(m.createdAt)}</td>
+                      <td className="whitespace-nowrap pr-3 text-gray-300">{dataHora(m.createdAt)}</td>
+                      {admin && <td className="whitespace-nowrap text-right">
+                        <Button size="icon" variant="ghost" aria-label={`Excluir ${m.titulo}`} title={m.status === "publicada" ? "Despublique a maquete antes de excluir" : "Excluir pedido"} disabled={m.status === "publicada"}
+                          className="h-8 w-8 text-red-300 hover:bg-red-500/10 hover:text-red-200" onClick={() => { setMotivo(""); setApagar({ id: m.id, titulo: m.titulo, status: m.status }); }}><Trash2 className="h-4 w-4" /></Button>
+                      </td>}
                     </tr>
                   ))}
                 </tbody>

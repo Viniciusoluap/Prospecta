@@ -213,7 +213,7 @@ export default function AdminCRM() {
   };
 
   return (
-    <div className="min-h-screen overflow-x-clip bg-[#0F1419] text-gray-100">
+    <div className={`${viewMode === "pipeline" ? "flex h-dvh flex-col overflow-x-hidden overflow-y-auto overscroll-none" : "min-h-screen overflow-x-clip"} bg-[#0F1419] text-gray-100`}>
       <div className="border-b border-white/10 bg-[#1A2332]">
         <div className="container mx-auto flex flex-col gap-4 py-4 lg:flex-row lg:items-center lg:justify-between">
           <div className="flex min-w-0 flex-col gap-2 sm:flex-row sm:items-center sm:gap-4">
@@ -483,13 +483,14 @@ export default function AdminCRM() {
 
       {/* Pipeline View */}
       {viewMode === "pipeline" && (
-        <div className="container mx-auto px-4 pb-8">
-          <div className="overflow-x-auto overscroll-x-contain">
-            <div className="flex gap-4 min-w-max">
+        <div className="container mx-auto flex min-h-[340px] flex-1 flex-col px-4 pb-3">
+          {/* EPIC-023 (S-A): a página não rola; o trilho rola de lado e só os cartões rolam dentro de cada coluna. */}
+          <div className="min-h-0 flex-1 touch-pan-x overflow-x-auto overflow-y-hidden overscroll-contain">
+            <div className="flex h-full min-w-max gap-4">
               {STAGES.map(stage => {
                 const stageLeads = getLeadsByStage(stage.key).filter(lead => !lead.stageClassificationPending && !lead.deletedAt);
                 return (
-                  <div key={stage.key} className="w-64 flex-shrink-0">
+                  <div key={stage.key} className="flex h-full w-64 flex-shrink-0 flex-col">
                     <div className="flex items-center gap-2 mb-3">
                       <div className={`h-3 w-3 rounded-full ${stage.color}`} />
                       <span className="text-sm font-medium text-gray-300">{stage.label}</span>
@@ -497,7 +498,7 @@ export default function AdminCRM() {
                         {stageLeads.length}
                       </span>
                     </div>
-                    <div className="space-y-2 max-h-[600px] overflow-y-auto pr-1">
+                    <div className="min-h-0 flex-1 touch-pan-y space-y-2 overflow-y-auto overscroll-contain pb-2 pr-1">
                       {stageLeads.map(lead => (
                           <Card key={lead.id} onClick={() => navigate(`/admin/crm/${lead.id}`)} className="bg-[#1A2332] border-white/10 hover:border-[#C9A961]/50 cursor-pointer transition-all">
                             <CardContent className="p-3 space-y-2">

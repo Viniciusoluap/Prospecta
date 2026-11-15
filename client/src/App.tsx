@@ -30,7 +30,6 @@ import Notificacoes from "./pages/Notificacoes";
 import ConfiguracoesPagamento from "./pages/admin/ConfiguracoesPagamento";
 import AdminCRM from "./pages/admin/AdminCRM";
 import AdminLeadDetail from "./pages/admin/AdminLeadDetail";
-import AdminCorretores from "./pages/admin/AdminBrokerDirectory";
 import AdminTarefasAgenda from "./pages/admin/AdminTarefasAgenda";
 import AdminComissoes from "./pages/admin/AdminComissoes";
 import AdminProjetos from "./pages/admin/AdminProjetos";
@@ -248,11 +247,8 @@ function Router() {
           <AdminTarefasAgenda initialView="tarefas" />
         </AdminRoute>
       </Route>
-      <Route path="/admin/corretores">
-        <AdminRoute module="corretores">
-          <AdminCorretores />
-        </AdminRoute>
-      </Route>
+      {/* EPIC-023: a tela "Corretores" foi unificada em "Usuários e acesso"; favoritos antigos caem lá. */}
+      <Route path="/admin/corretores"><Redirect to="/admin/configuracoes?perfil=corretor" /></Route>
       <Route path="/admin/agenda">
         <AdminRoute module="agenda">
           <AdminTarefasAgenda initialView="agenda" />

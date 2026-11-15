@@ -65,7 +65,6 @@ const MODULOS_DO_PAINEL: {
   { modulo: "crm", href: "/admin/crm", rotulo: "CRM / Pipeline", Icone: Users, cor: "border-blue-500/30 hover:bg-blue-500/10", corIcone: "text-blue-400" },
   { modulo: "obras", href: "/admin/obras", rotulo: "Obras", Icone: HardHat, cor: "border-orange-500/30 hover:bg-orange-500/10", corIcone: "text-orange-400" },
   { modulo: "agenda", href: "/admin/tarefas-agenda", rotulo: "Tarefas e Agenda", Icone: CheckSquare, cor: "border-purple-500/30 hover:bg-purple-500/10", corIcone: "text-purple-400" },
-  { modulo: "corretores", href: "/admin/corretores", rotulo: "Corretores", Icone: UserCheck, cor: "border-pink-500/30 hover:bg-pink-500/10", corIcone: "text-pink-400" },
   { modulo: "regularizacao", href: "/admin/regularizacoes", rotulo: "Regularizações", Icone: FileCheck2, cor: "border-teal-500/30 hover:bg-teal-500/10", corIcone: "text-teal-400" },
   { modulo: "comissoes", href: "/admin/comissoes", rotulo: "Comissões", Icone: CheckSquare, cor: "border-[#C9A961]/30", corIcone: "text-[#C9A961]" },
   { modulo: "projetos", href: "/admin/projetos", rotulo: "Projetos", Icone: CheckSquare, cor: "border-[#C9A961]/30", corIcone: "text-[#C9A961]" },

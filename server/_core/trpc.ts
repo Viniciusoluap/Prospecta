@@ -84,7 +84,6 @@ const procedureModules: Record<string, AdminModule | AdminModule[]> = {
   maquete3d: "maquete3d",
   financiamentos: "financiamentos",
   juridico: "juridico",
-  corretores: "corretores",
   projetos: "projetos",
   mapa: "mapa",
 };

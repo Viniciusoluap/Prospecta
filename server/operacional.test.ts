@@ -271,12 +271,13 @@ describe("Etapa 4 — autorização aplicada antes do banco", () => {
     }
   );
   it.each(modules)("mapeia %s sem conceder outros módulos", module => {
+    // EPIC-023 (15/11): "Corretores" deixou de ser módulo — o cadastro é só do admin.
     expect(
       canAccessAdminProcedure(
         context("colaborador", [module]).user!,
         `${module}.list`
       )
-    ).toBe(true);
+    ).toBe(module !== "corretores");
     expect(
       canAccessAdminProcedure(
         context("colaborador", [module]).user!,
@@ -284,7 +285,7 @@ describe("Etapa 4 — autorização aplicada antes do banco", () => {
       )
     ).toBe(false);
   });
-  it("colaborador sem o módulo Corretores não exclui corretor (com o módulo, faz como o admin)", async () => {
+  it("colaborador não exclui corretor: o cadastro é só do admin (EPIC-023)", async () => {
     await expect(
       app
         .createCaller(context("colaborador", ["mapa"]))
