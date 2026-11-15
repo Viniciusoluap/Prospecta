@@ -5,19 +5,21 @@ import { randomBytes } from "node:crypto";
 import { TRPCError } from "@trpc/server";
 import { and, desc, eq, inArray, isNull, sql } from "drizzle-orm";
 import { z } from "zod";
-import { incorporationStudies, operationalProjects, projectDocuments, users } from "../../drizzle/schema.js";
-import { maquetes3d, type Maquete3d } from "../../drizzle/schema-maquete-3d.js";
-import { TIPOS_MAQUETE, lerModelo, modeloSchema, modeloVazio, podePublicar, resumoModelo, validarModelo, type TipoMaquete } from "../../shared/maquete-3d/modelo.js";
+import { incorporationStudies, leads, operationalProjects, projectDocuments, users } from "../../drizzle/schema.js";
+import { maquete3dArquivos, maquetes3d, type Maquete3d } from "../../drizzle/schema-maquete-3d.js";
+import { TIPOS_MAQUETE, lerModelo, limites, modeloSchema, modeloVazio, podePublicar, pontosDoPavimento, resumoModelo, validarModelo, type Edificacao, type TipoMaquete } from "../../shared/maquete-3d/modelo.js";
+import { LIMITES_CASA, LIMITES_PREDIO, casaPadrao, distribuirNosLotes, ehPadrao, predioPadrao } from "../../shared/maquete-3d/padrao.js";
 import { implantacaoDoEstudo, type GradeElevacao } from "../../shared/maquete-3d/implantacao.js";
 import type { CenarioMassa } from "../../shared/incorporacao/massa.js";
 import {
-  FAIXAS_PRECO, MAX_DOCUMENTOS, ORIGENS_MAQUETE, PODE_REVISAR, comercialSchema, configSchema, documentoSchema, lerComercial, lerEstadoLeitura,
+  FAIXAS_PRECO, MAX_BYTES_PDF_AVULSO, MAX_DOCUMENTOS, ORIGENS_MAQUETE, escopoEnvioMaquete, PODE_REVISAR, comercialSchema, configSchema, documentoSchema, lerComercial, lerEstadoLeitura,
   progressoLeitura, statusInicial, type DocumentoMaquete, type OrigemMaquete, type StatusMaquete,
 } from "../../shared/maquete-3d/regras.js";
 import { ENV } from "../_core/env.js";
 import { adminProcedure, publicProcedure, router } from "../_core/trpc.js";
 import { avisarMaquetePronta, avisarPedidoAprovado, destinatario } from "./avisos.js";
-import { LeituraIndisponivel, agora, carregarConfig, db, dependencias, salvarConfig } from "./base.js";
+import { LeituraIndisponivel, agora, alvoDoDocumento, carregarConfig, db, dependencias, salvarConfig } from "./base.js";
+import { clearUpload, readUpload } from "../document-upload-chunks.js";
 import { avancarLeitura, iniciarLeitura, lerDocumentos } from "./leitura.js";
 
 type Ctx = { user: { id: number; role: string } };
@@ -52,19 +54,33 @@ async function documentosDisponiveis(origem: OrigemMaquete, alvoId: number): Pro
     .map(l => ({ fonte: "incorporacao" as const, id: Number(l.id), nome: l.file_name ?? `Documento ${l.id}` }));
 }
 
-async function conferirDocumentos(origem: OrigemMaquete, alvoId: number, escolhidos: DocumentoMaquete[]): Promise<DocumentoMaquete[]> {
-  const disponiveis = new Map((await documentosDisponiveis(origem, alvoId)).map(d => [d.id, d]));
-  const ids = Array.from(new Set(escolhidos.map(d => d.id)));
-  const faltando = ids.filter(i => !disponiveis.has(i));
-  if (faltando.length) throw new TRPCError({ code: "BAD_REQUEST", message: "Um dos PDFs escolhidos não pertence a este projeto/estudo ou não está mais disponível." });
-  return ids.map(i => disponiveis.get(i)!);
+/** PDFs enviados direto neste pedido (EPIC-023, S-C). */
+async function arquivosAvulsos(maqueteId: number): Promise<DocumentoMaquete[]> {
+  const linhas = await db().select({ id: maquete3dArquivos.id, nome: maquete3dArquivos.nome }).from(maquete3dArquivos)
+    .where(eq(maquete3dArquivos.maqueteId, maqueteId)).orderBy(desc(maquete3dArquivos.id));
+  return linhas.map(l => ({ fonte: "avulso" as const, id: l.id, nome: l.nome }));
+}
+
+/** Tudo o que pode ser lido neste pedido: PDFs do projeto/estudo (se houver) e os avulsos. */
+async function documentosDoPedido(m: { id: number | null; origem: OrigemMaquete; projectId: number | null; studyId: number | null }): Promise<DocumentoMaquete[]> {
+  const alvoId = m.origem === "projeto" ? m.projectId : m.studyId;
+  const [doAlvo, avulsos] = await Promise.all([alvoId ? documentosDisponiveis(m.origem, alvoId) : [], m.id ? arquivosAvulsos(m.id) : []]);
+  return [...avulsos, ...doAlvo];
+}
+
+const chaveDoc = (d: { fonte: string; id: number }) => `${d.fonte}:${d.id}`;
+async function conferirDocumentos(m: Parameters<typeof documentosDoPedido>[0], escolhidos: DocumentoMaquete[]): Promise<DocumentoMaquete[]> {
+  const disponiveis = new Map((await documentosDoPedido(m)).map(d => [chaveDoc(d), d]));
+  const chaves = Array.from(new Set(escolhidos.map(chaveDoc)));
+  if (chaves.some(c => !disponiveis.has(c))) throw new TRPCError({ code: "BAD_REQUEST", message: "Um dos PDFs escolhidos não pertence a este pedido ou não está mais disponível." });
+  return chaves.map(c => disponiveis.get(c)!);
 }
 
 function paraTela(m: Maquete3d) {
   const modelo = lerModelo(m.modelo);
   const leitura = lerEstadoLeitura(m.leitura);
   return {
-    id: m.id, titulo: m.titulo, origem: m.origem as OrigemMaquete, projectId: m.projectId, studyId: m.studyId, tipo: m.tipo,
+    id: m.id, titulo: m.titulo, origem: m.origem as OrigemMaquete, projectId: m.projectId, studyId: m.studyId, leadId: m.leadId, tipo: m.tipo,
     status: m.status as StatusMaquete, faixaPreco: m.faixaPreco, preco: m.preco === null ? null : Number(m.preco),
     pagoEm: m.pagoEm, liberadoEm: m.liberadoEm, liberacaoNota: m.liberacaoNota, recusaMotivo: m.recusaMotivo,
     documentos: lerDocumentos(m.documentos), modeloVersao: m.modeloVersao, revisadoEm: m.revisadoEm, publicadoEm: m.publicadoEm,
@@ -83,6 +99,28 @@ export async function unidadesDoEstudo(studyId: number | null): Promise<{ codigo
   return (r as unknown as { rows: { code: string; status: string }[] }).rows.map(u => ({ codigo: u.code, status: u.status }));
 }
 const PARTE_PDF_BYTES = 2 * 1024 * 1024;
+
+/** Terreno, ruas, lotes e relevo que o estudo de Incorporação já tem (cenário escolhido do estudo de massa). */
+async function lerImplantacaoDoEstudo(studyId: number) {
+  const [estudo] = await db().select({
+    geojson: incorporationStudies.geojson, lat: incorporationStudies.latitude, lng: incorporationStudies.longitude,
+    cenarios: incorporationStudies.massScenariosJson, escolhido: incorporationStudies.selectedScenarioId, elevacao: incorporationStudies.elevationJson,
+  }).from(incorporationStudies).where(eq(incorporationStudies.id, studyId)).limit(1);
+  let cenario: CenarioMassa | null = null;
+  try {
+    const lista = (JSON.parse(estudo?.cenarios || "{}") as { cenarios?: CenarioMassa[] }).cenarios ?? [];
+    cenario = lista.find(c => c.id === estudo?.escolhido) ?? lista[0] ?? null;
+  } catch { cenario = null; }
+  const centro = estudo?.lat && estudo?.lng ? [Number(estudo.lng), Number(estudo.lat)] as [number, number] : null;
+  let elevacao: GradeElevacao | null = null;
+  try { elevacao = estudo?.elevacao ? (JSON.parse(estudo.elevacao) as GradeElevacao) : null; } catch { elevacao = null; }
+  const r = implantacaoDoEstudo(estudo?.geojson ?? null, centro, cenario, elevacao);
+  if (!r || (!r.implantacao.terreno.length && !r.implantacao.lotes.length)) {
+    throw new TRPCError({ code: "PRECONDITION_FAILED", message: "O estudo ainda não tem o terreno (KML) nem um estudo de massa com lotes. Cadastre-os na Incorporação e tente de novo." });
+  }
+  return { r, cenario };
+}
+
 
 export const maquete3dRouter = router({
   config: adminProcedure.query(async () => ({ ...(await carregarConfig()), iaConfigurada: !!ENV.anthropicApiKey })),
@@ -104,6 +142,42 @@ export const maquete3dRouter = router({
     return { projetos, estudos };
   }),
 
+  /** Clientes do CRM para ligar o pedido quando não há projeto cadastrado (busca por nome, telefone ou e-mail). */
+  clientes: adminProcedure.input(z.object({ busca: z.string().trim().max(80).default("") })).query(async ({ input }) => {
+    const termo = `%${input.busca.replace(/[%_\\]/g, "")}%`;
+    return db().select({ id: leads.id, nome: leads.name, telefone: leads.phone, email: leads.email }).from(leads)
+      .where(and(isNull(leads.deletedAt), input.busca ? sql`(${leads.name} ILIKE ${termo} OR ${leads.phone} ILIKE ${termo} OR ${leads.email} ILIKE ${termo})` : undefined))
+      .orderBy(desc(leads.id)).limit(60);
+  }),
+
+  /** PDFs que podem ser lidos neste pedido (do projeto/estudo e os enviados avulsos). */
+  documentosDoPedido: adminProcedure.input(z.object({ id: z.number().int().positive() })).query(async ({ input }) => {
+    const m = await buscar(input.id);
+    return documentosDoPedido({ id: m.id, origem: m.origem as OrigemMaquete, projectId: m.projectId, studyId: m.studyId });
+  }),
+
+  /**
+   * Anexa um PDF avulso ao pedido. O arquivo sobe antes em partes (`documentChunks.part`, escopo `maquete3d:<id>`);
+   * aqui ele é conferido, guardado e já entra na lista de PDFs da leitura.
+   */
+  anexarPdf: adminProcedure.input(z.object({ id: z.number().int().positive(), uploadId: z.string().min(20).max(64), nome: z.string().trim().min(1).max(255) })).mutation(async ({ ctx, input }) => {
+    const m = await buscar(input.id);
+    if (m.status === "em_leitura" || m.status === "publicada" || m.status === "recusada") throw conflito("Não é possível anexar PDF nesta situação.");
+    if (!/\.pdf$/i.test(input.nome)) throw new TRPCError({ code: "BAD_REQUEST", message: "Envie um arquivo PDF." });
+    const atuais = lerDocumentos(m.documentos);
+    if (atuais.length >= MAX_DOCUMENTOS) throw new TRPCError({ code: "BAD_REQUEST", message: `Cada pedido aceita até ${MAX_DOCUMENTOS} PDFs. Tire um da lista antes de enviar outro.` });
+    const dados = await readUpload(input.uploadId, ctx.user.id, escopoEnvioMaquete(m.id), input.nome);
+    if (dados.length > MAX_BYTES_PDF_AVULSO || dados.subarray(0, 5).toString("latin1") !== "%PDF-") {
+      await clearUpload(input.uploadId, ctx.user.id);
+      throw new TRPCError({ code: "BAD_REQUEST", message: "O arquivo enviado não é um PDF válido." });
+    }
+    const [novo] = await db().insert(maquete3dArquivos).values({ maqueteId: m.id, nome: input.nome, tamanho: dados.length, dados, enviadoPor: ctx.user.id }).returning({ id: maquete3dArquivos.id });
+    await clearUpload(input.uploadId, ctx.user.id);
+    const documentos = [...atuais, { fonte: "avulso" as const, id: novo.id, nome: input.nome }];
+    await db().update(maquetes3d).set({ documentos: JSON.stringify(documentos), updatedAt: agora() }).where(eq(maquetes3d.id, m.id));
+    return { id: novo.id, documentos };
+  }),
+
   documentosDisponiveis: adminProcedure.input(z.object({ origem: z.enum(ORIGENS_MAQUETE), alvoId: z.number().int().positive() }))
     .query(({ input }) => documentosDisponiveis(input.origem, input.alvoId)),
 
@@ -118,16 +192,20 @@ export const maquete3dRouter = router({
     )).orderBy(desc(maquetes3d.id)).limit(300);
     const idsP = Array.from(new Set(linhas.map(l => l.projectId).filter((v): v is number => !!v)));
     const idsE = Array.from(new Set(linhas.map(l => l.studyId).filter((v): v is number => !!v)));
-    const [ps, es] = await Promise.all([
+    const idsL = Array.from(new Set(linhas.map(l => l.leadId).filter((v): v is number => !!v)));
+    const [ps, es, ls] = await Promise.all([
       idsP.length ? db().select({ id: operationalProjects.id, nome: operationalProjects.name, cliente: operationalProjects.clientName }).from(operationalProjects).where(inArray(operationalProjects.id, idsP)) : [],
       idsE.length ? db().select({ id: incorporationStudies.id, nome: incorporationStudies.name }).from(incorporationStudies).where(inArray(incorporationStudies.id, idsE)) : [],
+      idsL.length ? db().select({ id: leads.id, nome: leads.name }).from(leads).where(inArray(leads.id, idsL)) : [],
     ]);
-    const nomeP = new Map(ps.map(p => [p.id, p])), nomeE = new Map(es.map(e => [e.id, e]));
-    return linhas.map(l => ({
-      ...paraTela(l),
-      alvo: l.projectId ? nomeP.get(l.projectId)?.nome ?? `Projeto ${l.projectId}` : nomeE.get(l.studyId!)?.nome ?? `Estudo ${l.studyId}`,
-      cliente: l.projectId ? nomeP.get(l.projectId)?.cliente ?? null : null,
-    }));
+    const nomeP = new Map(ps.map(p => [p.id, p])), nomeE = new Map(es.map(e => [e.id, e])), nomeL = new Map(ls.map(c => [c.id, c.nome]));
+    return linhas.map(l => {
+      const projeto = l.projectId ? nomeP.get(l.projectId) : undefined;
+      const alvo = l.projectId ? projeto?.nome ?? `Projeto ${l.projectId}` : l.leadId ? nomeL.get(l.leadId) ?? `Cliente ${l.leadId}` : nomeE.get(l.studyId!)?.nome ?? `Estudo ${l.studyId}`;
+      // O nome do projeto costuma já trazer o do cliente: não repete.
+      const cliente = projeto?.cliente && !alvo.toLowerCase().includes(projeto.cliente.toLowerCase()) ? projeto.cliente : null;
+      return { ...paraTela(l), alvo, cliente, porCliente: !!l.leadId };
+    });
   }),
 
   detalhe: adminProcedure.input(idInput).query(async ({ input }) => {
@@ -145,24 +223,37 @@ export const maquete3dRouter = router({
       emailCliente: (await destinatario(m))?.email ?? null,
       unidades: await unidadesDoEstudo(m.studyId),
       /** Telefone do cliente do projeto, para enviar o link da maquete pelo WhatsApp. */
-      clienteTelefone: m.projectId ? (await db().select({ t: operationalProjects.clientPhone }).from(operationalProjects).where(eq(operationalProjects.id, m.projectId)).limit(1))[0]?.t ?? null : null,
+      clienteTelefone: m.projectId ? (await db().select({ t: operationalProjects.clientPhone }).from(operationalProjects).where(eq(operationalProjects.id, m.projectId)).limit(1))[0]?.t ?? null
+        : m.leadId ? (await db().select({ t: leads.phone }).from(leads).where(eq(leads.id, m.leadId)).limit(1))[0]?.t ?? null : null,
+      disponiveis: await documentosDoPedido({ id: m.id, origem: m.origem as OrigemMaquete, projectId: m.projectId, studyId: m.studyId }),
     };
   }),
 
   criar: adminProcedure.input(z.object({
-    origem: z.enum(ORIGENS_MAQUETE), alvoId: z.number().int().positive(), tipo: z.enum(TIPOS_MAQUETE),
+    origem: z.enum(ORIGENS_MAQUETE), alvoId: z.number().int().positive().optional(), tipo: z.enum(TIPOS_MAQUETE),
+    /** Projeto de cliente sem projeto cadastrado: o pedido fica ligado ao cliente do CRM (um dos dois, nunca ambos). */
+    leadId: z.number().int().positive().optional(),
     titulo: z.string().trim().max(255).optional(), faixaPreco: z.enum(FAIXAS_PRECO).optional(),
     preco: z.number().min(0).max(100000).optional(),
     documentos: z.array(documentoSchema).max(MAX_DOCUMENTOS).default([]),
   })).mutation(async ({ ctx, input }) => {
     let nomeAlvo: string;
-    if (input.origem === "projeto") {
-      const [p] = await db().select({ nome: operationalProjects.name }).from(operationalProjects).where(eq(operationalProjects.id, input.alvoId)).limit(1);
+    const porCliente = input.origem === "projeto" && !!input.leadId;
+    if (porCliente && input.alvoId) throw new TRPCError({ code: "BAD_REQUEST", message: "Ligue o pedido ao projeto ou ao cliente do CRM, não aos dois." });
+    if (!porCliente && !input.alvoId) throw new TRPCError({ code: "BAD_REQUEST", message: input.origem === "projeto" ? "Escolha o projeto ou o cliente do CRM." : "Escolha o estudo de incorporação." });
+    if (input.origem === "incorporacao" && input.leadId) throw new TRPCError({ code: "BAD_REQUEST", message: "Maquete de Incorporação é ligada ao estudo." });
+    if (porCliente) {
+      const [c] = await db().select({ nome: leads.name }).from(leads).where(and(eq(leads.id, input.leadId!), isNull(leads.deletedAt))).limit(1);
+      if (!c) throw new TRPCError({ code: "NOT_FOUND", message: "Cliente do CRM não encontrado." });
+      if (!input.faixaPreco) throw new TRPCError({ code: "BAD_REQUEST", message: "Escolha a faixa de preço da maquete." });
+      nomeAlvo = c.nome;
+    } else if (input.origem === "projeto") {
+      const [p] = await db().select({ nome: operationalProjects.name }).from(operationalProjects).where(eq(operationalProjects.id, input.alvoId!)).limit(1);
       if (!p) throw new TRPCError({ code: "NOT_FOUND", message: "Projeto não encontrado." });
       if (!input.faixaPreco) throw new TRPCError({ code: "BAD_REQUEST", message: "Escolha a faixa de preço da maquete." });
       nomeAlvo = p.nome;
     } else {
-      const [e] = await db().select({ nome: incorporationStudies.name }).from(incorporationStudies).where(eq(incorporationStudies.id, input.alvoId)).limit(1);
+      const [e] = await db().select({ nome: incorporationStudies.name }).from(incorporationStudies).where(eq(incorporationStudies.id, input.alvoId!)).limit(1);
       if (!e) throw new TRPCError({ code: "NOT_FOUND", message: "Estudo de incorporação não encontrado." });
       nomeAlvo = e.nome;
     }
@@ -173,10 +264,12 @@ export const maquete3dRouter = router({
       if (input.preco !== undefined && input.preco !== padrao) exigirAdmin(ctx, "cobrar um valor diferente do preço padrão");
       preco = (input.preco ?? padrao).toFixed(2);
     }
-    const documentos = await conferirDocumentos(input.origem, input.alvoId, input.documentos);
+    const projectId = input.origem === "projeto" && !porCliente ? input.alvoId! : null;
+    const studyId = input.origem === "incorporacao" ? input.alvoId! : null;
+    const documentos = await conferirDocumentos({ id: null, origem: input.origem, projectId, studyId }, input.documentos);
     const [nova] = await db().insert(maquetes3d).values({
       token: randomBytes(24).toString("base64url"), titulo: input.titulo || `Maquete 3D — ${nomeAlvo}`.slice(0, 255),
-      origem: input.origem, projectId: input.origem === "projeto" ? input.alvoId : null, studyId: input.origem === "incorporacao" ? input.alvoId : null,
+      origem: input.origem, projectId, studyId, leadId: porCliente ? input.leadId! : null,
       tipo: input.tipo, status: statusInicial(input.origem), faixaPreco: input.origem === "projeto" ? input.faixaPreco! : null, preco,
       documentos: JSON.stringify(documentos), solicitadoPor: ctx.user.id, createdAt: agora(), updatedAt: agora(),
     }).returning({ id: maquetes3d.id });
@@ -186,7 +279,7 @@ export const maquete3dRouter = router({
   definirDocumentos: adminProcedure.input(idInput.extend({ documentos: z.array(documentoSchema).min(1).max(MAX_DOCUMENTOS) })).mutation(async ({ input }) => {
     const m = await buscar(input.id);
     if (m.status === "em_leitura" || m.status === "publicada" || m.status === "recusada") throw conflito("Os PDFs não podem ser trocados nesta situação.");
-    const documentos = await conferirDocumentos(m.origem as OrigemMaquete, (m.projectId ?? m.studyId)!, input.documentos);
+    const documentos = await conferirDocumentos({ id: m.id, origem: m.origem as OrigemMaquete, projectId: m.projectId, studyId: m.studyId }, input.documentos);
     await db().update(maquetes3d).set({ documentos: JSON.stringify(documentos), updatedAt: agora() }).where(eq(maquetes3d.id, m.id));
     return { ok: true };
   }),
@@ -243,7 +336,7 @@ export const maquete3dRouter = router({
     const d = lerDocumentos(m.documentos)[input.doc];
     if (!d) throw new TRPCError({ code: "NOT_FOUND", message: "Arquivo não encontrado nesta maquete." });
     let dados: Buffer;
-    try { dados = await dependencias().lerPdf(d, (m.projectId ?? m.studyId)!); }
+    try { dados = await dependencias().lerPdf(d, alvoDoDocumento(m, d)); }
     catch { throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Não foi possível abrir o PDF original." }); }
     const partes = Math.max(1, Math.ceil(dados.length / PARTE_PDF_BYTES));
     if (input.parte >= partes) throw new TRPCError({ code: "BAD_REQUEST" });
@@ -252,7 +345,7 @@ export const maquete3dRouter = router({
 
   iniciarLeitura: adminProcedure.input(idInput).mutation(async ({ input }) => {
     const m = await buscar(input.id);
-    if (!lerDocumentos(m.documentos).length) throw new TRPCError({ code: "BAD_REQUEST", message: "Escolha ao menos um PDF do projeto antes de iniciar a leitura." });
+    if (!lerDocumentos(m.documentos).length) throw new TRPCError({ code: "BAD_REQUEST", message: "Escolha ou envie ao menos um PDF antes de iniciar a leitura." });
     try { return progressoLeitura(await iniciarLeitura(m.id)); }
     catch (e) { if (e instanceof LeituraIndisponivel) throw conflito(e.message); throw e; }
   }),
@@ -296,22 +389,7 @@ export const maquete3dRouter = router({
     const m = await buscar(input.id);
     if (m.origem !== "incorporacao" || !m.studyId) throw new TRPCError({ code: "BAD_REQUEST", message: "Só maquetes de Incorporação têm implantação vinda do estudo." });
     if (!["liberada", "em_revisao", "validada"].includes(m.status)) throw conflito("A maquete precisa estar autorizada (e não publicada) para montar a implantação.");
-    const [estudo] = await db().select({
-      geojson: incorporationStudies.geojson, lat: incorporationStudies.latitude, lng: incorporationStudies.longitude,
-      cenarios: incorporationStudies.massScenariosJson, escolhido: incorporationStudies.selectedScenarioId, elevacao: incorporationStudies.elevationJson,
-    }).from(incorporationStudies).where(eq(incorporationStudies.id, m.studyId)).limit(1);
-    let cenario: CenarioMassa | null = null;
-    try {
-      const lista = (JSON.parse(estudo?.cenarios || "{}") as { cenarios?: CenarioMassa[] }).cenarios ?? [];
-      cenario = lista.find(c => c.id === estudo?.escolhido) ?? lista[0] ?? null;
-    } catch { cenario = null; }
-    const centro = estudo?.lat && estudo?.lng ? [Number(estudo.lng), Number(estudo.lat)] as [number, number] : null;
-    let elevacao: GradeElevacao | null = null;
-    try { elevacao = estudo?.elevacao ? (JSON.parse(estudo.elevacao) as GradeElevacao) : null; } catch { elevacao = null; }
-    const r = implantacaoDoEstudo(estudo?.geojson ?? null, centro, cenario, elevacao);
-    if (!r || (!r.implantacao.terreno.length && !r.implantacao.lotes.length)) {
-      throw new TRPCError({ code: "PRECONDITION_FAILED", message: "O estudo ainda não tem o terreno (KML) nem um estudo de massa com lotes. Cadastre-os na Incorporação e tente de novo." });
-    }
+    const { r, cenario } = await lerImplantacaoDoEstudo(m.studyId);
     const modelo = lerModelo(m.modelo) ?? modeloVazio(m.tipo as TipoMaquete);
     // As construções posicionadas à mão na revisão são mantidas quando a implantação é atualizada pelo estudo.
     const novo = modeloSchema.parse({ ...modelo, implantacao: { ...r.implantacao, posicoes: modelo.implantacao?.posicoes ?? [] } });
@@ -321,6 +399,59 @@ export const maquete3dRouter = router({
     }).where(and(eq(maquetes3d.id, m.id), eq(maquetes3d.modeloVersao, m.modeloVersao), eq(maquetes3d.status, m.status))).returning({ id: maquetes3d.id });
     if (!g.length) throw conflito("A maquete foi alterada por outra pessoa. Recarregue a página.");
     return { lotes: r.implantacao.lotes.length, ruas: r.implantacao.ruas.length, temTerreno: r.implantacao.terreno.length > 0, temRelevo: !!r.implantacao.relevo, descartados: r.descartados, semCenario: !cenario };
+  }),
+
+  /**
+   * Troca o tipo da maquete e redesenha: em Casa/Condomínio e em Prédio, gera a construção PADRÃO do tamanho
+   * informado (sem PDF e sem IA) e põe uma em cada lote vendável da implantação. Em Loteamento, ficam só os lotes.
+   * Construções lidas de PDF são mantidas; só a padrão (id fixo) é trocada. Incorporação sem implantação ainda:
+   * ela é montada do estudo na mesma chamada.
+   */
+  aplicarTipo: adminProcedure.input(idInput.extend({
+    tipo: z.enum(TIPOS_MAQUETE),
+    casa: z.object({ frente: z.number().min(LIMITES_CASA.frente[0]).max(LIMITES_CASA.frente[1]), fundo: z.number().min(LIMITES_CASA.fundo[0]).max(LIMITES_CASA.fundo[1]),
+      quartos: z.number().int().min(LIMITES_CASA.quartos[0]).max(LIMITES_CASA.quartos[1]), pavimentos: z.union([z.literal(1), z.literal(2)]), garagem: z.boolean() }).optional(),
+    predio: z.object({ largura: z.number().min(LIMITES_PREDIO.largura[0]).max(LIMITES_PREDIO.largura[1]), profundidade: z.number().min(LIMITES_PREDIO.profundidade[0]).max(LIMITES_PREDIO.profundidade[1]),
+      andares: z.number().int().min(LIMITES_PREDIO.andares[0]).max(LIMITES_PREDIO.andares[1]), aptosPorAndar: z.number().int().min(LIMITES_PREDIO.aptosPorAndar[0]).max(LIMITES_PREDIO.aptosPorAndar[1]) }).optional(),
+  })).mutation(async ({ ctx, input }) => {
+    const m = await buscar(input.id);
+    if (!["liberada", "em_revisao", "validada"].includes(m.status)) throw conflito("A maquete precisa estar liberada (e não publicada) para trocar o tipo.");
+    const atual = lerModelo(m.modelo) ?? modeloVazio(input.tipo);
+    let implantacao = atual.implantacao;
+    if (!implantacao && m.origem === "incorporacao" && m.studyId) implantacao = { ...(await lerImplantacaoDoEstudo(m.studyId)).r.implantacao, posicoes: [] };
+    const lidas = atual.edificacoes.filter(e => !ehPadrao(e));
+    let padrao: Edificacao | null = null;
+    if (input.tipo === "predio") {
+      if (!input.predio && !lidas.length) throw new TRPCError({ code: "BAD_REQUEST", message: "Informe as medidas do prédio." });
+      if (input.predio) padrao = predioPadrao(input.predio);
+    } else if (input.tipo !== "loteamento") {
+      if (!input.casa && !lidas.length) throw new TRPCError({ code: "BAD_REQUEST", message: "Informe o tamanho da casa." });
+      if (input.casa) padrao = casaPadrao(input.casa);
+    }
+    // Sem medidas novas, quem ocupa os lotes é a construção já lida do PDF.
+    const modeloDoLote = padrao ?? (input.tipo === "loteamento" ? null : lidas[0] ?? null);
+    let semConstrucao: string[] = [], construcoes = 0;
+    if (implantacao) {
+      if (modeloDoLote) {
+        const pg = limites(pontosDoPavimento(modeloDoLote.pavimentos[0]));
+        const d = distribuirNosLotes(implantacao, Math.max(pg.largura, 3), Math.max(pg.altura, 3), modeloDoLote.id);
+        // A posição é o canto de origem da planta: desconta o deslocamento da planta lida (a padrão começa em 0,0).
+        const posicoes = d.posicoes.map(c => {
+          const rad = (c.rotacao * Math.PI) / 180;
+          return { ...c, x: c.x - (pg.minX * Math.cos(rad) - pg.minY * Math.sin(rad)), y: c.y - (pg.minX * Math.sin(rad) + pg.minY * Math.cos(rad)) };
+        });
+        implantacao = { ...implantacao, posicoes };
+        semConstrucao = d.semConstrucao; construcoes = posicoes.length;
+      } else implantacao = { ...implantacao, posicoes: [] };
+    }
+    const novo = modeloSchema.parse({ ...atual, tipo: input.tipo, edificacoes: padrao ? [...lidas, padrao] : lidas, implantacao });
+    const g = await db().update(maquetes3d).set({
+      tipo: input.tipo, modelo: JSON.stringify(novo), modeloVersao: m.modeloVersao + 1, status: "em_revisao" satisfies StatusMaquete,
+      revisadoPor: ctx.user.id, revisadoEm: agora(), updatedAt: agora(),
+    }).where(and(eq(maquetes3d.id, m.id), eq(maquetes3d.modeloVersao, m.modeloVersao), eq(maquetes3d.status, m.status))).returning({ id: maquetes3d.id });
+    if (!g.length) throw conflito("A maquete foi alterada por outra pessoa. Recarregue a página.");
+    const lotes = implantacao?.lotes.filter(l => l.tipo === "vendavel").length ?? 0;
+    return { construcoes, lotes, semConstrucao: semConstrucao.slice(0, 40), semConstrucaoTotal: semConstrucao.length, padrao: padrao?.nome ?? null, resumo: resumoModelo(novo) };
   }),
 
   /** Dados da tela de apresentação (nome, localização, preço, WhatsApp). Campo vazio não aparece para o cliente. */

@@ -2,19 +2,21 @@
 // incorporação, preços padrão (só admin) e, em cada pedido, liberação/autorização, leitura do PDF e revisão da planta.
 import { Suspense, lazy, useEffect, useRef, useState } from "react";
 import { Link, useLocation, useRoute } from "wouter";
-import { ArrowLeft, Box, Check, Copy, Eye, Globe, Play, Plus, RefreshCw, Save, Trash2, X } from "lucide-react";
+import { ArrowLeft, Box, Check, Copy, Eye, Globe, Play, Plus, RefreshCw, Save, Trash2, Upload, X } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { trpc } from "@/lib/trpc";
 import { useAuth } from "@/_core/hooks/useAuth";
+import { enviarPartes, LIMITE_DOCUMENTO } from "@/lib/documentos-partes";
 import { EditorPlanta } from "@/components/maquete-3d/EditorPlanta";
 
 const Visualizador = lazy(() => import("@/components/maquete-3d/visualizador/Visualizador"));
 import { ROTULOS_TIPO, TIPOS_MAQUETE, type ModeloMaquete, type TipoMaquete } from "@shared/maquete-3d/modelo";
+import { LIMITES_CASA, LIMITES_PREDIO, ehPadrao } from "@shared/maquete-3d/padrao";
 import {
-  ESFORCOS_IA, FAIXAS_PRECO, MAX_DOCUMENTOS, ROTULOS_FAIXA, ROTULOS_STATUS, type DocumentoMaquete, type FaixaPreco,
+  ESFORCOS_IA, FAIXAS_PRECO, MAX_DOCUMENTOS, ROTULOS_FAIXA, ROTULOS_STATUS, escopoEnvioMaquete, type DocumentoMaquete, type FaixaPreco,
   type OrigemMaquete, type StatusMaquete,
 } from "@shared/maquete-3d/regras";
 
@@ -128,7 +130,7 @@ function Lista() {
                     <tr key={m.id} className="border-t border-[#C9A961]/10">
                       <td className="py-2 pr-3"><Link href={`/admin/maquete-3d/${m.id}`} className="font-medium text-[#C9A961] hover:underline">{m.titulo}</Link>
                         {m.resumo && <span className="block text-xs text-gray-400">{m.resumo.areaTotal.toLocaleString("pt-BR")} m² · {m.resumo.pavimentos} pav. · {m.resumo.quartos} quarto(s)</span>}</td>
-                      <td className="pr-3">{m.origem === "projeto" ? "Projeto" : "Incorporação"}<span className="block text-xs text-gray-400">{m.alvo}{m.cliente ? ` · ${m.cliente}` : ""}</span></td>
+                      <td className="pr-3">{m.origem === "incorporacao" ? "Incorporação" : m.porCliente ? "Cliente do CRM" : "Projeto"}<span className="block text-xs text-gray-400">{m.alvo}{m.cliente ? ` · ${m.cliente}` : ""}</span></td>
                       <td className="pr-3">{ROTULOS_TIPO[m.tipo as TipoMaquete]}</td>
                       <td className="pr-3">{reais(m.preco)}</td>
                       <td className="pr-3"><Selo status={m.status} /></td>
@@ -150,18 +152,21 @@ function Lista() {
   );
 }
 
-function EscolhaDocumentos({ origem, alvoId, escolhidos, onChange }: { origem: OrigemMaquete; alvoId: number; escolhidos: DocumentoMaquete[]; onChange: (d: DocumentoMaquete[]) => void }) {
-  const docs = trpc.maquete3d.documentosDisponiveis.useQuery({ origem, alvoId });
-  if (docs.isLoading) return <p className="text-sm text-gray-400">Carregando arquivos…</p>;
-  if (!docs.data?.length) return <p className="text-sm text-amber-300">Nenhum PDF ativo neste {origem === "projeto" ? "projeto" : "estudo"}. Envie o projeto em PDF pelo módulo {origem === "projeto" ? "Projetos" : "Incorporação"} e volte aqui.</p>;
+const mesmoDoc = (a: DocumentoMaquete, b: DocumentoMaquete) => a.fonte === b.fonte && a.id === b.id;
+const ROTULO_FONTE: Record<DocumentoMaquete["fonte"], string> = { projeto: "do projeto", incorporacao: "do estudo", avulso: "enviado neste pedido" };
+
+function EscolhaDocumentos({ lista, carregando, vazio, escolhidos, onChange }: { lista: DocumentoMaquete[] | undefined; carregando?: boolean; vazio: string; escolhidos: DocumentoMaquete[]; onChange: (d: DocumentoMaquete[]) => void }) {
+  if (carregando) return <p className="text-sm text-gray-400">Carregando arquivos…</p>;
+  if (!lista?.length) return <p className="text-sm text-amber-300">{vazio}</p>;
   return (
     <div className="space-y-1">
-      {docs.data.map(d => {
-        const marcado = escolhidos.some(e => e.id === d.id);
+      {lista.map(d => {
+        const marcado = escolhidos.some(e => mesmoDoc(e, d));
         return (
-          <label key={d.id} className="flex items-center gap-2 text-sm">
+          <label key={`${d.fonte}-${d.id}`} className="flex items-center gap-2 text-sm">
             <input type="checkbox" checked={marcado} disabled={!marcado && escolhidos.length >= MAX_DOCUMENTOS}
-              onChange={e => onChange(e.target.checked ? [...escolhidos, d] : escolhidos.filter(x => x.id !== d.id))} />{d.nome}
+              onChange={e => onChange(e.target.checked ? [...escolhidos, d] : escolhidos.filter(x => !mesmoDoc(x, d)))} />{d.nome}
+            <span className="text-xs text-gray-400">({ROTULO_FONTE[d.fonte]})</span>
           </label>
         );
       })}
@@ -170,24 +175,91 @@ function EscolhaDocumentos({ origem, alvoId, escolhidos, onChange }: { origem: O
   );
 }
 
+/** Campo de PDF avulso: só escolhe os arquivos; o envio acontece depois que o pedido existe. */
+function CampoPdfAvulso({ arquivos, onChange, limite }: { arquivos: File[]; onChange: (a: File[]) => void; limite: number }) {
+  const ref = useRef<HTMLInputElement>(null);
+  function escolher(novos: FileList | null) {
+    const lista = Array.from(novos ?? []);
+    const grande = lista.find(f => f.size > LIMITE_DOCUMENTO), naoPdf = lista.find(f => !/\.pdf$/i.test(f.name));
+    if (naoPdf) { toast.error(`"${naoPdf.name}" não é um PDF.`); return; }
+    if (grande) { toast.error(`"${grande.name}" passa de 20 MB.`); return; }
+    onChange([...arquivos, ...lista].slice(0, Math.max(0, limite)));
+    if (ref.current) ref.current.value = "";
+  }
+  return (
+    <div className="space-y-1">
+      <input ref={ref} type="file" accept="application/pdf,.pdf" multiple className="hidden" onChange={e => escolher(e.target.files)} />
+      <Button type="button" size="sm" variant="outline" className={btnOutline} disabled={arquivos.length >= limite} onClick={() => ref.current?.click()}><Upload className="mr-1 h-4 w-4" />Enviar PDF avulso</Button>
+      {arquivos.map((f, i) => (
+        <p key={`${f.name}-${i}`} className="flex items-center gap-2 text-sm">{f.name}<span className="text-xs text-gray-400">({(f.size / 1048576).toLocaleString("pt-BR", { maximumFractionDigits: 1 })} MB)</span>
+          <button type="button" aria-label={`Tirar ${f.name}`} className="text-red-300" onClick={() => onChange(arquivos.filter((_, j) => j !== i))}><X className="h-4 w-4" /></button></p>
+      ))}
+      <p className="text-xs text-gray-400">PDF de até 20 MB, sem precisar cadastrar no projeto ou no estudo.</p>
+    </div>
+  );
+}
+
+/** Sobe os PDFs avulsos e anexa ao pedido; devolve quantos entraram. */
+async function enviarAvulsos(id: number, arquivos: File[], anexar: (v: { id: number; uploadId: string; nome: string }) => Promise<unknown>): Promise<number> {
+  let enviados = 0;
+  for (const f of arquivos) {
+    const uploadId = await enviarPartes(f, escopoEnvioMaquete(id));
+    await anexar({ id, uploadId, nome: f.name });
+    enviados++;
+  }
+  return enviados;
+}
+
 function NovoPedido({ admin, aoFechar }: { admin: boolean; aoFechar: () => void }) {
   const [, ir] = useLocation();
   const opcoes = trpc.maquete3d.opcoes.useQuery();
   const config = trpc.maquete3d.config.useQuery();
   const utils = trpc.useUtils();
   const [origem, setOrigem] = useState<OrigemMaquete>("projeto");
+  // Projeto de cliente: ligado ao projeto cadastrado OU a um cliente do CRM (um dos dois).
+  const [vinculo, setVinculo] = useState<"projeto" | "cliente">("projeto");
   const [alvoId, setAlvoId] = useState<number | null>(null);
+  const [leadId, setLeadId] = useState<number | null>(null);
+  const [buscaCliente, setBuscaCliente] = useState("");
   const [tipo, setTipo] = useState<TipoMaquete>("casa");
   const [faixa, setFaixa] = useState<FaixaPreco>("terrea_ate_70");
   const [preco, setPreco] = useState<string>("");
   const [documentos, setDocumentos] = useState<DocumentoMaquete[]>([]);
-  const criar = trpc.maquete3d.criar.useMutation({
-    onSuccess: r => { utils.maquete3d.listar.invalidate(); toast.success("Pedido criado."); ir(`/admin/maquete-3d/${r.id}`); },
-    onError: falha,
-  });
+  const [avulsos, setAvulsos] = useState<File[]>([]);
+  const [enviando, setEnviando] = useState(false);
+  const porCliente = origem === "projeto" && vinculo === "cliente";
+  const clientes = trpc.maquete3d.clientes.useQuery({ busca: buscaCliente }, { enabled: porCliente });
+  const docs = trpc.maquete3d.documentosDisponiveis.useQuery({ origem, alvoId: alvoId ?? 0 }, { enabled: !porCliente && !!alvoId });
+  const criar = trpc.maquete3d.criar.useMutation();
+  const anexar = trpc.maquete3d.anexarPdf.useMutation();
   const padrao = config.data?.precos[faixa] ?? null;
-  const alvos = origem === "projeto" ? opcoes.data?.projetos.map(p => ({ id: p.id, rotulo: `${p.nome} — ${p.cliente}` })) : opcoes.data?.estudos.map(e => ({ id: e.id, rotulo: `${e.nome} — ${e.cidade}` }));
-  const trocarOrigem = (o: OrigemMaquete) => { setOrigem(o); setAlvoId(null); setDocumentos([]); setTipo(o === "projeto" ? "casa" : "loteamento"); };
+  // O nome do projeto costuma já trazer o do cliente: não repete no rótulo.
+  const alvos = origem === "projeto"
+    ? opcoes.data?.projetos.map(p => ({ id: p.id, rotulo: p.cliente && !p.nome.toLowerCase().includes(p.cliente.toLowerCase()) ? `${p.nome} — ${p.cliente}` : p.nome }))
+    : opcoes.data?.estudos.map(e => ({ id: e.id, rotulo: `${e.nome} — ${e.cidade}` }));
+  const limpar = () => { setAlvoId(null); setLeadId(null); setDocumentos([]); };
+  const trocarOrigem = (o: OrigemMaquete) => { setOrigem(o); limpar(); setTipo(o === "projeto" ? "casa" : "loteamento"); };
+  const pronto = porCliente ? !!leadId : !!alvoId;
+
+  async function criarPedido() {
+    setEnviando(true);
+    let id: number | null = null;
+    try {
+      ({ id } = await criar.mutateAsync({
+        origem, tipo, documentos, ...(porCliente ? { leadId: leadId! } : { alvoId: alvoId! }),
+        ...(origem === "projeto" ? { faixaPreco: faixa, ...(preco !== "" && admin ? { preco: Number(preco) } : {}) } : {}),
+      }));
+      if (avulsos.length) await enviarAvulsos(id, avulsos, v => anexar.mutateAsync(v));
+      toast.success("Pedido criado.");
+    } catch (e) {
+      // O pedido pode ter sido criado e só o envio do PDF ter falhado: abre o pedido para enviar de novo.
+      toast.error(id ? `Pedido criado, mas um PDF não foi enviado: ${e instanceof Error ? e.message : "falha no envio"}. Envie de novo na tela do pedido.` : e instanceof Error ? e.message : "Não foi possível criar o pedido.");
+    } finally {
+      setEnviando(false);
+      utils.maquete3d.listar.invalidate();
+      if (id) ir(`/admin/maquete-3d/${id}`);
+    }
+  }
 
   return (
     <Card className={cardCls}>
@@ -198,10 +270,25 @@ function NovoPedido({ admin, aoFechar }: { admin: boolean; aoFechar: () => void 
             <select className={inputCls} value={origem} onChange={e => trocarOrigem(e.target.value as OrigemMaquete)}>
               <option value="projeto">Projeto de cliente (pago)</option><option value="incorporacao">Incorporação (sem cobrança)</option>
             </select></label>
-          <label className="text-xs text-gray-300 sm:col-span-2">{origem === "projeto" ? "Projeto" : "Estudo de incorporação"}
-            <select className={inputCls} value={alvoId ?? ""} onChange={e => { setAlvoId(e.target.value ? Number(e.target.value) : null); setDocumentos([]); }}>
-              <option value="">— escolher —</option>{alvos?.map(a => <option key={a.id} value={a.id}>{a.rotulo}</option>)}
-            </select></label>
+          {origem === "projeto" && (
+            <label className="text-xs text-gray-300">Vincular a
+              <select className={inputCls} value={vinculo} onChange={e => { setVinculo(e.target.value as typeof vinculo); limpar(); }}>
+                <option value="projeto">Projeto cadastrado</option><option value="cliente">Cliente do CRM</option>
+              </select></label>
+          )}
+          {porCliente ? (
+            <div className="text-xs text-gray-300">Cliente do CRM
+              <input className={inputCls} value={buscaCliente} onChange={e => setBuscaCliente(e.target.value)} placeholder="Pesquisar por nome, telefone ou e-mail" aria-label="Pesquisar cliente do CRM" />
+              <select className={`mt-1 ${inputCls}`} aria-label="Cliente do CRM" value={leadId ?? ""} onChange={e => setLeadId(e.target.value ? Number(e.target.value) : null)}>
+                <option value="">{clientes.isLoading ? "Carregando…" : "— escolher —"}</option>
+                {clientes.data?.map(c => <option key={c.id} value={c.id}>{c.nome}{c.telefone ? ` · ${c.telefone}` : ""}</option>)}
+              </select></div>
+          ) : (
+            <label className={`text-xs text-gray-300 ${origem === "projeto" ? "" : "sm:col-span-2"}`}>{origem === "projeto" ? "Projeto" : "Estudo de incorporação"}
+              <select className={inputCls} value={alvoId ?? ""} onChange={e => { setAlvoId(e.target.value ? Number(e.target.value) : null); setDocumentos([]); }}>
+                <option value="">— escolher —</option>{alvos?.map(a => <option key={a.id} value={a.id}>{a.rotulo}</option>)}
+              </select></label>
+          )}
           <label className="text-xs text-gray-300">Tipo de maquete
             <select className={inputCls} value={tipo} onChange={e => setTipo(e.target.value as TipoMaquete)}>
               {TIPOS_MAQUETE.map(t => <option key={t} value={t}>{ROTULOS_TIPO[t]}</option>)}
@@ -218,11 +305,14 @@ function NovoPedido({ admin, aoFechar }: { admin: boolean; aoFechar: () => void 
           )}
         </div>
         {origem === "incorporacao" && <p className="text-sm text-amber-300">Maquete de Incorporação não tem cobrança, mas só é gerada depois que o administrador autorizar.</p>}
-        {alvoId && <div><p className="mb-1 text-sm font-semibold">PDFs do projeto para a leitura</p><EscolhaDocumentos origem={origem} alvoId={alvoId} escolhidos={documentos} onChange={setDocumentos} /></div>}
+        {porCliente && <p className="text-xs text-gray-400">Pedido ligado ao cliente, sem projeto cadastrado: envie o PDF do projeto abaixo. O cliente acompanha pelo portal e recebe o link por e-mail.</p>}
+        {!porCliente && alvoId && <div><p className="mb-1 text-sm font-semibold">PDFs {origem === "projeto" ? "do projeto" : "do estudo"} para a leitura</p>
+          <EscolhaDocumentos lista={docs.data} carregando={docs.isLoading} escolhidos={documentos} onChange={setDocumentos}
+            vazio={`Nenhum PDF ativo neste ${origem === "projeto" ? "projeto" : "estudo"}. Envie um PDF avulso abaixo ou cadastre-o no módulo ${origem === "projeto" ? "Projetos" : "Incorporação"}.`} /></div>}
+        {pronto && <div><p className="mb-1 text-sm font-semibold">PDF avulso</p><CampoPdfAvulso arquivos={avulsos} onChange={setAvulsos} limite={MAX_DOCUMENTOS - documentos.length} /></div>}
         <div className="flex gap-2">
-          <Button className={btnOuro} disabled={!alvoId || criar.isPending}
-            onClick={() => criar.mutate({ origem, alvoId: alvoId!, tipo, documentos, ...(origem === "projeto" ? { faixaPreco: faixa, ...(preco !== "" && admin ? { preco: Number(preco) } : {}) } : {}) })}>Criar pedido</Button>
-          <Button variant="outline" className={btnOutline} onClick={aoFechar}>Cancelar</Button>
+          <Button className={btnOuro} disabled={!pronto || enviando} onClick={criarPedido}>{enviando ? "Criando e enviando…" : "Criar pedido"}</Button>
+          <Button variant="outline" className={btnOutline} disabled={enviando} onClick={aoFechar}>Cancelar</Button>
         </div>
       </CardContent>
     </Card>
@@ -265,6 +355,76 @@ function Configuracoes({ admin }: { admin: boolean }) {
   );
 }
 
+// ── Tipo da maquete e construções padrão (EPIC-023, S-C) ──
+
+const numero = (texto: string) => Number(texto.replace(",", "."));
+
+/**
+ * Trocar o tipo redesenha a maquete: Casa/Condomínio e Prédio pedem as medidas e o motor gera uma construção
+ * padrão (sem PDF e sem IA), uma em cada lote; Loteamento deixa só os lotes.
+ */
+function TipoEPadrao({ id, tipoAtual, temLidas, temImplantacao, incorporacao, sujo, aoAplicar }: {
+  id: number; tipoAtual: TipoMaquete; temLidas: boolean; temImplantacao: boolean; incorporacao: boolean; sujo: boolean; aoAplicar: () => void;
+}) {
+  const [tipo, setTipo] = useState<TipoMaquete>(tipoAtual);
+  const [usarLida, setUsarLida] = useState(false);
+  const [casa, setCasa] = useState({ frente: "8", fundo: "12", quartos: "2", pavimentos: "1", garagem: true });
+  const [predio, setPredio] = useState({ largura: "24", profundidade: "14", andares: "8", aptosPorAndar: "6" });
+  useEffect(() => setTipo(tipoAtual), [tipoAtual]);
+  const aplicar = trpc.maquete3d.aplicarTipo.useMutation({
+    onSuccess: r => {
+      toast.success(r.lotes ? `${ROTULOS_TIPO[tipo]}: ${r.construcoes} construção(ões) em ${r.lotes} lote(s) vendável(is).` : `Tipo alterado para ${ROTULOS_TIPO[tipo]}${r.padrao ? ` — ${r.padrao} gerada` : ""}.`);
+      if (r.semConstrucaoTotal) toast.warning(`${r.semConstrucaoTotal} lote(s) ficaram sem construção porque ela não cabe: ${r.semConstrucao.slice(0, 8).join(", ")}${r.semConstrucaoTotal > 8 ? "…" : ""}. Diminua a frente ou o fundo e aplique de novo.`, { duration: 12000 });
+      aoAplicar();
+    },
+    onError: falha,
+  });
+  const ehCasa = tipo === "casa" || tipo === "condominio", ehPredio = tipo === "predio";
+  const campo = (rotulo: string, valor: string, mudar: (v: string) => void, faixa: readonly [number, number], passo = "0.5") => (
+    <label className="text-xs text-gray-300">{rotulo}
+      <input className={inputCls} type="number" inputMode="decimal" step={passo} min={faixa[0]} max={faixa[1]} value={valor} onChange={e => mudar(e.target.value)} /></label>
+  );
+  function enviar() {
+    if (sujo && !window.confirm("Há alterações não salvas na planta. Aplicar o tipo descarta essas alterações. Continuar?")) return;
+    const padrao = usarLida && temLidas ? {} : ehCasa
+      ? { casa: { frente: numero(casa.frente), fundo: numero(casa.fundo), quartos: Math.round(numero(casa.quartos)), pavimentos: (casa.pavimentos === "2" ? 2 : 1) as 1 | 2, garagem: casa.garagem } }
+      : ehPredio ? { predio: { largura: numero(predio.largura), profundidade: numero(predio.profundidade), andares: Math.round(numero(predio.andares)), aptosPorAndar: Math.round(numero(predio.aptosPorAndar)) } } : {};
+    aplicar.mutate({ id, tipo, ...padrao });
+  }
+  return (
+    <Card className={cardCls}>
+      <CardHeader><CardTitle className="text-lg">Tipo da maquete e construções</CardTitle></CardHeader>
+      <CardContent className="space-y-3 text-sm">
+        <div className="grid gap-3 sm:grid-cols-4">
+          <label className="text-xs text-gray-300">Tipo
+            <select className={inputCls} value={tipo} onChange={e => setTipo(e.target.value as TipoMaquete)}>{TIPOS_MAQUETE.map(t => <option key={t} value={t}>{ROTULOS_TIPO[t]}</option>)}</select></label>
+          {ehCasa && !(usarLida && temLidas) && <>
+            {campo("Frente da casa (m)", casa.frente, v => setCasa(c => ({ ...c, frente: v })), LIMITES_CASA.frente)}
+            {campo("Fundo da casa (m)", casa.fundo, v => setCasa(c => ({ ...c, fundo: v })), LIMITES_CASA.fundo)}
+            {campo("Quartos", casa.quartos, v => setCasa(c => ({ ...c, quartos: v })), LIMITES_CASA.quartos, "1")}
+            <label className="text-xs text-gray-300">Pavimentos
+              <select className={inputCls} value={casa.pavimentos} onChange={e => setCasa(c => ({ ...c, pavimentos: e.target.value }))}><option value="1">Térrea</option><option value="2">Sobrado</option></select></label>
+            <label className="flex items-end gap-2 pb-2 text-xs text-gray-300"><input type="checkbox" checked={casa.garagem} onChange={e => setCasa(c => ({ ...c, garagem: e.target.checked }))} />Com garagem (frente a partir de 7,5 m)</label>
+          </>}
+          {ehPredio && !(usarLida && temLidas) && <>
+            {campo("Largura do prédio (m)", predio.largura, v => setPredio(c => ({ ...c, largura: v })), LIMITES_PREDIO.largura)}
+            {campo("Profundidade (m)", predio.profundidade, v => setPredio(c => ({ ...c, profundidade: v })), LIMITES_PREDIO.profundidade)}
+            {campo("Andares de apartamentos", predio.andares, v => setPredio(c => ({ ...c, andares: v })), LIMITES_PREDIO.andares, "1")}
+            {campo("Apartamentos por andar", predio.aptosPorAndar, v => setPredio(c => ({ ...c, aptosPorAndar: v })), LIMITES_PREDIO.aptosPorAndar, "1")}
+          </>}
+        </div>
+        {temLidas && tipo !== "loteamento" && <label className="flex items-center gap-2 text-xs text-gray-300"><input type="checkbox" checked={usarLida} onChange={e => setUsarLida(e.target.checked)} />Usar a construção já lida do PDF em vez da padrão</label>}
+        <p className="text-xs text-gray-400">
+          {tipo === "loteamento" ? "Loteamento mostra só o terreno, as ruas e os lotes; as construções saem da implantação."
+            : `O motor desenha uma ${ehPredio ? "torre" : "casa"} padrão desse tamanho, só para representar o empreendimento${temImplantacao || incorporacao ? ", e põe uma em cada lote vendável, com a frente para a rua" : ""}. Não é a planta do projeto: quando o PDF real for lido, ele pode substituir a padrão.`}
+          {incorporacao && !temImplantacao && " A implantação (terreno, ruas e lotes) é montada do estudo ao aplicar."}
+        </p>
+        <Button className={btnOuro} disabled={aplicar.isPending} onClick={enviar}><Box className="mr-1 h-4 w-4" />{aplicar.isPending ? "Aplicando…" : tipo === "loteamento" ? "Aplicar tipo" : "Gerar e distribuir nos lotes"}</Button>
+      </CardContent>
+    </Card>
+  );
+}
+
 // ── Pedido: liberação, leitura e revisão ──
 
 function Detalhe({ id }: { id: number }) {
@@ -284,6 +444,16 @@ function Detalhe({ id }: { id: number }) {
   const recusar = trpc.maquete3d.recusar.useMutation({ onSuccess: () => { toast.success("Pedido recusado."); setRecusando(false); recarregar(); }, onError: falha });
   const excluir = trpc.maquete3d.excluir.useMutation({ onSuccess: () => { utils.maquete3d.listar.invalidate(); ir("/admin/maquete-3d"); }, onError: falha });
   const definirDocs = trpc.maquete3d.definirDocumentos.useMutation({ onSuccess: () => { setTrocandoDocs(null); recarregar(); }, onError: falha });
+  // PDF avulso: sobe em partes e já entra na lista da leitura.
+  const anexarPdf = trpc.maquete3d.anexarPdf.useMutation();
+  const [novosPdfs, setNovosPdfs] = useState<File[]>([]);
+  const [anexando, setAnexando] = useState(false);
+  async function enviarNovosPdfs() {
+    setAnexando(true);
+    try { const n = await enviarAvulsos(id, novosPdfs, v => anexarPdf.mutateAsync(v)); toast.success(`${n} PDF(s) anexado(s).`); setNovosPdfs([]); setTrocandoDocs(null); }
+    catch (e) { falha(e); }
+    finally { setAnexando(false); recarregar(); }
+  }
 
   // Leitura: a tela chama um passo por vez até acabar ou até um passo falhar.
   const iniciar = trpc.maquete3d.iniciarLeitura.useMutation();
@@ -355,7 +525,7 @@ function Detalhe({ id }: { id: number }) {
         <CardHeader><CardTitle className="flex flex-wrap items-center gap-3 text-lg">{d.titulo}<Selo status={d.status} /></CardTitle></CardHeader>
         <CardContent className="space-y-4 text-sm">
           <div className="grid gap-2 sm:grid-cols-4">
-            <p><span className="block text-xs text-gray-400">Origem</span>{d.origem === "projeto" ? "Projeto de cliente" : "Incorporação"}</p>
+            <p><span className="block text-xs text-gray-400">Origem</span>{d.origem === "incorporacao" ? "Incorporação" : d.leadId ? "Cliente do CRM" : "Projeto de cliente"}</p>
             <p><span className="block text-xs text-gray-400">Tipo</span>{ROTULOS_TIPO[d.tipo as TipoMaquete]}</p>
             <p><span className="block text-xs text-gray-400">Valor</span>{reais(d.preco)}{d.faixaPreco ? ` · ${ROTULOS_FAIXA[d.faixaPreco as FaixaPreco]}` : ""}</p>
             <p><span className="block text-xs text-gray-400">{d.origem === "projeto" ? "Pagamento confirmado" : "Autorizada"}</span>{d.liberadoEm ? `${dataHora(d.liberadoEm)}${d.liberadoPorNome ? ` · ${d.liberadoPorNome}` : ""}` : "—"}</p>
@@ -367,7 +537,9 @@ function Detalhe({ id }: { id: number }) {
             <p className="mb-1 font-semibold">PDFs da leitura</p>
             {trocandoDocs ? (
               <div className="space-y-2">
-                <EscolhaDocumentos origem={d.origem} alvoId={alvoId} escolhidos={trocandoDocs} onChange={setTrocandoDocs} />
+                <EscolhaDocumentos lista={d.disponiveis} escolhidos={trocandoDocs} onChange={setTrocandoDocs} vazio="Nenhum PDF neste pedido ainda. Envie um PDF avulso abaixo." />
+                <CampoPdfAvulso arquivos={novosPdfs} onChange={setNovosPdfs} limite={MAX_DOCUMENTOS - d.documentos.length} />
+                {novosPdfs.length > 0 && <Button size="sm" className={btnOuro} disabled={anexando} onClick={enviarNovosPdfs}>{anexando ? "Enviando…" : `Enviar ${novosPdfs.length} PDF(s)`}</Button>}
                 <div className="flex gap-2">
                   <Button size="sm" className={btnOuro} disabled={!trocandoDocs.length || definirDocs.isPending} onClick={() => definirDocs.mutate({ id, documentos: trocandoDocs })}>Salvar arquivos</Button>
                   <Button size="sm" variant="outline" className={btnOutline} onClick={() => setTrocandoDocs(null)}>Cancelar</Button>
@@ -463,6 +635,11 @@ function Detalhe({ id }: { id: number }) {
             )}
           </CardContent>
         </Card>
+      )}
+
+      {["liberada", "em_revisao", "validada"].includes(d.status) && (
+        <TipoEPadrao id={id} tipoAtual={d.tipo as TipoMaquete} temLidas={!!d.modelo?.edificacoes.some(e => !ehPadrao(e))} temImplantacao={!!d.modelo?.implantacao}
+          incorporacao={d.origem === "incorporacao"} sujo={sujo} aoAplicar={() => { setSujo(false); recarregar(); }} />
       )}
 
       {rascunho && (

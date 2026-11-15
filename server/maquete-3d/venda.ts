@@ -3,7 +3,7 @@
 // usa a mesma tabela payment_orders e a mesma regra de idempotência dos outros pagamentos (um efeito por cobrança).
 import { randomBytes } from "node:crypto";
 import { TRPCError } from "@trpc/server";
-import { and, desc, eq, inArray, isNull } from "drizzle-orm";
+import { and, desc, eq, inArray, isNull, or } from "drizzle-orm";
 import { z } from "zod";
 import { operationalProjects, paymentOrders, projectDocuments, type PaymentOrder } from "../../drizzle/schema.js";
 import { maquetes3d, type Maquete3d } from "../../drizzle/schema-maquete-3d.js";
@@ -69,7 +69,8 @@ export const portalMaqueteRouter = router({
       .where(eq(operationalProjects.leadId, leadId)).orderBy(desc(operationalProjects.id));
     const ids = projetos.map(p => p.id);
     const [maquetes, config] = await Promise.all([
-      ids.length ? db().select().from(maquetes3d).where(and(inArray(maquetes3d.projectId, ids), isNull(maquetes3d.deletedAt))).orderBy(desc(maquetes3d.id)) : [],
+      // Maquetes dos projetos do cliente e as ligadas direto ao cadastro dele (pedido criado pela equipe sem projeto).
+      db().select().from(maquetes3d).where(and(isNull(maquetes3d.deletedAt), ids.length ? or(inArray(maquetes3d.projectId, ids), eq(maquetes3d.leadId, leadId)) : eq(maquetes3d.leadId, leadId))).orderBy(desc(maquetes3d.id)),
       carregarConfig(),
     ]);
     const pdfs = new Map(await Promise.all(ids.map(async id => [id, (await pdfsDoProjeto(id)).length] as const)));
@@ -79,6 +80,8 @@ export const portalMaqueteRouter = router({
         ...p, temPdf: (pdfs.get(p.id) ?? 0) > 0,
         maquete: (() => { const m = maquetes.find(x => x.projectId === p.id && x.status !== "recusada") ?? maquetes.find(x => x.projectId === p.id); return m ? paraCliente(m) : null; })(),
       })),
+      /** Pedidos ligados ao cadastro do cliente, sem projeto (criados pela equipe). */
+      avulsas: maquetes.filter(x => !x.projectId && x.leadId === leadId).map(paraCliente),
     };
   }),
 
@@ -108,8 +111,8 @@ export const portalMaqueteRouter = router({
   /** Pedido aprovado pelo administrador: o cliente gera (ou reabre) a cobrança do Asaas. */
   pagar: protectedProcedure.input(z.object({ id: z.number().int().positive(), metodo })).mutation(async ({ ctx, input }) => {
     const leadId = clientLeadId(ctx);
-    const [linha] = await db().select({ m: maquetes3d }).from(maquetes3d).innerJoin(operationalProjects, eq(operationalProjects.id, maquetes3d.projectId))
-      .where(and(eq(maquetes3d.id, input.id), eq(operationalProjects.leadId, leadId), isNull(maquetes3d.deletedAt))).limit(1);
+    const [linha] = await db().select({ m: maquetes3d }).from(maquetes3d).leftJoin(operationalProjects, eq(operationalProjects.id, maquetes3d.projectId))
+      .where(and(eq(maquetes3d.id, input.id), or(eq(operationalProjects.leadId, leadId), eq(maquetes3d.leadId, leadId)), isNull(maquetes3d.deletedAt))).limit(1);
     if (!linha) throw new TRPCError({ code: "NOT_FOUND", message: "Pedido não encontrado." });
     if (linha.m.status !== "aguardando_pagamento") throw new TRPCError({ code: "CONFLICT", message: linha.m.status === "aguardando_aprovacao" ? "O pedido ainda está em aprovação." : "Este pedido não está aguardando pagamento." });
     const pagador: Pagador = { id: ctx.user.id, name: ctx.user.name ?? null, email: ctx.user.email ?? null, cpf: (ctx.user as { cpf?: string | null }).cpf ?? null };

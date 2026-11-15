@@ -1,10 +1,12 @@
 // Maquete 3D (EPIC-022, etapa 4) — implantação do empreendimento: terreno, ruas, lotes coloridos pela situação
 // de venda da unidade e as construções posicionadas. A geometria vem do estudo de Incorporação (ou da prancha
 // de implantação lida do PDF); a situação vem do inventário de unidades. Clicar num lote mostra os dados dele.
-import { useEffect, useMemo } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { useFrame } from "@react-three/fiber";
 import * as THREE from "three";
 import { alturaDoRelevo, areaPoligono, type Edificacao, type Implantacao as DadosImplantacao, type Ponto } from "@shared/maquete-3d/modelo";
-import { dentroDoPoligono } from "@shared/maquete-3d/geometria3d";
+import { contornoDoPavimento, dentroDoPoligono, pavimentosOrdenados, telhado, topoDaEdificacao } from "@shared/maquete-3d/geometria3d";
+import { limites } from "@shared/maquete-3d/modelo";
 import { Casa } from "./Casa";
 import type { Materiais } from "./materiais";
 
@@ -38,7 +40,72 @@ export function limitesDaImplantacao(imp: DadosImplantacao) {
   return { x0: Math.min(0, ...xs), x1: Math.max(1, ...xs), z0: Math.min(0, ...ys), z1: Math.max(1, ...ys) };
 }
 
-const MAX_CONSTRUCOES = 24; // cada construção é uma casa inteira: limite para não pesar no celular
+// Cada construção detalhada é uma casa inteira (paredes, esquadrias e mobília): só as mais próximas da câmera
+// entram com detalhe. Todas as outras aparecem como volume com telhado, desenhadas de uma vez (instâncias),
+// para o empreendimento inteiro caber no celular (EPIC-023, S-C).
+const MAX_DETALHADAS = 12;
+const DISTANCIA_DETALHE = 85; // metros da câmera
+
+/** Volume simples da edificação (paredes e cobertura), no referencial dela, com cor por vértice. */
+function geometriaDoVolume(e: Edificacao): THREE.BufferGeometry | null {
+  const pavs = pavimentosOrdenados(e);
+  if (!pavs.length) return null;
+  const l = limites(pavs.flatMap(pv => contornoDoPavimento(pv)));
+  if (l.largura < 0.5 || l.altura < 0.5) return null;
+  const topo = topoDaEdificacao(e), pos: number[] = [], cor: number[] = [];
+  const parede = new THREE.Color("#E9E2D3"), faixa = new THREE.Color("#B9C4CC"), cobertura = new THREE.Color("#9C4F3A"), lajeCor = new THREE.Color("#C9C6BF");
+  const tri = (c: THREE.Color, ...v: number[]) => { pos.push(...v); for (let i = 0; i < v.length / 3; i++) cor.push(c.r, c.g, c.b); };
+  const quad = (c: THREE.Color, a: number[], b: number[], d: number[], f: number[]) => tri(c, ...a, ...b, ...d, ...a, ...d, ...f);
+  const cantos: [number, number][] = [[l.minX, l.minY], [l.maxX, l.minY], [l.maxX, l.maxY], [l.minX, l.maxY]];
+  // Paredes em faixas por andar: uma fita de "janelas" em cada pavimento dá a leitura de casa ou de prédio de longe.
+  const andares: [number, number][] = [];
+  for (const pv of pavs) for (let k = 0; k < pv.repeticoes; k++) { const base = pv.nivel + k * (pv.peDireito + 0.15); andares.push([base, base + pv.peDireito + 0.15]); }
+  cantos.forEach(([x0, z0], i) => {
+    const [x1, z1] = cantos[(i + 1) % 4];
+    for (const [y0, y1] of andares) {
+      const a = y0 + (y1 - y0) * 0.38, b = y0 + (y1 - y0) * 0.78;
+      quad(parede, [x0, y0, z0], [x0, a, z0], [x1, a, z1], [x1, y0, z1]);
+      quad(faixa, [x0, a, z0], [x0, b, z0], [x1, b, z1], [x1, a, z1]);
+      quad(parede, [x0, b, z0], [x0, y1, z0], [x1, y1, z1], [x1, b, z1]);
+    }
+  });
+  const t = telhado(e);
+  if (t && !t.plano) tri(cobertura, ...t.triangulos);
+  else quad(lajeCor, [l.minX, topo, l.minY], [l.minX, topo, l.maxY], [l.maxX, topo, l.maxY], [l.maxX, topo, l.minY]);
+  const g = new THREE.BufferGeometry();
+  g.setAttribute("position", new THREE.BufferAttribute(new Float32Array(pos), 3));
+  g.setAttribute("color", new THREE.BufferAttribute(new Float32Array(cor), 3));
+  g.computeVertexNormals();
+  return g;
+}
+
+type Construcao = { p: DadosImplantacao["posicoes"][number]; e: Edificacao };
+
+/** Todas as construções de uma mesma edificação que não estão detalhadas, numa única chamada de desenho. */
+function Volumes({ edificacao, itens, relevo }: { edificacao: Edificacao; itens: Construcao[]; relevo: DadosImplantacao["relevo"] }) {
+  const ref = useRef<THREE.InstancedMesh>(null);
+  const geometria = useMemo(() => geometriaDoVolume(edificacao), [edificacao]);
+  const material = useMemo(() => new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.9, side: THREE.DoubleSide }), []);
+  useEffect(() => () => { geometria?.dispose(); }, [geometria]);
+  useEffect(() => () => { material.dispose(); }, [material]);
+  useLayoutEffect(() => {
+    const malha = ref.current;
+    if (!malha) return;
+    const o = new THREE.Object3D();
+    itens.forEach(({ p }, i) => {
+      o.position.set(p.x, alturaDoRelevo(relevo, p.x, p.y) + 0.02, p.y);
+      o.rotation.set(0, -THREE.MathUtils.degToRad(p.rotacao), 0);
+      o.updateMatrix();
+      malha.setMatrixAt(i, o.matrix);
+    });
+    malha.count = itens.length;
+    malha.instanceMatrix.needsUpdate = true;
+    malha.computeBoundingSphere();
+  }, [itens, relevo]);
+  if (!geometria || !itens.length) return null;
+  // A chave força uma malha nova quando a quantidade cresce (a capacidade de instâncias é fixa).
+  return <instancedMesh key={itens.length} ref={ref} args={[geometria, material, itens.length]} castShadow receiveShadow />;
+}
 const LADO_MALHA = 96;      // divisões da malha do terreno por lado
 const LADO_MAPA = 2048;     // pixels do mapa pintado sobre o terreno
 
@@ -115,7 +182,23 @@ export function Implantacao({ implantacao: imp, edificacoes, unidades, m, seleci
     onSelecionar(dentro.sort((p, q) => areaPoligono(p.l.poligono) - areaPoligono(q.l.poligono))[0]?.dados ?? null);
   };
 
-  const construcoes = imp.posicoes.slice(0, MAX_CONSTRUCOES).map(p => ({ p, e: edificacoes.find(x => x.id === p.edificacaoId) })).filter((c): c is { p: typeof c.p; e: Edificacao } => !!c.e && c.e.pavimentos.length > 0);
+  const construcoes = useMemo(() => imp.posicoes.map(p => ({ p, e: edificacoes.find(x => x.id === p.edificacaoId) })).filter((c): c is Construcao => !!c.e && c.e.pavimentos.length > 0), [imp.posicoes, edificacoes]);
+  // Detalhe só perto da câmera: confere duas vezes por segundo quais são as mais próximas.
+  const [detalhadas, setDetalhadas] = useState<string[]>([]);
+  const relogio = useRef(0);
+  useFrame(({ camera }, dt) => {
+    relogio.current += dt;
+    if (relogio.current < 0.5) return;
+    relogio.current = 0;
+    const perto = construcoes.map(c => ({ id: c.p.id, d: Math.hypot(c.p.x - camera.position.x, c.p.y - camera.position.z, camera.position.y) }))
+      .filter(c => c.d < DISTANCIA_DETALHE).sort((a, b) => a.d - b.d).slice(0, MAX_DETALHADAS).map(c => c.id).sort();
+    if (perto.join("|") !== detalhadas.join("|")) setDetalhadas(perto);
+  });
+  const { comDetalhe, volumes } = useMemo(() => {
+    const ids = new Set(detalhadas), porEdificacao = new Map<string, Construcao[]>();
+    for (const c of construcoes) if (!ids.has(c.p.id)) porEdificacao.set(c.e.id, [...(porEdificacao.get(c.e.id) ?? []), c]);
+    return { comDetalhe: construcoes.filter(c => ids.has(c.p.id)), volumes: Array.from(porEdificacao.values()) };
+  }, [construcoes, detalhadas]);
   // Saia: fecha as bordas do terreno até o chão, para o relevo não parecer uma folha solta.
   const saia = useMemo(() => {
     const n = LADO_MALHA, borda: [number, number][] = [];
@@ -140,7 +223,8 @@ export function Implantacao({ implantacao: imp, edificacoes, unidades, m, seleci
     <group>
       <mesh geometry={malha} material={mapa.material} receiveShadow onClick={e => { e.stopPropagation(); aoTocar(e.point.x, e.point.z); }} />
       {imp.relevo && <mesh geometry={saia} material={terra} />}
-      {construcoes.map(({ p, e }) => (
+      {volumes.map(itens => <Volumes key={itens[0].e.id} edificacao={itens[0].e} itens={itens} relevo={imp.relevo} />)}
+      {comDetalhe.map(({ p, e }) => (
         // A casa é girada em torno do próprio canto de origem e assentada na cota do terreno naquele ponto.
         <group key={p.id} position={[p.x, alturaDoRelevo(imp.relevo, p.x, p.y) + 0.02, p.y]} rotation={[0, -THREE.MathUtils.degToRad(p.rotacao), 0]}>
           <Casa edificacao={e} m={m} mostrarTelhado corteAte={null} />

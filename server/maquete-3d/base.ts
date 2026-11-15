@@ -20,7 +20,10 @@ export type PedidoIA = {
 };
 export type RespostaIA = { json: unknown; entrada: number; saida: number };
 export type ClienteIA = (p: PedidoIA) => Promise<RespostaIA>;
+/** `alvoId`: id do projeto ou do estudo; para PDF avulso, o id da maquete (use `alvoDoDocumento`). */
 export type LeitorPdf = (d: DocumentoMaquete, alvoId: number) => Promise<Buffer>;
+export const alvoDoDocumento = (m: { id: number; projectId: number | null; studyId: number | null }, d: DocumentoMaquete): number =>
+  d.fonte === "avulso" ? m.id : (m.projectId ?? m.studyId ?? 0);
 
 /** Falha que não adianta repetir sem mudar algo (sem chave, recusa da IA, PDF grande demais). */
 export class LeituraIndisponivel extends Error {}
@@ -54,6 +57,13 @@ const iaPadrao: ClienteIA = async ({ sistema, pedido, pdfs, esquema, config }) =
 };
 
 const leitorPadrao: LeitorPdf = async (d, alvoId) => {
+  if (d.fonte === "avulso") {
+    // PDF enviado direto no pedido: `alvoId` é o id da maquete.
+    const r = await db().execute(sql`SELECT encode(dados, 'base64') AS b64 FROM maquete_3d_arquivos WHERE id = ${d.id} AND maquete_id = ${alvoId}`);
+    const b64 = (r as unknown as { rows: { b64: string | null }[] }).rows[0]?.b64;
+    if (!b64) throw new LeituraIndisponivel(`Arquivo "${d.nome}" não está mais disponível neste pedido.`);
+    return Buffer.from(b64, "base64");
+  }
   if (d.fonte === "projeto") {
     const [doc] = await db().select({ driveFileId: projectDocuments.driveFileId }).from(projectDocuments)
       .where(and(eq(projectDocuments.id, d.id), eq(projectDocuments.projectId, alvoId), eq(projectDocuments.status, "active"), isNull(projectDocuments.deletedAt))).limit(1);

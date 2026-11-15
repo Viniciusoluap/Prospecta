@@ -197,6 +197,8 @@ class Ambiente {
   /** Lado mais ou menos oposto ao lado `i` (normal contrária), o mais comprido primeiro. */
   opostos(i: number): number[] {
     const l = this.lados[i];
+    // Sem lado de referência (a peça de apoio não coube no cômodo): qualquer lado serve.
+    if (!l) return this.ladosPorTamanho();
     return this.ladosPorTamanho(j => j !== i && this.lados[j].nx * l.nx + this.lados[j].ny * l.ny < -0.7);
   }
 
