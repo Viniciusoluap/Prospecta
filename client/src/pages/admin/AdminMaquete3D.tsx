@@ -14,7 +14,7 @@ import { EditorPlanta } from "@/components/maquete-3d/EditorPlanta";
 
 const Visualizador = lazy(() => import("@/components/maquete-3d/visualizador/Visualizador"));
 import { ROTULOS_TIPO, TIPOS_MAQUETE, type ModeloMaquete, type TipoMaquete } from "@shared/maquete-3d/modelo";
-import { LIMITES_CASA, LIMITES_PREDIO, ehPadrao } from "@shared/maquete-3d/padrao";
+import { LIMITES_CASA, LIMITES_PREDIO, contaDoEstacionamento, ehPadrao, type ContaDoEstacionamento } from "@shared/maquete-3d/padrao";
 import {
   ESFORCOS_IA, FAIXAS_PRECO, MAX_DOCUMENTOS, MOTORES_LEITURA, ROTULOS_FAIXA, ROTULOS_MOTOR, ROTULOS_STATUS, escopoEnvioMaquete, type DocumentoMaquete, type FaixaPreco,
   type MotorLeitura, type OrigemMaquete, type StatusMaquete,
@@ -375,11 +375,15 @@ function TipoEPadrao({ id, tipoAtual, temLidas, temImplantacao, incorporacao, su
   const [tipo, setTipo] = useState<TipoMaquete>(tipoAtual);
   const [usarLida, setUsarLida] = useState(false);
   const [casa, setCasa] = useState({ frente: "8", fundo: "12", quartos: "2", pavimentos: "1", garagem: true });
-  const [predio, setPredio] = useState({ largura: "24", profundidade: "14", andares: "8", aptosPorAndar: "6" });
+  const [predio, setPredio] = useState({ largura: "24", profundidade: "14", andares: "8", aptosPorAndar: "6", vagasPorApto: "1", pilotis: true, subsolos: "0", areaTerreno: "" });
+  type Conta = ContaDoEstacionamento & { areaTerreno: number; vagasPorApto: number };
+  const [conta, setConta] = useState<Conta | null>(null);
   useEffect(() => setTipo(tipoAtual), [tipoAtual]);
   const aplicar = trpc.maquete3d.aplicarTipo.useMutation({
     onSuccess: r => {
       toast.success(r.lotes ? `${ROTULOS_TIPO[tipo]}: ${r.construcoes} construção(ões) em ${r.lotes} lote(s) vendável(is).` : `Tipo alterado para ${ROTULOS_TIPO[tipo]}${r.padrao ? ` — ${r.padrao} gerada` : ""}.`);
+      setConta(r.estacionamento);
+      if (r.estacionamento?.reduzido) toast.warning(`Estacionamento: cabem ${r.estacionamento.vagas.total} vaga(s) por prédio. Os ${r.estacionamento.andaresPedidos} andares pedidos foram reduzidos para ${r.estacionamento.andares} (${r.estacionamento.apartamentos} apartamentos).`, { duration: 15000 });
       if (r.semConstrucaoTotal) toast.warning(`${r.semConstrucaoTotal} lote(s) ficaram sem construção porque ela não cabe: ${r.semConstrucao.slice(0, 8).join(", ")}${r.semConstrucaoTotal > 8 ? "…" : ""}. Diminua a frente ou o fundo e aplique de novo.`, { duration: 12000 });
       aoAplicar();
     },
@@ -390,11 +394,17 @@ function TipoEPadrao({ id, tipoAtual, temLidas, temImplantacao, incorporacao, su
     <label className="text-xs text-gray-300">{rotulo}
       <input className={inputCls} type="number" inputMode="decimal" step={passo} min={faixa[0]} max={faixa[1]} value={valor} onChange={e => mudar(e.target.value)} /></label>
   );
+  const medidasDoPredio = { largura: numero(predio.largura), profundidade: numero(predio.profundidade), andares: Math.round(numero(predio.andares)), aptosPorAndar: Math.round(numero(predio.aptosPorAndar)),
+    vagasPorApto: numero(predio.vagasPorApto), pilotis: predio.pilotis, subsolos: Math.round(numero(predio.subsolos)) };
+  // Prévia da conta do estacionamento enquanto se digita (quando a área do terreno é informada aqui).
+  const previa = ehPredio && !(usarLida && temLidas) && numero(predio.areaTerreno) >= medidasDoPredio.largura * medidasDoPredio.profundidade && [medidasDoPredio.largura, medidasDoPredio.profundidade, medidasDoPredio.andares, medidasDoPredio.aptosPorAndar, medidasDoPredio.vagasPorApto].every(Number.isFinite)
+    ? { ...contaDoEstacionamento(medidasDoPredio, medidasDoPredio, numero(predio.areaTerreno)), areaTerreno: numero(predio.areaTerreno), vagasPorApto: medidasDoPredio.vagasPorApto } : null;
+  const mostrada: Conta | null = previa ?? (ehPredio ? conta : null);
   function enviar() {
     if (sujo && !window.confirm("Há alterações não salvas na planta. Aplicar o tipo descarta essas alterações. Continuar?")) return;
     const padrao = usarLida && temLidas ? {} : ehCasa
       ? { casa: { frente: numero(casa.frente), fundo: numero(casa.fundo), quartos: Math.round(numero(casa.quartos)), pavimentos: (casa.pavimentos === "2" ? 2 : 1) as 1 | 2, garagem: casa.garagem } }
-      : ehPredio ? { predio: { largura: numero(predio.largura), profundidade: numero(predio.profundidade), andares: Math.round(numero(predio.andares)), aptosPorAndar: Math.round(numero(predio.aptosPorAndar)) } } : {};
+      : ehPredio ? { predio: { ...medidasDoPredio, ...(predio.areaTerreno ? { areaTerreno: numero(predio.areaTerreno) } : {}) } } : {};
     aplicar.mutate({ id, tipo, ...padrao });
   }
   return (
@@ -417,8 +427,24 @@ function TipoEPadrao({ id, tipoAtual, temLidas, temImplantacao, incorporacao, su
             {campo("Profundidade (m)", predio.profundidade, v => setPredio(c => ({ ...c, profundidade: v })), LIMITES_PREDIO.profundidade)}
             {campo("Andares de apartamentos", predio.andares, v => setPredio(c => ({ ...c, andares: v })), LIMITES_PREDIO.andares, "1")}
             {campo("Apartamentos por andar", predio.aptosPorAndar, v => setPredio(c => ({ ...c, aptosPorAndar: v })), LIMITES_PREDIO.aptosPorAndar, "1")}
+            {campo("Vagas por apartamento", predio.vagasPorApto, v => setPredio(c => ({ ...c, vagasPorApto: v })), LIMITES_PREDIO.vagasPorApto)}
+            {campo("Subsolos de garagem", predio.subsolos, v => setPredio(c => ({ ...c, subsolos: v })), LIMITES_PREDIO.subsolos, "1")}
+            {!temImplantacao && !incorporacao && campo("Área do terreno (m²)", predio.areaTerreno, v => setPredio(c => ({ ...c, areaTerreno: v })), LIMITES_PREDIO.areaTerreno, "1")}
+            <label className="flex items-end gap-2 pb-2 text-xs text-gray-300"><input type="checkbox" checked={predio.pilotis} onChange={e => setPredio(c => ({ ...c, pilotis: e.target.checked }))} />Térreo em pilotis com estacionamento</label>
           </>}
         </div>
+        {ehPredio && !(usarLida && temLidas) && (
+          <div className={`rounded-md border p-3 text-xs ${mostrada?.inviavel ? "border-red-400/50 text-red-200" : mostrada?.reduzido ? "border-amber-400/50 text-amber-200" : "border-[#C9A961]/20 text-gray-300"}`}>
+            <p className="mb-1 font-semibold text-white">Estacionamento</p>
+            {mostrada ? (
+              <>
+                <p>Terreno de {mostrada.areaTerreno.toLocaleString("pt-BR")} m² por prédio: cabem <strong>{mostrada.vagas.total} vaga(s)</strong> — {mostrada.vagas.patio} no pátio, {mostrada.vagas.pilotis} sob o pilotis e {mostrada.vagas.subsolos} em subsolo.</p>
+                {mostrada.inviavel ? <p>Não cabe nem um andar com {mostrada.vagasPorApto.toLocaleString("pt-BR")} vaga(s) por apartamento. Use pilotis, acrescente subsolo ou aumente o terreno.</p>
+                  : <p>{mostrada.apartamentos} apartamento(s) em {mostrada.andares} andar(es) de {mostrada.aptosPorAndar} precisam de {mostrada.vagasNecessarias} vaga(s).{mostrada.reduzido ? ` Você pediu ${mostrada.andaresPedidos} andares: o prédio ${previa ? "será" : "foi"} gerado com ${mostrada.andares}, que é o que o estacionamento comporta.` : " O estacionamento comporta."}</p>}
+              </>
+            ) : <p>O sistema calcula quantas vagas cabem no terreno (25 m² por vaga, já com a circulação) e nunca gera mais apartamentos do que o estacionamento comporta. {temImplantacao || incorporacao ? "A conta usa o menor lote em que o prédio cabe e aparece aqui depois de gerar." : "Informe a área do terreno para ver a conta."}</p>}
+          </div>
+        )}
         {temLidas && tipo !== "loteamento" && <label className="flex items-center gap-2 text-xs text-gray-300"><input type="checkbox" checked={usarLida} onChange={e => setUsarLida(e.target.checked)} />Usar a construção já lida do PDF em vez da padrão</label>}
         <p className="text-xs text-gray-400">
           {tipo === "loteamento" ? "Loteamento mostra só o terreno, as ruas e os lotes; as construções saem da implantação."

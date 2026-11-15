@@ -81,3 +81,16 @@ inclusive as que mexem fora da Maquete 3D (CRM, Usuários e acesso, Mapa operaci
 4. **Continua exigindo confirmação**: apagar ou alterar outros dados existentes, remover tabela/coluna, credenciais e
    qualquer coisa fora do EPIC-023.
 5. Handoff a cada etapa: `HANDOFF-15-11-CORRECOES.md`. Porte para o Grupo Santa Fé: pendências no ROADMAP.
+
+## Prédios — o estacionamento limita os apartamentos (REGRA DE NEGÓCIO — estabelecida pelo usuário em 15/11/2026)
+
+Palavras do dono: "quando nós falamos de prédios eu quero que você sempre tenha o cuidado de calcular o estacionamento
+para não sugerir uma quantidade de apartamentos que não comporta a mesma quantidade de estacionamento dentro dessa área".
+
+Vale para qualquer função, atual ou futura, que proponha quantidade de apartamentos, andares ou torres (Maquete 3D,
+Incorporação, viabilidade): a quantidade sugerida nunca pode exigir mais vagas do que o terreno comporta.
+- A conta fica em `shared/maquete-3d/padrao.ts` (`vagasDoTerreno`, `contaDoEstacionamento`): 25 m² por vaga (com a
+  circulação), somando pátio, pilotis e subsolos; se não fechar, os andares são reduzidos e a tela mostra a conta.
+- Nunca reduzir em silêncio: mostrar quantas vagas cabem, quantas são necessárias e o que foi ajustado.
+- `shared/incorporacao/urbanismo.ts` (`calcularPotencial`) calcula "unidades máximas" só pelo coeficiente de
+  aproveitamento, sem conferir as vagas. Hoje nenhuma tela usa essa função; antes de ligá-la a uma tela, aplicar esta regra.

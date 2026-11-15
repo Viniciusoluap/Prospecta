@@ -7,8 +7,8 @@ import { and, desc, eq, inArray, isNull, sql } from "drizzle-orm";
 import { z } from "zod";
 import { incorporationStudies, leads, operationalProjects, projectDocuments, users } from "../../drizzle/schema.js";
 import { maquete3dArquivos, maquetes3d, type Maquete3d } from "../../drizzle/schema-maquete-3d.js";
-import { TIPOS_MAQUETE, lerModelo, limites, modeloSchema, modeloVazio, podePublicar, pontosDoPavimento, resumoModelo, validarModelo, type Edificacao, type TipoMaquete } from "../../shared/maquete-3d/modelo.js";
-import { LIMITES_CASA, LIMITES_PREDIO, casaPadrao, distribuirNosLotes, ehPadrao, predioPadrao } from "../../shared/maquete-3d/padrao.js";
+import { TIPOS_MAQUETE, areaPoligono, lerModelo, limites, modeloSchema, modeloVazio, podePublicar, pontosDoPavimento, resumoModelo, validarModelo, type Edificacao, type TipoMaquete } from "../../shared/maquete-3d/modelo.js";
+import { LIMITES_CASA, LIMITES_PREDIO, casaPadrao, contaDoEstacionamento, distribuirNosLotes, ehPadrao, predioPadrao, type ContaDoEstacionamento } from "../../shared/maquete-3d/padrao.js";
 import { implantacaoDoEstudo, type GradeElevacao } from "../../shared/maquete-3d/implantacao.js";
 import type { CenarioMassa } from "../../shared/incorporacao/massa.js";
 import {
@@ -418,7 +418,12 @@ export const maquete3dRouter = router({
     casa: z.object({ frente: z.number().min(LIMITES_CASA.frente[0]).max(LIMITES_CASA.frente[1]), fundo: z.number().min(LIMITES_CASA.fundo[0]).max(LIMITES_CASA.fundo[1]),
       quartos: z.number().int().min(LIMITES_CASA.quartos[0]).max(LIMITES_CASA.quartos[1]), pavimentos: z.union([z.literal(1), z.literal(2)]), garagem: z.boolean() }).optional(),
     predio: z.object({ largura: z.number().min(LIMITES_PREDIO.largura[0]).max(LIMITES_PREDIO.largura[1]), profundidade: z.number().min(LIMITES_PREDIO.profundidade[0]).max(LIMITES_PREDIO.profundidade[1]),
-      andares: z.number().int().min(LIMITES_PREDIO.andares[0]).max(LIMITES_PREDIO.andares[1]), aptosPorAndar: z.number().int().min(LIMITES_PREDIO.aptosPorAndar[0]).max(LIMITES_PREDIO.aptosPorAndar[1]) }).optional(),
+      andares: z.number().int().min(LIMITES_PREDIO.andares[0]).max(LIMITES_PREDIO.andares[1]), aptosPorAndar: z.number().int().min(LIMITES_PREDIO.aptosPorAndar[0]).max(LIMITES_PREDIO.aptosPorAndar[1]),
+      // Estacionamento (regra do dono): os apartamentos nunca passam das vagas que o terreno comporta.
+      vagasPorApto: z.number().min(LIMITES_PREDIO.vagasPorApto[0]).max(LIMITES_PREDIO.vagasPorApto[1]).default(1), pilotis: z.boolean().default(true),
+      subsolos: z.number().int().min(LIMITES_PREDIO.subsolos[0]).max(LIMITES_PREDIO.subsolos[1]).default(0),
+      /** Área do terreno do prédio, quando a maquete não tem lotes (prédio único). */
+      areaTerreno: z.number().min(LIMITES_PREDIO.areaTerreno[0]).max(LIMITES_PREDIO.areaTerreno[1]).optional() }).optional(),
   })).mutation(async ({ ctx, input }) => {
     const m = await buscar(input.id);
     if (!["liberada", "em_revisao", "validada"].includes(m.status)) throw conflito("A maquete precisa estar liberada (e não publicada) para trocar o tipo.");
@@ -427,9 +432,29 @@ export const maquete3dRouter = router({
     if (!implantacao && m.origem === "incorporacao" && m.studyId) implantacao = { ...(await lerImplantacaoDoEstudo(m.studyId)).r.implantacao, posicoes: [] };
     const lidas = atual.edificacoes.filter(e => !ehPadrao(e));
     let padrao: Edificacao | null = null;
+    let estacionamento: (ContaDoEstacionamento & { areaTerreno: number; vagasPorApto: number }) | null = null;
     if (input.tipo === "predio") {
       if (!input.predio && !lidas.length) throw new TRPCError({ code: "BAD_REQUEST", message: "Informe as medidas do prédio." });
-      if (input.predio) padrao = predioPadrao(input.predio);
+      if (input.predio) {
+        // Área de terreno por prédio: o menor lote vendável em que ele cabe (cada lote recebe um prédio igual);
+        // sem lotes, a área informada.
+        const pr = input.predio, lotes = implantacao?.lotes.filter(l => l.tipo === "vendavel" && l.poligono.length >= 3) ?? [];
+        let areaTerreno = pr.areaTerreno ?? 0;
+        if (lotes.length) {
+          const cabem = new Set(distribuirNosLotes(implantacao!, pr.largura, pr.profundidade).posicoes.map(c => c.nome));
+          const rotulo = (l: (typeof lotes)[number]) => [l.quadra && `Q${l.quadra}`, l.nome && `L${l.nome}`].filter(Boolean).join(" ") || l.id;
+          const areas = lotes.filter(l => cabem.has(rotulo(l))).map(l => areaPoligono(l.poligono));
+          if (!areas.length) throw new TRPCError({ code: "BAD_REQUEST", message: `Um prédio de ${pr.largura} × ${pr.profundidade} m não cabe em nenhum lote vendável. Diminua a largura ou a profundidade.` });
+          areaTerreno = Math.min(...areas);
+        }
+        if (!areaTerreno) throw new TRPCError({ code: "BAD_REQUEST", message: "Informe a área do terreno do prédio, para calcular o estacionamento." });
+        if (areaTerreno < pr.largura * pr.profundidade) throw new TRPCError({ code: "BAD_REQUEST", message: `O prédio (${Math.round(pr.largura * pr.profundidade)} m² de projeção) é maior que o terreno informado (${Math.round(areaTerreno)} m²).` });
+        estacionamento = { ...contaDoEstacionamento(pr, pr, areaTerreno), areaTerreno: Math.round(areaTerreno * 100) / 100, vagasPorApto: pr.vagasPorApto };
+        if (estacionamento.inviavel) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: `O estacionamento não comporta este prédio: cabem ${estacionamento.vagas.total} vaga(s) em ${Math.round(areaTerreno)} m² de terreno, menos que o necessário para um andar. Use pilotis, acrescente subsolo, reduza as vagas por apartamento ou aumente o terreno.` });
+        }
+        padrao = predioPadrao({ ...pr, andares: estacionamento.andares, aptosPorAndar: estacionamento.aptosPorAndar, vagasNoPilotis: estacionamento.vagas.pilotis });
+      }
     } else if (input.tipo !== "loteamento") {
       if (!input.casa && !lidas.length) throw new TRPCError({ code: "BAD_REQUEST", message: "Informe o tamanho da casa." });
       if (input.casa) padrao = casaPadrao(input.casa);
@@ -457,7 +482,7 @@ export const maquete3dRouter = router({
     }).where(and(eq(maquetes3d.id, m.id), eq(maquetes3d.modeloVersao, m.modeloVersao), eq(maquetes3d.status, m.status))).returning({ id: maquetes3d.id });
     if (!g.length) throw conflito("A maquete foi alterada por outra pessoa. Recarregue a página.");
     const lotes = implantacao?.lotes.filter(l => l.tipo === "vendavel").length ?? 0;
-    return { construcoes, lotes, semConstrucao: semConstrucao.slice(0, 40), semConstrucaoTotal: semConstrucao.length, padrao: padrao?.nome ?? null, resumo: resumoModelo(novo) };
+    return { construcoes, lotes, semConstrucao: semConstrucao.slice(0, 40), semConstrucaoTotal: semConstrucao.length, padrao: padrao?.nome ?? null, resumo: resumoModelo(novo), estacionamento };
   }),
 
   /** Dados da tela de apresentação (nome, localização, preço, WhatsApp). Campo vazio não aparece para o cliente. */

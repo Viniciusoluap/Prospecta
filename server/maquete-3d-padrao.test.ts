@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import { dentroDoPoligono } from "../shared/maquete-3d/geometria3d.js";
 import { mobiliarComodo } from "../shared/maquete-3d/mobilia.js";
 import { areaPoligono, implantacaoSchema, modeloSchema, podePublicar, resumoModelo, validarModelo, type Ponto } from "../shared/maquete-3d/modelo.js";
-import { ID_PADRAO, casaPadrao, distribuirNosLotes, ehPadrao, predioPadrao, tamanhoQueCabe } from "../shared/maquete-3d/padrao.js";
+import { ID_PADRAO, M2_POR_VAGA, casaPadrao, contaDoEstacionamento, distribuirNosLotes, ehPadrao, predioPadrao, tamanhoQueCabe, vagasDoTerreno } from "../shared/maquete-3d/padrao.js";
 import { trechosDaEscada } from "../shared/maquete-3d/escadas.js";
 
 const ret = (x0: number, y0: number, x1: number, y1: number): Ponto[] => [{ x: x0, y: y0 }, { x: x1, y: y0 }, { x: x1, y: y1 }, { x: x0, y: y1 }];
@@ -86,6 +86,61 @@ describe("prédio padrão", () => {
     const e = predioPadrao({ largura: 10, profundidade: 12, andares: 3, aptosPorAndar: 12 });
     expect(e.pavimentos[1].comodos.filter(c => c.funcao === "quarto")).toHaveLength(4);
     expect(validarModelo(modeloSchema.parse({ tipo: "predio", edificacoes: [e] }))).toEqual([]);
+  });
+});
+
+describe("estacionamento do prédio (regra do dono: nunca mais apartamentos do que vagas)", () => {
+  const predio = { largura: 24, profundidade: 14, andares: 8, aptosPorAndar: 6 }; // 336 m² de projeção, 48 apartamentos pedidos
+  const est = (vagasPorApto: number, pilotis: boolean, subsolos: number) => ({ vagasPorApto, pilotis, subsolos });
+
+  it("conta as vagas de cada lugar: pátio (área livre), pilotis (sob o prédio) e subsolos (sob o lote)", () => {
+    expect(M2_POR_VAGA).toBe(25);
+    // Lote de 1.200 m²: pátio (1200 − 336) × 0,7 / 25 = 24; pilotis 336 × 0,75 / 25 = 10; cada subsolo 1200 × 0,85 / 25 = 40.
+    expect(vagasDoTerreno(1200, 24, 14, est(1, false, 0))).toEqual({ patio: 24, pilotis: 0, subsolos: 0, total: 24 });
+    expect(vagasDoTerreno(1200, 24, 14, est(1, true, 0))).toEqual({ patio: 24, pilotis: 10, subsolos: 0, total: 34 });
+    expect(vagasDoTerreno(1200, 24, 14, est(1, true, 2))).toEqual({ patio: 24, pilotis: 10, subsolos: 80, total: 114 });
+  });
+
+  it("reduz os andares até os apartamentos caberem nas vagas, e diz que reduziu", () => {
+    // 34 vagas, 1 por apartamento, 6 por andar → 5 andares (30 apartamentos), não os 8 pedidos.
+    const c = contaDoEstacionamento(predio, est(1, true, 0), 1200);
+    expect(c).toMatchObject({ andaresPedidos: 8, andares: 5, aptosPorAndar: 6, apartamentos: 30, vagasNecessarias: 30, reduzido: true, inviavel: false });
+    expect(c.vagasNecessarias).toBeLessThanOrEqual(c.vagas.total);
+    // Com dois subsolos cabem os 8 andares pedidos: nada é reduzido.
+    expect(contaDoEstacionamento(predio, est(1, true, 2), 1200)).toMatchObject({ andares: 8, apartamentos: 48, vagasNecessarias: 48, reduzido: false });
+    // Duas vagas por apartamento pesam o dobro.
+    expect(contaDoEstacionamento(predio, est(2, true, 0), 1200)).toMatchObject({ andares: 2, apartamentos: 12, vagasNecessarias: 24, reduzido: true });
+  });
+
+  it("em qualquer combinação, os apartamentos gerados nunca precisam de mais vagas do que cabem", () => {
+    for (const area of [340, 500, 800, 1500, 4000]) for (const porApto of [0.5, 1, 1.5, 2, 3]) for (const pilotis of [true, false]) for (const subsolos of [0, 1, 3]) for (const andares of [1, 4, 20, 40]) for (const aptos of [2, 6, 12]) {
+      const c = contaDoEstacionamento({ ...predio, andares, aptosPorAndar: aptos }, est(porApto, pilotis, subsolos), area);
+      expect(c.apartamentos * porApto, JSON.stringify({ area, porApto, pilotis, subsolos, andares, aptos })).toBeLessThanOrEqual(c.vagas.total + 1e-9);
+      expect(c.andares).toBeLessThanOrEqual(andares);
+      expect(c.inviavel).toBe(c.andares === 0);
+    }
+  });
+
+  it("terreno pequeno demais: um andar com menos apartamentos, ou inviável — nunca um prédio sem vaga", () => {
+    // Lote justo (340 m²), sem pilotis nem subsolo: não cabe vaga nenhuma.
+    expect(contaDoEstacionamento(predio, est(1, false, 0), 340)).toMatchObject({ andares: 0, apartamentos: 0, inviavel: true });
+    // Só o pilotis (10 vagas), 2 vagas por apartamento: 5 apartamentos → um andar com 4 (número par).
+    expect(contaDoEstacionamento(predio, est(2, true, 0), 340)).toMatchObject({ andares: 1, aptosPorAndar: 4, apartamentos: 4, vagasNecessarias: 8, reduzido: true, inviavel: false });
+  });
+
+  it("sem exigência de vaga (0 por apartamento) nada é reduzido", () => {
+    expect(contaDoEstacionamento(predio, est(0, false, 0), 340)).toMatchObject({ andares: 8, apartamentos: 48, vagasNecessarias: 0, reduzido: false, inviavel: false });
+  });
+
+  it("pilotis vira estacionamento no térreo do prédio gerado, com o hall no meio", () => {
+    const e = predioPadrao({ ...predio, andares: 5, pilotis: true, vagasNoPilotis: 10 });
+    const m = modeloSchema.parse({ tipo: "predio", edificacoes: [e] });
+    expect(validarModelo(m)).toEqual([]);
+    expect(e.pavimentos[0].comodos.map(c => [c.nome, c.funcao])).toEqual([["Estacionamento sob pilotis (10 vagas)", "garagem"], ["Hall de entrada", "hall"], ["Estacionamento sob pilotis (10 vagas)", "garagem"]]);
+    // O resumo conta as vagas da garagem coletiva com corredor de manobra (25 m² por vaga), sem inflar.
+    expect(resumoModelo(m).vagas).toBe(10);
+    expect(e.pavimentos[1].repeticoes).toBe(5);
+    for (const p of e.pavimentos) for (const c of p.comodos) expect(() => mobiliarComodo(c, p)).not.toThrow();
   });
 });
 

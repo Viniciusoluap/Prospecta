@@ -39,6 +39,12 @@
   em Configurações. As três maquetes paradas em "Lendo o projeto" (ids 1, 2 e 3) voltaram para "liberada" para serem lidas de novo.
 - Medido só nas plantas de teste (`server/fixtures/maquete-3d/`); os PDFs reais do dono não puderam ser abertos aqui.
 
+### Regra do estacionamento em prédios (pedido do dono em 15/11, depois da Etapa C)
+- O prédio padrão só é gerado com os apartamentos que o estacionamento do terreno comporta: vagas no pátio, sob o
+  pilotis e em subsolos (25 m² por vaga). Se não fechar, os andares são reduzidos e a conta aparece na tela; se nem um
+  andar couber, o prédio não é gerado. Térreo em pilotis vira estacionamento na maquete. Regra registrada no `CLAUDE.md`.
+- Subsolos entram na conta das vagas, mas não são desenhados na maquete.
+
 ## Pendências
 - **Dono:** abrir o pedido "Polímeros (Morada do Bosque)", clicar em "Gerar maquete (ler o projeto)" e dizer como ficou a
   leitura do "ARQ 01-01-CASA PADRÃO.pdf" (é a primeira medição do leitor num projeto real).
@@ -58,6 +64,8 @@
   406 do OpenStreetMap sumiu.
 - Etapa D — automáticos: `maquete-3d-leitor.test.ts` (9) e `maquete-3d.test.ts` (25) aprovados. Não verificado: PDFs
   reais; execução do `pdfjs` dentro da função da Vercel (testado só no Node local).
+- Estacionamento — automáticos: `maquete-3d-padrao.test.ts` (20) e `maquete-3d.test.ts` (25) aprovados, incluindo a
+  varredura de combinações em que os apartamentos nunca passam das vagas. A tela não foi conferida em navegador.
 - (c) Pendentes em produção: leitura real do PDF da casa padrão pelo leitor próprio; novo pedido por cliente do CRM com PDF avulso real; "Gerar e distribuir nos lotes" no
   Polímeros (Morada do Bosque); mapa operacional com as imagens reais de satélite e os pontos reais; CRM no iPad (rolagem e ausência de tela preta); editar um corretor em "Usuários e acesso"
   e conferir a comissão numa obra; excluir um pedido de maquete pela lista.
