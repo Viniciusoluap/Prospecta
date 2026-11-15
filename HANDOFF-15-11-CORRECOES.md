@@ -16,18 +16,25 @@
 - Maquete 3D: botão excluir na lista (recusa com motivo antes), coluna "Criada em" sem quebra.
 - Sem migração nesta etapa.
 
+### Etapa B (correção 4) — S-B
+- Mapa operacional na base nova (MapLibre, a mesma da Incorporação): alfinetes por situação, agrupamento que separa ao
+  aproximar, lista para pontos no mesmo endereço, Satélite/Ruas, busca, filtro e tabela mantidos. Sem migração.
+
 ## Pendências
-- Etapas B (mapa operacional), C (vínculo com lead, PDF avulso, casa/prédio padrão), D (leitura sem IA),
+- Etapas C (vínculo com lead, PDF avulso, casa/prédio padrão), D (leitura sem IA),
   E (camadas do terreno), F (Estudo de Massa: áreas separadas e malha conectada), G (vias 3D).
 - Porte para o Grupo Santa Fé das correções 1, 2, 3, 4, 8, 9 e 10 (lista no ROADMAP) — sem acesso àquele repositório.
 
 ## Testes
 - (a) Automáticos: `tsc --noEmit` sem erros; suíte completa com 1.783 aprovados e 1 falha antiga e sem relação
   (`server/central-vendas-envio.test.ts > sem resposta e reativação 30/60/90 dias`, falha também na `main`).
-- (b) Manuais: nenhum — o layout do CRM não foi conferido em navegador nem em iPad nesta sessão.
-- (c) Pendentes em produção: CRM no iPad (rolagem e ausência de tela preta); editar um corretor em "Usuários e acesso"
+- (b) Manuais: mapa operacional conferido em navegador de teste com 5 pontos fictícios e imagens de satélite
+  simuladas (o ambiente não alcança os servidores de imagem): alfinetes, agrupamento, aproximação e lista do mesmo
+  endereço funcionaram. O layout do CRM não foi conferido em navegador nem em iPad.
+- (c) Pendentes em produção: mapa operacional com as imagens reais de satélite e os pontos reais; CRM no iPad (rolagem e ausência de tela preta); editar um corretor em "Usuários e acesso"
   e conferir a comissão numa obra; excluir um pedido de maquete pela lista.
 
 ## Próximo passo exato
-Iniciar a Etapa B (`S-B-mapa-operacional-maplibre.md`): mover `mapa-base-ml.ts` para `client/src/lib/`, liberar a rota
-do token para o módulo `mapa` e reescrever `AdminMapa.tsx` em MapLibre mantendo agrupamento, busca, filtro, legenda e tabela.
+Iniciar a Etapa C (`S-C-vinculo-lead-pdf-avulso-troca-tipo.md`): migração aditiva (coluna de lead, tabela de arquivos
+avulsos, nova regra de vínculo), formulário de novo pedido com cliente do CRM e PDF avulso, gerador de casa/prédio
+padrão e troca de tipo.

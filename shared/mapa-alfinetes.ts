@@ -36,6 +36,15 @@ export function coordenadaValida(lat: unknown, lng: unknown): [number, number] |
   return [a, o];
 }
 
+/** Limites [oeste, sul, leste, norte] de um conjunto de pontos; null se vazio. Um ponto só: caixa de ~200 m. */
+export function limitesDosPontos(pontos: { lat: number; lng: number }[]): [number, number, number, number] | null {
+  if (!pontos.length) return null;
+  let o = Infinity, s = Infinity, l = -Infinity, n = -Infinity;
+  for (const p of pontos) { o = Math.min(o, p.lng); l = Math.max(l, p.lng); s = Math.min(s, p.lat); n = Math.max(n, p.lat); }
+  const folga = o === l && s === n ? 0.001 : 0;
+  return [o - folga, s - folga, l + folga, n + folga];
+}
+
 export const TAMANHO_ALFINETE = { largura: 30, altura: 42 } as const;
 
 /** Alfinete em SVG (gota com círculo interno). `rotulo` vira o título acessível. */
