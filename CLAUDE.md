@@ -46,3 +46,23 @@ Ao concluir cada etapa de trabalho (não só no fim da tarefa), sempre:
 2. Fazer commit e push na branch de trabalho, e confirmar que o push chegou ao GitHub antes de dizer que está salvo.
 
 Objetivo: se os créditos acabarem no meio, outra sessão (Claude ou Codex) continua do ponto exato, sem perder trabalho.
+
+## Maquete 3D — executar até o fim, migrando e publicando a cada etapa (REGRA — estabelecida pelo usuário em 15/11/2026)
+
+**Vale para o EPIC-022 (Maquete 3D), só no Prospecta** (exceção de paridade já registrada no ROADMAP).
+
+Ordem do dono em 15/11/2026: "eu autorizo tudo; estabeleça uma regra para não parar até concluir tudo, e a cada
+etapa você vai fazer a migração e vai publicar, e isso eu já deixo autorizado".
+
+Na prática, para qualquer agente que continuar este epic:
+1. **Não parar entre etapas.** Concluída uma etapa do `docs/stories/epics/epic-022-maquete-3d/EPIC.md`, seguir
+   direto para a próxima, sem pedir confirmação, até as quatro etapas estarem entregues.
+2. **A cada etapa concluída, já está autorizado** (sem perguntar de novo):
+   - aplicar no Neon de produção as migrações **aditivas** do epic (`CREATE ... IF NOT EXISTS`, `ADD COLUMN`,
+     novos valores de enum/CHECK);
+   - fazer o merge do PR da etapa na `main` e conferir que a publicação da Vercel terminou sem erro.
+3. **Continua exigindo confirmação do dono** (a autorização acima não cobre): apagar ou alterar dados existentes,
+   remover tabela/coluna, mexer em credenciais, e qualquer mudança fora do escopo do EPIC-022.
+4. Só parar antes do fim por bloqueio real que dependa do dono (ex.: uma chave que só ele pode cadastrar) —
+   e, nesse caso, deixar o bloqueio escrito no HANDOFF e seguir com tudo o que não depende dele.
+5. O handoff a cada etapa (regra acima) continua valendo: `HANDOFF-14-11-MAQUETE-3D.md`.
