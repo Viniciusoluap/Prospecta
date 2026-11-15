@@ -122,22 +122,22 @@ function puxador(k: K, m: Materiais, estilo: Estilo, x: number, y: number, z: nu
     // Aprimorado: puxadores "de verdade" — barra afastada sobre apoios, botão torneado com roseta, barra com ponteiras.
     const v = dir === "v", ao = (d: number): [number, number] => [v ? x : x + d, v ? y + d : y];
     if (estilo === "escandinavo") {
-      k.cil(0.02, 0.02, 0.003, x, y, z + 0.0015, m.metal, 16, { r: EIXO_Z, fixo: true });
-      k.cil(0.008, 0.007, 0.012, x, y, z + 0.008, m.metal, 10, { r: EIXO_Z, fixo: true });
-      k.outra("esf", [0.016, 14, 8], x, y, z + 0.018, m.metal, { e: [1, 1, 0.6] });
+      k.cil(0.02, 0.02, 0.003, x, y, z + 0.0015, m.metal, 12, { r: EIXO_Z, fixo: true });
+      k.cil(0.008, 0.007, 0.012, x, y, z + 0.008, m.metal, 8, { r: EIXO_Z, fixo: true });
+      k.outra("esf", [0.016, 10, 6], x, y, z + 0.018, m.metal, { e: [1, 1, 0.6] });
       return;
     }
     if (estilo === "moderno") {
-      k.rb(v ? 0.01 : comp, v ? comp : 0.01, 0.008, x, y, z + 0.022, m.metal, 0.003, { s: 1, fixo: true });
+      k.cx(v ? 0.01 : comp, v ? comp : 0.01, 0.008, x, y, z + 0.022, m.metal);
       for (const s of [-1, 1]) { const [px, py] = ao(s * comp * 0.36); k.cx(0.008, 0.008, 0.018, px, py, z + 0.009, m.metal); }
       return;
     }
-    k.cil(0.006, 0.006, comp, x, y, z + 0.021, m.metal, 12, { r: v ? ZERO : EIXO_X, fixo: true });
+    k.cil(0.006, 0.006, comp, x, y, z + 0.02, m.metal, 8, { r: v ? ZERO : EIXO_X, fixo: true });
     for (const s of [-1, 1]) {
       const [px, py] = ao(s * comp * 0.34), [ex, ey] = ao(s * comp * 0.5);
-      k.cil(0.004, 0.005, 0.018, px, py, z + 0.009, m.metal, 8, { r: EIXO_Z, fixo: true });
-      k.cil(0.011, 0.011, 0.002, px, py, z + 0.001, m.metal, 12, { r: EIXO_Z, fixo: true });
-      k.outra("esf", [0.008, 8, 6], ex, ey, z + 0.021, m.metal);
+      k.cil(0.004, 0.005, 0.018, px, py, z + 0.009, m.metal, 6, { r: EIXO_Z, fixo: true });
+      k.cil(0.011, 0.011, 0.002, px, py, z + 0.001, m.metal, 8, { r: EIXO_Z, fixo: true });
+      k.outra("esf", [0.0075, 6, 4], ex, ey, z + 0.02, m.metal);
     }
     return;
   }
@@ -257,7 +257,7 @@ function cuba(k: K, m: Materiais, mat: Mat, f: Furo, yTopo: number, h: number) {
 function torno(perfil: [number, number][], seg = 16, liso = false): THREE.BufferGeometry {
   let pts = perfil.map(([r, y]) => new THREE.Vector2(r, y));
   // Aprimorado: o perfil vira uma curva suave passando pelos mesmos pontos.
-  if (liso) pts = new THREE.SplineCurve(pts).getPoints(perfil.length * 4);
+  if (liso) pts = new THREE.SplineCurve(pts).getPoints(perfil.length * 3);
   for (const p of pts) p.x = Math.max(p.x, 0.0001);
   return new THREE.LatheGeometry(pts, seg);
 }
@@ -441,8 +441,8 @@ const cama = criar(({ peca, m, estilo, k }) => {
     const n = lim(Math.round(L / 0.3), 2, 6), wg = (L - 0.04) / n, y0 = H * 0.45, hg = hc - y0 - 0.02;
     if (ap) {
       // Aprimorado: gomos roliços (capitonê em canais) com botões nas costuras.
-      for (let i = 0; i < n; i++) k.cil(wg / 2, wg / 2, hg, -L / 2 + 0.02 + wg * (i + 0.5), y0 + hg / 2, zCab + esp * 0.4, m.tecido, 18, { e: [1, 1, (esp * 0.6) / (wg / 2)], fixo: true });
-      for (let i = 1; i < n; i++) for (const f of [0.3, 0.68]) k.outra("esf", [0.013, 8, 6], -L / 2 + 0.02 + wg * i, y0 + hg * f, zCab + esp * 0.4 + 0.006, m.tecidoAlt);
+      for (let i = 0; i < n; i++) k.cil(wg / 2, wg / 2, hg, -L / 2 + 0.02 + wg * (i + 0.5), y0 + hg / 2, zCab + esp * 0.5, m.tecido, 18, { e: [1, 1, (esp * 0.5) / (wg / 2)], fixo: true });
+      for (let i = 1; i < n; i++) for (const f of [0.3, 0.68]) k.outra("esf", [0.013, 8, 6], -L / 2 + 0.02 + wg * i, y0 + hg * f, zCab + esp * 0.5 + 0.004, m.tecidoAlt);
     } else for (let i = 0; i < n; i++) k.rb(wg - 0.006, hg, esp * 0.6, -L / 2 + 0.02 + wg * (i + 0.5), y0 + hg / 2, zCab + esp * 0.7, m.tecido, 0.022, { s: 1 });
   } else if (esc) {
     const h = hc * 0.9 - hp;
@@ -626,7 +626,7 @@ const guardaRoupa = criar(({ peca, m, estilo, k }) => {
           // Aprimorado: cabide de madeira e a roupa com ombros (parte de cima mais larga que o corpo).
           k.cx(0.012, 0.014, dInt * 0.62, x, yVarao - 0.052, 0, m.madeira);
           k.rb(0.05, 0.1, dInt * 0.66, x, yVarao - 0.105, 0, tecidos[(i * 2 + j) % 4], 0.022, { s: 1, fixo: true });
-          k.rb(0.044, comp - 0.07, dInt * 0.56, x, yVarao - 0.125 - (comp - 0.07) / 2, 0, tecidos[(i * 2 + j) % 4], 0.018, { fixo: true });
+          k.rb(0.044, comp - 0.07, dInt * 0.56, x, yVarao - 0.125 - (comp - 0.07) / 2, 0, tecidos[(i * 2 + j) % 4], 0.018, { s: 1, fixo: true });
           continue;
         }
         k.rb(0.05, comp, dInt * 0.66, x, yVarao - 0.055 - comp / 2, 0, tecidos[(i * 2 + j) % 4], 0.02, { s: 1 });
@@ -736,28 +736,28 @@ const bancadaCozinha = criar(({ peca, m, estilo, k }) => {
     const ini = furo ? furo.x + furo.w / 2 + 0.09 : -L / 2 + 0.1, fim = temCooktop ? xCook - cw / 2 - 0.05 : L / 2 - 0.1;
     const itens: ["tabua" | "aparelho" | "tigela", number][] = [];
     let livre = fim - ini;
-    for (const it of [["tabua", 0.32], ["aparelho", 0.24], ["tigela", 0.24]] as ["tabua" | "aparelho" | "tigela", number][]) if (livre >= it[1] + 0.04) { itens.push(it); livre -= it[1] + 0.04; }
+    for (const it of [["tabua", 0.28], ["aparelho", 0.24], ["tigela", 0.24]] as ["tabua" | "aparelho" | "tigela", number][]) if (livre >= it[1] + 0.015) { itens.push(it); livre -= it[1] + 0.04; }
     const vao = (fim - ini - itens.reduce((t, it) => t + it[1], 0)) / (itens.length + 1);
     let x = ini + vao;
     for (const [tipo, w] of itens) {
       const xc = x + w / 2;
       x += w + vao;
       if (tipo === "tabua") {
-        k.rb(0.3, 0.02, Math.min(0.2, P * 0.36), xc, H + 0.01, 0.04, m.madeira, 0.006, { s: 1, fixo: true, r: [0, 0.14, 0] });
+        k.rb(0.26, 0.02, Math.min(0.2, P * 0.36), xc, H + 0.01, 0.04, m.madeira, 0.006, { s: 1, fixo: true, r: [0, 0.1, 0] });
         k.cx(0.16, 0.002, 0.024, xc - 0.02, H + 0.021, 0.05, m.inox, { r: [0, 0.5, 0] });
         k.cx(0.09, 0.012, 0.02, xc + 0.085, H + 0.026, -0.007, m.metalEscuro, { r: [0, 0.5, 0] });
       } else if (tipo === "aparelho") {
         // Torradeira: base escura, corpo de inox, duas fendas e o botão.
         const za = -P / 2 + 0.03 + 0.09;
         k.cx(0.2, 0.014, 0.15, xc, H + 0.007, za, m.metalEscuro);
-        k.rb(0.21, 0.16, 0.16, xc, H + 0.014 + 0.08, za, m.inox, 0.03);
+        k.rb(0.21, 0.16, 0.16, xc, H + 0.014 + 0.08, za, m.inox, 0.03, { s: 1, fixo: true });
         for (const s of [-1, 1]) k.cx(0.14, 0.002, 0.022, xc, H + 0.1745, za + s * 0.03, m.metalEscuro, { sombra: false });
         k.cil(0.012, 0.012, 0.01, xc + 0.06, H + 0.05, za + 0.085, m.cromado, 10, { r: EIXO_Z, fixo: true });
       } else {
         // Fruteira de louça com três frutas.
         const rt = 0.105, ht = 0.075;
-        k.outra("geo", [], xc, H, 0.02, m.louca, { geo: torno([[0.35 * rt, 0], [0.38 * rt, 0.008], [0.8 * rt, 0.55 * ht], [rt, ht], [rt - 0.008, ht], [0.75 * rt, 0.6 * ht], [0.3 * rt, 0.018], [0, 0.014]], 24, true) });
-        for (let i = 0; i < 3; i++) k.outra("esf", [0.034, 10, 8], xc + Math.cos(i * 2.1) * 0.038, H + 0.05, 0.02 + Math.sin(i * 2.1) * 0.038, i === 1 ? m.folha : m.tecidoAlt);
+        k.outra("geo", [], xc, H, 0.02, m.louca, { geo: torno([[0.35 * rt, 0], [0.38 * rt, 0.008], [0.8 * rt, 0.55 * ht], [rt, ht], [rt - 0.008, ht], [0.75 * rt, 0.6 * ht], [0.3 * rt, 0.018], [0, 0.014]], 18) });
+        for (let i = 0; i < 3; i++) k.outra("esf", [0.034, 8, 6], xc + Math.cos(i * 2.1) * 0.038, H + 0.05, 0.02 + Math.sin(i * 2.1) * 0.038, i === 1 ? m.folha : m.tecidoAlt);
       }
     }
   }
@@ -876,14 +876,34 @@ const vasoSanitario = criar(({ peca, m, estilo, k }) => {
   const wt = L * 0.92, dt = P * 0.27, zt = -P / 2 + dt / 2 + 0.006, yt0 = hb * 0.98, yt1 = H - 0.041;
   k.rb(wt, yt1 - yt0, dt, 0, (yt0 + yt1) / 2, zt, m.louca, mod ? 0.012 : 0.03);
   k.rb(wt + 0.012, 0.035, dt + 0.012, 0, H - 0.0235, zt, m.louca, lux ? 0.016 : 0.01, { s: 1 });
-  k.cil(0.022, 0.022, 0.006, mod ? -0.012 : 0, H - 0.003, zt, m.cromado, 12);
-  if (mod) k.cil(0.012, 0.012, 0.006, 0.026, H - 0.003, zt, m.cromado, 10);
+  if (ap) {
+    // Aprimorado: acionamento de duplo fluxo numa placa cromada embutida na tampa.
+    k.rb(0.1, 0.004, 0.056, 0, H - 0.0045, zt, m.cromado, 0.0018, { s: 1, fixo: true });
+    k.cil(0.018, 0.018, 0.003, -0.02, H - 0.0015, zt, m.inox, 14, { fixo: true });
+    k.cil(0.012, 0.012, 0.003, 0.026, H - 0.0015, zt, m.inox, 12, { fixo: true });
+  } else {
+    k.cil(0.022, 0.022, 0.006, mod ? -0.012 : 0, H - 0.003, zt, m.cromado, 12);
+    if (mod) k.cil(0.012, 0.012, 0.006, 0.026, H - 0.003, zt, m.cromado, 10);
+  }
   // Coluna de trás (liga a bacia à caixa) e bacia oval torneada.
   k.rb(L * 0.6, hb, P * 0.34, 0, hb / 2, -P / 2 + P * 0.17 + 0.01, m.louca, 0.03, { s: 1 });
   const perfil: [number, number][] = mod
     ? [[0.7 * R, 0], [0.7 * R, 0.3 * hb], [0.8 * R, 0.6 * hb], [0.95 * R, 0.9 * hb], [0.97 * R, hb]]
     : [[0.62 * R, 0], [0.57 * R, 0.06 * hb], [0.5 * R, 0.3 * hb], [0.62 * R, 0.6 * hb], [0.92 * R, 0.88 * hb], [0.97 * R, hb]];
-  k.outra("geo", [], 0, 0, zB, m.louca, { e: oval, geo: torno(perfil) });
+  k.outra("geo", [], 0, 0, zB, m.louca, { e: oval, geo: torno(perfil, ap ? 36 : 16, ap) });
+  if (ap) {
+    // Aprimorado: contorno do sifão nas laterais da base, capas dos parafusos de fixação, capas das dobradiças
+    // do assento e o registro com flexível de alimentação da caixa.
+    for (const s of [-1, 1]) {
+      k.outra("toro", [Math.min(0.075, hb * 0.2), 0.022, 8, 14, Math.PI], s * R * 0.5, hb * 0.2, zB - comp * 0.12, m.louca, { r: [0, Math.PI / 2, 0], e: [1, 1, 0.6] });
+      k.outra("esf", [0.011, 8, 4, 0, Math.PI * 2, 0, Math.PI / 2], s * R * 0.72, 0, zB + comp * 0.05, m.louca);
+      k.outra("esf", [0.014, 8, 6], s * R * 0.4, hb + 0.03, zB - comp / 2 + 0.035, m.cromado, { e: [1.3, 1, 1] });
+    }
+    const xr = -L * 0.38, zr = -P / 2 + 0.018;
+    k.cil(0.02, 0.02, 0.004, xr, hb * 0.45, -P / 2 + 0.002, m.cromado, 12, { r: EIXO_Z, fixo: true });
+    k.cil(0.011, 0.011, 0.03, xr, hb * 0.45, zr, m.cromado, 10, { r: EIXO_Z, fixo: true });
+    k.cil(0.005, 0.005, yt0 - hb * 0.45, xr, (yt0 + hb * 0.45) / 2, zr + 0.012, m.inox, 8, { fixo: true });
+  }
   // Assento e tampa fechada, com as dobradiças.
   k.cil(R, R, 0.02, 0, hb + 0.01, zB, m.plastico, 18, { e: oval });
   k.cil(R * 0.9, R * 0.98, 0.018, 0, hb + 0.029, zB, m.louca, 18, { e: oval });
@@ -925,9 +945,31 @@ const lavatorio = criar(({ peca, m, estilo, k }) => {
     const perfil: [number, number][] = lux
       ? [[0.45 * r, 0], [0.8 * r, 0.35 * hv], [r, hv], [r - 0.012, hv], [0.75 * r, 0.4 * hv], [0.35 * r, 0.03], [0, 0.025]]
       : [[0.8 * r, 0], [0.97 * r, 0.25 * hv], [r, hv], [r - 0.012, hv], [0.9 * r, 0.3 * hv], [0.6 * r, 0.03], [0, 0.025]];
-    k.outra("geo", [], 0, yTopo, zc, m.louca, { geo: torno(perfil, 16) });
+    k.outra("geo", [], 0, yTopo, zc, m.louca, { geo: torno(perfil, ap ? 32 : 16, ap) });
     k.cil(0.022, 0.022, 0.004, 0, yTopo + 0.028, zc, m.cromado, 10);
+    if (ap) k.cil(0.012, 0.014, 0.004, 0, yTopo + 0.032, zc, m.cromado, 12, { fixo: true }); // tampão "click" do ralo
     torneira(k, m, 0, yTopo, zt, hv + 0.06, Math.max(0.1, zc - zt - 0.03));
+  }
+  if (ap) {
+    // Aprimorado: frontão baixo com junta (só quando o tampo desce, para não passar da altura da peça),
+    // saboneteira líquida e toalha dobrada sobre o tampo.
+    if (apoio) {
+      const hF = Math.min(0.06, hv - 0.02);
+      k.rb(L, hF, 0.015, 0, yTopo + hF / 2, -P / 2 + 0.0075, m.pedra, 0.004, { s: 1, fixo: true });
+      k.cil(0.0035, 0.0035, L - 0.004, 0, yTopo + 0.0012, -P / 2 + 0.016, m.plastico, 6, { r: EIXO_X, fixo: true });
+    }
+    if (L >= 0.58) {
+      const xs = L / 2 - 0.075, zs = -P / 2 + 0.085;
+      k.cil(0.026, 0.03, 0.1, xs, yTopo + 0.05, zs, m.louca, 14);
+      k.cil(0.012, 0.012, 0.02, xs, yTopo + 0.11, zs, m.cromado, 10, { fixo: true });
+      k.cil(0.004, 0.004, 0.035, xs, yTopo + 0.1375, zs, m.cromado, 6, { fixo: true });
+      k.cx(0.01, 0.008, 0.04, xs, yTopo + 0.155, zs + 0.012, m.cromado);
+    }
+    if (L >= 0.8) {
+      const xt = -L / 2 + 0.1, zt2 = P / 2 - 0.12;
+      k.rb(0.13, 0.03, 0.17, xt, yTopo + 0.015, zt2, m.travesseiro, 0.012, { fixo: true });
+      k.rb(0.125, 0.025, 0.165, xt, yTopo + 0.0425, zt2, m.tecidoAlt, 0.011, { fixo: true });
+    }
   }
 });
 
@@ -941,7 +983,18 @@ const espelho = criar(({ peca, m, estilo, k }) => {
     k.cx(b, H, P, s * (L / 2 - b / 2), H / 2, 0, cor);
     k.cx(L - 2 * b, b, P, 0, H / 2 + s * (H / 2 - b / 2), 0, cor);
   }
-  k.cx(L - 2 * b, H - 2 * b, 0.004, 0, H / 2, -P / 2 + dFundo + 0.002, m.espelho);
+  if (!ap) { k.cx(L - 2 * b, H - 2 * b, 0.004, 0, H / 2, -P / 2 + dFundo + 0.002, m.espelho); return; }
+  // Aprimorado: vidro bisotado (borda chanfrada) e moldura perfilada em degraus, com filete por dentro.
+  const eV = Math.min(0.006, P * 0.2), bi = Math.max(0.003, b * 0.4);
+  k.outra("geo", [], 0, H / 2, -P / 2 + dFundo + eV / 2, m.espelho, { geo: geoChanfrada(L - 2 * b, H - 2 * b, eV, Math.min(0.016, L * 0.03, H * 0.03)) });
+  for (const s of [-1, 1]) {
+    k.cx(bi, H - 2 * b, P * 0.78, s * (L / 2 - b - bi / 2), H / 2, -P * 0.11, cor);
+    k.cx(L - 2 * b - 2 * bi, bi, P * 0.78, 0, H / 2 + s * (H / 2 - b - bi / 2), -P * 0.11, cor);
+    if (estilo !== "moderno") {
+      k.cx(b * 0.3, H - b * 0.7, P * 0.12, s * (L / 2 - b * 0.5), H / 2, P * 0.44, m.madeiraEscura, { sombra: false });
+      k.cx(L - b * 0.7, b * 0.3, P * 0.12, 0, H / 2 + s * (H / 2 - b * 0.5), P * 0.44, m.madeiraEscura, { sombra: false });
+    }
+  }
 });
 
 const boxChuveiro = criar(({ peca, m, estilo, k }) => {
@@ -990,6 +1043,52 @@ const boxChuveiro = criar(({ peca, m, estilo, k }) => {
   k.cil(0.055, 0.055, 0.01, 0, yReg, -P / 2 + 0.005, m.cromado, 14, { r: EIXO_Z });
   k.cil(0.02, 0.024, 0.04, 0, yReg, -P / 2 + 0.03, m.cromado, 10, { r: EIXO_Z });
   k.cx(0.012, 0.06, 0.012, 0, yReg + 0.035, -P / 2 + 0.044, m.cromado);
+  if (!ap) return;
+
+  // Aprimorado — vidro com espessura aparente: bordas polidas, dobradiças, vedação e rodo da porta.
+  const borda = { sombra: false }, xLivre = xPorta + sd * (wd / 2 + 0.01), xDob = xPorta - sd * (wd / 2 + 0.01), zP = zG + 0.012;
+  k.cx(wd + 0.02, 0.003, eg + 0.002, xPorta, hs + hv - 0.005 + 0.0015, zP, m.espelho, borda);
+  for (const x of [xLivre, xDob]) k.cx(0.003, hv - 0.01, eg + 0.002, x, hs + hv / 2, zP, m.espelho, borda);
+  if (wf > 0.08) k.cx(0.003, hv, eg + 0.002, sd > 0 ? xb - wf : xa + wf, hs + hv / 2, zG, m.espelho, borda);
+  for (const f of [0.14, 0.86]) {
+    k.rb(0.055, 0.075, 0.03, xDob + sd * 0.02, hs + hv * f, zP, m.cromado, 0.005, { s: 1, fixo: true });
+    k.cil(0.007, 0.007, 0.085, xDob - sd * 0.004, hs + hv * f, zP, m.cromado, 8, { fixo: true });
+  }
+  k.cx(0.005, hv - 0.012, 0.014, xLivre + sd * 0.004, hs + hv / 2, zP - 0.004, m.plastico, borda);
+  k.cx(wd, 0.012, 0.01, xPorta, hs + 0.012, zP, m.plastico, borda);
+
+  // Crivo do chuveiro de teto com disco de bicos; ralo linear com grelha.
+  const zCr = -P / 2 + la, rCr = estilo === "moderno" ? 0.09 : estilo === "luxo" ? 0.11 : 0.088;
+  if (estilo === "moderno") k.cx(0.18, 0.002, 0.18, 0, yCh - 0.053, zCr, m.metalEscuro, borda);
+  else k.cil(rCr, rCr, 0.002, 0, yCh - 0.055, zCr, m.metalEscuro, 20, { fixo: true, sombra: false });
+  for (const f of [0.35, 0.62, 0.88]) k.outra("anel", [rCr * f - 0.004, rCr * f, 20], 0, yCh - 0.0565, zCr, m.cromado, { r: [Math.PI / 2, 0, 0], sombra: false });
+  k.cx(0.11, 0.004, 0.11, 0, 0.0235, -P * 0.1, m.inox);
+  for (let i = -2; i <= 2; i++) k.cx(0.09, 0.0008, 0.008, 0, 0.0259, -P * 0.1 + i * 0.019, m.metalEscuro, borda);
+
+  // Ducha manual em barra deslizante, com flexível até o registro.
+  const xB = -sd * L * 0.27, zBar = -P / 2 + 0.045, yB0 = Math.min(0.95, H * 0.48), yB1 = Math.min(1.6, H * 0.8), ySup = yB1 - 0.14;
+  k.cil(0.009, 0.009, yB1 - yB0, xB, (yB0 + yB1) / 2, zBar, m.cromado, 10, { fixo: true });
+  for (const y of [yB0 + 0.02, yB1 - 0.02]) k.cil(0.008, 0.008, 0.045, xB, y, -P / 2 + 0.0225, m.cromado, 8, { r: EIXO_Z, fixo: true });
+  k.rb(0.03, 0.05, 0.036, xB, ySup, zBar + 0.006, m.cromado, 0.006, { s: 1, fixo: true });
+  k.cil(0.012, 0.01, 0.17, xB, ySup + 0.03, zBar + 0.055, m.cromado, 10, { r: [0.5, 0, 0], fixo: true });
+  k.cil(0.04, 0.03, 0.02, xB, ySup + 0.115, zBar + 0.103, m.cromado, 16, { r: [0.5 + 1.25, 0, 0], fixo: true });
+  const yF = yReg + 0.1, rF = Math.abs(xB) / 2;
+  k.cil(0.005, 0.005, Math.max(0.01, ySup - 0.05 - yF), xB, (ySup - 0.05 + yF) / 2, zBar + 0.012, m.inox, 6, { fixo: true });
+  k.outra("toro", [rF, 0.005, 6, 20, Math.PI], xB / 2, yF, zBar + 0.012, m.inox, { r: [0, 0, Math.PI], e: [1, Math.min(1, (yF - yB0 * 0.7) / rF), 1] });
+  k.cil(0.005, 0.005, yF - yReg, 0, (yF + yReg) / 2, zBar + 0.012, m.inox, 6, { fixo: true });
+
+  // Nicho com dois frascos na parede das costas.
+  const xN = sd * L * 0.25, wN = Math.min(0.3, L * 0.3), hN = 0.32, dN = 0.09, yN = Math.min(1.3, H * 0.62), zN = -P / 2 + dN / 2;
+  k.cx(wN, hN, 0.008, xN, yN, -P / 2 + 0.004, m.pisoMolhado);
+  for (const s of [-1, 1]) {
+    k.cx(wN, 0.02, dN, xN, yN + s * (hN / 2 - 0.01), zN, m.pedra);
+    k.cx(0.02, hN - 0.04, dN, xN + s * (wN / 2 - 0.01), yN, zN, m.pedra);
+  }
+  const yPr = yN - hN / 2 + 0.02;
+  k.cil(0.026, 0.028, 0.15, xN - wN * 0.18, yPr + 0.075, zN, m.louca, 12);
+  k.cil(0.011, 0.013, 0.03, xN - wN * 0.18, yPr + 0.165, zN, m.cromado, 8, { fixo: true });
+  k.cil(0.022, 0.024, 0.11, xN + wN * 0.18, yPr + 0.055, zN + 0.005, m.tecidoAlt, 12);
+  k.cil(0.012, 0.012, 0.022, xN + wN * 0.18, yPr + 0.121, zN + 0.005, m.metalEscuro, 8, { fixo: true });
 });
 
 // ── Lavanderia ──
@@ -1006,12 +1105,26 @@ const tanque = criar(({ peca, m, estilo, k }) => {
   const dz = ht * 0.55, dy = ht - 0.04 - e, compT = Math.hypot(dz, dy), ang = -Math.atan2(dy, dz);
   const zE = P / 2 - e - dz / 2, yE = y0 + e + dy / 2;
   k.cx(L - 2 * e, 0.015, compT, 0, yE, zE, m.louca, { r: [ang, 0, 0] });
-  for (let i = 0; i < 4; i++) {
-    const t = -0.32 + i * 0.2; // posição ao longo do esfregador
+  // Aprimorado: o esfregador ganha o dobro de frisos.
+  for (let i = 0; i < (ap ? 8 : 4); i++) {
+    const t = ap ? -0.36 + i * 0.1 : -0.32 + i * 0.2; // posição ao longo do esfregador
     k.cx(L - 2 * e - 0.05, 0.008, 0.012, 0, yE - t * compT * Math.sin(ang) + 0.01, zE + t * compT * Math.cos(ang), m.louca, { r: [ang, 0, 0] });
   }
   k.cil(0.024, 0.024, 0.004, 0, y0 + e + 0.002, -P * 0.15, m.cromado, 12);
-  torneira(k, m, 0, H, -P / 2 + e / 2, 0.14, Math.min(0.14, P * 0.28));
+  torneira(k, m, 0, H, -P / 2 + 0.03, 0.14, Math.min(0.14, P * 0.28));
+  if (ap) {
+    // Aprimorado: grelha do ralo, sabão em barra na borda e o sifão com a saída para a parede.
+    for (const r of [0, Math.PI / 2]) k.cx(0.04, 0.0012, 0.005, 0, y0 + e + 0.0046, -P * 0.15, m.metalEscuro, { r: [0, r, 0], sombra: false });
+    k.rb(0.07, 0.022, 0.026, L * 0.3, H + 0.011, -P / 2 + 0.015, m.tecidoAlt, 0.008, { s: 1, fixo: true });
+    if (esc) {
+      // Sem gabinete, o sifão fica à mostra: desce do ralo, faz a curva e sai para a parede.
+      const zs = -P * 0.15, ys = y0 - 0.11;
+      k.cil(0.02, 0.02, 0.11, 0, y0 - 0.055, zs, m.plastico, 10, { fixo: true });
+      k.outra("toro", [0.035, 0.02, 6, 10, Math.PI], 0, ys, zs - 0.035, m.plastico, { r: [0, Math.PI / 2, Math.PI] });
+      k.cil(0.02, 0.02, 0.05, 0, ys + 0.025, zs - 0.07, m.plastico, 10, { fixo: true });
+      k.cil(0.02, 0.02, P / 2 + zs - 0.07, 0, ys + 0.05, (zs - 0.07 - P / 2) / 2, m.plastico, 10, { r: EIXO_Z, fixo: true });
+    }
+  }
 
   if (esc) {
     // Sobre pés de madeira, com uma prateleira baixa.
@@ -1033,8 +1146,10 @@ const maquinaLavar = criar(({ peca, m, estilo, k }) => {
   const { largura: L, altura: H, profundidade: P } = peca, ap = k.ap;
   const hp = 0.02, zB = P / 2 - 0.03, hPainel = lim(H * 0.12, 0.08, 0.12);
   // Corpo branco, pés e a faixa do painel de comandos.
-  k.rb(L, H - hp, P - 0.03, 0, hp + (H - hp) / 2, -0.015, m.plastico, estilo === "escandinavo" ? 0.03 : 0.018);
-  for (const sx of [-1, 1]) for (const sz of [-1, 1]) k.cil(0.022, 0.022, hp, sx * (L / 2 - 0.06), hp / 2, -0.015 + sz * ((P - 0.03) / 2 - 0.06), m.metalEscuro, 10);
+  // Aprimorado: o corpo recua 3 cm da parede para as mangueiras passarem por trás.
+  const folga = ap ? 0.03 : 0, dCorpo = P - 0.03 - folga, zCorpo = -0.015 + folga / 2;
+  k.rb(L, H - hp, dCorpo, 0, hp + (H - hp) / 2, zCorpo, m.plastico, estilo === "escandinavo" ? 0.03 : 0.018);
+  for (const sx of [-1, 1]) for (const sz of [-1, 1]) k.cil(0.022, 0.022, hp, sx * (L / 2 - 0.06), hp / 2, zCorpo + sz * (dCorpo / 2 - 0.06), m.metalEscuro, 10);
   const yP = H - 0.014 - hPainel / 2, corPainel = estilo === "moderno" ? m.inox : estilo === "luxo" ? m.metalEscuro : m.plastico;
   k.cx(L - 0.03, hPainel - 0.012, 0.006, 0, yP, zB + 0.003, corPainel);
   k.cx(L * 0.25, hPainel * 0.55, 0.004, -L * 0.3, yP, zB + 0.008, m.plastico); // gaveta do sabão
@@ -1043,11 +1158,39 @@ const maquinaLavar = criar(({ peca, m, estilo, k }) => {
   k.cx(L - 0.03, 0.004, 0.004, 0, yP - hPainel / 2 - 0.002, zB + 0.001, m.metalEscuro);
   // Porta redonda: aro cromado, tambor escuro ao fundo e o vidro abaulado.
   const R = Math.min(L * 0.31, (H - hp - hPainel) * 0.3), yD = hp + (H - hp - hPainel) * 0.54;
-  k.outra("toro", [R, 0.02, 8, 20], 0, yD, zB + 0.008, m.cromado);
+  k.outra("toro", [R, 0.02, k.n(8), k.n(20)], 0, yD, zB + 0.008, m.cromado);
   k.cil(R - 0.012, R - 0.012, 0.006, 0, yD, zB + 0.003, m.metalEscuro, 18, { r: EIXO_Z });
-  k.outra("esf", [R - 0.02, 14, 5, 0, Math.PI * 2, 0, Math.PI / 2], 0, yD, zB + 0.004, m.vidro, { r: EIXO_Z, e: [1, 0.026 / (R - 0.02), 1], sombra: false });
+  k.outra("esf", [R - 0.02, k.n(14), k.n(5), 0, Math.PI * 2, 0, Math.PI / 2], 0, yD, zB + 0.004, m.vidro, { r: EIXO_Z, e: [1, 0.026 / (R - 0.02), 1], sombra: false });
   k.cx(0.02, 0.07, 0.012, R, yD, zB + 0.02, m.cromado); // trinco
   k.cx(L - 0.03, 0.004, 0.004, 0, hp + 0.1, zB + 0.001, m.metalEscuro);
+  if (!ap) return;
+
+  // Aprimorado — por trás do vidro: borracha da porta, boca e fundo do tambor de inox com as três pás.
+  const frente = { r: EIXO_Z, fixo: true, sombra: false }, plano = { sombra: false };
+  k.outra("toro", [R - 0.028, 0.012, 6, 28], 0, yD, zB + 0.008, m.metalEscuro, plano);
+  k.outra("anel", [R * 0.6, R * 0.7, 28], 0, yD, zB + 0.0066, m.inox, plano);
+  k.cil(R * 0.36, R * 0.36, 0.001, 0, yD, zB + 0.0066, m.inox, 20, frente);
+  for (const f of [0.44, 0.52]) k.outra("anel", [R * f, R * f + 0.003, 24], 0, yD, zB + 0.0064, m.inox, plano);
+  for (let i = 0; i < 3; i++) { const a = i * 2.094 + 0.5; k.cx(0.014, R * 0.24, 0.004, Math.sin(a) * R * 0.48, yD + Math.cos(a) * R * 0.48, zB + 0.008, m.inox, { r: [0, 0, -a], sombra: false }); }
+
+  // Painel: puxador e junta da gaveta do sabão, traços do seletor, teclas e dígitos acesos do visor.
+  k.cx(L * 0.12, 0.006, 0.003, -L * 0.3, yP - hPainel * 0.16, zB + 0.0105, m.metalEscuro, plano);
+  k.cx(L * 0.25 + 0.004, hPainel * 0.55 + 0.004, 0.002, -L * 0.3, yP, zB + 0.0065, m.metalEscuro, plano);
+  const rS = hPainel * 0.3;
+  k.cx(0.004, rS * 0.8, 0.002, L * 0.33, yP + rS * 0.45, zB + 0.0245, m.metalEscuro, plano);
+  for (let i = 0; i < 9; i++) { const a = -2.1 + i * 0.525; k.cx(0.003, 0.007, 0.001, L * 0.33 + Math.sin(a) * (rS + 0.009), yP + Math.cos(a) * (rS + 0.009), zB + 0.0065, m.metalEscuro, { r: [0, 0, -a], sombra: false }); }
+  for (let i = 0; i < 3; i++) k.cil(0.007, 0.007, 0.004, -L * 0.08 + i * 0.026, yP - hPainel * 0.12, zB + 0.008, m.cromado, 10, { r: EIXO_Z, fixo: true });
+  for (let i = 0; i < 3; i++) k.cx(0.012, hPainel * 0.2, 0.0006, L * 0.1 + (i - 1) * 0.022, yP, zB + 0.0092, m.luz, plano);
+  k.cil(0.028, 0.028, 0.004, L * 0.34, hp + 0.05, zB + 0.002, m.metalEscuro, 16, { r: EIXO_Z, fixo: true }); // tampa do filtro
+
+  // Atrás: torneira de parede com a mangueira de entrada e a mangueira de saída enganchada no tubo de esgoto.
+  const zM = -P / 2 + 0.015, xE = -L * 0.3, xS = L * 0.26;
+  k.cil(0.012, 0.012, 0.028, xE, H - 0.07, -P / 2 + 0.014, m.cromado, 10, { r: EIXO_Z, fixo: true });
+  k.cx(0.035, 0.008, 0.008, xE, H - 0.052, -P / 2 + 0.02, m.cromado);
+  k.cil(0.007, 0.007, H * 0.3, xE, H - 0.08 - H * 0.15, zM + 0.004, m.inox, 8, { fixo: true });
+  k.cil(0.014, 0.014, H * 0.62, xS + 0.06, H * 0.31, zM, m.plastico, 10, { fixo: true });
+  k.cil(0.011, 0.011, H * 0.3, xS, H * 0.62 - H * 0.15 + 0.03, zM, m.metalEscuro, 8, { fixo: true });
+  k.outra("toro", [0.03, 0.011, 6, 12, Math.PI], xS + 0.03, H * 0.62 + 0.03, zM, m.metalEscuro);
 });
 
 const armarioServico = criar(({ peca, m, estilo, k }) => {
@@ -1061,6 +1204,13 @@ const armarioServico = criar(({ peca, m, estilo, k }) => {
   const w = (L - FRESTA * 3) / 2, y0 = hr + FRESTA, hf = H - cimalha - FRESTA - y0;
   for (const s of [-1, 1] as const) {
     frente(k, m, estilo, { x: s * (w + FRESTA) / 2, y: y0 + hf / 2, z: zF + 0.002, w, h: hf, mat: m.laminado, pux: { lado: s === -1 ? 1 : -1, alt: 0, dir: "v", comp: Math.min(0.32, hf * 0.2) } });
+    // Aprimorado: venezianas de ventilação embaixo e em cima de cada porta (armário de produtos de limpeza).
+    if (ap && estilo !== "luxo") for (const yv of [y0 + 0.09, y0 + hf - 0.13]) for (let i = 0; i < 4; i++) k.cx(w * 0.45, 0.004, 0.001, s * (w + FRESTA) / 2, yv + i * 0.012, zF + 0.002 + ESP_FRENTE + 0.0005, m.metalEscuro, { sombra: false });
+  }
+  if (ap) {
+    // Aprimorado: sapatas niveladoras à mostra no rodapé e friso de topo com a quina adoçada.
+    for (const s of [-1, 1]) k.cil(0.014, 0.018, hr, s * (L / 2 - 0.06), hr / 2, P / 2 - recuo - 0.03, m.metalEscuro, 10, { fixo: true });
+    k.rb(L, 0.012, P - recuo + 0.002, 0, H - cimalha - 0.006, -recuo / 2 + 0.001, lux ? m.madeiraEscura : m.laminado, 0.004, { s: 1, fixo: true });
   }
 });
 
@@ -1103,6 +1253,43 @@ const churrasqueira = criar(({ peca, m, estilo, k }) => {
   const yG = hb + hf * 0.38, dG = P - 0.2, zG = 0.03, nb = lim(Math.round(vao / 0.065), 6, 12);
   for (const s of [-1, 1]) k.cx(vao - 0.02, 0.01, 0.01, xf, yG, zG + s * dG / 2, m.inox);
   for (let i = 0; i < nb; i++) k.cx(0.006, 0.006, dG, xf - vao / 2 + 0.03 + ((vao - 0.06) * i) / (nb - 1), yG, zG, m.inox);
+  if (ap) {
+    // Aprimorado — fiadas de tijolo sugeridas por juntas rasas na frente dos pilares, da fornalha e da verga.
+    const junta = m.pisoExterno, fiada = 0.072, sem = { sombra: false };
+    const fiadas = (xc: number, w: number, ya: number, yb2: number, zFace: number) => {
+      const nf = Math.max(1, Math.round((yb2 - ya) / fiada)), hf2 = (yb2 - ya) / nf, nt = Math.max(1, Math.round(w / 0.2));
+      for (let i = 0; i < nf; i++) {
+        if (i > 0) k.cx(w, 0.005, 0.002, xc, ya + i * hf2, zFace + 0.0008, junta, sem);
+        for (let j = 0; j < nt + (i % 2); j++) {
+          const xj = xc - w / 2 + (w * (j + (i % 2 ? 0 : 0.5))) / nt;
+          if (xj > xc - w / 2 + 0.02 && xj < xc + w / 2 - 0.02) k.cx(0.005, hf2, 0.002, xj, ya + (i + 0.5) * hf2, zFace + 0.0008, junta, sem);
+        }
+      }
+    };
+    for (const s of [-1, 1]) {
+      fiadas(xf + s * (wf / 2 - pw / 2), pw, 0, yB, P / 2 - RECUO_FRENTE);
+      fiadas(xf + s * (wf / 2 - pw / 2), pw, hb, hb + hf, zPar + dPar / 2);
+    }
+    fiadas(xf, vao, yB - 0.12, yB, P / 2 - RECUO_FRENTE);
+    // Grelha com cabos de madeira, brasa, e o suporte com três espetos.
+    for (const s of [-1, 1]) k.cil(0.011, 0.011, 0.09, xf + s * vao * 0.25, yG + 0.012, zG + dG / 2 + 0.024, m.madeira, 8, { r: EIXO_X, fixo: true });
+    for (let i = 0; i < 7; i++) k.outra("esf", [0.03 + (i % 3) * 0.006, 6, 4], xf + (i - 3) * vao * 0.12, hb + 0.022, zG + ((i * 5) % 3 - 1) * dG * 0.22, m.metalEscuro, { e: [1, 0.6, 1] });
+    const yE = hb + hf * 0.74;
+    for (const s of [-1, 1]) k.cx(vao - 0.02, 0.014, 0.012, xf, yE, zG + s * dG * 0.42, m.metalEscuro);
+    for (let i = -1; i <= 1; i++) {
+      const xe = xf + i * vao * 0.24;
+      k.cil(0.003, 0.003, dG * 0.92, xe, yE + 0.01, zG - 0.02, m.inox, 6, { r: EIXO_Z, fixo: true });
+      k.cil(0.008, 0.008, 0.06, xe, yE + 0.01, zG - 0.02 + dG * 0.46 + 0.03, m.madeira, 8, { r: EIXO_Z, fixo: true });
+      for (let j = -1; j <= 1; j++) k.cx(0.03, 0.026, 0.035, xe, yE + 0.01, zG - 0.03 + j * dG * 0.16, m.madeiraEscura, { r: [0, 0, 0.4 * j] });
+    }
+    // Tábua de corte com faca na bancada de apoio.
+    if (comApoio) {
+      const xa = xf + wf / 2 + (L - wf) / 2, wt = Math.min(0.36, (L - wf) * 0.6);
+      k.rb(wt, 0.026, Math.min(0.26, P * 0.42), xa, hb + 0.013, 0.03, m.madeira, 0.007, { s: 1, fixo: true, r: [0, 0.1, 0] });
+      k.cx(wt * 0.5, 0.002, 0.03, xa - 0.02, hb + 0.027, 0.04, m.inox, { r: [0, 0.6, 0] });
+      k.cx(wt * 0.28, 0.014, 0.022, xa + wt * 0.3, hb + 0.033, -0.035, m.madeiraEscura, { r: [0, 0.6, 0] });
+    }
+  }
 
   // Coifa: laje de arremate, tronco que afunila e chaminé até a altura total, com chapéu de pedra.
   const y1 = hb + hf + 0.07, topo = mod ? 0.62 : lux ? 0.4 : 0.46, y2 = y1 + (H - y1) * (mod ? 0.35 : 0.6);
@@ -1110,6 +1297,11 @@ const churrasqueira = criar(({ peca, m, estilo, k }) => {
   k.outra("geo", [], xf, (y1 + y2) / 2, 0, alv, { e: [wf, y2 - y1, P], geo: troncoPiramide(topo) });
   k.cx(wf * topo, H - 0.05 - y2, P * topo, xf, (H - 0.05 + y2) / 2, 0, alv);
   k.cx(Math.min(wf, wf * topo + 0.06), 0.05, Math.min(P, P * topo + 0.06), xf, H - 0.025, 0, m.pedra);
+  // Aprimorado: boca da chaminé escura sob o chapéu e pingadeira de pedra na laje da coifa.
+  if (ap) {
+    k.cx(wf * topo * 0.7, 0.03, P * topo + 0.004, xf, H - 0.085, 0, m.metalEscuro, { sombra: false });
+    k.cx(wf, 0.012, 0.012, xf, y1 - 0.076, P / 2 - 0.006, mod ? alv : m.pedra);
+  }
 });
 
 /** Móveis da área íntima (quarto, banheiro) e de serviço (cozinha, lavanderia, churrasqueira). */

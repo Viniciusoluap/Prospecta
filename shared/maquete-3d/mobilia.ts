@@ -392,9 +392,15 @@ export function mobiliarComodo(c: Comodo, pv: Pavimento): PecaMobilia[] {
       // Carro no sentido do maior lado da garagem; uma vaga a cada 2,6 m de largura livre (no máximo duas).
       const maior = a.lados[a.ladosPorTamanho()[0]], rot = Math.atan2(maior.ux, maior.uy);
       const menor = Math.min(...a.lados.map(l => l.comp)), vagas = menor >= 5.4 ? 2 : 1;
+      const atravessado = { x: Math.cos(rot), z: -Math.sin(rot) }, aoLongo = { x: Math.sin(rot), z: Math.cos(rot) };
       for (let v = 0; v < vagas; v++) {
-        const desvio = vagas === 2 ? (v === 0 ? -1.35 : 1.35) : 0;
-        a.soltar("carro", a.centro.x + Math.cos(rot) * desvio, a.centro.y - Math.sin(rot) * desvio, rot, { largura: 1.8, profundidade: 4.3, altura: 1.48 }, { folga: 0.35, opcoes: { cor: v === 0 ? "prata" : "grafite" } });
+        const base = vagas === 2 ? (v === 0 ? -1.35 : 1.35) : 0;
+        // Se a vaga centrada esbarra numa passagem, tenta deslocar o carro para os lados e para o fundo.
+        const tentativas = [[0, 0], [0.5, 0], [-0.5, 0], [0.9, 0], [-0.9, 0], [0, 0.4], [0, -0.4], [0.5, 0.4], [-0.5, 0.4], [0.5, -0.4], [-0.5, -0.4]];
+        for (const [dl, df] of tentativas) {
+          const x = a.centro.x + atravessado.x * (base + dl) + aoLongo.x * df, z = a.centro.y + atravessado.z * (base + dl) + aoLongo.z * df;
+          if (a.soltar("carro", x, z, rot, { largura: 1.8, profundidade: 4.3, altura: 1.48 }, { folga: 0.3, opcoes: { cor: v === 0 ? "prata" : "grafite" } })) break;
+        }
       }
       a.encostar("prateleira", { largura: 1.2, profundidade: 0.4, altura: 1.9, minimo: 0.8 }, { lados: a.ladosPorTamanho().reverse(), folga: 0.2 });
       luzDeTeto(a, "plafon"); break;
