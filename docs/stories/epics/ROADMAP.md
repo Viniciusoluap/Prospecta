@@ -37,6 +37,7 @@
 | EPIC-019 | Navegação da Central Administrativa | Claude / AIOX | InReview (story 3.1; UAT visual pendente) — **Santa Fé: não se aplica (tela removida no lote de limpeza do CRM; verificado em 13/11)** | — |
 | EPIC-020 | 32 implementações auditadas (paridade Prospecta ↔ Santa Fé, motor financeiro) | Claude / AIOX | Em andamento — Lote 0 concluído e Lote 1 publicado (12/10); matriz em `epic-020-32-implementacoes-paridade/MATRIZ-PARIDADE.md` | EPIC-017, EPIC-018 |
 | EPIC-022 | Maquete 3D (exclusivo Prospecta — exceção de paridade) | Claude | Em andamento — etapa 1 (base, motor de leitura e revisão) em `epic-022-maquete-3d/` | Projetos, EPIC-008 |
+| EPIC-023 | 13 correções pedidas pelo dono em 15/11 (CRM no iPad, fim de "Corretores", filtro de perfis, mapa operacional MapLibre, pedidos e leitura da Maquete 3D, camadas do terreno, Estudo de Massa conectado, vias 3D) | Claude / AIOX | Planejado — aguardando autorização do dono (4 decisões pendentes; etapas A–G em `epic-023-correcoes-15-11/`) | EPIC-008, EPIC-018, EPIC-022 |
 
 ## Decisões do dono do produto (06/09/2026)
 
@@ -181,3 +182,21 @@ Módulo novo implementado primeiro no Prospecta (`docs/prompts/central-de-vendas
 - [x] Portar a Central de Vendas ao Grupo Santa Fé com a mesma regra de negócio (entrada/deduplicação, rodízio e
   SLA, agente de IA com regras proibidas, checklist e encaminhamento automático para análise, retorno da análise,
   follow-up/reativação com proteções, painel e configurações, adaptador Logyca desligado) — **portado ao Santa Fé em 13/11 (PR #261 de lá)**.
+
+## Pendência de paridade → Grupo Santa Fé (EPIC-023 — registrada em 15/11/2026)
+
+Correções pedidas pelo dono em 15/11/2026 (`epic-023-correcoes-15-11/EPIC.md`). As correções 1, 2, 3, 4, 8, 9 e 10
+não são exceção de paridade: depois de entregues no Prospecta, devem ser portadas ao Santa Fé com a mesma regra de
+negócio. As correções 5, 6, 7, 11, 12 e 13 são da Maquete 3D (exceção já registrada acima) e não se portam.
+
+- [ ] Correção 1 — CRM Pipeline no iPad: tela com a altura do viewport; só os cartões rolam dentro das colunas (Etapa A)
+- [ ] Correção 2 — remover "Corretores" depois de levar para "Usuários e acesso" comissão padrão, observações, busca
+  nome/e-mail/CRECI, filtro Situação e criar corretor sem e-mail de senha (Etapa A)
+- [ ] Correção 3 — filtro por perfil em "Usuários e acesso" (Todos + os perfis do formulário) (Etapa A)
+- [ ] Correção 4 — Mapa operacional (obras) no mapa novo MapLibre, mantendo agrupamento, busca, filtro de situação,
+  legenda, Satélite/Ruas e tabela (Etapa B)
+- [ ] Correção 8 — Estudo de Massa com KML de várias áreas e furos (Etapa F)
+- [ ] Correção 9 — camadas do mapa do terreno com User-Agent, repetição, último resultado bom com data e mensagem
+  "fonte fora do ar" × "nada no entorno" (Etapa E)
+- [ ] Correção 10 — Estudo de Massa com malha viária conectada às vias existentes, lotes recortados pela divisa,
+  sobras como verde/institucional/via, soma = 100% e rótulos sem sobreposição (Etapa F)
