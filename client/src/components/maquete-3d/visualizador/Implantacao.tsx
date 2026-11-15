@@ -1,13 +1,17 @@
 // Maquete 3D (EPIC-022, etapa 4) — implantação do empreendimento: terreno, ruas, lotes coloridos pela situação
 // de venda da unidade e as construções posicionadas. A geometria vem do estudo de Incorporação (ou da prancha
 // de implantação lida do PDF); a situação vem do inventário de unidades. Clicar num lote mostra os dados dele.
+// As ruas são vias em 3D (EPIC-023, S-G — ./Vias.tsx): pista, sarjeta, meio-fio, calçada, sinalização,
+// árvores, postes, placas e semáforos, sobre o mesmo relevo.
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useFrame } from "@react-three/fiber";
 import * as THREE from "three";
 import { alturaDoRelevo, areaPoligono, type Edificacao, type Implantacao as DadosImplantacao, type Ponto } from "@shared/maquete-3d/modelo";
 import { contornoDoPavimento, dentroDoPoligono, pavimentosOrdenados, telhado, topoDaEdificacao } from "@shared/maquete-3d/geometria3d";
 import { limites } from "@shared/maquete-3d/modelo";
+import { caixaDoTerreno, limitesDaImplantacao, sistemaViario, LADO_MALHA } from "@shared/maquete-3d/vias";
 import { Casa } from "./Casa";
+import { COR_ASFALTO_PINTADO, COR_LEITO, sorteioDoTerreno, Vias } from "./Vias";
 import type { Materiais } from "./materiais";
 
 export type UnidadeVenda = { codigo: string; status: string };
@@ -34,11 +38,7 @@ export function lotesDaCena(imp: DadosImplantacao, unidades: UnidadeVenda[]): Lo
   });
 }
 
-export function limitesDaImplantacao(imp: DadosImplantacao) {
-  const pts: Ponto[] = [...imp.terreno, ...imp.lotes.flatMap(l => l.poligono), ...imp.ruas.flat(), ...imp.posicoes.map(p => ({ x: p.x, y: p.y }))];
-  const xs = pts.map(p => p.x), ys = pts.map(p => p.y);
-  return { x0: Math.min(0, ...xs), x1: Math.max(1, ...xs), z0: Math.min(0, ...ys), z1: Math.max(1, ...ys) };
-}
+export { limitesDaImplantacao };
 
 // Cada construção detalhada é uma casa inteira (paredes, esquadrias e mobília): só as mais próximas da câmera
 // entram com detalhe. Todas as outras aparecem como volume com telhado, desenhadas de uma vez (instâncias),
@@ -106,29 +106,24 @@ function Volumes({ edificacao, itens, relevo }: { edificacao: Edificacao; itens:
   // A chave força uma malha nova quando a quantidade cresce (a capacidade de instâncias é fixa).
   return <instancedMesh key={itens.length} ref={ref} args={[geometria, material, itens.length]} castShadow receiveShadow />;
 }
-const LADO_MALHA = 96;      // divisões da malha do terreno por lado
+// Divisões da malha do terreno por lado: LADO_MALHA (shared/maquete-3d/vias.ts), a mesma em que as vias se assentam.
 const LADO_MAPA = 2048;     // pixels do mapa pintado sobre o terreno
-
-/** Caixa da malha: o conjunto com folga (ou a própria grade do relevo, quando há). */
-function caixaDoTerreno(imp: DadosImplantacao) {
-  if (imp.relevo) {
-    const r = imp.relevo;
-    return { x0: r.x0, z0: r.y0, largura: r.dx * (r.colunas - 1), comprimento: r.dy * (r.linhas - 1) };
-  }
-  const l = limitesDaImplantacao(imp), folga = Math.max(6, Math.max(l.x1 - l.x0, l.z1 - l.z0) * 0.06);
-  return { x0: l.x0 - folga, z0: l.z0 - folga, largura: l.x1 - l.x0 + folga * 2, comprimento: l.z1 - l.z0 + folga * 2 };
-}
 
 /**
  * Implantação como um terreno só: uma malha que acompanha a topografia do estudo, com o mapa (divisa, ruas e
  * lotes coloridos pela situação) pintado por cima. Assim nada "flutua" nem pisca, em qualquer relevo.
  */
-export function Implantacao({ implantacao: imp, edificacoes, unidades, m, selecionado, onSelecionar }: {
+export function Implantacao({ implantacao: imp, edificacoes, unidades, m, selecionado, onSelecionar, noite = 0, aprimorado = false }: {
   implantacao: DadosImplantacao; edificacoes: Edificacao[]; unidades: UnidadeVenda[]; m: Materiais;
   selecionado: string | null; onSelecionar: (l: LoteNaCena | null) => void;
+  /** 0 (dia) a 1 (noite): acende a iluminação pública. */
+  noite?: number;
+  /** Botão "Aprimorar": nível máximo de detalhe nas vias. */
+  aprimorado?: boolean;
 }) {
   const lotes = useMemo(() => lotesDaCena(imp, unidades), [imp, unidades]);
   const caixa = useMemo(() => caixaDoTerreno(imp), [imp]);
+  const viario = useMemo(() => sistemaViario(imp, { caixa }), [imp, caixa]);
 
   const malha = useMemo(() => {
     const n = LADO_MALHA, pos = new Float32Array((n + 1) * (n + 1) * 3), uv = new Float32Array((n + 1) * (n + 1) * 2), idx: number[] = [];
@@ -161,10 +156,13 @@ export function Implantacao({ implantacao: imp, edificacoes, unidades, m, seleci
     const c = mapa.canvas.getContext("2d")!, ex = LADO_MAPA / caixa.largura, ez = LADO_MAPA / caixa.comprimento;
     const tracar = (pts: Ponto[]) => { c.beginPath(); pts.forEach((p, i) => (i ? c.lineTo((p.x - caixa.x0) * ex, (p.y - caixa.z0) * ez) : c.moveTo((p.x - caixa.x0) * ex, (p.y - caixa.z0) * ez))); c.closePath(); };
     c.fillStyle = "#5E8D4A"; c.fillRect(0, 0, LADO_MAPA, LADO_MAPA);
-    for (let i = 0; i < 9000; i++) { c.fillStyle = i % 2 ? "#557F43" : "#689651"; c.fillRect(Math.random() * LADO_MAPA, Math.random() * LADO_MAPA, 3, 3); }
+    const sorteio = sorteioDoTerreno();
+    for (let i = 0; i < 9000; i++) { c.fillStyle = i % 2 ? "#557F43" : "#689651"; c.fillRect(sorteio() * LADO_MAPA, sorteio() * LADO_MAPA, 3, 3); }
     if (imp.terreno.length >= 3) { tracar(imp.terreno); c.fillStyle = "#B9A27E"; c.fill(); c.lineWidth = 3; c.strokeStyle = "#7A6A4E"; c.stroke(); }
-    c.fillStyle = "#3B3D42";
-    for (const r of imp.ruas) if (r.length >= 3) { tracar(r); c.fill(); }
+    // As ruas viram vias em 3D por cima do terreno; o leito só aparece nas frestas. Rua de forma irreconhecível
+    // continua pintada de asfalto, como antes.
+    const semGeometria = new Set(viario.ruasSemGeometria);
+    imp.ruas.forEach((r, i) => { if (r.length >= 3) { tracar(r); c.fillStyle = semGeometria.has(i) ? COR_ASFALTO_PINTADO : COR_LEITO; c.fill(); } });
     imp.lotes.forEach((l, i) => {
       if (l.poligono.length < 3) return;
       tracar(l.poligono);
@@ -172,7 +170,7 @@ export function Implantacao({ implantacao: imp, edificacoes, unidades, m, seleci
       c.lineWidth = selecionado === l.id ? 6 : 2.5; c.strokeStyle = selecionado === l.id ? "#C9A961" : "#FFFFFF"; c.stroke();
     });
     mapa.textura.needsUpdate = true;
-  }, [imp, lotes, selecionado, caixa, mapa]);
+  }, [imp, lotes, selecionado, caixa, mapa, viario]);
   useEffect(() => () => { mapa.textura.dispose(); mapa.material.dispose(); }, [mapa]);
   useEffect(() => () => { malha.dispose(); }, [malha]);
 
@@ -223,6 +221,7 @@ export function Implantacao({ implantacao: imp, edificacoes, unidades, m, seleci
     <group>
       <mesh geometry={malha} material={mapa.material} receiveShadow onClick={e => { e.stopPropagation(); aoTocar(e.point.x, e.point.z); }} />
       {imp.relevo && <mesh geometry={saia} material={terra} />}
+      <Vias implantacao={imp} sistema={viario} noite={noite} aprimorado={aprimorado} />
       {volumes.map(itens => <Volumes key={itens[0].e.id} edificacao={itens[0].e} itens={itens} relevo={imp.relevo} />)}
       {comDetalhe.map(({ p, e }) => (
         // A casa é girada em torno do próprio canto de origem e assentada na cota do terreno naquele ponto.
