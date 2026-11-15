@@ -8,7 +8,6 @@ import { getLoginUrl } from "./const";
 import { initPwa } from "./lib/pwa";
 import { linksDoCliente } from "./lib/trpc-links";
 import "./index.css";
-import "leaflet/dist/leaflet.css";
 
 initPwa();
 
