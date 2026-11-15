@@ -38,6 +38,7 @@ import AdminMapa from "./pages/admin/AdminMapa";
 import AdminRegularizacoes from "./pages/admin/AdminRegularizacoes";
 import AdminWhatsApp from "./pages/admin/AdminWhatsApp";
 import AdminCentralVendas from "./pages/admin/AdminCentralVendas";
+import AdminMaquete3D from "./pages/admin/AdminMaquete3D";
 import AdminBpo from "./pages/admin/AdminBpo";
 import AdminObraMedicoes from "./pages/admin/AdminObraMedicoes";
 import AdminAvaliacoes from "./pages/admin/AdminAvaliacoes";
@@ -285,6 +286,17 @@ function Router() {
       <Route path="/admin/central-vendas">
         <AdminRoute module="crm">
           <AdminCentralVendas />
+        </AdminRoute>
+      </Route>
+      {/* Maquete 3D (EPIC-022, 14/11/2026): exclusivo do Prospecta. */}
+      <Route path="/admin/maquete-3d">
+        <AdminRoute module="maquete3d">
+          <AdminMaquete3D />
+        </AdminRoute>
+      </Route>
+      <Route path="/admin/maquete-3d/:id">
+        <AdminRoute module="maquete3d">
+          <AdminMaquete3D />
         </AdminRoute>
       </Route>
       <Route path="/admin/bpo">

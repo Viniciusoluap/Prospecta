@@ -39,6 +39,8 @@ import { portalRouter } from "./portal-router.js";
 import { whatsappRouter } from "./whatsapp-router.js";
 // Central de Vendas (12/11/2026).
 import { centralVendasRouter } from "./central-vendas/router.js";
+// Maquete 3D (EPIC-022, 14/11/2026) — exclusivo do Prospecta.
+import { maquete3dRouter } from "./maquete-3d/router.js";
 import { podeUsarModulo, requireModule, requireModuloDoDestino, requireRole } from "./_core/rbac.js";
 import { podeVerDetalhesObra } from "./obra-acesso.js";
 import { bancarioRouter, pluggySettingsRouter } from "./bancos-router.js";
@@ -170,6 +172,7 @@ export const appRouter = router({
   portal: portalRouter,
   whatsapp: whatsappRouter,
   centralVendas: centralVendasRouter,
+  maquete3d: maquete3dRouter,
   financiamentos: financiamentoRouter,
   juridico: juridicoRouter,
   agenda: agendaRouter,

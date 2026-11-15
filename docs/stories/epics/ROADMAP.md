@@ -6,6 +6,10 @@
 **Exceções (ficam diferentes/exclusivas no Prospecta, não entram no espelhamento):**
 - Landing page e layout público
 - Ecossistema de sorteios (`draws`, `tickets`, `utefBalances`, `utefTransactions`, `products`, `productConversions`)
+- **Maquete 3D** (EPIC-022; tabelas `maquetes_3d`, `maquete_3d_config`; módulo `maquete3d` do painel) — **exceção
+  autorizada expressamente pelo dono em 14/11/2026**: "isso será apenas na Prospecta, não será colocado no Grupo
+  Santa Fé". Justificativa: produto novo da Prospecta (motor que converte o projeto em PDF em maquete 3D
+  navegável, vendido ao cliente do projeto e usado na Incorporação). Não portar ao Santa Fé sem nova ordem dele.
 
 **Restrição de banco:** tudo continua no Neon (Postgres). Pode criar tabelas novas para módulos que faltam. Não migrar de provedor.
 
@@ -32,6 +36,7 @@
 | EPIC-018 | Corretores & Comissões — vínculos reais | Claude / AIOX | InReview (stories 2.1 a 2.5) — **portado ao Santa Fé em 13/11** | EPIC-012, EPIC-017 |
 | EPIC-019 | Navegação da Central Administrativa | Claude / AIOX | InReview (story 3.1; UAT visual pendente) — **Santa Fé: não se aplica (tela removida no lote de limpeza do CRM; verificado em 13/11)** | — |
 | EPIC-020 | 32 implementações auditadas (paridade Prospecta ↔ Santa Fé, motor financeiro) | Claude / AIOX | Em andamento — Lote 0 concluído e Lote 1 publicado (12/10); matriz em `epic-020-32-implementacoes-paridade/MATRIZ-PARIDADE.md` | EPIC-017, EPIC-018 |
+| EPIC-022 | Maquete 3D (exclusivo Prospecta — exceção de paridade) | Claude | Em andamento — etapa 1 (base, motor de leitura e revisão) em `epic-022-maquete-3d/` | Projetos, EPIC-008 |
 
 ## Decisões do dono do produto (06/09/2026)
 

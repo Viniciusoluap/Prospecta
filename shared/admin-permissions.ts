@@ -1,11 +1,11 @@
 // Módulos que o admin libera ao colaborador (pedido de 17/10/2026): as 15 opções
 // do Painel Administrativo, na mesma ordem, + o Ecossistema de Sorteio. "API
 // Contas" (integração bancária) e "Usuários e Acessos" ficam só com o admin.
-// Mesma lista (sem o sorteio) em Grupo-Santa-Fe/web/src/lib/modulos.ts.
+// Mesma lista (sem o sorteio e sem a Maquete 3D, exclusivos do Prospecta) em Grupo-Santa-Fe/web/src/lib/modulos.ts.
 export const ADMIN_MODULES = [
   "crm", "obras", "agenda", "corretores", "regularizacao", "comissoes", "projetos",
   "mapa", "avaliacoes", "imoveis", "incorporacao", "whatsapp", "bpo",
-  "financiamentos", "juridico", "sorteios",
+  "financiamentos", "juridico", "maquete3d", "sorteios",
 ] as const;
 
 export type AdminModule = (typeof ADMIN_MODULES)[number];
@@ -26,6 +26,7 @@ export const ADMIN_MODULE_LABELS: Record<AdminModule, string> = {
   bpo: "BPO Financeiro",
   financiamentos: "Financiamentos",
   juridico: "Jurídico",
+  maquete3d: "Maquete 3D",
   sorteios: "Ecossistema de Sorteio",
 };
 
