@@ -27,9 +27,14 @@
   motor, um em cada lote vendável, com a frente para a rua; loteamento tira as construções.
 - Visualizador mostra todas as construções (antes só 24).
 
+### Etapa E (correção 9) — S-E
+- Camadas do mapa do terreno: cabeçalhos corretos (User-Agent e Accept), repetição automática com espera crescente e
+  respeito ao `Retry-After`, quatro servidores do Overpass com uma consulta por vez em cada, e o último resultado bom
+  guardado por terreno e camada (`camadas_terreno_cache`, migração 0116 aplicada no Neon). A legenda separa "nada no
+  entorno", "fonte fora do ar" e "dado salvo em dd/mm/aaaa".
+
 ## Pendências
-- Etapas D (leitura sem IA),
-  E (camadas do terreno), F (Estudo de Massa: áreas separadas e malha conectada), G (vias 3D).
+- Etapas D (leitura sem IA), F (Estudo de Massa: áreas separadas e malha conectada), G (vias 3D).
 - Porte para o Grupo Santa Fé das correções 1, 2, 3, 4, 8, 9 e 10 (lista no ROADMAP) — sem acesso àquele repositório.
 
 ## Testes
@@ -40,10 +45,13 @@
   endereço funcionaram. O layout do CRM não foi conferido em navegador nem em iPad.
 - Etapa C — automáticos: `maquete-3d-padrao.test.ts` (14) e `maquete-3d.test.ts` (23) aprovados. Manual: maquete aberta em
   navegador de teste com 36 casas padrão nos lotes (inclusive em leque), 10 prédios e um sobrado isolado, sem erro.
+- Etapa E — automáticos: 51 testes das camadas (21 novos) aprovados, com rede simulada. Não verificado: a resposta
+  real das fontes (EPE, IBAMA, Overpass) — o ambiente de desenvolvimento não as alcança; conferir em produção se o
+  406 do OpenStreetMap sumiu.
 - (c) Pendentes em produção: novo pedido por cliente do CRM com PDF avulso real; "Gerar e distribuir nos lotes" no
   Polímeros (Morada do Bosque); mapa operacional com as imagens reais de satélite e os pontos reais; CRM no iPad (rolagem e ausência de tela preta); editar um corretor em "Usuários e acesso"
   e conferir a comissão numa obra; excluir um pedido de maquete pela lista.
 
 ## Próximo passo exato
-Publicar a Etapa E (branch local `etapa-e`, commit `9b630d1`: aplicar `0116_camadas_terreno_cache.sql`, merge) e seguir
-para a Etapa D (`S-D-leitura-pdf-sem-ia.md`). A Etapa F está em execução por um agente em worktree (branch `etapa-f`).
+Etapa D (`S-D-leitura-pdf-sem-ia.md`): leitor geométrico no servidor com `pdfjs-dist`. A Etapa F está em execução por
+um agente em worktree (branch local `etapa-f`); quando terminar, revisar, trazer para a branch de trabalho e publicar.
