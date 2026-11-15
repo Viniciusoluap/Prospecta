@@ -173,6 +173,11 @@ describe("R4 — áreas públicas com geometria própria", () => {
     });
   }
 
+  it("rua simples: o fundo sem frente para a via única vira área verde e o cenário avisa quanto passou do mínimo", () => {
+    const c = estudo("rua_simples").cenarios[0];
+    expect((c.limitacoes ?? []).join(" ")).toMatch(/sem frente para a via desenhada foram destinados a área verde além do mínimo/);
+  });
+
   it("restrição informada em m² vira peça não parcelável desenhada, somada no quadro", () => {
     const r = gerarEstudoMassa(QUAD, CENTRO, { ...BASE, appM2: 2_000 });
     const c = r.cenarios[0];

@@ -816,6 +816,13 @@ function montarCenario(ctx: Ctx, idx: number, b: Bruto, criterio: CriterioCenari
     ...(informada !== undefined ? { sistemaViarioInformadoM2: informada } : {}),
   });
   const somaM2 = lotes.reduce((s, l) => s + l.areaM2, 0) + areaViariaGeo;
+  // honestidade: sobra sem frente para via destinada a área verde ALÉM do mínimo exigido (ex.: fundos da Rua Simples)
+  const notas = [...b.impl.limitacoes];
+  const excessoVerde = areaVerdeM2 - ctx.alvos.verde;
+  if (excessoVerde > 0.1 * ctx.areaGleba) {
+    const f = (v: number) => v.toLocaleString("pt-BR", { maximumFractionDigits: 0 });
+    notas.push(`${f(excessoVerde)} m² sem frente para a via desenhada foram destinados a área verde além do mínimo (${f(ctx.alvos.verde)} m²). Para lotear essa área, teste Grade, Cul-de-sac ou o lote que acompanha a divisa.`);
+  }
 
   return {
     id: `cenario-${idx + 1}`,
@@ -838,7 +845,7 @@ function montarCenario(ctx: Ctx, idx: number, b: Bruto, criterio: CriterioCenari
     },
     quadroAreas,
     inviabilidade: motivoInviabilidade(vendaveis.length, b.candidatos, quadroAreas, ctx.g, params),
-    limitacoes: b.impl.limitacoes,
+    limitacoes: notas,
     criterio,
     criterioRotulo: ROTULO_CRITERIO[criterio],
     sistemaViario: {
