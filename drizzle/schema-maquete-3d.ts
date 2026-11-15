@@ -29,6 +29,7 @@ export const maquetes3d = pgTable("maquetes_3d", {
   leitura: text("leitura").default("{}").notNull(),
   modelo: text("modelo"),
   modeloVersao: integer("modelo_versao").default(0).notNull(),
+  comercial: text("comercial").default("{}").notNull(),
   revisadoPor: integer("revisado_por"),
   revisadoEm: timestamp("revisado_em"),
   publicadoEm: timestamp("publicado_em"),

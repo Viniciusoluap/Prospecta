@@ -1,14 +1,16 @@
 // Maquete 3D (EPIC-022, S-04) — painel do módulo: pedidos, novo pedido a partir de um projeto ou de um estudo de
 // incorporação, preços padrão (só admin) e, em cada pedido, liberação/autorização, leitura do PDF e revisão da planta.
-import { useEffect, useRef, useState } from "react";
+import { Suspense, lazy, useEffect, useRef, useState } from "react";
 import { Link, useLocation, useRoute } from "wouter";
-import { ArrowLeft, Box, Check, Play, Plus, RefreshCw, Save, X } from "lucide-react";
+import { ArrowLeft, Box, Check, Copy, Eye, Globe, Play, Plus, RefreshCw, Save, X } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { trpc } from "@/lib/trpc";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { EditorPlanta } from "@/components/maquete-3d/EditorPlanta";
+
+const Visualizador = lazy(() => import("@/components/maquete-3d/visualizador/Visualizador"));
 import { ROTULOS_TIPO, TIPOS_MAQUETE, type ModeloMaquete, type TipoMaquete } from "@shared/maquete-3d/modelo";
 import {
   ESFORCOS_IA, FAIXAS_PRECO, MAX_DOCUMENTOS, ROTULOS_FAIXA, ROTULOS_STATUS, type DocumentoMaquete, type FaixaPreco,
@@ -30,9 +32,26 @@ const COR_STATUS: Record<StatusMaquete, string> = {
 };
 const Selo = ({ status }: { status: StatusMaquete }) => <span className={`rounded-full px-2 py-0.5 text-xs ${COR_STATUS[status]}`}>{ROTULOS_STATUS[status]}</span>;
 
+/** Prévia em 3D para a equipe (a mesma tela do cliente), com a planta salva. */
+function Previa3D({ id }: { id: number }) {
+  const [, ir] = useLocation();
+  const detalhe = trpc.maquete3d.detalhe.useQuery({ id }, { refetchOnWindowFocus: false });
+  const d = detalhe.data;
+  if (detalhe.isLoading) return <p className="min-h-screen bg-[#0B1022] p-6 text-sm text-gray-300">Carregando…</p>;
+  if (!d?.modelo) return <p className="min-h-screen bg-[#0B1022] p-6 text-sm text-gray-300">Esta maquete ainda não tem planta lida.</p>;
+  return (
+    <Suspense fallback={<p className="min-h-screen bg-[#0B1022] p-6 text-sm text-gray-300">Preparando o 3D…</p>}>
+      <Visualizador modelo={d.modelo} aoSair={() => ir(`/admin/maquete-3d/${id}`)}
+        comercial={{ nome: d.comercial.nome || d.titulo, logo: "/logo.webp", localizacao: d.comercial.localizacao || null, preco: d.comercial.preco, whatsapp: d.comercial.whatsapp || null }} />
+    </Suspense>
+  );
+}
+
 export default function AdminMaquete3D() {
   const [, params] = useRoute("/admin/maquete-3d/:id");
+  const [, previa] = useRoute("/admin/maquete-3d/:id/3d");
   const id = params?.id ? Number(params.id) : null;
+  if (previa?.id) return <Previa3D id={Number(previa.id)} />;
   return (
     <div className="min-h-screen bg-[#1A2332] text-white">
       <header className="border-b border-[#C9A961]/20 bg-[#0F1923] px-4 py-4 sm:px-6">
@@ -258,6 +277,13 @@ function Detalhe({ id }: { id: number }) {
   const salvar = trpc.maquete3d.salvarModelo.useMutation({ onSuccess: r => { setVersao(r.versao); setSujo(false); toast.success("Planta salva."); recarregar(); }, onError: falha });
   const validar = trpc.maquete3d.validar.useMutation({ onSuccess: () => { toast.success("Planta validada."); recarregar(); }, onError: falha });
 
+  // Visualizador 3D, apresentação comercial e publicação do link.
+  const [comercial, setComercial] = useState<{ nome: string; localizacao: string; preco: string; whatsapp: string } | null>(null);
+  useEffect(() => { if (d && !comercial) setComercial({ nome: d.comercial.nome, localizacao: d.comercial.localizacao, preco: d.comercial.preco === null ? "" : String(d.comercial.preco), whatsapp: d.comercial.whatsapp }); }, [d, comercial]);
+  const salvarComercial = trpc.maquete3d.salvarComercial.useMutation({ onSuccess: () => { toast.success("Apresentação salva."); recarregar(); }, onError: falha });
+  const publicar = trpc.maquete3d.publicar.useMutation({ onSuccess: () => { toast.success("Maquete publicada. O link já abre para o cliente."); recarregar(); }, onError: falha });
+  const despublicar = trpc.maquete3d.despublicar.useMutation({ onSuccess: () => { toast.success("Link tirado do ar."); recarregar(); }, onError: falha });
+
   if (detalhe.isLoading) return <p className="text-sm text-gray-400">Carregando…</p>;
   if (!d) return <p className="text-sm text-red-300">{detalhe.error?.message ?? "Maquete não encontrada."}</p>;
 
@@ -266,6 +292,8 @@ function Detalhe({ id }: { id: number }) {
   const podeRevisar = d.status === "em_revisao" || d.status === "validada";
   const erros = d.problemas.filter(p => p.nivel === "erro"), avisos = d.problemas.filter(p => p.nivel === "aviso");
   const alvoId = (d.projectId ?? d.studyId)!;
+
+  const link = `${window.location.origin}/maquete/${d.token}`;
 
   return (
     <>
@@ -302,7 +330,7 @@ function Detalhe({ id }: { id: number }) {
           {aguardando && (
             <div className="space-y-2 rounded-lg border border-amber-400/30 p-3">
               {d.origem === "projeto"
-                ? <p>Aguardando o pagamento do cliente. A cobrança automática pelo Asaas entra na etapa de venda pelo portal; por enquanto o administrador confirma aqui o pagamento recebido.</p>
+                ? <p>Aguardando o pagamento do cliente. Quando ele paga pelo portal (Asaas), o pedido é liberado sozinho. Se o pagamento foi recebido por fora, o administrador confirma aqui.</p>
                 : <p>Maquete de Incorporação: precisa da autorização do administrador para ser gerada.</p>}
               {admin ? (
                 <div className="flex flex-wrap items-end gap-2">
@@ -394,7 +422,52 @@ function Detalhe({ id }: { id: number }) {
                 {d.status === "em_revisao" && <Button variant="outline" className="border-emerald-400/50 bg-transparent text-emerald-300" disabled={sujo || erros.length > 0 || validar.isPending} onClick={() => validar.mutate({ id })}><Check className="mr-1 h-4 w-4" />Validar planta</Button>}
               </div>
             )}
-            {d.status === "validada" && <p className="text-sm text-emerald-300">Planta validada em {dataHora(d.revisadoEm)}. O visualizador 3D e o link do cliente entram na próxima etapa.</p>}
+            {d.status === "validada" && <p className="text-sm text-emerald-300">Planta validada em {dataHora(d.revisadoEm)}. Veja a maquete em 3D e publique o link abaixo.</p>}
+          </CardContent>
+        </Card>
+      )}
+
+      {rascunho && comercial && (
+        <Card className={cardCls}>
+          <CardHeader><CardTitle className="text-lg">Maquete 3D e link do cliente</CardTitle></CardHeader>
+          <CardContent className="space-y-4 text-sm">
+            <div className="flex flex-wrap items-center gap-2">
+              <Button className={btnOuro} disabled={sujo} onClick={() => ir(`/admin/maquete-3d/${id}/3d`)}><Eye className="mr-1 h-4 w-4" />Ver a maquete em 3D</Button>
+              <span className="text-xs text-gray-400">{sujo ? "Salve a planta para ver as alterações em 3D." : "A prévia funciona mesmo antes de validar e de publicar."}</span>
+            </div>
+            <div className="grid gap-3 sm:grid-cols-2">
+              <label className="text-xs text-gray-300">Nome na apresentação
+                <input className={inputCls} maxLength={160} placeholder={d.titulo} value={comercial.nome} onChange={e => setComercial({ ...comercial, nome: e.target.value })} /></label>
+              <label className="text-xs text-gray-300">Localização
+                <input className={inputCls} maxLength={200} placeholder="Bairro, cidade — UF" value={comercial.localizacao} onChange={e => setComercial({ ...comercial, localizacao: e.target.value })} /></label>
+              <label className="text-xs text-gray-300">Preço de venda (R$) — opcional
+                <input className={inputCls} type="number" min={0} step="0.01" value={comercial.preco} onChange={e => setComercial({ ...comercial, preco: e.target.value })} /></label>
+              <label className="text-xs text-gray-300">WhatsApp do consultor (só números, com 55 e DDD)
+                <input className={inputCls} inputMode="numeric" maxLength={15} placeholder="5599999999999" value={comercial.whatsapp} onChange={e => setComercial({ ...comercial, whatsapp: e.target.value.replace(/\D/g, "") })} /></label>
+            </div>
+            <p className="text-xs text-gray-400">Campo vazio não aparece para o cliente. Área, quartos, banheiros e vagas vêm da planta validada.</p>
+            <Button variant="outline" className={btnOutline} disabled={salvarComercial.isPending}
+              onClick={() => salvarComercial.mutate({ id, comercial: { nome: comercial.nome, localizacao: comercial.localizacao, preco: comercial.preco === "" ? null : Number(comercial.preco), whatsapp: comercial.whatsapp } })}><Save className="mr-1 h-4 w-4" />Salvar apresentação</Button>
+
+            {d.status === "publicada" ? (
+              <div className="space-y-2 rounded-lg border border-emerald-400/30 p-3">
+                <p className="text-emerald-300">Publicada em {dataHora(d.publicadoEm)}. Link do cliente:</p>
+                <div className="flex flex-wrap items-center gap-2">
+                  <a href={link} target="_blank" rel="noreferrer" className="break-all text-[#C9A961] underline">{link}</a>
+                  <Button size="sm" variant="outline" className={btnOutline} onClick={() => { void navigator.clipboard.writeText(link).then(() => toast.success("Link copiado.")); }}><Copy className="mr-1 h-4 w-4" />Copiar</Button>
+                  {d.clienteTelefone && (
+                    <a target="_blank" rel="noreferrer" href={`https://wa.me/${(d.clienteTelefone.replace(/\D/g, "").length <= 11 ? "55" : "") + d.clienteTelefone.replace(/\D/g, "")}?text=${encodeURIComponent(`Olá! A sua maquete 3D ficou pronta. Abra para ver a casa por dentro e por fora: ${link}`)}`}>
+                      <Button size="sm" variant="outline" className="border-emerald-400/50 bg-transparent text-emerald-300">Enviar ao cliente pelo WhatsApp</Button>
+                    </a>
+                  )}
+                </div>
+                {admin && <Button size="sm" variant="outline" className="border-red-400/50 bg-transparent text-red-300" disabled={despublicar.isPending}
+                  onClick={() => { if (window.confirm("Tirar o link do ar? O cliente deixa de conseguir abrir a maquete.")) despublicar.mutate({ id }); }}>Tirar do ar</Button>}
+              </div>
+            ) : d.status === "validada" ? (
+              admin ? <Button className={btnOuro} disabled={publicar.isPending} onClick={() => publicar.mutate({ id })}><Globe className="mr-1 h-4 w-4" />Publicar e gerar o link do cliente</Button>
+                : <p className="text-xs text-gray-400">Só o administrador publica a maquete.</p>
+            ) : <p className="text-xs text-gray-400">O link do cliente é liberado depois que a planta for validada.</p>}
           </CardContent>
         </Card>
       )}

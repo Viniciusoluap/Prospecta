@@ -1,6 +1,6 @@
 # EPIC 022 — Maquete 3D
 
-Status: em andamento (etapa 1)
+Status: em andamento (etapas 1 a 3 entregues; falta a etapa 4 — Incorporação)
 Data: 14/11/2026
 Paridade: **exclusivo do Prospecta** — exceção autorizada pelo dono em 14/11/2026 e registrada no `ROADMAP.md`.
 Não portar ao Grupo Santa Fé sem nova ordem dele.
@@ -42,10 +42,10 @@ validação → visualizador e link.
 ## Etapas
 
 - [x] **Etapa 1 — Base e motor** (`S-01` a `S-04`)
-- [ ] **Etapa 2 — Visualizador da casa**: vários níveis com escada, motor de mobília paramétrica nos três estilos
+- [x] **Etapa 2 — Visualizador da casa** (`S-05`): vários níveis com escada, motor de mobília paramétrica nos três estilos
   (Moderno, Escandinavo, Luxo aconchegante), iluminação por horário, tour automático com som, tela comercial,
   link público `/maquete/<token>`.
-- [ ] **Etapa 3 — Venda ao cliente**: solicitação no portal, cobrança pelo Asaas (novo propósito em
+- [x] **Etapa 3 — Venda ao cliente** (`S-06`): solicitação no portal, cobrança pelo Asaas (novo propósito em
   `payment_orders`), liberação automática pelo webhook, entrega do link no portal e por WhatsApp.
 - [ ] **Etapa 4 — Incorporação**: aba Maquete 3D no estudo, implantação a partir do KML/topografia já salvos,
   condomínio, prédio (volume + apartamento-tipo) e loteamento, unidades coloridas pela situação de venda.

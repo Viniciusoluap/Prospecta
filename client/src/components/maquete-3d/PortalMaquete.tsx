@@ -1,0 +1,105 @@
+// Maquete 3D (EPIC-022, etapa 3) — área do cliente no portal: ver os próprios projetos, pedir a maquete 3D,
+// pagar pelo Asaas (PIX, boleto ou cartão) e, depois da validação da equipe, abrir o link para andar pela casa.
+import { useState } from "react";
+import { Box, Copy, ExternalLink } from "lucide-react";
+import { toast } from "sonner";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
+import { trpc } from "@/lib/trpc";
+import type { FaixaPreco, StatusMaquete } from "@shared/maquete-3d/regras";
+
+const reais = (v: number) => v.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
+/** Como o cliente lê cada situação do pedido. */
+const SITUACAO: Record<StatusMaquete, string> = {
+  aguardando_pagamento: "Aguardando o seu pagamento", aguardando_autorizacao: "Em análise", liberada: "Pagamento confirmado — na fila de produção",
+  em_leitura: "Em produção", em_revisao: "Em produção — conferência da planta", validada: "Quase pronta — em validação final",
+  publicada: "Pronta", recusada: "Pedido não aceito",
+};
+type Cobranca = { id: string; link: string | null; pixImagem: string | null; pixCopiaCola: string | null };
+type Metodo = "pix" | "boleto" | "cartao";
+
+function Pagamento({ cobranca }: { cobranca: Cobranca }) {
+  return (
+    <div className="space-y-3 rounded-lg border border-amber-300 bg-amber-50 p-4 text-sm text-slate-800">
+      <p className="font-semibold">Falta só o pagamento. Assim que ele for confirmado, a sua maquete entra em produção.</p>
+      {cobranca.pixImagem && <img src={`data:image/png;base64,${cobranca.pixImagem}`} alt="QR Code do PIX" className="h-44 w-44 rounded bg-white p-1" />}
+      {cobranca.pixCopiaCola && (
+        <Button type="button" variant="outline" onClick={() => { void navigator.clipboard.writeText(cobranca.pixCopiaCola!).then(() => toast.success("Código PIX copiado.")); }}>
+          <Copy className="mr-2 h-4 w-4" />Copiar o código PIX
+        </Button>
+      )}
+      {cobranca.link && <a href={cobranca.link} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 font-medium text-blue-700 underline"><ExternalLink className="h-4 w-4" />Abrir a página de pagamento</a>}
+    </div>
+  );
+}
+
+export function PortalMaquete() {
+  const utils = trpc.useUtils();
+  const resumo = trpc.portalMaquete.resumo.useQuery();
+  const [faixas, setFaixas] = useState<Record<number, FaixaPreco>>({});
+  const [metodo, setMetodo] = useState<Metodo>("pix");
+  const [cobrancas, setCobrancas] = useState<Record<number, Cobranca>>({});
+  const solicitar = trpc.portalMaquete.solicitar.useMutation({
+    onSuccess: (r, v) => { if (r.cobranca) setCobrancas(c => ({ ...c, [v.projectId]: r.cobranca! })); void utils.portalMaquete.resumo.invalidate(); },
+    onError: e => toast.error(e.message),
+  });
+
+  if (resumo.isLoading) return <p className="text-sm text-slate-500">Carregando…</p>;
+  if (resumo.error) return <p className="text-sm text-red-600">{resumo.error.message}</p>;
+  const dados = resumo.data!;
+
+  return (
+    <div className="space-y-4">
+      <p className="text-sm text-slate-600">Veja a sua casa em 3D antes de construir: decorada, com iluminação de manhã, no pôr do sol e à noite, e ande por dentro dos cômodos no computador ou no celular.</p>
+      {dados.projetos.length === 0 && <p className="rounded-lg border border-dashed p-6 text-center text-sm text-slate-500">Você ainda não tem projeto cadastrado. Quando o seu projeto estiver com a nossa equipe, a maquete 3D aparece aqui.</p>}
+      {dados.projetos.map(p => {
+        const m = p.maquete, cobranca = cobrancas[p.id], faixa = faixas[p.id] ?? dados.precos[0].faixa;
+        const podePedir = !m || m.status === "recusada";
+        return (
+          <Card key={p.id}>
+            <CardHeader><CardTitle className="flex flex-wrap items-center gap-2 text-base"><Box className="h-5 w-5 text-amber-600" />{p.nome}{m && <Badge variant={m.status === "publicada" ? "default" : "secondary"}>{SITUACAO[m.status]}</Badge>}</CardTitle></CardHeader>
+            <CardContent className="space-y-3 text-sm">
+              {m?.status === "publicada" && m.link && (
+                <a href={m.link} target="_blank" rel="noreferrer"><Button type="button" size="lg"><Box className="mr-2 h-5 w-5" />Abrir a minha maquete 3D</Button></a>
+              )}
+              {m?.status === "recusada" && <p className="text-red-600">Não foi possível produzir a maquete{m.recusaMotivo ? `: ${m.recusaMotivo}` : "."} Fale com a nossa equipe; você pode pedir de novo abaixo.</p>}
+              {m && m.status !== "publicada" && m.status !== "recusada" && m.status !== "aguardando_pagamento" && (
+                <p className="text-slate-600">Recebemos o seu pagamento{m.pagoEm ? ` em ${new Date(m.pagoEm).toLocaleDateString("pt-BR")}` : ""}. A nossa equipe está preparando e conferindo a maquete; quando ficar pronta, o botão para abrir aparece aqui.</p>
+              )}
+              {m?.status === "aguardando_pagamento" && (
+                cobranca ? <Pagamento cobranca={cobranca} /> : (
+                  <div className="flex flex-wrap items-center gap-3">
+                    <span>Valor: <strong>{m.preco !== null ? reais(m.preco) : "—"}</strong></span>
+                    <Button type="button" disabled={solicitar.isPending} onClick={() => solicitar.mutate({ projectId: p.id, faixaPreco: (m.faixaPreco as FaixaPreco) ?? faixa, metodo })}>Ver como pagar</Button>
+                  </div>
+                )
+              )}
+              {podePedir && (
+                p.temPdf ? (
+                  <div className="space-y-3">
+                    <fieldset className="space-y-2">
+                      <legend className="font-medium">Qual é o tamanho da sua casa?</legend>
+                      {dados.precos.map(f => (
+                        <label key={f.faixa} className="flex cursor-pointer items-center justify-between gap-3 rounded-lg border p-3 has-[:checked]:border-amber-500 has-[:checked]:bg-amber-50">
+                          <span className="flex items-center gap-2"><input type="radio" name={`faixa-${p.id}`} checked={faixa === f.faixa} onChange={() => setFaixas(x => ({ ...x, [p.id]: f.faixa }))} />{f.rotulo}</span>
+                          <strong>{reais(f.preco)}</strong>
+                        </label>
+                      ))}
+                    </fieldset>
+                    <label className="block">Forma de pagamento
+                      <select className="mt-1 block h-10 w-full max-w-xs rounded-md border px-2" value={metodo} onChange={e => setMetodo(e.target.value as Metodo)}>
+                        <option value="pix">PIX</option><option value="boleto">Boleto</option><option value="cartao">Cartão de crédito</option>
+                      </select></label>
+                    <Button type="button" size="lg" disabled={solicitar.isPending} onClick={() => solicitar.mutate({ projectId: p.id, faixaPreco: faixa, metodo })}>Pedir a minha maquete 3D</Button>
+                    <p className="text-xs text-slate-500">O valor segue o tamanho informado; a nossa equipe confere com o projeto antes de produzir. A maquete é entregue aqui no portal depois da validação.</p>
+                  </div>
+                ) : <p className="text-slate-500">O PDF deste projeto ainda não está cadastrado. Assim que a nossa equipe incluir, você poderá pedir a maquete 3D aqui.</p>
+              )}
+            </CardContent>
+          </Card>
+        );
+      })}
+    </div>
+  );
+}

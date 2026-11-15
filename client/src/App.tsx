@@ -39,6 +39,7 @@ import AdminRegularizacoes from "./pages/admin/AdminRegularizacoes";
 import AdminWhatsApp from "./pages/admin/AdminWhatsApp";
 import AdminCentralVendas from "./pages/admin/AdminCentralVendas";
 import AdminMaquete3D from "./pages/admin/AdminMaquete3D";
+import MaquetePublica from "./pages/MaquetePublica";
 import AdminBpo from "./pages/admin/AdminBpo";
 import AdminObraMedicoes from "./pages/admin/AdminObraMedicoes";
 import AdminAvaliacoes from "./pages/admin/AdminAvaliacoes";
@@ -288,8 +289,15 @@ function Router() {
           <AdminCentralVendas />
         </AdminRoute>
       </Route>
+      {/* Link público da maquete entregue ao cliente (só maquete publicada pelo admin). */}
+      <Route path="/maquete/:token" component={MaquetePublica} />
       {/* Maquete 3D (EPIC-022, 14/11/2026): exclusivo do Prospecta. */}
       <Route path="/admin/maquete-3d">
+        <AdminRoute module="maquete3d">
+          <AdminMaquete3D />
+        </AdminRoute>
+      </Route>
+      <Route path="/admin/maquete-3d/:id/3d">
         <AdminRoute module="maquete3d">
           <AdminMaquete3D />
         </AdminRoute>

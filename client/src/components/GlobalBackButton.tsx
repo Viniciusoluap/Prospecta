@@ -59,6 +59,8 @@ export function hasPageBackButton(location: string) {
     "/admin/central-vendas",
     "/admin/maquete-3d",
     "/admin/maquete-3d/",
+    // Página do cliente em tela cheia: o visualizador tem os próprios controles.
+    "/maquete/",
     "/admin/bpo",
     "/admin/contabilidade",
     "/admin/financeiro",

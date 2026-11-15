@@ -5,6 +5,7 @@ import { FINANCIAMENTO_STATUS } from "@shared/financiamento";
 import { obraStatusLabel } from "@shared/obra-status";
 import { rotulo, rotuloAssinatura } from "@shared/rotulos";
 import {
+  Box,
   Building2,
   CalendarDays,
   CheckCircle2,
@@ -31,6 +32,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { toast } from "sonner";
+import { PortalMaquete } from "@/components/maquete-3d/PortalMaquete";
 
 const baseNav = [
   ["/portal", "Início", Home],
@@ -38,6 +40,8 @@ const baseNav = [
   ["/portal/visitas", "Visitas", CalendarDays],
   ["/portal/acompanhamento", "Acompanhamento", CheckCircle2],
   ["/portal/chat", "Chat", MessageSquare],
+  // Maquete 3D (EPIC-022, etapa 3): o cliente pede, paga e abre a maquete do próprio projeto.
+  ["/portal/maquete-3d", "Maquete 3D", Box],
 ] as const;
 
 const ecosystemNav = [
@@ -580,6 +584,11 @@ export default function Portal() {
                 <Empty text="Nenhuma atualização publicada." />
               )}
             </div>
+          </Section>
+        )}
+        {path === "/portal/maquete-3d" && (
+          <Section title="Maquete 3D">
+            <PortalMaquete />
           </Section>
         )}
         {path === "/portal/visitas" && (
