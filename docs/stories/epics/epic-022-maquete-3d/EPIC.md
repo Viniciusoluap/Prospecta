@@ -47,7 +47,9 @@ validação → visualizador e link.
   link público `/maquete/<token>`.
 - [x] **Etapa 3 — Venda ao cliente** (`S-06`): solicitação no portal, cobrança pelo Asaas (novo propósito em
   `payment_orders`), liberação automática pelo webhook, entrega do link no portal e por WhatsApp.
-- [x] **Etapa 4 — Incorporação** (`S-07`): aba Maquete 3D no estudo, implantação a partir do KML/topografia já salvos,
+- [x] **Etapa 4 — Incorporação** (`S-07`)
+- [x] **Aprimoramentos de 15/11** (`S-08`): botão Aprimorar, escadas em L/U/caracol, carro, posicionar casas, topografia,
+  aprovação do pedido antes da cobrança e e-mail automático.: aba Maquete 3D no estudo, implantação a partir do KML/topografia já salvos,
   condomínio, prédio (volume + apartamento-tipo) e loteamento, unidades coloridas pela situação de venda.
 
 ## Stories da etapa 1

@@ -29,7 +29,7 @@ vi.mock("./db.js", async orig => {
 vi.mock("./_core/env.js", () => ({ ENV: { cookieSecret: "segredo-de-teste", anthropicApiKey: "" } }));
 
 import * as schema from "../drizzle/schema.js";
-import { areaPoligono, modeloSchema, podePublicar, resumoModelo, validarModelo, type ModeloMaquete } from "../shared/maquete-3d/modelo.js";
+import { alturaDoRelevo, areaPoligono, modeloSchema, podePublicar, resumoModelo, validarModelo, type ModeloMaquete } from "../shared/maquete-3d/modelo.js";
 import { PRECOS_PADRAO, faixaPorArea, lerConfig } from "../shared/maquete-3d/regras.js";
 import { normalizePermissions } from "../shared/admin-permissions.js";
 import { getDb } from "./db.js";
@@ -160,7 +160,7 @@ async function criarBanco() {
   const pg = new PGlite();
   await pg.exec(ddl);
   await pg.exec(`CREATE TABLE incorporation_registration_file_data (document_id integer PRIMARY KEY, mime text, size_bytes integer, data bytea);`);
-  for (const arquivo of ["0111_maquete_3d.sql", "0112_maquete_3d_comercial.sql", "0113_maquete_3d_pagamento.sql"]) {
+  for (const arquivo of ["0111_maquete_3d.sql", "0112_maquete_3d_comercial.sql", "0113_maquete_3d_pagamento.sql", "0114_maquete_3d_email.sql"]) {
     const migracao = readFileSync(new URL(`../drizzle/${arquivo}`, import.meta.url), "utf8");
     await pg.exec(migracao);
     await pg.exec(migracao); // idempotente
@@ -302,7 +302,7 @@ describe("router maquete3d", () => {
     await expect(m.publicar({ id })).rejects.toThrow("Só o administrador");
     await m.salvarComercial({ id, comercial: { nome: "Residencial Jardim", localizacao: "Imperatriz — MA", preco: null, whatsapp: "5599988887777" } });
     await expect(m.salvarComercial({ id, comercial: { nome: "x", localizacao: "", preco: null, whatsapp: "(99) 9" } })).rejects.toThrow();
-    expect((await admin().publicar({ id })).token).toBe(d.token);
+    expect(await admin().publicar({ id })).toEqual({ token: d.token, email: { enviado: false, para: null, motivo: "O cliente não tem e-mail no cadastro." } });
     const aberto = await publico.porToken({ token: d.token });
     expect(aberto).toMatchObject({ titulo: "Residencial Jardim", tipo: "casa", comercial: { localizacao: "Imperatriz — MA", preco: null, whatsapp: "5599988887777" } });
     expect(aberto.modelo.edificacoes[0].pavimentos).toHaveLength(2);
@@ -315,16 +315,20 @@ describe("router maquete3d", () => {
     expect((await m.detalhe({ id })).status).toBe("validada");
   });
 
-  it("venda pelo portal: cliente pede, paga pelo Asaas e o webhook libera sozinho (uma vez só)", async () => {
-    await banco.pg.exec(`INSERT INTO leads (name, phone) VALUES ('Ana Silva', '99999'), ('Outro', '88888');
+  it("venda pelo portal: cliente pede, admin aprova, cliente paga pelo Asaas e o webhook libera (uma vez só)", async () => {
+    await banco.pg.exec(`INSERT INTO leads (name, phone, email) VALUES ('Ana Silva', '99999', 'lead@exemplo.com'), ('Outro', '88888', null);
       UPDATE operational_projects SET lead_id = 1 WHERE id = 1;
-      INSERT INTO users ("openId", name, role, active, lead_id, cpf) VALUES ('cli', 'Ana Silva', 'cliente', true, 1, '12345678909'), ('cli2', 'Outro', 'cliente', true, 2, null);`);
+      INSERT INTO users ("openId", name, role, active, lead_id, cpf, email) VALUES ('cli', 'Ana Silva', 'cliente', true, 1, '12345678909', 'ana@exemplo.com'), ('cli2', 'Outro', 'cliente', true, 2, null, null);`);
     const cobrancas: { valor: number; referencia: string; metodo: string }[] = [];
-    definirDependencias({ cobrador: {
-      criar: async p => { cobrancas.push(p); return { id: `pay_${cobrancas.length}`, link: "https://asaas.test/i/1", pixImagem: "img", pixCopiaCola: "000201" }; },
-      consultar: async id => ({ id, link: "https://asaas.test/i/1", pixImagem: "img", pixCopiaCola: "000201" }),
-    } });
-    const cliente = (id: number, leadId: number) => appRouter.createCaller({ user: { id, role: "cliente", permissions: "[]", active: true, name: "Ana Silva", leadId, cpf: "12345678909", email: null }, req: {}, res: {} } as never).portalMaquete;
+    const emails: { para: string; assunto: string; html: string; motivo: string }[] = [];
+    definirDependencias({
+      cobrador: {
+        criar: async p => { cobrancas.push(p); return { id: `pay_${cobrancas.length}`, link: "https://asaas.test/i/1", pixImagem: "img", pixCopiaCola: "000201" }; },
+        consultar: async id => ({ id, link: "https://asaas.test/i/1", pixImagem: "img", pixCopiaCola: "000201" }),
+      },
+      carteiro: async e => { emails.push(e); return true; },
+    });
+    const cliente = (id: number, leadId: number) => appRouter.createCaller({ user: { id, role: "cliente", permissions: "[]", active: true, name: "Ana Silva", leadId, cpf: "12345678909", email: "ana@exemplo.com" }, req: {}, res: {} } as never).portalMaquete;
     const ana = cliente(4, 1);
 
     // Só vê os próprios projetos; o colaborador não entra no portal do cliente.
@@ -334,44 +338,87 @@ describe("router maquete3d", () => {
     await expect(cliente(5, 2).solicitar({ projectId: 1, faixaPreco: "terrea_ate_70" })).rejects.toThrow("Projeto não encontrado");
     await expect(caller(2, "colaborador", JSON.stringify(["maquete3d"])).portalMaquete.resumo()).rejects.toThrow("Acesso negado");
 
-    const pedido = await ana.solicitar({ projectId: 1, faixaPreco: "terrea_70_150" });
-    expect(pedido.maquete).toMatchObject({ status: "aguardando_pagamento", preco: 297, link: null });
-    expect(pedido.cobranca).toMatchObject({ id: "pay_1", pixCopiaCola: "000201" });
-    expect(cobrancas).toMatchObject([{ valor: 297, referencia: `maquete_3d_${pedido.maquete.id}`, metodo: "pix" }]);
-    // Pedir de novo não cria outra maquete nem outra cobrança.
-    expect((await ana.solicitar({ projectId: 1, faixaPreco: "acima_150_ou_sobrado" })).maquete.id).toBe(pedido.maquete.id);
-    expect(cobrancas).toHaveLength(1);
+    // 1. Pedido: vai para aprovação, sem cobrança. Pedir de novo não duplica.
+    const pedido = await ana.solicitar({ projectId: 1, faixaPreco: "terrea_ate_70" });
+    const id = pedido.maquete.id;
+    expect(pedido.maquete).toMatchObject({ status: "aguardando_aprovacao", preco: 197, link: null });
+    expect((await ana.solicitar({ projectId: 1, faixaPreco: "acima_150_ou_sobrado" })).maquete.id).toBe(id);
+    await expect(ana.pagar({ id })).rejects.toThrow("ainda está em aprovação");
+    await expect(cliente(5, 2).pagar({ id })).rejects.toThrow("Pedido não encontrado");
+    expect(cobrancas).toHaveLength(0);
+
+    // 2. Aprovação: só admin; ele corrige a faixa (a casa é maior) e o cliente é avisado por e-mail.
+    await expect(colaborador().aprovarPedido({ id, faixaPreco: "terrea_70_150" })).rejects.toThrow("Só o administrador");
+    expect(await admin().aprovarPedido({ id, faixaPreco: "terrea_70_150" })).toEqual({ preco: 297, email: { enviado: true, para: "ana@exemplo.com" } });
+    await expect(admin().aprovarPedido({ id, faixaPreco: "terrea_70_150" })).rejects.toThrow("não está aguardando aprovação");
+    expect(emails[0]).toMatchObject({ para: "ana@exemplo.com", motivo: "aprovado" });
+    expect(emails[0].html).toContain("R$&nbsp;297,00".replace("&nbsp;", "\u00a0"));
+    expect(emails[0].html).toContain("https://prospectaconstrucoes.com/portal/maquete-3d");
+    expect((await admin().detalhe({ id })).emailCliente).toBe("ana@exemplo.com");
+
+    // 3. Pagamento: a cobrança sai no valor aprovado; reabrir não cria outra.
+    expect((await ana.pagar({ id })).cobranca).toMatchObject({ id: "pay_1", pixCopiaCola: "000201" });
+    await ana.pagar({ id, metodo: "boleto" });
+    expect(cobrancas).toMatchObject([{ valor: 297, referencia: `maquete_3d_${id}`, metodo: "pix" }]);
     expect(await banco.pg.query(`SELECT purpose, principal_amount, status FROM payment_orders`).then(r => r.rows)).toEqual([{ purpose: "maquete_3d", principal_amount: 29700, status: "pending" }]);
 
-    // Webhook do Asaas: libera; reentrega não repete; o admin vê pago e com o PDF já escolhido.
+    // 4. Webhook do Asaas: libera; reentrega não repete; o admin vê pago e com o PDF já escolhido.
     const { settlePaymentOrder, chargebackPaymentOrder } = await import("./payment-settlement.js");
     expect(await settlePaymentOrder("pay_1")).toMatchObject({ outcome: "maquete_liberada" });
     expect(await settlePaymentOrder("pay_1")).toEqual({ outcome: "already_processed" });
-    expect(await admin().detalhe({ id: pedido.maquete.id })).toMatchObject({ status: "liberada", liberacaoNota: "Pagamento confirmado pelo Asaas", documentos: [docProjeto] });
+    expect(await admin().detalhe({ id })).toMatchObject({ status: "liberada", liberacaoNota: "Pagamento confirmado pelo Asaas", documentos: [docProjeto] });
     expect((await ana.resumo()).projetos[0].maquete).toMatchObject({ status: "liberada", link: null });
-    expect((await ana.solicitar({ projectId: 1, faixaPreco: "terrea_ate_70" })).cobranca).toBeNull();
+    await expect(ana.pagar({ id })).rejects.toThrow("não está aguardando pagamento");
 
-    // O link só aparece para o cliente depois da publicação pelo admin.
-    await banco.pg.query(`UPDATE maquetes_3d SET status = 'publicada' WHERE id = $1`, [pedido.maquete.id]);
-    expect((await ana.resumo()).projetos[0].maquete!.link).toMatch(/^\/maquete\/.{20,}$/);
+    // 5. Produção, validação e publicação: o link segue por e-mail na hora e só então aparece no portal.
+    await admin().iniciarLeitura({ id });
+    respostas.push(INVENTARIO, ESTRUTURA, AMBIENTES_TERREO, ESTRUTURA, AMBIENTES_SUPERIOR);
+    for (let i = 0; i < 6; i++) await admin().avancarLeitura({ id });
+    const d = await admin().detalhe({ id });
+    d.modelo!.pendencias[0].resolvida = true;
+    await admin().salvarModelo({ id, versao: d.modeloVersao, modelo: d.modelo! });
+    await admin().validar({ id });
+    expect((await admin().publicar({ id })).email).toEqual({ enviado: true, para: "ana@exemplo.com" });
+    expect(emails[1]).toMatchObject({ para: "ana@exemplo.com", motivo: "pronta" });
+    expect(emails[1].html).toContain(`https://prospectaconstrucoes.com/maquete/${d.token}`);
+    expect((await ana.resumo()).projetos[0].maquete!.link).toBe(`/maquete/${d.token}`);
+    expect(await admin().reenviarEmail({ id })).toEqual({ enviado: true, para: "ana@exemplo.com" });
+    expect(emails).toHaveLength(3);
+
     expect(await chargebackPaymentOrder("pay_1")).toMatchObject({ outcome: "review_required" });
     expect(await banco.pg.query(`SELECT status, review_reason FROM payment_orders`).then(r => r.rows[0])).toMatchObject({ status: "review_required", review_reason: expect.stringContaining("chargeback de maquete 3D") });
   });
 
-  it("venda: projeto sem PDF não gera cobrança; pagamento de pedido recusado vai para conferência", async () => {
-    await banco.pg.exec(`INSERT INTO leads (name, phone) VALUES ('Ana', '9'); UPDATE operational_projects SET lead_id = 1; UPDATE project_documents SET status = 'replaced';
+  it("venda: sem PDF não há pedido; recusado antes de pagar não gera cobrança; e-mail: cai no cadastro do projeto, avisa quando falta ou falha", async () => {
+    await banco.pg.exec(`INSERT INTO leads (name, phone, email) VALUES ('Ana', '9', 'lead@exemplo.com'); UPDATE operational_projects SET lead_id = 1; UPDATE project_documents SET status = 'replaced';
       INSERT INTO users ("openId", name, role, active, lead_id) VALUES ('cli', 'Ana', 'cliente', true, 1);`);
-    let criadas = 0;
-    definirDependencias({ cobrador: { criar: async () => ({ id: `pay_${++criadas}`, link: null, pixImagem: null, pixCopiaCola: null }), consultar: async id => ({ id, link: null, pixImagem: null, pixCopiaCola: null }) } });
+    let criadas = 0; const emails: string[] = []; let aceitar = true;
+    definirDependencias({
+      cobrador: { criar: async () => ({ id: `pay_${++criadas}`, link: null, pixImagem: null, pixCopiaCola: null }), consultar: async id => ({ id, link: null, pixImagem: null, pixCopiaCola: null }) },
+      carteiro: async e => { emails.push(e.para); return aceitar; },
+    });
     const ana = appRouter.createCaller({ user: { id: 4, role: "cliente", permissions: "[]", active: true, name: "Ana", leadId: 1 }, req: {}, res: {} } as never).portalMaquete;
     await expect(ana.solicitar({ projectId: 1, faixaPreco: "terrea_ate_70" })).rejects.toThrow("ainda não tem o PDF");
-    expect(criadas).toBe(0);
     await banco.pg.exec(`UPDATE project_documents SET status = 'active' WHERE id = 1`);
     const { maquete } = await ana.solicitar({ projectId: 1, faixaPreco: "terrea_ate_70" });
+    // A cliente não tem e-mail no usuário: o aviso vai para o e-mail do cadastro (lead) do projeto.
+    expect((await admin().aprovarPedido({ id: maquete.id, faixaPreco: "terrea_ate_70" })).email).toEqual({ enviado: true, para: "lead@exemplo.com" });
     await admin().recusar({ id: maquete.id, motivo: "PDF ilegível" });
+    await expect(ana.pagar({ id: maquete.id })).rejects.toThrow("não está aguardando pagamento");
+    expect(criadas).toBe(0);
+    expect((await ana.resumo()).projetos[0].maquete).toMatchObject({ status: "recusada", recusaMotivo: "PDF ilegível" });
+
+    // Servidor de e-mail recusando e cadastro sem e-mail: a aprovação acontece e a tela fica sabendo.
+    const outro = await ana.solicitar({ projectId: 1, faixaPreco: "terrea_ate_70" });
+    aceitar = false;
+    expect((await admin().aprovarPedido({ id: outro.maquete.id, faixaPreco: "terrea_ate_70" })).email).toMatchObject({ enviado: false, para: "lead@exemplo.com" });
+    await banco.pg.exec(`UPDATE leads SET email = NULL`);
+    expect((await admin().detalhe({ id: outro.maquete.id })).emailCliente).toBeNull();
+    // Pagamento de pedido recusado depois de gerada a cobrança vai para conferência.
+    await ana.pagar({ id: outro.maquete.id });
+    await admin().recusar({ id: outro.maquete.id, motivo: "Cliente desistiu" });
     const { settlePaymentOrder } = await import("./payment-settlement.js");
     expect(await settlePaymentOrder("pay_1")).toMatchObject({ outcome: "review_required" });
-    expect((await ana.resumo()).projetos[0].maquete).toMatchObject({ status: "recusada", recusaMotivo: "PDF ilegível" });
   });
 
   it("incorporação: implantação montada do estudo (terreno, ruas, lotes) com a situação das unidades", async () => {
@@ -390,7 +437,7 @@ describe("router maquete3d", () => {
     const { id } = await colaborador().criar({ origem: "incorporacao", alvoId: 1, tipo: "loteamento", documentos: [] });
     await expect(colaborador().implantacaoDoEstudo({ id })).rejects.toThrow("precisa estar autorizada");
     await admin().liberar({ id });
-    expect(await colaborador().implantacaoDoEstudo({ id })).toEqual({ lotes: 3, ruas: 1, temTerreno: true, descartados: 1, semCenario: false });
+    expect(await colaborador().implantacaoDoEstudo({ id })).toEqual({ lotes: 3, ruas: 1, temTerreno: true, temRelevo: false, descartados: 1, semCenario: false });
 
     const d = await colaborador().detalhe({ id });
     const imp = d.modelo!.implantacao!;
@@ -403,6 +450,27 @@ describe("router maquete3d", () => {
     expect(Math.min(...imp.lotes[0].poligono.map(p => p.y))).toBeCloseTo(55.27, 0);
     expect(d.unidades).toEqual(expect.arrayContaining([{ codigo: "Q1 / L1", status: "vendida" }, { codigo: "Q1 / L2", status: "disponivel" }]));
     expect(d.problemas.filter(p => p.nivel === "erro")).toEqual([]);
+
+    // Topografia do estudo: rampa de 10 m subindo de oeste (100 m) para leste (110 m); a maquete acompanha.
+    await banco.pg.query(`UPDATE incorporation_studies SET elevation_json = $1 WHERE id = 1`, [JSON.stringify({
+      ncols: 3, nrows: 3, cellsizeX: g / 2, cellsizeY: g / 2, west: 0, south: 0, min: 100, max: 110, z: [[100, 105, 110], [100, 105, 110], [100, 105, 110]] })]);
+    // Uma construção posicionada à mão é mantida ao atualizar a implantação pelo estudo.
+    const comCasa = (await colaborador().detalhe({ id })).modelo!;
+    comCasa.edificacoes = [{ id: "ed1", nome: "Casa-tipo", pavimentos: [], cobertura: { tipo: "laje", inclinacao: 0, beiral: 0, origem: "estimada" } }];
+    comCasa.implantacao!.posicoes = [{ id: "i1", edificacaoId: "ed1", nome: "Casa 1", x: 10, y: 60, rotacao: 90, unidade: null }];
+    await colaborador().salvarModelo({ id, versao: d.modeloVersao, modelo: comCasa });
+    expect(await colaborador().implantacaoDoEstudo({ id })).toMatchObject({ temRelevo: true });
+    const relevado = (await colaborador().detalhe({ id })).modelo!;
+    const rel = relevado.implantacao!.relevo!;
+    expect(relevado.implantacao!.posicoes).toHaveLength(1);
+    expect(rel.altitudeBase).toBeCloseTo(100, 0);
+    expect(alturaDoRelevo(rel, 0, 50)).toBeCloseTo(0, 0);
+    expect(alturaDoRelevo(rel, 55.66, 50)).toBeCloseTo(5, 0);
+    expect(alturaDoRelevo(rel, 111.32, 50)).toBeCloseTo(10, 0);
+    expect(alturaDoRelevo(rel, 55.66, 10)).toBeCloseTo(alturaDoRelevo(rel, 55.66, 100), 1); // não varia de norte a sul
+    expect(alturaDoRelevo(null, 1, 1)).toBe(0);
+    relevado.edificacoes = []; relevado.implantacao!.posicoes = [];
+    await colaborador().salvarModelo({ id, versao: (await colaborador().detalhe({ id })).modeloVersao, modelo: relevado });
 
     // Loteamento não precisa de PDF: valida, publica e o link público leva a situação das unidades (sem comprador nem preço).
     await colaborador().validar({ id });

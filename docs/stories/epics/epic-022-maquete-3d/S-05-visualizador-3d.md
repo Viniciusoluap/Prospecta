@@ -18,8 +18,8 @@ Status: Done em código (15/11/2026) — conferido em navegador automatizado; **
 - [x] Menu, tela cheia, voltar à entrada, ambiente atual, miniatura da planta, joystick e toque no celular,
       três níveis de qualidade gráfica.
 - [x] Publicação pelo admin: link público `/maquete/<token>`; tirar do ar; prévia para a equipe antes de publicar.
-- [ ] Escadas em L, em U e caracol são desenhadas como um lance reto entre a partida e a chegada.
-- [ ] Garagem sem carro; implantação (condomínio/loteamento) ainda não é desenhada em 3D (etapa 4).
+- [x] (S-08) Escadas em L, em U e caracol com a forma real.
+- [x] (S-08) Carro na garagem. Implantação (condomínio/loteamento) ainda não é desenhada em 3D (etapa 4).
 
 ## Arquivos
 - `shared/maquete-3d/geometria3d.ts`, `shared/maquete-3d/mobilia.ts`, `server/maquete-3d-visualizador.test.ts`

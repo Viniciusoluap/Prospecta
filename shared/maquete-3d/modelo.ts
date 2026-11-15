@@ -83,6 +83,11 @@ export const escadaSchema = z.object({
   poligono,
   /** Ponto onde se pisa no pavimento de baixo e ponto de chegada no de cima. */
   inicio: ponto, fim: ponto,
+  /**
+   * Eixo do caminho, da partida à chegada, passando pelos patamares (escadas em L e em U). Vazio = calculado
+   * pelo tipo e pelo contorno (shared/maquete-3d/escadas.ts).
+   */
+  percurso: z.array(ponto).max(60).default([]),
   largura: metros.min(0.5).max(6).default(0.9),
   degraus: z.number().int().min(0).max(80).nullable().default(null),
   /** Pavimento a que ela leva (id). */
@@ -123,8 +128,31 @@ export type Edificacao = z.infer<typeof edificacaoSchema>;
 const contorno = z.array(ponto).max(4000);
 export const TIPOS_LOTE = ["vendavel", "area_publica", "nao_parcelavel"] as const;
 
+/**
+ * Relevo do terreno: grade regular de alturas em metros (0 = ponto mais baixo), nas coordenadas da planta.
+ * `alturas` vai linha a linha, da linha y0 (norte) para baixo; cada linha da coluna x0 (oeste) para a direita.
+ */
+export const relevoSchema = z.object({
+  x0: metros, y0: metros, dx: metros.positive(), dy: metros.positive(),
+  colunas: z.number().int().min(2).max(96), linhas: z.number().int().min(2).max(96),
+  alturas: z.array(metros).max(96 * 96),
+  /** Altitude real do ponto mais baixo (m acima do nível do mar), só para informação. */
+  altitudeBase: metros.default(0),
+});
+export type Relevo = z.infer<typeof relevoSchema>;
+
+/** Altura do terreno em (x, y), por interpolação bilinear. Fora da grade vale a borda. Sem relevo, zero. */
+export function alturaDoRelevo(r: Relevo | null | undefined, x: number, y: number): number {
+  if (!r || r.alturas.length < r.colunas * r.linhas) return 0;
+  const fc = Math.min(r.colunas - 1, Math.max(0, (x - r.x0) / r.dx)), fl = Math.min(r.linhas - 1, Math.max(0, (y - r.y0) / r.dy));
+  const c = Math.min(r.colunas - 2, Math.floor(fc)), l = Math.min(r.linhas - 2, Math.floor(fl)), tc = fc - c, tl = fl - l;
+  const h = (ll: number, cc: number) => r.alturas[ll * r.colunas + cc];
+  return (h(l, c) * (1 - tc) + h(l, c + 1) * tc) * (1 - tl) + (h(l + 1, c) * (1 - tc) + h(l + 1, c + 1) * tc) * tl;
+}
+
 export const implantacaoSchema = z.object({
   terreno: contorno.default([]),
+  relevo: relevoSchema.nullable().default(null),
   /** Leito das ruas como polígonos (é como o estudo de massa da Incorporação guarda o sistema viário). */
   ruas: z.array(contorno).max(400).default([]),
   vias: z.array(z.object({ id, nome: z.string().max(80).default(""), eixo: poligono, largura: metros.min(1).max(80).default(7) })).max(200).default([]),

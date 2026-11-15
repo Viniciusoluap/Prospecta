@@ -52,7 +52,7 @@ const ESQUEMA_ESTRUTURA = obj({
 const ESQUEMA_AMBIENTES = obj({
   comodos: lista(obj({ id: texto, nome: texto, funcao: umDe(FUNCOES_COMODO), pontos: lista(pontoJson), areaInformada: ou(numero), confirmada: logico })),
   escadas: lista(obj({
-    id: texto, tipo: umDe(TIPOS_ESCADA), pontos: lista(pontoJson), inicio: pontoJson, fim: pontoJson, largura: numero,
+    id: texto, tipo: umDe(TIPOS_ESCADA), pontos: lista(pontoJson), inicio: pontoJson, fim: pontoJson, percurso: lista(pontoJson), largura: numero,
     degraus: ou(inteiro), sobePara: ou(texto), confirmada: logico,
   })),
   pendencias: pendenciasJson,
@@ -106,7 +106,7 @@ As paredes deste pavimento já foram lidas, nestas coordenadas (JSON): ${paredes
 
 Devolva os ambientes deste pavimento, nas mesmas coordenadas:
 - "comodos": cada ambiente com o nome escrito na prancha, a função, e o contorno em "pontos" (vértices em ordem, pela face interna das paredes, sem repetir o primeiro ponto). "areaInformada": a área em m² escrita na prancha, ou null. Inclua varandas, garagem e circulações. Ids: c1, c2, ...
-- "escadas": cada escada ou rampa, com o contorno em "pontos", o ponto "inicio" (onde se pisa neste pavimento) e "fim" (onde chega no pavimento de cima), a largura, o número de degraus se estiver indicado, e "sobePara" com o nome exato do pavimento de destino entre: ${pavimentos.map(n => `"${n}"`).join(", ") || "(nenhum outro pavimento)"}. Registre a escada só no pavimento de onde ela parte para cima. Ids: e1, e2, ...`;
+- "escadas": cada escada ou rampa, com o contorno em "pontos", o tipo exato (reta, em_l, em_u, caracol ou rampa), o ponto "inicio" (onde se pisa neste pavimento) e "fim" (onde chega no pavimento de cima), o "percurso" (o eixo do caminho que a pessoa percorre, do início ao fim, com um ponto em cada mudança de direção: escada reta tem só os dois pontos; em L tem três, com a quina do patamar; em U tem quatro, com os dois cantos do patamar; caracol: deixe vazio), a largura do lance, o número de degraus se estiver indicado, e "sobePara" com o nome exato do pavimento de destino entre: ${pavimentos.map(n => `"${n}"`).join(", ") || "(nenhum outro pavimento)"}. Registre a escada só no pavimento de onde ela parte para cima. Ids: e1, e2, ...`;
 
 const PEDIDO_IMPLANTACAO = (doc: number, pagina: number, edificacoes: string[]) => `Leia a planta de implantação que está no arquivo ${doc}, página ${pagina}.
 
@@ -196,6 +196,7 @@ export function montarModelo(tipo: TipoMaquete, parciais: Record<string, unknown
         })),
         escadas: amb.escadas.map(s => ({
           id: String(s.id), tipo: s.tipo as never, poligono: s.pontos as never, inicio: s.inicio as never, fim: s.fim as never,
+          percurso: (Array.isArray(s.percurso) ? s.percurso.slice(0, 60) : []) as never,
           largura: limitar(s.largura, 0.5, 6, 0.9), degraus: typeof s.degraus === "number" ? Math.round(limitar(s.degraus, 0, 80, 0)) : null,
           destinoPavimentoId: (typeof s.sobePara === "string" && nomes.get(s.sobePara.trim().toLowerCase())) || null,
           origem: origemDe(s.confirmada),
@@ -214,7 +215,7 @@ export function montarModelo(tipo: TipoMaquete, parciais: Record<string, unknown
     const porNome = new Map(inv.edificacoes.map((e, i) => [e.nome.trim().toLowerCase(), idEdificacao(i)]));
     pendencias.push(...imp.pendencias.map(t => `Implantação: ${t}`));
     implantacao = {
-      terreno: imp.terreno as never, vias: imp.vias as never, ruas: [],
+      terreno: imp.terreno as never, vias: imp.vias as never, ruas: [], relevo: null,
       lotes: imp.lotes.map(l => ({ id: String(l.id), nome: String(l.nome ?? ""), quadra: String(l.quadra ?? ""), poligono: l.pontos as never, areaInformada: typeof l.areaInformada === "number" && l.areaInformada > 0 ? l.areaInformada : null, tipo: "vendavel" as const, unidade: null })),
       posicoes: imp.posicoes.flatMap(p => {
         const edificacaoId = porNome.get(String(p.edificacao ?? "").trim().toLowerCase());

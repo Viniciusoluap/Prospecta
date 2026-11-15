@@ -26,7 +26,7 @@ const dataHora = (d: Date | string | null) => (d ? new Date(d).toLocaleString("p
 const falha = (e: unknown) => toast.error(e instanceof Error ? e.message : "Não foi possível concluir.");
 const ROTULOS_ESFORCO: Record<(typeof ESFORCOS_IA)[number], string> = { low: "Rápida", medium: "Equilibrada", high: "Mais cuidadosa (mais lenta)" };
 const COR_STATUS: Record<StatusMaquete, string> = {
-  aguardando_pagamento: "bg-amber-500/20 text-amber-300", aguardando_autorizacao: "bg-amber-500/20 text-amber-300",
+  aguardando_aprovacao: "bg-amber-500/20 text-amber-300", aguardando_pagamento: "bg-amber-500/20 text-amber-300", aguardando_autorizacao: "bg-amber-500/20 text-amber-300",
   liberada: "bg-sky-500/20 text-sky-300", em_leitura: "bg-sky-500/20 text-sky-300", em_revisao: "bg-violet-500/20 text-violet-300",
   validada: "bg-emerald-500/20 text-emerald-300", publicada: "bg-emerald-500/20 text-emerald-300", recusada: "bg-red-500/20 text-red-300",
 };
@@ -277,7 +277,8 @@ function Detalhe({ id }: { id: number }) {
   const salvar = trpc.maquete3d.salvarModelo.useMutation({ onSuccess: r => { setVersao(r.versao); setSujo(false); toast.success("Planta salva."); recarregar(); }, onError: falha });
   const montarImplantacao = trpc.maquete3d.implantacaoDoEstudo.useMutation({
     onSuccess: r => {
-      toast.success(`Implantação montada: ${r.lotes} lote(s), ${r.ruas} trecho(s) de rua${r.temTerreno ? "" : ", sem a divisa do terreno"}.`);
+      toast.success(`Implantação montada: ${r.lotes} lote(s), ${r.ruas} trecho(s) de rua${r.temTerreno ? "" : ", sem a divisa do terreno"}${r.temRelevo ? ", com a topografia do estudo" : ""}.`);
+      if (!r.temRelevo) toast.warning("O estudo não tem a topografia carregada (aba Topografia 3D): o terreno foi desenhado plano.");
       if (r.semCenario) toast.warning("O estudo ainda não tem estudo de massa: só o terreno foi desenhado.");
       if (r.descartados) toast.warning(`${r.descartados} lote(s) com geometria inválida ficaram de fora.`);
       setSujo(false); recarregar();
@@ -290,7 +291,15 @@ function Detalhe({ id }: { id: number }) {
   const [comercial, setComercial] = useState<{ nome: string; localizacao: string; preco: string; whatsapp: string } | null>(null);
   useEffect(() => { if (d && !comercial) setComercial({ nome: d.comercial.nome, localizacao: d.comercial.localizacao, preco: d.comercial.preco === null ? "" : String(d.comercial.preco), whatsapp: d.comercial.whatsapp }); }, [d, comercial]);
   const salvarComercial = trpc.maquete3d.salvarComercial.useMutation({ onSuccess: () => { toast.success("Apresentação salva."); recarregar(); }, onError: falha });
-  const publicar = trpc.maquete3d.publicar.useMutation({ onSuccess: () => { toast.success("Maquete publicada. O link já abre para o cliente."); recarregar(); }, onError: falha });
+  const avisoEmail = (r: { enviado: boolean; para: string | null; motivo?: string } | null) => {
+    if (!r) return;
+    if (r.enviado) toast.success(`E-mail enviado para ${r.para}.`); else toast.warning(`E-mail não enviado: ${r.motivo ?? "falha no envio."}`);
+  };
+  const publicar = trpc.maquete3d.publicar.useMutation({ onSuccess: r => { toast.success("Maquete publicada. O link já abre para o cliente."); avisoEmail(r.email); recarregar(); }, onError: falha });
+  const reenviar = trpc.maquete3d.reenviarEmail.useMutation({ onSuccess: avisoEmail, onError: falha });
+  const [faixaAprovada, setFaixaAprovada] = useState<FaixaPreco | null>(null);
+  const aprovar = trpc.maquete3d.aprovarPedido.useMutation({ onSuccess: r => { toast.success(`Pedido aprovado por ${reais(r.preco)}. O cliente já pode pagar no portal.`); avisoEmail(r.email); recarregar(); }, onError: falha });
+  const precosPadrao = trpc.maquete3d.config.useQuery().data?.precos;
   const despublicar = trpc.maquete3d.despublicar.useMutation({ onSuccess: () => { toast.success("Link tirado do ar."); recarregar(); }, onError: falha });
 
   if (detalhe.isLoading) return <p className="text-sm text-gray-400">Carregando…</p>;
@@ -335,6 +344,22 @@ function Detalhe({ id }: { id: number }) {
               </div>
             )}
           </div>
+
+          {d.status === "aguardando_aprovacao" && (
+            <div className="space-y-2 rounded-lg border border-amber-400/30 p-3">
+              <p>Pedido feito pelo cliente no portal. Confira a faixa com o projeto e aprove: só então a cobrança é liberada para ele pagar pelo Asaas.</p>
+              {admin ? (
+                <div className="flex flex-wrap items-end gap-2">
+                  <label className="text-xs text-gray-300">Faixa de preço
+                    <select className={inputCls} value={faixaAprovada ?? (d.faixaPreco as FaixaPreco) ?? "terrea_ate_70"} onChange={e => setFaixaAprovada(e.target.value as FaixaPreco)}>
+                      {FAIXAS_PRECO.map(f => <option key={f} value={f}>{ROTULOS_FAIXA[f]}{precosPadrao ? ` — ${reais(precosPadrao[f])}` : ""}</option>)}
+                    </select></label>
+                  <Button className={btnOuro} disabled={aprovar.isPending} onClick={() => aprovar.mutate({ id, faixaPreco: faixaAprovada ?? (d.faixaPreco as FaixaPreco) ?? "terrea_ate_70" })}><Check className="mr-1 h-4 w-4" />Aprovar e liberar o pagamento</Button>
+                </div>
+              ) : <p className="text-xs text-gray-400">Só o administrador aprova o pedido.</p>}
+              {!d.emailCliente && <p className="text-xs text-amber-300">O cliente não tem e-mail no cadastro: ele verá a aprovação no portal, mas não receberá o aviso por e-mail.</p>}
+            </div>
+          )}
 
           {aguardando && (
             <div className="space-y-2 rounded-lg border border-amber-400/30 p-3">
@@ -479,6 +504,12 @@ function Detalhe({ id }: { id: number }) {
                     </a>
                   )}
                 </div>
+                {d.origem === "projeto" && (
+                  <div className="flex flex-wrap items-center gap-2 text-xs text-gray-300">
+                    <span>{d.emailCliente ? `E-mail do cliente: ${d.emailCliente}` : "O cliente não tem e-mail no cadastro: envie o link pelo WhatsApp."}</span>
+                    {d.emailCliente && <Button size="sm" variant="outline" className={btnOutline} disabled={reenviar.isPending} onClick={() => reenviar.mutate({ id })}>Reenviar o e-mail com o link</Button>}
+                  </div>
+                )}
                 {admin && <Button size="sm" variant="outline" className="border-red-400/50 bg-transparent text-red-300" disabled={despublicar.isPending}
                   onClick={() => { if (window.confirm("Tirar o link do ar? O cliente deixa de conseguir abrir a maquete.")) despublicar.mutate({ id }); }}>Tirar do ar</Button>}
               </div>

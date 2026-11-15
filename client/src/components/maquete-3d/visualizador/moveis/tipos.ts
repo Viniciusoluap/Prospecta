@@ -11,6 +11,14 @@ import type { ReactElement } from "react";
 import type { PecaMobilia, TipoMovel } from "@shared/maquete-3d/mobilia";
 import type { Estilo, Materiais } from "../materiais";
 
-export type PropsMovel = { peca: PecaMobilia; m: Materiais; estilo: Estilo };
+export type PropsMovel = {
+  peca: PecaMobilia; m: Materiais; estilo: Estilo;
+  /**
+   * Modo aprimorado (botão "Aprimorar" do visualizador): o móvel pode gastar mais triângulos para ganhar realismo
+   * — cantos mais arredondados, costuras e vincos, mais folhas, frisos, puxadores torneados, pés detalhados.
+   * Desligado (padrão), vale o orçamento enxuto para celular.
+   */
+  aprimorado?: boolean;
+};
 export type DesenhoMovel = (p: PropsMovel) => ReactElement | null;
 export type CatalogoMoveis = Partial<Record<TipoMovel, DesenhoMovel>>;

@@ -13,7 +13,7 @@ Status: Done em código (15/11/2026) — testado com cobrança simulada; **pende
 - [x] O cliente só vê o botão "Abrir a minha maquete 3D" depois que o admin publica.
 - [x] Admin: botão "Enviar ao cliente pelo WhatsApp" (abre a conversa com o link). O envio automático pela
       instância conectada não foi feito.
-- [ ] A faixa de preço é declarada pelo cliente; a equipe confere na revisão (pode recusar). Não há cobrança de diferença.
+- [x] (S-08) O pedido passa pela aprovação do administrador, que confere a faixa, antes de existir cobrança.
 - [ ] Estorno é feito pelo admin no Asaas (não há botão de estorno).
 
 ## Arquivos

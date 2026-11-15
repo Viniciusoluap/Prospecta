@@ -14,11 +14,10 @@ Status: Done em código (15/11/2026) — conferido em navegador automatizado com
       reler os PDFs mantém a implantação vinda do estudo.
 - [x] Condomínio: construções posicionadas na implantação (até 24 desenhadas) e a casa-tipo navegável por dentro.
 - [x] Prédio: pavimento-tipo repetido e empilhado, com o apartamento-tipo navegável (vem da leitura do PDF).
-- [ ] As posições das casas no condomínio só existem se vierem da prancha de implantação lida do PDF: o estudo de
-      massa não guarda geometria de construções. Não há tela para posicionar casas à mão.
-- [ ] A implantação não é editável na revisão (é atualizada pelo botão, a partir do estudo).
+- [x] (S-08) Tela para posicionar as casas do condomínio à mão, em fila ou uma por lote.
+- [ ] Terreno, ruas e lotes não são editáveis na revisão (vêm do estudo); as construções são.
 - [ ] Prédio é um bloco por edificação, sem elevador, garagem em subsolo ou áreas comuns modeladas.
-- [ ] O terreno é desenhado plano (a topografia do estudo não entra na maquete).
+- [x] (S-08) A implantação acompanha a topografia do estudo.
 
 ## Arquivos
 - `shared/maquete-3d/implantacao.ts`, `shared/maquete-3d/modelo.ts` (ruas em polígono, tipo do lote)

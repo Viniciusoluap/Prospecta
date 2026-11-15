@@ -10,7 +10,7 @@ export const TIPOS_MOVEL = [
   "cama", "criado_mudo", "guarda_roupa", "escrivaninha", "cadeira_escritorio", "estante",
   "bancada_cozinha", "armario_aereo", "geladeira", "vaso_sanitario", "lavatorio", "espelho", "box_chuveiro",
   "tanque", "maquina_lavar", "armario_servico", "mesa_externa", "churrasqueira", "prateleira",
-  "planta", "luminaria_piso", "quadro", "cortina", "pendente", "plafon",
+  "planta", "luminaria_piso", "quadro", "cortina", "pendente", "plafon", "carro",
 ] as const;
 export type TipoMovel = (typeof TIPOS_MOVEL)[number];
 
@@ -388,9 +388,17 @@ export function mobiliarComodo(c: Comodo, pv: Pavimento): PecaMobilia[] {
     case "despensa": case "deposito":
       a.encostar("prateleira", { largura: 1.2, profundidade: 0.4, altura: 1.9, minimo: 0.7 }, { esticarAte: 2.4, folga: 0.5 });
       luzDeTeto(a, "plafon"); break;
-    case "garagem":
+    case "garagem": {
+      // Carro no sentido do maior lado da garagem; uma vaga a cada 2,6 m de largura livre (no máximo duas).
+      const maior = a.lados[a.ladosPorTamanho()[0]], rot = Math.atan2(maior.ux, maior.uy);
+      const menor = Math.min(...a.lados.map(l => l.comp)), vagas = menor >= 5.4 ? 2 : 1;
+      for (let v = 0; v < vagas; v++) {
+        const desvio = vagas === 2 ? (v === 0 ? -1.35 : 1.35) : 0;
+        a.soltar("carro", a.centro.x + Math.cos(rot) * desvio, a.centro.y - Math.sin(rot) * desvio, rot, { largura: 1.8, profundidade: 4.3, altura: 1.48 }, { folga: 0.35, opcoes: { cor: v === 0 ? "prata" : "grafite" } });
+      }
       a.encostar("prateleira", { largura: 1.2, profundidade: 0.4, altura: 1.9, minimo: 0.8 }, { lados: a.ladosPorTamanho().reverse(), folga: 0.2 });
       luzDeTeto(a, "plafon"); break;
+    }
     case "hall": case "circulacao": passagem(a); break;
     case "area_externa": break;
     default: luzDeTeto(a, "plafon");

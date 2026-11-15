@@ -6,7 +6,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type PointerEvent as
 import { Canvas } from "@react-three/fiber";
 import * as THREE from "three";
 import {
-  Box, DoorOpen, Eye, Home, Maximize, MessageCircle, Pause, Play, RotateCcw, Volume2, VolumeX, Footprints, Layers,
+  Box, Camera, DoorOpen, Eye, Home, Sparkles, Maximize, MessageCircle, Pause, Play, RotateCcw, Volume2, VolumeX, Footprints, Layers,
 } from "lucide-react";
 import { limites, pontosDoPavimento, resumoModelo, type Edificacao, type ModeloMaquete } from "@shared/maquete-3d/modelo";
 import { pavimentosOrdenados, topoDaEdificacao } from "@shared/maquete-3d/geometria3d";
@@ -17,6 +17,7 @@ import { Caminhada, Orbita, Tour, caixaDaEdificacao, comandoVazio, visitanteNaEn
 import { Implantacao, SITUACOES, limitesDaImplantacao, lotesDaCena, type LoteNaCena, type SituacaoLote, type UnidadeVenda } from "./Implantacao";
 import { ESTILOS, ROTULOS_ESTILO, acender, materiaisDoEstilo, type Estilo } from "./materiais";
 import { tocarTrilha, type Trilha } from "./som";
+import { Aprimorado, type Fotografo } from "./Aprimorado";
 
 export type DadosComerciais = {
   nome: string; logo?: string | null; localizacao?: string | null;
@@ -39,7 +40,8 @@ const btn = "pointer-events-auto inline-flex h-10 items-center gap-2 rounded-ful
 const btnAtivo = "border-[#C9A961] bg-[#C9A961] text-[#1A2332] hover:bg-[#C9A961]";
 const m2 = (n: number) => n.toLocaleString("pt-BR", { maximumFractionDigits: 2 });
 
-function Cena({ modelo, unidades, noLoteamento, lote, onLote, edificacao, estilo, horario, qualidade, modo, telhado, pausado, reinicio, visitante, comando, onLocal, onLegenda, onFimTour, vistaDeCima, corteAte }: {
+function Cena({ aprimorado, fotografo, modelo, unidades, noLoteamento, lote, onLote, edificacao, estilo, horario, qualidade, modo, telhado, pausado, reinicio, visitante, comando, onLocal, onLegenda, onFimTour, vistaDeCima, corteAte }: {
+  aprimorado: boolean; fotografo: Fotografo;
   modelo: ModeloMaquete; unidades: UnidadeVenda[];
   /** Mostra o empreendimento inteiro (implantação) em vez de uma edificação. */
   noLoteamento: boolean; lote: string | null; onLote: (l: LoteNaCena | null) => void;
@@ -54,12 +56,13 @@ function Cena({ modelo, unidades, noLoteamento, lote, onLote, edificacao, estilo
   const h = useMemo(() => horarioEm(horario), [horario]);
   useEffect(() => { acender(m, h.noite); }, [m, h.noite]);
   const caixa = useMemo(() => {
-    if (noLoteamento && modelo.implantacao) return { ...limitesDaImplantacao(modelo.implantacao), topo: 6 };
+    if (noLoteamento && modelo.implantacao) return { ...limitesDaImplantacao(modelo.implantacao), topo: 6 + Math.max(0, ...(modelo.implantacao.relevo?.alturas ?? [0])) };
     return edificacao ? caixaDaEdificacao(edificacao) : { x0: 0, x1: 10, z0: 0, z1: 10, topo: 3 };
   }, [noLoteamento, modelo.implantacao, edificacao]);
   const centro = useMemo(() => [(caixa.x0 + caixa.x1) / 2, 0, (caixa.z0 + caixa.z1) / 2] as [number, number, number], [caixa]);
   const raio = Math.max(caixa.x1 - caixa.x0, caixa.z1 - caixa.z0, caixa.topo, 6);
-  const q = QUALIDADES[qualidade];
+  // Aprimorado: sombras no máximo e mais luminárias acesas de verdade, qualquer que seja a qualidade escolhida.
+  const q = aprimorado ? { ...QUALIDADES.alta, mapa: 4096, luzes: 16 } : QUALIDADES[qualidade];
   // Por dentro e no tour o telhado fica (é o teto de quem está dentro); por fora o botão decide.
   const comTelhado = modo === "interno" || modo === "tour" ? !vistaDeCima : telhado;
   const corte = modo === "externo" && !telhado ? corteAte : null;
@@ -68,16 +71,17 @@ function Cena({ modelo, unidades, noLoteamento, lote, onLote, edificacao, estilo
       <Ceu t={horario} raio={raio} centro={centro} sombras={q.sombras} mapaSombra={q.mapa} />
       {noLoteamento && modelo.implantacao ? (
         <>
-          <mesh rotation={[-Math.PI / 2, 0, 0]} position={[centro[0], -0.08, centro[2]]} material={m.grama} receiveShadow><planeGeometry args={[raio * 12, raio * 12]} /></mesh>
+          <mesh rotation={[-Math.PI / 2, 0, 0]} position={[centro[0], -0.5, centro[2]]} material={m.grama} receiveShadow><planeGeometry args={[raio * 12, raio * 12]} /></mesh>
           <Implantacao implantacao={modelo.implantacao} edificacoes={modelo.edificacoes} unidades={unidades} m={m} selecionado={lote} onSelecionar={onLote} />
         </>
       ) : edificacao ? (
         <>
           <Entorno edificacao={edificacao} m={m} />
           <Casa edificacao={edificacao} m={m} mostrarTelhado={comTelhado} corteAte={corte} />
-          <Mobilia pecas={pecas} m={m} estilo={estilo} noite={h.noite} luzesAte={q.luzes} corteAte={corte} />
+          <Mobilia pecas={pecas} m={m} estilo={estilo} noite={h.noite} luzesAte={q.luzes} corteAte={corte} aprimorado={aprimorado} />
         </>
       ) : null}
+      <Aprimorado ativo={aprimorado} noite={h.noite} fotografo={fotografo} />
       {(modo === "externo" || modo === "capa" || modo === "implantacao") && <Orbita caixa={caixa} deCima={vistaDeCima} />}
       {edificacao && modo === "interno" && <Caminhada edificacao={edificacao} visitante={visitante} comando={comando} onLocal={onLocal} />}
       {edificacao && modo === "tour" && <Tour edificacao={edificacao} visitante={visitante} pausado={pausado} reinicio={reinicio} onLocal={onLocal} onLegenda={onLegenda} onFim={onFimTour} />}
@@ -160,6 +164,22 @@ export function Visualizador({ modelo, comercial, aoSair, unidades = [] }: {
   const [local, setLocal] = useState<InfoLocal | null>(null);
   const [legenda, setLegenda] = useState<LegendaTour>(null);
   const [menu, setMenu] = useState(false);
+  // Aprimorar: fica guardado no aparelho. Começa desligado (é mais pesado, sobretudo no celular).
+  const [aprimorado, setAprimorado] = useState(() => { try { return localStorage.getItem("maquete3d:aprimorado") === "1"; } catch { return false; } });
+  const alternarAprimorado = () => setAprimorado(v => { try { localStorage.setItem("maquete3d:aprimorado", v ? "0" : "1"); } catch { /* sem armazenamento */ } return !v; });
+  const fotografo: Fotografo = useRef(null);
+  const [fotografando, setFotografando] = useState(false);
+  const tirarFoto = async () => {
+    setFotografando(true);
+    try {
+      const imagem = await fotografo.current?.();
+      if (!imagem) return;
+      const url = URL.createObjectURL(imagem), a = document.createElement("a");
+      a.href = url; a.download = `${comercial.nome.normalize("NFD").replace(/[^A-Za-z0-9]+/g, "-").toLowerCase() || "maquete"}.png`;
+      document.body.appendChild(a); a.click(); a.remove();
+      window.setTimeout(() => URL.revokeObjectURL(url), 30_000);
+    } finally { setFotografando(false); }
+  };
   const [erro, setErro] = useState<string | null>(null);
 
   const visitante = useRef<Visitante>(edificacao ? visitanteNaEntrada(edificacao) : { x: 0, z: 0, y: 0, giro: 0, inclinacao: 0, pavimentoId: "" });
@@ -208,10 +228,10 @@ export function Visualizador({ modelo, comercial, aoSair, unidades = [] }: {
           Não foi possível iniciar o 3D neste aparelho ({erro}). Tente outro navegador ou reduza a qualidade.
         </div>
       ) : (
-        <Canvas shadows={QUALIDADES[qualidade].sombras ? "soft" : false} dpr={QUALIDADES[qualidade].dpr} camera={{ fov: 62, near: 0.08, far: 4000, position: [14, 10, 16] }}
+        <Canvas shadows={aprimorado || QUALIDADES[qualidade].sombras ? "soft" : false} dpr={aprimorado ? [1, 2] : QUALIDADES[qualidade].dpr} camera={{ fov: 62, near: 0.08, far: 4000, position: [14, 10, 16] }}
           gl={{ antialias: true, powerPreference: "high-performance" }} style={{ position: "absolute", inset: 0, touchAction: "none" }}
           onCreated={({ gl }) => { gl.toneMapping = THREE.ACESFilmicToneMapping; gl.toneMappingExposure = 0.76; gl.domElement.addEventListener("webglcontextlost", () => setErro("o navegador encerrou o contexto gráfico")); }}>
-          <Cena modelo={modelo} unidades={unidades} noLoteamento={temImplantacao && (modo === "implantacao" || (modo === "capa") || !temEdificacao)} lote={lote?.id ?? null} onLote={setLote}
+          <Cena aprimorado={aprimorado} fotografo={fotografo} modelo={modelo} unidades={unidades} noLoteamento={temImplantacao && (modo === "implantacao" || (modo === "capa") || !temEdificacao)} lote={lote?.id ?? null} onLote={setLote}
             edificacao={temEdificacao ? edificacao : null} estilo={estilo} horario={horario} qualidade={qualidade} modo={modo} telhado={telhado} pausado={pausado} reinicio={reinicio}
             visitante={visitante} comando={comando} onLocal={setLocal} onLegenda={setLegenda} onFimTour={fimDoTour} vistaDeCima={vistaDeCima}
             corteAte={andares.find(a => a.id === andar)?.nivel ?? null} />
@@ -257,6 +277,7 @@ export function Visualizador({ modelo, comercial, aoSair, unidades = [] }: {
               {aoSair && <button type="button" className={btn} onClick={aoSair}>Fechar</button>}
             </div>
             <div className="flex flex-wrap justify-end gap-2">
+              <button type="button" className={`${btn} ${aprimorado ? btnAtivo : ""}`} onClick={alternarAprimorado} aria-pressed={aprimorado} title="Imagem mais realista: sombras de contato, brilho das luzes e móveis detalhados"><Sparkles className="h-4 w-4" /><span className="hidden sm:inline">{aprimorado ? "Aprimorado" : "Aprimorar"}</span></button>
               <button type="button" className={btn} onClick={() => ligarSom(!som)} aria-label={som ? "Desligar o som" : "Ligar o som"}>{som ? <Volume2 className="h-4 w-4" /> : <VolumeX className="h-4 w-4" />}</button>
               <button type="button" className={btn} onClick={telaCheia} aria-label="Tela cheia"><Maximize className="h-4 w-4" /></button>
               <button type="button" className={`${btn} ${menu ? btnAtivo : ""}`} onClick={() => setMenu(v => !v)}><Layers className="h-4 w-4" />Menu</button>
@@ -304,6 +325,8 @@ export function Visualizador({ modelo, comercial, aoSair, unidades = [] }: {
                     {modelo.edificacoes.map((e, i) => <option key={e.id} value={i}>{e.nome}</option>)}
                   </select></label>
               )}
+              <button type="button" className={`${btn} w-full justify-center`} disabled={fotografando} onClick={() => void tirarFoto()}><Camera className="h-4 w-4" />{fotografando ? "Gerando a foto…" : "Baixar foto em alta desta vista"}</button>
+              {aprimorado && <p className="text-xs text-gray-400">Modo aprimorado ligado: imagem mais realista e mais pesada. Se travar, desligue em "Aprimorado".</p>}
               {whats && <a className={`${btn} w-full justify-center`} href={whats} target="_blank" rel="noreferrer"><MessageCircle className="h-4 w-4" />Falar com consultor</a>}
               <p className="text-xs text-gray-400">{modo === "interno" ? (toque ? "Use o joystick para andar e arraste a tela para olhar." : "W A S D ou setas para andar · arraste o mouse para olhar · duplo clique trava o mouse (Esc solta) · Shift corre.") : "Arraste para girar · role ou use dois dedos para aproximar."}</p>
             </div>

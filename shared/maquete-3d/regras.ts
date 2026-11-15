@@ -40,7 +40,8 @@ export function lerConfig(texto: string | null | undefined): ConfigMaquete {
 }
 
 export const STATUS_MAQUETE = [
-  "aguardando_pagamento",   // projeto de cliente: pedido criado, cobrança em aberto
+  "aguardando_aprovacao",   // pedido feito pelo cliente no portal: o administrador confere a faixa e aprova
+  "aguardando_pagamento",   // projeto de cliente: pedido aprovado, cobrança em aberto
   "aguardando_autorizacao", // incorporação: espera o administrador autorizar
   "liberada",               // paga ou autorizada: pode rodar o motor
   "em_leitura",             // motor lendo os PDFs
@@ -51,7 +52,7 @@ export const STATUS_MAQUETE = [
 ] as const;
 export type StatusMaquete = (typeof STATUS_MAQUETE)[number];
 export const ROTULOS_STATUS: Record<StatusMaquete, string> = {
-  aguardando_pagamento: "Aguardando pagamento", aguardando_autorizacao: "Aguardando autorização", liberada: "Liberada",
+  aguardando_aprovacao: "Aguardando aprovação", aguardando_pagamento: "Aguardando pagamento", aguardando_autorizacao: "Aguardando autorização", liberada: "Liberada",
   em_leitura: "Lendo o projeto", em_revisao: "Em revisão", validada: "Validada", publicada: "Publicada", recusada: "Recusada",
 };
 
