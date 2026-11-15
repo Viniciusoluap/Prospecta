@@ -53,6 +53,21 @@
 - Limites conhecidos: boca do balão em canto vivo; balão cortado pela divisa é desenhado inteiro; dobra fechada da via
   pela divisa fica em quina.
 
+### Etapa F — revisão do coordenador (forma dos lotes e das áreas públicas)
+- Sobra que encosta em vários lotes é REPARTIDA prolongando as divisas laterais de cada lote até a divisa (cada lote
+  ganha só o trecho na sua frente/fundo); anexo inteiro só se o lote continuar compacto. Critério de forma para lote
+  ampliado/novo: área ≤ 1,6 × nominal; caixa orientada mínima com lado maior ≤ 2,2 × profundidade, ocupação ≥ 60% e
+  proporção ≤ 2 × a do lote informado; lote novo com a frente no lado curto. O que não passa vira área pública.
+- "a × b (méd.)": testada = trecho real da frente (+ curva do balão; no lote de esquina, a frente medida) e
+  profundidade média = área ÷ testada. Rótulo de lote só é desenhado inteiro dentro do próprio lote.
+- Área pública: nenhuma doação abaixo de 120 m² (o que faltar sai de lotes contíguos; o corte mínimo é 120 m²);
+  peça < 120 m² vai para o lote vizinho (se continuar com forma de lote), para a peça pública vizinha ou para o leito
+  da via encostada; se ficar isolada, o cenário avisa com a contagem. Peças contíguas do mesmo uso viram uma só (praça).
+- Rua Simples: o aviso diz o % da gleba que ficou como área verde sem frente e recomenda Grade/Cul-de-sac; na seleção,
+  só a área vendável é mérito (área verde além do mínimo desempata contra).
+- Números (mesmo caso de referência): Grade 73 → 70 lotes (58,8% → 57,7%); Cul-de-sac 72 → 68 (58,2% → 56,6%);
+  Rua Simples 44 → 43 (35,3% → 36,0%). A queda vem de deixar de aceitar lotes deformados e de não usar migalhas como doação.
+
 ## Pendências
 - **Dono:** abrir o pedido "Polímeros (Morada do Bosque)", clicar em "Gerar maquete (ler o projeto)" e dizer como ficou a
   leitura do "ARQ 01-01-CASA PADRÃO.pdf" (é a primeira medição do leitor num projeto real).

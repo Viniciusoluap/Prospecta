@@ -209,6 +209,19 @@ export function frenteMinimaPara(testadaM: number): number {
   return Math.min(testadaM, Math.max(5, testadaM / 2));
 }
 
+/** Comprimento do contorno do lote que fica SOBRE a linha da frente da célula (a testada real do lote recortado). */
+function frenteNaLinha(anel: Position[], c: CelulaLote): number {
+  const { a, b } = ladoFrente(c);
+  const horizontal = Math.abs(b[1] - a[1]) < 1e-9;
+  let f = 0;
+  for (let i = 0; i < anel.length - 1; i++) {
+    const p = anel[i], q = anel[i + 1];
+    const sobre = horizontal ? Math.abs(p[1] - a[1]) < 1e-6 && Math.abs(q[1] - a[1]) < 1e-6 : Math.abs(p[0] - a[0]) < 1e-6 && Math.abs(q[0] - a[0]) < 1e-6;
+    if (sobre) f += Math.hypot(q[0] - p[0], q[1] - p[1]);
+  }
+  return f;
+}
+
 function ladoFrente(c: CelulaLote): { a: Position; b: Position; fora: [number, number] } {
   const [x0, y0, x1, y1] = c.ret;
   switch (c.frente) {
@@ -510,8 +523,13 @@ export function processarMalha(gf: GlebaFrame, vias: ViaMalha[], baloes: BalaoMa
       for (const s of Array.from(serv)) { const id = nosMantidos[s].i; servidas.set(id, (servidas.get(id) ?? 0) + 1); }
       const lote: LoteFrame = { anel: peca[0], area, ret: c.ret, linha: c.linha, faixa: c.faixa, segmento: c.segmento, ordem: c.ordem };
       if (cobertura) lote.cobertura = cobertura;
+      lote.eixoTestada = c.frente === "S" || c.frente === "N" ? "x" : "y";
       if (recortado) {
-        const t = Number.isFinite(frente) ? frente : Math.min(c.ret[2] - c.ret[0], c.ret[3] - c.ret[1]);
+        // testada mostrada = trecho REAL do lado da frente (sobre a linha da frente da célula); fundo médio = área ÷ testada
+        const largura = c.frente === "S" || c.frente === "N" ? c.ret[2] - c.ret[0] : c.ret[3] - c.ret[1];
+        // + a curva do balão, quando o balão cortou a frente do lote
+        const naLinha = Math.min(largura, frenteNaLinha(peca[0], c)) + (baloesMantidos.length > 0 ? medirFrente(peca[0], baloesMantidos.map((x) => x.no)) : 0);
+        const t = naLinha + 1e-9 >= o.frenteMinimaM ? naLinha : Number.isFinite(frente) ? frente : Math.min(c.ret[2] - c.ret[0], c.ret[3] - c.ret[1]);
         lote.testada = t;
         lote.profundidadeMedia = area / Math.max(t, 1e-9);
         (lote as LoteFrame & { recortado?: boolean }).recortado = true;
@@ -627,6 +645,10 @@ export interface EntradaDestinacao {
   frenteMinimaM: number;
   /** Largura da via (para exigir a rua com largura cheia na frente de um lote novo). */
   larguraViaM?: number;
+  /** Profundidade informada do lote (critério de forma do lote ampliado). */
+  profundidadeNominalM?: number;
+  /** Migalha pública encostada na via pode virar leito da via (falso no modo manual da área viária: o valor informado manda). */
+  incorporarNaVia?: boolean;
 }
 
 export interface ResultadoDestinacao {
@@ -636,6 +658,60 @@ export interface ResultadoDestinacao {
   semDestinoM2: number;
   /** Área da união das vias (para o fecho). */
   areaViasM2: number;
+  /** Avisos da destinação (ex.: peças públicas minúsculas que ficaram isoladas). */
+  avisos: string[];
+  /** Migalhas entre a ponta de uma via e a divisa incorporadas ao leito da via. */
+  viasExtras: Poli[];
+}
+
+/** Peça de área pública menor que isto (m²) não serve como área pública: é incorporada ao vizinho sempre que possível. */
+export const AREA_PUBLICA_MINIMA_M2 = 120;
+
+function centroideArea(anel: Position[]): Position {
+  let a = 0, cx = 0, cy = 0;
+  for (let i = 0; i < anel.length - 1; i++) {
+    const [x0, y0] = anel[i], [x1, y1] = anel[i + 1];
+    const k = x0 * y1 - x1 * y0;
+    a += k; cx += (x0 + x1) * k; cy += (y0 + y1) * k;
+  }
+  return Math.abs(a) < 1e-9 ? centro(anel) : [cx / (3 * a), cy / (3 * a)];
+}
+
+/** Retângulo de menor área que contém o anel (orientado pelas arestas do fecho convexo). */
+export function caixaMinima(anel: Position[]): { comprimento: number; largura: number; area: number } {
+  const pts = anel.slice(0, -1).map((p) => [p[0], p[1]] as [number, number]).sort((a, b) => a[0] - b[0] || a[1] - b[1]);
+  if (pts.length < 3) return { comprimento: 0, largura: 0, area: 0 };
+  const cruz = (o: number[], a: number[], b: number[]) => (a[0] - o[0]) * (b[1] - o[1]) - (a[1] - o[1]) * (b[0] - o[0]);
+  const inf: [number, number][] = [], sup: [number, number][] = [];
+  for (const p of pts) { while (inf.length >= 2 && cruz(inf[inf.length - 2], inf[inf.length - 1], p) <= 0) inf.pop(); inf.push(p); }
+  for (const p of [...pts].reverse()) { while (sup.length >= 2 && cruz(sup[sup.length - 2], sup[sup.length - 1], p) <= 0) sup.pop(); sup.push(p); }
+  const fecho = [...inf.slice(0, -1), ...sup.slice(0, -1)];
+  let melhor = { comprimento: 0, largura: 0, area: Infinity };
+  for (let i = 0; i < fecho.length; i++) {
+    const a = fecho[i], b = fecho[(i + 1) % fecho.length];
+    const L = Math.hypot(b[0] - a[0], b[1] - a[1]);
+    if (L < 1e-9) continue;
+    const ux = (b[0] - a[0]) / L, uy = (b[1] - a[1]) / L;
+    let u0 = Infinity, u1 = -Infinity, v0 = Infinity, v1 = -Infinity;
+    for (const [x, y] of fecho) { const u = x * ux + y * uy, v = -x * uy + y * ux; if (u < u0) u0 = u; if (u > u1) u1 = u; if (v < v0) v0 = v; if (v > v1) v1 = v; }
+    const w = u1 - u0, h = v1 - v0;
+    if (w * h < melhor.area) melhor = { comprimento: Math.max(w, h), largura: Math.min(w, h), area: w * h };
+  }
+  return Number.isFinite(melhor.area) ? melhor : { comprimento: 0, largura: 0, area: 0 };
+}
+
+/**
+ * Critério de forma de lote vendável ampliado/novo (sem "pente" nem "L" fino): área ≤ 1,6 × a área nominal;
+ * na caixa orientada mínima, lado maior ≤ 2,2 × a profundidade informada e área do lote ≥ 60% da área da caixa.
+ */
+export function formaAceitavel(anel: Position[], area: number, areaNominal: number, loteMinimo: number, profundidadeNominal: number): boolean {
+  if (area > 1.6 * Math.max(areaNominal, loteMinimo) + 1e-6) return false;
+  const c = caixaMinima(anel);
+  if (c.comprimento > 2.2 * profundidadeNominal + 1e-6 || area < 0.6 * c.area - 1e-6) return false;
+  // sem "faixa": a proporção da caixa não passa do dobro da proporção do lote informado (ex.: 12 × 25 → até 4,2 : 1)
+  const testadaNominal = areaNominal / Math.max(profundidadeNominal, 1e-9);
+  const proporcao = Math.max(profundidadeNominal / testadaNominal, testadaNominal / profundidadeNominal);
+  return c.largura > 1e-9 && c.comprimento / c.largura <= 2 * proporcao * (1 + 1e-3); // 0,1%: ruído de ida e volta lng/lat
 }
 
 function cortarPorArea(p: Poli, alvo: number): { a: Poli[]; b: Poli[] } | null {
@@ -685,6 +761,18 @@ function normalizarPeca(p: Poli): Poli[] {
   return poligonosDe(u.geometry as Polygon | MultiPolygon);
 }
 
+/** Anel arredondado a 1 µm (sem vértices repetidos) — para uniões entre peças vindas de recortes diferentes. */
+function arred(anel: Position[]): Position[] {
+  const out: Position[] = [];
+  for (const q of anel) {
+    const pt: Position = [Math.round(q[0] * 1e6) / 1e6, Math.round(q[1] * 1e6) / 1e6];
+    const u = out[out.length - 1];
+    if (!u || u[0] !== pt[0] || u[1] !== pt[1]) out.push(pt);
+  }
+  if (out.length > 1 && (out[0][0] !== out[out.length - 1][0] || out[0][1] !== out[out.length - 1][1])) out.push(out[0]);
+  return out;
+}
+
 const aneisPeca =(p: Poli): { anel: Position[]; furos?: Position[][] } => (p.length > 1 ? { anel: p[0], furos: p.slice(1) } : { anel: p[0] });
 
 function encostam(a: Ret, b: Ret): boolean {
@@ -732,35 +820,104 @@ export function destinarSobras(e: EntradaDestinacao): ResultadoDestinacao {
   const sobraFinal = sobra as Geo | null;
   let pool: Poli[] = sobraFinal ? poligonosDe(sobraFinal.geometry as Polygon | MultiPolygon).flatMap(normalizarPeca).filter((p) => areaPoli(p) > AREA_RUIDO_M2) : [];
   const pecas: PecaDestinada[] = [];
-  const maxAmpliado = 2 * Math.max(e.areaNominalLote, e.loteMinimoM2);
   const viasNos = e.vias.map((p) => ({ poli: p, bbox: bboxDe([p[0]]) }));
+  const forma = (anel: Position[], area: number) => formaAceitavel(anel, area, e.areaNominalLote, e.loteMinimoM2, e.profundidadeNominalM ?? Math.sqrt(e.areaNominalLote));
 
-  // anexa a peça ao lote vendável vizinho (união = um polígono só, sem furo) — o menor lote que comporta
-  const anexar = (p: Poli): boolean => {
-    if (p.length > 1) return false;
+  /** Atualiza o lote com o novo anel: testada MEDIDA sobre a via e profundidade média = área ÷ testada. */
+  const ampliar = (i: number, anel: Position[], area: number) => {
+    const l = lotes[i];
+    // a sobra entra pela frente/fundo: a testada continua a do lote (inteiro: largura da célula); fundo médio = área ÷ testada
+    const t = l.testada ?? (l.eixoTestada === "y" ? l.ret[3] - l.ret[1] : l.ret[2] - l.ret[0]);
+    lotes[i] = { ...l, anel, area, testada: t, profundidadeMedia: area / Math.max(t, 1e-9), ampliado: true };
+  };
+
+  /** União da peça com o lote: um polígono só, sem furo, e com forma de lote (critério de forma). */
+  const tentarAnexo = (i: number, p: Poli): { anel: Position[]; area: number } | null => {
+    if (p.length > 1) return null;
+    const l = lotes[i];
     const bp = bboxDe([p[0]]);
+    if (!sobrepoe(bboxDe([l.anel]), bp, 0.01)) return null;
+    // lote da malha: a sobra só entra pela frente/fundo, dentro da faixa das divisas laterais prolongadas (sem "L" de lado)
+    if (l.eixoTestada) {
+      const tol = 0.25 * (l.eixoTestada === "x" ? l.ret[2] - l.ret[0] : l.ret[3] - l.ret[1]);
+      const [a0, a1, b0, b1] = l.eixoTestada === "x" ? [bp[0], bp[2], l.ret[0], l.ret[2]] : [bp[1], bp[3], l.ret[1], l.ret[3]];
+      if (a0 < b0 - tol || a1 > b1 + tol) return null;
+    }
+    // arredonda a 1 µm: o lado comum (S-H do lote × recorte do turf na sobra) difere em ~1e-12 m
+    const u = seguro(() => union(featureCollection([turfPolygon([arred(l.anel)]), turfPolygon(p.map(arred))])));
+    if (!u || u.geometry.type !== "Polygon" || u.geometry.coordinates.length > 1) return null;
+    const anel = u.geometry.coordinates[0];
+    const area = areaPlanar(anel);
+    return forma(anel, area) ? { anel, area } : null;
+  };
+
+  /** Anexa a peça inteira ao lote vizinho que continuar com forma de lote (o menor deles). */
+  const anexar = (p: Poli): boolean => {
     let melhor: { i: number; anel: Position[]; area: number } | null = null;
     lotes.forEach((l, i) => {
-      if (l.area + areaPoli(p) > maxAmpliado + 1e-6) return;
-      const bl = bboxDe([l.anel]);
-      if (!sobrepoe(bl, bp, 0.01)) return;
-      const u = seguro(() => union(featureCollection([turfPolygon([l.anel]), turfPolygon(p)])));
-      if (!u || u.geometry.type !== "Polygon" || u.geometry.coordinates.length > 1) return;
-      const anel = u.geometry.coordinates[0];
-      const area = areaPlanar(anel);
-      if (!melhor || l.area < lotes[melhor.i].area) melhor = { i, anel, area };
+      const r = tentarAnexo(i, p);
+      if (r && (!melhor || l.area < lotes[melhor.i].area)) melhor = { i, ...r };
     });
     const m = melhor as { i: number; anel: Position[]; area: number } | null;
     if (!m) return false;
-    const l = lotes[m.i];
-    const t = l.testada ?? Math.min(l.ret[2] - l.ret[0], l.ret[3] - l.ret[1]);
-    lotes[m.i] = { ...l, anel: m.anel, area: m.area, testada: t, profundidadeMedia: m.area / Math.max(t, 1e-9), ampliado: true };
+    ampliar(m.i, m.anel, m.area);
     return true;
   };
 
-  // 1) migalhas (menores que meio lote mínimo) vão para o lote vizinho quando possível
+  /**
+   * Sobra que encosta em VÁRIOS lotes: é repartida prolongando as divisas laterais de cada lote até a divisa da gleba —
+   * cada lote ganha só o trecho que fica na sua frente/fundo (o lote "vai até a divisa"), se continuar com forma de lote.
+   * O que não couber em nenhum lote volta como sobra (para as doações ou área verde).
+   */
+  const repartir = (p: Poli): Poli[] => {
+    if (p.length > 1) return [p];
+    const bp = bboxDe([p[0]]);
+    const vizinhos = lotes.map((l, i) => ({ l, i })).filter(({ l }) => l.eixoTestada && sobrepoe(bboxDe([l.anel]), bp, 0.01));
+    if (vizinhos.length === 0) return anexar(p) ? [] : [p];
+    const xs = new Set<number>(), ys = new Set<number>();
+    for (const { l } of vizinhos) {
+      if (l.eixoTestada === "x") { xs.add(l.ret[0]); xs.add(l.ret[2]); } else { ys.add(l.ret[1]); ys.add(l.ret[3]); }
+    }
+    let partes: Poli[] = [p];
+    const cortar = (eixo: "x" | "y", v: number) => {
+      partes = partes.flatMap((q) => {
+        const b = bboxDe([q[0]]);
+        if (eixo === "x" ? v <= b[0] + 1e-6 || v >= b[2] - 1e-6 : v <= b[1] + 1e-6 || v >= b[3] - 1e-6) return [q];
+        const r1: Ret = eixo === "x" ? [b[0] - 1, b[1] - 1, v, b[3] + 1] : [b[0] - 1, b[1] - 1, b[2] + 1, v];
+        const r2: Ret = eixo === "x" ? [v, b[1] - 1, b[2] + 1, b[3] + 1] : [b[0] - 1, v, b[2] + 1, b[3] + 1];
+        const out: Poli[] = [];
+        for (const r of [r1, r2]) {
+          const x = seguro(() => intersect(featureCollection([turfPolygon(q), turfPolygon([retAnel(r)])])));
+          if (x) out.push(...poligonosDe(x.geometry as Polygon | MultiPolygon).filter((z) => areaPoli(z) > AREA_RUIDO_M2));
+        }
+        return out.length > 0 ? out : [q];
+      });
+    };
+    Array.from(xs).sort((a, b) => a - b).forEach((v) => cortar("x", v));
+    Array.from(ys).sort((a, b) => a - b).forEach((v) => cortar("y", v));
+    const restos: Poli[] = [];
+    for (const q of partes) {
+      const c = centroideArea(q[0]);
+      // o lote "dono" do trecho: aquele cuja faixa lateral (prolongada) contém o trecho e que encosta nele
+      const donos = vizinhos.filter(({ l }) => (l.eixoTestada === "x" ? c[0] >= l.ret[0] - 1e-6 && c[0] <= l.ret[2] + 1e-6 : c[1] >= l.ret[1] - 1e-6 && c[1] <= l.ret[3] + 1e-6));
+      let feito = false;
+      for (const { i } of donos) {
+        const r = tentarAnexo(i, q);
+        if (r) { ampliar(i, r.anel, r.area); feito = true; break; }
+      }
+      if (!feito) restos.push(q);
+    }
+    if (restos.length <= 1) return restos;
+    // trechos que sobraram e se encostam voltam a ser uma peça só
+    const u = seguro(() => union(featureCollection(restos.map((q) => turfPolygon(q)))));
+    return u ? poligonosDe(u.geometry as Polygon | MultiPolygon).filter((z) => areaPoli(z) > AREA_RUIDO_M2) : restos;
+  };
+
+  // 1) cada sobra que encosta em lotes é repartida entre eles (prolongando as divisas laterais até a divisa)
+  pool = pool.flatMap(repartir);
+  // peças menores que a área pública mínima não servem de doação: vão inteiras para o lote vizinho que as comporte
+  pool = pool.filter((p) => !(areaPoli(p) < AREA_PUBLICA_MINIMA_M2 && anexar(p)));
   const migalha = 0.5 * e.loteMinimoM2;
-  pool = pool.filter((p) => !(areaPoli(p) < migalha && anexar(p)));
 
   // 2) doações e restrições: maiores peças primeiro, cortadas na medida
   const ordenar = () => pool.sort((a, b) => areaPoli(b) - areaPoli(a));
@@ -774,14 +931,16 @@ export function destinarSobras(e: EntradaDestinacao): ResultadoDestinacao {
     let resta = meta.alvo;
     ordenar();
     while (resta > 0.5 && pool.length > 0) {
+      // peça menor que a área pública mínima não serve de doação: o que faltar sai de lotes contíguos (passo 3)
+      if (areaPoli(pool[0]) < AREA_PUBLICA_MINIMA_M2) break;
       const p = pool.shift()!;
       const a = areaPoli(p);
-      if (a <= resta + Math.max(1, 0.02 * resta) || a - resta < migalha) {
+      if (a <= resta + Math.max(1, 0.02 * resta) || a - Math.max(resta, AREA_PUBLICA_MINIMA_M2) < migalha) {
         pecas.push({ ...aneisPeca(p), area: a, tipo: meta.tipo, ...(meta.uso ? { uso: meta.uso } : {}), origem: "sobra" });
         resta -= a;
         continue;
       }
-      const corte = cortarPorArea(p, resta);
+      const corte = cortarPorArea(p, Math.max(resta, AREA_PUBLICA_MINIMA_M2));
       if (!corte || corte.a.length === 0) {
         pecas.push({ ...aneisPeca(p), area: a, tipo: meta.tipo, ...(meta.uso ? { uso: meta.uso } : {}), origem: "sobra" });
         resta -= a;
@@ -827,13 +986,14 @@ export function destinarSobras(e: EntradaDestinacao): ResultadoDestinacao {
     }
   });
 
-  // 4) o restante: lote próprio (área e testada), anexo ao vizinho ou área verde
+  // 4) o restante: lote próprio (área, testada e forma de lote), anexo ao vizinho (com forma de lote) ou área verde
   ordenar();
   for (const p of pool) {
     const a = areaPoli(p);
-    if (p.length === 1 && a + 1e-9 >= e.loteMinimoM2 && a <= maxAmpliado) {
+    if (p.length === 1 && a + 1e-9 >= e.loteMinimoM2 && forma(p[0], a)) {
       const frente = viasNos.length > 0 ? medirFrente(p[0], viasNos, undefined, e.larguraViaM ?? 0) : 0;
-      if (frente + 1e-9 >= e.frenteMinimaM) {
+      // lote novo com a frente no lado CURTO (frente comprida e fundo raso = faixa ao longo da rua, não lote)
+      if (frente + 1e-9 >= e.frenteMinimaM && frente <= 1.5 * caixaMinima(p[0]).largura + 1e-6) {
         const c = centro(p[0]);
         let viz: LoteDestinado | null = null, dist = Infinity;
         for (const l of lotes) { const cl = centro(l.anel); const d = Math.hypot(cl[0] - c[0], cl[1] - c[1]); if (d < dist) { dist = d; viz = l; } }
@@ -848,6 +1008,66 @@ export function destinarSobras(e: EntradaDestinacao): ResultadoDestinacao {
     pecas.push({ ...aneisPeca(p), area: a, tipo: "area_publica", uso: "verde", origem: "sobra" });
   }
 
-  const soma = lotes.reduce((s, l) => s + l.area, 0) + pecas.reduce((s, p) => s + p.area, 0) + areaVias;
-  return { lotes, pecas, semDestinoM2: gf.area - soma, areaViasM2: areaVias };
+  // 5) peças públicas minúsculas: para o lote vizinho (se continuar com forma de lote e o mínimo do uso se mantiver)
+  //    ou para a peça pública vizinha; 6) peças contíguas do mesmo uso viram uma só (praça, não lotes verdes)
+  const totalUso = (tipo: PecaDestinada["tipo"], uso?: PecaDestinada["uso"]) => pecas.filter((x) => x.tipo === tipo && x.uso === uso).reduce((s, x) => s + x.area, 0);
+  const alvoUso = (tipo: PecaDestinada["tipo"], uso?: PecaDestinada["uso"]) => (tipo === "nao_parcelavel" ? e.alvos.naoParcelavel : uso === "institucional" ? e.alvos.institucional : e.alvos.verde);
+  for (let k = 0; k < pecas.length; k++) {
+    const p = pecas[k];
+    if (p.area >= AREA_PUBLICA_MINIMA_M2 || p.furos?.length) continue;
+    if (totalUso(p.tipo, p.uso) - p.area + 0.5 < alvoUso(p.tipo, p.uso)) continue;
+    if (anexar([p.anel])) { pecas.splice(k, 1); k--; continue; }
+  }
+  const unirPecas = (pred: (a: PecaDestinada, b: PecaDestinada) => boolean) => {
+    let mudou = true;
+    while (mudou) {
+      mudou = false;
+      for (let i = 0; i < pecas.length && !mudou; i++) {
+        for (let j = 0; j < pecas.length && !mudou; j++) {
+          if (i === j || !pred(pecas[i], pecas[j])) continue;
+          const a = pecas[i], b = pecas[j];
+          if (!sobrepoe(bboxDe([a.anel]), bboxDe([b.anel]), 0.01)) continue;
+          const u = seguro(() => union(featureCollection([turfPolygon([a.anel, ...(a.furos ?? [])].map(arred)), turfPolygon([b.anel, ...(b.furos ?? [])].map(arred))])));
+          if (!u || u.geometry.type !== "Polygon") continue;
+          const rs = u.geometry.coordinates;
+          const novo: PecaDestinada = {
+            anel: rs[0], ...(rs.length > 1 ? { furos: rs.slice(1) } : {}), area: a.area + b.area, tipo: a.tipo, ...(a.uso ? { uso: a.uso } : {}),
+            origem: a.origem === "sobra" || b.origem === "sobra" ? "sobra" : "lote",
+          };
+          pecas.splice(Math.max(i, j), 1);
+          pecas.splice(Math.min(i, j), 1, novo);
+          mudou = true;
+        }
+      }
+    }
+  };
+  // minúscula encostada numa peça pública maior: incorpora-se a ela (fica com o uso da maior)
+  unirPecas((a, b) => b.area < AREA_PUBLICA_MINIMA_M2 && a.area >= b.area && a.tipo === b.tipo
+    && (a.uso === b.uso || totalUso(b.tipo, b.uso) - b.area + 0.5 >= alvoUso(b.tipo, b.uso)));
+  unirPecas((a, b) => a.tipo === b.tipo && a.uso === b.uso);
+  // migalha pública encostada numa via (entre a ponta da rua e a divisa) passa a ser leito da via
+  const viasExtras: Poli[] = [];
+  for (let k = 0; k < pecas.length; k++) {
+    const p = pecas[k];
+    if (e.incorporarNaVia === false || p.area >= AREA_PUBLICA_MINIMA_M2 || p.furos?.length || p.tipo !== "area_publica") continue;
+    if (totalUso(p.tipo, p.uso) - p.area + 0.5 < alvoUso(p.tipo, p.uso)) continue;
+    const bp = bboxDe([p.anel]);
+    const encosta = viasNos.some((v) => {
+      if (!sobrepoe(v.bbox, bp, 0.01)) return false;
+      const u = seguro(() => union(featureCollection([turfPolygon(v.poli.map(arred)), turfPolygon([arred(p.anel)])])));
+      return !!u && u.geometry.type === "Polygon";
+    });
+    if (!encosta) continue;
+    viasExtras.push([p.anel]);
+    pecas.splice(k, 1);
+    k--;
+  }
+  const areaViasExtras = viasExtras.reduce((s, v) => s + areaPoli(v), 0);
+  const isoladas = pecas.filter((p) => p.area < AREA_PUBLICA_MINIMA_M2).length;
+  const avisos = isoladas > 0
+    ? [`${isoladas} peça(s) de área pública com menos de ${AREA_PUBLICA_MINIMA_M2} m² ficaram isoladas (sem lote nem área pública vizinha que as absorva).`]
+    : [];
+
+  const soma = lotes.reduce((s, l) => s + l.area, 0) + pecas.reduce((s, p) => s + p.area, 0) + areaVias + areaViasExtras;
+  return { lotes, pecas, viasExtras, semDestinoM2: gf.area - soma, areaViasM2: areaVias + areaViasExtras, avisos };
 }

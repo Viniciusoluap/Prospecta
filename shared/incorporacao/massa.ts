@@ -674,6 +674,8 @@ interface Bruto {
   centroides: Set<string>;
   /** R1: malha conexa com acesso pela divisa (tipologias sem malha interna: true). */
   conexa: boolean;
+  /** Estimativa da sobra que vira área verde ALÉM do mínimo (não é mérito: só desempata contra). */
+  excessoVerde: number;
   acessosM: Position[];
   acesso: AcessoProx | null;
 }
@@ -725,7 +727,7 @@ function avaliarImplantacao(ctx: Ctx, chave: string, gf: GlebaFrame, impl: Impla
   const acesso = ctx.viasEntorno.length > 0 ? acessoMaisProximo(acessosM, ctx.viasEntorno) : null;
   return {
     chave, angulo: fr.angulo, fr, gf, impl, vias, areaVendavel, nVendaveis, candidatos: impl.candidatos, divergenciaViaria, centroides,
-    conexa: impl.conexa ?? true, acessosM, acesso,
+    conexa: impl.conexa ?? true, excessoVerde: Math.max(0, sobraEst - (ctx.alvos.institucional + ctx.alvos.verde + ctx.alvos.naoParcelavel)), acessosM, acesso,
   };
 }
 
@@ -741,7 +743,8 @@ function equivalentes(a: Bruto, b: Bruto): boolean {
 }
 
 function compararPorVendavel(a: Bruto, b: Bruto): number {
-  return b.areaVendavel - a.areaVendavel || a.vias.areaM2 - b.vias.areaM2 || a.angulo - b.angulo || (a.chave < b.chave ? -1 : a.chave > b.chave ? 1 : 0);
+  // só a área VENDÁVEL é mérito; área verde além do mínimo desempata contra (sobra sem frente não conta)
+  return b.areaVendavel - a.areaVendavel || a.vias.areaM2 - b.vias.areaM2 || a.excessoVerde - b.excessoVerde || a.angulo - b.angulo || (a.chave < b.chave ? -1 : a.chave > b.chave ? 1 : 0);
 }
 
 function eficienciaViaria(c: Bruto): number {
@@ -762,7 +765,7 @@ function montarCenario(ctx: Ctx, idx: number, b: Bruto, criterio: CriterioCenari
   const lotesBase = lotesForaDosFuros(gf, b.impl.lotes, params.loteMinimoM2);
   const dest = destinarSobras({
     gf, vias: b.vias.polis, ...(b.impl.viasCobertura ? { coberturaVias: b.impl.viasCobertura } : {}), lotes: lotesBase, alvos: ctx.alvos,
-    areaNominalLote: ctx.g.testada * ctx.g.profundidade, loteMinimoM2: params.loteMinimoM2, frenteMinimaM: ctx.oMalha.frenteMinimaM, larguraViaM: ctx.g.via,
+    areaNominalLote: ctx.g.testada * ctx.g.profundidade, loteMinimoM2: params.loteMinimoM2, frenteMinimaM: ctx.oMalha.frenteMinimaM, larguraViaM: ctx.g.via, profundidadeNominalM: ctx.g.profundidade, incorporarNaVia: !ctx.manual,
   });
 
   // Numeração: quadra = (linha, trecho); lotes vendáveis numerados por faixa e posição ao longo da via.
@@ -801,7 +804,8 @@ function montarCenario(ctx: Ctx, idx: number, b: Bruto, criterio: CriterioCenari
   const areaVendavelM2 = round2(vendaveis.reduce((s, l) => s + l.areaM2, 0));
   const areaInstitucionalM2 = round2(publicos.filter((l) => l.uso === "institucional").reduce((s, l) => s + l.areaM2, 0));
   const areaVerdeM2 = round2(publicos.filter((l) => l.uso !== "institucional").reduce((s, l) => s + l.areaM2, 0));
-  const areaViariaGeo = round2(b.vias.areaM2);
+  // vias desenhadas + migalhas entre a ponta da rua e a divisa incorporadas ao leito da via (destinação)
+  const areaViariaGeo = round2(b.vias.areaM2 + dest.viasExtras.reduce((s, v) => s + areaPoli(v), 0));
   const informada = ctx.manual ? params.areaSistemaViarioM2 : undefined;
   const quadroAreas = calcularQuadroAreasMassa({
     areaBrutaM2: ctx.areaGleba,
@@ -817,11 +821,12 @@ function montarCenario(ctx: Ctx, idx: number, b: Bruto, criterio: CriterioCenari
   });
   const somaM2 = lotes.reduce((s, l) => s + l.areaM2, 0) + areaViariaGeo;
   // honestidade: sobra sem frente para via destinada a área verde ALÉM do mínimo exigido (ex.: fundos da Rua Simples)
-  const notas = [...b.impl.limitacoes];
+  const notas = [...b.impl.limitacoes, ...dest.avisos];
   const excessoVerde = areaVerdeM2 - ctx.alvos.verde;
   if (excessoVerde > 0.1 * ctx.areaGleba) {
     const f = (v: number) => v.toLocaleString("pt-BR", { maximumFractionDigits: 0 });
-    notas.push(`${f(excessoVerde)} m² sem frente para a via desenhada foram destinados a área verde além do mínimo (${f(ctx.alvos.verde)} m²). Para lotear essa área, teste Grade, Cul-de-sac ou o lote que acompanha a divisa.`);
+    const pct = ((100 * excessoVerde) / ctx.areaGleba).toLocaleString("pt-BR", { maximumFractionDigits: 1 });
+    notas.push(`${f(excessoVerde)} m² (${pct}% da gleba) ficaram como área verde por falta de frente para a via desenhada, além do mínimo exigido (${f(ctx.alvos.verde)} m²). Essa área não é aproveitamento: para loteá-la, prefira Grade ou Cul-de-sac.`);
   }
 
   return {
@@ -834,7 +839,7 @@ function montarCenario(ctx: Ctx, idx: number, b: Bruto, criterio: CriterioCenari
     tipologia: ctx.tipologia,
     lotes,
     vias: b.impl.baloes.map(voltaGeo),
-    ruas: b.vias.aneis.filter((a) => !b.impl.baloes.includes(a)).map(voltaGeo),
+    ruas: [...b.vias.aneis.filter((a) => !b.impl.baloes.includes(a)), ...dest.viasExtras.map((v) => v[0])].map(voltaGeo),
     kpis: {
       lotesVendaveis: vendaveis.length,
       lotesPublicos: publicos.length,

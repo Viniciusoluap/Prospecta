@@ -12,7 +12,7 @@
 
 import type { Position } from "geojson";
 import { criarProjecao, ROTULO_ESTUDO_PRELIMINAR, type CenarioMassa, type LoteGerado } from "./massa.js";
-import { areaPlanar } from "./geometria-parcelamento.js";
+import { areaPlanar, pontoDentro } from "./geometria-parcelamento.js";
 import { formatarCodigoLote } from "./unidades.js";
 
 export const CORES_PLANTA = {
@@ -232,7 +232,17 @@ function eixoMaior(pts: [number, number][]): { ang: number; compr: number; larg:
  * Escolhe o maior conjunto de linhas e a maior fonte (11 → 6,5 px) que cabem na peça e não colidem com
  * rótulos já desenhados; devolve o <text> ou null (rótulo omitido).
  */
-function encaixarRotulo(linhas: string[], cx: number, cy: number, eixo: { ang: number; compr: number; larg: number }, ocupados: CaixaRotulo[]): string | null {
+/** Os quatro cantos da caixa ficam dentro da peça? (o rótulo de um lote nunca invade o vizinho) */
+function caixaDentro(c: CaixaRotulo, poligono: [number, number][]): boolean {
+  const ux = Math.cos(c.ang), uy = Math.sin(c.ang);
+  for (const [a, b] of [[1, 1], [1, -1], [-1, 1], [-1, -1]]) {
+    const x = c.cx + a * c.hw * ux - b * c.hh * uy, y = c.cy + a * c.hw * uy + b * c.hh * ux;
+    if (!pontoDentro(poligono, x, y)) return false;
+  }
+  return true;
+}
+
+function encaixarRotulo(linhas: string[], cx: number, cy: number, eixo: { ang: number; compr: number; larg: number }, ocupados: CaixaRotulo[], poligono?: [number, number][], idx?: number): string | null {
   for (let n = linhas.length; n >= 1; n--) {
     for (const fs of [11, 10, 9, 8, 7, 6.5]) {
       const fsSec = Math.max(6, fs * 0.86);
@@ -240,13 +250,14 @@ function encaixarRotulo(linhas: string[], cx: number, cy: number, eixo: { ang: n
       const altura = fs * 1.15 + (n - 1) * fsSec * 1.15;
       if (largura > eixo.compr * 0.92 || altura > eixo.larg * 0.88) continue;
       const caixa: CaixaRotulo = { cx, cy, hw: largura / 2 + 1, hh: altura / 2 + 1, ang: eixo.ang };
+      if (poligono && !caixaDentro(caixa, poligono)) continue;
       if (ocupados.some((c) => colidem(c, caixa))) continue;
       ocupados.push(caixa);
       const graus = (eixo.ang * 180) / Math.PI;
       let y = -altura / 2 + fs * 0.92;
       const tsp = [`<tspan x="0" y="${y.toFixed(1)}" font-weight="700" font-size="${fs}">${esc(linhas[0])}</tspan>`];
       for (let k = 1; k < n; k++) { y += fsSec * 1.15; tsp.push(`<tspan x="0" y="${y.toFixed(1)}" font-size="${fsSec.toFixed(1)}">${esc(linhas[k])}</tspan>`); }
-      return `<text data-rotulo="lote" data-caixa="${caixaAttr(caixa)}" transform="translate(${cx.toFixed(1)},${cy.toFixed(1)}) rotate(${graus.toFixed(1)})">${tsp.join("")}</text>`;
+      return `<text data-rotulo="lote"${idx !== undefined ? ` data-idx="${idx}"` : ""} data-caixa="${caixaAttr(caixa)}" transform="translate(${cx.toFixed(1)},${cy.toFixed(1)}) rotate(${graus.toFixed(1)})">${tsp.join("")}</text>`;
     }
   }
   return null;
@@ -305,13 +316,14 @@ export function renderizarPlantaSvg(modelo: ModeloPlanta, v: VistaPlanta, o: Opc
   for (const l of ordemLotes) {
     const [cx, cy] = naTela(l.centro);
     if (cx < -50 || cy < -50 || cx > W + 50 || cy > H + 50) continue;
-    const eixo = eixoMaior(l.anel.map(naTela));
+    const tela = l.anel.map(naTela);
+    const eixo = eixoMaior(tela);
     if (eixo.compr < 10 || eixo.larg < 7) continue;
     const nome = l.tipo === "vendavel" ? (l.numero ? `L${l.numero.padStart(2, "0")}` : "") : l.tipo === "nao_parcelavel" ? "NP" : l.uso === "institucional" ? "INST" : "AV";
     if (!nome) continue;
     const linhas = [nome, `${fmt(l.areaM2)} m²`];
     if (l.tipo === "vendavel") linhas.push(`${fmt(l.testadaM)} × ${fmt(l.profundidadeM)} m${l.irregular ? " (méd.)" : ""}`);
-    const posto = encaixarRotulo(linhas, cx, cy, eixo, ocupados);
+    const posto = encaixarRotulo(linhas, cx, cy, eixo, ocupados, tela, l.idx);
     if (posto) partes.push(posto);
   }
   // quadras: "Qxx" só onde não cobre número de lote (tenta o centro e pontos ao longo do eixo maior da quadra)

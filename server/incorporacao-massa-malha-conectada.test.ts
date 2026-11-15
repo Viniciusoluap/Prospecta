@@ -9,7 +9,7 @@ import {
   type CenarioMassa, type ParametrosMassa, type TipologiaMassa, type ViaEntorno,
 } from "../shared/incorporacao/massa";
 import { areaPlanar, pontoDentro } from "../shared/incorporacao/geometria-parcelamento";
-import { componentesDasVias, distanciaAoAnel, frenteMinimaPara } from "../shared/incorporacao/malha-conectada";
+import { AREA_PUBLICA_MINIMA_M2, caixaMinima, componentesDasVias, distanciaAoAnel, formaAceitavel, frenteMinimaPara } from "../shared/incorporacao/malha-conectada";
 import { colidem, montarModeloPlanta, renderizarPlantaSvg, vistaInicial, zoomEm, type CaixaRotulo } from "../shared/incorporacao/planta-tecnica";
 import { implantacaoDoEstudo } from "../shared/maquete-3d/implantacao";
 import { cenarioPrincipalDe } from "../shared/incorporacao/estudos-massa";
@@ -161,21 +161,16 @@ describe("R4 — áreas públicas com geometria própria", () => {
       expect(q.areaVerdeM2).toBeGreaterThanOrEqual(0.1 * q.areaParcelavelM2 - 0.5);
       const publicas = c.lotes.filter((l) => l.tipo === "area_publica");
       expect(publicas.some((l) => l.origem === "sobra")).toBe(true);
-      // lotes inteiros convertidos só quando as sobras não bastam — e encostados em outra peça do mesmo uso
-      for (const l of publicas.filter((x) => x.origem === "lote")) {
-        const outros = publicas.filter((x) => x !== l && x.uso === l.uso).map((x) => turfPolygon([metros(x.anel)]));
-        const toca = outros.some((o) => {
-          const u = union(featureCollection([turfPolygon([metros(l.anel)]), o]));
-          return u?.geometry.type === "Polygon";
-        });
-        expect(toca).toBe(true);
-      }
+      // lotes inteiros convertidos só quando as sobras não bastam: contíguos, formam UMA peça (praça) com área total
+      for (const l of publicas.filter((x) => x.origem === "lote")) expect(l.anel.length).toBeGreaterThanOrEqual(4);
     });
   }
 
   it("rua simples: o fundo sem frente para a via única vira área verde e o cenário avisa quanto passou do mínimo", () => {
     const c = estudo("rua_simples").cenarios[0];
-    expect((c.limitacoes ?? []).join(" ")).toMatch(/sem frente para a via desenhada foram destinados a área verde além do mínimo/);
+    const nota = (c.limitacoes ?? []).find((n) => /por falta de frente para a via desenhada/.test(n));
+    expect(nota).toMatch(/\(\d+(,\d+)?% da gleba\)/);
+    expect(nota).toMatch(/prefira Grade ou Cul-de-sac/);
   });
 
   it("restrição informada em m² vira peça não parcelável desenhada, somada no quadro", () => {
@@ -362,7 +357,7 @@ describe("R7 — rótulos legíveis na planta técnica", () => {
     const c = r.cenarios[0];
     const modelo = montarModeloPlanta(QUAD, c, CENTRO);
     const svg = renderizarPlantaSvg(modelo, vistaInicial(modelo, 1400, 1000));
-    const lotes = Array.from(svg.matchAll(/<text data-rotulo="lote" data-caixa="([^"]+)" transform="translate\([^)]*\) rotate\(([-\d.]+)\)"><tspan[^>]*font-size="([\d.]+)"/g));
+    const lotes = Array.from(svg.matchAll(/<text data-rotulo="lote" data-idx="\d+" data-caixa="([^"]+)" transform="translate\([^)]*\) rotate\(([-\d.]+)\)"><tspan[^>]*font-size="([\d.]+)"/g));
     expect(lotes.length).toBeGreaterThan(0);
     // texto girado ao longo do lado maior: o ângulo do rótulo acompanha a profundidade (lado de 42 m)
     const anguloLongo = (l: (typeof modelo.lotes)[number]) => {
@@ -378,5 +373,84 @@ describe("R7 — rótulos legíveis na planta técnica", () => {
     expect(lotes.some((m) => Number(m[3]) < 11)).toBe(true);
     const cs = caixas(svg);
     for (let i = 0; i < cs.length; i++) for (let j = i + 1; j < cs.length; j++) expect(colidem(cs[i], cs[j])).toBe(false);
+  });
+});
+
+// ─── Revisão do coordenador (15/11): sem lote em "pente"/faixa, sem área pública minúscula, praças unidas ───
+describe("Forma dos lotes e das áreas públicas (revisão da Etapa F)", () => {
+  const A1 = geo([[-160, -60], [-20, -70], [-10, 60], [-150, 75], [-160, -60]]);
+  const A2 = geo([[30, -40], [150, -55], [160, 50], [40, 65], [30, -40]]);
+  const casos: [string, Parameters<typeof gerarEstudoMassa>[0]][] = [["gleba irregular", QUAD], ["duas áreas", [[A1], [A2]]]];
+  const nominal = BASE.testadaLoteM * BASE.profundidadeLoteM;
+  const resultados = new Map<string, ReturnType<typeof gerarEstudoMassa>>();
+  const de = (nome: string, entrada: Parameters<typeof gerarEstudoMassa>[0], tipologia: TipologiaMassa) => {
+    const k = `${nome}|${tipologia}`;
+    if (!resultados.has(k)) resultados.set(k, gerarEstudoMassa(entrada, CENTRO, { ...BASE, tipologia }));
+    return resultados.get(k)!;
+  };
+
+  for (const [nome, entrada] of casos) {
+    for (const tipologia of TIPOLOGIAS) {
+      it(`${tipologia} (${nome}): todo lote vendável tem forma de lote — área ≤ 1,6 × nominal, caixa mínima ≤ 2,2 × profundidade e ocupação ≥ 60%`, () => {
+        for (const c of de(nome, entrada, tipologia).cenarios) {
+          for (const l of c.lotes.filter((x) => x.tipo === "vendavel")) {
+            const m = metros(l.anel);
+            const cx = caixaMinima(m);
+            expect(l.areaM2).toBeLessThanOrEqual(1.6 * nominal + 1e-6);
+            expect(cx.comprimento).toBeLessThanOrEqual(2.2 * BASE.profundidadeLoteM + 0.01);
+            expect(l.areaM2).toBeGreaterThanOrEqual(0.6 * cx.area - 0.5);
+            expect(formaAceitavel(m, l.areaM2, nominal, BASE.loteMinimoM2, BASE.profundidadeLoteM)).toBe(true);
+            // "testada × profundidade média" corresponde ao lote: testada real (≤ a da célula, mais a curva do balão) e área ÷ testada
+            if (l.ajuste) {
+              // testada é uma medida do próprio lote (frente na via; no lote de esquina, o lado sobre a outra rua)
+              expect(l.testadaM!).toBeLessThanOrEqual(cx.comprimento + 0.01);
+              expect(l.testadaM! * l.profundidadeMediaM!).toBeCloseTo(l.areaM2, 0);
+            }
+          }
+        }
+      });
+
+      it(`${tipologia} (${nome}): área pública < ${AREA_PUBLICA_MINIMA_M2} m² só isolada e avisada; peças contíguas do mesmo uso unidas numa só`, () => {
+        for (const c of de(nome, entrada, tipologia).cenarios) {
+          const publicas = c.lotes.filter((x) => x.tipo !== "vendavel");
+          const pequenas = publicas.filter((x) => x.areaM2 < AREA_PUBLICA_MINIMA_M2);
+          if (pequenas.length > 0) expect((c.limitacoes ?? []).join(" ")).toMatch(/peça\(s\) de área pública com menos de 120 m² ficaram isoladas/);
+          for (let i = 0; i < publicas.length; i++) {
+            for (let j = i + 1; j < publicas.length; j++) {
+              const [a, b] = [publicas[i], publicas[j]];
+              if (a.tipo !== b.tipo || a.uso !== b.uso) continue;
+              const u = union(featureCollection([turfPolygon([metros(a.anel)]), turfPolygon([metros(b.anel)])]));
+              // duas peças do mesmo uso não podem formar um polígono só (seriam uma praça partida em duas)
+              expect(u?.geometry.type).toBe("MultiPolygon");
+            }
+          }
+        }
+      });
+    }
+  }
+
+  it("rótulo de lote fica inteiro dentro do próprio lote (não invade o vizinho)", () => {
+    for (const [nome, entrada] of casos) {
+      const c = de(nome, entrada, "grid").cenarios[0];
+      const contornos = Array.isArray(entrada[0][0][0]) ? (entrada as Position[][][]).map((p) => p[0]) : [entrada as Position[]];
+      const modelo = montarModeloPlanta(contornos[0], c, CENTRO, contornos.slice(1));
+      const v = vistaInicial(modelo, 1400, 1000);
+      const svg = renderizarPlantaSvg(modelo, v);
+      const rotulos = Array.from(svg.matchAll(/data-rotulo="lote" data-idx="(\d+)" data-caixa="([^"]+)"/g));
+      expect(rotulos.length).toBeGreaterThan(0);
+      for (const m of rotulos) {
+        const [cx, cy, hw, hh, ang] = m[2].split(",").map(Number);
+        const tela = modelo.lotes[Number(m[1])].anel.map((p) => [v.tx + p[0] * v.escala, v.ty - p[1] * v.escala]);
+        const ux = Math.cos(ang), uy = Math.sin(ang);
+        for (const [a, b] of [[1, 1], [1, -1], [-1, 1], [-1, -1]]) {
+          expect(pontoDentro(tela, cx + a * hw * ux - b * hh * uy, cy + a * hw * uy + b * hh * ux)).toBe(true);
+        }
+      }
+    }
+  });
+
+  it("rua simples: área verde além do mínimo não é mérito — o 1º cenário é o de maior área vendável", () => {
+    const r = estudo("rua_simples");
+    for (const c of r.cenarios.slice(1)) expect(c.kpis.areaVendavelM2).toBeLessThanOrEqual(r.cenarios[0].kpis.areaVendavelM2);
   });
 });

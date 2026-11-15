@@ -31,6 +31,8 @@ export interface LoteFrame {
   profundidadeMedia?: number;
   /** Malha conectada: forma que desconta o lote da gleba na destinação (o retângulo inteiro, que passa da divisa). */
   cobertura?: Position[];
+  /** Malha conectada: direção da testada no frame ("x" = frente ao sul/norte; "y" = a oeste/leste). */
+  eixoTestada?: "x" | "y";
 }
 
 export interface ImplantacaoFrame {
