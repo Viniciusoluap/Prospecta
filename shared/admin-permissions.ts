@@ -1,9 +1,10 @@
 // Módulos que o admin libera ao colaborador (pedido de 17/10/2026): as 15 opções
 // do Painel Administrativo, na mesma ordem, + o Ecossistema de Sorteio. "API
 // Contas" (integração bancária) e "Usuários e Acessos" ficam só com o admin.
+// "Corretores" deixou de ser módulo em 15/11/2026 (EPIC-023): o cadastro foi para "Usuários e Acessos" (só admin).
 // Mesma lista (sem o sorteio e sem a Maquete 3D, exclusivos do Prospecta) em Grupo-Santa-Fe/web/src/lib/modulos.ts.
 export const ADMIN_MODULES = [
-  "crm", "obras", "agenda", "corretores", "regularizacao", "comissoes", "projetos",
+  "crm", "obras", "agenda", "regularizacao", "comissoes", "projetos",
   "mapa", "avaliacoes", "imoveis", "incorporacao", "whatsapp", "bpo",
   "financiamentos", "juridico", "maquete3d", "sorteios",
 ] as const;
@@ -14,7 +15,6 @@ export const ADMIN_MODULE_LABELS: Record<AdminModule, string> = {
   crm: "CRM / Pipeline",
   obras: "Obras",
   agenda: "Tarefas e Agenda",
-  corretores: "Corretores",
   regularizacao: "Regularizações",
   comissoes: "Comissões",
   projetos: "Projetos",

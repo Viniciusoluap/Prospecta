@@ -23,7 +23,7 @@ describe("colaborador — mesmos poderes do admin nos módulos liberados", () =>
   });
 
   it("selecionou tudo menos Obras: Obras some para ele no servidor", async () => {
-    const todos = ["crm", "agenda", "corretores", "regularizacao", "comissoes", "projetos", "mapa", "avaliacoes",
+    const todos = ["crm", "agenda", "regularizacao", "comissoes", "projetos", "mapa", "avaliacoes",
       "imoveis", "incorporacao", "whatsapp", "bpo", "financiamentos", "juridico", "sorteios"];
     const listar = vi.spyOn(db, "getAllProjects").mockResolvedValue([] as never);
     await expect(caller("colaborador", todos).construction.allProjects()).rejects.toMatchObject({ code: "FORBIDDEN" });

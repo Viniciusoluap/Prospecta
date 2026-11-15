@@ -14,6 +14,12 @@ import { getDb } from "./db.js";
 import { lixeiraDaEntidade } from "./drive-organizacao.js";
 
 const managedRole = z.enum(["admin", "corretor", "colaborador", "cliente", "empreiteiro"]);
+// EPIC-023 (S-A): comissão padrão e observações do corretor vieram da antiga tela
+// "Corretores". Mesma validação de `brokerInput` (shared/operacional.ts): vazio = sem regra.
+const comissaoPadrao = z.string().trim().transform(v => v.replace(",", "."))
+  .refine(v => v === "" || (/^\d{1,3}(\.\d{1,4})?$/.test(v) && Number(v) <= 100), "Percentual de comissão inválido (0 a 100)")
+  .optional().nullable();
+const observacoes = z.string().trim().max(5000).optional().nullable();
 const permissionsSchema = z.array(z.enum(ADMIN_MODULES)).max(ADMIN_MODULES.length);
 
 const PRIMEIRO_ACESSO_VALIDADE_MS = 7 * 24 * 60 * 60 * 1000;
@@ -74,7 +80,11 @@ export const configuracoesRouter = router({
     createdAt: users.createdAt,
     // Lote 2, correção 04: "Engenheiro" = colaborador com perfil de engenheiro ativo.
     engenheiro: sql<boolean>`coalesce(${engineerProfiles.active}, false) AND ${users.role} = 'colaborador'`,
+    // EPIC-023 (S-A): dados do cadastro de corretor (antiga tela "Corretores").
+    notes: brokerProfiles.notes,
+    defaultCommissionPct: brokerProfiles.defaultCommissionPct,
   }).from(users).leftJoin(leads, eq(users.leadId, leads.id))
+    .leftJoin(brokerProfiles, eq(brokerProfiles.userId, users.id))
     .leftJoin(engineerProfiles, eq(engineerProfiles.userId, users.id)).orderBy(users.name)),
 
   // A senha inicial nunca é digitada pelo admin: cria a conta com um hash placeholder
@@ -106,6 +116,10 @@ export const configuracoesRouter = router({
     engenheiro: z.boolean().optional(),
     crea: z.string().max(60).optional().nullable(),
     creaUf: z.string().max(4).optional().nullable(),
+    // EPIC-023 (S-A): campos do corretor e cadastro sem e-mail de senha (como a antiga tela "Corretores").
+    defaultCommissionPct: comissaoPadrao,
+    notes: observacoes,
+    enviarConvite: z.boolean().default(true),
   })).mutation(async ({ ctx, input }) => {
     const db = getDb();
     const email = input.email.toLowerCase();
@@ -147,14 +161,16 @@ export const configuracoesRouter = router({
           INSERT INTO users ("openId", name, email, "passwordHash", role, phone, creci, permissions, "loginMethod", active)
           VALUES (${values.openId}, ${values.name}, ${email}, ${values.passwordHash}, 'corretor', ${values.phone}, ${values.creci}, '[]', 'password', true)
           RETURNING id)
-        INSERT INTO broker_profiles (user_id, specialties, notes) SELECT id, '[]', '' FROM created RETURNING user_id AS id`);
+        INSERT INTO broker_profiles (user_id, specialties, notes, default_commission_pct) SELECT id, '[]', ${input.notes || ""}, ${input.defaultCommissionPct || null} FROM created RETURNING user_id AS id`);
       created = { id: Number((r as unknown as { rows: { id: number }[] }).rows[0].id) };
     } else {
       [created] = await db.insert(users).values(values).returning({ id: users.id });
     }
     if (perfilEngenheiro?.ok) await gravarPerfilEngenheiro(created.id, perfilEngenheiro.dados, ctx.user.id);
-    const emailEnviado = await enviarLinkDefinicaoSenha(created.id, values.name, email, true);
-    return { ...created, emailEnviado };
+    // Só o corretor pode ser cadastrado sem convite (cadastro de diretório); o link sai depois por "Enviar link de redefinição".
+    const convidar = input.enviarConvite || input.role !== "corretor";
+    const emailEnviado = convidar ? await enviarLinkDefinicaoSenha(created.id, values.name, email, true) : false;
+    return { ...created, emailEnviado, convidado: convidar };
   }),
 
   updateUser: adminProcedure.input(z.object({
@@ -168,6 +184,8 @@ export const configuracoesRouter = router({
     leadId: z.number().int().positive().optional().nullable(),
     // Lote 2, correção 04: liga/desliga o perfil Engenheiro (dados preservados).
     engenheiro: z.boolean().optional(),
+    defaultCommissionPct: comissaoPadrao,
+    notes: observacoes,
   })).mutation(async ({ ctx, input }) => {
     if (input.engenheiro && input.role !== "colaborador") throw new TRPCError({ code: "BAD_REQUEST", message: "Engenheiro é cadastrado como colaborador." });
     const db = getDb();
@@ -192,9 +210,16 @@ export const configuracoesRouter = router({
     // com telefone e CRECI, inclusive quando um usuário existente vira corretor.
     if (input.role === "corretor" && (!input.creci?.trim() || !input.phone?.trim()))
       throw new TRPCError({ code: "BAD_REQUEST", message: "Corretor exige CRECI e telefone." });
-    if (input.role === "corretor" && current.role !== "corretor") {
-      const [perfil] = await db.select({ userId: brokerProfiles.userId }).from(brokerProfiles).where(eq(brokerProfiles.userId, input.id)).limit(1);
-      if (!perfil) await db.insert(brokerProfiles).values({ userId: input.id });
+    if (input.role === "corretor") {
+      // Garante o cadastro de corretor e grava comissão/observações quando vierem (undefined = preserva).
+      const dados = {
+        ...(input.notes === undefined ? {} : { notes: input.notes || "" }),
+        ...(input.defaultCommissionPct === undefined ? {} : { defaultCommissionPct: input.defaultCommissionPct || null }),
+      };
+      const insercao = db.insert(brokerProfiles).values({ userId: input.id, ...dados });
+      await (Object.keys(dados).length
+        ? insercao.onConflictDoUpdate({ target: brokerProfiles.userId, set: dados })
+        : insercao.onConflictDoNothing());
     }
     // Troca de perfil ou desativação encerra as sessões antigas (sessionVersion).
     const encerrarSessao = current.role !== input.role || (current.active && !input.active);

@@ -1,6 +1,6 @@
 # S-A — CRM no iPad, fim da tela "Corretores", filtro de perfis e lista de pedidos da Maquete 3D
 
-Status: Draft
+Status: Done (publicada em 15/11/2026)
 Epic: EPIC-023 (Etapa A) — correções 1, 2, 3 e 5 do dono (15/11/2026)
 Paridade: correções 1, 2 e 3 **portar ao Grupo Santa Fé**; correção 5 é Maquete 3D (exceção registrada).
 Tamanho estimado: M
@@ -19,49 +19,49 @@ a remoção da tela.
 ## Critérios de aceite
 
 ### Correção 1 — CRM Pipeline
-- [ ] AC1: a tela do Pipeline ocupa exatamente a altura do viewport (`100dvh`); a página em si não rola nem arrasta
+- [x] AC1: a tela do Pipeline ocupa exatamente a altura do viewport (`100dvh`); a página em si não rola nem arrasta
       no iPad (Safari), em retrato e paisagem.
-- [ ] AC2: o trilho de colunas rola só na horizontal (`flex-1 min-h-0`), e a lista de cartões de cada coluna rola só
+- [x] AC2: o trilho de colunas rola só na horizontal (`flex-1 min-h-0`), e a lista de cartões de cada coluna rola só
       na vertical (`flex-1 overflow-y-auto overscroll-contain`), sem altura fixa de 600 px.
-- [ ] AC3: não é possível puxar a tela para fora e deixá-la preta (rolagem não "vaza" para a página).
-- [ ] AC4: arrastar cartão entre colunas continua funcionando como hoje (`touch-action` definido por eixo).
+- [x] AC3: não é possível puxar a tela para fora e deixá-la preta (rolagem não "vaza" para a página).
+- [x] AC4: arrastar cartão entre colunas continua funcionando como hoje (`touch-action` definido por eixo).
 
 ### Correção 2 — remover "Corretores" sem perder função
-- [ ] AC5: "Usuários e acesso" passa a ter, para usuários com perfil Corretor: comissão padrão (%), observações,
+- [x] AC5: "Usuários e acesso" passa a ter, para usuários com perfil Corretor: comissão padrão (%), observações,
       busca por nome/e-mail/CRECI, filtro "Situação" e criar corretor sem envio de e-mail de senha.
-- [ ] AC6: os dados continuam em `broker_profiles` (`notes`, `default_commission_pct`); nada é apagado nem migrado
+- [x] AC6: os dados continuam em `broker_profiles` (`notes`, `default_commission_pct`); nada é apagado nem migrado
       de tabela. `default_commission_pct` continua lido por obra-financeiro-router, juridico-modelos e comissões.
-- [ ] AC7: só depois de AC5 e AC6 testados: o tile (`Admin.tsx:68`), a rota `/admin/corretores` e a tela
+- [x] AC7: só depois de AC5 e AC6 testados: o tile (`Admin.tsx:68`), a rota `/admin/corretores` e a tela
       `AdminBrokerDirectory.tsx` são removidos; o acesso antigo à rota cai em "Usuários e acesso" (sem tela quebrada).
-- [ ] AC8: o tratamento do colaborador segue a decisão 2 do dono (perder o acesso, ou ter a parte de corretores
+- [x] AC8: o tratamento do colaborador segue a decisão 2 do dono (perder o acesso, ou ter a parte de corretores
       liberada). Sem decisão, AC7 não é executado.
-- [ ] AC9: os consumidores são ajustados: `shared/admin-permissions.ts`, `server/_core/trpc.ts:87`,
+- [x] AC9: os consumidores são ajustados: `shared/admin-permissions.ts`, `server/_core/trpc.ts:87`,
       `GlobalBackButton.tsx:46`. O `corretoresRouter` (`server/operacional-router.ts:286-427`) só sai quando nenhuma
       chamada restar; o que ainda for usado passa para `server/configuracoes-router.ts`.
 
 ### Correção 3 — filtro de perfil
-- [ ] AC10: "Usuários e acesso" tem filtro com as opções Todos, Administrador, Corretor, Colaborador, Engenheiro,
+- [x] AC10: "Usuários e acesso" tem filtro com as opções Todos, Administrador, Corretor, Colaborador, Engenheiro,
       Cliente e Empreiteiro — exatamente os perfis de `PERFIS`/`ROLE_LABEL` (`AdminConfiguracoes.tsx:17-23`).
-- [ ] AC11: o filtro combina com a busca e com o filtro de situação.
+- [x] AC11: o filtro combina com a busca e com o filtro de situação.
 
 ### Correção 5 — lista de pedidos da Maquete 3D
-- [ ] AC12: cada linha da lista tem botão de excluir.
-- [ ] AC13: se o pedido ainda não foi recusado, excluir pede antes a confirmação da recusa com motivo (mesmo fluxo de
+- [x] AC12: cada linha da lista tem botão de excluir.
+- [x] AC13: se o pedido ainda não foi recusado, excluir pede antes a confirmação da recusa com motivo (mesmo fluxo de
       `recusar`, `server/maquete-3d/router.ts:224-230`) e depois exclui (`excluir`, :232-238); se já está recusado,
       pede confirmação simples.
-- [ ] AC14: a coluna "Criada em" não quebra nem corta (`whitespace-nowrap`, `AdminMaquete3D.tsx:103`).
+- [x] AC14: a coluna "Criada em" não quebra nem corta (`whitespace-nowrap`, `AdminMaquete3D.tsx:103`).
 
 ## Tarefas
-- [ ] T1: reestruturar o layout de `AdminCRM.tsx` (:216, :487, :492, :500) conforme AC1–AC4.
-- [ ] T2: levar comissão padrão, observações, busca, filtro de situação e criação sem e-mail para
+- [x] T1: reestruturar o layout de `AdminCRM.tsx` (:216, :487, :492, :500) conforme AC1–AC4.
+- [x] T2: levar comissão padrão, observações, busca, filtro de situação e criação sem e-mail para
       `AdminConfiguracoes.tsx` e `server/configuracoes-router.ts`.
-- [ ] T3: testes das funções migradas (permissão só admin, gravação em `broker_profiles`).
-- [ ] T4: registrar a decisão 2 do dono; aplicar a regra de acesso do colaborador.
-- [ ] T5: remover tile, rota e tela de Corretores; ajustar `shared/admin-permissions.ts`, `server/_core/trpc.ts:87`,
+- [x] T3: testes das funções migradas (permissão só admin, gravação em `broker_profiles`).
+- [x] T4: registrar a decisão 2 do dono; aplicar a regra de acesso do colaborador.
+- [x] T5: remover tile, rota e tela de Corretores; ajustar `shared/admin-permissions.ts`, `server/_core/trpc.ts:87`,
       `GlobalBackButton.tsx:46`; remover ou mover o `corretoresRouter`.
-- [ ] T6: filtro de perfil em "Usuários e acesso".
-- [ ] T7: botão excluir com recusa prévia na lista de `AdminMaquete3D.tsx`; `whitespace-nowrap` em "Criada em".
-- [ ] T8: suíte, `pnpm check`, `vite build`; HANDOFF; registrar pendência de porte (1, 2, 3) no ROADMAP.
+- [x] T6: filtro de perfil em "Usuários e acesso".
+- [x] T7: botão excluir com recusa prévia na lista de `AdminMaquete3D.tsx`; `whitespace-nowrap` em "Criada em".
+- [x] T8: suíte, `pnpm check`, `vite build`; HANDOFF; registrar pendência de porte (1, 2, 3) no ROADMAP.
 
 ## Arquivos principais
 - `client/src/pages/admin/AdminCRM.tsx`
@@ -83,6 +83,21 @@ a remoção da tela.
 - Colaborador perder acesso sem aviso → T5 depende da decisão 2.
 
 ## File List
+- `client/src/pages/admin/AdminCRM.tsx` — layout com altura da tela; só os cartões rolam dentro das colunas.
+- `client/src/pages/admin/AdminConfiguracoes.tsx` — busca, filtro por tipo de usuário e por situação; comissão padrão, observações e cadastro de corretor sem convite.
+- `server/configuracoes-router.ts` — `listUsers`, `createUser` e `updateUser` com os dados de `broker_profiles`.
+- `client/src/pages/admin/AdminMaquete3D.tsx` — botão excluir na lista (recusa com motivo antes), coluna "Criada em" sem quebra.
+- `client/src/App.tsx`, `client/src/pages/Admin.tsx` — atalho removido; `/admin/corretores` redireciona para "Usuários e acesso" filtrado em Corretor.
+- `shared/admin-permissions.ts`, `server/_core/trpc.ts` — "Corretores" deixa de ser módulo (cadastro só do admin — decisão 2 do dono).
+- Removidos: `client/src/pages/admin/AdminBrokerDirectory.tsx`, `client/src/pages/admin/AdminCorretores.tsx`.
+- Testes: `server/admin-permissions.test.ts`, `server/colaborador-modulos.test.ts`, `server/operacional.test.ts`.
+
+## Notas da implementação
+- AC4: o Pipeline não tem arrastar-e-soltar de cartões (o cartão abre o lead ao toque); nada a preservar além do toque.
+- `corretoresRouter` (servidor) foi mantido, agora só para admin: nenhuma lógica de comissão, contrato ou obra foi alterada.
+- Sem migração: `broker_profiles` já tinha `notes` e `default_commission_pct`.
+- Pedido publicado não é excluído pela lista: o botão fica desativado com o aviso "Despublique a maquete antes de excluir".
+
 _(vazio — preencher na implementação)_
 
 ## Change Log

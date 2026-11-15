@@ -1,37 +1,33 @@
-# HANDOFF — EPIC-023, 13 correções pedidas pelo dono em 15/11/2026
-
-Branch: `claude/motor-maquetes-3d-hwqvkz` (sincronizada com `main` antes deste plano).
+# HANDOFF — 15/11/2026 — EPIC-023 (13 correções pedidas pelo dono)
 
 ## Leia primeiro
-- `docs/stories/epics/epic-023-correcoes-15-11/EPIC.md` — pedidos, causa no código, etapas A–G, decisões pendentes,
-  paridade e riscos.
-- Stories (todas em Draft): `S-A-crm-usuarios-pedidos-maquete.md`, `S-B-mapa-operacional-maplibre.md`,
-  `S-C-vinculo-lead-pdf-avulso-troca-tipo.md`, `S-D-leitura-pdf-sem-ia.md`, `S-E-camadas-terreno-resilientes.md`,
-  `S-F-massa-multiplas-areas-malha-conectada.md`, `S-G-vias-3d-fieis.md`.
-- `docs/stories/epics/ROADMAP.md` — linha do EPIC-023 e pendências de porte ao Grupo Santa Fé (correções 1, 2, 3, 4,
-  8, 9, 10).
+- Plano e stories: `docs/stories/epics/epic-023-correcoes-15-11/` (EPIC.md e S-A … S-G).
+- Autorização do dono (15/11): executar tudo sem parar, migrando e publicando a cada etapa — regra em `CLAUDE.md`.
+- Decisões respondidas: (1) autorizado publicar/migrar todas as etapas; (2) colaborador perde o acesso a corretores;
+  (3) pode trocar a regra CHECK de vínculo da maquete; (4) pode zerar a leitura das maquetes paradas em "Lendo o projeto".
+- Branch de trabalho: `claude/motor-maquetes-3d-hwqvkz` (reiniciar a partir da `main` depois de cada merge).
 
 ## Concluído
-- **Só o plano.** Nenhum código, nenhuma migração, nenhum push.
-- Commit local de documentação: `docs: EPIC-023 — 13 correções de 15/11 (plano) [EPIC-023]`.
+### Etapa A (correções 1, 2, 3 e 5) — S-A
+- CRM Pipeline: a tela ocupa a altura do aparelho; o trilho rola de lado e só os cartões rolam dentro das colunas.
+- "Corretores" unificado em "Usuários e acesso": comissão padrão, observações, busca, filtro de situação e cadastro de
+  corretor sem convite. Atalho e tela removidos; `/admin/corretores` redireciona. `corretoresRouter` mantido (só admin).
+- Filtro por tipo de usuário (Todos + os seis perfis do formulário).
+- Maquete 3D: botão excluir na lista (recusa com motivo antes), coluna "Criada em" sem quebra.
+- Sem migração nesta etapa.
 
 ## Pendências
-- **Decisões do dono (bloqueios):**
-  1. Autorizar publicação e migrações aditivas fora do EPIC-022 (etapas A, B, E, F).
-  2. Colaborador que hoje acessa "Corretores" perde o acesso (Usuários e acesso é só admin) — aceitar, ou liberar a
-     parte de corretores ao colaborador.
-  3. Trocar a regra CHECK `maquetes_3d_origem_alvo_ck` para aceitar lead (muda regra existente, não altera dados).
-  4. Zerar a leitura das três maquetes paradas em "Lendo o projeto" para o leitor novo refazer (altera dados).
-- Push desta branch com o commit de documentação (fica para quem tem a autoridade de push).
-- Implementação das etapas A a G (ordem: A, B, C, D, E, F, G; G depende de F).
-- Porte ao Grupo Santa Fé das correções 1, 2, 3, 4, 8, 9 e 10 depois de entregues aqui.
+- Etapas B (mapa operacional), C (vínculo com lead, PDF avulso, casa/prédio padrão), D (leitura sem IA),
+  E (camadas do terreno), F (Estudo de Massa: áreas separadas e malha conectada), G (vias 3D).
+- Porte para o Grupo Santa Fé das correções 1, 2, 3, 4, 8, 9 e 10 (lista no ROADMAP) — sem acesso àquele repositório.
 
 ## Testes
-- (a) Automáticos: nenhum executado (só documentação).
-- (b) Manuais: nenhum.
-- (c) Pendentes de validação em produção: todos os critérios de aceite das sete stories.
+- (a) Automáticos: `tsc --noEmit` sem erros; suíte completa com 1.783 aprovados e 1 falha antiga e sem relação
+  (`server/central-vendas-envio.test.ts > sem resposta e reativação 30/60/90 dias`, falha também na `main`).
+- (b) Manuais: nenhum — o layout do CRM não foi conferido em navegador nem em iPad nesta sessão.
+- (c) Pendentes em produção: CRM no iPad (rolagem e ausência de tela preta); editar um corretor em "Usuários e acesso"
+  e conferir a comissão numa obra; excluir um pedido de maquete pela lista.
 
 ## Próximo passo exato
-1. Obter do dono as respostas das 4 decisões acima e registrá-las em `EPIC.md` (seção "Decisões pendentes").
-2. Iniciar a Etapa A (`S-A-crm-usuarios-pedidos-maquete.md`): começar por T1 (layout do CRM em `AdminCRM.tsx`) e T2
-   (levar as funções de Corretores para "Usuários e acesso"); a remoção da tela (T5) só depois da decisão 2.
+Iniciar a Etapa B (`S-B-mapa-operacional-maplibre.md`): mover `mapa-base-ml.ts` para `client/src/lib/`, liberar a rota
+do token para o módulo `mapa` e reescrever `AdminMapa.tsx` em MapLibre mantendo agrupamento, busca, filtro, legenda e tabela.

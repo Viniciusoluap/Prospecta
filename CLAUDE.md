@@ -66,3 +66,18 @@ Na prática, para qualquer agente que continuar este epic:
 4. Só parar antes do fim por bloqueio real que dependa do dono (ex.: uma chave que só ele pode cadastrar) —
    e, nesse caso, deixar o bloqueio escrito no HANDOFF e seguir com tudo o que não depende dele.
 5. O handoff a cada etapa (regra acima) continua valendo: `HANDOFF-14-11-MAQUETE-3D.md`.
+
+## EPIC-023 (13 correções de 15/11) — executar até o fim, migrando e publicando a cada etapa (REGRA — estabelecida pelo usuário em 15/11/2026)
+
+Ordem do dono em 15/11/2026, ao aprovar o plano do EPIC-023: "autorizo tudo, continue continuamente sem parar e a cada
+etapa faça a migração e a publicação". Vale para as etapas A–G de `docs/stories/epics/epic-023-correcoes-15-11/EPIC.md`,
+inclusive as que mexem fora da Maquete 3D (CRM, Usuários e acesso, Mapa operacional, Incorporação).
+
+1. **Não parar entre etapas**: concluída uma etapa, seguir para a próxima sem pedir confirmação.
+2. **Já autorizado a cada etapa**: migrações aditivas no Neon de produção, merge do PR na `main` e conferência da publicação na Vercel.
+3. **Decisões já tomadas pelo dono (não perguntar de novo):** colaborador perde o acesso ao cadastro de corretores (fica só
+   com o admin, em "Usuários e acesso"); a regra CHECK de vínculo da maquete pode ser trocada para aceitar cliente do CRM;
+   as maquetes paradas em "Lendo o projeto" podem ter a leitura zerada para o leitor novo refazer.
+4. **Continua exigindo confirmação**: apagar ou alterar outros dados existentes, remover tabela/coluna, credenciais e
+   qualquer coisa fora do EPIC-023.
+5. Handoff a cada etapa: `HANDOFF-15-11-CORRECOES.md`. Porte para o Grupo Santa Fé: pendências no ROADMAP.
