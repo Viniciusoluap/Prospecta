@@ -41,7 +41,7 @@ function Previa3D({ id }: { id: number }) {
   if (!d?.modelo) return <p className="min-h-screen bg-[#0B1022] p-6 text-sm text-gray-300">Esta maquete ainda não tem planta lida.</p>;
   return (
     <Suspense fallback={<p className="min-h-screen bg-[#0B1022] p-6 text-sm text-gray-300">Preparando o 3D…</p>}>
-      <Visualizador modelo={d.modelo} aoSair={() => ir(`/admin/maquete-3d/${id}`)}
+      <Visualizador modelo={d.modelo} unidades={d.unidades} aoSair={() => ir(`/admin/maquete-3d/${id}`)}
         comercial={{ nome: d.comercial.nome || d.titulo, logo: "/logo.webp", localizacao: d.comercial.localizacao || null, preco: d.comercial.preco, whatsapp: d.comercial.whatsapp || null }} />
     </Suspense>
   );
@@ -275,6 +275,15 @@ function Detalhe({ id }: { id: number }) {
   const [sujo, setSujo] = useState(false);
   useEffect(() => { if (d && !sujo) { setRascunho(d.modelo); setVersao(d.modeloVersao); } }, [d, sujo]);
   const salvar = trpc.maquete3d.salvarModelo.useMutation({ onSuccess: r => { setVersao(r.versao); setSujo(false); toast.success("Planta salva."); recarregar(); }, onError: falha });
+  const montarImplantacao = trpc.maquete3d.implantacaoDoEstudo.useMutation({
+    onSuccess: r => {
+      toast.success(`Implantação montada: ${r.lotes} lote(s), ${r.ruas} trecho(s) de rua${r.temTerreno ? "" : ", sem a divisa do terreno"}.`);
+      if (r.semCenario) toast.warning("O estudo ainda não tem estudo de massa: só o terreno foi desenhado.");
+      if (r.descartados) toast.warning(`${r.descartados} lote(s) com geometria inválida ficaram de fora.`);
+      setSujo(false); recarregar();
+    },
+    onError: falha,
+  });
   const validar = trpc.maquete3d.validar.useMutation({ onSuccess: () => { toast.success("Planta validada."); recarregar(); }, onError: falha });
 
   // Visualizador 3D, apresentação comercial e publicação do link.
@@ -381,7 +390,16 @@ function Detalhe({ id }: { id: number }) {
                 onClick={() => { if (window.confirm("Ler o projeto de novo apaga a planta atual e as correções feitas na revisão. Continuar?")) { setSujo(false); ler(true); } }}><RefreshCw className="mr-1 h-4 w-4" />Ler de novo do zero</Button>}
               {lendo && <span className="text-gray-300">Lendo… cada passo leva até um minuto. Mantenha esta página aberta.</span>}
             </div>
-            {!d.documentos.length && <p className="text-amber-300">Escolha os PDFs do projeto antes de gerar.</p>}
+            {!d.documentos.length && <p className="text-amber-300">{d.origem === "incorporacao" ? "Para a casa-tipo ou o prédio, escolha os PDFs do projeto. O loteamento não precisa de PDF." : "Escolha os PDFs do projeto antes de gerar."}</p>}
+            {d.origem === "incorporacao" && ["liberada", "em_revisao", "validada"].includes(d.status) && (
+              <div className="space-y-1 border-t border-[#C9A961]/15 pt-3">
+                <Button variant="outline" className={btnOutline} disabled={lendo || montarImplantacao.isPending}
+                  onClick={() => { if (!sujo || window.confirm("Há alterações não salvas na planta. Montar a implantação descarta essas alterações. Continuar?")) montarImplantacao.mutate({ id }); }}>
+                  <RefreshCw className="mr-1 h-4 w-4" />{d.modelo?.implantacao ? "Atualizar a implantação a partir do estudo" : "Montar a implantação a partir do estudo"}
+                </Button>
+                <p className="text-xs text-gray-400">Usa o terreno (KML) e o cenário escolhido do estudo de massa: ruas e lotes. Sem IA e sem PDF. As edificações já lidas são mantidas.</p>
+              </div>
+            )}
           </CardContent>
         </Card>
       )}

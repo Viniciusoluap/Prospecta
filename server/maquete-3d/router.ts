@@ -7,7 +7,9 @@ import { and, desc, eq, inArray, isNull, sql } from "drizzle-orm";
 import { z } from "zod";
 import { incorporationStudies, operationalProjects, projectDocuments, users } from "../../drizzle/schema.js";
 import { maquetes3d, type Maquete3d } from "../../drizzle/schema-maquete-3d.js";
-import { TIPOS_MAQUETE, lerModelo, modeloSchema, podePublicar, resumoModelo, validarModelo } from "../../shared/maquete-3d/modelo.js";
+import { TIPOS_MAQUETE, lerModelo, modeloSchema, modeloVazio, podePublicar, resumoModelo, validarModelo, type TipoMaquete } from "../../shared/maquete-3d/modelo.js";
+import { implantacaoDoEstudo } from "../../shared/maquete-3d/implantacao.js";
+import type { CenarioMassa } from "../../shared/incorporacao/massa.js";
 import {
   FAIXAS_PRECO, MAX_DOCUMENTOS, ORIGENS_MAQUETE, PODE_REVISAR, comercialSchema, configSchema, documentoSchema, lerComercial, lerEstadoLeitura,
   progressoLeitura, statusInicial, type DocumentoMaquete, type OrigemMaquete, type StatusMaquete,
@@ -72,6 +74,13 @@ function paraTela(m: Maquete3d) {
 }
 
 const idInput = z.object({ id: z.number().int().positive() });
+
+/** Situação de venda das unidades do estudo (só código e situação: nada de comprador nem de preço). */
+export async function unidadesDoEstudo(studyId: number | null): Promise<{ codigo: string; status: string }[]> {
+  if (!studyId) return [];
+  const r = await db().execute(sql`SELECT code, status FROM incorporation_units WHERE study_id = ${studyId} AND deleted_at IS NULL`);
+  return (r as unknown as { rows: { code: string; status: string }[] }).rows.map(u => ({ codigo: u.code, status: u.status }));
+}
 const PARTE_PDF_BYTES = 2 * 1024 * 1024;
 
 export const maquete3dRouter = router({
@@ -132,6 +141,7 @@ export const maquete3dRouter = router({
       /** Em que arquivo e página está a planta de cada pavimento (fundo da revisão). */
       pranchas: leitura.passos.filter(p => p.tipo === "estrutura" && p.pavimentoId).map(p => ({ pavimentoId: p.pavimentoId!, doc: p.doc ?? 0, pagina: p.pagina ?? 1 })),
       liberadoPorNome: liberador?.nome ?? null,
+      unidades: await unidadesDoEstudo(m.studyId),
       /** Telefone do cliente do projeto, para enviar o link da maquete pelo WhatsApp. */
       clienteTelefone: m.projectId ? (await db().select({ t: operationalProjects.clientPhone }).from(operationalProjects).where(eq(operationalProjects.id, m.projectId)).limit(1))[0]?.t ?? null : null,
     };
@@ -263,6 +273,38 @@ export const maquete3dRouter = router({
     return { ok: true };
   }),
 
+  /**
+   * Incorporação: monta (ou atualiza) a implantação da maquete com o terreno, as ruas e os lotes que o estudo já
+   * tem no cenário escolhido do estudo de massa. Não usa IA nem PDF. As edificações já lidas são mantidas.
+   */
+  implantacaoDoEstudo: adminProcedure.input(idInput).mutation(async ({ ctx, input }) => {
+    const m = await buscar(input.id);
+    if (m.origem !== "incorporacao" || !m.studyId) throw new TRPCError({ code: "BAD_REQUEST", message: "Só maquetes de Incorporação têm implantação vinda do estudo." });
+    if (!["liberada", "em_revisao", "validada"].includes(m.status)) throw conflito("A maquete precisa estar autorizada (e não publicada) para montar a implantação.");
+    const [estudo] = await db().select({
+      geojson: incorporationStudies.geojson, lat: incorporationStudies.latitude, lng: incorporationStudies.longitude,
+      cenarios: incorporationStudies.massScenariosJson, escolhido: incorporationStudies.selectedScenarioId,
+    }).from(incorporationStudies).where(eq(incorporationStudies.id, m.studyId)).limit(1);
+    let cenario: CenarioMassa | null = null;
+    try {
+      const lista = (JSON.parse(estudo?.cenarios || "{}") as { cenarios?: CenarioMassa[] }).cenarios ?? [];
+      cenario = lista.find(c => c.id === estudo?.escolhido) ?? lista[0] ?? null;
+    } catch { cenario = null; }
+    const centro = estudo?.lat && estudo?.lng ? [Number(estudo.lng), Number(estudo.lat)] as [number, number] : null;
+    const r = implantacaoDoEstudo(estudo?.geojson ?? null, centro, cenario);
+    if (!r || (!r.implantacao.terreno.length && !r.implantacao.lotes.length)) {
+      throw new TRPCError({ code: "PRECONDITION_FAILED", message: "O estudo ainda não tem o terreno (KML) nem um estudo de massa com lotes. Cadastre-os na Incorporação e tente de novo." });
+    }
+    const modelo = lerModelo(m.modelo) ?? modeloVazio(m.tipo as TipoMaquete);
+    const novo = modeloSchema.parse({ ...modelo, implantacao: r.implantacao });
+    const g = await db().update(maquetes3d).set({
+      modelo: JSON.stringify(novo), modeloVersao: m.modeloVersao + 1, status: "em_revisao" satisfies StatusMaquete,
+      revisadoPor: ctx.user.id, revisadoEm: agora(), updatedAt: agora(),
+    }).where(and(eq(maquetes3d.id, m.id), eq(maquetes3d.modeloVersao, m.modeloVersao), eq(maquetes3d.status, m.status))).returning({ id: maquetes3d.id });
+    if (!g.length) throw conflito("A maquete foi alterada por outra pessoa. Recarregue a página.");
+    return { lotes: r.implantacao.lotes.length, ruas: r.implantacao.ruas.length, temTerreno: r.implantacao.terreno.length > 0, descartados: r.descartados, semCenario: !cenario };
+  }),
+
   /** Dados da tela de apresentação (nome, localização, preço, WhatsApp). Campo vazio não aparece para o cliente. */
   salvarComercial: adminProcedure.input(idInput.extend({ comercial: comercialSchema })).mutation(async ({ input }) => {
     const m = await buscar(input.id);
@@ -300,6 +342,6 @@ export const maquetePublicaRouter = router({
     const modelo = m && lerModelo(m.modelo);
     if (!m || !modelo) throw new TRPCError({ code: "NOT_FOUND", message: "Maquete não encontrada ou ainda não publicada." });
     const comercial = lerComercial(m.comercial);
-    return { titulo: comercial.nome || m.titulo, tipo: m.tipo, modelo, comercial };
+    return { titulo: comercial.nome || m.titulo, tipo: m.tipo, modelo, comercial, unidades: await unidadesDoEstudo(m.studyId) };
   }),
 });

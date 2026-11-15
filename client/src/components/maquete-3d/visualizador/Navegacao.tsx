@@ -120,17 +120,26 @@ export function Caminhada({ edificacao: e, visitante, comando, onLocal }: {
 
 // ── Por fora: órbita ──
 
-export function Orbita({ edificacao: e, deCima }: { edificacao: Edificacao; deCima: boolean }) {
+/** Caixa do que se quer enquadrar (planta em x/z e a altura do topo). */
+export type CaixaCena = { x0: number; x1: number; z0: number; z1: number; topo: number };
+
+export function caixaDaEdificacao(e: Edificacao): CaixaCena {
+  const pts = e.pavimentos.flatMap(p => p.paredes.flatMap(w => [w.a, w.b]));
+  const xs = pts.map(p => p.x), zs = pts.map(p => p.y);
+  return { x0: Math.min(0, ...xs), x1: Math.max(1, ...xs), z0: Math.min(0, ...zs), z1: Math.max(1, ...zs), topo: topoDaEdificacao(e) };
+}
+
+export function Orbita({ caixa, deCima }: { caixa: CaixaCena; deCima: boolean }) {
   const { camera } = useThree();
-  const { centro, raio, topo } = useMemo(() => {
-    const pts = e.pavimentos.flatMap(p => p.paredes.flatMap(w => [w.a, w.b]));
-    const xs = pts.map(p => p.x), zs = pts.map(p => p.y);
-    const x0 = Math.min(0, ...xs), x1 = Math.max(1, ...xs), z0 = Math.min(0, ...zs), z1 = Math.max(1, ...zs), t = topoDaEdificacao(e);
-    return { centro: new THREE.Vector3((x0 + x1) / 2, t * 0.4, (z0 + z1) / 2), raio: Math.max(x1 - x0, z1 - z0, t), topo: t };
-  }, [e]);
+  const { centro, raio, topo } = useMemo(() => ({
+    centro: new THREE.Vector3((caixa.x0 + caixa.x1) / 2, caixa.topo * 0.4, (caixa.z0 + caixa.z1) / 2),
+    raio: Math.max(caixa.x1 - caixa.x0, caixa.z1 - caixa.z0, caixa.topo), topo: caixa.topo,
+  }), [caixa.x0, caixa.x1, caixa.z0, caixa.z1, caixa.topo]);
   useEffect(() => {
-    if (deCima) camera.position.set(centro.x, topo + raio * 1.5, centro.z + raio * 0.35);
-    else camera.position.set(centro.x + raio * 0.95, topo * 0.9 + raio * 0.55, centro.z + raio * 1.25);
+    // Conjuntos grandes (loteamento) são enquadrados mais de perto, proporcionalmente.
+    const k = raio > 40 ? 0.62 : 1;
+    if (deCima) camera.position.set(centro.x, topo + raio * 1.5 * k, centro.z + raio * 0.35 * k);
+    else camera.position.set(centro.x + raio * 0.95 * k, topo * 0.9 + raio * 0.55 * k, centro.z + raio * 1.25 * k);
     camera.lookAt(centro);
   }, [camera, centro, raio, topo, deCima]);
   return <OrbitControls makeDefault target={centro} enableDamping dampingFactor={0.08} minDistance={2.5} maxDistance={raio * 6} maxPolarAngle={Math.PI / 2 - 0.03} />;

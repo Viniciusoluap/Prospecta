@@ -119,12 +119,19 @@ export const edificacaoSchema = z.object({
 });
 export type Edificacao = z.infer<typeof edificacaoSchema>;
 
+/** Contornos da implantação podem ter muito mais vértices que um cômodo (divisa de terreno vinda de KML). */
+const contorno = z.array(ponto).max(4000);
+export const TIPOS_LOTE = ["vendavel", "area_publica", "nao_parcelavel"] as const;
+
 export const implantacaoSchema = z.object({
-  terreno: poligono.default([]),
+  terreno: contorno.default([]),
+  /** Leito das ruas como polígonos (é como o estudo de massa da Incorporação guarda o sistema viário). */
+  ruas: z.array(contorno).max(400).default([]),
   vias: z.array(z.object({ id, nome: z.string().max(80).default(""), eixo: poligono, largura: metros.min(1).max(80).default(7) })).max(200).default([]),
   lotes: z.array(z.object({
-    id, nome: z.string().max(40).default(""), quadra: z.string().max(40).default(""), poligono,
+    id, nome: z.string().max(40).default(""), quadra: z.string().max(40).default(""), poligono: contorno,
     areaInformada: metros.min(0).nullable().default(null),
+    tipo: z.enum(TIPOS_LOTE).default("vendavel"),
     /** Código da unidade no inventário da Incorporação (incorporation_units.code), quando houver. */
     unidade: z.string().max(120).nullable().default(null),
   })).max(3000).default([]),
