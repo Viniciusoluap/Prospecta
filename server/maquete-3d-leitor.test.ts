@@ -614,6 +614,33 @@ describe("leitor geométrico — revisão de QA (3)", () => {
     expect(p.comodos.filter(c => c.funcao === "deposito")).toHaveLength(11);
   });
 
+  it("M1: abertura entre dois pilares continua abertura (vidro → janela, porta de correr, vão livre); sem abertura nenhuma, pendência", () => {
+    const ret = (x0: number, y0: number, x1: number, y1: number) => [P.seg(x0, y0, x1, y0), P.seg(x1, y0, x1, y1), P.seg(x1, y1, x0, y1), P.seg(x0, y1, x0, y0)];
+    // Casa 10 × 6 com parede interna em x = 7; na parede da frente (y = 2), abertura de V m entre pilares L × Q.
+    const casa = (V: number, L: number, Q: number, oque: "vidro" | "correr" | "nada" | "parede") => {
+      const a = 4.5 - V / 2, b = 4.5 + V / 2, h = 0.075;
+      const s = [...P.parede(2, 2, a - L, 2), ...P.parede(b + L, 2, 12, 2), ...ret(a - L, 2 - Q / 2, a, 2 + Q / 2), ...ret(b, 2 - Q / 2, b + L, 2 + Q / 2),
+        ...P.parede(2, 8, 12, 8), ...P.parede(2, 2, 2, 8), ...P.parede(12, 2, 12, 8), ...P.parede(7, 2, 7, 8)];
+      if (oque === "vidro") s.push(P.seg(a, 1.98, b, 1.98), P.seg(a, 2.02, b, 2.02), P.seg(a, 2 - h, b, 2 - h), P.seg(a, 2 + h, b, 2 + h));
+      if (oque === "correr") s.push(P.seg(a, 1.97, (a + b) / 2 + 0.05, 1.97), P.seg((a + b) / 2 - 0.05, 2.03, b, 2.03));
+      if (oque === "parede") s.push(P.seg(a, 2 - h, b, 2 - h), P.seg(a, 2 + h, b, 2 + h));
+      return lerPagina(P.pagina({ segmentos: s, textos: [P.texto("QUARTO", 4.5, 5), P.texto("SALA", 9.5, 5), P.texto("PLANTA BAIXA", 7, 9, 12), P.texto("1 : 50", 7, 9.4, 10)] })).plantas[0];
+    };
+    for (const [V, L, Q] of [[0.9, 0.15, 0.3], [1.2, 0.3, 0.3], [1, 0.3, 0.15]] as const) {
+      for (const [oque, tipos] of [["vidro", ["janela"]], ["correr", ["janela", "vao"]], ["nada", ["vao"]]] as const) {
+        const p = casa(V, L, Q, oque);
+        expect(p.comodos.map(c => c.funcao).sort(), `${V} ${L}x${Q} ${oque}`).toEqual(["quarto", "sala"]);
+        expect(p.aberturas, `${V} ${L}x${Q} ${oque}`).toHaveLength(1);
+        expect(tipos as readonly string[], `${V} ${L}x${Q} ${oque}`).toContain(p.aberturas[0].tipo);
+        expect(p.aberturas[0].largura).toBeCloseTo(V, 1);
+      }
+    }
+    // Entre os pilares, parede cheia (as duas faces, sem vidro): nenhuma abertura — e a pendência pede a entrada.
+    const cheia = casa(0.9, 0.15, 0.3, "parede");
+    expect(cheia.aberturas).toEqual([]);
+    expect(cheia.pendencias.join(" ")).toContain("Nenhuma porta ou abertura lida");
+  });
+
   it("N3: limite de candidatas atingido — o que saiu fica como parcial, nada confirmado; sem nada, o motivo diz", () => {
     const pg = P.pagina(P.casa(2, 2, "PLANTA BAIXA - TÉRREO"), P.casa(14, 2, "PLANTA BAIXA - SUPERIOR", { nomes: ["QUARTO", "SUITE"] }));
     const { plantas } = lerPagina(pg, { maxCandidatas: 10 }); // cada casa dá 6 pares de linhas: uma só termina

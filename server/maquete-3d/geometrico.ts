@@ -445,7 +445,7 @@ function portasPelosArcos(ang: number, rho: number, esp: number, tA: number, tB:
  * Um vão com mais de uma porta (portas vizinhas cujo montante entre elas não aparece) é repartido pelos arcos.
  * `naPonta`: vão entre a ponta da parede e uma parede perpendicular — ali não há ombreira do outro lado, então vão livre não conta.
  */
-function classificarVao(ang: number, rho: number, esp: number, tA: number, tB: number, ctx: Contexto, naPonta: boolean, ladosLongos = false): Vao[] | null {
+function classificarVao(ang: number, rho: number, esp: number, tA: number, tB: number, ctx: Contexto, naPonta: boolean, ladosLongos = false, soPilar = false): Vao[] | null {
   const vao = tB - tA;
   if (vao < 0.4 || vao > 4) return null;
   const pontas = [ponto(ang, rho, tA), ponto(ang, rho, tB)];
@@ -472,15 +472,30 @@ function classificarVao(ang: number, rho: number, esp: number, tA: number, tB: n
     return vaos;
   }
   if (vao < 0.5) return null;
-  // Pilar no meio da parede: as duas pontas do vão são lados de um pilar (traço atravessando a parede, mais comprido
-  // que a espessura). A parede continua, sem abertura.
+  // Pilar no meio da parede: as duas pontas do vão são lados de pilar (traço atravessando a parede, mais comprido
+  // que a espessura). Se as bordas do pilar (linhas ao longo, fora da espessura) cobrem o vão, é um pilar só e a
+  // parede continua. Se sobra um trecho livre entre dois pilares, é abertura: janela com caixilho, ou vão livre.
   if (!naPonta) {
     const perp = (ang + 90) % BALDES, pr = (perp * Math.PI) / 180, cp = Math.cos(pr), sp = Math.sin(pr);
     const lado = (t: number) => { const q = ponto(ang, rho, t), rq = -q.x * sp + q.y * cp, tq = q.x * cp + q.y * sp;
       return ctx.faixa(perp, rq - esp / 2 - 0.03, rq + esp / 2 + 0.03).some(r => r.comp >= esp + 0.08 && r.comp <= 1.2 && r.t0 < tq - esp / 2 && r.t1 > tq + esp / 2); };
-    if (process.env.DBGPIL) console.log('PIL', ang, rho.toFixed(2), tA.toFixed(2), tB.toFixed(2), esp.toFixed(2), lado(tA), lado(tB));
-    if (vao <= 1.2 && lado(tA) && lado(tB)) return [];
+    if (lado(tA) && lado(tB)) {
+      const bordas = ctx.faixa(ang, rho - 0.65, rho + 0.65).filter(r => Math.abs(r.rho - rho) >= esp / 2 + 0.01 && r.t1 > tA && r.t0 < tB)
+        .map(r => [Math.max(tA, r.t0), Math.min(tB, r.t1)] as [number, number]).sort((p, q) => p[0] - q[0]);
+      let livre: [number, number] = [tA, tA], ini = tA;
+      for (const [b0, b1] of [...bordas, [tB, tB] as [number, number]]) { if (b0 - ini > livre[1] - livre[0]) livre = [ini, b0]; ini = Math.max(ini, b1); }
+      const L = livre[1] - livre[0];
+      if (L < 0.4) { if (vao <= 1.2) return []; }
+      else {
+        const vidro = ctx.faixa(ang, rho - esp / 2 - 0.01, rho + esp / 2 + 0.01).filter(r => r.t1 > livre[0] && r.t0 < livre[1])
+          .map(r => [Math.max(livre[0], r.t0), Math.min(livre[1], r.t1)] as [number, number]).sort((p, q) => p[0] - q[0]);
+        let coberto = 0, fim = livre[0];
+        for (const [v0, v1] of vidro) if (v1 > fim) { coberto += v1 - Math.max(v0, fim); fim = v1; }
+        return [{ t: (livre[0] + livre[1]) / 2, largura: L, tipo: coberto >= L * 0.7 ? "janela" : "vao" }];
+      }
+    }
   }
+  if (soPilar) return null;
   if (caixilhoEm(tA, tB)) return [{ t: (tA + tB) / 2, largura: vao, tipo: "janela" }];
   if (!naPonta && vao <= 3) {
     const perp = (ang + 90) % BALDES, pr = (perp * Math.PI) / 180;
@@ -498,7 +513,17 @@ function classificarVao(ang: number, rho: number, esp: number, tA: number, tB: n
 /** Vãos entre peças da mesma reta (ver `classificarVao`): a parede continua através deles. */
 function paredesComVaos(grupos: Peca[][], ctx: Contexto): Parede[] {
   const paredes: Parede[] = [];
-  for (const g of grupos) {
+  // Caixilho entre dois pilares: as linhas do vidro (dentro da espessura) formam uma "peça" curta entre as peças da
+  // parede. Com pilar dos dois lados, sai da lista e o trecho é lido como vão (janela) — senão vira parede cheia.
+  const vidroDentro = (p: Peca) => ctx.faixa(p.ang, p.rho - p.esp / 2 + 0.01, p.rho + p.esp / 2 - 0.01).some(r => Math.min(r.t1, p.t1) - Math.max(r.t0, p.t0) >= (p.t1 - p.t0) * 0.7);
+  for (const g0 of grupos) {
+    const g: Peca[] = [];
+    for (let i = 0; i < g0.length; i++) {
+      const p = g0[i], a = g[g.length - 1], b = g0[i + 1];
+      if (a && b && p.t1 - p.t0 <= 3 && p.t0 - a.t1 < 0.45 && b.t0 - p.t1 < 0.45 && vidroDentro(p)
+        && classificarVao(p.ang, p.rho, Math.max(a.esp, b.esp), a.t1, b.t0, ctx, false, false, true)?.some(v => v.tipo === "janela")) continue;
+      g.push(p);
+    }
     let atual: Parede | null = null;
     const fechar = () => { if (atual && atual.t1 - atual.t0 >= 0.3) paredes.push(atual); atual = null; };
     for (const p of g) {
@@ -546,7 +571,7 @@ function aberturasPelosMarcos(paredes: Parede[], ctx: Contexto) {
         if (Math.abs(rhoDe(m) - w.rho) <= w.esp / 2 + 0.005 && t > w.t0 + 0.05 && t < w.t1 - 0.05) ts.push(t);
       }
     }
-    if (ts.length < 4) continue;
+    if (ts.length < 2) continue;
     ts.sort((p, q) => p - q);
     // Marcos: traços a menos de 6 cm uns dos outros; fora os que caem num encontro com outra parede.
     const marcos: { ini: number; fim: number; n: number }[] = [];
@@ -569,6 +594,17 @@ function aberturasPelosMarcos(paredes: Parede[], ctx: Contexto) {
       const t0 = ini.ini, t1 = validos[j].fim, meio = (t0 + t1) / 2;
       if (!w.vaos.some(v => Math.abs(v.t - meio) < (v.largura + t1 - t0) / 2)) w.vaos.push({ t: meio, largura: t1 - t0, tipo: "janela" });
       i = j + 1;
+    }
+    // Pilar no alinhamento da parede (mesma espessura): um traço só de cada lado, e o vidro (duas linhas ou mais, dentro
+    // da espessura) de um ao outro. Sem as duas linhas de vidro, o trecho é parede (ou o miolo do pilar).
+    const todos = marcos.filter(m => !cruzamentos.some(x => Math.abs((m.ini + m.fim) / 2 - x.t) <= x.esp / 2 + 0.1));
+    for (let i = 0; i + 1 < todos.length; i++) {
+      const m0 = todos[i], m1 = todos[i + 1], t0 = m0.fim, t1 = m1.ini;
+      if ((m0.n >= 2 && m1.n >= 2) || t1 - t0 < 0.4 || t1 - t0 > 3) continue;
+      const vidros = new Set(dentro.filter(r => Math.min(r.t1, t1) - Math.max(r.t0, t0) >= (t1 - t0) * 0.8).map(r => Math.round(r.rho * 200)));
+      if (vidros.size < 2) continue;
+      const meio = (m0.ini + m1.fim) / 2, larg = m1.fim - m0.ini;
+      if (!w.vaos.some(v => Math.abs(v.t - meio) < (v.largura + larg) / 2)) w.vaos.push({ t: (t0 + t1) / 2, largura: t1 - t0, tipo: "janela" });
     }
   }
 }
