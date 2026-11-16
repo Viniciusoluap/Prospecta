@@ -29,7 +29,7 @@ beforeAll(async () => {
     CREATE TABLE leads (id integer primary key, name varchar, cpf varchar, email varchar, phone varchar, address text, neighborhood varchar, simulation_value numeric);
     INSERT INTO leads VALUES (5, 'Cliente do CRM', '123.456.789-09', 'cli@x.y', '(99) 98888-7777', 'Rua do Lead', 'Bairro Lead', 210000);
     CREATE TABLE construction_projects (id integer primary key, title varchar, address text, city varchar, state varchar, total_area integer, vgv numeric, lead_id integer,
-      lot_cost numeric, financed_amount numeric, start_date timestamp, estimated_end_date timestamp);
+      lot_cost numeric, financed_amount numeric, start_date timestamp, estimated_end_date timestamp, lead_service_id integer);
     INSERT INTO construction_projects VALUES (10, 'Obra Com PCI', 'Rua da Obra, 1', 'Imperatriz', 'MA', 80, null, 5, 60000, 150000, '2026-01-10', '2026-05-10'),
       (11, 'Obra Sem PCI', 'Rua B', 'Imperatriz', 'MA', 50, 180000, null, null, null, null, null);
     CREATE TABLE construction_pci (project_id integer primary key, data bytea);

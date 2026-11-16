@@ -76,6 +76,11 @@ export interface CampoPci {
   /** Linhas que as macros do modelo só mostram em certas respostas (§1.1 do mapeamento). */
   visivel?: (campos: Record<string, ValorCampoPci>) => boolean;
   largo?: boolean;
+  /**
+   * EPIC-024 S-09: campo técnico que um modelo de preenchimento pode levar para outra obra.
+   * Vem da lista de PERMISSÃO `CAMPOS_COPIAVEIS_MODELO_PCI` — o que não está nela nunca é copiado.
+   */
+  copiavel?: boolean;
 }
 
 const c = (id: string, rotulo: string, secao: SecaoPci, celula: string | null, tipo: TipoCampoPci = "texto", extra: Partial<CampoPci> = {}): CampoPci =>
@@ -90,7 +95,7 @@ export const ESGOTO_REDE_PCI = "Rede de Esgoto";
 const sistemaE = (valor: string) => (f: Record<string, ValorCampoPci>) => f.sistemaConstrutivo === valor;
 
 /** Campos de digitação do modelo (cores roxas), na ordem da planilha. */
-export const CAMPOS_PCI: CampoPci[] = [
+const CAMPOS_BASE_PCI: CampoPci[] = [
   c("proponenteNome", "Proponente", "proponente", "G44", "texto", { largo: true }),
   c("proponenteEmail", "E-mail", "proponente", "Y44"),
   c("proponenteCpf", "CPF/CNPJ", "proponente", "AK44", "documento"),
@@ -224,6 +229,32 @@ export const CAMPOS_PCI: CampoPci[] = [
   c("localData", "Local e data (assinatura)", "cronograma", "H258", "texto", { largo: true }),
 ];
 
+/**
+ * EPIC-024 S-09: lista de PERMISSÃO dos campos que um modelo de preenchimento leva de uma obra
+ * para outra — só o técnico do projeto padrão (memorial, sistema construtivo, áreas da casa,
+ * executor/BDI e prazo). Ficam de fora, sempre: proponente, RTP/RTE, endereço, bairro, CEP,
+ * município/UF, matrícula/cartório/coordenadas, construtora, documentação da obra, área e valor
+ * do terreno, valores do imóvel, abastecimento/drenagem/esgoto (dependem do lote), pré-executado,
+ * obras pré-existentes, observações, local/data e a imagem. Campo novo entra fora do modelo até
+ * ser incluído aqui de propósito.
+ */
+export const CAMPOS_COPIAVEIS_MODELO_PCI: readonly string[] = [
+  "areaCoberta", "areaAcessoria", "destinacao",
+  "padraoAcabamento", "implantacao", "cobertura", "teto", "pavimentos", "quartos", "suites", "salas", "vagas", "tipoVagas",
+  "paredesExternas", "loucasMetais", "areaServico", "cozinha", "paredesInternas", "paredesAreasSecas", "calefacao", "aguaQuente",
+  "itensSustentabilidade", "revestParedeMolhadas", "pisoAreasSecas", "pisoAreasMolhadas", "divisaoInterna", "esquadriasExternas",
+  "esquadriasInternas", "outrosEspecificar",
+  "sistemaConstrutivo", "datecNumero", "datecDetentor", "datecValidade", "datecSistema", "normaAbnt", "normaTitulo",
+  "especificacaoSistema", "usoEps", "montagemParedes", "fabricanteEps", "paredesEstruturais", "tipoFormas", "formasPermanecem",
+  "docSistemaInovador", "seloCasaAzul", "docSeloCasaAzul",
+  "energiaAlternativa",
+  "executor", "bdi", "justificativaIncidencias",
+  "prazoMeses", "justificativaPrazo", "justificativaPrazoTexto",
+];
+const COPIAVEIS_PCI = new Set(CAMPOS_COPIAVEIS_MODELO_PCI);
+
+export const CAMPOS_PCI: CampoPci[] = CAMPOS_BASE_PCI.map((campo) => (COPIAVEIS_PCI.has(campo.id) ? { ...campo, copiavel: true } : campo));
+
 export const CAMPO_POR_ID = new Map(CAMPOS_PCI.map((campo) => [campo.id, campo]));
 
 /** Serviços 1..19 da tabela de custos (o 20 "Outros" é a soma dos serviços adicionais). */
@@ -269,6 +300,14 @@ export interface FormularioPci {
   rtpEngenheiroId: string | null;
   rteEngenheiroId: string | null;
   imagem: ImagemPci | null;
+  /** EPIC-024 S-09: modelo de preenchimento aplicado nesta obra (só referência; os dados ficam na obra). */
+  modeloOrigem?: OrigemModeloPci | null;
+}
+
+export interface OrigemModeloPci {
+  id: number;
+  nome: string;
+  versao: number;
 }
 
 export function formularioPciVazio(): FormularioPci {
@@ -280,6 +319,7 @@ export function formularioPciVazio(): FormularioPci {
     rtpEngenheiroId: null,
     rteEngenheiroId: null,
     imagem: null,
+    modeloOrigem: null,
   };
 }
 
@@ -371,6 +411,10 @@ export function normalizarFormularioPci(entrada: unknown): FormularioPci {
   const id = (v: unknown) => (typeof v === "string" && v.trim() ? v.trim().slice(0, 64) : typeof v === "number" && Number.isInteger(v) ? String(v) : null);
   base.rtpEngenheiroId = id(e.rtpEngenheiroId);
   base.rteEngenheiroId = id(e.rteEngenheiroId);
+  const mo = e.modeloOrigem as { id?: unknown; nome?: unknown; versao?: unknown } | null | undefined;
+  if (mo && Number.isInteger(mo.id) && Number(mo.id) > 0 && typeof mo.nome === "string" && Number.isInteger(mo.versao)) {
+    base.modeloOrigem = { id: Number(mo.id), nome: mo.nome.trim().slice(0, 120), versao: Number(mo.versao) };
+  }
   const img = e.imagem as { tipo?: unknown; base64?: unknown } | null | undefined;
   if (img && (img.tipo === "png" || img.tipo === "jpeg") && typeof img.base64 === "string" && /^[A-Za-z0-9+/]+=*$/.test(img.base64)) {
     if ((img.base64.length / 4) * 3 > LIMITE_IMAGEM_PCI_BYTES) throw new Error("A imagem de localização deve ter até 1,5 MB.");
@@ -423,6 +467,20 @@ export interface EngenheiroPci {
   telefone: string | null;
   crea: string | null;
   creaUf: string | null;
+  /**
+   * EPIC-024 S-09: CPF do perfil de Engenheiro, buscado no servidor só para o engenheiro
+   * escolhido (nunca vem na lista). `undefined` = não consultado (mantém o que está digitado).
+   */
+  cpf?: string | null;
+}
+
+/** Engenheiro escolhido para RTP/RTE e de onde veio a escolha (rascunho, PCI gerada, projeto). */
+export interface EngenheiroDaObraPci {
+  id: string;
+  dados: EngenheiroPci;
+  fonte: string;
+  /** true = escolha explícita nesta obra (vence a PCI vinculada); false = inferido. */
+  escolhido: boolean;
 }
 
 export interface FontesPreenchimentoPci {
@@ -443,6 +501,13 @@ export interface FontesPreenchimentoPci {
   coordenadas: { lat: number; lng: number } | null;
   /** Campos lidos da PCI já vinculada à obra (mesmo mapa de células). */
   pci: FormularioPci | null;
+  /** EPIC-024 S-09: engenheiros da obra, quando há fonte legítima. */
+  rtp?: EngenheiroDaObraPci | null;
+  rte?: EngenheiroDaObraPci | null;
+  /** Nomes das fontes, para mostrar de onde veio cada valor. */
+  rotulos?: { cliente?: string; pci?: string };
+  /** Por que uma fonte não existe (ex.: "A obra não tem cliente do CRM vinculado."). */
+  motivos?: Partial<Record<"cliente" | "pci" | "coordenadas" | "rtp" | "rte", string>>;
 }
 
 /** Telefone brasileiro → DDD + número (sem o +55). */
@@ -465,47 +530,280 @@ export function prazoEmMeses(inicio: string | null, termino: string | null): num
 
 const vazio = (v: ValorCampoPci | undefined) => v === null || v === undefined || v === "";
 
+// ─── sugestões com fonte e comparação (EPIC-024 S-09) ────────────────────────
+
 /**
- * Formulário pré-preenchido. Prioridade: (1) dados da PCI já vinculada à obra
- * (a proposta oficial enviada), (2) cadastro do cliente/lead e da obra, que
- * completam só o que faltar. Nada é inventado: sem fonte, o campo fica vazio.
+ * Chave de uma sugestão: id de um campo de `CAMPOS_PCI` ou um dos grupos abaixo
+ * (tabelas inteiras e a escolha do engenheiro).
  */
-export function preencherPciAutomatico(f: FontesPreenchimentoPci): FormularioPci {
-  const form = f.pci ? normalizarFormularioPci(f.pci) : formularioPciVazio();
-  const definir = (id: string, v: unknown) => {
-    const campo = CAMPO_POR_ID.get(id);
-    if (!campo || !vazio(form.campos[id])) return;
-    form.campos[id] = normalizarValorCampo(campo, v);
-  };
+export const GRUPOS_PCI = {
+  custos: "Custos dos serviços (itens 1 a 19)",
+  adicionais: "Serviços adicionais",
+  cronograma: "Cronograma (% acumulado por etapa)",
+  rtpEngenheiroId: "Engenheiro escolhido para o RTP",
+  rteEngenheiroId: "Engenheiro escolhido para o RTE",
+} as const;
+export type GrupoPci = keyof typeof GRUPOS_PCI;
+
+export interface SugestaoPci {
+  chave: string;
+  valor: unknown;
+  /** De onde veio o valor (ex.: "Cliente do CRM (lead nº 5)"). */
+  fonte: string;
+}
+
+export interface AusenciaPci {
+  chave: string;
+  rotulo: string;
+  motivo: string;
+}
+
+export interface ItemPreenchidoPci {
+  chave: string;
+  rotulo: string;
+  valor: string;
+  fonte: string;
+}
+
+export interface ConflitoPci {
+  chave: string;
+  rotulo: string;
+  atual: string;
+  sugerido: string;
+  fonte: string;
+  /** Valor já normalizado, aplicado só com confirmação (`aceitarSugestoesPci`). */
+  valor: unknown;
+}
+
+export interface ResultadoPreenchimentoPci {
+  /** Formulário com SÓ os campos vazios completados — nada preenchido é trocado. */
+  formulario: FormularioPci;
+  preenchidos: ItemPreenchidoPci[];
+  /** Já estavam com o mesmo valor da fonte. */
+  iguais: ItemPreenchidoPci[];
+  /** Preenchidos com valor diferente: só trocam com confirmação. */
+  conflitos: ConflitoPci[];
+  /** Não encontrados em nenhuma fonte (e ainda vazios), com o motivo. */
+  naoEncontrados: AusenciaPci[];
+}
+
+export const rotuloChavePci = (chave: string) => (GRUPOS_PCI as Record<string, string>)[chave] ?? CAMPO_POR_ID.get(chave)?.rotulo ?? chave;
+
+const brlTexto = (v: number) => v.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
+/** Valor normalizado de uma chave, ou null quando a fonte não tem nada útil. */
+function normalizarSugestao(chave: string, v: unknown): unknown {
+  if (chave === "custos") {
+    if (!Array.isArray(v)) return null;
+    const c = SERVICOS_CUSTO_PCI.map((_, i) => numeroPci(v[i]));
+    return c.some((x) => x !== null) ? c : null;
+  }
+  if (chave === "adicionais") {
+    if (!Array.isArray(v)) return null;
+    const a = normalizarFormularioPci({ adicionais: v }).adicionais;
+    return a.some((x) => x.descricao || x.valor !== null) ? a : null;
+  }
+  if (chave === "cronograma") {
+    if (!Array.isArray(v)) return null;
+    const c = normalizarFormularioPci({ cronograma: v }).cronograma;
+    return c.some((x) => x !== null) ? c : null;
+  }
+  if (chave === "rtpEngenheiroId" || chave === "rteEngenheiroId") return typeof v === "string" && v.trim() ? v.trim().slice(0, 64) : null;
+  const campo = CAMPO_POR_ID.get(chave);
+  return campo ? normalizarValorCampo(campo, v) : null;
+}
+
+function valorAtualPci(form: FormularioPci, chave: string): unknown {
+  if (chave === "custos") return form.custos.some((x) => x !== null) ? form.custos : null;
+  if (chave === "adicionais") return form.adicionais.some((x) => x.descricao || x.valor !== null) ? form.adicionais : null;
+  if (chave === "cronograma") return form.cronograma.some((x) => x !== null) ? form.cronograma : null;
+  if (chave === "rtpEngenheiroId" || chave === "rteEngenheiroId") return form[chave];
+  const v = form.campos[chave];
+  return vazio(v) ? null : v;
+}
+
+function gravarValorPci(form: FormularioPci, chave: string, valor: unknown): FormularioPci {
+  if (chave === "custos") return { ...form, custos: [...(valor as (number | null)[])] };
+  if (chave === "adicionais") return { ...form, adicionais: (valor as ServicoAdicionalPci[]).map((a) => ({ ...a })) };
+  if (chave === "cronograma") return { ...form, cronograma: [...(valor as (number | null)[])] };
+  if (chave === "rtpEngenheiroId" || chave === "rteEngenheiroId") return { ...form, [chave]: valor as string };
+  return { ...form, campos: { ...form.campos, [chave]: valor as ValorCampoPci } };
+}
+
+/** Texto curto do valor, para a tela mostrar o que foi preenchido ou o que mudaria. */
+export function textoValorPci(chave: string, v: unknown): string {
+  if (v === null || v === undefined || v === "") return "(vazio)";
+  if (chave === "custos") {
+    const c = v as (number | null)[];
+    return `${c.filter((x) => x !== null).length} serviço(s), total R$ ${brlTexto(c.reduce<number>((s, x) => s + (x ?? 0), 0))}`;
+  }
+  if (chave === "adicionais") {
+    const a = (v as ServicoAdicionalPci[]).filter((x) => x.descricao || x.valor !== null);
+    return `${a.length} serviço(s) adicional(is), total R$ ${brlTexto(a.reduce((s, x) => s + (x.valor ?? 0), 0))}`;
+  }
+  if (chave === "cronograma") return (v as (number | null)[]).map((x) => (x === null ? "—" : `${brlTexto(x)}%`)).join(" · ");
+  if (chave === "rtpEngenheiroId" || chave === "rteEngenheiroId") return `usuário nº ${String(v)}`;
+  return typeof v === "number" ? v.toLocaleString("pt-BR", { maximumFractionDigits: 2 }) : String(v);
+}
+
+const iguaisPci = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b);
+
+/**
+ * Compara as sugestões com o formulário atual: completa SÓ o que está vazio, separa o que já
+ * estava igual e o que está diferente (conflito — nunca trocado sem confirmação). A primeira
+ * sugestão de cada chave vence (as fontes chegam em ordem de prioridade). `ausencias` entra só
+ * para o que continuou vazio.
+ */
+export function compararPreenchimentoPci(form: FormularioPci, sugestoes: SugestaoPci[], ausencias: AusenciaPci[] = []): ResultadoPreenchimentoPci {
+  let novo: FormularioPci = { ...form, campos: { ...form.campos } };
+  const r: ResultadoPreenchimentoPci = { formulario: novo, preenchidos: [], iguais: [], conflitos: [], naoEncontrados: [] };
+  const vistas = new Set<string>();
+  for (const s of sugestoes) {
+    if (vistas.has(s.chave)) continue;
+    const valor = normalizarSugestao(s.chave, s.valor);
+    if (valor === null) continue;
+    vistas.add(s.chave);
+    const rotulo = rotuloChavePci(s.chave);
+    const atual = valorAtualPci(form, s.chave);
+    if (atual === null) {
+      novo = gravarValorPci(novo, s.chave, valor);
+      r.preenchidos.push({ chave: s.chave, rotulo, valor: textoValorPci(s.chave, valor), fonte: s.fonte });
+    } else if (iguaisPci(atual, valor)) {
+      r.iguais.push({ chave: s.chave, rotulo, valor: textoValorPci(s.chave, valor), fonte: s.fonte });
+    } else {
+      r.conflitos.push({ chave: s.chave, rotulo, atual: textoValorPci(s.chave, atual), sugerido: textoValorPci(s.chave, valor), fonte: s.fonte, valor });
+    }
+  }
+  r.formulario = novo;
+  const ja = new Set<string>();
+  for (const a of ausencias) {
+    if (vistas.has(a.chave) || ja.has(a.chave) || valorAtualPci(novo, a.chave) !== null) continue;
+    ja.add(a.chave);
+    r.naoEncontrados.push(a);
+  }
+  return r;
+}
+
+/** Aplica os conflitos confirmados pela pessoa (por campo ou todos). */
+export function aceitarSugestoesPci(form: FormularioPci, aceitos: Pick<ConflitoPci, "chave" | "valor">[]): FormularioPci {
+  return aceitos.reduce((f, c) => gravarValorPci(f, c.chave, c.valor), form);
+}
+
+const PAPEL_PCI = { rtp: "RTP", rte: "RTE" } as const;
+
+/** Sugestões dos campos de RTP/RTE vindas do perfil do engenheiro. */
+function sugestoesEngenheiroPci(papel: "rtp" | "rte", e: EngenheiroDaObraPci): SugestaoPci[] {
+  const fonte = `${e.fonte} — perfil de ${e.dados.nome ?? "engenheiro"}`;
+  const tel = separarTelefone(e.dados.telefone);
+  return [
+    { chave: `${papel}EngenheiroId`, valor: e.id, fonte: e.fonte },
+    { chave: `${papel}Nome`, valor: e.dados.nome, fonte },
+    { chave: `${papel}Cpf`, valor: e.dados.cpf ?? null, fonte },
+    { chave: `${papel}Email`, valor: e.dados.email, fonte },
+    { chave: `${papel}Registro`, valor: e.dados.crea, fonte },
+    { chave: `${papel}Uf`, valor: e.dados.creaUf, fonte },
+    { chave: `${papel}Ddd`, valor: tel.ddd, fonte },
+    { chave: `${papel}Telefone`, valor: tel.numero, fonte },
+  ];
+}
+
+type FonteEsperadaPci = "cliente" | "obra" | "coordenadas" | "rtp" | "rte" | "pci";
+
+/** Campos que a tela informa quando nenhuma fonte trouxe valor. */
+const ESPERADOS_PCI: { chave: string; fonte: FonteEsperadaPci; motivo?: string }[] = [
+  ...["proponenteNome", "proponenteCpf", "proponenteEmail", "proponenteTelefone"].map((chave) => ({ chave, fonte: "cliente" as const })),
+  { chave: "endereco", fonte: "obra", motivo: "A obra e o cliente do CRM estão sem endereço." },
+  { chave: "bairro", fonte: "cliente", motivo: "O bairro vem só do cliente do CRM ou da PCI vinculada." },
+  { chave: "municipio", fonte: "obra", motivo: "A obra está sem cidade." },
+  { chave: "uf", fonte: "obra", motivo: "A obra está sem UF." },
+  { chave: "latitude", fonte: "coordenadas" },
+  { chave: "longitude", fonte: "coordenadas" },
+  { chave: "areaCoberta", fonte: "obra", motivo: "A obra está sem área construída." },
+  { chave: "valorImovel", fonte: "obra", motivo: "Sem VGV na obra e sem valor de simulação no cliente do CRM." },
+  { chave: "valorTerreno", fonte: "obra", motivo: "A obra está sem custo do lote." },
+  { chave: "prazoMeses", fonte: "obra", motivo: "A obra está sem início e término previstos (ou o prazo passa de 24 meses)." },
+  ...(["rtp", "rte"] as const).flatMap((papel) => ["Nome", "Cpf", "Registro", "Uf", "Email", "Telefone"].map((s) => ({ chave: `${papel}${s}`, fonte: papel }))),
+  { chave: "custos", fonte: "pci", motivo: "Os custos vêm só da PCI vinculada ou de um modelo de preenchimento." },
+  { chave: "cronograma", fonte: "pci", motivo: "O cronograma vem só da PCI vinculada ou de um modelo de preenchimento." },
+];
+
+/**
+ * Sugestões de "Dados automáticos", em ordem de prioridade: (1) engenheiro escolhido nesta obra,
+ * (2) PCI já vinculada à obra (a proposta oficial enviada), (3) cadastro do cliente/lead e da obra,
+ * localização e engenheiro inferido. Nada é inventado: sem fonte, o campo entra em `ausencias`.
+ */
+export function sugestoesAutomaticasPci(f: FontesPreenchimentoPci): { sugestoes: SugestaoPci[]; ausencias: AusenciaPci[] } {
+  const s: SugestaoPci[] = [];
+  const add = (chave: string, valor: unknown, fonte: string) => s.push({ chave, valor, fonte });
+  const engenheiros = (["rtp", "rte"] as const).map((papel) => [papel, f[papel] ?? null] as const);
+  for (const [papel, e] of engenheiros) if (e?.escolhido) s.push(...sugestoesEngenheiroPci(papel, e));
+  if (f.pci) {
+    const p = normalizarFormularioPci(f.pci);
+    const fonte = f.rotulos?.pci ?? "PCI vinculada à obra";
+    for (const campo of CAMPOS_PCI) add(campo.id, p.campos[campo.id], fonte);
+    add("custos", p.custos, fonte);
+    add("adicionais", p.adicionais, fonte);
+    add("cronograma", p.cronograma, fonte);
+  }
   const cli = f.cliente;
+  const fonteCli = f.rotulos?.cliente ?? "Cliente do CRM";
   if (cli) {
-    definir("proponenteNome", cli.nome);
-    definir("proponenteEmail", cli.email);
-    definir("proponenteCpf", cli.cpf);
+    add("proponenteNome", cli.nome, fonteCli);
+    add("proponenteEmail", cli.email, fonteCli);
+    add("proponenteCpf", cli.cpf, fonteCli);
     const tel = separarTelefone(cli.telefone);
-    definir("proponenteDdd", tel.ddd);
-    definir("proponenteTelefone", tel.numero);
+    add("proponenteDdd", tel.ddd, fonteCli);
+    add("proponenteTelefone", tel.numero, fonteCli);
   }
-  definir("endereco", f.obra.endereco ?? cli?.endereco ?? null);
-  definir("bairro", cli?.bairro ?? null);
-  definir("municipio", f.obra.cidade);
-  definir("uf", f.obra.uf);
-  definir("areaCoberta", f.obra.area);
-  definir("valorImovel", f.obra.valorImovel);
-  definir("valorTerreno", f.obra.valorTerreno);
-  definir("valorFinanciado", f.obra.valorFinanciado);
-  definir("prazoMeses", prazoEmMeses(f.obra.inicio, f.obra.termino));
+  const fonteObra = "Cadastro da obra";
+  if (f.obra.endereco) add("endereco", f.obra.endereco, fonteObra);
+  else if (cli?.endereco) add("endereco", cli.endereco, fonteCli);
+  if (cli) add("bairro", cli.bairro, fonteCli);
+  add("municipio", f.obra.cidade, fonteObra);
+  add("uf", f.obra.uf, fonteObra);
+  add("areaCoberta", f.obra.area, fonteObra);
+  add("valorImovel", f.obra.valorImovel, fonteObra);
+  add("valorTerreno", f.obra.valorTerreno, fonteObra);
+  add("valorFinanciado", f.obra.valorFinanciado, fonteObra);
+  add("prazoMeses", prazoEmMeses(f.obra.inicio, f.obra.termino), "Cadastro da obra (início e término previstos)");
   if (f.coordenadas) {
-    definir("latitude", coordenadaDecimalParaPci(f.coordenadas.lat, "lat"));
-    definir("longitude", coordenadaDecimalParaPci(f.coordenadas.lng, "lng"));
+    add("latitude", coordenadaDecimalParaPci(f.coordenadas.lat, "lat"), "Localização da obra (mapa)");
+    add("longitude", coordenadaDecimalParaPci(f.coordenadas.lng, "lng"), "Localização da obra (mapa)");
   }
-  return form;
+  for (const [papel, e] of engenheiros) if (e && !e.escolhido) s.push(...sugestoesEngenheiroPci(papel, e));
+
+  const ausencias: AusenciaPci[] = [];
+  const temValor = new Set(s.filter((x) => normalizarSugestao(x.chave, x.valor) !== null).map((x) => x.chave));
+  for (const esp of ESPERADOS_PCI) {
+    if (temValor.has(esp.chave)) continue;
+    let motivo = esp.motivo ?? "";
+    if (esp.fonte === "cliente") motivo = cli ? `O cliente do CRM não tem ${rotuloChavePci(esp.chave).toLowerCase()} cadastrado.` : f.motivos?.cliente ?? "A obra não tem cliente do CRM vinculado.";
+    if (esp.fonte === "coordenadas") motivo = f.motivos?.coordenadas ?? "A obra não tem localização no mapa.";
+    if (esp.fonte === "rtp" || esp.fonte === "rte") {
+      const e = f[esp.fonte];
+      motivo = e
+        ? `O perfil de ${e.dados.nome ?? "engenheiro"} não tem ${rotuloChavePci(esp.chave).toLowerCase()} cadastrado (Configurações › Usuários).`
+        : f.motivos?.[esp.fonte] ?? `Nenhum engenheiro escolhido para o ${PAPEL_PCI[esp.fonte]} nesta obra.`;
+    }
+    if (esp.fonte === "pci" && f.motivos?.pci) motivo = `${motivo} ${f.motivos.pci}`;
+    const papel = esp.fonte === "rtp" || esp.fonte === "rte" ? ` (${PAPEL_PCI[esp.fonte]})` : "";
+    ausencias.push({ chave: esp.chave, rotulo: `${rotuloChavePci(esp.chave)}${papel}`, motivo });
+  }
+  return { sugestoes: s, ausencias };
 }
 
 /**
- * Seleção do engenheiro em RTP/RTE: nome, e-mail, telefone e CREA/UF vêm do
- * perfil. Sem CREA no perfil, o registro fica vazio (nunca inventado). CPF não
- * existe no perfil e é mantido como digitado.
+ * Formulário pré-preenchido (abertura da tela sem rascunho): as mesmas fontes de "Dados
+ * automáticos" aplicadas num formulário vazio. Nada é inventado: sem fonte, o campo fica vazio.
+ */
+export function preencherPciAutomatico(f: FontesPreenchimentoPci): FormularioPci {
+  return compararPreenchimentoPci(formularioPciVazio(), sugestoesAutomaticasPci(f).sugestoes).formulario;
+}
+
+/**
+ * Seleção do engenheiro em RTP/RTE: nome, CPF, e-mail, telefone e CREA/UF vêm do perfil. Sem
+ * CREA/CPF no perfil, o campo fica vazio (nunca inventado nem herdado do engenheiro anterior).
+ * `cpf` não consultado (`undefined`) mantém o CPF digitado.
  */
 export function aplicarEngenheiroPci(form: FormularioPci, papel: "rtp" | "rte", engenheiroId: string | null, eng: EngenheiroPci | null): FormularioPci {
   const campos = { ...form.campos };
@@ -516,9 +814,83 @@ export function aplicarEngenheiroPci(form: FormularioPci, papel: "rtp" | "rte", 
   campos[`${papel}Email`] = eng.email?.trim() || null;
   campos[`${papel}Registro`] = eng.crea?.trim() || null;
   campos[`${papel}Uf`] = eng.creaUf?.trim() || null;
+  if (eng.cpf !== undefined) campos[`${papel}Cpf`] = eng.cpf?.trim() || null;
   campos[`${papel}Ddd`] = tel.ddd;
   campos[`${papel}Telefone`] = tel.numero;
   return novo;
+}
+
+/** Campos de RTP/RTE já preenchidos que a escolha do engenheiro trocaria (para confirmar antes). */
+export function camposTrocadosPorEngenheiroPci(form: FormularioPci, papel: "rtp" | "rte", eng: EngenheiroPci): string[] {
+  const depois = aplicarEngenheiroPci(form, papel, null, eng).campos;
+  return ["Nome", "Cpf", "Email", "Registro", "Uf", "Ddd", "Telefone"]
+    .map((s) => `${papel}${s}`)
+    .filter((id) => !vazio(form.campos[id]) && String(form.campos[id]) !== String(depois[id] ?? ""))
+    .map((id) => CAMPO_POR_ID.get(id)?.rotulo ?? id);
+}
+
+/** O que falta no perfil do engenheiro para a PCI (a tela avisa; nada é inventado). */
+export function faltasPerfilEngenheiroPci(eng: EngenheiroPci): string[] {
+  const f: string[] = [];
+  if (!eng.cpf) f.push("CPF");
+  if (!eng.crea) f.push("CREA");
+  if (!eng.creaUf) f.push("UF do CREA");
+  if (!eng.telefone) f.push("telefone");
+  if (!eng.email) f.push("e-mail");
+  return f;
+}
+
+// ─── modelos de preenchimento (EPIC-024 S-09) ────────────────────────────────
+
+/** Só os dados técnicos que um modelo de preenchimento guarda (lista de permissão). */
+export interface DadosModeloPreenchimentoPci {
+  campos: Record<string, ValorCampoPci>;
+  custos: (number | null)[];
+  adicionais: ServicoAdicionalPci[];
+  cronograma: (number | null)[];
+}
+
+export const LIMITE_NOME_MODELO_PCI = 120;
+
+/**
+ * Extrai de um formulário (ou de um JSON gravado) SÓ o que está na lista de permissão
+ * `CAMPOS_COPIAVEIS_MODELO_PCI`, mais custos, serviços adicionais e cronograma. Proponente,
+ * RTP/RTE, endereço, coordenadas, matrícula, imagem, engenheiros escolhidos e qualquer campo
+ * desconhecido ficam de fora — também na leitura (defesa contra JSON antigo ou adulterado).
+ */
+export function extrairModeloPreenchimentoPci(entrada: unknown): DadosModeloPreenchimentoPci {
+  const e = entrada && typeof entrada === "object" ? (entrada as Record<string, unknown>) : {};
+  const f = normalizarFormularioPci({ campos: e.campos, custos: e.custos, adicionais: e.adicionais, cronograma: e.cronograma });
+  const campos: Record<string, ValorCampoPci> = {};
+  for (const campo of CAMPOS_PCI) if (campo.copiavel && !vazio(f.campos[campo.id])) campos[campo.id] = f.campos[campo.id];
+  return { campos, custos: f.custos, adicionais: f.adicionais, cronograma: f.cronograma };
+}
+
+/** Sugestões de um modelo para a comparação (mesmo tratamento de conflito de "Dados automáticos"). */
+export function sugestoesDoModeloPci(dados: unknown, fonte: string): SugestaoPci[] {
+  const m = extrairModeloPreenchimentoPci(dados);
+  return [
+    ...Object.entries(m.campos).map(([chave, valor]) => ({ chave, valor, fonte })),
+    { chave: "custos", valor: m.custos, fonte },
+    { chave: "adicionais", valor: m.adicionais, fonte },
+    { chave: "cronograma", valor: m.cronograma, fonte },
+  ];
+}
+
+/** O que o modelo leva (para a lista). */
+export function resumoModeloPreenchimentoPci(dados: DadosModeloPreenchimentoPci): string {
+  const partes = [`${Object.keys(dados.campos).length} campo(s) técnico(s)`];
+  if (dados.custos.some((x) => x !== null)) partes.push("custos");
+  if (dados.adicionais.some((x) => x.descricao || x.valor !== null)) partes.push("serviços adicionais");
+  if (dados.cronograma.some((x) => x !== null)) partes.push("cronograma");
+  return partes.join(", ");
+}
+
+export function validarNomeModeloPreenchimentoPci(nome: unknown): string {
+  const t = typeof nome === "string" ? nome.trim().replace(/\s+/g, " ") : "";
+  if (!t) throw new Error("Dê um nome ao modelo (ex.: Casa padrão 70 m²).");
+  if (t.length > LIMITE_NOME_MODELO_PCI) throw new Error(`O nome do modelo deve ter até ${LIMITE_NOME_MODELO_PCI} caracteres.`);
+  return t;
 }
 
 // ─── cálculos (os mesmos das fórmulas do modelo) ─────────────────────────────
