@@ -15,11 +15,11 @@ import { doloresConfig, doloresLimite } from "../../drizzle/schema-dolores.js";
 import { DESLOCAMENTO_FUSO, FUSO, MOEDA, isoFortaleza, limitarResposta } from "../../shared/dolores/formato.js";
 import { sanitizarResposta } from "../../shared/dolores/sanitizar.js";
 import { getDb } from "../db.js";
-import { filtroDaSaida } from "./dados-pessoais.js";
+import { type CanalDolores, filtroDaSaida } from "./dados-pessoais.js";
 import { erroParaLog } from "./erro-seguro.js";
 import { registrarAcao } from "./auditoria.js";
 import { FUNCOES, definicaoDaFerramenta, funcaoPorNome } from "./funcoes.js";
-import { ETAPA_ATUAL, funcaoLiberada, motivoDaRecusa } from "./permissoes.js";
+import { ETAPA_ATUAL, PREVISTAS, funcaoLiberada, motivoDaRecusa } from "./permissoes.js";
 import { DoloresDesativada, usuarioDolores } from "./perfil.js";
 import { emTransacaoSomenteLeitura } from "./somente-leitura.js";
 
@@ -40,6 +40,14 @@ let deps: Dependencias = { ...padrao };
 export function definirDependenciasPonte(d?: Partial<Dependencias>) { deps = d ? { ...deps, ...d } : { ...padrao }; }
 
 const resumoSha = (s: string) => createHash("sha256").update(s).digest();
+/**
+ * QA r7 A7: nome da função para a auditoria. O nome vem de quem chama (o agente ou o modelo) e pode carregar dado
+ * ("funcao_52998224725"): fora da lista FUNCOES (e das PREVISTAS), grava-se só "(desconhecida)" + hash curto do nome.
+ */
+export function nomeParaRegistro(nome: string): string {
+  if (nome === "(sem função)" || funcaoPorNome(nome) || Object.hasOwn(PREVISTAS, nome)) return nome;
+  return `(desconhecida) ${createHash("sha256").update(nome).digest("hex").slice(0, 10)}`;
+}
 /** Bearer confere com o token da variável? Hash dos dois lados: tempo constante e sem vazar o tamanho. */
 export function tokenConfere(cabecalho: string | undefined, esperado: string | undefined): boolean {
   const recebido = /^Bearer\s+(.+)$/i.exec(String(cabecalho ?? ""))?.[1]?.trim();
@@ -141,8 +149,7 @@ export async function tratarChamada(req: Pedido): Promise<RespostaPonte> {
   return executarFuncao(req.body, { canal: "ponte" });
 }
 
-/** De onde veio a chamada (vai para `dolores_acoes.canal`). */
-export type CanalDolores = "ponte" | "whatsapp";
+export type { CanalDolores };
 export type OpcoesExecucao = { canal: CanalDolores; prazoMs?: number };
 
 /**
@@ -160,7 +167,7 @@ export async function executarFuncao(corpo: unknown, opcoes: OpcoesExecucao): Pr
   const pedidoBruto = typeof bruto.pedidoId === "string" ? bruto.pedidoId.slice(0, 120) : null;
   let autor: number | null = null;
   const registrar = (resultado: "ok" | "recusada" | "erro", extra: { funcao?: string; argumentos?: unknown; motivo?: string; resumo?: Record<string, unknown>; pedidoId?: string | null }) =>
-    registrarAcao({ funcao: extra.funcao ?? nomeBruto, argumentos: extra.argumentos ?? bruto.argumentos ?? null, resultado, motivo: extra.motivo ?? null,
+    registrarAcao({ funcao: nomeParaRegistro(extra.funcao ?? nomeBruto), argumentos: extra.argumentos ?? bruto.argumentos ?? null, resultado, motivo: extra.motivo ?? null,
       resumo: extra.resumo ?? null, duracaoMs: Date.now() - inicio, pedidoId: extra.pedidoId ?? pedidoBruto, autorUserId: autor, canal: opcoes.canal });
   const responder = (status: number, corpo: Record<string, unknown>): RespostaPonte => ({ status, body: { ...base(agora), funcao: nomeBruto, pedidoId: pedidoBruto, ...corpo } });
 
@@ -197,7 +204,8 @@ export async function executarFuncao(corpo: unknown, opcoes: OpcoesExecucao): Pr
   const fn = funcaoPorNome(funcao);
   if (!fn || !funcaoLiberada(funcao)) {
     const motivo = motivoDaRecusa(funcao);
-    await registrar("recusada", { funcao, argumentos, motivo, pedidoId });
+    // na auditoria, o motivo cita o nome já tratado (QA r7 A7); quem chamou recebe o nome que mandou
+    await registrar("recusada", { funcao, argumentos, motivo: motivoDaRecusa(nomeParaRegistro(funcao)), pedidoId });
     return responder(403, { ok: false, erro: motivo });
   }
   const args = fn.entrada.safeParse(argumentos);
@@ -213,11 +221,11 @@ export async function executarFuncao(corpo: unknown, opcoes: OpcoesExecucao): Pr
     return responder(429, { ok: false, erro: motivo });
   }
   try {
-    const r = await comPrazo(emTransacaoSomenteLeitura(() => fn.executar(args.data as never, { agora })), prazoMs);
+    const r = await comPrazo(emTransacaoSomenteLeitura(() => fn.executar(args.data as never, { agora, canal: opcoes.canal })), prazoMs);
     // Toda string da resposta passa pelo filtro (texto livre: anotações, mensagens, títulos): senhas, chaves e dados
-    // bancários sempre; dados pessoais só com DOLORES_MASCARAR_DADOS_PESSOAIS=1 (decisão do dono em 16/11, opção B).
-    // Vale para a ponte HTTP (etapa 1) e para o WhatsApp (etapa 2): os dois passam por aqui.
-    const { valor, truncado } = limitarResposta(sanitizarResposta(r.dados, filtroDaSaida()));
+    // bancários sempre; dados pessoais conforme o CANAL (QA r7 A3): no WhatsApp, mascarados só com
+    // DOLORES_MASCARAR_DADOS_PESSOAIS=1 (opção B do dono, 16/11); na ponte HTTP, mascarados salvo DOLORES_PONTE_DADOS_PESSOAIS=1.
+    const { valor, truncado } = limitarResposta(sanitizarResposta(r.dados, filtroDaSaida(opcoes.canal)));
     await registrar("ok", { funcao, argumentos: args.data, resumo: { ...r.resumo, truncado }, pedidoId });
     return responder(200, { ok: true, avisoSeguranca: AVISO_SEGURANCA, truncado, ...(truncado ? { aviso: "Resposta cortada para caber no contexto: filtre ou peça a próxima página." } : {}), dados: valor });
   } catch (e) {

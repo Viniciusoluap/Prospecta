@@ -634,6 +634,112 @@ describe("filtro de dados pessoais em texto livre (M1)", () => {
     expect(performance.now() - t0).toBeLessThan(1000);
   });
 
+  it("QA r7 A1: credencial sem a palavra 'senha' sai nos DOIS modos; o CPF ao lado segue o interruptor; sem falso positivo óbvio", () => {
+    const S = "[senha omitida]";
+    const LIB = { mascararDadosPessoais: false } as const;
+    const casos: Array<[string, string]> = [
+      ["gov.br 529.982.247-25 Maria@2025", "Maria@2025"], ["login: 52998224725 / Maria@2025", "Maria@2025"],
+      ["acesso INSS: Maria@123", "Maria@123"], ["senhas\nMaria@2025", "Maria@2025"], ["senha, Maria@2025", "Maria@2025"],
+      ["acesso gov: 52998224725 Maria@2025", "Maria@2025"], ["usuário: maria.silva, Qwe!2345x", "Qwe!2345x"],
+      ["login maria / s3nh4F0rte", "s3nh4F0rte"], ["credenciais:\nPrevid2025", "Previd2025"], ["meu inss — Abc12345", "Abc12345"],
+      ["e-cac: Joao#Silva9", "Joao#Silva9"], ["pwd Xy7#abcd", "Xy7#abcd"], ["senha: Maria.2025, ok", "Maria.2025"],
+      ["a senha é Maria.2025. Entrei", "Maria.2025"], ["portal da caixa: Caixa2025", "Caixa2025"],
+    ];
+    for (const [t, senha] of casos) for (const op of [LIB, {}]) {
+      const r = sanitizarTexto(t, op);
+      expect(r, `${t} → ${r}`).not.toContain(senha);
+      expect(r, t).toContain(S);
+    }
+    // o CPF ao lado segue o interruptor: inteiro no modo liberado, mascarado no padrão
+    expect(sanitizarTexto("acesso gov: 52998224725 Maria@2025", LIB)).toBe(`acesso gov: 52998224725 ${S}`);
+    expect(sanitizarTexto("acesso gov: 52998224725 Maria@2025")).toBe(`acesso gov: ${OMITIDO_T} ${S}`);
+    // a pontuação depois da senha fica; o resto da frase também
+    expect(sanitizarTexto("senha: Maria.2025, ok", LIB)).toBe(`senha ${S}, ok`);
+    expect(sanitizarTexto("a senha é Maria.2025. Entrei", LIB)).toBe(`a senha ${S}. Entrei`);
+    // o outro lado: valores, e-mails de verdade, lote, datas, protocolo e usuário sem cara de senha ficam
+    for (const t of [
+      "R$ 1.500,00 acesso ao lote 12 em 16/11/2026", "login maria@gmail.com", "acesso liberado em 16/11/2026 às 10h", "usuário: maria.silva",
+      "portal da prefeitura, protocolo 2026/123, lote 12", "acesso pela rua 7, casa 12", "login feito às 10:30", "o portal está fora do ar",
+      "acesso: R$ 2.500,00 pago", "e-mail maria.silva@uol.com.br",
+    ]) expect(sanitizarTexto(t, LIB), t).toBe(t);
+    // "x@y" sem domínio fora de gatilho: senha no modo liberado; no padrão, a fase de e-mail tira (marcador de dado pessoal)
+    expect(sanitizarTexto("anotou Maria@2025 no papel", LIB)).toBe(`anotou ${S} no papel`);
+    expect(sanitizarTexto("anotou Maria@2025 no papel")).toBe(`anotou ${OMITIDO_T} no papel`);
+    // 200 kB com gatilhos e palavras com cara de senha: tempo linear
+    for (const p of ["login ", "acesso Maria@2025 ", "senha, ", "a@a", "gov.br\n", "x".repeat(50) + "@" + "1".repeat(50) + " "]) {
+      const t = p.repeat(Math.ceil(200 * 1024 / p.length));
+      for (const op of [LIB, {}]) {
+        const t0 = performance.now();
+        sanitizarTexto(t, op);
+        expect(performance.now() - t0, JSON.stringify(p)).toBeLessThan(1000);
+      }
+    }
+  });
+
+  it("QA r7 A6: segredos disfarçados (pwd/pass/tkn, código de verificação/2FA/segurança, bearer, chaves de API, PEM) saem nos dois modos", () => {
+    const S = "[senha omitida]", K = "[chave de acesso omitida]";
+    const LIB = { mascararDadosPessoais: false } as const;
+    const pem = "-----BEGIN PRIVATE KEY-----\nMIIEvQIBADANBgkqhkiG9w0BAQEFAASC\nabc123\n-----END PRIVATE KEY-----";
+    const casos: Array<[string, string, string]> = [
+      ["pwd: qwerty123", `pwd ${S}`, "qwerty123"], ["pass: qwerty123", `pass ${S}`, "qwerty123"], ["tkn abcdef123456", `tkn ${S}`, "abcdef123456"],
+      ["código de verificação 554433", `código ${S}`, "554433"], ["código 2FA 554433", `código ${S}`, "554433"],
+      ["codigo de seguranca 1234", `codigo ${S}`, "1234"], ["cód. de acesso 9988", `cód. ${S}`, "9988"],
+      ["bearer abcdefghij", K, "abcdefghij"], ["Bearer: abcdefghij12", K, "abcdefghij12"],
+      ["github_pat_11ABCDEFG0123456789_abcdefghijklmnop", K, "github_pat_"], ["AIzaSyA-1234567890abcdefghijklmnopqrstu", K, "AIzaSy"],
+      ["sk_live_51Habcdefghijkl", K, "sk_live"], ["sk_test_51Habcdefghijkl", K, "sk_test"], ["pk_live_abcdefghij12", K, "pk_live"],
+      ["apikey=0123456789abcdef0123456789abcdef", `apikey=${K}`, "0123456789abcdef"], ["api_key: 0123456789abcdef", `api_key: ${K}`, "0123456789abcdef"],
+      ["apikey 0a1b2c3d4e5f60718293a4b5c6d7e8f9", `apikey ${K}`, "0a1b2c3d"], ["client_secret=Zx9_abcdef", `client_secret=${K}`, "Zx9_"],
+      [`chave:\n${pem}\nfim`, `chave:\n${K}\nfim`, "MIIEv"], ["xoxb-123456789012-abcdefghij", K, "xoxb"], ["xoxp-123456789012-abcdefghij", K, "xoxp"],
+    ];
+    for (const [t, esperado, segredo] of casos) for (const op of [LIB, {}]) {
+      const r = sanitizarTexto(t, op);
+      expect(r, t).toBe(esperado);
+      expect(r, t).not.toContain(segredo);
+    }
+    // PEM sem o fim (cortado) também sai até o fim do texto
+    expect(sanitizarTexto("-----BEGIN RSA PRIVATE KEY-----\nMIIEvQIBADAN", LIB)).toBe(K);
+    for (const t of ["código do imóvel 12345", "código de barras 123", "o segredo do sucesso", "passe livre 2026", "secret santa 2026",
+      "apikey curta", "o bearer da notícia"]) expect(sanitizarTexto(t, LIB), t).toBe(t);
+    for (const p of ["bearer ", "apikey ", "-----BEGIN PRIVATE KEY-----", "código de verificação ", "pwd: x "]) {
+      const t = p.repeat(Math.ceil(200 * 1024 / p.length));
+      const t0 = performance.now();
+      sanitizarTexto(t, LIB);
+      sanitizarTexto(t);
+      expect(performance.now() - t0, p).toBeLessThan(2000);
+    }
+  });
+
+  it("QA r7 A5: PIX e conta disfarçados saem nos dois modos (melhor esforço); valores, datas e 'caixa d'água' ficam", () => {
+    const B = "[dado bancário omitido]";
+    const LIB = { mascararDadosPessoais: false } as const;
+    const casos: Array<[string, string, string]> = [
+      ["minha chave pix é 52998224725", `minha chave pix é ${B}`, "52998224725"], ["chave pix é o CPF 529.982.247-25", `chave pix é o CPF ${B}`, "982"],
+      ["chave pix é maria@gmail.com", `chave pix é ${B}`, "maria@"], ["pix -> maria@x.com", `pix -> ${B}`, "maria@"],
+      ["pix — 52998224725", `pix — ${B}`, "52998224725"], ["pix => 52998224725", `pix => ${B}`, "52998224725"],
+      ["PIX CNPJ 11.222.333/0001-81", `PIX CNPJ ${B}`, "0001"], ["faz o pix pra 52998224725", `faz o pix pra ${B}`, "52998224725"],
+      ["pix aleatória 123e4567-e89b-12d3-a456-426614174000", `pix aleatória ${B}`, "123e4567"], ["pix 123e4567e89b12d3a456426614174000", `pix ${B}`, "123e4567"],
+      ["o número da conta é 12345-6", `o número da conta é ${B}`, "12345"], ["agência é 1234", `agência é ${B}`, "1234"],
+      ["conta do Bradesco 12345-6", `conta do Bradesco ${B}`, "12345"], ["Itaú 0001 12345-6", `Itaú ${B}`, "12345"],
+      ["BB 1234-5 / 67890-1", `BB ${B}`, "67890"], ["cta 56789-0", `cta ${B}`, "56789"], ["ag1234 cc56789", `ag${B} cc${B}`, "56789"],
+    ];
+    for (const [t, esperado, valor] of casos) {
+      expect(sanitizarTexto(t, LIB), t).toBe(esperado);
+      expect(sanitizarTexto(t), t).not.toContain(valor); // no padrão, CPF/CNPJ podem sair com o marcador de dado pessoal
+    }
+    for (const t of ["Caixa 1000 litros", "caixa d'água 1000 litros", "pagou via pix 1.500,00", "pix pra 16/11/2026", "pix de 12 parcelas",
+      "ag. 15/11 às 10h", "Banco Inter 2026", "santander 1.500,00", "conta de luz 152,30", "pix para 3 pessoas"]) {
+      expect(sanitizarTexto(t, LIB), t).toBe(t);
+      expect(sanitizarTexto(t), t).toBe(t);
+    }
+    for (const p of ["pix é o cpf ", "conta do Bradesco ", "Itaú 0001 ", "pix -> ", "BB 1234-5 / "]) {
+      const t = p.repeat(Math.ceil(200 * 1024 / p.length));
+      const t0 = performance.now();
+      sanitizarTexto(t, LIB);
+      sanitizarTexto(t);
+      expect(performance.now() - t0, p).toBeLessThan(2000);
+    }
+  });
+
   it("percorre a resposta inteira (listas e objetos), sem tocar números e chaves", () => {
     expect(sanitizarResposta({ a: [{ texto: "cpf 111.222.333-44", n: 11122233344 }], "111.222.333-44": null }))
       .toEqual({ a: [{ texto: "cpf [dado pessoal omitido]", n: 11122233344 }], "111.222.333-44": null });

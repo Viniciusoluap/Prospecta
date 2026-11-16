@@ -106,6 +106,10 @@ Claude Console); limites mensais de tokens; ligar o interruptor.
 - Opção B (16/11): `server/dolores/dados-pessoais.ts` (novo, o interruptor); alterados `shared/dolores/sanitizar.ts`,
   `server/dolores/{ponte,whatsapp,auditoria,erro-seguro}.ts`, testes `regras`, `ponte`, `whatsapp`, `whatsapp-qa`;
   `docs/dolores/como-ligar.md`.
+- QA r7 (16/11): `shared/dolores/links.ts` e `server/dolores/dados-pessoais.test.ts` (novos); alterados
+  `shared/dolores/sanitizar.ts`, `server/dolores/{dados-pessoais,ponte,funcoes,whatsapp,cerebro,prompt}.ts`,
+  `server/dolores/leitura/{clientes,financeiro,regularizacoes,atrasos}.ts`, `server/_core/evolution.ts` (`linkPreview`
+  opcional), testes `regras`, `ponte`, `leituras`, `leitura-somente`, `whatsapp`, `whatsapp-qa`; `docs/dolores/como-ligar.md`.
 - Opção B, complemento (16/11): alterados `server/dolores/{dados-pessoais,prompt,cerebro,funcoes}.ts`,
   `server/dolores/leitura/{clientes,financeiro,regularizacoes}.ts`, `shared/dolores/sanitizar.ts` (BANCO inteiro),
   `docs/dolores/{ferramentas-etapa1.json,agente-etapa1.md,como-ligar.md}`, `docs/stories/epics/ROADMAP.md`; testes
@@ -303,6 +307,29 @@ guia com espaço/ponto no lugar do hífen do DV ou com um bloco por linha; NF-e/
 Única exceção do fuzz contra a main, por desenho da fase 2b (r3/r4): fixo sem palavra de telefone logo depois de rótulo de
 documento (lote, boleto, guia, IPTU).
 
+## Correções da 7ª rodada do QA (16/11/2026, @dev Dex — QA r7 CONCERNS de Quinn, HEAD revisado `57c3094`)
+Prioridade do dono: "Garanta minha segurança". Um commit por achado, cada um com teste de regressão (nos dois modos do
+interruptor quando cabe). Nenhuma migração alterada.
+
+| Achado | Correção | Commit | Teste |
+|---|---|---|---|
+| A1 (importante) credencial sem "senha" à vista no modo liberado | sempre (os dois modos): gatilhos login/acesso/credencial/usuário/user/gov.br/gov/INSS/meu inss/e-CAC/conecta/portal/pwd/pass — depois deles, na mesma linha (e na seguinte quando o gatilho fecha a linha), a palavra com cara de senha (6+, letra com dígito/símbolo, não é e-mail) sai; "x@y" sem domínio sai como senha no modo liberado; "senha," / "senha:" / "senha —" / "senha é" / "senha\n" levam a palavra seguinte | `8fe9b55` | `regras.test` "QA r7 A1" (15 repros × 2 modos, falsos positivos, 200 kB) |
+| A2 (importante) exfiltração por link | `shared/dolores/links.ts` (novo): na resposta ao dono, URL fora da lista permitida (domínio de `PUBLIC_SITE_URL` + `trello.com`) vira "[link removido]"; permitidas sem consulta, fragmento e usuário; `enviarTextoEvolution(…, { linkPreview: false })` só na Dolores; prompt: "nunca monte nem repita links" | `08a323b` | `whatsapp-qa.test` "QA r7 A2" (unidade, ponta a ponta nos dois modos, `linkPreview` só quando informado) |
+| A3 (importante) ponte HTTP devolve dados pessoais completos | regra por canal: `filtroDaSaida(canal)`, `campoPessoal(valor, tipo, canal)`, `ContextoFuncao.canal`; canal `ponte` mascarado salvo `DOLORES_PONTE_DADOS_PESSOAIS` = 1/true/sim/on/yes | `ba4a53a` | `dados-pessoais.test`, `leituras.test` "QA r7 A3", `ponte.test` "QA r7 A3" |
+| A4 valores estranhos do interruptor | `DOLORES_MASCARAR_DADOS_PESSOAIS` libera só com ausente/vazio/0/false/nao/não/off/no (trim, sem aspas, sem caixa); outro valor mascara e avisa uma vez sem o valor | `5d6391e` | `dados-pessoais.test` "QA r7 A4" |
+| A5 PIX/conta disfarçados | PIX com "é", "é o", "->", "=>", "—", "pra/para", tipo da chave e uuid sem hífens; conta com "é", "conta do <banco>", nome de banco + forma de conta, "cta", rótulo colado, grupos com " / "; data e "Caixa 1000 litros" ficam; como-ligar diz "melhor esforço" | `d508c17` | `regras.test` "QA r7 A5" |
+| A6 segredos disfarçados | pwd/pass/tkn; código de verificação/segurança/confirmação/2FA e "cód."; bearer em qualquer caixa e "Bearer:"; `github_pat_`, `AIza`, `sk_/rk_/pk_ live/test`, `apikey=`/`api_key:`/`client_secret=` (e "apikey <hex longo>"), PEM | `566b588` | `regras.test` "QA r7 A6" |
+| A7 nome de função desconhecida na auditoria | `nomeParaRegistro`: fora de `FUNCOES`/`PREVISTAS` grava "(desconhecida)" + hash de 10 caracteres (nome e motivo) | `e1afff8`, `e1c6717` | `ponte.test` "QA r7 A7", `whatsapp.test` (injeção) |
+| A8 comando do dono ao modelo sem filtro | comando passa por `sanitizarTexto(…, { mascararDadosPessoais: false })` (só segredos e bancários) antes da Anthropic | `3c8e941` | `whatsapp-qa.test` "QA r7 A8" |
+
+Lista permitida de links (A2): o host de `PUBLIC_SITE_URL` (com e sem "www.") — a mesma variável que já monta o endereço
+do aviso (`server/dolores/whatsapp.ts`), lida sem o valor padrão: sem a variável, nenhum link do sistema passa — e
+`trello.com`/`www.trello.com`.
+
+Em aberto (fora da lista pedida, anotados para o QA): grafias soletradas ou erradas de "senha" ("s e n h a", "sênha",
+"senh@") sem cara de senha no valor; chave `re_…`; uuid depois de "chave aleatória" sem a palavra "pix"; senha só com
+dígitos depois de "login"/"acesso" (fica, para não esconder CPF/telefone que segue a regra de dado pessoal).
+
 ## Decisão do dono em 16/11: dados pessoais liberados para a Dolores (opção B)
 **O que muda.** CPF, CNPJ, telefone e e-mail no texto livre saem INTACTOS no que vai ao modelo (ponte HTTP da etapa 1 e
 ferramentas do WhatsApp, que passam pela mesma `executarFuncao`) e na resposta ao dono. Com o filtro desligado, nenhuma das
@@ -396,6 +423,12 @@ liberar de novo: apagar a variável (ou "0") → Redeploy. Guia: `docs/dolores/c
 - (a6) Automáticos depois da 5ª rodada do QA (16/11): `npx tsc --noEmit` sem erros; `npx vitest run server/dolores
   server/integracoes-anthropic.test.ts server/auth-session.test.ts server/imports-esm.test.ts server/api-rotas-producao.test.ts`
   — 12 arquivos, 208 testes passando; `regras.test.ts` 30 testes (+6 de regressão da r5). Fuzz e sondas: ver "Correções da 5ª rodada".
+- (a7) Automáticos depois da 7ª rodada do QA (16/11): `npx tsc --noEmit` sem erros; `npx vitest run server/dolores
+  server/integracoes-anthropic.test.ts server/central-vendas*.test.ts server/whatsapp*.test.ts server/auth-session.test.ts
+  server/imports-esm.test.ts server/api-rotas-producao.test.ts --maxWorkers=2` — 29 arquivos, 361 testes (360 na 1ª
+  passada; o 1 que falhou esperava o nome cru da função desconhecida, corrigido em `e1c6717`; `whatsapp.test` 34/34 de
+  novo); `regras.test` 37 testes; `npx vite build` ok. Sondas do QA r7 (copiadas, sem alterar as originais): e2e nos 3
+  modos passa; credenciais do sonda-govbr saem nos dois modos.
 - (b) Manuais: nenhum (sem Evolution nem Anthropic reais neste ambiente).
 - (c) Pendentes em produção: migração 0124 no Neon; dono cadastra chave/modelo, limites, o número dele e conecta o número
   da Dolores; teste de aceite pelo WhatsApp; conferir os nomes `senderPn`/`remoteJidAlt` do endereço @lid na Evolution real.
@@ -425,3 +458,6 @@ liberar de novo: apagar a variável (ou "0") → Redeploy. Guia: `docs/dolores/c
   log sempre filtrados. Em aberto: prompt do sistema e campos estruturados ainda mascaram (ver a seção da decisão).
 - 16/11/2026 — @dev (Dex): opção B completa — prompt e campos de CPF/telefone/e-mail das leituras seguem o interruptor
   (`campoPessoal`); PIX e conta/agência mascarados inteiros; testes da etapa 1 presos ao modo ligado, com o par liberado.
+- 16/11/2026 — @qa (Quinn): r7 CONCERNS (A1, A2, A3 importantes; A4–A8 menores).
+- 16/11/2026 — @dev (Dex): A1–A8 corrigidos, um commit por achado, com teste de regressão; ponte HTTP mascarada por
+  padrão (`DOLORES_PONTE_DADOS_PESSOAIS`). Volta ao portão de QA (InReview).

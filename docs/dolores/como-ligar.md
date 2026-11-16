@@ -186,18 +186,47 @@ Ela informa quando você pede ou quando o dado é útil para a resposta; não ma
 - **Confira com o jurídico** se o termo de consentimento que os clientes assinam cobre esse envio (LGPD) antes de usar.
 - A resposta com esses dados vai **só para o seu número**, conferido a cada mensagem.
 
-**O que continua sempre escondido**, nos dois modos: senhas, tokens, códigos de acesso, PIN e OTP, chaves de API
-(`sk-ant-…`, `Bearer …`), agência, conta e chave PIX — estas inteiras, mesmo quando a chave PIX é um CPF, telefone ou
-e-mail. Endereço, arquivos e links do Drive continuam fora das consultas.
+**O que continua sempre escondido**, nos dois modos, pelo filtro de texto (melhor esforço: pega as formas comuns de
+escrever; um texto digitado de um jeito muito diferente pode escapar):
+- senhas, tokens, códigos de acesso/verificação/2FA, PIN e OTP — com a palavra ("senha", "pwd", "pass") ou com cara de
+  senha logo depois de "login", "acesso", "usuário", "credencial", "gov.br", "INSS", "e-CAC", "portal" (ex.: "acesso gov:
+  529… Maria@2025": a senha sai; o CPF segue a regra de dado pessoal); "Nome@2025" (arroba sem domínio) também sai;
+- chaves de API e credenciais em forma reconhecível (`sk-ant-…`, `sk_live_…`, `Bearer …`, `github_pat_…`, `AIza…`,
+  `apikey=…`, chave privada PEM);
+- agência e conta quando vêm com o rótulo ("agência", "ag", "conta", "c/c", "cta") ou com o nome de um banco comum ("Itaú
+  0001 12345-6", "conta do Bradesco 12345-6");
+- chave PIX quando vem depois de "pix"/"chave pix" (também "pix é …", "pix -> …", "PIX CNPJ …", "pix aleatória …"):
+  sai inteira, mesmo quando é um CPF, telefone ou e-mail. Fora disso, um CPF ou e-mail solto segue a regra de dado pessoal.
+
+Endereço, arquivos e links do Drive continuam fora das consultas.
+
+**Links na resposta.** Para que um texto de cliente não consiga fazer a Dolores montar um link com dados dentro, a
+resposta que chega ao seu WhatsApp só leva links do **próprio sistema** (o domínio da variável `PUBLIC_SITE_URL` da
+Vercel) e do **Trello** (`trello.com`), e mesmo esses sem a parte depois de "?" ou "#". Qualquer outro link vira
+"[link removido]". Sem a variável `PUBLIC_SITE_URL`, nenhum link do sistema passa (só o Trello). A mensagem é enviada sem
+prévia de link (ninguém abre o endereço para montar a prévia).
 
 **O que continua sem dado pessoal**, qualquer que seja a escolha: o registro de ações (`dolores_acoes`), o pedido
 guardado (`dolores_mensagens`), os números estranhos (`dolores_remetentes_estranhos`), a tela de Integrações › Dolores, os
 logs e as mensagens de erro.
 
+**A ponte HTTP (etapa 1) tem interruptor próprio.** A sua autorização vale para a Dolores no WhatsApp. Quem chama a
+ponte diretamente (`/api/dolores/ponte`, com o token) recebe CPF, CNPJ, telefone e e-mail **mascarados**, mesmo com a
+opção B ligada. Assim, um token vazado não abre os dados dos clientes. Para liberar também na ponte (só se um agente
+externo realmente precisar):
+1. Na Vercel: criar `DOLORES_PONTE_DADOS_PESSOAIS` com o valor `1` (Production) e fazer um **Redeploy**.
+2. Valores que liberam: `1`, `true`, `sim`, `on` ou `yes`. Ausente ou **qualquer outro valor**: mascarado.
+3. Para voltar a mascarar: apagar a variável e fazer outro Redeploy.
+
 **Como voltar atrás (religar o filtro).**
 1. Na Vercel: Settings › Environment Variables → criar `DOLORES_MASCARAR_DADOS_PESSOAIS` com o valor `1` (Production).
 2. Fazer um **Redeploy**; a mudança só vale depois dele.
 3. Para liberar de novo: apagar a variável ou trocar o valor por `0`, e fazer outro Redeploy.
+
+Valores aceitos (sem diferença entre maiúsculas e minúsculas; espaços e aspas em volta não contam): **liberado** só com a
+variável ausente, vazia, `0`, `false`, `nao`, `não`, `off` ou `no`. **Qualquer outro valor mascara** (`1`, `true`, `sim`,
+`S`, `2`, `1 # comentário`…): na dúvida, o sistema esconde. Valor diferente de `1` e dos de "liberado" também gera um
+aviso no log (uma vez, sem mostrar o valor), para você corrigir.
 
 ## Parar
 - **Desligar a IA** (Integrações › Dolores): vale na hora; ela passa a responder só a frase fixa.

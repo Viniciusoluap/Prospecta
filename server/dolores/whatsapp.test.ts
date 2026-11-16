@@ -11,7 +11,7 @@ import { ENV } from "../_core/env.js";
 import { getDb } from "../db.js";
 import { MAX_VOLTAS, definirClienteModelo, executarComando, type PedidoModelo, type RespostaModelo } from "./cerebro.js";
 import { esquecerUsuarioDolores } from "./perfil.js";
-import { definirDependenciasPonte } from "./ponte.js";
+import { definirDependenciasPonte, nomeParaRegistro } from "./ponte.js";
 import { AGORA, CENARIO, criarBanco } from "./testes-banco.js";
 import { definirDependenciasWhatsapp, segredoWebhookDolores, tratarWebhookDolores } from "./whatsapp.js";
 
@@ -306,7 +306,7 @@ describe("injeção de instruções (dados envenenados)", () => {
     expect(r2[0].content).toMatch(/prevista para a etapa 3; ainda não liberada/);
     expect(r2[1].content).toMatch(/não existe na lista de funções autorizadas/);
     const a = await acoes();
-    expect(a.filter(x => x.resultado === "recusada").map(x => x.funcao)).toEqual(["enviar_mensagem_whatsapp", "executar_sql"]);
+    expect(a.filter(x => x.resultado === "recusada").map(x => x.funcao)).toEqual(["enviar_mensagem_whatsapp", nomeParaRegistro("executar_sql")]); // QA r7 A7: nome fora da lista vai com hash
     // 3) uma única mensagem saiu, para o dono, e o número citado no texto foi mascarado
     expect(enviar).toHaveBeenCalledTimes(1);
     expect(enviar.mock.calls[0][0].numero).toBe(DONO);

@@ -93,7 +93,7 @@ describe("leitura: em tempo de execução", () => {
     };
     for (const fn of FUNCOES) {
       for (const a of argumentos[fn.nome] ?? [{}]) {
-        const r = await fn.executar(fn.entrada.parse(a) as never, { agora: AGORA });
+        const r = await fn.executar(fn.entrada.parse(a) as never, { agora: AGORA, canal: "whatsapp" });
         expect(r.resumo, fn.nome).toBeTypeOf("object");
       }
     }

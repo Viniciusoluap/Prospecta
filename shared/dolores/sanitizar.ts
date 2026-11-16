@@ -169,11 +169,50 @@ export function normalizarParaFiltro(texto: string): string {
 // ── Senha, banco, e-mail e os formatos canônicos (sempre saem) ──
 const FIM_DA_ORACAO = "(?=[;\\n]|[.,!?](?:\\s|$)|$)";
 // Palavra de senha: tudo até o fim da oração (ponto, ponto e vírgula, vírgula, quebra de linha).
-const SENHA = new RegExp(`\\b(senhas?|password|passwd|token|pin|otp)\\b.*?${FIM_DA_ORACAO}`, "gi");
+// QA r7 A1(c): "senha, X", "senha: X", "senha — X", "senha é X" e "senha\nX" levam junto a palavra X (antes, a vírgula ou a
+// quebra de linha logo depois fechava a oração e a senha ficava à vista). A palavra não leva a pontuação final.
+const DEPOIS_DA_SENHA = "(?:[ \\t]*(?:[,:=]|[-–—]+>?)[ \\t]*(?:\\r?\\n[ \\t]*)?|[ \\t]*\\r?\\n[ \\t]*|[ \\t]+é[ \\t]+)[^\\s,;]*[^\\s,;.!?]";
+const SENHA = new RegExp(`\\b(senhas?|password|passwd|pwd|pass|token|tkn|pin|otp)\\b(?:${DEPOIS_DA_SENHA})?.*?${FIM_DA_ORACAO}`, "gi");
+/**
+ * QA r7 A1(b): gatilho de credencial. Depois dele, na mesma linha (e na linha seguinte quando ele fecha a linha), a
+ * palavra com cara de senha (ver pareceSenha) sai. O CPF ou o usuário ao lado seguem a regra de dado pessoal.
+ */
+const PALAVRAS_CREDENCIAL = "senhas?|logins?|acessos?|credencia(?:l|is)|usu[aá]rios?|user(?:name)?|gov\\.?\\s?br|gov|meu\\s+inss|inss|e-?cac|conecta|portal|pwd|pass(?:word)?|passwd";
+const GATILHO_CREDENCIAL = new RegExp(`(?<![\\p{L}\\p{N}_])(?:${PALAVRAS_CREDENCIAL})(?![\\p{L}\\p{N}_])`, "iu");
+const GATILHO_NO_FIM_DA_LINHA = new RegExp(`(?<![\\p{L}\\p{N}_])(?:${PALAVRAS_CREDENCIAL})[\\s:=>\\-–—,.;]*$`, "iu");
+/** Palavra do texto: sequência sem espaço nem separador (",", ";", ":", "/", "|", parênteses, aspas, colchetes). */
+const PALAVRA = new RegExp(String.raw`(?<![^\s,;:/|()<>"'[\]{}])[^\s,;:/|()<>"'[\]{}]{6,}`, "gu");
+const EMAIL_DE_VERDADE = new RegExp(String.raw`^[^@]+@[\p{L}\p{N}_-]+(?:\.[\p{L}\p{N}_-]+)*\.[\p{L}\p{N}_-]*\p{L}[\p{L}\p{N}_-]*[.!?]?$`, "u");
+const TEM_LETRA = new RegExp("\\p{L}", "u");
+/** Cara de senha: 6+ caracteres, letra misturada com dígito ou símbolo, e não é e-mail de verdade. */
+export function pareceSenha(p: string): boolean {
+  return p.length >= 6 && TEM_LETRA.test(p) && /[\d!@#$%&*?_+=~^]/.test(p) && !EMAIL_DE_VERDADE.test(p);
+}
+function mascararCredenciais(x: string): string {
+  if (!GATILHO_CREDENCIAL.test(x)) return x;
+  const linhas = x.split("\n");
+  let linhaSeguinte = false;
+  for (let i = 0; i < linhas.length; i++) {
+    const l = linhas[i];
+    const m = GATILHO_CREDENCIAL.exec(l);
+    const ini = linhaSeguinte ? 0 : m ? m.index + m[0].length : -1;
+    if (ini >= 0) linhas[i] = l.slice(0, ini) + l.slice(ini).replace(PALAVRA, p => (pareceSenha(p) ? SENHA_OMITIDA : p));
+    linhaSeguinte = !!m && GATILHO_NO_FIM_DA_LINHA.test(l.slice(-48));
+  }
+  return linhas.join("\n");
+}
+/**
+ * QA r7 A1(a): "x@y" sem ponto no domínio não é e-mail ("Maria@2025", formato de senha muito comum): sai como senha no
+ * modo liberado (no modo mascarado, a fase de e-mail já o tira). E-mail com domínio ("maria@gmail.com") fica.
+ */
+const ARROBA_SEM_DOMINIO = new RegExp(String.raw`(?<![\p{L}\p{N}_.+!#$%&*-])[\p{L}\p{N}_.+!#$%&*-]+@[\p{L}\p{N}_-]+(?:\.[\p{L}\p{N}_-]+)*`, "gu");
+const trocarArrobaSemDominio = (m: string) => (EMAIL_DE_VERDADE.test(m) ? m : SENHA_OMITIDA);
 // QA r4 S5: "código" só é senha com senha/acesso/token/OTP por perto (40 caracteres depois ou 30 antes). "Código de
 // barras", "código do imóvel 12345" ficam. A palavra sozinha não consome a oração (uma senha mais adiante ainda sai).
+// QA r7 A6: também "código de verificação/segurança/confirmação/autenticação", "código 2FA" e "cód." abreviado.
+const PERTO_DO_CODIGO = "(?:senhas?|acesso|token|otp|verifica[cç][aã]o|seguran[cç]a|confirma[cç][aã]o|autentica[cç][aã]o|2fa|mfa)";
 const CODIGO = new RegExp(
-  "\\b(c[oó]digos?)\\b(?:(?=[^.;,\\n]{0,40}?\\b(?:senhas?|acesso|token|otp)\\b)|(?<=\\b(?:senhas?|acesso|token|otp)\\b[^.;\\n]{0,30}c[oó]digos?))"
+  `\\b(c[oó]d(?:igos?\\b|\\.))(?:(?=[^.;,\\n]{0,40}?\\b${PERTO_DO_CODIGO}\\b)|(?<=\\b${PERTO_DO_CODIGO}\\b[^.;\\n]{0,30}c[oó]digos?))`
   + `.*?${FIM_DA_ORACAO}`,
   "gi",
 );
@@ -181,12 +220,29 @@ const CODIGO = new RegExp(
 // lookahead varria a palavra inteira a cada rótulo: "ag-ag-…" de 200 kB levava 20 s). QA r4 S5: só número de conta
 // (3+ dígitos, não um ano, não valor com centavos): "cc 2 cópias", "conta 2026", "conta 1.500,00" ficam.
 // 16/11 (opção B): o número sai INTEIRO mesmo com espaço entre os grupos ("conta 529 982 247 25" → só o rótulo fica).
-const BANCO = /\b(ag[eê]ncia|ag|conta(?:\s+corrente|\s+poupan[cç]a)?|c\/c|cc)\b(\s*(?:n[ºo°.]?|:|#|-)?\s*)(\d[\d.\-/]{0,30}(?: \d[\d.\-/]{0,30}){0,5}[\dxX]?)(,\d)?/gi;
+/**
+ * QA r7 A5: bancos comuns — o nome sozinho funciona como rótulo ("Itaú 0001 12345-6") e vale depois de "conta do/da/no"
+ * ("conta do Bradesco 12345-6"). Só com o nome do banco, o número precisa ter forma de conta (dígito depois de hífen ou
+ * dois grupos): "Caixa 1000 litros" fica.
+ */
+const BANCOS = "bradesco|ita[uú]|santander|caixa(?:\\s+econ[oô]mica(?:\\s+federal)?)?|cef|bb|banco\\s+do\\s+brasil|nubank|inter|sicoob|sicredi|c6(?:\\s+bank)?|banrisul|bnb|banco\\s+do\\s+nordeste|pagbank|pagseguro|mercado\\s+pago|picpay|neon|btg(?:\\s+pactual)?|safra";
+const SO_BANCO = new RegExp(`^(?:${BANCOS})$`, "iu");
+// QA r7 A5: separador também "é" ("o número da conta é 12345-6"), o banco no meio ("conta do Bradesco 12345-6"), grupos
+// ligados por " / " ("BB 1234-5 / 67890-1") e rótulo colado no número ("ag1234 cc56789", "cta 56789-0").
+const BANCO = new RegExp(
+  `(?<![\\p{L}\\p{N}_])(ag[eê]ncia|ag|conta(?:\\s+corrente|\\s+poupan[cç]a)?(?:\\s+(?:do|da|no|na)\\s+(?:${BANCOS}))?|c\\/c|cc|cta|${BANCOS})(?![\\p{L}_])`
+  + `(\\s*(?:n[ºo°.]?|:|#|-|é|eh)?\\s*)(\\d[\\d.\\-/]{0,30}(?:(?: | ?[/|] ?)\\d[\\d.\\-/]{0,30}){0,5}[\\dxX]?)(,\\d)?`,
+  "giu",
+);
 // PIX: QA r4 S5 — só quando o que segue tem forma de chave: e-mail, chave aleatória (uuid) ou 8–14 dígitos (CPF, CNPJ,
 // telefone). "pagou via pix 1.500,00" fica (é o valor da cobrança).
+// QA r7 A5: entre "pix" e a chave valem também "é", "é o", "->", "=>", "—", "pra/para", "do/da" e o tipo da chave
+// ("PIX CNPJ …", "chave pix é o CPF …", "pix aleatória <uuid>"); uuid também sem hífens (32 hexadecimais).
+const SEP_PIX = String.raw`((?:\s*(?:=>|->|[:#=–—-]|(?:n[ºo°.]?|é|eh|o|a|pra|para|pro|do|da|no|na|cpf|cnpj|telefone|celular|cel|e-?mail|aleat[oó]ria|chave)(?![\p{L}\p{N}]))){0,5}\s*)`;
+const VALOR_PIX_TEXTO = String.raw`[\p{L}\p{N}_.+-]{1,64}@[\p{L}\p{N}_-]{1,63}(?:\.[\p{L}\p{N}_-]{1,63}){0,6}|[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}|[0-9a-f]{32}(?![0-9a-z])`;
 /** Chave PIX em forma de e-mail ou aleatória (uuid): sai como dado bancário antes do filtro de e-mail. */
-const PIX_EMAIL = new RegExp(String.raw`\b(chave\s+pix|pix)\b(\s*(?:n[ºo°.]?|:|#|-|=)?\s*)(?:[\p{L}\p{N}_.+-]{1,64}@[\p{L}\p{N}_-]{1,63}(?:\.[\p{L}\p{N}_-]{1,63}){0,6}|[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})`, "giu");
-const PIX = new RegExp(String.raw`\b(chave\s+pix|pix)\b(\s*(?:n[ºo°.]?|:|#|-|=)?\s*)([\p{L}\p{N}_.+-]{1,64}@[\p{L}\p{N}_-]{1,63}(?:\.[\p{L}\p{N}_-]{1,63}){0,6}|[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}|\+?\(?\d[\d.\-/() ]{6,24}\d)`, "giu");
+const PIX_EMAIL = new RegExp(String.raw`\b(chave\s+pix|pix)\b${SEP_PIX}(?:${VALOR_PIX_TEXTO})`, "giu");
+const PIX = new RegExp(String.raw`\b(chave\s+pix|pix)\b${SEP_PIX}(${VALOR_PIX_TEXTO}|\+?\(?\d[\d.\-/() ]{6,24}\d)`, "giu");
 // E-mail: "a@b.com", "a @ b.com", "a[at]b.com", "a (arroba) b.com" e, colado, sem domínio de topo ("a@b").
 // QA r5 F6: letras e números de qualquer escrita (\p{L}\p{N}, flag u) — "maria.conceição@uol.com.br" sai inteiro.
 // QA r3 R4: o nome só começa no início de uma "palavra" de [\p{L}\p{N}_.+-] (lookbehind). Sem a âncora, cada posição de uma
@@ -622,14 +678,17 @@ function trocarBanco(m: string, rotulo: string, sep: string, valor: string, cent
   const resto = /[.\-/]+$/.exec(valor)?.[0] ?? "";
   const nucleo = valor.slice(0, valor.length - resto.length);
   if (nucleo.replace(/\D/g, "").length < 3 || ANO.test(nucleo) || COLADO_EM_LETRA.test(t.slice(pos + m.length))) return m;
+  // QA r7 A5: só o nome do banco antes — o número precisa ter forma de conta/agência (hífen + dígito ou dois grupos)
+  if (SO_BANCO.test(rotulo.trim()) && !/\d{3,}-[\dxX]|\d{3,}(?: | ?[/|] ?)\d{3,}/.test(nucleo)) return m;
   return `${rotulo}${sep}${BANCARIO_OMITIDO}${resto}`;
 }
 
 /** PIX: e-mail ou uuid sempre; número só com 8–14 dígitos e sem centavos logo depois. */
 function trocarPix(m: string, rotulo: string, sep: string, valor: string, pos: number, t: string): string {
-  if (!valor.includes("@") && !/^[0-9a-f]{8}-/i.test(valor)) {
+  if (!valor.includes("@") && !/^[0-9a-f]{8}-/i.test(valor) && !/^[0-9a-f]{32}$/i.test(valor)) {
     const digitos = valor.replace(/\D/g, "").length;
     if (digitos < 8 || digitos > 14 || /^,\d/.test(t.slice(pos + m.length))) return m;
+    if (/^\d{1,2}\/\d{1,2}\/\d{2,4}$/.test(valor.trim())) return m; // data ("pix pra 16/11/2026")
   }
   return `${rotulo}${sep}${BANCARIO_OMITIDO}`;
 }
@@ -648,19 +707,37 @@ function trocarPix(m: string, rotulo: string, sep: string, valor: string, pos: n
 export type OpcoesFiltro = { mascararDadosPessoais?: boolean };
 export const CHAVE_OMITIDA = "[chave de acesso omitida]";
 /** Chave de API ou credencial em forma reconhecível (sempre sai, com ou sem palavra de senha antes). */
-const CHAVE_API = /\bsk-ant-[\w-]{4,}|\bsk-(?:proj-)?[A-Za-z0-9_-]{20,}|\bBearer\s+[\w.~+/=-]{8,}|\beyJ[\w-]{8,}\.[\w-]{8,}\.[\w-]{8,}|\b(?:AKIA|ASIA)[0-9A-Z]{16}\b|\bgh[pousr]_[A-Za-z0-9]{30,}|\bxox[abprs]-[\w-]{10,}/g;
+const CHAVE_API = /\bsk-ant-[\w-]{4,}|\bsk-(?:proj-)?[A-Za-z0-9_-]{20,}|\bgithub_pat_\w{20,}|\bAIza[\w-]{30,}|\b(?:sk|rk|pk)_(?:live|test)_\w{10,}|-----BEGIN [A-Z ]{0,40}PRIVATE KEY-----[\s\S]*?(?:-----END [A-Z ]{0,40}PRIVATE KEY-----|$)|\beyJ[\w-]{8,}\.[\w-]{8,}\.[\w-]{8,}|\b(?:AKIA|ASIA)[0-9A-Z]{16}\b|\bgh[pousr]_[A-Za-z0-9]{30,}|\bxox[abprs]-[\w-]{10,}/g;
+/** QA r7 A6: "bearer" em qualquer caixa, com ":" opcional ("Bearer: …", "bearer abc…"). */
+const BEARER = /\bbearer\b\s*:?\s*[\w.~+/=-]{8,}/gi;
+/**
+ * QA r7 A6: rótulo de chave seguido do valor ("apikey=<hex>", "api_key: …", "client_secret=…", "x-api-key: …"). Sem ":"
+ * nem "=", só valor longo (16+) com dígito ("apikey 0a1b…", como no erro da Evolution).
+ */
+const ROTULO_CHAVE = /\b(x-api-key|api[_-]?key|apikey|client[_-]?secret|secret(?:[_-]?key)?|access[_-]?key|aws[_ -]secret(?:[_ -]access)?[_ -]key)\b(\s*["']?\s*[:=]?\s*["']?)([^\s"',;]{6,})/gi;
+function trocarRotuloChave(m: string, rotulo: string, sep: string, valor: string): string {
+  if (!/[:=]/.test(sep) && (valor.length < 16 || !/\d/.test(valor))) return m;
+  return `${rotulo}${sep}${CHAVE_OMITIDA}`;
+}
 
 /** Texto livre com senhas, chaves, dados bancários e (se ligado) CPF/CNPJ, e-mail e telefone trocados por marcadores. */
 export function sanitizarTexto(texto: string, opcoes: OpcoesFiltro = {}): string {
   if (!texto) return texto;
   const mascararPessoais = opcoes.mascararDadosPessoais ?? true;
   const t = normalizarParaFiltro(texto);
-  if (!/[\d@]|senha|password|passwd|c[oó]digo|token|\bpin\b|\botp\b|\bat\b|arroba|sk-|bearer|eyJ/i.test(t)) return texto;
-  const segredos = (x: string) => x
-    .replace(CHAVE_API, CHAVE_OMITIDA)
-    .replace(SENHA, (_m, palavra: string) => `${palavra} ${SENHA_OMITIDA}`)
-    .replace(CODIGO, (_m, palavra: string) => `${palavra} ${SENHA_OMITIDA}`)
-    .replace(PIX_EMAIL, (_m, rotulo: string, sep: string) => `${rotulo}${sep}${BANCARIO_OMITIDO}`);
+  if (!/[\d@!#$%&*_+=~^]|senha|password|passwd|c[oó]digo|token|\bpin\b|\botp\b|\bat\b|arroba|sk-|sk_|pk_|bearer|eyJ|AIza|github_pat|BEGIN|apikey|api_key|secret|login|acesso|credencia|usu[aá]rio|user|gov|inss|cac|conecta|portal|pwd|pass|tkn|c[oó]d/i.test(t)) return texto;
+  const segredos = (x: string) => {
+    let s = x
+      .replace(CHAVE_API, CHAVE_OMITIDA)
+      .replace(BEARER, CHAVE_OMITIDA)
+      .replace(ROTULO_CHAVE, trocarRotuloChave)
+      .replace(SENHA, (_m, palavra: string) => `${palavra} ${SENHA_OMITIDA}`)
+      .replace(CODIGO, (_m, palavra: string) => `${palavra} ${SENHA_OMITIDA}`)
+      .replace(PIX_EMAIL, (_m, rotulo: string, sep: string) => `${rotulo}${sep}${BANCARIO_OMITIDO}`);
+    // QA r7 A1(a): no modo mascarado, "x@y" sem domínio já sai pela fase de e-mail (marcador de dado pessoal)
+    if (!mascararPessoais) s = s.replace(ARROBA_SEM_DOMINIO, trocarArrobaSemDominio);
+    return mascararCredenciais(s);
+  };
   const bancarios = (x: string) => x
     .replace(PIX, (m, rotulo: string, sep: string, valor: string, pos: number, s: string) => trocarPix(m, rotulo, sep, valor, pos, s))
     .replace(BANCO, (m, rotulo: string, sep: string, valor: string, cent: string | undefined, pos: number, s: string) =>
