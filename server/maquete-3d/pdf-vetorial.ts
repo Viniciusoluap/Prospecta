@@ -67,7 +67,7 @@ export async function abrirPdf(dados: Buffer): Promise<PdfAberto> {
           const cy = ((a[0] ** 2 + a[1] ** 2) * (c[0] - b[0]) + (b[0] ** 2 + b[1] ** 2) * (a[0] - c[0]) + (c[0] ** 2 + c[1] ** 2) * (b[0] - a[0])) / d;
           const r = Math.hypot(a[0] - cx, a[1] - cy);
           const noCirculo = [0.25, 0.75].every(t => { const q = em(t); return Math.abs(Math.hypot(q[0] - cx, q[1] - cy) - r) < r * 0.03; });
-          if (noCirculo && r > 3 && r < 2000) { if (arcos.length < 20000) arcos.push({ cx, cy, r }); return; }
+          if (noCirculo && r > 3 && r < 2000) { if (arcos.length < 20000) arcos.push({ cx, cy, r, pontas: [{ x: a[0], y: a[1] }, { x: c[0], y: c[1] }] }); return; }
         }
         let ant = a;
         for (let i = 1; i <= 6; i++) { const q = em(i / 6); if (segmentos.length < MAX_SEGMENTOS) segmentos.push({ x1: ant[0], y1: ant[1], x2: q[0], y2: q[1] }); ant = q; }

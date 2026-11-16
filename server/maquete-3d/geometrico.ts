@@ -371,8 +371,65 @@ function paredesComVaos(grupos: Peca[][], ctx: Contexto): Parede[] {
   }
   if (process.env.TMP_DUP) for (const w of paredes) if (w.ang === 0 && w.rho > 7.5 && w.rho < 9.6 && w.t0 > 4 && w.t1 < 11) console.log('W', w.rho.toFixed(3), w.t0.toFixed(2), w.t1.toFixed(2), w.esp.toFixed(3), JSON.stringify(w.vaos));
   const unicas = semDuplicadas(paredes);
+  aberturasPelosMarcos(unicas, ctx);
   vaosNasPontas(unicas, ctx);
   return unicas;
+}
+
+/**
+ * Abertura dentro de uma parede que parece contínua. O Revit desenha o peitoril da janela (e a soleira da porta de
+ * correr) nas faces da parede, então não sobra vão entre as peças. O que mostra a abertura são os marcos: grupos de
+ * traços curtos atravessando a espessura nas duas pontas, com o caixilho (linhas ao longo, dentro da espessura) entre
+ * eles. Um montante no meio (folhas de correr que se cruzam por cima dele) não divide a abertura; um trecho de parede
+ * entre duas janelas, sim (as linhas dele não atravessam os marcos). Sai como janela: na planta, porta de correr e
+ * janela se desenham igual — a pessoa confere na revisão.
+ */
+function aberturasPelosMarcos(paredes: Parede[], ctx: Contexto) {
+  const porCelula = new Map<string, Reta[]>();
+  const chave = (x: number, y: number) => `${Math.floor(x)},${Math.floor(y)}`;
+  for (const r of ctx.retas) {
+    if (r.comp > 0.4) continue;
+    const p = ponto(r.ang, r.rho, (r.t0 + r.t1) / 2), k = chave(p.x, p.y), l = porCelula.get(k);
+    if (l) l.push(r); else porCelula.set(k, [r]);
+  }
+  for (const w of paredes) {
+    const a = (w.ang * Math.PI) / 180, c = Math.cos(a), s = Math.sin(a), perp = (w.ang + 90) % BALDES;
+    const tDe = (p: Ponto) => p.x * c + p.y * s, rhoDe = (p: Ponto) => -p.x * s + p.y * c;
+    const xs = [w.a.x, w.b.x], ys = [w.a.y, w.b.y], ts: number[] = [];
+    for (let i = Math.floor(Math.min(...xs) - 1); i <= Math.floor(Math.max(...xs) + 1); i++) for (let j = Math.floor(Math.min(...ys) - 1); j <= Math.floor(Math.max(...ys) + 1); j++) {
+      for (const r of porCelula.get(`${i},${j}`) ?? []) {
+        const dAng = Math.min(Math.abs(r.ang - perp), BALDES - Math.abs(r.ang - perp));
+        if (dAng > 2) continue;
+        const m = ponto(r.ang, r.rho, (r.t0 + r.t1) / 2), t = tDe(m);
+        if (Math.abs(rhoDe(m) - w.rho) <= w.esp / 2 + 0.005 && t > w.t0 + 0.05 && t < w.t1 - 0.05) ts.push(t);
+      }
+    }
+    if (ts.length < 4) continue;
+    ts.sort((p, q) => p - q);
+    // Marcos: traços a menos de 6 cm uns dos outros; fora os que caem num encontro com outra parede.
+    const marcos: { ini: number; fim: number; n: number }[] = [];
+    for (const t of ts) { const u = marcos[marcos.length - 1]; if (u && t - u.fim <= 0.06) { u.fim = t; u.n++; } else marcos.push({ ini: t, fim: t, n: 1 }); }
+    const cruzamentos = paredes.filter(v => v !== w && v.ang !== w.ang).map(v => {
+      const vx = v.b.x - v.a.x, vy = v.b.y - v.a.y, den = c * vy - s * vx;
+      if (Math.abs(den) < 1e-6) return null;
+      const d = ((v.a.x - w.a.x) * vy - (v.a.y - w.a.y) * vx) / den, u = ((v.a.x - w.a.x) * s - (v.a.y - w.a.y) * c) / den, folga = (w.esp + 0.1) / Math.hypot(vx, vy);
+      return u >= -folga && u <= 1 + folga ? { t: w.t0 + d, esp: v.esp } : null;
+    }).filter((x): x is { t: number; esp: number } => !!x);
+    const validos = marcos.filter(m => m.n >= 2 && !cruzamentos.some(x => Math.abs((m.ini + m.fim) / 2 - x.t) <= x.esp / 2 + 0.1));
+    const dentro = ctx.retas.filter(r => r.ang === w.ang && Math.abs(r.rho - w.rho) < w.esp / 2 - 0.005 && r.t1 > w.t0 && r.t0 < w.t1);
+    const caixilho = (u0: number, u1: number) => dentro.some(r => Math.min(r.t1, u1) - Math.max(r.t0, u0) >= Math.min(0.3, (u1 - u0) * 0.5));
+    const atravessa = (m: { ini: number; fim: number }) => dentro.some(r => r.t0 < m.ini - 0.02 && r.t1 > m.fim + 0.02);
+    if (process.env.TMP_MARCOS && w.ang === 0) console.log('MARCOS', w.rho.toFixed(3), w.t0.toFixed(2), w.t1.toFixed(2), validos.map(m => `${m.ini.toFixed(3)}-${m.fim.toFixed(3)}(${m.n})${atravessa(m) ? 'X' : ''}`).join(' '), '| dentro', dentro.filter(r => r.comp < 3).map(r => `${(r.rho - w.rho).toFixed(3)}:${r.t0.toFixed(2)}-${r.t1.toFixed(2)}`).join(' '));
+    for (let i = 0; i + 1 < validos.length;) {
+      const ini = validos[i];
+      let j = i + 1;
+      if (validos[j].ini - ini.fim < 0.3 || validos[j].ini - ini.fim > 3 || !caixilho(ini.fim, validos[j].ini)) { i++; continue; }
+      while (j + 1 < validos.length && atravessa(validos[j]) && validos[j + 1].fim - ini.ini <= 3 && caixilho(validos[j].fim, validos[j + 1].ini)) j++;
+      const t0 = ini.ini, t1 = validos[j].fim, meio = (t0 + t1) / 2;
+      if (!w.vaos.some(v => Math.abs(v.t - meio) < (v.largura + t1 - t0) / 2)) w.vaos.push({ t: meio, largura: t1 - t0, tipo: "janela" });
+      i = j + 1;
+    }
+  }
 }
 
 /**
