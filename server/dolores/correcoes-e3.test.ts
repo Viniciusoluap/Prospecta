@@ -228,8 +228,13 @@ describe("achado 9 (A5 e bordas) — prazo, título e falha no meio da gravaçã
     expect(String(r.body.erro)).toMatch(/Prazo inválido: prazo no passado/);
     expect((await q("SELECT count(*)::int n FROM tasks WHERE title = 'Pagar boleto'"))[0].n).toBe(0);
   });
-  it("título: caracteres de controle/invisíveis saem, quebras viram espaço, HTML fica como texto; acima de 150 caracteres é recusado", async () => {
-    const r = await doDono("criar_tarefa", { titulo: "<b>Pagar</b>\n- [HJKMN] x\u0000\u202e y", responsavel: "Bianca Souza" });
+  it("título: caractere de controle/invisível é recusado, quebras viram espaço, HTML fica como texto; acima de 150 caracteres é recusado", async () => {
+    // QA final da E3 (achado 1): caractere de controle ou de direção no texto é RECUSADO (422), não limpo em silêncio —
+    // depois da conferência ele poderia remontar um link, uma senha ou um CPF.
+    const invisivel = await doDono("criar_tarefa", { titulo: "<b>Pagar</b>\n- [HJKMN] x\u0000\u202e y", responsavel: "Bianca Souza" });
+    expect(invisivel.status).toBe(422);
+    expect(await q("SELECT title FROM tasks WHERE title LIKE '<b>%'")).toEqual([]);
+    const r = await doDono("criar_tarefa", { titulo: "<b>Pagar</b>\n- [HJKMN] x y", responsavel: "Bianca Souza" });
     expect(r.status).toBe(200);
     const [t] = await q<{ title: string }>("SELECT title FROM tasks WHERE title LIKE '<b>%'");
     expect(t.title).toBe("<b>Pagar</b> - [HJKMN] x y");
