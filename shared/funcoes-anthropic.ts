@@ -31,3 +31,25 @@ export const DESCRICAO_FUNCOES_ANTHROPIC: Record<FuncaoAnthropic, DescricaoFunca
 
 export const ehFuncaoAnthropic = (v: unknown): v is FuncaoAnthropic =>
   typeof v === "string" && (FUNCOES_ANTHROPIC as readonly string[]).includes(v);
+
+/** O que a tela "Modelo por função" sabe de uma função (só nomes de modelo). */
+export type EstadoModeloDaFuncao = {
+  modelo: string | null;
+  sumiu?: string | null;
+  anteriorSumiu?: string | null;
+  valendo: { modelo: string | null; origem: string | null };
+};
+
+/**
+ * QA S-11 achado 1: o botão Salvar fica habilitado quando há o que gravar. Além de trocar o modelo escolhido, salvar
+ * "Usar o preferencial" (valor vazio) também muda algo quando vale o modelo antigo do cartão da Dolores (ele é
+ * descartado) ou quando há aviso de modelo sumido (o aviso sai).
+ */
+export function haAlgoParaSalvar(f: EstadoModeloDaFuncao, valor: string): boolean {
+  if (valor !== (f.modelo ?? "")) return true;
+  return valor === "" && (f.valendo.origem === "anterior" || !!f.sumiu || !!f.anteriorSumiu);
+}
+
+/** Salvar "Usar o preferencial" descarta o modelo antigo do cartão da Dolores? (a tela avisa no rótulo) */
+export const descartaModeloAntigo = (f: EstadoModeloDaFuncao, valor: string) =>
+  valor === "" && (f.valendo.origem === "anterior" || !!f.anteriorSumiu);

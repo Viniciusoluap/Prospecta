@@ -10,12 +10,14 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { descartaModeloAntigo, haAlgoParaSalvar } from "@shared/funcoes-anthropic";
 
 const botaoSec = "border-[#C9A961]/40 text-[#C9A961] hover:bg-[#C9A961]/10";
 const FAMILIA: Record<string, string> = { opus: "Opus", sonnet: "Sonnet", haiku: "Haiku", fable: "Fable", outro: "Outros" };
 const ORIGEM: Record<string, string> = {
   funcao: "escolhido para esta função", anterior: "modelo antigo do cartão da Dolores", preferencial: "preferencial do painel",
-  padrao: "padrão das configurações da maquete",
+  padrao: "padrão das configurações da Maquete 3D",
+  servidor: "chave antiga do servidor, com o modelo das configurações da Maquete 3D",
 };
 type Modelo = { id: string; nome: string; familia: string };
 
@@ -134,7 +136,9 @@ export function AnthropicCard() {
               <ul className="space-y-3">
                 {pf.funcoes.map(f => {
                   const valor = escolhaFuncao[f.id] ?? f.modelo ?? "";
-                  const mudou = valor !== (f.modelo ?? "");
+                  const mudou = haAlgoParaSalvar(f, valor);
+                  const descarta = descartaModeloAntigo(f, valor);
+                  const nomePref = pf.preferencial ? nomeDe(pf.preferencial) : "nenhum escolhido";
                   const foraDaLista = lista.length > 0 && f.valendo.modelo && !lista.some(m => m.id === f.valendo.modelo);
                   const idSelect = `modelo-funcao-${f.id}`;
                   return (
@@ -148,9 +152,11 @@ export function AnthropicCard() {
                       <p className="text-sm text-gray-200">
                         Valendo agora: {f.valendo.modelo
                           ? <><code className="rounded bg-black/30 px-1">{nomeDe(f.valendo.modelo)}</code> <span className="text-xs text-gray-400">({ORIGEM[f.valendo.origem ?? ""] ?? "—"})</span></>
-                          : <span className="text-yellow-200">nenhum modelo{f.id === "dolores_whatsapp" ? " — a Dolores não liga a IA sem modelo" : ""}</span>}
+                          : <span className="text-yellow-200">{f.semChave ? "nenhum" : `nenhum modelo${f.id === "dolores_whatsapp" ? " — a Dolores não liga a IA sem modelo" : ""}`}</span>}
                       </p>
-                      {f.sumiu && <p role="alert" className="flex items-start gap-2 text-xs text-yellow-200"><XCircle className="mt-0.5 h-3 w-3 shrink-0" /> O modelo escolhido ({f.sumiu}) não existe mais nesta conta: a função passou a usar o preferencial. Escolha outro, se quiser.</p>}
+                      {f.semChave && <p className="text-xs text-yellow-200">{f.semChave}</p>}
+                      {f.sumiu && <p role="alert" className="flex items-start gap-2 text-xs text-yellow-200"><XCircle className="mt-0.5 h-3 w-3 shrink-0" /> O modelo escolhido ({f.sumiu}) não existe mais nesta conta: a função passou a usar o preferencial. Escolha outro, ou salve "Usar o preferencial" para tirar este aviso.</p>}
+                      {f.anteriorSumiu && <p role="alert" className="flex items-start gap-2 text-xs text-yellow-200"><XCircle className="mt-0.5 h-3 w-3 shrink-0" /> O modelo antigo do cartão da Dolores ({f.anteriorSumiu}) não existe nesta conta: ela passou a usar o preferencial. Escolha um modelo, ou salve "Usar o preferencial" para descartar o modelo antigo.</p>}
                       {foraDaLista && <p className="text-xs text-yellow-200">O modelo em uso não aparece na lista atual desta conta.</p>}
                       {pf.configurado && lista.length > 0 && (
                         <form className="flex flex-col gap-2 sm:flex-row sm:items-end" onSubmit={e => { e.preventDefault(); salvarFuncao.mutate({ funcao: f.id, modelo: valor }); }}>
@@ -158,13 +164,18 @@ export function AnthropicCard() {
                             <Label className="text-xs text-gray-300" htmlFor={idSelect}>Modelo para esta função</Label>
                             <select id={idSelect} value={valor} onChange={e => setEscolhaFuncao(x => ({ ...x, [f.id]: e.target.value }))}
                               className="mt-1 w-full rounded-md border border-[#C9A961]/30 bg-[#1A2332] px-2 py-2 text-sm text-white">
-                              <option value="">Usar o preferencial ({pf.preferencial ? nomeDe(pf.preferencial) : "nenhum escolhido"})</option>
+                              <option value="">{f.valendo.origem === "anterior" || f.anteriorSumiu
+                                ? `Usar o preferencial (${nomePref}) — descarta o modelo antigo do cartão`
+                                : `Usar o preferencial (${nomePref})`}</option>
                               <OpcoesDeModelo lista={lista} />
                             </select>
                           </div>
                           <Button type="submit" size="sm" disabled={!mudou || salvarFuncao.isPending}
                             className="min-h-9 bg-[#C9A961] font-bold text-[#1A2332] hover:bg-[#B8985A]">{salvarFuncao.isPending && salvarFuncao.variables?.funcao === f.id ? "Salvando…" : "Salvar"}</Button>
                         </form>
+                      )}
+                      {pf.configurado && lista.length > 0 && descarta && (
+                        <p className="text-xs text-gray-300">Ao salvar &quot;Usar o preferencial&quot;, o modelo antigo do cartão da Dolores ({f.anteriorSumiu ?? f.valendo.modelo}) é descartado e ela passa a usar o preferencial ({nomePref}).</p>
                       )}
                     </li>
                   );

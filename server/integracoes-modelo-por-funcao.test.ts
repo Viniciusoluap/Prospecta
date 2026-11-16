@@ -2,7 +2,7 @@
 // chamado. Permissões pelo appRouter com o caminho completo (createCaller do sub-router daria falso positivo).
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { ADMIN_MODULES } from "../shared/admin-permissions";
-import { FUNCOES_ANTHROPIC } from "../shared/funcoes-anthropic";
+import { FUNCOES_ANTHROPIC, descartaModeloAntigo, haAlgoParaSalvar } from "../shared/funcoes-anthropic";
 import { createIntegracoesRouter, type IntegracoesDeps } from "./integracoes-router";
 import { CHAVE_MODELO_ANTHROPIC_PAINEL, CHAVE_SEGREDO_ANTHROPIC_PAINEL, type AnthropicPainelDeps, type ClienteModelos } from "./_core/anthropic-painel";
 import { CHAVE_MODELO_PREFERENCIAL, chaveAnteriorSumiuDaFuncao, chaveAvisoDaFuncao, chaveModeloDaFuncao, modeloDaFuncao, modelosGravadosDasFuncoes } from "./_core/modelo-por-funcao";
@@ -289,6 +289,38 @@ describe("rotas do painel — modelo por função", () => {
     const r = await s.caller.modelosPorFuncaoAnthropic();
     expect(r.configurado).toBe(false);
     expect(r.funcoes.every(f => f.modelo === null)).toBe(true);
+  });
+});
+
+describe("QA S-11 achado 1: a tela deixa salvar \"Usar o preferencial\" quando isso muda algo", () => {
+  const f = (x: Partial<Parameters<typeof haAlgoParaSalvar>[0]>) => ({ modelo: null, sumiu: null, anteriorSumiu: null, valendo: { modelo: "claude-sonnet-5-5", origem: "preferencial" }, ...x });
+  it("Dolores com o modelo antigo do cartão: \"Usar o preferencial\" habilita o Salvar e avisa que descarta o antigo", () => {
+    const anterior = f({ valendo: { modelo: "claude-opus-4-1", origem: "anterior" } });
+    expect(haAlgoParaSalvar(anterior, "")).toBe(true);
+    expect(descartaModeloAntigo(anterior, "")).toBe(true);
+    expect(descartaModeloAntigo(anterior, "claude-haiku-5")).toBe(false);
+    expect(haAlgoParaSalvar(f({ anteriorSumiu: "claude-opus-4-1" }), "")).toBe(true);
+  });
+  it("aviso de modelo sumido: \"Usar o preferencial\" habilita o Salvar (o aviso sai sem escolher um modelo)", () => {
+    expect(haAlgoParaSalvar(f({ sumiu: "claude-opus-4-0" }), "")).toBe(true);
+  });
+  it("sem nada a mudar continua desabilitado; trocar o modelo habilita", () => {
+    expect(haAlgoParaSalvar(f({}), "")).toBe(false);
+    expect(haAlgoParaSalvar(f({ modelo: "claude-haiku-5", valendo: { modelo: "claude-haiku-5", origem: "funcao" } }), "claude-haiku-5")).toBe(false);
+    expect(haAlgoParaSalvar(f({ modelo: "claude-haiku-5" }), "")).toBe(true);
+    expect(haAlgoParaSalvar(f({}), "claude-opus-5-5")).toBe(true);
+  });
+  it("o salvar \"Usar o preferencial\" da Dolores pela rota descarta o antigo e limpa os avisos", async () => {
+    const s = setup();
+    await s.caller.salvarAnthropic({ apiKey: CHAVE });
+    await s.caller.salvarModeloAnthropic({ modelo: "claude-sonnet-5-5" });
+    s.antigo.dolores = "claude-opus-5-5";
+    const antes = linha(await s.caller.modelosPorFuncaoAnthropic(), "dolores_whatsapp");
+    expect(haAlgoParaSalvar(antes, "")).toBe(true);
+    const depois = linha(await s.caller.salvarModeloFuncaoAnthropic({ funcao: "dolores_whatsapp", modelo: "" }), "dolores_whatsapp");
+    expect(s.antigo.dolores).toBeNull();
+    expect(depois.valendo).toEqual({ modelo: "claude-sonnet-5-5", origem: "preferencial" });
+    expect(haAlgoParaSalvar(depois, "")).toBe(false);
   });
 });
 
