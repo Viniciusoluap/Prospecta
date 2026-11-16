@@ -46,7 +46,7 @@ export const FUNCOES: readonly FuncaoDolores[] = [
     "Histórico de atendimento de um cliente: atividades registradas no CRM (mensagens, ligações, anotações, mudanças de etapa) e follow-ups, da mais recente para a mais antiga.",
     entradaHistoricoAtendimento, historicoAtendimento),
   f("conversas_whatsapp",
-    "Com leadId: últimas mensagens de WhatsApp do cliente (texto cortado, mídia só pelo tipo). Sem leadId: conversas mais recentes com mensagens não lidas.",
+    "Com leadId: últimas mensagens de WhatsApp do cliente (texto cortado, mídia só pelo tipo). Sem leadId: só conversas de clientes do CRM com mensagem recebida não lida, da mais recente para a mais antiga (contatos sem cliente ficam fora).",
     entradaConversasWhatsapp, conversasWhatsapp),
   f("listar_tarefas",
     "Tarefas abertas, atrasadas ou concluídas, com responsável, prazo, prioridade e cliente vinculado; totais por responsável (abertas e atrasadas).",

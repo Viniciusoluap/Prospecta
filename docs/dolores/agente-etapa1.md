@@ -64,7 +64,7 @@ Liste ao final quantos processos estão com responsável a confirmar, para o don
 - `detalhar_processo_regularizacao` — um processo: etapas com observações, tarefas, financeiro, últimas atividades.
 - `consultar_cliente` — situação do cliente (etapa no CRM, serviços contratados, responsável, prazo, próxima providência).
 - `historico_atendimento` — atividades do CRM e follow-ups de um cliente.
-- `conversas_whatsapp` — mensagens de um cliente, ou as conversas recentes com mensagens não lidas.
+- `conversas_whatsapp` — mensagens de um cliente, ou as conversas de clientes do CRM com mensagem não lida (contatos sem cliente não aparecem nesta etapa).
 - `listar_tarefas` — abertas/atrasadas, com totais por responsável.
 - `listar_documentos` — pendentes e recebidos, por cliente.
 - `listar_atrasos` — atrasados e parados de todos os módulos numa lista.

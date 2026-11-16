@@ -154,7 +154,7 @@ export async function historicoAtendimento(args: z.infer<typeof entradaHistorico
 }
 
 export const entradaConversasWhatsapp = z.object({
-  leadId: idPositivo.optional().describe("Id do cliente: devolve as últimas mensagens dele. Sem leadId: as conversas mais recentes (resumo)."),
+  leadId: idPositivo.optional().describe("Id do cliente: devolve as últimas mensagens dele. Sem leadId: só as conversas de clientes do CRM com mensagem recebida ainda não lida (resumo)."),
   limite: z.number().int().min(1).max(30).default(15).describe("Mensagens (com leadId) ou conversas (sem leadId), até 30."),
 }).strict();
 
@@ -179,13 +179,14 @@ export async function conversasWhatsapp(args: z.infer<typeof entradaConversasWha
       resumo: { encontrado: true, mensagens: msgs.length },
     };
   }
-  // Só conversas de clientes do CRM que não foram excluídos (contato sem cliente fica fora na etapa 1).
+  // Só conversas de clientes do CRM não excluídos e com mensagem recebida não lida (contato sem cliente fica fora na etapa 1).
   const conversas = await db().select({
     leadId: whatsappMessages.leadId, cliente: leads.name, destinatario: whatsappMessages.destinatario, nome: whatsappMessages.nomeDestinatario,
     ultima: max(whatsappMessages.createdAt),
     naoLidas: sql<number>`count(*) filter (where ${whatsappMessages.direcao} = 'entrada' and not ${whatsappMessages.lida})`.mapWith(Number),
   }).from(whatsappMessages).innerJoin(leads, and(eq(leads.id, whatsappMessages.leadId), isNull(leads.deletedAt)))
     .groupBy(whatsappMessages.leadId, leads.name, whatsappMessages.destinatario, whatsappMessages.nomeDestinatario)
+    .having(sql`count(*) filter (where ${whatsappMessages.direcao} = 'entrada' and not ${whatsappMessages.lida}) > 0`)
     .orderBy(desc(max(whatsappMessages.createdAt))).limit(args.limite);
   return {
     dados: {

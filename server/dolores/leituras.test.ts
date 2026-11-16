@@ -113,6 +113,10 @@ describe("demais leituras", () => {
     expect(h.itens[0].textoLivre).toBe("Cliente avisou que o cartório pediu nova certidão");
     const recentes = (await chamar("conversas_whatsapp")).dados.conversas;
     expect(recentes[0]).toMatchObject({ leadId: 1, cliente: "Maria Trello", naoLidas: 1, telefone: "(99) *****-4567" });
+    // L4: só clientes com não lidas; lida a mensagem, a conversa sai da lista
+    expect(recentes).toHaveLength(1);
+    await banco.pg.exec("UPDATE whatsapp_messages SET lida = true");
+    expect((await chamar("conversas_whatsapp")).dados.conversas).toEqual([]);
   });
 
   it("tarefas por responsável, com a regra de atraso da tela", async () => {
