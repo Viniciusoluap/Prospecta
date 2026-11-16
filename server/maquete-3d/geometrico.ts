@@ -32,7 +32,8 @@ export type PlantaLida = {
   vista?: "planta" | "layout" | null;
 };
 /** `avisos`: o que a página tem e não virou pavimento por dúvida (desenho sem título que pode ser corte, por exemplo). */
-export type Diagnostico = { segmentos: number; arcos: number; textos: number; imagens: number; escalas: number[]; plantas: number; motivo: string | null; tempoMs?: number; avisos?: string[] };
+/** `tituloDePlanta`: a página tem título de planta baixa/layout (critério da leitura híbrida, EPIC-024 S-03). */
+export type Diagnostico = { segmentos: number; arcos: number; textos: number; imagens: number; escalas: number[]; plantas: number; motivo: string | null; tempoMs?: number; avisos?: string[]; tituloDePlanta?: boolean };
 
 const PT_MM = 25.4 / 72;
 export const metrosPorPonto = (escala: number) => (PT_MM * escala) / 1000;
@@ -1478,6 +1479,7 @@ export function lerPagina(prim: Primitivas, opcoes: { prazoMs?: number; maxCandi
   }
   const titulos = titulosDaPagina(linhas);
   const temPlanta = titulos.some(t => t.tipo === "planta" || t.tipo === "layout");
+  diagnostico.tituloDePlanta = temPlanta;
   const escalasDePlanta = escritas.filter(n => n < ESCALA_DE_IMPLANTACAO);
   // Prancha de urbanismo/implantação (escalas de 1:200 para cima, quadro de lotes, nomes de rua) e sem título de
   // planta baixa: não há pavimento para ler. Sai logo, sem gastar o tempo do passo procurando paredes nos lotes.

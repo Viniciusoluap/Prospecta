@@ -12,12 +12,13 @@ import {
   type ModeloMaquete, type OrigemMedida, type Pavimento, type TipoMaquete,
 } from "../../shared/maquete-3d/modelo.js";
 import {
-  MAX_BYTES_DOCUMENTOS, PODE_LER, TIPOS_PRANCHA, documentoSchema, leituraVazia, lerEstadoLeitura, type DocumentoMaquete,
-  type EstadoLeitura, type PassoLeitura, type StatusMaquete,
+  MAX_BYTES_DOCUMENTOS, PODE_LER, TIPOS_PRANCHA, documentoSchema, leituraVazia, lerEstadoLeitura, motorEfetivo, type ConfigMaquete, type DocumentoMaquete,
+  type EstadoLeitura, type MotorLeitura, type PassoLeitura, type StatusMaquete,
 } from "../../shared/maquete-3d/regras.js";
 import { MAX_PAGINAS } from "./pdf-vetorial.js";
+import { jpegDaPagina, pdfDeUmJpeg } from "./pdf-pagina.js";
 import { lerPagina, nomeDoPavimento, type Diagnostico, type PlantaLida } from "./geometrico.js";
-import { LeituraIndisponivel, agora, carregarConfig, db, dependencias, erroSeguro, type PdfLido, alvoDoDocumento } from "./base.js";
+import { LIMITE_PASSO_MS, LeituraIndisponivel, agora, carregarConfig, db, dependencias, erroSeguro, modeloDaLeitura, type AnexoIA, type PdfLido, alvoDoDocumento } from "./base.js";
 
 // ── Esquemas da resposta da IA (JSON Schema, saída estruturada) ──
 
@@ -65,6 +66,18 @@ const ESQUEMA_IMPLANTACAO = obj({
   vias: lista(obj({ id: texto, nome: texto, eixo: lista(pontoJson), largura: numero })),
   lotes: lista(obj({ id: texto, nome: texto, quadra: texto, pontos: lista(pontoJson), areaInformada: ou(numero) })),
   posicoes: lista(obj({ id: texto, edificacao: texto, nome: texto, x: numero, y: numero, rotacao: numero })),
+  pendencias: pendenciasJson,
+});
+
+/** Leitura de UMA prancha pela IA (EPIC-024 S-03): as plantas baixas desenhadas nela, no formato do leitor próprio. */
+const ESQUEMA_PRANCHA = obj({
+  plantas: lista(obj({
+    titulo: texto, escala: numero, escalaLegivel: logico, temCotas: logico,
+    paredes: ESQUEMA_ESTRUTURA.properties.paredes, aberturas: ESQUEMA_ESTRUTURA.properties.aberturas,
+    comodos: ESQUEMA_AMBIENTES.properties.comodos,
+    escadas: lista(obj({ id: texto, tipo: umDe(TIPOS_ESCADA), pontos: lista(pontoJson), inicio: pontoJson, fim: pontoJson, percurso: lista(pontoJson), largura: numero, degraus: ou(inteiro), confirmada: logico })),
+    pendencias: pendenciasJson,
+  })),
   pendencias: pendenciasJson,
 });
 
@@ -118,6 +131,20 @@ Use um sistema próprio: origem (0, 0) no canto superior esquerdo do retângulo 
 - "lotes": cada lote com nome/número, quadra, contorno e área escrita (ou null). Ids: l1, l2, ...
 - "posicoes": cada construção desenhada no terreno: "edificacao" é o nome exato de uma destas: ${edificacoes.map(n => `"${n}"`).join(", ") || "(nenhuma)"}; "x" e "y" são a posição do canto superior esquerdo da construção; "rotacao" em graus, sentido horário. Ids: i1, i2, ...
 Se a prancha tiver lotes demais para listar com segurança, liste os que conseguir ler com precisão e registre o restante em "pendencias".`;
+
+const PEDIDO_PRANCHA = (nome: string, pagina: number, envio: EnvioIA, imagem: boolean) => `${envio === "pdf_original"
+  ? `O arquivo "${nome}" foi enviado inteiro. Leia SOMENTE a página ${pagina} e ignore todas as outras páginas.`
+  : `Esta é a página ${pagina} do arquivo "${nome}".`}
+${imagem ? "A prancha é uma imagem (escaneada, fotografada ou convertida): não há linhas nem texto selecionável; leia as cotas, os nomes e os títulos no próprio desenho.\n" : ""}
+Devolva em "plantas" cada planta baixa de pavimento desenhada nesta prancha. Não inclua cortes, fachadas, implantação, situação, cobertura, detalhes, quadros nem carimbo. Para cada planta:
+- "titulo": o título escrito junto do desenho (por exemplo "PLANTA BAIXA - TÉRREO"), ou "" se não houver.
+- "escala": o número da escala escrita (50 para 1:50) e "escalaLegivel": true só se ela estiver escrita e legível; sem escala legível, escala 0 e false.
+- "temCotas": true só se houver cotas (medidas) escritas e legíveis no desenho.
+- Coordenadas em metros, com origem no canto superior esquerdo do retângulo que envolve as paredes externas DESTA planta, x para a direita e y para baixo.
+- "paredes" (segmentos pelo eixo, com espessura; "externa" no contorno; ids p1, p2…), "aberturas" (na parede "paredeId", "posicao" a partir do ponto a; porta sem informação: altura 2.10 e peitoril 0; janela: 1.20 e 1.00; ids a1, a2…), "comodos" (nome escrito, função, contorno pela face interna, área escrita ou null; ids c1, c2…) e "escadas" (contorno, início, fim, percurso, largura, degraus; ids e1, e2…).
+- "confirmada": true SOMENTE quando a medida daquele elemento está escrita na prancha (cota legível). Medida tirada da proporção do desenho, da escala ou estimada é sempre false.
+- "pendencias": frases curtas com o que não dá para ler com segurança (cota ilegível, cômodo sem nome, trecho cortado da imagem).
+Se a prancha não tiver planta baixa de pavimento, devolva "plantas" vazio e diga o motivo em "pendencias".`;
 
 // ── Estado ──
 
@@ -237,22 +264,28 @@ export function montarModelo(tipo: TipoMaquete, parciais: Record<string, unknown
 
 // ── Leitor geométrico (sem IA): uma prancha por passo, e a montagem junta as plantas em pavimentos ──
 
-type PranchaLida = { doc: number; pagina: number; plantas: PlantaLida[]; diagnostico: Diagnostico };
+type PranchaLida = { doc: number; pagina: number; plantas: PlantaLida[]; diagnostico: Diagnostico & { lidaPor?: "geometrico" | "ia" } };
 
-async function abrirDocumento(m: Maquete3d, indice: number) {
+async function bytesDoDocumento(m: Maquete3d, indice: number) {
   const d = lerDocumentos(m.documentos)[indice];
   if (!d) throw new LeituraIndisponivel("Um dos PDFs desta maquete não está mais na lista.");
   const dados = await dependencias().lerPdf(d, alvoDoDocumento(m, d));
   if (dados.length > MAX_BYTES_DOCUMENTOS) throw new LeituraIndisponivel(`O arquivo "${d.nome}" passa de ${Math.round(MAX_BYTES_DOCUMENTOS / 1048576)} MB.`);
+  return { d, dados };
+}
+
+async function abrirDocumento(m: Maquete3d, indice: number) {
+  const { d, dados } = await bytesDoDocumento(m, indice);
   try { return await dependencias().abrirPdf(dados); }
   catch { throw new LeituraIndisponivel(`Não foi possível abrir "${d.nome}": o arquivo não é um PDF válido ou está protegido por senha.`); }
 }
 
-/** Inventário do leitor geométrico: conta as páginas e cria um passo por prancha. */
-async function passosDasPranchas(m: Maquete3d): Promise<PassoLeitura[]> {
+/** Inventário do leitor geométrico: conta as páginas e cria um passo por prancha (`so`: só aquele documento). */
+export async function passosDasPranchas(m: Maquete3d, so?: number): Promise<PassoLeitura[]> {
   const docs = lerDocumentos(m.documentos), passos: PassoLeitura[] = [];
   if (!docs.length) throw new LeituraIndisponivel("Nenhum PDF foi escolhido para esta maquete.");
   for (let d = 0; d < docs.length; d++) {
+    if (so !== undefined && d !== so) continue;
     const pdf = await abrirDocumento(m, d);
     try {
       for (let p = 1; p <= pdf.paginas && passos.length < MAX_PAGINAS; p++) {
@@ -268,6 +301,163 @@ async function lerPrancha(m: Maquete3d, doc: number, pagina: number): Promise<Pr
   try { return { doc, pagina, ...lerPagina(await pdf.pagina(pagina)) }; }
   finally { await pdf.fechar(); }
 }
+
+// ── Leitura híbrida (EPIC-024 S-03): leitor próprio primeiro; a IA só nas pranchas que ele não lê ──
+
+export const MOTIVOS_IA = {
+  imagem: "a prancha é uma imagem, sem linhas vetoriais para o leitor próprio",
+  semPlanta: "a prancha tem título de planta baixa, mas o leitor próprio não reconheceu nenhuma planta",
+  parcial: "a leitura própria ficou parcial (passou do tempo ou do limite de quantidade)",
+  semNomes: "o leitor próprio não reconheceu nenhum cômodo com nome",
+  sempre: "configuração: leitura sempre pela IA",
+} as const;
+
+/**
+ * Critérios objetivos para mandar uma prancha à IA. Nunca quando a leitura própria é boa (alguma planta inteira com
+ * cômodos nomeados). Folha de implantação/urbanismo e página sem desenho não vão para a IA.
+ *   (a) imagem: menos de 40 traços e uma imagem cobrindo a página (PDF escaneado, fotografado ou convertido);
+ *   (b) insuficiente: título de planta baixa sem nenhuma planta lida; todas as plantas lidas parciais; ou nenhuma
+ *       planta com cômodo nomeado.
+ * No modo "ia" toda prancha com desenho vai; no "geometrico", nenhuma.
+ */
+export function motivoParaIA(p: Pick<PranchaLida, "plantas" | "diagnostico">, motor: MotorLeitura): string | null {
+  if (motor === "geometrico") return null;
+  const d = p.diagnostico;
+  if (d.segmentos < 40 && d.imagens > 0) return MOTIVOS_IA.imagem;
+  if (!p.plantas.length && d.tituloDePlanta) return MOTIVOS_IA.semPlanta;
+  if (p.plantas.length && p.plantas.every(x => x.pendencias.some(t => /resultado é parcial/.test(t)))) return MOTIVOS_IA.parcial;
+  if (p.plantas.length && p.plantas.every(x => x.nomeados === 0)) return MOTIVOS_IA.semNomes;
+  if (motor === "ia" && (d.segmentos >= 40 || d.imagens > 0)) return MOTIVOS_IA.sempre;
+  return null;
+}
+
+/** Limites da API para o que vai em cada passo: imagem até 5 MB (depois do base64) e 8000 px; PDF até 100 páginas. */
+export const MAX_BYTES_IMAGEM_IA = 3_750_000;
+export const MAX_LADO_IMAGEM_IA = 8000;
+export const MAX_PAGINAS_PDF_IA = 100;
+export type EnvioIA = "imagem" | "pdf_pagina" | "pdf_original";
+
+/**
+ * O mínimo da página para a IA: o JPEG da prancha como imagem; JPEG grande demais vai num PDF de uma página só;
+ * sem JPEG extraível (prancha vetorial fraca, outro formato de imagem), o PDF original com a instrução da página.
+ */
+export function anexoDaPagina(dados: Buffer, nome: string, pagina: number, totalPaginas: number): { anexo: AnexoIA; envio: EnvioIA } {
+  const img = jpegDaPagina(dados, pagina);
+  if (img && img.jpeg.length <= MAX_BYTES_IMAGEM_IA && Math.max(img.largura, img.altura) <= MAX_LADO_IMAGEM_IA) {
+    return { anexo: { tipo: "imagem", base64: img.jpeg.toString("base64") }, envio: "imagem" };
+  }
+  if (img) {
+    const pdf = pdfDeUmJpeg(img);
+    if (pdf.length <= MAX_BYTES_DOCUMENTOS) return { anexo: { tipo: "pdf", nome: `${nome} — página ${pagina}`, base64: pdf.toString("base64") }, envio: "pdf_pagina" };
+  }
+  if (totalPaginas > MAX_PAGINAS_PDF_IA) throw new LeituraIndisponivel(`"${nome}" tem ${totalPaginas} páginas, mais que as ${MAX_PAGINAS_PDF_IA} que a IA aceita de uma vez. Envie só as pranchas das plantas baixas.`);
+  return { anexo: { tipo: "pdf", nome, base64: dados.toString("base64") }, envio: "pdf_original" };
+}
+
+type PlantaDaIA = {
+  titulo: string; escala: number; escalaLegivel: boolean; temCotas: boolean;
+  paredes: PlantaLida["paredes"]; aberturas: PlantaLida["aberturas"]; comodos: PlantaLida["comodos"];
+  escadas: (Omit<PlantaLida["escadas"][number], "sobePara" | "tipo" | "degraus"> & { tipo: string; degraus: number | null })[]; pendencias: string[];
+};
+
+/**
+ * Resposta da IA no formato do leitor próprio, para a montagem ser a mesma. Nada é inventado: sem cota escrita, nada
+ * fica confirmado; sem escala legível, pendência pedindo para acertar uma medida conhecida na revisão.
+ */
+export function plantasDaIA(json: unknown, imagem: boolean): PlantaLida[] {
+  const r = (json ?? {}) as { plantas?: PlantaDaIA[]; pendencias?: string[] };
+  const gerais = (r.pendencias ?? []).filter(t => typeof t === "string");
+  return (r.plantas ?? []).map((p, i): PlantaLida => {
+    const semCota = !p.temCotas;
+    const confirmada = (c: boolean) => c === true && !semCota;
+    const pts = [...p.paredes.flatMap(w => [{ x: w.ax, y: w.ay }, { x: w.bx, y: w.by }]), ...p.comodos.flatMap(c => c.pontos)];
+    const xs = pts.map(q => q.x), ys = pts.map(q => q.y);
+    const largura = xs.length ? Math.max(...xs) - Math.min(...xs) : 0, comprimento = ys.length ? Math.max(...ys) - Math.min(...ys) : 0;
+    const pendencias = [...(p.pendencias ?? []), ...(i === 0 ? gerais : [])];
+    if (!p.escalaLegivel) pendencias.push("A escala não está escrita de forma legível na prancha: as medidas são estimadas pela IA. Na revisão, acerte uma medida conhecida (uma cota, a largura de uma porta) e confira as demais.");
+    if (imagem) pendencias.push(`Planta lida pela IA a partir de uma imagem${semCota ? ", sem cotas legíveis" : ""}: confira paredes, aberturas e cômodos sobre a prancha ao fundo antes de validar.`);
+    return {
+      titulo: String(p.titulo ?? "").slice(0, 120), escala: p.escalaLegivel && p.escala > 0 ? Math.round(p.escala) : 0, escalaOrigem: p.escalaLegivel && p.escala > 0 ? "texto" : "suposta",
+      origemPt: { x: 0, y: 0 }, metrosPorPonto: 0, larguraDaPaginaM: 0, largura, comprimento,
+      paredes: p.paredes.map(w => ({ ...w, confirmada: confirmada(w.confirmada) })),
+      aberturas: p.aberturas.map(a => ({ ...a, confirmada: confirmada(a.confirmada) })),
+      comodos: p.comodos.map(c => ({ ...c, confirmada: confirmada(c.confirmada) })),
+      escadas: p.escadas.map(e => ({ ...e, sobePara: "", degraus: e.degraus ?? 0, confirmada: confirmada(e.confirmada) })) as PlantaLida["escadas"],
+      pendencias, nomeados: p.comodos.filter(c => c.nome?.trim()).length, razaoAreas: null, vista: "planta",
+    };
+  });
+}
+
+const rotuloDaPrancha = (passo: PassoLeitura) => passo.rotulo.replace(/^Leitura de /, "");
+
+/** Passo "prancha": leitor próprio; se a prancha cair num critério, agenda a leitura pela IA antes do passo final. */
+export async function passoPrancha(m: Maquete3d, estado: EstadoLeitura, passo: PassoLeitura, motor: MotorLeitura, config: ConfigMaquete): Promise<void> {
+  const lida: PranchaLida = await lerPrancha(m, passo.doc!, passo.pagina!);
+  lida.diagnostico.lidaPor = "geometrico";
+  estado.parciais[passo.chave] = lida;
+  Object.assign(passo, { motor: "geometrico", modelo: null, tokens: null });
+  const motivo = motivoParaIA(lida, motor);
+  const chave = `ia:${passo.doc}:${passo.pagina}`;
+  if (!motivo || estado.passos.some(p => p.chave === chave)) return;
+  if (estado.passos.filter(p => p.tipo === "prancha_ia").length >= config.limitePranchasIA) {
+    estado.foraDoLimiteIA = [...(estado.foraDoLimiteIA ?? []), `${rotuloDaPrancha(passo)}: ${motivo}. Passou do limite de ${config.limitePranchasIA} prancha(s) pela IA por maquete (Configurações) e ficou o que o leitor próprio leu.`];
+    return;
+  }
+  const final = estado.passos.findIndex(p => p.tipo === "montagem");
+  const novo: PassoLeitura = { chave, tipo: "prancha_ia", rotulo: `Leitura pela IA — ${rotuloDaPrancha(passo)}`, estado: "pendente", doc: passo.doc, pagina: passo.pagina, motivoIA: motivo };
+  estado.passos.splice(final < 0 ? estado.passos.length : final, 0, novo);
+}
+
+export const mensagemSemChave = (motivo: string | null | undefined) => motivo === MOTIVOS_IA.imagem
+  ? "Esta prancha é uma imagem e precisa da leitura por IA; cadastre a chave em Integrações → Anthropic (ou envie o PDF exportado do programa de desenho)."
+  : `O leitor próprio não leu bem esta prancha (${motivo ?? "leitura insuficiente"}) e ela precisa da leitura por IA; cadastre a chave em Integrações → Anthropic (ou envie o PDF exportado do programa de desenho).`;
+
+/**
+ * Passo "prancha_ia". Sem chave ou sem a confirmação do custo, o passo fica "aguardando" (não é erro): o pedido,
+ * o pagamento e os passos feitos ficam como estão e a leitura retoma deste passo. Tempo esgotado ou IA
+ * sobrecarregada: erro do passo, que pode ser repetido.
+ */
+export async function passoPranchaIA(m: Maquete3d, estado: EstadoLeitura, passo: PassoLeitura, config: ConfigMaquete, confirmada: boolean): Promise<"feito" | "aguardando"> {
+  const inicio = Date.now();
+  const credencial = await dependencias().credencialIA();
+  const pendentes = estado.passos.filter(p => p.tipo === "prancha_ia" && p.estado !== "feito").length;
+  if (!credencial) { Object.assign(passo, { estado: "aguardando", aguardando: "chave", erro: mensagemSemChave(passo.motivoIA) }); return "aguardando"; }
+  if (!confirmada) {
+    Object.assign(passo, { estado: "aguardando", aguardando: "confirmacao", erro: `${pendentes} prancha(s) precisam da leitura por IA (paga, modelo ${modeloDaLeitura(credencial, config)}). Um administrador confirma uma vez para esta maquete.` });
+    return "aguardando";
+  }
+  const chaveGeo = `prancha:${passo.doc}:${passo.pagina}`;
+  const geo = estado.parciais[chaveGeo] as PranchaLida | undefined;
+  const { d, dados } = await bytesDoDocumento(m, passo.doc!);
+  let total = 1;
+  const pdf = await dependencias().abrirPdf(dados).catch(() => null);
+  if (pdf) { total = pdf.paginas; await pdf.fechar(); }
+  const { anexo, envio } = anexoDaPagina(dados, d.nome, passo.pagina!, total);
+  const imagem = (!!geo && geo.diagnostico.segmentos < 40 && geo.diagnostico.imagens > 0) || envio !== "pdf_original";
+  const r = await dependencias().ia({
+    sistema: SISTEMA, pedido: PEDIDO_PRANCHA(d.nome, passo.pagina!, envio, imagem), pdfs: [], anexos: [anexo],
+    esquema: ESQUEMA_PRANCHA, config, credencial, prazoMs: LIMITE_PASSO_MS - (Date.now() - inicio) - 2_000,
+  });
+  const plantas = plantasDaIA(r.json, imagem);
+  const recusa = ((r.json as { pendencias?: string[] } | null)?.pendencias ?? []).slice(0, 2).map(t => ` ${t}`).join("");
+  estado.parciais[chaveGeo] = {
+    doc: passo.doc!, pagina: passo.pagina!, plantas,
+    diagnostico: {
+      ...(geo?.diagnostico ?? { segmentos: 0, arcos: 0, textos: 0, imagens: 0, escalas: [] }), plantas: plantas.length, avisos: [], lidaPor: "ia",
+      motivo: plantas.length ? null : `A IA não encontrou planta baixa de pavimento nesta prancha.${recusa}`,
+    },
+  } satisfies PranchaLida;
+  estado.tokensEntrada += r.entrada;
+  estado.tokensSaida += r.saida;
+  Object.assign(passo, { motor: "ia", modelo: r.modelo ?? modeloDaLeitura(credencial, config), tokens: { entrada: r.entrada, saida: r.saida }, aguardando: null, envio });
+  return "feito";
+}
+
+/** Motor em uso: só consulta a chave quando o administrador não escolheu (aí o padrão depende dela). */
+export async function motorDaLeitura(config: ConfigMaquete): Promise<MotorLeitura> {
+  return config.motor ?? motorEfetivo(config, !!(await dependencias().credencialIA().catch(() => null)));
+}
+
 
 /**
  * Junta as plantas lidas em pavimentos de uma edificação, no formato que `montarModelo` já entende.
@@ -379,9 +569,11 @@ async function buscar(id: number): Promise<Maquete3d | null> {
 
 /** Começa (ou recomeça do zero) a leitura. Recomeçar descarta a planta já revisada. */
 export async function iniciarLeitura(id: number): Promise<EstadoLeitura> {
-  const anterior = lerModelo((await buscar(id))?.modelo);
+  const atual = await buscar(id);
+  const anterior = lerModelo(atual?.modelo);
   const estado: EstadoLeitura = {
-    ...leituraVazia(), iniciadaEm: agora().toISOString(),
+    // A confirmação do custo da IA vale para a maquete: ler de novo não pergunta outra vez.
+    ...leituraVazia(), iniciadaEm: agora().toISOString(), confirmacaoIA: lerEstadoLeitura(atual?.leitura).confirmacaoIA ?? null,
     parciais: anterior?.implantacao?.lotes.some(l => l.unidade) ? { implantacaoDoEstudo: anterior.implantacao } : {},
     passos: [{ chave: "inventario", tipo: "inventario", rotulo: "Inventário das pranchas e dos pavimentos", estado: "pendente" }],
   };
@@ -402,13 +594,17 @@ export async function avancarLeitura(id: number): Promise<{ estado: EstadoLeitur
 
   let status: StatusMaquete = "em_leitura";
   let modelo: string | undefined;
+  let aguardando = false;
   try {
     const config = await carregarConfig();
-    const geometrico = config.motor === "geometrico" || passo.tipo === "prancha";
+    const motor = await motorDaLeitura(config);
+    const geometrico = motor !== "ia" || passo.tipo === "prancha" || passo.tipo === "prancha_ia";
     if (geometrico && passo.tipo === "inventario") {
-      estado.passos = [{ ...passo, estado: "feito", erro: null }, ...(await passosDasPranchas(m))];
+      estado.passos = [{ ...passo, estado: "feito", erro: null, motor: "geometrico" }, ...(await passosDasPranchas(m))];
     } else if (passo.tipo === "prancha") {
-      estado.parciais[passo.chave] = await lerPrancha(m, passo.doc!, passo.pagina!);
+      await passoPrancha(m, estado, passo, motor, config);
+    } else if (passo.tipo === "prancha_ia") {
+      aguardando = (await passoPranchaIA(m, estado, passo, config, !!estado.confirmacaoIA)) === "aguardando";
     } else if (passo.tipo === "montagem" && estado.passos.some(p => p.tipo === "prancha")) {
       const pranchas = estado.passos.filter(p => p.tipo === "prancha").map(p => estado.parciais[p.chave] as PranchaLida | undefined).filter((p): p is PranchaLida => !!p);
       const r = parciaisDasPranchas(pranchas, lerDocumentos(m.documentos).map(d => d.nome));
@@ -436,10 +632,12 @@ export async function avancarLeitura(id: number): Promise<{ estado: EstadoLeitur
           JSON.stringify(((estado.parciais[`estrutura:${passo.pavimentoId}`] as Estrutura | undefined)?.paredes ?? []).map(w => [w.id, w.ax, w.ay, w.bx, w.by])),
           ed!.pavimentos.map(p => p.nome).filter(n => n !== pav!.nome)), ESQUEMA_AMBIENTES] :
         [PEDIDO_IMPLANTACAO(passo.doc!, passo.pagina!, inv!.edificacoes.map(e => e.nome)), ESQUEMA_IMPLANTACAO];
-      const r = await dependencias().ia({ sistema: SISTEMA, pedido, pdfs, esquema, config });
+      const credencial = await dependencias().credencialIA().catch(() => null);
+      const r = await dependencias().ia({ sistema: SISTEMA, pedido, pdfs, esquema, config, credencial });
       estado.tokensEntrada += r.entrada;
       estado.tokensSaida += r.saida;
       estado.parciais[passo.chave] = r.json;
+      Object.assign(passo, { motor: "ia", modelo: r.modelo ?? modeloDaLeitura(credencial, config), tokens: { entrada: r.entrada, saida: r.saida } });
       if (passo.tipo === "inventario") {
         const lido = r.json as Inventario;
         if (!lido.edificacoes?.some(e => e.pavimentos.length) && !lido.implantacao && !estado.parciais.implantacaoDoEstudo) {
@@ -449,9 +647,12 @@ export async function avancarLeitura(id: number): Promise<{ estado: EstadoLeitur
         estado.passos = [{ ...passo, estado: "feito", erro: null }, ...passosDoInventario(lido)];
       }
     }
-    const atual = estado.passos.find(p => p.chave === passo.chave)!;
-    atual.estado = "feito";
-    atual.erro = null;
+    if (!aguardando) {
+      const atual = estado.passos.find(p => p.chave === passo.chave)!;
+      atual.estado = "feito";
+      atual.erro = null;
+      atual.aguardando = null;
+    }
   } catch (e) {
     const atual = estado.passos.find(p => p.chave === passo.chave)!;
     atual.estado = "erro";
@@ -462,4 +663,25 @@ export async function avancarLeitura(id: number): Promise<{ estado: EstadoLeitur
     .set({ leitura: JSON.stringify(estado), status, updatedAt: agora(), ...(modelo ? { modelo, modeloVersao: m.modeloVersao + 1 } : {}) })
     .where(and(eq(maquetes3d.id, id), eq(maquetes3d.status, "em_leitura")));
   return { estado, status };
+}
+
+/** O administrador confirma o custo da IA (uma vez por maquete); os passos parados na confirmação voltam a andar. */
+export async function confirmarIA(id: number, userId: number): Promise<EstadoLeitura> {
+  const m = await buscar(id);
+  if (!m || m.status !== "em_leitura") throw new LeituraIndisponivel("Não há leitura em andamento para esta maquete.");
+  const estado = lerEstadoLeitura(m.leitura);
+  estado.confirmacaoIA = { em: agora().toISOString(), por: userId, pranchas: estado.passos.filter(p => p.tipo === "prancha_ia" && p.estado !== "feito").length };
+  for (const p of estado.passos) if (p.estado === "aguardando" && p.aguardando === "confirmacao") Object.assign(p, { estado: "pendente", aguardando: null, erro: null });
+  await db().update(maquetes3d).set({ leitura: JSON.stringify(estado), updatedAt: agora() }).where(and(eq(maquetes3d.id, id), eq(maquetes3d.status, "em_leitura")));
+  return estado;
+}
+
+/** Segue sem a IA: as pranchas que iriam para ela ficam com o que o leitor próprio leu (e isso fica dito no passo). */
+export async function pularIA(id: number): Promise<EstadoLeitura> {
+  const m = await buscar(id);
+  if (!m || m.status !== "em_leitura") throw new LeituraIndisponivel("Não há leitura em andamento para esta maquete.");
+  const estado = lerEstadoLeitura(m.leitura);
+  for (const p of estado.passos) if (p.tipo === "prancha_ia" && p.estado !== "feito") Object.assign(p, { estado: "feito", motor: "pulada", aguardando: null, erro: null });
+  await db().update(maquetes3d).set({ leitura: JSON.stringify(estado), updatedAt: agora() }).where(and(eq(maquetes3d.id, id), eq(maquetes3d.status, "em_leitura")));
+  return estado;
 }

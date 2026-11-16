@@ -5,6 +5,7 @@ import { and, eq, isNull, sql } from "drizzle-orm";
 import { projectDocuments } from "../../drizzle/schema.js";
 import { maquete3dConfig } from "../../drizzle/schema-maquete-3d.js";
 import { lerConfig, type ConfigMaquete, type DocumentoMaquete } from "../../shared/maquete-3d/regras.js";
+import { configuracaoAnthropicPainel } from "../_core/anthropic-painel.js";
 import { ENV } from "../_core/env.js";
 import { getDb } from "../db.js";
 import { readPrivateDocument } from "../drive-documents.js";
@@ -13,13 +14,26 @@ export const db = () => getDb();
 
 import { abrirPdf, type PdfAberto } from "./pdf-vetorial.js";
 export type PdfLido = { nome: string; base64: string };
+/** O que vai para a IA numa leitura de prancha (S-03): a imagem da página, um PDF de uma página ou o PDF original. */
+export type AnexoIA = { tipo: "imagem"; base64: string } | { tipo: "pdf"; nome: string; base64: string };
+/**
+ * Chave e modelo da leitura por IA da maquete (EPIC-024 S-03, opção explícita autorizada pelo dono): primeiro a
+ * chave cadastrada em Integrações → Anthropic, com o modelo preferencial de lá; sem ela, a ANTHROPIC_API_KEY do
+ * servidor com o modelo das configurações da maquete. Nada é escrito em ENV.
+ */
+export type CredencialIA = { apiKey: string; modelo: string | null; origem: "painel" | "ambiente" };
 export type PedidoIA = {
   sistema: string; pedido: string; pdfs: PdfLido[];
+  /** Leitura de uma prancha: só o necessário da página (no lugar de `pdfs`). */
+  anexos?: AnexoIA[];
   /** JSON Schema da resposta (saída estruturada). */
   esquema: Record<string, unknown>;
   config: ConfigMaquete;
+  credencial?: CredencialIA | null;
+  /** Tempo que sobra no passo para a resposta da IA. */
+  prazoMs?: number;
 };
-export type RespostaIA = { json: unknown; entrada: number; saida: number };
+export type RespostaIA = { json: unknown; entrada: number; saida: number; modelo?: string };
 export type ClienteIA = (p: PedidoIA) => Promise<RespostaIA>;
 /** `alvoId`: id do projeto ou do estudo; para PDF avulso, o id da maquete (use `alvoDoDocumento`). */
 export type LeitorPdf = (d: DocumentoMaquete, alvoId: number) => Promise<Buffer>;
@@ -32,29 +46,43 @@ export class LeituraIndisponivel extends Error {}
 /** Cada passo precisa terminar antes do limite da função na Vercel (60 s). */
 export const LIMITE_PASSO_MS = 52_000;
 
-const iaPadrao: ClienteIA = async ({ sistema, pedido, pdfs, esquema, config }) => {
-  if (!ENV.anthropicApiKey) throw new LeituraIndisponivel("Chave da IA não configurada (ANTHROPIC_API_KEY).");
+/** Painel primeiro (chave e modelo preferencial); sem chave no painel, a variável de ambiente. */
+export async function resolverCredencialIA(
+  painel: () => Promise<{ apiKey: string; modelo: string | null } | null> = () => configuracaoAnthropicPainel(),
+  ambiente: { anthropicApiKey?: string } = ENV,
+): Promise<CredencialIA | null> {
+  const p = await painel().catch(() => null);
+  if (p?.apiKey) return { apiKey: p.apiKey, modelo: p.modelo || null, origem: "painel" };
+  return ambiente.anthropicApiKey ? { apiKey: ambiente.anthropicApiKey, modelo: null, origem: "ambiente" } : null;
+}
+
+/** Modelo da leitura: o preferencial do painel (quando a chave é de lá), senão o das configurações da maquete. */
+export const modeloDaLeitura = (c: CredencialIA | null | undefined, config: ConfigMaquete) => (c?.origem === "painel" && c.modelo) || config.modeloIA;
+
+const iaPadrao: ClienteIA = async ({ sistema, pedido, pdfs, anexos, esquema, config, credencial, prazoMs }) => {
+  const c = credencial ?? (await resolverCredencialIA());
+  if (!c) throw new LeituraIndisponivel("Chave da IA não configurada: cadastre-a em Integrações → Anthropic.");
   const { default: Anthropic } = await import("@anthropic-ai/sdk");
-  const cliente = new Anthropic({ apiKey: ENV.anthropicApiKey, timeout: LIMITE_PASSO_MS, maxRetries: 0 });
+  const cliente = new Anthropic({ apiKey: c.apiKey, timeout: Math.max(5_000, Math.min(LIMITE_PASSO_MS, prazoMs ?? LIMITE_PASSO_MS)), maxRetries: 0 });
+  const modelo = modeloDaLeitura(c, config);
+  const blocos = anexos
+    ? anexos.map(a => a.tipo === "imagem"
+      ? { type: "image" as const, source: { type: "base64" as const, media_type: "image/jpeg" as const, data: a.base64 } }
+      : { type: "document" as const, title: a.nome, source: { type: "base64" as const, media_type: "application/pdf" as const, data: a.base64 } })
+    : pdfs.map(p => ({ type: "document" as const, title: p.nome, source: { type: "base64" as const, media_type: "application/pdf" as const, data: p.base64 } }));
   const r = await cliente.messages.create({
-    model: config.modeloIA,
+    model: modelo,
     max_tokens: 16000,
     system: sistema,
     output_config: { effort: config.esforcoIA, format: { type: "json_schema", schema: esquema } },
-    messages: [{
-      role: "user",
-      content: [
-        ...pdfs.map(p => ({ type: "document" as const, title: p.nome, source: { type: "base64" as const, media_type: "application/pdf" as const, data: p.base64 } })),
-        { type: "text" as const, text: pedido },
-      ],
-    }],
+    messages: [{ role: "user", content: [...blocos, { type: "text" as const, text: pedido }] }],
   });
   if (r.stop_reason === "refusal") throw new LeituraIndisponivel("A IA recusou a leitura deste arquivo.");
   if (r.stop_reason === "max_tokens") throw new Error("A resposta da IA foi cortada (prancha com elementos demais para um passo).");
   const texto = r.content.map(b => (b.type === "text" ? b.text : "")).join("");
   let json: unknown;
   try { json = JSON.parse(texto); } catch { throw new Error("A IA devolveu uma resposta que não pôde ser lida."); }
-  return { json, entrada: r.usage?.input_tokens ?? 0, saida: r.usage?.output_tokens ?? 0 };
+  return { json, entrada: r.usage?.input_tokens ?? 0, saida: r.usage?.output_tokens ?? 0, modelo: r.model || modelo };
 };
 
 const leitorPadrao: LeitorPdf = async (d, alvoId) => {
@@ -120,8 +148,8 @@ const carteiroPadrao: Carteiro = async ({ para, nome, assunto, html, maqueteId, 
 
 /** Abre um PDF para o leitor geométrico (injetável nos testes). */
 export type AbridorPdf = (dados: Buffer) => Promise<PdfAberto>;
-type Dependencias = { ia: ClienteIA; abrirPdf: AbridorPdf; lerPdf: LeitorPdf; agora: () => Date; cobrador: Cobrador; carteiro: Carteiro };
-const padrao: Dependencias = { ia: iaPadrao, abrirPdf: dados => abrirPdf(dados), lerPdf: leitorPadrao, agora: () => new Date(), cobrador: cobradorPadrao, carteiro: carteiroPadrao };
+type Dependencias = { ia: ClienteIA; credencialIA: () => Promise<CredencialIA | null>; abrirPdf: AbridorPdf; lerPdf: LeitorPdf; agora: () => Date; cobrador: Cobrador; carteiro: Carteiro };
+const padrao: Dependencias = { ia: iaPadrao, credencialIA: () => resolverCredencialIA(), abrirPdf: dados => abrirPdf(dados), lerPdf: leitorPadrao, agora: () => new Date(), cobrador: cobradorPadrao, carteiro: carteiroPadrao };
 let deps: Dependencias = { ...padrao };
 
 /** Só para testes: troca IA/arquivos/relógio. Sem argumento, volta ao padrão. */
@@ -145,7 +173,11 @@ export function erroSeguro(e: unknown): string {
   const nome = e instanceof Error ? e.name : "";
   if (nome === "APIConnectionTimeoutError") return "A leitura deste passo passou do tempo limite. Tente de novo; se repetir, reduza o esforço da IA nas configurações.";
   if (nome === "RateLimitError") return "Limite de uso da IA atingido. Aguarde um minuto e tente de novo.";
-  if (nome === "AuthenticationError") return "Chave da IA inválida (ANTHROPIC_API_KEY).";
+  if (nome === "AuthenticationError") return "Chave da IA inválida ou revogada: confira em Integrações → Anthropic.";
+  if (nome === "APIConnectionError") return "Não foi possível falar com a IA agora. Tente de novo em instantes.";
+  const status = (e as { status?: number })?.status;
+  if (status === 529 || nome === "OverloadedError") return "A IA está sobrecarregada agora. Tente de novo este passo em instantes.";
+  if (typeof status === "number" && status >= 500) return "A IA ficou fora do ar durante a leitura. Tente de novo este passo.";
   const m = e instanceof Error ? e.message : "Falha desconhecida";
   return m.replace(/sk-ant-[\w-]+/g, "***").slice(0, 300);
 }

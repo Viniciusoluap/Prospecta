@@ -13,14 +13,13 @@ import { implantacaoDoEstudo, type GradeElevacao } from "../../shared/maquete-3d
 import type { CenarioMassa } from "../../shared/incorporacao/massa.js";
 import {
   FAIXAS_PRECO, MAX_BYTES_PDF_AVULSO, MAX_DOCUMENTOS, ORIGENS_MAQUETE, escopoEnvioMaquete, PODE_REVISAR, comercialSchema, configSchema, documentoSchema, lerComercial, lerEstadoLeitura,
-  progressoLeitura, statusInicial, type DocumentoMaquete, type OrigemMaquete, type StatusMaquete,
+  motorEfetivo, progressoLeitura, statusInicial, type DocumentoMaquete, type EstadoLeitura, type OrigemMaquete, type StatusMaquete,
 } from "../../shared/maquete-3d/regras.js";
-import { ENV } from "../_core/env.js";
 import { adminProcedure, publicProcedure, router } from "../_core/trpc.js";
 import { avisarMaquetePronta, avisarPedidoAprovado, destinatario } from "./avisos.js";
-import { LeituraIndisponivel, agora, alvoDoDocumento, carregarConfig, db, dependencias, salvarConfig } from "./base.js";
+import { LeituraIndisponivel, agora, alvoDoDocumento, carregarConfig, db, dependencias, modeloDaLeitura, salvarConfig } from "./base.js";
 import { clearUpload, readUpload } from "../document-upload-chunks.js";
-import { avancarLeitura, iniciarLeitura, lerDocumentos } from "./leitura.js";
+import { avancarLeitura, confirmarIA, iniciarLeitura, lerDocumentos, pularIA } from "./leitura.js";
 
 type Ctx = { user: { id: number; role: string } };
 function exigirAdmin(ctx: Ctx, acao: string) {
@@ -92,6 +91,29 @@ function paraTela(m: Maquete3d) {
 
 const idInput = z.object({ id: z.number().int().positive() });
 
+/** Quem leu cada passo e o que está pendente da IA (EPIC-024 S-03), para o painel da leitura. */
+function passosParaTela(leitura: EstadoLeitura) {
+  return leitura.passos.map(({ chave, rotulo, estado, erro, tipo, motor, modelo, tokens, aguardando, motivoIA, envio }) => ({
+    chave, rotulo, estado, erro: erro ?? null, tipo, motor: motor ?? null, modelo: modelo ?? null, tokens: tokens ?? null,
+    aguardando: aguardando ?? null, motivoIA: motivoIA ?? null, envio: envio ?? null,
+  }));
+}
+function resumoIA(leitura: EstadoLeitura) {
+  const ia = leitura.passos.filter(p => p.tipo === "prancha_ia");
+  return {
+    pranchas: ia.length, pendentes: ia.filter(p => p.estado !== "feito").length, lidas: ia.filter(p => p.motor === "ia").length,
+    confirmadaEm: leitura.confirmacaoIA?.em ?? null, foraDoLimite: (leitura.foraDoLimiteIA ?? []).slice(0, 20),
+  };
+}
+const retornoDoPasso = (estado: EstadoLeitura, status: StatusMaquete) => {
+  const progresso = progressoLeitura(estado);
+  const p = progresso.proximo;
+  return {
+    ...progresso, status, erro: p?.estado === "erro" ? p.erro ?? "Falha no passo." : null,
+    aguardando: p?.estado === "aguardando" ? { motivo: p.aguardando ?? "chave", mensagem: p.erro ?? "", pendentes: resumoIA(estado).pendentes } : null,
+  };
+};
+
 /** Situação de venda das unidades do estudo (só código e situação: nada de comprador nem de preço). */
 export async function unidadesDoEstudo(studyId: number | null): Promise<{ codigo: string; status: string }[]> {
   if (!studyId) return [];
@@ -123,11 +145,19 @@ async function lerImplantacaoDoEstudo(studyId: number) {
 
 
 export const maquete3dRouter = router({
-  config: adminProcedure.query(async () => ({ ...(await carregarConfig()), iaConfigurada: !!ENV.anthropicApiKey })),
+  config: adminProcedure.query(async () => {
+    const config = await carregarConfig();
+    const credencial = await dependencias().credencialIA().catch(() => null);
+    return {
+      ...config, motor: motorEfetivo(config, !!credencial), motorEscolhido: config.motor ?? null, iaConfigurada: !!credencial,
+      /** De onde vem a chave da leitura por IA (o valor da chave nunca vai para a tela). */
+      origemChaveIA: credencial?.origem ?? null, modeloEmUso: modeloDaLeitura(credencial, config),
+    };
+  }),
 
   salvarConfig: adminProcedure.input(configSchema).mutation(async ({ ctx, input }) => {
     exigirAdmin(ctx, "alterar preços e configurações da Maquete 3D");
-    await salvarConfig(input, ctx.user.id);
+    await salvarConfig(configSchema.parse(input), ctx.user.id);
     return { ok: true };
   }),
 
@@ -215,7 +245,8 @@ export const maquete3dRouter = router({
     const [liberador] = m.liberadoPor ? await db().select({ nome: users.name }).from(users).where(eq(users.id, m.liberadoPor)).limit(1) : [];
     return {
       ...paraTela(m), modelo, problemas: modelo ? validarModelo(modelo) : [],
-      passos: leitura.passos.map(({ chave, rotulo, estado, erro }) => ({ chave, rotulo, estado, erro: erro ?? null })),
+      passos: passosParaTela(leitura),
+      ia: resumoIA(leitura),
       tokens: { entrada: leitura.tokensEntrada, saida: leitura.tokensSaida },
       /** Em que arquivo e página está a planta de cada pavimento (fundo da revisão). */
       pranchas: Array.isArray(leitura.parciais.pranchasDosPavimentos)
@@ -224,7 +255,10 @@ export const maquete3dRouter = router({
       /** O que o leitor não conseguiu ler (prancha escaneada, página sem planta): aviso para a revisão. */
       avisosDaLeitura: Array.isArray(leitura.parciais.avisosDaLeitura) ? (leitura.parciais.avisosDaLeitura as string[]).slice(0, 12) : [],
       /** Escala usada em cada planta lida pelo leitor próprio, para a pessoa conferir. */
-      escalas: leitura.passos.filter(p => p.tipo === "prancha").flatMap(p => ((leitura.parciais[p.chave] as { plantas?: { titulo: string; escala: number; escalaOrigem: string }[] } | undefined)?.plantas ?? []).map(pl => ({ titulo: pl.titulo, escala: pl.escala, origem: pl.escalaOrigem }))),
+      escalas: leitura.passos.filter(p => p.tipo === "prancha").flatMap(p => {
+        const pr = leitura.parciais[p.chave] as { plantas?: { titulo: string; escala: number; escalaOrigem: string }[]; diagnostico?: { lidaPor?: string } } | undefined;
+        return (pr?.plantas ?? []).map(pl => ({ titulo: pl.titulo, escala: pl.escala, origem: pl.escalaOrigem, lidaPor: pr?.diagnostico?.lidaPor === "ia" ? "ia" as const : "geometrico" as const }));
+      }),
       liberadoPorNome: liberador?.nome ?? null,
       emailCliente: (await destinatario(m))?.email ?? null,
       unidades: await unidadesDoEstudo(m.studyId),
@@ -360,9 +394,21 @@ export const maquete3dRouter = router({
   avancarLeitura: adminProcedure.input(idInput).mutation(async ({ input }) => {
     try {
       const { estado, status } = await avancarLeitura(input.id);
-      const progresso = progressoLeitura(estado);
-      return { ...progresso, status, erro: progresso.proximo?.estado === "erro" ? progresso.proximo.erro ?? "Falha no passo." : null };
+      return retornoDoPasso(estado, status);
     } catch (e) { if (e instanceof LeituraIndisponivel) throw conflito(e.message); throw e; }
+  }),
+
+  /** EPIC-024 S-03: o administrador confirma, uma vez por maquete, o envio das pranchas à IA (paga). */
+  confirmarIA: adminProcedure.input(idInput).mutation(async ({ ctx, input }) => {
+    exigirAdmin(ctx, "autorizar a leitura paga pela IA");
+    try { return retornoDoPasso(await confirmarIA(input.id, ctx.user.id), "em_leitura"); }
+    catch (e) { if (e instanceof LeituraIndisponivel) throw conflito(e.message); throw e; }
+  }),
+
+  /** Segue a leitura sem a IA: fica o que o leitor próprio leu dessas pranchas (ou a planta é desenhada na revisão). */
+  pularIA: adminProcedure.input(idInput).mutation(async ({ input }) => {
+    try { return retornoDoPasso(await pularIA(input.id), "em_leitura"); }
+    catch (e) { if (e instanceof LeituraIndisponivel) throw conflito(e.message); throw e; }
   }),
 
   /** Grava a planta corrigida na revisão. `versao` evita que duas pessoas se sobrescrevam. */

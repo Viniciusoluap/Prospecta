@@ -641,7 +641,7 @@ describe("router maquete3d", () => {
 
     const d = await colaborador().detalhe({ id });
     expect(d.tokens).toEqual({ entrada: 0, saida: 0 });
-    expect(d.escalas).toEqual([{ titulo: "PLANTA BAIXA - TÉRREO", escala: 75, origem: "texto" }, { titulo: "PLANTA BAIXA - PAVIMENTO SUPERIOR", escala: 75, origem: "texto" }]);
+    expect(d.escalas).toEqual([{ titulo: "PLANTA BAIXA - TÉRREO", escala: 75, origem: "texto", lidaPor: "geometrico" }, { titulo: "PLANTA BAIXA - PAVIMENTO SUPERIOR", escala: 75, origem: "texto", lidaPor: "geometrico" }]);
     const [e] = d.modelo!.edificacoes;
     expect(e.pavimentos.map(p => [p.nome, p.nivel, p.origemPeDireito])).toEqual([["Térreo", 0, "estimada"], ["Pavimento superior", 2.85, "estimada"]]);
     expect(e.pavimentos[0].escadas).toMatchObject([{ destinoPavimentoId: e.pavimentos[1].id }]);
