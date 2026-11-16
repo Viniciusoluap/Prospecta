@@ -38,6 +38,12 @@ Story: `docs/stories/epics/epic-024-correcoes-16-11/S-04-muro-condominio.md`. Br
   tela de edição aberta por uma pessoa.
 - Próximo passo: revisão (@qa), push/PR (@devops), conferir com um condomínio real e ajustar o portão se o acesso
   principal escolhido não for o que o dono espera.
+- QA loop 1 (16/11): gate CONCERNS corrigido — muro em todas as áreas do KML (`terrenosExtras`), link publicado antes
+  do muro fica igual até nova publicação, portão em toda rua que chega à divisa (portaria + secundários), muro preso
+  ao contorno, pé seguindo a malha (fundação 0,5 m), portões reposicionados quando o contorno muda, campos que limitam
+  ao sair. Commits 889e5d4, 97c256b, 5a94074, 7711e78, 9af4895. (a) 158 testes (maquete-3d + build gate) passam; tsc e
+  vite build ok. (b) capturas no harness (duas áreas/duas ruas; portaria). (c) pendente: condomínio real em produção.
+  Próximo passo: re-gate do @qa; depois push/PR (@devops).
 
 ## Concluído na etapa 4
 - `shared/maquete-3d/implantacao.ts`: implantação a partir do terreno e do cenário escolhido do estudo de massa.
