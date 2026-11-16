@@ -1194,12 +1194,17 @@ function vazio(tipologia: TipologiaMassa, assinatura: string, motivo: string, ca
 }
 
 interface ResultadoArea {
-  cenarios: (CenarioMassa & { acessosArea?: { ponto: Position; acesso: AcessoProx | null }[] })[];
+  cenarios: (CenarioMassa & { acessosArea?: { ponto: Position; acesso: AcessoProx | null; naApp?: boolean }[] })[];
   inviabilidade: { motivo: string; causas: string[] } | null;
   avisos: string[];
   candidatosAvaliados: number;
   /** Tem dados de vias junto à divisa desta área. */
   temViasJunto: boolean;
+  /**
+   * S-I: situação da área frente às restrições desenhadas — "ilha" (cercada por elas, sem divisa real), "alem" (as vias
+   * mapeadas junto à gleba ficam do outro lado da restrição) ou ausente.
+   */
+  isolamento?: "ilha" | "alem";
 }
 
 interface EntradaArea {
@@ -1212,6 +1217,10 @@ interface EntradaArea {
   nCen: number;
   progresso: (f: number, etapa: string) => void;
   viasEntornoM: ViaEntornoM[];
+  /** S-I: anéis da divisa REAL da gleba (metros): o que não está nela é borda de área restrita, não divisa. */
+  divisaReal?: Position[][];
+  /** S-I: a gleba inteira tem vias mapeadas junto à divisa. */
+  glebaTemViasJunto?: boolean;
   /**
    * S-I: parte (m²) das restrições desenhadas pelo contorno que cabe a esta área, mas fica FORA dela (já recortada).
    * Entra na conta das doações (o mínimo é sobre a área parcelável da gleba) e não é tirada de novo da área.
@@ -1540,7 +1549,11 @@ function estudoDaArea(e: EntradaArea): ResultadoArea {
     ...montarCenario(ctx, i, x.b, x.criterio),
     ...(inverterVia ? { viaLadoOposto: true } : {}),
     ...(ladosVia ? { ladosVia } : {}),
-    acessosArea: tipologia === "vias_publicas" ? [] : x.b.acessosM.map((pt) => ({ ponto: pt, acesso: viasJunto.length > 0 ? acessoMaisProximo([pt], viasJunto) : null })),
+    acessosArea: tipologia === "vias_publicas" ? [] : x.b.acessosM.map((pt) => ({
+      ponto: pt, acesso: viasJunto.length > 0 ? acessoMaisProximo([pt], viasJunto) : null,
+      // S-I: acesso na borda da área restrita (não na divisa real) não é acesso
+      ...(e.divisaReal ? { naApp: Math.min(...e.divisaReal.map((a) => distanciaAoAnel(a, pt))) > 1 } : {}),
+    })),
   }));
   // o cenário pode perder vendáveis na destinação (estimativa da seleção): nunca exibe cenário sem lote vendável
   const comVendavel = cenarios.filter((c) => c.kpis.lotesVendaveis > 0);
@@ -1549,12 +1562,26 @@ function estudoDaArea(e: EntradaArea): ResultadoArea {
       diagnosticarInviabilidade(anelM, ctx.params, areaParcelavel), avaliados);
   }
   if (comVendavel.length < 3) avisos.push(`Foram encontradas ${comVendavel.length} alternativa(s) geometricamente válida(s) e distinta(s) — nenhum cartão foi preenchido artificialmente.`);
-  return { cenarios: comVendavel, inviabilidade: null, avisos, candidatosAvaliados: avaliados, temViasJunto: viasJunto.length > 0 };
+  // S-I: parte cercada pela restrição (nenhum vértice na divisa real) ou com as vias mapeadas só do outro lado dela
+  let isolamento: ResultadoArea["isolamento"];
+  if (e.divisaReal) {
+    const naDivisa = anelM.some((p) => Math.min(...e.divisaReal!.map((a) => distanciaAoAnel(a, p))) <= 0.5);
+    if (!naDivisa) isolamento = "ilha";
+    else if (e.glebaTemViasJunto && viasJunto.length === 0) isolamento = "alem";
+  }
+  return { cenarios: comVendavel, inviabilidade: null, avisos, candidatosAvaliados: avaliados, temViasJunto: viasJunto.length > 0, ...(isolamento ? { isolamento } : {}) };
 }
 
 /** Nota honesta do acesso de uma área (R5). */
-function notaAcesso(r: ResultadoArea["cenarios"][number], temVias: boolean, prefixo: string): { nota: string; acessos: Omit<AcessoCenario, "area" | "ponto">[] } {
-  const lista = r.acessosArea ?? [];
+function notaAcesso(r: ResultadoArea["cenarios"][number], temVias: boolean, prefixo: string, isolamento?: ResultadoArea["isolamento"]): { nota: string; acessos: Omit<AcessoCenario, "area" | "ponto">[] } {
+  // S-I: ponto na borda da área restrita não é acesso pela divisa
+  const lista = (r.acessosArea ?? []).filter((a) => !a.naApp);
+  if (isolamento === "ilha" || ((r.acessosArea ?? []).length > 0 && lista.length === 0)) {
+    return { nota: `${prefixo}Esta parte fica ${isolamento === "ilha" ? "cercada pela área restrita (APP)" : "separada da divisa pela área restrita (APP)"}: chegar a ela exige atravessar a APP com uma via, o que depende de licença ambiental — acesso a confirmar em projeto.`, acessos: [] };
+  }
+  if (isolamento === "alem" && !lista.some((a) => a.acesso && a.acesso.distancia <= DISTANCIA_MAX_ACESSO_M)) {
+    return { nota: `${prefixo}As vias mapeadas junto à gleba ficam do outro lado da área restrita (APP): o acesso por elas exige atravessar a APP, o que depende de licença ambiental. ${NOTA_ACESSO_SEM_VIA}`, acessos: [] };
+  }
   const f = (v: number) => v.toLocaleString("pt-BR", { maximumFractionDigits: 0 });
   const ligados = lista.filter((a) => a.acesso && a.acesso.distancia <= DISTANCIA_MAX_ACESSO_M).sort((a, b) => a.acesso!.distancia - b.acesso!.distancia);
   if (ligados.length > 0) {
@@ -1674,6 +1701,9 @@ export function gerarEstudoMassa(
     for (const [, campo] of CAMPO_RESTRICAO_GEO) r[campo] = (geo.m2PorCampo[campo] ?? 0) * k;
     return r;
   };
+  // S-I: divisa real da gleba (o que não está nela é borda de área restrita) e se há vias mapeadas junto dela
+  const divisaReal = geo ? areas.flatMap((poli, i) => [poli[0], ...furosValidos[i]].map((a) => { const m = a.map((q) => proj.paraMetros(q) as Position); m[m.length - 1] = m[0]; return m; })) : null;
+  const glebaTemViasJunto = !!divisaReal && areas.some((poli) => viasJuntoDaArea(viasEntornoM, poli[0].map((q) => proj.paraMetros(q) as Position)).length > 0);
   let acumulado = 0;
   const resultados: ResultadoArea[] = efetivas.map((ef, i) => {
     const peso = somaEf > 0 ? ef.areaM2 / somaEf : 1 / efetivas.length;
@@ -1682,6 +1712,7 @@ export function gerarEstudoMassa(
     const externas = externasDe(i);
     return estudoDaArea({
       anelGeo: ef.anel, furosGeo: ef.furos, centro, params: escala(i), tipologia, nCen, viasEntornoM, ...(externas ? { externas } : {}),
+      ...(divisaReal ? { divisaReal, glebaTemViasJunto } : {}),
       progresso: (f, etapa) => progresso(Math.min(0.99, ini + peso * f), multiEf ? `Área ${i + 1} de ${efetivas.length}: ${etapa}` : etapa),
     });
   });
@@ -1810,9 +1841,10 @@ function finalizarCenario(
     viario += c.sistemaViario?.areaGeometricaM2 ?? 0;
     fechoSoma += c.fechoAreas?.somaM2 ?? 0;
     for (const l of c.limitacoes ?? []) { const t = `${prefixo}${l}`; if (!limitacoes.includes(t)) limitacoes.push(t); }
-    if (c.tipologia !== "vias_publicas") limitacoes.push(notaAcesso(c, resultados[i].temViasJunto, prefixo).nota);
+    if (c.tipologia !== "vias_publicas") limitacoes.push(notaAcesso(c, resultados[i].temViasJunto, prefixo, resultados[i].isolamento).nota);
     for (const a of c.acessosArea ?? []) {
       const lig = !!a.acesso && a.acesso.distancia <= DISTANCIA_MAX_ACESSO_M;
+      if (a.naApp) continue;
       acessos.push({
         area: i + 1, ponto: proj.paraGeo(a.ponto), viaExistente: lig, nomeVia: lig ? a.acesso!.nome : null,
         distanciaM: a.acesso ? round2(a.acesso.distancia) : null,
