@@ -10,7 +10,7 @@ import { doloresWhatsappConfig } from "../../drizzle/schema-dolores-whatsapp.js"
 import {
   INSTANCIA_DOLORES, bloqueioDoLimite, mascararNumero, mesFortaleza, normalizarNumeroDono, pareceMesmoTelefone,
 } from "../../shared/dolores/whatsapp.js";
-import { configuracaoAnthropicPainel, modelosAnthropicPainel } from "../_core/anthropic-painel.js";
+import { existeChaveAnthropicPainel, modelosAnthropicPainel } from "../_core/anthropic-painel.js";
 import { estadoInstancia, gerarQrCode, numeroConectado, registrarWebhookEvolution, removerInstancia } from "../_core/evolution.js";
 import { adminProcedure, router } from "../_core/trpc.js";
 import { getDb } from "../db.js";
@@ -61,7 +61,9 @@ function pendencias(p: { conectado: boolean; numeroDono: boolean; chave: boolean
 
 async function situacao() {
   const c = await exigirConfig();
-  const [pausa, painel] = await Promise.all([lerPausa().catch(() => null), configuracaoAnthropicPainel().catch(() => null)]);
+  // QA achado 9: a tela só precisa saber SE há chave — a chave em si nunca passa por aqui.
+  const [pausa, chave] = await Promise.all([lerPausa().catch(() => null), existeChaveAnthropicPainel().catch(() => null)]);
+  const painel = chave?.existe ? { modelo: chave.modelo } : null;
   const mes = mesFortaleza(new Date());
   const uso = await usoDoMes(mes);
   const modeloEmUso = c.modelo?.trim() || painel?.modelo?.trim() || null;

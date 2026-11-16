@@ -169,9 +169,19 @@ export async function salvarModeloPreferencialAnthropic(id: string, deps: Anthro
 }
 
 /**
+ * Só diz SE há chave legível salva e qual o modelo preferencial — nunca devolve a chave. É o que telas e conferências
+ * usam (ex.: a situação da Dolores em server/dolores/router.ts); quem precisa da chave em si é só o ponto único abaixo.
+ */
+export async function existeChaveAnthropicPainel(deps: AnthropicPainelDeps = anthropicPainelDepsPadrao): Promise<{ existe: boolean; modelo: string | null }> {
+  const [salva, modelo] = await Promise.all([lerChaveSalva(deps), lerModelo(deps)]);
+  return { existe: Boolean(salva && salva !== "ilegivel"), modelo };
+}
+
+/**
  * Chave e modelo preferencial cadastrados no painel, para uma função que FUTURAMENTE optar por usá-los
  * explicitamente (ex.: leitura por IA de PDF só imagem na maquete, EPIC-024 S-03).
- * Usada só pela Dolores (EPIC-025 E2, server/dolores/whatsapp.ts), e apenas com o interruptor dela ligado.
+ * Usada num ÚNICO ponto: `bloqueioAtual` em server/dolores/whatsapp.ts (EPIC-025 E2), depois da pausa e do interruptor
+ * da IA da Dolores (desligado por padrão). A guarda em server/integracoes-anthropic.test.ts falha com qualquer outro uso.
  * Não substitui ENV.anthropicApiKey nem os modelos da maquete,
  * da Central de Vendas ou de INCORPORACAO_IA_MODELO.
  */

@@ -118,7 +118,10 @@ async function responderAoDono(cfg: DoloresWhatsappConfig, numero: string, texto
   return ok;
 }
 
-/** Por que a IA não pode rodar agora (ordem: pausa antes de tudo; nada aqui chama a Anthropic). */
+/**
+ * Por que a IA não pode rodar agora (ordem: pausa antes de tudo; nada aqui chama a Anthropic). É o ÚNICO ponto do sistema
+ * que lê a chave da Anthropic do painel (configuracaoAnthropicPainel), e só depois da pausa e do interruptor da IA.
+ */
 async function bloqueioAtual(cfg: DoloresWhatsappConfig, mes: string): Promise<
   { motivo: MotivoBloqueio; detalhe?: string | null } | { motivo: null; apiKey: string; modelo: string; autor: number }> {
   const pausa = await lerPausa();

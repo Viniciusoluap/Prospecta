@@ -173,39 +173,74 @@ describe("Anthropic — acesso e isolamento", () => {
 
   it("nenhum código operacional usa a chave do painel (nem pelo módulo, nem pela chave do banco)", () => {
     const repo = path.resolve(import.meta.dirname, "..");
-    // EPIC-025 E2 (16/11): a Dolores é a única função autorizada a usar a chave do painel, e só com o interruptor
-    // dela ligado (conferido abaixo e em server/dolores/whatsapp.test.ts).
-    const permitidos = new Set([path.join("server", "integracoes-router.ts"), path.join("server", "_core", "anthropic-painel.ts"),
-      path.join("server", "dolores", "whatsapp.ts"), path.join("server", "dolores", "router.ts")]);
-    // módulo, chave em dashboard_settings e a função exportada para uso futuro
+    // EPIC-025 E2 (16/11) — exceção ESTREITA (QA achado 9): só estes arquivos importam o módulo do painel, cada um só
+    // com as funções listadas. A chave em si (configuracaoAnthropicPainel) é lida num único ponto nomeado da Dolores.
+    const importacoesPermitidas: Record<string, string[] | "painel"> = {
+      [path.join("server", "_core", "anthropic-painel.ts")]: "painel",
+      [path.join("server", "integracoes-router.ts")]: "painel", // conferido no teste do router, abaixo
+      [path.join("server", "dolores", "router.ts")]: ["existeChaveAnthropicPainel", "modelosAnthropicPainel"],
+      [path.join("server", "dolores", "whatsapp.ts")]: ["configuracaoAnthropicPainel"],
+    };
     const marcas = ["anthropic-painel", "anthropic_painel", "configuracaoAnthropicPainel", "CHAVE_SEGREDO_ANTHROPIC_PAINEL", "CHAVE_MODELO_ANTHROPIC_PAINEL"];
     const usam: string[] = [];
+    const leemAChave: string[] = [];
+    const importacoesErradas: string[] = [];
     const varrer = (dir: string) => {
       for (const nome of readdirSync(dir)) {
         const p = path.join(dir, nome);
         if (statSync(p).isDirectory()) { if (!["node_modules", "dist", ".git"].includes(nome)) varrer(p); continue; }
         if (!/\.(ts|tsx|js|mjs|cjs|sql)$/.test(p) || /\.(test|spec)\.ts$/.test(p)) continue;
         const rel = path.relative(repo, p);
-        if (permitidos.has(rel)) continue;
         const texto = readFileSync(p, "utf8");
-        if (marcas.some(m => texto.includes(m))) usam.push(rel);
+        const permitido = importacoesPermitidas[rel];
+        if (!permitido) { if (marcas.some(m => texto.includes(m))) usam.push(rel); continue; }
+        if (permitido === "painel") continue;
+        // só as funções listadas, num único import do módulo
+        const imports = Array.from(texto.matchAll(/import \{([^}]*)\} from "[./]+_core\/anthropic-painel\.js";/g));
+        const nomes = imports.flatMap(m => m[1].split(",").map(x => x.trim()).filter(Boolean));
+        if (imports.length !== 1 || nomes.some(n => !permitido.includes(n))) importacoesErradas.push(`${rel}: ${nomes.join(", ")}`);
+        if (texto.includes("CHAVE_SEGREDO_ANTHROPIC_PAINEL") || texto.includes("anthropic_painel_api_key")) leemAChave.push(rel);
+        const chamadas = texto.split("configuracaoAnthropicPainel(").length - 1;
+        if (rel !== path.join("server", "dolores", "whatsapp.ts") ? chamadas > 0 : chamadas !== 1) leemAChave.push(`${rel} (${chamadas} chamadas)`);
       }
     };
     for (const pasta of ["server", "api", "shared", "scripts", "client", "drizzle"]) {
       try { if (statSync(path.join(repo, pasta)).isDirectory()) varrer(path.join(repo, pasta)); } catch { /* pasta ausente */ }
     }
     expect(usam).toEqual([]);
+    expect(importacoesErradas).toEqual([]);
+    expect(leemAChave).toEqual([]);
   });
 
-  it("a Dolores só lê a chave do painel depois de conferir a pausa e o interruptor dela (desligado por padrão)", () => {
+  it("a Dolores só lê a chave do painel num ponto nomeado (bloqueioAtual), depois da pausa e do interruptor (desligado por padrão)", () => {
     const fonte = readFileSync(path.resolve(import.meta.dirname, "dolores", "whatsapp.ts"), "utf8");
-    const corpo = fonte.slice(fonte.indexOf("async function bloqueioAtual"));
-    const chave = corpo.indexOf("configuracaoAnthropicPainel(");
-    expect(chave).toBeGreaterThan(-1);
-    expect(corpo.indexOf("pausa.pausada")).toBeLessThan(chave);
-    expect(corpo.indexOf("!cfg.iaLigada")).toBeLessThan(chave);
+    const em = fonte.indexOf("configuracaoAnthropicPainel(");
+    expect(em).toBeGreaterThan(-1);
+    expect(fonte.indexOf("configuracaoAnthropicPainel(", em + 1)).toBe(-1); // uma chamada só
+    // a chamada está dentro de bloqueioAtual (a última função declarada antes dela)
+    const funcoes = Array.from(fonte.matchAll(/^(?:export )?(?:async )?function (\w+)/gm)).filter(m => m.index! < em);
+    expect(funcoes.at(-1)?.[1]).toBe("bloqueioAtual");
+    const corpo = fonte.slice(funcoes.at(-1)!.index!, em);
+    expect(corpo).toMatch(/if \(pausa\.pausada\) return/);
+    expect(corpo).toMatch(/if \(!cfg\.iaLigada\) return/);
+    // o resultado não sai de bloqueioAtual a não ser como apiKey do pedido ao modelo (nunca para log/auditoria)
+    expect(fonte).not.toMatch(/console\.\w+\([^)]*apiKey/);
+    expect(fonte).not.toMatch(/registrarAcao\(\{[^}]*apiKey/);
     const sql = readFileSync(path.resolve(import.meta.dirname, "..", "drizzle", "0124_dolores_whatsapp.sql"), "utf8");
     expect(sql).toMatch(/"ia_ligada" boolean NOT NULL DEFAULT false/);
+  });
+
+  it("a tela da Dolores só pergunta SE há chave: existeChaveAnthropicPainel não devolve a chave", async () => {
+    const { existeChaveAnthropicPainel } = await import("./_core/anthropic-painel");
+    const s = setup();
+    expect(await existeChaveAnthropicPainel(s.anthropic)).toEqual({ existe: false, modelo: null });
+    await s.caller.salvarAnthropic({ apiKey: CHAVE });
+    await s.caller.salvarModeloAnthropic({ modelo: "claude-haiku-5" });
+    const r = await existeChaveAnthropicPainel(s.anthropic);
+    expect(r).toEqual({ existe: true, modelo: "claude-haiku-5" });
+    expect(JSON.stringify(r)).not.toContain("sk-ant");
+    ENV.cookieSecret = "outro-segredo-depois-da-rotacao";
+    expect((await existeChaveAnthropicPainel(s.anthropic)).existe).toBe(false); // ilegível = não há chave utilizável
   });
 
   it("no router, só as rotas do painel usam o acessor (e nenhuma usa a função para uso futuro)", () => {

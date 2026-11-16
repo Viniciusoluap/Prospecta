@@ -4,7 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("../db.js", async orig => ({ ...(await orig<typeof import("../db.js")>()), getDb: vi.fn() }));
 vi.mock("../_core/anthropic-painel.js", async orig => ({
-  ...(await orig<typeof import("../_core/anthropic-painel.js")>()), configuracaoAnthropicPainel: vi.fn(), modelosAnthropicPainel: vi.fn(),
+  ...(await orig<typeof import("../_core/anthropic-painel.js")>()), existeChaveAnthropicPainel: vi.fn(), modelosAnthropicPainel: vi.fn(),
 }));
 vi.mock("../_core/evolution.js", async orig => ({
   ...(await orig<typeof import("../_core/evolution.js")>()),
@@ -15,7 +15,7 @@ vi.mock("../_core/evolution.js", async orig => ({
 vi.mock("../whatsapp-router.js", async orig => ({ ...(await orig<typeof import("../whatsapp-router.js")>()), configEvolution: vi.fn(async () => ({ url: "https://evo", apiKey: "k", fonte: "banco" })) }));
 
 import { ADMIN_MODULES } from "../../shared/admin-permissions.js";
-import { configuracaoAnthropicPainel, modelosAnthropicPainel } from "../_core/anthropic-painel.js";
+import { existeChaveAnthropicPainel, modelosAnthropicPainel } from "../_core/anthropic-painel.js";
 import { ENV } from "../_core/env.js";
 import { estadoInstancia, numeroConectado, registrarWebhookEvolution, removerInstancia } from "../_core/evolution.js";
 import { getDb } from "../db.js";
@@ -35,7 +35,7 @@ beforeEach(async () => {
   vi.mocked(getDb).mockReturnValue(banco.db as never);
   await banco.pg.exec(`INSERT INTO users ("openId", name, role, active, "passwordHash") VALUES ('admin', 'Admin', 'admin', true, 'h')`);
   ENV.cookieSecret = "segredo-do-servidor-de-teste-0123456789";
-  vi.mocked(configuracaoAnthropicPainel).mockResolvedValue({ apiKey: "sk-ant-teste-123456789012345", modelo: "modelo-painel" });
+  vi.mocked(existeChaveAnthropicPainel).mockResolvedValue({ existe: true, modelo: "modelo-painel" });
   vi.mocked(modelosAnthropicPainel).mockResolvedValue([{ id: "modelo-x", nome: "Modelo X", familia: "outro", lancadoEm: null }]);
 });
 afterEach(() => { ENV.cookieSecret = segredoAntes; vi.clearAllMocks(); });
@@ -86,10 +86,10 @@ describe("configuração", () => {
   it("ligar a IA exige número do dono, chave, modelo e limites; desligar vale sempre", async () => {
     await expect(admin().dolores.ligarIa({ ligada: true })).rejects.toThrow(/Antes de ligar: .*número do dono.*limites/);
     expect((await cfg()).ia_ligada).toBe(false);
-    vi.mocked(configuracaoAnthropicPainel).mockResolvedValue(null);
+    vi.mocked(existeChaveAnthropicPainel).mockResolvedValue({ existe: false, modelo: null });
     await admin().dolores.salvar({ numeroDono: "99991234567", limiteEntrada: 1000, limiteSaida: 100 });
     await expect(admin().dolores.ligarIa({ ligada: true })).rejects.toThrow(/chave da Anthropic/);
-    vi.mocked(configuracaoAnthropicPainel).mockResolvedValue({ apiKey: "sk-ant-teste-123456789012345", modelo: "modelo-painel" });
+    vi.mocked(existeChaveAnthropicPainel).mockResolvedValue({ existe: true, modelo: "modelo-painel" });
     expect((await admin().dolores.ligarIa({ ligada: true })).iaLigada).toBe(true);
     expect(await cfg()).toMatchObject({ ia_ligada: true, atualizado_por: 1 });
     expect((await admin().dolores.ligarIa({ ligada: false })).iaLigada).toBe(false);
