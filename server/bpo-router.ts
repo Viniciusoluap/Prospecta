@@ -517,7 +517,9 @@ export const bpoRouter = router({
       catch (e) { throw new TRPCError({ code: "BAD_REQUEST", message: e instanceof Error ? e.message : "Falha ao importar o backup." }); }
     }),
     /** EPIC-024 S-01: remove em definitivo os arquivados do Conta Azul (sem vínculo) que bloqueiam este backup. */
+    // adminProcedure só confere o módulo (colaborador com BPO passa): a remoção definitiva exige o papel admin.
     liberarReimportacao: adminProcedure.input(backupContaAzulSchema.extend({ confirmacao: z.string().max(20) })).mutation(async ({ ctx, input }) => {
+      if (ctx.user.role !== "admin") throw new TRPCError({ code: "FORBIDDEN", message: "Só o administrador pode liberar a reimportação (remoção definitiva)." });
       try { return await liberarReimportacaoContaAzul(input, ctx.user.id); }
       catch (e) { throw new TRPCError({ code: "BAD_REQUEST", message: e instanceof Error ? e.message : "Falha ao liberar a reimportação." }); }
     }),

@@ -70,11 +70,11 @@ async function chavesJaImportadas(d: Db | Tx, chaves: string[]) {
 
 const contagem = (q: ReturnType<typeof sql>) => sql<number>`(${q})::int`;
 
-export type ArquivadoContaAzul = { id: number; descricao: string; valor: string; requestKey: string; motivos: string[] };
+export type ArquivadoContaAzul = { id: number; descricao: string; valor: string; requestKey: string; outraOrigem: boolean; motivos: string[] };
 
 /**
- * Lançamentos ARQUIVADOS do Conta Azul que seguram as chaves deste backup, com o que impede removê-los
- * (qualquer vínculo: banco, Asaas, baixa, obra, regularização ou combinação). Sem motivo = pode liberar.
+ * Lançamentos ARQUIVADOS (de qualquer origem) que seguram as chaves deste backup, com o que impede removê-los
+ * (outra origem ou qualquer vínculo: banco, Asaas, baixa, obra, regularização ou combinação). Sem motivo = pode liberar.
  */
 async function arquivadosQueBloqueiam(d: Db | Tx, chaves: string[], travar = false): Promise<ArquivadoContaAzul[]> {
   const l = bpoLancamentos;
@@ -82,12 +82,12 @@ async function arquivadosQueBloqueiam(d: Db | Tx, chaves: string[], travar = fal
   for (let i = 0; i < chaves.length; i += 500) {
     const filtro = and(
       inArray(l.requestKey, chaves.slice(i, i + 500)), like(l.requestKey, `${PREFIXO_CHAVE_CONTA_AZUL}%`),
-      eq(l.origemEfetiva, "conta_azul"), isNotNull(l.exclusaoLoteBackupId),
+      isNotNull(l.exclusaoLoteBackupId),
     );
     // Caso comum (nenhum arquivado): uma consulta leve, sem conferir os vínculos.
     if (!(await d.select({ id: l.id }).from(l).where(filtro).limit(1)).length) continue;
     const consulta = d.select({
-      id: l.id, descricao: l.descricao, valor: l.valor, requestKey: l.requestKey,
+      id: l.id, descricao: l.descricao, valor: l.valor, requestKey: l.requestKey, origemEfetiva: l.origemEfetiva,
       bankTransactionId: l.bankTransactionId, asaasPaymentId: l.asaasPaymentId, combinadaEmId: l.combinadaEmId,
       baixas: contagem(sql`SELECT count(*) FROM bpo_recebimentos r WHERE r.lancamento_id = ${l.id}`),
       obra: contagem(sql`SELECT count(*) FROM obra_movimentos om WHERE om.bpo_lancamento_id = ${l.id}`),
@@ -97,6 +97,9 @@ async function arquivadosQueBloqueiam(d: Db | Tx, chaves: string[], travar = fal
     const linhas = travar ? await consulta.for("update") : await consulta;
     for (const x of linhas) {
       const motivos: string[] = [];
+      // A chave é do Conta Azul, mas a linha mudou de origem: "Liberar" nunca remove outra origem.
+      const outraOrigem = x.origemEfetiva !== "conta_azul";
+      if (outraOrigem) motivos.push(`origem "${x.origemEfetiva}" (não é do Conta Azul): não é removido por aqui`);
       if (x.bankTransactionId != null) motivos.push("ligado a uma movimentação bancária");
       if (x.asaasPaymentId) motivos.push("ligado a uma cobrança do Asaas");
       if (Number(x.baixas) > 0) motivos.push("tem baixa registrada em recebimentos");
@@ -104,7 +107,7 @@ async function arquivadosQueBloqueiam(d: Db | Tx, chaves: string[], travar = fal
       if (Number(x.regularizacao) > 0) motivos.push("ligado a recebimento de regularização");
       if (x.combinadaEmId != null) motivos.push("combinado em outra cobrança");
       if (Number(x.combinadas) > 0) motivos.push("outra cobrança foi combinada nele");
-      saida.push({ id: x.id, descricao: x.descricao, valor: x.valor, requestKey: x.requestKey ?? "", motivos });
+      saida.push({ id: x.id, descricao: x.descricao, valor: x.valor, requestKey: x.requestKey ?? "", outraOrigem, motivos });
     }
   }
   return saida;
@@ -125,7 +128,8 @@ export async function previaContaAzul(arquivos: Record<string, string>) {
     arquivadosQueBloqueiam(d, chaves),
   ]);
   const plano = planejar(backup, clientes, existentes);
-  const comVinculo = arquivados.filter(a => a.motivos.length > 0);
+  const naoLiberaveis = arquivados.filter(a => a.motivos.length > 0);
+  const comVinculo = naoLiberaveis.filter(a => !a.outraOrigem);
   const receitas = plano.movimentosNovos.filter(m => m.tipo === "receita");
   const despesas = plano.movimentosNovos.filter(m => m.tipo === "despesa");
   const porCategoria = new Map<string, number>();
@@ -149,9 +153,11 @@ export async function previaContaAzul(arquivos: Record<string, string>) {
       /** Arquivados que seguram a chave: não entram enquanto não forem liberados (removidos em definitivo). */
       arquivados: {
         bloqueando: plano.movimentosArquivados,
-        liberaveis: arquivados.length - comVinculo.length,
+        liberaveis: arquivados.length - naoLiberaveis.length,
         comVinculo: comVinculo.length,
-        exemplosComVinculo: comVinculo.slice(0, 20).map(a => ({ id: a.id, descricao: a.descricao, valor: a.valor, motivos: a.motivos })),
+        /** Arquivados de OUTRA origem (legado, Asaas, manual…) que seguram uma chave do Conta Azul: nunca removidos aqui. */
+        outraOrigem: naoLiberaveis.length - comVinculo.length,
+        exemplosComVinculo: naoLiberaveis.slice(0, 20).map(a => ({ id: a.id, descricao: a.descricao, valor: a.valor, motivos: a.motivos })),
       },
       receitas: { quantidade: receitas.length, total: soma(receitas) },
       despesas: { quantidade: despesas.length, total: soma(despesas) },
