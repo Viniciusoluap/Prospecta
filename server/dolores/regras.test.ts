@@ -240,6 +240,20 @@ describe("filtro de dados pessoais em texto livre (M1)", () => {
     expect(sanitizarTexto(`Nota do corretor:\n${cpfs.join("\n")}`)).toBe(`Nota do corretor:\n${Array(4).fill(OMITIDO_T).join("\n")}`);
   });
 
+  it("QA r4 S2: linha digitável com os 3 DVs de campo válidos fica inteira; sem validar, vale a fase 1", () => {
+    for (const t of [
+      "linha digitável 23793.38128 60000.000004 00000.000406 1 84340000010000", // Bradesco (237), 1º campo com cara de celular
+      "boleto 75690.00016 99123.456784 99000.000002 7 84340000010000", // Sicoob (756), campos 2 e 3 começando com 99
+      "boleto 74891.12347 99123.456784 99000.000002 7 84340000010000", // Sicredi (748)
+      "pagar 2379338128 60000000004 00000000406 1 84340000010000", "boleto 34191.79001 01043.510047 91020.150008 1 96610000012345",
+    ]) expect(sanitizarTexto(t), t).toBe(t);
+    // DV de campo errado (o exemplo do relatório tem os campos 2 e 3 inválidos): a fase 1 continua valendo
+    expect(sanitizarTexto("linha 23793.38128 60000.000003 00000.000400 1 84340000010000")).toContain(OMITIDO_T);
+    // celular de verdade colado depois da linha digitável válida continua saindo
+    expect(sanitizarTexto("boleto 75690.00016 99123.456784 99000.000002 7 84340000010000 99991234567"))
+      .toBe(`boleto 75690.00016 99123.456784 99000.000002 7 84340000010000 ${OMITIDO_T}`);
+  });
+
   it("percorre a resposta inteira (listas e objetos), sem tocar números e chaves", () => {
     expect(sanitizarResposta({ a: [{ texto: "cpf 111.222.333-44", n: 11122233344 }], "111.222.333-44": null }))
       .toEqual({ a: [{ texto: "cpf [dado pessoal omitido]", n: 11122233344 }], "111.222.333-44": null });
