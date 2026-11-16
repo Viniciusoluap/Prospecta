@@ -139,6 +139,11 @@ Digite o seu número (DDD + número) em "Número do dono" e salve — só númer
 qualquer outro número é ignorada, sem resposta, e fica registrada em `dolores_acoes` (uma linha por número por hora; a
 contagem fica em `dolores_remetentes_estranhos`).
 
+**Cadastre o celular sempre com o 9 na frente** (ex.: `99 9 9123-4567`). A falta do nono dígito só é tolerada quando os 8
+últimos começam com 6–9 (celular antigo); se o seu celular, sem o 9, começa com 2–5, o WhatsApp pode entregar o número
+sem o 9 e ele não vai casar com o cadastro — a Dolores fica em silêncio (falha fechada). Número **fixo** (8 dígitos
+começando com 2–5) só comanda com igualdade exata: DDD e os mesmos 8 dígitos, sem 9 a mais nem a menos.
+
 ## 5. Conectar o número da Dolores (o dono, com o celular dela)
 Pré-requisito: o servidor da Evolution já salvo em Integrações › WhatsApp (o mesmo da Central).
 1. Integrações › Dolores → **"Conectar o número da Dolores (QR code)"**.

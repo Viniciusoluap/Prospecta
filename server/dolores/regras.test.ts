@@ -180,6 +180,27 @@ describe("filtro de dados pessoais em texto livre (M1)", () => {
     expect(sanitizarTexto(lista)).toBe(lista);
   });
 
+  it("QA r3 (informativos): dígitos de outras escritas, '|' e '/' no telefone com palavra de telefone, chave de NF-e tudo ou nada", () => {
+    for (const c of ["cpf ٥٢٩٩٨٢٢٤٧٢٥", "tel ९९९९१२३४५६७", "cpf ۵۲۹۹۸۲۲۴۷۲۵", "tel 99|99123|4567", "tel 99/99123-4567", "tel 99 99123/4567",
+      "fone: 99 | 3523 | 4567", "fone 9912345678", "tel 9 9 1 2 3 4 5 6 7"]) {
+      const r = sanitizarTexto(c);
+      expect(r, c).toContain(OMITIDO_T);
+      expect(r.replace(/\D/g, "").length, `${c} → ${r}`).toBeLessThan(3);
+    }
+    // sem palavra de telefone, datas e tabelas com "/" e "|" ficam; célula isolada de 11 dígitos continua "na dúvida, sai"
+    for (const t of ["em 15/11/2026", "protocolo 2026/123456", "ligar em 15/11/2026", "ligar dia 15-11-2026", "| 3500 | 4200 |", "| 2024 | 2025 |", "| lote 12 | 360 m² |"])
+      expect(sanitizarTexto(t), t).toBe(t);
+    expect(sanitizarTexto("| 12345678901 | 2 |")).toBe(`| ${OMITIDO_T} | 2 |`);
+    // chave de acesso: reconhecida (rótulo ou dígito verificador) fica inteira; senão, se algo der telefone/CPF lá dentro, sai inteira
+    const blocos = (d: string) => d.match(/\d{4}/g)!.join(" ");
+    for (const t of [
+      `chave de acesso ${blocos("35261112345678000199550010000012341000012345")}`, `DANFE ${blocos("35261112345678000199550010000012341000012345")}`,
+      `ver ${blocos("35261112345678000199550010000012341000012343")}`, "NF-e 35261112345678000199550010000012341000012345",
+    ]) expect(sanitizarTexto(t), t).toBe(t);
+    const solta = `ver ${blocos("35261112345678000199550010000012341000012345")}`;
+    expect(sanitizarTexto(solta)).toBe(`ver ${OMITIDO_T}`);
+  });
+
   it("QA r3 R4: 200 kB patológicos (só dígitos, '12.' repetido, 'aaa…a1', '1 ' repetido) filtram em tempo linear", () => {
     const KB = 1024;
     for (const [nome, t] of [
