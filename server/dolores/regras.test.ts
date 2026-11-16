@@ -350,6 +350,11 @@ describe("filtro de dados pessoais em texto livre (M1)", () => {
       expect(sanitizarTexto(t), t).not.toBe(t);
     // 10 11 11 1 14 sem o DV geral fecha (mesmos campos do teste S2 com o 5º dígito trocado) sai; com o DV geral, fica
     expect(sanitizarTexto("pagar 2379338128 60000000004 00000000406 2 84340000010000")).toContain(OMITIDO_T);
+    // sonda dirigida do QA: telefones que fecham os 3 DVs, a moeda e até o DV geral — campos 2/3 com forma de celular, sai
+    for (const t of ["1139673097 11973631135 21970260937 1 57894337179272", "1139301871 11940957555 21948385790 1 90128806324772"]) {
+      const r = sanitizarTexto(t);
+      for (const n of ["1139673097", "11973631135", "21970260937", "1139301871", "11940957555", "21948385790"]) expect(r, `${t} → ${r}`).not.toContain(n);
+    }
     expect(sanitizarTexto("pagar 2379338128 60000000004 00000000406 1 84340000010000")).toBe("pagar 2379338128 60000000004 00000000406 1 84340000010000");
   });
 

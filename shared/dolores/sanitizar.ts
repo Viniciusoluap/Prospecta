@@ -113,7 +113,11 @@ export function linhaDigitavelValida(d: string, forma: string): boolean {
   if (d.length !== 47 || d[3] !== "9") return false;
   if (forma !== "47" && forma !== "5,5,5,6,5,6,1,14" && forma !== "10,11,11,1,14") return false;
   if (mod10(d.slice(0, 9)) !== Number(d[9]) || mod10(d.slice(10, 20)) !== Number(d[20]) || mod10(d.slice(21, 31)) !== Number(d[31])) return false;
-  return forma !== "10,11,11,1,14" || dvGeralDoBoleto(d);
+  if (forma !== "10,11,11,1,14") return true;
+  // Sonda dirigida do QA: 1 lista de telefones em ~10 mil fecha até o DV geral. Nessa forma, os campos 2 e 3 (11
+  // dígitos) não podem ter forma de celular (DDD + 9) nem ser CPF válido — num boleto real são o campo livre.
+  const pessoal = (x: string) => /^[1-9][1-9]9/.test(x) || isValidCPF(x);
+  return dvGeralDoBoleto(d) && !pessoal(d.slice(10, 21)) && !pessoal(d.slice(21, 32));
 }
 
 // ── 1. Normalização ──
