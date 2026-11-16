@@ -218,6 +218,10 @@ externo realmente precisar):
 2. Valores que liberam: `1`, `true`, `sim`, `on` ou `yes`. Ausente ou **qualquer outro valor**: mascarado.
 3. Para voltar a mascarar: apagar a variável e fazer outro Redeploy.
 
+Os dois interruptores são **independentes**: `DOLORES_MASCARAR_DADOS_PESSOAIS` só vale para o WhatsApp e
+`DOLORES_PONTE_DADOS_PESSOAIS` só vale para a ponte. Exemplo: com `DOLORES_MASCARAR_DADOS_PESSOAIS=1` e
+`DOLORES_PONTE_DADOS_PESSOAIS=1`, o WhatsApp mascara e a ponte libera.
+
 **Como voltar atrás (religar o filtro).**
 1. Na Vercel: Settings › Environment Variables → criar `DOLORES_MASCARAR_DADOS_PESSOAIS` com o valor `1` (Production).
 2. Fazer um **Redeploy**; a mudança só vale depois dele.

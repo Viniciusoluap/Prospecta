@@ -53,3 +53,16 @@ describe("QA r7 A3: DOLORES_PONTE_DADOS_PESSOAIS (canal ponte) — mascarado por
     expect(aviso).toHaveBeenCalledTimes(1); // "talvez" (o "2" e o "sim # x" não repetem o aviso)
   });
 });
+
+describe("QA r8 achado 7: canal desconhecido mascara de verdade", () => {
+  it("canal fora de whatsapp/ponte mascara mesmo com os dois interruptores liberando", () => {
+    vi.stubEnv("DOLORES_MASCARAR_DADOS_PESSOAIS", "0");
+    vi.stubEnv("DOLORES_PONTE_DADOS_PESSOAIS", "1");
+    for (const c of ["", "outro", "WHATSAPP", "Ponte", undefined]) {
+      expect(mascararDadosPessoais(c as never), String(c)).toBe(true);
+      expect(campoPessoal("52998224725", "cpf", c as never)).not.toContain("5299822");
+    }
+    expect(mascararDadosPessoais("whatsapp")).toBe(false);
+    expect(mascararDadosPessoais("ponte")).toBe(false);
+  });
+});

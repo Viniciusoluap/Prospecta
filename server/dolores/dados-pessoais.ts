@@ -59,9 +59,14 @@ function mascararNaPonte(): boolean {
   return true;
 }
 
-/** Dados pessoais mascarados neste canal? Canal desconhecido: mascara (falha fechada). */
+/**
+ * Dados pessoais mascarados neste canal? Canal desconhecido: mascara (falha fechada) — QA r8 achado 7: antes, qualquer
+ * canal que não fosse "whatsapp" caía na regra da ponte (e DOLORES_PONTE_DADOS_PESSOAIS=1 o liberava).
+ */
 export function mascararDadosPessoais(canal: CanalDolores): boolean {
-  return canal === "whatsapp" ? mascararNoWhatsapp() : mascararNaPonte();
+  if (canal === "whatsapp") return mascararNoWhatsapp();
+  if (canal === "ponte") return mascararNaPonte();
+  return true;
 }
 
 /** Filtro do que vai ao modelo/agente e na resposta ao dono, pelo canal — variáveis lidas a cada chamada. */
