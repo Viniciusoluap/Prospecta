@@ -176,3 +176,35 @@ Ver a seção 'Próximo passo exato (atual)' no fim do arquivo.
 1. Dolores etapa 2: receber o @dev → 2ª rodada de QA → aplicar `0124` → publicar pela receita. 2. Etapas 3 a 6 da
 Dolores, uma por PR, cada uma com portão de QA. 3. Relatório final ao dono (classificação de cada correção e o que
 depende só dele).
+
+## Atualização — 16/11, ~23:10 UTC
+- **Publicado:** PR #243 — **Dolores etapa 2 (WhatsApp)**. Migração `0124` aplicada antes. Produção `3a9575b` READY.
+  QA: oito rodadas (relatórios em `scratchpad/qa-dolores-e2*/RELATORIO.md` e `…-r2` a `…-r8`); a última deu
+  CONCERNS sem bloqueio e os achados foram corrigidos antes da mescla (conferidos à mão os casos de link).
+- **Decisões do dono na noite de 16/11 (estão no `CLAUDE.md`):** segurança é prioridade; **dados pessoais liberados
+  para a Dolores no WhatsApp ("opção B")** atrás de `DOLORES_MASCARAR_DADOS_PESSOAIS` (ponte HTTP mascarada por
+  padrão, interruptor próprio `DOLORES_PONTE_DADOS_PESSOAIS`); **modelo da IA por função** (S-11). A chave da
+  Anthropic foi cadastrada por ele (modelo preferencial `claude-haiku-5-5`).
+- **Estado em produção:** IA da Dolores DESLIGADA, WhatsApp desconectado, limites em 0, ponte fechada (sem token).
+- **S-11 (modelo por função):** QA PASS (2ª rodada, `scratchpad/qa-s11-r2`); @dev fazendo 4 ajustes menores no
+  worktree `s11` (ramo `epic024-s11-modelo-por-funcao`, cópia `claude/wip-epic024-s11`). Base antiga = ramo de
+  publicação da E2 em `756d941`; **falta unir com a `main` atual** e publicar. Sem migração.
+- **Dolores etapa 3 (Ações):** QA PASS (3ª rodada, `scratchpad/qa-dolores-e3-r3`); @dev unindo a E2 final
+  (worktree `dolores-e3`, ramo `epic025-dolores-etapa3`, cópia `claude/wip-epic025-dolores-etapa3`). Falta: trazer
+  as últimas correções da E2 (`ff1477d..150b8f0` do ramo `epic025-dolores-etapa2`), aplicar a `0125` e publicar.
+- **Ambiente:** pouca memória — rodar vitest com `--maxWorkers=2 --minWorkers=1`.
+
+## Próximo passo exato (23:10 UTC)
+1. S-11: receber o @dev, unir com a `main`, publicar. 2. E3: receber o @dev, unir com a `main` (que já tem a E2),
+aplicar `0125`, publicar. 3. Dolores etapas 4, 5 e 6 (grupos de clientes, notas de obra, operação contínua), uma por
+PR, cada uma com portão de QA. 4. Relatório final ao dono.
+
+## Depende só do dono (não trava o trabalho)
+- Testar a leitura do PDF da maquete 8 pela IA (Maquete 3D → "Ler de novo do zero" → confirmar); de preferência
+  com um modelo mais capaz que o Haiku para a função de leitura de plantas.
+- Para ligar a Dolores: conectar o número dela pelo QR code, cadastrar o número dele e os limites mensais em
+  Integrações › Dolores, e ligar o interruptor — **só depois** de a etapa 3 estar publicada.
+- Conferir que `PUBLIC_SITE_URL` existe na Vercel (sem ela, links do próprio sistema saem das respostas da Dolores).
+- Confirmar a diferença em relação ao prompt mestre: o laço da Dolores roda no servidor, não no agente do Console.
+- Conferir com o jurídico se o termo de consentimento dos clientes cobre o envio de dados à Anthropic (opção B).
+- Provedor de imagem para "Gerar com IA" do logotipo (correção 02).

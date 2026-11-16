@@ -7,7 +7,7 @@ com migração e publicação a cada etapa — o que substitui a exigência do p
 
 ## Etapas (uma PR por etapa; só avança com o teste de aceite)
 - [x] 1. Leitura (PR #240, migração `0123` aplicada) — ponte, usuário Dolores, consultas de todos os módulos, auditoria (`dolores_acoes`)
-- [ ] 2. WhatsApp — conexão própria pela Central, comando e resposta pelo número do dono
+- [x] 2. WhatsApp (PR #243, migração `0124` aplicada; IA desligada por padrão) — conexão própria pela Central, comando e resposta pelo número do dono
 - [ ] 3. Ações — tarefas, acompanhamentos, cobranças preparadas, geradores, fila de aprovação
 - [ ] 4. Grupos de clientes — leitura dos grupos cadastrados, card, classificação e Drive
 - [ ] 5. Notas de obra — leitura da nota, rascunho, confirmação do empreiteiro, conciliação com o BPO
