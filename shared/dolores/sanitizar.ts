@@ -52,7 +52,9 @@ const SENHA = /\b(senhas?|password|passwd|c[oó]digos?|token|pin)\b.*?(?=[;\n]|[
 // Agência, conta, PIX: o rótulo fica, o número/chave sai.
 const BANCARIO = /\b(ag[eê]ncia|ag\.?|conta(?:\s+corrente|\s+poupan[cç]a)?|c\/c|cc|chave\s+pix|pix)\b(\s*(?:n[ºo°.]?|:|#|-)?\s*)((?=[^\s]*[\d@])[\w.@+\-/]+)/gi;
 // E-mail: "a@b.com", "a @ b.com", "a[at]b.com", "a (arroba) b.com" e, colado, sem domínio de topo ("a@b").
-const EMAIL = /[\w.+-]+(?:\s?@\s?|\s?[[(]\s?(?:at|arroba)\s?[\])]\s?)[\w-]+(?:\.[\w-]+)+|[\w.+-]+@[\w-]+/gi;
+// QA r3 R4: o nome só começa no início de uma "palavra" de [\w.+-] (lookbehind). Sem a âncora, cada posição de uma
+// sequência longa sem "@" (200 kB de dígitos, "12.12.…", "aaa…a1") tentava de novo até o fim: tempo quadrático (~60 s).
+const EMAIL = /(?<![\w.+-])[\w.+-]+(?:\s?@\s?|\s?[[(]\s?(?:at|arroba)\s?[\])]\s?)[\w-]+(?:\.[\w-]+)+|(?<![\w.+-])[\w.+-]+@[\w-]+/gi;
 const CPF_FORMATADO = /(?<!\d)\d{3}[.,]\d{3}[.,]\d{3}[-.]?\d{2}(?!\d)/g;
 const CNPJ_FORMATADO = /(?<!\d)\d{2}\.\d{3}\.\d{3}\/\d{4}-?\d{2}(?!\d)/g;
 

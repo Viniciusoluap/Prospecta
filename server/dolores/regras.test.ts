@@ -147,6 +147,22 @@ describe("filtro de dados pessoais em texto livre (M1)", () => {
     expect(sanitizarTexto("lista 123 456 789 00")).toBe("lista 123 456 789 00");
   });
 
+  it("QA r3 R4: 200 kB patológicos (só dígitos, '12.' repetido, 'aaa…a1', '1 ' repetido) filtram em tempo linear", () => {
+    const KB = 1024;
+    for (const [nome, t] of [
+      ["só dígitos", "1".repeat(200 * KB)], ["12.12.…", "12.".repeat(68 * KB)], ["aaa…a1", "a".repeat(200 * KB) + "1"],
+      ["1 1 1…", "1 ".repeat(100 * KB)], ["a.a.a…1", "a.".repeat(100 * KB) + "1"],
+    ] as const) {
+      const inicio = performance.now();
+      const r = sanitizarTexto(t);
+      const ms = performance.now() - inicio;
+      expect(r, nome).toBe(t);
+      expect(ms, `${nome}: ${ms.toFixed(0)} ms`).toBeLessThan(3000);
+    }
+    // a âncora não muda o que é e-mail
+    expect(sanitizarTexto("mail joão.silva+obra@x.com.br e (fulano@y.com)")).toBe(`mail joã${OMITIDO_T} e (${OMITIDO_T})`);
+  });
+
   it("percorre a resposta inteira (listas e objetos), sem tocar números e chaves", () => {
     expect(sanitizarResposta({ a: [{ texto: "cpf 111.222.333-44", n: 11122233344 }], "111.222.333-44": null }))
       .toEqual({ a: [{ texto: "cpf [dado pessoal omitido]", n: 11122233344 }], "111.222.333-44": null });
