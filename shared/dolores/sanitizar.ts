@@ -32,10 +32,10 @@ function cnpjValido(d: string): boolean {
 
 // ── 1. Normalização ──
 // Invisíveis: o ZWJ (U+200D) só fica quando junta emojis (família, profissões); nos outros lugares sai.
-const INVISIVEIS = /[​‌⁠-⁤﻿­᠎͏]|(?<!\p{Extended_Pictographic}️?)‍/gu;
-const LARGURA_TOTAL = /[！-～]/g;
-const DIGITOS_MATEMATICOS = /[\u{1D7CE}-\u{1D7FF}]/gu;
-const HIFEN_ENTRE_DIGITOS = /(?<=\d\s?)[‐-―−﹘﹣](?=\s?\d)/g;
+const INVISIVEIS = new RegExp("[\\u200B\\u200C\\u2060-\\u2064\\uFEFF\\u00AD\\u180E\\u034F]|(?<!\\p{Extended_Pictographic}\\uFE0F?)\\u200D", "gu");
+const LARGURA_TOTAL = /[\uFF01-\uFF5E]/g;
+const DIGITOS_MATEMATICOS = new RegExp("[\\u{1D7CE}-\\u{1D7FF}]", "gu");
+const HIFEN_ENTRE_DIGITOS = /(?<=\d\s?)[\u2010-\u2015\u2212\uFE58\uFE63](?=\s?\d)/g;
 
 /** Tira os disfarces mais comuns de números e e-mails (ver o cabeçalho). Exportada para os testes. */
 export function normalizarParaFiltro(texto: string): string {

@@ -76,7 +76,7 @@ const envioPadrao: EnvioWhatsapp = async ({ instancia, numero, texto, prazoMs })
 type Dependencias = { agora: () => Date; enviar: EnvioWhatsapp; ms: () => number };
 const padrao: Dependencias = { agora: () => new Date(), enviar: envioPadrao, ms: () => Date.now() };
 let deps: Dependencias = { ...padrao };
-export function definirDependenciasWhatsapp(d?: Partial<Dependencias>) { deps = d ? { ...deps, ...d } : { ...padrao }; }
+export function definirDependenciasWhatsapp(d?: Partial<Dependencias>) { deps = d ? { ...deps, ...d } : { ...padrao }; esquecerEstranhasVistas(); }
 
 const falhas = new Map<string, { janela: number; total: number }>();
 function contarFalha(ip: string, agora: Date): boolean {
@@ -260,6 +260,19 @@ async function auditarRemetenteEstranho(numero: string | null, autor: number | n
     resumo: { remetente, janela: `${hora}h UTC`, caracteres, contagem: "dolores_remetentes_estranhos (uma linha por remetente por hora)" } });
 }
 
+/** Memória curta das mensagens de estranhos já contadas (instância + id), com tamanho fixo: não cresce com spam. */
+const MAX_ESTRANHAS_LEMBRADAS = 2000;
+const estranhasVistas = new Set<string>();
+function jaVistaDeEstranho(instancia: string, externalId: string): boolean {
+  const k = `${instancia}\u0000${externalId}`;
+  if (estranhasVistas.has(k)) return true;
+  estranhasVistas.add(k);
+  if (estranhasVistas.size > MAX_ESTRANHAS_LEMBRADAS) estranhasVistas.delete(estranhasVistas.values().next().value as string);
+  return false;
+}
+/** Só para testes: esquece a memória curta de mensagens de estranhos. */
+export function esquecerEstranhasVistas() { estranhasVistas.clear(); }
+
 export type RespostaWebhook = { status: number; body: Record<string, unknown> };
 type Pedido = Pick<Request, "headers" | "body" | "ip">;
 
@@ -303,13 +316,22 @@ export async function tratarWebhookDolores(req: Pedido): Promise<RespostaWebhook
     // QA achado 5: um prazo só para o aviso inteiro. QA r2 N4: sem tempo nem para a frase fixa, a mensagem é ao menos
     // REIVINDICADA ("processando" com motivo próprio) — a recuperação do próximo aviso avisa o dono para mandar de novo.
     const semTempoNenhum = doDono && prazoFinal - deps.ms() < MINIMO_PARA_RECUSAR_MS;
+    // QA r2 N8: remetente que não é o dono NÃO grava linha em dolores_mensagens (spam não cresce a tabela sem limite).
+    // Só a contagem por remetente e hora (dolores_remetentes_estranhos) e uma linha de auditoria por remetente/hora. A
+    // reentrega da mesma mensagem é descartada por uma memória curta (por instância do servidor; se escapar, só soma 1
+    // na contagem — nada responde, nada chama a IA).
+    if (!doDono) {
+      if (jaVistaDeEstranho(cfg.instancia, m.externalId)) { contar("repetida"); continue; }
+      await auditarRemetenteEstranho(m.numero, autor, m.texto.length);
+      contar("nao-autorizado"); continue;
+    }
     // Reivindica a mensagem: só quem gravar primeiro trata (reentrega e avisos paralelos não duplicam resposta nem gasto).
     let id: number | null = null;
     try {
       const [linha] = await getDb().insert(doloresMensagens).values({
-        instancia: cfg.instancia, externalId: m.externalId, remetente: m.numero ? mascararNumero(m.numero) : "(sem número)", doDono,
-        situacao: doDono ? "processando" : "ignorada", motivo: semTempoNenhum ? MOTIVO_SEM_TEMPO_NO_AVISO : doDono ? null : "remetente não autorizado",
-        texto: doDono ? sanitizarTexto(m.texto).slice(0, MAX_TEXTO_COMANDO) || null : null, enviadaEm: m.enviadaEm,
+        instancia: cfg.instancia, externalId: m.externalId, remetente: m.numero ? mascararNumero(m.numero) : "(sem número)", doDono: true,
+        situacao: "processando", motivo: semTempoNenhum ? MOTIVO_SEM_TEMPO_NO_AVISO : null,
+        texto: sanitizarTexto(m.texto).slice(0, MAX_TEXTO_COMANDO) || null, enviadaEm: m.enviadaEm,
       }).onConflictDoNothing().returning({ id: doloresMensagens.id });
       id = linha?.id ?? null;
     } catch (e) {
@@ -318,10 +340,6 @@ export async function tratarWebhookDolores(req: Pedido): Promise<RespostaWebhook
     }
     if (!id) { contar("repetida"); continue; }
     if (semTempoNenhum) { contar("sem-tempo"); semTempoReivindicadas++; continue; }
-    if (!doDono) {
-      await auditarRemetenteEstranho(m.numero, autor, m.texto.length);
-      contar("nao-autorizado"); continue;
-    }
     if (prazoFinal - deps.ms() < MINIMO_PARA_COMANDO_MS) {
       // vários comandos no mesmo aviso: este não cabe mais no prazo — frase fixa, sem IA
       const hora = horaFortaleza(m.enviadaEm ?? deps.agora());
@@ -331,9 +349,9 @@ export async function tratarWebhookDolores(req: Pedido): Promise<RespostaWebhook
     }
     contar(await tratarComando(cfg, { id, numero: m.numero!, texto: m.texto, temMidia: m.temMidia, encaminhada: m.encaminhada }, prazoFinal, autor));
   }
-  if (contagem.reacao || contagem.edicao) {
-    await registrarAcao({ funcao: "whatsapp_mensagem", resultado: "recusada", motivo: "reação ou edição de mensagem: ignorada, sem resposta", autorUserId: autor, canal: "whatsapp",
-      resumo: { reacoes: contagem.reacao ?? 0, edicoes: contagem.edicao ?? 0 } });
+  if (contagem.reacao || contagem.edicao || contagem.interacao) {
+    await registrarAcao({ funcao: "whatsapp_mensagem", resultado: "recusada", motivo: "reação, edição, fixação, enquete ou botão: ignorada, sem resposta", autorUserId: autor, canal: "whatsapp",
+      resumo: { reacoes: contagem.reacao ?? 0, edicoes: contagem.edicao ?? 0, interacoes: contagem.interacao ?? 0 } });
   }
   if (semTempoReivindicadas) {
     await registrarAcao({ funcao: "whatsapp_mensagem", resultado: "erro", motivo: "pedido do dono sem tempo no prazo do aviso: guardado para o aviso de 'mande de novo'", autorUserId: autor, canal: "whatsapp",

@@ -74,8 +74,9 @@ describe("QA achado 1 — DDI conferido: número estrangeiro com os mesmos 8 fin
       expect(chamadas).toEqual([]);
       expect(vi.mocked(configuracaoAnthropicPainel)).not.toHaveBeenCalled();
       expect(enviar).not.toHaveBeenCalled();
-      const [m] = await q<{ do_dono: boolean; situacao: string }>("SELECT do_dono, situacao FROM dolores_mensagens");
-      expect(m).toEqual({ do_dono: false, situacao: "ignorada" });
+      // QA r2 N8: mensagem de estranho não grava linha em dolores_mensagens (só a contagem por hora)
+      expect(await q("SELECT id FROM dolores_mensagens")).toEqual([]);
+      expect(await q("SELECT mensagens FROM dolores_remetentes_estranhos")).toEqual([{ mensagens: 1 }]);
     });
   }
   it("@lid com senderPn estrangeiro também não comanda", async () => {
@@ -273,7 +274,7 @@ describe("QA achado 6 — tipos de mensagem", () => {
     expect(enviar).not.toHaveBeenCalled();
     expect(await q("SELECT * FROM dolores_mensagens")).toEqual([]);
     const a = await acoes();
-    expect(a.map(x => [x.funcao, x.resultado, x.resumo])).toEqual([["whatsapp_mensagem", "recusada", { reacoes: 2, edicoes: 2 }]]);
+    expect(a.map(x => [x.funcao, x.resultado, x.resumo])).toEqual([["whatsapp_mensagem", "recusada", { reacoes: 2, edicoes: 2, interacoes: 0 }]]);
     expect(JSON.stringify(a)).not.toContain("IGNORE");
   });
   it("mensagem encaminhada pelo dono não é comando: frase pedindo que ele escreva o pedido, sem IA", async () => {
@@ -374,5 +375,52 @@ describe("Extra do QA — auditoria de remetente estranho limitada (uma linha po
     await chamar(aviso({ jid: "5511988887777@s.whatsapp.net", quando: new Date(depois.getTime() - 5_000) }));
     expect(await acoes()).toHaveLength(2);
     expect((await q<any>("SELECT mensagens FROM dolores_remetentes_estranhos ORDER BY hora")).map(c => c.mensagens)).toEqual([1, 1]);
+  });
+});
+
+describe("QA r2 N8 — spam de estranhos não cresce dolores_mensagens; índices parciais", () => {
+  it("500 mensagens de um estranho: zero linhas em dolores_mensagens, 1 contagem, 1 auditoria; reentrega não soma; zero IA/envio/chave", async () => {
+    for (let i = 0; i < 25; i++) await chamar(lote(...Array.from({ length: 20 }, (_, k) => aviso({ jid: "5511988887777@s.whatsapp.net", id: `S${i}-${k}`, texto: "x".repeat(4000) }))));
+    expect(await q("SELECT count(*)::int AS n FROM dolores_mensagens")).toEqual([{ n: 0 }]);
+    expect(await q("SELECT mensagens FROM dolores_remetentes_estranhos")).toEqual([{ mensagens: 500 }]);
+    expect((await acoes()).filter(a => a.funcao === "whatsapp_mensagem")).toHaveLength(1);
+    const r = await chamar(aviso({ jid: "5511988887777@s.whatsapp.net", id: "S3-7" })); // reentrega
+    expect(r.body.r).toEqual({ repetida: 1 });
+    expect(await q("SELECT mensagens FROM dolores_remetentes_estranhos")).toEqual([{ mensagens: 500 }]);
+    expect(chamadas).toEqual([]); expect(enviar).not.toHaveBeenCalled();
+    expect(vi.mocked(configuracaoAnthropicPainel)).not.toHaveBeenCalled();
+  });
+  it("a 0124 cria os índices parciais da recuperação e das reservas (idempotente)", async () => {
+    const { readFileSync } = await import("node:fs");
+    const sql = readFileSync(new URL("../../drizzle/0124_dolores_whatsapp.sql", import.meta.url), "utf8");
+    await banco.pg.exec(sql); // de novo: sem erro
+    const idx = await q<{ indexname: string; indexdef: string }>("SELECT indexname, indexdef FROM pg_indexes WHERE tablename = 'dolores_mensagens' ORDER BY indexname");
+    const def = (n: string) => idx.find(i => i.indexname === n)?.indexdef ?? "";
+    expect(def("dolores_mensagens_processando_idx")).toMatch(/WHERE \(+\(?situacao\)?::text = 'processando'::text\)+/);
+    expect(def("dolores_mensagens_reserva_idx")).toMatch(/WHERE \(reserva_ate IS NOT NULL\)/);
+    // nenhuma rotina de limpeza: a migração não apaga nada
+    const comandos = sql.replace(/--.*$/gm, "").replace(/ON DELETE SET NULL/g, "");
+    expect(comandos).not.toMatch(/\b(DELETE|TRUNCATE|DROP)\b/);
+  });
+});
+
+describe("QA r2 (informativo) — fixar, enquete e botão do dono: silêncio auditado, sem 'só entendo texto'", () => {
+  it("não responde, não chama a IA, não grava mensagem; uma linha de auditoria com a contagem", async () => {
+    const r = await chamar(lote(
+      aviso({ message: { pinInChatMessage: { type: 1 } } }),
+      aviso({ message: { keepInChatMessage: {} } }),
+      aviso({ message: { pollUpdateMessage: {} } }),
+      aviso({ message: { pollCreationMessageV3: { name: "liste" } } }),
+      aviso({ message: { buttonsResponseMessage: { selectedDisplayText: "liste os processos" } } }),
+      aviso({ message: { listResponseMessage: { title: "liste" } } }),
+      aviso({ message: { ephemeralMessage: { message: { templateButtonReplyMessage: { selectedDisplayText: "liste" } } } } }),
+    ));
+    expect(r.body.r).toEqual({ interacao: 7 });
+    expect(enviar).not.toHaveBeenCalled();
+    expect(chamadas).toEqual([]);
+    expect(await q("SELECT id FROM dolores_mensagens")).toEqual([]);
+    const a = (await acoes()).filter(x => x.funcao === "whatsapp_mensagem");
+    expect(a).toHaveLength(1);
+    expect(a[0].resumo).toMatchObject({ interacoes: 7 });
   });
 });

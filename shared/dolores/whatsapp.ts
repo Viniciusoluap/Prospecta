@@ -72,7 +72,7 @@ function segundos(v: unknown): number | null {
 const NUMERO_DO_JID = /^(\d{10,15})@s\.whatsapp\.net$/;
 
 export type MensagemLida =
-  | { tipo: "ignorar"; motivo: "grupo" | "status" | "propria" | "sem_id" | "outro_destino" | "reacao" | "edicao" }
+  | { tipo: "ignorar"; motivo: "grupo" | "status" | "propria" | "sem_id" | "outro_destino" | "reacao" | "edicao" | "interacao" }
   | { tipo: "direta"; externalId: string; numero: string | null; enviadaEm: Date | null; texto: string; temMidia: boolean; encaminhada: boolean };
 
 /** Embalagens do WhatsApp com a mensagem de verdade dentro (temporária, visualização única). */
@@ -86,6 +86,11 @@ function desembrulhar(m: Record<string, any>): Record<string, any> {
   }
   return atual ?? {};
 }
+/** Interações que não são mensagem escrita: fixar, manter na conversa, enquete, botão, lista, modelo. */
+const INTERACOES = [
+  "pinInChatMessage", "keepInChatMessage", "pollCreationMessage", "pollCreationMessageV2", "pollCreationMessageV3", "pollUpdateMessage",
+  "buttonsResponseMessage", "listResponseMessage", "templateButtonReplyMessage", "interactiveResponseMessage", "senderKeyDistributionMessage",
+] as const;
 /** Encaminhada: o WhatsApp marca no contextInfo do conteúdo (texto ou mídia). */
 function foiEncaminhada(m: Record<string, any>): boolean {
   for (const v of Object.values(m)) {
@@ -121,6 +126,9 @@ export function lerMensagemEvolution(item: unknown): MensagemLida {
   // reação e edição/apagamento não são pedido novo: ignoradas em silêncio (o webhook audita a contagem)
   if (m.reactionMessage) return { tipo: "ignorar", motivo: "reacao" };
   if (m.protocolMessage || m.editedMessage) return { tipo: "ignorar", motivo: "edicao" };
+  // QA r2 (informativo): fixar/manter mensagem, enquete e resposta de botão/lista não são pedido escrito — silêncio
+  // (o webhook audita a contagem), sem a frase "só entendo texto".
+  if (INTERACOES.some(k => m[k])) return { tipo: "ignorar", motivo: "interacao" };
   const texto = typeof m.conversation === "string" ? m.conversation
     : typeof m.extendedTextMessage?.text === "string" ? m.extendedTextMessage.text : "";
   const temMidia = Boolean(m.imageMessage || m.videoMessage || m.audioMessage || m.documentMessage || m.documentWithCaptionMessage || m.stickerMessage);
