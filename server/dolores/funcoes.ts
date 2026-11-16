@@ -2,6 +2,7 @@
 // e execução. É a fonte única das ferramentas do agente (GET /api/dolores/ferramentas e
 // docs/dolores/ferramentas-etapa1.json). Estar aqui não basta: só roda o que permissoes.ts libera na etapa atual.
 import { z } from "zod";
+import type { CanalDolores } from "./dados-pessoais.js";
 import { entradaListarAtrasos, listarAtrasos } from "./leitura/atrasos.js";
 import {
   consultarCliente, conversasWhatsapp, entradaConsultarCliente, entradaConversasWhatsapp, entradaHistoricoAtendimento, historicoAtendimento,
@@ -15,7 +16,8 @@ import {
 } from "./leitura/regularizacoes.js";
 import { entradaListarTarefas, listarTarefas } from "./leitura/tarefas.js";
 
-export type ContextoFuncao = { agora: Date };
+/** `canal` decide o interruptor dos dados pessoais dos campos estruturados (campoPessoal). */
+export type ContextoFuncao = { agora: Date; canal: CanalDolores };
 export type FuncaoDolores = {
   nome: string;
   descricao: string;

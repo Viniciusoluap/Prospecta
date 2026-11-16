@@ -204,6 +204,14 @@ Endereço, arquivos e links do Drive continuam fora das consultas.
 guardado (`dolores_mensagens`), os números estranhos (`dolores_remetentes_estranhos`), a tela de Integrações › Dolores, os
 logs e as mensagens de erro.
 
+**A ponte HTTP (etapa 1) tem interruptor próprio.** A sua autorização vale para a Dolores no WhatsApp. Quem chama a
+ponte diretamente (`/api/dolores/ponte`, com o token) recebe CPF, CNPJ, telefone e e-mail **mascarados**, mesmo com a
+opção B ligada. Assim, um token vazado não abre os dados dos clientes. Para liberar também na ponte (só se um agente
+externo realmente precisar):
+1. Na Vercel: criar `DOLORES_PONTE_DADOS_PESSOAIS` com o valor `1` (Production) e fazer um **Redeploy**.
+2. Valores que liberam: `1`, `true`, `sim`, `on` ou `yes`. Ausente ou **qualquer outro valor**: mascarado.
+3. Para voltar a mascarar: apagar a variável e fazer outro Redeploy.
+
 **Como voltar atrás (religar o filtro).**
 1. Na Vercel: Settings › Environment Variables → criar `DOLORES_MASCARAR_DADOS_PESSOAIS` com o valor `1` (Production).
 2. Fazer um **Redeploy**; a mudança só vale depois dele.

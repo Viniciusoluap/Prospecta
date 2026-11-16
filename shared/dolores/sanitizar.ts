@@ -181,11 +181,12 @@ const PALAVRAS_CREDENCIAL = "senhas?|logins?|acessos?|credencia(?:l|is)|usu[aá]
 const GATILHO_CREDENCIAL = new RegExp(`(?<![\\p{L}\\p{N}_])(?:${PALAVRAS_CREDENCIAL})(?![\\p{L}\\p{N}_])`, "iu");
 const GATILHO_NO_FIM_DA_LINHA = new RegExp(`(?<![\\p{L}\\p{N}_])(?:${PALAVRAS_CREDENCIAL})[\\s:=>\\-–—,.;]*$`, "iu");
 /** Palavra do texto: sequência sem espaço nem separador (",", ";", ":", "/", "|", parênteses, aspas, colchetes). */
-const PALAVRA = /(?<![^\s,;:/|()<>"'[\]{}])[^\s,;:/|()<>"'[\]{}]{6,}/gu;
-const EMAIL_DE_VERDADE = /^[^@]+@[\p{L}\p{N}_-]+(?:\.[\p{L}\p{N}_-]+)*\.[\p{L}\p{N}_-]*\p{L}[\p{L}\p{N}_-]*[.!?]?$/u;
+const PALAVRA = new RegExp(String.raw`(?<![^\s,;:/|()<>"'[\]{}])[^\s,;:/|()<>"'[\]{}]{6,}`, "gu");
+const EMAIL_DE_VERDADE = new RegExp(String.raw`^[^@]+@[\p{L}\p{N}_-]+(?:\.[\p{L}\p{N}_-]+)*\.[\p{L}\p{N}_-]*\p{L}[\p{L}\p{N}_-]*[.!?]?$`, "u");
+const TEM_LETRA = new RegExp("\\p{L}", "u");
 /** Cara de senha: 6+ caracteres, letra misturada com dígito ou símbolo, e não é e-mail de verdade. */
 export function pareceSenha(p: string): boolean {
-  return p.length >= 6 && /\p{L}/u.test(p) && /[\d!@#$%&*?_+=~^]/.test(p) && !EMAIL_DE_VERDADE.test(p);
+  return p.length >= 6 && TEM_LETRA.test(p) && /[\d!@#$%&*?_+=~^]/.test(p) && !EMAIL_DE_VERDADE.test(p);
 }
 function mascararCredenciais(x: string): string {
   if (!GATILHO_CREDENCIAL.test(x)) return x;
@@ -204,7 +205,7 @@ function mascararCredenciais(x: string): string {
  * QA r7 A1(a): "x@y" sem ponto no domínio não é e-mail ("Maria@2025", formato de senha muito comum): sai como senha no
  * modo liberado (no modo mascarado, a fase de e-mail já o tira). E-mail com domínio ("maria@gmail.com") fica.
  */
-const ARROBA_SEM_DOMINIO = /(?<![\p{L}\p{N}_.+!#$%&*-])[\p{L}\p{N}_.+!#$%&*-]+@[\p{L}\p{N}_-]+(?:\.[\p{L}\p{N}_-]+)*/gu;
+const ARROBA_SEM_DOMINIO = new RegExp(String.raw`(?<![\p{L}\p{N}_.+!#$%&*-])[\p{L}\p{N}_.+!#$%&*-]+@[\p{L}\p{N}_-]+(?:\.[\p{L}\p{N}_-]+)*`, "gu");
 const trocarArrobaSemDominio = (m: string) => (EMAIL_DE_VERDADE.test(m) ? m : SENHA_OMITIDA);
 // QA r4 S5: "código" só é senha com senha/acesso/token/OTP por perto (40 caracteres depois ou 30 antes). "Código de
 // barras", "código do imóvel 12345" ficam. A palavra sozinha não consome a oração (uma senha mais adiante ainda sai).

@@ -107,7 +107,7 @@ async function responderAoDono(cfg: DoloresWhatsappConfig, numero: string, texto
     return false;
   }
   // dados pessoais seguem o interruptor (opção B do dono); senhas, chaves e dados bancários saem sempre
-  const final = cortarResposta(sanitizarTexto(texto, filtroDaSaida()));
+  const final = cortarResposta(sanitizarTexto(texto, filtroDaSaida("whatsapp")));
   const resumo = { caracteres: final.length, destino: mascararNumero(numero), ...ctx.resumo };
   // QA achado 5: o envio cabe no prazo ÚNICO do aviso (nunca 8 s fixos por item além dele).
   const restante = ctx.prazoFinal - deps.ms();

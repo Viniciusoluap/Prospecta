@@ -9,9 +9,9 @@ import { AGORA, CENARIO, criarBanco } from "./testes-banco.js";
 
 let banco: Awaited<ReturnType<typeof criarBanco>>;
 
-async function chamar(nome: string, argumentos: Record<string, unknown> = {}) {
+async function chamar(nome: string, argumentos: Record<string, unknown> = {}, canal: "whatsapp" | "ponte" = "whatsapp") {
   const fn = funcaoPorNome(nome)!;
-  const r = await fn.executar(fn.entrada.parse(argumentos) as never, { agora: AGORA });
+  const r = await fn.executar(fn.entrada.parse(argumentos) as never, { agora: AGORA, canal });
   return r as { dados: any; resumo: Record<string, unknown> };
 }
 
@@ -245,6 +245,28 @@ describe("opção B (16/11): com o interruptor desligado, as leituras devolvem C
       expect(JSON.stringify(regs)).toContain("\"telefone\":\"99991234567\"");
     });
   }
+
+  it("QA r7 A3: no canal ponte os campos saem MASCARADOS por padrão (mesmo com a opção B do WhatsApp); só DOLORES_PONTE_DADOS_PESSOAIS=1 libera", async () => {
+    await banco.pg.exec("UPDATE leads SET email = 'maria@exemplo.com.br' WHERE id = 1");
+    for (const valor of [undefined, "", "0", "talvez", "1 # x"]) {
+      vi.unstubAllEnvs(); // WhatsApp liberado (opção B)
+      if (valor !== undefined) vi.stubEnv("DOLORES_PONTE_DADOS_PESSOAIS", valor);
+      const c = (await chamar("consultar_cliente", { busca: "maria" }, "ponte")).dados;
+      expect(c.clientes[0], String(valor)).toMatchObject({ cpf: "***.***.***-01", telefone: "(99) *****-4567" });
+      expect(JSON.stringify(c), String(valor)).not.toMatch(/maria@|email/);
+      expect((await chamar("listar_financiamentos", {}, "ponte")).dados.itens[0]).toMatchObject({ cpf: "***.***.***-00" });
+      expect(JSON.stringify((await chamar("listar_processos_regularizacao", {}, "ponte")).dados)).not.toContain("99991234567");
+      expect(JSON.stringify((await chamar("listar_atrasos", {}, "ponte")).dados)).not.toContain("99991234567");
+      // o WhatsApp, no mesmo momento, continua liberado
+      expect((await chamar("consultar_cliente", { busca: "maria" })).dados.clientes[0]).toMatchObject({ cpf: "123.456.789-01" });
+    }
+    for (const valor of ["1", "true", " SIM ", "on", "yes"]) {
+      vi.unstubAllEnvs();
+      vi.stubEnv("DOLORES_PONTE_DADOS_PESSOAIS", valor);
+      expect((await chamar("consultar_cliente", { busca: "maria" }, "ponte")).dados.clientes[0], valor)
+        .toMatchObject({ cpf: "123.456.789-01", telefone: "(99) 99123-4567", email: "maria@exemplo.com.br" });
+    }
+  });
 
   it("com \"1\": mascarados como antes e o e-mail não sai", async () => {
     await banco.pg.exec("UPDATE leads SET email = 'maria@exemplo.com.br' WHERE id = 1");

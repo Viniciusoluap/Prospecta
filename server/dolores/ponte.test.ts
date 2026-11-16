@@ -361,17 +361,29 @@ describe("filtro na saída da ponte (M1)", () => {
     for (const marcador of ["[senha omitida]", "[dado bancário omitido]", "[dado pessoal omitido]"]) expect(tudo).toContain(marcador);
   });
 
-  it("opção B (padrão, variável ausente ou 0): a ponte HTTP devolve CPF, e-mail e telefone inteiros; senha, conta e PIX continuam mascarados", async () => {
+  it("QA r7 A3: a ponte HTTP só devolve CPF, e-mail e telefone inteiros com DOLORES_PONTE_DADOS_PESSOAIS=1; senha, conta e PIX continuam mascarados", async () => {
     await banco.pg.exec(`
       INSERT INTO lead_activities (lead_id, type, description, performed_by, created_at) VALUES (2, 'note', 'Senha do gov.br 1234; CPF 111.222.333-44; conta 12345-6 ag 0001; chave sk-ant-api03-xyz123', 'Bia', '2026-11-16 11:00');
       INSERT INTO whatsapp_messages (connection_id, lead_id, destinatario, mensagem, direcao, lida, created_at) VALUES (1, 1, '5599991234567', 'meu e-mail é maria@x.com e o tel (99) 99123-4567; boleto 23793.38128 60000.000004 00000.000406 1 84340000010000', 'entrada', false, '2026-11-16 11:00');
       UPDATE bpo_lancamentos SET descricao = 'Honorários — PIX 52998224725' WHERE id = 1;`);
-    for (const valor of [undefined, "0", " 0 "]) {
-      if (valor === undefined) vi.unstubAllEnvs(); else vi.stubEnv("DOLORES_MASCARAR_DADOS_PESSOAIS", valor);
+    const consultar = async () => {
       const respostas = [];
       for (const [funcao, argumentos] of [["historico_atendimento", { leadId: 2 }], ["conversas_whatsapp", { leadId: 1 }], ["listar_recebiveis_pendentes", {}]] as const)
         respostas.push(await tratarChamada(pedido({ funcao, argumentos })));
-      const tudo = JSON.stringify(respostas.map(r => r.body));
+      return JSON.stringify(respostas.map(r => r.body));
+    };
+    // a opção B do dono vale para o WhatsApp: na ponte, sem o interruptor próprio, os dados pessoais saem mascarados
+    for (const valor of [undefined, "0", "talvez"]) {
+      vi.unstubAllEnvs(); // DOLORES_MASCARAR_DADOS_PESSOAIS ausente: WhatsApp liberado
+      if (valor !== undefined) vi.stubEnv("DOLORES_PONTE_DADOS_PESSOAIS", valor);
+      const tudo = await consultar();
+      for (const pessoal of ["111.222.333-44", "maria@x.com", "99123-4567"]) expect(tudo, `${valor} ${pessoal}`).not.toContain(pessoal);
+      expect(tudo).toContain("[dado pessoal omitido]");
+    }
+    for (const valor of ["1", " true ", "sim"]) {
+      vi.unstubAllEnvs();
+      vi.stubEnv("DOLORES_PONTE_DADOS_PESSOAIS", valor);
+      const tudo = await consultar();
       for (const inteiro of ["111.222.333-44", "maria@x.com", "(99) 99123-4567", "23793.38128 60000.000004 00000.000406 1 84340000010000"])
         expect(tudo, `${valor} ${inteiro}`).toContain(inteiro);
       for (const segredo of ["gov.br 1234", "12345-6", "ag 0001", "sk-ant-api03", "52998224725"]) expect(tudo, `${valor} ${segredo}`).not.toContain(segredo);

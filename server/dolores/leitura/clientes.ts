@@ -9,7 +9,7 @@ import {
   operationalProjects, regularizacoes, tasks, whatsappMessages,
 } from "../../../drizzle/schema.js";
 import { diaDoPrazo, diaFortaleza, isoFortaleza, paginar, truncar } from "../../../shared/dolores/formato.js";
-import { campoPessoal } from "../dados-pessoais.js";
+import { type CanalDolores, campoPessoal } from "../dados-pessoais.js";
 import { proximaProvidencia } from "../../../shared/dolores/regras.js";
 import { FINANCIAMENTO_STATUS_LABELS } from "../../../shared/financiamento.js";
 import { LEAD_PIPELINE_STAGES, LEGACY_STAGE_LABELS, leadAceitaVencimento } from "../../../shared/lead-pipeline.js";
@@ -18,7 +18,7 @@ import { obraStatusLabel } from "../../../shared/obra-status.js";
 import { rotuloStatusProcesso } from "../../../shared/financeiro/regularizacao.js";
 import { db, docClientePendente, idPositivo, nomesDeUsuarios, paginacao, tarefaAberta, type Resultado } from "./comum.js";
 
-type Ctx = { agora: Date };
+type Ctx = { agora: Date; canal: CanalDolores };
 
 const ETAPAS_CRM: Record<string, string> = { ...LEGACY_STAGE_LABELS, ...Object.fromEntries(LEAD_PIPELINE_STAGES.map(s => [s.key, s.label])) };
 export const rotuloEtapaCrm = (stage: string) => ETAPAS_CRM[stage] ?? stage;
@@ -31,7 +31,7 @@ export const entradaConsultarCliente = z.object({
   limite: z.number().int().min(1).max(10).default(5).describe("Máximo de clientes devolvidos (até 10)."),
 }).strict().refine(a => a.leadId || a.busca, { message: "Informe leadId ou busca." });
 
-export async function consultarCliente(args: z.infer<typeof entradaConsultarCliente>, { agora }: Ctx): Promise<Resultado> {
+export async function consultarCliente(args: z.infer<typeof entradaConsultarCliente>, { agora, canal }: Ctx): Promise<Resultado> {
   const digitos = (args.busca ?? "").replace(/\D/g, "");
   const filtroBusca = args.busca ? or(
     // curingas do LIKE escapados: "%%" procura o texto "%%", não lista todo o CRM
@@ -100,9 +100,9 @@ export async function consultarCliente(args: z.infer<typeof entradaConsultarClie
     return {
       leadId: l.id,
       nome: l.name,
-      telefone: campoPessoal(l.phone, "telefone"),
-      cpf: campoPessoal(l.cpf, "cpf"),
-      email: campoPessoal(l.email, "email"),
+      telefone: campoPessoal(l.phone, "telefone", canal),
+      cpf: campoPessoal(l.cpf, "cpf", canal),
+      email: campoPessoal(l.email, "email", canal),
       cidade: l.city,
       etapaNoCrm: rotuloEtapaCrm(l.stage),
       responsavel: l.responsibleUserId ? nomes.get(l.responsibleUserId) ?? null : null,
@@ -163,7 +163,7 @@ export const entradaConversasWhatsapp = z.object({
   limite: z.number().int().min(1).max(30).default(15).describe("Mensagens (com leadId) ou conversas (sem leadId), até 30."),
 }).strict();
 
-export async function conversasWhatsapp(args: z.infer<typeof entradaConversasWhatsapp>): Promise<Resultado> {
+export async function conversasWhatsapp(args: z.infer<typeof entradaConversasWhatsapp>, { canal }: Ctx): Promise<Resultado> {
   if (args.leadId) {
     const [lead] = await db().select({ id: leads.id, name: leads.name }).from(leads).where(and(eq(leads.id, args.leadId), isNull(leads.deletedAt))).limit(1);
     if (!lead) return { dados: { encontrado: false, mensagem: `Cliente #${args.leadId} não existe no CRM ou foi excluído.` }, resumo: { encontrado: false } };
@@ -197,7 +197,7 @@ export async function conversasWhatsapp(args: z.infer<typeof entradaConversasWha
     dados: {
       conversas: conversas.map(c => ({
         leadId: c.leadId, cliente: c.cliente, contato: truncar(c.nome, 80),
-        telefone: campoPessoal(c.destinatario, "telefone"), ultimaMensagemEm: isoFortaleza(c.ultima), naoLidas: c.naoLidas,
+        telefone: campoPessoal(c.destinatario, "telefone", canal), ultimaMensagemEm: isoFortaleza(c.ultima), naoLidas: c.naoLidas,
       })),
     },
     resumo: { conversas: conversas.length },

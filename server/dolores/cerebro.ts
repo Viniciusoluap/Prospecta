@@ -127,7 +127,7 @@ export async function executarComando(p: PedidoComando): Promise<ResultadoComand
     voltas++;
     try {
       const r = await chamar({
-        apiKey: p.apiKey, modelo: p.modelo, sistema: promptSistemaWhatsapp(mascararDadosPessoais()), ferramentas, mensagens,
+        apiKey: p.apiKey, modelo: p.modelo, sistema: promptSistemaWhatsapp(mascararDadosPessoais("whatsapp")), ferramentas, mensagens,
         maxTokens: MAX_TOKENS_SAIDA, timeoutMs: Math.max(1000, restante()), semFerramentas,
       });
       const uso = usoDe(r);
