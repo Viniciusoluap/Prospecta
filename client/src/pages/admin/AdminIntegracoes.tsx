@@ -14,6 +14,7 @@ import { GoogleDriveCard } from "@/components/admin/GoogleDriveCard";
 import { SubPciAtual } from "@/components/admin/SubPciAtual";
 import { MapboxCard } from "@/components/admin/MapboxCard";
 import { AnthropicCard } from "@/components/admin/AnthropicCard";
+import { DoloresCard } from "@/components/admin/DoloresCard";
 
 type Servico = "asaas" | "pluggy" | "whatsapp";
 type Campo = { nome: string; rotulo: string; segredo?: boolean; placeholder?: string; opcional?: boolean };
@@ -115,7 +116,7 @@ export default function AdminIntegracoes() {
           <Plug className="text-[#C9A961]" />
           <div>
             <h1 className="text-2xl font-bold text-[#C9A961]">Integrações</h1>
-            <p className="text-sm text-gray-400">Asaas, Pluggy, WhatsApp, Google Drive, Mapbox e Anthropic — conexões e configurações em um só lugar.</p>
+            <p className="text-sm text-gray-400">Asaas, Pluggy, WhatsApp, Google Drive, Mapbox, Anthropic e Dolores — conexões e configurações em um só lugar.</p>
           </div>
         </div>
       </header>
@@ -195,6 +196,7 @@ export default function AdminIntegracoes() {
           <GoogleDriveCard />
           <MapboxCard />
           <AnthropicCard />
+          <DoloresCard />
           <SubPciAtual />
         </>}
       </main>

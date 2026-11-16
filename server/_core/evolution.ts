@@ -79,11 +79,17 @@ export async function removerInstancia(c: EvolutionConfig, instancia: string, fe
   await chamar(c, `/instance/delete/${encodeURIComponent(instancia)}`, { method: "DELETE" }, fetchImpl).catch(() => undefined);
 }
 
-export async function enviarTextoEvolution(c: EvolutionConfig, instancia: string, numero: string, texto: string, fetchImpl: Fetch = fetch): Promise<string | null> {
+/**
+ * `opcoes.linkPreview`: só vai no pedido quando informado (a Central de Vendas não informa e fica com o padrão da
+ * Evolution). A Dolores manda false: ninguém busca a URL para montar a prévia (EPIC-025, QA r7 A2).
+ */
+export async function enviarTextoEvolution(c: EvolutionConfig, instancia: string, numero: string, texto: string, fetchImpl: Fetch = fetch,
+  opcoes: { linkPreview?: boolean } = {}): Promise<string | null> {
   const num = numero.replace(/\D/g, "");
   const r = await chamar<{ key?: { id?: string } }>(c, `/message/sendText/${encodeURIComponent(instancia)}`, {
     method: "POST",
-    body: JSON.stringify({ number: num.startsWith("55") ? num : `55${num}`, text: texto }),
+    body: JSON.stringify({ number: num.startsWith("55") ? num : `55${num}`, text: texto,
+      ...(opcoes.linkPreview === undefined ? {} : { linkPreview: opcoes.linkPreview }) }),
   }, fetchImpl);
   return r.ok ? (r.data?.key?.id ?? null) : null;
 }

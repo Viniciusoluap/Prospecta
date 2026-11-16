@@ -41,3 +41,13 @@ export async function usuarioDolores(): Promise<number> {
 
 /** Só para testes: esquece o id guardado (banco novo a cada teste). */
 export function esquecerUsuarioDolores() { cache = null; }
+
+/**
+ * Id da usuária Dolores SEM criar a linha (etapa 2): autora dos registros de mensagens recebidas no WhatsApp, que
+ * acontecem mesmo com a Dolores pausada. Não existe ainda → null (o registro fica sem autora).
+ */
+export async function idDaDoloresSemCriar(): Promise<number | null> {
+  if (cache) return cache;
+  const [u] = await getDb().select({ id: users.id }).from(users).where(eq(users.openId, DOLORES_OPEN_ID)).limit(1);
+  return u?.id ?? null;
+}

@@ -169,10 +169,22 @@ export async function salvarModeloPreferencialAnthropic(id: string, deps: Anthro
 }
 
 /**
+ * Só diz SE há chave legível salva e qual o modelo preferencial — nunca devolve a chave. É o que telas e conferências
+ * usam (ex.: a situação da Dolores em server/dolores/router.ts); quem precisa da chave em si é só o ponto único abaixo.
+ */
+export async function existeChaveAnthropicPainel(deps: AnthropicPainelDeps = anthropicPainelDepsPadrao): Promise<{ existe: boolean; modelo: string | null }> {
+  const [salva, modelo] = await Promise.all([lerChaveSalva(deps), lerModelo(deps)]);
+  return { existe: Boolean(salva && salva !== "ilegivel"), modelo };
+}
+
+/**
  * Chave e modelo preferencial cadastrados no painel, para uma função que opte por usá-los explicitamente.
- * Único uso autorizado (EPIC-024 S-03): a leitura por IA das pranchas da Maquete 3D (server/maquete-3d/base.ts),
- * que pede confirmação do custo por maquete. Não substitui ENV.anthropicApiKey nem os modelos da Central de
- * Vendas ou de INCORPORACAO_IA_MODELO.
+ * Usada em DOIS pontos, e só neles (a guarda em server/integracoes-anthropic.test.ts falha com qualquer outro uso):
+ * - EPIC-024 S-03: `resolverCredencialIA` em server/maquete-3d/base.ts — leitura por IA das pranchas da Maquete 3D,
+ *   com confirmação do custo por execução e teto por maquete;
+ * - EPIC-025 E2: `bloqueioAtual` em server/dolores/whatsapp.ts, depois da pausa e do interruptor da IA da Dolores
+ *   (desligado por padrão).
+ * Não substitui ENV.anthropicApiKey nem os modelos da Central de Vendas ou de INCORPORACAO_IA_MODELO.
  */
 export async function configuracaoAnthropicPainel(deps: AnthropicPainelDeps = anthropicPainelDepsPadrao): Promise<{ apiKey: string; modelo: string | null } | null> {
   const [apiKey, modelo] = await Promise.all([lerChaveSalva(deps), lerModelo(deps)]);

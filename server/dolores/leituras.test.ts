@@ -1,5 +1,5 @@
 // EPIC-025 (Dolores, etapa 1) — leituras contra o cenário de aceite (PGlite). Nada sai para a rede.
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("../db.js", async orig => ({ ...(await orig<typeof import("../db.js")>()), getDb: vi.fn() }));
 
@@ -9,9 +9,9 @@ import { AGORA, CENARIO, criarBanco } from "./testes-banco.js";
 
 let banco: Awaited<ReturnType<typeof criarBanco>>;
 
-async function chamar(nome: string, argumentos: Record<string, unknown> = {}) {
+async function chamar(nome: string, argumentos: Record<string, unknown> = {}, canal: "whatsapp" | "ponte" = "whatsapp") {
   const fn = funcaoPorNome(nome)!;
-  const r = await fn.executar(fn.entrada.parse(argumentos) as never, { agora: AGORA });
+  const r = await fn.executar(fn.entrada.parse(argumentos) as never, { agora: AGORA, canal });
   return r as { dados: any; resumo: Record<string, unknown> };
 }
 
@@ -19,7 +19,11 @@ beforeEach(async () => {
   banco = await criarBanco();
   vi.mocked(getDb).mockReturnValue(banco.db as never);
   await banco.pg.exec(CENARIO);
+  // os testes da etapa 1 afirmam os campos MASCARADOS: rodam com o interruptor ligado; o par liberado (opção B do dono,
+  // 16/11) está em "opção B" no fim do arquivo
+  vi.stubEnv("DOLORES_MASCARAR_DADOS_PESSOAIS", "1");
 });
+afterEach(() => { vi.unstubAllEnvs(); });
 
 describe("teste de aceite: processos de regularização", () => {
   it("atrasados, pendências, responsáveis e próximas providências com os dados reais", async () => {
@@ -223,5 +227,51 @@ describe("cliente excluído do CRM (M3)", () => {
     expect(p).toMatchObject({ clienteExcluidoDoCrm: true, responsavelNoCrm: null, documentosPendentes: [], tarefasAbertas: 0, ultimasAtividadesDoCliente: [] });
     expect((await chamar("listar_obras", { busca: "excluído" })).dados.itens[0]).toMatchObject({ cliente: null, responsavelNoCrm: null });
     expect((await chamar("consultar_cliente", { leadId: 5 })).dados.encontrados).toBe(0);
+  });
+});
+
+describe("opção B (16/11): com o interruptor desligado, as leituras devolvem CPF, telefone e e-mail completos", () => {
+  for (const valor of [undefined, "0"]) {
+    it(`variável ${valor === undefined ? "ausente" : `"${valor}"`}`, async () => {
+      vi.unstubAllEnvs();
+      if (valor !== undefined) vi.stubEnv("DOLORES_MASCARAR_DADOS_PESSOAIS", valor);
+      await banco.pg.exec("UPDATE leads SET email = 'maria@exemplo.com.br' WHERE id = 1");
+      const c = (await chamar("consultar_cliente", { busca: "maria" })).dados.clientes[0];
+      expect(c).toMatchObject({ nome: "Maria Trello", cpf: "123.456.789-01", telefone: "(99) 99123-4567", email: "maria@exemplo.com.br" });
+      expect((await chamar("consultar_cliente", { leadId: 3 })).dados.clientes[0]).toMatchObject({ cpf: null, email: null });
+      expect((await chamar("conversas_whatsapp")).dados.conversas[0]).toMatchObject({ telefone: "5599991234567" });
+      expect((await chamar("listar_financiamentos")).dados.itens[0]).toMatchObject({ cpf: "987.654.321-00" });
+      const regs = (await chamar("listar_processos_regularizacao")).dados;
+      expect(JSON.stringify(regs)).toContain("\"telefone\":\"99991234567\"");
+    });
+  }
+
+  it("QA r7 A3: no canal ponte os campos saem MASCARADOS por padrão (mesmo com a opção B do WhatsApp); só DOLORES_PONTE_DADOS_PESSOAIS=1 libera", async () => {
+    await banco.pg.exec("UPDATE leads SET email = 'maria@exemplo.com.br' WHERE id = 1");
+    for (const valor of [undefined, "", "0", "talvez", "1 # x"]) {
+      vi.unstubAllEnvs(); // WhatsApp liberado (opção B)
+      if (valor !== undefined) vi.stubEnv("DOLORES_PONTE_DADOS_PESSOAIS", valor);
+      const c = (await chamar("consultar_cliente", { busca: "maria" }, "ponte")).dados;
+      expect(c.clientes[0], String(valor)).toMatchObject({ cpf: "***.***.***-01", telefone: "(99) *****-4567" });
+      expect(JSON.stringify(c), String(valor)).not.toMatch(/maria@|email/);
+      expect((await chamar("listar_financiamentos", {}, "ponte")).dados.itens[0]).toMatchObject({ cpf: "***.***.***-00" });
+      expect(JSON.stringify((await chamar("listar_processos_regularizacao", {}, "ponte")).dados)).not.toContain("99991234567");
+      expect(JSON.stringify((await chamar("listar_atrasos", {}, "ponte")).dados)).not.toContain("99991234567");
+      // o WhatsApp, no mesmo momento, continua liberado
+      expect((await chamar("consultar_cliente", { busca: "maria" })).dados.clientes[0]).toMatchObject({ cpf: "123.456.789-01" });
+    }
+    for (const valor of ["1", "true", " SIM ", "on", "yes"]) {
+      vi.unstubAllEnvs();
+      vi.stubEnv("DOLORES_PONTE_DADOS_PESSOAIS", valor);
+      expect((await chamar("consultar_cliente", { busca: "maria" }, "ponte")).dados.clientes[0], valor)
+        .toMatchObject({ cpf: "123.456.789-01", telefone: "(99) 99123-4567", email: "maria@exemplo.com.br" });
+    }
+  });
+
+  it("com \"1\": mascarados como antes e o e-mail não sai", async () => {
+    await banco.pg.exec("UPDATE leads SET email = 'maria@exemplo.com.br' WHERE id = 1");
+    const dados = (await chamar("consultar_cliente", { busca: "maria" })).dados;
+    expect(dados.clientes[0]).toMatchObject({ cpf: "***.***.***-01", telefone: "(99) *****-4567" });
+    expect(JSON.stringify(dados)).not.toMatch(/maria@|email/);
   });
 });

@@ -171,29 +171,80 @@ describe("Anthropic — acesso e isolamento", () => {
     expect(ENV.incorporacaoIaModelo).toBe(antes.modelo);
   });
 
-  it("nenhum código operacional usa a chave do painel (nem pelo módulo, nem pela chave do banco), exceto a leitura da maquete", () => {
+  it("nenhum código operacional usa a chave do painel (nem pelo módulo, nem pela chave do banco), exceto a leitura da maquete e a Dolores, cada uma num ponto único", () => {
     const repo = path.resolve(import.meta.dirname, "..");
-    // EPIC-024 S-03: única opção explícita autorizada pelo dono — a leitura por IA das pranchas da Maquete 3D
-    // (server/maquete-3d/base.ts). Nenhum outro arquivo pode usar a chave do painel.
-    const permitidos = new Set([path.join("server", "integracoes-router.ts"), path.join("server", "_core", "anthropic-painel.ts"), path.join("server", "maquete-3d", "base.ts")]);
-    // módulo, chave em dashboard_settings e a função exportada para uso futuro
+    // EPIC-024 S-03: a leitura por IA das pranchas da Maquete 3D (server/maquete-3d/base.ts, resolverCredencialIA) lê a
+    // chave num único ponto, com confirmação do custo por execução.
+    // EPIC-025 E2 (16/11) — exceção ESTREITA (QA achado 9): só estes arquivos importam o módulo do painel, cada um só
+    // com as funções listadas. A chave em si (configuracaoAnthropicPainel) é lida num único ponto nomeado da Dolores.
+    const importacoesPermitidas: Record<string, string[] | "painel"> = {
+      [path.join("server", "_core", "anthropic-painel.ts")]: "painel",
+      [path.join("server", "integracoes-router.ts")]: "painel", // conferido no teste do router, abaixo
+      [path.join("server", "dolores", "router.ts")]: ["existeChaveAnthropicPainel", "modelosAnthropicPainel"],
+      [path.join("server", "dolores", "whatsapp.ts")]: ["configuracaoAnthropicPainel"],
+      [path.join("server", "maquete-3d", "base.ts")]: ["configuracaoAnthropicPainel"],
+    };
     const marcas = ["anthropic-painel", "anthropic_painel", "configuracaoAnthropicPainel", "CHAVE_SEGREDO_ANTHROPIC_PAINEL", "CHAVE_MODELO_ANTHROPIC_PAINEL"];
     const usam: string[] = [];
+    const leemAChave: string[] = [];
+    const importacoesErradas: string[] = [];
     const varrer = (dir: string) => {
       for (const nome of readdirSync(dir)) {
         const p = path.join(dir, nome);
         if (statSync(p).isDirectory()) { if (!["node_modules", "dist", ".git"].includes(nome)) varrer(p); continue; }
         if (!/\.(ts|tsx|js|mjs|cjs|sql)$/.test(p) || /\.(test|spec)\.ts$/.test(p)) continue;
         const rel = path.relative(repo, p);
-        if (permitidos.has(rel)) continue;
         const texto = readFileSync(p, "utf8");
-        if (marcas.some(m => texto.includes(m))) usam.push(rel);
+        const permitido = importacoesPermitidas[rel];
+        if (!permitido) { if (marcas.some(m => texto.includes(m))) usam.push(rel); continue; }
+        if (permitido === "painel") continue;
+        // só as funções listadas, num único import do módulo
+        const imports = Array.from(texto.matchAll(/import \{([^}]*)\} from "[./]+_core\/anthropic-painel\.js";/g));
+        const nomes = imports.flatMap(m => m[1].split(",").map(x => x.trim()).filter(Boolean));
+        if (imports.length !== 1 || nomes.some(n => !permitido.includes(n))) importacoesErradas.push(`${rel}: ${nomes.join(", ")}`);
+        if (texto.includes("CHAVE_SEGREDO_ANTHROPIC_PAINEL") || texto.includes("anthropic_painel_api_key")) leemAChave.push(rel);
+        const chamadas = texto.split("configuracaoAnthropicPainel(").length - 1;
+        const leChave = [path.join("server", "dolores", "whatsapp.ts"), path.join("server", "maquete-3d", "base.ts")].includes(rel);
+        if (leChave ? chamadas !== 1 : chamadas > 0) leemAChave.push(`${rel} (${chamadas} chamadas)`);
       }
     };
     for (const pasta of ["server", "api", "shared", "scripts", "client", "drizzle"]) {
       try { if (statSync(path.join(repo, pasta)).isDirectory()) varrer(path.join(repo, pasta)); } catch { /* pasta ausente */ }
     }
     expect(usam).toEqual([]);
+    expect(importacoesErradas).toEqual([]);
+    expect(leemAChave).toEqual([]);
+  });
+
+  it("a Dolores só lê a chave do painel num ponto nomeado (bloqueioAtual), depois da pausa e do interruptor (desligado por padrão)", () => {
+    const fonte = readFileSync(path.resolve(import.meta.dirname, "dolores", "whatsapp.ts"), "utf8");
+    // QA r2 N6: o nome inteiro conta (import + UMA chamada direta, "await configuracaoAnthropicPainel()"), dentro do corpo
+    // de bloqueioAtual. Apelido, reexportação, import dinâmico ou função declarada depois fazem o teste falhar.
+    expect(problemasDaLeituraDaChave(fonte)).toEqual([]);
+    expect(nomesDaChaveNaDolores()).toEqual({ [path.join("server", "dolores", "whatsapp.ts")]: 2 });
+    const em = fonte.indexOf("await configuracaoAnthropicPainel()");
+    const funcoes = Array.from(fonte.matchAll(/^(?:export )?(?:async )?function (\w+)/gm)).filter(m => m.index! < em);
+    const corpo = fonte.slice(funcoes.at(-1)!.index!, em);
+    expect(corpo).toMatch(/if \(pausa\.pausada\) return/);
+    expect(corpo).toMatch(/if \(!cfg\.iaLigada\) return/);
+    // o resultado não sai de bloqueioAtual a não ser como apiKey do pedido ao modelo (nunca para log/auditoria)
+    expect(fonte).not.toMatch(/console\.\w+\([^)]*apiKey/);
+    expect(fonte).not.toMatch(/registrarAcao\(\{[^}]*apiKey/);
+    const sql = readFileSync(path.resolve(import.meta.dirname, "..", "drizzle", "0124_dolores_whatsapp.sql"), "utf8");
+    expect(sql).toMatch(/"ia_ligada" boolean NOT NULL DEFAULT false/);
+  });
+
+  it("a tela da Dolores só pergunta SE há chave: existeChaveAnthropicPainel não devolve a chave", async () => {
+    const { existeChaveAnthropicPainel } = await import("./_core/anthropic-painel");
+    const s = setup();
+    expect(await existeChaveAnthropicPainel(s.anthropic)).toEqual({ existe: false, modelo: null });
+    await s.caller.salvarAnthropic({ apiKey: CHAVE });
+    await s.caller.salvarModeloAnthropic({ modelo: "claude-haiku-5" });
+    const r = await existeChaveAnthropicPainel(s.anthropic);
+    expect(r).toEqual({ existe: true, modelo: "claude-haiku-5" });
+    expect(JSON.stringify(r)).not.toContain("sk-ant");
+    ENV.cookieSecret = "outro-segredo-depois-da-rotacao";
+    expect((await existeChaveAnthropicPainel(s.anthropic)).existe).toBe(false); // ilegível = não há chave utilizável
   });
 
   it("na maquete, só a resolução da credencial da leitura usa o acessor do painel (sem tocar em ENV)", () => {
@@ -267,4 +318,71 @@ describe("Anthropic — chave ilegível, texto puro e troca de chave", () => {
     expect(r2.modeloLimpo).toBeNull();
     expect((await s.caller.statusAnthropic()).modeloPreferencial).toBe("claude-haiku-5");
   });
+});
+
+/** Ocorrências do nome configuracaoAnthropicPainel em cada arquivo (não teste) da Dolores (server/dolores, shared/dolores). */
+function nomesDaChaveNaDolores(): Record<string, number> {
+  const repo = path.resolve(import.meta.dirname, "..");
+  const r: Record<string, number> = {};
+  const varrer = (dir: string) => {
+    for (const nome of readdirSync(dir)) {
+      const p = path.join(dir, nome);
+      if (statSync(p).isDirectory()) { varrer(p); continue; }
+      if (!/\.(ts|tsx|js)$/.test(p) || /\.(test|spec)\.ts$/.test(p)) continue;
+      const n = (readFileSync(p, "utf8").match(/configuracaoAnthropicPainel/g) ?? []).length;
+      if (n) r[path.relative(repo, p)] = n;
+    }
+  };
+  for (const pasta of [path.join("server", "dolores"), path.join("shared", "dolores")]) varrer(path.join(repo, pasta));
+  return r;
+}
+
+/**
+ * QA r2 N6 — conferência da leitura da chave na fonte de whatsapp.ts. Devolve o que estiver errado (vazio = ok):
+ * o nome aparece exatamente 2 vezes (o import nomeado e a chamada), o módulo do painel só é citado no import, nada é
+ * reexportado, e a chamada é "await configuracaoAnthropicPainel()" dentro do corpo de bloqueioAtual (do início dela até a
+ * próxima declaração de nível superior).
+ */
+function problemasDaLeituraDaChave(fonte: string): string[] {
+  const p: string[] = [];
+  const ocorrencias = Array.from(fonte.matchAll(/configuracaoAnthropicPainel/g)).map(m => m.index!);
+  if (ocorrencias.length !== 2) p.push(`nome citado ${ocorrencias.length} vezes (esperado 2: import + chamada)`);
+  const importacao = /^import \{ configuracaoAnthropicPainel \} from "\.\.\/_core\/anthropic-painel\.js";$/m.exec(fonte);
+  if (!importacao) p.push("import nomeado ausente ou com apelido");
+  if ((fonte.match(/anthropic-painel/g) ?? []).length !== 1) p.push("módulo do painel citado fora do import (import dinâmico/reexportação)");
+  if (/^\s*export\s*(?:\*|\{[^}]*configuracaoAnthropicPainel)/m.test(fonte)) p.push("reexportação");
+  const inicio = fonte.search(/^async function bloqueioAtual\(/m);
+  if (inicio < 0) { p.push("bloqueioAtual ausente"); return p; }
+  const depois = fonte.slice(inicio + 1).search(/^(?:export\s+)?(?:async\s+)?(?:function|const|let|var|class|type|interface)\b/m);
+  const fim = depois < 0 ? fonte.length : inicio + 1 + depois;
+  const chamadas = ocorrencias.filter(i => !importacao || i < importacao.index || i > importacao.index + importacao[0].length);
+  if (chamadas.length !== 1) p.push(`${chamadas.length} usos fora do import (esperado 1)`);
+  for (const i of chamadas) {
+    if (fonte.slice(i - 6, i + "configuracaoAnthropicPainel()".length) !== "await configuracaoAnthropicPainel()") p.push("uso que não é a chamada direta (apelido?)");
+    if (i < inicio || i >= fim) p.push("chamada fora do corpo de bloqueioAtual");
+  }
+  return p;
+}
+
+describe("QA r2 N6 — a guarda da chave pega apelidos, reexportações e chamadas fora de bloqueioAtual", () => {
+  const original = readFileSync(path.resolve(import.meta.dirname, "dolores", "whatsapp.ts"), "utf8");
+  const chamada = "await configuracaoAnthropicPainel()";
+  it("a fonte real passa", () => expect(problemasDaLeituraDaChave(original)).toEqual([]));
+  const variantes: Array<[string, (f: string) => string]> = [
+    ["apelido dentro de bloqueioAtual", f => f.replace(chamada, "await (() => { const ler = configuracaoAnthropicPainel; return ler(); })()")],
+    ["apelido no import", f => f.replace("import { configuracaoAnthropicPainel }", "import { configuracaoAnthropicPainel as ler }").replace(chamada, "await ler()")],
+    ["reexportação", f => `${f}\nexport { configuracaoAnthropicPainel };\n`],
+    ["reexportação de tudo", f => `${f}\nexport * from "../_core/anthropic-painel.js";\n`],
+    ["import dinâmico", f => `${f}\nconst outro = async () => (await import("../_core/anthropic-painel.js")).configuracaoAnthropicPainel;\n`],
+    ["arrow declarada depois de bloqueioAtual", f => f.replace(chamada, "await lerChave()") + `\nconst lerChave = () => configuracaoAnthropicPainel();\n`],
+    ["segunda chamada", f => `${f}\nasync function vazar() { return await configuracaoAnthropicPainel(); }\n`],
+    ["chamada movida para outra função", f => f.replace(chamada, "await Promise.resolve(null)").replace("async function tratarComando(", `async function antes() { return ${chamada}; }\nasync function tratarComando(`)],
+  ];
+  for (const [nome, mudar] of variantes) {
+    it(`falha: ${nome}`, () => {
+      const mudada = mudar(original);
+      expect(mudada).not.toBe(original);
+      expect(problemasDaLeituraDaChave(mudada)).not.toEqual([]);
+    });
+  }
 });
