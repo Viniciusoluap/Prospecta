@@ -1,6 +1,6 @@
 # E3 — Ações (tarefas, acompanhamentos, cobranças preparadas, geradores, fila de aprovação)
 
-Status: InProgress
+Status: InReview
 Epic: EPIC-025 (Etapa 3) — "Operação Dolores — Prompt Mestre" (16/11/2026), seção 7, linha 3; seções 4.3 e 5
 Paridade: suspensa por ordem do dono em 16/11 (Grupo Santa Fé em espera); registrar no ROADMAP ao fechar o epic.
 Tamanho estimado: G
@@ -16,55 +16,118 @@ aprovação (`dolores_aprovacoes`, seção 6). Teste de aceite (seção 7): "Dol
 documentos pendentes e prepare as cobranças."
 
 ## Critérios de aceite
-- [ ] AC1: funções de AÇÃO pela MESMA porta `executarFuncao` (pausa, usuária ativa, lista fechada, zod com limites,
+- [x] AC1: funções de AÇÃO pela MESMA porta `executarFuncao` (pausa, usuária ativa, lista fechada, zod com limites,
       vaga do minuto, filtro de dados pessoais, auditoria em `dolores_acoes`); cada função declara o nível — `direto`
       (só o que a seção 5 libera sem aprovação e é reversível) ou `fila` (todo o resto).
-- [ ] AC2: `criar_tarefa` (direto) — título, responsável (admin/colaborador ativo, pela mesma regra da tela de
+- [x] AC2: `criar_tarefa` (direto) — título, responsável (admin/colaborador ativo, pela mesma regra da tela de
       Tarefas), prazo plausível, prioridade e vínculo opcional (cliente do CRM ou obra), pelas funções de serviço da tela.
-- [ ] AC3: `registrar_acompanhamento` (direto) — anotação/ligação no histórico do cliente do CRM.
-- [ ] AC4: `preparar_cobranca` (fila) — para cada cliente, a cobrança de documentos é PREPARADA com os documentos
+- [x] AC3: `registrar_acompanhamento` (direto) — anotação/ligação no histórico do cliente do CRM.
+- [x] AC4: `preparar_cobranca` (fila) — para cada cliente, a cobrança de documentos é PREPARADA com os documentos
       pendentes reais (mesma regra de `listar_documentos`), texto montado pelo sistema (não pelo modelo), último contato
       e consentimento LGPD do cadastro; aprovada, vira registro no histórico e o texto volta ao dono. Nunca é enviada ao
       cliente nem registra pagamento.
-- [ ] AC5: `gerar_documento` (fila) — PCI pelo gerador existente (`gerarPciDaObra`), a partir do rascunho salvo pela
+- [x] AC5: `gerar_documento` (fila) — PCI pelo gerador existente (`gerarPciDaObra`), a partir do rascunho salvo pela
       equipe (a Dolores não preenche dado); sai sem assinatura, para o engenheiro responsável conferir.
-- [ ] AC6: fila de aprovação (`dolores_aprovacoes`): quem pediu (mensagem do dono), o que será feito (função +
+- [x] AC6: fila de aprovação (`dolores_aprovacoes`): quem pediu (mensagem do dono), o que será feito (função +
       argumentos validados + resumo legível montado pelo sistema), código curto, situação, quem decidiu/quando, resultado,
       vencimento configurável (`dolores_fila_config.validade_horas`).
-- [ ] AC7: aprovação pelo dono no WhatsApp por regra DETERMINÍSTICA (mensagem inteira = "aprovar CÓDIGO" ou "recusar
+- [x] AC7: aprovação pelo dono no WhatsApp por regra DETERMINÍSTICA (mensagem inteira = "aprovar CÓDIGO" ou "recusar
       CÓDIGO", só do número do dono, não encaminhada) — nunca pela interpretação do modelo; e pela tela (papel admin).
-- [ ] AC8: execução só depois da aprovação, revalidando tudo na hora, uma única vez (reivindicação atômica; aprovação
+- [x] AC8: execução só depois da aprovação, revalidando tudo na hora, uma única vez (reivindicação atômica; aprovação
       dupla ou simultânea não executa duas vezes); vencidos não executam; execução interrompida não é refeita.
-- [ ] AC9: limites fixos impossíveis por qualquer caminho (excluir, editar lançamento confirmado, pagar/baixar/estornar,
+- [x] AC9: limites fixos impossíveis por qualquer caminho (excluir, editar lançamento confirmado, pagar/baixar/estornar,
       usuários/acessos/credenciais/dados bancários, assinar documento, inventar dado, enviar a cliente/terceiro): lista
       fechada no código, recusa auditada, testes de tentativa.
-- [ ] AC10: autoria — tudo o que ela cria leva a usuária Dolores e a referência ao pedido/aprovação (`dolores_autoria` +
+- [x] AC10: autoria — tudo o que ela cria leva a usuária Dolores e a referência ao pedido/aprovação (`dolores_autoria` +
       `pedido_id` de `dolores_acoes`).
-- [ ] AC11: injeção — ação só nasce de comando do dono no WhatsApp (a ponte HTTP não executa ações); dado de ferramenta
+- [x] AC11: injeção — ação só nasce de comando do dono no WhatsApp (a ponte HTTP não executa ações); dado de ferramenta
       não aprova item nem vira destino; testes com dados envenenados.
-- [ ] AC12: leitura continua em READ ONLY; ações em transação de escrita separada e mínima; teto de ações por comando.
-- [ ] AC13: IA desligada por padrão (nada muda), 60 s e tetos do laço, ações no mesmo limite mensal, segredos e números
+- [x] AC12: leitura continua em READ ONLY; ações em transação de escrita separada e mínima; teto de ações por comando.
+- [x] AC13: IA desligada por padrão (nada muda), 60 s e tetos do laço, ações no mesmo limite mensal, segredos e números
       fora de log/resposta/erro.
-- [ ] AC14: migração `0125_dolores_fila.sql` aditiva e idempotente; schema no `drizzle.config.ts`; `dolores_acoes` segue
+- [x] AC14: migração `0125_dolores_fila.sql` aditiva e idempotente; schema no `drizzle.config.ts`; `dolores_acoes` segue
       só de inclusão.
-- [ ] AC15: rotas/tela da fila só admin por PAPEL, testadas pelo `appRouter` com o caminho completo.
+- [x] AC15: rotas/tela da fila só admin por PAPEL, testadas pelo `appRouter` com o caminho completo.
 
 ## Tarefas
-- [ ] T1: levantamento (tarefas, histórico do CRM, documentos pendentes, gerador de PCI, contratos, e-mail).
-- [ ] T2: regras puras `shared/dolores/fila.ts` (código, decisão do dono, texto da cobrança, prazo, resumo).
-- [ ] T3: migração `0125_dolores_fila.sql` + `drizzle/schema-dolores-fila.ts` (+ drizzle.config).
-- [ ] T4: `server/dolores/escrita.ts`, `server/dolores/acoes/*`, `server/dolores/aprovacoes.ts`; ponte (`executarFuncao`
+- [x] T1: levantamento (tarefas, histórico do CRM, documentos pendentes, gerador de PCI, contratos, e-mail).
+- [x] T2: regras puras `shared/dolores/fila.ts` (código, decisão do dono, texto da cobrança, prazo, resumo).
+- [x] T3: migração `0125_dolores_fila.sql` + `drizzle/schema-dolores-fila.ts` (+ drizzle.config).
+- [x] T4: `server/dolores/escrita.ts`, `server/dolores/acoes/*`, `server/dolores/aprovacoes.ts`; ponte (`executarFuncao`
       com ações), permissões (etapa 3), cérebro (ferramentas do WhatsApp), WhatsApp (decisão determinística e quadro de
       pendências), prompt.
-- [ ] T5: rotas `dolores.fila.*` e a tela `DoloresFilaCard` em Integrações.
-- [ ] T6: testes (limites fixos, injeção, fila, permissões).
-- [ ] T7: documentos (`como-ligar.md` Etapa 3, `agente-etapa3.md`), HANDOFF; tsc, testes, build.
+- [x] T5: rotas `dolores.fila.*` e a tela `DoloresFilaCard` em Integrações.
+- [x] T6: testes (limites fixos, injeção, fila, permissões).
+- [x] T7: documentos (`como-ligar.md` Etapa 3, `agente-etapa3.md`), HANDOFF; tsc, testes, build.
+
+## Função → nível → por quê
+
+| Função | Nível | Por quê |
+|---|---|---|
+| `criar_tarefa` | direto | Seção 5: "Criar tarefa … ninguém aprova; execução direta, com registro". Reversível (a equipe conclui/cancela/edita na tela). |
+| `registrar_acompanhamento` | direto | Seção 5: "registrar acompanhamento … execução direta, com registro". Só acrescenta ao histórico. |
+| `preparar_cobranca` | fila | Seção 5: "Mensagem ou e-mail para cliente ou terceiro: eu (o dono)". Mesmo aprovada, NÃO é enviada (nenhuma categoria liberada): vira registro no histórico e o texto volta ao dono. |
+| `gerar_documento` (`pci`) | fila | Grava arquivo na pasta da obra/cliente e é documento técnico; a tabela da seção 5 não o libera sem aprovação — na dúvida, fila. Sai sem assinatura. |
 
 ## File List
-(preenchida ao longo da implementação)
+- `drizzle/0125_dolores_fila.sql` (novo) — `dolores_aprovacoes` (gatilho: sem exclusão, imutável no "o que", sem reabrir
+  encerrado), `dolores_autoria` (só inclusão), `dolores_fila_config` (validade, padrão 48 h). Só tabelas novas.
+- `drizzle/schema-dolores-fila.ts` (novo); `drizzle.config.ts` (schema ligado, os anteriores mantidos).
+- `shared/dolores/fila.ts` (novo, puro) — código, `lerDecisaoDoDono`, `lerPrazo`, `textoDaCobranca`, quadros.
+- `server/dolores/escrita.ts` (novo) — transação de escrita mínima (`bancoDaAcao` lança fora dela).
+- `server/dolores/acoes/{comum,tarefas,acompanhamentos,cobrancas,documentos,registro}.ts` (novos).
+- `server/dolores/aprovacoes.ts` (novo) — fila: pôr, vencer, decidir (reivindicação atômica), listar, quadros.
+- `server/dolores/ponte.ts` — `executarFuncao` com ações (canal do dono, teto por comando, direto/fila, recusa 422),
+  `ferramentasDoWhatsapp`; `permissoes.ts` — `ETAPA_ATUAL = 3`, `LIBERADAS_ETAPA_3`, `PROIBIDAS`; `auditoria.ts` — canal
+  `tela`; `cerebro.ts` — ferramentas do WhatsApp e `mensagemId`; `whatsapp.ts` — decisão por código e quadros; `prompt.ts`.
+- `server/dolores/router.ts` — `dolores.fila.{listar,aprovar,recusar,salvarValidade}` (só admin por papel).
+- `server/db.ts` — conexão opcional (padrão `getDb()`, aditivo) em `getProjectById`, `getLeadById`,
+  `getAssignableLeadById`, `addLeadActivity`, `getAssignableUsers`, `getAssignableUserById`, `createTask`.
+- `client/src/components/admin/DoloresFilaCard.tsx` (novo); `client/src/pages/admin/AdminIntegracoes.tsx`;
+  `client/src/components/admin/DoloresCard.tsx` (texto da etapa).
+- Testes: `server/dolores/acoes.test.ts`, `acoes-whatsapp.test.ts`, `fila-router.test.ts` (novos); `testes-banco.ts`
+  (0125 duas vezes); `ponte.test.ts` e `whatsapp.test.ts` (etapa 3 e motivos novos das recusas).
+- Docs: `docs/dolores/como-ligar.md` (seção Etapa 3), `docs/dolores/agente-etapa3.md` (novo),
+  `docs/dolores/ferramentas-etapa1.json` (regerado: etapa 3, as mesmas 12 leituras — a ponte HTTP não recebe ações),
+  `docs/stories/epics/ROADMAP.md` (paridade, etapa 3), `HANDOFF-16-11-CORRECOES-E-DOLORES.md`.
 
 ## Dev Notes
-(decisões [AUTO-DECISION] ao longo da implementação)
+- IDS: REUSE da porta `executarFuncao`, da auditoria, da usuária Dolores, do laço e do webhook da E2; REUSE das funções de
+  serviço das telas (`createTask`, `getAssignableUsers/UserById`, `getAssignableLeadById`, `getProjectById`,
+  `getLeadById`, `addLeadActivity`) com um parâmetro opcional de conexão (ADAPT mínimo, o padrão continua `getDb()`);
+  REUSE de `listarDocumentos` (mesma regra de "pendente") e de `gerarPciDaObra`/`modeloAtualPci`/`errosPci` do gerador;
+  CREATE só do que não existia (fila, autoria, transação de escrita, regras puras da decisão).
+- [AUTO-DECISION] Quais ações entram → as quatro da linha "3. Ações" do prompt mestre (tarefas, acompanhamentos,
+  cobranças preparadas, geradores). "Atualizar a etapa de um processo" (seção 4.3) e "notificar a equipe" não estão na
+  linha da etapa 3 → ficaram fora (sem inventar escopo); registrado no HANDOFF para o dono decidir.
+- [AUTO-DECISION] Ação só pelo WhatsApp do dono → a ponte HTTP (Claude Console) não tem como provar que o pedido veio do
+  dono; continua só de leitura (403 auditado). Atende "uma ação só nasce de comando do dono".
+- [AUTO-DECISION] Decisão por WhatsApp → mensagem inteira = verbo exato + códigos (5 caracteres, alfabeto sem ambíguos),
+  tratada ANTES da IA (sem custo) e só do número do dono, não encaminhada e sem mídia; frase com qualquer outra coisa vai
+  ao modelo, que não tem ferramenta de aprovação. O modelo não recebe os códigos: o quadro com códigos e resumos é anexado
+  pelo sistema, lido do banco.
+- [AUTO-DECISION] Decisão com a IA desligada → permitida (não chama a Anthropic). Aprovar exige Dolores sem pausa e
+  usuária ativa; recusar vale sempre (não faz nada no sistema).
+- [AUTO-DECISION] Cobrança aprovada → registro "note" no histórico do cliente dizendo que NÃO foi enviada + o texto
+  devolvido ao dono; o envio pela Dolores não existe até o dono liberar categorias. O texto é montado pelo sistema
+  (primeiro nome + lista de pendências) para nenhum dado livre entrar na mensagem ao cliente. A preparação mostra o último
+  contato registrado e o consentimento LGPD (sem consentimento, prepara e avisa; o envio é que dependerá disso).
+- [AUTO-DECISION] Gerador → só a PCI, a partir do rascunho salvo pela equipe (a Dolores não preenche dado); rascunho
+  alterado entre o pedido e a aprovação → não gera. O contrato (Jurídico) não entrou: documento jurídico com dados de
+  partes, sem rascunho prévio por obra. A geração usa as gravações do próprio gerador (fora da transação mínima); a
+  fila garante execução única e a autoria é gravada depois.
+- [AUTO-DECISION] Execução de item aprovado: em erro de revalidação o item vai a "erro" (não volta a "aguardando");
+  interrompido (> 3 min em "executando") vira "erro" e não é refeito. Pedido novo = novo item.
+- [AUTO-DECISION] Prazo de tarefa só com data → 18:00 de Imperatriz (fim do expediente); plausível = hoje a 366 dias.
+- [AUTO-DECISION] Responsável por NOME (o modelo não conhece ids de usuário): exato, senão um único que contenha; ambíguo
+  ou fora da equipe ativa → recusa com a lista. Tarefa aberta igual (mesmo título e vínculo) não é duplicada.
+- [AUTO-DECISION] Teto de 10 ações por comando (diretas + itens na fila), para injeção não multiplicar registros.
+- [AUTO-DECISION] Validade configurável em tabela própria (`dolores_fila_config`), não em `dolores_config`: mudar o
+  `select()` de uma tabela da etapa 1 quebraria a ponte antes de a 0125 ser aplicada.
+- [AUTO-DECISION] Autoria em tabela própria (`dolores_autoria`) em vez de coluna nova em `tasks`/`lead_activities`:
+  nenhuma tabela existente muda; o registro também traz a marca no texto (descrição/autor).
+- Não há script `lint` no `package.json`; qualidade por `tsc --noEmit`, testes e `vite build`. CodeRabbit roda por WSL
+  (não disponível neste ambiente Linux) — não executado.
 
 ## Change Log
 - 16/11/2026 — @dev (Dex): story criada (Draft → InProgress), critérios tirados do prompt mestre (seções 4.3, 5, 6, 7).

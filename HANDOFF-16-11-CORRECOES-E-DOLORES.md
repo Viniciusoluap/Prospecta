@@ -124,3 +124,17 @@ migração da etapa antes. Depois lançar S-03 e S-05, e por fim o EPIC-025 (Dol
   infla essa tabela, não mais a auditoria); conferir `senderPn`/`remoteJidAlt` e os tipos `protocolMessage`/`editedMessage`
   na Evolution real.
 - **Próximo passo exato:** nova rodada do portão de QA da E2 sobre o ramo; aprovado, aplicar 0124 e publicar.
+
+## Atualização — 16/11 — EPIC-025 E3 (Ações) — @dev
+- **Ramo:** `epic025-dolores-etapa3` (base: `epic025-dolores-etapa2` em `bc470d1`, ainda em QA), cópia em
+  `claude/wip-epic025-dolores-etapa3`. Story: `docs/stories/epics/epic-025-dolores/E3-acoes.md`.
+- **Concluído:** ações `criar_tarefa`/`registrar_acompanhamento` (diretas) e `preparar_cobranca`/`gerar_documento` (fila),
+  pela mesma porta `executarFuncao`; fila `dolores_aprovacoes` com decisão por código ("aprovar CÓDIGO") no WhatsApp e na
+  tela Integrações › Dolores — fila de aprovação (só admin); autoria em `dolores_autoria`; migração `0125_dolores_fila.sql`
+  (aditiva, NÃO aplicada). Docs: `docs/dolores/como-ligar.md` (Etapa 3) e `docs/dolores/agente-etapa3.md`.
+- **Testes:** ver a story, seção "Testes executados" (a: automáticos; b: nenhum manual; c: produção pendente).
+- **Pendências:** E2 passar no QA e ir para a `main` antes; aplicar 0124 e 0125; validar em produção uma PCI gerada pela
+  Dolores (prompt mestre, seção 8) e uma cobrança aprovada; "atualizar etapa de processo" (seção 4.3) não entrou na linha
+  da etapa 3 do prompt mestre — fica para decisão do dono.
+- **Próximo passo exato:** portão de QA da E3 sobre o ramo (depois do QA da E2); aprovado, rebase sobre a `main` com a E2,
+  aplicar 0125 e publicar.

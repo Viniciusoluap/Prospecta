@@ -227,3 +227,5 @@ A Dolores não está na lista de exceções; quando o dono mandar fazer a parida
 - [ ] Etapa 1 — ponte, usuária Dolores, leituras e auditoria (`dolores_acoes`)
 - [ ] Etapa 2 — WhatsApp próprio da Dolores (instância separada, webhook com segredo próprio, só o número do dono comanda,
   laço de ferramentas pela mesma porta da ponte, interruptor da IA desligado por padrão, limite mensal de tokens com aviso)
+- [ ] Etapa 3 — ações (criar tarefa e registrar acompanhamento diretos; cobrança preparada e gerador de PCI pela fila de
+  aprovação `dolores_aprovacoes`, decisão do dono por código no WhatsApp ou na tela do admin; autoria em `dolores_autoria`)

@@ -167,3 +167,56 @@ tempo de tratar o de HH:MM; mande de novo".
 - **Desligar a IA** (Integrações › Dolores): vale na hora; ela passa a responder só a frase fixa.
 - Pausa geral (`dolores_config.pausada`, etapa 1): para a ponte e o WhatsApp.
 - Desconectar o número (Integrações › Dolores) ou desativar a usuária Dolores em Usuários e acesso.
+
+---
+
+# Etapa 3 — Ações (tarefas, acompanhamentos, cobranças preparadas, gerador de PCI e fila de aprovação)
+
+**O que muda.** Pelo WhatsApp, além de consultar, a Dolores passa a:
+- **criar tarefa** (responsável, prazo, prioridade, cliente ou obra) e **registrar acompanhamento** no histórico do
+  cliente — na hora, como manda a seção 5 do prompt mestre ("execução direta, com registro");
+- **preparar cobranças de documentos** e **gerar a PCI** de uma obra — esses NÃO acontecem na hora: vão para a **fila de
+  aprovação** e só são executados depois que você aprova.
+
+**O que continua proibido (está no código, não só na instrução):** excluir registro, editar lançamento financeiro, pagar,
+baixar ou estornar, mexer em usuários/acessos/credenciais/dados bancários, assinar documento técnico ou jurídico, inventar
+dado e **enviar mensagem ou e-mail a cliente ou terceiro** (você ainda não liberou nenhuma categoria). A cobrança aprovada
+vai para o histórico do cliente e o texto volta para você; quem envia é a equipe (ou você, encaminhando). A PCI sai sem
+assinatura, para o engenheiro responsável conferir e assinar. Pela ponte HTTP (Claude Console) continuam só consultas.
+
+## 1. Banco (equipe técnica, já autorizado)
+Aplicar no Neon a migração aditiva `drizzle/0125_dolores_fila.sql` (cria `dolores_aprovacoes`, `dolores_autoria` e
+`dolores_fila_config`; não altera nenhuma tabela existente). Depois, publicar.
+
+## 2. Usar
+1. Mande à Dolores, por exemplo: "Dolores, identifique quais clientes estão com documentos pendentes e prepare as cobranças."
+2. Ela responde com o que encontrou e, no fim, um quadro montado pelo próprio sistema:
+   `*Aguardando a sua aprovação*` com um **código** para cada item (ex.: `[K7M3P] Cobrança de documentos para Maria … —
+   rascunho, não será enviada: 1 pendente(s): RG. Último contato registrado: … Consentimento LGPD no cadastro: …`).
+3. Para decidir, responda **só** com a palavra e o(s) código(s): `aprovar K7M3P` · `aprovar K7M3P AC3DE` · `recusar K7M3P`.
+   Qualquer frase diferente (ex.: "pode aprovar o K7M3P, por favor") NÃO vale como aprovação — a aprovação é reconhecida
+   pelo sistema, nunca pela IA; uma mensagem encaminhada também não vale.
+4. Aprovado, ela confere tudo de novo na hora (o cliente ainda existe? ainda falta documento? o rascunho da PCI mudou?) e
+   executa uma única vez. Aprovar duas vezes não repete nada.
+5. Também dá para decidir pela tela: **Integrações › Dolores — fila de aprovação** (só administrador): Aprovar / Recusar,
+   histórico e a validade dos itens.
+
+## 3. Validade da fila
+Item não decidido vence em 48 horas (padrão) e não é mais executado. Para mudar: Integrações › Dolores — fila de
+aprovação → "Validade dos itens novos (horas)" → Salvar (de 1 a 336 horas; vale para os itens novos).
+
+## 4. Gerar PCI pela Dolores
+Ela usa o **rascunho que a equipe salvou** no Gerador de PCI da obra (ela não preenche nenhum dado). Sem rascunho, ou com
+campo que impede a geração, ela diz o que falta e nada vai para a fila. Antes de liberar o uso real, conferir em produção
+uma geração feita por ela (a planilha e o PDF no histórico da obra e a cópia na pasta da obra no Drive).
+
+## 5. Conferir
+- `dolores_acoes`: cada pedido, cada ação (ok/recusada/erro) e cada decisão da fila (`pedido_id` = `fila:CÓDIGO`).
+- `dolores_autoria`: cada registro criado por ela (tarefa, acompanhamento, PCI), com o pedido e o item aprovado.
+- As tarefas criadas por ela trazem "Criada por Dolores (funcionária digital) a pedido do dono" na descrição; os
+  acompanhamentos aparecem no histórico do cliente com o autor "Dolores (funcionária digital)".
+
+## Limites desta etapa
+- No máximo 10 ações (diretas + itens na fila) por mensagem sua.
+- Tudo conta no mesmo limite mensal de tokens da etapa 2. Com a IA desligada, os comandos não agem; "aprovar/recusar
+  CÓDIGO" funciona sem IA (não gasta nada). Com a Dolores pausada, nada é aprovado (recusar continua valendo).
