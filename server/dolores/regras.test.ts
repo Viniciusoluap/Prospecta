@@ -676,6 +676,39 @@ describe("filtro de dados pessoais em texto livre (M1)", () => {
     }
   });
 
+  it("QA r7 A6: segredos disfarçados (pwd/pass/tkn, código de verificação/2FA/segurança, bearer, chaves de API, PEM) saem nos dois modos", () => {
+    const S = "[senha omitida]", K = "[chave de acesso omitida]";
+    const LIB = { mascararDadosPessoais: false } as const;
+    const pem = "-----BEGIN PRIVATE KEY-----\nMIIEvQIBADANBgkqhkiG9w0BAQEFAASC\nabc123\n-----END PRIVATE KEY-----";
+    const casos: Array<[string, string, string]> = [
+      ["pwd: qwerty123", `pwd ${S}`, "qwerty123"], ["pass: qwerty123", `pass ${S}`, "qwerty123"], ["tkn abcdef123456", `tkn ${S}`, "abcdef123456"],
+      ["código de verificação 554433", `código ${S}`, "554433"], ["código 2FA 554433", `código ${S}`, "554433"],
+      ["codigo de seguranca 1234", `codigo ${S}`, "1234"], ["cód. de acesso 9988", `cód. ${S}`, "9988"],
+      ["bearer abcdefghij", K, "abcdefghij"], ["Bearer: abcdefghij12", K, "abcdefghij12"],
+      ["github_pat_11ABCDEFG0123456789_abcdefghijklmnop", K, "github_pat_"], ["AIzaSyA-1234567890abcdefghijklmnopqrstu", K, "AIzaSy"],
+      ["sk_live_51Habcdefghijkl", K, "sk_live"], ["sk_test_51Habcdefghijkl", K, "sk_test"], ["pk_live_abcdefghij12", K, "pk_live"],
+      ["apikey=0123456789abcdef0123456789abcdef", `apikey=${K}`, "0123456789abcdef"], ["api_key: 0123456789abcdef", `api_key: ${K}`, "0123456789abcdef"],
+      ["apikey 0a1b2c3d4e5f60718293a4b5c6d7e8f9", `apikey ${K}`, "0a1b2c3d"], ["client_secret=Zx9_abcdef", `client_secret=${K}`, "Zx9_"],
+      [`chave:\n${pem}\nfim`, `chave:\n${K}\nfim`, "MIIEv"], ["xoxb-123456789012-abcdefghij", K, "xoxb"], ["xoxp-123456789012-abcdefghij", K, "xoxp"],
+    ];
+    for (const [t, esperado, segredo] of casos) for (const op of [LIB, {}]) {
+      const r = sanitizarTexto(t, op);
+      expect(r, t).toBe(esperado);
+      expect(r, t).not.toContain(segredo);
+    }
+    // PEM sem o fim (cortado) também sai até o fim do texto
+    expect(sanitizarTexto("-----BEGIN RSA PRIVATE KEY-----\nMIIEvQIBADAN", LIB)).toBe(K);
+    for (const t of ["código do imóvel 12345", "código de barras 123", "o segredo do sucesso", "passe livre 2026", "secret santa 2026",
+      "apikey curta", "o bearer da notícia"]) expect(sanitizarTexto(t, LIB), t).toBe(t);
+    for (const p of ["bearer ", "apikey ", "-----BEGIN PRIVATE KEY-----", "código de verificação ", "pwd: x "]) {
+      const t = p.repeat(Math.ceil(200 * 1024 / p.length));
+      const t0 = performance.now();
+      sanitizarTexto(t, LIB);
+      sanitizarTexto(t);
+      expect(performance.now() - t0, p).toBeLessThan(2000);
+    }
+  });
+
   it("percorre a resposta inteira (listas e objetos), sem tocar números e chaves", () => {
     expect(sanitizarResposta({ a: [{ texto: "cpf 111.222.333-44", n: 11122233344 }], "111.222.333-44": null }))
       .toEqual({ a: [{ texto: "cpf [dado pessoal omitido]", n: 11122233344 }], "111.222.333-44": null });

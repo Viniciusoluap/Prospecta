@@ -172,7 +172,7 @@ const FIM_DA_ORACAO = "(?=[;\\n]|[.,!?](?:\\s|$)|$)";
 // QA r7 A1(c): "senha, X", "senha: X", "senha — X", "senha é X" e "senha\nX" levam junto a palavra X (antes, a vírgula ou a
 // quebra de linha logo depois fechava a oração e a senha ficava à vista). A palavra não leva a pontuação final.
 const DEPOIS_DA_SENHA = "(?:[ \\t]*(?:[,:=]|[-–—]+>?)[ \\t]*(?:\\r?\\n[ \\t]*)?|[ \\t]*\\r?\\n[ \\t]*|[ \\t]+é[ \\t]+)[^\\s,;]*[^\\s,;.!?]";
-const SENHA = new RegExp(`\\b(senhas?|password|passwd|token|pin|otp)\\b(?:${DEPOIS_DA_SENHA})?.*?${FIM_DA_ORACAO}`, "gi");
+const SENHA = new RegExp(`\\b(senhas?|password|passwd|pwd|pass|token|tkn|pin|otp)\\b(?:${DEPOIS_DA_SENHA})?.*?${FIM_DA_ORACAO}`, "gi");
 /**
  * QA r7 A1(b): gatilho de credencial. Depois dele, na mesma linha (e na linha seguinte quando ele fecha a linha), a
  * palavra com cara de senha (ver pareceSenha) sai. O CPF ou o usuário ao lado seguem a regra de dado pessoal.
@@ -208,8 +208,10 @@ const ARROBA_SEM_DOMINIO = /(?<![\p{L}\p{N}_.+!#$%&*-])[\p{L}\p{N}_.+!#$%&*-]+@[
 const trocarArrobaSemDominio = (m: string) => (EMAIL_DE_VERDADE.test(m) ? m : SENHA_OMITIDA);
 // QA r4 S5: "código" só é senha com senha/acesso/token/OTP por perto (40 caracteres depois ou 30 antes). "Código de
 // barras", "código do imóvel 12345" ficam. A palavra sozinha não consome a oração (uma senha mais adiante ainda sai).
+// QA r7 A6: também "código de verificação/segurança/confirmação/autenticação", "código 2FA" e "cód." abreviado.
+const PERTO_DO_CODIGO = "(?:senhas?|acesso|token|otp|verifica[cç][aã]o|seguran[cç]a|confirma[cç][aã]o|autentica[cç][aã]o|2fa|mfa)";
 const CODIGO = new RegExp(
-  "\\b(c[oó]digos?)\\b(?:(?=[^.;,\\n]{0,40}?\\b(?:senhas?|acesso|token|otp)\\b)|(?<=\\b(?:senhas?|acesso|token|otp)\\b[^.;\\n]{0,30}c[oó]digos?))"
+  `\\b(c[oó]d(?:igos?\\b|\\.))(?:(?=[^.;,\\n]{0,40}?\\b${PERTO_DO_CODIGO}\\b)|(?<=\\b${PERTO_DO_CODIGO}\\b[^.;\\n]{0,30}c[oó]digos?))`
   + `.*?${FIM_DA_ORACAO}`,
   "gi",
 );
@@ -684,17 +686,30 @@ function trocarPix(m: string, rotulo: string, sep: string, valor: string, pos: n
 export type OpcoesFiltro = { mascararDadosPessoais?: boolean };
 export const CHAVE_OMITIDA = "[chave de acesso omitida]";
 /** Chave de API ou credencial em forma reconhecível (sempre sai, com ou sem palavra de senha antes). */
-const CHAVE_API = /\bsk-ant-[\w-]{4,}|\bsk-(?:proj-)?[A-Za-z0-9_-]{20,}|\bBearer\s+[\w.~+/=-]{8,}|\beyJ[\w-]{8,}\.[\w-]{8,}\.[\w-]{8,}|\b(?:AKIA|ASIA)[0-9A-Z]{16}\b|\bgh[pousr]_[A-Za-z0-9]{30,}|\bxox[abprs]-[\w-]{10,}/g;
+const CHAVE_API = /\bsk-ant-[\w-]{4,}|\bsk-(?:proj-)?[A-Za-z0-9_-]{20,}|\bgithub_pat_\w{20,}|\bAIza[\w-]{30,}|\b(?:sk|rk|pk)_(?:live|test)_\w{10,}|-----BEGIN [A-Z ]{0,40}PRIVATE KEY-----[\s\S]*?(?:-----END [A-Z ]{0,40}PRIVATE KEY-----|$)|\beyJ[\w-]{8,}\.[\w-]{8,}\.[\w-]{8,}|\b(?:AKIA|ASIA)[0-9A-Z]{16}\b|\bgh[pousr]_[A-Za-z0-9]{30,}|\bxox[abprs]-[\w-]{10,}/g;
+/** QA r7 A6: "bearer" em qualquer caixa, com ":" opcional ("Bearer: …", "bearer abc…"). */
+const BEARER = /\bbearer\b\s*:?\s*[\w.~+/=-]{8,}/gi;
+/**
+ * QA r7 A6: rótulo de chave seguido do valor ("apikey=<hex>", "api_key: …", "client_secret=…", "x-api-key: …"). Sem ":"
+ * nem "=", só valor longo (16+) com dígito ("apikey 0a1b…", como no erro da Evolution).
+ */
+const ROTULO_CHAVE = /\b(x-api-key|api[_-]?key|apikey|client[_-]?secret|secret(?:[_-]?key)?|access[_-]?key|aws[_ -]secret(?:[_ -]access)?[_ -]key)\b(\s*["']?\s*[:=]?\s*["']?)([^\s"',;]{6,})/gi;
+function trocarRotuloChave(m: string, rotulo: string, sep: string, valor: string): string {
+  if (!/[:=]/.test(sep) && (valor.length < 16 || !/\d/.test(valor))) return m;
+  return `${rotulo}${sep}${CHAVE_OMITIDA}`;
+}
 
 /** Texto livre com senhas, chaves, dados bancários e (se ligado) CPF/CNPJ, e-mail e telefone trocados por marcadores. */
 export function sanitizarTexto(texto: string, opcoes: OpcoesFiltro = {}): string {
   if (!texto) return texto;
   const mascararPessoais = opcoes.mascararDadosPessoais ?? true;
   const t = normalizarParaFiltro(texto);
-  if (!/[\d@!#$%&*_+=~^]|senha|password|passwd|c[oó]digo|token|\bpin\b|\botp\b|\bat\b|arroba|sk-|bearer|eyJ|login|acesso|credencia|usu[aá]rio|user|gov|inss|cac|conecta|portal|pwd|pass/i.test(t)) return texto;
+  if (!/[\d@!#$%&*_+=~^]|senha|password|passwd|c[oó]digo|token|\bpin\b|\botp\b|\bat\b|arroba|sk-|sk_|pk_|bearer|eyJ|AIza|github_pat|BEGIN|apikey|api_key|secret|login|acesso|credencia|usu[aá]rio|user|gov|inss|cac|conecta|portal|pwd|pass|tkn|c[oó]d/i.test(t)) return texto;
   const segredos = (x: string) => {
     let s = x
       .replace(CHAVE_API, CHAVE_OMITIDA)
+      .replace(BEARER, CHAVE_OMITIDA)
+      .replace(ROTULO_CHAVE, trocarRotuloChave)
       .replace(SENHA, (_m, palavra: string) => `${palavra} ${SENHA_OMITIDA}`)
       .replace(CODIGO, (_m, palavra: string) => `${palavra} ${SENHA_OMITIDA}`)
       .replace(PIX_EMAIL, (_m, rotulo: string, sep: string) => `${rotulo}${sep}${BANCARIO_OMITIDO}`);
