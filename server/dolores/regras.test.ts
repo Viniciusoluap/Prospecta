@@ -254,6 +254,23 @@ describe("filtro de dados pessoais em texto livre (M1)", () => {
       .toBe(`boleto 75690.00016 99123.456784 99000.000002 7 84340000010000 ${OMITIDO_T}`);
   });
 
+  it("QA r4 S3: dados bancários e janelas de dígitos em 200 kB patológicos ficam em tempo linear (limite 3 s cada)", () => {
+    const N = 200 * 1024;
+    const enche = (p: string) => p.repeat(Math.ceil(N / p.length)).slice(0, N);
+    const casos: Array<[string, string]> = [
+      ["ag-…ag- at", `${enche("ag-")} at`], ["conta-…conta- arroba", `${enche("conta-")} arroba`], ["1‑", enche("1\u2011")],
+      ["٩ ", enche("\u0669 ")], ["1 ", enche("1 ")], ["9 ", enche("9 ")], ["99 ", enche("99 ")], ["9|", enche("9|")], ["1|", enche("1|")],
+      ["| 1 ", enche("| 1 ")], ["código ", enche("código ")], ["pix 1 ", enche("pix 1 ")], ["a arroba ", enche("a arroba ")],
+      ["a @ ", enche("a @ ")], ["a ponto ", `x arroba ${enche("a ponto ")}`], ["1234 ", enche("1234 ")], ["conta 1", enche("conta 1")],
+    ];
+    for (const [nome, t] of casos) {
+      const inicio = performance.now();
+      sanitizarTexto(t);
+      const ms = performance.now() - inicio;
+      expect(ms, `${nome}: ${ms.toFixed(0)} ms`).toBeLessThan(3000);
+    }
+  });
+
   it("percorre a resposta inteira (listas e objetos), sem tocar números e chaves", () => {
     expect(sanitizarResposta({ a: [{ texto: "cpf 111.222.333-44", n: 11122233344 }], "111.222.333-44": null }))
       .toEqual({ a: [{ texto: "cpf [dado pessoal omitido]", n: 11122233344 }], "111.222.333-44": null });

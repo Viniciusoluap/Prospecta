@@ -381,8 +381,10 @@ function mascararCadeias(texto: string): string {
         for (let j = Math.min(fimTrecho, i + 15); j >= i; j--) {
           const total = soma[j + 1] - soma[i];
           if (total < 8 || total > 14) continue;
-          // "sozinho": a sub-cadeia é o trecho inteiro, ou um grupo isolado entre "|" (célula de tabela)
-          const sozinho = (i === ini || ligacoes[i - 1].includes("|")) && (j === fimTrecho || ligacoes[j].includes("|"));
+          // "sozinho": a sub-cadeia é o trecho inteiro, ou uma célula de tabela (entre "|", sem "|" dentro)
+          const inteiro = i === ini && j === fimTrecho;
+          const sozinho = inteiro || ((i === ini || ligacoes[i - 1].includes("|")) && (j === fimTrecho || ligacoes[j].includes("|"))
+            && (j === i || !ligacoes.slice(i, j).some(l => l.includes("|"))));
           if (!sozinho && !formaPossivel(tamanhos, ruins, i, j, total)) continue;
           const lista = i > ini && quatro[i] - quatro[ini] === i - ini ? c[ini].inicio : -1;
           if (classificar(c.slice(i, j + 1), ligacoes.slice(i, j), texto, sozinho, lista)) { achou = j; break; }
