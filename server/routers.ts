@@ -47,6 +47,7 @@ import { podeUsarModulo, requireModule, requireModuloDoDestino, requireRole } fr
 import { podeVerDetalhesObra } from "./obra-acesso.js";
 import { bancarioRouter, pluggySettingsRouter } from "./bancos-router.js";
 import { parseKmlTerreno } from "./_core/geo/kml.js";
+import { avisoDoKmz, entradaArquivoTerreno, kmlDoEnvio } from "./incorporacao-terreno-arquivo.js";
 import { fetchElevationGrid } from "./_core/geo/elevacao.js";
 import { pesquisarMercado } from "./_core/incorporacao/mercado-ia.js";
 import { pesquisarDadosPublicos } from "../shared/incorporacao/dados-publicos.js";
@@ -2772,14 +2773,15 @@ export const appRouter = router({
       }),
 
     uploadKml: protectedProcedure
-      .input(z.object({ id: z.number(), kmlContent: z.string().min(1) }))
+      .input(z.object({ id: z.number(), ...entradaArquivoTerreno }))
       .mutation(async ({ input, ctx }) => {
         requireModule(ctx, "incorporacao");
         const estudo = await db.getIncorporationStudyById(input.id);
         if (!estudo) throw new TRPCError({ code: "NOT_FOUND" });
+        const arquivo = await kmlDoEnvio(input, ctx.user.id); // S-08: KML ou KMZ, enviado em partes
         let terreno;
         try {
-          terreno = parseKmlTerreno(input.kmlContent);
+          terreno = parseKmlTerreno(arquivo.kml);
         } catch (e) {
           throw new TRPCError({
             code: "BAD_REQUEST",
@@ -2801,6 +2803,7 @@ export const appRouter = router({
           perimetroM: terreno.perimetroM,
           centroLat: terreno.centro[1],
           centroLng: terreno.centro[0],
+          aviso: avisoDoKmz(arquivo),
         };
       }),
 

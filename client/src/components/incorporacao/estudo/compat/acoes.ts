@@ -10,6 +10,7 @@ import type { DueDiligence } from "@shared/incorporacao/due-diligence";
 import type { MultiPolygon } from "geojson";
 import { LIMITE_ANEXO_BYTES, LIMITE_ANEXO_ROTULO, MIME_GENERICO, PARTE_ANEXO_BYTES, anexoVisualizavel, mimeDoAnexo, partesDoAnexo } from "@shared/incorporacao/anexos";
 import type { ErroAcao } from "./acao-resultado";
+import { LIMITE_DOCUMENTO, enviarPartes } from "@/lib/documentos-partes";
 
 const api = createTRPCClient<AppRouter>({ links: linksDoCliente() });
 
@@ -87,11 +88,18 @@ export async function obterElevacao(estudoId: string, bbox: { south: number; nor
 /** A grade já foi gravada por `obterElevacao`; aqui só recarrega o estudo. */
 export async function salvarElevacao(_estudoId: string, _elevacaoJson: string) { return gravar(async () => undefined); }
 
-export async function uploadKml(estudoId: string, formData: FormData): Promise<{ ok?: true; error?: string }> {
+/** S-08: KML ou KMZ, até 20 MB, enviado em partes de 1 MiB (a Vercel recusa corpo acima de ~4,5 MB). */
+export async function uploadKml(estudoId: string, formData: FormData): Promise<{ ok?: true; error?: string; aviso?: string | null }> {
   const file = formData.get("kml") as File | null;
-  if (!file || file.size === 0) return { error: "Selecione um arquivo KML." };
-  if (file.size > 10 * 1024 * 1024) return { error: "Arquivo muito grande (máx. 10 MB)." };
-  try { await inc.uploadKml.mutate({ id: id(estudoId), kmlContent: await file.text() }); await recarregar(); return { ok: true }; }
+  if (!file || file.size === 0) return { error: "Selecione um arquivo KML ou KMZ." };
+  if (!/\.(kml|kmz)$/i.test(file.name)) return { error: "Envie um arquivo .kml ou .kmz." };
+  if (file.size > LIMITE_DOCUMENTO) return { error: "Arquivo muito grande (máx. 20 MB)." };
+  try {
+    const uploadId = await enviarPartes(file, `incorporacao-terreno:${id(estudoId)}`);
+    const r = await inc.uploadKml.mutate({ id: id(estudoId), uploadId, fileName: file.name });
+    await recarregar();
+    return { ok: true, aviso: r.aviso };
+  }
   catch (e) { return { error: mensagem(e) }; }
 }
 
