@@ -73,10 +73,44 @@ entre lotes, e editável.
 - `client/src/components/maquete-3d/visualizador/Visualizador.tsx` — passa o muro que vale (`muroDaMaquete`).
 - `client/src/components/maquete-3d/EditorMuro.tsx` (novo) — edição do muro e dos portões.
 - `client/src/pages/admin/AdminMaquete3D.tsx` — editor do muro na revisão da planta.
-- `server/maquete-3d-muro.test.ts` (novo) — 13 testes.
+- `server/maquete-3d-muro.test.ts` (novo) — 28 testes (15 do QA loop).
+- `server/maquete-3d.test.ts` — teste de router do muro (QA loop).
+- `shared/maquete-3d/vias.ts` — limites da implantação contam as áreas extras (QA loop).
+- `client/src/components/maquete-3d/EditorPlanta.tsx` — desenha as áreas extras do terreno (QA loop).
+
+## QA Results
+
+### Gate 1 (16/11/2026, @qa) — CONCERNS
+Código sólido (sem exceção nem NaN em contornos hostis, cantos fechados, portão no eixo da rua), com 3 pontos médios e
+4 leves. Correções do @dev (QA loop, 16/11/2026), cada uma com teste:
+
+| # | Achado | Correção | Commit |
+|---|---|---|---|
+| M1 | KML com várias áreas: muro só na maior, lotes das outras sem muro e sem aviso | `implantacao.terrenosExtras` (opcional; a maior continua em `terreno`, então todo leitor antigo segue igual); um muro por área, cada uma com o seu portão automático; `portao.area` (ausente = 0); editor lista os portões por área; maquete antiga com lote fora do `terreno` e sem áreas extras ganha aviso "Atualize a implantação a partir do estudo" | 889e5d4, 97c256b, 7711e78 |
+| M2 | Link publicado mudaria sem revisão | `porToken` devolve `modeloParaLinkPublico` (muro ausente = desligado: o link fica como foi publicado); `salvarModelo` e `publicar` gravam o muro que vale (`comMuroGravado`); a tela mostra "Condomínio publicado antes do muro: revise e publique de novo para o cliente ver o muro" (`publicadoSemMuro`) | 97c256b |
+| M3 | Segunda rua que chega à divisa era murada | Toda rua da malha que chega à divisa ganha abertura (acesso do estudo, ponta junto da divisa e rua que a atravessa): a principal é a portaria, as outras, portões secundários. Tirar um secundário no editor fecha a rua com muro e o editor diz "a rua … termina no muro", com "Reabrir portão" | 889e5d4, 7711e78 |
+| L4 | Lascas de muro fora do terreno; gravata-borboleta sem muro e sem mensagem | Todo vértice que sai é levado ao ponto mais perto da divisa (índice por faixas); nota "o muro foi afinado"; contorno sem área = ERRO de validação claro; contorno que se cruza com área = aviso | 889e5d4, 5a94074 |
+| L5 | Frestas de 17 cm / 13,6 cm sob o muro em relevo íngreme | Estações também onde cada face cruza as arestas da malha do terreno (o pé segue a malha exatamente) e fundação de 0,5 m (`ENTERRO_MURO`) | 889e5d4 |
+| L6 | Portões editados guardados em metros do vértice 1 sobreviviam à mudança do contorno | `muro.contorno` (assinatura) gravado ao editar; "Atualizar a implantação" leva cada portão ao ponto da nova divisa mais perto da posição anterior, marca `reancorado` (aviso na validação e na tela, com "Conferi os portões"); planta do editor mostra o vértice 1 de cada área, a portaria (■) e os secundários (▲) | 97c256b, 7711e78 |
+| L7 | Campo numérico limitava a cada tecla | Limita só ao sair do campo ou com Enter (`numeroConfirmado`) | 7711e78, 9af4895 |
+
+Sondas do QA (`probe.mts`, `probe2.mts`) antes → depois: agulha 5,9 cm → 0; ponta de 3° 1,6 cm → 0; fechadura 46 cm → 0;
+faixa de 0,3 m 16,5 cm → 0; serrilhado 17,6 cm → 0; vértices de muro no corredor da 2ª rua 74 → 0; vala a 45° 17,3 cm → 0;
+barranco 2:1 13,6 cm → 0. Desempenho: contorno de 4.000 pontos ~65 ms; serrilhado hostil 4.000 pontos 271 → ~585 ms
+(conferência do contorno), dentro do orçamento do teste (2,5 s).
+
+[AUTO-DECISION] Na grade do estudo de massa, as ruas terminam na divisa: o condomínio de teste passa a ter 12 aberturas
+(1 portaria + 11 secundários). É a regra pedida ("nunca murar o corredor de uma rua"); quem revisa tira os secundários
+que não existirem — o muro fecha a rua e o editor avisa.
+
+Testes: `server/maquete-3d-muro.test.ts` 28 (15 novos); `server/maquete-3d.test.ts` +1 teste de router (duas áreas,
+portões reposicionados, link publicado sem muro, salvar grava o muro). `npx vitest run server/maquete-3d
+server/auth-session.test.ts server/imports-esm.test.ts`: 8 arquivos, 158 testes passam. `tsc` e `vite build` sem erro.
+Capturas: `aereo-duas-areas-duas-ruas.png` e `portaria-e-secundario.png` (pasta de rascunho da sessão, `s04/`).
 
 ## Change Log
 | Data | Autor | Mudança |
 |---|---|---|
 | 16/11/2026 | Dex (@dev) | Story criada a partir da correção 04 do EPIC-024; Status Ready → InProgress. |
 | 16/11/2026 | Dex (@dev) | Implementação concluída (modelo, geometria, visualizador, edição, testes, conferência visual); Status InProgress → InReview. |
+| 16/11/2026 | Dex (@dev) | QA loop 1: correções M1–M3 e L4–L7 do gate CONCERNS, com testes; segue InReview para o re-gate. |
