@@ -174,3 +174,36 @@ describe("limites da saída", () => {
     expect(dados.itens.every((p: any) => p.observacoesDoProcesso === null || p.observacoesDoProcesso.length <= 280)).toBe(true);
   });
 });
+
+describe("cliente excluído do CRM (M3)", () => {
+  beforeEach(async () => {
+    await banco.pg.exec(`
+      INSERT INTO leads (name, phone, stage, deleted_at, responsible_user_id) VALUES ('Excluído Fulano', '99911112222', 'attending', '2026-11-01', 2);
+      INSERT INTO lead_activities (lead_id, type, description, created_at) VALUES (5, 'note', 'anotação do excluído', '2026-11-15 12:00');
+      INSERT INTO whatsapp_messages (connection_id, lead_id, destinatario, mensagem, direcao, lida, created_at) VALUES
+        (1, 5, '5599911112222', 'mensagem do excluído', 'entrada', false, '2026-11-16 11:00'),
+        (1, NULL, '5599900001111', 'contato sem cliente', 'entrada', false, '2026-11-16 11:30');
+      INSERT INTO lead_documents (lead_id, type, status) VALUES (5, 'rg', 'pending');
+      INSERT INTO tasks (title, assigned_to, related_type, related_id, status, due_at) VALUES ('Tarefa do excluído', 'Bianca Souza', 'lead', 5, 'pending', '2026-11-10 12:00');
+      INSERT INTO regularizacoes (client_name, type, status, address, responsible, lead_id) VALUES ('Excluído Fulano', 'Usucapião', 'em_andamento', 'Rua', 'Bianca Souza', 5);
+      INSERT INTO regularizacao_documents (regularizacao_id, name, status) VALUES (5, 'Documento do excluído', 'pending');
+      INSERT INTO financiamentos (cliente_nome, cliente_tel, status, lead_id) VALUES ('Excluído Fulano', '9', 'documentacao', 5);
+      INSERT INTO financiamento_checklist_items (financiamento_id, grupo, item, solicitar_documento) VALUES (2, 'Docs', 'Checklist do excluído', true);
+      INSERT INTO construction_projects (title, lead_id, status, progress) VALUES ('Obra do excluído', 5, 'in_progress', 10);`);
+  });
+
+  it("histórico, conversas, documentos, tarefas e dados do CRM dele não saem", async () => {
+    expect((await chamar("historico_atendimento", { leadId: 5 })).dados).toMatchObject({ encontrado: false });
+    expect((await chamar("conversas_whatsapp", { leadId: 5 })).dados).toMatchObject({ encontrado: false });
+    expect(JSON.stringify((await chamar("conversas_whatsapp")).dados)).not.toMatch(/excluído|Excluído|contato sem cliente|1111/);
+    const docs = JSON.stringify((await chamar("listar_documentos", { situacao: "todos", limite: 50 })).dados);
+    expect(docs).not.toMatch(/excluído|Excluído/i);
+    const t = (await chamar("listar_tarefas")).dados.itens.find((x: any) => x.tarefa === "Tarefa do excluído");
+    expect(t).toMatchObject({ cliente: null, leadId: null, clienteExcluidoDoCrm: true });
+    // o processo de regularização continua (como na tela), sem nada do CRM do cliente excluído
+    const p = (await chamar("detalhar_processo_regularizacao", { id: 5 })).dados;
+    expect(p).toMatchObject({ clienteExcluidoDoCrm: true, responsavelNoCrm: null, documentosPendentes: [], tarefasAbertas: 0, ultimasAtividadesDoCliente: [] });
+    expect((await chamar("listar_obras", { busca: "excluído" })).dados.itens[0]).toMatchObject({ cliente: null, responsavelNoCrm: null });
+    expect((await chamar("consultar_cliente", { leadId: 5 })).dados.encontrados).toBe(0);
+  });
+});

@@ -42,8 +42,11 @@ export async function carregarProcessos(ids: number[] | null, agora: Date, diasP
   if (!regs.length) return [];
 
   const regIds = regs.map(r => r.reg.id);
-  const leadIds = Array.from(new Set(regs.map(r => r.reg.leadId).filter((x): x is number => !!x)));
-  const servicoIds = Array.from(new Set(regs.map(r => r.reg.leadServiceId).filter((x): x is number => !!x)));
+  // Cliente excluído do CRM (deleted_at): o processo continua (como na tela de Regularizações), mas nada do CRM dele
+  // (documentos, tarefas, atividades, follow-ups, responsável) é lido.
+  const crmAtivo = (r: (typeof regs)[number]) => !!r.lead && !r.lead.deletedAt;
+  const leadIds = Array.from(new Set(regs.filter(crmAtivo).map(r => r.reg.leadId).filter((x): x is number => !!x)));
+  const servicoIds = Array.from(new Set(regs.filter(r => crmAtivo(r) || !r.reg.leadId).map(r => r.reg.leadServiceId).filter((x): x is number => !!x)));
   const vazio = Promise.resolve([] as never[]);
 
   const [etapas, docsReg, docsLead, tarefas, atividades, followUps, recebimentos, nomes] = await Promise.all([
@@ -83,17 +86,22 @@ export async function carregarProcessos(ids: number[] | null, agora: Date, diasP
   const atividadePor = new Map(atividades.map(a => [a.leadId, a.ultima]));
   const recebimentoPor = new Map(recebimentos.map(r => [r.regularizacaoId, r.ultima]));
 
-  return regs.map(({ reg, servico, lead }) => {
+  return regs.map(linha => {
+    const { reg, servico, lead } = linha;
+    const ativo = crmAtivo(linha);
+    const lid = ativo ? reg.leadId : null;
+    const sid = ativo || !reg.leadId ? reg.leadServiceId : null;
+    const leadAtivo = ativo ? lead : null;
     const encerrado = STATUS_ENCERRADOS_PROCESSO.has(reg.status);
     const minhasEtapas = etapasPor.get(reg.id) ?? [];
     const atual = etapaAtual(minhasEtapas);
-    const minhasTarefas = tarefas.filter(t => (reg.leadServiceId && t.leadServiceId === reg.leadServiceId)
-      || (reg.leadId && t.relatedType === "lead" && t.relatedId === reg.leadId));
+    const minhasTarefas = tarefas.filter(t => (sid && t.leadServiceId === sid)
+      || (lid && t.relatedType === "lead" && t.relatedId === lid));
     const abertas = minhasTarefas.filter(t => tarefaAberta(t.status));
     const atrasadas = abertas.filter(t => tarefaAtrasada(t, agora));
     // Documentos do cliente: os deste serviço e os gerais do cliente (sem serviço).
-    const docsCliente = (reg.leadId ? docsLeadPor.get(reg.leadId) ?? [] : []).filter(d => !d.serviceId || d.serviceId === reg.leadServiceId);
-    const docsAntigos = (docsRegPor.get(reg.id) ?? []).map(d => ({ nome: d.name, recebido: docRegularizacaoRecebido({ status: d.status, temArquivo: !!(d.driveFileId || d.fileUrl) }), updatedAt: d.updatedAt }));
+    const docsCliente = (lid ? docsLeadPor.get(lid) ?? [] : []).filter(d => !d.serviceId || d.serviceId === reg.leadServiceId);
+    const docsAntigos = (reg.leadId && !ativo ? [] : docsRegPor.get(reg.id) ?? []).map(d => ({ nome: d.name, recebido: docRegularizacaoRecebido({ status: d.status, temArquivo: !!(d.driveFileId || d.fileUrl) }), updatedAt: d.updatedAt }));
     const pendentes = [
       ...docsCliente.filter(d => docClientePendente(d.status)).map(d => ({ documento: rotuloDocumento(d.type), situacao: SITUACAO_DOC_CLIENTE[d.status] ?? d.status, origem: "documentos do cliente (CRM)" })),
       ...docsAntigos.filter(d => !d.recebido).map(d => ({ documento: d.nome, situacao: "pendente", origem: "documentos do processo (cadastro antigo)" })),
@@ -105,7 +113,7 @@ export async function carregarProcessos(ids: number[] | null, agora: Date, diasP
     const ultimaMovimentacao = maisRecente([
       reg.updatedAt, ...minhasEtapas.map(e => e.updatedAt), ...docsAntigos.map(d => d.updatedAt),
       ...docsCliente.map(d => d.uploadedAt ?? d.createdAt), ...minhasTarefas.map(t => t.updatedAt),
-      reg.leadId ? atividadePor.get(reg.leadId) : null, recebimentoPor.get(reg.id),
+      lid ? atividadePor.get(lid) : null, recebimentoPor.get(reg.id),
     ]);
     const prazo = diaDoPrazo(reg.expectedEndAt ?? servico?.dueAt ?? null);
     const situacao = situacaoDoPrazo({ encerrado, prazo, ultimaMovimentacao, agora, diasParado });
@@ -113,8 +121,8 @@ export async function carregarProcessos(ids: number[] | null, agora: Date, diasP
     const responsavel = responsavelDoProcesso(reg.responsible, migrado);
     const nomeServico = servico?.serviceType ? LEAD_SERVICE_LABELS[servico.serviceType as LeadServiceType] ?? servico.serviceType : null;
     const providencia = proximaProvidencia({
-      tarefas: minhasTarefas, followupDate: lead?.followupDate ?? null,
-      followUpsPendentes: reg.leadId ? followPor.get(reg.leadId) ?? [] : [],
+      tarefas: minhasTarefas, followupDate: leadAtivo?.followupDate ?? null,
+      followUpsPendentes: lid ? followPor.get(lid) ?? [] : [],
     });
     return {
       id: reg.id,
@@ -132,7 +140,7 @@ export async function carregarProcessos(ids: number[] | null, agora: Date, diasP
       responsavel: responsavel.nome,
       responsavelAConfirmar: responsavel.aConfirmar,
       motivoResponsavel: responsavel.motivo,
-      responsavelNoCrm: lead?.responsibleUserId ? nomes.get(lead.responsibleUserId) ?? null : null,
+      responsavelNoCrm: leadAtivo?.responsibleUserId ? nomes.get(leadAtivo.responsibleUserId) ?? null : null,
       cartorio: truncar(reg.registryOffice, 120),
       abertoEm: diaFortaleza(reg.createdAt),
       prazo: diaFortaleza(prazo),
@@ -243,7 +251,7 @@ export async function detalharProcessoRegularizacao(args: z.infer<typeof entrada
   } catch (e) {
     financeiro = { erro: `Tabela financeira inconsistente: ${e instanceof Error ? e.message : "erro"}` };
   }
-  const historico = p.leadId ? await db().select({ type: leadActivities.type, description: leadActivities.description, performedBy: leadActivities.performedBy, createdAt: leadActivities.createdAt })
+  const historico = p.leadId && !p.clienteExcluidoDoCrm ? await db().select({ type: leadActivities.type, description: leadActivities.description, performedBy: leadActivities.performedBy, createdAt: leadActivities.createdAt })
     .from(leadActivities).where(eq(leadActivities.leadId, p.leadId)).orderBy(desc(leadActivities.createdAt)).limit(10) : [];
   const { tarefas, etapas, ...resto } = p;
   return {

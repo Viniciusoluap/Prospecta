@@ -1,6 +1,6 @@
 // EPIC-025 (Dolores, etapa 1) — tarefas abertas e atrasadas por responsável. SOMENTE LEITURA.
 // "Atrasada" = `tarefaAtrasada` (shared/tarefas-filtro.ts), a mesma regra da tela de Tarefas.
-import { desc, inArray } from "drizzle-orm";
+import { and, desc, inArray, isNull } from "drizzle-orm";
 import { z } from "zod";
 import { leads, tasks } from "../../../drizzle/schema.js";
 import { diaFortaleza, isoFortaleza, paginar, truncar } from "../../../shared/dolores/formato.js";
@@ -31,7 +31,7 @@ export async function listarTarefas(args: z.infer<typeof entradaListarTarefas>, 
   ]);
   const linhas = [...abertasLidas, ...encerradas];
   const leadIds = Array.from(new Set(linhas.filter(t => t.relatedType === "lead" && t.relatedId).map(t => t.relatedId!)));
-  const nomes = leadIds.length ? new Map((await db().select({ id: leads.id, name: leads.name }).from(leads).where(inArray(leads.id, leadIds))).map(l => [l.id, l.name])) : new Map<number, string>();
+  const nomes = leadIds.length ? new Map((await db().select({ id: leads.id, name: leads.name }).from(leads).where(and(inArray(leads.id, leadIds), isNull(leads.deletedAt)))).map(l => [l.id, l.name])) : new Map<number, string>();
 
   const todas = linhas.map(t => ({ ...t, responsavel: responsavelDaTarefa(t.assignedTo), atrasada: tarefaAtrasada(t, agora), aberta: tarefaAberta(t.status) }));
   const filtradas = todas.filter(t => {
@@ -53,7 +53,10 @@ export async function listarTarefas(args: z.infer<typeof entradaListarTarefas>, 
     id: t.id, tarefa: truncar(t.title, 160), situacao: SITUACAO_TAREFA[t.status] ?? t.status, prioridade: PRIORIDADE[t.priority] ?? t.priority,
     responsavel: t.responsavel, prazo: isoFortaleza(t.dueAt), diaDoPrazo: diaFortaleza(t.dueAt), atrasada: t.atrasada,
     vinculo: t.relatedType ? VINCULO[t.relatedType] ?? t.relatedType : null,
-    cliente: t.relatedType === "lead" && t.relatedId ? nomes.get(t.relatedId) ?? null : null, leadId: t.relatedType === "lead" ? t.relatedId : null,
+    // cliente excluído do CRM: a tarefa fica, sem o nome nem o id dele
+    cliente: t.relatedType === "lead" && t.relatedId ? nomes.get(t.relatedId) ?? null : null,
+    leadId: t.relatedType === "lead" && t.relatedId && nomes.has(t.relatedId) ? t.relatedId : null,
+    clienteExcluidoDoCrm: t.relatedType === "lead" && !!t.relatedId && !nomes.has(t.relatedId),
     concluidaEm: isoFortaleza(t.completedAt),
   })), args.pagina, args.limite);
   const totais = { abertas: todas.filter(t => t.aberta).length, atrasadas: todas.filter(t => t.atrasada).length, semPrazo: todas.filter(t => t.aberta && !t.dueAt).length };

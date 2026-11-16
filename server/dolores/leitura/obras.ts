@@ -1,7 +1,7 @@
 // EPIC-025 (Dolores, etapa 1) — obras e medições. SOMENTE LEITURA.
 // Medições = o ciclo da tela de Medições (construction_progress_history: registrada → solicitada ao banco → recebida),
 // mais as medições do cadastro antigo (obra_measurements). Situação da obra pelos rótulos de shared/obra-status.ts.
-import { desc, eq, inArray, max, sql } from "drizzle-orm";
+import { and, desc, eq, inArray, isNull, max, sql } from "drizzle-orm";
 import { alias } from "drizzle-orm/pg-core";
 import { z } from "zod";
 import {
@@ -32,7 +32,7 @@ export async function carregarObras(agora: Date, diasParado = DIAS_PARADO_PADRAO
     },
     cliente: leads.name, empreiteiro: empreiteiro.name, responsavelCrm: responsavelCrm.name,
   }).from(constructionProjects)
-    .leftJoin(leads, eq(leads.id, constructionProjects.leadId))
+    .leftJoin(leads, and(eq(leads.id, constructionProjects.leadId), isNull(leads.deletedAt))) // excluído do CRM: sem nome nem responsável
     .leftJoin(empreiteiro, eq(empreiteiro.id, constructionProjects.contractorUserId))
     .leftJoin(responsavelCrm, eq(responsavelCrm.id, leads.responsibleUserId))
     .orderBy(desc(constructionProjects.updatedAt)).limit(MAX_LINHAS_LIDAS);

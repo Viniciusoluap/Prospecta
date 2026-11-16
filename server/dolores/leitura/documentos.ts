@@ -1,7 +1,7 @@
 // EPIC-025 (Dolores, etapa 1) — documentos pendentes e recebidos, por cliente. SOMENTE LEITURA.
 // Fontes: documentos do cliente no CRM (lead_documents), documentos do cadastro antigo da regularização e os itens do
 // checklist do financiamento que pedem documento. Nunca devolve o arquivo, o link ou o id do Drive — só nome e situação.
-import { and, desc, eq, inArray, isNull, isNotNull } from "drizzle-orm";
+import { and, desc, eq, isNull, or } from "drizzle-orm";
 import { z } from "zod";
 import { financiamentoChecklistItems, financiamentos, leadDocuments, leads, regularizacaoDocuments, regularizacoes } from "../../../drizzle/schema.js";
 import { diaFortaleza, paginar, truncar } from "../../../shared/dolores/formato.js";
@@ -27,12 +27,16 @@ export async function listarDocumentos(args: z.infer<typeof entradaListarDocumen
     db().select({ leadId: regularizacoes.leadId, cliente: regularizacoes.clientName, name: regularizacaoDocuments.name, status: regularizacaoDocuments.status,
       driveFileId: regularizacaoDocuments.driveFileId, fileUrl: regularizacaoDocuments.fileUrl, updatedAt: regularizacaoDocuments.updatedAt })
       .from(regularizacaoDocuments).innerJoin(regularizacoes, eq(regularizacoes.id, regularizacaoDocuments.regularizacaoId))
-      .where(args.leadId ? eq(regularizacoes.leadId, args.leadId) : undefined).limit(MAX_LINHAS_LIDAS),
+      .leftJoin(leads, eq(leads.id, regularizacoes.leadId))
+      // cliente excluído do CRM: os documentos dele não saem
+      .where(and(or(isNull(regularizacoes.leadId), isNull(leads.deletedAt)), args.leadId ? eq(regularizacoes.leadId, args.leadId) : undefined)).limit(MAX_LINHAS_LIDAS),
     db().select({ leadId: financiamentos.leadId, cliente: financiamentos.clienteNome, item: financiamentoChecklistItems.item,
       concluido: financiamentoChecklistItems.concluido, enviadoEm: financiamentoChecklistItems.enviadoEm,
       driveFileId: financiamentoChecklistItems.documentoDriveFileId, url: financiamentoChecklistItems.documentoUrl })
       .from(financiamentoChecklistItems).innerJoin(financiamentos, eq(financiamentos.id, financiamentoChecklistItems.financiamentoId))
-      .where(and(eq(financiamentoChecklistItems.solicitarDocumento, true), args.leadId ? eq(financiamentos.leadId, args.leadId) : isNotNull(financiamentos.id)))
+      .leftJoin(leads, eq(leads.id, financiamentos.leadId))
+      .where(and(eq(financiamentoChecklistItems.solicitarDocumento, true), or(isNull(financiamentos.leadId), isNull(leads.deletedAt)),
+        args.leadId ? eq(financiamentos.leadId, args.leadId) : undefined))
       .limit(MAX_LINHAS_LIDAS),
   ]);
   const todos: Doc[] = [

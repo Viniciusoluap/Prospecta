@@ -133,8 +133,8 @@ const TIPO_ATIVIDADE: Record<string, string> = {
 };
 
 export async function historicoAtendimento(args: z.infer<typeof entradaHistoricoAtendimento>): Promise<Resultado> {
-  const [lead] = await db().select({ id: leads.id, name: leads.name }).from(leads).where(eq(leads.id, args.leadId)).limit(1);
-  if (!lead) return { dados: { encontrado: false, mensagem: `Cliente #${args.leadId} não existe no CRM.` }, resumo: { encontrado: false } };
+  const [lead] = await db().select({ id: leads.id, name: leads.name }).from(leads).where(and(eq(leads.id, args.leadId), isNull(leads.deletedAt))).limit(1);
+  if (!lead) return { dados: { encontrado: false, mensagem: `Cliente #${args.leadId} não existe no CRM ou foi excluído.` }, resumo: { encontrado: false } };
   const [atividades, followUps] = await Promise.all([
     db().select({ type: leadActivities.type, description: leadActivities.description, performedBy: leadActivities.performedBy, createdAt: leadActivities.createdAt })
       .from(leadActivities).where(eq(leadActivities.leadId, args.leadId)).orderBy(desc(leadActivities.createdAt)).limit(500),
@@ -160,8 +160,8 @@ export const entradaConversasWhatsapp = z.object({
 
 export async function conversasWhatsapp(args: z.infer<typeof entradaConversasWhatsapp>): Promise<Resultado> {
   if (args.leadId) {
-    const [lead] = await db().select({ id: leads.id, name: leads.name }).from(leads).where(eq(leads.id, args.leadId)).limit(1);
-    if (!lead) return { dados: { encontrado: false, mensagem: `Cliente #${args.leadId} não existe no CRM.` }, resumo: { encontrado: false } };
+    const [lead] = await db().select({ id: leads.id, name: leads.name }).from(leads).where(and(eq(leads.id, args.leadId), isNull(leads.deletedAt))).limit(1);
+    if (!lead) return { dados: { encontrado: false, mensagem: `Cliente #${args.leadId} não existe no CRM ou foi excluído.` }, resumo: { encontrado: false } };
     const msgs = await db().select({ direcao: whatsappMessages.direcao, mensagem: whatsappMessages.mensagem, status: whatsappMessages.status,
       midiaTipo: whatsappMessages.midiaTipo, lida: whatsappMessages.lida, createdAt: whatsappMessages.createdAt })
       .from(whatsappMessages).where(eq(whatsappMessages.leadId, args.leadId)).orderBy(desc(whatsappMessages.createdAt)).limit(args.limite);
@@ -179,22 +179,19 @@ export async function conversasWhatsapp(args: z.infer<typeof entradaConversasWha
       resumo: { encontrado: true, mensagens: msgs.length },
     };
   }
+  // Só conversas de clientes do CRM que não foram excluídos (contato sem cliente fica fora na etapa 1).
   const conversas = await db().select({
-    leadId: whatsappMessages.leadId, destinatario: whatsappMessages.destinatario, nome: whatsappMessages.nomeDestinatario,
+    leadId: whatsappMessages.leadId, cliente: leads.name, destinatario: whatsappMessages.destinatario, nome: whatsappMessages.nomeDestinatario,
     ultima: max(whatsappMessages.createdAt),
     naoLidas: sql<number>`count(*) filter (where ${whatsappMessages.direcao} = 'entrada' and not ${whatsappMessages.lida})`.mapWith(Number),
-  }).from(whatsappMessages)
-    .groupBy(whatsappMessages.leadId, whatsappMessages.destinatario, whatsappMessages.nomeDestinatario)
+  }).from(whatsappMessages).innerJoin(leads, and(eq(leads.id, whatsappMessages.leadId), isNull(leads.deletedAt)))
+    .groupBy(whatsappMessages.leadId, leads.name, whatsappMessages.destinatario, whatsappMessages.nomeDestinatario)
     .orderBy(desc(max(whatsappMessages.createdAt))).limit(args.limite);
-  const nomesLead = conversas.some(c => c.leadId)
-    ? new Map((await db().select({ id: leads.id, name: leads.name }).from(leads).where(inArray(leads.id, conversas.map(c => c.leadId).filter((x): x is number => !!x)))).map(l => [l.id, l.name]))
-    : new Map<number, string>();
   return {
     dados: {
       conversas: conversas.map(c => ({
-        leadId: c.leadId, cliente: c.leadId ? nomesLead.get(c.leadId) ?? null : null, contato: truncar(c.nome, 80),
+        leadId: c.leadId, cliente: c.cliente, contato: truncar(c.nome, 80),
         telefone: mascararTelefone(c.destinatario), ultimaMensagemEm: isoFortaleza(c.ultima), naoLidas: c.naoLidas,
-        vinculadaAoCrm: !!c.leadId,
       })),
     },
     resumo: { conversas: conversas.length },

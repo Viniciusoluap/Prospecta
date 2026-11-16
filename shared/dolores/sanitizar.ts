@@ -19,9 +19,9 @@ function cnpjValido(d: string): boolean {
 }
 
 // Palavra de senha/código: tudo até o fim da oração (ponto, ponto e vírgula, vírgula, quebra de linha).
-const SENHA = /\b(senhas?|password|passwd|c[oó]digos?|token|pin)\b.*?(?=[;\n]|[.,!?](?:\s|$)|$)/giu;
+const SENHA = /\b(senhas?|password|passwd|c[oó]digos?|token|pin)\b.*?(?=[;\n]|[.,!?](?:\s|$)|$)/gi;
 // Agência, conta, PIX: o rótulo fica, o número/chave sai.
-const BANCARIO = /\b(ag[eê]ncia|ag\.?|conta(?:\s+corrente|\s+poupan[cç]a)?|c\/c|cc|chave\s+pix|pix)\b(\s*(?:n[ºo°.]?|:|#|-)?\s*)((?=[^\s]*[\d@])[\w.@+\-/]+)/giu;
+const BANCARIO = /\b(ag[eê]ncia|ag\.?|conta(?:\s+corrente|\s+poupan[cç]a)?|c\/c|cc|chave\s+pix|pix)\b(\s*(?:n[ºo°.]?|:|#|-)?\s*)((?=[^\s]*[\d@])[\w.@+\-/]+)/gi;
 const EMAIL = /[\w.+-]+@[\w-]+(?:\.[\w-]+)+/g;
 const CPF_FORMATADO = /(?<!\d)\d{3}[.,]\d{3}[.,]\d{3}[-.]?\d{2}(?!\d)/g;
 const CNPJ_FORMATADO = /(?<!\d)\d{2}\.\d{3}\.\d{3}\/\d{4}-?\d{2}(?!\d)/g;
