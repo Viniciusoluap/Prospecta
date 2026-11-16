@@ -1576,11 +1576,14 @@ function estudoDaArea(e: EntradaArea): ResultadoArea {
 function notaAcesso(r: ResultadoArea["cenarios"][number], temVias: boolean, prefixo: string, isolamento?: ResultadoArea["isolamento"]): { nota: string; acessos: Omit<AcessoCenario, "area" | "ponto">[] } {
   // S-I: ponto na borda da área restrita não é acesso pela divisa
   const lista = (r.acessosArea ?? []).filter((a) => !a.naApp);
-  if (isolamento === "ilha" || ((r.acessosArea ?? []).length > 0 && lista.length === 0)) {
-    return { nota: `${prefixo}Esta parte fica ${isolamento === "ilha" ? "cercada pela área restrita (APP)" : "separada da divisa pela área restrita (APP)"}: chegar a ela exige atravessar a APP com uma via, o que depende de licença ambiental — acesso a confirmar em projeto.`, acessos: [] };
+  if (isolamento === "ilha") {
+    return { nota: `${prefixo}Esta parte fica cercada pela área restrita (APP): chegar a ela exige atravessar a APP com uma via, o que depende de licença ambiental — acesso a confirmar em projeto.`, acessos: [] };
   }
   if (isolamento === "alem" && !lista.some((a) => a.acesso && a.acesso.distancia <= DISTANCIA_MAX_ACESSO_M)) {
     return { nota: `${prefixo}As vias mapeadas junto à gleba ficam do outro lado da área restrita (APP): o acesso por elas exige atravessar a APP, o que depende de licença ambiental. ${NOTA_ACESSO_SEM_VIA}`, acessos: [] };
+  }
+  if ((r.acessosArea ?? []).length > 0 && lista.length === 0) {
+    return { nota: `${prefixo}As ruas desta parte só encostam na borda da área restrita (APP), não na divisa: a ligação com o exterior exige atravessar a APP, o que depende de licença ambiental — acesso a confirmar em projeto.`, acessos: [] };
   }
   const f = (v: number) => v.toLocaleString("pt-BR", { maximumFractionDigits: 0 });
   const ligados = lista.filter((a) => a.acesso && a.acesso.distancia <= DISTANCIA_MAX_ACESSO_M).sort((a, b) => a.acesso!.distancia - b.acesso!.distancia);

@@ -858,7 +858,8 @@ export const MAX_VERTICES_CONTORNO_APP = 6000;
 
 /**
  * Contorno da APP no terreno pronto para gravar no estudo (S-I): MultiPolygon em [lng, lat] com 7 casas (~1 cm).
- * Acima do teto de vértices, simplifica com tolerância crescente (até ~2 m) — a área muda muito pouco.
+ * Acima do teto de vértices, simplifica com tolerância crescente (até ~50 m); se ainda passar, descarta primeiro os
+ * furos e depois as peças menores, até caber. Só devolve null sem APP (ou se nada coube — não acontece na prática).
  */
 export function contornoAppParaGravar(p: Poligonal | null | undefined): MultiPolygon | null {
   if (!p?.geometry) return null;
@@ -876,9 +877,18 @@ export function contornoAppParaGravar(p: Poligonal | null | undefined): MultiPol
   };
   const vertices = (g: MultiPolygon) => g.coordinates.reduce((s, poli) => s + poli.reduce((t, a) => t + a.length, 0), 0);
   let g = arred(p.geometry);
-  for (const tol of [0.000002, 0.000005, 0.00001, 0.00002]) {
+  for (const tol of [0.000002, 0.000005, 0.00001, 0.00002, 0.00005, 0.0001, 0.0002, 0.0005]) {
     if (vertices(g) <= MAX_VERTICES_CONTORNO_APP) break;
     try { g = arred((turfSimplify(p, { tolerance: tol, highQuality: true }) as Poligonal).geometry); } catch { break; }
+  }
+  if (vertices(g) > MAX_VERTICES_CONTORNO_APP) {
+    // último recurso: sem furos, e as peças maiores primeiro até caber
+    const pecas = g.coordinates.map(poli => [poli[0]])
+      .sort((a, b) => turfArea(turfPolygon(b)) - turfArea(turfPolygon(a)));
+    const fica: Position[][][] = [];
+    let n = 0;
+    for (const poli of pecas) { if (n + poli[0].length > MAX_VERTICES_CONTORNO_APP) continue; fica.push(poli); n += poli[0].length; }
+    g = { type: "MultiPolygon", coordinates: fica };
   }
   return g.coordinates.length > 0 && vertices(g) <= MAX_VERTICES_CONTORNO_APP ? g : null;
 }
