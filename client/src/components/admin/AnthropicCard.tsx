@@ -47,9 +47,10 @@ export function AnthropicCard() {
         {teste.isPending ? <p className="flex items-center gap-2 text-sm text-gray-300"><Loader2 className="h-4 w-4 animate-spin" /> Testando…</p>
           : teste.data && <p className={`flex items-start gap-2 text-sm ${teste.data.ok ? "text-green-300" : "text-red-300"}`}>{teste.data.ok ? <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0" /> : <XCircle className="mt-0.5 h-4 w-4 shrink-0" />} {teste.data.mensagem}</p>}
         <p className="flex items-center gap-2 text-sm text-gray-300">
-          <span className={`inline-block h-2 w-2 rounded-full ${s?.configurado ? "bg-green-400" : "bg-gray-500"}`} />
-          {status.isLoading ? "Carregando…" : s?.configurado ? `Chave configurada, terminando em ${s.final} (salva nesta tela, criptografada).` : "Nenhuma chave salva."}
+          <span className={`inline-block h-2 w-2 rounded-full ${s?.configurado ? "bg-green-400" : s?.ilegivel ? "bg-yellow-400" : "bg-gray-500"}`} />
+          {status.isLoading ? "Carregando…" : s?.configurado ? `Chave configurada, terminando em ${s.final} (salva nesta tela, criptografada).` : s?.ilegivel ? "" : "Nenhuma chave salva."}
         </p>
+        {s?.ilegivel && <p role="alert" className="flex items-start gap-2 text-sm text-yellow-200"><XCircle className="mt-0.5 h-4 w-4 shrink-0" /> {s.aviso}</p>}
         {s?.configurado && <p className="text-sm text-gray-300">Modelo preferencial: {s.modeloPreferencial ? <code className="rounded bg-black/30 px-1">{nomePreferido ? `${nomePreferido} (${s.modeloPreferencial})` : s.modeloPreferencial}</code> : "nenhum escolhido."}</p>}
         <p className="flex items-start gap-2 rounded-lg border border-[#C9A961]/30 bg-[#C9A961]/10 p-2 text-xs text-gray-200">
           <Info className="mt-0.5 h-3 w-3 shrink-0" /> Integração apenas cadastrada: a IA da Anthropic não está ativa em nenhuma função e esta chave não é usada automaticamente. Testar e listar modelos não consome tokens.
@@ -58,7 +59,7 @@ export function AnthropicCard() {
           {s?.configurado && <Button size="sm" variant="outline" className={botaoSec} disabled={teste.isPending} onClick={() => teste.mutate()}>Testar conexão</Button>}
           <Button size="sm" variant="outline" className={botaoSec} onClick={() => { setTrocando(t => !t); setChave(""); }}>{trocando ? "Cancelar" : s?.configurado ? "Trocar chave" : "Adicionar chave"}</Button>
           {s?.configurado && <Button size="sm" variant="outline" className={botaoSec} disabled={modelos.isPending} onClick={() => modelos.mutate()}>{modelos.isPending ? "Consultando…" : lista.length ? "Atualizar modelos" : "Escolher modelo"}</Button>}
-          {s?.configurado && <Button size="sm" variant="outline" className={botaoSec} disabled={remover.isPending}
+          {(s?.configurado || s?.ilegivel) && <Button size="sm" variant="outline" className={botaoSec} disabled={remover.isPending}
             onClick={() => { if (window.confirm("Remover a chave da Anthropic e o modelo preferencial?")) remover.mutate(); }}>Remover</Button>}
         </div>
         {trocando && (

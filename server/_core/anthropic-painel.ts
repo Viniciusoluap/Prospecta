@@ -3,7 +3,7 @@
 // escrita em ENV: ENV.anthropicApiKey continua vindo só da variável ANTHROPIC_API_KEY. Assim, cadastrar a
 // chave aqui não liga em silêncio a IA paga da avaliação, do mercado, da maquete ou da Central de Vendas.
 // O teste de conexão e a lista de modelos usam client.models.list() (não consome tokens).
-import { decryptSecret, encryptSecret } from "./secret-vault.js";
+import { decryptSecret, encryptSecret, segredoEmTextoPuro } from "./secret-vault.js";
 import * as db from "../db.js";
 
 export const CHAVE_SEGREDO_ANTHROPIC_PAINEL = "segredo.anthropic_painel_api_key";
@@ -77,10 +77,26 @@ export async function listarModelosDaChave(apiKey: string, deps: AnthropicPainel
   }
 }
 
-async function lerChave(deps: AnthropicPainelDeps): Promise<string | null> {
+export const MENSAGEM_CHAVE_ILEGIVEL = "Há uma chave salva que não pode ser lida (a chave do servidor mudou?) — cadastre de novo.";
+
+/** Chave salva: "ilegivel" quando existe mas não decifra (ex.: JWT_SECRET trocado). "plain:" é recriptografada. */
+async function lerChaveSalva(deps: AnthropicPainelDeps): Promise<string | "ilegivel" | null> {
   const gravado = await deps.lerBanco(CHAVE_SEGREDO_ANTHROPIC_PAINEL).catch(() => undefined);
   if (!gravado) return null;
-  try { return deps.decrypt(gravado).trim() || null; } catch { return null; }
+  let chave: string;
+  try { chave = deps.decrypt(gravado).trim(); } catch { return "ilegivel"; }
+  if (!chave) return "ilegivel";
+  if (segredoEmTextoPuro(gravado)) {
+    try { await deps.gravarBanco(CHAVE_SEGREDO_ANTHROPIC_PAINEL, deps.encrypt(chave)); } catch { /* recriptografa no próximo uso */ }
+  }
+  return chave;
+}
+
+/** A chave pronta para usar; ilegível vira erro com a orientação. */
+async function lerChave(deps: AnthropicPainelDeps): Promise<string | null> {
+  const c = await lerChaveSalva(deps);
+  if (c === "ilegivel") throw new Error(MENSAGEM_CHAVE_ILEGIVEL);
+  return c;
 }
 
 async function lerModelo(deps: AnthropicPainelDeps): Promise<string | null> {
@@ -91,13 +107,19 @@ const finalDe = (v: string) => (v.length >= 8 ? `…${v.slice(-4)}` : "…");
 
 /** O que está salvo — sem a chave: só os 4 últimos caracteres e o id do modelo preferencial. */
 export async function statusAnthropicPainel(deps: AnthropicPainelDeps = anthropicPainelDepsPadrao) {
-  const [chave, modelo] = await Promise.all([lerChave(deps), lerModelo(deps)]);
-  return { configurado: Boolean(chave), final: chave ? finalDe(chave) : null, modeloPreferencial: modelo, ativa: false as const };
+  const [salva, modelo] = await Promise.all([lerChaveSalva(deps), lerModelo(deps)]);
+  const chave = salva === "ilegivel" ? null : salva;
+  return {
+    configurado: Boolean(chave), final: chave ? finalDe(chave) : null, modeloPreferencial: modelo, ativa: false as const,
+    /** Existe valor salvo que não decifra: a tela pede para cadastrar de novo (não diz "nenhuma chave"). */
+    ilegivel: salva === "ilegivel", aviso: salva === "ilegivel" ? MENSAGEM_CHAVE_ILEGIVEL : null,
+  };
 }
 
 /** Teste disparado pelo admin: lista os modelos com a chave salva (sem consumir tokens). */
 export async function testarAnthropicPainel(deps: AnthropicPainelDeps = anthropicPainelDepsPadrao): Promise<{ ok: boolean; mensagem: string }> {
-  const chave = await lerChave(deps);
+  const chave = await lerChaveSalva(deps);
+  if (chave === "ilegivel") return { ok: false, mensagem: MENSAGEM_CHAVE_ILEGIVEL };
   if (!chave) return { ok: false, mensagem: "Nenhuma chave da Anthropic salva." };
   try {
     const modelos = await listarModelosDaChave(chave, deps);
@@ -107,12 +129,21 @@ export async function testarAnthropicPainel(deps: AnthropicPainelDeps = anthropi
   }
 }
 
-/** Valida a chave na Anthropic ANTES de salvar (criptografada). Troca a chave anterior, se houver. */
-export async function salvarChaveAnthropicPainel(bruto: unknown, deps: AnthropicPainelDeps = anthropicPainelDepsPadrao): Promise<{ mensagem: string; modelos: number }> {
+/**
+ * Valida a chave na Anthropic ANTES de salvar (criptografada). Troca a chave anterior, se houver; o modelo
+ * preferencial que a chave nova não oferece é limpo, com aviso.
+ */
+export async function salvarChaveAnthropicPainel(bruto: unknown, deps: AnthropicPainelDeps = anthropicPainelDepsPadrao): Promise<{ mensagem: string; modelos: number; modeloLimpo: string | null }> {
   const chave = normalizarChave(bruto);
   const modelos = await listarModelosDaChave(chave, deps);
   await deps.gravarBanco(CHAVE_SEGREDO_ANTHROPIC_PAINEL, deps.encrypt(chave));
-  return { mensagem: `Chave validada e salva — ${modelos.length} modelo(s) disponível(is).`, modelos: modelos.length };
+  const preferido = await lerModelo(deps);
+  const modeloLimpo = preferido && !modelos.some(m => m.id === preferido) ? preferido : null;
+  if (modeloLimpo) await deps.gravarBanco(CHAVE_MODELO_ANTHROPIC_PAINEL, "");
+  return {
+    mensagem: `Chave validada e salva — ${modelos.length} modelo(s) disponível(is).${modeloLimpo ? ` O modelo preferencial ${modeloLimpo} não é oferecido para esta chave e foi limpo: escolha outro.` : ""}`,
+    modelos: modelos.length, modeloLimpo,
+  };
 }
 
 /** Remove a chave e a preferência de modelo. */
@@ -144,6 +175,6 @@ export async function salvarModeloPreferencialAnthropic(id: string, deps: Anthro
  * da Central de Vendas ou de INCORPORACAO_IA_MODELO.
  */
 export async function configuracaoAnthropicPainel(deps: AnthropicPainelDeps = anthropicPainelDepsPadrao): Promise<{ apiKey: string; modelo: string | null } | null> {
-  const [apiKey, modelo] = await Promise.all([lerChave(deps), lerModelo(deps)]);
-  return apiKey ? { apiKey, modelo } : null;
+  const [apiKey, modelo] = await Promise.all([lerChaveSalva(deps), lerModelo(deps)]);
+  return apiKey && apiKey !== "ilegivel" ? { apiKey, modelo } : null;
 }
