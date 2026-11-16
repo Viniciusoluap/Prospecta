@@ -41,7 +41,7 @@
 //  Chave de 44 dígitos que NÃO validou e tem algo achado dentro sai inteira (nunca pela metade).
 //
 // Senha: senha/password/token/pin/OTP mascaram a oração; "código" só com senha/acesso/token/OTP por perto ("código de
-// barras", "código do imóvel" ficam). Banco: agência/conta/c/c com número de conta (3+ dígitos, não um ano, não valor
+// barras", "código do imóvel" ficam). Banco e PIX rodam DEPOIS da fase 1 (QA r5 F5): agência/conta/c/c com número de conta (3+ dígitos, não um ano, não valor
 // com centavos); PIX só quando o que segue tem forma de chave (e-mail, CPF/CNPJ/telefone, chave aleatória) — "pix
 // 1.500,00" fica. Na dúvida real, sai: o marcador é visível, e a Dolores nunca apresenta número alterado como dado.
 import { isValidCPF } from "../cpf.js";
@@ -169,6 +169,8 @@ const CODIGO = new RegExp(
 const BANCO = /\b(ag[eê]ncia|ag|conta(?:\s+corrente|\s+poupan[cç]a)?|c\/c|cc)\b(\s*(?:n[ºo°.]?|:|#|-)?\s*)(\d[\d.\-/]{0,30}[\dxX]?)(,\d)?/gi;
 // PIX: QA r4 S5 — só quando o que segue tem forma de chave: e-mail, chave aleatória (uuid) ou 8–14 dígitos (CPF, CNPJ,
 // telefone). "pagou via pix 1.500,00" fica (é o valor da cobrança).
+/** Chave PIX em forma de e-mail ou aleatória (uuid): sai como dado bancário antes do filtro de e-mail. */
+const PIX_EMAIL = new RegExp(String.raw`\b(chave\s+pix|pix)\b(\s*(?:n[ºo°.]?|:|#|-|=)?\s*)(?:[\p{L}\p{N}_.+-]{1,64}@[\p{L}\p{N}_-]{1,63}(?:\.[\p{L}\p{N}_-]{1,63}){0,6}|[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})`, "giu");
 const PIX = new RegExp(String.raw`\b(chave\s+pix|pix)\b(\s*(?:n[ºo°.]?|:|#|-|=)?\s*)([\p{L}\p{N}_.+-]{1,64}@[\p{L}\p{N}_-]{1,63}(?:\.[\p{L}\p{N}_-]{1,63}){0,6}|[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}|\+?\(?\d[\d.\-/() ]{6,24}\d)`, "giu");
 // E-mail: "a@b.com", "a @ b.com", "a[at]b.com", "a (arroba) b.com" e, colado, sem domínio de topo ("a@b").
 // QA r5 F6: letras e números de qualquer escrita (\p{L}\p{N}, flag u) — "maria.conceição@uol.com.br" sai inteiro.
@@ -539,25 +541,8 @@ function mascararCadeias(texto: string): string {
 
 const COLADO_EM_LETRA = new RegExp("^[\\p{L}\\d]", "u");
 /** Banco: só número de conta (3+ dígitos, não um ano, não valor com centavos, não colado em letra). */
-/**
- * QA r5 F5: a fase 1 vem antes da regra de banco — se os grupos logo depois do rótulo formam um CPF ou CNPJ válido em
- * qualquer separação ("conta 529 982 247 25"), o banco não mexe e a cadeia inteira sai como dado pessoal (antes só o 1º
- * grupo saía e sobravam 8 dos 11 dígitos).
- */
-function cpfOuCnpjNoInicio(s: string): boolean {
-  const m = /^\d+(?:[\s._\-/·•:]{1,3}\d+)*/.exec(s);
-  if (!m) return false;
-  let d = "";
-  for (const g of m[0].match(/\d+/g)!) {
-    d += g;
-    if ((d.length === 11 && isValidCPF(d)) || (d.length === 14 && cnpjValido(d))) return true;
-    if (d.length >= 14) return false;
-  }
-  return false;
-}
-
 function trocarBanco(m: string, rotulo: string, sep: string, valor: string, centavos: string | undefined, pos: number, t: string): string {
-  if (centavos || cpfOuCnpjNoInicio(t.slice(pos + rotulo.length + sep.length, pos + rotulo.length + sep.length + 40))) return m;
+  if (centavos) return m;
   const resto = /[.\-/]+$/.exec(valor)?.[0] ?? "";
   const nucleo = valor.slice(0, valor.length - resto.length);
   if (nucleo.replace(/\D/g, "").length < 3 || ANO.test(nucleo) || COLADO_EM_LETRA.test(t.slice(pos + m.length))) return m;
@@ -578,18 +563,22 @@ export function sanitizarTexto(texto: string): string {
   if (!texto) return texto;
   const t = normalizarParaFiltro(texto);
   if (!/[\d@]|senha|password|passwd|c[oó]digo|token|\bpin\b|\botp\b|\bat\b|arroba/i.test(t)) return texto;
+  // QA r5 F5: a fase 1 (cadeias: CPF, CNPJ, celular em qualquer separação) roda ANTES de PIX e banco — antes, "conta
+  // 529 982 247 25" ou "cc 2026.12/889 767 151 95" tinham só o 1º grupo trocado pelo marcador bancário e o resto do
+  // CPF ficava à vista. Depois, o que sobrou de número de conta/chave ainda sai como dado bancário.
   const r = mascararCadeias(t
     .replace(SENHA, (_m, palavra: string) => `${palavra} ${SENHA_OMITIDA}`)
     .replace(CODIGO, (_m, palavra: string) => `${palavra} ${SENHA_OMITIDA}`)
-    .replace(PIX, (m, rotulo: string, sep: string, valor: string, pos: number, s: string) => trocarPix(m, rotulo, sep, valor, pos, s))
-    .replace(BANCO, (m, rotulo: string, sep: string, valor: string, cent: string | undefined, pos: number, s: string) =>
-      trocarBanco(m, rotulo, sep, valor, cent, pos, s))
+    .replace(PIX_EMAIL, (_m, rotulo: string, sep: string) => `${rotulo}${sep}${BANCARIO_OMITIDO}`)
     .replace(EMAIL, OMITIDO)
     .replace(EMAIL_DISFARCADO, OMITIDO)
     .replace(CNPJ_FORMATADO, OMITIDO)
     .replace(CPF_FORMATADO, OMITIDO)
     .replace(CPF_VIRGULA, (m, a: string, b: string, pos: number, s: string) =>
-      isValidCPF(a + b) && !/r\$\s*$/i.test(s.slice(Math.max(0, pos - 6), pos)) ? OMITIDO : m));
+      isValidCPF(a + b) && !/r\$\s*$/i.test(s.slice(Math.max(0, pos - 6), pos)) ? OMITIDO : m))
+    .replace(PIX, (m, rotulo: string, sep: string, valor: string, pos: number, s: string) => trocarPix(m, rotulo, sep, valor, pos, s))
+    .replace(BANCO, (m, rotulo: string, sep: string, valor: string, cent: string | undefined, pos: number, s: string) =>
+      trocarBanco(m, rotulo, sep, valor, cent, pos, s));
   return r === t ? texto : r; // nada mascarado: devolve o texto original, sem a normalização
 }
 

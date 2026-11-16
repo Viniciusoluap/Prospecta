@@ -298,9 +298,10 @@ describe("filtro de dados pessoais em texto livre (M1)", () => {
       "código do cliente 778", "ag. 15/11 às 10h",
     ]) expect(sanitizarTexto(t), t).toBe(t);
     const B = "[dado bancário omitido]", S = "[senha omitida]";
-    expect(sanitizarTexto("chave pix 99991234567")).toBe(`chave pix ${B}`);
-    expect(sanitizarTexto("pix: 529.982.247-25")).toBe(`pix: ${B}`);
-    expect(sanitizarTexto("pix (99) 99123-4567, obrigado")).toBe(`pix ${B}, obrigado`);
+    // QA r5 F5: CPF/celular depois de "pix" saem pela fase 1 (antes de PIX e banco), com o marcador de dado pessoal
+    expect(sanitizarTexto("chave pix 99991234567")).toBe(`chave pix ${OMITIDO_T}`);
+    expect(sanitizarTexto("pix: 529.982.247-25")).toBe(`pix: ${OMITIDO_T}`);
+    expect(sanitizarTexto("pix (99) 99123-4567, obrigado")).toBe(`pix ${OMITIDO_T}, obrigado`);
     expect(sanitizarTexto("pix 123e4567-e89b-12d3-a456-426614174000")).toBe(`pix ${B}`);
     expect(sanitizarTexto("pix fulano@x.com")).toBe(`pix ${B}`);
     expect(sanitizarTexto("conta 12345-6, agência 0001.")).toBe(`conta ${B}, agência ${B}.`);
@@ -413,8 +414,13 @@ describe("filtro de dados pessoais em texto livre (M1)", () => {
       expect(r, c).toContain(OMITIDO_T);
       expect(r.replace(/\D/g, "").length, `${c} → ${r}`).toBe(0);
     }
-    // conta de verdade continua com o marcador bancário
+    // conta de verdade continua com o marcador bancário; número de conta antes do CPF também sai (fuzz do QA)
     expect(sanitizarTexto("conta 12345-6")).toBe("conta [dado bancário omitido]");
+    for (const c of ["cc 2026.12/889 767 151 95 - 2026", "ag 81008/93 709 988 4295 73", "conta 15/11/2026.177 269 190 94",
+      "pix 100    3    15/11/2026 - 74.178.759/7868-08 fone", "conta 3.55 306 071 6942 83 - 2026"]) {
+      const r = sanitizarTexto(c);
+      for (const n of ["767 151", "709 988", "269 190", "759/7868", "306 071", "4295", "6942"]) expect(r, `${c} → ${r}`).not.toContain(n);
+    }
   });
 
   it("QA r5 F6/F7: e-mail com nome acentuado sai inteiro; '(dot)com_' e CPF com zeros à esquerda saem", () => {
