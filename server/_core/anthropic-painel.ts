@@ -171,7 +171,8 @@ export async function salvarModeloPreferencialAnthropic(id: string, deps: Anthro
 /**
  * Chave e modelo preferencial cadastrados no painel, para uma função que FUTURAMENTE optar por usá-los
  * explicitamente (ex.: leitura por IA de PDF só imagem na maquete, EPIC-024 S-03).
- * AINDA NÃO É USADA POR NENHUMA FUNÇÃO. Não substitui ENV.anthropicApiKey nem os modelos da maquete,
+ * Usada só pela Dolores (EPIC-025 E2, server/dolores/whatsapp.ts), e apenas com o interruptor dela ligado.
+ * Não substitui ENV.anthropicApiKey nem os modelos da maquete,
  * da Central de Vendas ou de INCORPORACAO_IA_MODELO.
  */
 export async function configuracaoAnthropicPainel(deps: AnthropicPainelDeps = anthropicPainelDepsPadrao): Promise<{ apiKey: string; modelo: string | null } | null> {

@@ -173,7 +173,10 @@ describe("Anthropic — acesso e isolamento", () => {
 
   it("nenhum código operacional usa a chave do painel (nem pelo módulo, nem pela chave do banco)", () => {
     const repo = path.resolve(import.meta.dirname, "..");
-    const permitidos = new Set([path.join("server", "integracoes-router.ts"), path.join("server", "_core", "anthropic-painel.ts")]);
+    // EPIC-025 E2 (16/11): a Dolores é a única função autorizada a usar a chave do painel, e só com o interruptor
+    // dela ligado (conferido abaixo e em server/dolores/whatsapp.test.ts).
+    const permitidos = new Set([path.join("server", "integracoes-router.ts"), path.join("server", "_core", "anthropic-painel.ts"),
+      path.join("server", "dolores", "whatsapp.ts"), path.join("server", "dolores", "router.ts")]);
     // módulo, chave em dashboard_settings e a função exportada para uso futuro
     const marcas = ["anthropic-painel", "anthropic_painel", "configuracaoAnthropicPainel", "CHAVE_SEGREDO_ANTHROPIC_PAINEL", "CHAVE_MODELO_ANTHROPIC_PAINEL"];
     const usam: string[] = [];
@@ -192,6 +195,17 @@ describe("Anthropic — acesso e isolamento", () => {
       try { if (statSync(path.join(repo, pasta)).isDirectory()) varrer(path.join(repo, pasta)); } catch { /* pasta ausente */ }
     }
     expect(usam).toEqual([]);
+  });
+
+  it("a Dolores só lê a chave do painel depois de conferir a pausa e o interruptor dela (desligado por padrão)", () => {
+    const fonte = readFileSync(path.resolve(import.meta.dirname, "dolores", "whatsapp.ts"), "utf8");
+    const corpo = fonte.slice(fonte.indexOf("async function bloqueioAtual"));
+    const chave = corpo.indexOf("configuracaoAnthropicPainel(");
+    expect(chave).toBeGreaterThan(-1);
+    expect(corpo.indexOf("pausa.pausada")).toBeLessThan(chave);
+    expect(corpo.indexOf("!cfg.iaLigada")).toBeLessThan(chave);
+    const sql = readFileSync(path.resolve(import.meta.dirname, "..", "drizzle", "0124_dolores_whatsapp.sql"), "utf8");
+    expect(sql).toMatch(/"ia_ligada" boolean NOT NULL DEFAULT false/);
   });
 
   it("no router, só as rotas do painel usam o acessor (e nenhuma usa a função para uso futuro)", () => {

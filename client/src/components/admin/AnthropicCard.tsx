@@ -53,7 +53,7 @@ export function AnthropicCard() {
         {s?.ilegivel && <p role="alert" className="flex items-start gap-2 text-sm text-yellow-200"><XCircle className="mt-0.5 h-4 w-4 shrink-0" /> {s.aviso}</p>}
         {s?.configurado && <p className="text-sm text-gray-300">Modelo preferencial: {s.modeloPreferencial ? <code className="rounded bg-black/30 px-1">{nomePreferido ? `${nomePreferido} (${s.modeloPreferencial})` : s.modeloPreferencial}</code> : "nenhum escolhido."}</p>}
         <p className="flex items-start gap-2 rounded-lg border border-[#C9A961]/30 bg-[#C9A961]/10 p-2 text-xs text-gray-200">
-          <Info className="mt-0.5 h-3 w-3 shrink-0" /> Integração apenas cadastrada: a IA da Anthropic não está ativa em nenhuma função e esta chave não é usada automaticamente. Testar e listar modelos não consome tokens.
+          <Info className="mt-0.5 h-3 w-3 shrink-0" /> A chave não é usada automaticamente: só a Dolores a usa, e somente com o interruptor dela ligado (cartão Dolores, abaixo). Testar e listar modelos não consome tokens.
         </p>
         <div className="flex flex-wrap gap-2">
           {s?.configurado && <Button size="sm" variant="outline" className={botaoSec} disabled={teste.isPending} onClick={() => teste.mutate()}>Testar conexão</Button>}
