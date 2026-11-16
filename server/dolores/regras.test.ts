@@ -379,6 +379,17 @@ describe("filtro de dados pessoais em texto livre (M1)", () => {
     expect(sanitizarTexto(comFone)).not.toContain("99991234567");
   });
 
+  it("QA r5 F3: rótulo de documento/quantidade antes não livra o fixo com palavra de telefone DEPOIS", () => {
+    for (const c of ["protocolo 3523-4567 fone", "matrícula 3523-4567 - ligar", "valor 3523 4567 (fone)", "total 3523-4567 telefone residencial",
+      "quadra 3523-4567 tel", "area 3523-4567 fone", "protocolo 3523-4567 (telefone da vizinha)", "lote 12: 3523-4567 é o fone"]) {
+      const r = sanitizarTexto(c);
+      expect(r, `${c} → ${r}`).not.toMatch(/3523|4567/);
+    }
+    // sem palavra de telefone depois (ou só na linha seguinte), o rótulo continua livrando
+    for (const t of ["protocolo 3523-4567", "valor 3523 4567", "lote 3523-4567 vendido", "quadra 3523-4567\nfone: ver cadastro"])
+      expect(sanitizarTexto(t), t).toBe(t);
+  });
+
   it("percorre a resposta inteira (listas e objetos), sem tocar números e chaves", () => {
     expect(sanitizarResposta({ a: [{ texto: "cpf 111.222.333-44", n: 11122233344 }], "111.222.333-44": null }))
       .toEqual({ a: [{ texto: "cpf [dado pessoal omitido]", n: 11122233344 }], "111.222.333-44": null });

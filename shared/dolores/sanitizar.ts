@@ -302,7 +302,9 @@ function classificar(gs: Grupo[], ligacoes: string[], texto: string, sozinho: bo
   if (tel === "celular") return { tipo: "celular" };
   if (tel === "fixo") {
     // FASE 2b: o fixo (2–5) não é fase 1 — o rótulo de documento ou a medida depois livram (nunca com palavra de telefone)
-    if (contextoTel) return { tipo: "fixo" };
+    // QA r5 F3: palavra de telefone nos ~25 caracteres DEPOIS (na mesma linha) também cancela a isenção — "protocolo
+    // 3523-4567 fone", "valor 3523 4567 (fone)"
+    if (contextoTel || CONTEXTO_TELEFONE.test(texto.slice(fim, fim + 25).split(/[\n;]/)[0])) return { tipo: "fixo" };
     if (CONTEXTO_NAO_TELEFONE.test(antesLimpo) || medida) return null;
     if (forma === "4,4") {
       // QA r4 S4: par 4-4 sem DDD com rótulo de quantidade/valor/faixa, ou faixa crescente "2500-3000" (terminando em 00)
