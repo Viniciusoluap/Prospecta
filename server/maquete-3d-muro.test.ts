@@ -8,7 +8,7 @@ import {
   alturaDoRelevo, implantacaoSchema, lerModelo, modeloSchema, muroDaMaquete, muroParaTipo, muroSchema, validarModelo,
   type Implantacao, type ModeloMaquete, type Muro, type Ponto,
 } from "../shared/maquete-3d/modelo.js";
-import { ENTERRO_MURO, FOLGA_DIVISA, FOLGA_PORTAO, geometriaDoMuro, perimetroDoTerreno, portoesAutomaticos, type GeometriaMuro } from "../shared/maquete-3d/muro.js";
+import { ENTERRO_MURO, FOLGA_DIVISA, FOLGA_PORTAO, geometriaDoMuro, perimetroDoTerreno, pontosDosPortoes, portoesAutomaticos, type GeometriaMuro } from "../shared/maquete-3d/muro.js";
 import { alturaNaMalha, caixaDoTerreno, dentroDe, distanciaAoContorno, sistemaViario } from "../shared/maquete-3d/vias.js";
 
 const ret = (x0: number, y0: number, x1: number, y1: number): Ponto[] => [{ x: x0, y: y0 }, { x: x1, y: y0 }, { x: x1, y: y1 }, { x: x0, y: y1 }];
@@ -25,6 +25,11 @@ function vertices(g: GeometriaMuro, mat: "muro" | "capa" | "portao" = "muro") {
   for (let i = 0; i < m.posicoes.length; i += 3) out.push({ x: m.posicoes[i], h: m.posicoes[i + 1], y: m.posicoes[i + 2] });
   return out;
 }
+/** Distância de um ponto a uma polilinha aberta. */
+const distanciaAPolilinha = (p: Ponto, linha: Ponto[]) => linha.slice(1).reduce((m, b, k) => {
+  const a = linha[k], abx = b.x - a.x, aby = b.y - a.y, t = Math.max(0, Math.min(1, ((p.x - a.x) * abx + (p.y - a.y) * aby) / (abx * abx + aby * aby || 1)));
+  return Math.min(m, Math.hypot(p.x - a.x - abx * t, p.y - a.y - aby * t));
+}, Infinity);
 /** Dentro do terreno ou sobre a divisa (face externa com recuo zero). */
 const noTerreno = (p: Ponto, pol: Ponto[]) => dentroDe(p, pol) || distanciaAoContorno(p, pol) < 1e-3;
 /** Muro com portões editados (fixos), para medir sem depender das ruas. */
@@ -44,7 +49,7 @@ describe("geometria do muro", () => {
     expect(g.malhas.muro?.indices.length).toBeGreaterThan(0);
     expect(g.malhas.capa?.indices.length).toBeGreaterThan(0);
     expect(g.malhas.portao?.indices.length).toBeGreaterThan(0);
-    expect(g.resumo.aberturas).toEqual([{ id: "p1", tipo: "veiculos", posicao: 50, largura: 8, principal: true }]);
+    expect(g.resumo.aberturas).toEqual([{ id: "p1", tipo: "veiculos", posicao: 50, largura: 8, principal: true, area: 0 }]);
     // Sem portão: o muro dá a volta inteira e o trecho fecha no ponto de partida.
     const fechado = geometriaDoMuro(imp({ terreno: ret(0, 0, 100, 80) }), comPortoes([]))!;
     expect(fechado.resumo.comprimento).toBeCloseTo(360 - 8 * d, 6);
@@ -156,14 +161,18 @@ describe("portão automático", () => {
     for (const v of vertices(g, "portao")) expect(v.x <= 54 || v.x >= 66).toBe(true);
   });
 
-  it("com os acessos do estudo de massa: portão no acesso principal (via pública mapeada), e os outros como sugestão", () => {
+  it("com os acessos do estudo de massa: portaria no acesso principal (via pública mapeada) e portão secundário nos outros", () => {
     const ruas = [ret(54, 30, 66, 95), ret(-5, 39, 30, 51), ret(10, 24, 110, 36)];
     const i = imp({ terreno: ret(0, 0, 120, 90), ruas, acessos: [{ x: 0, y: 45, viaExistente: false }, { x: 60, y: 90, viaExistente: true, distancia: 12 }] });
     const auto = portoesAutomaticos(i);
     expect(auto.portoes[0].posicao).toBeCloseTo(270, 0);
     expect(auto.candidatos.length).toBe(2);
     expect(auto.candidatos[1].posicao).toBeCloseTo(120 + 90 + 120 + 45, 0);
-    expect(auto.notas.join(" ")).toMatch(/2 acessos/);
+    // Toda rua que chega à divisa ganha abertura: a principal é a portaria, a outra, portão secundário.
+    expect(auto.portoes.map(p => p.posicao)).toEqual(auto.candidatos.map(p => p.posicao));
+    expect(auto.notas.join(" ")).toMatch(/2 ruas chegam à divisa/);
+    const g = geometriaDoMuro(i, muro())!;
+    expect(g.resumo.aberturas.filter(a => a.principal).map(a => a.posicao)).toEqual([auto.portoes[0].posicao]);
   });
 
   it("nenhuma rua encosta na divisa: portão no ponto mais perto da rua principal, com nota", () => {
@@ -189,11 +198,14 @@ describe("portão automático", () => {
     expect(i.acessos?.length).toBeGreaterThan(0);
     const sv = sistemaViario(i);
     const g = geometriaDoMuro(i, muro(), { sistema: sv })!;
-    expect(g.resumo.aberturas.length).toBe(1);
-    // Centro do portão a menos de 2 m do eixo de alguma rua.
-    const ab = g.resumo.aberturas[0];
+    // Na grade, as ruas terminam na divisa: cada uma ganha abertura, e só uma é a portaria.
     const auto = portoesAutomaticos(i, muro(), sv);
-    expect(auto.portoes[0].posicao).toBe(ab.posicao);
+    expect(g.resumo.aberturas.length).toBe(auto.portoes.length);
+    expect(g.resumo.aberturas.length).toBeGreaterThan(1);
+    expect(g.resumo.aberturas.filter(a => a.principal).length).toBe(1);
+    expect(auto.portoes[0].posicao).toBe(g.resumo.aberturas.find(a => a.principal)!.posicao);
+    // O centro de cada portão fica a menos de 3 m do eixo de alguma rua (nenhum portão "no nada").
+    for (const q of pontosDosPortoes(i, auto.portoes)) expect(Math.min(...sv.trechos.map(t => distanciaAPolilinha(q!, t.eixo)))).toBeLessThan(3);
     for (const v of vertices(g)) expect(noTerreno(v, i.terreno)).toBe(true);
     // Os lotes continuam intactos e não há muro entre eles: todo vértice do muro fica a menos de 1 m da divisa.
     for (const v of vertices(g)) expect(distanciaAoContorno(v, i.terreno)).toBeLessThan(1);

@@ -73,10 +73,12 @@ export function implantacaoDoEstudo(geojson: string | null, centro: [number, num
   // o contorno da maquete aceita até 4000 pontos (a APP pelo contorno real pode ter mais): reduz por amostragem
   const reduzir = (pts: Ponto[]): Ponto[] => (pts.length <= 4000 ? pts : pts.filter((_, k) => k % Math.ceil(pts.length / 4000) === 0));
   let descartados = 0;
-  // O modelo da maquete aceita UM contorno de terreno: com várias áreas separadas (KML com MultiPolygon), fica a de
-  // maior ÁREA (não a de mais vértices); os lotes e ruas de todas as áreas continuam na implantação.
+  // Com várias áreas separadas (KML com MultiPolygon), a de maior ÁREA (não a de mais vértices) fica em `terreno` e
+  // as outras em `terrenosExtras` (S-04: o muro do condomínio cerca todas). Lotes e ruas de todas continuam aqui.
   const areaLocal = (pts: Ponto[]) => Math.abs(pts.reduce((s, p, i) => { const q = pts[(i + 1) % pts.length]; return s + p.x * q.y - q.x * p.y; }, 0) / 2);
-  const maior = aneisTerreno.map(local).map((pts) => ({ pts, area: areaLocal(pts) })).sort((a, b) => b.area - a.area)[0]?.pts ?? [];
+  const porArea = aneisTerreno.map(local).map(reduzir).map((pts) => ({ pts, area: areaLocal(pts) })).filter(a => a.pts.length >= 3).sort((a, b) => b.area - a.area);
+  const maior = porArea[0]?.pts ?? [];
+  const extras = porArea.slice(1, 50).map(a => a.pts);
   const lotes = (cenario?.lotes ?? []).flatMap((l, i) => {
     const inteiro = local(l.anel);
     if (inteiro.length < 3) { descartados++; return []; }
@@ -127,15 +129,15 @@ export function implantacaoDoEstudo(geojson: string | null, centro: [number, num
     }
   }
   // S-04: acessos da malha na divisa (onde a rua sai do terreno) — é onde o muro do condomínio ganha o portão.
-  // Só os da divisa que virou o terreno da maquete (com várias áreas, os das outras ficam de fora).
-  const naDivisa = (p: Ponto) => maior.length >= 3 && maior.some((a, i) => {
-    const b = maior[(i + 1) % maior.length], ab = { x: b.x - a.x, y: b.y - a.y }, l2 = ab.x * ab.x + ab.y * ab.y || 1;
+  // Valem os da divisa de qualquer área do terreno.
+  const naDivisa = (p: Ponto) => [maior, ...extras].some(area => area.length >= 3 && area.some((a, i) => {
+    const b = area[(i + 1) % area.length], ab = { x: b.x - a.x, y: b.y - a.y }, l2 = ab.x * ab.x + ab.y * ab.y || 1;
     const t = Math.max(0, Math.min(1, ((p.x - a.x) * ab.x + (p.y - a.y) * ab.y) / l2));
     return Math.hypot(p.x - (a.x + ab.x * t), p.y - (a.y + ab.y * t)) < 3;
-  });
+  }));
   const acessos = (cenario?.acessos ?? []).map(ac => {
     const [p] = local([ac.ponto, ac.ponto]);
     return { x: p.x, y: p.y, viaExistente: !!ac.viaExistente, distancia: typeof ac.distanciaM === "number" ? r2(ac.distanciaM) : null };
   }).filter(naDivisa).slice(0, 60);
-  return { implantacao: implantacaoSchema.parse({ terreno: maior, ruas, lotes, relevo, acessos }), descartados };
+  return { implantacao: implantacaoSchema.parse({ terreno: maior, ...(extras.length ? { terrenosExtras: extras } : {}), ruas, lotes, relevo, acessos }), descartados };
 }
