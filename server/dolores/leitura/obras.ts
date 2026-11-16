@@ -7,7 +7,7 @@ import { z } from "zod";
 import {
   constructionProgressHistory, constructionProjects, constructionStages, leads, obraMeasurements, obraMovimentos, users,
 } from "../../../drizzle/schema.js";
-import { diaFortaleza, isoFortaleza, paginar, reais, truncar } from "../../../shared/dolores/formato.js";
+import { diaDoPrazo, isoFortaleza, paginar, reais, truncar } from "../../../shared/dolores/formato.js";
 import { DIAS_PARADO_PADRAO, maisRecente, situacaoDoPrazo } from "../../../shared/dolores/regras.js";
 import { rotuloTipoMedicao } from "../../../shared/medicao-caixa.js";
 import { obraStatusLabel } from "../../../shared/obra-status.js";
@@ -59,16 +59,16 @@ export async function carregarObras(agora: Date, diasParado = DIAS_PARADO_PADRAO
       ?? (o.startDate && o.constructionDays ? new Date(o.startDate.getTime() + o.constructionDays * 86_400_000) : null);
     const med = medPor.get(o.id);
     const ultimaMovimentacao = maisRecente([o.updatedAt, movPor.get(o.id), med?.ultima, ...minhas.map(e => e.updatedAt)]);
-    const s = situacaoDoPrazo({ encerrado: encerrada, prazo: previsao, ultimaMovimentacao, agora, diasParado });
+    const s = situacaoDoPrazo({ encerrado: encerrada, prazo: diaDoPrazo(previsao), ultimaMovimentacao, agora, diasParado });
     return {
       id: o.id, obra: truncar(o.title, 160), cliente: cliente ?? o.mcmvClientName ?? null, leadId: o.leadId, cidade: o.city,
       situacao: obraStatusLabel(o.status), encerrada,
       progressoPct: o.progressMeasuredPct !== null ? Math.round(Number(o.progressMeasuredPct) * 100) / 100 : o.progress,
       origemDoProgresso: o.progressMeasuredPct !== null ? "medido (PCI)" : "informado",
       etapaAtual: atual?.name ?? null, empreiteiro: nomeEmpreiteiro ?? null, responsavelNoCrm: nomeResponsavel ?? null,
-      inicio: diaFortaleza(o.startDate), previsaoDeTermino: diaFortaleza(previsao),
+      inicio: diaDoPrazo(o.startDate), previsaoDeTermino: diaDoPrazo(previsao),
       origemDaPrevisao: o.estimatedEndDate ? "previsão cadastrada" : previsao ? "início + prazo de obra (dias)" : null,
-      terminoReal: diaFortaleza(o.actualEndDate),
+      terminoReal: diaDoPrazo(o.actualEndDate),
       atrasada: s.atrasado, diasDeAtraso: s.diasDeAtraso, ultimaMovimentacao: isoFortaleza(ultimaMovimentacao),
       diasSemMovimentacao: s.diasSemMovimentacao, parada: s.parado,
       medicoesAguardandoBanco: med?.solicitadas ?? 0, medicoesRecebidas: med?.recebidas ?? 0,
@@ -137,7 +137,7 @@ export async function listarMedicoes(args: z.infer<typeof entradaListarMedicoes>
     dados: {
       totais: { medicoes: ciclo.length, aguardandoBanco: ciclo.filter(m => m.requestedAt && !m.receivedAt).length, recebidas: ciclo.filter(m => m.receivedAt).length },
       ...pagina,
-      medicoesDoCadastroAntigo: args.situacao === "todas" ? antigas.slice(0, 20).map(m => ({ id: m.id, obraId: m.projectId, obra: truncar(m.obra, 160), data: diaFortaleza(m.data), moeda: "BRL", valor: reais(m.valor), situacao: ROTULO_ANTIGA[m.status] ?? m.status })) : [],
+      medicoesDoCadastroAntigo: args.situacao === "todas" ? antigas.slice(0, 20).map(m => ({ id: m.id, obraId: m.projectId, obra: truncar(m.obra, 160), data: diaDoPrazo(m.data), moeda: "BRL", valor: reais(m.valor), situacao: ROTULO_ANTIGA[m.status] ?? m.status })) : [],
     },
     resumo: { encontradas: escolhidas.length, devolvidas: pagina.itens.length, antigas: antigas.length },
   };

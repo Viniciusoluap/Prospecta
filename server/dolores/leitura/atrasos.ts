@@ -4,7 +4,7 @@
 import { and, eq, isNotNull, isNull, lt, ne, notInArray } from "drizzle-orm";
 import { z } from "zod";
 import { leadServices, leads } from "../../../drizzle/schema.js";
-import { diaFortaleza, diasEntre, paginar, truncar } from "../../../shared/dolores/formato.js";
+import { diaDoPrazo, diaFortaleza, diasEntre, paginar, truncar } from "../../../shared/dolores/formato.js";
 import { DIAS_PARADO_PADRAO } from "../../../shared/dolores/regras.js";
 import { LEAD_FINALIZED_STAGE } from "../../../shared/lead-pipeline.js";
 import { LEAD_SERVICE_LABELS, type LeadServiceType } from "../../../shared/lead-services.js";
@@ -64,10 +64,10 @@ export async function listarAtrasos(args: z.infer<typeof entradaListarAtrasos>, 
       atrasado: true, diasDeAtraso: diasEntre(c.cardDueDate, hoje), parado: false, diasSemMovimentacao: null, prazo: c.cardDueDate,
       responsavel: c.responsibleUserId ? nomes.get(c.responsibleUserId) ?? null : null, motivoRegistrado: null,
     })),
-    ...servicos.map(s => ({
+    ...servicos.filter(s => diaDoPrazo(s.dueAt)! < hoje).map(s => ({
       modulo: "CRM (prazo do serviço)", id: s.id, cliente: s.cliente, descricao: truncar(s.title, 120) ?? LEAD_SERVICE_LABELS[s.serviceType as LeadServiceType] ?? s.serviceType,
-      situacao: s.status, atrasado: true, diasDeAtraso: diasEntre(s.dueAt, hoje), parado: false, diasSemMovimentacao: null,
-      prazo: diaFortaleza(s.dueAt), responsavel: null, motivoRegistrado: null,
+      situacao: s.status, atrasado: true, diasDeAtraso: diasEntre(diaDoPrazo(s.dueAt), hoje), parado: false, diasSemMovimentacao: null,
+      prazo: diaDoPrazo(s.dueAt), responsavel: null, motivoRegistrado: null,
     })),
   ].sort((a, b) => Number(b.atrasado) - Number(a.atrasado) || (b.diasDeAtraso ?? 0) - (a.diasDeAtraso ?? 0) || (b.diasSemMovimentacao ?? 0) - (a.diasSemMovimentacao ?? 0));
   const porModulo: Record<string, { atrasados: number; parados: number }> = {};

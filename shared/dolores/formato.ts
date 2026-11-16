@@ -31,6 +31,16 @@ export function diaFortaleza(d: Date | string | null | undefined): string | null
   return v ? new Date(v.getTime() - TRES_HORAS).toISOString().slice(0, 10) : null;
 }
 
+/**
+ * Dia de um campo de PRAZO/VENCIMENTO gravado como data (meia-noite UTC: as telas salvam `new Date("AAAA-MM-DD")` e
+ * mostram `toISOString().slice(0, 10)`, como `situacaoDoLancamento`). Não converte fuso, para não voltar um dia.
+ */
+export function diaDoPrazo(d: Date | string | null | undefined): string | null {
+  if (typeof d === "string" && /^\d{4}-\d{2}-\d{2}$/.test(d)) return d;
+  const v = data(d);
+  return v ? v.toISOString().slice(0, 10) : null;
+}
+
 /** Dias corridos entre dois dias civis de Imperatriz (b − a). */
 export function diasEntre(a: Date | string | null | undefined, b: Date | string | null | undefined): number | null {
   const da = diaFortaleza(a), db = diaFortaleza(b);

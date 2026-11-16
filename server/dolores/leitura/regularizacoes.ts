@@ -8,7 +8,7 @@ import {
   leadActivities, leadDocuments, leadFollowUps, leadServices, leads, regularizacaoDocuments, regularizacaoEtapas,
   regularizacaoItensFinanceiros, regularizacaoRecebimentos, regularizacoes, tasks,
 } from "../../../drizzle/schema.js";
-import { centavosParaReais, diaFortaleza, isoFortaleza, mascararTelefone, paginar, truncar } from "../../../shared/dolores/formato.js";
+import { centavosParaReais, diaDoPrazo, diaFortaleza, isoFortaleza, mascararTelefone, paginar, truncar } from "../../../shared/dolores/formato.js";
 import {
   DIAS_PARADO_PADRAO, STATUS_ENCERRADOS_PROCESSO, etapaAtual, maisRecente, proximaProvidencia, responsavelDaTarefa,
   responsavelDoProcesso, situacaoDoPrazo,
@@ -107,7 +107,7 @@ export async function carregarProcessos(ids: number[] | null, agora: Date, diasP
       ...docsCliente.map(d => d.uploadedAt ?? d.createdAt), ...minhasTarefas.map(t => t.updatedAt),
       reg.leadId ? atividadePor.get(reg.leadId) : null, recebimentoPor.get(reg.id),
     ]);
-    const prazo = reg.expectedEndAt ?? servico?.dueAt ?? null;
+    const prazo = diaDoPrazo(reg.expectedEndAt ?? servico?.dueAt ?? null);
     const situacao = situacaoDoPrazo({ encerrado, prazo, ultimaMovimentacao, agora, diasParado });
     const migrado = !!servico?.sourceCardUrl;
     const responsavel = responsavelDoProcesso(reg.responsible, migrado);

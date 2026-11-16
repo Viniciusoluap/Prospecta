@@ -9,7 +9,7 @@ import {
   bpoClients, bpoLancamentos, financiamentoChecklistItems, financiamentos, regularizacaoItensFinanceiros,
   regularizacaoRecebimentos, regularizacoes,
 } from "../../../drizzle/schema.js";
-import { centavosParaReais, diaFortaleza, isoFortaleza, mascararCpf, paginar, reais, truncar } from "../../../shared/dolores/formato.js";
+import { centavosParaReais, diaDoPrazo, diaFortaleza, isoFortaleza, mascararCpf, paginar, reais, truncar } from "../../../shared/dolores/formato.js";
 import { DIAS_PARADO_PADRAO, situacaoDoPrazo } from "../../../shared/dolores/regras.js";
 import { situacaoDoLancamento } from "../../../shared/financeiro/bpo-asaas.js";
 import { contaNoResultado, recebidoDoLancamento } from "../../../shared/financeiro/bpo-extrato.js";
@@ -102,7 +102,7 @@ export async function listarRecebiveisPendentes(args: z.infer<typeof entradaList
     const recebido = recebidoDoLancamento(l);
     return {
       origem: "BPO (cobrança)", id: l.id, cliente: truncar(l.cliente ?? l.clienteLivre, 120) ?? "(sem cliente)", descricao: truncar(l.descricao, 160),
-      vencimento: diaFortaleza(l.vencimento), situacao, valor: reais(l.valor), recebido: reais(recebido),
+      vencimento: diaDoPrazo(l.vencimento), situacao, valor: reais(l.valor), recebido: reais(recebido),
       emAberto: Math.round((Number(l.valor) - recebido) * 100) / 100, competencia: l.competencia,
     };
   }).filter(c => args.situacao === "em_aberto" || c.situacao === "vencido");
