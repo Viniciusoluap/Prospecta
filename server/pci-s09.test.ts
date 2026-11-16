@@ -12,7 +12,10 @@ import {
   compararPreenchimentoPci,
   confirmarMesmaPessoaPci,
   conferirProcedenciaPci,
+  achadosPessoaisNoTextoPci,
+  avisosEmpresaNoModeloPci,
   dadosPessoaisNoModeloPci,
+  mascararMeioPci,
   dadosPessoaisNoTextoPci,
   definirCampoPci,
   errosPci,
@@ -331,9 +334,35 @@ describe("C — modelos de preenchimento (lista de permissão)", () => {
   it("modelo com dado pessoal em texto livre, nome ou observação: lista os campos (o servidor recusa)", () => {
     const dados = extrairModeloPreenchimentoPci({ campos: { justificativaPrazoTexto: "Cliente CPF 529.982.247-25", outrosEspecificar: "ok" }, adicionais: [{ descricao: "Muro, falar com a@b.com", valor: 10 }] });
     expect(dadosPessoaisNoModeloPci({ nome: "Casa do 52998224725", observacao: "tel (99) 98888-7777", dados })).toEqual([
-      { campo: "Nome do modelo", tipos: ["CPF"] }, { campo: "Observação do modelo", tipos: ["telefone"] },
-      { campo: "Justificativa técnica do prazo", tipos: ["CPF"] }, { campo: "Serviço adicional 1", tipos: ["e-mail"] },
+      { campo: "Nome do modelo", tipos: ["CPF"], trechos: ["Casa do 529••••••25"] }, { campo: "Observação do modelo", tipos: ["telefone"], trechos: ["tel (99) 9••••-••77"] },
+      { campo: "Justificativa técnica do prazo", tipos: ["CPF"], trechos: ["Cliente CPF 529.•••.•••-25"] }, { campo: "Serviço adicional 1", tipos: ["e-mail"], trechos: ["…falar com a@•.••m"] },
     ]);
+  });
+  it("portão 2, L5 — detector: pega CPF com espaços/traços, celular separado, telefone com contexto e e-mail com (arroba)", () => {
+    const casos: [string, string[]][] = [
+      ["CPF: 529 982 247 25", ["CPF"]], ["CPF 529 982 247-25", ["CPF"]], ["cpf 529-982-247-25", ["CPF"]], ["CPF529.982.247-25", ["CPF"]],
+      ["41 9 9999 0000", ["telefone"]], ["fone 9999-0000", ["telefone"]], ["(41)99999-0000", ["telefone"]], ["whats: 41 99999-0000", ["telefone"]],
+      ["+55 41 999990000", ["telefone"]], ["41 3333 4444", ["telefone"]],
+      ["Email: joao.silva(arroba)gmail.com", ["e-mail"]], ["joao [at] x.com", ["e-mail"]], ["joao@x.com.br", ["e-mail"]],
+    ];
+    for (const [t, tipos] of casos) expect(dadosPessoaisNoTextoPci(t), t).toEqual(tipos);
+  });
+  it("portão 2, L5 — número técnico corrido não é telefone; CPF com espaços só depois de \"CPF\"; CNPJ só avisa", () => {
+    for (const t of ["Lote 4123456789", "ART 41987654321", "Concreto 2025-11-16 lote 4123456789", "41999990000", "CEP 80010-000", "Norma NBR 15575-2013 item 11.2",
+      "série 2024 0001 0002", "R$ 52.998.224,72", "Dimensões 3000x4000x2800 mm", "processo 5299822472-5", "123 456 789 09", "Bloco 14x19x39 cm, 12.500 unidades, R$ 32.500,00"]) {
+      expect(dadosPessoaisNoTextoPci(t), t).toEqual([]);
+    }
+    expect(achadosPessoaisNoTextoPci("Fornecedor CNPJ 11.222.333/0001-81")).toEqual([{ tipo: "CNPJ", trecho: "…CNPJ 11.2••.•••/••••-81", bloqueia: false }]);
+    const dados = extrairModeloPreenchimentoPci({ campos: { justificativaPrazoTexto: "Esquadrias ACME CNPJ 11.222.333/0001-81" } });
+    expect(dadosPessoaisNoModeloPci({ nome: "Casa", dados })).toEqual([]);
+    expect(avisosEmpresaNoModeloPci({ nome: "Casa", dados })).toEqual([expect.stringMatching(/^Justificativa técnica do prazo: CNPJ ".*-81" ficou no modelo \(dado de empresa/)]);
+  });
+  it("portão 2, L5 — o trecho mascarado localiza o dado num memorial longo sem mostrá-lo inteiro", () => {
+    const memorial = `${"Fundação em sapata corrida, alvenaria de bloco cerâmico. ".repeat(20)}Dúvidas: falar com Fulano no whats 41 99999-0000. ${"Cobertura em telha cerâmica. ".repeat(10)}`;
+    const [a] = achadosPessoaisNoTextoPci(memorial);
+    expect(a).toEqual({ tipo: "telefone", trecho: "…no whats 41 9••••-••00", bloqueia: true });
+    expect(a.trecho).not.toContain("99999-0000");
+    expect(mascararMeioPci("529.982.247-25")).toBe("529.•••.•••-25");
   });
   it("aplicar em outra obra: técnico entra, pessoal da obra fica, diferente pede confirmação", () => {
     const outra = normalizarFormularioPci({ campos: { proponenteNome: "Cliente Dois", proponenteCpf: "987.654.321-00", endereco: "Rua Dois", bdi: 10 } });

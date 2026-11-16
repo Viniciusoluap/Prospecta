@@ -1336,33 +1336,116 @@ function cnpjNumericoValido(d: string): boolean {
   return Number(d[12]) === dv(d.slice(0, 12), [5, 4, 3, 2, 9, 8, 7, 6, 5, 4, 3, 2]) && Number(d[13]) === dv(d.slice(0, 13), [6, 5, 4, 3, 2, 9, 8, 7, 6, 5, 4, 3, 2]);
 }
 
-/**
- * Dados pessoais num texto livre: CPF e CNPJ (com ou sem pontuação, dígitos verificadores
- * conferidos), e-mail e telefone (com DDD). Devolve os tipos achados, sem repetir.
- */
-export function dadosPessoaisNoTextoPci(texto: string): string[] {
-  const achados = new Set<string>();
-  for (const m of Array.from(texto.matchAll(/(?<![\d.\/-])\d{2}\.?\d{3}\.?\d{3}\/?\d{4}-?\d{2}(?![\d\/-])/g))) if (cnpjNumericoValido(soDigitos(m[0]))) achados.add("CNPJ");
-  for (const m of Array.from(texto.matchAll(/(?<![\d.\/-])\d{3}\.?\d{3}\.?\d{3}-?\d{2}(?![\d\/-])/g))) if (isValidCPF(soDigitos(m[0]))) achados.add("CPF");
-  if (/[^\s@<>()]+@[^\s@<>()]+\.[a-z]{2,}/i.test(texto)) achados.add("e-mail");
-  for (const m of Array.from(texto.matchAll(/(?<![\d\/.-])(?:\+?55[\s-]?)?\(?\d{2}\)?[\s-]?9?\d{4}[\s-]?\d{4}(?![\d\/.-])/g))) {
-    const d = soDigitos(m[0]);
-    if (d.length >= 10 && d.length <= 13 && !isValidCPF(d)) achados.add("telefone");
-  }
-  return Array.from(achados);
+export type TipoDadoPessoalPci = "CPF" | "CNPJ" | "e-mail" | "telefone";
+
+export interface AchadoPessoalPci {
+  tipo: TipoDadoPessoalPci;
+  /** Trecho onde foi achado, com o meio mascarado (para a pessoa localizar num memorial longo). */
+  trecho: string;
+  /** false = só aviso (CNPJ é dado de empresa, não pessoal). */
+  bloqueia: boolean;
 }
 
+/** Mascara o meio do valor achado: mantém os 3 primeiros e os 2 últimos caracteres (letras/dígitos). */
+export function mascararMeioPci(valor: string): string {
+  const pos = Array.from(valor).map((c, i) => (/[0-9A-Za-zÀ-ÿ]/.test(c) ? i : -1)).filter((i) => i >= 0);
+  const ini = pos.length > 6 ? 3 : 1, fim = pos.length > 6 ? 2 : 1;
+  const ocultos = new Set(pos.slice(ini, Math.max(ini, pos.length - fim)));
+  return Array.from(valor).map((c, i) => (ocultos.has(i) ? "•" : c)).join("");
+}
+
+/** Trecho para a mensagem: até 14 caracteres antes (contexto, ex.: "CPF:") + o valor mascarado. */
+function trechoPci(texto: string, inicio: number, valor: string): string {
+  const corte = inicio > 14;
+  const antes = texto.slice(Math.max(0, inicio - 14), inicio).replace(corte ? /^\S*\s/ : /^$/, "").replace(/\s+/g, " ");
+  return `${corte ? "…" : ""}${antes}${mascararMeioPci(valor)}`;
+}
+
+const SEM_DIGITO_ANTES = String.raw`(?<![\d.,\/-])`;
+const SEM_DIGITO_DEPOIS = String.raw`(?!\d|[.,\/-]\d)`;
+/** DDD brasileiro (11–99, sem zero) para os padrões de telefone sem contexto escrito. */
+const dddValido = (d: string) => /^[1-9][1-9]/.test(d);
+
 /**
- * Confere nome, observação e TODO texto livre do modelo (campos de texto, descrições dos serviços
- * adicionais). O salvamento é recusado com a lista — nada é apagado em silêncio.
+ * Dados pessoais num texto livre. CPF (dígitos verificadores conferidos; com pontos, traços ou sem
+ * separador; separado por espaços só logo depois de "CPF"), e-mail (também "(arroba)", "[at]"),
+ * telefone SÓ com sinal de telefone — "tel/fone/cel/whats", DDD entre parênteses, "+55", celular de 9
+ * dígitos ou fixo com separadores (número técnico de 10–11 dígitos corrido, como ART ou lote, não é
+ * telefone) — e CNPJ (dado de empresa: só aviso, `bloqueia: false`).
  */
-export function dadosPessoaisNoModeloPci(m: { nome?: string | null; observacao?: string | null; dados: DadosModeloPreenchimentoPci }): { campo: string; tipos: string[] }[] {
+export function achadosPessoaisNoTextoPci(texto: string): AchadoPessoalPci[] {
+  const r: AchadoPessoalPci[] = [];
+  const cpfs = new Set<string>();
+  const add = (tipo: TipoDadoPessoalPci, inicio: number, valor: string) => {
+    const trecho = trechoPci(texto, inicio, valor);
+    if (!r.some((x) => x.tipo === tipo && x.trecho === trecho)) r.push({ tipo, trecho, bloqueia: tipo !== "CNPJ" });
+  };
+  for (const m of Array.from(texto.matchAll(new RegExp(`${SEM_DIGITO_ANTES}\\d{2}[.\\s]?\\d{3}[.\\s]?\\d{3}[\\/\\s]?\\d{4}[-\\s]?\\d{2}(?![\\d\\/-])`, "g")))) {
+    if (cnpjNumericoValido(soDigitos(m[0]))) add("CNPJ", m.index!, m[0]);
+  }
+  for (const m of Array.from(texto.matchAll(new RegExp(`${SEM_DIGITO_ANTES}\\d{3}[.\\s-]?\\d{3}[.\\s-]?\\d{3}[.\\s-]?\\d{2}(?![\\d\\/]|[.-]\\d)`, "g")))) {
+    const d = soDigitos(m[0]);
+    if (!isValidCPF(d)) continue;
+    if (/\s/.test(m[0]) && !/cpf\W{0,3}$/i.test(texto.slice(Math.max(0, m.index! - 8), m.index!))) continue;
+    cpfs.add(d);
+    add("CPF", m.index!, m[0]);
+  }
+  const arroba = String.raw`(?:@|\(\s*(?:arroba|at)\s*\)|\[\s*(?:arroba|at)\s*\])`;
+  const ponto = String.raw`(?:\.|\(\s*ponto\s*\)|\[\s*ponto\s*\])`;
+  for (const m of Array.from(texto.matchAll(new RegExp(`[\\w.+-]+\\s*${arroba}\\s*[\\w-]+(?:\\s*${ponto}\\s*[\\w-]+)*\\s*${ponto}\\s*[a-z]{2,}\\b`, "gi")))) add("e-mail", m.index!, m[0]);
+  const numero = String.raw`(?:\+?55[\s.-]?)?(?:\(?\d{2}\)?[\s.-]?)?(?:9[\s.-]?)?\d{4}[\s.-]?\d{4}`;
+  const telefones: { re: RegExp; ddd: boolean }[] = [
+    { re: new RegExp(String.raw`\b(?:tel|telefone|fone|cel|celular|whats|whatsapp|wpp|zap)\b\.?\s*:?\s*(${numero})(?!\d)`, "gi"), ddd: false },
+    { re: new RegExp(String.raw`\(\d{2}\)\s?(?:9[\s.-]?)?\d{4}[\s.-]?\d{4}(?!\d)`, "g"), ddd: false },
+    { re: new RegExp(String.raw`\+55[\s.-]?\(?\d{2}\)?[\s.-]?(?:9[\s.-]?)?\d{4}[\s.-]?\d{4}(?!\d)`, "g"), ddd: false },
+    // Celular: DDD + 9 + 8 dígitos, com separador entre os blocos finais ("41 9 9999 0000", "41 99999-0000").
+    { re: new RegExp(String.raw`${SEM_DIGITO_ANTES}\d{2}[\s.-]?9[\s.-]?\d{4}[\s.-]\d{4}${SEM_DIGITO_DEPOIS}`, "g"), ddd: true },
+    // Fixo: DDD + 4 + 4 com separadores ("41 3333 4444").
+    { re: new RegExp(String.raw`${SEM_DIGITO_ANTES}\d{2}[\s.-][2-5]\d{3}[\s.-]\d{4}${SEM_DIGITO_DEPOIS}`, "g"), ddd: true },
+  ];
+  for (const { re, ddd } of telefones) {
+    for (const m of Array.from(texto.matchAll(re))) {
+      const valor = m[1] ?? m[0];
+      const inicio = m.index! + m[0].lastIndexOf(valor);
+      const d = soDigitos(valor);
+      if (d.length < 8 || d.length > 13 || cpfs.has(d) || isValidCPF(d) || (ddd && !dddValido(d))) continue;
+      if (r.some((x) => x.tipo === "telefone" && soDigitos(x.trecho).endsWith(d.slice(-2)) && x.trecho.includes(mascararMeioPci(valor)))) continue;
+      add("telefone", inicio, valor);
+    }
+  }
+  return r;
+}
+
+/** Tipos achados no texto (CPF, CNPJ, e-mail, telefone), sem repetir. */
+export function dadosPessoaisNoTextoPci(texto: string): string[] {
+  return Array.from(new Set(achadosPessoaisNoTextoPci(texto).map((a) => a.tipo)));
+}
+
+function textosDoModeloPci(m: { nome?: string | null; observacao?: string | null; dados: DadosModeloPreenchimentoPci }): [string, string][] {
   const textos: [string, string][] = [];
   if (m.nome) textos.push(["Nome do modelo", m.nome]);
   if (m.observacao) textos.push(["Observação do modelo", m.observacao]);
   for (const [id, v] of Object.entries(m.dados.campos)) if (typeof v === "string") textos.push([CAMPO_POR_ID.get(id)?.rotulo ?? id, v]);
   m.dados.adicionais.forEach((a, i) => { if (a.descricao) textos.push([`Serviço adicional ${i + 1}`, a.descricao]); });
-  return textos.map(([campo, t]) => ({ campo, tipos: dadosPessoaisNoTextoPci(t) })).filter((x) => x.tipos.length);
+  return textos;
+}
+
+/**
+ * Confere nome, observação e TODO texto livre do modelo (campos de texto, descrições dos serviços
+ * adicionais). Só o que bloqueia (CPF, e-mail, telefone), com o trecho mascarado; o salvamento é
+ * recusado com a lista — nada é apagado em silêncio.
+ */
+export function dadosPessoaisNoModeloPci(m: { nome?: string | null; observacao?: string | null; dados: DadosModeloPreenchimentoPci }): { campo: string; tipos: string[]; trechos: string[] }[] {
+  return textosDoModeloPci(m).map(([campo, t]) => {
+    const a = achadosPessoaisNoTextoPci(t).filter((x) => x.bloqueia);
+    return { campo, tipos: Array.from(new Set(a.map((x) => x.tipo))), trechos: a.map((x) => x.trecho) };
+  }).filter((x) => x.tipos.length);
+}
+
+/** CNPJ no texto do modelo: é dado de empresa (fornecedor), não bloqueia — vira aviso para conferir. */
+export function avisosEmpresaNoModeloPci(m: { nome?: string | null; observacao?: string | null; dados: DadosModeloPreenchimentoPci }): string[] {
+  return textosDoModeloPci(m).flatMap(([campo, t]) => achadosPessoaisNoTextoPci(t).filter((x) => !x.bloqueia)
+    .map((x) => `${campo}: CNPJ "${x.trecho}" ficou no modelo (dado de empresa, não pessoal). Confira se deve mesmo ir para outras obras.`));
 }
 
 // ─── cálculos (os mesmos das fórmulas do modelo) ─────────────────────────────

@@ -206,8 +206,14 @@ describe("C — modelos de preenchimento", () => {
     f.campos.justificativaPrazoTexto = "Cliente José da Silva CPF 529.982.247-25 mora na Rua X 10";
     f.adicionais[0] = { descricao: "Muro — falar com jose@x.com", valor: 10 };
     await expect(admin.salvarModeloPreenchimento({ projectId: 20, nome: "Com dado pessoal", formulario: f, observacao: "tel (99) 98888-7777" }))
-      .rejects.toThrow(/Observação do modelo \(telefone\); Justificativa técnica do prazo \(CPF\); Serviço adicional 1 \(e-mail\)/);
-    await expect(admin.salvarModeloPreenchimento({ projectId: 20, nome: "Casa 52998224725", formulario: formObra20() })).rejects.toThrow(/Nome do modelo \(CPF\)/);
+      .rejects.toThrow(/Observação do modelo \(telefone: "tel \(99\) 9••••-••77"\); Justificativa técnica do prazo \(CPF: "…da Silva CPF 529\.•••\.•••-25"\); Serviço adicional 1 \(e-mail: "…— falar com jos•@•\.•om"\)/);
+    await expect(admin.salvarModeloPreenchimento({ projectId: 20, nome: "Casa 52998224725", formulario: formObra20() })).rejects.toThrow(/Nome do modelo \(CPF: "Casa 529••••••25"\)/);
+    // Portão 2 (L5): CNPJ de fornecedor não bloqueia — salva com aviso.
+    const comCnpj = formObra20();
+    comCnpj.campos.justificativaPrazoTexto = "Esquadrias do fornecedor ACME, CNPJ 11.222.333/0001-81, conforme orçamento";
+    const salvo = await admin.salvarModeloPreenchimento({ projectId: 20, nome: "Com CNPJ de fornecedor", formulario: comCnpj });
+    expect(salvo.avisos.join(" ")).toMatch(/Justificativa técnica do prazo: CNPJ "…ACME, CNPJ 11\.2••\.•••\/••••-81" ficou no modelo \(dado de empresa/);
+    await admin.excluirModeloPreenchimento({ id: salvo.id, confirmar: true });
     expect((await pg.query("SELECT id FROM pci_modelos_preenchimento WHERE nome ILIKE '%dado pessoal%' OR nome LIKE 'Casa 5%'")).rows).toHaveLength(0);
   });
 
@@ -244,7 +250,7 @@ describe("C — modelos de preenchimento", () => {
     await expect(outroColab.excluirModeloPreenchimento({ id: m.id, confirmar: true })).rejects.toThrow(/Só o administrador ou quem criou o modelo/);
     expect(await colabObras.excluirModeloPreenchimento({ id: m.id, confirmar: true })).toMatchObject({ versoes: 2 });
     expect(await admin.modelosPreenchimento()).toEqual([]);
-    expect((await pg.query("SELECT id FROM pci_modelos_preenchimento WHERE deleted_at IS NOT NULL")).rows).toHaveLength(3);
+    expect((await pg.query("SELECT id FROM pci_modelos_preenchimento WHERE deleted_at IS NOT NULL")).rows).toHaveLength(4); // + o modelo com CNPJ (L5)
   });
 });
 
