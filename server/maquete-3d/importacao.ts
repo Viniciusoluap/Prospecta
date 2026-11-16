@@ -9,7 +9,7 @@ import { aplicarCandidata, DestinoInvalido, type DestinoImportacao } from "../..
 import { lerModelo, modeloSchema, modeloVazio, type ModeloMaquete, type TipoMaquete } from "../../shared/maquete-3d/modelo.js";
 import { lerEstadoLeitura, leituraVazia, type DocumentoMaquete, type EstadoLeitura, type StatusMaquete } from "../../shared/maquete-3d/regras.js";
 import { LeituraIndisponivel, agora, carregarConfig, db, erroSeguro } from "./base.js";
-import { ExecucaoConcorrente, MENSAGEM_INTERROMPIDA, execucaoDe, gravarSeIgual, novaConfirmacao, pularPassosIA, reservaVencida, type Execucao } from "./execucao-ia.js";
+import { ExecucaoConcorrente, MENSAGEM_INTERROMPIDA, execucaoDe, exigirSemPassoEmCurso, gravarSeIgual, gravarSobreOAtual, novaConfirmacao, pularPassosIA, reservaVencida, type Execucao } from "./execucao-ia.js";
 import { documentoDoPasso, lerDocumentos, montarModelo, motorDaLeitura, parciaisDasPranchas, passoPrancha, passoPranchaIA, passosDasPranchas, pranchasParaMontagem } from "./leitura.js";
 import { gravarModelo } from "./revisoes.js";
 
@@ -38,7 +38,7 @@ async function buscar(id: number): Promise<Maquete3d> {
 }
 
 /** Execução da importação: o estado mora em `importacao`, que só é gravada se ainda for a lida (e a maquete puder importar). */
-const execucaoDaImportacao = (m: Maquete3d, imp: Importacao) => execucaoDe(m, "importacao", e => JSON.stringify({ ...imp, estado: e }), PODE_IMPORTAR);
+const execucaoDaImportacao = (m: Maquete3d, imp: Importacao, inicio?: number) => execucaoDe(m, "importacao", e => JSON.stringify({ ...imp, estado: e }), PODE_IMPORTAR, inicio);
 
 /** Grava a importação só se ela ainda for a que foi lida: importação atrasada não regrava a aplicada ou a descartada. */
 async function gravar(x: Execucao, imp: Importacao | null, mudou = "A importação mudou enquanto isso (foi aplicada, descartada ou começada de novo). Recarregue a página."): Promise<void> {
@@ -61,6 +61,8 @@ async function importacaoAberta(id: number): Promise<{ m: Maquete3d; imp: Import
 export async function iniciarImportacao(id: number, doc: number, userId: number): Promise<Importacao> {
   const m = await buscar(id);
   if (!PODE_IMPORTAR.includes(m.status as StatusMaquete)) throw new LeituraIndisponivel("Nesta situação não é possível importar uma planta.");
+  // QA rodada 2, N1: começar outra importação no meio de uma chamada paga da atual jogaria a resposta fora.
+  exigirSemPassoEmCurso(lerImportacao(m.importacao)?.estado);
   const documento = lerDocumentos(m.documentos)[doc];
   if (!documento) throw new LeituraIndisponivel("O PDF escolhido não está na lista deste pedido.");
   const passos = (await passosDasPranchas(m, documento)).map(p => (p.tipo === "montagem" ? { ...p, rotulo: "Montagem da planta importada (candidata)" } : p));
@@ -77,11 +79,12 @@ export async function iniciarImportacao(id: number, doc: number, userId: number)
  * aba, importação aplicada/descartada/recomeçada) não grava nada e devolve a importação como está agora.
  */
 export async function avancarImportacao(id: number): Promise<Importacao> {
+  const inicio = Date.now();
   const { m, imp } = await importacaoAberta(id);
   const estado = imp.estado;
   const passo = estado.passos.find(p => p.estado !== "feito");
   if (!passo) return imp;
-  const x = execucaoDaImportacao(m, imp);
+  const x = execucaoDaImportacao(m, imp, inicio);
   const atualGravada = async () => lerImportacao((await buscar(id)).importacao) ?? imp;
   if (passo.estado === "executando") {
     if (!reservaVencida(passo)) return imp;
@@ -112,7 +115,16 @@ export async function avancarImportacao(id: number): Promise<Importacao> {
     if (e instanceof ExecucaoConcorrente) return atualGravada();
     Object.assign(passo, { estado: "erro", erro: erroSeguro(e), reservadoEm: null });
   }
-  if (!(await gravarSeIgual(x, x.serializar(estado), { deltaIA: -x.devolver }))) return atualGravada();
+  if (!(await gravarSeIgual(x, x.serializar(estado), { deltaIA: -x.devolver }))) {
+    // Segunda barreira do N1: a importação mudou durante a chamada paga; se o passo continua reservado por este
+    // pedido, o resultado dele vai para a importação atual.
+    await gravarSobreOAtual(x, estado, async () => {
+      const agoraM = await buscar(id).catch(() => null);
+      const atual = agoraM && PODE_IMPORTAR.includes(agoraM.status as StatusMaquete) ? lerImportacao(agoraM.importacao) : null;
+      return agoraM && atual ? { estado: atual.estado, x: execucaoDaImportacao(agoraM, atual) } : null;
+    });
+    return atualGravada();
+  }
   return imp;
 }
 
@@ -122,6 +134,7 @@ export async function avancarImportacao(id: number): Promise<Importacao> {
  */
 export async function confirmarIAImportacao(id: number, userId: number, alemDoTeto = false): Promise<Importacao> {
   const { m, imp } = await importacaoAberta(id);
+  exigirSemPassoEmCurso(imp.estado);
   const r = novaConfirmacao(imp.estado, await carregarConfig(), m.iaPranchasLidas ?? 0, userId, alemDoTeto);
   if ("erro" in r) throw new LeituraIndisponivel(r.erro!);
   await gravar(execucaoDaImportacao(m, imp), imp, "A importação mudou enquanto você confirmava. Confira o que ela pede agora e confirme de novo.");
@@ -130,6 +143,7 @@ export async function confirmarIAImportacao(id: number, userId: number, alemDoTe
 
 export async function pularIAImportacao(id: number): Promise<Importacao> {
   const { m, imp } = await importacaoAberta(id);
+  exigirSemPassoEmCurso(imp.estado);
   pularPassosIA(imp.estado, await carregarConfig());
   await gravar(execucaoDaImportacao(m, imp), imp);
   return imp;
@@ -148,6 +162,7 @@ export async function salvarCandidata(id: number, modelo: ModeloMaquete): Promis
 export async function descartarImportacao(id: number): Promise<void> {
   const m = await buscar(id);
   if (!m.importacao) return;
+  exigirSemPassoEmCurso(lerImportacao(m.importacao)?.estado);
   const x = execucaoDe(m, "importacao", e => JSON.stringify(e), ["aguardando_aprovacao", "aguardando_pagamento", "aguardando_autorizacao", "liberada", "em_leitura", "em_revisao", "validada", "publicada", "recusada"]);
   if (!(await gravarSeIgual(x, null))) throw new LeituraIndisponivel("A importação mudou enquanto isso. Recarregue a página e tente de novo.");
 }
@@ -183,6 +198,7 @@ export async function aplicarImportacao(p: { id: number; versao: number; destino
   if (!m.importacao) throw new LeituraIndisponivel("Não há planta importada pronta para aplicar.");
   const imp = lerImportacao(m.importacao);
   if (!imp?.candidata) throw new LeituraIndisponivel("Não há planta importada pronta para aplicar.");
+  exigirSemPassoEmCurso(imp.estado);
   if (!PODE_IMPORTAR.includes(m.status as StatusMaquete)) throw new LeituraIndisponivel("Nesta situação não é possível aplicar a planta importada.");
   const atual = lerModelo(m.modelo) ?? modeloVazio(m.tipo as TipoMaquete);
   let r: ReturnType<typeof aplicarCandidata>;

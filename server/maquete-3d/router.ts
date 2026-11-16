@@ -24,7 +24,7 @@ import {
   PODE_IMPORTAR, aplicarImportacao, avancarImportacao, confirmarIAImportacao, descartarImportacao, iniciarImportacao, lerImportacao,
   pranchasDaLeitura, pranchasParaTela, pularIAImportacao, salvarCandidata, type Importacao,
 } from "./importacao.js";
-import { MENSAGEM_EM_CURSO, pendentesIA } from "./execucao-ia.js";
+import { MENSAGEM_EM_CURSO, passoEmCurso, pendentesIA } from "./execucao-ia.js";
 import { ConflitoDeVersao, HistoricoIndisponivel, gravarModelo, lerRevisao, listarRevisoes } from "./revisoes.js";
 
 type Ctx = { user: { id: number; role: string } };
@@ -157,6 +157,8 @@ function resumoIA(leitura: EstadoLeitura, m?: Pick<Maquete3d, "iaPranchasLidas">
     confirmadaEm: c?.em ?? null, autorizadas: c?.pranchas ?? 0, usadas: c?.usadas ?? 0, alemDoTeto: !!c?.alemDoTeto,
     lidasNaMaquete: m?.iaPranchasLidas ?? 0, teto: config?.limitePranchasIA ?? null,
     foraDoLimite: (leitura.foraDoLimiteIA ?? []).slice(0, 20),
+    /** Um passo está sendo lido pela IA agora (reserva válida): a tela desabilita confirmar, pular e ler de novo (N1). */
+    emCurso: !!passoEmCurso(leitura),
   };
 }
 const retornoDoPasso = (estado: EstadoLeitura, status: StatusMaquete) => {

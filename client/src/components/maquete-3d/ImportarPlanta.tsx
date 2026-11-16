@@ -114,6 +114,8 @@ export function ImportarPlanta({ d, admin, sujo, aoMudar }: { d: Detalhe; admin:
   }
 
   const aguardando = imp?.passos.find(p => p.estado === "aguardando");
+  /** QA rodada 2, N1: com um passo sendo lido pela IA, confirmar, seguir sem a IA e descartar esperam ele terminar. */
+  const emCurso = !!imp?.ia.emCurso;
   const temPadrao = !!d.modelo?.edificacoes.some(e => e.id === "padrao");
   const pavimentos = d.modelo?.edificacoes.flatMap(e => e.pavimentos.map(p => ({ valor: `${e.id}|${p.id}`, rotulo: `${e.nome} › ${p.nome}` }))) ?? [];
   useEffect(() => { if (!temPadrao && d.modelo?.edificacoes.length && destino === "padrao" && pavimentos[0]) setDestino(pavimentos[0].valor); }, [temPadrao, d.modelo, destino, pavimentos]);
@@ -150,7 +152,7 @@ export function ImportarPlanta({ d, admin, sujo, aoMudar }: { d: Detalhe; admin:
     <div className="space-y-3 border-t border-[#C9A961]/15 pt-3 text-sm">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <p className="font-semibold text-[#C9A961]">Planta arquitetônica importada — {imp.documento.nome}</p>
-        <Button size="sm" variant="outline" className="border-red-400/50 bg-transparent text-red-300" disabled={lendo || descartar.isPending}
+        <Button size="sm" variant="outline" className="border-red-400/50 bg-transparent text-red-300" disabled={lendo || emCurso || descartar.isPending}
           onClick={() => { if (window.confirm("Descartar a planta importada? A planta atual não muda; o PDF continua na lista do pedido.")) descartar.mutate({ id }); }}><Trash2 className="mr-1 h-4 w-4" />Descartar</Button>
       </div>
 
@@ -162,20 +164,21 @@ export function ImportarPlanta({ d, admin, sujo, aoMudar }: { d: Detalhe; admin:
               {aguardando.aguardando === "confirmacao" ? (
                 <>
                   <p>{imp.ia.pendentes} prancha(s) deste PDF precisam da leitura por IA (paga). A confirmação vale só para esta importação e para as pranchas autorizadas (esta maquete já usou {imp.ia.lidasNaMaquete} de {imp.ia.teto ?? "—"} pela IA).</p>
-                  {admin ? <Button className={btnOuro} disabled={lendo} onClick={() => rodar(async () => { await confirmar.mutateAsync({ id }); return avancar.mutateAsync({ id }); })}><Check className="mr-1 h-4 w-4" />Confirmar e ler pela IA</Button>
+                  {admin ? <Button className={btnOuro} disabled={lendo || emCurso} onClick={() => rodar(async () => { await confirmar.mutateAsync({ id }); return avancar.mutateAsync({ id }); })}><Check className="mr-1 h-4 w-4" />Confirmar e ler pela IA</Button>
                     : <p className="text-xs text-gray-400">Só o administrador autoriza a leitura paga pela IA.</p>}
                 </>
               ) : aguardando.aguardando === "teto" ? (
                 <>
                   <p>{aguardando.erro}</p>
-                  {admin ? <Button className={btnOuro} disabled={lendo}
+                  {admin ? <Button className={btnOuro} disabled={lendo || emCurso}
                     onClick={() => { if (window.confirm(`Autorizar a leitura paga de mais ${imp.ia.pendentes} prancha(s) pela IA, além do teto de ${imp.ia.teto ?? "—"} desta maquete?`)) void rodar(async () => { await confirmar.mutateAsync({ id, alemDoTeto: true }); return avancar.mutateAsync({ id }); }); }}><Check className="mr-1 h-4 w-4" />Autorizar além do teto</Button>
                     : <p className="text-xs text-gray-400">Só o administrador autoriza passar do teto de pranchas pela IA.</p>}
                 </>
               ) : <p>Cadastre a chave em Integrações → Anthropic e continue: a leitura retoma deste passo.</p>}
-              <Button variant="outline" className={btnOutline} disabled={lendo} onClick={() => rodar(async () => { await pular.mutateAsync({ id }); return avancar.mutateAsync({ id }); })}>Continuar sem a IA</Button>
+              <Button variant="outline" className={btnOutline} disabled={lendo || emCurso} onClick={() => rodar(async () => { await pular.mutateAsync({ id }); return avancar.mutateAsync({ id }); })}>Continuar sem a IA</Button>
             </div>
           )}
+          {!lendo && emCurso && <p className="text-amber-300">Um passo está sendo lido pela IA agora: aguarde terminar para confirmar, seguir sem a IA ou descartar.</p>}
           <Button className={btnOuro} disabled={lendo} onClick={() => rodar(() => avancar.mutateAsync({ id }))}><Play className="mr-1 h-4 w-4" />{lendo ? "Lendo… mantenha esta página aberta." : imp.progresso.proximo?.estado === "erro" ? "Tentar de novo este passo" : "Continuar a leitura do PDF importado"}</Button>
         </>
       )}

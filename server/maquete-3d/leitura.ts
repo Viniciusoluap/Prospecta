@@ -22,7 +22,7 @@ import { guardarAnterior, registrarRevisao } from "./revisoes.js";
 import { lerRespostaPrancha } from "./resposta-ia.js";
 import {
   ExecucaoConcorrente, MENSAGEM_INTERROMPIDA, PASSOS_IA_ANTIGOS, bloqueioDaIA, devolverReserva, execucaoDe, gravarSeIgual, naoCobrado, novaConfirmacao,
-  pularPassosIA, reservaVencida, reservarChamada, type Execucao,
+  exigirSemPassoEmCurso, gravarSobreOAtual, pularPassosIA, reservaVencida, reservarChamada, type Execucao,
 } from "./execucao-ia.js";
 import { LIMITE_PASSO_MS, LeituraIndisponivel, agora, carregarConfig, db, dependencias, erroSeguro, modeloDaLeitura, type AnexoIA, type PdfLido, alvoDoDocumento } from "./base.js";
 
@@ -594,7 +594,7 @@ async function buscar(id: number): Promise<Maquete3d | null> {
   return m ?? null;
 }
 
-const execucaoDaLeitura = (m: Maquete3d) => execucaoDe(m, "leitura", e => JSON.stringify(e), ["em_leitura"]);
+const execucaoDaLeitura = (m: Maquete3d, inicio?: number) => execucaoDe(m, "leitura", e => JSON.stringify(e), ["em_leitura"], inicio);
 
 /** O estado gravado agora (quando outra aba ou pessoa gravou antes deste pedido). */
 async function estadoGravado(id: number): Promise<{ estado: EstadoLeitura; status: StatusMaquete }> {
@@ -612,6 +612,8 @@ export async function iniciarLeitura(id: number): Promise<EstadoLeitura> {
   const atual = await buscar(id);
   if (!atual || !PODE_LER.includes(atual.status as StatusMaquete)) throw new LeituraIndisponivel("Esta maquete não está liberada para leitura.");
   if (atual.importacao) throw new LeituraIndisponivel("Há uma planta importada em andamento nesta maquete: aplique ou descarte a importação antes de ler o projeto de novo.");
+  // QA rodada 2, N1: recomeçar no meio de uma chamada paga jogaria fora a resposta dela.
+  if (atual.status === "em_leitura") exigirSemPassoEmCurso(lerEstadoLeitura(atual.leitura));
   const anterior = lerModelo(atual.modelo);
   await guardarAnterior(atual, "Planta antes de ler o projeto de novo do zero");
   const estado: EstadoLeitura = {
@@ -621,7 +623,9 @@ export async function iniciarLeitura(id: number): Promise<EstadoLeitura> {
   };
   const r = await db().update(maquetes3d)
     .set({ status: "em_leitura" satisfies StatusMaquete, leitura: JSON.stringify(estado), modelo: null, revisadoPor: null, revisadoEm: null, updatedAt: agora() })
-    .where(and(emLeitura(id), isNull(maquetes3d.importacao), eq(maquetes3d.modeloVersao, atual.modeloVersao))).returning({ id: maquetes3d.id });
+    .where(and(emLeitura(id), isNull(maquetes3d.importacao), eq(maquetes3d.modeloVersao, atual.modeloVersao),
+      // Só recomeça a leitura que foi conferida acima (uma reserva feita no meio do caminho não é atropelada).
+      atual.leitura === null ? isNull(maquetes3d.leitura) : eq(maquetes3d.leitura, atual.leitura))).returning({ id: maquetes3d.id });
   if (!r.length) throw new LeituraIndisponivel("A maquete mudou enquanto a leitura começava (outra pessoa salvou a planta ou importou um PDF). Recarregue a página e tente de novo.");
   return estado;
 }
@@ -683,12 +687,13 @@ function respostaAntigaValida(tipo: PassoLeitura["tipo"], json: unknown): boolea
 
 /** Executa o próximo passo pendente e grava o resultado (com condição). Devolve o estado atualizado. */
 export async function avancarLeitura(id: number, autorId: number | null = null): Promise<{ estado: EstadoLeitura; status: StatusMaquete }> {
+  const inicio = Date.now();
   const m = await buscar(id);
   if (!m || m.status !== "em_leitura") throw new LeituraIndisponivel("Não há leitura em andamento para esta maquete.");
   const estado = lerEstadoLeitura(m.leitura);
   const passo = estado.passos.find(p => p.estado !== "feito");
   if (!passo) return { estado, status: m.status as StatusMaquete };
-  const x = execucaoDaLeitura(m);
+  const x = execucaoDaLeitura(m, inicio);
 
   if (passo.estado === "executando") {
     // Outra aba está lendo este passo pela IA: não chama de novo. Reserva velha: o passo foi interrompido.
@@ -744,7 +749,15 @@ export async function avancarLeitura(id: number, autorId: number | null = null):
   const gravado = await gravarSeIgual(x, x.serializar(estado), {
     deltaIA: -x.devolver, extra: { status, ...(modelo ? { modelo, modeloVersao: m.modeloVersao + 1 } : {}) },
   });
-  if (!gravado) return estadoGravado(id);
+  if (!gravado) {
+    // Segunda barreira do N1: a leitura mudou durante a chamada paga. Se o passo continua reservado por este pedido,
+    // o resultado dele vai para o estado atual (a resposta paga não é jogada fora).
+    await gravarSobreOAtual(x, estado, async () => {
+      const agoraM = await buscar(id);
+      return agoraM?.status === "em_leitura" ? { estado: lerEstadoLeitura(agoraM.leitura), x: execucaoDaLeitura(agoraM) } : null;
+    });
+    return estadoGravado(id);
+  }
   if (modelo) await registrarRevisao({ maqueteId: id, versao: m.modeloVersao + 1, modelo, origem: "leitura", motivo: "Planta lida dos PDFs do pedido", autorId });
   return { estado, status };
 }
@@ -757,6 +770,7 @@ export async function confirmarIA(id: number, userId: number, alemDoTeto = false
   const m = await buscar(id);
   if (!m || m.status !== "em_leitura") throw new LeituraIndisponivel("Não há leitura em andamento para esta maquete.");
   const estado = lerEstadoLeitura(m.leitura);
+  exigirSemPassoEmCurso(estado);
   const r = novaConfirmacao(estado, await carregarConfig(), m.iaPranchasLidas ?? 0, userId, alemDoTeto);
   if ("erro" in r) throw new LeituraIndisponivel(r.erro!);
   const x = execucaoDaLeitura(m);
@@ -769,6 +783,7 @@ export async function pularIA(id: number): Promise<EstadoLeitura> {
   const m = await buscar(id);
   if (!m || m.status !== "em_leitura") throw new LeituraIndisponivel("Não há leitura em andamento para esta maquete.");
   const estado = lerEstadoLeitura(m.leitura);
+  exigirSemPassoEmCurso(estado);
   pularPassosIA(estado, await carregarConfig());
   const x = execucaoDaLeitura(m);
   if (!(await gravarSeIgual(x, x.serializar(estado)))) throw new LeituraIndisponivel("A leitura mudou enquanto você escolhia. Confira e tente de novo.");

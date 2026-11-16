@@ -9,7 +9,7 @@
 import { and, eq, inArray, isNull, lt, sql } from "drizzle-orm";
 import { maquetes3d, type Maquete3d } from "../../drizzle/schema-maquete-3d.js";
 import { confirmacaoValida, type ConfigMaquete, type EstadoLeitura, type PassoLeitura, type StatusMaquete } from "../../shared/maquete-3d/regras.js";
-import { agora, db, modeloDaLeitura, tipoDoErroIA, type CredencialIA } from "./base.js";
+import { LeituraIndisponivel, agora, db, modeloDaLeitura, tipoDoErroIA, type CredencialIA } from "./base.js";
 
 /** Passos do fluxo antigo (motor "IA em tudo"): cada um é uma chamada paga com os PDFs inteiros. */
 export const PASSOS_IA_ANTIGOS: readonly PassoLeitura["tipo"][] = ["inventario", "estrutura", "ambientes", "implantacao"];
@@ -34,10 +34,14 @@ export type Execucao = {
   iaLidas: number;
   /** Chamadas reservadas que não chegaram a ser cobradas (erro antes da resposta): devolvidas na gravação final. */
   devolver: number;
+  /** A reserva feita por este pedido (passo, hora e tokens antes da chamada): base da segunda barreira do N1. */
+  reserva?: { chave: string; em: string; tokensEntrada: number; tokensSaida: number };
+  /** Quando este pedido começou (Date.now()): o orçamento da função (60 s) conta daqui (QA rodada 2, N7). */
+  inicio: number;
 };
 
-export const execucaoDe = (m: Maquete3d, coluna: Execucao["coluna"], serializar: Execucao["serializar"], status: readonly StatusMaquete[]): Execucao => ({
-  id: m.id, coluna, lido: coluna === "leitura" ? m.leitura : m.importacao, serializar, status, iaLidas: m.iaPranchasLidas ?? 0, devolver: 0,
+export const execucaoDe = (m: Maquete3d, coluna: Execucao["coluna"], serializar: Execucao["serializar"], status: readonly StatusMaquete[], inicio = Date.now()): Execucao => ({
+  id: m.id, coluna, lido: coluna === "leitura" ? m.leitura : m.importacao, serializar, status, iaLidas: m.iaPranchasLidas ?? 0, devolver: 0, inicio,
 });
 
 /**
@@ -101,11 +105,13 @@ export function bloqueioDaIA(estado: EstadoLeitura, config: ConfigMaquete, x: Ex
  */
 export async function reservarChamada(x: Execucao, estado: EstadoLeitura, passo: PassoLeitura, config: ConfigMaquete): Promise<void> {
   const conf = estado.confirmacaoIA!;
-  Object.assign(passo, { estado: "executando", reservadoEm: agora().toISOString(), erro: null, aguardando: null });
+  const em = agora().toISOString();
+  Object.assign(passo, { estado: "executando", reservadoEm: em, erro: null, aguardando: null });
   conf.usadas = (conf.usadas ?? 0) + 1;
   const ok = await gravarSeIgual(x, x.serializar(estado), { deltaIA: 1, limiteIA: conf.alemDoTeto ? null : config.limitePranchasIA });
   if (!ok) throw new ExecucaoConcorrente("Este passo já está sendo lido em outra aba ou janela.");
   x.iaLidas++;
+  x.reserva = { chave: passo.chave, em, tokensEntrada: estado.tokensEntrada, tokensSaida: estado.tokensSaida };
 }
 
 /**
@@ -140,6 +146,60 @@ export function reservaVencida(passo: PassoLeitura): boolean {
   return !Number.isFinite(em) || decorrido > LIMITE_RESERVA_MS || decorrido < -TOLERANCIA_RELOGIO_MS;
 }
 export const MENSAGEM_INTERROMPIDA = "A leitura deste passo pela IA foi interrompida antes de terminar. A chamada pode ter sido cobrada e conta como usada; tente de novo este passo.";
+/** Passo com reserva ainda válida: a IA está lendo agora (nesta ou em outra aba). Reserva vencida não conta. */
+export function passoEmCurso(estado: EstadoLeitura | null | undefined): PassoLeitura | undefined {
+  return estado?.passos.find(p => p.estado === "executando" && !reservaVencida(p));
+}
+export const MENSAGEM_PASSO_EM_CURSO = "Um passo está sendo lido pela IA agora; aguarde terminar (alguns segundos) e tente de novo.";
+
+/**
+ * QA rodada 2, N1: enquanto um passo está sendo lido pela IA (reserva válida), confirmar, seguir sem a IA, ler de
+ * novo, descartar, aplicar ou começar outra importação jogaria fora a resposta já paga. Essas rotas recusam
+ * (CONFLICT na API) até o passo terminar.
+ */
+export function exigirSemPassoEmCurso(estado: EstadoLeitura | null | undefined): void {
+  if (passoEmCurso(estado)) throw new LeituraIndisponivel(MENSAGEM_PASSO_EM_CURSO);
+}
+
+/**
+ * Segunda barreira do N1: a gravação final do passo não bateu (a coluna mudou durante a chamada). Se no estado ATUAL
+ * o mesmo passo continua "executando" com a MESMA reserva, aplica só o resultado dele (o próprio passo, o que ele
+ * leu e os tokens) sobre o estado atual, em vez de jogar fora a resposta paga. Devolve false quando não é seguro
+ * (reserva trocada, passo que reescreve a lista de passos, nada reservado).
+ */
+export function aplicarResultadoDoPasso(atual: EstadoLeitura, meu: EstadoLeitura, x: Execucao): boolean {
+  const r = x.reserva;
+  if (!r) return false;
+  const alvo = atual.passos.find(p => p.chave === r.chave), feito = meu.passos.find(p => p.chave === r.chave);
+  if (!alvo || !feito || alvo.estado !== "executando" || alvo.reservadoEm !== r.em) return false;
+  // O inventário do fluxo antigo troca a lista inteira de passos: não dá para aplicar só ele.
+  if (feito.tipo !== "prancha_ia" && !(PASSOS_IA_ANTIGOS.includes(feito.tipo) && feito.tipo !== "inventario")) return false;
+  Object.assign(alvo, { ...feito, reservadoEm: null });
+  if (feito.estado === "feito") {
+    const k = feito.tipo === "prancha_ia" ? `prancha:${feito.doc}:${feito.pagina}` : feito.chave;
+    if (k in meu.parciais) atual.parciais[k] = meu.parciais[k];
+  }
+  atual.tokensEntrada += Math.max(0, meu.tokensEntrada - r.tokensEntrada);
+  atual.tokensSaida += Math.max(0, meu.tokensSaida - r.tokensSaida);
+  // Chamada não cobrada: devolve também a prancha da confirmação, se ela ainda for a mesma desta reserva.
+  if (x.devolver && atual.confirmacaoIA && atual.confirmacaoIA.em === meu.confirmacaoIA?.em) {
+    atual.confirmacaoIA.usadas = Math.max(0, (atual.confirmacaoIA.usadas ?? 0) - x.devolver);
+  }
+  return true;
+}
+
+/**
+ * Grava o resultado do passo sobre o estado atual (segunda barreira do N1). `reler` devolve o estado gravado agora e
+ * a execução dele (ou null se a leitura/importação não existe mais). Até 3 tentativas, sempre com gravação condicional.
+ */
+export async function gravarSobreOAtual(x: Execucao, meu: EstadoLeitura, reler: () => Promise<{ estado: EstadoLeitura; x: Execucao } | null>): Promise<boolean> {
+  for (let i = 0; i < 3; i++) {
+    const atual = await reler();
+    if (!atual || !aplicarResultadoDoPasso(atual.estado, meu, x)) return false;
+    if (await gravarSeIgual(atual.x, atual.x.serializar(atual.estado), { deltaIA: -x.devolver })) return true;
+  }
+  return false;
+}
 export const MENSAGEM_EM_CURSO = "Este passo já está sendo lido pela IA em outra aba ou janela. Aguarde alguns segundos e continue.";
 
 /**

@@ -567,6 +567,8 @@ function Detalhe({ id }: { id: number }) {
   if (!d) return <p className="text-sm text-red-300">{detalhe.error?.message ?? "Maquete não encontrada."}</p>;
 
   const aguardando = d.status === "aguardando_pagamento" || d.status === "aguardando_autorizacao";
+  /** QA rodada 2, N1: com um passo sendo lido pela IA, confirmar, seguir sem a IA e ler de novo esperam ele terminar. */
+  const emCurso = d.status === "em_leitura" && d.ia.emCurso;
   const podeLer = ["liberada", "em_leitura", "em_revisao", "validada"].includes(d.status);
   const podeRevisar = d.status === "em_revisao" || d.status === "validada";
   const erros = d.problemas.filter(p => p.nivel === "erro"), avisos = d.problemas.filter(p => p.nivel === "aviso");
@@ -685,18 +687,18 @@ function Detalhe({ id }: { id: number }) {
                 {d.passos.find(p => p.estado === "aguardando")?.aguardando === "confirmacao" ? (
                   <>
                     <p>{d.ia.pendentes} prancha(s) não podem ser lidas pelo leitor próprio e precisam da leitura por IA, que é paga (cobrada pela Anthropic por tokens). A confirmação vale só para esta leitura e para as pranchas autorizadas (esta maquete já usou {d.ia.lidasNaMaquete} de {d.ia.teto ?? "—"} pela IA).</p>
-                    {admin ? <Button className={btnOuro} disabled={lendo || confirmarIA.isPending} onClick={() => decidirIA(true)}><Check className="mr-1 h-4 w-4" />Confirmar a leitura pela IA (até o teto da maquete)</Button>
+                    {admin ? <Button className={btnOuro} disabled={lendo || emCurso || confirmarIA.isPending} onClick={() => decidirIA(true)}><Check className="mr-1 h-4 w-4" />Confirmar a leitura pela IA (até o teto da maquete)</Button>
                       : <p className="text-xs text-gray-400">Só o administrador autoriza a leitura paga pela IA.</p>}
                   </>
                 ) : d.passos.find(p => p.estado === "aguardando")?.aguardando === "teto" ? (
                   <>
                     <p>{d.passos.find(p => p.estado === "aguardando")?.erro}</p>
-                    {admin ? <Button className={btnOuro} disabled={lendo || confirmarIA.isPending}
+                    {admin ? <Button className={btnOuro} disabled={lendo || emCurso || confirmarIA.isPending}
                       onClick={() => { if (window.confirm(`Autorizar a leitura paga de mais ${d.ia.pendentes} prancha(s) pela IA, além do teto de ${d.ia.teto ?? "—"} desta maquete?`)) void decidirIA(true, true); }}><Check className="mr-1 h-4 w-4" />Autorizar além do teto ({d.ia.pendentes} prancha(s))</Button>
                       : <p className="text-xs text-gray-400">Só o administrador autoriza passar do teto de pranchas pela IA.</p>}
                   </>
                 ) : <p>Cadastre a chave em Integrações → Anthropic e clique em “Continuar leitura”: ela retoma deste passo, sem perder o que já foi lido.</p>}
-                <Button variant="outline" className={btnOutline} disabled={lendo || pularIA.isPending}
+                <Button variant="outline" className={btnOutline} disabled={lendo || emCurso || pularIA.isPending}
                   onClick={() => { if (window.confirm("Seguir sem a IA? Essas pranchas ficam com o que o leitor próprio leu (pode ser nada); a planta pode ser desenhada na revisão.")) void decidirIA(false); }}>Continuar sem a IA</Button>
               </div>
             )}
@@ -704,9 +706,10 @@ function Detalhe({ id }: { id: number }) {
             <div className="flex flex-wrap items-center gap-2">
               {d.status === "liberada" && <Button className={btnOuro} disabled={lendo || !d.documentos.length} onClick={() => ler(true)}><Play className="mr-1 h-4 w-4" />Gerar maquete (ler o projeto)</Button>}
               {d.status === "em_leitura" && <Button className={btnOuro} disabled={lendo} onClick={() => ler(false)}><Play className="mr-1 h-4 w-4" />{d.progresso.proximo?.estado === "erro" ? "Tentar de novo este passo" : d.progresso.proximo?.estado === "aguardando" ? "Continuar leitura (depois de cadastrar a chave)" : "Continuar leitura"}</Button>}
-              {(d.status === "em_revisao" || d.status === "validada" || d.status === "em_leitura") && <Button variant="outline" className={btnOutline} disabled={lendo || !d.documentos.length}
+              {(d.status === "em_revisao" || d.status === "validada" || d.status === "em_leitura") && <Button variant="outline" className={btnOutline} disabled={lendo || emCurso || !d.documentos.length}
                 onClick={() => { if (window.confirm("Ler o projeto de novo apaga a planta atual e as correções feitas na revisão. Continuar?")) { setSujo(false); ler(true); } }}><RefreshCw className="mr-1 h-4 w-4" />Ler de novo do zero</Button>}
               {lendo && <span className="text-gray-300">Lendo… mantenha esta página aberta.</span>}
+              {!lendo && emCurso && <span className="text-amber-300">Um passo está sendo lido pela IA agora: aguarde terminar para confirmar, seguir sem a IA ou ler de novo.</span>}
             </div>
             {d.escalas.length > 0 && <p className="text-xs text-gray-300">Escala usada: {d.escalas.map(e => `${e.titulo || "planta"} ${e.escala ? `1:${e.escala}` : "sem escala legível"}${e.lidaPor === "ia" ? " (lida pela IA)" : ""}${!e.escala ? " — acerte uma medida conhecida na revisão" : e.origem === "texto" ? "" : e.origem === "areas" ? " (conferida pelas áreas)" : " (suposta — confira)"}`).join(" · ")}</p>}
             {d.avisosDaLeitura.map(a => <p key={a} className="text-xs text-amber-300">{a}</p>)}

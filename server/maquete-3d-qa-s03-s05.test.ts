@@ -174,13 +174,15 @@ describe("QA S-03/S-05 — regressão dos achados", () => {
     await Promise.all([colaborador().avancarImportacao({ id }), colaborador().avancarImportacao({ id })]);
     expect(pedidos).toHaveLength(1);
 
-    // Outra importação; a chamada fica em curso e, enquanto isso, a pessoa descarta: nada é regravado depois.
+    // Outra importação; a chamada fica em curso e, enquanto isso, a pessoa tenta descartar: recusado até o passo
+    // terminar (QA rodada 2, N1 — a resposta paga não é jogada fora). Depois, descarta e nada é regravado.
     expect((await importar(id, 0)).aguardando?.motivo).toBe("confirmacao");
     await admin().confirmarIAImportacao({ id });
     const emCurso = colaborador().avancarImportacao({ id });
     await new Promise(r => setTimeout(r, 40));
-    await colaborador().descartarImportacao({ id });
+    await expect(colaborador().descartarImportacao({ id })).rejects.toThrow("sendo lido pela IA agora");
     await emCurso;
+    await colaborador().descartarImportacao({ id });
     expect((await colaborador().detalhe({ id })).importacao).toBeNull();
     expect(pedidos).toHaveLength(2);
   });
@@ -560,5 +562,77 @@ describe("QA S-03/S-05 rodada 2 — leitura e importação (banco em memória)",
     expect(r.erro).toContain("foi interrompida antes de terminar");
     expect(r.erro).not.toContain("página foi fechada");
     expect(pedidos).toHaveLength(0);
+  });
+
+  it("N1: com um passo da leitura sendo lido pela IA, confirmar, seguir sem a IA e ler de novo dão CONFLICT; a resposta paga fica", async () => {
+    await configurar({ motor: "hibrido" });
+    credencial = PAINEL;
+    const id = await pedido([IMG]);
+    await colaborador().iniciarLeitura({ id });
+    expect((await ler(id)).aguardando?.motivo).toBe("confirmacao");
+    await admin().confirmarIA({ id });
+    atrasoIA = 400;
+    const emCurso = colaborador().avancarLeitura({ id });
+    await new Promise(r => setTimeout(r, 80));
+    expect((await admin().detalhe({ id })).ia.emCurso).toBe(true);
+    for (const tentativa of [() => colaborador().pularIA({ id }), () => admin().confirmarIA({ id }), () => admin().confirmarIA({ id, alemDoTeto: true }), () => colaborador().iniciarLeitura({ id })]) {
+      await expect(tentativa()).rejects.toMatchObject({ code: "CONFLICT", message: expect.stringContaining("Um passo está sendo lido pela IA agora; aguarde terminar") });
+    }
+    await emCurso;
+    const d = await admin().detalhe({ id });
+    expect(d.ia.emCurso).toBe(false);
+    expect(d.passos.find(p => p.tipo === "prancha_ia")).toMatchObject({ estado: "feito", motor: "ia", erro: null });
+    expect(await ler(id)).toMatchObject({ status: "em_revisao", erro: null });
+    expect(pedidos).toHaveLength(1);
+    expect(await contador(id)).toBe(1);
+  });
+
+  it("N1: com um passo da importação sendo lido pela IA, confirmar, seguir sem a IA, descartar e importar outro dão CONFLICT", async () => {
+    await configurar({ motor: "hibrido" });
+    credencial = PAINEL;
+    const id = await pedido([IMG]);
+    expect((await importar(id, 0)).aguardando?.motivo).toBe("confirmacao");
+    await admin().confirmarIAImportacao({ id });
+    atrasoIA = 400;
+    const emCurso = colaborador().avancarImportacao({ id });
+    await new Promise(r => setTimeout(r, 80));
+    expect((await admin().detalhe({ id })).importacao?.ia.emCurso).toBe(true);
+    for (const tentativa of [() => colaborador().pularIAImportacao({ id }), () => admin().confirmarIAImportacao({ id }), () => colaborador().descartarImportacao({ id }), () => colaborador().importarPlanta({ id, doc: 0 })]) {
+      await expect(tentativa()).rejects.toMatchObject({ code: "CONFLICT", message: expect.stringContaining("sendo lido pela IA agora") });
+    }
+    await emCurso;
+    const imp = (await admin().detalhe({ id })).importacao!;
+    expect(imp.ia.emCurso).toBe(false);
+    expect(imp.passos.find(p => p.tipo === "prancha_ia")).toMatchObject({ estado: "feito", motor: "ia" });
+    expect(pedidos).toHaveLength(1);
+    expect(await contador(id)).toBe(1);
+  });
+
+  it("N1 (segunda barreira): se a leitura muda durante a chamada sem tocar no passo, o resultado pago é aplicado sobre o estado atual", async () => {
+    await configurar({ motor: "hibrido" });
+    credencial = PAINEL;
+    const id = await pedido([IMG]);
+    await colaborador().iniciarLeitura({ id });
+    await ler(id);
+    await admin().confirmarIA({ id });
+    // Durante a chamada, outra gravação muda a coluna (aqui, direto no banco: um aviso a mais).
+    definirDependencias({
+      ia: async p => {
+        pedidos.push(p);
+        const e = lerEstadoLeitura((await banco.pg.query<{ leitura: string }>(`SELECT leitura FROM maquetes_3d WHERE id = $1`, [id])).rows[0].leitura);
+        e.foraDoLimiteIA = ["aviso gravado durante a chamada"];
+        await banco.pg.query(`UPDATE maquetes_3d SET leitura = $1 WHERE id = $2`, [JSON.stringify(e), id]);
+        return { json: RESPOSTA_IA, entrada: 1000, saida: 500, modelo: "claude-sonnet-5-5" };
+      },
+    });
+    const r = await colaborador().avancarLeitura({ id });
+    expect(r.erro).toBeNull();
+    const e = lerEstadoLeitura((await banco.pg.query<{ leitura: string }>(`SELECT leitura FROM maquetes_3d WHERE id = $1`, [id])).rows[0].leitura);
+    expect(e.foraDoLimiteIA).toEqual(["aviso gravado durante a chamada"]); // a mudança do outro não se perde
+    expect(e.passos.find(p => p.tipo === "prancha_ia")).toMatchObject({ estado: "feito", motor: "ia", reservadoEm: null });
+    expect(e.tokensEntrada).toBe(1000);
+    expect(await ler(id)).toMatchObject({ status: "em_revisao", erro: null });
+    expect(pedidos).toHaveLength(1);
+    expect(await contador(id)).toBe(1);
   });
 });
