@@ -126,11 +126,12 @@ export function lerMensagemEvolution(item: unknown): MensagemLida {
   // reação e edição/apagamento não são pedido novo: ignoradas em silêncio (o webhook audita a contagem)
   if (m.reactionMessage) return { tipo: "ignorar", motivo: "reacao" };
   if (m.protocolMessage || m.editedMessage) return { tipo: "ignorar", motivo: "edicao" };
-  // QA r2 (informativo): fixar/manter mensagem, enquete e resposta de botão/lista não são pedido escrito — silêncio
-  // (o webhook audita a contagem), sem a frase "só entendo texto".
-  if (INTERACOES.some(k => m[k])) return { tipo: "ignorar", motivo: "interacao" };
   const texto = typeof m.conversation === "string" ? m.conversation
     : typeof m.extendedTextMessage?.text === "string" ? m.extendedTextMessage.text : "";
+  // QA r2 (informativo): fixar/manter mensagem, enquete e resposta de botão/lista não são pedido escrito — silêncio
+  // (o webhook audita a contagem), sem a frase "só entendo texto". QA r3 R5: se veio texto escrito junto (ex.: conversa +
+  // senderKeyDistributionMessage, que o WhatsApp manda na mesma mensagem), é texto: o pedido não some em silêncio.
+  if (!texto.trim() && INTERACOES.some(k => m[k])) return { tipo: "ignorar", motivo: "interacao" };
   const temMidia = Boolean(m.imageMessage || m.videoMessage || m.audioMessage || m.documentMessage || m.documentWithCaptionMessage || m.stickerMessage);
   const s = segundos(d.messageTimestamp);
   return { tipo: "direta", externalId: id, numero, enviadaEm: s === null ? null : new Date(s * 1000), texto: texto.trim(), temMidia, encaminhada: foiEncaminhada(m) };
