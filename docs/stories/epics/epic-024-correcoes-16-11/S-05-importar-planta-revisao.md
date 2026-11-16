@@ -70,7 +70,9 @@ do histórico das revisões. Hoje `iniciarLeitura` apaga o modelo (`modelo: null
   poder voltar a ela; o mesmo vale para "ler de novo do zero".
 - Sem transação interativa (neon-http): o modelo é gravado com `UPDATE … WHERE modelo_versao = versão` e a revisão logo
   depois, com versão única por maquete (`ON CONFLICT DO NOTHING`). Se a gravação da revisão falhar depois do modelo, a
-  mudança fica sem linha no histórico (o modelo nunca fica inconsistente).
+  mudança fica sem linha no histórico e o erro vai para o log (o salvamento não é desfeito nem dado como falho).
+- **A 0121 tem de ser aplicada antes de publicar o código:** a coluna `maquetes_3d.importacao` está no schema Drizzle,
+  e toda consulta da maquete a seleciona.
 - As pranchas do PDF importado passam a ser o fundo dos pavimentos substituídos (em `leitura.parciais.pranchasDosPavimentos`).
   A planta lida pela IA não tem alinhamento automático com o fundo: alinha-se à mão no editor.
 - Comparação "por pavimento": cada lado tem as próprias abas de pavimento (não há trava de rolagem entre os dois).

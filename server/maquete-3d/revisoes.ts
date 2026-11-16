@@ -14,15 +14,20 @@ export type OrigemRevisao = (typeof ORIGENS_REVISAO)[number];
 /** Modelo que existia antes do histórico (maquete antiga): guardado uma vez, para poder voltar a ele. */
 export async function guardarAnterior(m: Pick<Maquete3d, "id" | "modelo" | "modeloVersao">, motivo = "Planta como estava antes do histórico"): Promise<void> {
   if (!m.modelo) return;
-  await db().insert(maquete3dRevisoes).values({ maqueteId: m.id, versao: m.modeloVersao, modelo: m.modelo, origem: "anterior", motivo, createdAt: agora() })
-    .onConflictDoNothing();
+  try {
+    await db().insert(maquete3dRevisoes).values({ maqueteId: m.id, versao: m.modeloVersao, modelo: m.modelo, origem: "anterior", motivo, createdAt: agora() })
+      .onConflictDoNothing();
+  } catch (e) { console.error(`[maquete-3d] histórico: falha ao guardar a planta anterior da maquete ${m.id}:`, e instanceof Error ? e.message : e); }
 }
 
+/** O modelo já foi gravado quando a revisão é registrada: uma falha aqui é registrada no log e não desfaz o salvamento. */
 export async function registrarRevisao(r: { maqueteId: number; versao: number; modelo: string; origem: OrigemRevisao; motivo?: string | null; documento?: DocumentoMaquete | null; autorId?: number | null }): Promise<void> {
-  await db().insert(maquete3dRevisoes).values({
-    maqueteId: r.maqueteId, versao: r.versao, modelo: r.modelo, origem: r.origem, motivo: r.motivo?.slice(0, 400) || null,
-    documento: r.documento ? JSON.stringify(r.documento) : null, autorId: r.autorId ?? null, createdAt: agora(),
-  }).onConflictDoNothing();
+  try {
+    await db().insert(maquete3dRevisoes).values({
+      maqueteId: r.maqueteId, versao: r.versao, modelo: r.modelo, origem: r.origem, motivo: r.motivo?.slice(0, 400) || null,
+      documento: r.documento ? JSON.stringify(r.documento) : null, autorId: r.autorId ?? null, createdAt: agora(),
+    }).onConflictDoNothing();
+  } catch (e) { console.error(`[maquete-3d] histórico: falha ao registrar a versão ${r.versao} da maquete ${r.maqueteId}:`, e instanceof Error ? e.message : e); }
 }
 
 export class ConflitoDeVersao extends Error {}
