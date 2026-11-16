@@ -20,7 +20,7 @@ navegador e em iPad, KML reais, PDF real do projeto, fontes externas do mapa. O 
 - [x] AC5: estacionamento com a vaga de um carro (12,5 m²) e área por vaga ajustável (pedido do dono).
 - [x] AC6: teste antigo da Central de Vendas corrigido.
 - [x] AC7: fontes externas do mapa testadas de verdade a partir do ambiente de desenvolvimento; busca mais resistente.
-- [ ] AC8: leitor geométrico calibrado no PDF real do Polímeros (só a planta baixa vira pavimento; cômodos com nome;
+- [x] AC8: leitor geométrico calibrado no PDF real do Polímeros (só a planta baixa vira pavimento; cômodos com nome;
       portas; folha de urbanismo recusada com aviso; leitura em poucos segundos).
 - [ ] AC9: portão de qualidade (@qa) sobre o PR #232 e sobre o leitor, com os achados corrigidos.
 - [ ] AC10: fontes externas conferidas em produção (tabela `camadas_terreno_cache`) depois que o mapa for aberto lá.
@@ -29,7 +29,7 @@ navegador e em iPad, KML reais, PDF real do projeto, fontes externas do mapa. O 
 - [x] T1: bancada de teste de tela (site construído + Chromium + tRPC simulado) — temporária, fora do repositório.
 - [x] T2: correções da primeira leva (CRM `relative`; vaga 18,75 m²; `uso` do lote; rua afunilada; corrida entre os
       servidores do OpenStreetMap; nota do estudo de massa; teste da Central de Vendas).
-- [ ] T3: calibragem do leitor no PDF real (@dev) + testes sintéticos que reproduzem os traços do PDF real.
+- [x] T3: calibragem do leitor no PDF real (@dev) + testes sintéticos que reproduzem os traços do PDF real.
 - [ ] T4: portão de QA (@qa) e correções.
 - [ ] T5: HANDOFF, publicação e conferência da Vercel.
 
@@ -40,6 +40,12 @@ navegador e em iPad, KML reais, PDF real do projeto, fontes externas do mapa. O 
 - `server/_core/geo/camadas-terreno-busca.ts`, `server/maquete-3d/{geometrico,leitura,router}.ts`
 - Testes: `server/maquete-3d-vias.test.ts`, `server/maquete-3d-padrao.test.ts`, `server/central-vendas-envio.test.ts`,
   `server/maquete-3d-leitor.test.ts`
+
+## QA Results
+- PR #232 — @qa em 16/11: **CONCERNS**. Nove achados (1 alto, 5 médios, 3 baixos), todos confirmados rodando código;
+  corrigidos no commit `11393d0` (Overpass sem cancelamento; vagas do pilotis; contagem de vagas pelo nome do cômodo;
+  rua em triângulo; legenda). Não conferido pelo QA: navegador, banco e rede real.
+- Leitor de PDF — @qa: em andamento.
 
 ## Registro
 Detalhes, medições e o que não pôde ser verificado: `HANDOFF-15-11-CORRECOES.md`, seção "Rodada de validação de 16/11".
