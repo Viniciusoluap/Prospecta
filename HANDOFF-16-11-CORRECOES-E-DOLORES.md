@@ -226,7 +226,7 @@ migração da etapa antes. Depois lançar S-03 e S-05, e por fim o EPIC-025 (Dol
   ROADMAP, as duas coisas preservadas); ajustes `0be8d46` (texto a gravar com link/segredo recusado — direto e fila —,
   filtro do canal nos quadros e nas respostas das ações, autoria filtrada como registro, R3-M1 `umaLinha`) e testes
   `e2d327f`. Detalhes na story E3, seção "Integração com a Etapa 2 final — opção B". 0125 não mudou.
-- **Testes (a) automáticos:** tsc ok; área 52 arquivos / 642 testes; vite build ok; suíte completa SUITE_NUMEROS.
+- **Testes (a) automáticos:** tsc ok; área 52 arquivos / 642 testes; vite build ok; suíte completa 242 arquivos, 2.453 testes passando.
   **(b) manuais:** nenhum. **(c) produção:** 0124 e 0125 não aplicadas; aceite pelo WhatsApp (tarefa com link → recusa
   explicada; tarefa com CPF → gravada com o CPF, opção B).
 - **Próximo passo exato:** E2 na `main` (depois do QA dela); rebase da E3 sobre a `main`, aplicar 0125 e publicar.

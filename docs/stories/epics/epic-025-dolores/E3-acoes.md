@@ -219,7 +219,7 @@ documentos pendentes e prepare as cobranças."
   não partir palavras). Teste em `correcoes-e3-r2.test.ts`.
 - **0125:** não mudou.
 - **Testes (16/11):** `npx tsc --noEmit` sem erros; área — 52 arquivos, 642 testes passando; `npx vite build` ok; suíte
-  completa — SUITE_NUMEROS.
+  completa — 242 arquivos, 2.453 testes passando.
 
 ## Correções do portão de QA (Quinn, 16/11 — FAIL: 1 bloqueio, 3 importantes, 5 menores)
 Cada achado tem teste de regressão = versão INVERTIDA do ataque do QA (`server/dolores/correcoes-e3.test.ts`,
