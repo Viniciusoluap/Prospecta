@@ -3,6 +3,7 @@
 import { readFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { deflateSync } from "node:zlib";
+import { APIConnectionTimeoutError, APIError } from "@anthropic-ai/sdk";
 import { PGlite } from "@electric-sql/pglite";
 import { drizzle } from "drizzle-orm/pglite";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -248,7 +249,8 @@ describe("leitura híbrida — router com banco em memória e IA simulada", () =
     const id = await pedido([IMG]);
     await ler(id);
     await admin().confirmarIA({ id });
-    respostas.push(Object.assign(new Error("Request timed out."), { name: "APIConnectionTimeoutError" }), Object.assign(new Error("Overloaded"), { status: 529 }));
+    // Erros reais do SDK (QA rodada 2, N2: o SDK deixa `name === "Error"`; o tipo vem da classe).
+    respostas.push(new APIConnectionTimeoutError(), APIError.generate(529, { type: "error", error: { type: "overloaded_error", message: "Overloaded" } }, undefined, new Headers()));
     expect((await ler(id)).erro).toContain("passou do tempo limite");
     // O tempo esgotado pode ter sido cobrado: a prancha autorizada foi usada e repetir pede nova confirmação.
     expect((await ler(id)).aguardando).toMatchObject({ motivo: "confirmacao" });

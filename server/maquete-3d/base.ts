@@ -1,6 +1,7 @@
 // Maquete 3D (EPIC-022) — infraestrutura comum: configuração, leitura dos PDFs guardados e as dependências
 // externas (IA e arquivos), substituíveis nos testes. Sem transação interativa (neon-http): as mudanças de
 // situação usam UPDATE ... WHERE status/versão RETURNING.
+import { APIConnectionError, APIConnectionTimeoutError, APIError, AuthenticationError, PermissionDeniedError, RateLimitError } from "@anthropic-ai/sdk";
 import { and, eq, isNull, sql } from "drizzle-orm";
 import { projectDocuments } from "../../drizzle/schema.js";
 import { maquete3dConfig } from "../../drizzle/schema-maquete-3d.js";
@@ -168,16 +169,48 @@ export async function salvarConfig(c: ConfigMaquete, userId: number | null): Pro
     .onConflictDoUpdate({ target: maquete3dConfig.id, set: { dados, updatedBy: userId, updatedAt: agora() } });
 }
 
-/** Mensagem de erro curta e sem dados sensíveis para guardar no passo e mostrar na tela. */
+/**
+ * Tipo do erro da IA. O SDK da Anthropic deixa `name === "Error"` em todas as classes (QA rodada 2, N2): o tipo vem
+ * de `instanceof` com as classes do SDK, do nome da classe e do `status` HTTP — nunca de `e.name`.
+ */
+export type ErroDaIA = "tempo" | "conexao" | "limite" | "chave" | "permissao" | "sobrecarga" | "fora_do_ar" | "recusado" | null;
+export function tipoDoErroIA(e: unknown): ErroDaIA {
+  const classe = (e as { constructor?: { name?: string } } | null)?.constructor?.name ?? "";
+  const bruto = (e as { status?: unknown } | null)?.status;
+  const status = typeof bruto === "number" ? bruto : undefined;
+  if (e instanceof APIConnectionTimeoutError || classe === "APIConnectionTimeoutError") return "tempo";
+  if (e instanceof APIConnectionError || classe === "APIConnectionError") return "conexao";
+  if (e instanceof RateLimitError || status === 429) return "limite";
+  if (e instanceof AuthenticationError || status === 401) return "chave";
+  if (e instanceof PermissionDeniedError || status === 403) return "permissao";
+  if (status === 529 || classe === "OverloadedError") return "sobrecarga";
+  if (status !== undefined && status >= 500) return "fora_do_ar";
+  if (e instanceof APIError || (status !== undefined && status >= 400)) return "recusado";
+  return null;
+}
+
+const semChave = (t: string) => t.replace(/sk-ant-[\w-]+/g, "***");
+
+/** Mensagem de erro curta e sem dados sensíveis para guardar no passo e mostrar na tela (nunca "429 {}" cru). */
 export function erroSeguro(e: unknown): string {
-  const nome = e instanceof Error ? e.name : "";
-  if (nome === "APIConnectionTimeoutError") return "A leitura deste passo passou do tempo limite. Tente de novo; se repetir, reduza o esforço da IA nas configurações.";
-  if (nome === "RateLimitError") return "Limite de uso da IA atingido. Aguarde um minuto e tente de novo.";
-  if (nome === "AuthenticationError") return "Chave da IA inválida ou revogada: confira em Integrações → Anthropic.";
-  if (nome === "APIConnectionError") return "Não foi possível falar com a IA agora. Tente de novo em instantes.";
-  const status = (e as { status?: number })?.status;
-  if (status === 529 || nome === "OverloadedError") return "A IA está sobrecarregada agora. Tente de novo este passo em instantes.";
-  if (typeof status === "number" && status >= 500) return "A IA ficou fora do ar durante a leitura. Tente de novo este passo.";
-  const m = e instanceof Error ? e.message : "Falha desconhecida";
-  return m.replace(/sk-ant-[\w-]+/g, "***").slice(0, 300);
+  switch (tipoDoErroIA(e)) {
+    case "tempo": return "A leitura deste passo passou do tempo limite. Tente de novo; se repetir, reduza o esforço da IA nas configurações.";
+    case "conexao": return "Não foi possível falar com a IA agora. Tente de novo em instantes.";
+    case "limite": return "Limite de uso da IA atingido. Aguarde um minuto e tente de novo.";
+    case "chave": return "Chave da IA inválida ou revogada: confira em Integrações → Anthropic.";
+    case "permissao": return "A chave da IA não tem permissão para este modelo ou recurso: confira em Integrações → Anthropic.";
+    case "sobrecarga": return "A IA está sobrecarregada agora. Tente de novo este passo em instantes.";
+    case "fora_do_ar": return "A IA ficou fora do ar durante a leitura. Tente de novo este passo.";
+    case "recusado": {
+      // Pedido recusado pela API (400, 404, 413...): o motivo dela, quando houver, sem o JSON cru e sem a chave.
+      const status = (e as { status?: number }).status;
+      const interno = (e as { error?: { error?: { message?: unknown } } }).error?.error?.message;
+      const motivo = typeof interno === "string" && interno.trim() ? ` Motivo: ${semChave(interno.trim()).slice(0, 200)}` : "";
+      return `A IA não aceitou o pedido deste passo${status ? ` (código ${status})` : ""}.${motivo}`;
+    }
+    default: {
+      const m = e instanceof Error ? e.message : "Falha desconhecida";
+      return semChave(m).slice(0, 300);
+    }
+  }
 }

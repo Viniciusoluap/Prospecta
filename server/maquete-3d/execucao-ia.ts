@@ -9,7 +9,7 @@
 import { and, eq, inArray, isNull, lt, sql } from "drizzle-orm";
 import { maquetes3d, type Maquete3d } from "../../drizzle/schema-maquete-3d.js";
 import { confirmacaoValida, type ConfigMaquete, type EstadoLeitura, type PassoLeitura, type StatusMaquete } from "../../shared/maquete-3d/regras.js";
-import { agora, db, modeloDaLeitura, type CredencialIA } from "./base.js";
+import { agora, db, modeloDaLeitura, tipoDoErroIA, type CredencialIA } from "./base.js";
 
 /** Passos do fluxo antigo (motor "IA em tudo"): cada um é uma chamada paga com os PDFs inteiros. */
 export const PASSOS_IA_ANTIGOS: readonly PassoLeitura["tipo"][] = ["inventario", "estrutura", "ambientes", "implantacao"];
@@ -109,14 +109,14 @@ export async function reservarChamada(x: Execucao, estado: EstadoLeitura, passo:
 }
 
 /**
- * Erros em que a API certamente não cobrou (não respondeu, recusou a conexão ou a chave, sobrecarga, limite de uso):
- * a prancha volta para a confirmação e para o contador. Tempo esgotado e resposta recebida contam como cobradas.
+ * Erros em que a API certamente não cobrou (a API respondeu recusando: chave, permissão, limite de uso, sobrecarga,
+ * fora do ar): a prancha volta para a confirmação e para o contador. O tipo vem das classes do SDK e do `status`
+ * (`tipoDoErroIA`), nunca de `e.name` (QA rodada 2, N2). Tempo esgotado, conexão caída (a resposta pode ter sido
+ * gerada e cobrada antes de a conexão cair) e resposta recebida contam como cobradas: o lado seguro do teto.
  */
 export function naoCobrado(e: unknown): boolean {
-  const nome = e instanceof Error ? e.name : "", status = (e as { status?: number })?.status;
-  if (nome === "APIConnectionTimeoutError") return false;
-  return ["APIConnectionError", "RateLimitError", "AuthenticationError", "OverloadedError", "PermissionDeniedError"].includes(nome)
-    || status === 401 || status === 403 || status === 429 || status === 529 || (typeof status === "number" && status >= 500);
+  const tipo = tipoDoErroIA(e);
+  return tipo === "limite" || tipo === "chave" || tipo === "permissao" || tipo === "sobrecarga" || tipo === "fora_do_ar";
 }
 
 /** Devolve a reserva de uma chamada que não foi cobrada (a gravação final desconta do contador). */

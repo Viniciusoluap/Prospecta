@@ -3,6 +3,7 @@
 // SIMULADA; nada sai para a rede e a chave é falsa.
 import { readFileSync } from "node:fs";
 import { createRequire } from "node:module";
+import { APIConnectionError, APIConnectionTimeoutError, APIError } from "@anthropic-ai/sdk";
 import { PGlite } from "@electric-sql/pglite";
 import { drizzle } from "drizzle-orm/pglite";
 import { getTableColumns } from "drizzle-orm";
@@ -14,7 +15,8 @@ vi.mock("./_core/env.js", () => ({ ENV: { cookieSecret: "segredo-de-teste", anth
 import * as schema from "../drizzle/schema.js";
 import { maquetes3d } from "../drizzle/schema-maquete-3d.js";
 import { getDb } from "./db.js";
-import { definirDependencias, erroSeguro, type CredencialIA, type PedidoIA } from "./maquete-3d/base.js";
+import { definirDependencias, erroSeguro, tipoDoErroIA, type CredencialIA, type PedidoIA } from "./maquete-3d/base.js";
+import { naoCobrado } from "./maquete-3d/execucao-ia.js";
 import { anexoDaPagina, plantasDaIA } from "./maquete-3d/leitura.js";
 import { AREA_MIN_M2, lerRespostaPrancha, sobreposicao } from "./maquete-3d/resposta-ia.js";
 import { ladosDoJpeg, pdfDeUmJpeg } from "./maquete-3d/pdf-pagina.js";
@@ -503,5 +505,30 @@ describe("QA S-03/S-05 — migração 0121 (achado 7)", () => {
     expect(cols).not.toContain("importacao");
     expect(cols).not.toContain("ia_pranchas_lidas");
     await b.pg.close();
+  });
+});
+
+// ── QA rodada 2 (16/11): achados novos N1–N7. Cada teste é a versão invertida do adversarial do QA. ──
+describe("QA S-03/S-05 rodada 2 — funções puras", () => {
+  it("N2: erros reais do SDK viram mensagens amigáveis (nunca '429 {}' nem 'Request timed out.') e o 'não cobrado' vem da classe/status", () => {
+    const h = new Headers();
+    const casos: [unknown, string, boolean][] = [
+      [new APIConnectionTimeoutError(), "passou do tempo limite", false],
+      [new APIConnectionError({ message: "Connection error." }), "Não foi possível falar com a IA", false],
+      [APIError.generate(429, {}, undefined, h), "Limite de uso da IA atingido", true],
+      [APIError.generate(401, {}, undefined, h), "Chave da IA inválida ou revogada", true],
+      [APIError.generate(403, {}, undefined, h), "não tem permissão", true],
+      [APIError.generate(529, {}, undefined, h), "sobrecarregada", true],
+      [APIError.generate(500, {}, undefined, h), "fora do ar", true],
+      [APIError.generate(400, { type: "error", error: { type: "invalid_request_error", message: `PDF grande demais ${CHAVE}` } }, undefined, h), "não aceitou o pedido deste passo (código 400)", false],
+    ];
+    for (const [e, texto, gratis] of casos) {
+      expect((e as Error).name).toBe("Error"); // o SDK não preenche `name`: por isso o código não olha para ele
+      const m = erroSeguro(e);
+      expect(m).toContain(texto);
+      expect(m).not.toMatch(/^\d{3} \{|Request timed out|SEGREDO/);
+      expect(naoCobrado(e)).toBe(gratis);
+    }
+    expect(tipoDoErroIA(new Error("qualquer"))).toBeNull();
   });
 });
