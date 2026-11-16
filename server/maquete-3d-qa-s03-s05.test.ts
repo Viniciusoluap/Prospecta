@@ -22,6 +22,7 @@ import { AREA_MIN_M2, comodoRepetido, lerRespostaPrancha, medidaSuspeita, sobrep
 import { ladosDoJpeg, pdfDeUmJpeg } from "./maquete-3d/pdf-pagina.js";
 import { lerEstadoLeitura } from "../shared/maquete-3d/regras.js";
 import { appRouter } from "./routers.js";
+import { rotuloContinuarLeitura } from "../client/src/components/maquete-3d/rotulos-leitura.js";
 
 const JPEG = readFileSync(new URL("../client/public/casa-compacta-linha-smart.jpg", import.meta.url));
 const RASTER = pdfDeUmJpeg({ jpeg: JPEG, ...ladosDoJpeg(JPEG)! });
@@ -553,6 +554,18 @@ describe("QA S-03/S-05 rodada 2 — funções puras", () => {
     expect(t).toContain('"Dormitório" lido pela IA repete "Suíte"');
     // Áreas parecidas mas funções e nomes diferentes (varanda colada à sala, desenhada por cima): ficam as duas.
     expect(comodoRepetido({ nome: "Sala", funcao: "sala", pontos: r(0, 0, 4, 4) }, { nome: "Varanda", funcao: "varanda", pontos: r(0, 0, 4, 3.8) })).toBe(false);
+  });
+
+  it("N6: 'Continuar leitura (depois de cadastrar a chave)' só aparece quando o que falta é a chave", () => {
+    expect(rotuloContinuarLeitura("aguardando", "chave")).toBe("Continuar leitura (depois de cadastrar a chave)");
+    expect(rotuloContinuarLeitura("aguardando", "teto")).toBe("Continuar leitura");
+    expect(rotuloContinuarLeitura("aguardando", "confirmacao")).toBe("Continuar leitura");
+    expect(rotuloContinuarLeitura("erro", null)).toBe("Tentar de novo este passo");
+    expect(rotuloContinuarLeitura("pendente", null)).toBe("Continuar leitura");
+    // A tela usa a função (o texto fixo antigo não volta).
+    const tela = readFileSync(new URL("../client/src/pages/admin/AdminMaquete3D.tsx", import.meta.url), "utf8");
+    expect(tela).toContain("rotuloContinuarLeitura(d.progresso.proximo?.estado");
+    expect(tela).not.toContain("(depois de cadastrar a chave)");
   });
 
   it("N5: planta em centímetros (ou fora de escala) nunca passa em silêncio: área desenhada × escrita e tamanho do pavimento", () => {

@@ -12,6 +12,7 @@ import { useAuth } from "@/_core/hooks/useAuth";
 import { enviarPartes, LIMITE_DOCUMENTO } from "@/lib/documentos-partes";
 import { EditorPlanta } from "@/components/maquete-3d/EditorPlanta";
 import { HistoricoPlanta, ImportarPlanta } from "@/components/maquete-3d/ImportarPlanta";
+import { rotuloContinuarLeitura } from "@/components/maquete-3d/rotulos-leitura";
 
 const Visualizador = lazy(() => import("@/components/maquete-3d/visualizador/Visualizador"));
 import { ROTULOS_TIPO, TIPOS_MAQUETE, type ModeloMaquete, type TipoMaquete } from "@shared/maquete-3d/modelo";
@@ -705,7 +706,7 @@ function Detalhe({ id }: { id: number }) {
             {d.ia.foraDoLimite.map(a => <p key={a} className="text-xs text-amber-300">{a}</p>)}
             <div className="flex flex-wrap items-center gap-2">
               {d.status === "liberada" && <Button className={btnOuro} disabled={lendo || !d.documentos.length} onClick={() => ler(true)}><Play className="mr-1 h-4 w-4" />Gerar maquete (ler o projeto)</Button>}
-              {d.status === "em_leitura" && <Button className={btnOuro} disabled={lendo} onClick={() => ler(false)}><Play className="mr-1 h-4 w-4" />{d.progresso.proximo?.estado === "erro" ? "Tentar de novo este passo" : d.progresso.proximo?.estado === "aguardando" ? "Continuar leitura (depois de cadastrar a chave)" : "Continuar leitura"}</Button>}
+              {d.status === "em_leitura" && <Button className={btnOuro} disabled={lendo} onClick={() => ler(false)}><Play className="mr-1 h-4 w-4" />{rotuloContinuarLeitura(d.progresso.proximo?.estado, d.passos.find(p => p.estado === "aguardando")?.aguardando)}</Button>}
               {(d.status === "em_revisao" || d.status === "validada" || d.status === "em_leitura") && <Button variant="outline" className={btnOutline} disabled={lendo || emCurso || !d.documentos.length}
                 onClick={() => { if (window.confirm("Ler o projeto de novo apaga a planta atual e as correções feitas na revisão. Continuar?")) { setSujo(false); ler(true); } }}><RefreshCw className="mr-1 h-4 w-4" />Ler de novo do zero</Button>}
               {lendo && <span className="text-gray-300">Lendo… mantenha esta página aberta.</span>}
