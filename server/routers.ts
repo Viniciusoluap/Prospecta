@@ -2840,7 +2840,7 @@ export const appRouter = router({
           // S-I: contorno da APP no terreno (MultiPolygon, [lng, lat]); ausente ou nulo = sem contorno (limpa o anterior)
           contorno: z.object({
             type: z.literal("MultiPolygon"),
-            coordinates: z.array(z.array(z.array(z.tuple([z.number().min(-180).max(180), z.number().min(-90).max(90)])).min(4)).min(1)).min(1).max(2000),
+            coordinates: z.array(z.array(z.array(z.array(z.number().finite()).min(2).max(3).refine((p) => Math.abs(p[0]) <= 180 && Math.abs(p[1]) <= 90, "Coordenada fora de longitude/latitude.")).min(4)).min(1)).min(1).max(2000),
           }).nullable().optional()
             .refine((g) => !g || g.coordinates.reduce((s, poli) => s + poli.reduce((t, a) => t + a.length, 0), 0) <= MAX_VERTICES_CONTORNO_APP,
               { message: `Contorno da APP com vértices demais (máximo ${MAX_VERTICES_CONTORNO_APP}).` }),
