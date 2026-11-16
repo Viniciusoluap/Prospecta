@@ -63,6 +63,7 @@ async function bancoBpo() {
   await pg.exec(sqlDe("0099_bpo_limpeza_ajustes.sql"));
   await pg.exec(sqlDe("0103_bpo_a_classificar.sql"));
   await pg.exec(sqlDe("0103_bpo_a_classificar.sql")); // idempotente
+  await pg.exec(sqlDe("0122_bpo_lancamentos_expurgo.sql")); // EPIC-024 S-01: expurgo do Conta Azul
   await pg.exec(sqlDe("0104_bpo_centros_custo.sql"));
   return pg;
 }

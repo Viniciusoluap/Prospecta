@@ -36,7 +36,7 @@ import { registrarRecebimento } from "./bpo-recebimentos.js";
 import { combinarPagamentos, excluirLancamentosEmLote, previaCombinacao, previaExclusaoLote } from "./bpo-lote.js";
 import { listarExclusoesEmLote, previaRestauracaoExclusao, restaurarExclusaoEmLote } from "./bpo-restauracao.js";
 import { mensagemLancamentoCombinado } from "../shared/financeiro/bpo-lote.js";
-import { importarContaAzul, previaContaAzul } from "./bpo-conta-azul.js";
+import { importarContaAzul, liberarReimportacaoContaAzul, previaContaAzul } from "./bpo-conta-azul.js";
 import { LIMITE_ARQUIVO_CONTA_AZUL } from "../shared/financeiro/conta-azul.js";
 import { filtrarPorCentro } from "../shared/financeiro/bpo-filtros.js";
 import {
@@ -515,6 +515,11 @@ export const bpoRouter = router({
     importar: adminProcedure.input(backupContaAzulSchema).mutation(async ({ input }) => {
       try { return await importarContaAzul(input.arquivos); }
       catch (e) { throw new TRPCError({ code: "BAD_REQUEST", message: e instanceof Error ? e.message : "Falha ao importar o backup." }); }
+    }),
+    /** EPIC-024 S-01: remove em definitivo os arquivados do Conta Azul (sem vínculo) que bloqueiam este backup. */
+    liberarReimportacao: adminProcedure.input(backupContaAzulSchema.extend({ confirmacao: z.string().max(20) })).mutation(async ({ ctx, input }) => {
+      try { return await liberarReimportacaoContaAzul(input, ctx.user.id); }
+      catch (e) { throw new TRPCError({ code: "BAD_REQUEST", message: e instanceof Error ? e.message : "Falha ao liberar a reimportação." }); }
     }),
   }),
 });
