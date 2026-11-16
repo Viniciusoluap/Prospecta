@@ -52,6 +52,19 @@ arquivado continuava segurando a chave única — o `onConflictDoNothing` não d
 - A tabela de produção da Fase 0 (`bpo_lancamentos_backup_conta_azul_20261116`) não é usada nem alterada pelo código.
 - Migração 0122 NÃO aplicada em nenhum banco real nesta execução.
 
+## Correções do portão de QA (16/11, FAIL)
+- [x] Q1 (HIGH): `adminProcedure` só confere o módulo — colaborador com BPO chamava a remoção. A rota agora exige
+      `ctx.user.role === "admin"` (padrão local dos routers; não há helper comum), a tela esconde o botão para quem não é
+      admin, e os testes do Conta Azul passam pelo `appRouter` com o caminho completo `bpo.contaAzul.*` (o
+      `bpoRouter.createCaller` perdia o prefixo e dava falso positivo). Prévia e importação mantêm a permissão do módulo.
+- [x] Q2 (MEDIUM): restauração com lançamento que não existe mais e não está no expurgo → "não existe mais (foi apagado
+      em definitivo)", nada recriado; sem a tabela 0122 (`to_regclass`), mesma mensagem, sem abortar a transação.
+      Situação atual da produção: zero lançamentos, todos os backups antigos caem nesse caso.
+- [x] Q3 (LOW): chave do Conta Azul presa a um lançamento ARQUIVADO → aviso próprio ("está em outro lançamento
+      ARQUIVADO"), separado do "importado de novo" (ativo).
+- [x] Q4 (LOW): arquivado de outra origem com chave `contaazul:` → contado em `arquivados.outraOrigem`, com o motivo, e
+      nunca removido (antes aparecia como bloqueando sem motivo).
+
 ## Testes
 - Automáticos (`server/bpo-conta-azul.test.ts`, 5 novos, 16 no arquivo): arquivados aparecem como bloqueando (não como
   já importados); liberar remove só os elegíveis, copia, registra histórico e mantém o com vínculo bancário, o ativo e o
@@ -80,3 +93,5 @@ arquivado continuava segurando a chave única — o `onConflictDoNothing` não d
 |------|-------|---------|
 | 16/11/2026 | @dev (Dex) | Story criada e Draft → InProgress (YOLO, regra de execução contínua do EPIC-024) |
 | 16/11/2026 | @dev (Dex) | InProgress → Ready for Review: prévia separada, liberar reimportação, restauração sem duplicar, 5 testes |
+| 16/11/2026 | @qa | Portão: FAIL (Q1 HIGH, Q2 MEDIUM, Q3/Q4 LOW) → InProgress |
+| 16/11/2026 | @dev (Dex) | InProgress → Ready for Review: Q1–Q4 corrigidos, testes pelo appRouter, 19 testes no arquivo |
