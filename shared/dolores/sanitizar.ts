@@ -165,12 +165,12 @@ const CODIGO = new RegExp(
 const BANCO = /\b(ag[eê]ncia|ag|conta(?:\s+corrente|\s+poupan[cç]a)?|c\/c|cc)\b(\s*(?:n[ºo°.]?|:|#|-)?\s*)(\d[\d.\-/]{0,30}[\dxX]?)(,\d)?/gi;
 // PIX: QA r4 S5 — só quando o que segue tem forma de chave: e-mail, chave aleatória (uuid) ou 8–14 dígitos (CPF, CNPJ,
 // telefone). "pagou via pix 1.500,00" fica (é o valor da cobrança).
-const PIX = /\b(chave\s+pix|pix)\b(\s*(?:n[ºo°.]?|:|#|-|=)?\s*)([\p{L}\p{N}_.+-]{1,64}@[\p{L}\p{N}_-]{1,63}(?:\.[\p{L}\p{N}_-]{1,63}){0,6}|[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}|\+?\(?\d[\d.\-/() ]{6,24}\d)/giu;
+const PIX = new RegExp(String.raw`\b(chave\s+pix|pix)\b(\s*(?:n[ºo°.]?|:|#|-|=)?\s*)([\p{L}\p{N}_.+-]{1,64}@[\p{L}\p{N}_-]{1,63}(?:\.[\p{L}\p{N}_-]{1,63}){0,6}|[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}|\+?\(?\d[\d.\-/() ]{6,24}\d)`, "giu");
 // E-mail: "a@b.com", "a @ b.com", "a[at]b.com", "a (arroba) b.com" e, colado, sem domínio de topo ("a@b").
 // QA r5 F6: letras e números de qualquer escrita (\p{L}\p{N}, flag u) — "maria.conceição@uol.com.br" sai inteiro.
 // QA r3 R4: o nome só começa no início de uma "palavra" de [\p{L}\p{N}_.+-] (lookbehind). Sem a âncora, cada posição de uma
 // sequência longa sem "@" (200 kB de dígitos, "12.12.…", "aaa…a1") tentava de novo até o fim: tempo quadrático (~60 s).
-const EMAIL = /(?<![\p{L}\p{N}_.+-])[\p{L}\p{N}_.+-]+(?:\s?@\s?|\s?[[(]\s?(?:at|arroba)\s?[\])]\s?)[\p{L}\p{N}_-]+(?:\.[\p{L}\p{N}_-]+)+|(?<![\p{L}\p{N}_.+-])[\p{L}\p{N}_.+-]+@[\p{L}\p{N}_-]+/giu;
+const EMAIL = new RegExp(String.raw`(?<![\p{L}\p{N}_.+-])[\p{L}\p{N}_.+-]+(?:\s?@\s?|\s?[[(]\s?(?:at|arroba)\s?[\])]\s?)[\p{L}\p{N}_-]+(?:\.[\p{L}\p{N}_-]+)+|(?<![\p{L}\p{N}_.+-])[\p{L}\p{N}_.+-]+@[\p{L}\p{N}_-]+`, "giu");
 // QA r4 S6: e-mail disfarçado com espaços ou por extenso ("fulano @ gmail . com", "fulano arroba gmail ponto com",
 // "fulano(at)gmail(dot)com"). Exige domínio de topo conhecido no fim (senão "a arroba de café" viraria e-mail).
 const ARROBA = "(?:\\s{0,3}@\\s{0,3}|\\s{0,3}[[(]\\s{0,3}(?:at|arroba)\\s{0,3}[\\])]\\s{0,3}|\\s{1,3}(?:at|arroba)\\s{1,3})";
