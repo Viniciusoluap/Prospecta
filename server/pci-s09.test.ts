@@ -11,6 +11,7 @@ import {
   camposTrocadosPorEngenheiroPci,
   compararPreenchimentoPci,
   confirmarMesmaPessoaPci,
+  conferirProcedenciaPci,
   dadosPessoaisNoModeloPci,
   dadosPessoaisNoTextoPci,
   definirCampoPci,
@@ -18,10 +19,12 @@ import {
   extrairModeloPreenchimentoPci,
   faltasPerfilEngenheiroPci,
   formularioPciVazio,
+  marcaPessoaPci,
   mesmaPessoaPci,
   misturaPessoaPci,
   normalizarFormularioPci,
   preencherPciAutomatico,
+  registrarConfirmacoesPci,
   sugestoesAutomaticasPci,
   sugestoesDoModeloPci,
   type FontesPreenchimentoPci,
@@ -95,12 +98,53 @@ describe("pessoa nunca misturada (portão de QA)", () => {
     const escolhida = aplicarEscolhasPci(r.formulario, { pessoas: { proponente: e.opcoes[0] } });
     expect(escolhida.campos).toMatchObject({ proponenteNome: "MARIA ANTIGA (PCI)", proponenteCpf: null, proponenteEmail: null });
   });
-  it("mesma pessoa provada (mesmo nome) — o CRM completa o CPF da PCI", () => {
+  it("portão 2, M1 — só o nome igual NÃO junta quando acrescentaria o CPF: escolha com as opções e a junção rotulada", () => {
     const f = fontes({ obra: obraVazia, pci: pciCom({ proponenteNome: "José Novo" }), cliente: { nome: "JOSE  NOVO", cpf: "529.982.247-25", email: null, telefone: null, endereco: null, bairro: null } });
     const aberto = preencherPciAutomatico(f);
-    expect(aberto.campos).toMatchObject({ proponenteNome: "José Novo", proponenteCpf: "529.982.247-25" });
-    semMistura(aberto);
-    expect(misturaPessoaPci(aberto)).toEqual([]);
+    expect(aberto.campos).toMatchObject({ proponenteNome: null, proponenteCpf: null });
+    const r = compararPreenchimentoPci(formularioPciVazio(), sugestoesAutomaticasPci(f).sugestoes);
+    const e = r.pessoas.find((p) => p.pessoa === "proponente")!;
+    expect(e.motivo).toMatch(/só o nome não prova que é a mesma pessoa/);
+    expect(e.opcoes.map((o) => o.fonte)).toEqual(["PCI vinculada à obra", "Cliente do CRM", "PCI vinculada à obra + Cliente do CRM (nome igual nas duas fontes; confira se é a mesma pessoa)"]);
+    // Escolher a junção rotulada vale como confirmação (o servidor grava quem e quando).
+    const junto = aplicarEscolhasPci(r.formulario, { pessoas: { proponente: e.opcoes[2] } });
+    expect(junto.campos).toMatchObject({ proponenteNome: "José Novo", proponenteCpf: "529.982.247-25" });
+    expect(misturaPessoaPci(junto)).toEqual([]);
+    expect(junto.confirmacoes?.proponente).toMatchObject({ por: null, marca: marcaPessoaPci(junto, "proponente") });
+  });
+  it("portão 2, M1 — homônimo com e-mail e telefone diferentes: nada junta, os dois valores ficam nas opções", () => {
+    const pci = pciCom({ proponenteNome: "JOSE DA SILVA", proponenteEmail: "a@pci.com", proponenteDdd: 41, proponenteTelefone: "999990000" });
+    const f = fontes({ obra: obraVazia, pci, cliente: { nome: "José da Silva", cpf: "529.982.247-25", email: "b@crm.com", telefone: "(11) 98888-7777", endereco: null, bairro: null } });
+    const r = compararPreenchimentoPci(formularioPciVazio(), sugestoesAutomaticasPci(f).sugestoes);
+    expect(r.formulario.campos).toMatchObject({ proponenteNome: null, proponenteCpf: null, proponenteEmail: null, proponenteTelefone: null });
+    const e = r.pessoas.find((p) => p.pessoa === "proponente")!;
+    expect(e.motivo).toMatch(/Os outros dados são diferentes \(E-mail.*Telefone/);
+    expect(e.opcoes).toHaveLength(2); // sem junção: há valor diferente
+    const json = JSON.stringify(e.opcoes);
+    for (const v of ["a@pci.com", "b@crm.com", "999990000", "988887777", "529.982.247-25"]) expect(json).toContain(v);
+    expect(e.opcoes.find((o) => o.origem === "pci")!.valores).not.toHaveProperty("proponenteCpf");
+  });
+  it("portão 2, M1 — nome digitado igual ao do CRM: o CPF do CRM não entra calado", () => {
+    const tela = definirCampoPci(formularioPciVazio(), "proponenteNome", "JOSÉ DA SILVA");
+    const f = fontes({ obra: obraVazia, pci: null, cliente: { nome: "JOSÉ DA SILVA", cpf: "529.982.247-25", email: "outro@x.com", telefone: null, endereco: null, bairro: null } });
+    const r = compararPreenchimentoPci(tela, sugestoesAutomaticasPci(f).sugestoes);
+    expect(r.formulario.campos).toMatchObject({ proponenteNome: "JOSÉ DA SILVA", proponenteCpf: null, proponenteEmail: null });
+    expect(r.formulario.procedencia).toEqual({ proponenteNome: "manual" });
+    const e = r.pessoas[0];
+    expect(e.opcoes.map((o) => o.fonte)).toEqual(["Cliente do CRM", "o que está na tela + Cliente do CRM (nome igual nas duas fontes; confira se é a mesma pessoa)"]);
+  });
+  it("portão 2, M1 — nome igual e nenhum CPF nos dois lados, sem divergência: completa (nada a misturar)", () => {
+    const tela = definirCampoPci(formularioPciVazio(), "proponenteNome", "Maria Souza");
+    const f = fontes({ obra: obraVazia, pci: null, cliente: { nome: "MARIA SOUZA", cpf: null, email: "m@x.com", telefone: null, endereco: null, bairro: null } });
+    const r = compararPreenchimentoPci(tela, sugestoesAutomaticasPci(f).sugestoes);
+    expect(r.pessoas).toEqual([]);
+    expect(r.formulario.campos.proponenteEmail).toBe("m@x.com");
+  });
+  it("portão 2 — mesma pessoa pelo CPF com e-mail diferente: o e-mail que não entrou vira aviso", () => {
+    const f = fontes({ obra: obraVazia, pci: pciCom({ proponenteNome: "Ana", proponenteCpf: "529.982.247-25", proponenteEmail: "a@pci.com" }), cliente: { nome: "Ana", cpf: "52998224725", email: "b@crm.com", telefone: null, endereco: null, bairro: null } });
+    const r = compararPreenchimentoPci(formularioPciVazio(), sugestoesAutomaticasPci(f).sugestoes);
+    expect(r.formulario.campos.proponenteEmail).toBe("a@pci.com");
+    expect(r.avisos.join(" ")).toMatch(/Cliente do CRM" traz e-mail diferente \(b@crm.com\)/);
   });
   it("QA 2 — tela com rtpNome digitado e fonte só com CPF: nada entra em silêncio; a pessoa inteira vai para escolha", () => {
     const form = definirCampoPci(formularioPciVazio(), "rtpNome", "JOAO DIGITADO");
@@ -124,7 +168,7 @@ describe("pessoa nunca misturada (portão de QA)", () => {
     semMistura(r.formulario);
     const outro = definirCampoPci(form, "proponenteEmail", "outro@x.y");
     const r2 = compararPreenchimentoPci(outro, sugestoesAutomaticasPci(fontes()).sugestoes);
-    expect(r2.pessoas[0]).toMatchObject({ pessoa: "proponente", motivo: expect.stringMatching(/Mesma pessoa, com dados diferentes em: E-mail/) });
+    expect(r2.pessoas[0]).toMatchObject({ pessoa: "proponente", motivo: expect.stringMatching(/Mesma pessoa \(CPF igual\), com dados diferentes em: E-mail/) });
     expect(r2.formulario.campos.proponenteDdd).toBeNull();
   });
   it("prova de mesma pessoa: CPF decide antes do nome; sem prova → diferente", () => {
@@ -166,6 +210,60 @@ describe("pessoa nunca misturada (portão de QA)", () => {
     expect(misturaPessoaPci(ok)).toEqual([]);
     // A procedência viaja no rascunho (normalizar mantém).
     expect(misturaPessoaPci(normalizarFormularioPci(JSON.parse(JSON.stringify(f)))).length).toBe(1);
+  });
+});
+
+describe("portão 2 — rascunho antigo, procedência conferida no servidor e registro da confirmação", () => {
+  it("M2 — rascunho salvo antes da conferência (sem procedência) com nome e CPF: pede a confirmação uma vez, e diz por quê", () => {
+    const antigo = normalizarFormularioPci(JSON.parse(JSON.stringify({ campos: { proponenteNome: "FULANO", proponenteCpf: "529.982.247-25", rtpNome: "ENG", rtpCpf: "111.444.777-35", rteNome: "SÓ NOME" } })));
+    const m = misturaPessoaPci(antigo);
+    expect(m.map((x) => [x.pessoa, x.motivo])).toEqual([["proponente", "legado"], ["rtp", "legado"]]);
+    expect(m[0].mensagem).toMatch(/rascunho anterior à conferência de origem/);
+    expect(errosPci(antigo, { paraGerar: true }).join(" ")).toMatch(/rascunho anterior à conferência de origem/);
+    expect(errosPci(antigo, { paraGerar: false }).join(" ")).not.toMatch(/conferência de origem/); // salvar continua livre
+    let ok = confirmarMesmaPessoaPci(antigo, "proponente", new Date("2026-11-16T10:00:00Z"));
+    expect(misturaPessoaPci(ok).map((x) => x.pessoa)).toEqual(["rtp"]);
+    ok = confirmarMesmaPessoaPci(ok, "rtp");
+    // Uma vez: a confirmação viaja no rascunho.
+    expect(misturaPessoaPci(normalizarFormularioPci(JSON.parse(JSON.stringify(ok))))).toEqual([]);
+    // Nome antigo + CPF digitado agora também pede confirmação (antes passava).
+    const digitado = definirCampoPci(normalizarFormularioPci({ campos: { proponenteNome: "FULANO" } }), "proponenteCpf", "52998224725");
+    expect(misturaPessoaPci(digitado).map((x) => x.motivo)).toEqual(["legado"]);
+  });
+  it("L3 — procedência do navegador é conferida: origem que não bate com a fonte (ou desconhecida) vira manual", () => {
+    const f = fontes({ rtp: { id: "7", fonte: "Engenheiro escolhido nesta obra", escolhido: true, dados: RAFAEL } });
+    const { sugestoes } = sugestoesAutomaticasPci(f);
+    const legitimo = compararPreenchimentoPci(formularioPciVazio(), sugestoes).formulario;
+    expect(conferirProcedenciaPci(legitimo, sugestoes).rebaixadas).toEqual([]);
+    // Navegador diz "crm" no nome digitado e "engenheiro:7" num CPF que não é o do Rafael.
+    const forjado = normalizarFormularioPci({
+      campos: { proponenteNome: "OUTRA PESSOA", proponenteCpf: "123.456.789-09", rtpNome: "Rafael Claudino", rtpCpf: "111.444.777-35" },
+      procedencia: { proponenteNome: "crm", proponenteCpf: "crm", rtpNome: "engenheiro:7", rtpCpf: "engenheiro:7" },
+    });
+    expect(misturaPessoaPci(forjado)).toEqual([]); // o navegador sozinho enganaria a guarda
+    const conferido = conferirProcedenciaPci(forjado, sugestoes);
+    expect(conferido.rebaixadas.sort()).toEqual(["proponenteNome", "rtpCpf"]);
+    expect(misturaPessoaPci(conferido.formulario).map((x) => x.pessoa)).toEqual(["proponente", "rtp"]);
+    // Origem inventada ou de outro engenheiro → manual; "manual" e a confirmação ficam.
+    const outros = normalizarFormularioPci({ campos: { rtpNome: "Rafael Claudino", proponenteNome: "X", rteNome: "Y" }, procedencia: { rtpNome: "engenheiro:8", proponenteNome: "inventada", rteNome: "manual:confirmado" } });
+    expect(conferirProcedenciaPci(outros, sugestoes).formulario.procedencia).toEqual({ rtpNome: "manual", proponenteNome: "manual", rteNome: "manual:confirmado" });
+  });
+  it("L4 — a confirmação registra quem e quando (servidor); a mesma confirmação não é registrada de novo; mudar o CPF desfaz", () => {
+    const base = normalizarFormularioPci({ campos: { proponenteNome: "FULANO", proponenteCpf: "529.982.247-25" } });
+    const conf = normalizarFormularioPci(JSON.parse(JSON.stringify(confirmarMesmaPessoaPci(base, "proponente"))));
+    expect(conf.confirmacoes?.proponente).toMatchObject({ por: null, marca: marcaPessoaPci(conf, "proponente") });
+    const agora = new Date("2026-11-16T12:00:00Z");
+    const r1 = registrarConfirmacoesPci(conf, null, 20, agora);
+    expect(r1.novas).toEqual(["proponente"]);
+    expect(r1.formulario.confirmacoes).toEqual({ proponente: { por: 20, em: "2026-11-16T12:00:00.000Z", marca: marcaPessoaPci(conf, "proponente") } });
+    // Navegador forja "por": o servidor não aceita sem registro anterior igual.
+    const forjado = { ...conf, confirmacoes: { proponente: { por: 1, em: "2020-01-01T00:00:00.000Z", marca: marcaPessoaPci(conf, "proponente") } } };
+    expect(registrarConfirmacoesPci(forjado, null, 20, agora).formulario.confirmacoes?.proponente?.por).toBe(20);
+    const r2 = registrarConfirmacoesPci(conf, r1.formulario, 23, new Date("2026-11-17T00:00:00Z"));
+    expect([r2.novas, r2.formulario.confirmacoes?.proponente?.por]).toEqual([[], 20]);
+    const mudou = definirCampoPci(r1.formulario, "proponenteCpf", "111.444.777-35");
+    expect(misturaPessoaPci(mudou)).toHaveLength(1);
+    expect(registrarConfirmacoesPci(mudou, r1.formulario, 20, agora).formulario.confirmacoes).toBeUndefined();
   });
 });
 

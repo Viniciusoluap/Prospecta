@@ -333,6 +333,20 @@ export interface FormularioPci {
    * origens diferentes (`misturaPessoaPci`). Ausente = rascunho antigo (sem informação).
    */
   procedencia?: Record<string, string>;
+  /**
+   * EPIC-024 S-09 (portão de QA, iteração 2): confirmações "nome e CPF são da mesma pessoa" — quem
+   * (id do usuário, gravado pelo servidor), quando e a marca de nome + CPF confirmados.
+   */
+  confirmacoes?: Partial<Record<PessoaPci, ConfirmacaoPessoaPci>>;
+}
+
+export interface ConfirmacaoPessoaPci {
+  /** Usuário que confirmou (o servidor grava; null = ainda não registrado no servidor). */
+  por: number | null;
+  /** ISO 8601. */
+  em: string;
+  /** `marcaPessoaPci`: a confirmação vale só para o nome e o CPF confirmados. */
+  marca: string;
 }
 
 export interface OrigemModeloPci {
@@ -452,6 +466,13 @@ export function normalizarFormularioPci(entrada: unknown): FormularioPci {
   for (const chave of CHAVES_PESSOA_PCI) {
     const v = proc[chave];
     if (typeof v === "string" && v.trim() && !vazio(valorDaChavePessoa(base, chave))) base.procedencia![chave] = v.trim().slice(0, 120);
+  }
+  const conf = e.confirmacoes && typeof e.confirmacoes === "object" ? (e.confirmacoes as Record<string, unknown>) : {};
+  for (const pessoa of ["proponente", "rtp", "rte"] as const) {
+    const c = conf[pessoa] as { por?: unknown; em?: unknown; marca?: unknown } | undefined;
+    if (!c || typeof c !== "object" || typeof c.marca !== "string" || !/^[0-9a-f]{8}$/.test(c.marca) || typeof c.em !== "string" || Number.isNaN(Date.parse(c.em))) continue;
+    const por = Number.isInteger(c.por) && Number(c.por) > 0 ? Number(c.por) : null;
+    base.confirmacoes = { ...(base.confirmacoes ?? {}), [pessoa]: { por, em: new Date(c.em).toISOString(), marca: c.marca } };
   }
   const img = e.imagem as { tipo?: unknown; base64?: unknown } | null | undefined;
   if (img && (img.tipo === "png" || img.tipo === "jpeg") && typeof img.base64 === "string" && /^[A-Za-z0-9+/]+=*$/.test(img.base64)) {
@@ -723,20 +744,53 @@ const nomeNormalizado = (v: unknown) =>
   typeof v === "string" ? v.normalize("NFD").replace(/[̀-ͯ]/g, "").toUpperCase().replace(/\s+/g, " ").trim() : "";
 
 /**
+ * Procedência de quem confirmou na tela que os dados são da mesma pessoa (botão de confirmação ou
+ * opção "nome igual nas duas fontes"). O servidor registra quem e quando (`registrarConfirmacoesPci`).
+ */
+export const ORIGEM_CONFIRMADA_PCI = "manual:confirmado";
+
+/** Como se provou que dois blocos são a mesma pessoa (ou null: pessoas diferentes ou desconhecidas). */
+export type ProvaPessoaPci = "engenheiro" | "cpf" | "nome" | null;
+
+/**
  * Prova de que dois blocos são a MESMA pessoa: mesmo engenheiro escolhido; senão, mesmo CPF (só
  * dígitos) quando os dois têm CPF; senão, mesmo nome completo (sem acento, maiúsculas) quando os
- * dois têm nome. Sem prova → false (pessoas diferentes ou desconhecidas).
+ * dois têm nome. O nome sozinho é a prova mais fraca: homônimos existem (ver `compararPreenchimentoPci`).
  */
-export function mesmaPessoaPci(pessoa: PessoaPci, a: Record<string, unknown>, b: Record<string, unknown>): boolean {
+export function provaMesmaPessoaPci(pessoa: PessoaPci, a: Record<string, unknown>, b: Record<string, unknown>): ProvaPessoaPci {
   if (pessoa !== "proponente") {
     const ia = a[`${pessoa}EngenheiroId`], ib = b[`${pessoa}EngenheiroId`];
-    if (ia && ib) return ia === ib;
+    if (ia && ib) return ia === ib ? "engenheiro" : null;
   }
   const ca = soDigitos(a[`${pessoa}Cpf`]), cb = soDigitos(b[`${pessoa}Cpf`]);
-  if (ca && cb) return ca === cb;
+  if (ca && cb) return ca === cb ? "cpf" : null;
   const na = nomeNormalizado(a[`${pessoa}Nome`]), nb = nomeNormalizado(b[`${pessoa}Nome`]);
-  return !!na && !!nb && na === nb;
+  return na && nb && na === nb ? "nome" : null;
 }
+
+export function mesmaPessoaPci(pessoa: PessoaPci, a: Record<string, unknown>, b: Record<string, unknown>): boolean {
+  return provaMesmaPessoaPci(pessoa, a, b) !== null;
+}
+
+/** Valor de um dado de pessoa pronto para comparar (sem acento/caixa no nome, só dígitos no CPF/telefone…). */
+function comparavelPessoa(chave: string, v: unknown): string {
+  if (v === null || v === undefined || v === "") return "";
+  if (chave.endsWith("Nome")) return nomeNormalizado(v);
+  if (chave.endsWith("Cpf") || chave.endsWith("Telefone") || chave.endsWith("Ddd")) return soDigitos(v).replace(/^0+(?=\d)/, "");
+  if (chave.endsWith("Email")) return String(v).trim().toLowerCase();
+  if (chave.endsWith("Registro")) return String(v).toUpperCase().replace(/[^0-9A-Z]/g, "");
+  return String(v).trim().toUpperCase();
+}
+
+/** Chaves que os DOIS blocos têm e com valores diferentes (já normalizados). */
+export function divergenciasPessoaPci(pessoa: PessoaPci, a: Record<string, unknown>, b: Record<string, unknown>): string[] {
+  return PESSOAS_PCI[pessoa].chaves.filter((k) => {
+    const x = comparavelPessoa(k, a[k]), y = comparavelPessoa(k, b[k]);
+    return x !== "" && y !== "" && x !== y;
+  });
+}
+
+const temCpf = (pessoa: PessoaPci, v: Record<string, unknown>) => !!soDigitos(v[`${pessoa}Cpf`]);
 
 function valoresPessoaForm(form: FormularioPci, pessoa: PessoaPci): Record<string, unknown> {
   const v: Record<string, unknown> = {};
@@ -751,6 +805,19 @@ const resumoPessoa = (valores: Record<string, unknown>, pessoa: PessoaPci) =>
   PESSOAS_PCI[pessoa].chaves.filter((k) => valores[k] !== undefined && valores[k] !== null && !k.endsWith("EngenheiroId"))
     .map((k) => `${rotuloChavePci(k)}: ${textoValorPci(k, valores[k])}`).join(" · ") || "(vazio)";
 
+/** Impressão digital de nome + CPF da pessoa (a confirmação vale só para estes dados). */
+export function marcaPessoaPci(form: FormularioPci, pessoa: PessoaPci): string {
+  const t = `${nomeNormalizado(form.campos[`${pessoa}Nome`])}|${soDigitos(form.campos[`${pessoa}Cpf`])}`;
+  let h = 0x811c9dc5;
+  for (let i = 0; i < t.length; i++) { h ^= t.charCodeAt(i); h = Math.imul(h, 0x01000193) >>> 0; }
+  return h.toString(16).padStart(8, "0");
+}
+
+/** Marca a confirmação na tela; quem e quando ficam a cargo do servidor (`registrarConfirmacoesPci`). */
+function anotarConfirmacaoPci(form: FormularioPci, pessoa: PessoaPci, agora: Date): FormularioPci {
+  return { ...form, confirmacoes: { ...(form.confirmacoes ?? {}), [pessoa]: { por: null, em: agora.toISOString(), marca: marcaPessoaPci(form, pessoa) } } };
+}
+
 /** Troca a pessoa INTEIRA: chaves sem valor na opção ficam vazias; a procedência é uma só. */
 function gravarPessoaPci(form: FormularioPci, pessoa: PessoaPci, valores: Record<string, unknown>, origem: string): FormularioPci {
   let f: FormularioPci = { ...form, campos: { ...form.campos }, procedencia: { ...(form.procedencia ?? {}) } };
@@ -760,7 +827,7 @@ function gravarPessoaPci(form: FormularioPci, pessoa: PessoaPci, valores: Record
     if (v === null) delete f.procedencia![chave];
     else f.procedencia![chave] = origem;
   }
-  return f;
+  return origem === ORIGEM_CONFIRMADA_PCI ? anotarConfirmacaoPci(f, pessoa, new Date()) : f;
 }
 
 /** Carimba a mesma procedência em todos os dados preenchidos da pessoa (pessoa provada ou confirmada). */
@@ -772,14 +839,35 @@ function carimbarPessoaPci(form: FormularioPci, pessoa: PessoaPci, origem: strin
 
 type BlocoPessoa = { origem: string; fonte: string; valores: Record<string, unknown>; fontes: Record<string, string> };
 
+/** Homônimo: dois blocos com o mesmo nome e nada mais que prove ser a mesma pessoa. */
+type HomonimoPessoa = { a: BlocoPessoa; b: BlocoPessoa; divergentes: string[] };
+
+export const ROTULO_NOME_IGUAL_PCI = "nome igual nas duas fontes; confira se é a mesma pessoa";
+
+/** Opção montada com duas fontes (só quando nada diverge): rotulada e, se escolhida, vale como confirmação. */
+function blocoCombinado(a: BlocoPessoa, b: BlocoPessoa): BlocoPessoa {
+  const valores = { ...a.valores }, fontes = { ...a.fontes };
+  for (const [k, v] of Object.entries(b.valores)) if (!(k in valores)) { valores[k] = v; fontes[k] = b.fontes[k]; }
+  return { origem: ORIGEM_CONFIRMADA_PCI, fonte: `${a.fonte} + ${b.fonte} (${ROTULO_NOME_IGUAL_PCI})`, valores, fontes };
+}
+
+function motivoHomonimo(pessoa: PessoaPci, divergentes: string[]): string {
+  const dif = divergentes.length
+    ? `Os outros dados são diferentes (${divergentes.map(rotuloChavePci).join(", ")}): os dois valores estão nas opções.`
+    : "Só uma das fontes tem CPF: juntar as duas poria esse CPF ao lado dos dados da outra fonte.";
+  return `${PESSOAS_PCI[pessoa].rotulo}: o nome é igual, mas só o nome não prova que é a mesma pessoa. ${dif}`;
+}
+
 /**
  * Compara as sugestões com o formulário atual. Campos que não são de pessoa: completa SÓ o vazio,
  * separa o igual e o diferente (conflito por campo, nunca trocado sem confirmação). Pessoas
  * (proponente, RTP, RTE): cada fonte forma um bloco; blocos só se juntam quando provadamente são a
- * mesma pessoa (`mesmaPessoaPci`). Um bloco só preenche em silêncio quando a pessoa está vazia na
- * tela e há um único candidato, ou quando a tela já tem a MESMA pessoa (provada) e só faltam dados;
- * em qualquer outro caso a pessoa vai inteira para escolha (`pessoas`). Assim nenhum caminho põe o
- * CPF de uma pessoa ao lado do nome de outra.
+ * mesma pessoa (`provaMesmaPessoaPci`): mesmo engenheiro ou mesmo CPF; com o NOME sozinho, só quando
+ * nenhum dado presente nos dois lados diverge e a junção não acrescenta um CPF a quem não tinha. Um
+ * bloco só preenche em silêncio quando a pessoa está vazia na tela e há um único candidato, ou quando
+ * a tela já tem a MESMA pessoa (provada) e só faltam dados; em qualquer outro caso a pessoa vai
+ * inteira para escolha (`pessoas`), com as duas opções à vista. Assim nenhum caminho põe o CPF de uma
+ * pessoa ao lado do nome de outra, e nenhum valor diferente some sem aviso.
  */
 export function compararPreenchimentoPci(form: FormularioPci, sugestoes: SugestaoPci[], ausencias: AusenciaPci[] = []): ResultadoPreenchimentoPci {
   const r: ResultadoPreenchimentoPci = { formulario: form, preenchidos: [], iguais: [], conflitos: [], pessoas: [], naoEncontrados: [], avisos: [] };
@@ -810,18 +898,32 @@ export function compararPreenchimentoPci(form: FormularioPci, sugestoes: Sugesta
 
   const comBloco = new Set<string>();
   for (const pessoa of ["proponente", "rtp", "rte"] as const) {
+    const rotulo = PESSOAS_PCI[pessoa].rotulo;
     // Junta só o que é provadamente a mesma pessoa: o primeiro bloco (maior prioridade) vence; o outro completa.
     const candidatos: BlocoPessoa[] = [];
+    const homonimos: HomonimoPessoa[] = [];
     for (const b of blocos[pessoa]) {
       for (const k of Object.keys(b.valores)) comBloco.add(k);
-      const igual = candidatos.find((c) => mesmaPessoaPci(pessoa, c.valores, b.valores));
-      if (!igual) { candidatos.push({ ...b, valores: { ...b.valores }, fontes: { ...b.fontes } }); continue; }
-      for (const [k, v] of Object.entries(b.valores)) if (!(k in igual.valores)) { igual.valores[k] = v; igual.fontes[k] = b.fontes[k]; }
-      igual.origem = `${igual.origem}+${b.origem}`;
-      igual.fonte = `${igual.fonte} + ${b.fonte}`;
+      let juntou = false;
+      for (const c of candidatos) {
+        const prova = provaMesmaPessoaPci(pessoa, c.valores, b.valores);
+        if (!prova) continue;
+        const divergentes = divergenciasPessoaPci(pessoa, c.valores, b.valores);
+        if (prova === "nome" && (divergentes.length || temCpf(pessoa, c.valores) !== temCpf(pessoa, b.valores))) {
+          homonimos.push({ a: c, b, divergentes });
+          continue;
+        }
+        // Mesma pessoa provada: o valor diferente da fonte de menor prioridade é dito, nunca some calado.
+        for (const k of divergentes) r.avisos.push(`${rotulo}: "${b.fonte}" traz ${rotuloChavePci(k).toLowerCase()} diferente (${textoValorPci(k, b.valores[k])}); ficou o de "${c.fonte}" (${textoValorPci(k, c.valores[k])}).`);
+        for (const [k, v] of Object.entries(b.valores)) if (!(k in c.valores)) { c.valores[k] = v; c.fontes[k] = b.fontes[k]; }
+        c.origem = `${c.origem}+${b.origem}`;
+        c.fonte = `${c.fonte} + ${b.fonte}`;
+        juntou = true;
+        break;
+      }
+      if (!juntou) candidatos.push({ ...b, valores: { ...b.valores }, fontes: { ...b.fontes } });
     }
     if (!candidatos.length) continue;
-    const rotulo = PESSOAS_PCI[pessoa].rotulo;
     const atual = valoresPessoaForm(form, pessoa);
     const opcao = (c: BlocoPessoa, i: number): OpcaoPessoaPci => ({ id: `${pessoa}-${i}`, origem: c.origem, fonte: c.fonte, valores: c.valores, resumo: resumoPessoa(c.valores, pessoa) });
     const escolha = (opcoes: BlocoPessoa[], motivo: string) =>
@@ -831,27 +933,50 @@ export function compararPreenchimentoPci(form: FormularioPci, sugestoes: Sugesta
     };
 
     if (!Object.keys(atual).length) {
-      if (candidatos.length > 1) { escolha(candidatos, "As fontes trazem pessoas diferentes: escolha uma (os dados vêm todos dela)."); continue; }
+      if (candidatos.length > 1) {
+        // Homônimos sem divergência: além de cada fonte sozinha, a opção com as duas (rotulada).
+        const combinados = homonimos.filter((h) => !h.divergentes.length && candidatos.includes(h.a)).map((h) => blocoCombinado(h.a, candidatos.find((c) => c.origem === h.b.origem) ?? h.b));
+        const motivo = homonimos.length
+          ? `${motivoHomonimo(pessoa, homonimos[0].divergentes)} Escolha uma opção (os dados vêm todos dela).`
+          : "As fontes trazem pessoas diferentes: escolha uma (os dados vêm todos dela).";
+        escolha([...candidatos, ...combinados], motivo);
+        continue;
+      }
       const c = candidatos[0];
       novo = gravarPessoaPci(novo, pessoa, c.valores, c.origem);
       preencher(c, PESSOAS_PCI[pessoa].chaves.filter((k) => k in c.valores));
       continue;
     }
-    const mesma = candidatos.filter((c) => mesmaPessoaPci(pessoa, atual, c.valores));
+    const provas = candidatos.map((c) => provaMesmaPessoaPci(pessoa, atual, c.valores));
+    const mesma = candidatos.filter((_, i) => provas[i]);
     for (const c of candidatos) if (!mesma.includes(c)) r.avisos.push(`${rotulo}: "${c.fonte}" traz outra pessoa (${resumoPessoa(c.valores, pessoa)}) e não foi usada.`);
     if (!mesma.length) {
       escolha(candidatos, "A tela já tem dados desta pessoa e a fonte não confirma que é a mesma (CPF ou nome completo iguais). Escolha manter ou trocar a pessoa inteira.");
       continue;
     }
     const c = mesma[0];
+    const prova = provas[candidatos.indexOf(c)];
     const chaves = PESSOAS_PCI[pessoa].chaves.filter((k) => k in c.valores);
-    const diferentes = chaves.filter((k) => k in atual && !iguaisPci(atual[k], c.valores[k]));
+    // Comparação normalizada (acento/caixa no nome, pontuação no CPF/telefone não contam como diferença).
+    const diferentes = divergenciasPessoaPci(pessoa, atual, c.valores);
+    const faltando = chaves.filter((k) => !(k in atual));
+    if (prova === "nome") {
+      const divergentes = diferentes;
+      if (divergentes.length) {
+        escolha([c], `${motivoHomonimo(pessoa, divergentes)} Escolha manter a tela ou trocar a pessoa inteira.`);
+        continue;
+      }
+      if (faltando.length && temCpf(pessoa, atual) !== temCpf(pessoa, c.valores)) {
+        const tela: BlocoPessoa = { origem: "tela", fonte: "o que está na tela", valores: atual, fontes: {} };
+        escolha([c, blocoCombinado(tela, c)], `${motivoHomonimo(pessoa, [])} Escolha manter a tela, trocar a pessoa inteira ou juntar as duas.`);
+        continue;
+      }
+    }
     if (diferentes.length) {
-      escolha([c], `Mesma pessoa, com dados diferentes em: ${diferentes.map(rotuloChavePci).join(", ")}. Escolha manter ou trocar a pessoa inteira.`);
+      escolha([c], `Mesma pessoa (${prova === "nome" ? "nome igual" : prova === "cpf" ? "CPF igual" : "mesmo engenheiro"}), com dados diferentes em: ${diferentes.map(rotuloChavePci).join(", ")}. Escolha manter ou trocar a pessoa inteira.`);
       continue;
     }
     for (const k of chaves.filter((k) => k in atual)) r.iguais.push({ chave: k, rotulo: `${rotuloChavePci(k)} (${rotulo})`, valor: textoValorPci(k, c.valores[k]), fonte: c.fontes[k] });
-    const faltando = chaves.filter((k) => !(k in atual));
     if (faltando.length) {
       for (const k of faltando) novo = gravarValorPci(novo, k, c.valores[k]);
       novo = carimbarPessoaPci(novo, pessoa, c.origem);
@@ -892,25 +1017,93 @@ export function definirCampoPci(form: FormularioPci, chave: string, valor: Valor
   return { ...f, procedencia };
 }
 
-/** "Confirmo que são da mesma pessoa": todos os dados preenchidos da pessoa ficam com a mesma procedência. */
-export function confirmarMesmaPessoaPci(form: FormularioPci, pessoa: PessoaPci): FormularioPci {
-  return carimbarPessoaPci(form, pessoa, "manual:confirmado");
+/**
+ * "Confirmo que são da mesma pessoa": todos os dados preenchidos da pessoa ficam com a mesma
+ * procedência e a confirmação é anotada (quando e a marca de nome + CPF); quem confirmou é gravado
+ * pelo servidor ao salvar ou gerar (`registrarConfirmacoesPci`).
+ */
+export function confirmarMesmaPessoaPci(form: FormularioPci, pessoa: PessoaPci, agora: Date = new Date()): FormularioPci {
+  return anotarConfirmacaoPci(carimbarPessoaPci(form, pessoa, ORIGEM_CONFIRMADA_PCI), pessoa, agora);
+}
+
+export interface MisturaPessoaPci {
+  pessoa: PessoaPci;
+  /** "origens": nome e CPF de fontes diferentes; "legado": rascunho anterior à conferência de origem. */
+  motivo: "origens" | "legado";
+  mensagem: string;
 }
 
 /**
  * Guarda da geração: nome e CPF da mesma pessoa com procedências diferentes (ex.: nome do CRM e CPF
- * da PCI vinculada, ou nome digitado ao lado do CPF de outra fonte). Rascunho antigo sem procedência
- * não é bloqueado (sem informação).
+ * da PCI vinculada, ou nome digitado ao lado do CPF de outra fonte). Nome e CPF SEM procedência
+ * (rascunho salvo antes da conferência de origem — o código anterior podia pôr o CPF do CRM ao lado
+ * do nome da PCI vinculada) também pedem a confirmação, uma vez por pessoa.
  */
-export function misturaPessoaPci(form: FormularioPci): { pessoa: PessoaPci; mensagem: string }[] {
+export function misturaPessoaPci(form: FormularioPci): MisturaPessoaPci[] {
   const p = form.procedencia ?? {};
-  const r: { pessoa: PessoaPci; mensagem: string }[] = [];
+  const r: MisturaPessoaPci[] = [];
+  const botao = 'confirme (botão "Confirmo que nome e CPF são da mesma pessoa"), ou corrija';
   for (const pessoa of ["proponente", "rtp", "rte"] as const) {
     const nome = `${pessoa}Nome`, cpf = `${pessoa}Cpf`;
-    if (vazio(form.campos[nome]) || vazio(form.campos[cpf]) || !p[nome] || !p[cpf] || p[nome] === p[cpf]) continue;
-    r.push({ pessoa, mensagem: `${PESSOAS_PCI[pessoa].rotulo}: o nome e o CPF vieram de fontes diferentes. Confira se são da mesma pessoa e confirme (botão "Confirmo que nome e CPF são da mesma pessoa"), ou corrija.` });
+    if (vazio(form.campos[nome]) || vazio(form.campos[cpf]) || (p[nome] && p[cpf] && p[nome] === p[cpf])) continue;
+    const rotulo = PESSOAS_PCI[pessoa].rotulo;
+    if (!p[nome] || !p[cpf]) {
+      r.push({ pessoa, motivo: "legado", mensagem: `${rotulo}: rascunho anterior à conferência de origem — não há registro de onde vieram o nome e o CPF (a versão anterior do sistema podia juntar dados de fontes diferentes). Confira se são da mesma pessoa e ${botao}.` });
+      continue;
+    }
+    r.push({ pessoa, motivo: "origens", mensagem: `${rotulo}: o nome e o CPF vieram de fontes diferentes. Confira se são da mesma pessoa e ${botao}.` });
   }
   return r;
+}
+
+/**
+ * Servidor (portão de QA, iteração 2): grava QUEM confirmou e QUANDO. Confirmação nova (ou de outro
+ * nome/CPF) recebe o usuário e a hora do servidor; a já registrada para o mesmo nome + CPF fica como
+ * estava. Pessoa que não está mais confirmada perde o registro. `novas` = pessoas a registrar no log.
+ */
+export function registrarConfirmacoesPci(form: FormularioPci, anterior: FormularioPci | null, usuarioId: number, agora: Date): { formulario: FormularioPci; novas: PessoaPci[] } {
+  const p = form.procedencia ?? {};
+  const confirmacoes: Partial<Record<PessoaPci, ConfirmacaoPessoaPci>> = {};
+  const novas: PessoaPci[] = [];
+  for (const pessoa of ["proponente", "rtp", "rte"] as const) {
+    const nome = `${pessoa}Nome`, cpf = `${pessoa}Cpf`;
+    if (vazio(form.campos[nome]) || vazio(form.campos[cpf]) || p[nome] !== ORIGEM_CONFIRMADA_PCI || p[cpf] !== ORIGEM_CONFIRMADA_PCI) continue;
+    const marca = marcaPessoaPci(form, pessoa);
+    const antes = anterior?.confirmacoes?.[pessoa];
+    if (antes && antes.por && antes.marca === marca) { confirmacoes[pessoa] = antes; continue; }
+    confirmacoes[pessoa] = { por: usuarioId, em: agora.toISOString(), marca };
+    novas.push(pessoa);
+  }
+  const { confirmacoes: _descartadas, ...resto } = form;
+  return { formulario: Object.keys(confirmacoes).length ? { ...resto, confirmacoes } : resto, novas };
+}
+
+const ORIGEM_CONFERIVEL_PCI = /^(engenheiro:\d+|crm|pci)$/;
+
+/**
+ * Servidor (portão de QA, iteração 2): não confia na procedência que vem do navegador. Uma origem
+ * conferível ("engenheiro:7", "crm", "pci", ou a junção "pci+crm") só fica se o valor do campo for
+ * igual ao que essa fonte tem hoje (`sugestoes`, as mesmas de "Dados automáticos"); senão — ou
+ * origem desconhecida — vira "manual". "manual" e a confirmação ficam como estão.
+ */
+export function conferirProcedenciaPci(form: FormularioPci, sugestoes: SugestaoPci[]): { formulario: FormularioPci; rebaixadas: string[] } {
+  const p = { ...(form.procedencia ?? {}) };
+  const daFonte = new Map<string, unknown>();
+  for (const s of sugestoes) {
+    const k = `${s.origem ?? s.fonte}|${s.chave}`;
+    if (daFonte.has(k)) continue;
+    const v = normalizarSugestao(s.chave, s.valor);
+    if (v !== null) daFonte.set(k, v);
+  }
+  const rebaixadas: string[] = [];
+  for (const [chave, origem] of Object.entries(p)) {
+    if (origem === "manual" || origem === ORIGEM_CONFIRMADA_PCI) continue;
+    const partes = origem.split("+");
+    const atual = valorDaChavePessoa(form, chave);
+    const confere = partes.every((o) => ORIGEM_CONFERIVEL_PCI.test(o)) && partes.some((o) => daFonte.has(`${o}|${chave}`) && iguaisPci(daFonte.get(`${o}|${chave}`), atual));
+    if (!confere) { p[chave] = "manual"; rebaixadas.push(chave); }
+  }
+  return { formulario: { ...form, procedencia: p }, rebaixadas };
 }
 
 const PAPEL_PCI = { rtp: "RTP", rte: "RTE" } as const;

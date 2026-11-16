@@ -132,7 +132,9 @@ describe("B — Dados automáticos", () => {
     expect(rtp.opcoes[0]).toMatchObject({ valores: expect.objectContaining({ rtpNome: "Rafael Claudino", rtpCpf: CPF_RAFAEL }), fonte: expect.stringMatching(/escolhido nesta obra/) });
     const trocado = aplicarEscolhasPci(r.formulario, { pessoas: { rtp: rtp.opcoes[0] } });
     expect(trocado.campos).toMatchObject({ rtpNome: "Rafael Claudino", rtpCpf: CPF_RAFAEL });
-    expect(r.iguais.map((i) => i.chave)).toContain("proponenteNome");
+    // Portão 2 (M1): o nome do rascunho igual ao do CRM não traz o CPF do CRM calado — escolha com a junção rotulada.
+    expect(r.formulario.campos.proponenteCpf).toBeNull();
+    expect(r.pessoas.find((p) => p.pessoa === "proponente")?.opcoes.map((o) => o.fonte)).toEqual(["Cliente do CRM (lead nº 5)", "o que está na tela + Cliente do CRM (lead nº 5) (nome igual nas duas fontes; confira se é a mesma pessoa)"]);
     // Mesmo profissional nos dois papéis.
     const mesmo = compararPreenchimentoPci(normalizarFormularioPci({}), (await admin.sugestoesAutomaticas({ projectId: 20, rtpEngenheiroId: "7", rteEngenheiroId: "7" })).sugestoes);
     expect([mesmo.formulario.campos.rtpCpf, mesmo.formulario.campos.rteCpf]).toEqual([CPF_RAFAEL, CPF_RAFAEL]);
