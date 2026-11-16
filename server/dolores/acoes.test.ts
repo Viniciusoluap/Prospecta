@@ -246,7 +246,7 @@ describe("preparar_cobranca (fila) e a decisão", () => {
     expect(JSON.stringify(r.body)).not.toMatch(/codigo/i);
     const itens = await fila();
     expect(itens.map(i => [i.funcao, i.situacao, i.argumentos.leadId, i.mensagem_id])).toEqual([["preparar_cobranca", "aguardando", 1, 10], ["preparar_cobranca", "aguardando", 2, 10]]);
-    expect(itens[0].resumo).toMatch(/Maria Trello .*rascunho, não será enviada.*RG.*Consentimento LGPD no cadastro: NÃO registrado/);
+    expect(itens[0].resumo).toMatch(/Maria Trello .*rascunho com o texto padrão do sistema, não será enviada.*RG.*Consentimento LGPD no cadastro: NÃO registrado/);
     expect(itens[1].argumentos.texto).toMatch(/^Olá, João!/);
     expect((r.body.dados as any).naoPreparados.map((x: any) => x.motivo)).toEqual(["nenhum documento pendente registrado", "cliente não encontrado no CRM (ou excluído)"]);
     expect(mudaram(antes, await foto())).toEqual(["dolores_acoes", "dolores_aprovacoes", "dolores_limite", "users"]);

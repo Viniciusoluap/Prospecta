@@ -15,7 +15,9 @@ export const doloresAprovacoes = pgTable("dolores_aprovacoes", {
   funcao: varchar("funcao", { length: 80 }).notNull(),
   alvo: varchar("alvo", { length: 80 }).notNull(),
   argumentos: jsonb("argumentos").notNull(),
-  resumo: varchar("resumo", { length: 600 }).notNull(),
+  resumo: varchar("resumo", { length: 2000 }).notNull(),
+  /** SHA-256 de (função, resumo, argumentos) gravado junto com o item; conferido na execução (QA R2 N3). */
+  conferencia: varchar("conferencia", { length: 64 }),
   situacao: varchar("situacao", { length: 12 }).$type<SituacaoItem>().default("aguardando").notNull(),
   decididoEm: timestamp("decidido_em", { withTimezone: true }),
   decididoVia: varchar("decidido_via", { length: 12 }).$type<"whatsapp" | "tela" | "sistema">(),

@@ -10,7 +10,9 @@ import { addLeadActivity, getLeadById } from "../../db.js";
 import { bancoDaAcao } from "../escrita.js";
 import { avisoDaFila, textoDeDado } from "../../../shared/dolores/fila.js";
 import { bancoDaLeitura, emTransacaoSomenteLeitura } from "../somente-leitura.js";
-import { MARCA_DOLORES, RecusaAcao, registrarAutoria, type ContextoAcao, type ItemParaFila, type ResultadoAcao } from "./comum.js";
+import {
+  FRASE_TEXTO_LONGO, MARCA_DOLORES, RecusaAcao, comoMostrado, conferirMostrado, registrarAutoria, resumoDaFila, type ContextoAcao, type ItemParaFila, type ResultadoAcao,
+} from "./comum.js";
 import { alvoDoPedido } from "./tarefas.js";
 
 const TIPO = { anotacao: "note", ligacao: "call" } as const;
@@ -37,20 +39,26 @@ export async function registrarAcompanhamento(args: z.infer<typeof entradaRegist
   const lead = await getLeadById(args.leadId, bancoDaAcao());
   if (!lead || lead.deletedAt) throw new RecusaAcao(`Cliente ${args.leadId} não encontrado no CRM (ou excluído).`);
   const texto = sanitizarTexto(args.texto).slice(0, 1000);
+  // item aprovado da fila (QA R2 N3): o texto gravado é exatamente o que o dono leu
+  conferirMostrado(ctx, [`: "${texto}"`]);
   const frase = textoDeDado(`${args.tipo === "ligacao" ? "Ligação" : "Anotação"} no histórico de ${lead.name}: "${texto.slice(0, 80)}${texto.length > 80 ? "…" : ""}"`, 300);
   const id = await gravarAcompanhamento(ctx, { leadId: lead.id, tipo: TIPO[args.tipo], texto, funcao: "registrar_acompanhamento", resumo: frase });
   return { dados: { acompanhamentoId: id, leadId: lead.id, tipo: args.tipo }, resumo: { registrado: true, tipo: args.tipo }, feitos: [frase] };
 }
 
 /**
- * Acompanhamento pedido DEPOIS de o comando ler dados (regra de contaminação): não grava; devolve o item da fila com o
- * resumo legível (tipo, cliente e o texto inteiro que seria gravado). Aprovado, `registrarAcompanhamento` roda na hora.
+ * Acompanhamento pedido DEPOIS de o comando ler dados ou numa mensagem com texto colado (regra de contaminação): não grava;
+ * devolve o item da fila com o resumo que mostra o tipo, o cliente e o texto INTEIRO que será gravado (QA R2 N3) — o texto
+ * guardado é o da forma mostrada. Não cabe → recusa (nunca corta em silêncio). Aprovado, `registrarAcompanhamento` roda na
+ * hora e confere que grava o que foi mostrado.
  */
 export async function acompanhamentoParaFila(args: z.infer<typeof entradaRegistrarAcompanhamento>, ctx: ContextoAcao): Promise<ItemParaFila> {
   const [lead] = await emTransacaoSomenteLeitura(() => bancoDaLeitura().select({ id: leads.id, name: leads.name }).from(leads)
     .where(and(eq(leads.id, args.leadId), isNull(leads.deletedAt))).limit(1));
   if (!lead) throw new RecusaAcao(`Cliente ${args.leadId} não encontrado no CRM (ou excluído).`);
-  const texto = sanitizarTexto(args.texto).slice(0, 1000);
-  const resumo = textoDeDado(`${avisoDaFila(ctx.motivoContaminacao)} registrar ${args.tipo === "ligacao" ? "LIGAÇÃO" : "anotação"} no histórico de ${lead.name} (cliente ${lead.id}): "${texto}"`, 600);
-  return { alvo: alvoDoPedido("acompanhamento", [lead.id, args.tipo, texto.toLowerCase()]), resumo, argumentos: args };
+  const texto = comoMostrado(args.texto);
+  if (texto.length > 1000) throw new RecusaAcao(FRASE_TEXTO_LONGO);
+  if (texto.length < 3) throw new RecusaAcao("Texto do acompanhamento vazio depois de limpar caracteres inválidos.");
+  const resumo = resumoDaFila(`${avisoDaFila(ctx.motivoContaminacao)} registrar ${args.tipo === "ligacao" ? "LIGAÇÃO" : "anotação"} no histórico de ${textoDeDado(lead.name, 80)} (cliente ${lead.id}): "${texto}"`, [`: "${texto}"`]);
+  return { alvo: alvoDoPedido("acompanhamento", [lead.id, args.tipo, texto.toLowerCase()]), resumo, argumentos: { ...args, texto } };
 }

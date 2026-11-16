@@ -183,7 +183,8 @@ export type ItemQuadro = { codigo: string; resumo: string; venceEm: Date };
 export function quadroDePendencias(itens: readonly ItemQuadro[], horaDe: (d: Date) => string): string {
   if (!itens.length) return "";
   // o resumo pode trazer dados (nome, documento): uma linha só e sem colchetes — só o sistema escreve "[CÓDIGO]"
-  const linhas = itens.slice(0, 10).map(i => `- [${i.codigo}] ${textoDeDado(i.resumo)} (vence ${horaDe(i.venceEm)})`);
+  // o resumo vai INTEIRO (QA R2 N3: o dono lê tudo o que será gravado; o tamanho já foi limitado ao entrar na fila)
+  const linhas = itens.slice(0, 10).map(i => `- [${i.codigo}] ${textoDeDado(i.resumo, Number.MAX_SAFE_INTEGER)} (vence ${horaDe(i.venceEm)})`);
   const mais = itens.length > 10 ? `\n- e mais ${itens.length - 10} item(ns) na tela Integrações › Dolores` : "";
   const exemplo = itens[0].codigo;
   return `*Aguardando a sua aprovação* (nada foi feito ainda):\n${linhas.join("\n")}${mais}\nResponda só "aprovar ${exemplo}" ou "recusar ${exemplo}" (pode pôr vários, separados por espaço).`;

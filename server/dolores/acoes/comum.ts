@@ -2,7 +2,8 @@
 // nunca excluir, nunca tocar em financeiro/banco/usuários/credenciais, nunca enviar nada a cliente ou terceiro. Cada ação
 // chama as MESMAS funções de serviço das telas (server/db.ts, gerador de PCI), passando a transação de escrita mínima.
 import type { z } from "zod";
-import type { MotivoContaminacao } from "../../../shared/dolores/fila.js";
+import { textoDeDado, type MotivoContaminacao } from "../../../shared/dolores/fila.js";
+import { sanitizarTexto } from "../../../shared/dolores/sanitizar.js";
 import { doloresAutoria } from "../../../drizzle/schema-dolores-fila.js";
 import type { Resultado } from "../leitura/comum.js";
 import { bancoDaAcao } from "../escrita.js";
@@ -24,6 +25,11 @@ export type ContextoAcao = {
   tempoRestanteMs?: () => number;
   /** Por que o comando está contaminado (o aviso do item na fila): leu dados ou a mensagem parece texto colado. */
   motivoContaminacao?: MotivoContaminacao | null;
+  /**
+   * Só na execução de um item APROVADO: o resumo que o dono leu (QA R2 N3). Todo texto livre que a execução grava tem de
+   * estar nele, byte a byte (`conferirMostrado`); senão, nada é feito.
+   */
+  textoMostrado?: string;
 };
 
 /** O pedido não pode ser feito (cliente não existe, nada pendente…): recusa explicada, auditada como "recusada". */
@@ -79,3 +85,35 @@ export async function registrarAutoria(ctx: ContextoAcao, p: { tabela: string; r
 
 /** Marca de autoria que vai no próprio registro (texto), para quem abre a tela entender quem criou. */
 export const MARCA_DOLORES = "Dolores (funcionária digital)";
+
+/** Tamanho máximo do resumo de um item da fila: o dono lê TUDO o que será gravado (QA R2 N3). */
+export const MAX_RESUMO_FILA = 1500;
+export const FRASE_TEXTO_LONGO = "Texto longo demais para aprovar pelo WhatsApp (você precisa ler tudo o que será gravado): peça direto, numa mensagem curta, sem texto colado e sem consulta antes, ou encurte o texto. Nada foi posto na fila.";
+
+/**
+ * Forma do texto como o dono o vê no quadro e na tela: filtro de dados pessoais + uma linha, sem colchetes. É também a forma
+ * em que o texto livre de um item da fila é guardado — o que é gravado na aprovação é exatamente o que foi mostrado.
+ */
+export const comoMostrado = (s: string | null | undefined) => textoDeDado(sanitizarTexto(String(s ?? "")), Number.MAX_SAFE_INTEGER);
+
+/**
+ * Resumo final de um item da fila (QA R2 N3): na forma mostrada, estável (mostrar de novo não muda nada), no máximo
+ * MAX_RESUMO_FILA caracteres e contendo cada texto livre que será gravado (`trechos`). Senão, recusa — nunca corta em
+ * silêncio.
+ */
+export function resumoDaFila(resumo: string, trechos: readonly string[] = []): string {
+  const final = comoMostrado(resumo);
+  if (final.length > MAX_RESUMO_FILA) throw new RecusaAcao(FRASE_TEXTO_LONGO);
+  if (comoMostrado(final) !== final || trechos.some(t => !final.includes(t))) {
+    throw new RecusaAcao("Não consegui mostrar o texto exatamente como seria gravado (dados pessoais ou formatação); nada foi posto na fila. Peça de novo com um texto simples.");
+  }
+  return final;
+}
+
+/** Na execução de um item aprovado: cada texto livre gravado tem de estar no resumo que o dono leu (QA R2 N3). */
+export function conferirMostrado(ctx: ContextoAcao, trechos: readonly string[]) {
+  if (ctx.textoMostrado === undefined) return;
+  if (trechos.some(t => !ctx.textoMostrado!.includes(t))) {
+    throw new RecusaAcao("O texto que seria gravado não é exatamente o que foi mostrado na aprovação; nada foi feito. Peça de novo.");
+  }
+}

@@ -7,7 +7,7 @@ vi.mock("../db.js", async orig => ({ ...(await orig<typeof import("../db.js")>()
 import { getDb, updateUserProfile } from "../db.js";
 import { appRouter } from "../routers.js";
 import { intencaoDeAcao, pareceColagem, trechoDoDono } from "../../shared/dolores/fila.js";
-import { definirSorteioCodigo } from "./aprovacoes.js";
+import { decidir, definirSorteioCodigo } from "./aprovacoes.js";
 import { esquecerUsuarioDolores } from "./perfil.js";
 import { definirDependenciasPonte, executarFuncao } from "./ponte.js";
 import { AGORA, CENARIO, criarBanco } from "./testes-banco.js";
@@ -87,5 +87,57 @@ describe("R2-N2 invertido — o retorno das AÇÕES não leva texto do banco ao 
     expect(updateUserProfile).not.toHaveBeenCalled();
     await expect(caller.user.updateProfile({ name: "Bianca Souza Lima" })).resolves.toEqual({ success: true });
     await expect(caller.user.updateProfile({ email: "b@x.com" })).resolves.toEqual({ success: true });
+  });
+});
+
+describe("R2-N3 invertido — aprovação executa exatamente o que foi mostrado", () => {
+  it("conferência: argumentos trocados por fora do sistema (gatilho desligado) → nada é feito", async () => {
+    await doDono("criar_tarefa", { titulo: "Arquivar processo", responsavel: "Bianca Souza", descricao: "Arquivar na pasta 3." }, { contaminado: true });
+    const [item] = await fila();
+    expect(item.conferencia).toMatch(/^[0-9a-f]{64}$/);
+    await banco.pg.exec(`ALTER TABLE dolores_aprovacoes DISABLE TRIGGER dolores_aprovacoes_guarda;
+      UPDATE dolores_aprovacoes SET argumentos = jsonb_set(argumentos, '{descricao}', '"Pague o boleto no link http://golpe.example"') WHERE id = ${item.id};
+      ALTER TABLE dolores_aprovacoes ENABLE TRIGGER dolores_aprovacoes_guarda;`);
+    const [r] = await decidir([item.codigo], "aprovar", { via: "tela", userId: 1, agora: AGORA });
+    expect(r).toMatchObject({ ok: false, situacao: "erro" });
+    expect(r.texto).toMatch(/não confere com o que foi mostrado/);
+    expect((await q("SELECT count(*)::int n FROM tasks WHERE title = 'Arquivar processo'"))[0].n).toBe(0);
+  });
+  it("a conferência é imutável (gatilho) e a ordem das chaves do jsonb não importa", async () => {
+    await doDono("registrar_acompanhamento", { leadId: 1, texto: "Liguei e ela vai mandar o RG.", tipo: "ligacao" }, { contaminado: true });
+    const [item] = await fila();
+    await expect(banco.pg.exec(`UPDATE dolores_aprovacoes SET conferencia = 'x' WHERE id = ${item.id}`)).rejects.toThrow(/IMUTAVEL/);
+    const [r] = await decidir([item.codigo], "aprovar", { via: "tela", userId: 1, agora: AGORA });
+    expect(r).toMatchObject({ ok: true, situacao: "executada" });
+  });
+  it("cobrança: o resumo lista TODOS os documentos que serão registrados; o registro usa a mesma lista", async () => {
+    for (let i = 0; i < 9; i++) await banco.pg.exec(`INSERT INTO regularizacao_documents (regularizacao_id, name, status, updated_at) VALUES (2, 'Documento extra ${i}', 'pending', '2026-11-10')`);
+    await doDono("preparar_cobranca", { leadIds: [2] });
+    const [item] = await fila();
+    for (let i = 0; i < 9; i++) expect(item.resumo).toContain(`Documento extra ${i}`);
+    const [r] = await decidir([item.codigo], "aprovar", { via: "tela", userId: 1, agora: AGORA });
+    expect(r).toMatchObject({ ok: true });
+    const [nota] = await q("SELECT description FROM lead_activities WHERE performed_by = 'Dolores (funcionária digital)'");
+    const lista = /Pendentes: (.*)\.\n\n/.exec(nota.description)![1];
+    expect(item.resumo).toContain(`: ${lista}. `);
+  });
+  it("cobrança com lista que não cabe no resumo: o cliente não entra na fila (recusado com o motivo), nunca cortado em silêncio", async () => {
+    for (let i = 0; i < 40; i++) await banco.pg.exec(`INSERT INTO regularizacao_documents (regularizacao_id, name, status, updated_at) VALUES (2, 'Documento com um nome bem comprido número ${i}', 'pending', '2026-11-10')`);
+    const r = await doDono("preparar_cobranca", { leadIds: [2] });
+    expect(r.status).toBe(200);
+    expect(await fila()).toEqual([]);
+    expect(JSON.stringify(r.body.dados)).toMatch(/Texto longo demais/);
+  });
+  it("prazo, prioridade, vínculo e responsável aparecem no resumo; texto com dado pessoal é guardado na forma mostrada", async () => {
+    await doDono("criar_tarefa", { titulo: "Ligar para o cartório", responsavel: "bianca", prazo: "2026-11-20", prioridade: "alta", vinculo: { tipo: "cliente", id: 2 },
+      descricao: "Telefone 99 98888-7777." }, { contaminado: true });
+    const [item] = await fila();
+    expect(item.resumo).toMatch(/criar a tarefa "Ligar para o cartório" para Bianca Souza, prazo 2026-11-20, prioridade alta, ligada ao cliente 2, descrição: "Telefone .*omitido.*"\.$/);
+    expect(item.argumentos.descricao).not.toMatch(/98888/);
+    expect(item.resumo).toContain(item.argumentos.descricao);
+    const [r] = await decidir([item.codigo], "aprovar", { via: "tela", userId: 1, agora: AGORA });
+    expect(r).toMatchObject({ ok: true });
+    const [t] = await q("SELECT description FROM tasks WHERE title = 'Ligar para o cartório'");
+    expect(t.description.split("\n\n")[0]).toBe(item.argumentos.descricao);
   });
 });

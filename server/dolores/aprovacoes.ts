@@ -5,7 +5,7 @@
 // ferramenta de aprovação. Aprovado: reivindicação atômica (aguardando → executando numa só instrução: aprovação dupla
 // ou simultânea executa uma vez), revalidação completa na hora e resultado gravado; vencido não executa; execução
 // interrompida vira "erro" e não é refeita (o gatilho do banco impede voltar de um estado encerrado).
-import { randomInt } from "node:crypto";
+import { createHash, randomInt } from "node:crypto";
 import { and, asc, desc, eq, inArray, isNull, lt, lte, or, sql } from "drizzle-orm";
 import { doloresAprovacoes, doloresAutoria, doloresFilaConfig, type DoloresAprovacao } from "../../drizzle/schema-dolores-fila.js";
 import {
@@ -15,7 +15,7 @@ import { limitarResposta } from "../../shared/dolores/formato.js";
 import { sanitizarResposta, sanitizarTexto } from "../../shared/dolores/sanitizar.js";
 import { getDb } from "../db.js";
 import { acaoPorNome } from "./acoes/registro.js";
-import { RecusaAcao, type ContextoAcao, type Preparo, type ResultadoAcao } from "./acoes/comum.js";
+import { RecusaAcao, resumoDaFila, type ContextoAcao, type Preparo, type ResultadoAcao } from "./acoes/comum.js";
 import { registrarAcao } from "./auditoria.js";
 import { lerPausa } from "./consumo.js";
 import { erroParaLog } from "./erro-seguro.js";
@@ -38,6 +38,16 @@ export function definirSorteioCodigo(f?: () => number) { sorteio = f ?? (() => r
 
 export type ItemCriado = { codigo: string; resumo: string; venceEm: Date; jaAguardava: boolean };
 
+/** JSON com as chaves em ordem (o jsonb do banco não guarda a ordem): base estável da conferência. */
+function jsonCanonico(v: unknown): string {
+  if (Array.isArray(v)) return `[${v.map(jsonCanonico).join(",")}]`;
+  if (v && typeof v === "object") return `{${Object.keys(v as object).sort().map(k => `${JSON.stringify(k)}:${jsonCanonico((v as Record<string, unknown>)[k])}`).join(",")}}`;
+  return JSON.stringify(v ?? null);
+}
+/** Conferência do item (QA R2 N3): SHA-256 de função + resumo mostrado + argumentos que serão executados. */
+export const conferenciaDoItem = (funcao: string, resumo: string, argumentos: unknown) =>
+  createHash("sha256").update(jsonCanonico([funcao, resumo, argumentos])).digest("hex");
+
 /**
  * Põe na fila o que a função preparou. O mesmo pedido (função + alvo) já aguardando não duplica: devolve o código
  * existente. Colisão de código → sorteia de novo (até 6 vezes). Tudo numa transação (achado 9 do QA): falhou um item,
@@ -46,15 +56,20 @@ export type ItemCriado = { codigo: string; resumo: string; venceEm: Date; jaAgua
 export async function porNaFila(funcao: string, preparo: Preparo, ctx: ContextoAcao): Promise<ItemCriado[]> {
   const horas = await lerValidadeHoras();
   const venceEm = new Date(ctx.agora.getTime() + horas * 3_600_000);
+  // QA R2 N3: o resumo vai como o dono vai lê-lo, inteiro — não cabe, recusa (nunca corta em silêncio)
+  const prontos = preparo.itens.map(item => {
+    const resumo = resumoDaFila(item.resumo);
+    return { ...item, resumo, conferencia: conferenciaDoItem(funcao, resumo, item.argumentos) };
+  });
   return getDb().transaction(async tx => {
     const criados: ItemCriado[] = [];
-    for (const item of preparo.itens) {
+    for (const item of prontos) {
       let feito: ItemCriado | null = null;
       for (let tentativa = 0; tentativa < 6 && !feito; tentativa++) {
         const codigo = gerarCodigo(sorteio);
         const [linha] = await tx.insert(doloresAprovacoes).values({
           codigo, venceEm, criadoEm: ctx.agora, mensagemId: ctx.mensagemId, pedidoId: ctx.pedidoId?.slice(0, 120) ?? null, autorUserId: ctx.autorId,
-          funcao, alvo: item.alvo.slice(0, 80), argumentos: item.argumentos, resumo: textoDeDado(sanitizarTexto(item.resumo), 600),
+          funcao, alvo: item.alvo.slice(0, 80), argumentos: item.argumentos, resumo: item.resumo, conferencia: item.conferencia,
         }).onConflictDoNothing().returning({ codigo: doloresAprovacoes.codigo, resumo: doloresAprovacoes.resumo, venceEm: doloresAprovacoes.venceEm });
         if (linha) { feito = { ...linha, jaAguardava: false }; break; }
         const [existente] = await tx.select({ codigo: doloresAprovacoes.codigo, resumo: doloresAprovacoes.resumo, venceEm: doloresAprovacoes.venceEm })
@@ -142,6 +157,12 @@ async function aprovarUm(codigo: string, d: Decisor, autor: number): Promise<Res
     await auditar("recusada", "função não liberada na etapa atual", {});
     return { codigo, ok: false, situacao: "erro", texto: `[${codigo}] não pode ser executado: a função não está liberada. Nada foi feito.` };
   }
+  // QA R2 N3: o que será executado é exatamente o que o dono leu — função, resumo e argumentos conferem com a gravação
+  if (!item.conferencia || item.conferencia !== conferenciaDoItem(item.funcao, item.resumo, item.argumentos)) {
+    await finalizar(item.id, "erro", d.agora, { motivo: "conferência do item não bate com o que foi mostrado; nada foi feito" });
+    await auditar("recusada", "conferência do item não bate", {});
+    return { codigo, ok: false, situacao: "erro", texto: `[${codigo}] não foi executado: o item não confere com o que foi mostrado. Nada foi feito; peça de novo.` };
+  }
   const args = fn.entradaAprovada.safeParse(item.argumentos);
   if (!args.success) {
     await finalizar(item.id, "erro", d.agora, { motivo: "argumentos guardados inválidos; nada foi feito" });
@@ -149,7 +170,7 @@ async function aprovarUm(codigo: string, d: Decisor, autor: number): Promise<Res
     return { codigo, ok: false, situacao: "erro", texto: `[${codigo}] tem dados inválidos e não foi executado.` };
   }
   const relogio = d.relogio ?? Date.now;
-  const ctx: ContextoAcao = { agora: d.agora, autorId: autor, mensagemId: item.mensagemId, pedidoId: `fila:${codigo}`, aprovacaoId: item.id,
+  const ctx: ContextoAcao = { agora: d.agora, autorId: autor, mensagemId: item.mensagemId, pedidoId: `fila:${codigo}`, aprovacaoId: item.id, textoMostrado: item.resumo,
     ...(d.prazoFinal !== undefined ? { tempoRestanteMs: () => d.prazoFinal! - relogio() } : {}) };
   let r: ResultadoAcao;
   try {

@@ -12,7 +12,10 @@ import { diaFortaleza, isoFortaleza } from "../../../shared/dolores/formato.js";
 import { sanitizarTexto } from "../../../shared/dolores/sanitizar.js";
 import { createTask, getAssignableLeadById, getAssignableUsers, getProjectById } from "../../db.js";
 import { bancoDaAcao } from "../escrita.js";
-import { MARCA_DOLORES, RecusaAcao, registrarAutoria, type ContextoAcao, type ItemParaFila, type ResultadoAcao } from "./comum.js";
+import { bancoDaLeitura, emTransacaoSomenteLeitura } from "../somente-leitura.js";
+import {
+  FRASE_TEXTO_LONGO, MARCA_DOLORES, RecusaAcao, comoMostrado, conferirMostrado, registrarAutoria, resumoDaFila, type ContextoAcao, type ItemParaFila, type ResultadoAcao,
+} from "./comum.js";
 
 /** Título da tarefa: uma linha, sem caracteres de controle, até 150 caracteres (HTML fica como texto: a tela escapa). */
 const MAX_TITULO = 150;
@@ -32,8 +35,8 @@ export const entradaCriarTarefa = z.object({
 }).strict();
 
 /** Responsável pelo nome: exato primeiro; senão, um único que contenha o texto. Ambíguo ou ninguém → recusa com a lista. */
-async function resolverResponsavel(nome: string) {
-  const todos = (await getAssignableUsers(bancoDaAcao())).filter(u => u.name?.trim());
+async function resolverResponsavel(nome: string, db = bancoDaAcao()) {
+  const todos = (await getAssignableUsers(db)).filter(u => u.name?.trim());
   const alvo = sem(nome);
   const exatos = todos.filter(u => sem(u.name!) === alvo);
   const candidatos = exatos.length ? exatos : todos.filter(u => sem(u.name!).includes(alvo));
@@ -69,6 +72,9 @@ export async function criarTarefa(args: z.infer<typeof entradaCriarTarefa>, ctx:
   }
   const titulo = umaLinha(sanitizarTexto(args.titulo), MAX_TITULO);
   if (titulo.length < 3) throw new RecusaAcao("Título da tarefa vazio depois de limpar caracteres inválidos.");
+  const descricaoDoDono = args.descricao ? sanitizarTexto(args.descricao) : null;
+  // item aprovado da fila (QA R2 N3): título, responsável e descrição gravados têm de ser os que o dono leu no resumo
+  conferirMostrado(ctx, [`criar a tarefa "${titulo}" para ${responsavel.name ?? ""}, `, ...(descricaoDoDono ? [`, descrição: "${descricaoDoDono}".`] : [])]);
   // Pedido repetido (o modelo chamou duas vezes, o dono mandou de novo): a tarefa aberta igual é devolvida, sem duplicar.
   const [igual] = await tx.select({ id: tasks.id }).from(tasks).where(and(
     sql`lower(${tasks.title}) = ${titulo.toLowerCase()}`, inArray(tasks.status, ["pending", "in_progress"]),
@@ -77,7 +83,7 @@ export async function criarTarefa(args: z.infer<typeof entradaCriarTarefa>, ctx:
   if (igual) {
     return { dados: { tarefaId: igual.id, jaExistia: true, mensagem: "Já existe uma tarefa aberta igual; nada foi criado." }, resumo: { criada: false, jaExistia: true } };
   }
-  const descricao = [args.descricao ? sanitizarTexto(args.descricao) : null, `— Criada por ${MARCA_DOLORES} a pedido do dono.`].filter(Boolean).join("\n\n");
+  const descricao = [descricaoDoDono, `— Criada por ${MARCA_DOLORES} a pedido do dono.`].filter(Boolean).join("\n\n");
   const criada = await createTask({
     title: titulo, description: descricao, assignedTo: responsavel.name || `Usuário #${responsavel.id}`,
     relatedType, relatedId, priority: PRIORIDADE[args.prioridade], status: "pending", dueAt,
@@ -95,24 +101,38 @@ export async function criarTarefa(args: z.infer<typeof entradaCriarTarefa>, ctx:
 }
 
 /**
- * Pedido de tarefa que surgiu DEPOIS de o comando ler dados (regra de contaminação): não grava nada; devolve o item da
- * fila com o resumo legível (o que será criado, para quem, prazo e vínculo). Aprovado, `criarTarefa` roda com as mesmas
- * conferências (responsável, prazo, vínculo, repetição) na hora da aprovação.
+ * Pedido de tarefa que surgiu DEPOIS de o comando ler dados ou numa mensagem com texto colado (regra de contaminação): não
+ * grava nada; devolve o item da fila com o resumo que mostra ao dono TUDO o que será gravado (QA R2 N3): título,
+ * responsável (já conferido na equipe), prazo, prioridade, vínculo e a descrição inteira. Os argumentos guardados são os
+ * textos na forma mostrada; aprovado, `criarTarefa` roda com as mesmas conferências e confere que grava o que foi mostrado.
+ * Não cabe no resumo → recusa (nunca corta em silêncio).
  */
 export async function tarefaParaFila(args: z.infer<typeof entradaCriarTarefa>, ctx: ContextoAcao): Promise<ItemParaFila> {
   if (args.prazo) {
     const p = lerPrazo(args.prazo, ctx.agora);
     if (!p.ok) throw new RecusaAcao(`Prazo inválido: ${p.motivo}.`);
   }
-  const titulo = umaLinha(sanitizarTexto(args.titulo), MAX_TITULO);
+  const titulo = comoMostrado(umaLinha(sanitizarTexto(args.titulo), MAX_TITULO));
+  const descricao = args.descricao ? comoMostrado(args.descricao) : null;
+  if (titulo.length > MAX_TITULO || (descricao?.length ?? 0) > 1000) throw new RecusaAcao(FRASE_TEXTO_LONGO);
+  if (titulo.length < 3) throw new RecusaAcao("Título da tarefa vazio depois de limpar caracteres inválidos.");
+  // o responsável é conferido JÁ (leitura): o dono lê o nome que será gravado
+  const responsavel = await emTransacaoSomenteLeitura(() => resolverResponsavel(args.responsavel, bancoDaLeitura()));
+  const nome = comoMostrado(responsavel.name);
+  if (nome !== responsavel.name || nome.length > 100) {
+    throw new RecusaAcao(`O nome do responsável (usuário ${responsavel.id}) tem formatação que não dá para mostrar exatamente; ajuste o cadastro em Usuários e acesso.`);
+  }
   const partes = [
-    `para ${umaLinha(args.responsavel, 60)}`,
+    `para ${nome}`,
     args.prazo ? `prazo ${args.prazo.replace("T", " ")}` : "sem prazo",
     `prioridade ${args.prioridade}`,
     args.vinculo ? `ligada ao ${args.vinculo.tipo} ${args.vinculo.id}` : "sem vínculo",
+    ...(descricao ? [`descrição: "${descricao}"`] : []),
   ];
-  const resumo = textoDeDado(`${avisoDaFila(ctx.motivoContaminacao)} criar a tarefa "${titulo}" ${partes.join(", ")}.`, 600);
-  return { alvo: alvoDoPedido("tarefa", [titulo.toLowerCase(), sem(args.responsavel), args.vinculo?.tipo ?? "", args.vinculo?.id ?? ""]), resumo, argumentos: args };
+  const resumo = resumoDaFila(`${avisoDaFila(ctx.motivoContaminacao)} criar a tarefa "${titulo}" ${partes.join(", ")}.`,
+    [`criar a tarefa "${titulo}" para ${nome}, `, ...(descricao ? [`, descrição: "${descricao}".`] : [])]);
+  const argumentos = { ...args, titulo, responsavel: nome, ...(descricao ? { descricao } : {}) };
+  return { alvo: alvoDoPedido("tarefa", [titulo.toLowerCase(), sem(args.responsavel), args.vinculo?.tipo ?? "", args.vinculo?.id ?? ""]), resumo, argumentos };
 }
 
 /** Alvo do item (o mesmo pedido não fica duas vezes aguardando): função + resumo do conteúdo. */

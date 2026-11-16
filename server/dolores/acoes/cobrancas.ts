@@ -13,7 +13,7 @@ import { entradaListarDocumentos, listarDocumentos } from "../leitura/documentos
 import { emTransacaoDeEscrita } from "../escrita.js";
 import { bancoDaLeitura, emTransacaoSomenteLeitura } from "../somente-leitura.js";
 import { gravarAcompanhamento } from "./acompanhamentos.js";
-import { RecusaAcao, type ContextoAcao, type Preparo, type ResultadoAcao } from "./comum.js";
+import { RecusaAcao, comoMostrado, conferirMostrado, resumoDaFila, type ContextoAcao, type Preparo, type ResultadoAcao } from "./comum.js";
 
 export const entradaPrepararCobranca = z.object({
   leadIds: z.array(z.number().int().positive().max(2_147_483_647)).min(1).max(10)
@@ -50,11 +50,17 @@ async function situacaoDoCliente(leadId: number, agora: Date): Promise<Situacao 
   return { lead, documentos, ultimoContato };
 }
 
-/** Resumo para o dono (quadro de pendências): nome e documentos são DADOS — uma linha só, sem colchetes (achado 7). */
+/** Nome de cada documento como aparece no resumo, no texto da cobrança e no registro (uma linha, até 120 caracteres). */
+const nomeDoc = (d: string) => textoDeDado(d, 120);
+
+/**
+ * Resumo para o dono (quadro de pendências): nome e documentos são DADOS — uma linha só, sem colchetes (achado 7). Mostra
+ * TODOS os documentos que serão registrados (QA R2 N3); o resto do registro é texto fixo do sistema.
+ */
 function resumoDaCobranca(s: Situacao): string {
-  const docs = s.documentos.slice(0, 6).map(d => textoDeDado(d, 80)).join(", ") + (s.documentos.length > 6 ? ` e mais ${s.documentos.length - 6}` : "");
-  return textoDeDado(`Cobrança de documentos para ${textoDeDado(s.lead.name, 80)} (cliente ${s.lead.id}) — rascunho, não será enviada: ${s.documentos.length} pendente(s): ${docs}. `
-    + `Último contato registrado: ${dataBr(s.ultimoContato) ?? "nenhum"}. Consentimento LGPD no cadastro: ${s.lead.lgpdConsent ? "sim" : "NÃO registrado"}.`, 600);
+  const docs = s.documentos.slice(0, 60).map(nomeDoc).join(", ");
+  return `Cobrança de documentos para ${textoDeDado(s.lead.name, 80)} (cliente ${s.lead.id}) — rascunho com o texto padrão do sistema, não será enviada: ${s.documentos.length} pendente(s): ${docs}. `
+    + `Último contato registrado: ${dataBr(s.ultimoContato) ?? "nenhum"}. Consentimento LGPD no cadastro: ${s.lead.lgpdConsent ? "sim" : "NÃO registrado"}.`;
 }
 
 export async function prepararCobranca(args: z.infer<typeof entradaPrepararCobranca>, ctx: ContextoAcao): Promise<Preparo> {
@@ -63,9 +69,13 @@ export async function prepararCobranca(args: z.infer<typeof entradaPrepararCobra
     const s = await emTransacaoSomenteLeitura(() => situacaoDoCliente(leadId, ctx.agora));
     if (!s) { preparo.recusados.push({ alvo: `cliente ${leadId}`, motivo: "cliente não encontrado no CRM (ou excluído)" }); continue; }
     if (!s.documentos.length) { preparo.recusados.push({ alvo: `cliente ${leadId}`, motivo: "nenhum documento pendente registrado" }); continue; }
+    // o dono lê a lista inteira; não cabe no resumo → este cliente não entra na fila (nunca corta em silêncio)
+    let resumo: string;
+    try { resumo = resumoDaFila(resumoDaCobranca(s), [`: ${s.documentos.slice(0, 60).map(nomeDoc).map(comoMostrado).join(", ")}. `]); }
+    catch (e) { if (e instanceof RecusaAcao) { preparo.recusados.push({ alvo: `cliente ${leadId}`, motivo: e.message.slice(0, 300) }); continue; } throw e; }
     preparo.itens.push({
       alvo: `lead:${leadId}`,
-      resumo: resumoDaCobranca(s).slice(0, 600),
+      resumo,
       argumentos: { leadId, documentos: s.documentos.slice(0, 60), texto: textoDaCobranca({ nome: s.lead.name, documentos: s.documentos }) },
     });
   }
@@ -86,8 +96,11 @@ export async function executarCobrancaAprovada(args: z.infer<typeof entradaCobra
     throw new RecusaAcao("A lista de documentos pendentes mudou depois do pedido; nada foi registrado. Peça de novo para eu preparar a cobrança com a lista atual.");
   }
   const texto = args.texto;
+  // QA R2 N3: os documentos registrados são exatamente os que o dono leu no resumo
+  const pendentes = s.documentos.slice(0, 60).map(nomeDoc).map(comoMostrado);
+  conferirMostrado(ctx, [`: ${pendentes.join(", ")}. `]);
   const registro = `Cobrança de documentos preparada pela Dolores e aprovada pelo dono em ${dataBr(ctx.agora)}. NÃO foi enviada ao cliente `
-    + `(o envio pela Dolores ainda não foi liberado): a equipe envia pelo canal de costume. Pendentes: ${s.documentos.join(", ")}.\n\nTexto preparado:\n${texto}`;
+    + `(o envio pela Dolores ainda não foi liberado): a equipe envia pelo canal de costume. Pendentes: ${pendentes.join(", ")}.\n\nTexto preparado:\n${texto}`;
   const frase = textoDeDado(`Cobrança de ${s.lead.name} registrada no histórico (não enviada)`, 300);
   const id = await emTransacaoDeEscrita(() => gravarAcompanhamento(ctx, { leadId: s.lead.id, tipo: "note", texto: registro.slice(0, 4000), funcao: "preparar_cobranca", resumo: frase }));
   return {

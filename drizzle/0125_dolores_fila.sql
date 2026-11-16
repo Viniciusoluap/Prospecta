@@ -1,6 +1,7 @@
 -- 16/11/2026 — EPIC-025 (etapa 3, Ações): fila de aprovação da Dolores, autoria do que ela cria e a validade da fila.
 -- "dolores_aprovacoes": um item por ação que espera o dono (função + argumentos já validados + resumo montado pelo
---   sistema, código curto para o dono responder "aprovar CÓDIGO", situação, quem decidiu e quando, resultado, vencimento).
+--   sistema com TODO o texto que será gravado + conferência SHA-256 de função/resumo/argumentos, código curto para o dono
+--   responder "aprovar CÓDIGO", situação, quem decidiu e quando, resultado, vencimento).
 --   Nunca é apagada (gatilho recusa DELETE/TRUNCATE); depois de criada, função/argumentos/código/resumo/validade/pedido/
 --   autor não mudam; "aguardando" só vai para executando/recusada/vencida (nunca "executada" direto); a decisão é gravada
 --   uma vez; o resultado só na transição que encerra a execução; um item encerrado (executada, recusada, vencida, erro)
@@ -26,7 +27,10 @@ CREATE TABLE IF NOT EXISTS "dolores_aprovacoes" (
   "funcao" varchar(80) NOT NULL,
   "alvo" varchar(80) NOT NULL,
   "argumentos" jsonb NOT NULL,
-  "resumo" varchar(600) NOT NULL,
+  -- o que o dono lê: TODO o texto que será gravado (até 1.500 caracteres no código; a coluna tem folga)
+  "resumo" varchar(2000) NOT NULL,
+  -- SHA-256 de (função, resumo, argumentos) gravado na criação; a execução confere antes de fazer qualquer coisa
+  "conferencia" varchar(64),
   "situacao" varchar(12) NOT NULL DEFAULT 'aguardando'
     CHECK ("situacao" IN ('aguardando', 'executando', 'executada', 'recusada', 'vencida', 'erro')),
   -- decisão
@@ -38,6 +42,11 @@ CREATE TABLE IF NOT EXISTS "dolores_aprovacoes" (
   "executado_em" timestamp with time zone,
   "resultado" jsonb
 );
+
+-- QA R2 (N3), para bancos em que uma versão anterior desta migração já criou a tabela: só aumenta o resumo (600 → 2000,
+-- sem reescrever dados) e acrescenta a conferência. Idempotente.
+ALTER TABLE "dolores_aprovacoes" ALTER COLUMN "resumo" TYPE varchar(2000);
+ALTER TABLE "dolores_aprovacoes" ADD COLUMN IF NOT EXISTS "conferencia" varchar(64);
 
 CREATE UNIQUE INDEX IF NOT EXISTS "dolores_aprovacoes_codigo_unico" ON "dolores_aprovacoes" ("codigo");
 -- o mesmo pedido (função + alvo) não fica duas vezes aguardando
@@ -55,7 +64,7 @@ BEGIN
      OR NEW."argumentos" IS DISTINCT FROM OLD."argumentos" OR NEW."criado_em" IS DISTINCT FROM OLD."criado_em"
      OR NEW."mensagem_id" IS DISTINCT FROM OLD."mensagem_id" OR NEW."vence_em" IS DISTINCT FROM OLD."vence_em"
      OR NEW."resumo" IS DISTINCT FROM OLD."resumo" OR NEW."pedido_id" IS DISTINCT FROM OLD."pedido_id"
-     OR NEW."autor_user_id" IS DISTINCT FROM OLD."autor_user_id" THEN
+     OR NEW."autor_user_id" IS DISTINCT FROM OLD."autor_user_id" OR NEW."conferencia" IS DISTINCT FROM OLD."conferencia" THEN
     RAISE EXCEPTION 'DOLORES_FILA_IMUTAVEL: o que será feito não muda depois de entrar na fila';
   END IF;
   IF OLD."situacao" IN ('executada', 'recusada', 'vencida', 'erro') THEN
