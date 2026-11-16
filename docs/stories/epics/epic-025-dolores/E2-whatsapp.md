@@ -131,5 +131,15 @@ Claude Console); limites mensais de tokens; ligar o interruptor.
   conferência é antes de cada chamada).
 - Não há script `lint` no `package.json`; qualidade por `tsc --noEmit`, testes e `vite build`.
 
+## Testes executados
+- (a) Automáticos (16/11): `npx tsc --noEmit` sem erros; `npx vitest run server/dolores server/central-vendas*.test.ts
+  server/auth-session.test.ts server/imports-esm.test.ts server/api-rotas-producao.test.ts server/integracoes-anthropic.test.ts
+  server/whatsapp-conversas.test.ts` — 22 arquivos, 218 testes passando (novos: regras 12, webhook/laço 31, rotas 13);
+  `npx vite build` ok; suíte completa `npx vitest run` — 231 arquivos, 2253 testes passando.
+- (b) Manuais: nenhum (sem Evolution nem Anthropic reais neste ambiente).
+- (c) Pendentes em produção: migração 0124 no Neon; dono cadastra chave/modelo, limites, o número dele e conecta o número
+  da Dolores; teste de aceite pelo WhatsApp; conferir os nomes `senderPn`/`remoteJidAlt` do endereço @lid na Evolution real.
+
 ## Change Log
 - 16/11/2026 — @dev (Dex): story criada (Draft → InProgress), critérios tirados do prompt mestre e da ordem da etapa 2.
+- 16/11/2026 — @dev (Dex): InProgress → InReview (implementação e testes concluídos; aguarda portão de QA).
