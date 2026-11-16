@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { Link } from "wouter";
 import { trpc } from "@/lib/trpc";
 import { Button } from "@/components/ui/button";
@@ -9,10 +9,11 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { toast } from "sonner";
-import { ArrowLeft, Mountain, Plus, MapPin } from "lucide-react";
+import { ArrowLeft, Mountain, Plus, MapPin, Search, X } from "lucide-react";
 import { formatArea } from "@/lib/format";
 import { areaDoEstudoM2 } from "@shared/incorporacao/lotes-avulsos";
 import { AcoesExcluir } from "@/components/AcoesExcluir";
+import { FILTROS_INCORPORACAO_VAZIOS, TIPOS_INCORPORACAO, filtrarEstudosIncorporacao, filtrosIncorporacaoAtivos } from "@shared/incorporacao/filtro-listagem";
 
 const STATUS_LABELS: Record<string, string> = {
   in_study: "Em estudo",
@@ -29,11 +30,7 @@ const STATUS_COLORS: Record<string, string> = {
 };
 
 type FiltroSituacao = "todos" | "in_study" | "unfeasible" | "in_progress" | "completed";
-const TIPOS = [
-  { value: "desmembramento_simples", label: "Desmembramento Simples" },
-  { value: "vertical", label: "Vertical" },
-  { value: "loteamento", label: "Loteamento" },
-] as const;
+const TIPOS = TIPOS_INCORPORACAO;
 type Tipo = (typeof TIPOS)[number]["value"];
 const situacaoValida = (value: string): value is FiltroSituacao => value === "todos" || value in STATUS_LABELS;
 
@@ -45,11 +42,15 @@ function formatAreaDoEstudo(estudo: Parameters<typeof areaDoEstudoM2>[0]): strin
 export default function AdminIncorporacao() {
   const [open, setOpen] = useState(false);
   const [status, setStatus] = useState<FiltroSituacao>("todos");
+  // S-07 (16/11): nome e tipo filtram na tela, junto com a situação, sem recarregar a lista.
+  const [busca, setBusca] = useState("");
+  const [tipo, setTipo] = useState("todos");
   const [form, setForm] = useState<{ name: string; city: string; state: string; address: string; responsibleUserId: string; incorporationType: Tipo | "" }>({ name: "", city: "", state: "MA", address: "", responsibleUserId: "nenhum", incorporationType: "" });
 
-  const { data: estudos = [], isLoading, refetch } = trpc.incorporacao.list.useQuery({
-    status: status === "todos" ? undefined : status,
-  });
+  const { data: todos = [], isLoading, refetch } = trpc.incorporacao.list.useQuery({});
+  const filtros = { status, nome: busca, tipo };
+  const estudos = useMemo(() => filtrarEstudosIncorporacao(todos, { status, nome: busca, tipo }), [todos, status, busca, tipo]);
+  const limparFiltros = () => { setStatus(FILTROS_INCORPORACAO_VAZIOS.status as FiltroSituacao); setBusca(""); setTipo("todos"); };
 
   const utils = trpc.useUtils();
   const { data: equipe = [] } = trpc.incorporacao.staff.useQuery();
@@ -164,9 +165,15 @@ export default function AdminIncorporacao() {
       </div>
 
       <div className="max-w-7xl mx-auto px-6 py-6 space-y-6">
-        <div className="flex items-center gap-3">
+        <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center">
+          <div className="relative w-full sm:w-72">
+            <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
+            <Input value={busca} onChange={(e) => setBusca(e.target.value)} placeholder="Buscar pelo nome"
+              aria-label="Buscar pelo nome do empreendimento"
+              className="bg-[#2C3E50] border-[#C9A961]/30 pl-9 text-white" />
+          </div>
           <Select value={status} onValueChange={(value) => { if (situacaoValida(value)) setStatus(value); }}>
-            <SelectTrigger className="w-56 bg-[#2C3E50] border-[#C9A961]/30 text-white">
+            <SelectTrigger className="w-full sm:w-56 bg-[#2C3E50] border-[#C9A961]/30 text-white">
               <SelectValue placeholder="Situação" />
             </SelectTrigger>
             <SelectContent>
@@ -176,10 +183,31 @@ export default function AdminIncorporacao() {
               ))}
             </SelectContent>
           </Select>
+          <Select value={tipo} onValueChange={setTipo}>
+            <SelectTrigger className="w-full sm:w-56 bg-[#2C3E50] border-[#C9A961]/30 text-white">
+              <SelectValue placeholder="Tipo" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="todos">Todos os tipos</SelectItem>
+              {TIPOS.map((t) => <SelectItem key={t.value} value={t.value}>{t.label}</SelectItem>)}
+            </SelectContent>
+          </Select>
+          {filtrosIncorporacaoAtivos(filtros) && (
+            <Button variant="ghost" onClick={limparFiltros} className="text-gray-300 hover:text-white sm:w-auto">
+              <X className="h-4 w-4 mr-1" /> Limpar filtros
+            </Button>
+          )}
         </div>
 
         {isLoading ? (
           <p className="text-gray-300">Carregando...</p>
+        ) : todos.length > 0 && estudos.length === 0 ? (
+          <Card className="bg-[#1A2332]/60 border-[#C9A961]/20 text-gray-100">
+            <CardContent className="py-12 text-center">
+              <p className="text-gray-300 font-medium">Nenhum estudo encontrado com esses filtros</p>
+              <Button variant="ghost" onClick={limparFiltros} className="mt-2 text-[#C9A961] hover:text-white">Limpar filtros</Button>
+            </CardContent>
+          </Card>
         ) : estudos.length === 0 ? (
           <Card className="bg-[#1A2332]/60 border-[#C9A961]/20 text-gray-100">
             <CardContent className="py-16 text-center">
