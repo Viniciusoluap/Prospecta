@@ -242,6 +242,34 @@ describe("rotas do painel — modelo por função", () => {
     expect(linha(r, "dolores_whatsapp")).toMatchObject({ anteriorSumiu: null, valendo: { modelo: "claude-haiku-5", origem: "preferencial" } });
   });
 
+  it("QA S-11 r2 achado 1: falha passageira ao ler o modelo antigo da Dolores não apaga nem cria o aviso de modelo sumido", async () => {
+    const s = setup();
+    await s.caller.salvarAnthropic({ apiKey: CHAVE });
+    s.antigo.dolores = "claude-opus-5-5";
+    await s.caller.salvarAnthropic({ apiKey: CHAVE_RESTRITA });
+    expect(s.banco.get(chaveAnteriorSumiuDaFuncao("dolores_whatsapp"))).toBe("claude-opus-5-5");
+    // a leitura do cartão falha ao listar os modelos e ao salvar a chave: o aviso continua lá
+    s.modelosAntigos.lerAnteriorDolores.mockRejectedValueOnce(new Error("banco fora"));
+    await s.caller.modelosAnthropic();
+    expect(s.banco.get(chaveAnteriorSumiuDaFuncao("dolores_whatsapp"))).toBe("claude-opus-5-5");
+    s.modelosAntigos.lerAnteriorDolores.mockRejectedValueOnce(new Error("banco fora"));
+    await s.caller.salvarAnthropic({ apiKey: CHAVE_RESTRITA });
+    expect(s.banco.get(chaveAnteriorSumiuDaFuncao("dolores_whatsapp"))).toBe("claude-opus-5-5");
+    // a Dolores continua sem usar o antigo
+    expect(await modeloDaFuncao("dolores_whatsapp", { anterior: s.antigo.dolores }, { lerBanco: async (k: string) => s.banco.get(k) })).not.toMatchObject({ origem: "anterior" });
+    // mesmo com a conta voltando a oferecer o Opus, sem conseguir ler o antigo nada muda; quando a leitura volta, o aviso sai
+    s.modelosAntigos.lerAnteriorDolores.mockRejectedValueOnce(new Error("banco fora"));
+    await s.caller.salvarAnthropic({ apiKey: CHAVE });
+    expect(s.banco.get(chaveAnteriorSumiuDaFuncao("dolores_whatsapp"))).toBe("claude-opus-5-5");
+    await s.caller.modelosAnthropic();
+    expect(s.banco.get(chaveAnteriorSumiuDaFuncao("dolores_whatsapp"))).toBe("");
+    // e "não sei" também não cria o aviso do nada
+    s.ofertar(MODELOS.filter(m => m.id !== "claude-opus-5-5"));
+    s.modelosAntigos.lerAnteriorDolores.mockRejectedValueOnce(new Error("banco fora"));
+    await s.caller.modelosAnthropic();
+    expect(s.banco.get(chaveAnteriorSumiuDaFuncao("dolores_whatsapp"))).toBe("");
+  });
+
   it("QA S-11 achado 5: remover a chave não apaga em silêncio o modelo antigo da Dolores", async () => {
     const s = setup();
     await s.caller.salvarAnthropic({ apiKey: CHAVE });

@@ -195,7 +195,11 @@ export async function salvarModeloPreferencialAnthropic(id: string, deps: Anthro
  */
 const soLeitor = (deps: AnthropicPainelDeps): LeitorModelos => ({ lerBanco: k => deps.lerBanco(k) });
 
-/** Modelo anterior de cada função, guardado fora do painel (Dolores: o campo antigo do cartão). Só nomes de modelo. */
+/**
+ * Modelo anterior de cada função, guardado fora do painel (Dolores: o campo antigo do cartão). Só nomes de modelo.
+ * `undefined` = "não sei" (a leitura falhou ou não foi feita): o aviso de modelo antigo sumido fica como está
+ * (QA S-11 r2, achado 1). `null`/vazio = "não há modelo antigo".
+ */
 export type AnterioresDasFuncoes = { anteriorDolores?: string | null };
 
 /**
@@ -218,6 +222,8 @@ export async function conferirModelosDasFuncoes(
     await deps.gravarBanco(chaveAvisoDaFuncao(f), id);
     limpas.push({ funcao: f, modelo: id });
   }
+  // QA S-11 r2, achado 1: sem saber o modelo antigo (leitura falhou), não mexe no aviso — nem marca, nem apaga
+  if (anteriores.anteriorDolores === undefined) return limpas;
   const anterior = anteriores.anteriorDolores?.trim() || null;
   const marcado = gravados.dolores_whatsapp.anteriorSumiu;
   if (anterior && !existe(anterior)) {

@@ -271,7 +271,7 @@ export function createIntegracoesRouter(deps: IntegracoesDeps = defaultDeps) {
     salvarAnthropic: adminProcedure
       .input(z.object({ apiKey: z.string().trim().min(1, "Cole a chave de API da Anthropic.") }))
       .mutation(async ({ input }) => {
-        const anteriorDolores = await antigos().lerAnteriorDolores().catch(() => null);
+        const anteriorDolores = await antigos().lerAnteriorDolores().catch(() => undefined); // falha = "não sei": o aviso fica como está
         try { return { success: true as const, ...(await salvarChaveAnthropicPainel(input.apiKey, anthropic(), { anteriorDolores })) }; }
         catch (e) { throw new TRPCError({ code: "BAD_REQUEST", message: mascararChaveAnthropic(mensagemDe(e, "Chave da Anthropic não aceita.")) }); }
       }),
@@ -281,7 +281,7 @@ export function createIntegracoesRouter(deps: IntegracoesDeps = defaultDeps) {
         const modelos = await modelosAnthropicPainel(anthropic());
         // S-11: modelo escolhido para uma função que sumiu da conta é limpo (cai para o preferencial), com aviso no painel
         // e o modelo antigo do cartão da Dolores que a conta não oferece deixa de valer, com aviso (achado 5)
-        const anteriorDolores = await antigos().lerAnteriorDolores().catch(() => null);
+        const anteriorDolores = await antigos().lerAnteriorDolores().catch(() => undefined); // falha = "não sei": o aviso fica como está
         await conferirModelosDasFuncoes(modelos, anthropic(), { anteriorDolores }).catch(() => undefined);
         return modelos;
       }
