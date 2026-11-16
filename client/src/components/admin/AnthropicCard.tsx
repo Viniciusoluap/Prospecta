@@ -1,6 +1,6 @@
 // EPIC-024 S-10 (16/11): Anthropic — Inteligência Artificial. Só cadastro: guardar a chave (criptografada no
 // servidor), testar quando o admin pedir, listar os modelos que a chave tem e guardar o preferencial.
-// A IA da Anthropic NÃO é ativada por esta tela: nenhuma função usa esta chave ainda.
+// A IA da Anthropic NÃO é ativada por esta tela: a chave só é usada pela leitura da Maquete 3D (com confirmação) e pela Dolores (com o interruptor dela).
 import { useState } from "react";
 import { toast } from "sonner";
 import { CheckCircle2, Info, Loader2, XCircle } from "lucide-react";
@@ -53,7 +53,7 @@ export function AnthropicCard() {
         {s?.ilegivel && <p role="alert" className="flex items-start gap-2 text-sm text-yellow-200"><XCircle className="mt-0.5 h-4 w-4 shrink-0" /> {s.aviso}</p>}
         {s?.configurado && <p className="text-sm text-gray-300">Modelo preferencial: {s.modeloPreferencial ? <code className="rounded bg-black/30 px-1">{nomePreferido ? `${nomePreferido} (${s.modeloPreferencial})` : s.modeloPreferencial}</code> : "nenhum escolhido."}</p>}
         <p className="flex items-start gap-2 rounded-lg border border-[#C9A961]/30 bg-[#C9A961]/10 p-2 text-xs text-gray-200">
-          <Info className="mt-0.5 h-3 w-3 shrink-0" /> Integração apenas cadastrada: a IA da Anthropic não está ativa em nenhuma função e esta chave não é usada automaticamente. Testar e listar modelos não consome tokens.
+          <Info className="mt-0.5 h-3 w-3 shrink-0" /> A chave não é usada automaticamente. Só dois lugares a usam: a leitura de plantas da Maquete 3D, quando o admin confirma o custo, e a Dolores, somente com o interruptor dela ligado (cartão Dolores, abaixo). Testar e listar modelos não consome tokens.
         </p>
         <div className="flex flex-wrap gap-2">
           {s?.configurado && <Button size="sm" variant="outline" className={botaoSec} disabled={teste.isPending} onClick={() => teste.mutate()}>Testar conexão</Button>}

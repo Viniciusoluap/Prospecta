@@ -1,4 +1,4 @@
-# Como ligar a Dolores (Etapa 1 — Leitura)
+# Como ligar a Dolores (Etapa 1 — Leitura; Etapa 2 — WhatsApp, no fim)
 
 Passos do dono. O que está marcado **[confirmar na tela]** depende de telas de terceiros (Vercel, Claude Console)
 que podem ter mudado de nome ou lugar: siga o sentido do passo e confira o rótulo na tela.
@@ -71,3 +71,170 @@ ponte recusa tudo (resposta 423). Outras formas de parar:
 - **desativar a usuária "Dolores (funcionária digital)"** em Usuários e acesso — vale na hora (resposta 503). Ela não
   pode ser apagada depois de ter ações registradas (o registro de ações é preservado); desativar é o caminho;
 - apagar a variável `DOLORES_PONTE_TOKEN` na Vercel — só vale **depois de um novo Redeploy**.
+
+---
+
+# Etapa 2 — WhatsApp (comando e resposta pelo número do dono)
+
+Na etapa 2 quem chama o modelo e executa as ferramentas é o próprio sistema (a dúvida do passo 5 acima fica resolvida
+assim): o dono escreve para o número da Dolores, o sistema confere que a mensagem veio do número dele, chama a Anthropic
+com as ferramentas de leitura, executa cada consulta pela mesma porta da ponte (com a mesma auditoria) e responde no
+WhatsApp. **Não é preciso criar agente no Claude Console nem cadastrar o token da ponte para o WhatsApp funcionar** — o
+token continua servindo só para chamadas HTTP diretas à ponte.
+
+A IA começa **desligada** e só liga quando o administrador aperta "Ligar a IA" depois de cumprir os passos abaixo. Desligada,
+pausada ou sem limite, a Dolores responde ao dono uma frase fixa ("estou desligada… Nada foi consultado.") e não gasta nada.
+
+## Diferença em relação ao prompt mestre — para o dono confirmar
+
+**O que mudou.** O prompt mestre (seção 2) diz que o "cérebro" da Dolores é um agente criado no Claude Console. Nesta
+etapa, o cérebro roda **dentro do próprio sistema Prospecta**: quando o dono escreve no WhatsApp, o servidor do sistema
+chama o modelo da Anthropic com a chave cadastrada em Integrações › Anthropic, recebe os pedidos de consulta do modelo,
+executa cada um pela mesma porta da ponte da etapa 1 e devolve a resposta no WhatsApp. Não há agente no Console.
+
+**Por quê.** Na API da Anthropic, quem executa uma ferramenta é o programa que chama o modelo — o modelo só diz "consulte
+isto". Um agente no Console não recebe mensagens do WhatsApp nem consegue, sozinho, chamar a ponte do sistema; alguém
+teria de fazer essa ponte entre o WhatsApp, o modelo e as consultas. Fazendo isso no próprio sistema: (1) o comando do
+dono, a conferência do número e o envio da resposta ficam no mesmo lugar, com a mesma auditoria (`dolores_acoes`);
+(2) o limite mensal de gasto, os tetos por pedido e o prazo de 60 s são controlados pelo sistema; (3) o token da ponte
+não precisa sair do sistema. O texto de instrução da Dolores (`agente-etapa2.md`) é o mesmo que iria para o Console.
+
+**O que continua igual.** O modelo é o da Anthropic, escolhido por você em Integrações › Anthropic; as ferramentas são as
+mesmas da etapa 1 (só leitura); nenhuma escrita no sistema.
+
+**A IA só liga com o seu interruptor.** Cadastrar a chave não liga nada: a Dolores só chama a Anthropic depois que um
+administrador aperta "Ligar a IA" em Integrações › Dolores (desligada por padrão), com número do dono, chave, modelo e
+limites mensais cadastrados, sem pausa. Se preferir o agente no Console, basta não ligar o interruptor e avisar a equipe
+— nada é gasto enquanto ele estiver desligado.
+
+## 1. Banco (equipe técnica, já autorizado)
+Aplicar no Neon a migração aditiva `drizzle/0124_dolores_whatsapp.sql` (cria `dolores_whatsapp_config`,
+`dolores_mensagens`, `dolores_consumo` e `dolores_remetentes_estranhos`; não altera nenhuma tabela anterior). Depois, publicar.
+
+## 2. Chave e modelo da Anthropic (o dono)
+1. Claude Console (console.anthropic.com) → conta da Prospecta com créditos → **API Keys** → criar uma chave
+   [confirmar na tela]. Copie a chave (começa com `sk-ant-`); ela não aparece de novo.
+2. No sistema: **Integrações › Anthropic — Inteligência Artificial** → "Adicionar chave" → colar → "Validar e salvar".
+3. No mesmo cartão: "Escolher modelo" → escolher o modelo → "Salvar preferência". (Opcional: o cartão da Dolores aceita
+   um modelo próprio, que tem precedência.)
+4. Recomendado: no Claude Console, definir também um limite de gasto mensal da conta abaixo do teto [confirmar na tela
+   — Billing/Limits]. É a segunda trava, independente do sistema.
+
+## 3. Limites mensais (o dono, em Integrações › Dolores)
+O sistema mede tokens; ele **não sabe o preço** do modelo e não o inventa. Para converter o teto de R$ 1.621/mês (tudo
+incluído — reserve parte para o Neon e o restante da operação):
+1. Abra a página de preços da Anthropic e anote o preço do modelo escolhido por milhão de tokens de **entrada** e de
+   **saída** (em dólares).
+2. Decida quanto do teto vai para a Dolores (ex.: R$ 600) e o câmbio do dia. Divida esse valor entre entrada e saída
+   (num pedido típico a entrada é a maior parte: as consultas voltam como texto para o modelo).
+3. Tokens de entrada = (reais para entrada ÷ câmbio) ÷ preço de entrada × 1.000.000; idem para a saída.
+4. Digite os dois números em "Limite mensal — tokens de entrada/saída" e salve. 0 = bloqueada.
+Ao bater qualquer um dos dois, a IA para até o mês seguinte (ou até o limite subir) e o dono recebe, uma vez no mês, o
+aviso com o uso. O consumo de cada chamada fica em `dolores_consumo`.
+
+## 4. Número do dono (o dono, em Integrações › Dolores)
+Digite o seu número (DDD + número) em "Número do dono" e salve — só número brasileiro é aceito. A tela mostra só
+`(99) *****-4567`. Só esse número comanda; a conferência é estrita: precisa ser +55, com o mesmo DDD e os mesmos 8
+últimos dígitos (só o nono dígito pode faltar). Número de outro país com os mesmos finais **não** comanda. Mensagem de
+qualquer outro número é ignorada, sem resposta, e fica registrada em `dolores_acoes` (uma linha por número por hora; a
+contagem fica em `dolores_remetentes_estranhos`).
+
+**Cadastre o celular sempre com o 9 na frente** (ex.: `99 9 9123-4567`). A falta do nono dígito só é tolerada quando os 8
+últimos começam com 6–9 (celular antigo); se o seu celular, sem o 9, começa com 2–5, o WhatsApp pode entregar o número
+sem o 9 e ele não vai casar com o cadastro — a Dolores fica em silêncio (falha fechada). Número **fixo** (8 dígitos
+começando com 2–5) só comanda com igualdade exata: DDD e os mesmos 8 dígitos, sem 9 a mais nem a menos.
+
+## 5. Conectar o número da Dolores (o dono, com o celular dela)
+Pré-requisito: o servidor da Evolution já salvo em Integrações › WhatsApp (o mesmo da Central).
+1. Integrações › Dolores → **"Conectar o número da Dolores (QR code)"**.
+2. No celular com o chip DA DOLORES: WhatsApp → Aparelhos conectados → Conectar aparelho → ler o QR code da tela.
+3. A tela confirma "Número da Dolores conectado" (ao ver a conexão, ela pede ao sistema para confirmar). O sistema
+   confere o número conectado e registra o aviso de mensagens da Dolores
+   (`/api/dolores/whatsapp`, com segredo próprio, diferente do da Central). Se o número for o da empresa, de um corretor
+   ou o do dono, a conexão é desfeita e a tela explica. Se o sistema não conseguir ler o número conectado, nada é ativado:
+   desconecte e conecte de novo.
+4. Se um dia as mensagens pararem de chegar: "Reativar recebimento".
+
+## 6. Ligar e testar
+1. Integrações › Dolores → conferir que a lista "falta" sumiu → **"Ligar a IA"** → confirmar.
+2. Do seu celular, mande para o número da Dolores: "Dolores, analise todos os processos de regularização e informe os
+   atrasados, pendências, responsáveis e próximas providências." A resposta chega em até ~1 minuto, com a fonte de cada
+   dado entre colchetes. Se o pedido for grande demais, ela responde o que conseguiu e diz que parou.
+3. Conferir na tabela `dolores_acoes` (canal `whatsapp`): a mensagem recebida, cada consulta e a resposta.
+
+O que ela não trata como pedido: mensagem **encaminhada** (responde pedindo que você escreva o pedido com as suas
+palavras), reação e edição de mensagem (ignoradas). Mensagem temporária ou de visualização única com texto vale normalmente.
+Se o sistema cair no meio de um pedido, na próxima mensagem ela avisa "não consegui terminar o pedido de HH:MM; mande de
+novo" (uma vez, sem gastar de novo). Vários pedidos de uma vez: os que não couberem no prazo de 1 minuto recebem "não deu
+tempo de tratar o de HH:MM; mande de novo".
+
+## Dados dos clientes — decisão do dono em 16/11/2026 (opção B)
+
+**O que mudou.** A Dolores passa a **ver e informar** o CPF, o CNPJ, o telefone e o e-mail dos clientes: os campos do
+cadastro (cliente do CRM, financiamentos, processos de regularização, conversas do WhatsApp) e o que aparece nos textos
+(anotações, mensagens, observações). Antes, o sistema trocava esses números por "***" ou "[dado pessoal omitido]" antes de
+mandar para a IA, e o e-mail nem saía.
+
+Exemplos de pedido que ela passa a responder com o dado completo:
+- "Dolores, qual o telefone do cliente João Atrasado?"
+- "Qual o CPF e o e-mail da Maria Trello?"
+Ela informa quando você pede ou quando o dado é útil para a resposta; não manda listas de CPFs e telefones que você não pediu.
+
+**Atenção, em linguagem simples:**
+- A cada pergunta, os dados dos clientes que a Dolores consulta (inclusive CPF, telefone e e-mail) são **enviados à
+  Anthropic**, a empresa da IA, para ela montar a resposta.
+- **Confira com o jurídico** se o termo de consentimento que os clientes assinam cobre esse envio (LGPD) antes de usar.
+- A resposta com esses dados vai **só para o seu número**, conferido a cada mensagem.
+
+**O que continua sempre escondido**, nos dois modos, pelo filtro de texto (melhor esforço: pega as formas comuns de
+escrever; um texto digitado de um jeito muito diferente pode escapar):
+- senhas, tokens, códigos de acesso/verificação/2FA, PIN e OTP — com a palavra ("senha", "pwd", "pass") ou com cara de
+  senha logo depois de "login", "acesso", "usuário", "credencial", "gov.br", "INSS", "e-CAC", "portal" (ex.: "acesso gov:
+  529… Maria@2025": a senha sai; o CPF segue a regra de dado pessoal); "Nome@2025" (arroba sem domínio) também sai;
+- chaves de API e credenciais em forma reconhecível (`sk-ant-…`, `sk_live_…`, `Bearer …`, `github_pat_…`, `AIza…`,
+  `apikey=…`, chave privada PEM);
+- agência e conta quando vêm com o rótulo ("agência", "ag", "conta", "c/c", "cta") ou com o nome de um banco comum ("Itaú
+  0001 12345-6", "conta do Bradesco 12345-6");
+- chave PIX quando vem depois de "pix"/"chave pix" (também "pix é …", "pix -> …", "PIX CNPJ …", "pix aleatória …"):
+  sai inteira, mesmo quando é um CPF, telefone ou e-mail. Fora disso, um CPF ou e-mail solto segue a regra de dado pessoal.
+
+Endereço, arquivos e links do Drive continuam fora das consultas.
+
+**Links na resposta.** Para que um texto de cliente não consiga fazer a Dolores montar um link com dados dentro, a
+resposta que chega ao seu WhatsApp só leva links do **próprio sistema** (o domínio da variável `PUBLIC_SITE_URL` da
+Vercel) e do **Trello** (`trello.com`), e mesmo esses em `https://`, sem porta e sem a parte depois de "?" ou "#".
+Qualquer outro link vira "[link removido]" — inclusive endereço sem "http" ("site.com", "site.com/x", "192.168.0.1/x").
+Nomes de arquivo ("contrato.pdf") e abreviações de endereço ("Av.Brasil/120") ficam. Mesmo assim, não toque em endereço
+que não seja do sistema ou do Trello. Sem a variável `PUBLIC_SITE_URL`, nenhum link do sistema passa (só o Trello). A mensagem é enviada sem
+prévia de link (ninguém abre o endereço para montar a prévia).
+
+**O que continua sem dado pessoal**, qualquer que seja a escolha: o registro de ações (`dolores_acoes`), o pedido
+guardado (`dolores_mensagens`), os números estranhos (`dolores_remetentes_estranhos`), a tela de Integrações › Dolores, os
+logs e as mensagens de erro.
+
+**A ponte HTTP (etapa 1) tem interruptor próprio.** A sua autorização vale para a Dolores no WhatsApp. Quem chama a
+ponte diretamente (`/api/dolores/ponte`, com o token) recebe CPF, CNPJ, telefone e e-mail **mascarados**, mesmo com a
+opção B ligada. Assim, um token vazado não abre os dados dos clientes. Para liberar também na ponte (só se um agente
+externo realmente precisar):
+1. Na Vercel: criar `DOLORES_PONTE_DADOS_PESSOAIS` com o valor `1` (Production) e fazer um **Redeploy**.
+2. Valores que liberam: `1`, `true`, `sim`, `on` ou `yes`. Ausente ou **qualquer outro valor**: mascarado.
+3. Para voltar a mascarar: apagar a variável e fazer outro Redeploy.
+
+Os dois interruptores são **independentes**: `DOLORES_MASCARAR_DADOS_PESSOAIS` só vale para o WhatsApp e
+`DOLORES_PONTE_DADOS_PESSOAIS` só vale para a ponte. Exemplo: com `DOLORES_MASCARAR_DADOS_PESSOAIS=1` e
+`DOLORES_PONTE_DADOS_PESSOAIS=1`, o WhatsApp mascara e a ponte libera.
+
+**Como voltar atrás (religar o filtro).**
+1. Na Vercel: Settings › Environment Variables → criar `DOLORES_MASCARAR_DADOS_PESSOAIS` com o valor `1` (Production).
+2. Fazer um **Redeploy**; a mudança só vale depois dele.
+3. Para liberar de novo: apagar a variável ou trocar o valor por `0`, e fazer outro Redeploy.
+
+Valores aceitos (sem diferença entre maiúsculas e minúsculas; espaços e aspas em volta não contam): **liberado** só com a
+variável ausente, vazia, `0`, `false`, `nao`, `não`, `off` ou `no`. **Qualquer outro valor mascara** (`1`, `true`, `sim`,
+`S`, `2`, `1 # comentário`…): na dúvida, o sistema esconde. Valor diferente de `1` e dos de "liberado" também gera um
+aviso no log (uma vez, sem mostrar o valor), para você corrigir.
+
+## Parar
+- **Desligar a IA** (Integrações › Dolores): vale na hora; ela passa a responder só a frase fixa.
+- Pausa geral (`dolores_config.pausada`, etapa 1): para a ponte e o WhatsApp.
+- Desconectar o número (Integrações › Dolores) ou desativar a usuária Dolores em Usuários e acesso.

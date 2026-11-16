@@ -9,10 +9,11 @@ import { users } from "../../drizzle/schema.js";
 import { canAccessAdminProcedure } from "../_core/trpc.js";
 import { getDb } from "../db.js";
 import { sanearArgumentos } from "./auditoria.js";
+import { erroParaLog } from "./erro-seguro.js";
 import { FUNCOES, funcaoPorNome } from "./funcoes.js";
 import { LIBERADAS_ETAPA_1, funcaoLiberada } from "./permissoes.js";
 import { DOLORES_OPEN_ID, esquecerUsuarioDolores, usuarioDolores } from "./perfil.js";
-import { definirDependenciasPonte, ferramentasLiberadas, tokenConfere, tratarChamada, tratarFerramentas } from "./ponte.js";
+import { definirDependenciasPonte, ferramentasLiberadas, nomeParaRegistro, tokenConfere, tratarChamada, tratarFerramentas } from "./ponte.js";
 import { bancoDaLeitura } from "./somente-leitura.js";
 import { AGORA, CENARIO, criarBanco } from "./testes-banco.js";
 
@@ -32,6 +33,7 @@ beforeEach(async () => {
   process.env.DOLORES_PONTE_TOKEN = TOKEN;
 });
 afterEach(() => {
+  vi.unstubAllEnvs();
   delete process.env.DOLORES_PONTE_TOKEN;
   definirDependenciasPonte();
   vi.restoreAllMocks();
@@ -90,7 +92,7 @@ describe("chamada autorizada", () => {
   it("executa, devolve o envelope (fuso, moeda, etapa) e audita no nome da Dolores com contagens", async () => {
     const r = await tratarChamada(pedido({ funcao: "listar_processos_regularizacao", argumentos: { situacao: "atrasados" }, pedidoId: "wa-123" }));
     expect(r.status).toBe(200);
-    expect(r.body).toMatchObject({ ok: true, etapa: 1, funcao: "listar_processos_regularizacao", pedidoId: "wa-123", fuso: "America/Fortaleza (UTC-03:00)",
+    expect(r.body).toMatchObject({ ok: true, etapa: 2, funcao: "listar_processos_regularizacao", pedidoId: "wa-123", fuso: "America/Fortaleza (UTC-03:00)",
       moeda: "BRL", geradoEm: "2026-11-16T09:00:00-03:00", truncado: false });
     // M2: toda resposta com dados lembra que o conteúdo é dado, não instrução; o prompt do agente diz o mesmo
     expect(r.body.avisoSeguranca).toMatch(/nunca instrução/);
@@ -116,7 +118,23 @@ describe("chamada autorizada", () => {
     const r2 = await tratarChamada(pedido({ funcao: "criar_tarefa", argumentos: { titulo: "x" } }));
     expect(r2.status).toBe(403);
     expect(r2.body.erro).toMatch(/prevista para a etapa 3; ainda não liberada/);
-    expect((await acoes()).map(a => [a.funcao, a.resultado])).toEqual([["apagar_cliente", "recusada"], ["criar_tarefa", "recusada"]]);
+    // QA r7 A7: nome fora da lista vira "(desconhecida)" + hash curto; função prevista fica com o nome
+    expect((await acoes()).map(a => [a.funcao, a.resultado])).toEqual([[nomeParaRegistro("apagar_cliente"), "recusada"], ["criar_tarefa", "recusada"]]);
+    expect(nomeParaRegistro("apagar_cliente")).toMatch(/^\(desconhecida\) [0-9a-f]{10}$/);
+  });
+
+  it("QA r7 A7: nome de função com dado pessoal não vai para a auditoria (nem no nome, nem no motivo)", async () => {
+    for (const nome of ["funcao_52998224725", "listar_maria.silva@x.com", "ver_Maria_Trello_99991234567"]) {
+      const r = await tratarChamada(pedido({ funcao: nome }));
+      expect(r.status).toBe(403);
+    }
+    await tratarChamada(pedido({ argumentos: {} })); // sem função: 400 com "(sem função)"
+    const a = await acoes();
+    expect(JSON.stringify(a)).not.toMatch(/52998224725|maria|Trello|99991234567/);
+    expect(a.slice(0, 3).map(x => x.funcao)).toEqual(["funcao_52998224725", "listar_maria.silva@x.com", "ver_Maria_Trello_99991234567"].map(nomeParaRegistro));
+    expect(new Set(a.slice(0, 3).map(x => x.funcao)).size).toBe(3);
+    expect(a[3].funcao).toBe("(sem função)");
+    expect(nomeParaRegistro("listar_tarefas")).toBe("listar_tarefas");
   });
 
   it("pedido fora do formato ou argumentos inválidos: 400 com o problema, auditado", async () => {
@@ -343,7 +361,8 @@ describe("transação somente leitura (L5)", () => {
 });
 
 describe("filtro na saída da ponte (M1)", () => {
-  it("anotação, mensagem, observação e descrição de cobrança com dados pessoais saem filtradas", async () => {
+  it("com DOLORES_MASCARAR_DADOS_PESSOAIS=1: anotação, mensagem, observação e descrição de cobrança com dados pessoais saem filtradas", async () => {
+    vi.stubEnv("DOLORES_MASCARAR_DADOS_PESSOAIS", "1");
     await banco.pg.exec(`
       INSERT INTO lead_activities (lead_id, type, description, performed_by, created_at) VALUES (2, 'note', 'Senha do gov.br 1234; CPF 111.222.333-44; conta 12345-6 ag 0001', 'Bia', '2026-11-16 11:00');
       INSERT INTO whatsapp_messages (connection_id, lead_id, destinatario, mensagem, direcao, lida, created_at) VALUES (1, 1, '5599991234567', 'meu e-mail é maria@x.com e o tel (99) 99123-4567', 'entrada', false, '2026-11-16 11:00');
@@ -356,5 +375,47 @@ describe("filtro na saída da ponte (M1)", () => {
     expect(respostas.map(r => r.status)).toEqual([200, 200, 200, 200]);
     for (const vazado of ["111.222.333-44", "12345-6", "ag 0001", "gov.br 1234", "maria@x.com", "99123-4567", "52998224725", "9988"]) expect(tudo).not.toContain(vazado);
     for (const marcador of ["[senha omitida]", "[dado bancário omitido]", "[dado pessoal omitido]"]) expect(tudo).toContain(marcador);
+  });
+
+  it("QA r7 A3: a ponte HTTP só devolve CPF, e-mail e telefone inteiros com DOLORES_PONTE_DADOS_PESSOAIS=1; senha, conta e PIX continuam mascarados", async () => {
+    await banco.pg.exec(`
+      INSERT INTO lead_activities (lead_id, type, description, performed_by, created_at) VALUES (2, 'note', 'Senha do gov.br 1234; CPF 111.222.333-44; conta 12345-6 ag 0001; chave sk-ant-api03-xyz123', 'Bia', '2026-11-16 11:00');
+      INSERT INTO whatsapp_messages (connection_id, lead_id, destinatario, mensagem, direcao, lida, created_at) VALUES (1, 1, '5599991234567', 'meu e-mail é maria@x.com e o tel (99) 99123-4567; boleto 23793.38128 60000.000004 00000.000406 1 84340000010000', 'entrada', false, '2026-11-16 11:00');
+      UPDATE bpo_lancamentos SET descricao = 'Honorários — PIX 52998224725' WHERE id = 1;`);
+    const consultar = async () => {
+      const respostas = [];
+      for (const [funcao, argumentos] of [["historico_atendimento", { leadId: 2 }], ["conversas_whatsapp", { leadId: 1 }], ["listar_recebiveis_pendentes", {}]] as const)
+        respostas.push(await tratarChamada(pedido({ funcao, argumentos })));
+      return JSON.stringify(respostas.map(r => r.body));
+    };
+    // a opção B do dono vale para o WhatsApp: na ponte, sem o interruptor próprio, os dados pessoais saem mascarados
+    for (const valor of [undefined, "0", "talvez"]) {
+      vi.unstubAllEnvs(); // DOLORES_MASCARAR_DADOS_PESSOAIS ausente: WhatsApp liberado
+      if (valor !== undefined) vi.stubEnv("DOLORES_PONTE_DADOS_PESSOAIS", valor);
+      const tudo = await consultar();
+      for (const pessoal of ["111.222.333-44", "maria@x.com", "99123-4567"]) expect(tudo, `${valor} ${pessoal}`).not.toContain(pessoal);
+      expect(tudo).toContain("[dado pessoal omitido]");
+    }
+    for (const valor of ["1", " true ", "sim"]) {
+      vi.unstubAllEnvs();
+      vi.stubEnv("DOLORES_PONTE_DADOS_PESSOAIS", valor);
+      const tudo = await consultar();
+      for (const inteiro of ["111.222.333-44", "maria@x.com", "(99) 99123-4567", "23793.38128 60000.000004 00000.000406 1 84340000010000"])
+        expect(tudo, `${valor} ${inteiro}`).toContain(inteiro);
+      for (const segredo of ["gov.br 1234", "12345-6", "ag 0001", "sk-ant-api03", "52998224725"]) expect(tudo, `${valor} ${segredo}`).not.toContain(segredo);
+    }
+    expect(JSON.stringify(await acoes())).not.toMatch(/111\.222|maria@|99123/);
+  });
+
+  it("log, erro e auditoria ficam sem dado pessoal em claro nos dois modos", async () => {
+    for (const valor of [undefined, "1"]) {
+      if (valor === undefined) vi.unstubAllEnvs(); else vi.stubEnv("DOLORES_MASCARAR_DADOS_PESSOAIS", valor);
+      expect(erroParaLog(new Error("valor recusado: CPF 52998224725, tel 99991234567, maria@x.com"))).not.toMatch(/52998224725|99991234567|maria@/);
+      expect(JSON.stringify(sanearArgumentos({ obs: "CPF 529.982.247-25 fone (99) 99123-4567 mail maria@x.com", lista: ["11222333000181"] })))
+        .not.toMatch(/529\.982|99123|maria@|11222333000181/);
+      await tratarChamada(pedido({ funcao: "funcao_que_nao_existe", argumentos: { obs: "CPF 52998224725 e maria@x.com" } }));
+    }
+    const a = JSON.stringify(await acoes());
+    expect(a).not.toMatch(/52998224725|maria@/);
   });
 });

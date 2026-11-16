@@ -221,3 +221,13 @@ mandar (`epic-024-correcoes-16-11/EPIC.md`). As correções 03, 04 e 05 são da 
 - [ ] Correção 09 — Gerador de PCI: CPF do engenheiro, dados automáticos com origem, biblioteca de modelos
 - [ ] Correção 10 — painel Anthropic em Integrações (só cadastro, sem ativar)
 - [ ] S-I do EPIC-023 — APP com o contorno real no Estudo de Massa (junto com as correções 8 e 10 daquele epic)
+
+## Pendência de paridade → Grupo Santa Fé (EPIC-025 Dolores — registrada em 16/11/2026, EM ESPERA por decisão do dono)
+A Dolores não está na lista de exceções; quando o dono mandar fazer a paridade, portar (`epic-025-dolores/`):
+- [ ] Etapa 1 — ponte, usuária Dolores, leituras e auditoria (`dolores_acoes`)
+- [ ] Etapa 2 — WhatsApp próprio da Dolores (instância separada, webhook com segredo próprio, só o número do dono comanda,
+  laço de ferramentas pela mesma porta da ponte, interruptor da IA desligado por padrão, limite mensal de tokens com aviso)
+- [ ] Etapa 2 — opção B do dono (16/11): dados pessoais (CPF, CNPJ, telefone, e-mail) liberados para a Dolores por
+  padrão, atrás de um interruptor (`DOLORES_MASCARAR_DADOS_PESSOAIS=1` volta a mascarar): filtro do texto livre, campos
+  das leituras, regra do prompt. Sempre mascarados nos dois modos: senha, token, código de acesso/OTP, chave de API,
+  agência/conta/PIX (inteiros). Auditoria, comando gravado, logs, erros e tela sempre filtrados. EM ESPERA, como o resto.

@@ -3,6 +3,7 @@
 // card até hoje e lead fora de "Finalizado").
 import { and, eq, isNotNull, isNull, lt, lte, ne, notInArray } from "drizzle-orm";
 import { z } from "zod";
+import type { CanalDolores } from "../dados-pessoais.js";
 import { leadServices, leads } from "../../../drizzle/schema.js";
 import { diaDoPrazo, diaFortaleza, diasEntre, paginar, truncar } from "../../../shared/dolores/formato.js";
 import { DIAS_PARADO_PADRAO } from "../../../shared/dolores/regras.js";
@@ -26,13 +27,13 @@ type Item = {
   prazo: string | null; responsavel: string | null; motivoRegistrado: string | null;
 };
 
-export async function listarAtrasos(args: z.infer<typeof entradaListarAtrasos>, { agora }: { agora: Date }): Promise<Resultado> {
+export async function listarAtrasos(args: z.infer<typeof entradaListarAtrasos>, { agora, canal }: { agora: Date; canal: CanalDolores }): Promise<Resultado> {
   const quer = (m: string) => args.modulo === "todos" || args.modulo === m;
   const hoje = diaFortaleza(agora)!;
   const [regs, obras, fins, cards, servicos] = await Promise.all([
-    quer("regularizacoes") ? carregarProcessos(null, agora, args.diasParado) : [],
+    quer("regularizacoes") ? carregarProcessos(null, agora, canal, args.diasParado) : [],
     quer("obras") ? carregarObras(agora, args.diasParado) : [],
-    quer("financiamentos") ? carregarFinanciamentos(agora, args.diasParado) : [],
+    quer("financiamentos") ? carregarFinanciamentos(agora, canal, args.diasParado) : [],
     quer("crm") ? db().select({ id: leads.id, name: leads.name, stage: leads.stage, cardDueDate: leads.cardDueDate, responsibleUserId: leads.responsibleUserId })
       .from(leads).where(and(isNull(leads.deletedAt), ne(leads.stage, LEAD_FINALIZED_STAGE), isNotNull(leads.cardDueDate), lte(leads.cardDueDate, hoje))) // mesma regra do aviso diário (vence hoje conta)
       .limit(MAX_LINHAS_LIDAS) : [],

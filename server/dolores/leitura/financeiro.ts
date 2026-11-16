@@ -9,7 +9,8 @@ import {
   bpoClients, bpoLancamentos, financiamentoChecklistItems, financiamentos, regularizacaoItensFinanceiros,
   regularizacaoRecebimentos, regularizacoes,
 } from "../../../drizzle/schema.js";
-import { centavosParaReais, diaDoPrazo, diaFortaleza, isoFortaleza, mascararCpf, paginar, reais, truncar } from "../../../shared/dolores/formato.js";
+import { centavosParaReais, diaDoPrazo, diaFortaleza, isoFortaleza, paginar, reais, truncar } from "../../../shared/dolores/formato.js";
+import { type CanalDolores, campoPessoal } from "../dados-pessoais.js";
 import { DIAS_PARADO_PADRAO, situacaoDoPrazo } from "../../../shared/dolores/regras.js";
 import { situacaoDoLancamento } from "../../../shared/financeiro/bpo-asaas.js";
 import { contaNoResultado, recebidoDoLancamento } from "../../../shared/financeiro/bpo-extrato.js";
@@ -17,11 +18,11 @@ import { calcularFinanceiroRegularizacao } from "../../../shared/financeiro/regu
 import { FINANCIAMENTO_BANCO_LABELS, FINANCIAMENTO_STATUS_LABELS, FINANCIAMENTO_TIPO_LABELS } from "../../../shared/financiamento.js";
 import { MAX_LINHAS_LIDAS, db, nomesDeUsuarios, paginacao, type Resultado } from "./comum.js";
 
-type Ctx = { agora: Date };
+type Ctx = { agora: Date; canal: CanalDolores };
 const ENCERRADOS_FIN = new Set(["liberado", "cancelado"]);
 const rot = <T extends string>(m: Record<T, string>, v: string | null) => (v ? m[v as T] ?? v : null);
 
-export async function carregarFinanciamentos(agora: Date, diasParado = DIAS_PARADO_PADRAO) {
+export async function carregarFinanciamentos(agora: Date, canal: CanalDolores, diasParado = DIAS_PARADO_PADRAO) {
   const linhas = await db().select({
     id: financiamentos.id, clienteNome: financiamentos.clienteNome, clienteCpf: financiamentos.clienteCpf, tipo: financiamentos.tipo,
     banco: financiamentos.banco, bancoOutro: financiamentos.bancoOutro, status: financiamentos.status, valorImovel: financiamentos.valorImovel,
@@ -41,7 +42,7 @@ export async function carregarFinanciamentos(agora: Date, diasParado = DIAS_PARA
     const ultima = [f.updatedAt, ...meus.map(i => i.concluidoEm)].filter(Boolean).sort((a, b) => b!.getTime() - a!.getTime())[0] ?? f.updatedAt;
     const s = situacaoDoPrazo({ encerrado, prazo: null, ultimaMovimentacao: ultima, agora, diasParado });
     return {
-      id: f.id, cliente: f.clienteNome, cpf: mascararCpf(f.clienteCpf), leadId: f.leadId,
+      id: f.id, cliente: f.clienteNome, cpf: campoPessoal(f.clienteCpf, "cpf", canal), leadId: f.leadId,
       situacao: rot(FINANCIAMENTO_STATUS_LABELS, f.status), encerrado,
       tipo: rot(FINANCIAMENTO_TIPO_LABELS, f.tipo), banco: f.banco === "outro" ? truncar(f.bancoOutro, 60) ?? "Outro" : rot(FINANCIAMENTO_BANCO_LABELS, f.banco),
       moeda: "BRL", valorDoImovel: reais(f.valorImovel), valorFinanciado: reais(f.valorFinanciado),
@@ -59,8 +60,8 @@ export const entradaListarFinanciamentos = z.object({
   ...paginacao,
 }).strict();
 
-export async function listarFinanciamentos(args: z.infer<typeof entradaListarFinanciamentos>, { agora }: Ctx): Promise<Resultado> {
-  const todos = await carregarFinanciamentos(agora, args.diasParado);
+export async function listarFinanciamentos(args: z.infer<typeof entradaListarFinanciamentos>, { agora, canal }: Ctx): Promise<Resultado> {
+  const todos = await carregarFinanciamentos(agora, canal, args.diasParado);
   const filtrados = todos.filter(f => args.situacao === "todos" || (!f.encerrado && (args.situacao !== "parados" || f.parado)))
     .sort((a, b) => (b.diasSemMovimentacao ?? 0) - (a.diasSemMovimentacao ?? 0) || a.id - b.id);
   const pagina = paginar(filtrados, args.pagina, args.limite);
