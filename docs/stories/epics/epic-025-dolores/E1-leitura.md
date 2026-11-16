@@ -54,10 +54,10 @@ regularização e informe os atrasados, pendências, responsáveis e próximas p
 Token `DOLORES_PONTE_TOKEN` na Vercel; agente criado no Claude Console com o prompt e as ferramentas.
 
 ## File List
-- `drizzle/0123_dolores_acoes.sql` (novo) — `dolores_acoes` (só inserção, gatilho) e `dolores_config` (pausa, limite).
+- `drizzle/0123_dolores_acoes.sql` (novo) — `dolores_acoes` (só inserção, gatilhos), `dolores_config` (pausa, limite) e `dolores_limite` (contador).
 - `drizzle/schema-dolores.ts` (novo); `drizzle.config.ts` (schema ligado).
-- `shared/dolores/formato.ts`, `shared/dolores/regras.ts` (novos, puros).
-- `server/dolores/perfil.ts`, `auditoria.ts`, `permissoes.ts`, `funcoes.ts`, `ponte.ts` (novos).
+- `shared/dolores/formato.ts`, `shared/dolores/regras.ts`, `shared/dolores/sanitizar.ts` (novos, puros).
+- `server/dolores/perfil.ts`, `auditoria.ts`, `permissoes.ts`, `funcoes.ts`, `ponte.ts`, `somente-leitura.ts` (novos).
 - `server/dolores/leitura/comum.ts`, `regularizacoes.ts`, `clientes.ts`, `tarefas.ts`, `documentos.ts`, `atrasos.ts`,
   `obras.ts`, `financeiro.ts` (novos, somente leitura).
 - `api/index.ts`, `server/_core/index.ts` — rotas da ponte montadas.
@@ -79,8 +79,8 @@ Token `DOLORES_PONTE_TOKEN` na Vercel; agente criado no Claude Console com o pro
   (atualização, atividade) no fuso de Imperatriz. "Parado" = 15 dias sem movimentação (padrão; argumento `diasParado`).
 - [AUTO-DECISION] Chamadas sem token válido não entram em `dolores_acoes` (um estranho não enche a auditoria nem gasta o
   limite dela); vão ao log sem o token, com limite de 20 tentativas por IP/minuto. Todas as autenticadas são auditadas.
-- [AUTO-DECISION] Limite por minuto contado no próprio `dolores_acoes` (vale entre instâncias da Vercel; padrão 60, em
-  `dolores_config.limite_por_minuto`); sem a linha de configuração a ponte não executa (falha fechada).
+- [AUTO-DECISION] Limite por minuto (padrão 60, em `dolores_config.limite_por_minuto`) reservado numa instrução só em
+  `dolores_limite` (correção L1 do QA); sem a linha de configuração a ponte não executa (falha fechada).
 - [AUTO-DECISION] Usuária Dolores: `openId = 'sistema:dolores'`, perfil `user` (sem área, sem adminProcedure), sem senha,
   sem e-mail, sem módulos. Se alguém der senha, outro perfil ou módulos a ela, a ponte para (503).
 - Lacunas (dado que não existe no sistema): motivo do atraso só quando há observação na etapa ou no processo; próxima
@@ -88,11 +88,24 @@ Token `DOLORES_PONTE_TOKEN` na Vercel; agente criado no Claude Console com o pro
   ("semPrazoRegistrado"); documentos exigidos por tipo de regularização não existem como checklist (só os documentos
   do cliente, o cadastro antigo da regularização e o checklist do financiamento); responsável de tarefa é texto livre.
 - Não há script `lint` no `package.json`; qualidade conferida por `tsc --noEmit`, testes e `vite build`.
+- Correções do QA (16/11): filtro único de dados pessoais em `shared/dolores/sanitizar.ts`, aplicado pela ponte a toda
+  string que sai e aos argumentos da auditoria (termo de busca vira hash curto + tamanho); texto do cliente em
+  `textoDoCliente`/`textoEnviado`, anotações em `textoLivre`, `avisoSeguranca` em toda resposta; cliente excluído do
+  CRM fora de todas as leituras (o processo/obra/financiamento continua, sem nada do CRM dele); usuária desativada para
+  a ponte; leituras em transação `READ ONLY` (`server/dolores/somente-leitura.ts`, a pasta `leitura/` não importa mais
+  `db.js`); TRUNCATE recusado e a usuária com ações não pode ser apagada (FK RESTRICT — desativar é o caminho); token
+  com menos de 32 caracteres desliga a ponte; pausa lida antes de criar a usuária; prazo do card com `lte` (igual ao aviso).
+- Diferença conhecida (não alterada, regra da tela): `situacaoDoLancamento` do BPO compara o vencimento com o dia UTC
+  de hoje; entre 21h e 24h de Imperatriz um lançamento que vence amanhã (UTC) ainda aparece "em aberto" e o que venceu
+  hoje já pode aparecer "vencido" um pouco antes. A Dolores usa a mesma regra para bater com a tela.
+- Transação READ ONLY usa a conexão por WebSocket do `getDb().transaction` (a mesma do CRM); acrescenta um ida-e-volta
+  por chamada.
 
 ## Testes executados
-- (a) Automáticos: `npx vitest run server/dolores` — 4 arquivos, 42 testes passando; `server/auth-session.test.ts` e
-  `server/imports-esm.test.ts` (build da Vercel) e `server/api-rotas-producao.test.ts` passando; `npx tsc --noEmit` sem erros;
-  `npx vite build` ok. Suíte completa (`npx vitest run`): 221 arquivos, 2010 testes passando.
+- (a) Automáticos (depois das correções do QA): `npx vitest run server/dolores server/auth-session.test.ts
+  server/imports-esm.test.ts server/api-rotas-producao.test.ts` — 7 arquivos, 64 testes passando; `npx tsc --noEmit` sem
+  erros; `npx vite build` ok; sonda do QA (`qa-dolores1/probe`) 7/7 com os achados corrigidos. Antes das correções:
+  suíte completa (`npx vitest run`) 221 arquivos, 2010 testes passando.
 - (b) Manuais: nenhum (sem banco real nesta etapa).
 - (c) Pendentes em produção: migração 0123 no Neon; `DOLORES_PONTE_TOKEN` na Vercel; `curl` na ponte; agente no Console
   e a pergunta de aceite com os dados reais.
@@ -101,5 +114,22 @@ Token `DOLORES_PONTE_TOKEN` na Vercel; agente criado no Claude Console com o pro
 Portão de QA; aplicar a 0123 no Neon e publicar; dono cadastra o token; Etapa 2 (WhatsApp) liga a Central à ponte e
 faz o laço de ferramentas com a API da Anthropic (ver `docs/dolores/como-ligar.md`, passo 5).
 
+## QA Results
+- 16/11/2026 — portão de QA (`HEAD f6b3c13`): **CONCERNS**, seguro publicar (ponte inerte sem o token); corrigir M1–M4
+  antes de o dono cadastrar o token. Relatório: `scratchpad/qa-dolores1/RELATORIO.md`.
+- Correções (@dev, 16/11), uma por commit, cada uma com teste:
+  - M1 texto livre com dado pessoal — `dccc08f`; M2 dado não é instrução — `6ffece0`; M3 cliente excluído — `56ff62e`;
+    M4 usuária desativada — `7f1ba60`; L1 limite em paralelo + L7 pausa antes da usuária — `34db42a`; L2 auditoria —
+    `10bfa52`; L3 TRUNCATE e exclusão da usuária — `1dd11dd`; L4 conversas sem leadId — `80e0511`; L5 READ ONLY —
+    `5fad3e1`; L6 token mínimo — `30b5b04`; L6/L8 documentação — `eb444a9`; L9 card que vence hoje — `67fcdea`, `ca0f933`;
+    curingas do LIKE na busca (achado da sonda) — `a90d32d`.
+- Sonda do QA, antes → depois: histórico/conversas de excluído expostos → "não existe no CRM ou foi excluído"; lista de
+  conversas com não cliente e excluído → só Maria (cliente com não lida); auditoria com nome/CPF em claro → hash + tamanho;
+  busca "%%" 4 clientes → 0; usuária inativa 200 → 503; rajada de 10 com limite 3: 10×200 → 3×200 (contando a chamada
+  anterior do minuto) e o resto 429; apagar usuária: erro de auditoria obscuro → regra
+  `dolores_acoes_usuaria_nao_pode_ser_apagada`; TRUNCATE ok (0 linhas) → recusado.
+- Aguardando nova verificação do @qa.
+
 ## Change Log
 - 16/11/2026 — @dev (Dex): Ready → InProgress → InReview (implementação da etapa 1).
+- 16/11/2026 — @qa: CONCERNS; @dev: correções M1–M4 e L1–L9 aplicadas, de volta para InReview.
