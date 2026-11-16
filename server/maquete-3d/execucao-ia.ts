@@ -83,6 +83,7 @@ export function bloqueioDaIA(estado: EstadoLeitura, config: ConfigMaquete, x: Ex
   const pendentes = pendentesIA(estado), modelo = modeloDaLeitura(credencial, config), conf = estado.confirmacaoIA;
   const limite = config.limitePranchasIA;
   // QA S-11 achado 3: confirmação feita com outro modelo (ou sem o modelo gravado, das versões antigas) não vale.
+  // Sem o modelo gravado (QA S-11 r2, achado 4), pode até ser o mesmo: a mensagem não diz "com o modelo novo".
   const mudou = confirmacaoValida(conf) && conf!.modelo !== modelo;
   const avisoModelo = !mudou ? "" : conf!.modelo
     ? `O modelo mudou de ${conf!.modelo} para ${modelo} desde a confirmação: ela não vale para o modelo novo. `
@@ -97,7 +98,7 @@ export function bloqueioDaIA(estado: EstadoLeitura, config: ConfigMaquete, x: Ex
     const usada = !!conf && (conf.usadas ?? 0) >= conf.pranchas;
     return {
       aguardando: "confirmacao", modeloAConfirmar: modelo,
-      erro: `${avisoModelo}${pendentes} ${unidade} precisam da leitura por IA (paga, modelo ${modelo}). ${mudou ? "Um administrador confirma de novo, com o modelo novo." : usada ? `A confirmação anterior (${conf!.pranchas} prancha(s)) já foi usada: um administrador confirma de novo.` : "Um administrador confirma para esta leitura."}`,
+      erro: `${avisoModelo}${pendentes} ${unidade} precisam da leitura por IA (paga, modelo ${modelo}). ${mudou ? (conf!.modelo ? "Um administrador confirma de novo, com o modelo novo." : "Um administrador confirma de novo.") : usada ? `A confirmação anterior (${conf!.pranchas} prancha(s)) já foi usada: um administrador confirma de novo.` : "Um administrador confirma para esta leitura."}`,
     };
   }
   return null;

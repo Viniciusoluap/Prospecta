@@ -146,6 +146,7 @@ describe("QA S-03/S-05 — regressão dos achados", () => {
     let r = await ler(id);
     expect(r.aguardando).toMatchObject({ motivo: "confirmacao", mensagem: expect.stringContaining("O modelo mudou de claude-haiku-5 para claude-opus-5-5") });
     expect(r.aguardando?.mensagem).toContain("paga, modelo claude-opus-5-5");
+    expect(r.aguardando?.mensagem).toMatch(/Um administrador confirma de novo, com o modelo novo\.$/);
     expect(pedidos).toHaveLength(0);
     expect(await contador(id)).toBe(0);
     // confirmação gravada antes desta correção (sem o modelo): não dá para saber com qual foi feita — pede de novo
@@ -154,6 +155,9 @@ describe("QA S-03/S-05 — regressão dos achados", () => {
     await banco.pg.query(`UPDATE maquetes_3d SET leitura = $1 WHERE id = $2`, [JSON.stringify(antigo), id]);
     r = await ler(id);
     expect(r.aguardando).toMatchObject({ motivo: "confirmacao", mensagem: expect.stringContaining("antes de o sistema registrar o modelo") });
+    // QA S-11 r2, achado 4: sem o modelo gravado pode ser o mesmo; a mensagem termina só pedindo a nova confirmação
+    expect(r.aguardando?.mensagem).toMatch(/\(paga, modelo claude-opus-5-5\)\. Um administrador confirma de novo\.$/);
+    expect(r.aguardando?.mensagem).not.toContain("modelo novo");
     expect(pedidos).toHaveLength(0);
     // confirmando de novo, vale o modelo novo e a IA é chamada com ele
     await admin().confirmarIA({ id });
