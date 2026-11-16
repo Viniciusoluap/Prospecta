@@ -271,6 +271,26 @@ describe("filtro de dados pessoais em texto livre (M1)", () => {
     }
   });
 
+  it("QA r4 S4: par 4-4 de 2–5 com rótulo de quantidade/valor/faixa/lote ou faixa crescente fica; 6–9 e palavra de telefone saem", () => {
+    for (const t of [
+      "faixa de renda 4000-5000", "renda 4000 - 6000", "orçamento 2500-3000", "estoque: 3500 4200", "valores 3500 4200 5100",
+      "lotes 3201 3202 3203", "quadras 2301 2302 2303", "valor 3523 4567", "total 3523 4567", "R$ 3523 4567", "parcelas de 2500 3000",
+      "total 2500 3000", "IPTU 3523 4567 0001", "inscrição municipal 3523 4567", "entre 2500-3000 por mês",
+    ]) expect(sanitizarTexto(t), t).toBe(t);
+    for (const c of [
+      // R1 continua: palavra de telefone antes, nada livra
+      "tel casa 3523-4567", "fone casa 3523-4567", "casa 9123-4567", "Recado: ligar na casa 3523-4567", "valor do fone 3523 4567",
+      "contato: total 3523 4567", "whats lotes 3201 3202",
+      // 6–9 é celular antigo: sai sempre, com qualquer rótulo
+      "lotes 7001 7002", "R$ 9123 4567", "quantidade 9123 4567", "itens 6000 7000",
+      // 2–5 sem rótulo claro continua saindo (casa, apartamento, unidade não são quantidade); faixa decrescente também
+      "unidade 3523 4567", "apartamento 3523-4567", "casa 3523-4567", "ref 3000-2500", "id 3523 4567",
+    ]) {
+      const r = sanitizarTexto(c);
+      expect(r, c).toContain(OMITIDO_T);
+    }
+  });
+
   it("percorre a resposta inteira (listas e objetos), sem tocar números e chaves", () => {
     expect(sanitizarResposta({ a: [{ texto: "cpf 111.222.333-44", n: 11122233344 }], "111.222.333-44": null }))
       .toEqual({ a: [{ texto: "cpf [dado pessoal omitido]", n: 11122233344 }], "111.222.333-44": null });
