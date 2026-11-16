@@ -149,7 +149,7 @@ export function semente(texto: string) {
 
 /** Limites de tudo o que a implantação desenha (para a câmera e para a malha do terreno). */
 export function limitesDaImplantacao(imp: Implantacao) {
-  const pts: Ponto[] = [...imp.terreno, ...imp.lotes.flatMap(l => l.poligono), ...imp.ruas.flat(), ...imp.vias.flatMap(v => v.eixo), ...imp.posicoes.map(p => ({ x: p.x, y: p.y }))];
+  const pts: Ponto[] = [...imp.terreno, ...(imp.terrenosExtras ?? []).flat(), ...imp.lotes.flatMap(l => l.poligono), ...imp.ruas.flat(), ...imp.vias.flatMap(v => v.eixo), ...imp.posicoes.map(p => ({ x: p.x, y: p.y }))];
   if (!pts.length) return { x0: 0, x1: 1, z0: 0, z1: 1 };
   let x0 = 0, x1 = 1, z0 = 0, z1 = 1;
   for (const p of pts) { x0 = Math.min(x0, p.x); x1 = Math.max(x1, p.x); z0 = Math.min(z0, p.y); z1 = Math.max(z1, p.y); }

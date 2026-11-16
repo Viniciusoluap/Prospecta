@@ -174,6 +174,8 @@ export const portaoMuroSchema = z.object({
   posicao: metros.min(0),
   largura: metros.min(LIMITES_MURO.largura[0]).max(LIMITES_MURO.largura[1]).default(6),
   tipo: z.enum(TIPOS_PORTAO).default("veiculos"),
+  /** Em qual área do terreno (índice em areasDoTerreno: 0 = `terreno`, 1… = `terrenosExtras`). Ausente = 0. */
+  area: z.number().int().min(0).max(49).optional(),
 });
 export type PortaoMuro = z.infer<typeof portaoMuroSchema>;
 
@@ -190,6 +192,10 @@ export const muroSchema = z.object({
   /** Falso: os portões são calculados pelas ruas a cada abertura (portoesAutomaticos); verdadeiro: valem os da lista. */
   portoesEditados: z.boolean().default(false),
   portoes: z.array(portaoMuroSchema).max(20).default([]),
+  /** Assinatura do contorno (assinaturaDoContorno) quando os portões foram editados: diz se a divisa mudou depois. */
+  contorno: z.string().max(40).optional(),
+  /** Os portões editados foram reposicionados porque o contorno mudou: a pessoa precisa conferir. */
+  reancorado: z.boolean().optional(),
 });
 export type Muro = z.infer<typeof muroSchema>;
 
@@ -209,8 +215,45 @@ export function muroDaMaquete(m: Pick<ModeloMaquete, "tipo" | "implantacao">): M
   return muro?.ativo ? muro : null;
 }
 
+/**
+ * Condomínio publicado antes do muro (S-04): o modelo salvo não tem `muro`. O link do cliente continua exatamente
+ * como foi publicado (sem muro) até alguém revisar e publicar de novo — o padrão automático só vale nas telas de
+ * revisão e quando a implantação é (re)montada ou o modelo é salvo/publicado.
+ */
+export const publicadoSemMuro = (m: Pick<ModeloMaquete, "tipo" | "implantacao">) =>
+  m.tipo === "condominio" && !!m.implantacao && m.implantacao.muro == null && m.implantacao.terreno.length >= 3;
+
+/** Modelo como o link público o desenha: muro ausente fica desligado (nada muda sem revisão). */
+export function modeloParaLinkPublico(m: ModeloMaquete): ModeloMaquete {
+  if (!m.implantacao || m.implantacao.muro != null) return m;
+  return { ...m, implantacao: { ...m.implantacao, muro: muroSchema.parse({ ativo: false }) } };
+}
+
+/** Ao salvar ou publicar: grava o muro que vale (o padrão do tipo, se não houver), para o link mostrar o que foi revisto. */
+export function comMuroGravado(m: ModeloMaquete): ModeloMaquete {
+  if (!m.implantacao || m.implantacao.muro != null) return m;
+  return { ...m, implantacao: { ...m.implantacao, muro: muroPadraoDoTipo(m.tipo) } };
+}
+
+/**
+ * Todas as áreas do terreno, na ordem dos índices de `portao.area`: a maior (`terreno`) e as outras áreas separadas
+ * do KML (`terrenosExtras`). O índice nunca muda por filtro: contorno curto fica na lista (e não ganha muro).
+ */
+export const areasDoTerreno = (imp: Pick<Implantacao, "terreno" | "terrenosExtras">): Ponto[][] => [imp.terreno, ...(imp.terrenosExtras ?? [])];
+
+/** Assinatura curta de todos os contornos (cm): muda quando a divisa muda. */
+export function assinaturaDoContorno(imp: Pick<Implantacao, "terreno" | "terrenosExtras">): string {
+  let h = 2166136261 >>> 0;
+  const mais = (n: number) => { h ^= n & 0xffff; h = Math.imul(h, 16777619) >>> 0; h ^= (n >>> 16) & 0xffff; h = Math.imul(h, 16777619) >>> 0; };
+  for (const area of areasDoTerreno(imp)) { mais(area.length); for (const p of area) { mais(Math.round(p.x * 100)); mais(Math.round(p.y * 100)); } }
+  return `c${h.toString(36)}`;
+}
+
 export const implantacaoSchema = z.object({
+  /** Contorno do terreno; com várias áreas separadas (KML com MultiPolygon), a de maior área. */
   terreno: contorno.default([]),
+  /** S-04: as OUTRAS áreas separadas do terreno (a maior fica em `terreno`). Ausente em maquete antiga. */
+  terrenosExtras: z.array(contorno).max(49).optional(),
   relevo: relevoSchema.nullable().default(null),
   /** Leito das ruas como polígonos (é como o estudo de massa da Incorporação guarda o sistema viário). */
   ruas: z.array(contorno).max(400).default([]),
@@ -353,14 +396,35 @@ export function validarModelo(m: ModeloMaquete): Problema[] {
   // Muro de divisa (S-04): obrigatório no condomínio, mas só há onde levantá-lo se houver o contorno do terreno.
   if (m.implantacao) {
     const imp = m.implantacao, muro = muroDaMaquete(m), temContorno = imp.terreno.length >= 3;
+    const areas = areasDoTerreno(imp);
     if (m.tipo === "condominio" && temContorno && !muro) erro("Muro", "Condomínio sem o muro de divisa: ligue o muro em \"Muro do condomínio\" (é obrigatório no condomínio).");
     if ((m.tipo === "condominio" || muro) && !temContorno) {
       aviso("Muro", "Sem o contorno do terreno (KML/KMZ ou implantação) não há onde levantar o muro de divisa. Monte a implantação a partir do estudo ou importe o contorno.");
     }
-    if (muro && temContorno && muro.portoesEditados) {
-      const perimetro = imp.terreno.reduce((s, p, i) => { const q = imp.terreno[(i + 1) % imp.terreno.length]; return s + Math.hypot(q.x - p.x, q.y - p.y); }, 0);
-      for (const p of muro.portoes) if (p.posicao > perimetro + 0.01) aviso(`Muro › portão ${p.id}`, `Fora da divisa (o contorno tem ${r2(perimetro)} m).`);
-      if (!muro.portoes.some(p => p.tipo === "veiculos")) aviso("Muro", "Nenhum portão de veículos: o empreendimento fica sem entrada de carros.");
+    if (muro && temContorno) {
+      areas.forEach((area, k) => {
+        if (area.length < 3) return;
+        const onde = areas.length > 1 ? `Muro › área ${k + 1}` : "Muro";
+        // Contorno sem área (desenho em "gravata-borboleta" ou pontos alinhados): o muro não tem como ser levantado.
+        if (areaPoligono(area) < 1) erro(onde, "O contorno do terreno não tem área (os lados se cruzam, como uma gravata-borboleta, ou os pontos estão alinhados): não há como levantar o muro. Corrija o contorno no KML/KMZ e monte a implantação de novo.");
+        else if (contornoSeCruza(area)) aviso(onde, "O contorno do terreno se cruza: o muro pode sair torto nesse trecho. Confira o desenho no KML/KMZ.");
+      });
+      // Maquete antiga de KML com várias áreas: só a maior virou o terreno, e o muro não cercaria os lotes das outras.
+      if (!imp.terrenosExtras?.length) {
+        const fora = imp.lotes.filter(l => l.poligono.length >= 3 && !l.poligono.some(p => dentroDoContorno(p, imp.terreno))).length;
+        if (fora > 0) aviso("Muro", `${fora} lote(s) ficam fora do contorno do terreno (o KML tem outras áreas separadas): o muro não os cerca. Atualize a implantação a partir do estudo para o muro cercar todas as áreas.`);
+      }
+      if (muro.portoesEditados) {
+        for (const p of muro.portoes) {
+          const area = areas[p.area ?? 0];
+          if (!area || area.length < 3) { aviso(`Muro › portão ${p.id}`, `Está na área ${(p.area ?? 0) + 1}, que não existe mais no contorno.`); continue; }
+          const perimetro = area.reduce((s, q, i) => { const r = area[(i + 1) % area.length]; return s + Math.hypot(r.x - q.x, r.y - q.y); }, 0);
+          if (p.posicao > perimetro + 0.01) aviso(`Muro › portão ${p.id}`, `Fora da divisa (o contorno tem ${r2(perimetro)} m).`);
+        }
+        if (!muro.portoes.some(p => p.tipo === "veiculos")) aviso("Muro", "Nenhum portão de veículos: o empreendimento fica sem entrada de carros.");
+        if (muro.reancorado) aviso("Muro", "O contorno do terreno mudou depois que os portões foram editados: eles foram levados ao ponto da nova divisa mais perto de onde estavam. Confira os portões em \"Muro do condomínio\" e salve.");
+        else if (muro.contorno && muro.contorno !== assinaturaDoContorno(imp)) aviso("Muro", "O contorno do terreno mudou depois que os portões foram editados: confira a posição de cada portão.");
+      }
     }
   }
 
@@ -424,6 +488,42 @@ export function validarModelo(m: ModeloMaquete): Problema[] {
 
   for (const p of m.pendencias) if (!p.resolvida) erro("Pendência", p.descricao);
   return ps;
+}
+
+/** Ponto dentro do contorno (par-ímpar) ou a menos de 0,5 m dele. */
+function dentroDoContorno(p: Ponto, pol: Ponto[]): boolean {
+  let d = false;
+  for (let i = 0, j = pol.length - 1; i < pol.length; j = i++) {
+    const a = pol[i], b = pol[j];
+    if ((a.y > p.y) !== (b.y > p.y) && p.x < ((b.x - a.x) * (p.y - a.y)) / (b.y - a.y) + a.x) d = !d;
+  }
+  if (d) return true;
+  for (let i = 0; i < pol.length; i++) {
+    const a = pol[i], b = pol[(i + 1) % pol.length], abx = b.x - a.x, aby = b.y - a.y;
+    const t = Math.max(0, Math.min(1, ((p.x - a.x) * abx + (p.y - a.y) * aby) / (abx * abx + aby * aby || 1)));
+    if (Math.hypot(p.x - a.x - abx * t, p.y - a.y - aby * t) < 0.5) return true;
+  }
+  return false;
+}
+
+/** Dois lados não vizinhos do contorno se cruzam (varredura pelo x, para contornos de até 4.000 pontos). */
+export function contornoSeCruza(pol: Ponto[]): boolean {
+  const n = pol.length;
+  if (n < 4) return false;
+  const lados = Array.from({ length: n }, (_, i) => { const a = pol[i], b = pol[(i + 1) % n]; return { i, a, b, x0: Math.min(a.x, b.x), x1: Math.max(a.x, b.x) }; }).sort((p, q) => p.x0 - q.x0);
+  const cr = (o: Ponto, p: Ponto, q: Ponto) => (p.x - o.x) * (q.y - o.y) - (p.y - o.y) * (q.x - o.x);
+  for (let s = 0; s < lados.length; s++) {
+    const L1 = lados[s];
+    for (let t = s + 1; t < lados.length && lados[t].x0 <= L1.x1; t++) {
+      const L2 = lados[t], d = Math.abs(L1.i - L2.i);
+      if (d <= 1 || d >= n - 1) continue; // lados vizinhos dividem um vértice
+      if (Math.max(L1.a.y, L1.b.y) < Math.min(L2.a.y, L2.b.y) || Math.max(L2.a.y, L2.b.y) < Math.min(L1.a.y, L1.b.y)) continue;
+      const d1 = cr(L1.a, L1.b, L2.a), d2 = cr(L1.a, L1.b, L2.b), d3 = cr(L2.a, L2.b, L1.a), d4 = cr(L2.a, L2.b, L1.b);
+      // Só o cruzamento de verdade (um lado passa para o outro lado do outro); encostar não conta.
+      if (((d1 > 1e-9 && d2 < -1e-9) || (d1 < -1e-9 && d2 > 1e-9)) && ((d3 > 1e-9 && d4 < -1e-9) || (d3 < -1e-9 && d4 > 1e-9))) return true;
+    }
+  }
+  return false;
 }
 
 function conferirArea(onde: string, pts: Ponto[], informada: number | null, aviso: (onde: string, m: string) => void) {
