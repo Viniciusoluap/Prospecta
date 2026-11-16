@@ -227,3 +227,7 @@ A Dolores não está na lista de exceções; quando o dono mandar fazer a parida
 - [ ] Etapa 1 — ponte, usuária Dolores, leituras e auditoria (`dolores_acoes`)
 - [ ] Etapa 2 — WhatsApp próprio da Dolores (instância separada, webhook com segredo próprio, só o número do dono comanda,
   laço de ferramentas pela mesma porta da ponte, interruptor da IA desligado por padrão, limite mensal de tokens com aviso)
+- [ ] Etapa 2 — opção B do dono (16/11): dados pessoais (CPF, CNPJ, telefone, e-mail) liberados para a Dolores por
+  padrão, atrás de um interruptor (`DOLORES_MASCARAR_DADOS_PESSOAIS=1` volta a mascarar): filtro do texto livre, campos
+  das leituras, regra do prompt. Sempre mascarados nos dois modos: senha, token, código de acesso/OTP, chave de API,
+  agência/conta/PIX (inteiros). Auditoria, comando gravado, logs, erros e tela sempre filtrados. EM ESPERA, como o resto.

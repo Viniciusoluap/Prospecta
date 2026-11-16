@@ -106,6 +106,10 @@ Claude Console); limites mensais de tokens; ligar o interruptor.
 - Opção B (16/11): `server/dolores/dados-pessoais.ts` (novo, o interruptor); alterados `shared/dolores/sanitizar.ts`,
   `server/dolores/{ponte,whatsapp,auditoria,erro-seguro}.ts`, testes `regras`, `ponte`, `whatsapp`, `whatsapp-qa`;
   `docs/dolores/como-ligar.md`.
+- Opção B, complemento (16/11): alterados `server/dolores/{dados-pessoais,prompt,cerebro,funcoes}.ts`,
+  `server/dolores/leitura/{clientes,financeiro,regularizacoes}.ts`, `shared/dolores/sanitizar.ts` (BANCO inteiro),
+  `docs/dolores/{ferramentas-etapa1.json,agente-etapa1.md,como-ligar.md}`, `docs/stories/epics/ROADMAP.md`; testes
+  `leituras`, `leitura-somente`, `whatsapp`, `regras`.
 - `docs/dolores/ferramentas-etapa1.json` (regerado: etapa 2, mesmas 12 ferramentas), `docs/dolores/como-ligar.md`
   (seção Etapa 2), `docs/dolores/agente-etapa2.md` (novo), `docs/stories/epics/ROADMAP.md` (paridade em espera),
   `HANDOFF-16-11-CORRECOES-E-DOLORES.md`.
@@ -313,11 +317,19 @@ qualquer que seja a variável (`FILTRO_DO_REGISTRO`): `dolores_acoes` (argumento
 lê só essas colunas. A resposta continua indo só ao número do dono (conferência estrita).
 **Como voltar atrás.** Vercel › Settings › Environment Variables → `DOLORES_MASCARAR_DADOS_PESSOAIS=1` → Redeploy. Para
 liberar de novo: apagar a variável (ou "0") → Redeploy. Guia: `docs/dolores/como-ligar.md`.
-**Em aberto (para o dono/coordenação decidirem).** (1) O prompt do sistema (`server/dolores/prompt.ts`, linha "Dados
-pessoais: não repita CPF, telefone, e-mail…") ainda manda o modelo NÃO repetir esses dados. (2) Os campos estruturados
-das leituras (`leitura/clientes.ts`, `financeiro.ts`, `regularizacoes.ts`: `mascararCpf`, `mascararTelefone`) continuam
-mascarados. Enquanto os dois não mudarem, a opção B só vale para o texto livre. (3) Paridade: registrar no ROADMAP o porte
-para o Grupo Santa Fé (que não tem a Dolores hoje).
+**Complemento (16/11, ordem da coordenação) — a opção B vale também para os campos e para o prompt:**
+- Campos estruturados pela função única `campoPessoal(valor, tipo)` em `server/dolores/dados-pessoais.ts`: liberado devolve
+  o valor completo; ligado, o mascaramento de antes (CPF "***.***.***-01", telefone "(99) *****-4567", e-mail não sai).
+  Seguem o interruptor: `leitura/clientes.ts` (consultar_cliente: telefone, cpf e o novo email; conversas_whatsapp:
+  telefone), `leitura/financeiro.ts` (listar_financiamentos: cpf), `leitura/regularizacoes.ts` (telefone).
+- Prompt montado por `promptSistemaWhatsapp(mascarar)` (`server/dolores/prompt.ts`), chamado em `cerebro.ts` com o estado
+  do interruptor: liberado, o modelo PODE informar CPF, CNPJ, telefone e e-mail quando o dono pedir ou for útil, sem
+  despejar listas; senha, token, chave, código de acesso e dado bancário nunca. Ligado: o texto anterior.
+- Descrições das ferramentas (`funcoes.ts`, `docs/dolores/ferramentas-etapa1.json` regerado) dizem "completo ou mascarado,
+  conforme a configuração"; `docs/dolores/agente-etapa1.md` atualizado.
+- Chave PIX e conta/agência + número saem INTEIRAS como dado bancário nos dois modos ("conta 529 982 247 25", "pix (99)
+  99123-4567", "pix maria@x.com").
+- Paridade: pendência registrada no ROADMAP (EPIC-025, em espera).
 
 ## Dev Notes (implementação, 16/11/2026)
 - IDS: reaproveitados o cliente da Evolution (`server/_core/evolution.ts`: QR, estado, número, webhook, envio), o servidor
@@ -411,3 +423,5 @@ para o Grupo Santa Fé (que não tem a Dolores hoje).
   "nunca pior que a main"; rodada interrompida pela decisão do dono (opção B), código coerente e testes passando.
 - 16/11/2026 — @dev (Dex): opção B do dono — interruptor `DOLORES_MASCARAR_DADOS_PESSOAIS` (padrão liberado); registro e
   log sempre filtrados. Em aberto: prompt do sistema e campos estruturados ainda mascaram (ver a seção da decisão).
+- 16/11/2026 — @dev (Dex): opção B completa — prompt e campos de CPF/telefone/e-mail das leituras seguem o interruptor
+  (`campoPessoal`); PIX e conta/agência mascarados inteiros; testes da etapa 1 presos ao modo ligado, com o par liberado.
