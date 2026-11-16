@@ -98,6 +98,8 @@ Claude Console); limites mensais de tokens; ligar o interruptor.
 - QA r2 (16/11): alterados `shared/dolores/{sanitizar,whatsapp}.ts`, `server/dolores/{whatsapp,cerebro,consumo,router}.ts`,
   `drizzle/0124_dolores_whatsapp.sql` e `drizzle/schema-dolores-whatsapp.ts` (índices parciais); testes `regras`,
   `whatsapp-regras`, `whatsapp-qa`, `whatsapp`, `router`, `server/integracoes-anthropic.test.ts`.
+- QA r3 (16/11): alterados `shared/dolores/{sanitizar,whatsapp}.ts`, `docs/dolores/como-ligar.md`; testes `regras`,
+  `whatsapp-regras`.
 - `docs/dolores/ferramentas-etapa1.json` (regerado: etapa 2, mesmas 12 ferramentas), `docs/dolores/como-ligar.md`
   (seção Etapa 2), `docs/dolores/agente-etapa2.md` (novo), `docs/stories/epics/ROADMAP.md` (paridade em espera),
   `HANDOFF-16-11-CORRECOES-E-DOLORES.md`.
@@ -154,6 +156,26 @@ Claude Console); limites mensais de tokens; ligar o interruptor.
   técnicas antigas, desligada por padrão e só com a ordem do dono. `dolores_acoes` e as mensagens do dono nunca são apagadas.
 - Reentrega de estranho entre instâncias diferentes do servidor pode somar 1 a mais na contagem (sem resposta, sem IA).
 
+## Correções da 3ª rodada do QA (16/11/2026, @dev Dex — QA r3 CONCERNS de Quinn, HEAD revisado `4487843`)
+
+| Achado | Correção | Commit | Teste de regressão |
+|---|---|---|---|
+| R1 (importante) rótulos livravam telefone | `CONTEXTO_NAO_TELEFONE` (só rótulos de documento) para a forma de fixo; casa/apartamento/unidade/valor/total/ano/pedido não livram telefone; 8 dígitos começando com 6–9 = celular antigo, sai sempre; palavra de telefone (tel, fone, celular, whats, zap, contato, ligar, recado) nos ~50 caracteres antes anula rótulo, unidade e o filtro de anos | `6696919` | `regras.test.ts` "QA r3 R1" (18 casos que saem + 7 que ficam) |
+| R2 celular + ",dígito" | decimal só com `,\d{1,2}(?!\d)`, e para forma de celular só quando tem cara de dinheiro (milhar com ponto ou "R$" antes); checagem depois do teste de telefone | `ad2dbfe` | `regras.test.ts` "QA r3 R2" |
+| R3 corte de 16 grupos | cadeia sem corte; janela deslizante de até 16 grupos a partir de cada posição; só sub-cadeias de 8–14 dígitos são classificadas; contexto (regex) calculado só quando decide | `c5d732b` | `regras.test.ts` "QA r3 R3" (14–40 números soltos antes de CPF e celular) |
+| R4 tempo quadrático | `EMAIL` ancorado no início da palavra (`(?<![\w.+-])`); montagem final linear | `c2bbb51` (+ `c5d732b`, `4c7fe97`) | `regras.test.ts` "QA r3 R4" (5 textos de 200 kB, limite 3 s cada) |
+| R5 texto + interação | com `conversation`/`extendedTextMessage.text` não vazio, é texto (a lista de interações só vale sem texto) | `60bb93b` | `whatsapp-regras.test.ts` "QA r3 R5" |
+| info | dígitos de outras escritas (árabe-índico, persa, devanágari…) normalizados; `/` e `|` no telefone só com palavra de telefone; chave de NF-e de 44 dígitos: reconhecida (DV válido ou rótulo chave/acesso/NF-e/DANFE/nota) fica inteira, senão sai inteira; com palavra de telefone, cadeia inteira de 8–13 dígitos sem cara de data sai ("fone 9912345678"); `como-ligar.md`: cadastrar o celular do dono com o 9, fixo exige igualdade exata | `4c7fe97` | `regras.test.ts` "QA r3 (informativos)" |
+
+Tempos (sonda de desempenho do QA, depois das correções): 200 kB só de dígitos 3–12 ms (era 59 s); "12." repetido 185–308 ms
+(era 67 s); "aaa…a1" 4–6 ms (era 66 s); "1 " repetido 558–755 ms; prosa realista 35–257 ms; base64 14–17 ms.
+
+- [AUTO-DECISION] "valor 1234567890" (10 dígitos com forma de fixo do DDD 12) agora sai: valor deixou de livrar telefone
+  (pedido do R1); "Valor 1234567890 centavos" continua intacto pela unidade depois.
+- [AUTO-DECISION] Com palavra de telefone antes, "tel 2024-2025" sai (a palavra anula o filtro de anos): na dúvida, mascara.
+- [AUTO-DECISION] Célula de tabela isolada entre "|" conta como "cadeia inteira" para a regra dos 11 dígitos sem forma.
+- Em aberto (pré-existente, fora do pedido): "código do imóvel 12345" vira "código [senha omitida]" (regra da senha).
+
 ## Dev Notes (implementação, 16/11/2026)
 - IDS: reaproveitados o cliente da Evolution (`server/_core/evolution.ts`: QR, estado, número, webhook, envio), o servidor
   Evolution da Central (`configEvolution`), o padrão de segredo HMAC do webhook da Central (rótulo próprio), o padrão de
@@ -208,6 +230,10 @@ Claude Console); limites mensais de tokens; ligar o interruptor.
   ataque do QA que afirmavam os defeitos (DDI, filtro, encaminhada, temporária, corrida) agora falham, como esperado.
 - (a3) Automáticos depois da 2ª rodada do QA (16/11): `npx tsc --noEmit` sem erros; o mesmo `npx vitest run …` de (a2) —
   28 arquivos, 318 testes passando (+17 de regressão da r2); `npx vite build` ok.
+- (a4) Automáticos depois da 3ª rodada do QA (16/11): `npx tsc --noEmit` sem erros; `npx vitest run server/dolores
+  server/integracoes-anthropic.test.ts server/whatsapp*.test.ts server/auth-session.test.ts server/imports-esm.test.ts
+  server/api-rotas-producao.test.ts` — 18 arquivos, 248 testes passando; `npx vitest run server/central-vendas` — 10
+  arquivos, 76 testes passando (28 arquivos / 324 no total, +6 de regressão da r3); `npx vite build` ok.
 - (b) Manuais: nenhum (sem Evolution nem Anthropic reais neste ambiente).
 - (c) Pendentes em produção: migração 0124 no Neon; dono cadastra chave/modelo, limites, o número dele e conecta o número
   da Dolores; teste de aceite pelo WhatsApp; conferir os nomes `senderPn`/`remoteJidAlt` do endereço @lid na Evolution real.
@@ -221,3 +247,6 @@ Claude Console); limites mensais de tokens; ligar o interruptor.
 - 16/11/2026 — @qa (Quinn): r2 CONCERNS (N1 importante; N2–N8 menores; informativo).
 - 16/11/2026 — @dev (Dex): N1–N8 e o informativo corrigidos, um commit por achado (N1+N7 juntos: mesmo arquivo), com
   teste de regressão; índices parciais na 0124 (ainda não aplicada). Volta ao portão de QA (InReview).
+- 16/11/2026 — @qa (Quinn): r3 CONCERNS (R1 importante; R2–R5 menores; informativos).
+- 16/11/2026 — @dev (Dex): R1–R5 e os informativos corrigidos, um commit por achado, com teste de regressão; 0124 não
+  alterada. Volta ao portão de QA (InReview).

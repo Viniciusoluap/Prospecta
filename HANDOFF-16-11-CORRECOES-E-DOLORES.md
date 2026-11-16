@@ -139,3 +139,14 @@ migração da etapa antes. Depois lançar S-03 e S-05, e por fim o EPIC-025 (Dol
   por remetente estranho por hora, sem texto).
 - **Próximo passo exato:** 3ª rodada do portão de QA da E2; aprovado, aplicar 0124 e publicar.
 
+## Atualização — 16/11 — EPIC-025 E2: correções da 3ª rodada do QA (CONCERNS) — @dev
+- **Concluído (ramo `epic025-dolores-etapa2`, cópia `claude/wip-epic025-dolores-etapa2`):** R5 `60bb93b` (texto + interação
+  é texto), R4 `c2bbb51` (e-mail sem tempo quadrático), R1 `6696919` (casa/unidade/valor… não livram telefone; celular
+  antigo de 8 dígitos sai; palavra de telefone anula rótulos), R2 `ad2dbfe` (celular + ",1" sai), R3 `c5d732b` (janela
+  deslizante, sem corte de 16 grupos), informativos `4c7fe97` (dígitos de outras escritas, `|`/`/` no telefone, chave de
+  NF-e tudo ou nada, nota do 9 do dono em `como-ligar.md`). Tabela na story, seção "Correções da 3ª rodada do QA".
+- **0124 NÃO foi alterada.**
+- **Testes (a) automáticos:** tsc ok; 28 arquivos / 324 testes passando (dolores+whatsapp+central-vendas+auth+imports+rotas);
+  vite build ok; 200 kB patológicos < 1 s (antes ~60 s). **(b) manuais:** nenhum. **(c) produção:** igual à r2.
+- **Próximo passo exato:** 4ª rodada do portão de QA da E2; aprovado, publicar (0124 já em aplicação, como está).
+
