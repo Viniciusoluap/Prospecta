@@ -5,11 +5,14 @@ import { createHash } from "node:crypto";
 import { doloresAcoes } from "../../drizzle/schema-dolores.js";
 import { sanitizarTexto } from "../../shared/dolores/sanitizar.js";
 import { getDb } from "../db.js";
+import { ETAPA_ATUAL } from "./permissoes.js";
 
 export type ResultadoAcao = "ok" | "recusada" | "erro";
 export type Acao = {
   funcao: string; argumentos?: unknown; resultado: ResultadoAcao; motivo?: string | null;
   resumo?: Record<string, unknown> | null; duracaoMs?: number | null; pedidoId?: string | null; autorUserId: number | null;
+  /** Por onde chegou: a ponte HTTP (etapa 1) ou o WhatsApp do dono (etapa 2). */
+  canal?: "ponte" | "whatsapp";
 };
 
 const CHAVE_SENSIVEL = /token|senha|password|secret|segredo|chave|apikey|api_key|authorization|cpf|cnpj|conta|agencia|pix/i;
@@ -61,6 +64,8 @@ export async function registrarAcao(a: Acao): Promise<boolean> {
       duracaoMs: a.duracaoMs == null ? null : Math.max(0, Math.round(a.duracaoMs)),
       pedidoId: a.pedidoId ? a.pedidoId.slice(0, 120) : null,
       autorUserId: a.autorUserId,
+      canal: a.canal ?? "ponte",
+      etapa: ETAPA_ATUAL,
     });
     return true;
   } catch (e) {

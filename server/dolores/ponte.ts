@@ -138,18 +138,32 @@ function comPrazo<T>(p: Promise<T>, ms: number): Promise<T> {
 }
 
 export async function tratarChamada(req: Pedido): Promise<RespostaPonte> {
+  const negado = autenticar(req, deps.agora());
+  if (negado) return negado;
+  return executarFuncao(req.body, { canal: "ponte" });
+}
+
+/** De onde veio a chamada (vai para `dolores_acoes.canal`). */
+export type CanalDolores = "ponte" | "whatsapp";
+export type OpcoesExecucao = { canal: CanalDolores; prazoMs?: number };
+
+/**
+ * A porta única de execução de uma função da Dolores, DEPOIS da autenticação de quem chama (Bearer na ponte HTTP; o
+ * webhook autenticado + número do dono no WhatsApp): pausa, usuária ativa, lista liberada, validação, vaga do minuto,
+ * transação somente leitura, filtro de dados pessoais, limite do tamanho e auditoria. O laço do WhatsApp
+ * (cerebro.ts) chama exatamente esta função — nunca o banco.
+ */
+export async function executarFuncao(corpo: unknown, opcoes: OpcoesExecucao): Promise<RespostaPonte> {
   const agora = deps.agora();
   const inicio = Date.now();
-  const negado = autenticar(req, agora);
-  if (negado) return negado;
-
-  const bruto = (req.body ?? {}) as Record<string, unknown>;
+  const prazoMs = Math.max(1, Math.min(opcoes.prazoMs ?? deps.prazoMs, deps.prazoMs));
+  const bruto = (corpo && typeof corpo === "object" && !Array.isArray(corpo) ? corpo : {}) as Record<string, unknown>;
   const nomeBruto = typeof bruto.funcao === "string" ? bruto.funcao.slice(0, 80) : "(sem função)";
   const pedidoBruto = typeof bruto.pedidoId === "string" ? bruto.pedidoId.slice(0, 120) : null;
   let autor: number | null = null;
   const registrar = (resultado: "ok" | "recusada" | "erro", extra: { funcao?: string; argumentos?: unknown; motivo?: string; resumo?: Record<string, unknown>; pedidoId?: string | null }) =>
     registrarAcao({ funcao: extra.funcao ?? nomeBruto, argumentos: extra.argumentos ?? bruto.argumentos ?? null, resultado, motivo: extra.motivo ?? null,
-      resumo: extra.resumo ?? null, duracaoMs: Date.now() - inicio, pedidoId: extra.pedidoId ?? pedidoBruto, autorUserId: autor });
+      resumo: extra.resumo ?? null, duracaoMs: Date.now() - inicio, pedidoId: extra.pedidoId ?? pedidoBruto, autorUserId: autor, canal: opcoes.canal });
   const responder = (status: number, corpo: Record<string, unknown>): RespostaPonte => ({ status, body: { ...base(agora), funcao: nomeBruto, pedidoId: pedidoBruto, ...corpo } });
 
   // 1) pausa, antes de tudo (nem a linha da usuária é criada com a Dolores pausada)
@@ -201,7 +215,7 @@ export async function tratarChamada(req: Pedido): Promise<RespostaPonte> {
     return responder(429, { ok: false, erro: motivo });
   }
   try {
-    const r = await comPrazo(emTransacaoSomenteLeitura(() => fn.executar(args.data as never, { agora })), deps.prazoMs);
+    const r = await comPrazo(emTransacaoSomenteLeitura(() => fn.executar(args.data as never, { agora })), prazoMs);
     // Toda string da resposta passa pelo filtro de dados pessoais (texto livre: anotações, mensagens, títulos).
     const { valor, truncado } = limitarResposta(sanitizarResposta(r.dados));
     await registrar("ok", { funcao, argumentos: args.data, resumo: { ...r.resumo, truncado }, pedidoId });

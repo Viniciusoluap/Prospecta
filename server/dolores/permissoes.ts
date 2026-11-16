@@ -5,7 +5,7 @@
 // apagar lançamento financeiro confirmado; nunca pagar nem autorizar pagamento; nunca mexer em usuários, acessos,
 // credenciais ou dados bancários; nunca assinar ou validar documento técnico/jurídico; nunca inventar dado.
 
-export const ETAPA_ATUAL = 1;
+export const ETAPA_ATUAL = 2;
 
 /** Etapa 1 — Leitura: somente consultas. */
 export const LIBERADAS_ETAPA_1 = [
@@ -23,11 +23,19 @@ export const LIBERADAS_ETAPA_1 = [
   "listar_recebiveis_pendentes",
 ] as const;
 
-const LIBERADAS: Record<number, readonly string[]> = { 1: LIBERADAS_ETAPA_1 };
+/**
+ * Etapa 2 — WhatsApp: nenhuma função nova. A etapa é o canal (comando do dono pelo WhatsApp e o laço de ferramentas no
+ * servidor); a resposta ao dono é enviada pelo próprio sistema, não é uma ferramenta que o modelo possa chamar.
+ */
+export const LIBERADAS_ETAPA_2 = [] as const;
+
+const LIBERADAS: Record<number, readonly string[]> = { 1: LIBERADAS_ETAPA_1, 2: LIBERADAS_ETAPA_2 };
 
 /** Funções previstas para etapas seguintes (ainda não liberadas): a recusa diz quando chegam. */
 export const PREVISTAS: Record<string, number> = {
-  criar_tarefa: 3, registrar_acompanhamento: 3, preparar_cobranca: 3, gerar_documento: 3, enviar_mensagem_whatsapp: 2,
+  criar_tarefa: 3, registrar_acompanhamento: 3, preparar_cobranca: 3, gerar_documento: 3,
+  // mensagem para cliente/terceiro sai com as cobranças (etapa 3); na etapa 2 só o sistema responde ao dono
+  enviar_mensagem_whatsapp: 3,
   ler_grupo_cliente: 4, ler_nota_obra: 5, relatorio_diario: 6,
 };
 
