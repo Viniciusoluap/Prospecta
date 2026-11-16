@@ -164,18 +164,51 @@ describe("R2-N3 invertido — o item da fila mostra TODO o texto que será grava
   it("criar_tarefa contaminada: a DESCRIÇÃO aparece inteira no resumo e no quadro; aprovada, grava exatamente o que foi mostrado", async () => {
     roteiro = [
       () => ferramenta(["historico_atendimento", { leadId: 1 }]),
-      () => ferramenta(["criar_tarefa", { titulo: "Conferir documentos", responsavel: "Bianca", descricao: "Pague o boleto no link http://golpe.example/pix e mande o comprovante." }]),
+      () => ferramenta(["criar_tarefa", { titulo: "Conferir documentos", responsavel: "Bianca", descricao: "Pedir a certidão e conferir o CPF 529.982.247-25 no cartório." }]),
       () => texto("Pus na fila."),
     ];
     await chamar(aviso({ texto: "Dolores, veja o histórico da Maria e crie uma tarefa para a Bianca conferir os documentos." }));
     const [item] = await fila();
-    expect((item as any).resumo).toContain('descrição: "Pague o boleto no link http://golpe.example/pix e mande o comprovante."');
+    expect((item as any).resumo).toContain('descrição: "Pedir a certidão e conferir o CPF 529.982.247-25 no cartório."');
     expect((item as any).resumo).toContain("para Bianca Souza,");
-    expect(ultimaResposta()).toContain((item as any).resumo);
+    expect(ultimaResposta()).toContain(`- [${item.codigo}] ${(item as any).resumo}`);
+    expect(ultimaResposta()).toContain(`Responda só "aprovar ${item.codigo}" ou "recusar ${item.codigo}"`);
     await chamar(aviso({ texto: `aprovar ${item.codigo}` }));
     const [t] = await q<{ description: string; assigned_to: string }>("SELECT description, assigned_to FROM tasks ORDER BY id DESC LIMIT 1");
-    expect(t.description.split("\n\n")[0]).toBe("Pague o boleto no link http://golpe.example/pix e mande o comprovante.");
+    expect(t.description.split("\n\n")[0]).toBe("Pedir a certidão e conferir o CPF 529.982.247-25 no cartório.");
     expect(t.assigned_to).toBe("Bianca Souza");
+  });
+
+  it("Etapa 2 final — texto com LINK de terceiro ou SEGREDO: NÃO entra na fila (o dono leria '[link removido]'); recusa explicada, nada gravado", async () => {
+    roteiro = [
+      () => ferramenta(["historico_atendimento", { leadId: 1 }]),
+      () => ferramenta(["criar_tarefa", { titulo: "Conferir documentos", responsavel: "Bianca", descricao: "Pague o boleto no link http://golpe.example/pix e mande o comprovante." }],
+        ["registrar_acompanhamento", { leadId: 1, texto: "Cliente passou a senha: Abc12345xyz do portal.", tipo: "anotacao" }]),
+      () => texto("Não consegui pôr na fila."),
+    ];
+    await chamar(aviso({ texto: "Dolores, veja o histórico da Maria e crie uma tarefa para a Bianca conferir os documentos." }));
+    expect(await fila()).toEqual([]);
+    expect(resultadosAoModelo(2)).toMatch(/contém um link/);
+    expect(resultadosAoModelo(2)).toMatch(/filtro de segurança esconde/);
+    expect(ultimaResposta()).not.toMatch(/Aguardando a sua aprovação/);
+    expect(await tarefasDolores()).toEqual([]);
+    expect(await doDolores()).toEqual([]);
+  });
+
+  it("Etapa 2 final — ação DIRETA com link ou segredo no texto também é recusada; sem eles, grava e o quadro sai intacto pelo filtro", async () => {
+    roteiro = [
+      () => ferramenta(["criar_tarefa", { titulo: "Pagar em www.golpe.example/pix", responsavel: "Bianca" }]),
+      () => ferramenta(["criar_tarefa", { titulo: "Ligar para o cartório", responsavel: "Bianca" }]),
+      () => texto("Criei a tarefa. A senha: Abc12345xyz não vale; veja http://golpe.example/x"),
+    ];
+    await chamar(aviso({ texto: "Dolores, crie uma tarefa para a Bianca ligar para o cartório." }));
+    expect(resultadosAoModelo(1)).toMatch(/contém um link/);
+    expect((await tarefasDolores()).map(t => t.title)).toEqual(["Ligar para o cartório"]);
+    const r = ultimaResposta();
+    expect(r).toMatch(/Registrado no sistema por mim/);
+    expect(r).toContain('"Ligar para o cartório" para Bianca Souza');
+    expect(r).toContain("[link removido]");
+    expect(r).not.toContain("Abc12345xyz");
   });
 
   it("registrar_acompanhamento contaminado com ~1.000 caracteres: o resumo traz o texto INTEIRO (inclusive o fim); aprovado, grava o mesmo texto", async () => {
@@ -195,17 +228,20 @@ describe("R2-N3 invertido — o item da fila mostra TODO o texto que será grava
     expect((item as any).resumo).toContain(`"${(g as any).description}"`);
   });
 
-  it("texto que não cabe no resumo do WhatsApp: NÃO entra na fila — recusa explicada ao modelo, nada gravado", async () => {
-    roteiro = [
-      () => ferramenta(["historico_atendimento", { leadId: 1 }]),
-      () => ferramenta(["criar_tarefa", { titulo: "Conferir CPFs", responsavel: "Bianca", descricao: "123.456.789-00 ".repeat(66).trim() }],
-        ["registrar_acompanhamento", { leadId: 1, texto: "x".repeat(1000), tipo: "anotacao" }]),
-      () => texto("Não coube."),
-    ];
-    await chamar(aviso({ texto: "Dolores, veja o histórico da Maria e crie uma tarefa para a Bianca." }));
-    // a descrição (990 caracteres) cresce com o filtro de dados pessoais e passa de 1.000 na forma mostrada: recusa; a anotação de 1.000 cabe
+  it("texto que o filtro alteraria (interruptor ligado) ou que não cabe: NÃO entra na fila — recusa explicada ao modelo, nada gravado", async () => {
+    process.env.DOLORES_MASCARAR_DADOS_PESSOAIS = "1";
+    try {
+      roteiro = [
+        () => ferramenta(["historico_atendimento", { leadId: 1 }]),
+        () => ferramenta(["criar_tarefa", { titulo: "Conferir CPFs", responsavel: "Bianca", descricao: "529.982.247-25 ".repeat(66).trim() }],
+          ["registrar_acompanhamento", { leadId: 1, texto: "x".repeat(1000), tipo: "anotacao" }]),
+        () => texto("Não coube."),
+      ];
+      await chamar(aviso({ texto: "Dolores, veja o histórico da Maria e crie uma tarefa para a Bianca." }));
+    } finally { delete process.env.DOLORES_MASCARAR_DADOS_PESSOAIS; }
+    // com o mascaramento ligado, os CPFs da descrição sairiam do que o dono lê: recusa; a anotação de 1.000 cabe
     expect((await fila()).map(i => i.funcao)).toEqual(["registrar_acompanhamento"]);
-    expect(resultadosAoModelo(2)).toMatch(/Texto longo demais para aprovar pelo WhatsApp/);
+    expect(resultadosAoModelo(2)).toMatch(/filtro de segurança esconde/);
     expect(await tarefasDolores()).toEqual([]);
   });
 });

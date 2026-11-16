@@ -19,7 +19,7 @@ import { type CanalDolores, filtroDaSaida } from "./dados-pessoais.js";
 import { erroParaLog } from "./erro-seguro.js";
 import { registrarAcao } from "./auditoria.js";
 import { FUNCOES, definicaoDaFerramenta, funcaoPorNome } from "./funcoes.js";
-import { ETAPA_ATUAL, PREVISTAS, funcaoLiberada, motivoDaRecusa } from "./permissoes.js";
+import { ETAPA_ATUAL, PREVISTAS, PROIBIDAS, funcaoLiberada, motivoDaRecusa } from "./permissoes.js";
 import { DoloresDesativada, usuarioDolores } from "./perfil.js";
 import { emTransacaoSomenteLeitura } from "./somente-leitura.js";
 import { MAX_ACOES_POR_COMANDO, type MotivoContaminacao } from "../../shared/dolores/fila.js";
@@ -47,10 +47,11 @@ export function definirDependenciasPonte(d?: Partial<Dependencias>) { deps = d ?
 const resumoSha = (s: string) => createHash("sha256").update(s).digest();
 /**
  * QA r7 A7: nome da função para a auditoria. O nome vem de quem chama (o agente ou o modelo) e pode carregar dado
- * ("funcao_52998224725"): fora da lista FUNCOES (e das PREVISTAS), grava-se só "(desconhecida)" + hash curto do nome.
+ * ("funcao_52998224725"): fora das listas fixas (FUNCOES, ACOES, PREVISTAS e PROIBIDAS), grava-se só "(desconhecida)" +
+ * hash curto do nome.
  */
 export function nomeParaRegistro(nome: string): string {
-  if (nome === "(sem função)" || funcaoPorNome(nome) || acaoPorNome(nome) || Object.hasOwn(PREVISTAS, nome)) return nome;
+  if (nome === "(sem função)" || funcaoPorNome(nome) || acaoPorNome(nome) || Object.hasOwn(PREVISTAS, nome) || Object.hasOwn(PROIBIDAS, nome)) return nome;
   return `(desconhecida) ${createHash("sha256").update(nome).digest("hex").slice(0, 10)}`;
 }
 /** Bearer confere com o token da variável? Hash dos dois lados: tempo constante e sem vazar o tamanho. */

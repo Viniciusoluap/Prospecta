@@ -177,15 +177,32 @@ describe("criar_tarefa (direto)", () => {
 });
 
 describe("registrar_acompanhamento (direto)", () => {
-  it("grava no histórico do cliente em nome da Dolores, com o pedido em metadata, e filtra dado pessoal", async () => {
+  it("grava no histórico do cliente em nome da Dolores, com o pedido em metadata; dado pessoal conforme o interruptor (opção B)", async () => {
+    // opção B (interruptor desligado): o texto do dono é gravado como ele mandou; a auditoria e a autoria ficam mascaradas
     const r = await doDono("registrar_acompanhamento", { leadId: 2, texto: "Dono falou com o cliente; CPF 529.982.247-25 confirmado.", tipo: "ligacao" });
     expect(r.status).toBe(200);
     const [a] = await q("SELECT * FROM lead_activities WHERE performed_by = 'Dolores (funcionária digital)'");
     expect(a).toMatchObject({ lead_id: 2, type: "call" });
-    expect(a.description).not.toContain("529.982.247-25");
+    expect(a.description).toContain("529.982.247-25");
     expect(JSON.parse(a.metadata)).toMatchObject({ origem: "dolores", funcao: "registrar_acompanhamento", pedidoId: "wa:10:1:0" });
     expect(await q("SELECT tabela, registro_id FROM dolores_autoria")).toEqual([{ tabela: "lead_activities", registro_id: a.id }]);
+    expect(JSON.stringify(await q("SELECT descricao FROM dolores_autoria"))).not.toContain("529.982.247-25");
+    expect(JSON.stringify(await acoes())).not.toContain("529.982.247-25");
     expect((await doDono("registrar_acompanhamento", { leadId: 999, texto: "abc" })).status).toBe(422);
+    // interruptor ligado (mascarar): o filtro esconderia o CPF do que o dono lê → recusa explicada, nada gravado
+    process.env.DOLORES_MASCARAR_DADOS_PESSOAIS = "1";
+    try {
+      const m = await doDono("registrar_acompanhamento", { leadId: 2, texto: "Outro contato; CPF 529.982.247-25 de novo.", tipo: "anotacao" });
+      expect(m.status).toBe(422);
+      expect(m.body.erro).toMatch(/filtro de segurança esconde/);
+    } finally { delete process.env.DOLORES_MASCARAR_DADOS_PESSOAIS; }
+    // segredo e link de terceiro: recusados em qualquer modo (a ação direta também)
+    const s1 = await doDono("registrar_acompanhamento", { leadId: 2, texto: "Senha do portal: Abc12345xyz, anote." });
+    const s2 = await doDono("criar_tarefa", { titulo: "Pagar no link http://golpe.example/pix", responsavel: "Bianca Souza" });
+    expect([s1.status, s2.status]).toEqual([422, 422]);
+    expect(s1.body.erro).toMatch(/filtro de segurança esconde/);
+    expect(s2.body.erro).toMatch(/contém um link/);
+    expect((await q("SELECT count(*)::int AS n FROM lead_activities WHERE performed_by = 'Dolores (funcionária digital)'"))[0].n).toBe(1);
   });
 });
 

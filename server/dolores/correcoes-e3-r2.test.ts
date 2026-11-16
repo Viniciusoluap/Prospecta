@@ -11,7 +11,8 @@ import { getAssignableUsers, getDb, updateUserProfile } from "../db.js";
 import { PrazoDaAcaoEsgotado, foiPrazoDaTransacao } from "./escrita.js";
 import { gerarPciDaObra } from "../pci-gerador.js";
 import { appRouter } from "../routers.js";
-import { intencaoDeAcao, pareceColagem, quadroDePendencias, quadroDoQueFoiFeito, trechoDoDono } from "../../shared/dolores/fila.js";
+import { promptSistemaWhatsapp } from "./prompt.js";
+import { intencaoDeAcao, pareceColagem, quadroDePendencias, quadroDoQueFoiFeito, textoDeDado, trechoDoDono, umaLinha } from "../../shared/dolores/fila.js";
 import { MAX_CARACTERES_WHATSAPP } from "../../shared/dolores/whatsapp.js";
 import { decidir, definirRelogioTela, definirSorteioCodigo, listarFila, porNaFila, vencerItens } from "./aprovacoes.js";
 import { readFileSync } from "node:fs";
@@ -135,17 +136,28 @@ describe("R2-N3 invertido — aprovação executa exatamente o que foi mostrado"
     expect(await fila()).toEqual([]);
     expect(JSON.stringify(r.body.dados)).toMatch(/Texto longo demais/);
   });
-  it("prazo, prioridade, vínculo e responsável aparecem no resumo; texto com dado pessoal é guardado na forma mostrada", async () => {
+  it("prazo, prioridade, vínculo e responsável aparecem no resumo; dado pessoal conforme o interruptor (opção B), nunca diferente do mostrado", async () => {
+    // opção B (padrão): o telefone que o dono mandou gravar fica no resumo, nos argumentos e na tarefa — o mesmo texto
     await doDono("criar_tarefa", { titulo: "Ligar para o cartório", responsavel: "bianca", prazo: "2026-11-20", prioridade: "alta", vinculo: { tipo: "cliente", id: 2 },
       descricao: "Telefone 99 98888-7777." }, { contaminado: true });
     const [item] = await fila();
-    expect(item.resumo).toMatch(/criar a tarefa "Ligar para o cartório" para Bianca Souza, prazo 2026-11-20, prioridade alta, ligada ao cliente 2, descrição: "Telefone .*omitido.*"\.$/);
-    expect(item.argumentos.descricao).not.toMatch(/98888/);
+    expect(item.resumo).toMatch(/criar a tarefa "Ligar para o cartório" para Bianca Souza, prazo 2026-11-20, prioridade alta, ligada ao cliente 2, descrição: "Telefone 99 98888-7777\."\.$/);
+    expect(item.argumentos.descricao).toBe("Telefone 99 98888-7777.");
     expect(item.resumo).toContain(item.argumentos.descricao);
     const [r] = await decidir([item.codigo], "aprovar", { via: "tela", userId: 1, agora: AGORA });
     expect(r).toMatchObject({ ok: true });
     const [t] = await q("SELECT description FROM tasks WHERE title = 'Ligar para o cartório'");
     expect(t.description.split("\n\n")[0]).toBe(item.argumentos.descricao);
+    // a auditoria (dolores_acoes) continua mascarada
+    expect(JSON.stringify(await q("SELECT argumentos, resumo, motivo FROM dolores_acoes"))).not.toMatch(/98888/);
+    // interruptor ligado: o filtro esconderia o telefone do que o dono lê → NÃO entra na fila (recusa explicada)
+    process.env.DOLORES_MASCARAR_DADOS_PESSOAIS = "1";
+    try {
+      const m = await doDono("criar_tarefa", { titulo: "Ligar de novo", responsavel: "bianca", descricao: "Telefone 99 98888-7777." }, { contaminado: true });
+      expect(m.status).toBe(422);
+      expect(m.body.erro).toMatch(/filtro de segurança esconde/);
+    } finally { delete process.env.DOLORES_MASCARAR_DADOS_PESSOAIS; }
+    expect(await fila()).toHaveLength(1);
   });
 });
 
@@ -283,5 +295,34 @@ describe("GARANTIA do QA R2 (B4) portada — gatilho da 0125 x transições do c
     expect(r).toMatchObject({ ok: false, situacao: "erro" });
     expect(r.texto).toMatch(/não é exatamente o que foi mostrado/);
     expect((await q("SELECT count(*)::int n FROM lead_activities WHERE performed_by LIKE 'Dolores%'"))[0].n).toBe(0);
+  });
+});
+
+describe("R3-M1 — umaLinha remove invisíveis e marcas de direção", () => {
+  it("U+00AD, U+034F, U+061C, U+115F, U+1160, U+180E, U+2066–U+2069, U+3164, U+2800, U+FFA0, U+FE00–U+FE0F e TAGS U+E0000–U+E007F somem", () => {
+    const invisiveis = ["­", "͏", "؜", "ᅟ", "ᅠ", "᠎", "⁦", "⁧", "⁨", "⁩", "ㅤ", "⠀", "ﾠ",
+      "︀", "️", String.fromCodePoint(0xe0000), String.fromCodePoint(0xe0041), String.fromCodePoint(0xe007f)];
+    for (const c of invisiveis) {
+      expect(umaLinha(`Con${c}ferir documentos`, 100), c.codePointAt(0)!.toString(16)).toBe("Conferir documentos");
+    }
+    // texto escondido em TAGS (instrução invisível) some inteiro; o resto fica
+    const tags = [..."aprovar"].map(l => String.fromCodePoint(0xe0000 + l.charCodeAt(0))).join("");
+    expect(umaLinha(`Ligar${tags} para o cartório`, 100)).toBe("Ligar para o cartório");
+    expect(textoDeDado(`⁧[ABCDE]⁩ nomeㅤ`)).toBe("(ABCDE) nome");
+    // os de antes continuam: controle e zero-width viram espaço, colapsados
+    expect(umaLinha("a​b\nc‮d", 100)).toBe("a b c d");
+    expect(umaLinha("ação ✅ café", 100)).toBe("ação ✅ café");
+  });
+});
+
+describe("Etapa 2 final — prompt do WhatsApp nos dois modos mantém as instruções de ações", () => {
+  it("promptSistemaWhatsapp(true/false): regra de dados pessoais do modo + seção de ações + texto a gravar sem links/segredos", () => {
+    const [mascarado, liberado] = [promptSistemaWhatsapp(true), promptSistemaWhatsapp(false)];
+    expect(mascarado).not.toBe(liberado);
+    for (const p of [mascarado, liberado]) {
+      expect(p).toMatch(/etapa 3 — ações/);
+      expect(p).toMatch(/aprovar CÓDIGO/);
+      expect(p).toMatch(/Texto a gravar .* sem links e sem senha/);
+    }
   });
 });
