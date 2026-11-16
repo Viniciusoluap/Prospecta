@@ -499,3 +499,18 @@ describe("QA r7 A2 — links na resposta ao dono: só o domínio do sistema e o 
     expect(corpos[1]).toMatchObject({ linkPreview: false, text: "oi" });
   });
 });
+
+describe("QA r7 A8 — o comando do dono vai ao modelo sem senha nem dado bancário (CPF/telefone ficam para a busca)", () => {
+  it("nos dois modos: senha, código, chave, conta e PIX saem do texto enviado à Anthropic; CPF e telefone ficam", async () => {
+    for (const valor of [undefined, "1"]) {
+      if (valor !== undefined) vi.stubEnv("DOLORES_MASCARAR_DADOS_PESSOAIS", valor);
+      chamadas = [];
+      await chamar(aviso({ id: `C${valor ?? "x"}`, texto: "consulte o CPF 52998224725 e o tel 99991234567; a senha do gov é Maria@2025, acesso INSS: Joao#2024x, token sk-ant-api03-abcdef123456, conta 12345-6, pix -> maria@x.com" }));
+      const enviado = JSON.stringify(chamadas[0].mensagens[0]);
+      for (const s of ["Maria@2025", "Joao#2024x", "sk-ant-api03", "12345-6", "maria@x.com"]) expect(enviado, `${valor} ${s}`).not.toContain(s);
+      expect(enviado).toContain("52998224725");
+      expect(enviado).toContain("99991234567");
+      expect(enviado).toContain("[senha omitida]");
+    }
+  });
+});
