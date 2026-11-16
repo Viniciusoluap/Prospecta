@@ -8,7 +8,8 @@ vi.mock("../pci-gerador.js", () => ({ modeloAtualPci: vi.fn(async () => ({ id: 1
 vi.mock("../../shared/pci-gerador.js", async orig => ({ ...(await orig<typeof import("../../shared/pci-gerador.js")>()), errosPci: vi.fn(() => []) }));
 
 import { errosPci } from "../../shared/pci-gerador.js";
-import { lerDecisaoDoDono, lerPrazo, textoDaCobranca, gerarCodigo, codigoValido, MAX_ACOES_POR_COMANDO } from "../../shared/dolores/fila.js";
+import { lerDecisaoDoDono, lerPrazo, textoDaCobranca, gerarCodigo, codigoValido, MAX_ACOES_POR_COMANDO, quadroDePendencias, quadroDoQueFoiFeito } from "../../shared/dolores/fila.js";
+import { sanitizarTexto } from "../../shared/dolores/sanitizar.js";
 import { getDb } from "../db.js";
 import { gerarPciDaObra } from "../pci-gerador.js";
 import { ACOES } from "./acoes/registro.js";
@@ -74,6 +75,25 @@ describe("regras puras (decisão do dono, prazo, cobrança)", () => {
     expect(lerPrazo("2028-01-01", AGORA)).toMatchObject({ ok: false, motivo: "prazo a mais de um ano" });
     expect(lerPrazo("2026-02-31", AGORA)).toMatchObject({ ok: false });
     expect(lerPrazo("amanhã", AGORA)).toMatchObject({ ok: false });
+  });
+  it("integração E2: quadros e respostas da decisão passam pelo filtro novo sem perder nenhum código (inclusive só dígitos)", () => {
+    // todos os 1.024 códigos só com dígitos do alfabeto (3, 4, 7, 9) — os que mais se parecem com telefone/CPF — e mistos
+    const D = "3479";
+    const codigos: string[] = [];
+    for (let i = 0; i < 1024; i++) { let c = ""; for (let k = 0, n = i; k < 5; k++, n = Math.floor(n / 4)) c += D[n % 4]; codigos.push(c); }
+    codigos.push("AC3D4", "K7M3P", "WXY49", "97A43");
+    const hora = () => "16/11 09:05";
+    for (let i = 0; i < codigos.length; i++) {
+      const cs = [codigos[i], codigos[(i * 7 + 3) % codigos.length], codigos[(i * 13 + 5) % codigos.length]];
+      const itens = cs.map((codigo, k) => ({ codigo, venceEm: AGORA,
+        resumo: `Gerar a PCI da obra "Residencial 2026" (obra ${100 + k}) pelo Gerador de PCI, com o rascunho salvo em 15/11/2026 às 10:30 por Maria` }));
+      const quadros = `${quadroDoQueFoiFeito([`tarefa ${4321 + i} "Ligar para o cliente" (prazo 20/11/2026)`])}\n\n${quadroDePendencias(itens, hora)}`;
+      const decisao = `Dolores:\n${cs.map(c => `[${c}] aprovado e feito: PCI 123 gerada.`).join("\n")}\n[${cs[0]}] não deu tempo de executar agora; continua aguardando — mande "aprovar ${cs[0]}" de novo.`;
+      for (const t of [quadros, decisao]) expect(sanitizarTexto(t), cs.join(" ")).toBe(t);
+    }
+    // a instrução final continua inteira (antes: "(um ou mais códigos)." virava "[senha omitida]")
+    expect(sanitizarTexto(quadroDePendencias([{ codigo: "33333", resumo: "x", venceEm: AGORA }], hora)))
+      .toMatch(/Responda só "aprovar 33333" ou "recusar 33333" \(pode pôr vários, separados por espaço\)\.$/);
   });
   it("texto da cobrança é montado pelo sistema (só primeiro nome e a lista)", () => {
     const t = textoDaCobranca({ nome: "Maria Trello da Silva", documentos: ["RG", "Comprovante de renda"] });

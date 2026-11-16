@@ -91,13 +91,17 @@ export function textoDaCobranca(p: { nome: string | null; documentos: readonly s
 
 export type ItemQuadro = { codigo: string; resumo: string; venceEm: Date };
 
-/** Quadro determinístico que vai ao dono depois do comando: o que espera aprovação (o resumo é do sistema). */
+/**
+ * Quadro determinístico que vai ao dono depois do comando: o que espera aprovação (o resumo é do sistema). Passa pelo
+ * filtro de dados pessoais (sanitizarTexto) na saída: por isso o código vem ANTES do resumo em cada linha e a linha de
+ * instrução não usa a palavra "código(s)" — o filtro trata "código …" como senha e apagaria o resto da oração.
+ */
 export function quadroDePendencias(itens: readonly ItemQuadro[], horaDe: (d: Date) => string): string {
   if (!itens.length) return "";
   const linhas = itens.slice(0, 10).map(i => `- [${i.codigo}] ${i.resumo} (vence ${horaDe(i.venceEm)})`);
   const mais = itens.length > 10 ? `\n- e mais ${itens.length - 10} item(ns) na tela Integrações › Dolores` : "";
   const exemplo = itens[0].codigo;
-  return `*Aguardando a sua aprovação* (nada foi feito ainda):\n${linhas.join("\n")}${mais}\nResponda só "aprovar ${exemplo}" ou "recusar ${exemplo}" (um ou mais códigos).`;
+  return `*Aguardando a sua aprovação* (nada foi feito ainda):\n${linhas.join("\n")}${mais}\nResponda só "aprovar ${exemplo}" ou "recusar ${exemplo}" (pode pôr vários, separados por espaço).`;
 }
 
 /** Quadro do que ela já fez direto (tarefas, acompanhamentos), para o dono conferir. */

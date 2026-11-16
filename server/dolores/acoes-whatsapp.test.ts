@@ -189,3 +189,96 @@ describe("injeção: aprovação e ação nunca vêm de dado nem do modelo", () 
     expect(ultimaResposta()).toMatch(/recusado; nada foi feito/);
   });
 });
+
+describe("integração com a Etapa 2 final: a decisão por código segue as regras das mensagens do dono", () => {
+  const avisoBruto = (message: unknown, p: { de?: string; id?: string } = {}) => ({
+    event: "messages.upsert", instance: "prospecta-dolores",
+    data: { key: { remoteJid: `${p.de ?? DONO}@s.whatsapp.net`, fromMe: false, id: p.id ?? `MSG${++seq}` }, message,
+      messageTimestamp: Math.floor((AGORA.getTime() - 30_000) / 1000) },
+  });
+  async function umItemNaFila() {
+    roteiro = [() => ferramenta(["preparar_cobranca", { leadIds: [1] }]), () => texto("Preparei.")];
+    await chamar(aviso({ texto: ACEITE }));
+    const [item] = await fila();
+    expect(item.situacao).toBe("aguardando");
+    return item;
+  }
+
+  it("conferência ESTRITA do número: outro DDI ou o 55 faltando com os mesmos finais não aprova; dono celular aprova", async () => {
+    const item = await umItemNaFila();
+    for (const de of ["59599991234567", "99991234567", "5598991234567", "55999991234567"]) {
+      await chamar(aviso({ de, texto: `aprovar ${item.codigo}` }));
+    }
+    expect((await fila())[0].situacao).toBe("aguardando");
+    await chamar(aviso({ texto: `aprovar ${item.codigo}` }));
+    expect((await fila())[0].situacao).toBe("executada");
+    expect(respostas().every(x => x.numero === DONO)).toBe(true);
+  });
+
+  it("dono com telefone FIXO: celular com os mesmos 8 finais não aprova (igualdade exata)", async () => {
+    const FIXO = "559932345678";
+    await banco.pg.exec(`UPDATE dolores_whatsapp_config SET numero_dono = '${FIXO}' WHERE id = 1`);
+    roteiro = [() => ferramenta(["preparar_cobranca", { leadIds: [1] }]), () => texto("Preparei.")];
+    await chamar(aviso({ de: FIXO, texto: ACEITE }));
+    const [item] = await fila();
+    await chamar(aviso({ de: "5599932345678", texto: `aprovar ${item.codigo}` }));
+    expect((await fila())[0].situacao).toBe("aguardando");
+    await chamar(aviso({ de: FIXO, texto: `aprovar ${item.codigo}` }));
+    expect((await fila())[0].situacao).toBe("executada");
+    expect(respostas().every(x => x.numero === FIXO)).toBe(true);
+  });
+
+  it("reentrega da mesma decisão (mesmo id) é reivindicada uma vez só: uma execução, uma resposta", async () => {
+    const item = await umItemNaFila();
+    const enviosAntes = enviar.mock.calls.length;
+    const msg = avisoBruto({ conversation: `aprovar ${item.codigo}` }, { id: "DECISAO-1" });
+    const [a, b] = await Promise.all([chamar(msg), chamar(msg)]);
+    const r3 = await chamar(msg);
+    expect([a.body.r, b.body.r, r3.body.r]).toEqual(expect.arrayContaining([{ "decisao:aprovar": 1 }, { repetida: 1 }]));
+    expect([a, b, r3].filter(r => (r.body.r as Record<string, number>)["decisao:aprovar"]).length).toBe(1);
+    expect(enviar.mock.calls.length - enviosAntes).toBe(1);
+    expect((await doDolores()).length).toBe(1);
+    const linhas = await q<{ situacao: string }>("SELECT situacao FROM dolores_mensagens WHERE external_id = 'DECISAO-1'");
+    expect(linhas.map(l => l.situacao)).toEqual(["respondida"]);
+  });
+
+  it("temporária desembrulhada aprova; encaminhada (inclusive dentro da temporária), reação e edição nunca aprovam", async () => {
+    const item = await umItemNaFila();
+    for (const message of [
+      { extendedTextMessage: { text: `aprovar ${item.codigo}`, contextInfo: { forwardingScore: 3 } } },
+      { ephemeralMessage: { message: { extendedTextMessage: { text: `aprovar ${item.codigo}`, contextInfo: { isForwarded: true } } } } },
+      { reactionMessage: { key: { id: "X" }, text: `aprovar ${item.codigo}` } },
+      { protocolMessage: { type: 14, editedMessage: { conversation: `aprovar ${item.codigo}` } } },
+      { editedMessage: { message: { protocolMessage: { type: 14, editedMessage: { conversation: `aprovar ${item.codigo}` } } } } },
+    ]) await chamar(avisoBruto(message));
+    expect((await fila())[0].situacao).toBe("aguardando");
+    expect(await doDolores()).toEqual([]);
+    const r = await chamar(avisoBruto({ ephemeralMessage: { message: { extendedTextMessage: { text: `aprovar ${item.codigo}` } } } }));
+    expect(r.body.r).toEqual({ "decisao:aprovar": 1 });
+    expect((await fila())[0].situacao).toBe("executada");
+  });
+
+  it("os quadros saem inteiros pelo filtro novo de dados pessoais (códigos e a instrução final)", async () => {
+    const item = await umItemNaFila();
+    const resp = ultimaResposta();
+    expect(resp).not.toMatch(/omitid/);
+    expect(resp).toContain(`[${item.codigo}]`);
+    expect(resp).toMatch(/Responda só "aprovar [A-Z0-9]{5}" ou "recusar [A-Z0-9]{5}" \(pode pôr vários, separados por espaço\)\.$/);
+  });
+
+  it("ações contam no limite mensal com reserva: o comando que gera ação gasta e libera a reserva; no limite, nada é feito", async () => {
+    await umItemNaFila();
+    const consumo = await q<{ n: number; entrada: number }>("SELECT count(*)::int AS n, coalesce(sum(tokens_entrada), 0)::int AS entrada FROM dolores_consumo");
+    expect(consumo[0].n).toBe(2);
+    expect(consumo[0].entrada).toBe(2000);
+    const reservas = await q<{ n: number }>("SELECT count(*)::int AS n FROM dolores_mensagens WHERE reserva_ate IS NOT NULL");
+    expect(reservas[0].n).toBe(0);
+    // limite de saída do mês já tomado: o próximo pedido de ação não chama o modelo nem age
+    await banco.pg.exec("UPDATE dolores_whatsapp_config SET limite_mensal_tokens_saida = 400 WHERE id = 1");
+    const antes = pedidosModelo.length;
+    await chamar(aviso({ texto: "Dolores, crie uma tarefa para a Bianca cobrar a certidão do João até 20/11." }));
+    expect(pedidosModelo.length).toBe(antes);
+    expect((await q("SELECT count(*)::int AS n FROM tasks"))[0].n).toBe(4);
+    expect((await fila()).length).toBe(1);
+  });
+});
