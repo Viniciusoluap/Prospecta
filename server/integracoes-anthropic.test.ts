@@ -60,6 +60,29 @@ function problemasDoModuloDeModelos(texto: string): string[] {
   if (/anthropic-painel|secret-vault|decryptSecret|\bdecrypt\b|criarCliente|configuracaoAnthropicPainel|CHAVE_SEGREDO_ANTHROPIC_PAINEL|anthropic_painel_api_key|api_key|apiKey/.test(texto)) p.push("só nomes de modelo");
   // o único texto "…anthropic_painel_…" aceito é o do modelo: uma chave montada em pedaços falha
   if (/anthropic_painel_(?!modelo["'`])/.test(texto)) p.push("texto de chave montado em pedaços");
+  // QA S-11 r2, achado 3: nada de import dinâmico nem require (escapariam da lista de imports abaixo, ex. caminho concatenado)
+  if (/\bimport\s*\(|\brequire\s*\(|\bcreateRequire\b/.test(texto)) p.push("import dinâmico proibido");
+  return p;
+}
+
+/**
+ * QA S-11 r2, achado 3: os imports estáticos do módulo de modelos são EXATAMENTE estes (nenhum a mais, nenhum nome a
+ * mais). Para mudar, mude aqui de propósito, conferindo que o novo import não dá acesso à chave.
+ */
+const IMPORTS_DO_MODULO_DE_MODELOS = [
+  `import { eq } from "drizzle-orm";`,
+  `import { dashboardSettings } from "../../drizzle/schema.js";`,
+  `import { getDb } from "../db.js";`,
+  `import { FUNCOES_ANTHROPIC, ehFuncaoAnthropic, type FuncaoAnthropic } from "../../shared/funcoes-anthropic.js";`,
+];
+function importsErradosDoModuloDeModelos(texto: string): string[] {
+  const p: string[] = [];
+  const declarados = Array.from(texto.matchAll(/^\s*import\b[^;]*;/gm), m => m[0].trim().replace(/\s+/g, " "));
+  if (JSON.stringify(declarados) !== JSON.stringify(IMPORTS_DO_MODULO_DE_MODELOS)) p.push(`imports fora da lista: ${declarados.join(" | ")}`);
+  // nenhum outro módulo citado (reexportação "export … from", import escondido no meio de uma linha, import só de efeito)
+  const modulos = Array.from(texto.matchAll(/(?:\bfrom|\bimport)\s*["'`]([^"'`]+)["'`]/g), m => m[1]);
+  const permitidos = IMPORTS_DO_MODULO_DE_MODELOS.map(l => l.match(/from "([^"]+)"/)![1]);
+  if (modulos.length !== permitidos.length || modulos.some((m, i) => m !== permitidos[i])) p.push(`módulos citados: ${modulos.join(", ")}`);
   return p;
 }
 
@@ -192,6 +215,7 @@ describe("Anthropic — acesso e isolamento", () => {
     for (const t of tentativas) expect(problemasDoModuloDeModelos(t), t).not.toEqual([]);
     const fonte = readFileSync(path.resolve(import.meta.dirname, "_core", "modelo-por-funcao.ts"), "utf8");
     expect(problemasDoModuloDeModelos(fonte)).toEqual([]);
+    expect(importsErradosDoModuloDeModelos(fonte)).toEqual([]);
     // e o painel só passa o leitor do banco (sem decrypt/criarCliente) ao módulo de modelos
     const painel = readFileSync(path.resolve(import.meta.dirname, "_core", "anthropic-painel.ts"), "utf8");
     const chamadas = Array.from(painel.matchAll(/(?:modeloDaFuncao|modelosGravadosDasFuncoes)\(/g));
@@ -202,6 +226,29 @@ describe("Anthropic — acesso e isolamento", () => {
       for (let i = resto.indexOf("("); i < resto.length; i++) { if (resto[i] === "(") nivel++; if (resto[i] === ")" && --nivel === 0) { fim = i; break; } }
       expect(resto.slice(0, fim + 1)).toMatch(/soLeitor\(deps\)\)?$/);
     }
+  });
+
+  it("QA S-11 r2 achado 3: o módulo de modelos não tem import dinâmico e só tem a lista exata de imports estáticos", () => {
+    // as fugas que a sonda da 2ª rodada achou, e outras do mesmo tipo
+    for (const t of [
+      `const m = await import("./secret-" + "vault.js");`,
+      "const m = await import(`./secret-${'vault'}.js`);",
+      `const m = await import ("./x.js");`,
+      `const m = require("./secret-vault.js");`,
+      `const r = createRequire(import.meta.url);`,
+    ]) expect(problemasDoModuloDeModelos(t), t).toContain("import dinâmico proibido");
+    const fonte = readFileSync(path.resolve(import.meta.dirname, "_core", "modelo-por-funcao.ts"), "utf8");
+    const cabeca = IMPORTS_DO_MODULO_DE_MODELOS.join("\n");
+    expect(fonte).toContain(cabeca);
+    for (const [nome, t] of [
+      ["import a mais", fonte.replace(cabeca, `${cabeca}\nimport { ENV } from "./env.js";`)],
+      ["nome a mais num import permitido", fonte.replace(`import { getDb } from "../db.js";`, `import { getDb, db } from "../db.js";`)],
+      ["import de efeito", fonte.replace(cabeca, `${cabeca}\nimport "./secret-vault.js";`)],
+      ["reexportação", `${fonte}\nexport { decryptSecret } from "./secret-vault.js";`],
+      ["import trocado de lugar", fonte.replace(`import { getDb } from "../db.js";`, `import { getDb } from "./db-com-segredo.js";`)],
+      ["import faltando (lista desatualizada)", fonte.replace(`import { eq } from "drizzle-orm";\n`, "")],
+    ] as const) expect(importsErradosDoModuloDeModelos(t), nome).not.toEqual([]);
+    expect(importsErradosDoModuloDeModelos(fonte)).toEqual([]);
   });
 
   it("nenhum código operacional usa a chave do painel (nem pelo módulo, nem pela chave do banco), exceto a leitura da maquete e a Dolores, cada uma num ponto único", () => {
@@ -235,7 +282,7 @@ describe("Anthropic — acesso e isolamento", () => {
         if (!permitido) { if (marcas.some(m => texto.includes(m))) usam.push(rel); continue; }
         if (permitido === "painel") continue;
         if (permitido === "modelos") {
-          leemAChave.push(...problemasDoModuloDeModelos(texto).map(p => `${rel} (${p})`));
+          leemAChave.push(...[...problemasDoModuloDeModelos(texto), ...importsErradosDoModuloDeModelos(texto)].map(p => `${rel} (${p})`));
           continue;
         }
         // só as funções listadas, num único import do módulo
