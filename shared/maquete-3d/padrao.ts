@@ -27,7 +27,7 @@ export const M2_DA_VAGA = 12.5;
  * entra nem sai. O dono achou 25 m² demais (16/11/2026); 18,75 m² é a conta geométrica, e a tela deixa ajustar.
  */
 export const M2_POR_VAGA = 18.75;
-export const LIMITES_M2_POR_VAGA = [12.5, 35] as const;
+export const LIMITES_M2_POR_VAGA = [15, 35] as const;
 /** Parte da área que vira estacionamento: no pátio do lote sobram recuos, jardim e acessos; no subsolo, rampa e caixa de escada. Sob o pilotis conta a área das duas alas (o hall de entrada fica de fora). */
 export const APROVEITAMENTO_VAGAS = { patio: 0.7, subsolo: 0.85 } as const;
 /** Largura do hall de entrada no térreo em pilotis (o resto da projeção são as duas alas de estacionamento). */
@@ -55,9 +55,19 @@ export function vagasDoTerreno(areaTerreno: number, largura: number, profundidad
   const porVaga = m2PorVagaDe(e);
   const patio = Math.floor((Math.max(0, areaTerreno - projecao) * APROVEITAMENTO_VAGAS.patio) / porVaga);
   // Pilotis: as duas alas ao lado do hall — a mesma área que a maquete desenha como estacionamento no térreo.
-  const pilotis = e.pilotis ? 2 * Math.floor((Math.max(0, (W - LARGURA_DO_HALL) / 2) * D) / porVaga) : 0;
+  const pilotis = e.pilotis ? 2 * vagasDaAla(Math.max(0, (W - LARGURA_DO_HALL) / 2), D, porVaga) : 0;
   const subsolos = Math.round(entre(e.subsolos, LIMITES_PREDIO.subsolos)) * Math.floor((Math.max(areaTerreno, projecao) * APROVEITAMENTO_VAGAS.subsolo) / porVaga);
   return { patio, pilotis, subsolos, total: patio + pilotis + subsolos };
+}
+/**
+ * Vagas de uma ala do pilotis (largura × profundidade), com o carro entrando pela lateral do lote. A área sozinha
+ * não basta (portão de QA de 16/11): numa ala com menos de 5 m o carro (2,5 × 5 m) não cabe atravessado — só em
+ * fila, ao comprido (uma vaga a cada 5 m); com menos de 2,5 m não cabe carro. Vale o menor entre a conta pela
+ * área e o que cabe de fato.
+ */
+function vagasDaAla(larguraAla: number, profundidade: number, porVaga: number): number {
+  const cabem = larguraAla >= 5 ? Math.floor(profundidade / 2.5) * Math.floor(larguraAla / 5) : larguraAla >= 2.5 ? Math.floor(profundidade / 5) : 0;
+  return Math.min(cabem, Math.floor((larguraAla * profundidade) / porVaga));
 }
 const m2PorVagaDe = (e: EstacionamentoPredio) => (typeof e.m2PorVaga === "number" && Number.isFinite(e.m2PorVaga) ? entre(e.m2PorVaga, LIMITES_M2_POR_VAGA) : M2_POR_VAGA);
 
@@ -238,6 +248,7 @@ export function predioPadrao(p: PredioPadrao): Edificacao {
       [{ nome: "Hall e áreas comuns", funcao: "area_comum", x0: 0, y0: 0, x1: W, y1: D }],
       [{ tipo: "porta_janela", x: W / 2, y: D, largura: 2.4, altura: 2.4, entrada: true },
         ...Array.from({ length: Math.max(1, Math.floor(W / 6)) }, (_, i) => ({ tipo: "janela" as const, x: ((i + 0.5) * W) / Math.max(1, Math.floor(W / 6)), y: 0, largura: 1.6 }))]);
+  if (p.pilotis) for (const c of terreo.comodos) if (c.funcao === "garagem") c.vagas = porLado;
   const comodos: Ret[] = [{ nome: "Hall dos apartamentos", funcao: "hall", x0: 0, y0: c0, x1: W, y1: c1 }], vaos: Vao[] = [];
   const fileiraDeAptos = (quantos: number, y0: number, y1: number, corredor: number, fachada: number, primeiro: number) => {
     const largura = W / quantos, fundoBanho = corredor === y1 ? y1 - 1.9 : y0 + 1.9;

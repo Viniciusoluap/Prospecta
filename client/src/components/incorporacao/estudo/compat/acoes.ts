@@ -7,6 +7,7 @@ import { linksDoCliente } from "@/lib/trpc-links";
 import { toast } from "sonner";
 import type { AppRouter } from "../../../../../../server/routers";
 import type { DueDiligence } from "@shared/incorporacao/due-diligence";
+import type { MultiPolygon } from "geojson";
 import { LIMITE_ANEXO_BYTES, LIMITE_ANEXO_ROTULO, MIME_GENERICO, PARTE_ANEXO_BYTES, anexoVisualizavel, mimeDoAnexo, partesDoAnexo } from "@shared/incorporacao/anexos";
 import type { ErroAcao } from "./acao-resultado";
 
@@ -56,7 +57,7 @@ export const salvarOrcamentoObra = json((i) => inc.saveOrcamentoObra.mutate(i));
 export const salvarCronogramaObra = json((i) => inc.saveCronogramaObra.mutate(i));
 export const salvarAtendimentoClientes = json((i) => inc.saveAtendimentoClientes.mutate(i));
 
-export function salvarApp(estudoId: string, payload: { areaM2: number; larguraM: number | null; origem: string }) {
+export function salvarApp(estudoId: string, payload: { areaM2: number; larguraM: number | null; origem: string; contorno?: MultiPolygon | null }) {
   return gravar(() => inc.saveApp.mutate({ id: id(estudoId), ...payload }));
 }
 

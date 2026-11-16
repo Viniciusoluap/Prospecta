@@ -1,7 +1,8 @@
 import { sincronizarUnidadesCenario } from "./incorporacao-unidades-cenario.js";
 import { referenciasAtendimento, vincularAtendimento } from "../shared/incorporacao/atendimento-clientes.js";
 import { COOKIE_NAME } from "../shared/const.js";
-import { limparLargurasConfirmadas } from "../shared/geo/camadas-terreno.js";
+import { MAX_VERTICES_CONTORNO_APP, limparLargurasConfirmadas } from "../shared/geo/camadas-terreno.js";
+import { CAMPOS_LIMPOS_AO_TROCAR_TERRENO, contornoAoSalvarApp } from "./incorporacao-app-contorno.js";
 import { getSessionCookieOptions } from "./_core/cookies.js";
 import { systemRouter } from "./_core/systemRouter.js";
 import {
@@ -2791,6 +2792,8 @@ export const appRouter = router({
           perimeterM: terreno.perimetroM.toString(),
           latitude: terreno.centro[1].toString(),
           longitude: terreno.centro[0].toString(),
+          // S-I: o contorno da APP era do terreno anterior; a área fica até o mapa do Terreno recalcular a do novo
+          ...CAMPOS_LIMPOS_AO_TROCAR_TERRENO,
         });
         return {
           geojson: JSON.stringify(terreno.feature),
@@ -2837,14 +2840,25 @@ export const appRouter = router({
           areaM2: z.number(),
           larguraM: z.number().nullable(),
           origem: z.string(),
+          // S-I: contorno da APP no terreno (MultiPolygon, [lng, lat]); null limpa; ausente mantém (ver contornoAoSalvarApp)
+          contorno: z.object({
+            type: z.literal("MultiPolygon"),
+            coordinates: z.array(z.array(z.array(z.array(z.number().finite()).min(2).max(3).refine((p) => Math.abs(p[0]) <= 180 && Math.abs(p[1]) <= 90, "Coordenada fora de longitude/latitude.")).min(4)).min(1)).min(1).max(2000),
+          }).nullable().optional()
+            .refine((g) => !g || g.coordinates.reduce((s, poli) => s + poli.reduce((t, a) => t + a.length, 0), 0) <= MAX_VERTICES_CONTORNO_APP,
+              { message: `Contorno da APP com vértices demais (máximo ${MAX_VERTICES_CONTORNO_APP}).` }),
         })
       )
       .mutation(async ({ input, ctx }) => {
         requireModule(ctx, "incorporacao");
+        // área e contorno andam juntos (S-I): cliente antigo sem o campo mantém o contorno, salvo se a área mudou
+        const anterior = input.contorno === undefined ? (await db.getIncorporationStudyById(input.id))?.appAreaM2 : null;
+        const contorno = contornoAoSalvarApp(input, anterior == null ? null : Number(anterior));
         await db.updateIncorporationStudy(input.id, {
           appAreaM2: input.areaM2.toString(),
           appWidthM: input.larguraM?.toString(),
           appOrigin: input.origem,
+          ...(contorno !== undefined ? { appGeometryJson: contorno } : {}),
         });
         return { success: true };
       }),

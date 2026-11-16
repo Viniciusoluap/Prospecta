@@ -49,6 +49,11 @@ describe("forma das ruas", () => {
     expect(f.largura).toBeLessThan(9.3);
   });
 
+  it("triângulo (cunha de recorte pela divisa) não vira rua estreita: fica sem geometria 3D, só pintado", () => {
+    expect(formaDaRua([{ x: 0, y: 0 }, { x: 60, y: 0 }, { x: 30, y: 40 }])).toBeNull();
+    expect(formaDaRua([{ x: 0, y: 0 }, { x: 60, y: 0 }, { x: 0, y: 30 }])).toBeNull();
+  });
+
   it("círculo vira balão; anel (faixa curva) não", () => {
     const b = formaDaRua(circulo(50, 50, 11));
     expect(b?.tipo).toBe("balao");

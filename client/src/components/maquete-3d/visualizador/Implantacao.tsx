@@ -23,7 +23,7 @@ export const SITUACOES: Record<SituacaoLote, { rotulo: string; cor: string }> = 
   sem_cadastro: { rotulo: "Lote", cor: "#8DB596" },
   area_verde: { rotulo: "Área verde", cor: "#2F7A46" },
   area_institucional: { rotulo: "Área institucional", cor: "#5B8FB9" },
-  area_publica: { rotulo: "Área pública", cor: "#5B8FB9" },
+  area_publica: { rotulo: "Área pública", cor: "#8FA7B5" },
   nao_parcelavel: { rotulo: "Área não parcelável", cor: "#8A8F98" },
 };
 export type LoteNaCena = { id: string; rotulo: string; area: number; situacao: SituacaoLote; unidade: string | null };
@@ -35,8 +35,8 @@ export function lotesDaCena(imp: DadosImplantacao, unidades: UnidadeVenda[]): Lo
   const status = new Map(unidades.map(u => [chave(u.codigo), u.status]));
   return imp.lotes.map(l => {
     const s = l.unidade ? status.get(chave(l.unidade)) : undefined;
-    const situacao: SituacaoLote = l.tipo === "area_publica" && l.uso ? (l.uso === "verde" ? "area_verde" : "area_institucional") : l.tipo !== "vendavel" ? l.tipo : s === "disponivel" || s === "reservada" || s === "vendida" ? s : "sem_cadastro";
-    return { id: l.id, rotulo: [l.quadra && `Quadra ${l.quadra}`, l.nome && `Lote ${l.nome}`].filter(Boolean).join(" · ") || l.id, area: l.areaInformada ?? Math.round(areaPoligono(l.poligono) * 100) / 100, situacao, unidade: l.unidade };
+    const situacao: SituacaoLote = l.tipo !== "vendavel" && l.uso ? (l.uso === "verde" ? "area_verde" : "area_institucional") : l.tipo !== "vendavel" ? l.tipo : s === "disponivel" || s === "reservada" || s === "vendida" ? s : "sem_cadastro";
+    return { id: l.id, rotulo: (l.tipo !== "vendavel" && l.nome) || [l.quadra && `Quadra ${l.quadra}`, l.nome && `Lote ${l.nome}`].filter(Boolean).join(" · ") || l.id, area: l.areaInformada ?? Math.round(areaPoligono(l.poligono) * 100) / 100, situacao, unidade: l.unidade };
   });
 }
 

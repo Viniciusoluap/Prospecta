@@ -45,19 +45,21 @@ Asaas; promessa de número de precisão da leitura do PDF (correção 11).
 | E | 9 | `S-E-camadas-terreno-resilientes.md` | portar | sim — tabela nova, aditiva (último resultado bom por terreno) |
 | F | 8, 10 | `S-F-massa-multiplas-areas-malha-conectada.md` | portar | não prevista |
 | G | 13 | `S-G-vias-3d-fieis.md` | exceção (Maquete 3D) | não |
+| H | validação de 16/11 | `S-H-validacao-com-dados-reais.md` | parte entra na lista arquivada do Santa Fé | não |
 
 - G depende de F (as vias desenhadas no 3D vêm da malha viária gerada pelo motor do Estudo de Massa).
 - F é a etapa de maior risco (motor central da Incorporação, ~124 testes atuais serão revistos).
 - Cada etapa só é marcada depois de: código, testes, HANDOFF (`HANDOFF-15-11-CORRECOES.md`) atualizado, commit e push
   confirmados, PR mesclado e publicação na Vercel conferida.
 
-- [ ] Etapa A
-- [ ] Etapa B
-- [ ] Etapa C
-- [ ] Etapa D
-- [ ] Etapa E
-- [ ] Etapa F
-- [ ] Etapa G
+- [x] Etapa A — publicada (PR #222 e #228)
+- [x] Etapa B — publicada (PR #223)
+- [x] Etapa C — publicada (PR #224 e #227)
+- [x] Etapa D — publicada (PR #226)
+- [x] Etapa E — publicada (PR #225)
+- [x] Etapa F — publicada (PR #230 e #231)
+- [x] Etapa G — publicada (PR #229)
+- [ ] Etapa H — validação com dados reais (primeira leva publicada no PR #232; leitor de PDF e QA em andamento)
 - [ ] Pendências de porte ao Grupo Santa Fé (correções 1, 2, 3, 4, 8, 9, 10) entregues lá
 
 ## Decisões pendentes do dono (bloqueios até resposta)

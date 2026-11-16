@@ -140,6 +140,34 @@ construído e aberto em navegador de teste (Chromium, com emulação de iPad e i
   abriu o mapa do terreno desde a publicação). Depois que o dono abrir o mapa de um estudo, conferir essa tabela.
 - Fluidez em iPad/celular reais (aqui a placa de vídeo é simulada por software) e o Safari de verdade.
 
+## Segunda leva de 16/11 — portão de QA, leitor no PDF real e APP com contorno (AIOX)
+
+O dono perguntou se o AIOX estava em uso: a primeira leva tinha sido feita direto. A partir daqui: story `S-H`
+(validação) e `S-I` (APP), @dev nos dois desenvolvimentos e @qa nos portões.
+
+**Portão de QA do PR #232 (@qa): CONCERNS — achados corrigidos (commit `11393d0`)**
+- Overpass: as consultas perdedoras ficavam abertas até ~50 s e o reforço saía mesmo depois da resposta. Agora um
+  `AbortController` por corrida cancela tudo quando um servidor responde; 1 repetição em vez de 2.
+- Pilotis: a conta só pela área dava vaga onde o carro não cabe (ala de 2,5 m). Agora vale o menor entre a área e o que
+  cabe na largura da ala, com o carro entrando pela lateral. Mínimo da área por vaga: 15 m² (era 12,5, sem corredor).
+- Vagas da garagem: o resumo lia "(N vagas)" do nome do cômodo (editável, e dobrava em maquetes já salvas). Agora há o
+  campo opcional `vagas` no cômodo; sem ele, estima pela área.
+- Rua em triângulo/cunha voltou a ficar só pintada; "Área pública" antiga ganhou cor própria na legenda.
+- Testes novos: corrida do Overpass com cancelamento, página de manutenção da EPE, triângulo, prédio estreito.
+
+**Leitor geométrico no PDF real do Polímeros (@dev) — medido no arquivo real, fora do repositório**
+- Antes: 3 "plantas" (uma era o CORTE B), cozinha e banheiro sem nome, nenhuma porta; a folha de urbanismo virava 6
+  plantas sem sentido em 16 s.
+- Depois: 1 planta ("PLANTA BAIXA", 1:50, 4,90 × 11,41 m), seis cômodos com nome (diferença de área entre +4% e
+  +12%; a área desenhada vai ao eixo da parede), 4 portas e 5 janelas, em menos de 1 s. Folha de urbanismo recusada
+  em 2 ms com aviso em português.
+- Ainda falha no arquivo real: a porta de correr da frente é lida como janela (fica o aviso "marque a entrada");
+  banheiro +11,6%; um "Ambiente" de 1,3 m² sem nome; a casa é recortada pela caixa dos cômodos com nome (garagem sem
+  nome ficaria de fora, com aviso).
+- Portão de QA do leitor: em andamento.
+
+**S-I — APP com o contorno real no Estudo de Massa:** em andamento com @dev (migração `0117` ainda NÃO aplicada).
+
 ## Pendências
 - **Dono:** abrir o pedido "Polímeros (Morada do Bosque)", clicar em "Gerar maquete (ler o projeto)" e dizer como ficou a
   leitura do "ARQ 01-01-CASA PADRÃO.pdf" (é a primeira medição do leitor num projeto real).

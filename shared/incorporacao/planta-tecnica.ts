@@ -11,7 +11,7 @@
 // portanto proporções e medidas são as do cálculo. Não depende de imagem de satélite.
 
 import type { Position } from "geojson";
-import { criarProjecao, ROTULO_ESTUDO_PRELIMINAR, type CenarioMassa, type LoteGerado } from "./massa.js";
+import { criarProjecao, ROTULO_ESTUDO_PRELIMINAR, ROTULO_RESTRICAO_GEO, type CenarioMassa, type LoteGerado, type TipoRestricaoGeo } from "./massa.js";
 import { areaPlanar, pontoDentro } from "./geometria-parcelamento.js";
 import { formatarCodigoLote } from "./unidades.js";
 
@@ -22,6 +22,8 @@ export const CORES_PLANTA = {
   vendavelBorda: "#92400e",
   institucional: "#bfdbfe",
   verde: "#bbf7d0",
+  /** APP e demais restrições desenhadas pelo contorno real (S-I): verde mais escuro, para não confundir com a doação. */
+  app: "#86c99a",
   naoParcelavel: "#e5e7eb",
   via: "#d1d5db",
   viaBorda: "#6b7280",
@@ -48,6 +50,13 @@ export interface LotePlanta {
   irregular?: boolean;
   /** Furos (anéis internos) da peça, em metros. */
   furos?: Position[][];
+  /** Área restrita desenhada pelo contorno real (APP, faixa…). */
+  restricao?: TipoRestricaoGeo;
+}
+
+/** Destino da área restrita no quadro, para a legenda. */
+function destinoDaPeca(l: { tipo: LoteGerado["tipo"]; uso?: LoteGerado["uso"] }): string {
+  return l.tipo === "nao_parcelavel" ? "só não parcelável" : l.uso === "institucional" ? "conta como área institucional" : "conta como área verde";
 }
 
 export interface ModeloPlanta {
@@ -61,6 +70,8 @@ export interface ModeloPlanta {
   areaViariaM2: number;
   nLotesVendaveis: number;
   tipologia: string;
+  /** Áreas restritas desenhadas pelo contorno real, somadas por tipo (legenda). */
+  restricoes: { tipo: TipoRestricaoGeo; rotulo: string; areaM2: number; destino: string }[];
 }
 
 function centroide(anel: Position[]): [number, number] {
@@ -107,8 +118,16 @@ export function montarModeloPlanta(glebaGeo: Position[], cenario: CenarioMassa, 
       centro: centroideArea(anel), angulo: ang,
       ...(irregular ? { irregular: true } : {}),
       ...(l.furos && l.furos.length > 0 ? { furos: l.furos.map(m) } : {}),
+      ...(l.restricao ? { restricao: l.restricao } : {}),
     };
   });
+  const restricoes: ModeloPlanta["restricoes"] = [];
+  for (const l of lotes) {
+    if (!l.restricao) continue;
+    const r = restricoes.find((x) => x.tipo === l.restricao);
+    if (r) r.areaM2 += l.areaM2;
+    else restricoes.push({ tipo: l.restricao, rotulo: ROTULO_RESTRICAO_GEO[l.restricao], areaM2: l.areaM2, destino: destinoDaPeca(l) });
+  }
   const porQuadra = new Map<string, LotePlanta[]>();
   for (const l of lotes) if (l.quadra) porQuadra.set(l.quadra, [...(porQuadra.get(l.quadra) ?? []), l]);
   const quadras = Array.from(porQuadra.entries())
@@ -123,6 +142,7 @@ export function montarModeloPlanta(glebaGeo: Position[], cenario: CenarioMassa, 
     areaViariaM2: cenario.sistemaViario?.areaGeometricaM2 ?? cenario.quadroAreas?.sistemaViarioM2 ?? 0,
     nLotesVendaveis: cenario.kpis.lotesVendaveis,
     tipologia: cenario.tipologia ?? "grid",
+    restricoes,
   };
 }
 
@@ -174,6 +194,7 @@ function pontos(anel: Position[], v: VistaPlanta): string {
 
 function corLote(l: LotePlanta): string {
   if (l.tipo === "vendavel") return CORES_PLANTA.vendavel;
+  if (l.restricao) return CORES_PLANTA.app;
   if (l.tipo === "nao_parcelavel") return CORES_PLANTA.naoParcelavel;
   return l.uso === "institucional" ? CORES_PLANTA.institucional : CORES_PLANTA.verde;
 }
@@ -319,7 +340,7 @@ export function renderizarPlantaSvg(modelo: ModeloPlanta, v: VistaPlanta, o: Opc
     const tela = l.anel.map(naTela);
     const eixo = eixoMaior(tela);
     if (eixo.compr < 10 || eixo.larg < 7) continue;
-    const nome = l.tipo === "vendavel" ? (l.numero ? `L${l.numero.padStart(2, "0")}` : "") : l.tipo === "nao_parcelavel" ? "NP" : l.uso === "institucional" ? "INST" : "AV";
+    const nome = l.tipo === "vendavel" ? (l.numero ? `L${l.numero.padStart(2, "0")}` : "") : l.restricao ? ROTULO_RESTRICAO_GEO[l.restricao] : l.tipo === "nao_parcelavel" ? "NP" : l.uso === "institucional" ? "INST" : "AV";
     if (!nome) continue;
     const linhas = [nome, `${fmt(l.areaM2)} m²`];
     if (l.tipo === "vendavel") linhas.push(`${fmt(l.testadaM)} × ${fmt(l.profundidadeM)} m${l.irregular ? " (méd.)" : ""}`);
@@ -377,9 +398,10 @@ export function renderizarPlantaSvg(modelo: ModeloPlanta, v: VistaPlanta, o: Opc
       [CORES_PLANTA.institucional, "Área institucional"],
       [CORES_PLANTA.verde, "Área verde"],
       [CORES_PLANTA.naoParcelavel, "Não parcelável"],
+      ...(modelo.restricoes ?? []).map((r): [string, string] => [CORES_PLANTA.app, `${r.rotulo} (contorno real) · ${fmt(r.areaM2)} m² · ${r.destino}`]),
       [CORES_PLANTA.via, `Sistema viário · ${fmt(modelo.areaViariaM2)} m² · via ${fmt(modelo.larguraViaM)} m`],
     ];
-    const lw = 270, lh = 18 + itens.length * 15 + 16;
+    const lw = (modelo.restricoes ?? []).length > 0 ? 340 : 270, lh = 18 + itens.length * 15 + 16;
     const lx = W - lw - 10, ly = H - lh - 10;
     partes.push(`<g data-camada="legenda" font-size="10" fill="#111827"><rect x="${lx}" y="${ly}" width="${lw}" height="${lh}" fill="#ffffff" fill-opacity="0.94" stroke="#9ca3af"/>`);
     partes.push(`<text x="${lx + 8}" y="${ly + 13}" font-weight="700">Legenda${o.titulo ? ` · ${esc(o.titulo)}` : ""}</text>`);
@@ -396,6 +418,7 @@ export function renderizarPlantaSvg(modelo: ModeloPlanta, v: VistaPlanta, o: Opc
 export function rotuloLote(l: LotePlanta): string {
   const dims = `${fmt(l.testadaM)} × ${fmt(l.profundidadeM)} m`;
   if (l.tipo === "vendavel") return `${l.codigo ?? "Lote"} · ${fmt(l.areaM2)} m² · ${l.irregular ? `testada ${fmt(l.testadaM)} m, profundidade média ${fmt(l.profundidadeM)} m (lote de borda)` : dims}`;
+  if (l.restricao) return `${ROTULO_RESTRICAO_GEO[l.restricao]} (contorno real) · ${fmt(l.areaM2)} m² · ${destinoDaPeca(l)}`;
   if (l.tipo === "nao_parcelavel") return `Não parcelável (restrição) · ${fmt(l.areaM2)} m²`;
   return `${l.uso === "institucional" ? "Área institucional" : "Área verde"} · ${fmt(l.areaM2)} m²${l.irregular ? "" : ` · ${dims}`}`;
 }
