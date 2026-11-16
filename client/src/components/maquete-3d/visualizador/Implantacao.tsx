@@ -163,7 +163,8 @@ export function Implantacao({ implantacao: imp, edificacoes, unidades, m, seleci
     c.fillStyle = "#5E8D4A"; c.fillRect(0, 0, LADO_MAPA, LADO_MAPA);
     const sorteio = sorteioDoTerreno();
     for (let i = 0; i < 9000; i++) { c.fillStyle = i % 2 ? "#557F43" : "#689651"; c.fillRect(sorteio() * LADO_MAPA, sorteio() * LADO_MAPA, 3, 3); }
-    if (imp.terreno.length >= 3) { tracar(imp.terreno); c.fillStyle = "#B9A27E"; c.fill(); c.lineWidth = 3; c.strokeStyle = "#7A6A4E"; c.stroke(); }
+    // Todas as áreas do terreno (KML com várias áreas separadas: a maior e as outras).
+    for (const area of [imp.terreno, ...(imp.terrenosExtras ?? [])]) if (area.length >= 3) { tracar(area); c.fillStyle = "#B9A27E"; c.fill(); c.lineWidth = 3; c.strokeStyle = "#7A6A4E"; c.stroke(); }
     // As ruas viram vias em 3D por cima do terreno; o leito só aparece nas frestas. Rua de forma irreconhecível
     // continua pintada de asfalto, como antes.
     const semGeometria = new Set(viario.ruasSemGeometria);
