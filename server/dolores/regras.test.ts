@@ -634,6 +634,48 @@ describe("filtro de dados pessoais em texto livre (M1)", () => {
     expect(performance.now() - t0).toBeLessThan(1000);
   });
 
+  it("QA r7 A1: credencial sem a palavra 'senha' sai nos DOIS modos; o CPF ao lado segue o interruptor; sem falso positivo óbvio", () => {
+    const S = "[senha omitida]";
+    const LIB = { mascararDadosPessoais: false } as const;
+    const casos: Array<[string, string]> = [
+      ["gov.br 529.982.247-25 Maria@2025", "Maria@2025"], ["login: 52998224725 / Maria@2025", "Maria@2025"],
+      ["acesso INSS: Maria@123", "Maria@123"], ["senhas\nMaria@2025", "Maria@2025"], ["senha, Maria@2025", "Maria@2025"],
+      ["acesso gov: 52998224725 Maria@2025", "Maria@2025"], ["usuário: maria.silva, Qwe!2345x", "Qwe!2345x"],
+      ["login maria / s3nh4F0rte", "s3nh4F0rte"], ["credenciais:\nPrevid2025", "Previd2025"], ["meu inss — Abc12345", "Abc12345"],
+      ["e-cac: Joao#Silva9", "Joao#Silva9"], ["pwd Xy7#abcd", "Xy7#abcd"], ["senha: Maria.2025, ok", "Maria.2025"],
+      ["a senha é Maria.2025. Entrei", "Maria.2025"], ["portal da caixa: Caixa2025", "Caixa2025"],
+    ];
+    for (const [t, senha] of casos) for (const op of [LIB, {}]) {
+      const r = sanitizarTexto(t, op);
+      expect(r, `${t} → ${r}`).not.toContain(senha);
+      expect(r, t).toContain(S);
+    }
+    // o CPF ao lado segue o interruptor: inteiro no modo liberado, mascarado no padrão
+    expect(sanitizarTexto("acesso gov: 52998224725 Maria@2025", LIB)).toBe(`acesso gov: 52998224725 ${S}`);
+    expect(sanitizarTexto("acesso gov: 52998224725 Maria@2025")).toBe(`acesso gov: ${OMITIDO_T} ${S}`);
+    // a pontuação depois da senha fica; o resto da frase também
+    expect(sanitizarTexto("senha: Maria.2025, ok", LIB)).toBe(`senha ${S}, ok`);
+    expect(sanitizarTexto("a senha é Maria.2025. Entrei", LIB)).toBe(`a senha ${S}. Entrei`);
+    // o outro lado: valores, e-mails de verdade, lote, datas, protocolo e usuário sem cara de senha ficam
+    for (const t of [
+      "R$ 1.500,00 acesso ao lote 12 em 16/11/2026", "login maria@gmail.com", "acesso liberado em 16/11/2026 às 10h", "usuário: maria.silva",
+      "portal da prefeitura, protocolo 2026/123, lote 12", "acesso pela rua 7, casa 12", "login feito às 10:30", "o portal está fora do ar",
+      "acesso: R$ 2.500,00 pago", "e-mail maria.silva@uol.com.br",
+    ]) expect(sanitizarTexto(t, LIB), t).toBe(t);
+    // "x@y" sem domínio fora de gatilho: senha no modo liberado; no padrão, a fase de e-mail tira (marcador de dado pessoal)
+    expect(sanitizarTexto("anotou Maria@2025 no papel", LIB)).toBe(`anotou ${S} no papel`);
+    expect(sanitizarTexto("anotou Maria@2025 no papel")).toBe(`anotou ${OMITIDO_T} no papel`);
+    // 200 kB com gatilhos e palavras com cara de senha: tempo linear
+    for (const p of ["login ", "acesso Maria@2025 ", "senha, ", "a@a", "gov.br\n", "x".repeat(50) + "@" + "1".repeat(50) + " "]) {
+      const t = p.repeat(Math.ceil(200 * 1024 / p.length));
+      for (const op of [LIB, {}]) {
+        const t0 = performance.now();
+        sanitizarTexto(t, op);
+        expect(performance.now() - t0, JSON.stringify(p)).toBeLessThan(1000);
+      }
+    }
+  });
+
   it("percorre a resposta inteira (listas e objetos), sem tocar números e chaves", () => {
     expect(sanitizarResposta({ a: [{ texto: "cpf 111.222.333-44", n: 11122233344 }], "111.222.333-44": null }))
       .toEqual({ a: [{ texto: "cpf [dado pessoal omitido]", n: 11122233344 }], "111.222.333-44": null });

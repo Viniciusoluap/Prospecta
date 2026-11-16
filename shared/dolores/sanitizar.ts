@@ -169,7 +169,43 @@ export function normalizarParaFiltro(texto: string): string {
 // ── Senha, banco, e-mail e os formatos canônicos (sempre saem) ──
 const FIM_DA_ORACAO = "(?=[;\\n]|[.,!?](?:\\s|$)|$)";
 // Palavra de senha: tudo até o fim da oração (ponto, ponto e vírgula, vírgula, quebra de linha).
-const SENHA = new RegExp(`\\b(senhas?|password|passwd|token|pin|otp)\\b.*?${FIM_DA_ORACAO}`, "gi");
+// QA r7 A1(c): "senha, X", "senha: X", "senha — X", "senha é X" e "senha\nX" levam junto a palavra X (antes, a vírgula ou a
+// quebra de linha logo depois fechava a oração e a senha ficava à vista). A palavra não leva a pontuação final.
+const DEPOIS_DA_SENHA = "(?:[ \\t]*(?:[,:=]|[-–—]+>?)[ \\t]*(?:\\r?\\n[ \\t]*)?|[ \\t]*\\r?\\n[ \\t]*|[ \\t]+é[ \\t]+)[^\\s,;]*[^\\s,;.!?]";
+const SENHA = new RegExp(`\\b(senhas?|password|passwd|token|pin|otp)\\b(?:${DEPOIS_DA_SENHA})?.*?${FIM_DA_ORACAO}`, "gi");
+/**
+ * QA r7 A1(b): gatilho de credencial. Depois dele, na mesma linha (e na linha seguinte quando ele fecha a linha), a
+ * palavra com cara de senha (ver pareceSenha) sai. O CPF ou o usuário ao lado seguem a regra de dado pessoal.
+ */
+const PALAVRAS_CREDENCIAL = "senhas?|logins?|acessos?|credencia(?:l|is)|usu[aá]rios?|user(?:name)?|gov\\.?\\s?br|gov|meu\\s+inss|inss|e-?cac|conecta|portal|pwd|pass(?:word)?|passwd";
+const GATILHO_CREDENCIAL = new RegExp(`(?<![\\p{L}\\p{N}_])(?:${PALAVRAS_CREDENCIAL})(?![\\p{L}\\p{N}_])`, "iu");
+const GATILHO_NO_FIM_DA_LINHA = new RegExp(`(?<![\\p{L}\\p{N}_])(?:${PALAVRAS_CREDENCIAL})[\\s:=>\\-–—,.;]*$`, "iu");
+/** Palavra do texto: sequência sem espaço nem separador (",", ";", ":", "/", "|", parênteses, aspas, colchetes). */
+const PALAVRA = /(?<![^\s,;:/|()<>"'[\]{}])[^\s,;:/|()<>"'[\]{}]{6,}/gu;
+const EMAIL_DE_VERDADE = /^[^@]+@[\p{L}\p{N}_-]+(?:\.[\p{L}\p{N}_-]+)*\.[\p{L}\p{N}_-]*\p{L}[\p{L}\p{N}_-]*[.!?]?$/u;
+/** Cara de senha: 6+ caracteres, letra misturada com dígito ou símbolo, e não é e-mail de verdade. */
+export function pareceSenha(p: string): boolean {
+  return p.length >= 6 && /\p{L}/u.test(p) && /[\d!@#$%&*?_+=~^]/.test(p) && !EMAIL_DE_VERDADE.test(p);
+}
+function mascararCredenciais(x: string): string {
+  if (!GATILHO_CREDENCIAL.test(x)) return x;
+  const linhas = x.split("\n");
+  let linhaSeguinte = false;
+  for (let i = 0; i < linhas.length; i++) {
+    const l = linhas[i];
+    const m = GATILHO_CREDENCIAL.exec(l);
+    const ini = linhaSeguinte ? 0 : m ? m.index + m[0].length : -1;
+    if (ini >= 0) linhas[i] = l.slice(0, ini) + l.slice(ini).replace(PALAVRA, p => (pareceSenha(p) ? SENHA_OMITIDA : p));
+    linhaSeguinte = !!m && GATILHO_NO_FIM_DA_LINHA.test(l.slice(-48));
+  }
+  return linhas.join("\n");
+}
+/**
+ * QA r7 A1(a): "x@y" sem ponto no domínio não é e-mail ("Maria@2025", formato de senha muito comum): sai como senha no
+ * modo liberado (no modo mascarado, a fase de e-mail já o tira). E-mail com domínio ("maria@gmail.com") fica.
+ */
+const ARROBA_SEM_DOMINIO = /(?<![\p{L}\p{N}_.+!#$%&*-])[\p{L}\p{N}_.+!#$%&*-]+@[\p{L}\p{N}_-]+(?:\.[\p{L}\p{N}_-]+)*/gu;
+const trocarArrobaSemDominio = (m: string) => (EMAIL_DE_VERDADE.test(m) ? m : SENHA_OMITIDA);
 // QA r4 S5: "código" só é senha com senha/acesso/token/OTP por perto (40 caracteres depois ou 30 antes). "Código de
 // barras", "código do imóvel 12345" ficam. A palavra sozinha não consome a oração (uma senha mais adiante ainda sai).
 const CODIGO = new RegExp(
@@ -655,12 +691,17 @@ export function sanitizarTexto(texto: string, opcoes: OpcoesFiltro = {}): string
   if (!texto) return texto;
   const mascararPessoais = opcoes.mascararDadosPessoais ?? true;
   const t = normalizarParaFiltro(texto);
-  if (!/[\d@]|senha|password|passwd|c[oó]digo|token|\bpin\b|\botp\b|\bat\b|arroba|sk-|bearer|eyJ/i.test(t)) return texto;
-  const segredos = (x: string) => x
-    .replace(CHAVE_API, CHAVE_OMITIDA)
-    .replace(SENHA, (_m, palavra: string) => `${palavra} ${SENHA_OMITIDA}`)
-    .replace(CODIGO, (_m, palavra: string) => `${palavra} ${SENHA_OMITIDA}`)
-    .replace(PIX_EMAIL, (_m, rotulo: string, sep: string) => `${rotulo}${sep}${BANCARIO_OMITIDO}`);
+  if (!/[\d@!#$%&*_+=~^]|senha|password|passwd|c[oó]digo|token|\bpin\b|\botp\b|\bat\b|arroba|sk-|bearer|eyJ|login|acesso|credencia|usu[aá]rio|user|gov|inss|cac|conecta|portal|pwd|pass/i.test(t)) return texto;
+  const segredos = (x: string) => {
+    let s = x
+      .replace(CHAVE_API, CHAVE_OMITIDA)
+      .replace(SENHA, (_m, palavra: string) => `${palavra} ${SENHA_OMITIDA}`)
+      .replace(CODIGO, (_m, palavra: string) => `${palavra} ${SENHA_OMITIDA}`)
+      .replace(PIX_EMAIL, (_m, rotulo: string, sep: string) => `${rotulo}${sep}${BANCARIO_OMITIDO}`);
+    // QA r7 A1(a): no modo mascarado, "x@y" sem domínio já sai pela fase de e-mail (marcador de dado pessoal)
+    if (!mascararPessoais) s = s.replace(ARROBA_SEM_DOMINIO, trocarArrobaSemDominio);
+    return mascararCredenciais(s);
+  };
   const bancarios = (x: string) => x
     .replace(PIX, (m, rotulo: string, sep: string, valor: string, pos: number, s: string) => trocarPix(m, rotulo, sep, valor, pos, s))
     .replace(BANCO, (m, rotulo: string, sep: string, valor: string, cent: string | undefined, pos: number, s: string) =>
