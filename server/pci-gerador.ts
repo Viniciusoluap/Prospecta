@@ -19,10 +19,17 @@ import {
   formatoModeloPci,
   nomeArquivoPciGerada,
   errosPci,
+  extrairModeloPreenchimentoPci,
+  faltasPerfilEngenheiroPci,
   normalizarFormularioPci,
   pendenciasPci,
   preencherPciAutomatico,
+  resumoModeloPreenchimentoPci,
+  sugestoesAutomaticasPci,
   validarNomeModeloPci,
+  validarNomeModeloPreenchimentoPci,
+  type EngenheiroDaObraPci,
+  type FontesPreenchimentoPci,
   type FormatoModeloPci,
   type FormularioPci,
 } from "../shared/pci-gerador.js";
@@ -36,7 +43,7 @@ import { compararEstruturasPci, lerEstruturaModeloPci, xlsCompativelCom, type Es
 import { getDb, getUserById } from "./db.js";
 import { copiarParaDrive } from "./drive-organizacao.js";
 import { obterLocalizacaoObra } from "./obra-localizacao.js";
-import { listarEngenheiros } from "./usuario-documentos.js";
+import { dadosEngenheiroParaPci, listarEngenheiros } from "./usuario-documentos.js";
 
 type Linhas<T> = { rows: T[] };
 const linhas = <T>(r: unknown) => (r as Linhas<T>).rows;
@@ -223,6 +230,7 @@ async function obraDoGerador(projectId: number) {
   const [o] = await getDb().select({
     id: constructionProjects.id, title: constructionProjects.title, address: constructionProjects.address, city: constructionProjects.city,
     state: constructionProjects.state, totalArea: constructionProjects.totalArea, vgv: constructionProjects.vgv, leadId: constructionProjects.leadId,
+    leadServiceId: constructionProjects.leadServiceId,
     lotCost: constructionProjects.lotCost, financedAmount: constructionProjects.financedAmount, startDate: constructionProjects.startDate,
     estimatedEndDate: constructionProjects.estimatedEndDate,
   }).from(constructionProjects).where(eq(constructionProjects.id, projectId)).limit(1);
@@ -230,30 +238,214 @@ async function obraDoGerador(projectId: number) {
   return o;
 }
 
-/** Pré-preenchimento com o que o sistema já sabe da obra (sem inventar). */
-export async function preenchimentoAutomaticoPci(projectId: number): Promise<FormularioPci> {
+/** EPIC-024 S-09: engenheiro para a PCI (com CPF), só depois da checagem do módulo Obras. */
+export async function engenheiroDaPci(userId: number) {
+  const e = await dadosEngenheiroParaPci(userId);
+  if (!e) throw new TRPCError({ code: "NOT_FOUND", message: "Engenheiro não encontrado ou usuário inativo." });
+  const avisos: string[] = [];
+  const nome = e.nome ?? "Este usuário";
+  if (!e.temPerfil) avisos.push(`${nome} não tem perfil de Engenheiro: CPF e CREA não estão cadastrados. Complete em Configurações › Usuários.`);
+  else if (!e.perfilAtivo) avisos.push(`O perfil de Engenheiro de ${nome} está desativado: CPF, CREA e telefone do perfil não foram usados. Reative em Configurações › Usuários.`);
+  else {
+    const faltas = faltasPerfilEngenheiroPci(e);
+    if (faltas.length) avisos.push(`O perfil de Engenheiro de ${nome} está sem ${faltas.join(", ")}: esses campos ficaram em branco. Complete em Configurações › Usuários.`);
+  }
+  return { id: String(e.id), nome: e.nome, email: e.email, telefone: e.telefone, crea: e.crea, creaUf: e.creaUf, cpf: e.cpf, perfilAtivo: e.perfilAtivo, avisos };
+}
+
+type EscolhaEngenheiro = { id: string; fonte: string; escolhido: boolean } | { id: null; motivo: string };
+
+/**
+ * Engenheiros da obra para RTP/RTE, só por vínculos que existem: (1) o escolhido no formulário
+ * aberto, (2) o do rascunho salvo, (3) o da última PCI gerada desta obra; para o RTP, também
+ * (4) o engenheiro do projeto (Projetos) ligado ao MESMO serviço do CRM da obra — só se for um só.
+ */
+async function engenheirosDaObra(projectId: number, leadServiceId: number | null, ids: { rtp?: string | null; rte?: string | null }) {
+  const db = getDb();
+  const rascunho = linhas<{ form_data: Partial<FormularioPci> }>(await db.execute(sql`SELECT form_data FROM pci_generator_drafts WHERE project_id = ${projectId}`))[0]?.form_data ?? null;
+  const gerada = linhas<{ form_data: Partial<FormularioPci> }>(await db.execute(sql`SELECT form_data FROM pci_generated WHERE project_id = ${projectId} ORDER BY created_at DESC, id DESC LIMIT 1`))[0]?.form_data ?? null;
+  let projeto: EscolhaEngenheiro = { id: null, motivo: "A obra não tem serviço do CRM ligado a um projeto com engenheiro." };
+  if (leadServiceId) {
+    const p = linhas<{ engineer_user_id: number; name: string }>(await db.execute(sql`
+      SELECT DISTINCT engineer_user_id, name FROM operational_projects WHERE lead_service_id = ${leadServiceId} AND engineer_user_id IS NOT NULL`));
+    const distintos = p.map((x) => Number(x.engineer_user_id)).filter((v, i, a) => a.indexOf(v) === i);
+    if (distintos.length === 1) projeto = { id: String(distintos[0]), fonte: `Engenheiro do projeto "${p[0].name}" (mesmo serviço do CRM)`, escolhido: false };
+    else if (distintos.length > 1) projeto = { id: null, motivo: "Os projetos do mesmo serviço do CRM têm engenheiros diferentes: escolha o engenheiro abaixo." };
+  }
+  const idValidoEng = (v: unknown) => (typeof v === "string" && /^\d{1,9}$/.test(v) ? v : null);
+  const escolher = (papel: "rtp" | "rte"): EscolhaEngenheiro => {
+    const chave = papel === "rtp" ? "rtpEngenheiroId" : "rteEngenheiroId";
+    const noForm = idValidoEng(ids[papel]);
+    if (noForm) return { id: noForm, fonte: "Engenheiro escolhido nesta obra", escolhido: true };
+    const noRascunho = idValidoEng(rascunho?.[chave]);
+    if (noRascunho) return { id: noRascunho, fonte: "Engenheiro escolhido no rascunho desta obra", escolhido: true };
+    const naGerada = idValidoEng(gerada?.[chave]);
+    if (naGerada) return { id: naGerada, fonte: "Engenheiro da última PCI gerada desta obra", escolhido: true };
+    if (papel === "rtp") return projeto;
+    return { id: null, motivo: "Nenhum engenheiro de execução escolhido nesta obra. Escolha abaixo (pode ser o mesmo do RTP)." };
+  };
+  const resultado: { rtp: EngenheiroDaObraPci | null; rte: EngenheiroDaObraPci | null; motivos: { rtp?: string; rte?: string } } = { rtp: null, rte: null, motivos: {} };
+  for (const papel of ["rtp", "rte"] as const) {
+    const e = escolher(papel);
+    if (e.id === null) { resultado.motivos[papel] = e.motivo; continue; }
+    const dados = await dadosEngenheiroParaPci(Number(e.id));
+    if (!dados) { resultado.motivos[papel] = `O engenheiro escolhido (usuário nº ${e.id}) está inativo ou não existe mais.`; continue; }
+    resultado[papel] = { id: e.id, fonte: e.fonte, escolhido: e.escolhido, dados: { nome: dados.nome, email: dados.email, telefone: dados.telefone, crea: dados.crea, creaUf: dados.creaUf, cpf: dados.cpf } };
+  }
+  return resultado;
+}
+
+/**
+ * EPIC-024 S-09: fontes de "Dados automáticos" com a origem de cada valor e o motivo do que
+ * falta. A falha ao ler a PCI vinculada deixa de ser engolida: vira motivo na tela.
+ */
+export async function fontesAutomaticasPci(projectId: number, ids: { rtp?: string | null; rte?: string | null } = {}): Promise<FontesPreenchimentoPci> {
   const o = await obraDoGerador(projectId);
   const db = getDb();
   const [lead] = o.leadId
     ? await db.select({ name: leads.name, cpf: leads.cpf, email: leads.email, phone: leads.phone, address: leads.address, neighborhood: leads.neighborhood, simulationValue: leads.simulationValue })
       .from(leads).where(eq(leads.id, o.leadId)).limit(1)
     : [];
+  const motivos: NonNullable<FontesPreenchimentoPci["motivos"]> = {};
+  if (!o.leadId) motivos.cliente = "A obra não tem cliente do CRM vinculado.";
+  else if (!lead) motivos.cliente = `O cliente do CRM (lead nº ${o.leadId}) não foi encontrado.`;
   let pci: FormularioPci | null = null;
   const arq = linhas<{ b64: string }>(await db.execute(sql`SELECT encode(data, 'base64') AS b64 FROM construction_pci WHERE project_id = ${projectId}`))[0];
-  if (arq) {
-    try { pci = lerFormularioPci(new Uint8Array(Buffer.from(arq.b64, "base64"))); } catch { pci = null; }
+  if (!arq) motivos.pci = "A obra não tem PCI vinculada.";
+  else {
+    try { pci = lerFormularioPci(new Uint8Array(Buffer.from(arq.b64, "base64"))); }
+    catch (e) { motivos.pci = `A PCI vinculada não pôde ser lida (${e instanceof Error ? e.message : "arquivo inválido"}).`; }
   }
-  const loc = await obterLocalizacaoObra(projectId).catch(() => null);
-  return preencherPciAutomatico({
+  let loc: Awaited<ReturnType<typeof obterLocalizacaoObra>> | null = null;
+  try { loc = await obterLocalizacaoObra(projectId); }
+  catch (e) { motivos.coordenadas = `A localização da obra não pôde ser lida (${e instanceof Error ? e.message : "erro"}).`; }
+  const coordenadas = loc?.coords ?? loc?.pontoPci ?? null;
+  if (!coordenadas && !motivos.coordenadas) motivos.coordenadas = "A obra não tem localização exata no Mapa operacional.";
+  const eng = await engenheirosDaObra(projectId, o.leadServiceId ?? null, ids);
+  return {
     obra: {
       titulo: o.title, endereco: o.address, cidade: o.city, uf: o.state, area: num(o.totalArea),
       valorImovel: num(vgvDaObra({ leadId: o.leadId, simulationValue: lead?.simulationValue ?? null, vgv: o.vgv })),
       valorTerreno: num(o.lotCost), valorFinanciado: num(o.financedAmount), inicio: iso(o.startDate), termino: iso(o.estimatedEndDate),
     },
     cliente: lead ? { nome: lead.name, cpf: lead.cpf, email: lead.email, telefone: lead.phone, endereco: lead.address, bairro: lead.neighborhood } : null,
-    coordenadas: loc?.coords ?? loc?.pontoPci ?? null,
+    coordenadas,
     pci,
-  });
+    rtp: eng.rtp,
+    rte: eng.rte,
+    rotulos: { cliente: `Cliente do CRM (lead nº ${o.leadId})`, pci: "PCI vinculada à obra" },
+    motivos: { ...motivos, ...eng.motivos },
+  };
+}
+
+/** Pré-preenchimento com o que o sistema já sabe da obra (sem inventar). */
+export async function preenchimentoAutomaticoPci(projectId: number): Promise<FormularioPci> {
+  return preencherPciAutomatico(await fontesAutomaticasPci(projectId));
+}
+
+/** "Dados automáticos": sugestões com fonte e o que não foi encontrado (a tela compara e pede confirmação). */
+export async function sugestoesAutomaticasDaObraPci(projectId: number, ids: { rtp?: string | null; rte?: string | null }) {
+  return sugestoesAutomaticasPci(await fontesAutomaticasPci(projectId, ids));
+}
+
+// ─── modelos de preenchimento (EPIC-024 S-09) ────────────────────────────────
+
+type LinhaModeloPreenchimento = {
+  id: number; nome: string; versao: number; previous_id: number | null; form_data: unknown; observacao: string | null;
+  source_project_id: number | null; obra: string | null; autor: string | null; created_by: number | null; created_at: string | Date;
+};
+
+const resumoModelo = (l: LinhaModeloPreenchimento) => {
+  const dados = extrairModeloPreenchimentoPci(l.form_data);
+  return {
+    id: l.id, nome: l.nome, versao: l.versao, anteriorId: l.previous_id, observacao: l.observacao,
+    obraOrigemId: l.source_project_id, obraOrigem: l.obra, autor: l.autor, criadoEm: new Date(l.created_at),
+    resumo: resumoModeloPreenchimentoPci(dados),
+  };
+};
+
+const SELECT_MODELO = sql`SELECT m.id, m.nome, m.versao, m.previous_id, m.form_data, m.observacao, m.source_project_id, m.created_by, m.created_at, m.deleted_at,
+  p.title AS obra, u.name AS autor
+  FROM pci_modelos_preenchimento m LEFT JOIN construction_projects p ON p.id = m.source_project_id LEFT JOIN users u ON u.id = m.created_by`;
+
+/** Última versão de cada modelo não excluído. */
+export async function listarModelosPreenchimentoPci() {
+  const r = await getDb().execute(sql`${SELECT_MODELO}
+    WHERE m.deleted_at IS NULL AND NOT EXISTS (SELECT 1 FROM pci_modelos_preenchimento n WHERE n.previous_id = m.id)
+    ORDER BY lower(m.nome), m.id`);
+  return linhas<LinhaModeloPreenchimento>(r).map(resumoModelo);
+}
+
+async function linhaModelo(id: number) {
+  return linhas<LinhaModeloPreenchimento & { deleted_at: string | null; sucessor: number | null }>(await getDb().execute(sql`
+    SELECT x.*, (SELECT n.id FROM pci_modelos_preenchimento n WHERE n.previous_id = x.id) AS sucessor FROM (${SELECT_MODELO} WHERE m.id = ${id}) x`))[0] ?? null;
+}
+
+/**
+ * Salva os dados técnicos da obra como modelo (ou nova versão de um modelo). O servidor tira os
+ * dados pessoais/específicos (lista de permissão) — não confia no que vem do navegador.
+ */
+export async function salvarModeloPreenchimentoPci(entrada: { projectId: number; nome: unknown; formulario: unknown; observacao?: string | null; novaVersaoDe?: number | null }, autorId: number) {
+  await obraDoGerador(entrada.projectId);
+  const nome = validarNomeModeloPreenchimentoPci(entrada.nome);
+  const dados = extrairModeloPreenchimentoPci(normalizarFormularioPci(entrada.formulario));
+  if (!Object.keys(dados.campos).length && !dados.custos.some((x) => x !== null) && !dados.cronograma.some((x) => x !== null))
+    throw new TRPCError({ code: "BAD_REQUEST", message: "Não há dados técnicos para guardar no modelo (memorial, sistema construtivo, custos ou cronograma)." });
+  const observacao = entrada.observacao?.trim() ? entrada.observacao.trim().slice(0, 500) : null;
+  const db = getDb();
+  let versao = 1;
+  let anterior: number | null = null;
+  if (entrada.novaVersaoDe) {
+    const base = await linhaModelo(entrada.novaVersaoDe);
+    if (!base || base.deleted_at) throw new TRPCError({ code: "NOT_FOUND", message: "Modelo não encontrado." });
+    if (base.sucessor) throw new TRPCError({ code: "CONFLICT", message: "Este modelo já tem uma versão mais nova. Atualize a lista e salve sobre a última versão." });
+    versao = base.versao + 1;
+    anterior = base.id;
+  } else {
+    const repetido = (await listarModelosPreenchimentoPci()).find((m) => m.nome.toLocaleLowerCase("pt-BR") === nome.toLocaleLowerCase("pt-BR"));
+    if (repetido) throw new TRPCError({ code: "CONFLICT", message: `Já existe o modelo "${repetido.nome}". Salve como nova versão dele ou escolha outro nome.` });
+  }
+  let id: number;
+  try {
+    const r = await db.execute(sql`
+      INSERT INTO pci_modelos_preenchimento (nome, versao, previous_id, form_data, observacao, source_project_id, created_by)
+      VALUES (${nome}, ${versao}, ${anterior}, ${JSON.stringify(dados)}::jsonb, ${observacao}, ${entrada.projectId}, ${autorId}) RETURNING id`);
+    id = Number(linhas<{ id: number }>(r)[0].id);
+  } catch (e) {
+    // Índice único em previous_id: outra pessoa salvou a nova versão ao mesmo tempo.
+    if (anterior && /duplicate|unique/i.test(e instanceof Error ? e.message : "")) throw new TRPCError({ code: "CONFLICT", message: "Outra pessoa salvou uma versão deste modelo agora. Atualize a lista e tente de novo." });
+    throw e;
+  }
+  return { id, nome, versao };
+}
+
+/** Dados técnicos de uma versão (inclusive anterior), para aplicar em outra obra. */
+export async function obterModeloPreenchimentoPci(id: number) {
+  const l = await linhaModelo(id);
+  if (!l || l.deleted_at) throw new TRPCError({ code: "NOT_FOUND", message: "Modelo não encontrado." });
+  return { ...resumoModelo(l), dados: extrairModeloPreenchimentoPci(l.form_data) };
+}
+
+/** Versões de um modelo (da indicada para trás), mais nova primeiro. */
+export async function historicoModeloPreenchimentoPci(id: number) {
+  const r = await getDb().execute(sql`
+    WITH RECURSIVE cadeia AS (
+      SELECT id, previous_id, 1 AS passo FROM pci_modelos_preenchimento WHERE id = ${id}
+      UNION ALL SELECT m.id, m.previous_id, c.passo + 1 FROM pci_modelos_preenchimento m JOIN cadeia c ON m.id = c.previous_id WHERE c.passo < 500
+    )
+    ${SELECT_MODELO} WHERE m.id IN (SELECT id FROM cadeia) AND m.deleted_at IS NULL ORDER BY m.versao DESC`);
+  return linhas<LinhaModeloPreenchimento>(r).map(resumoModelo);
+}
+
+/** Exclusão LÓGICA do modelo (todas as versões). Só o admin ou quem criou a última versão. */
+export async function excluirModeloPreenchimentoPci(id: number, usuario: { id: number; role: string }) {
+  const l = await linhaModelo(id);
+  if (!l || l.deleted_at) throw new TRPCError({ code: "NOT_FOUND", message: "Modelo não encontrado." });
+  if (l.sucessor) throw new TRPCError({ code: "CONFLICT", message: "Exclua pela última versão do modelo (atualize a lista)." });
+  if (usuario.role !== "admin" && l.created_by !== usuario.id) throw new TRPCError({ code: "FORBIDDEN", message: "Só o administrador ou quem salvou o modelo pode excluí-lo." });
+  const versoes = await historicoModeloPreenchimentoPci(id);
+  for (const v of versoes) await getDb().execute(sql`UPDATE pci_modelos_preenchimento SET deleted_at = now(), deleted_by = ${usuario.id} WHERE id = ${v.id} AND deleted_at IS NULL`);
+  return { nome: l.nome, versoes: versoes.length };
 }
 
 export async function historicoPci(projectId: number) {
@@ -349,6 +541,27 @@ export const pciGeradorRouter = router({
     };
   }),
   preencherAutomatico: adminProcedure.input(projectIdInput).query(({ input }) => preenchimentoAutomaticoPci(input.projectId)),
+  // EPIC-024 S-09: CPF, CREA e telefone de UM engenheiro (o escolhido em RTP/RTE) — a lista não leva CPF.
+  engenheiro: adminProcedure.input(z.object({ projectId: z.number().int().positive(), userId: z.number().int().positive() })).query(async ({ input }) => {
+    await obraDoGerador(input.projectId);
+    return engenheiroDaPci(input.userId);
+  }),
+  // EPIC-024 S-09: "Dados automáticos" com a fonte de cada valor; a tela compara e confirma conflitos.
+  sugestoesAutomaticas: adminProcedure.input(z.object({ projectId: z.number().int().positive(), rtpEngenheiroId: z.string().max(64).nullish(), rteEngenheiroId: z.string().max(64).nullish() }))
+    .query(({ input }) => sugestoesAutomaticasDaObraPci(input.projectId, { rtp: input.rtpEngenheiroId, rte: input.rteEngenheiroId })),
+  // EPIC-024 S-09: biblioteca de modelos de preenchimento (só dados técnicos, versionados).
+  modelosPreenchimento: adminProcedure.query(() => listarModelosPreenchimentoPci()),
+  modeloPreenchimento: adminProcedure.input(z.object({ id: z.number().int().positive() })).query(({ input }) => obterModeloPreenchimentoPci(input.id)),
+  historicoModeloPreenchimento: adminProcedure.input(z.object({ id: z.number().int().positive() })).query(({ input }) => historicoModeloPreenchimentoPci(input.id)),
+  salvarModeloPreenchimento: adminProcedure.input(z.object({
+    projectId: z.number().int().positive(), nome: z.string().max(200), formulario: z.unknown(),
+    observacao: z.string().max(1000).nullish(), novaVersaoDe: z.number().int().positive().nullish(),
+  })).mutation(async ({ input, ctx }) => {
+    try { return await salvarModeloPreenchimentoPci(input, ctx.user.id); }
+    catch (e) { return erroLegivel(e); }
+  }),
+  excluirModeloPreenchimento: adminProcedure.input(z.object({ id: z.number().int().positive(), confirmar: z.literal(true) })).mutation(({ input, ctx }) =>
+    excluirModeloPreenchimentoPci(input.id, { id: ctx.user.id, role: ctx.user.role })),
   salvarRascunho: adminProcedure.input(formularioInput).mutation(async ({ input, ctx }) => {
     try {
       await obraDoGerador(input.projectId);
