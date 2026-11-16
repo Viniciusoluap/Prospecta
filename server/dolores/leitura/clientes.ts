@@ -7,7 +7,7 @@ import {
   constructionProjects, financiamentos, leadActivities, leadDocuments, leadFollowUps, leadServices, leads,
   operationalProjects, regularizacoes, tasks, whatsappMessages,
 } from "../../../drizzle/schema.js";
-import { diaFortaleza, isoFortaleza, mascararCpf, mascararTelefone, paginar, truncar } from "../../../shared/dolores/formato.js";
+import { diaDoPrazo, diaFortaleza, isoFortaleza, mascararCpf, mascararTelefone, paginar, truncar } from "../../../shared/dolores/formato.js";
 import { proximaProvidencia } from "../../../shared/dolores/regras.js";
 import { FINANCIAMENTO_STATUS_LABELS } from "../../../shared/financiamento.js";
 import { LEAD_PIPELINE_STAGES, LEGACY_STAGE_LABELS, leadAceitaVencimento } from "../../../shared/lead-pipeline.js";
@@ -84,13 +84,13 @@ export async function consultarCliente(args: z.infer<typeof entradaConsultarClie
       .filter((t, i, todas) => todas.indexOf(t) === i);
     const registro = (servicoId: number) => {
       const r = regs.find(x => x.servico === servicoId);
-      if (r) return { modulo: "Regularizações", id: r.id, situacao: rotuloStatusProcesso(r.status), prazo: diaFortaleza(r.prazo) };
+      if (r) return { modulo: "Regularizações", id: r.id, situacao: rotuloStatusProcesso(r.status), prazo: diaDoPrazo(r.prazo) };
       const o = obras.find(x => x.servico === servicoId);
-      if (o) return { modulo: "Obras", id: o.id, situacao: obraStatusLabel(o.status), prazo: diaFortaleza(o.prazo) };
+      if (o) return { modulo: "Obras", id: o.id, situacao: obraStatusLabel(o.status), prazo: diaDoPrazo(o.prazo) };
       const f = fins.find(x => x.servico === servicoId);
       if (f) return { modulo: "Financiamentos", id: f.id, situacao: FINANCIAMENTO_STATUS_LABELS[f.status as keyof typeof FINANCIAMENTO_STATUS_LABELS] ?? f.status, prazo: null };
       const p = projetos.find(x => x.servico === servicoId);
-      if (p) return { modulo: "Projetos", id: p.id, situacao: p.status, prazo: diaFortaleza(p.prazo) };
+      if (p) return { modulo: "Projetos", id: p.id, situacao: p.status, prazo: diaDoPrazo(p.prazo) };
       return null;
     };
     const pendentes = docs.filter(d => d.leadId === l.id && docClientePendente(d.status)).length;
@@ -109,7 +109,7 @@ export async function consultarCliente(args: z.infer<typeof entradaConsultarClie
       ultimaAtividade: isoFortaleza(ultimaAtividade.get(l.id) ?? null),
       servicosContratados: meus.map(s => ({
         servicoId: s.id, tipo: rotuloServico(s.serviceType), titulo: truncar(s.title, 120), situacao: SITUACAO_SERVICO[s.status] ?? s.status,
-        prazo: diaFortaleza(s.dueAt), origem: s.sourceCardUrl ? "migração do Trello" : "cadastro no sistema", registroOperacional: registro(s.id),
+        prazo: diaDoPrazo(s.dueAt), origem: s.sourceCardUrl ? "migração do Trello" : "cadastro no sistema", registroOperacional: registro(s.id),
       })),
       documentosPendentes: pendentes,
       tarefasAbertas: minhasTarefas.filter(t => tarefaAberta(t.status)).length,
