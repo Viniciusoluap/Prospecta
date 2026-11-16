@@ -7,7 +7,7 @@ import { decryptSecret, encryptSecret, segredoEmTextoPuro } from "./secret-vault
 import * as db from "../db.js";
 import { DESCRICAO_FUNCOES_ANTHROPIC, FUNCOES_ANTHROPIC, type FuncaoAnthropic } from "../../shared/funcoes-anthropic.js";
 import {
-  CHAVE_MODELO_PREFERENCIAL, chaveAvisoDaFuncao, chaveModeloDaFuncao, modeloDaFuncao, modelosGravadosDasFuncoes, type LeitorModelos,
+  CHAVE_MODELO_PREFERENCIAL, chaveAnteriorSumiuDaFuncao, chaveAvisoDaFuncao, chaveModeloDaFuncao, modeloDaFuncao, modelosGravadosDasFuncoes, type LeitorModelos, type OrigemModelo,
 } from "./modelo-por-funcao.js";
 
 export const CHAVE_SEGREDO_ANTHROPIC_PAINEL = "segredo.anthropic_painel_api_key";
@@ -137,28 +137,37 @@ export async function testarAnthropicPainel(deps: AnthropicPainelDeps = anthropi
  * Valida a chave na Anthropic ANTES de salvar (criptografada). Troca a chave anterior, se houver; o modelo
  * preferencial que a chave nova não oferece é limpo, com aviso.
  */
-export async function salvarChaveAnthropicPainel(bruto: unknown, deps: AnthropicPainelDeps = anthropicPainelDepsPadrao): Promise<{ mensagem: string; modelos: number; modeloLimpo: string | null }> {
+export async function salvarChaveAnthropicPainel(
+  bruto: unknown, deps: AnthropicPainelDeps = anthropicPainelDepsPadrao, anteriores: AnterioresDasFuncoes = {},
+): Promise<{ mensagem: string; modelos: number; modeloLimpo: string | null }> {
   const chave = normalizarChave(bruto);
   const modelos = await listarModelosDaChave(chave, deps);
   await deps.gravarBanco(CHAVE_SEGREDO_ANTHROPIC_PAINEL, deps.encrypt(chave));
   const preferido = await lerModelo(deps);
   const modeloLimpo = preferido && !modelos.some(m => m.id === preferido) ? preferido : null;
   if (modeloLimpo) await deps.gravarBanco(CHAVE_MODELO_ANTHROPIC_PAINEL, "");
-  const funcoesLimpas = await conferirModelosDasFuncoes(modelos, deps);
-  const avisoFuncoes = funcoesLimpas.map(f => ` O modelo ${f.modelo} de "${DESCRICAO_FUNCOES_ANTHROPIC[f.funcao].rotulo}" não é oferecido para esta chave e foi limpo: a função passa a usar o preferencial.`).join("");
+  const funcoesLimpas = await conferirModelosDasFuncoes(modelos, deps, anteriores);
+  const avisoFuncoes = funcoesLimpas.map(f => f.anterior
+    ? ` O modelo antigo do cartão da Dolores (${f.modelo}) não é oferecido para esta chave: ela passa a usar o preferencial. O valor antigo fica guardado até você salvar o modelo da Dolores em "Modelo por função".`
+    : ` O modelo ${f.modelo} de "${DESCRICAO_FUNCOES_ANTHROPIC[f.funcao].rotulo}" não é oferecido para esta chave e foi limpo: a função passa a usar o preferencial.`).join("");
   return {
     mensagem: `Chave validada e salva — ${modelos.length} modelo(s) disponível(is).${modeloLimpo ? ` O modelo preferencial ${modeloLimpo} não é oferecido para esta chave e foi limpo: escolha outro.` : ""}${avisoFuncoes}`,
     modelos: modelos.length, modeloLimpo,
   };
 }
 
-/** Remove a chave, a preferência de modelo e os modelos escolhidos por função. */
+/**
+ * Remove a chave, a preferência de modelo, os modelos escolhidos por função e os avisos. O valor antigo do cartão da
+ * Dolores NÃO é apagado (só por ação do admin no painel): sem chave ela não roda, e a próxima chave salva confere de novo
+ * se a conta oferece esse modelo (QA S-11 achado 5).
+ */
 export async function removerAnthropicPainel(deps: AnthropicPainelDeps = anthropicPainelDepsPadrao): Promise<void> {
   await deps.gravarBanco(CHAVE_SEGREDO_ANTHROPIC_PAINEL, "");
   await deps.gravarBanco(CHAVE_MODELO_ANTHROPIC_PAINEL, "");
   for (const f of FUNCOES_ANTHROPIC) {
     await deps.gravarBanco(chaveModeloDaFuncao(f), "");
     await deps.gravarBanco(chaveAvisoDaFuncao(f), "");
+    await deps.gravarBanco(chaveAnteriorSumiuDaFuncao(f), "");
   }
 }
 
@@ -186,19 +195,36 @@ export async function salvarModeloPreferencialAnthropic(id: string, deps: Anthro
  */
 const soLeitor = (deps: AnthropicPainelDeps): LeitorModelos => ({ lerBanco: k => deps.lerBanco(k) });
 
+/** Modelo anterior de cada função, guardado fora do painel (Dolores: o campo antigo do cartão). Só nomes de modelo. */
+export type AnterioresDasFuncoes = { anteriorDolores?: string | null };
+
 /**
  * Modelo escolhido para uma função que não aparece mais na lista da conta: é limpo (a função cai para o preferencial)
  * e o id fica guardado como aviso para o painel mostrar até o admin escolher de novo.
+ * QA S-11 achado 5: o modelo ANTERIOR da Dolores (campo antigo do cartão) também é conferido. Se a conta não o oferece,
+ * ele deixa de valer como queda e o painel avisa, mas o valor NÃO é apagado aqui (só pela ação do admin no painel);
+ * se a conta voltar a oferecê-lo, o aviso sai e ele volta a valer.
  */
-export async function conferirModelosDasFuncoes(modelos: ModeloAnthropic[], deps: AnthropicPainelDeps = anthropicPainelDepsPadrao): Promise<Array<{ funcao: FuncaoAnthropic; modelo: string }>> {
+export async function conferirModelosDasFuncoes(
+  modelos: ModeloAnthropic[], deps: AnthropicPainelDeps = anthropicPainelDepsPadrao, anteriores: AnterioresDasFuncoes = {},
+): Promise<Array<{ funcao: FuncaoAnthropic; modelo: string; anterior?: true }>> {
   const gravados = await modelosGravadosDasFuncoes(soLeitor(deps));
-  const limpas: Array<{ funcao: FuncaoAnthropic; modelo: string }> = [];
+  const limpas: Array<{ funcao: FuncaoAnthropic; modelo: string; anterior?: true }> = [];
+  const existe = (id: string) => modelos.some(m => m.id === id);
   for (const f of FUNCOES_ANTHROPIC) {
     const id = gravados[f].modelo;
-    if (!id || modelos.some(m => m.id === id)) continue;
+    if (!id || existe(id)) continue;
     await deps.gravarBanco(chaveModeloDaFuncao(f), "");
     await deps.gravarBanco(chaveAvisoDaFuncao(f), id);
     limpas.push({ funcao: f, modelo: id });
+  }
+  const anterior = anteriores.anteriorDolores?.trim() || null;
+  const marcado = gravados.dolores_whatsapp.anteriorSumiu;
+  if (anterior && !existe(anterior)) {
+    if (marcado !== anterior) await deps.gravarBanco(chaveAnteriorSumiuDaFuncao("dolores_whatsapp"), anterior);
+    limpas.push({ funcao: "dolores_whatsapp", modelo: anterior, anterior: true });
+  } else if (marcado) {
+    await deps.gravarBanco(chaveAnteriorSumiuDaFuncao("dolores_whatsapp"), "");
   }
   return limpas;
 }
@@ -222,12 +248,13 @@ export async function validarModeloDaFuncao(funcao: FuncaoAnthropic, id: string,
  * volta a ser o de antes (QA S-11 achado 6: nada fica salvo pela metade) e o erro sobe.
  */
 export async function gravarModeloDaFuncao(funcao: FuncaoAnthropic, modelo: ModeloAnthropic | null, deps: AnthropicPainelDeps = anthropicPainelDepsPadrao): Promise<void> {
-  const avisoAntes = (await deps.lerBanco(chaveAvisoDaFuncao(funcao)))?.trim() ?? "";
-  await deps.gravarBanco(chaveAvisoDaFuncao(funcao), "");
+  const avisos = [chaveAvisoDaFuncao(funcao), chaveAnteriorSumiuDaFuncao(funcao)];
+  const antes = await Promise.all(avisos.map(async k => (await deps.lerBanco(k))?.trim() ?? ""));
   try {
+    for (const k of avisos) await deps.gravarBanco(k, "");
     await deps.gravarBanco(chaveModeloDaFuncao(funcao), modelo?.id ?? "");
   } catch (e) {
-    if (avisoAntes) await deps.gravarBanco(chaveAvisoDaFuncao(funcao), avisoAntes).catch(() => undefined);
+    for (let i = 0; i < avisos.length; i++) if (antes[i]) await deps.gravarBanco(avisos[i], antes[i]).catch(() => undefined);
     throw e;
   }
 }
@@ -243,24 +270,45 @@ export const NOTA_FUNCAO_ANTHROPIC: Partial<Record<FuncaoAnthropic, string>> = {
   maquete_leitura: "Vale quando a leitura usa a chave deste painel. Sem ela, se houver a chave antiga configurada pela equipe técnica no servidor, vale o modelo das configurações da Maquete 3D.",
 };
 
-/** Uma linha por função para o painel: escolhido, aviso de modelo sumido e o modelo que vale agora. Sem a chave. */
+export const MENSAGEM_SEM_CHAVE_DA_FUNCAO = "Sem chave utilizável: a função não roda pela chave do painel.";
+
+/**
+ * Uma linha por função para o painel: escolhido, avisos de modelo sumido e o modelo que vale agora. Sem a chave.
+ * QA S-11 achado 4: "valendo" reflete a execução real. Sem chave utilizável no painel (ausente ou ilegível), nenhuma
+ * função roda por ele: não se mostra um modelo que não será usado. Só a Maquete ainda roda, se houver a chave antiga
+ * configurada pela equipe técnica no servidor, e aí vale o modelo das configurações da Maquete 3D.
+ */
 export async function statusModelosPorFuncao(
-  extras: { anteriorDolores?: string | null; padraoMaquete?: string | null } = {},
+  extras: AnterioresDasFuncoes & { padraoMaquete?: string | null; chaveServidorMaquete?: boolean } = {},
   deps: AnthropicPainelDeps = anthropicPainelDepsPadrao,
 ) {
   const [salva, preferencial, gravados] = await Promise.all([lerChaveSalva(deps), lerModelo(deps), modelosGravadosDasFuncoes(soLeitor(deps))]);
-  const funcoes = await Promise.all(FUNCOES_ANTHROPIC.map(async f => ({
-    ...DESCRICAO_FUNCOES_ANTHROPIC[f],
-    modelo: gravados[f].modelo,
-    sumiu: gravados[f].sumiu,
-    nota: NOTA_FUNCAO_ANTHROPIC[f] ?? null,
-    valendo: await modeloDaFuncao(f, {
-      preferencial,
-      anterior: f === "dolores_whatsapp" ? extras.anteriorDolores ?? null : null,
-      padrao: f === "maquete_leitura" ? extras.padraoMaquete ?? null : null,
-    }, soLeitor(deps)),
-  })));
-  return { configurado: Boolean(salva && salva !== "ilegivel"), preferencial, funcoes };
+  const utilizavel = Boolean(salva && salva !== "ilegivel");
+  const funcoes = await Promise.all(FUNCOES_ANTHROPIC.map(async f => {
+    const padrao = f === "maquete_leitura" ? extras.padraoMaquete?.trim() || null : null;
+    const servidor = f === "maquete_leitura" && !!extras.chaveServidorMaquete;
+    const valendo: { modelo: string | null; origem: OrigemModelo | "servidor" | null } = utilizavel
+      ? await modeloDaFuncao(f, {
+        preferencial,
+        anterior: f === "dolores_whatsapp" ? extras.anteriorDolores ?? null : null,
+        padrao,
+      }, soLeitor(deps))
+      : servidor && padrao ? { modelo: padrao, origem: "servidor" } : { modelo: null, origem: null };
+    return {
+      ...DESCRICAO_FUNCOES_ANTHROPIC[f],
+      modelo: gravados[f].modelo,
+      sumiu: gravados[f].sumiu,
+      /** Dolores: o modelo antigo do cartão que a conta não oferece (deixou de valer; sai quando o admin salva a escolha). */
+      anteriorSumiu: f === "dolores_whatsapp" && extras.anteriorDolores?.trim() && gravados[f].anteriorSumiu === extras.anteriorDolores.trim() ? gravados[f].anteriorSumiu : null,
+      nota: NOTA_FUNCAO_ANTHROPIC[f] ?? null,
+      /** Sem chave utilizável no painel: a função não roda por ele (a tela diz isso em vez de mostrar um modelo). */
+      semChave: utilizavel ? null : servidor
+        ? `${MENSAGEM_SEM_CHAVE_DA_FUNCAO} Enquanto houver a chave antiga configurada pela equipe técnica no servidor, a leitura usa essa chave com o modelo das configurações da Maquete 3D${padrao ? ` (${padrao})` : ""}.`
+        : MENSAGEM_SEM_CHAVE_DA_FUNCAO,
+      valendo,
+    };
+  }));
+  return { configurado: utilizavel, preferencial, funcoes };
 }
 
 /**

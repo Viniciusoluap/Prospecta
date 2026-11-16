@@ -5,7 +5,7 @@ import { ADMIN_MODULES } from "../shared/admin-permissions";
 import { FUNCOES_ANTHROPIC } from "../shared/funcoes-anthropic";
 import { createIntegracoesRouter, type IntegracoesDeps } from "./integracoes-router";
 import { CHAVE_MODELO_ANTHROPIC_PAINEL, CHAVE_SEGREDO_ANTHROPIC_PAINEL, type AnthropicPainelDeps, type ClienteModelos } from "./_core/anthropic-painel";
-import { CHAVE_MODELO_PREFERENCIAL, chaveAvisoDaFuncao, chaveModeloDaFuncao, modeloDaFuncao, modelosGravadosDasFuncoes } from "./_core/modelo-por-funcao";
+import { CHAVE_MODELO_PREFERENCIAL, chaveAnteriorSumiuDaFuncao, chaveAvisoDaFuncao, chaveModeloDaFuncao, modeloDaFuncao, modelosGravadosDasFuncoes } from "./_core/modelo-por-funcao";
 import { decryptSecret, encryptSecret } from "./_core/secret-vault";
 import { ENV } from "./_core/env";
 import { modeloDaLeitura, resolverCredencialIA } from "./maquete-3d/base";
@@ -46,6 +46,7 @@ function setup() {
     limparAnteriorDolores: vi.fn(async () => { antigo.dolores = null; }),
     restaurarAnteriorDolores: vi.fn(async (_u: number, m: string) => { antigo.dolores = m; }),
     padraoMaquete: vi.fn(async () => "claude-padrao-da-maquete"),
+    chaveServidorMaquete: vi.fn(() => false),
   };
   const deps = { fetchImpl: vi.fn(), anthropic, modelosAntigos } as unknown as IntegracoesDeps;
   const caller = createIntegracoesRouter(deps).createCaller({ user: { id: 7, role: "admin", active: true }, req: {}, res: {} } as never);
@@ -84,7 +85,7 @@ describe("modeloDaFuncao — resolução (só nomes de modelo)", () => {
     const sincrono = { lerBanco: (() => { throw new Error("sync"); }) as unknown as (k: string) => Promise<string | undefined> };
     expect(await modeloDaFuncao("dolores_whatsapp", { preferencial: "pref" }, sincrono)).toEqual({ modelo: "pref", origem: "preferencial" });
     expect(await modeloDaFuncao("maquete_leitura", { padrao: "p" }, sincrono)).toEqual({ modelo: "p", origem: "padrao" });
-    expect(await modelosGravadosDasFuncoes(sincrono)).toEqual({ maquete_leitura: { modelo: null, sumiu: null }, dolores_whatsapp: { modelo: null, sumiu: null } });
+    expect(await modelosGravadosDasFuncoes(sincrono)).toEqual({ maquete_leitura: { modelo: null, sumiu: null, anteriorSumiu: null }, dolores_whatsapp: { modelo: null, sumiu: null, anteriorSumiu: null } });
   });
   it("nunca lê a chave: só as chaves de modelo de dashboard_settings", async () => {
     const l = leitor({});
@@ -110,7 +111,8 @@ describe("rotas do painel — modelo por função", () => {
       expect(f.recomendacao).not.toMatch(/^(Leitura de planta|Conversa)\s*:/);
     }
     expect(linha(r, "maquete_leitura").nota).toMatch(/chave antiga configurada pela equipe técnica no servidor/);
-    expect(linha(r, "maquete_leitura").valendo).toEqual({ modelo: "claude-padrao-da-maquete", origem: "padrao" });
+    // QA S-11 achado 4: sem chave (nem a do servidor) nenhuma função roda — não se mostra modelo que não será usado
+    expect(linha(r, "maquete_leitura")).toMatchObject({ valendo: { modelo: null, origem: null }, semChave: "Sem chave utilizável: a função não roda pela chave do painel." });
     await expect(s.caller.salvarModeloFuncaoAnthropic({ funcao: "maquete_leitura", modelo: "claude-opus-5-5" })).rejects.toMatchObject({ code: "BAD_REQUEST" });
     expect(s.criarCliente).not.toHaveBeenCalled();
   });
@@ -208,6 +210,75 @@ describe("rotas do painel — modelo por função", () => {
     r = await s.caller.salvarModeloFuncaoAnthropic({ funcao: "maquete_leitura", modelo: "claude-haiku-5" });
     expect(linha(r, "maquete_leitura")).toMatchObject({ modelo: "claude-haiku-5", sumiu: null });
     expect(s.banco.get(chaveAvisoDaFuncao("maquete_leitura"))).toBe("");
+  });
+
+  it("QA S-11 achado 5: trocar de conta confere também o modelo antigo do cartão da Dolores — deixa de valer, com aviso, sem ser apagado", async () => {
+    const s = setup();
+    const execucao = { lerBanco: async (k: string) => s.banco.get(k) }; // o que a Dolores lê na hora de rodar
+    await s.caller.salvarAnthropic({ apiKey: CHAVE });
+    await s.caller.salvarModeloAnthropic({ modelo: "claude-haiku-5" });
+    s.antigo.dolores = "claude-opus-5-5";
+    expect(linha(await s.caller.modelosPorFuncaoAnthropic(), "dolores_whatsapp")).toMatchObject({ anteriorSumiu: null, valendo: { modelo: "claude-opus-5-5", origem: "anterior" } });
+    // conta nova sem o Opus: a Dolores cai para o preferencial, o painel e a mensagem avisam, e o valor antigo continua lá
+    const troca = await s.caller.salvarAnthropic({ apiKey: CHAVE_RESTRITA });
+    expect(troca.mensagem).toMatch(/modelo antigo do cartão da Dolores \(claude-opus-5-5\) não é oferecido.*preferencial/);
+    let r = await s.caller.modelosPorFuncaoAnthropic();
+    expect(linha(r, "dolores_whatsapp")).toMatchObject({ anteriorSumiu: "claude-opus-5-5", valendo: { modelo: "claude-haiku-5", origem: "preferencial" } });
+    expect(s.antigo.dolores).toBe("claude-opus-5-5");
+    expect(s.modelosAntigos.limparAnteriorDolores).not.toHaveBeenCalled();
+    expect(await modeloDaFuncao("dolores_whatsapp", { anterior: s.antigo.dolores, preferencial: "claude-haiku-5" }, execucao)).toEqual({ modelo: "claude-haiku-5", origem: "preferencial" });
+    // a conta volta a oferecer o Opus (ao listar): o aviso sai e o antigo volta a valer
+    await s.caller.salvarAnthropic({ apiKey: CHAVE });
+    r = await s.caller.modelosPorFuncaoAnthropic();
+    expect(linha(r, "dolores_whatsapp")).toMatchObject({ anteriorSumiu: null, valendo: { modelo: "claude-opus-5-5", origem: "anterior" } });
+    // de novo sem o Opus, agora percebido ao listar os modelos
+    s.ofertar(MODELOS.filter(m => m.id !== "claude-opus-5-5"));
+    await s.caller.modelosAnthropic();
+    expect(linha(await s.caller.modelosPorFuncaoAnthropic(), "dolores_whatsapp").anteriorSumiu).toBe("claude-opus-5-5");
+    // a limpeza só acontece pela ação do admin: salvar "Usar o preferencial" descarta o antigo e o aviso
+    r = await s.caller.salvarModeloFuncaoAnthropic({ funcao: "dolores_whatsapp", modelo: "" });
+    expect(s.antigo.dolores).toBeNull();
+    expect(s.banco.get(chaveAnteriorSumiuDaFuncao("dolores_whatsapp"))).toBe("");
+    expect(linha(r, "dolores_whatsapp")).toMatchObject({ anteriorSumiu: null, valendo: { modelo: "claude-haiku-5", origem: "preferencial" } });
+  });
+
+  it("QA S-11 achado 5: remover a chave não apaga em silêncio o modelo antigo da Dolores", async () => {
+    const s = setup();
+    await s.caller.salvarAnthropic({ apiKey: CHAVE });
+    s.antigo.dolores = "claude-opus-5-5";
+    await s.caller.removerAnthropic();
+    expect(s.antigo.dolores).toBe("claude-opus-5-5");
+    expect(s.modelosAntigos.limparAnteriorDolores).not.toHaveBeenCalled();
+    // a próxima chave confere de novo
+    await s.caller.salvarAnthropic({ apiKey: CHAVE_RESTRITA });
+    expect(linha(await s.caller.modelosPorFuncaoAnthropic(), "dolores_whatsapp").anteriorSumiu).toBe("claude-opus-5-5");
+  });
+
+  it("QA S-11 achado 4: \"valendo agora\" segue a execução real — sem chave utilizável (ausente ou ilegível) nada roda pelo painel", async () => {
+    const s = setup();
+    s.antigo.dolores = "claude-opus-antigo";
+    // sem chave: a Dolores não roda (não mostra o modelo antigo); a Maquete só roda com a chave do servidor, e aí vale o da configuração
+    let r = await s.caller.modelosPorFuncaoAnthropic();
+    expect(linha(r, "dolores_whatsapp")).toMatchObject({ valendo: { modelo: null, origem: null }, semChave: expect.stringMatching(/^Sem chave utilizável/) });
+    s.modelosAntigos.chaveServidorMaquete.mockReturnValue(true);
+    r = await s.caller.modelosPorFuncaoAnthropic();
+    expect(linha(r, "maquete_leitura")).toMatchObject({
+      valendo: { modelo: "claude-padrao-da-maquete", origem: "servidor" },
+      semChave: expect.stringMatching(/chave antiga configurada pela equipe técnica no servidor.*configurações da Maquete 3D \(claude-padrao-da-maquete\)/),
+    });
+    expect(linha(r, "dolores_whatsapp").valendo).toEqual({ modelo: null, origem: null });
+    // chave ilegível (o segredo do servidor mudou), mesmo com modelo escolhido para a função: não roda pelo painel
+    await s.caller.salvarAnthropic({ apiKey: CHAVE });
+    await s.caller.salvarModeloFuncaoAnthropic({ funcao: "maquete_leitura", modelo: "claude-opus-5-5" });
+    expect(linha(await s.caller.modelosPorFuncaoAnthropic(), "maquete_leitura")).toMatchObject({ semChave: null, valendo: { modelo: "claude-opus-5-5", origem: "funcao" } });
+    ENV.cookieSecret = "outro-segredo-depois-da-rotacao";
+    r = await s.caller.modelosPorFuncaoAnthropic();
+    expect(r.configurado).toBe(false);
+    expect(linha(r, "maquete_leitura")).toMatchObject({ modelo: "claude-opus-5-5", valendo: { modelo: "claude-padrao-da-maquete", origem: "servidor" } });
+    expect(linha(r, "dolores_whatsapp")).toMatchObject({ valendo: { modelo: null, origem: null }, semChave: expect.stringMatching(/^Sem chave utilizável/) });
+    // e o que a Maquete realmente usa nessa situação é o mesmo
+    const c = await resolverCredencialIA(async () => null, { anthropicApiKey: "sk-ant-env" });
+    expect(modeloDaLeitura(c, lerConfig(JSON.stringify({ modeloIA: "claude-padrao-da-maquete" })))).toBe("claude-padrao-da-maquete");
   });
 
   it("remover a chave limpa também os modelos por função", async () => {

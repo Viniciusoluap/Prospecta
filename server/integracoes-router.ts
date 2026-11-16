@@ -22,6 +22,7 @@ import {
   testarAnthropicPainel, type AnthropicPainelDeps,
 } from "./_core/anthropic-painel.js";
 import { FUNCOES_ANTHROPIC } from "../shared/funcoes-anthropic.js";
+import { ENV } from "./_core/env.js";
 import { doloresWhatsappConfig } from "../drizzle/schema-dolores-whatsapp.js";
 import { eq } from "drizzle-orm";
 
@@ -54,6 +55,8 @@ export type IntegracoesDeps = {
     /** Devolve o valor antigo ao cartão da Dolores quando a gravação do modelo dela falha depois de limpá-lo (achado 6). */
     restaurarAnteriorDolores: (userId: number, modelo: string) => Promise<void>;
     padraoMaquete: () => Promise<string | null>;
+    /** Há a chave antiga do servidor (ANTHROPIC_API_KEY)? Sem a do painel, só a Maquete roda por ela (achado 4). */
+    chaveServidorMaquete?: () => boolean;
   };
 };
 
@@ -69,6 +72,7 @@ const modelosAntigosPadrao: NonNullable<IntegracoesDeps["modelosAntigos"]> = {
     await db.getDb().update(doloresWhatsappConfig).set({ modelo, atualizadoEm: new Date(), atualizadoPor: userId }).where(eq(doloresWhatsappConfig.id, 1));
   },
   padraoMaquete: async () => (await (await import("./maquete-3d/base.js")).carregarConfig()).modeloIA || null,
+  chaveServidorMaquete: () => Boolean(ENV.anthropicApiKey),
 };
 
 /** adminProcedure confere o MÓDULO; para escolher o modelo de cada função vale o PAPEL: só admin. */
@@ -145,7 +149,9 @@ export function createIntegracoesRouter(deps: IntegracoesDeps = defaultDeps) {
   async function quedasDasFuncoes() {
     const a = antigos();
     const [anteriorDolores, padraoMaquete] = await Promise.all([a.lerAnteriorDolores().catch(() => null), a.padraoMaquete().catch(() => null)]);
-    return { anteriorDolores, padraoMaquete };
+    let chaveServidorMaquete = false;
+    try { chaveServidorMaquete = Boolean((a.chaveServidorMaquete ?? modelosAntigosPadrao.chaveServidorMaquete)?.()); } catch { /* sem a chave do servidor */ }
+    return { anteriorDolores, padraoMaquete, chaveServidorMaquete };
   }
   async function webhookAsaas(recuperar: boolean) {
     const [asaas, webhook] = await Promise.all([deps.lerAsaas(), deps.lerWebhookAsaas()]);
@@ -265,7 +271,8 @@ export function createIntegracoesRouter(deps: IntegracoesDeps = defaultDeps) {
     salvarAnthropic: adminProcedure
       .input(z.object({ apiKey: z.string().trim().min(1, "Cole a chave de API da Anthropic.") }))
       .mutation(async ({ input }) => {
-        try { return { success: true as const, ...(await salvarChaveAnthropicPainel(input.apiKey, anthropic())) }; }
+        const anteriorDolores = await antigos().lerAnteriorDolores().catch(() => null);
+        try { return { success: true as const, ...(await salvarChaveAnthropicPainel(input.apiKey, anthropic(), { anteriorDolores })) }; }
         catch (e) { throw new TRPCError({ code: "BAD_REQUEST", message: mascararChaveAnthropic(mensagemDe(e, "Chave da Anthropic não aceita.")) }); }
       }),
     removerAnthropic: adminProcedure.mutation(async () => { await removerAnthropicPainel(anthropic()); return { success: true as const }; }),
@@ -273,7 +280,9 @@ export function createIntegracoesRouter(deps: IntegracoesDeps = defaultDeps) {
       try {
         const modelos = await modelosAnthropicPainel(anthropic());
         // S-11: modelo escolhido para uma função que sumiu da conta é limpo (cai para o preferencial), com aviso no painel
-        await conferirModelosDasFuncoes(modelos, anthropic()).catch(() => undefined);
+        // e o modelo antigo do cartão da Dolores que a conta não oferece deixa de valer, com aviso (achado 5)
+        const anteriorDolores = await antigos().lerAnteriorDolores().catch(() => null);
+        await conferirModelosDasFuncoes(modelos, anthropic(), { anteriorDolores }).catch(() => undefined);
         return modelos;
       }
       catch (e) { throw new TRPCError({ code: "BAD_REQUEST", message: mascararChaveAnthropic(mensagemDe(e, "Não foi possível listar os modelos.")) }); }
