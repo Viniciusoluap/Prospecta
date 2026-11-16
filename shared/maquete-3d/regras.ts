@@ -127,8 +127,16 @@ export type PassoLeitura = {
  * importação) e para `pranchas` chamadas pagas; expira quando `usadas` chega a `pranchas`. "Ler de novo" e uma
  * importação nova nascem sem confirmação. `alemDoTeto`: o admin autorizou passar do teto por maquete.
  */
-export type ConfirmacaoIA = { em: string; por: number | null; pranchas: number; usadas?: number; alemDoTeto?: boolean };
+/**
+ * `modelo` (EPIC-024 S-11, QA achado 3): o modelo da IA com que o custo foi confirmado. Se o modelo que vale na hora de
+ * ler for outro (ex.: o admin trocou o modelo da função no painel), a confirmação não vale e a tela pede outra.
+ * Confirmações gravadas antes disso não têm o modelo: não há como saber com qual foram feitas, então valem como
+ * "modelo diferente" (lado seguro — o admin confirma de novo uma vez).
+ */
+export type ConfirmacaoIA = { em: string; por: number | null; pranchas: number; usadas?: number; alemDoTeto?: boolean; modelo?: string };
 export const confirmacaoValida = (c: ConfirmacaoIA | null | undefined): boolean => !!c && (c.usadas ?? 0) < c.pranchas;
+/** Confirmação válida E feita com este mesmo modelo. */
+export const confirmacaoDoModelo = (c: ConfirmacaoIA | null | undefined, modelo: string): boolean => confirmacaoValida(c) && c!.modelo === modelo;
 
 export type EstadoLeitura = {
   passos: PassoLeitura[];

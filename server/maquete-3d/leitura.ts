@@ -21,7 +21,7 @@ import { lerPagina, nomeDoPavimento, type Diagnostico, type PlantaLida } from ".
 import { guardarAnterior, registrarRevisao } from "./revisoes.js";
 import { lerRespostaPrancha } from "./resposta-ia.js";
 import {
-  ExecucaoConcorrente, MENSAGEM_INTERROMPIDA, PASSOS_IA_ANTIGOS, bloqueioDaIA, devolverReserva, execucaoDe, gravarSeIgual, naoCobrado, novaConfirmacao,
+  ExecucaoConcorrente, MENSAGEM_INTERROMPIDA, PASSOS_IA_ANTIGOS, bloqueioDaIA, devolverReserva, execucaoDe, gravarSeIgual, naoCobrado, novaConfirmacao, modeloParaConfirmar,
   exigirSemPassoEmCurso, gravarSobreOAtual, prazoDaIA, pularPassosIA, semTempoParaIA, reservaVencida, reservarChamada, type Execucao,
 } from "./execucao-ia.js";
 import { LeituraIndisponivel, agora, carregarConfig, db, dependencias, erroSeguro, modeloDaLeitura, type AnexoIA, type PdfLido, alvoDoDocumento } from "./base.js";
@@ -772,7 +772,8 @@ export async function confirmarIA(id: number, userId: number, alemDoTeto = false
   if (!m || m.status !== "em_leitura") throw new LeituraIndisponivel("Não há leitura em andamento para esta maquete.");
   const estado = lerEstadoLeitura(m.leitura);
   exigirSemPassoEmCurso(estado);
-  const r = novaConfirmacao(estado, await carregarConfig(), m.iaPranchasLidas ?? 0, userId, alemDoTeto);
+  const config = await carregarConfig();
+  const r = novaConfirmacao(estado, config, m.iaPranchasLidas ?? 0, userId, alemDoTeto, await modeloParaConfirmar(config));
   if ("erro" in r) throw new LeituraIndisponivel(r.erro!);
   const x = execucaoDaLeitura(m);
   if (!(await gravarSeIgual(x, x.serializar(estado)))) throw new LeituraIndisponivel("A leitura mudou enquanto você confirmava. Confira o que ela pede agora e confirme de novo.");

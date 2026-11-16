@@ -130,6 +130,51 @@ describe("QA S-03/S-05 — regressão dos achados", () => {
   beforeEach(async () => { await preparar(await criarBanco()); });
   afterEach(async () => { definirDependencias(); await banco.pg.close(); });
 
+  // EPIC-024 S-11, QA achado 3: a confirmação do custo guarda o modelo com que foi feita.
+  it("QA S-11 achado 3: trocar o modelo da leitura depois de confirmar pede nova confirmação (e confirmação antiga, sem modelo, também)", async () => {
+    await configurar({ motor: "hibrido" });
+    credencial = { ...PAINEL, modelo: "claude-haiku-5" };
+    const id = await pedido([IMG]);
+    await colaborador().iniciarLeitura({ id });
+    expect((await ler(id)).aguardando?.motivo).toBe("confirmacao");
+    await admin().confirmarIA({ id });
+    const estadoGravado = async () => lerEstadoLeitura((await banco.pg.query<{ leitura: string }>(`SELECT leitura FROM maquetes_3d WHERE id = $1`, [id])).rows[0].leitura);
+    expect((await estadoGravado()).confirmacaoIA?.modelo).toBe("claude-haiku-5");
+    // o admin troca o modelo da função "Leitura de plantas" para o Opus: a confirmação feita com o Haiku não vale
+    credencial = { ...PAINEL, modelo: "claude-opus-5-5" };
+    let r = await ler(id);
+    expect(r.aguardando).toMatchObject({ motivo: "confirmacao", mensagem: expect.stringContaining("O modelo mudou de claude-haiku-5 para claude-opus-5-5") });
+    expect(r.aguardando?.mensagem).toContain("paga, modelo claude-opus-5-5");
+    expect(pedidos).toHaveLength(0);
+    expect(await contador(id)).toBe(0);
+    // confirmação gravada antes desta correção (sem o modelo): não dá para saber com qual foi feita — pede de novo
+    const antigo = await estadoGravado();
+    delete antigo.confirmacaoIA!.modelo;
+    await banco.pg.query(`UPDATE maquetes_3d SET leitura = $1 WHERE id = $2`, [JSON.stringify(antigo), id]);
+    r = await ler(id);
+    expect(r.aguardando).toMatchObject({ motivo: "confirmacao", mensagem: expect.stringContaining("antes de o sistema registrar o modelo") });
+    expect(pedidos).toHaveLength(0);
+    // confirmando de novo, vale o modelo novo e a IA é chamada com ele
+    await admin().confirmarIA({ id });
+    expect((await estadoGravado()).confirmacaoIA?.modelo).toBe("claude-opus-5-5");
+    respostas = [{ plantas: [], pendencias: ["Não encontrei planta baixa."] }];
+    await ler(id);
+    expect(pedidos).toHaveLength(1);
+    expect(pedidos[0].credencial?.modelo).toBe("claude-opus-5-5");
+  });
+
+  it("QA S-11 achado 3: na importação, a confirmação também guarda o modelo e não vale para outro", async () => {
+    await configurar({ motor: "hibrido" });
+    credencial = { ...PAINEL, modelo: "claude-haiku-5" };
+    const id = await pedido([IMG]);
+    expect((await importar(id, 0)).aguardando?.motivo).toBe("confirmacao");
+    await admin().confirmarIAImportacao({ id });
+    credencial = { ...PAINEL, modelo: "claude-opus-5-5" };
+    const r = await colaborador().avancarImportacao({ id });
+    expect(r.aguardando).toMatchObject({ motivo: "confirmacao", mensagem: expect.stringContaining("O modelo mudou de claude-haiku-5 para claude-opus-5-5") });
+    expect(pedidos).toHaveLength(0);
+  });
+
   // Achado 2 (Q1): dois "avançar" ao mesmo tempo no passo da IA.
   it("achado 2: dois 'avançar' simultâneos na leitura fazem UMA chamada paga; o outro vê o passo em curso", async () => {
     await configurar({ motor: "hibrido" });
@@ -321,7 +366,7 @@ describe("QA S-03/S-05 — regressão dos achados", () => {
     const prancha = estado.passos.find(p => p.tipo === "prancha" && p.estado === "feito")!;
     const final = estado.passos.findIndex(p => p.tipo === "montagem");
     estado.passos.splice(final, 0, { chave: `ia:${prancha.doc}:${prancha.pagina}`, tipo: "prancha_ia", rotulo: "Leitura pela IA — sobrado.pdf — página 1", estado: "pendente", doc: prancha.doc, pagina: prancha.pagina, arquivo: prancha.arquivo, motivoIA: "teste" });
-    estado.confirmacaoIA = { em: relogio.toISOString(), por: 1, pranchas: 1, usadas: 0 };
+    estado.confirmacaoIA = { em: relogio.toISOString(), por: 1, pranchas: 1, usadas: 0, modelo: "claude-sonnet-5-5" };
     await banco.pg.query(`UPDATE maquetes_3d SET leitura = $1 WHERE id = $2`, [JSON.stringify(estado), id]);
     respostas = [{ plantas: [], pendencias: ["Não encontrei planta baixa."] }];
     expect(await ler(id)).toMatchObject({ status: "em_revisao", erro: null });

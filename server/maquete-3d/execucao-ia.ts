@@ -8,8 +8,8 @@
 // Sem transação interativa (neon-http): tudo é UPDATE ... WHERE ... RETURNING.
 import { and, eq, inArray, isNull, lt, sql } from "drizzle-orm";
 import { maquetes3d, type Maquete3d } from "../../drizzle/schema-maquete-3d.js";
-import { confirmacaoValida, type ConfigMaquete, type EstadoLeitura, type PassoLeitura, type StatusMaquete } from "../../shared/maquete-3d/regras.js";
-import { LIMITE_PASSO_MS, LeituraIndisponivel, agora, db, modeloDaLeitura, tipoDoErroIA, type CredencialIA } from "./base.js";
+import { confirmacaoDoModelo, confirmacaoValida, type ConfigMaquete, type EstadoLeitura, type PassoLeitura, type StatusMaquete } from "../../shared/maquete-3d/regras.js";
+import { LIMITE_PASSO_MS, LeituraIndisponivel, agora, db, dependencias, modeloDaLeitura, tipoDoErroIA, type CredencialIA } from "./base.js";
 
 /** Passos do fluxo antigo (motor "IA em tudo"): cada um é uma chamada paga com os PDFs inteiros. */
 export const PASSOS_IA_ANTIGOS: readonly PassoLeitura["tipo"][] = ["inventario", "estrutura", "ambientes", "implantacao"];
@@ -82,17 +82,22 @@ export function bloqueioDaIA(estado: EstadoLeitura, config: ConfigMaquete, x: Ex
   if (!credencial) return { aguardando: "chave", erro: semChave };
   const pendentes = pendentesIA(estado), modelo = modeloDaLeitura(credencial, config), conf = estado.confirmacaoIA;
   const limite = config.limitePranchasIA;
-  if (x.iaLidas >= limite && !(confirmacaoValida(conf) && conf?.alemDoTeto)) {
+  // QA S-11 achado 3: confirmação feita com outro modelo (ou sem o modelo gravado, das versões antigas) não vale.
+  const mudou = confirmacaoValida(conf) && conf!.modelo !== modelo;
+  const avisoModelo = !mudou ? "" : conf!.modelo
+    ? `O modelo mudou de ${conf!.modelo} para ${modelo} desde a confirmação: ela não vale para o modelo novo. `
+    : `A confirmação anterior foi feita antes de o sistema registrar o modelo, e não dá para saber se era ${modelo}: por segurança, ela não vale. `;
+  if (x.iaLidas >= limite && !(confirmacaoDoModelo(conf, modelo) && conf?.alemDoTeto)) {
     return {
       aguardando: "teto",
-      erro: `Esta maquete já usou ${x.iaLidas} de ${limite} prancha(s) pela IA (teto por maquete, em Configurações). Para ler mais ${pendentes} ${unidade} pela IA (paga, modelo ${modelo}), um administrador precisa autorizar além do teto; ou siga sem a IA.`,
+      erro: `${avisoModelo}Esta maquete já usou ${x.iaLidas} de ${limite} prancha(s) pela IA (teto por maquete, em Configurações). Para ler mais ${pendentes} ${unidade} pela IA (paga, modelo ${modelo}), um administrador precisa autorizar além do teto; ou siga sem a IA.`,
     };
   }
-  if (!confirmacaoValida(conf)) {
+  if (!confirmacaoDoModelo(conf, modelo)) {
     const usada = !!conf && (conf.usadas ?? 0) >= conf.pranchas;
     return {
       aguardando: "confirmacao",
-      erro: `${pendentes} ${unidade} precisam da leitura por IA (paga, modelo ${modelo}). ${usada ? `A confirmação anterior (${conf!.pranchas} prancha(s)) já foi usada: um administrador confirma de novo.` : "Um administrador confirma para esta leitura."}`,
+      erro: `${avisoModelo}${pendentes} ${unidade} precisam da leitura por IA (paga, modelo ${modelo}). ${mudou ? "Um administrador confirma de novo, com o modelo novo." : usada ? `A confirmação anterior (${conf!.pranchas} prancha(s)) já foi usada: um administrador confirma de novo.` : "Um administrador confirma para esta leitura."}`,
     };
   }
   return null;
@@ -227,17 +232,23 @@ export async function gravarSobreOAtual(x: Execucao, meu: EstadoLeitura, reler: 
 }
 export const MENSAGEM_EM_CURSO = "Este passo já está sendo lido pela IA em outra aba ou janela. Aguarde alguns segundos e continue.";
 
+/** Modelo que vale AGORA para a leitura por IA (o mesmo que bloqueioDaIA e a chamada usam): gravado na confirmação. */
+export async function modeloParaConfirmar(config: ConfigMaquete): Promise<string> {
+  return modeloDaLeitura(await dependencias().credencialIA().catch(() => null), config);
+}
+
 /**
  * Confirmação do admin para ESTA execução: `pranchas` = as pendentes dentro do que sobra do teto (ou todas, com
  * `alemDoTeto`). Sem nada pendente ou com o teto já usado sem o "além do teto": erro claro, nada é autorizado.
  */
-export function novaConfirmacao(estado: EstadoLeitura, config: ConfigMaquete, iaLidas: number, userId: number, alemDoTeto: boolean) {
+export function novaConfirmacao(estado: EstadoLeitura, config: ConfigMaquete, iaLidas: number, userId: number, alemDoTeto: boolean, modelo: string) {
   const pendentes = pendentesIA(estado);
   if (!pendentes) return { erro: "Não há prancha esperando a leitura pela IA nesta execução." } as const;
   const restante = Math.max(0, config.limitePranchasIA - iaLidas);
   if (!alemDoTeto && !restante) return { erro: `Esta maquete já usou o teto de ${config.limitePranchasIA} prancha(s) pela IA. Para passar dele, use "Autorizar além do teto"; ou siga sem a IA.` } as const;
   const pranchas = alemDoTeto ? pendentes : Math.min(pendentes, restante);
-  estado.confirmacaoIA = { em: agora().toISOString(), por: userId, pranchas, usadas: 0, ...(alemDoTeto ? { alemDoTeto: true } : {}) };
+  // o modelo com que o custo foi confirmado (QA S-11 achado 3): se o que vale na hora de ler for outro, pede de novo
+  estado.confirmacaoIA = { em: agora().toISOString(), por: userId, pranchas, usadas: 0, ...(alemDoTeto ? { alemDoTeto: true } : {}), modelo };
   for (const p of estado.passos) if (p.estado === "aguardando" && (p.aguardando === "confirmacao" || p.aguardando === "teto")) Object.assign(p, { estado: "pendente", aguardando: null, erro: null });
   return { pranchas } as const;
 }

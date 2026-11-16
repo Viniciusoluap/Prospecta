@@ -9,7 +9,7 @@ import { aplicarCandidata, DestinoInvalido, type DestinoImportacao } from "../..
 import { lerModelo, modeloSchema, modeloVazio, type ModeloMaquete, type TipoMaquete } from "../../shared/maquete-3d/modelo.js";
 import { lerEstadoLeitura, leituraVazia, type DocumentoMaquete, type EstadoLeitura, type StatusMaquete } from "../../shared/maquete-3d/regras.js";
 import { LeituraIndisponivel, agora, carregarConfig, db, erroSeguro } from "./base.js";
-import { ExecucaoConcorrente, MENSAGEM_INTERROMPIDA, execucaoDe, exigirSemPassoEmCurso, gravarSeIgual, gravarSobreOAtual, novaConfirmacao, pularPassosIA, reservaVencida, type Execucao } from "./execucao-ia.js";
+import { ExecucaoConcorrente, MENSAGEM_INTERROMPIDA, execucaoDe, exigirSemPassoEmCurso, gravarSeIgual, gravarSobreOAtual, novaConfirmacao, modeloParaConfirmar, pularPassosIA, reservaVencida, type Execucao } from "./execucao-ia.js";
 import { documentoDoPasso, lerDocumentos, montarModelo, motorDaLeitura, parciaisDasPranchas, passoPrancha, passoPranchaIA, passosDasPranchas, pranchasParaMontagem } from "./leitura.js";
 import { gravarModelo } from "./revisoes.js";
 
@@ -136,7 +136,8 @@ export async function avancarImportacao(id: number): Promise<Importacao> {
 export async function confirmarIAImportacao(id: number, userId: number, alemDoTeto = false): Promise<Importacao> {
   const { m, imp } = await importacaoAberta(id);
   exigirSemPassoEmCurso(imp.estado);
-  const r = novaConfirmacao(imp.estado, await carregarConfig(), m.iaPranchasLidas ?? 0, userId, alemDoTeto);
+  const config = await carregarConfig();
+  const r = novaConfirmacao(imp.estado, config, m.iaPranchasLidas ?? 0, userId, alemDoTeto, await modeloParaConfirmar(config));
   if ("erro" in r) throw new LeituraIndisponivel(r.erro!);
   await gravar(execucaoDaImportacao(m, imp), imp, "A importação mudou enquanto você confirmava. Confira o que ela pede agora e confirme de novo.");
   return imp;
