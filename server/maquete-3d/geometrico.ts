@@ -932,7 +932,8 @@ const ESCALA_DE_IMPLANTACAO = 200;
 /** Tempo máximo de leitura de uma página: a função do servidor tem limite, e uma prancha confusa não pode travar o passo. */
 const PRAZO_MS = 3500;
 
-type Pagina = { prim: Primitivas; linhas: Linha[]; titulos: Titulo[]; arcos: Arco[]; prazo: number; estourou: boolean };
+/** `recusas`: títulos de desenhos que não são planta; `semComodos`: desenhos com paredes mas sem cômodos com nome. */
+type Pagina = { prim: Primitivas; linhas: Linha[]; titulos: Titulo[]; arcos: Arco[]; recusas: string[]; semComodos: number };
 type Caixa = { x0: number; y0: number; x1: number; y1: number };
 
 /** Centroide de um polígono (pela área; cai na média dos vértices se for degenerado). */
@@ -981,31 +982,38 @@ function plantasNaEscala(pg: Pagina, escala: number, origem: PlantaLida["escalaO
     const xs = g.flatMap(w => [w.a.x, w.b.x]), ys = g.flatMap(w => [w.a.y, w.b.y]);
     grupos.push({ paredes: g, total, caixa: { x0: Math.min(...xs), y0: Math.min(...ys), x1: Math.max(...xs), y1: Math.max(...ys) }, titulo: null });
   }
-  // Título de cada desenho: o mais perto da caixa dele, dando preferência ao que tem a escala logo abaixo. Um título
-  // serve a um desenho só (o maior entre os que o têm como mais próximo); os outros ficam sem título.
+  // Título de cada desenho: o mais perto da caixa dele, dando preferência ao que tem a escala logo abaixo e, entre os
+  // sem escala (AutoCAD, escala no carimbo), ao que diz que é planta — um "CORTE AA" ou "FACHADA FRONTAL" escrito ao
+  // lado da planta é marcador de corte/vista, não o título dela. Um título serve a um desenho só (o maior entre os que
+  // o têm como mais próximo); os outros ficam sem título.
   const distancia = (t: { x: number; y: number }, c: Caixa) => Math.hypot(Math.max(c.x0 - t.x, 0, t.x - c.x1), Math.max(c.y0 - t.y, 0, t.y - c.y1));
   for (const g of grupos) {
     const limite = Math.max(2, 0.5 * Math.max(g.caixa.x1 - g.caixa.x0, g.caixa.y1 - g.caixa.y0));
     const perto = titulos.map(t => ({ t, d: distancia(t, g.caixa) })).filter(x => x.d <= limite).sort((a, b) => a.d - b.d);
-    g.titulo = (perto.find(x => x.t.ancorado) ?? perto[0])?.t ?? null;
+    g.titulo = (perto.find(x => x.t.ancorado) ?? perto.find(x => x.t.tipo === "planta" || x.t.tipo === "layout") ?? perto[0])?.t ?? null;
   }
   for (const g of grupos) if (g.titulo && grupos.some(h => h !== g && h.titulo === g.titulo && h.total > g.total)) g.titulo = null;
 
   const plantas: PlantaLida[] = [];
-  for (const { paredes: grupo, caixa, titulo: tit } of grupos) {
-    if (Date.now() > pg.prazo) { pg.estourou = true; break; }
-    const vista = tit?.tipo ?? null;
-    if (vista === "outra") continue; // corte, fachada, cobertura, implantação, tabela…
+  for (const { paredes: grupo, caixa, titulo } of grupos) {
+    let tit = titulo;
+    if (passou()) break;
+    let vista = tit?.tipo ?? null;
+    // Corte, fachada, cobertura, implantação, tabela com a escala embaixo: é o título do desenho, e ele não é planta.
+    if (vista === "outra" && tit?.ancorado) { pg.recusas.push(tit.str); continue; }
     let x0 = caixa.x0, y0 = caixa.y0, largura = caixa.x1 - caixa.x0, comprimento = caixa.y1 - caixa.y0;
     if (largura < 2.5 || comprimento < 2.5 || largura > 150 || comprimento > 150) continue;
     if (((largura + 2) / CELULA) * ((comprimento + 2) / CELULA) > MAX_CELULAS) continue;
     const lidos = comodosDaPlanta(grupo, linhas, retas, x0, y0, largura, comprimento);
     let comodos = lidos.comodos;
     const nomeadosAntes = comodos.filter(c => c.nomeado).length;
+    // Rótulo "de outro desenho" sem escala embaixo é fraco: com dois ou mais cômodos com nome, o desenho é planta
+    // (o rótulo era um marcador de corte ou de vista ao lado dela).
+    if (vista === "outra") { if (nomeadosAntes >= 2) { vista = null; tit = null; } else { pg.recusas.push(tit!.str); continue; } }
     // Com título de planta, basta um cômodo com nome (ou três ambientes fechados). Sem título reconhecido, o desenho
     // só conta como planta com pelo menos dois cômodos com nome: um corte ou um quadro também tem "caixas" fechadas.
-    if (vista ? !nomeadosAntes && comodos.length < 3 : nomeadosAntes < 2) continue;
-    const titulo = tit?.str ?? "";
+    if (vista ? !nomeadosAntes && comodos.length < 3 : nomeadosAntes < 2) { pg.semComodos++; continue; }
+    const tituloLido = tit?.str ?? "";
     const pendencias: string[] = [];
 
     // A construção é onde estão os cômodos com nome — e os ambientes com algum rótulo (piscina coberta, adega, escada)
@@ -1079,7 +1087,7 @@ function plantasNaEscala(pg: Pagina, escala: number, origem: PlantaLida["escalaO
       .sort((a, b) => b.largura - a.largura || Math.max(externas.get(b.paredeId)!.ay, externas.get(b.paredeId)!.by) - Math.max(externas.get(a.paredeId)!.ay, externas.get(a.paredeId)!.by))[0];
     if (candidata) candidata.entradaPrincipal = true;
     // (andar de cima não tem entrada: só o térreo, ou a planta sem andar no título, recebe o aviso)
-    else if (aberturas.length && (nomeDoPavimento(titulo, 0).andar ?? 0) <= 0) pendencias.push("Nenhuma porta de abrir em parede externa: a entrada principal não foi marcada (porta de correr aparece na planta igual a uma janela). Marque a entrada na revisão.");
+    else if (aberturas.length && (nomeDoPavimento(tituloLido, 0).andar ?? 0) <= 0) pendencias.push("Nenhuma porta de abrir em parede externa: a entrada principal não foi marcada (porta de correr aparece na planta igual a uma janela). Marque a entrada na revisão.");
 
     const escadas: PlantaLida["escadas"] = [];
     for (const d of degraus) {
@@ -1110,7 +1118,7 @@ function plantasNaEscala(pg: Pagina, escala: number, origem: PlantaLida["escalaO
     const comAreas = comodos.filter(c => c.areaInformada && c.areaLida > 0.5).map(c => c.areaLida / c.areaInformada!).sort((a, b) => a - b);
     const razaoAreas = comAreas.length ? comAreas[Math.floor(comAreas.length / 2)] : null;
     plantas.push({
-      titulo, escala, escalaOrigem: origem, origemPt: { x: r2(x0 / k), y: r2(y0 / k) }, metrosPorPonto: k, larguraDaPaginaM: r2(prim.largura * k), largura: r2(largura), comprimento: r2(comprimento),
+      titulo: tituloLido, escala, escalaOrigem: origem, origemPt: { x: r2(x0 / k), y: r2(y0 / k) }, metrosPorPonto: k, larguraDaPaginaM: r2(prim.largura * k), largura: r2(largura), comprimento: r2(comprimento),
       paredes: paredesLidas, aberturas,
       comodos: comodos.map((c, i) => ({ id: `c${i + 1}`, nome: c.nome.slice(0, 80), funcao: c.funcao, pontos: c.pontos.map(p => ({ x: r2(p.x), y: r2(p.y) })), areaInformada: c.areaInformada, confirmada: origem !== "suposta" && c.nomeado })),
       escadas, pendencias, nomeados, razaoAreas, vista,
@@ -1145,51 +1153,74 @@ export function lerPagina(prim: Primitivas): { plantas: PlantaLida[]; diagnostic
     diagnostico.motivo = `Esta prancha é de implantação ou urbanismo${escritas.length ? ` (escala ${escritas.map(e => `1:${e}`).join(", ")})` : ""}, não planta baixa de pavimento: nada foi lido dela. Para a maquete da construção, envie a prancha de arquitetura com as plantas baixas (1:50 ou 1:100).`;
     return fim([]);
   }
+  relogio.prazo = inicio + PRAZO_MS; relogio.estourou = false; relogio.n = 0;
   const arcos = [...prim.arcos, ...arcosDePolilinhas(prim.segmentos)];
   diagnostico.arcos = arcos.length;
-  const pg: Pagina = { prim, linhas, titulos, arcos, prazo: inicio + PRAZO_MS, estourou: false };
+  const pg: Pagina = { prim, linhas, titulos, arcos, recusas: [], semComodos: 0 };
+  // Planta com título de planta e só a escala 1:200 escrita (prédio grande): a escala escrita vale para ela.
+  const escalasDoTexto = escalasDePlanta.length ? escalasDePlanta : temPlanta ? escritas : [];
   let melhor: PlantaLida[] = [];
   const tentar = (escala: number, origem: PlantaLida["escalaOrigem"]) => {
-    if (pg.estourou) return;
+    if (passou()) return;
     let ps = plantasNaEscala(pg, escala, origem);
     // As áreas escritas mandam: se a planta desenhada dá, de forma consistente, outra área, a escala é ajustada.
     const razoes = ps.map(p => p.razaoAreas).filter((r): r is number => r !== null);
-    if (!pg.estourou && razoes.length && razoes.every(r => Math.abs(Math.log(r / razoes[0])) < 0.1) && Math.abs(Math.log(razoes[0])) > 0.18) {
+    if (!passou() && razoes.length && razoes.every(r => Math.abs(Math.log(r / razoes[0])) < 0.1) && Math.abs(Math.log(razoes[0])) > 0.18) {
       const corrigida = Math.round(escala / Math.sqrt(razoes[0]));
-      const alvo = ESCALAS_COMUNS.concat(escalasDePlanta).sort((a, b) => Math.abs(a - corrigida) - Math.abs(b - corrigida))[0];
+      const alvo = ESCALAS_COMUNS.concat(escalasDoTexto).sort((a, b) => Math.abs(a - corrigida) - Math.abs(b - corrigida))[0];
       const refeitas = plantasNaEscala(pg, Math.abs(alvo - corrigida) / corrigida < 0.08 ? alvo : corrigida, "areas");
       if (nota(refeitas) > nota(ps)) ps = refeitas;
     }
     if (nota(ps) > nota(melhor)) melhor = ps;
   };
-  if (escalasDePlanta.length) for (const e of escalasDePlanta) tentar(e, "texto");
+  if (escalasDoTexto.length) for (const e of escalasDoTexto) tentar(e, "texto");
   else for (const e of ESCALAS_COMUNS) tentar(e, "suposta");
-  // A planta de layout (a mesma planta com móveis) só fica quando a prancha não tem a planta baixa simples.
-  if (melhor.some(p => p.vista === "planta")) melhor = melhor.filter(p => p.vista !== "layout");
+  // A planta de layout (a mesma planta com móveis) sai quando há a planta baixa simples do mesmo andar. Planta sem
+  // andar no título conta como térreo (é o que a montagem faz com ela).
+  const andarDe = (p: PlantaLida) => nomeDoPavimento(p.titulo, 0).andar ?? 0;
+  melhor = melhor.filter(p => p.vista !== "layout" || !melhor.some(q => q.vista !== "layout" && andarDe(q) === andarDe(p)));
+  const estourou = relogio.estourou;
   for (const p of melhor) {
     if (p.escalaOrigem === "suposta") p.pendencias.push(`Escala não encontrada na prancha: foi usada 1:${p.escala}${p.razaoAreas !== null ? ", que confere com as áreas escritas" : ""}. Confira uma medida conhecida.`);
     if (p.escalaOrigem === "areas") p.pendencias.push(`A escala escrita não conferia com as áreas dos cômodos: foi usada 1:${p.escala}. Confira uma medida conhecida.`);
     if (p.razaoAreas !== null && Math.abs(Math.log(p.razaoAreas)) < 0.12 && p.escalaOrigem === "suposta") p.escalaOrigem = "areas";
-    if (pg.estourou) p.pendencias.push("A leitura desta prancha passou do tempo e parou antes do fim: pode faltar algum desenho. Confira na revisão.");
+    if (estourou) {
+      // Leitura parcial: o que saiu depende da carga do servidor naquele momento. Nada fica como confirmado.
+      p.pendencias.push("A leitura desta prancha passou do tempo e parou antes do fim: o resultado é parcial (pode faltar desenho, parede ou abertura). Confira tudo na revisão.");
+      p.paredes.forEach(w => { w.confirmada = false; });
+      p.aberturas.forEach(a => { a.confirmada = false; });
+      p.comodos.forEach(c => { c.confirmada = false; });
+    }
   }
   if (!melhor.length) {
-    const outras = Array.from(new Set(titulos.filter(t => t.tipo === "outra" && t.ancorado).map(t => t.str)));
-    diagnostico.motivo = pg.estourou ? "A prancha é carregada demais para ler no tempo do passo (nenhuma planta baixa terminou de ser lida). Envie as plantas baixas em pranchas separadas, ou desenhe na revisão."
-      : outras.length && !temPlanta ? `Nenhuma planta baixa nesta página: os desenhos dela são ${lista(outras.slice(0, 6))}, que não viram pavimento.`
-        : "Nenhuma planta baixa reconhecida nesta página (sem paredes em linha dupla formando ambientes fechados com nome).";
+    const recusas = Array.from(new Set(pg.recusas));
+    diagnostico.motivo = estourou ? "A prancha é carregada demais para ler no tempo do passo (nenhuma planta baixa terminou de ser lida). Envie as plantas baixas em pranchas separadas, ou desenhe na revisão."
+      : recusas.length && !pg.semComodos ? `Nenhuma planta baixa nesta página: os desenhos dela são ${lista(recusas.slice(0, 6))}, que não viram pavimento.`
+        : pg.semComodos ? "Nenhuma planta baixa reconhecida nesta página: há paredes, mas elas não fecham ambientes com o nome do cômodo escrito dentro (sala, quarto, cozinha…). Confira se a planta traz os nomes dos ambientes, ou desenhe na revisão."
+          : "Nenhuma planta baixa reconhecida nesta página: não foram achadas paredes em linha dupla formando ambientes.";
   }
   return fim(melhor);
 }
 
-/** Nome do pavimento a partir do título da planta. */
-export function nomeDoPavimento(titulo: string, ordem: number): { nome: string; andar: number | null } {
-  const t = semAcento(titulo);
-  if (/SUBSOLO/.test(t)) return { nome: "Subsolo", andar: -1 };
+const ORDINAIS: Record<string, number> = { PRIMEIRO: 1, SEGUNDO: 2, TERCEIRO: 3, QUARTO: 4, QUINTO: 5, SEXTO: 6, SETIMO: 7, OITAVO: 8, NONO: 9, DECIMO: 10 };
+
+/**
+ * Nome do pavimento a partir do título da planta. Números de andar em qualquer grafia: "2º PAVIMENTO",
+ * "PAVIMENTO 2", "PAV. 02", "SEGUNDO PAVIMENTO", "PLANTA BAIXA 02". Pela convenção daqui, o 1º pavimento é o térreo;
+ * `numero` diz que o andar veio de um número, para a montagem acertar quando a mesma obra também tem um "TÉRREO"
+ * escrito (aí "PAV. 01" é o primeiro andar acima dele).
+ */
+export function nomeDoPavimento(titulo: string, ordem: number): { nome: string; andar: number | null; numero?: number } {
+  const t = semAcento(titulo).replace(/\s+/g, " ");
+  const sub = /(\d+)\s*[ºO°]?\s*SUBSOLO|SUBSOLO\s*0*(\d+)/.exec(t);
+  if (/SUBSOLO/.test(t)) return { nome: sub ? `${sub[1] ?? sub[2]}º subsolo` : "Subsolo", andar: -Number(sub ? sub[1] ?? sub[2] : 1) };
   if (/TERREO|TERREA/.test(t)) return { nome: "Térreo", andar: 0 };
-  if (/SUPERIOR|2\s*[ºO°]?\s*PAV|SEGUNDO/.test(t)) return { nome: "Pavimento superior", andar: 1 };
   if (/MEZANINO/.test(t)) return { nome: "Mezanino", andar: 1 };
-  const m = /(\d+)\s*[ºO°]?\s*(?:PAV|ANDAR)/.exec(t);
-  if (m) return { nome: `${m[1]}º pavimento`, andar: Number(m[1]) - 1 };
-  if (/TIPO/.test(t)) return { nome: "Pavimento-tipo", andar: 1 };
+  const ordinal = /\b(PRIMEIRO|SEGUNDO|TERCEIRO|QUARTO|QUINTO|SEXTO|SETIMO|OITAVO|NONO|DECIMO)\s+(?:PAVIMENTO|PAVTO|PAV\b|ANDAR)/.exec(t);
+  const numerico = /(\d+)\s*[ºO°]\s*(?:PAV|ANDAR)|(\d+)\s+(?:PAVIMENTO|ANDAR)|(?:PAVIMENTO|PAVTO|PAV\.?|ANDAR)\s*0*(\d{1,2})\b|^PLANTA(?: BAIXA)?\s*[-–]?\s*0*(\d{1,2})$/.exec(t);
+  const n = ordinal ? ORDINAIS[ordinal[1]] : numerico ? Number(numerico[1] ?? numerico[2] ?? numerico[3] ?? numerico[4]) : 0;
+  if (n >= 1 && n <= 200) return n === 2 ? { nome: "Pavimento superior", andar: 1, numero: 2 } : { nome: `${n}º pavimento`, andar: n - 1, numero: n };
+  if (/SUPERIOR/.test(t)) return { nome: "Pavimento superior", andar: 1 };
+  if (/\bTIPO\b/.test(t)) return { nome: "Pavimento-tipo", andar: 1 };
   return { nome: ordem === 0 ? "Térreo" : `Pavimento ${ordem + 1}`, andar: null };
 }
