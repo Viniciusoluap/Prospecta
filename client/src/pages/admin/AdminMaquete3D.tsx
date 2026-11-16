@@ -12,6 +12,8 @@ import { useAuth } from "@/_core/hooks/useAuth";
 import { enviarPartes, LIMITE_DOCUMENTO } from "@/lib/documentos-partes";
 import { EditorPlanta } from "@/components/maquete-3d/EditorPlanta";
 import { EditorMuro } from "@/components/maquete-3d/EditorMuro";
+import { HistoricoPlanta, ImportarPlanta } from "@/components/maquete-3d/ImportarPlanta";
+import { rotuloContinuarLeitura } from "@/components/maquete-3d/rotulos-leitura";
 
 const Visualizador = lazy(() => import("@/components/maquete-3d/visualizador/Visualizador"));
 import { ROTULOS_TIPO, TIPOS_MAQUETE, publicadoSemMuro, type ModeloMaquete, type TipoMaquete } from "@shared/maquete-3d/modelo";
@@ -340,22 +342,29 @@ function Configuracoes({ admin }: { admin: boolean }) {
         </div>
         {admin && (
           <div className="grid gap-3 sm:grid-cols-3">
-            <label className="text-xs text-gray-300">Quem lê o PDF do projeto
-              <select className={inputCls} value={form.motor} onChange={e => setForm({ ...form, motor: e.target.value as MotorLeitura })}>
+            <label className="text-xs text-gray-300">Quem lê o PDF do projeto{form.motorEscolhido ? "" : " (padrão)"}
+              <select className={inputCls} value={form.motor} onChange={e => setForm({ ...form, motor: e.target.value as MotorLeitura, motorEscolhido: e.target.value as MotorLeitura })}>
                 {MOTORES_LEITURA.map(x => <option key={x} value={x}>{ROTULOS_MOTOR[x]}</option>)}
               </select></label>
-            {form.motor === "ia" && <><label className="text-xs text-gray-300">Leitura do projeto pela IA
+            {form.motor !== "geometrico" && <label className="text-xs text-gray-300">Máximo de pranchas (chamadas pagas) pela IA por maquete, somando leituras e importações
+              <input className={inputCls} type="number" min={0} max={60} step={1} value={form.limitePranchasIA} onChange={e => setForm({ ...form, limitePranchasIA: Math.max(0, Math.min(60, Math.round(Number(e.target.value) || 0))) })} /></label>}
+            {form.motor !== "geometrico" && <><label className="text-xs text-gray-300">Leitura do projeto pela IA
               <select className={inputCls} value={form.esforcoIA} onChange={e => setForm({ ...form, esforcoIA: e.target.value as (typeof ESFORCOS_IA)[number] })}>
                 {ESFORCOS_IA.map(x => <option key={x} value={x}>{ROTULOS_ESFORCO[x]}</option>)}
               </select></label>
-            <label className="text-xs text-gray-300">Modelo da IA
+            <label className="text-xs text-gray-300">Modelo da IA{form.origemChaveIA === "painel" ? " (quando o painel não tem preferido)" : ""}
               <input className={inputCls} value={form.modeloIA} onChange={e => setForm({ ...form, modeloIA: e.target.value })} /></label></>}
           </div>
         )}
         {form.motor === "geometrico"
-          ? <p className="text-xs text-gray-400">O leitor próprio não tem custo: lê as linhas e os textos do PDF exportado do programa de desenho (CAD/Revit). PDF escaneado ou fotografado não tem linhas para ler; nesse caso a planta é desenhada na revisão ou usa-se a construção padrão.</p>
-          : !form.iaConfigurada && <p className="text-sm text-amber-300">A chave da IA (ANTHROPIC_API_KEY) não está configurada no servidor: a leitura pela IA não funciona até ela ser cadastrada. O leitor próprio não precisa de chave.</p>}
-        {admin ? <Button className={btnOuro} disabled={salvar.isPending} onClick={() => salvar.mutate({ precos: form.precos, motor: form.motor, modeloIA: form.modeloIA, esforcoIA: form.esforcoIA })}><Save className="mr-1 h-4 w-4" />Salvar</Button>
+          ? <p className="text-xs text-gray-400">O leitor próprio não tem custo: lê as linhas e os textos do PDF exportado do programa de desenho (CAD/Revit). PDF escaneado ou fotografado não tem linhas para ler; nesse caso a planta é desenhada na revisão ou usa-se a construção padrão. Neste modo a IA nunca é usada.</p>
+          : form.motor === "hibrido"
+            ? <p className="text-xs text-gray-400">O leitor próprio lê primeiro, sem custo. Só vão para a IA as pranchas que ele não consegue ler (imagem escaneada ou fotografada) ou lê de forma insuficiente (planta sem cômodos com nome, leitura parcial). Em cada leitura ou importação que precise da IA, o administrador vê quantas pranchas irão e confirma; a confirmação vale só para aquela execução, e o teto abaixo vale por maquete (passar dele exige autorizar além do teto).</p>
+            : <p className="text-xs text-gray-400">Todos os passos da leitura usam a IA (paga).</p>}
+        {form.motor !== "geometrico" && (form.iaConfigurada
+          ? <p className="text-xs text-gray-300">Chave da IA: {form.origemChaveIA === "painel" ? "a cadastrada em Integrações → Anthropic" : "a do servidor (ANTHROPIC_API_KEY)"} · modelo em uso: {form.modeloEmUso}.</p>
+          : <p className="text-sm text-amber-300">Não há chave da IA: cadastre-a em Integrações → Anthropic. Sem ela, as pranchas que precisam da IA ficam aguardando, e o leitor próprio continua funcionando.</p>)}
+        {admin ? <Button className={btnOuro} disabled={salvar.isPending} onClick={() => salvar.mutate({ precos: form.precos, ...(form.motorEscolhido ? { motor: form.motorEscolhido } : {}), limitePranchasIA: form.limitePranchasIA, modeloIA: form.modeloIA, esforcoIA: form.esforcoIA })}><Save className="mr-1 h-4 w-4" />Salvar</Button>
           : <p className="text-xs text-gray-400">Só o administrador altera os preços.</p>}
       </CardContent>
     </Card>
@@ -507,9 +516,20 @@ function Detalhe({ id }: { id: number }) {
         await utils.maquete3d.detalhe.invalidate({ id });
         if (parar.current) return;
         if (r.erro) { toast.error(r.erro); break; }
+        if (r.aguardando) { toast.warning(r.aguardando.mensagem, { duration: 12000 }); break; }
         if (!r.proximo) { toast.success("Leitura concluída. Confira a planta."); break; }
       }
     } catch (e) { falha(e); } finally { setLendo(false); recarregar(); }
+  }
+
+  // Leitura híbrida (S-03): confirmação do custo da IA (admin) ou seguir sem ela.
+  const confirmarIA = trpc.maquete3d.confirmarIA.useMutation();
+  const pularIA = trpc.maquete3d.pularIA.useMutation();
+  async function decidirIA(usar: boolean, alemDoTeto = false) {
+    try {
+      if (usar) await confirmarIA.mutateAsync({ id, alemDoTeto }); else await pularIA.mutateAsync({ id });
+      await ler(false);
+    } catch (e) { falha(e); recarregar(); }
   }
 
   // Revisão: rascunho local até salvar.
@@ -551,10 +571,15 @@ function Detalhe({ id }: { id: number }) {
   if (!d) return <p className="text-sm text-red-300">{detalhe.error?.message ?? "Maquete não encontrada."}</p>;
 
   const aguardando = d.status === "aguardando_pagamento" || d.status === "aguardando_autorizacao";
+  /** QA rodada 2, N1: com um passo sendo lido pela IA, confirmar, seguir sem a IA e ler de novo esperam ele terminar. */
+  const emCurso = d.status === "em_leitura" && d.ia.emCurso;
   const podeLer = ["liberada", "em_leitura", "em_revisao", "validada"].includes(d.status);
   const podeRevisar = d.status === "em_revisao" || d.status === "validada";
   const erros = d.problemas.filter(p => p.nivel === "erro"), avisos = d.problemas.filter(p => p.nivel === "aviso");
   const alvoId = (d.projectId ?? d.studyId)!;
+  // S-05: importar planta arquitetônica (e restaurar versões) também em maquete validada ou publicada.
+  const podeImportar = ["liberada", "em_revisao", "validada", "publicada"].includes(d.status) && !lendo;
+  const aposRestaurar = () => { setSujo(false); recarregar(); };
 
   const link = `${window.location.origin}/maquete/${d.token}`;
 
@@ -648,21 +673,49 @@ function Detalhe({ id }: { id: number }) {
                 <ul className="space-y-1">
                   {d.passos.map(p => (
                     <li key={p.chave} className="flex flex-wrap gap-2">
-                      <span className={p.estado === "feito" ? "text-emerald-400" : p.estado === "erro" ? "text-red-300" : "text-gray-400"}>{p.estado === "feito" ? "✓" : p.estado === "erro" ? "✕" : "○"}</span>
-                      <span>{p.rotulo}</span>{p.erro && <span className="text-red-300">— {p.erro}</span>}
+                      <span className={p.estado === "feito" ? "text-emerald-400" : p.estado === "erro" ? "text-red-300" : p.estado === "aguardando" ? "text-amber-300" : "text-gray-400"}>{p.estado === "feito" ? "✓" : p.estado === "erro" ? "✕" : p.estado === "aguardando" ? "‖" : "○"}</span>
+                      <span>{p.rotulo}</span>
+                      {p.estado === "feito" && (p.tipo === "prancha" || p.tipo === "prancha_ia") && <span className="text-xs text-gray-400">
+                        {p.motor === "ia" ? `— lida pela IA (modelo ${p.modelo ?? "?"}${p.tokens ? `, ${p.tokens.entrada.toLocaleString("pt-BR")} + ${p.tokens.saida.toLocaleString("pt-BR")} tokens` : ""})`
+                          : p.motor === "pulada" ? "— sem a IA: ficou o que o leitor próprio leu" : "— lida pelo leitor próprio"}</span>}
+                      {p.estado === "pendente" && p.motivoIA && <span className="text-xs text-gray-400">— {p.motivoIA}</span>}
+                      {p.estado === "executando" && <span className="text-xs text-amber-300">— sendo lida pela IA agora (não feche a página)</span>}
+                      {p.erro && <span className={p.estado === "aguardando" ? "text-amber-300" : "text-red-300"}>— {p.erro}</span>}
                     </li>
                   ))}
                 </ul>
               </>
             )}
+            {d.status === "em_leitura" && d.progresso.proximo?.estado === "aguardando" && (
+              <div className="space-y-2 rounded-lg border border-amber-400/30 p-3">
+                {d.passos.find(p => p.estado === "aguardando")?.aguardando === "confirmacao" ? (
+                  <>
+                    <p>{d.ia.pendentes} prancha(s) não podem ser lidas pelo leitor próprio e precisam da leitura por IA, que é paga (cobrada pela Anthropic por tokens). A confirmação vale só para esta leitura e para as pranchas autorizadas (esta maquete já usou {d.ia.lidasNaMaquete} de {d.ia.teto ?? "—"} pela IA).</p>
+                    {admin ? <Button className={btnOuro} disabled={lendo || emCurso || confirmarIA.isPending} onClick={() => decidirIA(true)}><Check className="mr-1 h-4 w-4" />Confirmar a leitura pela IA (até o teto da maquete)</Button>
+                      : <p className="text-xs text-gray-400">Só o administrador autoriza a leitura paga pela IA.</p>}
+                  </>
+                ) : d.passos.find(p => p.estado === "aguardando")?.aguardando === "teto" ? (
+                  <>
+                    <p>{d.passos.find(p => p.estado === "aguardando")?.erro}</p>
+                    {admin ? <Button className={btnOuro} disabled={lendo || emCurso || confirmarIA.isPending}
+                      onClick={() => { if (window.confirm(`Autorizar a leitura paga de mais ${d.ia.pendentes} prancha(s) pela IA, além do teto de ${d.ia.teto ?? "—"} desta maquete?`)) void decidirIA(true, true); }}><Check className="mr-1 h-4 w-4" />Autorizar além do teto ({d.ia.pendentes} prancha(s))</Button>
+                      : <p className="text-xs text-gray-400">Só o administrador autoriza passar do teto de pranchas pela IA.</p>}
+                  </>
+                ) : <p>Cadastre a chave em Integrações → Anthropic e clique em “Continuar leitura”: ela retoma deste passo, sem perder o que já foi lido.</p>}
+                <Button variant="outline" className={btnOutline} disabled={lendo || emCurso || pularIA.isPending}
+                  onClick={() => { if (window.confirm("Seguir sem a IA? Essas pranchas ficam com o que o leitor próprio leu (pode ser nada); a planta pode ser desenhada na revisão.")) void decidirIA(false); }}>Continuar sem a IA</Button>
+              </div>
+            )}
+            {d.ia.foraDoLimite.map(a => <p key={a} className="text-xs text-amber-300">{a}</p>)}
             <div className="flex flex-wrap items-center gap-2">
               {d.status === "liberada" && <Button className={btnOuro} disabled={lendo || !d.documentos.length} onClick={() => ler(true)}><Play className="mr-1 h-4 w-4" />Gerar maquete (ler o projeto)</Button>}
-              {d.status === "em_leitura" && <Button className={btnOuro} disabled={lendo} onClick={() => ler(false)}><Play className="mr-1 h-4 w-4" />{d.progresso.proximo?.estado === "erro" ? "Tentar de novo este passo" : "Continuar leitura"}</Button>}
-              {(d.status === "em_revisao" || d.status === "validada" || d.status === "em_leitura") && <Button variant="outline" className={btnOutline} disabled={lendo || !d.documentos.length}
+              {d.status === "em_leitura" && <Button className={btnOuro} disabled={lendo} onClick={() => ler(false)}><Play className="mr-1 h-4 w-4" />{rotuloContinuarLeitura(d.progresso.proximo?.estado, d.passos.find(p => p.estado === "aguardando")?.aguardando)}</Button>}
+              {(d.status === "em_revisao" || d.status === "validada" || d.status === "em_leitura") && <Button variant="outline" className={btnOutline} disabled={lendo || emCurso || !d.documentos.length}
                 onClick={() => { if (window.confirm("Ler o projeto de novo apaga a planta atual e as correções feitas na revisão. Continuar?")) { setSujo(false); ler(true); } }}><RefreshCw className="mr-1 h-4 w-4" />Ler de novo do zero</Button>}
               {lendo && <span className="text-gray-300">Lendo… mantenha esta página aberta.</span>}
+              {!lendo && emCurso && <span className="text-amber-300">Um passo está sendo lido pela IA agora: aguarde terminar para confirmar, seguir sem a IA ou ler de novo.</span>}
             </div>
-            {d.escalas.length > 0 && <p className="text-xs text-gray-300">Escala usada: {d.escalas.map(e => `${e.titulo || "planta"} 1:${e.escala}${e.origem === "texto" ? "" : e.origem === "areas" ? " (conferida pelas áreas)" : " (suposta — confira)"}`).join(" · ")}</p>}
+            {d.escalas.length > 0 && <p className="text-xs text-gray-300">Escala usada: {d.escalas.map(e => `${e.titulo || "planta"} ${e.escala ? `1:${e.escala}` : "sem escala legível"}${e.lidaPor === "ia" ? " (lida pela IA)" : ""}${!e.escala ? " — acerte uma medida conhecida na revisão" : e.origem === "texto" ? "" : e.origem === "areas" ? " (conferida pelas áreas)" : " (suposta — confira)"}`).join(" · ")}</p>}
             {d.avisosDaLeitura.map(a => <p key={a} className="text-xs text-amber-300">{a}</p>)}
             {!d.documentos.length && <p className="text-amber-300">{d.origem === "incorporacao" ? "Para a casa-tipo ou o prédio, escolha os PDFs do projeto. O loteamento não precisa de PDF." : "Escolha os PDFs do projeto antes de gerar."}</p>}
             {d.origem === "incorporacao" && ["liberada", "em_revisao", "validada"].includes(d.status) && (
@@ -721,6 +774,18 @@ function Detalhe({ id }: { id: number }) {
               </div>
             )}
             {d.status === "validada" && <p className="text-sm text-emerald-300">Planta validada em {dataHora(d.revisadoEm)}. Veja a maquete em 3D e publique o link abaixo.</p>}
+            {podeImportar && <ImportarPlanta d={d} admin={admin} sujo={sujo} aoMudar={recarregar} />}
+            <HistoricoPlanta d={d} admin={admin} sujo={sujo} aoMudar={aposRestaurar} />
+          </CardContent>
+        </Card>
+      )}
+
+      {!rascunho && podeImportar && (
+        <Card className={cardCls}>
+          <CardHeader><CardTitle className="text-lg">Revisão da planta</CardTitle></CardHeader>
+          <CardContent className="space-y-3 text-sm">
+            <p className="text-gray-300">Ainda não há planta. Gere a maquete pela leitura do projeto, use a construção padrão ou importe a planta arquitetônica.</p>
+            <ImportarPlanta d={d} admin={admin} sujo={sujo} aoMudar={recarregar} />
           </CardContent>
         </Card>
       )}

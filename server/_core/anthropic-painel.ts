@@ -169,10 +169,10 @@ export async function salvarModeloPreferencialAnthropic(id: string, deps: Anthro
 }
 
 /**
- * Chave e modelo preferencial cadastrados no painel, para uma função que FUTURAMENTE optar por usá-los
- * explicitamente (ex.: leitura por IA de PDF só imagem na maquete, EPIC-024 S-03).
- * AINDA NÃO É USADA POR NENHUMA FUNÇÃO. Não substitui ENV.anthropicApiKey nem os modelos da maquete,
- * da Central de Vendas ou de INCORPORACAO_IA_MODELO.
+ * Chave e modelo preferencial cadastrados no painel, para uma função que opte por usá-los explicitamente.
+ * Único uso autorizado (EPIC-024 S-03): a leitura por IA das pranchas da Maquete 3D (server/maquete-3d/base.ts),
+ * que pede confirmação do custo por maquete. Não substitui ENV.anthropicApiKey nem os modelos da Central de
+ * Vendas ou de INCORPORACAO_IA_MODELO.
  */
 export async function configuracaoAnthropicPainel(deps: AnthropicPainelDeps = anthropicPainelDepsPadrao): Promise<{ apiKey: string; modelo: string | null } | null> {
   const [apiKey, modelo] = await Promise.all([lerChaveSalva(deps), lerModelo(deps)]);
