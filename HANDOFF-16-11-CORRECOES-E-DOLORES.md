@@ -124,3 +124,18 @@ migração da etapa antes. Depois lançar S-03 e S-05, e por fim o EPIC-025 (Dol
   infla essa tabela, não mais a auditoria); conferir `senderPn`/`remoteJidAlt` e os tipos `protocolMessage`/`editedMessage`
   na Evolution real.
 - **Próximo passo exato:** nova rodada do portão de QA da E2 sobre o ramo; aprovado, aplicar 0124 e publicar.
+
+## Atualização — 16/11 — EPIC-025 E2: correções da 2ª rodada do QA (CONCERNS) — @dev
+- **Concluído (ramo `epic025-dolores-etapa2`, cópia `claude/wip-epic025-dolores-etapa2`):** N1–N8 e o informativo, um
+  commit por achado (N1+N7 juntos), cada um com teste de regressão — tabela na story, seção "Correções da 2ª rodada do QA".
+  Principal: filtro de dados pessoais reescrito (CPF/CNPJ com DV em qualquer separação, telefones colados/pontuados,
+  e-mail com espaço, disfarces Unicode) e sem mascarar anos/lotes/nota fiscal/área.
+- **0124 mudou (continua NÃO aplicada, só aditiva/idempotente):** dois índices parciais em `dolores_mensagens`
+  (`…_processando_idx` WHERE situacao='processando'; `…_reserva_idx` WHERE reserva_ate IS NOT NULL). Estranho não grava
+  mais linha em `dolores_mensagens`.
+- **Testes (a) automáticos:** tsc ok; 28 arquivos / 318 testes passando; vite build ok. **(b) manuais:** nenhum.
+  **(c) pendentes em produção:** 0124 no Neon, dono cadastra e conecta, aceite; tipos pin/enquete/botão na Evolution real.
+- **Para o dono decidir:** retenção (nenhuma rotina apaga nada; `dolores_remetentes_estranhos` cresce no máximo uma linha
+  por remetente estranho por hora, sem texto).
+- **Próximo passo exato:** 3ª rodada do portão de QA da E2; aprovado, aplicar 0124 e publicar.
+
