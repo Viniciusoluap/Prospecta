@@ -18,7 +18,7 @@ import { getDb } from "./db.js";
 import { definirDependencias, erroSeguro, tipoDoErroIA, type CredencialIA, type PedidoIA } from "./maquete-3d/base.js";
 import { naoCobrado } from "./maquete-3d/execucao-ia.js";
 import { anexoDaPagina, plantasDaIA } from "./maquete-3d/leitura.js";
-import { AREA_MIN_M2, lerRespostaPrancha, sobreposicao } from "./maquete-3d/resposta-ia.js";
+import { AREA_MIN_M2, comodoRepetido, lerRespostaPrancha, sobreposicao } from "./maquete-3d/resposta-ia.js";
 import { ladosDoJpeg, pdfDeUmJpeg } from "./maquete-3d/pdf-pagina.js";
 import { lerEstadoLeitura } from "../shared/maquete-3d/regras.js";
 import { appRouter } from "./routers.js";
@@ -383,7 +383,7 @@ describe("QA S-03/S-05 — regressão dos achados", () => {
     const d = await admin().detalhe({ id });
     expect(d.modelo!.edificacoes[0].pavimentos[0].comodos.map(c => c.nome)).toEqual(["Sala"]);
     const textos = d.modelo!.pendencias.map(p => p.descricao).join("\n");
-    expect(textos).toContain("\"Sala 2\" lido pela IA fica quase todo por cima de \"Sala\"");
+    expect(textos).toContain("\"Sala 2\" lido pela IA repete \"Sala\"");
     expect(textos).toContain("\"Zero\" lido pela IA tem área quase zero");
     expect(textos).toContain("\"Gigante\" lido pela IA tem coordenadas fora da escala");
     expect(textos).toContain("\"Dois pontos\" lido pela IA tem menos de 3 pontos");
@@ -532,6 +532,27 @@ describe("QA S-03/S-05 rodada 2 — funções puras", () => {
       expect(naoCobrado(e)).toBe(gratis);
     }
     expect(tipoDoErroIA(new Error("qualquer"))).toBeNull();
+  });
+
+  it("N4: closet dentro da suíte e cozinha dentro de 'Sala/Cozinha' ficam (com pendência 'confira'); o mesmo cômodo repetido sai", () => {
+    const r = (x0: number, y0: number, x1: number, y1: number) => [{ x: x0, y: y0 }, { x: x1, y: y0 }, { x: x1, y: y1 }, { x: x0, y: y1 }];
+    const comodos = [
+      { id: "c1", nome: "Suíte", funcao: "suite", pontos: r(0, 0, 4, 4), areaInformada: 16, confirmada: true },
+      { id: "c2", nome: "Closet", funcao: "closet", pontos: r(0.2, 0.2, 1.8, 1.8), areaInformada: 2.56, confirmada: true },
+      { id: "c3", nome: "Sala/Cozinha", funcao: "sala", pontos: r(5, 0, 11, 5), areaInformada: 30, confirmada: true },
+      { id: "c4", nome: "Cozinha", funcao: "cozinha", pontos: r(8, 0, 11, 3), areaInformada: 9, confirmada: true },
+      { id: "c5", nome: "SUÍTE", funcao: "quarto", pontos: r(0.1, 0, 4, 4), areaInformada: 16, confirmada: true }, // a suíte de novo
+      { id: "c6", nome: "Dormitório", funcao: "suite", pontos: r(0, 0.1, 4, 4), areaInformada: null, confirmada: true }, // a suíte de novo (mesma função)
+    ];
+    const [p] = plantasDaIA({ plantas: [{ ...PLANTA, paredes: [], aberturas: [], comodos }] }, false);
+    expect(p.comodos.map(c => c.nome)).toEqual(["Suíte", "Closet", "Sala/Cozinha", "Cozinha"]);
+    const t = p.pendencias.join("\n");
+    expect(t).toContain('"Closet" lido pela IA fica dentro de "Suíte"');
+    expect(t).toContain('"Cozinha" lido pela IA fica dentro de "Sala/Cozinha"');
+    expect(t).toContain('"SUÍTE" lido pela IA repete "Suíte"');
+    expect(t).toContain('"Dormitório" lido pela IA repete "Suíte"');
+    // Áreas parecidas mas funções e nomes diferentes (varanda colada à sala, desenhada por cima): ficam as duas.
+    expect(comodoRepetido({ nome: "Sala", funcao: "sala", pontos: r(0, 0, 4, 4) }, { nome: "Varanda", funcao: "varanda", pontos: r(0, 0, 4, 3.8) })).toBe(false);
   });
 });
 

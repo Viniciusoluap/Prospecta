@@ -12,8 +12,23 @@ import type { PlantaLida } from "./geometrico.js";
 export const COORDENADA_MAX_M = 500;
 /** Cômodo ou escada com área menor que isto (m²) é um traço, não um ambiente. */
 export const AREA_MIN_M2 = 0.3;
-/** Dois cômodos que se cobrem mais que isto (fração da área do menor) são o mesmo desenhado duas vezes. */
+/** Dois cômodos que se cobrem mais que isto (fração da área do menor) estão um por cima do outro. */
 export const SOBREPOSICAO_MAX = 0.6;
+/**
+ * Só é "o mesmo cômodo desenhado duas vezes" quando, além de se cobrirem, as áreas forem parecidas (menor/maior a
+ * partir disto) e a função ou o nome forem os mesmos. Closet dentro da suíte e cozinha dentro de "Sala/Cozinha"
+ * ficam os dois, com pendência para conferir (QA rodada 2, N4).
+ */
+export const RAZAO_AREA_REPETIDO = 0.7;
+
+const nomeNormal = (t: string) => t.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+/** Mesmo cômodo repetido (e não um cômodo dentro de outro): áreas parecidas e a mesma função ou o mesmo nome. */
+export function comodoRepetido(a: { nome: string; funcao: string; pontos: Ponto[] }, b: { nome: string; funcao: string; pontos: Ponto[] }): boolean {
+  const aa = areaPoligono(a.pontos), ab = areaPoligono(b.pontos);
+  const razao = Math.min(aa, ab) / Math.max(aa, ab || 1);
+  const mesmoNome = !!nomeNormal(a.nome) && nomeNormal(a.nome) === nomeNormal(b.nome);
+  return razao >= RAZAO_AREA_REPETIDO && (a.funcao === b.funcao || mesmoNome);
+}
 
 const num = z.number().finite();
 const id = z.string().trim().min(1).max(40);
@@ -93,8 +108,11 @@ function conferirPlanta(bruta: z.infer<typeof plantaZ>) {
       : areaPoligono(c.pontos) < AREA_MIN_M2 ? "tem área quase zero"
       : null;
     if (problema) { pendencias.push(`O cômodo "${nomeDe(c)}" lido pela IA ${problema} e foi descartado: desenhe-o na revisão, se existir.`); continue; }
-    const igual = comodosOk.find(o => sobreposicao(o.pontos, c.pontos) > SOBREPOSICAO_MAX);
-    if (igual) { pendencias.push(`O cômodo "${nomeDe(c)}" lido pela IA fica quase todo por cima de "${nomeDe(igual)}" e foi descartado (repetido). Confira os dois na revisão.`); continue; }
+    const porCima = comodosOk.filter(o => sobreposicao(o.pontos, c.pontos) > SOBREPOSICAO_MAX);
+    const igual = porCima.find(o => comodoRepetido(o, c));
+    if (igual) { pendencias.push(`O cômodo "${nomeDe(c)}" lido pela IA repete "${nomeDe(igual)}" (mesma função e quase a mesma área, um por cima do outro) e foi descartado. Confira na revisão.`); continue; }
+    // Cômodo dentro de outro (closet na suíte, cozinha em "Sala/Cozinha"): os dois ficam, com pendência para conferir.
+    for (const o of porCima) pendencias.push(`O cômodo "${nomeDe(c)}" lido pela IA fica dentro de "${nomeDe(o)}" (ou por cima dele): os dois foram mantidos. Confira na revisão se um está mesmo dentro do outro.`);
     comodosOk.push(c);
   }
   const escadasOk = escadas.itens.filter(e => e.pontos.length >= 3 && !foraDeEscala([...e.pontos, e.inicio, e.fim, ...e.percurso]) && areaPoligono(e.pontos) >= AREA_MIN_M2);
