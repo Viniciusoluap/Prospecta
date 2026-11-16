@@ -4,7 +4,7 @@ import type { GeoJSONSource, Map as MapaMl } from "maplibre-gl";
 import { area as turfArea, bbox as turfBbox, featureCollection } from "@turf/turf";
 import { uniaoDoTerreno, type GeometriaTerreno } from "@shared/geo/terreno";
 import {
-  IDS_CAMADAS, LARGURA_CONFIRMADA_MAX_M, calcularApp, calcularServidao, calcularVegetacao, carConfere, fmtKm, fmtPct, limparLargurasConfirmadas,
+  IDS_CAMADAS, LARGURA_CONFIRMADA_MAX_M, calcularApp, contornoAppParaGravar, calcularServidao, calcularVegetacao, carConfere, fmtKm, fmtPct, limparLargurasConfirmadas,
   linhasOsmComplementares, resumirFuros, type AppModo, type Contorno, type DadosCamadas, type DadosHidro, type EstadoCamada, type IdCamada,
   type ItemServidao, type LargurasConfirmadas,
 } from "@shared/geo/camadas-terreno";
@@ -205,13 +205,16 @@ export function MapaTerreno({ geojson, center, height = 420, estudoId, largurasJ
 
   // APP salva automaticamente no estudo (Viabilidade/Relatório) — só quando alguma
   // fonte de hidrografia respondeu (não grava zero por falha de rede) e mudou.
+  // S-I: o contorno da APP no terreno vai junto, para o Estudo de Massa tirar a APP da área loteável pela posição real
+  const contornoApp = useMemo(() => (app && app.areaM2 > 0 ? contornoAppParaGravar(app.noTerreno) : null), [app]);
   useEffect(() => {
     if (!estudoId || !app || hidroPendente) return;
-    const chave = `${estudoId}|${Math.round(app.areaM2)}|${app.larguraM}|${appModo}`;
+    // o terreno entra na chave: trocar o KML apaga o contorno no servidor, e ele tem de ser gravado de novo
+    const chave = `${estudoId}|${geojson.length}|${Math.round(app.areaM2)}|${app.larguraM}|${appModo}|${contornoApp ? contornoApp.coordinates.length : 0}`;
     if (ultimoSalvo.current === chave) return;
     ultimoSalvo.current = chave;
-    salvarApp(estudoId, { areaM2: app.areaM2, larguraM: app.larguraM, origem: appModo }).catch(() => { /* melhor esforço */ });
-  }, [estudoId, app, appModo, hidroPendente]);
+    salvarApp(estudoId, { areaM2: app.areaM2, larguraM: app.larguraM, origem: appModo, contorno: contornoApp }).catch(() => { /* melhor esforço */ });
+  }, [estudoId, app, appModo, hidroPendente, contornoApp, geojson]);
 
   // ─── Desenho ─────────────────────────────────────────────────────────────
   useEffect(() => {
@@ -323,6 +326,11 @@ export function MapaTerreno({ geojson, center, height = 420, estudoId, largurasJ
         <p className="border border-green-100 bg-green-50 px-2.5 py-1.5 text-[11px] font-bold text-green-700">
           APP calculada automaticamente dentro do terreno: {formatArea(app.areaM2)}
           {app.larguraM != null && ` (faixa de ${app.larguraM} m)`} — já enviada para a aba Viabilidade.
+        </p>
+      )}
+      {app && !hidroPendente && estudoId && app.areaM2 > 0 && !contornoApp && (
+        <p role="alert" className="border border-amber-200 bg-amber-50 px-2.5 py-1.5 text-[11px] text-amber-900">
+          O contorno desta APP é complexo demais para ser guardado no estudo: o Estudo de Massa vai usar só a área em m² (sem a posição real).
         </p>
       )}
       <p className="text-[10px] text-gray-400">

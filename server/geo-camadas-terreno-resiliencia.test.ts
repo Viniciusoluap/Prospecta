@@ -293,3 +293,35 @@ describe("Overpass: uma consulta por vez em cada servidor", () => {
     expect([a, b, c].map(x => x.camadas.osm?.estado)).toEqual(["vazio", "vazio", "vazio"]);
   });
 });
+
+// Portão de QA de 16/11 (S-H): a corrida entre os espelhos não pode deixar consulta aberta depois da resposta.
+describe("Overpass: corrida entre os servidores", () => {
+  it("quando um servidor responde, as consultas dos outros são canceladas e nenhum reforço sai depois", async () => {
+    const chamadas: string[] = [], cortadas: string[] = [];
+    const rapido = new URL(FONTES.overpass.urls[2]).host;
+    const fetchImpl = ((url: string, init?: RequestInit) => {
+      const host = new URL(String(url)).host;
+      chamadas.push(host);
+      if (host === rapido) return new Promise(ok => setTimeout(() => ok(json(JSON.stringify({ elements: [] }))), 20));
+      // os outros nunca respondem: só terminam se o sinal cortar
+      return new Promise((_, falha) => init!.signal!.addEventListener("abort", () => { cortadas.push(host); const e = new Error("aborted"); e.name = "AbortError"; falha(e); }));
+    }) as unknown as typeof fetch;
+    const r = await buscarCamadasTerreno(terreno, ["osm"], { fetchImpl });
+    expect(r.camadas.osm).toMatchObject({ estado: "vazio" });
+    expect(r.camadas.osm?.fonte).toContain(rapido);
+    await new Promise(ok => setTimeout(ok, 30));
+    expect(cortadas.sort()).toEqual(FONTES.overpass.urls.map(u => new URL(u).host).filter(h => h !== rapido).sort());
+    expect(chamadas).toHaveLength(FONTES.overpass.urls.length); // uma por servidor: nenhum reforço, nenhuma repetição
+  });
+});
+
+describe("fonte em manutenção (EPE responde 503 com página de aviso)", () => {
+  it("não repete a consulta e diz que a fonte está em manutenção", async () => {
+    const registro: Chamada[] = [];
+    const r = roteiro([() => new Response("<html><title>Sistema em manutenção</title></html>", { status: 503, headers: { "Content-Type": "text/html" } })], registro);
+    const { camadas } = await buscarCamadasTerreno(terreno, ["vegetacao"], { ...relogioFalso(), fetchImpl: r.fetchImpl });
+    expect(camadas.vegetacao?.estado).toBe("indisponivel");
+    expect(camadas.vegetacao?.erro).toContain("manutenção");
+    expect(new Set(registro.map(c => c.url)).size).toBe(registro.length); // nenhuma URL consultada duas vezes
+  });
+});

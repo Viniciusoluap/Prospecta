@@ -16,10 +16,10 @@
 // Honestidade técnica: é um estudo de aproveitamento — não substitui projeto
 // urbanístico aprovado nem levantamento técnico profissional.
 
-import { featureCollection, intersect, polygon as turfPolygon, union } from "@turf/turf";
+import { difference, featureCollection, intersect, polygon as turfPolygon, union } from "@turf/turf";
 import type { Feature, MultiPolygon, Polygon, Position } from "geojson";
 import {
-  DESTINOS_PADRAO, aproveitarRestricoes, calcularQuadroAreasMassa, totalRestricoes, type AproveitamentoDasRestricoes, type DestinoRestricao,
+  DESTINOS_PADRAO, RESTRICOES_VAZIAS, aproveitarRestricoes, calcularQuadroAreasMassa, totalRestricoes, type AproveitamentoDasRestricoes, type DestinoRestricao,
   type DestinosDasRestricoes, type QuadroAreasMassa, type RestricoesNaoParcelaveis,
 } from "./massa-quadro-areas.js";
 import {
@@ -118,7 +118,27 @@ export interface LoteGerado {
   origem?: "sobra" | "lote";
   /** Furos da peça (anéis internos), [lng, lat]. */
   furos?: Position[][];
+  /** Peça de área restrita desenhada pelo contorno real (APP, faixa…): não é sobra do desenho. */
+  restricao?: TipoRestricaoGeo;
 }
+
+// ─── Restrições com geometria (S-I) ─────────────────────────────────────────
+
+/** Tipos de área restrita que podem vir com o contorno (mapa do Terreno, levantamento). */
+export type TipoRestricaoGeo = "app" | "supressao_vegetal" | "faixa_transmissao" | "faixa_servidao" | "outras";
+
+export const ROTULO_RESTRICAO_GEO: Record<TipoRestricaoGeo, string> = {
+  app: "APP", supressao_vegetal: "Vegetação a preservar", faixa_transmissao: "Faixa de transmissão", faixa_servidao: "Faixa de servidão", outras: "Não parcelável",
+};
+
+/** Campo do quadro de áreas de cada tipo (ordem = prioridade quando dois contornos se sobrepõem). */
+const CAMPO_RESTRICAO_GEO: [TipoRestricaoGeo, keyof RestricoesNaoParcelaveis][] = [
+  ["app", "appM2"], ["supressao_vegetal", "supressaoVegetalM2"], ["faixa_transmissao", "faixaTransmissaoM2"],
+  ["faixa_servidao", "faixaServidaoM2"], ["outras", "outrasNaoParcelaveisM2"],
+];
+
+/** Área restrita com o contorno real, em [lng, lat]: polígonos no formato MultiPolygon ([contorno, ...furos][]). */
+export interface RestricaoGeometrica { tipo: TipoRestricaoGeo; poligonos: Position[][][] }
 
 export type CriterioCenario = "maior_area_vendavel" | "melhor_eficiencia_viaria" | "alternativa_distinta";
 
@@ -176,6 +196,8 @@ export interface CenarioMassa {
   acessos?: AcessoCenario[];
   /** Número de áreas contínuas compostas neste cenário (KML com áreas separadas). */
   areas?: number;
+  /** S-I: marca das restrições com contorno com que o cenário foi gerado (`assinaturaRestricoes`); ausente = sem contorno. */
+  contornoRestricoes?: string;
 }
 
 /** Restrições não parceláveis a partir dos parâmetros (ausentes = 0). */
@@ -688,6 +710,8 @@ interface Ctx {
   aproveitamento: AproveitamentoDasRestricoes;
   viasEntorno: ViaEntornoM[];
   oMalha: OpcoesMalha;
+  /** Parte das restrições desenhadas pelo contorno, FORA desta área (S-I): a nota do aproveitamento sai no total. */
+  externas: number;
 }
 
 interface Bruto {
@@ -783,6 +807,19 @@ function eficienciaViaria(c: Bruto): number {
 
 // ─── Montagem do cenário de saída ───────────────────────────────────────────
 
+/** Notas do aproveitamento das restrições nas doações; `verdeSoEmM2` = parte verde informada só em m² (sem contorno). */
+function notasAproveitamento(ap: AproveitamentoDasRestricoes, verdeSoEmM2: number): string[] {
+  if (!(ap.comoVerdeM2 + ap.comoInstitucionalM2 > 0.5)) return [];
+  const f = (v: number) => v.toLocaleString("pt-BR", { maximumFractionDigits: 0 });
+  const partes = [
+    ap.comoVerdeM2 > 0.5 ? `${f(ap.comoVerdeM2)} m² contam como área verde (mínimo exigido ${f(ap.exigidoVerdeM2)} m²${ap.verdeEmAreaLoteavelM2 > 0.5 ? `; faltaram ${f(ap.verdeEmAreaLoteavelM2)} m², tirados da área loteável` : "; nada foi tirado da área loteável"})` : "",
+    ap.comoInstitucionalM2 > 0.5 ? `${f(ap.comoInstitucionalM2)} m² contam como área institucional (mínimo exigido ${f(ap.exigidoInstitucionalM2)} m²${ap.institucionalEmAreaLoteavelM2 > 0.5 ? `; faltaram ${f(ap.institucionalEmAreaLoteavelM2)} m², tirados da área loteável` : ""})` : "",
+  ].filter(Boolean);
+  const notas = [`Áreas que não podem virar lote (APP, vegetação, faixas) aproveitadas nas doações: ${partes.join("; ")}. Com isso, ${f(ap.economiaM2)} m² de área loteável deixaram de ser doados. O aproveitamento depende da legislação municipal: confirme com a prefeitura.`];
+  if (verdeSoEmM2 > 0.5) notas.push("No desenho, a área verde inclui a APP e as faixas aproveitadas, que foram informadas só em m²: a posição exata delas vem do levantamento, não deste estudo.");
+  return notas;
+}
+
 /** Fecho de áreas do cenário: soma de lotes + vias + áreas públicas + não parceláveis contra a área da gleba. */
 export interface FechoAreas { areaGlebaM2: number; somaM2: number; diferencaM2: number }
 
@@ -838,7 +875,7 @@ function montarCenario(ctx: Ctx, idx: number, b: Bruto, criterio: CriterioCenari
   const areaViariaGeo = round2(b.vias.areaM2 + dest.viasExtras.reduce((s, v) => s + areaPoli(v), 0));
   const informada = ctx.manual ? params.areaSistemaViarioM2 : undefined;
   const quadroAreas = calcularQuadroAreasMassa({
-    areaBrutaM2: ctx.areaGleba,
+    areaBrutaM2: ctx.areaGleba + ctx.externas,
     restricoes: ctx.restricoes,
     aproveitamento: ctx.aproveitamento,
     areaVendavelM2,
@@ -853,16 +890,8 @@ function montarCenario(ctx: Ctx, idx: number, b: Bruto, criterio: CriterioCenari
   const somaM2 = lotes.reduce((s, l) => s + l.areaM2, 0) + areaViariaGeo;
   // honestidade: sobra sem frente para via destinada a área verde ALÉM do mínimo exigido (ex.: fundos da Rua Simples)
   const notas = [...b.impl.limitacoes, ...dest.avisos];
-  const ap = ctx.aproveitamento;
-  if (ap.comoVerdeM2 + ap.comoInstitucionalM2 > 0.5) {
-    const f = (v: number) => v.toLocaleString("pt-BR", { maximumFractionDigits: 0 });
-    const partes = [
-      ap.comoVerdeM2 > 0.5 ? `${f(ap.comoVerdeM2)} m² contam como área verde (mínimo exigido ${f(ap.exigidoVerdeM2)} m²${ap.verdeEmAreaLoteavelM2 > 0.5 ? `; faltaram ${f(ap.verdeEmAreaLoteavelM2)} m², tirados da área loteável` : "; nada foi tirado da área loteável"})` : "",
-      ap.comoInstitucionalM2 > 0.5 ? `${f(ap.comoInstitucionalM2)} m² contam como área institucional (mínimo exigido ${f(ap.exigidoInstitucionalM2)} m²${ap.institucionalEmAreaLoteavelM2 > 0.5 ? `; faltaram ${f(ap.institucionalEmAreaLoteavelM2)} m², tirados da área loteável` : ""})` : "",
-    ].filter(Boolean);
-    notas.push(`Áreas que não podem virar lote (APP, vegetação, faixas) aproveitadas nas doações: ${partes.join("; ")}. Com isso, ${f(ap.economiaM2)} m² de área loteável deixaram de ser doados. O aproveitamento depende da legislação municipal: confirme com a prefeitura.`);
-    if (ap.comoVerdeM2 > 0.5) notas.push("No desenho, a área verde inclui a APP e as faixas aproveitadas, que foram informadas só em m²: a posição exata delas vem do levantamento, não deste estudo.");
-  }
+  // com restrição desenhada pelo contorno, a nota do aproveitamento sai uma vez, no total da gleba (finalizarCenario)
+  if (!(ctx.externas > 0)) notas.push(...notasAproveitamento(ctx.aproveitamento, ctx.aproveitamento.comoVerdeM2));
   const excessoVerde = areaVerdeM2 - ctx.alvos.verde;
   if (excessoVerde > 0.1 * ctx.areaGleba) {
     const f = (v: number) => v.toLocaleString("pt-BR", { maximumFractionDigits: 0 });
@@ -987,6 +1016,22 @@ function fnv1a(texto: string, semente: number): string {
   return h.toString(16).padStart(8, "0");
 }
 
+/** Texto canônico das restrições com contorno (entra nas assinaturas); vazio sem restrição. */
+function textoRestricoes(restricoes: RestricaoGeometrica[] | null | undefined): string {
+  const anel = (a: Position[]) => (Array.isArray(a) ? a : []).map((p) => `${Number(p?.[0]).toFixed(9)},${Number(p?.[1]).toFixed(9)}`).join(";");
+  return (restricoes ?? []).filter((r) => r && Array.isArray(r.poligonos))
+    .map((r) => `${r.tipo}:${r.poligonos.map((poli) => (Array.isArray(poli) ? poli : []).map(anel).join("/")).join("|")}`).join("~");
+}
+
+/**
+ * Marca das restrições com contorno usadas num estudo (S-I): fica em cada cenário gerado (`contornoRestricoes`) para a
+ * tela saber se os cenários na tela foram gerados com o contorno guardado hoje. Vazia sem restrição.
+ */
+export function assinaturaRestricoes(restricoes: RestricaoGeometrica[] | null | undefined): string {
+  const t = textoRestricoes(restricoes);
+  return t ? `${fnv1a(t, 2166136261)}${fnv1a(t, 0x9e3779b1)}` : "";
+}
+
 /** Gleba de entrada: um anel (área única) ou várias áreas contínuas, cada uma [contorno, ...furos] (MultiPolygon). */
 export type EntradaGleba = Position[] | Position[][][];
 
@@ -1002,16 +1047,145 @@ export function areasDaEntrada(e: EntradaGleba): Position[][][] {
 
 /**
  * Assinatura estável de poligonal(is) + parâmetros + vias do entorno + versão do algoritmo. Igual ⇒ resultado igual.
- * As vias do entorno entram porque mudam a escolha do acesso (R5).
+ * As vias do entorno entram porque mudam a escolha do acesso (R5); o contorno das áreas restritas, porque muda o desenho.
  */
-export function assinaturaEntradas(entrada: EntradaGleba, params: ParametrosMassa, viasEntorno?: ViaEntorno[] | null): string {
+export function assinaturaEntradas(entrada: EntradaGleba, params: ParametrosMassa, viasEntorno?: ViaEntorno[] | null, restricoes?: RestricaoGeometrica[] | null): string {
   const anel = (a: Position[]) => a.map((p) => `${p[0].toFixed(9)},${p[1].toFixed(9)}`).join(";");
   const coords = ehAnelUnico(entrada) ? anel(entrada) : areasDaEntrada(entrada).map((poli) => poli.map(anel).join("/")).join("|");
   const chaves = Object.keys(params).sort() as (keyof ParametrosMassa)[];
   const ps = chaves.filter((k) => params[k] !== undefined).map((k) => `${k}=${String(params[k])}`).join("|");
   const vias = (viasEntorno ?? []).map((v) => `${v.nome ?? ""}:${v.coords.map((p) => `${p[0].toFixed(7)},${p[1].toFixed(7)}`).join(";")}`).join("~");
-  const base = `${VERSAO_ALGORITMO_MASSA}#${ps}#${coords}${vias ? `#vias:${vias}` : ""}`;
+  const restr = textoRestricoes(restricoes);
+  const base = `${VERSAO_ALGORITMO_MASSA}#${ps}#${coords}${vias ? `#vias:${vias}` : ""}${restr ? `#restricoes:${restr}` : ""}`;
   return `${fnv1a(base, 2166136261)}${fnv1a(base, 0x9e3779b1)}`;
+}
+
+// ─── Recorte das restrições com contorno (S-I) ──────────────────────────────
+
+/** Área contínua a lotear: contorno + furos, [lng, lat], e a área líquida (m²). */
+interface AreaEfetiva { anel: Position[]; furos: Position[][]; areaM2: number }
+
+interface PecaRestricao { tipo: TipoRestricaoGeo; campo: keyof RestricoesNaoParcelaveis; anel: Position[]; furos: Position[][]; areaM2: number }
+
+interface RecorteRestricoes {
+  /** Partes da gleba fora das restrições, que recebem lotes e vias. */
+  areas: AreaEfetiva[];
+  /** Partes fora das restrições menores que o lote mínimo (ou de traçado inválido): ficam como área verde. */
+  retalhos: AreaEfetiva[];
+  /** Restrições recortadas pela gleba, sem sobreposição entre elas (vale a ordem de CAMPO_RESTRICAO_GEO). */
+  pecas: PecaRestricao[];
+  /** m² de cada restrição com contorno, medido no contorno recortado (substitui o m² dos parâmetros). */
+  m2PorCampo: Partial<RestricoesNaoParcelaveis>;
+  /** Tipos cujo contorno é vazio, inválido ou não cai na gleba: continuam com o m² informado. */
+  foraDoTerreno: TipoRestricaoGeo[];
+}
+
+/**
+ * Tira da gleba as restrições com contorno: devolve as partes loteáveis (cada uma vira uma área contínua do motor,
+ * como num KML com várias áreas), as peças das restrições na posição real e o m² de cada uma. Tudo no plano local
+ * (mesma projeção do motor); null quando o recorte falha (o motor volta a usar só o m²).
+ */
+function recortarRestricoes(
+  areas: Position[][][], furosValidos: Position[][][], restricoes: RestricaoGeometrica[], proj: ReturnType<typeof criarProjecao>, loteMinimoM2: number,
+): RecorteRestricoes | null {
+  const emMetros = (anel: Position[]): Position[] | null => {
+    if (!Array.isArray(anel) || anel.length < 3) return null;
+    const m = anel.map((p) => (Array.isArray(p) && Number.isFinite(p[0]) && Number.isFinite(p[1]) ? (proj.paraMetros(p) as Position) : null));
+    if (m.some((p) => !p)) return null;
+    const a = m as Position[];
+    if (a[0][0] !== a[a.length - 1][0] || a[0][1] !== a[a.length - 1][1]) a.push(a[0]);
+    else a[a.length - 1] = a[0];
+    return a.length >= 4 ? a : null;
+  };
+  const emGeo = (anel: Position[]): Position[] => { const g = anel.map((p) => proj.paraGeo(p) as Position); g[g.length - 1] = g[0]; return g; };
+  try {
+    const glebas = areas.map((poli, i) => turfPolygon([emMetros(poli[0])!, ...furosValidos[i].map((f) => emMetros(f)!)]));
+    const pecas: PecaRestricao[] = [];
+    const m2PorCampo: Partial<RestricoesNaoParcelaveis> = {};
+    const foraDoTerreno: TipoRestricaoGeo[] = [];
+    let ocupado: Feature<Polygon | MultiPolygon> | null = null;
+    for (const [tipo, campo] of CAMPO_RESTRICAO_GEO) {
+      const lista = restricoes.filter((r) => r?.tipo === tipo && Array.isArray(r.poligonos));
+      if (lista.length === 0) continue;
+      const polis: Feature<Polygon>[] = [];
+      for (const r of lista) {
+        for (const poli of r.poligonos) {
+          if (!Array.isArray(poli) || poli.length === 0) continue;
+          const externo = emMetros(poli[0]);
+          if (!externo || areaPlanar(externo) <= 0) continue;
+          const furos = poli.slice(1).map(emMetros).filter((f): f is Position[] => !!f && areaPlanar(f) > 0);
+          polis.push(turfPolygon([externo, ...furos]));
+        }
+      }
+      const u = polis.length === 0 ? null : (polis.length === 1 ? polis[0] : union(featureCollection(polis))) as Feature<Polygon | MultiPolygon> | null;
+      // contorno vazio, inválido ou fora da gleba: não zera a restrição em silêncio — vale o m² informado (com aviso)
+      const dentro = u ? glebas.map((gl) => intersect(featureCollection([gl, u])) as Feature<Polygon | MultiPolygon> | null) : [];
+      if (!u || dentro.reduce((t, x) => t + (x ? poligonosDe(x.geometry).reduce((q, p) => q + areaPoli(p), 0) : 0), 0) < 0.5) {
+        foraDoTerreno.push(tipo);
+        continue;
+      }
+      m2PorCampo[campo] = 0;
+      dentro.forEach((x0) => {
+        let x = x0;
+        if (x && ocupado) x = difference(featureCollection([x, ocupado])) as Feature<Polygon | MultiPolygon> | null;
+        if (!x) return;
+        for (const p of poligonosDe(x.geometry)) {
+          const a = areaPoli(p);
+          if (a <= 1e-6) continue;
+          pecas.push({ tipo, campo, anel: emGeo(p[0]), furos: p.slice(1).map(emGeo), areaM2: a });
+          m2PorCampo[campo] = (m2PorCampo[campo] ?? 0) + a;
+        }
+      });
+      ocupado = ocupado ? (union(featureCollection([ocupado, u])) as Feature<Polygon | MultiPolygon> | null) ?? ocupado : u;
+    }
+    const livres: AreaEfetiva[] = [], retalhos: AreaEfetiva[] = [];
+    glebas.forEach((gl) => {
+      const resto = ocupado ? (difference(featureCollection([gl, ocupado])) as Feature<Polygon | MultiPolygon> | null) : gl;
+      if (!resto) return;
+      // maiores primeiro (ordem determinística: a mesma entrada dá a mesma numeração das áreas)
+      const partes = poligonosDe(resto.geometry).map((p) => ({ p, a: areaPoli(p) })).filter((x) => x.a > 1e-6).sort((x, y) => y.a - x.a);
+      for (const { p, a } of partes) {
+        const ef: AreaEfetiva = { anel: emGeo(p[0]), furos: p.slice(1).map(emGeo), areaM2: a };
+        if (a + 1e-9 < Math.max(loteMinimoM2, 1) || validarPoligonal(ef.anel)) retalhos.push(ef); else livres.push(ef);
+      }
+    });
+    return { areas: livres, retalhos, pecas, m2PorCampo, foraDoTerreno };
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * m² de cada restrição com contorno DENTRO da gleba, medido como o motor mede (mesma projeção e recorte) — para a
+ * tela mostrar o mesmo número que o quadro de áreas. 0 = o contorno não cai na gleba (o motor usa o m² informado).
+ */
+export function medirRestricoesNaGleba(entrada: EntradaGleba, centro: [number, number], restricoes: RestricaoGeometrica[]): Partial<Record<TipoRestricaoGeo, number>> {
+  const out: Partial<Record<TipoRestricaoGeo, number>> = {};
+  for (const r of restricoes) if (r) out[r.tipo] = 0;
+  const areas = areasDaEntrada(entrada).filter((poli) => !validarPoligonal(poli[0]));
+  if (areas.length === 0 || restricoes.length === 0) return out;
+  const furos = areas.map((poli) => poli.slice(1).filter((f) => !validarPoligonal(f)));
+  const rec = recortarRestricoes(areas, furos, restricoes, criarProjecao(centro), 0);
+  if (!rec) return out;
+  for (const [tipo, campo] of CAMPO_RESTRICAO_GEO) if (rec.m2PorCampo[campo] !== undefined) out[tipo] = round2(rec.m2PorCampo[campo]!);
+  return out;
+}
+
+/** Situação da APP do estudo na aba Estudo de Massa (S-I) — decide o aviso da tela. */
+export type EstadoContornoApp =
+  | "contorno"               // contorno guardado, cai no terreno, cenários na tela gerados com ele
+  | "cenarios_sem_contorno"  // há contorno, mas os cenários na tela foram gerados sem ele (ou com outro): gerar de novo
+  | "fora_do_terreno"        // contorno guardado não cai neste terreno: o motor usa o m² informado
+  | "sem_contorno"           // há APP em m² mas nenhum contorno guardado: abrir o mapa do Terreno
+  | null;                    // sem APP
+
+export function estadoDoContornoApp(e: {
+  restricoes: RestricaoGeometrica[] | null; appAreaM2: number | null | undefined; appNaGlebaM2: number | null | undefined; cenarios: Pick<CenarioMassa, "contornoRestricoes">[];
+}): EstadoContornoApp {
+  if (!e.restricoes || e.restricoes.length === 0) return (e.appAreaM2 ?? 0) > 0 ? "sem_contorno" : null;
+  if (!((e.appNaGlebaM2 ?? 0) > 0)) return "fora_do_terreno";
+  const marca = assinaturaRestricoes(e.restricoes);
+  return e.cenarios.every((c) => c.contornoRestricoes === marca) ? "contorno" : "cenarios_sem_contorno";
 }
 
 // ─── Orquestrador ───────────────────────────────────────────────────────────
@@ -1027,6 +1201,12 @@ export interface OpcoesGeracao {
   onProgress?: (fracao: number, etapa: string) => void;
   /** Vias públicas existentes no entorno (OSM), [lng, lat] — opcionais (R5). */
   viasEntorno?: ViaEntorno[] | null;
+  /**
+   * Áreas restritas com o contorno real (S-I). Cada uma sai da área loteável pelo contorno (nenhum lote nem via
+   * dentro dela) e entra no desenho na posição real, com o destino escolhido; o m² dela vem do contorno recortado
+   * pela gleba, no lugar do valor em m² dos parâmetros.
+   */
+  restricoes?: RestricaoGeometrica[] | null;
 }
 
 export interface EstudoMassaGerado {
@@ -1047,12 +1227,17 @@ function vazio(tipologia: TipologiaMassa, assinatura: string, motivo: string, ca
 }
 
 interface ResultadoArea {
-  cenarios: (CenarioMassa & { acessosArea?: { ponto: Position; acesso: AcessoProx | null }[] })[];
+  cenarios: (CenarioMassa & { acessosArea?: { ponto: Position; acesso: AcessoProx | null; naApp?: boolean }[] })[];
   inviabilidade: { motivo: string; causas: string[] } | null;
   avisos: string[];
   candidatosAvaliados: number;
   /** Tem dados de vias junto à divisa desta área. */
   temViasJunto: boolean;
+  /**
+   * S-I: situação da área frente às restrições desenhadas — "ilha" (cercada por elas, sem divisa real), "alem" (as vias
+   * mapeadas junto à gleba ficam do outro lado da restrição) ou ausente.
+   */
+  isolamento?: "ilha" | "alem";
 }
 
 interface EntradaArea {
@@ -1065,6 +1250,25 @@ interface EntradaArea {
   nCen: number;
   progresso: (f: number, etapa: string) => void;
   viasEntornoM: ViaEntornoM[];
+  /** S-I: anéis da divisa REAL da gleba (metros): o que não está nela é borda de área restrita, não divisa. */
+  divisaReal?: Position[][];
+  /** S-I: a gleba inteira tem vias mapeadas junto à divisa. */
+  glebaTemViasJunto?: boolean;
+  /**
+   * S-I: parte (m²) das restrições desenhadas pelo contorno que cabe a esta área, mas fica FORA dela (já recortada).
+   * Entra na conta das doações (o mínimo é sobre a área parcelável da gleba) e não é tirada de novo da área.
+   */
+  externas?: RestricoesNaoParcelaveis;
+}
+
+/** Quanto das restrições externas vai para cada destino (verde / institucional / só não parcelável). */
+function externasPorDestino(ext: RestricoesNaoParcelaveis, destinos: DestinosDasRestricoes): { verde: number; institucional: number; nenhum: number } {
+  const out = { verde: 0, institucional: 0, nenhum: 0 };
+  for (const [, k] of CAMPO_RESTRICAO_GEO) {
+    const v = Math.max(0, ext[k] || 0);
+    if (destinos[k] === "verde") out.verde += v; else if (destinos[k] === "institucional") out.institucional += v; else out.nenhum += v;
+  }
+  return out;
 }
 
 /** Motor de UMA área contínua (com furos): devolve até nCen cenários distintos e válidos, ou o motivo. */
@@ -1079,9 +1283,12 @@ function estudoDaArea(e: EntradaArea): ResultadoArea {
   const furosM = e.furosGeo.map((f) => { const m = f.map((p) => proj.paraMetros(p)); m[m.length - 1] = m[0]; return m; });
   const areaGleba = areaPlanar(anelM) - furosM.reduce((s, f) => s + areaPlanar(f), 0);
   const restricoes = restricoesDosParametros(params);
-  const naoParcelavel = Math.min(totalRestricoes(restricoes), areaGleba);
+  const externas = e.externas ? totalRestricoes(e.externas) : 0;
+  const naoParcelavel = Math.min(Math.max(0, totalRestricoes(restricoes) - externas), areaGleba);
   const areaParcelavel = Math.max(0, areaGleba - naoParcelavel);
-  const aproveitamento = aproveitamentoDosParametros(params, areaGleba);
+  // com restrição desenhada fora da área, a conta das doações vale para a área + a parte dela que ficou de fora
+  const aproveitamento = aproveitamentoDosParametros(params, areaGleba + externas);
+  const fora = e.externas ? externasPorDestino(e.externas, destinosDosParametros(params)) : { verde: 0, institucional: 0, nenhum: 0 };
   const manual = params.modoSistemaViario === "manual";
 
   const g: Dim = { testada: params.testadaLoteM, profundidade: params.profundidadeLoteM, via: params.larguraViaM };
@@ -1091,9 +1298,15 @@ function estudoDaArea(e: EntradaArea): ResultadoArea {
     anelGeo: e.anelGeo, anelM, furosM, proj, params: { ...params, tipologia }, g, areaGleba, naoParcelavel, areaParcelavel, restricoes, tipologia, manual,
     // As restrições aproveitadas entram no alvo da área verde/institucional (e são desenhadas como tal); só as
     // sem aproveitamento ficam como "não parcelável". Da terra loteável sai apenas o complemento de cada mínimo.
-    alvos: { institucional: aproveitamento.alvoInstitucionalM2, verde: aproveitamento.alvoVerdeM2, naoParcelavel: Math.min(aproveitamento.semAproveitamentoM2, areaGleba) },
+    // A restrição desenhada pelo contorno já está no desenho (fora desta área): sai do alvo, não da terra loteável.
+    alvos: e.externas
+      ? {
+        institucional: Math.max(0, aproveitamento.alvoInstitucionalM2 - fora.institucional), verde: Math.max(0, aproveitamento.alvoVerdeM2 - fora.verde),
+        naoParcelavel: Math.min(Math.max(0, aproveitamento.semAproveitamentoM2 - fora.nenhum), areaGleba),
+      }
+      : { institucional: aproveitamento.alvoInstitucionalM2, verde: aproveitamento.alvoVerdeM2, naoParcelavel: Math.min(aproveitamento.semAproveitamentoM2, areaGleba) },
     aproveitamento,
-    viasEntorno: viasJunto, oMalha,
+    viasEntorno: viasJunto, oMalha, externas,
   };
 
   if (areaParcelavel <= 0) {
@@ -1369,7 +1582,11 @@ function estudoDaArea(e: EntradaArea): ResultadoArea {
     ...montarCenario(ctx, i, x.b, x.criterio),
     ...(inverterVia ? { viaLadoOposto: true } : {}),
     ...(ladosVia ? { ladosVia } : {}),
-    acessosArea: tipologia === "vias_publicas" ? [] : x.b.acessosM.map((pt) => ({ ponto: pt, acesso: viasJunto.length > 0 ? acessoMaisProximo([pt], viasJunto) : null })),
+    acessosArea: tipologia === "vias_publicas" ? [] : x.b.acessosM.map((pt) => ({
+      ponto: pt, acesso: viasJunto.length > 0 ? acessoMaisProximo([pt], viasJunto) : null,
+      // S-I: acesso na borda da área restrita (não na divisa real) não é acesso
+      ...(e.divisaReal ? { naApp: Math.min(...e.divisaReal.map((a) => distanciaAoAnel(a, pt))) > 1 } : {}),
+    })),
   }));
   // o cenário pode perder vendáveis na destinação (estimativa da seleção): nunca exibe cenário sem lote vendável
   const comVendavel = cenarios.filter((c) => c.kpis.lotesVendaveis > 0);
@@ -1378,12 +1595,29 @@ function estudoDaArea(e: EntradaArea): ResultadoArea {
       diagnosticarInviabilidade(anelM, ctx.params, areaParcelavel), avaliados);
   }
   if (comVendavel.length < 3) avisos.push(`Foram encontradas ${comVendavel.length} alternativa(s) geometricamente válida(s) e distinta(s) — nenhum cartão foi preenchido artificialmente.`);
-  return { cenarios: comVendavel, inviabilidade: null, avisos, candidatosAvaliados: avaliados, temViasJunto: viasJunto.length > 0 };
+  // S-I: parte cercada pela restrição (nenhum vértice na divisa real) ou com as vias mapeadas só do outro lado dela
+  let isolamento: ResultadoArea["isolamento"];
+  if (e.divisaReal) {
+    const naDivisa = anelM.some((p) => Math.min(...e.divisaReal!.map((a) => distanciaAoAnel(a, p))) <= 0.5);
+    if (!naDivisa) isolamento = "ilha";
+    else if (e.glebaTemViasJunto && viasJunto.length === 0) isolamento = "alem";
+  }
+  return { cenarios: comVendavel, inviabilidade: null, avisos, candidatosAvaliados: avaliados, temViasJunto: viasJunto.length > 0, ...(isolamento ? { isolamento } : {}) };
 }
 
 /** Nota honesta do acesso de uma área (R5). */
-function notaAcesso(r: ResultadoArea["cenarios"][number], temVias: boolean, prefixo: string): { nota: string; acessos: Omit<AcessoCenario, "area" | "ponto">[] } {
-  const lista = r.acessosArea ?? [];
+function notaAcesso(r: ResultadoArea["cenarios"][number], temVias: boolean, prefixo: string, isolamento?: ResultadoArea["isolamento"]): { nota: string; acessos: Omit<AcessoCenario, "area" | "ponto">[] } {
+  // S-I: ponto na borda da área restrita não é acesso pela divisa
+  const lista = (r.acessosArea ?? []).filter((a) => !a.naApp);
+  if (isolamento === "ilha") {
+    return { nota: `${prefixo}Esta parte fica cercada pela área restrita (APP): chegar a ela exige atravessar a APP com uma via, o que depende de licença ambiental — acesso a confirmar em projeto.`, acessos: [] };
+  }
+  if (isolamento === "alem" && !lista.some((a) => a.acesso && a.acesso.distancia <= DISTANCIA_MAX_ACESSO_M)) {
+    return { nota: `${prefixo}As vias mapeadas junto à gleba ficam do outro lado da área restrita (APP): o acesso por elas exige atravessar a APP, o que depende de licença ambiental. ${NOTA_ACESSO_SEM_VIA}`, acessos: [] };
+  }
+  if ((r.acessosArea ?? []).length > 0 && lista.length === 0) {
+    return { nota: `${prefixo}As ruas desta parte só encostam na borda da área restrita (APP), não na divisa: a ligação com o exterior exige atravessar a APP, o que depende de licença ambiental — acesso a confirmar em projeto.`, acessos: [] };
+  }
   const f = (v: number) => v.toLocaleString("pt-BR", { maximumFractionDigits: 0 });
   const ligados = lista.filter((a) => a.acesso && a.acesso.distancia <= DISTANCIA_MAX_ACESSO_M).sort((a, b) => a.acesso!.distancia - b.acesso!.distancia);
   if (ligados.length > 0) {
@@ -1412,7 +1646,7 @@ export function gerarEstudoMassa(
   opts: OpcoesGeracao = {}
 ): EstudoMassaGerado {
   const tipologia: TipologiaMassa = params.tipologia ?? "grid";
-  const assinatura = assinaturaEntradas(entrada, params, opts.viasEntorno);
+  const assinatura = assinaturaEntradas(entrada, params, opts.viasEntorno, opts.restricoes);
   const progresso = (f: number, etapa: string) => opts.onProgress?.(f, etapa);
   const nCen = Math.max(1, Math.min(3, opts.nCenarios ?? 3));
 
@@ -1438,45 +1672,95 @@ export function gerarEstudoMassa(
   };
   const areasM2 = areas.map((_, i) => areaDe(i));
   const areaTotal = areasM2.reduce((s, a) => s + a, 0);
-  const restricoesTot = restricoesDosParametros(params);
+
+  // S-I: restrições com o contorno real saem da área loteável pelo contorno; o m² delas vem do contorno recortado
+  const restricoesGeo = (opts.restricoes ?? []).filter((r) => r && Array.isArray(r.poligonos));
+  const recorte = restricoesGeo.length > 0 ? recortarRestricoes(areas, furosValidos, restricoesGeo, proj, params.loteMinimoM2) : null;
+  if (restricoesGeo.length > 0 && !recorte) {
+    avisos.push("Não foi possível recortar o contorno das áreas restritas pela gleba: o estudo usou só a área em m² informada (posição a confirmar).");
+  }
+  const geo = recorte && recorte.pecas.length > 0 ? recorte : null;
+  // contorno guardado que não cai neste terreno (KML trocado, contorno vazio ou inválido): vale o m² informado, com aviso
+  const avisosContorno: string[] = [];
+  for (const tipo of recorte?.foraDoTerreno ?? []) {
+    const campo = CAMPO_RESTRICAO_GEO.find((x) => x[0] === tipo)![1];
+    const informado = params[campo] ?? 0;
+    const rot = ROTULO_RESTRICAO_GEO[tipo];
+    avisosContorno.push(`O contorno da ${rot} guardado no estudo não cai neste terreno (ou é inválido): ${informado > 0
+      ? `o estudo usou a ${rot} informada em m² (${informado.toLocaleString("pt-BR", { maximumFractionDigits: 0 })} m²), sem a posição real`
+      : "nenhuma área foi reservada para ela"}. Abra o mapa da aba Terreno para o sistema guardar o contorno de novo.`);
+  }
+  avisos.push(...avisosContorno);
+  const marca = restricoesGeo.length > 0 ? assinaturaRestricoes(restricoesGeo) : "";
+  const marcar = (c: CenarioMassa): CenarioMassa => (marca
+    ? { ...c, contornoRestricoes: marca, limitacoes: [...(c.limitacoes ?? []), ...avisosContorno.filter((a) => !(c.limitacoes ?? []).includes(a))] }
+    : c);
+  const paramsConta: ParametrosMassa = recorte ? { ...params, ...recorte.m2PorCampo } : params;
+
+  const restricoesTot = restricoesDosParametros(paramsConta);
   const naoParcelavelTot = Math.min(totalRestricoes(restricoesTot), areaTotal);
   const areaParcelavelTot = Math.max(0, areaTotal - naoParcelavelTot);
-  const erroViario = validarSistemaViarioManual(params, areaParcelavelTot);
+  const erroViario = validarSistemaViarioManual(paramsConta, areaParcelavelTot);
   if (erroViario) return vazio(tipologia, assinatura, erroViario);
   if (areaParcelavelTot <= 0) {
     const anelM = areas[0][0].map((p) => proj.paraMetros(p));
-    return vazio(tipologia, assinatura, "Inviável: as áreas não parceláveis ocupam toda a gleba — não há área parcelável.", diagnosticarInviabilidade(anelM, { ...params, tipologia }, 0));
+    return vazio(tipologia, assinatura, "Inviável: as áreas não parceláveis ocupam toda a gleba — não há área parcelável.", diagnosticarInviabilidade(anelM, { ...paramsConta, tipologia }, 0));
   }
   const viasEntornoM: ViaEntornoM[] = (opts.viasEntorno ?? [])
     .filter((v) => Array.isArray(v?.coords) && v.coords.length >= 2)
     .map((v) => ({ pts: v.coords.map((p) => proj.paraMetros(p) as Position), nome: v.nome ?? null }));
 
+  // áreas contínuas que recebem lotes: as do KML ou, com restrição desenhada, as partes da gleba fora dela
+  const efetivas: AreaEfetiva[] = geo ? geo.areas : areas.map((poli, i) => ({ anel: poli[0], furos: furosValidos[i], areaM2: areasM2[i] }));
+  if (efetivas.length === 0) {
+    return vazio(tipologia, assinatura, "Inviável: fora das áreas restritas desenhadas só sobram retalhos menores que o lote mínimo.");
+  }
+  const multiEf = efetivas.length > 1;
+  const somaEf = efetivas.reduce((s, a) => s + a.areaM2, 0);
+  const fracao = (i: number) => (somaEf > 0 ? efetivas[i].areaM2 / somaEf : 0);
+
   // cada área recebe a sua parte das restrições informadas em m² (e da área viária manual), na proporção da área
   const escala = (i: number): ParametrosMassa => {
-    if (!multi) return { ...params, tipologia };
-    const k = areaTotal > 0 ? areasM2[i] / areaTotal : 0;
+    if (!multiEf && !geo) return { ...paramsConta, tipologia };
+    const k = fracao(i);
     const m = (v: number | undefined) => (v === undefined ? undefined : v * k);
     return {
-      ...params, tipologia, appM2: m(params.appM2), supressaoVegetalM2: m(params.supressaoVegetalM2), faixaTransmissaoM2: m(params.faixaTransmissaoM2),
-      faixaServidaoM2: m(params.faixaServidaoM2), outrasNaoParcelaveisM2: m(params.outrasNaoParcelaveisM2), areaSistemaViarioM2: m(params.areaSistemaViarioM2),
+      ...paramsConta, tipologia, appM2: m(paramsConta.appM2), supressaoVegetalM2: m(paramsConta.supressaoVegetalM2), faixaTransmissaoM2: m(paramsConta.faixaTransmissaoM2),
+      faixaServidaoM2: m(paramsConta.faixaServidaoM2), outrasNaoParcelaveisM2: m(paramsConta.outrasNaoParcelaveisM2), areaSistemaViarioM2: m(paramsConta.areaSistemaViarioM2),
     };
   };
+  // parte das restrições desenhadas que cabe a cada área (já está fora dela, no desenho)
+  const externasDe = (i: number): RestricoesNaoParcelaveis | undefined => {
+    if (!geo) return undefined;
+    const k = fracao(i);
+    const r = { ...RESTRICOES_VAZIAS };
+    for (const [, campo] of CAMPO_RESTRICAO_GEO) r[campo] = (geo.m2PorCampo[campo] ?? 0) * k;
+    return r;
+  };
+  // S-I: divisa real da gleba (o que não está nela é borda de área restrita) e se há vias mapeadas junto dela
+  const divisaReal = geo ? areas.flatMap((poli, i) => [poli[0], ...furosValidos[i]].map((a) => { const m = a.map((q) => proj.paraMetros(q) as Position); m[m.length - 1] = m[0]; return m; })) : null;
+  const glebaTemViasJunto = !!divisaReal && areas.some((poli) => viasJuntoDaArea(viasEntornoM, poli[0].map((q) => proj.paraMetros(q) as Position)).length > 0);
   let acumulado = 0;
-  const resultados: ResultadoArea[] = areas.map((poli, i) => {
-    const peso = areaTotal > 0 ? areasM2[i] / areaTotal : 1 / areas.length;
+  const resultados: ResultadoArea[] = efetivas.map((ef, i) => {
+    const peso = somaEf > 0 ? ef.areaM2 / somaEf : 1 / efetivas.length;
     const ini = acumulado;
     acumulado += peso;
+    const externas = externasDe(i);
     return estudoDaArea({
-      anelGeo: poli[0], furosGeo: furosValidos[i], centro, params: escala(i), tipologia, nCen, viasEntornoM,
-      progresso: (f, etapa) => progresso(Math.min(0.99, ini + peso * f), multi ? `Área ${i + 1} de ${areas.length}: ${etapa}` : etapa),
+      anelGeo: ef.anel, furosGeo: ef.furos, centro, params: escala(i), tipologia, nCen, viasEntornoM, ...(externas ? { externas } : {}),
+      ...(divisaReal ? { divisaReal, glebaTemViasJunto } : {}),
+      progresso: (f, etapa) => progresso(Math.min(0.99, ini + peso * f), multiEf ? `Área ${i + 1} de ${efetivas.length}: ${etapa}` : etapa),
     });
   });
   const candidatosAvaliados = resultados.reduce((s, r) => s + r.candidatosAvaliados, 0);
+  const extra = geo ? extraDasRestricoes(geo, paramsConta, params, areaTotal, areas.length) : undefined;
+  const contornos = efetivas.map((e) => e.anel);
+  const areasEf = efetivas.map((e) => e.areaM2);
 
-  if (!multi) {
+  if (!multiEf) {
     const r = resultados[0];
     if (r.cenarios.length === 0) return { ...vazio(tipologia, assinatura, r.inviabilidade!.motivo, r.inviabilidade!.causas), candidatosAvaliados, avisos };
-    const cenarios = r.cenarios.map((c) => finalizarCenario([c], [r], [areasM2[0]], params, [areas[0][0]], proj, c.id));
+    const cenarios = r.cenarios.map((c) => marcar(finalizarCenario([c], [r], areasEf, paramsConta, contornos, proj, c.id, extra)));
     progresso(1, "Concluído");
     return { versaoAlgoritmo: VERSAO_ALGORITMO_MASSA, assinatura, cenarios, inviabilidade: null, avisos: [...avisos, ...r.avisos], candidatosAvaliados, tipologia, areas: 1 };
   }
@@ -1486,25 +1770,73 @@ export function gerarEstudoMassa(
   if (comCenario.length === 0) {
     const r = resultados[0];
     return {
-      ...vazio(tipologia, assinatura, `Nenhuma das ${areas.length} áreas comporta lote com esses parâmetros. Área 1: ${r.inviabilidade?.motivo ?? "sem cenário"}`,
+      ...vazio(tipologia, assinatura, `Nenhuma das ${efetivas.length} áreas comporta lote com esses parâmetros. Área 1: ${r.inviabilidade?.motivo ?? "sem cenário"}`,
         resultados.flatMap((x, i) => (x.inviabilidade?.causas ?? []).map((c) => `Área ${i + 1}: ${c}`))),
       candidatosAvaliados, avisos,
     };
   }
   resultados.forEach((r, i) => {
     if (r.cenarios.length === 0) {
-      avisos.push(`Área ${i + 1} (${areasM2[i].toLocaleString("pt-BR", { maximumFractionDigits: 0 })} m²) não comporta lote com estes parâmetros — destinada inteira a área verde. ${r.inviabilidade?.motivo ?? ""}`.trim());
+      avisos.push(`Área ${i + 1} (${areasEf[i].toLocaleString("pt-BR", { maximumFractionDigits: 0 })} m²) não comporta lote com estes parâmetros — destinada inteira a área verde. ${r.inviabilidade?.motivo ?? ""}`.trim());
     }
   });
   const nComp = Math.max(...comCenario.map((x) => x.r.cenarios.length));
   const cenarios: CenarioMassa[] = [];
   for (let j = 0; j < nComp; j++) {
     const partes = resultados.map((r) => (r.cenarios.length > 0 ? r.cenarios[Math.min(j, r.cenarios.length - 1)] : null));
-    cenarios.push(finalizarCenario(partes, resultados, areasM2, params, areas.map((p) => p[0]), proj, `cenario-${j + 1}`));
+    cenarios.push(marcar(finalizarCenario(partes, resultados, areasEf, paramsConta, contornos, proj, `cenario-${j + 1}`, extra && { ...extra, furos: efetivas.map((e) => e.furos) })));
   }
   for (const r of resultados) for (const a of r.avisos) if (!avisos.includes(a)) avisos.push(a);
   progresso(1, "Concluído");
-  return { versaoAlgoritmo: VERSAO_ALGORITMO_MASSA, assinatura, cenarios, inviabilidade: null, avisos, candidatosAvaliados, tipologia, areas: areas.length };
+  return { versaoAlgoritmo: VERSAO_ALGORITMO_MASSA, assinatura, cenarios, inviabilidade: null, avisos, candidatosAvaliados, tipologia, areas: efetivas.length };
+}
+
+/** Peças e notas das restrições desenhadas pelo contorno, para a composição do cenário (S-I). */
+interface ExtraRestricoes {
+  /** Peças das restrições na posição real + retalhos fora delas pequenos demais para lote. */
+  pecas: LoteGerado[];
+  /** Área bruta da gleba inteira (as peças incluídas). */
+  areaBrutaM2: number;
+  notas: string[];
+  /** Furos de cada área contínua (para a área que não comporta lote virar área verde sem cobrir o que há no furo). */
+  furos?: Position[][][];
+}
+
+function extraDasRestricoes(geo: RecorteRestricoes, paramsConta: ParametrosMassa, params: ParametrosMassa, areaBrutaM2: number, nAreasKml: number): ExtraRestricoes {
+  const destinos = destinosDosParametros(params);
+  const f = (v: number) => v.toLocaleString("pt-BR", { maximumFractionDigits: 0 });
+  const pecas: LoteGerado[] = geo.pecas.map((p): LoteGerado => {
+    const d = destinos[p.campo];
+    return {
+      anel: p.anel, ...(p.furos.length > 0 ? { furos: p.furos } : {}), areaM2: round2(p.areaM2),
+      tipo: d === "nenhum" ? "nao_parcelavel" : "area_publica", ...(d === "nenhum" ? {} : { uso: d }), restricao: p.tipo,
+    };
+  });
+  for (const r of geo.retalhos) {
+    pecas.push({ anel: r.anel, ...(r.furos.length > 0 ? { furos: r.furos } : {}), areaM2: round2(r.areaM2), tipo: "area_publica", uso: "verde", origem: "sobra" });
+  }
+  const notas: string[] = [];
+  const rotuloDestino = { verde: "conta como área verde", institucional: "conta como área institucional", nenhum: "fica só como não parcelável (não conta nas doações)" } as const;
+  for (const [tipo, campo] of CAMPO_RESTRICAO_GEO) {
+    const m2 = geo.m2PorCampo[campo];
+    if (m2 === undefined) continue;
+    const informado = params[campo];
+    const troca = typeof informado === "number" && Math.abs(informado - m2) > Math.max(1, 0.005 * m2) ? ` (o valor em m² dos parâmetros, ${f(informado)} m², foi substituído pelo do contorno)` : "";
+    notas.push(m2 > 0.5
+      ? `${ROTULO_RESTRICAO_GEO[tipo]} desenhada pelo contorno real (mapa do Terreno): ${f(m2)} m² dentro da gleba, fora da área loteável — nenhum lote nem via dentro dela; ${rotuloDestino[destinos[campo]]}${troca}.`
+      : `${ROTULO_RESTRICAO_GEO[tipo]}: o contorno informado não cai dentro da gleba${troca}.`);
+  }
+  if (geo.areas.length > nAreasKml) {
+    notas.push(`As áreas restritas dividem a gleba em ${geo.areas.length} partes loteáveis: cada parte foi loteada como uma área contínua (Área 1 a ${geo.areas.length} nas notas), com a própria malha ligada à divisa.`);
+  }
+  const retalhosM2 = geo.retalhos.reduce((s, r) => s + r.areaM2, 0);
+  if (retalhosM2 >= 1) notas.push(`${geo.retalhos.length} retalho(s) entre as áreas restritas e a divisa (${f(retalhosM2)} m²), pequenos demais para lote ou de traçado irregular, ficaram como área verde.`);
+  const ap = aproveitarRestricoes(restricoesDosParametros(paramsConta), destinos, areaBrutaM2, params.percentAreaVerde, params.percentInstitucional);
+  // a parte verde só em m² é a das restrições SEM contorno que contam como verde
+  let verdeSoEmM2 = 0;
+  for (const [, campo] of CAMPO_RESTRICAO_GEO) if (geo.m2PorCampo[campo] === undefined && destinos[campo] === "verde") verdeSoEmM2 += Math.max(0, paramsConta[campo] ?? 0);
+  notas.push(...notasAproveitamento(ap, verdeSoEmM2));
+  return { pecas, areaBrutaM2, notas };
 }
 
 /**
@@ -1513,7 +1845,7 @@ export function gerarEstudoMassa(
  */
 function finalizarCenario(
   partes: (ResultadoArea["cenarios"][number] | null)[], resultados: ResultadoArea[], areasM2: number[], params: ParametrosMassa,
-  contornos: Position[][], proj: ReturnType<typeof criarProjecao>, id: string,
+  contornos: Position[][], proj: ReturnType<typeof criarProjecao>, id: string, extra?: ExtraRestricoes,
 ): CenarioMassa {
   const multi = partes.length > 1;
   const lotes: LoteGerado[] = [];
@@ -1528,7 +1860,8 @@ function finalizarCenario(
   partes.forEach((c, i) => {
     const prefixo = multi ? `Área ${i + 1}: ` : "";
     if (!c) {
-      lotes.push({ anel: contornos[i], areaM2: round2(areasM2[i]), tipo: "area_publica", uso: "verde", origem: "sobra" });
+      const furos = extra?.furos?.[i] ?? [];
+      lotes.push({ anel: contornos[i], ...(furos.length > 0 ? { furos } : {}), areaM2: round2(areasM2[i]), tipo: "area_publica", uso: "verde", origem: "sobra" });
       fechoSoma += round2(areasM2[i]);
       return;
     }
@@ -1544,9 +1877,10 @@ function finalizarCenario(
     viario += c.sistemaViario?.areaGeometricaM2 ?? 0;
     fechoSoma += c.fechoAreas?.somaM2 ?? 0;
     for (const l of c.limitacoes ?? []) { const t = `${prefixo}${l}`; if (!limitacoes.includes(t)) limitacoes.push(t); }
-    if (c.tipologia !== "vias_publicas") limitacoes.push(notaAcesso(c, resultados[i].temViasJunto, prefixo).nota);
+    if (c.tipologia !== "vias_publicas") limitacoes.push(notaAcesso(c, resultados[i].temViasJunto, prefixo, resultados[i].isolamento).nota);
     for (const a of c.acessosArea ?? []) {
       const lig = !!a.acesso && a.acesso.distancia <= DISTANCIA_MAX_ACESSO_M;
+      if (a.naApp) continue;
       acessos.push({
         area: i + 1, ponto: proj.paraGeo(a.ponto), viaExistente: lig, nomeVia: lig ? a.acesso!.nome : null,
         distanciaM: a.acesso ? round2(a.acesso.distancia) : null,
@@ -1555,15 +1889,20 @@ function finalizarCenario(
   });
   const p = principal as CenarioMassa | null;
   if (!p) throw new Error("composição sem cenário");
+  // S-I: peças das restrições desenhadas pelo contorno, na posição real
+  if (extra) {
+    for (const l of extra.pecas) { lotes.push(l); fechoSoma += l.areaM2; }
+    for (const n of extra.notas) if (!limitacoes.includes(n)) limitacoes.push(n);
+  }
   const vendaveis = lotes.filter((l) => l.tipo === "vendavel");
   const publicos = lotes.filter((l) => l.tipo === "area_publica");
-  const areaTotal = areasM2.reduce((s, a) => s + a, 0);
+  const areaTotal = extra ? extra.areaBrutaM2 : areasM2.reduce((s, a) => s + a, 0);
   const areaVendavelM2 = round2(vendaveis.reduce((s, l) => s + l.areaM2, 0));
   const areaInstitucionalM2 = round2(publicos.filter((l) => l.uso === "institucional").reduce((s, l) => s + l.areaM2, 0));
   const areaVerdeM2 = round2(publicos.filter((l) => l.uso !== "institucional").reduce((s, l) => s + l.areaM2, 0));
   const manual = params.modoSistemaViario === "manual";
   const informada = manual ? params.areaSistemaViarioM2 : undefined;
-  const quadroAreas = multi ? calcularQuadroAreasMassa({
+  const quadroAreas = multi || extra ? calcularQuadroAreasMassa({
     areaBrutaM2: areaTotal, restricoes: restricoesDosParametros(params), aproveitamento: aproveitamentoDosParametros(params, areaTotal), areaVendavelM2, nLotesVendaveis: vendaveis.length,
     areaInstitucionalM2, areaVerdeM2, precoM2Lote: params.precoM2Lote, sistemaViarioM2: round2(viario),
     modoSistemaViario: manual ? "manual" : "automatico", ...(informada !== undefined ? { sistemaViarioInformadoM2: informada } : {}),

@@ -314,7 +314,8 @@ export function formaDaRua(bruto: Ponto[]): FormaDeRua | null {
     // Rua que afunila (a divisa corta o leito ao longo do comprimento, não só na cabeceira): com a largura inteira
     // sobraria só um toco. Usa a faixa que cabe em quase todo o comprimento — mais estreita —, para a rua aparecer
     // como rua (asfalto, meio-fio e pintura) em vez de uma laje lisa; o resto do leito continua pintado no terreno.
-    if (t1 - t0 < cx.comprimento * 0.6) {
+    // Triângulo ou cunha (ocupa bem menos que a caixa) não entra aqui: continua pintado no terreno, como antes.
+    if (t1 - t0 < cx.comprimento * 0.6 && pol.length >= 4 && area / cx.area >= 0.7) {
       let b0 = -Infinity, b1 = Infinity;
       for (let k = 0; k <= 8; k++) {
         const origem = soma(cx.centro, esc(cx.dir, cx.comprimento * (-0.4 + 0.1 * k)));

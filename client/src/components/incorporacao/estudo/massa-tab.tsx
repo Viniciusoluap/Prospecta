@@ -3,9 +3,10 @@ import dynamic from "./compat/dynamic";
 import { AlertTriangle, CheckCircle2, FolderOpen, Grid3x3, Loader2, Save, Send, Star, Trash2, Trophy, CopyPlus, PenTool, Satellite } from "lucide-react";
 import { formatCurrency, parseNumeroBR, formatArea } from "./compat/util";
 import {
-  assinaturaEntradas, criarProjecao, validarParametrosMassa, viasEntornoDoOsm, ROTULO_ESTUDO_PRELIMINAR, TIPOLOGIAS_MASSA,
-  type CenarioMassa, type EntradaGleba, type EstudoMassaGerado, type ParametrosMassa, type TipologiaMassa, type ViaEntorno,
+  assinaturaEntradas, criarProjecao, estadoDoContornoApp, medirRestricoesNaGleba, validarParametrosMassa, viasEntornoDoOsm, ROTULO_ESTUDO_PRELIMINAR, TIPOLOGIAS_MASSA,
+  type CenarioMassa, type EntradaGleba, type EstudoMassaGerado, type ParametrosMassa, type RestricaoGeometrica, type TipologiaMassa, type ViaEntorno,
 } from "@shared/incorporacao/massa";
+import type { Position } from "geojson";
 import { executarMotorMassa } from "./executar-massa";
 import { LADOS_GLEBA, ROTULO_LADO, medirLados, type LadoGleba } from "@shared/incorporacao/lados-gleba";
 import { PlantaTecnica } from "./planta-tecnica";
@@ -210,11 +211,31 @@ export function MassaTab({ estudo }: { estudo: EstudoData }) {
       return null;
     }
   }, [estudo.geojson]);
-  // Quanto das áreas restritas é aproveitado nas doações (prévia, enquanto se digita).
+  // S-I: contorno da APP gravado pelo mapa do Terreno — o motor tira a APP da área loteável pela posição real
+  const restricoesGeo = useMemo<RestricaoGeometrica[] | null>(() => {
+    const g = parseJson<{ type?: string; coordinates?: Position[][][] }>(estudo.appContornoJson);
+    return g?.type === "MultiPolygon" && Array.isArray(g.coordinates) && g.coordinates.length > 0 ? [{ tipo: "app", poligonos: g.coordinates }] : null;
+  }, [estudo.appContornoJson]);
+  // KML com áreas separadas: o motor estuda cada área contínua e compõe um único resultado (furos respeitados)
+  const entradaGleba = useMemo<EntradaGleba | null>(() => (contorno?.type === "MultiPolygon" ? contorno.coordinates
+    : contorno?.type === "Polygon" ? (contorno.coordinates.length > 1 ? [contorno.coordinates] : contorno.coordinates[0]) : null), [contorno]);
+  // APP dentro da gleba medida como o motor mede (mesmo número do quadro de áreas); 0 = contorno fora deste terreno
+  const areaContornoApp = useMemo(() => {
+    if (!restricoesGeo || !entradaGleba || estudo.centroLng == null || estudo.centroLat == null) return null;
+    try { return medirRestricoesNaGleba(entradaGleba, [estudo.centroLng, estudo.centroLat], restricoesGeo).app ?? 0; } catch { return null; }
+  }, [restricoesGeo, entradaGleba, estudo.centroLng, estudo.centroLat]);
+  const estadoApp = estadoDoContornoApp({ restricoes: restricoesGeo, appAreaM2: estudo.appAreaM2, appNaGlebaM2: areaContornoApp, cenarios });
+  // o estudo principal salvo (espelho em massaCenariosJson) também é marcado quando foi gerado sem o contorno
+  const principalSemContorno = useMemo(() => {
+    const doPrincipal = parseJson<{ cenarios?: CenarioMassa[] }>(estudo.massaCenariosJson)?.cenarios ?? [];
+    return doPrincipal.length > 0 && estadoDoContornoApp({ restricoes: restricoesGeo, appAreaM2: estudo.appAreaM2, appNaGlebaM2: areaContornoApp, cenarios: doPrincipal }) === "cenarios_sem_contorno";
+  }, [estudo.massaCenariosJson, estudo.appAreaM2, restricoesGeo, areaContornoApp]);
+  // Quanto das áreas restritas é aproveitado nas doações (prévia, enquanto se digita). Com contorno no terreno, vale o m² dele.
   const aproveitamento = useMemo(() => {
     if (!contorno) return null;
-    try { return aproveitamentoDosParametros(params, areaGeografica(contorno)); } catch { return null; }
-  }, [contorno, params]);
+    const p = areaContornoApp != null && areaContornoApp > 0 ? { ...params, appM2: areaContornoApp } : params;
+    try { return aproveitamentoDosParametros(p, areaGeografica(contorno)); } catch { return null; }
+  }, [contorno, params, areaContornoApp]);
 
   // comprimento de cada lado da gleba (cima/esquerda/direita/baixo), medido no KML
   const ladosMedidos = useMemo(() => {
@@ -239,9 +260,7 @@ export function MassaTab({ estudo }: { estudo: EstudoData }) {
     }
 
     setErro(null);
-    // KML com áreas separadas: o motor estuda cada área contínua e compõe um único resultado (furos respeitados)
-    const entrada: EntradaGleba | null = contorno?.type === "MultiPolygon" ? contorno.coordinates
-      : contorno?.type === "Polygon" ? (contorno.coordinates.length > 1 ? [contorno.coordinates] : contorno.coordinates[0]) : null;
+    const entrada = entradaGleba;
     const primeiro = contorno?.type === "MultiPolygon" ? contorno.coordinates[0]?.[0] : contorno?.coordinates[0];
     if (!entrada || !primeiro || primeiro.length < 4) {
       setErro("Geometria da gleba inválida ou incompleta. Reenvie o KML na aba Terreno.");
@@ -256,7 +275,7 @@ export function MassaTab({ estudo }: { estudo: EstudoData }) {
       if (vias) viasCache.current = { geojson: estudo.geojson, vias };
     }
     const avisoVias = vias ? null : "Vias do entorno (OpenStreetMap) indisponíveis agora: a ligação com as ruas existentes não pôde ser conferida — os cenários exigem acesso pela divisa e o acesso externo fica a confirmar em projeto.";
-    const assinatura = assinaturaEntradas(entrada, entradas, vias);
+    const assinatura = assinaturaEntradas(entrada, entradas, vias, restricoesGeo);
     const aplicar = (r: EstudoMassaGerado) => {
       setAvisos(avisoVias ? [avisoVias, ...r.avisos] : r.avisos);
       setInviabilidade(r.inviabilidade);
@@ -275,7 +294,7 @@ export function MassaTab({ estudo }: { estudo: EstudoData }) {
 
     setProgresso({ fracao: 0, etapa: "Iniciando" });
     try {
-      const r = await executarMotorMassa(entrada, centro, entradas, vias, (fracao, etapa) => setProgresso({ fracao, etapa }));
+      const r = await executarMotorMassa(entrada, centro, entradas, vias, (fracao, etapa) => setProgresso({ fracao, etapa }), restricoesGeo);
       cache.current = { assinatura, resultado: r };
       aplicar(r);
     } catch (e) {
@@ -477,6 +496,30 @@ export function MassaTab({ estudo }: { estudo: EstudoData }) {
           A área marcada como &quot;conta como área verde&quot; (ou institucional) é aproveitada para cumprir o mínimo exigido: o motor só tira da área loteável o que faltar.
           Confirme na legislação do município o que pode ser aproveitado.
         </p>
+        {estadoApp === "contorno" && (
+          <p className="text-[11px] text-emerald-800 bg-emerald-50 border border-emerald-200 px-2 py-1.5 mt-2" data-testid="massa-app-contorno">
+            APP com o contorno real do mapa do Terreno{areaContornoApp != null ? ` (${m2(areaContornoApp)} dentro da gleba)` : ""}: ela sai da área loteável pela posição real — nenhum lote nem via
+            dentro dela — e aparece no desenho como APP. O m² usado é o do contorno; o campo APP acima não é somado de novo.
+          </p>
+        )}
+        {estadoApp === "cenarios_sem_contorno" && (
+          <p role="alert" className="text-[11px] text-amber-900 bg-amber-50 border border-amber-200 px-2 py-1.5 mt-2" data-testid="massa-app-cenarios-sem-contorno">
+            Os cenários na tela foram gerados sem o contorno da APP (ou com um contorno anterior) e podem ter lotes em cima dela — gere os cenários de novo.
+          </p>
+        )}
+        {estadoApp === "fora_do_terreno" && (
+          <p role="alert" className="text-[11px] text-amber-900 bg-amber-50 border border-amber-200 px-2 py-1.5 mt-2" data-testid="massa-app-fora-do-terreno">
+            O contorno da APP guardado no estudo não cai neste terreno (o KML pode ter sido trocado): o motor usa a APP informada em m², sem a posição real.
+            Abra o mapa da aba Terreno para o sistema guardar o contorno de novo.
+          </p>
+        )}
+        {estadoApp === "sem_contorno" && (
+          <p role="alert" className="text-[11px] text-amber-900 bg-amber-50 border border-amber-200 px-2 py-1.5 mt-2" data-testid="massa-app-sem-contorno">
+            Este estudo tem APP de {m2(estudo.appAreaM2 ?? 0)}, mas o contorno dela ainda não foi guardado: o motor reserva o tamanho certo de área verde,
+            mas não sabe onde a APP fica e pode desenhar lotes em cima dela. Abra o mapa da aba Terreno (o sistema guarda o contorno sozinho) e gere os cenários de novo.
+            Se o mapa avisar que o contorno é complexo demais para guardar, o estudo segue só com a área em m².
+          </p>
+        )}
         {aproveitamento && aproveitamento.comoVerdeM2 + aproveitamento.comoInstitucionalM2 > 0 && (
           <p className="text-[11px] text-emerald-800 bg-emerald-50 border border-emerald-200 px-2 py-1.5 mt-2" data-testid="massa-aproveitamento">
             Área verde exigida: {m2(aproveitamento.exigidoVerdeM2)} — {m2(aproveitamento.comoVerdeM2)} vêm de APP/faixas
@@ -695,6 +738,7 @@ export function MassaTab({ estudo }: { estudo: EstudoData }) {
                   <p className="text-sm font-bold text-[var(--brand-dark)] break-words">
                     {s.nome} <span className="font-normal text-gray-600">· versão {s.versao}</span>
                     {s.principal && <span className="ml-2 inline-flex items-center gap-1 text-[10px] font-bold uppercase px-1.5 py-0.5 bg-[var(--brand-yellow)] text-[var(--brand-dark)]"><Star size={10} /> Principal</span>}
+                    {s.principal && principalSemContorno && <span className="ml-2 text-[10px] font-bold uppercase px-1.5 py-0.5 bg-amber-100 text-amber-900" title="Cenários gerados antes do contorno da APP: podem ter lotes em cima dela. Gere de novo e salve.">sem o contorno da APP — gere de novo</span>}
                     {aberto?.id === s.id && <span className="ml-2 text-[10px] font-bold uppercase text-gray-600">(aberto)</span>}
                   </p>
                   <p className="text-[11px] text-gray-600">
