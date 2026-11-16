@@ -275,23 +275,36 @@ async function lerPrancha(m: Maquete3d, doc: number, pagina: number): Promise<Pr
  * O que a planta baixa não traz (pé-direito, cobertura) sai como estimado, para a pessoa confirmar na revisão.
  */
 export function parciaisDasPranchas(pranchas: PranchaLida[], nomesDosArquivos: string[]): { parciais: Record<string, unknown>; referencias: { pavimentoId: string; doc: number; pagina: number; alinhamento: { x: number; y: number; larguraM: number } | null }[]; motivos: string[] } {
-  type Candidata = { planta: PlantaLida; doc: number; pagina: number; nome: string; andar: number | null; larguraPt: number };
+  type Candidata = { planta: PlantaLida; doc: number; pagina: number; nome: string; andar: number | null; numero?: number; larguraPt: number };
   const candidatas: Candidata[] = [];
   for (const pr of pranchas) for (const planta of pr.plantas) {
-    const { nome, andar } = nomeDoPavimento(planta.titulo, candidatas.length);
-    candidatas.push({ planta, doc: pr.doc, pagina: pr.pagina, nome, andar, larguraPt: 0 });
+    const { nome, andar, numero } = nomeDoPavimento(planta.titulo, candidatas.length);
+    candidatas.push({ planta, doc: pr.doc, pagina: pr.pagina, nome, andar, numero, larguraPt: 0 });
   }
-  const unicas: Candidata[] = [];
-  // Planta de layout (a mesma planta com móveis) só vira pavimento se não houver a planta baixa simples do mesmo andar.
+  // Com um "TÉRREO" escrito na mesma obra, os andares numerados ("PAV. 01", "1º PAVIMENTO") ficam acima dele.
+  if (candidatas.some(c => c.andar === 0 && c.numero === undefined) && candidatas.some(c => c.numero === 1)) {
+    for (const c of candidatas) if (c.numero !== undefined) c.andar = c.numero;
+  }
+  // Planta de layout (a mesma planta com móveis) só vira pavimento se não houver a planta baixa simples do mesmo
+  // andar. Planta sem andar no título conta como térreo, como na ordem abaixo.
   const ehLayout = (c: Candidata) => c.planta.vista === "layout";
-  for (const c of candidatas.filter(c => !ehLayout(c) || !candidatas.some(o => !ehLayout(o) && o.andar === c.andar))) {
-    const igual = unicas.find(u => (u.andar === c.andar || u.andar === null || c.andar === null) && u.andar === c.andar && Math.abs(u.planta.largura - c.planta.largura) < 0.25 && Math.abs(u.planta.comprimento - c.planta.comprimento) < 0.25);
+  const andarOuTerreo = (c: Candidata) => c.andar ?? 0;
+  const unicas: Candidata[] = [];
+  for (const c of candidatas.filter(c => !ehLayout(c) || !candidatas.some(o => !ehLayout(o) && andarOuTerreo(o) === andarOuTerreo(c)))) {
+    // Só é a mesma planta repetida quando o título diz o mesmo andar e o tamanho confere; dois títulos sem andar
+    // (duas pranchas "PLANTA BAIXA") são pavimentos diferentes, na ordem das páginas.
+    const igual = unicas.find(u => u.andar !== null && u.andar === c.andar && Math.abs(u.planta.largura - c.planta.largura) < 0.25 && Math.abs(u.planta.comprimento - c.planta.comprimento) < 0.25);
     if (!igual) { unicas.push(c); continue; }
     // Fica a que é "planta baixa" (ou a que tem mais cômodos com nome).
     const melhor = /BAIXA/i.test(c.planta.titulo) && !/BAIXA/i.test(igual.planta.titulo) ? c : c.planta.nomeados > igual.planta.nomeados ? c : igual;
     unicas[unicas.indexOf(igual)] = melhor;
   }
-  unicas.sort((a, b) => (a.andar ?? 99) - (b.andar ?? 99));
+  // Ordem dos andares: pelo número; a planta sem andar no título fica logo depois da anterior na ordem das páginas.
+  const chave = new Map<Candidata, number>();
+  let anterior = -1;
+  for (const c of unicas) { const k = c.andar ?? anterior + 0.001; chave.set(c, k); anterior = k; }
+  unicas.sort((a, b) => chave.get(a)! - chave.get(b)!);
+  unicas.forEach((c, i) => { if (c.andar === null) c.nome = i === 0 ? "Térreo" : `Pavimento ${i + 1}`; });
   const motivos = pranchas.filter(p => !p.plantas.length && p.diagnostico.motivo).map(p => `${nomesDosArquivos[p.doc] ?? "PDF"}${pranchas.filter(q => q.doc === p.doc).length > 1 ? `, página ${p.pagina}` : ""}: ${p.diagnostico.motivo}`);
   const parciais: Record<string, unknown> = {};
   const referencias: ReturnType<typeof parciaisDasPranchas>["referencias"] = [];

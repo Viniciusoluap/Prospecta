@@ -274,7 +274,12 @@ function hachuras(retas: Reta[], membros: Set<Reta>) {
 const relogio = { prazo: Infinity, estourou: false, n: 0 };
 function passou(): boolean {
   if (relogio.estourou) return true;
-  if (++relogio.n % 512 === 0 && Date.now() > relogio.prazo) relogio.estourou = true;
+  if (++relogio.n % 64 === 0 && Date.now() > relogio.prazo) relogio.estourou = true;
+  return relogio.estourou;
+}
+/** Confere o relógio agora (entre etapas, onde o custo de ler a hora não pesa). */
+function passouAgora(): boolean {
+  if (!relogio.estourou && Date.now() > relogio.prazo) relogio.estourou = true;
   return relogio.estourou;
 }
 
@@ -396,7 +401,7 @@ function portasPelosArcos(ang: number, rho: number, esp: number, tA: number, tB:
  * Um vão com mais de uma porta (portas vizinhas cujo montante entre elas não aparece) é repartido pelos arcos.
  * `naPonta`: vão entre a ponta da parede e uma parede perpendicular — ali não há ombreira do outro lado, então vão livre não conta.
  */
-function classificarVao(ang: number, rho: number, esp: number, tA: number, tB: number, ctx: Contexto, naPonta: boolean): Vao[] | null {
+function classificarVao(ang: number, rho: number, esp: number, tA: number, tB: number, ctx: Contexto, naPonta: boolean, ladosLongos = false): Vao[] | null {
   const vao = tB - tA;
   if (vao < 0.4 || vao > 4) return null;
   const pontas = [ponto(ang, rho, tA), ponto(ang, rho, tB)];
@@ -429,7 +434,12 @@ function classificarVao(ang: number, rho: number, esp: number, tA: number, tB: n
     const ombreiras = [tA, tB].filter(t => { const q = ponto(ang, rho, t); const rq = -q.x * Math.sin(pr) + q.y * Math.cos(pr); return ctx.faixa(perp, rq - 0.06, rq + 0.06, true).some(r => Math.abs(r.comp - esp) <= esp * 0.5 && Math.abs(r.rho - (-q.x * Math.sin(pr) + q.y * Math.cos(pr))) <= 0.06 && Math.abs((r.t0 + r.t1) / 2 - (q.x * Math.cos(pr) + q.y * Math.sin(pr))) <= esp); }).length;
     if (ombreiras === 2) return [{ t: (tA + tB) / 2, largura: vao, tipo: "vao" }];
   }
-  return temArco && vao >= 0.5 ? [{ t: (tA + tB) / 2, largura: vao, tipo: "porta" }] : null;
+  if (temArco && vao >= 0.5) return [{ t: (tA + tB) / 2, largura: vao, tipo: "porta" }];
+  // Interrupção do tamanho de uma porta entre duas peças da mesma parede, sem arco nem ombreira desenhados: é
+  // passagem (vão). Deixar aberta faria os cômodos vazarem para fora e a planta inteira se perder. Só vale entre
+  // dois trechos de parede de verdade (50 cm ou mais de cada lado): pedaço curto solto não é ombreira de nada.
+  if (!naPonta && ladosLongos && vao <= 1.3) return [{ t: (tA + tB) / 2, largura: vao, tipo: "vao" }];
+  return null;
 }
 
 /** Vãos entre peças da mesma reta (ver `classificarVao`): a parede continua através deles. */
@@ -441,7 +451,7 @@ function paredesComVaos(grupos: Peca[][], ctx: Contexto): Parede[] {
     for (const p of g) {
       if (!atual) { atual = { a: ponto(p.ang, p.rho, p.t0), b: ponto(p.ang, p.rho, p.t1), esp: p.esp, ang: p.ang, rho: p.rho, t0: p.t0, t1: p.t1, vaos: [] }; continue; }
       const anterior: Parede = atual, esp = Math.max(anterior.esp, p.esp);
-      const vaos = classificarVao(p.ang, p.rho, esp, anterior.t1, p.t0, ctx, false);
+      const vaos = classificarVao(p.ang, p.rho, esp, anterior.t1, p.t0, ctx, false, anterior.t1 - anterior.t0 >= 0.5 && p.t1 - p.t0 >= 0.5);
       if (vaos) {
         anterior.vaos.push(...vaos);
         anterior.t1 = p.t1; anterior.b = ponto(p.ang, p.rho, p.t1); anterior.esp = esp;
@@ -839,7 +849,7 @@ function comodosDaPlanta(paredes: Parede[], linhas: Linha[], retas: Reta[], x0: 
     const comNome = rots.filter(x => x.nome).sort((a, b) => b.tam - a.tam)[0];
     const outro = dentro.filter(l => /[A-Za-zÀ-ú]{3}/.test(l.str) && areaDoTexto(l.str) === null && !/^\s*[\d.,]+\s*$/.test(l.str)).sort((a, b) => b.tam - a.tam)[0];
     const areaInformada = comNome?.area ?? rots.find(x => x.area !== null)?.area ?? null;
-    const rotulo = (comNome?.nome ?? outro?.str)?.replace(/\s*(?:A\s*=\s*)?\d{1,4}(?:[.,]\d{1,2})?\s*m\s*[²2].*$/i, "").trim();
+    const rotulo = (comNome?.nome ?? outro?.str)?.replace(/\s*(?:A\s*=\s*)?\d{1,4}(?:[.,]\d{1,2})?\s*m\s*[²2]\s*/i, " ").replace(/\s+/g, " ").trim();
     const pontos = encaixar(contorno(dono, nx, ny, r.marca).map(p => ({ x: p.x * CELULA - margem, y: p.y * CELULA - margem })), nos);
     if (pontos.length < 3) continue;
     rots.forEach(x => usados.add(x));
@@ -997,7 +1007,7 @@ function plantasNaEscala(pg: Pagina, escala: number, origem: PlantaLida["escalaO
   const plantas: PlantaLida[] = [];
   for (const { paredes: grupo, caixa, titulo } of grupos) {
     let tit = titulo;
-    if (passou()) break;
+    if (passouAgora()) break;
     let vista = tit?.tipo ?? null;
     // Corte, fachada, cobertura, implantação, tabela com a escala embaixo: é o título do desenho, e ele não é planta.
     if (vista === "outra" && tit?.ancorado) { pg.recusas.push(tit.str); continue; }
@@ -1039,7 +1049,7 @@ function plantasNaEscala(pg: Pagina, escala: number, origem: PlantaLida["escalaO
         }
       }
       const pts = comodos.filter(c => ficamMarcas.has(c.marca)).flatMap(c => c.pontos.map(p => ({ x: p.x + x0, y: p.y + y0 })));
-      const folga = Math.max(...grupo.map(w => w.esp)) / 2 + 0.03;
+      const folga = 0.04; // os contornos já vão até o eixo das paredes: a folga só absorve o arredondamento (sem tocos para fora)
       const c: Caixa = { x0: Math.min(...pts.map(p => p.x)) - folga, y0: Math.min(...pts.map(p => p.y)) - folga, x1: Math.max(...pts.map(p => p.x)) + folga, y1: Math.max(...pts.map(p => p.y)) + folga };
       let areaFora = 0;
       for (const cm of comodos) {
@@ -1135,7 +1145,8 @@ const nota = (ps: PlantaLida[]) => ps.reduce((s, p) => s + p.nomeados * 3 + p.co
  * mostrarem que ela está errada (ou se não houver escala escrita), é corrigida/achada pelas áreas.
  * Cortes, fachadas, cobertura, implantação e a planta de layout repetida não viram pavimento.
  */
-export function lerPagina(prim: Primitivas): { plantas: PlantaLida[]; diagnostico: Diagnostico } {
+/** `prazoMs`: tempo máximo da leitura da página (padrão 3,5 s). */
+export function lerPagina(prim: Primitivas, opcoes: { prazoMs?: number } = {}): { plantas: PlantaLida[]; diagnostico: Diagnostico } {
   const inicio = Date.now();
   const linhas = linhasDeTexto(prim.textos), escritas = Array.from(new Set(escalasDaPagina(linhas).map(e => e.n)));
   const diagnostico: Diagnostico = { segmentos: prim.segmentos.length, arcos: prim.arcos.length, textos: prim.textos.length, imagens: prim.imagens, escalas: escritas, plantas: 0, motivo: null };
@@ -1153,7 +1164,7 @@ export function lerPagina(prim: Primitivas): { plantas: PlantaLida[]; diagnostic
     diagnostico.motivo = `Esta prancha é de implantação ou urbanismo${escritas.length ? ` (escala ${escritas.map(e => `1:${e}`).join(", ")})` : ""}, não planta baixa de pavimento: nada foi lido dela. Para a maquete da construção, envie a prancha de arquitetura com as plantas baixas (1:50 ou 1:100).`;
     return fim([]);
   }
-  relogio.prazo = inicio + PRAZO_MS; relogio.estourou = false; relogio.n = 0;
+  relogio.prazo = inicio + (opcoes.prazoMs ?? PRAZO_MS); relogio.estourou = false; relogio.n = 0;
   const arcos = [...prim.arcos, ...arcosDePolilinhas(prim.segmentos)];
   diagnostico.arcos = arcos.length;
   const pg: Pagina = { prim, linhas, titulos, arcos, recusas: [], semComodos: 0 };
@@ -1161,11 +1172,11 @@ export function lerPagina(prim: Primitivas): { plantas: PlantaLida[]; diagnostic
   const escalasDoTexto = escalasDePlanta.length ? escalasDePlanta : temPlanta ? escritas : [];
   let melhor: PlantaLida[] = [];
   const tentar = (escala: number, origem: PlantaLida["escalaOrigem"]) => {
-    if (passou()) return;
+    if (passouAgora()) return;
     let ps = plantasNaEscala(pg, escala, origem);
     // As áreas escritas mandam: se a planta desenhada dá, de forma consistente, outra área, a escala é ajustada.
     const razoes = ps.map(p => p.razaoAreas).filter((r): r is number => r !== null);
-    if (!passou() && razoes.length && razoes.every(r => Math.abs(Math.log(r / razoes[0])) < 0.1) && Math.abs(Math.log(razoes[0])) > 0.18) {
+    if (!passouAgora() && razoes.length && razoes.every(r => Math.abs(Math.log(r / razoes[0])) < 0.1) && Math.abs(Math.log(razoes[0])) > 0.18) {
       const corrigida = Math.round(escala / Math.sqrt(razoes[0]));
       const alvo = ESCALAS_COMUNS.concat(escalasDoTexto).sort((a, b) => Math.abs(a - corrigida) - Math.abs(b - corrigida))[0];
       const refeitas = plantasNaEscala(pg, Math.abs(alvo - corrigida) / corrigida < 0.08 ? alvo : corrigida, "areas");
@@ -1219,7 +1230,7 @@ export function nomeDoPavimento(titulo: string, ordem: number): { nome: string; 
   const ordinal = /\b(PRIMEIRO|SEGUNDO|TERCEIRO|QUARTO|QUINTO|SEXTO|SETIMO|OITAVO|NONO|DECIMO)\s+(?:PAVIMENTO|PAVTO|PAV\b|ANDAR)/.exec(t);
   const numerico = /(\d+)\s*[ºO°]\s*(?:PAV|ANDAR)|(\d+)\s+(?:PAVIMENTO|ANDAR)|(?:PAVIMENTO|PAVTO|PAV\.?|ANDAR)\s*0*(\d{1,2})\b|^PLANTA(?: BAIXA)?\s*[-–]?\s*0*(\d{1,2})$/.exec(t);
   const n = ordinal ? ORDINAIS[ordinal[1]] : numerico ? Number(numerico[1] ?? numerico[2] ?? numerico[3] ?? numerico[4]) : 0;
-  if (n >= 1 && n <= 200) return n === 2 ? { nome: "Pavimento superior", andar: 1, numero: 2 } : { nome: `${n}º pavimento`, andar: n - 1, numero: n };
+  if (n >= 1 && n <= 200) return { nome: `${n}º pavimento`, andar: n - 1, numero: n };
   if (/SUPERIOR/.test(t)) return { nome: "Pavimento superior", andar: 1 };
   if (/\bTIPO\b/.test(t)) return { nome: "Pavimento-tipo", andar: 1 };
   return { nome: ordem === 0 ? "Térreo" : `Pavimento ${ordem + 1}`, andar: null };
