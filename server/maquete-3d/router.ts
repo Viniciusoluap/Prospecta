@@ -7,9 +7,10 @@ import { and, desc, eq, inArray, isNull, sql } from "drizzle-orm";
 import { z } from "zod";
 import { incorporationStudies, leads, operationalProjects, projectDocuments, users } from "../../drizzle/schema.js";
 import { maquete3dArquivos, maquetes3d, type Maquete3d } from "../../drizzle/schema-maquete-3d.js";
-import { TIPOS_MAQUETE, areaPoligono, lerModelo, limites, modeloSchema, modeloVazio, muroParaTipo, podePublicar, pontosDoPavimento, resumoModelo, validarModelo, type Edificacao, type TipoMaquete } from "../../shared/maquete-3d/modelo.js";
+import { TIPOS_MAQUETE, areaPoligono, comMuroGravado, lerModelo, limites, modeloParaLinkPublico, modeloSchema, modeloVazio, muroParaTipo, podePublicar, pontosDoPavimento, resumoModelo, validarModelo, type Edificacao, type TipoMaquete } from "../../shared/maquete-3d/modelo.js";
 import { LIMITES_CASA, LIMITES_M2_POR_VAGA, LIMITES_PREDIO, casaPadrao, contaDoEstacionamento, distribuirNosLotes, ehPadrao, predioPadrao, type ContaDoEstacionamento } from "../../shared/maquete-3d/padrao.js";
 import { implantacaoDoEstudo, type GradeElevacao } from "../../shared/maquete-3d/implantacao.js";
+import { reancorarPortoes } from "../../shared/maquete-3d/muro.js";
 import type { CenarioMassa } from "../../shared/incorporacao/massa.js";
 import {
   FAIXAS_PRECO, MAX_BYTES_PDF_AVULSO, MAX_DOCUMENTOS, ORIGENS_MAQUETE, escopoEnvioMaquete, PODE_REVISAR, comercialSchema, configSchema, documentoSchema, lerComercial, lerEstadoLeitura,
@@ -367,13 +368,15 @@ export const maquete3dRouter = router({
 
   /** Grava a planta corrigida na revisão. `versao` evita que duas pessoas se sobrescrevam. */
   salvarModelo: adminProcedure.input(idInput.extend({ versao: z.number().int().min(0), modelo: modeloSchema })).mutation(async ({ ctx, input }) => {
+    // S-04: salvar grava o muro que a revisão mostrou (o padrão do tipo, se a pessoa não mexeu nele).
+    const modelo = comMuroGravado(input.modelo);
     const r = await db().update(maquetes3d).set({
-      modelo: JSON.stringify(input.modelo), modeloVersao: input.versao + 1, status: "em_revisao" satisfies StatusMaquete,
+      modelo: JSON.stringify(modelo), modeloVersao: input.versao + 1, status: "em_revisao" satisfies StatusMaquete,
       revisadoPor: ctx.user.id, revisadoEm: agora(), updatedAt: agora(),
     }).where(and(eq(maquetes3d.id, input.id), isNull(maquetes3d.deletedAt), eq(maquetes3d.modeloVersao, input.versao), inArray(maquetes3d.status, [...PODE_REVISAR])))
       .returning({ versao: maquetes3d.modeloVersao });
     if (!r.length) throw conflito("A planta foi alterada por outra pessoa ou não está em revisão. Recarregue a página.");
-    return { versao: r[0].versao, problemas: validarModelo(input.modelo), resumo: resumoModelo(input.modelo) };
+    return { versao: r[0].versao, problemas: validarModelo(modelo), resumo: resumoModelo(modelo) };
   }),
 
   /** Conclui a revisão: só passa se a planta não tiver erros nem pendências em aberto. */
@@ -399,14 +402,15 @@ export const maquete3dRouter = router({
     const modelo = lerModelo(m.modelo) ?? modeloVazio(m.tipo as TipoMaquete);
     // As construções posicionadas à mão na revisão são mantidas quando a implantação é atualizada pelo estudo; o muro
     // editado também (senão volta ao padrão do tipo: o condomínio ganha o muro automático).
-    const muro = muroParaTipo(modelo.tipo, modelo.implantacao?.muro);
+    // Portões editados e contorno novo: cada portão vai ao ponto da nova divisa mais perto de onde estava (e a revisão avisa).
+    const { muro, mudou: portoesReposicionados } = reancorarPortoes(modelo.implantacao, r.implantacao, muroParaTipo(modelo.tipo, modelo.implantacao?.muro));
     const novo = modeloSchema.parse({ ...modelo, implantacao: { ...r.implantacao, posicoes: modelo.implantacao?.posicoes ?? [], muro } });
     const g = await db().update(maquetes3d).set({
       modelo: JSON.stringify(novo), modeloVersao: m.modeloVersao + 1, status: "em_revisao" satisfies StatusMaquete,
       revisadoPor: ctx.user.id, revisadoEm: agora(), updatedAt: agora(),
     }).where(and(eq(maquetes3d.id, m.id), eq(maquetes3d.modeloVersao, m.modeloVersao), eq(maquetes3d.status, m.status))).returning({ id: maquetes3d.id });
     if (!g.length) throw conflito("A maquete foi alterada por outra pessoa. Recarregue a página.");
-    return { lotes: r.implantacao.lotes.length, ruas: r.implantacao.ruas.length, temTerreno: r.implantacao.terreno.length > 0, temRelevo: !!r.implantacao.relevo, descartados: r.descartados, semCenario: !cenario };
+    return { lotes: r.implantacao.lotes.length, ruas: r.implantacao.ruas.length, temTerreno: r.implantacao.terreno.length > 0, temRelevo: !!r.implantacao.relevo, descartados: r.descartados, semCenario: !cenario, areas: 1 + (r.implantacao.terrenosExtras?.length ?? 0), portoesReposicionados };
   }),
 
   /**
@@ -503,7 +507,9 @@ export const maquete3dRouter = router({
     const m = await buscar(input.id);
     const modelo = lerModelo(m.modelo);
     if (!modelo || !podePublicar(modelo)) throw new TRPCError({ code: "BAD_REQUEST", message: "A planta precisa estar validada, sem erros nem pendências." });
-    const r = await db().update(maquetes3d).set({ status: "publicada" satisfies StatusMaquete, publicadoEm: agora(), updatedAt: agora() })
+    // S-04: publicar grava o muro que a revisão mostrou; o link do cliente passa a desenhá-lo.
+    const gravado = comMuroGravado(modelo);
+    const r = await db().update(maquetes3d).set({ status: "publicada" satisfies StatusMaquete, publicadoEm: agora(), updatedAt: agora(), ...(gravado !== modelo ? { modelo: JSON.stringify(gravado) } : {}) })
       .where(and(eq(maquetes3d.id, m.id), eq(maquetes3d.status, "validada"))).returning();
     if (!r.length) throw conflito("Só uma planta validada pode ser publicada.");
     // Projeto de cliente: o link segue por e-mail na hora. Incorporação é material interno de venda, sem destinatário.
@@ -535,6 +541,7 @@ export const maquetePublicaRouter = router({
     const modelo = m && lerModelo(m.modelo);
     if (!m || !modelo) throw new TRPCError({ code: "NOT_FOUND", message: "Maquete não encontrada ou ainda não publicada." });
     const comercial = lerComercial(m.comercial);
-    return { titulo: comercial.nome || m.titulo, tipo: m.tipo, modelo, comercial, unidades: await unidadesDoEstudo(m.studyId) };
+    // S-04: condomínio publicado antes do muro continua como foi publicado (sem muro) até ser revisto e publicado de novo.
+    return { titulo: comercial.nome || m.titulo, tipo: m.tipo, modelo: modeloParaLinkPublico(modelo), comercial, unidades: await unidadesDoEstudo(m.studyId) };
   }),
 });

@@ -29,7 +29,10 @@ vi.mock("./db.js", async orig => {
 vi.mock("./_core/env.js", () => ({ ENV: { cookieSecret: "segredo-de-teste", anthropicApiKey: "" } }));
 
 import * as schema from "../drizzle/schema.js";
-import { alturaDoRelevo, areaPoligono, modeloSchema, podePublicar, resumoModelo, validarModelo, type ModeloMaquete } from "../shared/maquete-3d/modelo.js";
+import { alturaDoRelevo, areaPoligono, assinaturaDoContorno, modeloSchema, muroDaMaquete, podePublicar, publicadoSemMuro, resumoModelo, validarModelo, type ModeloMaquete } from "../shared/maquete-3d/modelo.js";
+import { geometriaDoMuro, pontosDosPortoes, portoesAutomaticos } from "../shared/maquete-3d/muro.js";
+import { maquetes3d } from "../drizzle/schema-maquete-3d.js";
+import { eq } from "drizzle-orm";
 import { PRECOS_PADRAO, faixaPorArea, lerConfig } from "../shared/maquete-3d/regras.js";
 import { normalizePermissions } from "../shared/admin-permissions.js";
 import { getDb } from "./db.js";
@@ -439,7 +442,7 @@ describe("router maquete3d", () => {
     const { id } = await colaborador().criar({ origem: "incorporacao", alvoId: 1, tipo: "loteamento", documentos: [] });
     await expect(colaborador().implantacaoDoEstudo({ id })).rejects.toThrow("precisa estar autorizada");
     await admin().liberar({ id });
-    expect(await colaborador().implantacaoDoEstudo({ id })).toEqual({ lotes: 3, ruas: 1, temTerreno: true, temRelevo: false, descartados: 1, semCenario: false });
+    expect(await colaborador().implantacaoDoEstudo({ id })).toEqual({ lotes: 3, ruas: 1, temTerreno: true, temRelevo: false, descartados: 1, semCenario: false, areas: 1, portoesReposicionados: false });
 
     const d = await colaborador().detalhe({ id });
     const imp = d.modelo!.implantacao!;
@@ -481,6 +484,68 @@ describe("router maquete3d", () => {
     expect(aberto.modelo.implantacao!.lotes).toHaveLength(3);
     expect(aberto.unidades).toHaveLength(2);
     expect(Object.keys(aberto.unidades[0]).sort()).toEqual(["codigo", "status"]);
+  });
+
+  it("muro do condomínio (S-04): KML com duas áreas, portões editados reposicionados, e o link publicado antes do muro não muda sem revisão", async () => {
+    const g = 0.001, anel = (x0: number, y0: number, x1: number, y1: number) => [[x0, y0], [x1, y0], [x1, y1], [x0, y1], [x0, y0]];
+    // Duas áreas separadas no KML: a maior (A, ~111 × 111 m) e outra menor a leste (B), cada uma com um lote.
+    const kml = (b: number[][]) => JSON.stringify({ type: "Feature", properties: {}, geometry: { type: "MultiPolygon", coordinates: [[anel(0, 0, g, g)], [b]] } });
+    const cenario = { id: "c1", lotes: [
+      { anel: anel(g * 0.1, g * 0.1, g * 0.4, g * 0.4), areaM2: 1100, tipo: "vendavel", quadra: "1", numero: "1" },
+      { anel: anel(g * 1.6, g * 0.1, g * 1.9, g * 0.4), areaM2: 1100, tipo: "vendavel", quadra: "2", numero: "1" },
+    ], ruas: [], vias: [] };
+    await banco.pg.query(`UPDATE incorporation_studies SET geojson = $1, latitude = 0.0005, longitude = 0.0005, mass_scenarios_json = $2, selected_scenario_id = 'c1' WHERE id = 1`,
+      [kml(anel(g * 1.5, 0, g * 2, g / 2)), JSON.stringify({ params: {}, cenarios: [cenario] })]);
+    const { id } = await admin().criar({ origem: "incorporacao", alvoId: 1, tipo: "condominio", documentos: [] });
+    await admin().liberar({ id });
+    expect(await admin().implantacaoDoEstudo({ id })).toMatchObject({ areas: 2, portoesReposicionados: false });
+    let d = await admin().detalhe({ id });
+    const imp = d.modelo!.implantacao!;
+    expect(imp.terrenosExtras).toHaveLength(1);
+    expect(imp.muro?.ativo).toBe(true);
+    const geo = geometriaDoMuro(imp, imp.muro!)!;
+    // Um muro em cada área, cada uma com o seu portão (sem ruas: no ponto da divisa mais perto do lote dela).
+    expect(geo.resumo.areas.map(a => a.indice)).toEqual([0, 1]);
+    expect(geo.resumo.aberturas.map(a => [a.area, a.principal])).toEqual([[0, true], [1, true]]);
+
+    // A pessoa edita os portões; depois o KML muda (a área B anda 20 m para leste) e a implantação é atualizada.
+    const pontosAntes = pontosDosPortoes(imp, portoesAutomaticos(imp).portoes);
+    const editado = { ...d.modelo!, implantacao: { ...imp, muro: { ...imp.muro!, editado: true, portoesEditados: true, portoes: portoesAutomaticos(imp).portoes, contorno: assinaturaDoContorno(imp) } } };
+    await admin().salvarModelo({ id, versao: d.modeloVersao, modelo: editado });
+    await banco.pg.query(`UPDATE incorporation_studies SET geojson = $1 WHERE id = 1`, [kml(anel(g * 1.68, 0, g * 2.18, g / 2))]);
+    expect(await admin().implantacaoDoEstudo({ id })).toMatchObject({ areas: 2, portoesReposicionados: true });
+    d = await admin().detalhe({ id });
+    const novo = d.modelo!.implantacao!;
+    expect(novo.muro?.reancorado).toBe(true);
+    expect(novo.muro?.contorno).toBe(assinaturaDoContorno(novo));
+    const pontosDepois = pontosDosPortoes(novo, novo.muro!.portoes);
+    expect(novo.muro!.portoes.map(p => p.area ?? 0)).toEqual([0, 1]);
+    // O portão da área A não andou; o da área B foi para o ponto da nova divisa mais perto de onde estava.
+    expect(Math.hypot(pontosDepois[0]!.x - pontosAntes[0]!.x, pontosDepois[0]!.y - pontosAntes[0]!.y)).toBeLessThan(0.05);
+    expect(Math.hypot(pontosDepois[1]!.x - pontosAntes[1]!.x, pontosDepois[1]!.y - pontosAntes[1]!.y)).toBeLessThan(21);
+    expect(d.problemas.some(p => p.onde === "Muro" && /foram levados ao ponto da nova divisa/.test(p.mensagem))).toBe(true);
+
+    // Condomínio publicado ANTES do muro (modelo salvo sem `muro`): o link continua sem muro; a tela avisa.
+    const antigo = { ...d.modelo!, implantacao: { ...novo, muro: undefined, terrenosExtras: undefined } };
+    await banco.db.update(maquetes3d).set({ modelo: JSON.stringify(antigo), status: "publicada", publicadoEm: new Date() }).where(eq(maquetes3d.id, id));
+    const publico = appRouter.createCaller({ user: null, req: {}, res: {} } as never).maquetePublica;
+    const aberto = await publico.porToken({ token: d.token });
+    expect(aberto.modelo.implantacao!.muro?.ativo).toBe(false);
+    expect(muroDaMaquete(aberto.modelo)).toBeNull();
+    const naTela = (await admin().detalhe({ id })).modelo!;
+    expect(publicadoSemMuro(naTela)).toBe(true);
+    expect(muroDaMaquete(naTela)?.ativo).toBe(true); // na revisão o padrão automático aparece
+    // Lote da área B fora do único contorno salvo: aviso para atualizar a implantação.
+    expect(validarModelo(naTela).some(p => /fora do contorno do terreno/.test(p.mensagem))).toBe(true);
+
+    // Revisto e salvo: o muro passa a ser gravado no modelo.
+    await admin().despublicar({ id });
+    await banco.db.update(maquetes3d).set({ status: "em_revisao" }).where(eq(maquetes3d.id, id));
+    const v = (await admin().detalhe({ id })).modeloVersao;
+    await admin().salvarModelo({ id, versao: v, modelo: naTela });
+    const salvo = (await admin().detalhe({ id })).modelo!;
+    expect(salvo.implantacao!.muro?.ativo).toBe(true);
+    expect(publicadoSemMuro(salvo)).toBe(false);
   });
 
   it("incorporação: sem terreno nem estudo de massa, avisa em vez de criar implantação vazia; projeto não aceita", async () => {
