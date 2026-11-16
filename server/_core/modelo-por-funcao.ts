@@ -3,7 +3,9 @@
 // painel nem o cofre de segredos (a guarda em server/integracoes-anthropic.test.ts confere).
 // Resolução, sempre nesta ordem: modelo da função → modelo anterior da função (Dolores: o campo antigo do cartão dela)
 // → modelo preferencial do painel → padrão próprio da função (Maquete: o das configurações da maquete).
-import * as db from "../db.js";
+import { eq } from "drizzle-orm";
+import { dashboardSettings } from "../../drizzle/schema.js";
+import { getDb } from "../db.js";
 import { FUNCOES_ANTHROPIC, ehFuncaoAnthropic, type FuncaoAnthropic } from "../../shared/funcoes-anthropic.js";
 
 /** Modelo preferencial do painel (S-10). A chave do banco é a mesma que o acessor do painel reexporta. */
@@ -16,7 +18,9 @@ export const chaveAvisoDaFuncao = (f: FuncaoAnthropic) => `${CHAVE_MODELO_PREFER
 export type OrigemModelo = "funcao" | "anterior" | "preferencial" | "padrao";
 export type ModeloResolvido = { modelo: string | null; origem: OrigemModelo | null };
 export type LeitorModelos = { lerBanco: (chave: string) => Promise<string | undefined> };
-export const leitorModelosPadrao: LeitorModelos = { lerBanco: k => db.getDashboardSetting(k) };
+export const leitorModelosPadrao: LeitorModelos = {
+  lerBanco: async k => (await getDb().select({ value: dashboardSettings.value }).from(dashboardSettings).where(eq(dashboardSettings.key, k)).limit(1))[0]?.value,
+};
 
 const limpo = (v: string | null | undefined) => (v ?? "").trim() || null;
 const ler = async (deps: LeitorModelos, chave: string) => limpo(await deps.lerBanco(chave).catch(() => undefined));
