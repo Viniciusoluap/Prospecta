@@ -67,8 +67,28 @@ function segundos(v: unknown): number | null {
 const NUMERO_DO_JID = /^(\d{10,15})@s\.whatsapp\.net$/;
 
 export type MensagemLida =
-  | { tipo: "ignorar"; motivo: "grupo" | "status" | "propria" | "sem_id" | "outro_destino" }
-  | { tipo: "direta"; externalId: string; numero: string | null; enviadaEm: Date | null; texto: string; temMidia: boolean };
+  | { tipo: "ignorar"; motivo: "grupo" | "status" | "propria" | "sem_id" | "outro_destino" | "reacao" | "edicao" }
+  | { tipo: "direta"; externalId: string; numero: string | null; enviadaEm: Date | null; texto: string; temMidia: boolean; encaminhada: boolean };
+
+/** Embalagens do WhatsApp com a mensagem de verdade dentro (temporária, visualização única). */
+const EMBALAGENS = ["ephemeralMessage", "viewOnceMessage", "viewOnceMessageV2", "viewOnceMessageV2Extension"] as const;
+function desembrulhar(m: Record<string, any>): Record<string, any> {
+  let atual = m;
+  for (let i = 0; i < 4; i++) {
+    const dentro = EMBALAGENS.map(k => atual?.[k]?.message).find(x => x && typeof x === "object");
+    if (!dentro) break;
+    atual = dentro;
+  }
+  return atual ?? {};
+}
+/** Encaminhada: o WhatsApp marca no contextInfo do conteúdo (texto ou mídia). */
+function foiEncaminhada(m: Record<string, any>): boolean {
+  for (const v of Object.values(m)) {
+    const ci = v && typeof v === "object" ? (v as { contextInfo?: { isForwarded?: unknown; forwardingScore?: unknown } }).contextInfo : null;
+    if (ci && (ci.isForwarded === true || (typeof ci.forwardingScore === "number" && ci.forwardingScore > 0))) return true;
+  }
+  return false;
+}
 
 /**
  * Um item de `messages.upsert`. Grupo (@g.us), status/listas e o que a própria Dolores enviou (fromMe) são ignorados.
@@ -92,12 +112,15 @@ export function lerMensagemEvolution(item: unknown): MensagemLida {
       if (typeof alt === "string" && NUMERO_DO_JID.test(alt)) { numero = NUMERO_DO_JID.exec(alt)![1]; break; }
     }
   } else return { tipo: "ignorar", motivo: "outro_destino" };
-  const m = d.message ?? {};
+  const m = desembrulhar(d.message ?? {});
+  // reação e edição/apagamento não são pedido novo: ignoradas em silêncio (o webhook audita a contagem)
+  if (m.reactionMessage) return { tipo: "ignorar", motivo: "reacao" };
+  if (m.protocolMessage || m.editedMessage) return { tipo: "ignorar", motivo: "edicao" };
   const texto = typeof m.conversation === "string" ? m.conversation
     : typeof m.extendedTextMessage?.text === "string" ? m.extendedTextMessage.text : "";
   const temMidia = Boolean(m.imageMessage || m.videoMessage || m.audioMessage || m.documentMessage || m.documentWithCaptionMessage || m.stickerMessage);
   const s = segundos(d.messageTimestamp);
-  return { tipo: "direta", externalId: id, numero, enviadaEm: s === null ? null : new Date(s * 1000), texto: texto.trim(), temMidia };
+  return { tipo: "direta", externalId: id, numero, enviadaEm: s === null ? null : new Date(s * 1000), texto: texto.trim(), temMidia, encaminhada: foiEncaminhada(m) };
 }
 
 /** Sem data, velha demais ou no futuro: não é comando (reentrega da Evolution, histórico, relógio errado). */
@@ -131,6 +154,7 @@ export function fraseDeBloqueio(motivo: MotivoBloqueio, detalhe?: string | null)
   }
 }
 
+export const FRASE_ENCAMINHADA = "Dolores: recebi uma mensagem encaminhada. Mensagem encaminhada não vale como pedido: escreva o pedido com as suas palavras, por favor. Nada foi consultado.";
 export const FRASE_SO_TEXTO = "Dolores: nesta etapa eu só entendo mensagens de texto. Escreva o pedido, por favor. Nada foi consultado.";
 /** Vários comandos no mesmo aviso e o prazo de 60 s acabou antes deste. */
 export const fraseSemTempo = (hora: string) =>

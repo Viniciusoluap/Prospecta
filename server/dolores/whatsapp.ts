@@ -14,7 +14,7 @@ import { and, eq, lt, sql } from "drizzle-orm";
 import { doloresMensagens, doloresWhatsappConfig, type DoloresWhatsappConfig, type SituacaoMensagem } from "../../drizzle/schema-dolores-whatsapp.js";
 import { sanitizarTexto } from "../../shared/dolores/sanitizar.js";
 import {
-  FRASE_ERRO, FRASE_SO_TEXTO, MAX_TEXTO_COMANDO, fraseSemTempo, bloqueioDoLimite, cortarResposta, ehNumeroDoDono, fraseDeBloqueio,
+  FRASE_ENCAMINHADA, FRASE_ERRO, FRASE_SO_TEXTO, MAX_TEXTO_COMANDO, fraseSemTempo, bloqueioDoLimite, cortarResposta, ehNumeroDoDono, fraseDeBloqueio,
   lerMensagemEvolution, mascararNumero, mensagemAntiga, mesFortaleza, type MotivoBloqueio,
 } from "../../shared/dolores/whatsapp.js";
 import { configuracaoAnthropicPainel } from "../_core/anthropic-painel.js";
@@ -137,12 +137,18 @@ async function bloqueioAtual(cfg: DoloresWhatsappConfig, mes: string): Promise<
   }
 }
 
-async function tratarComando(cfg: DoloresWhatsappConfig, msg: { id: number; numero: string; texto: string; temMidia: boolean }, prazoFinal: number, autorInicial: number | null) {
+async function tratarComando(cfg: DoloresWhatsappConfig, msg: { id: number; numero: string; texto: string; temMidia: boolean; encaminhada: boolean }, prazoFinal: number, autorInicial: number | null) {
   const agora = deps.agora();
   const mes = mesFortaleza(agora);
   let autor = autorInicial;
   await registrarAcao({ funcao: "whatsapp_mensagem", resultado: "ok", motivo: "comando do dono", autorUserId: autor, canal: "whatsapp", pedidoId: `wa:${msg.id}`,
-    resumo: { caracteres: msg.texto.length, midia: msg.temMidia } });
+    resumo: { caracteres: msg.texto.length, midia: msg.temMidia, encaminhada: msg.encaminhada } });
+  // QA achado 6: texto encaminhado é de terceiro — não vira ordem, nem quando vem do dono
+  if (msg.encaminhada) {
+    await responderAoDono(cfg, msg.numero, FRASE_ENCAMINHADA, { mensagemId: msg.id, autor, resumo: { bloqueio: "encaminhada" }, prazoFinal });
+    await atualizarMensagem(msg.id, { situacao: "bloqueada", motivo: "mensagem encaminhada", respondidaEm: deps.agora() });
+    return "encaminhada";
+  }
   if (!msg.texto) {
     await responderAoDono(cfg, msg.numero, FRASE_SO_TEXTO, { mensagemId: msg.id, autor, resumo: { bloqueio: "so_texto" }, prazoFinal });
     await atualizarMensagem(msg.id, { situacao: "bloqueada", motivo: "sem texto", respondidaEm: deps.agora() });
@@ -281,7 +287,11 @@ export async function tratarWebhookDolores(req: Pedido): Promise<RespostaWebhook
       await atualizarMensagem(id, { situacao: "bloqueada", motivo: "sem tempo no prazo do aviso", respondidaEm: deps.agora() });
       contar("sem-tempo"); continue;
     }
-    contar(await tratarComando(cfg, { id, numero: m.numero!, texto: m.texto, temMidia: m.temMidia }, prazoFinal, autor));
+    contar(await tratarComando(cfg, { id, numero: m.numero!, texto: m.texto, temMidia: m.temMidia, encaminhada: m.encaminhada }, prazoFinal, autor));
+  }
+  if (contagem.reacao || contagem.edicao) {
+    await registrarAcao({ funcao: "whatsapp_mensagem", resultado: "recusada", motivo: "reação ou edição de mensagem: ignorada, sem resposta", autorUserId: autor, canal: "whatsapp",
+      resumo: { reacoes: contagem.reacao ?? 0, edicoes: contagem.edicao ?? 0 } });
   }
   if (contagem.antiga) {
     await registrarAcao({ funcao: "whatsapp_mensagem", resultado: "recusada", motivo: "mensagem antiga (reentrega ou histórico): não vira comando", autorUserId: autor, canal: "whatsapp", resumo: { antigas: contagem.antiga } });

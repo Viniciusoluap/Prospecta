@@ -63,7 +63,7 @@ describe("número do dono", () => {
 describe("leitura do aviso da Evolution", () => {
   const base = { key: { remoteJid: "5599991234567@s.whatsapp.net", id: "ABC", fromMe: false }, message: { conversation: " Olá " }, messageTimestamp: 1_790_000_000 };
   it("conversa direta: id, número, texto e data", () => {
-    expect(lerMensagemEvolution(base)).toEqual({ tipo: "direta", externalId: "ABC", numero: "5599991234567", enviadaEm: new Date(1_790_000_000_000), texto: "Olá", temMidia: false });
+    expect(lerMensagemEvolution(base)).toEqual({ tipo: "direta", externalId: "ABC", numero: "5599991234567", enviadaEm: new Date(1_790_000_000_000), texto: "Olá", temMidia: false, encaminhada: false });
     expect(lerMensagemEvolution({ ...base, message: { extendedTextMessage: { text: "oi" } }, messageTimestamp: "1790000000" })).toMatchObject({ texto: "oi", enviadaEm: new Date(1_790_000_000_000) });
     expect(lerMensagemEvolution({ ...base, messageTimestamp: { low: 1_790_000_000, high: 0 } })).toMatchObject({ enviadaEm: new Date(1_790_000_000_000) });
   });
