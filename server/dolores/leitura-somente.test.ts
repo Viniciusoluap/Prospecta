@@ -27,12 +27,12 @@ describe("leitura: estático", () => {
     }
   });
 
-  it("só importa schema, regras puras, a conexão e as outras leituras", () => {
+  it("só importa schema, regras puras, a conexão somente leitura e as outras leituras (nunca db.js direto)", () => {
     for (const a of arquivos) {
       const fonte = readFileSync(new URL(a, PASTA), "utf8");
       for (const [, origem] of fonte.matchAll(/from\s+"([^"]+)"/g)) {
         const permitido = ["drizzle-orm", "drizzle-orm/pg-core", "zod"].includes(origem) || /^\.\.\/\.\.\/\.\.\/(drizzle\/schema|shared\/)/.test(origem)
-          || origem === "../../db.js" || /^\.\/[\w-]+\.js$/.test(origem);
+          || origem === "../somente-leitura.js" || /^\.\/[\w-]+\.js$/.test(origem);
         expect(permitido, `${a} importa ${origem}`).toBe(true);
       }
     }

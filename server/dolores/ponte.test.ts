@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("../db.js", async orig => ({ ...(await orig<typeof import("../db.js")>()), getDb: vi.fn() }));
 
+import { users } from "../../drizzle/schema.js";
 import { canAccessAdminProcedure } from "../_core/trpc.js";
 import { getDb } from "../db.js";
 import { sanearArgumentos } from "./auditoria.js";
@@ -12,6 +13,7 @@ import { FUNCOES, funcaoPorNome } from "./funcoes.js";
 import { LIBERADAS_ETAPA_1, funcaoLiberada } from "./permissoes.js";
 import { DOLORES_OPEN_ID, esquecerUsuarioDolores, usuarioDolores } from "./perfil.js";
 import { definirDependenciasPonte, ferramentasLiberadas, tokenConfere, tratarChamada, tratarFerramentas } from "./ponte.js";
+import { bancoDaLeitura } from "./somente-leitura.js";
 import { AGORA, CENARIO, criarBanco } from "./testes-banco.js";
 
 const TOKEN = "token-de-teste-da-ponte-1234567890";
@@ -300,6 +302,29 @@ describe("ferramentas (fonte única)", () => {
       const fonte = readFileSync(new URL(arquivo, import.meta.url), "utf8");
       expect(fonte).toMatch(/import doloresPonteRotas from "\.\.\/(server\/)?dolores\/ponte\.js"/);
       expect(fonte).toMatch(/use\((?:"\/api", )?doloresPonteRotas\)/);
+    }
+  });
+});
+
+describe("transação somente leitura (L5)", () => {
+  it("o banco recusa escrita feita por uma função de leitura, mesmo que o código tente", async () => {
+    const fn = FUNCOES.find(f => f.nome === "listar_tarefas")!;
+    const original = fn.executar;
+    fn.executar = async () => {
+      await bancoDaLeitura().insert(users).values({ openId: "invasor", name: "x" });
+      return { dados: {}, resumo: {} };
+    };
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    try { expect((await tratarChamada(pedido({ funcao: "listar_tarefas" }))).status).toBe(500); } finally { fn.executar = original; }
+    expect((await banco.pg.query(`SELECT 1 FROM users WHERE "openId" = 'invasor'`)).rows).toHaveLength(0);
+    expect((await acoes())[0].motivo).toMatch(/read-only/i);
+  });
+
+  it("todas as funções liberadas funcionam pela ponte dentro da transação", async () => {
+    for (const nome of LIBERADAS_ETAPA_1) {
+      const argumentos = nome === "detalhar_processo_regularizacao" ? { id: 1 } : nome === "historico_atendimento" ? { leadId: 1 } : nome === "consultar_cliente" ? { leadId: 1 } : {};
+      const r = await tratarChamada(pedido({ funcao: nome, argumentos }));
+      expect(r.status, nome).toBe(200);
     }
   });
 });

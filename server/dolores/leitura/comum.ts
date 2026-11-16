@@ -4,9 +4,10 @@ import { inArray } from "drizzle-orm";
 import { z } from "zod";
 import { users } from "../../../drizzle/schema.js";
 import { CLIENT_DOCUMENT_CHECKLIST } from "../../../shared/client-document-checklist.js";
-import { getDb } from "../../db.js";
+import { bancoDaLeitura } from "../somente-leitura.js";
 
-export const db = () => getDb();
+/** Conexão das leituras: dentro da ponte, uma transação READ ONLY (server/dolores/somente-leitura.ts). */
+export const db = () => bancoDaLeitura();
 
 /** Teto de linhas lidas do banco por consulta (a página devolvida é bem menor). */
 export const MAX_LINHAS_LIDAS = 2000;

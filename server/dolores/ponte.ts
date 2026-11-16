@@ -19,6 +19,7 @@ import { registrarAcao } from "./auditoria.js";
 import { FUNCOES, definicaoDaFerramenta, funcaoPorNome } from "./funcoes.js";
 import { ETAPA_ATUAL, funcaoLiberada, motivoDaRecusa } from "./permissoes.js";
 import { DoloresDesativada, usuarioDolores } from "./perfil.js";
+import { emTransacaoSomenteLeitura } from "./somente-leitura.js";
 
 export const VARIAVEL_TOKEN = "DOLORES_PONTE_TOKEN";
 /** Prazo de uma função (a função da Vercel tem 60 s no total). */
@@ -65,7 +66,12 @@ const envelope = z.object({
 function base(agora: Date) {
   return { etapa: ETAPA_ATUAL, geradoEm: isoFortaleza(agora), fuso: `${FUSO} (UTC${DESLOCAMENTO_FUSO})`, moeda: MOEDA };
 }
-const erroSeguro = (e: unknown) => (e instanceof Error ? e.message : String(e)).replace(/Bearer\s+\S+/gi, "Bearer [omitido]").slice(0, 300);
+/** Mensagem do erro para log/auditoria: a causa do banco (nunca o texto da consulta com os parâmetros), sem token. */
+const erroSeguro = (e: unknown) => {
+  const causa = e instanceof Error && e.cause instanceof Error ? e.cause.message : null;
+  const texto = causa ?? (e instanceof Error ? e.message : String(e));
+  return texto.replace(/^Failed query:[\s\S]*$/, "falha na consulta ao banco").replace(/Bearer\s+\S+/gi, "Bearer [omitido]").slice(0, 300);
+};
 
 /** Autenticação comum aos dois endereços. null = passou. */
 function autenticar(req: Pedido, agora: Date): RespostaPonte | null {
@@ -189,7 +195,7 @@ export async function tratarChamada(req: Pedido): Promise<RespostaPonte> {
     return responder(429, { ok: false, erro: motivo });
   }
   try {
-    const r = await comPrazo(fn.executar(args.data as never, { agora }), deps.prazoMs);
+    const r = await comPrazo(emTransacaoSomenteLeitura(() => fn.executar(args.data as never, { agora })), deps.prazoMs);
     // Toda string da resposta passa pelo filtro de dados pessoais (texto livre: anotações, mensagens, títulos).
     const { valor, truncado } = limitarResposta(sanitizarResposta(r.dados));
     await registrar("ok", { funcao, argumentos: args.data, resumo: { ...r.resumo, truncado }, pedidoId });
