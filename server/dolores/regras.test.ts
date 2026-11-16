@@ -709,6 +709,37 @@ describe("filtro de dados pessoais em texto livre (M1)", () => {
     }
   });
 
+  it("QA r7 A5: PIX e conta disfarçados saem nos dois modos (melhor esforço); valores, datas e 'caixa d'água' ficam", () => {
+    const B = "[dado bancário omitido]";
+    const LIB = { mascararDadosPessoais: false } as const;
+    const casos: Array<[string, string, string]> = [
+      ["minha chave pix é 52998224725", `minha chave pix é ${B}`, "52998224725"], ["chave pix é o CPF 529.982.247-25", `chave pix é o CPF ${B}`, "982"],
+      ["chave pix é maria@gmail.com", `chave pix é ${B}`, "maria@"], ["pix -> maria@x.com", `pix -> ${B}`, "maria@"],
+      ["pix — 52998224725", `pix — ${B}`, "52998224725"], ["pix => 52998224725", `pix => ${B}`, "52998224725"],
+      ["PIX CNPJ 11.222.333/0001-81", `PIX CNPJ ${B}`, "0001"], ["faz o pix pra 52998224725", `faz o pix pra ${B}`, "52998224725"],
+      ["pix aleatória 123e4567-e89b-12d3-a456-426614174000", `pix aleatória ${B}`, "123e4567"], ["pix 123e4567e89b12d3a456426614174000", `pix ${B}`, "123e4567"],
+      ["o número da conta é 12345-6", `o número da conta é ${B}`, "12345"], ["agência é 1234", `agência é ${B}`, "1234"],
+      ["conta do Bradesco 12345-6", `conta do Bradesco ${B}`, "12345"], ["Itaú 0001 12345-6", `Itaú ${B}`, "12345"],
+      ["BB 1234-5 / 67890-1", `BB ${B}`, "67890"], ["cta 56789-0", `cta ${B}`, "56789"], ["ag1234 cc56789", `ag${B} cc${B}`, "56789"],
+    ];
+    for (const [t, esperado, valor] of casos) {
+      expect(sanitizarTexto(t, LIB), t).toBe(esperado);
+      expect(sanitizarTexto(t), t).not.toContain(valor); // no padrão, CPF/CNPJ podem sair com o marcador de dado pessoal
+    }
+    for (const t of ["Caixa 1000 litros", "caixa d'água 1000 litros", "pagou via pix 1.500,00", "pix pra 16/11/2026", "pix de 12 parcelas",
+      "ag. 15/11 às 10h", "Banco Inter 2026", "santander 1.500,00", "conta de luz 152,30", "pix para 3 pessoas"]) {
+      expect(sanitizarTexto(t, LIB), t).toBe(t);
+      expect(sanitizarTexto(t), t).toBe(t);
+    }
+    for (const p of ["pix é o cpf ", "conta do Bradesco ", "Itaú 0001 ", "pix -> ", "BB 1234-5 / "]) {
+      const t = p.repeat(Math.ceil(200 * 1024 / p.length));
+      const t0 = performance.now();
+      sanitizarTexto(t, LIB);
+      sanitizarTexto(t);
+      expect(performance.now() - t0, p).toBeLessThan(2000);
+    }
+  });
+
   it("percorre a resposta inteira (listas e objetos), sem tocar números e chaves", () => {
     expect(sanitizarResposta({ a: [{ texto: "cpf 111.222.333-44", n: 11122233344 }], "111.222.333-44": null }))
       .toEqual({ a: [{ texto: "cpf [dado pessoal omitido]", n: 11122233344 }], "111.222.333-44": null });

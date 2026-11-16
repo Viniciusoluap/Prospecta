@@ -219,12 +219,29 @@ const CODIGO = new RegExp(
 // lookahead varria a palavra inteira a cada rótulo: "ag-ag-…" de 200 kB levava 20 s). QA r4 S5: só número de conta
 // (3+ dígitos, não um ano, não valor com centavos): "cc 2 cópias", "conta 2026", "conta 1.500,00" ficam.
 // 16/11 (opção B): o número sai INTEIRO mesmo com espaço entre os grupos ("conta 529 982 247 25" → só o rótulo fica).
-const BANCO = /\b(ag[eê]ncia|ag|conta(?:\s+corrente|\s+poupan[cç]a)?|c\/c|cc)\b(\s*(?:n[ºo°.]?|:|#|-)?\s*)(\d[\d.\-/]{0,30}(?: \d[\d.\-/]{0,30}){0,5}[\dxX]?)(,\d)?/gi;
+/**
+ * QA r7 A5: bancos comuns — o nome sozinho funciona como rótulo ("Itaú 0001 12345-6") e vale depois de "conta do/da/no"
+ * ("conta do Bradesco 12345-6"). Só com o nome do banco, o número precisa ter forma de conta (dígito depois de hífen ou
+ * dois grupos): "Caixa 1000 litros" fica.
+ */
+const BANCOS = "bradesco|ita[uú]|santander|caixa(?:\\s+econ[oô]mica(?:\\s+federal)?)?|cef|bb|banco\\s+do\\s+brasil|nubank|inter|sicoob|sicredi|c6(?:\\s+bank)?|banrisul|bnb|banco\\s+do\\s+nordeste|pagbank|pagseguro|mercado\\s+pago|picpay|neon|btg(?:\\s+pactual)?|safra";
+const SO_BANCO = new RegExp(`^(?:${BANCOS})$`, "iu");
+// QA r7 A5: separador também "é" ("o número da conta é 12345-6"), o banco no meio ("conta do Bradesco 12345-6"), grupos
+// ligados por " / " ("BB 1234-5 / 67890-1") e rótulo colado no número ("ag1234 cc56789", "cta 56789-0").
+const BANCO = new RegExp(
+  `(?<![\\p{L}\\p{N}_])(ag[eê]ncia|ag|conta(?:\\s+corrente|\\s+poupan[cç]a)?(?:\\s+(?:do|da|no|na)\\s+(?:${BANCOS}))?|c\\/c|cc|cta|${BANCOS})(?![\\p{L}_])`
+  + `(\\s*(?:n[ºo°.]?|:|#|-|é|eh)?\\s*)(\\d[\\d.\\-/]{0,30}(?:(?: | ?[/|] ?)\\d[\\d.\\-/]{0,30}){0,5}[\\dxX]?)(,\\d)?`,
+  "giu",
+);
 // PIX: QA r4 S5 — só quando o que segue tem forma de chave: e-mail, chave aleatória (uuid) ou 8–14 dígitos (CPF, CNPJ,
 // telefone). "pagou via pix 1.500,00" fica (é o valor da cobrança).
+// QA r7 A5: entre "pix" e a chave valem também "é", "é o", "->", "=>", "—", "pra/para", "do/da" e o tipo da chave
+// ("PIX CNPJ …", "chave pix é o CPF …", "pix aleatória <uuid>"); uuid também sem hífens (32 hexadecimais).
+const SEP_PIX = String.raw`((?:\s*(?:=>|->|[:#=–—-]|(?:n[ºo°.]?|é|eh|o|a|pra|para|pro|do|da|no|na|cpf|cnpj|telefone|celular|cel|e-?mail|aleat[oó]ria|chave)(?![\p{L}\p{N}]))){0,5}\s*)`;
+const VALOR_PIX_TEXTO = String.raw`[\p{L}\p{N}_.+-]{1,64}@[\p{L}\p{N}_-]{1,63}(?:\.[\p{L}\p{N}_-]{1,63}){0,6}|[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}|[0-9a-f]{32}(?![0-9a-z])`;
 /** Chave PIX em forma de e-mail ou aleatória (uuid): sai como dado bancário antes do filtro de e-mail. */
-const PIX_EMAIL = new RegExp(String.raw`\b(chave\s+pix|pix)\b(\s*(?:n[ºo°.]?|:|#|-|=)?\s*)(?:[\p{L}\p{N}_.+-]{1,64}@[\p{L}\p{N}_-]{1,63}(?:\.[\p{L}\p{N}_-]{1,63}){0,6}|[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})`, "giu");
-const PIX = new RegExp(String.raw`\b(chave\s+pix|pix)\b(\s*(?:n[ºo°.]?|:|#|-|=)?\s*)([\p{L}\p{N}_.+-]{1,64}@[\p{L}\p{N}_-]{1,63}(?:\.[\p{L}\p{N}_-]{1,63}){0,6}|[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}|\+?\(?\d[\d.\-/() ]{6,24}\d)`, "giu");
+const PIX_EMAIL = new RegExp(String.raw`\b(chave\s+pix|pix)\b${SEP_PIX}(?:${VALOR_PIX_TEXTO})`, "giu");
+const PIX = new RegExp(String.raw`\b(chave\s+pix|pix)\b${SEP_PIX}(${VALOR_PIX_TEXTO}|\+?\(?\d[\d.\-/() ]{6,24}\d)`, "giu");
 // E-mail: "a@b.com", "a @ b.com", "a[at]b.com", "a (arroba) b.com" e, colado, sem domínio de topo ("a@b").
 // QA r5 F6: letras e números de qualquer escrita (\p{L}\p{N}, flag u) — "maria.conceição@uol.com.br" sai inteiro.
 // QA r3 R4: o nome só começa no início de uma "palavra" de [\p{L}\p{N}_.+-] (lookbehind). Sem a âncora, cada posição de uma
@@ -660,14 +677,17 @@ function trocarBanco(m: string, rotulo: string, sep: string, valor: string, cent
   const resto = /[.\-/]+$/.exec(valor)?.[0] ?? "";
   const nucleo = valor.slice(0, valor.length - resto.length);
   if (nucleo.replace(/\D/g, "").length < 3 || ANO.test(nucleo) || COLADO_EM_LETRA.test(t.slice(pos + m.length))) return m;
+  // QA r7 A5: só o nome do banco antes — o número precisa ter forma de conta/agência (hífen + dígito ou dois grupos)
+  if (SO_BANCO.test(rotulo.trim()) && !/\d{3,}-[\dxX]|\d{3,}(?: | ?[/|] ?)\d{3,}/.test(nucleo)) return m;
   return `${rotulo}${sep}${BANCARIO_OMITIDO}${resto}`;
 }
 
 /** PIX: e-mail ou uuid sempre; número só com 8–14 dígitos e sem centavos logo depois. */
 function trocarPix(m: string, rotulo: string, sep: string, valor: string, pos: number, t: string): string {
-  if (!valor.includes("@") && !/^[0-9a-f]{8}-/i.test(valor)) {
+  if (!valor.includes("@") && !/^[0-9a-f]{8}-/i.test(valor) && !/^[0-9a-f]{32}$/i.test(valor)) {
     const digitos = valor.replace(/\D/g, "").length;
     if (digitos < 8 || digitos > 14 || /^,\d/.test(t.slice(pos + m.length))) return m;
+    if (/^\d{1,2}\/\d{1,2}\/\d{2,4}$/.test(valor.trim())) return m; // data ("pix pra 16/11/2026")
   }
   return `${rotulo}${sep}${BANCARIO_OMITIDO}`;
 }

@@ -186,9 +186,19 @@ Ela informa quando você pede ou quando o dado é útil para a resposta; não ma
 - **Confira com o jurídico** se o termo de consentimento que os clientes assinam cobre esse envio (LGPD) antes de usar.
 - A resposta com esses dados vai **só para o seu número**, conferido a cada mensagem.
 
-**O que continua sempre escondido**, nos dois modos: senhas, tokens, códigos de acesso, PIN e OTP, chaves de API
-(`sk-ant-…`, `Bearer …`), agência, conta e chave PIX — estas inteiras, mesmo quando a chave PIX é um CPF, telefone ou
-e-mail. Endereço, arquivos e links do Drive continuam fora das consultas.
+**O que continua sempre escondido**, nos dois modos, pelo filtro de texto (melhor esforço: pega as formas comuns de
+escrever; um texto digitado de um jeito muito diferente pode escapar):
+- senhas, tokens, códigos de acesso/verificação/2FA, PIN e OTP — com a palavra ("senha", "pwd", "pass") ou com cara de
+  senha logo depois de "login", "acesso", "usuário", "credencial", "gov.br", "INSS", "e-CAC", "portal" (ex.: "acesso gov:
+  529… Maria@2025": a senha sai; o CPF segue a regra de dado pessoal); "Nome@2025" (arroba sem domínio) também sai;
+- chaves de API e credenciais em forma reconhecível (`sk-ant-…`, `sk_live_…`, `Bearer …`, `github_pat_…`, `AIza…`,
+  `apikey=…`, chave privada PEM);
+- agência e conta quando vêm com o rótulo ("agência", "ag", "conta", "c/c", "cta") ou com o nome de um banco comum ("Itaú
+  0001 12345-6", "conta do Bradesco 12345-6");
+- chave PIX quando vem depois de "pix"/"chave pix" (também "pix é …", "pix -> …", "PIX CNPJ …", "pix aleatória …"):
+  sai inteira, mesmo quando é um CPF, telefone ou e-mail. Fora disso, um CPF ou e-mail solto segue a regra de dado pessoal.
+
+Endereço, arquivos e links do Drive continuam fora das consultas.
 
 **O que continua sem dado pessoal**, qualquer que seja a escolha: o registro de ações (`dolores_acoes`), o pedido
 guardado (`dolores_mensagens`), os números estranhos (`dolores_remetentes_estranhos`), a tela de Integrações › Dolores, os
