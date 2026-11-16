@@ -20,14 +20,17 @@ function hectares(m2: number) {
 export function TerrenoTab({ estudo }: { estudo: EstudoData }) {
   const [busy, setBusy] = useState(false);
   const [erro, setErro] = useState<string | null>(null);
+  const [aviso, setAviso] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
   async function enviar(formData: FormData) {
     setBusy(true);
     setErro(null);
+    setAviso(null);
     try {
       const res = await uploadKml(estudo.id, formData);
       if (res?.error) setErro(res.error);
+      else setAviso(res?.aviso ?? null);
     } finally {
       setBusy(false);
     }
@@ -39,15 +42,16 @@ export function TerrenoTab({ estudo }: { estudo: EstudoData }) {
     <div className="space-y-4">
       {/* Upload */}
       <form action={enviar} className="bg-white border border-gray-100 p-4 flex items-center gap-3 flex-wrap">
-        <input ref={inputRef} type="file" name="kml" accept=".kml" className="hidden"
+        <input ref={inputRef} type="file" name="kml" accept=".kml,.kmz,application/vnd.google-earth.kml+xml,application/vnd.google-earth.kmz" className="hidden"
           onChange={(e) => { if (e.target.files?.length) e.target.form?.requestSubmit(); }} />
         <button type="button" onClick={() => inputRef.current?.click()} disabled={busy}
           className="flex items-center gap-1.5 text-xs font-bold px-4 py-2 bg-[var(--brand-dark)] text-[var(--brand-yellow)] hover:opacity-90 disabled:opacity-50">
-          <Upload size={14} /> {busy ? "Processando..." : temTerreno ? "Trocar KML" : "Enviar KML do terreno"}
+          <Upload size={14} /> {busy ? "Processando..." : temTerreno ? "Trocar KML/KMZ" : "Enviar KML/KMZ do terreno"}
         </button>
-        <span className="text-xs text-gray-400">Formato .kml (polígono do terreno)</span>
+        <span className="text-xs text-gray-400">Formato .kml ou .kmz (polígono do terreno, até 20 MB)</span>
       </form>
-      {erro && <p className="text-xs text-red-500">{erro}</p>}
+      {erro && <p className="text-xs text-red-500">{erro}{temTerreno ? " O terreno já salvo foi mantido." : ""}</p>}
+      {aviso && <p className="text-xs text-amber-600">{aviso}</p>}
 
       {/* Correção 06: empreendimento sem KML + lotes avulsos */}
       <SemKmlToggle estudo={estudo} />

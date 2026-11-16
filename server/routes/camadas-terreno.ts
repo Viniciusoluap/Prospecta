@@ -16,7 +16,7 @@ import { tokenMapbox } from "../_core/geo/mapbox-config.js";
 
 const router = Router();
 
-async function usuarioDaIncorporacao(req: Request, modulos: AdminModule[] = ["incorporacao"]) {
+export async function usuarioDaIncorporacao(req: Request, modulos: AdminModule[] = ["incorporacao"]) {
   const token = getTokenFromRequest(req);
   const payload = token ? await verifySessionToken(token) : null;
   const usuario = payload ? await getUserById(payload.userId) : null;

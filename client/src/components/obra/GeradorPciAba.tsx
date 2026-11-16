@@ -5,7 +5,7 @@
 // server/pci-gerador.ts. Gêmeo em Grupo-Santa-Fe/web/src/components/obras/gerador-pci.tsx.
 import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
-import { AlertTriangle, Download, FileSpreadsheet, Loader2, RefreshCw, Save } from "lucide-react";
+import { AlertTriangle, Download, FilePlus, FileSpreadsheet, History, Library, Loader2, RefreshCw, Save, Trash2 } from "lucide-react";
 import { trpc } from "@/lib/trpc";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -21,12 +21,23 @@ import {
   SERVICO_OUTROS_PCI,
   analisarCronogramaPci,
   aplicarEngenheiroPci,
+  aplicarEscolhasPci,
   calcularTotaisPci,
+  camposTrocadosPorEngenheiroPci,
+  compararPreenchimentoPci,
+  ORIGEM_CONFIRMADA_PCI,
+  confirmarMesmaPessoaPci,
+  definirCampoPci,
   errosPci,
+  formularioPciVazio,
+  misturaPessoaPci,
   numeroPci,
   pendenciasPci,
+  sugestoesDoModeloPci,
   type CampoPci,
   type FormularioPci,
+  type PessoaPci,
+  type ResultadoPreenchimentoPci,
   type SecaoPci,
 } from "@shared/pci-gerador";
 
@@ -67,21 +78,233 @@ function Campo({ campo, valor, onChange }: { campo: CampoPci; valor: string | nu
   );
 }
 
-function SeletorEngenheiro({ papel, form, setForm, engenheiros }: { papel: "rtp" | "rte"; form: FormularioPci; setForm: (f: FormularioPci) => void; engenheiros: Engenheiro[] }) {
+/**
+ * EPIC-024 S-09: escolher o engenheiro busca no servidor os dados do perfil DELE (com CPF — a lista
+ * não leva CPF) e preenche nome, CPF, e-mail, telefone, CREA e UF. Campos já preenchidos com outro
+ * valor só trocam com confirmação. O mesmo profissional pode ser RTP e RTE.
+ */
+function SeletorEngenheiro({ papel, projectId, form, setForm, engenheiros }: { papel: "rtp" | "rte"; projectId: number; form: FormularioPci; setForm: (f: FormularioPci) => void; engenheiros: Engenheiro[] }) {
+  const utils = trpc.useUtils();
+  const [buscando, setBuscando] = useState(false);
   const atual = papel === "rtp" ? form.rtpEngenheiroId : form.rteEngenheiroId;
+  const sigla = papel === "rtp" ? "RTP" : "RTE";
+
+  async function escolher(id: string) {
+    if (!id) { setForm(aplicarEngenheiroPci(form, papel, null, null)); return; }
+    setBuscando(true);
+    try {
+      const eng = await utils.pciGerador.engenheiro.fetch({ projectId, userId: Number(id) });
+      const trocados = camposTrocadosPorEngenheiroPci(form, papel, eng);
+      if (trocados.length && !confirm(`Os campos do ${sigla} já preenchidos serão trocados pelos dados do perfil de ${eng.nome ?? "engenheiro"}: ${trocados.join(", ")}. Continuar?`)) return;
+      setForm(aplicarEngenheiroPci(form, papel, eng.id, eng));
+      for (const a of eng.avisos) toast.warning(a, { duration: 10000 });
+      if (!eng.avisos.length) toast.success(`${sigla}: dados de ${eng.nome ?? "engenheiro"} preenchidos pelo perfil (nome, CPF, e-mail, telefone, CREA e UF).`);
+    } catch (e) { toast.error(e instanceof Error ? e.message : String(e)); }
+    finally { setBuscando(false); }
+  }
+
   return (
     <div className="sm:col-span-2">
-      <label htmlFor={`pci-eng-${papel}`} className="mb-1 block text-xs font-semibold text-gray-300">Selecionar engenheiro (preenche nome, e-mail, telefone e CREA do perfil)</label>
-      <select id={`pci-eng-${papel}`} value={atual ?? ""} className={`w-full rounded-md border px-3 py-2 text-sm ${campoCls}`}
-        onChange={(e) => {
-          const eng = engenheiros.find((x) => x.id === e.target.value) ?? null;
-          setForm(aplicarEngenheiroPci(form, papel, eng?.id ?? null, eng));
-          if (eng && !eng.crea) toast.warning(`${eng.nome ?? "Este usuário"} não tem CREA no perfil de Engenheiro: o registro ficou em branco. Complete em Configurações › Usuários.`);
-        }}>
-        <option value="">— digitar manualmente —</option>
-        {engenheiros.map((e) => <option key={e.id} value={e.id}>{e.nome ?? e.email ?? `Usuário ${e.id}`}{e.crea ? ` — CREA${e.creaUf ? `-${e.creaUf}` : ""} ${e.crea}` : e.engenheiro ? " — sem CREA" : ""}</option>)}
-      </select>
+      <label htmlFor={`pci-eng-${papel}`} className="mb-1 block text-xs font-semibold text-gray-300">Selecionar engenheiro (preenche nome, CPF, e-mail, telefone, CREA e UF do perfil)</label>
+      <div className="flex flex-wrap items-center gap-2">
+        <select id={`pci-eng-${papel}`} value={atual ?? ""} disabled={buscando} className={`min-w-0 flex-1 rounded-md border px-3 py-2 text-sm ${campoCls}`}
+          onChange={(e) => void escolher(e.target.value)}>
+          <option value="">— digitar manualmente —</option>
+          {engenheiros.map((e) => <option key={e.id} value={e.id}>{e.nome ?? e.email ?? `Usuário ${e.id}`}{e.crea ? ` — CREA${e.creaUf ? `-${e.creaUf}` : ""} ${e.crea}` : e.engenheiro ? " — sem CREA" : ""}</option>)}
+        </select>
+        {buscando && <Loader2 className="h-4 w-4 animate-spin text-[#C9A961]" aria-label="Buscando o perfil do engenheiro" />}
+        {papel === "rte" && form.rtpEngenheiroId && form.rtpEngenheiroId !== atual && (
+          <Button size="sm" variant="outline" className={botaoSec} disabled={buscando} onClick={() => void escolher(form.rtpEngenheiroId!)}>Mesmo profissional do RTP</Button>
+        )}
+      </div>
     </div>
+  );
+}
+
+type PainelResultado = Omit<ResultadoPreenchimentoPci, "formulario"> & { titulo: string };
+type EscolhasPainel = Parameters<typeof aplicarEscolhasPci>[1];
+
+/**
+ * EPIC-024 S-09: o que "Dados automáticos", a abertura ou o modelo fez — preencheu, igual, conflito,
+ * faltou. Pessoa (proponente, RTP, RTE) é escolhida INTEIRA (manter ou trocar por uma opção), nunca
+ * campo a campo; campos técnicos/do imóvel seguem com escolha por campo. As escolhas são aplicadas
+ * por `aplicarEscolhasPci` (shared), que não deixa pessoa misturada.
+ */
+function ResultadoPreenchimento({ r, onAplicar, onFechar }: { r: PainelResultado; onAplicar: (e: EscolhasPainel, resolvidos: { conflitos: string[]; pessoas: PessoaPci[] }) => void; onFechar: () => void }) {
+  const [marcados, setMarcados] = useState<Set<string>>(new Set());
+  const [escolhaPessoa, setEscolhaPessoa] = useState<Partial<Record<PessoaPci, string>>>({});
+  const alternar = (chave: string) => setMarcados((m) => { const n = new Set(m); if (n.has(chave)) n.delete(chave); else n.add(chave); return n; });
+  const pendentes = r.conflitos.length + r.pessoas.length;
+
+  function aplicar(todosOsCampos: boolean) {
+    const conflitos = todosOsCampos ? r.conflitos : r.conflitos.filter((c) => marcados.has(c.chave));
+    const pessoas: NonNullable<EscolhasPainel["pessoas"]> = {};
+    const resolvidas: PessoaPci[] = [];
+    for (const e of r.pessoas) {
+      const id = escolhaPessoa[e.pessoa];
+      if (!id) continue;
+      resolvidas.push(e.pessoa);
+      pessoas[e.pessoa] = id === "manter" ? null : e.opcoes.find((o) => o.id === id) ?? null;
+    }
+    onAplicar({ conflitos, pessoas }, { conflitos: conflitos.map((c) => c.chave), pessoas: resolvidas });
+  }
+
+  return (
+    <div role="status" className="space-y-2 rounded-md border border-[#C9A961]/40 bg-[#2C3E50]/60 p-3 text-sm">
+      <div className="flex flex-wrap items-start justify-between gap-2">
+        <p className="font-semibold text-[#C9A961]">{r.titulo}: {r.preenchidos.length} campo(s) preenchido(s), {r.pessoas.length} pessoa(s) para escolher, {r.conflitos.length} campo(s) diferente(s), {r.iguais.length} já igual(is), {r.naoEncontrados.length} não encontrado(s).</p>
+        <Button size="sm" variant="outline" className={botaoSec} onClick={onFechar}>Fechar</Button>
+      </div>
+      {r.preenchidos.length > 0 && (
+        <details open>
+          <summary className="cursor-pointer font-semibold">Preenchidos agora (estavam vazios)</summary>
+          <ul className="ml-5 mt-1 list-disc">{r.preenchidos.map((p) => <li key={p.chave}><b>{p.rotulo}</b>: {p.valor} <span className="text-gray-400">— {p.fonte}</span></li>)}</ul>
+        </details>
+      )}
+      {r.pessoas.map((e) => (
+        <fieldset key={e.pessoa} className="rounded border border-yellow-500/40 bg-yellow-500/10 p-2">
+          <legend className="px-1 font-semibold text-yellow-100">{e.rotulo} — escolha quem é (a pessoa inteira; nada foi trocado)</legend>
+          <p className="text-xs text-yellow-100">{e.motivo}</p>
+          <label className="mt-1 flex items-start gap-2">
+            <input type="radio" name={`pessoa-${e.pessoa}`} className="mt-1" checked={escolhaPessoa[e.pessoa] === "manter"} onChange={() => setEscolhaPessoa((s) => ({ ...s, [e.pessoa]: "manter" }))} />
+            <span>{e.atualVazio ? "Deixar em branco (digitar depois)" : <>Manter o que está na tela: {e.atual}</>}</span>
+          </label>
+          {e.opcoes.map((o) => (
+            <label key={o.id} className="mt-1 flex items-start gap-2">
+              <input type="radio" name={`pessoa-${e.pessoa}`} className="mt-1" checked={escolhaPessoa[e.pessoa] === o.id} onChange={() => setEscolhaPessoa((s) => ({ ...s, [e.pessoa]: o.id }))} />
+              <span>Usar {o.resumo} <span className="text-gray-400">— {o.fonte}</span>
+                {o.origem === ORIGEM_CONFIRMADA_PCI && <span className="block text-xs text-yellow-200">Junta duas fontes: escolher esta opção vale como sua confirmação de que é a mesma pessoa (fica registrado quem confirmou e quando).</span>}
+              </span>
+            </label>
+          ))}
+        </fieldset>
+      ))}
+      {r.conflitos.length > 0 && (
+        <div className="rounded border border-yellow-500/40 bg-yellow-500/10 p-2">
+          <p className="font-semibold text-yellow-100">Campos já preenchidos com outro valor — nada foi trocado. Marque o que deve ser substituído:</p>
+          <ul className="mt-1 space-y-1">
+            {r.conflitos.map((c) => (
+              <li key={c.chave}>
+                <label className="flex items-start gap-2">
+                  <input type="checkbox" className="mt-1" checked={marcados.has(c.chave)} onChange={() => alternar(c.chave)} />
+                  <span><b>{c.rotulo}</b>: atual "{c.atual}" → sugerido "{c.sugerido}" <span className="text-gray-400">— {c.fonte}</span></span>
+                </label>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+      {pendentes > 0 && (
+        <div className="flex flex-wrap gap-2">
+          <Button size="sm" variant="outline" className={botaoSec} disabled={!marcados.size && !Object.keys(escolhaPessoa).length} onClick={() => aplicar(false)}>Aplicar as escolhas</Button>
+          {r.conflitos.length > 0 && <Button size="sm" variant="outline" className={botaoSec} onClick={() => { if (confirm(`Substituir os ${r.conflitos.length} campo(s) diferentes pelos valores sugeridos? (As pessoas seguem a escolha acima.)`)) aplicar(true); }}>Substituir todos os campos diferentes</Button>}
+        </div>
+      )}
+      {r.avisos.length > 0 && <ul className="ml-5 list-disc text-xs text-gray-300">{r.avisos.map((a) => <li key={a}>{a}</li>)}</ul>}
+      {r.naoEncontrados.length > 0 && (
+        <details>
+          <summary className="cursor-pointer font-semibold">Não encontrados ({r.naoEncontrados.length})</summary>
+          <ul className="ml-5 mt-1 list-disc">{r.naoEncontrados.map((a) => <li key={a.chave}><b>{a.rotulo}</b>: {a.motivo}</li>)}</ul>
+        </details>
+      )}
+      {r.iguais.length > 0 && (
+        <details>
+          <summary className="cursor-pointer">Já estavam iguais ({r.iguais.length})</summary>
+          <ul className="ml-5 mt-1 list-disc">{r.iguais.map((p) => <li key={p.chave}>{p.rotulo} <span className="text-gray-400">— {p.fonte}</span></li>)}</ul>
+        </details>
+      )}
+    </div>
+  );
+}
+
+/**
+ * EPIC-024 S-09: biblioteca de modelos de preenchimento. O modelo leva só os dados técnicos
+ * (lista de permissão em shared/pci-gerador.ts); os dados pessoais desta obra ficam como estão.
+ */
+function ModelosPreenchimento({ projectId, form, setForm, mostrar }: { projectId: number; form: FormularioPci; setForm: (f: FormularioPci) => void; mostrar: (r: PainelResultado) => void }) {
+  const utils = trpc.useUtils();
+  const lista = trpc.pciGerador.modelosPreenchimento.useQuery(undefined, { refetchOnWindowFocus: false });
+  const salvar = trpc.pciGerador.salvarModeloPreenchimento.useMutation();
+  const excluir = trpc.pciGerador.excluirModeloPreenchimento.useMutation();
+  const [selecionado, setSelecionado] = useState<number | null>(null);
+  const [verHistorico, setVerHistorico] = useState(false);
+  const historico = trpc.pciGerador.historicoModeloPreenchimento.useQuery({ id: selecionado ?? 0 }, { enabled: verHistorico && !!selecionado });
+  const [ocupado, setOcupado] = useState(false);
+  const modelos = lista.data ?? [];
+  const atual = modelos.find((m) => m.id === selecionado) ?? null;
+
+  async function aplicar(id: number) {
+    setOcupado(true);
+    try {
+      const m = await utils.pciGerador.modeloPreenchimento.fetch({ id });
+      const fonte = `Modelo "${m.nome}" v${m.versao}`;
+      const r = compararPreenchimentoPci(form, sugestoesDoModeloPci(m.dados, fonte));
+      setForm({ ...r.formulario, modeloOrigem: { id: m.id, nome: m.nome, versao: m.versao } });
+      mostrar({ ...r, titulo: `${fonte} aplicado (só dados técnicos; os dados pessoais desta obra não mudam)` });
+    } catch (e) { toast.error(e instanceof Error ? e.message : String(e)); }
+    finally { setOcupado(false); }
+  }
+
+  async function salvarModelo(novaVersao: boolean) {
+    const nome = novaVersao && atual ? atual.nome : prompt("Nome do modelo (ex.: Casa padrão 70 m²). Só os dados técnicos são guardados — nunca CPF, nomes, endereço, matrícula ou coordenadas.")?.trim();
+    if (!nome) return;
+    if (novaVersao && atual && !confirm(`Salvar os dados técnicos desta obra como a versão ${atual.versao + 1} de "${atual.nome}"? A versão ${atual.versao} continua guardada no histórico.`)) return;
+    try {
+      const r = await salvar.mutateAsync({ projectId, nome, formulario: form, novaVersaoDe: novaVersao && atual ? atual.id : null });
+      toast.success(`Modelo "${r.nome}" v${r.versao} salvo (só dados técnicos).`);
+      for (const a of r.avisos) toast.warning(a, { duration: 12000 });
+      await utils.pciGerador.modelosPreenchimento.invalidate();
+      setSelecionado(r.id);
+    } catch (e) { toast.error(e instanceof Error ? e.message : String(e)); }
+  }
+
+  async function excluirModelo() {
+    if (!atual || !confirm(`Excluir o modelo "${atual.nome}" (todas as versões)? As obras que já usaram o modelo não mudam.`)) return;
+    try {
+      await excluir.mutateAsync({ id: atual.id, confirmar: true });
+      toast.success("Modelo excluído.");
+      setSelecionado(null);
+      await utils.pciGerador.modelosPreenchimento.invalidate();
+    } catch (e) { toast.error(e instanceof Error ? e.message : String(e)); }
+  }
+
+  return (
+    <details className="rounded-lg border border-[#C9A961]/20 bg-[#2C3E50]/40 p-3">
+      <summary className="cursor-pointer font-semibold text-[#C9A961]">Modelos de preenchimento {modelos.length ? `(${modelos.length})` : ""}</summary>
+      <div className="mt-3 space-y-2 text-sm">
+        <p className="text-xs text-gray-300">Um modelo guarda só os dados técnicos de um projeto padrão (memorial, sistema construtivo, áreas da casa, executor/BDI, custos e cronograma). Proponente, RT, endereço, matrícula, coordenadas, valores do terreno e do imóvel e a imagem nunca vão para o modelo. Ao aplicar, campos já preenchidos com outro valor só trocam com confirmação.</p>
+        {form.modeloOrigem && <p className="text-xs text-gray-300">Esta obra usou o modelo "{form.modeloOrigem.nome}" v{form.modeloOrigem.versao}.</p>}
+        <div className="flex flex-wrap items-center gap-2">
+          <label htmlFor="pci-modelo-preenchimento" className="sr-only">Modelo de preenchimento</label>
+          <select id="pci-modelo-preenchimento" value={selecionado ?? ""} onChange={(e) => { setSelecionado(e.target.value ? Number(e.target.value) : null); setVerHistorico(false); }}
+            className={`min-w-0 flex-1 rounded-md border px-3 py-2 text-sm ${campoCls}`}>
+            <option value="">{lista.isLoading ? "Carregando…" : modelos.length ? "— escolha um modelo —" : "Nenhum modelo salvo"}</option>
+            {modelos.map((m) => <option key={m.id} value={m.id}>{m.nome} — v{m.versao} ({m.resumo})</option>)}
+          </select>
+          <Button size="sm" variant="outline" className={botaoSec} disabled={!atual || ocupado} onClick={() => atual && void aplicar(atual.id)}>
+            {ocupado ? <Loader2 className="mr-1 h-4 w-4 animate-spin" /> : <Library className="mr-1 h-4 w-4" />} Aplicar modelo
+          </Button>
+          <Button size="sm" variant="outline" className={botaoSec} disabled={!atual} onClick={() => setVerHistorico((v) => !v)}><History className="mr-1 h-4 w-4" /> Versões</Button>
+          <Button size="sm" variant="outline" className={botaoSec} disabled={!atual || excluir.isPending} onClick={excluirModelo} aria-label="Excluir modelo"><Trash2 className="h-4 w-4" /></Button>
+        </div>
+        {lista.error && <p role="alert" className="text-red-300">{lista.error.message}</p>}
+        {atual && <p className="text-xs text-gray-400">v{atual.versao} salva em {new Date(atual.criadoEm).toLocaleString("pt-BR")}{atual.autor ? ` por ${atual.autor}` : ""}{atual.obraOrigem ? `, a partir da obra "${atual.obraOrigem}"` : ""}.</p>}
+        {verHistorico && atual && (
+          <ul className="ml-5 list-disc text-xs">
+            {historico.isLoading ? <li>Carregando…</li> : (historico.data ?? []).map((v) => (
+              <li key={v.id}>v{v.versao} — {new Date(v.criadoEm).toLocaleString("pt-BR")}{v.autor ? ` por ${v.autor}` : ""} ({v.resumo}){" "}
+                <button type="button" className="underline" disabled={ocupado} onClick={() => void aplicar(v.id)}>aplicar esta versão</button>
+              </li>
+            ))}
+          </ul>
+        )}
+        <div className="flex flex-wrap gap-2">
+          <Button size="sm" variant="outline" className={botaoSec} disabled={salvar.isPending} onClick={() => void salvarModelo(false)}><FilePlus className="mr-1 h-4 w-4" /> Salvar como novo modelo</Button>
+          <Button size="sm" variant="outline" className={botaoSec} disabled={!atual || salvar.isPending} onClick={() => void salvarModelo(true)}>Salvar como nova versão do modelo escolhido</Button>
+          <Button size="sm" variant="outline" className={botaoSec} onClick={() => { if (confirm("Começar em branco? Todos os campos desta tela serão limpos (o rascunho salvo só muda quando você salvar).")) setForm(formularioPciVazio()); }}>Começar em branco</Button>
+        </div>
+      </div>
+    </details>
   );
 }
 
@@ -93,9 +316,14 @@ export function GeradorPciAba({ projectId }: { projectId: number }) {
   const [form, setForm] = useState<FormularioPci | null>(null);
   const [carregandoAuto, setCarregandoAuto] = useState(false);
   const [baixando, setBaixando] = useState<string | null>(null);
+  const [painel, setPainel] = useState<PainelResultado | null>(null);
 
   useEffect(() => {
-    if (consulta.data && !form) setForm(consulta.data.formulario);
+    if (consulta.data && !form) {
+      setForm(consulta.data.formulario);
+      // EPIC-024 S-09: a abertura sem rascunho mostra as fontes e as escolhas de pessoa, como o botão.
+      if (consulta.data.preenchimento) setPainel({ ...consulta.data.preenchimento, titulo: "Pré-preenchimento automático" });
+    }
   }, [consulta.data, form]);
 
   const totais = useMemo(() => (form ? calcularTotaisPci(form) : null), [form]);
@@ -103,12 +331,14 @@ export function GeradorPciAba({ projectId }: { projectId: number }) {
   // Lote 03, correção 06: validação do cronograma durante a digitação (o servidor valida de novo).
   const cronograma = useMemo(() => (form ? analisarCronogramaPci(form) : null), [form]);
   const erros = useMemo(() => (form ? errosPci(form, { paraGerar: false }) : []), [form]);
+  // EPIC-024 S-09: nome e CPF de fontes diferentes bloqueiam a geração (o servidor confere de novo).
+  const misturas = useMemo(() => (form ? misturaPessoaPci(form) : []), [form]);
 
   if (consulta.isLoading || (!form && !consulta.error)) return <p role="status" className="text-slate-100">Carregando o Gerador de PCI…</p>;
   if (consulta.error || !consulta.data || !form) return <div role="alert" className="text-slate-100">{consulta.error?.message ?? "Erro ao carregar."} <button type="button" className="underline" onClick={() => consulta.refetch()}>Tentar novamente</button></div>;
   const d = consulta.data;
 
-  const setCampo = (id: string, v: string | number | null) => setForm({ ...form, campos: { ...form.campos, [id]: v } });
+  const setCampo = (id: string, v: string | number | null) => setForm(definirCampoPci(form, id, v));
   const prazo = Math.min(Math.max(Math.round(numeroPci(form.campos.prazoMeses) ?? 0), 0), MAX_ETAPAS_PCI);
 
   async function salvarRascunho() {
@@ -119,14 +349,29 @@ export function GeradorPciAba({ projectId }: { projectId: number }) {
     } catch (e) { toast.error(e instanceof Error ? e.message : String(e)); }
   }
 
+  // EPIC-024 S-09: completa só o que está vazio e mostra fonte, conflitos/escolhas (com confirmação) e o que faltou.
   async function recarregarAutomatico() {
-    if (!confirm("Substituir o formulário pelos dados atuais da obra, do cliente e da PCI vinculada? O que foi digitado e não salvo será perdido.")) return;
+    if (!form) return;
     setCarregandoAuto(true);
     try {
-      setForm(await utils.pciGerador.preencherAutomatico.fetch({ projectId }));
-      toast.success("Dados automáticos carregados. Confira e salve o rascunho.");
+      const s = await utils.pciGerador.sugestoesAutomaticas.fetch({ projectId, rtpEngenheiroId: form.rtpEngenheiroId, rteEngenheiroId: form.rteEngenheiroId });
+      const r = compararPreenchimentoPci(form, s.sugestoes, s.ausencias);
+      setForm(r.formulario);
+      setPainel({ ...r, titulo: "Dados automáticos" });
+      const pendentes = r.conflitos.length + r.pessoas.length;
+      if (!r.preenchidos.length && !pendentes) toast.info("Dados automáticos: nada novo para preencher. Veja abaixo o que já estava igual e o que não foi encontrado.");
+      else toast.success(`Dados automáticos: ${r.preenchidos.length} campo(s) preenchido(s)${pendentes ? `, ${pendentes} item(ns) aguardando sua escolha` : ""}. Confira e salve o rascunho.`);
     } catch (e) { toast.error(e instanceof Error ? e.message : String(e)); }
     finally { setCarregandoAuto(false); }
+  }
+
+  function aplicarEscolhas(escolhas: Parameters<typeof aplicarEscolhasPci>[1], resolvidos: { conflitos: string[]; pessoas: PessoaPci[] }) {
+    if (!form || !painel) return;
+    setForm(aplicarEscolhasPci(form, escolhas));
+    const chaves = new Set(resolvidos.conflitos);
+    const trocados = painel.conflitos.filter((c) => chaves.has(c.chave)).map((c) => ({ chave: c.chave, rotulo: c.rotulo, valor: c.sugerido, fonte: c.fonte }));
+    setPainel({ ...painel, preenchidos: [...painel.preenchidos, ...trocados], conflitos: painel.conflitos.filter((c) => !chaves.has(c.chave)), pessoas: painel.pessoas.filter((p) => !resolvidos.pessoas.includes(p.pessoa)) });
+    toast.success("Escolhas aplicadas. Confira e salve o rascunho.");
   }
 
   async function gerarPci() {
@@ -174,7 +419,7 @@ export function GeradorPciAba({ projectId }: { projectId: number }) {
           <Button size="sm" variant="outline" className={botaoSec} disabled={salvar.isPending} onClick={salvarRascunho}>
             {salvar.isPending ? <Loader2 className="mr-1 h-4 w-4 animate-spin" /> : <Save className="mr-1 h-4 w-4" />} Salvar rascunho
           </Button>
-          <Button size="sm" disabled={!podeGerar || gerar.isPending} onClick={gerarPci} className="bg-[#C9A961] font-bold text-[#1A2332] hover:bg-[#B8985A]">
+          <Button size="sm" disabled={!podeGerar || gerar.isPending || misturas.length > 0} onClick={gerarPci} className="bg-[#C9A961] font-bold text-[#1A2332] hover:bg-[#B8985A]">
             {gerar.isPending ? <Loader2 className="mr-1 h-4 w-4 animate-spin" /> : <FileSpreadsheet className="mr-1 h-4 w-4" />} Gerar PCI (planilha + PDF)
           </Button>
         </div>
@@ -193,11 +438,25 @@ export function GeradorPciAba({ projectId }: { projectId: number }) {
         </details>
       )}
 
+      {misturas.length > 0 && (
+        <div role="alert" className="space-y-1 rounded-md border border-red-500/40 bg-red-500/10 p-2 text-sm text-red-100">
+          <p className="font-semibold">A PCI não pode ser gerada assim:</p>
+          {misturas.map((m) => (
+            <div key={m.pessoa} className="flex flex-wrap items-center gap-2">
+              <span>{m.mensagem}</span>
+              <Button size="sm" variant="outline" className={botaoSec} onClick={() => { if (confirm(`${m.motivo === "legado" ? "Rascunho anterior à conferência de origem. " : ""}Confirma que o nome e o CPF são da MESMA pessoa? (Fica registrado quem confirmou e quando.)`)) setForm(confirmarMesmaPessoaPci(form, m.pessoa)); }}>Confirmo que nome e CPF são da mesma pessoa</Button>
+            </div>
+          ))}
+        </div>
+      )}
+      {painel && <ResultadoPreenchimento key={`${painel.titulo}-${painel.conflitos.length}-${painel.pessoas.length}`} r={painel} onAplicar={aplicarEscolhas} onFechar={() => setPainel(null)} />}
+      <ModelosPreenchimento projectId={projectId} form={form} setForm={setForm} mostrar={setPainel} />
+
       {SECOES_PCI.map((s) => (
         <details key={s.id} open={s.id === "proponente"} className="rounded-lg border border-[#C9A961]/20 bg-[#2C3E50]/40 p-3">
           <summary className="cursor-pointer font-semibold text-[#C9A961]">{s.titulo}</summary>
           <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
-            {(s.id === "rtp" || s.id === "rte") && <SeletorEngenheiro papel={s.id} form={form} setForm={setForm} engenheiros={d.engenheiros} />}
+            {(s.id === "rtp" || s.id === "rte") && <SeletorEngenheiro papel={s.id} projectId={projectId} form={form} setForm={setForm} engenheiros={d.engenheiros} />}
             {secaoCampos(s.id)}
             {s.id === "custos" && totais && (
               <div className="sm:col-span-2 overflow-x-auto">

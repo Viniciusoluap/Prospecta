@@ -146,10 +146,18 @@ describe("Gerador de PCI — pré-preenchimento e engenheiro", () => {
       endereco: "Rua A, 1", bairro: "Centro", municipio: "Imperatriz", uf: "MA", areaCoberta: 70, valorImovel: 200000, valorTerreno: 50000, valorFinanciado: 150000, prazoMeses: 6,
       latitude: `05° 30' 28.4" S`, longitude: `47° 28' 39.7" W`, rtpRegistro: null, rteRegistro: null });
   });
-  it("a PCI vinculada tem prioridade; o cadastro só completa lacunas", () => {
+  it("a PCI vinculada tem prioridade; o cadastro só completa lacunas (nunca de outra pessoa)", () => {
     const pci = lerFormularioPci(MODELO);
     const f = preencherPciAutomatico({ obra, cliente: { nome: "Outro Nome", cpf: null, email: "x@y.z", telefone: null, endereco: null, bairro: null }, coordenadas: null, pci });
-    expect(f.campos.proponenteNome).toBe("PROPONENTE DE TESTE");
+    // EPIC-024 S-09 (portão de QA): proponente da PCI e cliente do CRM são pessoas diferentes → fica para escolha.
+    expect(f.campos.proponenteNome).toBeNull();
+    expect(f.campos.proponenteEmail).toBeNull();
+    // Portão 2 (M1): o mesmo nome sozinho não junta a PCI (com CPF) ao CRM (sem CPF, outro e-mail) — vira escolha.
+    const mesmo = preencherPciAutomatico({ obra, cliente: { nome: "Proponente de Teste", cpf: null, email: "x@y.z", telefone: null, endereco: null, bairro: null }, coordenadas: null, pci });
+    expect(mesmo.campos).toMatchObject({ proponenteNome: null, proponenteCpf: null });
+    // Só o CRM com o nome (nenhuma outra fonte de proponente): preenche.
+    const so = preencherPciAutomatico({ obra, cliente: { nome: "Proponente de Teste", cpf: null, email: "x@y.z", telefone: null, endereco: null, bairro: null }, coordenadas: null, pci: null });
+    expect(so.campos).toMatchObject({ proponenteNome: "Proponente de Teste", proponenteEmail: "x@y.z" });
     expect(f.campos.rtpRegistro).toBe("1000000001");
     expect(f.custos[0]).toBe(3940.68);
   });
@@ -183,7 +191,10 @@ describe("Gerador de PCI — permissões", () => {
     const comObras = { role: "colaborador", permissions: JSON.stringify(["obras"]) };
     const semObras = { role: "colaborador", permissions: JSON.stringify(["crm"]) };
     const admin = { role: "admin", permissions: null };
-    for (const p of ["pciGerador.obter", "pciGerador.salvarRascunho", "pciGerador.gerar", "pciGerador.historico"]) {
+    for (const p of ["pciGerador.obter", "pciGerador.salvarRascunho", "pciGerador.gerar", "pciGerador.historico",
+      // EPIC-024 S-09
+      "pciGerador.engenheiro", "pciGerador.sugestoesAutomaticas", "pciGerador.modelosPreenchimento", "pciGerador.modeloPreenchimento",
+      "pciGerador.historicoModeloPreenchimento", "pciGerador.salvarModeloPreenchimento", "pciGerador.excluirModeloPreenchimento"]) {
       expect(canAccessAdminProcedure(admin, p), p).toBe(true);
       expect(canAccessAdminProcedure(comObras, p), p).toBe(true);
       expect(canAccessAdminProcedure(semObras, p), p).toBe(false);

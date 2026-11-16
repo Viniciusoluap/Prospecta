@@ -71,6 +71,48 @@ export async function listarEngenheiros(opcoes: { apenasEngenheiros?: boolean } 
     .filter((e) => !opcoes.apenasEngenheiros || e.engenheiro);
 }
 
+/** Dados de UM engenheiro para preencher RTP/RTE da PCI (EPIC-024 S-09). */
+export type EngenheiroParaPci = {
+  id: number;
+  nome: string | null;
+  email: string | null;
+  telefone: string | null;
+  crea: string | null;
+  creaUf: string | null;
+  cpf: string | null;
+  /** true = perfil Engenheiro ativo; false = sem perfil ou desativado (CPF/CREA não usados). */
+  perfilAtivo: boolean;
+  temPerfil: boolean;
+};
+
+/**
+ * EPIC-024 S-09 (pedido do dono de 16/11, substitui a decisão de 30/10 só para o CPF do próprio
+ * engenheiro): CPF, CREA e telefone do perfil de UM engenheiro, para a PCI. Mesmas regras de
+ * `listarEngenheiros` (usuário ativo, colaborador ou admin; dados do perfil só com o perfil ativo).
+ * A lista de engenheiros continua sem CPF. Chamado só depois da checagem do módulo Obras.
+ */
+export async function dadosEngenheiroParaPci(userId: number): Promise<EngenheiroParaPci | null> {
+  const [l] = await getDb().select({
+    id: users.id, name: users.name, email: users.email, phone: users.phone,
+    perfilAtivo: engineerProfiles.active, perfilFone: engineerProfiles.phone, cpf: engineerProfiles.cpf,
+    crea: engineerProfiles.creaNumber, creaUf: engineerProfiles.creaState, perfilUsuario: engineerProfiles.userId,
+  }).from(users)
+    .leftJoin(engineerProfiles, eq(engineerProfiles.userId, users.id))
+    .where(and(eq(users.id, userId), eq(users.active, true), inArray(users.role, ["colaborador", "admin"])))
+    .limit(1);
+  if (!l) return null;
+  const ativo = l.perfilAtivo === true;
+  return {
+    id: l.id, nome: l.name, email: l.email,
+    telefone: (ativo ? l.perfilFone : null) || l.phone || null,
+    crea: ativo ? l.crea ?? null : null,
+    creaUf: ativo ? l.creaUf ?? null : null,
+    cpf: ativo ? l.cpf ?? null : null,
+    perfilAtivo: ativo,
+    temPerfil: l.perfilUsuario !== null,
+  };
+}
+
 // ─── Perfil ──────────────────────────────────────────────────────────────────
 
 /** Grava (ou reativa) o perfil Engenheiro. Só chamado depois da checagem de admin. */
