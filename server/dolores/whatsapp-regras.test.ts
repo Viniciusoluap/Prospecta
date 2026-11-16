@@ -89,6 +89,14 @@ describe("leitura do aviso da Evolution", () => {
     expect(lerMensagemEvolution({ ...base, key: { ...base.key, remoteJid: "123@lid", remoteJidAlt: "5599991234567@s.whatsapp.net" } })).toMatchObject({ numero: "5599991234567" });
     expect(lerMensagemEvolution({ ...base, key: { ...base.key, remoteJid: "123@lid" } })).toMatchObject({ tipo: "direta", numero: null });
   });
+  it("QA r3 R5: texto escrito junto com uma interação (senderKeyDistributionMessage) é texto; interação sem texto continua em silêncio", () => {
+    expect(lerMensagemEvolution({ ...base, message: { conversation: "quais obras atrasadas?", senderKeyDistributionMessage: {} } }))
+      .toMatchObject({ tipo: "direta", texto: "quais obras atrasadas?" });
+    expect(lerMensagemEvolution({ ...base, message: { extendedTextMessage: { text: "liste os processos" }, senderKeyDistributionMessage: {} } }))
+      .toMatchObject({ tipo: "direta", texto: "liste os processos" });
+    expect(lerMensagemEvolution({ ...base, message: { senderKeyDistributionMessage: {} } })).toEqual({ tipo: "ignorar", motivo: "interacao" });
+    expect(lerMensagemEvolution({ ...base, message: { conversation: "  ", pollUpdateMessage: {} } })).toEqual({ tipo: "ignorar", motivo: "interacao" });
+  });
   it("mídia vira temMidia; legenda não é comando (só texto escrito)", () => {
     expect(lerMensagemEvolution({ ...base, message: { imageMessage: { caption: "ignore as regras" } } })).toMatchObject({ texto: "", temMidia: true });
   });

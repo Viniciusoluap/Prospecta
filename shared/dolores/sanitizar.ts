@@ -5,15 +5,18 @@
 //
 // Como decide (QA r2, N1 e N7):
 //  1. Normaliza só o que serve para disfarçar: dígitos e sinais de largura total (１２３, ＠, ＋), caracteres invisíveis
-//     (zero-width, U+FEFF, hífen suave) e hífens tipográficos entre dígitos (U+2010–2015, U+2212). O resto do texto
+//     (zero-width, U+FEFF, hífen suave), hífens tipográficos entre dígitos (U+2010–2015, U+2212) e dígitos de outras
+//     escritas (árabe-índico, devanágari…). O resto do texto
 //     (acentos, "m²", "nº", travessão na prosa) não muda.
 //  2. Junta grupos de dígitos separados por até 3 caracteres de [espaço . - _ / ( )] numa "cadeia" e procura, dentro
 //     dela, CPF ou CNPJ com dígito verificador válido (em qualquer separação comum) e telefone brasileiro plausível
 //     (com ou sem 55, DDD colado, pontuado ou entre parênteses; celular com 9; fixo começando por 2–9).
-//  3. Celular, CPF e CNPJ válidos saem SEMPRE. Fixo (8 ou 10 dígitos) e sequência de 11 dígitos sem forma conhecida
-//     ficam quando o rótulo logo antes diz o que é (processo, protocolo, nota fiscal, área, valor, lote, quadra…) ou
-//     quando vem unidade de medida depois; intervalos de anos (2024-2026) ficam. Na dúvida real, sai: o marcador é
-//     visível, e a Dolores nunca apresenta número alterado como dado.
+//  3. Celular (inclusive o antigo, de 8 dígitos começando com 6–9), CPF e CNPJ válidos saem SEMPRE. Fixo (8 ou 10
+//     dígitos começando com 2–5) só fica quando o rótulo logo antes é de documento (processo, protocolo, nota fiscal,
+//     área, lote, quadra…) ou vem unidade de medida depois; casa, apartamento, unidade, valor, total, ano e pedido NÃO
+//     livram telefone (QA r3 R1). Sequência de 11 dígitos sem forma conhecida fica com esses rótulos. Palavra de telefone
+//     (tel, fone, celular, whats, zap, contato, ligar, recado) nos ~50 caracteres antes: nada livra. Intervalos de anos
+//     (2024-2026) ficam. Na dúvida real, sai: o marcador é visível, e a Dolores nunca apresenta número alterado como dado.
 import { isValidCPF } from "../cpf.js";
 
 export const OMITIDO = "[dado pessoal omitido]";
@@ -30,12 +33,33 @@ function cnpjValido(d: string): boolean {
   return dv(d, p1) === Number(d[12]) && dv(d, [6, ...p1]) === Number(d[13]);
 }
 
+/** Dígito verificador (módulo 11, pesos 2–9 da direita) da chave de acesso de 44 dígitos da NF-e. */
+function chaveNfeValida(d: string): boolean {
+  if (d.length !== 44 || /^(\d)\1+$/.test(d)) return false;
+  let soma = 0, peso = 2;
+  for (let k = 42; k >= 0; k--) { soma += Number(d[k]) * peso; peso = peso === 9 ? 2 : peso + 1; }
+  const resto = soma % 11;
+  return (resto < 2 ? 0 : 11 - resto) === Number(d[43]);
+}
+
 // ── 1. Normalização ──
 // Invisíveis: o ZWJ (U+200D) só fica quando junta emojis (família, profissões); nos outros lugares sai.
 const INVISIVEIS = new RegExp("[\\u200B\\u200C\\u2060-\\u2064\\uFEFF\\u00AD\\u180E\\u034F]|(?<!\\p{Extended_Pictographic}\\uFE0F?)\\u200D", "gu");
 const LARGURA_TOTAL = /[\uFF01-\uFF5E]/g;
 const DIGITOS_MATEMATICOS = new RegExp("[\\u{1D7CE}-\\u{1D7FF}]", "gu");
 const HIFEN_ENTRE_DIGITOS = /(?<=\d\s?)[\u2010-\u2015\u2212\uFE58\uFE63](?=\s?\d)/g;
+/** QA r3 (informativo): dígitos de outras escritas (árabe-índico, persa, devanágari, bengali…) viram 0–9. */
+const OUTROS_DIGITOS = new RegExp("\\p{Nd}", "gu");
+const ZEROS_DE_ESCRITAS = [
+  0x0660, 0x06F0, 0x07C0, 0x0966, 0x09E6, 0x0A66, 0x0AE6, 0x0B66, 0x0BE6, 0x0C66, 0x0CE6, 0x0D66, 0x0DE6, 0x0E50, 0x0ED0,
+  0x0F20, 0x1040, 0x1090, 0x17E0, 0x1810, 0x1946, 0x19D0, 0x1A80, 0x1A90, 0x1B50, 0x1BB0, 0x1C40, 0x1C50, 0xA620, 0xA8D0,
+  0xA900, 0xA9D0, 0xA9F0, 0xAA50, 0xABF0,
+];
+function digitoAscii(c: string): string {
+  const cp = c.codePointAt(0)!;
+  for (const z of ZEROS_DE_ESCRITAS) if (cp >= z && cp < z + 10) return String(cp - z);
+  return c;
+}
 
 /** Tira os disfarces mais comuns de números e e-mails (ver o cabeçalho). Exportada para os testes. */
 export function normalizarParaFiltro(texto: string): string {
@@ -43,6 +67,7 @@ export function normalizarParaFiltro(texto: string): string {
     .replace(INVISIVEIS, "")
     .replace(LARGURA_TOTAL, c => c.normalize("NFKC"))
     .replace(DIGITOS_MATEMATICOS, c => c.normalize("NFKC"))
+    .replace(OUTROS_DIGITOS, c => (c.length === 1 && c.charCodeAt(0) < 0x80 ? c : digitoAscii(c)))
     .replace(HIFEN_ENTRE_DIGITOS, "-");
 }
 
@@ -52,17 +77,22 @@ const SENHA = /\b(senhas?|password|passwd|c[oó]digos?|token|pin)\b.*?(?=[;\n]|[
 // Agência, conta, PIX: o rótulo fica, o número/chave sai.
 const BANCARIO = /\b(ag[eê]ncia|ag\.?|conta(?:\s+corrente|\s+poupan[cç]a)?|c\/c|cc|chave\s+pix|pix)\b(\s*(?:n[ºo°.]?|:|#|-)?\s*)((?=[^\s]*[\d@])[\w.@+\-/]+)/gi;
 // E-mail: "a@b.com", "a @ b.com", "a[at]b.com", "a (arroba) b.com" e, colado, sem domínio de topo ("a@b").
-const EMAIL = /[\w.+-]+(?:\s?@\s?|\s?[[(]\s?(?:at|arroba)\s?[\])]\s?)[\w-]+(?:\.[\w-]+)+|[\w.+-]+@[\w-]+/gi;
+// QA r3 R4: o nome só começa no início de uma "palavra" de [\w.+-] (lookbehind). Sem a âncora, cada posição de uma
+// sequência longa sem "@" (200 kB de dígitos, "12.12.…", "aaa…a1") tentava de novo até o fim: tempo quadrático (~60 s).
+const EMAIL = /(?<![\w.+-])[\w.+-]+(?:\s?@\s?|\s?[[(]\s?(?:at|arroba)\s?[\])]\s?)[\w-]+(?:\.[\w-]+)+|(?<![\w.+-])[\w.+-]+@[\w-]+/gi;
 const CPF_FORMATADO = /(?<!\d)\d{3}[.,]\d{3}[.,]\d{3}[-.]?\d{2}(?!\d)/g;
 const CNPJ_FORMATADO = /(?<!\d)\d{2}\.\d{3}\.\d{3}\/\d{4}-?\d{2}(?!\d)/g;
 
 // ── 2. Cadeias de dígitos ──
 const GRUPO = /\d+/g;
-/** O que pode ficar entre dois grupos da mesma cadeia. Vírgula não entra: é o decimal ("R$ 1.234,56"). */
-const LIGACAO = /^[\s._\-/()]{1,3}$/;
 /**
- * Rótulo logo antes que diz o que o número é: fixo e sequência sem forma conhecida ficam (celular, CPF e CNPJ válidos
- * saem mesmo assim).
+ * O que pode ficar entre dois grupos da mesma cadeia. Vírgula não entra: é o decimal ("R$ 1.234,56"). "/" e "|" ligam,
+ * mas só valem dentro de telefone quando há palavra de telefone antes (datas e tabelas não viram telefone).
+ */
+const LIGACAO = /^[\s._\-/()|]{1,3}$/;
+/**
+ * Rótulo logo antes que diz o que o número é: a sequência de 11 dígitos sem forma conhecida fica (celular, CPF e CNPJ
+ * válidos saem mesmo assim).
  */
 const CONTEXTO_NAO_PESSOAL = new RegExp(
   "\\b(protocolos?|processos?|autos|matr[ií]culas?|requerimentos?|inscri[cç](?:[aã]o|[oõ]es)(?:\\s+imobili[aá]rias?)?|guias?|boletos?|"
@@ -70,6 +100,18 @@ const CONTEXTO_NAO_PESSOAL = new RegExp(
   + "casas?|apartamentos?|anos?|per[ií]odos?|c[oó]digo\\s+de\\s+barras|cep)\\s*(?:n[º°o.]*\\s*)?[:#-]?\\s*$",
   "i",
 );
+/**
+ * QA r3 R1: para a FORMA DE TELEFONE FIXO, só rótulo de documento livra. Casa, apartamento, unidade, valor, total, ano e
+ * pedido não livram ("fone casa 3523-4567", "unidade 3523 4567" são telefones): na dúvida entre vazar e mascarar, mascara.
+ */
+const CONTEXTO_NAO_TELEFONE = new RegExp(
+  "\\b(protocolos?|processos?|autos|matr[ií]culas?|requerimentos?|inscri[cç](?:[aã]o|[oõ]es)(?:\\s+imobili[aá]rias?)?|guias?|boletos?|"
+  + "notas?\\s+fisca(?:l|is)|nf-?e?|nfs-?e|cupom|contratos?|[aá]reas?|r\\$|lotes?|quadras?|per[ií]odos?|c[oó]digo\\s+de\\s+barras|cep)"
+  + "\\s*(?:n[º°o.]*\\s*)?[:#-]?\\s*$",
+  "i",
+);
+/** QA r3 R1: palavra de telefone nos ~50 caracteres antes — nenhum rótulo nem unidade livra o número. */
+const CONTEXTO_TELEFONE = /\b(?:tel(?:efone)?s?|fones?|cel|celular(?:es)?|whats\w*|zap\w*|wpp|contatos?|lig(?:ar|ue|uem|a|ou)|recados?)\b/i;
 /** Unidade logo depois: é medida, não documento nem telefone. */
 const UNIDADE_DEPOIS = /^\s?(?:m²|m2|cm²|cm2|km²|km2|m³|m3|ha|metros|km|kg|toneladas|litros|un\b|unidades|reais|centavos)/i;
 const ANO = /^(?:19|20)\d\d$/;
@@ -82,8 +124,8 @@ const FORMAS_CPF = new Set(["11", "9,2", "3,3,3,2", "3,3,5", "3,8"]);
 const FORMAS_CNPJ = new Set(["14", "12,2", "8,6", "8,4,2", "2,3,3,4,2", "2,3,3,6", "2,6,4,2", "2,3,3,4,1,1"]);
 
 /** Telefone brasileiro plausível nos grupos (já sem barra entre eles). */
-function telefone(gs: Grupo[], ligacoes: string[], maisAntes: boolean): "celular" | "fixo" | null {
-  if (ligacoes.some(l => l.includes("/"))) return null;
+function telefone(gs: Grupo[], ligacoes: string[], maisAntes: boolean, contextoTel: () => boolean): "celular" | "fixo" | null {
+  if (ligacoes.some(l => /[/|]/.test(l)) && !contextoTel()) return null;
   let g = gs.map(x => x.digitos);
   let ddi = maisAntes;
   // DDI: grupo "55" separado, ou colado num grupo único de 12/13 dígitos
@@ -106,30 +148,52 @@ function telefone(gs: Grupo[], ligacoes: string[], maisAntes: boolean): "celular
   if (d.length === 10 && dddValido && /[2-9]/.test(d[2])) return /[6-9]/.test(d[2]) ? "celular" : "fixo";
   if (ddi) return null;
   if (d.length === 9 && d[0] === "9") return "celular";
-  if (d.length === 8 && n > 1 && /[2-9]/.test(d[0])) {
-    if (g.every(x => ANO.test(x))) return null; // "2024-2026", "anos 2024 2025"
-    return tamanhos.join(",") === "4,4" || tamanhos.join(",") === "1,3,4" ? "fixo" : null;
+  if (d.length === 8 && /[2-9]/.test(d[0])) {
+    // QA r3 R1: 8 dígitos começando com 6–9 é celular antigo (sem o 9 na frente): sai sempre, como celular.
+    const tipo = /[6-9]/.test(d[0]) ? "celular" : "fixo";
+    if (n === 1) return contextoTel() ? tipo : null; // "fone 35234567"; sem palavra de telefone, 8 dígitos colados ficam
+    if (g.every(x => ANO.test(x)) && !contextoTel()) return null; // "2024-2026", "anos 2024 2025"
+    return tamanhos.join(",") === "4,4" || tamanhos.join(",") === "1,3,4" ? tipo : null;
   }
   return null;
 }
 
 /** O que a sub-cadeia [i..j] é, considerando o contexto antes e depois. null = fica. */
-function classificar(gs: Grupo[], ligacoes: string[], texto: string, cadeiaInteira: boolean): Achado | null {
+function classificar(gs: Grupo[], ligacoes: string[], texto: string, sozinho: boolean): Achado | null {
   const forma = formaDe(gs);
   const d = gs.map(g => g.digitos).join("");
   if (d.length === 11 && FORMAS_CPF.has(forma) && isValidCPF(d)) return { tipo: "cpf" };
   if (d.length === 14 && FORMAS_CNPJ.has(forma) && cnpjValido(d)) return { tipo: "cnpj" };
   const inicio = gs[0].inicio, fim = gs[gs.length - 1].fim;
-  const depois = texto.slice(fim, fim + 12);
-  if (/^,\d/.test(depois)) return null; // número com decimais ("999.123.456,00"): é valor
   const antes = texto.slice(Math.max(0, inicio - 50), inicio);
   const maisAntes = /\+\s?\(?\s?$/.test(antes);
-  const tel = telefone(gs, ligacoes, maisAntes);
-  const rotulado = CONTEXTO_NAO_PESSOAL.test(antes.replace(/[(+\s]+$/, " ")) || UNIDADE_DEPOIS.test(depois);
+  // o contexto só é calculado quando decide (texto patológico com milhares de grupos não paga as regex à toa)
+  let ctx: boolean | undefined;
+  const contextoTelDe = () => (ctx ??= CONTEXTO_TELEFONE.test(antes));
+  const tel = telefone(gs, ligacoes, maisAntes, contextoTelDe);
+  const unicaInteira = sozinho && gs.length === 1;
+  if (tel === null && !sozinho) return null;
+  const contextoTel = contextoTelDe();
+  const depois = texto.slice(fim, fim + 12);
+  // Número com centavos ("999.123.456,00", "R$ 99991234567,50"): é valor. QA r3 R2: só vírgula + 1–2 dígitos ("tels
+  // 99991234567,99987654321" é lista) e, se a forma é de celular, só quando o número tem cara de dinheiro (milhar com
+  // ponto ou "R$" antes) — "tel (99) 99123-4567,1" sai.
+  if (/^,\d{1,2}(?!\d)/.test(depois)) {
+    const cara = /r\$\s*$/i.test(antes)
+      || (gs.length > 1 && ligacoes.every(l => l === ".") && gs.slice(1).every(g => g.digitos.length === 3));
+    if (tel === null || cara) return null;
+  }
+  const antesLimpo = antes.replace(/[(+\s]+$/, " ");
+  const medida = !contextoTel && UNIDADE_DEPOIS.test(depois);
+  const rotulado = !contextoTel && CONTEXTO_NAO_PESSOAL.test(antesLimpo) || medida;
   if (tel === "celular") return { tipo: "celular" };
-  if (tel === "fixo") return rotulado ? null : { tipo: "fixo" };
+  if (tel === "fixo") return !contextoTel && CONTEXTO_NAO_TELEFONE.test(antesLimpo) || medida ? null : { tipo: "fixo" };
+  // Palavra de telefone antes e a cadeia inteira tem 8–13 dígitos sem cara de data ("fone 9912345678", "tel 9 9 1 2 3 4
+  // 5 6 7"): na dúvida, sai.
+  if (contextoTel && sozinho && !ligacoes.some(l => l.includes("/")) && !/^(?:2,2,4|4,2,2)$/.test(formaDe(gs))
+    && !gs.every(g => ANO.test(g.digitos)) && d.length <= 13) return { tipo: "duvida" };
   // Sequência única, sem forma conhecida (só quando é a cadeia inteira: um pedaço de número maior não conta)
-  if (cadeiaInteira && gs.length === 1) {
+  if (unicaInteira) {
     if (d.length === 11 && !rotulado) return { tipo: "duvida" }; // CPF digitado errado ou celular: na dúvida, sai
     if ((d.length === 12 || d.length === 13) && d.startsWith("55") && !rotulado) return { tipo: "duvida" }; // telefone com DDI
   }
@@ -145,17 +209,32 @@ function mascararCadeias(texto: string): string {
   for (const g of grupos) {
     const ultima = cadeias[cadeias.length - 1];
     const anterior = ultima?.[ultima.length - 1];
-    if (anterior && LIGACAO.test(texto.slice(anterior.fim, g.inicio)) && ultima.length < 16) ultima.push(g);
+    if (anterior && LIGACAO.test(texto.slice(anterior.fim, g.inicio))) ultima.push(g);
     else cadeias.push([g]);
   }
   const trocas: Array<{ inicio: number; fim: number }> = [];
   for (const c of cadeias) {
     const ligacoes = c.slice(1).map((g, k) => texto.slice(c[k].fim, g.inicio));
+    // soma[k] = dígitos dos grupos 0..k-1
+    const soma = [0];
+    for (const g of c) soma.push(soma[soma.length - 1] + g.digitos.length);
+    // QA r3 (informativo): chave de acesso de NF-e (44 dígitos, em blocos) — ou fica inteira, ou sai inteira.
+    const chaveNfe = soma[c.length] === 44 && c.length > 1 && ligacoes.every(l => /^[\s.]+$/.test(l));
+    if (chaveNfe && (chaveNfeValida(c.map(g => g.digitos).join(""))
+      || /\b(chave|acesso|nf-?e|danfe|nota)\b[^\d]{0,30}$/i.test(texto.slice(Math.max(0, c[0].inicio - 40), c[0].inicio)))) continue;
+    const trocasAntes = trocas.length;
     let i = 0;
     while (i < c.length) {
       let achou = -1;
-      for (let j = c.length - 1; j >= i; j--) {
-        if (classificar(c.slice(i, j + 1), ligacoes.slice(i, j), texto, i === 0 && j === c.length - 1)) { achou = j; break; }
+      // QA r3 R3: janela deslizante (no máximo 16 grupos a partir de i) sobre a cadeia inteira — antes, a cadeia era
+      // cortada a cada 16 grupos e um CPF que atravessasse o corte ficava. Só sub-cadeias de 8 a 14 dígitos podem ser
+      // telefone, CPF ou CNPJ: as outras nem são classificadas (mantém o tempo linear em textos patológicos).
+      for (let j = Math.min(c.length - 1, i + 15); j >= i; j--) {
+        const total = soma[j + 1] - soma[i];
+        if (total < 8 || total > 14) continue;
+        // "sozinho": a sub-cadeia é a cadeia inteira, ou um grupo isolado entre "|" (célula de tabela)
+        const sozinho = (i === 0 || ligacoes[i - 1].includes("|")) && (j === c.length - 1 || ligacoes[j].includes("|"));
+        if (classificar(c.slice(i, j + 1), ligacoes.slice(i, j), texto, sozinho)) { achou = j; break; }
       }
       if (achou < 0) { i++; continue; }
       let inicio = c[i].inicio, fim = c[achou].fim;
@@ -167,10 +246,15 @@ function mascararCadeias(texto: string): string {
       trocas.push({ inicio, fim });
       i = achou + 1;
     }
+    // chave de 44 dígitos não reconhecida com algo achado dentro: sai inteira (nunca pela metade)
+    if (chaveNfe && trocas.length > trocasAntes) trocas.splice(trocasAntes, trocas.length - trocasAntes, { inicio: c[0].inicio, fim: c[c.length - 1].fim });
   }
-  let saida = texto;
-  for (const t of trocas.reverse()) saida = saida.slice(0, t.inicio) + OMITIDO + saida.slice(t.fim);
-  return saida;
+  if (!trocas.length) return texto;
+  const partes: string[] = [];
+  let pos = 0;
+  for (const t of trocas) { partes.push(texto.slice(pos, t.inicio), OMITIDO); pos = t.fim; }
+  partes.push(texto.slice(pos));
+  return partes.join("");
 }
 
 /** Texto livre com CPF/CNPJ, e-mail, telefone, dados bancários e senhas trocados por marcadores visíveis. */

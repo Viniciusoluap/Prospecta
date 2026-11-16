@@ -147,6 +147,76 @@ describe("filtro de dados pessoais em texto livre (M1)", () => {
     expect(sanitizarTexto("lista 123 456 789 00")).toBe("lista 123 456 789 00");
   });
 
+  it("QA r3 R1: casa, apartamento, unidade, valor, total, ano e pedido não livram telefone; palavra de telefone antes, nada livra", () => {
+    for (const c of [
+      "fone casa 3523-4567", "tel casa 9935234567", "casa 9123-4567", "Recado: ligar na casa 3523-4567", "unidade 3523 4567",
+      "valor: 3523 4567", "apartamento 3523-4567", "total 3523 4567", "ano 3523-4567", "pedido 3523 4567",
+      "lote 9123-4567", "protocolo 8123 4567", "fone 35234567", "telefone do protocolo 3523-4567", "whats lote 3523-4567",
+      "ligar 3523-4567 m²", "contato: (99) 3523-4567", "tel 2024-2025",
+    ]) {
+      const r = sanitizarTexto(c);
+      expect(r, c).toContain(OMITIDO_T);
+      expect(r.replace(/\D/g, "").length, `${c} → ${r}`).toBeLessThan(4);
+    }
+    // rótulo de documento sem palavra de telefone continua livrando o fixo (2–5); anos e lotes de 4 dígitos ficam
+    for (const t of ["protocolo 3523-4567", "Nota fiscal 1234567890", "lotes 1201 1202", "Período 2024-2026", "quadra 3523 4567",
+      "Pedido wa:1234 5678", "15/11/2026 às 10:30", "boleto 3523 4567"]) expect(sanitizarTexto(t), t).toBe(t);
+  });
+
+  it("QA r3 R2: celular seguido de vírgula e dígito sai; valor com centavos fica", () => {
+    expect(sanitizarTexto("tels 99991234567,99987654321")).toBe(`tels ${OMITIDO_T},${OMITIDO_T}`);
+    expect(sanitizarTexto("tel (99) 99123-4567,1")).toBe(`tel ${OMITIDO_T},1`);
+    expect(sanitizarTexto("fone 99991234567,5")).toBe(`fone ${OMITIDO_T},5`);
+    for (const t of ["R$ 999.123.456,00", "R$ 99991234567,50", "total 999.123.456,7", "R$ 3.523.456,78"]) expect(sanitizarTexto(t), t).toBe(t);
+  });
+
+  it("QA r3 R3: CPF e celular depois de muitos números soltos na mesma cadeia saem (janela deslizante, sem corte)", () => {
+    for (const n of [14, 15, 16, 17, 31, 40]) {
+      const prefixo = "1 ".repeat(n);
+      expect(sanitizarTexto(`${prefixo}529 982 247 25`), `${n}`).toBe(`${prefixo}${OMITIDO_T}`);
+      expect(sanitizarTexto(`${prefixo}99 99123 4567`), `${n}`).toBe(`${prefixo}${OMITIDO_T}`);
+    }
+    const lista = "1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20";
+    expect(sanitizarTexto(lista)).toBe(lista);
+  });
+
+  it("QA r3 (informativos): dígitos de outras escritas, '|' e '/' no telefone com palavra de telefone, chave de NF-e tudo ou nada", () => {
+    for (const c of ["cpf ٥٢٩٩٨٢٢٤٧٢٥", "tel ९९९९१२३४५६७", "cpf ۵۲۹۹۸۲۲۴۷۲۵", "tel 99|99123|4567", "tel 99/99123-4567", "tel 99 99123/4567",
+      "fone: 99 | 3523 | 4567", "fone 9912345678", "tel 9 9 1 2 3 4 5 6 7"]) {
+      const r = sanitizarTexto(c);
+      expect(r, c).toContain(OMITIDO_T);
+      expect(r.replace(/\D/g, "").length, `${c} → ${r}`).toBeLessThan(3);
+    }
+    // sem palavra de telefone, datas e tabelas com "/" e "|" ficam; célula isolada de 11 dígitos continua "na dúvida, sai"
+    for (const t of ["em 15/11/2026", "protocolo 2026/123456", "ligar em 15/11/2026", "ligar dia 15-11-2026", "| 3500 | 4200 |", "| 2024 | 2025 |", "| lote 12 | 360 m² |"])
+      expect(sanitizarTexto(t), t).toBe(t);
+    expect(sanitizarTexto("| 12345678901 | 2 |")).toBe(`| ${OMITIDO_T} | 2 |`);
+    // chave de acesso: reconhecida (rótulo ou dígito verificador) fica inteira; senão, se algo der telefone/CPF lá dentro, sai inteira
+    const blocos = (d: string) => d.match(/\d{4}/g)!.join(" ");
+    for (const t of [
+      `chave de acesso ${blocos("35261112345678000199550010000012341000012345")}`, `DANFE ${blocos("35261112345678000199550010000012341000012345")}`,
+      `ver ${blocos("35261112345678000199550010000012341000012343")}`, "NF-e 35261112345678000199550010000012341000012345",
+    ]) expect(sanitizarTexto(t), t).toBe(t);
+    const solta = `ver ${blocos("35261112345678000199550010000012341000012345")}`;
+    expect(sanitizarTexto(solta)).toBe(`ver ${OMITIDO_T}`);
+  });
+
+  it("QA r3 R4: 200 kB patológicos (só dígitos, '12.' repetido, 'aaa…a1', '1 ' repetido) filtram em tempo linear", () => {
+    const KB = 1024;
+    for (const [nome, t] of [
+      ["só dígitos", "1".repeat(200 * KB)], ["12.12.…", "12.".repeat(68 * KB)], ["aaa…a1", "a".repeat(200 * KB) + "1"],
+      ["1 1 1…", "1 ".repeat(100 * KB)], ["a.a.a…1", "a.".repeat(100 * KB) + "1"],
+    ] as const) {
+      const inicio = performance.now();
+      const r = sanitizarTexto(t);
+      const ms = performance.now() - inicio;
+      expect(r, nome).toBe(t);
+      expect(ms, `${nome}: ${ms.toFixed(0)} ms`).toBeLessThan(3000);
+    }
+    // a âncora não muda o que é e-mail
+    expect(sanitizarTexto("mail joão.silva+obra@x.com.br e (fulano@y.com)")).toBe(`mail joã${OMITIDO_T} e (${OMITIDO_T})`);
+  });
+
   it("percorre a resposta inteira (listas e objetos), sem tocar números e chaves", () => {
     expect(sanitizarResposta({ a: [{ texto: "cpf 111.222.333-44", n: 11122233344 }], "111.222.333-44": null }))
       .toEqual({ a: [{ texto: "cpf [dado pessoal omitido]", n: 11122233344 }], "111.222.333-44": null });
