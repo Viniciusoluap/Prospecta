@@ -6,7 +6,10 @@
 import type { Limites } from "../../shared/dolores/whatsapp.js";
 import { liberarReserva, registrarConsumo, reservarChamada, type UsoDaChamada } from "./consumo.js";
 import { PEDIDO_DE_FECHAMENTO, PROMPT_SISTEMA_WHATSAPP } from "./prompt.js";
-import { executarFuncao, ferramentasLiberadas } from "./ponte.js";
+import { ACOES } from "./acoes/registro.js";
+import { executarFuncao, ferramentasDoWhatsapp, type ferramentasLiberadas } from "./ponte.js";
+
+const ACOES_NOMES = new Set(ACOES.map(a => a.nome));
 
 /** Voltas ao modelo por pedido (cada volta pode pedir várias consultas). */
 export const MAX_VOLTAS = 6;
@@ -93,7 +96,8 @@ const textoDe = (blocos: Bloco[]) => blocos.filter((b): b is BlocoTexto => b.typ
 
 export async function executarComando(p: PedidoComando): Promise<ResultadoComando> {
   const chamar = clienteTeste ?? clientePadrao;
-  const ferramentas = ferramentasLiberadas();
+  // Etapa 3: leituras + ações liberadas (lista fechada). O dono é quem comandou (mensagemId conferido em whatsapp.ts).
+  const ferramentas = ferramentasDoWhatsapp();
   // A mensagem do dono é a ÚNICA entrada de texto do usuário; tudo o que vem do sistema entra como tool_result.
   const mensagens: MensagemModelo[] = [{ role: "user", content: [{ type: "text", text: p.comando }] }];
   const tokens = { entrada: 0, saida: 0 };
@@ -171,7 +175,7 @@ export async function executarComando(p: PedidoComando): Promise<ResultadoComand
       // A MESMA porta da ponte: o nome e os argumentos vêm do modelo e são conferidos lá (lista fechada, zod).
       const resp = await executarFuncao(
         { funcao: u.name, argumentos: u.input && typeof u.input === "object" ? u.input : {}, pedidoId: `wa:${p.mensagemId}:${voltas}:${i}` },
-        { canal: "whatsapp", prazoMs: Math.max(1000, Math.min(PRAZO_CONSULTA_MS, restante() - 1000)) },
+        { canal: "whatsapp", mensagemId: p.mensagemId, prazoMs: Math.max(1000, Math.min(PRAZO_CONSULTA_MS, restante() - 1000)) },
       );
       resultados.push({ type: "tool_result", tool_use_id: u.id, content: JSON.stringify(resp.body), ...(resp.body.ok === true ? {} : { is_error: true }) });
     }
@@ -194,7 +198,7 @@ export async function executarComando(p: PedidoComando): Promise<ResultadoComand
   if (!parou) texto = corpo || "Dolores: não tenho o que responder a esse pedido com os dados do sistema.";
   else {
     const consultou = consultas.length ? ` Consultei: ${Array.from(new Set(consultas)).join(", ")}.` : "";
-    const aviso = `(Parei antes de terminar: ${ROTULO_PARADA[parou]}.${consultou} Nada foi alterado no sistema.)`;
+    const aviso = `(Parei antes de terminar: ${ROTULO_PARADA[parou]}.${consultou} ${consultas.some(c => ACOES_NOMES.has(c)) ? "Confira abaixo o que foi registrado ou ficou na fila." : "Nada foi alterado no sistema."})`;
     texto = corpo ? `${corpo}\n\n${aviso}` : `Dolores: não consegui concluir. ${aviso}`;
   }
   return { texto, parou, voltas, consultas, tokens };

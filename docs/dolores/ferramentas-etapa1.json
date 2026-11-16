@@ -1,5 +1,5 @@
 {
-  "etapa": 2,
+  "etapa": 3,
   "observacao": "Gerado de server/dolores/funcoes.ts + permissoes.ts (npx tsx scripts/dolores-ferramentas.ts). Não editar à mão.",
   "chamada": "POST /api/dolores/ponte com Authorization: Bearer <DOLORES_PONTE_TOKEN> e corpo { \"funcao\": <name>, \"argumentos\": { ... }, \"pedidoId\": \"opcional\" }",
   "ferramentas": [

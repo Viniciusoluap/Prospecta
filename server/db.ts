@@ -47,7 +47,8 @@ import {
 } from "../drizzle/schema.js";
 import { montarDadosCrmObra, tipoProjetoDoServico, type ObraDadosCrm } from "../shared/obra-crm.js";
 
-type DrizzleDb = ReturnType<typeof drizzle>;
+/** Conexão (ou transação) do Drizzle: as funções de serviço aceitam uma transação opcional (EPIC-025, ações da Dolores). */
+export type DrizzleDb = ReturnType<typeof drizzle>;
 let _db: DrizzleDb | null = null;
 
 export function getDb(): DrizzleDb {
@@ -552,8 +553,8 @@ export async function getAllProjects(somenteEmpreiteiroId?: number): Promise<Pro
   }));
 }
 
-export async function getProjectById(id: number): Promise<ConstructionProject | undefined> {
-  const db = getDb();
+export async function getProjectById(id: number, conexao: DrizzleDb = getDb()): Promise<ConstructionProject | undefined> {
+  const db = conexao;
   const result = await db.select().from(constructionProjects).where(eq(constructionProjects.id, id)).limit(1);
   return result[0];
 }
@@ -854,8 +855,8 @@ export async function getAllLeads(filters?: {
   return query.orderBy(desc(leads.createdAt));
 }
 
-export async function getLeadById(id: number): Promise<Lead | undefined> {
-  const db = getDb();
+export async function getLeadById(id: number, conexao: DrizzleDb = getDb()): Promise<Lead | undefined> {
+  const db = conexao;
   const result = await db.select().from(leads).where(eq(leads.id, id)).limit(1);
   return result[0];
 }
@@ -918,8 +919,8 @@ export async function getAssignableLeadOptions(): Promise<{ id: number; name: st
 }
 
 /** Mesma regra de getAssignableLeadOptions, mas para validar um vínculo pontual no servidor. */
-export async function getAssignableLeadById(id: number): Promise<Lead | undefined> {
-  const db = getDb();
+export async function getAssignableLeadById(id: number, conexao: DrizzleDb = getDb()): Promise<Lead | undefined> {
+  const db = conexao;
   const result = await db
     .select()
     .from(leads)
@@ -1077,8 +1078,8 @@ export async function getLeadActivities(leadId: number): Promise<LeadActivity[]>
   return db.select().from(leadActivities).where(eq(leadActivities.leadId, leadId)).orderBy(desc(leadActivities.createdAt));
 }
 
-export async function addLeadActivity(data: InsertLeadActivity): Promise<void> {
-  const db = getDb();
+export async function addLeadActivity(data: InsertLeadActivity, conexao: DrizzleDb = getDb()): Promise<void> {
+  const db = conexao;
   await db.insert(leadActivities).values(data);
 }
 
@@ -1141,8 +1142,8 @@ export async function getLeadStats() {
 // Critério: role in (admin, colaborador) e active = true.
 const ASSIGNABLE_ROLES = ["admin", "colaborador"] as const;
 
-export async function getAssignableUsers(): Promise<{ id: number; name: string | null }[]> {
-  const db = getDb();
+export async function getAssignableUsers(conexao: DrizzleDb = getDb()): Promise<{ id: number; name: string | null }[]> {
+  const db = conexao;
   return db
     .select({ id: users.id, name: users.name })
     .from(users)
@@ -1151,9 +1152,10 @@ export async function getAssignableUsers(): Promise<{ id: number; name: string |
 }
 
 export async function getAssignableUserById(
-  id: number
+  id: number,
+  conexao: DrizzleDb = getDb()
 ): Promise<{ id: number; name: string | null } | undefined> {
-  const db = getDb();
+  const db = conexao;
   const result = await db
     .select({ id: users.id, name: users.name })
     .from(users)
@@ -1172,8 +1174,8 @@ export async function getAllTasks(assignedTo?: string): Promise<Task[]> {
   return db.select().from(tasks).orderBy(desc(tasks.createdAt));
 }
 
-export async function createTask(data: InsertTask): Promise<Task> {
-  const db = getDb();
+export async function createTask(data: InsertTask, conexao: DrizzleDb = getDb()): Promise<Task> {
+  const db = conexao;
   const result = await db.insert(tasks).values(data).returning();
   return result[0];
 }

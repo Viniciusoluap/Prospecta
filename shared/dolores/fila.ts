@@ -1,0 +1,107 @@
+// EPIC-025 (Dolores, etapa 3) — regras puras das ações e da fila de aprovação: código curto do item, leitura
+// DETERMINÍSTICA da decisão do dono ("aprovar CÓDIGO" / "recusar CÓDIGO"), prazo da tarefa, validade do item, texto da
+// cobrança (montado pelo sistema, nunca pelo modelo) e o quadro de pendências que vai ao dono. Sem banco nem rede.
+import { diaFortaleza } from "./formato.js";
+
+/** Alfabeto dos códigos: sem letras/números que se confundem no celular (0/O, 1/I/L, 2/Z, 5/S, 8/B, 6/G). */
+export const ALFABETO_CODIGO = "ACDEFHJKMNPRTUVWXY3479";
+export const TAMANHO_CODIGO = 5;
+const CODIGO = new RegExp(`^[${ALFABETO_CODIGO}]{${TAMANHO_CODIGO}}$`);
+
+/** Código curto de um item (sorteado por quem chama; `aleatorio` devolve números em [0, 1)). */
+export function gerarCodigo(aleatorio: () => number): string {
+  let c = "";
+  for (let i = 0; i < TAMANHO_CODIGO; i++) c += ALFABETO_CODIGO[Math.floor(aleatorio() * ALFABETO_CODIGO.length) % ALFABETO_CODIGO.length];
+  return c;
+}
+export const codigoValido = (c: string) => CODIGO.test(c);
+
+export type SituacaoItem = "aguardando" | "executando" | "executada" | "recusada" | "vencida" | "erro";
+export const ROTULO_SITUACAO: Record<SituacaoItem, string> = {
+  aguardando: "aguardando aprovação", executando: "em execução", executada: "executada", recusada: "recusada", vencida: "vencida", erro: "com erro",
+};
+
+/** Validade do item na fila (horas): padrão, mínimo e máximo aceitos na configuração. */
+export const VALIDADE_PADRAO_HORAS = 48;
+export const VALIDADE_MINIMA_HORAS = 1;
+export const VALIDADE_MAXIMA_HORAS = 24 * 14;
+/** Linha "executando" mais velha que isto = a função morreu no meio: vira "erro" e NÃO é refeita. */
+export const EXECUCAO_VENCIDA_MS = 3 * 60_000;
+/** Teto de ações (diretas + itens na fila) que um único comando do dono pode gerar. */
+export const MAX_ACOES_POR_COMANDO = 10;
+/** Códigos por mensagem de decisão. */
+export const MAX_CODIGOS_POR_DECISAO = 10;
+
+export type Decisao = { decisao: "aprovar" | "recusar"; codigos: string[] };
+
+/**
+ * Decisão do dono, reconhecida por CÓDIGO (nunca pelo modelo): a mensagem INTEIRA precisa ser o verbo + um ou mais
+ * códigos, e nada mais. "aprovar K7M2P", "Recusar K7M2P, AC3DE", "aprovo k7m2p." Qualquer outra coisa (frase, pedido
+ * misturado, código que não existe no alfabeto) → null: a mensagem segue como comando comum, e o modelo não tem
+ * ferramenta para aprovar nada.
+ */
+export function lerDecisaoDoDono(texto: string | null | undefined): Decisao | null {
+  const t = String(texto ?? "").normalize("NFD").replace(/[̀-ͯ]/g, "").trim().replace(/[.!]+$/, "").trim();
+  if (!t || t.length > 120) return null;
+  const m = /^(aprovar|aprovo|recusar|recuso)\s+(.+)$/i.exec(t);
+  if (!m) return null;
+  const partes = m[2].split(/\s*(?:,|\s+e\s+|\s+)\s*/i).map(p => p.trim().toUpperCase()).filter(Boolean);
+  if (!partes.length || partes.length > MAX_CODIGOS_POR_DECISAO || !partes.every(codigoValido)) return null;
+  return { decisao: /^aprov/i.test(m[1]) ? "aprovar" : "recusar", codigos: Array.from(new Set(partes)) };
+}
+
+/** Deslocamento fixo de Imperatriz (UTC−3, sem horário de verão). */
+const FUSO_MS = 3 * 60 * 60_000;
+
+/**
+ * Prazo de tarefa vindo do pedido: "AAAA-MM-DD" (vale às 18:00, fim do expediente) ou "AAAA-MM-DDTHH:MM", no horário de
+ * Imperatriz. Plausível = de hoje até 366 dias. Fora disso, ou data que não existe (31/02) → erro com o motivo.
+ */
+export function lerPrazo(texto: string, agora: Date): { ok: true; data: Date } | { ok: false; motivo: string } {
+  const m = /^(\d{4})-(\d{2})-(\d{2})(?:T(\d{2}):(\d{2}))?$/.exec(texto.trim());
+  if (!m) return { ok: false, motivo: "prazo no formato AAAA-MM-DD ou AAAA-MM-DDTHH:MM" };
+  const [a, mes, d, h = "18", min = "00"] = m.slice(1);
+  const utc = Date.UTC(+a, +mes - 1, +d, +h, +min);
+  const conferida = new Date(utc);
+  if (conferida.getUTCFullYear() !== +a || conferida.getUTCMonth() !== +mes - 1 || conferida.getUTCDate() !== +d || +h > 23 || +min > 59)
+    return { ok: false, motivo: "data que não existe" };
+  const data = new Date(utc + FUSO_MS);
+  const hoje = Date.UTC(...(diaFortaleza(agora)!.split("-").map((x, i) => (i === 1 ? +x - 1 : +x)) as [number, number, number])) + FUSO_MS;
+  if (data.getTime() < hoje) return { ok: false, motivo: "prazo no passado" };
+  if (data.getTime() > agora.getTime() + 366 * 86_400_000) return { ok: false, motivo: "prazo a mais de um ano" };
+  return { ok: true, data };
+}
+
+/** Primeiro nome para a saudação (sem sobrenome; nome vazio → sem nome). */
+export function primeiroNome(nome: string | null | undefined): string {
+  const p = String(nome ?? "").trim().split(/\s+/)[0] ?? "";
+  return /^[A-Za-zÀ-ÖØ-öø-ÿ'-]{2,30}$/.test(p) ? p : "";
+}
+
+/**
+ * Texto da cobrança de documentos — montado pelo SISTEMA com os documentos pendentes do cadastro (nunca pelo modelo,
+ * para que nenhum texto vindo de dados entre na mensagem ao cliente). Fica como rascunho: a Dolores não envia.
+ */
+export function textoDaCobranca(p: { nome: string | null; documentos: readonly string[] }): string {
+  const nome = primeiroNome(p.nome);
+  const lista = p.documentos.slice(0, 15).map(d => `- ${d}`).join("\n");
+  const resto = p.documentos.length > 15 ? `\n- e mais ${p.documentos.length - 15} documento(s)` : "";
+  return `Olá${nome ? `, ${nome}` : ""}! Aqui é da Prospecta Construções. Para darmos andamento ao seu processo, ainda precisamos dos documentos abaixo:\n${lista}${resto}\nPode nos enviar por aqui quando puder? Qualquer dúvida, estamos à disposição.`;
+}
+
+export type ItemQuadro = { codigo: string; resumo: string; venceEm: Date };
+
+/** Quadro determinístico que vai ao dono depois do comando: o que espera aprovação (o resumo é do sistema). */
+export function quadroDePendencias(itens: readonly ItemQuadro[], horaDe: (d: Date) => string): string {
+  if (!itens.length) return "";
+  const linhas = itens.slice(0, 10).map(i => `- [${i.codigo}] ${i.resumo} (vence ${horaDe(i.venceEm)})`);
+  const mais = itens.length > 10 ? `\n- e mais ${itens.length - 10} item(ns) na tela Integrações › Dolores` : "";
+  const exemplo = itens[0].codigo;
+  return `*Aguardando a sua aprovação* (nada foi feito ainda):\n${linhas.join("\n")}${mais}\nResponda só "aprovar ${exemplo}" ou "recusar ${exemplo}" (um ou mais códigos).`;
+}
+
+/** Quadro do que ela já fez direto (tarefas, acompanhamentos), para o dono conferir. */
+export function quadroDoQueFoiFeito(feitos: readonly string[]): string {
+  if (!feitos.length) return "";
+  return `*Registrado no sistema por mim* (em nome da usuária Dolores):\n${feitos.slice(0, 10).map(f => `- ${f}`).join("\n")}${feitos.length > 10 ? `\n- e mais ${feitos.length - 10}` : ""}`;
+}

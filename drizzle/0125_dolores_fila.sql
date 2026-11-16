@@ -1,0 +1,109 @@
+-- 16/11/2026 — EPIC-025 (etapa 3, Ações): fila de aprovação da Dolores, autoria do que ela cria e a validade da fila.
+-- "dolores_aprovacoes": um item por ação que espera o dono (função + argumentos já validados + resumo montado pelo
+--   sistema, código curto para o dono responder "aprovar CÓDIGO", situação, quem decidiu e quando, resultado, vencimento).
+--   Nunca é apagada (gatilho recusa DELETE/TRUNCATE); depois de criada, função/argumentos/código não mudam e um item
+--   encerrado (executada, recusada, vencida, erro) não volta — a execução acontece uma única vez.
+-- "dolores_autoria": uma linha por registro do sistema criado pela Dolores (tabela + id), com o pedido (`pedido_id`, o
+--   mesmo de dolores_acoes) e o item aprovado, quando houver. Só inclusão.
+-- "dolores_fila_config": linha única (id = 1) com a validade dos itens, em horas (padrão 48).
+-- Somente aditiva e idempotente: tabelas, índices, função e gatilhos novos (IF NOT EXISTS / OR REPLACE); a linha de
+-- configuração entra com ON CONFLICT DO NOTHING. Nenhuma tabela existente é alterada.
+-- Reversão: DROP TABLE "dolores_autoria", "dolores_aprovacoes", "dolores_fila_config";
+-- DROP FUNCTION dolores_aprovacoes_guarda(), dolores_autoria_guarda() (nada depende delas).
+
+CREATE TABLE IF NOT EXISTS "dolores_aprovacoes" (
+  "id" serial PRIMARY KEY NOT NULL,
+  "codigo" varchar(8) NOT NULL,
+  "criado_em" timestamp with time zone NOT NULL DEFAULT now(),
+  "vence_em" timestamp with time zone NOT NULL,
+  -- quem pediu: a mensagem do dono no WhatsApp (dolores_mensagens.id) e o pedido da chamada (= dolores_acoes.pedido_id)
+  "mensagem_id" integer,
+  "pedido_id" varchar(120),
+  "autor_user_id" integer REFERENCES "users"("id") ON DELETE RESTRICT,
+  -- o que será feito
+  "funcao" varchar(80) NOT NULL,
+  "alvo" varchar(80) NOT NULL,
+  "argumentos" jsonb NOT NULL,
+  "resumo" varchar(600) NOT NULL,
+  "situacao" varchar(12) NOT NULL DEFAULT 'aguardando'
+    CHECK ("situacao" IN ('aguardando', 'executando', 'executada', 'recusada', 'vencida', 'erro')),
+  -- decisão
+  "decidido_em" timestamp with time zone,
+  "decidido_via" varchar(12) CHECK ("decidido_via" IS NULL OR "decidido_via" IN ('whatsapp', 'tela', 'sistema')),
+  "decidido_por_user_id" integer REFERENCES "users"("id") ON DELETE SET NULL,
+  "motivo" varchar(300),
+  -- execução
+  "executado_em" timestamp with time zone,
+  "resultado" jsonb
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS "dolores_aprovacoes_codigo_unico" ON "dolores_aprovacoes" ("codigo");
+-- o mesmo pedido (função + alvo) não fica duas vezes aguardando
+CREATE UNIQUE INDEX IF NOT EXISTS "dolores_aprovacoes_um_aguardando" ON "dolores_aprovacoes" ("funcao", "alvo") WHERE "situacao" = 'aguardando';
+CREATE INDEX IF NOT EXISTS "dolores_aprovacoes_situacao_idx" ON "dolores_aprovacoes" ("situacao", "criado_em");
+CREATE INDEX IF NOT EXISTS "dolores_aprovacoes_mensagem_idx" ON "dolores_aprovacoes" ("mensagem_id");
+
+CREATE OR REPLACE FUNCTION dolores_aprovacoes_guarda() RETURNS trigger AS $$
+BEGIN
+  IF TG_OP = 'DELETE' OR TG_OP = 'TRUNCATE' THEN
+    RAISE EXCEPTION 'DOLORES_FILA_SEM_EXCLUSAO: itens da fila de aprovação da Dolores não são apagados';
+  END IF;
+  IF NEW."codigo" <> OLD."codigo" OR NEW."funcao" <> OLD."funcao" OR NEW."alvo" <> OLD."alvo"
+     OR NEW."argumentos" <> OLD."argumentos" OR NEW."criado_em" <> OLD."criado_em" OR NEW."mensagem_id" IS DISTINCT FROM OLD."mensagem_id" THEN
+    RAISE EXCEPTION 'DOLORES_FILA_IMUTAVEL: o que será feito não muda depois de entrar na fila';
+  END IF;
+  IF OLD."situacao" IN ('executada', 'recusada', 'vencida', 'erro') THEN
+    RAISE EXCEPTION 'DOLORES_FILA_ENCERRADO: item encerrado não muda de situação';
+  END IF;
+  IF OLD."situacao" = 'executando' AND NEW."situacao" NOT IN ('executando', 'executada', 'erro') THEN
+    RAISE EXCEPTION 'DOLORES_FILA_EXECUCAO_UNICA: item em execução só termina (executada ou erro)';
+  END IF;
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+DROP TRIGGER IF EXISTS dolores_aprovacoes_guarda ON "dolores_aprovacoes";
+CREATE TRIGGER dolores_aprovacoes_guarda BEFORE UPDATE OR DELETE ON "dolores_aprovacoes"
+  FOR EACH ROW EXECUTE FUNCTION dolores_aprovacoes_guarda();
+DROP TRIGGER IF EXISTS dolores_aprovacoes_sem_truncate ON "dolores_aprovacoes";
+CREATE TRIGGER dolores_aprovacoes_sem_truncate BEFORE TRUNCATE ON "dolores_aprovacoes"
+  FOR EACH STATEMENT EXECUTE FUNCTION dolores_aprovacoes_guarda();
+
+CREATE TABLE IF NOT EXISTS "dolores_autoria" (
+  "id" serial PRIMARY KEY NOT NULL,
+  "criado_em" timestamp with time zone NOT NULL DEFAULT now(),
+  -- a usuária Dolores (autora); não pode ser apagada com registros dela
+  "autor_user_id" integer NOT NULL REFERENCES "users"("id") ON DELETE RESTRICT,
+  "tabela" varchar(60) NOT NULL,
+  "registro_id" integer NOT NULL,
+  "funcao" varchar(80) NOT NULL,
+  "mensagem_id" integer,
+  "pedido_id" varchar(120),
+  "aprovacao_id" integer REFERENCES "dolores_aprovacoes"("id") ON DELETE RESTRICT,
+  "descricao" varchar(300)
+);
+
+CREATE INDEX IF NOT EXISTS "dolores_autoria_registro_idx" ON "dolores_autoria" ("tabela", "registro_id");
+CREATE INDEX IF NOT EXISTS "dolores_autoria_mensagem_idx" ON "dolores_autoria" ("mensagem_id");
+
+CREATE OR REPLACE FUNCTION dolores_autoria_guarda() RETURNS trigger AS $$
+BEGIN
+  RAISE EXCEPTION 'DOLORES_AUTORIA_SOMENTE_INSERCAO: o registro de autoria da Dolores não é alterado nem apagado';
+END;
+$$ LANGUAGE plpgsql;
+
+DROP TRIGGER IF EXISTS dolores_autoria_guarda ON "dolores_autoria";
+CREATE TRIGGER dolores_autoria_guarda BEFORE UPDATE OR DELETE ON "dolores_autoria"
+  FOR EACH ROW EXECUTE FUNCTION dolores_autoria_guarda();
+DROP TRIGGER IF EXISTS dolores_autoria_sem_truncate ON "dolores_autoria";
+CREATE TRIGGER dolores_autoria_sem_truncate BEFORE TRUNCATE ON "dolores_autoria"
+  FOR EACH STATEMENT EXECUTE FUNCTION dolores_autoria_guarda();
+
+CREATE TABLE IF NOT EXISTS "dolores_fila_config" (
+  "id" integer PRIMARY KEY DEFAULT 1 CHECK ("id" = 1),
+  "validade_horas" integer NOT NULL DEFAULT 48 CHECK ("validade_horas" BETWEEN 1 AND 336),
+  "atualizado_em" timestamp with time zone NOT NULL DEFAULT now(),
+  "atualizado_por" integer REFERENCES "users"("id") ON DELETE SET NULL
+);
+
+INSERT INTO "dolores_fila_config" ("id") VALUES (1) ON CONFLICT ("id") DO NOTHING;

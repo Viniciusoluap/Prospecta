@@ -26,6 +26,9 @@ import { erroParaLog } from "./erro-seguro.js";
 import { FOLGA_FINAL_MS, MINIMO_PARA_CHAMAR_MS, executarComando } from "./cerebro.js";
 import { lerConfigWhatsapp, lerPausa, marcarAvisoDoMes, usoDoMes } from "./consumo.js";
 import { DoloresDesativada, idDaDoloresSemCriar, usuarioDolores } from "./perfil.js";
+import { MAX_CARACTERES_WHATSAPP } from "../../shared/dolores/whatsapp.js";
+import { lerDecisaoDoDono, quadroDePendencias, quadroDoQueFoiFeito } from "../../shared/dolores/fila.js";
+import { decidir, feitosDoPedido, itensAguardandoDoPedido } from "./aprovacoes.js";
 
 /** Prazo do laço + envio, com folga para os 60 s da função da Vercel. */
 export const PRAZO_TOTAL_MS = 45_000;
@@ -159,6 +162,22 @@ async function tratarComando(cfg: DoloresWhatsappConfig, msg: { id: number; nume
     await atualizarMensagem(msg.id, { situacao: "bloqueada", motivo: "sem texto", respondidaEm: deps.agora() });
     return "so-texto";
   }
+  // Etapa 3 — decisão da fila: reconhecida por CÓDIGO (a mensagem inteira é "aprovar CÓDIGO"/"recusar CÓDIGO"), nunca
+  // pelo modelo. Só chega aqui mensagem do número do dono, não encaminhada e sem mídia. Não chama a IA (nem gasta).
+  const decisao = msg.temMidia ? null : lerDecisaoDoDono(msg.texto);
+  if (decisao) {
+    let texto: string;
+    try {
+      const r = await decidir(decisao.codigos, decisao.decisao, { via: "whatsapp", userId: null, agora: deps.agora(), prazoFinal: prazoFinal - FOLGA_FINAL_MS, relogio: deps.ms, mensagemId: msg.id });
+      texto = `Dolores:\n${r.map(x => x.texto).join("\n")}`;
+    } catch (e) {
+      console.error("[dolores/whatsapp] falha ao decidir itens da fila", erroCurto(e));
+      texto = "Dolores: não consegui registrar a decisão agora; nada foi executado. Tente de novo em instantes.";
+    }
+    await responderAoDono(cfg, msg.numero, texto, { mensagemId: msg.id, autor, resumo: { decisao: decisao.decisao, codigos: decisao.codigos.length }, prazoFinal });
+    await atualizarMensagem(msg.id, { situacao: "respondida", motivo: `decisão da fila: ${decisao.decisao}`, respondidaEm: deps.agora() });
+    return `decisao:${decisao.decisao}`;
+  }
   let estado: Awaited<ReturnType<typeof bloqueioAtual>>;
   try { estado = await bloqueioAtual(cfg, mes); }
   catch (e) { console.error("[dolores/whatsapp] falha ao conferir a configuração", erroCurto(e)); estado = { motivo: "indisponivel" }; }
@@ -181,6 +200,7 @@ async function tratarComando(cfg: DoloresWhatsappConfig, msg: { id: number; nume
     });
     let texto = r.texto;
     if (r.parou === "limite_mensal" && (await marcarAvisoDoMes(mes).catch(() => false))) texto += `\n\n${fraseDeBloqueio("limite_mensal")}`;
+    texto = await anexarQuadros(msg.id, texto);
     const ok = await responderAoDono(cfg, msg.numero, texto, { mensagemId: msg.id, autor, resumo: { voltas: r.voltas, consultas: r.consultas.length, parou: r.parou, tokensEntrada: r.tokens.entrada, tokensSaida: r.tokens.saida }, prazoFinal });
     await atualizarMensagem(msg.id, { situacao: ok ? "respondida" : "erro", motivo: r.parou ?? (ok ? null : "envio falhou"), respondidaEm: deps.agora(), voltas: r.voltas, tokensEntrada: r.tokens.entrada, tokensSaida: r.tokens.saida });
     return ok ? "respondida" : "erro-envio";
@@ -191,6 +211,28 @@ async function tratarComando(cfg: DoloresWhatsappConfig, msg: { id: number; nume
     await atualizarMensagem(msg.id, { situacao: "erro", motivo: erroCurto(e), respondidaEm: deps.agora() });
     return "erro";
   }
+}
+
+/** "16/11 09:05" no horário de Imperatriz (UTC−3 fixo). */
+const diaEHora = (d: Date) => {
+  const s = new Date(d.getTime() - 3 * 60 * 60_000).toISOString();
+  return `${s.slice(8, 10)}/${s.slice(5, 7)} ${s.slice(11, 16)}`;
+};
+
+/**
+ * Etapa 3 — quadros DETERMINÍSTICOS no fim da resposta: o que a Dolores gravou direto por este comando e o que ficou na
+ * fila, com o código de cada item (lidos do banco; o texto do modelo nunca escolhe código nem resumo). Os quadros têm
+ * prioridade sobre o texto do modelo no limite de tamanho.
+ */
+async function anexarQuadros(mensagemId: number, texto: string): Promise<string> {
+  const [pendentes, feitos] = await Promise.all([
+    itensAguardandoDoPedido(mensagemId).catch(e => { console.error("[dolores/whatsapp] falha ao ler a fila", erroCurto(e)); return []; }),
+    feitosDoPedido(mensagemId).catch(e => { console.error("[dolores/whatsapp] falha ao ler a autoria", erroCurto(e)); return []; }),
+  ]);
+  const quadros = [quadroDoQueFoiFeito(feitos), quadroDePendencias(pendentes, diaEHora)].filter(Boolean).join("\n\n");
+  if (!quadros) return texto;
+  const espaco = Math.max(200, MAX_CARACTERES_WHATSAPP - quadros.length - 4);
+  return `${cortarResposta(texto, espaco)}\n\n${quadros}`;
 }
 
 /** "09:05" no horário de Imperatriz (UTC−3 fixo). */

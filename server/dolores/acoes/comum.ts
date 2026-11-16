@@ -1,0 +1,64 @@
+// EPIC-025 (Dolores, etapa 3) — peças comuns das AÇÕES. Regras fixas desta pasta (teste estático em acoes.test.ts):
+// nunca excluir, nunca tocar em financeiro/banco/usuários/credenciais, nunca enviar nada a cliente ou terceiro. Cada ação
+// chama as MESMAS funções de serviço das telas (server/db.ts, gerador de PCI), passando a transação de escrita mínima.
+import type { z } from "zod";
+import { doloresAutoria } from "../../../drizzle/schema-dolores-fila.js";
+import type { Resultado } from "../leitura/comum.js";
+import { bancoDaAcao } from "../escrita.js";
+
+/** Nível de cada ação (seção 5 do prompt mestre): `direto` = execução direta com registro; `fila` = espera o dono. */
+export type NivelAcao = "direto" | "fila";
+
+export type ContextoAcao = {
+  agora: Date;
+  /** A usuária Dolores (autora de tudo o que for criado). */
+  autorId: number;
+  /** A mensagem do dono no WhatsApp que originou a ação (na fila: a que originou o item). */
+  mensagemId: number | null;
+  /** Mesmo `pedido_id` gravado em dolores_acoes. */
+  pedidoId: string | null;
+  /** Item da fila aprovado (só na execução de um item aprovado). */
+  aprovacaoId: number | null;
+};
+
+/** O pedido não pode ser feito (cliente não existe, nada pendente…): recusa explicada, auditada como "recusada". */
+export class RecusaAcao extends Error {
+  constructor(motivo: string) { super(motivo); this.name = "RecusaAcao"; }
+}
+
+export type ResultadoAcao = Resultado & {
+  /** Frases curtas do que foi gravado (vão ao dono no quadro "Registrado no sistema por mim"). */
+  feitos?: string[];
+};
+
+export type ItemParaFila = { alvo: string; resumo: string; argumentos: Record<string, unknown> };
+export type Preparo = { itens: ItemParaFila[]; recusados: Array<{ alvo: string; motivo: string }> };
+
+export type FuncaoAcao = {
+  nome: string;
+  descricao: string;
+  tipo: "acao";
+  nivel: NivelAcao;
+  entrada: z.ZodType;
+  /** `direto`: executa dentro da transação de escrita. */
+  executar?: (args: never, ctx: ContextoAcao) => Promise<ResultadoAcao>;
+  /** `fila`: confere tudo e devolve o que vai para a fila (não grava nada no sistema). */
+  preparar?: (args: never, ctx: ContextoAcao) => Promise<Preparo>;
+  /** `fila`: argumentos guardados no item, validados DE NOVO na hora de executar. */
+  entradaAprovada?: z.ZodType;
+  /** `fila`: executa um item aprovado, revalidando o estado atual. */
+  executarAprovado?: (args: never, ctx: ContextoAcao) => Promise<ResultadoAcao>;
+  /** O item aprovado roda na transação de escrita mínima? (o gerador de PCI grava pelas próprias funções) */
+  aprovadoEmTransacao?: boolean;
+};
+
+/** Autoria: o registro criado pela Dolores, ligado ao pedido e ao item aprovado. Sempre na mesma transação da gravação. */
+export async function registrarAutoria(ctx: ContextoAcao, p: { tabela: string; registroId: number; funcao: string; descricao: string }) {
+  await bancoDaAcao().insert(doloresAutoria).values({
+    autorUserId: ctx.autorId, tabela: p.tabela, registroId: p.registroId, funcao: p.funcao, mensagemId: ctx.mensagemId,
+    pedidoId: ctx.pedidoId?.slice(0, 120) ?? null, aprovacaoId: ctx.aprovacaoId, descricao: p.descricao.slice(0, 300),
+  });
+}
+
+/** Marca de autoria que vai no próprio registro (texto), para quem abre a tela entender quem criou. */
+export const MARCA_DOLORES = "Dolores (funcionária digital)";

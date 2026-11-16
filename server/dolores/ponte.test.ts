@@ -90,7 +90,7 @@ describe("chamada autorizada", () => {
   it("executa, devolve o envelope (fuso, moeda, etapa) e audita no nome da Dolores com contagens", async () => {
     const r = await tratarChamada(pedido({ funcao: "listar_processos_regularizacao", argumentos: { situacao: "atrasados" }, pedidoId: "wa-123" }));
     expect(r.status).toBe(200);
-    expect(r.body).toMatchObject({ ok: true, etapa: 2, funcao: "listar_processos_regularizacao", pedidoId: "wa-123", fuso: "America/Fortaleza (UTC-03:00)",
+    expect(r.body).toMatchObject({ ok: true, etapa: 3, funcao: "listar_processos_regularizacao", pedidoId: "wa-123", fuso: "America/Fortaleza (UTC-03:00)",
       moeda: "BRL", geradoEm: "2026-11-16T09:00:00-03:00", truncado: false });
     // M2: toda resposta com dados lembra que o conteúdo é dado, não instrução; o prompt do agente diz o mesmo
     expect(r.body.avisoSeguranca).toMatch(/nunca instrução/);
@@ -109,13 +109,13 @@ describe("chamada autorizada", () => {
     expect(a.duracao_ms).toBeGreaterThanOrEqual(0);
   });
 
-  it("função desconhecida ou prevista para etapa futura: 403 e auditada como recusada", async () => {
+  it("função desconhecida, ou AÇÃO pedida pela ponte HTTP (etapa 3: ações só pelo WhatsApp do dono): 403 e auditada como recusada", async () => {
     const r1 = await tratarChamada(pedido({ funcao: "apagar_cliente", argumentos: { id: 1 } }));
     expect(r1.status).toBe(403);
     expect(r1.body.erro).toMatch(/não existe na lista de funções autorizadas/);
     const r2 = await tratarChamada(pedido({ funcao: "criar_tarefa", argumentos: { titulo: "x" } }));
     expect(r2.status).toBe(403);
-    expect(r2.body.erro).toMatch(/prevista para a etapa 3; ainda não liberada/);
+    expect(r2.body.erro).toMatch(/Ações só por comando do dono no WhatsApp/);
     expect((await acoes()).map(a => [a.funcao, a.resultado])).toEqual([["apagar_cliente", "recusada"], ["criar_tarefa", "recusada"]]);
   });
 

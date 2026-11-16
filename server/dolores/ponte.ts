@@ -21,6 +21,11 @@ import { FUNCOES, definicaoDaFerramenta, funcaoPorNome } from "./funcoes.js";
 import { ETAPA_ATUAL, funcaoLiberada, motivoDaRecusa } from "./permissoes.js";
 import { DoloresDesativada, usuarioDolores } from "./perfil.js";
 import { emTransacaoSomenteLeitura } from "./somente-leitura.js";
+import { MAX_ACOES_POR_COMANDO } from "../../shared/dolores/fila.js";
+import { ACOES, acaoPorNome } from "./acoes/registro.js";
+import { RecusaAcao, type ContextoAcao, type FuncaoAcao } from "./acoes/comum.js";
+import { acoesDoPedido, porNaFila } from "./aprovacoes.js";
+import { emTransacaoDeEscrita } from "./escrita.js";
 
 export const VARIAVEL_TOKEN = "DOLORES_PONTE_TOKEN";
 /** Token mais curto que isso é recusado (a ponte fica desligada): use `openssl rand -hex 32` (64 caracteres). */
@@ -142,7 +147,14 @@ export async function tratarChamada(req: Pedido): Promise<RespostaPonte> {
 
 /** De onde veio a chamada (vai para `dolores_acoes.canal`). */
 export type CanalDolores = "ponte" | "whatsapp";
-export type OpcoesExecucao = { canal: CanalDolores; prazoMs?: number };
+export type OpcoesExecucao = {
+  canal: CanalDolores; prazoMs?: number;
+  /**
+   * Etapa 3: a mensagem do DONO no WhatsApp (já conferida: número estrito, não encaminhada) que originou o pedido. Sem
+   * ela, nenhuma AÇÃO roda — a ponte HTTP continua só de leitura.
+   */
+  mensagemId?: number | null;
+};
 
 /**
  * A porta única de execução de uma função da Dolores, DEPOIS da autenticação de quem chama (Bearer na ponte HTTP; o
@@ -193,12 +205,20 @@ export async function executarFuncao(corpo: unknown, opcoes: OpcoesExecucao): Pr
     return responder(400, { ok: false, erro: "Pedido inválido: envie { funcao, argumentos?, pedidoId? }.", campos });
   }
   const { funcao, argumentos = {}, pedidoId = null } = env.data;
-  const fn = funcaoPorNome(funcao);
-  if (!fn || !funcaoLiberada(funcao)) {
+  const leitura = funcaoPorNome(funcao);
+  const acao = leitura ? null : acaoPorNome(funcao);
+  if ((!leitura && !acao) || !funcaoLiberada(funcao)) {
     const motivo = motivoDaRecusa(funcao);
     await registrar("recusada", { funcao, argumentos, motivo, pedidoId });
     return responder(403, { ok: false, erro: motivo });
   }
+  // Etapa 3: AÇÃO só nasce de comando do dono no WhatsApp (mensagem conferida). A ponte HTTP não executa ação.
+  if (acao && (opcoes.canal !== "whatsapp" || !opcoes.mensagemId)) {
+    const motivo = "Ações só por comando do dono no WhatsApp da Dolores; por este canal, só consultas.";
+    await registrar("recusada", { funcao, argumentos, motivo, pedidoId });
+    return responder(403, { ok: false, erro: motivo });
+  }
+  const fn = (leitura ?? acao)!;
   const args = fn.entrada.safeParse(argumentos);
   if (!args.success) {
     const problemas = args.error.issues.slice(0, 10).map(i => ({ campo: i.path.join(".") || "(argumentos)", problema: i.message }));
@@ -211,8 +231,9 @@ export async function executarFuncao(corpo: unknown, opcoes: OpcoesExecucao): Pr
     await registrar("recusada", { funcao, argumentos: args.data, motivo, pedidoId });
     return responder(429, { ok: false, erro: motivo });
   }
+  if (acao) return executarAcao(acao, args.data, { agora, autor: autor!, mensagemId: opcoes.mensagemId!, pedidoId, registrar, responder });
   try {
-    const r = await comPrazo(emTransacaoSomenteLeitura(() => fn.executar(args.data as never, { agora })), prazoMs);
+    const r = await comPrazo(emTransacaoSomenteLeitura(() => leitura!.executar(args.data as never, { agora })), prazoMs);
     // Toda string da resposta passa pelo filtro de dados pessoais (texto livre: anotações, mensagens, títulos).
     const { valor, truncado } = limitarResposta(sanitizarResposta(r.dados));
     await registrar("ok", { funcao, argumentos: args.data, resumo: { ...r.resumo, truncado }, pedidoId });
@@ -222,6 +243,59 @@ export async function executarFuncao(corpo: unknown, opcoes: OpcoesExecucao): Pr
     console.error("[dolores/ponte] falha na função", funcao, motivo);
     await registrar("erro", { funcao, argumentos: args.data, motivo, pedidoId });
     return responder(500, { ok: false, erro: "Falha ao consultar o sistema; nada foi alterado. Tente de novo ou informe o responsável." });
+  }
+}
+
+type Registrar = (resultado: "ok" | "recusada" | "erro", extra: { funcao?: string; argumentos?: unknown; motivo?: string; resumo?: Record<string, unknown>; pedidoId?: string | null }) => Promise<boolean>;
+
+/**
+ * Etapa 3 — uma AÇÃO, depois de tudo o que a porta já conferiu (pausa, usuária, lista, zod, vaga do minuto, canal do
+ * dono). Teto de ações por comando; `direto` grava numa transação de ESCRITA mínima (registro + autoria juntos);
+ * `fila` só confere e põe na fila — nada é feito antes da aprovação do dono. Recusa explicada → 422, auditada.
+ */
+async function executarAcao(acao: FuncaoAcao, args: unknown, c: {
+  agora: Date; autor: number; mensagemId: number; pedidoId: string | null; registrar: Registrar;
+  responder: (status: number, corpo: Record<string, unknown>) => RespostaPonte;
+}): Promise<RespostaPonte> {
+  const { funcao, registrar, responder } = { funcao: acao.nome, registrar: c.registrar, responder: c.responder };
+  const ctx: ContextoAcao = { agora: c.agora, autorId: c.autor, mensagemId: c.mensagemId, pedidoId: c.pedidoId, aprovacaoId: null };
+  try {
+    const feitas = await acoesDoPedido(c.mensagemId);
+    if (feitas >= MAX_ACOES_POR_COMANDO) {
+      const motivo = `Limite de ${MAX_ACOES_POR_COMANDO} ações por comando do dono atingido; nada mais foi feito neste pedido.`;
+      await registrar("recusada", { funcao, argumentos: args, motivo, pedidoId: c.pedidoId });
+      return responder(429, { ok: false, erro: motivo });
+    }
+    if (acao.nivel === "direto") {
+      const r = await emTransacaoDeEscrita(() => acao.executar!(args as never, ctx));
+      await registrar("ok", { funcao, argumentos: args, resumo: { nivel: "direto", ...r.resumo }, pedidoId: c.pedidoId });
+      const { valor } = limitarResposta(sanitizarResposta(r.dados));
+      return responder(200, { ok: true, nivel: "direto", avisoSeguranca: AVISO_SEGURANCA, dados: valor });
+    }
+    const preparo = await acao.preparar!(args as never, ctx);
+    const vagas = MAX_ACOES_POR_COMANDO - feitas;
+    const cabem = preparo.itens.slice(0, vagas);
+    const recusados = [...preparo.recusados, ...preparo.itens.slice(vagas).map(i => ({ alvo: i.alvo, motivo: `limite de ${MAX_ACOES_POR_COMANDO} ações por comando` }))];
+    const criados = await porNaFila(funcao, { itens: cabem, recusados }, ctx);
+    await registrar("ok", { funcao, argumentos: args, pedidoId: c.pedidoId,
+      resumo: { nivel: "fila", naFila: criados.filter(x => !x.jaAguardava).length, jaAguardavam: criados.filter(x => x.jaAguardava).length, recusados: recusados.length } });
+    // O modelo NÃO recebe os códigos: quem mostra os itens (com o código) ao dono é o sistema, depois da resposta.
+    const { valor } = limitarResposta(sanitizarResposta({
+      naFila: criados.map(x => ({ resumo: x.resumo, jaAguardava: x.jaAguardava })),
+      naoPreparados: recusados,
+    }));
+    return responder(200, { ok: true, nivel: "fila", avisoSeguranca: AVISO_SEGURANCA,
+      aviso: "NADA foi feito ainda: os itens estão na fila de aprovação. O sistema anexa à sua resposta a lista com os códigos; só o dono aprova.", dados: valor });
+  } catch (e) {
+    if (e instanceof RecusaAcao) {
+      const motivo = e.message.slice(0, 300);
+      await registrar("recusada", { funcao, argumentos: args, motivo, pedidoId: c.pedidoId });
+      return responder(422, { ok: false, erro: motivo, nadaFoiFeito: true });
+    }
+    const motivo = erroSeguro(e);
+    console.error("[dolores/ponte] falha na ação", funcao, motivo);
+    await registrar("erro", { funcao, argumentos: args, motivo, pedidoId: c.pedidoId });
+    return responder(500, { ok: false, erro: "Falha ao executar a ação; nada foi gravado (a gravação é tudo ou nada). Informe o responsável." });
   }
 }
 
@@ -250,8 +324,17 @@ export async function tratarFerramentas(req: Pedido): Promise<RespostaPonte> {
   return { status: 200, body: { ...base(agora), ok: true, ferramentas } };
 }
 
-/** Definições das funções liberadas na etapa atual (também gravadas em docs/dolores/ferramentas-etapa1.json). */
+/**
+ * Definições das funções de LEITURA liberadas (ponte HTTP e docs/dolores/ferramentas-etapa1.json). As ações não entram:
+ * pela ponte, só consultas.
+ */
 export const ferramentasLiberadas = () => FUNCOES.filter(f => funcaoLiberada(f.nome)).map(definicaoDaFerramenta);
+
+/** Etapa 3 — ferramentas do laço do WhatsApp (comando do dono): leituras + ações liberadas (lista fechada). */
+export const ferramentasDoWhatsapp = () => [
+  ...ferramentasLiberadas(),
+  ...ACOES.filter(a => funcaoLiberada(a.nome)).map(a => definicaoDaFerramenta({ nome: a.nome, descricao: a.descricao, entrada: a.entrada } as never)),
+];
 
 const router = Router();
 const via = (fn: (req: Pedido) => Promise<RespostaPonte>) => async (req: Request, res: Response) => {
