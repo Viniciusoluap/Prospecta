@@ -74,7 +74,10 @@ it("formulário: pré-preenchimento (PCI vinculada > CRM), rascunho, geração e
   const inicial = await caller.obter({ projectId: 10 });
   expect(inicial.origem).toBe("automatico");
   expect(inicial.modelo).toMatchObject({ versao: 1, formato: "xls" });
-  expect(inicial.formulario.campos.proponenteNome).toBe("PROPONENTE DE TESTE"); // da PCI da obra
+  // EPIC-024 S-09: proponente da PCI ≠ cliente do CRM → a abertura pede a escolha (pessoa inteira), não mistura.
+  expect(inicial.formulario.campos.proponenteNome).toBeNull();
+  expect(inicial.preenchimento?.pessoas.find((p) => p.pessoa === "proponente")?.opcoes.map((o) => o.fonte)).toEqual(["PCI vinculada à obra", "Cliente do CRM (lead nº 5)"]);
+  expect(inicial.formulario.campos.rtpRegistro).toBe("1000000001"); // RTP só da PCI: uma fonte, preenchido
   expect(inicial.formulario.campos.valorFinanciado).toBe(150000); // da obra (não existe na PCI)
   expect(inicial.engenheiros[0]).toMatchObject({ id: "7", crea: "998877" });
 

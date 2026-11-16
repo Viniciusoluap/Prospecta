@@ -146,10 +146,14 @@ describe("Gerador de PCI — pré-preenchimento e engenheiro", () => {
       endereco: "Rua A, 1", bairro: "Centro", municipio: "Imperatriz", uf: "MA", areaCoberta: 70, valorImovel: 200000, valorTerreno: 50000, valorFinanciado: 150000, prazoMeses: 6,
       latitude: `05° 30' 28.4" S`, longitude: `47° 28' 39.7" W`, rtpRegistro: null, rteRegistro: null });
   });
-  it("a PCI vinculada tem prioridade; o cadastro só completa lacunas", () => {
+  it("a PCI vinculada tem prioridade; o cadastro só completa lacunas (nunca de outra pessoa)", () => {
     const pci = lerFormularioPci(MODELO);
     const f = preencherPciAutomatico({ obra, cliente: { nome: "Outro Nome", cpf: null, email: "x@y.z", telefone: null, endereco: null, bairro: null }, coordenadas: null, pci });
-    expect(f.campos.proponenteNome).toBe("PROPONENTE DE TESTE");
+    // EPIC-024 S-09 (portão de QA): proponente da PCI e cliente do CRM são pessoas diferentes → fica para escolha.
+    expect(f.campos.proponenteNome).toBeNull();
+    expect(f.campos.proponenteEmail).toBeNull();
+    const mesmo = preencherPciAutomatico({ obra, cliente: { nome: "Proponente de Teste", cpf: null, email: "x@y.z", telefone: null, endereco: null, bairro: null }, coordenadas: null, pci });
+    expect(mesmo.campos).toMatchObject({ proponenteNome: "PROPONENTE DE TESTE" });
     expect(f.campos.rtpRegistro).toBe("1000000001");
     expect(f.custos[0]).toBe(3940.68);
   });
