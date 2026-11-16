@@ -1,5 +1,5 @@
 
-import { useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Plus, Trash2, Save, Loader2, CheckCircle2, Handshake, BadgeCheck, AlertTriangle } from "lucide-react";
 import {
   estimarProposta,
@@ -23,6 +23,8 @@ import { NumeroBRField } from "./compat/numero-br-field";
 import { PercentInput } from "./compat/percent-input";
 import type { EstudoData } from "./incorporacao-detail";
 import { montarPremissasLoteamento } from "@shared/incorporacao/premissas-loteamento";
+import { AcoesPropostaTerreno } from "./proposta-terreno-envio";
+import { emailValido, enviosDasPropostas, type EnvioProposta } from "./compat/proposta-terreno";
 
 // Negociação do Terreno (2.7 Novos Negócios) — histórico de propostas
 // trocadas com o proprietário/terreneiro até o fechamento. O valor da
@@ -98,6 +100,12 @@ export function NegociacaoTerrenoTab({ estudo }: { estudo: EstudoData }) {
 
   const resumo = useMemo(() => resumoNegociacaoV2(dados, vgv), [dados, vgv]);
 
+  // S-06: envios da proposta formal ficam em tabela própria (o salvamento automático não os toca).
+  const [envios, setEnvios] = useState<EnvioProposta[]>([]);
+  const carregarEnvios = useCallback(() => { enviosDasPropostas(estudo.id).then(setEnvios).catch(() => undefined); }, [estudo.id]);
+  useEffect(() => { carregarEnvios(); }, [carregarEnvios]);
+  const salvarAntesDoPdf = useCallback(async () => !!(await salvar()), [salvar]);
+
   function setCampo<K extends keyof DadosNegociacao>(campo: K, valor: DadosNegociacao[K]) {
     setDados((d) => ({ ...d, [campo]: valor }));
   }
@@ -165,7 +173,7 @@ export function NegociacaoTerrenoTab({ estudo }: { estudo: EstudoData }) {
       </div>
 
       <div className="bg-white border border-gray-100 p-4">
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
           <div>
             <label className="block text-[10px] font-bold text-gray-500 uppercase tracking-wide mb-1">Proprietário/Terreneiro</label>
             <input value={dados.proprietarioNome} onChange={(e) => setCampo("proprietarioNome", e.target.value)} className={inputCls} placeholder="Nome" />
@@ -173,6 +181,11 @@ export function NegociacaoTerrenoTab({ estudo }: { estudo: EstudoData }) {
           <div>
             <label className="block text-[10px] font-bold text-gray-500 uppercase tracking-wide mb-1">Contato</label>
             <input value={dados.proprietarioContato} onChange={(e) => setCampo("proprietarioContato", e.target.value)} className={inputCls} placeholder="Telefone/e-mail" />
+          </div>
+          <div className="sm:col-span-2 lg:col-span-1">
+            <label className="block text-[10px] font-bold text-gray-500 uppercase tracking-wide mb-1">E-mail do proprietário/terreneiro</label>
+            <input type="email" inputMode="email" autoComplete="off" value={dados.proprietarioEmail ?? ""} onChange={(e) => setCampo("proprietarioEmail", e.target.value)} className={inputCls} placeholder="email@exemplo.com" />
+            {!!dados.proprietarioEmail?.trim() && !emailValido(dados.proprietarioEmail) && <p className="text-[11px] text-red-700 mt-1">E-mail inválido.</p>}
           </div>
         </div>
       </div>
@@ -275,9 +288,17 @@ export function NegociacaoTerrenoTab({ estudo }: { estudo: EstudoData }) {
                 </div>
               </div>
 
-              <p className="text-[11px] text-right text-gray-400">
-                Valor estimado: <span className="font-bold text-[var(--brand-dark)]">{textoEstimativa(estimarProposta(p, vgv))}</span>
-              </p>
+              <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+                {p.autor === "grupo" ? (
+                  <AcoesPropostaTerreno estudoId={estudo.id} propostaId={p.id} emailProprietario={dados.proprietarioEmail ?? ""}
+                    envios={envios.filter((e) => e.propostaId === p.id)} salvarAntes={salvarAntesDoPdf} aoEnviar={carregarEnvios} />
+                ) : (
+                  <p className="text-[11px] text-gray-400">Proposta do proprietário: o PDF formal é emitido só para propostas da Prospecta.</p>
+                )}
+                <p className="text-[11px] text-right text-gray-400">
+                  Valor estimado: <span className="font-bold text-[var(--brand-dark)]">{textoEstimativa(estimarProposta(p, vgv))}</span>
+                </p>
+              </div>
             </div>
           ))}
         </div>
