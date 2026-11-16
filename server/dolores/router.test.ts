@@ -146,4 +146,32 @@ describe("conexão própria (QR code)", () => {
     expect(vi.mocked(registrarWebhookEvolution)).not.toHaveBeenCalled();
     expect(await cfg()).toMatchObject({ status_conexao: "aguardando_qr", numero_dolores: null });
   });
+  it("QA r2 N5: \"Reativar recebimento\" exige a conexão confirmada e repete as conferências (falha fechada)", async () => {
+    await admin().dolores.conectar();
+    vi.mocked(registrarWebhookEvolution).mockClear();
+    const recusa = async (preparar?: () => void | Promise<void>) => {
+      if (preparar) await preparar();
+      await expect(admin().dolores.ativarAvisos()).rejects.toMatchObject({ code: "PRECONDITION_FAILED" });
+      expect(vi.mocked(registrarWebhookEvolution)).not.toHaveBeenCalled();
+    };
+    // 1. conexão nunca confirmada (confirmarConexao que falhou fechado): recusa, mesmo com a Evolution dizendo "open"
+    await recusa();
+    await recusa(() => banco.pg.exec("UPDATE dolores_whatsapp_config SET status_conexao = 'conectado', numero_dolores = NULL"));
+    await recusa(() => banco.pg.exec("UPDATE dolores_whatsapp_config SET status_conexao = 'aguardando_qr', numero_dolores = '5599900001111'"));
+    // 2. confirmada, mas a Evolution não está "open", não lê o número ou o número mudou
+    await banco.pg.exec("UPDATE dolores_whatsapp_config SET status_conexao = 'conectado', numero_dolores = '5599900001111'");
+    await recusa(() => { vi.mocked(estadoInstancia).mockResolvedValueOnce("close"); });
+    await recusa(() => { vi.mocked(estadoInstancia).mockRejectedValueOnce(new Error("rede")); });
+    await recusa(() => { vi.mocked(numeroConectado).mockResolvedValueOnce("" as never); });
+    await recusa(() => { vi.mocked(numeroConectado).mockRejectedValueOnce(new Error("rede")); });
+    await recusa(() => { vi.mocked(numeroConectado).mockResolvedValueOnce("5599900002222"); });
+    // 3. número da empresa ou do dono
+    await recusa(() => banco.pg.exec(`INSERT INTO whatsapp_connections (user_id, provider, numero, status, instancia) VALUES (1, 'evolution', '559900001111', 'conectado', 'prospecta-u1')`));
+    await banco.pg.exec("DELETE FROM whatsapp_connections");
+    await recusa(() => banco.pg.exec("UPDATE dolores_whatsapp_config SET numero_dono = '5599900001111'"));
+    await banco.pg.exec("UPDATE dolores_whatsapp_config SET numero_dono = NULL");
+    // 4. tudo confere: registra
+    expect(await admin().dolores.ativarAvisos()).toMatchObject({ ok: true });
+    expect(vi.mocked(registrarWebhookEvolution)).toHaveBeenCalledTimes(1);
+  });
 });

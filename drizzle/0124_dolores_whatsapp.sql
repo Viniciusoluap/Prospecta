@@ -2,9 +2,10 @@
 -- "dolores_whatsapp_config": linha única (id = 1) — interruptor da IA (DESLIGADO por padrão), modelo (vazio = o
 --   preferencial de Integrações › Anthropic), instância e situação da conexão por QR code, número da Dolores, número do
 --   dono (o único que comanda) e os limites mensais de tokens (0 = IA bloqueada até o admin definir).
--- "dolores_mensagens": uma linha por mensagem direta recebida no número dela (instância + id externo únicos: a mesma
---   mensagem entregue de novo não gera outra resposta nem outro gasto). Guarda o remetente mascarado e o comando do dono
---   já filtrado; nunca a resposta.
+-- "dolores_mensagens": uma linha por mensagem direta DO DONO recebida no número dela (instância + id externo únicos: a
+--   mesma mensagem entregue de novo não gera outra resposta nem outro gasto). Guarda o remetente mascarado e o comando
+--   do dono já filtrado; nunca a resposta. Mensagem de outro número não grava linha aqui (só a contagem por hora em
+--   "dolores_remetentes_estranhos"): spam não faz a tabela crescer.
 -- "dolores_consumo": uma linha por chamada ao modelo (tokens de entrada, saída e cache), base do limite mensal.
 -- Somente aditiva e idempotente: só tabelas, colunas e índices novos (IF NOT EXISTS); a linha de configuração entra com
 -- ON CONFLICT DO NOTHING. Nenhuma tabela anterior a esta migração é alterada.
@@ -61,6 +62,10 @@ ALTER TABLE "dolores_mensagens" ADD COLUMN IF NOT EXISTS "reserva_ate" timestamp
 
 CREATE UNIQUE INDEX IF NOT EXISTS "dolores_mensagens_externa_uidx" ON "dolores_mensagens" ("instancia", "external_id");
 CREATE INDEX IF NOT EXISTS "dolores_mensagens_criado_em_idx" ON "dolores_mensagens" ("criado_em");
+-- QA r2 N8: índices parciais — a recuperação de pedidos interrompidos (situacao = 'processando') e a soma das reservas
+-- válidas (reserva_ate) leem só as poucas linhas vivas, não a tabela inteira, a cada aviso.
+CREATE INDEX IF NOT EXISTS "dolores_mensagens_processando_idx" ON "dolores_mensagens" ("instancia", "criado_em") WHERE "situacao" = 'processando';
+CREATE INDEX IF NOT EXISTS "dolores_mensagens_reserva_idx" ON "dolores_mensagens" ("reserva_ate") WHERE "reserva_ate" IS NOT NULL;
 
 CREATE TABLE IF NOT EXISTS "dolores_consumo" (
   "id" serial PRIMARY KEY NOT NULL,

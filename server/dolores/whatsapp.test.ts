@@ -165,8 +165,8 @@ describe("o que não é comando", () => {
     expect(a[0]).toMatchObject({ funcao: "whatsapp_mensagem", resultado: "recusada", canal: "whatsapp" });
     expect(a[0].resumo.remetente).toBe("(99) *****-7777");
     expect(JSON.stringify(a)).not.toContain("99988887777");
-    const [m] = await q<{ situacao: string; texto: string | null }>("SELECT * FROM dolores_mensagens");
-    expect(m).toMatchObject({ situacao: "ignorada", texto: null });
+    // QA r2 N8: nada gravado em dolores_mensagens para estranho (a reentrega é descartada pela memória curta)
+    expect(await q("SELECT id FROM dolores_mensagens")).toEqual([]);
   });
   it("sem número do dono configurado, ninguém comanda", async () => {
     await banco.pg.exec("UPDATE dolores_whatsapp_config SET numero_dono = NULL");

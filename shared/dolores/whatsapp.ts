@@ -19,9 +19,9 @@ export const MAX_TEXTO_COMANDO = 2000;
  * Número brasileiro já só em dígitos: "55" + DDD (dois dígitos de 1 a 9) + 8 dígitos (fixo) ou 9 + 8 dígitos (celular).
  * Qualquer outra forma (outro DDI, zeros à esquerda, curto, longo, nono dígito que não é 9) → null.
  */
-function partesBrasileiras(digitos: string): { ddd: string; final: string } | null {
+function partesBrasileiras(digitos: string): { ddd: string; nono: boolean; final: string } | null {
   const m = /^55([1-9][1-9])(9?)(\d{8})$/.exec(digitos);
-  return m ? { ddd: m[1], final: m[3] } : null;
+  return m ? { ddd: m[1], nono: m[2] === "9", final: m[3] } : null;
 }
 
 /** Número do dono para guardar: só dígitos, com DDI 55 e DDD válido. Inválido (inclusive estrangeiro) → null. */
@@ -34,13 +34,18 @@ export function normalizarNumeroDono(bruto: string | null | undefined): string |
 /**
  * O remetente é o dono? Comparação ESTRITA (não usa a chave da Central, que ignora o DDI): o remetente precisa ser
  * exatamente "55" + DDD + número (só dígitos, como vem no endereço do WhatsApp), com o mesmo DDD e os mesmos 8 últimos
- * dígitos do dono. Só o nono dígito pode faltar de um lado. +995/+998… com os mesmos 8 finais NÃO casam.
+ * dígitos do dono. Só o nono dígito pode faltar de um lado, e só quando os 8 finais começam por 6–9 (celular antigo); fixo
+ * (2–5) exige igualdade exata. +995/+998… com os mesmos 8 finais NÃO casam.
  * Sem número do dono, ninguém comanda. A mesma função confere o destino antes de cada envio.
  */
 export function ehNumeroDoDono(numero: string | null | undefined, dono: string | null | undefined): boolean {
   if (typeof numero !== "string" || typeof dono !== "string") return false;
   const a = partesBrasileiras(numero), b = partesBrasileiras(dono);
-  return Boolean(a && b && a.ddd === b.ddd && a.final === b.final);
+  if (!a || !b || a.ddd !== b.ddd || a.final !== b.final) return false;
+  if (a.nono === b.nono) return true;
+  // QA r2 N2: a falta do nono dígito só vale para celular antigo (8 dígitos começando por 6–9). Fixo (2–5) nunca casa
+  // com celular de mesmos 8 finais: "99 3234-5678" (fixo) ≠ "99 9 3234-5678" (celular). Dono fixo → igualdade exata.
+  return /^[6-9]/.test(a.final);
 }
 
 /**
@@ -67,7 +72,7 @@ function segundos(v: unknown): number | null {
 const NUMERO_DO_JID = /^(\d{10,15})@s\.whatsapp\.net$/;
 
 export type MensagemLida =
-  | { tipo: "ignorar"; motivo: "grupo" | "status" | "propria" | "sem_id" | "outro_destino" | "reacao" | "edicao" }
+  | { tipo: "ignorar"; motivo: "grupo" | "status" | "propria" | "sem_id" | "outro_destino" | "reacao" | "edicao" | "interacao" }
   | { tipo: "direta"; externalId: string; numero: string | null; enviadaEm: Date | null; texto: string; temMidia: boolean; encaminhada: boolean };
 
 /** Embalagens do WhatsApp com a mensagem de verdade dentro (temporária, visualização única). */
@@ -81,6 +86,11 @@ function desembrulhar(m: Record<string, any>): Record<string, any> {
   }
   return atual ?? {};
 }
+/** Interações que não são mensagem escrita: fixar, manter na conversa, enquete, botão, lista, modelo. */
+const INTERACOES = [
+  "pinInChatMessage", "keepInChatMessage", "pollCreationMessage", "pollCreationMessageV2", "pollCreationMessageV3", "pollUpdateMessage",
+  "buttonsResponseMessage", "listResponseMessage", "templateButtonReplyMessage", "interactiveResponseMessage", "senderKeyDistributionMessage",
+] as const;
 /** Encaminhada: o WhatsApp marca no contextInfo do conteúdo (texto ou mídia). */
 function foiEncaminhada(m: Record<string, any>): boolean {
   for (const v of Object.values(m)) {
@@ -118,6 +128,10 @@ export function lerMensagemEvolution(item: unknown): MensagemLida {
   if (m.protocolMessage || m.editedMessage) return { tipo: "ignorar", motivo: "edicao" };
   const texto = typeof m.conversation === "string" ? m.conversation
     : typeof m.extendedTextMessage?.text === "string" ? m.extendedTextMessage.text : "";
+  // QA r2 (informativo): fixar/manter mensagem, enquete e resposta de botão/lista não são pedido escrito — silêncio
+  // (o webhook audita a contagem), sem a frase "só entendo texto". QA r3 R5: se veio texto escrito junto (ex.: conversa +
+  // senderKeyDistributionMessage, que o WhatsApp manda na mesma mensagem), é texto: o pedido não some em silêncio.
+  if (!texto.trim() && INTERACOES.some(k => m[k])) return { tipo: "ignorar", motivo: "interacao" };
   const temMidia = Boolean(m.imageMessage || m.videoMessage || m.audioMessage || m.documentMessage || m.documentWithCaptionMessage || m.stickerMessage);
   const s = segundos(d.messageTimestamp);
   return { tipo: "direta", externalId: id, numero, enviadaEm: s === null ? null : new Date(s * 1000), texto: texto.trim(), temMidia, encaminhada: foiEncaminhada(m) };
@@ -159,6 +173,8 @@ export const FRASE_SO_TEXTO = "Dolores: nesta etapa eu só entendo mensagens de 
 /** Vários comandos no mesmo aviso e o prazo de 60 s acabou antes deste. */
 export const fraseSemTempo = (hora: string) =>
   `Dolores: recebi vários pedidos juntos e não deu tempo de tratar o de ${hora}. Nada foi consultado; mande de novo, por favor.`;
+/** QA r2 N3: a reserva de OUTRO pedido em andamento ocupa o que resta do limite do mês (não é o limite atingido). */
+export const FRASE_OUTRO_PEDIDO = "Dolores: há outro pedido meu em andamento usando o que resta do limite do mês; tente de novo em um minuto, por favor. Nada foi consultado.";
 export const FRASE_ERRO = "Dolores: tive uma falha ao montar a resposta e parei. Nada foi alterado no sistema; tente de novo em instantes.";
 
 export type Uso = { entrada: number; saida: number };

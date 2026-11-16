@@ -175,11 +175,25 @@ export const doloresRouter = router({
     return { status, numeroDolores: mascararNumero(numero) };
   }),
 
-  /** Registra de novo o aviso de mensagens da instância da Dolores (idempotente). */
+  /**
+   * Registra de novo o aviso de mensagens da instância da Dolores (idempotente). QA r2 N5: as MESMAS conferências de
+   * confirmarConexao, com falha fechada — só com a conexão confirmada (status "conectado" e número da Dolores guardado),
+   * a Evolution dizendo "open", o número lido igual ao confirmado, que não é de conexão da empresa/corretor nem o do dono.
+   * Qualquer divergência: não registra nada e manda conferir a conexão (quem limpa/desconecta é o confirmarConexao).
+   */
   ativarAvisos: soAdmin.mutation(async () => {
     const c = await exigirConfig();
     if (!c.instancia) throw new TRPCError({ code: "BAD_REQUEST", message: "Conecte o número da Dolores primeiro." });
+    const conferir = "nada foi ativado. Use \"Conferir conexão\" primeiro.";
+    if (c.statusConexao !== "conectado" || !c.numeroDolores) throw new TRPCError({ code: "PRECONDITION_FAILED", message: `A conexão da Dolores ainda não foi confirmada; ${conferir}` });
     const evo = await exigirEvolution();
+    const estado = await estadoInstancia(evo, c.instancia).catch(() => null);
+    if (estado !== "open") throw new TRPCError({ code: "PRECONDITION_FAILED", message: `A Evolution não confirma o número da Dolores conectado agora; ${conferir}` });
+    const lido = await numeroConectado(evo, c.instancia).catch(() => null);
+    const numero = lido ? lido.replace(/\D/g, "").slice(0, 20) : "";
+    if (!numero || numero !== c.numeroDolores) throw new TRPCError({ code: "PRECONDITION_FAILED", message: `O número conectado não é o que foi confirmado; ${conferir}` });
+    if ((await numeroDeOutraConexao(numero)) || (c.numeroDono && pareceMesmoTelefone(numero, c.numeroDono)))
+      throw new TRPCError({ code: "PRECONDITION_FAILED", message: `O número conectado é de uma conexão da empresa ou o do dono; ${conferir}` });
     try { await registrarWebhookEvolution(evo, c.instancia, URL_WEBHOOK_DOLORES(), segredoWebhookDolores()); }
     catch (e) { throw erro(e, "A Evolution não aceitou o aviso de mensagens da Dolores."); }
     return { ok: true, mensagem: "Recebimento de mensagens da Dolores ativo." };

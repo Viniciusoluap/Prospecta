@@ -1,5 +1,6 @@
 // 16/11/2026 — EPIC-025 (etapa 2): WhatsApp da Dolores e consumo da IA (migração 0124_dolores_whatsapp.sql).
 // Tabelas novas, em arquivo próprio: nada de `dolores_config` (etapa 1) foi alterado.
+import { sql } from "drizzle-orm";
 import { boolean, index, integer, pgTable, primaryKey, serial, smallint, timestamp, uniqueIndex, varchar } from "drizzle-orm/pg-core";
 import { users } from "./schema.js";
 
@@ -42,6 +43,8 @@ export const doloresMensagens = pgTable("dolores_mensagens", {
 }, t => [
   uniqueIndex("dolores_mensagens_externa_uidx").on(t.instancia, t.externalId),
   index("dolores_mensagens_criado_em_idx").on(t.criadoEm),
+  index("dolores_mensagens_processando_idx").on(t.instancia, t.criadoEm).where(sql`${t.situacao} = 'processando'`),
+  index("dolores_mensagens_reserva_idx").on(t.reservaAte).where(sql`${t.reservaAte} IS NOT NULL`),
 ]);
 
 export const doloresConsumo = pgTable("dolores_consumo", {

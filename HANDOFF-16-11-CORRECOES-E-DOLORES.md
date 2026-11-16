@@ -125,6 +125,31 @@ migração da etapa antes. Depois lançar S-03 e S-05, e por fim o EPIC-025 (Dol
   na Evolution real.
 - **Próximo passo exato:** nova rodada do portão de QA da E2 sobre o ramo; aprovado, aplicar 0124 e publicar.
 
+## Atualização — 16/11 — EPIC-025 E2: correções da 2ª rodada do QA (CONCERNS) — @dev
+- **Concluído (ramo `epic025-dolores-etapa2`, cópia `claude/wip-epic025-dolores-etapa2`):** N1–N8 e o informativo, um
+  commit por achado (N1+N7 juntos), cada um com teste de regressão — tabela na story, seção "Correções da 2ª rodada do QA".
+  Principal: filtro de dados pessoais reescrito (CPF/CNPJ com DV em qualquer separação, telefones colados/pontuados,
+  e-mail com espaço, disfarces Unicode) e sem mascarar anos/lotes/nota fiscal/área.
+- **0124 mudou (continua NÃO aplicada, só aditiva/idempotente):** dois índices parciais em `dolores_mensagens`
+  (`…_processando_idx` WHERE situacao='processando'; `…_reserva_idx` WHERE reserva_ate IS NOT NULL). Estranho não grava
+  mais linha em `dolores_mensagens`.
+- **Testes (a) automáticos:** tsc ok; 28 arquivos / 318 testes passando; vite build ok. **(b) manuais:** nenhum.
+  **(c) pendentes em produção:** 0124 no Neon, dono cadastra e conecta, aceite; tipos pin/enquete/botão na Evolution real.
+- **Para o dono decidir:** retenção (nenhuma rotina apaga nada; `dolores_remetentes_estranhos` cresce no máximo uma linha
+  por remetente estranho por hora, sem texto).
+- **Próximo passo exato:** 3ª rodada do portão de QA da E2; aprovado, aplicar 0124 e publicar.
+
+## Atualização — 16/11 — EPIC-025 E2: correções da 3ª rodada do QA (CONCERNS) — @dev
+- **Concluído (ramo `epic025-dolores-etapa2`, cópia `claude/wip-epic025-dolores-etapa2`):** R5 `60bb93b` (texto + interação
+  é texto), R4 `c2bbb51` (e-mail sem tempo quadrático), R1 `6696919` (casa/unidade/valor… não livram telefone; celular
+  antigo de 8 dígitos sai; palavra de telefone anula rótulos), R2 `ad2dbfe` (celular + ",1" sai), R3 `c5d732b` (janela
+  deslizante, sem corte de 16 grupos), informativos `4c7fe97` (dígitos de outras escritas, `|`/`/` no telefone, chave de
+  NF-e tudo ou nada, nota do 9 do dono em `como-ligar.md`). Tabela na story, seção "Correções da 3ª rodada do QA".
+- **0124 NÃO foi alterada.**
+- **Testes (a) automáticos:** tsc ok; 28 arquivos / 324 testes passando (dolores+whatsapp+central-vendas+auth+imports+rotas);
+  vite build ok; 200 kB patológicos < 1 s (antes ~60 s). **(b) manuais:** nenhum. **(c) produção:** igual à r2.
+- **Próximo passo exato:** 4ª rodada do portão de QA da E2; aprovado, publicar (0124 já em aplicação, como está).
+
 ## Atualização — 16/11 — EPIC-025 E3 (Ações) — @dev
 - **Ramo:** `epic025-dolores-etapa3` (base: `epic025-dolores-etapa2` em `bc470d1`, ainda em QA), cópia em
   `claude/wip-epic025-dolores-etapa3`. Story: `docs/stories/epics/epic-025-dolores/E3-acoes.md`.

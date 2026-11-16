@@ -13,7 +13,8 @@ import { definirClienteModelo, type PedidoModelo, type RespostaModelo } from "./
 import { esquecerUsuarioDolores } from "./perfil.js";
 import { definirDependenciasPonte } from "./ponte.js";
 import { AGORA, CENARIO, criarBanco } from "./testes-banco.js";
-import { definirDependenciasWhatsapp, segredoWebhookDolores, tratarWebhookDolores } from "./whatsapp.js";
+import { MOTIVO_SEM_TEMPO_NO_AVISO, definirDependenciasWhatsapp, segredoWebhookDolores, tratarWebhookDolores } from "./whatsapp.js";
+import { FRASE_OUTRO_PEDIDO } from "../../shared/dolores/whatsapp.js";
 
 const DONO = "5599991234567";
 const CHAVE = "sk-ant-chave-de-teste-nao-real-123456";
@@ -73,8 +74,9 @@ describe("QA achado 1 — DDI conferido: número estrangeiro com os mesmos 8 fin
       expect(chamadas).toEqual([]);
       expect(vi.mocked(configuracaoAnthropicPainel)).not.toHaveBeenCalled();
       expect(enviar).not.toHaveBeenCalled();
-      const [m] = await q<{ do_dono: boolean; situacao: string }>("SELECT do_dono, situacao FROM dolores_mensagens");
-      expect(m).toEqual({ do_dono: false, situacao: "ignorada" });
+      // QA r2 N8: mensagem de estranho não grava linha em dolores_mensagens (só a contagem por hora)
+      expect(await q("SELECT id FROM dolores_mensagens")).toEqual([]);
+      expect(await q("SELECT mensagens FROM dolores_remetentes_estranhos")).toEqual([{ mensagens: 1 }]);
     });
   }
   it("@lid com senderPn estrangeiro também não comanda", async () => {
@@ -116,7 +118,10 @@ describe("QA achado 3 — limite mensal reservado sob trava antes da chamada", (
     expect(e).toBeLessThanOrEqual(1500);
     expect(enviar).toHaveBeenCalledTimes(2);
     const textos = enviar.mock.calls.map(c => c[0].texto as string);
-    expect(textos.filter(t => /limite mensal de gasto com a IA foi atingido/.test(t))).toHaveLength(1);
+    // QA r2 N3: quem foi barrado pela reserva do outro ouve "outro pedido em andamento", não "limite atingido"
+    expect(textos.filter(t => /outro pedido meu em andamento/.test(t))).toHaveLength(1);
+    expect(textos.filter(t => /limite mensal de gasto com a IA foi atingido/.test(t))).toHaveLength(0);
+    expect(await q("SELECT aviso_limite_mes FROM dolores_whatsapp_config")).toEqual([{ aviso_limite_mes: null }]);
     expect([a.body.r, b.body.r]).toEqual([{ respondida: 1 }, { respondida: 1 }]);
     // nenhuma reserva fica presa depois
     expect(await q("SELECT id FROM dolores_mensagens WHERE reserva_entrada > 0 OR reserva_ate IS NOT NULL")).toEqual([]);
@@ -127,12 +132,19 @@ describe("QA achado 3 — limite mensal reservado sob trava antes da chamada", (
     await chamar(aviso());
     expect(chamadas).toHaveLength(1);
   });
-  it("reserva válida de outro pedido em andamento bloqueia antes de chamar", async () => {
+  it("reserva válida de outro pedido em andamento bloqueia antes de chamar (QA r2 N3: motivo próprio, aviso do mês intacto)", async () => {
     await banco.pg.exec(`INSERT INTO dolores_mensagens (instancia, external_id, do_dono, situacao, reserva_entrada, reserva_saida, reserva_ate)
       VALUES ('prospecta-dolores', 'ANDAMENTO', true, 'processando', 1000000, 0, now() + interval '1 minute')`);
     await chamar(aviso());
     expect(chamadas).toEqual([]);
-    expect(enviar.mock.calls[0][0].texto).toMatch(/limite mensal de gasto com a IA foi atingido/);
+    expect(enviar.mock.calls[0][0].texto).toBe(FRASE_OUTRO_PEDIDO);
+    expect(await q("SELECT aviso_limite_mes FROM dolores_whatsapp_config")).toEqual([{ aviso_limite_mes: null }]);
+    // limite atingido de verdade (uso real): aí sim a frase do limite e o aviso do mês
+    await banco.pg.exec("INSERT INTO dolores_consumo (mes, modelo, volta, tokens_entrada, tokens_saida) VALUES ('2026-11', 'm', 1, 1000000, 0)");
+    await banco.pg.exec("DELETE FROM dolores_mensagens WHERE external_id = 'ANDAMENTO'");
+    await chamar(aviso());
+    expect(enviar.mock.calls[1][0].texto).toMatch(/limite mensal de gasto com a IA foi atingido/);
+    expect(await q("SELECT aviso_limite_mes FROM dolores_whatsapp_config")).toEqual([{ aviso_limite_mes: "2026-11" }]);
   });
 });
 
@@ -201,8 +213,35 @@ describe("QA achado 5 — um prazo só para o aviso inteiro (vários comandos no
     // os que não couberam: frase fixa sem IA (quando ainda dava para enviar) ou nem reivindicados
     expect(enviar.mock.calls.some(x => /não deu tempo de tratar o de 08:59/.test(x[0].texto))).toBe(true);
     const situacoes = await q<{ situacao: string; n: number }>("SELECT situacao, count(*)::int AS n FROM dolores_mensagens GROUP BY 1 ORDER BY 1");
-    expect(situacoes.every(s => ["respondida", "bloqueada"].includes(s.situacao))).toBe(true);
+    // QA r2 N4: os que nem couberam na frase fixa ficam "processando" com motivo próprio (a recuperação avisa)
+    expect(situacoes.every(s => ["respondida", "bloqueada", "processando"].includes(s.situacao))).toBe(true);
+    const presos = await q<{ motivo: string }>("SELECT motivo FROM dolores_mensagens WHERE situacao = 'processando'");
+    expect(presos.every(p => p.motivo === MOTIVO_SEM_TEMPO_NO_AVISO)).toBe(true);
     expect(chamadas.length).toBe(c.respondida);
+  });
+  it("QA r2 N4: comando sem tempo nem para a frase fixa é reivindicado e o próximo aviso diz ao dono para mandar de novo (sem IA)", async () => {
+    let t = 1_000_000;
+    roteiro = () => { t += 43_000; return fim("ok"); };
+    definirDependenciasWhatsapp({ agora: () => AGORA, enviar: enviar as never, ms: () => t });
+    const r = await chamar(lote(aviso({ id: "A" }), aviso({ id: "B" }), aviso({ id: "C" })));
+    expect(r.body.r).toEqual({ respondida: 1, "sem-tempo": 2 });
+    expect(enviar).toHaveBeenCalledTimes(1);
+    expect(await q("SELECT external_id, situacao, motivo FROM dolores_mensagens ORDER BY id")).toEqual([
+      { external_id: "A", situacao: "respondida", motivo: null },
+      { external_id: "B", situacao: "processando", motivo: MOTIVO_SEM_TEMPO_NO_AVISO },
+      { external_id: "C", situacao: "processando", motivo: MOTIVO_SEM_TEMPO_NO_AVISO },
+    ]);
+    expect((await acoes()).filter(a => /sem tempo no prazo do aviso: guardado/.test(a.motivo ?? ""))).toHaveLength(1);
+    // próximo aviso (mesmo de outro número, ou a reentrega de B): um aviso só, com a hora, sem IA
+    t += 1_000; const antes = chamadas.length;
+    const r2 = await chamar(aviso({ id: "B" }));
+    expect(r2.body.r).toEqual({ interrompida: 2, repetida: 1 });
+    expect(chamadas.length).toBe(antes);
+    expect(enviar).toHaveBeenCalledTimes(2);
+    expect(enviar.mock.calls[1][0]).toMatchObject({ numero: DONO, texto: "Dolores: não consegui terminar o pedido de 08:59. Nada foi alterado no sistema; mande de novo, por favor." });
+    expect(await q("SELECT count(*)::int AS n FROM dolores_mensagens WHERE situacao = 'processando'")).toEqual([{ n: 0 }]);
+    await chamar(aviso({ jid: "5511988887777@s.whatsapp.net" }));
+    expect(enviar).toHaveBeenCalledTimes(2); // não repete
   });
   it("sem tempo para enviar, não envia (registra o erro) — nunca começa um envio que passaria do prazo", async () => {
     let t = 0;
@@ -235,7 +274,7 @@ describe("QA achado 6 — tipos de mensagem", () => {
     expect(enviar).not.toHaveBeenCalled();
     expect(await q("SELECT * FROM dolores_mensagens")).toEqual([]);
     const a = await acoes();
-    expect(a.map(x => [x.funcao, x.resultado, x.resumo])).toEqual([["whatsapp_mensagem", "recusada", { reacoes: 2, edicoes: 2 }]]);
+    expect(a.map(x => [x.funcao, x.resultado, x.resumo])).toEqual([["whatsapp_mensagem", "recusada", { reacoes: 2, edicoes: 2, interacoes: 0 }]]);
     expect(JSON.stringify(a)).not.toContain("IGNORE");
   });
   it("mensagem encaminhada pelo dono não é comando: frase pedindo que ele escreva o pedido, sem IA", async () => {
@@ -336,5 +375,52 @@ describe("Extra do QA — auditoria de remetente estranho limitada (uma linha po
     await chamar(aviso({ jid: "5511988887777@s.whatsapp.net", quando: new Date(depois.getTime() - 5_000) }));
     expect(await acoes()).toHaveLength(2);
     expect((await q<any>("SELECT mensagens FROM dolores_remetentes_estranhos ORDER BY hora")).map(c => c.mensagens)).toEqual([1, 1]);
+  });
+});
+
+describe("QA r2 N8 — spam de estranhos não cresce dolores_mensagens; índices parciais", () => {
+  it("500 mensagens de um estranho: zero linhas em dolores_mensagens, 1 contagem, 1 auditoria; reentrega não soma; zero IA/envio/chave", async () => {
+    for (let i = 0; i < 25; i++) await chamar(lote(...Array.from({ length: 20 }, (_, k) => aviso({ jid: "5511988887777@s.whatsapp.net", id: `S${i}-${k}`, texto: "x".repeat(4000) }))));
+    expect(await q("SELECT count(*)::int AS n FROM dolores_mensagens")).toEqual([{ n: 0 }]);
+    expect(await q("SELECT mensagens FROM dolores_remetentes_estranhos")).toEqual([{ mensagens: 500 }]);
+    expect((await acoes()).filter(a => a.funcao === "whatsapp_mensagem")).toHaveLength(1);
+    const r = await chamar(aviso({ jid: "5511988887777@s.whatsapp.net", id: "S3-7" })); // reentrega
+    expect(r.body.r).toEqual({ repetida: 1 });
+    expect(await q("SELECT mensagens FROM dolores_remetentes_estranhos")).toEqual([{ mensagens: 500 }]);
+    expect(chamadas).toEqual([]); expect(enviar).not.toHaveBeenCalled();
+    expect(vi.mocked(configuracaoAnthropicPainel)).not.toHaveBeenCalled();
+  });
+  it("a 0124 cria os índices parciais da recuperação e das reservas (idempotente)", async () => {
+    const { readFileSync } = await import("node:fs");
+    const sql = readFileSync(new URL("../../drizzle/0124_dolores_whatsapp.sql", import.meta.url), "utf8");
+    await banco.pg.exec(sql); // de novo: sem erro
+    const idx = await q<{ indexname: string; indexdef: string }>("SELECT indexname, indexdef FROM pg_indexes WHERE tablename = 'dolores_mensagens' ORDER BY indexname");
+    const def = (n: string) => idx.find(i => i.indexname === n)?.indexdef ?? "";
+    expect(def("dolores_mensagens_processando_idx")).toMatch(/WHERE \(+\(?situacao\)?::text = 'processando'::text\)+/);
+    expect(def("dolores_mensagens_reserva_idx")).toMatch(/WHERE \(reserva_ate IS NOT NULL\)/);
+    // nenhuma rotina de limpeza: a migração não apaga nada
+    const comandos = sql.replace(/--.*$/gm, "").replace(/ON DELETE SET NULL/g, "");
+    expect(comandos).not.toMatch(/\b(DELETE|TRUNCATE|DROP)\b/);
+  });
+});
+
+describe("QA r2 (informativo) — fixar, enquete e botão do dono: silêncio auditado, sem 'só entendo texto'", () => {
+  it("não responde, não chama a IA, não grava mensagem; uma linha de auditoria com a contagem", async () => {
+    const r = await chamar(lote(
+      aviso({ message: { pinInChatMessage: { type: 1 } } }),
+      aviso({ message: { keepInChatMessage: {} } }),
+      aviso({ message: { pollUpdateMessage: {} } }),
+      aviso({ message: { pollCreationMessageV3: { name: "liste" } } }),
+      aviso({ message: { buttonsResponseMessage: { selectedDisplayText: "liste os processos" } } }),
+      aviso({ message: { listResponseMessage: { title: "liste" } } }),
+      aviso({ message: { ephemeralMessage: { message: { templateButtonReplyMessage: { selectedDisplayText: "liste" } } } } }),
+    ));
+    expect(r.body.r).toEqual({ interacao: 7 });
+    expect(enviar).not.toHaveBeenCalled();
+    expect(chamadas).toEqual([]);
+    expect(await q("SELECT id FROM dolores_mensagens")).toEqual([]);
+    const a = (await acoes()).filter(x => x.funcao === "whatsapp_mensagem");
+    expect(a).toHaveLength(1);
+    expect(a[0].resumo).toMatchObject({ interacoes: 7 });
   });
 });
