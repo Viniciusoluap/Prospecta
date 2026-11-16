@@ -27,6 +27,27 @@ Detalhes e arquivos: `docs/stories/epics/epic-022-maquete-3d/S-08-aprimoramentos
 - Não conferido em navegador: a tela de posicionar casas (editor), o portal do cliente com o novo fluxo e a foto em alta.
 - O e-mail depende do SMTP já configurado no sistema; nenhum e-mail real foi enviado nos testes.
 
+## EPIC-024 S-04 (16/11) — muro de divisa do condomínio
+Story: `docs/stories/epics/epic-024-correcoes-16-11/S-04-muro-condominio.md`. Branch local `epic024-s04` (sem push).
+- Feito: `shared/maquete-3d/muro.ts` (geometria pura, portão automático), `implantacao.muro`/`implantacao.acessos`
+  opcionais em `modelo.ts` (sem migração), regras do tipo em `aplicarTipo`/`implantacaoDoEstudo`, visualizador
+  `visualizador/Muro.tsx`, edição `EditorMuro.tsx` na revisão da planta.
+- Testes: (a) `server/maquete-3d-muro.test.ts` 13 passam; `npx vitest run server/maquete-3d` 135 passam; `tsc` e
+  `vite build` sem erros. (b) Playwright + SwiftShader num harness com estudo de massa real e relevo: vista de cima,
+  perspectiva, portão por dentro e por fora, contorno côncavo. (c) Pendente: estudo real em produção, aparelho real,
+  tela de edição aberta por uma pessoa.
+- Próximo passo: revisão (@qa), push/PR (@devops), conferir com um condomínio real e ajustar o portão se o acesso
+  principal escolhido não for o que o dono espera.
+- QA loop 1 (16/11): gate CONCERNS corrigido — muro em todas as áreas do KML (`terrenosExtras`), link publicado antes
+  do muro fica igual até nova publicação, portão em toda rua que chega à divisa (portaria + secundários), muro preso
+  ao contorno, pé seguindo a malha (fundação 0,5 m), portões reposicionados quando o contorno muda, campos que limitam
+  ao sair. Commits 889e5d4, 97c256b, 5a94074, 7711e78, 9af4895. (a) 158 testes (maquete-3d + build gate) passam; tsc e
+  vite build ok. (b) capturas no harness (duas áreas/duas ruas; portaria). (c) pendente: condomínio real em produção.
+  Regra dos portões corrigida depois (coordenador): condomínio fechado — portão automático só nos acessos ligados
+  a via pública (`viaExistente`); sem nenhum, UMA portaria na rua principal; as outras ruas que terminam na divisa
+  ficam fechadas pelo muro (editor: "Abrir portão aqui"; validação: UM aviso com a contagem).
+  Próximo passo: re-gate do @qa; depois push/PR (@devops).
+
 ## Concluído na etapa 4
 - `shared/maquete-3d/implantacao.ts`: implantação a partir do terreno e do cenário escolhido do estudo de massa.
 - `maquete3d.implantacaoDoEstudo` e situação das unidades no detalhe e no link público (`server/maquete-3d/router.ts`).

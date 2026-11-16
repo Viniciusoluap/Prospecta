@@ -84,7 +84,7 @@ export function EditorPlanta({ modelo, onChange, somenteLeitura = false, maquete
 
   const base = useMemo(() => {
     const pts = verImplantacao && modelo.implantacao
-      ? [...modelo.implantacao.terreno, ...modelo.implantacao.lotes.flatMap(l => l.poligono), ...modelo.implantacao.vias.flatMap(v => v.eixo), ...modelo.implantacao.posicoes]
+      ? [...modelo.implantacao.terreno, ...(modelo.implantacao.terrenosExtras ?? []).flat(), ...modelo.implantacao.lotes.flatMap(l => l.poligono), ...modelo.implantacao.vias.flatMap(v => v.eixo), ...modelo.implantacao.posicoes]
       : pv ? pontosDoPavimento(pv) : [];
     const l = limites(pts);
     const margem = Math.max(1, Math.max(l.largura, l.altura) * 0.08);
@@ -243,7 +243,7 @@ export function EditorPlanta({ modelo, onChange, somenteLeitura = false, maquete
             {fundo && alin && !verImplantacao && <image href={fundo.url} x={alin.x} y={alin.y} width={alin.larguraM} height={alin.larguraM * fundo.altura / fundo.largura} opacity={alin.opacidade} preserveAspectRatio="none" style={{ pointerEvents: "none" }} />}
             {verImplantacao && imp ? (
               <g style={estilo}>
-                {imp.terreno.length > 2 && <polygon points={imp.terreno.map(p => `${p.x},${p.y}`).join(" ")} fill="#14532D33" stroke="#4ADE80" strokeWidth={u * 0.3} />}
+                {[imp.terreno, ...(imp.terrenosExtras ?? [])].map((area, i) => area.length > 2 && <polygon key={`terreno-${i}`} points={area.map(p => `${p.x},${p.y}`).join(" ")} fill="#14532D33" stroke="#4ADE80" strokeWidth={u * 0.3} />)}
                 {imp.ruas.map((r, i) => <polygon key={`r${i}`} points={r.map(p => `${p.x},${p.y}`).join(" ")} fill="#475569" opacity={0.75} />)}
                 {imp.vias.map(v => <polyline key={v.id} points={v.eixo.map(p => `${p.x},${p.y}`).join(" ")} fill="none" stroke="#64748B" strokeWidth={v.largura} strokeLinejoin="round" strokeLinecap="round" opacity={0.7} />)}
                 {imp.lotes.map(l => {
