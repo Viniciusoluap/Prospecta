@@ -52,7 +52,7 @@ export async function porNaFila(funcao: string, preparo: Preparo, ctx: ContextoA
       const codigo = gerarCodigo(sorteio);
       const [linha] = await getDb().insert(doloresAprovacoes).values({
         codigo, venceEm, criadoEm: ctx.agora, mensagemId: ctx.mensagemId, pedidoId: ctx.pedidoId?.slice(0, 120) ?? null, autorUserId: ctx.autorId,
-        funcao, alvo: item.alvo.slice(0, 80), argumentos: item.argumentos, resumo: sanitizarTexto(item.resumo).slice(0, 600),
+        funcao, alvo: item.alvo.slice(0, 80), argumentos: item.argumentos, resumo: textoDeDado(sanitizarTexto(item.resumo), 600),
       }).onConflictDoNothing().returning({ codigo: doloresAprovacoes.codigo, resumo: doloresAprovacoes.resumo, venceEm: doloresAprovacoes.venceEm });
       if (linha) { feito = { ...linha, jaAguardava: false }; break; }
       const [existente] = await getDb().select({ codigo: doloresAprovacoes.codigo, resumo: doloresAprovacoes.resumo, venceEm: doloresAprovacoes.venceEm })

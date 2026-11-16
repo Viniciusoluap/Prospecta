@@ -58,7 +58,7 @@ export async function prepararDocumento(args: z.infer<typeof entradaGerarDocumen
   return {
     itens: [{
       alvo: `pci:${args.obraId}`,
-      resumo: `Gerar a PCI da obra "${r.obra.title.slice(0, 80)}" (obra ${r.obra.id}) pelo Gerador de PCI, com o rascunho salvo em ${dia}${r.autor ? ` por ${r.autor.slice(0, 60)}` : ""}; `
+      resumo: `Gerar a PCI da obra "${textoDeDado(r.obra.title, 80)}" (obra ${r.obra.id}) pelo Gerador de PCI, com o rascunho salvo em ${dia}${r.autor ? ` por ${textoDeDado(r.autor, 60)}` : ""}; `
         + "sai sem assinatura, no histórico e na pasta da obra, para o engenheiro responsável conferir e assinar.",
       argumentos: { tipo: "pci", obraId: args.obraId, rascunhoEm: r.atualizadoEm },
     }],

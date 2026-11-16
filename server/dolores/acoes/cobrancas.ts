@@ -7,7 +7,7 @@
 import { and, desc, eq, inArray, isNull } from "drizzle-orm";
 import { z } from "zod";
 import { leadActivities, leads, whatsappMessages } from "../../../drizzle/schema.js";
-import { textoDaCobranca } from "../../../shared/dolores/fila.js";
+import { textoDaCobranca, textoDeDado } from "../../../shared/dolores/fila.js";
 import { diaFortaleza } from "../../../shared/dolores/formato.js";
 import { entradaListarDocumentos, listarDocumentos } from "../leitura/documentos.js";
 import { emTransacaoDeEscrita } from "../escrita.js";
@@ -50,10 +50,11 @@ async function situacaoDoCliente(leadId: number, agora: Date): Promise<Situacao 
   return { lead, documentos, ultimoContato };
 }
 
+/** Resumo para o dono (quadro de pendências): nome e documentos são DADOS — uma linha só, sem colchetes (achado 7). */
 function resumoDaCobranca(s: Situacao): string {
-  const docs = s.documentos.slice(0, 6).join(", ") + (s.documentos.length > 6 ? ` e mais ${s.documentos.length - 6}` : "");
-  return `Cobrança de documentos para ${s.lead.name} (cliente ${s.lead.id}) — rascunho, não será enviada: ${s.documentos.length} pendente(s): ${docs}. `
-    + `Último contato registrado: ${dataBr(s.ultimoContato) ?? "nenhum"}. Consentimento LGPD no cadastro: ${s.lead.lgpdConsent ? "sim" : "NÃO registrado"}.`;
+  const docs = s.documentos.slice(0, 6).map(d => textoDeDado(d, 80)).join(", ") + (s.documentos.length > 6 ? ` e mais ${s.documentos.length - 6}` : "");
+  return textoDeDado(`Cobrança de documentos para ${textoDeDado(s.lead.name, 80)} (cliente ${s.lead.id}) — rascunho, não será enviada: ${s.documentos.length} pendente(s): ${docs}. `
+    + `Último contato registrado: ${dataBr(s.ultimoContato) ?? "nenhum"}. Consentimento LGPD no cadastro: ${s.lead.lgpdConsent ? "sim" : "NÃO registrado"}.`, 600);
 }
 
 export async function prepararCobranca(args: z.infer<typeof entradaPrepararCobranca>, ctx: ContextoAcao): Promise<Preparo> {
@@ -77,18 +78,21 @@ export async function executarCobrancaAprovada(args: z.infer<typeof entradaCobra
   if (!s) throw new RecusaAcao("O cliente não existe mais no CRM; nada foi registrado.");
   if (!s.documentos.length) {
     return { dados: { leadId: s.lead.id, nadaPendente: true }, resumo: { registrada: false, nadaPendente: true },
-      feitos: [`Cobrança de ${s.lead.name}: nada mais pendente na hora da aprovação; nada registrado.`] };
+      feitos: [textoDeDado(`Cobrança de ${s.lead.name}: nada mais pendente na hora da aprovação; nada registrado.`, 300)] };
   }
-  // o estado pode ter mudado entre o pedido e a aprovação: vale a lista de AGORA
-  const mudou = s.documentos.join("|") !== args.documentos.join("|");
-  const texto = mudou ? textoDaCobranca({ nome: s.lead.name, documentos: s.documentos }) : args.texto;
+  // O dono aprovou ESTA lista e ESTE texto: se as pendências mudaram entre o pedido e a aprovação, não registra outra
+  // coisa — recusa e pede novo preparo (como a PCI com rascunho alterado).
+  if (s.documentos.slice(0, 60).join("|") !== args.documentos.join("|")) {
+    throw new RecusaAcao("A lista de documentos pendentes mudou depois do pedido; nada foi registrado. Peça de novo para eu preparar a cobrança com a lista atual.");
+  }
+  const texto = args.texto;
   const registro = `Cobrança de documentos preparada pela Dolores e aprovada pelo dono em ${dataBr(ctx.agora)}. NÃO foi enviada ao cliente `
     + `(o envio pela Dolores ainda não foi liberado): a equipe envia pelo canal de costume. Pendentes: ${s.documentos.join(", ")}.\n\nTexto preparado:\n${texto}`;
-  const frase = `Cobrança de ${s.lead.name} registrada no histórico (não enviada)${mudou ? "; a lista de pendências mudou e o texto foi refeito" : ""}`;
+  const frase = textoDeDado(`Cobrança de ${s.lead.name} registrada no histórico (não enviada)`, 300);
   const id = await emTransacaoDeEscrita(() => gravarAcompanhamento(ctx, { leadId: s.lead.id, tipo: "note", texto: registro.slice(0, 4000), funcao: "preparar_cobranca", resumo: frase }));
   return {
-    dados: { leadId: s.lead.id, acompanhamentoId: id, enviada: false, listaMudou: mudou, textoPreparado: texto },
-    resumo: { registrada: true, enviada: false, documentos: s.documentos.length, listaMudou: mudou },
+    dados: { leadId: s.lead.id, acompanhamentoId: id, enviada: false, textoPreparado: texto },
+    resumo: { registrada: true, enviada: false, documentos: s.documentos.length },
     feitos: [frase],
   };
 }

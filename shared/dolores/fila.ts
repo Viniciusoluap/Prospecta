@@ -120,7 +120,7 @@ export function primeiroNome(nome: string | null | undefined): string {
  */
 export function textoDaCobranca(p: { nome: string | null; documentos: readonly string[] }): string {
   const nome = primeiroNome(p.nome);
-  const lista = p.documentos.slice(0, 15).map(d => `- ${d}`).join("\n");
+  const lista = p.documentos.slice(0, 15).map(d => `- ${textoDeDado(d, 120)}`).join("\n");
   const resto = p.documentos.length > 15 ? `\n- e mais ${p.documentos.length - 15} documento(s)` : "";
   return `Olá${nome ? `, ${nome}` : ""}! Aqui é da Prospecta Construções. Para darmos andamento ao seu processo, ainda precisamos dos documentos abaixo:\n${lista}${resto}\nPode nos enviar por aqui quando puder? Qualquer dúvida, estamos à disposição.`;
 }
@@ -134,7 +134,8 @@ export type ItemQuadro = { codigo: string; resumo: string; venceEm: Date };
  */
 export function quadroDePendencias(itens: readonly ItemQuadro[], horaDe: (d: Date) => string): string {
   if (!itens.length) return "";
-  const linhas = itens.slice(0, 10).map(i => `- [${i.codigo}] ${i.resumo} (vence ${horaDe(i.venceEm)})`);
+  // o resumo pode trazer dados (nome, documento): uma linha só e sem colchetes — só o sistema escreve "[CÓDIGO]"
+  const linhas = itens.slice(0, 10).map(i => `- [${i.codigo}] ${textoDeDado(i.resumo)} (vence ${horaDe(i.venceEm)})`);
   const mais = itens.length > 10 ? `\n- e mais ${itens.length - 10} item(ns) na tela Integrações › Dolores` : "";
   const exemplo = itens[0].codigo;
   return `*Aguardando a sua aprovação* (nada foi feito ainda):\n${linhas.join("\n")}${mais}\nResponda só "aprovar ${exemplo}" ou "recusar ${exemplo}" (pode pôr vários, separados por espaço).`;
@@ -143,5 +144,5 @@ export function quadroDePendencias(itens: readonly ItemQuadro[], horaDe: (d: Dat
 /** Quadro do que ela já fez direto (tarefas, acompanhamentos), para o dono conferir. */
 export function quadroDoQueFoiFeito(feitos: readonly string[]): string {
   if (!feitos.length) return "";
-  return `*Registrado no sistema por mim* (em nome da usuária Dolores):\n${feitos.slice(0, 10).map(f => `- ${f}`).join("\n")}${feitos.length > 10 ? `\n- e mais ${feitos.length - 10}` : ""}`;
+  return `*Registrado no sistema por mim* (em nome da usuária Dolores):\n${feitos.slice(0, 10).map(f => `- ${textoDeDado(f, 300)}`).join("\n")}${feitos.length > 10 ? `\n- e mais ${feitos.length - 10}` : ""}`;
 }
