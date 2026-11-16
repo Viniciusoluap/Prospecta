@@ -132,6 +132,9 @@ export function fraseDeBloqueio(motivo: MotivoBloqueio, detalhe?: string | null)
 }
 
 export const FRASE_SO_TEXTO = "Dolores: nesta etapa eu só entendo mensagens de texto. Escreva o pedido, por favor. Nada foi consultado.";
+/** Vários comandos no mesmo aviso e o prazo de 60 s acabou antes deste. */
+export const fraseSemTempo = (hora: string) =>
+  `Dolores: recebi vários pedidos juntos e não deu tempo de tratar o de ${hora}. Nada foi consultado; mande de novo, por favor.`;
 export const FRASE_ERRO = "Dolores: tive uma falha ao montar a resposta e parei. Nada foi alterado no sistema; tente de novo em instantes.";
 
 export type Uso = { entrada: number; saida: number };

@@ -14,7 +14,7 @@ import { and, eq, lt, sql } from "drizzle-orm";
 import { doloresMensagens, doloresWhatsappConfig, type DoloresWhatsappConfig, type SituacaoMensagem } from "../../drizzle/schema-dolores-whatsapp.js";
 import { sanitizarTexto } from "../../shared/dolores/sanitizar.js";
 import {
-  FRASE_ERRO, FRASE_SO_TEXTO, MAX_TEXTO_COMANDO, bloqueioDoLimite, cortarResposta, ehNumeroDoDono, fraseDeBloqueio,
+  FRASE_ERRO, FRASE_SO_TEXTO, MAX_TEXTO_COMANDO, fraseSemTempo, bloqueioDoLimite, cortarResposta, ehNumeroDoDono, fraseDeBloqueio,
   lerMensagemEvolution, mascararNumero, mensagemAntiga, mesFortaleza, type MotivoBloqueio,
 } from "../../shared/dolores/whatsapp.js";
 import { configuracaoAnthropicPainel } from "../_core/anthropic-painel.js";
@@ -22,14 +22,20 @@ import { ENV } from "../_core/env.js";
 import { enviarTextoEvolution } from "../_core/evolution.js";
 import { getDb } from "../db.js";
 import { registrarAcao } from "./auditoria.js";
-import { executarComando } from "./cerebro.js";
+import { FOLGA_FINAL_MS, MINIMO_PARA_CHAMAR_MS, executarComando } from "./cerebro.js";
 import { lerConfigWhatsapp, lerPausa, marcarAvisoDoMes, usoDoMes } from "./consumo.js";
 import { DoloresDesativada, idDaDoloresSemCriar, usuarioDolores } from "./perfil.js";
 
 /** Prazo do laço + envio, com folga para os 60 s da função da Vercel. */
 export const PRAZO_TOTAL_MS = 45_000;
-/** Prazo do envio da resposta pela Evolution. */
+/** Prazo máximo de um envio pela Evolution (sempre cortado pelo que resta do prazo total do aviso). */
 const PRAZO_ENVIO_MS = 8_000;
+/** Com menos que isto até o fim do prazo do aviso, não se tenta enviar (o envio não caberia). */
+export const MINIMO_PARA_ENVIAR_MS = 1_500;
+/** Para tratar um comando (laço + envio) é preciso ao menos isto; com menos, só a frase fixa de "mande de novo". */
+export const MINIMO_PARA_COMANDO_MS = MINIMO_PARA_CHAMAR_MS + FOLGA_FINAL_MS + 1_000;
+/** Para a frase fixa de "mande de novo" (registro + envio); com menos, a mensagem nem é reivindicada. */
+export const MINIMO_PARA_RECUSAR_MS = 3_000;
 /** Itens por aviso tratados (a Evolution manda um por vez; lote grande é histórico). */
 const MAX_ITENS = 20;
 const MAX_FALHAS_AUTH = 20;
@@ -60,8 +66,9 @@ const envioPadrao: EnvioWhatsapp = async ({ instancia, numero, texto, prazoMs })
   const comPrazo: typeof fetch = (url, init) => fetch(url, { ...init, signal: AbortSignal.timeout(prazoMs) });
   return Boolean(await enviarTextoEvolution(c, instancia, numero, texto, comPrazo));
 };
-type Dependencias = { agora: () => Date; enviar: EnvioWhatsapp };
-const padrao: Dependencias = { agora: () => new Date(), enviar: envioPadrao };
+/** `agora`: data (mês, idade da mensagem); `ms`: relógio do prazo de 60 s (um só para o aviso inteiro). */
+type Dependencias = { agora: () => Date; enviar: EnvioWhatsapp; ms: () => number };
+const padrao: Dependencias = { agora: () => new Date(), enviar: envioPadrao, ms: () => Date.now() };
 let deps: Dependencias = { ...padrao };
 export function definirDependenciasWhatsapp(d?: Partial<Dependencias>) { deps = d ? { ...deps, ...d } : { ...padrao }; }
 
@@ -86,19 +93,26 @@ async function atualizarMensagem(id: number, dados: Partial<{ situacao: Situacao
  * Resposta ao dono. O destino é o número que acabou de ser conferido como o do dono — e é conferido DE NOVO aqui:
  * nenhum texto (do modelo, de ferramenta ou de mensagem) escolhe para quem a Dolores escreve.
  */
-async function responderAoDono(cfg: DoloresWhatsappConfig, numero: string, texto: string, ctx: { mensagemId: number; autor: number | null; resumo: Record<string, unknown> }) {
+async function responderAoDono(cfg: DoloresWhatsappConfig, numero: string, texto: string, ctx: { mensagemId: number; autor: number | null; resumo: Record<string, unknown>; prazoFinal: number }) {
   if (!ehNumeroDoDono(numero, cfg.numeroDono) || !cfg.instancia) {
     await registrarAcao({ funcao: "whatsapp_resposta", resultado: "recusada", motivo: "destino não é o número do dono", autorUserId: ctx.autor, canal: "whatsapp", pedidoId: `wa:${ctx.mensagemId}` });
     return false;
   }
   const final = cortarResposta(sanitizarTexto(texto));
-  const inicio = Date.now();
+  const resumo = { caracteres: final.length, destino: mascararNumero(numero), ...ctx.resumo };
+  // QA achado 5: o envio cabe no prazo ÚNICO do aviso (nunca 8 s fixos por item além dele).
+  const restante = ctx.prazoFinal - deps.ms();
+  if (restante < MINIMO_PARA_ENVIAR_MS) {
+    await registrarAcao({ funcao: "whatsapp_resposta", resultado: "erro", motivo: "sem tempo para enviar dentro do prazo do aviso", autorUserId: ctx.autor, canal: "whatsapp", pedidoId: `wa:${ctx.mensagemId}`, resumo });
+    return false;
+  }
+  const inicio = deps.ms();
   let ok = false;
   let motivo: string | null = null;
-  try { ok = await deps.enviar({ instancia: cfg.instancia, numero: numero.replace(/\D/g, ""), texto: final, prazoMs: PRAZO_ENVIO_MS }); if (!ok) motivo = "a Evolution não aceitou a mensagem (ou o servidor não está configurado)"; }
+  try { ok = await deps.enviar({ instancia: cfg.instancia, numero: numero.replace(/\D/g, ""), texto: final, prazoMs: Math.min(PRAZO_ENVIO_MS, restante) }); if (!ok) motivo = "a Evolution não aceitou a mensagem (ou o servidor não está configurado)"; }
   catch (e) { motivo = `falha no envio: ${erroCurto(e)}`; }
   await registrarAcao({ funcao: "whatsapp_resposta", resultado: ok ? "ok" : "erro", motivo, autorUserId: ctx.autor, canal: "whatsapp", pedidoId: `wa:${ctx.mensagemId}`,
-    duracaoMs: Date.now() - inicio, resumo: { caracteres: final.length, destino: mascararNumero(numero), ...ctx.resumo } });
+    duracaoMs: deps.ms() - inicio, resumo });
   return ok;
 }
 
@@ -130,7 +144,7 @@ async function tratarComando(cfg: DoloresWhatsappConfig, msg: { id: number; nume
   await registrarAcao({ funcao: "whatsapp_mensagem", resultado: "ok", motivo: "comando do dono", autorUserId: autor, canal: "whatsapp", pedidoId: `wa:${msg.id}`,
     resumo: { caracteres: msg.texto.length, midia: msg.temMidia } });
   if (!msg.texto) {
-    await responderAoDono(cfg, msg.numero, FRASE_SO_TEXTO, { mensagemId: msg.id, autor, resumo: { bloqueio: "so_texto" } });
+    await responderAoDono(cfg, msg.numero, FRASE_SO_TEXTO, { mensagemId: msg.id, autor, resumo: { bloqueio: "so_texto" }, prazoFinal });
     await atualizarMensagem(msg.id, { situacao: "bloqueada", motivo: "sem texto", respondidaEm: deps.agora() });
     return "so-texto";
   }
@@ -144,25 +158,25 @@ async function tratarComando(cfg: DoloresWhatsappConfig, msg: { id: number; nume
       const uso = await usoDoMes(mes);
       frase += ` Uso do mês ${mes}: ${uso.entrada.toLocaleString("pt-BR")} tokens de entrada (limite ${cfg.limiteMensalTokensEntrada.toLocaleString("pt-BR")}) e ${uso.saida.toLocaleString("pt-BR")} de saída (limite ${cfg.limiteMensalTokensSaida.toLocaleString("pt-BR")}).`;
     }
-    await responderAoDono(cfg, msg.numero, frase, { mensagemId: msg.id, autor, resumo: { bloqueio: estado.motivo } });
+    await responderAoDono(cfg, msg.numero, frase, { mensagemId: msg.id, autor, resumo: { bloqueio: estado.motivo }, prazoFinal });
     await atualizarMensagem(msg.id, { situacao: "bloqueada", motivo: estado.motivo, respondidaEm: deps.agora() });
     return `bloqueada:${estado.motivo}`;
   }
   autor = estado.autor;
   try {
     const r = await executarComando({
-      comando: msg.texto, mensagemId: msg.id, apiKey: estado.apiKey, modelo: estado.modelo, mes, prazoFinal,
+      comando: msg.texto, mensagemId: msg.id, apiKey: estado.apiKey, modelo: estado.modelo, mes, prazoFinal, relogio: deps.ms,
       limites: { entrada: cfg.limiteMensalTokensEntrada, saida: cfg.limiteMensalTokensSaida },
     });
     let texto = r.texto;
     if (r.parou === "limite_mensal" && (await marcarAvisoDoMes(mes).catch(() => false))) texto += `\n\n${fraseDeBloqueio("limite_mensal")}`;
-    const ok = await responderAoDono(cfg, msg.numero, texto, { mensagemId: msg.id, autor, resumo: { voltas: r.voltas, consultas: r.consultas.length, parou: r.parou, tokensEntrada: r.tokens.entrada, tokensSaida: r.tokens.saida } });
+    const ok = await responderAoDono(cfg, msg.numero, texto, { mensagemId: msg.id, autor, resumo: { voltas: r.voltas, consultas: r.consultas.length, parou: r.parou, tokensEntrada: r.tokens.entrada, tokensSaida: r.tokens.saida }, prazoFinal });
     await atualizarMensagem(msg.id, { situacao: ok ? "respondida" : "erro", motivo: r.parou ?? (ok ? null : "envio falhou"), respondidaEm: deps.agora(), voltas: r.voltas, tokensEntrada: r.tokens.entrada, tokensSaida: r.tokens.saida });
     return ok ? "respondida" : "erro-envio";
   } catch (e) {
     console.error("[dolores/whatsapp] falha no laço", erroCurto(e));
     await registrarAcao({ funcao: "whatsapp_mensagem", resultado: "erro", motivo: erroCurto(e), autorUserId: autor, canal: "whatsapp", pedidoId: `wa:${msg.id}` });
-    await responderAoDono(cfg, msg.numero, FRASE_ERRO, { mensagemId: msg.id, autor, resumo: { erro: true } });
+    await responderAoDono(cfg, msg.numero, FRASE_ERRO, { mensagemId: msg.id, autor, resumo: { erro: true }, prazoFinal });
     await atualizarMensagem(msg.id, { situacao: "erro", motivo: erroCurto(e), respondidaEm: deps.agora() });
     return "erro";
   }
@@ -177,7 +191,7 @@ const horaFortaleza = (d: Date) => new Date(d.getTime() - 3 * 60 * 60_000).toISO
  * dono recebe UMA mensagem fixa pedindo para mandar de novo. O pedido não é refeito (nada de gasto em dobro) e a reserva
  * do limite é solta.
  */
-async function recuperarPedidosInterrompidos(cfg: DoloresWhatsappConfig, autor: number | null): Promise<number> {
+async function recuperarPedidosInterrompidos(cfg: DoloresWhatsappConfig, autor: number | null, prazoFinal: number): Promise<number> {
   if (!cfg.instancia || !cfg.numeroDono) return 0;
   let vencidas: Array<{ id: number; enviadaEm: Date | null; criadoEm: Date }>;
   try {
@@ -196,7 +210,7 @@ async function recuperarPedidosInterrompidos(cfg: DoloresWhatsappConfig, autor: 
   const texto = horas.length === 1
     ? `Dolores: não consegui terminar o pedido de ${horas[0]}. Nada foi alterado no sistema; mande de novo, por favor.`
     : `Dolores: não consegui terminar os pedidos de ${horas.join(", ")}. Nada foi alterado no sistema; mande de novo, por favor.`;
-  await responderAoDono(cfg, cfg.numeroDono, texto, { mensagemId: vencidas[0].id, autor, resumo: { interrompidos: vencidas.length } });
+  await responderAoDono(cfg, cfg.numeroDono, texto, { mensagemId: vencidas[0].id, autor, resumo: { interrompidos: vencidas.length }, prazoFinal });
   return vencidas.length;
 }
 
@@ -204,7 +218,7 @@ export type RespostaWebhook = { status: number; body: Record<string, unknown> };
 type Pedido = Pick<Request, "headers" | "body" | "ip">;
 
 export async function tratarWebhookDolores(req: Pedido): Promise<RespostaWebhook> {
-  const inicio = Date.now();
+  const inicio = deps.ms();
   const agora = deps.agora();
   if (!ENV.cookieSecret) { console.warn("[dolores/whatsapp] aviso recusado: segredo do servidor ausente"); return { status: 503, body: { ok: false } }; }
   if (!segredoConfere(req.headers["x-webhook-token"])) {
@@ -232,13 +246,15 @@ export async function tratarWebhookDolores(req: Pedido): Promise<RespostaWebhook
   const contagem: Record<string, number> = {};
   const contar = (k: string) => { contagem[k] = (contagem[k] ?? 0) + 1; };
   const autor = await idDaDoloresSemCriar().catch(() => null);
-  const interrompidos = await recuperarPedidosInterrompidos(cfg, autor);
+  const interrompidos = await recuperarPedidosInterrompidos(cfg, autor, prazoFinal);
   if (interrompidos) contagem.interrompida = interrompidos;
   for (const item of itens) {
     const m = lerMensagemEvolution(item);
     if (m.tipo === "ignorar") { contar(m.motivo); continue; }
     if (mensagemAntiga(m.enviadaEm, deps.agora())) { contar("antiga"); continue; }
     const doDono = ehNumeroDoDono(m.numero, cfg.numeroDono);
+    // QA achado 5: um prazo só para o aviso inteiro. Sem tempo nem para a frase fixa, a mensagem nem é reivindicada.
+    if (doDono && prazoFinal - deps.ms() < MINIMO_PARA_RECUSAR_MS) { contar("sem-tempo"); continue; }
     // Reivindica a mensagem: só quem gravar primeiro trata (reentrega e avisos paralelos não duplicam resposta nem gasto).
     let id: number | null = null;
     try {
@@ -257,6 +273,13 @@ export async function tratarWebhookDolores(req: Pedido): Promise<RespostaWebhook
       await registrarAcao({ funcao: "whatsapp_mensagem", resultado: "recusada", motivo: m.numero ? "remetente não autorizado (não é o número do dono); sem resposta" : "remetente sem número conferível; sem resposta",
         autorUserId: autor, canal: "whatsapp", pedidoId: `wa:${id}`, resumo: { remetente: m.numero ? mascararNumero(m.numero) : null, caracteres: m.texto.length } });
       contar("nao-autorizado"); continue;
+    }
+    if (prazoFinal - deps.ms() < MINIMO_PARA_COMANDO_MS) {
+      // vários comandos no mesmo aviso: este não cabe mais no prazo — frase fixa, sem IA
+      const hora = horaFortaleza(m.enviadaEm ?? deps.agora());
+      await responderAoDono(cfg, m.numero!, fraseSemTempo(hora), { mensagemId: id, autor, resumo: { bloqueio: "sem_tempo" }, prazoFinal });
+      await atualizarMensagem(id, { situacao: "bloqueada", motivo: "sem tempo no prazo do aviso", respondidaEm: deps.agora() });
+      contar("sem-tempo"); continue;
     }
     contar(await tratarComando(cfg, { id, numero: m.numero!, texto: m.texto, temMidia: m.temMidia }, prazoFinal, autor));
   }

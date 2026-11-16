@@ -81,6 +81,8 @@ export type PedidoComando = {
   comando: string; mensagemId: number; apiKey: string; modelo: string; limites: Limites; mes: string;
   /** Instante (ms) em que tudo — laço e envio — precisa ter terminado. */
   prazoFinal: number;
+  /** Relógio do prazo (o mesmo do aviso inteiro); padrão Date.now. */
+  relogio?: () => number;
 };
 
 const usoDe = (r: RespostaModelo): UsoDaChamada => ({
@@ -100,7 +102,8 @@ export async function executarComando(p: PedidoComando): Promise<ResultadoComand
   let parou: MotivoParada | null = null;
   let ultimoTexto = "";
   let final: string | null = null;
-  const restante = () => p.prazoFinal - Date.now() - FOLGA_FINAL_MS;
+  const relogio = p.relogio ?? Date.now;
+  const restante = () => p.prazoFinal - relogio() - FOLGA_FINAL_MS;
 
   let ultimaEntrada = 0;
   /** Reserva o limite mensal sob trava antes da chamada; bloqueado → para com "limite_mensal". */

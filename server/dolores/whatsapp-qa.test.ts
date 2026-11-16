@@ -171,3 +171,46 @@ describe("QA achado 4 — pedido que ficou 'processando' (função morreu no mei
     expect(enviar).toHaveBeenCalledTimes(1);
   });
 });
+
+describe("QA achado 5 — um prazo só para o aviso inteiro (vários comandos no mesmo aviso)", () => {
+  it("20 comandos do dono num aviso: modelo e envios (no pior caso, cada um gasta o prazo inteiro) nunca passam de 45 s", async () => {
+    const { PRAZO_TOTAL_MS } = await import("./whatsapp.js");
+    let t = 1_000_000; // relógio falso do prazo
+    const inicio = t;
+    const limite = inicio + PRAZO_TOTAL_MS;
+    const estouros: string[] = [];
+    roteiro = p => {
+      if (t + p.timeoutMs > limite) estouros.push(`modelo ${t - inicio}+${p.timeoutMs}`);
+      t += 5_000; // cada chamada leva 5 s
+      return fim("ok");
+    };
+    const envios: Array<{ em: number; prazoMs: number }> = [];
+    enviar = vi.fn(async ({ prazoMs }: { prazoMs: number }) => {
+      envios.push({ em: t - inicio, prazoMs });
+      if (prazoMs <= 0 || t + prazoMs > limite) estouros.push(`envio ${t - inicio}+${prazoMs}`);
+      t += prazoMs; // pior caso: o envio usa o prazo inteiro
+      return true;
+    });
+    definirDependenciasWhatsapp({ agora: () => AGORA, enviar: enviar as never, ms: () => t });
+    const r = await chamar(lote(...Array.from({ length: 20 }, (_, i) => aviso({ id: `L${i}`, texto: `pedido ${i}` }))));
+    expect(estouros).toEqual([]);
+    expect(t).toBeLessThanOrEqual(limite);
+    const c = r.body.r as Record<string, number>;
+    expect(c.respondida).toBeGreaterThanOrEqual(1);
+    expect((c.respondida ?? 0) + (c["sem-tempo"] ?? 0)).toBe(20);
+    // os que não couberam: frase fixa sem IA (quando ainda dava para enviar) ou nem reivindicados
+    expect(enviar.mock.calls.some(x => /não deu tempo de tratar o de 08:59/.test(x[0].texto))).toBe(true);
+    const situacoes = await q<{ situacao: string; n: number }>("SELECT situacao, count(*)::int AS n FROM dolores_mensagens GROUP BY 1 ORDER BY 1");
+    expect(situacoes.every(s => ["respondida", "bloqueada"].includes(s.situacao))).toBe(true);
+    expect(chamadas.length).toBe(c.respondida);
+  });
+  it("sem tempo para enviar, não envia (registra o erro) — nunca começa um envio que passaria do prazo", async () => {
+    let t = 0;
+    roteiro = () => { t += 44_000; return fim("ok"); };
+    definirDependenciasWhatsapp({ agora: () => AGORA, enviar: enviar as never, ms: () => t });
+    await chamar(aviso());
+    expect(enviar).not.toHaveBeenCalled();
+    const a = (await acoes()).find(x => x.funcao === "whatsapp_resposta");
+    expect(a).toMatchObject({ resultado: "erro", motivo: "sem tempo para enviar dentro do prazo do aviso" });
+  });
+});
