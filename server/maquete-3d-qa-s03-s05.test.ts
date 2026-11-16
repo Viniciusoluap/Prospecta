@@ -532,3 +532,33 @@ describe("QA S-03/S-05 rodada 2 — funções puras", () => {
     expect(tipoDoErroIA(new Error("qualquer"))).toBeNull();
   });
 });
+
+describe("QA S-03/S-05 rodada 2 — leitura e importação (banco em memória)", () => {
+  beforeEach(async () => { await preparar(await criarBanco()); });
+  afterEach(async () => { definirDependencias(); await banco.pg.close(); });
+
+  /** Grava o passo da IA como "executando" com a reserva em `reservadoEm` (simula outra instância no meio da chamada). */
+  async function reservaGravada(id: number, reservadoEm: string) {
+    const estado = lerEstadoLeitura((await banco.pg.query<{ leitura: string }>(`SELECT leitura FROM maquetes_3d WHERE id = $1`, [id])).rows[0].leitura);
+    Object.assign(estado.passos.find(p => p.tipo === "prancha_ia")!, { estado: "executando", reservadoEm });
+    estado.confirmacaoIA!.usadas = 1;
+    await banco.pg.query(`UPDATE maquetes_3d SET leitura = $1, ia_pranchas_lidas = 1 WHERE id = $2`, [JSON.stringify(estado), id]);
+  }
+
+  it("N3: reserva com data à frente do relógio (instância adiantada) não prende o passo; dentro da tolerância, segue em curso", async () => {
+    await configurar({ motor: "hibrido" });
+    credencial = PAINEL;
+    const id = await pedido([IMG]);
+    await colaborador().iniciarLeitura({ id });
+    await ler(id);
+    await admin().confirmarIA({ id });
+    await reservaGravada(id, new Date(relogio.getTime() + 3_000).toISOString());
+    expect((await colaborador().avancarLeitura({ id })).aguardando?.motivo).toBe("executando");
+    await reservaGravada(id, "2099-01-01T00:00:00.000Z");
+    const r = await colaborador().avancarLeitura({ id });
+    expect(r.aguardando).toBeNull();
+    expect(r.erro).toContain("foi interrompida antes de terminar");
+    expect(r.erro).not.toContain("página foi fechada");
+    expect(pedidos).toHaveLength(0);
+  });
+});

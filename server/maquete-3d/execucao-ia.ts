@@ -126,12 +126,20 @@ export function devolverReserva(x: Execucao, estado: EstadoLeitura): void {
   x.iaLidas = Math.max(0, x.iaLidas - 1);
 }
 
-/** Passo "executando": recente, é outra aba lendo (não faz nada); velho, foi interrompido e vira erro (a chamada conta como usada). */
+/** Tolerância para a diferença de relógio entre instâncias do servidor. */
+export const TOLERANCIA_RELOGIO_MS = 5_000;
+
+/**
+ * Passo "executando": recente, é outra aba lendo (não faz nada); velho, foi interrompido e vira erro (a chamada conta
+ * como usada). Data sem sentido ou à frente do relógio além da tolerância (instância com o relógio adiantado) também
+ * é reserva vencida: o passo nunca fica preso até uma data do futuro (QA rodada 2, N3).
+ */
 export function reservaVencida(passo: PassoLeitura): boolean {
   const em = passo.reservadoEm ? Date.parse(passo.reservadoEm) : NaN;
-  return !Number.isFinite(em) || agora().getTime() - em > LIMITE_RESERVA_MS;
+  const decorrido = agora().getTime() - em;
+  return !Number.isFinite(em) || decorrido > LIMITE_RESERVA_MS || decorrido < -TOLERANCIA_RELOGIO_MS;
 }
-export const MENSAGEM_INTERROMPIDA = "A leitura deste passo pela IA foi interrompida (a página foi fechada ou o servidor passou do tempo). A chamada pode ter sido cobrada e conta como usada; tente de novo este passo.";
+export const MENSAGEM_INTERROMPIDA = "A leitura deste passo pela IA foi interrompida antes de terminar. A chamada pode ter sido cobrada e conta como usada; tente de novo este passo.";
 export const MENSAGEM_EM_CURSO = "Este passo já está sendo lido pela IA em outra aba ou janela. Aguarde alguns segundos e continue.";
 
 /**
