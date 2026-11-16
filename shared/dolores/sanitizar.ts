@@ -242,6 +242,7 @@ const CONTEXTO_TELEFONE = /\b(?:tel(?:efone)?s?|fones?|cel|celular(?:es)?|whats\
 /** Unidade logo depois: é medida, não documento nem telefone. */
 const UNIDADE_DEPOIS = /^\s?(?:m²|m2|cm²|cm2|km²|km2|m³|m3|ha|metros|km|kg|toneladas|litros|un\b|unidades|reais|centavos)/i;
 const ANO = /^(?:19|20)\d\d$/;
+const ANO_ATUAL = new Date().getFullYear();
 
 type Grupo = { inicio: number; fim: number; digitos: string };
 type Achado = { tipo: "cpf" | "cnpj" | "celular" | "fixo" | "duvida"; };
@@ -251,7 +252,8 @@ const FORMAS_CPF = new Set(["11", "9,2", "3,3,3,2", "3,3,5", "3,8"]);
 const FORMAS_CNPJ = new Set(["14", "12,2", "8,6", "8,4,2", "2,3,3,4,2", "2,3,3,6", "2,6,4,2", "2,3,3,4,1,1"]);
 
 /** Telefone brasileiro plausível nos grupos (já sem barra entre eles). */
-function telefone(gs: Grupo[], ligacoes: string[], maisAntes: boolean, contextoTel: () => boolean): "celular" | "fixo" | null {
+function telefone(gs: Grupo[], ligacoes: string[], maisAntes: boolean, contextoTel: () => boolean, contextoLinha = contextoTel,
+  isolado: () => boolean = () => true): "celular" | "fixo" | null {
   if (ligacoes.some(l => /[/|]/.test(l)) && !contextoTel()) return null;
   let g = gs.map(x => x.digitos);
   let ddi = maisAntes;
@@ -278,8 +280,13 @@ function telefone(gs: Grupo[], ligacoes: string[], maisAntes: boolean, contextoT
   if (d.length === 8 && /[2-9]/.test(d[0])) {
     // QA r3 R1: 8 dígitos começando com 6–9 é celular antigo (sem o 9 na frente): sai sempre, como celular.
     const tipo = /[6-9]/.test(d[0]) ? "celular" : "fixo";
-    if (n === 1) return contextoTel() ? tipo : null; // "fone 35234567"; sem palavra de telefone, 8 dígitos colados ficam
-    if (g.every(x => ANO.test(x)) && !contextoTel()) return null; // "2024-2026", "anos 2024 2025"
+    // "fone 35234567"; sem palavra de telefone, 8 dígitos colados ficam. QA r6 (F): a palavra de telefone vale na LINHA
+    // inteira ("fones: 9123-4567, …, 35234567" a mais de 50 caracteres do rótulo)
+    if (n === 1) return contextoTel() || contextoLinha() ? tipo : null;
+    // "2024-2026", "anos 2024 2025": par de anos plausível, em ordem crescente (QA r6 F: "2038-1965", "2097-2027" e
+    // "2020 2061" são telefones; a main os mascarava)
+    // e só quando o par está sozinho, sem número logo antes nem logo depois (numa lista de telefones, "2003 2034" é fixo)
+    if (g.every(x => ANO.test(x)) && Number(g[0]) <= Number(g[1]) && Number(g[1]) <= ANO_ATUAL + 30 && !contextoTel() && isolado()) return null;
     return tamanhos.join(",") === "4,4" || tamanhos.join(",") === "1,3,4" ? tipo : null;
   }
   return null;
@@ -302,8 +309,20 @@ function classificar(gs: Grupo[], ligacoes: string[], texto: string, sozinho: bo
   // o contexto só é calculado quando decide (texto patológico com milhares de grupos não paga as regex à toa)
   let ctx: boolean | undefined;
   const contextoTelDe = () => (ctx ??= CONTEXTO_TELEFONE.test(antes));
-  const tel = telefone(gs, ligacoes, maisAntes, contextoTelDe);
+  const contextoLinha = () => contextoTelDe()
+    || CONTEXTO_TELEFONE.test(texto.slice(Math.max(0, inicio - 200), inicio).split("\n").pop()!);
+  // QA r6 (F): sem outro número logo antes ou logo depois, na mesma linha (lista de telefones separada por vírgula,
+  // espaço, "|", "-", "/" ou "("); um marcador já posto (CPF/CNPJ formatado, e-mail) conta como número
+  const isolado = () => sozinho && !/(?:\d|\])[\s,;|\-/()+]{0,4}$/.test(texto.slice(Math.max(0, inicio - 6), inicio))
+    && !/^[\s,;|\-/()+]{0,4}(?:\d|\[(?:dado|senha))/.test(texto.slice(fim, fim + 12));
+  const tel = telefone(gs, ligacoes, maisAntes, contextoTelDe, contextoLinha, isolado);
   const unicaInteira = sozinho && gs.length === 1;
+  // QA r6 N3: "0" + DDD + número em 11 dígitos colados (telefone com o 0 da operadora), mesmo no meio de uma cadeia —
+  // a main mascarava como dúvida; só rótulo de documento logo antes livra
+  if (gs.length === 1 && /^0[1-9][1-9][2-9]\d{7}$/.test(d)) {
+    const rotuloDoc = !CONTEXTO_TELEFONE.test(antes) && CONTEXTO_NAO_PESSOAL.test(antes.replace(/[(+\s]+$/, " "));
+    if (!rotuloDoc) return { tipo: "duvida" };
+  }
   if (tel === null && !sozinho) return null;
   const contextoTel = contextoTelDe();
   const depois = texto.slice(fim, fim + 12);
@@ -329,7 +348,10 @@ function classificar(gs: Grupo[], ligacoes: string[], texto: string, sozinho: bo
       // QA r4 S4: par 4-4 sem DDD com rótulo de quantidade/valor/faixa, ou faixa crescente "2500-3000" (terminando em 00)
       if (ROTULO_QUANTIDADE.test(antesLimpo)) return null;
       const [a, b] = gs.map(g => g.digitos);
-      if (/^\s?-\s?$/.test(ligacoes[0]) && a.endsWith("00") && b.endsWith("00") && Number(b) > Number(a)) return null;
+      // QA r6 (F): a faixa só fica sozinha e com palavra de faixa logo antes ("entre 2500-3000", "de 2500-3000") — numa
+      // lista de números ou depois de "vizinhos:", "3800-6600" é telefone
+      if (/^\s?-\s?$/.test(ligacoes[0]) && a.endsWith("00") && b.endsWith("00") && Number(b) > Number(a) && isolado()
+        && /\b(?:entre|de|da|até|cerca\s+de|aprox\.?|aproximadamente)\s*$/i.test(antesLimpo)) return null;
       if (lista >= 0) {
         const antesDaLista = texto.slice(Math.max(0, lista - 50), lista);
         if (!CONTEXTO_TELEFONE.test(antesDaLista)) {
@@ -550,19 +572,24 @@ function mascararCadeias(texto: string): string {
         while (i <= ate) {
           const achado = achar(i, i, ate);
           if (!achado) { i++; continue; }
-          let achou = achado.j, tipo = achado.tipo;
+          let achou = achado.j, tipo = achado.tipo, origem = i;
           // QA r5 F4: a janela que começa antes engolia o grupo anterior ("dia 15/11/2026 9123-4567" → "2026 9123" fixo) e
           // deixava a cauda à vista. Testa as janelas que começam dentro e passam do fim: se a de dentro é fase 1 e a de
           // antes não (ou a de antes começa num ano), a de dentro vira um achado à parte; senão, sai a união.
           // QA r6 N1: ao passar para a janela de dentro, o que veio ANTES dela é varrido de novo como trecho próprio — um
           // fixo inteiro antes ("fone 3523 4567 9123 4567") continua sendo achado; só o que não é nada (ano, data) fica.
+          // O pulo por causa do ano não varre na hora (o ano fica); se depois vier uma janela forte, varre desde a
+          // `origem` — "2080 5591 6820 6569": "2080" parecia ano, mas "2080 5591" é um fixo inteiro.
           for (let k = i + 1; k <= achou; k++) {
             const outro = achar(k, achou + 1, ate);
             if (!outro) continue;
-            if (!forte(tipo) && (forte(outro.tipo) || ANO.test(c[i].digitos))) { varrer(i, k - 1); i = k; tipo = outro.tipo; }
+            if (!forte(tipo) && forte(outro.tipo)) { varrer(origem, k - 1); i = origem = k; tipo = outro.tipo; }
+            else if (!forte(tipo) && ANO.test(c[i].digitos)) { i = k; tipo = outro.tipo; }
             else if (forte(outro.tipo)) tipo = outro.tipo;
             achou = outro.j;
           }
+          // os grupos pulados por parecerem ano ("2033-2005" depois de dois pulos) são varridos de novo
+          if (origem < i) varrer(origem, i - 1);
           emitir(i, achou);
           i = achou + 1;
         }

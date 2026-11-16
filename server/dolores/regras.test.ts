@@ -444,6 +444,153 @@ describe("filtro de dados pessoais em texto livre (M1)", () => {
     for (const t of ["ação@", "café com leite", "a arroba de café, ponto", "protocolo 012345678901"]) expect(sanitizarTexto(t), t).toBe(t);
   });
 
+  it("QA r6 N1: fixo antes da janela de dentro continua sendo achado (listas de telefones de 8 dígitos)", () => {
+    for (const c of ["fone 3523 4567 9123 4567", "fones 3523-4567 3344-5566 9123-4567", "lote 12 3523 4567 9123 4567",
+      "fones 2814 1021 2752 2541 9164 6526", "fone 3523 4567 3344 5566 9123 4567", "dia 15/11/2026 3523 4567 9123 4567",
+      "vizinhos: 4324 2019  9911 1390  6559 3556  4467 1344", "fones 5360 4302 - 4648 9235 - 4402 4688"]) {
+      const r = sanitizarTexto(c);
+      for (const n of ["3523 4567", "3523-4567", "3344-5566", "3344 5566", "2814 1021", "2752 2541", "4324 2019", "5360 4302", "4648 9235", "4402 4688"])
+        expect(r, `${c} → ${r}`).not.toContain(n);
+    }
+    // a data e o ano antes continuam à vista
+    expect(sanitizarTexto("dia 15/11/2026 3523 4567 9123 4567")).toBe(`dia 15/11/2026 ${OMITIDO_T} ${OMITIDO_T}`);
+    expect(sanitizarTexto("2026 3523 4567 9123 4567")).toBe(`2026 ${OMITIDO_T} ${OMITIDO_T}`);
+  });
+
+  it("QA r6 N2–N5: documento só fica com rótulo + forma + estrutura; listas de celulares/CPFs/telefones nunca", () => {
+    const n2 = ["Compradores:\n81999960283 9\n11693973103 0\n83982671550 4\n07725071202 2", "81999960283 9 11693973103 0 83982671550 4 07725071202 2",
+      "IPTU 81999960283 9 11693973103 0 83982671550 4 07725071202 2", "IPTU 81999960283.9 11693973103.0 83982671550.4 07725071202.2"];
+    for (const c of n2) {
+      const r = sanitizarTexto(c);
+      for (const n of ["81999960283", "11693973103", "83982671550", "07725071202"]) expect(r, `${c} → ${r}`).not.toContain(n);
+    }
+    // N3: boleto "10 11 11 1 14" com 0+DDD+fixo nos campos 2/3 e CNPJ no campo 5 — com ou sem rótulo
+    for (const c of ["6229171407 09345860911 08251955996 1 35589990059108", "boleto 6229171407 09345860911 08251955996 1 35589990059108",
+      "Contatos 6229171407 09345860911 08251955996 1 35589990059108"]) {
+      const r = sanitizarTexto(c);
+      for (const n of ["09345860911", "08251955996", "35589990059108"]) expect(r, `${c} → ${r}`).not.toContain(n);
+    }
+    // N4: sem rótulo de NF-e, "Vizinhos: …" segue a fase 1/2b — o celular 9164 6526 e os fixos saem
+    const viz = sanitizarTexto("Vizinhos: 2814 1021 2752 2541 9164 6526 2484 2059 2135 4620 6045 7581");
+    expect(viz).not.toMatch(/9164|6526|2814 1021/);
+    // N5: linha digitável pontuada quebrada em 2 linhas e chave 11×4 com 2 espaços, com rótulo, ficam
+    for (const t of ["boleto 23793.38128 60000.000004\n00000.000406 1 84340000010000", "linha digitável:\n23793.38128 60000.000004 00000.000406\n1 84340000010000",
+      "chave de acesso 3526  1112  3456  7800  0195  5500  1000  0012  3410  0001  2346", "NF-e 3526   1112   3456   7800   0195   5500   1000   0012   3410   0001   2346"])
+      expect(sanitizarTexto(t), t).toBe(t);
+    // ...mas não duas quebras de linha, nem a forma sem pontos em 2 linhas, nem chave com separadores misturados
+    for (const t of ["boleto 23793.38128\n60000.000004\n00000.000406 1 84340000010000", "boleto 2379338128 60000000004\n00000000406 1 84340000010000",
+      "chave 3526 1112  3456 7800 0195 5500 1000 0012 3410 0001 2346"]) expect(sanitizarTexto(t), t).not.toBe(t);
+    // ano fora do plausível ou UF fora da lista do IBGE: a chave (DV certo) não isenta
+    const dv = (d43: string) => { let t = 0, p = 2; for (let k = 42; k >= 0; k--) { t += Number(d43[k]) * p; p = p === 9 ? 2 : p + 1; } const r = t % 11; return d43 + (r < 2 ? 0 : 11 - r); };
+    for (const chave of [dv("3599111234567800019555001000001234100001234"), dv("1926111234567800019555001000001234100001234")])
+      expect(sanitizarTexto(`chave ${chave.match(/\d{4}/g)!.join(" ")}`)).toBe(`chave ${OMITIDO_T}`);
+  });
+
+  it("QA r6 F: fuzz determinístico — nenhum celular/CPF/CNPJ inteiro; fixo com palavra de telefone sai; nunca pior que a main", () => {
+    // Detecção da main (origin/main, shared/dolores/sanitizar.ts) copiada AQUI, só para comparar — não é código de produção.
+    const cnpjOk = (d: string) => {
+      if (d.length !== 14 || /^(\d)\1+$/.test(d)) return false;
+      const dvc = (base: string, pesos: number[]) => { const t = pesos.reduce((a, p, i) => a + Number(base[i]) * p, 0) % 11; return t < 2 ? 0 : 11 - t; };
+      const p1 = [5, 4, 3, 2, 9, 8, 7, 6, 5, 4, 3, 2];
+      return dvc(d, p1) === Number(d[12]) && dvc(d, [6, ...p1]) === Number(d[13]);
+    };
+    const cpfOk = (d: string) => {
+      if (d.length !== 11 || /^(\d)\1+$/.test(d)) return false;
+      const dvc = (n: number) => { let t = 0; for (let i = 0; i < n; i++) t += Number(d[i]) * (n + 1 - i); const r = (t * 10) % 11; return r === 10 ? 0 : r; };
+      return dvc(9) === Number(d[9]) && dvc(10) === Number(d[10]);
+    };
+    const daMain = (texto: string): string => {
+      if (!texto || !/[\d@]|senha|password|passwd|c[oó]digo|token|\bpin\b/i.test(texto)) return texto;
+      return texto
+        .replace(/\b(senhas?|password|passwd|c[oó]digos?|token|pin)\b.*?(?=[;\n]|[.,!?](?:\s|$)|$)/gi, (_m, w: string) => `${w} [senha omitida]`)
+        .replace(/\b(ag[eê]ncia|ag\.?|conta(?:\s+corrente|\s+poupan[cç]a)?|c\/c|cc|chave\s+pix|pix)\b(\s*(?:n[ºo°.]?|:|#|-)?\s*)((?=[^\s]*[\d@])[\w.@+\-/]+)/gi,
+          (_m, r: string, sp: string) => `${r}${sp}[dado bancário omitido]`)
+        .replace(/[\w.+-]+@[\w-]+(?:\.[\w-]+)+/g, OMITIDO_T)
+        .replace(/(?<!\d)\d{2}\.\d{3}\.\d{3}\/\d{4}-?\d{2}(?!\d)/g, OMITIDO_T)
+        .replace(/(?<!\d)\d{3}[.,]\d{3}[.,]\d{3}[-.]?\d{2}(?!\d)/g, OMITIDO_T)
+        .replace(/(?<![\d/])\(?\d{2}\)?[\s-]9\d{8}(?![\d/])/g, OMITIDO_T)
+        .replace(/(?<![\d/])(?:\+?55[\s-]?)?(?:\(?\d{2}\)?[\s-]?)?9?\d{4}[\s-]\d{4}(?![\d/])/g, OMITIDO_T)
+        .replace(/(?<![\d.,/-])\d{10,14}(?![\d.,/-])/g, d => {
+          if (d.length === 11) return OMITIDO_T;
+          if (d.length === 14) return cnpjOk(d) ? OMITIDO_T : d;
+          if (d.length === 10 || ((d.length === 12 || d.length === 13) && d.startsWith("55"))) return OMITIDO_T;
+          return cpfOk(d) ? OMITIDO_T : d;
+        });
+    };
+    // semente fixa (determinístico); FUZZ_SEMENTE/FUZZ_CASOS só para rodadas extras à mão
+    let semente = Number(process.env.FUZZ_SEMENTE ?? 20261116);
+    const TOTAL = Number(process.env.FUZZ_CASOS ?? 50_000);
+    const rnd = () => { semente = (semente + 0x6D2B79F5) >>> 0; let t = semente; t = Math.imul(t ^ (t >>> 15), t | 1); t ^= t + Math.imul(t ^ (t >>> 7), t | 61); return ((t ^ (t >>> 14)) >>> 0) / 4294967296; };
+    const ri = (n: number) => Math.floor(rnd() * n);
+    const um = <T,>(xs: readonly T[]) => xs[ri(xs.length)];
+    const digs = (n: number) => Array.from({ length: n }, () => ri(10)).join("");
+    const ddd = () => String(1 + ri(9)) + String(1 + ri(9));
+    const cpf = () => { for (;;) { const b = digs(9); const dvc = (x: string) => { let t = 0; for (let i = 0; i < x.length; i++) t += Number(x[i]) * (x.length + 1 - i); const r = (t * 10) % 11; return r === 10 ? 0 : r; }; const d1 = dvc(b); const c = b + d1 + dvc(b + d1); if (cpfOk(c)) return c; } };
+    const cnpj = () => { for (;;) { const b = digs(12); const dvc = (x: string, p: number[]) => { const t = p.reduce((a, q, i) => a + Number(x[i]) * q, 0) % 11; return t < 2 ? 0 : 11 - t; }; const p1 = [5, 4, 3, 2, 9, 8, 7, 6, 5, 4, 3, 2]; const d1 = dvc(b, p1); const c = b + d1 + dvc(b + d1, [6, ...p1]); if (cnpjOk(c)) return c; } };
+    type Tipo = "cel11" | "cel10" | "cel9" | "cel8" | "fixo8" | "fixo10" | "cpf" | "cnpj";
+    const TIPOS: Tipo[] = ["cel11", "cel10", "cel9", "cel8", "fixo8", "fixo10", "cpf", "cnpj"];
+    const ROTULOS_TEL = ["fone ", "fones: ", "contatos: ", "tel ", "whats "];
+    const ROTULOS = ["", "compradores:\n", "Compradores: ", "vizinhos: ", "lote 12 ", "lote ", "nota ", "chave ", "chave de acesso ", "boleto ", "guia ",
+      "IPTU ", "Ref. ", "DANFE ", "linha digitável ", ...ROTULOS_TEL];
+    const LIVRA_FIXO = new Set(["lote ", "boleto ", "guia ", "IPTU "]); // fase 2b (r3/r4): rótulo de documento livra o fixo sem palavra de telefone
+    // 8 dígitos colados só são telefone com palavra de telefone na mesma linha (o gerador não os põe em outra linha)
+    const item = (tipo: Tipo, comTel: boolean): { d: string; txt: string } => {
+      const dd = ddd();
+      switch (tipo) {
+        case "cel11": { const d = dd + "9" + digs(8); return { d, txt: um([d, `(${dd}) 9${d.slice(3, 7)}-${d.slice(7)}`, `${dd} 9${d.slice(3, 7)}-${d.slice(7)}`, `${dd} 9${d.slice(3, 7)} ${d.slice(7)}`, `+55 ${dd} 9${d.slice(3, 7)}-${d.slice(7)}`, `${dd} 9 ${d.slice(3, 7)}-${d.slice(7)}`]) }; }
+        case "cel10": { const d = dd + String(6 + ri(4)) + digs(7); return { d, txt: um([d, `(${dd}) ${d.slice(2, 6)}-${d.slice(6)}`, `${dd} ${d.slice(2, 6)}-${d.slice(6)}`]) }; }
+        case "cel9": { const d = "9" + digs(8); return { d, txt: um([d, `${d.slice(0, 5)}-${d.slice(5)}`, `${d.slice(0, 5)} ${d.slice(5)}`]) }; }
+        case "cel8": case "fixo8": {
+          const d = String(tipo === "cel8" ? 6 + ri(4) : 2 + ri(4)) + digs(7);
+          return { d, txt: um(comTel ? [d, `${d.slice(0, 4)}-${d.slice(4)}`, `${d.slice(0, 4)} ${d.slice(4)}`] : [`${d.slice(0, 4)}-${d.slice(4)}`, `${d.slice(0, 4)} ${d.slice(4)}`]) };
+        }
+        case "fixo10": { const d = dd + String(2 + ri(4)) + digs(7); return { d, txt: um([d, `(${dd}) ${d.slice(2, 6)}-${d.slice(6)}`, `${dd} ${d.slice(2, 6)}-${d.slice(6)}`]) }; }
+        case "cpf": { const d = cpf(); return { d, txt: um([d, `${d.slice(0, 3)}.${d.slice(3, 6)}.${d.slice(6, 9)}-${d.slice(9)}`, `${d.slice(0, 3)} ${d.slice(3, 6)} ${d.slice(6, 9)} ${d.slice(9)}`, `${d.slice(0, 9)}-${d.slice(9)}`]) }; }
+        case "cnpj": { const d = cnpj(); return { d, txt: um([d, `${d.slice(0, 2)}.${d.slice(2, 5)}.${d.slice(5, 8)}/${d.slice(8, 12)}-${d.slice(12)}`, `${d.slice(0, 2)} ${d.slice(2, 5)} ${d.slice(5, 8)} ${d.slice(8, 12)} ${d.slice(12)}`, `${d.slice(0, 8)}/${d.slice(8, 12)}-${d.slice(12)}`]) }; }
+      }
+    };
+    const visivel = (saida: string, d: string) => saida.split(/\[(?:dado pessoal omitido|dado bancário omitido|senha omitida)\]/).some(x => x.replace(/\D/g, "").includes(d));
+    const falhas: string[] = [];
+    let casos = 0, itens = 0, mainEsconde = 0;
+    const inicio = performance.now();
+    for (let k = 0; k < TOTAL; k++) {
+      const rotulo = um(ROTULOS);
+      const comTel = ROTULOS_TEL.includes(rotulo);
+      const sepTipo = ri(6);
+      const n = 1 + ri(8);
+      const its = Array.from({ length: n }, () => item(um(TIPOS), comTel && sepTipo !== 2));
+      let txt = rotulo;
+      its.forEach((it, x) => {
+        if (x > 0) txt += [" ", ", ", "\n", " | ", " - ", ` ${ri(10)} `][sepTipo];
+        txt += it.txt;
+      });
+      const saida = sanitizarTexto(txt), daMainSaida = daMain(txt);
+      casos++;
+      let pos = rotulo.length;
+      for (const it of its) {
+        itens++;
+        const linha = txt.slice(txt.lastIndexOf("\n", pos) + 1, pos);
+        const telNaLinha = /\b(?:tel(?:efone)?s?|fones?|contatos?|whats\w*)\b/i.test(linha);
+        const ehFixo = (it.d.length === 8 && /^[2-5]/.test(it.d)) || (it.d.length === 10 && /^[1-9][1-9][2-5]/.test(it.d) && !cnpjOk(it.d));
+        const vis = visivel(saida, it.d);
+        if (vis && !ehFixo) falhas.push(`celular/CPF/CNPJ inteiro: ${JSON.stringify(txt)} → ${JSON.stringify(saida)} (${it.d})`);
+        if (vis && ehFixo && telNaLinha) falhas.push(`fixo com palavra de telefone: ${JSON.stringify(txt)} → ${JSON.stringify(saida)} (${it.d})`);
+        const mainOculta = !visivel(daMainSaida, it.d);
+        if (mainOculta) mainEsconde++;
+        const livre = ehFixo && !comTel && LIVRA_FIXO.has(rotulo);
+        if (mainOculta && vis && !livre) falhas.push(`a main mascara e a nova não: ${JSON.stringify(txt)} → ${JSON.stringify(saida)} | main ${JSON.stringify(daMainSaida)} (${it.d})`);
+        pos = txt.indexOf(it.txt, pos) + it.txt.length;
+      }
+      if (falhas.length > 20) break;
+    }
+    const ms = performance.now() - inicio;
+    expect(falhas.slice(0, 20), `${falhas.length} falhas em ${casos} casos`).toEqual([]);
+    expect(casos).toBe(TOTAL);
+    expect(itens).toBeGreaterThan(TOTAL * 4);
+    expect(mainEsconde).toBeGreaterThan(TOTAL); // o corpus exercita o que a main pegava
+    expect(ms, `${ms.toFixed(0)} ms`).toBeLessThan(60_000);
+  });
+
   it("percorre a resposta inteira (listas e objetos), sem tocar números e chaves", () => {
     expect(sanitizarResposta({ a: [{ texto: "cpf 111.222.333-44", n: 11122233344 }], "111.222.333-44": null }))
       .toEqual({ a: [{ texto: "cpf [dado pessoal omitido]", n: 11122233344 }], "111.222.333-44": null });
