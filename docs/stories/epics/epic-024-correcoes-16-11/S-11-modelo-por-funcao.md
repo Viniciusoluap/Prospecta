@@ -1,6 +1,6 @@
 # S-11 — Modelo da Anthropic por função (Integrações › Anthropic)
 
-Status: InReview
+Status: Aprovado no QA (PASS, 2ª rodada, 4 achados menores corrigidos) — aguardando publicação depois da Etapa 2 da Dolores
 Epic: EPIC-024 — pedido complementar do dono (16/11/2026), sobre a correção 10 (S-10)
 Paridade: Admin › Integrações existe nos dois sistemas — porte para o Grupo Santa Fé fica como pendência no ROADMAP
 (Santa Fé em espera por decisão do dono).
@@ -112,6 +112,19 @@ quer escolher, num lugar só (Integrações › Anthropic), o modelo de cada fun
 - Achado 8: nota sem "ANTHROPIC_API_KEY" ("chave antiga configurada pela equipe técnica no servidor"); recomendações
   sem repetir o rótulo.
 
+### Correções do QA, 2ª rodada (PASS, 4 achados menores) — 16/11/2026
+- Achado 1 (dados): falha ao ler o modelo antigo do cartão da Dolores vira `undefined` ("não sei") em `salvarAnthropic`
+  e `modelosAnthropic`; `conferirModelosDasFuncoes` só marca ou apaga o aviso "anteriorSumiu" quando o valor é conhecido.
+- Achado 2 (custo): o passo parado na confirmação (ou no teto) guarda `modeloAConfirmar` e a tela o mostra no botão
+  ("— modelo X") e na pergunta de "além do teto". `confirmarIA`/`confirmarIAImportacao` recebem `modeloVisto`
+  (opcional); `modeloDaConfirmacao` recusa com CONFLICT "O modelo mudou de X para Y; confira e confirme de novo. Nada foi
+  confirmado." e atualiza os passos parados para o modelo de agora. [AUTO-DECISION] Sem `modeloVisto` (página aberta
+  antes da atualização) → recusa pedindo para recarregar a página (lado seguro). Testes usam
+  `server/fixtures/maquete-3d/confirmacao-da-tela.ts`, que manda o modelo que a tela mostra.
+- Achado 3 (guarda): a guarda do módulo de modelos proíbe `import(`, `require(` e `createRequire`, e fixa a lista exata
+  dos 4 imports estáticos (fonte e nomes); reexportação, import de efeito ou import a mais falham.
+- Achado 4 (texto): confirmação antiga sem modelo termina só com "Um administrador confirma de novo."
+
 ## Testes
 - Automáticos: `server/integracoes-modelo-por-funcao.test.ts` (12): resolução função → anterior → preferencial →
   padrão; cada função com o seu; banco fora; nunca lê a chave; sem chave a seção lista e recusa salvar; id validado
@@ -126,6 +139,10 @@ quer escolher, num lugar só (Integrações › Anthropic), o modelo de cada fun
   `server/integracoes-anthropic.test.ts` (achado 2: a guarda pega decrypt/criarCliente/chave em pedaços; o painel só
   passa `soLeitor(deps)`), `server/maquete-3d-qa-s03-s05.test.ts` (achado 3: leitura e importação; confirmação antiga
   sem modelo). Tela conferida com Playwright (1366 px e iPad 810 px): origem "anterior", modelo sumido, sem chave.
+- QA 2ª rodada: `server/integracoes-modelo-por-funcao.test.ts` (achado 1), `server/maquete-3d-qa-s03-s05.test.ts`
+  (achados 2 e 4: leitura, além do teto, importação, tela antiga sem o modelo, rótulos), `server/integracoes-anthropic.test.ts`
+  (achado 3). Rodada completa: `npx tsc --noEmit` OK; vitest da lista do QA, 22 arquivos e 475 testes, todos passaram
+  (`--maxWorkers=2 --minWorkers=1`); `npx vite build` OK.
 - Pendente em produção: escolher os modelos reais da conta do dono; leituras da Maquete com confirmação antiga pedem
   nova confirmação uma vez.
 
@@ -146,6 +163,14 @@ quer escolher, num lugar só (Integrações › Anthropic), o modelo de cada fun
 - Correções do QA: `shared/maquete-3d/regras.ts` (`ConfirmacaoIA.modelo`, `confirmacaoDoModelo`),
   `server/maquete-3d/execucao-ia.ts`, `server/maquete-3d/leitura.ts`, `server/maquete-3d/importacao.ts`,
   `server/maquete-3d-qa-s03-s05.test.ts`.
+- Correções do QA, 2ª rodada: `server/integracoes-router.ts`, `server/_core/anthropic-painel.ts`,
+  `shared/maquete-3d/regras.ts` (`PassoLeitura.modeloAConfirmar`), `server/maquete-3d/execucao-ia.ts`
+  (`modeloDaConfirmacao`, `UNIDADE_MOTOR_IA`), `server/maquete-3d/leitura.ts`, `server/maquete-3d/importacao.ts`,
+  `server/maquete-3d/router.ts`, `client/src/components/maquete-3d/rotulos-leitura.ts`,
+  `client/src/components/maquete-3d/ImportarPlanta.tsx`, `client/src/pages/admin/AdminMaquete3D.tsx`,
+  `server/fixtures/maquete-3d/confirmacao-da-tela.ts` (novo), `server/maquete-3d.test.ts`,
+  `server/maquete-3d-hibrida.test.ts`, `server/maquete-3d-importacao.test.ts`, `server/maquete-3d-qa-s03-s05.test.ts`,
+  `server/integracoes-modelo-por-funcao.test.ts`, `server/integracoes-anthropic.test.ts`.
 
 ## Change Log
 | Data | Autor | Mudança |
@@ -153,3 +178,4 @@ quer escolher, num lugar só (Integrações › Anthropic), o modelo de cada fun
 | 16/11/2026 | @dev (Dex) | Story criada a partir do pedido do dono; Draft → InProgress (YOLO) |
 | 16/11/2026 | @dev (Dex) | InProgress → InReview: registro, resolução única, painel por função, ligações e testes |
 | 16/11/2026 | @dev (Dex) | QA CONCERNS (8 achados) corrigidos com regressão; segue InReview para nova revisão |
+| 16/11/2026 | @dev (Dex) | QA PASS (2ª rodada): 4 achados menores corrigidos com teste; aprovado no QA, aguardando publicação depois da Etapa 2 da Dolores |
