@@ -431,6 +431,24 @@ async function cadeiaModelo(id: number) {
     ${SELECT_MODELO} WHERE m.id IN (SELECT id FROM cadeia) ORDER BY m.versao DESC`));
 }
 
+const MENSAGEM_VERSAO_CONCORRENTE = "Outra pessoa salvou uma versão deste modelo agora. Atualize a lista e tente de novo.";
+
+/** Nome do índice/restrição de uma violação de unicidade do Postgres (23505), ou null. */
+function violacaoUnica(e: unknown): string | null {
+  const erros: unknown[] = [e, (e as { cause?: unknown } | null)?.cause];
+  for (const x of erros) {
+    const o = x as { code?: unknown; constraint?: unknown; message?: unknown } | null;
+    if (!o || typeof o !== "object") continue;
+    const texto = String(o.message ?? "");
+    if (o.code === "23505" || /duplicate key|unique/i.test(texto)) {
+      if (typeof o.constraint === "string") return o.constraint;
+      const m = /"([a-z_]+_uidx)"/.exec(texto);
+      return m ? m[1] : "desconhecida";
+    }
+  }
+  return null;
+}
+
 /**
  * Salva os dados técnicos da obra como modelo (ou nova versão de um modelo). O servidor tira os
  * dados pessoais/específicos (lista de permissão) — não confia no que vem do navegador — e RECUSA
@@ -464,13 +482,24 @@ export async function salvarModeloPreenchimentoPci(entrada: { projectId: number;
   if (repetido) throw new TRPCError({ code: "CONFLICT", message: `Já existe o modelo "${repetido.nome}". ${anterior ? "Escolha outro nome para esta versão." : "Salve como nova versão dele ou escolha outro nome."}` });
   let id: number;
   try {
-    const r = await db.execute(sql`
-      INSERT INTO pci_modelos_preenchimento (nome, versao, previous_id, form_data, observacao, source_project_id, created_by)
-      VALUES (${nome}, ${versao}, ${anterior}, ${JSON.stringify(dados)}::jsonb, ${observacao}, ${entrada.projectId}, ${autorId}) RETURNING id`);
-    id = Number(linhas<{ id: number }>(r)[0].id);
+    // Nova versão: marca a anterior como substituída na MESMA instrução (o índice único parcial do nome
+    // vale só para a versão atual); se outra pessoa já salvou a sucessora, nada é gravado.
+    const r = anterior
+      ? await db.execute(sql`
+        WITH base AS (UPDATE pci_modelos_preenchimento SET substituido = true WHERE id = ${anterior} AND NOT substituido AND deleted_at IS NULL RETURNING id)
+        INSERT INTO pci_modelos_preenchimento (nome, versao, previous_id, form_data, observacao, source_project_id, created_by)
+        SELECT ${nome}, ${versao}, base.id, ${JSON.stringify(dados)}::jsonb, ${observacao}, ${entrada.projectId}, ${autorId} FROM base RETURNING id`)
+      : await db.execute(sql`
+        INSERT INTO pci_modelos_preenchimento (nome, versao, previous_id, form_data, observacao, source_project_id, created_by)
+        VALUES (${nome}, ${versao}, NULL, ${JSON.stringify(dados)}::jsonb, ${observacao}, ${entrada.projectId}, ${autorId}) RETURNING id`);
+    const l = linhas<{ id: number }>(r)[0];
+    if (!l) throw new TRPCError({ code: "CONFLICT", message: MENSAGEM_VERSAO_CONCORRENTE });
+    id = Number(l.id);
   } catch (e) {
-    // Índice único em previous_id: outra pessoa salvou a nova versão ao mesmo tempo.
-    if (anterior && /duplicate|unique/i.test(e instanceof Error ? `${e.message} ${String((e as { cause?: unknown }).cause ?? "")}` : "")) throw new TRPCError({ code: "CONFLICT", message: "Outra pessoa salvou uma versão deste modelo agora. Atualize a lista e tente de novo." });
+    if (e instanceof TRPCError) throw e;
+    const violacao = violacaoUnica(e);
+    if (violacao === "pci_modelos_preenchimento_nome_atual_uidx") throw new TRPCError({ code: "CONFLICT", message: `Já existe o modelo "${nome}" (outra pessoa acabou de salvar com este nome). Atualize a lista e salve como nova versão dele ou escolha outro nome.` });
+    if (violacao) throw new TRPCError({ code: "CONFLICT", message: MENSAGEM_VERSAO_CONCORRENTE });
     throw e;
   }
   return { id, nome, versao, avisos };

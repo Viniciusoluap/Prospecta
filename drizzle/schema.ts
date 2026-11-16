@@ -706,6 +706,8 @@ export const pciModelosPreenchimento = pgTable("pci_modelos_preenchimento", {
   createdAt: timestamp("created_at").defaultNow().notNull(),
   deletedAt: timestamp("deleted_at"),
   deletedBy: integer("deleted_by").references((): AnyPgColumn => users.id, { onDelete: "set null" }),
+  // true = já tem versão mais nova; o nome é único (lower) entre as versões atuais não excluídas (índice parcial na 0118).
+  substituido: boolean("substituido").default(false).notNull(),
 });
 
 // EPIC-020 Lote 4 (item 27): progresso por incidência (20 serviços por obra).
