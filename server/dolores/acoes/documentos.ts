@@ -9,6 +9,8 @@ import { z } from "zod";
 import { constructionProjects } from "../../../drizzle/schema.js";
 import { errosPci, normalizarFormularioPci, pendenciasPci } from "../../../shared/pci-gerador.js";
 import { diaFortaleza } from "../../../shared/dolores/formato.js";
+import { textoDeDado } from "../../../shared/dolores/fila.js";
+import { erroParaLog } from "../erro-seguro.js";
 import { DOLORES_NOME } from "../perfil.js";
 import { emTransacaoDeEscrita } from "../escrita.js";
 import { bancoDaLeitura, emTransacaoSomenteLeitura } from "../somente-leitura.js";
@@ -64,26 +66,49 @@ export async function prepararDocumento(args: z.infer<typeof entradaGerarDocumen
   };
 }
 
+/** Prazo de cada cópia ao Drive (planilha e PDF) quando não há prazo do aviso (aprovação pela tela). */
+const PRAZO_DRIVE_PADRAO_MS = 15_000;
+/** Folga guardada para gravar o resultado, a autoria e responder ao dono depois do gerador. */
+const FOLGA_DEPOIS_DA_PCI_MS = 6_000;
+
 export async function executarDocumentoAprovado(args: z.infer<typeof entradaDocumentoAprovado>, ctx: ContextoAcao): Promise<ResultadoAcao> {
   const r = await conferir(args.obraId);
   // o rascunho mudou depois do pedido: o dono aprovou outra coisa — não gera
   if (r.atualizadoEm !== args.rascunhoEm) throw new RecusaAcao("O rascunho da PCI foi alterado depois do pedido; nada foi gerado. Peça de novo para eu conferir a versão atual.");
   const { gerarPciDaObra } = await import("../../pci-gerador.js");
+  // Orçamento de tempo: as duas cópias ao Drive dividem o que sobra (menos a folga); passou, a cópia fica pendente para
+  // o organizador do Drive (o arquivo já está no histórico da obra).
+  const restante = ctx.tempoRestanteMs?.();
+  const prazoDriveMs = restante === undefined ? PRAZO_DRIVE_PADRAO_MS : Math.max(1_000, Math.min(PRAZO_DRIVE_PADRAO_MS, Math.floor((restante - FOLGA_DEPOIS_DA_PCI_MS) / 2)));
   let gerada: { id: number; avisos: string[]; pendencias: string[] };
   try {
-    gerada = await gerarPciDaObra(args.obraId, r.form, { id: ctx.autorId, name: DOLORES_NOME });
+    // regravarRascunho: false — o rascunho é da equipe; a Dolores gera a partir dele e não o altera (autoria e corrida)
+    gerada = await gerarPciDaObra(args.obraId, r.form, { id: ctx.autorId, name: DOLORES_NOME }, { regravarRascunho: false, prazoDriveMs });
   } catch (e) {
     throw new RecusaAcao(`O gerador recusou: ${(e instanceof Error ? e.message : "erro").slice(0, 300)}`);
   }
-  const frase = `PCI da obra "${r.obra.title.slice(0, 60)}" gerada (#${gerada.id}), sem assinatura — encaminhar ao engenheiro responsável`;
-  await emTransacaoDeEscrita(() => registrarAutoria(ctx, { tabela: "pci_generated", registroId: gerada.id, funcao: "gerar_documento", descricao: frase }));
+  // Daqui em diante a PCI EXISTE: nenhuma falha pode virar "não foi executado".
+  const titulo = textoDeDado(r.obra.title, 60);
+  const frase = `PCI da obra "${titulo}" gerada (#${gerada.id}), sem assinatura — encaminhar ao engenheiro responsável`;
+  let autoriaRegistrada = false;
+  for (let tentativa = 0; tentativa < 2 && !autoriaRegistrada; tentativa++) {
+    try {
+      await emTransacaoDeEscrita(() => registrarAutoria(ctx, { tabela: "pci_generated", registroId: gerada.id, funcao: "gerar_documento", descricao: frase }));
+      autoriaRegistrada = true;
+    } catch (e) {
+      console.error("[dolores/documentos] falha ao registrar a autoria da PCI gerada", gerada.id, erroParaLog(e));
+    }
+  }
+  const quando = diaFortaleza(ctx.agora)!.split("-").reverse().join("/");
+  const feito = autoriaRegistrada ? frase
+    : `a PCI da obra "${titulo}" FOI gerada em ${quando} (#${gerada.id}, no histórico da obra), mas não consegui registrar a autoria da Dolores; confira`;
   return {
     dados: {
-      pciGeradaId: gerada.id, obraId: args.obraId, assinada: false, documentoFinal: false,
+      pciGeradaId: gerada.id, obraId: args.obraId, assinada: false, documentoFinal: false, autoriaRegistrada,
       observacao: "Documento preparado, sem assinatura: o engenheiro responsável confere e assina.",
       avisos: gerada.avisos.slice(0, 10), pendencias: pendenciasPci(normalizarFormularioPci(r.form)).slice(0, 10),
     },
-    resumo: { gerada: true, avisos: gerada.avisos.length },
-    feitos: [frase],
+    resumo: { gerada: true, pciGeradaId: gerada.id, autoriaRegistrada, avisos: gerada.avisos.length },
+    feitos: [feito],
   };
 }

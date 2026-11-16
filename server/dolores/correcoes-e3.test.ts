@@ -11,6 +11,7 @@ vi.mock("../../shared/pci-gerador.js", async orig => ({ ...(await orig<typeof im
 
 import { errosPci } from "../../shared/pci-gerador.js";
 import { getDb } from "../db.js";
+import { gerarPciDaObra } from "../pci-gerador.js";
 import { intencaoDeAcao } from "../../shared/dolores/fila.js";
 import { ACOES } from "./acoes/registro.js";
 import { decidir, definirSorteioCodigo } from "./aprovacoes.js";
@@ -94,5 +95,41 @@ describe("achado 1 — regra de contaminação na porta e intenção de ação (
       { canal: "whatsapp", mensagemId: 11, semAcoes: true });
     expect(s.status).toBe(403);
     expect((await q("SELECT resultado FROM dolores_acoes WHERE funcao = 'registrar_acompanhamento'"))[0].resultado).toBe("recusada");
+  });
+});
+
+describe("achados 2 e 3 (A2) — PCI: o rascunho da equipe não é regravado e o estado é sempre coerente", () => {
+  const RASCUNHO = `INSERT INTO pci_generator_drafts (project_id, form_data, updated_by, updated_at) VALUES (1, '{"campos": {"x": 1}}', 1, '2026-11-15 12:00')`;
+  it("A2 invertido: a PCI foi gerada e a autoria falhou → item 'executada' com a referência, e o dono lê a verdade", async () => {
+    await banco.pg.exec(RASCUNHO);
+    expect((await doDono("gerar_documento", { tipo: "pci", obraId: 1 })).status).toBe(200);
+    const [item] = await fila();
+    await banco.pg.exec(`CREATE OR REPLACE FUNCTION qa_falha() RETURNS trigger AS $$ BEGIN RAISE EXCEPTION 'conexao caiu'; END; $$ LANGUAGE plpgsql;
+      CREATE TRIGGER qa_falha BEFORE INSERT ON dolores_autoria FOR EACH ROW EXECUTE FUNCTION qa_falha();`);
+    const [r] = await decidir([item.codigo], "aprovar", { via: "tela", userId: 1, agora: AGORA });
+    expect(gerarPciDaObra).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(gerarPciDaObra).mock.calls[0][3]).toMatchObject({ regravarRascunho: false });
+    expect(r).toMatchObject({ ok: true, situacao: "executada" });
+    expect(r.texto).not.toMatch(/não foi executado/);
+    expect(r.texto).toMatch(/FOI gerada em 16\/11\/2026 \(#77, no histórico da obra\), mas não consegui registrar a autoria da Dolores; confira/);
+    const [depois] = await fila();
+    expect(depois.situacao).toBe("executada");
+    expect(depois.resultado.dados).toMatchObject({ pciGeradaId: 77, autoriaRegistrada: false });
+    expect(depois.resultado.resumo).toMatchObject({ gerada: true, pciGeradaId: 77, autoriaRegistrada: false });
+    // o rascunho da equipe ficou como estava (autoria e data)
+    expect(await q("SELECT updated_by FROM pci_generator_drafts WHERE project_id = 1")).toEqual([{ updated_by: 1 }]);
+  });
+  it("autoria falha só na 1ª tentativa: a 2ª grava e o texto é o normal", async () => {
+    await banco.pg.exec(RASCUNHO);
+    await doDono("gerar_documento", { tipo: "pci", obraId: 1 });
+    const [item] = await fila();
+    // sequência: não volta com o ROLLBACK da 1ª tentativa
+    await banco.pg.exec(`CREATE SEQUENCE qa_cont;
+      CREATE OR REPLACE FUNCTION qa_falha1() RETURNS trigger AS $$ BEGIN IF nextval('qa_cont') = 1 THEN RAISE EXCEPTION 'oscilou'; END IF; RETURN NEW; END; $$ LANGUAGE plpgsql;
+      CREATE TRIGGER qa_falha1 BEFORE INSERT ON dolores_autoria FOR EACH ROW EXECUTE FUNCTION qa_falha1();`);
+    const [r] = await decidir([item.codigo], "aprovar", { via: "tela", userId: 1, agora: AGORA });
+    expect(r).toMatchObject({ ok: true, situacao: "executada" });
+    expect(r.texto).toMatch(/gerada \(#77\), sem assinatura/);
+    expect(await q("SELECT tabela, registro_id, aprovacao_id FROM dolores_autoria")).toEqual([{ tabela: "pci_generated", registro_id: 77, aprovacao_id: item.id }]);
   });
 });

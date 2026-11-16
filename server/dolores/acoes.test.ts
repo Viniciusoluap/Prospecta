@@ -353,7 +353,9 @@ describe("gerar_documento (fila) — PCI pelo gerador existente", () => {
     expect(r).toMatchObject({ ok: true, situacao: "executada" });
     const dolores = await usuarioDolores();
     expect(gerarPciDaObra).toHaveBeenCalledTimes(1);
-    expect(vi.mocked(gerarPciDaObra).mock.calls[0]).toEqual([1, { campos: { x: 1 } }, { id: dolores, name: DOLORES_NOME }]);
+    // achado 2 do QA: gera a partir do rascunho SEM regravá-lo; cópias ao Drive com prazo
+    expect(vi.mocked(gerarPciDaObra).mock.calls[0]).toEqual([1, { campos: { x: 1 } }, { id: dolores, name: DOLORES_NOME }, { regravarRascunho: false, prazoDriveMs: 15_000 }]);
+    expect(await q("SELECT updated_by FROM pci_generator_drafts WHERE project_id = 1")).toEqual([{ updated_by: 1 }]);
     expect((await fila())[0].resultado.dados).toMatchObject({ pciGeradaId: 77, assinada: false, documentoFinal: false });
     expect(await q("SELECT tabela, registro_id FROM dolores_autoria")).toEqual([{ tabela: "pci_generated", registro_id: 77 }]);
     // novo pedido; a equipe mexe no rascunho antes da aprovação

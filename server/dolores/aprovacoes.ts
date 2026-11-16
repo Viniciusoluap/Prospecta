@@ -9,13 +9,13 @@ import { randomInt } from "node:crypto";
 import { and, asc, desc, eq, inArray, isNull, lt, lte, or, sql } from "drizzle-orm";
 import { doloresAprovacoes, doloresAutoria, doloresFilaConfig, type DoloresAprovacao } from "../../drizzle/schema-dolores-fila.js";
 import {
-  EXECUCAO_VENCIDA_MS, ROTULO_SITUACAO, VALIDADE_PADRAO_HORAS, codigoValido, gerarCodigo, type SituacaoItem,
+  EXECUCAO_VENCIDA_MS, ROTULO_SITUACAO, VALIDADE_PADRAO_HORAS, codigoValido, gerarCodigo, textoDeDado, type SituacaoItem,
 } from "../../shared/dolores/fila.js";
 import { limitarResposta } from "../../shared/dolores/formato.js";
 import { sanitizarResposta, sanitizarTexto } from "../../shared/dolores/sanitizar.js";
 import { getDb } from "../db.js";
 import { acaoPorNome } from "./acoes/registro.js";
-import { RecusaAcao, type ContextoAcao, type Preparo } from "./acoes/comum.js";
+import { RecusaAcao, type ContextoAcao, type Preparo, type ResultadoAcao } from "./acoes/comum.js";
 import { registrarAcao } from "./auditoria.js";
 import { lerPausa } from "./consumo.js";
 import { erroParaLog } from "./erro-seguro.js";
@@ -137,13 +137,9 @@ async function aprovarUm(codigo: string, d: Decisor, autor: number): Promise<Res
     return { codigo, ok: false, situacao: "erro", texto: `[${codigo}] tem dados inválidos e não foi executado.` };
   }
   const ctx: ContextoAcao = { agora: d.agora, autorId: autor, mensagemId: item.mensagemId, pedidoId: `fila:${codigo}`, aprovacaoId: item.id };
+  let r: ResultadoAcao;
   try {
-    const r = await fn.executarAprovado(args.data as never, ctx);
-    const { valor } = limitarResposta(sanitizarResposta(r.dados), 4000);
-    await finalizar(item.id, "executada", d.agora, { resultado: { resumo: r.resumo, dados: valor, feitos: r.feitos ?? [] } });
-    await auditar("ok", null, r.resumo);
-    const extra = textoParaODono(item.funcao, r.dados);
-    return { codigo, ok: true, situacao: "executada", texto: `[${codigo}] aprovado e feito: ${(r.feitos ?? ["executado"]).join("; ")}.${extra}` };
+    r = await fn.executarAprovado(args.data as never, ctx);
   } catch (e) {
     const motivo = e instanceof RecusaAcao ? sanitizarTexto(e.message).slice(0, 300) : `falha: ${erroParaLog(e)}`;
     if (!(e instanceof RecusaAcao)) console.error("[dolores/fila] falha ao executar item aprovado", item.funcao, erroParaLog(e));
@@ -151,6 +147,20 @@ async function aprovarUm(codigo: string, d: Decisor, autor: number): Promise<Res
     await auditar(e instanceof RecusaAcao ? "recusada" : "erro", motivo, {});
     return { codigo, ok: false, situacao: "erro", texto: `[${codigo}] não foi executado: ${motivo}` };
   }
+  // Daqui em diante a ação JÁ ACONTECEU: nenhuma falha de registro pode virar "não foi executado" (achado 3 do QA).
+  const feitos = (r.feitos ?? ["executado"]).map(f => textoDeDado(f, 300));
+  const extra = textoParaODono(item.funcao, r.dados);
+  try {
+    const { valor } = limitarResposta(sanitizarResposta(r.dados), 4000);
+    await finalizar(item.id, "executada", d.agora, { resultado: { resumo: r.resumo, dados: valor, feitos } });
+  } catch (e) {
+    console.error("[dolores/fila] item executado, mas o resultado não foi gravado na fila", item.funcao, erroParaLog(e));
+    await auditar("ok", "executado; falhou gravar o resultado na fila", r.resumo).catch(() => false);
+    return { codigo, ok: true, situacao: "executada",
+      texto: `[${codigo}] aprovado e FEITO: ${feitos.join("; ")}. Mas não consegui registrar o resultado na fila; confira no sistema antes de pedir de novo.${extra}` };
+  }
+  await auditar("ok", null, r.resumo).catch(() => false);
+  return { codigo, ok: true, situacao: "executada", texto: `[${codigo}] aprovado e feito: ${feitos.join("; ")}.${extra}` };
 }
 
 /** Texto extra devolvido ao dono (a cobrança preparada, para ele mesmo encaminhar se quiser). */
