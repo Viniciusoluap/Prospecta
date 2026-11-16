@@ -10,7 +10,7 @@
 // com prazo total abaixo dos 60 s; a Evolution reenviar o aviso não duplica nada.
 import { createHash, createHmac, timingSafeEqual } from "node:crypto";
 import { Router, type Request, type Response } from "express";
-import { eq } from "drizzle-orm";
+import { and, eq, lt, sql } from "drizzle-orm";
 import { doloresMensagens, doloresWhatsappConfig, type DoloresWhatsappConfig, type SituacaoMensagem } from "../../drizzle/schema-dolores-whatsapp.js";
 import { sanitizarTexto } from "../../shared/dolores/sanitizar.js";
 import {
@@ -33,6 +33,8 @@ const PRAZO_ENVIO_MS = 8_000;
 /** Itens por aviso tratados (a Evolution manda um por vez; lote grande é histórico). */
 const MAX_ITENS = 20;
 const MAX_FALHAS_AUTH = 20;
+/** Linha "processando" mais velha que isto = a função morreu no meio (a da Vercel é encerrada aos 60 s). */
+export const PROCESSANDO_VENCIDO_MS = 3 * 60_000;
 
 const SITE = () => (process.env.PUBLIC_SITE_URL || "https://www.prospectaconstrucoes.com").replace(/\/+$/, "");
 export const URL_WEBHOOK_DOLORES = () => `${SITE()}/api/dolores/whatsapp`;
@@ -166,6 +168,38 @@ async function tratarComando(cfg: DoloresWhatsappConfig, msg: { id: number; nume
   }
 }
 
+/** "09:05" no horário de Imperatriz (UTC−3 fixo). */
+const horaFortaleza = (d: Date) => new Date(d.getTime() - 3 * 60 * 60_000).toISOString().slice(11, 16);
+
+/**
+ * QA achado 4 — pedido do dono que ficou "processando" (a função morreu no meio): na próxima entrada (qualquer aviso de
+ * mensagem, inclusive a reentrega dele), a linha vira "erro" numa só instrução condicional (só um aviso a reivindica) e o
+ * dono recebe UMA mensagem fixa pedindo para mandar de novo. O pedido não é refeito (nada de gasto em dobro) e a reserva
+ * do limite é solta.
+ */
+async function recuperarPedidosInterrompidos(cfg: DoloresWhatsappConfig, autor: number | null): Promise<number> {
+  if (!cfg.instancia || !cfg.numeroDono) return 0;
+  let vencidas: Array<{ id: number; enviadaEm: Date | null; criadoEm: Date }>;
+  try {
+    vencidas = await getDb().update(doloresMensagens)
+      .set({ situacao: "erro", motivo: "interrompido no meio (a função parou); o dono foi avisado para mandar de novo", respondidaEm: deps.agora(),
+        reservaEntrada: 0, reservaSaida: 0, reservaAte: null })
+      .where(and(eq(doloresMensagens.instancia, cfg.instancia), eq(doloresMensagens.doDono, true), eq(doloresMensagens.situacao, "processando"),
+        lt(doloresMensagens.criadoEm, sql`now() - make_interval(secs => ${PROCESSANDO_VENCIDO_MS / 1000})`)))
+      .returning({ id: doloresMensagens.id, enviadaEm: doloresMensagens.enviadaEm, criadoEm: doloresMensagens.criadoEm });
+  } catch (e) {
+    console.error("[dolores/whatsapp] falha ao conferir pedidos interrompidos", erroCurto(e));
+    return 0;
+  }
+  if (!vencidas.length) return 0;
+  const horas = Array.from(new Set(vencidas.map(v => horaFortaleza(v.enviadaEm ?? v.criadoEm)))).slice(0, 5);
+  const texto = horas.length === 1
+    ? `Dolores: não consegui terminar o pedido de ${horas[0]}. Nada foi alterado no sistema; mande de novo, por favor.`
+    : `Dolores: não consegui terminar os pedidos de ${horas.join(", ")}. Nada foi alterado no sistema; mande de novo, por favor.`;
+  await responderAoDono(cfg, cfg.numeroDono, texto, { mensagemId: vencidas[0].id, autor, resumo: { interrompidos: vencidas.length } });
+  return vencidas.length;
+}
+
 export type RespostaWebhook = { status: number; body: Record<string, unknown> };
 type Pedido = Pick<Request, "headers" | "body" | "ip">;
 
@@ -198,6 +232,8 @@ export async function tratarWebhookDolores(req: Pedido): Promise<RespostaWebhook
   const contagem: Record<string, number> = {};
   const contar = (k: string) => { contagem[k] = (contagem[k] ?? 0) + 1; };
   const autor = await idDaDoloresSemCriar().catch(() => null);
+  const interrompidos = await recuperarPedidosInterrompidos(cfg, autor);
+  if (interrompidos) contagem.interrompida = interrompidos;
   for (const item of itens) {
     const m = lerMensagemEvolution(item);
     if (m.tipo === "ignorar") { contar(m.motivo); continue; }

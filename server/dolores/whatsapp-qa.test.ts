@@ -135,3 +135,39 @@ describe("QA achado 3 — limite mensal reservado sob trava antes da chamada", (
     expect(enviar.mock.calls[0][0].texto).toMatch(/limite mensal de gasto com a IA foi atingido/);
   });
 });
+
+describe("QA achado 4 — pedido que ficou 'processando' (função morreu no meio)", () => {
+  const morta = (id: string, minutos: number) => banco.pg.exec(`INSERT INTO dolores_mensagens (instancia, external_id, do_dono, situacao, criado_em, enviada_em, reserva_entrada, reserva_ate)
+    VALUES ('prospecta-dolores', '${id}', true, 'processando', now() - interval '${minutos} minutes', '2026-11-16T11:58:00Z', 4000, now() + interval '1 minute')`);
+  it("a reentrega da mesma mensagem marca erro e avisa o dono UMA vez, sem chamar o modelo de novo", async () => {
+    await morta("MORTA", 10);
+    const r = await chamar(aviso({ id: "MORTA" }));
+    expect(r.body.r).toEqual({ interrompida: 1, repetida: 1 });
+    expect(chamadas).toEqual([]);
+    expect(enviar).toHaveBeenCalledTimes(1);
+    expect(enviar.mock.calls[0][0]).toMatchObject({ numero: DONO, texto: "Dolores: não consegui terminar o pedido de 08:58. Nada foi alterado no sistema; mande de novo, por favor." });
+    const [m] = await q<any>("SELECT situacao, reserva_entrada, reserva_ate FROM dolores_mensagens WHERE external_id = 'MORTA'");
+    expect(m).toEqual({ situacao: "erro", reserva_entrada: 0, reserva_ate: null });
+    // terceira entrega: nada de novo aviso
+    expect((await chamar(aviso({ id: "MORTA" }))).body.r).toEqual({ repetida: 1 });
+    expect(enviar).toHaveBeenCalledTimes(1);
+    expect(await q("SELECT * FROM dolores_consumo")).toEqual([]);
+  });
+  it("na próxima mensagem do dono: avisa do pedido interrompido e trata o pedido novo", async () => {
+    await morta("MORTA2", 5);
+    await chamar(aviso({ id: "NOVA", texto: "e agora?" }));
+    expect(enviar.mock.calls.map(c => c[0].texto)).toEqual([expect.stringMatching(/não consegui terminar o pedido de 08:58/), "ok"]);
+    expect(chamadas).toHaveLength(1);
+  });
+  it("pedido ainda dentro do prazo da função (recente) não é mexido", async () => {
+    await morta("RECENTE", 1);
+    expect((await chamar(aviso({ id: "RECENTE" }))).body.r).toEqual({ repetida: 1 });
+    expect(enviar).not.toHaveBeenCalled();
+    expect((await q<any>("SELECT situacao FROM dolores_mensagens WHERE external_id = 'RECENTE'"))[0].situacao).toBe("processando");
+  });
+  it("avisos simultâneos: o aviso do pedido interrompido sai uma vez só", async () => {
+    await morta("MORTA3", 10);
+    await Promise.all([chamar(aviso({ id: "MORTA3" })), chamar(aviso({ id: "MORTA3" }))]);
+    expect(enviar).toHaveBeenCalledTimes(1);
+  });
+});
