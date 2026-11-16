@@ -402,6 +402,16 @@ describe("filtro de dados pessoais em texto livre (M1)", () => {
     }
   });
 
+  it("QA r5 F5: CPF/CNPJ válido em qualquer separação depois de conta/cc/ag sai inteiro (a fase 1 vem antes do banco)", () => {
+    for (const c of ["conta 529 982 247 25", "cc 529 982 247 25", "ag 529982247 25", "c/c 529.982 247-25", "conta corrente 11 222 333 0001 81"]) {
+      const r = sanitizarTexto(c);
+      expect(r, c).toContain(OMITIDO_T);
+      expect(r.replace(/\D/g, "").length, `${c} → ${r}`).toBe(0);
+    }
+    // conta de verdade continua com o marcador bancário
+    expect(sanitizarTexto("conta 12345-6")).toBe("conta [dado bancário omitido]");
+  });
+
   it("percorre a resposta inteira (listas e objetos), sem tocar números e chaves", () => {
     expect(sanitizarResposta({ a: [{ texto: "cpf 111.222.333-44", n: 11122233344 }], "111.222.333-44": null }))
       .toEqual({ a: [{ texto: "cpf [dado pessoal omitido]", n: 11122233344 }], "111.222.333-44": null });

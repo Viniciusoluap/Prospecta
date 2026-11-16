@@ -532,8 +532,25 @@ function mascararCadeias(texto: string): string {
 
 const COLADO_EM_LETRA = new RegExp("^[\\p{L}\\d]", "u");
 /** Banco: só número de conta (3+ dígitos, não um ano, não valor com centavos, não colado em letra). */
+/**
+ * QA r5 F5: a fase 1 vem antes da regra de banco — se os grupos logo depois do rótulo formam um CPF ou CNPJ válido em
+ * qualquer separação ("conta 529 982 247 25"), o banco não mexe e a cadeia inteira sai como dado pessoal (antes só o 1º
+ * grupo saía e sobravam 8 dos 11 dígitos).
+ */
+function cpfOuCnpjNoInicio(s: string): boolean {
+  const m = /^\d+(?:[\s._\-/·•:]{1,3}\d+)*/.exec(s);
+  if (!m) return false;
+  let d = "";
+  for (const g of m[0].match(/\d+/g)!) {
+    d += g;
+    if ((d.length === 11 && isValidCPF(d)) || (d.length === 14 && cnpjValido(d))) return true;
+    if (d.length >= 14) return false;
+  }
+  return false;
+}
+
 function trocarBanco(m: string, rotulo: string, sep: string, valor: string, centavos: string | undefined, pos: number, t: string): string {
-  if (centavos) return m;
+  if (centavos || cpfOuCnpjNoInicio(t.slice(pos + rotulo.length + sep.length, pos + rotulo.length + sep.length + 40))) return m;
   const resto = /[.\-/]+$/.exec(valor)?.[0] ?? "";
   const nucleo = valor.slice(0, valor.length - resto.length);
   if (nucleo.replace(/\D/g, "").length < 3 || ANO.test(nucleo) || COLADO_EM_LETRA.test(t.slice(pos + m.length))) return m;
