@@ -1723,7 +1723,7 @@ function extraDasRestricoes(geo: RecorteRestricoes, paramsConta: ParametrosMassa
     notas.push(`As áreas restritas dividem a gleba em ${geo.areas.length} partes loteáveis: cada parte foi loteada como uma área contínua (Área 1 a ${geo.areas.length} nas notas), com a própria malha ligada à divisa.`);
   }
   const retalhosM2 = geo.retalhos.reduce((s, r) => s + r.areaM2, 0);
-  if (geo.retalhos.length > 0) notas.push(`${geo.retalhos.length} retalho(s) entre as áreas restritas e a divisa (${f(retalhosM2)} m²), pequenos demais para lote, ficaram como área verde.`);
+  if (retalhosM2 >= 1) notas.push(`${geo.retalhos.length} retalho(s) entre as áreas restritas e a divisa (${f(retalhosM2)} m²), pequenos demais para lote, ficaram como área verde.`);
   const ap = aproveitarRestricoes(restricoesDosParametros(paramsConta), destinos, areaBrutaM2, params.percentAreaVerde, params.percentInstitucional);
   // a parte verde só em m² é a das restrições SEM contorno que contam como verde
   let verdeSoEmM2 = 0;
