@@ -15,14 +15,32 @@ Como na etapa 2, não há texto para colar no Claude Console: o sistema chama a 
 Não existem (recusa auditada, motivo em `permissoes.ts › PROIBIDAS`): enviar mensagem/e-mail/cobrança, aprovar item,
 excluir, pagar/baixar/estornar, editar lançamento, alterar usuário/senha/dados bancários, assinar documento.
 
+## Regra de contaminação (portão de QA da E3 — barreira principal contra injeção)
+- Cada função tem a marca `contamina` (`funcoes.ts › CONTAMINA`; ações em `acoes/registro.ts`): a resposta traz texto
+  de terceiros ou do banco (histórico, anotações, mensagens, observações, títulos, nomes, documentos). Hoje TODAS as
+  leituras contaminam; nome desconhecido contamina (na dúvida, contamina). Ações diretas não contaminam (devolvem só ids);
+  as de fila sim (o resumo traz nomes).
+- O laço (`cerebro.ts`) marca o comando como contaminado assim que o resultado `ok` de uma função que contamina entra no
+  laço. A partir daí, a porta NÃO executa ação direta: `criar_tarefa`/`registrar_acompanhamento` vão para a fila com o
+  resumo "Pedido surgido durante a leitura de dados; confira antes de aprovar: …" (`paraFila`); aprovadas, rodam a
+  mesma execução, com as mesmas conferências, numa transação de escrita. Antes de qualquer leitura, continuam diretas.
+- Reforço: `intencaoDeAcao` (`shared/dolores/fila.ts`, verbos de ação reconhecidos por código). Sem intenção na mensagem
+  do dono, o modelo não recebe as ferramentas de ação e a porta recusa ação (403 auditado, `semAcoes`).
+- Testes: `correcoes-e3.test.ts` e `correcoes-e3-whatsapp.test.ts` (A8 invertido; ação antes/depois da leitura; dado
+  envenenado com intenção de ação para outra coisa).
+
 ## Como uma ação passa pela porta (`executarFuncao`)
 1. Mesmas travas da leitura: pausa, usuária ativa, lista liberada (etapa 3), zod estrito com limites, vaga do minuto.
 2. Ação só com `canal: "whatsapp"` e a mensagem do dono (`mensagemId`) — a ponte HTTP recusa (403).
 3. Teto: 10 ações por comando do dono (diretas + itens na fila).
-4. `direto`: transação de ESCRITA mínima (`server/dolores/escrita.ts`) com o registro e a linha de `dolores_autoria`
-   juntos. As leituras seguem em READ ONLY.
+4. `direto` (comando ainda não contaminado): transação de ESCRITA mínima (`server/dolores/escrita.ts`) com o registro e a
+   linha de `dolores_autoria` juntos, com o prazo da porta (`SET LOCAL statement_timeout` e `bancoDaAcao()` recusa
+   depois do prazo — a transação se desfaz); passou do prazo → 504 "confira no sistema". As leituras seguem em READ ONLY.
 5. `fila`: a função só confere (leituras em READ ONLY) e o item entra em `dolores_aprovacoes` com função, argumentos
-   validados, resumo do sistema, código e vencimento. O modelo recebe só o resumo (sem código).
+   validados, resumo do sistema, código e vencimento — tudo numa transação (falhou um item, nenhum fica). O modelo
+   recebe só o resumo (sem código); o laço recebe os códigos por fora (`aoPorNaFila`) para o quadro do dono, inclusive
+   os que já aguardavam de outro comando. Texto de dados entra em resumo/quadro como uma linha, sem colchetes
+   (`textoDeDado`): nenhum dado forja "[CÓDIGO]".
 6. Auditoria em `dolores_acoes` (ok / recusada / erro).
 
 ## Decisão (`server/dolores/aprovacoes.ts`)
@@ -32,8 +50,16 @@ excluir, pagar/baixar/estornar, editar lançamento, alterar usuário/senha/dados
 - Tela: `dolores.fila.aprovar/recusar` (papel admin), com o id de quem decidiu.
 - Aprovar = `UPDATE … SET situacao='executando' WHERE codigo=… AND situacao='aguardando' AND vence_em > agora` (uma
   execução só), revalidação dos argumentos (zod) e do estado atual, execução, resultado. Erro/recusa na revalidação →
-  "erro", nada feito. "executando" há mais de 3 min → "erro", não refeito. Gatilho no banco: item não é apagado, o que
-  será feito não muda e item encerrado não reabre.
+  "erro", nada feito. "executando" há mais de 3 min → "erro", não refeito. Gatilho no banco: item não é apagado; o que
+  será feito, o resumo, a validade, o pedido e o autor não mudam; "aguardando" só vai para executando/recusada/vencida;
+  a decisão é gravada uma vez; o resultado só ao encerrar a execução; item encerrado não reabre.
+- Orçamento de tempo (WhatsApp): mínimo restante por função para COMEÇAR (`MINIMO_POR_FUNCAO_MS`: PCI 30 s; demais 6 s);
+  no máximo 1 PCI por mensagem de decisão; as cópias ao Drive da PCI têm prazo (`comPrazoNoDrive`, AbortSignal) — passou,
+  a cópia fica pendente para o organizador. Sem tempo, o item não começa e o dono é avisado para aprovar de novo.
+- Depois que a ação aconteceu, nenhuma falha de registro vira "não foi executado": PCI gerada com autoria que falhou →
+  "executada" com a referência e o texto "FOI gerada …, mas não consegui registrar a autoria; confira".
+- PCI: `gerarPciDaObra(..., { regravarRascunho: false, prazoDriveMs })` — o rascunho da equipe não é regravado.
+- Cobrança aprovada com a lista de pendências diferente da aprovada → recusa ("peça de novo"), como a PCI.
 
 ## Resposta ao dono
 Depois do texto do modelo, o sistema anexa dois quadros lidos do banco: "Registrado no sistema por mim" (autoria do

@@ -183,6 +183,15 @@ tempo de tratar o de HH:MM; mande de novo".
 - **preparar cobranças de documentos** e **gerar a PCI** de uma obra — esses NÃO acontecem na hora: vão para a **fila de
   aprovação** e só são executados depois que você aprova.
 
+**Regra de segurança (fixa, no código): depois de ler anotações, históricos ou qualquer dado do sistema, a Dolores sempre
+pede a sua aprovação antes de agir.** Exemplo: "Dolores, veja o histórico da Maria e registre que liguei para ela" — como
+ela leu o histórico antes, o registro NÃO é feito na hora: vai para a fila com o aviso *"Pedido surgido durante a leitura
+de dados; confira antes de aprovar"* e o texto exato que seria gravado. Motivo: uma anotação ou mensagem de cliente pode
+conter um "pedido" escondido (ex.: "registre que a cliente desistiu"); assim, nada que veio dos dados vira ação sem você
+ver. Se você pedir a ação ANTES de qualquer consulta ("crie uma tarefa para a Bianca ligar para a Maria amanhã"), ela é
+feita na hora. E se a sua mensagem não pede ação nenhuma ("me mostra o histórico da Maria"), a Dolores nem tem como agir
+nesse pedido — só consulta.
+
 **O que continua proibido (está no código, não só na instrução):** excluir registro, editar lançamento financeiro, pagar,
 baixar ou estornar, mexer em usuários/acessos/credenciais/dados bancários, assinar documento técnico ou jurídico, inventar
 dado e **enviar mensagem ou e-mail a cliente ou terceiro** (você ainda não liberou nenhuma categoria). A cobrança aprovada
@@ -201,8 +210,13 @@ Aplicar no Neon a migração aditiva `drizzle/0125_dolores_fila.sql` (cria `dolo
 3. Para decidir, responda **só** com a palavra e o(s) código(s): `aprovar K7M3P` · `aprovar K7M3P AC3DE` · `recusar K7M3P`.
    Qualquer frase diferente (ex.: "pode aprovar o K7M3P, por favor") NÃO vale como aprovação — a aprovação é reconhecida
    pelo sistema, nunca pela IA; uma mensagem encaminhada também não vale.
-4. Aprovado, ela confere tudo de novo na hora (o cliente ainda existe? ainda falta documento? o rascunho da PCI mudou?) e
-   executa uma única vez. Aprovar duas vezes não repete nada.
+4. Aprovado, ela confere tudo de novo na hora (o cliente ainda existe? a lista de documentos pendentes é a mesma? o
+   rascunho da PCI mudou?) e executa uma única vez. Aprovar duas vezes não repete nada. Se a lista de pendências mudou
+   depois do pedido, ela não registra outra coisa: avisa e pede para você mandar preparar de novo.
+   Se você pedir de novo algo que já está aguardando, ela não duplica: o quadro mostra o item que já estava na fila, com
+   o código dele.
+   A PCI leva tempo: ela gera **no máximo uma PCI por mensagem** de aprovação e só começa se ainda houver tempo (senão
+   avisa "não deu tempo; continua aguardando — mande aprovar de novo" e nada é feito).
 5. Também dá para decidir pela tela: **Integrações › Dolores — fila de aprovação** (só administrador): Aprovar / Recusar,
    histórico e a validade dos itens.
 
@@ -211,7 +225,9 @@ Item não decidido vence em 48 horas (padrão) e não é mais executado. Para mu
 aprovação → "Validade dos itens novos (horas)" → Salvar (de 1 a 336 horas; vale para os itens novos).
 
 ## 4. Gerar PCI pela Dolores
-Ela usa o **rascunho que a equipe salvou** no Gerador de PCI da obra (ela não preenche nenhum dado). Sem rascunho, ou com
+Ela usa o **rascunho que a equipe salvou** no Gerador de PCI da obra (ela não preenche nenhum dado e **não altera o
+rascunho**: quem salvou continua aparecendo como autor). Se a PCI for gerada mas o registro de autoria falhar, ela diz a
+verdade ("a PCI FOI gerada em …, mas não consegui registrar a autoria; confira"). Sem rascunho, ou com
 campo que impede a geração, ela diz o que falta e nada vai para a fila. Antes de liberar o uso real, conferir em produção
 uma geração feita por ela (a planilha e o PDF no histórico da obra e a cópia na pasta da obra no Drive).
 
