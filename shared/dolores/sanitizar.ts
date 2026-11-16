@@ -184,10 +184,33 @@ const GATILHO_NO_FIM_DA_LINHA = new RegExp(`(?<![\\p{L}\\p{N}_])(?:${PALAVRAS_CR
 const PALAVRA = new RegExp(String.raw`(?<![^\s,;:/|()<>"'[\]{}])[^\s,;:/|()<>"'[\]{}]{6,}`, "gu");
 const EMAIL_DE_VERDADE = new RegExp(String.raw`^[^@]+@[\p{L}\p{N}_-]+(?:\.[\p{L}\p{N}_-]+)*\.[\p{L}\p{N}_-]*\p{L}[\p{L}\p{N}_-]*[.!?]?$`, "u");
 const TEM_LETRA = new RegExp("\\p{L}", "u");
-/** Cara de senha: 6+ caracteres, letra misturada com dígito ou símbolo, e não é e-mail de verdade. */
+const TEM_MINUSCULA = new RegExp("\\p{Ll}", "u");
+/**
+ * QA r8 achado 3: códigos comuns que NÃO são senha — valor ("R$150.000"), número com ponto/vírgula, data/hora ISO
+ * ("2026-11-15T10"), versão ("v2.3.1"), nome de arquivo com extensão ("planta_v2.pdf") e código só com MAIÚSCULAS, dígitos,
+ * hífen, ponto ou barra (protocolo "AB12345", "SEI-12345", quadra/lote "Q12-L05", placa "ABC1D23", matrícula "M-12345").
+ */
+// O código só com maiúsculas é testado sem a flag "i" (com ela, "abc123" também passaria).
+const CODIGO_MAIUSCULO = new RegExp(String.raw`^[\p{Lu}\d][\p{Lu}\d./-]*$`, "u");
+const SO_FORMATOS_COMUNS = new RegExp(
+  String.raw`^(?:R\$.*|[\d.,]+|\d{4}-\d{2}-\d{2}(?:T\d{1,2})?|v\d+(?:\.\d+)+[a-z]?|.+\.(?:pdf|docx?|xlsx?|csv|txt|jpe?g|png|zip|rar|dwg|dxf|kml|kmz|pptx?|mp[34]|json|xml))$`,
+  "iu",
+);
+/**
+ * Cara de senha: 6+ caracteres, com letra, não é e-mail de verdade nem um dos códigos comuns acima, e tem minúscula com
+ * dígito ou símbolo ("Maria@2025", "obra2025") ou um símbolo típico de senha (@ ! # $ % & *).
+ */
 export function pareceSenha(p: string): boolean {
-  return p.length >= 6 && TEM_LETRA.test(p) && /[\d!@#$%&*?_+=~^]/.test(p) && !EMAIL_DE_VERDADE.test(p);
+  if (p.length < 6 || !TEM_LETRA.test(p) || EMAIL_DE_VERDADE.test(p)) return false;
+  if (SO_FORMATOS_COMUNS.test(p) || CODIGO_MAIUSCULO.test(p)) return false;
+  return (TEM_MINUSCULA.test(p) && /[\d!@#$%&*?_+=~^]/.test(p)) || /[!@#$%&*]/.test(p);
 }
+/**
+ * QA r8 achado 3: logo depois de "usuário"/"user"/"login" vem o LOGIN ("usuário João123 criou a tarefa"), não a senha;
+ * a senha é a palavra seguinte com cara de senha, se houver ("login: 52998224725 / Maria@2025").
+ * O login com símbolo típico de senha (! # $ % & *) sai mesmo assim.
+ */
+const DEPOIS_DO_USUARIO = new RegExp(String.raw`(?<![\p{L}\p{N}_])(?:usu[aá]rios?|user(?:name)?|logins?)[ \t:=>\-–—]*$`, "iu");
 function mascararCredenciais(x: string): string {
   if (!GATILHO_CREDENCIAL.test(x)) return x;
   const linhas = x.split("\n");
@@ -196,7 +219,14 @@ function mascararCredenciais(x: string): string {
     const l = linhas[i];
     const m = GATILHO_CREDENCIAL.exec(l);
     const ini = linhaSeguinte ? 0 : m ? m.index + m[0].length : -1;
-    if (ini >= 0) linhas[i] = l.slice(0, ini) + l.slice(ini).replace(PALAVRA, p => (pareceSenha(p) ? SENHA_OMITIDA : p));
+    if (ini >= 0) {
+      linhas[i] = l.slice(0, ini) + l.slice(ini).replace(PALAVRA, (p: string, pos: number, resto: string) => {
+        if (!pareceSenha(p)) return p;
+        const antes = (pos < 24 ? l.slice(Math.max(0, ini + pos - 24), ini) : "") + resto.slice(Math.max(0, pos - 24), pos);
+        // login com símbolo típico de senha (! # $ % & *) sai mesmo assim: na dúvida, mascara
+        return DEPOIS_DO_USUARIO.test(antes) && !/[!#$%&*]/.test(p) ? p : SENHA_OMITIDA;
+      });
+    }
     linhaSeguinte = !!m && GATILHO_NO_FIM_DA_LINHA.test(l.slice(-48));
   }
   return linhas.join("\n");

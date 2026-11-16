@@ -676,6 +676,31 @@ describe("filtro de dados pessoais em texto livre (M1)", () => {
     }
   });
 
+  it("QA r8 achado 3: o gatilho de credencial não corrompe valor, data, versão, arquivo, código em maiúsculas nem o login", () => {
+    const S = "[senha omitida]";
+    const LIB = { mascararDadosPessoais: false } as const;
+    for (const t of [
+      "portal da prefeitura protocolo AB12345", "usuário João123 criou a tarefa", "Portal da Caixa: valor R$150.000,00 aprovado",
+      "acesso liberado 2026-11-15T10:00", "acesso: processo SEI-12345", "acesso pela Quadra Q12-L05", "acesso da placa ABC1D23",
+      "portal: versão v2.3.1", "Portal\nmatrícula M-12345", "acesso: planta_v2.pdf", "gov.br prata, protocolo 2025ABC123",
+      "user admin123 created", "login: bianca.santos", "usuário bianca.santos abriu o processo SEI-12345", "acesso: fotos_obra.JPG",
+      "portal: R$1.500,00 e 1.234,56", "login joao.silva2 ok",
+    ]) for (const op of [LIB, {}]) expect(sanitizarTexto(t, op), t).toBe(t);
+    // as senhas de verdade continuam saindo (inclusive a que vem DEPOIS do login, e o login com símbolo de senha)
+    const casos: Array<[string, string]> = [
+      ["usuário João123 senha123", "senha123"], ["user joao Abc123x", "Abc123x"], ["login: 52998224725 / Maria@2025", "Maria@2025"],
+      ["usuário Abc#1234", "Abc#1234"], ["portal: ABC@123", "ABC@123"], ["acesso: obra2025", "obra2025"], ["portal: R2d2#x", "R2d2#x"],
+      ["cliente informou: 529.982.247-25 Abc@1234", "Abc@1234"], ["acesso gov: 52998224725 Maria@2025", "Maria@2025"],
+    ];
+    for (const [t, senha] of casos) for (const op of [LIB, {}]) {
+      const r = sanitizarTexto(t, op);
+      expect(r, `${t} → ${r}`).not.toContain(senha);
+      // no modo mascarado, "x@y" sem domínio sai pela fase de e-mail (marcador de dado pessoal)
+      if (op === LIB) expect(r, t).toContain(S);
+      else expect(r, t).toMatch(/\[(?:senha|dado pessoal) omitid[oa]\]/);
+    }
+  });
+
   it("QA r7 A6: segredos disfarçados (pwd/pass/tkn, código de verificação/2FA/segurança, bearer, chaves de API, PEM) saem nos dois modos", () => {
     const S = "[senha omitida]", K = "[chave de acesso omitida]";
     const LIB = { mascararDadosPessoais: false } as const;
