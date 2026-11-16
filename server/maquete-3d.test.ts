@@ -78,6 +78,15 @@ const parciais = () => ({
   "estrutura:ed1-pv2": ESTRUTURA, "ambientes:ed1-pv2": AMBIENTES_SUPERIOR,
 });
 
+/** Um passo da leitura; se ele parar na confirmação do custo da IA, o admin confirma e o passo é repetido. */
+async function avancarIA(id: number) {
+  const m = appRouter.createCaller({ user: { id: 1, role: "admin", permissions: "[]", active: true, name: "x" }, req: {}, res: {} } as never).maquete3d;
+  const r = await m.avancarLeitura({ id });
+  if (r.aguardando?.motivo !== "confirmacao") return r;
+  await m.confirmarIA({ id });
+  return m.avancarLeitura({ id });
+}
+
 describe("modelo e regras", () => {
   it("preços padrão aprovados e faixa pela área/pavimentos", () => {
     expect(PRECOS_PADRAO).toEqual({ terrea_ate_70: 197, terrea_70_150: 297, acima_150_ou_sobrado: 497 });
@@ -163,7 +172,7 @@ async function criarBanco() {
   const pg = new PGlite();
   await pg.exec(ddl);
   await pg.exec(`CREATE TABLE incorporation_registration_file_data (document_id integer PRIMARY KEY, mime text, size_bytes integer, data bytea);`);
-  for (const arquivo of ["0111_maquete_3d.sql", "0112_maquete_3d_comercial.sql", "0113_maquete_3d_pagamento.sql", "0114_maquete_3d_email.sql", "0115_maquete_3d_lead_arquivos.sql"]) {
+  for (const arquivo of ["0111_maquete_3d.sql", "0112_maquete_3d_comercial.sql", "0113_maquete_3d_pagamento.sql", "0114_maquete_3d_email.sql", "0115_maquete_3d_lead_arquivos.sql", "0121_maquete_3d_revisoes.sql"]) {
     const migracao = readFileSync(new URL(`../drizzle/${arquivo}`, import.meta.url), "utf8");
     await pg.exec(migracao);
     await pg.exec(migracao); // idempotente
@@ -204,6 +213,8 @@ describe("router maquete3d", () => {
     definirDependencias({
       agora: () => new Date("2026-11-14T13:00:00Z"),
       lerPdf: async d => Buffer.from(`pdf:${d.nome}`),
+      // Chave falsa, injetada: o motor "IA em tudo" também espera a confirmação do admin antes de cada lote de chamadas.
+      credencialIA: async () => ({ apiKey: "sk-ant-teste-0000", modelo: null, origem: "painel" as const }),
       ia: async p => {
         pedidos.push(p);
         const r = respostas.shift();
@@ -255,13 +266,16 @@ describe("router maquete3d", () => {
     expect(await m.iniciarLeitura({ id })).toMatchObject({ total: 1, feitos: 0 });
 
     respostas.push(INVENTARIO, ESTRUTURA, new Error("fora do ar"), AMBIENTES_TERREO, ESTRUTURA, AMBIENTES_SUPERIOR);
-    expect(await m.avancarLeitura({ id })).toMatchObject({ total: 6, feitos: 1, erro: null });
-    expect(await m.avancarLeitura({ id })).toMatchObject({ feitos: 2, erro: null });
-    expect(await m.avancarLeitura({ id })).toMatchObject({ feitos: 2, erro: "fora do ar", status: "em_leitura" });
-    expect(await m.avancarLeitura({ id })).toMatchObject({ feitos: 3, erro: null });
-    await m.avancarLeitura({ id });
-    await m.avancarLeitura({ id });
-    expect(await m.avancarLeitura({ id })).toMatchObject({ feitos: 6, proximo: null, status: "em_revisao" });
+    // Motor "IA em tudo": a primeira chamada já espera a confirmação do admin (cadastrar a chave não liga gasto).
+    expect(await m.avancarLeitura({ id })).toMatchObject({ feitos: 0, aguardando: { motivo: "confirmacao", pendentes: 1 } });
+    expect(pedidos).toHaveLength(0);
+    expect(await avancarIA(id)).toMatchObject({ total: 6, feitos: 1, erro: null });
+    expect(await avancarIA(id)).toMatchObject({ feitos: 2, erro: null });
+    expect(await avancarIA(id)).toMatchObject({ feitos: 2, erro: "fora do ar", status: "em_leitura" });
+    expect(await avancarIA(id)).toMatchObject({ feitos: 3, erro: null });
+    await avancarIA(id);
+    await avancarIA(id);
+    expect(await avancarIA(id)).toMatchObject({ feitos: 6, proximo: null, status: "em_revisao" });
 
     // O PDF vai em todo passo; o passo dos ambientes recebe as paredes já lidas; a montagem não chama a IA.
     expect(pedidos).toHaveLength(6);
@@ -295,7 +309,7 @@ describe("router maquete3d", () => {
     await admin().liberar({ id, nota: "PIX recebido" });
     await m.iniciarLeitura({ id });
     respostas.push(INVENTARIO, ESTRUTURA, AMBIENTES_TERREO, ESTRUTURA, AMBIENTES_SUPERIOR);
-    for (let i = 0; i < 6; i++) await m.avancarLeitura({ id });
+    for (let i = 0; i < 6; i++) await avancarIA(id);
     const d = await m.detalhe({ id });
     const publico = appRouter.createCaller({ user: null, req: {}, res: {} } as never).maquetePublica;
     await expect(publico.porToken({ token: d.token })).rejects.toThrow("não encontrada");
@@ -378,7 +392,7 @@ describe("router maquete3d", () => {
     // 5. Produção, validação e publicação: o link segue por e-mail na hora e só então aparece no portal.
     await admin().iniciarLeitura({ id });
     respostas.push(INVENTARIO, ESTRUTURA, AMBIENTES_TERREO, ESTRUTURA, AMBIENTES_SUPERIOR);
-    for (let i = 0; i < 6; i++) await admin().avancarLeitura({ id });
+    for (let i = 0; i < 6; i++) await avancarIA(id);
     const d = await admin().detalhe({ id });
     d.modelo!.pendencias[0].resolvida = true;
     await admin().salvarModelo({ id, versao: d.modeloVersao, modelo: d.modelo! });
@@ -561,16 +575,18 @@ describe("router maquete3d", () => {
     await admin().liberar({ id, nota: "PIX recebido" });
     await admin().iniciarLeitura({ id });
     respostas.push({ pranchas: [], edificacoes: [], implantacao: null, pendencias: [] });
-    expect((await admin().avancarLeitura({ id })).erro).toMatch(/Nenhuma planta baixa/);
+    expect((await avancarIA(id)).erro).toMatch(/Nenhuma planta baixa/);
   });
 
-  it("sem chave da IA o passo falha com aviso e nada é inventado", async () => {
+  it("sem chave da IA o passo para (aguardando a chave) com aviso e nada é inventado", async () => {
     definirDependencias();
     definirDependencias({ lerPdf: async () => Buffer.from("x") });
     const { id } = await admin().criar({ origem: "projeto", alvoId: 1, tipo: "casa", faixaPreco: "terrea_ate_70", documentos: [docProjeto] });
     await admin().liberar({ id, nota: "PIX recebido" });
     await admin().iniciarLeitura({ id });
-    expect((await admin().avancarLeitura({ id })).erro).toMatch(/Chave da IA não configurada/);
+    const r = await admin().avancarLeitura({ id });
+    expect(r).toMatchObject({ erro: null, aguardando: { motivo: "chave" } });
+    expect(r.aguardando!.mensagem).toMatch(/precisa da chave da IA: cadastre-a em Integrações → Anthropic/);
     expect((await admin().detalhe({ id })).modelo).toBeNull();
   });
 
@@ -690,7 +706,8 @@ describe("router maquete3d", () => {
   });
 
   it("EPIC-023: leitor próprio (padrão) lê o sobrado em PDF vetorial sem IA — uma prancha por passo, dois pavimentos e a escada ligada", async () => {
-    await banco.pg.exec(`DELETE FROM maquete_3d_config`); // sem configuração gravada vale o padrão: leitor próprio
+    await banco.pg.exec(`DELETE FROM maquete_3d_config`); // sem configuração gravada e sem chave vale o padrão: leitor próprio
+    definirDependencias({ credencialIA: async () => null });
     expect((await admin().config()).motor).toBe("geometrico");
     const pdf = readFileSync(new URL("./fixtures/maquete-3d/sobrado.pdf", import.meta.url));
     definirDependencias({ agora: () => new Date("2026-11-15T13:00:00Z"), lerPdf: async () => pdf, ia: async () => { throw new Error("a IA não pode ser chamada"); } });
@@ -706,7 +723,7 @@ describe("router maquete3d", () => {
 
     const d = await colaborador().detalhe({ id });
     expect(d.tokens).toEqual({ entrada: 0, saida: 0 });
-    expect(d.escalas).toEqual([{ titulo: "PLANTA BAIXA - TÉRREO", escala: 75, origem: "texto" }, { titulo: "PLANTA BAIXA - PAVIMENTO SUPERIOR", escala: 75, origem: "texto" }]);
+    expect(d.escalas).toEqual([{ titulo: "PLANTA BAIXA - TÉRREO", escala: 75, origem: "texto", lidaPor: "geometrico" }, { titulo: "PLANTA BAIXA - PAVIMENTO SUPERIOR", escala: 75, origem: "texto", lidaPor: "geometrico" }]);
     const [e] = d.modelo!.edificacoes;
     expect(e.pavimentos.map(p => [p.nome, p.nivel, p.origemPeDireito])).toEqual([["Térreo", 0, "estimada"], ["Pavimento superior", 2.85, "estimada"]]);
     expect(e.pavimentos[0].escadas).toMatchObject([{ destinoPavimentoId: e.pavimentos[1].id }]);

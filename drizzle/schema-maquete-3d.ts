@@ -34,6 +34,13 @@ export const maquetes3d = pgTable("maquetes_3d", {
   modelo: text("modelo"),
   modeloVersao: integer("modelo_versao").default(0).notNull(),
   comercial: text("comercial").default("{}").notNull(),
+  /** Importação de planta em andamento, separada do modelo em uso (0121, EPIC-024 S-05). */
+  importacao: text("importacao"),
+  /**
+   * Chamadas pagas à IA já feitas nesta maquete, somando leituras e importações (0121, correção do QA do EPIC-024):
+   * é o contador do teto `limitePranchasIA` por maquete, incrementado no mesmo UPDATE que reserva a chamada.
+   */
+  iaPranchasLidas: integer("ia_pranchas_lidas").default(0).notNull(),
   revisadoPor: integer("revisado_por"),
   revisadoEm: timestamp("revisado_em"),
   publicadoEm: timestamp("publicado_em"),
@@ -54,5 +61,18 @@ export const maquete3dArquivos = pgTable("maquete_3d_arquivos", {
   tamanho: integer("tamanho").notNull(),
   dados: bytea("dados").notNull(),
   enviadoPor: integer("enviado_por"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+/** Histórico das plantas (0121_maquete_3d_revisoes.sql, EPIC-024 S-05): uma linha por mudança do modelo. */
+export const maquete3dRevisoes = pgTable("maquete_3d_revisoes", {
+  id: serial("id").primaryKey(),
+  maqueteId: integer("maquete_id").notNull(),
+  versao: integer("versao").notNull(),
+  modelo: text("modelo").notNull(),
+  origem: varchar("origem", { length: 30 }).notNull(),
+  motivo: varchar("motivo", { length: 400 }),
+  documento: text("documento"),
+  autorId: integer("autor_id"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
