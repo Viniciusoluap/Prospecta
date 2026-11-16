@@ -343,8 +343,8 @@ describe("QA: contornos hostis", () => {
   for (const [nome, pol] of casos) it(`${nome}: nenhum vértice do muro fora do terreno`, () => {
     const g = geometriaDoMuro(imp({ terreno: pol }), muro())!;
     expect(g).toBeTruthy();
-    expect(maiorSaida(g, pol)).toBeLessThan(1e-3);
-  });
+    expect(maiorSaida(g, pol)).toBeLessThan(1e-3); // conferência exaustiva (lenta no serrilhado: 240 mil vértices × 4.000 lados)
+  }, 60_000);
 
   it("gravata-borboleta (sem área): erro de validação claro, em vez de condomínio sem muro calado", () => {
     const borboleta = [{ x: 0, y: 0 }, { x: 50, y: 50 }, { x: 50, y: 0 }, { x: 0, y: 50 }];
