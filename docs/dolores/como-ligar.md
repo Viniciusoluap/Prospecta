@@ -202,8 +202,10 @@ Endereço, arquivos e links do Drive continuam fora das consultas.
 
 **Links na resposta.** Para que um texto de cliente não consiga fazer a Dolores montar um link com dados dentro, a
 resposta que chega ao seu WhatsApp só leva links do **próprio sistema** (o domínio da variável `PUBLIC_SITE_URL` da
-Vercel) e do **Trello** (`trello.com`), e mesmo esses sem a parte depois de "?" ou "#". Qualquer outro link vira
-"[link removido]". Sem a variável `PUBLIC_SITE_URL`, nenhum link do sistema passa (só o Trello). A mensagem é enviada sem
+Vercel) e do **Trello** (`trello.com`), e mesmo esses em `https://`, sem porta e sem a parte depois de "?" ou "#".
+Qualquer outro link vira "[link removido]" — inclusive endereço sem "http" ("site.com", "site.com/x", "192.168.0.1/x").
+Nomes de arquivo ("contrato.pdf") e abreviações de endereço ("Av.Brasil/120") ficam. Mesmo assim, não toque em endereço
+que não seja do sistema ou do Trello. Sem a variável `PUBLIC_SITE_URL`, nenhum link do sistema passa (só o Trello). A mensagem é enviada sem
 prévia de link (ninguém abre o endereço para montar a prévia).
 
 **O que continua sem dado pessoal**, qualquer que seja a escolha: o registro de ações (`dolores_acoes`), o pedido

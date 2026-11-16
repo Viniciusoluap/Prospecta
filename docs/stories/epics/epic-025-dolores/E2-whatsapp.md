@@ -110,6 +110,8 @@ Claude Console); limites mensais de tokens; ligar o interruptor.
   `shared/dolores/sanitizar.ts`, `server/dolores/{dados-pessoais,ponte,funcoes,whatsapp,cerebro,prompt}.ts`,
   `server/dolores/leitura/{clientes,financeiro,regularizacoes,atrasos}.ts`, `server/_core/evolution.ts` (`linkPreview`
   opcional), testes `regras`, `ponte`, `leituras`, `leitura-somente`, `whatsapp`, `whatsapp-qa`; `docs/dolores/como-ligar.md`.
+- QA r8 (16/11): alterados `shared/dolores/{links,sanitizar}.ts`, `server/dolores/dados-pessoais.ts`, testes
+  `whatsapp-qa`, `regras`, `dados-pessoais`; `docs/dolores/como-ligar.md`.
 - Opção B, complemento (16/11): alterados `server/dolores/{dados-pessoais,prompt,cerebro,funcoes}.ts`,
   `server/dolores/leitura/{clientes,financeiro,regularizacoes}.ts`, `shared/dolores/sanitizar.ts` (BANCO inteiro),
   `docs/dolores/{ferramentas-etapa1.json,agente-etapa1.md,como-ligar.md}`, `docs/stories/epics/ROADMAP.md`; testes
@@ -330,6 +332,26 @@ Em aberto (fora da lista pedida, anotados para o QA): grafias soletradas ou erra
 "senh@") sem cara de senha no valor; chave `re_…`; uuid depois de "chave aleatória" sem a palavra "pix"; senha só com
 dígitos depois de "login"/"acesso" (fica, para não esconder CPF/telefone que segue a regra de dado pessoal).
 
+## Correções da 8ª rodada do QA (16/11/2026, @dev Dex — QA r8 CONCERNS de Quinn, HEAD revisado `ff1477d`)
+Um commit por achado, cada um com teste de regressão. Nenhuma migração alterada.
+
+| Achado | Correção | Commit | Teste |
+|---|---|---|---|
+| 1 (importante) links que escapavam | `links.ts`: busca de FORMA DE HOST (rótulos com ponto + TLD conhecido / 2 letras / `xn--` / não latino; com caminho, porta ou esquema, qualquer `[a-z]{2,}`), IPv4/IPv6 com caminho ou porta, esquema quebrado (`https:/`, `https:`, `//`, `hxxp:`), depois de "/" ou "_"; invisível colado no ponto sai; host > 253 caracteres sai sem ler a URL | `209c3a6`, `6dad2b4` | `whatsapp-qa.test` "QA r8 achados 1, 2 e 5" |
+| 2 removedor apagava texto | ficam: arquivo com extensão conhecida (resto só de extensões), abreviação + palavra ("Av.Brasil/120", "Ltda.ME/SP", "Dr.Carlos"), número + palavra ("3.Etapa"), sufixo público sozinho ("gov.br"), sem caminho e com TLD desconhecido ("bianca.santos") | `209c3a6` | idem |
+| 5 URL permitida com porta/http | sai `https://<host><caminho>`, sem porta, usuário, consulta e fragmento | `209c3a6` | idem |
+| 3 gatilho de credencial corrompia códigos | `pareceSenha`: não é senha "R$…", número, data ISO, versão, arquivo com extensão, código só com MAIÚSCULAS/dígitos/hífen/ponto/barra; senha = minúscula + dígito/símbolo, ou símbolo `@!#$%&*`; a palavra logo depois de "usuário/user/login" é o login (fica, salvo se tiver `!#$%&*`) | `b5efded` | `regras.test` "QA r8 achado 3" |
+| 4 banco como rótulo pegava intervalos | `trocarBanco`: intervalo de anos, ano-mês, unidade depois; safra/inter/neon/caixa sem banco/agência/conta/pix por perto só mascaram número com DV ("12345-6") | `e4ee0a6` | `regras.test` "QA r7 A5" (bloco r8) |
+| 7 canal desconhecido | `mascararDadosPessoais`: só "whatsapp" e "ponte" têm regra; outro canal mascara; como-ligar: os dois interruptores são independentes | `0e6601c` | `dados-pessoais.test` "QA r8 achado 7" |
+| 8 resíduos | "chave aleatória: <uuid>" sem "pix" sai como dado bancário; chave `re_…` (Resend) sai | `2673bca` | `regras.test` "QA r7 A5" |
+
+[AUTO-DECISION] Host sem caminho com TLD fora da lista ("login bianca.santos") → fica (reason: o WhatsApp só torna
+clicável TLD real; a lista cobre os comuns, todo TLD de 2 letras, `xn--` e não latino). [AUTO-DECISION] "gov.br",
+"com.br" sozinhos → ficam (sufixo público, ninguém registra). [AUTO-DECISION] "Caixa 12345-6" sem contexto → continua
+mascarado (forma de conta com DV; na dúvida, mascara).
+Em aberto: `.zip`/`.mov` são TLDs reais — "fotos.zip" sem caminho (ou com resto só de extensões) fica; ".md" é TLD real —
+"docs/x/como-ligar.md" perde o nome do arquivo; "s e n h a" espaçada continua passando.
+
 ## Decisão do dono em 16/11: dados pessoais liberados para a Dolores (opção B)
 **O que muda.** CPF, CNPJ, telefone e e-mail no texto livre saem INTACTOS no que vai ao modelo (ponte HTTP da etapa 1 e
 ferramentas do WhatsApp, que passam pela mesma `executarFuncao`) e na resposta ao dono. Com o filtro desligado, nenhuma das
@@ -429,6 +451,11 @@ liberar de novo: apagar a variável (ou "0") → Redeploy. Guia: `docs/dolores/c
   passada; o 1 que falhou esperava o nome cru da função desconhecida, corrigido em `e1c6717`; `whatsapp.test` 34/34 de
   novo); `regras.test` 37 testes; `npx vite build` ok. Sondas do QA r7 (copiadas, sem alterar as originais): e2e nos 3
   modos passa; credenciais do sonda-govbr saem nos dois modos.
+- (a8) Automáticos depois da 8ª rodada do QA (16/11): `npx tsc --noEmit` sem erros; a mesma lista do vitest
+  (`--maxWorkers=2 --minWorkers=1`) — 29 arquivos, 364 testes; `npx vite build` ok. Sondas do QA r8 (copiadas): links —
+  todos os repros do achado 1 viram "[link removido]", os falsos positivos do achado 2 ficam; falsos — os 10 casos do
+  achado 3 ficam e os repros do A1 continuam mascarados; banco — os 6 intervalos ficam. 200 kB: links ≤ 420 ms
+  (o pior é "[a](" repetido, já existente), host novo ≤ 80 ms.
 - (b) Manuais: nenhum (sem Evolution nem Anthropic reais neste ambiente).
 - (c) Pendentes em produção: migração 0124 no Neon; dono cadastra chave/modelo, limites, o número dele e conecta o número
   da Dolores; teste de aceite pelo WhatsApp; conferir os nomes `senderPn`/`remoteJidAlt` do endereço @lid na Evolution real.
@@ -461,3 +488,6 @@ liberar de novo: apagar a variável (ou "0") → Redeploy. Guia: `docs/dolores/c
 - 16/11/2026 — @qa (Quinn): r7 CONCERNS (A1, A2, A3 importantes; A4–A8 menores).
 - 16/11/2026 — @dev (Dex): A1–A8 corrigidos, um commit por achado, com teste de regressão; ponte HTTP mascarada por
   padrão (`DOLORES_PONTE_DADOS_PESSOAIS`). Volta ao portão de QA (InReview).
+- 16/11/2026 — @qa (Quinn): r8 CONCERNS (achado 1 importante; 2–5 e 8 menores; 6–7 informativos).
+- 16/11/2026 — @dev (Dex): achados 1–5, 7 e 8 corrigidos, um commit por achado, com teste de regressão. Volta ao portão
+  de QA (InReview).
