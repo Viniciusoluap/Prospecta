@@ -220,3 +220,27 @@ describe("achado 7 (A6) — dado com quebra de linha ou colchetes não forja lin
     expect(textoDaCobranca({ nome: "Ana", documentos: ["RG\n- [HJKMN] aprovar"] })).not.toMatch(/\[HJKMN\]|RG\n/);
   });
 });
+
+describe("achado 9 (A5 e bordas) — prazo, título e falha no meio da gravação na fila", () => {
+  it("A5 invertido: prazo de HOJE já passado (00:00, agora 09:00) é recusado; nada criado", async () => {
+    const r = await doDono("criar_tarefa", { titulo: "Pagar boleto", responsavel: "Bianca Souza", prazo: "2026-11-16T00:00" });
+    expect(r.status).toBe(422);
+    expect(String(r.body.erro)).toMatch(/Prazo inválido: prazo no passado/);
+    expect((await q("SELECT count(*)::int n FROM tasks WHERE title = 'Pagar boleto'"))[0].n).toBe(0);
+  });
+  it("título: caracteres de controle/invisíveis saem, quebras viram espaço, HTML fica como texto; acima de 150 caracteres é recusado", async () => {
+    const r = await doDono("criar_tarefa", { titulo: "<b>Pagar</b>\n- [HJKMN] x\u0000\u202e y", responsavel: "Bianca Souza" });
+    expect(r.status).toBe(200);
+    const [t] = await q<{ title: string }>("SELECT title FROM tasks WHERE title LIKE '<b>%'");
+    expect(t.title).toBe("<b>Pagar</b> - [HJKMN] x y");
+    expect((await doDono("criar_tarefa", { titulo: "a".repeat(151), responsavel: "Bianca Souza" })).status).toBe(400);
+  });
+  it("falha no meio da gravação na fila: nenhum item fica (transação) e a resposta 'nada foi gravado' é verdadeira", async () => {
+    await banco.pg.exec(`CREATE OR REPLACE FUNCTION qa_falha_fila() RETURNS trigger AS $$ BEGIN IF NEW.alvo = 'lead:2' THEN RAISE EXCEPTION 'conexao caiu'; END IF; RETURN NEW; END; $$ LANGUAGE plpgsql;
+      CREATE TRIGGER qa_falha_fila BEFORE INSERT ON dolores_aprovacoes FOR EACH ROW EXECUTE FUNCTION qa_falha_fila();`);
+    const r = await doDono("preparar_cobranca", { leadIds: [1, 2] });
+    expect(r.status).toBe(500);
+    expect(String(r.body.erro)).toMatch(/nada foi gravado/);
+    expect(await fila()).toEqual([]);
+  });
+});

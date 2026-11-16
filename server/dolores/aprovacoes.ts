@@ -40,29 +40,32 @@ export type ItemCriado = { codigo: string; resumo: string; venceEm: Date; jaAgua
 
 /**
  * Põe na fila o que a função preparou. O mesmo pedido (função + alvo) já aguardando não duplica: devolve o código
- * existente. Colisão de código → sorteia de novo (até 6 vezes).
+ * existente. Colisão de código → sorteia de novo (até 6 vezes). Tudo numa transação (achado 9 do QA): falhou um item,
+ * nenhum fica — a resposta "nada foi gravado" da porta é verdadeira.
  */
 export async function porNaFila(funcao: string, preparo: Preparo, ctx: ContextoAcao): Promise<ItemCriado[]> {
   const horas = await lerValidadeHoras();
   const venceEm = new Date(ctx.agora.getTime() + horas * 3_600_000);
-  const criados: ItemCriado[] = [];
-  for (const item of preparo.itens) {
-    let feito: ItemCriado | null = null;
-    for (let tentativa = 0; tentativa < 6 && !feito; tentativa++) {
-      const codigo = gerarCodigo(sorteio);
-      const [linha] = await getDb().insert(doloresAprovacoes).values({
-        codigo, venceEm, criadoEm: ctx.agora, mensagemId: ctx.mensagemId, pedidoId: ctx.pedidoId?.slice(0, 120) ?? null, autorUserId: ctx.autorId,
-        funcao, alvo: item.alvo.slice(0, 80), argumentos: item.argumentos, resumo: textoDeDado(sanitizarTexto(item.resumo), 600),
-      }).onConflictDoNothing().returning({ codigo: doloresAprovacoes.codigo, resumo: doloresAprovacoes.resumo, venceEm: doloresAprovacoes.venceEm });
-      if (linha) { feito = { ...linha, jaAguardava: false }; break; }
-      const [existente] = await getDb().select({ codigo: doloresAprovacoes.codigo, resumo: doloresAprovacoes.resumo, venceEm: doloresAprovacoes.venceEm })
-        .from(doloresAprovacoes).where(and(eq(doloresAprovacoes.funcao, funcao), eq(doloresAprovacoes.alvo, item.alvo.slice(0, 80)), eq(doloresAprovacoes.situacao, "aguardando"))).limit(1);
-      if (existente) feito = { ...existente, jaAguardava: true };
+  return getDb().transaction(async tx => {
+    const criados: ItemCriado[] = [];
+    for (const item of preparo.itens) {
+      let feito: ItemCriado | null = null;
+      for (let tentativa = 0; tentativa < 6 && !feito; tentativa++) {
+        const codigo = gerarCodigo(sorteio);
+        const [linha] = await tx.insert(doloresAprovacoes).values({
+          codigo, venceEm, criadoEm: ctx.agora, mensagemId: ctx.mensagemId, pedidoId: ctx.pedidoId?.slice(0, 120) ?? null, autorUserId: ctx.autorId,
+          funcao, alvo: item.alvo.slice(0, 80), argumentos: item.argumentos, resumo: textoDeDado(sanitizarTexto(item.resumo), 600),
+        }).onConflictDoNothing().returning({ codigo: doloresAprovacoes.codigo, resumo: doloresAprovacoes.resumo, venceEm: doloresAprovacoes.venceEm });
+        if (linha) { feito = { ...linha, jaAguardava: false }; break; }
+        const [existente] = await tx.select({ codigo: doloresAprovacoes.codigo, resumo: doloresAprovacoes.resumo, venceEm: doloresAprovacoes.venceEm })
+          .from(doloresAprovacoes).where(and(eq(doloresAprovacoes.funcao, funcao), eq(doloresAprovacoes.alvo, item.alvo.slice(0, 80)), eq(doloresAprovacoes.situacao, "aguardando"))).limit(1);
+        if (existente) feito = { ...existente, jaAguardava: true };
+      }
+      if (!feito) throw new Error("não foi possível sortear um código livre para o item da fila");
+      criados.push(feito);
     }
-    if (!feito) throw new Error("não foi possível sortear um código livre para o item da fila");
-    criados.push(feito);
-  }
-  return criados;
+    return criados;
+  });
 }
 
 /**

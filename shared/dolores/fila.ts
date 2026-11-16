@@ -1,7 +1,6 @@
 // EPIC-025 (Dolores, etapa 3) — regras puras das ações e da fila de aprovação: código curto do item, leitura
 // DETERMINÍSTICA da decisão do dono ("aprovar CÓDIGO" / "recusar CÓDIGO"), prazo da tarefa, validade do item, texto da
 // cobrança (montado pelo sistema, nunca pelo modelo) e o quadro de pendências que vai ao dono. Sem banco nem rede.
-import { diaFortaleza } from "./formato.js";
 
 /** Alfabeto dos códigos: sem letras/números que se confundem no celular (0/O, 1/I/L, 2/Z, 5/S, 8/B, 6/G). */
 export const ALFABETO_CODIGO = "ACDEFHJKMNPRTUVWXY3479";
@@ -102,8 +101,8 @@ export function lerPrazo(texto: string, agora: Date): { ok: true; data: Date } |
   if (conferida.getUTCFullYear() !== +a || conferida.getUTCMonth() !== +mes - 1 || conferida.getUTCDate() !== +d || +h > 23 || +min > 59)
     return { ok: false, motivo: "data que não existe" };
   const data = new Date(utc + FUSO_MS);
-  const hoje = Date.UTC(...(diaFortaleza(agora)!.split("-").map((x, i) => (i === 1 ? +x - 1 : +x)) as [number, number, number])) + FUSO_MS;
-  if (data.getTime() < hoje) return { ok: false, motivo: "prazo no passado" };
+  // achado 9 do QA: hoje vale, mas só a partir de agora (09:00 → "hoje 08:00" é passado; "hoje" sem hora vale às 18:00)
+  if (data.getTime() <= agora.getTime()) return { ok: false, motivo: "prazo no passado" };
   if (data.getTime() > agora.getTime() + 366 * 86_400_000) return { ok: false, motivo: "prazo a mais de um ano" };
   return { ok: true, data };
 }

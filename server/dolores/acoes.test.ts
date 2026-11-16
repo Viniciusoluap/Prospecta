@@ -70,7 +70,9 @@ describe("regras puras (decisão do dono, prazo, cobrança)", () => {
   });
   it("prazo plausível: hoje até 1 ano, data existente, no fuso de Imperatriz", () => {
     expect(lerPrazo("2026-11-20", AGORA)).toEqual({ ok: true, data: new Date("2026-11-20T21:00:00Z") });
-    expect(lerPrazo("2026-11-16T08:00", AGORA)).toMatchObject({ ok: true });
+    expect(lerPrazo("2026-11-16T10:00", AGORA)).toMatchObject({ ok: true });
+    expect(lerPrazo("2026-11-16", AGORA)).toMatchObject({ ok: true }); // hoje às 18:00
+    expect(lerPrazo("2026-11-16T08:00", AGORA)).toMatchObject({ ok: false, motivo: "prazo no passado" }); // achado 9: hoje, mas já passou
     expect(lerPrazo("2026-11-15", AGORA)).toMatchObject({ ok: false, motivo: "prazo no passado" });
     expect(lerPrazo("2028-01-01", AGORA)).toMatchObject({ ok: false, motivo: "prazo a mais de um ano" });
     expect(lerPrazo("2026-02-31", AGORA)).toMatchObject({ ok: false });
