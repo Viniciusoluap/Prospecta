@@ -77,7 +77,9 @@ describe("gerarCenariosMassa", () => {
   });
 
   it("todos os lotes têm área ≥ lote mínimo (com tolerância de clip 60%)", () => {
-    for (const l of cenarios[0].lotes) {
+    // Etapa F: `lotes` também traz as sobras destinadas a área verde/institucional (peças de qualquer tamanho);
+    // a regra de área mínima vale para os lotes vendáveis
+    for (const l of cenarios[0].lotes.filter((x) => x.tipo === "vendavel")) {
       expect(l.areaM2).toBeGreaterThanOrEqual(PARAMS.loteMinimoM2 * 0.6 - 1);
     }
   });

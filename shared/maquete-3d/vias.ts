@@ -288,8 +288,31 @@ export function formaDaRua(bruto: Ponto[]): FormaDeRua | null {
   const cx = caixaOrientada(pol);
   if (area / cx.area >= 0.85 || pol.length <= 5) {
     if (cx.largura < 1 || cx.largura > 60) return null;
-    const meio = esc(cx.dir, cx.comprimento / 2);
-    return { tipo: "reta", eixo: [sub(cx.centro, meio), soma(cx.centro, meio)], largura: cx.largura };
+    // Cabeceira em viés (rua cortada pela divisa num ângulo): a caixa orientada passa do polígono de um dos lados
+    // em até largura × tangente do viés. O eixo é encurtado até onde a via cabe com a largura inteira, para o
+    // asfalto e a calçada não avançarem sobre o que está além da cabeceira (um lote, no motor de massa novo).
+    const n = nMais(cx.dir), meiaLargura = cx.largura / 2;
+    let t0 = -cx.comprimento / 2, t1 = cx.comprimento / 2;
+    for (const lado of [-0.94, 0.94]) {
+      const origem = soma(cx.centro, esc(n, lado * meiaLargura));
+      let min = Infinity, max = -Infinity;
+      for (let i = 0; i < pol.length; i++) {
+        const p = pol[i], q = pol[(i + 1) % pol.length], e = sub(q, p), den = cruz(cx.dir, e);
+        if (Math.abs(den) < 1e-9) continue;
+        const u = cruz(sub(p, origem), cx.dir) / den;
+        if (u < -1e-9 || u > 1 + 1e-9) continue;
+        const t = cruz(sub(p, origem), e) / den;
+        min = Math.min(min, t); max = Math.max(max, t);
+      }
+      if (max > min) { t0 = Math.max(t0, min); t1 = Math.min(t1, max); }
+    }
+    // Cunha (ponta de rua triangular, sobra do recorte pela divisa): não há trecho de largura inteira para erguer.
+    // Fica sem geometria 3D e continua pintada como asfalto no terreno.
+    if (t1 - t0 < 2) {
+      if (area / cx.area < 0.7) return null;
+      t0 = -cx.comprimento / 2; t1 = cx.comprimento / 2;
+    }
+    return { tipo: "reta", eixo: [soma(cx.centro, esc(cx.dir, t0)), soma(cx.centro, esc(cx.dir, t1))], largura: cx.largura };
   }
   // Faixa curva (via que acompanha a divisa): acha as duas cabeceiras — arestas curtas, da ordem da largura da
   // faixa, com canto vivo nas duas pontas — e as duas bordas compridas entre elas.

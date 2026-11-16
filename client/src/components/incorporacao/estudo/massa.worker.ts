@@ -1,15 +1,15 @@
 // Web Worker do motor de parcelamento: o cálculo roda fora da thread da interface
 // (a tela não trava em glebas grandes) e informa o progresso real de cada etapa.
-import { gerarEstudoMassa, type ParametrosMassa } from "@shared/incorporacao/massa";
-import type { Position } from "geojson";
+import { gerarEstudoMassa, type EntradaGleba, type ParametrosMassa, type ViaEntorno } from "@shared/incorporacao/massa";
 
-interface Pedido { id: number; anel: Position[]; centro: [number, number]; params: ParametrosMassa }
+interface Pedido { id: number; entrada: EntradaGleba; centro: [number, number]; params: ParametrosMassa; viasEntorno: ViaEntorno[] | null }
 
 self.onmessage = (e: MessageEvent<Pedido>) => {
-  const { id, anel, centro, params } = e.data;
+  const { id, entrada, centro, params, viasEntorno } = e.data;
   let ultimo = 0;
   try {
-    const r = gerarEstudoMassa(anel, centro, params, {
+    const r = gerarEstudoMassa(entrada, centro, params, {
+      viasEntorno,
       onProgress: (fracao, etapa) => {
         const agora = Date.now();
         if (agora - ultimo < 80 && fracao < 1) return; // limita mensagens
