@@ -1,13 +1,15 @@
 // EPIC-025 (Dolores, etapa 1) — clientes do CRM: situação (serviços contratados, etapa, responsável, prazo, próxima
-// providência), histórico de atendimento e conversas do WhatsApp. SOMENTE LEITURA. LGPD: CPF e telefone mascarados;
-// mídia só pelo tipo (nunca o arquivo); e-mail não sai.
+// providência), histórico de atendimento e conversas do WhatsApp. SOMENTE LEITURA. CPF, telefone e e-mail seguem o
+// interruptor DOLORES_MASCARAR_DADOS_PESSOAIS (campoPessoal: completos na opção B do dono, mascarados com "1"); mídia só
+// pelo tipo (nunca o arquivo).
 import { and, desc, eq, ilike, inArray, isNull, max, or, sql } from "drizzle-orm";
 import { z } from "zod";
 import {
   constructionProjects, financiamentos, leadActivities, leadDocuments, leadFollowUps, leadServices, leads,
   operationalProjects, regularizacoes, tasks, whatsappMessages,
 } from "../../../drizzle/schema.js";
-import { diaDoPrazo, diaFortaleza, isoFortaleza, mascararCpf, mascararTelefone, paginar, truncar } from "../../../shared/dolores/formato.js";
+import { diaDoPrazo, diaFortaleza, isoFortaleza, paginar, truncar } from "../../../shared/dolores/formato.js";
+import { campoPessoal } from "../dados-pessoais.js";
 import { proximaProvidencia } from "../../../shared/dolores/regras.js";
 import { FINANCIAMENTO_STATUS_LABELS } from "../../../shared/financiamento.js";
 import { LEAD_PIPELINE_STAGES, LEGACY_STAGE_LABELS, leadAceitaVencimento } from "../../../shared/lead-pipeline.js";
@@ -38,7 +40,7 @@ export async function consultarCliente(args: z.infer<typeof entradaConsultarClie
     digitos.length === 11 ? sql`regexp_replace(coalesce(${leads.cpf}, ''), '\\D', '', 'g') = ${digitos}` : undefined,
   ) : undefined;
   const achados = await db().select({
-    id: leads.id, name: leads.name, phone: leads.phone, cpf: leads.cpf, city: leads.city, stage: leads.stage,
+    id: leads.id, name: leads.name, phone: leads.phone, cpf: leads.cpf, email: leads.email, city: leads.city, stage: leads.stage,
     responsibleUserId: leads.responsibleUserId, cardDueDate: leads.cardDueDate, followupDate: leads.followupDate,
     createdAt: leads.createdAt, updatedAt: leads.updatedAt,
   }).from(leads)
@@ -98,8 +100,9 @@ export async function consultarCliente(args: z.infer<typeof entradaConsultarClie
     return {
       leadId: l.id,
       nome: l.name,
-      telefone: mascararTelefone(l.phone),
-      cpf: mascararCpf(l.cpf),
+      telefone: campoPessoal(l.phone, "telefone"),
+      cpf: campoPessoal(l.cpf, "cpf"),
+      email: campoPessoal(l.email, "email"),
       cidade: l.city,
       etapaNoCrm: rotuloEtapaCrm(l.stage),
       responsavel: l.responsibleUserId ? nomes.get(l.responsibleUserId) ?? null : null,
@@ -194,7 +197,7 @@ export async function conversasWhatsapp(args: z.infer<typeof entradaConversasWha
     dados: {
       conversas: conversas.map(c => ({
         leadId: c.leadId, cliente: c.cliente, contato: truncar(c.nome, 80),
-        telefone: mascararTelefone(c.destinatario), ultimaMensagemEm: isoFortaleza(c.ultima), naoLidas: c.naoLidas,
+        telefone: campoPessoal(c.destinatario, "telefone"), ultimaMensagemEm: isoFortaleza(c.ultima), naoLidas: c.naoLidas,
       })),
     },
     resumo: { conversas: conversas.length },

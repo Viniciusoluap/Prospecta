@@ -168,6 +168,37 @@ Se o sistema cair no meio de um pedido, na próxima mensagem ela avisa "não con
 novo" (uma vez, sem gastar de novo). Vários pedidos de uma vez: os que não couberem no prazo de 1 minuto recebem "não deu
 tempo de tratar o de HH:MM; mande de novo".
 
+## Dados dos clientes — decisão do dono em 16/11/2026 (opção B)
+
+**O que mudou.** A Dolores passa a **ver e informar** o CPF, o CNPJ, o telefone e o e-mail dos clientes: os campos do
+cadastro (cliente do CRM, financiamentos, processos de regularização, conversas do WhatsApp) e o que aparece nos textos
+(anotações, mensagens, observações). Antes, o sistema trocava esses números por "***" ou "[dado pessoal omitido]" antes de
+mandar para a IA, e o e-mail nem saía.
+
+Exemplos de pedido que ela passa a responder com o dado completo:
+- "Dolores, qual o telefone do cliente João Atrasado?"
+- "Qual o CPF e o e-mail da Maria Trello?"
+Ela informa quando você pede ou quando o dado é útil para a resposta; não manda listas de CPFs e telefones que você não pediu.
+
+**Atenção, em linguagem simples:**
+- A cada pergunta, os dados dos clientes que a Dolores consulta (inclusive CPF, telefone e e-mail) são **enviados à
+  Anthropic**, a empresa da IA, para ela montar a resposta.
+- **Confira com o jurídico** se o termo de consentimento que os clientes assinam cobre esse envio (LGPD) antes de usar.
+- A resposta com esses dados vai **só para o seu número**, conferido a cada mensagem.
+
+**O que continua sempre escondido**, nos dois modos: senhas, tokens, códigos de acesso, PIN e OTP, chaves de API
+(`sk-ant-…`, `Bearer …`), agência, conta e chave PIX — estas inteiras, mesmo quando a chave PIX é um CPF, telefone ou
+e-mail. Endereço, arquivos e links do Drive continuam fora das consultas.
+
+**O que continua sem dado pessoal**, qualquer que seja a escolha: o registro de ações (`dolores_acoes`), o pedido
+guardado (`dolores_mensagens`), os números estranhos (`dolores_remetentes_estranhos`), a tela de Integrações › Dolores, os
+logs e as mensagens de erro.
+
+**Como voltar atrás (religar o filtro).**
+1. Na Vercel: Settings › Environment Variables → criar `DOLORES_MASCARAR_DADOS_PESSOAIS` com o valor `1` (Production).
+2. Fazer um **Redeploy**; a mudança só vale depois dele.
+3. Para liberar de novo: apagar a variável ou trocar o valor por `0`, e fazer outro Redeploy.
+
 ## Parar
 - **Desligar a IA** (Integrações › Dolores): vale na hora; ela passa a responder só a frase fixa.
 - Pausa geral (`dolores_config.pausada`, etapa 1): para a ponte e o WhatsApp.

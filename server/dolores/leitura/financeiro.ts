@@ -9,7 +9,8 @@ import {
   bpoClients, bpoLancamentos, financiamentoChecklistItems, financiamentos, regularizacaoItensFinanceiros,
   regularizacaoRecebimentos, regularizacoes,
 } from "../../../drizzle/schema.js";
-import { centavosParaReais, diaDoPrazo, diaFortaleza, isoFortaleza, mascararCpf, paginar, reais, truncar } from "../../../shared/dolores/formato.js";
+import { centavosParaReais, diaDoPrazo, diaFortaleza, isoFortaleza, paginar, reais, truncar } from "../../../shared/dolores/formato.js";
+import { campoPessoal } from "../dados-pessoais.js";
 import { DIAS_PARADO_PADRAO, situacaoDoPrazo } from "../../../shared/dolores/regras.js";
 import { situacaoDoLancamento } from "../../../shared/financeiro/bpo-asaas.js";
 import { contaNoResultado, recebidoDoLancamento } from "../../../shared/financeiro/bpo-extrato.js";
@@ -41,7 +42,7 @@ export async function carregarFinanciamentos(agora: Date, diasParado = DIAS_PARA
     const ultima = [f.updatedAt, ...meus.map(i => i.concluidoEm)].filter(Boolean).sort((a, b) => b!.getTime() - a!.getTime())[0] ?? f.updatedAt;
     const s = situacaoDoPrazo({ encerrado, prazo: null, ultimaMovimentacao: ultima, agora, diasParado });
     return {
-      id: f.id, cliente: f.clienteNome, cpf: mascararCpf(f.clienteCpf), leadId: f.leadId,
+      id: f.id, cliente: f.clienteNome, cpf: campoPessoal(f.clienteCpf, "cpf"), leadId: f.leadId,
       situacao: rot(FINANCIAMENTO_STATUS_LABELS, f.status), encerrado,
       tipo: rot(FINANCIAMENTO_TIPO_LABELS, f.tipo), banco: f.banco === "outro" ? truncar(f.bancoOutro, 60) ?? "Outro" : rot(FINANCIAMENTO_BANCO_LABELS, f.banco),
       moeda: "BRL", valorDoImovel: reais(f.valorImovel), valorFinanciado: reais(f.valorFinanciado),

@@ -8,6 +8,10 @@
 // (acentos, "m²", "nº", travessão na prosa) não muda. Grupos de dígitos ligados por até 3 caracteres de
 // [espaço . - _ / ( ) | · • :] (ou por vários espaços) formam uma "cadeia".
 //
+// INTERRUPTOR (decisão do dono em 16/11/2026, opção B): `sanitizarTexto(texto, { mascararDadosPessoais })`. Com false,
+// CPF, CNPJ, telefone e e-mail saem intactos e nenhuma das fases abaixo roda; senhas, chaves de API e dados bancários
+// saem sempre. O padrão desta função é true (falha fechada); o servidor decide em server/dolores/dados-pessoais.ts.
+//
 // COMO DECIDE — duas fases, NESTA ORDEM (QA r4, S1: cada exceção que olhava rótulo abriu um vazamento novo).
 //
 //  FASE 1 — MASCARAR SEM EXCEÇÃO. Sai sempre, com qualquer rótulo antes ("nota", "chave", "protocolo", "valor"…), com
@@ -69,16 +73,23 @@ function chaveNfeValida(d: string): boolean {
   return (resto < 2 ? 0 : 11 - resto) === Number(d[43]);
 }
 
+/** Códigos de UF do IBGE (os dois primeiros dígitos da chave de acesso). */
+const UFS_IBGE = new Set(["11", "12", "13", "14", "15", "16", "17", "21", "22", "23", "24", "25", "26", "27", "28", "29", "31", "32",
+  "33", "35", "41", "42", "43", "50", "51", "52", "53"]);
+/** Ano (AA) plausível na chave: a NF-e existe desde 2006; no máximo o ano que vem. */
+const ANO_MAXIMO_NFE = (new Date().getFullYear() % 100) + 1;
+
 /**
- * QA r4 S1 / r5 F1: chave de NF-e reconhecida pela ESTRUTURA INTEIRA — DV, UF 11–53, mês 01–12, CNPJ do emitente válido
- * (posições 7–20), modelo 55/65 — e só na FORMA ESCRITA de chave: 44 dígitos colados ou 11 blocos de 4 (DANFE). Uma
- * lista de celulares "(15) 95115-9890 …" ou de CPFs "ddd ddd ddd dd" que fecha os DVs por acaso não é chave.
- * Os separadores (conferidos em documentosValidados) têm de ser todos iguais: só " " ou ".". Rótulo não conta.
+ * QA r4 S1 / r5 F1 / r6 N4: ESTRUTURA da chave de NF-e — DV, UF da lista do IBGE, ano 06 até o ano que vem, mês 01–12,
+ * CNPJ do emitente válido (posições 7–20), modelo 55/65 — e só nas formas de chave: 44 colados ou 11 blocos de 4. Uma
+ * lista de celulares ou de CPFs que fecha os DVs por acaso não é chave. Sozinha NÃO isenta: ver documentosValidados
+ * (rótulo + forma + estrutura, as três).
  */
 export function chaveNfeEstrutural(d: string, forma: string): boolean {
   if (!FORMAS_CHAVE_NFE.has(forma) || !chaveNfeValida(d)) return false;
-  const uf = Number(d.slice(0, 2)), mes = Number(d.slice(4, 6)), modelo = d.slice(20, 22);
-  return uf >= 11 && uf <= 53 && mes >= 1 && mes <= 12 && (modelo === "55" || modelo === "65") && cnpjValido(d.slice(6, 20));
+  const ano = Number(d.slice(2, 4)), mes = Number(d.slice(4, 6)), modelo = d.slice(20, 22);
+  return UFS_IBGE.has(d.slice(0, 2)) && ano >= 6 && ano <= ANO_MAXIMO_NFE && mes >= 1 && mes <= 12
+    && (modelo === "55" || modelo === "65") && cnpjValido(d.slice(6, 20));
 }
 
 /** Módulo 10 (pesos 2,1 da direita; produto > 9 soma os algarismos) — DV de cada campo da linha digitável. */
@@ -104,20 +115,23 @@ function dvGeralDoBoleto(d: string): boolean {
 }
 
 /**
- * QA r4 S2 / r5 F1: linha digitável de boleto (47 dígitos, moeda "9" na 4ª posição) com o DV de CADA um dos três campos
- * válido, e só nas formas escritas do boleto: 47 colados, "5.5 5.6 5.6 1 14" (com os pontos, conferidos em
- * documentosValidados) ou os campos colados "10 11 11 1 14" — esta última, que uma lista de telefones também tem, só
- * quando o DV geral do código de barras remontado também fecha.
+ * QA r4 S2 / r5 F1 / r6 N3: ESTRUTURA da linha digitável de boleto (47 dígitos, moeda "9" na 4ª posição): o DV de CADA
+ * um dos três campos E o DV geral do código de barras remontado, só nas formas do boleto — 47 colados, "5.5 5.6 5.6 1 14"
+ * (com os pontos, conferidos em documentosValidados) ou "10 11 11 1 14". Nesta última, que uma lista de telefones e
+ * documentos também tem, os campos 2 e 3 (11 dígitos) não podem ser celular (DDD + 9), CPF válido nem "0" + DDD + número
+ * (telefone com o 0 da operadora), e o campo 5 (14 dígitos) não pode ser CNPJ válido nem "000" + CPF válido. O campo 1
+ * fica de fora: banco + moeda 9 ("2379…", "7569…") tem a forma de um celular de 10 dígitos.
+ * Sozinha NÃO isenta: ver documentosValidados (rótulo + forma + estrutura, as três).
  */
 export function linhaDigitavelValida(d: string, forma: string): boolean {
   if (d.length !== 47 || d[3] !== "9") return false;
   if (forma !== "47" && forma !== "5,5,5,6,5,6,1,14" && forma !== "10,11,11,1,14") return false;
   if (mod10(d.slice(0, 9)) !== Number(d[9]) || mod10(d.slice(10, 20)) !== Number(d[20]) || mod10(d.slice(21, 31)) !== Number(d[31])) return false;
+  if (!dvGeralDoBoleto(d)) return false;
   if (forma !== "10,11,11,1,14") return true;
-  // Sonda dirigida do QA: 1 lista de telefones em ~10 mil fecha até o DV geral. Nessa forma, os campos 2 e 3 (11
-  // dígitos) não podem ter forma de celular (DDD + 9) nem ser CPF válido — num boleto real são o campo livre.
-  const pessoal = (x: string) => /^[1-9][1-9]9/.test(x) || isValidCPF(x);
-  return dvGeralDoBoleto(d) && !pessoal(d.slice(10, 21)) && !pessoal(d.slice(21, 32));
+  const pessoal = (x: string) => /^[1-9][1-9]9/.test(x) || isValidCPF(x) || /^0[1-9][1-9][2-9]/.test(x);
+  const campo5 = d.slice(33);
+  return !pessoal(d.slice(10, 21)) && !pessoal(d.slice(21, 32)) && !cnpjValido(campo5) && !(campo5.startsWith("000") && isValidCPF(campo5.slice(3)));
 }
 
 // ── 1. Normalização ──
@@ -166,7 +180,8 @@ const CODIGO = new RegExp(
 // Agência e conta: o rótulo fica, o número sai. QA r4 S3: o número começa logo depois do rótulo e é limitado (antes, um
 // lookahead varria a palavra inteira a cada rótulo: "ag-ag-…" de 200 kB levava 20 s). QA r4 S5: só número de conta
 // (3+ dígitos, não um ano, não valor com centavos): "cc 2 cópias", "conta 2026", "conta 1.500,00" ficam.
-const BANCO = /\b(ag[eê]ncia|ag|conta(?:\s+corrente|\s+poupan[cç]a)?|c\/c|cc)\b(\s*(?:n[ºo°.]?|:|#|-)?\s*)(\d[\d.\-/]{0,30}[\dxX]?)(,\d)?/gi;
+// 16/11 (opção B): o número sai INTEIRO mesmo com espaço entre os grupos ("conta 529 982 247 25" → só o rótulo fica).
+const BANCO = /\b(ag[eê]ncia|ag|conta(?:\s+corrente|\s+poupan[cç]a)?|c\/c|cc)\b(\s*(?:n[ºo°.]?|:|#|-)?\s*)(\d[\d.\-/]{0,30}(?: \d[\d.\-/]{0,30}){0,5}[\dxX]?)(,\d)?/gi;
 // PIX: QA r4 S5 — só quando o que segue tem forma de chave: e-mail, chave aleatória (uuid) ou 8–14 dígitos (CPF, CNPJ,
 // telefone). "pagou via pix 1.500,00" fica (é o valor da cobrança).
 /** Chave PIX em forma de e-mail ou aleatória (uuid): sai como dado bancário antes do filtro de e-mail. */
@@ -232,6 +247,7 @@ const CONTEXTO_TELEFONE = /\b(?:tel(?:efone)?s?|fones?|cel|celular(?:es)?|whats\
 /** Unidade logo depois: é medida, não documento nem telefone. */
 const UNIDADE_DEPOIS = /^\s?(?:m²|m2|cm²|cm2|km²|km2|m³|m3|ha|metros|km|kg|toneladas|litros|un\b|unidades|reais|centavos)/i;
 const ANO = /^(?:19|20)\d\d$/;
+const ANO_ATUAL = new Date().getFullYear();
 
 type Grupo = { inicio: number; fim: number; digitos: string };
 type Achado = { tipo: "cpf" | "cnpj" | "celular" | "fixo" | "duvida"; };
@@ -241,7 +257,8 @@ const FORMAS_CPF = new Set(["11", "9,2", "3,3,3,2", "3,3,5", "3,8"]);
 const FORMAS_CNPJ = new Set(["14", "12,2", "8,6", "8,4,2", "2,3,3,4,2", "2,3,3,6", "2,6,4,2", "2,3,3,4,1,1"]);
 
 /** Telefone brasileiro plausível nos grupos (já sem barra entre eles). */
-function telefone(gs: Grupo[], ligacoes: string[], maisAntes: boolean, contextoTel: () => boolean): "celular" | "fixo" | null {
+function telefone(gs: Grupo[], ligacoes: string[], maisAntes: boolean, contextoTel: () => boolean, contextoLinha = contextoTel,
+  isolado: () => boolean = () => true): "celular" | "fixo" | null {
   if (ligacoes.some(l => /[/|]/.test(l)) && !contextoTel()) return null;
   let g = gs.map(x => x.digitos);
   let ddi = maisAntes;
@@ -268,8 +285,13 @@ function telefone(gs: Grupo[], ligacoes: string[], maisAntes: boolean, contextoT
   if (d.length === 8 && /[2-9]/.test(d[0])) {
     // QA r3 R1: 8 dígitos começando com 6–9 é celular antigo (sem o 9 na frente): sai sempre, como celular.
     const tipo = /[6-9]/.test(d[0]) ? "celular" : "fixo";
-    if (n === 1) return contextoTel() ? tipo : null; // "fone 35234567"; sem palavra de telefone, 8 dígitos colados ficam
-    if (g.every(x => ANO.test(x)) && !contextoTel()) return null; // "2024-2026", "anos 2024 2025"
+    // "fone 35234567"; sem palavra de telefone, 8 dígitos colados ficam. QA r6 (F): a palavra de telefone vale na LINHA
+    // inteira ("fones: 9123-4567, …, 35234567" a mais de 50 caracteres do rótulo)
+    if (n === 1) return contextoTel() || contextoLinha() ? tipo : null;
+    // "2024-2026", "anos 2024 2025": par de anos plausível, em ordem crescente (QA r6 F: "2038-1965", "2097-2027" e
+    // "2020 2061" são telefones; a main os mascarava)
+    // e só quando o par está sozinho, sem número logo antes nem logo depois (numa lista de telefones, "2003 2034" é fixo)
+    if (g.every(x => ANO.test(x)) && Number(g[0]) <= Number(g[1]) && Number(g[1]) <= ANO_ATUAL + 30 && !contextoTel() && isolado()) return null;
     return tamanhos.join(",") === "4,4" || tamanhos.join(",") === "1,3,4" ? tipo : null;
   }
   return null;
@@ -292,8 +314,20 @@ function classificar(gs: Grupo[], ligacoes: string[], texto: string, sozinho: bo
   // o contexto só é calculado quando decide (texto patológico com milhares de grupos não paga as regex à toa)
   let ctx: boolean | undefined;
   const contextoTelDe = () => (ctx ??= CONTEXTO_TELEFONE.test(antes));
-  const tel = telefone(gs, ligacoes, maisAntes, contextoTelDe);
+  const contextoLinha = () => contextoTelDe()
+    || CONTEXTO_TELEFONE.test(texto.slice(Math.max(0, inicio - 200), inicio).split("\n").pop()!);
+  // QA r6 (F): sem outro número logo antes ou logo depois, na mesma linha (lista de telefones separada por vírgula,
+  // espaço, "|", "-", "/" ou "("); um marcador já posto (CPF/CNPJ formatado, e-mail) conta como número
+  const isolado = () => sozinho && !/(?:\d|\])[\s,;|\-/()+]{0,4}$/.test(texto.slice(Math.max(0, inicio - 6), inicio))
+    && !/^[\s,;|\-/()+]{0,4}(?:\d|\[(?:dado|senha))/.test(texto.slice(fim, fim + 12));
+  const tel = telefone(gs, ligacoes, maisAntes, contextoTelDe, contextoLinha, isolado);
   const unicaInteira = sozinho && gs.length === 1;
+  // QA r6 N3: "0" + DDD + número em 11 dígitos colados (telefone com o 0 da operadora), mesmo no meio de uma cadeia —
+  // a main mascarava como dúvida; só rótulo de documento logo antes livra
+  if (gs.length === 1 && /^0[1-9][1-9][2-9]\d{7}$/.test(d)) {
+    const rotuloDoc = !CONTEXTO_TELEFONE.test(antes) && CONTEXTO_NAO_PESSOAL.test(antes.replace(/[(+\s]+$/, " "));
+    if (!rotuloDoc) return { tipo: "duvida" };
+  }
   if (tel === null && !sozinho) return null;
   const contextoTel = contextoTelDe();
   const depois = texto.slice(fim, fim + 12);
@@ -319,7 +353,10 @@ function classificar(gs: Grupo[], ligacoes: string[], texto: string, sozinho: bo
       // QA r4 S4: par 4-4 sem DDD com rótulo de quantidade/valor/faixa, ou faixa crescente "2500-3000" (terminando em 00)
       if (ROTULO_QUANTIDADE.test(antesLimpo)) return null;
       const [a, b] = gs.map(g => g.digitos);
-      if (/^\s?-\s?$/.test(ligacoes[0]) && a.endsWith("00") && b.endsWith("00") && Number(b) > Number(a)) return null;
+      // QA r6 (F): a faixa só fica sozinha e com palavra de faixa logo antes ("entre 2500-3000", "de 2500-3000") — numa
+      // lista de números ou depois de "vizinhos:", "3800-6600" é telefone
+      if (/^\s?-\s?$/.test(ligacoes[0]) && a.endsWith("00") && b.endsWith("00") && Number(b) > Number(a) && isolado()
+        && /\b(?:entre|de|da|até|cerca\s+de|aprox\.?|aproximadamente)\s*$/i.test(antesLimpo)) return null;
       if (lista >= 0) {
         const antesDaLista = texto.slice(Math.max(0, lista - 50), lista);
         if (!CONTEXTO_TELEFONE.test(antesDaLista)) {
@@ -356,9 +393,24 @@ function formaPossivel(tamanhos: number[], ruins: number[], i: number, j: number
   return total === 11 || total === 14; // termina em 2: CPF "9,2"/"3,3,3,2" ou CNPJ
 }
 
+// QA r6 (A): RÓTULO do documento nos ~60 caracteres antes, na mesma linha ou na linha imediatamente anterior.
+const ROTULO_NFE = /\b(?:chave(?:\s+de\s+acesso)?|nf-?e|danfe|notas?\s+fisca(?:l|is))\b/i;
+const ROTULO_BOLETO = /\b(?:boletos?|linha\s+digit[aá]vel|c[oó]d(?:igo|\.)?\s*(?:de\s+)?barras)\b/i;
+const ROTULO_GUIA = /\b(?:guias?|iptu|darf|dae|dam|gru|gps|arrecada[cç][aã]o|conta\s+de\s+(?:[aá]gua|luz|energia)|faturas?)\b/i;
+function rotuloAntes(texto: string, inicio: number, rotulo: RegExp): boolean {
+  const linhas = texto.slice(Math.max(0, inicio - 60), inicio).split("\n");
+  return rotulo.test(linhas.slice(-2).join("\n"));
+}
+
 /**
- * FASE 2a: trechos da cadeia que são um documento validado por inteiro (chave de NF-e, linha digitável de boleto, guia de
- * arrecadação).
+ * FASE 2a (QA r6, A): trecho da cadeia que é documento — chave de NF-e, linha digitável de boleto ou guia de arrecadação —
+ * só quando há as TRÊS coisas ao mesmo tempo:
+ *   (i) RÓTULO do documento logo antes (rotuloAntes);
+ *   (ii) FORMA escrita do documento, numa linha, com o separador uniforme (separacaoDeChave, separacaoDeBoleto,
+ *        guiaDeArrecadacaoValida);
+ *   (iii) ESTRUTURA validada (chaveNfeEstrutural, linhaDigitavelValida, guiaDeArrecadacaoValida);
+ * e sem nenhuma trava (armadilhaDeTelefone). Faltando qualquer uma, não há isenção: valem a fase 1 e a 2b (o trecho pode
+ * sair mascarado em parte — é o lado seguro; o marcador é visível).
  * Devolve pares [i, j] de grupos, sem sobreposição. "|" separa células de tabela: não atravessa.
  */
 function documentosValidados(c: Grupo[], tamanhos: number[], ligacoes: string[], soma: number[], texto: string): Array<[number, number]> {
@@ -373,11 +425,15 @@ function documentosValidados(c: Grupo[], tamanhos: number[], ligacoes: string[],
         const forma = tamanhos.slice(i, j + 1).join(",");
         const d = c.slice(i, j + 1).map(g => g.digitos).join("");
         const ligs = ligacoes.slice(i, j);
-        const guia = total === 48 && guiaDeArrecadacaoValida(d, forma, ligs);
-        const ok = guia || (total === 44
-          ? chaveNfeEstrutural(d, forma) && separacaoDeChave(ligs)
-          : total === 47 && linhaDigitavelValida(d, forma) && separacaoDeBoleto(forma, ligs));
-        if (ok && !armadilhaDeTelefone(c, i, j, texto, guia && forma !== "48" && forma !== "12,12,12,12")) { fim = j; break; }
+        let ok = false, hifenDoDv = false;
+        if (total === 44) ok = separacaoDeChave(ligs) && chaveNfeEstrutural(d, forma) && rotuloAntes(texto, c[i].inicio, ROTULO_NFE);
+        else if (total === 47) {
+          ok = linhaDigitavelValida(d, forma) && rotuloAntes(texto, c[i].inicio, ROTULO_BOLETO) && separacaoDeBoleto(forma, ligs);
+        } else {
+          ok = guiaDeArrecadacaoValida(d, forma, ligs) && rotuloAntes(texto, c[i].inicio, ROTULO_GUIA);
+          hifenDoDv = forma === "11,1,11,1,11,1,11,1";
+        }
+        if (ok && !armadilhaDeTelefone(c, i, j, texto, hifenDoDv)) { fim = j; break; }
       }
     }
     if (fim >= 0) { r.push([i, fim]); i = fim + 1; } else i++;
@@ -385,20 +441,25 @@ function documentosValidados(c: Grupo[], tamanhos: number[], ligacoes: string[],
   return r;
 }
 
-/** QA r5 F1: chave de NF-e em blocos — todos os separadores iguais, só " " ou "." (numa única linha). */
+/** QA r5 F1 / r6 N5: chave de NF-e em blocos — todos os separadores iguais: 1 a 3 espaços, ou "." (numa única linha). */
 function separacaoDeChave(ligs: string[]): boolean {
-  return !ligs.length || ((ligs[0] === " " || ligs[0] === ".") && ligs.every(l => l === ligs[0]));
+  return !ligs.length || ((/^ {1,3}$/.test(ligs[0]) || ligs[0] === ".") && ligs.every(l => l === ligs[0]));
 }
 
 /**
- * QA r5 F1: linha digitável "5.5 5.6 5.6 1 14" — ponto dentro dos três campos e o MESMO espaço em branco entre os campos;
- * "10 11 11 1 14" — o mesmo espaço em branco (sem quebra de linha) entre todos.
+ * QA r5 F1 / r6 N5: linha digitável "5.5 5.6 5.6 1 14" — ponto dentro dos três campos e o MESMO espaço (1 a 3) entre os
+ * campos; uma única quebra de linha no lugar de um desses espaços também vale (os pontos já dão a forma: PDF e WhatsApp
+ * quebram a linha). "10 11 11 1 14" — o mesmo espaço (1 a 3) entre todos, numa linha só.
  */
 function separacaoDeBoleto(forma: string, ligs: string[]): boolean {
   if (!ligs.length) return true;
   if (forma === "5,5,5,6,5,6,1,14") {
+    if (ligs[0] !== "." || ligs[2] !== "." || ligs[4] !== ".") return false;
     const entre = [ligs[1], ligs[3], ligs[5], ligs[6]];
-    return ligs[0] === "." && ligs[2] === "." && ligs[4] === "." && /^\s{1,3}$/.test(entre[0]) && entre.every(l => l === entre[0]);
+    const quebras = entre.filter(l => /^[ \t]{0,3}\r?\n[ \t]{0,3}$/.test(l));
+    const espacos = entre.filter(l => !quebras.includes(l));
+    return quebras.length <= 1 && espacos.length + quebras.length === 4 && /^ {1,3}$/.test(espacos[0])
+      && espacos.every(l => l === espacos[0]);
   }
   return /^ {1,3}$/.test(ligs[0]) && ligs.every(l => l === ligs[0]);
 }
@@ -412,35 +473,36 @@ function mod11Arrecadacao(base: string): number {
 }
 
 /**
- * QA r5 F2: linha digitável de guia de arrecadação (IPTU, água, luz, taxas): 48 dígitos começando por 8, em 4 blocos de
- * 11 + DV — colados ("48"), "12 12 12 12" com o mesmo separador, ou "11-1 11-1 11-1 11-1" com o mesmo separador antes do
- * DV e o mesmo espaço entre os blocos — com o DV de CADA bloco válido: módulo 10 se o 3º dígito é 6 ou 7, módulo 11 se
- * é 8 ou 9 (outro valor não é guia).
+ * QA r5 F2 / r6 N2: FORMA e ESTRUTURA da linha digitável de guia de arrecadação (IPTU, água, luz, taxas): 48 dígitos
+ * começando por 8, em 4 blocos de 11 + DV — colados ("48"), "12 12 12 12" com o mesmo espaço (1 a 3), ou
+ * "11-1 11-1 11-1 11-1" com HÍFEN antes do DV (só "-" ou " - ", o mesmo nos quatro; espaço ou ponto no lugar do hífen
+ * não vale) e o mesmo espaço entre os blocos — numa linha só — com o DV de CADA bloco válido: módulo 10 se o 3º dígito
+ * é 6 ou 7, módulo 11 se é 8 ou 9 (outro valor não é guia). Sozinha NÃO isenta: ver documentosValidados.
  */
 export function guiaDeArrecadacaoValida(d: string, forma: string, ligs: string[] = []): boolean {
   if (d.length !== 48 || d[0] !== "8" || !/[6-9]/.test(d[2])) return false;
   if (forma === "12,12,12,12") {
-    if (!/^[ .]$|^\s{1,3}$/.test(ligs[0]) || !ligs.every(l => l === ligs[0])) return false;
+    if (!/^ {1,3}$/.test(ligs[0]) || !ligs.every(l => l === ligs[0])) return false;
   } else if (forma === "11,1,11,1,11,1,11,1") {
     const dv = [ligs[0], ligs[2], ligs[4], ligs[6]], entre = [ligs[1], ligs[3], ligs[5]];
-    if (!/^(?:-| ?- ?| |\.)$/.test(dv[0]) || !dv.every(l => l === dv[0])) return false;
-    if (!/^\s{1,3}$/.test(entre[0]) || !entre.every(l => l === entre[0])) return false;
+    if (!/^ ?- ?$/.test(dv[0]) || !dv.every(l => l === dv[0])) return false;
+    if (!/^ {1,3}$/.test(entre[0]) || !entre.every(l => l === entre[0])) return false;
   } else if (forma !== "48") return false;
   const dvDe = /[67]/.test(d[2]) ? mod10 : mod11Arrecadacao;
   for (let k = 0; k < 48; k += 12) if (dvDe(d.slice(k, k + 11)) !== Number(d[k + 11])) return false;
   return true;
 }
 
-const CONTEXTO_DOCUMENTO_PESSOAL = /\b(?:cpfs?|cnpjs?)\b/i;
+const CONTEXTO_DOCUMENTO_PESSOAL = /\b(?:cpfs?|cnpjs?|comprador(?:a|es|as)?)\b/i;
 const FORMA_EXPLICITA_PESSOAL = /(?<!\d)(\d{3})\.(\d{3})\.(\d{3})-(\d{2})(?!\d)|\(\s?\d{2}\s?\)\s?\d{4,5}-\d{4}(?!\d)/;
 /**
- * QA r5 F1: travas da isenção da fase 2a. Nunca isenta com palavra de telefone/contato/CPF nos ~50 caracteres antes, com
+ * QA r5 F1 / r6: travas da isenção da fase 2a. Nunca isenta com palavra de telefone/contato/CPF/comprador nos ~60 caracteres antes, com
  * "(" ou "+" colado no primeiro grupo, com parênteses ou hífen entre os grupos, nem quando há dentro do trecho uma FORMA
  * explícita de CPF ("ddd.ddd.ddd-dd", válido) ou de telefone ("(dd) ddddd-dddd").
  */
 function armadilhaDeTelefone(c: Grupo[], i: number, j: number, texto: string, hifenDoDv = false): boolean {
   const inicio = c[i].inicio, fim = c[j].fim;
-  const antes = texto.slice(Math.max(0, inicio - 50), inicio);
+  const antes = texto.slice(Math.max(0, inicio - 60), inicio);
   if (CONTEXTO_TELEFONE.test(antes) || CONTEXTO_DOCUMENTO_PESSOAL.test(antes) || /[(+]\s?$/.test(antes)) return true;
   const trecho = texto.slice(inicio, fim);
   // na guia "11-1" o hífen antes do DV de cada bloco é da forma do documento (conferido em guiaDeArrecadacaoValida)
@@ -484,8 +546,8 @@ function mascararCadeias(texto: string): string {
       // QA r3 R3: janela deslizante (no máximo 16 grupos a partir de i) sobre o trecho inteiro. Só sub-cadeias de 8 a
       // 14 dígitos podem ser telefone, CPF ou CNPJ: as outras nem são classificadas (tempo linear). `minJ`: a janela tem
       // de terminar em minJ ou depois (QA r5 F4).
-      const achar = (i: number, minJ: number): { j: number; tipo: Achado["tipo"] } | null => {
-        for (let j = Math.min(fimTrecho, i + 15); j >= Math.max(i, minJ); j--) {
+      const achar = (i: number, minJ: number, maxJ: number): { j: number; tipo: Achado["tipo"] } | null => {
+        for (let j = Math.min(maxJ, i + 15); j >= Math.max(i, minJ); j--) {
           const total = soma[j + 1] - soma[i];
           if (total < 8 || total > 14) continue;
           // "sozinho": a sub-cadeia é o trecho inteiro, ou uma célula de tabela (entre "|", sem "|" dentro)
@@ -500,30 +562,44 @@ function mascararCadeias(texto: string): string {
         return null;
       };
       const forte = (t: Achado["tipo"]) => t === "cpf" || t === "cnpj" || t === "celular";
-      let i = ini;
-      while (i <= fimTrecho) {
-        const achado = achar(i, i);
-        if (!achado) { i++; continue; }
-        let achou = achado.j, tipo = achado.tipo;
-        // QA r5 F4: a janela que começa antes engolia o grupo anterior ("dia 15/11/2026 9123-4567" → "2026 9123" fixo) e
-        // deixava a cauda à vista. Testa as janelas que começam dentro e passam do fim: se a de dentro é fase 1 e a de
-        // antes não (ou a de antes começa num ano), fica só a de dentro; senão, sai a união.
-        for (let k = i + 1; k <= achou; k++) {
-          const outro = achar(k, achou + 1);
-          if (!outro) continue;
-          if (!forte(tipo) && (forte(outro.tipo) || ANO.test(c[i].digitos))) { i = k; tipo = outro.tipo; }
-          else if (forte(outro.tipo)) tipo = outro.tipo;
-          achou = outro.j;
-        }
-        let inicio = c[i].inicio, fim = c[achou].fim;
+      const emitir = (de: number, ate: number) => {
+        let inicio = c[de].inicio, fim = c[ate].fim;
         // leva junto "+55 (" antes e o ")" de um DDD entre parênteses
         const antes = /(?:\+\s?)?\(\s?$|\+\s?$/.exec(texto.slice(Math.max(0, inicio - 3), inicio));
         if (antes) inicio -= antes[0].length;
         const trecho = texto.slice(inicio, fim);
         if ((trecho.match(/\(/g)?.length ?? 0) > (trecho.match(/\)/g)?.length ?? 0) && texto[fim] === ")") fim++;
         trocas.push({ inicio, fim });
-        i = achou + 1;
-      }
+      };
+      // Varre os grupos [de..ate] (as janelas não passam de `ate`).
+      const varrer = (de: number, ate: number): void => {
+        let i = de;
+        while (i <= ate) {
+          const achado = achar(i, i, ate);
+          if (!achado) { i++; continue; }
+          let achou = achado.j, tipo = achado.tipo, origem = i;
+          // QA r5 F4: a janela que começa antes engolia o grupo anterior ("dia 15/11/2026 9123-4567" → "2026 9123" fixo) e
+          // deixava a cauda à vista. Testa as janelas que começam dentro e passam do fim: se a de dentro é fase 1 e a de
+          // antes não (ou a de antes começa num ano), a de dentro vira um achado à parte; senão, sai a união.
+          // QA r6 N1: ao passar para a janela de dentro, o que veio ANTES dela é varrido de novo como trecho próprio — um
+          // fixo inteiro antes ("fone 3523 4567 9123 4567") continua sendo achado; só o que não é nada (ano, data) fica.
+          // O pulo por causa do ano não varre na hora (o ano fica); se depois vier uma janela forte, varre desde a
+          // `origem` — "2080 5591 6820 6569": "2080" parecia ano, mas "2080 5591" é um fixo inteiro.
+          for (let k = i + 1; k <= achou; k++) {
+            const outro = achar(k, achou + 1, ate);
+            if (!outro) continue;
+            if (!forte(tipo) && forte(outro.tipo)) { varrer(origem, k - 1); i = origem = k; tipo = outro.tipo; }
+            else if (!forte(tipo) && ANO.test(c[i].digitos)) { i = k; tipo = outro.tipo; }
+            else if (forte(outro.tipo)) tipo = outro.tipo;
+            achou = outro.j;
+          }
+          // os grupos pulados por parecerem ano ("2033-2005" depois de dois pulos) são varridos de novo
+          if (origem < i) varrer(origem, i - 1);
+          emitir(i, achou);
+          i = achou + 1;
+        }
+      };
+      varrer(ini, fimTrecho);
     }
     // cadeia de 44 dígitos em blocos que NÃO validou como chave e tem algo achado dentro: sai inteira (nunca pela metade).
     // Lista de 4 CPFs/celulares (4 blocos de 11) sai item por item.
@@ -558,37 +634,62 @@ function trocarPix(m: string, rotulo: string, sep: string, valor: string, pos: n
   return `${rotulo}${sep}${BANCARIO_OMITIDO}`;
 }
 
-/** Texto livre com CPF/CNPJ, e-mail, telefone, dados bancários e senhas trocados por marcadores visíveis. */
-export function sanitizarTexto(texto: string): string {
+// ── Interruptor dos dados pessoais (decisão do dono em 16/11: opção B) ──
+/**
+ * `mascararDadosPessoais`:
+ *  - true  — CPF, CNPJ, telefone e e-mail viram "[dado pessoal omitido]" (fases 1, 2a e 2b, ver o cabeçalho). É o
+ *            PADRÃO desta função pura (falha fechada) e o que vale SEMPRE para o que é gravado ou vai para log: auditoria
+ *            (dolores_acoes), comando guardado (dolores_mensagens.texto), mensagens de erro.
+ *  - false — dados pessoais saem intactos (nenhuma das fases roda: sem custo, sem estragar boleto, guia, nota, lote, valor).
+ * Nos dois modos saem SEMPRE: senha, token, PIN, OTP, código de acesso, chave de API ("sk-ant-…", "Bearer …", JWT) e
+ * dados bancários (agência, conta, chave PIX). Quem decide o modo do que vai ao modelo e ao dono é o servidor, num ponto
+ * só: server/dolores/dados-pessoais.ts (variável DOLORES_MASCARAR_DADOS_PESSOAIS).
+ */
+export type OpcoesFiltro = { mascararDadosPessoais?: boolean };
+export const CHAVE_OMITIDA = "[chave de acesso omitida]";
+/** Chave de API ou credencial em forma reconhecível (sempre sai, com ou sem palavra de senha antes). */
+const CHAVE_API = /\bsk-ant-[\w-]{4,}|\bsk-(?:proj-)?[A-Za-z0-9_-]{20,}|\bBearer\s+[\w.~+/=-]{8,}|\beyJ[\w-]{8,}\.[\w-]{8,}\.[\w-]{8,}|\b(?:AKIA|ASIA)[0-9A-Z]{16}\b|\bgh[pousr]_[A-Za-z0-9]{30,}|\bxox[abprs]-[\w-]{10,}/g;
+
+/** Texto livre com senhas, chaves, dados bancários e (se ligado) CPF/CNPJ, e-mail e telefone trocados por marcadores. */
+export function sanitizarTexto(texto: string, opcoes: OpcoesFiltro = {}): string {
   if (!texto) return texto;
+  const mascararPessoais = opcoes.mascararDadosPessoais ?? true;
   const t = normalizarParaFiltro(texto);
-  if (!/[\d@]|senha|password|passwd|c[oó]digo|token|\bpin\b|\botp\b|\bat\b|arroba/i.test(t)) return texto;
+  if (!/[\d@]|senha|password|passwd|c[oó]digo|token|\bpin\b|\botp\b|\bat\b|arroba|sk-|bearer|eyJ/i.test(t)) return texto;
+  const segredos = (x: string) => x
+    .replace(CHAVE_API, CHAVE_OMITIDA)
+    .replace(SENHA, (_m, palavra: string) => `${palavra} ${SENHA_OMITIDA}`)
+    .replace(CODIGO, (_m, palavra: string) => `${palavra} ${SENHA_OMITIDA}`)
+    .replace(PIX_EMAIL, (_m, rotulo: string, sep: string) => `${rotulo}${sep}${BANCARIO_OMITIDO}`);
+  const bancarios = (x: string) => x
+    .replace(PIX, (m, rotulo: string, sep: string, valor: string, pos: number, s: string) => trocarPix(m, rotulo, sep, valor, pos, s))
+    .replace(BANCO, (m, rotulo: string, sep: string, valor: string, cent: string | undefined, pos: number, s: string) =>
+      trocarBanco(m, rotulo, sep, valor, cent, pos, s));
+  if (!mascararPessoais) {
+    const r = bancarios(segredos(t));
+    return r === t ? texto : r;
+  }
   // QA r5 F5: a fase 1 (cadeias: CPF, CNPJ, celular em qualquer separação) roda ANTES de PIX e banco — antes, "conta
   // 529 982 247 25" ou "cc 2026.12/889 767 151 95" tinham só o 1º grupo trocado pelo marcador bancário e o resto do
   // CPF ficava à vista. Depois, o que sobrou de número de conta/chave ainda sai como dado bancário.
-  const r = mascararCadeias(t
-    .replace(SENHA, (_m, palavra: string) => `${palavra} ${SENHA_OMITIDA}`)
-    .replace(CODIGO, (_m, palavra: string) => `${palavra} ${SENHA_OMITIDA}`)
-    .replace(PIX_EMAIL, (_m, rotulo: string, sep: string) => `${rotulo}${sep}${BANCARIO_OMITIDO}`)
+  const pessoaisFormatados = segredos(t)
     .replace(EMAIL, OMITIDO)
     .replace(EMAIL_DISFARCADO, OMITIDO)
     .replace(CNPJ_FORMATADO, OMITIDO)
     .replace(CPF_FORMATADO, OMITIDO)
     .replace(CPF_VIRGULA, (m, a: string, b: string, pos: number, s: string) =>
-      isValidCPF(a + b) && !/r\$\s*$/i.test(s.slice(Math.max(0, pos - 6), pos)) ? OMITIDO : m))
-    .replace(PIX, (m, rotulo: string, sep: string, valor: string, pos: number, s: string) => trocarPix(m, rotulo, sep, valor, pos, s))
-    .replace(BANCO, (m, rotulo: string, sep: string, valor: string, cent: string | undefined, pos: number, s: string) =>
-      trocarBanco(m, rotulo, sep, valor, cent, pos, s));
+      isValidCPF(a + b) && !/r\$\s*$/i.test(s.slice(Math.max(0, pos - 6), pos)) ? OMITIDO : m);
+  const r = bancarios(mascararCadeias(pessoaisFormatados));
   return r === t ? texto : r; // nada mascarado: devolve o texto original, sem a normalização
 }
 
 /** Percorre a resposta e filtra toda string (chaves ficam como estão). */
-export function sanitizarResposta<T>(valor: T): T {
-  if (typeof valor === "string") return sanitizarTexto(valor) as T;
-  if (Array.isArray(valor)) return valor.map(v => sanitizarResposta(v)) as T;
+export function sanitizarResposta<T>(valor: T, opcoes: OpcoesFiltro = {}): T {
+  if (typeof valor === "string") return sanitizarTexto(valor, opcoes) as T;
+  if (Array.isArray(valor)) return valor.map(v => sanitizarResposta(v, opcoes)) as T;
   if (valor && typeof valor === "object" && !(valor instanceof Date)) {
     const r: Record<string, unknown> = {};
-    for (const [k, v] of Object.entries(valor as Record<string, unknown>)) r[k] = sanitizarResposta(v);
+    for (const [k, v] of Object.entries(valor as Record<string, unknown>)) r[k] = sanitizarResposta(v, opcoes);
     return r as T;
   }
   return valor;

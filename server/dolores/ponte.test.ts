@@ -9,6 +9,7 @@ import { users } from "../../drizzle/schema.js";
 import { canAccessAdminProcedure } from "../_core/trpc.js";
 import { getDb } from "../db.js";
 import { sanearArgumentos } from "./auditoria.js";
+import { erroParaLog } from "./erro-seguro.js";
 import { FUNCOES, funcaoPorNome } from "./funcoes.js";
 import { LIBERADAS_ETAPA_1, funcaoLiberada } from "./permissoes.js";
 import { DOLORES_OPEN_ID, esquecerUsuarioDolores, usuarioDolores } from "./perfil.js";
@@ -32,6 +33,7 @@ beforeEach(async () => {
   process.env.DOLORES_PONTE_TOKEN = TOKEN;
 });
 afterEach(() => {
+  vi.unstubAllEnvs();
   delete process.env.DOLORES_PONTE_TOKEN;
   definirDependenciasPonte();
   vi.restoreAllMocks();
@@ -343,7 +345,8 @@ describe("transação somente leitura (L5)", () => {
 });
 
 describe("filtro na saída da ponte (M1)", () => {
-  it("anotação, mensagem, observação e descrição de cobrança com dados pessoais saem filtradas", async () => {
+  it("com DOLORES_MASCARAR_DADOS_PESSOAIS=1: anotação, mensagem, observação e descrição de cobrança com dados pessoais saem filtradas", async () => {
+    vi.stubEnv("DOLORES_MASCARAR_DADOS_PESSOAIS", "1");
     await banco.pg.exec(`
       INSERT INTO lead_activities (lead_id, type, description, performed_by, created_at) VALUES (2, 'note', 'Senha do gov.br 1234; CPF 111.222.333-44; conta 12345-6 ag 0001', 'Bia', '2026-11-16 11:00');
       INSERT INTO whatsapp_messages (connection_id, lead_id, destinatario, mensagem, direcao, lida, created_at) VALUES (1, 1, '5599991234567', 'meu e-mail é maria@x.com e o tel (99) 99123-4567', 'entrada', false, '2026-11-16 11:00');
@@ -356,5 +359,35 @@ describe("filtro na saída da ponte (M1)", () => {
     expect(respostas.map(r => r.status)).toEqual([200, 200, 200, 200]);
     for (const vazado of ["111.222.333-44", "12345-6", "ag 0001", "gov.br 1234", "maria@x.com", "99123-4567", "52998224725", "9988"]) expect(tudo).not.toContain(vazado);
     for (const marcador of ["[senha omitida]", "[dado bancário omitido]", "[dado pessoal omitido]"]) expect(tudo).toContain(marcador);
+  });
+
+  it("opção B (padrão, variável ausente ou 0): a ponte HTTP devolve CPF, e-mail e telefone inteiros; senha, conta e PIX continuam mascarados", async () => {
+    await banco.pg.exec(`
+      INSERT INTO lead_activities (lead_id, type, description, performed_by, created_at) VALUES (2, 'note', 'Senha do gov.br 1234; CPF 111.222.333-44; conta 12345-6 ag 0001; chave sk-ant-api03-xyz123', 'Bia', '2026-11-16 11:00');
+      INSERT INTO whatsapp_messages (connection_id, lead_id, destinatario, mensagem, direcao, lida, created_at) VALUES (1, 1, '5599991234567', 'meu e-mail é maria@x.com e o tel (99) 99123-4567; boleto 23793.38128 60000.000004 00000.000406 1 84340000010000', 'entrada', false, '2026-11-16 11:00');
+      UPDATE bpo_lancamentos SET descricao = 'Honorários — PIX 52998224725' WHERE id = 1;`);
+    for (const valor of [undefined, "0", " 0 "]) {
+      if (valor === undefined) vi.unstubAllEnvs(); else vi.stubEnv("DOLORES_MASCARAR_DADOS_PESSOAIS", valor);
+      const respostas = [];
+      for (const [funcao, argumentos] of [["historico_atendimento", { leadId: 2 }], ["conversas_whatsapp", { leadId: 1 }], ["listar_recebiveis_pendentes", {}]] as const)
+        respostas.push(await tratarChamada(pedido({ funcao, argumentos })));
+      const tudo = JSON.stringify(respostas.map(r => r.body));
+      for (const inteiro of ["111.222.333-44", "maria@x.com", "(99) 99123-4567", "23793.38128 60000.000004 00000.000406 1 84340000010000"])
+        expect(tudo, `${valor} ${inteiro}`).toContain(inteiro);
+      for (const segredo of ["gov.br 1234", "12345-6", "ag 0001", "sk-ant-api03", "52998224725"]) expect(tudo, `${valor} ${segredo}`).not.toContain(segredo);
+    }
+    expect(JSON.stringify(await acoes())).not.toMatch(/111\.222|maria@|99123/);
+  });
+
+  it("log, erro e auditoria ficam sem dado pessoal em claro nos dois modos", async () => {
+    for (const valor of [undefined, "1"]) {
+      if (valor === undefined) vi.unstubAllEnvs(); else vi.stubEnv("DOLORES_MASCARAR_DADOS_PESSOAIS", valor);
+      expect(erroParaLog(new Error("valor recusado: CPF 52998224725, tel 99991234567, maria@x.com"))).not.toMatch(/52998224725|99991234567|maria@/);
+      expect(JSON.stringify(sanearArgumentos({ obs: "CPF 529.982.247-25 fone (99) 99123-4567 mail maria@x.com", lista: ["11222333000181"] })))
+        .not.toMatch(/529\.982|99123|maria@|11222333000181/);
+      await tratarChamada(pedido({ funcao: "funcao_que_nao_existe", argumentos: { obs: "CPF 52998224725 e maria@x.com" } }));
+    }
+    const a = JSON.stringify(await acoes());
+    expect(a).not.toMatch(/52998224725|maria@/);
   });
 });

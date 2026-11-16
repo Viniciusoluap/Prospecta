@@ -3,6 +3,7 @@
 // resposta ou um número de telefone. Aqui sai só a causa do banco, sem a consulta, sem os parâmetros, sem valores entre
 // aspas (o Postgres cita o valor recusado: invalid input syntax … "xxx"), sem chave/token e com o filtro de dados pessoais.
 import { sanitizarTexto } from "../../shared/dolores/sanitizar.js";
+import { FILTRO_DO_REGISTRO } from "./dados-pessoais.js";
 
 const TAMANHO_MAXIMO = 200;
 /** Identificador entre aspas (nome de tabela, coluna, restrição) pode ficar; qualquer outro valor citado sai. */
@@ -19,5 +20,6 @@ export function erroParaLog(e: unknown): string {
     .replace(/'([^']*)'/g, (m, dentro: string) => (IDENTIFICADOR.test(dentro) ? m : "'…'"))
     .replace(/sk-ant-[\w-]*/g, "sk-ant-…")
     .replace(/Bearer\s+\S+/gi, "Bearer [omitido]");
-  return sanitizarTexto(texto).replace(/\s+/g, " ").slice(0, TAMANHO_MAXIMO);
+  // log e auditoria: sempre com o mascaramento ligado, qualquer que seja DOLORES_MASCARAR_DADOS_PESSOAIS
+  return sanitizarTexto(texto, FILTRO_DO_REGISTRO).replace(/\s+/g, " ").slice(0, TAMANHO_MAXIMO);
 }
