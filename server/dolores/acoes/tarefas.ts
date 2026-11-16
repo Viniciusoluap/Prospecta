@@ -7,7 +7,7 @@ import { hash } from "node:crypto";
 import { and, eq, inArray, isNull, sql } from "drizzle-orm";
 import { z } from "zod";
 import { tasks } from "../../../drizzle/schema.js";
-import { AVISO_PEDIDO_CONTAMINADO, lerPrazo, textoDeDado, umaLinha } from "../../../shared/dolores/fila.js";
+import { avisoDaFila, lerPrazo, textoDeDado, umaLinha } from "../../../shared/dolores/fila.js";
 import { diaFortaleza, isoFortaleza } from "../../../shared/dolores/formato.js";
 import { sanitizarTexto } from "../../../shared/dolores/sanitizar.js";
 import { createTask, getAssignableLeadById, getAssignableUsers, getProjectById } from "../../db.js";
@@ -108,7 +108,7 @@ export async function tarefaParaFila(args: z.infer<typeof entradaCriarTarefa>, c
     `prioridade ${args.prioridade}`,
     args.vinculo ? `ligada ao ${args.vinculo.tipo} ${args.vinculo.id}` : "sem vínculo",
   ];
-  const resumo = textoDeDado(`${AVISO_PEDIDO_CONTAMINADO} criar a tarefa "${titulo}" ${partes.join(", ")}.`, 600);
+  const resumo = textoDeDado(`${avisoDaFila(ctx.motivoContaminacao)} criar a tarefa "${titulo}" ${partes.join(", ")}.`, 600);
   return { alvo: alvoDoPedido("tarefa", [titulo.toLowerCase(), sem(args.responsavel), args.vinculo?.tipo ?? "", args.vinculo?.id ?? ""]), resumo, argumentos: args };
 }
 

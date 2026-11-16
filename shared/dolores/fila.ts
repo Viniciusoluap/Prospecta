@@ -60,12 +60,61 @@ const VERBOS_DE_ACAO = new RegExp([
   "inclu(?:a|ir)", "program\\w*",
 ].map(v => `\\b${v}\\b`).join("|"), "i");
 export function intencaoDeAcao(texto: string | null | undefined): boolean {
-  const t = String(texto ?? "").normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase();
+  // QA R2 N1: o verbo de ação só vale no trecho do DONO (antes de qualquer marca de colagem/citação) — um e-mail colado
+  // que diz "crie uma tarefa…" não é pedido dele.
+  const t = trechoDoDono(texto).normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase();
   return VERBOS_DE_ACAO.test(t);
+}
+
+/** Tamanho máximo do trecho do dono (o começo da mensagem) em que a intenção de ação é procurada. */
+export const MAX_TRECHO_DO_DONO = 200;
+/** Primeira marca de colagem/citação: quebra de linha, aspas, ">", "---"/"___"/"===", dois-pontos (que não seja de hora). */
+const MARCA_DE_CORTE = /\r|\n|["“”«»]|>|-{3,}|_{3,}|={3,}|:(?!\d)/;
+
+/**
+ * O trecho que é do DONO: o começo da mensagem até a primeira marca de colagem ou citação (quebra de linha, aspas, ">",
+ * "De:", "Assunto:", "Enviado:", "---", dois-pontos seguido de bloco), no máximo 200 caracteres. Cortar a mais só deixa
+ * de oferecer as ações (lado seguro); nunca acrescenta pedido.
+ */
+export function trechoDoDono(texto: string | null | undefined): string {
+  const s = String(texto ?? "");
+  const m = MARCA_DE_CORTE.exec(s);
+  return (m ? s.slice(0, m.index) : s).slice(0, MAX_TRECHO_DO_DONO);
+}
+
+/** Acima disto (caracteres ou linhas com texto), a mensagem é tratada como colagem. */
+export const MAX_CARACTERES_PEDIDO_DIRETO = 300;
+export const MAX_LINHAS_PEDIDO_DIRETO = 3;
+const MARCAS_DE_COLAGEM: readonly RegExp[] = [
+  /^\s*>/m, // citação de e-mail
+  /(^|\n)\s*(de|from|para|to|cc|cco|bcc|assunto|subject|enviad[oa](?: em)?|sent|data|date)\s*:/i, // cabeçalho de e-mail
+  /\b(assunto|subject|enviad[oa] em|mensagem original|original message|forwarded message|mensagem encaminhada)\b\s*:?/i,
+  /-{3,}|_{3,}|={3,}/, // separador
+  /["“«][^"“”«»]{40,}/, // aspas abrindo um bloco longo (título curto entre aspas não conta)
+  /:(?!\d)[ \t]*\r?\n/, // dois-pontos seguido de bloco em outra linha
+  /:(?!\d)[^\n]{120,}/, // dois-pontos seguido de bloco longo
+  /\n[ \t]*\n/, // parágrafo novo
+];
+
+/**
+ * A mensagem do dono tem cara de COLAGEM ou CITAÇÃO de texto de terceiro (QA R2 N1)? Mais de 3 linhas, mais de 300
+ * caracteres ou qualquer marca de e-mail/citação. Se tiver, o comando nasce CONTAMINADO: nenhuma ação direta roda — toda
+ * ação vai para a fila de aprovação, marcada. Mensagem curta e direta ("cria uma tarefa para a Bianca ligar para o João
+ * amanhã") continua executando direto.
+ */
+export function pareceColagem(texto: string | null | undefined): boolean {
+  const s = String(texto ?? "").trim();
+  if (s.length > MAX_CARACTERES_PEDIDO_DIRETO) return true;
+  if (s.split(/\r?\n/).filter(l => l.trim()).length > MAX_LINHAS_PEDIDO_DIRETO) return true;
+  return MARCAS_DE_COLAGEM.some(r => r.test(s));
 }
 
 /** Início do resumo de um pedido de ação que surgiu DEPOIS de a Dolores ler dados do sistema neste comando. */
 export const AVISO_PEDIDO_CONTAMINADO = "Pedido surgido durante a leitura de dados; confira antes de aprovar:";
+/** Início do resumo de um pedido de ação feito numa mensagem com cara de texto colado ou citado (QA R2 N1). */
+export const AVISO_PEDIDO_COLADO = "Pedido feito em mensagem com texto colado ou citado; confira antes de aprovar:";
+export type MotivoContaminacao = "leitura" | "colagem";
+export const avisoDaFila = (motivo: MotivoContaminacao | null | undefined) => (motivo === "colagem" ? AVISO_PEDIDO_COLADO : AVISO_PEDIDO_CONTAMINADO);
 
 /**
  * Texto vindo de DADOS (nome de cliente, título, documento, resumo) antes de entrar num resumo, quadro ou frase que vai ao

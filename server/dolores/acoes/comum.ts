@@ -2,6 +2,7 @@
 // nunca excluir, nunca tocar em financeiro/banco/usuários/credenciais, nunca enviar nada a cliente ou terceiro. Cada ação
 // chama as MESMAS funções de serviço das telas (server/db.ts, gerador de PCI), passando a transação de escrita mínima.
 import type { z } from "zod";
+import type { MotivoContaminacao } from "../../../shared/dolores/fila.js";
 import { doloresAutoria } from "../../../drizzle/schema-dolores-fila.js";
 import type { Resultado } from "../leitura/comum.js";
 import { bancoDaAcao } from "../escrita.js";
@@ -21,6 +22,8 @@ export type ContextoAcao = {
   aprovacaoId: number | null;
   /** Tempo que ainda resta (ms) para terminar a execução de um item aprovado pelo WhatsApp (prazo da Vercel). */
   tempoRestanteMs?: () => number;
+  /** Por que o comando está contaminado (o aviso do item na fila): leu dados ou a mensagem parece texto colado. */
+  motivoContaminacao?: MotivoContaminacao | null;
 };
 
 /** O pedido não pode ser feito (cliente não existe, nada pendente…): recusa explicada, auditada como "recusada". */

@@ -6,7 +6,7 @@
 import type { Limites } from "../../shared/dolores/whatsapp.js";
 import { liberarReserva, registrarConsumo, reservarChamada, type UsoDaChamada } from "./consumo.js";
 import { PEDIDO_DE_FECHAMENTO, PROMPT_SISTEMA_WHATSAPP } from "./prompt.js";
-import { intencaoDeAcao } from "../../shared/dolores/fila.js";
+import { intencaoDeAcao, pareceColagem, type MotivoContaminacao } from "../../shared/dolores/fila.js";
 import { ACOES, acaoPorNome } from "./acoes/registro.js";
 import { funcaoPorNome } from "./funcoes.js";
 import { executarFuncao, ferramentasDoWhatsapp, ferramentasLiberadas } from "./ponte.js";
@@ -118,7 +118,10 @@ export async function executarComando(p: PedidoComando): Promise<ResultadoComand
   const ferramentas = comAcoes ? ferramentasDoWhatsapp() : ferramentasLiberadas();
   // Barreira principal — CONTAMINAÇÃO, determinística: assim que o resultado de uma função que traz texto de dados entra
   // no laço, nenhuma ação direta roda no resto do comando (vai para a fila de aprovação do dono).
-  let contaminado = false;
+  // QA R2 N1: mensagem com cara de texto colado/citado (e-mail, conversa) nasce CONTAMINADA — o pedido pode não ser do
+  // dono, e sim do texto colado: toda ação vai para a fila, marcada.
+  let contaminado = pareceColagem(p.comando);
+  let motivoContaminacao: MotivoContaminacao | null = contaminado ? "colagem" : null;
   const codigosNaFila = new Set<string>();
   // A mensagem do dono é a ÚNICA entrada de texto do usuário; tudo o que vem do sistema entra como tool_result.
   const mensagens: MensagemModelo[] = [{ role: "user", content: [{ type: "text", text: p.comando }] }];
@@ -198,10 +201,10 @@ export async function executarComando(p: PedidoComando): Promise<ResultadoComand
       const resp = await executarFuncao(
         { funcao: u.name, argumentos: u.input && typeof u.input === "object" ? u.input : {}, pedidoId: `wa:${p.mensagemId}:${voltas}:${i}` },
         { canal: "whatsapp", mensagemId: p.mensagemId, prazoMs: Math.max(1000, Math.min(PRAZO_CONSULTA_MS, restante() - 1000)),
-          contaminado, semAcoes: !comAcoes, aoPorNaFila: cs => cs.forEach(c => codigosNaFila.add(c)) },
+          contaminado, motivoContaminacao, semAcoes: !comAcoes, aoPorNaFila: cs => cs.forEach(c => codigosNaFila.add(c)) },
       );
       // a partir daqui (inclusive as próximas chamadas desta mesma volta), ação direta só pela fila
-      if (resp.body.ok === true && contaminaOComando(String(u.name))) contaminado = true;
+      if (resp.body.ok === true && contaminaOComando(String(u.name)) && !contaminado) { contaminado = true; motivoContaminacao = "leitura"; }
       resultados.push({ type: "tool_result", tool_use_id: u.id, content: JSON.stringify(resp.body), ...(resp.body.ok === true ? {} : { is_error: true }) });
     }
     mensagens.push({ role: "user", content: resultados });
