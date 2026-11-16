@@ -100,6 +100,7 @@ Claude Console); limites mensais de tokens; ligar o interruptor.
   `whatsapp-regras`, `whatsapp-qa`, `whatsapp`, `router`, `server/integracoes-anthropic.test.ts`.
 - QA r3 (16/11): alterados `shared/dolores/{sanitizar,whatsapp}.ts`, `docs/dolores/como-ligar.md`; testes `regras`,
   `whatsapp-regras`.
+- QA r4 (16/11): alterados `shared/dolores/sanitizar.ts` e `server/dolores/regras.test.ts`.
 - `docs/dolores/ferramentas-etapa1.json` (regerado: etapa 2, mesmas 12 ferramentas), `docs/dolores/como-ligar.md`
   (seção Etapa 2), `docs/dolores/agente-etapa2.md` (novo), `docs/stories/epics/ROADMAP.md` (paridade em espera),
   `HANDOFF-16-11-CORRECOES-E-DOLORES.md`.
@@ -176,6 +177,70 @@ Tempos (sonda de desempenho do QA, depois das correções): 200 kB só de dígit
 - [AUTO-DECISION] Célula de tabela isolada entre "|" conta como "cadeia inteira" para a regra dos 11 dígitos sem forma.
 - Em aberto (pré-existente, fora do pedido): "código do imóvel 12345" vira "código [senha omitida]" (regra da senha).
 
+## Correções da 4ª rodada do QA (16/11/2026, @dev Dex — QA r4 FAIL de Quinn, HEAD revisado `2dd8ae9`)
+
+Antes de editar, a DECISÃO do filtro (`shared/dolores/sanitizar.ts`) foi reorganizada em duas fases, nesta ordem, e
+escrita no cabeçalho do arquivo:
+1. **Mascarar sem exceção**: CPF com DV válido, CNPJ válido, celular (11 com DDD e 9; 10 com DDD e 6–9; 9 começando por
+   9; 8 começando por 6–9 com forma de telefone) e e-mail — em qualquer separação, com qualquer rótulo antes, sozinho ou
+   dentro de cadeia maior (janela deslizante). Única ressalva, de estrutura e não de rótulo: valor com centavos
+   ("R$ 99991234567,50", "999.123.456,00"), que já era garantido pelo teste R2.
+2. **Preservar por estrutura completa**: (2a) chave de NF-e e linha digitável validadas por inteiro — o trecho fica e a
+   fase 1 não se aplica a ele; (2b) o resto (fixo de 2–5, 11 dígitos sem forma) só onde a fase 1 nada achou, com os
+   rótulos de documento/quantidade decidindo.
+
+| Achado | Correção | Commit | Teste de regressão |
+|---|---|---|---|
+| S1 (bloqueava) chave de NF-e pelo rótulo/DV deixava 4 CPFs/celulares intactos | chave só fica com DV + UF 11–53 + mês 01–12 + CNPJ do emitente válido + modelo 55/65, nunca em 4 blocos de 11; rótulo sozinho não isenta; a cadeia de 44 que não validou sai inteira, mas a lista 4×11 sai item por item | `4ee4a9f` | "QA r4 S1" (11 textos: nota/acesso/DANFE/chave com ponto/NF-e misturado/"nota: ligar"/sem rótulo com DV fechando) |
+| S2 linha digitável mascarada em parte | reconhecida pela forma 5.5 5.6 5.6 1 14 (ou 10 11 11 1 14) com o DV módulo 10 dos três campos; sem validar, vale a fase 1 | `8237b5d` | "QA r4 S2" (Bradesco 237, Sicoob 756, Sicredi 748, sem pontos, Itaú; DV errado continua mascarando; celular colado depois sai) |
+| S3 regra bancária quadrática | o número da conta começa logo depois do rótulo e tem tamanho limitado (sem lookahead que varria a palavra); pré-filtro `formaPossivel` descarta janelas que não podem ser CPF/CNPJ/telefone; célula de tabela não atravessa "\|" | `4c2ac31` | "QA r4 S3" (17 textos de 200 kB, limite 3 s cada) |
+| S4 pares/faixas de 4 dígitos | ver a tabela abaixo | `e1ac6f1` | "QA r4 S4" (15 que ficam, 16 que saem) |
+| S5 pix/conta/código | PIX só com forma de chave (e-mail, uuid, 8–14 dígitos sem centavos depois); conta/agência só com número de conta (3+ dígitos, não ano, não valor com centavos); "código" só com senha/acesso/token/OTP a até 40 caracteres depois ou 30 antes, e sem engolir a oração quando não é senha | `c3cd9b8` | "QA r4 S5" (13 que ficam, 12 que saem) |
+| S6 formatos forçados | ligação aceita "·", "•", ":" e vários espaços; hífen tipográfico com até 3 espaços; "529982247,25" (CPF válido, sem R$); dígitos Adlam; sobrescritos e circulados em sequência de 4+; e-mail "a @ b . com", "a arroba b ponto com", "(at)/(dot)", "[at]/[dot]" com domínio de topo conhecido | `a12ac80`, `6c631c7` | "QA r4 S6" |
+
+**Regra final do par 4-4 e do fixo (S4)** — decide de cima para baixo, a primeira linha que casar vale:
+
+| Situação | Resultado | Exemplos |
+|---|---|---|
+| Palavra de telefone (tel, fone, celular, whats, zap, contato, ligar, recado) nos ~50 caracteres antes | sai sempre | "tel casa 3523-4567", "Recado: ligar na casa 3523-4567", "whats lotes 3201 3202" |
+| Começa por 6–9 (celular antigo) | sai sempre, com qualquer rótulo | "lotes 7001 7002", "R$ 9123 4567", "casa 9123-4567", "itens 6000 7000" |
+| 2–5 com rótulo de documento logo antes (processo, protocolo, matrícula, inscrição [imobiliária/municipal], IPTU, nota fiscal, lote, quadra, R$, boleto, CEP…) ou unidade de medida depois | fica | "protocolo 3523-4567", "quadra 3523 4567", "IPTU 3523 4567 0001" |
+| 2–5 em 4-4 com rótulo de quantidade/valor/faixa (valor, total, preço, custo, orçamento, renda, faixa, quantidade, estoque, itens, parcelas, saldo, lotes, quadras) | fica | "valor 3523 4567", "estoque: 3500 4200", "parcelas de 2500 3000" |
+| 2–5 em 4-4, faixa crescente com hífen e os dois terminando em 00 | fica | "orçamento 2500-3000", "entre 2500-3000 por mês" |
+| Item do meio/fim de uma lista de grupos de 4 cujo rótulo (antes do 1º item) é de quantidade ou documento | fica | "lotes 3201 3202 3203", "valores 3500 4200 5100" |
+| 2–5 sem nada disso (casa, apartamento, unidade, ano, pedido, id…) | sai | "unidade 3523 4567", "apartamento 3523-4567", "ref 3000-2500" |
+
+Por que "faixa crescente" exige os dois terminando em 00: sem isso, "casa 3523-4567" e "apartamento 3523-4567" (4567 >
+3523) seriam faixa e o R1 voltaria a vazar.
+
+Testes existentes alterados (justificativa):
+- "QA r3 R1": "valor: 3523 4567" e "total 3523 4567" saíram da lista do que sai e foram para a do que fica (decisão da
+  S4: rótulo de valor livra o par 4-4 de 2–5 sem palavra de telefone); no lugar, "valor: 9123 4567", "total 9123 4567"
+  (6–9, celular) e "valor: fone 3523 4567" continuam saindo.
+- "QA r3 (informativos)": a chave de acesso do teste tinha CNPJ do emitente inválido (12345678000199) — foi trocada por
+  uma chave com CNPJ válido e DV certo; "chave de acesso"/"DANFE" + chave inválida agora saem inteiras (S1: o rótulo
+  sozinho não isenta). "NF-e" + 44 dígitos colados continua intacto (um grupo só: a fase 1 não acha nada dentro).
+
+- [AUTO-DECISION] "código" vira senha também com "otp" e "token" antes; "pin"/"otp" contam como palavra de senha.
+- [AUTO-DECISION] Código de barras de 44 dígitos COM separadores não é reconhecido (não é barato validar sem abrir
+  vazamento: só o DV geral de módulo 11 fecha 1 em 11 listas). Colado (o normal) já fica.
+- [AUTO-DECISION] "IPTU" e "inscrição municipal" entraram nos rótulos de documento (fase 2b, só livram fixo de 2–5).
+
+Tempos (sonda de desempenho do QA r4, 200 kB cada, depois das correções): "ag-…ag- at" 8 ms (era 20 s); "conta-…conta-
+arroba" 5 ms (era 9,8 s); "1‑" 140 ms (era 946); "٩ " 75–153 ms (era 926); "1 " 38–146 ms (era ~900); o pior caso de todos
+é "1|" com ~200 ms. Sonda de vazamento r4: nenhum caso vaza; só "protocolo 3523-4567 fone" fica (ver "Em aberto") e o caso "Compradores" sai vazio
+(a busca da própria sonda não achou uma lista naquela faixa).
+
+Em aberto (não bloqueia):
+- "protocolo 3523-4567 fone": palavra de telefone DEPOIS do número não conta (a regra olha só ~50 caracteres antes).
+- Estragos que restam por regra: 6–9 com qualquer rótulo ("lotes 7001 7002", "R$ 9123 4567", "matrícula 9123-4567",
+  "protocolo 912345678"); 11 dígitos sem forma ("NIS 12345678901", "ticket 99991234567"); fixo de 10 dígitos com rótulo
+  de valor ("valor 1234567890"); fixo sem rótulo logo antes ("cadastro 3523-4567", "chamado 3523-4567", "lote 25 quadra 7
+  - 3523-4567", "processo administrativo 2026/3523-4567"); a linha digitável do exemplo do relatório
+  ("23793.38128 60000.000003 00000.000400 …") tem os DVs dos campos 2 e 3 errados (o certo seria …000004 …000406),
+  então a fase 1 vale e o 1º campo sai.
+- Boleto de concessionária (48 dígitos, começa com 8) não é reconhecido.
+
 ## Dev Notes (implementação, 16/11/2026)
 - IDS: reaproveitados o cliente da Evolution (`server/_core/evolution.ts`: QR, estado, número, webhook, envio), o servidor
   Evolution da Central (`configEvolution`), o padrão de segredo HMAC do webhook da Central (rótulo próprio), o padrão de
@@ -234,6 +299,10 @@ Tempos (sonda de desempenho do QA, depois das correções): 200 kB só de dígit
   server/integracoes-anthropic.test.ts server/whatsapp*.test.ts server/auth-session.test.ts server/imports-esm.test.ts
   server/api-rotas-producao.test.ts` — 18 arquivos, 248 testes passando; `npx vitest run server/central-vendas` — 10
   arquivos, 76 testes passando (28 arquivos / 324 no total, +6 de regressão da r3); `npx vite build` ok.
+- (a5) Automáticos depois da 4ª rodada do QA (16/11): `npx tsc --noEmit` sem erros; `npx vitest run server/dolores
+  server/integracoes-anthropic.test.ts server/auth-session.test.ts server/imports-esm.test.ts server/api-rotas-producao.test.ts`
+  — 12 arquivos, 202 testes passando; `regras.test.ts` 24 testes (+6 de regressão da r4). Sondas do QA r4: vazamento — 0 casos vazam;
+  estrago — 79 de 103 ficam (eram 62); desempenho — todos os 200 kB abaixo de 250 ms.
 - (b) Manuais: nenhum (sem Evolution nem Anthropic reais neste ambiente).
 - (c) Pendentes em produção: migração 0124 no Neon; dono cadastra chave/modelo, limites, o número dele e conecta o número
   da Dolores; teste de aceite pelo WhatsApp; conferir os nomes `senderPn`/`remoteJidAlt` do endereço @lid na Evolution real.
@@ -250,3 +319,6 @@ Tempos (sonda de desempenho do QA, depois das correções): 200 kB só de dígit
 - 16/11/2026 — @qa (Quinn): r3 CONCERNS (R1 importante; R2–R5 menores; informativos).
 - 16/11/2026 — @dev (Dex): R1–R5 e os informativos corrigidos, um commit por achado, com teste de regressão; 0124 não
   alterada. Volta ao portão de QA (InReview).
+- 16/11/2026 — @qa (Quinn): r4 FAIL (S1 bloqueia: chave de NF-e pelo rótulo; S2–S6 menores).
+- 16/11/2026 — @dev (Dex): decisão do filtro reorganizada em duas fases; S1–S5 e S6 corrigidos, um commit por achado,
+  com teste de regressão. Volta ao portão de QA (InReview).
