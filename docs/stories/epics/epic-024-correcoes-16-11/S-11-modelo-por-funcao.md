@@ -88,6 +88,30 @@ quer escolher, num lugar só (Integrações › Anthropic), o modelo de cada fun
 - Escolher modelo não chama a IA da função (só `models.list`, que não consome tokens), não liga o interruptor da Dolores
   e não toca na confirmação de custo da Maquete.
 
+### Correções do QA (CONCERNS, 8 achados) — 16/11/2026
+- Achado 1 (tela): `haAlgoParaSalvar`/`descartaModeloAntigo` em `shared/funcoes-anthropic.ts`. "Usar o preferencial"
+  habilita o Salvar quando vale o modelo antigo do cartão da Dolores ou há aviso de modelo sumido; a opção diz
+  "— descarta o modelo antigo do cartão" e uma linha abaixo explica o descarte.
+- Achado 2 (guarda): o painel passa ao módulo de modelos só `{ lerBanco }` (`soLeitor`). A guarda do módulo também
+  proíbe `decrypt`, `criarCliente`, `api_key`, `apiKey` e qualquer `anthropic_painel_` que não seja o texto do modelo.
+- Achado 3 (custo): `ConfirmacaoIA.modelo` (dentro do JSON da leitura/importação — sem migração). `novaConfirmacao` grava
+  o modelo que vale na hora (`modeloParaConfirmar`); `bloqueioDaIA` exige o mesmo modelo e diz "O modelo mudou de X
+  para Y". [AUTO-DECISION] Confirmação antiga, sem modelo gravado → não vale (não há como saber o modelo; lado seguro).
+  Efeito na publicação: leituras paradas com confirmação ainda não usada pedem uma nova confirmação uma vez.
+- Achado 4: sem chave utilizável (ausente ou ilegível), "valendo agora" fica vazio e a linha diz "Sem chave utilizável:
+  a função não roda pela chave do painel."; na Maquete, com a chave antiga do servidor, mostra o modelo das
+  configurações da Maquete 3D (origem "servidor"), que é o que a execução usa.
+- Achado 5: ao trocar a chave e ao listar os modelos, o modelo antigo do cartão da Dolores também é conferido. Se a conta
+  não o oferece, o id vai para `segredo.anthropic_painel_modelo_anterior_sumiu.dolores_whatsapp`: `modeloDaFuncao` o
+  ignora como queda (cai para o preferencial), o painel e a mensagem avisam, e o valor NÃO é apagado (só some quando o
+  admin salva a linha da Dolores). Se a conta voltar a oferecê-lo, o aviso sai. Remover a chave não mexe no valor antigo
+  (sem chave a Dolores não roda; a próxima chave confere de novo).
+- Achado 6: salvar o modelo da Dolores é tudo ou nada: valida → descarta o antigo (falha = erro claro, nada gravado) →
+  grava (falha = o antigo volta, via `restaurarAnteriorDolores`, e o erro diz isso). Avisos voltam se a gravação falhar.
+- Achado 7: `modeloDaFuncao` não lança nem com erro síncrono de `lerBanco`.
+- Achado 8: nota sem "ANTHROPIC_API_KEY" ("chave antiga configurada pela equipe técnica no servidor"); recomendações
+  sem repetir o rótulo.
+
 ## Testes
 - Automáticos: `server/integracoes-modelo-por-funcao.test.ts` (12): resolução função → anterior → preferencial →
   padrão; cada função com o seu; banco fora; nunca lê a chave; sem chave a seção lista e recusa salvar; id validado
@@ -98,7 +122,12 @@ quer escolher, num lugar só (Integrações › Anthropic), o modelo de cada fun
   router passa a poder importar só `existeChaveAnthropicPainel`). `server/dolores/router.test.ts` e
   `server/dolores/whatsapp.test.ts`: modelo da função vence o antigo; antigo respeitado; ligar exige modelo.
 - Manuais (Playwright, harness simulado): Integrações em 1366 px e iPad (810 px), com e sem chave; sem rolagem lateral.
-- Pendente em produção: escolher os modelos reais da conta do dono.
+- Correções do QA: regressões em `server/integracoes-modelo-por-funcao.test.ts` (achados 1, 4, 5, 6, 7, 8),
+  `server/integracoes-anthropic.test.ts` (achado 2: a guarda pega decrypt/criarCliente/chave em pedaços; o painel só
+  passa `soLeitor(deps)`), `server/maquete-3d-qa-s03-s05.test.ts` (achado 3: leitura e importação; confirmação antiga
+  sem modelo). Tela conferida com Playwright (1366 px e iPad 810 px): origem "anterior", modelo sumido, sem chave.
+- Pendente em produção: escolher os modelos reais da conta do dono; leituras da Maquete com confirmação antiga pedem
+  nova confirmação uma vez.
 
 ## File List
 - `shared/funcoes-anthropic.ts` (novo) — registro das funções (rótulo, descrição, recomendação).
@@ -114,9 +143,13 @@ quer escolher, num lugar só (Integrações › Anthropic), o modelo de cada fun
 - `server/integracoes-modelo-por-funcao.test.ts` (novo), `server/integracoes-anthropic.test.ts`,
   `server/dolores/router.test.ts`, `server/dolores/whatsapp.test.ts`.
 - `docs/stories/epics/epic-024-correcoes-16-11/EPIC.md`, `docs/stories/epics/ROADMAP.md`.
+- Correções do QA: `shared/maquete-3d/regras.ts` (`ConfirmacaoIA.modelo`, `confirmacaoDoModelo`),
+  `server/maquete-3d/execucao-ia.ts`, `server/maquete-3d/leitura.ts`, `server/maquete-3d/importacao.ts`,
+  `server/maquete-3d-qa-s03-s05.test.ts`.
 
 ## Change Log
 | Data | Autor | Mudança |
 |------|-------|---------|
 | 16/11/2026 | @dev (Dex) | Story criada a partir do pedido do dono; Draft → InProgress (YOLO) |
 | 16/11/2026 | @dev (Dex) | InProgress → InReview: registro, resolução única, painel por função, ligações e testes |
+| 16/11/2026 | @dev (Dex) | QA CONCERNS (8 achados) corrigidos com regressão; segue InReview para nova revisão |
