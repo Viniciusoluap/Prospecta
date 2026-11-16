@@ -222,7 +222,7 @@ export async function salvarModeloDaFuncao(funcao: FuncaoAnthropic, id: string, 
 }
 
 export const NOTA_FUNCAO_ANTHROPIC: Partial<Record<FuncaoAnthropic, string>> = {
-  maquete_leitura: "Vale quando a leitura usa a chave deste painel. Sem ela (só a ANTHROPIC_API_KEY do servidor), vale o modelo das configurações da maquete.",
+  maquete_leitura: "Vale quando a leitura usa a chave deste painel. Sem ela, se houver a chave antiga configurada pela equipe técnica no servidor, vale o modelo das configurações da Maquete 3D.",
 };
 
 /** Uma linha por função para o painel: escolhido, aviso de modelo sumido e o modelo que vale agora. Sem a chave. */

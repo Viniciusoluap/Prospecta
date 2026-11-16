@@ -103,6 +103,12 @@ describe("rotas do painel — modelo por função", () => {
       ["maquete_leitura", "Leitura de plantas em PDF — Maquete 3D"], ["dolores_whatsapp", "Dolores — conversa pelo WhatsApp"]]);
     expect(linha(r, "dolores_whatsapp").recomendacao).toMatch(/mais barato/);
     expect(linha(r, "maquete_leitura").recomendacao).toMatch(/mais capaz/);
+    // QA S-11 achado 8: sem jargão técnico e a recomendação não repete o rótulo
+    for (const f of r.funcoes) {
+      expect(`${f.descricao} ${f.recomendacao} ${f.nota ?? ""}`).not.toMatch(/ANTHROPIC_API_KEY|ENV|vari[aá]vel de ambiente/);
+      expect(f.recomendacao).not.toMatch(/^(Leitura de planta|Conversa)\s*:/);
+    }
+    expect(linha(r, "maquete_leitura").nota).toMatch(/chave antiga configurada pela equipe técnica no servidor/);
     expect(linha(r, "maquete_leitura").valendo).toEqual({ modelo: "claude-padrao-da-maquete", origem: "padrao" });
     await expect(s.caller.salvarModeloFuncaoAnthropic({ funcao: "maquete_leitura", modelo: "claude-opus-5-5" })).rejects.toMatchObject({ code: "BAD_REQUEST" });
     expect(s.criarCliente).not.toHaveBeenCalled();

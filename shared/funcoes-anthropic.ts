@@ -19,13 +19,13 @@ export const DESCRICAO_FUNCOES_ANTHROPIC: Record<FuncaoAnthropic, DescricaoFunca
     id: "maquete_leitura",
     rotulo: "Leitura de plantas em PDF — Maquete 3D",
     descricao: "Lê as pranchas em PDF que o leitor próprio não consegue ler (ex.: PDF que é só imagem). Só gasta quando o administrador confirma o custo da leitura de uma maquete.",
-    recomendacao: "Leitura de planta: prefira um modelo mais capaz (erros de leitura custam retrabalho na maquete).",
+    recomendacao: "Prefira um modelo mais capaz: erros de leitura custam retrabalho na maquete.",
   },
   dolores_whatsapp: {
     id: "dolores_whatsapp",
     rotulo: "Dolores — conversa pelo WhatsApp",
     descricao: "Responde aos comandos do dono pelo WhatsApp da Dolores. Só gasta com o interruptor da IA dela ligado, a cada comando, até os limites mensais definidos no cartão da Dolores.",
-    recomendacao: "Conversa: um modelo mais barato (ex.: Haiku) costuma bastar.",
+    recomendacao: "Um modelo mais barato (ex.: Haiku) costuma bastar.",
   },
 };
 
