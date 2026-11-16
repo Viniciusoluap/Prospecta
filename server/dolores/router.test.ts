@@ -17,7 +17,7 @@ vi.mock("../whatsapp-router.js", async orig => ({ ...(await orig<typeof import("
 import { ADMIN_MODULES } from "../../shared/admin-permissions.js";
 import { configuracaoAnthropicPainel, modelosAnthropicPainel } from "../_core/anthropic-painel.js";
 import { ENV } from "../_core/env.js";
-import { registrarWebhookEvolution, removerInstancia } from "../_core/evolution.js";
+import { estadoInstancia, numeroConectado, registrarWebhookEvolution, removerInstancia } from "../_core/evolution.js";
 import { getDb } from "../db.js";
 import { appRouter } from "../routers.js";
 import { criarBanco } from "./testes-banco.js";
@@ -45,6 +45,7 @@ describe("permissões (caminho completo pelo appRouter)", () => {
     ["status", (c: ReturnType<typeof caller>) => c.dolores.status()],
     ["conectar", (c: ReturnType<typeof caller>) => c.dolores.conectar()],
     ["statusConexao", (c: ReturnType<typeof caller>) => c.dolores.statusConexao()],
+    ["confirmarConexao", (c: ReturnType<typeof caller>) => c.dolores.confirmarConexao()],
     ["ativarAvisos", (c: ReturnType<typeof caller>) => c.dolores.ativarAvisos()],
     ["desconectar", (c: ReturnType<typeof caller>) => c.dolores.desconectar()],
     ["salvar", (c: ReturnType<typeof caller>) => c.dolores.salvar({ numeroDono: "99991234567" })],
@@ -100,7 +101,8 @@ describe("conexão própria (QR code)", () => {
     const r = await admin().dolores.conectar();
     expect(r).toEqual({ qrCode: "data:image/png;base64,QR", status: "aguardando_qr" });
     expect((await cfg()).instancia).toBe("prospecta-dolores");
-    const s = await admin().dolores.statusConexao();
+    expect(await admin().dolores.statusConexao()).toEqual({ status: "conectado", numeroDolores: null, precisaConfirmar: true });
+    const s = await admin().dolores.confirmarConexao();
     expect(s).toEqual({ status: "conectado", numeroDolores: "(99) *****-1111" });
     expect(vi.mocked(registrarWebhookEvolution)).toHaveBeenCalledWith(expect.anything(), "prospecta-dolores", URL_WEBHOOK_DOLORES(), segredoWebhookDolores());
     expect((await cfg()).numero_dolores).toBe("5599900001111");
@@ -110,10 +112,38 @@ describe("conexão própria (QR code)", () => {
   it("número já usado pela empresa ou igual ao do dono: desconecta e recusa", async () => {
     await admin().dolores.conectar();
     await banco.pg.exec(`INSERT INTO whatsapp_connections (user_id, provider, numero, status, instancia) VALUES (1, 'evolution', '559900001111', 'conectado', 'prospecta-u1')`);
-    await expect(admin().dolores.statusConexao()).rejects.toThrow(/já é usado por uma conexão da empresa/);
+    await expect(admin().dolores.confirmarConexao()).rejects.toThrow(/já é usado por uma conexão da empresa/);
     expect(vi.mocked(removerInstancia)).toHaveBeenCalledWith(expect.anything(), "prospecta-dolores");
     expect((await cfg()).status_conexao).toBe("desconectado");
     await banco.pg.exec("DELETE FROM whatsapp_connections; UPDATE dolores_whatsapp_config SET numero_dono = '5599900001111'");
-    await expect(admin().dolores.statusConexao()).rejects.toThrow(/número do dono/);
+    await expect(admin().dolores.confirmarConexao()).rejects.toThrow(/número do dono/);
+  });
+  it("QA achado 8: statusConexao é consulta pura — conectado e com conflito, não grava, não remove e não registra aviso", async () => {
+    await admin().dolores.conectar();
+    await banco.pg.exec(`INSERT INTO whatsapp_connections (user_id, provider, numero, status, instancia) VALUES (1, 'evolution', '559900001111', 'conectado', 'prospecta-u1');
+      UPDATE dolores_whatsapp_config SET numero_dono = '5599900001111'`);
+    const antes = await cfg();
+    vi.mocked(registrarWebhookEvolution).mockClear(); vi.mocked(removerInstancia).mockClear();
+    for (let i = 0; i < 3; i++) expect(await admin().dolores.statusConexao()).toMatchObject({ status: "conectado", precisaConfirmar: true });
+    vi.mocked(estadoInstancia).mockResolvedValueOnce("close");
+    expect(await admin().dolores.statusConexao()).toMatchObject({ status: "desconectado", precisaConfirmar: false });
+    expect(await cfg()).toEqual(antes);
+    expect(vi.mocked(registrarWebhookEvolution)).not.toHaveBeenCalled();
+    expect(vi.mocked(removerInstancia)).not.toHaveBeenCalled();
+    expect(vi.mocked(numeroConectado)).not.toHaveBeenCalled();
+    const procs = (appRouter as any)._def.procedures;
+    expect(procs["dolores.statusConexao"]._def.type).toBe("query");
+    expect(procs["dolores.confirmarConexao"]._def.type).toBe("mutation");
+  });
+  it("QA achado 8: número conectado vazio falha fechado (não registra aviso nem marca conectado)", async () => {
+    await admin().dolores.conectar();
+    for (const vazio of [null, "", "   "]) {
+      vi.mocked(numeroConectado).mockResolvedValueOnce(vazio as never);
+      await expect(admin().dolores.confirmarConexao()).rejects.toMatchObject({ code: "PRECONDITION_FAILED" });
+    }
+    vi.mocked(numeroConectado).mockRejectedValueOnce(new Error("rede"));
+    await expect(admin().dolores.confirmarConexao()).rejects.toMatchObject({ code: "PRECONDITION_FAILED" });
+    expect(vi.mocked(registrarWebhookEvolution)).not.toHaveBeenCalled();
+    expect(await cfg()).toMatchObject({ status_conexao: "aguardando_qr", numero_dolores: null });
   });
 });

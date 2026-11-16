@@ -89,25 +89,50 @@ export const doloresRouter = router({
     } catch (e) { throw erro(e, "A Evolution não gerou o QR code."); }
   }),
 
-  /** Consultado enquanto o QR está na tela. Conectou: confere que o número é próprio e liga o aviso de mensagens. */
-  statusConexao: soAdmin.query(async ({ ctx }) => {
+  /**
+   * Consultado enquanto o QR está na tela. QA achado 8: CONSULTA PURA — só lê a situação na Evolution e devolve; não grava,
+   * não remove instância e não registra aviso (uma query é GET e pode ser repetida/pré-carregada). Quando a Evolution diz
+   * "conectado" e o sistema ainda não confirmou, `precisaConfirmar` = true e a tela chama `confirmarConexao`.
+   */
+  statusConexao: soAdmin.query(async () => {
     const c = await exigirConfig();
-    if (!c.instancia) return { status: c.statusConexao, numeroDolores: mascararNumero(c.numeroDolores) };
+    const base = { numeroDolores: mascararNumero(c.numeroDolores) };
+    if (!c.instancia) return { ...base, status: c.statusConexao, precisaConfirmar: false };
     const evo = await exigirEvolution();
     const estado = await estadoInstancia(evo, c.instancia).catch(() => null);
-    if (!estado) return { status: c.statusConexao, numeroDolores: mascararNumero(c.numeroDolores) };
+    if (!estado) return { ...base, status: c.statusConexao, precisaConfirmar: false };
+    const status = estado === "open" ? "conectado" : estado === "connecting" ? "aguardando_qr" : "desconectado";
+    return { ...base, status, precisaConfirmar: status === "conectado" && c.statusConexao !== "conectado" };
+  }),
+
+  /**
+   * Efeitos da conexão, em mutação explícita (só admin por papel): grava a situação; conectado, confere que o número é
+   * próprio (não é de conexão da empresa/corretor nem o do dono — senão remove a instância) e liga o aviso de mensagens.
+   * Número conectado que não se consegue ler: FALHA FECHADA (não registra aviso nem marca conectado).
+   */
+  confirmarConexao: soAdmin.mutation(async ({ ctx }) => {
+    const c = await exigirConfig();
+    if (!c.instancia) throw new TRPCError({ code: "BAD_REQUEST", message: "Conecte o número da Dolores primeiro." });
+    const evo = await exigirEvolution();
+    const estado = await estadoInstancia(evo, c.instancia).catch(() => null);
+    if (!estado) throw new TRPCError({ code: "BAD_REQUEST", message: "A Evolution não informou a situação da conexão. Tente de novo em instantes." });
     const status = estado === "open" ? "conectado" : estado === "connecting" ? "aguardando_qr" : "desconectado";
     if (status !== "conectado") {
       if (status !== c.statusConexao) await gravar({ statusConexao: status }, ctx.user.id);
       return { status, numeroDolores: mascararNumero(c.numeroDolores) };
     }
-    const numero = (await numeroConectado(evo, c.instancia).catch(() => null)) ?? c.numeroDolores;
-    if (numero && (await numeroDeOutraConexao(numero))) {
+    const lido = await numeroConectado(evo, c.instancia).catch(() => null);
+    const numero = lido ? lido.replace(/\D/g, "").slice(0, 20) : "";
+    if (!numero) {
+      if (c.statusConexao === "conectado") await gravar({ statusConexao: "aguardando_qr" }, ctx.user.id);
+      throw new TRPCError({ code: "PRECONDITION_FAILED", message: "Não consegui ler o número conectado na Evolution; nada foi ativado. Desconecte e conecte de novo." });
+    }
+    if (await numeroDeOutraConexao(numero)) {
       await removerInstancia(evo, c.instancia);
       await gravar({ statusConexao: "desconectado", numeroDolores: null }, ctx.user.id);
       throw new TRPCError({ code: "BAD_REQUEST", message: "Esse número já é usado por uma conexão da empresa ou de um corretor. Conecte o número próprio da Dolores." });
     }
-    if (numero && c.numeroDono && pareceMesmoTelefone(numero, c.numeroDono)) {
+    if (c.numeroDono && pareceMesmoTelefone(numero, c.numeroDono)) {
       await removerInstancia(evo, c.instancia);
       await gravar({ statusConexao: "desconectado", numeroDolores: null }, ctx.user.id);
       throw new TRPCError({ code: "BAD_REQUEST", message: "Esse é o número do dono. A Dolores precisa de um número próprio (o dono escreve para ela)." });
@@ -115,7 +140,7 @@ export const doloresRouter = router({
     if (c.statusConexao !== "conectado" || numero !== c.numeroDolores) {
       try { await registrarWebhookEvolution(evo, c.instancia, URL_WEBHOOK_DOLORES(), segredoWebhookDolores()); }
       catch (e) { throw erro(e, "A Evolution não aceitou o aviso de mensagens da Dolores."); }
-      await gravar({ statusConexao: "conectado", numeroDolores: numero ? numero.replace(/\D/g, "").slice(0, 20) : null }, ctx.user.id);
+      await gravar({ statusConexao: "conectado", numeroDolores: numero }, ctx.user.id);
     }
     return { status, numeroDolores: mascararNumero(numero) };
   }),

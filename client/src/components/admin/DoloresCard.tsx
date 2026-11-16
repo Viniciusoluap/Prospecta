@@ -25,12 +25,17 @@ export function DoloresCard() {
   const [modelo, setModelo] = useState("");
   const onError = (e: { message: string }) => toast.error(e.message);
   const recarregar = () => utils.dolores.status.invalidate();
+  // A consulta só lê a situação; conferir o número e ligar o aviso de mensagens é a mutação confirmarConexao.
   const conexao = trpc.dolores.statusConexao.useQuery(undefined, { enabled: Boolean(qr), refetchInterval: 4000, retry: false });
+  const confirmar = trpc.dolores.confirmarConexao.useMutation({
+    onSuccess: async r => { setQr(null); if (r.status === "conectado") toast.success("Número da Dolores conectado."); await recarregar(); },
+    onError: async e => { setQr(null); toast.error(e.message); await recarregar(); },
+  });
   useEffect(() => {
-    if (conexao.data?.status === "conectado") { setQr(null); toast.success("Número da Dolores conectado."); void recarregar(); }
+    if (conexao.data?.status === "conectado" && !confirmar.isPending) confirmar.mutate();
     if (conexao.error) { setQr(null); toast.error(conexao.error.message); void recarregar(); }
   }, [conexao.data?.status, conexao.error]); // eslint-disable-line react-hooks/exhaustive-deps
-  const conectar = trpc.dolores.conectar.useMutation({ onSuccess: r => { if (r.qrCode) setQr(r.qrCode); else { toast.success("Número da Dolores já conectado."); void conexao.refetch(); void recarregar(); } }, onError });
+  const conectar = trpc.dolores.conectar.useMutation({ onSuccess: r => { if (r.qrCode) setQr(r.qrCode); else confirmar.mutate(); }, onError });
   const desconectar = trpc.dolores.desconectar.useMutation({ onSuccess: async () => { toast.success("Número da Dolores desconectado."); setQr(null); await recarregar(); }, onError });
   const avisos = trpc.dolores.ativarAvisos.useMutation({ onSuccess: r => toast.success(r.mensagem), onError });
   const salvar = trpc.dolores.salvar.useMutation({
