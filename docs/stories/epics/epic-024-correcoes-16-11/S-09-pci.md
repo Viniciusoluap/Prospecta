@@ -1,6 +1,6 @@
 # S-09 — Gerador de PCI: CPF do engenheiro, "Dados automáticos" e biblioteca de modelos
 
-Status: InProgress
+Status: InReview
 Epic: EPIC-024 (Fase 3) — correção 09 do dono (16/11/2026)
 Paridade: Gerador de PCI existe nos dois sistemas — porte para o Grupo Santa Fé fica como pendência no ROADMAP
 (Santa Fé em espera por decisão do dono, ver EPIC.md).
@@ -70,10 +70,67 @@ continua: o CPF nunca vai na lista de engenheiros. CPF de cliente nunca é copia
 - Perfil do Rafael desativado (`active=false`): a tela avisa; CPF/CREA/telefone do perfil não entram.
 - Projeto operacional vinculado ao mesmo serviço com engenheiros diferentes: não escolhe nenhum, avisa.
 
+## Dev Notes (implementação, 16/11/2026)
+- **Causa confirmada A:** `listarEngenheiros` não seleciona `engineer_profiles.cpf`; `aplicarEngenheiroPci` não gravava
+  `rtpCpf`/`rteCpf`. Correção: `dadosEngenheiroParaPci` (server/usuario-documentos.ts) lê UM engenheiro com CPF, mesmas
+  regras da lista (usuário ativo, colaborador/admin; dados do perfil só com perfil ativo); `pciGerador.engenheiro` devolve
+  isso + avisos (sem perfil, perfil desativado, faltando CPF/CREA/UF/telefone/e-mail). A lista segue sem CPF (testado).
+- **Causa confirmada B:** sem rascunho a tela abre com o mesmo `preenchimentoAutomaticoPci` que o botão devolve; o botão
+  trocava o formulário inteiro sem relatório; RTP/RTE nunca vinham; falha de leitura da PCI vinculada e da localização era
+  engolida. Correção: `sugestoesAutomaticasPci` (fonte de cada valor + motivo do que falta) e `compararPreenchimentoPci`
+  (só completa vazio; igual; conflito com confirmação por campo ou todos). A abertura usa as mesmas fontes.
+- **Engenheiro da obra (sem relação inventada):** `construction_projects` não tem engenheiro. Fontes usadas, em ordem:
+  (1) o escolhido no formulário aberto, (2) `rtpEngenheiroId`/`rteEngenheiroId` do rascunho (`pci_generator_drafts` —
+  a escolha já ficava guardada com a obra), (3) os da última PCI gerada, (4) só para o RTP, o `engineer_user_id` de
+  `operational_projects` com o MESMO `lead_service_id` da obra — e só se houver um único engenheiro. Nenhuma coluna nova.
+- [AUTO-DECISION] Pessoa não se mistura: se um dado do proponente/RTP/RTE está diferente, os vazios da mesma pessoa também
+  vão para confirmação; RTP/RTE vêm de UMA origem (o CPF do RT da PCI vinculada nunca entra ao lado do nome de outro
+  engenheiro). Motivo: evitar CPF de uma pessoa com nome de outra.
+- [AUTO-DECISION] Escolher engenheiro com campos RTP/RTE já preenchidos com outro valor pede `confirm` com a lista dos
+  campos; botão "Mesmo profissional do RTP" no RTE.
+- [AUTO-DECISION] Lista de permissão (`CAMPOS_COPIAVEIS_MODELO_PCI`): áreas coberta/acessória e destinação, todo o memorial,
+  todo o sistema construtivo, geração alternativa de energia, executor/BDI/justificativa, prazo e justificativa do prazo,
+  mais custos, adicionais e cronograma. Fora (sempre): proponente, RTP/RTE, imóvel (endereço, bairro, CEP, município, UF),
+  matrícula/cartório/coordenadas/construtora/finalidade, documentação da obra, área e valor do terreno, valores do imóvel e
+  financiado, área permeável, água/drenagem/esgoto (dependem do lote), pré-executado, obras pré-existentes, observações,
+  local/data, imagem e engenheiros escolhidos. O servidor extrai de novo ao salvar e ao ler (não confia no navegador).
+- [AUTO-DECISION] Versões: salvar sobre um modelo cria `versao + 1` com `previous_id`; índice único em `previous_id` impede
+  duas versões a partir da mesma; nome repetido (sem distinguir maiúsculas) é recusado. Exclusão lógica de todas as
+  versões, só pelo admin ou por quem salvou a última versão. Dá para aplicar qualquer versão do histórico.
+- [AUTO-DECISION] "Começar em branco" limpa a tela (com confirmação); o rascunho só muda ao salvar. O formulário guarda
+  `modeloOrigem` (id, nome, versão) para a obra mostrar qual modelo usou.
+- O tratamento do modelo oficial da CAIXA (`server/caixa/pci-gerador.ts`, fórmulas/estrutura/formato) não foi tocado.
+- Testes: `createCaller` direto no sub-router perde o prefixo `pciGerador.` e o colaborador cai em FORBIDDEN; o teste
+  monta o router com o nome real.
+
+## Handoff (S-09)
+- Concluído: commits na branch local `epic024-s09` (ver Change Log); nada publicado, nada aplicado em banco real.
+- Testes (a) automáticos: `npx vitest run server/pci- server/engenheiro` → 9 arquivos, 81 testes passando
+  (novos: `server/pci-s09.test.ts` 12, `server/pci-s09-db.test.ts` 11); `npx tsc --noEmit` sem erros; `npx vite build` ok.
+  (b) manuais: não executados (sem navegador neste agente). (c) produção: pendente.
+- Pendências: aplicar `drizzle/0118_pci_modelos_preenchimento.sql` no Neon antes de publicar o código (as rotas de modelo
+  falham sem a tabela; o resto funciona); conferir o perfil real do Rafael (ativo? CPF gravado?); registrar no ROADMAP o
+  porte para o Grupo Santa Fé (em espera por decisão do dono); portão de QA.
+- Próximo passo: @qa revisar; aplicar 0118 no Neon; publicar; abrir a obra do Rafael e escolher RTP/RTE.
+
 ## File List
-(atualizada ao final)
+- `docs/stories/epics/epic-024-correcoes-16-11/S-09-pci.md` (novo) — esta story.
+- `shared/pci-gerador.ts` — `copiavel` + `CAMPOS_COPIAVEIS_MODELO_PCI`; `modeloOrigem`; `aplicarEngenheiroPci` com CPF;
+  `camposTrocadosPorEngenheiroPci`, `faltasPerfilEngenheiroPci`; `sugestoesAutomaticasPci`, `compararPreenchimentoPci`,
+  `aceitarSugestoesPci`, `textoValorPci`; `extrairModeloPreenchimentoPci`, `sugestoesDoModeloPci`,
+  `resumoModeloPreenchimentoPci`, `validarNomeModeloPreenchimentoPci`; `preencherPciAutomatico` sobre as sugestões.
+- `server/usuario-documentos.ts` — `dadosEngenheiroParaPci` (um engenheiro, com CPF).
+- `server/pci-gerador.ts` — `engenheiroDaPci`, `fontesAutomaticasPci` (engenheiro da obra, motivos), `sugestoesAutomaticasDaObraPci`,
+  CRUD/versões dos modelos de preenchimento; procedimentos `engenheiro`, `sugestoesAutomaticas`, `modelosPreenchimento`,
+  `modeloPreenchimento`, `historicoModeloPreenchimento`, `salvarModeloPreenchimento`, `excluirModeloPreenchimento`.
+- `client/src/components/obra/GeradorPciAba.tsx` — seletor com busca do perfil e confirmação, "Mesmo profissional do RTP",
+  painel do resultado (preenchidos/conflitos/iguais/não encontrados), painel de modelos.
+- `drizzle/0118_pci_modelos_preenchimento.sql` (novo), `drizzle/schema.ts` (`pciModelosPreenchimento`).
+- `server/pci-s09.test.ts` (novo), `server/pci-s09-db.test.ts` (novo), `server/pci-gerador.test.ts` (matriz de permissões),
+  `server/pci-gerador-db.test.ts` (coluna `lead_service_id` na tabela de teste).
 
 ## Change Log
 | Data | Autor | Mudança |
 |------|-------|---------|
 | 16/11/2026 | @dev (Dex) | Story criada (YOLO, regra de execução contínua do EPIC-024) — Draft → InProgress |
+| 16/11/2026 | @dev (Dex) | InProgress → InReview: A, B e C implementados; 23 testes novos; tsc e vite build ok; 0118 não aplicada |
