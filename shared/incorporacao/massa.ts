@@ -867,7 +867,11 @@ function montarCenario(ctx: Ctx, idx: number, b: Bruto, criterio: CriterioCenari
   if (excessoVerde > 0.1 * ctx.areaGleba) {
     const f = (v: number) => v.toLocaleString("pt-BR", { maximumFractionDigits: 0 });
     const pct = ((100 * excessoVerde) / ctx.areaGleba).toLocaleString("pt-BR", { maximumFractionDigits: 1 });
-    notas.push(`${f(excessoVerde)} m² (${pct}% da gleba) ficaram como área verde por falta de frente para a via desenhada, além do mínimo exigido (${f(ctx.alvos.verde)} m²). Essa área não é aproveitamento: para loteá-la, prefira Grade ou Cul-de-sac.`);
+    notas.push(`${f(excessoVerde)} m² (${pct}% da gleba) ficaram como área verde por falta de frente para a via desenhada, além do mínimo exigido (${f(ctx.alvos.verde)} m²). Essa área não é aproveitamento: ${ctx.tipologia === "grid" || ctx.tipologia === "cul_de_sac"
+      ? (ctx.viasEntorno.length > 0
+        ? "o terreno é estreito ou recortado para uma malha interna — se as divisas já dão para ruas existentes, use a tipologia Vias públicas, que abre os lotes direto para essas ruas."
+        : "o terreno é estreito ou recortado para uma malha interna — experimente lote menor, via mais estreita ou, se as divisas já dão para ruas existentes, a tipologia Vias públicas.")
+      : "para loteá-la, prefira Grade ou Cul-de-sac."}`);
   }
 
   return {

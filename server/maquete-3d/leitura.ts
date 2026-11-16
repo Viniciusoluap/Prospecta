@@ -217,7 +217,7 @@ export function montarModelo(tipo: TipoMaquete, parciais: Record<string, unknown
     pendencias.push(...imp.pendencias.map(t => `Implantação: ${t}`));
     implantacao = {
       terreno: imp.terreno as never, vias: imp.vias as never, ruas: [], relevo: null,
-      lotes: imp.lotes.map(l => ({ id: String(l.id), nome: String(l.nome ?? ""), quadra: String(l.quadra ?? ""), poligono: l.pontos as never, areaInformada: typeof l.areaInformada === "number" && l.areaInformada > 0 ? l.areaInformada : null, tipo: "vendavel" as const, unidade: null })),
+      lotes: imp.lotes.map(l => ({ id: String(l.id), nome: String(l.nome ?? ""), quadra: String(l.quadra ?? ""), poligono: l.pontos as never, areaInformada: typeof l.areaInformada === "number" && l.areaInformada > 0 ? l.areaInformada : null, tipo: "vendavel" as const, uso: null, unidade: null })),
       posicoes: imp.posicoes.flatMap(p => {
         const edificacaoId = porNome.get(String(p.edificacao ?? "").trim().toLowerCase());
         if (!edificacaoId) { pendencias.push(`Implantação: a construção "${String(p.nome || p.id)}" não corresponde a nenhuma edificação lida.`); return []; }

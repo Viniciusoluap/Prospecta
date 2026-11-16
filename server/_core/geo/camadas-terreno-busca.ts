@@ -52,6 +52,10 @@ export const USER_AGENT = "Prospecta/1.0 (mapa do terreno)";
 const ACCEPT_JSON = "application/json, application/geo+json;q=0.9, */*;q=0.1";
 
 const TIMEOUT_PADRAO_MS = 12_000;
+/** Overpass: consulta pesada (vias, rios, água e linhas num raio de 600 m); o espelho que responde leva ~20 s. */
+const TIMEOUT_OVERPASS_MS = 42_000;
+/** Depois de quanto tempo sem resposta sai uma segunda consulta ao mesmo servidor do Overpass. */
+const ESPERA_DO_REFORCO_MS = 10_000;
 const TTL_CACHE_MS = 12 * 60 * 60 * 1000;
 const MAX_CACHE = 300;
 /** A função da Vercel tem 60 s; a resposta precisa sair antes disso. */
@@ -74,6 +78,8 @@ export function limparCacheCamadas() { cache.clear(); bloqueadoAte.clear(); fila
 
 /** Resposta HTTP de erro (ou erro do serviço com HTTP 200) — guarda o status e a espera pedida. */
 class ErroFonte extends Error {
+  /** A fonte devolveu a página de "sistema em manutenção": repetir em seguida não adianta. */
+  manutencao = false;
   constructor(readonly status: number, readonly esperaMs: number | null, mensagem: string) { super(mensagem); this.name = "ErroFonte"; }
 }
 /** O orçamento da requisição acabou antes de dar para consultar. */
@@ -95,7 +101,7 @@ export function esperaPedida(cabecalho: string | null, agoraMs = Date.now()): nu
 
 /** Só vale repetir o que é passageiro: tempo esgotado, 408/425/429, 5xx e erro de rede. */
 export function falhaTemporaria(e: unknown): boolean {
-  if (e instanceof ErroFonte) return e.status === 408 || e.status === 425 || e.status === 429 || e.status >= 500;
+  if (e instanceof ErroFonte) return !e.manutencao && (e.status === 408 || e.status === 425 || e.status === 429 || e.status >= 500);
   if (e instanceof SemTempo) return false;
   if (e instanceof Error && (e.name === "TimeoutError" || e.name === "AbortError")) return true;
   return e instanceof TypeError; // "fetch failed": DNS, conexão recusada/derrubada
@@ -108,8 +114,13 @@ async function umaConsulta(url: string, deps: DepsBusca, corpo: string | undefin
   const r = await deps.fetchImpl(url, { method: corpo ? "POST" : "GET", body: corpo, headers, signal: AbortSignal.timeout(timeoutMs) });
   if (!r.ok) {
     const espera = esperaPedida(r.headers?.get?.("retry-after") ?? null, (deps.agora?.() ?? new Date()).getTime());
-    try { await r.body?.cancel(); } catch { /* corpo já consumido ou indisponível */ }
-    throw new ErroFonte(r.status, espera, `HTTP ${r.status}`);
+    // 503 com página de manutenção (a EPE responde assim pelo firewall): não é falha passageira.
+    let pagina = "";
+    if (r.status === 503) { try { pagina = (await r.text()).slice(0, 4000); } catch { /* sem corpo */ } }
+    else { try { await r.body?.cancel(); } catch { /* corpo já consumido ou indisponível */ } }
+    const erro = new ErroFonte(r.status, espera, `HTTP ${r.status}`);
+    erro.manutencao = /manuten[cç][aã]o|maintenance/i.test(pagina);
+    throw erro;
   }
   const json: unknown = await r.json();
   // ArcGIS devolve falha do servidor com HTTP 200 e { error: { code } }: 429/5xx também são temporárias.
@@ -187,6 +198,9 @@ async function obterJson(url: string, deps: DepsBusca, corpo?: string, opcoes: O
 const consultar = (url: string, deps: DepsBusca) => obterJson(url, deps).then(exigirFeatureCollection);
 
 function motivo(e: unknown): string {
+  // Consulta com reforço: vale o motivo da primeira tentativa.
+  if (e instanceof AggregateError && e.errors.length) return motivo(e.errors[0]);
+  if (e instanceof ErroFonte && e.manutencao) return "fonte em manutenção (página de aviso do próprio órgão; pode também recusar acesso de fora do Brasil)";
   if (e instanceof Error) {
     if (e.name === "TimeoutError" || e.name === "AbortError") return "não respondeu a tempo";
     if (e instanceof TypeError) return `sem resposta (${e.message || "falha de conexão"})`;
@@ -250,15 +264,55 @@ function tentativasDa(id: IdCamada, contorno: Contorno): { tentativas: Tentativa
     case "osm": {
       const b = bboxComFolga(contorno, FOLGA_M.osm);
       const q = consultaOverpass(b);
+      // Os espelhos do Overpass são consultados AO MESMO TEMPO e fica o primeiro que responder (teste real de
+      // 16/11/2026: um espelho recusa a conexão, dois não respondem e o que funciona leva ~20 s; em fila, um de
+      // cada vez com 12 s para cada, a camada inteira ficava "indisponível"). Uma consulta por servidor, sem
+      // repetição: a carga em cada um é a mesma de antes.
+      const corrida: Tentativa<DadosCamadas["osm"]> = {
+        fonte: FONTES.overpass.urls.map(url => `${FONTES.overpass.nome} — ${new URL(url).host}`).join(" · "),
+        executar: async (deps: DepsBusca) => {
+          const erros: string[] = [];
+          const consultas = FONTES.overpass.urls.map(async url => {
+            const host = new URL(url).host;
+            try {
+              const corpo = `data=${encodeURIComponent(q)}`, d2: DepsBusca = { ...deps, timeoutMs: TIMEOUT_OVERPASS_MS };
+              // Falha rápida (504 do balanceador, conexão derrubada) é repetida na hora; e, se o servidor ainda não
+              // respondeu depois de 10 s, sai um reforço: no teste real, a mesma consulta ora voltou em ~20 s, ora
+              // ficou sem resposta. No máximo duas consultas em andamento por servidor.
+              const bruto = await new Promise<unknown>((ok, falha) => {
+                let reforcoEmCurso = false, primeiraFalhou: unknown = null, terminou = false;
+                const relogioDoReforco = setTimeout(() => {
+                  if (terminou) return;
+                  reforcoEmCurso = true;
+                  obterJson(url, d2, corpo, { repeticoes: 0 }).then(
+                    v => { terminou = true; ok(v); },
+                    e => { reforcoEmCurso = false; if (primeiraFalhou) falha(primeiraFalhou); else void e; },
+                  );
+                }, ESPERA_DO_REFORCO_MS);
+                obterJson(url, d2, corpo, { repeticoes: 2, fila: true }).then(
+                  v => { terminou = true; clearTimeout(relogioDoReforco); ok(v); },
+                  // Falhou antes do reforço sair: acabou. Com o reforço em curso, espera o resultado dele.
+                  e => { primeiraFalhou = e; if (!reforcoEmCurso) { terminou = true; clearTimeout(relogioDoReforco); falha(e); } },
+                );
+              });
+              const d = normalizarOverpass(bruto);
+              return { host, dados: { rios: recortarLinhas(d.rios, b), aguas: recortarPoligonos(d.aguas, b), nascentes: d.nascentes, vias: recortarLinhas(d.vias, b), linhas: recortarLinhas(d.linhas, b) } };
+            } catch (e) {
+              erros.push(`${host}: ${motivo(e)}`);
+              throw e;
+            }
+          });
+          try {
+            const vencedor = await Promise.any(consultas);
+            corrida.fonte = `${FONTES.overpass.nome} — ${vencedor.host}`;
+            return vencedor.dados;
+          } catch {
+            throw new Error(`nenhum servidor respondeu (${erros.join("; ")})`);
+          }
+        },
+      };
       return {
-        tentativas: FONTES.overpass.urls.map(url => ({
-          fonte: `${FONTES.overpass.nome} — ${new URL(url).host}`,
-          executar: async (deps: DepsBusca) => {
-            // vários espelhos: cada servidor repete no máximo 1 vez (o resto do tempo fica para o próximo), em fila
-            const d = normalizarOverpass(await obterJson(url, { ...deps, timeoutMs: Math.min(deps.timeoutMs ?? TIMEOUT_PADRAO_MS, 15_000) }, `data=${encodeURIComponent(q)}`, { repeticoes: 1, fila: true }));
-            return { rios: recortarLinhas(d.rios, b), aguas: recortarPoligonos(d.aguas, b), nascentes: d.nascentes, vias: recortarLinhas(d.vias, b), linhas: recortarLinhas(d.linhas, b) };
-          },
-        })),
+        tentativas: [corrida],
         vazio: ((d: DadosCamadas["osm"]) => !d.rios.length && !d.aguas.length && !d.nascentes.length && !d.vias.length && !d.linhas.length) as (d: never) => boolean,
       };
     }

@@ -93,6 +93,53 @@
 - Limite: as restrições chegam ao motor só em m² (sem a geometria da APP ou da faixa). A área verde desenhada tem o
   tamanho certo, mas a posição dela não é a posição real da APP: isso vem do levantamento.
 
+## Rodada de validação de 16/11 (o dono mandou: "teste você mesmo e corrija")
+
+Feito com dados reais: os quatro terrenos do banco (Polímeros, Residencial Cajueiro, Chacreamento e ImperaCity), os dois
+PDFs reais do Polímeros (baixados do Drive para a pasta temporária da sessão, **fora do repositório**) e o site real
+construído e aberto em navegador de teste (Chromium, com emulação de iPad e iPhone e chamadas tRPC simuladas).
+
+**Defeitos achados e corrigidos**
+- **CRM (correção 1):** a página inteira ainda rolava por baixo. Causa: os textos de acessibilidade dos cards
+  (`sr-only`, posição absoluta) escapavam das colunas e esticavam o documento para ~9.000 px. Correção: `relative` nos
+  três contêineres de rolagem (`AdminCRM.tsx`). Medido antes/depois em iPad retrato e paisagem, iPhone e computador:
+  documento = altura da janela; a coluna rola; o trilho rola de lado.
+- **Teste antigo da Central de Vendas:** era uma bomba-relógio (leads criados com a data real do banco e relógio do
+  teste parado em 12/11/2026). Agora os leads nascem na data do relógio do teste. 8/8.
+- **Estacionamento:** o dono achou 25 m² por vaga demais. A vaga é de um carro (12,5 m²); a conta usa 18,75 m²
+  (vaga + metade do corredor de manobra), com campo ajustável de 12,5 a 35 m² na tela. Rótulo do pilotis mostrava o
+  total de vagas em cada lado: agora mostra as de cada lado, e o resumo usa o número escrito.
+- **Maquete 3D — área verde azul:** toda área pública era pintada de azul (parecia água). O lote da maquete ganhou o
+  campo opcional `uso` (verde/institucional), vindo do estudo de massa; verde é pintado de verde, com legenda própria.
+  Maquetes antigas: clicar em "Atualizar a implantação a partir do estudo".
+- **Maquete 3D — rua da divisa sem asfalto:** rua cujo leito afunila (cortado pela divisa ao longo do comprimento)
+  virava um toco de 7 m e o resto ficava uma laje cinza. `formaDaRua` agora usa a faixa que cabe no comprimento todo
+  (mais estreita). Teste novo em `maquete-3d-vias.test.ts` com as medidas reais do Cajueiro.
+- **Estudo de massa:** em terreno estreito (Polímeros) a nota mandava "preferir Grade ou Cul-de-sac" mesmo já estando
+  em Grade; agora orienta para a tipologia Vias públicas quando há rua existente na divisa.
+- **Fontes do mapa:** o OpenStreetMap passou a ser consultado em todos os servidores ao mesmo tempo (vale o primeiro
+  que responder), com repetição e um pedido de reforço após 10 s; a página "Sistema em manutenção" da EPE é
+  reconhecida e dita como tal (sem repetir à toa).
+
+**Resultados dos testes com dados reais**
+- Motor de cenários nos 4 terrenos, Grade e Cul-de-sac: todos geram, ruas ligadas, fecho de áreas com diferença
+  ≤ 0,02 m², nenhuma sobra. ImperaCity (duas áreas, 47,5 ha, APP 12,4 ha): 880 lotes em ~10 s. Cajueiro: 50 lotes,
+  APP inteira contada como área verde. Polímeros com as ruas reais do OpenStreetMap: acesso reconhecido pela
+  "Avenida das Dalias"; como o terreno é uma faixa em volta de rua existente, a tipologia certa é Vias públicas
+  (60 lotes, igual ao projeto real), não Grade (9 lotes).
+- Aba Estudo de Massa real (componente `MassaTab`) em navegador, computador e iPad, com o ImperaCity: gera em ~11 s,
+  sem erro, cinco seletores de destino das áreas restritas, resumo da economia e nota do acesso.
+- Maquete 3D do Cajueiro (50 lotes, casas padrão): 22 chamadas de desenho por quadro; painel do prédio mostra a conta
+  do estacionamento (12 andares pedidos → 1, com o motivo).
+- Fontes reais a partir deste ambiente: IBAMA responde (um erro 500 foi recuperado pela repetição); OpenStreetMap
+  respondeu em 2 de 4 buscas (só o espelho maps.mail.ru responde daqui); EPE devolve sempre a página de manutenção
+  (503) — vegetação (MapBiomas) e linhas da EPE ficam indisponíveis até a EPE voltar.
+
+**Não foi possível verificar**
+- Como as fontes se comportam a partir da Vercel: a tabela `camadas_terreno_cache` de produção está vazia (ninguém
+  abriu o mapa do terreno desde a publicação). Depois que o dono abrir o mapa de um estudo, conferir essa tabela.
+- Fluidez em iPad/celular reais (aqui a placa de vídeo é simulada por software) e o Safari de verdade.
+
 ## Pendências
 - **Dono:** abrir o pedido "Polímeros (Morada do Bosque)", clicar em "Gerar maquete (ler o projeto)" e dizer como ficou a
   leitura do "ARQ 01-01-CASA PADRÃO.pdf" (é a primeira medição do leitor num projeto real).

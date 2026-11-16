@@ -94,22 +94,27 @@ describe("estacionamento do prédio (regra do dono: nunca mais apartamentos do q
   const est = (vagasPorApto: number, pilotis: boolean, subsolos: number) => ({ vagasPorApto, pilotis, subsolos });
 
   it("conta as vagas de cada lugar: pátio (área livre), pilotis (sob o prédio) e subsolos (sob o lote)", () => {
-    expect(M2_POR_VAGA).toBe(25);
-    // Lote de 1.200 m²: pátio (1200 − 336) × 0,7 / 25 = 24; pilotis 336 × 0,75 / 25 = 10; cada subsolo 1200 × 0,85 / 25 = 40.
-    expect(vagasDoTerreno(1200, 24, 14, est(1, false, 0))).toEqual({ patio: 24, pilotis: 0, subsolos: 0, total: 24 });
-    expect(vagasDoTerreno(1200, 24, 14, est(1, true, 0))).toEqual({ patio: 24, pilotis: 10, subsolos: 0, total: 34 });
-    expect(vagasDoTerreno(1200, 24, 14, est(1, true, 2))).toEqual({ patio: 24, pilotis: 10, subsolos: 80, total: 114 });
+    // Uma vaga é de um carro (12,5 m²); com a metade do corredor de manobra, ocupa 18,75 m² do estacionamento.
+    expect(M2_POR_VAGA).toBe(18.75);
+    // Lote de 1.200 m²: pátio (1200 − 336) × 0,7 / 18,75 = 32; pilotis: duas alas de 9,5 × 14 m = 7 vagas cada;
+    // cada subsolo 1200 × 0,85 / 18,75 = 54.
+    expect(vagasDoTerreno(1200, 24, 14, est(1, false, 0))).toEqual({ patio: 32, pilotis: 0, subsolos: 0, total: 32 });
+    expect(vagasDoTerreno(1200, 24, 14, est(1, true, 0))).toEqual({ patio: 32, pilotis: 14, subsolos: 0, total: 46 });
+    expect(vagasDoTerreno(1200, 24, 14, est(1, true, 2))).toEqual({ patio: 32, pilotis: 14, subsolos: 108, total: 154 });
+    // Área por vaga ajustável: com 25 m² (garagem mais folgada) cabem menos; abaixo de 12,5 m² não é aceito.
+    expect(vagasDoTerreno(1200, 24, 14, { ...est(1, true, 0), m2PorVaga: 25 }).total).toBe(24 + 10);
+    expect(vagasDoTerreno(1200, 24, 14, { ...est(1, true, 0), m2PorVaga: 5 })).toEqual(vagasDoTerreno(1200, 24, 14, { ...est(1, true, 0), m2PorVaga: 12.5 }));
   });
 
   it("reduz os andares até os apartamentos caberem nas vagas, e diz que reduziu", () => {
-    // 34 vagas, 1 por apartamento, 6 por andar → 5 andares (30 apartamentos), não os 8 pedidos.
+    // 46 vagas, 1 por apartamento, 6 por andar → 7 andares (42 apartamentos), não os 8 pedidos.
     const c = contaDoEstacionamento(predio, est(1, true, 0), 1200);
-    expect(c).toMatchObject({ andaresPedidos: 8, andares: 5, aptosPorAndar: 6, apartamentos: 30, vagasNecessarias: 30, reduzido: true, inviavel: false });
+    expect(c).toMatchObject({ andaresPedidos: 8, andares: 7, aptosPorAndar: 6, apartamentos: 42, vagasNecessarias: 42, reduzido: true, inviavel: false, m2PorVaga: 18.75 });
     expect(c.vagasNecessarias).toBeLessThanOrEqual(c.vagas.total);
     // Com dois subsolos cabem os 8 andares pedidos: nada é reduzido.
     expect(contaDoEstacionamento(predio, est(1, true, 2), 1200)).toMatchObject({ andares: 8, apartamentos: 48, vagasNecessarias: 48, reduzido: false });
     // Duas vagas por apartamento pesam o dobro.
-    expect(contaDoEstacionamento(predio, est(2, true, 0), 1200)).toMatchObject({ andares: 2, apartamentos: 12, vagasNecessarias: 24, reduzido: true });
+    expect(contaDoEstacionamento(predio, est(2, true, 0), 1200)).toMatchObject({ andares: 3, apartamentos: 18, vagasNecessarias: 36, reduzido: true });
   });
 
   it("em qualquer combinação, os apartamentos gerados nunca precisam de mais vagas do que cabem", () => {
@@ -124,8 +129,8 @@ describe("estacionamento do prédio (regra do dono: nunca mais apartamentos do q
   it("terreno pequeno demais: um andar com menos apartamentos, ou inviável — nunca um prédio sem vaga", () => {
     // Lote justo (340 m²), sem pilotis nem subsolo: não cabe vaga nenhuma.
     expect(contaDoEstacionamento(predio, est(1, false, 0), 340)).toMatchObject({ andares: 0, apartamentos: 0, inviavel: true });
-    // Só o pilotis (10 vagas), 2 vagas por apartamento: 5 apartamentos → um andar com 4 (número par).
-    expect(contaDoEstacionamento(predio, est(2, true, 0), 340)).toMatchObject({ andares: 1, aptosPorAndar: 4, apartamentos: 4, vagasNecessarias: 8, reduzido: true, inviavel: false });
+    // Só o pilotis (14 vagas), 3 vagas por apartamento: 4 apartamentos → um andar com 4 (número par), não os 6 pedidos.
+    expect(contaDoEstacionamento(predio, est(3, true, 0), 340)).toMatchObject({ andares: 1, aptosPorAndar: 4, apartamentos: 4, vagasNecessarias: 12, reduzido: true, inviavel: false });
   });
 
   it("sem exigência de vaga (0 por apartamento) nada é reduzido", () => {
@@ -133,12 +138,14 @@ describe("estacionamento do prédio (regra do dono: nunca mais apartamentos do q
   });
 
   it("pilotis vira estacionamento no térreo do prédio gerado, com o hall no meio", () => {
-    const e = predioPadrao({ ...predio, andares: 5, pilotis: true, vagasNoPilotis: 10 });
+    const noPilotis = vagasDoTerreno(1200, 24, 14, est(1, true, 0)).pilotis;
+    expect(noPilotis).toBe(14);
+    const e = predioPadrao({ ...predio, andares: 5, pilotis: true, vagasNoPilotis: noPilotis });
     const m = modeloSchema.parse({ tipo: "predio", edificacoes: [e] });
     expect(validarModelo(m)).toEqual([]);
-    expect(e.pavimentos[0].comodos.map(c => [c.nome, c.funcao])).toEqual([["Estacionamento sob pilotis (10 vagas)", "garagem"], ["Hall de entrada", "hall"], ["Estacionamento sob pilotis (10 vagas)", "garagem"]]);
-    // O resumo conta as vagas da garagem coletiva com corredor de manobra (25 m² por vaga), sem inflar.
-    expect(resumoModelo(m).vagas).toBe(10);
+    expect(e.pavimentos[0].comodos.map(c => [c.nome, c.funcao])).toEqual([["Estacionamento sob pilotis (7 vagas)", "garagem"], ["Hall de entrada", "hall"], ["Estacionamento sob pilotis (7 vagas)", "garagem"]]);
+    // O resumo da maquete conta as mesmas vagas que a conta do estacionamento (18,75 m² por vaga nas duas alas).
+    expect(resumoModelo(m).vagas).toBe(noPilotis);
     expect(e.pavimentos[1].repeticoes).toBe(5);
     for (const p of e.pavimentos) for (const c of p.comodos) expect(() => mobiliarComodo(c, p)).not.toThrow();
   });

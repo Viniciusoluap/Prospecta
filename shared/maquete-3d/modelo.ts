@@ -160,6 +160,8 @@ export const implantacaoSchema = z.object({
     id, nome: z.string().max(40).default(""), quadra: z.string().max(40).default(""), poligono: contorno,
     areaInformada: metros.min(0).nullable().default(null),
     tipo: z.enum(TIPOS_LOTE).default("vendavel"),
+    /** Destino da área pública no estudo de massa (verde ou institucional); nulo em lote e em maquete antiga. */
+    uso: z.enum(["verde", "institucional"]).nullable().default(null),
     /** Código da unidade no inventário da Incorporação (incorporation_units.code), quando houver. */
     unidade: z.string().max(120).nullable().default(null),
   })).max(3000).default([]),
@@ -239,9 +241,13 @@ export type ResumoModelo = {
 };
 
 /** Uma vaga a cada 12,5 m² de garagem (2,5 × 5 m), no mínimo uma quando há garagem. */
-// Garagem coletiva (acima de 60 m²) precisa de corredor de manobra: 25 m² por vaga, a mesma conta do estacionamento
-// do prédio padrão (shared/maquete-3d/padrao.ts).
-const vagasDaGaragem = (area: number) => (area > 60 ? Math.floor(area / 25) : Math.max(1, Math.floor(area / 12.5)));
+// Garagem coletiva (acima de 60 m²) precisa de corredor de manobra: 18,75 m² por vaga (a vaga de 12,5 m² mais a
+// metade do corredor), a mesma conta do estacionamento do prédio padrão (shared/maquete-3d/padrao.ts).
+// Quando o nome do cômodo já traz a conta ("… (2 vagas)", como no pilotis do prédio padrão), vale o que está escrito.
+const vagasDaGaragem = (area: number, nome = "") => {
+  const escrito = /\((\d+) vagas?\)/.exec(nome);
+  return escrito ? Number(escrito[1]) : area > 60 ? Math.floor(area / 18.75) : Math.max(1, Math.floor(area / 12.5));
+};
 
 export function resumoModelo(m: ModeloMaquete): ResumoModelo {
   const r: ResumoModelo = { areaTotal: 0, pavimentos: 0, quartos: 0, suites: 0, banheiros: 0, vagas: 0, comodos: 0, edificacoes: m.edificacoes.length, lotes: m.implantacao?.lotes.length ?? 0, construcoes: m.implantacao?.posicoes.length ?? 0 };
@@ -254,7 +260,7 @@ export function resumoModelo(m: ModeloMaquete): ResumoModelo {
       if (c.funcao === "quarto") r.quartos += n;
       if (c.funcao === "suite") { r.quartos += n; r.suites += n; }
       if (c.funcao === "banheiro" || c.funcao === "lavabo") r.banheiros += n;
-      if (c.funcao === "garagem") r.vagas += vagasDaGaragem(areaPoligono(c.poligono)) * n;
+      if (c.funcao === "garagem") r.vagas += vagasDaGaragem(areaPoligono(c.poligono), c.nome) * n;
     }
   }
   r.areaTotal = r2(r.areaTotal);

@@ -200,4 +200,8 @@ negócio. As correções 5, 6, 7, 11, 12 e 13 são da Maquete 3D (exceção já 
   "fonte fora do ar" × "nada no entorno" (Etapa E)
 - [ ] Correção 10 — Estudo de Massa com malha viária conectada às vias existentes, lotes recortados pela divisa,
   sobras como verde/institucional/via, soma = 100% e rótulos sem sobreposição (Etapa F)
+- **Decisão do dono em 16/11/2026: "deixa arquivado para mais tarde".** O porte desta lista ao Santa Fé fica
+  arquivado até o dono pedir; a lista continua aqui para não se perder. Ao portar, levar também os ajustes da
+  rodada de validação de 16/11: `relative` nos contêineres de rolagem do CRM (textos `sr-only` esticavam a página),
+  busca do OpenStreetMap em todos os servidores ao mesmo tempo e aviso de "fonte em manutenção".
 - **Áreas restritas nas doações (16/11/2026):** no Estudo de Massa, APP, vegetação e faixas contam como área verde/institucional (`aproveitarRestricoes`); portar junto com as correções 8 e 10.
