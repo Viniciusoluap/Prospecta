@@ -550,6 +550,8 @@ export interface SugestaoPci {
   valor: unknown;
   /** De onde veio o valor (ex.: "Cliente do CRM (lead nº 5)"). */
   fonte: string;
+  /** Quem é a fonte (ex.: "engenheiro:7"); padrão = `fonte`. RTP/RTE não misturam origens. */
+  origem?: string;
 }
 
 export interface AusenciaPci {
@@ -648,6 +650,14 @@ export function textoValorPci(chave: string, v: unknown): string {
 
 const iguaisPci = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b);
 
+/** Seção de pessoa da chave ("proponente", "rtp", "rte") ou "" para o resto. */
+function grupoPessoaPci(chave: string): string {
+  if (chave === "rtpEngenheiroId") return "rtp";
+  if (chave === "rteEngenheiroId") return "rte";
+  const secao = CAMPO_POR_ID.get(chave)?.secao;
+  return secao === "proponente" || secao === "rtp" || secao === "rte" ? secao : "";
+}
+
 /**
  * Compara as sugestões com o formulário atual: completa SÓ o que está vazio, separa o que já
  * estava igual e o que está diferente (conflito — nunca trocado sem confirmação). A primeira
@@ -655,27 +665,50 @@ const iguaisPci = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringi
  * para o que continuou vazio.
  */
 export function compararPreenchimentoPci(form: FormularioPci, sugestoes: SugestaoPci[], ausencias: AusenciaPci[] = []): ResultadoPreenchimentoPci {
-  let novo: FormularioPci = { ...form, campos: { ...form.campos } };
-  const r: ResultadoPreenchimentoPci = { formulario: novo, preenchidos: [], iguais: [], conflitos: [], naoEncontrados: [] };
+  const r: ResultadoPreenchimentoPci = { formulario: form, preenchidos: [], iguais: [], conflitos: [], naoEncontrados: [] };
   const vistas = new Set<string>();
+  const vazias: { s: SugestaoPci; valor: unknown }[] = [];
+  // RTP/RTE: todos os dados de um papel vêm de UMA origem (a primeira que trouxe algum valor).
+  const dono: Record<string, string> = {};
+  const descartadas: SugestaoPci[] = [];
   for (const s of sugestoes) {
     if (vistas.has(s.chave)) continue;
     const valor = normalizarSugestao(s.chave, s.valor);
     if (valor === null) continue;
+    const grupo = grupoPessoaPci(s.chave);
+    if (grupo === "rtp" || grupo === "rte") {
+      const origem = s.origem ?? s.fonte;
+      dono[grupo] ??= origem;
+      if (dono[grupo] !== origem) { descartadas.push(s); continue; }
+    }
     vistas.add(s.chave);
     const rotulo = rotuloChavePci(s.chave);
     const atual = valorAtualPci(form, s.chave);
-    if (atual === null) {
-      novo = gravarValorPci(novo, s.chave, valor);
-      r.preenchidos.push({ chave: s.chave, rotulo, valor: textoValorPci(s.chave, valor), fonte: s.fonte });
-    } else if (iguaisPci(atual, valor)) {
-      r.iguais.push({ chave: s.chave, rotulo, valor: textoValorPci(s.chave, valor), fonte: s.fonte });
-    } else {
-      r.conflitos.push({ chave: s.chave, rotulo, atual: textoValorPci(s.chave, atual), sugerido: textoValorPci(s.chave, valor), fonte: s.fonte, valor });
+    if (atual === null) vazias.push({ s, valor });
+    else if (iguaisPci(atual, valor)) r.iguais.push({ chave: s.chave, rotulo, valor: textoValorPci(s.chave, valor), fonte: s.fonte });
+    else r.conflitos.push({ chave: s.chave, rotulo, atual: textoValorPci(s.chave, atual), sugerido: textoValorPci(s.chave, valor), fonte: s.fonte, valor });
+  }
+  // Dados de pessoa (proponente, RTP, RTE) andam juntos: se o nome ou outro dado da pessoa está
+  // diferente, os vazios dela também esperam confirmação — nunca o CPF de um ao lado do nome de outro.
+  const emConflito = new Set(r.conflitos.map((c) => grupoPessoaPci(c.chave)).filter(Boolean));
+  let novo: FormularioPci = { ...form, campos: { ...form.campos } };
+  for (const { s, valor } of vazias) {
+    const rotulo = rotuloChavePci(s.chave);
+    if (emConflito.has(grupoPessoaPci(s.chave))) {
+      r.conflitos.push({ chave: s.chave, rotulo, atual: textoValorPci(s.chave, null), sugerido: textoValorPci(s.chave, valor), fonte: s.fonte, valor });
+      continue;
     }
+    novo = gravarValorPci(novo, s.chave, valor);
+    r.preenchidos.push({ chave: s.chave, rotulo, valor: textoValorPci(s.chave, valor), fonte: s.fonte });
   }
   r.formulario = novo;
   const ja = new Set<string>();
+  for (const s of descartadas) {
+    if (vistas.has(s.chave) || ja.has(s.chave) || valorAtualPci(novo, s.chave) !== null) continue;
+    ja.add(s.chave);
+    r.naoEncontrados.push({ chave: s.chave, rotulo: `${rotuloChavePci(s.chave)} (${PAPEL_PCI[grupoPessoaPci(s.chave) as "rtp" | "rte"]})`,
+      motivo: `A fonte usada para este responsável técnico não tem este dado. O valor de "${s.fonte}" não foi usado para não misturar dados de profissionais diferentes.` });
+  }
   for (const a of ausencias) {
     if (vistas.has(a.chave) || ja.has(a.chave) || valorAtualPci(novo, a.chave) !== null) continue;
     ja.add(a.chave);
@@ -694,17 +727,12 @@ const PAPEL_PCI = { rtp: "RTP", rte: "RTE" } as const;
 /** Sugestões dos campos de RTP/RTE vindas do perfil do engenheiro. */
 function sugestoesEngenheiroPci(papel: "rtp" | "rte", e: EngenheiroDaObraPci): SugestaoPci[] {
   const fonte = `${e.fonte} — perfil de ${e.dados.nome ?? "engenheiro"}`;
+  const origem = `engenheiro:${e.id}`;
   const tel = separarTelefone(e.dados.telefone);
-  return [
-    { chave: `${papel}EngenheiroId`, valor: e.id, fonte: e.fonte },
-    { chave: `${papel}Nome`, valor: e.dados.nome, fonte },
-    { chave: `${papel}Cpf`, valor: e.dados.cpf ?? null, fonte },
-    { chave: `${papel}Email`, valor: e.dados.email, fonte },
-    { chave: `${papel}Registro`, valor: e.dados.crea, fonte },
-    { chave: `${papel}Uf`, valor: e.dados.creaUf, fonte },
-    { chave: `${papel}Ddd`, valor: tel.ddd, fonte },
-    { chave: `${papel}Telefone`, valor: tel.numero, fonte },
-  ];
+  return ([
+    [`${papel}EngenheiroId`, e.id], [`${papel}Nome`, e.dados.nome], [`${papel}Cpf`, e.dados.cpf ?? null], [`${papel}Email`, e.dados.email],
+    [`${papel}Registro`, e.dados.crea], [`${papel}Uf`, e.dados.creaUf], [`${papel}Ddd`, tel.ddd], [`${papel}Telefone`, tel.numero],
+  ] as const).map(([chave, valor]) => ({ chave, valor, fonte: chave.endsWith("EngenheiroId") ? e.fonte : fonte, origem }));
 }
 
 type FonteEsperadaPci = "cliente" | "obra" | "coordenadas" | "rtp" | "rte" | "pci";
