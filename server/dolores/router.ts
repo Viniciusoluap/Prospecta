@@ -18,7 +18,7 @@ import { lerConfigWhatsapp, lerPausa, usoDoMes } from "./consumo.js";
 import { URL_WEBHOOK_DOLORES, segredoWebhookDolores } from "./whatsapp.js";
 import { doloresFilaConfig } from "../../drizzle/schema-dolores-fila.js";
 import { VALIDADE_MAXIMA_HORAS, VALIDADE_MINIMA_HORAS, codigoValido } from "../../shared/dolores/fila.js";
-import { decidir, lerValidadeHoras, listarFila, situacoesValidas } from "./aprovacoes.js";
+import { decidir, decisorDaTela, lerValidadeHoras, listarFila, situacoesValidas } from "./aprovacoes.js";
 
 /** adminProcedure confere o módulo; aqui vale o PAPEL: só admin. */
 const soAdmin = adminProcedure.use(({ ctx, next }) => {
@@ -89,7 +89,8 @@ const filaRouter = router({
   listar: soAdmin.input(z.object({ situacao: z.enum([...situacoesValidas, "todas"]).default("todas"), limite: z.number().int().min(1).max(200).default(50) }).strict().optional())
     .query(async ({ input }) => ({ validadeHoras: await lerValidadeHoras(), itens: await listarFila({ situacao: input?.situacao ?? "todas", limite: input?.limite ?? 50 }, new Date()) })),
   aprovar: soAdmin.input(z.object({ codigo: codigoEntrada }).strict()).mutation(async ({ ctx, input }) => {
-    const [r] = await decidir([input.codigo], "aprovar", { via: "tela", userId: ctx.user.id, agora: new Date() });
+    // QA R2 M3: a tela aprova com o mesmo orçamento de tempo do WhatsApp (mínimo por função, Drive no que sobra)
+    const [r] = await decidir([input.codigo], "aprovar", decisorDaTela(ctx.user.id));
     return r;
   }),
   recusar: soAdmin.input(z.object({ codigo: codigoEntrada, motivo: z.string().trim().max(300).optional() }).strict()).mutation(async ({ ctx, input }) => {

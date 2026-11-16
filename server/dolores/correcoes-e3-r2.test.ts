@@ -3,12 +3,16 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("../db.js", async orig => ({ ...(await orig<typeof import("../db.js")>()), getDb: vi.fn(), updateUserProfile: vi.fn(async () => undefined) }));
+vi.mock("../pci-gerador.js", async orig => ({ ...(await orig<typeof import("../pci-gerador.js")>()),
+  modeloAtualPci: vi.fn(async () => ({ id: 1, versao: 3 })), gerarPciDaObra: vi.fn(async () => ({ id: 77, avisos: [], pendencias: [] })) }));
+vi.mock("../../shared/pci-gerador.js", async orig => ({ ...(await orig<typeof import("../../shared/pci-gerador.js")>()), errosPci: vi.fn(() => []) }));
 
 import { getDb, updateUserProfile } from "../db.js";
+import { gerarPciDaObra } from "../pci-gerador.js";
 import { appRouter } from "../routers.js";
 import { intencaoDeAcao, pareceColagem, quadroDePendencias, quadroDoQueFoiFeito, trechoDoDono } from "../../shared/dolores/fila.js";
 import { MAX_CARACTERES_WHATSAPP } from "../../shared/dolores/whatsapp.js";
-import { decidir, definirSorteioCodigo } from "./aprovacoes.js";
+import { decidir, definirRelogioTela, definirSorteioCodigo } from "./aprovacoes.js";
 import { esquecerUsuarioDolores } from "./perfil.js";
 import { definirDependenciasPonte, executarFuncao } from "./ponte.js";
 import { AGORA, CENARIO, criarBanco } from "./testes-banco.js";
@@ -28,7 +32,7 @@ beforeEach(async () => {
   seq = 0;
   definirSorteioCodigo(() => ((seq++ * 7) % 22) / 22 + 0.001);
 });
-afterEach(() => { definirDependenciasPonte(); definirSorteioCodigo(); vi.clearAllMocks(); });
+afterEach(() => { definirDependenciasPonte(); definirSorteioCodigo(); definirRelogioTela(); vi.clearAllMocks(); });
 
 describe("R2-N1 — trecho do dono e cara de colagem (por código)", () => {
   it("a intenção de ação só vale antes da primeira marca de colagem/citação", () => {
@@ -181,4 +185,36 @@ describe("M5 invertido — quadro com muitos itens não perde o fim nem a instru
     expect(q).toMatch(/- e mais \d+ — veja em Integrações › Dolores$/);
   });
   it("MAX do WhatsApp continua 3.800 (referência do limite)", () => expect(MAX_CARACTERES_WHATSAPP).toBe(3800));
+});
+
+describe("M3 invertido — aprovação pela TELA com o mesmo orçamento de tempo do WhatsApp", () => {
+  const RASCUNHO = `CREATE TABLE IF NOT EXISTS pci_generator_drafts (project_id integer PRIMARY KEY, form_data jsonb NOT NULL, updated_by integer, updated_at timestamp NOT NULL DEFAULT now());
+    INSERT INTO pci_generator_drafts (project_id, form_data, updated_by, updated_at) VALUES (1, '{"campos": {"x": 1}}', 1, '2026-11-15 12:00')`;
+  const admin = () => appRouter.createCaller({ user: { id: 1, role: "admin", active: true }, req: {}, res: {} } as never);
+  it("sem 30 s restantes a PCI não começa pela tela (continua aguardando); com tempo, o Drive recebe o que sobra do orçamento", async () => {
+    await banco.pg.exec(RASCUNHO);
+    definirDependenciasPonte({ agora: () => new Date() });
+    await doDono("gerar_documento", { tipo: "pci", obraId: 1 }, {}, 10);
+    const [item] = await fila();
+    // relógio da tela: o orçamento começa em 0; quando a decisão confere, já passaram 20 s (sobram 22 s < 30 s)
+    let t = 0;
+    definirRelogioTela(() => { const v = t; t = 20_000; return v; });
+    expect(await admin().dolores.fila.aprovar({ codigo: item.codigo })).toMatchObject({ ok: false, situacao: "aguardando" });
+    expect(gerarPciDaObra).not.toHaveBeenCalled();
+    expect((await fila())[0].situacao).toBe("aguardando");
+    // com o orçamento inteiro: executa e o Drive fica dentro do que sobra ((42 s − 6 s) / 2 → teto de 15 s)
+    definirRelogioTela(() => 0);
+    expect(await admin().dolores.fila.aprovar({ codigo: item.codigo })).toMatchObject({ ok: true, situacao: "executada" });
+    expect(vi.mocked(gerarPciDaObra).mock.calls[0][3]).toEqual({ regravarRascunho: false, prazoDriveMs: 15_000 });
+  });
+  it("o Drive recebe só o que resta do orçamento da tela", async () => {
+    await banco.pg.exec(RASCUNHO);
+    definirDependenciasPonte({ agora: () => new Date() });
+    await doDono("gerar_documento", { tipo: "pci", obraId: 1 }, {}, 10);
+    const [item] = await fila();
+    let t = 0;
+    definirRelogioTela(() => { const v = t; t = 10_000; return v; });
+    expect(await admin().dolores.fila.aprovar({ codigo: item.codigo })).toMatchObject({ ok: true, situacao: "executada" });
+    expect(vi.mocked(gerarPciDaObra).mock.calls[0][3]).toEqual({ regravarRascunho: false, prazoDriveMs: 13_000 });
+  });
 });

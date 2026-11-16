@@ -100,7 +100,7 @@ export async function vencerItens(agora: Date): Promise<number> {
 
 export type ResultadoDecisao = { codigo: string; ok: boolean; situacao: SituacaoItem | "inexistente" | "bloqueada"; texto: string };
 
-type Decisor = { via: Via; userId: number | null; agora: Date; motivo?: string | null;
+export type Decisor = { via: Via; userId: number | null; agora: Date; motivo?: string | null;
   /** Prazo (ms do `relogio`) até quando ainda dá para executar mais um item (WhatsApp: 60 s da Vercel). */
   prazoFinal?: number; relogio?: () => number; mensagemId?: number | null };
 
@@ -113,6 +113,18 @@ const MINIMO_PARA_EXECUTAR_MS = 6_000;
 export const MINIMO_POR_FUNCAO_MS: Readonly<Record<string, number>> = { gerar_documento: 30_000 };
 /** Funções pesadas: no máximo uma por mensagem de decisão (as outras continuam aguardando, com aviso). */
 const PESADAS = new Set(["gerar_documento"]);
+/**
+ * Aprovação pela TELA (QA R2 M3): a mesma função da Vercel de 60 s — o mesmo orçamento do aviso do WhatsApp (45 s menos a
+ * folga de 3 s para responder), com o mesmo mínimo por função (PCI só começa com 30 s) e o Drive dentro do que sobra.
+ */
+export const PRAZO_APROVACAO_TELA_MS = 42_000;
+let relogioTela: () => number = () => Date.now();
+/** Só para testes: o relógio do orçamento da aprovação pela tela (sem argumento, Date.now). */
+export function definirRelogioTela(f?: () => number) { relogioTela = f ?? (() => Date.now()); }
+/** Decisor da tela: orçamento de tempo contado a partir de agora, no relógio da tela. */
+export function decisorDaTela(userId: number, motivo: string | null = null): Decisor {
+  return { via: "tela", userId, agora: new Date(), motivo, prazoFinal: relogioTela() + PRAZO_APROVACAO_TELA_MS, relogio: () => relogioTela() };
+}
 export const minimoParaExecutar = (funcao: string | null | undefined) => (funcao ? MINIMO_POR_FUNCAO_MS[funcao] : undefined) ?? MINIMO_PARA_EXECUTAR_MS;
 
 async function explicar(codigo: string, agora: Date): Promise<ResultadoDecisao> {
