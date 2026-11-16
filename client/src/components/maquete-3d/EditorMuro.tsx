@@ -63,7 +63,9 @@ export function EditorMuro({ modelo, onChange, somenteLeitura = false }: { model
   const varias = areas.length > 1;
   const mesmaArea = (p: PortaoMuro, c: PortaoMuro) => (p.area ?? 0) === (c.area ?? 0);
   // Rua que chega à divisa sem portão (só termina na divisa, ou a pessoa tirou o portão): o muro a fecha.
-  const fechadas = (auto?.candidatos ?? []).filter(c => !portoes.some(p => mesmaArea(p, c) && Math.abs(p.posicao - c.posicao) < (p.largura + c.largura) / 2));
+  // A posição corre ao longo da divisa e dá a volta: 359 m e 3 m ficam a poucos metros num contorno de 360 m.
+  const distanciaNaDivisa = (p: PortaoMuro, c: PortaoMuro) => { const d = Math.abs(p.posicao - c.posicao), volta = perimetros[p.area ?? 0] ?? 0; return volta > 0 ? Math.min(d, Math.abs(volta - d)) : d; };
+  const fechadas = (auto?.candidatos ?? []).filter(c => !portoes.some(p => mesmaArea(p, c) && distanciaNaDivisa(p, c) < (p.largura + c.largura) / 2));
   return (
     <div className="space-y-3 rounded-lg border border-[#C9A961]/20 p-3 text-sm">
       <div className="flex flex-wrap items-center justify-between gap-2">

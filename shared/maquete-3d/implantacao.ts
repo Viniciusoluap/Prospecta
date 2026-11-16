@@ -78,7 +78,8 @@ export function implantacaoDoEstudo(geojson: string | null, centro: [number, num
   const areaLocal = (pts: Ponto[]) => Math.abs(pts.reduce((s, p, i) => { const q = pts[(i + 1) % pts.length]; return s + p.x * q.y - q.x * p.y; }, 0) / 2);
   const porArea = aneisTerreno.map(local).map(reduzir).map((pts) => ({ pts, area: areaLocal(pts) })).filter(a => a.pts.length >= 3).sort((a, b) => b.area - a.area);
   const maior = porArea[0]?.pts ?? [];
-  const extras = porArea.slice(1, 50).map(a => a.pts);
+  // Área extra com menos de 20 m² é sobra do KML (lasca), não um terreno: não vira área murada nem bloqueia a publicação.
+  const extras = porArea.slice(1).filter(a => a.area >= 20).slice(0, 49).map(a => a.pts);
   const lotes = (cenario?.lotes ?? []).flatMap((l, i) => {
     const inteiro = local(l.anel);
     if (inteiro.length < 3) { descartados++; return []; }
@@ -137,7 +138,7 @@ export function implantacaoDoEstudo(geojson: string | null, centro: [number, num
   }));
   const acessos = (cenario?.acessos ?? []).map(ac => {
     const [p] = local([ac.ponto, ac.ponto]);
-    return { x: p.x, y: p.y, viaExistente: !!ac.viaExistente, distancia: typeof ac.distanciaM === "number" ? r2(ac.distanciaM) : null, nomeVia: ac.nomeVia ?? null };
+    return { x: p.x, y: p.y, viaExistente: !!ac.viaExistente, distancia: typeof ac.distanciaM === "number" ? r2(ac.distanciaM) : null, nomeVia: typeof ac.nomeVia === "string" ? ac.nomeVia.slice(0, 120) : null };
   }).filter(naDivisa).slice(0, 60);
   return { implantacao: implantacaoSchema.parse({ terreno: maior, ...(extras.length ? { terrenosExtras: extras } : {}), ruas, lotes, relevo, acessos }), descartados };
 }

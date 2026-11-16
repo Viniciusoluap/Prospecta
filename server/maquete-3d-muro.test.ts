@@ -454,3 +454,17 @@ describe("QA: campos numéricos do editor do muro", () => {
     expect(numeroConfirmado("0.123", 0.2, [0.1, 0.5])).toBe(0.12);
   });
 });
+
+// Portão de QA 2 (S-04): área sem portão e lasca do KML.
+describe("muro — segunda revisão de QA", () => {
+  it("área murada sem portão é avisada na validação; lasca do KML com menos de 20 m² não vira área", async () => {
+    const { validarModelo, modeloSchema } = await import("../shared/maquete-3d/modelo.js");
+    const quad = (x: number, y: number, l: number) => [{ x, y }, { x: x + l, y }, { x: x + l, y: y + l }, { x, y: y + l }];
+    const base = { tipo: "condominio" as const, edificacoes: [], implantacao: { terreno: quad(0, 0, 100), terrenosExtras: [quad(200, 0, 60)], ruas: [], vias: [], lotes: [], posicoes: [],
+      muro: { ativo: true, portoesEditados: true, portoes: [{ id: "g1", posicao: 50, largura: 6, tipo: "veiculos", area: 0 }] } } };
+    const m = modeloSchema.parse(base);
+    expect(validarModelo(m).some(p => p.onde === "Muro › área 2" && /Sem portão/.test(p.mensagem))).toBe(true);
+    const comPortao = modeloSchema.parse({ ...base, implantacao: { ...base.implantacao, muro: { ...base.implantacao.muro, portoes: [...base.implantacao.muro.portoes, { id: "g2", posicao: 30, largura: 6, tipo: "veiculos", area: 1 }] } } });
+    expect(validarModelo(comPortao).some(p => /Sem portão/.test(p.mensagem))).toBe(false);
+  });
+});

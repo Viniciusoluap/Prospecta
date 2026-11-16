@@ -424,6 +424,8 @@ export function validarModelo(m: ModeloMaquete): Problema[] {
           if (p.posicao > perimetro + 0.01) aviso(`Muro › portão ${p.id}`, `Fora da divisa (o contorno tem ${r2(perimetro)} m).`);
         }
         if (!muro.portoes.some(p => p.tipo === "veiculos")) aviso("Muro", "Nenhum portão de veículos: o empreendimento fica sem entrada de carros.");
+        // Cada área murada precisa da própria entrada (portão de QA 2): área sem portão fica fechada por inteiro.
+        areas.forEach((a, i) => { if (a.length >= 3 && areas.length > 1 && !muro.portoes.some(p => (p.area ?? 0) === i)) aviso(`Muro › área ${i + 1}`, "Sem portão: esta área fica toda fechada pelo muro, sem entrada."); });
         if (muro.reancorado) aviso("Muro", "O contorno do terreno mudou depois que os portões foram editados: eles foram levados ao ponto da nova divisa mais perto de onde estavam. Confira os portões em \"Muro do condomínio\" e salve.");
         else if (muro.contorno && muro.contorno !== assinaturaDoContorno(imp)) aviso("Muro", "O contorno do terreno mudou depois que os portões foram editados: confira a posição de cada portão.");
       }
