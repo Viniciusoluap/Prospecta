@@ -86,6 +86,18 @@ Depois do texto do modelo, o sistema anexa dois quadros lidos do banco: "Registr
 comando) e "Aguardando a sua aprovação" (códigos e resumos). Testes: `server/dolores/acoes.test.ts`,
 `acoes-whatsapp.test.ts`, `fila-router.test.ts`.
 
+## Texto a gravar, links e dados pessoais (integração com a Etapa 2 final — opção B)
+- O texto livre que o dono manda gravar passa por `textoDoDono` (`acoes/comum.ts`): se a remoção de links da resposta
+  (`shared/dolores/links.ts`) ou o filtro de saída do WhatsApp o alterariam, a ação é recusada (direta ou da fila), com a
+  explicação ao modelo — o dono nunca aprova um "[link removido]" que seria gravado com o link. O resumo inteiro do item
+  passa pela mesma conferência (`resumoDaFila`).
+- Dados pessoais seguem o interruptor `DOLORES_MASCARAR_DADOS_PESSOAIS` (opção B: liberados por padrão): o texto do dono
+  fica como veio na fila e no registro; com o interruptor ligado, texto com dado pessoal é recusado.
+- Guardado em claro: `dolores_aprovacoes.resumo`/`argumentos` e o registro criado (o conteúdo da ordem). Sempre filtrado
+  com `FILTRO_DO_REGISTRO`: `dolores_acoes`, `dolores_autoria.descricao`, comando guardado, logs e erros.
+- Auditoria: nomes fixos (leituras, ações, previstas e `PROIBIDAS`) ficam como são; qualquer outro vira "(desconhecida)" +
+  hash curto (`nomeParaRegistro`).
+
 ## Quadros e orçamento (QA R2 M3/M5)
 - Quadro "Aguardando a sua aprovação": itens INTEIROS (até 10) enquanto couberem nos 3.800 caracteres; os demais viram
   "- e mais N item(ns) aguardando — veja a fila em Integrações › Dolores"; a instrução "Responda só…" vem sempre no fim.

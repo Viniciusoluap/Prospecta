@@ -310,6 +310,10 @@ uma geração feita por ela (a planilha e o PDF no histórico da obra e a cópia
   acompanhamentos aparecem no histórico do cliente com o autor "Dolores (funcionária digital)".
 
 ## Limites desta etapa
+- O texto que você manda gravar (título, descrição, anotação) não pode ter link nem senha, código de acesso, chave ou dado
+  bancário: a Dolores recusa e pede para reescrever (os links e esses dados saem da mensagem que você lê, e ela nunca grava
+  algo diferente do que você leu). CPF, telefone e e-mail que você escrever ficam no texto (opção B); com
+  `DOLORES_MASCARAR_DADOS_PESSOAIS=1`, um texto com eles também é recusado.
 - No máximo 10 ações (diretas + itens na fila) por mensagem sua.
 - Tudo conta no mesmo limite mensal de tokens da etapa 2. Com a IA desligada, os comandos não agem; "aprovar/recusar
   CÓDIGO" funciona sem IA (não gasta nada). Com a Dolores pausada, nada é aprovado (recusar continua valendo).

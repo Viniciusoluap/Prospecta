@@ -172,6 +172,55 @@ documentos pendentes e prepare as cobranças."
   `central-vendas*`, `whatsapp*`, `admin-workflows`, `pci*`, `auth-session`, `imports-esm`, `api-rotas-producao`) —
   40 arquivos, 471 testes passando; `npx vite build` ok; suíte completa `npx vitest run` — 235 arquivos, 2.350 testes passando.
 
+## Integração com a Etapa 2 final — opção B
+- **Merge** de `epic025-dolores-etapa2` em `ff1477d` (7ª rodada do QA da E2: filtro em duas fases, interruptor de dados
+  pessoais `server/dolores/dados-pessoais.ts` — opção B do dono, CPF/CNPJ/telefone/e-mail liberados para a Dolores no
+  WhatsApp —, `filtroDaSaida(canal)`, `campoPessoal`, `ContextoFuncao.canal`, `promptSistemaWhatsapp(mascarar)`, links
+  tratados na resposta ao dono, nome de função desconhecida com hash, comando filtrado só de segredos, `FILTRO_DO_REGISTRO`
+  no que é gravado) — commit `6538052`.
+- **Conflitos e resolução** (as duas coisas preservadas; em segurança, a versão da E2):
+  - `cerebro.ts` (imports): prompt por modo da E2 (`promptSistemaWhatsapp(mascararDadosPessoais("whatsapp"))`) + imports
+    das ações da E3 (intenção, colagem, contaminação, `ferramentasDoWhatsapp`);
+  - `ponte.ts`: `OpcoesExecucao` da E3 (mensagem do dono, contaminação, `semAcoes`, `aoPorNaFila`) com `CanalDolores` vindo
+    de `dados-pessoais.ts`; leitura com `{ agora, canal }` e `filtroDaSaida(canal)` da E2;
+  - `ponte.test.ts`: o 403 da ação pela ponte (E3) com o nome desconhecido em hash (E2);
+  - HANDOFF e ROADMAP: as duas seções mantidas.
+- **Ajustes da integração** (commits `0be8d46`, `e2d327f`):
+  - `nomeParaRegistro` mantém também os nomes FIXOS das ações e da lista `PROIBIDAS` (sem dado; antes viravam
+    "(desconhecida) …" e a auditoria das tentativas de `enviar_mensagem_whatsapp`/`aprovar_item` ficava ilegível);
+  - **regra N3 com a E2 (decisão desta integração):** o texto que o dono manda gravar (título, descrição, acompanhamento)
+    passa por `textoDoDono` (`server/dolores/acoes/comum.ts`): se a remoção de links (`tratarLinksDaResposta`) ou o filtro de
+    saída do WhatsApp (`filtroDaSaida("whatsapp")`) o alterariam, a ação é RECUSADA com explicação ("contém um link…
+    reescreva sem o link" / "contém algo que o filtro de segurança esconde… reescreva sem isso") — tanto o item da fila (não
+    entra na fila) quanto a ação direta. O resumo inteiro do item (com nomes e documentos do cadastro) passa pela mesma
+    conferência em `resumoDaFila`. Nunca se grava algo diferente do mostrado; antes, um link de terceiro no texto chegava ao
+    dono como "[link removido]" e seria gravado inteiro;
+  - opção B nas ações: `comoMostrado`, os quadros e o texto do modelo junto dos quadros (`anexarQuadros`) usam
+    `filtroDaSaida("whatsapp")` (antes, o filtro padrão mascarava o CPF da resposta sempre que havia quadro). Com o
+    interruptor desligado (padrão), o CPF/telefone que o dono mandou gravar fica no texto, no resumo e no registro; com
+    `DOLORES_MASCARAR_DADOS_PESSOAIS=1`, um texto com dado pessoal é recusado (o filtro o esconderia do dono);
+  - respostas das ações ao modelo pelo filtro do canal (`filtroDaSaida("whatsapp")`);
+  - `dolores_autoria.descricao` gravada com `FILTRO_DO_REGISTRO` (é registro: dados pessoais sempre mascarados);
+  - prompt: mais uma linha nas instruções de ações ("texto a gravar sem links e sem senha…").
+- **O que fica guardado em claro e por quê:** na fila (`dolores_aprovacoes.resumo` e `argumentos`) e no próprio registro
+  criado (tarefa, acompanhamento) fica o texto exatamente como o dono mandou gravar — com opção B, inclusive CPF/telefone
+  que ele mesmo escreveu. É o conteúdo da ordem: a fila precisa dele para executar o que o dono leu (a conferência SHA-256
+  liga resumo e argumentos), e mascarar o argumento gravaria outra coisa. Senhas, chaves, dados bancários e links de
+  terceiros nunca chegam lá (a ação é recusada antes). Fica SEMPRE filtrado com `FILTRO_DO_REGISTRO`: a auditoria
+  `dolores_acoes` (argumentos, resumo, motivo), o comando guardado em `dolores_mensagens`, `dolores_autoria.descricao`,
+  logs e mensagens de erro.
+- **Conferido (testes):** quadros e respostas da decisão saem pela remoção de links e pelo filtro sem estragar o código de 5
+  caracteres, o resumo nem a instrução final (`- [CÓDIGO] resumo` com CPF liberado e `Responda só "aprovar CÓDIGO"…` intactos; o
+  quadro "Registrado no sistema por mim" intacto ao lado de um texto do modelo com senha e link de terceiro, que saem); item com link/segredo não entra na fila; ação direta com link é
+  recusada; ponte HTTP continua 403 para ações e com dados mascarados por padrão (`DOLORES_PONTE_DADOS_PESSOAIS`); prompt
+  nos dois modos com a seção de ações.
+- **R3-M1** (`shared/dolores/fila.ts`, `umaLinha`): somem também U+00AD, U+034F, U+061C, U+115F, U+1160, U+180E,
+  U+2066–U+2069, U+3164, U+2800, U+FFA0, U+FE00–U+FE0F e U+E0000–U+E007F (`new RegExp` com flag `u`; sem virar espaço, para
+  não partir palavras). Teste em `correcoes-e3-r2.test.ts`.
+- **0125:** não mudou.
+- **Testes (16/11):** `npx tsc --noEmit` sem erros; área — 52 arquivos, 642 testes passando; `npx vite build` ok; suíte
+  completa — SUITE_NUMEROS.
+
 ## Correções do portão de QA (Quinn, 16/11 — FAIL: 1 bloqueio, 3 importantes, 5 menores)
 Cada achado tem teste de regressão = versão INVERTIDA do ataque do QA (`server/dolores/correcoes-e3.test.ts`,
 `server/dolores/correcoes-e3-whatsapp.test.ts`; PCI em `server/pci-gerador-db.test.ts`).
@@ -242,3 +291,4 @@ gatilho: `conferencia` imutável como os demais campos do que será feito.
 - 16/11/2026 — @dev (Dex): merge da E2 final (2dd8ae9) e ajuste do quadro de pendências ao filtro novo; continua InReview.
 - 16/11/2026 — @dev (Dex): correções do portão de QA (9 achados, um commit por achado) com regressões; volta a InReview para nova rodada do QA.
 - 16/11/2026 — @dev (Dex): correções da 2ª rodada do QA (N1–N3, M1–M6, um commit por achado) com regressões; volta a InReview.
+- 16/11/2026 — @dev (Dex): merge da E2 final (ff1477d, opção B) com a regra N3 (texto com link/segredo recusado) e R3-M1; continua InReview.

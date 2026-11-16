@@ -219,3 +219,14 @@ migração da etapa antes. Depois lançar S-03 e S-05, e por fim o EPIC-025 (Dol
 - **Próximo passo exato:** 3ª rodada do portão de QA da E3 sobre `epic025-dolores-etapa3`; aprovada, E2 na `main`, rebase
   da E3, aplicar 0125 e publicar.
 
+
+## Atualização — 16/11 — EPIC-025 E3: integração com a Etapa 2 final (opção B) — @dev
+- **Concluído (ramo `epic025-dolores-etapa3`, cópia `claude/wip-epic025-dolores-etapa3`):** merge de
+  `epic025-dolores-etapa2` em `ff1477d` (`6538052`; conflitos em `cerebro.ts`, `ponte.ts`, `ponte.test.ts`, HANDOFF e
+  ROADMAP, as duas coisas preservadas); ajustes `0be8d46` (texto a gravar com link/segredo recusado — direto e fila —,
+  filtro do canal nos quadros e nas respostas das ações, autoria filtrada como registro, R3-M1 `umaLinha`) e testes
+  `e2d327f`. Detalhes na story E3, seção "Integração com a Etapa 2 final — opção B". 0125 não mudou.
+- **Testes (a) automáticos:** tsc ok; área 52 arquivos / 642 testes; vite build ok; suíte completa SUITE_NUMEROS.
+  **(b) manuais:** nenhum. **(c) produção:** 0124 e 0125 não aplicadas; aceite pelo WhatsApp (tarefa com link → recusa
+  explicada; tarefa com CPF → gravada com o CPF, opção B).
+- **Próximo passo exato:** E2 na `main` (depois do QA dela); rebase da E3 sobre a `main`, aplicar 0125 e publicar.
