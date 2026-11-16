@@ -12,6 +12,7 @@ const TABELAS = [
   "regularizacaoRecebimentos", "leadActivities", "leadDocuments", "leadFollowUps", "tasks", "whatsappMessages", "constructionProjects",
   "constructionStages", "constructionProgressHistory", "constructionPciVersions", "obraMeasurements", "obraMovimentos", "financiamentos",
   "financiamentoChecklistItems", "bpoClients", "bpoLancamentos", "bankTransactions", "bankAccounts", "imoveis", "operationalProjects", "incorporationStudies",
+  "whatsappConnections",
 ];
 
 let ddl: string | null = null;
@@ -27,6 +28,10 @@ export async function criarBanco() {
   const migracao = readFileSync(new URL("../../drizzle/0123_dolores_acoes.sql", import.meta.url), "utf8");
   await pg.exec(migracao);
   await pg.exec(migracao); // idempotente
+  // Etapa 2 (WhatsApp): migração 0124, também duas vezes.
+  const whatsapp = readFileSync(new URL("../../drizzle/0124_dolores_whatsapp.sql", import.meta.url), "utf8");
+  await pg.exec(whatsapp);
+  await pg.exec(whatsapp);
   return { pg, db: drizzle(pg) };
 }
 

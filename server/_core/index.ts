@@ -22,6 +22,7 @@ import { handleAsaasWebhook } from "../asaas-webhook.js";
 import { handlePluggyWebhook } from "../pluggy-webhook.js";
 import centralVendasRotas from "../central-vendas/rotas.js";
 import doloresPonteRotas from "../dolores/ponte.js";
+import doloresWhatsappRotas from "../dolores/whatsapp.js";
 import { handleEvolutionWebhook } from "../whatsapp-evolution-webhook.js";
 import { handleWhatsappWebhook } from "../whatsapp-webhook.js";
 import { startMcmvRulesReminder } from "../mcmv-rules-reminder.js";
@@ -142,6 +143,7 @@ async function startServer() {
   app.use("/api", centralVendasRotas);
   // EPIC-025 (16/11): ponte da Dolores (Bearer DOLORES_PONTE_TOKEN).
   app.use("/api", doloresPonteRotas);
+  app.use("/api", doloresWhatsappRotas); // EPIC-025 E2: WhatsApp da Dolores
   // Asaas webhook
   app.post("/api/asaas/webhook", handleAsaasWebhook);
   app.post("/api/pluggy/webhook", handlePluggyWebhook);

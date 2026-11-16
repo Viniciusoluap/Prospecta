@@ -37,6 +37,7 @@ import { organizarDriveNoCron } from "../server/drive-organizacao.js";
 import centralVendasRotas from "../server/central-vendas/rotas.js";
 // EPIC-025 (16/11): ponte da Dolores (agente do Claude Console), só leitura na etapa 1, token próprio.
 import doloresPonteRotas from "../server/dolores/ponte.js";
+import doloresWhatsappRotas from "../server/dolores/whatsapp.js";
 import { executarRotinaCentralVendas } from "../server/central-vendas/rotina.js";
 
 const app = express();
@@ -204,6 +205,8 @@ app.use("/api", async (req, res, next) => {
     router.use(centralVendasRotas);
     // EPIC-025 (16/11): ponte da Dolores (Bearer DOLORES_PONTE_TOKEN).
     router.use(doloresPonteRotas);
+    // EPIC-025 E2 (16/11): aviso da Evolution só da instância da Dolores (segredo próprio).
+    router.use(doloresWhatsappRotas);
     router.post("/asaas/webhook", handleAsaasWebhook);
     router.post("/pluggy/webhook", handlePluggyWebhook);
     router.post("/whatsapp/evolution-webhook", handleEvolutionWebhook);
