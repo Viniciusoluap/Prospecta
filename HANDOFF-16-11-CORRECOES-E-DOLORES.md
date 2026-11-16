@@ -92,3 +92,18 @@ reprova volta ao @dev (ciclo de até 5 rodadas). Nada é publicado sem portão d
 ## Próximo passo exato
 Receber o retorno de cada agente; o que o QA aprovar, publicar pela receita acima (uma etapa por PR), aplicando a
 migração da etapa antes. Depois lançar S-03 e S-05, e por fim o EPIC-025 (Dolores), etapa 1.
+
+## Atualização — 16/11, S-03 e S-05 (ramo `epic024-s03-s05`, base `claude/motor-maquetes-3d-hwqvkz`)
+- **S-03 (leitura híbrida):** modo `hibrido` (padrão só com chave), IA só nas pranchas que são imagem ou que o leitor
+  próprio lê de forma insuficiente (`motivoParaIA`); chave do painel primeiro (`resolverCredencialIA` em
+  `server/maquete-3d/base.ts`, único arquivo autorizado pelo teste de isolamento), depois `ANTHROPIC_API_KEY`; sem
+  chave o passo fica "aguardando" e retoma dele; confirmação do custo uma vez por maquete (admin); teto por maquete
+  (padrão 8); motor/modelo/tokens por passo. Só a página vai para a IA (JPEG extraído do PDF sem biblioteca nova,
+  `server/maquete-3d/pdf-pagina.ts`). Story `S-03-pdf-imagem.md`.
+- **S-05 (importar planta):** candidata separada do modelo, comparação lado a lado, aplicar na construção padrão ou
+  num pavimento (trava de versão; publicada sai do ar), histórico `maquete_3d_revisoes` com restauração. Story
+  `S-05-importar-planta-revisao.md`. **Migração `0121` por aplicar no Neon antes de publicar** (sem ela, salvar a
+  planta falha ao gravar a revisão).
+- Testes (a) automáticos: `server/maquete-3d*` + integrações Anthropic verdes; `tsc` e `vite build` ok; guarda de
+  build ok. (b) manuais: nenhum. (c) produção: chave real no painel; PDF real da maquete 8; 0121 no Neon.
+- Próximo passo: QA do ramo; aplicar 0121; publicar; com a chave cadastrada, rodar a maquete 8 em "Continuar leitura".
