@@ -57,9 +57,11 @@ type Props = {
   modelo: ModeloMaquete; onChange: (m: ModeloMaquete) => void; somenteLeitura?: boolean;
   /** Para desenhar a prancha original ao fundo: id da maquete e a página de cada pavimento. */
   maqueteId?: number; pranchas?: { pavimentoId: string; doc: number; pagina: number; alinhamento?: { x: number; y: number; larguraM: number } | null }[];
+  /** Comparação da planta importada (S-05): a prancha já entra ao fundo, com alinhamento guardado à parte. */
+  fundoInicial?: boolean; prefixoFundo?: string;
 };
 
-export function EditorPlanta({ modelo, onChange, somenteLeitura = false, maqueteId, pranchas = [] }: Props) {
+export function EditorPlanta({ modelo, onChange, somenteLeitura = false, maqueteId, pranchas = [], fundoInicial = false, prefixoFundo = "" }: Props) {
   const [edIdx, setEdIdx] = useState(0);
   const [pvIdx, setPvIdx] = useState(0);
   const [sel, setSel] = useState<Selecao>(null);
@@ -67,7 +69,7 @@ export function EditorPlanta({ modelo, onChange, somenteLeitura = false, maquete
   const [zoom, setZoom] = useState(1);
   const [posSel, setPosSel] = useState<string | null>(null);
   const [fila, setFila] = useState({ quantidade: 4, passo: 12, angulo: 0 });
-  const [verFundo, setVerFundo] = useState(false);
+  const [verFundo, setVerFundo] = useState(fundoInicial);
   const [alinhamentos, setAlinhamentos] = useState<Record<string, Alinhamento>>({});
   const svgRef = useRef<SVGSVGElement>(null);
   const arrasto = useRef<Arrasto | null>(null);
@@ -138,7 +140,7 @@ export function EditorPlanta({ modelo, onChange, somenteLeitura = false, maquete
   // Prancha original ao fundo, com o alinhamento guardado no navegador por pavimento.
   const prancha = (!verImplantacao && pv && pranchas.find(p => p.pavimentoId === pv.id)) || null;
   const { fundo, carregando: carregandoFundo, erro: erroFundo } = useFundoPdf(maqueteId ?? 0, prancha, verFundo && !!maqueteId);
-  const chaveFundo = `maquete3d:fundo:${maqueteId}:${pv?.id}`;
+  const chaveFundo = `maquete3d:fundo:${maqueteId}:${prefixoFundo}${pv?.id}`;
   useEffect(() => {
     if (!pv || alinhamentos[chaveFundo]) return;
     let salvo: Alinhamento | null = null;

@@ -171,9 +171,11 @@ describe("Anthropic — acesso e isolamento", () => {
     expect(ENV.incorporacaoIaModelo).toBe(antes.modelo);
   });
 
-  it("nenhum código operacional usa a chave do painel (nem pelo módulo, nem pela chave do banco)", () => {
+  it("nenhum código operacional usa a chave do painel (nem pelo módulo, nem pela chave do banco), exceto a leitura da maquete", () => {
     const repo = path.resolve(import.meta.dirname, "..");
-    const permitidos = new Set([path.join("server", "integracoes-router.ts"), path.join("server", "_core", "anthropic-painel.ts")]);
+    // EPIC-024 S-03: única opção explícita autorizada pelo dono — a leitura por IA das pranchas da Maquete 3D
+    // (server/maquete-3d/base.ts). Nenhum outro arquivo pode usar a chave do painel.
+    const permitidos = new Set([path.join("server", "integracoes-router.ts"), path.join("server", "_core", "anthropic-painel.ts"), path.join("server", "maquete-3d", "base.ts")]);
     // módulo, chave em dashboard_settings e a função exportada para uso futuro
     const marcas = ["anthropic-painel", "anthropic_painel", "configuracaoAnthropicPainel", "CHAVE_SEGREDO_ANTHROPIC_PAINEL", "CHAVE_MODELO_ANTHROPIC_PAINEL"];
     const usam: string[] = [];
@@ -192,6 +194,17 @@ describe("Anthropic — acesso e isolamento", () => {
       try { if (statSync(path.join(repo, pasta)).isDirectory()) varrer(path.join(repo, pasta)); } catch { /* pasta ausente */ }
     }
     expect(usam).toEqual([]);
+  });
+
+  it("na maquete, só a resolução da credencial da leitura usa o acessor do painel (sem tocar em ENV)", () => {
+    const fonte = readFileSync(path.resolve(import.meta.dirname, "maquete-3d", "base.ts"), "utf8");
+    expect(/import \{ configuracaoAnthropicPainel \} from "\.\.\/_core\/anthropic-painel\.js";/.test(fonte)).toBe(true);
+    // Uma importação e um uso, dentro de resolverCredencialIA; nada de CHAVE_* nem escrita em ENV.
+    expect(fonte.match(/configuracaoAnthropicPainel/g)).toHaveLength(2);
+    const corpo = fonte.slice(fonte.indexOf("export async function resolverCredencialIA"), fonte.indexOf("export const modeloDaLeitura"));
+    expect(corpo).toContain("configuracaoAnthropicPainel()");
+    expect(fonte).not.toMatch(/CHAVE_(SEGREDO|MODELO)_ANTHROPIC_PAINEL/);
+    expect(fonte).not.toMatch(/ENV\.\w+\s*=[^=]/);
   });
 
   it("no router, só as rotas do painel usam o acessor (e nenhuma usa a função para uso futuro)", () => {

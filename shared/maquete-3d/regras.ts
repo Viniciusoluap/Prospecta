@@ -24,11 +24,19 @@ export function faixaPorArea(areaM2: number, pavimentos: number): FaixaPreco {
 export const MODELO_IA_PADRAO = "claude-opus-5-5";
 /**
  * Quem lê o PDF. "geometrico": o leitor próprio do sistema (linhas, arcos e textos do PDF vetorial), sem custo —
- * é o padrão desde 15/11/2026 (pedido do dono). "ia": a leitura paga pela API, só se o administrador escolher.
+ * é o padrão desde 15/11/2026 (pedido do dono). "hibrido" (EPIC-024 S-03): o leitor próprio primeiro e a IA só nas
+ * pranchas que ele não consegue ler (imagem) ou lê de forma insuficiente; vale como padrão quando há chave da IA.
+ * "ia": a leitura paga pela API em todos os passos, só se o administrador escolher.
  */
-export const MOTORES_LEITURA = ["geometrico", "ia"] as const;
+export const MOTORES_LEITURA = ["geometrico", "hibrido", "ia"] as const;
 export type MotorLeitura = (typeof MOTORES_LEITURA)[number];
-export const ROTULOS_MOTOR: Record<MotorLeitura, string> = { geometrico: "Leitor próprio (sem custo)", ia: "IA (paga, exige chave)" };
+export const ROTULOS_MOTOR: Record<MotorLeitura, string> = {
+  geometrico: "Leitor próprio (sem custo, nunca usa IA)",
+  hibrido: "Híbrido: leitor próprio e IA só nas pranchas que ele não lê",
+  ia: "IA em tudo (paga, exige chave)",
+};
+/** Teto padrão de pranchas enviadas à IA por maquete: um PDF de 60 páginas não gasta em silêncio. */
+export const LIMITE_PRANCHAS_IA_PADRAO = 8;
 export const ESFORCOS_IA = ["low", "medium", "high"] as const;
 
 export const configSchema = z.object({
@@ -37,11 +45,16 @@ export const configSchema = z.object({
     terrea_70_150: z.number().min(0).max(100000).default(PRECOS_PADRAO.terrea_70_150),
     acima_150_ou_sobrado: z.number().min(0).max(100000).default(PRECOS_PADRAO.acima_150_ou_sobrado),
   }).default(PRECOS_PADRAO),
-  motor: z.enum(MOTORES_LEITURA).default("geometrico"),
+  /** Sem valor salvo: híbrido se houver chave da IA, senão leitor próprio (`motorEfetivo`). */
+  motor: z.enum(MOTORES_LEITURA).optional(),
+  limitePranchasIA: z.number().int().min(0).max(60).default(LIMITE_PRANCHAS_IA_PADRAO),
   modeloIA: z.string().min(1).max(80).default(MODELO_IA_PADRAO),
   esforcoIA: z.enum(ESFORCOS_IA).default("medium"),
 });
 export type ConfigMaquete = z.infer<typeof configSchema>;
+
+/** Motor em uso: o escolhido pelo administrador; sem escolha, híbrido só quando existe chave da IA. */
+export const motorEfetivo = (c: Pick<ConfigMaquete, "motor">, temChave: boolean): MotorLeitura => c.motor ?? (temChave ? "hibrido" : "geometrico");
 
 export function lerConfig(texto: string | null | undefined): ConfigMaquete {
   try { return configSchema.parse(JSON.parse(texto || "{}")); } catch { return configSchema.parse({}); }
@@ -78,15 +91,44 @@ export const statusInicial = (origem: OrigemMaquete): StatusMaquete =>
 export const TIPOS_PRANCHA = ["planta_baixa", "corte", "fachada", "implantacao", "cobertura", "outro"] as const;
 export type TipoPrancha = (typeof TIPOS_PRANCHA)[number];
 
+/** Quem leu o passo: o leitor próprio, a IA, ou "pulada" (a pessoa seguiu sem a IA e ficou o que o leitor próprio leu). */
+export type MotorDoPasso = "geometrico" | "ia" | "pulada";
+
 export type PassoLeitura = {
   chave: string;
-  tipo: "inventario" | "prancha" | "estrutura" | "ambientes" | "implantacao" | "montagem";
+  /** "prancha_ia": a mesma prancha de um passo "prancha", lida pela IA (EPIC-024 S-03). */
+  tipo: "inventario" | "prancha" | "prancha_ia" | "estrutura" | "ambientes" | "implantacao" | "montagem";
   rotulo: string;
-  estado: "pendente" | "feito" | "erro";
+  /**
+   * "aguardando": parado sem erro, à espera da pessoa (chave da IA ou confirmação do custo); retoma deste passo.
+   * "executando": a chamada paga à IA deste passo foi reservada e está em curso (outra aba não chama de novo).
+   */
+  estado: "pendente" | "feito" | "erro" | "aguardando" | "executando";
   erro?: string | null;
-  /** Referência do passo: documento (índice na lista de PDFs), página e pavimento. */
+  /** Referência do passo: documento (índice na lista de PDFs quando o passo foi criado), página e pavimento. */
   doc?: number; pagina?: number; pavimentoId?: string; edificacaoId?: string;
+  /** Identidade do PDF do passo (fonte + id): é por ela, e não pela posição na lista, que o arquivo é achado. */
+  arquivo?: { fonte: DocumentoMaquete["fonte"]; id: number; nome: string };
+  motor?: MotorDoPasso; modelo?: string | null; tokens?: { entrada: number; saida: number } | null;
+  /** "teto": a maquete já usou o teto de pranchas pela IA; só passa dele com a confirmação "além do teto" do admin. */
+  aguardando?: "chave" | "confirmacao" | "teto" | null;
+  /** Quando a chamada paga foi reservada (passo "executando"): reserva velha demais é dada como interrompida. */
+  reservadoEm?: string | null;
+  /** Por que a prancha foi para a IA (critério objetivo, ver `motivoParaIA`). */
+  motivoIA?: string | null;
+  /** O que foi enviado à IA: a imagem da página, um PDF só daquela página, ou o PDF original com a instrução da página. */
+  envio?: "imagem" | "pdf_pagina" | "pdf_original" | null;
+  /** Vezes seguidas em que o passo devolveu o controle sem chamar a IA por falta de tempo na função (QA rodada 2, N7). */
+  adiado?: number;
 };
+
+/**
+ * Confirmação do custo da IA (EPIC-024, correção do QA): vale só para a execução atual (esta leitura ou esta
+ * importação) e para `pranchas` chamadas pagas; expira quando `usadas` chega a `pranchas`. "Ler de novo" e uma
+ * importação nova nascem sem confirmação. `alemDoTeto`: o admin autorizou passar do teto por maquete.
+ */
+export type ConfirmacaoIA = { em: string; por: number | null; pranchas: number; usadas?: number; alemDoTeto?: boolean };
+export const confirmacaoValida = (c: ConfirmacaoIA | null | undefined): boolean => !!c && (c.usadas ?? 0) < c.pranchas;
 
 export type EstadoLeitura = {
   passos: PassoLeitura[];
@@ -94,9 +136,12 @@ export type EstadoLeitura = {
   parciais: Record<string, unknown>;
   tokensEntrada: number; tokensSaida: number;
   iniciadaEm: string | null; concluidaEm: string | null;
+  confirmacaoIA?: ConfirmacaoIA | null;
+  /** Pranchas que precisariam da IA mas passaram do teto por maquete (ficou o que o leitor próprio leu). */
+  foraDoLimiteIA?: string[];
 };
 
-export const leituraVazia = (): EstadoLeitura => ({ passos: [], parciais: {}, tokensEntrada: 0, tokensSaida: 0, iniciadaEm: null, concluidaEm: null });
+export const leituraVazia = (): EstadoLeitura => ({ passos: [], parciais: {}, tokensEntrada: 0, tokensSaida: 0, iniciadaEm: null, concluidaEm: null, confirmacaoIA: null, foraDoLimiteIA: [] });
 
 export function lerEstadoLeitura(texto: string | null | undefined): EstadoLeitura {
   try {
