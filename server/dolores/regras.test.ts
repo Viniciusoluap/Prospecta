@@ -88,6 +88,29 @@ describe("filtro de dados pessoais em texto livre (M1)", () => {
       "***.***.***-01", "(99) *****-4567", "2026-11-16T09:00:00-03:00", "Honorários outubro"]) expect(sanitizarTexto(t)).toBe(t);
   });
 
+  it("QA achado 2: CPF/telefone só em dígitos seguidos de pontuação, com espaços ou com o nono dígito separado saem", () => {
+    const casos = [
+      "O CPF é 12345678909.", "CPF 12345678909, ok", "CPF 12345678909-x", "CPF 12345678909; depois", "CPF 12345678909!",
+      "Ligue 99991234567.", "Número 5599991234567.", "ligue (5599991234567)", "fixo 9935241234.", "tel 559935241234,",
+      "CPF 123 456 789 09", "CPF 123 456 789-09.", "tel 99 9 9123 4567", "+55 (99) 9 9123-4567", "telefone 9 9123-4567.",
+      "CPF 52998224725\nfim", "processo do CPF 12345678909", "protocolo 99991234567", "protocolo 5599991234567",
+    ];
+    for (const c of casos) {
+      const r = sanitizarTexto(c);
+      expect(r, c).toContain("[dado pessoal omitido]");
+      expect(r.replace(/\D/g, "").length, `${c} → ${r}`).toBeLessThan(5);
+    }
+  });
+
+  it("QA achado 2 (outro lado): valores em reais, datas, processos, protocolos e áreas continuam intactos", () => {
+    for (const t of [
+      "R$ 1.250.000,00.", "R$ 12.345,67, pago", "R$ 1500000000", "valor 1.500,00-", "em 16/11/2026.", "em 2026-11-16.",
+      "processo 0801234-56.2026.8.10.0040.", "Processo nº 08012345620268100040", "protocolo 2026001234.", "protocolo nº 20261116001.",
+      "Protocolo: 20261116001, aguardando", "matrícula 1234567890.", "requerimento 2026111600.", "área de 1.250,50 m².",
+      "lote com 360 m2", "terreno de 12.000 m²", "CEP 65900-000.", "lista 123 456 789 00", "cotas 100 200 300 40",
+    ]) expect(sanitizarTexto(t), t).toBe(t);
+  });
+
   it("percorre a resposta inteira (listas e objetos), sem tocar números e chaves", () => {
     expect(sanitizarResposta({ a: [{ texto: "cpf 111.222.333-44", n: 11122233344 }], "111.222.333-44": null }))
       .toEqual({ a: [{ texto: "cpf [dado pessoal omitido]", n: 11122233344 }], "111.222.333-44": null });

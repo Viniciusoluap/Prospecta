@@ -93,3 +93,15 @@ describe("QA achado 1 — DDI conferido: número estrangeiro com os mesmos 8 fin
     expect(enviar.mock.calls.map(c => c[0].numero)).toEqual([DONO, "559991234567"]);
   });
 });
+
+describe("QA achado 2 — o filtro de dados pessoais pega dígitos seguidos de pontuação (resposta e comando guardado)", () => {
+  it("a resposta do modelo com CPF e celular no fim da frase sai filtrada; o comando guardado também", async () => {
+    roteiro = () => fim("O CPF é 12345678909. Ligue 99991234567. Ou 5599991234567, ou CPF 123 456 789 09. Valor R$ 1.250.000,00 em 16/11/2026, protocolo 2026001234.");
+    await chamar(aviso({ texto: "meu CPF é 12345678909. e o telefone 99991234567." }));
+    const t = enviar.mock.calls[0][0].texto as string;
+    for (const s of ["12345678909", "99991234567", "5599991234567", "123 456 789 09"]) expect(t, s).not.toContain(s);
+    expect(t).toContain("R$ 1.250.000,00 em 16/11/2026, protocolo 2026001234.");
+    const [m] = await q<{ texto: string }>("SELECT texto FROM dolores_mensagens");
+    expect(m.texto).not.toMatch(/\d{8}/);
+  });
+});
