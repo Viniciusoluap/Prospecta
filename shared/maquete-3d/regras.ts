@@ -112,6 +112,11 @@ export type PassoLeitura = {
   motor?: MotorDoPasso; modelo?: string | null; tokens?: { entrada: number; saida: number } | null;
   /** "teto": a maquete já usou o teto de pranchas pela IA; só passa dele com a confirmação "além do teto" do admin. */
   aguardando?: "chave" | "confirmacao" | "teto" | null;
+  /**
+   * Passo parado na confirmação do custo (ou no teto): o modelo que a confirmação vai gravar, como a tela mostra ao
+   * admin. A tela o devolve ao confirmar; se o modelo mudou desde então, o servidor recusa (QA S-11 r2, achado 2).
+   */
+  modeloAConfirmar?: string | null;
   /** Quando a chamada paga foi reservada (passo "executando"): reserva velha demais é dada como interrompida. */
   reservadoEm?: string | null;
   /** Por que a prancha foi para a IA (critério objetivo, ver `motivoParaIA`). */

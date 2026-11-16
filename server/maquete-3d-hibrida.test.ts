@@ -19,6 +19,7 @@ import { MOTIVOS_IA, anexoDaPagina, motivoParaIA, plantasDaIA } from "./maquete-
 import { jpegDaPagina, ladosDoJpeg, pdfDeUmJpeg } from "./maquete-3d/pdf-pagina.js";
 import { lerConfig } from "../shared/maquete-3d/regras.js";
 import { appRouter } from "./routers.js";
+import { comModeloDaTela } from "./fixtures/maquete-3d/confirmacao-da-tela.js";
 
 const JPEG = readFileSync(new URL("../client/public/casa-compacta-linha-smart.jpg", import.meta.url));
 const RASTER = pdfDeUmJpeg({ jpeg: JPEG, ...ladosDoJpeg(JPEG)! });
@@ -65,7 +66,7 @@ let pedidos: PedidoIA[];
 let respostas: (unknown | Error)[];
 let credencial: CredencialIA | null;
 const caller = (id: number, role: string, permissions = "[]") => appRouter.createCaller({ user: { id, role, permissions, active: true, name: "x" }, req: {}, res: {} } as never);
-const admin = () => caller(1, "admin").maquete3d;
+const admin = () => comModeloDaTela(caller(1, "admin").maquete3d); // a confirmação leva o modelo que a tela mostrou
 const colaborador = () => caller(2, "colaborador", JSON.stringify(["maquete3d"])).maquete3d;
 const VET = { fonte: "projeto" as const, id: 1, nome: "sobrado.pdf" };
 const IMG = { fonte: "projeto" as const, id: 2, nome: "escaneada.pdf" };

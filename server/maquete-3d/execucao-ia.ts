@@ -78,8 +78,8 @@ export function pendentesIA(estado: EstadoLeitura): number {
  * retoma dele. Ordem: chave → teto por maquete → confirmação desta execução.
  */
 export function bloqueioDaIA(estado: EstadoLeitura, config: ConfigMaquete, x: Execucao, credencial: CredencialIA | null, semChave: string, unidade = "prancha(s)"):
-  { aguardando: "chave" | "teto" | "confirmacao"; erro: string } | null {
-  if (!credencial) return { aguardando: "chave", erro: semChave };
+  { aguardando: "chave" | "teto" | "confirmacao"; erro: string; modeloAConfirmar: string | null } | null {
+  if (!credencial) return { aguardando: "chave", erro: semChave, modeloAConfirmar: null };
   const pendentes = pendentesIA(estado), modelo = modeloDaLeitura(credencial, config), conf = estado.confirmacaoIA;
   const limite = config.limitePranchasIA;
   // QA S-11 achado 3: confirmação feita com outro modelo (ou sem o modelo gravado, das versões antigas) não vale.
@@ -89,14 +89,14 @@ export function bloqueioDaIA(estado: EstadoLeitura, config: ConfigMaquete, x: Ex
     : `A confirmação anterior foi feita antes de o sistema registrar o modelo, e não dá para saber se era ${modelo}: por segurança, ela não vale. `;
   if (x.iaLidas >= limite && !(confirmacaoDoModelo(conf, modelo) && conf?.alemDoTeto)) {
     return {
-      aguardando: "teto",
+      aguardando: "teto", modeloAConfirmar: modelo,
       erro: `${avisoModelo}Esta maquete já usou ${x.iaLidas} de ${limite} prancha(s) pela IA (teto por maquete, em Configurações). Para ler mais ${pendentes} ${unidade} pela IA (paga, modelo ${modelo}), um administrador precisa autorizar além do teto; ou siga sem a IA.`,
     };
   }
   if (!confirmacaoDoModelo(conf, modelo)) {
     const usada = !!conf && (conf.usadas ?? 0) >= conf.pranchas;
     return {
-      aguardando: "confirmacao",
+      aguardando: "confirmacao", modeloAConfirmar: modelo,
       erro: `${avisoModelo}${pendentes} ${unidade} precisam da leitura por IA (paga, modelo ${modelo}). ${mudou ? "Um administrador confirma de novo, com o modelo novo." : usada ? `A confirmação anterior (${conf!.pranchas} prancha(s)) já foi usada: um administrador confirma de novo.` : "Um administrador confirma para esta leitura."}`,
     };
   }
@@ -235,6 +235,31 @@ export const MENSAGEM_EM_CURSO = "Este passo já está sendo lido pela IA em out
 /** Modelo que vale AGORA para a leitura por IA (o mesmo que bloqueioDaIA e a chamada usam): gravado na confirmação. */
 export async function modeloParaConfirmar(config: ConfigMaquete): Promise<string> {
   return modeloDaLeitura(await dependencias().credencialIA().catch(() => null), config);
+}
+
+/** Unidade dos passos do motor "IA em tudo" nas mensagens de bloqueio. */
+export const UNIDADE_MOTOR_IA = "passo(s) do motor \"IA em tudo\"";
+
+/**
+ * QA S-11 r2, achado 2: a confirmação só grava o modelo que a tela mostrou ao admin (`modeloVisto`). Se ele não veio
+ * (tela de uma versão anterior) ou é outro que o modelo que vale agora, nada é confirmado: os passos parados passam a
+ * mostrar o modelo de agora (o chamador grava o estado) e volta a mensagem para o admin conferir e confirmar de novo.
+ */
+export async function modeloDaConfirmacao(estado: EstadoLeitura, config: ConfigMaquete, x: Execucao, modeloVisto: string | undefined):
+  Promise<{ modelo: string } | { erro: string }> {
+  const credencial = await dependencias().credencialIA().catch(() => null);
+  const modelo = modeloDaLeitura(credencial, config);
+  const visto = modeloVisto?.trim() || null;
+  if (visto === modelo) return { modelo };
+  for (const p of estado.passos) {
+    if (p.estado !== "aguardando" || (p.aguardando !== "confirmacao" && p.aguardando !== "teto")) continue;
+    Object.assign(p, bloqueioDaIA(estado, config, x, credencial, p.erro ?? "", p.tipo === "prancha_ia" ? undefined : UNIDADE_MOTOR_IA) ?? { modeloAConfirmar: modelo });
+  }
+  return {
+    erro: visto
+      ? `O modelo mudou de ${visto} para ${modelo}; confira e confirme de novo. Nada foi confirmado.`
+      : `Esta página não mostrou qual modelo da IA será usado (ela foi aberta antes de uma atualização do sistema). Recarregue a página, confira o modelo (${modelo}) e confirme de novo. Nada foi confirmado.`,
+  };
 }
 
 /**

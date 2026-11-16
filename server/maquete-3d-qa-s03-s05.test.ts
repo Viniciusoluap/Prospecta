@@ -22,7 +22,8 @@ import { AREA_MIN_M2, comodoRepetido, lerRespostaPrancha, medidaSuspeita, sobrep
 import { ladosDoJpeg, pdfDeUmJpeg } from "./maquete-3d/pdf-pagina.js";
 import { lerEstadoLeitura } from "../shared/maquete-3d/regras.js";
 import { appRouter } from "./routers.js";
-import { rotuloContinuarLeitura } from "../client/src/components/maquete-3d/rotulos-leitura.js";
+import { comModeloDaTela } from "./fixtures/maquete-3d/confirmacao-da-tela.js";
+import { perguntaAlemDoTeto, rotuloConfirmarIA, rotuloContinuarLeitura } from "../client/src/components/maquete-3d/rotulos-leitura.js";
 
 const JPEG = readFileSync(new URL("../client/public/casa-compacta-linha-smart.jpg", import.meta.url));
 const RASTER = pdfDeUmJpeg({ jpeg: JPEG, ...ladosDoJpeg(JPEG)! });
@@ -70,7 +71,7 @@ let atrasoIA = 0;
 let relogio = new Date("2026-11-16T13:00:00Z");
 let pdfs: Record<string, Buffer>;
 const caller = (id: number, role: string, permissions = "[]") => appRouter.createCaller({ user: { id, role, permissions, active: true, name: "x" }, req: {}, res: {} } as never);
-const admin = () => caller(1, "admin").maquete3d;
+const admin = () => comModeloDaTela(caller(1, "admin").maquete3d); // a confirmação leva o modelo que a tela mostrou
 const colaborador = () => caller(2, "colaborador", JSON.stringify(["maquete3d"])).maquete3d;
 const VET = { fonte: "projeto" as const, id: 1, nome: "sobrado.pdf" };
 const IMG = { fonte: "projeto" as const, id: 2, nome: "escaneada.pdf" };
@@ -173,6 +174,76 @@ describe("QA S-03/S-05 — regressão dos achados", () => {
     const r = await colaborador().avancarImportacao({ id });
     expect(r.aguardando).toMatchObject({ motivo: "confirmacao", mensagem: expect.stringContaining("O modelo mudou de claude-haiku-5 para claude-opus-5-5") });
     expect(pedidos).toHaveLength(0);
+  });
+
+  // QA S-11 r2, achado 2: a confirmação grava o modelo que a tela mostrou ao admin, não o da hora do clique.
+  const telaDoAdmin = () => caller(1, "admin").maquete3d; // sem o invólucro: cada teste diz o modelo que a tela mostrou
+  const passoParado = (passos: Array<{ estado: string; modeloAConfirmar: string | null; erro: string | null }>) => passos.find(p => p.estado === "aguardando");
+  it("QA S-11 r2 achado 2: leitura — modelo trocado entre a tela mostrar e o clique é recusado (CONFLICT), a tela passa a mostrar o novo; tela antiga sem o modelo também é recusada", async () => {
+    await configurar({ motor: "hibrido" });
+    credencial = { ...PAINEL, modelo: "claude-haiku-5" };
+    const id = await pedido([IMG]);
+    await colaborador().iniciarLeitura({ id });
+    expect((await ler(id)).aguardando?.motivo).toBe("confirmacao");
+    expect(passoParado((await telaDoAdmin().detalhe({ id })).passos)).toMatchObject({ modeloAConfirmar: "claude-haiku-5", erro: expect.stringContaining("paga, modelo claude-haiku-5") });
+    const semConfirmacao = async () => lerEstadoLeitura((await banco.pg.query<{ leitura: string }>(`SELECT leitura FROM maquetes_3d WHERE id = $1`, [id])).rows[0].leitura).confirmacaoIA ?? null;
+    // outro admin troca o modelo da função enquanto a tela mostra o Haiku
+    credencial = { ...PAINEL, modelo: "claude-opus-5-5" };
+    await expect(telaDoAdmin().confirmarIA({ id, modeloVisto: "claude-haiku-5" })).rejects.toMatchObject({
+      code: "CONFLICT", message: "O modelo mudou de claude-haiku-5 para claude-opus-5-5; confira e confirme de novo. Nada foi confirmado.",
+    });
+    expect(await semConfirmacao()).toBeNull();
+    // a tela, recarregada, mostra o modelo de agora
+    expect(passoParado((await telaDoAdmin().detalhe({ id })).passos)).toMatchObject({ modeloAConfirmar: "claude-opus-5-5", erro: expect.stringContaining("paga, modelo claude-opus-5-5") });
+    // tela de uma versão anterior (não manda o modelo): recusa, pedindo para recarregar
+    await expect(telaDoAdmin().confirmarIA({ id })).rejects.toMatchObject({ code: "CONFLICT", message: expect.stringContaining("Recarregue a página, confira o modelo (claude-opus-5-5) e confirme de novo") });
+    await expect(telaDoAdmin().confirmarIA({ id, modeloVisto: "" })).rejects.toMatchObject({ code: "CONFLICT" });
+    expect(await semConfirmacao()).toBeNull();
+    expect(pedidos).toHaveLength(0);
+    expect(await contador(id)).toBe(0);
+    // com o modelo que a tela mostra agora, confirma e a IA lê com ele
+    await telaDoAdmin().confirmarIA({ id, modeloVisto: "claude-opus-5-5" });
+    expect((await semConfirmacao())?.modelo).toBe("claude-opus-5-5");
+    respostas = [{ plantas: [], pendencias: ["Não encontrei planta baixa."] }];
+    await ler(id);
+    expect(pedidos.map(p => p.credencial?.modelo)).toEqual(["claude-opus-5-5"]);
+  });
+
+  it("QA S-11 r2 achado 2: \"além do teto\" e importação também só confirmam o modelo que a tela mostrou", async () => {
+    await configurar({ motor: "hibrido", limitePranchasIA: 0 });
+    credencial = { ...PAINEL, modelo: "claude-haiku-5" };
+    const id = await pedido([IMG]);
+    await colaborador().iniciarLeitura({ id });
+    expect((await ler(id)).aguardando?.motivo).toBe("teto");
+    expect(passoParado((await telaDoAdmin().detalhe({ id })).passos)?.modeloAConfirmar).toBe("claude-haiku-5");
+    credencial = { ...PAINEL, modelo: "claude-opus-5-5" };
+    await expect(telaDoAdmin().confirmarIA({ id, alemDoTeto: true, modeloVisto: "claude-haiku-5" })).rejects.toThrow("O modelo mudou de claude-haiku-5 para claude-opus-5-5");
+    expect(passoParado((await telaDoAdmin().detalhe({ id })).passos)).toMatchObject({ modeloAConfirmar: "claude-opus-5-5", erro: expect.stringContaining("paga, modelo claude-opus-5-5") });
+    await telaDoAdmin().confirmarIA({ id, alemDoTeto: true, modeloVisto: "claude-opus-5-5" });
+    expect(pedidos).toHaveLength(0);
+    await colaborador().pularIA({ id }).catch(() => undefined);
+
+    // importação (outra maquete): mesma regra
+    await configurar({ motor: "hibrido" });
+    credencial = { ...PAINEL, modelo: "claude-haiku-5" };
+    const outra = await pedido([IMG]);
+    expect((await importar(outra, 0)).aguardando?.motivo).toBe("confirmacao");
+    const parado = async () => passoParado((await telaDoAdmin().detalhe({ id: outra })).importacao!.passos);
+    expect((await parado())?.modeloAConfirmar).toBe("claude-haiku-5");
+    credencial = { ...PAINEL, modelo: "claude-opus-5-5" };
+    await expect(telaDoAdmin().confirmarIAImportacao({ id: outra, modeloVisto: "claude-haiku-5" })).rejects.toMatchObject({ code: "CONFLICT", message: expect.stringContaining("O modelo mudou de claude-haiku-5 para claude-opus-5-5; confira e confirme de novo") });
+    expect((await parado())?.modeloAConfirmar).toBe("claude-opus-5-5");
+    await expect(telaDoAdmin().confirmarIAImportacao({ id: outra })).rejects.toThrow("Recarregue a página");
+    await telaDoAdmin().confirmarIAImportacao({ id: outra, modeloVisto: "claude-opus-5-5" });
+    await colaborador().avancarImportacao({ id: outra });
+    expect(pedidos.map(p => p.credencial?.modelo)).toEqual(["claude-opus-5-5"]);
+  });
+
+  it("QA S-11 r2 achado 2: o botão e a pergunta de confirmação dizem o modelo que será usado", () => {
+    expect(rotuloConfirmarIA("claude-opus-5-5", "Confirmar e ler pela IA")).toBe("Confirmar e ler pela IA — modelo claude-opus-5-5");
+    expect(rotuloConfirmarIA(null, "Confirmar e ler pela IA")).toBe("Confirmar e ler pela IA");
+    expect(perguntaAlemDoTeto(2, 5, "claude-haiku-5")).toBe("Autorizar a leitura paga de mais 2 prancha(s) pela IA, com o modelo claude-haiku-5, além do teto de 5 desta maquete?");
+    expect(perguntaAlemDoTeto(2, null, undefined)).toBe("Autorizar a leitura paga de mais 2 prancha(s) pela IA, além do teto de — desta maquete?");
   });
 
   // Achado 2 (Q1): dois "avançar" ao mesmo tempo no passo da IA.
