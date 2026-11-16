@@ -13,7 +13,7 @@ import { erroParaLog } from "./erro-seguro.js";
 import { FUNCOES, funcaoPorNome } from "./funcoes.js";
 import { LIBERADAS_ETAPA_1, funcaoLiberada } from "./permissoes.js";
 import { DOLORES_OPEN_ID, esquecerUsuarioDolores, usuarioDolores } from "./perfil.js";
-import { definirDependenciasPonte, ferramentasLiberadas, tokenConfere, tratarChamada, tratarFerramentas } from "./ponte.js";
+import { definirDependenciasPonte, ferramentasLiberadas, nomeParaRegistro, tokenConfere, tratarChamada, tratarFerramentas } from "./ponte.js";
 import { bancoDaLeitura } from "./somente-leitura.js";
 import { AGORA, CENARIO, criarBanco } from "./testes-banco.js";
 
@@ -118,7 +118,23 @@ describe("chamada autorizada", () => {
     const r2 = await tratarChamada(pedido({ funcao: "criar_tarefa", argumentos: { titulo: "x" } }));
     expect(r2.status).toBe(403);
     expect(r2.body.erro).toMatch(/prevista para a etapa 3; ainda não liberada/);
-    expect((await acoes()).map(a => [a.funcao, a.resultado])).toEqual([["apagar_cliente", "recusada"], ["criar_tarefa", "recusada"]]);
+    // QA r7 A7: nome fora da lista vira "(desconhecida)" + hash curto; função prevista fica com o nome
+    expect((await acoes()).map(a => [a.funcao, a.resultado])).toEqual([[nomeParaRegistro("apagar_cliente"), "recusada"], ["criar_tarefa", "recusada"]]);
+    expect(nomeParaRegistro("apagar_cliente")).toMatch(/^\(desconhecida\) [0-9a-f]{10}$/);
+  });
+
+  it("QA r7 A7: nome de função com dado pessoal não vai para a auditoria (nem no nome, nem no motivo)", async () => {
+    for (const nome of ["funcao_52998224725", "listar_maria.silva@x.com", "ver_Maria_Trello_99991234567"]) {
+      const r = await tratarChamada(pedido({ funcao: nome }));
+      expect(r.status).toBe(403);
+    }
+    await tratarChamada(pedido({ argumentos: {} })); // sem função: 400 com "(sem função)"
+    const a = await acoes();
+    expect(JSON.stringify(a)).not.toMatch(/52998224725|maria|Trello|99991234567/);
+    expect(a.slice(0, 3).map(x => x.funcao)).toEqual(["funcao_52998224725", "listar_maria.silva@x.com", "ver_Maria_Trello_99991234567"].map(nomeParaRegistro));
+    expect(new Set(a.slice(0, 3).map(x => x.funcao)).size).toBe(3);
+    expect(a[3].funcao).toBe("(sem função)");
+    expect(nomeParaRegistro("listar_tarefas")).toBe("listar_tarefas");
   });
 
   it("pedido fora do formato ou argumentos inválidos: 400 com o problema, auditado", async () => {
