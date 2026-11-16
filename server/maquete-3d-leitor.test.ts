@@ -653,3 +653,61 @@ describe("leitor geométrico — revisão de QA (3)", () => {
     expect(lerPagina(pg).plantas).toHaveLength(2);
   });
 });
+
+// Revisão de QA, iteração 4: camadas de reboco entre pilares, título do desenho mais perto, anexos na prancha.
+describe("leitor geométrico — revisão de QA (4)", () => {
+  const k = 1 / metrosPorPonto(50);
+  const seg = (x1: number, y1: number, x2: number, y2: number): Segmento => ({ x1: x1 * k, y1: y1 * k, x2: x2 * k, y2: y2 * k });
+  const parede = (x1: number, y1: number, x2: number, y2: number, e = 0.15): Segmento[] => {
+    const h = e / 2;
+    return y1 === y2 ? [seg(Math.min(x1, x2) - h, y1 - h, Math.max(x1, x2) + h, y1 - h), seg(Math.min(x1, x2) - h, y1 + h, Math.max(x1, x2) + h, y1 + h)]
+      : [seg(x1 - h, Math.min(y1, y2) - h, x1 - h, Math.max(y1, y2) + h), seg(x1 + h, Math.min(y1, y2) - h, x1 + h, Math.max(y1, y2) + h)];
+  };
+  const ret = (x0: number, y0: number, x1: number, y1: number) => [seg(x0, y0, x1, y0), seg(x1, y0, x1, y1), seg(x1, y1, x0, y1), seg(x0, y1, x0, y0)];
+  const arco = (cx: number, cy: number, r: number): Segmento[] => Array.from({ length: 10 }, (_, i) => { const p = (Math.PI / 2) * (i / 10), q = (Math.PI / 2) * ((i + 1) / 10); return seg(cx + r * Math.cos(p), cy + r * Math.sin(p), cx + r * Math.cos(q), cy + r * Math.sin(q)); });
+  const texto = (str: string, x: number, y: number, tam = 8) => ({ str, x: x * k, y: y * k, tam, largura: str.length * tam * 0.55 });
+  type Desenho = { segmentos: Segmento[]; textos: Primitivas["textos"] };
+  const cotas = Array.from({ length: 40 }, (_, i) => seg(38 + i * 0.01, 25, 38 + i * 0.01, 25.1));
+  const pagina = (...ds: Desenho[]): Primitivas => ({ largura: 2384, altura: 1684, arcos: [], imagens: 0, segmentos: [...ds.flatMap(d => d.segmentos), ...cotas], textos: ds.flatMap(d => d.textos) });
+  /** Casa 10 × 6 (2..12 × 2..8) com parede interna em x = 7: o QUARTO à esquerda, a SALA à direita. */
+  const resto = () => [...parede(2, 8, 12, 8), ...parede(2, 2, 2, 8), ...parede(12, 2, 12, 8), ...parede(7, 2, 7, 8)];
+  const nomes = () => [texto("QUARTO", 4.5, 5), texto("SALA", 9.5, 5), texto("PLANTA BAIXA", 7, 9, 12), texto("1 : 50", 7, 9.4, 10)];
+
+  it("M-A: parede cheia com camadas de reboco e pilares embutidos não vira janela", () => {
+    const h = 0.075, r = 0.05;
+    // Parede da frente em 4 linhas (faces a ±7,5 cm, reboco a ±5 cm) e traços de pilar a cada 2,4–2,8 m.
+    const s = [seg(1.925, 2 - h, 12.075, 2 - h), seg(1.925, 2 + h, 12.075, 2 + h), seg(2.075, 2 - r, 11.925, 2 - r), seg(2.075, 2 + r, 11.925, 2 + r), ...resto()];
+    for (const x of [3.4, 3.6, 6.0, 6.2, 9.0, 9.2, 10.6, 10.8]) s.push(seg(x, 2 - h, x, 2 + h));
+    const p = lerPagina(pagina({ segmentos: s, textos: nomes() })).plantas[0];
+    expect(p.comodos.map(c => c.funcao).sort()).toEqual(["quarto", "sala"]);
+    expect(p.aberturas).toEqual([]);
+  });
+
+  it("M-A: entre pilares salientes, linhas só dentro da parede (eixo ou duas camadas) dão janela NÃO confirmada, com pendência que nomeia a parede", () => {
+    for (const [L, V] of [[0.15, 1.5], [0.3, 2.5]] as const) for (const linhas of [[0], [-0.05, 0.05]]) {
+      const a = 4.5 - V / 2, b = 4.5 + V / 2, h = 0.075, Q = 0.3;
+      const s = [...parede(2, 2, a - L, 2), ...parede(b + L, 2, 12, 2), ...ret(a - L, 2 - Q / 2, a, 2 + Q / 2), ...ret(b, 2 - Q / 2, b + L, 2 + Q / 2), ...resto(), seg(a, 2 - h, b, 2 - h), seg(a, 2 + h, b, 2 + h)];
+      for (const d of linhas) s.push(seg(a, 2 + d, b, 2 + d));
+      const p = lerPagina(pagina({ segmentos: s, textos: nomes() })).plantas[0], quem = `${L} ${V} ${JSON.stringify(linhas)}`;
+      expect(p.aberturas.filter(x => x.confirmada), quem).toEqual([]);
+      const j = p.aberturas.filter(x => x.tipo === "janela");
+      expect(j, quem).toHaveLength(1);
+      expect(p.pendencias.join(" "), quem).toContain(`na parede ${j[0].paredeId}`);
+      expect(p.pendencias.join(" "), quem).toContain("camadas de reboco");
+    }
+  });
+
+  it("M-A: janela de verdade entre pilares (marcos do caixilho nas duas pontas, ou folhas de correr) continua janela confirmada", () => {
+    const V = 1.2, L = 0.3, Q = 0.3, a = 4.5 - V / 2, b = 4.5 + V / 2, h = 0.075;
+    const base = () => [...parede(2, 2, a - L, 2), ...parede(b + L, 2, 12, 2), ...ret(a - L, 2 - Q / 2, a, 2 + Q / 2), ...ret(b, 2 - Q / 2, b + L, 2 + Q / 2), ...resto()];
+    const comMarcos = [...base(), seg(a, 2 - h, b, 2 - h), seg(a, 2 + h, b, 2 + h), seg(a, 1.98, b, 1.98), seg(a, 2.02, b, 2.02), seg(a + 0.04, 2 - h, a + 0.04, 2 + h), seg(b - 0.04, 2 - h, b - 0.04, 2 + h)];
+    const correr = [...base(), seg(a, 1.97, 4.55, 1.97), seg(4.45, 2.03, b, 2.03)];
+    for (const s of [comMarcos, correr]) {
+      const p = lerPagina(pagina({ segmentos: s, textos: nomes() })).plantas[0];
+      expect(p.aberturas).toHaveLength(1);
+      expect(p.aberturas[0]).toMatchObject({ tipo: "janela", confirmada: true });
+      expect(p.aberturas[0].largura).toBeCloseTo(V, 1);
+      expect(p.pendencias.join(" ")).not.toContain("camadas de reboco");
+    }
+  });
+});

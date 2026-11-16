@@ -376,7 +376,8 @@ function colineares(pecas: Peca[]): Peca[][] {
   });
 }
 
-type Vao = { t: number; largura: number; tipo: "porta" | "janela" | "vao" };
+/** `duvida`: janela lida entre pilares só pelas linhas dentro da parede, sem marco nem peitoril — sai como não confirmada. */
+type Vao = { t: number; largura: number; tipo: "porta" | "janela" | "vao"; duvida?: boolean };
 type Parede = { a: Ponto; b: Ponto; esp: number; ang: number; rho: number; t0: number; t1: number; vaos: Vao[] };
 type Contexto = {
   retas: Reta[]; arcos: Arco[];
@@ -412,6 +413,49 @@ function contexto(retas: Reta[], arcos: Arco[]): Contexto {
     return out;
   };
   return { retas, arcos, faixa, arcosEm };
+}
+
+/**
+ * Janela entre dois pilares × parede cheia com as camadas de reboco desenhadas: as duas têm linhas ao longo, dentro da
+ * espessura. O que separa uma da outra:
+ *   `marcos` — o caixilho deixa sinal próprio: traços curtos atravessando a espessura junto das DUAS pontas do vão (além
+ *   do lado do pilar), o peitoril desenhado por fora da face, só no trecho do vão, ou as folhas de correr (duas linhas
+ *   desencontradas, cada uma cobrindo só parte do vão, uma de cada ponta);
+ *   `camadas` — as linhas de dentro continuam além do vão (atravessam o pilar, ou seguem dos dois lados dele): são
+ *   camadas da parede, não vidro;
+ *   `vidro` — há alguma linha dentro da espessura no vão (só as faces, sem nada dentro, é parede).
+ * Sem marcos, linhas só entre os pilares podem ser as duas coisas: a janela sai como não confirmada, com pendência.
+ */
+function sinaisDeCaixilho(ang: number, rho: number, esp: number, t0: number, t1: number, ctx: Contexto): { marcos: boolean; camadas: boolean; vidro: boolean } {
+  const vao = t1 - t0;
+  const dentro = ctx.faixa(ang, rho - esp / 2 + 0.005, rho + esp / 2 - 0.005).filter(r => Math.abs(r.rho - rho) < esp / 2 - 0.008);
+  const cobre = (r: Reta) => Math.max(0, Math.min(r.t1, t1) - Math.max(r.t0, t0));
+  const noVao = dentro.filter(r => cobre(r) >= vao * 0.3);
+  // Camadas: na mesma linha do "vidro", traço que passa da ponta do vão para dentro do pilar, ou trechos fora do vão dos dois lados.
+  const camadas = noVao.some(v => {
+    const mesma = dentro.filter(r => Math.abs(r.rho - v.rho) < 0.004);
+    if (mesma.some(r => cobre(r) > 0 && (r.t0 < t0 - 0.1 || r.t1 > t1 + 0.1))) return true;
+    const antes = mesma.some(r => r.t1 <= t0 + 0.05 && r.t1 >= t0 - 1.5 && r.comp >= 0.3), depois = mesma.some(r => r.t0 >= t1 - 0.05 && r.t0 <= t1 + 1.5 && r.comp >= 0.3);
+    return antes && depois;
+  });
+  // Marcos do caixilho: traços atravessando a espessura (perpendiculares) logo dentro de cada ponta do vão.
+  const perp = (ang + 90) % BALDES, pr = (perp * Math.PI) / 180, cp = Math.cos(pr), sp = Math.sin(pr);
+  const a = (ang * Math.PI) / 180, c = Math.cos(a), s = Math.sin(a);
+  const rq = (t: number) => { const q = ponto(ang, rho, t); return -q.x * sp + q.y * cp; };
+  const [q0, q1] = [rq(t0 - 0.05), rq(t1 + 0.05)].sort((p, q) => p - q);
+  const tracos = ctx.faixa(perp, q0, q1).filter(r => r.comp >= esp * 0.5 && r.comp <= esp + 0.03).map(r => {
+    const m = ponto(r.ang, r.rho, (r.t0 + r.t1) / 2);
+    return { t: m.x * c + m.y * s, d: -m.x * s + m.y * c - rho };
+  }).filter(x => Math.abs(x.d) <= esp / 2);
+  const marcoEm = (lo: number, hi: number) => tracos.some(x => x.t > lo && x.t < hi);
+  const nasPontas = marcoEm(t0 + 0.015, t0 + 0.2) && marcoEm(t1 - 0.2, t1 - 0.015);
+  // Peitoril por fora da face, só no trecho do vão (uma linha de calçada ou de piso seguiria além dele).
+  const peitoril = ctx.faixa(ang, rho - esp / 2 - 0.15, rho + esp / 2 + 0.15)
+    .some(r => Math.abs(r.rho - rho) >= esp / 2 + 0.015 && cobre(r) >= vao * 0.7 && r.t0 >= t0 - 0.3 && r.t1 <= t1 + 0.3);
+  // Folhas de correr: duas linhas desencontradas (rho diferente), cada uma de uma ponta, que se cruzam no meio.
+  const parciais = noVao.filter(r => cobre(r) <= vao * 0.85);
+  const correr = parciais.some(p => parciais.some(q => Math.abs(p.rho - q.rho) >= 0.02 && p.t0 <= t0 + 0.05 && q.t1 >= t1 - 0.05 && q.t0 < p.t1));
+  return { marcos: nasPontas || peitoril || correr, camadas, vidro: noVao.length > 0 };
 }
 
 /** Portas que os arcos de folha marcam dentro do trecho [tA, tB] da reta da parede (uma por arco; duas folhas que se encontram viram uma porta). */
@@ -491,7 +535,12 @@ function classificarVao(ang: number, rho: number, esp: number, tA: number, tB: n
           .map(r => [Math.max(livre[0], r.t0), Math.min(livre[1], r.t1)] as [number, number]).sort((p, q) => p[0] - q[0]);
         let coberto = 0, fim = livre[0];
         for (const [v0, v1] of vidro) if (v1 > fim) { coberto += v1 - Math.max(v0, fim); fim = v1; }
-        return [{ t: (livre[0] + livre[1]) / 2, largura: L, tipo: coberto >= L * 0.7 ? "janela" : "vao" }];
+        if (coberto < L * 0.7) return [{ t: (livre[0] + livre[1]) / 2, largura: L, tipo: "vao" }];
+        // Linhas de um pilar ao outro: janela só com sinal do caixilho. Se elas seguem além dos pilares, são as camadas
+        // da parede (parede cheia); só entre os pilares e sem marco nem peitoril, janela não confirmada.
+        const sinais = sinaisDeCaixilho(ang, rho, esp, livre[0], livre[1], ctx);
+        if (!sinais.marcos && (sinais.camadas || !sinais.vidro)) return [];
+        return [{ t: (livre[0] + livre[1]) / 2, largura: L, tipo: "janela", ...(sinais.marcos ? {} : { duvida: true }) }];
       }
     }
   }
@@ -603,8 +652,12 @@ function aberturasPelosMarcos(paredes: Parede[], ctx: Contexto) {
       if ((m0.n >= 2 && m1.n >= 2) || t1 - t0 < 0.4 || t1 - t0 > 3) continue;
       const vidros = new Set(dentro.filter(r => Math.min(r.t1, t1) - Math.max(r.t0, t0) >= (t1 - t0) * 0.8).map(r => Math.round(r.rho * 200)));
       if (vidros.size < 2) continue;
+      // As mesmas linhas seguindo além dos pilares são camadas de reboco: a parede é cheia. Sem marco nem peitoril, a
+      // janela fica como não confirmada (pendência na planta).
+      const sinais = sinaisDeCaixilho(w.ang, w.rho, w.esp, t0, t1, ctx);
+      if (!sinais.marcos && sinais.camadas) continue;
       const meio = (m0.ini + m1.fim) / 2, larg = m1.fim - m0.ini;
-      if (!w.vaos.some(v => Math.abs(v.t - meio) < (v.largura + larg) / 2)) w.vaos.push({ t: (t0 + t1) / 2, largura: t1 - t0, tipo: "janela" });
+      if (!w.vaos.some(v => Math.abs(v.t - meio) < (v.largura + larg) / 2)) w.vaos.push({ t: (t0 + t1) / 2, largura: t1 - t0, tipo: "janela", ...(sinais.marcos ? {} : { duvida: true }) });
     }
   }
 }
@@ -1204,7 +1257,7 @@ function plantasNaEscala(pg: Pagina, escala: number, origem: PlantaLida["escalaO
     /** Fora da construção: fora da grade, numa área descartada ou fora do recorte. */
     const fora = (x: number, y: number) => { const v = lidos.regiao(x, y); return v === 2 || descartadas.has(v) || (!!recorte && (x < recorte.x0 || x > recorte.x1 || y < recorte.y0 || y > recorte.y1)); };
 
-    const paredesLidas: PlantaLida["paredes"] = [], aberturas: PlantaLida["aberturas"] = [];
+    const paredesLidas: PlantaLida["paredes"] = [], aberturas: PlantaLida["aberturas"] = [], duvidosas: string[] = [];
     grupo.forEach((w, i) => {
       const comp = Math.hypot(w.b.x - w.a.x, w.b.y - w.a.y), ux = (w.b.x - w.a.x) / comp, uy = (w.b.y - w.a.y) / comp, lado = w.esp / 2 + 0.12;
       let externas = 0, amostras = 0;
@@ -1215,9 +1268,11 @@ function plantasNaEscala(pg: Pagina, escala: number, origem: PlantaLida["escalaO
       for (const v of w.vaos) {
         const porta = v.tipo !== "janela";
         aberturas.push({ id: `a${aberturas.length + 1}`, paredeId: id, tipo: v.tipo, posicao: r3(Math.min(comp - v.largura / 2, Math.max(v.largura / 2, v.t))), largura: r2(v.largura),
-          altura: porta ? 2.1 : 1.1, peitoril: porta ? 0 : 1, entradaPrincipal: false, confirmada: origem !== "suposta" });
+          altura: porta ? 2.1 : 1.1, peitoril: porta ? 0 : 1, entradaPrincipal: false, confirmada: origem !== "suposta" && !v.duvida });
+        if (v.duvida) duvidosas.push(`${r2(v.largura)} m na parede ${id}`);
       }
     });
+    if (duvidosas.length) pendencias.push(`Janela${duvidosas.length > 1 ? "s" : ""} entre pilares lida${duvidosas.length > 1 ? "s" : ""} só pelas linhas dentro da parede, sem marco nem peitoril desenhado (${lista(duvidosas)}): pode ser parede cheia com as camadas de reboco. Ficou como não confirmada — confira na revisão.`);
     // Entrada principal: a porta mais larga em parede externa (no empate, a mais embaixo na prancha).
     const externas = new Map(paredesLidas.filter(w => w.externa).map(w => [w.id, w]));
     const candidata = aberturas.filter(a => a.tipo === "porta" && externas.has(a.paredeId))
