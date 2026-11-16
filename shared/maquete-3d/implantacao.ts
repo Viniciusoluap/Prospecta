@@ -126,5 +126,16 @@ export function implantacaoDoEstudo(geojson: string | null, centro: [number, num
       relevo = { x0: r2(-folga), y0: r2(-folga), dx, dy, colunas: LADO_RELEVO, linhas: LADO_RELEVO, alturas: alturas.map(h => r2(h - minimo)), altitudeBase: r2(minimo) };
     }
   }
-  return { implantacao: implantacaoSchema.parse({ terreno: maior, ruas, lotes, relevo }), descartados };
+  // S-04: acessos da malha na divisa (onde a rua sai do terreno) — é onde o muro do condomínio ganha o portão.
+  // Só os da divisa que virou o terreno da maquete (com várias áreas, os das outras ficam de fora).
+  const naDivisa = (p: Ponto) => maior.length >= 3 && maior.some((a, i) => {
+    const b = maior[(i + 1) % maior.length], ab = { x: b.x - a.x, y: b.y - a.y }, l2 = ab.x * ab.x + ab.y * ab.y || 1;
+    const t = Math.max(0, Math.min(1, ((p.x - a.x) * ab.x + (p.y - a.y) * ab.y) / l2));
+    return Math.hypot(p.x - (a.x + ab.x * t), p.y - (a.y + ab.y * t)) < 3;
+  });
+  const acessos = (cenario?.acessos ?? []).map(ac => {
+    const [p] = local([ac.ponto, ac.ponto]);
+    return { x: p.x, y: p.y, viaExistente: !!ac.viaExistente, distancia: typeof ac.distanciaM === "number" ? r2(ac.distanciaM) : null };
+  }).filter(naDivisa).slice(0, 60);
+  return { implantacao: implantacaoSchema.parse({ terreno: maior, ruas, lotes, relevo, acessos }), descartados };
 }
