@@ -97,6 +97,8 @@ export function linhaDigitavelValida(d: string, forma: string): boolean {
 const INVISIVEIS = new RegExp("[\\u200B\\u200C\\u2060-\\u2064\\uFEFF\\u00AD\\u180E\\u034F]|(?<!\\p{Extended_Pictographic}\\uFE0F?)\\u200D", "gu");
 const LARGURA_TOTAL = /[\uFF01-\uFF5E]/g;
 const DIGITOS_MATEMATICOS = new RegExp("[\\u{1D7CE}-\\u{1D7FF}]", "gu");
+/** QA r4 S6: dígitos sobrescritos e circulados — só em sequência de 4 ou mais ("m²" e "nº" não mudam). */
+const DIGITOS_ENFEITADOS = /[\u2070\u00B9\u00B2\u00B3\u2074-\u2079\u2460-\u2468\u24EA]{4,}/g;
 const HIFEN_ENTRE_DIGITOS = /(?<=\d\s{0,3})[\u2010-\u2015\u2212\uFE58\uFE63](?=\s{0,3}\d)/g; // QA r4 S6: "99123  –  4567"
 /** QA r3 (informativo): dígitos de outras escritas (árabe-índico, persa, devanágari, bengali…) viram 0–9. */
 const OUTROS_DIGITOS = new RegExp("\\p{Nd}", "gu");
@@ -117,6 +119,7 @@ export function normalizarParaFiltro(texto: string): string {
     .replace(INVISIVEIS, "")
     .replace(LARGURA_TOTAL, c => c.normalize("NFKC"))
     .replace(DIGITOS_MATEMATICOS, c => c.normalize("NFKC"))
+    .replace(DIGITOS_ENFEITADOS, c => c.normalize("NFKC"))
     .replace(OUTROS_DIGITOS, c => (c.length === 1 && c.charCodeAt(0) < 0x80 ? c : digitoAscii(c)))
     .replace(HIFEN_ENTRE_DIGITOS, "-");
 }

@@ -316,7 +316,7 @@ describe("filtro de dados pessoais em texto livre (M1)", () => {
 
   it("QA r4 S6: separadores '·', '•', ':', muitos espaços, '529982247,25' e e-mail por extenso saem", () => {
     for (const c of ["cpf 529·982·247·25", "cpf 529•982•247•25", "cpf 529:982:247:25", "cpf 529982247    25", "cpf 529982247,25",
-      "tel 99 99123  –  4567", "tel 99    99123    4567", "tel 𞥙𞥙𞥙𞥙𞥑𞥒𞥓𞥔𞥕𞥖𞥗"]) {
+      "tel 99 99123  –  4567", "tel 99    99123    4567", "tel 𞥙𞥙𞥙𞥙𞥑𞥒𞥓𞥔𞥕𞥖𞥗", "tel ⁹⁹⁹⁹¹²³⁴⁵⁶⁷", "cpf ⑤②⑨⑨⑧②②④⑦②⑤"]) {
       const r = sanitizarTexto(c);
       expect(r, c).toContain(OMITIDO_T);
       expect(r.replace(/\D/g, "").length, `${c} → ${r}`).toBeLessThan(3);
@@ -324,7 +324,8 @@ describe("filtro de dados pessoais em texto livre (M1)", () => {
     for (const c of ["fulano @ gmail . com", "fulano arroba gmail ponto com", "fulano(at)gmail(dot)com", "fulano [at] gmail [dot] com",
       "fulano @ empresa . com . br", "fulano at gmail dot com"]) expect(sanitizarTexto(`mail ${c}`), c).toBe(`mail ${OMITIDO_T}`);
     // sem domínio de topo conhecido, "arroba"/"ponto" por extenso ficam; valor com vírgula e CPF inválido ficam; horário fica
-    for (const t of ["15 arroba de boi, ponto final", "R$ 529982247,25", "total 123456789,00", "Hora 10:30-11:45", "das 08:00 às 12:00"])
+    for (const t of ["15 arroba de boi, ponto final", "R$ 529982247,25", "total 123456789,00", "Hora 10:30-11:45", "das 08:00 às 12:00",
+      "área 360 m² e 12 m³", "x² + y² = 3²"])
       expect(sanitizarTexto(t), t).toBe(t);
   });
 
