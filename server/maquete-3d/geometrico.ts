@@ -219,6 +219,14 @@ function familias(retas: Reta[]): { membros: Set<Reta>; escadas: { ang: number; 
       }
       ini = i;
     }
+    // Faixas de piso, hachura de rampa, telhas no corte: muitas linhas iguais e próximas (sem o passo regular da
+    // escada) ocupando mais de um metro. Não são parede, e deixá-las entrar desvia a espessura dominante das paredes.
+    let comeco = 0;
+    for (let i = 1; i <= g.length; i++) {
+      if (i < g.length && g[i].rho - g[i - 1].rho <= 0.6) continue;
+      if (i - comeco >= 6 && g[i - 1].rho - g[comeco].rho >= 1) for (let j = comeco; j < i; j++) membros.add(g[j]);
+      comeco = i;
+    }
   });
   return { membros, escadas };
 }
@@ -313,8 +321,9 @@ function classificarVao(ang: number, rho: number, esp: number, tA: number, tB: n
   const pontas = [ponto(ang, rho, tA), ponto(ang, rho, tB)];
   const temArco = ctx.arcos.some(a => Math.abs(a.r - vao) <= Math.max(0.12, vao * 0.22) && pontas.some(q => Math.hypot(q.x - a.cx, q.y - a.cy) <= esp / 2 + 0.2));
   if (temArco && vao <= 1.6 && vao >= 0.5) return [{ t: (tA + tB) / 2, largura: vao, tipo: "porta" }];
-  // Caixilho: pelo menos duas linhas ao longo do vão, dentro da espessura (uma linha só pode ser a junta do piso).
-  const caixilhoEm = (u0: number, u1: number) => new Set(ctx.retas.filter(r => r.ang === ang && Math.abs(r.rho - rho) <= esp / 2 + 0.01 && Math.min(r.t1, u1) - Math.max(r.t0, u0) >= (u1 - u0) * 0.7).map(r => Math.round(r.rho * 200))).size >= 2;
+  // Caixilho: linhas ao longo do vão, dentro da espessura da parede.
+  // No vão junto de um canto (sem peça de parede do outro lado) pede duas linhas: uma só pode ser a junta do piso.
+  const caixilhoEm = (u0: number, u1: number) => new Set(ctx.retas.filter(r => r.ang === ang && Math.abs(r.rho - rho) <= esp / 2 + 0.01 && Math.min(r.t1, u1) - Math.max(r.t0, u0) >= (u1 - u0) * 0.7).map(r => Math.round(r.rho * 200))).size >= (naPonta ? 2 : 1);
   const portas = portasPelosArcos(ang, rho, esp, tA, tB, ctx.arcos);
   if (portas.length) {
     const vaos: Vao[] = [];
@@ -615,13 +624,15 @@ function comodosDaPlanta(paredes: Parede[], linhas: Linha[], retas: Reta[], x0: 
       if (rots.length < 2 && sobra < 1.4) continue;
       let atual = avaliar(m, [], rots);
       for (let volta = 0; volta < 6 && atual > 0.05; volta++) {
-        let melhor: { nota: number; cels: number[] } | null = null;
-        for (const candidatas of [raios(m), linhasDeDivisa(m)]) {
+        let melhor: { nota: number; efetiva: number; cels: number[] } | null = null;
+        const tocos = raios(m);
+        for (const candidatas of [tocos, linhasDeDivisa(m)]) {
           for (const c of candidatas) {
             const nota = avaliar(m, c, rots);
-            if (nota < atual - (rots.length > 1 ? 0.08 : 0.15) && (!melhor || nota < melhor.nota)) melhor = { nota, cels: c };
+            // O toco de parede é a evidência mais forte: a linha solta só ganha dele se fechar bem melhor as áreas.
+            const efetiva = nota + (candidatas === tocos ? 0 : 0.1);
+            if (nota < atual - (rots.length > 1 ? 0.08 : 0.15) && (!melhor || efetiva < melhor.efetiva)) melhor = { nota, efetiva, cels: c };
           }
-          if (melhor) break;
         }
         if (!melhor) break;
         for (const k of melhor.cels) grade[k] = 1;
