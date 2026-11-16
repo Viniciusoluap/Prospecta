@@ -92,3 +92,19 @@ reprova volta ao @dev (ciclo de até 5 rodadas). Nada é publicado sem portão d
 ## Próximo passo exato
 Receber o retorno de cada agente; o que o QA aprovar, publicar pela receita acima (uma etapa por PR), aplicando a
 migração da etapa antes. Depois lançar S-03 e S-05, e por fim o EPIC-025 (Dolores), etapa 1.
+
+## Atualização — 16/11 — EPIC-025 Dolores, etapa 2 (WhatsApp) — @dev
+- **Ramo:** `epic025-dolores-etapa2` (cópia: `claude/wip-epic025-dolores-etapa2`), sobre `origin/main` `3142f6b`. Sem PR.
+- **Story:** `docs/stories/epics/epic-025-dolores/E2-whatsapp.md` (InReview). Migração **`0124_dolores_whatsapp.sql`**
+  (só tabelas novas) — NÃO aplicada; aplicar antes de publicar (o webhook e a tela leem as tabelas novas; a ponte da
+  etapa 1 não depende delas).
+- **O que foi feito:** webhook próprio `POST /api/dolores/whatsapp` (segredo HMAC próprio, idempotente, ignora grupo,
+  própria e antiga), só o número do dono comanda, laço de ferramentas com a Anthropic pela mesma porta da ponte
+  (`executarFuncao`), frases fixas quando a IA não pode rodar, consumo por chamada e limite mensal com aviso uma vez,
+  cartão "Dolores" em Integrações (QR code, número do dono, limites, interruptor), rotas `dolores.*` só de admin.
+- **Testes (a) automáticos:** ver "Testes executados" na story. **(b) manuais:** nenhum (sem Evolution/Anthropic reais
+  aqui). **(c) pendentes em produção:** 0124 no Neon; dono cadastra chave/modelo, limites, número dele e conecta o
+  número da Dolores; teste de aceite pelo WhatsApp.
+- **Depende do dono:** chip/número da Dolores e o QR code; chave da Anthropic com créditos; limites; ligar a IA.
+  Passo a passo: `docs/dolores/como-ligar.md`, seção Etapa 2.
+- **Próximo passo exato:** portão de QA da E2; aplicar 0124; publicar; avisar o dono dos passos 2 a 6 da Etapa 2.

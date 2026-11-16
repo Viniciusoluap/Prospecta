@@ -1,6 +1,6 @@
 # E2 — WhatsApp (conexão própria, comando e resposta pelo número do dono)
 
-Status: InProgress
+Status: InReview
 Epic: EPIC-025 (Etapa 2) — "Operação Dolores — Prompt Mestre" (16/11/2026), seção 7, linha 2
 Paridade: suspensa por ordem do dono em 16/11 (Grupo Santa Fé em espera); registrar no ROADMAP ao fechar o epic.
 Tamanho estimado: G
@@ -74,10 +74,62 @@ Número e QR code da Dolores; número do dono na tela; chave e modelo preferenci
 Claude Console); limites mensais de tokens; ligar o interruptor.
 
 ## File List
-(preenchida ao final)
+- `drizzle/0124_dolores_whatsapp.sql` (novo) — `dolores_whatsapp_config`, `dolores_mensagens`, `dolores_consumo` (só tabelas novas).
+- `drizzle/schema-dolores-whatsapp.ts` (novo); `drizzle.config.ts` (schema ligado, os anteriores mantidos).
+- `shared/dolores/whatsapp.ts` (novo, puro) — número do dono, leitura do aviso da Evolution, frases fixas, limite, corte.
+- `server/dolores/ponte.ts` — núcleo `executarFuncao` (mesma porta para a ponte HTTP e o WhatsApp); `auditoria.ts` — canal e
+  etapa; `permissoes.ts` — `ETAPA_ATUAL = 2` (nenhuma função nova; `enviar_mensagem_whatsapp` prevista para a etapa 3);
+  `perfil.ts` — `idDaDoloresSemCriar`.
+- `server/dolores/consumo.ts`, `prompt.ts`, `cerebro.ts`, `whatsapp.ts`, `router.ts` (novos).
+- `server/routers.ts` (`dolores`), `api/index.ts` e `server/_core/index.ts` (rota `/api/dolores/whatsapp`).
+- `client/src/components/admin/DoloresCard.tsx` (novo), `client/src/pages/admin/AdminIntegracoes.tsx`,
+  `client/src/components/admin/AnthropicCard.tsx` (texto: a chave só é usada pela Dolores com o interruptor ligado),
+  `server/_core/anthropic-painel.ts` (comentário).
+- Testes: `server/dolores/whatsapp-regras.test.ts`, `whatsapp.test.ts`, `router.test.ts` (novos); `testes-banco.ts` (0124 e
+  `whatsapp_connections`); `ponte.test.ts` (etapa 2); `server/integracoes-anthropic.test.ts` (a Dolores passa a ser a única
+  função autorizada a ler a chave do painel, depois da pausa e do interruptor).
+- `docs/dolores/ferramentas-etapa1.json` (regerado: etapa 2, mesmas 12 ferramentas), `docs/dolores/como-ligar.md`
+  (seção Etapa 2), `docs/dolores/agente-etapa2.md` (novo), `docs/stories/epics/ROADMAP.md` (paridade em espera),
+  `HANDOFF-16-11-CORRECOES-E-DOLORES.md`.
 
-## Dev Notes
-(preenchidas ao final)
+## Dev Notes (implementação, 16/11/2026)
+- IDS: reaproveitados o cliente da Evolution (`server/_core/evolution.ts`: QR, estado, número, webhook, envio), o servidor
+  Evolution da Central (`configEvolution`), o padrão de segredo HMAC do webhook da Central (rótulo próprio), o padrão de
+  processamento dentro do aviso com prazo da Central de Vendas, o padrão de orçamento de tokens com aviso uma vez por mês
+  da `central-vendas/ia.ts`, `chaveTelefone`, o filtro `sanitizarTexto`, a ponte da etapa 1 inteira (`executarFuncao`) e o
+  SDK `@anthropic-ai/sdk` já usado. Nenhum segundo cliente de WhatsApp.
+- [AUTO-DECISION] Onde guardar a conexão da Dolores → tabela própria `dolores_whatsapp_config`, NÃO `whatsapp_connections`
+  (razão: a Central de Vendas envia pela primeira conexão Evolution conectada e o webhook geral criaria leads com as
+  mensagens do dono; fora de lá, nenhum desses caminhos enxerga o número dela). Configuração nova também não mexe no
+  `select()` de `dolores_config` (a ponte da etapa 1 segue funcionando sem a 0124).
+- [AUTO-DECISION] Número do dono → configuração em banco cadastrada pelo admin na tela (mínimo trabalho manual do dono);
+  guardado em dígitos com 55, mostrado mascarado.
+- [AUTO-DECISION] Destino da resposta → o número do remetente que acabou de ser conferido como o do dono (é o endereço
+  canônico do WhatsApp, resolve o nono dígito), conferido de novo dentro de `responderAoDono`.
+- [AUTO-DECISION] Limite mensal em TOKENS (entrada e saída separados), 0 = bloqueada → o sistema não sabe o preço do
+  modelo e não pode inventá-lo (prompt mestre, seção 8); a conversão do teto em reais está no passo a passo do dono.
+- [AUTO-DECISION] "Avisar o dono uma vez" → o aviso com o uso do mês sai uma vez por mês (marca atômica
+  `aviso_limite_mes`); depois, cada comando dele recebe só a frase curta fixa (sem IA, sem custo).
+- [AUTO-DECISION] Modelo → o preferencial de Integrações › Anthropic; opcionalmente um modelo próprio da Dolores
+  (validado contra a lista da chave). Sem nenhum dos dois, não chama. Nenhum id de modelo no código.
+- [AUTO-DECISION] Mensagem antiga = mais de 5 min (ou sem data, ou >2 min no futuro). As antigas não entram em
+  `dolores_mensagens` (reconexão pode trazer histórico) e viram uma linha de auditoria com a contagem por aviso.
+- [AUTO-DECISION] Grupos, status e as mensagens dela mesma: ignorados sem auditoria (volume alto; grupos são a etapa 4).
+- [AUTO-DECISION] Mídia do dono: frase fixa ("só entendo texto"); legenda não é comando.
+- [AUTO-DECISION] Endereço `@lid` do WhatsApp: o número vem de `key.senderPn`/`key.remoteJidAlt`; sem eles a mensagem não
+  comanda. **A confirmar na Evolution real** (nomes dos campos variam por versão).
+- [AUTO-DECISION] Cada comando é independente (sem histórico de conversa entre comandos) — menos custo e nenhum texto
+  antigo vira contexto.
+- [AUTO-DECISION] `ETAPA_ATUAL = 2` sem função nova; `enviar_mensagem_whatsapp` passa a "prevista para a etapa 3"
+  (mensagem a terceiros chega com as cobranças). A resposta ao dono é do sistema, não ferramenta do modelo.
+- [AUTO-DECISION] Tetos: 6 voltas, 6 consultas/volta, 2.000 tokens de saída por chamada, 150.000 de entrada por pedido,
+  prazo total 45 s; chamada ao modelo só com ≥ 8 s; fechamento sem ferramentas quando o teto de voltas/tokens acaba.
+  Cache de prompt (ephemeral) no texto do sistema para baratear as voltas.
+- [AUTO-DECISION] QR code: devolvido só à tela do admin na hora de conectar (é como a conexão funciona), nunca guardado.
+- Limitação conhecida: se a função cair no meio de um comando, a linha fica "processando" e a reentrega não responde (é
+  tratada como repetida) — o dono manda de novo. Dois comandos simultâneos podem passar um pouco do limite mensal (a
+  conferência é antes de cada chamada).
+- Não há script `lint` no `package.json`; qualidade por `tsc --noEmit`, testes e `vite build`.
 
 ## Change Log
 - 16/11/2026 — @dev (Dex): story criada (Draft → InProgress), critérios tirados do prompt mestre e da ordem da etapa 2.
