@@ -13,6 +13,7 @@ import { ArrowLeft, Mountain, Plus, MapPin, Search, X } from "lucide-react";
 import { formatArea } from "@/lib/format";
 import { areaDoEstudoM2 } from "@shared/incorporacao/lotes-avulsos";
 import { AcoesExcluir } from "@/components/AcoesExcluir";
+import { urlLogoEstudo } from "@/components/incorporacao/LogotipoEmpreendimento";
 import { FILTROS_INCORPORACAO_VAZIOS, TIPOS_INCORPORACAO, filtrarEstudosIncorporacao, filtrosIncorporacaoAtivos } from "@shared/incorporacao/filtro-listagem";
 
 const STATUS_LABELS: Record<string, string> = {
@@ -53,6 +54,9 @@ export default function AdminIncorporacao() {
   const limparFiltros = () => { setStatus(FILTROS_INCORPORACAO_VAZIOS.status as FiltroSituacao); setBusca(""); setTipo("todos"); };
 
   const utils = trpc.useUtils();
+  // S-02: só a versão (hash) do logotipo de cada estudo; a imagem vem da rota própria, com cache.
+  const { data: logos = [] } = trpc.incorporacao.logo.versoes.useQuery();
+  const logoPorEstudo = useMemo(() => new Map(logos.map((l) => [l.studyId, l.versao])), [logos]);
   const { data: equipe = [] } = trpc.incorporacao.staff.useQuery();
   const deleteMutation = trpc.incorporacao.delete.useMutation();
   const createMutation = trpc.incorporacao.create.useMutation({
@@ -224,6 +228,11 @@ export default function AdminIncorporacao() {
                   <CardHeader className="pb-2">
                     {/* Item 6 (18/10): no celular o nome quebra linha e o selo/lixeira ficam dentro do quadro. */}
                     <div className="flex min-w-0 items-start justify-between gap-2">
+                      {logoPorEstudo.has(e.id) && (
+                        <div className="flex h-10 w-14 shrink-0 items-center justify-center overflow-hidden rounded bg-white p-1 sm:h-12 sm:w-16">
+                          <img src={urlLogoEstudo(e.id, logoPorEstudo.get(e.id)!)} alt="" loading="lazy" decoding="async" className="max-h-full max-w-full object-contain" />
+                        </div>
+                      )}
                       <CardTitle className="min-w-0 flex-1 break-words text-base leading-snug text-white">{e.name}</CardTitle>
                       <div className="flex shrink-0 flex-col items-end gap-1 sm:flex-row sm:items-center sm:gap-2">
                         <Badge className={`max-w-[8.5rem] whitespace-normal text-center leading-tight ${STATUS_COLORS[e.status] ?? "bg-gray-500/20 text-gray-300"}`}>{STATUS_LABELS[e.status] ?? "Classificação pendente"}</Badge>
