@@ -101,6 +101,9 @@ describe("demais leituras", () => {
     expect(joao.servicosContratados.map((s: any) => s.registroOperacional?.modulo)).toEqual(expect.arrayContaining(["Regularizações", "Financiamentos"]));
     expect(joao.responsavel).toBeNull();
     expect((await chamar("consultar_cliente", { busca: "ninguém" })).dados.encontrados).toBe(0);
+    // curingas do LIKE não listam o CRM inteiro
+    expect((await chamar("consultar_cliente", { busca: "%%" })).dados.encontrados).toBe(0);
+    expect((await chamar("consultar_cliente", { busca: "__" })).dados.encontrados).toBe(0);
     expect(() => funcaoPorNome("consultar_cliente")!.entrada.parse({})).toThrow();
   });
 

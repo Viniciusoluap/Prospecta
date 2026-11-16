@@ -32,7 +32,8 @@ export const entradaConsultarCliente = z.object({
 export async function consultarCliente(args: z.infer<typeof entradaConsultarCliente>, { agora }: Ctx): Promise<Resultado> {
   const digitos = (args.busca ?? "").replace(/\D/g, "");
   const filtroBusca = args.busca ? or(
-    ilike(leads.name, `%${args.busca.replace(/[%_]/g, "")}%`),
+    // curingas do LIKE escapados: "%%" procura o texto "%%", não lista todo o CRM
+    ilike(leads.name, `%${args.busca.replace(/[\\%_]/g, m => `\\${m}`)}%`),
     digitos.length >= 4 ? sql`regexp_replace(${leads.phone}, '\\D', '', 'g') like ${`%${digitos}%`}` : undefined,
     digitos.length === 11 ? sql`regexp_replace(coalesce(${leads.cpf}, ''), '\\D', '', 'g') = ${digitos}` : undefined,
   ) : undefined;
