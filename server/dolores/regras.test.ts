@@ -329,6 +329,30 @@ describe("filtro de dados pessoais em texto livre (M1)", () => {
       expect(sanitizarTexto(t), t).toBe(t);
   });
 
+  it("QA r5 F1: lista de telefones/CPFs que fecha os DVs de NF-e ou boleto por acaso sai; só a forma escrita do documento isenta", () => {
+    const vazamentos = [
+      "Contatos dos compradores:\n(15) 95115-9890\n(46) 95244-2055\n(41) 99507-5904\n(66) 95430-3390",
+      "15 95115 9890 46 95244 2055 41 99507 5904 66 95430 3390",
+      "fones 1133546679 11957754580 21966458941 1 41739079897597",
+      "1133546679 11957754580 21966458941 1 41739079897597",
+    ];
+    for (const c of vazamentos) {
+      const r = sanitizarTexto(c);
+      for (const n of ["95115", "95244", "99507", "95430", "1133546679", "11957754580", "21966458941"])
+        expect(r, `${c} → ${r}`).not.toContain(n);
+      expect(r, c).toContain(OMITIDO_T);
+    }
+    // a mesma chave válida: 11×4 com " " ou "." uniforme fica; separadores misturados ou palavra de telefone antes, não
+    const VALIDA = "35261112345678000195550010000012341000012346";
+    const b4 = VALIDA.match(/\d{4}/g)!;
+    for (const t of [`DANFE ${b4.join(" ")}`, `chave ${b4.join(".")}`, `chave ${VALIDA}`]) expect(sanitizarTexto(t), t).toBe(t);
+    for (const t of [`chave ${b4.slice(0, 5).join(" ")}.${b4.slice(5).join(" ")}`, `contato ${b4.join(" ")}`, `cpf ${b4.join(" ")}`])
+      expect(sanitizarTexto(t), t).not.toBe(t);
+    // 10 11 11 1 14 sem o DV geral fecha (mesmos campos do teste S2 com o 5º dígito trocado) sai; com o DV geral, fica
+    expect(sanitizarTexto("pagar 2379338128 60000000004 00000000406 2 84340000010000")).toContain(OMITIDO_T);
+    expect(sanitizarTexto("pagar 2379338128 60000000004 00000000406 1 84340000010000")).toBe("pagar 2379338128 60000000004 00000000406 1 84340000010000");
+  });
+
   it("percorre a resposta inteira (listas e objetos), sem tocar números e chaves", () => {
     expect(sanitizarResposta({ a: [{ texto: "cpf 111.222.333-44", n: 11122233344 }], "111.222.333-44": null }))
       .toEqual({ a: [{ texto: "cpf [dado pessoal omitido]", n: 11122233344 }], "111.222.333-44": null });

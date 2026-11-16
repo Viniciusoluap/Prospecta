@@ -21,11 +21,14 @@
 //
 //  FASE 2 — PRESERVAR documentos reconhecidos POR ESTRUTURA COMPLETA.
 //   2a. Estrutura validada por inteiro: o trecho fica e a fase 1 não se aplica a ele.
+//       QA r5 F1: a isenção só vale quando a FORMA ESCRITA também é a do documento — nunca basta os dígitos fecharem.
 //       - Chave de acesso da NF-e (44 dígitos): DV módulo 11 válido E UF 11–53 E mês 01–12 E CNPJ válido nas posições
-//         7–20 E modelo 55 ou 65; nunca quando os grupos são 4 blocos de 11 (lista de CPFs/celulares). O rótulo
+//         7–20 E modelo 55 ou 65, e só em 44 colados ou 11 blocos de 4 com o mesmo separador (" " ou "."). O rótulo
 //         ("nota", "chave", "acesso", "nf-e", "danfe") sozinho NÃO isenta.
-//       - Linha digitável de boleto (47 dígitos, forma 5.5 5.6 5.6 1 14 ou 10 11 11 1 14) com o DV módulo 10 de CADA
-//         um dos três campos válido. Se não validar, vale a fase 1.
+//       - Linha digitável de boleto (47 dígitos, moeda 9): "5.5 5.6 5.6 1 14" com os pontos, ou "10 11 11 1 14" só se o
+//         DV geral do código de barras também fechar; sempre com o DV módulo 10 de CADA campo. Se não validar, fase 1.
+//       - Travas: palavra de telefone/contato/CPF nos ~50 caracteres antes, "(" ou "+" antes, parênteses ou hífen entre
+//         os grupos, ou forma explícita de CPF/telefone dentro do trecho: não isenta.
 //       - Código de barras de 44 dígitos colado é um grupo só: a fase 1 nunca acha nada dentro dele, então já fica.
 //   2b. Só o que a fase 1 NÃO achou: telefone fixo (2–5), número de 11 dígitos sem forma conhecida ("na dúvida") e o
 //       resto. Aqui o rótulo decide: documento (processo, protocolo, matrícula, nota fiscal, lote, quadra, R$…) ou
@@ -65,11 +68,13 @@ function chaveNfeValida(d: string): boolean {
 }
 
 /**
- * QA r4 S1: chave de NF-e reconhecida pela ESTRUTURA INTEIRA — DV, UF 11–53, mês 01–12, CNPJ do emitente válido
- * (posições 7–20), modelo 55/65 — e nunca em 4 blocos de 11 (lista de CPFs ou celulares). Rótulo não conta.
+ * QA r4 S1 / r5 F1: chave de NF-e reconhecida pela ESTRUTURA INTEIRA — DV, UF 11–53, mês 01–12, CNPJ do emitente válido
+ * (posições 7–20), modelo 55/65 — e só na FORMA ESCRITA de chave: 44 dígitos colados ou 11 blocos de 4 (DANFE). Uma
+ * lista de celulares "(15) 95115-9890 …" ou de CPFs "ddd ddd ddd dd" que fecha os DVs por acaso não é chave.
+ * Os separadores (conferidos em documentosValidados) têm de ser todos iguais: só " " ou ".". Rótulo não conta.
  */
 export function chaveNfeEstrutural(d: string, forma: string): boolean {
-  if (forma === "11,11,11,11" || !chaveNfeValida(d)) return false;
+  if (!FORMAS_CHAVE_NFE.has(forma) || !chaveNfeValida(d)) return false;
   const uf = Number(d.slice(0, 2)), mes = Number(d.slice(4, 6)), modelo = d.slice(20, 22);
   return uf >= 11 && uf <= 53 && mes >= 1 && mes <= 12 && (modelo === "55" || modelo === "65") && cnpjValido(d.slice(6, 20));
 }
@@ -85,11 +90,28 @@ function mod10(base: string): number {
   return (10 - (soma % 10)) % 10;
 }
 
-const FORMAS_LINHA_DIGITAVEL = new Set(["5,5,5,6,5,6,1,14", "10,11,11,1,14", "47"]);
-/** QA r4 S2: linha digitável de boleto (47 dígitos, 5.5 5.6 5.6 1 14) com o DV de CADA um dos três campos válido. */
+const FORMAS_CHAVE_NFE = new Set(["44", "4,4,4,4,4,4,4,4,4,4,4"]);
+
+/** QA r5 F1: DV geral (módulo 11, pesos 2–9) do código de barras de 44 dígitos remontado a partir da linha digitável. */
+function dvGeralDoBoleto(d: string): boolean {
+  const barras = d.slice(0, 4) + d.slice(33) + d.slice(4, 9) + d.slice(10, 20) + d.slice(21, 31); // sem a posição 5 (o DV)
+  let soma = 0, peso = 2;
+  for (let k = barras.length - 1; k >= 0; k--) { soma += Number(barras[k]) * peso; peso = peso === 9 ? 2 : peso + 1; }
+  const dv = 11 - (soma % 11);
+  return (dv === 0 || dv > 9 ? 1 : dv) === Number(d[32]);
+}
+
+/**
+ * QA r4 S2 / r5 F1: linha digitável de boleto (47 dígitos, moeda "9" na 4ª posição) com o DV de CADA um dos três campos
+ * válido, e só nas formas escritas do boleto: 47 colados, "5.5 5.6 5.6 1 14" (com os pontos, conferidos em
+ * documentosValidados) ou os campos colados "10 11 11 1 14" — esta última, que uma lista de telefones também tem, só
+ * quando o DV geral do código de barras remontado também fecha.
+ */
 export function linhaDigitavelValida(d: string, forma: string): boolean {
-  return d.length === 47 && FORMAS_LINHA_DIGITAVEL.has(forma)
-    && mod10(d.slice(0, 9)) === Number(d[9]) && mod10(d.slice(10, 20)) === Number(d[20]) && mod10(d.slice(21, 31)) === Number(d[31]);
+  if (d.length !== 47 || d[3] !== "9") return false;
+  if (forma !== "47" && forma !== "5,5,5,6,5,6,1,14" && forma !== "10,11,11,1,14") return false;
+  if (mod10(d.slice(0, 9)) !== Number(d[9]) || mod10(d.slice(10, 20)) !== Number(d[20]) || mod10(d.slice(21, 31)) !== Number(d[31])) return false;
+  return forma !== "10,11,11,1,14" || dvGeralDoBoleto(d);
 }
 
 // ── 1. Normalização ──
@@ -325,7 +347,7 @@ function formaPossivel(tamanhos: number[], ruins: number[], i: number, j: number
  * FASE 2a: trechos da cadeia que são um documento validado por inteiro (chave de NF-e, linha digitável de boleto).
  * Devolve pares [i, j] de grupos, sem sobreposição. "|" separa células de tabela: não atravessa.
  */
-function documentosValidados(c: Grupo[], tamanhos: number[], ligacoes: string[], soma: number[]): Array<[number, number]> {
+function documentosValidados(c: Grupo[], tamanhos: number[], ligacoes: string[], soma: number[], texto: string): Array<[number, number]> {
   const r: Array<[number, number]> = [];
   for (let i = 0; i < c.length;) {
     let fim = -1;
@@ -336,12 +358,51 @@ function documentosValidados(c: Grupo[], tamanhos: number[], ligacoes: string[],
         if (total !== 44 && total !== 47) continue;
         const forma = tamanhos.slice(i, j + 1).join(",");
         const d = c.slice(i, j + 1).map(g => g.digitos).join("");
-        if (total === 44 ? chaveNfeEstrutural(d, forma) : linhaDigitavelValida(d, forma)) { fim = j; break; }
+        const ligs = ligacoes.slice(i, j);
+        const ok = total === 44
+          ? chaveNfeEstrutural(d, forma) && separacaoDeChave(ligs)
+          : linhaDigitavelValida(d, forma) && separacaoDeBoleto(forma, ligs);
+        if (ok && !armadilhaDeTelefone(c, i, j, texto)) { fim = j; break; }
       }
     }
     if (fim >= 0) { r.push([i, fim]); i = fim + 1; } else i++;
   }
   return r;
+}
+
+/** QA r5 F1: chave de NF-e em blocos — todos os separadores iguais, só " " ou "." (numa única linha). */
+function separacaoDeChave(ligs: string[]): boolean {
+  return !ligs.length || ((ligs[0] === " " || ligs[0] === ".") && ligs.every(l => l === ligs[0]));
+}
+
+/**
+ * QA r5 F1: linha digitável "5.5 5.6 5.6 1 14" — ponto dentro dos três campos e o MESMO espaço em branco entre os campos;
+ * "10 11 11 1 14" — o mesmo espaço em branco (sem quebra de linha) entre todos.
+ */
+function separacaoDeBoleto(forma: string, ligs: string[]): boolean {
+  if (!ligs.length) return true;
+  if (forma === "5,5,5,6,5,6,1,14") {
+    const entre = [ligs[1], ligs[3], ligs[5], ligs[6]];
+    return ligs[0] === "." && ligs[2] === "." && ligs[4] === "." && /^\s{1,3}$/.test(entre[0]) && entre.every(l => l === entre[0]);
+  }
+  return /^ {1,3}$/.test(ligs[0]) && ligs.every(l => l === ligs[0]);
+}
+
+const CONTEXTO_DOCUMENTO_PESSOAL = /\b(?:cpfs?|cnpjs?)\b/i;
+const FORMA_EXPLICITA_PESSOAL = /(?<!\d)(\d{3})\.(\d{3})\.(\d{3})-(\d{2})(?!\d)|\(\s?\d{2}\s?\)\s?\d{4,5}-\d{4}(?!\d)/;
+/**
+ * QA r5 F1: travas da isenção da fase 2a. Nunca isenta com palavra de telefone/contato/CPF nos ~50 caracteres antes, com
+ * "(" ou "+" colado no primeiro grupo, com parênteses ou hífen entre os grupos, nem quando há dentro do trecho uma FORMA
+ * explícita de CPF ("ddd.ddd.ddd-dd", válido) ou de telefone ("(dd) ddddd-dddd").
+ */
+function armadilhaDeTelefone(c: Grupo[], i: number, j: number, texto: string): boolean {
+  const inicio = c[i].inicio, fim = c[j].fim;
+  const antes = texto.slice(Math.max(0, inicio - 50), inicio);
+  if (CONTEXTO_TELEFONE.test(antes) || CONTEXTO_DOCUMENTO_PESSOAL.test(antes) || /[(+]\s?$/.test(antes)) return true;
+  const trecho = texto.slice(inicio, fim);
+  if (/[()\-]/.test(trecho)) return true;
+  const m = FORMA_EXPLICITA_PESSOAL.exec(trecho);
+  return !!m && (!m[1] || isValidCPF(m[1] + m[2] + m[3] + m[4]));
 }
 
 /** Procura e mascara CPF, CNPJ e telefone dentro de cada cadeia de grupos de dígitos (fases 1 e 2, ver o cabeçalho). */
@@ -369,7 +430,7 @@ function mascararCadeias(texto: string): string {
       ruins.push(ruins[ruins.length - 1] + (g.digitos.length === 1 && g.digitos !== "9" ? 1 : 0));
     }
     // FASE 2a: documentos validados por inteiro ficam; a fase 1 roda nos trechos entre eles
-    const isentos = soma[n] >= 44 ? documentosValidados(c, tamanhos, ligacoes, soma) : [];
+    const isentos = soma[n] >= 44 ? documentosValidados(c, tamanhos, ligacoes, soma, texto) : [];
     const trechos: Array<[number, number]> = [];
     let a = 0;
     for (const [x, y] of isentos) { if (x > a) trechos.push([a, x - 1]); a = y + 1; }
