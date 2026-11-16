@@ -27,6 +27,8 @@
 //         ("nota", "chave", "acesso", "nf-e", "danfe") sozinho NÃO isenta.
 //       - Linha digitável de boleto (47 dígitos, moeda 9): "5.5 5.6 5.6 1 14" com os pontos, ou "10 11 11 1 14" só se o
 //         DV geral do código de barras também fechar; sempre com o DV módulo 10 de CADA campo. Se não validar, fase 1.
+//       - QA r5 F2: guia de arrecadação (IPTU, água, luz; 48 dígitos começando por 8): "48", "12 12 12 12" ou
+//         "11-1 11-1 11-1 11-1" com separadores uniformes e o DV (módulo 10/11 pelo 3º dígito) de CADA bloco válido.
 //       - Travas: palavra de telefone/contato/CPF nos ~50 caracteres antes, "(" ou "+" antes, parênteses ou hífen entre
 //         os grupos, ou forma explícita de CPF/telefone dentro do trecho: não isenta.
 //       - Código de barras de 44 dígitos colado é um grupo só: a fase 1 nunca acha nada dentro dele, então já fica.
@@ -344,7 +346,8 @@ function formaPossivel(tamanhos: number[], ruins: number[], i: number, j: number
 }
 
 /**
- * FASE 2a: trechos da cadeia que são um documento validado por inteiro (chave de NF-e, linha digitável de boleto).
+ * FASE 2a: trechos da cadeia que são um documento validado por inteiro (chave de NF-e, linha digitável de boleto, guia de
+ * arrecadação).
  * Devolve pares [i, j] de grupos, sem sobreposição. "|" separa células de tabela: não atravessa.
  */
 function documentosValidados(c: Grupo[], tamanhos: number[], ligacoes: string[], soma: number[], texto: string): Array<[number, number]> {
@@ -352,17 +355,18 @@ function documentosValidados(c: Grupo[], tamanhos: number[], ligacoes: string[],
   for (let i = 0; i < c.length;) {
     let fim = -1;
     if (tamanhos[i] >= 2) {
-      for (let j = i; j < c.length && j - i < 13 && soma[j + 1] - soma[i] <= 47; j++) {
+      for (let j = i; j < c.length && j - i < 13 && soma[j + 1] - soma[i] <= 48; j++) {
         if (j > i && ligacoes[j - 1].includes("|")) break;
         const total = soma[j + 1] - soma[i];
-        if (total !== 44 && total !== 47) continue;
+        if (total !== 44 && total !== 47 && total !== 48) continue;
         const forma = tamanhos.slice(i, j + 1).join(",");
         const d = c.slice(i, j + 1).map(g => g.digitos).join("");
         const ligs = ligacoes.slice(i, j);
-        const ok = total === 44
+        const guia = total === 48 && guiaDeArrecadacaoValida(d, forma, ligs);
+        const ok = guia || (total === 44
           ? chaveNfeEstrutural(d, forma) && separacaoDeChave(ligs)
-          : linhaDigitavelValida(d, forma) && separacaoDeBoleto(forma, ligs);
-        if (ok && !armadilhaDeTelefone(c, i, j, texto)) { fim = j; break; }
+          : total === 47 && linhaDigitavelValida(d, forma) && separacaoDeBoleto(forma, ligs));
+        if (ok && !armadilhaDeTelefone(c, i, j, texto, guia && forma !== "48" && forma !== "12,12,12,12")) { fim = j; break; }
       }
     }
     if (fim >= 0) { r.push([i, fim]); i = fim + 1; } else i++;
@@ -388,6 +392,34 @@ function separacaoDeBoleto(forma: string, ligs: string[]): boolean {
   return /^ {1,3}$/.test(ligs[0]) && ligs.every(l => l === ligs[0]);
 }
 
+/** Módulo 11 da guia de arrecadação (pesos 2–9 da direita; resto 0 ou 1 → 0). */
+function mod11Arrecadacao(base: string): number {
+  let soma = 0, peso = 2;
+  for (let k = base.length - 1; k >= 0; k--) { soma += Number(base[k]) * peso; peso = peso === 9 ? 2 : peso + 1; }
+  const resto = soma % 11;
+  return resto < 2 ? 0 : 11 - resto;
+}
+
+/**
+ * QA r5 F2: linha digitável de guia de arrecadação (IPTU, água, luz, taxas): 48 dígitos começando por 8, em 4 blocos de
+ * 11 + DV — colados ("48"), "12 12 12 12" com o mesmo separador, ou "11-1 11-1 11-1 11-1" com o mesmo separador antes do
+ * DV e o mesmo espaço entre os blocos — com o DV de CADA bloco válido: módulo 10 se o 3º dígito é 6 ou 7, módulo 11 se
+ * é 8 ou 9 (outro valor não é guia).
+ */
+export function guiaDeArrecadacaoValida(d: string, forma: string, ligs: string[] = []): boolean {
+  if (d.length !== 48 || d[0] !== "8" || !/[6-9]/.test(d[2])) return false;
+  if (forma === "12,12,12,12") {
+    if (!/^[ .]$|^\s{1,3}$/.test(ligs[0]) || !ligs.every(l => l === ligs[0])) return false;
+  } else if (forma === "11,1,11,1,11,1,11,1") {
+    const dv = [ligs[0], ligs[2], ligs[4], ligs[6]], entre = [ligs[1], ligs[3], ligs[5]];
+    if (!/^(?:-| ?- ?| |\.)$/.test(dv[0]) || !dv.every(l => l === dv[0])) return false;
+    if (!/^\s{1,3}$/.test(entre[0]) || !entre.every(l => l === entre[0])) return false;
+  } else if (forma !== "48") return false;
+  const dvDe = /[67]/.test(d[2]) ? mod10 : mod11Arrecadacao;
+  for (let k = 0; k < 48; k += 12) if (dvDe(d.slice(k, k + 11)) !== Number(d[k + 11])) return false;
+  return true;
+}
+
 const CONTEXTO_DOCUMENTO_PESSOAL = /\b(?:cpfs?|cnpjs?)\b/i;
 const FORMA_EXPLICITA_PESSOAL = /(?<!\d)(\d{3})\.(\d{3})\.(\d{3})-(\d{2})(?!\d)|\(\s?\d{2}\s?\)\s?\d{4,5}-\d{4}(?!\d)/;
 /**
@@ -395,12 +427,13 @@ const FORMA_EXPLICITA_PESSOAL = /(?<!\d)(\d{3})\.(\d{3})\.(\d{3})-(\d{2})(?!\d)|
  * "(" ou "+" colado no primeiro grupo, com parênteses ou hífen entre os grupos, nem quando há dentro do trecho uma FORMA
  * explícita de CPF ("ddd.ddd.ddd-dd", válido) ou de telefone ("(dd) ddddd-dddd").
  */
-function armadilhaDeTelefone(c: Grupo[], i: number, j: number, texto: string): boolean {
+function armadilhaDeTelefone(c: Grupo[], i: number, j: number, texto: string, hifenDoDv = false): boolean {
   const inicio = c[i].inicio, fim = c[j].fim;
   const antes = texto.slice(Math.max(0, inicio - 50), inicio);
   if (CONTEXTO_TELEFONE.test(antes) || CONTEXTO_DOCUMENTO_PESSOAL.test(antes) || /[(+]\s?$/.test(antes)) return true;
   const trecho = texto.slice(inicio, fim);
-  if (/[()\-]/.test(trecho)) return true;
+  // na guia "11-1" o hífen antes do DV de cada bloco é da forma do documento (conferido em guiaDeArrecadacaoValida)
+  if (hifenDoDv ? /[()]/.test(trecho) : /[()\-]/.test(trecho)) return true;
   const m = FORMA_EXPLICITA_PESSOAL.exec(trecho);
   return !!m && (!m[1] || isValidCPF(m[1] + m[2] + m[3] + m[4]));
 }

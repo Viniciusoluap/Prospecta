@@ -353,6 +353,32 @@ describe("filtro de dados pessoais em texto livre (M1)", () => {
     expect(sanitizarTexto("pagar 2379338128 60000000004 00000000406 1 84340000010000")).toBe("pagar 2379338128 60000000004 00000000406 1 84340000010000");
   });
 
+  it("QA r5 F2: guia de arrecadação de 48 dígitos (4 blocos de 11 + DV válido) fica inteira; DV errado ou palavra de telefone, não", () => {
+    const mod10 = (b: string) => { let t = 0, p = 2; for (let k = b.length - 1; k >= 0; k--) { const v = Number(b[k]) * p; t += v > 9 ? v - 9 : v; p = p === 2 ? 1 : 2; } return (10 - (t % 10)) % 10; };
+    const mod11 = (b: string) => { let t = 0, p = 2; for (let k = b.length - 1; k >= 0; k--) { t += Number(b[k]) * p; p = p === 9 ? 2 : p + 1; } const r = t % 11; return r < 2 ? 0 : 11 - r; };
+    let semente = 7;
+    const dig = () => { semente = (semente * 1103515245 + 12345) % 2147483648; return Math.floor(semente / 2147483648 * 10); };
+    for (let k = 0; k < 400; k++) {
+      const terceiro = "6789"[k % 4];
+      const base = "8" + String(1 + (k % 8)) + terceiro + Array.from({ length: 41 }, dig).join("");
+      const blocos = base.match(/.{11}/g)!;
+      const dvDe = terceiro === "6" || terceiro === "7" ? mod10 : mod11;
+      const formas = [
+        `IPTU ${blocos.map(x => `${x}-${dvDe(x)}`).join(" ")}`, `conta de água ${blocos.map(x => `${x} ${dvDe(x)}`).join(" ")}`,
+        `luz ${blocos.map(x => x + dvDe(x)).join(" ")}`, `taxa ${blocos.map(x => x + dvDe(x)).join("")}`,
+      ];
+      for (const t of formas) expect(sanitizarTexto(t), t).toBe(t);
+    }
+    // a guia do relatório (3º dígito 2: não é guia) e uma guia com DV errado continuam valendo a fase 1 quando há algo dentro
+    const errada = "IPTU 81257550349-3 79907473112-3 00000000000-0 00000000000-0";
+    expect(sanitizarTexto(errada)).not.toBe(errada);
+    // palavra de telefone antes: nunca isenta
+    const b = "81690000000";
+    const comFone = `fone ${[b, "99991234567", "00000000000", "00000000000"].map(x => `${x}-${mod10(x)}`).join(" ")}`;
+    expect(sanitizarTexto(`taxa ${comFone.slice(5)}`)).toBe(`taxa ${comFone.slice(5)}`);
+    expect(sanitizarTexto(comFone)).not.toContain("99991234567");
+  });
+
   it("percorre a resposta inteira (listas e objetos), sem tocar números e chaves", () => {
     expect(sanitizarResposta({ a: [{ texto: "cpf 111.222.333-44", n: 11122233344 }], "111.222.333-44": null }))
       .toEqual({ a: [{ texto: "cpf [dado pessoal omitido]", n: 11122233344 }], "111.222.333-44": null });
