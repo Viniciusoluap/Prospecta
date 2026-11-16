@@ -1,6 +1,6 @@
 # S-F — Estudo de Massa: KML com várias áreas e malha viária conectada, sem sobras em branco
 
-Status: Ready for Review
+Status: Done (publicada em 16/11/2026)
 Epic: EPIC-023 (Etapa F) — correções 8 e 10 do dono (15/11/2026)
 Paridade: **portar ao Grupo Santa Fé**.
 Tamanho estimado: GG (maior risco do epic)

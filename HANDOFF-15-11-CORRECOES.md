@@ -53,6 +53,21 @@
 - Limites conhecidos: boca do balão em canto vivo; balão cortado pela divisa é desenhado inteiro; dobra fechada da via
   pela divisa fica em quina.
 
+### Etapa F (correções 8 e 10) — S-F
+- Motor de cenários do Estudo de Massa (`shared/incorporacao/malha-conectada.ts` novo; `massa.ts` versão 3.0.0):
+  malha viária traçada primeiro e conectada (cenário desconectado é descartado), lotes de borda recortados pela divisa,
+  toda sobra com destino (lote, via, área verde, institucional ou não parcelável) e fecho de áreas testado; acesso
+  posicionado junto às vias existentes do entorno (camada `osm`), quando houver; KML com várias áreas separadas gera
+  cenário em todas, com numeração contínua e totais somados; rótulos do desenho técnico sem sobreposição.
+- No caso de referência (quadrilátero irregular de ~250 × 150 m, lote 12 × 25): Grade 57 → 70 lotes (45,5% → 57,7%),
+  Cul-de-sac 35 → 68 (28,0% → 56,6%), Rua Simples 21 → 43 (16,8% → 36,0%); área sem destino de 13–59% → 0.
+- Vias 3D (Etapa G) ajustadas ao motor novo: ponta de rua triangular deixada pelo recorte na divisa fica pintada no
+  terreno (não é erguida como via); via reta com cabeceira em viés é encurtada até onde cabe com a largura inteira.
+- Parcial: não há lotes de frente direta para a via existente; balão só onde a rua sem saída termina dentro da gleba;
+  furos do KML tratados em grade, cul-de-sac e rua simples retangular (as outras tipologias recortam depois); a
+  maquete aceita um terreno só (fica o de maior área, com os lotes e ruas de todas). Decisões do agente, a confirmar
+  com o dono: testada mínima do lote recortado = max(5 m, metade da testada); acesso "ligado" a até 40 m da via existente.
+
 ### Etapa F — revisão do coordenador (forma dos lotes e das áreas públicas)
 - Sobra que encosta em vários lotes é REPARTIDA prolongando as divisas laterais de cada lote até a divisa (cada lote
   ganha só o trecho na sua frente/fundo); anexo inteiro só se o lote continuar compacto. Critério de forma para lote
@@ -71,7 +86,6 @@
 ## Pendências
 - **Dono:** abrir o pedido "Polímeros (Morada do Bosque)", clicar em "Gerar maquete (ler o projeto)" e dizer como ficou a
   leitura do "ARQ 01-01-CASA PADRÃO.pdf" (é a primeira medição do leitor num projeto real).
-- Etapas F (Estudo de Massa: áreas separadas e malha conectada), G (vias 3D).
 - Porte para o Grupo Santa Fé das correções 1, 2, 3, 4, 8, 9 e 10 (lista no ROADMAP) — sem acesso àquele repositório.
 
 ## Testes
@@ -92,11 +106,15 @@
 - Etapa G — automáticos: `maquete-3d-vias.test.ts` (24) aprovado junto com os demais testes da maquete. Manual: capturas
   em navegador de teste (cruzamento, balão, rua ao nível do chão, noite) sem via flutuando, faixa torta nem emenda.
   Não verificado: fluidez em iPad e celular reais (medido só com renderização por software).
-- (c) Pendentes em produção: leitura real do PDF da casa padrão pelo leitor próprio; novo pedido por cliente do CRM com PDF avulso real; "Gerar e distribuir nos lotes" no
+- Etapa F — automáticos: suíte completa com 1.908 aprovados e 1 falha antiga e sem relação (a de
+  `central-vendas-envio.test.ts`); `incorporacao-massa-malha-conectada.test.ts` novo. Manual: desenhos técnicos das três
+  tipologias e de duas áreas separadas conferidos em imagem. Não verificado: a aba Estudo de Massa em navegador, a busca
+  das vias do entorno de ponta a ponta e os KML reais do dono.
+- (c) Pendentes em produção: gerar cenários num estudo real (Polímeros / Morada do Bosque) e num KML com duas áreas; leitura real do PDF da casa padrão pelo leitor próprio; novo pedido por cliente do CRM com PDF avulso real; "Gerar e distribuir nos lotes" no
   Polímeros (Morada do Bosque); mapa operacional com as imagens reais de satélite e os pontos reais; CRM no iPad (rolagem e ausência de tela preta); editar um corretor em "Usuários e acesso"
   e conferir a comissão numa obra; excluir um pedido de maquete pela lista.
 
 ## Próximo passo exato
-Etapa F: o agente (branch local `etapa-f`) está corrigindo a anexação de sobras (lotes em "pente", áreas verdes
-minúsculas e contíguas, aviso da rua simples). Quando voltar: rever as imagens, trazer os commits por `git cherry-pick`,
-rodar a suíte (os três testes de `maquete-3d-vias.test.ts` que usam o motor de massa podem precisar de ajuste) e publicar.
+As sete etapas do EPIC-023 estão publicadas. Falta: (1) o dono validar em produção os itens da lista "Pendentes em
+produção" e dizer como o leitor próprio leu o PDF real; (2) portar para o Grupo Santa Fé as correções 1, 2, 3, 4, 8, 9
+e 10 (ROADMAP); (3) ajustar o que a validação apontar.
