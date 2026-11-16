@@ -11,6 +11,7 @@ import { trpc } from "@/lib/trpc";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { enviarPartes, LIMITE_DOCUMENTO } from "@/lib/documentos-partes";
 import { EditorPlanta } from "@/components/maquete-3d/EditorPlanta";
+import { HistoricoPlanta, ImportarPlanta } from "@/components/maquete-3d/ImportarPlanta";
 
 const Visualizador = lazy(() => import("@/components/maquete-3d/visualizador/Visualizador"));
 import { ROTULOS_TIPO, TIPOS_MAQUETE, type ModeloMaquete, type TipoMaquete } from "@shared/maquete-3d/modelo";
@@ -570,6 +571,9 @@ function Detalhe({ id }: { id: number }) {
   const podeRevisar = d.status === "em_revisao" || d.status === "validada";
   const erros = d.problemas.filter(p => p.nivel === "erro"), avisos = d.problemas.filter(p => p.nivel === "aviso");
   const alvoId = (d.projectId ?? d.studyId)!;
+  // S-05: importar planta arquitetônica (e restaurar versões) também em maquete validada ou publicada.
+  const podeImportar = ["liberada", "em_revisao", "validada", "publicada"].includes(d.status) && !lendo;
+  const aposRestaurar = () => { setSujo(false); recarregar(); };
 
   const link = `${window.location.origin}/maquete/${d.token}`;
 
@@ -754,6 +758,18 @@ function Detalhe({ id }: { id: number }) {
               </div>
             )}
             {d.status === "validada" && <p className="text-sm text-emerald-300">Planta validada em {dataHora(d.revisadoEm)}. Veja a maquete em 3D e publique o link abaixo.</p>}
+            {podeImportar && <ImportarPlanta d={d} admin={admin} sujo={sujo} aoMudar={recarregar} />}
+            <HistoricoPlanta d={d} admin={admin} sujo={sujo} aoMudar={aposRestaurar} />
+          </CardContent>
+        </Card>
+      )}
+
+      {!rascunho && podeImportar && (
+        <Card className={cardCls}>
+          <CardHeader><CardTitle className="text-lg">Revisão da planta</CardTitle></CardHeader>
+          <CardContent className="space-y-3 text-sm">
+            <p className="text-gray-300">Ainda não há planta. Gere a maquete pela leitura do projeto, use a construção padrão ou importe a planta arquitetônica.</p>
+            <ImportarPlanta d={d} admin={admin} sujo={sujo} aoMudar={recarregar} />
           </CardContent>
         </Card>
       )}
