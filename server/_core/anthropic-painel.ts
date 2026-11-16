@@ -204,20 +204,38 @@ export async function conferirModelosDasFuncoes(modelos: ModeloAnthropic[], deps
 }
 
 /**
- * Grava o modelo de uma função: id vazio = "usar o preferencial"; senão, só um id que a chave salva oferece agora.
- * Não chama a IA para a função (listar modelos não consome tokens) e não liga nada.
+ * Confere o modelo de uma função SEM gravar nada: id vazio = "usar o preferencial" (null); senão, só um id que a chave
+ * salva oferece agora. Não chama a IA para a função (listar modelos não consome tokens).
  */
-export async function salvarModeloDaFuncao(funcao: FuncaoAnthropic, id: string, deps: AnthropicPainelDeps = anthropicPainelDepsPadrao): Promise<ModeloAnthropic | null> {
+export async function validarModeloDaFuncao(funcao: FuncaoAnthropic, id: string, deps: AnthropicPainelDeps = anthropicPainelDepsPadrao): Promise<ModeloAnthropic | null> {
   if (!FUNCOES_ANTHROPIC.includes(funcao)) throw new Error("Função desconhecida.");
   const alvo = id.trim();
-  let modelo: ModeloAnthropic | null = null;
-  if (alvo) {
-    const modelos = await modelosAnthropicPainel(deps);
-    modelo = modelos.find(m => m.id === alvo) ?? null;
-    if (!modelo) throw new Error("Esse modelo não está disponível para a chave salva. Atualize a lista e escolha outro.");
-  }
-  await deps.gravarBanco(chaveModeloDaFuncao(funcao), modelo?.id ?? "");
+  if (!alvo) return null;
+  const modelos = await modelosAnthropicPainel(deps);
+  const modelo = modelos.find(m => m.id === alvo) ?? null;
+  if (!modelo) throw new Error("Esse modelo não está disponível para a chave salva. Atualize a lista e escolha outro.");
+  return modelo;
+}
+
+/**
+ * Grava o modelo (já validado) de uma função e apaga o aviso de modelo sumido. Se a gravação do modelo falhar, o aviso
+ * volta a ser o de antes (QA S-11 achado 6: nada fica salvo pela metade) e o erro sobe.
+ */
+export async function gravarModeloDaFuncao(funcao: FuncaoAnthropic, modelo: ModeloAnthropic | null, deps: AnthropicPainelDeps = anthropicPainelDepsPadrao): Promise<void> {
+  const avisoAntes = (await deps.lerBanco(chaveAvisoDaFuncao(funcao)))?.trim() ?? "";
   await deps.gravarBanco(chaveAvisoDaFuncao(funcao), "");
+  try {
+    await deps.gravarBanco(chaveModeloDaFuncao(funcao), modelo?.id ?? "");
+  } catch (e) {
+    if (avisoAntes) await deps.gravarBanco(chaveAvisoDaFuncao(funcao), avisoAntes).catch(() => undefined);
+    throw e;
+  }
+}
+
+/** Valida e grava o modelo de uma função (id vazio = "usar o preferencial"). Não liga nada. */
+export async function salvarModeloDaFuncao(funcao: FuncaoAnthropic, id: string, deps: AnthropicPainelDeps = anthropicPainelDepsPadrao): Promise<ModeloAnthropic | null> {
+  const modelo = await validarModeloDaFuncao(funcao, id, deps);
+  await gravarModeloDaFuncao(funcao, modelo, deps);
   return modelo;
 }
 

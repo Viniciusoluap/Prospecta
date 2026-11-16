@@ -44,6 +44,7 @@ function setup() {
   const modelosAntigos = {
     lerAnteriorDolores: vi.fn(async () => antigo.dolores),
     limparAnteriorDolores: vi.fn(async () => { antigo.dolores = null; }),
+    restaurarAnteriorDolores: vi.fn(async (_u: number, m: string) => { antigo.dolores = m; }),
     padraoMaquete: vi.fn(async () => "claude-padrao-da-maquete"),
   };
   const deps = { fetchImpl: vi.fn(), anthropic, modelosAntigos } as unknown as IntegracoesDeps;
@@ -159,6 +160,31 @@ describe("rotas do painel — modelo por função", () => {
     const r = await s.caller.salvarModeloFuncaoAnthropic({ funcao: "dolores_whatsapp", modelo: "" });
     expect(s.modelosAntigos.limparAnteriorDolores).toHaveBeenCalledWith(7);
     expect(linha(r, "dolores_whatsapp").valendo).toEqual({ modelo: "claude-sonnet-5-5", origem: "preferencial" });
+  });
+
+  it("QA S-11 achado 6: falha ao descartar o modelo antigo da Dolores não é engolida e nada fica salvo pela metade", async () => {
+    const s = setup();
+    await s.caller.salvarAnthropic({ apiKey: CHAVE });
+    await s.caller.salvarModeloAnthropic({ modelo: "claude-sonnet-5-5" });
+    s.antigo.dolores = "claude-opus-5-5";
+    s.modelosAntigos.limparAnteriorDolores.mockRejectedValueOnce(new Error("banco fora"));
+    await expect(s.caller.salvarModeloFuncaoAnthropic({ funcao: "dolores_whatsapp", modelo: "claude-haiku-5" }))
+      .rejects.toMatchObject({ code: "INTERNAL_SERVER_ERROR", message: expect.stringMatching(/modelo antigo do cartão da Dolores.*Nada foi alterado/) });
+    expect(s.banco.get(chaveModeloDaFuncao("dolores_whatsapp")) ?? "").toBe("");
+    expect(s.antigo.dolores).toBe("claude-opus-5-5");
+    expect(linha(await s.caller.modelosPorFuncaoAnthropic(), "dolores_whatsapp").valendo).toMatchObject({ modelo: "claude-opus-5-5", origem: "anterior" });
+
+    // gravar o modelo falha depois de descartar o antigo: o antigo volta e o erro é claro
+    const gravar = s.anthropic.gravarBanco;
+    s.anthropic.gravarBanco = async (k, v) => { if (k === chaveModeloDaFuncao("dolores_whatsapp")) throw new Error("fora"); return gravar(k, v); };
+    await expect(s.caller.salvarModeloFuncaoAnthropic({ funcao: "dolores_whatsapp", modelo: "claude-haiku-5" }))
+      .rejects.toMatchObject({ code: "INTERNAL_SERVER_ERROR", message: expect.stringMatching(/Nada foi alterado/) });
+    expect(s.modelosAntigos.restaurarAnteriorDolores).toHaveBeenCalledWith(7, "claude-opus-5-5");
+    expect(s.antigo.dolores).toBe("claude-opus-5-5");
+    // e, se nem devolver o antigo der certo, a mensagem diz o que aconteceu
+    s.modelosAntigos.restaurarAnteriorDolores.mockRejectedValueOnce(new Error("fora"));
+    await expect(s.caller.salvarModeloFuncaoAnthropic({ funcao: "dolores_whatsapp", modelo: "claude-haiku-5" }))
+      .rejects.toMatchObject({ message: expect.stringMatching(/claude-opus-5-5\) não pôde ser devolvido/) });
   });
 
   it("modelo que sumiu da conta: ao listar ou ao trocar a chave, a função cai para o preferencial e o painel avisa", async () => {

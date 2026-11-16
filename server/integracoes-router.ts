@@ -18,7 +18,7 @@ import { removerTokenMapbox, salvarTokenMapbox, tokenMapbox } from "./_core/geo/
 import { verificarTokenMapbox } from "../shared/geo/mapbox-token.js";
 import {
   anthropicPainelDepsPadrao, conferirModelosDasFuncoes, mascararChaveAnthropic, modelosAnthropicPainel, removerAnthropicPainel,
-  salvarChaveAnthropicPainel, salvarModeloDaFuncao, salvarModeloPreferencialAnthropic, statusAnthropicPainel, statusModelosPorFuncao,
+  salvarChaveAnthropicPainel, gravarModeloDaFuncao, validarModeloDaFuncao, salvarModeloPreferencialAnthropic, statusAnthropicPainel, statusModelosPorFuncao,
   testarAnthropicPainel, type AnthropicPainelDeps,
 } from "./_core/anthropic-painel.js";
 import { FUNCOES_ANTHROPIC } from "../shared/funcoes-anthropic.js";
@@ -51,6 +51,8 @@ export type IntegracoesDeps = {
   modelosAntigos?: {
     lerAnteriorDolores: () => Promise<string | null>;
     limparAnteriorDolores: (userId: number) => Promise<void>;
+    /** Devolve o valor antigo ao cartão da Dolores quando a gravação do modelo dela falha depois de limpá-lo (achado 6). */
+    restaurarAnteriorDolores: (userId: number, modelo: string) => Promise<void>;
     padraoMaquete: () => Promise<string | null>;
   };
 };
@@ -62,6 +64,9 @@ const modelosAntigosPadrao: NonNullable<IntegracoesDeps["modelosAntigos"]> = {
   },
   limparAnteriorDolores: async userId => {
     await db.getDb().update(doloresWhatsappConfig).set({ modelo: null, atualizadoEm: new Date(), atualizadoPor: userId }).where(eq(doloresWhatsappConfig.id, 1));
+  },
+  restaurarAnteriorDolores: async (userId, modelo) => {
+    await db.getDb().update(doloresWhatsappConfig).set({ modelo, atualizadoEm: new Date(), atualizadoPor: userId }).where(eq(doloresWhatsappConfig.id, 1));
   },
   padraoMaquete: async () => (await (await import("./maquete-3d/base.js")).carregarConfig()).modeloIA || null,
 };
@@ -285,10 +290,27 @@ export function createIntegracoesRouter(deps: IntegracoesDeps = defaultDeps) {
       .input(z.object({ funcao: z.enum(FUNCOES_ANTHROPIC), modelo: z.string().trim().max(200) }).strict())
       .mutation(async ({ ctx, input }) => {
         let modelo;
-        try { modelo = await salvarModeloDaFuncao(input.funcao, input.modelo, anthropic()); }
+        try { modelo = await validarModeloDaFuncao(input.funcao, input.modelo, anthropic()); }
         catch (e) { throw new TRPCError({ code: "BAD_REQUEST", message: mascararChaveAnthropic(mensagemDe(e, "Não foi possível salvar o modelo da função.")) }); }
-        // A partir daqui a fonte do modelo da Dolores é este painel: o campo antigo do cartão dela deixa de valer.
-        if (input.funcao === "dolores_whatsapp") await antigos().limparAnteriorDolores(ctx.user.id).catch(() => undefined);
+        // QA S-11 achado 6: tudo ou nada. Na Dolores, a fonte do modelo passa a ser este painel e o campo antigo do cartão
+        // dela é descartado ANTES de gravar; se descartar falhar, nada é gravado; se gravar falhar, o antigo volta.
+        const a = antigos();
+        let anterior: string | null = null;
+        if (input.funcao === "dolores_whatsapp") {
+          try {
+            anterior = await a.lerAnteriorDolores();
+            if (anterior) await a.limparAnteriorDolores(ctx.user.id);
+          } catch {
+            throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Não foi possível descartar o modelo antigo do cartão da Dolores. Nada foi alterado: tente de novo em instantes." });
+          }
+        }
+        try { await gravarModeloDaFuncao(input.funcao, modelo, anthropic()); }
+        catch {
+          const restaurado = anterior ? await a.restaurarAnteriorDolores(ctx.user.id, anterior).then(() => true, () => false) : true;
+          throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: restaurado
+            ? "Não foi possível salvar o modelo da função. Nada foi alterado: tente de novo em instantes."
+            : `Não foi possível salvar o modelo da função, e o modelo antigo do cartão da Dolores (${anterior}) não pôde ser devolvido: ela passa a usar o preferencial. Tente salvar de novo.` });
+        }
         return { success: true as const, modelo, ...(await statusModelosPorFuncao(await quedasDasFuncoes(), anthropic())) };
       }),
 
