@@ -12,6 +12,7 @@ import { createHash, createHmac, timingSafeEqual } from "node:crypto";
 import { Router, type Request, type Response } from "express";
 import { and, eq, lt, or, sql } from "drizzle-orm";
 import { doloresMensagens, doloresRemetentesEstranhos, doloresWhatsappConfig, type DoloresWhatsappConfig, type SituacaoMensagem } from "../../drizzle/schema-dolores-whatsapp.js";
+import { tratarLinksDaResposta } from "../../shared/dolores/links.js";
 import { sanitizarTexto } from "../../shared/dolores/sanitizar.js";
 import { FILTRO_DO_REGISTRO, filtroDaSaida } from "./dados-pessoais.js";
 import {
@@ -50,6 +51,11 @@ const MAX_FALHAS_AUTH = 20;
 export const PROCESSANDO_VENCIDO_MS = 3 * 60_000;
 
 const SITE = () => (process.env.PUBLIC_SITE_URL || "https://www.prospectaconstrucoes.com").replace(/\/+$/, "");
+/**
+ * QA r7 A2: domínio do sistema para a lista permitida de links da resposta — SÓ a variável PUBLIC_SITE_URL (a mesma do
+ * endereço do aviso). Sem ela, nenhum link do sistema passa (só trello.com).
+ */
+const urlDoSistemaParaLinks = () => process.env.PUBLIC_SITE_URL?.trim() || null;
 export const URL_WEBHOOK_DOLORES = () => `${SITE()}/api/dolores/whatsapp`;
 
 /** Segredo do aviso da Dolores: derivado do segredo do servidor com rótulo próprio (nunca vai para log nem para a tela). */
@@ -71,7 +77,8 @@ const envioPadrao: EnvioWhatsapp = async ({ instancia, numero, texto, prazoMs })
   const c = await configEvolution();
   if (!c) return false;
   const comPrazo: typeof fetch = (url, init) => fetch(url, { ...init, signal: AbortSignal.timeout(prazoMs) });
-  return Boolean(await enviarTextoEvolution(c, instancia, numero, texto, comPrazo));
+  // QA r7 A2: sem prévia de link (a Evolution não busca a URL de ninguém)
+  return Boolean(await enviarTextoEvolution(c, instancia, numero, texto, comPrazo, { linkPreview: false }));
 };
 /** `agora`: data (mês, idade da mensagem); `ms`: relógio do prazo de 60 s (um só para o aviso inteiro). */
 type Dependencias = { agora: () => Date; enviar: EnvioWhatsapp; ms: () => number };
@@ -106,8 +113,10 @@ async function responderAoDono(cfg: DoloresWhatsappConfig, numero: string, texto
     await registrarAcao({ funcao: "whatsapp_resposta", resultado: "recusada", motivo: "destino não é o número do dono", autorUserId: ctx.autor, canal: "whatsapp", pedidoId: `wa:${ctx.mensagemId}` });
     return false;
   }
-  // dados pessoais seguem o interruptor (opção B do dono); senhas, chaves e dados bancários saem sempre
-  const final = cortarResposta(sanitizarTexto(texto, filtroDaSaida("whatsapp")));
+  // QA r7 A2: link fora da lista permitida (o domínio do sistema, PUBLIC_SITE_URL, e trello.com) vira "[link removido]";
+  // os permitidos vão sem consulta nem fragmento. Depois, o filtro: dados pessoais seguem o interruptor (opção B do
+  // dono); senhas, chaves e dados bancários saem sempre.
+  const final = cortarResposta(sanitizarTexto(tratarLinksDaResposta(texto, urlDoSistemaParaLinks()), filtroDaSaida("whatsapp")));
   const resumo = { caracteres: final.length, destino: mascararNumero(numero), ...ctx.resumo };
   // QA achado 5: o envio cabe no prazo ÚNICO do aviso (nunca 8 s fixos por item além dele).
   const restante = ctx.prazoFinal - deps.ms();

@@ -200,6 +200,12 @@ escrever; um texto digitado de um jeito muito diferente pode escapar):
 
 Endereço, arquivos e links do Drive continuam fora das consultas.
 
+**Links na resposta.** Para que um texto de cliente não consiga fazer a Dolores montar um link com dados dentro, a
+resposta que chega ao seu WhatsApp só leva links do **próprio sistema** (o domínio da variável `PUBLIC_SITE_URL` da
+Vercel) e do **Trello** (`trello.com`), e mesmo esses sem a parte depois de "?" ou "#". Qualquer outro link vira
+"[link removido]". Sem a variável `PUBLIC_SITE_URL`, nenhum link do sistema passa (só o Trello). A mensagem é enviada sem
+prévia de link (ninguém abre o endereço para montar a prévia).
+
 **O que continua sem dado pessoal**, qualquer que seja a escolha: o registro de ações (`dolores_acoes`), o pedido
 guardado (`dolores_mensagens`), os números estranhos (`dolores_remetentes_estranhos`), a tela de Integrações › Dolores, os
 logs e as mensagens de erro.
