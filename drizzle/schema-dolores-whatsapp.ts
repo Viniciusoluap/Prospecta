@@ -35,6 +35,10 @@ export const doloresMensagens = pgTable("dolores_mensagens", {
   voltas: smallint("voltas").default(0).notNull(),
   tokensEntrada: integer("tokens_entrada").default(0).notNull(),
   tokensSaida: integer("tokens_saida").default(0).notNull(),
+  /** Reserva do limite mensal da chamada ao modelo em andamento (vence em `reservaAte`). */
+  reservaEntrada: integer("reserva_entrada").default(0).notNull(),
+  reservaSaida: integer("reserva_saida").default(0).notNull(),
+  reservaAte: timestamp("reserva_ate", { withTimezone: true }),
 }, t => [
   uniqueIndex("dolores_mensagens_externa_uidx").on(t.instancia, t.externalId),
   index("dolores_mensagens_criado_em_idx").on(t.criadoEm),

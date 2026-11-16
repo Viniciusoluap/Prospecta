@@ -3,8 +3,8 @@
 // (`executarFuncao`: pausa, usuária, lista, validação, limite, READ ONLY, filtro de dados pessoais, auditoria) e o
 // resultado volta ao modelo só como `tool_result`. Tetos: voltas, tokens por pedido, limite mensal e prazo total (a função
 // da Vercel tem 60 s). Estourando, responde o que tem e diz que parou. Quem decide SE a IA pode rodar é whatsapp.ts.
-import { bloqueioDoLimite, type Limites } from "../../shared/dolores/whatsapp.js";
-import { registrarConsumo, usoDoMes, type UsoDaChamada } from "./consumo.js";
+import type { Limites } from "../../shared/dolores/whatsapp.js";
+import { liberarReserva, registrarConsumo, reservarChamada, type UsoDaChamada } from "./consumo.js";
 import { PEDIDO_DE_FECHAMENTO, PROMPT_SISTEMA_WHATSAPP } from "./prompt.js";
 import { executarFuncao, ferramentasLiberadas } from "./ponte.js";
 
@@ -22,6 +22,10 @@ export const MINIMO_PARA_CHAMAR_MS = 8_000;
 export const FOLGA_FINAL_MS = 3_000;
 /** Prazo de uma consulta dentro do laço. */
 const PRAZO_CONSULTA_MS = 15_000;
+/** Reserva mínima de entrada por chamada (o contexto só cresce: a reserva é o maior entre isto e a entrada da última). */
+export const RESERVA_MINIMA_ENTRADA = 4_000;
+/** A reserva vence sozinha depois disto (a função da Vercel morre aos 60 s). */
+const VALIDADE_RESERVA_MS = 90_000;
 
 type BlocoTexto = { type: "text"; text: string };
 type BlocoFerramenta = { type: "tool_use"; id: string; name: string; input: unknown };
@@ -98,6 +102,22 @@ export async function executarComando(p: PedidoComando): Promise<ResultadoComand
   let final: string | null = null;
   const restante = () => p.prazoFinal - Date.now() - FOLGA_FINAL_MS;
 
+  let ultimaEntrada = 0;
+  /** Reserva o limite mensal sob trava antes da chamada; bloqueado → para com "limite_mensal". */
+  const reservar = async (): Promise<boolean> => {
+    try {
+      const b = await reservarChamada({ mes: p.mes, mensagemId: p.mensagemId, limites: p.limites, validadeMs: VALIDADE_RESERVA_MS,
+        reserva: { entrada: Math.max(RESERVA_MINIMA_ENTRADA, ultimaEntrada), saida: MAX_TOKENS_SAIDA } });
+      if (b) { parou = "limite_mensal"; return false; }
+      return true;
+    } catch (e) {
+      // sem conseguir reservar, não chama (falha fechada: o limite é a trava do gasto)
+      console.error("[dolores/cerebro] falha ao reservar o limite mensal", e instanceof Error ? e.name : "erro");
+      parou = "erro_modelo";
+      return false;
+    }
+  };
+
   const umaChamada = async (semFerramentas: boolean): Promise<RespostaModelo | null> => {
     voltas++;
     try {
@@ -106,7 +126,8 @@ export async function executarComando(p: PedidoComando): Promise<ResultadoComand
         maxTokens: MAX_TOKENS_SAIDA, timeoutMs: Math.max(1000, restante()), semFerramentas,
       });
       const uso = usoDe(r);
-      tokens.entrada += uso.entrada + uso.cacheEscrita + uso.cacheLeitura;
+      ultimaEntrada = uso.entrada + uso.cacheEscrita + uso.cacheLeitura;
+      tokens.entrada += ultimaEntrada;
       tokens.saida += uso.saida;
       await registrarConsumo({ mes: p.mes, mensagemId: p.mensagemId, modelo: p.modelo, volta: voltas, uso, parada: r.stop_reason });
       return r;
@@ -114,6 +135,8 @@ export async function executarComando(p: PedidoComando): Promise<ResultadoComand
       console.error("[dolores/cerebro] falha na chamada ao modelo", (e as { status?: number })?.status ?? (e instanceof Error ? e.name : "erro"));
       parou = restante() <= 0 || (e instanceof Error && /timeout|timed out|abort/i.test(e.message)) ? "tempo" : "erro_modelo";
       return null;
+    } finally {
+      await liberarReserva(p.mensagemId);
     }
   };
 
@@ -121,7 +144,7 @@ export async function executarComando(p: PedidoComando): Promise<ResultadoComand
     if (voltas >= MAX_VOLTAS) { parou = "voltas"; break; }
     if (restante() < MINIMO_PARA_CHAMAR_MS) { parou = "tempo"; break; }
     if (tokens.entrada >= TETO_ENTRADA_POR_PEDIDO) { parou = "teto_tokens"; break; }
-    if (bloqueioDoLimite(await usoDoMes(p.mes), p.limites)) { parou = "limite_mensal"; break; }
+    if (!(await reservar())) break;
     const r = await umaChamada(false);
     if (!r) break;
     mensagens.push({ role: "assistant", content: r.content });
@@ -155,11 +178,12 @@ export async function executarComando(p: PedidoComando): Promise<ResultadoComand
 
   // Parou com consultas feitas e ainda há tempo: uma última chamada SEM ferramentas para responder com o que já tem.
   const pendente = mensagens[mensagens.length - 1];
-  if (final === null && (parou === "voltas" || parou === "teto_tokens") && pendente.role === "user" && restante() >= MINIMO_PARA_CHAMAR_MS
-    && !bloqueioDoLimite(await usoDoMes(p.mes), p.limites)) {
-    pendente.content.push({ type: "text", text: PEDIDO_DE_FECHAMENTO });
-    const r = await umaChamada(true);
-    if (r) { const t = textoDe(r.content); if (t) final = t; }
+  if (final === null && (parou === "voltas" || parou === "teto_tokens") && pendente.role === "user" && restante() >= MINIMO_PARA_CHAMAR_MS) {
+    if (await reservar()) {
+      pendente.content.push({ type: "text", text: PEDIDO_DE_FECHAMENTO });
+      const r = await umaChamada(true);
+      if (r) { const t = textoDe(r.content); if (t) final = t; }
+    }
   }
 
   const corpo = (final ?? ultimoTexto).trim();

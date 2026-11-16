@@ -6,8 +6,8 @@
 --   mensagem entregue de novo não gera outra resposta nem outro gasto). Guarda o remetente mascarado e o comando do dono
 --   já filtrado; nunca a resposta.
 -- "dolores_consumo": uma linha por chamada ao modelo (tokens de entrada, saída e cache), base do limite mensal.
--- Somente aditiva e idempotente: só tabelas e índices novos (IF NOT EXISTS); a linha de configuração entra com
--- ON CONFLICT DO NOTHING. Nenhuma tabela existente é alterada.
+-- Somente aditiva e idempotente: só tabelas, colunas e índices novos (IF NOT EXISTS); a linha de configuração entra com
+-- ON CONFLICT DO NOTHING. Nenhuma tabela anterior a esta migração é alterada.
 -- Reversão: DROP TABLE "dolores_consumo", "dolores_mensagens", "dolores_whatsapp_config" (nada depende delas).
 
 CREATE TABLE IF NOT EXISTS "dolores_whatsapp_config" (
@@ -45,8 +45,18 @@ CREATE TABLE IF NOT EXISTS "dolores_mensagens" (
   "respondida_em" timestamp with time zone,
   "voltas" smallint NOT NULL DEFAULT 0,
   "tokens_entrada" integer NOT NULL DEFAULT 0,
-  "tokens_saida" integer NOT NULL DEFAULT 0
+  "tokens_saida" integer NOT NULL DEFAULT 0,
+  -- reserva do limite mensal para a chamada ao modelo EM ANDAMENTO desta mensagem (tirada sob trava antes de chamar,
+  -- liberada depois; vence sozinha em "reserva_ate" se a função morrer no meio)
+  "reserva_entrada" integer NOT NULL DEFAULT 0,
+  "reserva_saida" integer NOT NULL DEFAULT 0,
+  "reserva_ate" timestamp with time zone
 );
+
+-- colunas acrescentadas depois da primeira versão desta migração (idempotente, caso a tabela já exista)
+ALTER TABLE "dolores_mensagens" ADD COLUMN IF NOT EXISTS "reserva_entrada" integer NOT NULL DEFAULT 0;
+ALTER TABLE "dolores_mensagens" ADD COLUMN IF NOT EXISTS "reserva_saida" integer NOT NULL DEFAULT 0;
+ALTER TABLE "dolores_mensagens" ADD COLUMN IF NOT EXISTS "reserva_ate" timestamp with time zone;
 
 CREATE UNIQUE INDEX IF NOT EXISTS "dolores_mensagens_externa_uidx" ON "dolores_mensagens" ("instancia", "external_id");
 CREATE INDEX IF NOT EXISTS "dolores_mensagens_criado_em_idx" ON "dolores_mensagens" ("criado_em");

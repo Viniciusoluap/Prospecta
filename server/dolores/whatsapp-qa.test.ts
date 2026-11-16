@@ -105,3 +105,33 @@ describe("QA achado 2 — o filtro de dados pessoais pega dígitos seguidos de p
     expect(m.texto).not.toMatch(/\d{8}/);
   });
 });
+
+describe("QA achado 3 — limite mensal reservado sob trava antes da chamada", () => {
+  it("dois comandos simultâneos com espaço para um: só um chama o modelo e o uso não passa do limite", async () => {
+    await banco.pg.exec("UPDATE dolores_whatsapp_config SET limite_mensal_tokens_entrada = 1500 WHERE id = 1");
+    roteiro = async () => { await new Promise(r => setTimeout(r, 400)); return fim("ok"); };
+    const [a, b] = await Promise.all([chamar(aviso({ id: "C1" })), chamar(aviso({ id: "C2" }))]);
+    expect(chamadas).toHaveLength(1);
+    const [{ e }] = await q<{ e: number }>("SELECT coalesce(sum(tokens_entrada), 0)::int AS e FROM dolores_consumo");
+    expect(e).toBeLessThanOrEqual(1500);
+    expect(enviar).toHaveBeenCalledTimes(2);
+    const textos = enviar.mock.calls.map(c => c[0].texto as string);
+    expect(textos.filter(t => /limite mensal de gasto com a IA foi atingido/.test(t))).toHaveLength(1);
+    expect([a.body.r, b.body.r]).toEqual([{ respondida: 1 }, { respondida: 1 }]);
+    // nenhuma reserva fica presa depois
+    expect(await q("SELECT id FROM dolores_mensagens WHERE reserva_entrada > 0 OR reserva_ate IS NOT NULL")).toEqual([]);
+  });
+  it("reserva vencida (função que morreu) não prende o limite", async () => {
+    await banco.pg.exec(`INSERT INTO dolores_mensagens (instancia, external_id, do_dono, situacao, reserva_entrada, reserva_saida, reserva_ate)
+      VALUES ('prospecta-dolores', 'VELHA', true, 'erro', 999999999, 999999999, now() - interval '1 minute')`);
+    await chamar(aviso());
+    expect(chamadas).toHaveLength(1);
+  });
+  it("reserva válida de outro pedido em andamento bloqueia antes de chamar", async () => {
+    await banco.pg.exec(`INSERT INTO dolores_mensagens (instancia, external_id, do_dono, situacao, reserva_entrada, reserva_saida, reserva_ate)
+      VALUES ('prospecta-dolores', 'ANDAMENTO', true, 'processando', 1000000, 0, now() + interval '1 minute')`);
+    await chamar(aviso());
+    expect(chamadas).toEqual([]);
+    expect(enviar.mock.calls[0][0].texto).toMatch(/limite mensal de gasto com a IA foi atingido/);
+  });
+});
