@@ -1,6 +1,6 @@
 # S-01 — BPO / Conta Azul: reimportação bloqueada por arquivados
 
-Status: Ready for Review
+Status: Done (publicada em 16/11/2026)
 Epic: EPIC-024 (Fase 1) — correção 01 do dono (16/11/2026)
 Paridade: BPO existe nos dois sistemas — porte para o Grupo Santa Fé fica como pendência no ROADMAP (Santa Fé em espera).
 Tamanho estimado: M

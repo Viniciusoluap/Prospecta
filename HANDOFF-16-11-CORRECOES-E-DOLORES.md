@@ -82,6 +82,23 @@ reprova volta ao @dev (ciclo de até 5 rodadas). Nada é publicado sem portão d
 - **Leitor (S-H):** 4ª rodada do @dev concluída (`b647d3a`, `7cdad02`; 142 testes); 4ª revisão de QA em curso
   (`scratchpad/qa-leitor4/RELATORIO.md`).
 
+## Atualização — 16/11, ~13:45 UTC
+- **Publicado desde a última nota:** PR #237 (S-09 PCI, migração `0118`), PR #238 (leitor de PDF da Maquete, S-H),
+  PR #239 (S-04 muro do condomínio), PR #240 (**Dolores etapa 1 — leitura**, migração `0123` aplicada antes).
+  Produção do #239 READY; a do #240 (`3142f6b`) estava em construção ao escrever — conferir.
+- **EPIC-024, situação por correção:** 01, 02, 04, 06, 07, 08, 09, 10 publicadas. **03 (PDF-imagem pela IA) e 05
+  (importar planta na revisão)** implementadas em `epic024-s03-s05` (cópia no GitHub: `claude/wip-epic024-s03-s05`,
+  commits `0a02cc4`, `ff70a37`, `630bd5b`, `d92e99c`, `f40a306`, `fa3596f`, `0cb5e4e`, `a00c6ea`; 2.130 testes
+  segundo o @dev). Portão de QA em curso (`scratchpad/qa-s03-s05/RELATORIO.md`). **Migração `0121` ainda NÃO
+  aplicada** — aplicar antes de publicar.
+- **EPIC-025 Dolores:** etapa 1 no ar, mas a ponte fica desligada (503) até o dono cadastrar `DOLORES_PONTE_TOKEN`
+  na Vercel (`docs/dolores/como-ligar.md`). Etapa 2 (WhatsApp) com o @dev no ramo `epic025-dolores-etapa2`
+  (cópia: `claude/wip-epic025-dolores-etapa2`; migração reservada `0124`; progresso em
+  `scratchpad/dolores-e2/PROGRESSO.md`). A IA da Dolores nasce desligada: chave do painel + interruptor próprio.
+- **Depende só do dono:** chave da Anthropic no painel de Integrações (libera a 03 e a Dolores); provedor de
+  imagem para "Gerar com IA" do logotipo; token da ponte na Vercel; número/QR code da Dolores e inclusão nos
+  grupos; categorias de mensagem a cliente; abrir o mapa do Terreno dos estudos com APP.
+
 ## Testes
 - (a) Automáticos — PR #233: 54 arquivos, 642 testes; `tsc` limpo; `vite build` ok.
 - (b) Manuais — aba Estudo de Massa real em navegador de teste (computador e iPad) com o ImperaCity e o contorno
@@ -90,5 +107,6 @@ reprova volta ao @dev (ciclo de até 5 rodadas). Nada é publicado sem portão d
   completo (ANA + OSM); reimportar o backup do Conta Azul depois de publicada a S-01.
 
 ## Próximo passo exato
-Receber o retorno de cada agente; o que o QA aprovar, publicar pela receita acima (uma etapa por PR), aplicando a
-migração da etapa antes. Depois lançar S-03 e S-05, e por fim o EPIC-025 (Dolores), etapa 1.
+1. QA de S-03/S-05 → corrigir achados → aplicar `0121` → publicar pela receita. 2. Dolores etapa 2: receber o @dev,
+portão de QA, aplicar `0124`, publicar; depois etapas 3 a 6, uma por PR. 3. Relatório final ao dono (classificação de
+cada correção e o que depende só dele).

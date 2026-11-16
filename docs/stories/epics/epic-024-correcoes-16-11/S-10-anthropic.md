@@ -1,6 +1,6 @@
 # S-10 — Anthropic — Inteligência Artificial (cadastro, sem ativar)
 
-Status: Ready for Review
+Status: Done (publicada em 16/11/2026)
 Epic: EPIC-024 (Fase 5) — correção 10 do dono (16/11/2026)
 Paridade: Admin › Integrações existe nos dois sistemas — porte para o Grupo Santa Fé fica como pendência no ROADMAP
 (Santa Fé em espera por decisão do dono).

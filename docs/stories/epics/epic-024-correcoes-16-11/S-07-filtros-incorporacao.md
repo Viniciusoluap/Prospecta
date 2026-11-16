@@ -1,6 +1,6 @@
 # S-07 — Filtros na listagem de incorporações
 
-Status: Ready for Review
+Status: Done (publicada em 16/11/2026)
 Epic: EPIC-024 (Fase 2) — correção 07 do dono (16/11/2026)
 Paridade: Incorporação existe nos dois sistemas — pendência de porte para o Grupo Santa Fé no ROADMAP (Santa Fé em espera).
 Tamanho estimado: S
