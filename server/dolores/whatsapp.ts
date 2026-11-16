@@ -1,0 +1,241 @@
+// EPIC-025 (Dolores, etapa 2) — comando e resposta pelo WhatsApp da Dolores.
+//   POST /api/dolores/whatsapp  ← avisos da Evolution SÓ da instância da Dolores (prospecta-dolores)
+// Autenticação: cabeçalho `x-webhook-token` = HMAC do segredo do servidor com rótulo próprio (diferente do webhook da
+// Central), comparado em tempo constante. Depois: só a instância da Dolores; grupos, status e as mensagens dela mesma são
+// ignorados; mensagem antiga (reentrega) não vira comando; a mesma mensagem (instância + id) só é tratada uma vez
+// (dolores_mensagens, índice único). Comando só do número do dono (configuração, comparação normalizada); de outro
+// número, nada responde e nada chama a IA — só a auditoria. A IA só roda com chave do painel + modelo + interruptor da
+// Dolores + limite definido e não atingido + sem pausa + usuária ativa; senão, frase fixa (cerebro.ts nem é chamado).
+// Como na Central de Vendas, tudo roda dentro do próprio aviso (a função da Vercel não continua depois da resposta),
+// com prazo total abaixo dos 60 s; a Evolution reenviar o aviso não duplica nada.
+import { createHash, createHmac, timingSafeEqual } from "node:crypto";
+import { Router, type Request, type Response } from "express";
+import { eq } from "drizzle-orm";
+import { doloresMensagens, doloresWhatsappConfig, type DoloresWhatsappConfig, type SituacaoMensagem } from "../../drizzle/schema-dolores-whatsapp.js";
+import { sanitizarTexto } from "../../shared/dolores/sanitizar.js";
+import {
+  FRASE_ERRO, FRASE_SO_TEXTO, MAX_TEXTO_COMANDO, bloqueioDoLimite, cortarResposta, ehNumeroDoDono, fraseDeBloqueio,
+  lerMensagemEvolution, mascararNumero, mensagemAntiga, mesFortaleza, type MotivoBloqueio,
+} from "../../shared/dolores/whatsapp.js";
+import { configuracaoAnthropicPainel } from "../_core/anthropic-painel.js";
+import { ENV } from "../_core/env.js";
+import { enviarTextoEvolution } from "../_core/evolution.js";
+import { getDb } from "../db.js";
+import { registrarAcao } from "./auditoria.js";
+import { executarComando } from "./cerebro.js";
+import { lerConfigWhatsapp, lerPausa, marcarAvisoDoMes, usoDoMes } from "./consumo.js";
+import { DoloresDesativada, idDaDoloresSemCriar, usuarioDolores } from "./perfil.js";
+
+/** Prazo do laço + envio, com folga para os 60 s da função da Vercel. */
+export const PRAZO_TOTAL_MS = 45_000;
+/** Prazo do envio da resposta pela Evolution. */
+const PRAZO_ENVIO_MS = 8_000;
+/** Itens por aviso tratados (a Evolution manda um por vez; lote grande é histórico). */
+const MAX_ITENS = 20;
+const MAX_FALHAS_AUTH = 20;
+
+const SITE = () => (process.env.PUBLIC_SITE_URL || "https://www.prospectaconstrucoes.com").replace(/\/+$/, "");
+export const URL_WEBHOOK_DOLORES = () => `${SITE()}/api/dolores/whatsapp`;
+
+/** Segredo do aviso da Dolores: derivado do segredo do servidor com rótulo próprio (nunca vai para log nem para a tela). */
+export function segredoWebhookDolores(): string {
+  if (!ENV.cookieSecret) throw new Error("JWT_SECRET ausente.");
+  return createHmac("sha256", ENV.cookieSecret).update("dolores-whatsapp-webhook").digest("hex");
+}
+const resumoSha = (s: string) => createHash("sha256").update(s).digest();
+/** Tempo constante e sem vazar o tamanho (hash dos dois lados). */
+export function segredoConfere(recebido: unknown): boolean {
+  if (typeof recebido !== "string" || !recebido || !ENV.cookieSecret) return false;
+  return timingSafeEqual(resumoSha(recebido), resumoSha(segredoWebhookDolores()));
+}
+
+// ── Dependências substituíveis nos testes (relógio, envio, Evolution) ──
+export type EnvioWhatsapp = (p: { instancia: string; numero: string; texto: string; prazoMs: number }) => Promise<boolean>;
+const envioPadrao: EnvioWhatsapp = async ({ instancia, numero, texto, prazoMs }) => {
+  const { configEvolution } = await import("../whatsapp-router.js");
+  const c = await configEvolution();
+  if (!c) return false;
+  const comPrazo: typeof fetch = (url, init) => fetch(url, { ...init, signal: AbortSignal.timeout(prazoMs) });
+  return Boolean(await enviarTextoEvolution(c, instancia, numero, texto, comPrazo));
+};
+type Dependencias = { agora: () => Date; enviar: EnvioWhatsapp };
+const padrao: Dependencias = { agora: () => new Date(), enviar: envioPadrao };
+let deps: Dependencias = { ...padrao };
+export function definirDependenciasWhatsapp(d?: Partial<Dependencias>) { deps = d ? { ...deps, ...d } : { ...padrao }; }
+
+const falhas = new Map<string, { janela: number; total: number }>();
+function contarFalha(ip: string, agora: Date): boolean {
+  const janela = Math.floor(agora.getTime() / 60_000);
+  const f = falhas.get(ip);
+  const total = f && f.janela === janela ? f.total + 1 : 1;
+  falhas.set(ip, { janela, total });
+  if (falhas.size > 5000) falhas.clear();
+  return total > MAX_FALHAS_AUTH;
+}
+
+const erroCurto = (e: unknown) => sanitizarTexto((e instanceof Error ? e.message : String(e)).replace(/sk-ant-[\w-]*/g, "sk-ant-…")).slice(0, 200);
+
+async function atualizarMensagem(id: number, dados: Partial<{ situacao: SituacaoMensagem; motivo: string | null; respondidaEm: Date; voltas: number; tokensEntrada: number; tokensSaida: number }>) {
+  try { await getDb().update(doloresMensagens).set({ ...dados, motivo: dados.motivo?.slice(0, 300) ?? dados.motivo }).where(eq(doloresMensagens.id, id)); }
+  catch (e) { console.error("[dolores/whatsapp] falha ao atualizar a mensagem", erroCurto(e)); }
+}
+
+/**
+ * Resposta ao dono. O destino é o número que acabou de ser conferido como o do dono — e é conferido DE NOVO aqui:
+ * nenhum texto (do modelo, de ferramenta ou de mensagem) escolhe para quem a Dolores escreve.
+ */
+async function responderAoDono(cfg: DoloresWhatsappConfig, numero: string, texto: string, ctx: { mensagemId: number; autor: number | null; resumo: Record<string, unknown> }) {
+  if (!ehNumeroDoDono(numero, cfg.numeroDono) || !cfg.instancia) {
+    await registrarAcao({ funcao: "whatsapp_resposta", resultado: "recusada", motivo: "destino não é o número do dono", autorUserId: ctx.autor, canal: "whatsapp", pedidoId: `wa:${ctx.mensagemId}` });
+    return false;
+  }
+  const final = cortarResposta(sanitizarTexto(texto));
+  const inicio = Date.now();
+  let ok = false;
+  let motivo: string | null = null;
+  try { ok = await deps.enviar({ instancia: cfg.instancia, numero: numero.replace(/\D/g, ""), texto: final, prazoMs: PRAZO_ENVIO_MS }); if (!ok) motivo = "a Evolution não aceitou a mensagem (ou o servidor não está configurado)"; }
+  catch (e) { motivo = `falha no envio: ${erroCurto(e)}`; }
+  await registrarAcao({ funcao: "whatsapp_resposta", resultado: ok ? "ok" : "erro", motivo, autorUserId: ctx.autor, canal: "whatsapp", pedidoId: `wa:${ctx.mensagemId}`,
+    duracaoMs: Date.now() - inicio, resumo: { caracteres: final.length, destino: mascararNumero(numero), ...ctx.resumo } });
+  return ok;
+}
+
+/** Por que a IA não pode rodar agora (ordem: pausa antes de tudo; nada aqui chama a Anthropic). */
+async function bloqueioAtual(cfg: DoloresWhatsappConfig, mes: string): Promise<
+  { motivo: MotivoBloqueio; detalhe?: string | null } | { motivo: null; apiKey: string; modelo: string; autor: number }> {
+  const pausa = await lerPausa();
+  if (!pausa) return { motivo: "indisponivel" };
+  if (pausa.pausada) return { motivo: "pausada", detalhe: pausa.motivo };
+  if (!cfg.iaLigada) return { motivo: "ia_desligada" };
+  const painel = await configuracaoAnthropicPainel().catch(() => null);
+  if (!painel) return { motivo: "sem_chave" };
+  const modelo = cfg.modelo?.trim() || painel.modelo?.trim() || null;
+  if (!modelo) return { motivo: "sem_modelo" };
+  const limite = bloqueioDoLimite(await usoDoMes(mes), { entrada: cfg.limiteMensalTokensEntrada, saida: cfg.limiteMensalTokensSaida });
+  if (limite) return { motivo: limite };
+  try {
+    const autor = await usuarioDolores();
+    return { motivo: null, apiKey: painel.apiKey, modelo, autor };
+  } catch (e) {
+    return { motivo: e instanceof DoloresDesativada ? "usuaria_desativada" : "indisponivel" };
+  }
+}
+
+async function tratarComando(cfg: DoloresWhatsappConfig, msg: { id: number; numero: string; texto: string; temMidia: boolean }, prazoFinal: number, autorInicial: number | null) {
+  const agora = deps.agora();
+  const mes = mesFortaleza(agora);
+  let autor = autorInicial;
+  await registrarAcao({ funcao: "whatsapp_mensagem", resultado: "ok", motivo: "comando do dono", autorUserId: autor, canal: "whatsapp", pedidoId: `wa:${msg.id}`,
+    resumo: { caracteres: msg.texto.length, midia: msg.temMidia } });
+  if (!msg.texto) {
+    await responderAoDono(cfg, msg.numero, FRASE_SO_TEXTO, { mensagemId: msg.id, autor, resumo: { bloqueio: "so_texto" } });
+    await atualizarMensagem(msg.id, { situacao: "bloqueada", motivo: "sem texto", respondidaEm: deps.agora() });
+    return "so-texto";
+  }
+  let estado: Awaited<ReturnType<typeof bloqueioAtual>>;
+  try { estado = await bloqueioAtual(cfg, mes); }
+  catch (e) { console.error("[dolores/whatsapp] falha ao conferir a configuração", erroCurto(e)); estado = { motivo: "indisponivel" }; }
+  if (estado.motivo !== null) {
+    let frase = fraseDeBloqueio(estado.motivo, estado.motivo === "pausada" ? estado.detalhe : null);
+    // Limite mensal: o aviso completo sai uma vez por mês; depois, só a frase curta a cada pedido.
+    if (estado.motivo === "limite_mensal" && (await marcarAvisoDoMes(mes).catch(() => false))) {
+      const uso = await usoDoMes(mes);
+      frase += ` Uso do mês ${mes}: ${uso.entrada.toLocaleString("pt-BR")} tokens de entrada (limite ${cfg.limiteMensalTokensEntrada.toLocaleString("pt-BR")}) e ${uso.saida.toLocaleString("pt-BR")} de saída (limite ${cfg.limiteMensalTokensSaida.toLocaleString("pt-BR")}).`;
+    }
+    await responderAoDono(cfg, msg.numero, frase, { mensagemId: msg.id, autor, resumo: { bloqueio: estado.motivo } });
+    await atualizarMensagem(msg.id, { situacao: "bloqueada", motivo: estado.motivo, respondidaEm: deps.agora() });
+    return `bloqueada:${estado.motivo}`;
+  }
+  autor = estado.autor;
+  try {
+    const r = await executarComando({
+      comando: msg.texto, mensagemId: msg.id, apiKey: estado.apiKey, modelo: estado.modelo, mes, prazoFinal,
+      limites: { entrada: cfg.limiteMensalTokensEntrada, saida: cfg.limiteMensalTokensSaida },
+    });
+    let texto = r.texto;
+    if (r.parou === "limite_mensal" && (await marcarAvisoDoMes(mes).catch(() => false))) texto += `\n\n${fraseDeBloqueio("limite_mensal")}`;
+    const ok = await responderAoDono(cfg, msg.numero, texto, { mensagemId: msg.id, autor, resumo: { voltas: r.voltas, consultas: r.consultas.length, parou: r.parou, tokensEntrada: r.tokens.entrada, tokensSaida: r.tokens.saida } });
+    await atualizarMensagem(msg.id, { situacao: ok ? "respondida" : "erro", motivo: r.parou ?? (ok ? null : "envio falhou"), respondidaEm: deps.agora(), voltas: r.voltas, tokensEntrada: r.tokens.entrada, tokensSaida: r.tokens.saida });
+    return ok ? "respondida" : "erro-envio";
+  } catch (e) {
+    console.error("[dolores/whatsapp] falha no laço", erroCurto(e));
+    await registrarAcao({ funcao: "whatsapp_mensagem", resultado: "erro", motivo: erroCurto(e), autorUserId: autor, canal: "whatsapp", pedidoId: `wa:${msg.id}` });
+    await responderAoDono(cfg, msg.numero, FRASE_ERRO, { mensagemId: msg.id, autor, resumo: { erro: true } });
+    await atualizarMensagem(msg.id, { situacao: "erro", motivo: erroCurto(e), respondidaEm: deps.agora() });
+    return "erro";
+  }
+}
+
+export type RespostaWebhook = { status: number; body: Record<string, unknown> };
+type Pedido = Pick<Request, "headers" | "body" | "ip">;
+
+export async function tratarWebhookDolores(req: Pedido): Promise<RespostaWebhook> {
+  const inicio = Date.now();
+  const agora = deps.agora();
+  if (!ENV.cookieSecret) { console.warn("[dolores/whatsapp] aviso recusado: segredo do servidor ausente"); return { status: 503, body: { ok: false } }; }
+  if (!segredoConfere(req.headers["x-webhook-token"])) {
+    const ip = String(req.ip ?? "?");
+    console.warn("[dolores/whatsapp] aviso sem segredo válido", ip);
+    return contarFalha(ip, agora) ? { status: 429, body: { error: "Muitas tentativas" } } : { status: 401, body: { error: "Não autorizado" } };
+  }
+  const ev = (req.body ?? {}) as { event?: unknown; instance?: unknown; data?: any };
+  const evento = String(ev.event ?? "").toLowerCase().replace(/_/g, ".");
+  let cfg: DoloresWhatsappConfig | null;
+  try { cfg = await lerConfigWhatsapp(); }
+  catch (e) { console.error("[dolores/whatsapp] configuração indisponível", erroCurto(e)); return { status: 200, body: { ok: false, r: "configuracao-indisponivel" } }; }
+  if (!cfg?.instancia || ev.instance !== cfg.instancia) return { status: 200, body: { ok: true, r: "instancia-desconhecida" } };
+
+  if (evento === "connection.update") {
+    const st = ev.data?.state;
+    const status = st === "open" ? "conectado" : st === "connecting" ? "aguardando_qr" : "desconectado";
+    await getDb().update(doloresWhatsappConfig).set({ statusConexao: status }).where(eq(doloresWhatsappConfig.id, 1)).catch(() => undefined);
+    return { status: 200, body: { ok: true, r: "conexao" } };
+  }
+  if (evento !== "messages.upsert") return { status: 200, body: { ok: true, r: "ignorado" } };
+
+  const itens = (Array.isArray(ev.data) ? ev.data : [ev.data]).slice(0, MAX_ITENS);
+  const prazoFinal = inicio + PRAZO_TOTAL_MS;
+  const contagem: Record<string, number> = {};
+  const contar = (k: string) => { contagem[k] = (contagem[k] ?? 0) + 1; };
+  const autor = await idDaDoloresSemCriar().catch(() => null);
+  for (const item of itens) {
+    const m = lerMensagemEvolution(item);
+    if (m.tipo === "ignorar") { contar(m.motivo); continue; }
+    if (mensagemAntiga(m.enviadaEm, deps.agora())) { contar("antiga"); continue; }
+    const doDono = ehNumeroDoDono(m.numero, cfg.numeroDono);
+    // Reivindica a mensagem: só quem gravar primeiro trata (reentrega e avisos paralelos não duplicam resposta nem gasto).
+    let id: number | null = null;
+    try {
+      const [linha] = await getDb().insert(doloresMensagens).values({
+        instancia: cfg.instancia, externalId: m.externalId, remetente: m.numero ? mascararNumero(m.numero) : "(sem número)", doDono,
+        situacao: doDono ? "processando" : "ignorada", motivo: doDono ? null : "remetente não autorizado",
+        texto: doDono ? sanitizarTexto(m.texto).slice(0, MAX_TEXTO_COMANDO) || null : null, enviadaEm: m.enviadaEm,
+      }).onConflictDoNothing().returning({ id: doloresMensagens.id });
+      id = linha?.id ?? null;
+    } catch (e) {
+      console.error("[dolores/whatsapp] falha ao registrar a mensagem", erroCurto(e));
+      contar("erro"); continue; // sem o registro (idempotência) não há resposta: falha fechada
+    }
+    if (!id) { contar("repetida"); continue; }
+    if (!doDono) {
+      await registrarAcao({ funcao: "whatsapp_mensagem", resultado: "recusada", motivo: m.numero ? "remetente não autorizado (não é o número do dono); sem resposta" : "remetente sem número conferível; sem resposta",
+        autorUserId: autor, canal: "whatsapp", pedidoId: `wa:${id}`, resumo: { remetente: m.numero ? mascararNumero(m.numero) : null, caracteres: m.texto.length } });
+      contar("nao-autorizado"); continue;
+    }
+    contar(await tratarComando(cfg, { id, numero: m.numero!, texto: m.texto, temMidia: m.temMidia }, prazoFinal, autor));
+  }
+  if (contagem.antiga) {
+    await registrarAcao({ funcao: "whatsapp_mensagem", resultado: "recusada", motivo: "mensagem antiga (reentrega ou histórico): não vira comando", autorUserId: autor, canal: "whatsapp", resumo: { antigas: contagem.antiga } });
+  }
+  return { status: 200, body: { ok: true, r: contagem } };
+}
+
+const router = Router();
+router.post("/dolores/whatsapp", async (req: Request, res: Response) => {
+  let r: RespostaWebhook;
+  try { r = await tratarWebhookDolores(req); }
+  catch (e) { console.error("[dolores/whatsapp]", erroCurto(e)); r = { status: 200, body: { ok: false } }; }
+  res.setHeader("Cache-Control", "no-store");
+  res.status(r.status).json(r.body);
+});
+export default router;

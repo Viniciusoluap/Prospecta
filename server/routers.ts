@@ -65,6 +65,7 @@ import {
 } from "./operacional-router.js";
 import { configuracoesRouter, primeiroAcessoRouter } from "./configuracoes-router.js";
 import { integracoesRouter } from "./integracoes-router.js";
+import { doloresRouter } from "./dolores/router.js";
 import { googleDriveRouter } from "./google-drive-router.js";
 import { relatoriosRouter } from "./relatorios-router.js";
 import { taxRouter } from "./tax-router.js";
@@ -189,6 +190,8 @@ export const appRouter = router({
   mapa: mapaRouter,
   configuracoes: configuracoesRouter,
   integracoes: integracoesRouter,
+  // EPIC-025 E2: WhatsApp da Dolores — só admin (fora do mapa de módulos e com checagem de papel)
+  dolores: doloresRouter,
   googleDrive: googleDriveRouter,
   primeiroAcesso: primeiroAcessoRouter,
   relatorios: relatoriosRouter,
