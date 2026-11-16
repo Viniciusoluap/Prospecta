@@ -218,7 +218,7 @@ describe("filtro de dados pessoais em texto livre (M1)", () => {
       expect(ms, `${nome}: ${ms.toFixed(0)} ms`).toBeLessThan(3000);
     }
     // a âncora não muda o que é e-mail
-    expect(sanitizarTexto("mail joão.silva+obra@x.com.br e (fulano@y.com)")).toBe(`mail joã${OMITIDO_T} e (${OMITIDO_T})`);
+    expect(sanitizarTexto("mail joão.silva+obra@x.com.br e (fulano@y.com)")).toBe(`mail ${OMITIDO_T} e (${OMITIDO_T})`); // QA r5 F6: nome acentuado sai inteiro
   });
 
   it("QA r4 S1: rótulo de nota/chave/acesso/DANFE/NF-e nunca livra CPF nem celular, mesmo somando 44 dígitos", () => {
@@ -410,6 +410,16 @@ describe("filtro de dados pessoais em texto livre (M1)", () => {
     }
     // conta de verdade continua com o marcador bancário
     expect(sanitizarTexto("conta 12345-6")).toBe("conta [dado bancário omitido]");
+  });
+
+  it("QA r5 F6/F7: e-mail com nome acentuado sai inteiro; '(dot)com_' e CPF com zeros à esquerda saem", () => {
+    for (const c of ["maria.conceição@uol.com.br", "silva.joão@gmail.com", "joão@gmail.com", "josé.da.silva@empresa.com", "joão @ gmail . com",
+      "conceição(at)gmail(dot)com", "fulano(at)gmail(dot)com_", "joão@gmail"]) {
+      const r = sanitizarTexto(`mail ${c}`);
+      expect(r, `${c} → ${r}`).toMatch(new RegExp(`^mail \\[dado pessoal omitido\\]_?$`));
+    }
+    for (const c of ["cpf 052998224725", "cpf 00052998224725"]) expect(sanitizarTexto(c), c).toBe(`cpf ${OMITIDO_T}`);
+    for (const t of ["ação@", "café com leite", "a arroba de café, ponto", "protocolo 012345678901"]) expect(sanitizarTexto(t), t).toBe(t);
   });
 
   it("percorre a resposta inteira (listas e objetos), sem tocar números e chaves", () => {
