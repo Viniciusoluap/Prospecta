@@ -219,8 +219,22 @@ describe("auditoria", () => {
 
   it("argumentos saneados: chaves sensíveis omitidas, dígitos longos mascarados, textos cortados", () => {
     expect(sanearArgumentos({ busca: "123.456.789-01", token: "x", senha: "y", texto: "a".repeat(500), lista: Array(50).fill(1) })).toEqual({
-      busca: "***01", token: "[omitido]", senha: "[omitido]", texto: `${"a".repeat(119)}…`, lista: Array(20).fill(1),
+      busca: { hash: expect.stringMatching(/^[0-9a-f]{12}$/), tamanho: 14 }, token: "[omitido]", senha: "[omitido]", texto: `${"a".repeat(119)}…`, lista: Array(20).fill(1),
     });
+    expect(sanearArgumentos({ responsavel: "fone 99 98888-7777", obs: "111,222,333-44 e 91111222" }))
+      .toEqual({ responsavel: "fone [dado pessoal omitido]", obs: "[dado pessoal omitido] e ***22" });
+  });
+
+  it("termo de busca nunca fica em claro na auditoria (L2): nome, CPF com vírgula, telefone", async () => {
+    for (const busca of ["Excluido Fulano", "111,222,333-44", "11122233344", "91111222", "1111-2222"])
+      await tratarChamada(pedido({ funcao: "consultar_cliente", argumentos: { busca } }));
+    const guardado = JSON.stringify((await acoes()).map(a => a.argumentos));
+    for (const termo of ["Excluido", "Fulano", "111", "222", "333", "91111222", "1111-2222"]) expect(guardado).not.toContain(termo);
+    // mesmo termo (sem acento/maiúscula) → mesmo resumo: dá para ver que repetiu a busca sem guardar o termo
+    await tratarChamada(pedido({ funcao: "consultar_cliente", argumentos: { busca: "Maria" } }));
+    await tratarChamada(pedido({ funcao: "consultar_cliente", argumentos: { busca: "MARÍA" } }));
+    const [a, b] = (await acoes()).slice(-2).map(x => x.argumentos.busca.hash);
+    expect(a).toBe(b);
   });
 });
 
