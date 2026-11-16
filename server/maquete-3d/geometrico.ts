@@ -248,6 +248,8 @@ function pecasDeParede(retas: Reta[]): Peca[] {
   const picos = [ordenado[0][0]];
   const segundo = ordenado.find(([k, peso]) => Math.abs(k - picos[0]) >= 4 && peso >= ordenado[0][1] * 0.2);
   if (segundo) picos.push(segundo[0]);
+  if (process.env.TMP_PICOS) { const am = candidatas.filter(c => Math.round(c.esp * 100) === 35); const pos = new Map<string, number>(); for (const c of am) { const q = ponto(c.ang, c.rho, (c.t0 + c.t1) / 2); const kk = `${Math.round(q.x / 2) * 2},${Math.round(q.y / 2) * 2},a${c.ang}`; pos.set(kk, (pos.get(kk) ?? 0) + c.t1 - c.t0); } console.log('POS35', Array.from(pos.entries()).sort((a, b) => b[1] - a[1]).slice(0, 25).map(([k, v]) => `${k}:${v.toFixed(1)}`).join(' ')); }
+  if (process.env.TMP_PICOS) console.log('PICOS', picos, ordenado.slice(0, 8).map(([k, p]) => `${k}:${p.toFixed(1)}`).join(' '));
   return candidatas.filter(c => picos.some(p => Math.abs(c.esp * 100 - p) <= 2.5));
 }
 
