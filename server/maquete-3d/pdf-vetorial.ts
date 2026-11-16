@@ -48,7 +48,7 @@ export async function abrirPdf(dados: Buffer): Promise<PdfAberto> {
       const pg = await doc.getPage(numero);
       const vista = pg.getViewport({ scale: 1 }), base = vista.transform as Matriz;
       const segmentos: Segmento[] = [], arcos: Arco[] = [];
-      let imagens = 0;
+      let imagens = 0, coberturaImagem = 0;
       const linha = (m: Matriz, x1: number, y1: number, x2: number, y2: number) => {
         if (segmentos.length >= MAX_SEGMENTOS) return;
         const [a, b] = aplicar(m, x1, y1), [c, d] = aplicar(m, x2, y2);
@@ -86,6 +86,8 @@ export async function abrirPdf(dados: Buffer): Promise<PdfAberto> {
           // Imagem que cobre boa parte da página: sinal de prancha escaneada.
           const area = Math.abs(ctm[0] * ctm[3] - ctm[1] * ctm[2]);
           if (area > vista.width * vista.height * 0.25) imagens++;
+          // Fração da página coberta pela maior imagem: só ela sozinha pode ir para a IA como "a página" (S-03).
+          coberturaImagem = Math.max(coberturaImagem, Math.min(1, area / Math.max(1, vista.width * vista.height)));
         } else if (fn === O.constructPath) {
           if (!desenham.has(args[0] as number)) continue;
           const d = (args[1] as ArrayLike<number>[])[0];
@@ -112,7 +114,7 @@ export async function abrirPdf(dados: Buffer): Promise<PdfAberto> {
         if (textos.length >= 20000) break;
       }
       pg.cleanup();
-      return { largura: vista.width, altura: vista.height, segmentos, arcos, textos, imagens };
+      return { largura: vista.width, altura: vista.height, segmentos, arcos, textos, imagens, coberturaImagem };
     },
   };
 }

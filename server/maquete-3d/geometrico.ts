@@ -14,7 +14,7 @@ export type Segmento = { x1: number; y1: number; x2: number; y2: number };
 export type Arco = { cx: number; cy: number; r: number; pontas?: { x: number; y: number }[] };
 export type Texto = { str: string; x: number; y: number; tam: number; largura: number };
 /** Tudo em pontos do PDF (1/72 pol), com y para baixo, como a página é vista. */
-export type Primitivas = { largura: number; altura: number; segmentos: Segmento[]; arcos: Arco[]; textos: Texto[]; imagens: number };
+export type Primitivas = { largura: number; altura: number; segmentos: Segmento[]; arcos: Arco[]; textos: Texto[]; imagens: number; /** Fração da página (0–1) coberta pela maior imagem. */ coberturaImagem?: number };
 
 type Ponto = { x: number; y: number };
 export type PlantaLida = {
@@ -33,7 +33,7 @@ export type PlantaLida = {
 };
 /** `avisos`: o que a página tem e não virou pavimento por dúvida (desenho sem título que pode ser corte, por exemplo). */
 /** `tituloDePlanta`: a página tem título de planta baixa/layout (critério da leitura híbrida, EPIC-024 S-03). */
-export type Diagnostico = { segmentos: number; arcos: number; textos: number; imagens: number; escalas: number[]; plantas: number; motivo: string | null; tempoMs?: number; avisos?: string[]; tituloDePlanta?: boolean };
+export type Diagnostico = { segmentos: number; arcos: number; textos: number; imagens: number; coberturaImagem?: number; escalas: number[]; plantas: number; motivo: string | null; tempoMs?: number; avisos?: string[]; tituloDePlanta?: boolean };
 
 const PT_MM = 25.4 / 72;
 export const metrosPorPonto = (escala: number) => (PT_MM * escala) / 1000;
@@ -1471,7 +1471,7 @@ const nota = (ps: PlantaLida[]) => ps.reduce((s, p) => s + p.nomeados * 3 + p.co
 export function lerPagina(prim: Primitivas, opcoes: { prazoMs?: number; maxCandidatas?: number } = {}): { plantas: PlantaLida[]; diagnostico: Diagnostico } {
   const inicio = Date.now();
   const linhas = linhasDeTexto(prim.textos), escritas = Array.from(new Set(escalasDaPagina(linhas).map(e => e.n)));
-  const diagnostico: Diagnostico = { segmentos: prim.segmentos.length, arcos: prim.arcos.length, textos: prim.textos.length, imagens: prim.imagens, escalas: escritas, plantas: 0, motivo: null };
+  const diagnostico: Diagnostico = { segmentos: prim.segmentos.length, arcos: prim.arcos.length, textos: prim.textos.length, imagens: prim.imagens, coberturaImagem: prim.coberturaImagem ?? 0, escalas: escritas, plantas: 0, motivo: null };
   const fim = (plantas: PlantaLida[]) => { diagnostico.plantas = plantas.length; diagnostico.tempoMs = Date.now() - inicio; return { plantas, diagnostico }; };
   if (prim.segmentos.length < 40) {
     diagnostico.motivo = prim.imagens > 0 ? "A prancha é uma imagem (PDF escaneado ou fotografado): não há linhas para ler. Use o PDF exportado do programa de desenho (CAD/Revit), ou desenhe a planta na revisão." : "A página não tem desenho vetorial suficiente para uma planta.";
