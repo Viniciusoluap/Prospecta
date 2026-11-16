@@ -82,10 +82,25 @@ continua: o CPF nunca vai na lista de engenheiros. CPF de cliente nunca é copia
 - **Engenheiro da obra (sem relação inventada):** `construction_projects` não tem engenheiro. Fontes usadas, em ordem:
   (1) o escolhido no formulário aberto, (2) `rtpEngenheiroId`/`rteEngenheiroId` do rascunho (`pci_generator_drafts` —
   a escolha já ficava guardada com a obra), (3) os da última PCI gerada, (4) só para o RTP, o `engineer_user_id` de
-  `operational_projects` com o MESMO `lead_service_id` da obra — e só se houver um único engenheiro. Nenhuma coluna nova.
-- [AUTO-DECISION] Pessoa não se mistura: se um dado do proponente/RTP/RTE está diferente, os vazios da mesma pessoa também
-  vão para confirmação; RTP/RTE vêm de UMA origem (o CPF do RT da PCI vinculada nunca entra ao lado do nome de outro
-  engenheiro). Motivo: evitar CPF de uma pessoa com nome de outra.
+  `operational_projects` com o MESMO `lead_service_id` da obra, ignorando projeto `cancelado` — e só se houver um único
+  engenheiro. Nenhuma coluna nova. A abertura sem rascunho devolve o mesmo relatório do botão (`obter.preenchimento`).
+- Pessoa não se mistura — por construção (refeito após o portão de QA de 16/11, ver QA Results): proponente, RTP e
+  RTE são blocos (`PESSOAS_PCI`). Cada fonte forma um bloco; dois blocos só se juntam quando são provadamente a mesma
+  pessoa (`mesmaPessoaPci`: mesmo engenheiro escolhido; senão mesmo CPF; senão, sem CPF de um dos lados, mesmo nome
+  completo normalizado). Preenche em silêncio só quando a pessoa está vazia na tela e há um único candidato, ou quando a
+  tela já tem a mesma pessoa provada e só faltam dados. Em todo outro caso a pessoa vai inteira para escolha (manter /
+  trocar a pessoa inteira por uma opção) — nunca campo a campo. `aplicarEscolhasPci` ignora conflitos de campo de pessoa.
+- Procedência: `FormularioPci.procedencia` (por campo de pessoa: "manual", "crm", "pci", "engenheiro:7"…) vai no rascunho.
+  `misturaPessoaPci` recusa gerar com nome e CPF de procedências diferentes (servidor, em `errosPci` com `paraGerar`); a
+  tela mostra o motivo e o botão "Confirmo que nome e CPF são da mesma pessoa". Rascunho antigo sem procedência não é
+  bloqueado (não há informação) — limitação registrada.
+- Decisão de acesso ao CPF do engenheiro (portão de QA, item 4): o dono pediu o CPF do engenheiro preenchido na PCI.
+  Escopo: quem usa o gerador (admin ou colaborador com o módulo Obras) lê o CPF SÓ dos usuários que a lista de
+  engenheiros do gerador oferece (`listarEngenheiros`: usuário ativo, colaborador ou admin; CPF só com perfil ativo).
+  Qualquer outro id → FORBIDDEN, também nos ids vindos de "Dados automáticos". Cada leitura gera
+  `console.info({"evento":"pci.cpf_engenheiro_lido", usuarioId, projectId, engenheiroId, origem, comCpf, em})` — só ids,
+  no mesmo padrão de log estruturado de `server/whatsapp-router.ts`. Observação: admins aparecem na lista (regra já
+  existente); um admin com perfil de Engenheiro ativo tem o CPF legível pelo gerador.
 - [AUTO-DECISION] Escolher engenheiro com campos RTP/RTE já preenchidos com outro valor pede `confirm` com a lista dos
   campos; botão "Mesmo profissional do RTP" no RTE.
 - [AUTO-DECISION] Lista de permissão (`CAMPOS_COPIAVEIS_MODELO_PCI`): áreas coberta/acessória e destinação, todo o memorial,
@@ -95,8 +110,14 @@ continua: o CPF nunca vai na lista de engenheiros. CPF de cliente nunca é copia
   financiado, área permeável, água/drenagem/esgoto (dependem do lote), pré-executado, obras pré-existentes, observações,
   local/data, imagem e engenheiros escolhidos. O servidor extrai de novo ao salvar e ao ler (não confia no navegador).
 - [AUTO-DECISION] Versões: salvar sobre um modelo cria `versao + 1` com `previous_id`; índice único em `previous_id` impede
-  duas versões a partir da mesma; nome repetido (sem distinguir maiúsculas) é recusado. Exclusão lógica de todas as
-  versões, só pelo admin ou por quem salvou a última versão. Dá para aplicar qualquer versão do histórico.
+  duas versões a partir da mesma; nome repetido (sem distinguir maiúsculas) é recusado — também numa nova versão (não toma
+  o nome de outro modelo). Exclusão lógica de todas as versões, só pelo admin ou pelo AUTOR ORIGINAL (quem salvou a v1).
+  Dá para aplicar qualquer versão do histórico.
+- Modelo e dado pessoal em texto livre: salvar é RECUSADO (com a lista dos campos) quando o nome, a observação, um campo de
+  texto do modelo ou a descrição de serviço adicional tem CPF/CNPJ (com ou sem pontuação, dígitos conferidos), e-mail ou
+  telefone (`dadosPessoaisNoModeloPci`). Campo de lista só entra no modelo com opção EXATA do modelo oficial. O título da
+  obra de origem (que costuma ter o nome do cliente) só aparece para o admin. Nome de pessoa em texto livre sem documento
+  não é detectável com segurança — limitação.
 - [AUTO-DECISION] "Começar em branco" limpa a tela (com confirmação); o rascunho só muda ao salvar. O formulário guarda
   `modeloOrigem` (id, nome, versão) para a obra mostrar qual modelo usou.
 - O tratamento do modelo oficial da CAIXA (`server/caixa/pci-gerador.ts`, fórmulas/estrutura/formato) não foi tocado.
@@ -105,32 +126,65 @@ continua: o CPF nunca vai na lista de engenheiros. CPF de cliente nunca é copia
 
 ## Handoff (S-09)
 - Concluído: commits na branch local `epic024-s09` (ver Change Log); nada publicado, nada aplicado em banco real.
-- Testes (a) automáticos: `npx vitest run server/pci- server/engenheiro` → 9 arquivos, 81 testes passando
-  (novos: `server/pci-s09.test.ts` 12, `server/pci-s09-db.test.ts` 11); `npx tsc --noEmit` sem erros; `npx vite build` ok.
-  (b) manuais: não executados (sem navegador neste agente). (c) produção: pendente.
+- Testes (a) automáticos: `npx vitest run server/pci- server/engenheiro` → 9 arquivos, 94 testes passando
+  (`server/pci-s09.test.ts` 21, `server/pci-s09-db.test.ts` 15); `npx tsc --noEmit` sem erros; `npx vite build` ok;
+  sonda do QA (`qa-s09/probe.mts`) sem mistura em P1–P3. (b) manuais: não executados (sem navegador neste agente).
+  (c) produção: pendente.
 - Pendências: aplicar `drizzle/0118_pci_modelos_preenchimento.sql` no Neon antes de publicar o código (as rotas de modelo
-  falham sem a tabela; o resto funciona); conferir o perfil real do Rafael (ativo? CPF gravado?); registrar no ROADMAP o
-  porte para o Grupo Santa Fé (em espera por decisão do dono); portão de QA.
-- Próximo passo: @qa revisar; aplicar 0118 no Neon; publicar; abrir a obra do Rafael e escolher RTP/RTE.
+  falham sem a tabela; o resto funciona). **Depois de aplicar a 0118, conferir no Neon que o papel do aplicativo é dono da
+  tabela `pci_modelos_preenchimento`** (RLS ligado sem políticas: só o dono/superusuário enxerga as linhas — mesmo padrão
+  das tabelas da 0087). Conferir o perfil real do Rafael (ativo? CPF gravado?); registrar no ROADMAP o porte para o
+  Grupo Santa Fé (em espera por decisão do dono); novo portão de QA.
+- Próximo passo: @qa revisar de novo; aplicar 0118 no Neon; publicar; abrir a obra do Rafael e escolher RTP/RTE.
 
 ## File List
 - `docs/stories/epics/epic-024-correcoes-16-11/S-09-pci.md` (novo) — esta story.
-- `shared/pci-gerador.ts` — `copiavel` + `CAMPOS_COPIAVEIS_MODELO_PCI`; `modeloOrigem`; `aplicarEngenheiroPci` com CPF;
-  `camposTrocadosPorEngenheiroPci`, `faltasPerfilEngenheiroPci`; `sugestoesAutomaticasPci`, `compararPreenchimentoPci`,
-  `aceitarSugestoesPci`, `textoValorPci`; `extrairModeloPreenchimentoPci`, `sugestoesDoModeloPci`,
-  `resumoModeloPreenchimentoPci`, `validarNomeModeloPreenchimentoPci`; `preencherPciAutomatico` sobre as sugestões.
+- `shared/pci-gerador.ts` — `copiavel` + `CAMPOS_COPIAVEIS_MODELO_PCI`; `modeloOrigem`; `procedencia`; `PESSOAS_PCI`,
+  `pessoaDaChavePci`, `mesmaPessoaPci`; `aplicarEngenheiroPci` com CPF e procedência; `camposTrocadosPorEngenheiroPci`,
+  `faltasPerfilEngenheiroPci`; `sugestoesAutomaticasPci`, `compararPreenchimentoPci` (blocos de pessoa, `pessoas`,
+  `avisos`), `aplicarEscolhasPci`, `definirCampoPci`, `confirmarMesmaPessoaPci`, `misturaPessoaPci` (em `errosPci` ao
+  gerar), `textoValorPci`; `extrairModeloPreenchimentoPci`, `sugestoesDoModeloPci`, `resumoModeloPreenchimentoPci`,
+  `validarNomeModeloPreenchimentoPci`, `dadosPessoaisNoTextoPci`, `dadosPessoaisNoModeloPci`.
 - `server/usuario-documentos.ts` — `dadosEngenheiroParaPci` (um engenheiro, com CPF).
-- `server/pci-gerador.ts` — `engenheiroDaPci`, `fontesAutomaticasPci` (engenheiro da obra, motivos), `sugestoesAutomaticasDaObraPci`,
-  CRUD/versões dos modelos de preenchimento; procedimentos `engenheiro`, `sugestoesAutomaticas`, `modelosPreenchimento`,
-  `modeloPreenchimento`, `historicoModeloPreenchimento`, `salvarModeloPreenchimento`, `excluirModeloPreenchimento`.
+- `server/pci-gerador.ts` — `engenheiroDaPci` (só da lista, FORBIDDEN, log), `fontesAutomaticasPci` (engenheiro da obra,
+  projeto cancelado ignorado, motivos), abertura com relatório, `sugestoesAutomaticasDaObraPci`, CRUD/versões dos modelos
+  (recusa de dado pessoal, nome único nas versões, autor original, obra de origem só para admin); procedimentos
+  `engenheiro`, `sugestoesAutomaticas`, `modelosPreenchimento`, `modeloPreenchimento`, `historicoModeloPreenchimento`,
+  `salvarModeloPreenchimento`, `excluirModeloPreenchimento`; `obter.preenchimento`.
 - `client/src/components/obra/GeradorPciAba.tsx` — seletor com busca do perfil e confirmação, "Mesmo profissional do RTP",
-  painel do resultado (preenchidos/conflitos/iguais/não encontrados), painel de modelos.
+  painel do resultado (escolha da pessoa inteira por rádio; campos técnicos por caixa), aviso de mistura com
+  "Confirmo que nome e CPF são da mesma pessoa" e botão de gerar bloqueado, procedência "manual" ao digitar, painel de
+  modelos.
 - `drizzle/0118_pci_modelos_preenchimento.sql` (novo), `drizzle/schema.ts` (`pciModelosPreenchimento`).
-- `server/pci-s09.test.ts` (novo), `server/pci-s09-db.test.ts` (novo), `server/pci-gerador.test.ts` (matriz de permissões),
-  `server/pci-gerador-db.test.ts` (coluna `lead_service_id` na tabela de teste).
+- `server/pci-s09.test.ts` (novo), `server/pci-s09-db.test.ts` (novo), `server/pci-gerador.test.ts` (matriz de
+  permissões; proponente divergente fica para escolha), `server/pci-gerador-db.test.ts` (coluna `lead_service_id`;
+  abertura com escolha do proponente).
+
+## QA Results
+
+### Portão 1 — 16/11/2026 — FAIL (@qa, sonda `qa-s09/probe.mts`)
+Problema central: a regra "pessoa não se mistura" estava quebrada — o CPF de uma pessoa podia cair ao lado do nome de
+outra na PCI oficial.
+
+| # | Sev. | Achado | Correção (@dev) | Teste |
+|---|------|--------|-----------------|-------|
+| 1 | HIGH | Proponente não era de fonte única (MARIA da PCI + CPF do JOSE do CRM) | Bloco por pessoa; outra fonte só completa com prova de mesma pessoa (engenheiro/CPF/nome completo); senão escolha da pessoa inteira | `pci-s09.test.ts` "QA 1", "mesma pessoa provada"; `pci-gerador-db.test.ts` abertura |
+| 2 | HIGH | Nome digitado + fonte só com CPF → CPF em silêncio | Tela com qualquer dado da pessoa e fonte sem prova → nada em silêncio, pessoa inteira para escolha | "QA 2" |
+| 3 | HIGH | Escolha por campo misturava a pessoa | Rádio por pessoa (manter / trocar a pessoa inteira); `aplicarEscolhasPci` puro ignora campo de pessoa; procedência no rascunho; gerar recusa nome e CPF de fontes diferentes | "nenhuma combinação…" (todas as combinações), "guarda da geração"; DB "gerar recusa…" |
+| 4 | MED | CPF de qualquer usuário por id | Só ids da lista do gerador; FORBIDDEN; log só com ids | DB "só quem a lista oferece", "a leitura é registrada" |
+| 5 | MED | Dado pessoal em texto livre do modelo; obra de origem exposta | Recusa com a lista dos campos (CPF/CNPJ/e-mail/telefone); lista só com opção oficial; obra de origem só para admin | `pci-s09.test.ts` "detecta…", "modelo com dado pessoal…"; DB "texto livre…", "salva só o técnico…" |
+| 6 | MED | Quem acrescentou versão apagava o modelo; versão tomava nome de outro | Autor original ou admin; nome único também na versão | DB "exclusão lógica…", "nova versão…" |
+| 7 | LOW | Projeto cancelado inferia engenheiro; abertura sem fonte | `status <> 'cancelado'`; `obter.preenchimento` com o relatório | DB "projeto cancelado…", "abertura sem rascunho…" |
+| 8 | LOW | Perfil inativo dito como "sem CPF" | Motivo "perfil … desativado" | "perfil desativado: o motivo diz…"; DB "perfil desativado ou ausente" |
+| 9 | LOW | Dono da tabela no Neon (RLS sem políticas) | Nota no Handoff | — |
+
+Limitações declaradas: rascunho antigo sem procedência não é bloqueado na geração; nome de pessoa em texto livre sem
+documento não é detectado; admin com perfil de Engenheiro ativo está na lista (regra existente) e tem o CPF legível.
 
 ## Change Log
 | Data | Autor | Mudança |
 |------|-------|---------|
 | 16/11/2026 | @dev (Dex) | Story criada (YOLO, regra de execução contínua do EPIC-024) — Draft → InProgress |
 | 16/11/2026 | @dev (Dex) | InProgress → InReview: A, B e C implementados; 23 testes novos; tsc e vite build ok; 0118 não aplicada |
+| 16/11/2026 | @qa (Quinn) | Portão 1: FAIL (pessoa misturada; acesso ao CPF; dado pessoal no modelo; dono do modelo) — InReview → InProgress |
+| 16/11/2026 | @dev (Dex) | Correções dos 9 itens do portão; 94 testes; tsc e vite build ok — InProgress → InReview |
