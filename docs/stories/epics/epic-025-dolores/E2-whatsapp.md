@@ -27,8 +27,10 @@ providências."
 - [x] AC3: idempotência — a mesma mensagem (instância + id externo) entregue duas vezes gera uma resposta e um gasto só;
       ignora grupos, status/listas, mensagens enviadas pela própria Dolores (`fromMe`) e mensagens antigas (reentrega).
 - [x] AC4: só o número do dono comanda. O número fica em configuração (`dolores_whatsapp_config.numero_dono`, cadastrado
-      pelo admin), nunca no código; comparação normalizada (DDI 55 e nono dígito: DDD + 8 últimos). Mensagem de outro
-      número não é comando: é ignorada, sem resposta e sem chamar a IA, e fica registrada em `dolores_acoes`.
+      pelo admin, validado como brasileiro), nunca no código; comparação ESTRITA (remetente `55` + DDD + número, mesmo DDD
+      e mesmos 8 últimos dígitos; só o nono dígito varia — correção do QA, achado 1). Mensagem de outro número não é
+      comando: é ignorada, sem resposta e sem chamar a IA, e fica registrada em `dolores_acoes` (uma linha por remetente
+      por hora; contagem em `dolores_remetentes_estranhos`).
 - [x] AC5: laço de ferramentas — o comando do dono vai ao modelo da Anthropic com a lista fechada das ferramentas
       liberadas (as de leitura da etapa 1); cada chamada passa pela MESMA porta da ponte (pausa, usuária ativa, lista de
       funções, validação, limite por minuto, transação somente leitura, filtro de dados pessoais, auditoria), nunca
@@ -46,7 +48,7 @@ providências."
       configurável (entrada e saída, separados); ao bater, bloqueia e avisa o dono uma vez no mês.
 - [x] AC10: auditoria em `dolores_acoes` (canal `whatsapp`) de cada mensagem recebida, cada chamada de ferramenta e cada
       resposta (ok/erro); a tabela segue só de inclusão.
-- [x] AC11: migração `0124_dolores_whatsapp.sql` aditiva e idempotente (só tabelas novas); schema novo em
+- [x] AC11: migração `0124_dolores_whatsapp.sql` aditiva e idempotente (só tabelas e colunas novas); schema novo em
       `drizzle.config.ts`; nenhum `select()` de tabela existente mudou.
 - [x] AC12: rotas tRPC de configuração (`dolores.*`) só de admin (papel), testadas pelo `appRouter` com o caminho completo.
 - [x] AC13: segredos — nenhuma chave, token, QR guardado ou número completo em log, resposta de API (fora o QR na hora de
@@ -74,7 +76,12 @@ Número e QR code da Dolores; número do dono na tela; chave e modelo preferenci
 Claude Console); limites mensais de tokens; ligar o interruptor.
 
 ## File List
-- `drizzle/0124_dolores_whatsapp.sql` (novo) — `dolores_whatsapp_config`, `dolores_mensagens`, `dolores_consumo` (só tabelas novas).
+- `drizzle/0124_dolores_whatsapp.sql` (novo) — `dolores_whatsapp_config`, `dolores_mensagens` (com `reserva_*`),
+  `dolores_consumo`, `dolores_remetentes_estranhos` (só tabelas/colunas novas).
+- QA (16/11): `server/dolores/erro-seguro.ts` (novo), `server/dolores/whatsapp-qa.test.ts` (novo); alterados
+  `shared/dolores/whatsapp.ts`, `shared/dolores/sanitizar.ts`, `server/dolores/{whatsapp,cerebro,consumo,router,ponte,auditoria}.ts`,
+  `server/_core/anthropic-painel.ts` (`existeChaveAnthropicPainel`), `client/src/components/admin/DoloresCard.tsx`
+  (`confirmarConexao`), testes `regras`, `whatsapp-regras`, `router`, `integracoes-anthropic`.
 - `drizzle/schema-dolores-whatsapp.ts` (novo); `drizzle.config.ts` (schema ligado, os anteriores mantidos).
 - `shared/dolores/whatsapp.ts` (novo, puro) — número do dono, leitura do aviso da Evolution, frases fixas, limite, corte.
 - `server/dolores/ponte.ts` — núcleo `executarFuncao` (mesma porta para a ponte HTTP e o WhatsApp); `auditoria.ts` — canal e
@@ -91,6 +98,35 @@ Claude Console); limites mensais de tokens; ligar o interruptor.
 - `docs/dolores/ferramentas-etapa1.json` (regerado: etapa 2, mesmas 12 ferramentas), `docs/dolores/como-ligar.md`
   (seção Etapa 2), `docs/dolores/agente-etapa2.md` (novo), `docs/stories/epics/ROADMAP.md` (paridade em espera),
   `HANDOFF-16-11-CORRECOES-E-DOLORES.md`.
+
+## Diferença em relação ao prompt mestre — para o dono confirmar
+
+- **O que mudou:** o prompt mestre (seção 2) põe o "cérebro" da Dolores num agente do Claude Console. Nesta etapa o
+  cérebro roda no servidor do Prospecta: ao chegar a mensagem do dono, o sistema chama o modelo da Anthropic com a chave
+  de Integrações › Anthropic, executa cada consulta pedida pelo modelo pela mesma porta da ponte da etapa 1 e responde no
+  WhatsApp. Não há agente no Console (achado 10 do QA, informativo — a arquitetura não muda nesta correção).
+- **Por quê:** na API da Anthropic quem executa as ferramentas é o programa que chama o modelo; um agente no Console não
+  recebe o WhatsApp nem chama a ponte sozinho. No sistema, a conferência do número, o limite mensal, os tetos, o prazo de
+  60 s e a auditoria ficam num lugar só, e o token da ponte não sai do servidor. O texto de instrução é o mesmo.
+- **A IA só liga com o interruptor do dono:** desligada por padrão; só chama a Anthropic depois de "Ligar a IA" em
+  Integrações › Dolores, com número do dono, chave, modelo e limites. Se o dono preferir o Console, basta não ligar.
+  Mesmo texto em `docs/dolores/como-ligar.md` (Etapa 2).
+
+## Correções do portão de QA (16/11/2026, @dev Dex — QA FAIL de Quinn)
+
+| Achado | Correção | Teste de regressão |
+|---|---|---|
+| 1 (bloqueia) número do dono ignorava o DDI | `ehNumeroDoDono` estrita (`^55[1-9]{2}9?\d{8}$` dos dois lados, mesmo DDD e 8 finais; só o nono dígito varia), também na segunda conferência do envio; `normalizarNumeroDono` recusa estrangeiro/DDD inválido; `chaveTelefone` intocada (as checagens de conflito da tela usam `pareceMesmoTelefone`, só para recusar) | `whatsapp-regras.test.ts` (+992/+994/+995/+996/+998, curto, zeros à esquerda, 13/12/11/10 dígitos); `whatsapp-qa.test.ts` achado 1 (ponta a ponta) |
+| 2 filtro de dados pessoais | dígitos seguidos de `.`/`,`/`-`/fim de frase, CPF com espaços (só se válido), nono dígito separado; números de processo/protocolo/matrícula logo após o rótulo ficam (salvo CPF válido/celular) | `regras.test.ts` achado 2 (dois lados); `whatsapp-qa.test.ts` achado 2 |
+| 3 limite em corrida | `reservarChamada`: transação com `FOR UPDATE` na configuração, soma consumo + reservas válidas das outras mensagens e grava a reserva antes de chamar; liberada depois, vence sozinha | `whatsapp-qa.test.ts` achado 3 |
+| 4 função morre no meio | linha "processando" com mais de 3 min vira "erro" (UPDATE condicional) na próxima entrada/reentrega e o dono recebe uma vez "não consegui terminar o pedido de HH:MM…"; sem refazer (sem gasto em dobro) | `whatsapp-qa.test.ts` achado 4 |
+| 5 60 s com vários comandos | um prazo único (45 s) para o aviso inteiro, envios incluídos (`min(8 s, restante)`); sem tempo para comando → frase fixa "não deu tempo…"; sem tempo nem para isso → não reivindica | `whatsapp-qa.test.ts` achado 5 (relógio falso, 20 comandos) |
+| 6 tipos de mensagem | `ephemeralMessage`/`viewOnce*` desembrulhados; reação e edição ignoradas e auditadas numa linha com a contagem; encaminhada → frase pedindo que o dono escreva | `whatsapp-qa.test.ts` achado 6 |
+| 7 log | `erroParaLog` (`server/dolores/erro-seguro.ts`) usado na ponte, WhatsApp, auditoria e consumo: corta "Failed query … params", valores citados, chave e dados pessoais | `whatsapp-qa.test.ts` achado 7 (unidade, 2 ponta a ponta, estático) |
+| 8 `statusConexao` | consulta pura (só lê a Evolution, devolve `precisaConfirmar`); efeitos na mutação `confirmarConexao` (só admin); número vazio falha fechado | `router.test.ts` achado 8 (pelo `appRouter`, tipos query/mutation) |
+| 9 guarda da chave | `existeChaveAnthropicPainel` (só diz se existe) no router; a chave é lida só em `bloqueioAtual` (whatsapp.ts), depois da pausa e do interruptor; a guarda confere imports por arquivo e a chamada única | `integracoes-anthropic.test.ts` (3 testes) |
+| extra | remetente estranho: uma linha em `dolores_acoes` por remetente por hora; contagem atômica em `dolores_remetentes_estranhos` (mascarado, chave HMAC) | `whatsapp-qa.test.ts` extra |
+| 10 (info) | documentado acima e em `como-ligar.md`; nada muda no código | — |
 
 ## Dev Notes (implementação, 16/11/2026)
 - IDS: reaproveitados o cliente da Evolution (`server/_core/evolution.ts`: QR, estado, número, webhook, envio), o servidor
@@ -126,9 +162,12 @@ Claude Console); limites mensais de tokens; ligar o interruptor.
   prazo total 45 s; chamada ao modelo só com ≥ 8 s; fechamento sem ferramentas quando o teto de voltas/tokens acaba.
   Cache de prompt (ephemeral) no texto do sistema para baratear as voltas.
 - [AUTO-DECISION] QR code: devolvido só à tela do admin na hora de conectar (é como a conexão funciona), nunca guardado.
-- Limitação conhecida: se a função cair no meio de um comando, a linha fica "processando" e a reentrega não responde (é
-  tratada como repetida) — o dono manda de novo. Dois comandos simultâneos podem passar um pouco do limite mensal (a
-  conferência é antes de cada chamada).
+- (Resolvidas no QA: pedido interrompido e corrida do limite mensal — ver "Correções do portão de QA".)
+- [AUTO-DECISION] dolores_acoes é só de inclusão (gatilho): a contagem de remetentes estranhos fica em tabela própria
+  e a auditoria recebe só a primeira mensagem de cada remetente na hora.
+- [AUTO-DECISION] Reserva do limite = maior entre 4.000 tokens e a entrada da última chamada do pedido (entrada) e 2.000
+  (saída); vale 90 s. A conferência é "uso + reservas dos outros < limite" (estouro de no máximo uma chamada, como antes
+  em série, e nunca mais por paralelismo).
 - Não há script `lint` no `package.json`; qualidade por `tsc --noEmit`, testes e `vite build`.
 
 ## Testes executados
@@ -136,6 +175,11 @@ Claude Console); limites mensais de tokens; ligar o interruptor.
   server/auth-session.test.ts server/imports-esm.test.ts server/api-rotas-producao.test.ts server/integracoes-anthropic.test.ts
   server/whatsapp-conversas.test.ts` — 22 arquivos, 218 testes passando (novos: regras 12, webhook/laço 31, rotas 13);
   `npx vite build` ok; suíte completa `npx vitest run` — 231 arquivos, 2253 testes passando.
+- (a2) Automáticos depois das correções do QA (16/11): `npx tsc --noEmit` sem erros; `npx vitest run server/dolores
+  server/integracoes-anthropic.test.ts server/central-vendas*.test.ts server/whatsapp*.test.ts server/auth-session.test.ts
+  server/imports-esm.test.ts server/api-rotas-producao.test.ts` — 28 arquivos, 301 testes passando (whatsapp-qa 28,
+  whatsapp 31, router 16, whatsapp-regras 14, regras 11, integracoes-anthropic 18); `npx vite build` ok. Os testes de
+  ataque do QA que afirmavam os defeitos (DDI, filtro, encaminhada, temporária, corrida) agora falham, como esperado.
 - (b) Manuais: nenhum (sem Evolution nem Anthropic reais neste ambiente).
 - (c) Pendentes em produção: migração 0124 no Neon; dono cadastra chave/modelo, limites, o número dele e conecta o número
   da Dolores; teste de aceite pelo WhatsApp; conferir os nomes `senderPn`/`remoteJidAlt` do endereço @lid na Evolution real.
@@ -143,3 +187,6 @@ Claude Console); limites mensais de tokens; ligar o interruptor.
 ## Change Log
 - 16/11/2026 — @dev (Dex): story criada (Draft → InProgress), critérios tirados do prompt mestre e da ordem da etapa 2.
 - 16/11/2026 — @dev (Dex): InProgress → InReview (implementação e testes concluídos; aguarda portão de QA).
+- 16/11/2026 — @qa (Quinn): FAIL (achado 1 bloqueia; 2–9 menores; 10 informativo).
+- 16/11/2026 — @dev (Dex): achados 1–9 e o extra corrigidos, um commit por achado, com teste de regressão; seção
+  "Diferença em relação ao prompt mestre" para o dono confirmar. Volta ao portão de QA (InReview).

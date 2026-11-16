@@ -85,9 +85,31 @@ token continua servindo só para chamadas HTTP diretas à ponte.
 A IA começa **desligada** e só liga quando o administrador aperta "Ligar a IA" depois de cumprir os passos abaixo. Desligada,
 pausada ou sem limite, a Dolores responde ao dono uma frase fixa ("estou desligada… Nada foi consultado.") e não gasta nada.
 
+## Diferença em relação ao prompt mestre — para o dono confirmar
+
+**O que mudou.** O prompt mestre (seção 2) diz que o "cérebro" da Dolores é um agente criado no Claude Console. Nesta
+etapa, o cérebro roda **dentro do próprio sistema Prospecta**: quando o dono escreve no WhatsApp, o servidor do sistema
+chama o modelo da Anthropic com a chave cadastrada em Integrações › Anthropic, recebe os pedidos de consulta do modelo,
+executa cada um pela mesma porta da ponte da etapa 1 e devolve a resposta no WhatsApp. Não há agente no Console.
+
+**Por quê.** Na API da Anthropic, quem executa uma ferramenta é o programa que chama o modelo — o modelo só diz "consulte
+isto". Um agente no Console não recebe mensagens do WhatsApp nem consegue, sozinho, chamar a ponte do sistema; alguém
+teria de fazer essa ponte entre o WhatsApp, o modelo e as consultas. Fazendo isso no próprio sistema: (1) o comando do
+dono, a conferência do número e o envio da resposta ficam no mesmo lugar, com a mesma auditoria (`dolores_acoes`);
+(2) o limite mensal de gasto, os tetos por pedido e o prazo de 60 s são controlados pelo sistema; (3) o token da ponte
+não precisa sair do sistema. O texto de instrução da Dolores (`agente-etapa2.md`) é o mesmo que iria para o Console.
+
+**O que continua igual.** O modelo é o da Anthropic, escolhido por você em Integrações › Anthropic; as ferramentas são as
+mesmas da etapa 1 (só leitura); nenhuma escrita no sistema.
+
+**A IA só liga com o seu interruptor.** Cadastrar a chave não liga nada: a Dolores só chama a Anthropic depois que um
+administrador aperta "Ligar a IA" em Integrações › Dolores (desligada por padrão), com número do dono, chave, modelo e
+limites mensais cadastrados, sem pausa. Se preferir o agente no Console, basta não ligar o interruptor e avisar a equipe
+— nada é gasto enquanto ele estiver desligado.
+
 ## 1. Banco (equipe técnica, já autorizado)
 Aplicar no Neon a migração aditiva `drizzle/0124_dolores_whatsapp.sql` (cria `dolores_whatsapp_config`,
-`dolores_mensagens` e `dolores_consumo`; não altera nenhuma tabela existente). Depois, publicar.
+`dolores_mensagens`, `dolores_consumo` e `dolores_remetentes_estranhos`; não altera nenhuma tabela anterior). Depois, publicar.
 
 ## 2. Chave e modelo da Anthropic (o dono)
 1. Claude Console (console.anthropic.com) → conta da Prospecta com créditos → **API Keys** → criar uma chave
@@ -111,17 +133,21 @@ Ao bater qualquer um dos dois, a IA para até o mês seguinte (ou até o limite 
 aviso com o uso. O consumo de cada chamada fica em `dolores_consumo`.
 
 ## 4. Número do dono (o dono, em Integrações › Dolores)
-Digite o seu número (DDD + número) em "Número do dono" e salve. A tela mostra só `(99) *****-4567`. Só esse número
-comanda; o sistema compara pelo DDD e os 8 últimos dígitos (o 55 e o nono dígito não importam). Mensagem de qualquer
-outro número é ignorada, sem resposta, e fica registrada em `dolores_acoes`.
+Digite o seu número (DDD + número) em "Número do dono" e salve — só número brasileiro é aceito. A tela mostra só
+`(99) *****-4567`. Só esse número comanda; a conferência é estrita: precisa ser +55, com o mesmo DDD e os mesmos 8
+últimos dígitos (só o nono dígito pode faltar). Número de outro país com os mesmos finais **não** comanda. Mensagem de
+qualquer outro número é ignorada, sem resposta, e fica registrada em `dolores_acoes` (uma linha por número por hora; a
+contagem fica em `dolores_remetentes_estranhos`).
 
 ## 5. Conectar o número da Dolores (o dono, com o celular dela)
 Pré-requisito: o servidor da Evolution já salvo em Integrações › WhatsApp (o mesmo da Central).
 1. Integrações › Dolores → **"Conectar o número da Dolores (QR code)"**.
 2. No celular com o chip DA DOLORES: WhatsApp → Aparelhos conectados → Conectar aparelho → ler o QR code da tela.
-3. A tela confirma "Número da Dolores conectado". O sistema registra sozinho o aviso de mensagens da Dolores
+3. A tela confirma "Número da Dolores conectado" (ao ver a conexão, ela pede ao sistema para confirmar). O sistema
+   confere o número conectado e registra o aviso de mensagens da Dolores
    (`/api/dolores/whatsapp`, com segredo próprio, diferente do da Central). Se o número for o da empresa, de um corretor
-   ou o do dono, a conexão é desfeita e a tela explica.
+   ou o do dono, a conexão é desfeita e a tela explica. Se o sistema não conseguir ler o número conectado, nada é ativado:
+   desconecte e conecte de novo.
 4. Se um dia as mensagens pararem de chegar: "Reativar recebimento".
 
 ## 6. Ligar e testar
@@ -130,6 +156,12 @@ Pré-requisito: o servidor da Evolution já salvo em Integrações › WhatsApp 
    atrasados, pendências, responsáveis e próximas providências." A resposta chega em até ~1 minuto, com a fonte de cada
    dado entre colchetes. Se o pedido for grande demais, ela responde o que conseguiu e diz que parou.
 3. Conferir na tabela `dolores_acoes` (canal `whatsapp`): a mensagem recebida, cada consulta e a resposta.
+
+O que ela não trata como pedido: mensagem **encaminhada** (responde pedindo que você escreva o pedido com as suas
+palavras), reação e edição de mensagem (ignoradas). Mensagem temporária ou de visualização única com texto vale normalmente.
+Se o sistema cair no meio de um pedido, na próxima mensagem ela avisa "não consegui terminar o pedido de HH:MM; mande de
+novo" (uma vez, sem gastar de novo). Vários pedidos de uma vez: os que não couberem no prazo de 1 minuto recebem "não deu
+tempo de tratar o de HH:MM; mande de novo".
 
 ## Parar
 - **Desligar a IA** (Integrações › Dolores): vale na hora; ela passa a responder só a frase fixa.

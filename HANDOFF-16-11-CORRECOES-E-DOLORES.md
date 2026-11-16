@@ -108,3 +108,19 @@ migração da etapa antes. Depois lançar S-03 e S-05, e por fim o EPIC-025 (Dol
 - **Depende do dono:** chip/número da Dolores e o QR code; chave da Anthropic com créditos; limites; ligar a IA.
   Passo a passo: `docs/dolores/como-ligar.md`, seção Etapa 2.
 - **Próximo passo exato:** portão de QA da E2; aplicar 0124; publicar; avisar o dono dos passos 2 a 6 da Etapa 2.
+
+## Atualização — 16/11 — EPIC-025 E2: correções do portão de QA (FAIL) — @dev
+- **Concluído (ramo `epic025-dolores-etapa2`, cópia `claude/wip-epic025-dolores-etapa2`):** achados 1–9 do QA e o extra,
+  um commit por achado (`fix: … [EPIC-025 E2]`), cada um com teste de regressão — tabela completa na story, seção
+  "Correções do portão de QA". Achado 1 (bloqueava): número do dono agora conferido com DDI 55 (estrangeiro com os
+  mesmos 8 finais não comanda nem recebe resposta).
+- **0124 mudou (continua NÃO aplicada, só aditiva/idempotente):** `dolores_mensagens` ganhou `reserva_entrada`,
+  `reserva_saida`, `reserva_ate` (também por `ADD COLUMN IF NOT EXISTS`) e há tabela nova `dolores_remetentes_estranhos`.
+- **Achado 10 (informativo):** seção "Diferença em relação ao prompt mestre — para o dono confirmar" na story e em
+  `docs/dolores/como-ligar.md` (cérebro no servidor em vez do agente no Console; a IA só liga com o interruptor dele).
+- **Testes (a) automáticos:** tsc ok; 28 arquivos / 301 testes (comando da story) passando; vite build ok.
+  **(b) manuais:** nenhum. **(c) pendentes em produção:** os mesmos da E2 (0124 no Neon, dono cadastra e conecta, aceite).
+- **Pendências:** `dolores_mensagens` ainda recebe uma linha por mensagem de número estranho (é a idempotência; o spam
+  infla essa tabela, não mais a auditoria); conferir `senderPn`/`remoteJidAlt` e os tipos `protocolMessage`/`editedMessage`
+  na Evolution real.
+- **Próximo passo exato:** nova rodada do portão de QA da E2 sobre o ramo; aprovado, aplicar 0124 e publicar.
