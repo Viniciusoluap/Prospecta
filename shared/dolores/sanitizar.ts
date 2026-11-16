@@ -10,10 +10,12 @@
 //  2. Junta grupos de dígitos separados por até 3 caracteres de [espaço . - _ / ( )] numa "cadeia" e procura, dentro
 //     dela, CPF ou CNPJ com dígito verificador válido (em qualquer separação comum) e telefone brasileiro plausível
 //     (com ou sem 55, DDD colado, pontuado ou entre parênteses; celular com 9; fixo começando por 2–9).
-//  3. Celular, CPF e CNPJ válidos saem SEMPRE. Fixo (8 ou 10 dígitos) e sequência de 11 dígitos sem forma conhecida
-//     ficam quando o rótulo logo antes diz o que é (processo, protocolo, nota fiscal, área, valor, lote, quadra…) ou
-//     quando vem unidade de medida depois; intervalos de anos (2024-2026) ficam. Na dúvida real, sai: o marcador é
-//     visível, e a Dolores nunca apresenta número alterado como dado.
+//  3. Celular (inclusive o antigo, de 8 dígitos começando com 6–9), CPF e CNPJ válidos saem SEMPRE. Fixo (8 ou 10
+//     dígitos começando com 2–5) só fica quando o rótulo logo antes é de documento (processo, protocolo, nota fiscal,
+//     área, lote, quadra…) ou vem unidade de medida depois; casa, apartamento, unidade, valor, total, ano e pedido NÃO
+//     livram telefone (QA r3 R1). Sequência de 11 dígitos sem forma conhecida fica com esses rótulos. Palavra de telefone
+//     (tel, fone, celular, whats, zap, contato, ligar, recado) nos ~50 caracteres antes: nada livra. Intervalos de anos
+//     (2024-2026) ficam. Na dúvida real, sai: o marcador é visível, e a Dolores nunca apresenta número alterado como dado.
 import { isValidCPF } from "../cpf.js";
 
 export const OMITIDO = "[dado pessoal omitido]";
@@ -63,8 +65,8 @@ const GRUPO = /\d+/g;
 /** O que pode ficar entre dois grupos da mesma cadeia. Vírgula não entra: é o decimal ("R$ 1.234,56"). */
 const LIGACAO = /^[\s._\-/()]{1,3}$/;
 /**
- * Rótulo logo antes que diz o que o número é: fixo e sequência sem forma conhecida ficam (celular, CPF e CNPJ válidos
- * saem mesmo assim).
+ * Rótulo logo antes que diz o que o número é: a sequência de 11 dígitos sem forma conhecida fica (celular, CPF e CNPJ
+ * válidos saem mesmo assim).
  */
 const CONTEXTO_NAO_PESSOAL = new RegExp(
   "\\b(protocolos?|processos?|autos|matr[ií]culas?|requerimentos?|inscri[cç](?:[aã]o|[oõ]es)(?:\\s+imobili[aá]rias?)?|guias?|boletos?|"
@@ -72,6 +74,18 @@ const CONTEXTO_NAO_PESSOAL = new RegExp(
   + "casas?|apartamentos?|anos?|per[ií]odos?|c[oó]digo\\s+de\\s+barras|cep)\\s*(?:n[º°o.]*\\s*)?[:#-]?\\s*$",
   "i",
 );
+/**
+ * QA r3 R1: para a FORMA DE TELEFONE FIXO, só rótulo de documento livra. Casa, apartamento, unidade, valor, total, ano e
+ * pedido não livram ("fone casa 3523-4567", "unidade 3523 4567" são telefones): na dúvida entre vazar e mascarar, mascara.
+ */
+const CONTEXTO_NAO_TELEFONE = new RegExp(
+  "\\b(protocolos?|processos?|autos|matr[ií]culas?|requerimentos?|inscri[cç](?:[aã]o|[oõ]es)(?:\\s+imobili[aá]rias?)?|guias?|boletos?|"
+  + "notas?\\s+fisca(?:l|is)|nf-?e?|nfs-?e|cupom|contratos?|[aá]reas?|r\\$|lotes?|quadras?|per[ií]odos?|c[oó]digo\\s+de\\s+barras|cep)"
+  + "\\s*(?:n[º°o.]*\\s*)?[:#-]?\\s*$",
+  "i",
+);
+/** QA r3 R1: palavra de telefone nos ~50 caracteres antes — nenhum rótulo nem unidade livra o número. */
+const CONTEXTO_TELEFONE = /\b(?:tel(?:efone)?s?|fones?|cel|celular(?:es)?|whats\w*|zap\w*|wpp|contatos?|lig(?:ar|ue|uem|a|ou)|recados?)\b/i;
 /** Unidade logo depois: é medida, não documento nem telefone. */
 const UNIDADE_DEPOIS = /^\s?(?:m²|m2|cm²|cm2|km²|km2|m³|m3|ha|metros|km|kg|toneladas|litros|un\b|unidades|reais|centavos)/i;
 const ANO = /^(?:19|20)\d\d$/;
@@ -84,8 +98,8 @@ const FORMAS_CPF = new Set(["11", "9,2", "3,3,3,2", "3,3,5", "3,8"]);
 const FORMAS_CNPJ = new Set(["14", "12,2", "8,6", "8,4,2", "2,3,3,4,2", "2,3,3,6", "2,6,4,2", "2,3,3,4,1,1"]);
 
 /** Telefone brasileiro plausível nos grupos (já sem barra entre eles). */
-function telefone(gs: Grupo[], ligacoes: string[], maisAntes: boolean): "celular" | "fixo" | null {
-  if (ligacoes.some(l => l.includes("/"))) return null;
+function telefone(gs: Grupo[], ligacoes: string[], maisAntes: boolean, contextoTel: boolean): "celular" | "fixo" | null {
+  if (!contextoTel && ligacoes.some(l => l.includes("/"))) return null;
   let g = gs.map(x => x.digitos);
   let ddi = maisAntes;
   // DDI: grupo "55" separado, ou colado num grupo único de 12/13 dígitos
@@ -108,9 +122,12 @@ function telefone(gs: Grupo[], ligacoes: string[], maisAntes: boolean): "celular
   if (d.length === 10 && dddValido && /[2-9]/.test(d[2])) return /[6-9]/.test(d[2]) ? "celular" : "fixo";
   if (ddi) return null;
   if (d.length === 9 && d[0] === "9") return "celular";
-  if (d.length === 8 && n > 1 && /[2-9]/.test(d[0])) {
-    if (g.every(x => ANO.test(x))) return null; // "2024-2026", "anos 2024 2025"
-    return tamanhos.join(",") === "4,4" || tamanhos.join(",") === "1,3,4" ? "fixo" : null;
+  if (d.length === 8 && /[2-9]/.test(d[0])) {
+    // QA r3 R1: 8 dígitos começando com 6–9 é celular antigo (sem o 9 na frente): sai sempre, como celular.
+    const tipo = /[6-9]/.test(d[0]) ? "celular" : "fixo";
+    if (n === 1) return contextoTel ? tipo : null; // "fone 35234567"; sem palavra de telefone, 8 dígitos colados ficam
+    if (!contextoTel && g.every(x => ANO.test(x))) return null; // "2024-2026", "anos 2024 2025"
+    return tamanhos.join(",") === "4,4" || tamanhos.join(",") === "1,3,4" ? tipo : null;
   }
   return null;
 }
@@ -126,10 +143,13 @@ function classificar(gs: Grupo[], ligacoes: string[], texto: string, cadeiaIntei
   if (/^,\d/.test(depois)) return null; // número com decimais ("999.123.456,00"): é valor
   const antes = texto.slice(Math.max(0, inicio - 50), inicio);
   const maisAntes = /\+\s?\(?\s?$/.test(antes);
-  const tel = telefone(gs, ligacoes, maisAntes);
-  const rotulado = CONTEXTO_NAO_PESSOAL.test(antes.replace(/[(+\s]+$/, " ")) || UNIDADE_DEPOIS.test(depois);
+  const contextoTel = CONTEXTO_TELEFONE.test(antes);
+  const tel = telefone(gs, ligacoes, maisAntes, contextoTel);
+  const antesLimpo = antes.replace(/[(+\s]+$/, " ");
+  const medida = !contextoTel && UNIDADE_DEPOIS.test(depois);
+  const rotulado = !contextoTel && CONTEXTO_NAO_PESSOAL.test(antesLimpo) || medida;
   if (tel === "celular") return { tipo: "celular" };
-  if (tel === "fixo") return rotulado ? null : { tipo: "fixo" };
+  if (tel === "fixo") return !contextoTel && CONTEXTO_NAO_TELEFONE.test(antesLimpo) || medida ? null : { tipo: "fixo" };
   // Sequência única, sem forma conhecida (só quando é a cadeia inteira: um pedaço de número maior não conta)
   if (cadeiaInteira && gs.length === 1) {
     if (d.length === 11 && !rotulado) return { tipo: "duvida" }; // CPF digitado errado ou celular: na dúvida, sai

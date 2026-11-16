@@ -147,6 +147,22 @@ describe("filtro de dados pessoais em texto livre (M1)", () => {
     expect(sanitizarTexto("lista 123 456 789 00")).toBe("lista 123 456 789 00");
   });
 
+  it("QA r3 R1: casa, apartamento, unidade, valor, total, ano e pedido não livram telefone; palavra de telefone antes, nada livra", () => {
+    for (const c of [
+      "fone casa 3523-4567", "tel casa 9935234567", "casa 9123-4567", "Recado: ligar na casa 3523-4567", "unidade 3523 4567",
+      "valor: 3523 4567", "apartamento 3523-4567", "total 3523 4567", "ano 3523-4567", "pedido 3523 4567",
+      "lote 9123-4567", "protocolo 8123 4567", "fone 35234567", "telefone do protocolo 3523-4567", "whats lote 3523-4567",
+      "ligar 3523-4567 m²", "contato: (99) 3523-4567", "tel 2024-2025",
+    ]) {
+      const r = sanitizarTexto(c);
+      expect(r, c).toContain(OMITIDO_T);
+      expect(r.replace(/\D/g, "").length, `${c} → ${r}`).toBeLessThan(4);
+    }
+    // rótulo de documento sem palavra de telefone continua livrando o fixo (2–5); anos e lotes de 4 dígitos ficam
+    for (const t of ["protocolo 3523-4567", "Nota fiscal 1234567890", "lotes 1201 1202", "Período 2024-2026", "quadra 3523 4567",
+      "Pedido wa:1234 5678", "15/11/2026 às 10:30", "boleto 3523 4567"]) expect(sanitizarTexto(t), t).toBe(t);
+  });
+
   it("QA r3 R4: 200 kB patológicos (só dígitos, '12.' repetido, 'aaa…a1', '1 ' repetido) filtram em tempo linear", () => {
     const KB = 1024;
     for (const [nome, t] of [
