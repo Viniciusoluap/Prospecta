@@ -102,6 +102,10 @@ Claude Console); limites mensais de tokens; ligar o interruptor.
   `whatsapp-regras`.
 - QA r4 (16/11): alterados `shared/dolores/sanitizar.ts` e `server/dolores/regras.test.ts`.
 - QA r5 (16/11): alterados `shared/dolores/sanitizar.ts` e `server/dolores/regras.test.ts`.
+- QA r6 (16/11): alterados `shared/dolores/sanitizar.ts` e `server/dolores/regras.test.ts` (fuzz "nunca pior que a main").
+- Opção B (16/11): `server/dolores/dados-pessoais.ts` (novo, o interruptor); alterados `shared/dolores/sanitizar.ts`,
+  `server/dolores/{ponte,whatsapp,auditoria,erro-seguro}.ts`, testes `regras`, `ponte`, `whatsapp`, `whatsapp-qa`;
+  `docs/dolores/como-ligar.md`.
 - `docs/dolores/ferramentas-etapa1.json` (regerado: etapa 2, mesmas 12 ferramentas), `docs/dolores/como-ligar.md`
   (seção Etapa 2), `docs/dolores/agente-etapa2.md` (novo), `docs/stories/epics/ROADMAP.md` (paridade em espera),
   `HANDOFF-16-11-CORRECOES-E-DOLORES.md`.
@@ -275,6 +279,46 @@ Em aberto (não bloqueia):
 - F8 (estragos com rótulo de documento antes de forma de celular) sem mudança.
 - Marcador: CPF/celular depois de "pix" agora sai como "[dado pessoal omitido]" (antes "[dado bancário omitido]").
 
+## Correções da 6ª rodada do QA (16/11/2026, @dev Dex — QA r6 FAIL de Quinn, HEAD revisado `4297b5a`)
+Mudança de ESTRUTURA, não só de casos: a isenção de documento (fase 2a) exige TRÊS coisas ao mesmo tempo — rótulo do
+documento nos ~60 caracteres antes (mesma linha ou a anterior), forma escrita canônica numa linha com separador uniforme,
+e estrutura validada. Faltando uma, valem a fase 1 e a 2b. A rodada foi interrompida pela decisão do dono (opção B,
+abaixo) com o código coerente e os testes passando.
+
+| Achado | Correção | Commit | Teste |
+|---|---|---|---|
+| N1 (bloqueava) fixo antes da janela de dentro ficava à vista | ao passar para a janela forte, o trecho antes é varrido de novo; o pulo por ano só descarta o ano (os grupos pulados são varridos de novo antes de emitir) | `f62a17c`, `90ee516` | "QA r6 N1" (8 listas) e o fuzz |
+| N2 (bloqueava) guia "11 1" aceitava listas de celulares/CPFs | rótulo de guia obrigatório; DV só com hífen ("-" ou " - "); blocos numa linha só; "comprador" é trava | `f62a17c` | "QA r6 N2–N5" e "QA r5 F2" (sem rótulo, espaço, ponto ou quebra de linha: não isenta) |
+| N3 boleto "10 11 11 1 14" com 0+DDD e CNPJ | DV geral exigido em todas as formas; campos 2/3 não podem ser celular, CPF ou 0+DDD+número; campo 5 não pode ser CNPJ nem 000+CPF; "0"+DDD+número em 11 dígitos sai como dúvida (como na main) | `f62a17c`, `90ee516` | "QA r6 N2–N5" |
+| N4 "Vizinhos: …" passava como NF-e | rótulo de NF-e obrigatório; UF da lista do IBGE; ano 06 até o ano que vem | `f62a17c` | "QA r6 N2–N5" |
+| N5 (estrago) | linha digitável pontuada aceita uma quebra de linha no lugar de um espaço; NF-e 11×4 com 1–3 espaços uniformes | `f62a17c` | "QA r6 N2–N5" |
+| F (rede de segurança) | teste de propriedade em `regras.test.ts`: 50 mil listas (semente fixa) de celulares, fixos, CPFs e CNPJs, com e sem rótulos; nenhum celular/CPF/CNPJ inteiro, fixo com palavra de telefone na linha sai, e nada que a main (copiada no teste) mascarava fica à vista. Achados do fuzz, fechados: 8 dígitos colados longe do rótulo (palavra de telefone vale na linha inteira), fixo "20xx" tomado por ano, par de anos e faixa "3800-6600" só quando isolados (faixa só com "entre/de/até" antes) | `90ee516` | "QA r6 F" (50 mil; mais 7 sementes × 200 mil à mão, 0 falhas) |
+
+Estrago aceito (deixou de ser isento): documento SEM rótulo ("ver 3526 …", "pagar 2379…"); boleto com DV geral errado;
+guia com espaço/ponto no lugar do hífen do DV ou com um bloco por linha; NF-e/boleto com separadores misturados.
+Única exceção do fuzz contra a main, por desenho da fase 2b (r3/r4): fixo sem palavra de telefone logo depois de rótulo de
+documento (lote, boleto, guia, IPTU).
+
+## Decisão do dono em 16/11: dados pessoais liberados para a Dolores (opção B)
+**O que muda.** CPF, CNPJ, telefone e e-mail no texto livre saem INTACTOS no que vai ao modelo (ponte HTTP da etapa 1 e
+ferramentas do WhatsApp, que passam pela mesma `executarFuncao`) e na resposta ao dono. Com o filtro desligado, nenhuma das
+fases 1/2a/2b roda: boleto, guia, nota, lote e valores também saem intactos; texto sem segredo volta idêntico.
+**Interruptor.** `DOLORES_MASCARAR_DADOS_PESSOAIS`, lido num único ponto (`server/dolores/dados-pessoais.ts`, a cada
+chamada): ausente, vazio ou "0" = liberado; "1" = volta a mascarar com o código completo (`sanitizarTexto(t,
+{ mascararDadosPessoais: true })`, que é também o padrão da função pura — falha fechada).
+**O que não muda.** Sempre mascarados, nos dois modos: senha, token, PIN, OTP, código de acesso, chave de API (`sk-ant-…`,
+`sk-…`, `Bearer …`, JWT, AWS/GitHub/Slack), agência, conta e chave PIX. Sempre filtrados com o mascaramento LIGADO,
+qualquer que seja a variável (`FILTRO_DO_REGISTRO`): `dolores_acoes` (argumentos e motivo), `dolores_mensagens.texto`,
+`erroParaLog` (logs e motivo de erro); `remetente` e `dolores_remetentes_estranhos` seguem com o número mascarado; a tela
+lê só essas colunas. A resposta continua indo só ao número do dono (conferência estrita).
+**Como voltar atrás.** Vercel › Settings › Environment Variables → `DOLORES_MASCARAR_DADOS_PESSOAIS=1` → Redeploy. Para
+liberar de novo: apagar a variável (ou "0") → Redeploy. Guia: `docs/dolores/como-ligar.md`.
+**Em aberto (para o dono/coordenação decidirem).** (1) O prompt do sistema (`server/dolores/prompt.ts`, linha "Dados
+pessoais: não repita CPF, telefone, e-mail…") ainda manda o modelo NÃO repetir esses dados. (2) Os campos estruturados
+das leituras (`leitura/clientes.ts`, `financeiro.ts`, `regularizacoes.ts`: `mascararCpf`, `mascararTelefone`) continuam
+mascarados. Enquanto os dois não mudarem, a opção B só vale para o texto livre. (3) Paridade: registrar no ROADMAP o porte
+para o Grupo Santa Fé (que não tem a Dolores hoje).
+
 ## Dev Notes (implementação, 16/11/2026)
 - IDS: reaproveitados o cliente da Evolution (`server/_core/evolution.ts`: QR, estado, número, webhook, envio), o servidor
   Evolution da Central (`configEvolution`), o padrão de segredo HMAC do webhook da Central (rótulo próprio), o padrão de
@@ -362,3 +406,8 @@ Em aberto (não bloqueia):
 - 16/11/2026 — @qa (Quinn): r5 FAIL (F1 bloqueia: lista que fecha os DVs de NF-e/boleto; F2–F8 menores).
 - 16/11/2026 — @dev (Dex): F1–F6 e F7 (parte barata) corrigidos, um commit por achado, com teste de regressão. Volta ao
   portão de QA (InReview).
+- 16/11/2026 — @qa (Quinn): r6 FAIL (N1 e N2 bloqueiam; N3–N5 menores).
+- 16/11/2026 — @dev (Dex): N1–N5 corrigidos com mudança de estrutura (rótulo + forma + estrutura) e fuzz de propriedade
+  "nunca pior que a main"; rodada interrompida pela decisão do dono (opção B), código coerente e testes passando.
+- 16/11/2026 — @dev (Dex): opção B do dono — interruptor `DOLORES_MASCARAR_DADOS_PESSOAIS` (padrão liberado); registro e
+  log sempre filtrados. Em aberto: prompt do sistema e campos estruturados ainda mascaram (ver a seção da decisão).
