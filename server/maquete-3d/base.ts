@@ -7,6 +7,7 @@ import { projectDocuments } from "../../drizzle/schema.js";
 import { maquete3dConfig } from "../../drizzle/schema-maquete-3d.js";
 import { lerConfig, type ConfigMaquete, type DocumentoMaquete } from "../../shared/maquete-3d/regras.js";
 import { configuracaoAnthropicPainel } from "../_core/anthropic-painel.js";
+import { modeloDaFuncao, type ModeloResolvido } from "../_core/modelo-por-funcao.js";
 import { ENV } from "../_core/env.js";
 import { getDb } from "../db.js";
 import { readPrivateDocument } from "../drive-documents.js";
@@ -19,8 +20,9 @@ export type PdfLido = { nome: string; base64: string };
 export type AnexoIA = { tipo: "imagem"; base64: string } | { tipo: "pdf"; nome: string; base64: string };
 /**
  * Chave e modelo da leitura por IA da maquete (EPIC-024 S-03, opção explícita autorizada pelo dono): primeiro a
- * chave cadastrada em Integrações → Anthropic, com o modelo preferencial de lá; sem ela, a ANTHROPIC_API_KEY do
- * servidor com o modelo das configurações da maquete. Nada é escrito em ENV.
+ * chave cadastrada em Integrações → Anthropic, com o modelo escolhido para "Leitura de plantas" lá (S-11; sem
+ * escolha, o preferencial); sem ela, a ANTHROPIC_API_KEY do servidor com o modelo das configurações da maquete.
+ * Nada é escrito em ENV.
  */
 export type CredencialIA = { apiKey: string; modelo: string | null; origem: "painel" | "ambiente" };
 export type PedidoIA = {
@@ -47,17 +49,27 @@ export class LeituraIndisponivel extends Error {}
 /** Cada passo precisa terminar antes do limite da função na Vercel (60 s). */
 export const LIMITE_PASSO_MS = 52_000;
 
-/** Painel primeiro (chave e modelo preferencial); sem chave no painel, a variável de ambiente. */
+/**
+ * Painel primeiro (chave e o modelo da função "maquete_leitura": o dela, senão o preferencial); sem chave no painel, a
+ * variável de ambiente. Resolver o modelo não chama a IA nem dispensa a confirmação do custo.
+ */
 export async function resolverCredencialIA(
   painel: () => Promise<{ apiKey: string; modelo: string | null } | null> = () => configuracaoAnthropicPainel(),
   ambiente: { anthropicApiKey?: string } = ENV,
+  modeloFuncao: (preferencial: string | null) => Promise<ModeloResolvido> = preferencial => modeloDaFuncao("maquete_leitura", { preferencial }),
 ): Promise<CredencialIA | null> {
   const p = await painel().catch(() => null);
-  if (p?.apiKey) return { apiKey: p.apiKey, modelo: p.modelo || null, origem: "painel" };
+  if (p?.apiKey) {
+    const m = await modeloFuncao(p.modelo || null).catch(() => null);
+    return { apiKey: p.apiKey, modelo: m?.modelo || p.modelo || null, origem: "painel" };
+  }
   return ambiente.anthropicApiKey ? { apiKey: ambiente.anthropicApiKey, modelo: null, origem: "ambiente" } : null;
 }
 
-/** Modelo da leitura: o preferencial do painel (quando a chave é de lá), senão o das configurações da maquete. */
+/**
+ * Modelo da leitura = modeloDaFuncao("maquete_leitura") com o padrão das configurações da maquete: com a chave do painel,
+ * o da função (já resolvido em resolverCredencialIA: função → preferencial), senão o das configurações da maquete.
+ */
 export const modeloDaLeitura = (c: CredencialIA | null | undefined, config: ConfigMaquete) => (c?.origem === "painel" && c.modelo) || config.modeloIA;
 
 const iaPadrao: ClienteIA = async ({ sistema, pedido, pdfs, anexos, esquema, config, credencial, prazoMs }) => {

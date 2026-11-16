@@ -220,6 +220,8 @@ mandar (`epic-024-correcoes-16-11/EPIC.md`). As correções 03, 04 e 05 são da 
 - [ ] Correção 08 — terreno em KML ou KMZ, enviado em partes
 - [ ] Correção 09 — Gerador de PCI: CPF do engenheiro, dados automáticos com origem, biblioteca de modelos
 - [ ] Correção 10 — painel Anthropic em Integrações (só cadastro, sem ativar)
+- [ ] S-11 — modelo da Anthropic por função em Integrações › Anthropic (leitura de plantas da Maquete e Dolores no
+  WhatsApp; no Santa Fé, as funções que usarem a chave do painel lá)
 - [ ] S-I do EPIC-023 — APP com o contorno real no Estudo de Massa (junto com as correções 8 e 10 daquele epic)
 
 ## Pendência de paridade → Grupo Santa Fé (EPIC-025 Dolores — registrada em 16/11/2026, EM ESPERA por decisão do dono)

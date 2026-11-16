@@ -8,3 +8,16 @@ export function rotuloContinuarLeitura(estadoDoProximo: string | null | undefine
   if (estadoDoProximo === "aguardando" && motivo === "chave") return "Continuar leitura (depois de cadastrar a chave)";
   return "Continuar leitura";
 }
+
+/**
+ * QA S-11 r2, achado 2: o botão de confirmar o custo diz com que modelo a IA vai ler (o mesmo que a tela devolve ao
+ * confirmar). Sem o modelo (passo parado antes desta versão), o botão fica como era e o servidor pede para recarregar.
+ */
+export function rotuloConfirmarIA(modelo: string | null | undefined, rotulo: string): string {
+  return modelo ? `${rotulo} — modelo ${modelo}` : rotulo;
+}
+
+/** Pergunta de "Autorizar além do teto", com o modelo que será usado. */
+export function perguntaAlemDoTeto(pendentes: number, teto: number | null | undefined, modelo: string | null | undefined): string {
+  return `Autorizar a leitura paga de mais ${pendentes} prancha(s) pela IA${modelo ? `, com o modelo ${modelo}` : ""}, além do teto de ${teto ?? "—"} desta maquete?`;
+}
