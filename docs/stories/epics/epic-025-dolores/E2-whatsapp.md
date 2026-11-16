@@ -101,6 +101,7 @@ Claude Console); limites mensais de tokens; ligar o interruptor.
 - QA r3 (16/11): alterados `shared/dolores/{sanitizar,whatsapp}.ts`, `docs/dolores/como-ligar.md`; testes `regras`,
   `whatsapp-regras`.
 - QA r4 (16/11): alterados `shared/dolores/sanitizar.ts` e `server/dolores/regras.test.ts`.
+- QA r5 (16/11): alterados `shared/dolores/sanitizar.ts` e `server/dolores/regras.test.ts`.
 - `docs/dolores/ferramentas-etapa1.json` (regerado: etapa 2, mesmas 12 ferramentas), `docs/dolores/como-ligar.md`
   (seção Etapa 2), `docs/dolores/agente-etapa2.md` (novo), `docs/stories/epics/ROADMAP.md` (paridade em espera),
   `HANDOFF-16-11-CORRECOES-E-DOLORES.md`.
@@ -241,6 +242,39 @@ Em aberto (não bloqueia):
   então a fase 1 vale e o 1º campo sai.
 - Boleto de concessionária (48 dígitos, começa com 8) não é reconhecido.
 
+## Correções da 5ª rodada do QA (16/11/2026, @dev Dex — QA r5 FAIL de Quinn, HEAD revisado `a90997d`)
+Princípio mantido: a fase 1 mascara sem exceção; uma isenção da fase 2a só vale quando a FORMA ESCRITA também é a do
+documento — nunca basta os dígitos fecharem.
+
+| Achado | Correção | Commit | Teste |
+|---|---|---|---|
+| F1 (bloqueava) listas de telefones/CPFs passavam como NF-e/boleto quando os DVs fechavam por acaso | NF-e só em 44 colados ou 11×4 com o mesmo separador (" " ou "."); boleto com moeda 9, só em 47 colados, "5.5 5.6 5.6 1 14" com os pontos, ou "10 11 11 1 14" com o DV geral do código de barras remontado E os campos 2/3 sem forma de celular nem CPF válido (a sonda dirigida achava listas que fechavam até o DV geral); travas: palavra de telefone/contato/CPF nos ~50 caracteres antes, "(" ou "+" antes, parênteses/hífen entre os grupos, forma explícita de CPF ou telefone dentro do trecho | `7953fe1`, `61ca1cc` | "QA r5 F1" (os 3 repros, a lista sem rótulo, as 2 listas da sonda B, NF-e 11×4 uniforme fica, misturada/"contato"/"cpf" sai, DV geral errado sai) |
+| F2 guias de arrecadação de 48 dígitos mascaradas em parte | reconhecidas na fase 2a: começam por 8, 3º dígito 6–9, "48", "12 12 12 12" ou "11-1 ×4" com separadores uniformes, DV de CADA bloco (módulo 10 se 6/7, módulo 11 se 8/9), com as travas da F1 | `f9af1c7` | "QA r5 F2" (1.600 guias válidas em 4 formas; DV errado; palavra de telefone antes) |
+| F3 rótulo antes livrava o fixo com palavra de telefone depois | palavra de telefone nos ~25 caracteres depois (na mesma linha) cancela a isenção | `2265793` | "QA r5 F3" (8 que saem, 4 que ficam) |
+| F4 janela que começa antes deixava a cauda | testa as janelas que começam dentro do achado e passam do fim; se a de dentro é fase 1 e a de antes não (ou a de antes começa num ano), fica só a de dentro; senão, sai a união | `db87b73` | "QA r5 F4" ("dia 15/11/2026 9123-4567" → data fica, telefone sai inteiro; CNPJ "12 74677693/2903-31") |
+| F5 "conta 529 982 247 25" deixava 8 dígitos | PIX e banco passaram a rodar DEPOIS da fase 1 (as cadeias); a chave PIX em e-mail/uuid continua antes do filtro de e-mail. O fuzz achou a variante "cc 2026.12/889 767 151 95" (número de conta antes do CPF), também fechada | `8cc36b1`, `5fcfe60` | "QA r5 F5" (5 + 5 textos) e "QA r4 S5" (PIX com CPF/celular agora sai como dado pessoal) |
+| F6 e-mail com nome acentuado | `[\p{L}\p{N}_.+-]` com a flag u (via `new RegExp`, o tsc recusa a flag em literal), mesma âncora (linear) | `83b55a4`, `0016800` | "QA r5 F6/F7" e o teste da âncora (agora "joão.silva+obra@…" sai inteiro) |
+| F7 (barato) | CPF com zeros à esquerda num grupo só (12–14 dígitos, zeros + CPF válido); "(dot)com_" (fim do domínio por `(?![\p{L}\p{N}])`) | `83b55a4` | "QA r5 F6/F7" |
+
+Medições (sondas do QA rodadas contra este código, cópias em `scratchpad/dex-r5`):
+- FUZZ semente 12345 (300 mil): 257 vazamentos, TODOS "R$ …,cc" (exceção prevista); 0 parciais. Semente 777 (400 mil):
+  335, todos "R$ …,cc"; 0 parciais. Zero vazamento de número inteiro fora da exceção.
+- sonda-r5: A (busca dirigida NF-e, 50 mi) 0; A2 0 de 5 mi (celulares e CPFs); A3 0; B (lista de telefones com forma de
+  boleto, 10 mi tentativas) 0 achadas; C NF-e reais ficam em 44, 11×4 com espaço/ponto; H todos saem.
+- sonda-conc: guias geradas com DV válido pelo módulo certo: 0 de 20.000 mascaradas em cada uma das 4 formas. A sonda do
+  QA (DV sempre módulo 10 e 3º dígito qualquer) ainda mascara ~27% — essas guias não são válidas (3º dígito 0–5, ou
+  8/9 com DV módulo 10).
+- Desempenho (126 casos de 200 kB das sondas r3/r4/r5): pior 405 ms; todos abaixo de 1 s.
+
+Em aberto (não bloqueia):
+- "R$ …,cc" com número de celular (exceção por desenho).
+- Estrago novo por desenho: a NF-e em 4×11 ("chave 35261116425 70622…") e a linha digitável "10 11 11 1 14" cujo DV
+  geral não fecha (ou com campo 2/3 com forma de celular) agora podem ter partes mascaradas — os boletos da sonda D sem
+  pontos têm DV geral aleatório (5 de 10 com o 1º campo mascarado); com pontos ficam todos.
+- Guias: o DV geral (4ª posição) não é conferido, só os 4 DVs de bloco.
+- F8 (estragos com rótulo de documento antes de forma de celular) sem mudança.
+- Marcador: CPF/celular depois de "pix" agora sai como "[dado pessoal omitido]" (antes "[dado bancário omitido]").
+
 ## Dev Notes (implementação, 16/11/2026)
 - IDS: reaproveitados o cliente da Evolution (`server/_core/evolution.ts`: QR, estado, número, webhook, envio), o servidor
   Evolution da Central (`configEvolution`), o padrão de segredo HMAC do webhook da Central (rótulo próprio), o padrão de
@@ -303,6 +337,9 @@ Em aberto (não bloqueia):
   server/integracoes-anthropic.test.ts server/auth-session.test.ts server/imports-esm.test.ts server/api-rotas-producao.test.ts`
   — 12 arquivos, 202 testes passando; `regras.test.ts` 24 testes (+6 de regressão da r4). Sondas do QA r4: vazamento — 0 casos vazam;
   estrago — 79 de 103 ficam (eram 62); desempenho — todos os 200 kB abaixo de 250 ms.
+- (a6) Automáticos depois da 5ª rodada do QA (16/11): `npx tsc --noEmit` sem erros; `npx vitest run server/dolores
+  server/integracoes-anthropic.test.ts server/auth-session.test.ts server/imports-esm.test.ts server/api-rotas-producao.test.ts`
+  — 12 arquivos, 208 testes passando; `regras.test.ts` 30 testes (+6 de regressão da r5). Fuzz e sondas: ver "Correções da 5ª rodada".
 - (b) Manuais: nenhum (sem Evolution nem Anthropic reais neste ambiente).
 - (c) Pendentes em produção: migração 0124 no Neon; dono cadastra chave/modelo, limites, o número dele e conecta o número
   da Dolores; teste de aceite pelo WhatsApp; conferir os nomes `senderPn`/`remoteJidAlt` do endereço @lid na Evolution real.
@@ -322,3 +359,6 @@ Em aberto (não bloqueia):
 - 16/11/2026 — @qa (Quinn): r4 FAIL (S1 bloqueia: chave de NF-e pelo rótulo; S2–S6 menores).
 - 16/11/2026 — @dev (Dex): decisão do filtro reorganizada em duas fases; S1–S5 e S6 corrigidos, um commit por achado,
   com teste de regressão. Volta ao portão de QA (InReview).
+- 16/11/2026 — @qa (Quinn): r5 FAIL (F1 bloqueia: lista que fecha os DVs de NF-e/boleto; F2–F8 menores).
+- 16/11/2026 — @dev (Dex): F1–F6 e F7 (parte barata) corrigidos, um commit por achado, com teste de regressão. Volta ao
+  portão de QA (InReview).
