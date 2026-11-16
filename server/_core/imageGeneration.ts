@@ -15,7 +15,7 @@
  *     }]
  *   });
  */
-import { storagePut } from "server/storage";
+import { storagePut } from "../storage.js";
 import { ENV } from "./env.js";
 
 export type GenerateImageOptions = {
@@ -31,6 +31,26 @@ export type GenerateImageResponse = {
   url?: string;
 };
 
+/**
+ * EPIC-024 S-02: o que falta para gerar imagem (Manus Forge). Lista vazia = configurado.
+ * Nenhum outro provedor é usado para imagem (Anthropic e Gemini ficam de fora).
+ */
+export function faltandoParaGerarImagem(): string[] {
+  return [
+    ...(ENV.forgeApiUrl ? [] : ["BUILT_IN_FORGE_API_URL"]),
+    ...(ENV.forgeApiKey ? [] : ["BUILT_IN_FORGE_API_KEY"]),
+  ];
+}
+
+/** Gera a imagem e devolve os bytes, sem gravar no S3 (o logotipo do estudo fica no banco). */
+export async function generateImageBytes(
+  options: GenerateImageOptions
+): Promise<{ data: Buffer; mimeType: string }> {
+  const faltando = faltandoParaGerarImagem();
+  if (faltando.length) throw new Error(`${faltando.join(" e ")} não configurado`);
+  return requestImage(options);
+}
+
 export async function generateImage(
   options: GenerateImageOptions
 ): Promise<GenerateImageResponse> {
@@ -41,6 +61,22 @@ export async function generateImage(
     throw new Error("BUILT_IN_FORGE_API_KEY is not configured");
   }
 
+  const image = await requestImage(options);
+
+  // Save to S3
+  const { url } = await storagePut(
+    `generated/${Date.now()}.png`,
+    image.data,
+    image.mimeType
+  );
+  return {
+    url,
+  };
+}
+
+async function requestImage(
+  options: GenerateImageOptions
+): Promise<{ data: Buffer; mimeType: string }> {
   // Build the full URL by appending the service path to the base URL
   const baseUrl = ENV.forgeApiUrl.endsWith("/")
     ? ENV.forgeApiUrl
@@ -78,15 +114,5 @@ export async function generateImage(
     };
   };
   const base64Data = result.image.b64Json;
-  const buffer = Buffer.from(base64Data, "base64");
-
-  // Save to S3
-  const { url } = await storagePut(
-    `generated/${Date.now()}.png`,
-    buffer,
-    result.image.mimeType
-  );
-  return {
-    url,
-  };
+  return { data: Buffer.from(base64Data, "base64"), mimeType: result.image.mimeType };
 }

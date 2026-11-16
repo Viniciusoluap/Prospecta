@@ -28,6 +28,7 @@ import usuarioDocumentosRouter from "../server/usuario-documentos.js";
 import pciGeradorRotas from "../server/pci-gerador.js";
 import googleDriveRotas from "../server/routes/google-drive.js";
 import camadasTerrenoRotas from "../server/routes/camadas-terreno.js";
+import incorporacaoLogoRotas from "../server/routes/incorporacao-logo.js";
 import { checkAndSendReminder } from "../server/mcmv-rules-reminder.js";
 import { ensureLeadCardDeadlineSchema } from "../server/lead-card-deadline-schema.js";
 import { sendLeadCardDueDigests } from "../server/lead-card-due-digest.js";
@@ -196,6 +197,7 @@ app.use("/api", async (req, res, next) => {
     router.use(googleDriveRotas);
     // Pedido de 11/11: camadas do mapa do terreno (APP, vegetação, servidão, UCs…) no servidor.
     router.use(camadasTerrenoRotas);
+    router.use(incorporacaoLogoRotas); // EPIC-024 S-02: logotipo do empreendimento
     // Central de Vendas (12/11): entrada de leads do site e da Logyca (token próprio).
     router.use(centralVendasRotas);
     router.post("/asaas/webhook", handleAsaasWebhook);

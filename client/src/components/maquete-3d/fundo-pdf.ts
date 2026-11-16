@@ -33,16 +33,7 @@ export function useFundoPdf(maqueteId: number, prancha: { doc: number; pagina: n
         })());
       }
       const dados = await arquivos.get(chave)!;
-      const pdfjs = await import("pdfjs-dist");
-      pdfjs.GlobalWorkerOptions.workerSrc = (await import("pdfjs-dist/build/pdf.worker.min.mjs?url")).default;
-      const pdf = await pdfjs.getDocument({ data: dados.slice() }).promise;
-      const pg = await pdf.getPage(Math.min(Math.max(1, pagina), pdf.numPages));
-      const base = pg.getViewport({ scale: 1 });
-      const viewport = pg.getViewport({ scale: LADO_MAXIMO / Math.max(base.width, base.height) });
-      const canvas = document.createElement("canvas");
-      canvas.width = Math.round(viewport.width);
-      canvas.height = Math.round(viewport.height);
-      await pg.render({ canvas, canvasContext: canvas.getContext("2d")!, viewport }).promise;
+      const canvas = await desenharPaginaPdf(dados, pagina, LADO_MAXIMO);
       const blob = await new Promise<Blob | null>(r => canvas.toBlob(r, "image/png"));
       if (!blob) throw new Error("Falha ao desenhar a página.");
       url = URL.createObjectURL(blob);
@@ -55,4 +46,19 @@ export function useFundoPdf(maqueteId: number, prancha: { doc: number; pagina: n
   }, [maqueteId, doc, pagina, ativo, utils]);
 
   return estado;
+}
+
+/** Desenha a página do PDF num canvas com o maior lado em `ladoMaximo` px (também usado no logotipo, EPIC-024 S-02). */
+export async function desenharPaginaPdf(dados: Uint8Array, pagina: number, ladoMaximo: number, fundoTransparente = false): Promise<HTMLCanvasElement> {
+  const pdfjs = await import("pdfjs-dist");
+  pdfjs.GlobalWorkerOptions.workerSrc = (await import("pdfjs-dist/build/pdf.worker.min.mjs?url")).default;
+  const pdf = await pdfjs.getDocument({ data: dados.slice() }).promise;
+  const pg = await pdf.getPage(Math.min(Math.max(1, pagina), pdf.numPages));
+  const base = pg.getViewport({ scale: 1 });
+  const viewport = pg.getViewport({ scale: ladoMaximo / Math.max(base.width, base.height) });
+  const canvas = document.createElement("canvas");
+  canvas.width = Math.round(viewport.width);
+  canvas.height = Math.round(viewport.height);
+  await pg.render({ canvas, canvasContext: canvas.getContext("2d")!, viewport, ...(fundoTransparente ? { background: "rgba(0,0,0,0)" } : {}) }).promise;
+  return canvas;
 }
