@@ -291,6 +291,29 @@ describe("filtro de dados pessoais em texto livre (M1)", () => {
     }
   });
 
+  it("QA r4 S5: valor depois de pix, 'cc 2 cópias', 'conta 2026' e 'código' sem palavra de senha ficam; chave e conta de verdade saem", () => {
+    for (const t of [
+      "pagou via pix 1.500,00", "pix 350,00", "pix R$ 1.200,00", "pix 12.500.000,00", "pix de 12 parcelas", "cc 2 cópias", "conta 2026",
+      "conta de luz 152,30", "conta 1.500,00", "código do imóvel 12345", "código de barras 34196966100000123451790001043510047910201500",
+      "código do cliente 778", "ag. 15/11 às 10h",
+    ]) expect(sanitizarTexto(t), t).toBe(t);
+    const B = "[dado bancário omitido]", S = "[senha omitida]";
+    expect(sanitizarTexto("chave pix 99991234567")).toBe(`chave pix ${B}`);
+    expect(sanitizarTexto("pix: 529.982.247-25")).toBe(`pix: ${B}`);
+    expect(sanitizarTexto("pix (99) 99123-4567, obrigado")).toBe(`pix ${B}, obrigado`);
+    expect(sanitizarTexto("pix 123e4567-e89b-12d3-a456-426614174000")).toBe(`pix ${B}`);
+    expect(sanitizarTexto("pix fulano@x.com")).toBe(`pix ${B}`);
+    expect(sanitizarTexto("conta 12345-6, agência 0001.")).toBe(`conta ${B}, agência ${B}.`);
+    expect(sanitizarTexto("conta corrente nº 98765-X")).toBe(`conta corrente nº ${B}`);
+    expect(sanitizarTexto("código de acesso 4321")).toBe(`código ${S}`);
+    expect(sanitizarTexto("token: código 998877")).toBe(`token ${S}`);
+    expect(sanitizarTexto("acesso ao app: código 112233")).toBe(`acesso ao app: código ${S}`);
+    expect(sanitizarTexto("código OTP 445566")).toBe(`código ${S}`);
+    // "código" sem contexto não engole a oração: a senha mais adiante ainda sai
+    const longe = "código do imóvel 12345 fica na pasta azul do escritório e a senha do portal é abc123";
+    expect(sanitizarTexto(longe)).toBe("código do imóvel 12345 fica na pasta azul do escritório e a senha " + S);
+  });
+
   it("percorre a resposta inteira (listas e objetos), sem tocar números e chaves", () => {
     expect(sanitizarResposta({ a: [{ texto: "cpf 111.222.333-44", n: 11122233344 }], "111.222.333-44": null }))
       .toEqual({ a: [{ texto: "cpf [dado pessoal omitido]", n: 11122233344 }], "111.222.333-44": null });
