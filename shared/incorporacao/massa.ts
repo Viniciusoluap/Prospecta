@@ -1058,6 +1058,8 @@ interface RecorteRestricoes {
   pecas: PecaRestricao[];
   /** m² de cada restrição com contorno, medido no contorno recortado (substitui o m² dos parâmetros). */
   m2PorCampo: Partial<RestricoesNaoParcelaveis>;
+  /** Tipos cujo contorno é vazio, inválido ou não cai na gleba: continuam com o m² informado. */
+  foraDoTerreno: TipoRestricaoGeo[];
 }
 
 /**
@@ -1082,11 +1084,11 @@ function recortarRestricoes(
     const glebas = areas.map((poli, i) => turfPolygon([emMetros(poli[0])!, ...furosValidos[i].map((f) => emMetros(f)!)]));
     const pecas: PecaRestricao[] = [];
     const m2PorCampo: Partial<RestricoesNaoParcelaveis> = {};
+    const foraDoTerreno: TipoRestricaoGeo[] = [];
     let ocupado: Feature<Polygon | MultiPolygon> | null = null;
     for (const [tipo, campo] of CAMPO_RESTRICAO_GEO) {
       const lista = restricoes.filter((r) => r?.tipo === tipo && Array.isArray(r.poligonos));
       if (lista.length === 0) continue;
-      m2PorCampo[campo] = 0;
       const polis: Feature<Polygon>[] = [];
       for (const r of lista) {
         for (const poli of r.poligonos) {
@@ -1097,11 +1099,16 @@ function recortarRestricoes(
           polis.push(turfPolygon([externo, ...furos]));
         }
       }
-      if (polis.length === 0) continue;
-      const u = (polis.length === 1 ? polis[0] : union(featureCollection(polis))) as Feature<Polygon | MultiPolygon> | null;
-      if (!u) continue;
-      glebas.forEach((gl) => {
-        let x = intersect(featureCollection([gl, u])) as Feature<Polygon | MultiPolygon> | null;
+      const u = polis.length === 0 ? null : (polis.length === 1 ? polis[0] : union(featureCollection(polis))) as Feature<Polygon | MultiPolygon> | null;
+      // contorno vazio, inválido ou fora da gleba: não zera a restrição em silêncio — vale o m² informado (com aviso)
+      const dentro = u ? glebas.map((gl) => intersect(featureCollection([gl, u])) as Feature<Polygon | MultiPolygon> | null) : [];
+      if (!u || dentro.reduce((t, x) => t + (x ? poligonosDe(x.geometry).reduce((q, p) => q + areaPoli(p), 0) : 0), 0) < 0.5) {
+        foraDoTerreno.push(tipo);
+        continue;
+      }
+      m2PorCampo[campo] = 0;
+      dentro.forEach((x0) => {
+        let x = x0;
         if (x && ocupado) x = difference(featureCollection([x, ocupado])) as Feature<Polygon | MultiPolygon> | null;
         if (!x) return;
         for (const p of poligonosDe(x.geometry)) {
@@ -1124,7 +1131,7 @@ function recortarRestricoes(
         if (a + 1e-9 < Math.max(loteMinimoM2, 1) || validarPoligonal(ef.anel)) retalhos.push(ef); else livres.push(ef);
       }
     });
-    return { areas: livres, retalhos, pecas, m2PorCampo };
+    return { areas: livres, retalhos, pecas, m2PorCampo, foraDoTerreno };
   } catch {
     return null;
   }
@@ -1558,7 +1565,7 @@ export function gerarEstudoMassa(
   opts: OpcoesGeracao = {}
 ): EstudoMassaGerado {
   const tipologia: TipologiaMassa = params.tipologia ?? "grid";
-  const assinatura = assinaturaEntradas(entrada, params, opts.viasEntorno);
+  const assinatura = assinaturaEntradas(entrada, params, opts.viasEntorno, opts.restricoes);
   const progresso = (f: number, etapa: string) => opts.onProgress?.(f, etapa);
   const nCen = Math.max(1, Math.min(3, opts.nCenarios ?? 3));
 
@@ -1586,12 +1593,23 @@ export function gerarEstudoMassa(
   const areaTotal = areasM2.reduce((s, a) => s + a, 0);
 
   // S-I: restrições com o contorno real saem da área loteável pelo contorno; o m² delas vem do contorno recortado
-  const restricoesGeo = (opts.restricoes ?? []).filter((r) => r && Array.isArray(r.poligonos) && r.poligonos.length > 0);
+  const restricoesGeo = (opts.restricoes ?? []).filter((r) => r && Array.isArray(r.poligonos));
   const recorte = restricoesGeo.length > 0 ? recortarRestricoes(areas, furosValidos, restricoesGeo, proj, params.loteMinimoM2) : null;
   if (restricoesGeo.length > 0 && !recorte) {
     avisos.push("Não foi possível recortar o contorno das áreas restritas pela gleba: o estudo usou só a área em m² informada (posição a confirmar).");
   }
   const geo = recorte && recorte.pecas.length > 0 ? recorte : null;
+  // contorno guardado que não cai neste terreno (KML trocado, contorno vazio ou inválido): vale o m² informado, com aviso
+  const avisosContorno: string[] = [];
+  for (const tipo of recorte?.foraDoTerreno ?? []) {
+    const campo = CAMPO_RESTRICAO_GEO.find((x) => x[0] === tipo)![1];
+    const informado = params[campo] ?? 0;
+    const rot = ROTULO_RESTRICAO_GEO[tipo];
+    avisosContorno.push(`O contorno da ${rot} guardado no estudo não cai neste terreno (ou é inválido): ${informado > 0
+      ? `o estudo usou a ${rot} informada em m² (${informado.toLocaleString("pt-BR", { maximumFractionDigits: 0 })} m²), sem a posição real`
+      : "nenhuma área foi reservada para ela"}. Abra o mapa da aba Terreno para o sistema guardar o contorno de novo.`);
+  }
+  avisos.push(...avisosContorno);
   const paramsConta: ParametrosMassa = recorte ? { ...params, ...recorte.m2PorCampo } : params;
 
   const restricoesTot = restricoesDosParametros(paramsConta);
