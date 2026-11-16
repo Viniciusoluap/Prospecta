@@ -11,7 +11,7 @@ vi.mock("./obra-localizacao.js", () => ({ obterLocalizacaoObra: vi.fn(async (id:
 
 import { pciGeradorRouter } from "./pci-gerador.js";
 import { router } from "./_core/trpc.js";
-import { aplicarEscolhasPci, compararPreenchimentoPci, definirCampoPci, normalizarFormularioPci, sugestoesDoModeloPci } from "../shared/pci-gerador.js";
+import { aplicarEscolhasPci, compararPreenchimentoPci, confirmarMesmaPessoaPci, definirCampoPci, normalizarFormularioPci, sugestoesDoModeloPci, type FormularioPci } from "../shared/pci-gerador.js";
 
 // Montado com o nome real ("pciGerador.*"): a checagem de módulo do colaborador usa o caminho completo.
 const app = router({ pciGerador: pciGeradorRouter });
@@ -144,6 +144,34 @@ describe("B — Dados automáticos", () => {
     expect(f.campos.rtpCpf).toBe(CPF_RAFAEL);
     f = definirCampoPci(f, "rtpNome", "Outra pessoa");
     await expect(admin.gerar({ projectId: 20, formulario: f })).rejects.toThrow(/nome e o CPF vieram de fontes diferentes/);
+  });
+  it("portão 2, L3 — procedência forjada no navegador: o servidor confere com a fonte e recusa a mistura", async () => {
+    // Nome digitado e CPF do Rafael, os dois marcados pelo navegador como "engenheiro:7".
+    const forjado = normalizarFormularioPci({ rtpEngenheiroId: "7", campos: { rtpNome: "Outra pessoa", rtpCpf: CPF_RAFAEL }, procedencia: { rtpEngenheiroId: "engenheiro:7", rtpNome: "engenheiro:7", rtpCpf: "engenheiro:7" } });
+    const log = vi.spyOn(console, "info");
+    await expect(admin.gerar({ projectId: 20, formulario: forjado })).rejects.toThrow(/RT pelo projeto \(RTP\): o nome e o CPF vieram de fontes diferentes/);
+    const linha = log.mock.calls.map((c) => String(c[0])).find((l) => l.includes("pci.procedencia_rebaixada"))!;
+    expect(JSON.parse(linha)).toMatchObject({ usuarioId: 1, projectId: 20, campos: ["rtpNome"] });
+    expect(linha).not.toContain(CPF_RAFAEL);
+    log.mockRestore();
+  });
+  it("portão 2, L4 — confirmação gravada com quem e quando no rascunho, log só com ids, sem registrar de novo", async () => {
+    const f = confirmarMesmaPessoaPci(normalizarFormularioPci({ campos: { proponenteNome: "Pessoa Antiga", proponenteCpf: CPF_CLIENTE_1 } }), "proponente");
+    const log = vi.spyOn(console, "info");
+    await colabObras.salvarRascunho({ projectId: 22, formulario: f });
+    const gravado = (await pg.query<{ form_data: FormularioPci }>("SELECT form_data FROM pci_generator_drafts WHERE project_id = 22")).rows[0].form_data;
+    expect(gravado.confirmacoes?.proponente).toMatchObject({ por: 20, marca: expect.stringMatching(/^[0-9a-f]{8}$/) });
+    const linhas = log.mock.calls.map((c) => String(c[0])).filter((l) => l.includes("pci.pessoa_confirmada"));
+    expect(linhas).toHaveLength(1);
+    expect(JSON.parse(linhas[0])).toMatchObject({ evento: "pci.pessoa_confirmada", usuarioId: 20, projectId: 22, pessoa: "proponente" });
+    expect(linhas[0]).not.toMatch(/Pessoa Antiga|123\.456/);
+    // Outro usuário salva o mesmo nome/CPF já confirmado: o registro original fica.
+    await outroColab.salvarRascunho({ projectId: 22, formulario: normalizarFormularioPci(gravado) });
+    expect(log.mock.calls.filter((c) => String(c[0]).includes("pci.pessoa_confirmada"))).toHaveLength(1);
+    const depois = (await pg.query<{ form_data: FormularioPci }>("SELECT form_data FROM pci_generator_drafts WHERE project_id = 22")).rows[0].form_data;
+    expect(depois.confirmacoes?.proponente?.por).toBe(20);
+    log.mockRestore();
+    await pg.query("DELETE FROM pci_generator_drafts WHERE project_id = 22");
   });
   it("PCI vinculada ilegível deixa de ser engolida: vira motivo", async () => {
     const s = await admin.sugestoesAutomaticas({ projectId: 21 });

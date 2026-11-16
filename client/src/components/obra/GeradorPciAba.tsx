@@ -25,6 +25,7 @@ import {
   calcularTotaisPci,
   camposTrocadosPorEngenheiroPci,
   compararPreenchimentoPci,
+  ORIGEM_CONFIRMADA_PCI,
   confirmarMesmaPessoaPci,
   definirCampoPci,
   errosPci,
@@ -171,7 +172,9 @@ function ResultadoPreenchimento({ r, onAplicar, onFechar }: { r: PainelResultado
           {e.opcoes.map((o) => (
             <label key={o.id} className="mt-1 flex items-start gap-2">
               <input type="radio" name={`pessoa-${e.pessoa}`} className="mt-1" checked={escolhaPessoa[e.pessoa] === o.id} onChange={() => setEscolhaPessoa((s) => ({ ...s, [e.pessoa]: o.id }))} />
-              <span>Usar {o.resumo} <span className="text-gray-400">— {o.fonte}</span></span>
+              <span>Usar {o.resumo} <span className="text-gray-400">— {o.fonte}</span>
+                {o.origem === ORIGEM_CONFIRMADA_PCI && <span className="block text-xs text-yellow-200">Junta duas fontes: escolher esta opção vale como sua confirmação de que é a mesma pessoa (fica registrado quem confirmou e quando).</span>}
+              </span>
             </label>
           ))}
         </fieldset>
@@ -440,7 +443,7 @@ export function GeradorPciAba({ projectId }: { projectId: number }) {
           {misturas.map((m) => (
             <div key={m.pessoa} className="flex flex-wrap items-center gap-2">
               <span>{m.mensagem}</span>
-              <Button size="sm" variant="outline" className={botaoSec} onClick={() => { if (confirm("Confirma que o nome e o CPF são da MESMA pessoa?")) setForm(confirmarMesmaPessoaPci(form, m.pessoa)); }}>Confirmo que nome e CPF são da mesma pessoa</Button>
+              <Button size="sm" variant="outline" className={botaoSec} onClick={() => { if (confirm(`${m.motivo === "legado" ? "Rascunho anterior à conferência de origem. " : ""}Confirma que o nome e o CPF são da MESMA pessoa? (Fica registrado quem confirmou e quando.)`)) setForm(confirmarMesmaPessoaPci(form, m.pessoa)); }}>Confirmo que nome e CPF são da mesma pessoa</Button>
             </div>
           ))}
         </div>
