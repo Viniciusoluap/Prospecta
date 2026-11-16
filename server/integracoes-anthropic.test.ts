@@ -12,6 +12,7 @@ import { ENV } from "./_core/env";
 
 const CHAVE = "sk-ant-api03-chave-de-teste-0000000000wxyz";
 const CHAVE_NOVA = "sk-ant-api03-outra-chave-1111111111abcd";
+const CHAVE_RESTRITA = "sk-ant-api03-chave-restrita-22222222hhhh";
 const MODELOS = [
   { id: "claude-opus-5-5", display_name: "Claude Opus 5.5", created_at: "2026-10-01T00:00:00Z" },
   { id: "claude-sonnet-5-5", display_name: "Claude Sonnet 5.5", created_at: "2026-10-01T00:00:00Z" },
@@ -30,7 +31,8 @@ function clienteFalso(aceitas: string[]) {
         async *[Symbol.asyncIterator]() {
           chamadas.push(apiKey);
           if (!aceitas.includes(apiKey)) throw Object.assign(new Error(`401 invalid x-api-key ${apiKey}`), { status: 401 });
-          for (const m of MODELOS) yield m;
+          // a chave "restrita" só oferece o Haiku
+          for (const m of apiKey === CHAVE_RESTRITA ? MODELOS.filter(x => x.id.includes("haiku")) : MODELOS) yield m;
         },
       }),
     },
@@ -38,7 +40,7 @@ function clienteFalso(aceitas: string[]) {
   return { criarCliente, chamadas };
 }
 
-function setup(aceitas = [CHAVE, CHAVE_NOVA], role: "admin" | "colaborador" | "user" = "admin") {
+function setup(aceitas = [CHAVE, CHAVE_NOVA, CHAVE_RESTRITA], role: "admin" | "colaborador" | "user" = "admin") {
   const banco = new Map<string, string>();
   const { criarCliente, chamadas } = clienteFalso(aceitas);
   const anthropic: AnthropicPainelDeps = {
@@ -63,7 +65,7 @@ describe("Anthropic — chave protegida", () => {
     expect(decryptSecret(gravado)).toBe(CHAVE);
 
     const status = await s.caller.statusAnthropic();
-    expect(status).toEqual({ configurado: true, final: "…wxyz", modeloPreferencial: null, ativa: false });
+    expect(status).toEqual({ configurado: true, final: "…wxyz", modeloPreferencial: null, ativa: false, ilegivel: false, aviso: null });
     const respostas = [r, status, await s.caller.testarAnthropic(), await s.caller.modelosAnthropic(),
       await s.caller.salvarModeloAnthropic({ modelo: "claude-opus-5-5" })];
     for (const resp of respostas) expect(JSON.stringify(resp)).not.toContain(CHAVE);
@@ -92,7 +94,7 @@ describe("Anthropic — chave protegida", () => {
     expect(decryptSecret(s.banco.get(CHAVE_SEGREDO_ANTHROPIC_PAINEL)!)).toBe(CHAVE_NOVA);
     expect((await s.caller.statusAnthropic()).final).toBe("…abcd");
     await s.caller.removerAnthropic();
-    expect(await s.caller.statusAnthropic()).toEqual({ configurado: false, final: null, modeloPreferencial: null, ativa: false });
+    expect(await s.caller.statusAnthropic()).toEqual({ configurado: false, final: null, modeloPreferencial: null, ativa: false, ilegivel: false, aviso: null });
     expect(await configuracaoAnthropicPainel(s.anthropic)).toBeNull();
   });
 
@@ -169,20 +171,87 @@ describe("Anthropic — acesso e isolamento", () => {
     expect(ENV.incorporacaoIaModelo).toBe(antes.modelo);
   });
 
-  it("nenhum código operacional importa a chave do painel (ainda não é usada por nenhuma função)", () => {
-    const raiz = path.resolve(import.meta.dirname);
-    const permitidos = new Set(["integracoes-router.ts", path.join("_core", "anthropic-painel.ts")]);
+  it("nenhum código operacional usa a chave do painel (nem pelo módulo, nem pela chave do banco)", () => {
+    const repo = path.resolve(import.meta.dirname, "..");
+    const permitidos = new Set([path.join("server", "integracoes-router.ts"), path.join("server", "_core", "anthropic-painel.ts")]);
+    // módulo, chave em dashboard_settings e a função exportada para uso futuro
+    const marcas = ["anthropic-painel", "anthropic_painel", "configuracaoAnthropicPainel", "CHAVE_SEGREDO_ANTHROPIC_PAINEL", "CHAVE_MODELO_ANTHROPIC_PAINEL"];
     const usam: string[] = [];
     const varrer = (dir: string) => {
       for (const nome of readdirSync(dir)) {
         const p = path.join(dir, nome);
-        if (statSync(p).isDirectory()) { if (nome !== "node_modules") varrer(p); continue; }
-        if (!p.endsWith(".ts") || p.endsWith(".test.ts")) continue;
-        const rel = path.relative(raiz, p);
-        if (!permitidos.has(rel) && readFileSync(p, "utf8").includes("anthropic-painel")) usam.push(rel);
+        if (statSync(p).isDirectory()) { if (!["node_modules", "dist", ".git"].includes(nome)) varrer(p); continue; }
+        if (!/\.(ts|tsx|js|mjs|cjs|sql)$/.test(p) || /\.(test|spec)\.ts$/.test(p)) continue;
+        const rel = path.relative(repo, p);
+        if (permitidos.has(rel)) continue;
+        const texto = readFileSync(p, "utf8");
+        if (marcas.some(m => texto.includes(m))) usam.push(rel);
       }
     };
-    varrer(raiz);
+    for (const pasta of ["server", "api", "shared", "scripts", "client", "drizzle"]) {
+      try { if (statSync(path.join(repo, pasta)).isDirectory()) varrer(path.join(repo, pasta)); } catch { /* pasta ausente */ }
+    }
     expect(usam).toEqual([]);
+  });
+
+  it("no router, só as rotas do painel usam o acessor (e nenhuma usa a função para uso futuro)", () => {
+    const fonte = readFileSync(path.resolve(import.meta.dirname, "integracoes-router.ts"), "utf8");
+    expect(fonte).not.toContain("configuracaoAnthropicPainel");
+    const importacao = /import \{([^}]*)\} from "\.\/_core\/anthropic-painel\.js";/.exec(fonte);
+    expect(importacao).not.toBeNull();
+    const funcoes = importacao![1].split(",").map(x => x.trim()).filter(x => x && !x.startsWith("type ") && x !== "anthropicPainelDepsPadrao");
+    const corpo = fonte.slice(fonte.indexOf("return router({"));
+    const inicios = Array.from(corpo.matchAll(/^ {4}(\w+): adminProcedure/gm)).map(m => ({ nome: m[1], em: m.index! }));
+    const permitidas = new Set(["statusAnthropic", "testarAnthropic", "salvarAnthropic", "removerAnthropic", "modelosAnthropic", "salvarModeloAnthropic"]);
+    const usos: string[] = [];
+    for (const marca of [...funcoes, "anthropic()"]) {
+      for (const m of corpo.matchAll(new RegExp(marca.replace(/[()]/g, "\\$&"), "g"))) {
+        const dono = inicios.filter(i => i.em < m.index!).pop()?.nome ?? "(fora de rota)";
+        usos.push(dono);
+      }
+    }
+    expect(usos.length).toBeGreaterThan(0);
+    expect(usos.filter(u => !permitidas.has(u))).toEqual([]);
+    // e fora do corpo das rotas, o acessor só aparece no import, no tipo das dependências e no padrão
+    const antes = fonte.slice(0, fonte.indexOf("return router({")).replace(importacao![0], "");
+    for (const f of funcoes) expect(antes).not.toContain(f);
+  });
+});
+
+describe("Anthropic — chave ilegível, texto puro e troca de chave", () => {
+  it("chave salva que não decifra: status avisa para cadastrar de novo (não 'nenhuma chave')", async () => {
+    const s = setup();
+    await s.caller.salvarAnthropic({ apiKey: CHAVE });
+    ENV.cookieSecret = "outro-segredo-depois-da-rotacao";
+    const st = await s.caller.statusAnthropic();
+    expect(st).toMatchObject({ configurado: false, ilegivel: true, aviso: expect.stringMatching(/não pode ser lida.*cadastre de novo/) });
+    expect(await s.caller.testarAnthropic()).toEqual({ ok: false, mensagem: st.aviso });
+    await expect(s.caller.modelosAnthropic()).rejects.toMatchObject({ message: expect.stringMatching(/cadastre de novo/) });
+    expect(await configuracaoAnthropicPainel(s.anthropic)).toBeNull();
+    expect(s.criarCliente).toHaveBeenCalledTimes(1); // só a validação do salvar; a chave ilegível não chega à Anthropic
+  });
+
+  it("valor gravado como plain: é recriptografado na primeira leitura", async () => {
+    const s = setup();
+    s.banco.set(CHAVE_SEGREDO_ANTHROPIC_PAINEL, `plain:${CHAVE}`);
+    expect((await s.caller.statusAnthropic()).final).toBe("…wxyz");
+    const gravado = s.banco.get(CHAVE_SEGREDO_ANTHROPIC_PAINEL)!;
+    expect(gravado.startsWith("plain:")).toBe(false);
+    expect(gravado).not.toContain("sk-ant");
+    expect(decryptSecret(gravado)).toBe(CHAVE);
+  });
+
+  it("trocar a chave revalida o modelo preferencial: o que a chave nova não oferece é limpo, com aviso", async () => {
+    const s = setup();
+    await s.caller.salvarAnthropic({ apiKey: CHAVE });
+    await s.caller.salvarModeloAnthropic({ modelo: "claude-opus-5-5" });
+    const r = await s.caller.salvarAnthropic({ apiKey: CHAVE_RESTRITA });
+    expect(r.modeloLimpo).toBe("claude-opus-5-5");
+    expect(r.mensagem).toMatch(/claude-opus-5-5 não é oferecido.*foi limpo/);
+    expect((await s.caller.statusAnthropic()).modeloPreferencial).toBeNull();
+    await s.caller.salvarModeloAnthropic({ modelo: "claude-haiku-5" });
+    const r2 = await s.caller.salvarAnthropic({ apiKey: CHAVE });
+    expect(r2.modeloLimpo).toBeNull();
+    expect((await s.caller.statusAnthropic()).modeloPreferencial).toBe("claude-haiku-5");
   });
 });
