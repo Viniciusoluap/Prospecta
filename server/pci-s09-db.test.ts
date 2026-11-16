@@ -245,12 +245,36 @@ describe("C — modelos de preenchimento", () => {
     await admin.excluirModeloPreenchimento({ id: outro.id, confirmar: true });
   });
 
+  it("portão 2, L6 — nome único no banco (índice parcial da versão atual): corrida de dois salvamentos dá a mensagem amigável", async () => {
+    const f = formObra20();
+    const [a, b] = await Promise.allSettled([
+      admin.salvarModeloPreenchimento({ projectId: 20, nome: "Corrida 90 m²", formulario: f }),
+      colabObras.salvarModeloPreenchimento({ projectId: 20, nome: "CORRIDA 90 m²", formulario: f }),
+    ]);
+    const status = [a.status, b.status].sort();
+    expect(status).toEqual(["fulfilled", "rejected"]);
+    const erro = (a.status === "rejected" ? a : b) as PromiseRejectedResult;
+    expect(String(erro.reason?.message)).toMatch(/Já existe o modelo/);
+    expect((await pg.query("SELECT id FROM pci_modelos_preenchimento WHERE lower(nome) = lower('Corrida 90 m²') AND deleted_at IS NULL")).rows).toHaveLength(1);
+    // O índice em si: gravação direta com o mesmo nome é recusada; nova versão (mesmo nome) passa; excluído libera o nome.
+    await expect(pg.query("INSERT INTO pci_modelos_preenchimento (nome, form_data) VALUES ('corrida 90 M²', '{}'::jsonb)")).rejects.toThrow(/pci_modelos_preenchimento_nome_atual_uidx/);
+    const ok = (a.status === "fulfilled" ? a : b) as PromiseFulfilledResult<{ id: number }>;
+    const v2 = await admin.salvarModeloPreenchimento({ projectId: 20, nome: "Corrida 90 m²", formulario: f, novaVersaoDe: ok.value.id });
+    expect(v2.versao).toBe(2);
+    expect((await pg.query<{ substituido: boolean }>("SELECT substituido FROM pci_modelos_preenchimento WHERE id = $1", [ok.value.id])).rows[0].substituido).toBe(true);
+    // Salvar de novo sobre a v1 (já substituída) não grava nada.
+    await expect(admin.salvarModeloPreenchimento({ projectId: 20, nome: "Corrida 90 m²", formulario: f, novaVersaoDe: ok.value.id })).rejects.toThrow(/versão mais nova/);
+    await admin.excluirModeloPreenchimento({ id: v2.id, confirmar: true });
+    const de_novo = await admin.salvarModeloPreenchimento({ projectId: 20, nome: "Corrida 90 m²", formulario: f });
+    expect(de_novo.versao).toBe(1);
+    await admin.excluirModeloPreenchimento({ id: de_novo.id, confirmar: true });
+  });
   it("exclusão lógica: só o admin ou o AUTOR ORIGINAL — quem só acrescentou versão não apaga", async () => {
     const [m] = await admin.modelosPreenchimento(); // v2 foi salva pelo "outroColab" (23); a v1 pelo "colabObras" (20)
     await expect(outroColab.excluirModeloPreenchimento({ id: m.id, confirmar: true })).rejects.toThrow(/Só o administrador ou quem criou o modelo/);
     expect(await colabObras.excluirModeloPreenchimento({ id: m.id, confirmar: true })).toMatchObject({ versoes: 2 });
     expect(await admin.modelosPreenchimento()).toEqual([]);
-    expect((await pg.query("SELECT id FROM pci_modelos_preenchimento WHERE deleted_at IS NOT NULL")).rows).toHaveLength(4); // + o modelo com CNPJ (L5)
+    expect((await pg.query("SELECT id FROM pci_modelos_preenchimento WHERE deleted_at IS NOT NULL")).rows).toHaveLength(7); // + o modelo com CNPJ (L5) e os 3 da corrida (L6)
   });
 });
 
