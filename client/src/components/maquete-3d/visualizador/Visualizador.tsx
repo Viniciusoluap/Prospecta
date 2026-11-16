@@ -8,7 +8,7 @@ import * as THREE from "three";
 import {
   Box, Camera, DoorOpen, Eye, Home, Sparkles, Maximize, MessageCircle, Pause, Play, RotateCcw, Volume2, VolumeX, Footprints, Layers,
 } from "lucide-react";
-import { limites, pontosDoPavimento, resumoModelo, type Edificacao, type ModeloMaquete } from "@shared/maquete-3d/modelo";
+import { limites, muroDaMaquete, pontosDoPavimento, resumoModelo, type Edificacao, type ModeloMaquete } from "@shared/maquete-3d/modelo";
 import { pavimentosOrdenados, topoDaEdificacao } from "@shared/maquete-3d/geometria3d";
 import { Casa, Entorno } from "./Casa";
 import { Ceu, horarioEm } from "./Ceu";
@@ -53,6 +53,7 @@ function Cena({ aprimorado, fotografo, modelo, unidades, noLoteamento, lote, onL
 }) {
   const m = useMemo(() => materiaisDoEstilo(estilo), [estilo]);
   const pecas = useMemo(() => (edificacao ? mobiliaDaEdificacao(edificacao) : []), [edificacao]);
+  const muro = useMemo(() => muroDaMaquete(modelo), [modelo]);
   const h = useMemo(() => horarioEm(horario), [horario]);
   useEffect(() => { acender(m, h.noite); }, [m, h.noite]);
   const caixa = useMemo(() => {
@@ -72,7 +73,7 @@ function Cena({ aprimorado, fotografo, modelo, unidades, noLoteamento, lote, onL
       {noLoteamento && modelo.implantacao ? (
         <>
           <mesh rotation={[-Math.PI / 2, 0, 0]} position={[centro[0], -0.5, centro[2]]} material={m.grama} receiveShadow><planeGeometry args={[raio * 12, raio * 12]} /></mesh>
-          <Implantacao implantacao={modelo.implantacao} edificacoes={modelo.edificacoes} unidades={unidades} m={m} selecionado={lote} onSelecionar={onLote} noite={h.noite} aprimorado={aprimorado} />
+          <Implantacao implantacao={modelo.implantacao} edificacoes={modelo.edificacoes} unidades={unidades} m={m} selecionado={lote} onSelecionar={onLote} noite={h.noite} aprimorado={aprimorado} muro={muro} />
         </>
       ) : edificacao ? (
         <>

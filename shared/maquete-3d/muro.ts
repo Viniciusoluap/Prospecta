@@ -31,7 +31,7 @@ export const FOLGA_PORTAO = 0.3;
 const LIMITE_MITRA = 4;
 
 export type MaterialMuro = "muro" | "capa" | "portao";
-export type MalhaMuro = { posicoes: Float32Array; normais: Float32Array; uvs: Float32Array; indices: Uint32Array };
+export type MalhaMuro = { posicoes: Float32Array; normais: Float32Array; uvs: Float32Array; tons: Float32Array; indices: Uint32Array };
 export type AberturaMuro = { id: string; tipo: TipoPortao; posicao: number; largura: number; principal: boolean };
 export type ResumoMuro = {
   /** Perímetro da divisa e comprimento de muro construído (eixo, já sem os portões). */
@@ -232,7 +232,7 @@ export function portoesAutomaticos(imp: Implantacao, muro: Pick<Muro, "recuo" | 
   const pontas = sistema.trechos.flatMap(t => (["inicio", "fim"] as const).map(ponta => ({ t, ponta, p: ponta === "inicio" ? t.eixo[0] : t.eixo[t.eixo.length - 1] })));
   const cands: Candidato[] = [];
 
-  for (const ac of imp.acessos) {
+  for (const ac of imp.acessos ?? []) {
     const q = { x: ac.x, y: ac.y };
     const perto = pontas.map(pt => ({ ...pt, d: dist(pt.p, q) })).filter(pt => pt.d < Math.max(pt.t.largura, 8)).sort((x, y) => x.d - y.d);
     const naRua = perto.map(pt => portaoNaRua(a, delta, pt.t, pt.ponta)).find(Boolean) ?? null;
@@ -297,12 +297,15 @@ export function portoesDoMuro(imp: Implantacao, muro: Muro, sv?: SistemaViario):
 
 // ── Malha ──
 
-type Acumulador = { pos: number[]; nor: number[]; uv: number[]; idx: number[] };
-const acumulador = (): Acumulador => ({ pos: [], nor: [], uv: [], idx: [] });
+type Acumulador = { pos: number[]; nor: number[]; uv: number[]; tom: number[]; idx: number[] };
+const acumulador = (): Acumulador => ({ pos: [], nor: [], uv: [], tom: [], idx: [] });
+/** Tom do pé da parede (0–1): escurece perto do chão, como a sombra de contato e a sujeira de respingo. */
+const TOM_PE = 0.7;
+const PE: [number, number, number, number] = [TOM_PE, TOM_PE, 1, 1];
 type V3 = [number, number, number];
 
 /** Quadrilátero a-b-c-d com a face voltada para `fora` (vetor 3D aproximado). */
-function quad(acc: Acumulador, v: [V3, V3, V3, V3], uv: [number, number][], fora: V3) {
+function quad(acc: Acumulador, v: [V3, V3, V3, V3], uv: [number, number][], fora: V3, tons: [number, number, number, number] = [1, 1, 1, 1]) {
   // Normal pelos dois triângulos somados: vale também quando dois cantos coincidem (o quadrilátero vira triângulo).
   const [a, b, c, d] = v;
   const x = (p: V3, q: V3): V3 => { const e1 = [p[0] - a[0], p[1] - a[1], p[2] - a[2]], e2 = [q[0] - a[0], q[1] - a[1], q[2] - a[2]]; return [e1[1] * e2[2] - e1[2] * e2[1], e1[2] * e2[0] - e1[0] * e2[2], e1[0] * e2[1] - e1[1] * e2[0]]; };
@@ -315,19 +318,19 @@ function quad(acc: Acumulador, v: [V3, V3, V3, V3], uv: [number, number][], fora
   const virar = n[0] * fora[0] + n[1] * fora[1] + n[2] * fora[2] < 0;
   if (virar) n = [-n[0], -n[1], -n[2]];
   const base = acc.pos.length / 3;
-  for (let i = 0; i < 4; i++) { acc.pos.push(...v[i]); acc.nor.push(...n); acc.uv.push(...uv[i]); }
+  for (let i = 0; i < 4; i++) { acc.pos.push(...v[i]); acc.nor.push(...n); acc.uv.push(...uv[i]); acc.tom.push(tons[i]); }
   if (virar) acc.idx.push(base, base + 2, base + 1, base, base + 3, base + 2);
   else acc.idx.push(base, base + 1, base + 2, base, base + 2, base + 3);
 }
 
 /** Caixa (sem o fundo) centrada em `c`, comprida ao longo de `dir`, de h0 a h1. */
-function caixa(acc: Acumulador, c: Ponto, dir: Ponto, comp: number, larg: number, h0: number, h1: number) {
+function caixa(acc: Acumulador, c: Ponto, dir: Ponto, comp: number, larg: number, h0: number, h1: number, pe = false) {
   const n = { x: -dir.y, y: dir.x }, L = esc(dir, comp / 2), W = esc(n, larg / 2);
   const P = [soma(soma(c, L), W), soma(sub(c, L), W), sub(sub(c, L), W), sub(soma(c, L), W)];
   const v = (p: Ponto, h: number): V3 => [p.x, h, p.y], alt = h1 - h0;
   for (let i = 0; i < 4; i++) {
     const p = P[i], q = P[(i + 1) % 4], meio = esc(soma(p, q), 0.5), fora = sub(meio, c), lado = dist(p, q);
-    quad(acc, [v(p, h0), v(q, h0), v(q, h1), v(p, h1)], [[0, 0], [lado, 0], [lado, alt], [0, alt]], [fora.x, 0, fora.y]);
+    quad(acc, [v(p, h0), v(q, h0), v(q, h1), v(p, h1)], [[0, 0], [lado, 0], [lado, alt], [0, alt]], [fora.x, 0, fora.y], pe ? PE : undefined);
   }
   quad(acc, [v(P[0], h1), v(P[1], h1), v(P[2], h1), v(P[3], h1)], [[0, 0], [comp, 0], [comp, larg], [0, larg]], [0, 1, 0]);
 }
@@ -347,7 +350,7 @@ function folha(acc: Acumulador, p1: Ponto, p2: Ponto, h0: number, altura: number
 
 function fechar(acc: Acumulador): MalhaMuro | undefined {
   if (!acc.pos.length) return undefined;
-  return { posicoes: new Float32Array(acc.pos), normais: new Float32Array(acc.nor), uvs: new Float32Array(acc.uv), indices: new Uint32Array(acc.idx) };
+  return { posicoes: new Float32Array(acc.pos), normais: new Float32Array(acc.nor), uvs: new Float32Array(acc.uv), tons: new Float32Array(acc.tom), indices: new Uint32Array(acc.idx) };
 }
 
 /**
@@ -389,7 +392,7 @@ export function geometriaDoMuro(imp: Implantacao, muro: Muro, opcoes: { altura?:
   };
   const tampa = (s: Estacao, fora: Ponto) => {
     const f: V3 = [fora.x, 0, fora.y];
-    quad(acc.muro, [v(s.E, s.gE - ENTERRO_MURO), v(s.I, s.gI - ENTERRO_MURO), v(s.I, s.topo), v(s.E, s.topo)], [[0, 0], [esp, 0], [esp, H], [0, H]], f);
+    quad(acc.muro, [v(s.E, s.gE - ENTERRO_MURO), v(s.I, s.gI - ENTERRO_MURO), v(s.I, s.topo), v(s.E, s.topo)], [[0, 0], [esp, 0], [esp, H], [0, H]], f, PE);
     quad(acc.capa, [v(s.CE, s.topo), v(s.CI, s.topo), v(s.CI, s.topo + ALTURA_CAPA), v(s.CE, s.topo + ALTURA_CAPA)], [[0, 0], [1, 0], [1, 0.1], [0, 0.1]], f);
   };
 
@@ -412,8 +415,8 @@ export function geometriaDoMuro(imp: Implantacao, muro: Muro, opcoes: { altura?:
       if (aberto(meio)) { if (atual) { trechos.push(atual); atual = null; } continue; }
       const fora: V3 = [-dentro.x, 0, -dentro.y], parDentro: V3 = [dentro.x, 0, dentro.y];
       // Faces externa e interna (do pé enterrado ao topo), capa por cima.
-      quad(acc.muro, [v(s0.E, s0.gE - ENTERRO_MURO), v(s1.E, s1.gE - ENTERRO_MURO), v(s1.E, s1.topo), v(s0.E, s0.topo)], [[s0.u, s0.gE - ENTERRO_MURO - s0.topo + H], [s1.u, s1.gE - ENTERRO_MURO - s1.topo + H], [s1.u, H], [s0.u, H]], fora);
-      quad(acc.muro, [v(s0.I, s0.gI - ENTERRO_MURO), v(s1.I, s1.gI - ENTERRO_MURO), v(s1.I, s1.topo), v(s0.I, s0.topo)], [[s0.u, s0.gI - ENTERRO_MURO - s0.topo + H], [s1.u, s1.gI - ENTERRO_MURO - s1.topo + H], [s1.u, H], [s0.u, H]], parDentro);
+      quad(acc.muro, [v(s0.E, s0.gE - ENTERRO_MURO), v(s1.E, s1.gE - ENTERRO_MURO), v(s1.E, s1.topo), v(s0.E, s0.topo)], [[s0.u, s0.gE - ENTERRO_MURO - s0.topo + H], [s1.u, s1.gE - ENTERRO_MURO - s1.topo + H], [s1.u, H], [s0.u, H]], fora, PE);
+      quad(acc.muro, [v(s0.I, s0.gI - ENTERRO_MURO), v(s1.I, s1.gI - ENTERRO_MURO), v(s1.I, s1.topo), v(s0.I, s0.topo)], [[s0.u, s0.gI - ENTERRO_MURO - s0.topo + H], [s1.u, s1.gI - ENTERRO_MURO - s1.topo + H], [s1.u, H], [s0.u, H]], parDentro, PE);
       const c0 = s0.topo + ALTURA_CAPA, c1 = s1.topo + ALTURA_CAPA;
       quad(acc.capa, [v(s0.CE, c0), v(s1.CE, c1), v(s1.CI, c1), v(s0.CI, c0)], [[s0.u, 0], [s1.u, 0], [s1.u, esp], [s0.u, esp]], [0, 1, 0]);
       quad(acc.capa, [v(s0.CE, s0.topo), v(s1.CE, s1.topo), v(s1.CE, c1), v(s0.CE, c0)], [[s0.u, 0], [s1.u, 0], [s1.u, 0.06], [s0.u, 0.06]], fora);
@@ -440,7 +443,7 @@ export function geometriaDoMuro(imp: Implantacao, muro: Muro, opcoes: { altura?:
     const dir = direcaoEm(a, u), dentro = { x: -dir.y, y: dir.x };
     const c = soma(pontoEm(a, dInt, u), esc(dentro, SALIENCIA_PILASTRA / 2 - 0.01));
     const g = chao(c.x, c.y), topo = chao(pontoEm(a, dEixo, u).x, pontoEm(a, dEixo, u).y) + H;
-    caixa(acc.muro, c, dir, LARGURA_PILASTRA, SALIENCIA_PILASTRA + 0.02, g - ENTERRO_MURO, topo);
+    caixa(acc.muro, c, dir, LARGURA_PILASTRA, SALIENCIA_PILASTRA + 0.02, g - ENTERRO_MURO, topo, true);
   }
 
   // Pilares e folhas dos portões.
@@ -453,7 +456,7 @@ export function geometriaDoMuro(imp: Implantacao, muro: Muro, opcoes: { altura?:
     for (const u of pilares) {
       // O pilar é mais grosso que o muro só para dentro: a face de fora fica alinhada com a do muro (nunca passa da divisa).
       const cc = pontoEm(a, dExt + ladoPilar / 2, u), dir = direcaoEm(a, u), g = chao(cc.x, cc.y);
-      caixa(acc.muro, cc, dir, PILAR_PORTAO, ladoPilar, g - ENTERRO_MURO, g + H + SOBE_PILAR);
+      caixa(acc.muro, cc, dir, PILAR_PORTAO, ladoPilar, g - ENTERRO_MURO, g + H + SOBE_PILAR, true);
       caixa(acc.capa, pontoEm(a, dCapaExt + (ladoPilar + 0.06) / 2, u), dir, PILAR_PORTAO + 0.06, ladoPilar + 0.06, g + H + SOBE_PILAR, g + H + SOBE_PILAR + ALTURA_CAPA);
     }
     const alturaFolha = Math.min(H - 0.1, p.tipo === "pedestres" ? 2.1 : 2.4);

@@ -186,7 +186,7 @@ describe("portão automático", () => {
     const geojson = JSON.stringify({ type: "Feature", properties: {}, geometry: { type: "Polygon", coordinates: [anel] } });
     const est = gerarEstudoMassa(anel, centro, { larguraViaM: 12, testadaLoteM: 10, profundidadeLoteM: 25, loteMinimoM2: 200, comprimentoMaxQuadraM: 150, percentInstitucional: 0.05, percentAreaVerde: 0.1, precoM2Lote: 500, tipologia: "grid" } as ParametrosMassa, { nCenarios: 1 });
     const i = implantacaoDoEstudo(geojson, centro, est.cenarios[0], null)!.implantacao;
-    expect(i.acessos.length).toBeGreaterThan(0);
+    expect(i.acessos?.length).toBeGreaterThan(0);
     const sv = sistemaViario(i);
     const g = geometriaDoMuro(i, muro(), { sistema: sv })!;
     expect(g.resumo.aberturas.length).toBe(1);
@@ -207,8 +207,8 @@ describe("modelo e regras do tipo", () => {
     const antigo = JSON.stringify({ versao: 1, tipo: "condominio", edificacoes: [], implantacao: { terreno: ret(0, 0, 50, 40), ruas: [], lotes: [], posicoes: [] }, pendencias: [] });
     const m = lerModelo(antigo)!;
     expect(m).toBeTruthy();
-    expect(m.implantacao?.muro).toBeNull();
-    expect(m.implantacao?.acessos).toEqual([]);
+    expect(m.implantacao?.muro ?? null).toBeNull();
+    expect(m.implantacao?.acessos ?? []).toEqual([]);
     expect(muroDaMaquete(m)?.ativo).toBe(true);
     expect(muroDaMaquete(m)?.portoesEditados).toBe(false);
     expect(muroDaMaquete(base("casa"))).toBeNull();

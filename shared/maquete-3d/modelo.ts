@@ -230,15 +230,17 @@ export const implantacaoSchema = z.object({
     x: metros, y: metros, rotacao: metros.min(-360).max(360).default(0),
     unidade: z.string().max(120).nullable().default(null),
   })).max(3000).default([]),
+  // S-04: os dois campos abaixo são opcionais (sem padrão) para a maquete antiga e quem monta a implantação à mão
+  // (leitura do PDF) continuarem valendo sem mudança.
   /** Pontos de acesso da malha na divisa, vindos do estudo de massa (onde a rua sai do terreno). */
   acessos: z.array(z.object({
     x: metros, y: metros,
     /** Há via pública mapeada junto deste acesso (é o acesso principal). */
     viaExistente: z.boolean().default(false),
     distancia: metros.nullable().default(null),
-  })).max(60).default([]),
-  /** Muro de divisa; nulo = o padrão do tipo (muroDaMaquete). */
-  muro: muroSchema.nullable().default(null),
+  })).max(60).optional(),
+  /** Muro de divisa; ausente ou nulo = o padrão do tipo (muroDaMaquete). */
+  muro: muroSchema.nullable().optional(),
 });
 export type Implantacao = z.infer<typeof implantacaoSchema>;
 
