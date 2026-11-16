@@ -18,6 +18,7 @@ import {
 import { MAX_PAGINAS } from "./pdf-vetorial.js";
 import { jpegDaPagina, pdfDeUmJpeg } from "./pdf-pagina.js";
 import { lerPagina, nomeDoPavimento, type Diagnostico, type PlantaLida } from "./geometrico.js";
+import { guardarAnterior, registrarRevisao } from "./revisoes.js";
 import { LIMITE_PASSO_MS, LeituraIndisponivel, agora, carregarConfig, db, dependencias, erroSeguro, modeloDaLeitura, type AnexoIA, type PdfLido, alvoDoDocumento } from "./base.js";
 
 // ── Esquemas da resposta da IA (JSON Schema, saída estruturada) ──
@@ -264,7 +265,7 @@ export function montarModelo(tipo: TipoMaquete, parciais: Record<string, unknown
 
 // ── Leitor geométrico (sem IA): uma prancha por passo, e a montagem junta as plantas em pavimentos ──
 
-type PranchaLida = { doc: number; pagina: number; plantas: PlantaLida[]; diagnostico: Diagnostico & { lidaPor?: "geometrico" | "ia" } };
+export type PranchaLida = { doc: number; pagina: number; plantas: PlantaLida[]; diagnostico: Diagnostico & { lidaPor?: "geometrico" | "ia" } };
 
 async function bytesDoDocumento(m: Maquete3d, indice: number) {
   const d = lerDocumentos(m.documentos)[indice];
@@ -571,6 +572,8 @@ async function buscar(id: number): Promise<Maquete3d | null> {
 export async function iniciarLeitura(id: number): Promise<EstadoLeitura> {
   const atual = await buscar(id);
   const anterior = lerModelo(atual?.modelo);
+  // A planta que ler de novo apaga fica no histórico (EPIC-024 S-05): pode ser restaurada depois.
+  if (atual && PODE_LER.includes(atual.status as StatusMaquete)) await guardarAnterior(atual, "Planta antes de ler o projeto de novo do zero");
   const estado: EstadoLeitura = {
     // A confirmação do custo da IA vale para a maquete: ler de novo não pergunta outra vez.
     ...leituraVazia(), iniciadaEm: agora().toISOString(), confirmacaoIA: lerEstadoLeitura(atual?.leitura).confirmacaoIA ?? null,
@@ -585,7 +588,7 @@ export async function iniciarLeitura(id: number): Promise<EstadoLeitura> {
 }
 
 /** Executa o próximo passo pendente e grava o resultado. Devolve o estado atualizado. */
-export async function avancarLeitura(id: number): Promise<{ estado: EstadoLeitura; status: StatusMaquete }> {
+export async function avancarLeitura(id: number, autorId: number | null = null): Promise<{ estado: EstadoLeitura; status: StatusMaquete }> {
   const m = await buscar(id);
   if (!m || m.status !== "em_leitura") throw new LeituraIndisponivel("Não há leitura em andamento para esta maquete.");
   const estado = lerEstadoLeitura(m.leitura);
@@ -659,9 +662,10 @@ export async function avancarLeitura(id: number): Promise<{ estado: EstadoLeitur
     atual.erro = erroSeguro(e);
   }
 
-  await db().update(maquetes3d)
+  const gravado = await db().update(maquetes3d)
     .set({ leitura: JSON.stringify(estado), status, updatedAt: agora(), ...(modelo ? { modelo, modeloVersao: m.modeloVersao + 1 } : {}) })
-    .where(and(eq(maquetes3d.id, id), eq(maquetes3d.status, "em_leitura")));
+    .where(and(eq(maquetes3d.id, id), eq(maquetes3d.status, "em_leitura"))).returning({ id: maquetes3d.id });
+  if (modelo && gravado.length) await registrarRevisao({ maqueteId: id, versao: m.modeloVersao + 1, modelo, origem: "leitura", motivo: "Planta lida dos PDFs do pedido", autorId });
   return { estado, status };
 }
 

@@ -20,6 +20,11 @@ import { avisarMaquetePronta, avisarPedidoAprovado, destinatario } from "./aviso
 import { LeituraIndisponivel, agora, alvoDoDocumento, carregarConfig, db, dependencias, modeloDaLeitura, salvarConfig } from "./base.js";
 import { clearUpload, readUpload } from "../document-upload-chunks.js";
 import { avancarLeitura, confirmarIA, iniciarLeitura, lerDocumentos, pularIA } from "./leitura.js";
+import {
+  PODE_IMPORTAR, aplicarImportacao, avancarImportacao, confirmarIAImportacao, descartarImportacao, iniciarImportacao, lerImportacao,
+  pranchasDaLeitura, pularIAImportacao, salvarCandidata, type Importacao,
+} from "./importacao.js";
+import { ConflitoDeVersao, gravarModelo, lerRevisao, listarRevisoes } from "./revisoes.js";
 
 type Ctx = { user: { id: number; role: string } };
 function exigirAdmin(ctx: Ctx, acao: string) {
@@ -90,6 +95,47 @@ function paraTela(m: Maquete3d) {
 }
 
 const idInput = z.object({ id: z.number().int().positive() });
+
+/** Guarda o PDF enviado em partes e o põe na lista de PDFs do pedido; devolve o índice dele na lista. */
+async function guardarPdfAvulso(m: Maquete3d, uploadId: string, nome: string, userId: number): Promise<{ id: number; documentos: DocumentoMaquete[]; indice: number }> {
+  if (!/\.pdf$/i.test(nome)) throw new TRPCError({ code: "BAD_REQUEST", message: "Envie um arquivo PDF." });
+  const atuais = lerDocumentos(m.documentos);
+  if (atuais.length >= MAX_DOCUMENTOS) throw new TRPCError({ code: "BAD_REQUEST", message: `Cada pedido aceita até ${MAX_DOCUMENTOS} PDFs. Tire um da lista antes de enviar outro.` });
+  const dados = await readUpload(uploadId, userId, escopoEnvioMaquete(m.id), nome);
+  if (dados.length > MAX_BYTES_PDF_AVULSO || dados.subarray(0, 5).toString("latin1") !== "%PDF-") {
+    await clearUpload(uploadId, userId);
+    throw new TRPCError({ code: "BAD_REQUEST", message: "O arquivo enviado não é um PDF válido." });
+  }
+  const [novo] = await db().insert(maquete3dArquivos).values({ maqueteId: m.id, nome, tamanho: dados.length, dados, enviadoPor: userId }).returning({ id: maquete3dArquivos.id });
+  await clearUpload(uploadId, userId);
+  const documentos = [...atuais, { fonte: "avulso" as const, id: novo.id, nome }];
+  await db().update(maquetes3d).set({ documentos: JSON.stringify(documentos), updatedAt: agora() }).where(eq(maquetes3d.id, m.id));
+  return { id: novo.id, documentos, indice: documentos.length - 1 };
+}
+
+/** Importação em andamento para a tela: passos, quem leu cada prancha, a candidata e o fundo de cada pavimento dela. */
+function importacaoParaTela(imp: Importacao | null) {
+  if (!imp) return null;
+  return {
+    doc: imp.doc, documento: imp.documento, iniciadaEm: imp.iniciadaEm, passos: passosParaTela(imp.estado), progresso: progressoLeitura(imp.estado),
+    ia: resumoIA(imp.estado), tokens: { entrada: imp.estado.tokensEntrada, saida: imp.estado.tokensSaida },
+    candidata: imp.candidata, pranchas: imp.pranchas, avisos: imp.avisos.slice(0, 12),
+    problemas: imp.candidata ? validarModelo(imp.candidata) : [],
+  };
+}
+const retornoDaImportacao = (imp: Importacao) => {
+  const r = retornoDoPasso(imp.estado, "em_leitura");
+  return { ...r, pronta: !!imp.candidata };
+};
+/** Erros de domínio viram respostas claras para a tela. */
+function traduzir(e: unknown): never {
+  if (e instanceof LeituraIndisponivel || e instanceof ConflitoDeVersao) throw conflito(e.message);
+  throw e;
+}
+const destinoSchema = z.discriminatedUnion("tipo", [
+  z.object({ tipo: z.literal("padrao") }),
+  z.object({ tipo: z.literal("pavimento"), edificacaoId: z.string().min(1).max(40), pavimentoId: z.string().min(1).max(40), pavimentoCandidatoId: z.string().min(1).max(40).optional() }),
+]);
 
 /** Quem leu cada passo e o que está pendente da IA (EPIC-024 S-03), para o painel da leitura. */
 function passosParaTela(leitura: EstadoLeitura) {
@@ -193,19 +239,8 @@ export const maquete3dRouter = router({
   anexarPdf: adminProcedure.input(z.object({ id: z.number().int().positive(), uploadId: z.string().min(20).max(64), nome: z.string().trim().min(1).max(255) })).mutation(async ({ ctx, input }) => {
     const m = await buscar(input.id);
     if (m.status === "em_leitura" || m.status === "publicada" || m.status === "recusada") throw conflito("Não é possível anexar PDF nesta situação.");
-    if (!/\.pdf$/i.test(input.nome)) throw new TRPCError({ code: "BAD_REQUEST", message: "Envie um arquivo PDF." });
-    const atuais = lerDocumentos(m.documentos);
-    if (atuais.length >= MAX_DOCUMENTOS) throw new TRPCError({ code: "BAD_REQUEST", message: `Cada pedido aceita até ${MAX_DOCUMENTOS} PDFs. Tire um da lista antes de enviar outro.` });
-    const dados = await readUpload(input.uploadId, ctx.user.id, escopoEnvioMaquete(m.id), input.nome);
-    if (dados.length > MAX_BYTES_PDF_AVULSO || dados.subarray(0, 5).toString("latin1") !== "%PDF-") {
-      await clearUpload(input.uploadId, ctx.user.id);
-      throw new TRPCError({ code: "BAD_REQUEST", message: "O arquivo enviado não é um PDF válido." });
-    }
-    const [novo] = await db().insert(maquete3dArquivos).values({ maqueteId: m.id, nome: input.nome, tamanho: dados.length, dados, enviadoPor: ctx.user.id }).returning({ id: maquete3dArquivos.id });
-    await clearUpload(input.uploadId, ctx.user.id);
-    const documentos = [...atuais, { fonte: "avulso" as const, id: novo.id, nome: input.nome }];
-    await db().update(maquetes3d).set({ documentos: JSON.stringify(documentos), updatedAt: agora() }).where(eq(maquetes3d.id, m.id));
-    return { id: novo.id, documentos };
+    const { id, documentos } = await guardarPdfAvulso(m, input.uploadId, input.nome, ctx.user.id);
+    return { id, documentos };
   }),
 
   documentosDisponiveis: adminProcedure.input(z.object({ origem: z.enum(ORIGENS_MAQUETE), alvoId: z.number().int().positive() }))
@@ -249,9 +284,9 @@ export const maquete3dRouter = router({
       ia: resumoIA(leitura),
       tokens: { entrada: leitura.tokensEntrada, saida: leitura.tokensSaida },
       /** Em que arquivo e página está a planta de cada pavimento (fundo da revisão). */
-      pranchas: Array.isArray(leitura.parciais.pranchasDosPavimentos)
-        ? (leitura.parciais.pranchasDosPavimentos as { pavimentoId: string; doc: number; pagina: number; alinhamento?: { x: number; y: number; larguraM: number } | null }[]).map(p => ({ pavimentoId: p.pavimentoId, doc: p.doc, pagina: p.pagina, alinhamento: p.alinhamento ?? null }))
-        : leitura.passos.filter(p => p.tipo === "estrutura" && p.pavimentoId).map(p => ({ pavimentoId: p.pavimentoId!, doc: p.doc ?? 0, pagina: p.pagina ?? 1, alinhamento: null as { x: number; y: number; larguraM: number } | null })),
+      pranchas: pranchasDaLeitura(leitura),
+      /** EPIC-024 S-05: planta arquitetônica importada em andamento (candidata, separada do modelo em uso). */
+      importacao: importacaoParaTela(lerImportacao(m.importacao)),
       /** O que o leitor não conseguiu ler (prancha escaneada, página sem planta): aviso para a revisão. */
       avisosDaLeitura: Array.isArray(leitura.parciais.avisosDaLeitura) ? (leitura.parciais.avisosDaLeitura as string[]).slice(0, 12) : [],
       /** Escala usada em cada planta lida pelo leitor próprio, para a pessoa conferir. */
@@ -391,9 +426,9 @@ export const maquete3dRouter = router({
   }),
 
   /** Executa um passo da leitura. A tela chama até `proximo` vir nulo ou um passo dar erro. */
-  avancarLeitura: adminProcedure.input(idInput).mutation(async ({ input }) => {
+  avancarLeitura: adminProcedure.input(idInput).mutation(async ({ ctx, input }) => {
     try {
-      const { estado, status } = await avancarLeitura(input.id);
+      const { estado, status } = await avancarLeitura(input.id, ctx.user.id);
       return retornoDoPasso(estado, status);
     } catch (e) { if (e instanceof LeituraIndisponivel) throw conflito(e.message); throw e; }
   }),
@@ -412,14 +447,99 @@ export const maquete3dRouter = router({
   }),
 
   /** Grava a planta corrigida na revisão. `versao` evita que duas pessoas se sobrescrevam. */
-  salvarModelo: adminProcedure.input(idInput.extend({ versao: z.number().int().min(0), modelo: modeloSchema })).mutation(async ({ ctx, input }) => {
-    const r = await db().update(maquetes3d).set({
-      modelo: JSON.stringify(input.modelo), modeloVersao: input.versao + 1, status: "em_revisao" satisfies StatusMaquete,
-      revisadoPor: ctx.user.id, revisadoEm: agora(), updatedAt: agora(),
-    }).where(and(eq(maquetes3d.id, input.id), isNull(maquetes3d.deletedAt), eq(maquetes3d.modeloVersao, input.versao), inArray(maquetes3d.status, [...PODE_REVISAR])))
-      .returning({ versao: maquetes3d.modeloVersao });
-    if (!r.length) throw conflito("A planta foi alterada por outra pessoa ou não está em revisão. Recarregue a página.");
-    return { versao: r[0].versao, problemas: validarModelo(input.modelo), resumo: resumoModelo(input.modelo) };
+  salvarModelo: adminProcedure.input(idInput.extend({ versao: z.number().int().min(0), modelo: modeloSchema, motivo: z.string().trim().max(400).optional() })).mutation(async ({ ctx, input }) => {
+    const m = await buscar(input.id);
+    let versao: number;
+    try {
+      versao = await gravarModelo({
+        de: m, versao: input.versao, modelo: input.modelo, status: PODE_REVISAR, origem: "edicao", motivo: input.motivo || "Planta corrigida na revisão", autorId: ctx.user.id,
+        extra: { status: "em_revisao" satisfies StatusMaquete, revisadoPor: ctx.user.id, revisadoEm: agora() },
+      });
+    } catch (e) {
+      if (e instanceof ConflitoDeVersao) throw conflito("A planta foi alterada por outra pessoa ou não está em revisão. Recarregue a página.");
+      throw e;
+    }
+    return { versao, problemas: validarModelo(input.modelo), resumo: resumoModelo(input.modelo) };
+  }),
+
+  // ── Planta arquitetônica importada na revisão (EPIC-024 S-05) ──
+
+  /**
+   * Começa a importação: um PDF novo (enviado em partes, guardado e posto na lista do pedido) ou um da lista.
+   * Lê só esse PDF numa planta candidata; o modelo em uso não muda até "Aplicar".
+   */
+  importarPlanta: adminProcedure.input(idInput.extend({
+    uploadId: z.string().min(20).max(64).optional(), nome: z.string().trim().min(1).max(255).optional(), doc: z.number().int().min(0).max(MAX_DOCUMENTOS - 1).optional(),
+  })).mutation(async ({ ctx, input }) => {
+    const m = await buscar(input.id);
+    if (!PODE_IMPORTAR.includes(m.status as StatusMaquete)) throw conflito("Nesta situação não é possível importar uma planta.");
+    if (m.status === "publicada") exigirAdmin(ctx, "importar planta numa maquete publicada");
+    let doc = input.doc;
+    if (input.uploadId) {
+      if (!input.nome) throw new TRPCError({ code: "BAD_REQUEST", message: "Informe o nome do arquivo." });
+      doc = (await guardarPdfAvulso(m, input.uploadId, input.nome, ctx.user.id)).indice;
+    }
+    if (doc === undefined) throw new TRPCError({ code: "BAD_REQUEST", message: "Envie o PDF da planta ou escolha um da lista." });
+    try { return retornoDaImportacao(await iniciarImportacao(m.id, doc, ctx.user.id)); } catch (e) { traduzir(e); }
+  }),
+
+  avancarImportacao: adminProcedure.input(idInput).mutation(async ({ input }) => {
+    try { return retornoDaImportacao(await avancarImportacao(input.id)); } catch (e) { traduzir(e); }
+  }),
+
+  confirmarIAImportacao: adminProcedure.input(idInput).mutation(async ({ ctx, input }) => {
+    exigirAdmin(ctx, "autorizar a leitura paga pela IA");
+    try { return retornoDaImportacao(await confirmarIAImportacao(input.id, ctx.user.id)); } catch (e) { traduzir(e); }
+  }),
+
+  pularIAImportacao: adminProcedure.input(idInput).mutation(async ({ input }) => {
+    try { return retornoDaImportacao(await pularIAImportacao(input.id)); } catch (e) { traduzir(e); }
+  }),
+
+  /** Grava a candidata editada (antes de aplicar). */
+  salvarCandidata: adminProcedure.input(idInput.extend({ modelo: modeloSchema })).mutation(async ({ input }) => {
+    try { await salvarCandidata(input.id, input.modelo); } catch (e) { traduzir(e); }
+    return { problemas: validarModelo(input.modelo) };
+  }),
+
+  descartarImportacao: adminProcedure.input(idInput).mutation(async ({ input }) => {
+    try { await descartarImportacao(input.id); } catch (e) { traduzir(e); }
+    return { ok: true };
+  }),
+
+  /** Aplica a candidata no que a pessoa escolheu, com a trava de versão. Publicada: só o admin, e ela sai do ar. */
+  aplicarImportacao: adminProcedure.input(idInput.extend({ versao: z.number().int().min(0), destino: destinoSchema, motivo: z.string().trim().max(400).default("") })).mutation(async ({ ctx, input }) => {
+    const m = await buscar(input.id);
+    if (m.status === "publicada") exigirAdmin(ctx, "aplicar planta numa maquete publicada (ela sai do ar)");
+    try {
+      const r = await aplicarImportacao({ id: input.id, versao: input.versao, destino: input.destino, motivo: input.motivo, autorId: ctx.user.id });
+      return { versao: r.versao, saiuDoAr: r.saiuDoAr, problemas: validarModelo(r.modelo), resumo: resumoModelo(r.modelo) };
+    } catch (e) { traduzir(e); }
+  }),
+
+  /** Histórico das plantas (cada mudança do modelo). */
+  revisoes: adminProcedure.input(idInput).query(async ({ input }) => {
+    await buscar(input.id);
+    return listarRevisoes(input.id);
+  }),
+
+  /** Volta a uma revisão anterior; a restauração é ela mesma uma revisão nova. Publicada: só o admin, e sai do ar. */
+  restaurarRevisao: adminProcedure.input(idInput.extend({ revisaoId: z.number().int().positive(), versao: z.number().int().min(0) })).mutation(async ({ ctx, input }) => {
+    const m = await buscar(input.id);
+    if (!PODE_IMPORTAR.includes(m.status as StatusMaquete)) throw conflito("Nesta situação não é possível restaurar uma versão.");
+    if (m.status === "publicada") exigirAdmin(ctx, "restaurar versão de uma maquete publicada (ela sai do ar)");
+    const rev = await lerRevisao(m.id, input.revisaoId);
+    const modelo = rev ? lerModelo(rev.modelo) : null;
+    if (!rev || !modelo) throw new TRPCError({ code: "NOT_FOUND", message: "Versão não encontrada nesta maquete." });
+    let documento: DocumentoMaquete | null = null;
+    try { documento = rev.documento ? documentoSchema.parse(JSON.parse(rev.documento)) : null; } catch { documento = null; }
+    try {
+      const versao = await gravarModelo({
+        de: m, versao: input.versao, modelo, status: PODE_IMPORTAR, origem: "restauracao", motivo: `Restaurada a versão ${rev.versao}`, documento, autorId: ctx.user.id,
+        extra: { status: "em_revisao" satisfies StatusMaquete, revisadoPor: ctx.user.id, revisadoEm: agora(), ...(m.status === "publicada" ? { publicadoEm: null } : {}) },
+      });
+      return { versao, saiuDoAr: m.status === "publicada" };
+    } catch (e) { traduzir(e); }
   }),
 
   /** Conclui a revisão: só passa se a planta não tiver erros nem pendências em aberto. */
@@ -445,11 +565,15 @@ export const maquete3dRouter = router({
     const modelo = lerModelo(m.modelo) ?? modeloVazio(m.tipo as TipoMaquete);
     // As construções posicionadas à mão na revisão são mantidas quando a implantação é atualizada pelo estudo.
     const novo = modeloSchema.parse({ ...modelo, implantacao: { ...r.implantacao, posicoes: modelo.implantacao?.posicoes ?? [] } });
-    const g = await db().update(maquetes3d).set({
-      modelo: JSON.stringify(novo), modeloVersao: m.modeloVersao + 1, status: "em_revisao" satisfies StatusMaquete,
-      revisadoPor: ctx.user.id, revisadoEm: agora(), updatedAt: agora(),
-    }).where(and(eq(maquetes3d.id, m.id), eq(maquetes3d.modeloVersao, m.modeloVersao), eq(maquetes3d.status, m.status))).returning({ id: maquetes3d.id });
-    if (!g.length) throw conflito("A maquete foi alterada por outra pessoa. Recarregue a página.");
+    try {
+      await gravarModelo({
+        de: m, versao: m.modeloVersao, modelo: novo, status: [m.status as StatusMaquete], origem: "implantacao_estudo", motivo: "Implantação montada a partir do estudo", autorId: ctx.user.id,
+        extra: { status: "em_revisao" satisfies StatusMaquete, revisadoPor: ctx.user.id, revisadoEm: agora() },
+      });
+    } catch (e) {
+      if (e instanceof ConflitoDeVersao) throw conflito("A maquete foi alterada por outra pessoa. Recarregue a página.");
+      throw e;
+    }
     return { lotes: r.implantacao.lotes.length, ruas: r.implantacao.ruas.length, temTerreno: r.implantacao.terreno.length > 0, temRelevo: !!r.implantacao.relevo, descartados: r.descartados, semCenario: !cenario };
   }),
 
@@ -523,11 +647,16 @@ export const maquete3dRouter = router({
       } else implantacao = { ...implantacao, posicoes: [] };
     }
     const novo = modeloSchema.parse({ ...atual, tipo: input.tipo, edificacoes: padrao ? [...lidas, padrao] : lidas, implantacao });
-    const g = await db().update(maquetes3d).set({
-      tipo: input.tipo, modelo: JSON.stringify(novo), modeloVersao: m.modeloVersao + 1, status: "em_revisao" satisfies StatusMaquete,
-      revisadoPor: ctx.user.id, revisadoEm: agora(), updatedAt: agora(),
-    }).where(and(eq(maquetes3d.id, m.id), eq(maquetes3d.modeloVersao, m.modeloVersao), eq(maquetes3d.status, m.status))).returning({ id: maquetes3d.id });
-    if (!g.length) throw conflito("A maquete foi alterada por outra pessoa. Recarregue a página.");
+    try {
+      await gravarModelo({
+        de: m, versao: m.modeloVersao, modelo: novo, status: [m.status as StatusMaquete], origem: "tipo_padrao",
+        motivo: `Tipo ${input.tipo}${padrao ? ` com ${padrao.nome.toLowerCase()}` : ""}`, autorId: ctx.user.id,
+        extra: { tipo: input.tipo, status: "em_revisao" satisfies StatusMaquete, revisadoPor: ctx.user.id, revisadoEm: agora() },
+      });
+    } catch (e) {
+      if (e instanceof ConflitoDeVersao) throw conflito("A maquete foi alterada por outra pessoa. Recarregue a página.");
+      throw e;
+    }
     const lotes = implantacao?.lotes.filter(l => l.tipo === "vendavel").length ?? 0;
     return { construcoes, lotes, semConstrucao: semConstrucao.slice(0, 40), semConstrucaoTotal: semConstrucao.length, padrao: padrao?.nome ?? null, resumo: resumoModelo(novo), estacionamento };
   }),
