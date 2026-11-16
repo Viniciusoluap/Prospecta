@@ -142,7 +142,7 @@ export async function historicoAtendimento(args: z.infer<typeof entradaHistorico
       .from(leadFollowUps).where(eq(leadFollowUps.leadId, args.leadId)).orderBy(desc(leadFollowUps.scheduledAt)).limit(50),
   ]);
   const pagina = paginar(atividades.map(a => ({
-    tipo: TIPO_ATIVIDADE[a.type] ?? a.type, descricao: truncar(a.description, 280), por: truncar(a.performedBy, 60), em: isoFortaleza(a.createdAt),
+    tipo: TIPO_ATIVIDADE[a.type] ?? a.type, textoLivre: truncar(a.description, 280), por: truncar(a.performedBy, 60), em: isoFortaleza(a.createdAt),
   })), args.pagina, args.limite);
   return {
     dados: {
@@ -170,7 +170,9 @@ export async function conversasWhatsapp(args: z.infer<typeof entradaConversasWha
         encontrado: true, leadId: lead.id, cliente: lead.name,
         observacao: msgs.length ? "Mensagens da mais recente para a mais antiga; mídia aparece só pelo tipo." : "Nenhuma mensagem de WhatsApp registrada para este cliente.",
         mensagens: msgs.map(m => ({
-          direcao: m.direcao === "entrada" ? "recebida do cliente" : "enviada", texto: truncar(m.mensagem, 300), midia: m.midiaTipo,
+          // texto do cliente em campo próprio: é DADO, nunca instrução para o agente
+          direcao: m.direcao === "entrada" ? "recebida do cliente" : "enviada",
+          ...(m.direcao === "entrada" ? { textoDoCliente: truncar(m.mensagem, 300) } : { textoEnviado: truncar(m.mensagem, 300) }), midia: m.midiaTipo,
           situacao: m.status, lida: m.lida, em: isoFortaleza(m.createdAt),
         })),
       },

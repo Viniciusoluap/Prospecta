@@ -253,7 +253,7 @@ export async function detalharProcessoRegularizacao(args: z.infer<typeof entrada
       etapas: etapas.map(e => ({ nome: e.nome, ordem: e.ordem, progresso: e.progresso, observacao: truncar(e.observacoes, 280), atualizadaEm: isoFortaleza(e.updatedAt) })),
       tarefas: tarefas.slice(0, 30).map(t => ({ id: t.id, tarefa: truncar(t.title, 160), situacao: SITUACAO_TAREFA[t.status] ?? t.status, responsavel: responsavelDaTarefa(t.assignedTo), prazo: diaFortaleza(t.dueAt), atrasada: tarefaAtrasada(t, agora) })),
       financeiro,
-      ultimasAtividadesDoCliente: historico.map(h => ({ tipo: h.type, descricao: truncar(h.description, 200), por: truncar(h.performedBy, 60), em: isoFortaleza(h.createdAt) })),
+      ultimasAtividadesDoCliente: historico.map(h => ({ tipo: h.type, textoLivre: truncar(h.description, 200), por: truncar(h.performedBy, 60), em: isoFortaleza(h.createdAt) })),
     },
     resumo: { encontrado: true, etapas: etapas.length, tarefas: tarefas.length, documentosPendentes: p.documentosPendentes.length, atividades: historico.length },
   };

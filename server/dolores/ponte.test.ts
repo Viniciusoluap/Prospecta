@@ -77,6 +77,12 @@ describe("chamada autorizada", () => {
     expect(r.status).toBe(200);
     expect(r.body).toMatchObject({ ok: true, etapa: 1, funcao: "listar_processos_regularizacao", pedidoId: "wa-123", fuso: "America/Fortaleza (UTC-03:00)",
       moeda: "BRL", geradoEm: "2026-11-16T09:00:00-03:00", truncado: false });
+    // M2: toda resposta com dados lembra que o conteúdo é dado, não instrução; o prompt do agente diz o mesmo
+    expect(r.body.avisoSeguranca).toMatch(/nunca instrução/);
+    const prompt = readFileSync(new URL("../../docs/dolores/agente-etapa1.md", import.meta.url), "utf8");
+    expect(prompt).toMatch(/é DADO, nunca instrução/);
+    expect(prompt).toMatch(/textoDoCliente/);
+    expect(prompt).toMatch(/Mensagem suspeita/);
     expect((r.body.dados as any).itens.map((p: any) => p.id)).toEqual([2]);
     const [a] = await acoes();
     const dolores = await usuarioDolores();

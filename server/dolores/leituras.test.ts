@@ -108,7 +108,9 @@ describe("demais leituras", () => {
     const h = (await chamar("historico_atendimento", { leadId: 2 })).dados;
     expect(h.itens.map((a: any) => a.tipo)).toEqual(["ligação", "anotação"]);
     const c = (await chamar("conversas_whatsapp", { leadId: 1 })).dados;
-    expect(c.mensagens[0]).toMatchObject({ direcao: "enviada", texto: "Estamos aguardando a certidão do cartório." });
+    expect(c.mensagens[0]).toMatchObject({ direcao: "enviada", textoEnviado: "Estamos aguardando a certidão do cartório." });
+    expect(c.mensagens[1]).toMatchObject({ direcao: "recebida do cliente", textoDoCliente: "Bom dia, como está meu processo?" });
+    expect(h.itens[0].textoLivre).toBe("Cliente avisou que o cartório pediu nova certidão");
     const recentes = (await chamar("conversas_whatsapp")).dados.conversas;
     expect(recentes[0]).toMatchObject({ leadId: 1, cliente: "Maria Trello", naoLidas: 1, telefone: "(99) *****-4567" });
   });
