@@ -258,8 +258,6 @@ function pecasDeParede(retas: Reta[]): Peca[] {
   // encostados em parede também dão pares de linhas, mas somam bem menos.
   const segundo = ordenado.find(([k, peso]) => Math.abs(k - picos[0]) >= 4 && peso >= ordenado[0][1] * 0.35);
   if (segundo) picos.push(segundo[0]);
-  if (process.env.TMP_PICOS) { const am = candidatas.filter(c => Math.round(c.esp * 100) === 35); const pos = new Map<string, number>(); for (const c of am) { const q = ponto(c.ang, c.rho, (c.t0 + c.t1) / 2); const kk = `${Math.round(q.x / 2) * 2},${Math.round(q.y / 2) * 2},a${c.ang}`; pos.set(kk, (pos.get(kk) ?? 0) + c.t1 - c.t0); } console.log('POS35', Array.from(pos.entries()).sort((a, b) => b[1] - a[1]).slice(0, 25).map(([k, v]) => `${k}:${v.toFixed(1)}`).join(' ')); }
-  if (process.env.TMP_PICOS) console.log('PICOS', picos, ordenado.slice(0, 8).map(([k, p]) => `${k}:${p.toFixed(1)}`).join(' '));
   return candidatas.filter(c => picos.some(p => Math.abs(c.esp * 100 - p) <= 2.5));
 }
 
@@ -369,7 +367,6 @@ function paredesComVaos(grupos: Peca[][], ctx: Contexto): Parede[] {
     }
     fechar();
   }
-  if (process.env.TMP_DUP) for (const w of paredes) if (w.ang === 0 && w.rho > 7.5 && w.rho < 9.6 && w.t0 > 4 && w.t1 < 11) console.log('W', w.rho.toFixed(3), w.t0.toFixed(2), w.t1.toFixed(2), w.esp.toFixed(3), JSON.stringify(w.vaos));
   const unicas = semDuplicadas(paredes);
   aberturasPelosMarcos(unicas, ctx);
   vaosNasPontas(unicas, ctx);
@@ -418,8 +415,7 @@ function aberturasPelosMarcos(paredes: Parede[], ctx: Contexto) {
     const validos = marcos.filter(m => m.n >= 2 && !cruzamentos.some(x => Math.abs((m.ini + m.fim) / 2 - x.t) <= x.esp / 2 + 0.1));
     const dentro = ctx.retas.filter(r => r.ang === w.ang && Math.abs(r.rho - w.rho) < w.esp / 2 - 0.005 && r.t1 > w.t0 && r.t0 < w.t1);
     const caixilho = (u0: number, u1: number) => dentro.some(r => Math.min(r.t1, u1) - Math.max(r.t0, u0) >= Math.min(0.3, (u1 - u0) * 0.5));
-    const atravessa = (m: { ini: number; fim: number }) => dentro.some(r => r.t0 < m.ini - 0.02 && r.t1 > m.fim + 0.02);
-    if (process.env.TMP_MARCOS && w.ang === 0) console.log('MARCOS', w.rho.toFixed(3), w.t0.toFixed(2), w.t1.toFixed(2), validos.map(m => `${m.ini.toFixed(3)}-${m.fim.toFixed(3)}(${m.n})${atravessa(m) ? 'X' : ''}`).join(' '), '| dentro', dentro.filter(r => r.comp < 3).map(r => `${(r.rho - w.rho).toFixed(3)}:${r.t0.toFixed(2)}-${r.t1.toFixed(2)}`).join(' '));
+    const atravessa = (m: { ini: number; fim: number }) => dentro.some(r => r.t0 <= m.ini + 0.005 && r.t1 >= m.fim - 0.005 && r.t1 - r.t0 >= m.fim - m.ini + 0.2);
     for (let i = 0; i + 1 < validos.length;) {
       const ini = validos[i];
       let j = i + 1;
@@ -442,7 +438,6 @@ function semDuplicadas(paredes: Parede[]): Parede[] {
   for (const v of ordem) {
     const w = ficam.find(u => u.ang === v.ang && Math.abs(u.rho - v.rho) <= (u.esp + v.esp) / 2 + 0.03 && Math.min(u.t1, v.t1) - Math.max(u.t0, v.t0) >= (v.t1 - v.t0) * 0.5);
     if (!w) { ficam.push(v); continue; }
-    if (process.env.TMP_DUP && v.vaos.length) console.log('DUP', v.ang, v.rho.toFixed(3), v.t0.toFixed(2), v.t1.toFixed(2), JSON.stringify(v.vaos), '->', w.rho.toFixed(3), w.t0.toFixed(2), w.t1.toFixed(2), JSON.stringify(w.vaos));
     for (const a of v.vaos) if (a.t >= w.t0 && a.t <= w.t1 && !w.vaos.some(b => Math.abs(b.t - a.t) < (a.largura + b.largura) / 2)) w.vaos.push(a);
   }
   return paredes.filter(w => ficam.includes(w));
@@ -1048,7 +1043,7 @@ export function lerPagina(prim: Primitivas): { plantas: PlantaLida[]; diagnostic
     let ps = plantasNaEscala(pg, escala, origem);
     // As áreas escritas mandam: se a planta desenhada dá, de forma consistente, outra área, a escala é ajustada.
     const razoes = ps.map(p => p.razaoAreas).filter((r): r is number => r !== null);
-    if (!process.env.TMP_SEM_CORRECAO && !pg.estourou && razoes.length && razoes.every(r => Math.abs(Math.log(r / razoes[0])) < 0.1) && Math.abs(Math.log(razoes[0])) > 0.18) {
+    if (!pg.estourou && razoes.length && razoes.every(r => Math.abs(Math.log(r / razoes[0])) < 0.1) && Math.abs(Math.log(razoes[0])) > 0.18) {
       const corrigida = Math.round(escala / Math.sqrt(razoes[0]));
       const alvo = ESCALAS_COMUNS.concat(escalasDePlanta).sort((a, b) => Math.abs(a - corrigida) - Math.abs(b - corrigida))[0];
       const refeitas = plantasNaEscala(pg, Math.abs(alvo - corrigida) / corrigida < 0.08 ? alvo : corrigida, "areas");

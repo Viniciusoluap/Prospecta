@@ -35,6 +35,8 @@ export type DepsBusca = {
   esperar?: (ms: number) => Promise<void>;
   /** Sorteio 0..1 do jitter. Padrão: Math.random. */
   aleatorio?: () => number;
+  /** Corta a consulta em andamento (a corrida entre espelhos cancela as perdedoras quando uma responde). */
+  cancelar?: AbortSignal;
   /** Orçamento total da requisição em ms. Padrão: 50 s. */
   orcamentoMs?: number;
   /** Repetições extras por consulta em falha temporária. Padrão: 2. */
@@ -111,7 +113,7 @@ async function umaConsulta(url: string, deps: DepsBusca, corpo: string | undefin
   const headers: Record<string, string> = { "User-Agent": USER_AGENT, Accept: ACCEPT_JSON };
   // Overpass e ArcGIS (identify por POST) esperam formulário: data=<consulta codificada> / campo=valor&...
   if (corpo) headers["Content-Type"] = "application/x-www-form-urlencoded";
-  const r = await deps.fetchImpl(url, { method: corpo ? "POST" : "GET", body: corpo, headers, signal: AbortSignal.timeout(timeoutMs) });
+  const r = await deps.fetchImpl(url, { method: corpo ? "POST" : "GET", body: corpo, headers, signal: deps.cancelar ? AbortSignal.any([AbortSignal.timeout(timeoutMs), deps.cancelar]) : AbortSignal.timeout(timeoutMs) });
   if (!r.ok) {
     const espera = esperaPedida(r.headers?.get?.("retry-after") ?? null, (deps.agora?.() ?? new Date()).getTime());
     // 503 com página de manutenção (a EPE responde assim pelo firewall): não é falha passageira.
@@ -168,6 +170,7 @@ async function obterJson(url: string, deps: DepsBusca, corpo?: string, opcoes: O
   const repeticoes = opcoes.repeticoes ?? deps.repeticoes ?? REPETICOES_PADRAO;
   let ultimo: unknown = null;
   for (let n = 0; ; n++) {
+    if (deps.cancelar?.aborted) throw ultimo ?? new SemTempo("consulta cancelada (outro servidor já respondeu)");
     const bloqueio = bloqueadoAte.get(host);
     if (bloqueio && bloqueio > relogio()) {
       const falta = bloqueio - relogio();
@@ -186,7 +189,7 @@ async function obterJson(url: string, deps: DepsBusca, corpo?: string, opcoes: O
       ultimo = e;
       const pedida = e instanceof ErroFonte ? e.esperaMs : null;
       if (pedida != null) bloqueadoAte.set(host, relogio() + pedida);
-      if (n >= repeticoes || !falhaTemporaria(e)) throw e;
+      if (n >= repeticoes || deps.cancelar?.aborted || !falhaTemporaria(e)) throw e;
       const espera = Math.max(pedida ?? 0, ESPERA_BASE_MS * 2 ** n + Math.floor((deps.aleatorio ?? Math.random)() * JITTER_MS));
       if (relogio() + espera + MIN_TENTATIVA_MS > prazo) throw e;
       await esperar(espera);
@@ -266,30 +269,34 @@ function tentativasDa(id: IdCamada, contorno: Contorno): { tentativas: Tentativa
       const q = consultaOverpass(b);
       // Os espelhos do Overpass são consultados AO MESMO TEMPO e fica o primeiro que responder (teste real de
       // 16/11/2026: um espelho recusa a conexão, dois não respondem e o que funciona leva ~20 s; em fila, um de
-      // cada vez com 12 s para cada, a camada inteira ficava "indisponível"). Uma consulta por servidor, sem
-      // repetição: a carga em cada um é a mesma de antes.
+      // cada vez com 12 s para cada, a camada inteira ficava "indisponível"). Quando um responde, as consultas
+      // dos outros são CANCELADAS na hora (nada fica aberto depois da resposta). Carga por servidor: no máximo
+      // duas consultas ao mesmo tempo (a primeira e um reforço) e uma repetição em falha rápida.
       const corrida: Tentativa<DadosCamadas["osm"]> = {
         fonte: FONTES.overpass.urls.map(url => `${FONTES.overpass.nome} — ${new URL(url).host}`).join(" · "),
         executar: async (deps: DepsBusca) => {
           const erros: string[] = [];
+          const corte = new AbortController();
+          if (deps.cancelar) { if (deps.cancelar.aborted) corte.abort(); else deps.cancelar.addEventListener("abort", () => corte.abort(), { once: true }); }
           const consultas = FONTES.overpass.urls.map(async url => {
             const host = new URL(url).host;
             try {
-              const corpo = `data=${encodeURIComponent(q)}`, d2: DepsBusca = { ...deps, timeoutMs: TIMEOUT_OVERPASS_MS };
+              const corpo = `data=${encodeURIComponent(q)}`, d2: DepsBusca = { ...deps, timeoutMs: TIMEOUT_OVERPASS_MS, cancelar: corte.signal };
               // Falha rápida (504 do balanceador, conexão derrubada) é repetida na hora; e, se o servidor ainda não
               // respondeu depois de 10 s, sai um reforço: no teste real, a mesma consulta ora voltou em ~20 s, ora
               // ficou sem resposta. No máximo duas consultas em andamento por servidor.
               const bruto = await new Promise<unknown>((ok, falha) => {
                 let reforcoEmCurso = false, primeiraFalhou: unknown = null, terminou = false;
                 const relogioDoReforco = setTimeout(() => {
-                  if (terminou) return;
+                  if (terminou || corte.signal.aborted) return;
                   reforcoEmCurso = true;
                   obterJson(url, d2, corpo, { repeticoes: 0 }).then(
                     v => { terminou = true; ok(v); },
                     e => { reforcoEmCurso = false; if (primeiraFalhou) falha(primeiraFalhou); else void e; },
                   );
                 }, ESPERA_DO_REFORCO_MS);
-                obterJson(url, d2, corpo, { repeticoes: 2, fila: true }).then(
+                corte.signal.addEventListener("abort", () => clearTimeout(relogioDoReforco), { once: true });
+                obterJson(url, d2, corpo, { repeticoes: 1, fila: true }).then(
                   v => { terminou = true; clearTimeout(relogioDoReforco); ok(v); },
                   // Falhou antes do reforço sair: acabou. Com o reforço em curso, espera o resultado dele.
                   e => { primeiraFalhou = e; if (!reforcoEmCurso) { terminou = true; clearTimeout(relogioDoReforco); falha(e); } },
@@ -308,6 +315,10 @@ function tentativasDa(id: IdCamada, contorno: Contorno): { tentativas: Tentativa
             return vencedor.dados;
           } catch {
             throw new Error(`nenhum servidor respondeu (${erros.join("; ")})`);
+          } finally {
+            // Com vencedor ou sem: corta o que ainda estiver aberto e desarma os reforços pendentes.
+            corte.abort();
+            for (const c of consultas) c.catch(() => undefined);
           }
         },
       };

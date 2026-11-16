@@ -3,7 +3,7 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { areaPoligono, type Edificacao } from "../shared/maquete-3d/modelo.js";
-import { escalasDaPagina, funcaoDoNome, lerPagina, linhasDeTexto, metrosPorPonto, nomeDoPavimento, type Primitivas, type Segmento } from "./maquete-3d/geometrico.js";
+import { arcosDePolilinhas, escalasDaPagina, funcaoDoNome, lerPagina, linhasDeTexto, metrosPorPonto, nomeDoPavimento, tipoDaVista, type Primitivas, type Segmento } from "./maquete-3d/geometrico.js";
 import { abrirPdf } from "./maquete-3d/pdf-vetorial.js";
 
 const fixture = (nome: string) => readFileSync(new URL(`./fixtures/maquete-3d/${nome}`, import.meta.url));
@@ -116,5 +116,108 @@ describe("leitor geométrico — textos", () => {
     expect(nomeDoPavimento("PLANTA SUBSOLO", 0).andar).toBe(-1);
     expect(nomeDoPavimento("", 0).nome).toBe("Térreo");
     expect(nomeDoPavimento("", 1).nome).toBe("Pavimento 2");
+  });
+});
+
+// Traços de uma prancha real de escritório (Revit, 1:50), reproduzidos em memória: títulos com a escala embaixo,
+// corte e planta de layout na mesma folha, ambientes abertos entre si, folha de porta exportada como polilinha.
+describe("leitor geométrico — traços de prancha real (Revit)", () => {
+  const k = 1 / metrosPorPonto(50);
+  const seg = (x1: number, y1: number, x2: number, y2: number): Segmento => ({ x1: x1 * k, y1: y1 * k, x2: x2 * k, y2: y2 * k });
+  /** Parede em linha dupla (só horizontal ou vertical), do eixo (x1,y1) ao eixo (x2,y2). */
+  const parede = (x1: number, y1: number, x2: number, y2: number, e = 0.15): Segmento[] => {
+    const h = e / 2;
+    return y1 === y2 ? [seg(Math.min(x1, x2) - h, y1 - h, Math.max(x1, x2) + h, y1 - h), seg(Math.min(x1, x2) - h, y1 + h, Math.max(x1, x2) + h, y1 + h)]
+      : [seg(x1 - h, Math.min(y1, y2) - h, x1 - h, Math.max(y1, y2) + h), seg(x1 + h, Math.min(y1, y2) - h, x1 + h, Math.max(y1, y2) + h)];
+  };
+  /** Folha de porta como o Revit exporta: quarto de círculo em 10 trechos retos, da folha fechada à aberta. */
+  const arcoPolilinha = (cx: number, cy: number, r: number, a0: number, a1: number): Segmento[] =>
+    Array.from({ length: 10 }, (_, i) => { const p = a0 + ((a1 - a0) * i) / 10, q = a0 + ((a1 - a0) * (i + 1)) / 10; return seg(cx + r * Math.cos(p), cy + r * Math.sin(p), cx + r * Math.cos(q), cy + r * Math.sin(q)); });
+  const texto = (str: string, x: number, y: number, tam = 8) => ({ str, x: x * k, y: y * k, tam, largura: str.length * tam * 0.55 });
+  /** Casa 6 × 8 m: sala e cozinha abertas entre si (toco de parede deixando 2,5 m livres), porta de entrada com folha em polilinha. */
+  const casa = (ox: number, oy: number, titulo: string) => {
+    const segmentos = [
+      ...parede(ox, oy, ox + 2, oy), ...parede(ox + 2.9, oy, ox + 6, oy), // frente, com a porta de 90 cm
+      ...parede(ox, oy + 8, ox + 6, oy + 8), ...parede(ox, oy, ox, oy + 8), ...parede(ox + 6, oy, ox + 6, oy + 8),
+      ...parede(ox, oy + 4, ox + 3.5, oy + 4), // toco entre sala e cozinha
+      ...arcoPolilinha(ox + 2.075, oy, 0.8, 0, Math.PI / 2),
+    ];
+    const textos = [
+      texto("SALA", ox + 3, oy + 2), texto("A= 22,50 m²", ox + 3, oy + 2.3),
+      texto("COZINHA", ox + 3, oy + 6), texto("A= 22,50 m²", ox + 3, oy + 6.3),
+      texto(titulo, ox + 3, oy + 9, 12), texto("1 : 50", ox + 3, oy + 9.4, 10),
+    ];
+    return { segmentos, textos };
+  };
+  // Tiques de cota longe dos desenhos (uma prancha de verdade sempre tem mais que as paredes).
+  const cotas = Array.from({ length: 40 }, (_, i) => seg(38 + i * 0.01, 25, 38 + i * 0.01, 25.1));
+  const pagina = (...desenhos: { segmentos: Segmento[]; textos: Primitivas["textos"] }[]): Primitivas => ({
+    largura: 2384, altura: 1684, arcos: [], imagens: 0, segmentos: [...desenhos.flatMap(d => d.segmentos), ...cotas], textos: desenhos.flatMap(d => d.textos),
+  });
+
+  it("folha de porta desenhada como polilinha volta a ser arco (dobradiça e raio)", () => {
+    const [a] = arcosDePolilinhas(arcoPolilinha(1, 1, 0.8, 0, Math.PI / 2));
+    expect(a.cx / k).toBeCloseTo(1, 2);
+    expect(a.cy / k).toBeCloseTo(1, 2);
+    expect(a.r / k).toBeCloseTo(0.8, 2);
+    expect(a.pontas).toHaveLength(2);
+    // Um círculo inteiro (louça, mesa) não é folha de porta.
+    expect(arcosDePolilinhas(arcoPolilinha(1, 1, 0.3, 0, Math.PI * 2))).toEqual([]);
+  });
+
+  it("tipo do desenho pelo título: corte, fachada, cobertura e implantação não são planta", () => {
+    expect(["PLANTA BAIXA", "PLANTA LAYOUT", "CORTE A", "FRONTAL", "FACHADA FRONTAL", "PLANTA COBERTURA", "PAVIMENTO COBERTURA", "PLANTA DE IMPLANTAÇÃO", "PLANTA URBANISMO", "TABELA DE ÁREA ÚTIL", "ESCALA:"].map(tipoDaVista))
+      .toEqual(["planta", "layout", "outra", "outra", "outra", "outra", "planta", "outra", "outra", "outra", null]);
+  });
+
+  it("na mesma prancha, só a planta baixa vira planta: a de layout repetida e o corte ficam de fora", () => {
+    const { plantas } = lerPagina(pagina(casa(2, 2, "PLANTA BAIXA"), casa(12, 2, "PLANTA LAYOUT"), casa(22, 2, "CORTE A")));
+    expect(plantas).toHaveLength(1);
+    expect(plantas[0]).toMatchObject({ titulo: "PLANTA BAIXA", vista: "planta", escala: 50, escalaOrigem: "texto" });
+  });
+
+  it("ambientes abertos entre si com nome e área escritos são separados pelo prolongamento do toco de parede", () => {
+    const p = lerPagina(pagina(casa(2, 2, "PLANTA BAIXA"))).plantas[0];
+    expect(p.comodos.map(c => c.funcao).sort()).toEqual(["cozinha", "sala"]);
+    for (const c of p.comodos) expect(Math.abs(areaPoligono(c.pontos) / 22.5 - 1), c.nome).toBeLessThan(0.1);
+    expect(p.pendencias.join(" ")).not.toContain("num ambiente só");
+  });
+
+  it("porta com folha em polilinha é lida como porta e vira a entrada principal", () => {
+    const { plantas, diagnostico } = lerPagina(pagina(casa(2, 2, "PLANTA BAIXA")));
+    expect(diagnostico.arcos).toBeGreaterThanOrEqual(1);
+    const portas = plantas[0].aberturas.filter(a => a.tipo === "porta");
+    expect(portas).toHaveLength(1);
+    expect(portas[0].largura).toBeGreaterThan(0.6);
+    expect(portas[0].largura).toBeLessThan(1);
+    expect(portas[0].entradaPrincipal).toBe(true);
+  });
+
+  it("prancha só com corte não vira pavimento, e o motivo diz o que ela traz", () => {
+    const { plantas, diagnostico } = lerPagina(pagina(casa(2, 2, "CORTE A")));
+    expect(plantas).toEqual([]);
+    expect(diagnostico.motivo).toContain("Nenhuma planta baixa");
+    expect(diagnostico.motivo).toContain("CORTE A");
+  });
+
+  it("desenho sem título de planta precisa de pelo menos dois cômodos com nome", () => {
+    const sem = (d: ReturnType<typeof casa>, fica: (s: string) => boolean) => ({ segmentos: d.segmentos, textos: d.textos.filter(t => fica(t.str)) });
+    expect(lerPagina(pagina(sem(casa(2, 2, ""), s => !/^1 : 50$|^$/.test(s)))).plantas).toHaveLength(1);
+    expect(lerPagina(pagina(sem(casa(2, 2, ""), s => /SALA|22,50/.test(s)))).plantas).toEqual([]);
+  });
+
+  it("ambiente com nome que as paredes não fecham vira pendência, não some", () => {
+    const d = casa(2, 2, "PLANTA BAIXA");
+    const p = lerPagina(pagina({ segmentos: d.segmentos, textos: [...d.textos, texto("LAVABO", 2.5, 2.5)] })).plantas[0];
+    expect(p.pendencias.join(" ")).toContain("LAVABO");
+  });
+
+  it("prancha de urbanismo (escalas de implantação, quadro de lotes) sai na hora, com o motivo", () => {
+    const segmentos = Array.from({ length: 3000 }, (_, i) => seg((i % 60) * 0.7, Math.floor(i / 60) * 0.5, (i % 60) * 0.7 + 0.6, Math.floor(i / 60) * 0.5));
+    const textos = [texto("PLANTA DE URBANISMO", 20, 30, 12), texto("1 : 750", 20, 30.5, 10), texto("Tabela de Áreas - LOTES", 40, 2), texto("125,00 m²", 5, 5)];
+    const { plantas, diagnostico } = lerPagina({ largura: 2384, altura: 1684, arcos: [], imagens: 0, segmentos, textos });
+    expect(plantas).toEqual([]);
+    expect(diagnostico.motivo).toContain("urbanismo");
+    expect(diagnostico.tempoMs).toBeLessThan(500);
   });
 });

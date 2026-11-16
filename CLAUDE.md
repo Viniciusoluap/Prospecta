@@ -91,7 +91,7 @@ Vale para qualquer função, atual ou futura, que proponha quantidade de apartam
 Incorporação, viabilidade): a quantidade sugerida nunca pode exigir mais vagas do que o terreno comporta.
 - A conta fica em `shared/maquete-3d/padrao.ts` (`vagasDoTerreno`, `contaDoEstacionamento`): a vaga é de UM carro
   (12,5 m² = 2,5 × 5 m); a conta usa 18,75 m² por vaga porque soma a parte do corredor de manobra (ajuste do dono em
-  16/11/2026: "25 m² por vaga é muita coisa"; o campo da tela aceita de 12,5 a 35 m²), somando pátio, pilotis e subsolos; se não fechar, os andares são reduzidos e a tela mostra a conta.
+  16/11/2026: "25 m² por vaga é muita coisa"; o campo da tela aceita de 15 a 35 m²; no pilotis vale também o que cabe de fato na largura de cada ala), somando pátio, pilotis e subsolos; se não fechar, os andares são reduzidos e a tela mostra a conta.
 - Nunca reduzir em silêncio: mostrar quantas vagas cabem, quantas são necessárias e o que foi ajustado.
 - `shared/incorporacao/urbanismo.ts` (`calcularPotencial`) calcula "unidades máximas" só pelo coeficiente de
   aproveitamento, sem conferir as vagas. Hoje nenhuma tela usa essa função; antes de ligá-la a uma tela, aplicar esta regra.

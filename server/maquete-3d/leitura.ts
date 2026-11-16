@@ -282,7 +282,9 @@ export function parciaisDasPranchas(pranchas: PranchaLida[], nomesDosArquivos: s
     candidatas.push({ planta, doc: pr.doc, pagina: pr.pagina, nome, andar, larguraPt: 0 });
   }
   const unicas: Candidata[] = [];
-  for (const c of candidatas) {
+  // Planta de layout (a mesma planta com móveis) só vira pavimento se não houver a planta baixa simples do mesmo andar.
+  const ehLayout = (c: Candidata) => c.planta.vista === "layout";
+  for (const c of candidatas.filter(c => !ehLayout(c) || !candidatas.some(o => !ehLayout(o) && o.andar === c.andar))) {
     const igual = unicas.find(u => (u.andar === c.andar || u.andar === null || c.andar === null) && u.andar === c.andar && Math.abs(u.planta.largura - c.planta.largura) < 0.25 && Math.abs(u.planta.comprimento - c.planta.comprimento) < 0.25);
     if (!igual) { unicas.push(c); continue; }
     // Fica a que é "planta baixa" (ou a que tem mais cômodos com nome).
