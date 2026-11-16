@@ -18,7 +18,10 @@
 
 import { featureCollection, intersect, polygon as turfPolygon, union } from "@turf/turf";
 import type { Feature, MultiPolygon, Polygon, Position } from "geojson";
-import { calcularQuadroAreasMassa, totalRestricoes, type QuadroAreasMassa, type RestricoesNaoParcelaveis } from "./massa-quadro-areas.js";
+import {
+  DESTINOS_PADRAO, aproveitarRestricoes, calcularQuadroAreasMassa, totalRestricoes, type AproveitamentoDasRestricoes, type DestinoRestricao,
+  type DestinosDasRestricoes, type QuadroAreasMassa, type RestricoesNaoParcelaveis,
+} from "./massa-quadro-areas.js";
 import {
   angulosDasArestas, areaPlanar, diferencaAngular, menorLarguraEnvelope, pontoDentro, prepararFrameAnel,
   retanguloDentro, rotacionar, round2, validarPoligonal,
@@ -84,6 +87,16 @@ export interface ParametrosMassa {
   faixaTransmissaoM2?: number;
   faixaServidaoM2?: number;
   outrasNaoParcelaveisM2?: number;
+  /**
+   * Destino de cada área restrita nas doações obrigatórias (regra do dono, 16/11/2026): "verde" ou "institucional"
+   * = a área conta para cumprir aquele mínimo, e o motor só tira da terra loteável o que faltar; "nenhum" = fica só
+   * como não parcelável. Ausente = padrão de `DESTINOS_PADRAO` (APP, vegetação e faixas contam como área verde).
+   */
+  destinoApp?: DestinoRestricao;
+  destinoSupressaoVegetal?: DestinoRestricao;
+  destinoFaixaTransmissao?: DestinoRestricao;
+  destinoFaixaServidao?: DestinoRestricao;
+  destinoOutrasNaoParcelaveis?: DestinoRestricao;
 }
 
 export interface LoteGerado {
@@ -174,6 +187,22 @@ export function restricoesDosParametros(p: ParametrosMassa): RestricoesNaoParcel
     faixaServidaoM2: p.faixaServidaoM2 ?? 0,
     outrasNaoParcelaveisM2: p.outrasNaoParcelaveisM2 ?? 0,
   };
+}
+
+/** Destino de cada restrição nas doações (ausente = padrão). */
+export function destinosDosParametros(p: ParametrosMassa): DestinosDasRestricoes {
+  return {
+    appM2: p.destinoApp ?? DESTINOS_PADRAO.appM2,
+    supressaoVegetalM2: p.destinoSupressaoVegetal ?? DESTINOS_PADRAO.supressaoVegetalM2,
+    faixaTransmissaoM2: p.destinoFaixaTransmissao ?? DESTINOS_PADRAO.faixaTransmissaoM2,
+    faixaServidaoM2: p.destinoFaixaServidao ?? DESTINOS_PADRAO.faixaServidaoM2,
+    outrasNaoParcelaveisM2: p.destinoOutrasNaoParcelaveis ?? DESTINOS_PADRAO.outrasNaoParcelaveisM2,
+  };
+}
+
+/** Aproveitamento das áreas restritas nas doações, para uma gleba (ou área contínua) de `areaM2`. */
+export function aproveitamentoDosParametros(p: ParametrosMassa, areaM2: number): AproveitamentoDasRestricoes {
+  return aproveitarRestricoes(restricoesDosParametros(p), destinosDosParametros(p), areaM2, p.percentAreaVerde, p.percentInstitucional);
 }
 
 // ─── Projeção local (equiretangular) ────────────────────────────────────────
@@ -656,6 +685,7 @@ interface Ctx {
   tipologia: TipologiaMassa;
   manual: boolean;
   alvos: AlvosDestinacao;
+  aproveitamento: AproveitamentoDasRestricoes;
   viasEntorno: ViaEntornoM[];
   oMalha: OpcoesMalha;
 }
@@ -810,6 +840,7 @@ function montarCenario(ctx: Ctx, idx: number, b: Bruto, criterio: CriterioCenari
   const quadroAreas = calcularQuadroAreasMassa({
     areaBrutaM2: ctx.areaGleba,
     restricoes: ctx.restricoes,
+    aproveitamento: ctx.aproveitamento,
     areaVendavelM2,
     nLotesVendaveis: vendaveis.length,
     areaInstitucionalM2,
@@ -822,6 +853,16 @@ function montarCenario(ctx: Ctx, idx: number, b: Bruto, criterio: CriterioCenari
   const somaM2 = lotes.reduce((s, l) => s + l.areaM2, 0) + areaViariaGeo;
   // honestidade: sobra sem frente para via destinada a área verde ALÉM do mínimo exigido (ex.: fundos da Rua Simples)
   const notas = [...b.impl.limitacoes, ...dest.avisos];
+  const ap = ctx.aproveitamento;
+  if (ap.comoVerdeM2 + ap.comoInstitucionalM2 > 0.5) {
+    const f = (v: number) => v.toLocaleString("pt-BR", { maximumFractionDigits: 0 });
+    const partes = [
+      ap.comoVerdeM2 > 0.5 ? `${f(ap.comoVerdeM2)} m² contam como área verde (mínimo exigido ${f(ap.exigidoVerdeM2)} m²${ap.verdeEmAreaLoteavelM2 > 0.5 ? `; faltaram ${f(ap.verdeEmAreaLoteavelM2)} m², tirados da área loteável` : "; nada foi tirado da área loteável"})` : "",
+      ap.comoInstitucionalM2 > 0.5 ? `${f(ap.comoInstitucionalM2)} m² contam como área institucional (mínimo exigido ${f(ap.exigidoInstitucionalM2)} m²${ap.institucionalEmAreaLoteavelM2 > 0.5 ? `; faltaram ${f(ap.institucionalEmAreaLoteavelM2)} m², tirados da área loteável` : ""})` : "",
+    ].filter(Boolean);
+    notas.push(`Áreas que não podem virar lote (APP, vegetação, faixas) aproveitadas nas doações: ${partes.join("; ")}. Com isso, ${f(ap.economiaM2)} m² de área loteável deixaram de ser doados. O aproveitamento depende da legislação municipal: confirme com a prefeitura.`);
+    if (ap.comoVerdeM2 > 0.5) notas.push("No desenho, a área verde inclui a APP e as faixas aproveitadas, que foram informadas só em m²: a posição exata delas vem do levantamento, não deste estudo.");
+  }
   const excessoVerde = areaVerdeM2 - ctx.alvos.verde;
   if (excessoVerde > 0.1 * ctx.areaGleba) {
     const f = (v: number) => v.toLocaleString("pt-BR", { maximumFractionDigits: 0 });
@@ -1036,6 +1077,7 @@ function estudoDaArea(e: EntradaArea): ResultadoArea {
   const restricoes = restricoesDosParametros(params);
   const naoParcelavel = Math.min(totalRestricoes(restricoes), areaGleba);
   const areaParcelavel = Math.max(0, areaGleba - naoParcelavel);
+  const aproveitamento = aproveitamentoDosParametros(params, areaGleba);
   const manual = params.modoSistemaViario === "manual";
 
   const g: Dim = { testada: params.testadaLoteM, profundidade: params.profundidadeLoteM, via: params.larguraViaM };
@@ -1043,7 +1085,10 @@ function estudoDaArea(e: EntradaArea): ResultadoArea {
   const oMalha: OpcoesMalha = { loteMinimoM2: params.loteMinimoM2, frenteMinimaM: frenteMinimaPara(g.testada), larguraViaM: g.via };
   const ctx: Ctx = {
     anelGeo: e.anelGeo, anelM, furosM, proj, params: { ...params, tipologia }, g, areaGleba, naoParcelavel, areaParcelavel, restricoes, tipologia, manual,
-    alvos: { institucional: params.percentInstitucional * areaParcelavel, verde: params.percentAreaVerde * areaParcelavel, naoParcelavel },
+    // As restrições aproveitadas entram no alvo da área verde/institucional (e são desenhadas como tal); só as
+    // sem aproveitamento ficam como "não parcelável". Da terra loteável sai apenas o complemento de cada mínimo.
+    alvos: { institucional: aproveitamento.alvoInstitucionalM2, verde: aproveitamento.alvoVerdeM2, naoParcelavel: Math.min(aproveitamento.semAproveitamentoM2, areaGleba) },
+    aproveitamento,
     viasEntorno: viasJunto, oMalha,
   };
 
@@ -1515,7 +1560,7 @@ function finalizarCenario(
   const manual = params.modoSistemaViario === "manual";
   const informada = manual ? params.areaSistemaViarioM2 : undefined;
   const quadroAreas = multi ? calcularQuadroAreasMassa({
-    areaBrutaM2: areaTotal, restricoes: restricoesDosParametros(params), areaVendavelM2, nLotesVendaveis: vendaveis.length,
+    areaBrutaM2: areaTotal, restricoes: restricoesDosParametros(params), aproveitamento: aproveitamentoDosParametros(params, areaTotal), areaVendavelM2, nLotesVendaveis: vendaveis.length,
     areaInstitucionalM2, areaVerdeM2, precoM2Lote: params.precoM2Lote, sistemaViarioM2: round2(viario),
     modoSistemaViario: manual ? "manual" : "automatico", ...(informada !== undefined ? { sistemaViarioInformadoM2: informada } : {}),
   }) : p.quadroAreas;
