@@ -152,6 +152,63 @@ export function alturaDoRelevo(r: Relevo | null | undefined, x: number, y: numbe
   return (h(l, c) * (1 - tc) + h(l, c + 1) * tc) * (1 - tl) + (h(l + 1, c) * (1 - tc) + h(l + 1, c + 1) * tc) * tl;
 }
 
+// ── Muro de divisa (EPIC-024, S-04) ──
+// Condomínio tem muro obrigatório em todo o contorno externo do terreno; nos outros tipos ele é opcional. Muro
+// ausente (maquete antiga) vale como o padrão do tipo: ligado e automático no condomínio, desligado nos outros.
+// Nunca há muro entre lotes. A geometria fica em shared/maquete-3d/muro.ts.
+export const ACABAMENTOS_MURO = ["reboco", "bloco", "tijolo", "pedra"] as const;
+export type AcabamentoMuro = (typeof ACABAMENTOS_MURO)[number];
+export const ROTULOS_ACABAMENTO_MURO: Record<AcabamentoMuro, string> = {
+  reboco: "Reboco pintado", bloco: "Bloco de concreto aparente", tijolo: "Tijolo aparente", pedra: "Pedra",
+};
+/** Cor inicial de cada acabamento (a pessoa pode trocar). */
+export const COR_ACABAMENTO_MURO: Record<AcabamentoMuro, string> = { reboco: "#E6DED0", bloco: "#A9A7A1", tijolo: "#A65A3C", pedra: "#9C9284" };
+export const TIPOS_PORTAO = ["veiculos", "pedestres"] as const;
+export type TipoPortao = (typeof TIPOS_PORTAO)[number];
+export const ROTULOS_PORTAO: Record<TipoPortao, string> = { veiculos: "Veículos", pedestres: "Pedestres" };
+export const LIMITES_MURO = { altura: [1.8, 4], espessura: [0.1, 0.5], recuo: [0, 3], largura: [0.8, 30] } as const;
+
+export const portaoMuroSchema = z.object({
+  id,
+  /** Centro do portão, em metros ao longo da divisa, a partir do vértice 1 do contorno e no sentido em que ele foi desenhado. */
+  posicao: metros.min(0),
+  largura: metros.min(LIMITES_MURO.largura[0]).max(LIMITES_MURO.largura[1]).default(6),
+  tipo: z.enum(TIPOS_PORTAO).default("veiculos"),
+});
+export type PortaoMuro = z.infer<typeof portaoMuroSchema>;
+
+export const muroSchema = z.object({
+  ativo: z.boolean().default(true),
+  /** A pessoa mexeu no muro: trocar o tipo da maquete não o desliga mais. */
+  editado: z.boolean().default(false),
+  altura: metros.min(LIMITES_MURO.altura[0]).max(LIMITES_MURO.altura[1]).default(2.5),
+  espessura: metros.min(LIMITES_MURO.espessura[0]).max(LIMITES_MURO.espessura[1]).default(0.2),
+  /** Afastamento da face externa do muro até a divisa, para dentro do terreno. */
+  recuo: metros.min(LIMITES_MURO.recuo[0]).max(LIMITES_MURO.recuo[1]).default(0),
+  acabamento: z.enum(ACABAMENTOS_MURO).default("reboco"),
+  cor: z.string().regex(/^#[0-9A-Fa-f]{6}$/).default(COR_ACABAMENTO_MURO.reboco),
+  /** Falso: os portões são calculados pelas ruas a cada abertura (portoesAutomaticos); verdadeiro: valem os da lista. */
+  portoesEditados: z.boolean().default(false),
+  portoes: z.array(portaoMuroSchema).max(20).default([]),
+});
+export type Muro = z.infer<typeof muroSchema>;
+
+/** Muro padrão do tipo: o condomínio já nasce com o muro automático; os outros tipos, sem muro. */
+export const muroPadraoDoTipo = (tipo: TipoMaquete): Muro | null => (tipo === "condominio" ? muroSchema.parse({}) : null);
+
+/**
+ * Muro ao (re)montar a implantação ou trocar o tipo: o que a pessoa editou fica; senão vale o padrão do tipo
+ * (sair de condomínio desliga o muro automático).
+ */
+export const muroParaTipo = (tipo: TipoMaquete, atual: Muro | null | undefined): Muro | null => (atual?.editado ? atual : muroPadraoDoTipo(tipo));
+
+/** Muro que vale para desenhar e validar (o salvo ou, se não houver, o padrão do tipo). Nulo = sem muro. */
+export function muroDaMaquete(m: Pick<ModeloMaquete, "tipo" | "implantacao">): Muro | null {
+  if (!m.implantacao) return null;
+  const muro = m.implantacao.muro ?? muroPadraoDoTipo(m.tipo);
+  return muro?.ativo ? muro : null;
+}
+
 export const implantacaoSchema = z.object({
   terreno: contorno.default([]),
   relevo: relevoSchema.nullable().default(null),
@@ -173,6 +230,15 @@ export const implantacaoSchema = z.object({
     x: metros, y: metros, rotacao: metros.min(-360).max(360).default(0),
     unidade: z.string().max(120).nullable().default(null),
   })).max(3000).default([]),
+  /** Pontos de acesso da malha na divisa, vindos do estudo de massa (onde a rua sai do terreno). */
+  acessos: z.array(z.object({
+    x: metros, y: metros,
+    /** Há via pública mapeada junto deste acesso (é o acesso principal). */
+    viaExistente: z.boolean().default(false),
+    distancia: metros.nullable().default(null),
+  })).max(60).default([]),
+  /** Muro de divisa; nulo = o padrão do tipo (muroDaMaquete). */
+  muro: muroSchema.nullable().default(null),
 });
 export type Implantacao = z.infer<typeof implantacaoSchema>;
 
@@ -281,6 +347,20 @@ export function validarModelo(m: ModeloMaquete): Problema[] {
   if (precisaImplantacao && !m.implantacao) erro("Implantação", "Falta a implantação (terreno, vias e lotes).");
   if (m.tipo !== "loteamento" && !m.edificacoes.length) erro("Edificações", "Nenhuma edificação foi lida.");
   if (m.tipo === "loteamento" && m.implantacao && !m.implantacao.lotes.length) erro("Implantação", "Nenhum lote foi lido.");
+
+  // Muro de divisa (S-04): obrigatório no condomínio, mas só há onde levantá-lo se houver o contorno do terreno.
+  if (m.implantacao) {
+    const imp = m.implantacao, muro = muroDaMaquete(m), temContorno = imp.terreno.length >= 3;
+    if (m.tipo === "condominio" && temContorno && !muro) erro("Muro", "Condomínio sem o muro de divisa: ligue o muro em \"Muro do condomínio\" (é obrigatório no condomínio).");
+    if ((m.tipo === "condominio" || muro) && !temContorno) {
+      aviso("Muro", "Sem o contorno do terreno (KML/KMZ ou implantação) não há onde levantar o muro de divisa. Monte a implantação a partir do estudo ou importe o contorno.");
+    }
+    if (muro && temContorno && muro.portoesEditados) {
+      const perimetro = imp.terreno.reduce((s, p, i) => { const q = imp.terreno[(i + 1) % imp.terreno.length]; return s + Math.hypot(q.x - p.x, q.y - p.y); }, 0);
+      for (const p of muro.portoes) if (p.posicao > perimetro + 0.01) aviso(`Muro › portão ${p.id}`, `Fora da divisa (o contorno tem ${r2(perimetro)} m).`);
+      if (!muro.portoes.some(p => p.tipo === "veiculos")) aviso("Muro", "Nenhum portão de veículos: o empreendimento fica sem entrada de carros.");
+    }
+  }
 
   const edificacoes = new Set(m.edificacoes.map(e => e.id));
   for (const pos of m.implantacao?.posicoes ?? []) {

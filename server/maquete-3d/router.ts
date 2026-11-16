@@ -7,7 +7,7 @@ import { and, desc, eq, inArray, isNull, sql } from "drizzle-orm";
 import { z } from "zod";
 import { incorporationStudies, leads, operationalProjects, projectDocuments, users } from "../../drizzle/schema.js";
 import { maquete3dArquivos, maquetes3d, type Maquete3d } from "../../drizzle/schema-maquete-3d.js";
-import { TIPOS_MAQUETE, areaPoligono, lerModelo, limites, modeloSchema, modeloVazio, podePublicar, pontosDoPavimento, resumoModelo, validarModelo, type Edificacao, type TipoMaquete } from "../../shared/maquete-3d/modelo.js";
+import { TIPOS_MAQUETE, areaPoligono, lerModelo, limites, modeloSchema, modeloVazio, muroParaTipo, podePublicar, pontosDoPavimento, resumoModelo, validarModelo, type Edificacao, type TipoMaquete } from "../../shared/maquete-3d/modelo.js";
 import { LIMITES_CASA, LIMITES_M2_POR_VAGA, LIMITES_PREDIO, casaPadrao, contaDoEstacionamento, distribuirNosLotes, ehPadrao, predioPadrao, type ContaDoEstacionamento } from "../../shared/maquete-3d/padrao.js";
 import { implantacaoDoEstudo, type GradeElevacao } from "../../shared/maquete-3d/implantacao.js";
 import type { CenarioMassa } from "../../shared/incorporacao/massa.js";
@@ -397,8 +397,10 @@ export const maquete3dRouter = router({
     if (!["liberada", "em_revisao", "validada"].includes(m.status)) throw conflito("A maquete precisa estar autorizada (e não publicada) para montar a implantação.");
     const { r, cenario } = await lerImplantacaoDoEstudo(m.studyId);
     const modelo = lerModelo(m.modelo) ?? modeloVazio(m.tipo as TipoMaquete);
-    // As construções posicionadas à mão na revisão são mantidas quando a implantação é atualizada pelo estudo.
-    const novo = modeloSchema.parse({ ...modelo, implantacao: { ...r.implantacao, posicoes: modelo.implantacao?.posicoes ?? [] } });
+    // As construções posicionadas à mão na revisão são mantidas quando a implantação é atualizada pelo estudo; o muro
+    // editado também (senão volta ao padrão do tipo: o condomínio ganha o muro automático).
+    const muro = muroParaTipo(modelo.tipo, modelo.implantacao?.muro);
+    const novo = modeloSchema.parse({ ...modelo, implantacao: { ...r.implantacao, posicoes: modelo.implantacao?.posicoes ?? [], muro } });
     const g = await db().update(maquetes3d).set({
       modelo: JSON.stringify(novo), modeloVersao: m.modeloVersao + 1, status: "em_revisao" satisfies StatusMaquete,
       revisadoPor: ctx.user.id, revisadoEm: agora(), updatedAt: agora(),
@@ -476,6 +478,8 @@ export const maquete3dRouter = router({
         semConstrucao = d.semConstrucao; construcoes = posicoes.length;
       } else implantacao = { ...implantacao, posicoes: [] };
     }
+    // S-04: condomínio ganha o muro de divisa automático; os outros tipos ficam sem, salvo se a pessoa o editou.
+    if (implantacao) implantacao = { ...implantacao, muro: muroParaTipo(input.tipo, implantacao.muro) };
     const novo = modeloSchema.parse({ ...atual, tipo: input.tipo, edificacoes: padrao ? [...lidas, padrao] : lidas, implantacao });
     const g = await db().update(maquetes3d).set({
       tipo: input.tipo, modelo: JSON.stringify(novo), modeloVersao: m.modeloVersao + 1, status: "em_revisao" satisfies StatusMaquete,
