@@ -245,3 +245,20 @@ describe("ferramentas (fonte única)", () => {
     }
   });
 });
+
+describe("filtro na saída da ponte (M1)", () => {
+  it("anotação, mensagem, observação e descrição de cobrança com dados pessoais saem filtradas", async () => {
+    await banco.pg.exec(`
+      INSERT INTO lead_activities (lead_id, type, description, performed_by, created_at) VALUES (2, 'note', 'Senha do gov.br 1234; CPF 111.222.333-44; conta 12345-6 ag 0001', 'Bia', '2026-11-16 11:00');
+      INSERT INTO whatsapp_messages (connection_id, lead_id, destinatario, mensagem, direcao, lida, created_at) VALUES (1, 1, '5599991234567', 'meu e-mail é maria@x.com e o tel (99) 99123-4567', 'entrada', false, '2026-11-16 11:00');
+      UPDATE bpo_lancamentos SET descricao = 'Honorários — PIX 52998224725' WHERE id = 1;
+      UPDATE regularizacoes SET notes = 'cliente passou a senha 9988 do portal' WHERE id = 2;`);
+    const respostas = [];
+    for (const [funcao, argumentos] of [["historico_atendimento", { leadId: 2 }], ["conversas_whatsapp", { leadId: 1 }], ["listar_recebiveis_pendentes", {}],
+      ["detalhar_processo_regularizacao", { id: 2 }]] as const) respostas.push(await tratarChamada(pedido({ funcao, argumentos })));
+    const tudo = JSON.stringify(respostas.map(r => r.body));
+    expect(respostas.map(r => r.status)).toEqual([200, 200, 200, 200]);
+    for (const vazado of ["111.222.333-44", "12345-6", "ag 0001", "gov.br 1234", "maria@x.com", "99123-4567", "52998224725", "9988"]) expect(tudo).not.toContain(vazado);
+    for (const marcador of ["[senha omitida]", "[dado bancário omitido]", "[dado pessoal omitido]"]) expect(tudo).toContain(marcador);
+  });
+});

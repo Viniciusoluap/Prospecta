@@ -12,6 +12,7 @@ import { and, count, eq, gt } from "drizzle-orm";
 import { z } from "zod";
 import { doloresAcoes, doloresConfig } from "../../drizzle/schema-dolores.js";
 import { DESLOCAMENTO_FUSO, FUSO, MOEDA, isoFortaleza, limitarResposta } from "../../shared/dolores/formato.js";
+import { sanitizarResposta } from "../../shared/dolores/sanitizar.js";
 import { getDb } from "../db.js";
 import { registrarAcao } from "./auditoria.js";
 import { FUNCOES, definicaoDaFerramenta, funcaoPorNome } from "./funcoes.js";
@@ -160,7 +161,8 @@ export async function tratarChamada(req: Pedido): Promise<RespostaPonte> {
   }
   try {
     const r = await comPrazo(fn.executar(args.data as never, { agora }), deps.prazoMs);
-    const { valor, truncado } = limitarResposta(r.dados);
+    // Toda string da resposta passa pelo filtro de dados pessoais (texto livre: anotações, mensagens, títulos).
+    const { valor, truncado } = limitarResposta(sanitizarResposta(r.dados));
     await registrar("ok", { funcao, argumentos: args.data, resumo: { ...r.resumo, truncado }, pedidoId });
     return responder(200, { ok: true, truncado, ...(truncado ? { aviso: "Resposta cortada para caber no contexto: filtre ou peça a próxima página." } : {}), dados: valor });
   } catch (e) {

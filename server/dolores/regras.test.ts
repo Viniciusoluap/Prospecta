@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   diaDoPrazo, diaFortaleza, diasEntre, isoFortaleza, limitarResposta, mascararCpf, mascararTelefone, paginar, reais, truncar,
 } from "../../shared/dolores/formato.js";
+import { sanitizarResposta, sanitizarTexto } from "../../shared/dolores/sanitizar.js";
 import { etapaAtual, proximaProvidencia, responsavelDaTarefa, responsavelDoProcesso, situacaoDoPrazo } from "../../shared/dolores/regras.js";
 
 describe("formato", () => {
@@ -67,5 +68,28 @@ describe("regras", () => {
     expect(proximaProvidencia({ tarefas })).toEqual({ fonte: "tarefa", descricao: "cedo", prazo: "2026-11-17", responsavel: "B" });
     expect(proximaProvidencia({ tarefas: [], followupDate: "2026-11-20T12:00:00Z" })).toMatchObject({ fonte: "follow_up_crm", prazo: "2026-11-20" });
     expect(proximaProvidencia({ tarefas: [] })).toBeNull();
+  });
+});
+
+describe("filtro de dados pessoais em texto livre (M1)", () => {
+  it("CPF/CNPJ, e-mail, telefone, banco/PIX e senha viram marcadores", () => {
+    expect(sanitizarTexto("Senha do gov.br 1234; CPF 111.222.333-44; conta 12345-6 ag 0001"))
+      .toBe("Senha [senha omitida]; CPF [dado pessoal omitido]; conta [dado bancário omitido] ag [dado bancário omitido]");
+    expect(sanitizarTexto("ligar (99) 99123-4567, 99 991234567 ou 5599991234567")).not.toMatch(/\d{4}/);
+    expect(sanitizarTexto("email maria@x.com.br")).toBe("email [dado pessoal omitido]");
+    expect(sanitizarTexto("CNPJ 11.222.333/0001-81 e 11222333000181")).toBe("CNPJ [dado pessoal omitido] e [dado pessoal omitido]");
+    expect(sanitizarTexto("CPF 52998224725")).toBe("CPF [dado pessoal omitido]");
+    expect(sanitizarTexto("chave pix: maria@x.com")).toBe("chave pix: [dado bancário omitido]");
+    expect(sanitizarTexto("o código de acesso é abc123. Depois liga")).toBe("o código [senha omitida]. Depois liga");
+  });
+
+  it("não mexe em valores, datas, CEP, matrícula, protocolo longo nem em campos já mascarados", () => {
+    for (const t of ["R$ 1.500,00 em 16/11/2026", "CEP 65900-000", "matrícula 12.345", "protocolo 202611160001234567", "Conta Azul importada",
+      "***.***.***-01", "(99) *****-4567", "2026-11-16T09:00:00-03:00", "Honorários outubro"]) expect(sanitizarTexto(t)).toBe(t);
+  });
+
+  it("percorre a resposta inteira (listas e objetos), sem tocar números e chaves", () => {
+    expect(sanitizarResposta({ a: [{ texto: "cpf 111.222.333-44", n: 11122233344 }], "111.222.333-44": null }))
+      .toEqual({ a: [{ texto: "cpf [dado pessoal omitido]", n: 11122233344 }], "111.222.333-44": null });
   });
 });
