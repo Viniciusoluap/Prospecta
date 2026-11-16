@@ -8,7 +8,7 @@ import { z } from "zod";
 import { whatsappConnections } from "../../drizzle/schema.js";
 import { doloresWhatsappConfig } from "../../drizzle/schema-dolores-whatsapp.js";
 import {
-  INSTANCIA_DOLORES, bloqueioDoLimite, ehNumeroDoDono, mascararNumero, mesFortaleza, normalizarNumeroDono,
+  INSTANCIA_DOLORES, bloqueioDoLimite, mascararNumero, mesFortaleza, normalizarNumeroDono, pareceMesmoTelefone,
 } from "../../shared/dolores/whatsapp.js";
 import { configuracaoAnthropicPainel, modelosAnthropicPainel } from "../_core/anthropic-painel.js";
 import { estadoInstancia, gerarQrCode, numeroConectado, registrarWebhookEvolution, removerInstancia } from "../_core/evolution.js";
@@ -43,7 +43,7 @@ const gravar = (dados: Partial<typeof doloresWhatsappConfig.$inferInsert>, userI
 /** O número conectado não pode ser o de uma conexão da empresa ou de corretor (a Dolores tem número próprio). */
 async function numeroDeOutraConexao(numero: string): Promise<boolean> {
   const conns = await getDb().select({ numero: whatsappConnections.numero }).from(whatsappConnections);
-  return conns.some(c => ehNumeroDoDono(c.numero, numero));
+  return conns.some(c => pareceMesmoTelefone(c.numero, numero));
 }
 
 /** O que falta para a Dolores responder pela IA (a tela mostra a lista). */
@@ -107,7 +107,7 @@ export const doloresRouter = router({
       await gravar({ statusConexao: "desconectado", numeroDolores: null }, ctx.user.id);
       throw new TRPCError({ code: "BAD_REQUEST", message: "Esse número já é usado por uma conexão da empresa ou de um corretor. Conecte o número próprio da Dolores." });
     }
-    if (numero && c.numeroDono && ehNumeroDoDono(numero, c.numeroDono)) {
+    if (numero && c.numeroDono && pareceMesmoTelefone(numero, c.numeroDono)) {
       await removerInstancia(evo, c.instancia);
       await gravar({ statusConexao: "desconectado", numeroDolores: null }, ctx.user.id);
       throw new TRPCError({ code: "BAD_REQUEST", message: "Esse é o número do dono. A Dolores precisa de um número próprio (o dono escreve para ela)." });
@@ -154,7 +154,7 @@ export const doloresRouter = router({
       if (input.numeroDono !== undefined) {
         const n = normalizarNumeroDono(input.numeroDono);
         if (!n) throw new TRPCError({ code: "BAD_REQUEST", message: "Número do dono inválido: use DDD + número (ex.: 99 99123-4567)." });
-        if (c.numeroDolores && ehNumeroDoDono(n, c.numeroDolores)) throw new TRPCError({ code: "BAD_REQUEST", message: "O número do dono não pode ser o próprio número da Dolores." });
+        if (c.numeroDolores && pareceMesmoTelefone(n, c.numeroDolores)) throw new TRPCError({ code: "BAD_REQUEST", message: "O número do dono não pode ser o próprio número da Dolores." });
         dados.numeroDono = n;
       }
       if (input.limiteEntrada !== undefined) dados.limiteMensalTokensEntrada = input.limiteEntrada;

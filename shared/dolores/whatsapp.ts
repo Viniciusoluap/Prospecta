@@ -15,18 +15,41 @@ export const MAX_CARACTERES_WHATSAPP = 3800;
 /** Comando do dono guardado (já filtrado). */
 export const MAX_TEXTO_COMANDO = 2000;
 
-/** Número do dono para guardar: só dígitos, com DDI 55. Inválido → null. */
+/**
+ * Número brasileiro já só em dígitos: "55" + DDD (dois dígitos de 1 a 9) + 8 dígitos (fixo) ou 9 + 8 dígitos (celular).
+ * Qualquer outra forma (outro DDI, zeros à esquerda, curto, longo, nono dígito que não é 9) → null.
+ */
+function partesBrasileiras(digitos: string): { ddd: string; final: string } | null {
+  const m = /^55([1-9][1-9])(9?)(\d{8})$/.exec(digitos);
+  return m ? { ddd: m[1], final: m[3] } : null;
+}
+
+/** Número do dono para guardar: só dígitos, com DDI 55 e DDD válido. Inválido (inclusive estrangeiro) → null. */
 export function normalizarNumeroDono(bruto: string | null | undefined): string | null {
   let d = String(bruto ?? "").replace(/\D/g, "");
   if (d.length === 10 || d.length === 11) d = `55${d}`;
-  if (!/^55\d{10,11}$/.test(d)) return null;
-  return d;
+  return partesBrasileiras(d) ? d : null;
 }
 
-/** Mesmo número? DDD + 8 últimos dígitos (ignora DDI e o nono dígito). Sem número do dono, ninguém comanda. */
+/**
+ * O remetente é o dono? Comparação ESTRITA (não usa a chave da Central, que ignora o DDI): o remetente precisa ser
+ * exatamente "55" + DDD + número (só dígitos, como vem no endereço do WhatsApp), com o mesmo DDD e os mesmos 8 últimos
+ * dígitos do dono. Só o nono dígito pode faltar de um lado. +995/+998… com os mesmos 8 finais NÃO casam.
+ * Sem número do dono, ninguém comanda. A mesma função confere o destino antes de cada envio.
+ */
 export function ehNumeroDoDono(numero: string | null | undefined, dono: string | null | undefined): boolean {
-  const a = chaveTelefone(numero), b = chaveTelefone(dono);
-  return a.length === 10 && b.length === 10 && a === b;
+  if (typeof numero !== "string" || typeof dono !== "string") return false;
+  const a = partesBrasileiras(numero), b = partesBrasileiras(dono);
+  return Boolean(a && b && a.ddd === b.ddd && a.final === b.final);
+}
+
+/**
+ * Conferência FROUXA (DDD + 8 finais, formatos variados) — só para RECUSAR conflitos na configuração (número da
+ * Dolores igual ao do dono ou ao de uma conexão da empresa). Nunca serve para autorizar comando.
+ */
+export function pareceMesmoTelefone(a: string | null | undefined, b: string | null | undefined): boolean {
+  const x = chaveTelefone(a), y = chaveTelefone(b);
+  return x.length === 10 && x === y;
 }
 
 /** Número para log, auditoria e tela: "(99) *****-4567". */

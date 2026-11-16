@@ -13,15 +13,46 @@ describe("número do dono", () => {
     expect(normalizarNumeroDono("1 555 123 4567 89")).toBeNull();
     expect(normalizarNumeroDono("")).toBeNull();
   });
-  it("compara pelo DDD + 8 últimos (DDI e nono dígito não importam); sem dono configurado, ninguém comanda", () => {
+  it("compara estrito: 55 + mesmo DDD + mesmos 8 últimos (só o nono dígito pode variar); sem dono configurado, ninguém comanda", () => {
     expect(ehNumeroDoDono("5599991234567", "5599991234567")).toBe(true);
     expect(ehNumeroDoDono("559991234567", "5599991234567")).toBe(true); // sem o nono dígito
-    expect(ehNumeroDoDono("99991234567", "+55 (99) 99123-4567")).toBe(true); // sem DDI
+    expect(ehNumeroDoDono("5599991234567", "559991234567")).toBe(true); // dono guardado sem o nono dígito
+    expect(ehNumeroDoDono("99991234567", "5599991234567")).toBe(false); // sem DDI: o endereço do WhatsApp sempre traz o 55
     expect(ehNumeroDoDono("5598991234567", "5599991234567")).toBe(false); // outro DDD
     expect(ehNumeroDoDono("5599991234568", "5599991234567")).toBe(false);
     expect(ehNumeroDoDono("5599991234567", null)).toBe(false);
     expect(ehNumeroDoDono(null, "5599991234567")).toBe(false);
     expect(ehNumeroDoDono("1234", "1234")).toBe(false);
+  });
+  it("QA achado 1: números estrangeiros com os mesmos 8 últimos dígitos NÃO são o dono (DDI conferido)", () => {
+    const DONO = "5599991234567"; // DDD 99 (Imperatriz)
+    for (const n of ["992991234567", "994991234567", "995591234567", "996991234567", "998991234567", "995991234567",
+      "9925599991234567", "998 99 99123-4567"]) {
+      expect(ehNumeroDoDono(n, DONO), n).toBe(false);
+    }
+    // número curto, zeros à esquerda, com sinais, comprimentos errados
+    for (const n of ["91234567", "991234567", "1234", "", "005599991234567", "05599991234567", "+5599991234567", "55 99 99123-4567",
+      "55999912345678", "5599991234567 ", "55099991234567"]) {
+      expect(ehNumeroDoDono(n, DONO), JSON.stringify(n)).toBe(false);
+    }
+    // 13, 12, 11 e 10 dígitos
+    expect(ehNumeroDoDono("5599991234567", DONO)).toBe(true); // 13: 55 + DDD + 9 + 8
+    expect(ehNumeroDoDono("559991234567", DONO)).toBe(true); // 12: 55 + DDD + 8 (sem o nono)
+    expect(ehNumeroDoDono("99991234567", DONO)).toBe(false); // 11: sem DDI
+    expect(ehNumeroDoDono("9991234567", DONO)).toBe(false); // 10: sem DDI
+    // 13 dígitos cujo "nono" não é 9 não é celular brasileiro
+    expect(ehNumeroDoDono("5599891234567", DONO)).toBe(false);
+    // DDD inválido (com zero) não casa nem com ele mesmo
+    expect(ehNumeroDoDono("5509991234567", "5509991234567")).toBe(false);
+    // dono estrangeiro (dado antigo/forjado no banco) nunca comanda
+    expect(ehNumeroDoDono("995591234567", "995591234567")).toBe(false);
+  });
+  it("QA achado 1: o número do dono é validado como brasileiro ao salvar", () => {
+    expect(normalizarNumeroDono("+995 591 234 567")).toBeNull();
+    expect(normalizarNumeroDono("998991234567")).toBeNull();
+    expect(normalizarNumeroDono("(09) 99123-4567")).toBeNull(); // DDD com zero
+    expect(normalizarNumeroDono("55 99 89123-4567")).toBeNull(); // 9 dígitos sem começar por 9
+    expect(normalizarNumeroDono("99 3524-1234")).toBe("559935241234"); // fixo
   });
   it("mascara para log e tela", () => {
     expect(mascararNumero("5599991234567")).toBe("(99) *****-4567");
