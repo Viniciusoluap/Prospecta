@@ -236,10 +236,17 @@ async function anexarQuadros(mensagemId: number, texto: string, codigosNaFila: r
     itensAguardandoDoPedido(mensagemId, codigosNaFila).catch(e => { console.error("[dolores/whatsapp] falha ao ler a fila", erroCurto(e)); return []; }),
     feitosDoPedido(mensagemId).catch(e => { console.error("[dolores/whatsapp] falha ao ler a autoria", erroCurto(e)); return []; }),
   ]);
-  const quadros = [quadroDoQueFoiFeito(feitos), quadroDePendencias(pendentes, diaEHora)].filter(Boolean).join("\n\n");
+  // QA R2 M5: nada é cortado no fim. A fila tem prioridade (itens inteiros enquanto couberem, depois "e mais N"), o quadro
+  // do que foi feito usa o que sobra, e o texto do modelo fica com o resto (no mínimo 200 caracteres). Já sai pelo filtro
+  // de dados pessoais aqui, para o tamanho medido ser o que vai (o filtro de novo, na saída, não muda nada).
+  const MINIMO_TEXTO = 200;
+  const FOLGA = 60;
+  const fila = sanitizarTexto(quadroDePendencias(pendentes, diaEHora, MAX_CARACTERES_WHATSAPP - MINIMO_TEXTO - 300 - FOLGA));
+  const feito = sanitizarTexto(quadroDoQueFoiFeito(feitos, MAX_CARACTERES_WHATSAPP - MINIMO_TEXTO - FOLGA - (fila ? fila.length + 2 : 0)));
+  const quadros = [feito, fila].filter(Boolean).join("\n\n");
   if (!quadros) return texto;
-  const espaco = Math.max(200, MAX_CARACTERES_WHATSAPP - quadros.length - 4);
-  return `${cortarResposta(texto, espaco)}\n\n${quadros}`;
+  const espaco = Math.max(MINIMO_TEXTO, MAX_CARACTERES_WHATSAPP - quadros.length - 4 - FOLGA);
+  return `${cortarResposta(sanitizarTexto(texto), espaco)}\n\n${quadros}`;
 }
 
 /** "09:05" no horário de Imperatriz (UTC−3 fixo). */

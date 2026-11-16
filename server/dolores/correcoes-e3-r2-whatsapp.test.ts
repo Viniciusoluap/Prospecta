@@ -209,3 +209,19 @@ describe("R2-N3 invertido — o item da fila mostra TODO o texto que será grava
     expect(await tarefasDolores()).toEqual([]);
   });
 });
+
+describe("M5 invertido — resposta com muitos itens na fila", () => {
+  it("10 acompanhamentos longos na fila: a resposta cabe em 3.800, cada item mostrado vai inteiro, 'e mais N' explícito e a instrução no fim", async () => {
+    const chamadas = Array.from({ length: 9 }, (_, i) => ["registrar_acompanhamento", { leadId: 1, texto: `Registro ${i}: ${"Cliente confirmou o envio dos documentos. ".repeat(12)}FIM-${i}`, tipo: "anotacao" }] as [string, unknown]);
+    roteiro = [() => ferramenta(["historico_atendimento", { leadId: 1 }]), () => ferramenta(...chamadas.slice(0, 5)), () => ferramenta(...chamadas.slice(5)), () => texto("Pus tudo na fila.")];
+    await chamar(aviso({ texto: "Dolores, veja o histórico da Maria e registre as anotações." }));
+    expect((await fila()).length).toBe(9);
+    const r = ultimaResposta();
+    expect(r.length).toBeLessThanOrEqual(3800);
+    expect(r).not.toMatch(/Resposta cortada por tamanho/);
+    const mostrados = r.split("\n").filter(l => /^- \[[A-Z0-9]{5}\]/.test(l));
+    for (const l of mostrados) expect(l).toMatch(/FIM-\d+"/);
+    expect(r).toContain(`- e mais ${9 - mostrados.length} item(ns) aguardando — veja a fila em Integrações › Dolores`);
+    expect(r.split("\n").at(-1)).toMatch(/^Responda só "aprovar [A-Z0-9]{5}" ou "recusar [A-Z0-9]{5}"/);
+  });
+});

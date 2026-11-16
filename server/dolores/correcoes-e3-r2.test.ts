@@ -6,7 +6,8 @@ vi.mock("../db.js", async orig => ({ ...(await orig<typeof import("../db.js")>()
 
 import { getDb, updateUserProfile } from "../db.js";
 import { appRouter } from "../routers.js";
-import { intencaoDeAcao, pareceColagem, trechoDoDono } from "../../shared/dolores/fila.js";
+import { intencaoDeAcao, pareceColagem, quadroDePendencias, quadroDoQueFoiFeito, trechoDoDono } from "../../shared/dolores/fila.js";
+import { MAX_CARACTERES_WHATSAPP } from "../../shared/dolores/whatsapp.js";
 import { decidir, definirSorteioCodigo } from "./aprovacoes.js";
 import { esquecerUsuarioDolores } from "./perfil.js";
 import { definirDependenciasPonte, executarFuncao } from "./ponte.js";
@@ -158,4 +159,26 @@ describe("M4 invertido — identidade do item criar_tarefa na fila", () => {
     expect(itens).toHaveLength(4);
     expect(new Set(itens.map((i: any) => i.resumo)).size).toBe(4);
   });
+});
+
+describe("M5 invertido — quadro com muitos itens não perde o fim nem a instrução", () => {
+  const hora = () => "16/11 09:00";
+  const itens = Array.from({ length: 12 }, (_, i) => ({ codigo: `ACDE${"FHJKMNPRTUVW"[i]}`, resumo: `Item ${i} ${"texto do item ".repeat(100)}FIM-${i}`, venceEm: AGORA }));
+  it("itens inteiros enquanto couberem; os demais viram 'e mais N item(ns) — veja a fila em Integrações'; a instrução está sempre no fim", () => {
+    const q = quadroDePendencias(itens, hora, 3200);
+    expect(q.length).toBeLessThanOrEqual(3200);
+    const mostrados = q.split("\n").filter(l => l.startsWith("- ["));
+    expect(mostrados.length).toBeGreaterThanOrEqual(1);
+    for (const l of mostrados) expect(l).toMatch(/FIM-\d+ \(vence 16\/11 09:00\)$/);
+    expect(q).toContain(`- e mais ${12 - mostrados.length} item(ns) aguardando — veja a fila em Integrações › Dolores`);
+    expect(q.split("\n").at(-1)).toBe('Responda só "aprovar ACDEF" ou "recusar ACDEF" (pode pôr vários, separados por espaço).');
+    // sem limite: até 10 inteiros e "e mais 2"
+    expect(quadroDePendencias(itens, hora)).toContain("- e mais 2 item(ns) aguardando");
+  });
+  it("quadro do que foi feito também cabe no limite, com 'e mais N'", () => {
+    const q = quadroDoQueFoiFeito(Array.from({ length: 10 }, (_, i) => `Tarefa #${i} ${"x".repeat(280)}`), 1000);
+    expect(q.length).toBeLessThanOrEqual(1000);
+    expect(q).toMatch(/- e mais \d+ — veja em Integrações › Dolores$/);
+  });
+  it("MAX do WhatsApp continua 3.800 (referência do limite)", () => expect(MAX_CARACTERES_WHATSAPP).toBe(3800));
 });

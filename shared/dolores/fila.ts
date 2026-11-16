@@ -179,19 +179,43 @@ export type ItemQuadro = { codigo: string; resumo: string; venceEm: Date };
  * Quadro determinístico que vai ao dono depois do comando: o que espera aprovação (o resumo é do sistema). Passa pelo
  * filtro de dados pessoais (sanitizarTexto) na saída: por isso o código vem ANTES do resumo em cada linha e a linha de
  * instrução não usa a palavra "código(s)" — o filtro trata "código …" como senha e apagaria o resto da oração.
+ * QA R2 M5: cabe em `maxCaracteres` sem cortar nada: entram itens INTEIROS (até 10) enquanto couberem; os demais viram
+ * "e mais N item(ns) — veja a fila em Integrações › Dolores"; a instrução "Responda…" vem sempre, no fim.
  */
-export function quadroDePendencias(itens: readonly ItemQuadro[], horaDe: (d: Date) => string): string {
+export function quadroDePendencias(itens: readonly ItemQuadro[], horaDe: (d: Date) => string, maxCaracteres = Number.MAX_SAFE_INTEGER): string {
   if (!itens.length) return "";
+  const cabecalho = "*Aguardando a sua aprovação* (nada foi feito ainda):";
   // o resumo pode trazer dados (nome, documento): uma linha só e sem colchetes — só o sistema escreve "[CÓDIGO]"
   // o resumo vai INTEIRO (QA R2 N3: o dono lê tudo o que será gravado; o tamanho já foi limitado ao entrar na fila)
-  const linhas = itens.slice(0, 10).map(i => `- [${i.codigo}] ${textoDeDado(i.resumo, Number.MAX_SAFE_INTEGER)} (vence ${horaDe(i.venceEm)})`);
-  const mais = itens.length > 10 ? `\n- e mais ${itens.length - 10} item(ns) na tela Integrações › Dolores` : "";
-  const exemplo = itens[0].codigo;
-  return `*Aguardando a sua aprovação* (nada foi feito ainda):\n${linhas.join("\n")}${mais}\nResponda só "aprovar ${exemplo}" ou "recusar ${exemplo}" (pode pôr vários, separados por espaço).`;
+  const linha = (i: ItemQuadro) => `- [${i.codigo}] ${textoDeDado(i.resumo, Number.MAX_SAFE_INTEGER)} (vence ${horaDe(i.venceEm)})`;
+  const instrucao = (exemplo: string) => `Responda só "aprovar ${exemplo}" ou "recusar ${exemplo}" (pode pôr vários, separados por espaço).`;
+  const mais = (n: number) => `- e mais ${n} item(ns) aguardando — veja a fila em Integrações › Dolores`;
+  const linhas: string[] = [];
+  for (const i of itens.slice(0, 10)) {
+    const l = linha(i);
+    const resto = itens.length - linhas.length - 1;
+    const total = [cabecalho, ...linhas, l, ...(resto > 0 ? [mais(resto)] : []), instrucao(linhas.length ? itens[0].codigo : i.codigo)].join("\n").length;
+    if (total > maxCaracteres) break;
+    linhas.push(l);
+  }
+  const resto = itens.length - linhas.length;
+  // nem um item coube: nada de código sem o resumo — só a contagem e o caminho da tela
+  if (!linhas.length) return `${cabecalho}\n${mais(resto).replace("- e mais ", "- ")}`;
+  return [cabecalho, ...linhas, ...(resto > 0 ? [mais(resto)] : []), instrucao(itens[0].codigo)].join("\n");
 }
 
-/** Quadro do que ela já fez direto (tarefas, acompanhamentos), para o dono conferir. */
-export function quadroDoQueFoiFeito(feitos: readonly string[]): string {
+/** Quadro do que ela já fez direto (tarefas, acompanhamentos), para o dono conferir. Cabe em `maxCaracteres` (QA R2 M5). */
+export function quadroDoQueFoiFeito(feitos: readonly string[], maxCaracteres = Number.MAX_SAFE_INTEGER): string {
   if (!feitos.length) return "";
-  return `*Registrado no sistema por mim* (em nome da usuária Dolores):\n${feitos.slice(0, 10).map(f => `- ${textoDeDado(f, 300)}`).join("\n")}${feitos.length > 10 ? `\n- e mais ${feitos.length - 10}` : ""}`;
+  const cabecalho = "*Registrado no sistema por mim* (em nome da usuária Dolores):";
+  const mais = (n: number) => `- e mais ${n} — veja em Integrações › Dolores`;
+  const linhas: string[] = [];
+  for (const f of feitos.slice(0, 10)) {
+    const l = `- ${textoDeDado(f, 300)}`;
+    const resto = feitos.length - linhas.length - 1;
+    if ([cabecalho, ...linhas, l, ...(resto > 0 ? [mais(resto)] : [])].join("\n").length > maxCaracteres) break;
+    linhas.push(l);
+  }
+  const resto = feitos.length - linhas.length;
+  return [cabecalho, ...linhas, ...(resto > 0 ? [mais(resto)] : [])].join("\n");
 }
