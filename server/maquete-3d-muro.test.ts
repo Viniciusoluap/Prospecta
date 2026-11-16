@@ -5,10 +5,10 @@ import { describe, expect, it } from "vitest";
 import { gerarEstudoMassa, type ParametrosMassa } from "../shared/incorporacao/massa.js";
 import { implantacaoDoEstudo } from "../shared/maquete-3d/implantacao.js";
 import {
-  alturaDoRelevo, implantacaoSchema, lerModelo, modeloSchema, muroDaMaquete, muroParaTipo, muroSchema, validarModelo,
+  alturaDoRelevo, assinaturaDoContorno, comMuroGravado, implantacaoSchema, lerModelo, modeloParaLinkPublico, modeloSchema, muroDaMaquete, muroParaTipo, muroSchema, publicadoSemMuro, validarModelo,
   type Implantacao, type ModeloMaquete, type Muro, type Ponto,
 } from "../shared/maquete-3d/modelo.js";
-import { ENTERRO_MURO, FOLGA_DIVISA, FOLGA_PORTAO, geometriaDoMuro, perimetroDoTerreno, pontosDosPortoes, portoesAutomaticos, type GeometriaMuro } from "../shared/maquete-3d/muro.js";
+import { ENTERRO_MURO, FOLGA_DIVISA, FOLGA_PORTAO, geometriaDoMuro, perimetroDoTerreno, pontosDosPortoes, portoesAutomaticos, reancorarPortoes, type GeometriaMuro } from "../shared/maquete-3d/muro.js";
 import { alturaNaMalha, caixaDoTerreno, dentroDe, distanciaAoContorno, sistemaViario } from "../shared/maquete-3d/vias.js";
 
 const ret = (x0: number, y0: number, x1: number, y1: number): Ponto[] => [{ x: x0, y: y0 }, { x: x1, y: y0 }, { x: x1, y: y1 }, { x: x0, y: y1 }];
@@ -254,5 +254,162 @@ describe("modelo e regras do tipo", () => {
     expect(avisos.some(p => /Fora da divisa/.test(p.mensagem))).toBe(true);
     expect(avisos.some(p => /portão de veículos/.test(p.mensagem))).toBe(true);
     expect(avisos.every(p => p.nivel === "aviso")).toBe(true);
+  });
+});
+
+// ── Correções do QA (gate 1, 16/11/2026) ──
+
+/** Maior distância de um vértice do muro para fora do terreno (0 = nenhum fora). */
+function maiorSaida(g: GeometriaMuro, pol: Ponto[]) {
+  let m = 0;
+  for (const mat of ["muro", "capa", "portao"] as const) for (const v of vertices(g, mat)) if (!dentroDe(v, pol)) m = Math.max(m, distanciaAoContorno(v, pol));
+  return m;
+}
+
+describe("QA: muro em todas as áreas do terreno", () => {
+  it("KML com duas áreas separadas: as duas viram contorno, cada uma com o seu muro e o seu portão", () => {
+    const centro: [number, number] = [0.0005, 0.0005], g = 0.001;
+    const anel = (x0: number, y0: number, x1: number, y1: number) => [[x0, y0], [x1, y0], [x1, y1], [x0, y1], [x0, y0]];
+    const geojson = JSON.stringify({ type: "Feature", properties: {}, geometry: { type: "MultiPolygon", coordinates: [[anel(g * 1.5, 0, g * 2, g / 2)], [anel(0, 0, g, g)]] } });
+    const cenario = { id: "c", lotes: [
+      { anel: anel(g * 0.1, g * 0.1, g * 0.4, g * 0.4), areaM2: 1100, tipo: "vendavel", quadra: "1", numero: "1" },
+      { anel: anel(g * 1.6, g * 0.1, g * 1.9, g * 0.4), areaM2: 1100, tipo: "vendavel", quadra: "2", numero: "1" },
+    ], ruas: [], vias: [] } as unknown as Parameters<typeof implantacaoDoEstudo>[2];
+    const i = implantacaoDoEstudo(geojson, centro, cenario, null)!.implantacao;
+    // A maior fica em `terreno` (compatível com tudo o que já lia um contorno só); a outra em `terrenosExtras`.
+    expect(perimetro(i.terreno)).toBeCloseTo(4 * 111.3, -1);
+    expect(i.terrenosExtras).toHaveLength(1);
+    const geo = geometriaDoMuro(i, muro())!;
+    expect(geo.resumo.areas.map(a => a.indice)).toEqual([0, 1]);
+    expect(geo.resumo.perimetro).toBeCloseTo(perimetro(i.terreno) + perimetro(i.terrenosExtras![0]), 0);
+    expect(geo.resumo.aberturas.map(a => [a.area, a.principal])).toEqual([[0, true], [1, true]]);
+    // Cada vértice do muro fica junto da divisa de UMA das áreas — nunca entre elas.
+    for (const v of vertices(geo)) expect(Math.min(distanciaAoContorno(v, i.terreno), distanciaAoContorno(v, i.terrenosExtras![0]))).toBeLessThan(1);
+    expect(vertices(geo).some(v => dentroDe(v, i.terrenosExtras![0]))).toBe(true);
+    // Validação: nada de "lote fora do contorno" quando as duas áreas estão na implantação.
+    const m = modeloSchema.parse({ tipo: "condominio", implantacao: i });
+    expect(validarModelo(m).some(p => /fora do contorno/.test(p.mensagem))).toBe(false);
+    // Maquete antiga (só a maior área salva) com lote na outra: aviso para atualizar a implantação.
+    const antiga = modeloSchema.parse({ tipo: "condominio", implantacao: { ...i, terrenosExtras: undefined } });
+    expect(validarModelo(antiga).find(p => /fora do contorno/.test(p.mensagem))?.mensagem).toMatch(/1 lote\(s\).*Atualize a implantação a partir do estudo/);
+  });
+
+  it("portão editado na segunda área abre só a segunda área", () => {
+    const i = imp({ terreno: ret(0, 0, 100, 80), terrenosExtras: [ret(150, 0, 200, 40)] });
+    const g = geometriaDoMuro(i, muro({ portoesEditados: true, portoes: [{ id: "p1", posicao: 20, largura: 6, tipo: "veiculos" }, { id: "p2", posicao: 25, largura: 4, tipo: "veiculos", area: 1 }] }))!;
+    // Área 1: vão de 6 m em x 17..23 no lado de cima; área 2: vão de 4 m em x 173..177.
+    for (const v of vertices(g)) if (v.y < 1 && v.x < 120) expect(v.x <= 17 + 1e-4 || v.x >= 23 - 1e-4).toBe(true);
+    for (const v of vertices(g)) if (v.y < 1 && v.x > 120) expect(v.x <= 173 + 1e-4 || v.x >= 177 - 1e-4).toBe(true);
+    expect(g.resumo.aberturas.map(a => [a.id, a.area, a.principal])).toEqual([["p1", 0, true], ["p2", 1, true]]);
+  });
+});
+
+describe("QA: toda rua que chega à divisa tem abertura", () => {
+  it("duas ruas saindo pela divisa: portaria na principal, portão secundário na outra, nenhum muro nos corredores", () => {
+    const vias = [{ id: "v1", nome: "A", eixo: [{ x: 50, y: 40 }, { x: 50, y: -5 }], largura: 10 }, { id: "v2", nome: "B", eixo: [{ x: 20, y: 40 }, { x: 20, y: -5 }], largura: 8 }];
+    const i = imp({ terreno: ret(0, 0, 100, 80), vias });
+    const auto = portoesAutomaticos(i);
+    expect(auto.portoes.map(p => p.posicao).sort((a, b) => a - b)).toEqual([20, 50]);
+    const g = geometriaDoMuro(i, muro())!;
+    expect(g.resumo.aberturas.find(a => a.principal)?.posicao).toBe(50); // a mais larga é a portaria
+    for (const v of [...vertices(g), ...vertices(g, "capa")]) if (v.y < 1) {
+      expect(Math.abs(v.x - 50) >= 5 - 1e-4, `rua A (${v.x})`).toBe(true);
+      expect(Math.abs(v.x - 20) >= 4 - 1e-4, `rua B (${v.x})`).toBe(true);
+    }
+    // Rua que atravessa a divisa e segue para fora (o eixo não termina nela) também ganha abertura.
+    const atravessa = imp({ terreno: ret(0, 0, 100, 80), vias: [{ id: "v3", nome: "C", eixo: [{ x: 30, y: 40 }, { x: 30, y: -40 }], largura: 10 }] });
+    expect(portoesAutomaticos(atravessa).portoes.map(p => p.posicao)).toContain(30);
+  });
+
+  it("tirar o portão secundário na edição fecha a rua com muro (e o candidato continua disponível)", () => {
+    const vias = [{ id: "v1", nome: "A", eixo: [{ x: 50, y: 40 }, { x: 50, y: -5 }], largura: 10 }, { id: "v2", nome: "B", eixo: [{ x: 20, y: 40 }, { x: 20, y: -5 }], largura: 8 }];
+    const i = imp({ terreno: ret(0, 0, 100, 80), vias });
+    const auto = portoesAutomaticos(i);
+    const so = auto.portoes.filter(p => p.posicao === 50);
+    const g = geometriaDoMuro(i, muro({ portoesEditados: true, portoes: so }))!;
+    expect(vertices(g).some(v => v.y < 1 && Math.abs(v.x - 20) < 3)).toBe(true);
+    expect(auto.candidatos.some(c => c.posicao === 20)).toBe(true);
+  });
+});
+
+describe("QA: contornos hostis", () => {
+  const casos: [string, Ponto[]][] = [
+    ["agulha", [{ x: 0, y: 0 }, { x: 200, y: 0 }, { x: 0, y: 3 }]],
+    ["ponta de 3°", [{ x: 0, y: 0 }, { x: 100, y: 0 }, { x: 100, y: 40 }, { x: 200, y: 45 }, { x: 100, y: 45.5 }, { x: 100, y: 80 }, { x: 0, y: 80 }]],
+    ["buraco de fechadura (encosta em si)", [{ x: 0, y: 0 }, { x: 100, y: 0 }, { x: 100, y: 100 }, { x: 50, y: 100 }, { x: 50, y: 50 }, { x: 60, y: 60 }, { x: 50, y: 100 }, { x: 0, y: 100 }]],
+    ["faixa de 0,3 m", ret(0, 0, 100, 0.3)],
+    ["serrilhado de 4.000 pontos", Array.from({ length: 4000 }, (_, k) => { const a = (2 * Math.PI * k) / 4000, r = 150 + (k % 2 ? 3 : 0); return { x: r * Math.cos(a), y: r * Math.sin(a) }; })],
+  ];
+  for (const [nome, pol] of casos) it(`${nome}: nenhum vértice do muro fora do terreno`, () => {
+    const g = geometriaDoMuro(imp({ terreno: pol }), muro())!;
+    expect(g).toBeTruthy();
+    expect(maiorSaida(g, pol)).toBeLessThan(1e-3);
+  });
+
+  it("gravata-borboleta (sem área): erro de validação claro, em vez de condomínio sem muro calado", () => {
+    const borboleta = [{ x: 0, y: 0 }, { x: 50, y: 50 }, { x: 50, y: 0 }, { x: 0, y: 50 }];
+    expect(geometriaDoMuro(imp({ terreno: borboleta }), muro())).toBeNull();
+    const ps = validarModelo(modeloSchema.parse({ tipo: "condominio", implantacao: { terreno: borboleta } }));
+    expect(ps.find(p => p.nivel === "erro" && p.onde === "Muro")?.mensagem).toMatch(/não tem área.*gravata-borboleta/);
+    // Contorno que se cruza mas tem área: aviso (o muro sai, mas torto).
+    const cruzado = [{ x: 0, y: 0 }, { x: 100, y: 0 }, { x: 100, y: 100 }, { x: 60, y: -20 }, { x: 0, y: 100 }];
+    expect(validarModelo(modeloSchema.parse({ tipo: "condominio", implantacao: { terreno: cruzado } })).some(p => p.nivel === "aviso" && /se cruza/.test(p.mensagem))).toBe(true);
+    expect(validarModelo(modeloSchema.parse({ tipo: "condominio", implantacao: { terreno: L } })).some(p => /se cruza|não tem área/.test(p.mensagem))).toBe(false);
+  });
+});
+
+describe("QA: relevo íngreme sem fresta sob o muro", () => {
+  const grade = (f: (x: number, y: number) => number, lado = 110) => {
+    const dx = lado / 95, alturas: number[] = [];
+    for (let j = 0; j < 96; j++) for (let k = 0; k < 96; k++) alturas.push(f(-5 + k * dx, -5 + j * dx));
+    return { x0: -5, y0: -5, dx, dy: dx, colunas: 96, linhas: 96, alturas, altitudeBase: 0 };
+  };
+  for (const [nome, f] of [["vala a 45° fora das estações", (x: number) => Math.abs(x - 50.7)], ["barranco 2:1", (x: number) => Math.min(2, Math.max(0, (x - 30) * 2))]] as const) {
+    it(`${nome}: o pé de cada face fica sempre abaixo do chão`, () => {
+      const relevo = grade(f), i = imp({ terreno: ret(0, 0, 100, 80), relevo }), caixa = caixaDoTerreno(i);
+      const m = geometriaDoMuro(i, comPortoes([]))!.malhas.muro!;
+      let fresta = -Infinity;
+      for (let q = 0; q < m.posicoes.length / 12; q++) {
+        const p = (k: number) => ({ x: m.posicoes[q * 12 + k * 3], h: m.posicoes[q * 12 + k * 3 + 1], y: m.posicoes[q * 12 + k * 3 + 2] });
+        const a = p(0), b = p(1), d = p(3);
+        if (Math.hypot(b.x - a.x, b.y - a.y) < 0.05 || d.h - a.h < 1) continue;
+        for (let s = 0; s <= 20; s++) { const t = s / 20; fresta = Math.max(fresta, a.h + (b.h - a.h) * t - alturaNaMalha(relevo, caixa, a.x + (b.x - a.x) * t, a.y + (b.y - a.y) * t)); }
+      }
+      expect(fresta).toBeLessThan(-0.3); // o pé fica enterrado (a fundação de 0,5 m inteira, menos a tolerância)
+    });
+  }
+});
+
+describe("QA: portões editados quando o contorno muda", () => {
+  it("cada portão vai ao ponto da nova divisa mais perto de onde estava, e a revisão avisa", () => {
+    const antiga = imp({ terreno: ret(0, 0, 100, 80) });
+    const m = muro({ editado: true, portoesEditados: true, portoes: [{ id: "p1", posicao: 50, largura: 6, tipo: "veiculos" }], contorno: assinaturaDoContorno(antiga) });
+    // O terreno ganha 10 m a oeste: o mesmo ponto (50, 0) agora está a 60 m do novo vértice 1.
+    const nova = imp({ terreno: ret(-10, 0, 100, 80) });
+    const r = reancorarPortoes(antiga, nova, m);
+    expect(r.mudou).toBe(true);
+    expect(r.muro!.portoes[0].posicao).toBeCloseTo(60, 6);
+    expect(r.muro!.reancorado).toBe(true);
+    expect(validarModelo(modeloSchema.parse({ tipo: "condominio", implantacao: { ...nova, muro: r.muro } })).some(p => /foram levados ao ponto da nova divisa/.test(p.mensagem))).toBe(true);
+    // Sem mudança no contorno, nada muda.
+    expect(reancorarPortoes(antiga, antiga, m).mudou).toBe(false);
+    // Assinatura guardada e contorno diferente (mudado por outro caminho): aviso para conferir.
+    expect(validarModelo(modeloSchema.parse({ tipo: "condominio", implantacao: { ...nova, muro: m } })).some(p => /mudou depois que os portões foram editados/.test(p.mensagem))).toBe(true);
+  });
+});
+
+describe("QA: link publicado antes do muro", () => {
+  it("o link público desenha o modelo salvo sem muro como antes; salvar/publicar gravam o muro do tipo", () => {
+    const antigo = lerModelo(JSON.stringify({ versao: 1, tipo: "condominio", edificacoes: [], implantacao: { terreno: ret(0, 0, 50, 40) }, pendencias: [] }))!;
+    expect(publicadoSemMuro(antigo)).toBe(true);
+    expect(muroDaMaquete(modeloParaLinkPublico(antigo))).toBeNull();
+    expect(muroDaMaquete(antigo)?.ativo).toBe(true); // na revisão aparece o automático
+    const gravado = comMuroGravado(antigo);
+    expect(gravado.implantacao!.muro?.ativo).toBe(true);
+    expect(publicadoSemMuro(gravado)).toBe(false);
+    expect(muroDaMaquete(modeloParaLinkPublico(gravado))?.ativo).toBe(true);
+    // Casa sem muro continua sem.
+    const casa = modeloSchema.parse({ tipo: "casa", implantacao: { terreno: ret(0, 0, 50, 40) } });
+    expect(muroDaMaquete(modeloParaLinkPublico(comMuroGravado(casa)))).toBeNull();
   });
 });

@@ -464,12 +464,19 @@ function indiceDoContorno(pol: Ponto[]) {
       }
       return d;
     },
+    /** Ponto do contorno mais perto: primeiro só nos lados das faixas a até 1 m (o vértice que sai fica rente à divisa). */
     maisPerto(p: Ponto): Ponto {
       let m = Infinity, q = p;
-      for (let i = 0; i < n; i++) {
+      const ver = (i: number) => {
         const a = pol[i], ab = sub(pol[(i + 1) % n], a), t = Math.max(0, Math.min(1, pe(sub(p, a), ab) / (pe(ab, ab) || 1))), x = soma(a, esc(ab, t)), d = dist(p, x);
         if (d < m) { m = d; q = x; }
+      };
+      // Janela crescente: 25 cm, 1 m e, só se nada aparecer, o contorno inteiro.
+      for (const r of [0.25, 1]) {
+        if (p.y + r >= y0 && p.y - r <= y1) for (let f = faixa(p.y - r); f <= faixa(p.y + r); f++) for (const i of faixas[f]) ver(i);
+        if (m <= r) return q;
       }
+      for (let i = 0; i < n; i++) ver(i);
       return q;
     },
   };
