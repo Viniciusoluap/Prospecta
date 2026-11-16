@@ -27,6 +27,18 @@ Detalhes e arquivos: `docs/stories/epics/epic-022-maquete-3d/S-08-aprimoramentos
 - Não conferido em navegador: a tela de posicionar casas (editor), o portal do cliente com o novo fluxo e a foto em alta.
 - O e-mail depende do SMTP já configurado no sistema; nenhum e-mail real foi enviado nos testes.
 
+## EPIC-024 S-04 (16/11) — muro de divisa do condomínio
+Story: `docs/stories/epics/epic-024-correcoes-16-11/S-04-muro-condominio.md`. Branch local `epic024-s04` (sem push).
+- Feito: `shared/maquete-3d/muro.ts` (geometria pura, portão automático), `implantacao.muro`/`implantacao.acessos`
+  opcionais em `modelo.ts` (sem migração), regras do tipo em `aplicarTipo`/`implantacaoDoEstudo`, visualizador
+  `visualizador/Muro.tsx`, edição `EditorMuro.tsx` na revisão da planta.
+- Testes: (a) `server/maquete-3d-muro.test.ts` 13 passam; `npx vitest run server/maquete-3d` 135 passam; `tsc` e
+  `vite build` sem erros. (b) Playwright + SwiftShader num harness com estudo de massa real e relevo: vista de cima,
+  perspectiva, portão por dentro e por fora, contorno côncavo. (c) Pendente: estudo real em produção, aparelho real,
+  tela de edição aberta por uma pessoa.
+- Próximo passo: revisão (@qa), push/PR (@devops), conferir com um condomínio real e ajustar o portão se o acesso
+  principal escolhido não for o que o dono espera.
+
 ## Concluído na etapa 4
 - `shared/maquete-3d/implantacao.ts`: implantação a partir do terreno e do cenário escolhido do estudo de massa.
 - `maquete3d.implantacaoDoEstudo` e situação das unidades no detalhe e no link público (`server/maquete-3d/router.ts`).
