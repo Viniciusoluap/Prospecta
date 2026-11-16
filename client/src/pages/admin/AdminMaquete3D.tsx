@@ -344,7 +344,7 @@ function Configuracoes({ admin }: { admin: boolean }) {
               <select className={inputCls} value={form.motor} onChange={e => setForm({ ...form, motor: e.target.value as MotorLeitura, motorEscolhido: e.target.value as MotorLeitura })}>
                 {MOTORES_LEITURA.map(x => <option key={x} value={x}>{ROTULOS_MOTOR[x]}</option>)}
               </select></label>
-            {form.motor === "hibrido" && <label className="text-xs text-gray-300">Máximo de pranchas pela IA por maquete
+            {form.motor !== "geometrico" && <label className="text-xs text-gray-300">Máximo de pranchas (chamadas pagas) pela IA por maquete, somando leituras e importações
               <input className={inputCls} type="number" min={0} max={60} step={1} value={form.limitePranchasIA} onChange={e => setForm({ ...form, limitePranchasIA: Math.max(0, Math.min(60, Math.round(Number(e.target.value) || 0))) })} /></label>}
             {form.motor !== "geometrico" && <><label className="text-xs text-gray-300">Leitura do projeto pela IA
               <select className={inputCls} value={form.esforcoIA} onChange={e => setForm({ ...form, esforcoIA: e.target.value as (typeof ESFORCOS_IA)[number] })}>
@@ -357,7 +357,7 @@ function Configuracoes({ admin }: { admin: boolean }) {
         {form.motor === "geometrico"
           ? <p className="text-xs text-gray-400">O leitor próprio não tem custo: lê as linhas e os textos do PDF exportado do programa de desenho (CAD/Revit). PDF escaneado ou fotografado não tem linhas para ler; nesse caso a planta é desenhada na revisão ou usa-se a construção padrão. Neste modo a IA nunca é usada.</p>
           : form.motor === "hibrido"
-            ? <p className="text-xs text-gray-400">O leitor próprio lê primeiro, sem custo. Só vão para a IA as pranchas que ele não consegue ler (imagem escaneada ou fotografada) ou lê de forma insuficiente (planta sem cômodos com nome, leitura parcial). Antes do primeiro uso em cada maquete, o administrador vê quantas pranchas irão e confirma.</p>
+            ? <p className="text-xs text-gray-400">O leitor próprio lê primeiro, sem custo. Só vão para a IA as pranchas que ele não consegue ler (imagem escaneada ou fotografada) ou lê de forma insuficiente (planta sem cômodos com nome, leitura parcial). Em cada leitura ou importação que precise da IA, o administrador vê quantas pranchas irão e confirma; a confirmação vale só para aquela execução, e o teto abaixo vale por maquete (passar dele exige autorizar além do teto).</p>
             : <p className="text-xs text-gray-400">Todos os passos da leitura usam a IA (paga).</p>}
         {form.motor !== "geometrico" && (form.iaConfigurada
           ? <p className="text-xs text-gray-300">Chave da IA: {form.origemChaveIA === "painel" ? "a cadastrada em Integrações → Anthropic" : "a do servidor (ANTHROPIC_API_KEY)"} · modelo em uso: {form.modeloEmUso}.</p>
@@ -523,9 +523,9 @@ function Detalhe({ id }: { id: number }) {
   // Leitura híbrida (S-03): confirmação do custo da IA (admin) ou seguir sem ela.
   const confirmarIA = trpc.maquete3d.confirmarIA.useMutation();
   const pularIA = trpc.maquete3d.pularIA.useMutation();
-  async function decidirIA(usar: boolean) {
+  async function decidirIA(usar: boolean, alemDoTeto = false) {
     try {
-      if (usar) await confirmarIA.mutateAsync({ id }); else await pularIA.mutateAsync({ id });
+      if (usar) await confirmarIA.mutateAsync({ id, alemDoTeto }); else await pularIA.mutateAsync({ id });
       await ler(false);
     } catch (e) { falha(e); recarregar(); }
   }
@@ -673,6 +673,7 @@ function Detalhe({ id }: { id: number }) {
                         {p.motor === "ia" ? `— lida pela IA (modelo ${p.modelo ?? "?"}${p.tokens ? `, ${p.tokens.entrada.toLocaleString("pt-BR")} + ${p.tokens.saida.toLocaleString("pt-BR")} tokens` : ""})`
                           : p.motor === "pulada" ? "— sem a IA: ficou o que o leitor próprio leu" : "— lida pelo leitor próprio"}</span>}
                       {p.estado === "pendente" && p.motivoIA && <span className="text-xs text-gray-400">— {p.motivoIA}</span>}
+                      {p.estado === "executando" && <span className="text-xs text-amber-300">— sendo lida pela IA agora (não feche a página)</span>}
                       {p.erro && <span className={p.estado === "aguardando" ? "text-amber-300" : "text-red-300"}>— {p.erro}</span>}
                     </li>
                   ))}
@@ -683,9 +684,16 @@ function Detalhe({ id }: { id: number }) {
               <div className="space-y-2 rounded-lg border border-amber-400/30 p-3">
                 {d.passos.find(p => p.estado === "aguardando")?.aguardando === "confirmacao" ? (
                   <>
-                    <p>{d.ia.pendentes} prancha(s) não podem ser lidas pelo leitor próprio e precisam da leitura por IA, que é paga (cobrada pela Anthropic por tokens). A confirmação vale uma vez para esta maquete.</p>
-                    {admin ? <Button className={btnOuro} disabled={lendo || confirmarIA.isPending} onClick={() => decidirIA(true)}><Check className="mr-1 h-4 w-4" />Confirmar e ler {d.ia.pendentes} prancha(s) pela IA</Button>
+                    <p>{d.ia.pendentes} prancha(s) não podem ser lidas pelo leitor próprio e precisam da leitura por IA, que é paga (cobrada pela Anthropic por tokens). A confirmação vale só para esta leitura e para as pranchas autorizadas (esta maquete já usou {d.ia.lidasNaMaquete} de {d.ia.teto ?? "—"} pela IA).</p>
+                    {admin ? <Button className={btnOuro} disabled={lendo || confirmarIA.isPending} onClick={() => decidirIA(true)}><Check className="mr-1 h-4 w-4" />Confirmar a leitura pela IA (até o teto da maquete)</Button>
                       : <p className="text-xs text-gray-400">Só o administrador autoriza a leitura paga pela IA.</p>}
+                  </>
+                ) : d.passos.find(p => p.estado === "aguardando")?.aguardando === "teto" ? (
+                  <>
+                    <p>{d.passos.find(p => p.estado === "aguardando")?.erro}</p>
+                    {admin ? <Button className={btnOuro} disabled={lendo || confirmarIA.isPending}
+                      onClick={() => { if (window.confirm(`Autorizar a leitura paga de mais ${d.ia.pendentes} prancha(s) pela IA, além do teto de ${d.ia.teto ?? "—"} desta maquete?`)) void decidirIA(true, true); }}><Check className="mr-1 h-4 w-4" />Autorizar além do teto ({d.ia.pendentes} prancha(s))</Button>
+                      : <p className="text-xs text-gray-400">Só o administrador autoriza passar do teto de pranchas pela IA.</p>}
                   </>
                 ) : <p>Cadastre a chave em Integrações → Anthropic e clique em “Continuar leitura”: ela retoma deste passo, sem perder o que já foi lido.</p>}
                 <Button variant="outline" className={btnOutline} disabled={lendo || pularIA.isPending}

@@ -35,6 +35,7 @@ export function ListaPassos({ passos }: { passos: Passo[] }) {
             {p.motor === "ia" ? `— lida pela IA (modelo ${p.modelo ?? "?"}${p.tokens ? `, ${p.tokens.entrada.toLocaleString("pt-BR")} + ${p.tokens.saida.toLocaleString("pt-BR")} tokens` : ""})`
               : p.motor === "pulada" ? "— sem a IA: ficou o que o leitor próprio leu" : "— lida pelo leitor próprio"}</span>}
           {p.estado === "pendente" && p.motivoIA && <span className="text-xs text-gray-400">— {p.motivoIA}</span>}
+          {p.estado === "executando" && <span className="text-xs text-amber-300">— sendo lida pela IA agora (não feche a página)</span>}
           {p.erro && <span className={p.estado === "aguardando" ? "text-amber-300" : "text-red-300"}>— {p.erro}</span>}
         </li>
       ))}
@@ -160,9 +161,16 @@ export function ImportarPlanta({ d, admin, sujo, aoMudar }: { d: Detalhe; admin:
             <div className="space-y-2 rounded-lg border border-amber-400/30 p-3">
               {aguardando.aguardando === "confirmacao" ? (
                 <>
-                  <p>{imp.ia.pendentes} prancha(s) deste PDF precisam da leitura por IA (paga). A confirmação vale uma vez para esta maquete.</p>
+                  <p>{imp.ia.pendentes} prancha(s) deste PDF precisam da leitura por IA (paga). A confirmação vale só para esta importação e para as pranchas autorizadas (esta maquete já usou {imp.ia.lidasNaMaquete} de {imp.ia.teto ?? "—"} pela IA).</p>
                   {admin ? <Button className={btnOuro} disabled={lendo} onClick={() => rodar(async () => { await confirmar.mutateAsync({ id }); return avancar.mutateAsync({ id }); })}><Check className="mr-1 h-4 w-4" />Confirmar e ler pela IA</Button>
                     : <p className="text-xs text-gray-400">Só o administrador autoriza a leitura paga pela IA.</p>}
+                </>
+              ) : aguardando.aguardando === "teto" ? (
+                <>
+                  <p>{aguardando.erro}</p>
+                  {admin ? <Button className={btnOuro} disabled={lendo}
+                    onClick={() => { if (window.confirm(`Autorizar a leitura paga de mais ${imp.ia.pendentes} prancha(s) pela IA, além do teto de ${imp.ia.teto ?? "—"} desta maquete?`)) void rodar(async () => { await confirmar.mutateAsync({ id, alemDoTeto: true }); return avancar.mutateAsync({ id }); }); }}><Check className="mr-1 h-4 w-4" />Autorizar além do teto</Button>
+                    : <p className="text-xs text-gray-400">Só o administrador autoriza passar do teto de pranchas pela IA.</p>}
                 </>
               ) : <p>Cadastre a chave em Integrações → Anthropic e continue: a leitura retoma deste passo.</p>}
               <Button variant="outline" className={btnOutline} disabled={lendo} onClick={() => rodar(async () => { await pular.mutateAsync({ id }); return avancar.mutateAsync({ id }); })}>Continuar sem a IA</Button>

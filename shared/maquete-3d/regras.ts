@@ -99,21 +99,34 @@ export type PassoLeitura = {
   /** "prancha_ia": a mesma prancha de um passo "prancha", lida pela IA (EPIC-024 S-03). */
   tipo: "inventario" | "prancha" | "prancha_ia" | "estrutura" | "ambientes" | "implantacao" | "montagem";
   rotulo: string;
-  /** "aguardando": parado sem erro, à espera da pessoa (chave da IA ou confirmação do custo); retoma deste passo. */
-  estado: "pendente" | "feito" | "erro" | "aguardando";
+  /**
+   * "aguardando": parado sem erro, à espera da pessoa (chave da IA ou confirmação do custo); retoma deste passo.
+   * "executando": a chamada paga à IA deste passo foi reservada e está em curso (outra aba não chama de novo).
+   */
+  estado: "pendente" | "feito" | "erro" | "aguardando" | "executando";
   erro?: string | null;
-  /** Referência do passo: documento (índice na lista de PDFs), página e pavimento. */
+  /** Referência do passo: documento (índice na lista de PDFs quando o passo foi criado), página e pavimento. */
   doc?: number; pagina?: number; pavimentoId?: string; edificacaoId?: string;
+  /** Identidade do PDF do passo (fonte + id): é por ela, e não pela posição na lista, que o arquivo é achado. */
+  arquivo?: { fonte: DocumentoMaquete["fonte"]; id: number; nome: string };
   motor?: MotorDoPasso; modelo?: string | null; tokens?: { entrada: number; saida: number } | null;
-  aguardando?: "chave" | "confirmacao" | null;
+  /** "teto": a maquete já usou o teto de pranchas pela IA; só passa dele com a confirmação "além do teto" do admin. */
+  aguardando?: "chave" | "confirmacao" | "teto" | null;
+  /** Quando a chamada paga foi reservada (passo "executando"): reserva velha demais é dada como interrompida. */
+  reservadoEm?: string | null;
   /** Por que a prancha foi para a IA (critério objetivo, ver `motivoParaIA`). */
   motivoIA?: string | null;
   /** O que foi enviado à IA: a imagem da página, um PDF só daquela página, ou o PDF original com a instrução da página. */
   envio?: "imagem" | "pdf_pagina" | "pdf_original" | null;
 };
 
-/** Confirmação do custo da IA: uma vez por maquete (sobrevive a "ler de novo"). */
-export type ConfirmacaoIA = { em: string; por: number | null; pranchas: number };
+/**
+ * Confirmação do custo da IA (EPIC-024, correção do QA): vale só para a execução atual (esta leitura ou esta
+ * importação) e para `pranchas` chamadas pagas; expira quando `usadas` chega a `pranchas`. "Ler de novo" e uma
+ * importação nova nascem sem confirmação. `alemDoTeto`: o admin autorizou passar do teto por maquete.
+ */
+export type ConfirmacaoIA = { em: string; por: number | null; pranchas: number; usadas?: number; alemDoTeto?: boolean };
+export const confirmacaoValida = (c: ConfirmacaoIA | null | undefined): boolean => !!c && (c.usadas ?? 0) < c.pranchas;
 
 export type EstadoLeitura = {
   passos: PassoLeitura[];

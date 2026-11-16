@@ -13,7 +13,7 @@ import { implantacaoDoEstudo, type GradeElevacao } from "../../shared/maquete-3d
 import type { CenarioMassa } from "../../shared/incorporacao/massa.js";
 import {
   FAIXAS_PRECO, MAX_BYTES_PDF_AVULSO, MAX_DOCUMENTOS, ORIGENS_MAQUETE, escopoEnvioMaquete, PODE_REVISAR, comercialSchema, configSchema, documentoSchema, lerComercial, lerEstadoLeitura,
-  motorEfetivo, progressoLeitura, statusInicial, type DocumentoMaquete, type EstadoLeitura, type OrigemMaquete, type StatusMaquete,
+  motorEfetivo, progressoLeitura, statusInicial, type ConfigMaquete, type DocumentoMaquete, type EstadoLeitura, type OrigemMaquete, type StatusMaquete,
 } from "../../shared/maquete-3d/regras.js";
 import { adminProcedure, publicProcedure, router } from "../_core/trpc.js";
 import { avisarMaquetePronta, avisarPedidoAprovado, destinatario } from "./avisos.js";
@@ -22,9 +22,10 @@ import { clearUpload, readUpload } from "../document-upload-chunks.js";
 import { avancarLeitura, confirmarIA, iniciarLeitura, lerDocumentos, pularIA } from "./leitura.js";
 import {
   PODE_IMPORTAR, aplicarImportacao, avancarImportacao, confirmarIAImportacao, descartarImportacao, iniciarImportacao, lerImportacao,
-  pranchasDaLeitura, pularIAImportacao, salvarCandidata, type Importacao,
+  pranchasDaLeitura, pranchasParaTela, pularIAImportacao, salvarCandidata, type Importacao,
 } from "./importacao.js";
-import { ConflitoDeVersao, gravarModelo, lerRevisao, listarRevisoes } from "./revisoes.js";
+import { MENSAGEM_EM_CURSO, pendentesIA } from "./execucao-ia.js";
+import { ConflitoDeVersao, HistoricoIndisponivel, gravarModelo, lerRevisao, listarRevisoes } from "./revisoes.js";
 
 type Ctx = { user: { id: number; role: string } };
 function exigirAdmin(ctx: Ctx, acao: string) {
@@ -114,12 +115,12 @@ async function guardarPdfAvulso(m: Maquete3d, uploadId: string, nome: string, us
 }
 
 /** Importação em andamento para a tela: passos, quem leu cada prancha, a candidata e o fundo de cada pavimento dela. */
-function importacaoParaTela(imp: Importacao | null) {
+function importacaoParaTela(imp: Importacao | null, m: Maquete3d, config: ConfigMaquete) {
   if (!imp) return null;
   return {
     doc: imp.doc, documento: imp.documento, iniciadaEm: imp.iniciadaEm, passos: passosParaTela(imp.estado), progresso: progressoLeitura(imp.estado),
-    ia: resumoIA(imp.estado), tokens: { entrada: imp.estado.tokensEntrada, saida: imp.estado.tokensSaida },
-    candidata: imp.candidata, pranchas: imp.pranchas, avisos: imp.avisos.slice(0, 12),
+    ia: resumoIA(imp.estado, m, config), tokens: { entrada: imp.estado.tokensEntrada, saida: imp.estado.tokensSaida },
+    candidata: imp.candidata, pranchas: pranchasParaTela(imp.pranchas, m.documentos), avisos: imp.avisos.slice(0, 12),
     problemas: imp.candidata ? validarModelo(imp.candidata) : [],
   };
 }
@@ -144,11 +145,18 @@ function passosParaTela(leitura: EstadoLeitura) {
     aguardando: aguardando ?? null, motivoIA: motivoIA ?? null, envio: envio ?? null,
   }));
 }
-function resumoIA(leitura: EstadoLeitura) {
+/**
+ * Resumo da IA para a tela. `autorizadas`/`usadas`: a confirmação desta execução (expira ao usar todas);
+ * `lidasNaMaquete`/`teto`: o contador da maquete (leituras + importações) e o teto das Configurações.
+ */
+function resumoIA(leitura: EstadoLeitura, m?: Pick<Maquete3d, "iaPranchasLidas">, config?: ConfigMaquete) {
   const ia = leitura.passos.filter(p => p.tipo === "prancha_ia");
+  const c = leitura.confirmacaoIA;
   return {
     pranchas: ia.length, pendentes: ia.filter(p => p.estado !== "feito").length, lidas: ia.filter(p => p.motor === "ia").length,
-    confirmadaEm: leitura.confirmacaoIA?.em ?? null, foraDoLimite: (leitura.foraDoLimiteIA ?? []).slice(0, 20),
+    confirmadaEm: c?.em ?? null, autorizadas: c?.pranchas ?? 0, usadas: c?.usadas ?? 0, alemDoTeto: !!c?.alemDoTeto,
+    lidasNaMaquete: m?.iaPranchasLidas ?? 0, teto: config?.limitePranchasIA ?? null,
+    foraDoLimite: (leitura.foraDoLimiteIA ?? []).slice(0, 20),
   };
 }
 const retornoDoPasso = (estado: EstadoLeitura, status: StatusMaquete) => {
@@ -156,7 +164,9 @@ const retornoDoPasso = (estado: EstadoLeitura, status: StatusMaquete) => {
   const p = progresso.proximo;
   return {
     ...progresso, status, erro: p?.estado === "erro" ? p.erro ?? "Falha no passo." : null,
-    aguardando: p?.estado === "aguardando" ? { motivo: p.aguardando ?? "chave", mensagem: p.erro ?? "", pendentes: resumoIA(estado).pendentes } : null,
+    aguardando: p?.estado === "aguardando" ? { motivo: p.aguardando ?? "chave", mensagem: p.erro ?? "", pendentes: pendentesIA(estado) }
+      // Outra aba está lendo este passo pela IA: a tela para o laço (não chama de novo) e avisa.
+      : p?.estado === "executando" ? { motivo: "executando" as const, mensagem: MENSAGEM_EM_CURSO, pendentes: pendentesIA(estado) } : null,
   };
 };
 
@@ -277,16 +287,17 @@ export const maquete3dRouter = router({
     const m = await buscar(input.id);
     const modelo = lerModelo(m.modelo);
     const leitura = lerEstadoLeitura(m.leitura);
+    const config = await carregarConfig();
     const [liberador] = m.liberadoPor ? await db().select({ nome: users.name }).from(users).where(eq(users.id, m.liberadoPor)).limit(1) : [];
     return {
       ...paraTela(m), modelo, problemas: modelo ? validarModelo(modelo) : [],
       passos: passosParaTela(leitura),
-      ia: resumoIA(leitura),
+      ia: resumoIA(leitura, m, config),
       tokens: { entrada: leitura.tokensEntrada, saida: leitura.tokensSaida },
-      /** Em que arquivo e página está a planta de cada pavimento (fundo da revisão). */
-      pranchas: pranchasDaLeitura(leitura),
+      /** Em que arquivo e página está a planta de cada pavimento (fundo da revisão), com o arquivo achado pela identidade. */
+      pranchas: pranchasParaTela(pranchasDaLeitura(leitura), m.documentos),
       /** EPIC-024 S-05: planta arquitetônica importada em andamento (candidata, separada do modelo em uso). */
-      importacao: importacaoParaTela(lerImportacao(m.importacao)),
+      importacao: importacaoParaTela(lerImportacao(m.importacao), m, config),
       /** O que o leitor não conseguiu ler (prancha escaneada, página sem planta): aviso para a revisão. */
       avisosDaLeitura: Array.isArray(leitura.parciais.avisosDaLeitura) ? (leitura.parciais.avisosDaLeitura as string[]).slice(0, 12) : [],
       /** Escala usada em cada planta lida pelo leitor próprio, para a pessoa conferir. */
@@ -433,10 +444,13 @@ export const maquete3dRouter = router({
     } catch (e) { if (e instanceof LeituraIndisponivel) throw conflito(e.message); throw e; }
   }),
 
-  /** EPIC-024 S-03: o administrador confirma, uma vez por maquete, o envio das pranchas à IA (paga). */
-  confirmarIA: adminProcedure.input(idInput).mutation(async ({ ctx, input }) => {
-    exigirAdmin(ctx, "autorizar a leitura paga pela IA");
-    try { return retornoDoPasso(await confirmarIA(input.id, ctx.user.id), "em_leitura"); }
+  /**
+   * EPIC-024 S-03: o administrador confirma o envio das pranchas à IA (paga) para ESTA leitura — dentro do teto por
+   * maquete; com `alemDoTeto`, também as que passam dele. A confirmação expira quando as autorizadas forem lidas.
+   */
+  confirmarIA: adminProcedure.input(idInput.extend({ alemDoTeto: z.boolean().default(false) })).mutation(async ({ ctx, input }) => {
+    exigirAdmin(ctx, input.alemDoTeto ? "autorizar a leitura pela IA além do teto da maquete" : "autorizar a leitura paga pela IA");
+    try { return retornoDoPasso(await confirmarIA(input.id, ctx.user.id, input.alemDoTeto), "em_leitura"); }
     catch (e) { if (e instanceof LeituraIndisponivel) throw conflito(e.message); throw e; }
   }),
 
@@ -457,6 +471,8 @@ export const maquete3dRouter = router({
       });
     } catch (e) {
       if (e instanceof ConflitoDeVersao) throw conflito("A planta foi alterada por outra pessoa ou não está em revisão. Recarregue a página.");
+      // A planta atual não pôde ir para o histórico: nada foi salvo (a edição continua na tela para tentar de novo).
+      if (e instanceof HistoricoIndisponivel) throw conflito(e.message);
       throw e;
     }
     return { versao, problemas: validarModelo(input.modelo), resumo: resumoModelo(input.modelo) };
@@ -487,9 +503,9 @@ export const maquete3dRouter = router({
     try { return retornoDaImportacao(await avancarImportacao(input.id)); } catch (e) { traduzir(e); }
   }),
 
-  confirmarIAImportacao: adminProcedure.input(idInput).mutation(async ({ ctx, input }) => {
-    exigirAdmin(ctx, "autorizar a leitura paga pela IA");
-    try { return retornoDaImportacao(await confirmarIAImportacao(input.id, ctx.user.id)); } catch (e) { traduzir(e); }
+  confirmarIAImportacao: adminProcedure.input(idInput.extend({ alemDoTeto: z.boolean().default(false) })).mutation(async ({ ctx, input }) => {
+    exigirAdmin(ctx, input.alemDoTeto ? "autorizar a leitura pela IA além do teto da maquete" : "autorizar a leitura paga pela IA");
+    try { return retornoDaImportacao(await confirmarIAImportacao(input.id, ctx.user.id, input.alemDoTeto)); } catch (e) { traduzir(e); }
   }),
 
   pularIAImportacao: adminProcedure.input(idInput).mutation(async ({ input }) => {
@@ -572,6 +588,7 @@ export const maquete3dRouter = router({
       });
     } catch (e) {
       if (e instanceof ConflitoDeVersao) throw conflito("A maquete foi alterada por outra pessoa. Recarregue a página.");
+      if (e instanceof HistoricoIndisponivel) throw conflito(e.message);
       throw e;
     }
     return { lotes: r.implantacao.lotes.length, ruas: r.implantacao.ruas.length, temTerreno: r.implantacao.terreno.length > 0, temRelevo: !!r.implantacao.relevo, descartados: r.descartados, semCenario: !cenario };
@@ -655,6 +672,7 @@ export const maquete3dRouter = router({
       });
     } catch (e) {
       if (e instanceof ConflitoDeVersao) throw conflito("A maquete foi alterada por outra pessoa. Recarregue a página.");
+      if (e instanceof HistoricoIndisponivel) throw conflito(e.message);
       throw e;
     }
     const lotes = implantacao?.lotes.filter(l => l.tipo === "vendavel").length ?? 0;

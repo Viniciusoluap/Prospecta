@@ -36,6 +36,11 @@ export const maquetes3d = pgTable("maquetes_3d", {
   comercial: text("comercial").default("{}").notNull(),
   /** Importação de planta em andamento, separada do modelo em uso (0121, EPIC-024 S-05). */
   importacao: text("importacao"),
+  /**
+   * Chamadas pagas à IA já feitas nesta maquete, somando leituras e importações (0121, correção do QA do EPIC-024):
+   * é o contador do teto `limitePranchasIA` por maquete, incrementado no mesmo UPDATE que reserva a chamada.
+   */
+  iaPranchasLidas: integer("ia_pranchas_lidas").default(0).notNull(),
   revisadoPor: integer("revisado_por"),
   revisadoEm: timestamp("revisado_em"),
   publicadoEm: timestamp("publicado_em"),

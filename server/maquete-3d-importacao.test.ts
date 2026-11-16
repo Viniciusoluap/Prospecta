@@ -242,7 +242,7 @@ describe("importar planta arquitetônica na revisão", () => {
     expect(d.modelo!.edificacoes.map(e => e.id)).toEqual(["imp1"]);
   });
 
-  it("PDF importado que é imagem segue o roteamento híbrido: confirmação (vale para a maquete) e IA só nessa prancha", async () => {
+  it("PDF importado que é imagem segue o roteamento híbrido: confirmação (só desta importação) e IA só nessa prancha", async () => {
     credencial = { apiKey: "sk-ant-teste-0000", modelo: null, origem: "painel" };
     const { id } = await colaborador().criar({ origem: "projeto", alvoId: 1, tipo: "casa", faixaPreco: "terrea_ate_70", documentos: [VET, IMG] });
     await admin().liberar({ id, nota: "PIX recebido em 16/11" });
@@ -258,14 +258,19 @@ describe("importar planta arquitetônica na revisão", () => {
     expect(d.modelo).toBeNull();
     expect(d.importacao!.passos.find(p => p.tipo === "prancha_ia")).toMatchObject({ motor: "ia", modelo: "claude-sonnet-5-5", tokens: { entrada: 3000, saida: 800 } });
     expect(d.importacao!.candidata!.edificacoes[0].pavimentos[0].comodos[0].nome).toBe("Sala");
-    // A confirmação ficou na maquete: a leitura principal não pergunta de novo.
+    // A confirmação era só desta importação: a leitura principal pergunta de novo, e só lê depois do admin.
     await colaborador().descartarImportacao({ id });
     expect((await colaborador().detalhe({ id })).importacao).toBeNull();
     await colaborador().definirDocumentos({ id, documentos: [IMG] });
     await colaborador().iniciarLeitura({ id });
     let l = await colaborador().avancarLeitura({ id });
     for (let i = 0; i < 10 && l.proximo && !l.aguardando && !l.erro; i++) l = await colaborador().avancarLeitura({ id });
+    expect(l).toMatchObject({ status: "em_leitura", aguardando: { motivo: "confirmacao" } });
+    expect(pedidos).toHaveLength(1);
+    await admin().confirmarIA({ id });
+    for (let i = 0; i < 10 && l.proximo && !l.erro; i++) l = await colaborador().avancarLeitura({ id });
     expect(l).toMatchObject({ status: "em_revisao", aguardando: null });
+    expect(pedidos).toHaveLength(2);
     expect((await colaborador().revisoes({ id })).map(x => x.origem)).toEqual(["leitura"]);
   });
 });

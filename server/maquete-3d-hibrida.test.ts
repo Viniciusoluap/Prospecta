@@ -168,10 +168,14 @@ describe("leitura híbrida — router com banco em memória e IA simulada", () =
     expect(d.modelo!.pendencias.some(p => p.descricao.includes("Planta lida pela IA a partir de uma imagem, sem cotas legíveis"))).toBe(true);
     expect(d.escalas.filter(e => e.lidaPor === "ia")).toEqual([{ titulo: "PLANTA BAIXA - EDÍCULA", escala: 0, origem: "suposta", lidaPor: "ia" }]);
 
-    // Ler de novo do zero: a confirmação vale para a maquete, não pergunta outra vez.
+    // Ler de novo do zero: a confirmação valia só para aquela leitura — a nova pergunta outra vez e não chama a IA.
     await colaborador().iniciarLeitura({ id });
+    expect(await ler(id)).toMatchObject({ status: "em_leitura", aguardando: { motivo: "confirmacao", pendentes: 1 } });
+    expect(pedidos).toHaveLength(1);
+    await admin().confirmarIA({ id });
     expect(await ler(id)).toMatchObject({ status: "em_revisao", aguardando: null });
     expect(pedidos).toHaveLength(2);
+    expect((await admin().detalhe({ id })).ia).toMatchObject({ lidasNaMaquete: 2, teto: 8, autorizadas: 1, usadas: 1 });
     expect(ENV.anthropicApiKey).toBe("sk-ant-do-ambiente-0000");
   });
 
@@ -198,19 +202,44 @@ describe("leitura híbrida — router com banco em memória e IA simulada", () =
     expect((await admin().detalhe({ id })).passos.some(p => p.tipo === "prancha_ia")).toBe(false);
   });
 
-  it("teto de pranchas pela IA por maquete: o que passa dele fica com o leitor próprio, e isso é dito", async () => {
+  it("teto de pranchas pela IA por maquete: a confirmação autoriza só até o teto; o que passa dele para e, sem o 'além do teto', fica com o leitor próprio (e isso é dito)", async () => {
     credencial = PAINEL;
     await configurar({ motor: "hibrido", limitePranchasIA: 1 });
     const id = await pedido([IMG, IMG2]);
-    expect((await ler(id)).aguardando!.motivo).toBe("confirmacao");
+    expect((await ler(id)).aguardando).toMatchObject({ motivo: "confirmacao", pendentes: 2 });
     await admin().confirmarIA({ id });
-    await ler(id);
+    const parado = await ler(id);
+    expect(parado.aguardando!.motivo).toBe("teto");
+    expect(parado.aguardando!.mensagem).toContain("já usou 1 de 1 prancha(s) pela IA");
+    expect(pedidos).toHaveLength(1);
+    // Confirmar de novo sem o "além do teto" não autoriza nada.
+    await expect(admin().confirmarIA({ id })).rejects.toThrow("já usou o teto de 1 prancha(s)");
+    await colaborador().pularIA({ id });
+    expect(await ler(id)).toMatchObject({ status: "em_revisao" });
     expect(pedidos).toHaveLength(1);
     const d = await admin().detalhe({ id });
-    expect(d.ia.pranchas).toBe(1);
+    expect(d.ia).toMatchObject({ pranchas: 2, lidas: 1, lidasNaMaquete: 1, teto: 1 });
     expect(d.ia.foraDoLimite).toHaveLength(1);
     expect(d.ia.foraDoLimite[0]).toContain("escaneada-2.pdf");
     expect(d.ia.foraDoLimite[0]).toContain("limite de 1 prancha(s)");
+  });
+
+  it("além do teto: só o admin autoriza, de forma explícita, e só para esta leitura", async () => {
+    credencial = PAINEL;
+    await configurar({ motor: "hibrido", limitePranchasIA: 1 });
+    const id = await pedido([IMG, IMG2]);
+    await ler(id);
+    await admin().confirmarIA({ id });
+    expect((await ler(id)).aguardando!.motivo).toBe("teto");
+    await expect(colaborador().confirmarIA({ id, alemDoTeto: true })).rejects.toThrow("Só o administrador");
+    await admin().confirmarIA({ id, alemDoTeto: true });
+    expect(await ler(id)).toMatchObject({ status: "em_revisao", aguardando: null });
+    expect(pedidos).toHaveLength(2);
+    expect((await admin().detalhe({ id })).ia).toMatchObject({ lidasNaMaquete: 2, alemDoTeto: true });
+    // Ler de novo: nada passa do teto sem uma autorização nova.
+    await colaborador().iniciarLeitura({ id });
+    expect((await ler(id)).aguardando!.motivo).toBe("teto");
+    expect(pedidos).toHaveLength(2);
   });
 
   it("tempo esgotado ou IA sobrecarregada: erro do passo com mensagem simples, e o mesmo passo é repetido", async () => {
@@ -221,9 +250,15 @@ describe("leitura híbrida — router com banco em memória e IA simulada", () =
     await admin().confirmarIA({ id });
     respostas.push(Object.assign(new Error("Request timed out."), { name: "APIConnectionTimeoutError" }), Object.assign(new Error("Overloaded"), { status: 529 }));
     expect((await ler(id)).erro).toContain("passou do tempo limite");
+    // O tempo esgotado pode ter sido cobrado: a prancha autorizada foi usada e repetir pede nova confirmação.
+    expect((await ler(id)).aguardando).toMatchObject({ motivo: "confirmacao" });
+    expect(pedidos).toHaveLength(1);
+    await admin().confirmarIA({ id });
     expect((await ler(id)).erro).toBe("A IA está sobrecarregada agora. Tente de novo este passo em instantes.");
+    // Sobrecarga (529) não é cobrada: a prancha volta para a confirmação e o passo se repete sem perguntar de novo.
     expect(await ler(id)).toMatchObject({ status: "em_revisao", erro: null });
     expect(pedidos).toHaveLength(3);
+    expect((await admin().detalhe({ id })).ia).toMatchObject({ lidasNaMaquete: 2 });
     expect(pedidos.every(p => p.anexos?.length === 1)).toBe(true);
   });
 
@@ -258,10 +293,10 @@ describe("leitura híbrida — critérios, envio e conversão", () => {
   });
 
   it("envio: o JPEG da página como imagem; JPEG grande num PDF de uma página; prancha vetorial, o PDF original", () => {
-    expect(anexoDaPagina(RASTER, "x.pdf", 1, 1)).toEqual({ anexo: { tipo: "imagem", base64: JPEG.toString("base64") }, envio: "imagem" });
+    expect(anexoDaPagina(RASTER, "x.pdf", 1, 1, 1)).toEqual({ anexo: { tipo: "imagem", base64: JPEG.toString("base64") }, envio: "imagem" });
     // JPEG de 4 MB (o de verdade com bytes a mais no fim): não cabe como imagem, vai num PDF só daquela página.
     const grande = Buffer.concat([JPEG, Buffer.alloc(4_000_000, 0)]);
-    const r = anexoDaPagina(pdfDeUmJpeg({ jpeg: grande, ...ladosDoJpeg(JPEG)! }), "x.pdf", 1, 1);
+    const r = anexoDaPagina(pdfDeUmJpeg({ jpeg: grande, ...ladosDoJpeg(JPEG)! }), "x.pdf", 1, 1, 1);
     expect(r.envio).toBe("pdf_pagina");
     expect(jpegDaPagina(Buffer.from((r.anexo as { base64: string }).base64, "base64"), 1)!.jpeg.equals(grande)).toBe(true);
     expect(anexoDaPagina(VETORIAL, "s.pdf", 2, 2)).toMatchObject({ envio: "pdf_original", anexo: { tipo: "pdf", nome: "s.pdf" } });
