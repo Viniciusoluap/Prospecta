@@ -1,23 +1,35 @@
 // Maquete 3D (EPIC-024 S-05) — histórico das plantas: cada mudança do modelo grava uma linha em maquete_3d_revisoes
-// com o modelo inteiro. Sem transação interativa (neon-http): o modelo é gravado primeiro, com a trava otimista
-// (UPDATE ... WHERE modelo_versao = versão lida), e a revisão logo depois; a versão é única por maquete.
-import { and, desc, eq, inArray, isNull, sql } from "drizzle-orm";
+// com o modelo inteiro. Sem transação interativa (neon-http). Regra do dono: a planta anterior nunca se perde. Por
+// isso a ordem é: (1) a planta que vai ser substituída é guardada no histórico (se já estiver lá, nada muda); se isso
+// falhar, a operação para com erro claro e NADA é sobrescrito; (2) o modelo novo é gravado com a trava otimista
+// (UPDATE ... WHERE modelo_versao = versão lida); (3) a revisão nova é registrada. Se (3) falhar, o modelo novo
+// está na própria maquete e entra no histórico pelo passo (1) da próxima mudança: o erro vai só para o log.
+import { and, desc, eq, inArray, isNull, sql, type SQL } from "drizzle-orm";
 import { users } from "../../drizzle/schema.js";
 import { maquete3dRevisoes, maquetes3d, type Maquete3d } from "../../drizzle/schema-maquete-3d.js";
 import type { ModeloMaquete } from "../../shared/maquete-3d/modelo.js";
 import type { DocumentoMaquete, StatusMaquete } from "../../shared/maquete-3d/regras.js";
-import { agora, db } from "./base.js";
+import { LeituraIndisponivel, agora, db } from "./base.js";
 
 export const ORIGENS_REVISAO = ["anterior", "leitura", "edicao", "tipo_padrao", "implantacao_estudo", "importacao_pdf", "restauracao"] as const;
 export type OrigemRevisao = (typeof ORIGENS_REVISAO)[number];
 
-/** Modelo que existia antes do histórico (maquete antiga): guardado uma vez, para poder voltar a ele. */
+/** Não foi possível guardar a planta atual no histórico: a operação que a substituiria foi cancelada. */
+export class HistoricoIndisponivel extends LeituraIndisponivel {}
+
+/**
+ * Guarda no histórico a planta que está na maquete (versão atual), ANTES de ela ser substituída. Já guardada (a
+ * versão tem linha): nada muda. Falhou: lança `HistoricoIndisponivel` e quem chamou não sobrescreve nada.
+ */
 export async function guardarAnterior(m: Pick<Maquete3d, "id" | "modelo" | "modeloVersao">, motivo = "Planta como estava antes do histórico"): Promise<void> {
   if (!m.modelo) return;
   try {
     await db().insert(maquete3dRevisoes).values({ maqueteId: m.id, versao: m.modeloVersao, modelo: m.modelo, origem: "anterior", motivo, createdAt: agora() })
       .onConflictDoNothing();
-  } catch (e) { console.error(`[maquete-3d] histórico: falha ao guardar a planta anterior da maquete ${m.id}:`, e instanceof Error ? e.message : e); }
+  } catch (e) {
+    console.error(`[maquete-3d] histórico: falha ao guardar a planta anterior da maquete ${m.id}:`, e instanceof Error ? e.message : e);
+    throw new HistoricoIndisponivel("Não foi possível guardar a planta atual no histórico, então nada foi alterado (a planta anterior nunca é perdida). Tente de novo em instantes.");
+  }
 }
 
 /** O modelo já foi gravado quando a revisão é registrada: uma falha aqui é registrada no log e não desfaz o salvamento. */
@@ -35,18 +47,22 @@ export class ConflitoDeVersao extends Error {}
 /**
  * Grava um modelo novo com a trava otimista e registra a revisão. `de`: a maquete como foi lida (versão e status).
  * `status`: situações em que a mudança vale. `extra`: outras colunas a gravar junto (status, tipo, publicação…).
+ * Vale para toda mudança do modelo — edição comum, troca de tipo, implantação do estudo, planta importada e
+ * restauração: a planta que está na maquete é guardada antes; sem isso, `HistoricoIndisponivel` e nada muda.
+ * `condicao`: condição a mais no UPDATE (ex.: a importação ainda é a que foi lida).
  */
 export async function gravarModelo(p: {
   de: Maquete3d; versao: number; modelo: ModeloMaquete; status: readonly StatusMaquete[]; extra?: Partial<typeof maquetes3d.$inferInsert>;
-  origem: OrigemRevisao; motivo?: string | null; documento?: DocumentoMaquete | null; autorId: number | null;
+  origem: OrigemRevisao; motivo?: string | null; documento?: DocumentoMaquete | null; autorId: number | null; condicao?: SQL;
 }): Promise<number> {
   const texto = JSON.stringify(p.modelo);
+  // Versão diferente da lida: conflito, sem tocar no histórico. Mesma versão: a planta atual vai antes para o histórico.
+  if (p.de.modeloVersao !== p.versao) throw new ConflitoDeVersao("A planta foi alterada por outra pessoa ou não está nesta situação. Recarregue a página.");
+  await guardarAnterior(p.de);
   const r = await db().update(maquetes3d).set({ ...p.extra, modelo: texto, modeloVersao: p.versao + 1, updatedAt: agora() })
-    .where(and(eq(maquetes3d.id, p.de.id), isNull(maquetes3d.deletedAt), eq(maquetes3d.modeloVersao, p.versao), inArray(maquetes3d.status, [...p.status])))
+    .where(and(eq(maquetes3d.id, p.de.id), isNull(maquetes3d.deletedAt), eq(maquetes3d.modeloVersao, p.versao), inArray(maquetes3d.status, [...p.status]), p.condicao))
     .returning({ versao: maquetes3d.modeloVersao });
   if (!r.length) throw new ConflitoDeVersao("A planta foi alterada por outra pessoa ou não está nesta situação. Recarregue a página.");
-  // Primeira mudança registrada de uma maquete antiga: a planta de antes entra no histórico.
-  if (p.de.modelo && p.de.modeloVersao === p.versao) await guardarAnterior(p.de);
   await registrarRevisao({ maqueteId: p.de.id, versao: r[0].versao, modelo: texto, origem: p.origem, motivo: p.motivo, documento: p.documento, autorId: p.autorId });
   return r[0].versao;
 }
