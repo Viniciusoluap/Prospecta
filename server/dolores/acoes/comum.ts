@@ -28,7 +28,12 @@ export type ContextoAcao = {
 
 /** O pedido não pode ser feito (cliente não existe, nada pendente…): recusa explicada, auditada como "recusada". */
 export class RecusaAcao extends Error {
-  constructor(motivo: string) { super(motivo); this.name = "RecusaAcao"; }
+  /**
+   * A explicação traz texto vindo do BANCO (nomes da equipe, mensagem do gerador…)? Então ela contamina o comando
+   * (QA R2 N2): depois dela, nenhuma ação direta roda. Padrão: texto fixo do sistema (só ids e números).
+   */
+  readonly comDados: boolean;
+  constructor(motivo: string, opcoes: { comDados?: boolean } = {}) { super(motivo); this.name = "RecusaAcao"; this.comDados = opcoes.comDados === true; }
 }
 
 export type ResultadoAcao = Resultado & {

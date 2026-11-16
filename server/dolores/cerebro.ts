@@ -204,7 +204,10 @@ export async function executarComando(p: PedidoComando): Promise<ResultadoComand
           contaminado, motivoContaminacao, semAcoes: !comAcoes, aoPorNaFila: cs => cs.forEach(c => codigosNaFila.add(c)) },
       );
       // a partir daqui (inclusive as próximas chamadas desta mesma volta), ação direta só pela fila
-      if (resp.body.ok === true && contaminaOComando(String(u.name)) && !contaminado) { contaminado = true; motivoContaminacao = "leitura"; }
+      // QA R2 N2: qualquer resposta — ok OU erro — com texto vindo do banco contamina (a porta marca); sem a marca, vale o
+      // registro da função para respostas ok (na dúvida, contamina)
+      const contamina = resp.contamina ?? (resp.body.ok === true && contaminaOComando(String(u.name)));
+      if (contamina && !contaminado) { contaminado = true; motivoContaminacao = "leitura"; }
       resultados.push({ type: "tool_result", tool_use_id: u.id, content: JSON.stringify(resp.body), ...(resp.body.ok === true ? {} : { is_error: true }) });
     }
     mensagens.push({ role: "user", content: resultados });

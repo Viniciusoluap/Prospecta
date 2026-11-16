@@ -62,7 +62,15 @@ function contarFalha(ip: string, agora: Date): boolean {
 }
 const usoLocal = new Map<number, number>();
 
-export type RespostaPonte = { status: number; body: Record<string, unknown> };
+export type RespostaPonte = {
+  status: number; body: Record<string, unknown>;
+  /**
+   * QA R2 N2 — esta resposta leva ao modelo texto vindo do BANCO (de terceiros ou editável pela equipe)? Decidido pela porta,
+   * ok OU erro: leitura com dados, item da fila (o resumo cita nomes), recusa com nomes. Fora do corpo (não vai ao modelo
+   * nem à ponte HTTP); o laço do WhatsApp (cerebro.ts) usa para a regra de contaminação.
+   */
+  contamina?: boolean;
+};
 type Pedido = Pick<Request, "headers" | "body" | "ip">;
 
 const envelope = z.object({
@@ -256,7 +264,8 @@ export async function executarFuncao(corpo: unknown, opcoes: OpcoesExecucao): Pr
     // Toda string da resposta passa pelo filtro de dados pessoais (texto livre: anotações, mensagens, títulos).
     const { valor, truncado } = limitarResposta(sanitizarResposta(r.dados));
     await registrar("ok", { funcao, argumentos: args.data, resumo: { ...r.resumo, truncado }, pedidoId });
-    return responder(200, { ok: true, avisoSeguranca: AVISO_SEGURANCA, truncado, ...(truncado ? { aviso: "Resposta cortada para caber no contexto: filtre ou peça a próxima página." } : {}), dados: valor });
+    return { ...responder(200, { ok: true, avisoSeguranca: AVISO_SEGURANCA, truncado, ...(truncado ? { aviso: "Resposta cortada para caber no contexto: filtre ou peça a próxima página." } : {}), dados: valor }),
+      contamina: leitura!.contamina !== false };
   } catch (e) {
     const motivo = erroSeguro(e);
     console.error("[dolores/ponte] falha na função", funcao, motivo);
@@ -301,7 +310,8 @@ async function executarAcao(acao: FuncaoAcao, args: unknown, c: {
       }
       await registrar("ok", { funcao, argumentos: args, resumo: { nivel: "direto", ...r.resumo }, pedidoId: c.pedidoId });
       const { valor } = limitarResposta(sanitizarResposta(r.dados));
-      return responder(200, { ok: true, nivel: "direto", avisoSeguranca: AVISO_SEGURANCA, dados: valor });
+      // a ação direta devolve só ids/códigos (QA R2 N2); se uma função marcar `contamina`, vale a marca dela
+      return { ...responder(200, { ok: true, nivel: "direto", avisoSeguranca: AVISO_SEGURANCA, dados: valor }), contamina: acao.contamina };
     }
     // Ação pedida DEPOIS de o comando ler dados (contaminação), ou de nível fila: nada é feito; vai para a fila do dono.
     const preparo = acao.nivel === "direto"
@@ -319,15 +329,17 @@ async function executarAcao(acao: FuncaoAcao, args: unknown, c: {
       naFila: criados.map(x => ({ resumo: x.resumo, jaAguardava: x.jaAguardava })),
       naoPreparados: recusados,
     }));
-    return responder(200, { ok: true, nivel: "fila", avisoSeguranca: AVISO_SEGURANCA,
+    // o resumo dos itens cita nomes do cadastro: contamina (QA R2 N2)
+    return { contamina: true, ...responder(200, { ok: true, nivel: "fila", avisoSeguranca: AVISO_SEGURANCA,
       aviso: acao.nivel === "direto"
         ? "NADA foi feito: como este pedido já leu dados do sistema, a ação foi para a fila de aprovação do dono (regra fixa). O sistema anexa à sua resposta a lista com os códigos; só o dono aprova."
-        : "NADA foi feito ainda: os itens estão na fila de aprovação. O sistema anexa à sua resposta a lista com os códigos; só o dono aprova.", dados: valor });
+        : "NADA foi feito ainda: os itens estão na fila de aprovação. O sistema anexa à sua resposta a lista com os códigos; só o dono aprova.", dados: valor }) };
   } catch (e) {
     if (e instanceof RecusaAcao) {
       const motivo = e.message.slice(0, 300);
       await registrar("recusada", { funcao, argumentos: args, motivo, pedidoId: c.pedidoId });
-      return responder(422, { ok: false, erro: motivo, nadaFoiFeito: true });
+      // recusa com texto do banco (ex.: nomes da equipe) contamina o comando (QA R2 N2)
+      return { ...responder(422, { ok: false, erro: motivo, nadaFoiFeito: true }), contamina: e.comDados };
     }
     const motivo = erroSeguro(e);
     console.error("[dolores/ponte] falha na ação", funcao, motivo);

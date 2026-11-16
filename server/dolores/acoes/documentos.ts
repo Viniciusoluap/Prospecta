@@ -46,7 +46,8 @@ async function conferir(obraId: number): Promise<Rascunho> {
   if (r === "sem_obra") throw new RecusaAcao(`Obra ${obraId} não encontrada.`);
   if (!r) throw new RecusaAcao("A obra não tem rascunho do Gerador de PCI salvo. A equipe preenche e salva o rascunho na tela da obra (Gerador de PCI) — a Dolores não preenche dados.");
   const erros = errosPci(normalizarFormularioPci(r.form), { paraGerar: true });
-  if (erros.length) throw new RecusaAcao(`O rascunho da PCI ainda não pode ser gerado: ${erros.slice(0, 5).join(" ").slice(0, 400)}`);
+  // as mensagens de conferência podem citar valores do rascunho (dado da equipe): contamina (QA R2 N2)
+  if (erros.length) throw new RecusaAcao(`O rascunho da PCI ainda não pode ser gerado: ${erros.slice(0, 5).join(" ").slice(0, 400)}`, { comDados: true });
   const { modeloAtualPci } = await import("../../pci-gerador.js");
   if (!(await modeloAtualPci())) throw new RecusaAcao("Nenhum modelo de PCI cadastrado (Integrações › PCI da CAIXA).");
   return r;
@@ -85,7 +86,7 @@ export async function executarDocumentoAprovado(args: z.infer<typeof entradaDocu
     // regravarRascunho: false — o rascunho é da equipe; a Dolores gera a partir dele e não o altera (autoria e corrida)
     gerada = await gerarPciDaObra(args.obraId, r.form, { id: ctx.autorId, name: DOLORES_NOME }, { regravarRascunho: false, prazoDriveMs });
   } catch (e) {
-    throw new RecusaAcao(`O gerador recusou: ${(e instanceof Error ? e.message : "erro").slice(0, 300)}`);
+    throw new RecusaAcao(`O gerador recusou: ${(e instanceof Error ? e.message : "erro").slice(0, 300)}`, { comDados: true });
   }
   // Daqui em diante a PCI EXISTE: nenhuma falha pode virar "não foi executado".
   const titulo = textoDeDado(r.obra.title, 60);

@@ -38,10 +38,12 @@ async function resolverResponsavel(nome: string) {
   const exatos = todos.filter(u => sem(u.name!) === alvo);
   const candidatos = exatos.length ? exatos : todos.filter(u => sem(u.name!).includes(alvo));
   if (candidatos.length === 1) return candidatos[0];
-  const nomes = (candidatos.length ? candidatos : todos).slice(0, 12).map(u => u.name).join(", ");
+  // QA R2 N2: os nomes vêm do banco (o próprio colaborador edita o dele): cada um vai cortado numa linha de até 60
+  // caracteres e a recusa CONTAMINA o comando — depois dela, ação direta só pela fila.
+  const nomes = (candidatos.length ? candidatos : todos).slice(0, 12).map(u => textoDeDado(u.name, 60)).join(", ");
   throw new RecusaAcao(candidatos.length
-    ? `Mais de um responsável combina com "${nome.slice(0, 40)}": ${nomes}. Diga qual.`
-    : `Ninguém ativo da equipe (administrador ou colaborador) com o nome "${nome.slice(0, 40)}". Possíveis: ${nomes || "nenhum"}.`);
+    ? `Mais de um responsável combina com "${textoDeDado(nome, 40)}": ${nomes}. Diga qual.`
+    : `Ninguém ativo da equipe (administrador ou colaborador) com o nome "${textoDeDado(nome, 40)}". Possíveis: ${nomes || "nenhum"}.`, { comDados: true });
 }
 
 export async function criarTarefa(args: z.infer<typeof entradaCriarTarefa>, ctx: ContextoAcao): Promise<ResultadoAcao> {
@@ -84,8 +86,9 @@ export async function criarTarefa(args: z.infer<typeof entradaCriarTarefa>, ctx:
   const frase = textoDeDado(`Tarefa #${criada.id} "${titulo.slice(0, 80)}" para ${responsavel.name} (${prazoTexto}; ${vinculo})`, 300);
   await registrarAutoria(ctx, { tabela: "tasks", registroId: criada.id, funcao: "criar_tarefa", descricao: frase });
   return {
-    // ao modelo, o vínculo vai só pelo tipo e id (nome de cliente/obra é dado; não volta ao laço)
-    dados: { tarefaId: criada.id, responsavel: responsavel.name, prazo: isoFortaleza(dueAt), prioridade: args.prioridade, vinculo: relatedId ? `${args.vinculo!.tipo} ${relatedId}` : "sem vínculo" },
+    // QA R2 N2: ao modelo vão só ids, datas e códigos do sistema — nenhum texto do banco (o nome do responsável e o do
+    // cliente/obra aparecem para o dono no quadro "Registrado no sistema por mim", montado pelo sistema).
+    dados: { tarefaId: criada.id, responsavelId: responsavel.id, prazo: isoFortaleza(dueAt), prioridade: args.prioridade, vinculo: relatedId ? `${args.vinculo!.tipo} ${relatedId}` : "sem vínculo" },
     resumo: { criada: true, tarefaId: criada.id, comPrazo: Boolean(dueAt), vinculo: relatedType },
     feitos: [frase],
   };

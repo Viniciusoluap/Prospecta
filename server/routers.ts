@@ -226,7 +226,9 @@ export const appRouter = router({
     updateProfile: protectedProcedure
       .input(
         z.object({
-          name: z.string().optional(),
+          // EPIC-025 (QA R2 N2): o nome aparece para outros (tarefas, Dolores) — até 100 caracteres, uma linha só
+          name: z.string().max(100, "O nome pode ter no máximo 100 caracteres.")
+            .refine(n => !/[\u0000-\u001f\u007f\u2028\u2029]/.test(n), "O nome deve ter uma linha só, sem caracteres de controle.").optional(),
           email: z.string().email().optional(),
           cpf: z.string().max(14).optional(),
           phone: z.string().max(20).optional(),
