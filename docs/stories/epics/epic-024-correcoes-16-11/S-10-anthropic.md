@@ -47,6 +47,16 @@ pela avaliação por IA, pelo mercado da incorporação, pela base da maquete e 
 - Guarda: teste varre `server/**/*.ts` (fora testes) e falha se algum arquivo além do router e do acessor citar
   `anthropic-painel`.
 
+## Correções do portão de QA (16/11, CONCERNS)
+- [x] Q1 (MEDIUM): guarda reforçada — procura também `anthropic_painel` (chave do banco), `configuracaoAnthropicPainel` e
+      as constantes, em `server/`, `api/`, `shared/`, `scripts/`, `client/` e `drizzle/`; no router, confere que só
+      `statusAnthropic`, `testarAnthropic`, `salvarAnthropic`, `removerAnthropic`, `modelosAnthropic` e
+      `salvarModeloAnthropic` usam o acessor.
+- [x] Q2 (LOW): chave salva que não decifra (JWT_SECRET trocado) → status `ilegivel` com "não pode ser lida — cadastre de
+      novo" (a tela mostra o aviso e deixa remover); valor `plain:` é recriptografado na primeira leitura.
+- [x] Q3 (LOW): ao trocar a chave, o modelo preferencial é revalidado na lista da chave nova e limpo, com aviso, se não for
+      oferecido.
+
 ## Testes
 - Automáticos: `server/integracoes-anthropic.test.ts` — 12 testes (chave nunca devolvida, gravada criptografada,
   validação antes de salvar, troca, remoção, teste sem chave não chama a API, erro mascarado, lista de modelos com
@@ -67,3 +77,5 @@ pela avaliação por IA, pelo mercado da incorporação, pela base da maquete e 
 |------|-------|---------|
 | 16/11/2026 | @dev (Dex) | Story criada e Draft → InProgress (YOLO, regra de execução contínua do EPIC-024) |
 | 16/11/2026 | @dev (Dex) | InProgress → Ready for Review: painel, acessor isolado, 12 testes |
+| 16/11/2026 | @qa | Portão: CONCERNS (Q1 MEDIUM, Q2/Q3 LOW) |
+| 16/11/2026 | @dev (Dex) | Q1–Q3 corrigidos; 16 testes no arquivo |
