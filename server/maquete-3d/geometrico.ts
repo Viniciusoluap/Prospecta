@@ -254,7 +254,9 @@ function pecasDeParede(retas: Reta[]): Peca[] {
   for (const c of candidatas) { const k = Math.round(c.esp * 100); hist.set(k, (hist.get(k) ?? 0) + (c.t1 - c.t0)); }
   const ordenado = Array.from(hist.entries()).sort((a, b) => b[1] - a[1]);
   const picos = [ordenado[0][0]];
-  const segundo = ordenado.find(([k, peso]) => Math.abs(k - picos[0]) >= 4 && peso >= ordenado[0][1] * 0.2);
+  // A segunda espessura precisa de peso de verdade (paredes externas × internas): soleiras, peitoris e móveis
+  // encostados em parede também dão pares de linhas, mas somam bem menos.
+  const segundo = ordenado.find(([k, peso]) => Math.abs(k - picos[0]) >= 4 && peso >= ordenado[0][1] * 0.35);
   if (segundo) picos.push(segundo[0]);
   if (process.env.TMP_PICOS) { const am = candidatas.filter(c => Math.round(c.esp * 100) === 35); const pos = new Map<string, number>(); for (const c of am) { const q = ponto(c.ang, c.rho, (c.t0 + c.t1) / 2); const kk = `${Math.round(q.x / 2) * 2},${Math.round(q.y / 2) * 2},a${c.ang}`; pos.set(kk, (pos.get(kk) ?? 0) + c.t1 - c.t0); } console.log('POS35', Array.from(pos.entries()).sort((a, b) => b[1] - a[1]).slice(0, 25).map(([k, v]) => `${k}:${v.toFixed(1)}`).join(' ')); }
   if (process.env.TMP_PICOS) console.log('PICOS', picos, ordenado.slice(0, 8).map(([k, p]) => `${k}:${p.toFixed(1)}`).join(' '));
@@ -367,8 +369,26 @@ function paredesComVaos(grupos: Peca[][], ctx: Contexto): Parede[] {
     }
     fechar();
   }
-  vaosNasPontas(paredes, ctx);
-  return paredes;
+  if (process.env.TMP_DUP) for (const w of paredes) if (w.ang === 0 && w.rho > 7.5 && w.rho < 9.6 && w.t0 > 4 && w.t1 < 11) console.log('W', w.rho.toFixed(3), w.t0.toFixed(2), w.t1.toFixed(2), w.esp.toFixed(3), JSON.stringify(w.vaos));
+  const unicas = semDuplicadas(paredes);
+  vaosNasPontas(unicas, ctx);
+  return unicas;
+}
+
+/**
+ * Duas "paredes" paralelas cujas faixas se encostam são uma parede só (as camadas de reboco/revestimento que o Revit
+ * desenha dão pares um pouco deslocados) ou uma parede e um móvel/box encostado nela. Fica a mais comprida; as
+ * aberturas da outra que ela não tem passam para ela.
+ */
+function semDuplicadas(paredes: Parede[]): Parede[] {
+  const ordem = [...paredes].sort((p, q) => (q.t1 - q.t0) - (p.t1 - p.t0)), ficam: Parede[] = [];
+  for (const v of ordem) {
+    const w = ficam.find(u => u.ang === v.ang && Math.abs(u.rho - v.rho) <= (u.esp + v.esp) / 2 + 0.03 && Math.min(u.t1, v.t1) - Math.max(u.t0, v.t0) >= (v.t1 - v.t0) * 0.5);
+    if (!w) { ficam.push(v); continue; }
+    if (process.env.TMP_DUP && v.vaos.length) console.log('DUP', v.ang, v.rho.toFixed(3), v.t0.toFixed(2), v.t1.toFixed(2), JSON.stringify(v.vaos), '->', w.rho.toFixed(3), w.t0.toFixed(2), w.t1.toFixed(2), JSON.stringify(w.vaos));
+    for (const a of v.vaos) if (a.t >= w.t0 && a.t <= w.t1 && !w.vaos.some(b => Math.abs(b.t - a.t) < (a.largura + b.largura) / 2)) w.vaos.push(a);
+  }
+  return paredes.filter(w => ficam.includes(w));
 }
 
 /**
