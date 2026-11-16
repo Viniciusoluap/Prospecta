@@ -710,8 +710,20 @@ function trocarBanco(m: string, rotulo: string, sep: string, valor: string, cent
   if (nucleo.replace(/\D/g, "").length < 3 || ANO.test(nucleo) || COLADO_EM_LETRA.test(t.slice(pos + m.length))) return m;
   // QA r7 A5: só o nome do banco antes — o número precisa ter forma de conta/agência (hífen + dígito ou dois grupos)
   if (SO_BANCO.test(rotulo.trim()) && !/\d{3,}-[\dxX]|\d{3,}(?: | ?[/|] ?)\d{3,}/.test(nucleo)) return m;
+  // QA r8 achado 4: intervalo de anos ("safra 2025-2026", "BB 2025-2026"), ano-mês ("cc 2026-11", "inter 2025-11") e
+  // número com unidade depois ("caixa 1000-2000 litros", "neon 1200-1500 lm") não são conta.
+  if (INTERVALO_DE_ANOS.test(nucleo) || ANO_MES.test(nucleo) || UNIDADE_DEPOIS_DA_CONTA.test(t.slice(pos + m.length, pos + m.length + 16))) return m;
+  // "safra", "inter", "neon", "caixa" são palavras comuns: sem "banco"/agência/conta/pix por perto, só o número com
+  // dígito verificador de conta ("12345-6") sai.
+  if (NOMES_AMBIGUOS.test(rotulo.trim()) && !/\d-[\dxX]$/.test(nucleo)
+    && !CONTEXTO_BANCARIO.test(t.slice(Math.max(0, pos - 30), pos)) && !CONTEXTO_BANCARIO.test(t.slice(pos + m.length, pos + m.length + 30))) return m;
   return `${rotulo}${sep}${BANCARIO_OMITIDO}${resto}`;
 }
+const INTERVALO_DE_ANOS = /^(?:19|20)\d\d\s*[-/]\s*(?:19|20)\d\d$/;
+const ANO_MES = /^(?:19|20)\d\d-(?:0[1-9]|1[0-2])$/;
+const UNIDADE_DEPOIS_DA_CONTA = new RegExp(String.raw`^\s*(?:litros?|l|lm|lumens?|m²|m2|m³|m3|m|cm|mm|km|kg|g|t|ton|un|unid(?:ades)?|p[cç]s?|pe[cç]as?|kw|kwh|w|v|volts?|watts?|%|reais|anos?|meses|dias|horas?|h|sacos?|caixas?)(?![\p{L}\p{N}])`, "iu");
+const NOMES_AMBIGUOS = /^(?:safra|inter|neon|caixa)$/i;
+const CONTEXTO_BANCARIO = new RegExp(String.raw`(?<![\p{L}\p{N}])(?:banco|ag[eê]ncia|ag|conta|cc|c\/c|cta|pix|transfer[eê]ncia|ted|doc)(?![\p{L}])`, "iu");
 
 /** PIX: e-mail ou uuid sempre; número só com 8–14 dígitos e sem centavos logo depois. */
 function trocarPix(m: string, rotulo: string, sep: string, valor: string, pos: number, t: string): string {

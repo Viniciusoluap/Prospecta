@@ -756,7 +756,18 @@ describe("filtro de dados pessoais em texto livre (M1)", () => {
       expect(sanitizarTexto(t, LIB), t).toBe(t);
       expect(sanitizarTexto(t), t).toBe(t);
     }
-    for (const p of ["pix é o cpf ", "conta do Bradesco ", "Itaú 0001 ", "pix -> ", "BB 1234-5 / "]) {
+    // QA r8 achado 4: intervalos de anos, ano-mês, unidade depois e nome ambíguo sem contexto bancário ficam
+    for (const t of ["safra 2025-2026", "BB 2025-2026", "caixa 1000-2000 litros", "neon 1200-1500 lm", "cc 2026-11", "inter 2025-11",
+      "Caixa 500-1000 L", "safra 2024/2025 de soja", "inter 1200-1500 m²"]) {
+      expect(sanitizarTexto(t, LIB), t).toBe(t);
+      expect(sanitizarTexto(t), t).toBe(t);
+    }
+    for (const [t, esperado] of [["Itaú 0001 12345-6", `Itaú ${B}`], ["conta do Bradesco 12345-6", `conta do Bradesco ${B}`],
+      ["banco Inter ag 0001 cc 123456-7", `banco Inter ag ${B} cc ${B}`], ["Caixa 12345-6", `Caixa ${B}`], ["banco Safra 1234 56789", `banco Safra ${B}`],
+      ["conta no neon 123456", `conta no neon ${B}`], ["conta 2026-1", `conta ${B}`]] as const) {
+      expect(sanitizarTexto(t, LIB), t).toBe(esperado);
+    }
+    for (const p of ["pix é o cpf ", "conta do Bradesco ", "Itaú 0001 ", "pix -> ", "BB 1234-5 / ", "safra 2025-2026 ", "neon 1200-1500 lm "]) {
       const t = p.repeat(Math.ceil(200 * 1024 / p.length));
       const t0 = performance.now();
       sanitizarTexto(t, LIB);
