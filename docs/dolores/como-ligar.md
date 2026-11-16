@@ -209,6 +209,11 @@ logs e as mensagens de erro.
 2. Fazer um **Redeploy**; a mudança só vale depois dele.
 3. Para liberar de novo: apagar a variável ou trocar o valor por `0`, e fazer outro Redeploy.
 
+Valores aceitos (sem diferença entre maiúsculas e minúsculas; espaços e aspas em volta não contam): **liberado** só com a
+variável ausente, vazia, `0`, `false`, `nao`, `não`, `off` ou `no`. **Qualquer outro valor mascara** (`1`, `true`, `sim`,
+`S`, `2`, `1 # comentário`…): na dúvida, o sistema esconde. Valor diferente de `1` e dos de "liberado" também gera um
+aviso no log (uma vez, sem mostrar o valor), para você corrigir.
+
 ## Parar
 - **Desligar a IA** (Integrações › Dolores): vale na hora; ela passa a responder só a frase fixa.
 - Pausa geral (`dolores_config.pausada`, etapa 1): para a ponte e o WhatsApp.
