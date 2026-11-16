@@ -88,7 +88,7 @@ export function AnthropicCard() {
           <Button size="sm" variant="outline" className={botaoSec} onClick={() => { setTrocando(t => !t); setChave(""); }}>{trocando ? "Cancelar" : s?.configurado ? "Trocar chave" : "Adicionar chave"}</Button>
           {s?.configurado && <Button size="sm" variant="outline" className={botaoSec} disabled={modelos.isPending} onClick={() => modelos.mutate()}>{modelos.isPending ? "Consultando…" : lista.length ? "Atualizar modelos" : "Escolher modelo"}</Button>}
           {(s?.configurado || s?.ilegivel) && <Button size="sm" variant="outline" className={botaoSec} disabled={remover.isPending}
-            onClick={() => { if (window.confirm("Remover a chave da Anthropic e o modelo preferencial?")) remover.mutate(); }}>Remover</Button>}
+            onClick={() => { if (window.confirm("Remover a chave da Anthropic, o modelo preferencial e os modelos escolhidos por função?")) remover.mutate(); }}>Remover</Button>}
         </div>
         {trocando && (
           <form className="space-y-3 rounded-lg bg-[#1A2332] p-3" onSubmit={e => { e.preventDefault(); salvar.mutate({ apiKey: chave }); }}>
