@@ -39,6 +39,16 @@ describe("forma das ruas", () => {
     expect(f.largura).toBeCloseTo(14, 1);
   });
 
+  it("rua que afunila (leito cortado pela divisa ao longo do comprimento): vira via mais estreita no comprimento todo, não um toco", () => {
+    // Caso real do Residencial Cajueiro: via de fundo com 7,2 m numa ponta e 9,4 m na outra, ~50 m de comprimento.
+    const f = formaDaRua([{ x: 88, y: 140 }, { x: 131, y: 166 }, { x: 136, y: 158 }, { x: 92, y: 134 }]);
+    expect(f?.tipo).toBe("reta");
+    if (f?.tipo !== "reta") return;
+    expect(Math.hypot(f.eixo[1].x - f.eixo[0].x, f.eixo[1].y - f.eixo[0].y)).toBeGreaterThan(40);
+    expect(f.largura).toBeGreaterThan(6);
+    expect(f.largura).toBeLessThan(9.3);
+  });
+
   it("círculo vira balão; anel (faixa curva) não", () => {
     const b = formaDaRua(circulo(50, 50, 11));
     expect(b?.tipo).toBe("balao");

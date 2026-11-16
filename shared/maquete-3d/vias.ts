@@ -291,28 +291,56 @@ export function formaDaRua(bruto: Ponto[]): FormaDeRua | null {
     // Cabeceira em viés (rua cortada pela divisa num ângulo): a caixa orientada passa do polígono de um dos lados
     // em até largura × tangente do viés. O eixo é encurtado até onde a via cabe com a largura inteira, para o
     // asfalto e a calçada não avançarem sobre o que está além da cabeceira (um lote, no motor de massa novo).
-    const n = nMais(cx.dir), meiaLargura = cx.largura / 2;
-    let t0 = -cx.comprimento / 2, t1 = cx.comprimento / 2;
-    for (const lado of [-0.94, 0.94]) {
-      const origem = soma(cx.centro, esc(n, lado * meiaLargura));
-      let min = Infinity, max = -Infinity;
-      for (let i = 0; i < pol.length; i++) {
-        const p = pol[i], q = pol[(i + 1) % pol.length], e = sub(q, p), den = cruz(cx.dir, e);
-        if (Math.abs(den) < 1e-9) continue;
-        const u = cruz(sub(p, origem), cx.dir) / den;
-        if (u < -1e-9 || u > 1 + 1e-9) continue;
-        const t = cruz(sub(p, origem), e) / den;
-        min = Math.min(min, t); max = Math.max(max, t);
+    const n = nMais(cx.dir);
+    // Trecho do eixo em que a via cabe inteira, para um centro e uma meia largura dados.
+    const aparar = (centro: Ponto, meiaLargura: number): [number, number] => {
+      let t0 = -cx.comprimento / 2, t1 = cx.comprimento / 2;
+      for (const lado of [-0.94, 0.94]) {
+        const origem = soma(centro, esc(n, lado * meiaLargura));
+        let min = Infinity, max = -Infinity;
+        for (let i = 0; i < pol.length; i++) {
+          const p = pol[i], q = pol[(i + 1) % pol.length], e = sub(q, p), den = cruz(cx.dir, e);
+          if (Math.abs(den) < 1e-9) continue;
+          const u = cruz(sub(p, origem), cx.dir) / den;
+          if (u < -1e-9 || u > 1 + 1e-9) continue;
+          const t = cruz(sub(p, origem), e) / den;
+          min = Math.min(min, t); max = Math.max(max, t);
+        }
+        if (max > min) { t0 = Math.max(t0, min); t1 = Math.min(t1, max); }
       }
-      if (max > min) { t0 = Math.max(t0, min); t1 = Math.min(t1, max); }
+      return [t0, t1];
+    };
+    let centro = cx.centro, largura = cx.largura, [t0, t1] = aparar(centro, largura / 2);
+    // Rua que afunila (a divisa corta o leito ao longo do comprimento, não só na cabeceira): com a largura inteira
+    // sobraria só um toco. Usa a faixa que cabe em quase todo o comprimento — mais estreita —, para a rua aparecer
+    // como rua (asfalto, meio-fio e pintura) em vez de uma laje lisa; o resto do leito continua pintado no terreno.
+    if (t1 - t0 < cx.comprimento * 0.6) {
+      let b0 = -Infinity, b1 = Infinity;
+      for (let k = 0; k <= 8; k++) {
+        const origem = soma(cx.centro, esc(cx.dir, cx.comprimento * (-0.4 + 0.1 * k)));
+        let min = Infinity, max = -Infinity;
+        for (let i = 0; i < pol.length; i++) {
+          const p = pol[i], q = pol[(i + 1) % pol.length], e = sub(q, p), den = cruz(n, e);
+          if (Math.abs(den) < 1e-9) continue;
+          const u = cruz(sub(p, origem), n) / den;
+          if (u < -1e-9 || u > 1 + 1e-9) continue;
+          const b = cruz(sub(p, origem), e) / den;
+          min = Math.min(min, b); max = Math.max(max, b);
+        }
+        if (max > min) { b0 = Math.max(b0, min); b1 = Math.min(b1, max); }
+      }
+      if (b1 - b0 >= 3) {
+        const c2 = soma(cx.centro, esc(n, (b0 + b1) / 2)), [u0, u1] = aparar(c2, (b1 - b0) / 2);
+        if (u1 - u0 > t1 - t0) { centro = c2; largura = b1 - b0; t0 = u0; t1 = u1; }
+      }
     }
     // Cunha (ponta de rua triangular, sobra do recorte pela divisa): não há trecho de largura inteira para erguer.
     // Fica sem geometria 3D e continua pintada como asfalto no terreno.
     if (t1 - t0 < 2) {
       if (area / cx.area < 0.7) return null;
-      t0 = -cx.comprimento / 2; t1 = cx.comprimento / 2;
+      centro = cx.centro; largura = cx.largura; t0 = -cx.comprimento / 2; t1 = cx.comprimento / 2;
     }
-    return { tipo: "reta", eixo: [soma(cx.centro, esc(cx.dir, t0)), soma(cx.centro, esc(cx.dir, t1))], largura: cx.largura };
+    return { tipo: "reta", eixo: [soma(centro, esc(cx.dir, t0)), soma(centro, esc(cx.dir, t1))], largura };
   }
   // Faixa curva (via que acompanha a divisa): acha as duas cabeceiras — arestas curtas, da ordem da largura da
   // faixa, com canto vivo nas duas pontas — e as duas bordas compridas entre elas.

@@ -17,7 +17,11 @@ let c: Cenario;
 let n = 0;
 beforeEach(async () => {
   c = await montarCenario(db => vi.mocked(getDb).mockReturnValue(db as never));
-  await c.pg.exec(`INSERT INTO leads (name, phone) VALUES ('Ana Souza', '99988887777'), ('Bruno Fora', '99911112222');
+  // Os leads nascem na hora do relógio do teste (12/11/2026), não na hora real da máquina: a reativação conta da
+  // entrada do lead, e com a data real o teste passou a falhar sozinho a partir de 13/11 (o lead "entrava" depois
+  // do relógio simulado).
+  const entrada = c.relogio.agora.toISOString();
+  await c.pg.exec(`INSERT INTO leads (name, phone, created_at) VALUES ('Ana Souza', '99988887777', '${entrada}'), ('Bruno Fora', '99911112222', '${entrada}');
     INSERT INTO central_vendas_leads (lead_id, operador_id) VALUES (1, 2), (2, 3);`);
 });
 afterEach(async () => { definirDependencias(); await c.pg.close(); });

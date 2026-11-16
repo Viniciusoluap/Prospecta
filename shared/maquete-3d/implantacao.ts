@@ -51,6 +51,7 @@ export function implantacaoDoEstudo(geojson: string | null, centro: [number, num
     const quadra = String(l.quadra ?? ""), nome = String(l.numero ?? "");
     return [{
       id: `l${i + 1}`, nome: nome.slice(0, 40), quadra: quadra.slice(0, 40), poligono, areaInformada: l.areaM2 > 0 ? r2(l.areaM2) : null, tipo: l.tipo,
+      uso: l.tipo === "area_publica" ? ((l as { uso?: string }).uso === "institucional" ? "institucional" as const : "verde" as const) : null,
       unidade: l.tipo === "vendavel" && quadra && nome ? codigoDaUnidade(quadra, nome) : null,
     }];
   });

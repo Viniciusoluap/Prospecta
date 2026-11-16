@@ -8,7 +8,7 @@ import { z } from "zod";
 import { incorporationStudies, leads, operationalProjects, projectDocuments, users } from "../../drizzle/schema.js";
 import { maquete3dArquivos, maquetes3d, type Maquete3d } from "../../drizzle/schema-maquete-3d.js";
 import { TIPOS_MAQUETE, areaPoligono, lerModelo, limites, modeloSchema, modeloVazio, podePublicar, pontosDoPavimento, resumoModelo, validarModelo, type Edificacao, type TipoMaquete } from "../../shared/maquete-3d/modelo.js";
-import { LIMITES_CASA, LIMITES_PREDIO, casaPadrao, contaDoEstacionamento, distribuirNosLotes, ehPadrao, predioPadrao, type ContaDoEstacionamento } from "../../shared/maquete-3d/padrao.js";
+import { LIMITES_CASA, LIMITES_M2_POR_VAGA, LIMITES_PREDIO, casaPadrao, contaDoEstacionamento, distribuirNosLotes, ehPadrao, predioPadrao, type ContaDoEstacionamento } from "../../shared/maquete-3d/padrao.js";
 import { implantacaoDoEstudo, type GradeElevacao } from "../../shared/maquete-3d/implantacao.js";
 import type { CenarioMassa } from "../../shared/incorporacao/massa.js";
 import {
@@ -421,6 +421,7 @@ export const maquete3dRouter = router({
       andares: z.number().int().min(LIMITES_PREDIO.andares[0]).max(LIMITES_PREDIO.andares[1]), aptosPorAndar: z.number().int().min(LIMITES_PREDIO.aptosPorAndar[0]).max(LIMITES_PREDIO.aptosPorAndar[1]),
       // Estacionamento (regra do dono): os apartamentos nunca passam das vagas que o terreno comporta.
       vagasPorApto: z.number().min(LIMITES_PREDIO.vagasPorApto[0]).max(LIMITES_PREDIO.vagasPorApto[1]).default(1), pilotis: z.boolean().default(true),
+      m2PorVaga: z.number().min(LIMITES_M2_POR_VAGA[0]).max(LIMITES_M2_POR_VAGA[1]).optional(),
       subsolos: z.number().int().min(LIMITES_PREDIO.subsolos[0]).max(LIMITES_PREDIO.subsolos[1]).default(0),
       /** Área do terreno do prédio, quando a maquete não tem lotes (prédio único). */
       areaTerreno: z.number().min(LIMITES_PREDIO.areaTerreno[0]).max(LIMITES_PREDIO.areaTerreno[1]).optional() }).optional(),
