@@ -215,6 +215,10 @@ describe("auditoria", () => {
     await tratarChamada(pedido({ funcao: "listar_tarefas" }));
     await expect(banco.pg.exec("UPDATE dolores_acoes SET resultado = 'erro'")).rejects.toThrow(/SOMENTE_INSERCAO/);
     await expect(banco.pg.exec("DELETE FROM dolores_acoes")).rejects.toThrow(/SOMENTE_INSERCAO/);
+    // L3: TRUNCATE também é recusado; apagar a usuária autora falha com o nome da regra (a auditoria fica)
+    await expect(banco.pg.exec("TRUNCATE dolores_acoes")).rejects.toThrow(/SOMENTE_INSERCAO/);
+    await expect(banco.pg.exec(`DELETE FROM users WHERE "openId" = '${DOLORES_OPEN_ID}'`)).rejects.toThrow(/dolores_acoes_usuaria_nao_pode_ser_apagada/);
+    expect(await acoes()).toHaveLength(1);
   });
 
   it("argumentos saneados: chaves sensíveis omitidas, dígitos longos mascarados, textos cortados", () => {
