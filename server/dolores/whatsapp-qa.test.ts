@@ -309,3 +309,32 @@ describe("QA achado 7 — log sem a consulta, sem os parâmetros e sem o texto d
     expect(ruins).toEqual([]);
   });
 });
+
+describe("Extra do QA — auditoria de remetente estranho limitada (uma linha por remetente por hora, com contagem)", () => {
+  it("spam de um número: uma linha só na auditoria, contagem à parte, número mascarado; outro número abre outra linha", async () => {
+    for (let i = 0; i < 30; i++) await chamar(aviso({ jid: "5511988887777@s.whatsapp.net", texto: `spam ${i}` }));
+    await chamar(lote(...Array.from({ length: 10 }, () => aviso({ jid: "5511988887777@s.whatsapp.net" }))));
+    await chamar(aviso({ jid: "5521977776666@s.whatsapp.net" }));
+    await chamar(aviso({ jid: "123@lid" })); // sem número conferível
+    const a = await acoes();
+    expect(a).toHaveLength(3);
+    expect(a[0]).toMatchObject({ funcao: "whatsapp_mensagem", resultado: "recusada", canal: "whatsapp" });
+    expect(a.map(x => x.resumo.remetente)).toEqual(["(11) *****-7777", "(21) *****-6666", null]);
+    const contagem = await q<any>("SELECT remetente, mensagens, hora, chave FROM dolores_remetentes_estranhos ORDER BY primeira_em, remetente");
+    expect(contagem.map(c => [c.remetente, c.mensagens])).toEqual([["(11) *****-7777", 40], ["(21) *****-6666", 1], [null, 1]]);
+    // a linha da auditoria aponta para a contagem (mesma chave e hora)
+    expect(a[0].pedido_id).toBe(`wa:estranho:${contagem[0].chave}:${contagem[0].hora}`);
+    expect(JSON.stringify([a, contagem])).not.toMatch(/988887777|977776666|spam/);
+    expect(enviar).not.toHaveBeenCalled();
+    expect(chamadas).toEqual([]);
+  });
+  it("na hora seguinte, nova linha para o mesmo remetente; reentrega não conta de novo", async () => {
+    await chamar(aviso({ jid: "5511988887777@s.whatsapp.net", id: "S1" }));
+    await chamar(aviso({ jid: "5511988887777@s.whatsapp.net", id: "S1" })); // reentrega
+    const depois = new Date(AGORA.getTime() + 61 * 60_000);
+    definirDependenciasWhatsapp({ agora: () => depois });
+    await chamar(aviso({ jid: "5511988887777@s.whatsapp.net", quando: new Date(depois.getTime() - 5_000) }));
+    expect(await acoes()).toHaveLength(2);
+    expect((await q<any>("SELECT mensagens FROM dolores_remetentes_estranhos ORDER BY hora")).map(c => c.mensagens)).toEqual([1, 1]);
+  });
+});

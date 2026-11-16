@@ -11,7 +11,7 @@
 import { createHash, createHmac, timingSafeEqual } from "node:crypto";
 import { Router, type Request, type Response } from "express";
 import { and, eq, lt, sql } from "drizzle-orm";
-import { doloresMensagens, doloresWhatsappConfig, type DoloresWhatsappConfig, type SituacaoMensagem } from "../../drizzle/schema-dolores-whatsapp.js";
+import { doloresMensagens, doloresRemetentesEstranhos, doloresWhatsappConfig, type DoloresWhatsappConfig, type SituacaoMensagem } from "../../drizzle/schema-dolores-whatsapp.js";
 import { sanitizarTexto } from "../../shared/dolores/sanitizar.js";
 import {
   FRASE_ENCAMINHADA, FRASE_ERRO, FRASE_SO_TEXTO, MAX_TEXTO_COMANDO, fraseSemTempo, bloqueioDoLimite, cortarResposta, ehNumeroDoDono, fraseDeBloqueio,
@@ -225,6 +225,34 @@ async function recuperarPedidosInterrompidos(cfg: DoloresWhatsappConfig, autor: 
   return vencidas.length;
 }
 
+/**
+ * Remetente que não é o dono: auditoria LIMITADA — a contagem por remetente e hora fica em dolores_remetentes_estranhos
+ * (uma instrução atômica: INSERT … ON CONFLICT DO UPDATE) e dolores_acoes (que só aceita inserção) recebe UMA linha por
+ * remetente por hora, a da primeira mensagem, apontando para a contagem. Spam não infla a auditoria. O remetente aparece
+ * só mascarado; a chave é um resumo HMAC (segredo do servidor) do número, que não se reverte por tentativa.
+ */
+async function auditarRemetenteEstranho(numero: string | null, autor: number | null, caracteres: number) {
+  const hora = deps.agora().toISOString().slice(0, 13); // janela de uma hora (UTC)
+  const chave = createHmac("sha256", ENV.cookieSecret).update(`dolores-remetente:${numero ?? "(sem número)"}`).digest("hex").slice(0, 16);
+  const remetente = numero ? mascararNumero(numero) : null;
+  let mensagens: number;
+  try {
+    const [r] = await getDb().insert(doloresRemetentesEstranhos).values({ chave, hora, remetente })
+      .onConflictDoUpdate({ target: [doloresRemetentesEstranhos.chave, doloresRemetentesEstranhos.hora],
+        set: { mensagens: sql`${doloresRemetentesEstranhos.mensagens} + 1`, ultimaEm: sql`now()` } })
+      .returning({ mensagens: doloresRemetentesEstranhos.mensagens });
+    mensagens = Number(r?.mensagens ?? 1);
+  } catch (e) {
+    console.error("[dolores/whatsapp] falha ao contar o remetente não autorizado", erroCurto(e));
+    mensagens = 1; // sem a contagem, audita (melhor uma linha a mais do que nenhuma)
+  }
+  if (mensagens !== 1) return;
+  await registrarAcao({ funcao: "whatsapp_mensagem", resultado: "recusada",
+    motivo: numero ? "remetente não autorizado (não é o número do dono); sem resposta" : "remetente sem número conferível; sem resposta",
+    autorUserId: autor, canal: "whatsapp", pedidoId: `wa:estranho:${chave}:${hora}`,
+    resumo: { remetente, janela: `${hora}h UTC`, caracteres, contagem: "dolores_remetentes_estranhos (uma linha por remetente por hora)" } });
+}
+
 export type RespostaWebhook = { status: number; body: Record<string, unknown> };
 type Pedido = Pick<Request, "headers" | "body" | "ip">;
 
@@ -281,8 +309,7 @@ export async function tratarWebhookDolores(req: Pedido): Promise<RespostaWebhook
     }
     if (!id) { contar("repetida"); continue; }
     if (!doDono) {
-      await registrarAcao({ funcao: "whatsapp_mensagem", resultado: "recusada", motivo: m.numero ? "remetente não autorizado (não é o número do dono); sem resposta" : "remetente sem número conferível; sem resposta",
-        autorUserId: autor, canal: "whatsapp", pedidoId: `wa:${id}`, resumo: { remetente: m.numero ? mascararNumero(m.numero) : null, caracteres: m.texto.length } });
+      await auditarRemetenteEstranho(m.numero, autor, m.texto.length);
       contar("nao-autorizado"); continue;
     }
     if (prazoFinal - deps.ms() < MINIMO_PARA_COMANDO_MS) {

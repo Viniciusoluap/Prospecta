@@ -8,7 +8,8 @@
 -- "dolores_consumo": uma linha por chamada ao modelo (tokens de entrada, saída e cache), base do limite mensal.
 -- Somente aditiva e idempotente: só tabelas, colunas e índices novos (IF NOT EXISTS); a linha de configuração entra com
 -- ON CONFLICT DO NOTHING. Nenhuma tabela anterior a esta migração é alterada.
--- Reversão: DROP TABLE "dolores_consumo", "dolores_mensagens", "dolores_whatsapp_config" (nada depende delas).
+-- Reversão: DROP TABLE "dolores_remetentes_estranhos", "dolores_consumo", "dolores_mensagens", "dolores_whatsapp_config"
+-- (nada depende delas).
 
 CREATE TABLE IF NOT EXISTS "dolores_whatsapp_config" (
   "id" integer PRIMARY KEY DEFAULT 1 CHECK ("id" = 1),
@@ -77,3 +78,17 @@ CREATE TABLE IF NOT EXISTS "dolores_consumo" (
 );
 
 CREATE INDEX IF NOT EXISTS "dolores_consumo_mes_idx" ON "dolores_consumo" ("mes");
+
+-- "dolores_remetentes_estranhos": contagem, por hora, das mensagens de números que NÃO são o dono (spam não infla
+--   "dolores_acoes", que só recebe a primeira de cada remetente na hora). "chave" = resumo HMAC do número com o segredo
+--   do servidor (não se reverte); "remetente" só mascarado. Nunca o texto.
+CREATE TABLE IF NOT EXISTS "dolores_remetentes_estranhos" (
+  "chave" varchar(16) NOT NULL,
+  -- hora (UTC) da janela: AAAA-MM-DDTHH
+  "hora" varchar(13) NOT NULL,
+  "remetente" varchar(30),
+  "mensagens" integer NOT NULL DEFAULT 1,
+  "primeira_em" timestamp with time zone NOT NULL DEFAULT now(),
+  "ultima_em" timestamp with time zone NOT NULL DEFAULT now(),
+  PRIMARY KEY ("chave", "hora")
+);

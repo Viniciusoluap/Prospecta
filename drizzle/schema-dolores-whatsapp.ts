@@ -1,6 +1,6 @@
 // 16/11/2026 — EPIC-025 (etapa 2): WhatsApp da Dolores e consumo da IA (migração 0124_dolores_whatsapp.sql).
 // Tabelas novas, em arquivo próprio: nada de `dolores_config` (etapa 1) foi alterado.
-import { boolean, index, integer, pgTable, serial, smallint, timestamp, uniqueIndex, varchar } from "drizzle-orm/pg-core";
+import { boolean, index, integer, pgTable, primaryKey, serial, smallint, timestamp, uniqueIndex, varchar } from "drizzle-orm/pg-core";
 import { users } from "./schema.js";
 
 export const doloresWhatsappConfig = pgTable("dolores_whatsapp_config", {
@@ -57,5 +57,15 @@ export const doloresConsumo = pgTable("dolores_consumo", {
   tokensCacheLeitura: integer("tokens_cache_leitura").default(0).notNull(),
   parada: varchar("parada", { length: 30 }),
 }, t => [index("dolores_consumo_mes_idx").on(t.mes)]);
+
+/** Contagem por hora das mensagens de números que não são o dono (a auditoria recebe só a primeira da hora). */
+export const doloresRemetentesEstranhos = pgTable("dolores_remetentes_estranhos", {
+  chave: varchar("chave", { length: 16 }).notNull(),
+  hora: varchar("hora", { length: 13 }).notNull(),
+  remetente: varchar("remetente", { length: 30 }),
+  mensagens: integer("mensagens").default(1).notNull(),
+  primeiraEm: timestamp("primeira_em", { withTimezone: true }).defaultNow().notNull(),
+  ultimaEm: timestamp("ultima_em", { withTimezone: true }).defaultNow().notNull(),
+}, t => [primaryKey({ columns: [t.chave, t.hora] })]);
 
 export type DoloresWhatsappConfig = typeof doloresWhatsappConfig.$inferSelect;
