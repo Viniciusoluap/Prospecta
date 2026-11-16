@@ -11,6 +11,7 @@ import { trpc } from "@/lib/trpc";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { enviarPartes, LIMITE_DOCUMENTO } from "@/lib/documentos-partes";
 import { EditorPlanta } from "@/components/maquete-3d/EditorPlanta";
+import { EditorMuro } from "@/components/maquete-3d/EditorMuro";
 
 const Visualizador = lazy(() => import("@/components/maquete-3d/visualizador/Visualizador"));
 import { ROTULOS_TIPO, TIPOS_MAQUETE, type ModeloMaquete, type TipoMaquete } from "@shared/maquete-3d/modelo";
@@ -688,6 +689,7 @@ function Detalhe({ id }: { id: number }) {
           </CardTitle></CardHeader>
           <CardContent className="space-y-4">
             <EditorPlanta modelo={rascunho} maqueteId={id} pranchas={d.pranchas} somenteLeitura={!podeRevisar} onChange={m => { setRascunho(m); setSujo(true); }} />
+            {rascunho.implantacao && <EditorMuro modelo={rascunho} somenteLeitura={!podeRevisar} onChange={m => { setRascunho(m); setSujo(true); }} />}
 
             {rascunho.pendencias.length > 0 && (
               <div className="space-y-1 text-sm">
