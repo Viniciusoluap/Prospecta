@@ -123,6 +123,9 @@ async function preparar(b: Awaited<ReturnType<typeof criarBanco>>) {
   });
 }
 
+// Testes com banco em memória e várias leituras seguidas: passam de 5 s com a máquina carregada.
+vi.setConfig({ testTimeout: 30_000 });
+
 describe("QA S-03/S-05 — regressão dos achados", () => {
   beforeEach(async () => { await preparar(await criarBanco()); });
   afterEach(async () => { definirDependencias(); await banco.pg.close(); });

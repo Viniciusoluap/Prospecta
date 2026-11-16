@@ -194,8 +194,8 @@ const semChave = (t: string) => t.replace(/sk-ant-[\w-]+/g, "***");
 /** Mensagem de erro curta e sem dados sensíveis para guardar no passo e mostrar na tela (nunca "429 {}" cru). */
 export function erroSeguro(e: unknown): string {
   switch (tipoDoErroIA(e)) {
-    case "tempo": return "A leitura deste passo passou do tempo limite. Tente de novo; se repetir, reduza o esforço da IA nas configurações.";
-    case "conexao": return "Não foi possível falar com a IA agora. Tente de novo em instantes.";
+    case "tempo": return "A leitura deste passo passou do tempo limite. Esta tentativa conta como usada: tentar de novo pode pedir nova confirmação do administrador. Se repetir, reduza o esforço da IA nas configurações.";
+    case "conexao": return "Não foi possível falar com a IA agora. Esta tentativa conta como usada: tentar de novo pode pedir nova confirmação do administrador.";
     case "limite": return "Limite de uso da IA atingido. Aguarde um minuto e tente de novo.";
     case "chave": return "Chave da IA inválida ou revogada: confira em Integrações → Anthropic.";
     case "permissao": return "A chave da IA não tem permissão para este modelo ou recurso: confira em Integrações → Anthropic.";

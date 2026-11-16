@@ -47,7 +47,7 @@ export function medidaSuspeita(comodos: { pontos: Ponto[]; areaInformada: number
   }
   const lado = Math.max(largura, comprimento);
   if (lado > LADO_MAX_PAVIMENTO_M) {
-    return `A planta lida pela IA tem ${m2(lado)} m de lado, grande demais para um pavimento: as medidas podem ter vindo em centímetros ou fora de escala. Acerte a escala na revisão (com uma cota conhecida) e confira a planta antes de validar.`;
+    return `A planta lida pela IA tem ${m2(lado)} m de lado, grande demais para um pavimento: as medidas podem ter vindo em centímetros ou fora de escala. Acerte a escala na revisão (com uma cota conhecida) e confira a planta antes de validar. Se a planta tem mesmo esse tamanho, marque esta pendência como resolvida.`;
   }
   return null;
 }
