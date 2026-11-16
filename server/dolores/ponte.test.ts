@@ -1,0 +1,247 @@
+// EPIC-025 (Dolores, etapa 1) — ponte: autenticação, pausa, limite, lista liberada, validação, auditoria e a usuária.
+// Banco em memória (PGlite); nenhuma chamada externa.
+import { readFileSync } from "node:fs";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
+vi.mock("../db.js", async orig => ({ ...(await orig<typeof import("../db.js")>()), getDb: vi.fn() }));
+
+import { canAccessAdminProcedure } from "../_core/trpc.js";
+import { getDb } from "../db.js";
+import { sanearArgumentos } from "./auditoria.js";
+import { FUNCOES, funcaoPorNome } from "./funcoes.js";
+import { LIBERADAS_ETAPA_1, funcaoLiberada } from "./permissoes.js";
+import { DOLORES_OPEN_ID, esquecerUsuarioDolores, usuarioDolores } from "./perfil.js";
+import { definirDependenciasPonte, ferramentasLiberadas, tokenConfere, tratarChamada, tratarFerramentas } from "./ponte.js";
+import { AGORA, CENARIO, criarBanco } from "./testes-banco.js";
+
+const TOKEN = "token-de-teste-da-ponte-1234567890";
+let banco: Awaited<ReturnType<typeof criarBanco>>;
+const pedido = (body: unknown, authorization: string | undefined = `Bearer ${TOKEN}`) =>
+  ({ headers: authorization ? { authorization } : {}, body, ip: "203.0.113.7" }) as never;
+const acoes = async () => (await banco.pg.query<{ funcao: string; resultado: string; motivo: string | null; resumo: any; argumentos: any; autor_user_id: number | null; pedido_id: string | null; duracao_ms: number }>(
+  "SELECT * FROM dolores_acoes ORDER BY id")).rows;
+
+beforeEach(async () => {
+  banco = await criarBanco();
+  vi.mocked(getDb).mockReturnValue(banco.db as never);
+  await banco.pg.exec(CENARIO);
+  esquecerUsuarioDolores();
+  definirDependenciasPonte({ agora: () => AGORA });
+  process.env.DOLORES_PONTE_TOKEN = TOKEN;
+});
+afterEach(() => {
+  delete process.env.DOLORES_PONTE_TOKEN;
+  definirDependenciasPonte();
+  vi.restoreAllMocks();
+});
+
+describe("autenticação", () => {
+  it("sem a variável de ambiente, recusa tudo (inclusive com token)", async () => {
+    delete process.env.DOLORES_PONTE_TOKEN;
+    const aviso = vi.spyOn(console, "warn").mockImplementation(() => {});
+    expect((await tratarChamada(pedido({ funcao: "listar_tarefas" }))).status).toBe(503);
+    expect((await tratarFerramentas(pedido({}))).status).toBe(503);
+    expect(aviso.mock.calls.flat().join(" ")).not.toContain(TOKEN);
+  });
+
+  it("sem token, token errado ou outro esquema: 401, sem gravar na auditoria e sem o token no log", async () => {
+    const aviso = vi.spyOn(console, "warn").mockImplementation(() => {});
+    for (const auth of ["", "Bearer errado", `Basic ${TOKEN}`, `Bearer ${TOKEN}x`, "Bearer "]) {
+      expect((await tratarChamada(pedido({ funcao: "listar_tarefas" }, auth))).status).toBe(401);
+    }
+    expect(await acoes()).toEqual([]);
+    expect(aviso.mock.calls.flat().join(" ")).not.toContain(TOKEN);
+  });
+
+  it("tentativas demais sem token por IP: 429", async () => {
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    definirDependenciasPonte({ agora: () => new Date("2026-11-16T13:00:00Z") });
+    const status: number[] = [];
+    for (let i = 0; i < 22; i++) status.push((await tratarChamada(pedido({}, "Bearer x"))).status);
+    expect(status.slice(0, 20).every(s => s === 401)).toBe(true);
+    expect(status.slice(20)).toEqual([429, 429]);
+  });
+
+  it("comparação: só o Bearer exato confere", () => {
+    expect(tokenConfere(`Bearer ${TOKEN}`, TOKEN)).toBe(true);
+    expect(tokenConfere(`bearer   ${TOKEN}  `, TOKEN)).toBe(true);
+    expect(tokenConfere(`Bearer ${TOKEN.slice(1)}`, TOKEN)).toBe(false);
+    expect(tokenConfere(undefined, TOKEN)).toBe(false);
+    expect(tokenConfere(`Bearer ${TOKEN}`, undefined)).toBe(false);
+  });
+});
+
+describe("chamada autorizada", () => {
+  it("executa, devolve o envelope (fuso, moeda, etapa) e audita no nome da Dolores com contagens", async () => {
+    const r = await tratarChamada(pedido({ funcao: "listar_processos_regularizacao", argumentos: { situacao: "atrasados" }, pedidoId: "wa-123" }));
+    expect(r.status).toBe(200);
+    expect(r.body).toMatchObject({ ok: true, etapa: 1, funcao: "listar_processos_regularizacao", pedidoId: "wa-123", fuso: "America/Fortaleza (UTC-03:00)",
+      moeda: "BRL", geradoEm: "2026-11-16T09:00:00-03:00", truncado: false });
+    expect((r.body.dados as any).itens.map((p: any) => p.id)).toEqual([2]);
+    const [a] = await acoes();
+    const dolores = await usuarioDolores();
+    expect(a).toMatchObject({ funcao: "listar_processos_regularizacao", resultado: "ok", pedido_id: "wa-123", autor_user_id: dolores,
+      argumentos: { situacao: "atrasados", diasParado: 15, pagina: 1, limite: 20 } });
+    expect(a.resumo).toMatchObject({ encontrados: 1, devolvidos: 1, atrasados: 1, truncado: false });
+    // o resumo da auditoria não guarda dados de cliente
+    expect(JSON.stringify(a.resumo)).not.toMatch(/João|Maria|Bianca/);
+    expect(a.duracao_ms).toBeGreaterThanOrEqual(0);
+  });
+
+  it("função desconhecida ou prevista para etapa futura: 403 e auditada como recusada", async () => {
+    const r1 = await tratarChamada(pedido({ funcao: "apagar_cliente", argumentos: { id: 1 } }));
+    expect(r1.status).toBe(403);
+    expect(r1.body.erro).toMatch(/não existe na lista de funções autorizadas/);
+    const r2 = await tratarChamada(pedido({ funcao: "criar_tarefa", argumentos: { titulo: "x" } }));
+    expect(r2.status).toBe(403);
+    expect(r2.body.erro).toMatch(/prevista para a etapa 3; ainda não liberada/);
+    expect((await acoes()).map(a => [a.funcao, a.resultado])).toEqual([["apagar_cliente", "recusada"], ["criar_tarefa", "recusada"]]);
+  });
+
+  it("pedido fora do formato ou argumentos inválidos: 400 com o problema, auditado", async () => {
+    expect((await tratarChamada(pedido({ funcao: "listar_tarefas", extra: 1 }))).status).toBe(400);
+    const r = await tratarChamada(pedido({ funcao: "listar_tarefas", argumentos: { limite: 500 } }));
+    expect(r.status).toBe(400);
+    expect(r.body.problemas).toEqual([expect.objectContaining({ campo: "limite" })]);
+    expect((await tratarChamada(pedido({ funcao: "listar_tarefas", argumentos: { sql: "DELETE FROM leads" } }))).status).toBe(400);
+    expect((await acoes()).map(a => a.resultado)).toEqual(["recusada", "recusada", "recusada"]);
+  });
+
+  it("falha dentro da função: 500 genérico, auditada como erro, nada vaza", async () => {
+    const fn = FUNCOES.find(f => f.nome === "listar_tarefas")!;
+    const original = fn.executar;
+    fn.executar = async () => { throw new Error("conexão caiu: Bearer abc.def"); };
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      const r = await tratarChamada(pedido({ funcao: "listar_tarefas" }));
+      expect(r.status).toBe(500);
+      expect(JSON.stringify(r.body)).not.toContain("conexão caiu");
+    } finally { fn.executar = original; }
+    const [a] = await acoes();
+    expect(a).toMatchObject({ resultado: "erro", funcao: "listar_tarefas" });
+    expect(a.motivo).toContain("Bearer [omitido]");
+    expect(a.motivo).not.toContain("abc.def");
+  });
+
+  it("consulta lenta: corta no prazo e responde erro", async () => {
+    definirDependenciasPonte({ agora: () => AGORA, prazoMs: 20 });
+    const fn = FUNCOES.find(f => f.nome === "listar_obras")!;
+    const original = fn.executar;
+    fn.executar = () => new Promise(r => setTimeout(() => r({ dados: [], resumo: {} }), 500));
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    try { expect((await tratarChamada(pedido({ funcao: "listar_obras" }))).status).toBe(500); } finally { fn.executar = original; }
+    expect((await acoes())[0].motivo).toMatch(/passou de/);
+  });
+
+  it("resposta grande demais é cortada e avisada", async () => {
+    const fn = FUNCOES.find(f => f.nome === "listar_medicoes")!;
+    const original = fn.executar;
+    fn.executar = async () => ({ dados: { itens: Array.from({ length: 5000 }, (_, i) => ({ i, texto: "x".repeat(100) })) }, resumo: { encontradas: 5000 } });
+    try {
+      const r = await tratarChamada(pedido({ funcao: "listar_medicoes" }));
+      expect(r.status).toBe(200);
+      expect(r.body.truncado).toBe(true);
+      expect(JSON.stringify(r.body).length).toBeLessThan(62_000);
+    } finally { fn.executar = original; }
+    expect((await acoes())[0].resumo).toMatchObject({ truncado: true });
+  });
+});
+
+describe("pausa e limite", () => {
+  it("pausada (dolores_config): recusa tudo, inclusive a lista de ferramentas; despausada volta", async () => {
+    await banco.pg.exec("UPDATE dolores_config SET pausada = true, motivo_pausa = 'conferência do dono'");
+    const r = await tratarChamada(pedido({ funcao: "listar_tarefas" }));
+    expect(r.status).toBe(423);
+    expect(r.body.erro).toBe("Dolores pausada: conferência do dono");
+    expect((await tratarFerramentas(pedido({}))).status).toBe(423);
+    await banco.pg.exec("UPDATE dolores_config SET pausada = false");
+    expect((await tratarChamada(pedido({ funcao: "listar_tarefas" }))).status).toBe(200);
+    expect((await acoes()).map(a => a.resultado)).toEqual(["recusada", "recusada", "ok"]);
+  });
+
+  it("sem a linha de configuração, não executa (falha fechada)", async () => {
+    await banco.pg.exec("DELETE FROM dolores_config");
+    expect((await tratarChamada(pedido({ funcao: "listar_tarefas" }))).status).toBe(503);
+  });
+
+  it("limite por minuto contado no banco (vale entre instâncias)", async () => {
+    await banco.pg.exec("UPDATE dolores_config SET limite_por_minuto = 2");
+    definirDependenciasPonte({ agora: () => new Date() });
+    const status = [];
+    for (let i = 0; i < 3; i++) status.push((await tratarChamada(pedido({ funcao: "listar_tarefas" }))).status);
+    expect(status).toEqual([200, 200, 429]);
+  });
+});
+
+describe("auditoria", () => {
+  it("falha ao gravar não derruba a leitura, mas vai para o log", async () => {
+    await banco.pg.exec("DROP TABLE dolores_acoes CASCADE");
+    const erro = vi.spyOn(console, "error").mockImplementation(() => {});
+    const r = await tratarChamada(pedido({ funcao: "listar_tarefas", argumentos: { situacao: "atrasadas" } }));
+    expect(r.status).toBe(200);
+    expect((r.body.dados as any).totais.atrasadas).toBe(2);
+    expect(erro.mock.calls.map(c => String(c[0]))).toContain("[dolores/auditoria] falha ao gravar a ação");
+  });
+
+  it("registro é só inserção: UPDATE e DELETE recusados pelo banco", async () => {
+    await tratarChamada(pedido({ funcao: "listar_tarefas" }));
+    await expect(banco.pg.exec("UPDATE dolores_acoes SET resultado = 'erro'")).rejects.toThrow(/SOMENTE_INSERCAO/);
+    await expect(banco.pg.exec("DELETE FROM dolores_acoes")).rejects.toThrow(/SOMENTE_INSERCAO/);
+  });
+
+  it("argumentos saneados: chaves sensíveis omitidas, dígitos longos mascarados, textos cortados", () => {
+    expect(sanearArgumentos({ busca: "123.456.789-01", token: "x", senha: "y", texto: "a".repeat(500), lista: Array(50).fill(1) })).toEqual({
+      busca: "***01", token: "[omitido]", senha: "[omitido]", texto: `${"a".repeat(119)}…`, lista: Array(20).fill(1),
+    });
+  });
+});
+
+describe("usuária Dolores", () => {
+  it("criada uma vez (idempotente), sem senha, sem e-mail, sem módulos e sem acesso a nenhum procedimento do painel", async () => {
+    const a = await usuarioDolores();
+    esquecerUsuarioDolores();
+    expect(await usuarioDolores()).toBe(a);
+    const { rows } = await banco.pg.query<any>(`SELECT * FROM users WHERE "openId" = $1`, [DOLORES_OPEN_ID]);
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({ role: "user", passwordHash: null, email: null, permissions: "[]", active: true });
+    for (const caminho of ["regularizacao.list", "configuracoes.listUsers", "bpo.list", "leads.list"])
+      expect(canAccessAdminProcedure({ role: rows[0].role, permissions: rows[0].permissions, active: true }, caminho)).toBe(false);
+  });
+
+  it("conta alterada por fora (senha ou perfil) para a ponte", async () => {
+    await usuarioDolores();
+    await banco.pg.exec(`UPDATE users SET role = 'admin' WHERE "openId" = '${DOLORES_OPEN_ID}'`);
+    const r = await tratarChamada(pedido({ funcao: "listar_tarefas" }));
+    expect(r.status).toBe(503);
+    expect((await acoes())[0]).toMatchObject({ resultado: "erro", autor_user_id: null });
+  });
+});
+
+describe("ferramentas (fonte única)", () => {
+  it("GET lista só as liberadas, com JSON Schema da entrada; o arquivo do dono é igual ao registro", async () => {
+    const r = await tratarFerramentas(pedido({}));
+    expect(r.status).toBe(200);
+    const ferramentas = r.body.ferramentas as any[];
+    expect(ferramentas.map(f => f.name)).toEqual([...LIBERADAS_ETAPA_1]);
+    expect(ferramentas.every(f => f.input_schema.type === "object" && f.input_schema.additionalProperties === false && f.description.length > 20)).toBe(true);
+    const arquivo = JSON.parse(readFileSync(new URL("../../docs/dolores/ferramentas-etapa1.json", import.meta.url), "utf8"));
+    expect(arquivo.ferramentas).toEqual(ferramentasLiberadas());
+    expect((await acoes())[0]).toMatchObject({ funcao: "listar_ferramentas", resultado: "ok" });
+  });
+
+  it("toda função liberada existe no registro e é de leitura (etapa 1)", () => {
+    for (const nome of LIBERADAS_ETAPA_1) {
+      expect(funcaoLiberada(nome)).toBe(true);
+      expect(funcaoPorNome(nome)?.tipo).toBe("leitura");
+    }
+    expect(FUNCOES.every(f => funcaoLiberada(f.nome))).toBe(true);
+  });
+
+  it("rotas montadas no servidor local e na função da Vercel", () => {
+    for (const arquivo of ["../../api/index.ts", "../_core/index.ts"]) {
+      const fonte = readFileSync(new URL(arquivo, import.meta.url), "utf8");
+      expect(fonte).toMatch(/import doloresPonteRotas from "\.\.\/(server\/)?dolores\/ponte\.js"/);
+      expect(fonte).toMatch(/use\((?:"\/api", )?doloresPonteRotas\)/);
+    }
+  });
+});
