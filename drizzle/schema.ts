@@ -1329,6 +1329,24 @@ export const bpoLancamentoExclusoesBackup = pgTable("bpo_lancamento_exclusoes_ba
   restauracaoJson: text("restauracao_json"),
 });
 
+// EPIC-024 S-01 (16/11): cópia de cada lançamento ARQUIVADO do Conta Azul removido em definitivo por
+// "Liberar reimportação" (migração 0122). Um lote por execução; a linha inteira fica em dados_json.
+export const bpoLancamentosExpurgo = pgTable("bpo_lancamentos_expurgo", {
+  id: serial("id").primaryKey(),
+  loteId: varchar("lote_id", { length: 40 }).notNull(),
+  lancamentoId: integer("lancamento_id").notNull(),
+  requestKey: varchar("request_key", { length: 80 }),
+  origemEfetiva: varchar("origem_efetiva", { length: 30 }),
+  exclusaoLoteBackupId: integer("exclusao_lote_backup_id"),
+  motivo: varchar("motivo", { length: 60 }).default("liberar_reimportacao_conta_azul").notNull(),
+  dadosJson: text("dados_json").notNull(),
+  expurgadoPorUserId: integer("expurgado_por_user_id").references(() => users.id, { onDelete: "set null" }),
+  expurgadoEm: timestamp("expurgado_em").defaultNow().notNull(),
+}, t => ({
+  lote: index("bpo_lancamentos_expurgo_lote_idx").on(t.loteId),
+  lancamento: index("bpo_lancamentos_expurgo_lancamento_idx").on(t.lancamentoId),
+}));
+
 export const bpoContaLimpezaBackups = pgTable("bpo_conta_limpeza_backups", {
   id: serial("id").primaryKey(),
   contaReferencia: integer("conta_referencia").notNull(),

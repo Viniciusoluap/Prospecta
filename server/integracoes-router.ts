@@ -16,6 +16,11 @@ import { conexaoParaPapel, configEvolution } from "./whatsapp-router.js";
 import { verificarWebhookAsaas } from "../shared/asaas-webhook-recovery.js";
 import { removerTokenMapbox, salvarTokenMapbox, tokenMapbox } from "./_core/geo/mapbox-config.js";
 import { verificarTokenMapbox } from "../shared/geo/mapbox-token.js";
+import {
+  anthropicPainelDepsPadrao, mascararChaveAnthropic, modelosAnthropicPainel, removerAnthropicPainel,
+  salvarChaveAnthropicPainel, salvarModeloPreferencialAnthropic, statusAnthropicPainel, testarAnthropicPainel,
+  type AnthropicPainelDeps,
+} from "./_core/anthropic-painel.js";
 
 type Fonte = "env" | "banco";
 export type EstadoWhatsapp = "conectado" | "aguardando_qr" | "desconectado" | "sem_conexao";
@@ -33,6 +38,8 @@ export type IntegracoesDeps = {
   estadoWhatsapp: (user: { id: number; role: string }, config: EvolutionConfig) => Promise<EstadoWhatsapp>;
   encrypt: (valor: string) => string;
   fetchImpl: typeof fetch;
+  /** EPIC-024 S-10: só cadastro da chave da Anthropic (não ativa a IA em nenhuma função). */
+  anthropic?: AnthropicPainelDeps;
 };
 
 const SITE = () => (process.env.PUBLIC_SITE_URL || "https://www.prospectaconstrucoes.com").replace(/\/+$/, "");
@@ -97,6 +104,7 @@ const ROTULO_ESTADO: Record<EstadoWhatsapp, string> = {
 };
 
 export function createIntegracoesRouter(deps: IntegracoesDeps = defaultDeps) {
+  const anthropic = () => deps.anthropic ?? anthropicPainelDepsPadrao;
   async function webhookAsaas(recuperar: boolean) {
     const [asaas, webhook] = await Promise.all([deps.lerAsaas(), deps.lerWebhookAsaas()]);
     if (!asaas || !webhook) throw new TRPCError({ code: "BAD_REQUEST", message: "Configure a chave de API e o token do webhook antes de verificar a sincronização." });
@@ -207,6 +215,28 @@ export function createIntegracoesRouter(deps: IntegracoesDeps = defaultDeps) {
         catch (e) { throw new TRPCError({ code: "BAD_REQUEST", message: mensagemDe(e, "Não foi possível salvar.") }); }
       }),
     removerMapbox: adminProcedure.mutation(async () => { await removerTokenMapbox(); return { success: true as const }; }),
+
+    // EPIC-024 S-10: Anthropic — só guardar a chave, testar (quando o admin pedir), listar modelos e guardar a
+    // preferência. Nada aqui liga a IA: a chave do painel nunca vai para ENV.anthropicApiKey.
+    statusAnthropic: adminProcedure.query(() => statusAnthropicPainel(anthropic())),
+    testarAnthropic: adminProcedure.mutation(() => testarAnthropicPainel(anthropic())),
+    salvarAnthropic: adminProcedure
+      .input(z.object({ apiKey: z.string().trim().min(1, "Cole a chave de API da Anthropic.") }))
+      .mutation(async ({ input }) => {
+        try { return { success: true as const, ...(await salvarChaveAnthropicPainel(input.apiKey, anthropic())) }; }
+        catch (e) { throw new TRPCError({ code: "BAD_REQUEST", message: mascararChaveAnthropic(mensagemDe(e, "Chave da Anthropic não aceita.")) }); }
+      }),
+    removerAnthropic: adminProcedure.mutation(async () => { await removerAnthropicPainel(anthropic()); return { success: true as const }; }),
+    modelosAnthropic: adminProcedure.mutation(async () => {
+      try { return await modelosAnthropicPainel(anthropic()); }
+      catch (e) { throw new TRPCError({ code: "BAD_REQUEST", message: mascararChaveAnthropic(mensagemDe(e, "Não foi possível listar os modelos.")) }); }
+    }),
+    salvarModeloAnthropic: adminProcedure
+      .input(z.object({ modelo: z.string().trim().min(1, "Escolha um modelo.").max(200) }))
+      .mutation(async ({ input }) => {
+        try { return { success: true as const, modelo: await salvarModeloPreferencialAnthropic(input.modelo, anthropic()) }; }
+        catch (e) { throw new TRPCError({ code: "BAD_REQUEST", message: mascararChaveAnthropic(mensagemDe(e, "Não foi possível salvar o modelo.")) }); }
+      }),
 
     salvarPluggy: adminProcedure
       .input(z.object({ clientId: z.string().trim().min(1, "Informe o Client ID"), clientSecret: z.string().trim().min(1, "Informe o Client Secret") }))

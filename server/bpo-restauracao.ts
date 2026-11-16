@@ -5,7 +5,7 @@
 // Gêmeo no Santa Fé: web/src/lib/actions/bpo-lote.ts (listar/previa/restaurarExclusaoEmLote).
 import { and, desc, eq, getTableColumns, inArray, isNull, notInArray, sql } from "drizzle-orm";
 import { getDb } from "./db.js";
-import { bpoClients, bpoLancamentoExclusoesBackup, bpoLancamentoHistorico, bpoLancamentos, users, type InsertBpoLancamento } from "../drizzle/schema.js";
+import { bpoClients, bpoLancamentoExclusoesBackup, bpoLancamentoHistorico, bpoLancamentos, bpoLancamentosExpurgo, users, type InsertBpoLancamento } from "../drizzle/schema.js";
 import { catalogoDaCategoria } from "../shared/financeiro/bpo-operacional.js";
 import {
   CONFIRMACAO_RESTAURACAO, confirmacaoRestauracaoValida, lerSnapshot, planejarRestauracao, type PlanoRestauracao,
@@ -54,7 +54,8 @@ async function planoDoBackup(d: Executor, snapshotJson: string, carregarCatalogo
   const clientes = clienteIds.length ? await d.select({ id: bpoClients.id }).from(bpoClients).where(inArray(bpoClients.id, clienteIds)) : [];
   const chaves = Array.from(new Set(snapshot.map(s => s.requestKey).filter((x): x is string => typeof x === "string" && !!x)));
   const usadas = chaves.length
-    ? await d.select({ v: bpoLancamentos.requestKey }).from(bpoLancamentos).where(and(inArray(bpoLancamentos.requestKey, chaves), ids.length ? notInArray(bpoLancamentos.id, ids) : sql`true`))
+    ? await d.select({ v: bpoLancamentos.requestKey, arquivo: bpoLancamentos.exclusaoLoteBackupId }).from(bpoLancamentos)
+      .where(and(inArray(bpoLancamentos.requestKey, chaves), ids.length ? notInArray(bpoLancamentos.id, ids) : sql`true`))
     : [];
   const catalogo = snapshot.some(s => s.vinculoOperacionalId) ? await carregarCatalogo() : {};
   return planejarRestauracao(snapshot, {
@@ -65,6 +66,7 @@ async function planoDoBackup(d: Executor, snapshotJson: string, carregarCatalogo
       return Array.isArray(lista) && lista.some((o: { id?: unknown }) => String(o?.id) === id);
     },
     unicosEmUso: { requestKey: new Set(usadas.map(u => String(u.v))) },
+    chavesEmArquivados: new Set(usadas.filter(u => u.arquivo != null).map(u => String(u.v))),
   }, COLUNAS_LANCAMENTO, COLUNAS_DATA_LANCAMENTO);
 }
 
@@ -75,11 +77,26 @@ const ehBackupAjustes = (snapshotJson: string) => {
   return itens.length > 0 && itens.every(i => i.__limpezaAjustes === true);
 };
 
+/**
+ * Ids removidos por "Liberar reimportação" (bpo_lancamentos_expurgo). Sem a migração 0122 a tabela não existe:
+ * confere antes com to_regclass (uma consulta com erro abortaria a transação da restauração) e devolve vazio.
+ */
+async function idsExpurgados(d: Executor, ids: number[]): Promise<Set<number>> {
+  const [existe] = await d.select({ t: sql<string | null>`to_regclass('public.bpo_lancamentos_expurgo')::text` }).from(sql`(SELECT 1) AS x`);
+  if (!existe?.t) return new Set();
+  const linhas = await d.select({ id: bpoLancamentosExpurgo.lancamentoId }).from(bpoLancamentosExpurgo).where(inArray(bpoLancamentosExpurgo.lancamentoId, ids));
+  return new Set(linhas.map(x => x.id));
+}
+
 async function planoArquivado(d: Executor, backupId: number, snapshotJson: string): Promise<PlanoRestauracao> {
   const snapshot = lerSnapshot(snapshotJson);
   const ids = snapshot.map(s => Number(s.id));
   const atuais = ids.length ? await d.select().from(bpoLancamentos).where(inArray(bpoLancamentos.id, ids)) : [];
   const porId = new Map(atuais.map(l => [l.id, l]));
+  // EPIC-024 S-01: removidos em definitivo por "Liberar reimportação" do Conta Azul — avisar, e nunca recriar
+  // (a mesma linha pode ter sido reimportada com outro id).
+  const sumidos = ids.filter(id => !porId.has(id));
+  const expurgados = sumidos.length ? await idsExpurgados(d, sumidos) : new Set<number>();
   const itens = snapshot.map(s => {
     const atual = porId.get(Number(s.id));
     const proprio = atual?.exclusaoLoteBackupId === backupId;
@@ -87,7 +104,9 @@ async function planoArquivado(d: Executor, backupId: number, snapshotJson: strin
       ? s.bankTransactionId != null && atual?.bankTransactionId == null
         ? ["A movimentação bancária original foi removida: o lançamento volta sem esse vínculo, preservando os dados atuais."]
         : []
-      : [atual ? "O lançamento não pertence mais a esta limpeza; será mantido sem alteração." : "O lançamento não existe mais; esta limpeza não recria registros nem vínculos externos."];
+      : [atual ? "O lançamento não pertence mais a esta limpeza; será mantido sem alteração."
+        : expurgados.has(Number(s.id)) ? "Removido em definitivo para liberar a reimportação do Conta Azul (cópia no expurgo); não é recriado para não duplicar o que foi reimportado."
+        : "O lançamento não existe mais (foi apagado em definitivo); esta limpeza não recria registros nem vínculos externos."];
     return { id: String(s.id), descricao: String(s.descricao ?? ""), valor: Number(s.valor ?? 0), vencimento: s.vencimento ? String(s.vencimento) : null,
       clienteNome: s.clienteNome ? String(s.clienteNome) : null, acao: proprio ? "restaurar" as const : "ja_existe" as const,
       avisos,

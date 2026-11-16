@@ -6,9 +6,12 @@ import { unzipSync } from "fflate";
 import { toast } from "sonner";
 import { Upload } from "lucide-react";
 import { trpc } from "@/lib/trpc";
+import { useAuth } from "@/_core/hooks/useAuth";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { formatCurrency } from "@/lib/format";
+import { Input } from "@/components/ui/input";
+import { CONFIRMACAO_LIBERAR_REIMPORTACAO, confirmacaoLiberarValida } from "@shared/financeiro/conta-azul";
 
 const LIMITE_ZIP = 30 * 1024 * 1024;
 
@@ -42,10 +45,11 @@ export function ImportarContaAzul() {
   const [arquivos, setArquivos] = useState<Record<string, string> | null>(null);
   const [lendo, setLendo] = useState(false);
   const utils = trpc.useUtils();
+  const { user } = useAuth();
   const previa = trpc.bpo.contaAzul.previa.useMutation({ onError: e => toast.error(e.message) });
   const importar = trpc.bpo.contaAzul.importar.useMutation({
     onSuccess: r => {
-      toast.success(`Conta Azul importado: ${r.lancamentosCriados} lançamento(s) e ${r.clientesCriados} cliente(s) novos${r.lancamentosJaImportados ? `; ${r.lancamentosJaImportados} já existiam` : ""}.`);
+      toast.success(`Conta Azul importado: ${r.lancamentosCriados} lançamento(s) e ${r.clientesCriados} cliente(s) novos${r.lancamentosJaImportados ? `; ${r.lancamentosJaImportados} já existiam` : ""}${r.lancamentosArquivadosBloqueando ? `; ${r.lancamentosArquivadosBloqueando} bloqueado(s) por arquivados` : ""}.`);
       setArquivos(null);
       previa.reset();
       void Promise.all([utils.bpo.lancamentos.list.invalidate(), utils.bpo.clientes.list.invalidate(), utils.bpo.dre.invalidate(), utils.bpo.dreCategorias.invalidate(), utils.bpo.dreAnos.invalidate()]);
@@ -93,12 +97,16 @@ export function ImportarContaAzul() {
               {p.lancamentos.periodo && <p className="text-gray-300">Período do backup: competências de {p.lancamentos.periodo.de} a {p.lancamentos.periodo.ate}.</p>}
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <Resumo titulo="Lançamentos novos" valor={String(p.lancamentos.novos)} detalhe={`${p.lancamentos.pagos} pago(s) · ${p.lancamentos.emAberto} em aberto (vão para A classificar)`} />
-                <Resumo titulo="Já importados" valor={String(p.lancamentos.jaImportados)} detalhe="não serão duplicados" />
+                <Resumo titulo="Já importados (ativos)" valor={String(p.lancamentos.jaImportados)} detalhe="estão no BPO e não serão duplicados" />
                 <Resumo titulo="Receitas (aba Cobranças)" valor={formatCurrency(Number(p.lancamentos.receitas.total))} detalhe={`${p.lancamentos.receitas.quantidade} lançamento(s)`} />
                 <Resumo titulo="Despesas" valor={formatCurrency(Number(p.lancamentos.despesas.total))} detalhe={`${p.lancamentos.despesas.quantidade} lançamento(s)`} />
                 <Resumo titulo="Clientes BPO novos" valor={String(p.clientesNovos)} detalhe={`${p.clientesExistentes} já cadastrado(s) · ${p.pessoas.clientes} cliente(s) no backup`} />
                 <Resumo titulo="Fornecedores" valor={String(p.pessoas.fornecedores)} detalhe="entram como nome nos lançamentos" />
               </div>
+              {p.lancamentos.arquivados.bloqueando > 0 && arquivos && (
+                <LiberarReimportacao arquivos={arquivos} arquivados={p.lancamentos.arquivados} podeLiberar={user?.role === "admin"}
+                  onLiberado={() => previa.mutate({ arquivos })} />
+              )}
               {p.lancamentos.porCategoria.length > 0 && (
                 <div>
                   <p className="text-xs font-bold uppercase tracking-wide text-gray-400 mb-1">Categoria no BPO (a do Conta Azul fica nas observações)</p>
@@ -129,6 +137,64 @@ export function ImportarContaAzul() {
         </DialogContent>
       </Dialog>
     </>
+  );
+}
+
+type Arquivados = {
+  bloqueando: number; liberaveis: number; comVinculo: number; outraOrigem: number;
+  exemplosComVinculo: { id: number; descricao: string; valor: string; motivos: string[] }[];
+};
+
+/**
+ * EPIC-024 S-01: lançamentos arquivados seguram a chave do Conta Azul e impedem a reimportação. Só admin; remove em
+ * definitivo os sem vínculo (com cópia no servidor) depois de digitar LIBERAR; os com vínculo ficam e são listados.
+ */
+function LiberarReimportacao({ arquivos, arquivados, podeLiberar, onLiberado }: { arquivos: Record<string, string>; arquivados: Arquivados; podeLiberar: boolean; onLiberado: () => void }) {
+  const [confirmando, setConfirmando] = useState(false);
+  const [texto, setTexto] = useState("");
+  const liberar = trpc.bpo.contaAzul.liberarReimportacao.useMutation({
+    onSuccess: r => {
+      toast.success(`${r.removidos} lançamento(s) arquivado(s) removido(s) em definitivo (cópia guardada)${r.mantidos ? `; ${r.mantidos} mantido(s) (vínculo ou outra origem)` : ""}.`);
+      setConfirmando(false);
+      setTexto("");
+      onLiberado();
+    },
+    onError: e => toast.error(e.message),
+  });
+  return (
+    <div role="alert" className="rounded border border-amber-400/40 bg-amber-900/20 p-3 text-xs text-amber-100 space-y-2">
+      <p className="font-semibold text-amber-200">{arquivados.bloqueando} lançamento(s) deste backup estão ARQUIVADOS no BPO e bloqueiam a reimportação.</p>
+      <p>Arquivado não aparece nas listas nem nos totais, mas continua segurando a chave da linha do Conta Azul: enquanto existir,
+        a mesma linha não entra de novo. Para importar de novo, é preciso removê-los em definitivo.</p>
+      <ul className="list-disc pl-5">
+        <li>{arquivados.liberaveis} sem vínculo nenhum — podem ser removidos (uma cópia de cada um fica guardada no servidor).</li>
+        {arquivados.comVinculo > 0 && <li>{arquivados.comVinculo} com vínculo (banco, Asaas, baixa, obra, regularização ou combinação) — ficam como estão e não entram.</li>}
+        {arquivados.outraOrigem > 0 && <li>{arquivados.outraOrigem} de outra origem (legado, Asaas, manual…) com a chave do Conta Azul — nunca são removidos por aqui.</li>}
+      </ul>
+      {arquivados.exemplosComVinculo.length > 0 && (
+        <ul className="pl-5 text-amber-200/80">
+          {arquivados.exemplosComVinculo.map(a => <li key={a.id}>#{a.id} {a.descricao} ({formatCurrency(Number(a.valor))}): {a.motivos.join("; ")}</li>)}
+        </ul>
+      )}
+      {arquivados.liberaveis > 0 && !podeLiberar && <p className="text-amber-200">Só o administrador pode liberar a reimportação (remoção definitiva).</p>}
+      {arquivados.liberaveis > 0 && podeLiberar && (!confirmando
+        ? <Button size="sm" variant="outline" className="border-amber-400/50 text-amber-200" onClick={() => setConfirmando(true)}>Liberar reimportação</Button>
+        : (
+          <form className="space-y-2" onSubmit={e => { e.preventDefault(); liberar.mutate({ arquivos, confirmacao: texto }); }}>
+            <label className="block" htmlFor="confirmar-liberar">
+              Isto remove em definitivo {arquivados.liberaveis} lançamento(s) arquivado(s) do Conta Azul. Ativos e outras origens não são tocados.
+              Digite <b>{CONFIRMACAO_LIBERAR_REIMPORTACAO}</b> para confirmar:
+            </label>
+            <Input id="confirmar-liberar" autoComplete="off" value={texto} onChange={e => setTexto(e.target.value)} className="bg-[#1A2332] border-amber-400/40 text-white" />
+            <div className="flex gap-2">
+              <Button type="submit" size="sm" disabled={!confirmacaoLiberarValida(texto) || liberar.isPending} className="bg-amber-500 text-[#1A2332] font-bold hover:bg-amber-400">
+                {liberar.isPending ? "Removendo…" : `Remover ${arquivados.liberaveis} em definitivo`}
+              </Button>
+              <Button type="button" size="sm" variant="ghost" disabled={liberar.isPending} onClick={() => { setConfirmando(false); setTexto(""); }}>Cancelar</Button>
+            </div>
+          </form>
+        ))}
+    </div>
   );
 }
 

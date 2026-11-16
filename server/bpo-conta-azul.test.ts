@@ -10,7 +10,7 @@ vi.mock("./db.js", async orig => ({ ...(await orig<typeof import("./db.js")>()),
 vi.mock("./_core/env.js", () => ({ ENV: { cookieSecret: "segredo-de-teste" } }));
 
 import { getDb } from "./db.js";
-import { bpoRouter } from "./bpo-router.js";
+import { appRouter } from "./routers.js";
 import { gravarMovimentos } from "./bancos.js";
 import { sincronizarCobrancasAsaas } from "./bpo-asaas.js";
 import {
@@ -129,7 +129,11 @@ const ANTES_0075 = `
 
 let pg: PGlite;
 const linhas = async <T = Record<string, unknown>>(q: string) => (await pg.query<T>(q)).rows;
-const admin = () => bpoRouter.createCaller({ user: { id: 1, role: "admin", active: true }, req: {}, res: {} } as never);
+// Pelo appRouter, com o caminho completo ("bpo.contaAzul.…"): é o caminho que a checagem de módulo usa.
+// (bpoRouter.createCaller perde o prefixo "bpo." e o colaborador cairia em "sem módulo" por engano.)
+const caller = (user: Record<string, unknown>) => appRouter.createCaller({ user, req: {}, res: {} } as never).bpo;
+const admin = () => caller({ id: 1, role: "admin", active: true });
+const colaborador = (modulos: string[]) => caller({ id: 2, role: "colaborador", active: true, permissions: JSON.stringify(modulos) });
 
 beforeEach(async () => {
   pg = new PGlite();
@@ -260,5 +264,170 @@ describe("importação no BPO (banco em memória)", () => {
   it("recusa arquivo que não é backup e limita o tamanho", async () => {
     await expect(admin().contaAzul.importar({ arquivos: { "x.csv": "a\n1" } })).rejects.toThrow(/não parece um backup/);
     await expect(admin().contaAzul.previa({ arquivos: { "financeiro.csv": "x".repeat(3_000_001) } })).rejects.toThrow();
+  });
+});
+
+// EPIC-024 S-01 (16/11): os 1.528 lançamentos do Conta Azul arquivados seguravam a chave única e a prévia dizia
+// "já importados". Agora a prévia separa os arquivados e "Liberar reimportação" remove em definitivo só os sem vínculo.
+describe("arquivados que bloqueiam a reimportação (EPIC-024 S-01)", () => {
+  beforeEach(async () => {
+    await pg.exec(`
+      CREATE TABLE obra_movimentos (id serial PRIMARY KEY, bpo_lancamento_id integer REFERENCES bpo_lancamentos(id) ON DELETE RESTRICT);
+      CREATE TABLE regularizacao_recebimentos (id serial PRIMARY KEY, bpo_lancamento_id integer REFERENCES bpo_lancamentos(id) ON DELETE RESTRICT);
+      INSERT INTO users DEFAULT VALUES;`);
+    await pg.exec(sqlDe("0097_bpo_restaurar_exclusoes.sql"));
+    await pg.exec(sqlDe("0122_bpo_lancamentos_expurgo.sql"));
+    await pg.exec(sqlDe("0122_bpo_lancamentos_expurgo.sql")); // idempotente
+  });
+
+  /** Arquiva como a "limpeza de ajustes": backup JSON + exclusao_lote_backup_id nas linhas. */
+  async function arquivarTudoDoContaAzul() {
+    const rows = await linhas<Record<string, unknown>>("SELECT * FROM bpo_lancamentos WHERE origem_efetiva = 'conta_azul' ORDER BY id");
+    const snapshot = JSON.stringify(rows.map(r => ({ id: r.id, descricao: r.descricao, valor: r.valor, version: r.version, requestKey: r.request_key, __limpezaAjustes: true })));
+    const [b] = await linhas<{ id: number }>(`INSERT INTO bpo_lancamento_exclusoes_backup(modo,aba,quantidade,snapshot_json) VALUES('tudo','a_classificar',${rows.length},'${snapshot.replace(/'/g, "''")}') RETURNING id`);
+    await pg.exec(`UPDATE bpo_lancamentos SET exclusao_lote_backup_id = ${b.id} WHERE origem_efetiva = 'conta_azul'`);
+    return b.id;
+  }
+  const contar = async (q: string) => (await linhas<{ n: number }>(`SELECT count(*)::int n FROM ${q}`))[0].n;
+
+  it("prévia e importação mostram os arquivados à parte (não como já importados)", async () => {
+    await admin().contaAzul.importar({ arquivos: BACKUP });
+    await arquivarTudoDoContaAzul();
+    const p = await admin().contaAzul.previa({ arquivos: BACKUP });
+    expect(p.lancamentos).toMatchObject({ novos: 0, jaImportados: 0, arquivados: { bloqueando: 4, liberaveis: 4, comVinculo: 0 } });
+    const r = await admin().contaAzul.importar({ arquivos: BACKUP });
+    expect(r).toMatchObject({ lancamentosCriados: 0, lancamentosJaImportados: 0, lancamentosArquivadosBloqueando: 4 });
+  });
+
+  it("liberar remove só os arquivados do Conta Azul sem vínculo, com cópia e histórico; o resto fica intacto", async () => {
+    await admin().contaAzul.importar({ arquivos: BACKUP });
+    const backupId = await arquivarTudoDoContaAzul();
+    // um volta a ficar ativo; outro tem movimentação bancária; um legado arquivado de outra origem
+    const ids = (await linhas<{ id: number }>("SELECT id FROM bpo_lancamentos ORDER BY valor")).map(x => x.id);
+    await pg.exec(`UPDATE bpo_lancamentos SET exclusao_lote_backup_id = NULL WHERE id = ${ids[0]}`);
+    await pg.exec("INSERT INTO bank_accounts (banco) VALUES ('C6')");
+    await pg.exec("INSERT INTO bank_transactions (account_id, data, descricao, valor, tipo) VALUES (1, now(), 'Pix', 709, 'debito')");
+    await pg.exec(`UPDATE bpo_lancamentos SET bank_transaction_id = 1 WHERE id = ${ids[2]}`);
+    await pg.exec(`INSERT INTO bpo_lancamentos(tipo,descricao,valor,vencimento,competencia,origem_efetiva,exclusao_lote_backup_id,request_key)
+      VALUES('despesa','Legado',10,now(),'2026-04','legado',${backupId},'legado:1')`);
+
+    const p = await admin().contaAzul.previa({ arquivos: BACKUP });
+    expect(p.lancamentos).toMatchObject({ jaImportados: 1, arquivados: { bloqueando: 3, liberaveis: 2, comVinculo: 1 } });
+    expect(p.lancamentos.arquivados.exemplosComVinculo[0].motivos).toEqual(["ligado a uma movimentação bancária"]);
+
+    await expect(admin().contaAzul.liberarReimportacao({ arquivos: BACKUP, confirmacao: "sim" })).rejects.toThrow(/Digite LIBERAR/);
+    expect(await contar("bpo_lancamentos")).toBe(5);
+
+    const r = await admin().contaAzul.liberarReimportacao({ arquivos: BACKUP, confirmacao: "LIBERAR" });
+    expect(r).toMatchObject({ arquivados: 3, removidos: 2, mantidos: 1 });
+    expect(r.mantidosDetalhe).toEqual([expect.objectContaining({ id: ids[2], motivos: ["ligado a uma movimentação bancária"] })]);
+    expect(await linhas("SELECT id FROM bpo_lancamentos ORDER BY id")).toEqual(expect.arrayContaining([{ id: ids[0] }, { id: ids[2] }]));
+    expect(await contar("bpo_lancamentos")).toBe(3); // ativo + com banco + legado
+    expect(await contar("bpo_lancamentos WHERE origem_efetiva = 'legado' AND exclusao_lote_backup_id IS NOT NULL")).toBe(1);
+    const copias = await linhas<{ lote_id: string; lancamento_id: number; dados_json: string; expurgado_por_user_id: number }>("SELECT * FROM bpo_lancamentos_expurgo ORDER BY lancamento_id");
+    expect(copias.map(c => c.lancamento_id)).toEqual([ids[1], ids[3]].sort((a, b) => a - b));
+    expect(new Set(copias.map(c => c.lote_id))).toEqual(new Set([r.loteId]));
+    expect(JSON.parse(copias[0].dados_json)).toMatchObject({ origemEfetiva: "conta_azul", exclusaoLoteBackupId: backupId });
+    expect(copias[0].expurgado_por_user_id).toBe(1);
+    expect(await contar("bpo_lancamento_historico WHERE motivo LIKE 'Removido em definitivo para liberar a reimportação%'")).toBe(2);
+
+    // de novo: nada mais a liberar além do que tem vínculo
+    expect(await admin().contaAzul.liberarReimportacao({ arquivos: BACKUP, confirmacao: "LIBERAR" })).toMatchObject({ removidos: 0, mantidos: 1, loteId: null });
+  });
+
+  it("depois de liberar, reimporta tudo uma vez; a segunda importação não cria nada; clientes reaproveitados", async () => {
+    await admin().contaAzul.importar({ arquivos: BACKUP });
+    const clientesAntes = await contar("bpo_clients");
+    const backupId = await arquivarTudoDoContaAzul();
+    await admin().contaAzul.liberarReimportacao({ arquivos: BACKUP, confirmacao: "LIBERAR" });
+    expect(await contar("bpo_lancamentos")).toBe(0);
+
+    const r = await admin().contaAzul.importar({ arquivos: BACKUP });
+    expect(r).toMatchObject({ lancamentosCriados: 4, clientesCriados: 0, lancamentosArquivadosBloqueando: 0, transferenciasIgnoradas: 1 });
+    expect(await contar("bpo_clients")).toBe(clientesAntes);
+    // transferência interna fora e a linha repetida por centro de custo sem dobrar
+    expect(await linhas("SELECT sum(valor)::text total, count(*)::int n FROM bpo_lancamentos")).toEqual([{ total: "2619.50", n: 4 }]);
+    expect(await contar("bpo_lancamentos WHERE valor = 709 AND centro_custos = 'Prospecta Maranhao / Prospecta Para'")).toBe(1);
+    // classificação preservada: em aberto volta para A classificar, pago não
+    expect(await linhas("SELECT valor::text v, a_classificar ac, categoria FROM bpo_lancamentos WHERE valor IN (320.50, 1500) ORDER BY valor"))
+      .toEqual([{ v: "320.50", ac: true, categoria: "Material" }, { v: "1500.00", ac: false, categoria: "Recebimento de cliente" }]);
+
+    expect(await admin().contaAzul.importar({ arquivos: BACKUP })).toMatchObject({ lancamentosCriados: 0, lancamentosJaImportados: 4, clientesCriados: 0 });
+    expect(await contar("bpo_lancamentos")).toBe(4);
+
+    // restaurar a limpeza antiga não recria os removidos (nem duplica os reimportados)
+    const { previaRestauracaoExclusao, restaurarExclusaoEmLote } = await import("./bpo-restauracao.js");
+    const previa = await previaRestauracaoExclusao(backupId, async () => ({}));
+    expect(previa).toMatchObject({ restaurar: 0, jaExistem: 4 });
+    expect(previa.itens[0].avisos[0]).toMatch(/liberar a reimportação do Conta Azul/);
+    expect(await restaurarExclusaoEmLote({ backupId, confirmacao: "RESTAURAR" }, 1, async () => ({}))).toMatchObject({ restaurados: 0 });
+    expect(await contar("bpo_lancamentos")).toBe(4);
+  });
+
+  it("restaurar uma exclusão antiga (backup JSON) pula a linha do Conta Azul que já foi reimportada", async () => {
+    await admin().contaAzul.importar({ arquivos: BACKUP });
+    const [l] = await linhas<Record<string, unknown>>("SELECT descricao, valor::text valor, request_key FROM bpo_lancamentos WHERE valor = 320.50");
+    const snapshot = JSON.stringify([{ id: 9999, tipo: "despesa", descricao: l.descricao, valor: l.valor, vencimento: "2026-04-10T12:00:00.000Z", competencia: "2026-04", requestKey: l.request_key, origemEfetiva: "conta_azul", version: 1 }]);
+    const [b] = await linhas<{ id: number }>(`INSERT INTO bpo_lancamento_exclusoes_backup(modo,aba,quantidade,snapshot_json) VALUES('selecionados','despesas',1,'${snapshot.replace(/'/g, "''")}') RETURNING id`);
+    const { restaurarExclusaoEmLote } = await import("./bpo-restauracao.js");
+    const r = await restaurarExclusaoEmLote({ backupId: b.id, confirmacao: "RESTAURAR" }, 1, async () => ({}));
+    expect(r).toMatchObject({ restaurados: 0, jaExistiam: 1 });
+    expect(await contar("bpo_lancamentos WHERE valor = 320.50")).toBe(1);
+  });
+
+  it("só o papel admin libera; colaborador com o módulo BPO é barrado (prévia e importação seguem pelo módulo)", async () => {
+    await admin().contaAzul.importar({ arquivos: BACKUP });
+    await arquivarTudoDoContaAzul();
+    const comBpo = colaborador(["bpo"]);
+    await expect(comBpo.contaAzul.liberarReimportacao({ arquivos: BACKUP, confirmacao: "LIBERAR" })).rejects.toMatchObject({ code: "FORBIDDEN", message: expect.stringMatching(/Só o administrador/) });
+    expect(await contar("bpo_lancamentos")).toBe(4);
+    // permissão atual (módulo BPO) preservada na prévia e na importação
+    expect((await comBpo.contaAzul.previa({ arquivos: BACKUP })).lancamentos.arquivados.bloqueando).toBe(4);
+    expect(await comBpo.contaAzul.importar({ arquivos: BACKUP })).toMatchObject({ lancamentosCriados: 0 });
+    const semBpo = colaborador(["crm"]);
+    await expect(semBpo.contaAzul.previa({ arquivos: BACKUP })).rejects.toMatchObject({ code: "FORBIDDEN" });
+    await expect(semBpo.contaAzul.importar({ arquivos: BACKUP })).rejects.toMatchObject({ code: "FORBIDDEN" });
+    await expect(semBpo.contaAzul.liberarReimportacao({ arquivos: BACKUP, confirmacao: "LIBERAR" })).rejects.toMatchObject({ code: "FORBIDDEN" });
+    expect(await admin().contaAzul.liberarReimportacao({ arquivos: BACKUP, confirmacao: "LIBERAR" })).toMatchObject({ removidos: 4 });
+  });
+
+  it("arquivado de OUTRA origem com a chave do Conta Azul: contado à parte, com o motivo, e nunca removido", async () => {
+    await admin().contaAzul.importar({ arquivos: BACKUP });
+    await arquivarTudoDoContaAzul();
+    const [l] = await linhas<{ id: number }>("SELECT id FROM bpo_lancamentos WHERE valor = 1500");
+    await pg.exec(`UPDATE bpo_lancamentos SET origem_efetiva = 'legado' WHERE id = ${l.id}`);
+    const p = await admin().contaAzul.previa({ arquivos: BACKUP });
+    expect(p.lancamentos.arquivados).toMatchObject({ bloqueando: 4, liberaveis: 3, comVinculo: 0, outraOrigem: 1 });
+    expect(p.lancamentos.arquivados.exemplosComVinculo[0].motivos[0]).toMatch(/origem "legado"/);
+    const r = await admin().contaAzul.liberarReimportacao({ arquivos: BACKUP, confirmacao: "LIBERAR" });
+    expect(r).toMatchObject({ removidos: 3, mantidos: 1 });
+    expect(await linhas("SELECT id, origem_efetiva o FROM bpo_lancamentos")).toEqual([{ id: l.id, o: "legado" }]);
+  });
+
+  it("restaurar limpeza cujos lançamentos foram apagados fora do sistema: mensagem simples e nada recriado (com ou sem a tabela 0122)", async () => {
+    await admin().contaAzul.importar({ arquivos: BACKUP });
+    const backupId = await arquivarTudoDoContaAzul();
+    await pg.exec("DELETE FROM bpo_lancamentos"); // como na produção: apagados direto no banco, sem expurgo
+    const { previaRestauracaoExclusao, restaurarExclusaoEmLote } = await import("./bpo-restauracao.js");
+    const previa = await previaRestauracaoExclusao(backupId, async () => ({}));
+    expect(previa).toMatchObject({ restaurar: 0, jaExistem: 4 });
+    for (const i of previa.itens) expect(i.avisos).toEqual([expect.stringMatching(/não existe mais \(foi apagado em definitivo\)/)]);
+    await pg.exec("DROP TABLE bpo_lancamentos_expurgo"); // produção antes da migração 0122
+    const semTabela = await previaRestauracaoExclusao(backupId, async () => ({}));
+    expect(semTabela.itens.map(i => i.avisos[0])).toEqual(previa.itens.map(i => i.avisos[0]));
+    expect(await restaurarExclusaoEmLote({ backupId, confirmacao: "RESTAURAR" }, 1, async () => ({}))).toMatchObject({ restaurados: 0, jaExistiam: 4 });
+    expect(await contar("bpo_lancamentos")).toBe(0);
+  });
+
+  it("restaurar exclusão JSON cuja chave está num ARQUIVADO avisa que é arquivado (não 'importado de novo')", async () => {
+    await admin().contaAzul.importar({ arquivos: BACKUP });
+    await arquivarTudoDoContaAzul();
+    const [l] = await linhas<Record<string, unknown>>("SELECT descricao, valor::text valor, request_key FROM bpo_lancamentos WHERE valor = 320.50");
+    const snapshot = JSON.stringify([{ id: 9999, tipo: "despesa", descricao: l.descricao, valor: l.valor, vencimento: "2026-04-10T12:00:00.000Z", competencia: "2026-04", requestKey: l.request_key, origemEfetiva: "conta_azul", version: 1 }]);
+    const [b] = await linhas<{ id: number }>(`INSERT INTO bpo_lancamento_exclusoes_backup(modo,aba,quantidade,snapshot_json) VALUES('selecionados','despesas',1,'${snapshot.replace(/'/g, "''")}') RETURNING id`);
+    const { previaRestauracaoExclusao } = await import("./bpo-restauracao.js");
+    const previa = await previaRestauracaoExclusao(b.id, async () => ({}));
+    expect(previa).toMatchObject({ restaurar: 0, jaExistem: 1 });
+    expect(previa.itens[0].avisos[0]).toMatch(/ARQUIVADO/);
   });
 });
