@@ -1,8 +1,10 @@
 -- 16/11/2026 — EPIC-025 (etapa 3, Ações): fila de aprovação da Dolores, autoria do que ela cria e a validade da fila.
 -- "dolores_aprovacoes": um item por ação que espera o dono (função + argumentos já validados + resumo montado pelo
 --   sistema, código curto para o dono responder "aprovar CÓDIGO", situação, quem decidiu e quando, resultado, vencimento).
---   Nunca é apagada (gatilho recusa DELETE/TRUNCATE); depois de criada, função/argumentos/código não mudam e um item
---   encerrado (executada, recusada, vencida, erro) não volta — a execução acontece uma única vez.
+--   Nunca é apagada (gatilho recusa DELETE/TRUNCATE); depois de criada, função/argumentos/código/resumo/validade/pedido/
+--   autor não mudam; "aguardando" só vai para executando/recusada/vencida (nunca "executada" direto); a decisão é gravada
+--   uma vez; o resultado só na transição que encerra a execução; um item encerrado (executada, recusada, vencida, erro)
+--   não volta — a execução acontece uma única vez.
 -- "dolores_autoria": uma linha por registro do sistema criado pela Dolores (tabela + id), com o pedido (`pedido_id`, o
 --   mesmo de dolores_acoes) e o item aprovado, quando houver. Só inclusão.
 -- "dolores_fila_config": linha única (id = 1) com a validade dos itens, em horas (padrão 48).
@@ -48,15 +50,33 @@ BEGIN
   IF TG_OP = 'DELETE' OR TG_OP = 'TRUNCATE' THEN
     RAISE EXCEPTION 'DOLORES_FILA_SEM_EXCLUSAO: itens da fila de aprovação da Dolores não são apagados';
   END IF;
-  IF NEW."codigo" <> OLD."codigo" OR NEW."funcao" <> OLD."funcao" OR NEW."alvo" <> OLD."alvo"
-     OR NEW."argumentos" <> OLD."argumentos" OR NEW."criado_em" <> OLD."criado_em" OR NEW."mensagem_id" IS DISTINCT FROM OLD."mensagem_id" THEN
+  -- o que será feito, o que o dono lê (resumo), a validade e a origem do pedido não mudam depois de entrar na fila
+  IF NEW."codigo" IS DISTINCT FROM OLD."codigo" OR NEW."funcao" IS DISTINCT FROM OLD."funcao" OR NEW."alvo" IS DISTINCT FROM OLD."alvo"
+     OR NEW."argumentos" IS DISTINCT FROM OLD."argumentos" OR NEW."criado_em" IS DISTINCT FROM OLD."criado_em"
+     OR NEW."mensagem_id" IS DISTINCT FROM OLD."mensagem_id" OR NEW."vence_em" IS DISTINCT FROM OLD."vence_em"
+     OR NEW."resumo" IS DISTINCT FROM OLD."resumo" OR NEW."pedido_id" IS DISTINCT FROM OLD."pedido_id"
+     OR NEW."autor_user_id" IS DISTINCT FROM OLD."autor_user_id" THEN
     RAISE EXCEPTION 'DOLORES_FILA_IMUTAVEL: o que será feito não muda depois de entrar na fila';
   END IF;
   IF OLD."situacao" IN ('executada', 'recusada', 'vencida', 'erro') THEN
     RAISE EXCEPTION 'DOLORES_FILA_ENCERRADO: item encerrado não muda de situação';
   END IF;
+  -- aguardando só sai para executando (aprovado), recusada ou vencida: nunca "executada" sem passar pela execução
+  IF OLD."situacao" = 'aguardando' AND NEW."situacao" NOT IN ('aguardando', 'executando', 'recusada', 'vencida') THEN
+    RAISE EXCEPTION 'DOLORES_FILA_EXECUCAO_UNICA: item aguardando só vai para executando, recusada ou vencida';
+  END IF;
   IF OLD."situacao" = 'executando' AND NEW."situacao" NOT IN ('executando', 'executada', 'erro') THEN
     RAISE EXCEPTION 'DOLORES_FILA_EXECUCAO_UNICA: item em execução só termina (executada ou erro)';
+  END IF;
+  -- a decisão (quem, quando, por onde) é gravada uma vez, ao sair de "aguardando"
+  IF OLD."situacao" <> 'aguardando' AND (NEW."decidido_em" IS DISTINCT FROM OLD."decidido_em"
+     OR NEW."decidido_via" IS DISTINCT FROM OLD."decidido_via" OR NEW."decidido_por_user_id" IS DISTINCT FROM OLD."decidido_por_user_id") THEN
+    RAISE EXCEPTION 'DOLORES_FILA_IMUTAVEL: a decisão do item não muda depois de tomada';
+  END IF;
+  -- resultado e hora da execução só na transição que encerra a execução (executando → executada/erro)
+  IF (NEW."resultado" IS DISTINCT FROM OLD."resultado" OR NEW."executado_em" IS DISTINCT FROM OLD."executado_em")
+     AND NOT (OLD."situacao" = 'executando' AND NEW."situacao" IN ('executada', 'erro')) THEN
+    RAISE EXCEPTION 'DOLORES_FILA_RESULTADO: o resultado só é gravado ao encerrar a execução';
   END IF;
   RETURN NEW;
 END;
