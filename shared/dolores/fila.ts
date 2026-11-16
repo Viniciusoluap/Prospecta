@@ -125,9 +125,19 @@ export function textoDeDado(s: string | null | undefined, max = 600): string {
   return umaLinha(s, Number.MAX_SAFE_INTEGER).replace(/\[/g, "(").replace(/\]/g, ")").slice(0, max);
 }
 
+/**
+ * QA R3-M1: invisíveis e marcas de direção que não são "controle" nem espaço — hífen suave (U+00AD), CGJ (U+034F), marca
+ * árabe (U+061C), preenchimentos Hangul (U+115F, U+1160, U+3164, U+FFA0), separador mongol (U+180E), isolamentos de
+ * direção (U+2066–U+2069), braille em branco (U+2800), seletores de variação (U+FE00–U+FE0F) e TAGS (U+E0000–U+E007F,
+ * texto escondido). Somem (sem virar espaço, para não partir palavras). Flag `u` via `new RegExp` (o literal com `u`
+ * não passa no tsc deste projeto).
+ */
+const INVISIVEIS = new RegExp("[\\u00ad\\u034f\\u061c\\u115f\\u1160\\u180e\\u2066-\\u2069\\u2800\\u3164\\ufe00-\\ufe0f\\uffa0\\u{e0000}-\\u{e007f}]", "gu");
+
 /** Uma linha só: sem caracteres de controle/invisíveis, espaços e quebras colapsados num espaço, cortada em `max`. */
 export function umaLinha(s: string | null | undefined, max: number): string {
   return String(s ?? "")
+    .replace(INVISIVEIS, "")
     .replace(/[\u0000-\u001f\u007f-\u009f\u200b-\u200f\u2028-\u202e\u2060-\u2064\ufeff]/g, " ")
     .replace(/\s+/g, " ")
     .trim()

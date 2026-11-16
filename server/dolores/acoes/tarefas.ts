@@ -9,12 +9,11 @@ import { z } from "zod";
 import { tasks } from "../../../drizzle/schema.js";
 import { avisoDaFila, lerPrazo, textoDeDado, umaLinha } from "../../../shared/dolores/fila.js";
 import { diaFortaleza, isoFortaleza } from "../../../shared/dolores/formato.js";
-import { sanitizarTexto } from "../../../shared/dolores/sanitizar.js";
 import { createTask, getAssignableLeadById, getAssignableUsers, getProjectById } from "../../db.js";
 import { bancoDaAcao } from "../escrita.js";
 import { bancoDaLeitura, emTransacaoSomenteLeitura } from "../somente-leitura.js";
 import {
-  FRASE_TEXTO_LONGO, MARCA_DOLORES, RecusaAcao, comoMostrado, conferirMostrado, registrarAutoria, resumoDaFila, type ContextoAcao, type ItemParaFila, type ResultadoAcao,
+  FRASE_TEXTO_LONGO, MARCA_DOLORES, RecusaAcao, comoMostrado, conferirMostrado, registrarAutoria, resumoDaFila, textoDoDono, type ContextoAcao, type ItemParaFila, type ResultadoAcao,
 } from "./comum.js";
 
 /** Título da tarefa: uma linha, sem caracteres de controle, até 150 caracteres (HTML fica como texto: a tela escapa). */
@@ -70,9 +69,9 @@ export async function criarTarefa(args: z.infer<typeof entradaCriarTarefa>, ctx:
     if (!obra) throw new RecusaAcao(`Obra ${args.vinculo.id} não encontrada.`);
     relatedType = "obra"; relatedId = obra.id; vinculo = `obra ${obra.title}`;
   }
-  const titulo = umaLinha(sanitizarTexto(args.titulo), MAX_TITULO);
+  const titulo = umaLinha(textoDoDono(args.titulo), MAX_TITULO);
   if (titulo.length < 3) throw new RecusaAcao("Título da tarefa vazio depois de limpar caracteres inválidos.");
-  const descricaoDoDono = args.descricao ? sanitizarTexto(args.descricao) : null;
+  const descricaoDoDono = args.descricao ? textoDoDono(args.descricao) : null;
   // item aprovado da fila (QA R2 N3): título, responsável e descrição gravados têm de ser os que o dono leu no resumo
   conferirMostrado(ctx, [`criar a tarefa "${titulo}" para ${responsavel.name ?? ""}, `, ...(descricaoDoDono ? [`, descrição: "${descricaoDoDono}".`] : [])]);
   // Pedido repetido (o modelo chamou duas vezes, o dono mandou de novo): a tarefa aberta igual é devolvida, sem duplicar.
@@ -112,8 +111,8 @@ export async function tarefaParaFila(args: z.infer<typeof entradaCriarTarefa>, c
     const p = lerPrazo(args.prazo, ctx.agora);
     if (!p.ok) throw new RecusaAcao(`Prazo inválido: ${p.motivo}.`);
   }
-  const titulo = comoMostrado(umaLinha(sanitizarTexto(args.titulo), MAX_TITULO));
-  const descricao = args.descricao ? comoMostrado(args.descricao) : null;
+  const titulo = comoMostrado(umaLinha(textoDoDono(args.titulo), MAX_TITULO));
+  const descricao = args.descricao ? comoMostrado(textoDoDono(args.descricao)) : null;
   if (titulo.length > MAX_TITULO || (descricao?.length ?? 0) > 1000) throw new RecusaAcao(FRASE_TEXTO_LONGO);
   if (titulo.length < 3) throw new RecusaAcao("Título da tarefa vazio depois de limpar caracteres inválidos.");
   // o responsável é conferido JÁ (leitura): o dono lê o nome que será gravado

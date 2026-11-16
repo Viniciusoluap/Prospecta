@@ -15,6 +15,7 @@ import { doloresMensagens, doloresRemetentesEstranhos, doloresWhatsappConfig, ty
 import { tratarLinksDaResposta } from "../../shared/dolores/links.js";
 import { sanitizarTexto } from "../../shared/dolores/sanitizar.js";
 import { FILTRO_DO_REGISTRO, filtroDaSaida } from "./dados-pessoais.js";
+import { urlDoSistemaParaLinks } from "./acoes/comum.js";
 import {
   FRASE_ENCAMINHADA, FRASE_ERRO, FRASE_OUTRO_PEDIDO, FRASE_SO_TEXTO, MAX_TEXTO_COMANDO, fraseSemTempo, bloqueioDoLimite, cortarResposta, ehNumeroDoDono, fraseDeBloqueio,
   lerMensagemEvolution, mascararNumero, mensagemAntiga, mesFortaleza, type MotivoBloqueio,
@@ -58,7 +59,6 @@ const SITE = () => (process.env.PUBLIC_SITE_URL || "https://www.prospectaconstru
  * QA r7 A2: domínio do sistema para a lista permitida de links da resposta — SÓ a variável PUBLIC_SITE_URL (a mesma do
  * endereço do aviso). Sem ela, nenhum link do sistema passa (só trello.com).
  */
-const urlDoSistemaParaLinks = () => process.env.PUBLIC_SITE_URL?.trim() || null;
 export const URL_WEBHOOK_DOLORES = () => `${SITE()}/api/dolores/whatsapp`;
 
 /** Segredo do aviso da Dolores: derivado do segredo do servidor com rótulo próprio (nunca vai para log nem para a tela). */
@@ -252,12 +252,12 @@ async function anexarQuadros(mensagemId: number, texto: string, codigosNaFila: r
   // de dados pessoais aqui, para o tamanho medido ser o que vai (o filtro de novo, na saída, não muda nada).
   const MINIMO_TEXTO = 200;
   const FOLGA = 60;
-  const fila = sanitizarTexto(quadroDePendencias(pendentes, diaEHora, MAX_CARACTERES_WHATSAPP - MINIMO_TEXTO - 300 - FOLGA));
-  const feito = sanitizarTexto(quadroDoQueFoiFeito(feitos, MAX_CARACTERES_WHATSAPP - MINIMO_TEXTO - FOLGA - (fila ? fila.length + 2 : 0)));
+  const fila = sanitizarTexto(quadroDePendencias(pendentes, diaEHora, MAX_CARACTERES_WHATSAPP - MINIMO_TEXTO - 300 - FOLGA), filtroDaSaida("whatsapp"));
+  const feito = sanitizarTexto(quadroDoQueFoiFeito(feitos, MAX_CARACTERES_WHATSAPP - MINIMO_TEXTO - FOLGA - (fila ? fila.length + 2 : 0)), filtroDaSaida("whatsapp"));
   const quadros = [feito, fila].filter(Boolean).join("\n\n");
   if (!quadros) return texto;
   const espaco = Math.max(MINIMO_TEXTO, MAX_CARACTERES_WHATSAPP - quadros.length - 4 - FOLGA);
-  return `${cortarResposta(sanitizarTexto(texto), espaco)}\n\n${quadros}`;
+  return `${cortarResposta(sanitizarTexto(texto, filtroDaSaida("whatsapp")), espaco)}\n\n${quadros}`;
 }
 
 /** "09:05" no horário de Imperatriz (UTC−3 fixo). */

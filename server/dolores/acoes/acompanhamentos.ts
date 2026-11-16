@@ -5,13 +5,12 @@ import { randomUUID } from "node:crypto";
 import { and, desc, eq, isNull } from "drizzle-orm";
 import { z } from "zod";
 import { leadActivities, leads } from "../../../drizzle/schema.js";
-import { sanitizarTexto } from "../../../shared/dolores/sanitizar.js";
 import { addLeadActivity, getLeadById } from "../../db.js";
 import { bancoDaAcao } from "../escrita.js";
 import { avisoDaFila, textoDeDado } from "../../../shared/dolores/fila.js";
 import { bancoDaLeitura, emTransacaoSomenteLeitura } from "../somente-leitura.js";
 import {
-  FRASE_TEXTO_LONGO, MARCA_DOLORES, RecusaAcao, comoMostrado, conferirMostrado, registrarAutoria, resumoDaFila, type ContextoAcao, type ItemParaFila, type ResultadoAcao,
+  FRASE_TEXTO_LONGO, MARCA_DOLORES, RecusaAcao, comoMostrado, conferirMostrado, registrarAutoria, resumoDaFila, textoDoDono, type ContextoAcao, type ItemParaFila, type ResultadoAcao,
 } from "./comum.js";
 import { alvoDoPedido } from "./tarefas.js";
 
@@ -38,7 +37,7 @@ export async function gravarAcompanhamento(ctx: ContextoAcao, p: { leadId: numbe
 export async function registrarAcompanhamento(args: z.infer<typeof entradaRegistrarAcompanhamento>, ctx: ContextoAcao): Promise<ResultadoAcao> {
   const lead = await getLeadById(args.leadId, bancoDaAcao());
   if (!lead || lead.deletedAt) throw new RecusaAcao(`Cliente ${args.leadId} não encontrado no CRM (ou excluído).`);
-  const texto = sanitizarTexto(args.texto).slice(0, 1000);
+  const texto = textoDoDono(args.texto).slice(0, 1000);
   // item aprovado da fila (QA R2 N3): o texto gravado é exatamente o que o dono leu
   conferirMostrado(ctx, [`: "${texto}"`]);
   const frase = textoDeDado(`${args.tipo === "ligacao" ? "Ligação" : "Anotação"} no histórico de ${lead.name}: "${texto.slice(0, 80)}${texto.length > 80 ? "…" : ""}"`, 300);
@@ -56,7 +55,7 @@ export async function acompanhamentoParaFila(args: z.infer<typeof entradaRegistr
   const [lead] = await emTransacaoSomenteLeitura(() => bancoDaLeitura().select({ id: leads.id, name: leads.name }).from(leads)
     .where(and(eq(leads.id, args.leadId), isNull(leads.deletedAt))).limit(1));
   if (!lead) throw new RecusaAcao(`Cliente ${args.leadId} não encontrado no CRM (ou excluído).`);
-  const texto = comoMostrado(args.texto);
+  const texto = comoMostrado(textoDoDono(args.texto));
   if (texto.length > 1000) throw new RecusaAcao(FRASE_TEXTO_LONGO);
   if (texto.length < 3) throw new RecusaAcao("Texto do acompanhamento vazio depois de limpar caracteres inválidos.");
   const resumo = resumoDaFila(`${avisoDaFila(ctx.motivoContaminacao)} registrar ${args.tipo === "ligacao" ? "LIGAÇÃO" : "anotação"} no histórico de ${textoDeDado(lead.name, 80)} (cliente ${lead.id}): "${texto}"`, [`: "${texto}"`]);
