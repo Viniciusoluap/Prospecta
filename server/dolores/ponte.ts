@@ -133,9 +133,10 @@ async function reservarVaga(limite: number, agora: Date): Promise<boolean> {
   }
 }
 
+class PrazoEsgotado extends Error {}
 function comPrazo<T>(p: Promise<T>, ms: number): Promise<T> {
   let t: ReturnType<typeof setTimeout>;
-  return Promise.race([p, new Promise<T>((_, rej) => { t = setTimeout(() => rej(new Error(`Consulta passou de ${Math.round(ms / 1000)} s.`)), ms); })])
+  return Promise.race([p, new Promise<T>((_, rej) => { t = setTimeout(() => rej(new PrazoEsgotado(`Consulta passou de ${Math.round(ms / 1000)} s.`)), ms); })])
     .finally(() => clearTimeout(t));
 }
 
@@ -154,6 +155,16 @@ export type OpcoesExecucao = {
    * ela, nenhuma AÇÃO roda — a ponte HTTP continua só de leitura.
    */
   mensagemId?: number | null;
+  /**
+   * Regra de CONTAMINAÇÃO (portão de QA da E3): o comando já trouxe ao laço texto de dados (histórico, anotações, nomes…).
+   * A partir daí nenhuma ação direta roda: o pedido vai para a fila de aprovação do dono, marcado como surgido durante a
+   * leitura. Quem marca é o laço (cerebro.ts), por código — nunca o modelo.
+   */
+  contaminado?: boolean;
+  /** A mensagem do dono não tem intenção de ação (reconhecida por código): ação nenhuma roda neste comando. */
+  semAcoes?: boolean;
+  /** Recebe os códigos dos itens que este pedido pôs (ou achou) na fila — para o quadro do dono; nunca vai ao modelo. */
+  aoPorNaFila?: (codigos: string[]) => void;
 };
 
 /**
@@ -218,6 +229,11 @@ export async function executarFuncao(corpo: unknown, opcoes: OpcoesExecucao): Pr
     await registrar("recusada", { funcao, argumentos, motivo, pedidoId });
     return responder(403, { ok: false, erro: motivo });
   }
+  if (acao && opcoes.semAcoes) {
+    const motivo = "A mensagem do dono não pede ação; neste pedido, só consultas. Nada foi feito.";
+    await registrar("recusada", { funcao, argumentos, motivo, pedidoId });
+    return responder(403, { ok: false, erro: motivo });
+  }
   const fn = (leitura ?? acao)!;
   const args = fn.entrada.safeParse(argumentos);
   if (!args.success) {
@@ -231,7 +247,8 @@ export async function executarFuncao(corpo: unknown, opcoes: OpcoesExecucao): Pr
     await registrar("recusada", { funcao, argumentos: args.data, motivo, pedidoId });
     return responder(429, { ok: false, erro: motivo });
   }
-  if (acao) return executarAcao(acao, args.data, { agora, autor: autor!, mensagemId: opcoes.mensagemId!, pedidoId, registrar, responder });
+  if (acao) return executarAcao(acao, args.data, { agora, autor: autor!, mensagemId: opcoes.mensagemId!, pedidoId, registrar, responder,
+    contaminado: opcoes.contaminado === true, prazoMs, aoPorNaFila: opcoes.aoPorNaFila });
   try {
     const r = await comPrazo(emTransacaoSomenteLeitura(() => leitura!.executar(args.data as never, { agora })), prazoMs);
     // Toda string da resposta passa pelo filtro de dados pessoais (texto livre: anotações, mensagens, títulos).
@@ -256,6 +273,7 @@ type Registrar = (resultado: "ok" | "recusada" | "erro", extra: { funcao?: strin
 async function executarAcao(acao: FuncaoAcao, args: unknown, c: {
   agora: Date; autor: number; mensagemId: number; pedidoId: string | null; registrar: Registrar;
   responder: (status: number, corpo: Record<string, unknown>) => RespostaPonte;
+  contaminado: boolean; prazoMs: number; aoPorNaFila?: (codigos: string[]) => void;
 }): Promise<RespostaPonte> {
   const { funcao, registrar, responder } = { funcao: acao.nome, registrar: c.registrar, responder: c.responder };
   const ctx: ContextoAcao = { agora: c.agora, autorId: c.autor, mensagemId: c.mensagemId, pedidoId: c.pedidoId, aprovacaoId: null };
@@ -266,26 +284,42 @@ async function executarAcao(acao: FuncaoAcao, args: unknown, c: {
       await registrar("recusada", { funcao, argumentos: args, motivo, pedidoId: c.pedidoId });
       return responder(429, { ok: false, erro: motivo });
     }
-    if (acao.nivel === "direto") {
-      const r = await emTransacaoDeEscrita(() => acao.executar!(args as never, ctx));
+    // Ação direta ANTES de qualquer leitura de dados neste comando: executa na hora (transação mínima, com prazo).
+    if (acao.nivel === "direto" && !c.contaminado) {
+      let r: Awaited<ReturnType<NonNullable<FuncaoAcao["executar"]>>>;
+      try {
+        r = await comPrazo(emTransacaoDeEscrita(() => acao.executar!(args as never, ctx), c.prazoMs), c.prazoMs);
+      } catch (e) {
+        if (e instanceof PrazoEsgotado) {
+          await registrar("erro", { funcao, argumentos: args, motivo: "passou do prazo", pedidoId: c.pedidoId });
+          return responder(504, { ok: false, erro: "A ação passou do prazo. A gravação é tudo ou nada: confira no sistema antes de pedir de novo." });
+        }
+        throw e;
+      }
       await registrar("ok", { funcao, argumentos: args, resumo: { nivel: "direto", ...r.resumo }, pedidoId: c.pedidoId });
       const { valor } = limitarResposta(sanitizarResposta(r.dados));
       return responder(200, { ok: true, nivel: "direto", avisoSeguranca: AVISO_SEGURANCA, dados: valor });
     }
-    const preparo = await acao.preparar!(args as never, ctx);
+    // Ação pedida DEPOIS de o comando ler dados (contaminação), ou de nível fila: nada é feito; vai para a fila do dono.
+    const preparo = acao.nivel === "direto"
+      ? { itens: [await comPrazo(acao.paraFila!(args as never, ctx), c.prazoMs)], recusados: [] }
+      : await comPrazo(acao.preparar!(args as never, ctx), c.prazoMs);
     const vagas = MAX_ACOES_POR_COMANDO - feitas;
     const cabem = preparo.itens.slice(0, vagas);
     const recusados = [...preparo.recusados, ...preparo.itens.slice(vagas).map(i => ({ alvo: i.alvo, motivo: `limite de ${MAX_ACOES_POR_COMANDO} ações por comando` }))];
     const criados = await porNaFila(funcao, { itens: cabem, recusados }, ctx);
+    c.aoPorNaFila?.(criados.map(x => x.codigo));
     await registrar("ok", { funcao, argumentos: args, pedidoId: c.pedidoId,
-      resumo: { nivel: "fila", naFila: criados.filter(x => !x.jaAguardava).length, jaAguardavam: criados.filter(x => x.jaAguardava).length, recusados: recusados.length } });
+      resumo: { nivel: "fila", contaminado: acao.nivel === "direto", naFila: criados.filter(x => !x.jaAguardava).length, jaAguardavam: criados.filter(x => x.jaAguardava).length, recusados: recusados.length } });
     // O modelo NÃO recebe os códigos: quem mostra os itens (com o código) ao dono é o sistema, depois da resposta.
     const { valor } = limitarResposta(sanitizarResposta({
       naFila: criados.map(x => ({ resumo: x.resumo, jaAguardava: x.jaAguardava })),
       naoPreparados: recusados,
     }));
     return responder(200, { ok: true, nivel: "fila", avisoSeguranca: AVISO_SEGURANCA,
-      aviso: "NADA foi feito ainda: os itens estão na fila de aprovação. O sistema anexa à sua resposta a lista com os códigos; só o dono aprova.", dados: valor });
+      aviso: acao.nivel === "direto"
+        ? "NADA foi feito: como este pedido já leu dados do sistema, a ação foi para a fila de aprovação do dono (regra fixa). O sistema anexa à sua resposta a lista com os códigos; só o dono aprova."
+        : "NADA foi feito ainda: os itens estão na fila de aprovação. O sistema anexa à sua resposta a lista com os códigos; só o dono aprova.", dados: valor });
   } catch (e) {
     if (e instanceof RecusaAcao) {
       const motivo = e.message.slice(0, 300);

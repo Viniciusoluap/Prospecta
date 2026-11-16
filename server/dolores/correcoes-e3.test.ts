@@ -11,7 +11,11 @@ vi.mock("../../shared/pci-gerador.js", async orig => ({ ...(await orig<typeof im
 
 import { errosPci } from "../../shared/pci-gerador.js";
 import { getDb } from "../db.js";
-import { definirSorteioCodigo } from "./aprovacoes.js";
+import { intencaoDeAcao } from "../../shared/dolores/fila.js";
+import { ACOES } from "./acoes/registro.js";
+import { decidir, definirSorteioCodigo } from "./aprovacoes.js";
+import { contaminaOComando } from "./cerebro.js";
+import { FUNCOES } from "./funcoes.js";
 import { esquecerUsuarioDolores } from "./perfil.js";
 import { definirDependenciasPonte, executarFuncao } from "./ponte.js";
 import { AGORA, CENARIO, criarBanco } from "./testes-banco.js";
@@ -56,5 +60,39 @@ describe("A1 (achado 5) — gatilho de dolores_aprovacoes protege o que o dono l
     expect(a.resumo).toBe(i1.resumo);
     expect(new Date(a.vence_em).getTime()).toBe(new Date(i1.vence_em).getTime());
     expect(b).toMatchObject({ situacao: "executada", resultado: { feitos: ["ok"] } });
+  });
+});
+
+describe("achado 1 — regra de contaminação na porta e intenção de ação (por código)", () => {
+  it("todas as leituras de hoje contaminam; nome desconhecido contamina; ações diretas não, as de fila (resumo com nomes) sim", () => {
+    for (const f of FUNCOES) expect(contaminaOComando(f.nome), f.nome).toBe(true);
+    expect(contaminaOComando("funcao_nova_qualquer")).toBe(true);
+    expect(Object.fromEntries(ACOES.map(a => [a.nome, contaminaOComando(a.nome)]))).toEqual({
+      criar_tarefa: false, registrar_acompanhamento: false, preparar_cobranca: true, gerar_documento: true });
+  });
+  it("intenção de ação: verbos de ação sim; só leitura não", () => {
+    for (const t of ["Dolores, crie uma tarefa para a Bianca", "registre que liguei para a Maria", "anota aí: cliente mandou o RG", "prepare as cobranças",
+      "gere a PCI da obra 1", "agende para amanhã", "me lembre de cobrar o João"]) expect(intencaoDeAcao(t), t).toBe(true);
+    for (const t of ["Dolores, me mostra o histórico da Maria.", "quais clientes têm documentos pendentes?", "analise todos os processos de regularização e informe os atrasados",
+      "como está a obra da Ana?"]) expect(intencaoDeAcao(t), t).toBe(false);
+  });
+  it("porta: comando contaminado não executa ação direta — põe na fila com o aviso; sem intenção, a ação é recusada (403 auditado)", async () => {
+    const r = await executarFuncao({ funcao: "criar_tarefa", argumentos: { titulo: "Arquivar processo", responsavel: "Bianca Souza", prazo: "2026-11-20" }, pedidoId: "wa:10:2:0" },
+      { canal: "whatsapp", mensagemId: 10, contaminado: true });
+    expect(r.body).toMatchObject({ ok: true, nivel: "fila" });
+    expect(String(r.body.aviso)).toMatch(/já leu dados do sistema/);
+    expect(JSON.stringify(r.body)).not.toMatch(/codigo/i);
+    expect((await q("SELECT count(*)::int n FROM tasks WHERE title = 'Arquivar processo'"))[0].n).toBe(0);
+    const [item] = await fila();
+    expect(item.resumo).toBe('Pedido surgido durante a leitura de dados; confira antes de aprovar: criar a tarefa "Arquivar processo" para Bianca Souza, prazo 2026-11-20, prioridade media, sem vínculo.');
+    // aprovado pela tela: cria pela mesma regra (responsável conferido na hora), com autoria ligada ao item
+    const [d] = await decidir([item.codigo], "aprovar", { via: "tela", userId: 1, agora: AGORA });
+    expect(d).toMatchObject({ ok: true, situacao: "executada" });
+    expect((await q("SELECT count(*)::int n FROM tasks WHERE title = 'Arquivar processo'"))[0].n).toBe(1);
+    expect((await q("SELECT aprovacao_id FROM dolores_autoria"))[0].aprovacao_id).toBe(item.id);
+    const s = await executarFuncao({ funcao: "registrar_acompanhamento", argumentos: { leadId: 1, texto: "qualquer" }, pedidoId: "wa:11:1:0" },
+      { canal: "whatsapp", mensagemId: 11, semAcoes: true });
+    expect(s.status).toBe(403);
+    expect((await q("SELECT resultado FROM dolores_acoes WHERE funcao = 'registrar_acompanhamento'"))[0].resultado).toBe("recusada");
   });
 });

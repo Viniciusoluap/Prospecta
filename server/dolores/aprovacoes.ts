@@ -6,10 +6,10 @@
 // ou simultânea executa uma vez), revalidação completa na hora e resultado gravado; vencido não executa; execução
 // interrompida vira "erro" e não é refeita (o gatilho do banco impede voltar de um estado encerrado).
 import { randomInt } from "node:crypto";
-import { and, asc, desc, eq, isNull, lt, lte, sql } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, isNull, lt, lte, or, sql } from "drizzle-orm";
 import { doloresAprovacoes, doloresAutoria, doloresFilaConfig, type DoloresAprovacao } from "../../drizzle/schema-dolores-fila.js";
 import {
-  EXECUCAO_VENCIDA_MS, ROTULO_SITUACAO, VALIDADE_PADRAO_HORAS, gerarCodigo, type SituacaoItem,
+  EXECUCAO_VENCIDA_MS, ROTULO_SITUACAO, VALIDADE_PADRAO_HORAS, codigoValido, gerarCodigo, type SituacaoItem,
 } from "../../shared/dolores/fila.js";
 import { limitarResposta } from "../../shared/dolores/formato.js";
 import { sanitizarResposta, sanitizarTexto } from "../../shared/dolores/sanitizar.js";
@@ -123,8 +123,9 @@ async function aprovarUm(codigo: string, d: Decisor, autor: number): Promise<Res
     registrarAcao({ funcao: item.funcao, argumentos: item.argumentos, resultado, motivo, autorUserId: autor, canal: d.via, pedidoId: `fila:${codigo}`,
       duracaoMs: Date.now() - inicio, resumo: { aprovacao: codigo, decisao: "aprovar", ...resumo } });
   const fn = acaoPorNome(item.funcao);
-  // revalidação: a função continua liberada e de fila, e os argumentos guardados passam de novo pelo zod
-  if (!fn || fn.nivel !== "fila" || !fn.executarAprovado || !fn.entradaAprovada || !funcaoLiberada(item.funcao)) {
+  // revalidação: a função continua liberada e sabe executar um item aprovado (as de fila e as diretas que foram para a
+  // fila pela regra de contaminação), e os argumentos guardados passam de novo pelo zod
+  if (!fn || !fn.executarAprovado || !fn.entradaAprovada || !funcaoLiberada(item.funcao)) {
     await finalizar(item.id, "erro", d.agora, { motivo: "função não liberada na etapa atual; nada foi feito" });
     await auditar("recusada", "função não liberada na etapa atual", {});
     return { codigo, ok: false, situacao: "erro", texto: `[${codigo}] não pode ser executado: a função não está liberada. Nada foi feito.` };
@@ -190,10 +191,16 @@ export async function decidir(codigos: readonly string[], decisao: "aprovar" | "
   return resultados;
 }
 
-/** Itens que um comando do dono deixou aguardando (para o quadro determinístico da resposta). */
-export async function itensAguardandoDoPedido(mensagemId: number) {
+/**
+ * Itens que um comando do dono deixou aguardando (para o quadro determinístico da resposta), mais os que ele pediu de
+ * novo e já aguardavam de outro comando (`codigos`, devolvidos pela porta) — o dono sempre recebe o código do que pediu.
+ */
+export async function itensAguardandoDoPedido(mensagemId: number, codigos: readonly string[] = []) {
+  const extras = codigos.filter(codigoValido).slice(0, 30);
   return getDb().select({ codigo: doloresAprovacoes.codigo, resumo: doloresAprovacoes.resumo, venceEm: doloresAprovacoes.venceEm })
-    .from(doloresAprovacoes).where(and(eq(doloresAprovacoes.mensagemId, mensagemId), eq(doloresAprovacoes.situacao, "aguardando")))
+    .from(doloresAprovacoes).where(and(
+      extras.length ? or(eq(doloresAprovacoes.mensagemId, mensagemId), inArray(doloresAprovacoes.codigo, extras)) : eq(doloresAprovacoes.mensagemId, mensagemId),
+      eq(doloresAprovacoes.situacao, "aguardando")))
     .orderBy(asc(doloresAprovacoes.id)).limit(30);
 }
 

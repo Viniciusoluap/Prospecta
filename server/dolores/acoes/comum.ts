@@ -19,6 +19,8 @@ export type ContextoAcao = {
   pedidoId: string | null;
   /** Item da fila aprovado (só na execução de um item aprovado). */
   aprovacaoId: number | null;
+  /** Tempo que ainda resta (ms) para terminar a execução de um item aprovado pelo WhatsApp (prazo da Vercel). */
+  tempoRestanteMs?: () => number;
 };
 
 /** O pedido não pode ser feito (cliente não existe, nada pendente…): recusa explicada, auditada como "recusada". */
@@ -39,14 +41,21 @@ export type FuncaoAcao = {
   descricao: string;
   tipo: "acao";
   nivel: NivelAcao;
+  /** A resposta desta ação ao modelo traz texto de dados (nomes, documentos)? Então contamina o comando (ver funcoes.ts). */
+  contamina: boolean;
   entrada: z.ZodType;
   /** `direto`: executa dentro da transação de escrita. */
   executar?: (args: never, ctx: ContextoAcao) => Promise<ResultadoAcao>;
+  /**
+   * `direto`: resumo legível do pedido para a FILA, quando a ação foi pedida depois de o comando ler dados do sistema
+   * (regra de contaminação): não grava nada; a execução, aprovada, roda `executarAprovado` (= `executar` numa transação).
+   */
+  paraFila?: (args: never, ctx: ContextoAcao) => Promise<ItemParaFila>;
   /** `fila`: confere tudo e devolve o que vai para a fila (não grava nada no sistema). */
   preparar?: (args: never, ctx: ContextoAcao) => Promise<Preparo>;
-  /** `fila`: argumentos guardados no item, validados DE NOVO na hora de executar. */
+  /** Argumentos guardados no item da fila, validados DE NOVO na hora de executar. */
   entradaAprovada?: z.ZodType;
-  /** `fila`: executa um item aprovado, revalidando o estado atual. */
+  /** Executa um item aprovado da fila, revalidando o estado atual. */
   executarAprovado?: (args: never, ctx: ContextoAcao) => Promise<ResultadoAcao>;
   /** O item aprovado roda na transação de escrita mínima? (o gerador de PCI grava pelas próprias funções) */
   aprovadoEmTransacao?: boolean;

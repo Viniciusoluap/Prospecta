@@ -50,6 +50,42 @@ export function lerDecisaoDoDono(texto: string | null | undefined): Decisao | nu
   return { decisao: /^aprov/i.test(m[1]) ? "aprovar" : "recusar", codigos: Array.from(new Set(partes)) };
 }
 
+/**
+ * Intenção de AÇÃO na mensagem do dono, reconhecida por CÓDIGO (verbos de ação): sem ela, o laço do WhatsApp nem oferece
+ * as ferramentas de ação ao modelo — o pedido é só de leitura. É reforço: a barreira principal é a contaminação
+ * (server/dolores/cerebro.ts). Na dúvida (verbo de ação em qualquer lugar da frase), considera que há intenção.
+ */
+const VERBOS_DE_ACAO = new RegExp([
+  "cri(?:e|ar|a|em)", "registr\\w*", "anot\\w*", "agend\\w*", "prepar\\w*", "ger(?:e|ar|a|em)", "lembr\\w*", "cobr\\w*",
+  "marqu\\w*", "marc(?:ar|a)", "coloqu\\w*", "coloc(?:ar|a)", "lanc(?:e|ar|a)", "cadastr\\w*", "adicion\\w*",
+  "inclu(?:a|ir)", "program\\w*",
+].map(v => `\\b${v}\\b`).join("|"), "i");
+export function intencaoDeAcao(texto: string | null | undefined): boolean {
+  const t = String(texto ?? "").normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase();
+  return VERBOS_DE_ACAO.test(t);
+}
+
+/** Início do resumo de um pedido de ação que surgiu DEPOIS de a Dolores ler dados do sistema neste comando. */
+export const AVISO_PEDIDO_CONTAMINADO = "Pedido surgido durante a leitura de dados; confira antes de aprovar:";
+
+/**
+ * Texto vindo de DADOS (nome de cliente, título, documento, resumo) antes de entrar num resumo, quadro ou frase que vai ao
+ * dono: sem caracteres de controle nem de formatação invisível, toda quebra de linha/espaço vira um espaço só e
+ * colchetes viram parênteses — um dado não consegue forjar uma linha "- [CÓDIGO] …" no quadro de pendências.
+ */
+export function textoDeDado(s: string | null | undefined, max = 600): string {
+  return umaLinha(s, Number.MAX_SAFE_INTEGER).replace(/\[/g, "(").replace(/\]/g, ")").slice(0, max);
+}
+
+/** Uma linha só: sem caracteres de controle/invisíveis, espaços e quebras colapsados num espaço, cortada em `max`. */
+export function umaLinha(s: string | null | undefined, max: number): string {
+  return String(s ?? "")
+    .replace(/[\u0000-\u001f\u007f-\u009f\u200b-\u200f\u2028-\u202e\u2060-\u2064\ufeff]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, max);
+}
+
 /** Deslocamento fixo de Imperatriz (UTC−3, sem horário de verão). */
 const FUSO_MS = 3 * 60 * 60_000;
 

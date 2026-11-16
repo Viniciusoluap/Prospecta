@@ -3,6 +3,7 @@
 // (dolores_autoria) entram juntas ou não entram. As ações pegam a conexão só por `bancoDaAcao()`; fora de uma transação
 // de escrita ela LANÇA — nenhuma ação grava pela conexão comum por engano.
 import { AsyncLocalStorage } from "node:async_hooks";
+import { sql } from "drizzle-orm";
 import { getDb, type DrizzleDb } from "../db.js";
 
 const atual = new AsyncLocalStorage<DrizzleDb>();
@@ -13,6 +14,13 @@ export function bancoDaAcao(): DrizzleDb {
   return tx;
 }
 
-export async function emTransacaoDeEscrita<T>(fn: () => Promise<T>): Promise<T> {
-  return getDb().transaction(async tx => atual.run(tx as unknown as DrizzleDb, fn));
+/**
+ * `prazoMs`: o próprio banco cancela a instrução que passar do prazo (SET LOCAL statement_timeout) — a transação desfaz
+ * tudo, e a porta pode dizer a verdade ("tudo ou nada") mesmo quando o prazo dela estoura antes.
+ */
+export async function emTransacaoDeEscrita<T>(fn: () => Promise<T>, prazoMs?: number): Promise<T> {
+  return getDb().transaction(async tx => {
+    if (prazoMs && prazoMs > 0) await tx.execute(sql.raw(`SET LOCAL statement_timeout = ${Math.max(1000, Math.floor(prazoMs))}`));
+    return atual.run(tx as unknown as DrizzleDb, fn);
+  });
 }

@@ -2,13 +2,16 @@
 // execução direta, com registro"). Grava no histórico do cliente do CRM pela mesma função da tela (`addLeadActivity`),
 // com autoria "Dolores" e a referência ao pedido em `metadata`. Não muda etapa, documento nem financeiro; não envia nada.
 import { randomUUID } from "node:crypto";
-import { and, desc, eq } from "drizzle-orm";
+import { and, desc, eq, isNull } from "drizzle-orm";
 import { z } from "zod";
-import { leadActivities } from "../../../drizzle/schema.js";
+import { leadActivities, leads } from "../../../drizzle/schema.js";
 import { sanitizarTexto } from "../../../shared/dolores/sanitizar.js";
 import { addLeadActivity, getLeadById } from "../../db.js";
 import { bancoDaAcao } from "../escrita.js";
-import { MARCA_DOLORES, RecusaAcao, registrarAutoria, type ContextoAcao, type ResultadoAcao } from "./comum.js";
+import { AVISO_PEDIDO_CONTAMINADO, textoDeDado } from "../../../shared/dolores/fila.js";
+import { bancoDaLeitura, emTransacaoSomenteLeitura } from "../somente-leitura.js";
+import { MARCA_DOLORES, RecusaAcao, registrarAutoria, type ContextoAcao, type ItemParaFila, type ResultadoAcao } from "./comum.js";
+import { alvoDoPedido } from "./tarefas.js";
 
 const TIPO = { anotacao: "note", ligacao: "call" } as const;
 
@@ -34,7 +37,20 @@ export async function registrarAcompanhamento(args: z.infer<typeof entradaRegist
   const lead = await getLeadById(args.leadId, bancoDaAcao());
   if (!lead || lead.deletedAt) throw new RecusaAcao(`Cliente ${args.leadId} não encontrado no CRM (ou excluído).`);
   const texto = sanitizarTexto(args.texto).slice(0, 1000);
-  const frase = `${args.tipo === "ligacao" ? "Ligação" : "Anotação"} no histórico de ${lead.name}: "${texto.slice(0, 80)}${texto.length > 80 ? "…" : ""}"`;
+  const frase = textoDeDado(`${args.tipo === "ligacao" ? "Ligação" : "Anotação"} no histórico de ${lead.name}: "${texto.slice(0, 80)}${texto.length > 80 ? "…" : ""}"`, 300);
   const id = await gravarAcompanhamento(ctx, { leadId: lead.id, tipo: TIPO[args.tipo], texto, funcao: "registrar_acompanhamento", resumo: frase });
   return { dados: { acompanhamentoId: id, leadId: lead.id, tipo: args.tipo }, resumo: { registrado: true, tipo: args.tipo }, feitos: [frase] };
+}
+
+/**
+ * Acompanhamento pedido DEPOIS de o comando ler dados (regra de contaminação): não grava; devolve o item da fila com o
+ * resumo legível (tipo, cliente e o texto inteiro que seria gravado). Aprovado, `registrarAcompanhamento` roda na hora.
+ */
+export async function acompanhamentoParaFila(args: z.infer<typeof entradaRegistrarAcompanhamento>, _ctx: ContextoAcao): Promise<ItemParaFila> {
+  const [lead] = await emTransacaoSomenteLeitura(() => bancoDaLeitura().select({ id: leads.id, name: leads.name }).from(leads)
+    .where(and(eq(leads.id, args.leadId), isNull(leads.deletedAt))).limit(1));
+  if (!lead) throw new RecusaAcao(`Cliente ${args.leadId} não encontrado no CRM (ou excluído).`);
+  const texto = sanitizarTexto(args.texto).slice(0, 1000);
+  const resumo = textoDeDado(`${AVISO_PEDIDO_CONTAMINADO} registrar ${args.tipo === "ligacao" ? "LIGAÇÃO" : "anotação"} no histórico de ${lead.name} (cliente ${lead.id}): "${texto}"`, 600);
+  return { alvo: alvoDoPedido("acompanhamento", [lead.id, args.tipo, texto.toLowerCase()]), resumo, argumentos: args };
 }

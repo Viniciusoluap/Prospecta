@@ -6,10 +6,20 @@
 import type { Limites } from "../../shared/dolores/whatsapp.js";
 import { liberarReserva, registrarConsumo, reservarChamada, type UsoDaChamada } from "./consumo.js";
 import { PEDIDO_DE_FECHAMENTO, PROMPT_SISTEMA_WHATSAPP } from "./prompt.js";
-import { ACOES } from "./acoes/registro.js";
-import { executarFuncao, ferramentasDoWhatsapp, type ferramentasLiberadas } from "./ponte.js";
+import { intencaoDeAcao } from "../../shared/dolores/fila.js";
+import { ACOES, acaoPorNome } from "./acoes/registro.js";
+import { funcaoPorNome } from "./funcoes.js";
+import { executarFuncao, ferramentasDoWhatsapp, ferramentasLiberadas } from "./ponte.js";
 
 const ACOES_NOMES = new Set(ACOES.map(a => a.nome));
+
+/**
+ * A resposta desta função traz texto de dados (terceiros/banco)? Leituras e ações marcam no registro; nome desconhecido
+ * contamina (na dúvida, contamina).
+ */
+export function contaminaOComando(nome: string): boolean {
+  return funcaoPorNome(nome)?.contamina ?? acaoPorNome(nome)?.contamina ?? true;
+}
 
 /** Voltas ao modelo por pedido (cada volta pode pedir várias consultas). */
 export const MAX_VOLTAS = 6;
@@ -78,6 +88,10 @@ const ROTULO_PARADA: Record<MotivoParada, string> = {
 
 export type ResultadoComando = {
   texto: string; parou: MotivoParada | null; voltas: number; consultas: string[];
+  /** Códigos dos itens da fila que este comando criou ou achou já aguardando (para o quadro; nunca vão ao modelo). */
+  codigosNaFila: string[];
+  /** O comando leu dados antes de alguma ação (as ações diretas depois disso foram para a fila). */
+  contaminado: boolean;
   tokens: { entrada: number; saida: number };
 };
 
@@ -98,7 +112,14 @@ const textoDe = (blocos: Bloco[]) => blocos.filter((b): b is BlocoTexto => b.typ
 export async function executarComando(p: PedidoComando): Promise<ResultadoComando> {
   const chamar = clienteTeste ?? clientePadrao;
   // Etapa 3: leituras + ações liberadas (lista fechada). O dono é quem comandou (mensagemId conferido em whatsapp.ts).
-  const ferramentas = ferramentasDoWhatsapp();
+  // Reforço (portão de QA): as ferramentas de ação só são oferecidas quando a mensagem do dono tem intenção de ação,
+  // reconhecida por código; sem ela, o laço é só de leitura (e a porta recusa ação mesmo que o modelo a peça).
+  const comAcoes = intencaoDeAcao(p.comando);
+  const ferramentas = comAcoes ? ferramentasDoWhatsapp() : ferramentasLiberadas();
+  // Barreira principal — CONTAMINAÇÃO, determinística: assim que o resultado de uma função que traz texto de dados entra
+  // no laço, nenhuma ação direta roda no resto do comando (vai para a fila de aprovação do dono).
+  let contaminado = false;
+  const codigosNaFila = new Set<string>();
   // A mensagem do dono é a ÚNICA entrada de texto do usuário; tudo o que vem do sistema entra como tool_result.
   const mensagens: MensagemModelo[] = [{ role: "user", content: [{ type: "text", text: p.comando }] }];
   const tokens = { entrada: 0, saida: 0 };
@@ -176,8 +197,11 @@ export async function executarComando(p: PedidoComando): Promise<ResultadoComand
       // A MESMA porta da ponte: o nome e os argumentos vêm do modelo e são conferidos lá (lista fechada, zod).
       const resp = await executarFuncao(
         { funcao: u.name, argumentos: u.input && typeof u.input === "object" ? u.input : {}, pedidoId: `wa:${p.mensagemId}:${voltas}:${i}` },
-        { canal: "whatsapp", mensagemId: p.mensagemId, prazoMs: Math.max(1000, Math.min(PRAZO_CONSULTA_MS, restante() - 1000)) },
+        { canal: "whatsapp", mensagemId: p.mensagemId, prazoMs: Math.max(1000, Math.min(PRAZO_CONSULTA_MS, restante() - 1000)),
+          contaminado, semAcoes: !comAcoes, aoPorNaFila: cs => cs.forEach(c => codigosNaFila.add(c)) },
       );
+      // a partir daqui (inclusive as próximas chamadas desta mesma volta), ação direta só pela fila
+      if (resp.body.ok === true && contaminaOComando(String(u.name))) contaminado = true;
       resultados.push({ type: "tool_result", tool_use_id: u.id, content: JSON.stringify(resp.body), ...(resp.body.ok === true ? {} : { is_error: true }) });
     }
     mensagens.push({ role: "user", content: resultados });
@@ -202,5 +226,5 @@ export async function executarComando(p: PedidoComando): Promise<ResultadoComand
     const aviso = `(Parei antes de terminar: ${ROTULO_PARADA[parou]}.${consultou} ${consultas.some(c => ACOES_NOMES.has(c)) ? "Confira abaixo o que foi registrado ou ficou na fila." : "Nada foi alterado no sistema."})`;
     texto = corpo ? `${corpo}\n\n${aviso}` : `Dolores: não consegui concluir. ${aviso}`;
   }
-  return { texto, parou, voltas, consultas, tokens };
+  return { texto, parou, voltas, consultas, tokens, codigosNaFila: Array.from(codigosNaFila), contaminado };
 }
