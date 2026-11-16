@@ -107,3 +107,21 @@ migração da etapa antes. Depois lançar S-03 e S-05, e por fim o EPIC-025 (Dol
 - Testes (a) automáticos: `server/maquete-3d*` + integrações Anthropic verdes; `tsc` e `vite build` ok; guarda de
   build ok. (b) manuais: nenhum. (c) produção: chave real no painel; PDF real da maquete 8; 0121 no Neon.
 - Próximo passo: QA do ramo; aplicar 0121; publicar; com a chave cadastrada, rodar a maquete 8 em "Continuar leitura".
+
+## Atualização — 16/11, correções do portão de QA de S-03/S-05 (ramo `epic024-s03-s05`, cópia em `claude/wip-epic024-s03-s05`)
+- **Concluído:** os 10 achados do QA (relatório do Quinn) corrigidos, cada um com teste de regressão em
+  `server/maquete-3d-qa-s03-s05.test.ts` (20 testes). Tabela achado → correção → teste nas stories S-03 e S-05.
+  Principais: confirmação da IA por execução, com número de pranchas, expirando ao usá-las; teto por maquete no total
+  (coluna nova `ia_pranchas_lidas`), passar dele só com "Autorizar além do teto" do admin; reserva da chamada paga
+  antes de chamar a IA (UPDATE condicional) e toda gravação de passo condicional; motor "IA em tudo" com a mesma
+  confirmação; PDF achado pela identidade (fonte + id), nunca pela posição; imagem só vai à IA se cobrir ≥ 60 % da
+  página; IA sem planta mantém o leitor próprio; resposta da IA validada com zod e geometria absurda filtrada (com
+  pendência); planta anterior guardada ANTES de qualquer substituição (falhou → nada muda); "ler de novo" bloqueado
+  com importação aberta.
+- **Migração 0121 mudou (ainda NÃO aplicada em banco nenhum):** ganhou
+  `ALTER TABLE "maquetes_3d" ADD COLUMN IF NOT EXISTS "ia_pranchas_lidas" integer NOT NULL DEFAULT 0;` (aditiva e
+  idempotente). Tem de ser aplicada no Neon ANTES de publicar o código (sem ela, listar/detalhe/link público quebram).
+- **Testes:** (a) automáticos — `npx tsc --noEmit` OK; 8 suítes da Maquete + auth-session + imports-esm: 10 arquivos,
+  200 testes verdes; `npx vite build` OK. (b) manuais: não feitos (sem navegador). (c) produção: chave real, PDF real
+  da maquete 8, aplicar a 0121.
+- **Próximo passo exato:** @qa refaz o portão de S-03/S-05 neste ramo; depois aplicar a 0121 no Neon e publicar.

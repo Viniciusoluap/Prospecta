@@ -1,6 +1,6 @@
 # S-05 — Maquete: "Importar planta arquitetônica (PDF)" na Revisão da planta
 
-Status: Ready for Review (código, testes e tela; migração 0121 NÃO aplicada em banco real)
+Status: Ready for Review (código, testes e tela; migração 0121 NÃO aplicada em banco real) — correções do portão de QA de 16/11 feitas (ver "QA — achados e correções")
 Epic: EPIC-024 (Fase 4) — correção 05 do dono (16/11/2026)
 Paridade: Maquete 3D — exceção já registrada no `ROADMAP.md` (EPIC-022). Não portar.
 Tamanho estimado: M/G
@@ -68,9 +68,11 @@ do histórico das revisões. Hoje `iniciarLeitura` apaga o modelo (`modelo: null
 - [AUTO-DECISION] Maquete publicada: aplicar e restaurar só pelo administrador (é o mesmo poder de "tirar do ar").
 - [AUTO-DECISION] Primeira mudança de uma maquete antiga grava antes a planta como estava (origem "anterior"), para
   poder voltar a ela; o mesmo vale para "ler de novo do zero".
-- Sem transação interativa (neon-http): o modelo é gravado com `UPDATE … WHERE modelo_versao = versão` e a revisão logo
-  depois, com versão única por maquete (`ON CONFLICT DO NOTHING`). Se a gravação da revisão falhar depois do modelo, a
-  mudança fica sem linha no histórico e o erro vai para o log (o salvamento não é desfeito nem dado como falho).
+- Sem transação interativa (neon-http). **Corrigido no QA (achado 6):** a planta que está na maquete é guardada no
+  histórico ANTES do `UPDATE … WHERE modelo_versao = versão`; se isso falhar, a operação para com
+  "Não foi possível guardar a planta atual no histórico, então nada foi alterado" e nada é sobrescrito. Depois do
+  UPDATE, o registro da versão nova (`ON CONFLICT DO NOTHING`) continua só no log se falhar: o modelo novo está na
+  própria maquete e entra no histórico pelo passo anterior da próxima mudança.
 - **A 0121 tem de ser aplicada antes de publicar o código:** a coluna `maquetes_3d.importacao` está no schema Drizzle,
   e toda consulta da maquete a seleciona.
 - As pranchas do PDF importado passam a ser o fundo dos pavimentos substituídos (em `leitura.parciais.pranchasDosPavimentos`).
@@ -86,6 +88,25 @@ do histórico das revisões. Hoje `iniciarLeitura` apaga o modelo (`modelo: null
 - (b) Manuais: não feitos (sem navegador nesta sessão).
 - (c) Pendentes em produção: migração 0121 no Neon; importar um projeto profissional real e aplicar.
 
+## QA — achados e correções (portão de 16/11, veredito FAIL → corrigido)
+Testes de regressão em `server/maquete-3d-qa-s03-s05.test.ts`. Achados 1, 2, 3, 5, 8 e 9: ver a S-03 (o mesmo
+código vale para a importação: a confirmação é só desta importação, a chamada é reservada e o teto é o da maquete).
+
+| Achado | Correção | Teste |
+|---|---|---|
+| 4 prancha guardada pela posição na lista de PDFs | Cada passo `prancha`/`prancha_ia` grava `arquivo` (fonte + id + nome) e o PDF é achado por ele (`documentoDoPasso`); saiu da lista: "O PDF \"x\" saiu da lista de PDFs desta maquete… Nada foi lido de outro arquivo". `pranchasDosPavimentos` e as pranchas da candidata guardam a identidade; a tela recebe o índice atual (`pranchasParaTela`) e, sem o arquivo, o pavimento fica sem fundo. | "achado 4: reordenar a lista durante a importação…"; "achado 4: o fundo da revisão segue o arquivo…" |
+| 6 histórico depois do UPDATE, erro engolido | `guardarAnterior` antes do UPDATE em toda gravação do modelo e em "ler de novo"; falha → `HistoricoIndisponivel` (CONFLICT com mensagem clara). Reverte o `a00c6ea` nesse ponto. | "achado 6: histórico fora do ar — aplicar, restaurar, ler de novo e salvar param…" |
+| 7 sem a 0121 quebram listar/detalhe/porToken | Decisão do líder: a 0121 é aplicada antes de publicar (sem trocar os `select()`). A 0121 ganhou a coluna aditiva e idempotente `ia_pranchas_lidas`. Teste confere que toda coluna do schema `maquetes_3d` existe depois das migrações e que rodar a 0121 duas vezes não muda nada. | "migração 0121 (achado 7)" (2 testes) |
+| 10 importação seguia com a maquete em leitura | `avancarImportacao`, `confirmarIAImportacao` e `pularIAImportacao` conferem `PODE_IMPORTAR` e gravam com condição (`importacao = texto lido`); `aplicarImportacao` também (`condicao`). `iniciarImportacao`/`salvarCandidata`/`descartarImportacao` gravam com condição; chamada atrasada não regrava importação aplicada ou descartada. | "achado 10: 'ler de novo' é bloqueado…"; "achado 2: na importação…o atrasado não regrava a importação descartada" |
+
+- [AUTO-DECISION] `iniciarLeitura` com importação aberta: **bloqueia** ("aplique ou descarte a importação antes de ler o
+  projeto de novo"), em vez de descartar — a candidata pode ter edições da pessoa, e descartar em silêncio as perderia.
+  O UPDATE também exige `importacao IS NULL` e a mesma `modelo_versao` (sem corrida).
+- [AUTO-DECISION] Salvamento comum da edição: também para se a planta atual não puder ir ao histórico (o mais seguro: a
+  edição fica na tela e pode ser salva de novo; a planta anterior nunca se perde).
+- **A 0121 continua tendo de ser aplicada antes de publicar o código** (agora com duas colunas: `importacao` e
+  `ia_pranchas_lidas`). Maquetes existentes começam com o contador em 0.
+
 ## File List
 - `drizzle/0121_maquete_3d_revisoes.sql` (novo), `drizzle/schema-maquete-3d.ts`
 - `shared/maquete-3d/importacao.ts` (novo)
@@ -96,8 +117,12 @@ do histórico das revisões. Hoje `iniciarLeitura` apaga o modelo (`modelo: null
 - `client/src/components/maquete-3d/ImportarPlanta.tsx` (novo), `client/src/components/maquete-3d/EditorPlanta.tsx`,
   `client/src/pages/admin/AdminMaquete3D.tsx`
 - `server/maquete-3d-importacao.test.ts` (novo), `server/maquete-3d.test.ts`, `server/maquete-3d-hibrida.test.ts` (rodam a 0121)
+- Correções do QA: `server/maquete-3d/revisoes.ts`, `server/maquete-3d/importacao.ts`, `server/maquete-3d/execucao-ia.ts`
+  (novo), `drizzle/0121_maquete_3d_revisoes.sql` e `drizzle/schema-maquete-3d.ts` (`ia_pranchas_lidas`),
+  `server/maquete-3d/router.ts`, `client/src/components/maquete-3d/ImportarPlanta.tsx`, `server/maquete-3d-qa-s03-s05.test.ts` (novo)
 
 ## Change Log
 | Data | Autor | Mudança |
 |------|-------|---------|
 | 16/11/2026 | @dev (Dex) | Story criada e implementada (YOLO, regra do EPIC-024 de não parar entre etapas) |
+| 16/11/2026 | @dev (Dex) | Correções dos achados 4, 6, 7 e 10 do portão de QA, com testes de regressão |

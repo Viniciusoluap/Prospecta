@@ -1,6 +1,6 @@
 # S-03 — Maquete: PDF que o leitor próprio não lê (leitura híbrida)
 
-Status: Ready for Review (código, testes e tela; sem chave real e sem o PDF real escaneado)
+Status: Ready for Review — correções do portão de QA de 16/11 feitas (ver "QA — achados e correções"); sem chave real e sem o PDF real escaneado
 Epic: EPIC-024 (Fase 4) — correção 03 do dono (16/11/2026)
 Paridade: Maquete 3D — exceção já registrada no `ROADMAP.md` (EPIC-022). Não portar.
 Tamanho estimado: G
@@ -98,6 +98,29 @@ adicionada. Ordem de envio (`anexoDaPagina`):
 - (c) Pendentes em produção: chave real cadastrada pelo dono; leitura do PDF real da maquete 8 pela IA (qualidade,
   tempo do passo, tokens).
 
+## QA — achados e correções (portão de 16/11, veredito FAIL → corrigido)
+Decisões do líder aplicadas (não reabertas). **AC5 e AC7 foram substituídos pela regra 1 do dono**: a confirmação
+vale só para a execução atual e o teto é por maquete, no total (o texto original dos AC fica como histórico).
+Testes de regressão em `server/maquete-3d-qa-s03-s05.test.ts` (versões invertidas dos testes adversariais Q1–Q12).
+
+| Achado | Correção | Teste |
+|---|---|---|
+| 1 (bloqueia) confirmação eterna; teto não era por maquete | `confirmacaoIA` nasce `null` em "ler de novo" e em cada importação; traz `pranchas` autorizadas e `usadas`, e expira ao chegar nelas (`confirmacaoValida`). Contador `maquetes_3d.ia_pranchas_lidas` (0121) soma leituras + importações; acima do teto, o passo espera `aguardando: "teto"` e só passa com `confirmarIA({ alemDoTeto: true })` do admin. A confirmação comum autoriza no máximo o que sobra do teto. | "achado 1: com teto 1 e UMA confirmação, reler 3 vezes e importar 3 vezes não chama a IA de novo"; "achado 1: a confirmação traz o número de pranchas e expira"; hibrida: "teto…", "além do teto…" |
+| 2 sem trava contra execução dupla | `execucao-ia.ts`: antes de chamar a IA, `reservarChamada` grava o passo como `executando`, soma +1 na confirmação e no contador, num `UPDATE … WHERE leitura = texto lido [AND ia_pranchas_lidas < teto] RETURNING`. Perdeu a corrida: `ExecucaoConcorrente`, sem chamada. Toda gravação de passo é condicional ao texto lido. Reserva com mais de 75 s vira erro "interrompida" (conta como usada). Erro sem cobrança (conexão, 429, 5xx, 529, chave) devolve a reserva. | "achado 2: dois 'avançar' simultâneos…UMA chamada"; "achado 2: reserva velha…"; hibrida: "tempo esgotado ou IA sobrecarregada…" |
+| 3 motor "ia" chamava a IA sem confirmação | `passoAntigoIA`: o fluxo antigo passa pelo mesmo `bloqueioDaIA` (chave → teto → confirmação) e pela mesma reserva; sem chave, espera (não é erro). A chave do painel sozinha nunca liga gasto. `prazoMs` também no fluxo antigo. | "achado 3: motor 'IA em tudo' não chama a IA sem a confirmação"; "achado 3: só cadastrar a chave…"; `maquete-3d.test.ts` (fluxo antigo com `avancarIA`) |
+| 5 anexo podia ser só o logotipo; resposta vazia apagava a leitura própria | `pdf-vetorial.ts` mede `coberturaImagem` (fração da página da maior imagem); `anexoDaPagina` só manda a imagem com cobertura ≥ 0,6, senão a página/PDF original. IA sem planta (ou fora do formato): fica a leitura própria com pendência "Ficou o que o leitor próprio leu desta prancha". | "achado 5: prancha escaneada…imagem"; "achado 5: a IA voltou sem planta…"; "achado 5 (Q11): …logotipo" |
+| 8 resposta fora do esquema virava erro cru e repetir cobrava | `resposta-ia.ts` (zod): item inválido descartado com pendência; resposta inteira inválida = "A IA devolveu uma resposta fora do formato esperado" (nunca lança). O passo conclui (a chamada foi cobrada); repetir só com confirmação nova. | "achados 8 e 9: resposta fora do formato…"; "achado 8: resposta inteira fora do esquema…"; "achado 8 (Q12)…nunca lança" |
+| 9 geometria absurda entrava sem aviso | Filtro: cômodo com < 3 pontos, área < 0,3 m², coordenada > 500 m ou ≥ 60 % por cima de outro; parede < 5 cm; abertura sem parede; escada sem contorno — tudo descartado com pendência visível na revisão. | "achados 8 e 9…"; "achado 9: filtros de geometria…" |
+| 4, 6, 7, 10 | Ver S-05 (mesmo ramo; o achado 4 vale também para a leitura principal e o fundo da revisão). | — |
+
+- [AUTO-DECISION] Erros cobrados ou não: timeout e resposta recebida contam como usados (conservador); conexão, 401/403,
+  429, 5xx e 529 devolvem a prancha à confirmação e ao contador.
+- [AUTO-DECISION] O teto vale também para o fluxo antigo ("IA em tudo"): cada passo é uma chamada paga; o campo do teto
+  passa a aparecer para os motores híbrido e IA.
+- [AUTO-DECISION] "Seguir sem a IA" com prancha parada no teto registra a frase de sempre em `foraDoLimiteIA`.
+- Tela: aviso "teto" com o botão "Autorizar além do teto" (só admin, com confirmação do navegador); passo em curso em
+  outra aba aparece como "sendo lida pela IA agora" e o laço da tela para sem chamar de novo.
+
 ## File List
 - `shared/maquete-3d/regras.ts` — modos, teto, passo `prancha_ia`, estado `aguardando`, confirmação.
 - `server/maquete-3d/base.ts` — credencial (painel → ambiente), modelo, anexos, prazo, mensagens.
@@ -108,8 +131,13 @@ adicionada. Ordem de envio (`anexoDaPagina`):
 - `server/_core/anthropic-painel.ts` — comentário: único uso autorizado.
 - `client/src/pages/admin/AdminMaquete3D.tsx` — Configurações e painel da leitura.
 - `server/maquete-3d-hibrida.test.ts` (novo), `server/integracoes-anthropic.test.ts`, `server/maquete-3d.test.ts`.
+- Correções do QA: `server/maquete-3d/execucao-ia.ts` (novo), `server/maquete-3d/resposta-ia.ts` (novo),
+  `server/maquete-3d/pdf-vetorial.ts`, `server/maquete-3d/leitura.ts`, `server/maquete-3d/router.ts`,
+  `shared/maquete-3d/regras.ts`, `client/src/components/maquete-3d/ImportarPlanta.tsx`,
+  `server/maquete-3d-qa-s03-s05.test.ts` (novo).
 
 ## Change Log
 | Data | Autor | Mudança |
 |------|-------|---------|
 | 16/11/2026 | @dev (Dex) | Story criada e implementada (YOLO, regra do EPIC-024 de não parar entre etapas) |
+| 16/11/2026 | @dev (Dex) | Correções dos achados 1, 2, 3, 5, 8 e 9 do portão de QA, com testes de regressão |
