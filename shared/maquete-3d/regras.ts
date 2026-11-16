@@ -118,6 +118,8 @@ export type PassoLeitura = {
   motivoIA?: string | null;
   /** O que foi enviado à IA: a imagem da página, um PDF só daquela página, ou o PDF original com a instrução da página. */
   envio?: "imagem" | "pdf_pagina" | "pdf_original" | null;
+  /** Vezes seguidas em que o passo devolveu o controle sem chamar a IA por falta de tempo na função (QA rodada 2, N7). */
+  adiado?: number;
 };
 
 /**

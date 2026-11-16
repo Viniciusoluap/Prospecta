@@ -9,7 +9,7 @@
 import { and, eq, inArray, isNull, lt, sql } from "drizzle-orm";
 import { maquetes3d, type Maquete3d } from "../../drizzle/schema-maquete-3d.js";
 import { confirmacaoValida, type ConfigMaquete, type EstadoLeitura, type PassoLeitura, type StatusMaquete } from "../../shared/maquete-3d/regras.js";
-import { LeituraIndisponivel, agora, db, modeloDaLeitura, tipoDoErroIA, type CredencialIA } from "./base.js";
+import { LIMITE_PASSO_MS, LeituraIndisponivel, agora, db, modeloDaLeitura, tipoDoErroIA, type CredencialIA } from "./base.js";
 
 /** Passos do fluxo antigo (motor "IA em tudo"): cada um é uma chamada paga com os PDFs inteiros. */
 export const PASSOS_IA_ANTIGOS: readonly PassoLeitura["tipo"][] = ["inventario", "estrutura", "ambientes", "implantacao"];
@@ -96,6 +96,31 @@ export function bloqueioDaIA(estado: EstadoLeitura, config: ConfigMaquete, x: Ex
     };
   }
   return null;
+}
+
+/** Com menos que isto do orçamento do passo, a IA não é chamada: o pedido devolve o controle (QA rodada 2, N7). */
+export const MIN_TEMPO_IA_MS = 10_000;
+/** Depois de tantas devoluções seguidas por falta de tempo, o passo vira erro (para a tela não ficar em laço). */
+export const MAX_ADIAMENTOS = 3;
+
+/** Tempo que sobra para a resposta da IA neste pedido (orçamento do passo menos o já gasto e a folga da gravação). */
+export const prazoDaIA = (x: Execucao) => LIMITE_PASSO_MS - (Date.now() - x.inicio) - 2_000;
+
+/**
+ * QA rodada 2, N7: se baixar e preparar o PDF já gastou o orçamento e sobram menos de ~10 s, a IA não é chamada nem
+ * reservada (não conta como usada): o passo continua pendente e a tela chama de novo. Repetido além do limite, erro
+ * claro (nada foi cobrado).
+ */
+export function semTempoParaIA(x: Execucao, passo: PassoLeitura): boolean {
+  if (LIMITE_PASSO_MS - (Date.now() - x.inicio) >= MIN_TEMPO_IA_MS) { passo.adiado = 0; return false; }
+  passo.adiado = (passo.adiado ?? 0) + 1;
+  // Pendente (e não erro): a tela continua o laço e chama de novo, sem a pessoa clicar.
+  Object.assign(passo, { estado: "pendente", erro: null, aguardando: null });
+  if (passo.adiado > MAX_ADIAMENTOS) {
+    passo.adiado = 0;
+    throw new LeituraIndisponivel("Preparar esta prancha para a IA levou tempo demais, várias vezes seguidas, e a IA não foi chamada (nada foi cobrado). Tente de novo este passo; se repetir, envie só as pranchas das plantas baixas.");
+  }
+  return true;
 }
 
 /**

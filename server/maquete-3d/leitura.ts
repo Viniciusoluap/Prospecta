@@ -22,9 +22,9 @@ import { guardarAnterior, registrarRevisao } from "./revisoes.js";
 import { lerRespostaPrancha } from "./resposta-ia.js";
 import {
   ExecucaoConcorrente, MENSAGEM_INTERROMPIDA, PASSOS_IA_ANTIGOS, bloqueioDaIA, devolverReserva, execucaoDe, gravarSeIgual, naoCobrado, novaConfirmacao,
-  exigirSemPassoEmCurso, gravarSobreOAtual, pularPassosIA, reservaVencida, reservarChamada, type Execucao,
+  exigirSemPassoEmCurso, gravarSobreOAtual, prazoDaIA, pularPassosIA, semTempoParaIA, reservaVencida, reservarChamada, type Execucao,
 } from "./execucao-ia.js";
-import { LIMITE_PASSO_MS, LeituraIndisponivel, agora, carregarConfig, db, dependencias, erroSeguro, modeloDaLeitura, type AnexoIA, type PdfLido, alvoDoDocumento } from "./base.js";
+import { LeituraIndisponivel, agora, carregarConfig, db, dependencias, erroSeguro, modeloDaLeitura, type AnexoIA, type PdfLido, alvoDoDocumento } from "./base.js";
 
 // ── Esquemas da resposta da IA (JSON Schema, saída estruturada) ──
 
@@ -430,8 +430,7 @@ export const mensagemSemChave = (motivo: string | null | undefined) => motivo ==
  * Tempo esgotado ou IA sobrecarregada: erro do passo, que pode ser repetido (com confirmação, se a dela acabou).
  * A IA voltou sem planta (ou fora do formato): fica o que o leitor próprio leu, com pendência dizendo isso.
  */
-export async function passoPranchaIA(m: Maquete3d, estado: EstadoLeitura, passo: PassoLeitura, config: ConfigMaquete, x: Execucao): Promise<"feito" | "aguardando"> {
-  const inicio = Date.now();
+export async function passoPranchaIA(m: Maquete3d, estado: EstadoLeitura, passo: PassoLeitura, config: ConfigMaquete, x: Execucao): Promise<"feito" | "aguardando" | "adiado"> {
   const credencial = await dependencias().credencialIA().catch(() => null);
   const bloqueio = bloqueioDaIA(estado, config, x, credencial, mensagemSemChave(passo.motivoIA));
   if (bloqueio) { Object.assign(passo, { estado: "aguardando", ...bloqueio }); return "aguardando"; }
@@ -444,12 +443,13 @@ export async function passoPranchaIA(m: Maquete3d, estado: EstadoLeitura, passo:
   if (pdf) { total = pdf.paginas; await pdf.fechar(); }
   const { anexo, envio } = anexoDaPagina(dados, d.nome, passo.pagina!, total, geo?.diagnostico.coberturaImagem ?? 0);
   const imagem = (!!geo && geo.diagnostico.segmentos < 40 && geo.diagnostico.imagens > 0) || envio !== "pdf_original";
+  if (semTempoParaIA(x, passo)) return "adiado";
   await reservarChamada(x, estado, passo, config);
   let r: Awaited<ReturnType<ReturnType<typeof dependencias>["ia"]>>;
   try {
     r = await dependencias().ia({
       sistema: SISTEMA, pedido: PEDIDO_PRANCHA(d.nome, passo.pagina!, envio, imagem), pdfs: [], anexos: [anexo],
-      esquema: ESQUEMA_PRANCHA, config, credencial: credencial!, prazoMs: LIMITE_PASSO_MS - (Date.now() - inicio) - 2_000,
+      esquema: ESQUEMA_PRANCHA, config, credencial: credencial!, prazoMs: prazoDaIA(x),
     });
   } catch (e) {
     if (naoCobrado(e)) devolverReserva(x, estado);
@@ -631,8 +631,7 @@ export async function iniciarLeitura(id: number): Promise<EstadoLeitura> {
 }
 
 /** Passo do fluxo antigo (motor "IA em tudo"): uma chamada paga com os PDFs inteiros, com a mesma confirmação e reserva. */
-async function passoAntigoIA(m: Maquete3d, estado: EstadoLeitura, passo: PassoLeitura, config: ConfigMaquete, x: Execucao): Promise<"feito" | "aguardando"> {
-  const inicio = Date.now();
+async function passoAntigoIA(m: Maquete3d, estado: EstadoLeitura, passo: PassoLeitura, config: ConfigMaquete, x: Execucao): Promise<"feito" | "aguardando" | "adiado"> {
   const credencial = await dependencias().credencialIA().catch(() => null);
   const bloqueio = bloqueioDaIA(estado, config, x, credencial,
     "O motor \"IA em tudo\" precisa da chave da IA: cadastre-a em Integrações → Anthropic, ou troque o motor para o leitor próprio ou o híbrido em Configurações.",
@@ -649,10 +648,11 @@ async function passoAntigoIA(m: Maquete3d, estado: EstadoLeitura, passo: PassoLe
       JSON.stringify(((estado.parciais[`estrutura:${passo.pavimentoId}`] as Estrutura | undefined)?.paredes ?? []).map(w => [w.id, w.ax, w.ay, w.bx, w.by])),
       ed!.pavimentos.map(p => p.nome).filter(n => n !== pav!.nome)), ESQUEMA_AMBIENTES] :
     [PEDIDO_IMPLANTACAO(passo.doc!, passo.pagina!, inv!.edificacoes.map(e => e.nome)), ESQUEMA_IMPLANTACAO];
+  if (semTempoParaIA(x, passo)) return "adiado";
   await reservarChamada(x, estado, passo, config);
   let r: Awaited<ReturnType<ReturnType<typeof dependencias>["ia"]>>;
   try {
-    r = await dependencias().ia({ sistema: SISTEMA, pedido, pdfs, esquema, config, credencial: credencial!, prazoMs: LIMITE_PASSO_MS - (Date.now() - inicio) - 2_000 });
+    r = await dependencias().ia({ sistema: SISTEMA, pedido, pdfs, esquema, config, credencial: credencial!, prazoMs: prazoDaIA(x) });
   } catch (e) {
     if (naoCobrado(e)) devolverReserva(x, estado);
     throw e;
@@ -714,7 +714,8 @@ export async function avancarLeitura(id: number, autorId: number | null = null):
     } else if (passo.tipo === "prancha") {
       await passoPrancha(m, estado, passo, motor);
     } else if (passo.tipo === "prancha_ia") {
-      aguardando = (await passoPranchaIA(m, estado, passo, config, x)) === "aguardando";
+      // "adiado" (N7): sem tempo para a IA neste pedido; o passo segue pendente e a tela chama de novo.
+      aguardando = (await passoPranchaIA(m, estado, passo, config, x)) !== "feito";
     } else if (passo.tipo === "montagem" && estado.passos.some(p => p.tipo === "prancha")) {
       const pranchas = pranchasParaMontagem(m, estado);
       const r = parciaisDasPranchas(pranchas, lerDocumentos(m.documentos).map(d => d.nome));
@@ -731,7 +732,7 @@ export async function avancarLeitura(id: number, autorId: number | null = null):
       estado.concluidaEm = agora().toISOString();
       status = "em_revisao";
     } else {
-      aguardando = (await passoAntigoIA(m, estado, passo, config, x)) === "aguardando";
+      aguardando = (await passoAntigoIA(m, estado, passo, config, x)) !== "feito";
     }
     if (!aguardando) {
       const atual = estado.passos.find(p => p.chave === passo.chave)!;

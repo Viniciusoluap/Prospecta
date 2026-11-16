@@ -678,6 +678,54 @@ describe("QA S-03/S-05 rodada 2 — leitura e importação (banco em memória)",
     await expect(admin().validar({ id })).rejects.toThrow("pendências em aberto");
   });
 
+  it("N7: sem ~10 s sobrando do orçamento, a IA não é chamada nem reservada (não conta); a tela chama de novo e lê", async () => {
+    await configurar({ motor: "hibrido" });
+    credencial = PAINEL;
+    const id = await pedido([IMG]);
+    await colaborador().iniciarLeitura({ id });
+    expect((await ler(id)).aguardando?.motivo).toBe("confirmacao");
+    await admin().confirmarIA({ id });
+    // Baixar o PDF "demora" 45 s (relógio do processo adiantado dentro do pedido).
+    const real = Date.now.bind(Date);
+    let desvio = 0, lento = true;
+    const espiao = vi.spyOn(Date, "now").mockImplementation(() => real() + desvio);
+    definirDependencias({ lerPdf: async d => { if (lento) desvio += 45_000; return pdfs[d.nome]; } });
+    try {
+      const r = await colaborador().avancarLeitura({ id });
+      expect(r).toMatchObject({ erro: null, aguardando: null });
+      expect(r.proximo).toMatchObject({ tipo: "prancha_ia", estado: "pendente" });
+      expect(pedidos).toHaveLength(0);
+      expect(await contador(id)).toBe(0);
+      expect((await admin().detalhe({ id })).ia).toMatchObject({ usadas: 0, emCurso: false });
+      // Mais rápido na vez seguinte: lê normalmente, com o prazo da IA de pelo menos 10 s.
+      lento = false;
+      expect(await ler(id)).toMatchObject({ status: "em_revisao", erro: null });
+      expect(pedidos).toHaveLength(1);
+      expect(pedidos[0].prazoMs!).toBeGreaterThanOrEqual(8_000);
+      expect(await contador(id)).toBe(1);
+    } finally { espiao.mockRestore(); }
+  });
+
+  it("N7: devolver o controle seguidas vezes vira erro claro (sem laço na tela e sem cobrança)", async () => {
+    await configurar({ motor: "hibrido" });
+    credencial = PAINEL;
+    const id = await pedido([IMG]);
+    await colaborador().iniciarLeitura({ id });
+    await ler(id);
+    await admin().confirmarIA({ id });
+    const real = Date.now.bind(Date);
+    let desvio = 0;
+    const espiao = vi.spyOn(Date, "now").mockImplementation(() => real() + desvio);
+    definirDependencias({ lerPdf: async d => { desvio += 45_000; return pdfs[d.nome]; } });
+    try {
+      const r = await ler(id);
+      expect(r.erro).toContain("levou tempo demais");
+      expect(r.erro).toContain("nada foi cobrado");
+      expect(pedidos).toHaveLength(0);
+      expect(await contador(id)).toBe(0);
+    } finally { espiao.mockRestore(); }
+  });
+
   it("N1 (segunda barreira): se a leitura muda durante a chamada sem tocar no passo, o resultado pago é aplicado sobre o estado atual", async () => {
     await configurar({ motor: "hibrido" });
     credencial = PAINEL;

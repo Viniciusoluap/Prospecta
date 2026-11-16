@@ -96,7 +96,8 @@ export async function avancarImportacao(id: number): Promise<Importacao> {
     const config = await carregarConfig();
     const motor = await motorDaLeitura(config);
     if (passo.tipo === "prancha") await passoPrancha(m, estado, passo, motor);
-    else if (passo.tipo === "prancha_ia") aguardando = (await passoPranchaIA(m, estado, passo, config, x)) === "aguardando";
+    // "adiado" (N7): sem tempo para a IA neste pedido; o passo segue pendente e a tela chama de novo.
+    else if (passo.tipo === "prancha_ia") aguardando = (await passoPranchaIA(m, estado, passo, config, x)) !== "feito";
     else {
       // O PDF importado é achado pela identidade; se saiu da lista, para com mensagem clara.
       documentoDoPasso(m, { arquivo: { ...imp.documento } });
