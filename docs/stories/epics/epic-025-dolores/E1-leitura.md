@@ -92,7 +92,7 @@ Token `DOLORES_PONTE_TOKEN` na Vercel; agente criado no Claude Console com o pro
 ## Testes executados
 - (a) Automáticos: `npx vitest run server/dolores` — 4 arquivos, 42 testes passando; `server/auth-session.test.ts` e
   `server/imports-esm.test.ts` (build da Vercel) e `server/api-rotas-producao.test.ts` passando; `npx tsc --noEmit` sem erros;
-  `npx vite build` ok. Suíte completa: ver HANDOFF.
+  `npx vite build` ok. Suíte completa (`npx vitest run`): 221 arquivos, 2010 testes passando.
 - (b) Manuais: nenhum (sem banco real nesta etapa).
 - (c) Pendentes em produção: migração 0123 no Neon; `DOLORES_PONTE_TOKEN` na Vercel; `curl` na ponte; agente no Console
   e a pergunta de aceite com os dados reais.
