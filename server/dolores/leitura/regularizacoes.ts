@@ -8,7 +8,8 @@ import {
   leadActivities, leadDocuments, leadFollowUps, leadServices, leads, regularizacaoDocuments, regularizacaoEtapas,
   regularizacaoItensFinanceiros, regularizacaoRecebimentos, regularizacoes, tasks,
 } from "../../../drizzle/schema.js";
-import { centavosParaReais, diaDoPrazo, diaFortaleza, isoFortaleza, mascararTelefone, paginar, truncar } from "../../../shared/dolores/formato.js";
+import { centavosParaReais, diaDoPrazo, diaFortaleza, isoFortaleza, paginar, truncar } from "../../../shared/dolores/formato.js";
+import { campoPessoal } from "../dados-pessoais.js";
 import {
   DIAS_PARADO_PADRAO, STATUS_ENCERRADOS_PROCESSO, etapaAtual, maisRecente, proximaProvidencia, responsavelDaTarefa,
   responsavelDoProcesso, situacaoDoPrazo,
@@ -127,7 +128,7 @@ export async function carregarProcessos(ids: number[] | null, agora: Date, diasP
     return {
       id: reg.id,
       cliente: reg.clientName,
-      telefone: mascararTelefone(reg.clientPhone),
+      telefone: campoPessoal(reg.clientPhone, "telefone"),
       leadId: reg.leadId,
       clienteExcluidoDoCrm: !!lead?.deletedAt,
       servico: truncar(reg.type, 120) ?? (servico?.title ? truncar(servico.title, 120) : null) ?? nomeServico,

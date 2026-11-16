@@ -5,7 +5,8 @@
 // da Vercel tem 60 s). Estourando, responde o que tem e diz que parou. Quem decide SE a IA pode rodar é whatsapp.ts.
 import type { Limites } from "../../shared/dolores/whatsapp.js";
 import { liberarReserva, registrarConsumo, reservarChamada, type UsoDaChamada } from "./consumo.js";
-import { PEDIDO_DE_FECHAMENTO, PROMPT_SISTEMA_WHATSAPP } from "./prompt.js";
+import { mascararDadosPessoais } from "./dados-pessoais.js";
+import { PEDIDO_DE_FECHAMENTO, promptSistemaWhatsapp } from "./prompt.js";
 import { executarFuncao, ferramentasLiberadas } from "./ponte.js";
 
 /** Voltas ao modelo por pedido (cada volta pode pedir várias consultas). */
@@ -126,7 +127,7 @@ export async function executarComando(p: PedidoComando): Promise<ResultadoComand
     voltas++;
     try {
       const r = await chamar({
-        apiKey: p.apiKey, modelo: p.modelo, sistema: PROMPT_SISTEMA_WHATSAPP, ferramentas, mensagens,
+        apiKey: p.apiKey, modelo: p.modelo, sistema: promptSistemaWhatsapp(mascararDadosPessoais()), ferramentas, mensagens,
         maxTokens: MAX_TOKENS_SAIDA, timeoutMs: Math.max(1000, restante()), semFerramentas,
       });
       const uso = usoDe(r);

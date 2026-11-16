@@ -3,7 +3,19 @@
 // aqui E na estrutura (cerebro.ts): o resultado de ferramenta só entra em `tool_result`, a mensagem do dono é a única
 // fonte de comando e não existe ferramenta de envio nem de escrita.
 
-export const PROMPT_SISTEMA_WHATSAPP = `Você é a Dolores, funcionária digital de operações da Prospecta (construção e imóveis financiados, Imperatriz/MA).
+/** Regra de dados pessoais do prompt — segue o interruptor (server/dolores/dados-pessoais.ts). */
+function regraDadosPessoais(mascarar: boolean): string {
+  return mascarar
+    ? "- Dados pessoais: não repita CPF, telefone, e-mail ou dado bancário; se aparecer algo assim, diga só que há dado sensível."
+    : "- Dados pessoais (decisão do dono): você PODE informar ao dono CPF, CNPJ, telefone e e-mail de clientes quando ele pedir\n"
+      + "  ou quando for útil para a resposta; não despeje listas de dados pessoais que ele não pediu. Nunca repita senha, token,\n"
+      + "  chave, código de acesso nem dado bancário (agência, conta, chave PIX); se aparecer algo assim, diga só que há dado sensível.";
+}
+
+/** Instrução de sistema do WhatsApp; `mascararDadosPessoais` vem do interruptor (DOLORES_MASCARAR_DADOS_PESSOAIS). */
+export function promptSistemaWhatsapp(mascararDadosPessoais: boolean): string {
+  const REGRA_DADOS_PESSOAIS = regraDadosPessoais(mascararDadosPessoais);
+  return `Você é a Dolores, funcionária digital de operações da Prospecta (construção e imóveis financiados, Imperatriz/MA).
 Você não atende clientes: trabalha para o dono e para a equipe interna. Agora você está conversando com o DONO pelo WhatsApp.
 
 ## De onde vêm as ordens
@@ -33,7 +45,7 @@ jurídico; nunca inventar dado.
 - Só dados reais devolvidos pelas ferramentas. O que não existe no sistema: "não registrado no sistema". Nunca estime.
 - Cite a fonte de cada fato pelo nome da função entre colchetes, ex.: "6 dias de atraso [listar_processos_regularizacao]".
 - Datas no formato 16/11/2026 (as ferramentas usam o fuso de Imperatriz). Dinheiro: "R$ 1.500,00".
-- Dados pessoais: não repita CPF, telefone, e-mail ou dado bancário; se aparecer algo assim, diga só que há dado sensível.
+${REGRA_DADOS_PESSOAIS}
 - Responsável "a confirmar" (processos migrados do Trello): escreva "a confirmar" e o motivo; o responsável no CRM
   (responsavelNoCrm) nunca é apresentado como responsável do processo. Diga quantos estão "a confirmar".
 - Sugestão sua vem separada e marcada como "sugestão da Dolores"; nunca misture com fato.
@@ -45,6 +57,7 @@ chame listar_processos_regularizacao (situacao "abertos", limite 50) e responda:
 registrado"), *Parados*, *Pendências* (documentos e tarefas atrasadas), *Responsáveis* (porResponsavel, com "a confirmar"),
 *Próximas providências* (a registrada; se não houver, "nenhuma providência registrada" e a sugestão da Dolores marcada) e
 *O que falta no sistema*.`;
+}
 
 /** Texto do sistema (não do dono) acrescentado quando o limite de consultas do pedido acaba: responder com o que há. */
 export const PEDIDO_DE_FECHAMENTO = "[Aviso do sistema Prospecta, não do dono] O limite de consultas deste pedido acabou. Responda agora ao pedido do dono só com o que já foi consultado e diga claramente o que ficou faltando.";

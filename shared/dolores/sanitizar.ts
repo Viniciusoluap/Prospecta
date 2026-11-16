@@ -180,7 +180,8 @@ const CODIGO = new RegExp(
 // Agência e conta: o rótulo fica, o número sai. QA r4 S3: o número começa logo depois do rótulo e é limitado (antes, um
 // lookahead varria a palavra inteira a cada rótulo: "ag-ag-…" de 200 kB levava 20 s). QA r4 S5: só número de conta
 // (3+ dígitos, não um ano, não valor com centavos): "cc 2 cópias", "conta 2026", "conta 1.500,00" ficam.
-const BANCO = /\b(ag[eê]ncia|ag|conta(?:\s+corrente|\s+poupan[cç]a)?|c\/c|cc)\b(\s*(?:n[ºo°.]?|:|#|-)?\s*)(\d[\d.\-/]{0,30}[\dxX]?)(,\d)?/gi;
+// 16/11 (opção B): o número sai INTEIRO mesmo com espaço entre os grupos ("conta 529 982 247 25" → só o rótulo fica).
+const BANCO = /\b(ag[eê]ncia|ag|conta(?:\s+corrente|\s+poupan[cç]a)?|c\/c|cc)\b(\s*(?:n[ºo°.]?|:|#|-)?\s*)(\d[\d.\-/]{0,30}(?: \d[\d.\-/]{0,30}){0,5}[\dxX]?)(,\d)?/gi;
 // PIX: QA r4 S5 — só quando o que segue tem forma de chave: e-mail, chave aleatória (uuid) ou 8–14 dígitos (CPF, CNPJ,
 // telefone). "pagou via pix 1.500,00" fica (é o valor da cobrança).
 /** Chave PIX em forma de e-mail ou aleatória (uuid): sai como dado bancário antes do filtro de e-mail. */

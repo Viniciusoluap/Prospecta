@@ -32,7 +32,9 @@ describe("leitura: estático", () => {
       const fonte = readFileSync(new URL(a, PASTA), "utf8");
       for (const [, origem] of fonte.matchAll(/from\s+"([^"]+)"/g)) {
         const permitido = ["drizzle-orm", "drizzle-orm/pg-core", "zod"].includes(origem) || /^\.\.\/\.\.\/\.\.\/(drizzle\/schema|shared\/)/.test(origem)
-          || origem === "../somente-leitura.js" || /^\.\/[\w-]+\.js$/.test(origem);
+          || origem === "../somente-leitura.js" || /^\.\/[\w-]+\.js$/.test(origem)
+          // o interruptor dos dados pessoais (opção B, 16/11): só lê a variável de ambiente e formata; não toca o banco
+          || origem === "../dados-pessoais.js";
         expect(permitido, `${a} importa ${origem}`).toBe(true);
       }
     }

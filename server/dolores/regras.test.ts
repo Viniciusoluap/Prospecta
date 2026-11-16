@@ -612,6 +612,13 @@ describe("filtro de dados pessoais em texto livre (M1)", () => {
     expect(sanitizarTexto("pix 123e4567-e89b-12d3-a456-426614174000", LIB)).toBe(`pix ${B}`);
     expect(sanitizarTexto("chave pix: maria@x.com", LIB)).toBe(`chave pix: ${B}`);
     expect(sanitizarTexto("conta corrente nº 98765-X, agência 0001.", LIB)).toBe(`conta corrente nº ${B}, agência ${B}.`);
+    // decisão de 16/11: chave PIX e conta/agência são dado bancário e saem INTEIRAS, mesmo quando são CPF/telefone/e-mail
+    for (const [t, r] of [
+      ["pix 529 982 247 25", `pix ${B}`], ["pix: 529.982.247-25", `pix: ${B}`], ["chave pix (99) 99123-4567, obrigado", `chave pix ${B}, obrigado`],
+      ["pix +55 99 99123-4567", `pix ${B}`], ["pix maria@x.com", `pix ${B}`], ["conta 529 982 247 25", `conta ${B}`],
+      ["conta 12345 6 ag 0001 2", `conta ${B} ag ${B}`], ["c/c 11 222 333 0001 81.", `c/c ${B}.`], ["agência 1234 5, conta 98765 4", `agência ${B}, conta ${B}`],
+    ] as const) expect(sanitizarTexto(t, LIB), t).toBe(r);
+    for (const t of ["pix 1.500,00", "conta 2026", "cc 2 cópias", "conta de luz 152,30"]) expect(sanitizarTexto(t, LIB), t).toBe(t);
     // texto sem segredo volta idêntico (o mesmo objeto de string), e a resposta inteira também
     const t = "Reunião às 10:30, lote 12, CPF 52998224725.";
     expect(sanitizarTexto(t, LIB)).toBe(t);
