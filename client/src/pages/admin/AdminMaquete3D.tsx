@@ -13,7 +13,7 @@ import { enviarPartes, LIMITE_DOCUMENTO } from "@/lib/documentos-partes";
 import { EditorPlanta } from "@/components/maquete-3d/EditorPlanta";
 import { EditorMuro } from "@/components/maquete-3d/EditorMuro";
 import { HistoricoPlanta, ImportarPlanta } from "@/components/maquete-3d/ImportarPlanta";
-import { rotuloContinuarLeitura } from "@/components/maquete-3d/rotulos-leitura";
+import { perguntaAlemDoTeto, rotuloConfirmarIA, rotuloContinuarLeitura } from "@/components/maquete-3d/rotulos-leitura";
 
 const Visualizador = lazy(() => import("@/components/maquete-3d/visualizador/Visualizador"));
 import { ROTULOS_TIPO, TIPOS_MAQUETE, publicadoSemMuro, type ModeloMaquete, type TipoMaquete } from "@shared/maquete-3d/modelo";
@@ -525,9 +525,11 @@ function Detalhe({ id }: { id: number }) {
   // Leitura híbrida (S-03): confirmação do custo da IA (admin) ou seguir sem ela.
   const confirmarIA = trpc.maquete3d.confirmarIA.useMutation();
   const pularIA = trpc.maquete3d.pularIA.useMutation();
+  // QA S-11 r2, achado 2: a confirmação leva o modelo que a tela mostrou; se ele mudou, o servidor recusa e a tela atualiza.
+  const modeloAConfirmar = d?.passos.find(p => p.estado === "aguardando")?.modeloAConfirmar ?? undefined;
   async function decidirIA(usar: boolean, alemDoTeto = false) {
     try {
-      if (usar) await confirmarIA.mutateAsync({ id, alemDoTeto }); else await pularIA.mutateAsync({ id });
+      if (usar) await confirmarIA.mutateAsync({ id, alemDoTeto, modeloVisto: modeloAConfirmar }); else await pularIA.mutateAsync({ id });
       await ler(false);
     } catch (e) { falha(e); recarregar(); }
   }
@@ -691,14 +693,14 @@ function Detalhe({ id }: { id: number }) {
                 {d.passos.find(p => p.estado === "aguardando")?.aguardando === "confirmacao" ? (
                   <>
                     <p>{d.ia.pendentes} prancha(s) não podem ser lidas pelo leitor próprio e precisam da leitura por IA, que é paga (cobrada pela Anthropic por tokens). A confirmação vale só para esta leitura e para as pranchas autorizadas (esta maquete já usou {d.ia.lidasNaMaquete} de {d.ia.teto ?? "—"} pela IA).</p>
-                    {admin ? <Button className={btnOuro} disabled={lendo || emCurso || confirmarIA.isPending} onClick={() => decidirIA(true)}><Check className="mr-1 h-4 w-4" />Confirmar a leitura pela IA (até o teto da maquete)</Button>
+                    {admin ? <Button className={btnOuro} disabled={lendo || emCurso || confirmarIA.isPending} onClick={() => decidirIA(true)}><Check className="mr-1 h-4 w-4" />{rotuloConfirmarIA(modeloAConfirmar, "Confirmar a leitura pela IA (até o teto da maquete)")}</Button>
                       : <p className="text-xs text-gray-400">Só o administrador autoriza a leitura paga pela IA.</p>}
                   </>
                 ) : d.passos.find(p => p.estado === "aguardando")?.aguardando === "teto" ? (
                   <>
                     <p>{d.passos.find(p => p.estado === "aguardando")?.erro}</p>
                     {admin ? <Button className={btnOuro} disabled={lendo || emCurso || confirmarIA.isPending}
-                      onClick={() => { if (window.confirm(`Autorizar a leitura paga de mais ${d.ia.pendentes} prancha(s) pela IA, além do teto de ${d.ia.teto ?? "—"} desta maquete?`)) void decidirIA(true, true); }}><Check className="mr-1 h-4 w-4" />Autorizar além do teto ({d.ia.pendentes} prancha(s))</Button>
+                      onClick={() => { if (window.confirm(perguntaAlemDoTeto(d.ia.pendentes, d.ia.teto, modeloAConfirmar))) void decidirIA(true, true); }}><Check className="mr-1 h-4 w-4" />{rotuloConfirmarIA(modeloAConfirmar, `Autorizar além do teto (${d.ia.pendentes} prancha(s))`)}</Button>
                       : <p className="text-xs text-gray-400">Só o administrador autoriza passar do teto de pranchas pela IA.</p>}
                   </>
                 ) : <p>Cadastre a chave em Integrações → Anthropic e clique em “Continuar leitura”: ela retoma deste passo, sem perder o que já foi lido.</p>}

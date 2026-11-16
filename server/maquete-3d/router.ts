@@ -141,11 +141,15 @@ const destinoSchema = z.discriminatedUnion("tipo", [
 
 /** Quem leu cada passo e o que está pendente da IA (EPIC-024 S-03), para o painel da leitura. */
 function passosParaTela(leitura: EstadoLeitura) {
-  return leitura.passos.map(({ chave, rotulo, estado, erro, tipo, motor, modelo, tokens, aguardando, motivoIA, envio }) => ({
+  return leitura.passos.map(({ chave, rotulo, estado, erro, tipo, motor, modelo, tokens, aguardando, motivoIA, envio, modeloAConfirmar }) => ({
     chave, rotulo, estado, erro: erro ?? null, tipo, motor: motor ?? null, modelo: modelo ?? null, tokens: tokens ?? null,
     aguardando: aguardando ?? null, motivoIA: motivoIA ?? null, envio: envio ?? null,
+    /** Modelo que a confirmação do custo vai usar (a tela mostra e devolve ao confirmar; QA S-11 r2, achado 2). */
+    modeloAConfirmar: estado === "aguardando" ? modeloAConfirmar ?? null : null,
   }));
 }
+/** Modelo que a tela mostrou ao admin na confirmação do custo. Sem ele (tela antiga), o servidor recusa e pede recarregar. */
+const modeloVistoSchema = z.string().trim().max(200).optional();
 /**
  * Resumo da IA para a tela. `autorizadas`/`usadas`: a confirmação desta execução (expira ao usar todas);
  * `lidasNaMaquete`/`teto`: o contador da maquete (leituras + importações) e o teto das Configurações.
@@ -451,9 +455,9 @@ export const maquete3dRouter = router({
    * EPIC-024 S-03: o administrador confirma o envio das pranchas à IA (paga) para ESTA leitura — dentro do teto por
    * maquete; com `alemDoTeto`, também as que passam dele. A confirmação expira quando as autorizadas forem lidas.
    */
-  confirmarIA: adminProcedure.input(idInput.extend({ alemDoTeto: z.boolean().default(false) })).mutation(async ({ ctx, input }) => {
+  confirmarIA: adminProcedure.input(idInput.extend({ alemDoTeto: z.boolean().default(false), modeloVisto: modeloVistoSchema })).mutation(async ({ ctx, input }) => {
     exigirAdmin(ctx, input.alemDoTeto ? "autorizar a leitura pela IA além do teto da maquete" : "autorizar a leitura paga pela IA");
-    try { return retornoDoPasso(await confirmarIA(input.id, ctx.user.id, input.alemDoTeto), "em_leitura"); }
+    try { return retornoDoPasso(await confirmarIA(input.id, ctx.user.id, input.alemDoTeto, input.modeloVisto), "em_leitura"); }
     catch (e) { if (e instanceof LeituraIndisponivel) throw conflito(e.message); throw e; }
   }),
 
@@ -508,9 +512,9 @@ export const maquete3dRouter = router({
     try { return retornoDaImportacao(await avancarImportacao(input.id)); } catch (e) { traduzir(e); }
   }),
 
-  confirmarIAImportacao: adminProcedure.input(idInput.extend({ alemDoTeto: z.boolean().default(false) })).mutation(async ({ ctx, input }) => {
+  confirmarIAImportacao: adminProcedure.input(idInput.extend({ alemDoTeto: z.boolean().default(false), modeloVisto: modeloVistoSchema })).mutation(async ({ ctx, input }) => {
     exigirAdmin(ctx, input.alemDoTeto ? "autorizar a leitura pela IA além do teto da maquete" : "autorizar a leitura paga pela IA");
-    try { return retornoDaImportacao(await confirmarIAImportacao(input.id, ctx.user.id, input.alemDoTeto)); } catch (e) { traduzir(e); }
+    try { return retornoDaImportacao(await confirmarIAImportacao(input.id, ctx.user.id, input.alemDoTeto, input.modeloVisto)); } catch (e) { traduzir(e); }
   }),
 
   pularIAImportacao: adminProcedure.input(idInput).mutation(async ({ input }) => {

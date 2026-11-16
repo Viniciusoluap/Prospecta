@@ -39,6 +39,7 @@ import { getDb } from "./db.js";
 import { definirDependencias, type PedidoIA } from "./maquete-3d/base.js";
 import { montarModelo, passosDoInventario } from "./maquete-3d/leitura.js";
 import { appRouter } from "./routers.js";
+import { comModeloDaTela } from "./fixtures/maquete-3d/confirmacao-da-tela.js";
 
 // ── Respostas simuladas da IA: sobrado 6 × 8 m, dois pavimentos, escada ──
 
@@ -80,7 +81,7 @@ const parciais = () => ({
 
 /** Um passo da leitura; se ele parar na confirmação do custo da IA, o admin confirma e o passo é repetido. */
 async function avancarIA(id: number) {
-  const m = appRouter.createCaller({ user: { id: 1, role: "admin", permissions: "[]", active: true, name: "x" }, req: {}, res: {} } as never).maquete3d;
+  const m = comModeloDaTela(appRouter.createCaller({ user: { id: 1, role: "admin", permissions: "[]", active: true, name: "x" }, req: {}, res: {} } as never).maquete3d);
   const r = await m.avancarLeitura({ id });
   if (r.aguardando?.motivo !== "confirmacao") return r;
   await m.confirmarIA({ id });
@@ -185,7 +186,7 @@ let pedidos: PedidoIA[];
 let respostas: (unknown | Error)[];
 
 const caller = (id: number, role: string, permissions = "[]") => appRouter.createCaller({ user: { id, role, permissions, active: true, name: "x" }, req: {}, res: {} } as never);
-const admin = () => caller(1, "admin").maquete3d;
+const admin = () => comModeloDaTela(caller(1, "admin").maquete3d); // a confirmação leva o modelo que a tela mostrou
 const colaborador = () => caller(2, "colaborador", JSON.stringify(["maquete3d"])).maquete3d;
 
 const docProjeto = { fonte: "projeto" as const, id: 1, nome: "planta.pdf" };

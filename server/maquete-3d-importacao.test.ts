@@ -17,6 +17,7 @@ import { DestinoInvalido, aplicarCandidata } from "../shared/maquete-3d/importac
 import { modeloSchema, type ModeloMaquete } from "../shared/maquete-3d/modelo.js";
 import { casaPadrao } from "../shared/maquete-3d/padrao.js";
 import { appRouter } from "./routers.js";
+import { comModeloDaTela } from "./fixtures/maquete-3d/confirmacao-da-tela.js";
 
 const VETORIAL = readFileSync(new URL("./fixtures/maquete-3d/sobrado.pdf", import.meta.url));
 const JPEG = readFileSync(new URL("../client/public/casa-compacta-linha-smart.jpg", import.meta.url));
@@ -47,7 +48,7 @@ let banco: Awaited<ReturnType<typeof criarBanco>>;
 let pedidos: PedidoIA[];
 let credencial: CredencialIA | null;
 const caller = (id: number, role: string, permissions = "[]") => appRouter.createCaller({ user: { id, role, permissions, active: true, name: "x" }, req: {}, res: {} } as never);
-const admin = () => caller(1, "admin").maquete3d;
+const admin = () => comModeloDaTela(caller(1, "admin").maquete3d); // a confirmação leva o modelo que a tela mostrou
 const colaborador = () => caller(2, "colaborador", JSON.stringify(["maquete3d"])).maquete3d;
 const semModulo = () => caller(3, "colaborador", JSON.stringify(["crm"])).maquete3d;
 const VET = { fonte: "projeto" as const, id: 1, nome: "projeto-arquiteto.pdf" };

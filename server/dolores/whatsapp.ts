@@ -21,6 +21,7 @@ import {
 } from "../../shared/dolores/whatsapp.js";
 import { configuracaoAnthropicPainel } from "../_core/anthropic-painel.js";
 import { ENV } from "../_core/env.js";
+import { modeloDaFuncao } from "../_core/modelo-por-funcao.js";
 import { enviarTextoEvolution } from "../_core/evolution.js";
 import { getDb } from "../db.js";
 import { registrarAcao } from "./auditoria.js";
@@ -146,7 +147,8 @@ async function bloqueioAtual(cfg: DoloresWhatsappConfig, mes: string): Promise<
   if (!cfg.iaLigada) return { motivo: "ia_desligada" };
   const painel = await configuracaoAnthropicPainel().catch(() => null);
   if (!painel) return { motivo: "sem_chave" };
-  const modelo = cfg.modelo?.trim() || painel.modelo?.trim() || null;
+  // EPIC-024 S-11: o modelo da função "dolores_whatsapp" no painel; sem escolha, o campo antigo do cartão; depois o preferencial.
+  const { modelo } = await modeloDaFuncao("dolores_whatsapp", { anterior: cfg.modelo, preferencial: painel.modelo });
   if (!modelo) return { motivo: "sem_modelo" };
   const limite = bloqueioDoLimite(await usoDoMes(mes), { entrada: cfg.limiteMensalTokensEntrada, saida: cfg.limiteMensalTokensSaida });
   if (limite) return { motivo: limite };

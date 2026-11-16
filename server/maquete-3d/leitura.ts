@@ -21,7 +21,7 @@ import { lerPagina, nomeDoPavimento, type Diagnostico, type PlantaLida } from ".
 import { guardarAnterior, registrarRevisao } from "./revisoes.js";
 import { lerRespostaPrancha } from "./resposta-ia.js";
 import {
-  ExecucaoConcorrente, MENSAGEM_INTERROMPIDA, PASSOS_IA_ANTIGOS, bloqueioDaIA, devolverReserva, execucaoDe, gravarSeIgual, naoCobrado, novaConfirmacao,
+  ExecucaoConcorrente, MENSAGEM_INTERROMPIDA, PASSOS_IA_ANTIGOS, bloqueioDaIA, devolverReserva, execucaoDe, gravarSeIgual, naoCobrado, novaConfirmacao, modeloDaConfirmacao, UNIDADE_MOTOR_IA,
   exigirSemPassoEmCurso, gravarSobreOAtual, prazoDaIA, pularPassosIA, semTempoParaIA, reservaVencida, reservarChamada, type Execucao,
 } from "./execucao-ia.js";
 import { LeituraIndisponivel, agora, carregarConfig, db, dependencias, erroSeguro, modeloDaLeitura, type AnexoIA, type PdfLido, alvoDoDocumento } from "./base.js";
@@ -635,7 +635,7 @@ async function passoAntigoIA(m: Maquete3d, estado: EstadoLeitura, passo: PassoLe
   const credencial = await dependencias().credencialIA().catch(() => null);
   const bloqueio = bloqueioDaIA(estado, config, x, credencial,
     "O motor \"IA em tudo\" precisa da chave da IA: cadastre-a em Integrações → Anthropic, ou troque o motor para o leitor próprio ou o híbrido em Configurações.",
-    "passo(s) do motor \"IA em tudo\"");
+    UNIDADE_MOTOR_IA);
   if (bloqueio) { Object.assign(passo, { estado: "aguardando", ...bloqueio }); return "aguardando"; }
   const pdfs = await carregarPdfs(m);
   const inv = estado.parciais.inventario as Inventario | undefined;
@@ -767,14 +767,21 @@ export async function avancarLeitura(id: number, autorId: number | null = null):
  * O administrador confirma o custo da IA para ESTA leitura: autoriza as pranchas pendentes dentro do teto da maquete
  * (ou todas, com `alemDoTeto`). A confirmação expira quando elas forem lidas; "ler de novo" pede outra.
  */
-export async function confirmarIA(id: number, userId: number, alemDoTeto = false): Promise<EstadoLeitura> {
+export async function confirmarIA(id: number, userId: number, alemDoTeto = false, modeloVisto?: string): Promise<EstadoLeitura> {
   const m = await buscar(id);
   if (!m || m.status !== "em_leitura") throw new LeituraIndisponivel("Não há leitura em andamento para esta maquete.");
   const estado = lerEstadoLeitura(m.leitura);
   exigirSemPassoEmCurso(estado);
-  const r = novaConfirmacao(estado, await carregarConfig(), m.iaPranchasLidas ?? 0, userId, alemDoTeto);
-  if ("erro" in r) throw new LeituraIndisponivel(r.erro!);
+  const config = await carregarConfig();
   const x = execucaoDaLeitura(m);
+  // QA S-11 r2, achado 2: só confirma o modelo que a tela mostrou; senão, a tela passa a mostrar o de agora
+  const doModelo = await modeloDaConfirmacao(estado, config, x, modeloVisto);
+  if ("erro" in doModelo) {
+    await gravarSeIgual(x, x.serializar(estado)).catch(() => false);
+    throw new LeituraIndisponivel(doModelo.erro);
+  }
+  const r = novaConfirmacao(estado, config, m.iaPranchasLidas ?? 0, userId, alemDoTeto, doModelo.modelo);
+  if ("erro" in r) throw new LeituraIndisponivel(r.erro!);
   if (!(await gravarSeIgual(x, x.serializar(estado)))) throw new LeituraIndisponivel("A leitura mudou enquanto você confirmava. Confira o que ela pede agora e confirme de novo.");
   return estado;
 }
