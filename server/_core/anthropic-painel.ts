@@ -5,9 +5,13 @@
 // O teste de conexão e a lista de modelos usam client.models.list() (não consome tokens).
 import { decryptSecret, encryptSecret, segredoEmTextoPuro } from "./secret-vault.js";
 import * as db from "../db.js";
+import { DESCRICAO_FUNCOES_ANTHROPIC, FUNCOES_ANTHROPIC, type FuncaoAnthropic } from "../../shared/funcoes-anthropic.js";
+import {
+  CHAVE_MODELO_PREFERENCIAL, chaveAvisoDaFuncao, chaveModeloDaFuncao, modeloDaFuncao, modelosGravadosDasFuncoes,
+} from "./modelo-por-funcao.js";
 
 export const CHAVE_SEGREDO_ANTHROPIC_PAINEL = "segredo.anthropic_painel_api_key";
-export const CHAVE_MODELO_ANTHROPIC_PAINEL = "segredo.anthropic_painel_modelo";
+export const CHAVE_MODELO_ANTHROPIC_PAINEL = CHAVE_MODELO_PREFERENCIAL;
 
 export type FamiliaModelo = "opus" | "sonnet" | "haiku" | "fable" | "outro";
 export type ModeloAnthropic = { id: string; nome: string; familia: FamiliaModelo; lancadoEm: string | null };
@@ -140,16 +144,22 @@ export async function salvarChaveAnthropicPainel(bruto: unknown, deps: Anthropic
   const preferido = await lerModelo(deps);
   const modeloLimpo = preferido && !modelos.some(m => m.id === preferido) ? preferido : null;
   if (modeloLimpo) await deps.gravarBanco(CHAVE_MODELO_ANTHROPIC_PAINEL, "");
+  const funcoesLimpas = await conferirModelosDasFuncoes(modelos, deps);
+  const avisoFuncoes = funcoesLimpas.map(f => ` O modelo ${f.modelo} de "${DESCRICAO_FUNCOES_ANTHROPIC[f.funcao].rotulo}" não é oferecido para esta chave e foi limpo: a função passa a usar o preferencial.`).join("");
   return {
-    mensagem: `Chave validada e salva — ${modelos.length} modelo(s) disponível(is).${modeloLimpo ? ` O modelo preferencial ${modeloLimpo} não é oferecido para esta chave e foi limpo: escolha outro.` : ""}`,
+    mensagem: `Chave validada e salva — ${modelos.length} modelo(s) disponível(is).${modeloLimpo ? ` O modelo preferencial ${modeloLimpo} não é oferecido para esta chave e foi limpo: escolha outro.` : ""}${avisoFuncoes}`,
     modelos: modelos.length, modeloLimpo,
   };
 }
 
-/** Remove a chave e a preferência de modelo. */
+/** Remove a chave, a preferência de modelo e os modelos escolhidos por função. */
 export async function removerAnthropicPainel(deps: AnthropicPainelDeps = anthropicPainelDepsPadrao): Promise<void> {
   await deps.gravarBanco(CHAVE_SEGREDO_ANTHROPIC_PAINEL, "");
   await deps.gravarBanco(CHAVE_MODELO_ANTHROPIC_PAINEL, "");
+  for (const f of FUNCOES_ANTHROPIC) {
+    await deps.gravarBanco(chaveModeloDaFuncao(f), "");
+    await deps.gravarBanco(chaveAvisoDaFuncao(f), "");
+  }
 }
 
 /** Lista, na hora, os modelos da chave salva. */
@@ -166,6 +176,67 @@ export async function salvarModeloPreferencialAnthropic(id: string, deps: Anthro
   if (!modelo) throw new Error("Esse modelo não está disponível para a chave salva. Atualize a lista e escolha outro.");
   await deps.gravarBanco(CHAVE_MODELO_ANTHROPIC_PAINEL, modelo.id);
   return modelo;
+}
+
+// ── EPIC-024 S-11: modelo por função (só nomes de modelo; a resolução fica em ./modelo-por-funcao.ts) ──
+
+/**
+ * Modelo escolhido para uma função que não aparece mais na lista da conta: é limpo (a função cai para o preferencial)
+ * e o id fica guardado como aviso para o painel mostrar até o admin escolher de novo.
+ */
+export async function conferirModelosDasFuncoes(modelos: ModeloAnthropic[], deps: AnthropicPainelDeps = anthropicPainelDepsPadrao): Promise<Array<{ funcao: FuncaoAnthropic; modelo: string }>> {
+  const gravados = await modelosGravadosDasFuncoes(deps);
+  const limpas: Array<{ funcao: FuncaoAnthropic; modelo: string }> = [];
+  for (const f of FUNCOES_ANTHROPIC) {
+    const id = gravados[f].modelo;
+    if (!id || modelos.some(m => m.id === id)) continue;
+    await deps.gravarBanco(chaveModeloDaFuncao(f), "");
+    await deps.gravarBanco(chaveAvisoDaFuncao(f), id);
+    limpas.push({ funcao: f, modelo: id });
+  }
+  return limpas;
+}
+
+/**
+ * Grava o modelo de uma função: id vazio = "usar o preferencial"; senão, só um id que a chave salva oferece agora.
+ * Não chama a IA para a função (listar modelos não consome tokens) e não liga nada.
+ */
+export async function salvarModeloDaFuncao(funcao: FuncaoAnthropic, id: string, deps: AnthropicPainelDeps = anthropicPainelDepsPadrao): Promise<ModeloAnthropic | null> {
+  if (!FUNCOES_ANTHROPIC.includes(funcao)) throw new Error("Função desconhecida.");
+  const alvo = id.trim();
+  let modelo: ModeloAnthropic | null = null;
+  if (alvo) {
+    const modelos = await modelosAnthropicPainel(deps);
+    modelo = modelos.find(m => m.id === alvo) ?? null;
+    if (!modelo) throw new Error("Esse modelo não está disponível para a chave salva. Atualize a lista e escolha outro.");
+  }
+  await deps.gravarBanco(chaveModeloDaFuncao(funcao), modelo?.id ?? "");
+  await deps.gravarBanco(chaveAvisoDaFuncao(funcao), "");
+  return modelo;
+}
+
+export const NOTA_FUNCAO_ANTHROPIC: Partial<Record<FuncaoAnthropic, string>> = {
+  maquete_leitura: "Vale quando a leitura usa a chave deste painel. Sem ela (só a ANTHROPIC_API_KEY do servidor), vale o modelo das configurações da maquete.",
+};
+
+/** Uma linha por função para o painel: escolhido, aviso de modelo sumido e o modelo que vale agora. Sem a chave. */
+export async function statusModelosPorFuncao(
+  extras: { anteriorDolores?: string | null; padraoMaquete?: string | null } = {},
+  deps: AnthropicPainelDeps = anthropicPainelDepsPadrao,
+) {
+  const [salva, preferencial, gravados] = await Promise.all([lerChaveSalva(deps), lerModelo(deps), modelosGravadosDasFuncoes(deps)]);
+  const funcoes = await Promise.all(FUNCOES_ANTHROPIC.map(async f => ({
+    ...DESCRICAO_FUNCOES_ANTHROPIC[f],
+    modelo: gravados[f].modelo,
+    sumiu: gravados[f].sumiu,
+    nota: NOTA_FUNCAO_ANTHROPIC[f] ?? null,
+    valendo: await modeloDaFuncao(f, {
+      preferencial,
+      anterior: f === "dolores_whatsapp" ? extras.anteriorDolores ?? null : null,
+      padrao: f === "maquete_leitura" ? extras.padraoMaquete ?? null : null,
+    }, deps),
+  })));
+  return { configurado: Boolean(salva && salva !== "ilegivel"), preferencial, funcoes };
 }
 
 /**

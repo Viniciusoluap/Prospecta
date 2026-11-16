@@ -115,8 +115,9 @@ Aplicar no Neon a migração aditiva `drizzle/0124_dolores_whatsapp.sql` (cria `
 1. Claude Console (console.anthropic.com) → conta da Prospecta com créditos → **API Keys** → criar uma chave
    [confirmar na tela]. Copie a chave (começa com `sk-ant-`); ela não aparece de novo.
 2. No sistema: **Integrações › Anthropic — Inteligência Artificial** → "Adicionar chave" → colar → "Validar e salvar".
-3. No mesmo cartão: "Escolher modelo" → escolher o modelo → "Salvar preferência". (Opcional: o cartão da Dolores aceita
-   um modelo próprio, que tem precedência.)
+3. No mesmo cartão: "Escolher modelo" → escolher o modelo → "Salvar preferência". Depois, em **Modelo por função**, na
+   linha "Dolores — conversa pelo WhatsApp", escolher o modelo dela (ex.: um Haiku, mais barato) → "Salvar" — ou deixar
+   "Usar o preferencial". O cartão da Dolores só mostra o modelo em uso e leva até aqui (EPIC-024 S-11).
 4. Recomendado: no Claude Console, definir também um limite de gasto mensal da conta abaixo do teto [confirmar na tela
    — Billing/Limits]. É a segunda trava, independente do sistema.
 

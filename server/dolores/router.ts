@@ -10,7 +10,8 @@ import { doloresWhatsappConfig } from "../../drizzle/schema-dolores-whatsapp.js"
 import {
   INSTANCIA_DOLORES, bloqueioDoLimite, mascararNumero, mesFortaleza, normalizarNumeroDono, pareceMesmoTelefone,
 } from "../../shared/dolores/whatsapp.js";
-import { existeChaveAnthropicPainel, modelosAnthropicPainel } from "../_core/anthropic-painel.js";
+import { existeChaveAnthropicPainel } from "../_core/anthropic-painel.js";
+import { modeloDaFuncao } from "../_core/modelo-por-funcao.js";
 import { estadoInstancia, gerarQrCode, numeroConectado, registrarWebhookEvolution, removerInstancia } from "../_core/evolution.js";
 import { adminProcedure, router } from "../_core/trpc.js";
 import { getDb } from "../db.js";
@@ -52,7 +53,7 @@ function pendencias(p: { conectado: boolean; numeroDono: boolean; chave: boolean
   if (!p.conectado) r.push("Conectar o número da Dolores (QR code).");
   if (!p.numeroDono) r.push("Cadastrar o número do dono (o único que comanda).");
   if (!p.chave) r.push("Cadastrar a chave da Anthropic em Integrações › Anthropic.");
-  if (!p.modelo) r.push("Escolher o modelo (preferencial em Integrações › Anthropic ou o da Dolores aqui).");
+  if (!p.modelo) r.push("Escolher o modelo da Dolores (ou o preferencial) em Integrações › Anthropic › Modelo por função.");
   if (!p.limites) r.push("Definir os limites mensais de tokens (entrada e saída).");
   if (!p.iaLigada) r.push("Ligar o interruptor da IA da Dolores (desligado por padrão).");
   if (p.pausada) r.push("A Dolores está pausada (dolores_config.pausada).");
@@ -66,12 +67,14 @@ async function situacao() {
   const painel = chave?.existe ? { modelo: chave.modelo } : null;
   const mes = mesFortaleza(new Date());
   const uso = await usoDoMes(mes);
-  const modeloEmUso = c.modelo?.trim() || painel?.modelo?.trim() || null;
+  // EPIC-024 S-11: a fonte é Integrações › Anthropic (modelo da função; sem escolha, o campo antigo; depois o preferencial).
+  const resolvido = await modeloDaFuncao("dolores_whatsapp", { anterior: c.modelo, preferencial: painel?.modelo ?? null });
+  const modeloEmUso = resolvido.modelo;
   const limites = { entrada: c.limiteMensalTokensEntrada, saida: c.limiteMensalTokensSaida };
   return {
     instancia: c.instancia, statusConexao: c.statusConexao, numeroDolores: mascararNumero(c.numeroDolores), numeroDono: mascararNumero(c.numeroDono),
     iaLigada: c.iaLigada, pausada: pausa?.pausada ?? null, chaveAnthropic: Boolean(painel), modeloPainel: painel?.modelo ?? null, modelo: c.modelo,
-    modeloEmUso, limites, mes, uso, bloqueioDoLimite: bloqueioDoLimite(uso, limites), webhookUrl: URL_WEBHOOK_DOLORES(),
+    modeloEmUso, origemModelo: resolvido.origem, limites, mes, uso, bloqueioDoLimite: bloqueioDoLimite(uso, limites), webhookUrl: URL_WEBHOOK_DOLORES(),
     pendencias: pendencias({ conectado: c.statusConexao === "conectado", numeroDono: Boolean(c.numeroDono), chave: Boolean(painel), modelo: Boolean(modeloEmUso),
       limites: limites.entrada > 0 && limites.saida > 0, iaLigada: c.iaLigada, pausada: Boolean(pausa?.pausada) }),
   };
@@ -181,13 +184,12 @@ export const doloresRouter = router({
     return { ok: true };
   }),
 
-  /** Número do dono, limites mensais e modelo próprio (vazio = o preferencial do painel). */
+  /** Número do dono e limites mensais. O modelo da Dolores é escolhido em Integrações › Anthropic (EPIC-024 S-11). */
   salvar: soAdmin
     .input(z.object({
       numeroDono: z.string().trim().max(30).optional(),
       limiteEntrada: z.number().int().min(0).max(2_000_000_000).optional(),
       limiteSaida: z.number().int().min(0).max(2_000_000_000).optional(),
-      modelo: z.string().trim().max(120).nullable().optional(),
     }).strict())
     .mutation(async ({ ctx, input }) => {
       const c = await exigirConfig();
@@ -200,15 +202,6 @@ export const doloresRouter = router({
       }
       if (input.limiteEntrada !== undefined) dados.limiteMensalTokensEntrada = input.limiteEntrada;
       if (input.limiteSaida !== undefined) dados.limiteMensalTokensSaida = input.limiteSaida;
-      if (input.modelo !== undefined) {
-        if (!input.modelo) dados.modelo = null;
-        else {
-          let modelos;
-          try { modelos = await modelosAnthropicPainel(); } catch (e) { throw erro(e, "Não foi possível listar os modelos da chave."); }
-          if (!modelos.some(m => m.id === input.modelo)) throw new TRPCError({ code: "BAD_REQUEST", message: "Esse modelo não está disponível para a chave salva em Integrações › Anthropic." });
-          dados.modelo = input.modelo;
-        }
-      }
       if (Object.keys(dados).length) await gravar(dados, ctx.user.id);
       return situacao();
     }),

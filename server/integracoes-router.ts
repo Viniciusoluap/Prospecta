@@ -17,10 +17,13 @@ import { verificarWebhookAsaas } from "../shared/asaas-webhook-recovery.js";
 import { removerTokenMapbox, salvarTokenMapbox, tokenMapbox } from "./_core/geo/mapbox-config.js";
 import { verificarTokenMapbox } from "../shared/geo/mapbox-token.js";
 import {
-  anthropicPainelDepsPadrao, mascararChaveAnthropic, modelosAnthropicPainel, removerAnthropicPainel,
-  salvarChaveAnthropicPainel, salvarModeloPreferencialAnthropic, statusAnthropicPainel, testarAnthropicPainel,
-  type AnthropicPainelDeps,
+  anthropicPainelDepsPadrao, conferirModelosDasFuncoes, mascararChaveAnthropic, modelosAnthropicPainel, removerAnthropicPainel,
+  salvarChaveAnthropicPainel, salvarModeloDaFuncao, salvarModeloPreferencialAnthropic, statusAnthropicPainel, statusModelosPorFuncao,
+  testarAnthropicPainel, type AnthropicPainelDeps,
 } from "./_core/anthropic-painel.js";
+import { FUNCOES_ANTHROPIC } from "../shared/funcoes-anthropic.js";
+import { doloresWhatsappConfig } from "../drizzle/schema-dolores-whatsapp.js";
+import { eq } from "drizzle-orm";
 
 type Fonte = "env" | "banco";
 export type EstadoWhatsapp = "conectado" | "aguardando_qr" | "desconectado" | "sem_conexao";
@@ -40,7 +43,34 @@ export type IntegracoesDeps = {
   fetchImpl: typeof fetch;
   /** EPIC-024 S-10: só cadastro da chave da Anthropic (não ativa a IA em nenhuma função). */
   anthropic?: AnthropicPainelDeps;
+  /**
+   * EPIC-024 S-11: o que cada função usa como queda quando não tem modelo escolhido no painel — só nomes de modelo.
+   * Dolores: o campo antigo `dolores_whatsapp_config.modelo` (limpo quando o admin escolhe o modelo dela no painel);
+   * Maquete: o modelo das configurações da maquete.
+   */
+  modelosAntigos?: {
+    lerAnteriorDolores: () => Promise<string | null>;
+    limparAnteriorDolores: (userId: number) => Promise<void>;
+    padraoMaquete: () => Promise<string | null>;
+  };
 };
+
+const modelosAntigosPadrao: NonNullable<IntegracoesDeps["modelosAntigos"]> = {
+  lerAnteriorDolores: async () => {
+    const [c] = await db.getDb().select({ modelo: doloresWhatsappConfig.modelo }).from(doloresWhatsappConfig).where(eq(doloresWhatsappConfig.id, 1)).limit(1);
+    return c?.modelo?.trim() || null;
+  },
+  limparAnteriorDolores: async userId => {
+    await db.getDb().update(doloresWhatsappConfig).set({ modelo: null, atualizadoEm: new Date(), atualizadoPor: userId }).where(eq(doloresWhatsappConfig.id, 1));
+  },
+  padraoMaquete: async () => (await (await import("./maquete-3d/base.js")).carregarConfig()).modeloIA || null,
+};
+
+/** adminProcedure confere o MÓDULO; para escolher o modelo de cada função vale o PAPEL: só admin. */
+const adminPorPapel = adminProcedure.use(({ ctx, next }) => {
+  if (ctx.user.role !== "admin") throw new TRPCError({ code: "FORBIDDEN", message: "Só o administrador escolhe o modelo de cada função." });
+  return next();
+});
 
 const SITE = () => (process.env.PUBLIC_SITE_URL || "https://www.prospectaconstrucoes.com").replace(/\/+$/, "");
 export const URL_WEBHOOK_ASAAS = () => `${SITE()}/api/asaas/webhook`;
@@ -105,6 +135,12 @@ const ROTULO_ESTADO: Record<EstadoWhatsapp, string> = {
 
 export function createIntegracoesRouter(deps: IntegracoesDeps = defaultDeps) {
   const anthropic = () => deps.anthropic ?? anthropicPainelDepsPadrao;
+  const antigos = () => deps.modelosAntigos ?? modelosAntigosPadrao;
+  async function modelosPorFuncao() {
+    const a = antigos();
+    const [anteriorDolores, padraoMaquete] = await Promise.all([a.lerAnteriorDolores().catch(() => null), a.padraoMaquete().catch(() => null)]);
+    return statusModelosPorFuncao({ anteriorDolores, padraoMaquete }, anthropic());
+  }
   async function webhookAsaas(recuperar: boolean) {
     const [asaas, webhook] = await Promise.all([deps.lerAsaas(), deps.lerWebhookAsaas()]);
     if (!asaas || !webhook) throw new TRPCError({ code: "BAD_REQUEST", message: "Configure a chave de API e o token do webhook antes de verificar a sincronização." });
@@ -228,7 +264,12 @@ export function createIntegracoesRouter(deps: IntegracoesDeps = defaultDeps) {
       }),
     removerAnthropic: adminProcedure.mutation(async () => { await removerAnthropicPainel(anthropic()); return { success: true as const }; }),
     modelosAnthropic: adminProcedure.mutation(async () => {
-      try { return await modelosAnthropicPainel(anthropic()); }
+      try {
+        const modelos = await modelosAnthropicPainel(anthropic());
+        // S-11: modelo escolhido para uma função que sumiu da conta é limpo (cai para o preferencial), com aviso no painel
+        await conferirModelosDasFuncoes(modelos, anthropic()).catch(() => undefined);
+        return modelos;
+      }
       catch (e) { throw new TRPCError({ code: "BAD_REQUEST", message: mascararChaveAnthropic(mensagemDe(e, "Não foi possível listar os modelos.")) }); }
     }),
     salvarModeloAnthropic: adminProcedure
@@ -236,6 +277,18 @@ export function createIntegracoesRouter(deps: IntegracoesDeps = defaultDeps) {
       .mutation(async ({ input }) => {
         try { return { success: true as const, modelo: await salvarModeloPreferencialAnthropic(input.modelo, anthropic()) }; }
         catch (e) { throw new TRPCError({ code: "BAD_REQUEST", message: mascararChaveAnthropic(mensagemDe(e, "Não foi possível salvar o modelo.")) }); }
+      }),
+    // EPIC-024 S-11: modelo por função. Só nomes de modelo; nada chama a IA para a função nem liga nada.
+    modelosPorFuncaoAnthropic: adminPorPapel.query(() => modelosPorFuncao()),
+    salvarModeloFuncaoAnthropic: adminPorPapel
+      .input(z.object({ funcao: z.enum(FUNCOES_ANTHROPIC), modelo: z.string().trim().max(200) }).strict())
+      .mutation(async ({ ctx, input }) => {
+        let modelo;
+        try { modelo = await salvarModeloDaFuncao(input.funcao, input.modelo, anthropic()); }
+        catch (e) { throw new TRPCError({ code: "BAD_REQUEST", message: mascararChaveAnthropic(mensagemDe(e, "Não foi possível salvar o modelo da função.")) }); }
+        // A partir daqui a fonte do modelo da Dolores é este painel: o campo antigo do cartão dela deixa de valer.
+        if (input.funcao === "dolores_whatsapp") await antigos().limparAnteriorDolores(ctx.user.id).catch(() => undefined);
+        return { success: true as const, modelo, ...(await modelosPorFuncao()) };
       }),
 
     salvarPluggy: adminProcedure
