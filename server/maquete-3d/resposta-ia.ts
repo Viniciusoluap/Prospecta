@@ -21,6 +21,37 @@ export const SOBREPOSICAO_MAX = 0.6;
  */
 export const RAZAO_AREA_REPETIDO = 0.7;
 
+/** Lado maior que isto (m) não é de um pavimento comum: as medidas podem ter vindo em centímetros (QA rodada 2, N5). */
+export const LADO_MAX_PAVIMENTO_M = 80;
+/** Área desenhada / área escrita fora desta faixa (fator 2 no lado) indica unidade ou escala errada. */
+export const RAZAO_AREA_MAX = 4;
+
+const m2 = (v: number) => (Math.round(v * 10) / 10).toLocaleString("pt-BR");
+/**
+ * Unidade ou escala errada na resposta da IA (centímetros tomados como metros, por exemplo): compara a área
+ * desenhada com a área escrita na prancha (mediana dos cômodos com área escrita) e o tamanho do pavimento. Na dúvida,
+ * devolve o texto da pendência — que fica visível e impede a validação até a pessoa acertar a escala. Nunca corrige
+ * em silêncio.
+ */
+export function medidaSuspeita(comodos: { pontos: Ponto[]; areaInformada: number | null }[], largura: number, comprimento: number): string | null {
+  const comArea = comodos.filter(c => typeof c.areaInformada === "number" && c.areaInformada > 0);
+  if (comArea.length) {
+    const razoes = comArea.map(c => areaPoligono(c.pontos) / c.areaInformada!).sort((a, b) => a - b);
+    const mediana = razoes[Math.floor(razoes.length / 2)];
+    if (mediana > RAZAO_AREA_MAX || mediana < 1 / RAZAO_AREA_MAX) {
+      const desenhada = comArea.reduce((t, c) => t + areaPoligono(c.pontos), 0), escrita = comArea.reduce((t, c) => t + c.areaInformada!, 0);
+      const lado = Math.sqrt(mediana);
+      const unidade = lado > 70 && lado < 140 ? " (parece que as medidas vieram em centímetros)" : lado > 7 && lado < 14 ? " (parece que as medidas vieram em decímetros)" : "";
+      return `As medidas lidas pela IA não batem com as áreas escritas na prancha: os cômodos desenhados somam ${m2(desenhada)} m² e as áreas escritas, ${m2(escrita)} m²${unidade}. Acerte a escala na revisão (com uma cota conhecida) e confira a planta antes de validar.`;
+    }
+  }
+  const lado = Math.max(largura, comprimento);
+  if (lado > LADO_MAX_PAVIMENTO_M) {
+    return `A planta lida pela IA tem ${m2(lado)} m de lado, grande demais para um pavimento: as medidas podem ter vindo em centímetros ou fora de escala. Acerte a escala na revisão (com uma cota conhecida) e confira a planta antes de validar.`;
+  }
+  return null;
+}
+
 const nomeNormal = (t: string) => t.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
 /** Mesmo cômodo repetido (e não um cômodo dentro de outro): áreas parecidas e a mesma função ou o mesmo nome. */
 export function comodoRepetido(a: { nome: string; funcao: string; pontos: Ponto[] }, b: { nome: string; funcao: string; pontos: Ponto[] }): boolean {
@@ -139,7 +170,8 @@ export function lerRespostaPrancha(json: unknown, imagem: boolean): { plantas: P
     const pts = [...c.paredes.flatMap(w => [{ x: w.ax, y: w.ay }, { x: w.bx, y: w.by }]), ...c.comodos.flatMap(x => x.pontos)];
     const xs = pts.map(q => q.x), ys = pts.map(q => q.y);
     const largura = xs.length ? Math.max(...xs) - Math.min(...xs) : 0, comprimento = ys.length ? Math.max(...ys) - Math.min(...ys) : 0;
-    const pendencias = [...c.pendencias, ...(i === 0 ? gerais : [])];
+    const suspeita = medidaSuspeita(c.comodos, largura, comprimento);
+    const pendencias = [...(suspeita ? [suspeita] : []), ...c.pendencias, ...(i === 0 ? gerais : [])];
     if (!p.escalaLegivel) pendencias.push("A escala não está escrita de forma legível na prancha: as medidas são estimadas pela IA. Na revisão, acerte uma medida conhecida (uma cota, a largura de uma porta) e confira as demais.");
     if (imagem) pendencias.push(`Planta lida pela IA a partir de uma imagem${semCota ? ", sem cotas legíveis" : ""}: confira paredes, aberturas e cômodos sobre a prancha ao fundo antes de validar.`);
     return {

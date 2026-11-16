@@ -18,7 +18,7 @@ import { getDb } from "./db.js";
 import { definirDependencias, erroSeguro, tipoDoErroIA, type CredencialIA, type PedidoIA } from "./maquete-3d/base.js";
 import { naoCobrado } from "./maquete-3d/execucao-ia.js";
 import { anexoDaPagina, plantasDaIA } from "./maquete-3d/leitura.js";
-import { AREA_MIN_M2, comodoRepetido, lerRespostaPrancha, sobreposicao } from "./maquete-3d/resposta-ia.js";
+import { AREA_MIN_M2, comodoRepetido, lerRespostaPrancha, medidaSuspeita, sobreposicao } from "./maquete-3d/resposta-ia.js";
 import { ladosDoJpeg, pdfDeUmJpeg } from "./maquete-3d/pdf-pagina.js";
 import { lerEstadoLeitura } from "../shared/maquete-3d/regras.js";
 import { appRouter } from "./routers.js";
@@ -554,6 +554,26 @@ describe("QA S-03/S-05 rodada 2 — funções puras", () => {
     // Áreas parecidas mas funções e nomes diferentes (varanda colada à sala, desenhada por cima): ficam as duas.
     expect(comodoRepetido({ nome: "Sala", funcao: "sala", pontos: r(0, 0, 4, 4) }, { nome: "Varanda", funcao: "varanda", pontos: r(0, 0, 4, 3.8) })).toBe(false);
   });
+
+  it("N5: planta em centímetros (ou fora de escala) nunca passa em silêncio: área desenhada × escrita e tamanho do pavimento", () => {
+    const vezes = (k: number) => ({
+      ...PLANTA,
+      paredes: PLANTA.paredes.map(w => ({ ...w, ax: w.ax * k, ay: w.ay * k, bx: w.bx * k, by: w.by * k })),
+      aberturas: [],
+      comodos: PLANTA.comodos.map(c => ({ ...c, pontos: c.pontos.map(q => ({ x: q.x * k, y: q.y * k })) })),
+    });
+    // ×50 (0..400, abaixo do limite de coordenada): área desenhada 120 000 m² contra 48 m² escritos.
+    const [p50] = plantasDaIA({ plantas: [vezes(50)] }, false);
+    expect(p50.pendencias[0]).toMatch(/não batem com as áreas escritas na prancha: os cômodos desenhados somam 120\.000 m² e as áreas escritas, 48 m²\. Acerte a escala/);
+    // Sem área escrita, o tamanho do pavimento acusa: ×12 vira uma casa de 72 × 96 m.
+    const sem = (k: number) => ({ ...vezes(k), comodos: vezes(k).comodos.map(c => ({ ...c, areaInformada: null })) });
+    expect(plantasDaIA({ plantas: [sem(12)] }, false)[0].pendencias[0]).toMatch(/tem 96 m de lado, grande demais para um pavimento/);
+    // Centímetros com área escrita: o texto diz a provável unidade.
+    expect(medidaSuspeita([{ pontos: ret.map(q => ({ x: q.x * 100, y: q.y * 100 })), areaInformada: 48 }], 600, 800)).toContain("parece que as medidas vieram em centímetros");
+    // Planta certa: nenhuma pendência de escala.
+    expect(plantasDaIA({ plantas: [PLANTA] }, false)[0].pendencias.join(" ")).not.toMatch(/não batem|grande demais/);
+    expect(medidaSuspeita([{ pontos: ret, areaInformada: 48 }], 6, 8)).toBeNull();
+  });
 });
 
 describe("QA S-03/S-05 rodada 2 — leitura e importação (banco em memória)", () => {
@@ -627,6 +647,22 @@ describe("QA S-03/S-05 rodada 2 — leitura e importação (banco em memória)",
     expect(imp.passos.find(p => p.tipo === "prancha_ia")).toMatchObject({ estado: "feito", motor: "ia" });
     expect(pedidos).toHaveLength(1);
     expect(await contador(id)).toBe(1);
+  });
+
+  it("N5: planta da IA em centímetros chega à revisão com pendência em aberto, que impede validar", async () => {
+    await configurar({ motor: "hibrido" });
+    credencial = PAINEL;
+    const id = await pedido([IMG]);
+    await colaborador().iniciarLeitura({ id });
+    await ler(id);
+    await admin().confirmarIA({ id });
+    const k = 50;
+    respostas = [{ plantas: [{ ...PLANTA, aberturas: [], paredes: PLANTA.paredes.map(w => ({ ...w, ax: w.ax * k, ay: w.ay * k, bx: w.bx * k, by: w.by * k })), comodos: PLANTA.comodos.map(c => ({ ...c, pontos: c.pontos.map(q => ({ x: q.x * k, y: q.y * k })) })) }], pendencias: [] }];
+    expect(await ler(id)).toMatchObject({ status: "em_revisao", erro: null });
+    const d = await admin().detalhe({ id });
+    const pend = d.modelo!.pendencias.find(p => p.descricao.includes("não batem com as áreas escritas"));
+    expect(pend?.resolvida).toBe(false);
+    await expect(admin().validar({ id })).rejects.toThrow("pendências em aberto");
   });
 
   it("N1 (segunda barreira): se a leitura muda durante a chamada sem tocar no passo, o resultado pago é aplicado sobre o estado atual", async () => {
