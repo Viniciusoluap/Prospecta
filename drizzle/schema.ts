@@ -125,6 +125,8 @@ export const emailTemplateTypeEnum = pgEnum("email_template_type", [
   "primeiro_acesso",
   // Maquete 3D (EPIC-022, migração 0114): pedido aprovado e maquete pronta.
   "maquete_3d",
+  // EPIC-024 S-06 (migração 0120): proposta formal de aquisição do terreno.
+  "proposta_terreno",
 ]);
 export const emailStatusEnum = pgEnum("email_status", [
   "pending",

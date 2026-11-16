@@ -6,7 +6,7 @@ if (!connectionString) {
 }
 
 export default defineConfig({
-  schema: ["./drizzle/schema.ts", "./drizzle/schema-central-vendas.ts", "./drizzle/schema-maquete-3d.ts", "./drizzle/schema-camadas-terreno.ts", "./drizzle/schema-incorporacao-logos.ts"],
+  schema: ["./drizzle/schema.ts", "./drizzle/schema-central-vendas.ts", "./drizzle/schema-maquete-3d.ts", "./drizzle/schema-camadas-terreno.ts", "./drizzle/schema-incorporacao-logos.ts", "./drizzle/schema-incorporacao-propostas.ts"],
   out: "./drizzle",
   dialect: "postgresql",
   dbCredentials: {

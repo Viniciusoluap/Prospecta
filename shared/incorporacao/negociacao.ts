@@ -36,6 +36,8 @@ export interface Proposta {
 export interface DadosNegociacao {
   proprietarioNome: string;
   proprietarioContato: string;
+  /** EPIC-024 S-06: e-mail do proprietário/terreneiro (destinatário sugerido da proposta formal). */
+  proprietarioEmail?: string;
   /** Legado: VGV digitado à mão antes da Viabilidade existir. Hoje o VGV vem da Viabilidade (igual ao Santa Fé). */
   vgvGrossManual?: number;
   propostas: Proposta[];
