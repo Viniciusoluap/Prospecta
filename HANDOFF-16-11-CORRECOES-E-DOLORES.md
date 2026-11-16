@@ -8,7 +8,10 @@ reprova volta ao @dev (ciclo de até 5 rodadas). Nada é publicado sem portão d
 ## Como publicar uma etapa (o ramo de trabalho tem coisa inacabada — não publicar ele inteiro)
 1. `git worktree add -B claude/<etapa> .claude/worktrees/publicacao origin/main`
 2. trazer só os commits/arquivos da etapa (cherry-pick do ramo do agente, ou `git checkout <ramo> -- <arquivos>`)
-3. `npx tsc --noEmit`, suítes da área, `npx vite build`
+3. `npx tsc --noEmit`, suítes da área, `npx vite build` **e o comando do build da Vercel:**
+   `npx vitest run server/auth-session.test.ts server/imports-esm.test.ts` (importação relativa em `shared/` sem `.js`
+   derruba a publicação — aconteceu no PR #235, corrigido no #236). Depois de abrir o PR, ESPERAR o status "Vercel"
+   da prévia ficar verde antes de mesclar.
 4. aplicar ANTES no Neon as migrações aditivas da etapa (projeto `plain-cake-26372935`)
 5. push do ramo, PR rascunho → pronto → merge (squash, `expectedHeadSha` com 40 caracteres) → conferir a Vercel
 6. realinhar `claude/motor-maquetes-3d-hwqvkz` com `git reset --soft origin/main` + commit do que sobrou
@@ -70,6 +73,14 @@ reprova volta ao @dev (ciclo de até 5 rodadas). Nada é publicado sem portão d
 - **EPIC-025 Dolores, etapa 1:** @dev em curso (ramo `epic025-dolores-etapa1`, migração reservada `0123`).
 - **Falta lançar:** S-03 (PDF-imagem pela IA, via `configuracaoAnthropicPainel()`) e S-05 (importar planta na
   revisão) — depois que o leitor passar no QA, porque mexem nos mesmos arquivos.
+
+## Atualização — 16/11, ~11:50 UTC
+- **Publicado:** PR #235 (Incorporação: S-07 filtros, S-08 KML/KMZ, S-02 logotipo, S-06 proposta) + PR #236
+  (correção das importações que derrubaram a publicação do #235). Migrações `0119` e `0120` aplicadas.
+- **QA do PCI (2ª) e do muro:** CONCERNS nos dois; @dev corrigindo em `epic024-s09` e `epic024-s04`
+  (relatórios em `scratchpad/qa-s09b/RELATORIO.md` e `scratchpad/qa-s04/RELATORIO.md`).
+- **Leitor (S-H):** 4ª rodada do @dev concluída (`b647d3a`, `7cdad02`; 142 testes); 4ª revisão de QA em curso
+  (`scratchpad/qa-leitor4/RELATORIO.md`).
 
 ## Testes
 - (a) Automáticos — PR #233: 54 arquivos, 642 testes; `tsc` limpo; `vite build` ok.
