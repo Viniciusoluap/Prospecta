@@ -150,7 +150,9 @@ describe("filtro de dados pessoais em texto livre (M1)", () => {
   it("QA r3 R1: casa, apartamento, unidade, valor, total, ano e pedido não livram telefone; palavra de telefone antes, nada livra", () => {
     for (const c of [
       "fone casa 3523-4567", "tel casa 9935234567", "casa 9123-4567", "Recado: ligar na casa 3523-4567", "unidade 3523 4567",
-      "valor: 3523 4567", "apartamento 3523-4567", "total 3523 4567", "ano 3523-4567", "pedido 3523 4567",
+      // QA r4 S4: "valor: 3523 4567" e "total 3523 4567" saíram desta lista (rótulo de valor livra o par 4-4 de 2–5, sem
+      // palavra de telefone); com 6–9 continuam saindo
+      "valor: 9123 4567", "apartamento 3523-4567", "total 9123 4567", "ano 3523-4567", "pedido 3523 4567", "valor: fone 3523 4567",
       "lote 9123-4567", "protocolo 8123 4567", "fone 35234567", "telefone do protocolo 3523-4567", "whats lote 3523-4567",
       "ligar 3523-4567 m²", "contato: (99) 3523-4567", "tel 2024-2025",
     ]) {
@@ -160,6 +162,7 @@ describe("filtro de dados pessoais em texto livre (M1)", () => {
     }
     // rótulo de documento sem palavra de telefone continua livrando o fixo (2–5); anos e lotes de 4 dígitos ficam
     for (const t of ["protocolo 3523-4567", "Nota fiscal 1234567890", "lotes 1201 1202", "Período 2024-2026", "quadra 3523 4567",
+      "valor: 3523 4567", "total 3523 4567",
       "Pedido wa:1234 5678", "15/11/2026 às 10:30", "boleto 3523 4567"]) expect(sanitizarTexto(t), t).toBe(t);
   });
 
@@ -191,14 +194,15 @@ describe("filtro de dados pessoais em texto livre (M1)", () => {
     for (const t of ["em 15/11/2026", "protocolo 2026/123456", "ligar em 15/11/2026", "ligar dia 15-11-2026", "| 3500 | 4200 |", "| 2024 | 2025 |", "| lote 12 | 360 m² |"])
       expect(sanitizarTexto(t), t).toBe(t);
     expect(sanitizarTexto("| 12345678901 | 2 |")).toBe(`| ${OMITIDO_T} | 2 |`);
-    // chave de acesso: reconhecida (rótulo ou dígito verificador) fica inteira; senão, se algo der telefone/CPF lá dentro, sai inteira
+    // chave de acesso: QA r4 S1 — só a ESTRUTURA validada por inteiro (DV, UF, mês, CNPJ do emitente, modelo) a deixa
+    // inteira; o rótulo sozinho não isenta. A chave antiga deste teste tinha CNPJ inválido (12345678000199): trocada.
     const blocos = (d: string) => d.match(/\d{4}/g)!.join(" ");
+    const VALIDA = "35261112345678000195550010000012341000012346", INVALIDA = "35261112345678000195550010000012341000012345";
     for (const t of [
-      `chave de acesso ${blocos("35261112345678000199550010000012341000012345")}`, `DANFE ${blocos("35261112345678000199550010000012341000012345")}`,
-      `ver ${blocos("35261112345678000199550010000012341000012343")}`, "NF-e 35261112345678000199550010000012341000012345",
+      `chave de acesso ${blocos(VALIDA)}`, `DANFE ${blocos(VALIDA)}`, `ver ${blocos(VALIDA)}`, `NF-e ${INVALIDA}`,
     ]) expect(sanitizarTexto(t), t).toBe(t);
-    const solta = `ver ${blocos("35261112345678000199550010000012341000012345")}`;
-    expect(sanitizarTexto(solta)).toBe(`ver ${OMITIDO_T}`);
+    expect(sanitizarTexto(`ver ${blocos(INVALIDA)}`)).toBe(`ver ${OMITIDO_T}`);
+    expect(sanitizarTexto(`chave de acesso ${blocos(INVALIDA)}`)).toBe(`chave de acesso ${OMITIDO_T}`);
   });
 
   it("QA r3 R4: 200 kB patológicos (só dígitos, '12.' repetido, 'aaa…a1', '1 ' repetido) filtram em tempo linear", () => {
@@ -215,6 +219,25 @@ describe("filtro de dados pessoais em texto livre (M1)", () => {
     }
     // a âncora não muda o que é e-mail
     expect(sanitizarTexto("mail joão.silva+obra@x.com.br e (fulano@y.com)")).toBe(`mail joã${OMITIDO_T} e (${OMITIDO_T})`);
+  });
+
+  it("QA r4 S1: rótulo de nota/chave/acesso/DANFE/NF-e nunca livra CPF nem celular, mesmo somando 44 dígitos", () => {
+    const cpfs = ["52998224725", "11144477735", "12345678909", "98765432100"];
+    const cels = ["99991234567", "99987654321", "99912345678", "99911112222"];
+    // "Contatos …": lista de 4 celulares cuja junção fecha o DV de módulo 11 por acaso (achada pela sonda do QA)
+    const casos = [
+      `Nota: CPFs dos compradores ${cpfs.join(" ")}`, `Nota do corretor:\n${cpfs.join("\n")}`, `Acesso liberado para ${cpfs.join(" ")}`,
+      `DANFE ${cpfs.join(" ")}`, `chave ${cpfs.join(".")}`, `NF-e ${cels[0]} ${cpfs[0]} ${cels[1]} ${cpfs[1]}`,
+      `nota: ligar ${cels.join(" ")}`, `Nota - whatsapp dos sócios: ${cels.join(" ")}`, "Contatos 99991234567 99987654321 99912345678 99980000000",
+      `chave de acesso ${cpfs.join(" ")}`, "nota 52998224725 0000 0000 0000 0000 0000 0000 000",
+    ];
+    for (const c of casos) {
+      const r = sanitizarTexto(c);
+      for (const n of [...cpfs, ...cels, "99980000000"]) expect(r, `${c} → ${r}`).not.toContain(n);
+      expect(r, c).toContain(OMITIDO_T);
+    }
+    // lista de 4 itens sai item por item (a linha continua legível)
+    expect(sanitizarTexto(`Nota do corretor:\n${cpfs.join("\n")}`)).toBe(`Nota do corretor:\n${Array(4).fill(OMITIDO_T).join("\n")}`);
   });
 
   it("percorre a resposta inteira (listas e objetos), sem tocar números e chaves", () => {
