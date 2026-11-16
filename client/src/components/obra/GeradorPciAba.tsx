@@ -19,20 +19,23 @@ import {
   SECOES_PCI,
   SERVICOS_CUSTO_PCI,
   SERVICO_OUTROS_PCI,
-  aceitarSugestoesPci,
   analisarCronogramaPci,
   aplicarEngenheiroPci,
+  aplicarEscolhasPci,
   calcularTotaisPci,
   camposTrocadosPorEngenheiroPci,
   compararPreenchimentoPci,
+  confirmarMesmaPessoaPci,
+  definirCampoPci,
   errosPci,
   formularioPciVazio,
+  misturaPessoaPci,
   numeroPci,
   pendenciasPci,
   sugestoesDoModeloPci,
   type CampoPci,
-  type ConflitoPci,
   type FormularioPci,
+  type PessoaPci,
   type ResultadoPreenchimentoPci,
   type SecaoPci,
 } from "@shared/pci-gerador";
@@ -117,16 +120,38 @@ function SeletorEngenheiro({ papel, projectId, form, setForm, engenheiros }: { p
   );
 }
 
-type PainelResultado = ResultadoPreenchimentoPci & { titulo: string };
+type PainelResultado = Omit<ResultadoPreenchimentoPci, "formulario"> & { titulo: string };
+type EscolhasPainel = Parameters<typeof aplicarEscolhasPci>[1];
 
-/** EPIC-024 S-09: o que "Dados automáticos" ou o modelo fez — preencheu, já estava igual, conflito, faltou. */
-function ResultadoPreenchimento({ r, onAceitar, onFechar }: { r: PainelResultado; onAceitar: (c: ConflitoPci[]) => void; onFechar: () => void }) {
+/**
+ * EPIC-024 S-09: o que "Dados automáticos", a abertura ou o modelo fez — preencheu, igual, conflito,
+ * faltou. Pessoa (proponente, RTP, RTE) é escolhida INTEIRA (manter ou trocar por uma opção), nunca
+ * campo a campo; campos técnicos/do imóvel seguem com escolha por campo. As escolhas são aplicadas
+ * por `aplicarEscolhasPci` (shared), que não deixa pessoa misturada.
+ */
+function ResultadoPreenchimento({ r, onAplicar, onFechar }: { r: PainelResultado; onAplicar: (e: EscolhasPainel, resolvidos: { conflitos: string[]; pessoas: PessoaPci[] }) => void; onFechar: () => void }) {
   const [marcados, setMarcados] = useState<Set<string>>(new Set());
+  const [escolhaPessoa, setEscolhaPessoa] = useState<Partial<Record<PessoaPci, string>>>({});
   const alternar = (chave: string) => setMarcados((m) => { const n = new Set(m); if (n.has(chave)) n.delete(chave); else n.add(chave); return n; });
+  const pendentes = r.conflitos.length + r.pessoas.length;
+
+  function aplicar(todosOsCampos: boolean) {
+    const conflitos = todosOsCampos ? r.conflitos : r.conflitos.filter((c) => marcados.has(c.chave));
+    const pessoas: NonNullable<EscolhasPainel["pessoas"]> = {};
+    const resolvidas: PessoaPci[] = [];
+    for (const e of r.pessoas) {
+      const id = escolhaPessoa[e.pessoa];
+      if (!id) continue;
+      resolvidas.push(e.pessoa);
+      pessoas[e.pessoa] = id === "manter" ? null : e.opcoes.find((o) => o.id === id) ?? null;
+    }
+    onAplicar({ conflitos, pessoas }, { conflitos: conflitos.map((c) => c.chave), pessoas: resolvidas });
+  }
+
   return (
     <div role="status" className="space-y-2 rounded-md border border-[#C9A961]/40 bg-[#2C3E50]/60 p-3 text-sm">
       <div className="flex flex-wrap items-start justify-between gap-2">
-        <p className="font-semibold text-[#C9A961]">{r.titulo}: {r.preenchidos.length} campo(s) preenchido(s), {r.conflitos.length} diferente(s), {r.iguais.length} já igual(is), {r.naoEncontrados.length} não encontrado(s).</p>
+        <p className="font-semibold text-[#C9A961]">{r.titulo}: {r.preenchidos.length} campo(s) preenchido(s), {r.pessoas.length} pessoa(s) para escolher, {r.conflitos.length} campo(s) diferente(s), {r.iguais.length} já igual(is), {r.naoEncontrados.length} não encontrado(s).</p>
         <Button size="sm" variant="outline" className={botaoSec} onClick={onFechar}>Fechar</Button>
       </div>
       {r.preenchidos.length > 0 && (
@@ -135,9 +160,25 @@ function ResultadoPreenchimento({ r, onAceitar, onFechar }: { r: PainelResultado
           <ul className="ml-5 mt-1 list-disc">{r.preenchidos.map((p) => <li key={p.chave}><b>{p.rotulo}</b>: {p.valor} <span className="text-gray-400">— {p.fonte}</span></li>)}</ul>
         </details>
       )}
+      {r.pessoas.map((e) => (
+        <fieldset key={e.pessoa} className="rounded border border-yellow-500/40 bg-yellow-500/10 p-2">
+          <legend className="px-1 font-semibold text-yellow-100">{e.rotulo} — escolha quem é (a pessoa inteira; nada foi trocado)</legend>
+          <p className="text-xs text-yellow-100">{e.motivo}</p>
+          <label className="mt-1 flex items-start gap-2">
+            <input type="radio" name={`pessoa-${e.pessoa}`} className="mt-1" checked={escolhaPessoa[e.pessoa] === "manter"} onChange={() => setEscolhaPessoa((s) => ({ ...s, [e.pessoa]: "manter" }))} />
+            <span>{e.atualVazio ? "Deixar em branco (digitar depois)" : <>Manter o que está na tela: {e.atual}</>}</span>
+          </label>
+          {e.opcoes.map((o) => (
+            <label key={o.id} className="mt-1 flex items-start gap-2">
+              <input type="radio" name={`pessoa-${e.pessoa}`} className="mt-1" checked={escolhaPessoa[e.pessoa] === o.id} onChange={() => setEscolhaPessoa((s) => ({ ...s, [e.pessoa]: o.id }))} />
+              <span>Usar {o.resumo} <span className="text-gray-400">— {o.fonte}</span></span>
+            </label>
+          ))}
+        </fieldset>
+      ))}
       {r.conflitos.length > 0 && (
         <div className="rounded border border-yellow-500/40 bg-yellow-500/10 p-2">
-          <p className="font-semibold text-yellow-100">Já preenchidos com outro valor — nada foi trocado. Marque o que deve ser substituído:</p>
+          <p className="font-semibold text-yellow-100">Campos já preenchidos com outro valor — nada foi trocado. Marque o que deve ser substituído:</p>
           <ul className="mt-1 space-y-1">
             {r.conflitos.map((c) => (
               <li key={c.chave}>
@@ -148,12 +189,15 @@ function ResultadoPreenchimento({ r, onAceitar, onFechar }: { r: PainelResultado
               </li>
             ))}
           </ul>
-          <div className="mt-2 flex flex-wrap gap-2">
-            <Button size="sm" variant="outline" className={botaoSec} disabled={!marcados.size} onClick={() => onAceitar(r.conflitos.filter((c) => marcados.has(c.chave)))}>Substituir os marcados ({marcados.size})</Button>
-            <Button size="sm" variant="outline" className={botaoSec} onClick={() => { if (confirm(`Substituir os ${r.conflitos.length} campo(s) diferentes pelos valores sugeridos?`)) onAceitar(r.conflitos); }}>Substituir todos</Button>
-          </div>
         </div>
       )}
+      {pendentes > 0 && (
+        <div className="flex flex-wrap gap-2">
+          <Button size="sm" variant="outline" className={botaoSec} disabled={!marcados.size && !Object.keys(escolhaPessoa).length} onClick={() => aplicar(false)}>Aplicar as escolhas</Button>
+          {r.conflitos.length > 0 && <Button size="sm" variant="outline" className={botaoSec} onClick={() => { if (confirm(`Substituir os ${r.conflitos.length} campo(s) diferentes pelos valores sugeridos? (As pessoas seguem a escolha acima.)`)) aplicar(true); }}>Substituir todos os campos diferentes</Button>}
+        </div>
+      )}
+      {r.avisos.length > 0 && <ul className="ml-5 list-disc text-xs text-gray-300">{r.avisos.map((a) => <li key={a}>{a}</li>)}</ul>}
       {r.naoEncontrados.length > 0 && (
         <details>
           <summary className="cursor-pointer font-semibold">Não encontrados ({r.naoEncontrados.length})</summary>
@@ -271,7 +315,11 @@ export function GeradorPciAba({ projectId }: { projectId: number }) {
   const [painel, setPainel] = useState<PainelResultado | null>(null);
 
   useEffect(() => {
-    if (consulta.data && !form) setForm(consulta.data.formulario);
+    if (consulta.data && !form) {
+      setForm(consulta.data.formulario);
+      // EPIC-024 S-09: a abertura sem rascunho mostra as fontes e as escolhas de pessoa, como o botão.
+      if (consulta.data.preenchimento) setPainel({ ...consulta.data.preenchimento, titulo: "Pré-preenchimento automático" });
+    }
   }, [consulta.data, form]);
 
   const totais = useMemo(() => (form ? calcularTotaisPci(form) : null), [form]);
@@ -279,12 +327,14 @@ export function GeradorPciAba({ projectId }: { projectId: number }) {
   // Lote 03, correção 06: validação do cronograma durante a digitação (o servidor valida de novo).
   const cronograma = useMemo(() => (form ? analisarCronogramaPci(form) : null), [form]);
   const erros = useMemo(() => (form ? errosPci(form, { paraGerar: false }) : []), [form]);
+  // EPIC-024 S-09: nome e CPF de fontes diferentes bloqueiam a geração (o servidor confere de novo).
+  const misturas = useMemo(() => (form ? misturaPessoaPci(form) : []), [form]);
 
   if (consulta.isLoading || (!form && !consulta.error)) return <p role="status" className="text-slate-100">Carregando o Gerador de PCI…</p>;
   if (consulta.error || !consulta.data || !form) return <div role="alert" className="text-slate-100">{consulta.error?.message ?? "Erro ao carregar."} <button type="button" className="underline" onClick={() => consulta.refetch()}>Tentar novamente</button></div>;
   const d = consulta.data;
 
-  const setCampo = (id: string, v: string | number | null) => setForm({ ...form, campos: { ...form.campos, [id]: v } });
+  const setCampo = (id: string, v: string | number | null) => setForm(definirCampoPci(form, id, v));
   const prazo = Math.min(Math.max(Math.round(numeroPci(form.campos.prazoMeses) ?? 0), 0), MAX_ETAPAS_PCI);
 
   async function salvarRascunho() {
@@ -295,7 +345,7 @@ export function GeradorPciAba({ projectId }: { projectId: number }) {
     } catch (e) { toast.error(e instanceof Error ? e.message : String(e)); }
   }
 
-  // EPIC-024 S-09: completa só o que está vazio e mostra fonte, conflitos (com confirmação) e o que faltou.
+  // EPIC-024 S-09: completa só o que está vazio e mostra fonte, conflitos/escolhas (com confirmação) e o que faltou.
   async function recarregarAutomatico() {
     if (!form) return;
     setCarregandoAuto(true);
@@ -304,19 +354,20 @@ export function GeradorPciAba({ projectId }: { projectId: number }) {
       const r = compararPreenchimentoPci(form, s.sugestoes, s.ausencias);
       setForm(r.formulario);
       setPainel({ ...r, titulo: "Dados automáticos" });
-      if (!r.preenchidos.length && !r.conflitos.length) toast.info("Dados automáticos: nada novo para preencher. Veja abaixo o que já estava igual e o que não foi encontrado.");
-      else toast.success(`Dados automáticos: ${r.preenchidos.length} campo(s) preenchido(s)${r.conflitos.length ? `, ${r.conflitos.length} diferente(s) aguardando sua confirmação` : ""}. Confira e salve o rascunho.`);
+      const pendentes = r.conflitos.length + r.pessoas.length;
+      if (!r.preenchidos.length && !pendentes) toast.info("Dados automáticos: nada novo para preencher. Veja abaixo o que já estava igual e o que não foi encontrado.");
+      else toast.success(`Dados automáticos: ${r.preenchidos.length} campo(s) preenchido(s)${pendentes ? `, ${pendentes} item(ns) aguardando sua escolha` : ""}. Confira e salve o rascunho.`);
     } catch (e) { toast.error(e instanceof Error ? e.message : String(e)); }
     finally { setCarregandoAuto(false); }
   }
 
-  function aceitarConflitos(aceitos: ConflitoPci[]) {
+  function aplicarEscolhas(escolhas: Parameters<typeof aplicarEscolhasPci>[1], resolvidos: { conflitos: string[]; pessoas: PessoaPci[] }) {
     if (!form || !painel) return;
-    setForm(aceitarSugestoesPci(form, aceitos));
-    const chaves = new Set(aceitos.map((c) => c.chave));
+    setForm(aplicarEscolhasPci(form, escolhas));
+    const chaves = new Set(resolvidos.conflitos);
     const trocados = painel.conflitos.filter((c) => chaves.has(c.chave)).map((c) => ({ chave: c.chave, rotulo: c.rotulo, valor: c.sugerido, fonte: c.fonte }));
-    setPainel({ ...painel, preenchidos: [...painel.preenchidos, ...trocados], conflitos: painel.conflitos.filter((c) => !chaves.has(c.chave)) });
-    toast.success(`${aceitos.length} campo(s) substituído(s). Confira e salve o rascunho.`);
+    setPainel({ ...painel, preenchidos: [...painel.preenchidos, ...trocados], conflitos: painel.conflitos.filter((c) => !chaves.has(c.chave)), pessoas: painel.pessoas.filter((p) => !resolvidos.pessoas.includes(p.pessoa)) });
+    toast.success("Escolhas aplicadas. Confira e salve o rascunho.");
   }
 
   async function gerarPci() {
@@ -364,7 +415,7 @@ export function GeradorPciAba({ projectId }: { projectId: number }) {
           <Button size="sm" variant="outline" className={botaoSec} disabled={salvar.isPending} onClick={salvarRascunho}>
             {salvar.isPending ? <Loader2 className="mr-1 h-4 w-4 animate-spin" /> : <Save className="mr-1 h-4 w-4" />} Salvar rascunho
           </Button>
-          <Button size="sm" disabled={!podeGerar || gerar.isPending} onClick={gerarPci} className="bg-[#C9A961] font-bold text-[#1A2332] hover:bg-[#B8985A]">
+          <Button size="sm" disabled={!podeGerar || gerar.isPending || misturas.length > 0} onClick={gerarPci} className="bg-[#C9A961] font-bold text-[#1A2332] hover:bg-[#B8985A]">
             {gerar.isPending ? <Loader2 className="mr-1 h-4 w-4 animate-spin" /> : <FileSpreadsheet className="mr-1 h-4 w-4" />} Gerar PCI (planilha + PDF)
           </Button>
         </div>
@@ -383,7 +434,18 @@ export function GeradorPciAba({ projectId }: { projectId: number }) {
         </details>
       )}
 
-      {painel && <ResultadoPreenchimento key={`${painel.titulo}-${painel.conflitos.length}`} r={painel} onAceitar={aceitarConflitos} onFechar={() => setPainel(null)} />}
+      {misturas.length > 0 && (
+        <div role="alert" className="space-y-1 rounded-md border border-red-500/40 bg-red-500/10 p-2 text-sm text-red-100">
+          <p className="font-semibold">A PCI não pode ser gerada assim:</p>
+          {misturas.map((m) => (
+            <div key={m.pessoa} className="flex flex-wrap items-center gap-2">
+              <span>{m.mensagem}</span>
+              <Button size="sm" variant="outline" className={botaoSec} onClick={() => { if (confirm("Confirma que o nome e o CPF são da MESMA pessoa?")) setForm(confirmarMesmaPessoaPci(form, m.pessoa)); }}>Confirmo que nome e CPF são da mesma pessoa</Button>
+            </div>
+          ))}
+        </div>
+      )}
+      {painel && <ResultadoPreenchimento key={`${painel.titulo}-${painel.conflitos.length}-${painel.pessoas.length}`} r={painel} onAplicar={aplicarEscolhas} onFechar={() => setPainel(null)} />}
       <ModelosPreenchimento projectId={projectId} form={form} setForm={setForm} mostrar={setPainel} />
 
       {SECOES_PCI.map((s) => (

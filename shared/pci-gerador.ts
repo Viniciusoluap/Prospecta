@@ -14,6 +14,7 @@
 import { curvasPadraoPci, etapaCemPorCentoPci, incrementoMaximoEtapaPci } from "./pci-curvas.js";
 import { opcaoExataPci, opcoesPci } from "./pci-listas.js";
 import { lerNumero } from "./numero-mascara.js";
+import { isValidCPF } from "./cpf.js";
 
 export const ABA_PROPOSTA_PCI = "Proposta_Constr_Individual";
 
@@ -257,6 +258,30 @@ export const CAMPOS_PCI: CampoPci[] = CAMPOS_BASE_PCI.map((campo) => (COPIAVEIS_
 
 export const CAMPO_POR_ID = new Map(CAMPOS_PCI.map((campo) => [campo.id, campo]));
 
+/**
+ * EPIC-024 S-09 (portão de QA): cada PESSOA da PCI é um bloco — nome, CPF, e-mail, telefone e, no
+ * RT, registro/UF e o engenheiro escolhido. Um bloco vem sempre de UMA pessoa: nunca o CPF de um
+ * ao lado do nome de outro.
+ */
+export type PessoaPci = "proponente" | "rtp" | "rte";
+export const PESSOAS_PCI: Record<PessoaPci, { rotulo: string; chaves: string[] }> = {
+  proponente: { rotulo: "Proponente", chaves: CAMPOS_PCI.filter((c) => c.secao === "proponente").map((c) => c.id) },
+  rtp: { rotulo: "RT pelo projeto (RTP)", chaves: ["rtpEngenheiroId", ...CAMPOS_PCI.filter((c) => c.secao === "rtp").map((c) => c.id)] },
+  rte: { rotulo: "RT pela execução (RTE)", chaves: ["rteEngenheiroId", ...CAMPOS_PCI.filter((c) => c.secao === "rte").map((c) => c.id)] },
+};
+const CHAVES_PESSOA_PCI = [...PESSOAS_PCI.proponente.chaves, ...PESSOAS_PCI.rtp.chaves, ...PESSOAS_PCI.rte.chaves];
+
+/** Pessoa a que a chave pertence, ou null (campo técnico, imóvel etc.). */
+export function pessoaDaChavePci(chave: string): PessoaPci | null {
+  for (const p of ["proponente", "rtp", "rte"] as const) if (PESSOAS_PCI[p].chaves.includes(chave)) return p;
+  return null;
+}
+
+function valorDaChavePessoa(form: FormularioPci, chave: string): ValorCampoPci {
+  if (chave === "rtpEngenheiroId" || chave === "rteEngenheiroId") return form[chave];
+  return form.campos[chave] ?? null;
+}
+
 /** Serviços 1..19 da tabela de custos (o 20 "Outros" é a soma dos serviços adicionais). */
 export const SERVICOS_CUSTO_PCI = [
   "Barracão+lig. provisórias(água/luz)+projetos/aprovs.", "Infraestrutura (estacas, brocas, baldrames, sapatas)",
@@ -302,6 +327,12 @@ export interface FormularioPci {
   imagem: ImagemPci | null;
   /** EPIC-024 S-09: modelo de preenchimento aplicado nesta obra (só referência; os dados ficam na obra). */
   modeloOrigem?: OrigemModeloPci | null;
+  /**
+   * EPIC-024 S-09 (portão de QA): de onde veio cada dado de PESSOA (proponente, RTP, RTE) —
+   * "manual", "engenheiro:7", "crm", "pci"… Gravado no rascunho; a geração recusa nome e CPF de
+   * origens diferentes (`misturaPessoaPci`). Ausente = rascunho antigo (sem informação).
+   */
+  procedencia?: Record<string, string>;
 }
 
 export interface OrigemModeloPci {
@@ -320,6 +351,7 @@ export function formularioPciVazio(): FormularioPci {
     rteEngenheiroId: null,
     imagem: null,
     modeloOrigem: null,
+    procedencia: {},
   };
 }
 
@@ -415,6 +447,12 @@ export function normalizarFormularioPci(entrada: unknown): FormularioPci {
   if (mo && Number.isInteger(mo.id) && Number(mo.id) > 0 && typeof mo.nome === "string" && Number.isInteger(mo.versao)) {
     base.modeloOrigem = { id: Number(mo.id), nome: mo.nome.trim().slice(0, 120), versao: Number(mo.versao) };
   }
+  // Procedência só das chaves de pessoa com valor (o resto é descartado).
+  const proc = e.procedencia && typeof e.procedencia === "object" ? (e.procedencia as Record<string, unknown>) : {};
+  for (const chave of CHAVES_PESSOA_PCI) {
+    const v = proc[chave];
+    if (typeof v === "string" && v.trim() && !vazio(valorDaChavePessoa(base, chave))) base.procedencia![chave] = v.trim().slice(0, 120);
+  }
   const img = e.imagem as { tipo?: unknown; base64?: unknown } | null | undefined;
   if (img && (img.tipo === "png" || img.tipo === "jpeg") && typeof img.base64 === "string" && /^[A-Za-z0-9+/]+=*$/.test(img.base64)) {
     if ((img.base64.length / 4) * 3 > LIMITE_IMAGEM_PCI_BYTES) throw new Error("A imagem de localização deve ter até 1,5 MB.");
@@ -472,6 +510,10 @@ export interface EngenheiroPci {
    * escolhido (nunca vem na lista). `undefined` = não consultado (mantém o que está digitado).
    */
   cpf?: string | null;
+  /** false = perfil de Engenheiro desativado (CPF/CREA/telefone do perfil não são usados). */
+  perfilAtivo?: boolean;
+  /** false = o usuário não tem perfil de Engenheiro. */
+  temPerfil?: boolean;
 }
 
 /** Engenheiro escolhido para RTP/RTE e de onde veio a escolha (rascunho, PCI gerada, projeto). */
@@ -479,7 +521,7 @@ export interface EngenheiroDaObraPci {
   id: string;
   dados: EngenheiroPci;
   fonte: string;
-  /** true = escolha explícita nesta obra (vence a PCI vinculada); false = inferido. */
+  /** true = escolha explícita nesta obra (vem antes da PCI vinculada nas opções); false = inferido. */
   escolhido: boolean;
 }
 
@@ -550,7 +592,7 @@ export interface SugestaoPci {
   valor: unknown;
   /** De onde veio o valor (ex.: "Cliente do CRM (lead nº 5)"). */
   fonte: string;
-  /** Quem é a fonte (ex.: "engenheiro:7"); padrão = `fonte`. RTP/RTE não misturam origens. */
+  /** Quem é a fonte ("engenheiro:7", "crm", "pci"…); padrão = `fonte`. Uma pessoa vem de uma origem. */
   origem?: string;
 }
 
@@ -567,14 +609,35 @@ export interface ItemPreenchidoPci {
   fonte: string;
 }
 
+/** Conflito de campo que NÃO é de pessoa (técnico, imóvel, valores): confirmação por campo. */
 export interface ConflitoPci {
   chave: string;
   rotulo: string;
   atual: string;
   sugerido: string;
   fonte: string;
-  /** Valor já normalizado, aplicado só com confirmação (`aceitarSugestoesPci`). */
+  /** Valor já normalizado, aplicado só com confirmação (`aplicarEscolhasPci`). */
   valor: unknown;
+}
+
+/** Uma pessoa inteira sugerida por uma fonte (ou por fontes que provadamente são a mesma pessoa). */
+export interface OpcaoPessoaPci {
+  id: string;
+  origem: string;
+  fonte: string;
+  /** Valores normalizados das chaves da pessoa (as ausentes ficam vazias ao escolher). */
+  valores: Record<string, unknown>;
+  resumo: string;
+}
+
+/** Escolha de pessoa: manter o que está na tela ou trocar a pessoa INTEIRA por uma das opções. */
+export interface EscolhaPessoaPci {
+  pessoa: PessoaPci;
+  rotulo: string;
+  atual: string;
+  atualVazio: boolean;
+  motivo: string;
+  opcoes: OpcaoPessoaPci[];
 }
 
 export interface ResultadoPreenchimentoPci {
@@ -583,10 +646,14 @@ export interface ResultadoPreenchimentoPci {
   preenchidos: ItemPreenchidoPci[];
   /** Já estavam com o mesmo valor da fonte. */
   iguais: ItemPreenchidoPci[];
-  /** Preenchidos com valor diferente: só trocam com confirmação. */
+  /** Campos (não de pessoa) preenchidos com valor diferente: só trocam com confirmação. */
   conflitos: ConflitoPci[];
+  /** Pessoas que precisam da escolha de quem é (nunca resolvidas campo a campo). */
+  pessoas: EscolhaPessoaPci[];
   /** Não encontrados em nenhuma fonte (e ainda vazios), com o motivo. */
   naoEncontrados: AusenciaPci[];
+  /** Fontes não usadas por trazerem outra pessoa. */
+  avisos: string[];
 }
 
 export const rotuloChavePci = (chave: string) => (GRUPOS_PCI as Record<string, string>)[chave] ?? CAMPO_POR_ID.get(chave)?.rotulo ?? chave;
@@ -628,8 +695,8 @@ function gravarValorPci(form: FormularioPci, chave: string, valor: unknown): For
   if (chave === "custos") return { ...form, custos: [...(valor as (number | null)[])] };
   if (chave === "adicionais") return { ...form, adicionais: (valor as ServicoAdicionalPci[]).map((a) => ({ ...a })) };
   if (chave === "cronograma") return { ...form, cronograma: [...(valor as (number | null)[])] };
-  if (chave === "rtpEngenheiroId" || chave === "rteEngenheiroId") return { ...form, [chave]: valor as string };
-  return { ...form, campos: { ...form.campos, [chave]: valor as ValorCampoPci } };
+  if (chave === "rtpEngenheiroId" || chave === "rteEngenheiroId") return { ...form, [chave]: (valor as string | null) ?? null };
+  return { ...form, campos: { ...form.campos, [chave]: (valor as ValorCampoPci) ?? null } };
 }
 
 /** Texto curto do valor, para a tela mostrar o que foi preenchido ou o que mudaria. */
@@ -650,81 +717,205 @@ export function textoValorPci(chave: string, v: unknown): string {
 
 const iguaisPci = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b);
 
-/** Seção de pessoa da chave ("proponente", "rtp", "rte") ou "" para o resto. */
-function grupoPessoaPci(chave: string): string {
-  if (chave === "rtpEngenheiroId") return "rtp";
-  if (chave === "rteEngenheiroId") return "rte";
-  const secao = CAMPO_POR_ID.get(chave)?.secao;
-  return secao === "proponente" || secao === "rtp" || secao === "rte" ? secao : "";
-}
+// ─── pessoas: um bloco por pessoa, sem mistura ───────────────────────────────
+
+const nomeNormalizado = (v: unknown) =>
+  typeof v === "string" ? v.normalize("NFD").replace(/[̀-ͯ]/g, "").toUpperCase().replace(/\s+/g, " ").trim() : "";
 
 /**
- * Compara as sugestões com o formulário atual: completa SÓ o que está vazio, separa o que já
- * estava igual e o que está diferente (conflito — nunca trocado sem confirmação). A primeira
- * sugestão de cada chave vence (as fontes chegam em ordem de prioridade). `ausencias` entra só
- * para o que continuou vazio.
+ * Prova de que dois blocos são a MESMA pessoa: mesmo engenheiro escolhido; senão, mesmo CPF (só
+ * dígitos) quando os dois têm CPF; senão, mesmo nome completo (sem acento, maiúsculas) quando os
+ * dois têm nome. Sem prova → false (pessoas diferentes ou desconhecidas).
+ */
+export function mesmaPessoaPci(pessoa: PessoaPci, a: Record<string, unknown>, b: Record<string, unknown>): boolean {
+  if (pessoa !== "proponente") {
+    const ia = a[`${pessoa}EngenheiroId`], ib = b[`${pessoa}EngenheiroId`];
+    if (ia && ib) return ia === ib;
+  }
+  const ca = soDigitos(a[`${pessoa}Cpf`]), cb = soDigitos(b[`${pessoa}Cpf`]);
+  if (ca && cb) return ca === cb;
+  const na = nomeNormalizado(a[`${pessoa}Nome`]), nb = nomeNormalizado(b[`${pessoa}Nome`]);
+  return !!na && !!nb && na === nb;
+}
+
+function valoresPessoaForm(form: FormularioPci, pessoa: PessoaPci): Record<string, unknown> {
+  const v: Record<string, unknown> = {};
+  for (const chave of PESSOAS_PCI[pessoa].chaves) {
+    const x = valorDaChavePessoa(form, chave);
+    if (!vazio(x)) v[chave] = x;
+  }
+  return v;
+}
+
+const resumoPessoa = (valores: Record<string, unknown>, pessoa: PessoaPci) =>
+  PESSOAS_PCI[pessoa].chaves.filter((k) => valores[k] !== undefined && valores[k] !== null && !k.endsWith("EngenheiroId"))
+    .map((k) => `${rotuloChavePci(k)}: ${textoValorPci(k, valores[k])}`).join(" · ") || "(vazio)";
+
+/** Troca a pessoa INTEIRA: chaves sem valor na opção ficam vazias; a procedência é uma só. */
+function gravarPessoaPci(form: FormularioPci, pessoa: PessoaPci, valores: Record<string, unknown>, origem: string): FormularioPci {
+  let f: FormularioPci = { ...form, campos: { ...form.campos }, procedencia: { ...(form.procedencia ?? {}) } };
+  for (const chave of PESSOAS_PCI[pessoa].chaves) {
+    const v = valores[chave] ?? null;
+    f = gravarValorPci(f, chave, v);
+    if (v === null) delete f.procedencia![chave];
+    else f.procedencia![chave] = origem;
+  }
+  return f;
+}
+
+/** Carimba a mesma procedência em todos os dados preenchidos da pessoa (pessoa provada ou confirmada). */
+function carimbarPessoaPci(form: FormularioPci, pessoa: PessoaPci, origem: string): FormularioPci {
+  const procedencia = { ...(form.procedencia ?? {}) };
+  for (const chave of PESSOAS_PCI[pessoa].chaves) if (!vazio(valorDaChavePessoa(form, chave))) procedencia[chave] = origem;
+  return { ...form, procedencia };
+}
+
+type BlocoPessoa = { origem: string; fonte: string; valores: Record<string, unknown>; fontes: Record<string, string> };
+
+/**
+ * Compara as sugestões com o formulário atual. Campos que não são de pessoa: completa SÓ o vazio,
+ * separa o igual e o diferente (conflito por campo, nunca trocado sem confirmação). Pessoas
+ * (proponente, RTP, RTE): cada fonte forma um bloco; blocos só se juntam quando provadamente são a
+ * mesma pessoa (`mesmaPessoaPci`). Um bloco só preenche em silêncio quando a pessoa está vazia na
+ * tela e há um único candidato, ou quando a tela já tem a MESMA pessoa (provada) e só faltam dados;
+ * em qualquer outro caso a pessoa vai inteira para escolha (`pessoas`). Assim nenhum caminho põe o
+ * CPF de uma pessoa ao lado do nome de outra.
  */
 export function compararPreenchimentoPci(form: FormularioPci, sugestoes: SugestaoPci[], ausencias: AusenciaPci[] = []): ResultadoPreenchimentoPci {
-  const r: ResultadoPreenchimentoPci = { formulario: form, preenchidos: [], iguais: [], conflitos: [], naoEncontrados: [] };
+  const r: ResultadoPreenchimentoPci = { formulario: form, preenchidos: [], iguais: [], conflitos: [], pessoas: [], naoEncontrados: [], avisos: [] };
+  let novo: FormularioPci = { ...form, campos: { ...form.campos }, procedencia: { ...(form.procedencia ?? {}) } };
   const vistas = new Set<string>();
-  const vazias: { s: SugestaoPci; valor: unknown }[] = [];
-  // RTP/RTE: todos os dados de um papel vêm de UMA origem (a primeira que trouxe algum valor).
-  const dono: Record<string, string> = {};
-  const descartadas: SugestaoPci[] = [];
+  const blocos: Record<PessoaPci, BlocoPessoa[]> = { proponente: [], rtp: [], rte: [] };
   for (const s of sugestoes) {
-    if (vistas.has(s.chave)) continue;
     const valor = normalizarSugestao(s.chave, s.valor);
     if (valor === null) continue;
-    const grupo = grupoPessoaPci(s.chave);
-    if (grupo === "rtp" || grupo === "rte") {
+    const pessoa = pessoaDaChavePci(s.chave);
+    if (pessoa) {
       const origem = s.origem ?? s.fonte;
-      dono[grupo] ??= origem;
-      if (dono[grupo] !== origem) { descartadas.push(s); continue; }
+      let b = blocos[pessoa].find((x) => x.origem === origem);
+      if (!b) blocos[pessoa].push((b = { origem, fonte: s.fonte, valores: {}, fontes: {} }));
+      if (!(s.chave in b.valores)) { b.valores[s.chave] = valor; b.fontes[s.chave] = s.fonte; }
+      continue;
     }
+    if (vistas.has(s.chave)) continue;
     vistas.add(s.chave);
     const rotulo = rotuloChavePci(s.chave);
     const atual = valorAtualPci(form, s.chave);
-    if (atual === null) vazias.push({ s, valor });
-    else if (iguaisPci(atual, valor)) r.iguais.push({ chave: s.chave, rotulo, valor: textoValorPci(s.chave, valor), fonte: s.fonte });
+    if (atual === null) {
+      novo = gravarValorPci(novo, s.chave, valor);
+      r.preenchidos.push({ chave: s.chave, rotulo, valor: textoValorPci(s.chave, valor), fonte: s.fonte });
+    } else if (iguaisPci(atual, valor)) r.iguais.push({ chave: s.chave, rotulo, valor: textoValorPci(s.chave, valor), fonte: s.fonte });
     else r.conflitos.push({ chave: s.chave, rotulo, atual: textoValorPci(s.chave, atual), sugerido: textoValorPci(s.chave, valor), fonte: s.fonte, valor });
   }
-  // Dados de pessoa (proponente, RTP, RTE) andam juntos: se o nome ou outro dado da pessoa está
-  // diferente, os vazios dela também esperam confirmação — nunca o CPF de um ao lado do nome de outro.
-  const emConflito = new Set(r.conflitos.map((c) => grupoPessoaPci(c.chave)).filter(Boolean));
-  let novo: FormularioPci = { ...form, campos: { ...form.campos } };
-  for (const { s, valor } of vazias) {
-    const rotulo = rotuloChavePci(s.chave);
-    if (emConflito.has(grupoPessoaPci(s.chave))) {
-      r.conflitos.push({ chave: s.chave, rotulo, atual: textoValorPci(s.chave, null), sugerido: textoValorPci(s.chave, valor), fonte: s.fonte, valor });
+
+  const comBloco = new Set<string>();
+  for (const pessoa of ["proponente", "rtp", "rte"] as const) {
+    // Junta só o que é provadamente a mesma pessoa: o primeiro bloco (maior prioridade) vence; o outro completa.
+    const candidatos: BlocoPessoa[] = [];
+    for (const b of blocos[pessoa]) {
+      for (const k of Object.keys(b.valores)) comBloco.add(k);
+      const igual = candidatos.find((c) => mesmaPessoaPci(pessoa, c.valores, b.valores));
+      if (!igual) { candidatos.push({ ...b, valores: { ...b.valores }, fontes: { ...b.fontes } }); continue; }
+      for (const [k, v] of Object.entries(b.valores)) if (!(k in igual.valores)) { igual.valores[k] = v; igual.fontes[k] = b.fontes[k]; }
+      igual.origem = `${igual.origem}+${b.origem}`;
+      igual.fonte = `${igual.fonte} + ${b.fonte}`;
+    }
+    if (!candidatos.length) continue;
+    const rotulo = PESSOAS_PCI[pessoa].rotulo;
+    const atual = valoresPessoaForm(form, pessoa);
+    const opcao = (c: BlocoPessoa, i: number): OpcaoPessoaPci => ({ id: `${pessoa}-${i}`, origem: c.origem, fonte: c.fonte, valores: c.valores, resumo: resumoPessoa(c.valores, pessoa) });
+    const escolha = (opcoes: BlocoPessoa[], motivo: string) =>
+      r.pessoas.push({ pessoa, rotulo, atual: resumoPessoa(atual, pessoa), atualVazio: !Object.keys(atual).length, motivo, opcoes: opcoes.map(opcao) });
+    const preencher = (c: BlocoPessoa, chaves: string[]) => {
+      for (const k of chaves) r.preenchidos.push({ chave: k, rotulo: `${rotuloChavePci(k)} (${rotulo})`, valor: textoValorPci(k, c.valores[k]), fonte: c.fontes[k] });
+    };
+
+    if (!Object.keys(atual).length) {
+      if (candidatos.length > 1) { escolha(candidatos, "As fontes trazem pessoas diferentes: escolha uma (os dados vêm todos dela)."); continue; }
+      const c = candidatos[0];
+      novo = gravarPessoaPci(novo, pessoa, c.valores, c.origem);
+      preencher(c, PESSOAS_PCI[pessoa].chaves.filter((k) => k in c.valores));
       continue;
     }
-    novo = gravarValorPci(novo, s.chave, valor);
-    r.preenchidos.push({ chave: s.chave, rotulo, valor: textoValorPci(s.chave, valor), fonte: s.fonte });
+    const mesma = candidatos.filter((c) => mesmaPessoaPci(pessoa, atual, c.valores));
+    for (const c of candidatos) if (!mesma.includes(c)) r.avisos.push(`${rotulo}: "${c.fonte}" traz outra pessoa (${resumoPessoa(c.valores, pessoa)}) e não foi usada.`);
+    if (!mesma.length) {
+      escolha(candidatos, "A tela já tem dados desta pessoa e a fonte não confirma que é a mesma (CPF ou nome completo iguais). Escolha manter ou trocar a pessoa inteira.");
+      continue;
+    }
+    const c = mesma[0];
+    const chaves = PESSOAS_PCI[pessoa].chaves.filter((k) => k in c.valores);
+    const diferentes = chaves.filter((k) => k in atual && !iguaisPci(atual[k], c.valores[k]));
+    if (diferentes.length) {
+      escolha([c], `Mesma pessoa, com dados diferentes em: ${diferentes.map(rotuloChavePci).join(", ")}. Escolha manter ou trocar a pessoa inteira.`);
+      continue;
+    }
+    for (const k of chaves.filter((k) => k in atual)) r.iguais.push({ chave: k, rotulo: `${rotuloChavePci(k)} (${rotulo})`, valor: textoValorPci(k, c.valores[k]), fonte: c.fontes[k] });
+    const faltando = chaves.filter((k) => !(k in atual));
+    if (faltando.length) {
+      for (const k of faltando) novo = gravarValorPci(novo, k, c.valores[k]);
+      novo = carimbarPessoaPci(novo, pessoa, c.origem);
+      preencher(c, faltando);
+    }
   }
   r.formulario = novo;
   const ja = new Set<string>();
-  for (const s of descartadas) {
-    if (vistas.has(s.chave) || ja.has(s.chave) || valorAtualPci(novo, s.chave) !== null) continue;
-    ja.add(s.chave);
-    r.naoEncontrados.push({ chave: s.chave, rotulo: `${rotuloChavePci(s.chave)} (${PAPEL_PCI[grupoPessoaPci(s.chave) as "rtp" | "rte"]})`,
-      motivo: `A fonte usada para este responsável técnico não tem este dado. O valor de "${s.fonte}" não foi usado para não misturar dados de profissionais diferentes.` });
-  }
   for (const a of ausencias) {
-    if (vistas.has(a.chave) || ja.has(a.chave) || valorAtualPci(novo, a.chave) !== null) continue;
+    if (vistas.has(a.chave) || comBloco.has(a.chave) || ja.has(a.chave) || valorAtualPci(novo, a.chave) !== null) continue;
     ja.add(a.chave);
     r.naoEncontrados.push(a);
   }
   return r;
 }
 
-/** Aplica os conflitos confirmados pela pessoa (por campo ou todos). */
-export function aceitarSugestoesPci(form: FormularioPci, aceitos: Pick<ConflitoPci, "chave" | "valor">[]): FormularioPci {
-  return aceitos.reduce((f, c) => gravarValorPci(f, c.chave, c.valor), form);
+/**
+ * Aplica as escolhas da pessoa: conflitos de campo marcados (só campos que NÃO são de pessoa — os de
+ * pessoa são ignorados aqui) e, por pessoa, a opção escolhida, que troca a pessoa INTEIRA. `null` ou
+ * ausente = manter o que está na tela. Nenhuma combinação deixa uma pessoa com dados de duas fontes.
+ */
+export function aplicarEscolhasPci(form: FormularioPci, escolhas: { conflitos?: Pick<ConflitoPci, "chave" | "valor">[]; pessoas?: Partial<Record<PessoaPci, Pick<OpcaoPessoaPci, "valores" | "origem"> | null>> }): FormularioPci {
+  let f = (escolhas.conflitos ?? []).filter((c) => !pessoaDaChavePci(c.chave)).reduce((acc, c) => gravarValorPci(acc, c.chave, c.valor), form);
+  for (const pessoa of ["proponente", "rtp", "rte"] as const) {
+    const o = escolhas.pessoas?.[pessoa];
+    if (o) f = gravarPessoaPci(f, pessoa, o.valores, o.origem);
+  }
+  return f;
+}
+
+/** Digitação na tela: o dado de pessoa passa a ser "manual" (a geração confere a mistura). */
+export function definirCampoPci(form: FormularioPci, chave: string, valor: ValorCampoPci): FormularioPci {
+  const f: FormularioPci = { ...form, campos: { ...form.campos, [chave]: valor } };
+  if (!pessoaDaChavePci(chave)) return f;
+  const procedencia = { ...(form.procedencia ?? {}) };
+  if (vazio(valor)) delete procedencia[chave];
+  else procedencia[chave] = "manual";
+  return { ...f, procedencia };
+}
+
+/** "Confirmo que são da mesma pessoa": todos os dados preenchidos da pessoa ficam com a mesma procedência. */
+export function confirmarMesmaPessoaPci(form: FormularioPci, pessoa: PessoaPci): FormularioPci {
+  return carimbarPessoaPci(form, pessoa, "manual:confirmado");
+}
+
+/**
+ * Guarda da geração: nome e CPF da mesma pessoa com procedências diferentes (ex.: nome do CRM e CPF
+ * da PCI vinculada, ou nome digitado ao lado do CPF de outra fonte). Rascunho antigo sem procedência
+ * não é bloqueado (sem informação).
+ */
+export function misturaPessoaPci(form: FormularioPci): { pessoa: PessoaPci; mensagem: string }[] {
+  const p = form.procedencia ?? {};
+  const r: { pessoa: PessoaPci; mensagem: string }[] = [];
+  for (const pessoa of ["proponente", "rtp", "rte"] as const) {
+    const nome = `${pessoa}Nome`, cpf = `${pessoa}Cpf`;
+    if (vazio(form.campos[nome]) || vazio(form.campos[cpf]) || !p[nome] || !p[cpf] || p[nome] === p[cpf]) continue;
+    r.push({ pessoa, mensagem: `${PESSOAS_PCI[pessoa].rotulo}: o nome e o CPF vieram de fontes diferentes. Confira se são da mesma pessoa e confirme (botão "Confirmo que nome e CPF são da mesma pessoa"), ou corrija.` });
+  }
+  return r;
 }
 
 const PAPEL_PCI = { rtp: "RTP", rte: "RTE" } as const;
 
-/** Sugestões dos campos de RTP/RTE vindas do perfil do engenheiro. */
+/** Sugestões dos campos de RTP/RTE vindas do perfil do engenheiro (uma origem só). */
 function sugestoesEngenheiroPci(papel: "rtp" | "rte", e: EngenheiroDaObraPci): SugestaoPci[] {
   const fonte = `${e.fonte} — perfil de ${e.dados.nome ?? "engenheiro"}`;
   const origem = `engenheiro:${e.id}`;
@@ -755,34 +946,45 @@ const ESPERADOS_PCI: { chave: string; fonte: FonteEsperadaPci; motivo?: string }
   { chave: "cronograma", fonte: "pci", motivo: "O cronograma vem só da PCI vinculada ou de um modelo de preenchimento." },
 ];
 
+/** Motivo de um dado do engenheiro não ter vindo — perfil desativado/ausente é dito como tal. */
+function motivoEngenheiroPci(e: EngenheiroDaObraPci, chave: string): string {
+  const nome = e.dados.nome ?? "engenheiro";
+  if (e.dados.temPerfil === false) return `${nome} não tem perfil de Engenheiro (Configurações › Usuários).`;
+  if (e.dados.perfilAtivo === false) return `O perfil de Engenheiro de ${nome} está desativado: CPF, CREA e telefone do perfil não são usados. Reative em Configurações › Usuários.`;
+  return `O perfil de ${nome} não tem ${rotuloChavePci(chave).toLowerCase()} cadastrado (Configurações › Usuários).`;
+}
+
 /**
  * Sugestões de "Dados automáticos", em ordem de prioridade: (1) engenheiro escolhido nesta obra,
  * (2) PCI já vinculada à obra (a proposta oficial enviada), (3) cadastro do cliente/lead e da obra,
- * localização e engenheiro inferido. Nada é inventado: sem fonte, o campo entra em `ausencias`.
+ * localização e engenheiro inferido. Cada fonte leva sua `origem`: pessoas não se misturam
+ * (`compararPreenchimentoPci`). Nada é inventado: sem fonte, o campo entra em `ausencias`.
  */
 export function sugestoesAutomaticasPci(f: FontesPreenchimentoPci): { sugestoes: SugestaoPci[]; ausencias: AusenciaPci[] } {
   const s: SugestaoPci[] = [];
-  const add = (chave: string, valor: unknown, fonte: string) => s.push({ chave, valor, fonte });
   const engenheiros = (["rtp", "rte"] as const).map((papel) => [papel, f[papel] ?? null] as const);
   for (const [papel, e] of engenheiros) if (e?.escolhido) s.push(...sugestoesEngenheiroPci(papel, e));
   if (f.pci) {
     const p = normalizarFormularioPci(f.pci);
     const fonte = f.rotulos?.pci ?? "PCI vinculada à obra";
-    for (const campo of CAMPOS_PCI) add(campo.id, p.campos[campo.id], fonte);
-    add("custos", p.custos, fonte);
-    add("adicionais", p.adicionais, fonte);
-    add("cronograma", p.cronograma, fonte);
+    const add = (chave: string, valor: unknown) => s.push({ chave, valor, fonte, origem: "pci" });
+    for (const campo of CAMPOS_PCI) add(campo.id, p.campos[campo.id]);
+    add("custos", p.custos);
+    add("adicionais", p.adicionais);
+    add("cronograma", p.cronograma);
   }
   const cli = f.cliente;
   const fonteCli = f.rotulos?.cliente ?? "Cliente do CRM";
+  const addCli = (chave: string, valor: unknown) => s.push({ chave, valor, fonte: fonteCli, origem: "crm" });
   if (cli) {
-    add("proponenteNome", cli.nome, fonteCli);
-    add("proponenteEmail", cli.email, fonteCli);
-    add("proponenteCpf", cli.cpf, fonteCli);
+    addCli("proponenteNome", cli.nome);
+    addCli("proponenteEmail", cli.email);
+    addCli("proponenteCpf", cli.cpf);
     const tel = separarTelefone(cli.telefone);
-    add("proponenteDdd", tel.ddd, fonteCli);
-    add("proponenteTelefone", tel.numero, fonteCli);
+    addCli("proponenteDdd", tel.ddd);
+    addCli("proponenteTelefone", tel.numero);
   }
+  const add = (chave: string, valor: unknown, fonte: string) => s.push({ chave, valor, fonte });
   const fonteObra = "Cadastro da obra";
   if (f.obra.endereco) add("endereco", f.obra.endereco, fonteObra);
   else if (cli?.endereco) add("endereco", cli.endereco, fonteCli);
@@ -809,9 +1011,7 @@ export function sugestoesAutomaticasPci(f: FontesPreenchimentoPci): { sugestoes:
     if (esp.fonte === "coordenadas") motivo = f.motivos?.coordenadas ?? "A obra não tem localização no mapa.";
     if (esp.fonte === "rtp" || esp.fonte === "rte") {
       const e = f[esp.fonte];
-      motivo = e
-        ? `O perfil de ${e.dados.nome ?? "engenheiro"} não tem ${rotuloChavePci(esp.chave).toLowerCase()} cadastrado (Configurações › Usuários).`
-        : f.motivos?.[esp.fonte] ?? `Nenhum engenheiro escolhido para o ${PAPEL_PCI[esp.fonte]} nesta obra.`;
+      motivo = e ? motivoEngenheiroPci(e, esp.chave) : f.motivos?.[esp.fonte] ?? `Nenhum engenheiro escolhido para o ${PAPEL_PCI[esp.fonte]} nesta obra.`;
     }
     if (esp.fonte === "pci" && f.motivos?.pci) motivo = `${motivo} ${f.motivos.pci}`;
     const papel = esp.fonte === "rtp" || esp.fonte === "rte" ? ` (${PAPEL_PCI[esp.fonte]})` : "";
@@ -822,7 +1022,8 @@ export function sugestoesAutomaticasPci(f: FontesPreenchimentoPci): { sugestoes:
 
 /**
  * Formulário pré-preenchido (abertura da tela sem rascunho): as mesmas fontes de "Dados
- * automáticos" aplicadas num formulário vazio. Nada é inventado: sem fonte, o campo fica vazio.
+ * automáticos" aplicadas num formulário vazio. Pessoa com fontes divergentes fica vazia (a tela
+ * mostra a escolha). Nada é inventado: sem fonte, o campo fica vazio.
  */
 export function preencherPciAutomatico(f: FontesPreenchimentoPci): FormularioPci {
   return compararPreenchimentoPci(formularioPciVazio(), sugestoesAutomaticasPci(f).sugestoes).formulario;
@@ -831,12 +1032,13 @@ export function preencherPciAutomatico(f: FontesPreenchimentoPci): FormularioPci
 /**
  * Seleção do engenheiro em RTP/RTE: nome, CPF, e-mail, telefone e CREA/UF vêm do perfil. Sem
  * CREA/CPF no perfil, o campo fica vazio (nunca inventado nem herdado do engenheiro anterior).
- * `cpf` não consultado (`undefined`) mantém o CPF digitado.
+ * `cpf` não consultado (`undefined`) mantém o CPF digitado — e aí a geração confere a mistura.
  */
 export function aplicarEngenheiroPci(form: FormularioPci, papel: "rtp" | "rte", engenheiroId: string | null, eng: EngenheiroPci | null): FormularioPci {
   const campos = { ...form.campos };
-  const novo: FormularioPci = { ...form, campos, [papel === "rtp" ? "rtpEngenheiroId" : "rteEngenheiroId"]: engenheiroId };
-  if (!eng) return novo;
+  const procedencia = { ...(form.procedencia ?? {}) };
+  const novo: FormularioPci = { ...form, campos, procedencia, [papel === "rtp" ? "rtpEngenheiroId" : "rteEngenheiroId"]: engenheiroId };
+  if (!eng) { delete procedencia[`${papel}EngenheiroId`]; return novo; }
   const tel = separarTelefone(eng.telefone);
   campos[`${papel}Nome`] = eng.nome?.trim() || null;
   campos[`${papel}Email`] = eng.email?.trim() || null;
@@ -845,6 +1047,12 @@ export function aplicarEngenheiroPci(form: FormularioPci, papel: "rtp" | "rte", 
   if (eng.cpf !== undefined) campos[`${papel}Cpf`] = eng.cpf?.trim() || null;
   campos[`${papel}Ddd`] = tel.ddd;
   campos[`${papel}Telefone`] = tel.numero;
+  const origem = `engenheiro:${engenheiroId ?? "?"}`;
+  for (const chave of PESSOAS_PCI[papel].chaves) {
+    if (chave === `${papel}Cpf` && eng.cpf === undefined) continue;
+    if (vazio(valorDaChavePessoa(novo, chave))) delete procedencia[chave];
+    else procedencia[chave] = origem;
+  }
   return novo;
 }
 
@@ -885,12 +1093,19 @@ export const LIMITE_NOME_MODELO_PCI = 120;
  * `CAMPOS_COPIAVEIS_MODELO_PCI`, mais custos, serviços adicionais e cronograma. Proponente,
  * RTP/RTE, endereço, coordenadas, matrícula, imagem, engenheiros escolhidos e qualquer campo
  * desconhecido ficam de fora — também na leitura (defesa contra JSON antigo ou adulterado).
+ * Campo de lista só entra com uma opção EXATA do modelo oficial (texto livre fora da lista, não).
  */
 export function extrairModeloPreenchimentoPci(entrada: unknown): DadosModeloPreenchimentoPci {
   const e = entrada && typeof entrada === "object" ? (entrada as Record<string, unknown>) : {};
-  const f = normalizarFormularioPci({ campos: e.campos, custos: e.custos, adicionais: e.adicionais, cronograma: e.cronograma });
+  const proprio = (k: string) => (Object.prototype.hasOwnProperty.call(e, k) ? e[k] : undefined);
+  const f = normalizarFormularioPci({ campos: proprio("campos"), custos: proprio("custos"), adicionais: proprio("adicionais"), cronograma: proprio("cronograma") });
   const campos: Record<string, ValorCampoPci> = {};
-  for (const campo of CAMPOS_PCI) if (campo.copiavel && !vazio(f.campos[campo.id])) campos[campo.id] = f.campos[campo.id];
+  for (const campo of CAMPOS_PCI) {
+    const v = f.campos[campo.id];
+    if (!campo.copiavel || vazio(v)) continue;
+    if (campo.tipo === "lista" && !(campo.opcoes ?? []).includes(String(v))) continue;
+    campos[campo.id] = v;
+  }
   return { campos, custos: f.custos, adicionais: f.adicionais, cronograma: f.cronograma };
 }
 
@@ -919,6 +1134,42 @@ export function validarNomeModeloPreenchimentoPci(nome: unknown): string {
   if (!t) throw new Error("Dê um nome ao modelo (ex.: Casa padrão 70 m²).");
   if (t.length > LIMITE_NOME_MODELO_PCI) throw new Error(`O nome do modelo deve ter até ${LIMITE_NOME_MODELO_PCI} caracteres.`);
   return t;
+}
+
+/** CNPJ numérico com dígitos verificadores (o alfanumérico não aparece em texto livre de memorial). */
+function cnpjNumericoValido(d: string): boolean {
+  if (!/^\d{14}$/.test(d) || /^(\d)\1+$/.test(d)) return false;
+  const dv = (base: string, pesos: number[]) => { const r = Array.from(base).reduce((s, c, i) => s + Number(c) * pesos[i], 0) % 11; return r < 2 ? 0 : 11 - r; };
+  return Number(d[12]) === dv(d.slice(0, 12), [5, 4, 3, 2, 9, 8, 7, 6, 5, 4, 3, 2]) && Number(d[13]) === dv(d.slice(0, 13), [6, 5, 4, 3, 2, 9, 8, 7, 6, 5, 4, 3, 2]);
+}
+
+/**
+ * Dados pessoais num texto livre: CPF e CNPJ (com ou sem pontuação, dígitos verificadores
+ * conferidos), e-mail e telefone (com DDD). Devolve os tipos achados, sem repetir.
+ */
+export function dadosPessoaisNoTextoPci(texto: string): string[] {
+  const achados = new Set<string>();
+  for (const m of Array.from(texto.matchAll(/(?<![\d.\/-])\d{2}\.?\d{3}\.?\d{3}\/?\d{4}-?\d{2}(?![\d\/-])/g))) if (cnpjNumericoValido(soDigitos(m[0]))) achados.add("CNPJ");
+  for (const m of Array.from(texto.matchAll(/(?<![\d.\/-])\d{3}\.?\d{3}\.?\d{3}-?\d{2}(?![\d\/-])/g))) if (isValidCPF(soDigitos(m[0]))) achados.add("CPF");
+  if (/[^\s@<>()]+@[^\s@<>()]+\.[a-z]{2,}/i.test(texto)) achados.add("e-mail");
+  for (const m of Array.from(texto.matchAll(/(?<![\d\/.-])(?:\+?55[\s-]?)?\(?\d{2}\)?[\s-]?9?\d{4}[\s-]?\d{4}(?![\d\/.-])/g))) {
+    const d = soDigitos(m[0]);
+    if (d.length >= 10 && d.length <= 13 && !isValidCPF(d)) achados.add("telefone");
+  }
+  return Array.from(achados);
+}
+
+/**
+ * Confere nome, observação e TODO texto livre do modelo (campos de texto, descrições dos serviços
+ * adicionais). O salvamento é recusado com a lista — nada é apagado em silêncio.
+ */
+export function dadosPessoaisNoModeloPci(m: { nome?: string | null; observacao?: string | null; dados: DadosModeloPreenchimentoPci }): { campo: string; tipos: string[] }[] {
+  const textos: [string, string][] = [];
+  if (m.nome) textos.push(["Nome do modelo", m.nome]);
+  if (m.observacao) textos.push(["Observação do modelo", m.observacao]);
+  for (const [id, v] of Object.entries(m.dados.campos)) if (typeof v === "string") textos.push([CAMPO_POR_ID.get(id)?.rotulo ?? id, v]);
+  m.dados.adicionais.forEach((a, i) => { if (a.descricao) textos.push([`Serviço adicional ${i + 1}`, a.descricao]); });
+  return textos.map(([campo, t]) => ({ campo, tipos: dadosPessoaisNoTextoPci(t) })).filter((x) => x.tipos.length);
 }
 
 // ─── cálculos (os mesmos das fórmulas do modelo) ─────────────────────────────
@@ -1089,6 +1340,8 @@ export function errosPci(form: FormularioPci, opcoes: { paraGerar: boolean }): s
   for (const p of analisarCronogramaPci(form).erros) {
     if (p.tipo === "valor" || opcoes.paraGerar) e.push(p.mensagem);
   }
+  // EPIC-024 S-09: a PCI oficial não sai com nome e CPF de uma pessoa vindos de fontes diferentes.
+  if (opcoes.paraGerar) for (const m of misturaPessoaPci(form)) e.push(m.mensagem);
   return e;
 }
 
