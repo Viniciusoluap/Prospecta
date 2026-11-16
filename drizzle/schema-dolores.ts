@@ -30,5 +30,12 @@ export const doloresConfig = pgTable("dolores_config", {
   atualizadoPor: integer("atualizado_por").references(() => users.id, { onDelete: "set null" }),
 });
 
+/** Contador do limite por minuto (uma linha por minuto do dia). */
+export const doloresLimite = pgTable("dolores_limite", {
+  minuto: smallint("minuto").primaryKey(),
+  janela: timestamp("janela", { withTimezone: true }).notNull(),
+  total: integer("total").default(0).notNull(),
+});
+
 export type DoloresAcao = typeof doloresAcoes.$inferSelect;
 export type DoloresConfig = typeof doloresConfig.$inferSelect;

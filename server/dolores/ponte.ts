@@ -2,15 +2,16 @@
 //   POST /api/dolores/ponte        { funcao, argumentos?, pedidoId? } → executa UMA função autorizada e devolve JSON
 //   GET  /api/dolores/ferramentas  → definições das funções liberadas (nome, descrição, JSON Schema da entrada)
 // Autenticação: "Authorization: Bearer <DOLORES_PONTE_TOKEN>" (variável de ambiente, comparação em tempo constante;
-// sem a variável, a ponte recusa tudo; o token nunca vai para log). Depois: pausa (dolores_config), limite por minuto,
-// lista de funções liberadas (permissoes.ts), validação da entrada (zod), execução com prazo e resposta limitada.
+// sem a variável, a ponte recusa tudo; o token nunca vai para log). Depois: pausa (dolores_config), usuária ativa,
+// lista de funções liberadas (permissoes.ts), validação da entrada (zod), vaga do minuto, execução com prazo e
+// resposta filtrada e limitada.
 // Toda chamada autenticada vira uma linha em dolores_acoes, no nome da usuária Dolores. Chamadas sem token válido NÃO são
 // gravadas (um estranho não pode encher a auditoria nem gastar o limite dela): vão só para o log, sem o token.
 import { createHash, timingSafeEqual } from "node:crypto";
 import { Router, type Request, type Response } from "express";
-import { and, count, eq, gt } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import { z } from "zod";
-import { doloresAcoes, doloresConfig } from "../../drizzle/schema-dolores.js";
+import { doloresConfig, doloresLimite } from "../../drizzle/schema-dolores.js";
 import { DESLOCAMENTO_FUSO, FUSO, MOEDA, isoFortaleza, limitarResposta } from "../../shared/dolores/formato.js";
 import { sanitizarResposta } from "../../shared/dolores/sanitizar.js";
 import { getDb } from "../db.js";
@@ -82,25 +83,40 @@ function autenticar(req: Pedido, agora: Date): RespostaPonte | null {
   return null;
 }
 
-/** Pausa e limite. null = pode seguir. Lança se não conseguir ler a configuração (a ponte não roda às cegas). */
-async function verificarOperacao(autor: number, agora: Date): Promise<{ status: number; motivo: string } | null> {
+type Bloqueio = { status: number; motivo: string };
+
+/** Pausa (lida ANTES de qualquer outra coisa no banco). Lança se não conseguir ler: a ponte não roda às cegas. */
+async function lerConfig(): Promise<{ bloqueio: Bloqueio | null; limite: number }> {
   const [cfg] = await getDb().select().from(doloresConfig).where(eq(doloresConfig.id, 1)).limit(1);
-  if (!cfg) return { status: 503, motivo: "Configuração da Dolores ausente (migração 0123 não aplicada)." };
-  if (cfg.pausada) return { status: 423, motivo: `Dolores pausada${cfg.motivoPausa ? `: ${cfg.motivoPausa.slice(0, 200)}` : "."}` };
-  let usadas: number;
+  if (!cfg) return { bloqueio: { status: 503, motivo: "Configuração da Dolores ausente (migração 0123 não aplicada)." }, limite: 0 };
+  if (cfg.pausada) return { bloqueio: { status: 423, motivo: `Dolores pausada${cfg.motivoPausa ? `: ${cfg.motivoPausa.slice(0, 200)}` : "."}` }, limite: cfg.limitePorMinuto };
+  return { bloqueio: null, limite: cfg.limitePorMinuto };
+}
+
+/**
+ * Reserva uma vaga do minuto numa só instrução (vale entre chamadas paralelas e entre instâncias): o contador do
+ * minuto só sobe se ainda estiver abaixo do limite; sem linha devolvida = limite atingido (e a recusa não conta).
+ * Chamadas recusadas antes (pausa, função, argumentos) nem chegam aqui. 1.440 linhas no máximo (uma por minuto do dia).
+ */
+async function reservarVaga(limite: number, agora: Date): Promise<boolean> {
+  const minutoAbs = Math.floor(agora.getTime() / 60_000);
+  const janela = new Date(minutoAbs * 60_000);
   try {
-    const [r] = await getDb().select({ n: count() }).from(doloresAcoes)
-      .where(and(eq(doloresAcoes.autorUserId, autor), gt(doloresAcoes.criadoEm, new Date(agora.getTime() - 60_000))));
-    usadas = Number(r?.n ?? 0);
+    const r = await getDb().insert(doloresLimite).values({ minuto: minutoAbs % 1440, janela, total: 1 })
+      .onConflictDoUpdate({
+        target: doloresLimite.minuto,
+        set: { janela, total: sql`CASE WHEN ${doloresLimite.janela} = ${janela} THEN ${doloresLimite.total} + 1 ELSE 1 END` },
+        setWhere: sql`${doloresLimite.janela} <> ${janela} OR ${doloresLimite.total} < ${limite}`,
+      }).returning({ total: doloresLimite.total });
+    return r.length > 0;
   } catch (e) {
-    // sem a contagem do banco, conta na memória desta instância (nunca fica sem limite)
-    console.error("[dolores/ponte] contagem do limite indisponível", erroSeguro(e));
-    const minuto = Math.floor(agora.getTime() / 60_000);
-    usadas = usoLocal.get(minuto) ?? 0;
-    usoLocal.clear(); usoLocal.set(minuto, usadas + 1);
+    // sem o contador do banco, conta na memória desta instância (nunca fica sem limite)
+    console.error("[dolores/ponte] contador do limite indisponível", erroSeguro(e));
+    const usadas = usoLocal.get(minutoAbs) ?? 0;
+    if (usadas >= limite) return false;
+    usoLocal.clear(); usoLocal.set(minutoAbs, usadas + 1);
+    return true;
   }
-  if (usadas >= cfg.limitePorMinuto) return { status: 429, motivo: `Limite de ${cfg.limitePorMinuto} chamadas por minuto atingido.` };
-  return null;
 }
 
 function comPrazo<T>(p: Promise<T>, ms: number): Promise<T> {
@@ -124,6 +140,19 @@ export async function tratarChamada(req: Pedido): Promise<RespostaPonte> {
       resumo: extra.resumo ?? null, duracaoMs: Date.now() - inicio, pedidoId: extra.pedidoId ?? pedidoBruto, autorUserId: autor });
   const responder = (status: number, corpo: Record<string, unknown>): RespostaPonte => ({ status, body: { ...base(agora), funcao: nomeBruto, pedidoId: pedidoBruto, ...corpo } });
 
+  // 1) pausa, antes de tudo (nem a linha da usuária é criada com a Dolores pausada)
+  let config: Awaited<ReturnType<typeof lerConfig>>;
+  try {
+    config = await lerConfig();
+  } catch (e) {
+    await registrar("erro", { motivo: `configuração: ${erroSeguro(e)}` });
+    return responder(503, { ok: false, erro: "Não foi possível ler a configuração da Dolores; nada foi executado." });
+  }
+  if (config.bloqueio) {
+    await registrar("recusada", { motivo: config.bloqueio.motivo });
+    return responder(config.bloqueio.status, { ok: false, erro: config.bloqueio.motivo });
+  }
+  // 2) a usuária (autora da auditoria)
   try {
     autor = await usuarioDolores();
   } catch (e) {
@@ -134,18 +163,6 @@ export async function tratarChamada(req: Pedido): Promise<RespostaPonte> {
     await registrar("erro", { motivo: `usuária Dolores: ${erroSeguro(e)}` });
     return responder(503, { ok: false, erro: "Usuária Dolores indisponível ou alterada; ponte parada." });
   }
-  let bloqueio: { status: number; motivo: string } | null;
-  try {
-    bloqueio = await verificarOperacao(autor, agora);
-  } catch (e) {
-    await registrar("erro", { motivo: `configuração: ${erroSeguro(e)}` });
-    return responder(503, { ok: false, erro: "Não foi possível ler a configuração da Dolores; nada foi executado." });
-  }
-  if (bloqueio) {
-    await registrar("recusada", { motivo: bloqueio.motivo });
-    return responder(bloqueio.status, { ok: false, erro: bloqueio.motivo });
-  }
-
   const env = envelope.safeParse(bruto);
   if (!env.success) {
     const campos = env.error.issues.map(i => i.path.join(".") || "(corpo)").slice(0, 10);
@@ -164,6 +181,12 @@ export async function tratarChamada(req: Pedido): Promise<RespostaPonte> {
     const problemas = args.error.issues.slice(0, 10).map(i => ({ campo: i.path.join(".") || "(argumentos)", problema: i.message }));
     await registrar("recusada", { funcao, argumentos, motivo: `argumentos inválidos: ${problemas.map(p => p.campo).join(", ")}`, pedidoId });
     return responder(400, { ok: false, erro: "Argumentos inválidos para a função.", problemas });
+  }
+  // 3) vaga do minuto: só para o que vai executar
+  if (!(await reservarVaga(config.limite, agora))) {
+    const motivo = `Limite de ${config.limite} chamadas por minuto atingido.`;
+    await registrar("recusada", { funcao, argumentos: args.data, motivo, pedidoId });
+    return responder(429, { ok: false, erro: motivo });
   }
   try {
     const r = await comPrazo(fn.executar(args.data as never, { agora }), deps.prazoMs);
@@ -188,9 +211,13 @@ export async function tratarFerramentas(req: Pedido): Promise<RespostaPonte> {
   const registrar = (resultado: "ok" | "recusada" | "erro", motivo: string | null, resumo: Record<string, unknown> | null = null) =>
     registrarAcao({ funcao: "listar_ferramentas", resultado, motivo, resumo, duracaoMs: Date.now() - inicio, autorUserId: autor });
   try {
+    const config = await lerConfig();
+    if (config.bloqueio) { await registrar("recusada", config.bloqueio.motivo); return { status: config.bloqueio.status, body: { ...base(agora), ok: false, erro: config.bloqueio.motivo } }; }
     autor = await usuarioDolores();
-    const bloqueio = await verificarOperacao(autor, agora);
-    if (bloqueio) { await registrar("recusada", bloqueio.motivo); return { status: bloqueio.status, body: { ...base(agora), ok: false, erro: bloqueio.motivo } }; }
+    if (!(await reservarVaga(config.limite, agora))) {
+      await registrar("recusada", "limite por minuto atingido");
+      return { status: 429, body: { ...base(agora), ok: false, erro: `Limite de ${config.limite} chamadas por minuto atingido.` } };
+    }
   } catch (e) {
     await registrar("erro", erroSeguro(e));
     return { status: 503, body: { ...base(agora), ok: false, erro: "Ponte indisponível; nada foi executado." } };

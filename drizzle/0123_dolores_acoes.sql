@@ -4,7 +4,8 @@
 -- "dolores_config": linha única (id = 1) com a pausa (pausada, a ponte recusa tudo) e o limite de chamadas por minuto.
 -- Somente aditiva e idempotente: tabelas, índices, função e gatilho novos (IF NOT EXISTS / OR REPLACE); a linha de
 -- configuração entra com ON CONFLICT DO NOTHING. Nada existente é alterado ou apagado.
--- Reversão: DROP TABLE "dolores_acoes", "dolores_config"; DROP FUNCTION dolores_acoes_guarda() (nada depende delas).
+-- "dolores_limite": contador do limite por minuto (reserva atômica da vaga).
+-- Reversão: DROP TABLE "dolores_acoes", "dolores_config", "dolores_limite"; DROP FUNCTION dolores_acoes_guarda() (nada depende delas).
 
 CREATE TABLE IF NOT EXISTS "dolores_acoes" (
   "id" serial PRIMARY KEY NOT NULL,
@@ -47,3 +48,11 @@ CREATE TABLE IF NOT EXISTS "dolores_config" (
 );
 
 INSERT INTO "dolores_config" ("id") VALUES (1) ON CONFLICT ("id") DO NOTHING;
+
+-- Contador do limite por minuto: uma linha por minuto do dia (0–1439), reaproveitada no dia seguinte; a vaga é reservada
+-- numa só instrução (INSERT ... ON CONFLICT DO UPDATE ... WHERE total < limite), o que vale entre chamadas paralelas.
+CREATE TABLE IF NOT EXISTS "dolores_limite" (
+  "minuto" smallint PRIMARY KEY CHECK ("minuto" BETWEEN 0 AND 1439),
+  "janela" timestamp with time zone NOT NULL,
+  "total" integer NOT NULL DEFAULT 0
+);

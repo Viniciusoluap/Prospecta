@@ -177,6 +177,28 @@ describe("pausa e limite", () => {
     for (let i = 0; i < 3; i++) status.push((await tratarChamada(pedido({ funcao: "listar_tarefas" }))).status);
     expect(status).toEqual([200, 200, 429]);
   });
+
+  it("chamadas em paralelo não furam o limite e as recusadas não gastam vaga (L1)", async () => {
+    await banco.pg.exec("UPDATE dolores_config SET limite_por_minuto = 3");
+    definirDependenciasPonte({ agora: () => new Date("2026-11-16T12:05:10Z") });
+    // função inexistente e argumento inválido são recusados antes da vaga
+    await tratarChamada(pedido({ funcao: "apagar_cliente" }));
+    await tratarChamada(pedido({ funcao: "listar_tarefas", argumentos: { limite: 999 } }));
+    const rs = await Promise.all(Array.from({ length: 10 }, () => tratarChamada(pedido({ funcao: "listar_tarefas" }))));
+    expect(rs.filter(r => r.status === 200)).toHaveLength(3);
+    expect(rs.filter(r => r.status === 429)).toHaveLength(7);
+    // o minuto seguinte abre vagas de novo (mesma linha do contador reaproveitada no dia seguinte)
+    definirDependenciasPonte({ agora: () => new Date("2026-11-17T12:05:10Z") });
+    expect((await tratarChamada(pedido({ funcao: "listar_tarefas" }))).status).toBe(200);
+    expect((await banco.pg.query<{ n: number }>("SELECT count(*)::int AS n FROM dolores_limite")).rows[0].n).toBe(1);
+  });
+
+  it("pausada: nem a linha da usuária é criada (L7)", async () => {
+    await banco.pg.exec("UPDATE dolores_config SET pausada = true");
+    expect((await tratarChamada(pedido({ funcao: "listar_tarefas" }))).status).toBe(423);
+    expect((await tratarFerramentas(pedido({}))).status).toBe(423);
+    expect((await banco.pg.query(`SELECT 1 FROM users WHERE "openId" = '${DOLORES_OPEN_ID}'`)).rows).toHaveLength(0);
+  });
 });
 
 describe("auditoria", () => {
