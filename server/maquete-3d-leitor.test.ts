@@ -710,4 +710,94 @@ describe("leitor geométrico — revisão de QA (4)", () => {
       expect(p.pendencias.join(" ")).not.toContain("camadas de reboco");
     }
   });
+  /** Bloco w × h em (ox, oy), dividido ao meio por uma parede, com dois cômodos; porta com folha na frente, salvo `porta: false`. */
+  const bloco = (ox: number, oy: number, w: number, h: number, n: [string, string], o: { porta?: boolean; titulo?: string } = {}): Desenho => ({
+    segmentos: [...(o.porta === false ? parede(ox, oy, ox + w, oy) : [...parede(ox, oy, ox + 1, oy), ...parede(ox + 1.9, oy, ox + w, oy), ...arco(ox + 1.075, oy, 0.8)]),
+      ...parede(ox, oy + h, ox + w, oy + h), ...parede(ox, oy, ox, oy + h), ...parede(ox + w, oy, ox + w, oy + h), ...parede(ox + w / 2, oy, ox + w / 2, oy + h)],
+    textos: [texto(n[0], ox + w / 4, oy + h / 2), texto(n[1], ox + (3 * w) / 4, oy + h / 2), ...(o.titulo ? [texto(o.titulo, ox + w / 2, oy + h + 1, 12), texto("1 : 50", ox + w / 2, oy + h + 1.4, 10)] : [])],
+  });
+  const montar = (pg: Primitivas) => {
+    const r = lerPagina(pg), { parciais } = parciaisDasPranchas([{ doc: 0, pagina: 1, ...r }], ["a.pdf"]);
+    const nomes = (parciais.inventario as { edificacoes: { pavimentos: { nome: string }[] }[] }).edificacoes[0]?.pavimentos.map(p => p.nome) ?? [];
+    return { r, nomes, avisos: (r.diagnostico.avisos ?? []).join(" ") };
+  };
+  const TERREO = "PLANTA BAIXA - TÉRREO";
+
+  it("M-B: o título vai para o desenho mais perto — a garagem maior ao lado não leva o título nem empurra a casa para \"Pavimento 2\"", () => {
+    for (const larg of [8, 7]) {
+      const { r, nomes } = montar(pagina(bloco(2, 2, 6, 8, ["SALA", "QUARTO"], { titulo: TERREO }), bloco(10, 2, larg, 8, ["GARAGEM", "DEPÓSITO"])));
+      expect(nomes, `garagem ${larg}`).toEqual(["Térreo"]);
+      const p = r.plantas[0];
+      expect(p.titulo).toBe(TERREO);
+      expect(p.comodos.map(c => c.funcao).sort()).toEqual(["deposito", "garagem", "quarto", "sala"]);
+      expect(p.pendencias.join(" ")).toContain("Edícula/anexo sem título");
+    }
+  });
+
+  it("M-C: dois anexos sem título entram os dois no térreo, cada um com a sua pendência (a caixa do térreo já aumentada não conta)", () => {
+    const { r, nomes } = montar(pagina(bloco(2, 2, 6, 8, ["SALA", "QUARTO"], { titulo: TERREO }), bloco(10, 2, 5, 4, ["CHURRASQUEIRA", "WC"]), bloco(10, 9, 4, 3, ["DEPÓSITO", "LAVANDERIA"])));
+    expect(nomes).toEqual(["Térreo"]);
+    expect(r.plantas[0].comodos.map(c => c.funcao)).toEqual(expect.arrayContaining(["area_gourmet", "banheiro", "deposito", "area_servico"]));
+    expect(r.plantas[0].pendencias.filter(t => t.startsWith("Edícula/anexo sem título"))).toHaveLength(2);
+  });
+
+  it("M-D: edícula no canto de uma casa em L (dentro da caixa da casa, sem se sobrepor a cômodo nem parede) entra no térreo", () => {
+    const L: Desenho = { segmentos: [...parede(2, 2, 3, 2), ...parede(3.9, 2, 14, 2), ...arco(3.075, 2, 0.8), ...parede(2, 2, 2, 14), ...parede(2, 14, 8, 14), ...parede(8, 8, 8, 14), ...parede(8, 8, 14, 8), ...parede(14, 2, 14, 8), ...parede(2, 8, 8, 8), ...parede(8, 2, 8, 8)],
+      textos: [texto("SALA", 5, 5), texto("COZINHA", 11, 5), texto("QUARTO", 5, 11), texto(TERREO, 8, 16, 12), texto("1 : 50", 8, 16.4, 10)] };
+    const { r, nomes } = montar(pagina(L, bloco(9.5, 9.5, 4, 3.5, ["CHURRASQUEIRA", "WC"])));
+    expect(nomes).toEqual(["Térreo"]);
+    const pend = r.plantas[0].pendencias.join(" ");
+    expect(r.plantas[0].comodos.map(c => c.funcao)).toEqual(expect.arrayContaining(["sala", "cozinha", "quarto", "area_gourmet", "banheiro"]));
+    expect(pend).toContain("Edícula/anexo sem título");
+    expect(pend).not.toContain("sem paredes que os fechem");
+  });
+
+  it("B3: a entrada principal nunca é a porta do anexo; a pendência de falta de abertura diz que falta na construção principal", () => {
+    const { r } = montar(pagina(bloco(2, 2, 6, 8, ["SALA", "QUARTO"], { titulo: TERREO, porta: false }), bloco(10, 2, 5, 4, ["CHURRASQUEIRA", "WC"])));
+    const p = r.plantas[0];
+    expect(p.aberturas.filter(a => a.tipo === "porta")).toHaveLength(1);
+    expect(p.aberturas.some(a => a.entradaPrincipal)).toBe(false);
+    const pend = p.pendencias.join(" ");
+    expect(pend).not.toContain("Nenhuma porta ou abertura lida neste pavimento");
+    expect(pend).toContain("Nenhuma porta ou abertura lida na construção principal");
+  });
+
+  it("B4: desenho sem título, menor, com quarto e suíte não entra como edícula: fica de fora, com aviso de que pode ser o andar de cima", () => {
+    const { r, nomes, avisos } = montar(pagina(bloco(2, 2, 8, 10, ["SALA", "COZINHA"], { titulo: TERREO }), bloco(14, 2, 6, 7, ["QUARTO", "SUÍTE"])));
+    expect(nomes).toEqual(["Térreo"]);
+    expect(r.plantas[0].comodos.map(c => c.funcao).sort()).toEqual(["cozinha", "sala"]);
+    expect(avisos).toContain("pode ser o andar de cima");
+  });
+
+  it("A1: duas casas geminadas iguais sob um título só ficam as duas no mesmo pavimento, lado a lado, com pendência", () => {
+    for (const comTitulo of ["sob a primeira", "entre as duas"]) {
+      const ds = comTitulo === "sob a primeira" ? [bloco(2, 2, 6, 8, ["SALA", "QUARTO"], { titulo: "PLANTA BAIXA" }), bloco(10, 2, 6, 8, ["SALA", "QUARTO"])]
+        : [bloco(2, 2, 6, 8, ["SALA", "QUARTO"]), bloco(10, 2, 6, 8, ["SALA", "QUARTO"]), { segmentos: [], textos: [texto("PLANTA BAIXA", 9, 11, 12), texto("1 : 50", 9, 11.4, 10)] }];
+      const { r, nomes } = montar(pagina(...ds));
+      expect(nomes, comTitulo).toEqual(["Térreo"]);
+      const p = r.plantas[0], cx = p.comodos.map(c => c.pontos.reduce((s, q) => s + q.x, 0) / c.pontos.length).sort((a, b) => a - b);
+      expect(p.comodos, comTitulo).toHaveLength(4);
+      expect(cx[3] - cx[0], comTitulo).toBeGreaterThan(9); // a segunda casa 8 m à direita, na posição desenhada
+      expect(p.largura).toBeCloseTo(14, 0);
+      expect(p.pendencias.join(" "), comTitulo).toContain("casas geminadas");
+    }
+  });
+
+  it("M2c: desenho sem porta não ganha o título do carimbo, longe dele (pode ser corte) — fica de fora com aviso", () => {
+    const { r, avisos } = montar(pagina(bloco(2, 2, 6, 8, ["SALA", "QUARTO"], { porta: false }), { segmentos: [], textos: [texto("PLANTA BAIXA", 40, 30, 12), texto("1 : 50", 40, 30.4, 10)] }));
+    expect(r.plantas).toEqual([]);
+    expect(avisos).toContain("pode ser corte ou elevação");
+  });
+
+  it("títulos com PISO: disciplina, escala e medida de peça não são andar; \"PISO -1\" é subsolo; \"PISO INTERMEDIÁRIO\" fica entre os andares", () => {
+    for (const t of ["PLANTA BAIXA - PISOS", "PLANTA BAIXA PISO 20X20", "PLANTA BAIXA - PISO 1:50"]) {
+      expect(tipoDaVista(t), t).toBe("outra");
+      expect(nomeDoPavimento(t, 0).andar, t).toBeNull();
+    }
+    expect(nomeDoPavimento("PISO -1", 0)).toMatchObject({ nome: "1º subsolo", andar: -1 });
+    expect(nomeDoPavimento("PLANTA BAIXA - PISO -2", 0)).toMatchObject({ nome: "2º subsolo", andar: -2 });
+    expect(tipoDaVista("PISO -1")).toBe("planta");
+    expect(nomeDoPavimento("PISO INTERMEDIÁRIO", 0)).toMatchObject({ nome: "Piso intermediário", andar: 0.5 });
+    expect(nomeDoPavimento("PISO 2", 0).andar).toBe(1);
+  });
 });

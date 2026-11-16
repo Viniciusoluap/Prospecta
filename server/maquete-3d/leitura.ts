@@ -346,7 +346,7 @@ export function parciaisDasPranchas(pranchas: PranchaLida[], nomesDosArquivos: s
     usados.add(nome.toLowerCase());
     const id = idPavimento(0, j), proximo = unicas[j + 1];
     parciais[`estrutura:${id}`] = { paredes: c.planta.paredes, aberturas: c.planta.aberturas, pendencias: [] } satisfies Estrutura;
-    const meio = /^(?:Mezanino|Sobreloja)/.test(c.nome), peDireito = meio ? PE_MEZANINO : PE_DIREITO;
+    const meio = /^(?:Mezanino|Sobreloja|Piso intermediário)/.test(c.nome), peDireito = meio ? PE_MEZANINO : PE_DIREITO;
     if (meio) c.avisos.push(`Pé-direito estimado em ${PE_MEZANINO.toFixed(2).replace(".", ",")} m, com o piso logo acima do andar de baixo: confira as alturas no corte.`);
     parciais[`ambientes:${id}`] = { comodos: c.planta.comodos, escadas: c.planta.escadas.map(e => ({ ...e, sobePara: "" })), pendencias: [...c.planta.pendencias, ...c.avisos] };
     const k = c.planta.metrosPorPonto;
