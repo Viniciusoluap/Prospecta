@@ -2,7 +2,7 @@
 // nunca excluir, nunca tocar em financeiro/banco/usuários/credenciais, nunca enviar nada a cliente ou terceiro. Cada ação
 // chama as MESMAS funções de serviço das telas (server/db.ts, gerador de PCI), passando a transação de escrita mínima.
 import type { z } from "zod";
-import { textoDeDado, type MotivoContaminacao } from "../../../shared/dolores/fila.js";
+import { textoDeDado, type MotivoContaminacao, temCaractereInvisivel } from "../../../shared/dolores/fila.js";
 import { sanitizarTexto } from "../../../shared/dolores/sanitizar.js";
 import { tratarLinksDaResposta } from "../../../shared/dolores/links.js";
 import { FILTRO_DO_REGISTRO, filtroDaSaida } from "../dados-pessoais.js";
@@ -104,6 +104,10 @@ export const comoMostrado = (s: string | null | undefined) => textoDeDado(saniti
 export const urlDoSistemaParaLinks = () => process.env.PUBLIC_SITE_URL?.trim() || null;
 export const FRASE_TEXTO_COM_LINK = "O texto a gravar contém um link, e os links saem da mensagem que você lê: o que seria gravado ficaria diferente do que você leu. Reescreva sem o link. Nada foi feito nem posto na fila.";
 export const FRASE_TEXTO_COM_SEGREDO = "O texto a gravar contém algo que o filtro de segurança esconde (senha, código de acesso, chave, dado bancário ou dado pessoal mascarado): o que seria gravado ficaria diferente do que você leu. Reescreva sem isso. Nada foi feito nem posto na fila.";
+export const FRASE_TEXTO_COM_INVISIVEL = "O texto a gravar contém caracteres invisíveis (costuma acontecer com texto copiado de outro lugar): o que seria gravado poderia ficar diferente do que você leu. Digite o texto de novo, sem copiar; nada foi gravado.";
+export const FRASE_TEXTO_MUTILADO = "O seu pedido tinha algo que o filtro de segurança esconde (senha, código de acesso, token, PIN ou dado bancário), então o texto chegaria cortado. Reescreva sem isso — por exemplo, \"pedir ao João o acesso do gov.br\" em vez de citar a senha; nada foi gravado.";
+/** Marcadores que o filtro de saída e o removedor de links deixam no lugar do que tiraram. */
+const MARCADOR_DO_FILTRO = /\[(?:link removido|[^\]\n]{0,40}\bomitid[oa]s?)\]/i;
 /** Motivo pelo qual a saída ao dono alteraria este texto (links tratados, filtro de saída do WhatsApp); null = intacto. */
 export function textoAlteradoNaSaida(s: string): "link" | "segredo" | null {
   if (tratarLinksDaResposta(s, urlDoSistemaParaLinks()) !== s) return "link";
@@ -116,6 +120,11 @@ export function textoAlteradoNaSaida(s: string): "link" | "segredo" | null {
  * do que o dono lê (regra N3). Intacto, volta como veio.
  */
 export function textoDoDono(s: string): string {
+  // QA final (achado 1): invisíveis somem DEPOIS desta conferência e remontariam o que ela não viu — recusa antes.
+  if (temCaractereInvisivel(s)) throw new RecusaAcao(FRASE_TEXTO_COM_INVISIVEL);
+  // QA final (achado 2): marcador do filtro no texto = pedido já mutilado antes de chegar aqui; gravar isso seria gravar
+  // algo diferente do que o dono escreveu.
+  if (MARCADOR_DO_FILTRO.test(s)) throw new RecusaAcao(FRASE_TEXTO_MUTILADO);
   const alterado = textoAlteradoNaSaida(s);
   if (alterado) throw new RecusaAcao(alterado === "link" ? FRASE_TEXTO_COM_LINK : FRASE_TEXTO_COM_SEGREDO);
   return s;

@@ -134,6 +134,18 @@ export function textoDeDado(s: string | null | undefined, max = 600): string {
  */
 const INVISIVEIS = new RegExp("[\\u00ad\\u034f\\u061c\\u115f\\u1160\\u180e\\u2066-\\u2069\\u2800\\u3164\\ufe00-\\ufe0f\\uffa0\\u{e0000}-\\u{e007f}]", "gu");
 
+/** Controle, largura zero e marcas de direção (fora quebra de linha e tabulação), que `umaLinha` troca por espaço. */
+const CONTROLE_E_DIRECAO = new RegExp("[\\u0000-\\u0008\\u000b\\u000c\\u000e-\\u001f\\u007f-\\u009f\\u200b-\\u200f\\u2028-\\u202e\\u2060-\\u2064\\ufeff]", "u");
+
+/**
+ * QA final da E3 (achado 1): o texto tem caractere invisível, de largura zero ou de direção? Esses caracteres somem ou
+ * viram espaço depois da conferência e podem remontar um link, uma senha ou um CPF que a conferência não viu.
+ */
+export function temCaractereInvisivel(s: string): boolean {
+  INVISIVEIS.lastIndex = 0;
+  return INVISIVEIS.test(s) || CONTROLE_E_DIRECAO.test(s);
+}
+
 /** Uma linha só: sem caracteres de controle/invisíveis, espaços e quebras colapsados num espaço, cortada em `max`. */
 export function umaLinha(s: string | null | undefined, max: number): string {
   return String(s ?? "")
