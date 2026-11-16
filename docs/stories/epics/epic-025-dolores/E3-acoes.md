@@ -129,5 +129,23 @@ documentos pendentes e prepare as cobranças."
 - Não há script `lint` no `package.json`; qualidade por `tsc --noEmit`, testes e `vite build`. CodeRabbit roda por WSL
   (não disponível neste ambiente Linux) — não executado.
 
+## Testes executados
+- (a) Automáticos (16/11): `npx tsc --noEmit` sem erros; `npx vitest run server/dolores server/integracoes-anthropic.test.ts
+  server/auth-session.test.ts server/imports-esm.test.ts server/api-rotas-producao.test.ts server/admin-workflows.test.ts` —
+  16 arquivos, 215 testes passando (novos: `acoes` 23, `acoes-whatsapp` 6, `fila-router` 2); com os do gerador de PCI
+  (`pci-gerador`, `pci-gerador-db`) — 18 arquivos, 230 testes; suíte completa `npx vitest run` — 235 arquivos, 2.320
+  testes passando; `npx vite build` ok.
+- (b) Manuais: nenhum (sem Evolution, Anthropic nem Neon reais neste ambiente).
+- (c) Pendentes em produção: aplicar 0124 (E2) e 0125; teste de aceite pelo WhatsApp ("identifique quais clientes estão
+  com documentos pendentes e prepare as cobranças") e a aprovação por código; uma PCI gerada pela Dolores conferida no
+  histórico e no Drive (prompt mestre, seção 8: validar cada gerador em produção antes de liberar).
+
+## Em aberto
+- "Atualizar a etapa de um processo" e "notificar a equipe" (seção 4.3/5) não estão na linha da etapa 3: o dono decide
+  em qual etapa entram.
+- Envio de cobrança a cliente: só depois de o dono liberar categorias (e aí conferir horário comercial e LGPD no envio).
+- Outros geradores (contratos do Jurídico) não ligados: exigem dados de partes e não têm rascunho por obra.
+
 ## Change Log
 - 16/11/2026 — @dev (Dex): story criada (Draft → InProgress), critérios tirados do prompt mestre (seções 4.3, 5, 6, 7).
+- 16/11/2026 — @dev (Dex): InProgress → InReview (implementação, testes e documentos concluídos; aguarda portão de QA).
