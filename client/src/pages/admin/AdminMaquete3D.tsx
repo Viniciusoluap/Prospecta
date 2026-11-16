@@ -14,7 +14,7 @@ import { EditorPlanta } from "@/components/maquete-3d/EditorPlanta";
 import { EditorMuro } from "@/components/maquete-3d/EditorMuro";
 
 const Visualizador = lazy(() => import("@/components/maquete-3d/visualizador/Visualizador"));
-import { ROTULOS_TIPO, TIPOS_MAQUETE, type ModeloMaquete, type TipoMaquete } from "@shared/maquete-3d/modelo";
+import { ROTULOS_TIPO, TIPOS_MAQUETE, publicadoSemMuro, type ModeloMaquete, type TipoMaquete } from "@shared/maquete-3d/modelo";
 import { LIMITES_CASA, LIMITES_M2_POR_VAGA, LIMITES_PREDIO, M2_DA_VAGA, M2_POR_VAGA, contaDoEstacionamento, ehPadrao, type ContaDoEstacionamento } from "@shared/maquete-3d/padrao";
 import {
   ESFORCOS_IA, FAIXAS_PRECO, MAX_DOCUMENTOS, MOTORES_LEITURA, ROTULOS_FAIXA, ROTULOS_MOTOR, ROTULOS_STATUS, escopoEnvioMaquete, type DocumentoMaquete, type FaixaPreco,
@@ -524,6 +524,8 @@ function Detalhe({ id }: { id: number }) {
       if (!r.temRelevo) toast.warning("O estudo não tem a topografia carregada (aba Topografia 3D): o terreno foi desenhado plano.");
       if (r.semCenario) toast.warning("O estudo ainda não tem estudo de massa: só o terreno foi desenhado.");
       if (r.descartados) toast.warning(`${r.descartados} lote(s) com geometria inválida ficaram de fora.`);
+      if (r.areas > 1) toast.info(`O terreno tem ${r.areas} áreas separadas: o muro do condomínio cerca cada uma, com o seu portão.`);
+      if (r.portoesReposicionados) toast.warning("O contorno do terreno mudou: os portões editados foram levados ao ponto da nova divisa mais perto de onde estavam. Confira em \"Muro do condomínio\" e salve.");
       setSujo(false); recarregar();
     },
     onError: falha,
@@ -748,6 +750,9 @@ function Detalhe({ id }: { id: number }) {
             {d.status === "publicada" ? (
               <div className="space-y-2 rounded-lg border border-emerald-400/30 p-3">
                 <p className="text-emerald-300">Publicada em {dataHora(d.publicadoEm)}. Link do cliente:</p>
+                {d.modelo && publicadoSemMuro(d.modelo) && (
+                  <p className="rounded-md border border-amber-400/40 bg-amber-500/10 p-2 text-xs text-amber-200">Condomínio publicado antes do muro: revise e publique de novo para o cliente ver o muro. Até lá, o link continua como foi publicado, sem o muro (tire do ar, revise o muro na planta, valide e publique).</p>
+                )}
                 <div className="flex flex-wrap items-center gap-2">
                   <a href={link} target="_blank" rel="noreferrer" className="break-all text-[#C9A961] underline">{link}</a>
                   <Button size="sm" variant="outline" className={btnOutline} onClick={() => { void navigator.clipboard.writeText(link).then(() => toast.success("Link copiado.")); }}><Copy className="mr-1 h-4 w-4" />Copiar</Button>
