@@ -36,7 +36,13 @@ Números de migração reservados para não colidir entre agentes: 0118 PCI, 011
   Asaas, obra, regularização ou recebimento. Com a autorização do dono ("tudo que foi arquivado pode apagar
   definitivamente"), em 16/11 foram copiados para `bpo_lancamentos_backup_conta_azul_20261116` (1.528 linhas) e
   apagados em definitivo. Restam 1.011 lançamentos, todos arquivados, de OUTRAS origens (879 legado, 132 Asaas):
-  não foram tocados. Falta o código: a prévia distinguir arquivado de ativo e a reimportação não travar de novo.
+  não tinham sido tocados. **Depois, no mesmo dia, o dono autorizou: "pode apagar também os 1.011 arquivados do
+  legado e Asaas".** Conferido antes: nenhum vínculo com recebimento, obra, regularização ou lançamento combinado; as
+  379 movimentações bancárias ligadas já estavam como "pendente". Copiados para
+  `bpo_lancamentos_backup_legado_asaas_20261116` (879 legado + 132 Asaas) e apagados em definitivo.
+  `bpo_lancamentos` ficou com 0 linhas; o histórico (`bpo_lancamento_historico`, 2.539 linhas) foi preservado, sem o
+  vínculo. As duas tabelas de backup e os snapshots de `bpo_lancamento_exclusoes_backup` ficam para auditoria — não
+  apagar. Falta o código: a prévia distinguir arquivado de ativo e a reimportação não travar de novo.
 - **03:** o PDF que o dono não conseguia ler (maquete 8) passou pelo iLovePDF e é uma única imagem JPEG de
   7144 × 5012 — sem nenhuma linha vetorial. Decisão do dono: quando o leitor próprio não garantir a qualidade, ler
   pela IA. Depende da chave cadastrada pelo dono (correção 10).

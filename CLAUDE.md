@@ -100,6 +100,8 @@ quando finalizar, sem que seja necessária a minha intervenção constante".
    - **Conta Azul**: tudo o que foi ARQUIVADO da importação do Conta Azul pode ser apagado em definitivo, para a
      reimportação funcionar. Só esses registros: lançamento ativo e de outra origem não se apaga. Antes de apagar,
      copiar as linhas para tabela de backup e conferir as quantidades.
+     Em 16/11 o dono estendeu: "pode apagar também os 1.011 arquivados do legado e Asaas" — feito, com backup em
+     `bpo_lancamentos_backup_conta_azul_20261116` e `bpo_lancamentos_backup_legado_asaas_20261116` (não apagar essas tabelas).
    - **Cópias antigas do Neon** (ramificações de teste arquivadas): apagadas em 16/11 com autorização; backup completo
      do banco em `backup-2026-11-16-antes-das-10-correcoes` (conferido: mesmas contagens da produção).
    - **Leitura de PDF da maquete**: se o leitor próprio não garantir a qualidade (PDF que é só uma imagem, leitura

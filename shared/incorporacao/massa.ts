@@ -196,6 +196,8 @@ export interface CenarioMassa {
   acessos?: AcessoCenario[];
   /** Número de áreas contínuas compostas neste cenário (KML com áreas separadas). */
   areas?: number;
+  /** S-I: marca das restrições com contorno com que o cenário foi gerado (`assinaturaRestricoes`); ausente = sem contorno. */
+  contornoRestricoes?: string;
 }
 
 /** Restrições não parceláveis a partir dos parâmetros (ausentes = 0). */
@@ -1014,6 +1016,22 @@ function fnv1a(texto: string, semente: number): string {
   return h.toString(16).padStart(8, "0");
 }
 
+/** Texto canônico das restrições com contorno (entra nas assinaturas); vazio sem restrição. */
+function textoRestricoes(restricoes: RestricaoGeometrica[] | null | undefined): string {
+  const anel = (a: Position[]) => (Array.isArray(a) ? a : []).map((p) => `${Number(p?.[0]).toFixed(9)},${Number(p?.[1]).toFixed(9)}`).join(";");
+  return (restricoes ?? []).filter((r) => r && Array.isArray(r.poligonos))
+    .map((r) => `${r.tipo}:${r.poligonos.map((poli) => (Array.isArray(poli) ? poli : []).map(anel).join("/")).join("|")}`).join("~");
+}
+
+/**
+ * Marca das restrições com contorno usadas num estudo (S-I): fica em cada cenário gerado (`contornoRestricoes`) para a
+ * tela saber se os cenários na tela foram gerados com o contorno guardado hoje. Vazia sem restrição.
+ */
+export function assinaturaRestricoes(restricoes: RestricaoGeometrica[] | null | undefined): string {
+  const t = textoRestricoes(restricoes);
+  return t ? `${fnv1a(t, 2166136261)}${fnv1a(t, 0x9e3779b1)}` : "";
+}
+
 /** Gleba de entrada: um anel (área única) ou várias áreas contínuas, cada uma [contorno, ...furos] (MultiPolygon). */
 export type EntradaGleba = Position[] | Position[][][];
 
@@ -1037,7 +1055,7 @@ export function assinaturaEntradas(entrada: EntradaGleba, params: ParametrosMass
   const chaves = Object.keys(params).sort() as (keyof ParametrosMassa)[];
   const ps = chaves.filter((k) => params[k] !== undefined).map((k) => `${k}=${String(params[k])}`).join("|");
   const vias = (viasEntorno ?? []).map((v) => `${v.nome ?? ""}:${v.coords.map((p) => `${p[0].toFixed(7)},${p[1].toFixed(7)}`).join(";")}`).join("~");
-  const restr = (restricoes ?? []).map((r) => `${r.tipo}:${(r.poligonos ?? []).map((poli) => poli.map(anel).join("/")).join("|")}`).join("~");
+  const restr = textoRestricoes(restricoes);
   const base = `${VERSAO_ALGORITMO_MASSA}#${ps}#${coords}${vias ? `#vias:${vias}` : ""}${restr ? `#restricoes:${restr}` : ""}`;
   return `${fnv1a(base, 2166136261)}${fnv1a(base, 0x9e3779b1)}`;
 }
@@ -1610,6 +1628,10 @@ export function gerarEstudoMassa(
       : "nenhuma área foi reservada para ela"}. Abra o mapa da aba Terreno para o sistema guardar o contorno de novo.`);
   }
   avisos.push(...avisosContorno);
+  const marca = restricoesGeo.length > 0 ? assinaturaRestricoes(restricoesGeo) : "";
+  const marcar = (c: CenarioMassa): CenarioMassa => (marca
+    ? { ...c, contornoRestricoes: marca, limitacoes: [...(c.limitacoes ?? []), ...avisosContorno.filter((a) => !(c.limitacoes ?? []).includes(a))] }
+    : c);
   const paramsConta: ParametrosMassa = recorte ? { ...params, ...recorte.m2PorCampo } : params;
 
   const restricoesTot = restricoesDosParametros(paramsConta);
@@ -1671,7 +1693,7 @@ export function gerarEstudoMassa(
   if (!multiEf) {
     const r = resultados[0];
     if (r.cenarios.length === 0) return { ...vazio(tipologia, assinatura, r.inviabilidade!.motivo, r.inviabilidade!.causas), candidatosAvaliados, avisos };
-    const cenarios = r.cenarios.map((c) => finalizarCenario([c], [r], areasEf, paramsConta, contornos, proj, c.id, extra));
+    const cenarios = r.cenarios.map((c) => marcar(finalizarCenario([c], [r], areasEf, paramsConta, contornos, proj, c.id, extra)));
     progresso(1, "Concluído");
     return { versaoAlgoritmo: VERSAO_ALGORITMO_MASSA, assinatura, cenarios, inviabilidade: null, avisos: [...avisos, ...r.avisos], candidatosAvaliados, tipologia, areas: 1 };
   }
@@ -1695,7 +1717,7 @@ export function gerarEstudoMassa(
   const cenarios: CenarioMassa[] = [];
   for (let j = 0; j < nComp; j++) {
     const partes = resultados.map((r) => (r.cenarios.length > 0 ? r.cenarios[Math.min(j, r.cenarios.length - 1)] : null));
-    cenarios.push(finalizarCenario(partes, resultados, areasEf, paramsConta, contornos, proj, `cenario-${j + 1}`, extra && { ...extra, furos: efetivas.map((e) => e.furos) }));
+    cenarios.push(marcar(finalizarCenario(partes, resultados, areasEf, paramsConta, contornos, proj, `cenario-${j + 1}`, extra && { ...extra, furos: efetivas.map((e) => e.furos) })));
   }
   for (const r of resultados) for (const a of r.avisos) if (!avisos.includes(a)) avisos.push(a);
   progresso(1, "Concluído");
