@@ -55,9 +55,11 @@ export async function clienteOAuth() {
   return { clientId: l.clientId, clientSecret: decryptSecret(l.clientSecretEncrypted) };
 }
 
-async function tokenEndpoint(corpo: Record<string, string>) {
+/** `sinal` (opcional): cancela o pedido ao passar do prazo de quem chama (EPIC-025, QA R2 M2). Sem ele, como antes. */
+async function tokenEndpoint(corpo: Record<string, string>, sinal?: AbortSignal) {
   const r = await fetch("https://oauth2.googleapis.com/token", {
     method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded" }, body: new URLSearchParams(corpo),
+    ...(sinal ? { signal: sinal } : {}),
   });
   const json = await r.json().catch(() => null) as Record<string, unknown> | null;
   if (!r.ok) { const { motivo, detalhe } = lerCorpoErroGoogle(json); throw new ErroDrive("autenticacao", r.status, motivo ? `oauth_${motivo}` : "oauth", detalhe); }
@@ -125,12 +127,16 @@ export async function conexaoOAuth(): Promise<{ rootFolder: string; email: strin
   } catch { return null; }
 }
 
-export async function tokenOAuth(forcar = false): Promise<string> {
+/**
+ * Token de acesso da conta Google do dono. `sinal` (opcional, EPIC-025 QA R2 M2): o pedido ao Google é cancelado com o
+ * prazo de quem chama (ex.: a PCI gerada pela Dolores, via `comPrazoNoDrive`). Sem ele, nada muda para os chamadores atuais.
+ */
+export async function tokenOAuth(forcar = false, sinal?: AbortSignal): Promise<string> {
   if (!forcar && tokenCache && tokenCache.expira > Date.now() + 60_000) return tokenCache.valor;
   const l = await linha();
   if (!l?.refreshTokenEncrypted) throw new Error("Google Drive não conectado");
   const { clientId, clientSecret } = await clienteOAuth();
-  const t = await tokenEndpoint({ refresh_token: decryptSecret(l.refreshTokenEncrypted), client_id: clientId, client_secret: clientSecret, grant_type: "refresh_token" });
+  const t = await tokenEndpoint({ refresh_token: decryptSecret(l.refreshTokenEncrypted), client_id: clientId, client_secret: clientSecret, grant_type: "refresh_token" }, sinal);
   if (typeof t.access_token !== "string") throw new Error("Google OAuth não retornou token");
   tokenCache = { valor: t.access_token, expira: Date.now() + (typeof t.expires_in === "number" ? t.expires_in : 3600) * 1000 };
   return tokenCache.valor;

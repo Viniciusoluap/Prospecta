@@ -53,7 +53,8 @@ function base64url(value: string | Buffer) {
 }
 
 async function accessToken(fonte: FonteDrive): Promise<string> {
-  if (fonte.modo === "oauth") return tokenOAuth();
+  // o token da conta do dono também respeita o prazo do `comPrazoNoDrive` (QA R2 M2); fora dele, sem sinal, como antes
+  if (fonte.modo === "oauth") return tokenOAuth(false, sinalDoDrive.getStore());
   if (cachedToken && cachedToken.expiresAt > Date.now() + 60_000) return cachedToken.value;
   const { email, privateKey } = contaServico();
   const now = Math.floor(Date.now() / 1000);
