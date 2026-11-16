@@ -14,7 +14,7 @@ import { and, eq, lt, sql } from "drizzle-orm";
 import { doloresMensagens, doloresRemetentesEstranhos, doloresWhatsappConfig, type DoloresWhatsappConfig, type SituacaoMensagem } from "../../drizzle/schema-dolores-whatsapp.js";
 import { sanitizarTexto } from "../../shared/dolores/sanitizar.js";
 import {
-  FRASE_ENCAMINHADA, FRASE_ERRO, FRASE_SO_TEXTO, MAX_TEXTO_COMANDO, fraseSemTempo, bloqueioDoLimite, cortarResposta, ehNumeroDoDono, fraseDeBloqueio,
+  FRASE_ENCAMINHADA, FRASE_ERRO, FRASE_OUTRO_PEDIDO, FRASE_SO_TEXTO, MAX_TEXTO_COMANDO, fraseSemTempo, bloqueioDoLimite, cortarResposta, ehNumeroDoDono, fraseDeBloqueio,
   lerMensagemEvolution, mascararNumero, mensagemAntiga, mesFortaleza, type MotivoBloqueio,
 } from "../../shared/dolores/whatsapp.js";
 import { configuracaoAnthropicPainel } from "../_core/anthropic-painel.js";
@@ -180,6 +180,8 @@ async function tratarComando(cfg: DoloresWhatsappConfig, msg: { id: number; nume
       limites: { entrada: cfg.limiteMensalTokensEntrada, saida: cfg.limiteMensalTokensSaida },
     });
     let texto = r.texto;
+    // QA r2 N3: barrado só pela reserva de outro pedido em andamento — frase própria, sem gastar o aviso do mês.
+    if (r.parou === "outro_pedido" && r.voltas === 0) texto = FRASE_OUTRO_PEDIDO;
     if (r.parou === "limite_mensal" && (await marcarAvisoDoMes(mes).catch(() => false))) texto += `\n\n${fraseDeBloqueio("limite_mensal")}`;
     const ok = await responderAoDono(cfg, msg.numero, texto, { mensagemId: msg.id, autor, resumo: { voltas: r.voltas, consultas: r.consultas.length, parou: r.parou, tokensEntrada: r.tokens.entrada, tokensSaida: r.tokens.saida }, prazoFinal });
     await atualizarMensagem(msg.id, { situacao: ok ? "respondida" : "erro", motivo: r.parou ?? (ok ? null : "envio falhou"), respondidaEm: deps.agora(), voltas: r.voltas, tokensEntrada: r.tokens.entrada, tokensSaida: r.tokens.saida });

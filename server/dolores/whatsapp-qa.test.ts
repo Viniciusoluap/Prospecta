@@ -14,6 +14,7 @@ import { esquecerUsuarioDolores } from "./perfil.js";
 import { definirDependenciasPonte } from "./ponte.js";
 import { AGORA, CENARIO, criarBanco } from "./testes-banco.js";
 import { definirDependenciasWhatsapp, segredoWebhookDolores, tratarWebhookDolores } from "./whatsapp.js";
+import { FRASE_OUTRO_PEDIDO } from "../../shared/dolores/whatsapp.js";
 
 const DONO = "5599991234567";
 const CHAVE = "sk-ant-chave-de-teste-nao-real-123456";
@@ -116,7 +117,10 @@ describe("QA achado 3 — limite mensal reservado sob trava antes da chamada", (
     expect(e).toBeLessThanOrEqual(1500);
     expect(enviar).toHaveBeenCalledTimes(2);
     const textos = enviar.mock.calls.map(c => c[0].texto as string);
-    expect(textos.filter(t => /limite mensal de gasto com a IA foi atingido/.test(t))).toHaveLength(1);
+    // QA r2 N3: quem foi barrado pela reserva do outro ouve "outro pedido em andamento", não "limite atingido"
+    expect(textos.filter(t => /outro pedido meu em andamento/.test(t))).toHaveLength(1);
+    expect(textos.filter(t => /limite mensal de gasto com a IA foi atingido/.test(t))).toHaveLength(0);
+    expect(await q("SELECT aviso_limite_mes FROM dolores_whatsapp_config")).toEqual([{ aviso_limite_mes: null }]);
     expect([a.body.r, b.body.r]).toEqual([{ respondida: 1 }, { respondida: 1 }]);
     // nenhuma reserva fica presa depois
     expect(await q("SELECT id FROM dolores_mensagens WHERE reserva_entrada > 0 OR reserva_ate IS NOT NULL")).toEqual([]);
@@ -127,12 +131,19 @@ describe("QA achado 3 — limite mensal reservado sob trava antes da chamada", (
     await chamar(aviso());
     expect(chamadas).toHaveLength(1);
   });
-  it("reserva válida de outro pedido em andamento bloqueia antes de chamar", async () => {
+  it("reserva válida de outro pedido em andamento bloqueia antes de chamar (QA r2 N3: motivo próprio, aviso do mês intacto)", async () => {
     await banco.pg.exec(`INSERT INTO dolores_mensagens (instancia, external_id, do_dono, situacao, reserva_entrada, reserva_saida, reserva_ate)
       VALUES ('prospecta-dolores', 'ANDAMENTO', true, 'processando', 1000000, 0, now() + interval '1 minute')`);
     await chamar(aviso());
     expect(chamadas).toEqual([]);
-    expect(enviar.mock.calls[0][0].texto).toMatch(/limite mensal de gasto com a IA foi atingido/);
+    expect(enviar.mock.calls[0][0].texto).toBe(FRASE_OUTRO_PEDIDO);
+    expect(await q("SELECT aviso_limite_mes FROM dolores_whatsapp_config")).toEqual([{ aviso_limite_mes: null }]);
+    // limite atingido de verdade (uso real): aí sim a frase do limite e o aviso do mês
+    await banco.pg.exec("INSERT INTO dolores_consumo (mes, modelo, volta, tokens_entrada, tokens_saida) VALUES ('2026-11', 'm', 1, 1000000, 0)");
+    await banco.pg.exec("DELETE FROM dolores_mensagens WHERE external_id = 'ANDAMENTO'");
+    await chamar(aviso());
+    expect(enviar.mock.calls[1][0].texto).toMatch(/limite mensal de gasto com a IA foi atingido/);
+    expect(await q("SELECT aviso_limite_mes FROM dolores_whatsapp_config")).toEqual([{ aviso_limite_mes: "2026-11" }]);
   });
 });
 

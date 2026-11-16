@@ -164,6 +164,8 @@ export const FRASE_SO_TEXTO = "Dolores: nesta etapa eu só entendo mensagens de 
 /** Vários comandos no mesmo aviso e o prazo de 60 s acabou antes deste. */
 export const fraseSemTempo = (hora: string) =>
   `Dolores: recebi vários pedidos juntos e não deu tempo de tratar o de ${hora}. Nada foi consultado; mande de novo, por favor.`;
+/** QA r2 N3: a reserva de OUTRO pedido em andamento ocupa o que resta do limite do mês (não é o limite atingido). */
+export const FRASE_OUTRO_PEDIDO = "Dolores: há outro pedido meu em andamento usando o que resta do limite do mês; tente de novo em um minuto, por favor. Nada foi consultado.";
 export const FRASE_ERRO = "Dolores: tive uma falha ao montar a resposta e parei. Nada foi alterado no sistema; tente de novo em instantes.";
 
 export type Uso = { entrada: number; saida: number };

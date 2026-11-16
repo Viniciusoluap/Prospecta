@@ -71,10 +71,14 @@ export async function reservarChamada(p: { mes: string; mensagemId: number; limi
       entrada: sql<number>`coalesce(sum(${doloresMensagens.reservaEntrada}), 0)`.mapWith(Number),
       saida: sql<number>`coalesce(sum(${doloresMensagens.reservaSaida}), 0)`.mapWith(Number),
     }).from(doloresMensagens).where(and(gt(doloresMensagens.reservaAte, agora), ne(doloresMensagens.id, p.mensagemId)));
-    const bloqueio = bloqueioDoLimite({
+    // QA r2 N3: só o uso REAL decide "limite atingido". Se o que bloqueia é a reserva de OUTRO pedido em andamento, o motivo
+    // é próprio ("outro_pedido": tente de novo em um minuto) e o aviso único do mês não é gasto.
+    const real = bloqueioDoLimite({ entrada: Number(usado?.entrada ?? 0), saida: Number(usado?.saida ?? 0) }, p.limites);
+    if (real) return real;
+    const comReservas = bloqueioDoLimite({
       entrada: Number(usado?.entrada ?? 0) + Number(reservado?.entrada ?? 0), saida: Number(usado?.saida ?? 0) + Number(reservado?.saida ?? 0),
     }, p.limites);
-    if (bloqueio) return bloqueio;
+    if (comReservas) return "outro_pedido" as const;
     await tx.update(doloresMensagens).set({
       reservaEntrada: Math.max(0, Math.round(p.reserva.entrada)), reservaSaida: Math.max(0, Math.round(p.reserva.saida)),
       reservaAte: new Date(agora.getTime() + p.validadeMs),
