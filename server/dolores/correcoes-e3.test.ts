@@ -166,14 +166,14 @@ describe("achado 4 (A3) — orçamento de tempo das execuções", () => {
     expect(vi.mocked(gerarPciDaObra).mock.calls[0][3]).toEqual({ regravarRascunho: false, prazoDriveMs: 12_500 });
     expect((await fila()).map(i => i.situacao)).toEqual(["executada", "aguardando"]);
   });
-  it("ação direta passa pelo prazo da porta: passou do prazo → 504 auditado, texto honesto, e a transação atrasada é desfeita", async () => {
+  it("ação direta passa pelo prazo da porta: passou do prazo → 504 auditado, desfecho único (desfeita, nada gravado) — QA R2 M6", async () => {
     definirDependenciasPonte({ agora: () => AGORA, prazoMs: 150 });
     vi.mocked(getAssignableUsers).mockImplementationOnce(async (...a) => { await new Promise(r => setTimeout(r, 400)); return (await vi.importActual<typeof import("../db.js")>("../db.js")).getAssignableUsers(...a); });
     const r = await doDono("criar_tarefa", { titulo: "Tarefa lenta", responsavel: "Bianca Souza" });
     expect(r.status).toBe(504);
-    expect(String(r.body.erro)).toMatch(/passou do prazo.*tudo ou nada: confira no sistema/);
-    await new Promise(res => setTimeout(res, 600));
-    expect((await q("SELECT resultado, motivo FROM dolores_acoes WHERE funcao = 'criar_tarefa'"))[0]).toMatchObject({ resultado: "erro", motivo: "passou do prazo" });
+    expect(String(r.body.erro)).toBe("A ação passou do prazo e foi desfeita: nada foi gravado. Pode pedir de novo.");
+    expect(String(r.body.erro)).not.toMatch(/confira no sistema/);
+    expect((await q("SELECT resultado, motivo FROM dolores_acoes WHERE funcao = 'criar_tarefa'"))[0]).toMatchObject({ resultado: "erro", motivo: "passou do prazo; desfeita" });
     // a execução que continuou depois do prazo não grava: a autoria pede a conexão vencida e a transação inteira volta
     expect((await q("SELECT count(*)::int n FROM tasks WHERE title = 'Tarefa lenta'"))[0].n).toBe(0);
     expect((await q("SELECT count(*)::int n FROM dolores_autoria"))[0].n).toBe(0);

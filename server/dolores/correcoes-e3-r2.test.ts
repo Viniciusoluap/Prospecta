@@ -2,12 +2,13 @@
 // (PGlite): versões INVERTIDAS dos ataques R2-N1…N3 e M1–M6. Cada teste passa só com o defeito corrigido.
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-vi.mock("../db.js", async orig => ({ ...(await orig<typeof import("../db.js")>()), getDb: vi.fn(), updateUserProfile: vi.fn(async () => undefined) }));
+vi.mock("../db.js", async orig => { const o = await orig<typeof import("../db.js")>(); return { ...o, getDb: vi.fn(), updateUserProfile: vi.fn(async () => undefined), getAssignableUsers: vi.fn(o.getAssignableUsers) }; });
 vi.mock("../pci-gerador.js", async orig => ({ ...(await orig<typeof import("../pci-gerador.js")>()),
   modeloAtualPci: vi.fn(async () => ({ id: 1, versao: 3 })), gerarPciDaObra: vi.fn(async () => ({ id: 77, avisos: [], pendencias: [] })) }));
 vi.mock("../../shared/pci-gerador.js", async orig => ({ ...(await orig<typeof import("../../shared/pci-gerador.js")>()), errosPci: vi.fn(() => []) }));
 
-import { getDb, updateUserProfile } from "../db.js";
+import { getAssignableUsers, getDb, updateUserProfile } from "../db.js";
+import { PrazoDaAcaoEsgotado, foiPrazoDaTransacao } from "./escrita.js";
 import { gerarPciDaObra } from "../pci-gerador.js";
 import { appRouter } from "../routers.js";
 import { intencaoDeAcao, pareceColagem, quadroDePendencias, quadroDoQueFoiFeito, trechoDoDono } from "../../shared/dolores/fila.js";
@@ -216,5 +217,42 @@ describe("M3 invertido — aprovação pela TELA com o mesmo orçamento de tempo
     definirRelogioTela(() => { const v = t; t = 10_000; return v; });
     expect(await admin().dolores.fila.aprovar({ codigo: item.codigo })).toMatchObject({ ok: true, situacao: "executada" });
     expect(vi.mocked(gerarPciDaObra).mock.calls[0][3]).toEqual({ regravarRascunho: false, prazoDriveMs: 13_000 });
+  });
+});
+
+describe("M6 invertido — ação direta tem desfecho único", () => {
+  const lento = (ms: number) => vi.mocked(getAssignableUsers).mockImplementationOnce(async (...a) => {
+    await new Promise(r => setTimeout(r, ms));
+    return (await vi.importActual<typeof import("../db.js")>("../db.js")).getAssignableUsers(...a);
+  });
+  it("transação que termina dentro do prazo da porta: 'feito' (200) e gravado", async () => {
+    definirDependenciasPonte({ agora: () => AGORA, prazoMs: 2_000 });
+    lento(100);
+    const r = await doDono("criar_tarefa", { titulo: "Tarefa no prazo", responsavel: "Bianca Souza" });
+    expect(r.status).toBe(200);
+    expect((await q("SELECT count(*)::int n FROM tasks WHERE title = 'Tarefa no prazo'"))[0].n).toBe(1);
+  });
+  it("passou do prazo da transação: a porta espera o desfecho — desfeita, 'nada foi gravado' (sem 'confira no sistema')", async () => {
+    definirDependenciasPonte({ agora: () => AGORA, prazoMs: 200 });
+    lento(300);
+    const r = await doDono("criar_tarefa", { titulo: "Tarefa atrasada", responsavel: "Bianca Souza" });
+    expect([r.status, r.body.nadaFoiFeito]).toEqual([504, true]);
+    expect(String(r.body.erro)).toMatch(/foi desfeita: nada foi gravado/);
+    expect((await q("SELECT count(*)::int n FROM tasks WHERE title = 'Tarefa atrasada'"))[0].n).toBe(0);
+    expect((await q("SELECT count(*)::int n FROM dolores_autoria"))[0].n).toBe(0);
+  });
+  it("último recurso real: o banco não responde nem depois de prazo + 2 s → 'confira no sistema'; depois, a transação se desfaz", async () => {
+    definirDependenciasPonte({ agora: () => AGORA, prazoMs: 100 });
+    lento(2_600);
+    const r = await doDono("criar_tarefa", { titulo: "Tarefa travada", responsavel: "Bianca Souza" });
+    expect(r.status).toBe(504);
+    expect(String(r.body.erro)).toMatch(/não confirmou a gravação a tempo.*Confira no sistema/);
+    await new Promise(res => setTimeout(res, 800));
+    expect((await q("SELECT count(*)::int n FROM tasks WHERE title = 'Tarefa travada'"))[0].n).toBe(0);
+  });
+  it("reconhece o prazo da transação: o nosso (bancoDaAcao) e o statement_timeout do banco (57014), inclusive embrulhados", () => {
+    expect(foiPrazoDaTransacao(new PrazoDaAcaoEsgotado())).toBe(true);
+    expect(foiPrazoDaTransacao(Object.assign(new Error("x"), { cause: Object.assign(new Error("canceling statement"), { code: "57014" }) }))).toBe(true);
+    expect(foiPrazoDaTransacao(new Error("outra falha"))).toBe(false);
   });
 });

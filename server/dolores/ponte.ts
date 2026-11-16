@@ -25,7 +25,7 @@ import { MAX_ACOES_POR_COMANDO, type MotivoContaminacao } from "../../shared/dol
 import { ACOES, acaoPorNome } from "./acoes/registro.js";
 import { RecusaAcao, type ContextoAcao, type FuncaoAcao } from "./acoes/comum.js";
 import { acoesDoPedido, porNaFila } from "./aprovacoes.js";
-import { emTransacaoDeEscrita } from "./escrita.js";
+import { emTransacaoDeEscrita, foiPrazoDaTransacao } from "./escrita.js";
 
 export const VARIAVEL_TOKEN = "DOLORES_PONTE_TOKEN";
 /** Token mais curto que isso é recusado (a ponte fica desligada): use `openssl rand -hex 32` (64 caracteres). */
@@ -142,6 +142,8 @@ async function reservarVaga(limite: number, agora: Date): Promise<boolean> {
 }
 
 class PrazoEsgotado extends Error {}
+/** Espera a mais pelo desfecho da transação de uma ação direta (COMMIT ou ROLLBACK) depois do prazo da porta. */
+const GRACA_DO_COMMIT_MS = 2_000;
 function comPrazo<T>(p: Promise<T>, ms: number): Promise<T> {
   let t: ReturnType<typeof setTimeout>;
   return Promise.race([p, new Promise<T>((_, rej) => { t = setTimeout(() => rej(new PrazoEsgotado(`Consulta passou de ${Math.round(ms / 1000)} s.`)), ms); })])
@@ -298,13 +300,22 @@ async function executarAcao(acao: FuncaoAcao, args: unknown, c: {
     }
     // Ação direta ANTES de qualquer leitura de dados neste comando: executa na hora (transação mínima, com prazo).
     if (acao.nivel === "direto" && !c.contaminado) {
+      // QA R2 M6 — desfecho ÚNICO: a transação tem o próprio prazo (metade do da porta: `bancoDaAcao` recusa e o banco
+      // cancela a instrução), e a porta ESPERA ela terminar — ou o COMMIT foi confirmado ("feito"), ou foi desfeita
+      // ("não feito"). Só se o banco não responder nem depois de prazo + 2 s vale o último recurso "confira no sistema".
+      const transacao = emTransacaoDeEscrita(() => acao.executar!(args as never, ctx), Math.max(1, Math.floor(c.prazoMs / 2)));
       let r: Awaited<ReturnType<NonNullable<FuncaoAcao["executar"]>>>;
       try {
-        r = await comPrazo(emTransacaoDeEscrita(() => acao.executar!(args as never, ctx), c.prazoMs), c.prazoMs);
+        r = await comPrazo(transacao, c.prazoMs + GRACA_DO_COMMIT_MS);
       } catch (e) {
         if (e instanceof PrazoEsgotado) {
-          await registrar("erro", { funcao, argumentos: args, motivo: "passou do prazo", pedidoId: c.pedidoId });
-          return responder(504, { ok: false, erro: "A ação passou do prazo. A gravação é tudo ou nada: confira no sistema antes de pedir de novo." });
+          transacao.catch(() => undefined);
+          await registrar("erro", { funcao, argumentos: args, motivo: "sem confirmação do banco (nem gravou nem desfez no prazo)", pedidoId: c.pedidoId });
+          return responder(504, { ok: false, erro: "O banco não confirmou a gravação a tempo (nem gravou nem desfez). Confira no sistema antes de pedir de novo." });
+        }
+        if (foiPrazoDaTransacao(e)) {
+          await registrar("erro", { funcao, argumentos: args, motivo: "passou do prazo; desfeita", pedidoId: c.pedidoId });
+          return responder(504, { ok: false, erro: "A ação passou do prazo e foi desfeita: nada foi gravado. Pode pedir de novo.", nadaFoiFeito: true });
         }
         throw e;
       }
