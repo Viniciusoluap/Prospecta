@@ -591,6 +591,42 @@ describe("filtro de dados pessoais em texto livre (M1)", () => {
     expect(ms, `${ms.toFixed(0)} ms`).toBeLessThan(60_000);
   });
 
+  it("opção B (16/11): com mascararDadosPessoais false, CPF/CNPJ/telefone/e-mail e documentos saem intactos; segredos e banco não", () => {
+    const LIB = { mascararDadosPessoais: false } as const;
+    for (const t of [
+      "CPF 529.982.247-25 e 52998224725", "CNPJ 11.222.333/0001-81 e 11222333000181", "cel (99) 99123-4567, 99991234567 e +55 99 99123-4567",
+      "fixo 3523-4567 e (99) 3523-4567", "mail maria.conceição@uol.com.br e fulano @ gmail . com", "fones 3523 4567 9123 4567",
+      "boleto 23793.38128 60000.000004 00000.000406 1 84340000010000", "IPTU 83620000001-5 23450048001-1 23456789012-3 45678901234-5",
+      "chave de acesso 3526 1112 3456 7800 0195 5500 1000 0012 3410 0001 2346", "lotes 3201 3202 3203", "R$ 1.250.000,00 em 16/11/2026",
+      "Vizinhos: 2814 1021 2752 2541 9164 6526", "pagar 2379338128 60000000004 00000000406 1 84340000010000",
+    ]) expect(sanitizarTexto(t, LIB), t).toBe(t);
+    const S = "[senha omitida]", B = "[dado bancário omitido]", K = "[chave de acesso omitida]";
+    expect(sanitizarTexto("Senha do gov.br 1234; CPF 111.222.333-44; conta 12345-6 ag 0001", LIB))
+      .toBe(`Senha ${S}; CPF 111.222.333-44; conta ${B} ag ${B}`);
+    expect(sanitizarTexto("o token: abc123", LIB)).toBe(`o token ${S}`);
+    expect(sanitizarTexto("código de acesso 4321", LIB)).toBe(`código ${S}`);
+    expect(sanitizarTexto("código OTP 445566", LIB)).toBe(`código ${S}`);
+    expect(sanitizarTexto("pin 1234", LIB)).toBe(`pin ${S}`);
+    expect(sanitizarTexto("a chave é sk-ant-api03-AbCdEf_123-xyz e pronto", LIB)).toBe(`a chave é ${K} e pronto`);
+    expect(sanitizarTexto("Authorization: Bearer abcdef0123456789", LIB)).toBe(`Authorization: ${K}`);
+    expect(sanitizarTexto("pix 123e4567-e89b-12d3-a456-426614174000", LIB)).toBe(`pix ${B}`);
+    expect(sanitizarTexto("chave pix: maria@x.com", LIB)).toBe(`chave pix: ${B}`);
+    expect(sanitizarTexto("conta corrente nº 98765-X, agência 0001.", LIB)).toBe(`conta corrente nº ${B}, agência ${B}.`);
+    // texto sem segredo volta idêntico (o mesmo objeto de string), e a resposta inteira também
+    const t = "Reunião às 10:30, lote 12, CPF 52998224725.";
+    expect(sanitizarTexto(t, LIB)).toBe(t);
+    expect(sanitizarResposta({ a: ["cpf 529.982.247-25", "senha 1"] }, LIB)).toEqual({ a: ["cpf 529.982.247-25", `senha ${S}`] });
+    // o padrão da função pura (sem opções) e { mascararDadosPessoais: true } continuam mascarando (falha fechada)
+    expect(sanitizarTexto("CPF 52998224725")).toBe(`CPF ${OMITIDO_T}`);
+    expect(sanitizarTexto("CPF 52998224725", { mascararDadosPessoais: true })).toBe(`CPF ${OMITIDO_T}`);
+    expect(sanitizarTexto("a chave é sk-ant-api03-AbCdEf_123-xyz", { mascararDadosPessoais: true })).toBe(`a chave é ${K}`);
+    // 200 kB sem segredo: rápido e idêntico
+    const grande = "CPF 529.982.247-25, tel (99) 99123-4567, lote 12; ".repeat(4000);
+    const t0 = performance.now();
+    expect(sanitizarTexto(grande, LIB)).toBe(grande);
+    expect(performance.now() - t0).toBeLessThan(1000);
+  });
+
   it("percorre a resposta inteira (listas e objetos), sem tocar números e chaves", () => {
     expect(sanitizarResposta({ a: [{ texto: "cpf 111.222.333-44", n: 11122233344 }], "111.222.333-44": null }))
       .toEqual({ a: [{ texto: "cpf [dado pessoal omitido]", n: 11122233344 }], "111.222.333-44": null });

@@ -8,6 +8,10 @@
 // (acentos, "m²", "nº", travessão na prosa) não muda. Grupos de dígitos ligados por até 3 caracteres de
 // [espaço . - _ / ( ) | · • :] (ou por vários espaços) formam uma "cadeia".
 //
+// INTERRUPTOR (decisão do dono em 16/11/2026, opção B): `sanitizarTexto(texto, { mascararDadosPessoais })`. Com false,
+// CPF, CNPJ, telefone e e-mail saem intactos e nenhuma das fases abaixo roda; senhas, chaves de API e dados bancários
+// saem sempre. O padrão desta função é true (falha fechada); o servidor decide em server/dolores/dados-pessoais.ts.
+//
 // COMO DECIDE — duas fases, NESTA ORDEM (QA r4, S1: cada exceção que olhava rótulo abriu um vazamento novo).
 //
 //  FASE 1 — MASCARAR SEM EXCEÇÃO. Sai sempre, com qualquer rótulo antes ("nota", "chave", "protocolo", "valor"…), com
@@ -629,37 +633,62 @@ function trocarPix(m: string, rotulo: string, sep: string, valor: string, pos: n
   return `${rotulo}${sep}${BANCARIO_OMITIDO}`;
 }
 
-/** Texto livre com CPF/CNPJ, e-mail, telefone, dados bancários e senhas trocados por marcadores visíveis. */
-export function sanitizarTexto(texto: string): string {
+// ── Interruptor dos dados pessoais (decisão do dono em 16/11: opção B) ──
+/**
+ * `mascararDadosPessoais`:
+ *  - true  — CPF, CNPJ, telefone e e-mail viram "[dado pessoal omitido]" (fases 1, 2a e 2b, ver o cabeçalho). É o
+ *            PADRÃO desta função pura (falha fechada) e o que vale SEMPRE para o que é gravado ou vai para log: auditoria
+ *            (dolores_acoes), comando guardado (dolores_mensagens.texto), mensagens de erro.
+ *  - false — dados pessoais saem intactos (nenhuma das fases roda: sem custo, sem estragar boleto, guia, nota, lote, valor).
+ * Nos dois modos saem SEMPRE: senha, token, PIN, OTP, código de acesso, chave de API ("sk-ant-…", "Bearer …", JWT) e
+ * dados bancários (agência, conta, chave PIX). Quem decide o modo do que vai ao modelo e ao dono é o servidor, num ponto
+ * só: server/dolores/dados-pessoais.ts (variável DOLORES_MASCARAR_DADOS_PESSOAIS).
+ */
+export type OpcoesFiltro = { mascararDadosPessoais?: boolean };
+export const CHAVE_OMITIDA = "[chave de acesso omitida]";
+/** Chave de API ou credencial em forma reconhecível (sempre sai, com ou sem palavra de senha antes). */
+const CHAVE_API = /\bsk-ant-[\w-]{4,}|\bsk-(?:proj-)?[A-Za-z0-9_-]{20,}|\bBearer\s+[\w.~+/=-]{8,}|\beyJ[\w-]{8,}\.[\w-]{8,}\.[\w-]{8,}|\b(?:AKIA|ASIA)[0-9A-Z]{16}\b|\bgh[pousr]_[A-Za-z0-9]{30,}|\bxox[abprs]-[\w-]{10,}/g;
+
+/** Texto livre com senhas, chaves, dados bancários e (se ligado) CPF/CNPJ, e-mail e telefone trocados por marcadores. */
+export function sanitizarTexto(texto: string, opcoes: OpcoesFiltro = {}): string {
   if (!texto) return texto;
+  const mascararPessoais = opcoes.mascararDadosPessoais ?? true;
   const t = normalizarParaFiltro(texto);
-  if (!/[\d@]|senha|password|passwd|c[oó]digo|token|\bpin\b|\botp\b|\bat\b|arroba/i.test(t)) return texto;
+  if (!/[\d@]|senha|password|passwd|c[oó]digo|token|\bpin\b|\botp\b|\bat\b|arroba|sk-|bearer|eyJ/i.test(t)) return texto;
+  const segredos = (x: string) => x
+    .replace(CHAVE_API, CHAVE_OMITIDA)
+    .replace(SENHA, (_m, palavra: string) => `${palavra} ${SENHA_OMITIDA}`)
+    .replace(CODIGO, (_m, palavra: string) => `${palavra} ${SENHA_OMITIDA}`)
+    .replace(PIX_EMAIL, (_m, rotulo: string, sep: string) => `${rotulo}${sep}${BANCARIO_OMITIDO}`);
+  const bancarios = (x: string) => x
+    .replace(PIX, (m, rotulo: string, sep: string, valor: string, pos: number, s: string) => trocarPix(m, rotulo, sep, valor, pos, s))
+    .replace(BANCO, (m, rotulo: string, sep: string, valor: string, cent: string | undefined, pos: number, s: string) =>
+      trocarBanco(m, rotulo, sep, valor, cent, pos, s));
+  if (!mascararPessoais) {
+    const r = bancarios(segredos(t));
+    return r === t ? texto : r;
+  }
   // QA r5 F5: a fase 1 (cadeias: CPF, CNPJ, celular em qualquer separação) roda ANTES de PIX e banco — antes, "conta
   // 529 982 247 25" ou "cc 2026.12/889 767 151 95" tinham só o 1º grupo trocado pelo marcador bancário e o resto do
   // CPF ficava à vista. Depois, o que sobrou de número de conta/chave ainda sai como dado bancário.
-  const r = mascararCadeias(t
-    .replace(SENHA, (_m, palavra: string) => `${palavra} ${SENHA_OMITIDA}`)
-    .replace(CODIGO, (_m, palavra: string) => `${palavra} ${SENHA_OMITIDA}`)
-    .replace(PIX_EMAIL, (_m, rotulo: string, sep: string) => `${rotulo}${sep}${BANCARIO_OMITIDO}`)
+  const pessoaisFormatados = segredos(t)
     .replace(EMAIL, OMITIDO)
     .replace(EMAIL_DISFARCADO, OMITIDO)
     .replace(CNPJ_FORMATADO, OMITIDO)
     .replace(CPF_FORMATADO, OMITIDO)
     .replace(CPF_VIRGULA, (m, a: string, b: string, pos: number, s: string) =>
-      isValidCPF(a + b) && !/r\$\s*$/i.test(s.slice(Math.max(0, pos - 6), pos)) ? OMITIDO : m))
-    .replace(PIX, (m, rotulo: string, sep: string, valor: string, pos: number, s: string) => trocarPix(m, rotulo, sep, valor, pos, s))
-    .replace(BANCO, (m, rotulo: string, sep: string, valor: string, cent: string | undefined, pos: number, s: string) =>
-      trocarBanco(m, rotulo, sep, valor, cent, pos, s));
+      isValidCPF(a + b) && !/r\$\s*$/i.test(s.slice(Math.max(0, pos - 6), pos)) ? OMITIDO : m);
+  const r = bancarios(mascararCadeias(pessoaisFormatados));
   return r === t ? texto : r; // nada mascarado: devolve o texto original, sem a normalização
 }
 
 /** Percorre a resposta e filtra toda string (chaves ficam como estão). */
-export function sanitizarResposta<T>(valor: T): T {
-  if (typeof valor === "string") return sanitizarTexto(valor) as T;
-  if (Array.isArray(valor)) return valor.map(v => sanitizarResposta(v)) as T;
+export function sanitizarResposta<T>(valor: T, opcoes: OpcoesFiltro = {}): T {
+  if (typeof valor === "string") return sanitizarTexto(valor, opcoes) as T;
+  if (Array.isArray(valor)) return valor.map(v => sanitizarResposta(v, opcoes)) as T;
   if (valor && typeof valor === "object" && !(valor instanceof Date)) {
     const r: Record<string, unknown> = {};
-    for (const [k, v] of Object.entries(valor as Record<string, unknown>)) r[k] = sanitizarResposta(v);
+    for (const [k, v] of Object.entries(valor as Record<string, unknown>)) r[k] = sanitizarResposta(v, opcoes);
     return r as T;
   }
   return valor;

@@ -59,6 +59,7 @@ beforeEach(async () => {
   definirClienteModelo(async p => { chamadas.push(p); return roteiro(p); });
 });
 afterEach(() => {
+  vi.unstubAllEnvs();
   ENV.cookieSecret = segredoAntes;
   definirDependenciasPonte();
   definirDependenciasWhatsapp();
@@ -97,7 +98,8 @@ describe("QA achado 1 — DDI conferido: número estrangeiro com os mesmos 8 fin
 });
 
 describe("QA achado 2 — o filtro de dados pessoais pega dígitos seguidos de pontuação (resposta e comando guardado)", () => {
-  it("a resposta do modelo com CPF e celular no fim da frase sai filtrada; o comando guardado também", async () => {
+  it("com DOLORES_MASCARAR_DADOS_PESSOAIS=1: a resposta do modelo com CPF e celular no fim da frase sai filtrada; o comando guardado também", async () => {
+    vi.stubEnv("DOLORES_MASCARAR_DADOS_PESSOAIS", "1");
     roteiro = () => fim("O CPF é 12345678909. Ligue 99991234567. Ou 5599991234567, ou CPF 123 456 789 09. Valor R$ 1.250.000,00 em 16/11/2026, protocolo 2026001234.");
     await chamar(aviso({ texto: "meu CPF é 12345678909. e o telefone 99991234567." }));
     const t = enviar.mock.calls[0][0].texto as string;
@@ -105,6 +107,25 @@ describe("QA achado 2 — o filtro de dados pessoais pega dígitos seguidos de p
     expect(t).toContain("R$ 1.250.000,00 em 16/11/2026, protocolo 2026001234.");
     const [m] = await q<{ texto: string }>("SELECT texto FROM dolores_mensagens");
     expect(m.texto).not.toMatch(/\d{8}/);
+  });
+
+  it("opção B (padrão, variável ausente ou 0): a resposta ao dono leva CPF e celular inteiros; o comando GRAVADO continua mascarado", async () => {
+    for (const valor of [undefined, "0"]) {
+      if (valor === undefined) vi.unstubAllEnvs(); else vi.stubEnv("DOLORES_MASCARAR_DADOS_PESSOAIS", valor);
+      await banco.pg.exec("DELETE FROM dolores_mensagens");
+      enviar.mockClear();
+      roteiro = () => fim("O CPF é 12345678909. Ligue 99991234567. A senha do portal é abc123.");
+      await chamar(aviso({ id: `B${valor ?? "x"}`, texto: "meu CPF é 12345678909. e o telefone 99991234567." }));
+      const t = enviar.mock.calls[0][0].texto as string;
+      expect(t, String(valor)).toContain("12345678909");
+      expect(t, String(valor)).toContain("99991234567");
+      expect(t, String(valor)).toContain("senha [senha omitida]");
+      const [m] = await q<{ texto: string }>("SELECT texto FROM dolores_mensagens");
+      expect(m.texto, String(valor)).not.toMatch(/\d{8}/);
+      const a = JSON.stringify(await q("SELECT * FROM dolores_acoes"));
+      expect(a).not.toContain("12345678909");
+      expect(a).not.toContain("99991234567");
+    }
   });
 });
 

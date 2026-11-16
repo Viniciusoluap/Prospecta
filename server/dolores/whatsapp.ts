@@ -13,6 +13,7 @@ import { Router, type Request, type Response } from "express";
 import { and, eq, lt, or, sql } from "drizzle-orm";
 import { doloresMensagens, doloresRemetentesEstranhos, doloresWhatsappConfig, type DoloresWhatsappConfig, type SituacaoMensagem } from "../../drizzle/schema-dolores-whatsapp.js";
 import { sanitizarTexto } from "../../shared/dolores/sanitizar.js";
+import { FILTRO_DO_REGISTRO, filtroDaSaida } from "./dados-pessoais.js";
 import {
   FRASE_ENCAMINHADA, FRASE_ERRO, FRASE_OUTRO_PEDIDO, FRASE_SO_TEXTO, MAX_TEXTO_COMANDO, fraseSemTempo, bloqueioDoLimite, cortarResposta, ehNumeroDoDono, fraseDeBloqueio,
   lerMensagemEvolution, mascararNumero, mensagemAntiga, mesFortaleza, type MotivoBloqueio,
@@ -105,7 +106,8 @@ async function responderAoDono(cfg: DoloresWhatsappConfig, numero: string, texto
     await registrarAcao({ funcao: "whatsapp_resposta", resultado: "recusada", motivo: "destino não é o número do dono", autorUserId: ctx.autor, canal: "whatsapp", pedidoId: `wa:${ctx.mensagemId}` });
     return false;
   }
-  const final = cortarResposta(sanitizarTexto(texto));
+  // dados pessoais seguem o interruptor (opção B do dono); senhas, chaves e dados bancários saem sempre
+  const final = cortarResposta(sanitizarTexto(texto, filtroDaSaida()));
   const resumo = { caracteres: final.length, destino: mascararNumero(numero), ...ctx.resumo };
   // QA achado 5: o envio cabe no prazo ÚNICO do aviso (nunca 8 s fixos por item além dele).
   const restante = ctx.prazoFinal - deps.ms();
@@ -331,7 +333,8 @@ export async function tratarWebhookDolores(req: Pedido): Promise<RespostaWebhook
       const [linha] = await getDb().insert(doloresMensagens).values({
         instancia: cfg.instancia, externalId: m.externalId, remetente: m.numero ? mascararNumero(m.numero) : "(sem número)", doDono: true,
         situacao: "processando", motivo: semTempoNenhum ? MOTIVO_SEM_TEMPO_NO_AVISO : null,
-        texto: sanitizarTexto(m.texto).slice(0, MAX_TEXTO_COMANDO) || null, enviadaEm: m.enviadaEm,
+        // gravado no banco: sempre mascarado, qualquer que seja o interruptor
+        texto: sanitizarTexto(m.texto, FILTRO_DO_REGISTRO).slice(0, MAX_TEXTO_COMANDO) || null, enviadaEm: m.enviadaEm,
       }).onConflictDoNothing().returning({ id: doloresMensagens.id });
       id = linha?.id ?? null;
     } catch (e) {
