@@ -19,9 +19,9 @@ export const MAX_TEXTO_COMANDO = 2000;
  * Número brasileiro já só em dígitos: "55" + DDD (dois dígitos de 1 a 9) + 8 dígitos (fixo) ou 9 + 8 dígitos (celular).
  * Qualquer outra forma (outro DDI, zeros à esquerda, curto, longo, nono dígito que não é 9) → null.
  */
-function partesBrasileiras(digitos: string): { ddd: string; final: string } | null {
+function partesBrasileiras(digitos: string): { ddd: string; nono: boolean; final: string } | null {
   const m = /^55([1-9][1-9])(9?)(\d{8})$/.exec(digitos);
-  return m ? { ddd: m[1], final: m[3] } : null;
+  return m ? { ddd: m[1], nono: m[2] === "9", final: m[3] } : null;
 }
 
 /** Número do dono para guardar: só dígitos, com DDI 55 e DDD válido. Inválido (inclusive estrangeiro) → null. */
@@ -34,13 +34,18 @@ export function normalizarNumeroDono(bruto: string | null | undefined): string |
 /**
  * O remetente é o dono? Comparação ESTRITA (não usa a chave da Central, que ignora o DDI): o remetente precisa ser
  * exatamente "55" + DDD + número (só dígitos, como vem no endereço do WhatsApp), com o mesmo DDD e os mesmos 8 últimos
- * dígitos do dono. Só o nono dígito pode faltar de um lado. +995/+998… com os mesmos 8 finais NÃO casam.
+ * dígitos do dono. Só o nono dígito pode faltar de um lado, e só quando os 8 finais começam por 6–9 (celular antigo); fixo
+ * (2–5) exige igualdade exata. +995/+998… com os mesmos 8 finais NÃO casam.
  * Sem número do dono, ninguém comanda. A mesma função confere o destino antes de cada envio.
  */
 export function ehNumeroDoDono(numero: string | null | undefined, dono: string | null | undefined): boolean {
   if (typeof numero !== "string" || typeof dono !== "string") return false;
   const a = partesBrasileiras(numero), b = partesBrasileiras(dono);
-  return Boolean(a && b && a.ddd === b.ddd && a.final === b.final);
+  if (!a || !b || a.ddd !== b.ddd || a.final !== b.final) return false;
+  if (a.nono === b.nono) return true;
+  // QA r2 N2: a falta do nono dígito só vale para celular antigo (8 dígitos começando por 6–9). Fixo (2–5) nunca casa
+  // com celular de mesmos 8 finais: "99 3234-5678" (fixo) ≠ "99 9 3234-5678" (celular). Dono fixo → igualdade exata.
+  return /^[6-9]/.test(a.final);
 }
 
 /**
