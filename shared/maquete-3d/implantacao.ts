@@ -2,7 +2,8 @@
 // terreno (GeoJSON em longitude/latitude) e o cenário escolhido do estudo de massa (lotes e ruas com geometria).
 // Nada é lido de PDF nem inventado: é a mesma geometria do parcelamento, convertida para metros.
 // Planta: x para leste, y para SUL (o norte fica "para cima" na tela, como no mapa).
-import type { Position } from "geojson";
+import type { MultiPolygon, Polygon, Position } from "geojson";
+import { bboxPolygon, featureCollection, intersect, polygon as turfPolygon } from "@turf/turf";
 import { criarProjecao, ROTULO_RESTRICAO_GEO, type CenarioMassa } from "../incorporacao/massa.js";
 import { poligonosDoTerreno, type GeometriaTerreno } from "../geo/terreno.js";
 import { implantacaoSchema, type Implantacao, type Ponto, type Relevo } from "./modelo.js";
@@ -20,6 +21,35 @@ export const codigoDaUnidade = (quadra: string, lote: string) => `Q${quadra} / L
 export type GradeElevacao = { ncols: number; nrows: number; cellsizeX: number; cellsizeY: number; west: number; south: number; z: number[][] };
 
 const LADO_RELEVO = 48; // pontos por lado da grade da maquete
+
+type Anel = [number, number][];
+
+/**
+ * S-I: o lote da maquete não tem furo. Uma peça com furo (APP que cerca uma parte loteável) cobriria a ilha; ela é
+ * cortada por verticais que passam pelos furos até não sobrar nenhum, e cada pedaço vira um lote. Anéis sem o ponto
+ * de fechamento.
+ */
+export function pecasSemFuros(externo: Anel, furos: Anel[], profundidade = 0): Anel[] {
+  if (furos.length === 0 || profundidade > 12) return [externo];
+  const fechar = (a: Anel): Anel => [...a, a[0]];
+  const xs = furos[0].map((p) => p[0]), cx = (Math.min(...xs) + Math.max(...xs)) / 2;
+  const ex = externo.map((p) => p[0]), ey = externo.map((p) => p[1]);
+  const [x0, y0, x1, y1] = [Math.min(...ex) - 1, Math.min(...ey) - 1, Math.max(...ex) + 1, Math.max(...ey) + 1];
+  let poli;
+  try { poli = turfPolygon([fechar(externo), ...furos.map(fechar)]); } catch { return [externo]; }
+  const out: Anel[] = [];
+  for (const caixa of [bboxPolygon([x0, y0, cx, y1]), bboxPolygon([cx, y0, x1, y1])]) {
+    let x;
+    try { x = intersect(featureCollection([poli, caixa])); } catch { x = null; }
+    if (!x) continue;
+    const g = x.geometry as Polygon | MultiPolygon;
+    for (const p of g.type === "Polygon" ? [g.coordinates] : g.coordinates) {
+      const aneis = p.map((a) => a.slice(0, -1).map((q) => [q[0], q[1]] as [number, number]));
+      out.push(...pecasSemFuros(aneis[0], aneis.slice(1), profundidade + 1));
+    }
+  }
+  return out.length > 0 ? out : [externo];
+}
 
 export function implantacaoDoEstudo(geojson: string | null, centro: [number, number] | null, cenario: CenarioMassa | null, elevacao: GradeElevacao | null = null): { implantacao: Implantacao; descartados: number } | null {
   let terreno: GeometriaTerreno | null = null;
@@ -48,17 +78,27 @@ export function implantacaoDoEstudo(geojson: string | null, centro: [number, num
   const areaLocal = (pts: Ponto[]) => Math.abs(pts.reduce((s, p, i) => { const q = pts[(i + 1) % pts.length]; return s + p.x * q.y - q.x * p.y; }, 0) / 2);
   const maior = aneisTerreno.map(local).map((pts) => ({ pts, area: areaLocal(pts) })).sort((a, b) => b.area - a.area)[0]?.pts ?? [];
   const lotes = (cenario?.lotes ?? []).flatMap((l, i) => {
-    const poligono = reduzir(local(l.anel));
-    if (poligono.length < 3) { descartados++; return []; }
+    const inteiro = local(l.anel);
+    if (inteiro.length < 3) { descartados++; return []; }
+    // peça com furo (ex.: APP em volta de uma parte loteável): vira pedaços sem furo, para não cobrir o que há dentro
+    const furos = (l.furos ?? []).map(local).filter((f) => f.length >= 3);
+    const pedacos = furos.length === 0 ? [inteiro]
+      : pecasSemFuros(inteiro.map((p) => [p.x, p.y] as [number, number]), furos.map((f) => f.map((p) => [p.x, p.y] as [number, number])))
+        .map((a) => a.map(([x, y]) => ({ x: r2(x), y: r2(y) })));
+    return pedacos.flatMap((pedaco, k) => {
+    const poligono = reduzir(pedaco);
+    if (poligono.length < 3) return [];
     const quadra = String(l.quadra ?? ""), nome = String(l.numero ?? "");
     // S-I: APP desenhada pelo contorno real é vegetação na maquete, qualquer que seja o destino dela nas doações
     const restricao = l.restricao ? ROTULO_RESTRICAO_GEO[l.restricao] : null;
     const verdeNatural = l.restricao === "app" || l.restricao === "supressao_vegetal";
     return [{
-      id: `l${i + 1}`, nome: (restricao ?? nome).slice(0, 40), quadra: quadra.slice(0, 40), poligono, areaInformada: l.areaM2 > 0 ? r2(l.areaM2) : null, tipo: l.tipo,
+      id: pedacos.length > 1 ? `l${i + 1}-${k + 1}` : `l${i + 1}`, nome: (restricao ?? nome).slice(0, 40), quadra: quadra.slice(0, 40), poligono,
+      areaInformada: pedacos.length > 1 ? r2(areaLocal(poligono)) : l.areaM2 > 0 ? r2(l.areaM2) : null, tipo: l.tipo,
       uso: verdeNatural ? "verde" as const : l.tipo === "area_publica" ? ((l as { uso?: string }).uso === "institucional" ? "institucional" as const : "verde" as const) : null,
       unidade: l.tipo === "vendavel" && quadra && nome ? codigoDaUnidade(quadra, nome) : null,
     }];
+    });
   });
   const ruas = [...(cenario?.ruas ?? []), ...(cenario?.vias ?? [])].map(local).filter(r => r.length >= 3);
 

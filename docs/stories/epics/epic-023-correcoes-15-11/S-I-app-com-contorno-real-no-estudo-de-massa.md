@@ -51,6 +51,25 @@ número: reserva o tamanho certo de área verde, mas em qualquer lugar, e desenh
 - T5 (QA, HANDOFF, migração 0117 no Neon e publicação) fica com o líder. A migração tem de ir ao Neon ANTES do código:
   `getIncorporationStudyById` faz `select *` e a coluna nova precisa existir.
 
+## QA loop — iteração 1 (16/11)
+- Trocar o KML (`uploadKml`) apaga o contorno da APP (a área fica até o mapa do Terreno recalcular a do terreno novo).
+- `saveApp`: `contorno` ausente (cliente antigo) mantém o gravado, salvo se a área mudar mais de 2%; `null` apaga
+  (`server/incorporacao-app-contorno.ts`).
+- Contorno vazio, inválido ou fora da gleba: o motor usa o m² informado e avisa para reabrir o mapa do Terreno (nunca
+  zera a APP em silêncio).
+- Cada cenário leva a marca do contorno com que foi gerado (`contornoRestricoes`); a aba avisa "cenários gerados sem o
+  contorno da APP — gere de novo" no lugar da faixa verde, e marca o estudo principal salvo. A assinatura do resultado
+  inclui o contorno.
+- A aba mede a APP dentro da gleba como o motor (`medirRestricoesNaGleba`); se der 0, mostra o aviso âmbar.
+- `contornoAppParaGravar` simplifica até ~50 m e, no limite, descarta furos e peças menores — sempre guarda um contorno
+  para uma APP válida; se nada couber, o mapa do Terreno avisa que o contorno é complexo demais.
+- Acesso: parte cercada pela APP, ou com as vias mapeadas do outro lado dela, tem nota de que o acesso exige atravessar
+  a APP (licença ambiental); ponto na borda da APP não conta como acesso pela divisa.
+- Maquete: peça com furo (APP em volta de uma parte loteável) é cortada em pedaços sem furo.
+- Diferença conhecida (item 7 do QA): a APP aparece com três números próximos — o do mapa do Terreno (área geodésica do
+  turf, ex.: ImperaCity 122.055 m² só com OSM), o gravado em `app_area_m2` (o mesmo cálculo com ANA + OSM, 124.304 m²) e
+  o do motor (projeção plana local, 121.472 m², ~0,5% abaixo do geodésico). O quadro de áreas e a aba usam o do motor.
+
 ## File List
 - `drizzle/0117_contorno_app_estudo.sql` (novo), `drizzle/schema.ts`
 - `server/routers.ts` (`saveApp` recebe `contorno`)
@@ -60,4 +79,5 @@ número: reserva o tamanho certo de área verde, mas em qualquer lugar, e desenh
 - `shared/incorporacao/planta-tecnica.ts` (rótulo "APP", cor e legenda)
 - `shared/maquete-3d/implantacao.ts`, `client/src/components/maquete-3d/visualizador/Implantacao.tsx`
 - `client/src/components/incorporacao/estudo/{mapa-terreno.tsx,massa-tab.tsx,executar-massa.ts,massa.worker.ts,mapa-massa.tsx,compat/acoes.ts}`
-- `server/incorporacao-massa-app-geometria.test.ts` (novo)
+- `server/incorporacao-massa-app-geometria.test.ts` (novo), `server/incorporacao-app-contorno.ts` (novo),
+  `server/incorporacao-app-contorno.test.ts` (novo)

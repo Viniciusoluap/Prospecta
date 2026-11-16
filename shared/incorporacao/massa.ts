@@ -1155,6 +1155,39 @@ function recortarRestricoes(
   }
 }
 
+/**
+ * m² de cada restrição com contorno DENTRO da gleba, medido como o motor mede (mesma projeção e recorte) — para a
+ * tela mostrar o mesmo número que o quadro de áreas. 0 = o contorno não cai na gleba (o motor usa o m² informado).
+ */
+export function medirRestricoesNaGleba(entrada: EntradaGleba, centro: [number, number], restricoes: RestricaoGeometrica[]): Partial<Record<TipoRestricaoGeo, number>> {
+  const out: Partial<Record<TipoRestricaoGeo, number>> = {};
+  for (const r of restricoes) if (r) out[r.tipo] = 0;
+  const areas = areasDaEntrada(entrada).filter((poli) => !validarPoligonal(poli[0]));
+  if (areas.length === 0 || restricoes.length === 0) return out;
+  const furos = areas.map((poli) => poli.slice(1).filter((f) => !validarPoligonal(f)));
+  const rec = recortarRestricoes(areas, furos, restricoes, criarProjecao(centro), 0);
+  if (!rec) return out;
+  for (const [tipo, campo] of CAMPO_RESTRICAO_GEO) if (rec.m2PorCampo[campo] !== undefined) out[tipo] = round2(rec.m2PorCampo[campo]!);
+  return out;
+}
+
+/** Situação da APP do estudo na aba Estudo de Massa (S-I) — decide o aviso da tela. */
+export type EstadoContornoApp =
+  | "contorno"               // contorno guardado, cai no terreno, cenários na tela gerados com ele
+  | "cenarios_sem_contorno"  // há contorno, mas os cenários na tela foram gerados sem ele (ou com outro): gerar de novo
+  | "fora_do_terreno"        // contorno guardado não cai neste terreno: o motor usa o m² informado
+  | "sem_contorno"           // há APP em m² mas nenhum contorno guardado: abrir o mapa do Terreno
+  | null;                    // sem APP
+
+export function estadoDoContornoApp(e: {
+  restricoes: RestricaoGeometrica[] | null; appAreaM2: number | null | undefined; appNaGlebaM2: number | null | undefined; cenarios: Pick<CenarioMassa, "contornoRestricoes">[];
+}): EstadoContornoApp {
+  if (!e.restricoes || e.restricoes.length === 0) return (e.appAreaM2 ?? 0) > 0 ? "sem_contorno" : null;
+  if (!((e.appNaGlebaM2 ?? 0) > 0)) return "fora_do_terreno";
+  const marca = assinaturaRestricoes(e.restricoes);
+  return e.cenarios.every((c) => c.contornoRestricoes === marca) ? "contorno" : "cenarios_sem_contorno";
+}
+
 // ─── Orquestrador ───────────────────────────────────────────────────────────
 
 export interface OpcoesGeracao {

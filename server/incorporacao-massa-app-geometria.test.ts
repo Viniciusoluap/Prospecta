@@ -7,11 +7,13 @@ import { featureCollection, intersect, multiPolygon, polygon } from "@turf/turf"
 import type { Position } from "geojson";
 import { describe, expect, it } from "vitest";
 import {
-  assinaturaEntradas, criarProjecao, gerarEstudoMassa, type CenarioMassa, type EntradaGleba, type ParametrosMassa, type RestricaoGeometrica,
+  assinaturaEntradas, assinaturaRestricoes, criarProjecao, estadoDoContornoApp, gerarEstudoMassa, medirRestricoesNaGleba,
+  type CenarioMassa, type EntradaGleba, type ParametrosMassa, type RestricaoGeometrica,
 } from "../shared/incorporacao/massa";
 import { montarModeloPlanta, renderizarPlantaSvg, vistaInicial } from "../shared/incorporacao/planta-tecnica";
-import { contornoAppParaGravar } from "../shared/geo/camadas-terreno";
-import { implantacaoDoEstudo } from "../shared/maquete-3d/implantacao";
+import { MAX_VERTICES_CONTORNO_APP, contornoAppParaGravar } from "../shared/geo/camadas-terreno";
+import { implantacaoDoEstudo, pecasSemFuros } from "../shared/maquete-3d/implantacao";
+import { contornoAoSalvarApp } from "./incorporacao-app-contorno";
 
 const CENTRO: [number, number] = [-47.49, -5.52];
 const proj = criarProjecao(CENTRO);
@@ -146,11 +148,57 @@ describe("S-I — APP com o contorno real no motor do Estudo de Massa", () => {
     expect(b).toEqual(a);
   });
 
-  it("contorno fora da gleba: APP zero (o m² dos parâmetros não volta)", () => {
-    const fora: RestricaoGeometrica = { tipo: "app", poligonos: [[ret(400, 400, 500, 500)]] };
-    const c = gerarEstudoMassa(GLEBA, CENTRO, PARAMS, { nCenarios: 1, restricoes: [fora] }).cenarios[0];
-    expect(c.quadroAreas?.appM2).toBe(0);
-    expect(c.lotes.some((l) => l.restricao)).toBe(false);
+  it("contorno fora da gleba, vazio ou inválido: vale o m² informado, com aviso para reabrir o mapa do Terreno (nunca zero em silêncio)", () => {
+    const casos: RestricaoGeometrica[] = [
+      { tipo: "app", poligonos: [[ret(400, 400, 500, 500)]] },
+      { tipo: "app", poligonos: [[[]]] },
+      { tipo: "app", poligonos: [] },
+      { tipo: "app", poligonos: [[[[NaN, NaN], [NaN, 1], [1, 1], [NaN, NaN]]]] },
+    ];
+    for (const r of casos) {
+      const out = gerarEstudoMassa(GLEBA, CENTRO, PARAMS, { nCenarios: 1, restricoes: [r] });
+      const c = out.cenarios[0];
+      expect(c.quadroAreas?.appM2).toBe(31_000);
+      expect(c.lotes.some((l) => l.restricao)).toBe(false);
+      const aviso = out.avisos.find((a) => a.startsWith("O contorno da APP guardado no estudo não cai neste terreno"));
+      expect(aviso).toContain("31.000 m²");
+      expect(aviso).toContain("Abra o mapa da aba Terreno");
+      expect(c.limitacoes).toContain(aviso);
+      expect(medirRestricoesNaGleba(GLEBA, CENTRO, [r]).app).toBe(0);
+    }
+  });
+
+  it("assinatura do resultado inclui o contorno; cada cenário leva a marca do contorno com que foi gerado", () => {
+    const com = gerarEstudoMassa(GLEBA, CENTRO, PARAMS, { nCenarios: 1, restricoes: [APP_OESTE] });
+    const sem = gerarEstudoMassa(GLEBA, CENTRO, PARAMS, { nCenarios: 1 });
+    expect(com.assinatura).toBe(assinaturaEntradas(GLEBA, PARAMS, null, [APP_OESTE]));
+    expect(com.assinatura).not.toBe(sem.assinatura);
+    expect(com.cenarios.every((c) => c.contornoRestricoes === assinaturaRestricoes([APP_OESTE]))).toBe(true);
+    expect(sem.cenarios.every((c) => c.contornoRestricoes === undefined)).toBe(true);
+    // a tela mede a APP como o motor (mesmo número do quadro de áreas)
+    expect(medirRestricoesNaGleba(GLEBA, CENTRO, [APP_OESTE]).app).toBeCloseTo(com.cenarios[0].quadroAreas!.appM2, 1);
+    // aviso da tela: cenários antigos (sem contorno) sob um estudo que já tem contorno → gerar de novo
+    const base = { restricoes: [APP_OESTE], appAreaM2: 19_000, appNaGlebaM2: APP_OESTE_M2 };
+    expect(estadoDoContornoApp({ ...base, cenarios: com.cenarios })).toBe("contorno");
+    expect(estadoDoContornoApp({ ...base, cenarios: sem.cenarios })).toBe("cenarios_sem_contorno");
+    expect(estadoDoContornoApp({ ...base, cenarios: [{ contornoRestricoes: assinaturaRestricoes([APP_MEIO]) }] })).toBe("cenarios_sem_contorno");
+    expect(estadoDoContornoApp({ ...base, cenarios: [] })).toBe("contorno");
+    expect(estadoDoContornoApp({ ...base, appNaGlebaM2: 0, cenarios: com.cenarios })).toBe("fora_do_terreno");
+    expect(estadoDoContornoApp({ restricoes: null, appAreaM2: 19_000, appNaGlebaM2: null, cenarios: [] })).toBe("sem_contorno");
+    expect(estadoDoContornoApp({ restricoes: null, appAreaM2: 0, appNaGlebaM2: null, cenarios: [] })).toBeNull();
+  });
+
+  it("parte cercada pela APP ou com as vias do outro lado: a nota do acesso diz que é preciso atravessar a APP", () => {
+    const ilha: RestricaoGeometrica = { tipo: "app", poligonos: [[ret(-300, -300, 300, 300), ret(-100, -80, 100, 80).reverse()]] };
+    const c1 = gerarEstudoMassa(GLEBA, CENTRO, PARAMS, { nCenarios: 1, restricoes: [ilha] }).cenarios[0];
+    expect(c1.limitacoes?.some((n) => n.includes("cercada pela área restrita (APP)") && n.includes("licença ambiental"))).toBe(true);
+    expect(c1.limitacoes?.some((n) => n.includes("Acesso externo a confirmar em projeto: não há via pública mapeada junto à divisa."))).toBe(false);
+    expect(c1.acessos ?? []).toEqual([]);
+    const via = [{ nome: "Rua Sul", coords: [proj.paraGeo([-300, -126]), proj.paraGeo([300, -126])] }];
+    const faixa: RestricaoGeometrica = { tipo: "app", poligonos: [[ret(-300, -10, 300, 10)]] };
+    const c2 = gerarEstudoMassa(GLEBA, CENTRO, PARAMS, { nCenarios: 1, restricoes: [faixa], viasEntorno: via }).cenarios[0];
+    expect(c2.limitacoes?.some((n) => n.includes("Rua Sul"))).toBe(true);
+    expect(c2.limitacoes?.some((n) => /atravessar a APP/.test(n))).toBe(true);
   });
 
   it("planta técnica identifica a APP (rótulo e legenda) e a maquete 3D recebe a APP como área verde", () => {
@@ -168,7 +216,65 @@ describe("S-I — APP com o contorno real no motor do Estudo de Massa", () => {
   });
 });
 
+describe("S-I — maquete: peça com furo não cobre a ilha", () => {
+  it("pecasSemFuros corta a peça até não sobrar furo, sem perder área", () => {
+    const area = (a: [number, number][]) => Math.abs(a.reduce((s, p, i) => { const q = a[(i + 1) % a.length]; return s + p[0] * q[1] - q[0] * p[1]; }, 0) / 2);
+    const ext: [number, number][] = [[0, 0], [100, 0], [100, 100], [0, 100]];
+    const furos: [number, number][][] = [[[20, 20], [40, 20], [40, 40], [20, 40]], [[60, 60], [80, 60], [80, 80], [60, 80]]];
+    const pecas = pecasSemFuros(ext, furos);
+    expect(pecas.length).toBeGreaterThan(1);
+    expect(pecas.reduce((s, p) => s + area(p), 0)).toBeCloseTo(10_000 - 800, 3);
+  });
+
+  it("APP em volta de uma parte loteável: na maquete nenhum pedaço da APP cobre o centro da ilha", () => {
+    const ilha: RestricaoGeometrica = { tipo: "app", poligonos: [[ret(-300, -300, 300, 300), ret(-100, -80, 100, 80).reverse()]] };
+    const c = gerarEstudoMassa(GLEBA, CENTRO, PARAMS, { nCenarios: 1, restricoes: [ilha] }).cenarios[0];
+    expect(c.lotes.some((l) => l.restricao === "app" && (l.furos?.length ?? 0) > 0)).toBe(true);
+    const terreno = JSON.stringify({ type: "Feature", properties: {}, geometry: { type: "Polygon", coordinates: [GLEBA] } });
+    const imp = implantacaoDoEstudo(terreno, CENTRO, c)!.implantacao;
+    const app = imp.lotes.filter((l) => l.nome === "APP");
+    expect(app.length).toBeGreaterThan(1);
+    // centro da gleba = (200, 120) na planta (origem no canto noroeste)
+    const dentro = (pts: { x: number; y: number }[], x: number, y: number) => {
+      let d = false;
+      for (let i = 0, j = pts.length - 1; i < pts.length; j = i++) {
+        const a = pts[i], b = pts[j];
+        if ((a.y > y) !== (b.y > y) && x < ((b.x - a.x) * (y - a.y)) / (b.y - a.y) + a.x) d = !d;
+      }
+      return d;
+    };
+    expect(app.some((l) => dentro(l.poligono, 200, 120))).toBe(false);
+    expect(app.reduce((s, l) => s + (l.areaInformada ?? 0), 0)).toBeCloseTo(96_000 - 200 * 160, -1);
+  });
+});
+
 describe("S-I — contorno da APP gravado no estudo", () => {
+  it("saveApp: contorno explícito grava, null apaga; cliente antigo (sem o campo) mantém, salvo se a área mudou mais de 2%", () => {
+    const g = { type: "MultiPolygon", coordinates: [[ret(-10, -10, 10, 10)]] };
+    expect(contornoAoSalvarApp({ areaM2: 1000, contorno: g }, 1000)).toBe(JSON.stringify(g));
+    expect(contornoAoSalvarApp({ areaM2: 1000, contorno: null }, 1000)).toBeNull();
+    expect(contornoAoSalvarApp({ areaM2: 1000 }, 1000)).toBeUndefined();
+    expect(contornoAoSalvarApp({ areaM2: 1015 }, 1000)).toBeUndefined();
+    expect(contornoAoSalvarApp({ areaM2: 1100 }, 1000)).toBeNull();
+    expect(contornoAoSalvarApp({ areaM2: 1000 }, null)).toBeNull();
+    expect(contornoAoSalvarApp({ areaM2: 0, contorno: g }, 1000)).toBeNull();
+  });
+
+  it("contornoAppParaGravar: contorno enorme é simplificado até caber — sempre guarda um contorno para uma APP válida", () => {
+    // círculo de 30.000 vértices com 400 furos de 40 vértices
+    const anel = (cx: number, cy: number, r: number, n: number, horario = false) => {
+      const pts: [number, number][] = [];
+      for (let k = 0; k < n; k++) { const t = ((horario ? -1 : 1) * 2 * Math.PI * k) / n; pts.push([cx + r * Math.cos(t), cy + r * Math.sin(t)]); }
+      return geo(pts);
+    };
+    const furos: Position[][] = [];
+    for (let i = 0; i < 20; i++) for (let j = 0; j < 20; j++) furos.push(anel(-950 + i * 100, -950 + j * 100, 20, 40, true));
+    const g = contornoAppParaGravar({ type: "Feature", properties: {}, geometry: { type: "Polygon", coordinates: [anel(0, 0, 1500, 30_000), ...furos] } });
+    expect(g).not.toBeNull();
+    const n = g!.coordinates.reduce((s, p) => s + p.reduce((t, a) => t + a.length, 0), 0);
+    expect(n).toBeLessThanOrEqual(MAX_VERTICES_CONTORNO_APP);
+  });
+
   it("contornoAppParaGravar: MultiPolygon com 7 casas e anéis fechados; nulo sem APP", () => {
     expect(contornoAppParaGravar(null)).toBeNull();
     const g = contornoAppParaGravar({ type: "Feature", properties: {}, geometry: { type: "Polygon", coordinates: [ret(-10, -10, 10, 10)] } })!;
