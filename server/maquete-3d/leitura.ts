@@ -8,7 +8,7 @@
 import { and, eq, inArray, isNull } from "drizzle-orm";
 import { maquetes3d, type Maquete3d } from "../../drizzle/schema-maquete-3d.js";
 import {
-  FUNCOES_COMODO, TIPOS_ABERTURA, TIPOS_COBERTURA, TIPOS_ESCADA, lerModelo, modeloSchema, type Edificacao, type Implantacao,
+  FUNCOES_COMODO, TIPOS_ABERTURA, areaPoligono, TIPOS_COBERTURA, TIPOS_ESCADA, lerModelo, modeloSchema, type Edificacao, type Implantacao,
   type ModeloMaquete, type OrigemMedida, type Pavimento, type TipoMaquete,
 } from "../../shared/maquete-3d/modelo.js";
 import {
@@ -275,22 +275,60 @@ async function lerPrancha(m: Maquete3d, doc: number, pagina: number): Promise<Pr
  * O que a planta baixa não traz (pé-direito, cobertura) sai como estimado, para a pessoa confirmar na revisão.
  */
 export function parciaisDasPranchas(pranchas: PranchaLida[], nomesDosArquivos: string[]): { parciais: Record<string, unknown>; referencias: { pavimentoId: string; doc: number; pagina: number; alinhamento: { x: number; y: number; larguraM: number } | null }[]; motivos: string[] } {
-  type Candidata = { planta: PlantaLida; doc: number; pagina: number; nome: string; andar: number | null; larguraPt: number };
+  type Candidata = { planta: PlantaLida; doc: number; pagina: number; nome: string; andar: number | null; numero?: number; tipo?: boolean; semAndar: boolean; avisos: string[] };
   const candidatas: Candidata[] = [];
   for (const pr of pranchas) for (const planta of pr.plantas) {
-    const { nome, andar } = nomeDoPavimento(planta.titulo, candidatas.length);
-    candidatas.push({ planta, doc: pr.doc, pagina: pr.pagina, nome, andar, larguraPt: 0 });
+    const { nome, andar, numero, tipo } = nomeDoPavimento(planta.titulo, candidatas.length);
+    candidatas.push({ planta, doc: pr.doc, pagina: pr.pagina, nome, andar, numero, tipo, semAndar: andar === null && !tipo, avisos: [] });
   }
+  const onde = (c: Candidata) => `"${c.planta.titulo || "planta sem título"}" (${nomesDosArquivos[c.doc] ?? "PDF"}, página ${c.pagina})`;
+  // Com um "TÉRREO" escrito na mesma obra, os andares numerados ("PAV. 01", "1º PAVIMENTO") ficam acima dele.
+  if (candidatas.some(c => c.andar === 0 && c.numero === undefined) && candidatas.some(c => c.numero === 1)) {
+    for (const c of candidatas) if (c.numero !== undefined) c.andar = c.numero;
+  }
+  // Planta de layout (a mesma planta com móveis) só vira pavimento se não houver a planta baixa simples do mesmo
+  // andar (sem andar no título conta como térreo) ou do mesmo tamanho.
+  const ehLayout = (c: Candidata) => c.planta.vista === "layout";
+  const mesmoTamanho = (a: Candidata, b: Candidata) => Math.abs(a.planta.largura - b.planta.largura) < 0.25 && Math.abs(a.planta.comprimento - b.planta.comprimento) < 0.25;
+  for (const c of [...candidatas]) {
+    const simples = ehLayout(c) ? candidatas.find(o => !ehLayout(o) && ((o.andar ?? 0) === (c.andar ?? 0) || (c.andar === null && mesmoTamanho(o, c)))) : undefined;
+    if (simples) { candidatas.splice(candidatas.indexOf(c), 1); simples.avisos.push(`${onde(c)} é a planta de layout deste andar e não virou outro pavimento.`); }
+  }
+  // Pavimento-tipo sem faixa escrita vai logo acima do maior andar numerado (abaixo de duplex/cobertura).
+  const andaresComuns = () => candidatas.filter(c => c.andar !== null && c.andar < 900).map(c => c.andar!);
+  for (const c of candidatas) if (c.tipo && c.andar === null) c.andar = Math.max(0, ...andaresComuns()) + 1;
+  // Planta sem andar no título: a primeira vira o térreo se nenhuma outra o ocupa; as demais vão para o fim, na ordem das páginas.
+  for (const c of candidatas.filter(c => c.semAndar)) c.andar = !candidatas.some(o => o !== c && o.andar === 0) ? 0 : Math.max(0, ...andaresComuns()) + 1;
+  const lista = candidatas;
+  /** Assinatura dos cômodos: função e área (a escrita, ou a desenhada) de cada um. Mesma assinatura = mesma planta desenhada de novo. */
+  const assinatura = (c: Candidata) => c.planta.comodos.map(x => `${x.funcao}:${Math.round(x.areaInformada ?? areaPoligono(x.pontos))}`).sort().join("|");
   const unicas: Candidata[] = [];
-  for (const c of candidatas) {
-    const igual = unicas.find(u => (u.andar === c.andar || u.andar === null || c.andar === null) && u.andar === c.andar && Math.abs(u.planta.largura - c.planta.largura) < 0.25 && Math.abs(u.planta.comprimento - c.planta.comprimento) < 0.25);
-    if (!igual) { unicas.push(c); continue; }
-    // Fica a que é "planta baixa" (ou a que tem mais cômodos com nome).
-    const melhor = /BAIXA/i.test(c.planta.titulo) && !/BAIXA/i.test(igual.planta.titulo) ? c : c.planta.nomeados > igual.planta.nomeados ? c : igual;
-    unicas[unicas.indexOf(igual)] = melhor;
+  for (const c of lista) {
+    const igual = unicas.find(u => mesmoTamanho(u, c) && assinatura(u) === assinatura(c) && (u.andar === c.andar || u.semAndar || c.semAndar));
+    if (igual) {
+      // A mesma planta (mesmos cômodos, mesmas áreas) enviada de novo: fica uma, e isso é dito.
+      const melhor = /BAIXA/i.test(c.planta.titulo) && !/BAIXA/i.test(igual.planta.titulo) ? c : c.planta.nomeados > igual.planta.nomeados ? c : igual;
+      melhor.avisos.push(`${onde(c === melhor ? igual : c)} tem os mesmos cômodos e áreas desta planta e foi tratada como a mesma (não virou outro pavimento). Se for outro andar, acrescente-o na revisão.`);
+      unicas[unicas.indexOf(igual)] = melhor;
+      continue;
+    }
+    const mesmoAndar = unicas.find(u => u.andar === c.andar);
+    if (mesmoAndar) {
+      // Dois desenhos diferentes para o mesmo andar: os dois ficam (um logo acima do outro) para a pessoa decidir.
+      c.andar = (c.andar ?? 0) + 0.01;
+      c.avisos.push(`${onde(c)} e ${onde(mesmoAndar)} dizem o mesmo andar, mas os cômodos são diferentes: ficaram como pavimentos separados. Confira na revisão qual é qual.`);
+    } else if (c.semAndar && unicas.some(u => mesmoTamanho(u, c))) {
+      c.avisos.push(`${onde(c)} não diz o andar e tem o mesmo tamanho de outra planta: ficou como pavimento separado, ${c.andar === 0 ? "no térreo" : "acima dos andares com nome"}. Confira na revisão.`);
+    }
+    unicas.push(c);
   }
-  unicas.sort((a, b) => (a.andar ?? 99) - (b.andar ?? 99));
-  const motivos = pranchas.filter(p => !p.plantas.length && p.diagnostico.motivo).map(p => `${nomesDosArquivos[p.doc] ?? "PDF"}${pranchas.filter(q => q.doc === p.doc).length > 1 ? `, página ${p.pagina}` : ""}: ${p.diagnostico.motivo}`);
+  unicas.sort((a, b) => a.andar! - b.andar! || candidatas.indexOf(a) - candidatas.indexOf(b));
+  unicas.forEach((c, i) => { if (c.semAndar) c.nome = c.andar === 0 ? "Térreo" : `Pavimento ${i + 1}`; });
+  const origemDe = (p: PranchaLida) => `${nomesDosArquivos[p.doc] ?? "PDF"}${pranchas.filter(q => q.doc === p.doc).length > 1 ? `, página ${p.pagina}` : ""}`;
+  const motivos = [
+    ...pranchas.filter(p => !p.plantas.length && p.diagnostico.motivo).map(p => `${origemDe(p)}: ${p.diagnostico.motivo}`),
+    ...pranchas.flatMap(p => (p.diagnostico.avisos ?? []).map(a => `${origemDe(p)}: ${a}`)),
+  ];
   const parciais: Record<string, unknown> = {};
   const referencias: ReturnType<typeof parciaisDasPranchas>["referencias"] = [];
   const PE_DIREITO = 2.7, LAJE = 0.15, usados = new Set<string>();
@@ -300,7 +338,7 @@ export function parciaisDasPranchas(pranchas: PranchaLida[], nomesDosArquivos: s
     usados.add(nome.toLowerCase());
     const id = idPavimento(0, j), proximo = unicas[j + 1];
     parciais[`estrutura:${id}`] = { paredes: c.planta.paredes, aberturas: c.planta.aberturas, pendencias: [] } satisfies Estrutura;
-    parciais[`ambientes:${id}`] = { comodos: c.planta.comodos, escadas: c.planta.escadas.map(e => ({ ...e, sobePara: "" })), pendencias: c.planta.pendencias };
+    parciais[`ambientes:${id}`] = { comodos: c.planta.comodos, escadas: c.planta.escadas.map(e => ({ ...e, sobePara: "" })), pendencias: [...c.planta.pendencias, ...c.avisos] };
     const k = c.planta.metrosPorPonto;
     referencias.push({ pavimentoId: id, doc: c.doc, pagina: c.pagina, alinhamento: k > 0 ? { x: -c.planta.origemPt.x * k, y: -c.planta.origemPt.y * k, larguraM: c.planta.larguraDaPaginaM } : null });
     return { nome, nivel: j * (PE_DIREITO + LAJE), peDireito: PE_DIREITO, peDireitoConfirmado: false, repeticoes: 1, doc: c.doc, pagina: c.pagina, temProximo: !!proximo };
