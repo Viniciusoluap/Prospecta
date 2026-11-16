@@ -260,3 +260,52 @@ describe("QA achado 6 — tipos de mensagem", () => {
     expect(JSON.stringify(chamadas[0].mensagens)).not.toContain("IGNORE");
   });
 });
+
+describe("QA achado 7 — log sem a consulta, sem os parâmetros e sem o texto do comando", () => {
+  it("erroParaLog: corta 'Failed query … params', valores citados, chave e dados pessoais; mantém a causa", async () => {
+    const { erroParaLog } = await import("./erro-seguro.js");
+    const drizzle = new Error("Failed query: insert into \"dolores_mensagens\" (\"texto\") values ($1)\nparams: liste os processos do CPF 12345678909");
+    expect(erroParaLog(drizzle)).toBe("falha na consulta ao banco");
+    const comCausa = Object.assign(new Error("Failed query: select 1\nparams: segredo do dono"), { cause: new Error("invalid input syntax for type integer: \"liste tudo\"") });
+    expect(erroParaLog(comCausa)).toBe("invalid input syntax for type integer: \"…\"");
+    expect(erroParaLog(new Error("relation \"dolores_mensagens\" does not exist"))).toBe("relation \"dolores_mensagens\" does not exist");
+    expect(erroParaLog(new Error("erro qualquer params: texto do dono"))).toBe("erro qualquer");
+    expect(erroParaLog(new Error("401 sk-ant-api03-abcdef Bearer xyz123 ligue 99991234567."))).not.toMatch(/abcdef|xyz123|99991234567/);
+    expect(erroParaLog("x".repeat(500)).length).toBeLessThanOrEqual(200);
+  });
+  it("ponta a ponta: o banco recusa gravar a mensagem do dono e o log não leva o comando", async () => {
+    const erros = vi.spyOn(console, "error").mockImplementation(() => {});
+    const avisos = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const logs = vi.spyOn(console, "log").mockImplementation(() => {});
+    await banco.pg.exec("ALTER TABLE dolores_mensagens ADD CONSTRAINT qa_texto_curto CHECK (length(texto) < 5)");
+    const comando = "Dolores, comando secreto do dono número 7781";
+    const r = await chamar(aviso({ texto: comando }));
+    expect(r.body.r).toEqual({ erro: 1 });
+    expect(chamadas).toEqual([]);
+    const tudo = [...erros.mock.calls, ...avisos.mock.calls, ...logs.mock.calls].flat().map(String).join("\n");
+    expect(erros).toHaveBeenCalled();
+    expect(tudo).not.toMatch(/comando secreto|7781|params|insert into/i);
+  });
+  it("ponta a ponta: falha ao gravar a auditoria e o consumo também não leva valores ao log", async () => {
+    const erros = vi.spyOn(console, "error").mockImplementation(() => {});
+    await banco.pg.exec(`ALTER TABLE dolores_acoes ADD CONSTRAINT qa_sem_acoes CHECK (false) NOT VALID;
+      ALTER TABLE dolores_consumo ADD CONSTRAINT qa_sem_consumo CHECK (false) NOT VALID`);
+    roteiro = () => fim("resposta com o texto 9988 do modelo");
+    await chamar(aviso({ texto: "pedido confidencial 4455" }));
+    const tudo = erros.mock.calls.flat().map(String).join("\n");
+    expect(erros).toHaveBeenCalled();
+    expect(tudo).not.toMatch(/confidencial|4455|9988|params|insert into/i);
+  });
+  it("estático: nenhum console.* da Dolores imprime e.message, o texto da mensagem ou o comando", async () => {
+    const { readdirSync, readFileSync } = await import("node:fs");
+    const pasta = new URL(".", import.meta.url);
+    const ruins: string[] = [];
+    for (const nome of readdirSync(pasta)) {
+      if (!nome.endsWith(".ts") || nome.endsWith(".test.ts")) continue;
+      readFileSync(new URL(nome, pasta), "utf8").split("\n").forEach((linha, i) => {
+        if (/console\.(log|info|warn|error|debug)\(/.test(linha) && /\.message\b|\.texto\b|comando\b|String\(e\)/.test(linha)) ruins.push(`${nome}:${i + 1}`);
+      });
+    }
+    expect(ruins).toEqual([]);
+  });
+});

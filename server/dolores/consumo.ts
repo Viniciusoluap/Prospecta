@@ -6,6 +6,7 @@ import { doloresConfig } from "../../drizzle/schema-dolores.js";
 import { doloresConsumo, doloresMensagens, doloresWhatsappConfig, type DoloresWhatsappConfig } from "../../drizzle/schema-dolores-whatsapp.js";
 import { bloqueioDoLimite, type Limites, type Uso } from "../../shared/dolores/whatsapp.js";
 import { getDb } from "../db.js";
+import { erroParaLog } from "./erro-seguro.js";
 
 /** Linha única da configuração do WhatsApp (criada pela migração 0124). Sem ela → null. */
 export async function lerConfigWhatsapp(): Promise<DoloresWhatsappConfig | null> {
@@ -39,7 +40,7 @@ export async function registrarConsumo(c: { mes: string; mensagemId: number | nu
       parada: c.parada?.slice(0, 30) ?? null,
     });
   } catch (e) {
-    console.error("[dolores/consumo] falha ao registrar o consumo", e instanceof Error ? e.message : String(e));
+    console.error("[dolores/consumo] falha ao registrar o consumo", erroParaLog(e));
   }
 }
 

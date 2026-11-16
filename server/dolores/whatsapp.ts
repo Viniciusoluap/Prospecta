@@ -22,6 +22,7 @@ import { ENV } from "../_core/env.js";
 import { enviarTextoEvolution } from "../_core/evolution.js";
 import { getDb } from "../db.js";
 import { registrarAcao } from "./auditoria.js";
+import { erroParaLog } from "./erro-seguro.js";
 import { FOLGA_FINAL_MS, MINIMO_PARA_CHAMAR_MS, executarComando } from "./cerebro.js";
 import { lerConfigWhatsapp, lerPausa, marcarAvisoDoMes, usoDoMes } from "./consumo.js";
 import { DoloresDesativada, idDaDoloresSemCriar, usuarioDolores } from "./perfil.js";
@@ -82,7 +83,8 @@ function contarFalha(ip: string, agora: Date): boolean {
   return total > MAX_FALHAS_AUTH;
 }
 
-const erroCurto = (e: unknown) => sanitizarTexto((e instanceof Error ? e.message : String(e)).replace(/sk-ant-[\w-]*/g, "sk-ant-…")).slice(0, 200);
+/** QA achado 7: só a causa, sem a consulta e os parâmetros do Drizzle (que podem trazer o comando do dono). */
+const erroCurto = erroParaLog;
 
 async function atualizarMensagem(id: number, dados: Partial<{ situacao: SituacaoMensagem; motivo: string | null; respondidaEm: Date; voltas: number; tokensEntrada: number; tokensSaida: number }>) {
   try { await getDb().update(doloresMensagens).set({ ...dados, motivo: dados.motivo?.slice(0, 300) ?? dados.motivo }).where(eq(doloresMensagens.id, id)); }

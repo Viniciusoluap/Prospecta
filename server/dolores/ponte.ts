@@ -15,6 +15,7 @@ import { doloresConfig, doloresLimite } from "../../drizzle/schema-dolores.js";
 import { DESLOCAMENTO_FUSO, FUSO, MOEDA, isoFortaleza, limitarResposta } from "../../shared/dolores/formato.js";
 import { sanitizarResposta } from "../../shared/dolores/sanitizar.js";
 import { getDb } from "../db.js";
+import { erroParaLog } from "./erro-seguro.js";
 import { registrarAcao } from "./auditoria.js";
 import { FUNCOES, definicaoDaFerramenta, funcaoPorNome } from "./funcoes.js";
 import { ETAPA_ATUAL, funcaoLiberada, motivoDaRecusa } from "./permissoes.js";
@@ -69,11 +70,7 @@ function base(agora: Date) {
   return { etapa: ETAPA_ATUAL, geradoEm: isoFortaleza(agora), fuso: `${FUSO} (UTC${DESLOCAMENTO_FUSO})`, moeda: MOEDA };
 }
 /** Mensagem do erro para log/auditoria: a causa do banco (nunca o texto da consulta com os parâmetros), sem token. */
-const erroSeguro = (e: unknown) => {
-  const causa = e instanceof Error && e.cause instanceof Error ? e.cause.message : null;
-  const texto = causa ?? (e instanceof Error ? e.message : String(e));
-  return texto.replace(/^Failed query:[\s\S]*$/, "falha na consulta ao banco").replace(/Bearer\s+\S+/gi, "Bearer [omitido]").slice(0, 300);
-};
+const erroSeguro = erroParaLog;
 
 /** Autenticação comum aos dois endereços. null = passou. */
 function autenticar(req: Pedido, agora: Date): RespostaPonte | null {
