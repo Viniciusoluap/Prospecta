@@ -170,7 +170,7 @@ migração da etapa antes. Depois lançar S-03 e S-05, e por fim o EPIC-025 (Dol
   pendências dizia "códigos" e o filtro novo de dados pessoais a apagava como senha; testes de integração (número estrito,
   dono fixo, reentrega, temporária/encaminhada/reação/edição, quadros pelo filtro, limite com reserva). Detalhes na story E3,
   seção "Integração com a Etapa 2 final".
-- **Testes (a) automáticos:** tsc ok; área 40 arquivos / 471 testes; vite build ok; suíte completa: SUITE_RESULTADO.
+- **Testes (a) automáticos:** tsc ok; área 40 arquivos / 471 testes; vite build ok; suíte completa: 235 arquivos, 2.350 testes passando.
   **(b) manuais:** nenhum. **(c) produção:** 0124 e 0125 não aplicadas; aceite pelo WhatsApp.
 - **Próximo passo exato:** QA da E2 (4ª rodada) e da E3 sobre este ramo; aprovadas, E2 na `main`, rebase da E3, aplicar
   0125 e publicar.

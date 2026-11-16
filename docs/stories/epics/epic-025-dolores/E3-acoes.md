@@ -170,7 +170,7 @@ documentos pendentes e prepare as cobranças."
   - guarda da chave (`integracoes-anthropic.test.ts`): continua com o ponto único (`bloqueioAtual`), passando.
 - **Testes (16/11, depois do merge):** `npx tsc --noEmit` sem erros; área (`server/dolores`, `integracoes-anthropic`,
   `central-vendas*`, `whatsapp*`, `admin-workflows`, `pci*`, `auth-session`, `imports-esm`, `api-rotas-producao`) —
-  40 arquivos, 471 testes passando; `npx vite build` ok; suíte completa `npx vitest run` — SUITE_RESULTADO.
+  40 arquivos, 471 testes passando; `npx vite build` ok; suíte completa `npx vitest run` — 235 arquivos, 2.350 testes passando.
 
 ## Change Log
 - 16/11/2026 — @dev (Dex): story criada (Draft → InProgress), critérios tirados do prompt mestre (seções 4.3, 5, 6, 7).
