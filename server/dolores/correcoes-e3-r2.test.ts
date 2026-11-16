@@ -13,8 +13,9 @@ import { gerarPciDaObra } from "../pci-gerador.js";
 import { appRouter } from "../routers.js";
 import { intencaoDeAcao, pareceColagem, quadroDePendencias, quadroDoQueFoiFeito, trechoDoDono } from "../../shared/dolores/fila.js";
 import { MAX_CARACTERES_WHATSAPP } from "../../shared/dolores/whatsapp.js";
-import { decidir, definirRelogioTela, definirSorteioCodigo } from "./aprovacoes.js";
-import { esquecerUsuarioDolores } from "./perfil.js";
+import { decidir, definirRelogioTela, definirSorteioCodigo, listarFila, porNaFila, vencerItens } from "./aprovacoes.js";
+import { readFileSync } from "node:fs";
+import { esquecerUsuarioDolores, usuarioDolores } from "./perfil.js";
 import { definirDependenciasPonte, executarFuncao } from "./ponte.js";
 import { AGORA, CENARIO, criarBanco } from "./testes-banco.js";
 
@@ -254,5 +255,33 @@ describe("M6 invertido — ação direta tem desfecho único", () => {
     expect(foiPrazoDaTransacao(new PrazoDaAcaoEsgotado())).toBe(true);
     expect(foiPrazoDaTransacao(Object.assign(new Error("x"), { cause: Object.assign(new Error("canceling statement"), { code: "57014" }) }))).toBe(true);
     expect(foiPrazoDaTransacao(new Error("outra falha"))).toBe(false);
+  });
+});
+
+describe("GARANTIA do QA R2 (B4) portada — gatilho da 0125 x transições do código, com resumo que mostra o texto", () => {
+  const ctx = async () => ({ agora: AGORA, autorId: await usuarioDolores(), mensagemId: 10, pedidoId: "wa:10:1:0", aprovacaoId: null });
+  const item = (alvo: string, texto = "Anotação de teste.") => ({ alvo, resumo: `registrar anotação no histórico do cliente 1: "${texto}"`, argumentos: { leadId: 1, texto, tipo: "anotacao" } });
+  it("aguardando→executando→executada; →recusada; →vencida (lote); executando morto→erro; 0125 de novo com dados; encerrado não volta", async () => {
+    const [a, b, v, m] = await porNaFila("registrar_acompanhamento", { itens: [item("a"), item("b", "Outra anotação."), item("v", "Mais uma."), item("m", "Quarta.")], recusados: [] }, await ctx());
+    await banco.pg.exec(readFileSync(new URL("../../drizzle/0125_dolores_fila.sql", import.meta.url), "utf8"));
+    expect((await decidir([a.codigo], "aprovar", { via: "tela", userId: 1, agora: AGORA }))[0]).toMatchObject({ ok: true, situacao: "executada" });
+    expect((await decidir([b.codigo], "recusar", { via: "tela", userId: 1, agora: AGORA }))[0]).toMatchObject({ ok: true, situacao: "recusada" });
+    await banco.pg.exec(`UPDATE dolores_aprovacoes SET situacao = 'executando', decidido_em = '${new Date(AGORA.getTime() - 4 * 60_000).toISOString()}', decidido_via = 'whatsapp' WHERE codigo = '${m.codigo}'`);
+    const depois = new Date(AGORA.getTime() + 49 * 3_600_000);
+    expect(await vencerItens(depois)).toBe(2);
+    await listarFila({ situacao: "todas" }, depois);
+    expect((await fila()).map(l => l.situacao)).toEqual(["executada", "recusada", "vencida", "erro"]);
+    expect(v.codigo).toBeTruthy();
+    await expect(banco.pg.exec(`UPDATE dolores_aprovacoes SET resultado = '{}'::jsonb WHERE codigo = '${a.codigo}'`)).rejects.toThrow(/ENCERRADO|RESULTADO/);
+    await expect(banco.pg.exec("DELETE FROM dolores_aprovacoes")).rejects.toThrow(/SEM_EXCLUSAO/);
+    const [n] = await q("SELECT count(*)::int n FROM lead_activities WHERE performed_by LIKE 'Dolores%'");
+    expect(n.n).toBe(1);
+  });
+  it("item cujo resumo NÃO mostra o texto que seria gravado não executa (QA R2 N3: a GARANTIA antiga usava resumo 'resumo')", async () => {
+    const [x] = await porNaFila("registrar_acompanhamento", { itens: [{ alvo: "x", resumo: "resumo", argumentos: { leadId: 1, texto: "Texto oculto.", tipo: "anotacao" } }], recusados: [] }, await ctx());
+    const [r] = await decidir([x.codigo], "aprovar", { via: "tela", userId: 1, agora: AGORA });
+    expect(r).toMatchObject({ ok: false, situacao: "erro" });
+    expect(r.texto).toMatch(/não é exatamente o que foi mostrado/);
+    expect((await q("SELECT count(*)::int n FROM lead_activities WHERE performed_by LIKE 'Dolores%'"))[0].n).toBe(0);
   });
 });
