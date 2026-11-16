@@ -60,7 +60,8 @@ export async function listarAtrasos(args: z.infer<typeof entradaListarAtrasos>, 
       responsavel: f.corretor ? `corretor: ${f.corretor}` : null, motivoRegistrado: null,
     })),
     ...cards.map(c => ({
-      modulo: "CRM (prazo do card)", id: c.id, // diasDeAtraso 0 = vence hoje cliente: c.name, descricao: null, situacao: rotuloEtapaCrm(c.stage),
+      // diasDeAtraso 0 = vence hoje (mesma regra do aviso diário)
+      modulo: "CRM (prazo do card)", id: c.id, cliente: c.name, descricao: null, situacao: rotuloEtapaCrm(c.stage),
       atrasado: true, diasDeAtraso: diasEntre(c.cardDueDate, hoje), parado: false, diasSemMovimentacao: null, prazo: c.cardDueDate,
       responsavel: c.responsibleUserId ? nomes.get(c.responsibleUserId) ?? null : null, motivoRegistrado: null,
     })),
