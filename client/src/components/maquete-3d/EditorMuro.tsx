@@ -16,6 +16,12 @@ const btnOutline = "border-[#C9A961]/30 bg-transparent text-gray-200";
 const fmt = (n: number) => n.toLocaleString("pt-BR", { maximumFractionDigits: 2 });
 const limitar = (v: number, [a, b]: readonly [number, number]) => Math.min(b, Math.max(a, v));
 
+/** Valor do campo ao confirmar (sair do campo ou Enter): limitado à faixa, com 2 casas; texto inválido volta ao anterior. */
+export function numeroConfirmado(texto: string, anterior: number, faixa: readonly [number, number]): number {
+  const n = parseFloat(texto.replace(",", "."));
+  return Number.isFinite(n) ? Math.round(limitar(n, faixa) * 100) / 100 : anterior;
+}
+
 /**
  * Campo numérico que só limita a faixa ao sair do campo (ou com Enter): digitar "1" a caminho de "1,2" não vira o
  * mínimo no meio da digitação.
@@ -24,9 +30,7 @@ function Num({ valor, faixa, passo, onChange, desativado }: { valor: number; fai
   const [texto, setTexto] = useState(String(valor));
   useEffect(() => { setTexto(String(valor)); }, [valor]);
   const confirmar = () => {
-    const n = parseFloat(texto.replace(",", "."));
-    if (!Number.isFinite(n)) { setTexto(String(valor)); return; }
-    const v = Math.round(limitar(n, faixa) * 100) / 100;
+    const v = numeroConfirmado(texto, valor, faixa);
     setTexto(String(v));
     if (v !== valor) onChange(v);
   };
