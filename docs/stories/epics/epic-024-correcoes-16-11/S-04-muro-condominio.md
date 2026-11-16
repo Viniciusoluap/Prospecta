@@ -73,7 +73,7 @@ entre lotes, e editável.
 - `client/src/components/maquete-3d/visualizador/Visualizador.tsx` — passa o muro que vale (`muroDaMaquete`).
 - `client/src/components/maquete-3d/EditorMuro.tsx` (novo) — edição do muro e dos portões.
 - `client/src/pages/admin/AdminMaquete3D.tsx` — editor do muro na revisão da planta.
-- `server/maquete-3d-muro.test.ts` (novo) — 28 testes (15 do QA loop).
+- `server/maquete-3d-muro.test.ts` (novo) — 29 testes (16 do QA loop).
 - `server/maquete-3d.test.ts` — teste de router do muro (QA loop).
 - `shared/maquete-3d/vias.ts` — limites da implantação contam as áreas extras (QA loop).
 - `client/src/components/maquete-3d/EditorPlanta.tsx` — desenha as áreas extras do terreno (QA loop).
@@ -88,7 +88,7 @@ Código sólido (sem exceção nem NaN em contornos hostis, cantos fechados, por
 |---|---|---|---|
 | M1 | KML com várias áreas: muro só na maior, lotes das outras sem muro e sem aviso | `implantacao.terrenosExtras` (opcional; a maior continua em `terreno`, então todo leitor antigo segue igual); um muro por área, cada uma com o seu portão automático; `portao.area` (ausente = 0); editor lista os portões por área; maquete antiga com lote fora do `terreno` e sem áreas extras ganha aviso "Atualize a implantação a partir do estudo" | 889e5d4, 97c256b, 7711e78 |
 | M2 | Link publicado mudaria sem revisão | `porToken` devolve `modeloParaLinkPublico` (muro ausente = desligado: o link fica como foi publicado); `salvarModelo` e `publicar` gravam o muro que vale (`comMuroGravado`); a tela mostra "Condomínio publicado antes do muro: revise e publique de novo para o cliente ver o muro" (`publicadoSemMuro`) | 97c256b |
-| M3 | Segunda rua que chega à divisa era murada | Toda rua da malha que chega à divisa ganha abertura (acesso do estudo, ponta junto da divisa e rua que a atravessa): a principal é a portaria, as outras, portões secundários. Tirar um secundário no editor fecha a rua com muro e o editor diz "a rua … termina no muro", com "Reabrir portão" | 889e5d4, 7711e78 |
+| M3 | Segunda rua que chega à divisa era murada | Regra corrigida pelo coordenador (ver abaixo): portão automático só nos acessos reais; as outras ruas que terminam na divisa são fechadas pelo muro, listadas no editor ("Rua termina no muro" + "Abrir portão aqui") e contadas em UM aviso da validação. Nunca há muro no corredor de rua com portão | 889e5d4, 7711e78, (ver "Regra dos portões") |
 | L4 | Lascas de muro fora do terreno; gravata-borboleta sem muro e sem mensagem | Todo vértice que sai é levado ao ponto mais perto da divisa (índice por faixas); nota "o muro foi afinado"; contorno sem área = ERRO de validação claro; contorno que se cruza com área = aviso | 889e5d4, 5a94074 |
 | L5 | Frestas de 17 cm / 13,6 cm sob o muro em relevo íngreme | Estações também onde cada face cruza as arestas da malha do terreno (o pé segue a malha exatamente) e fundação de 0,5 m (`ENTERRO_MURO`) | 889e5d4 |
 | L6 | Portões editados guardados em metros do vértice 1 sobreviviam à mudança do contorno | `muro.contorno` (assinatura) gravado ao editar; "Atualizar a implantação" leva cada portão ao ponto da nova divisa mais perto da posição anterior, marca `reancorado` (aviso na validação e na tela, com "Conferi os portões"); planta do editor mostra o vértice 1 de cada área, a portaria (■) e os secundários (▲) | 97c256b, 7711e78 |
@@ -99,11 +99,20 @@ faixa de 0,3 m 16,5 cm → 0; serrilhado 17,6 cm → 0; vértices de muro no cor
 barranco 2:1 13,6 cm → 0. Desempenho: contorno de 4.000 pontos ~65 ms; serrilhado hostil 4.000 pontos 271 → ~585 ms
 (conferência do contorno), dentro do orçamento do teste (2,5 s).
 
-[AUTO-DECISION] Na grade do estudo de massa, as ruas terminam na divisa: o condomínio de teste passa a ter 12 aberturas
-(1 portaria + 11 secundários). É a regra pedida ("nunca murar o corredor de uma rua"); quem revisa tira os secundários
-que não existirem — o muro fecha a rua e o editor avisa.
+### Regra dos portões (decisão do coordenador, 16/11/2026 — substitui a primeira versão do item M3)
+Condomínio é fechado por definição. Na grade do estudo de massa as ruas vão "de divisa a divisa" e terminam na divisa
+por recorte: isso NÃO é acesso.
+1. Abertura automática só nos acessos reais: os pontos do estudo de massa ligados a uma via pública mapeada
+   (`acessos[].viaExistente`, via a até 40 m — `DISTANCIA_MAX_ACESSO_M` em `shared/incorporacao/massa.ts`; o nome da
+   via vem em `nomeVia`). O mais perto da via é a portaria; os outros acessos reais, portões secundários.
+2. Sem acesso real: UMA portaria no ponto da divisa mais perto da rua principal (a mais larga das que chegam à divisa;
+   sem nenhuma, a mais larga de todas), com nota para conferir a posição.
+3. As outras ruas que só terminam na divisa são fechadas pelo muro (ruas sem saída dentro do condomínio). O editor as
+   lista ("Rua termina no muro" + "Abrir portão aqui") e a validação mostra UM aviso com a contagem — não é erro.
+4. Nunca há muro no corredor de uma rua que leva a um portão que exista (portaria ou secundário) — com teste.
+Resultado: o estudo de massa real (grade) do teste passa de 12 aberturas para 1 portaria (não há acesso real).
 
-Testes: `server/maquete-3d-muro.test.ts` 28 (15 novos); `server/maquete-3d.test.ts` +1 teste de router (duas áreas,
+Testes: `server/maquete-3d-muro.test.ts` 29 (16 novos); `server/maquete-3d.test.ts` +1 teste de router (duas áreas,
 portões reposicionados, link publicado sem muro, salvar grava o muro). `npx vitest run server/maquete-3d
 server/auth-session.test.ts server/imports-esm.test.ts`: 8 arquivos, 158 testes passam. `tsc` e `vite build` sem erro.
 Capturas: `aereo-duas-areas-duas-ruas.png` e `portaria-e-secundario.png` (pasta de rascunho da sessão, `s04/`).
@@ -114,3 +123,4 @@ Capturas: `aereo-duas-areas-duas-ruas.png` e `portaria-e-secundario.png` (pasta 
 | 16/11/2026 | Dex (@dev) | Story criada a partir da correção 04 do EPIC-024; Status Ready → InProgress. |
 | 16/11/2026 | Dex (@dev) | Implementação concluída (modelo, geometria, visualizador, edição, testes, conferência visual); Status InProgress → InReview. |
 | 16/11/2026 | Dex (@dev) | QA loop 1: correções M1–M3 e L4–L7 do gate CONCERNS, com testes; segue InReview para o re-gate. |
+| 16/11/2026 | Dex (@dev) | Regra dos portões corrigida (condomínio fechado: portão só nos acessos reais; ruas que terminam na divisa fechadas, com UM aviso). |

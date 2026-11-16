@@ -43,6 +43,9 @@ Story: `docs/stories/epics/epic-024-correcoes-16-11/S-04-muro-condominio.md`. Br
   ao contorno, pé seguindo a malha (fundação 0,5 m), portões reposicionados quando o contorno muda, campos que limitam
   ao sair. Commits 889e5d4, 97c256b, 5a94074, 7711e78, 9af4895. (a) 158 testes (maquete-3d + build gate) passam; tsc e
   vite build ok. (b) capturas no harness (duas áreas/duas ruas; portaria). (c) pendente: condomínio real em produção.
+  Regra dos portões corrigida depois (coordenador): condomínio fechado — portão automático só nos acessos ligados
+  a via pública (`viaExistente`); sem nenhum, UMA portaria na rua principal; as outras ruas que terminam na divisa
+  ficam fechadas pelo muro (editor: "Abrir portão aqui"; validação: UM aviso com a contagem).
   Próximo passo: re-gate do @qa; depois push/PR (@devops).
 
 ## Concluído na etapa 4
