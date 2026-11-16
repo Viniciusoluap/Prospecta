@@ -177,10 +177,13 @@ describe("Anthropic — acesso e isolamento", () => {
     // chave num único ponto, com confirmação do custo por execução.
     // EPIC-025 E2 (16/11) — exceção ESTREITA (QA achado 9): só estes arquivos importam o módulo do painel, cada um só
     // com as funções listadas. A chave em si (configuracaoAnthropicPainel) é lida num único ponto nomeado da Dolores.
-    const importacoesPermitidas: Record<string, string[] | "painel"> = {
+    // EPIC-024 S-11: server/_core/modelo-por-funcao.ts guarda só NOMES de modelo (o da função e o preferencial) — "modelos":
+    // não pode importar o módulo do painel nem o cofre, nem citar a chave; conferido abaixo e no teste de modeloDaFuncao.
+    const importacoesPermitidas: Record<string, string[] | "painel" | "modelos"> = {
       [path.join("server", "_core", "anthropic-painel.ts")]: "painel",
       [path.join("server", "integracoes-router.ts")]: "painel", // conferido no teste do router, abaixo
-      [path.join("server", "dolores", "router.ts")]: ["existeChaveAnthropicPainel", "modelosAnthropicPainel"],
+      [path.join("server", "_core", "modelo-por-funcao.ts")]: "modelos",
+      [path.join("server", "dolores", "router.ts")]: ["existeChaveAnthropicPainel"],
       [path.join("server", "dolores", "whatsapp.ts")]: ["configuracaoAnthropicPainel"],
       [path.join("server", "maquete-3d", "base.ts")]: ["configuracaoAnthropicPainel"],
     };
@@ -198,6 +201,10 @@ describe("Anthropic — acesso e isolamento", () => {
         const permitido = importacoesPermitidas[rel];
         if (!permitido) { if (marcas.some(m => texto.includes(m))) usam.push(rel); continue; }
         if (permitido === "painel") continue;
+        if (permitido === "modelos") {
+          if (/anthropic-painel|secret-vault|decryptSecret|configuracaoAnthropicPainel|CHAVE_SEGREDO_ANTHROPIC_PAINEL|anthropic_painel_api_key|apiKey/.test(texto)) leemAChave.push(`${rel} (só nomes de modelo)`);
+          continue;
+        }
         // só as funções listadas, num único import do módulo
         const imports = Array.from(texto.matchAll(/import \{([^}]*)\} from "[./]+_core\/anthropic-painel\.js";/g));
         const nomes = imports.flatMap(m => m[1].split(",").map(x => x.trim()).filter(Boolean));
@@ -265,8 +272,9 @@ describe("Anthropic — acesso e isolamento", () => {
     expect(importacao).not.toBeNull();
     const funcoes = importacao![1].split(",").map(x => x.trim()).filter(x => x && !x.startsWith("type ") && x !== "anthropicPainelDepsPadrao");
     const corpo = fonte.slice(fonte.indexOf("return router({"));
-    const inicios = Array.from(corpo.matchAll(/^ {4}(\w+): adminProcedure/gm)).map(m => ({ nome: m[1], em: m.index! }));
-    const permitidas = new Set(["statusAnthropic", "testarAnthropic", "salvarAnthropic", "removerAnthropic", "modelosAnthropic", "salvarModeloAnthropic"]);
+    const inicios = Array.from(corpo.matchAll(/^ {4}(\w+): (?:adminProcedure|adminPorPapel)\b/gm)).map(m => ({ nome: m[1], em: m.index! }));
+    const permitidas = new Set(["statusAnthropic", "testarAnthropic", "salvarAnthropic", "removerAnthropic", "modelosAnthropic", "salvarModeloAnthropic",
+      "modelosPorFuncaoAnthropic", "salvarModeloFuncaoAnthropic"]); // S-11: modelo por função (só nomes de modelo)
     const usos: string[] = [];
     for (const marca of [...funcoes, "anthropic()"]) {
       for (const m of corpo.matchAll(new RegExp(marca.replace(/[()]/g, "\\$&"), "g"))) {

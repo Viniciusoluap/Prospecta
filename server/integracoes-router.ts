@@ -136,10 +136,11 @@ const ROTULO_ESTADO: Record<EstadoWhatsapp, string> = {
 export function createIntegracoesRouter(deps: IntegracoesDeps = defaultDeps) {
   const anthropic = () => deps.anthropic ?? anthropicPainelDepsPadrao;
   const antigos = () => deps.modelosAntigos ?? modelosAntigosPadrao;
-  async function modelosPorFuncao() {
+  /** Quedas de cada função quando não há modelo escolhido no painel (só nomes de modelo). */
+  async function quedasDasFuncoes() {
     const a = antigos();
     const [anteriorDolores, padraoMaquete] = await Promise.all([a.lerAnteriorDolores().catch(() => null), a.padraoMaquete().catch(() => null)]);
-    return statusModelosPorFuncao({ anteriorDolores, padraoMaquete }, anthropic());
+    return { anteriorDolores, padraoMaquete };
   }
   async function webhookAsaas(recuperar: boolean) {
     const [asaas, webhook] = await Promise.all([deps.lerAsaas(), deps.lerWebhookAsaas()]);
@@ -279,7 +280,7 @@ export function createIntegracoesRouter(deps: IntegracoesDeps = defaultDeps) {
         catch (e) { throw new TRPCError({ code: "BAD_REQUEST", message: mascararChaveAnthropic(mensagemDe(e, "Não foi possível salvar o modelo.")) }); }
       }),
     // EPIC-024 S-11: modelo por função. Só nomes de modelo; nada chama a IA para a função nem liga nada.
-    modelosPorFuncaoAnthropic: adminPorPapel.query(() => modelosPorFuncao()),
+    modelosPorFuncaoAnthropic: adminPorPapel.query(async () => statusModelosPorFuncao(await quedasDasFuncoes(), anthropic())),
     salvarModeloFuncaoAnthropic: adminPorPapel
       .input(z.object({ funcao: z.enum(FUNCOES_ANTHROPIC), modelo: z.string().trim().max(200) }).strict())
       .mutation(async ({ ctx, input }) => {
@@ -288,7 +289,7 @@ export function createIntegracoesRouter(deps: IntegracoesDeps = defaultDeps) {
         catch (e) { throw new TRPCError({ code: "BAD_REQUEST", message: mascararChaveAnthropic(mensagemDe(e, "Não foi possível salvar o modelo da função.")) }); }
         // A partir daqui a fonte do modelo da Dolores é este painel: o campo antigo do cartão dela deixa de valer.
         if (input.funcao === "dolores_whatsapp") await antigos().limparAnteriorDolores(ctx.user.id).catch(() => undefined);
-        return { success: true as const, modelo, ...(await modelosPorFuncao()) };
+        return { success: true as const, modelo, ...(await statusModelosPorFuncao(await quedasDasFuncoes(), anthropic())) };
       }),
 
     salvarPluggy: adminProcedure

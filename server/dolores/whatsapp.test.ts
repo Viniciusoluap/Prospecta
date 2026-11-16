@@ -234,10 +234,18 @@ describe("a IA não liga sozinha: frase fixa e nenhuma chamada à Anthropic", ()
     expect(pedidosModelo).toEqual([]);
     expect(enviar.mock.calls.map(c => c[0].texto)).toEqual([expect.stringMatching(/falta a chave da Anthropic/), expect.stringMatching(/falta escolher o modelo/)]);
   });
-  it("modelo próprio da Dolores tem precedência sobre o do painel", async () => {
+  it("valor antigo do cartão da Dolores é respeitado (queda) antes do preferencial do painel", async () => {
     await banco.pg.exec("UPDATE dolores_whatsapp_config SET modelo = 'modelo-da-dolores'");
     await chamar(aviso());
     expect(pedidosModelo[0].modelo).toBe("modelo-da-dolores");
+  });
+  it("EPIC-024 S-11: o modelo escolhido para a Dolores em Integrações › Anthropic vence o antigo e o preferencial", async () => {
+    await banco.pg.exec(`UPDATE dolores_whatsapp_config SET modelo = 'modelo-da-dolores';
+      CREATE TABLE IF NOT EXISTS dashboard_settings (id serial PRIMARY KEY, key varchar(100) NOT NULL UNIQUE, value varchar(500) NOT NULL, updated_at timestamp NOT NULL DEFAULT now());
+      INSERT INTO dashboard_settings (key, value) VALUES ('segredo.anthropic_painel_modelo.dolores_whatsapp', 'claude-haiku-da-funcao'),
+        ('segredo.anthropic_painel_modelo.maquete_leitura', 'claude-opus-da-maquete')`);
+    await chamar(aviso());
+    expect(pedidosModelo[0]).toMatchObject({ apiKey: CHAVE, modelo: "claude-haiku-da-funcao" });
   });
   it("sem o WhatsApp configurado (instância vazia), nada é respondido", async () => {
     await banco.pg.exec("UPDATE dolores_whatsapp_config SET instancia = NULL, ia_ligada = false");

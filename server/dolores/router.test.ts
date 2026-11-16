@@ -16,6 +16,7 @@ vi.mock("../whatsapp-router.js", async orig => ({ ...(await orig<typeof import("
 
 import { ADMIN_MODULES } from "../../shared/admin-permissions.js";
 import { existeChaveAnthropicPainel, modelosAnthropicPainel } from "../_core/anthropic-painel.js";
+import { chaveModeloDaFuncao } from "../_core/modelo-por-funcao.js";
 import { ENV } from "../_core/env.js";
 import { estadoInstancia, numeroConectado, registrarWebhookEvolution, removerInstancia } from "../_core/evolution.js";
 import { getDb } from "../db.js";
@@ -78,10 +79,21 @@ describe("configuração", () => {
     expect(s.numeroDono).toBe("(99) *****-4567");
     expect(JSON.stringify(s)).not.toContain("991234567");
   });
-  it("modelo próprio só se a chave do painel o oferece; vazio volta ao preferencial", async () => {
-    await expect(admin().dolores.salvar({ modelo: "inventado" })).rejects.toMatchObject({ code: "BAD_REQUEST" });
-    expect((await admin().dolores.salvar({ modelo: "modelo-x" })).modeloEmUso).toBe("modelo-x");
-    expect((await admin().dolores.salvar({ modelo: null })).modeloEmUso).toBe("modelo-painel");
+  it("EPIC-024 S-11: o modelo sai do cartão (vem de Integrações › Anthropic); valor antigo do cartão é respeitado como queda", async () => {
+    await expect(admin().dolores.salvar({ modelo: "modelo-x" } as never)).rejects.toMatchObject({ code: "BAD_REQUEST" });
+    expect(await admin().dolores.status()).toMatchObject({ modeloEmUso: "modelo-painel", origemModelo: "preferencial" });
+    await banco.pg.exec("UPDATE dolores_whatsapp_config SET modelo = 'modelo-antigo' WHERE id = 1");
+    expect(await admin().dolores.status()).toMatchObject({ modeloEmUso: "modelo-antigo", origemModelo: "anterior" });
+    // o modelo escolhido para a função no painel vence o antigo
+    await banco.pg.exec(`CREATE TABLE IF NOT EXISTS dashboard_settings (id serial PRIMARY KEY, key varchar(100) NOT NULL UNIQUE, value varchar(500) NOT NULL, updated_at timestamp NOT NULL DEFAULT now());
+      INSERT INTO dashboard_settings (key, value) VALUES ('${chaveModeloDaFuncao("dolores_whatsapp")}', 'modelo-da-funcao')`);
+    expect(await admin().dolores.status()).toMatchObject({ modeloEmUso: "modelo-da-funcao", origemModelo: "funcao" });
+  });
+  it("ligar a IA continua exigindo um modelo resolvido", async () => {
+    vi.mocked(existeChaveAnthropicPainel).mockResolvedValue({ existe: true, modelo: null });
+    await admin().dolores.salvar({ numeroDono: "99991234567", limiteEntrada: 1000, limiteSaida: 100 });
+    await expect(admin().dolores.ligarIa({ ligada: true })).rejects.toThrow(/Escolher o modelo da Dolores.*Integrações › Anthropic/);
+    expect((await cfg()).ia_ligada).toBe(false);
   });
   it("ligar a IA exige número do dono, chave, modelo e limites; desligar vale sempre", async () => {
     await expect(admin().dolores.ligarIa({ ligada: true })).rejects.toThrow(/Antes de ligar: .*número do dono.*limites/);
