@@ -2,12 +2,17 @@
 // O navegador abre o ZIP e manda o texto dos CSVs; aqui eles são lidos de novo (nada do cliente é confiado),
 // comparados com o banco (prévia) e gravados numa transação (importação). Reimportar o mesmo backup não
 // duplica: cada lançamento leva a chave da linha do Conta Azul no request_key (único).
-import { and, eq, gte, inArray, isNotNull, isNull, lte, sql } from "drizzle-orm";
+// EPIC-024 S-01 (16/11): lançamento ARQUIVADO (exclusao_lote_backup_id) continua segurando a chave única; a prévia
+// o mostra à parte ("arquivados que bloqueiam") e "Liberar reimportação" o remove em definitivo, com cópia em
+// bpo_lancamentos_expurgo, se não tiver nenhum vínculo.
+import { randomUUID } from "node:crypto";
+import { and, eq, gte, inArray, isNotNull, isNull, like, lte, sql } from "drizzle-orm";
 import { getDb } from "./db.js";
-import { bpoClients, bpoLancamentos, bpoRecebimentos } from "../drizzle/schema.js";
+import { bpoClients, bpoLancamentoHistorico, bpoLancamentos, bpoLancamentosExpurgo, bpoRecebimentos } from "../drizzle/schema.js";
 import { normalizarTitular } from "../shared/financeiro/bpo-extrato.js";
 import {
-  conciliarComContaAzul, lerBackupContaAzul, observacoesDoMovimento,
+  CONFIRMACAO_LIBERAR_REIMPORTACAO, PREFIXO_CHAVE_CONTA_AZUL, conciliarComContaAzul, confirmacaoLiberarValida,
+  lerBackupContaAzul, observacoesDoMovimento,
   type BackupContaAzul, type MovimentoParaConciliar, type PessoaContaAzul,
 } from "../shared/financeiro/conta-azul.js";
 
@@ -31,7 +36,7 @@ function indiceClientes(clientes: Cliente[]) {
   return { porDoc, porNome };
 }
 
-function planejar(backup: BackupContaAzul, clientes: Cliente[], chavesExistentes: Set<string>) {
+function planejar(backup: BackupContaAzul, clientes: Cliente[], chavesExistentes: Map<string, boolean>) {
   const idx = indiceClientes(clientes);
   const novosClientes: PessoaContaAzul[] = [];
   let clientesExistentes = 0;
@@ -45,16 +50,64 @@ function planejar(backup: BackupContaAzul, clientes: Cliente[], chavesExistentes
     else novosClientes.push(p);
   }
   const movimentosNovos = backup.movimentos.filter(m => !chavesExistentes.has(m.chave));
-  return { novosClientes, clientesExistentes, movimentosNovos, movimentosExistentes: backup.movimentos.length - movimentosNovos.length };
+  const movimentosArquivados = backup.movimentos.filter(m => chavesExistentes.get(m.chave) === true).length;
+  return {
+    novosClientes, clientesExistentes, movimentosNovos, movimentosArquivados,
+    movimentosExistentes: backup.movimentos.length - movimentosNovos.length - movimentosArquivados,
+  };
 }
 
+/** Chave já gravada → true se o lançamento que a segura está ARQUIVADO (fora das listas, mas bloqueia a chave). */
 async function chavesJaImportadas(d: Db | Tx, chaves: string[]) {
-  const existentes = new Set<string>();
+  const existentes = new Map<string, boolean>();
   for (let i = 0; i < chaves.length; i += 500) {
-    const r = await d.select({ k: bpoLancamentos.requestKey }).from(bpoLancamentos).where(inArray(bpoLancamentos.requestKey, chaves.slice(i, i + 500)));
-    for (const x of r) if (x.k) existentes.add(x.k);
+    const r = await d.select({ k: bpoLancamentos.requestKey, arquivo: bpoLancamentos.exclusaoLoteBackupId })
+      .from(bpoLancamentos).where(inArray(bpoLancamentos.requestKey, chaves.slice(i, i + 500)));
+    for (const x of r) if (x.k) existentes.set(x.k, x.arquivo != null);
   }
   return existentes;
+}
+
+const contagem = (q: ReturnType<typeof sql>) => sql<number>`(${q})::int`;
+
+export type ArquivadoContaAzul = { id: number; descricao: string; valor: string; requestKey: string; motivos: string[] };
+
+/**
+ * Lançamentos ARQUIVADOS do Conta Azul que seguram as chaves deste backup, com o que impede removê-los
+ * (qualquer vínculo: banco, Asaas, baixa, obra, regularização ou combinação). Sem motivo = pode liberar.
+ */
+async function arquivadosQueBloqueiam(d: Db | Tx, chaves: string[], travar = false): Promise<ArquivadoContaAzul[]> {
+  const l = bpoLancamentos;
+  const saida: ArquivadoContaAzul[] = [];
+  for (let i = 0; i < chaves.length; i += 500) {
+    const filtro = and(
+      inArray(l.requestKey, chaves.slice(i, i + 500)), like(l.requestKey, `${PREFIXO_CHAVE_CONTA_AZUL}%`),
+      eq(l.origemEfetiva, "conta_azul"), isNotNull(l.exclusaoLoteBackupId),
+    );
+    // Caso comum (nenhum arquivado): uma consulta leve, sem conferir os vínculos.
+    if (!(await d.select({ id: l.id }).from(l).where(filtro).limit(1)).length) continue;
+    const consulta = d.select({
+      id: l.id, descricao: l.descricao, valor: l.valor, requestKey: l.requestKey,
+      bankTransactionId: l.bankTransactionId, asaasPaymentId: l.asaasPaymentId, combinadaEmId: l.combinadaEmId,
+      baixas: contagem(sql`SELECT count(*) FROM bpo_recebimentos r WHERE r.lancamento_id = ${l.id}`),
+      obra: contagem(sql`SELECT count(*) FROM obra_movimentos om WHERE om.bpo_lancamento_id = ${l.id}`),
+      regularizacao: contagem(sql`SELECT count(*) FROM regularizacao_recebimentos rr WHERE rr.bpo_lancamento_id = ${l.id}`),
+      combinadas: contagem(sql`SELECT count(*) FROM bpo_lancamentos c WHERE c.combinada_em_id = ${l.id}`),
+    }).from(l).where(filtro).orderBy(l.id);
+    const linhas = travar ? await consulta.for("update") : await consulta;
+    for (const x of linhas) {
+      const motivos: string[] = [];
+      if (x.bankTransactionId != null) motivos.push("ligado a uma movimentação bancária");
+      if (x.asaasPaymentId) motivos.push("ligado a uma cobrança do Asaas");
+      if (Number(x.baixas) > 0) motivos.push("tem baixa registrada em recebimentos");
+      if (Number(x.obra) > 0) motivos.push("ligado a movimento de obra");
+      if (Number(x.regularizacao) > 0) motivos.push("ligado a recebimento de regularização");
+      if (x.combinadaEmId != null) motivos.push("combinado em outra cobrança");
+      if (Number(x.combinadas) > 0) motivos.push("outra cobrança foi combinada nele");
+      saida.push({ id: x.id, descricao: x.descricao, valor: x.valor, requestKey: x.requestKey ?? "", motivos });
+    }
+  }
+  return saida;
 }
 
 const soma = (xs: { valor: string }[]) => (xs.reduce((s, x) => s + Math.round(Number(x.valor) * 100), 0) / 100).toFixed(2);
@@ -65,11 +118,14 @@ export type PreviaContaAzul = Awaited<ReturnType<typeof previaContaAzul>>;
 export async function previaContaAzul(arquivos: Record<string, string>) {
   const backup = lerBackupContaAzul(arquivos);
   const d = getDb();
-  const [clientes, existentes] = await Promise.all([
+  const chaves = backup.movimentos.map(m => m.chave);
+  const [clientes, existentes, arquivados] = await Promise.all([
     d.select({ id: bpoClients.id, razaoSocial: bpoClients.razaoSocial, cpf: bpoClients.cpf, cnpj: bpoClients.cnpj }).from(bpoClients),
-    chavesJaImportadas(d, backup.movimentos.map(m => m.chave)),
+    chavesJaImportadas(d, chaves),
+    arquivadosQueBloqueiam(d, chaves),
   ]);
   const plano = planejar(backup, clientes, existentes);
+  const comVinculo = arquivados.filter(a => a.motivos.length > 0);
   const receitas = plano.movimentosNovos.filter(m => m.tipo === "receita");
   const despesas = plano.movimentosNovos.filter(m => m.tipo === "despesa");
   const porCategoria = new Map<string, number>();
@@ -88,7 +144,15 @@ export async function previaContaAzul(arquivos: Record<string, string>) {
     clientesExistentes: plano.clientesExistentes,
     lancamentos: {
       novos: plano.movimentosNovos.length,
+      /** Ativos (aparecem no BPO): não serão duplicados. */
       jaImportados: plano.movimentosExistentes,
+      /** Arquivados que seguram a chave: não entram enquanto não forem liberados (removidos em definitivo). */
+      arquivados: {
+        bloqueando: plano.movimentosArquivados,
+        liberaveis: arquivados.length - comVinculo.length,
+        comVinculo: comVinculo.length,
+        exemplosComVinculo: comVinculo.slice(0, 20).map(a => ({ id: a.id, descricao: a.descricao, valor: a.valor, motivos: a.motivos })),
+      },
       receitas: { quantidade: receitas.length, total: soma(receitas) },
       despesas: { quantidade: despesas.length, total: soma(despesas) },
       pagos: plano.movimentosNovos.filter(m => m.pago).length,
@@ -162,8 +226,65 @@ export async function importarContaAzul(arquivos: Record<string, string>) {
       clientesExistentes: plano.clientesExistentes,
       lancamentosCriados,
       lancamentosJaImportados: plano.movimentosExistentes + (plano.movimentosNovos.length - lancamentosCriados),
+      lancamentosArquivadosBloqueando: plano.movimentosArquivados,
       transferenciasIgnoradas: backup.transferencias.quantidade,
       linhasComErro: backup.erros.length,
+    };
+  });
+}
+
+/**
+ * EPIC-024 S-01: "Liberar reimportação" (só admin). Remove em definitivo SÓ os lançamentos ARQUIVADOS do Conta Azul
+ * que seguram as chaves deste backup e não têm vínculo nenhum — numa transação, depois de copiá-los para
+ * bpo_lancamentos_expurgo (lote) e registrar o histórico de cada um. Ativos e outras origens (legado, Asaas,
+ * manual, extrato) nunca entram. Os que têm vínculo ficam e voltam listados com o motivo.
+ */
+export async function liberarReimportacaoContaAzul(input: { arquivos: Record<string, string>; confirmacao: string }, userId: number) {
+  if (!confirmacaoLiberarValida(input.confirmacao)) throw new Error(`Digite ${CONFIRMACAO_LIBERAR_REIMPORTACAO} para confirmar a remoção definitiva.`);
+  const backup = lerBackupContaAzul(input.arquivos);
+  const chaves = backup.movimentos.map(m => m.chave);
+  if (!chaves.length) throw new Error(backup.erros[0] ?? "Nenhum lançamento neste arquivo.");
+  return getDb().transaction(async tx => {
+    // Mesma ordem de travas sempre: exclusão/restauração em lote, depois a importação.
+    await tx.execute(sql`select pg_advisory_xact_lock(hashtext('bpo_exclusao_lote'))`);
+    await tx.execute(sql`select pg_advisory_xact_lock(hashtext('bpo_importar_conta_azul'))`);
+    const arquivados = await arquivadosQueBloqueiam(tx, chaves, true);
+    const liberaveis = arquivados.filter(a => !a.motivos.length).map(a => a.id);
+    const mantidos = arquivados.filter(a => a.motivos.length > 0);
+    const loteId = randomUUID();
+    let removidos = 0;
+    for (let i = 0; i < liberaveis.length; i += LOTE) {
+      const ids = liberaveis.slice(i, i + LOTE);
+      const linhas = await tx.select().from(bpoLancamentos).where(inArray(bpoLancamentos.id, ids));
+      await tx.insert(bpoLancamentosExpurgo).values(linhas.map(x => ({
+        loteId, lancamentoId: x.id, requestKey: x.requestKey, origemEfetiva: x.origemEfetiva,
+        exclusaoLoteBackupId: x.exclusaoLoteBackupId, dadosJson: JSON.stringify(x), expurgadoPorUserId: userId,
+      })));
+      await tx.insert(bpoLancamentoHistorico).values(linhas.map(x => ({
+        lancamentoId: x.id, lancamentoReferencia: x.id, versaoAnterior: x.version, alteradoPorUserId: userId,
+        motivo: `Removido em definitivo para liberar a reimportação do Conta Azul (arquivado; cópia no expurgo ${loteId})`,
+        antesJson: JSON.stringify(x), depoisJson: JSON.stringify({ expurgado: true, loteId }),
+      })));
+      // Revalida tudo no próprio DELETE: se algo ganhou vínculo desde a leitura, nada é apagado.
+      const apagados = await tx.delete(bpoLancamentos).where(and(
+        inArray(bpoLancamentos.id, ids), isNotNull(bpoLancamentos.exclusaoLoteBackupId),
+        eq(bpoLancamentos.origemEfetiva, "conta_azul"), like(bpoLancamentos.requestKey, `${PREFIXO_CHAVE_CONTA_AZUL}%`),
+        isNull(bpoLancamentos.asaasPaymentId), isNull(bpoLancamentos.bankTransactionId), isNull(bpoLancamentos.combinadaEmId),
+        sql`NOT EXISTS (SELECT 1 FROM bpo_recebimentos r WHERE r.lancamento_id = ${bpoLancamentos.id})`,
+        sql`NOT EXISTS (SELECT 1 FROM obra_movimentos om WHERE om.bpo_lancamento_id = ${bpoLancamentos.id})`,
+        sql`NOT EXISTS (SELECT 1 FROM regularizacao_recebimentos rr WHERE rr.bpo_lancamento_id = ${bpoLancamentos.id})`,
+        sql`NOT EXISTS (SELECT 1 FROM bpo_lancamentos c WHERE c.combinada_em_id = ${bpoLancamentos.id})`,
+      )).returning({ id: bpoLancamentos.id });
+      if (apagados.length !== ids.length || linhas.length !== ids.length) throw new Error("Algum lançamento arquivado mudou durante a liberação. Nada foi removido; abra a prévia de novo.");
+      removidos += apagados.length;
+    }
+    console.info(`[bpo] Liberar reimportação Conta Azul: lote ${loteId}, ${removidos} removido(s), ${mantidos.length} mantido(s) com vínculo, usuário #${userId}.`);
+    return {
+      loteId: removidos ? loteId : null,
+      arquivados: arquivados.length,
+      removidos,
+      mantidos: mantidos.length,
+      mantidosDetalhe: mantidos.slice(0, 100).map(a => ({ id: a.id, descricao: a.descricao, valor: a.valor, motivos: a.motivos })),
     };
   });
 }

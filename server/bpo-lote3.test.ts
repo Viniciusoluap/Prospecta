@@ -214,6 +214,7 @@ beforeEach(async () => {
     INSERT INTO bank_transactions (account_id, data, descricao, valor, tipo) VALUES (1, now(), 'Pix', 10, 'credito');`);
   await pg.exec(sqlDe("0099_bpo_limpeza_ajustes.sql"));
   await pg.exec(sqlDe("0103_bpo_a_classificar.sql")); // 12/11 (noite): A classificar e divisão de pagamentos
+  await pg.exec(sqlDe("0122_bpo_lancamentos_expurgo.sql")); // EPIC-024 S-01: expurgo do Conta Azul
   vi.mocked(getDb).mockReturnValue(drizzle(pg) as never);
 });
 afterEach(async () => { await pg.close(); });
