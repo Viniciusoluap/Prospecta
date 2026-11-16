@@ -102,7 +102,8 @@ describe("rotas do painel — modelo por função", () => {
     const r = await s.caller.modelosPorFuncaoAnthropic();
     expect(r.configurado).toBe(false);
     expect(r.funcoes.map(f => [f.id, f.rotulo])).toEqual([
-      ["maquete_leitura", "Leitura de plantas em PDF — Maquete 3D"], ["dolores_whatsapp", "Dolores — conversa pelo WhatsApp"]]);
+      ["maquete_leitura", "Leitura de plantas em PDF — Maquete 3D"], ["dolores_whatsapp", "Dolores — conversa pelo WhatsApp"],
+      ["dolores_documentos", "Dolores — classificação de documentos"]]);
     expect(linha(r, "dolores_whatsapp").recomendacao).toMatch(/mais barato/);
     expect(linha(r, "maquete_leitura").recomendacao).toMatch(/mais capaz/);
     // QA S-11 achado 8: sem jargão técnico e a recomendação não repete o rótulo

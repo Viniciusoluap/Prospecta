@@ -36,6 +36,10 @@ export async function criarBanco() {
   const fila = readFileSync(new URL("../../drizzle/0125_dolores_fila.sql", import.meta.url), "utf8");
   await pg.exec(fila);
   await pg.exec(fila);
+  // Etapa 4 (Grupos): migração 0126, também duas vezes.
+  const grupos = readFileSync(new URL("../../drizzle/0126_dolores_grupos.sql", import.meta.url), "utf8");
+  await pg.exec(grupos);
+  await pg.exec(grupos);
   return { pg, db: drizzle(pg) };
 }
 

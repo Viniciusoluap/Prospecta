@@ -4,6 +4,7 @@
 import { and, eq, gt, isNull, ne, or, sql } from "drizzle-orm";
 import { doloresConfig } from "../../drizzle/schema-dolores.js";
 import { doloresConsumo, doloresMensagens, doloresWhatsappConfig, type DoloresWhatsappConfig } from "../../drizzle/schema-dolores-whatsapp.js";
+import { doloresGrupoMensagens } from "../../drizzle/schema-dolores-grupos.js";
 import { bloqueioDoLimite, type Limites, type Uso } from "../../shared/dolores/whatsapp.js";
 import { getDb } from "../db.js";
 import { erroParaLog } from "./erro-seguro.js";
@@ -71,6 +72,9 @@ export async function reservarChamada(p: { mes: string; mensagemId: number; limi
       entrada: sql<number>`coalesce(sum(${doloresMensagens.reservaEntrada}), 0)`.mapWith(Number),
       saida: sql<number>`coalesce(sum(${doloresMensagens.reservaSaida}), 0)`.mapWith(Number),
     }).from(doloresMensagens).where(and(gt(doloresMensagens.reservaAte, agora), ne(doloresMensagens.id, p.mensagemId)));
+    // Etapa 4: as reservas das classificações de documentos em andamento também ocupam o limite
+    const grupos = await reservasDasClassificacoes(tx, agora, null);
+    if (reservado) { reservado.entrada = Number(reservado.entrada ?? 0) + grupos.entrada; reservado.saida = Number(reservado.saida ?? 0) + grupos.saida; }
     // QA r2 N3: só o uso REAL decide "limite atingido". Se o que bloqueia é a reserva de OUTRO pedido em andamento, o motivo
     // é próprio ("outro_pedido": tente de novo em um minuto) e o aviso único do mês não é gasto.
     const real = bloqueioDoLimite({ entrada: Number(usado?.entrada ?? 0), saida: Number(usado?.saida ?? 0) }, p.limites);
@@ -93,5 +97,72 @@ export async function liberarReserva(mensagemId: number) {
     await getDb().update(doloresMensagens).set({ reservaEntrada: 0, reservaSaida: 0, reservaAte: null }).where(eq(doloresMensagens.id, mensagemId));
   } catch (e) {
     console.error("[dolores/consumo] falha ao liberar a reserva", e instanceof Error ? e.name : "erro");
+  }
+}
+
+type Transacao = Parameters<Parameters<ReturnType<typeof getDb>["transaction"]>[0]>[0];
+
+/**
+ * Etapa 4 — reservas ainda válidas das classificações de documentos (dolores_grupo_mensagens), menos a da própria
+ * mensagem. Sem a migração 0126, não há reserva de classificação (zero) — a etapa 2 continua igual.
+ */
+async function reservasDasClassificacoes(tx: Transacao, agora: Date, excetoId: number | null): Promise<Uso> {
+  const existe = await tx.execute(sql`SELECT to_regclass('public.dolores_grupo_mensagens') IS NOT NULL AS existe`);
+  if (!(existe as unknown as { rows: Array<{ existe: boolean }> }).rows[0]?.existe) return { entrada: 0, saida: 0 };
+  const [r] = await tx.select({
+    entrada: sql<number>`coalesce(sum(${doloresGrupoMensagens.reservaEntrada}), 0)`.mapWith(Number),
+    saida: sql<number>`coalesce(sum(${doloresGrupoMensagens.reservaSaida}), 0)`.mapWith(Number),
+  }).from(doloresGrupoMensagens).where(excetoId === null ? gt(doloresGrupoMensagens.reservaAte, agora)
+    : and(gt(doloresGrupoMensagens.reservaAte, agora), ne(doloresGrupoMensagens.id, excetoId)));
+  return { entrada: Number(r?.entrada ?? 0), saida: Number(r?.saida ?? 0) };
+}
+
+/**
+ * Etapa 4 — a classificação de documentos só usa até esta fração do limite mensal: o resto fica de folga para os comandos
+ * do dono (a leitura de grupo nunca deixa a Dolores sem orçamento para responder a ele).
+ */
+export const FRACAO_DO_LIMITE_PARA_CLASSIFICACAO = 0.8;
+
+/**
+ * Etapa 4 — reserva do limite mensal para UMA classificação, com a mesma trava da etapa 2 (linha da configuração em
+ * FOR UPDATE): soma o uso real do mês, as reservas dos comandos do dono e as das outras classificações, e só reserva se
+ * tudo, mais esta reserva, couber em FRACAO_DO_LIMITE_PARA_CLASSIFICACAO do limite. A reserva fica na própria mensagem do
+ * grupo e vence sozinha. Devolve o motivo do bloqueio ou null (reservado).
+ */
+export async function reservarClassificacao(p: { mes: string; mensagemGrupoId: number; limites: Limites; reserva: Uso; validadeMs: number }) {
+  return getDb().transaction(async tx => {
+    await tx.execute(sql`SELECT ${doloresWhatsappConfig.id} FROM ${doloresWhatsappConfig} WHERE ${doloresWhatsappConfig.id} = 1 FOR UPDATE`);
+    const agora = new Date();
+    const [usado] = await tx.select({
+      entrada: sql<number>`coalesce(sum(${doloresConsumo.tokensEntrada} + ${doloresConsumo.tokensCacheEscrita} + ${doloresConsumo.tokensCacheLeitura}), 0)`.mapWith(Number),
+      saida: sql<number>`coalesce(sum(${doloresConsumo.tokensSaida}), 0)`.mapWith(Number),
+    }).from(doloresConsumo).where(eq(doloresConsumo.mes, p.mes));
+    const real = bloqueioDoLimite({ entrada: Number(usado?.entrada ?? 0), saida: Number(usado?.saida ?? 0) }, p.limites);
+    if (real) return real;
+    const [comandos] = await tx.select({
+      entrada: sql<number>`coalesce(sum(${doloresMensagens.reservaEntrada}), 0)`.mapWith(Number),
+      saida: sql<number>`coalesce(sum(${doloresMensagens.reservaSaida}), 0)`.mapWith(Number),
+    }).from(doloresMensagens).where(gt(doloresMensagens.reservaAte, agora));
+    const outras = await reservasDasClassificacoes(tx, agora, p.mensagemGrupoId);
+    const teto = { entrada: Math.floor(p.limites.entrada * FRACAO_DO_LIMITE_PARA_CLASSIFICACAO), saida: Math.floor(p.limites.saida * FRACAO_DO_LIMITE_PARA_CLASSIFICACAO) };
+    const total = {
+      entrada: Number(usado?.entrada ?? 0) + Number(comandos?.entrada ?? 0) + outras.entrada + p.reserva.entrada,
+      saida: Number(usado?.saida ?? 0) + Number(comandos?.saida ?? 0) + outras.saida + p.reserva.saida,
+    };
+    if (total.entrada > teto.entrada || total.saida > teto.saida) return "folga_do_dono" as const;
+    await tx.update(doloresGrupoMensagens).set({
+      reservaEntrada: Math.max(0, Math.round(p.reserva.entrada)), reservaSaida: Math.max(0, Math.round(p.reserva.saida)),
+      reservaAte: new Date(agora.getTime() + p.validadeMs),
+    }).where(eq(doloresGrupoMensagens.id, p.mensagemGrupoId));
+    return null;
+  });
+}
+
+/** Solta a reserva da classificação. Falha só vai para o log: a reserva vence sozinha. */
+export async function liberarReservaClassificacao(mensagemGrupoId: number) {
+  try {
+    await getDb().update(doloresGrupoMensagens).set({ reservaEntrada: 0, reservaSaida: 0, reservaAte: null }).where(eq(doloresGrupoMensagens.id, mensagemGrupoId));
+  } catch (e) {
+    console.error("[dolores/consumo] falha ao liberar a reserva da classificação", e instanceof Error ? e.name : "erro");
   }
 }
