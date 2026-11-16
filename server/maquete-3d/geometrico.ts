@@ -92,16 +92,22 @@ const areaDoTexto = (t: string): number | null => {
 
 /** O que o título diz que o desenho é. Só "planta" e "layout" viram pavimento; corte, fachada, cobertura e implantação, não. */
 export type TipoVista = "planta" | "layout" | "outra";
-const VISTA_OUTRA = /\bCORTES?\b|FACHADA|FAHCADA|FRONTAL|ELEVACA|\bVISTA\b|PERSPECTIVA|ISOMETRI|DETALHE|SITUACAO|LOCACAO|IMPLANTACAO|URBANIS|LOTEAMENTO|\bLOTES?\b|\bQUADRAS?\b|DIAGRAMA|ESQUEMA|TABELA|QUADRO DE|LEGENDA/;
-const VISTA_TELHADO = /COBERTURA|TELHADO/;
-const VISTA_LAYOUT = /LAYOUT|LAY-OUT|MOBILIAD|MOBILIARIO|HUMANIZ|DECORA/;
-const VISTA_PLANTA = /PLANTA|PAVIMENTO|PAVTO|TERREO|TERREA|SUPERIOR|INFERIOR|SUBSOLO|ANDAR|MEZANINO/; // "TIPO" sozinho é campo do carimbo ("Tipo:"); "pavimento tipo" já cai em PAVIMENTO
+/** Título que se declara planta de pavimento: vale como planta, diga o que mais disser ("PLANTA BAIXA - LOTE 12", "IMPLANTAÇÃO E PLANTA BAIXA"). */
+const DECLARA_PLANTA = /PLANTA\s+BAIXA|PLANTA\s+(?:D[OAE]S?\s+)?(?:\d+\s*[ºO°]?\s*)?(?:PAVIMENTO|PAVTO|PAV\b|ANDAR|TERREO|TERREA|SUBSOLO|MEZANINO|ATICO|SOTAO|SUPERIOR|INFERIOR)|PAVIMENTO\s+(?:TIPO|TERREO|SUPERIOR|INFERIOR|\d)|\d+\s*[ºO°]\s*(?:PAVIMENTO|PAV\b|ANDAR)|(?:PRIMEIRO|SEGUNDO|TERCEIRO|QUARTO|QUINTO)\s+(?:PAVIMENTO|ANDAR)|COBERTURA\s+DUPLEX/;
+/**
+ * Outros desenhos, pelo começo do título (é assim que se escrevem): "CORTE AA", "FACHADA …", "ELEVAÇÃO …", "VISTA 1",
+ * "PLANTA DE COBERTURA", "PLANTA DE SITUAÇÃO", "IMPLANTAÇÃO", quadros e legendas. Uma vista do Revit com o nome só da
+ * direção ("FRONTAL", "LATERAL ESQUERDA", "POSTERIOR", "NORTE") também é elevação.
+ */
+const COMECA_OUTRA = /^(?:CORTES?\b|FACHADAS?\b|ELEVAC|VISTAS?\b|PERSPECTIVA|ISOMETRI|DETALHES?\b|AMPLIACAO|IMPLANTACAO|SITUACAO|LOCACAO|URBANIS|LOTEAMENTO|COBERTURA|TELHADO|TABELA|QUADRO\b|LEGENDA|DIAGRAMA|ESQUEMA|PLANTA\s+(?:D[EOA]S?\s+)?(?:COBERTURA|TELHADO|SITUACAO|LOCACAO|IMPLANTACAO|URBANIS|LOTEAMENTO|PAISAGIS|FORRO|PONTOS|ELETRIC|HIDRA|SANITAR|ESTRUTUR|FUNDAC|FORMAS?\b|CHAVE))|^(?:FRONTAL|POSTERIOR|FUNDOS|LATERAL(?:\s+(?:DIREITA|ESQUERDA))?|NORTE|SUL|LESTE|OESTE)$/;
+const VISTA_LAYOUT = /LAYOUT|LAY-OUT|MOBILIAD|MOBILIARIO|HUMANIZ|DECORAD/;
+const VISTA_PLANTA = /PLANTA|PAVIMENTO|PAVTO|TERREO|TERREA|SUPERIOR|INFERIOR|SUBSOLO|ANDAR|MEZANINO/; // "TIPO" sozinho é campo do carimbo ("Tipo:")
 export function tipoDaVista(titulo: string): TipoVista | null {
-  const t = semAcento(titulo);
-  if (VISTA_OUTRA.test(t)) return "outra";
-  // "Planta de cobertura" é o telhado; "pavimento cobertura" (cobertura duplex) é um andar.
-  if (VISTA_TELHADO.test(t) && !/BAIXA|PAVIMENTO|TERREO|SUPERIOR|DUPLEX/.test(t)) return "outra";
-  if (VISTA_LAYOUT.test(t)) return "layout";
+  const t = semAcento(titulo).replace(/^\s*(?:\d{1,2}|[A-Z])\s*[-–.:)]\s*/, "").replace(/\s+/g, " ").trim();
+  if (!t) return null;
+  if (VISTA_LAYOUT.test(t) && (VISTA_PLANTA.test(t) || /^(?:LAYOUT|LAY-OUT)\b/.test(t))) return "layout";
+  if (DECLARA_PLANTA.test(t)) return "planta";
+  if (COMECA_OUTRA.test(t)) return "outra";
   if (VISTA_PLANTA.test(t)) return "planta";
   return null;
 }
@@ -182,7 +188,7 @@ type Reta = { ang: number; rho: number; t0: number; t1: number; comp: number };
 type Peca = { ang: number; rho: number; t0: number; t1: number; esp: number };
 const BALDES = 180;
 const PECA_MIN = 0.12;
-const MAX_CANDIDATAS = 400_000;
+const MAX_CANDIDATAS = 150_000;
 
 function emReta(s: Segmento): Reta {
   let dx = s.x2 - s.x1, dy = s.y2 - s.y1;
@@ -201,11 +207,11 @@ function familias(retas: Reta[]): { membros: Set<Reta>; escadas: { ang: number; 
   const grupos = new Map<string, Reta[]>();
   for (const r of retas) {
     if (r.comp < 0.55 || r.comp > 3.2) continue;
-    const k = `${r.ang}:${Math.round(r.t0 * 8)}:${Math.round(r.t1 * 8)}`;
-    grupos.set(k, [...(grupos.get(k) ?? []), r]);
+    const k = `${r.ang}:${Math.round(r.t0 * 8)}:${Math.round(r.t1 * 8)}`, g = grupos.get(k);
+    if (g) g.push(r); else grupos.set(k, [r]);
   }
   grupos.forEach(g => {
-    if (g.length < 5) return;
+    if (g.length < 5 || passou()) return;
     g.sort((a, b) => a.rho - b.rho);
     let ini = 0;
     for (let i = 1; i <= g.length; i++) {
@@ -219,33 +225,74 @@ function familias(retas: Reta[]): { membros: Set<Reta>; escadas: { ang: number; 
       }
       ini = i;
     }
-    // Faixas de piso, hachura de rampa, telhas no corte: muitas linhas iguais e próximas (sem o passo regular da
-    // escada) ocupando mais de um metro. Não são parede, e deixá-las entrar desvia a espessura dominante das paredes.
-    let comeco = 0;
-    for (let i = 1; i <= g.length; i++) {
-      if (i < g.length && g[i].rho - g[i - 1].rho <= 0.6) continue;
-      if (i - comeco >= 6 && g[i - 1].rho - g[comeco].rho >= 1) for (let j = comeco; j < i; j++) membros.add(g[j]);
-      comeco = i;
-    }
   });
+  hachuras(retas, membros);
   return { membros, escadas };
+}
+
+/**
+ * Faixas de piso, juntas de piso em grade, hachura de rampa, telhas no corte: muitas linhas paralelas, de extensão
+ * parecida, a menos de 60 cm umas das outras, ocupando mais de um metro. Não são parede — e, se entrarem na votação,
+ * desviam a espessura dominante. Trechos colineares encostados (cada lajota desenhada à parte) contam como uma linha.
+ * Pede 8 linhas: as camadas de reboco de uma parede somam 6 linhas em 10 cm, e duas ou três paredes paralelas
+ * próximas (um shaft) não chegam a 8 com esse espaçamento.
+ */
+function hachuras(retas: Reta[], membros: Set<Reta>) {
+  const porAng = new Map<number, Reta[]>();
+  for (const r of retas) { if (r.comp < 0.05) continue; const l = porAng.get(r.ang); if (l) l.push(r); else porAng.set(r.ang, [r]); }
+  porAng.forEach(lista => {
+    if (lista.length < 8 || passou()) return;
+    lista.sort((a, b) => a.rho - b.rho || a.t0 - b.t0);
+    type Longa = { rho: number; t0: number; t1: number; partes: Reta[] };
+    const longas: Longa[] = [];
+    let abertas: Longa[] = [];
+    for (const r of lista) {
+      abertas = abertas.filter(l => r.rho - l.rho <= 0.002);
+      const l = abertas.find(u => r.t0 <= u.t1 + 0.03);
+      if (l) { l.t1 = Math.max(l.t1, r.t1); l.partes.push(r); } else { const n = { rho: r.rho, t0: r.t0, t1: r.t1, partes: [r] }; longas.push(n); abertas.push(n); }
+    }
+    const grupos = new Map<string, Longa[]>();
+    for (const l of longas) {
+      if (l.t1 - l.t0 < 0.55) continue;
+      const k = `${Math.round(l.t0 / 0.25)}:${Math.round(l.t1 / 0.25)}`, g = grupos.get(k);
+      if (g) g.push(l); else grupos.set(k, [l]);
+    }
+    grupos.forEach(g => {
+      if (g.length < 8) return;
+      let ini = 0;
+      for (let i = 1; i <= g.length; i++) {
+        if (i < g.length && g[i].rho - g[i - 1].rho <= 0.6) continue;
+        const distintas = new Set(g.slice(ini, i).map(l => Math.round(l.rho * 200))).size;
+        if (distintas >= 8 && g[i - 1].rho - g[ini].rho >= 1) for (let j = ini; j < i; j++) g[j].partes.forEach(r => membros.add(r));
+        ini = i;
+      }
+    });
+  });
+}
+
+/** Relógio da leitura da página: as fases pesadas consultam de tempos em tempos e param quando o prazo passa. */
+const relogio = { prazo: Infinity, estourou: false, n: 0 };
+function passou(): boolean {
+  if (relogio.estourou) return true;
+  if (++relogio.n % 512 === 0 && Date.now() > relogio.prazo) relogio.estourou = true;
+  return relogio.estourou;
 }
 
 /** Pares de linhas paralelas com distância de parede → peças (eixo e espessura). */
 function pecasDeParede(retas: Reta[]): Peca[] {
   const porAngulo = new Map<number, Reta[]>();
   // Pedaços a partir de 12 cm: os montantes entre uma porta e uma janela (ou junto de um canto) costumam ser curtos.
-  for (const r of retas) if (r.comp >= PECA_MIN) porAngulo.set(r.ang, [...(porAngulo.get(r.ang) ?? []), r]);
+  for (const r of retas) { if (r.comp < PECA_MIN) continue; const l = porAngulo.get(r.ang); if (l) l.push(r); else porAngulo.set(r.ang, [r]); }
   const candidatas: Peca[] = [];
   porAngulo.forEach((lista, ang) => {
     lista.sort((a, b) => a.rho - b.rho);
     for (let i = 0; i < lista.length; i++) for (let j = i + 1; j < lista.length; j++) {
+      if (candidatas.length > MAX_CANDIDATAS || passou()) return;
       const d = lista[j].rho - lista[i].rho;
       if (d > 0.36) break;
       if (d < 0.07) continue;
       const t0 = Math.max(lista[i].t0, lista[j].t0), t1 = Math.min(lista[i].t1, lista[j].t1);
       if (t1 - t0 >= PECA_MIN) candidatas.push({ ang, rho: (lista[i].rho + lista[j].rho) / 2, t0, t1, esp: d });
-      if (candidatas.length > MAX_CANDIDATAS) return;
     }
   });
   if (!candidatas.length) return [];
@@ -266,7 +313,7 @@ function colineares(pecas: Peca[]): Peca[][] {
   const grupos: Peca[][] = [];
   const ordenadas = [...pecas].sort((a, b) => a.ang - b.ang || a.rho - b.rho);
   for (const p of ordenadas) {
-    const g = grupos.find(q => q[0].ang === p.ang && Math.abs(q[0].rho - p.rho) <= 0.05);
+    const u = grupos[grupos.length - 1], g = u && u[0].ang === p.ang && Math.abs(u[0].rho - p.rho) <= 0.05 ? u : null; // já vêm ordenadas
     if (g) g.push(p); else grupos.push([p]);
   }
   return grupos.map(g => {
@@ -282,7 +329,41 @@ function colineares(pecas: Peca[]): Peca[][] {
 
 type Vao = { t: number; largura: number; tipo: "porta" | "janela" | "vao" };
 type Parede = { a: Ponto; b: Ponto; esp: number; ang: number; rho: number; t0: number; t1: number; vaos: Vao[] };
-type Contexto = { retas: Reta[]; curtas: Reta[]; arcos: Arco[] };
+type Contexto = {
+  retas: Reta[]; arcos: Arco[];
+  /** Linhas (todas, ou só as curtas de 6 a 45 cm) de um ângulo com rho entre r0 e r1 — por busca binária, sem varrer a página. */
+  faixa: (ang: number, r0: number, r1: number, curtas?: boolean) => Reta[];
+  /** Arcos com centro dentro da caixa. */
+  arcosEm: (x0: number, y0: number, x1: number, y1: number) => Arco[];
+};
+
+function contexto(retas: Reta[], arcos: Arco[]): Contexto {
+  const indice = (lista: Reta[]) => {
+    const m = new Map<number, Reta[]>();
+    for (const r of lista) { const l = m.get(r.ang); if (l) l.push(r); else m.set(r.ang, [r]); }
+    m.forEach(l => l.sort((a, b) => a.rho - b.rho));
+    return m;
+  };
+  const todas = indice(retas), curtas = indice(retas.filter(r => r.comp >= 0.06 && r.comp <= 0.45));
+  const faixa = (ang: number, r0: number, r1: number, soCurtas = false) => {
+    const l = (soCurtas ? curtas : todas).get(((ang % BALDES) + BALDES) % BALDES);
+    if (!l) return [];
+    let lo = 0, hi = l.length;
+    while (lo < hi) { const m = (lo + hi) >> 1; if (l[m].rho < r0) lo = m + 1; else hi = m; }
+    const out: Reta[] = [];
+    for (let i = lo; i < l.length && l[i].rho <= r1; i++) out.push(l[i]);
+    return out;
+  };
+  const celulas = new Map<string, Arco[]>();
+  for (const a of arcos) { const k = `${Math.floor(a.cx / 2)},${Math.floor(a.cy / 2)}`, l = celulas.get(k); if (l) l.push(a); else celulas.set(k, [a]); }
+  const arcosEm = (x0: number, y0: number, x1: number, y1: number) => {
+    const out: Arco[] = [];
+    for (let i = Math.floor(x0 / 2); i <= Math.floor(x1 / 2); i++) for (let j = Math.floor(y0 / 2); j <= Math.floor(y1 / 2); j++)
+      for (const a of celulas.get(`${i},${j}`) ?? []) if (a.cx >= x0 && a.cx <= x1 && a.cy >= y0 && a.cy <= y1) out.push(a);
+    return out;
+  };
+  return { retas, arcos, faixa, arcosEm };
+}
 
 /** Portas que os arcos de folha marcam dentro do trecho [tA, tB] da reta da parede (uma por arco; duas folhas que se encontram viram uma porta). */
 function portasPelosArcos(ang: number, rho: number, esp: number, tA: number, tB: number, arcos: Arco[]): [number, number][] {
@@ -319,12 +400,13 @@ function classificarVao(ang: number, rho: number, esp: number, tA: number, tB: n
   const vao = tB - tA;
   if (vao < 0.4 || vao > 4) return null;
   const pontas = [ponto(ang, rho, tA), ponto(ang, rho, tB)];
-  const temArco = ctx.arcos.some(a => Math.abs(a.r - vao) <= Math.max(0.12, vao * 0.22) && pontas.some(q => Math.hypot(q.x - a.cx, q.y - a.cy) <= esp / 2 + 0.2));
+  const arcos = ctx.arcosEm(Math.min(pontas[0].x, pontas[1].x) - 1.6, Math.min(pontas[0].y, pontas[1].y) - 1.6, Math.max(pontas[0].x, pontas[1].x) + 1.6, Math.max(pontas[0].y, pontas[1].y) + 1.6);
+  const temArco = arcos.some(a => Math.abs(a.r - vao) <= Math.max(0.12, vao * 0.22) && pontas.some(q => Math.hypot(q.x - a.cx, q.y - a.cy) <= esp / 2 + 0.2));
   if (temArco && vao <= 1.6 && vao >= 0.5) return [{ t: (tA + tB) / 2, largura: vao, tipo: "porta" }];
   // Caixilho: linhas ao longo do vão, dentro da espessura da parede.
   // No vão junto de um canto (sem peça de parede do outro lado) pede duas linhas: uma só pode ser a junta do piso.
-  const caixilhoEm = (u0: number, u1: number) => new Set(ctx.retas.filter(r => r.ang === ang && Math.abs(r.rho - rho) <= esp / 2 + 0.01 && Math.min(r.t1, u1) - Math.max(r.t0, u0) >= (u1 - u0) * 0.7).map(r => Math.round(r.rho * 200))).size >= (naPonta ? 2 : 1);
-  const portas = portasPelosArcos(ang, rho, esp, tA, tB, ctx.arcos);
+  const caixilhoEm = (u0: number, u1: number) => new Set(ctx.faixa(ang, rho - esp / 2 - 0.01, rho + esp / 2 + 0.01).filter(r => Math.min(r.t1, u1) - Math.max(r.t0, u0) >= (u1 - u0) * 0.7).map(r => Math.round(r.rho * 200))).size >= (naPonta ? 2 : 1);
+  const portas = portasPelosArcos(ang, rho, esp, tA, tB, arcos);
   if (portas.length) {
     const vaos: Vao[] = [];
     let ini = tA;
@@ -344,7 +426,7 @@ function classificarVao(ang: number, rho: number, esp: number, tA: number, tB: n
   if (caixilhoEm(tA, tB)) return [{ t: (tA + tB) / 2, largura: vao, tipo: "janela" }];
   if (!naPonta && vao <= 3) {
     const perp = (ang + 90) % BALDES, pr = (perp * Math.PI) / 180;
-    const ombreiras = [tA, tB].filter(t => { const q = ponto(ang, rho, t); return ctx.curtas.some(r => r.ang === perp && Math.abs(r.comp - esp) <= esp * 0.5 && Math.abs(r.rho - (-q.x * Math.sin(pr) + q.y * Math.cos(pr))) <= 0.06 && Math.abs((r.t0 + r.t1) / 2 - (q.x * Math.cos(pr) + q.y * Math.sin(pr))) <= esp); }).length;
+    const ombreiras = [tA, tB].filter(t => { const q = ponto(ang, rho, t); const rq = -q.x * Math.sin(pr) + q.y * Math.cos(pr); return ctx.faixa(perp, rq - 0.06, rq + 0.06, true).some(r => Math.abs(r.comp - esp) <= esp * 0.5 && Math.abs(r.rho - (-q.x * Math.sin(pr) + q.y * Math.cos(pr))) <= 0.06 && Math.abs((r.t0 + r.t1) / 2 - (q.x * Math.cos(pr) + q.y * Math.sin(pr))) <= esp); }).length;
     if (ombreiras === 2) return [{ t: (tA + tB) / 2, largura: vao, tipo: "vao" }];
   }
   return temArco && vao >= 0.5 ? [{ t: (tA + tB) / 2, largura: vao, tipo: "porta" }] : null;
@@ -385,7 +467,7 @@ function aberturasPelosMarcos(paredes: Parede[], ctx: Contexto) {
   const porCelula = new Map<string, Reta[]>();
   const chave = (x: number, y: number) => `${Math.floor(x)},${Math.floor(y)}`;
   for (const r of ctx.retas) {
-    if (r.comp > 0.4) continue;
+    if (r.comp > 0.4 || passou()) continue;
     const p = ponto(r.ang, r.rho, (r.t0 + r.t1) / 2), k = chave(p.x, p.y), l = porCelula.get(k);
     if (l) l.push(r); else porCelula.set(k, [r]);
   }
@@ -413,7 +495,7 @@ function aberturasPelosMarcos(paredes: Parede[], ctx: Contexto) {
       return u >= -folga && u <= 1 + folga ? { t: w.t0 + d, esp: v.esp } : null;
     }).filter((x): x is { t: number; esp: number } => !!x);
     const validos = marcos.filter(m => m.n >= 2 && !cruzamentos.some(x => Math.abs((m.ini + m.fim) / 2 - x.t) <= x.esp / 2 + 0.1));
-    const dentro = ctx.retas.filter(r => r.ang === w.ang && Math.abs(r.rho - w.rho) < w.esp / 2 - 0.005 && r.t1 > w.t0 && r.t0 < w.t1);
+    const dentro = ctx.faixa(w.ang, w.rho - w.esp / 2 + 0.005, w.rho + w.esp / 2 - 0.005).filter(r => Math.abs(r.rho - w.rho) < w.esp / 2 - 0.005 && r.t1 > w.t0 && r.t0 < w.t1);
     const caixilho = (u0: number, u1: number) => dentro.some(r => Math.min(r.t1, u1) - Math.max(r.t0, u0) >= Math.min(0.3, (u1 - u0) * 0.5));
     const atravessa = (m: { ini: number; fim: number }) => dentro.some(r => r.t0 <= m.ini + 0.005 && r.t1 >= m.fim - 0.005 && r.t1 - r.t0 >= m.fim - m.ini + 0.2);
     for (let i = 0; i + 1 < validos.length;) {
@@ -500,7 +582,7 @@ function agrupar(paredes: Parede[]): Parede[][] {
   const raiz = (i: number): number => (pai[i] === i ? i : (pai[i] = raiz(pai[i])));
   const caixa = (w: Parede, f: number) => ({ x0: Math.min(w.a.x, w.b.x) - f, x1: Math.max(w.a.x, w.b.x) + f, y0: Math.min(w.a.y, w.b.y) - f, y1: Math.max(w.a.y, w.b.y) + f });
   const caixas = paredes.map(w => caixa(w, 0.6));
-  for (let i = 0; i < paredes.length; i++) for (let j = i + 1; j < paredes.length; j++) {
+  for (let i = 0; i < paredes.length && !passou(); i++) for (let j = i + 1; j < paredes.length; j++) {
     const p = caixas[i], q = caixas[j];
     if (p.x0 <= q.x1 && q.x0 <= p.x1 && p.y0 <= q.y1 && q.y0 <= p.y1) pai[raiz(i)] = raiz(j);
   }
@@ -876,9 +958,9 @@ function plantasNaEscala(pg: Pagina, escala: number, origem: PlantaLida["escalaO
   const { prim } = pg, k = metrosPorPonto(escala);
   const todas = prim.segmentos.map(s => emReta({ x1: s.x1 * k, y1: s.y1 * k, x2: s.x2 * k, y2: s.y2 * k }));
   const { membros, escadas: degraus } = familias(todas);
-  const retas = todas.filter(r => !membros.has(r)), curtas = retas.filter(r => r.comp >= 0.06 && r.comp <= 0.45);
+  const retas = todas.filter(r => !membros.has(r));
   const arcos = pg.arcos.map(a => ({ cx: a.cx * k, cy: a.cy * k, r: a.r * k, pontas: a.pontas?.map(p => ({ x: p.x * k, y: p.y * k })) })).filter(a => a.r >= 0.5 && a.r <= 1.6);
-  const paredes = paredesComVaos(colineares(pecasDeParede(retas)), { retas, curtas, arcos });
+  const paredes = paredesComVaos(colineares(pecasDeParede(retas)), contexto(retas, arcos));
   const linhas = pg.linhas.map(l => ({ ...l, x: l.x * k, y: l.y * k, tam: l.tam * k }));
   const titulos = pg.titulos.map(t => ({ ...t, x: t.x * k, y: t.y * k, tam: t.tam * k }));
 

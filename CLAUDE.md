@@ -82,6 +82,37 @@ inclusive as que mexem fora da Maquete 3D (CRM, Usuários e acesso, Mapa operaci
    qualquer coisa fora do EPIC-023.
 5. Handoff a cada etapa: `HANDOFF-15-11-CORRECOES.md`. Porte para o Grupo Santa Fé: pendências no ROADMAP.
 
+## EPIC-024 (10 correções de 16/11) e EPIC-025 (Dolores) — executar até o fim, migrando e publicando a cada etapa (REGRA — estabelecida pelo usuário em 16/11/2026)
+
+Ordem do dono em 16/11/2026, depois de enviar os dois prompts (as 10 correções e a Operação Dolores): "já fica tudo
+autorizado para os dois, e a cada etapa você pode migrar e publicar, no ritmo contínuo e constante dos dois; só pare
+quando finalizar, sem que seja necessária a minha intervenção constante".
+
+1. **Não parar entre etapas** das 10 correções (`docs/stories/epics/epic-024-correcoes-16-11/`) nem da Dolores
+   (`docs/stories/epics/epic-025-dolores/`). Isto substitui, por decisão posterior do dono, a exigência do prompt da
+   Dolores de pedir autorização a cada etapa e a cada merge.
+2. **Já autorizado a cada etapa**: migrações aditivas no Neon de produção, merge do PR na `main` e conferência da
+   publicação na Vercel.
+3. **Decisões já tomadas pelo dono (não perguntar de novo):**
+   - **Grupo Santa Fé em espera**: não mexer em nada de lá agora; a paridade será feita pelo dono depois que todas
+     estas mudanças acabarem. Só registrar no ROADMAP do Prospecta o que terá de ser portado. Isto suspende, até novo
+     aviso do dono, a regra de paridade obrigatória do topo deste arquivo.
+   - **Conta Azul**: tudo o que foi ARQUIVADO da importação do Conta Azul pode ser apagado em definitivo, para a
+     reimportação funcionar. Só esses registros: lançamento ativo e de outra origem não se apaga. Antes de apagar,
+     copiar as linhas para tabela de backup e conferir as quantidades.
+   - **Cópias antigas do Neon** (ramificações de teste arquivadas): apagadas em 16/11 com autorização; backup completo
+     do banco em `backup-2026-11-16-antes-das-10-correcoes` (conferido: mesmas contagens da produção).
+   - **Leitura de PDF da maquete**: se o leitor próprio não garantir a qualidade (PDF que é só uma imagem, leitura
+     fraca), pode ler pela IA. A integração Anthropic da correção 10 continua sem uso automático nas demais funções.
+4. **Continua exigindo confirmação do dono**: apagar ou alterar outros dados existentes, remover tabela/coluna,
+   credenciais (chaves e senhas são digitadas por ele nos painéis), contratar serviço pago novo, e mensagem para
+   cliente ou terceiro pela Dolores fora das categorias que ele liberar.
+5. A Dolores depende de itens que só o dono fornece (créditos no Claude Console, número e QR code, inclusão nos
+   grupos, token na Vercel): nesses pontos, deixar o bloqueio escrito no HANDOFF e seguir com o que não depende dele.
+6. Qualidade antes de fechar: nada é dado como concluído sem teste verificável e portão de QA (@qa); "fechar" não
+   basta — o dono pediu que cada item seja concluído com o resultado garantido.
+7. Handoff a cada etapa: `HANDOFF-16-11-CORRECOES-E-DOLORES.md`.
+
 ## Prédios — o estacionamento limita os apartamentos (REGRA DE NEGÓCIO — estabelecida pelo usuário em 15/11/2026)
 
 Palavras do dono: "quando nós falamos de prédios eu quero que você sempre tenha o cuidado de calcular o estacionamento
