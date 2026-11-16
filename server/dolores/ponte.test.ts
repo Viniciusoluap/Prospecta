@@ -214,6 +214,18 @@ describe("usuária Dolores", () => {
       expect(canAccessAdminProcedure({ role: rows[0].role, permissions: rows[0].permissions, active: true }, caminho)).toBe(false);
   });
 
+  it("conta desativada pelo administrador para a ponte (M4), na chamada e na lista de ferramentas", async () => {
+    expect((await tratarChamada(pedido({ funcao: "listar_tarefas" }))).status).toBe(200);
+    await banco.pg.exec(`UPDATE users SET active = false WHERE "openId" = '${DOLORES_OPEN_ID}'`);
+    const r = await tratarChamada(pedido({ funcao: "listar_tarefas" }));
+    expect(r.status).toBe(503);
+    expect(r.body.erro).toMatch(/desativada no sistema/);
+    expect((await tratarFerramentas(pedido({}))).status).toBe(503);
+    expect((await acoes())[1]).toMatchObject({ resultado: "recusada", motivo: "usuária Dolores desativada" });
+    await banco.pg.exec(`UPDATE users SET active = true WHERE "openId" = '${DOLORES_OPEN_ID}'`);
+    expect((await tratarChamada(pedido({ funcao: "listar_tarefas" }))).status).toBe(200);
+  });
+
   it("conta alterada por fora (senha ou perfil) para a ponte", async () => {
     await usuarioDolores();
     await banco.pg.exec(`UPDATE users SET role = 'admin' WHERE "openId" = '${DOLORES_OPEN_ID}'`);

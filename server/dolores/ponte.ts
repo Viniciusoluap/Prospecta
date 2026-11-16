@@ -17,7 +17,7 @@ import { getDb } from "../db.js";
 import { registrarAcao } from "./auditoria.js";
 import { FUNCOES, definicaoDaFerramenta, funcaoPorNome } from "./funcoes.js";
 import { ETAPA_ATUAL, funcaoLiberada, motivoDaRecusa } from "./permissoes.js";
-import { usuarioDolores } from "./perfil.js";
+import { DoloresDesativada, usuarioDolores } from "./perfil.js";
 
 export const VARIAVEL_TOKEN = "DOLORES_PONTE_TOKEN";
 /** Prazo de uma função (a função da Vercel tem 60 s no total). */
@@ -127,6 +127,10 @@ export async function tratarChamada(req: Pedido): Promise<RespostaPonte> {
   try {
     autor = await usuarioDolores();
   } catch (e) {
+    if (e instanceof DoloresDesativada) {
+      await registrar("recusada", { motivo: "usuária Dolores desativada" });
+      return responder(503, { ok: false, erro: "A usuária Dolores está desativada no sistema (Usuários e acesso); a ponte não executa nada até ela ser reativada." });
+    }
     await registrar("erro", { motivo: `usuária Dolores: ${erroSeguro(e)}` });
     return responder(503, { ok: false, erro: "Usuária Dolores indisponível ou alterada; ponte parada." });
   }

@@ -13,6 +13,10 @@ export const DOLORES_PERFIL = "user" as const;
 
 let cache: number | null = null;
 
+export class DoloresDesativada extends Error {
+  constructor() { super("Usuária Dolores desativada pelo administrador"); }
+}
+
 /**
  * Id da usuária Dolores; cria a linha na primeira vez (idempotente: openId único + ON CONFLICT DO NOTHING) e confere,
  * a cada chamada, que a conta continua sem senha, sem módulos e com o perfil sem acesso.
@@ -23,9 +27,11 @@ export async function usuarioDolores(): Promise<number> {
     openId: DOLORES_OPEN_ID, name: DOLORES_NOME, role: DOLORES_PERFIL, active: true,
     passwordHash: null, email: null, permissions: "[]", loginMethod: "dolores",
   }).onConflictDoNothing({ target: users.openId });
-  const [u] = await db.select({ id: users.id, role: users.role, passwordHash: users.passwordHash, permissions: users.permissions })
+  const [u] = await db.select({ id: users.id, role: users.role, active: users.active, passwordHash: users.passwordHash, permissions: users.permissions })
     .from(users).where(eq(users.openId, DOLORES_OPEN_ID)).limit(1);
   if (!u) throw new Error("Usuária Dolores não encontrada");
+  // Desativar a conta em "Usuários e acesso" é o botão de parada do administrador.
+  if (!u.active) throw new DoloresDesativada();
   // Se alguém deu senha, outro perfil ou módulos à conta dela, a ponte para: ela não pode ganhar acesso por fora.
   if (u.role !== DOLORES_PERFIL || u.passwordHash || (u.permissions && u.permissions !== "[]"))
     throw new Error("Conta da Dolores alterada fora da ponte (perfil, senha ou módulos); ponte bloqueada");
