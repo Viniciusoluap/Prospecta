@@ -1,6 +1,6 @@
 # S-09 — Gerador de PCI: CPF do engenheiro, "Dados automáticos" e biblioteca de modelos
 
-Status: InReview
+Status: Done (publicada em 16/11/2026)
 Epic: EPIC-024 (Fase 3) — correção 09 do dono (16/11/2026)
 Paridade: Gerador de PCI existe nos dois sistemas — porte para o Grupo Santa Fé fica como pendência no ROADMAP
 (Santa Fé em espera por decisão do dono, ver EPIC.md).

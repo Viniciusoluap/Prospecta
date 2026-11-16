@@ -82,6 +82,23 @@ reprova volta ao @dev (ciclo de até 5 rodadas). Nada é publicado sem portão d
 - **Leitor (S-H):** 4ª rodada do @dev concluída (`b647d3a`, `7cdad02`; 142 testes); 4ª revisão de QA em curso
   (`scratchpad/qa-leitor4/RELATORIO.md`).
 
+## Atualização — 16/11, ~13:45 UTC
+- **Publicado desde a última nota:** PR #237 (S-09 PCI, migração `0118`), PR #238 (leitor de PDF da Maquete, S-H),
+  PR #239 (S-04 muro do condomínio), PR #240 (**Dolores etapa 1 — leitura**, migração `0123` aplicada antes).
+  Produção do #239 READY; a do #240 (`3142f6b`) estava em construção ao escrever — conferir.
+- **EPIC-024, situação por correção:** 01, 02, 04, 06, 07, 08, 09, 10 publicadas. **03 (PDF-imagem pela IA) e 05
+  (importar planta na revisão)** implementadas em `epic024-s03-s05` (cópia no GitHub: `claude/wip-epic024-s03-s05`,
+  commits `0a02cc4`, `ff70a37`, `630bd5b`, `d92e99c`, `f40a306`, `fa3596f`, `0cb5e4e`, `a00c6ea`; 2.130 testes
+  segundo o @dev). Portão de QA em curso (`scratchpad/qa-s03-s05/RELATORIO.md`). **Migração `0121` ainda NÃO
+  aplicada** — aplicar antes de publicar.
+- **EPIC-025 Dolores:** etapa 1 no ar, mas a ponte fica desligada (503) até o dono cadastrar `DOLORES_PONTE_TOKEN`
+  na Vercel (`docs/dolores/como-ligar.md`). Etapa 2 (WhatsApp) com o @dev no ramo `epic025-dolores-etapa2`
+  (cópia: `claude/wip-epic025-dolores-etapa2`; migração reservada `0124`; progresso em
+  `scratchpad/dolores-e2/PROGRESSO.md`). A IA da Dolores nasce desligada: chave do painel + interruptor próprio.
+- **Depende só do dono:** chave da Anthropic no painel de Integrações (libera a 03 e a Dolores); provedor de
+  imagem para "Gerar com IA" do logotipo; token da ponte na Vercel; número/QR code da Dolores e inclusão nos
+  grupos; categorias de mensagem a cliente; abrir o mapa do Terreno dos estudos com APP.
+
 ## Testes
 - (a) Automáticos — PR #233: 54 arquivos, 642 testes; `tsc` limpo; `vite build` ok.
 - (b) Manuais — aba Estudo de Massa real em navegador de teste (computador e iPad) com o ImperaCity e o contorno
@@ -90,8 +107,7 @@ reprova volta ao @dev (ciclo de até 5 rodadas). Nada é publicado sem portão d
   completo (ANA + OSM); reimportar o backup do Conta Azul depois de publicada a S-01.
 
 ## Próximo passo exato
-Receber o retorno de cada agente; o que o QA aprovar, publicar pela receita acima (uma etapa por PR), aplicando a
-migração da etapa antes. Depois lançar S-03 e S-05, e por fim o EPIC-025 (Dolores), etapa 1.
+Ver a seção 'Próximo passo exato (atual)' no fim do arquivo.
 
 ## Atualização — 16/11, S-03 e S-05 (ramo `epic024-s03-s05`, base `claude/motor-maquetes-3d-hwqvkz`)
 - **S-03 (leitura híbrida):** modo `hibrido` (padrão só com chave), IA só nas pranchas que são imagem ou que o leitor
@@ -139,3 +155,56 @@ migração da etapa antes. Depois lançar S-03 e S-05, e por fim o EPIC-025 (Dol
   leitura real com a chave do dono.
 - **Pendências:** nada da 2ª rodada em aberto. Nenhuma migração nova (a `0121` não foi alterada).
 - **Próximo passo exato:** @qa faz a 3ª revisão de S-03/S-05 neste ramo; aprovado, aplicar a 0121 no Neon e publicar.
+
+## Atualização — 16/11, ~17:30 UTC
+- **Publicado:** PR #242 — **S-03 (PDF-imagem lido pela IA) e S-05 (importar planta na revisão)**, unidas ao muro
+  (S-04). Migração `0121` aplicada antes (12 maquetes conferidas intactas). Produção `11ebb96` READY.
+  QA: 1ª rodada FAIL (10 achados), 2ª CONCERNS (7), 3ª **PASS** (3 ajustes pequenos aplicados). Relatórios em
+  `scratchpad/qa-s03-s05*/RELATORIO.md`.
+- **EPIC-024: as 10 correções estão publicadas.** Falta só o que depende do dono (chave da Anthropic para testar a
+  leitura real do PDF da maquete 8; provedor de imagem para o logotipo por IA).
+- **Dolores etapa 2 (WhatsApp):** QA deu FAIL (bloqueio: a conferência do número do dono ignorava o código do país —
+  +995/+998 com o mesmo final passavam como o dono). @dev corrigindo os 9 achados em `epic025-dolores-etapa2`
+  (cópia `claude/wip-epic025-dolores-etapa2`; relatório `scratchpad/qa-dolores-e2/RELATORIO.md`; progresso em
+  `scratchpad/qa-dolores-e2/CORRECOES.md`). Migração `0124` ainda NÃO aplicada.
+- **Para o dono confirmar:** na etapa 2 o "cérebro" roda no servidor com a chave do painel (a API não executa
+  ferramenta própria sozinha), e não no agente do Console como dizia o prompt mestre. A IA nasce desligada.
+- **Limite de uso:** às ~14:30 UTC o limite de 5 horas derrubou dois agentes sem commit; relançados às 16:45.
+  Agentes agora fazem commit e push a cada achado.
+
+## Próximo passo exato (atual)
+1. Dolores etapa 2: receber o @dev → 2ª rodada de QA → aplicar `0124` → publicar pela receita. 2. Etapas 3 a 6 da
+Dolores, uma por PR, cada uma com portão de QA. 3. Relatório final ao dono (classificação de cada correção e o que
+depende só dele).
+
+## Atualização — 16/11, ~23:10 UTC
+- **Publicado:** PR #243 — **Dolores etapa 2 (WhatsApp)**. Migração `0124` aplicada antes. Produção `3a9575b` READY.
+  QA: oito rodadas (relatórios em `scratchpad/qa-dolores-e2*/RELATORIO.md` e `…-r2` a `…-r8`); a última deu
+  CONCERNS sem bloqueio e os achados foram corrigidos antes da mescla (conferidos à mão os casos de link).
+- **Decisões do dono na noite de 16/11 (estão no `CLAUDE.md`):** segurança é prioridade; **dados pessoais liberados
+  para a Dolores no WhatsApp ("opção B")** atrás de `DOLORES_MASCARAR_DADOS_PESSOAIS` (ponte HTTP mascarada por
+  padrão, interruptor próprio `DOLORES_PONTE_DADOS_PESSOAIS`); **modelo da IA por função** (S-11). A chave da
+  Anthropic foi cadastrada por ele (modelo preferencial `claude-haiku-5-5`).
+- **Estado em produção:** IA da Dolores DESLIGADA, WhatsApp desconectado, limites em 0, ponte fechada (sem token).
+- **S-11 (modelo por função):** QA PASS (2ª rodada, `scratchpad/qa-s11-r2`); @dev fazendo 4 ajustes menores no
+  worktree `s11` (ramo `epic024-s11-modelo-por-funcao`, cópia `claude/wip-epic024-s11`). Base antiga = ramo de
+  publicação da E2 em `756d941`; **falta unir com a `main` atual** e publicar. Sem migração.
+- **Dolores etapa 3 (Ações):** QA PASS (3ª rodada, `scratchpad/qa-dolores-e3-r3`); @dev unindo a E2 final
+  (worktree `dolores-e3`, ramo `epic025-dolores-etapa3`, cópia `claude/wip-epic025-dolores-etapa3`). Falta: trazer
+  as últimas correções da E2 (`ff1477d..150b8f0` do ramo `epic025-dolores-etapa2`), aplicar a `0125` e publicar.
+- **Ambiente:** pouca memória — rodar vitest com `--maxWorkers=2 --minWorkers=1`.
+
+## Próximo passo exato (23:10 UTC)
+1. S-11: receber o @dev, unir com a `main`, publicar. 2. E3: receber o @dev, unir com a `main` (que já tem a E2),
+aplicar `0125`, publicar. 3. Dolores etapas 4, 5 e 6 (grupos de clientes, notas de obra, operação contínua), uma por
+PR, cada uma com portão de QA. 4. Relatório final ao dono.
+
+## Depende só do dono (não trava o trabalho)
+- Testar a leitura do PDF da maquete 8 pela IA (Maquete 3D → "Ler de novo do zero" → confirmar); de preferência
+  com um modelo mais capaz que o Haiku para a função de leitura de plantas.
+- Para ligar a Dolores: conectar o número dela pelo QR code, cadastrar o número dele e os limites mensais em
+  Integrações › Dolores, e ligar o interruptor — **só depois** de a etapa 3 estar publicada.
+- Conferir que `PUBLIC_SITE_URL` existe na Vercel (sem ela, links do próprio sistema saem das respostas da Dolores).
+- Confirmar a diferença em relação ao prompt mestre: o laço da Dolores roda no servidor, não no agente do Console.
+- Conferir com o jurídico se o termo de consentimento dos clientes cobre o envio de dados à Anthropic (opção B).
+- Provedor de imagem para "Gerar com IA" do logotipo (correção 02).

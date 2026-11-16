@@ -1,6 +1,6 @@
 # E1 — Leitura (ponte, usuária Dolores, consultas e auditoria)
 
-Status: InReview
+Status: Done (publicada em 16/11/2026, PR #240)
 Epic: EPIC-025 (Etapa 1) — "Operação Dolores — Prompt Mestre" (16/11/2026)
 Paridade: suspensa por ordem do dono em 16/11 (Grupo Santa Fé em espera); registrar no ROADMAP ao fechar o epic.
 Tamanho estimado: G

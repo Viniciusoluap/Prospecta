@@ -1,6 +1,6 @@
 # S-03 — Maquete: PDF que o leitor próprio não lê (leitura híbrida)
 
-Status: Ready for Review — correções do portão de QA de 16/11 (rodadas 1 e 2) feitas (ver "QA — achados e correções"); sem chave real e sem o PDF real escaneado
+Status: Done (publicada em 16/11/2026, PR #242; QA 3ª rodada PASS; migração 0121 aplicada). Pendente só a leitura real com a chave do dono.
 Epic: EPIC-024 (Fase 4) — correção 03 do dono (16/11/2026)
 Paridade: Maquete 3D — exceção já registrada no `ROADMAP.md` (EPIC-022). Não portar.
 Tamanho estimado: G

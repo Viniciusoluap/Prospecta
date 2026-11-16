@@ -53,8 +53,8 @@ Números de migração reservados para não colidir entre agentes: 0118 PCI, 011
 
 ## Etapas
 - [x] Fase 0 — auditoria, backup conferido, limpeza do Conta Azul em produção
-- [ ] Fase 1 — 01 (código) e 08
-- [ ] Fase 2 — 02, 06, 07
-- [ ] Fase 3 — 09
-- [ ] Fase 4 — 03, 04, 05
-- [ ] Fase 5 — 10
+- [x] Fase 1 — 01 (código) e 08 — publicadas (PR #234, #235, #236)
+- [x] Fase 2 — 02, 06, 07 — publicadas (PR #235, #236)
+- [x] Fase 3 — 09 — publicada (PR #237)
+- [x] Fase 4 — 03, 04, 05 — publicadas (PR #239 muro; PR #242 PDF-imagem pela IA e importar planta; migração `0121`)
+- [x] Fase 5 — 10 — publicada (PR #234), só cadastro; Anthropic não ativada

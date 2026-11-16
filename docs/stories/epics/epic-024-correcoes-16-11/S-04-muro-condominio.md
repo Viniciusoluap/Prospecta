@@ -1,6 +1,6 @@
 # S-04 — Maquete 3D: muro de divisa do condomínio
 
-Status: InReview
+Status: Done (publicada em 16/11/2026)
 Epic: EPIC-024 (Fase 4) — correção 04 do dono (16/11/2026)
 Paridade: Maquete 3D — exceção já registrada no `ROADMAP.md` (EPIC-022). Não portar.
 Tamanho estimado: M

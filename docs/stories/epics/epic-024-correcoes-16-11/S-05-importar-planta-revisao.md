@@ -1,6 +1,6 @@
 # S-05 — Maquete: "Importar planta arquitetônica (PDF)" na Revisão da planta
 
-Status: Ready for Review (código, testes e tela; migração 0121 NÃO aplicada em banco real) — correções do portão de QA de 16/11 (rodadas 1 e 2) feitas (ver "QA — achados e correções")
+Status: Done (publicada em 16/11/2026, PR #242; QA 3ª rodada PASS; migração 0121 aplicada). Pendente só a leitura real com a chave do dono.
 Epic: EPIC-024 (Fase 4) — correção 05 do dono (16/11/2026)
 Paridade: Maquete 3D — exceção já registrada no `ROADMAP.md` (EPIC-022). Não portar.
 Tamanho estimado: M/G

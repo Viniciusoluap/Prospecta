@@ -1,6 +1,6 @@
 # E2 — WhatsApp (conexão própria, comando e resposta pelo número do dono)
 
-Status: InReview
+Status: Done (publicada em 16/11/2026, PR #243; oito rodadas de QA). Pendente só o aceite real pelo WhatsApp, que depende do dono.
 Epic: EPIC-025 (Etapa 2) — "Operação Dolores — Prompt Mestre" (16/11/2026), seção 7, linha 2
 Paridade: suspensa por ordem do dono em 16/11 (Grupo Santa Fé em espera); registrar no ROADMAP ao fechar o epic.
 Tamanho estimado: G

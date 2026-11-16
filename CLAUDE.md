@@ -144,3 +144,19 @@ e área institucional. Essa lógica deve estar dentro do motor na hora de fazer 
 - "Sempre que permitido": o cenário avisa que o aproveitamento depende da legislação municipal. Nunca contar a mesma
   área duas vezes no quadro de áreas.
 - Paridade: o Estudo de Massa existe no Grupo Santa Fé — portar junto com as correções 8 e 10 do EPIC-023.
+
+## Dolores — decisões do dono em 16/11/2026 (noite) (REGRA)
+
+1. **Segurança é prioridade** (palavras do dono: "Garanta minha segurança, isso é uma prioridade"). Nada da Dolores
+   vai para a `main` reprovado pelo portão de QA; achado "importante" de segurança é corrigido antes de publicar.
+2. **Dados pessoais liberados para a Dolores ("opção B")**: o dono autorizou que ela veja e informe CPF, CNPJ,
+   telefone e e-mail dos clientes. O mascaramento desses dados fica desligado por padrão, atrás do interruptor
+   `DOLORES_MASCARAR_DADOS_PESSOAIS` (variável na Vercel; `1` religa). **Continuam sempre mascarados:** senhas,
+   tokens, chaves de API, códigos de acesso e dados bancários. **Continuam fora de log, erro, auditoria e tela de
+   admin:** números completos e dados pessoais. A resposta só vai ao número do dono.
+3. **Modelo da IA por função**: cada função que usa a chave do painel (hoje: leitura de plantas da Maquete 3D e
+   conversa da Dolores no WhatsApp) tem o próprio modelo, escolhido em Integrações › Anthropic (story
+   `docs/stories/epics/epic-024-correcoes-16-11/S-11-modelo-por-funcao.md`). Função nova que use a IA ganha a própria
+   linha nesse painel. Escolher modelo nunca liga a IA de função nenhuma.
+4. A chave da Anthropic foi cadastrada pelo dono no painel em 16/11. Ela só é lida em dois pontos do código
+   (`resolverCredencialIA` da maquete e `bloqueioAtual` da Dolores), vigiados por `server/integracoes-anthropic.test.ts`.
