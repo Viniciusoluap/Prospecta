@@ -69,16 +69,23 @@ function chaveNfeValida(d: string): boolean {
   return (resto < 2 ? 0 : 11 - resto) === Number(d[43]);
 }
 
+/** Códigos de UF do IBGE (os dois primeiros dígitos da chave de acesso). */
+const UFS_IBGE = new Set(["11", "12", "13", "14", "15", "16", "17", "21", "22", "23", "24", "25", "26", "27", "28", "29", "31", "32",
+  "33", "35", "41", "42", "43", "50", "51", "52", "53"]);
+/** Ano (AA) plausível na chave: a NF-e existe desde 2006; no máximo o ano que vem. */
+const ANO_MAXIMO_NFE = (new Date().getFullYear() % 100) + 1;
+
 /**
- * QA r4 S1 / r5 F1: chave de NF-e reconhecida pela ESTRUTURA INTEIRA — DV, UF 11–53, mês 01–12, CNPJ do emitente válido
- * (posições 7–20), modelo 55/65 — e só na FORMA ESCRITA de chave: 44 dígitos colados ou 11 blocos de 4 (DANFE). Uma
- * lista de celulares "(15) 95115-9890 …" ou de CPFs "ddd ddd ddd dd" que fecha os DVs por acaso não é chave.
- * Os separadores (conferidos em documentosValidados) têm de ser todos iguais: só " " ou ".". Rótulo não conta.
+ * QA r4 S1 / r5 F1 / r6 N4: ESTRUTURA da chave de NF-e — DV, UF da lista do IBGE, ano 06 até o ano que vem, mês 01–12,
+ * CNPJ do emitente válido (posições 7–20), modelo 55/65 — e só nas formas de chave: 44 colados ou 11 blocos de 4. Uma
+ * lista de celulares ou de CPFs que fecha os DVs por acaso não é chave. Sozinha NÃO isenta: ver documentosValidados
+ * (rótulo + forma + estrutura, as três).
  */
 export function chaveNfeEstrutural(d: string, forma: string): boolean {
   if (!FORMAS_CHAVE_NFE.has(forma) || !chaveNfeValida(d)) return false;
-  const uf = Number(d.slice(0, 2)), mes = Number(d.slice(4, 6)), modelo = d.slice(20, 22);
-  return uf >= 11 && uf <= 53 && mes >= 1 && mes <= 12 && (modelo === "55" || modelo === "65") && cnpjValido(d.slice(6, 20));
+  const ano = Number(d.slice(2, 4)), mes = Number(d.slice(4, 6)), modelo = d.slice(20, 22);
+  return UFS_IBGE.has(d.slice(0, 2)) && ano >= 6 && ano <= ANO_MAXIMO_NFE && mes >= 1 && mes <= 12
+    && (modelo === "55" || modelo === "65") && cnpjValido(d.slice(6, 20));
 }
 
 /** Módulo 10 (pesos 2,1 da direita; produto > 9 soma os algarismos) — DV de cada campo da linha digitável. */
@@ -104,20 +111,23 @@ function dvGeralDoBoleto(d: string): boolean {
 }
 
 /**
- * QA r4 S2 / r5 F1: linha digitável de boleto (47 dígitos, moeda "9" na 4ª posição) com o DV de CADA um dos três campos
- * válido, e só nas formas escritas do boleto: 47 colados, "5.5 5.6 5.6 1 14" (com os pontos, conferidos em
- * documentosValidados) ou os campos colados "10 11 11 1 14" — esta última, que uma lista de telefones também tem, só
- * quando o DV geral do código de barras remontado também fecha.
+ * QA r4 S2 / r5 F1 / r6 N3: ESTRUTURA da linha digitável de boleto (47 dígitos, moeda "9" na 4ª posição): o DV de CADA
+ * um dos três campos E o DV geral do código de barras remontado, só nas formas do boleto — 47 colados, "5.5 5.6 5.6 1 14"
+ * (com os pontos, conferidos em documentosValidados) ou "10 11 11 1 14". Nesta última, que uma lista de telefones e
+ * documentos também tem, os campos 2 e 3 (11 dígitos) não podem ser celular (DDD + 9), CPF válido nem "0" + DDD + número
+ * (telefone com o 0 da operadora), e o campo 5 (14 dígitos) não pode ser CNPJ válido nem "000" + CPF válido. O campo 1
+ * fica de fora: banco + moeda 9 ("2379…", "7569…") tem a forma de um celular de 10 dígitos.
+ * Sozinha NÃO isenta: ver documentosValidados (rótulo + forma + estrutura, as três).
  */
 export function linhaDigitavelValida(d: string, forma: string): boolean {
   if (d.length !== 47 || d[3] !== "9") return false;
   if (forma !== "47" && forma !== "5,5,5,6,5,6,1,14" && forma !== "10,11,11,1,14") return false;
   if (mod10(d.slice(0, 9)) !== Number(d[9]) || mod10(d.slice(10, 20)) !== Number(d[20]) || mod10(d.slice(21, 31)) !== Number(d[31])) return false;
+  if (!dvGeralDoBoleto(d)) return false;
   if (forma !== "10,11,11,1,14") return true;
-  // Sonda dirigida do QA: 1 lista de telefones em ~10 mil fecha até o DV geral. Nessa forma, os campos 2 e 3 (11
-  // dígitos) não podem ter forma de celular (DDD + 9) nem ser CPF válido — num boleto real são o campo livre.
-  const pessoal = (x: string) => /^[1-9][1-9]9/.test(x) || isValidCPF(x);
-  return dvGeralDoBoleto(d) && !pessoal(d.slice(10, 21)) && !pessoal(d.slice(21, 32));
+  const pessoal = (x: string) => /^[1-9][1-9]9/.test(x) || isValidCPF(x) || /^0[1-9][1-9][2-9]/.test(x);
+  const campo5 = d.slice(33);
+  return !pessoal(d.slice(10, 21)) && !pessoal(d.slice(21, 32)) && !cnpjValido(campo5) && !(campo5.startsWith("000") && isValidCPF(campo5.slice(3)));
 }
 
 // ── 1. Normalização ──
@@ -356,9 +366,24 @@ function formaPossivel(tamanhos: number[], ruins: number[], i: number, j: number
   return total === 11 || total === 14; // termina em 2: CPF "9,2"/"3,3,3,2" ou CNPJ
 }
 
+// QA r6 (A): RÓTULO do documento nos ~60 caracteres antes, na mesma linha ou na linha imediatamente anterior.
+const ROTULO_NFE = /\b(?:chave(?:\s+de\s+acesso)?|nf-?e|danfe|notas?\s+fisca(?:l|is))\b/i;
+const ROTULO_BOLETO = /\b(?:boletos?|linha\s+digit[aá]vel|c[oó]d(?:igo|\.)?\s*(?:de\s+)?barras)\b/i;
+const ROTULO_GUIA = /\b(?:guias?|iptu|darf|dae|dam|gru|gps|arrecada[cç][aã]o|conta\s+de\s+(?:[aá]gua|luz|energia)|faturas?)\b/i;
+function rotuloAntes(texto: string, inicio: number, rotulo: RegExp): boolean {
+  const linhas = texto.slice(Math.max(0, inicio - 60), inicio).split("\n");
+  return rotulo.test(linhas.slice(-2).join("\n"));
+}
+
 /**
- * FASE 2a: trechos da cadeia que são um documento validado por inteiro (chave de NF-e, linha digitável de boleto, guia de
- * arrecadação).
+ * FASE 2a (QA r6, A): trecho da cadeia que é documento — chave de NF-e, linha digitável de boleto ou guia de arrecadação —
+ * só quando há as TRÊS coisas ao mesmo tempo:
+ *   (i) RÓTULO do documento logo antes (rotuloAntes);
+ *   (ii) FORMA escrita do documento, numa linha, com o separador uniforme (separacaoDeChave, separacaoDeBoleto,
+ *        guiaDeArrecadacaoValida);
+ *   (iii) ESTRUTURA validada (chaveNfeEstrutural, linhaDigitavelValida, guiaDeArrecadacaoValida);
+ * e sem nenhuma trava (armadilhaDeTelefone). Faltando qualquer uma, não há isenção: valem a fase 1 e a 2b (o trecho pode
+ * sair mascarado em parte — é o lado seguro; o marcador é visível).
  * Devolve pares [i, j] de grupos, sem sobreposição. "|" separa células de tabela: não atravessa.
  */
 function documentosValidados(c: Grupo[], tamanhos: number[], ligacoes: string[], soma: number[], texto: string): Array<[number, number]> {
@@ -373,11 +398,15 @@ function documentosValidados(c: Grupo[], tamanhos: number[], ligacoes: string[],
         const forma = tamanhos.slice(i, j + 1).join(",");
         const d = c.slice(i, j + 1).map(g => g.digitos).join("");
         const ligs = ligacoes.slice(i, j);
-        const guia = total === 48 && guiaDeArrecadacaoValida(d, forma, ligs);
-        const ok = guia || (total === 44
-          ? chaveNfeEstrutural(d, forma) && separacaoDeChave(ligs)
-          : total === 47 && linhaDigitavelValida(d, forma) && separacaoDeBoleto(forma, ligs));
-        if (ok && !armadilhaDeTelefone(c, i, j, texto, guia && forma !== "48" && forma !== "12,12,12,12")) { fim = j; break; }
+        let ok = false, hifenDoDv = false;
+        if (total === 44) ok = separacaoDeChave(ligs) && chaveNfeEstrutural(d, forma) && rotuloAntes(texto, c[i].inicio, ROTULO_NFE);
+        else if (total === 47) {
+          ok = linhaDigitavelValida(d, forma) && rotuloAntes(texto, c[i].inicio, ROTULO_BOLETO) && separacaoDeBoleto(forma, ligs);
+        } else {
+          ok = guiaDeArrecadacaoValida(d, forma, ligs) && rotuloAntes(texto, c[i].inicio, ROTULO_GUIA);
+          hifenDoDv = forma === "11,1,11,1,11,1,11,1";
+        }
+        if (ok && !armadilhaDeTelefone(c, i, j, texto, hifenDoDv)) { fim = j; break; }
       }
     }
     if (fim >= 0) { r.push([i, fim]); i = fim + 1; } else i++;
@@ -385,20 +414,25 @@ function documentosValidados(c: Grupo[], tamanhos: number[], ligacoes: string[],
   return r;
 }
 
-/** QA r5 F1: chave de NF-e em blocos — todos os separadores iguais, só " " ou "." (numa única linha). */
+/** QA r5 F1 / r6 N5: chave de NF-e em blocos — todos os separadores iguais: 1 a 3 espaços, ou "." (numa única linha). */
 function separacaoDeChave(ligs: string[]): boolean {
-  return !ligs.length || ((ligs[0] === " " || ligs[0] === ".") && ligs.every(l => l === ligs[0]));
+  return !ligs.length || ((/^ {1,3}$/.test(ligs[0]) || ligs[0] === ".") && ligs.every(l => l === ligs[0]));
 }
 
 /**
- * QA r5 F1: linha digitável "5.5 5.6 5.6 1 14" — ponto dentro dos três campos e o MESMO espaço em branco entre os campos;
- * "10 11 11 1 14" — o mesmo espaço em branco (sem quebra de linha) entre todos.
+ * QA r5 F1 / r6 N5: linha digitável "5.5 5.6 5.6 1 14" — ponto dentro dos três campos e o MESMO espaço (1 a 3) entre os
+ * campos; uma única quebra de linha no lugar de um desses espaços também vale (os pontos já dão a forma: PDF e WhatsApp
+ * quebram a linha). "10 11 11 1 14" — o mesmo espaço (1 a 3) entre todos, numa linha só.
  */
 function separacaoDeBoleto(forma: string, ligs: string[]): boolean {
   if (!ligs.length) return true;
   if (forma === "5,5,5,6,5,6,1,14") {
+    if (ligs[0] !== "." || ligs[2] !== "." || ligs[4] !== ".") return false;
     const entre = [ligs[1], ligs[3], ligs[5], ligs[6]];
-    return ligs[0] === "." && ligs[2] === "." && ligs[4] === "." && /^\s{1,3}$/.test(entre[0]) && entre.every(l => l === entre[0]);
+    const quebras = entre.filter(l => /^[ \t]{0,3}\r?\n[ \t]{0,3}$/.test(l));
+    const espacos = entre.filter(l => !quebras.includes(l));
+    return quebras.length <= 1 && espacos.length + quebras.length === 4 && /^ {1,3}$/.test(espacos[0])
+      && espacos.every(l => l === espacos[0]);
   }
   return /^ {1,3}$/.test(ligs[0]) && ligs.every(l => l === ligs[0]);
 }
@@ -412,35 +446,36 @@ function mod11Arrecadacao(base: string): number {
 }
 
 /**
- * QA r5 F2: linha digitável de guia de arrecadação (IPTU, água, luz, taxas): 48 dígitos começando por 8, em 4 blocos de
- * 11 + DV — colados ("48"), "12 12 12 12" com o mesmo separador, ou "11-1 11-1 11-1 11-1" com o mesmo separador antes do
- * DV e o mesmo espaço entre os blocos — com o DV de CADA bloco válido: módulo 10 se o 3º dígito é 6 ou 7, módulo 11 se
- * é 8 ou 9 (outro valor não é guia).
+ * QA r5 F2 / r6 N2: FORMA e ESTRUTURA da linha digitável de guia de arrecadação (IPTU, água, luz, taxas): 48 dígitos
+ * começando por 8, em 4 blocos de 11 + DV — colados ("48"), "12 12 12 12" com o mesmo espaço (1 a 3), ou
+ * "11-1 11-1 11-1 11-1" com HÍFEN antes do DV (só "-" ou " - ", o mesmo nos quatro; espaço ou ponto no lugar do hífen
+ * não vale) e o mesmo espaço entre os blocos — numa linha só — com o DV de CADA bloco válido: módulo 10 se o 3º dígito
+ * é 6 ou 7, módulo 11 se é 8 ou 9 (outro valor não é guia). Sozinha NÃO isenta: ver documentosValidados.
  */
 export function guiaDeArrecadacaoValida(d: string, forma: string, ligs: string[] = []): boolean {
   if (d.length !== 48 || d[0] !== "8" || !/[6-9]/.test(d[2])) return false;
   if (forma === "12,12,12,12") {
-    if (!/^[ .]$|^\s{1,3}$/.test(ligs[0]) || !ligs.every(l => l === ligs[0])) return false;
+    if (!/^ {1,3}$/.test(ligs[0]) || !ligs.every(l => l === ligs[0])) return false;
   } else if (forma === "11,1,11,1,11,1,11,1") {
     const dv = [ligs[0], ligs[2], ligs[4], ligs[6]], entre = [ligs[1], ligs[3], ligs[5]];
-    if (!/^(?:-| ?- ?| |\.)$/.test(dv[0]) || !dv.every(l => l === dv[0])) return false;
-    if (!/^\s{1,3}$/.test(entre[0]) || !entre.every(l => l === entre[0])) return false;
+    if (!/^ ?- ?$/.test(dv[0]) || !dv.every(l => l === dv[0])) return false;
+    if (!/^ {1,3}$/.test(entre[0]) || !entre.every(l => l === entre[0])) return false;
   } else if (forma !== "48") return false;
   const dvDe = /[67]/.test(d[2]) ? mod10 : mod11Arrecadacao;
   for (let k = 0; k < 48; k += 12) if (dvDe(d.slice(k, k + 11)) !== Number(d[k + 11])) return false;
   return true;
 }
 
-const CONTEXTO_DOCUMENTO_PESSOAL = /\b(?:cpfs?|cnpjs?)\b/i;
+const CONTEXTO_DOCUMENTO_PESSOAL = /\b(?:cpfs?|cnpjs?|comprador(?:a|es|as)?)\b/i;
 const FORMA_EXPLICITA_PESSOAL = /(?<!\d)(\d{3})\.(\d{3})\.(\d{3})-(\d{2})(?!\d)|\(\s?\d{2}\s?\)\s?\d{4,5}-\d{4}(?!\d)/;
 /**
- * QA r5 F1: travas da isenção da fase 2a. Nunca isenta com palavra de telefone/contato/CPF nos ~50 caracteres antes, com
+ * QA r5 F1 / r6: travas da isenção da fase 2a. Nunca isenta com palavra de telefone/contato/CPF/comprador nos ~60 caracteres antes, com
  * "(" ou "+" colado no primeiro grupo, com parênteses ou hífen entre os grupos, nem quando há dentro do trecho uma FORMA
  * explícita de CPF ("ddd.ddd.ddd-dd", válido) ou de telefone ("(dd) ddddd-dddd").
  */
 function armadilhaDeTelefone(c: Grupo[], i: number, j: number, texto: string, hifenDoDv = false): boolean {
   const inicio = c[i].inicio, fim = c[j].fim;
-  const antes = texto.slice(Math.max(0, inicio - 50), inicio);
+  const antes = texto.slice(Math.max(0, inicio - 60), inicio);
   if (CONTEXTO_TELEFONE.test(antes) || CONTEXTO_DOCUMENTO_PESSOAL.test(antes) || /[(+]\s?$/.test(antes)) return true;
   const trecho = texto.slice(inicio, fim);
   // na guia "11-1" o hífen antes do DV de cada bloco é da forma do documento (conferido em guiaDeArrecadacaoValida)
@@ -484,8 +519,8 @@ function mascararCadeias(texto: string): string {
       // QA r3 R3: janela deslizante (no máximo 16 grupos a partir de i) sobre o trecho inteiro. Só sub-cadeias de 8 a
       // 14 dígitos podem ser telefone, CPF ou CNPJ: as outras nem são classificadas (tempo linear). `minJ`: a janela tem
       // de terminar em minJ ou depois (QA r5 F4).
-      const achar = (i: number, minJ: number): { j: number; tipo: Achado["tipo"] } | null => {
-        for (let j = Math.min(fimTrecho, i + 15); j >= Math.max(i, minJ); j--) {
+      const achar = (i: number, minJ: number, maxJ: number): { j: number; tipo: Achado["tipo"] } | null => {
+        for (let j = Math.min(maxJ, i + 15); j >= Math.max(i, minJ); j--) {
           const total = soma[j + 1] - soma[i];
           if (total < 8 || total > 14) continue;
           // "sozinho": a sub-cadeia é o trecho inteiro, ou uma célula de tabela (entre "|", sem "|" dentro)
@@ -500,30 +535,39 @@ function mascararCadeias(texto: string): string {
         return null;
       };
       const forte = (t: Achado["tipo"]) => t === "cpf" || t === "cnpj" || t === "celular";
-      let i = ini;
-      while (i <= fimTrecho) {
-        const achado = achar(i, i);
-        if (!achado) { i++; continue; }
-        let achou = achado.j, tipo = achado.tipo;
-        // QA r5 F4: a janela que começa antes engolia o grupo anterior ("dia 15/11/2026 9123-4567" → "2026 9123" fixo) e
-        // deixava a cauda à vista. Testa as janelas que começam dentro e passam do fim: se a de dentro é fase 1 e a de
-        // antes não (ou a de antes começa num ano), fica só a de dentro; senão, sai a união.
-        for (let k = i + 1; k <= achou; k++) {
-          const outro = achar(k, achou + 1);
-          if (!outro) continue;
-          if (!forte(tipo) && (forte(outro.tipo) || ANO.test(c[i].digitos))) { i = k; tipo = outro.tipo; }
-          else if (forte(outro.tipo)) tipo = outro.tipo;
-          achou = outro.j;
-        }
-        let inicio = c[i].inicio, fim = c[achou].fim;
+      const emitir = (de: number, ate: number) => {
+        let inicio = c[de].inicio, fim = c[ate].fim;
         // leva junto "+55 (" antes e o ")" de um DDD entre parênteses
         const antes = /(?:\+\s?)?\(\s?$|\+\s?$/.exec(texto.slice(Math.max(0, inicio - 3), inicio));
         if (antes) inicio -= antes[0].length;
         const trecho = texto.slice(inicio, fim);
         if ((trecho.match(/\(/g)?.length ?? 0) > (trecho.match(/\)/g)?.length ?? 0) && texto[fim] === ")") fim++;
         trocas.push({ inicio, fim });
-        i = achou + 1;
-      }
+      };
+      // Varre os grupos [de..ate] (as janelas não passam de `ate`).
+      const varrer = (de: number, ate: number): void => {
+        let i = de;
+        while (i <= ate) {
+          const achado = achar(i, i, ate);
+          if (!achado) { i++; continue; }
+          let achou = achado.j, tipo = achado.tipo;
+          // QA r5 F4: a janela que começa antes engolia o grupo anterior ("dia 15/11/2026 9123-4567" → "2026 9123" fixo) e
+          // deixava a cauda à vista. Testa as janelas que começam dentro e passam do fim: se a de dentro é fase 1 e a de
+          // antes não (ou a de antes começa num ano), a de dentro vira um achado à parte; senão, sai a união.
+          // QA r6 N1: ao passar para a janela de dentro, o que veio ANTES dela é varrido de novo como trecho próprio — um
+          // fixo inteiro antes ("fone 3523 4567 9123 4567") continua sendo achado; só o que não é nada (ano, data) fica.
+          for (let k = i + 1; k <= achou; k++) {
+            const outro = achar(k, achou + 1, ate);
+            if (!outro) continue;
+            if (!forte(tipo) && (forte(outro.tipo) || ANO.test(c[i].digitos))) { varrer(i, k - 1); i = k; tipo = outro.tipo; }
+            else if (forte(outro.tipo)) tipo = outro.tipo;
+            achou = outro.j;
+          }
+          emitir(i, achou);
+          i = achou + 1;
+        }
+      };
+      varrer(ini, fimTrecho);
     }
     // cadeia de 44 dígitos em blocos que NÃO validou como chave e tem algo achado dentro: sai inteira (nunca pela metade).
     // Lista de 4 CPFs/celulares (4 blocos de 11) sai item por item.

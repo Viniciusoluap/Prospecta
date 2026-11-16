@@ -196,11 +196,13 @@ describe("filtro de dados pessoais em texto livre (M1)", () => {
     expect(sanitizarTexto("| 12345678901 | 2 |")).toBe(`| ${OMITIDO_T} | 2 |`);
     // chave de acesso: QA r4 S1 — só a ESTRUTURA validada por inteiro (DV, UF, mês, CNPJ do emitente, modelo) a deixa
     // inteira; o rótulo sozinho não isenta. A chave antiga deste teste tinha CNPJ inválido (12345678000199): trocada.
+    // QA r6 (A): e a estrutura sozinha também não — sem rótulo ("ver …") a chave válida sai inteira (estrago aceito).
     const blocos = (d: string) => d.match(/\d{4}/g)!.join(" ");
     const VALIDA = "35261112345678000195550010000012341000012346", INVALIDA = "35261112345678000195550010000012341000012345";
     for (const t of [
-      `chave de acesso ${blocos(VALIDA)}`, `DANFE ${blocos(VALIDA)}`, `ver ${blocos(VALIDA)}`, `NF-e ${INVALIDA}`,
+      `chave de acesso ${blocos(VALIDA)}`, `DANFE ${blocos(VALIDA)}`, `NF-e ${INVALIDA}`,
     ]) expect(sanitizarTexto(t), t).toBe(t);
+    expect(sanitizarTexto(`ver ${blocos(VALIDA)}`)).toBe(`ver ${OMITIDO_T}`);
     expect(sanitizarTexto(`ver ${blocos(INVALIDA)}`)).toBe(`ver ${OMITIDO_T}`);
     expect(sanitizarTexto(`chave de acesso ${blocos(INVALIDA)}`)).toBe(`chave de acesso ${OMITIDO_T}`);
   });
@@ -244,8 +246,9 @@ describe("filtro de dados pessoais em texto livre (M1)", () => {
     for (const t of [
       "linha digitável 23793.38128 60000.000004 00000.000406 1 84340000010000", // Bradesco (237), 1º campo com cara de celular
       "boleto 75690.00016 99123.456784 99000.000002 7 84340000010000", // Sicoob (756), campos 2 e 3 começando com 99
-      "boleto 74891.12347 99123.456784 99000.000002 7 84340000010000", // Sicredi (748)
-      "pagar 2379338128 60000000004 00000000406 1 84340000010000", "boleto 34191.79001 01043.510047 91020.150008 1 96610000012345",
+      "boleto 74891.12347 99123.456784 99000.000002 6 84340000010000", // Sicredi (748)
+      // QA r6 (A): o DV geral passou a ser exigido em todas as formas (os dois exemplos acima tinham o DV geral inventado)
+      "boleto 2379338128 60000000004 00000000406 1 84340000010000", "boleto 34191.79001 01043.510047 91020.150008 7 96610000012345",
     ]) expect(sanitizarTexto(t), t).toBe(t);
     // DV de campo errado (o exemplo do relatório tem os campos 2 e 3 inválidos): a fase 1 continua valendo
     expect(sanitizarTexto("linha 23793.38128 60000.000003 00000.000400 1 84340000010000")).toContain(OMITIDO_T);
@@ -356,7 +359,9 @@ describe("filtro de dados pessoais em texto livre (M1)", () => {
       const r = sanitizarTexto(t);
       for (const n of ["1139673097", "11973631135", "21970260937", "1139301871", "11940957555", "21948385790"]) expect(r, `${t} → ${r}`).not.toContain(n);
     }
-    expect(sanitizarTexto("pagar 2379338128 60000000004 00000000406 1 84340000010000")).toBe("pagar 2379338128 60000000004 00000000406 1 84340000010000");
+    expect(sanitizarTexto("boleto 2379338128 60000000004 00000000406 1 84340000010000")).toBe("boleto 2379338128 60000000004 00000000406 1 84340000010000");
+    // QA r6 (A): sem rótulo de boleto ("pagar") não há isenção — o campo 1, com forma de celular, sai
+    expect(sanitizarTexto("pagar 2379338128 60000000004 00000000406 1 84340000010000")).toContain(OMITIDO_T);
   });
 
   it("QA r5 F2: guia de arrecadação de 48 dígitos (4 blocos de 11 + DV válido) fica inteira; DV errado ou palavra de telefone, não", () => {
@@ -369,9 +374,11 @@ describe("filtro de dados pessoais em texto livre (M1)", () => {
       const base = "8" + String(1 + (k % 8)) + terceiro + Array.from({ length: 41 }, dig).join("");
       const blocos = base.match(/.{11}/g)!;
       const dvDe = terceiro === "6" || terceiro === "7" ? mod10 : mod11;
+      // QA r6 (A): rótulo de guia + forma (hífen antes do DV, 12×4 ou 48, numa linha) + estrutura — as três
       const formas = [
-        `IPTU ${blocos.map(x => `${x}-${dvDe(x)}`).join(" ")}`, `conta de água ${blocos.map(x => `${x} ${dvDe(x)}`).join(" ")}`,
-        `luz ${blocos.map(x => x + dvDe(x)).join(" ")}`, `taxa ${blocos.map(x => x + dvDe(x)).join("")}`,
+        `IPTU ${blocos.map(x => `${x}-${dvDe(x)}`).join(" ")}`, `conta de água ${blocos.map(x => `${x} - ${dvDe(x)}`).join("  ")}`,
+        `conta de luz ${blocos.map(x => x + dvDe(x)).join(" ")}`, `fatura ${blocos.map(x => x + dvDe(x)).join("")}`,
+        `DARF\n${blocos.map(x => `${x}-${dvDe(x)}`).join(" ")}`,
       ];
       for (const t of formas) expect(sanitizarTexto(t), t).toBe(t);
     }
@@ -381,7 +388,11 @@ describe("filtro de dados pessoais em texto livre (M1)", () => {
     // palavra de telefone antes: nunca isenta
     const b = "81690000000";
     const comFone = `fone ${[b, "99991234567", "00000000000", "00000000000"].map(x => `${x}-${mod10(x)}`).join(" ")}`;
-    expect(sanitizarTexto(`taxa ${comFone.slice(5)}`)).toBe(`taxa ${comFone.slice(5)}`);
+    expect(sanitizarTexto(`IPTU ${comFone.slice(5)}`)).toBe(`IPTU ${comFone.slice(5)}`);
+    // QA r6 (A): sem rótulo de guia, com espaço/ponto no lugar do hífen do DV ou com quebra de linha entre os blocos, não isenta
+    const semIsencao = [`taxa ${comFone.slice(5)}`, `IPTU ${comFone.slice(5).replace(/-/g, " ")}`, `IPTU ${comFone.slice(5).replace(/-/g, ".")}`,
+      `IPTU ${comFone.slice(5).replace(/ /g, "\n")}`];
+    for (const t of semIsencao) expect(sanitizarTexto(t), t).not.toContain("99991234567");
     expect(sanitizarTexto(comFone)).not.toContain("99991234567");
   });
 
