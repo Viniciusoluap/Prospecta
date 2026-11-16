@@ -104,7 +104,8 @@ export async function consultarCliente(args: z.infer<typeof entradaConsultarClie
       responsavel: l.responsibleUserId ? nomes.get(l.responsibleUserId) ?? null : null,
       responsavelRegistrado: !!l.responsibleUserId,
       prazoDoCard: l.cardDueDate,
-      prazoDoCardVencido: !!l.cardDueDate && leadAceitaVencimento(l.stage) && l.cardDueDate < hoje,
+      // mesma regra do aviso diário dos cards (lead-card-due-digest): vence hoje ou já venceu
+      prazoDoCardVencido: !!l.cardDueDate && leadAceitaVencimento(l.stage) && l.cardDueDate <= hoje,
       clienteDesde: diaFortaleza(l.createdAt),
       ultimaAtividade: isoFortaleza(ultimaAtividade.get(l.id) ?? null),
       servicosContratados: meus.map(s => ({

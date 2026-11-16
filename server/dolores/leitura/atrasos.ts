@@ -1,7 +1,7 @@
 // EPIC-025 (Dolores, etapa 1) — processos atrasados ou parados de todos os módulos, numa lista só. SOMENTE LEITURA.
 // Reaproveita as leituras de cada módulo (mesmos critérios) e o prazo do card do CRM (lead-card-due-digest: prazo do
 // card até hoje e lead fora de "Finalizado").
-import { and, eq, isNotNull, isNull, lt, ne, notInArray } from "drizzle-orm";
+import { and, eq, isNotNull, isNull, lt, lte, ne, notInArray } from "drizzle-orm";
 import { z } from "zod";
 import { leadServices, leads } from "../../../drizzle/schema.js";
 import { diaDoPrazo, diaFortaleza, diasEntre, paginar, truncar } from "../../../shared/dolores/formato.js";
@@ -34,7 +34,7 @@ export async function listarAtrasos(args: z.infer<typeof entradaListarAtrasos>, 
     quer("obras") ? carregarObras(agora, args.diasParado) : [],
     quer("financiamentos") ? carregarFinanciamentos(agora, args.diasParado) : [],
     quer("crm") ? db().select({ id: leads.id, name: leads.name, stage: leads.stage, cardDueDate: leads.cardDueDate, responsibleUserId: leads.responsibleUserId })
-      .from(leads).where(and(isNull(leads.deletedAt), ne(leads.stage, LEAD_FINALIZED_STAGE), isNotNull(leads.cardDueDate), lt(leads.cardDueDate, hoje)))
+      .from(leads).where(and(isNull(leads.deletedAt), ne(leads.stage, LEAD_FINALIZED_STAGE), isNotNull(leads.cardDueDate), lte(leads.cardDueDate, hoje))) // mesma regra do aviso diário (vence hoje conta)
       .limit(MAX_LINHAS_LIDAS) : [],
     quer("crm") ? db().select({ id: leadServices.id, leadId: leadServices.leadId, serviceType: leadServices.serviceType, title: leadServices.title,
       status: leadServices.status, dueAt: leadServices.dueAt, cliente: leads.name, operationalRecordId: leadServices.operationalRecordId })
@@ -60,7 +60,7 @@ export async function listarAtrasos(args: z.infer<typeof entradaListarAtrasos>, 
       responsavel: f.corretor ? `corretor: ${f.corretor}` : null, motivoRegistrado: null,
     })),
     ...cards.map(c => ({
-      modulo: "CRM (prazo do card)", id: c.id, cliente: c.name, descricao: null, situacao: rotuloEtapaCrm(c.stage),
+      modulo: "CRM (prazo do card)", id: c.id, // diasDeAtraso 0 = vence hoje cliente: c.name, descricao: null, situacao: rotuloEtapaCrm(c.stage),
       atrasado: true, diasDeAtraso: diasEntre(c.cardDueDate, hoje), parado: false, diasSemMovimentacao: null, prazo: c.cardDueDate,
       responsavel: c.responsibleUserId ? nomes.get(c.responsibleUserId) ?? null : null, motivoRegistrado: null,
     })),

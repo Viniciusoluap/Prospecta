@@ -179,6 +179,17 @@ describe("limites da saída", () => {
   });
 });
 
+describe("prazo do card que vence hoje (L9)", () => {
+  it("conta como vencido, igual ao aviso diário dos cards (lte)", async () => {
+    await banco.pg.exec("UPDATE leads SET card_due_date = '2026-11-16' WHERE id = 3");
+    const item = (await chamar("listar_atrasos", { modulo: "crm" })).dados.itens.find((i: any) => i.modulo === "CRM (prazo do card)" && i.id === 3);
+    expect(item).toMatchObject({ prazo: "2026-11-16", diasDeAtraso: 0 });
+    expect((await chamar("consultar_cliente", { leadId: 3 })).dados.clientes[0].prazoDoCardVencido).toBe(true);
+    await banco.pg.exec("UPDATE leads SET card_due_date = '2026-11-17' WHERE id = 3");
+    expect((await chamar("consultar_cliente", { leadId: 3 })).dados.clientes[0].prazoDoCardVencido).toBe(false);
+  });
+});
+
 describe("cliente excluído do CRM (M3)", () => {
   beforeEach(async () => {
     await banco.pg.exec(`
