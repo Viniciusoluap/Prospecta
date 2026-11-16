@@ -205,3 +205,19 @@ negócio. As correções 5, 6, 7, 11, 12 e 13 são da Maquete 3D (exceção já 
   rodada de validação de 16/11: `relative` nos contêineres de rolagem do CRM (textos `sr-only` esticavam a página),
   busca do OpenStreetMap em todos os servidores ao mesmo tempo e aviso de "fonte em manutenção".
 - **Áreas restritas nas doações (16/11/2026):** no Estudo de Massa, APP, vegetação e faixas contam como área verde/institucional (`aproveitarRestricoes`); portar junto com as correções 8 e 10.
+
+## Pendência de paridade → Grupo Santa Fé (EPIC-024 — registrada em 16/11/2026, EM ESPERA por decisão do dono)
+
+Decisão do dono em 16/11/2026: "o Grupo Santa Fé vai ficar stand by; depois que eu acabar todas essas mudanças eu vou
+fazer a paridade, mas agora não". Nada foi alterado no Santa Fé. A lista abaixo é o que terá de ser portado quando ele
+mandar (`epic-024-correcoes-16-11/EPIC.md`). As correções 03, 04 e 05 são da Maquete 3D (exceção já registrada).
+
+- [ ] Correção 01 — Conta Azul: prévia separa ativos de arquivados que bloqueiam; "Liberar reimportação" só do admin,
+  com cópia em `bpo_lancamentos_expurgo`; restauração que não duplica (depende do importador, ainda não portado)
+- [ ] Correção 02 — logotipo por empreendimento (tabela própria, PNG de exibição, cartões da listagem)
+- [ ] Correção 06 — proposta formal de aquisição do terreno em PDF e por e-mail, com registro dos envios
+- [ ] Correção 07 — filtros por nome e por tipo na listagem de incorporações
+- [ ] Correção 08 — terreno em KML ou KMZ, enviado em partes
+- [ ] Correção 09 — Gerador de PCI: CPF do engenheiro, dados automáticos com origem, biblioteca de modelos
+- [ ] Correção 10 — painel Anthropic em Integrações (só cadastro, sem ativar)
+- [ ] S-I do EPIC-023 — APP com o contorno real no Estudo de Massa (junto com as correções 8 e 10 daquele epic)

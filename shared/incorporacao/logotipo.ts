@@ -17,6 +17,18 @@ const comeca = (b: Uint8Array, assinatura: number[]) => assinatura.every((v, i) 
 
 export const ehPng = (b: Uint8Array) => b.length > 8 && comeca(b, PNG);
 
+/**
+ * Largura e altura lidas do cabeçalho IHDR do PNG; null quando o arquivo é curto demais ou o primeiro bloco não é
+ * IHDR (portão de QA de 16/11: só a assinatura de 8 bytes não basta — um "PNG" de 9 bytes quebrava o PDF da proposta).
+ */
+export function dimensoesDoPng(b: Uint8Array): { largura: number; altura: number } | null {
+  if (b.length < 33 || !comeca(b, PNG)) return null;
+  if (b[12] !== 0x49 || b[13] !== 0x48 || b[14] !== 0x44 || b[15] !== 0x52) return null; // "IHDR"
+  const v = new DataView(b.buffer, b.byteOffset, b.byteLength);
+  const largura = v.getUint32(16), altura = v.getUint32(20);
+  return largura >= 1 && altura >= 1 ? { largura, altura } : null;
+}
+
 /** Tipo real do arquivo pelos bytes iniciais; null quando não é PNG, JPG, SVG nem PDF. */
 export function tipoDoLogo(b: Uint8Array): TipoLogo | null {
   if (ehPng(b)) return "image/png";

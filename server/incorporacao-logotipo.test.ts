@@ -72,7 +72,7 @@ describe("tipo pelo conteúdo", () => {
 describe("envio, troca e exclusão", () => {
   it("um logotipo por estudo; trocar marca o anterior; A nunca aparece em B", async () => {
     const a1 = await enviar(1, PNG, "logo.png");
-    expect(a1).toMatchObject({ studyId: 1, mime: "image/png", origem: "envio", largura: 100 });
+    expect(a1).toMatchObject({ studyId: 1, mime: "image/png", origem: "envio", largura: 1, altura: 1 });
     expect(await admin().incorporacao.logo.obter({ studyId: 2 })).toBeNull();
     const a2 = await enviar(1, PDF, "Logo Final.pdf");
     expect(a2?.mime).toBe("application/pdf");
@@ -132,6 +132,21 @@ describe("envio, troca e exclusão", () => {
     await admin().incorporacao.logo.excluir({ studyId: 1 });
     expect(await admin().incorporacao.logo.obter({ studyId: 1 })).toBeNull();
     expect(await admin().incorporacao.logo.obter({ studyId: 2 })).not.toBeNull();
+  });
+
+  it("portão de QA: PNG só com a assinatura é recusado; as medidas gravadas são as do próprio PNG; duas trocas ao mesmo tempo deixam um logotipo ativo", async () => {
+    // 9 bytes (assinatura + 1): passava pela conferência antiga e quebrava o PDF da proposta do estudo.
+    await expect(enviar(1, PNG, "logo.png", Buffer.concat([PNG.subarray(0, 8), Buffer.from([0])]))).rejects.toThrow(/PNG válido/);
+    // Primeiro bloco que não é IHDR.
+    const semIhdr = Buffer.from(PNG); semIhdr.write("XXXX", 12, "latin1");
+    await expect(enviar(1, PNG, "logo.png", semIhdr)).rejects.toThrow(/PNG válido/);
+    // O teste declara 100 × 50; o PNG tem 1 × 1 — vale o PNG.
+    const salvo = await enviar(1, PNG, "logo.png");
+    expect(salvo).toMatchObject({ largura: 1, altura: 1 });
+    await Promise.all([enviar(1, PNG, "a.png"), enviar(1, PNG_B, "b.png")]);
+    const ativos = await pg.query(`select count(*)::int n from incorporation_study_logos where study_id = 1 and deleted_at is null`);
+    expect((ativos.rows[0] as { n: number }).n).toBe(1);
+    await admin().incorporacao.logo.excluir({ studyId: 1 });
   });
 
   it("sem o módulo Incorporação, nada passa", async () => {

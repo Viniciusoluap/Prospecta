@@ -4,7 +4,7 @@
 // final. Cartões recebem só o PNG de exibição pela rota `/api/incorporacao/logo/:id` (server/routes/incorporacao-logo.ts).
 import { createHash } from "node:crypto";
 import { TRPCError } from "@trpc/server";
-import { and, desc, eq, isNull, ne } from "drizzle-orm";
+import { and, desc, eq, isNull, sql } from "drizzle-orm";
 import { z } from "zod";
 import { protectedProcedure, router } from "./_core/trpc.js";
 import { requireModule } from "./_core/rbac.js";
@@ -12,9 +12,11 @@ import { getDb, getIncorporationStudyById } from "./db.js";
 import { clearUpload, readUpload } from "./document-upload-chunks.js";
 import { incorporationStudyLogos } from "../drizzle/schema-incorporacao-logos.js";
 import {
-  LADO_EXIBICAO, LIMITE_EXIBICAO_BYTES, LIMITE_LOGO_BYTES, ehPng, promptLogotipo, tipoDoLogo, tipoPelaExtensao,
+  LADO_EXIBICAO, LIMITE_EXIBICAO_BYTES, LIMITE_LOGO_BYTES, dimensoesDoPng, ehPng, promptLogotipo, tipoDoLogo, tipoPelaExtensao,
 } from "../shared/incorporacao/logotipo.js";
 
+/** Trava (por estudo) da troca do logotipo: uma troca por vez. */
+const TRAVA_LOGO = 24_02;
 export const escopoEnvioLogo = (studyId: number) => `incorporacao-logo:${studyId}`;
 export const PROVEDOR_IMAGEM = "Manus Forge (gerador de imagem já existente no sistema)";
 const sha256 = (b: Uint8Array) => createHash("sha256").update(b).digest("hex");
@@ -85,17 +87,22 @@ export const incorporationLogoRouter = router({
     const esperado = tipoPelaExtensao(input.nome);
     if (esperado && esperado !== mime) throw new TRPCError({ code: "BAD_REQUEST", message: "O conteúdo do arquivo não corresponde à extensão." });
     const exibicao = Buffer.from(input.exibicaoBase64, "base64");
-    if (!ehPng(exibicao) || exibicao.length > LIMITE_EXIBICAO_BYTES)
-      throw new TRPCError({ code: "BAD_REQUEST", message: "A imagem de exibição precisa ser PNG de até 1,5 MB." });
-    const db = getDb();
-    const [novo] = await db.insert(incorporationStudyLogos).values({
-      studyId: input.studyId, mime, nome: nomeSeguro(input.nome), origem: input.origem, sha256: sha256(original),
-      tamanho: original.length, original, exibicaoPng: exibicao, exibicaoSha256: sha256(exibicao),
-      largura: input.largura, altura: input.altura, enviadoPor: ctx.user.id,
-    }).returning({ id: incorporationStudyLogos.id });
-    await db.update(incorporationStudyLogos).set({ deletedAt: new Date() }).where(and(
-      eq(incorporationStudyLogos.studyId, input.studyId), isNull(incorporationStudyLogos.deletedAt), ne(incorporationStudyLogos.id, novo.id),
-    ));
+    // As medidas valem as do próprio PNG (cabeçalho IHDR), não as que o navegador declarou.
+    const medidas = exibicao.length <= LIMITE_EXIBICAO_BYTES ? dimensoesDoPng(exibicao) : null;
+    if (!ehPng(exibicao) || !medidas || medidas.largura > LADO_EXIBICAO || medidas.altura > LADO_EXIBICAO)
+      throw new TRPCError({ code: "BAD_REQUEST", message: `A imagem de exibição precisa ser um PNG válido de até 1,5 MB e ${LADO_EXIBICAO} px de lado.` });
+    // Troca numa transação só: dois envios ao mesmo tempo não podem arquivar o logotipo um do outro e deixar o
+    // empreendimento sem nenhum (o último a gravar fica ativo).
+    await getDb().transaction(async tx => {
+      await tx.execute(sql`select pg_advisory_xact_lock(${TRAVA_LOGO}, ${input.studyId})`);
+      await tx.update(incorporationStudyLogos).set({ deletedAt: new Date() }).where(and(
+        eq(incorporationStudyLogos.studyId, input.studyId), isNull(incorporationStudyLogos.deletedAt)));
+      await tx.insert(incorporationStudyLogos).values({
+        studyId: input.studyId, mime, nome: nomeSeguro(input.nome), origem: input.origem, sha256: sha256(original),
+        tamanho: original.length, original, exibicaoPng: exibicao, exibicaoSha256: sha256(exibicao),
+        largura: medidas.largura, altura: medidas.altura, enviadoPor: ctx.user.id,
+      });
+    });
     return logoAtivo(input.studyId);
   }),
 

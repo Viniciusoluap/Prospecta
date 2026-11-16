@@ -14,6 +14,7 @@ import { getDb, getIncorporationStudyById } from "./db.js";
 import { bytesDoLogo } from "./incorporacao-logo-router.js";
 import { incorporationProposalSends } from "../drizzle/schema-incorporacao-propostas.js";
 import { parseNegociacao } from "../shared/incorporacao/negociacao.js";
+import { dimensoesDoPng } from "../shared/incorporacao/logotipo.js";
 import { dataBr, gerarPdfPropostaTerreno, nomeArquivoProposta, type DadosPropostaTerreno } from "../shared/incorporacao/proposta-terreno-pdf.js";
 import { IDENTIDADE_EMAIL, rodapeEmail } from "../shared/email-identidade.js";
 
@@ -54,16 +55,16 @@ export async function montarPdfProposta(studyId: number, propostaId: string, dat
     proposta,
     proponente: { empresa: IDENTIDADE_EMAIL, responsavel: usuario.name ?? null },
     dataEmissao,
-    logoEmpreendimento: logo ? { png: logo.dados, ...dimensoesPng(logo.dados) } : null,
+    logoEmpreendimento: logoDaProposta(logo?.dados),
   };
   const pdf = gerarPdfPropostaTerreno(dados);
   return { pdf, dados, nomeArquivo: nomeArquivoProposta(dados), sha256: sha256(pdf) };
 }
 
-/** Largura/altura do cabeçalho IHDR do PNG. */
-function dimensoesPng(png: Uint8Array) {
-  const v = new DataView(png.buffer, png.byteOffset, png.byteLength);
-  return { largura: v.getUint32(16), altura: v.getUint32(20) };
+/** Logotipo do empreendimento no cabeçalho; PNG inválido fica de fora (a proposta sai sem ele, nunca dá erro). */
+function logoDaProposta(png: Uint8Array | undefined | null) {
+  const medidas = png ? dimensoesDoPng(png) : null;
+  return png && medidas ? { png, ...medidas } : null;
 }
 
 const entrada = z.object({
