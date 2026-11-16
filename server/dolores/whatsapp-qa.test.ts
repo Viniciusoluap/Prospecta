@@ -13,7 +13,7 @@ import { definirClienteModelo, type PedidoModelo, type RespostaModelo } from "./
 import { esquecerUsuarioDolores } from "./perfil.js";
 import { definirDependenciasPonte } from "./ponte.js";
 import { AGORA, CENARIO, criarBanco } from "./testes-banco.js";
-import { definirDependenciasWhatsapp, segredoWebhookDolores, tratarWebhookDolores } from "./whatsapp.js";
+import { MOTIVO_SEM_TEMPO_NO_AVISO, definirDependenciasWhatsapp, segredoWebhookDolores, tratarWebhookDolores } from "./whatsapp.js";
 import { FRASE_OUTRO_PEDIDO } from "../../shared/dolores/whatsapp.js";
 
 const DONO = "5599991234567";
@@ -212,8 +212,35 @@ describe("QA achado 5 — um prazo só para o aviso inteiro (vários comandos no
     // os que não couberam: frase fixa sem IA (quando ainda dava para enviar) ou nem reivindicados
     expect(enviar.mock.calls.some(x => /não deu tempo de tratar o de 08:59/.test(x[0].texto))).toBe(true);
     const situacoes = await q<{ situacao: string; n: number }>("SELECT situacao, count(*)::int AS n FROM dolores_mensagens GROUP BY 1 ORDER BY 1");
-    expect(situacoes.every(s => ["respondida", "bloqueada"].includes(s.situacao))).toBe(true);
+    // QA r2 N4: os que nem couberam na frase fixa ficam "processando" com motivo próprio (a recuperação avisa)
+    expect(situacoes.every(s => ["respondida", "bloqueada", "processando"].includes(s.situacao))).toBe(true);
+    const presos = await q<{ motivo: string }>("SELECT motivo FROM dolores_mensagens WHERE situacao = 'processando'");
+    expect(presos.every(p => p.motivo === MOTIVO_SEM_TEMPO_NO_AVISO)).toBe(true);
     expect(chamadas.length).toBe(c.respondida);
+  });
+  it("QA r2 N4: comando sem tempo nem para a frase fixa é reivindicado e o próximo aviso diz ao dono para mandar de novo (sem IA)", async () => {
+    let t = 1_000_000;
+    roteiro = () => { t += 43_000; return fim("ok"); };
+    definirDependenciasWhatsapp({ agora: () => AGORA, enviar: enviar as never, ms: () => t });
+    const r = await chamar(lote(aviso({ id: "A" }), aviso({ id: "B" }), aviso({ id: "C" })));
+    expect(r.body.r).toEqual({ respondida: 1, "sem-tempo": 2 });
+    expect(enviar).toHaveBeenCalledTimes(1);
+    expect(await q("SELECT external_id, situacao, motivo FROM dolores_mensagens ORDER BY id")).toEqual([
+      { external_id: "A", situacao: "respondida", motivo: null },
+      { external_id: "B", situacao: "processando", motivo: MOTIVO_SEM_TEMPO_NO_AVISO },
+      { external_id: "C", situacao: "processando", motivo: MOTIVO_SEM_TEMPO_NO_AVISO },
+    ]);
+    expect((await acoes()).filter(a => /sem tempo no prazo do aviso: guardado/.test(a.motivo ?? ""))).toHaveLength(1);
+    // próximo aviso (mesmo de outro número, ou a reentrega de B): um aviso só, com a hora, sem IA
+    t += 1_000; const antes = chamadas.length;
+    const r2 = await chamar(aviso({ id: "B" }));
+    expect(r2.body.r).toEqual({ interrompida: 2, repetida: 1 });
+    expect(chamadas.length).toBe(antes);
+    expect(enviar).toHaveBeenCalledTimes(2);
+    expect(enviar.mock.calls[1][0]).toMatchObject({ numero: DONO, texto: "Dolores: não consegui terminar o pedido de 08:59. Nada foi alterado no sistema; mande de novo, por favor." });
+    expect(await q("SELECT count(*)::int AS n FROM dolores_mensagens WHERE situacao = 'processando'")).toEqual([{ n: 0 }]);
+    await chamar(aviso({ jid: "5511988887777@s.whatsapp.net" }));
+    expect(enviar).toHaveBeenCalledTimes(2); // não repete
   });
   it("sem tempo para enviar, não envia (registra o erro) — nunca começa um envio que passaria do prazo", async () => {
     let t = 0;

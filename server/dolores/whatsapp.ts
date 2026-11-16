@@ -10,7 +10,7 @@
 // com prazo total abaixo dos 60 s; a Evolution reenviar o aviso não duplica nada.
 import { createHash, createHmac, timingSafeEqual } from "node:crypto";
 import { Router, type Request, type Response } from "express";
-import { and, eq, lt, sql } from "drizzle-orm";
+import { and, eq, lt, or, sql } from "drizzle-orm";
 import { doloresMensagens, doloresRemetentesEstranhos, doloresWhatsappConfig, type DoloresWhatsappConfig, type SituacaoMensagem } from "../../drizzle/schema-dolores-whatsapp.js";
 import { sanitizarTexto } from "../../shared/dolores/sanitizar.js";
 import {
@@ -37,6 +37,11 @@ export const MINIMO_PARA_ENVIAR_MS = 1_500;
 export const MINIMO_PARA_COMANDO_MS = MINIMO_PARA_CHAMAR_MS + FOLGA_FINAL_MS + 1_000;
 /** Para a frase fixa de "mande de novo" (registro + envio); com menos, a mensagem nem é reivindicada. */
 export const MINIMO_PARA_RECUSAR_MS = 3_000;
+/**
+ * QA r2 N4: pedido do dono que chegou sem tempo nem para a frase fixa. Fica "processando" com este motivo e a recuperação
+ * do próximo aviso (sem esperar os 3 min) diz ao dono que não deu para atender o pedido daquela hora.
+ */
+export const MOTIVO_SEM_TEMPO_NO_AVISO = "sem tempo no prazo do aviso; aguardando o aviso de mandar de novo";
 /** Itens por aviso tratados (a Evolution manda um por vez; lote grande é histórico). */
 const MAX_ITENS = 20;
 const MAX_FALHAS_AUTH = 20;
@@ -212,7 +217,7 @@ async function recuperarPedidosInterrompidos(cfg: DoloresWhatsappConfig, autor: 
       .set({ situacao: "erro", motivo: "interrompido no meio (a função parou); o dono foi avisado para mandar de novo", respondidaEm: deps.agora(),
         reservaEntrada: 0, reservaSaida: 0, reservaAte: null })
       .where(and(eq(doloresMensagens.instancia, cfg.instancia), eq(doloresMensagens.doDono, true), eq(doloresMensagens.situacao, "processando"),
-        lt(doloresMensagens.criadoEm, sql`now() - make_interval(secs => ${PROCESSANDO_VENCIDO_MS / 1000})`)))
+        or(lt(doloresMensagens.criadoEm, sql`now() - make_interval(secs => ${PROCESSANDO_VENCIDO_MS / 1000})`), eq(doloresMensagens.motivo, MOTIVO_SEM_TEMPO_NO_AVISO))))
       .returning({ id: doloresMensagens.id, enviadaEm: doloresMensagens.enviadaEm, criadoEm: doloresMensagens.criadoEm });
   } catch (e) {
     console.error("[dolores/whatsapp] falha ao conferir pedidos interrompidos", erroCurto(e));
@@ -286,6 +291,7 @@ export async function tratarWebhookDolores(req: Pedido): Promise<RespostaWebhook
   const prazoFinal = inicio + PRAZO_TOTAL_MS;
   const contagem: Record<string, number> = {};
   const contar = (k: string) => { contagem[k] = (contagem[k] ?? 0) + 1; };
+  let semTempoReivindicadas = 0;
   const autor = await idDaDoloresSemCriar().catch(() => null);
   const interrompidos = await recuperarPedidosInterrompidos(cfg, autor, prazoFinal);
   if (interrompidos) contagem.interrompida = interrompidos;
@@ -294,14 +300,15 @@ export async function tratarWebhookDolores(req: Pedido): Promise<RespostaWebhook
     if (m.tipo === "ignorar") { contar(m.motivo); continue; }
     if (mensagemAntiga(m.enviadaEm, deps.agora())) { contar("antiga"); continue; }
     const doDono = ehNumeroDoDono(m.numero, cfg.numeroDono);
-    // QA achado 5: um prazo só para o aviso inteiro. Sem tempo nem para a frase fixa, a mensagem nem é reivindicada.
-    if (doDono && prazoFinal - deps.ms() < MINIMO_PARA_RECUSAR_MS) { contar("sem-tempo"); continue; }
+    // QA achado 5: um prazo só para o aviso inteiro. QA r2 N4: sem tempo nem para a frase fixa, a mensagem é ao menos
+    // REIVINDICADA ("processando" com motivo próprio) — a recuperação do próximo aviso avisa o dono para mandar de novo.
+    const semTempoNenhum = doDono && prazoFinal - deps.ms() < MINIMO_PARA_RECUSAR_MS;
     // Reivindica a mensagem: só quem gravar primeiro trata (reentrega e avisos paralelos não duplicam resposta nem gasto).
     let id: number | null = null;
     try {
       const [linha] = await getDb().insert(doloresMensagens).values({
         instancia: cfg.instancia, externalId: m.externalId, remetente: m.numero ? mascararNumero(m.numero) : "(sem número)", doDono,
-        situacao: doDono ? "processando" : "ignorada", motivo: doDono ? null : "remetente não autorizado",
+        situacao: doDono ? "processando" : "ignorada", motivo: semTempoNenhum ? MOTIVO_SEM_TEMPO_NO_AVISO : doDono ? null : "remetente não autorizado",
         texto: doDono ? sanitizarTexto(m.texto).slice(0, MAX_TEXTO_COMANDO) || null : null, enviadaEm: m.enviadaEm,
       }).onConflictDoNothing().returning({ id: doloresMensagens.id });
       id = linha?.id ?? null;
@@ -310,6 +317,7 @@ export async function tratarWebhookDolores(req: Pedido): Promise<RespostaWebhook
       contar("erro"); continue; // sem o registro (idempotência) não há resposta: falha fechada
     }
     if (!id) { contar("repetida"); continue; }
+    if (semTempoNenhum) { contar("sem-tempo"); semTempoReivindicadas++; continue; }
     if (!doDono) {
       await auditarRemetenteEstranho(m.numero, autor, m.texto.length);
       contar("nao-autorizado"); continue;
@@ -326,6 +334,10 @@ export async function tratarWebhookDolores(req: Pedido): Promise<RespostaWebhook
   if (contagem.reacao || contagem.edicao) {
     await registrarAcao({ funcao: "whatsapp_mensagem", resultado: "recusada", motivo: "reação ou edição de mensagem: ignorada, sem resposta", autorUserId: autor, canal: "whatsapp",
       resumo: { reacoes: contagem.reacao ?? 0, edicoes: contagem.edicao ?? 0 } });
+  }
+  if (semTempoReivindicadas) {
+    await registrarAcao({ funcao: "whatsapp_mensagem", resultado: "erro", motivo: "pedido do dono sem tempo no prazo do aviso: guardado para o aviso de 'mande de novo'", autorUserId: autor, canal: "whatsapp",
+      resumo: { pedidos: semTempoReivindicadas } }).catch(() => undefined);
   }
   if (contagem.antiga) {
     await registrarAcao({ funcao: "whatsapp_mensagem", resultado: "recusada", motivo: "mensagem antiga (reentrega ou histórico): não vira comando", autorUserId: autor, canal: "whatsapp", resumo: { antigas: contagem.antiga } });
