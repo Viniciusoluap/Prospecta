@@ -183,7 +183,10 @@ describe("Gerador de PCI — permissões", () => {
     const comObras = { role: "colaborador", permissions: JSON.stringify(["obras"]) };
     const semObras = { role: "colaborador", permissions: JSON.stringify(["crm"]) };
     const admin = { role: "admin", permissions: null };
-    for (const p of ["pciGerador.obter", "pciGerador.salvarRascunho", "pciGerador.gerar", "pciGerador.historico"]) {
+    for (const p of ["pciGerador.obter", "pciGerador.salvarRascunho", "pciGerador.gerar", "pciGerador.historico",
+      // EPIC-024 S-09
+      "pciGerador.engenheiro", "pciGerador.sugestoesAutomaticas", "pciGerador.modelosPreenchimento", "pciGerador.modeloPreenchimento",
+      "pciGerador.historicoModeloPreenchimento", "pciGerador.salvarModeloPreenchimento", "pciGerador.excluirModeloPreenchimento"]) {
       expect(canAccessAdminProcedure(admin, p), p).toBe(true);
       expect(canAccessAdminProcedure(comObras, p), p).toBe(true);
       expect(canAccessAdminProcedure(semObras, p), p).toBe(false);
