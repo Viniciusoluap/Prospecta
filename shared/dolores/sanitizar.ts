@@ -140,11 +140,18 @@ function classificar(gs: Grupo[], ligacoes: string[], texto: string, cadeiaIntei
   if (d.length === 14 && FORMAS_CNPJ.has(forma) && cnpjValido(d)) return { tipo: "cnpj" };
   const inicio = gs[0].inicio, fim = gs[gs.length - 1].fim;
   const depois = texto.slice(fim, fim + 12);
-  if (/^,\d/.test(depois)) return null; // número com decimais ("999.123.456,00"): é valor
   const antes = texto.slice(Math.max(0, inicio - 50), inicio);
   const maisAntes = /\+\s?\(?\s?$/.test(antes);
   const contextoTel = CONTEXTO_TELEFONE.test(antes);
   const tel = telefone(gs, ligacoes, maisAntes, contextoTel);
+  // Número com centavos ("999.123.456,00", "R$ 99991234567,50"): é valor. QA r3 R2: só vírgula + 1–2 dígitos ("tels
+  // 99991234567,99987654321" é lista) e, se a forma é de celular, só quando o número tem cara de dinheiro (milhar com
+  // ponto ou "R$" antes) — "tel (99) 99123-4567,1" sai.
+  if (/^,\d{1,2}(?!\d)/.test(depois)) {
+    const cara = /r\$\s*$/i.test(antes)
+      || (gs.length > 1 && ligacoes.every(l => l === ".") && gs.slice(1).every(g => g.digitos.length === 3));
+    if (tel === null || cara) return null;
+  }
   const antesLimpo = antes.replace(/[(+\s]+$/, " ");
   const medida = !contextoTel && UNIDADE_DEPOIS.test(depois);
   const rotulado = !contextoTel && CONTEXTO_NAO_PESSOAL.test(antesLimpo) || medida;
