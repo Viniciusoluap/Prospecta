@@ -14,7 +14,7 @@ vi.mock("./caixa/pci-modelo-estrutura.js", async (orig) => {
 });
 vi.mock("./obra-localizacao.js", () => ({ obterLocalizacaoObra: vi.fn(async () => ({ coords: { lat: -5.5, lng: -47.5 }, pontoPci: null })) }));
 
-import { gravarModeloPci, pciGeradorRouter, pciModelosRouter } from "./pci-gerador.js";
+import { gerarPciDaObra, gravarModeloPci, pciGeradorRouter, pciModelosRouter } from "./pci-gerador.js";
 import { lerPci } from "./caixa/pci.js";
 import { gerarPlanilhaPci } from "./caixa/pci-gerador.js";
 import { formularioPciVazio } from "../shared/pci-gerador.js";
@@ -121,6 +121,19 @@ it("revisão PR #180: modelo .xlsb atual com base .xls compatível libera a gera
   } finally {
     await pg.exec("DELETE FROM pci_generated WHERE model_version = 9; DELETE FROM pci_models WHERE version = 9; UPDATE pci_models SET deleted_at = NULL, is_current = true WHERE version = 1");
   }
+});
+
+it("EPIC-025 E3 (achado 2): gerar com regravarRascunho: false (Dolores) NÃO altera o rascunho da equipe; o padrão da tela continua regravando", async () => {
+  await pg.exec("INSERT INTO users VALUES (2, 'Dolores', 'colaborador', true) ON CONFLICT DO NOTHING; UPDATE pci_generator_drafts SET updated_by = 1, updated_at = '2026-11-15 12:00' WHERE project_id = 10");
+  const antes = (await pg.query<{ form_data: unknown; updated_by: number; updated_at: Date }>("SELECT form_data, updated_by, updated_at FROM pci_generator_drafts WHERE project_id = 10")).rows[0];
+  const r = await gerarPciDaObra(10, antes.form_data, { id: 2, name: "Dolores" }, { regravarRascunho: false, prazoDriveMs: 5_000 });
+  const depois = (await pg.query<{ form_data: unknown; updated_by: number; updated_at: Date }>("SELECT form_data, updated_by, updated_at FROM pci_generator_drafts WHERE project_id = 10")).rows[0];
+  expect(depois).toEqual(antes);
+  expect((await pg.query<{ created_by: number }>("SELECT created_by FROM pci_generated WHERE id = $1", [r.id])).rows[0].created_by).toBe(2);
+  // tela (sem opções): comportamento de sempre — o rascunho é regravado por quem gerou
+  await pciGeradorRouter.createCaller(ctx).gerar({ projectId: 10, formulario: antes.form_data });
+  expect((await pg.query<{ updated_by: number }>("SELECT updated_by FROM pci_generator_drafts WHERE project_id = 10")).rows[0].updated_by).toBe(1);
+  expect((await pg.query<{ updated_at: Date }>("SELECT updated_at FROM pci_generator_drafts WHERE project_id = 10")).rows[0].updated_at).not.toEqual(antes.updated_at);
 });
 
 it("sem modelo .xls/.xlsm atual: gerar pede o modelo certo", async () => {

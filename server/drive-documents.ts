@@ -1,3 +1,4 @@
+import { AsyncLocalStorage } from "node:async_hooks";
 import { createHash, createSign } from "node:crypto";
 import { descreverErroDrive, ErroDrive, lerCorpoErroGoogle, type EtapaDrive } from "../shared/drive-erro.js";
 import { caminhoImovel, caminhoMedicoesObra, CHAVE_RAIZ, nomeArquivo, nomeFotoImovel, pastaLegada, PASTAS_IMOVEL, PROPRIEDADE_PASTA, type PastaAlvo } from "../shared/drive-estrutura.js";
@@ -52,7 +53,8 @@ function base64url(value: string | Buffer) {
 }
 
 async function accessToken(fonte: FonteDrive): Promise<string> {
-  if (fonte.modo === "oauth") return tokenOAuth();
+  // o token da conta do dono também respeita o prazo do `comPrazoNoDrive` (QA R2 M2); fora dele, sem sinal, como antes
+  if (fonte.modo === "oauth") return tokenOAuth(false, sinalDoDrive.getStore());
   if (cachedToken && cachedToken.expiresAt > Date.now() + 60_000) return cachedToken.value;
   const { email, privateKey } = contaServico();
   const now = Math.floor(Date.now() / 1000);
@@ -61,7 +63,7 @@ async function accessToken(fonte: FonteDrive): Promise<string> {
   signer.update(unsigned);
   const assertion = `${unsigned}.${signer.sign(privateKey).toString("base64url")}`;
   const response = await fetch("https://oauth2.googleapis.com/token", {
-    method: "POST",
+    method: "POST", ...(sinalDoDrive.getStore() ? { signal: sinalDoDrive.getStore() } : {}),
     headers: { "Content-Type": "application/x-www-form-urlencoded" },
     body: new URLSearchParams({ grant_type: "urn:ietf:params:oauth:grant-type:jwt-bearer", assertion }),
   });
@@ -75,9 +77,19 @@ async function accessToken(fonte: FonteDrive): Promise<string> {
   return cachedToken.value;
 }
 
+/**
+ * Sinal de cancelamento das chamadas ao Drive feitas dentro de `comPrazoNoDrive` (EPIC-025: a PCI gerada pela Dolores
+ * tem orçamento de tempo). Fora dele, nada muda: as chamadas seguem sem prazo, como antes.
+ */
+const sinalDoDrive = new AsyncLocalStorage<AbortSignal>();
+export function comPrazoNoDrive<T>(prazoMs: number, fn: () => Promise<T>): Promise<T> {
+  return sinalDoDrive.run(AbortSignal.timeout(Math.max(1, Math.floor(prazoMs))), fn);
+}
+
 async function driveFetch(fonte: FonteDrive, url: string, init: RequestInit = {}, etapa: EtapaDrive = "pasta"): Promise<Response> {
   const token = await accessToken(fonte);
-  const response = await fetch(url, { ...init, headers: { ...init.headers, Authorization: `Bearer ${token}` } });
+  const sinal = init.signal ?? sinalDoDrive.getStore();
+  const response = await fetch(url, { ...init, ...(sinal ? { signal: sinal } : {}), headers: { ...init.headers, Authorization: `Bearer ${token}` } });
   if (!response.ok) {
     const { motivo, detalhe } = lerCorpoErroGoogle(await response.json().catch(() => null));
     throw new ErroDrive(etapa, response.status, motivo, detalhe);

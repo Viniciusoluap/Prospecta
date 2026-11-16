@@ -14,7 +14,7 @@ export type Acao = {
   funcao: string; argumentos?: unknown; resultado: ResultadoAcao; motivo?: string | null;
   resumo?: Record<string, unknown> | null; duracaoMs?: number | null; pedidoId?: string | null; autorUserId: number | null;
   /** Por onde chegou: a ponte HTTP (etapa 1) ou o WhatsApp do dono (etapa 2). */
-  canal?: "ponte" | "whatsapp";
+  canal?: "ponte" | "whatsapp" | "tela";
 };
 
 const CHAVE_SENSIVEL = /token|senha|password|secret|segredo|chave|apikey|api_key|authorization|cpf|cnpj|conta|agencia|pix/i;

@@ -135,6 +135,9 @@ function pciGerada(parte: "planilha" | "pdf"): FonteArquivos {
         WHERE ${coluna} IS NULL AND ${filtroId(sql`g.id`, f)} ORDER BY g.id LIMIT ${f.limite}`);
       return rows.map((l) => ({
         tipo, id: num(l.id), mime: mime(l), destino: pronto(destino(l)),
+        // EPIC-025 (QA R2 M1): a cópia feita logo depois de gerar pode ter chegado ao Google e sido cancelada pelo prazo
+        // (PCI pela Dolores): o organizador adota o arquivo que já está na pasta com o MESMO conteúdo (MD5), sem duplicar.
+        adotarPrefixo: destino(l).nome.replace(/\.[A-Za-z0-9]{1,5}$/, ""),
         carregar: () => b64(sql`SELECT encode(${bytes}, 'base64') AS b64 FROM pci_generated WHERE id = ${num(l.id)}`),
         gravar: async (id) => { await getDb().execute(sql`UPDATE pci_generated SET ${colunaSimples} = ${id} WHERE id = ${num(l.id)} AND ${colunaSimples} IS NULL`); },
       }));

@@ -22,12 +22,39 @@ export type FuncaoDolores = {
   nome: string;
   descricao: string;
   tipo: "leitura";
+  /**
+   * A resposta traz texto livre de terceiros ou do banco (histórico, anotações, mensagens, observações, descrições,
+   * nomes, títulos, documentos)? Se sim, a partir dela NENHUMA ação direta roda no resto do comando: vai para a fila
+   * de aprovação (regra de contaminação, cerebro.ts). Na dúvida, contamina.
+   */
+  contamina: boolean;
   entrada: z.ZodType;
   executar: (args: never, ctx: ContextoFuncao) => Promise<Resultado>;
 };
 
 const f = <S extends z.ZodType>(nome: string, descricao: string, entrada: S, executar: (args: z.infer<S>, ctx: ContextoFuncao) => Promise<Resultado>): FuncaoDolores =>
-  ({ nome, descricao: descricao + AVISO_DADOS, tipo: "leitura", entrada, executar: executar as FuncaoDolores["executar"] });
+  ({ nome, descricao: descricao + AVISO_DADOS, tipo: "leitura", contamina: CONTAMINA[nome] ?? true, entrada, executar: executar as FuncaoDolores["executar"] });
+
+/**
+ * Regra de contaminação por função (EPIC-025 E3, portão de QA): TODAS as leituras de hoje devolvem texto que veio de
+ * pessoas ou do banco — nomes de clientes e obras, títulos de tarefa, nomes de documento, anotações, mensagens,
+ * observações, motivos, descrições de lançamento. Por isso todas contaminam. Uma função nova só entra aqui como
+ * `false` se devolver apenas números, datas e valores fixos do sistema; fora desta lista, contamina.
+ */
+const CONTAMINA: Record<string, boolean> = {
+  listar_processos_regularizacao: true, // nomes, próxima providência registrada (texto livre)
+  detalhar_processo_regularizacao: true, // observações das etapas, últimas atividades
+  consultar_cliente: true, // nome, próxima providência, tarefas
+  historico_atendimento: true, // anotações, mensagens, ligações
+  conversas_whatsapp: true, // mensagens de clientes
+  listar_tarefas: true, // títulos de tarefa
+  listar_documentos: true, // nomes de documento e de cliente
+  listar_atrasos: true, // motivos registrados
+  listar_obras: true, // títulos de obra, nomes
+  listar_medicoes: true, // títulos de obra
+  listar_financiamentos: true, // nomes, itens do checklist
+  listar_recebiveis_pendentes: true, // descrições de lançamento, nomes
+};
 
 /**
  * Aviso que vai em TODAS as descrições: o que a ponte mascara. Texto livre é filtrado por melhor esforço.

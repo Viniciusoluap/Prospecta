@@ -32,6 +32,10 @@ export async function criarBanco() {
   const whatsapp = readFileSync(new URL("../../drizzle/0124_dolores_whatsapp.sql", import.meta.url), "utf8");
   await pg.exec(whatsapp);
   await pg.exec(whatsapp);
+  // Etapa 3 (Ações): migração 0125, também duas vezes.
+  const fila = readFileSync(new URL("../../drizzle/0125_dolores_fila.sql", import.meta.url), "utf8");
+  await pg.exec(fila);
+  await pg.exec(fila);
   return { pg, db: drizzle(pg) };
 }
 

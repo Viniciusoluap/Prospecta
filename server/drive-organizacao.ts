@@ -16,7 +16,7 @@ import { CATEGORIAS_ENTIDADE, chaveEntidade, chaveProjetoPortfolio, entidadeDaCh
 import { arquivosDoLead, arquivosEmUso, destinoAtualDoArquivo, FONTES_ARQUIVOS, planilhaImportada, registrosExistentes, type DestinoDrive, type FonteArquivos } from "./drive-arquivos.js";
 import {
   arquivoNaPastaPorPrefixo, arquivosNaPasta, driveConfigured, lixeiraPorId, moverArquivoParaDestino, pastaPorChave, subpastasDaCategoria,
-  uploadArquivoNoCaminho, type CachePastas,
+  uploadArquivoNoCaminho, comPrazoNoDrive, type CachePastas,
 } from "./drive-documents.js";
 import { getDb } from "./db.js";
 
@@ -439,7 +439,9 @@ export async function lixeiraDoArquivo(driveFileId: string | null | undefined, d
  * Logo depois de gravar no banco: copia o registro para o Drive. Falha (ou Drive
  * não configurado) não impede nada — fica pendente e o organizador envia depois.
  */
-export async function copiarParaDrive(tipo: string, id: number, deps: DependenciasOrganizador = dependenciasReais()): Promise<boolean> {
+export async function copiarParaDrive(tipo: string, id: number, deps: DependenciasOrganizador = dependenciasReais(), prazoMs?: number): Promise<boolean> {
+  // com prazo (EPIC-025, PCI pela Dolores): as chamadas ao Drive são canceladas ao passar dele; a cópia fica pendente
+  if (prazoMs !== undefined) return comPrazoNoDrive(prazoMs, () => copiarParaDrive(tipo, id, deps));
   try {
     const fonte = deps.fontes.find((f) => f.tipo === tipo);
     if (!fonte?.pendentes || !(await deps.configurado())) return false;
