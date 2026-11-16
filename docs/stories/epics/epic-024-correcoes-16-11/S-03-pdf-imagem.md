@@ -1,6 +1,6 @@
 # S-03 — Maquete: PDF que o leitor próprio não lê (leitura híbrida)
 
-Status: Ready for Review — correções do portão de QA de 16/11 feitas (ver "QA — achados e correções"); sem chave real e sem o PDF real escaneado
+Status: Ready for Review — correções do portão de QA de 16/11 (rodadas 1 e 2) feitas (ver "QA — achados e correções"); sem chave real e sem o PDF real escaneado
 Epic: EPIC-024 (Fase 4) — correção 03 do dono (16/11/2026)
 Paridade: Maquete 3D — exceção já registrada no `ROADMAP.md` (EPIC-022). Não portar.
 Tamanho estimado: G
@@ -121,6 +121,25 @@ Testes de regressão em `server/maquete-3d-qa-s03-s05.test.ts` (versões inverti
 - Tela: aviso "teto" com o botão "Autorizar além do teto" (só admin, com confirmação do navegador); passo em curso em
   outra aba aparece como "sendo lida pela IA agora" e o laço da tela para sem chamar de novo.
 
+## QA rodada 2 (16/11, veredito CONCERNS) — achados N1–N7 e correções
+Testes de regressão em `server/maquete-3d-qa-s03-s05.test.ts` (blocos "rodada 2"). Commits no ramo `epic024-s03-s05`.
+
+| Achado | Correção | Commit | Teste |
+|---|---|---|---|
+| N1 (importante) mexer na leitura com um passo "executando" jogava fora a resposta paga | `exigirSemPassoEmCurso` (execucao-ia.ts): `confirmarIA`, `pularIA` e `iniciarLeitura` respondem CONFLICT "Um passo está sendo lido pela IA agora; aguarde terminar" enquanto houver reserva válida; `iniciarLeitura` também exige a leitura conferida na condição do UPDATE. Tela: `ia.emCurso` desabilita confirmar, "Continuar sem a IA" e "Ler de novo do zero". Segunda barreira: `gravarSobreOAtual` aplica o resultado do passo sobre o estado atual quando o mesmo passo ainda tem a mesma reserva. Mensagem da reserva vencida: "foi interrompida antes de terminar". | `6b159b6` | "N1: com um passo da leitura sendo lido pela IA…"; "N1 (segunda barreira)…" |
+| N2 mensagens amigáveis nunca apareciam (`e.name` é "Error" no SDK) | `tipoDoErroIA` (base.ts) com `instanceof` das classes do SDK, nome da classe e `status`; `erroSeguro` e `naoCobrado` usam ela. 400/404/413 viram "A IA não aceitou o pedido deste passo (código N)" com o motivo sem a chave. | `c9ffaa1` | "N2: erros reais do SDK viram mensagens amigáveis…"; hibrida "tempo esgotado…" com classes reais |
+| N3 `reservadoEm` no futuro prendia o passo | `reservaVencida`: data além de 5 s à frente do relógio = vencida. | `860bc75` | "N3: reserva com data à frente do relógio…" |
+| N4 closet na suíte / cozinha em "Sala/Cozinha" descartados | `comodoRepetido` (resposta-ia.ts): só repete com áreas parecidas (≥ 0,7) E mesma função ou nome; cômodo contido em outro fica, com pendência "confira". | `c5cfff5` | "N4: closet dentro da suíte…"; texto do "achados 8 e 9" ajustado |
+| N5 planta em centímetros passava como metros | `medidaSuspeita`: área desenhada × escrita (mediana fora de 1/4–4) e lado do pavimento > 80 m viram pendência (com a provável unidade), que fica em aberto e impede validar. | `87c4183` | "N5: planta em centímetros…" (pura) e "N5: … impede validar" (fluxo) |
+| N6 rótulo "(depois de cadastrar a chave)" no teto/confirmação | `rotuloContinuarLeitura` (`client/src/components/maquete-3d/rotulos-leitura.ts`). | `a9293b2` | "N6: …só aparece quando o que falta é a chave" |
+| N7 folga dos 60 s | `semTempoParaIA`: com menos de 10 s do orçamento (contado do início do pedido, `Execucao.inicio`) não reserva nem chama; o passo fica pendente e a tela chama de novo; após 3 devoluções seguidas, erro claro sem cobrança. `prazoDaIA` conta do início do pedido. | `e38d837` | dois "N7: …" |
+
+- [AUTO-DECISION] N2: conexão caída (`APIConnectionError` sem status) passa a contar como cobrada — a resposta pode ter
+  sido gerada antes de a conexão cair; é o lado seguro do teto. Devolvem a reserva só 401, 403, 429, 5xx e 529.
+- [AUTO-DECISION] N1: a segunda barreira não se aplica ao inventário do fluxo antigo ("IA em tudo"), que reescreve a
+  lista de passos; nele, a primeira barreira (CONFLICT) é a proteção.
+- [AUTO-DECISION] N7: limite de 3 devoluções seguidas, para a tela nunca ficar em laço se preparar o PDF for sempre lento.
+
 ## File List
 - `shared/maquete-3d/regras.ts` — modos, teto, passo `prancha_ia`, estado `aguardando`, confirmação.
 - `server/maquete-3d/base.ts` — credencial (painel → ambiente), modelo, anexos, prazo, mensagens.
@@ -135,9 +154,14 @@ Testes de regressão em `server/maquete-3d-qa-s03-s05.test.ts` (versões inverti
   `server/maquete-3d/pdf-vetorial.ts`, `server/maquete-3d/leitura.ts`, `server/maquete-3d/router.ts`,
   `shared/maquete-3d/regras.ts`, `client/src/components/maquete-3d/ImportarPlanta.tsx`,
   `server/maquete-3d-qa-s03-s05.test.ts` (novo).
+- QA rodada 2: `server/maquete-3d/execucao-ia.ts`, `server/maquete-3d/base.ts`, `server/maquete-3d/resposta-ia.ts`,
+  `server/maquete-3d/leitura.ts`, `server/maquete-3d/importacao.ts`, `server/maquete-3d/router.ts`, `shared/maquete-3d/regras.ts`,
+  `client/src/pages/admin/AdminMaquete3D.tsx`, `client/src/components/maquete-3d/ImportarPlanta.tsx`,
+  `client/src/components/maquete-3d/rotulos-leitura.ts` (novo), `server/maquete-3d-qa-s03-s05.test.ts`, `server/maquete-3d-hibrida.test.ts`.
 
 ## Change Log
 | Data | Autor | Mudança |
 |------|-------|---------|
 | 16/11/2026 | @dev (Dex) | Story criada e implementada (YOLO, regra do EPIC-024 de não parar entre etapas) |
 | 16/11/2026 | @dev (Dex) | Correções dos achados 1, 2, 3, 5, 8 e 9 do portão de QA, com testes de regressão |
+| 16/11/2026 | @dev (Dex) | QA rodada 2: N1–N7 corrigidos, cada um com teste de regressão; pronto para a 3ª revisão |

@@ -1,6 +1,6 @@
 # S-05 — Maquete: "Importar planta arquitetônica (PDF)" na Revisão da planta
 
-Status: Ready for Review (código, testes e tela; migração 0121 NÃO aplicada em banco real) — correções do portão de QA de 16/11 feitas (ver "QA — achados e correções")
+Status: Ready for Review (código, testes e tela; migração 0121 NÃO aplicada em banco real) — correções do portão de QA de 16/11 (rodadas 1 e 2) feitas (ver "QA — achados e correções")
 Epic: EPIC-024 (Fase 4) — correção 05 do dono (16/11/2026)
 Paridade: Maquete 3D — exceção já registrada no `ROADMAP.md` (EPIC-022). Não portar.
 Tamanho estimado: M/G
@@ -107,6 +107,17 @@ código vale para a importação: a confirmação é só desta importação, a c
 - **A 0121 continua tendo de ser aplicada antes de publicar o código** (agora com duas colunas: `importacao` e
   `ia_pranchas_lidas`). Maquetes existentes começam com o contador em 0.
 
+## QA rodada 2 (16/11, veredito CONCERNS) — o que vale para a importação
+Tabela completa (achado → correção → commit → teste) na S-03. Na importação:
+- **N1:** `confirmarIAImportacao`, `pularIAImportacao`, `descartarImportacao`, `aplicarImportacao` e `importarPlanta`
+  (nova importação por cima da aberta) respondem CONFLICT enquanto um passo está sendo lido pela IA; a tela
+  (`ImportarPlanta.tsx`) desabilita confirmar, "Continuar sem a IA" e "Descartar" com `importacao.ia.emCurso`; a
+  gravação final usa a mesma segunda barreira. Commit `6b159b6`. Testes: "N1: com um passo da importação sendo lido
+  pela IA…" e "achado 2: na importação…" (agora o descarte em curso é recusado e só depois descarta).
+- **N4/N5:** a planta importada passa pela mesma conversão (`resposta-ia.ts`): cômodo dentro de outro fica com
+  pendência; medidas suspeitas viram pendência que entra na planta ao aplicar ("Planta importada: …") e impede validar.
+- **N7:** o mesmo `semTempoParaIA` no passo da IA da importação.
+
 ## File List
 - `drizzle/0121_maquete_3d_revisoes.sql` (novo), `drizzle/schema-maquete-3d.ts`
 - `shared/maquete-3d/importacao.ts` (novo)
@@ -126,3 +137,4 @@ código vale para a importação: a confirmação é só desta importação, a c
 |------|-------|---------|
 | 16/11/2026 | @dev (Dex) | Story criada e implementada (YOLO, regra do EPIC-024 de não parar entre etapas) |
 | 16/11/2026 | @dev (Dex) | Correções dos achados 4, 6, 7 e 10 do portão de QA, com testes de regressão |
+| 16/11/2026 | @dev (Dex) | QA rodada 2: N1 (importação), N4, N5 e N7 corrigidos com testes; pronto para a 3ª revisão |

@@ -125,3 +125,17 @@ migração da etapa antes. Depois lançar S-03 e S-05, e por fim o EPIC-025 (Dol
   200 testes verdes; `npx vite build` OK. (b) manuais: não feitos (sem navegador). (c) produção: chave real, PDF real
   da maquete 8, aplicar a 0121.
 - **Próximo passo exato:** @qa refaz o portão de S-03/S-05 neste ramo; depois aplicar a 0121 no Neon e publicar.
+
+## Atualização — 16/11, correções da 2ª rodada de QA de S-03/S-05 (ramo `epic024-s03-s05`, cópia em `claude/wip-epic024-s03-s05`)
+- **Concluído:** N1–N7 do relatório da 2ª rodada (CONCERNS), um commit por achado: N2 `c9ffaa1`, N3 `860bc75`,
+  N1 `6b159b6`, N4 `c5cfff5`, N5 `87c4183`, N6 `a9293b2`, N7 `e38d837`. Tabela achado → correção → teste na S-03
+  (e o que vale para a importação na S-05). Principais arquivos: `server/maquete-3d/execucao-ia.ts`, `base.ts`,
+  `resposta-ia.ts`, `leitura.ts`, `importacao.ts`, `router.ts`; tela `AdminMaquete3D.tsx`, `ImportarPlanta.tsx`,
+  `rotulos-leitura.ts` (novo).
+- **Testes (a) automáticos:** `npx tsc --noEmit` OK; `npx vitest run server/maquete-3d*.test.ts server/integracoes-anthropic.test.ts
+  server/auth-session.test.ts server/imports-esm.test.ts` = 11 arquivos, 228 testes, todos passando (31 em
+  `maquete-3d-qa-s03-s05.test.ts`, 11 deles da rodada 2); `npx vite build` OK. **(b) manuais:** não feitos (sem
+  navegador nesta sessão). **(c) produção:** a 0121 continua tendo de ser aplicada no Neon ANTES de publicar (não mudou);
+  leitura real com a chave do dono.
+- **Pendências:** nada da 2ª rodada em aberto. Nenhuma migração nova (a `0121` não foi alterada).
+- **Próximo passo exato:** @qa faz a 3ª revisão de S-03/S-05 neste ramo; aprovado, aplicar a 0121 no Neon e publicar.
