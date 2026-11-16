@@ -478,6 +478,7 @@ function classificarVao(ang: number, rho: number, esp: number, tA: number, tB: n
     const perp = (ang + 90) % BALDES, pr = (perp * Math.PI) / 180, cp = Math.cos(pr), sp = Math.sin(pr);
     const lado = (t: number) => { const q = ponto(ang, rho, t), rq = -q.x * sp + q.y * cp, tq = q.x * cp + q.y * sp;
       return ctx.faixa(perp, rq - esp / 2 - 0.03, rq + esp / 2 + 0.03).some(r => r.comp >= esp + 0.08 && r.comp <= 1.2 && r.t0 < tq - esp / 2 && r.t1 > tq + esp / 2); };
+    if (process.env.DBGPIL) console.log('PIL', ang, rho.toFixed(2), tA.toFixed(2), tB.toFixed(2), esp.toFixed(2), lado(tA), lado(tB));
     if (vao <= 1.2 && lado(tA) && lado(tB)) return [];
   }
   if (caixilhoEm(tA, tB)) return [{ t: (tA + tB) / 2, largura: vao, tipo: "janela" }];
