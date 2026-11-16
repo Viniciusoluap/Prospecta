@@ -1,0 +1,56 @@
+// EPIC-024 S-02 — logotipo de cada empreendimento: tipos aceitos, limites e conferência pelo conteúdo (bytes iniciais).
+// O navegador gera a imagem de exibição (PNG) — PDF e SVG viram PNG —; o servidor confere e guarda as duas.
+
+export const TIPOS_LOGO = ["image/png", "image/jpeg", "image/svg+xml", "application/pdf"] as const;
+export type TipoLogo = (typeof TIPOS_LOGO)[number];
+export const ACCEPT_LOGO = ".png,.jpg,.jpeg,.svg,.pdf,image/png,image/jpeg,image/svg+xml,application/pdf";
+
+/** Arquivo original (vai em partes de 1 MiB). */
+export const LIMITE_LOGO_BYTES = 10 * 1024 * 1024;
+/** PNG de exibição: vai junto do pedido final, bem abaixo do limite de ~4,5 MB da Vercel. */
+export const LIMITE_EXIBICAO_BYTES = 1536 * 1024;
+/** Maior lado da imagem de exibição, em pixels. */
+export const LADO_EXIBICAO = 512;
+
+const PNG = [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a];
+const comeca = (b: Uint8Array, assinatura: number[]) => assinatura.every((v, i) => b[i] === v);
+
+export const ehPng = (b: Uint8Array) => b.length > 8 && comeca(b, PNG);
+
+/** Tipo real do arquivo pelos bytes iniciais; null quando não é PNG, JPG, SVG nem PDF. */
+export function tipoDoLogo(b: Uint8Array): TipoLogo | null {
+  if (ehPng(b)) return "image/png";
+  if (b.length > 3 && comeca(b, [0xff, 0xd8, 0xff])) return "image/jpeg";
+  if (b.length > 5 && comeca(b, [0x25, 0x50, 0x44, 0x46, 0x2d])) return "application/pdf"; // %PDF-
+  // SVG: texto que começa (depois de BOM, declaração XML, comentários e DOCTYPE) por <svg
+  let t = new TextDecoder("utf-8").decode(b.subarray(0, 4096)).replace(/^﻿/, "");
+  for (let i = 0; i < 20; i++) {
+    const antes = t;
+    t = t.replace(/^\s+/, "").replace(/^<\?xml[\s\S]*?\?>/, "").replace(/^<!--[\s\S]*?-->/, "").replace(/^<!DOCTYPE[^>]*>/i, "");
+    if (t === antes) break;
+  }
+  return /^<svg[\s>]/i.test(t) ? "image/svg+xml" : null;
+}
+
+/** Tipo esperado pela extensão do nome (o conteúdo precisa bater). */
+export function tipoPelaExtensao(nome: string): TipoLogo | null {
+  const ext = nome.toLowerCase().split(".").pop() ?? "";
+  if (ext === "png") return "image/png";
+  if (ext === "jpg" || ext === "jpeg") return "image/jpeg";
+  if (ext === "svg") return "image/svg+xml";
+  if (ext === "pdf") return "application/pdf";
+  return null;
+}
+
+/** Pedido de identidade visual a partir do nome do empreendimento (só dados do estudo). */
+export function promptLogotipo(estudo: { name: string; city?: string | null; state?: string | null; incorporationType?: string | null }): string {
+  const tipo = estudo.incorporationType === "loteamento" ? "loteamento"
+    : estudo.incorporationType === "vertical" ? "edifício residencial"
+    : estudo.incorporationType === "desmembramento_simples" ? "empreendimento de lotes" : "empreendimento imobiliário";
+  const local = [estudo.city, estudo.state].filter(Boolean).join("/");
+  return [
+    `Logotipo profissional e minimalista para o ${tipo} "${estudo.name.trim()}"${local ? `, em ${local}` : ""}.`,
+    "Símbolo simples e marcante acompanhado do nome escrito exatamente assim, tipografia elegante e legível,",
+    "no máximo três cores, fundo branco liso, sem molduras, sem fotos e sem textos adicionais. Formato quadrado.",
+  ].join(" ");
+}

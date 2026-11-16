@@ -93,6 +93,7 @@ import { obraLocalizacaoRouter, sincronizarImovelGeradoDaObra, garantirImovelCat
 import { duplicarLead } from "./lead-duplicar.js";
 import { LEAD_FINALIZED_STAGE, LEAD_PIPELINE_KEYS, leadAceitaVencimento } from "../shared/lead-pipeline.js";
 import { documentChunksRouter } from "./document-upload-chunks.js";
+import { incorporationLogoRouter } from "./incorporacao-logo-router.js";
 // Lote 2, correção 04: perfil Engenheiro e documentos do usuário.
 import { engenheirosRouter } from "./usuario-documentos.js";
 import { pciGeradorRouter, pciModelosRouter } from "./pci-gerador.js";
@@ -2643,6 +2644,7 @@ export const appRouter = router({
     dueDiligence: incorporationDueDiligenceRouter,
     units: incorporationUnitsRouter,
     massStudies: incorporationMassStudiesRouter,
+    logo: incorporationLogoRouter, // EPIC-024 S-02
     staff: protectedProcedure.query(async ({ ctx }) => {
       requireModule(ctx, "incorporacao");
       return db.getIncorporationStaff();

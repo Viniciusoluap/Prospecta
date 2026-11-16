@@ -11,6 +11,7 @@ import { SalvamentoProvider, usePendenciasIncorporacao, useSalvamento } from "@/
 import { IncorporacaoDetail } from "@/components/incorporacao/estudo/incorporacao-detail";
 import { registrarRecarregamentoEstudo } from "@/components/incorporacao/estudo/compat/acoes";
 import { paraEstudoData } from "@shared/incorporacao/estudo-data";
+import { LogotipoEmpreendimento } from "@/components/incorporacao/LogotipoEmpreendimento";
 
 const STATUS_OPTIONS = [
   { value: "in_study", label: "Em estudo" },
@@ -224,6 +225,10 @@ function DetalheEstudo({ id }: { id: string }) {
               className="bg-[#C9A961] hover:bg-[#B8985A] text-[#1A2332] font-bold">
               {salvandoDados ? "Salvando..." : dadosAlterados ? "Salvar alterações" : "Dados salvos"}
             </Button>
+            {/* EPIC-024 S-02: logotipo próprio do empreendimento (grava na hora, fora do formulário). */}
+            <div className="border-t border-white/10 pt-4">
+              <LogotipoEmpreendimento studyId={estudo.id} />
+            </div>
           </CardContent>
         </Card>
 
