@@ -29,7 +29,7 @@ beforeAll(async () => {
     CREATE TABLE leads (id integer primary key, name varchar, cpf varchar, email varchar, phone varchar, address text, neighborhood varchar, simulation_value numeric);
     INSERT INTO leads VALUES (5, 'Cliente do CRM', '123.456.789-09', 'cli@x.y', '(99) 98888-7777', 'Rua do Lead', 'Bairro Lead', 210000);
     CREATE TABLE construction_projects (id integer primary key, title varchar, address text, city varchar, state varchar, total_area integer, vgv numeric, lead_id integer,
-      lot_cost numeric, financed_amount numeric, start_date timestamp, estimated_end_date timestamp);
+      lot_cost numeric, financed_amount numeric, start_date timestamp, estimated_end_date timestamp, lead_service_id integer);
     INSERT INTO construction_projects VALUES (10, 'Obra Com PCI', 'Rua da Obra, 1', 'Imperatriz', 'MA', 80, null, 5, 60000, 150000, '2026-01-10', '2026-05-10'),
       (11, 'Obra Sem PCI', 'Rua B', 'Imperatriz', 'MA', 50, 180000, null, null, null, null, null);
     CREATE TABLE construction_pci (project_id integer primary key, data bytea);
@@ -74,7 +74,10 @@ it("formulário: pré-preenchimento (PCI vinculada > CRM), rascunho, geração e
   const inicial = await caller.obter({ projectId: 10 });
   expect(inicial.origem).toBe("automatico");
   expect(inicial.modelo).toMatchObject({ versao: 1, formato: "xls" });
-  expect(inicial.formulario.campos.proponenteNome).toBe("PROPONENTE DE TESTE"); // da PCI da obra
+  // EPIC-024 S-09: proponente da PCI ≠ cliente do CRM → a abertura pede a escolha (pessoa inteira), não mistura.
+  expect(inicial.formulario.campos.proponenteNome).toBeNull();
+  expect(inicial.preenchimento?.pessoas.find((p) => p.pessoa === "proponente")?.opcoes.map((o) => o.fonte)).toEqual(["PCI vinculada à obra", "Cliente do CRM (lead nº 5)"]);
+  expect(inicial.formulario.campos.rtpRegistro).toBe("1000000001"); // RTP só da PCI: uma fonte, preenchido
   expect(inicial.formulario.campos.valorFinanciado).toBe(150000); // da obra (não existe na PCI)
   expect(inicial.engenheiros[0]).toMatchObject({ id: "7", crea: "998877" });
 

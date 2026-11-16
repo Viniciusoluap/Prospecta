@@ -692,6 +692,24 @@ export const pciGenerated = pgTable("pci_generated", {
   pdfDriveFileId: text("pdf_drive_file_id"),
 });
 
+// EPIC-024 S-09 (migração 0118): modelos de preenchimento da PCI — só dados técnicos (lista de permissão em
+// shared/pci-gerador.ts), versionados por previous_id/versao. Lidos/gravados por SQL em server/pci-gerador.ts.
+export const pciModelosPreenchimento = pgTable("pci_modelos_preenchimento", {
+  id: serial("id").primaryKey(),
+  nome: varchar("nome", { length: 120 }).notNull(),
+  versao: integer("versao").default(1).notNull(),
+  previousId: integer("previous_id").references((): AnyPgColumn => pciModelosPreenchimento.id, { onDelete: "set null" }),
+  formData: jsonb("form_data").notNull(),
+  observacao: text("observacao"),
+  sourceProjectId: integer("source_project_id").references(() => constructionProjects.id, { onDelete: "set null" }),
+  createdBy: integer("created_by").references((): AnyPgColumn => users.id, { onDelete: "set null" }),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  deletedAt: timestamp("deleted_at"),
+  deletedBy: integer("deleted_by").references((): AnyPgColumn => users.id, { onDelete: "set null" }),
+  // true = já tem versão mais nova; o nome é único (lower) entre as versões atuais não excluídas (índice parcial na 0118).
+  substituido: boolean("substituido").default(false).notNull(),
+});
+
 // EPIC-020 Lote 4 (item 27): progresso por incidência (20 serviços por obra).
 export const constructionProgressItems = pgTable("construction_progress_items", {
   projectId: integer("project_id").notNull().references(() => constructionProjects.id, { onDelete: "cascade" }),
