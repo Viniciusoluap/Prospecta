@@ -504,3 +504,125 @@ describe("leitor geométrico — revisão de QA (2)", () => {
     expect(p.comodos.map(c => c.funcao).sort()).toEqual(["quarto", "sala"]);
   });
 });
+
+// Revisão de QA, iteração 3: "PISO" no título, edícula na mesma prancha, pilares, título longe do desenho.
+describe("leitor geométrico — revisão de QA (3)", () => {
+  const prancha = (escala = 50) => {
+    const k = 1 / metrosPorPonto(escala);
+    const seg = (x1: number, y1: number, x2: number, y2: number): Segmento => ({ x1: x1 * k, y1: y1 * k, x2: x2 * k, y2: y2 * k });
+    const parede = (x1: number, y1: number, x2: number, y2: number, e = 0.15): Segmento[] => {
+      const h = e / 2;
+      return y1 === y2 ? [seg(Math.min(x1, x2) - h, y1 - h, Math.max(x1, x2) + h, y1 - h), seg(Math.min(x1, x2) - h, y1 + h, Math.max(x1, x2) + h, y1 + h)]
+        : [seg(x1 - h, Math.min(y1, y2) - h, x1 - h, Math.max(y1, y2) + h), seg(x1 + h, Math.min(y1, y2) - h, x1 + h, Math.max(y1, y2) + h)];
+    };
+    const arco = (cx: number, cy: number, r: number): Segmento[] => Array.from({ length: 10 }, (_, i) => { const p = (Math.PI / 2) * (i / 10), q = (Math.PI / 2) * ((i + 1) / 10); return seg(cx + r * Math.cos(p), cy + r * Math.sin(p), cx + r * Math.cos(q), cy + r * Math.sin(q)); });
+    const texto = (str: string, x: number, y: number, tam = 8) => ({ str, x: x * k, y: y * k, tam, largura: str.length * tam * 0.55 });
+    type Desenho = { segmentos: Segmento[]; textos: Primitivas["textos"] };
+    const casa = (ox: number, oy: number, titulo: string, o: { nomes?: [string, string]; arco?: boolean; tituloEm?: number } = {}): Desenho => {
+      const [n1, n2] = o.nomes ?? ["SALA", "COZINHA"], ty = oy + (o.tituloEm ?? 9);
+      return {
+        segmentos: [...parede(ox, oy, ox + 2, oy), ...parede(ox + 2.9, oy, ox + 6, oy), ...parede(ox, oy + 8, ox + 6, oy + 8), ...parede(ox, oy, ox, oy + 8), ...parede(ox + 6, oy, ox + 6, oy + 8),
+          ...parede(ox, oy + 4, ox + 3.5, oy + 4), ...(o.arco === false ? [] : arco(ox + 2.075, oy, 0.8))],
+        textos: [texto(n1, ox + 3, oy + 2), texto("A= 22,50 m²", ox + 3, oy + 2.3), texto(n2, ox + 3, oy + 6), texto("A= 22,50 m²", ox + 3, oy + 6.3),
+          ...(titulo ? [texto(titulo, ox + 3, ty, 12), texto(`1 : ${escala}`, ox + 3, ty + 0.4, 10)] : [])],
+      };
+    };
+    const cotas = Array.from({ length: 40 }, (_, i) => seg(38 + i * 0.01, 25, 38 + i * 0.01, 25.1));
+    const pagina = (...ds: Desenho[]): Primitivas => ({ largura: 2384, altura: 1684, arcos: [], imagens: 0, segmentos: [...ds.flatMap(d => d.segmentos), ...cotas], textos: ds.flatMap(d => d.textos) });
+    return { seg, parede, arco, texto, casa, pagina };
+  };
+  const P = prancha();
+  const montar = (...paginas: Primitivas[]) => {
+    const pr = paginas.map((p, i) => ({ doc: 0, pagina: i + 1, ...lerPagina(p) }));
+    const { parciais } = parciaisDasPranchas(pr, ["a.pdf"]);
+    const nomes = (parciais.inventario as { edificacoes: { pavimentos: { nome: string }[] }[] }).edificacoes[0]?.pavimentos.map(p => p.nome) ?? [];
+    const amb = Object.entries(parciais).filter(([c]) => c.startsWith("ambientes:")).map(([, v]) => v as { comodos: { nome: string; pontos: { x: number; y: number }[] }[]; pendencias: string[] });
+    return { nomes, amb, pend: amb.flatMap(a => a.pendencias).join(" "), avisos: pr.flatMap(p => p.diagnostico.avisos ?? []).join(" ") };
+  };
+
+  it("H1: \"PISO\" no sentido de andar é pavimento; planta de piso e paginação continuam de fora", () => {
+    for (const t of ["PLANTA BAIXA - PISO SUPERIOR", "PLANTA BAIXA - 1º PISO", "PRIMEIRO PISO", "PLANTA BAIXA - PISO TÉRREO", "2º PISO", "PLANTA DO PISO SUPERIOR", "PLANTA BAIXA - TERRAÇO DE COBERTURA", "SITUAÇÃO E PLANTA BAIXA"]) expect(tipoDaVista(t), t).toBe("planta");
+    for (const t of ["PLANTA DE PISO", "PAGINAÇÃO DE PISO", "PLANTA DE COBERTURA", "PLANTA BAIXA ELÉTRICA"]) expect(tipoDaVista(t), t).toBe("outra");
+    expect(nomeDoPavimento("PLANTA BAIXA - PISO SUPERIOR", 0).andar).toBe(1);
+    expect(nomeDoPavimento("PLANTA BAIXA - PISO TÉRREO", 0).andar).toBe(0);
+    expect(nomeDoPavimento("PLANTA BAIXA - 1º PISO", 0)).toEqual(nomeDoPavimento("PLANTA BAIXA - 1º PAVIMENTO", 0));
+    expect(nomeDoPavimento("PRIMEIRO PISO", 0)).toEqual(nomeDoPavimento("PRIMEIRO PAVIMENTO", 0));
+    expect(nomeDoPavimento("2º PISO", 0)).toEqual(nomeDoPavimento("2º PAVIMENTO", 0));
+  });
+
+  it("H1: térreo e \"PISO SUPERIOR\" na mesma prancha dão dois pavimentos", () => {
+    const pg = P.pagina(P.casa(2, 2, "PLANTA BAIXA - TÉRREO"), P.casa(14, 2, "PLANTA BAIXA - PISO SUPERIOR", { nomes: ["QUARTO", "SUITE"] }));
+    expect(lerPagina(pg).plantas.map(p => p.titulo)).toEqual(["PLANTA BAIXA - TÉRREO", "PLANTA BAIXA - PISO SUPERIOR"]);
+    expect(montar(pg).nomes).toEqual(["Térreo", "Pavimento superior"]);
+  });
+
+  it("H1: desenho com título de planta de andar recusado vira aviso com o nome, mesmo com outra planta lida na página", () => {
+    const { plantas, diagnostico } = lerPagina(P.pagina(P.casa(2, 2, "PLANTA BAIXA - TÉRREO"), P.casa(14, 2, "PLANTA BAIXA ELÉTRICA - TÉRREO")));
+    expect(plantas.map(p => p.titulo)).toEqual(["PLANTA BAIXA - TÉRREO"]);
+    expect((diagnostico.avisos ?? []).join(" ")).toContain("\"PLANTA BAIXA ELÉTRICA - TÉRREO\" não virou pavimento");
+  });
+
+  it("H2: edícula sem título ao lado do térreo entra no térreo, na posição desenhada — não vira andar", () => {
+    const o = 12, ed = { segmentos: [...P.parede(o, 2, o + 1, 2), ...P.parede(o + 1.9, 2, o + 5, 2), ...P.parede(o, 6, o + 5, 6), ...P.parede(o, 2, o, 6), ...P.parede(o + 5, 2, o + 5, 6), ...P.parede(o + 3, 2, o + 3, 6), ...P.arco(o + 1.075, 2, 0.8)],
+      textos: [P.texto("CHURRASQUEIRA", o + 1.5, 4), P.texto("WC", o + 4, 4)] };
+    const r = montar(P.pagina(P.casa(2, 2, "PLANTA BAIXA - TÉRREO"), ed));
+    expect(r.nomes).toEqual(["Térreo"]);
+    expect(r.pend).toContain("Edícula/anexo sem título");
+    const cs = r.amb[0].comodos, cx = (n: string) => { const c = cs.find(x => x.nome === n)!; return c.pontos.reduce((s, q) => s + q.x, 0) / c.pontos.length; };
+    expect(cs.map(c => c.nome)).toEqual(expect.arrayContaining(["Sala", "Cozinha", "Churrasqueira", "Wc"]));
+    expect(cx("Churrasqueira") - cx("Sala")).toBeGreaterThan(8); // 10 m entre as origens, menos o meio de cada um
+    // Dois térreos na prancha: não dá para saber de qual é a edícula — fica de fora, com aviso.
+    const dois = montar(P.pagina(P.casa(2, 2, "PLANTA BAIXA - TÉRREO - CASA A"), P.casa(2, 14, "PLANTA BAIXA - TÉRREO - CASA B", { nomes: ["QUARTO", "SALA"] }), ed));
+    expect(dois.nomes.filter(n => /^Pavimento/.test(n))).toEqual([]);
+    expect(dois.avisos).toContain("não foi incluído");
+  });
+
+  it("H2: desenho sem título dividindo \"PLANTAS BAIXAS\": vira outro andar, e isso fica dito", () => {
+    const pg = P.pagina(P.casa(2, 2, "PLANTAS BAIXAS"), P.casa(12, 2, "", { nomes: ["QUARTO", "SUITE"] }));
+    const r = montar(pg);
+    expect(r.nomes).toHaveLength(2);
+    expect(r.pend).toContain("divide \"PLANTAS BAIXAS\"");
+  });
+
+  it("M2: título de planta longe do desenho (4,5 m abaixo em 1:100, ou só no carimbo) é ligado a ele, com pendência", () => {
+    const X = prancha(100);
+    const p = lerPagina(X.pagina(X.casa(2, 2, "PLANTA BAIXA", { arco: false, tituloEm: 12.5 }))).plantas;
+    expect(p).toHaveLength(1);
+    expect(p[0].titulo).toBe("PLANTA BAIXA");
+    expect(p[0].pendencias.join(" ")).toContain("foi ligado a ele");
+  });
+
+  it("L1: layout sem andar é dito como suposição; \"COBERTURA DUPLEX\" é \"Cobertura duplex\"", () => {
+    expect(montar(P.pagina(P.casa(2, 2, "PLANTA BAIXA - TÉRREO")), P.pagina(P.casa(2, 2, "PLANTA DE LAYOUT", { nomes: ["QUARTO", "SUITE"] }))).pend).toContain("foi tomada como a planta de layout");
+    expect(nomeDoPavimento("PLANTA BAIXA - COBERTURA DUPLEX", 0).nome).toBe("Cobertura duplex");
+    expect(nomeDoPavimento("PLANTA BAIXA - DUPLEX SUPERIOR", 0).nome).toBe("Duplex superior");
+  });
+
+  it("2º e 3º pavimento iguais continuam dois andares", () => {
+    const pg = (t: string, n: [string, string]) => P.pagina(P.casa(2, 2, t, { nomes: n }));
+    expect(montar(pg("PLANTA BAIXA - TÉRREO", ["SALA", "COZINHA"]), pg("PLANTA BAIXA - 2º PAVIMENTO", ["QUARTO", "SUITE"]), pg("PLANTA BAIXA - 3º PAVIMENTO", ["QUARTO", "SUITE"])).nomes)
+      .toEqual(["Térreo", "2º pavimento", "3º pavimento"]);
+  });
+
+  it("fileira de depósitos iguais (10 divisórias paralelas) mantém as divisórias", () => {
+    const s: Segmento[] = [...P.parede(2, 2, 13.55, 2), ...P.parede(2, 5, 13.55, 5), ...P.parede(2, 2, 2, 5), ...P.parede(13.55, 2, 13.55, 5)], t: Primitivas["textos"] = [];
+    for (let i = 1; i <= 10; i++) s.push(...P.parede(2 + i * 1.05, 2, 2 + i * 1.05, 5));
+    for (let i = 0; i < 11; i++) t.push(P.texto(`DEP. ${i + 1}`, 2 + i * 1.05 + 0.5, 3.5, 5));
+    t.push(P.texto("PLANTA BAIXA - SUBSOLO", 8, 6, 12), P.texto("1 : 50", 8, 6.4, 10));
+    const p = lerPagina(P.pagina({ segmentos: s, textos: t })).plantas[0];
+    expect(p.paredes.filter(w => Math.abs(w.ax - w.bx) < 0.01)).toHaveLength(12);
+    expect(p.comodos.filter(c => c.funcao === "deposito")).toHaveLength(11);
+  });
+
+  it("N3: limite de candidatas atingido — o que saiu fica como parcial, nada confirmado; sem nada, o motivo diz", () => {
+    const pg = P.pagina(P.casa(2, 2, "PLANTA BAIXA - TÉRREO"), P.casa(14, 2, "PLANTA BAIXA - SUPERIOR", { nomes: ["QUARTO", "SUITE"] }));
+    const { plantas } = lerPagina(pg, { maxCandidatas: 10 }); // cada casa dá 6 pares de linhas: uma só termina
+    expect(plantas).toHaveLength(1);
+    expect(plantas[0].pendencias.join(" ")).toContain("resultado é parcial");
+    expect([...plantas[0].paredes, ...plantas[0].aberturas, ...plantas[0].comodos].some(x => x.confirmada)).toBe(false);
+    const r = lerPagina(pg, { maxCandidatas: 3 });
+    expect(r.plantas).toEqual([]);
+    expect(r.diagnostico.motivo).toContain("carregada demais");
+    expect(lerPagina(pg).plantas).toHaveLength(2);
+  });
+});

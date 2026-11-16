@@ -1364,8 +1364,9 @@ export function lerPagina(prim: Primitivas, opcoes: { prazoMs?: number; maxCandi
   // Desenho com título que só foi lido numa escala que não ganhou (planta 1:100 numa prancha 1:50): não some calado.
   const caixaPt = (p: PlantaLida) => ({ x0: p.origemPt.x, y0: p.origemPt.y, x1: p.origemPt.x + p.largura / p.metrosPorPonto, y1: p.origemPt.y + p.comprimento / p.metrosPorPonto });
   const sobrepoe = (a: Caixa, b: Caixa) => a.x0 < b.x1 && b.x0 < a.x1 && a.y0 < b.y1 && b.y0 < a.y1;
+  const escalaLida = melhor[0]?.escala;
   if (melhor.length) for (const ps of passadas) for (const p of ps.plantas) {
-    if (!p.titulo || melhor.some(q => q.titulo === p.titulo || sobrepoe(caixaPt(q), caixaPt(p)))) continue;
+    if (!p.titulo || p.escala === escalaLida || melhor.some(q => q.titulo === p.titulo || sobrepoe(caixaPt(q), caixaPt(p)))) continue;
     avisos.push(`O desenho "${p.titulo}" (lido em 1:${p.escala}) não virou pavimento: a página foi lida em 1:${melhor[0].escala}, a escala dos outros desenhos. Se for a planta de um andar, envie-a numa prancha separada ou desenhe na revisão.`);
   }
   melhor = juntarAnexos(melhor, avisos, caixaPt, sobrepoe);
