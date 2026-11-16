@@ -163,3 +163,14 @@ migração da etapa antes. Depois lançar S-03 e S-05, e por fim o EPIC-025 (Dol
   da etapa 3 do prompt mestre — fica para decisão do dono.
 - **Próximo passo exato:** portão de QA da E3 sobre o ramo (depois do QA da E2); aprovado, rebase sobre a `main` com a E2,
   aplicar 0125 e publicar.
+
+## Atualização — 16/11 — EPIC-025 E3: integração com a Etapa 2 final — @dev
+- **Concluído (ramo `epic025-dolores-etapa3`, cópia `claude/wip-epic025-dolores-etapa3`):** merge de
+  `epic025-dolores-etapa2` em `2dd8ae9` (`78e29e8`; conflito só neste HANDOFF). Ajuste `668c9e5`: a instrução do quadro de
+  pendências dizia "códigos" e o filtro novo de dados pessoais a apagava como senha; testes de integração (número estrito,
+  dono fixo, reentrega, temporária/encaminhada/reação/edição, quadros pelo filtro, limite com reserva). Detalhes na story E3,
+  seção "Integração com a Etapa 2 final".
+- **Testes (a) automáticos:** tsc ok; área 40 arquivos / 471 testes; vite build ok; suíte completa: SUITE_RESULTADO.
+  **(b) manuais:** nenhum. **(c) produção:** 0124 e 0125 não aplicadas; aceite pelo WhatsApp.
+- **Próximo passo exato:** QA da E2 (4ª rodada) e da E3 sobre este ramo; aprovadas, E2 na `main`, rebase da E3, aplicar
+  0125 e publicar.

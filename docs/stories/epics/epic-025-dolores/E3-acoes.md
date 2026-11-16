@@ -146,6 +146,33 @@ documentos pendentes e prepare as cobranças."
 - Envio de cobrança a cliente: só depois de o dono liberar categorias (e aí conferir horário comercial e LGPD no envio).
 - Outros geradores (contratos do Jurídico) não ligados: exigem dados de partes e não têm rascunho por obra.
 
+## Integração com a Etapa 2 final
+- **Merge** de `epic025-dolores-etapa2` em `2dd8ae9` (rodadas 2 e 3 do QA da E2: filtro de dados pessoais reescrito em
+  `shared/dolores/sanitizar.ts`, conferência estrita do número do dono, N3 "outro pedido", N4 comando sem tempo, N5
+  `ativarAvisos`, N6 guarda da chave, N8 estranhos sem linha em `dolores_mensagens`, R1–R5) — commit `78e29e8`.
+  Conflito textual só no `HANDOFF-16-11-CORRECOES-E-DOLORES.md` (as duas seções mantidas, em ordem: E2 r2, E2 r3, E3).
+  `whatsapp.ts`, `cerebro.ts`, `router.ts`, `whatsapp.test.ts` e `como-ligar.md` juntaram sem conflito; prevaleceu o
+  código da E2 em tudo o que ela mudou (nada da E2 foi desfeito).
+- **Conferência do que a E2 passou a exigir** (testes novos em `acoes-whatsapp.test.ts`, bloco "integração com a Etapa 2
+  final", e em `acoes.test.ts`):
+  - a decisão "aprovar/recusar CÓDIGO" só é lida depois de `ehNumeroDoDono` (estrita: `55` + DDD + número; fixo com
+    igualdade exata) e da reivindicação da linha em `dolores_mensagens` (`ON CONFLICT DO NOTHING`): outro DDI, número sem
+    55, outro DDD e celular com os mesmos 8 finais de um dono fixo não aprovam; reentrega/avisos paralelos da mesma
+    decisão executam e respondem uma vez só;
+  - encaminhada nunca aprova (inclusive dentro de temporária); temporária desembrulhada aprova; reação e edição com
+    "aprovar CÓDIGO" ficam em silêncio e não aprovam;
+  - **ajuste necessário:** o filtro de dados pessoais trata "código(s) …" como senha e apagava o fim da instrução do
+    quadro ("(um ou mais códigos)." → "[senha omitida]"). A frase passou a "(pode pôr vários, separados por espaço)." e o
+    código fica antes do resumo em cada linha. Teste com os 1.024 códigos só de dígitos (3/4/7/9) e mistos, em quadros e
+    respostas de decisão com datas, horas e números ao redor: o filtro não altera nada;
+  - ações contam no limite mensal com a reserva da E2 (consumo gravado, reserva solta no fim; no limite, o pedido de ação
+    não chama o modelo nem grava nada); a decisão por código não chama o modelo;
+  - guarda da chave (`integracoes-anthropic.test.ts`): continua com o ponto único (`bloqueioAtual`), passando.
+- **Testes (16/11, depois do merge):** `npx tsc --noEmit` sem erros; área (`server/dolores`, `integracoes-anthropic`,
+  `central-vendas*`, `whatsapp*`, `admin-workflows`, `pci*`, `auth-session`, `imports-esm`, `api-rotas-producao`) —
+  40 arquivos, 471 testes passando; `npx vite build` ok; suíte completa `npx vitest run` — SUITE_RESULTADO.
+
 ## Change Log
 - 16/11/2026 — @dev (Dex): story criada (Draft → InProgress), critérios tirados do prompt mestre (seções 4.3, 5, 6, 7).
 - 16/11/2026 — @dev (Dex): InProgress → InReview (implementação, testes e documentos concluídos; aguarda portão de QA).
+- 16/11/2026 — @dev (Dex): merge da E2 final (2dd8ae9) e ajuste do quadro de pendências ao filtro novo; continua InReview.
