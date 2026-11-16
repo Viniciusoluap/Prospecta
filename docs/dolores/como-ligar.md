@@ -192,6 +192,18 @@ ver. Se você pedir a ação ANTES de qualquer consulta ("crie uma tarefa para a
 feita na hora. E se a sua mensagem não pede ação nenhuma ("me mostra o histórico da Maria"), a Dolores nem tem como agir
 nesse pedido — só consulta.
 
+**Texto colado ou citado também passa pela aprovação.** Se você colar um e-mail, uma conversa ou um trecho entre aspas
+("resuma este e-mail: …"), um pedido que estiver DENTRO do texto colado ("crie uma tarefa para…") não vale como pedido
+seu: a Dolores só considera o começo da sua mensagem, antes do texto colado. E se a mensagem tiver cara de colagem (mais de
+3 linhas, mais de 300 caracteres, "De:", "Assunto:", ">", "---"…), qualquer ação vai para a fila com o aviso *"Pedido feito
+em mensagem com texto colado ou citado; confira antes de aprovar"*. Para ação na hora, mande um pedido curto e direto.
+
+**Você aprova só o que leu.** Cada item da fila mostra TUDO o que será gravado (título, descrição inteira, texto do
+acompanhamento, responsável, prazo, prioridade, documentos da cobrança) — e na aprovação é gravado exatamente isso. Se o
+texto for longo demais para caber na mensagem do WhatsApp, o item não entra na fila: ela avisa "texto longo demais para
+aprovar pelo WhatsApp" — peça direto (mensagem curta, sem consulta antes) ou encurte. Com muitos itens, a resposta mostra
+os que cabem inteiros e diz "e mais N item(ns) — veja a fila em Integrações › Dolores".
+
 **O que continua proibido (está no código, não só na instrução):** excluir registro, editar lançamento financeiro, pagar,
 baixar ou estornar, mexer em usuários/acessos/credenciais/dados bancários, assinar documento técnico ou jurídico, inventar
 dado e **enviar mensagem ou e-mail a cliente ou terceiro** (você ainda não liberou nenhuma categoria). A cobrança aprovada

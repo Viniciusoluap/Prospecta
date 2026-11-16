@@ -201,8 +201,44 @@ server/imports-esm.test.ts server/api-rotas-producao.test.ts` — 26 arquivos, 3
 2.372 testes passando. Ataques do QA: A1, A2, A3, A4, A5 (prazo), A8 e A9 passam a FALHAR (defeitos corrigidos); as
 garantias (teto, A7, A10) seguem passando. (b) manuais: nenhum. (c) produção: aplicar 0125 (ainda NÃO aplicada) e o aceite.
 
+## Correções da 2ª rodada do portão de QA (Quinn, 16/11 — CONCERNS: 3 importantes, 6 menores; segurança como prioridade)
+Cada achado tem teste de regressão = versão INVERTIDA do ataque do QA (`server/dolores/correcoes-e3-r2.test.ts`,
+`server/dolores/correcoes-e3-r2-whatsapp.test.ts`, `server/drive-pci-gerada-adotar.test.ts`,
+`server/google-drive-oauth-prazo.test.ts`).
+
+| Achado | Correção | Commit | Teste |
+|---|---|---|---|
+| N1 texto de terceiro colado libera ação direta | `intencaoDeAcao` só no trecho do dono (`trechoDoDono`: até a 1ª quebra de linha, aspas, ">", "---", dois-pontos que não seja de hora; máx. 200 caracteres); mensagem com cara de colagem (`pareceColagem`: >3 linhas, >300 caracteres, ">", "De:/Assunto:/Enviado:", separador, aspas com bloco de 40+, dois-pontos com bloco, parágrafo novo) nasce contaminada — toda ação vai para a fila com "Pedido feito em mensagem com texto colado ou citado; confira antes de aprovar:" | `28d711c` | R2-N1 invertido (e-mail colado em várias linhas e numa linha só: ações nem oferecidas, nada gravado); ação pedida + texto colado → fila marcada; >300 caracteres → fila; pedido curto direto → executa; casos de `trechoDoDono`/`pareceColagem` |
+| N2 retorno das ações traz texto do banco | `criar_tarefa` devolve `responsavelId` (sem nome); a porta marca `contamina` em cada resposta (ok OU erro): leitura ok, item na fila, recusa com texto do banco (`RecusaAcao(..., { comDados: true })` — nomes da equipe cortados em 60, erros do rascunho/gerador da PCI); `user.updateProfile`: nome ≤ 100 caracteres e uma linha (zod; dados existentes intactos) | `0bb8914` | R2-N2 invertido (nome injetado não volta ao modelo; 422 com nomes contamina → ação seguinte na fila); contamina por tipo de resposta; `updateProfile` |
+| N3 o dono aprova texto que não leu | Resumo com TODO o texto gravado (título, descrição, texto, responsável conferido, prazo, prioridade, vínculo, todos os documentos da cobrança), ≤ 1.500 (`resumoDaFila`); não cabe → recusa "Texto longo demais para aprovar pelo WhatsApp…"; argumentos guardados na forma mostrada (`comoMostrado`); coluna `conferencia` (SHA-256 de função + resumo + argumentos) conferida na execução; a execução confere cada texto gravado contra o resumo lido (`conferirMostrado`); quadro mostra o resumo inteiro; 0125: `resumo` varchar(2000) + `conferencia` | `b615194` | R2-N3 invertido (descrição com link aparece e é gravada igual; fim do texto de 1.000 aparece); texto que cresce no filtro → recusa; argumentos trocados por fora (gatilho desligado) → nada feito; conferência imutável; cobrança com todos os documentos / lista longa recusada; dado pessoal guardado na forma mostrada |
+| M4 identidade de `criar_tarefa` na fila | Alvo = todo o conteúdo (título, responsável conferido, prazo, prioridade, vínculo, descrição) | `b6ba02f` | pedido com outra descrição/prazo/prioridade = item novo; o mesmo pedido devolve o código do que aguarda |
+| M5 quadro cortado | `quadroDePendencias`/`quadroDoQueFoiFeito` com limite: itens inteiros enquanto couberem, "e mais N item(ns) aguardando — veja a fila em Integrações › Dolores", instrução sempre no fim; `anexarQuadros` mede já filtrado | `ce06cdc` | 12 itens longos (função pura) e 9 itens pelo WhatsApp: ≤ 3.800, sem "Resposta cortada", instrução no fim |
+| M1 PCI gerada duplicada no Drive | Fonte `pci_gerada_*` com `adotarPrefixo` (nome sem extensão) + MD5 no organizador | `4125bb1` | organizador adota o arquivo já enviado, sem upload |
+| M2 token OAuth sem prazo | `tokenOAuth(forcar, sinal?)` e `accessToken` passa o sinal do `comPrazoNoDrive`; sem sinal, igual | `d23fa68` | token cancelado no prazo; sem sinal, sem `signal` |
+| M3 aprovação pela tela sem orçamento | `decisorDaTela` (42 s, mesmo mínimo por função e Drive no que sobra) | `01d7c65` | sem 30 s a PCI não começa pela tela; Drive com 15 s / 13 s conforme o que resta |
+| M6 prazo da ação direta x commit | A porta espera a transação (prazo interno = metade do da porta): COMMIT = "feito", desfeita = "passou do prazo e foi desfeita: nada foi gravado"; "confira no sistema" só se o banco não responder em prazo + 2 s | `87c243d` | no prazo → feito; atrasada → desfeita, nada gravado; banco travado → último recurso; `foiPrazoDaTransacao` (57014) |
+
+Também: a GARANTIA do gatilho da 0125 (QA R2 B4) foi portada para a suíte com resumo que mostra o texto (`531c6d3`) — a
+versão do QA usa resumo "resumo" e agora, corretamente, não executa (o resumo não mostra o texto). `shared/dolores/sanitizar.ts`
+não foi tocado.
+
+**Testes (16/11, depois das correções da R2):** (a) automáticos — `npx tsc --noEmit` sem erros; `npx vitest run server/dolores
+server/integracoes-anthropic.test.ts server/admin-workflows*.test.ts server/pci*.test.ts server/drive*.test.ts
+server/google-drive*.test.ts server/auth-session.test.ts server/imports-esm.test.ts server/api-rotas-producao.test.ts` — 35
+arquivos, 473 testes passando (novos: `correcoes-e3-r2` 23, `correcoes-e3-r2-whatsapp` 11, `drive-pci-gerada-adotar` 3,
+`google-drive-oauth-prazo` 3); `npx vite build` ok; suíte completa `npx vitest run` — 241 arquivos, 2.412 testes passando.
+Ataques do QA (`novos/`): R2-N1, R2-N2 (×2) e R2-N3 (×2) passam a FALHAR (defeitos corrigidos); as garantias de memória
+entre comandos, leitura+ação na mesma volta, A6 e intenção seguem passando; a garantia do gatilho foi portada (ver acima).
+(b) manuais: nenhum. (c) produção: aplicar a 0125 (ainda NÃO aplicada) e o aceite pelo WhatsApp.
+
+**SQL alterado na 0125 (ainda NÃO aplicada; só aditiva e idempotente):** `"resumo" varchar(2000)` (era 600) e coluna nova
+`"conferencia" varchar(64)` no CREATE TABLE; para banco que já tenha a versão anterior, `ALTER TABLE "dolores_aprovacoes"
+ALTER COLUMN "resumo" TYPE varchar(2000)` (só aumenta, sem reescrever dados) e `ADD COLUMN IF NOT EXISTS "conferencia"`;
+gatilho: `conferencia` imutável como os demais campos do que será feito.
+
 ## Change Log
 - 16/11/2026 — @dev (Dex): story criada (Draft → InProgress), critérios tirados do prompt mestre (seções 4.3, 5, 6, 7).
 - 16/11/2026 — @dev (Dex): InProgress → InReview (implementação, testes e documentos concluídos; aguarda portão de QA).
 - 16/11/2026 — @dev (Dex): merge da E2 final (2dd8ae9) e ajuste do quadro de pendências ao filtro novo; continua InReview.
 - 16/11/2026 — @dev (Dex): correções do portão de QA (9 achados, um commit por achado) com regressões; volta a InReview para nova rodada do QA.
+- 16/11/2026 — @dev (Dex): correções da 2ª rodada do QA (N1–N3, M1–M6, um commit por achado) com regressões; volta a InReview.

@@ -190,3 +190,18 @@ migração da etapa antes. Depois lançar S-03 e S-05, e por fim o EPIC-025 (Dol
 - **Próximo passo exato:** nova rodada do portão de QA da E3 sobre `epic025-dolores-etapa3`; aprovada, E2 na `main`,
   rebase da E3, aplicar 0125 e publicar.
 
+## Atualização — 16/11 — EPIC-025 E3: correções da 2ª rodada do QA (CONCERNS → N1–N3 e M1–M6 corrigidos) — @dev
+- **Concluído (ramo `epic025-dolores-etapa3`, cópia `claude/wip-epic025-dolores-etapa3`):** N1 texto colado `28d711c`; N2
+  retorno das ações sem texto do banco + contaminação ok/erro + nome do perfil ≤ 100 `0bb8914`; N3 o dono lê tudo o que
+  aprova (resumo inteiro, recusa se não couber, conferência SHA-256) `b615194`; M4 `b6ba02f`; M5 `ce06cdc`; M1 `4125bb1`;
+  M2 `d23fa68`; M3 `01d7c65`; M6 `87c243d`; garantia do gatilho portada `531c6d3`. Tabela na story E3, seção "Correções da
+  2ª rodada". `shared/dolores/sanitizar.ts` não foi tocado.
+- **0125 editada (ainda NÃO aplicada):** `resumo` varchar(2000), coluna `conferencia` varchar(64) (imutável no gatilho) e,
+  para banco com a versão anterior, `ALTER COLUMN "resumo" TYPE varchar(2000)` + `ADD COLUMN IF NOT EXISTS "conferencia"`.
+  Continua só aditiva e idempotente.
+- **Testes (a) automáticos:** tsc ok; área 35 arquivos / 473 testes; vite build ok; suíte completa 241 arquivos / 2.412
+  testes passando. **(b) manuais:** nenhum. **(c) produção:** aplicar 0125; aceite pelo WhatsApp (pedido curto direto;
+  e-mail colado → fila marcada; item com descrição mostra o texto inteiro).
+- **Próximo passo exato:** 3ª rodada do portão de QA da E3 sobre `epic025-dolores-etapa3`; aprovada, E2 na `main`, rebase
+  da E3, aplicar 0125 e publicar.
+
