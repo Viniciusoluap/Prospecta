@@ -7,10 +7,10 @@ import { and, desc, eq, inArray, isNull, sql } from "drizzle-orm";
 import { z } from "zod";
 import { incorporationStudies, leads, operationalProjects, projectDocuments, users } from "../../drizzle/schema.js";
 import { maquete3dArquivos, maquetes3d, type Maquete3d } from "../../drizzle/schema-maquete-3d.js";
-import { TIPOS_MAQUETE, areaPoligono, comMuroGravado, lerModelo, limites, modeloParaLinkPublico, modeloSchema, modeloVazio, muroParaTipo, podePublicar, pontosDoPavimento, resumoModelo, validarModelo, type Edificacao, type TipoMaquete } from "../../shared/maquete-3d/modelo.js";
+import { TIPOS_MAQUETE, areaPoligono, comMuroGravado, lerModelo, limites, modeloParaLinkPublico, modeloSchema, modeloVazio, muroParaTipo, podePublicar, pontosDoPavimento, resumoModelo, type Edificacao, type TipoMaquete } from "../../shared/maquete-3d/modelo.js";
 import { LIMITES_CASA, LIMITES_M2_POR_VAGA, LIMITES_PREDIO, casaPadrao, contaDoEstacionamento, distribuirNosLotes, ehPadrao, predioPadrao, type ContaDoEstacionamento } from "../../shared/maquete-3d/padrao.js";
 import { implantacaoDoEstudo, type GradeElevacao } from "../../shared/maquete-3d/implantacao.js";
-import { reancorarPortoes } from "../../shared/maquete-3d/muro.js";
+import { reancorarPortoes, validarComMuro } from "../../shared/maquete-3d/muro.js";
 import type { CenarioMassa } from "../../shared/incorporacao/massa.js";
 import {
   FAIXAS_PRECO, MAX_BYTES_PDF_AVULSO, MAX_DOCUMENTOS, ORIGENS_MAQUETE, escopoEnvioMaquete, PODE_REVISAR, comercialSchema, configSchema, documentoSchema, lerComercial, lerEstadoLeitura,
@@ -215,7 +215,7 @@ export const maquete3dRouter = router({
     const leitura = lerEstadoLeitura(m.leitura);
     const [liberador] = m.liberadoPor ? await db().select({ nome: users.name }).from(users).where(eq(users.id, m.liberadoPor)).limit(1) : [];
     return {
-      ...paraTela(m), modelo, problemas: modelo ? validarModelo(modelo) : [],
+      ...paraTela(m), modelo, problemas: modelo ? validarComMuro(modelo) : [],
       passos: leitura.passos.map(({ chave, rotulo, estado, erro }) => ({ chave, rotulo, estado, erro: erro ?? null })),
       tokens: { entrada: leitura.tokensEntrada, saida: leitura.tokensSaida },
       /** Em que arquivo e página está a planta de cada pavimento (fundo da revisão). */
@@ -376,7 +376,7 @@ export const maquete3dRouter = router({
     }).where(and(eq(maquetes3d.id, input.id), isNull(maquetes3d.deletedAt), eq(maquetes3d.modeloVersao, input.versao), inArray(maquetes3d.status, [...PODE_REVISAR])))
       .returning({ versao: maquetes3d.modeloVersao });
     if (!r.length) throw conflito("A planta foi alterada por outra pessoa ou não está em revisão. Recarregue a página.");
-    return { versao: r[0].versao, problemas: validarModelo(modelo), resumo: resumoModelo(modelo) };
+    return { versao: r[0].versao, problemas: validarComMuro(modelo), resumo: resumoModelo(modelo) };
   }),
 
   /** Conclui a revisão: só passa se a planta não tiver erros nem pendências em aberto. */

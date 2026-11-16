@@ -278,9 +278,11 @@ export const implantacaoSchema = z.object({
   /** Pontos de acesso da malha na divisa, vindos do estudo de massa (onde a rua sai do terreno). */
   acessos: z.array(z.object({
     x: metros, y: metros,
-    /** Há via pública mapeada junto deste acesso (é o acesso principal). */
+    /** Há via pública mapeada a até 40 m deste acesso: só então ele é acesso de verdade (vira portão no condomínio). */
     viaExistente: z.boolean().default(false),
     distancia: metros.nullable().default(null),
+    /** Nome da via pública por onde se dá o acesso (OSM), quando houver. */
+    nomeVia: z.string().max(120).nullable().optional(),
   })).max(60).optional(),
   /** Muro de divisa; ausente ou nulo = o padrão do tipo (muroDaMaquete). */
   muro: muroSchema.nullable().optional(),

@@ -62,7 +62,7 @@ export function EditorMuro({ modelo, onChange, somenteLeitura = false }: { model
   const areas = perimetros.map((perimetro, indice) => ({ indice, perimetro })).filter(a => a.perimetro > 0);
   const varias = areas.length > 1;
   const mesmaArea = (p: PortaoMuro, c: PortaoMuro) => (p.area ?? 0) === (c.area ?? 0);
-  // Rua que chega à divisa sem portão (a pessoa tirou): o muro a fecha.
+  // Rua que chega à divisa sem portão (só termina na divisa, ou a pessoa tirou o portão): o muro a fecha.
   const fechadas = (auto?.candidatos ?? []).filter(c => !portoes.some(p => mesmaArea(p, c) && Math.abs(p.posicao - c.posicao) < (p.largura + c.largura) / 2));
   return (
     <div className="space-y-3 rounded-lg border border-[#C9A961]/20 p-3 text-sm">
@@ -95,7 +95,7 @@ export function EditorMuro({ modelo, onChange, somenteLeitura = false }: { model
 
           <div className="space-y-2">
             <div className="flex flex-wrap items-center justify-between gap-2">
-              <p className="text-xs font-semibold text-white">Portões {muro.portoesEditados ? "(editados)" : "(automáticos: um em cada rua que chega à divisa)"}</p>
+              <p className="text-xs font-semibold text-white">Portões {muro.portoesEditados ? "(editados)" : "(automáticos: portaria no acesso pela via pública; condomínio fechado)"}</p>
               {!somenteLeitura && muro.portoesEditados && <Button type="button" size="sm" variant="outline" className={btnOutline} onClick={() => mudar({ portoesEditados: false, portoes: [], contorno: undefined, reancorado: false })}><RefreshCw className="mr-1 h-4 w-4" />Recalcular portões automáticos</Button>}
             </div>
             {muro.portoesEditados && muro.reancorado && (
@@ -130,8 +130,8 @@ export function EditorMuro({ modelo, onChange, somenteLeitura = false }: { model
                   ))}
                   {fechadas.filter(c => (c.area ?? 0) === ar.indice).map(c => (
                     <div key={c.id} className="flex flex-wrap items-center gap-2 text-xs text-amber-300">
-                      <span>A rua que chega à divisa a {fmt(c.posicao)} m do vértice 1 termina no muro (o portão dela foi tirado).</span>
-                      {!somenteLeitura && <Button type="button" size="sm" variant="outline" className={btnOutline} onClick={() => editarPortoes([...portoes, { ...c, id: novoId() }])}><Plus className="mr-1 h-3 w-3" />Reabrir portão</Button>}
+                      <span>Rua termina no muro a {fmt(c.posicao)} m do vértice 1 (rua sem saída dentro do condomínio).</span>
+                      {!somenteLeitura && <Button type="button" size="sm" variant="outline" className={btnOutline} onClick={() => editarPortoes([...portoes, { ...c, id: novoId() }])}><Plus className="mr-1 h-3 w-3" />Abrir portão aqui</Button>}
                     </div>
                   ))}
                 </div>

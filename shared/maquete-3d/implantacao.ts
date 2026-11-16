@@ -137,7 +137,7 @@ export function implantacaoDoEstudo(geojson: string | null, centro: [number, num
   }));
   const acessos = (cenario?.acessos ?? []).map(ac => {
     const [p] = local([ac.ponto, ac.ponto]);
-    return { x: p.x, y: p.y, viaExistente: !!ac.viaExistente, distancia: typeof ac.distanciaM === "number" ? r2(ac.distanciaM) : null };
+    return { x: p.x, y: p.y, viaExistente: !!ac.viaExistente, distancia: typeof ac.distanciaM === "number" ? r2(ac.distanciaM) : null, nomeVia: ac.nomeVia ?? null };
   }).filter(naDivisa).slice(0, 60);
   return { implantacao: implantacaoSchema.parse({ terreno: maior, ...(extras.length ? { terrenosExtras: extras } : {}), ruas, lotes, relevo, acessos }), descartados };
 }

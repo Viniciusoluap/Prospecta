@@ -1,15 +1,16 @@
 // Maquete 3D (EPIC-024, S-04, 16/11/2026) — muro de divisa do condomínio como geometria de verdade: o contorno
 // externo do terreno (KML/KMZ ou implantação) vira um muro extrudado com altura e espessura, por dentro da divisa,
 // com cantos fechados (meia-esquadria), assentado no relevo e aberto nos portões. Nunca há muro entre lotes.
-//   • Portões automáticos: em TODA rua que chega à divisa (acesso do estudo de massa, ponta de rua junto da divisa
-//     ou rua que a atravessa), alinhados com o eixo da rua e da largura do leito (pista + calçadas) — a principal
-//     é a portaria, as outras, portões secundários; sem nenhuma, no ponto da divisa mais perto da rua principal.
+//   • Portões automáticos: só nos acessos reais (ligados a via pública mapeada pelo estudo de massa) — o principal
+//     é a portaria, os outros, secundários; sem acesso real, uma portaria no ponto da divisa mais perto da rua
+//     principal. As outras ruas que terminam na divisa ficam fechadas pelo muro (o editor deixa abrir portão nelas).
+//     O portão é alinhado com o eixo da rua e da largura do leito: nunca há muro no corredor de rua com portão.
 //   • Relevo: a base acompanha a MESMA malha do terreno do visualizador (alturaNaMalha), com estações a cada 2 m e
 //     estações também onde a face cruza as arestas da malha e 50 cm de fundação enterrada (nunca flutua nem abre
 //     fresta); o topo segue o chão a altura constante. Um muro em cada área do terreno (KML com várias áreas).
 // Saída: malhas já juntas por material (uma chamada de desenho cada) em coordenadas do three.js — [x, altura, y].
 // Módulo puro: nada de three.js aqui.
-import { areasDoTerreno, assinaturaDoContorno, type Implantacao, type Muro, type PortaoMuro, type Ponto, type TipoPortao } from "./modelo.js";
+import { areasDoTerreno, assinaturaDoContorno, muroDaMaquete, validarModelo, type Implantacao, type ModeloMaquete, type Muro, type PortaoMuro, type Ponto, type Problema, type TipoPortao } from "./modelo.js";
 import { alturaNaMalha, caixaDoTerreno, dentroDe, LADO_MALHA, sistemaViario, type CaixaTerreno, type SistemaViario, type Trecho } from "./vias.js";
 
 // ── Medidas (m) ──
@@ -56,8 +57,10 @@ export type GeometriaMuro = {
 export type PortoesAutomaticos = {
   /** Os portões automáticos: um em cada rua que chega à divisa, em todas as áreas (a portaria de cada área primeiro). */
   portoes: PortaoMuro[];
-  /** Todos os acessos de rua achados na divisa, para a pessoa reabrir o portão que tirou. */
+  /** Os portões e as ruas fechadas: todos os pontos em que uma rua chega à divisa (para reabrir/abrir portão). */
   candidatos: PortaoMuro[];
+  /** Ruas que só terminam na divisa, sem acesso real: o muro as fecha. */
+  ruasFechadas: PortaoMuro[];
   notas: string[];
 };
 
@@ -292,78 +295,116 @@ function travessias(a: Anel, delta: number, t: Trecho): Candidato[] {
 const distanciaNoAnel = (a: Anel, u: number, v: number) => Math.abs(modulo(u - v + a.total / 2, a.total) - a.total / 2);
 
 /**
- * Portões automáticos do muro, em CADA área do terreno. Regra: toda rua da malha que chega à divisa ganha abertura
- * (nunca há muro atravessando o corredor de uma rua): os acessos do estudo de massa, as pontas de rua junto da
- * divisa e as ruas que a atravessam. Em cada área, o acesso principal vira a portaria (veículos) — o que tem via
- * pública mapeada (o mais perto dela), senão o da rua mais larga — e os outros, portões secundários. Área sem
- * nenhuma rua na divisa: o portão vai no ponto da divisa mais perto da rua principal (ou do centro), com nota.
+ * Portões automáticos do muro, em CADA área do terreno. Condomínio é fechado: só há abertura automática nos acessos
+ * DE VERDADE — os pontos do estudo de massa ligados a uma via pública mapeada (`acesso.viaExistente`). O mais perto
+ * da via é a portaria; os outros acessos reais, portões secundários. Sem acesso real na área, UMA portaria vai no
+ * ponto da divisa mais perto da rua principal (a mais larga das que chegam à divisa; sem nenhuma, a mais larga de
+ * todas), com nota para conferir. As demais ruas que só terminam na divisa (o estudo de massa traça a malha "de
+ * divisa a divisa") são fechadas pelo muro e voltam em `ruasFechadas`, para a pessoa abrir portão se quiser.
  */
 export function portoesAutomaticos(imp: Implantacao, muro: Pick<Muro, "recuo" | "espessura"> = { recuo: 0, espessura: 0.2 }, sv?: SistemaViario): PortoesAutomaticos {
   const areas = areasDoMuro(imp);
-  if (!areas.length) return { portoes: [], candidatos: [], notas: ["Sem o contorno do terreno: não há muro nem portão."] };
+  if (!areas.length) return { portoes: [], candidatos: [], ruasFechadas: [], notas: ["Sem o contorno do terreno: não há muro nem portão."] };
   const delta = deltaEixo(muro), sistema = sv ?? sistemaViario(imp), notas: string[] = [];
   const pontas = sistema.trechos.flatMap(t => (["inicio", "fim"] as const).map(ponta => ({ t, ponta, p: ponta === "inicio" ? t.eixo[0] : t.eixo[t.eixo.length - 1] })));
   const varias = areas.length > 1;
-  // Cada acesso do estudo vai para a área de divisa mais perto.
+  // Cada acesso real do estudo vai para a área de divisa mais perto.
   const acessosDa = new Map<number, NonNullable<Implantacao["acessos"]>>();
-  for (const ac of imp.acessos ?? []) {
+  for (const ac of (imp.acessos ?? []).filter(a => a.viaExistente)) {
     const q = { x: ac.x, y: ac.y };
     const dono = areas.map(ar => ({ ar, d: projetar(ar.anel, delta, q).d })).sort((x, y) => x.d - y.d)[0].ar;
     acessosDa.set(dono.indice, [...(acessosDa.get(dono.indice) ?? []), ac]);
   }
-  const lista: PortaoMuro[] = [];
+  const portoes: PortaoMuro[] = [], ruasFechadas: PortaoMuro[] = [];
   for (const ar of areas) {
-    const a = ar.anel, cands: Candidato[] = [], prefixo = varias ? `Área ${ar.indice + 1}: ` : "";
-    for (const ac of acessosDa.get(ar.indice) ?? []) {
-      const q = { x: ac.x, y: ac.y };
-      const perto = pontas.map(pt => ({ ...pt, d: dist(pt.p, q) })).filter(pt => pt.d < Math.max(pt.t.largura, 8)).sort((x, y) => x.d - y.d);
-      const naRua = perto.map(pt => portaoNaRua(a, delta, pt.t, pt.ponta)).find(Boolean) ?? null;
-      const c = naRua ?? { u: projetar(a, delta, q).u, largura: LARGURA_PORTAO_PADRAO + 2 * FOLGA_PORTAO, trecho: null, via: false, distanciaVia: null };
-      cands.push({ ...c, via: ac.viaExistente, distanciaVia: ac.distancia });
-    }
-    // Toda rua que chega à divisa, com ou sem acesso salvo: a ponta junto dela e a travessia.
+    const a = ar.anel, prefixo = varias ? `Área ${ar.indice + 1}: ` : "";
+    const juntar = (lista: Candidato[]) => {
+      const unicos: Candidato[] = [];
+      for (const c of lista) {
+        const igual = unicos.find(o => distanciaNoAnel(a, o.u, c.u) < (o.largura + c.largura) / 2);
+        if (!igual) unicos.push(c);
+        else if (!igual.trecho && c.trecho) Object.assign(igual, { u: c.u, largura: c.largura, trecho: c.trecho });
+      }
+      return unicos;
+    };
+    // Ruas que chegam à divisa (a ponta junto dela ou a travessia): candidatas, mas NÃO são acesso por si só.
+    const naDivisa: Candidato[] = [];
     for (const pt of pontas) {
       if (projetar(a, delta, pt.p).d > pt.t.largura / 2 + 1.5) continue;
       const c = portaoNaRua(a, delta, pt.t, pt.ponta);
-      if (c) cands.push(c);
+      if (c) naDivisa.push(c);
     }
-    for (const t of sistema.trechos) cands.push(...travessias(a, delta, t));
-    // Dois candidatos no mesmo lugar (as duas pontas de uma rua curta, o acesso e a ponta da rua dele): fica um.
-    const unicos: Candidato[] = [];
-    for (const c of cands) {
-      const igual = unicos.find(o => distanciaNoAnel(a, o.u, c.u) < (o.largura + c.largura) / 2);
-      if (!igual) unicos.push(c);
-      else if (c.via && !igual.via) Object.assign(igual, c);
-      else if (!igual.trecho && c.trecho) Object.assign(igual, { u: c.u, largura: c.largura, trecho: c.trecho });
-    }
-    const centro = esc(a.pts.reduce((s, p) => soma(s, p), { x: 0, y: 0 }), 1 / a.pts.length);
-    const pontoDo = (c: Candidato) => pontoEm(a, delta, c.u);
-    unicos.sort((x, y) => (Number(y.via) - Number(x.via)) || ((x.distanciaVia ?? Infinity) - (y.distanciaVia ?? Infinity))
-      || ((y.trecho?.largura ?? 0) - (x.trecho?.largura ?? 0)) || (dist(pontoDo(x), centro) - dist(pontoDo(y), centro)) || (x.u - y.u));
+    for (const t of sistema.trechos) naDivisa.push(...travessias(a, delta, t));
+    const ruas = juntar(naDivisa);
 
-    if (!unicos.length) {
-      // Só as ruas que passam por dentro desta área.
+    // Acessos reais: centrados na rua que sai por eles, quando há; senão no ponto do acesso.
+    const reais = juntar((acessosDa.get(ar.indice) ?? []).map(ac => {
+      const q = { x: ac.x, y: ac.y }, u = projetar(a, delta, q).u;
+      const naRua = ruas.filter(c => distanciaNoAnel(a, c.u, u) < Math.max(c.largura, 8)).sort((x, y) => distanciaNoAnel(a, x.u, u) - distanciaNoAnel(a, y.u, u))[0];
+      return { ...(naRua ?? { u, largura: LARGURA_PORTAO_PADRAO + 2 * FOLGA_PORTAO, trecho: null }), via: true, distanciaVia: ac.distancia };
+    })).sort((x, y) => ((x.distanciaVia ?? Infinity) - (y.distanciaVia ?? Infinity)) || ((y.trecho?.largura ?? 0) - (x.trecho?.largura ?? 0)) || (x.u - y.u));
+    const abertos: Candidato[] = [...reais];
+
+    if (!abertos.length) {
+      // Sem acesso real: UMA portaria, no ponto da divisa mais perto da rua principal.
       const daArea = sistema.trechos.filter(t => densificar(t.eixo, 5).some(p => dentroDe(p, ar.contorno)));
-      const principal = [...daArea].sort((x, y) => y.largura - x.largura || comprimentoDe(y.eixo) - comprimentoDe(x.eixo))[0];
+      const ordem = (x: Trecho, y: Trecho) => y.largura - x.largura || comprimentoDe(y.eixo) - comprimentoDe(x.eixo);
+      const chegam = daArea.filter(t => ruas.some(c => c.trecho === t)).sort(ordem);
+      const principal = chegam[0] ?? [...daArea].sort(ordem)[0];
       if (principal) {
-        let melhor = { u: 0, d: Infinity };
-        for (const p of densificar(principal.eixo, 1)) { const pr = projetar(a, delta, p); if (pr.d < melhor.d) melhor = pr; }
-        unicos.push({ u: melhor.u, largura: limitar(principal.largura, LARGURA_PORTAO_VEICULOS) + 2 * FOLGA_PORTAO, trecho: principal, via: false, distanciaVia: null });
-        notas.push(`${prefixo}Nenhuma rua chega à divisa: o portão foi posto no ponto da divisa mais perto da rua principal. Confira a posição.`);
+        const naPonta = ruas.filter(c => c.trecho === principal)[0];
+        if (naPonta) abertos.push(naPonta);
+        else {
+          let melhor = { u: 0, d: Infinity };
+          for (const p of densificar(principal.eixo, 1)) { const pr = projetar(a, delta, p); if (pr.d < melhor.d) melhor = pr; }
+          abertos.push({ u: melhor.u, largura: limitar(principal.largura, LARGURA_PORTAO_VEICULOS) + 2 * FOLGA_PORTAO, trecho: principal, via: false, distanciaVia: null });
+        }
+        notas.push(`${prefixo}O estudo não tem acesso ligado a uma via pública mapeada: a portaria foi posta ${naPonta ? "na ponta da rua principal junto da divisa" : "no ponto da divisa mais perto da rua principal"}. Confira a posição.`);
       } else {
+        const centro = esc(a.pts.reduce((s, p) => soma(s, p), { x: 0, y: 0 }), 1 / a.pts.length);
         const pts = imp.lotes.filter(l => l.poligono.length && dentroDe(l.poligono[0], ar.contorno)).flatMap(l => l.poligono);
         const meio = pts.length ? esc(pts.reduce((s, p) => soma(s, p), { x: 0, y: 0 }), 1 / pts.length) : centro;
-        unicos.push({ u: projetar(a, delta, meio).u, largura: LARGURA_PORTAO_PADRAO + 2 * FOLGA_PORTAO, trecho: null, via: false, distanciaVia: null });
-        notas.push(`${prefixo}Não há ruas ${varias ? "nesta área" : "na implantação"}: o portão de ${LARGURA_PORTAO_PADRAO} m foi posto no ponto da divisa mais perto do centro. Confira a posição.`);
+        abertos.push({ u: projetar(a, delta, meio).u, largura: LARGURA_PORTAO_PADRAO + 2 * FOLGA_PORTAO, trecho: null, via: false, distanciaVia: null });
+        notas.push(`${prefixo}Não há ruas ${varias ? "nesta área" : "na implantação"}: a portaria de ${LARGURA_PORTAO_PADRAO} m foi posta no ponto da divisa mais perto do centro. Confira a posição.`);
       }
+    } else {
+      const nome = (acessosDa.get(ar.indice) ?? []).sort((x, y) => (x.distancia ?? Infinity) - (y.distancia ?? Infinity))[0]?.nomeVia;
+      notas.push(`${prefixo}Portaria no acesso pela ${nome ? `via ${nome}` : "via pública mapeada"}${abertos.length > 1 ? `; os outros ${abertos.length - 1} acesso(s) ligados a vias públicas são portões secundários` : ""}.`);
     }
-    if (unicos.length > 1) notas.push(`${prefixo}${unicos.length} ruas chegam à divisa: a principal virou a portaria e as outras, portões secundários. Tire na lista o portão da rua que não deve sair do condomínio (o muro fecha a rua).`);
-    const pre = ar.indice === 0 ? "" : `a${ar.indice + 1}-`;
-    unicos.forEach((c, i) => lista.push({ id: `${pre}${i === 0 ? "auto-1" : `acesso-${i + 1}`}`, posicao: r2(paraSalvo(a, c.u)), largura: r2(c.largura), tipo: "veiculos", ...(ar.indice ? { area: ar.indice } : {}) }));
+
+    const pre = ar.indice === 0 ? "" : `a${ar.indice + 1}-`, area = ar.indice ? { area: ar.indice } : {};
+    abertos.forEach((c, i) => portoes.push({ id: `${pre}${i === 0 ? "auto-1" : `acesso-${i + 1}`}`, posicao: r2(paraSalvo(a, c.u)), largura: r2(c.largura), tipo: "veiculos", ...area }));
+    // Ruas que só terminam na divisa: o muro as fecha.
+    ruas.filter(c => !abertos.some(o => distanciaNoAnel(a, o.u, c.u) < (o.largura + c.largura) / 2))
+      .sort((x, y) => x.u - y.u)
+      .forEach((c, i) => ruasFechadas.push({ id: `${pre}rua-${i + 1}`, posicao: r2(paraSalvo(a, c.u)), largura: r2(c.largura), tipo: "veiculos", ...area }));
   }
-  if (lista.length > 20) notas.push(`Há ${lista.length} ruas na divisa; só cabem 20 portões editados na lista.`);
-  return { portoes: lista, candidatos: lista, notas };
+  if (ruasFechadas.length) notas.push(`${ruasFechadas.length} rua(s) só terminam na divisa: o muro as fecha (viram ruas sem saída dentro do condomínio). Abra portão nelas no editor do muro se forem entradas de verdade.`);
+  return { portoes, candidatos: [...portoes, ...ruasFechadas], ruasFechadas, notas };
 }
+
+/** Ruas que chegam à divisa e ficam fechadas pelo muro com os portões que valem (automáticos ou editados). */
+export function ruasFechadasPeloMuro(imp: Implantacao, muro: Muro, sv?: SistemaViario): PortaoMuro[] {
+  const auto = portoesAutomaticos(imp, muro, sv);
+  const portoes = muro.portoesEditados ? muro.portoes : auto.portoes;
+  const perims = perimetrosDasAreas(imp);
+  return auto.candidatos.filter(c => !portoes.some(p => (p.area ?? 0) === (c.area ?? 0) && distanciaSalva(perims[c.area ?? 0] ?? 0, p.posicao, c.posicao) < (p.largura + c.largura) / 2));
+}
+const distanciaSalva = (total: number, u: number, v: number) => (total > 0 ? Math.abs(modulo(u - v + total / 2, total) - total / 2) : Math.abs(u - v));
+
+/**
+ * Avisos do muro que dependem das ruas (por isso fora de validarModelo, que não monta o sistema viário): UM aviso
+ * informativo com quantas ruas terminam no muro — não é erro e não se repete por rua.
+ */
+export function avisosDoMuro(m: ModeloMaquete): Problema[] {
+  const muro = muroDaMaquete(m), imp = m.implantacao;
+  if (!muro || !imp || !areasDoMuro(imp).length) return [];
+  const n = ruasFechadasPeloMuro(imp, muro).length;
+  return n ? [{ nivel: "aviso", onde: "Muro", mensagem: `${n} rua(s) terminam no muro do condomínio (sem portão): viram ruas sem saída. Se alguma for entrada de verdade, abra o portão nela em "Muro do condomínio".` }] : [];
+}
+
+/** validarModelo mais os avisos do muro (para as telas de revisão). */
+export const validarComMuro = (m: ModeloMaquete): Problema[] => [...validarModelo(m), ...avisosDoMuro(m)];
 
 const comprimentoDe = (pts: Ponto[]) => pts.reduce((s, p, i) => (i ? s + dist(pts[i - 1], p) : 0), 0);
 function densificar(pts: Ponto[], passo: number): Ponto[] {

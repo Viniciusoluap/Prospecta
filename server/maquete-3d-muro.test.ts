@@ -8,7 +8,7 @@ import {
   alturaDoRelevo, assinaturaDoContorno, comMuroGravado, implantacaoSchema, lerModelo, modeloParaLinkPublico, modeloSchema, muroDaMaquete, muroParaTipo, muroSchema, publicadoSemMuro, validarModelo,
   type Implantacao, type ModeloMaquete, type Muro, type Ponto,
 } from "../shared/maquete-3d/modelo.js";
-import { ENTERRO_MURO, FOLGA_DIVISA, FOLGA_PORTAO, geometriaDoMuro, perimetroDoTerreno, pontosDosPortoes, portoesAutomaticos, reancorarPortoes, type GeometriaMuro } from "../shared/maquete-3d/muro.js";
+import { ENTERRO_MURO, FOLGA_DIVISA, FOLGA_PORTAO, geometriaDoMuro, perimetroDoTerreno, pontosDosPortoes, portoesAutomaticos, reancorarPortoes, ruasFechadasPeloMuro, validarComMuro, type GeometriaMuro } from "../shared/maquete-3d/muro.js";
 import { alturaNaMalha, caixaDoTerreno, dentroDe, distanciaAoContorno, sistemaViario } from "../shared/maquete-3d/vias.js";
 
 const ret = (x0: number, y0: number, x1: number, y1: number): Ponto[] => [{ x: x0, y: y0 }, { x: x1, y: y0 }, { x: x1, y: y1 }, { x: x0, y: y1 }];
@@ -161,25 +161,30 @@ describe("portão automático", () => {
     for (const v of vertices(g, "portao")) expect(v.x <= 54 || v.x >= 66).toBe(true);
   });
 
-  it("com os acessos do estudo de massa: portaria no acesso principal (via pública mapeada) e portão secundário nos outros", () => {
+  it("com os acessos do estudo de massa: portaria só no acesso ligado à via pública; ponto de divisa sem via fica fechado", () => {
     const ruas = [ret(54, 30, 66, 95), ret(-5, 39, 30, 51), ret(10, 24, 110, 36)];
-    const i = imp({ terreno: ret(0, 0, 120, 90), ruas, acessos: [{ x: 0, y: 45, viaExistente: false }, { x: 60, y: 90, viaExistente: true, distancia: 12 }] });
+    const i = imp({ terreno: ret(0, 0, 120, 90), ruas, acessos: [{ x: 0, y: 45, viaExistente: false }, { x: 60, y: 90, viaExistente: true, distancia: 12, nomeVia: "Av. Brasil" }] });
     const auto = portoesAutomaticos(i);
-    expect(auto.portoes[0].posicao).toBeCloseTo(270, 0);
-    expect(auto.candidatos.length).toBe(2);
-    expect(auto.candidatos[1].posicao).toBeCloseTo(120 + 90 + 120 + 45, 0);
-    // Toda rua que chega à divisa ganha abertura: a principal é a portaria, a outra, portão secundário.
-    expect(auto.portoes.map(p => p.posicao)).toEqual(auto.candidatos.map(p => p.posicao));
-    expect(auto.notas.join(" ")).toMatch(/2 ruas chegam à divisa/);
+    expect(auto.portoes.map(p => p.posicao)).toEqual([270]);
+    expect(auto.notas.join(" ")).toMatch(/Portaria no acesso pela via Av\. Brasil/);
+    // O ponto (0, 45) não tem via pública: não é acesso; a rua que termina ali é fechada pelo muro.
+    expect(auto.ruasFechadas.map(p => p.posicao)).toEqual([375]);
+    expect(auto.candidatos.map(p => p.posicao)).toEqual([270, 375]);
     const g = geometriaDoMuro(i, muro())!;
-    expect(g.resumo.aberturas.filter(a => a.principal).map(a => a.posicao)).toEqual([auto.portoes[0].posicao]);
+    expect(g.resumo.aberturas.map(a => [a.posicao, a.principal])).toEqual([[270, true]]);
+    expect(vertices(g).some(v => v.x < 1 && Math.abs(v.y - 45) < 3)).toBe(true);
+    // Dois acessos reais: o mais perto da via é a portaria, o outro é portão secundário.
+    const dois = imp({ ...i, acessos: [{ x: 0, y: 45, viaExistente: true, distancia: 30 }, { x: 60, y: 90, viaExistente: true, distancia: 12 }] });
+    const g2 = geometriaDoMuro(dois, muro())!;
+    expect(g2.resumo.aberturas.map(a => [a.posicao, a.principal])).toEqual([[270, true], [375, false]]);
+    expect(portoesAutomaticos(dois).ruasFechadas).toEqual([]);
   });
 
   it("nenhuma rua encosta na divisa: portão no ponto mais perto da rua principal, com nota", () => {
     const i = imp({ terreno: ret(0, 0, 120, 90), ruas: [ret(20, 50, 100, 62)] });
     const auto = portoesAutomaticos(i);
     expect(auto.portoes.length).toBe(1);
-    expect(auto.notas.join(" ")).toMatch(/Nenhuma rua chega à divisa/);
+    expect(auto.notas.join(" ")).toMatch(/não tem acesso ligado a uma via pública.*no ponto da divisa mais perto da rua principal.*Confira/);
     // O ponto do eixo (y = 56) mais perto da divisa fica a 20 m do lado esquerdo ou direito, ou a 34 m do de baixo:
     // o portão vai para um dos lados verticais.
     const g = geometriaDoMuro(i, muro())!;
@@ -188,7 +193,7 @@ describe("portão automático", () => {
     expect((u > 120 && u < 210) || (u > 330 && u < 420)).toBe(true);
   });
 
-  it("estudo de massa real (grade): o portão sai numa rua que chega à divisa e o muro fica dentro do terreno", () => {
+  it("estudo de massa real (grade): condomínio fechado — uma portaria; as ruas que só terminam na divisa ficam fechadas, com UM aviso", () => {
     const centro: [number, number] = [-49.25, -16.68];
     const m = 1 / 111320, cosLat = Math.cos((centro[1] * Math.PI) / 180);
     const anel = [[0, 0], [300, 20], [320, 200], [150, 240], [-10, 210], [0, 0]].map(([x, y]) => [centro[0] + (x * m) / cosLat, centro[1] + y * m]);
@@ -198,14 +203,24 @@ describe("portão automático", () => {
     expect(i.acessos?.length).toBeGreaterThan(0);
     const sv = sistemaViario(i);
     const g = geometriaDoMuro(i, muro(), { sistema: sv })!;
-    // Na grade, as ruas terminam na divisa: cada uma ganha abertura, e só uma é a portaria.
+    // A grade traça as ruas "de divisa a divisa", mas sem via pública mapeada nenhum ponto é acesso: 1 portaria
+    // (1 + o número de acessos reais, que aqui é zero), e as outras ruas terminam no muro.
+    const reais = (i.acessos ?? []).filter(a => a.viaExistente).length;
+    expect(reais).toBe(0);
     const auto = portoesAutomaticos(i, muro(), sv);
-    expect(g.resumo.aberturas.length).toBe(auto.portoes.length);
-    expect(g.resumo.aberturas.length).toBeGreaterThan(1);
-    expect(g.resumo.aberturas.filter(a => a.principal).length).toBe(1);
-    expect(auto.portoes[0].posicao).toBe(g.resumo.aberturas.find(a => a.principal)!.posicao);
-    // O centro de cada portão fica a menos de 3 m do eixo de alguma rua (nenhum portão "no nada").
-    for (const q of pontosDosPortoes(i, auto.portoes)) expect(Math.min(...sv.trechos.map(t => distanciaAPolilinha(q!, t.eixo)))).toBeLessThan(3);
+    expect(g.resumo.aberturas.length).toBe(1 + reais);
+    expect(g.resumo.aberturas[0].principal).toBe(true);
+    expect(auto.ruasFechadas.length).toBeGreaterThan(5);
+    // A portaria fica na ponta de uma rua (a menos de 3 m do eixo dela), não "no nada".
+    const [q] = pontosDosPortoes(i, auto.portoes);
+    expect(Math.min(...sv.trechos.map(t => distanciaAPolilinha(q!, t.eixo)))).toBeLessThan(3);
+    // Validação: UM aviso com a contagem (não é erro e não se repete por rua).
+    const modelo = modeloSchema.parse({ tipo: "condominio", implantacao: i });
+    const avisos = validarComMuro(modelo).filter(p => /terminam no muro/.test(p.mensagem));
+    expect(avisos).toHaveLength(1);
+    expect(avisos[0]).toMatchObject({ nivel: "aviso", onde: "Muro" });
+    expect(avisos[0].mensagem).toMatch(new RegExp(`^${auto.ruasFechadas.length} rua\\(s\\)`));
+    expect(validarComMuro(modelo).some(p => p.nivel === "erro" && p.onde.startsWith("Muro"))).toBe(false);
     for (const v of vertices(g)) expect(noTerreno(v, i.terreno)).toBe(true);
     // Os lotes continuam intactos e não há muro entre eles: todo vértice do muro fica a menos de 1 m da divisa.
     for (const v of vertices(g)) expect(distanciaAoContorno(v, i.terreno)).toBeLessThan(1);
@@ -304,31 +319,44 @@ describe("QA: muro em todas as áreas do terreno", () => {
   });
 });
 
-describe("QA: toda rua que chega à divisa tem abertura", () => {
-  it("duas ruas saindo pela divisa: portaria na principal, portão secundário na outra, nenhum muro nos corredores", () => {
-    const vias = [{ id: "v1", nome: "A", eixo: [{ x: 50, y: 40 }, { x: 50, y: -5 }], largura: 10 }, { id: "v2", nome: "B", eixo: [{ x: 20, y: 40 }, { x: 20, y: -5 }], largura: 8 }];
+describe("QA: condomínio fechado — portão só nos acessos reais", () => {
+  const vias = [{ id: "v1", nome: "A", eixo: [{ x: 50, y: 40 }, { x: 50, y: -5 }], largura: 10 }, { id: "v2", nome: "B", eixo: [{ x: 20, y: 40 }, { x: 20, y: -5 }], largura: 8 }];
+  const semMuroNoCorredor = (g: GeometriaMuro, x: number, meia: number) => {
+    for (const v of [...vertices(g), ...vertices(g, "capa"), ...vertices(g, "portao")]) if (v.y < 1) expect(Math.abs(v.x - x) >= meia - 1e-4, `corredor em ${x} (${v.x})`).toBe(true);
+  };
+
+  it("sem acesso real: UMA portaria na rua principal (a mais larga que chega à divisa); a outra rua termina no muro", () => {
     const i = imp({ terreno: ret(0, 0, 100, 80), vias });
     const auto = portoesAutomaticos(i);
-    expect(auto.portoes.map(p => p.posicao).sort((a, b) => a - b)).toEqual([20, 50]);
+    expect(auto.portoes.map(p => p.posicao)).toEqual([50]);
+    expect(auto.ruasFechadas.map(p => p.posicao)).toEqual([20]);
     const g = geometriaDoMuro(i, muro())!;
-    expect(g.resumo.aberturas.find(a => a.principal)?.posicao).toBe(50); // a mais larga é a portaria
-    for (const v of [...vertices(g), ...vertices(g, "capa")]) if (v.y < 1) {
-      expect(Math.abs(v.x - 50) >= 5 - 1e-4, `rua A (${v.x})`).toBe(true);
-      expect(Math.abs(v.x - 20) >= 4 - 1e-4, `rua B (${v.x})`).toBe(true);
-    }
-    // Rua que atravessa a divisa e segue para fora (o eixo não termina nela) também ganha abertura.
+    expect(g.resumo.aberturas.map(a => [a.posicao, a.principal])).toEqual([[50, true]]);
+    semMuroNoCorredor(g, 50, 5); // nunca há muro no corredor da rua que leva à portaria
+    expect(vertices(g).some(v => v.y < 1 && Math.abs(v.x - 20) < 3)).toBe(true); // a rua B é fechada
+    // Rua que atravessa a divisa e segue para fora também é candidata (e, sem outra, vira a portaria).
     const atravessa = imp({ terreno: ret(0, 0, 100, 80), vias: [{ id: "v3", nome: "C", eixo: [{ x: 30, y: 40 }, { x: 30, y: -40 }], largura: 10 }] });
-    expect(portoesAutomaticos(atravessa).portoes.map(p => p.posicao)).toContain(30);
+    expect(portoesAutomaticos(atravessa).portoes.map(p => p.posicao)).toEqual([30]);
   });
 
-  it("tirar o portão secundário na edição fecha a rua com muro (e o candidato continua disponível)", () => {
-    const vias = [{ id: "v1", nome: "A", eixo: [{ x: 50, y: 40 }, { x: 50, y: -5 }], largura: 10 }, { id: "v2", nome: "B", eixo: [{ x: 20, y: 40 }, { x: 20, y: -5 }], largura: 8 }];
+  it("dois acessos reais: portaria e portão secundário, sem muro nos dois corredores", () => {
+    const i = imp({ terreno: ret(0, 0, 100, 80), vias, acessos: [{ x: 20, y: 0, viaExistente: true, distancia: 15 }, { x: 50, y: 0, viaExistente: true, distancia: 5 }] });
+    const g = geometriaDoMuro(i, muro())!;
+    expect(g.resumo.aberturas.map(a => [a.posicao, a.principal])).toEqual([[50, true], [20, false]]);
+    semMuroNoCorredor(g, 50, 5);
+    semMuroNoCorredor(g, 20, 4);
+  });
+
+  it("abrir portão numa rua fechada (editor) tira o muro do corredor dela; o aviso de ruas fechadas some", () => {
     const i = imp({ terreno: ret(0, 0, 100, 80), vias });
     const auto = portoesAutomaticos(i);
-    const so = auto.portoes.filter(p => p.posicao === 50);
-    const g = geometriaDoMuro(i, muro({ portoesEditados: true, portoes: so }))!;
-    expect(vertices(g).some(v => v.y < 1 && Math.abs(v.x - 20) < 3)).toBe(true);
-    expect(auto.candidatos.some(c => c.posicao === 20)).toBe(true);
+    const m = modeloSchema.parse({ tipo: "condominio", implantacao: i });
+    expect(validarComMuro(m).filter(p => /terminam no muro/.test(p.mensagem)).map(p => p.mensagem)).toEqual([expect.stringMatching(/^1 rua\(s\)/)]);
+    const aberto = muro({ editado: true, portoesEditados: true, portoes: [...auto.portoes, { ...auto.ruasFechadas[0], id: "p2" }] });
+    const g = geometriaDoMuro(i, aberto)!;
+    semMuroNoCorredor(g, 20, 4);
+    expect(ruasFechadasPeloMuro(i, aberto)).toEqual([]);
+    expect(validarComMuro(modeloSchema.parse({ tipo: "condominio", implantacao: { ...i, muro: aberto } })).some(p => /terminam no muro/.test(p.mensagem))).toBe(false);
   });
 });
 
