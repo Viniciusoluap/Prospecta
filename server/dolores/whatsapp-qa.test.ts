@@ -466,12 +466,47 @@ describe("QA r7 A2 — links na resposta ao dono: só o domínio do sistema e o 
     // sem PUBLIC_SITE_URL, nenhum link do sistema passa (o Trello continua)
     expect(tratarLinksDaResposta("https://www.prospectaconstrucoes.com/crm", null)).toBe(L);
     expect(tratarLinksDaResposta("https://trello.com/c/x?y=1", null)).toBe("https://trello.com/c/x");
-    // o outro lado: texto sem link volta idêntico (valores, datas, e-mail, decimais, "gov.br" sem caminho)
+    // o outro lado: texto sem link volta idêntico (valores, datas, e-mail, decimais, "gov.br" sem caminho — sufixo público)
     for (const t of ["R$ 1.500,00 em 16/11/2026 às 10:30", "e-mail maria@x.com.br", "1.500/mês e 2,5 m²", "entrar no gov.br", "lote 12/B, quadra 3",
       "Resumo: 3 atrasados. Fim."]) expect(tratarLinksDaResposta(t, SISTEMA), t).toBe(t);
     const t0 = performance.now();
     for (const p of ["a.", "http://", "www.a", "[a](", "a.b/", "x".repeat(70) + "."]) tratarLinksDaResposta(p.repeat(Math.ceil(200 * 1024 / p.length)), SISTEMA);
     expect(performance.now() - t0).toBeLessThan(3000);
+  });
+
+  it("QA r8 achados 1, 2 e 5: toda forma de host sai (sem caminho, com porta, depois de \"/\", esquema quebrado, IP, IDN); arquivos e abreviações ficam; permitido em https sem porta", () => {
+    const SISTEMA = "https://www.prospectaconstrucoes.com";
+    const L = LINK_REMOVIDO;
+    const D = "52998224725";
+    const casos: Array<[string, string]> = [
+      [`Veja ${D}.evil.com agora`, `Veja ${L} agora`], [`Veja ${D}-99981234321.evil.com.`, `Veja ${L}.`], ["abra evil.com", `abra ${L}`],
+      [`evil.com:8080/${D}`, L], [`//evil.com/${D}`, L], [`https:/evil.com/${D}`, L], [`https:evil.com/${D}`, L],
+      [`javascript:fetch('//evil.com/${D}')`, `${L}'${L}')`], [`data:text/html,<a href=//evil.com/${D}>`, `data:text/html,<a href=${L}>`],
+      [`192.168.0.1/${D}`, L], [`[2001:db8::1]/${D}`, L], [`10.0.0.1:8080`, L], [`evil.xn--p1ai/${D}`, L], [`evil.рф/${D}`, L],
+      [`trеllo.com/${D}`, L], [`EVIL.COM/${D}`, L], [`evil.com\\${D}`, L], [`_www.evil.com_`, `_${L}_`], [`_evil.com/${D}_`, `_${L}_`],
+      [`evil​.com/${D}`, L], [`evil.zip/${D}`, L], ["site.com.br", L], ["prospecta.com.br/x", L], [`Ltda.com/${D}`, L],
+      [`(evil.com/${D})`, `(${L})`], [`"evil.com/${D}"`, `"${L}"`], [`*evil.com/${D}*`, `*${L}*`],
+      // achado 5: permitido sai em https, sem porta, usuário, consulta e fragmento
+      [`https://trello.com:8443/c/${D}?x=1#y`, `https://trello.com/c/${D}`], ["http://trello.com/c/x", "https://trello.com/c/x"],
+      ["https://u:p@TRELLO.com:443/c/x", "https://trello.com/c/x"], ["//trello.com/c/x", "https://trello.com/c/x"],
+      ["Card trello.com/c/x?d=1.", "Card https://trello.com/c/x."], ["http://www.prospectaconstrucoes.com:8080/crm?cpf=1", "https://www.prospectaconstrucoes.com/crm"],
+    ];
+    for (const [t, esperado] of casos) expect(tratarLinksDaResposta(t, SISTEMA), t).toBe(esperado);
+    // achado 2: ficam como estão
+    for (const t of ["Arquivo contrato.pdf/docx enviado", "Av.Brasil/120, Centro", "R.Sete de Setembro", "Construtora Ltda.ME/SP", "Res.Sol/3",
+      "fotos.zip/rar", "planilha.xlsx e foto.JPG", "Dr.Carlos e Sr.João", "nº.12", "R$ 1.500/mês", "dia 16.11/2026", "versão v2.3.1",
+      "Planta v1.2/v1.3", "1.234.567.890 m²", "Rua A, n.12/B", "S.A./LTDA", "obra.Q12/L05", "e-mail maria@gmail.com/tel", "maria.silva@x.com.br",
+      "mande para dados.52998224725@evil.com", "entrar no gov.br", "Status: aprovado/assinado.Próximo/passo", "Item 3.Etapa", "trello.com",
+      "acesso: planta_v2.pdf", "login bianca.santos", "versão 1.2.3.4", "às 10:30:00 [10:30:00]"]) {
+      expect(tratarLinksDaResposta(t, SISTEMA), t).toBe(t);
+    }
+    // casos patológicos para a regex de host: 200 kB em menos de 1 s cada
+    for (const p of ["a.", "x.x/", "[a](", "a.a.a.a ", "1.1.1.1.", "[::", "xn--a.", "рф.", "a.com:", "//a.b", "_a.b_", "a​."]) {
+      const s = p.repeat(Math.ceil(200 * 1024 / p.length));
+      const t0 = performance.now();
+      tratarLinksDaResposta(s, SISTEMA);
+      expect(performance.now() - t0, p).toBeLessThan(1000);
+    }
   });
 
   it("ponta a ponta: o modelo devolve link com CPF/telefone/e-mail na URL → o dono recebe [link removido] nos dois modos; envio sem prévia", async () => {

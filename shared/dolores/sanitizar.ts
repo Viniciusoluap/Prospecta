@@ -184,10 +184,33 @@ const GATILHO_NO_FIM_DA_LINHA = new RegExp(`(?<![\\p{L}\\p{N}_])(?:${PALAVRAS_CR
 const PALAVRA = new RegExp(String.raw`(?<![^\s,;:/|()<>"'[\]{}])[^\s,;:/|()<>"'[\]{}]{6,}`, "gu");
 const EMAIL_DE_VERDADE = new RegExp(String.raw`^[^@]+@[\p{L}\p{N}_-]+(?:\.[\p{L}\p{N}_-]+)*\.[\p{L}\p{N}_-]*\p{L}[\p{L}\p{N}_-]*[.!?]?$`, "u");
 const TEM_LETRA = new RegExp("\\p{L}", "u");
-/** Cara de senha: 6+ caracteres, letra misturada com dígito ou símbolo, e não é e-mail de verdade. */
+const TEM_MINUSCULA = new RegExp("\\p{Ll}", "u");
+/**
+ * QA r8 achado 3: códigos comuns que NÃO são senha — valor ("R$150.000"), número com ponto/vírgula, data/hora ISO
+ * ("2026-11-15T10"), versão ("v2.3.1"), nome de arquivo com extensão ("planta_v2.pdf") e código só com MAIÚSCULAS, dígitos,
+ * hífen, ponto ou barra (protocolo "AB12345", "SEI-12345", quadra/lote "Q12-L05", placa "ABC1D23", matrícula "M-12345").
+ */
+// O código só com maiúsculas é testado sem a flag "i" (com ela, "abc123" também passaria).
+const CODIGO_MAIUSCULO = new RegExp(String.raw`^[\p{Lu}\d][\p{Lu}\d./-]*$`, "u");
+const SO_FORMATOS_COMUNS = new RegExp(
+  String.raw`^(?:R\$.*|[\d.,]+|\d{4}-\d{2}-\d{2}(?:T\d{1,2})?|v\d+(?:\.\d+)+[a-z]?|.+\.(?:pdf|docx?|xlsx?|csv|txt|jpe?g|png|zip|rar|dwg|dxf|kml|kmz|pptx?|mp[34]|json|xml))$`,
+  "iu",
+);
+/**
+ * Cara de senha: 6+ caracteres, com letra, não é e-mail de verdade nem um dos códigos comuns acima, e tem minúscula com
+ * dígito ou símbolo ("Maria@2025", "obra2025") ou um símbolo típico de senha (@ ! # $ % & *).
+ */
 export function pareceSenha(p: string): boolean {
-  return p.length >= 6 && TEM_LETRA.test(p) && /[\d!@#$%&*?_+=~^]/.test(p) && !EMAIL_DE_VERDADE.test(p);
+  if (p.length < 6 || !TEM_LETRA.test(p) || EMAIL_DE_VERDADE.test(p)) return false;
+  if (SO_FORMATOS_COMUNS.test(p) || CODIGO_MAIUSCULO.test(p)) return false;
+  return (TEM_MINUSCULA.test(p) && /[\d!@#$%&*?_+=~^]/.test(p)) || /[!@#$%&*]/.test(p);
 }
+/**
+ * QA r8 achado 3: logo depois de "usuário"/"user"/"login" vem o LOGIN ("usuário João123 criou a tarefa"), não a senha;
+ * a senha é a palavra seguinte com cara de senha, se houver ("login: 52998224725 / Maria@2025").
+ * O login com símbolo típico de senha (! # $ % & *) sai mesmo assim.
+ */
+const DEPOIS_DO_USUARIO = new RegExp(String.raw`(?<![\p{L}\p{N}_])(?:usu[aá]rios?|user(?:name)?|logins?)[ \t:=>\-–—]*$`, "iu");
 function mascararCredenciais(x: string): string {
   if (!GATILHO_CREDENCIAL.test(x)) return x;
   const linhas = x.split("\n");
@@ -196,7 +219,14 @@ function mascararCredenciais(x: string): string {
     const l = linhas[i];
     const m = GATILHO_CREDENCIAL.exec(l);
     const ini = linhaSeguinte ? 0 : m ? m.index + m[0].length : -1;
-    if (ini >= 0) linhas[i] = l.slice(0, ini) + l.slice(ini).replace(PALAVRA, p => (pareceSenha(p) ? SENHA_OMITIDA : p));
+    if (ini >= 0) {
+      linhas[i] = l.slice(0, ini) + l.slice(ini).replace(PALAVRA, (p: string, pos: number, resto: string) => {
+        if (!pareceSenha(p)) return p;
+        const antes = (pos < 24 ? l.slice(Math.max(0, ini + pos - 24), ini) : "") + resto.slice(Math.max(0, pos - 24), pos);
+        // login com símbolo típico de senha (! # $ % & *) sai mesmo assim: na dúvida, mascara
+        return DEPOIS_DO_USUARIO.test(antes) && !/[!#$%&*]/.test(p) ? p : SENHA_OMITIDA;
+      });
+    }
     linhaSeguinte = !!m && GATILHO_NO_FIM_DA_LINHA.test(l.slice(-48));
   }
   return linhas.join("\n");
@@ -241,7 +271,8 @@ const BANCO = new RegExp(
 const SEP_PIX = String.raw`((?:\s*(?:=>|->|[:#=–—-]|(?:n[ºo°.]?|é|eh|o|a|pra|para|pro|do|da|no|na|cpf|cnpj|telefone|celular|cel|e-?mail|aleat[oó]ria|chave)(?![\p{L}\p{N}]))){0,5}\s*)`;
 const VALOR_PIX_TEXTO = String.raw`[\p{L}\p{N}_.+-]{1,64}@[\p{L}\p{N}_-]{1,63}(?:\.[\p{L}\p{N}_-]{1,63}){0,6}|[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}|[0-9a-f]{32}(?![0-9a-z])`;
 /** Chave PIX em forma de e-mail ou aleatória (uuid): sai como dado bancário antes do filtro de e-mail. */
-const PIX_EMAIL = new RegExp(String.raw`\b(chave\s+pix|pix)\b${SEP_PIX}(?:${VALOR_PIX_TEXTO})`, "giu");
+// QA r8 achado 8: "chave aleatória: <uuid>" sem a palavra "pix" também é chave PIX.
+const PIX_EMAIL = new RegExp(String.raw`\b(chave\s+pix|pix|chave\s+aleat[oó]ria)(?![\p{L}\p{N}])${SEP_PIX}(?:${VALOR_PIX_TEXTO})`, "giu");
 const PIX = new RegExp(String.raw`\b(chave\s+pix|pix)\b${SEP_PIX}(${VALOR_PIX_TEXTO}|\+?\(?\d[\d.\-/() ]{6,24}\d)`, "giu");
 // E-mail: "a@b.com", "a @ b.com", "a[at]b.com", "a (arroba) b.com" e, colado, sem domínio de topo ("a@b").
 // QA r5 F6: letras e números de qualquer escrita (\p{L}\p{N}, flag u) — "maria.conceição@uol.com.br" sai inteiro.
@@ -680,8 +711,20 @@ function trocarBanco(m: string, rotulo: string, sep: string, valor: string, cent
   if (nucleo.replace(/\D/g, "").length < 3 || ANO.test(nucleo) || COLADO_EM_LETRA.test(t.slice(pos + m.length))) return m;
   // QA r7 A5: só o nome do banco antes — o número precisa ter forma de conta/agência (hífen + dígito ou dois grupos)
   if (SO_BANCO.test(rotulo.trim()) && !/\d{3,}-[\dxX]|\d{3,}(?: | ?[/|] ?)\d{3,}/.test(nucleo)) return m;
+  // QA r8 achado 4: intervalo de anos ("safra 2025-2026", "BB 2025-2026"), ano-mês ("cc 2026-11", "inter 2025-11") e
+  // número com unidade depois ("caixa 1000-2000 litros", "neon 1200-1500 lm") não são conta.
+  if (INTERVALO_DE_ANOS.test(nucleo) || ANO_MES.test(nucleo) || UNIDADE_DEPOIS_DA_CONTA.test(t.slice(pos + m.length, pos + m.length + 16))) return m;
+  // "safra", "inter", "neon", "caixa" são palavras comuns: sem "banco"/agência/conta/pix por perto, só o número com
+  // dígito verificador de conta ("12345-6") sai.
+  if (NOMES_AMBIGUOS.test(rotulo.trim()) && !/\d-[\dxX]$/.test(nucleo)
+    && !CONTEXTO_BANCARIO.test(t.slice(Math.max(0, pos - 30), pos)) && !CONTEXTO_BANCARIO.test(t.slice(pos + m.length, pos + m.length + 30))) return m;
   return `${rotulo}${sep}${BANCARIO_OMITIDO}${resto}`;
 }
+const INTERVALO_DE_ANOS = /^(?:19|20)\d\d\s*[-/]\s*(?:19|20)\d\d$/;
+const ANO_MES = /^(?:19|20)\d\d-(?:0[1-9]|1[0-2])$/;
+const UNIDADE_DEPOIS_DA_CONTA = new RegExp(String.raw`^\s*(?:litros?|l|lm|lumens?|m²|m2|m³|m3|m|cm|mm|km|kg|g|t|ton|un|unid(?:ades)?|p[cç]s?|pe[cç]as?|kw|kwh|w|v|volts?|watts?|%|reais|anos?|meses|dias|horas?|h|sacos?|caixas?)(?![\p{L}\p{N}])`, "iu");
+const NOMES_AMBIGUOS = /^(?:safra|inter|neon|caixa)$/i;
+const CONTEXTO_BANCARIO = new RegExp(String.raw`(?<![\p{L}\p{N}])(?:banco|ag[eê]ncia|ag|conta|cc|c\/c|cta|pix|transfer[eê]ncia|ted|doc)(?![\p{L}])`, "iu");
 
 /** PIX: e-mail ou uuid sempre; número só com 8–14 dígitos e sem centavos logo depois. */
 function trocarPix(m: string, rotulo: string, sep: string, valor: string, pos: number, t: string): string {
@@ -707,7 +750,8 @@ function trocarPix(m: string, rotulo: string, sep: string, valor: string, pos: n
 export type OpcoesFiltro = { mascararDadosPessoais?: boolean };
 export const CHAVE_OMITIDA = "[chave de acesso omitida]";
 /** Chave de API ou credencial em forma reconhecível (sempre sai, com ou sem palavra de senha antes). */
-const CHAVE_API = /\bsk-ant-[\w-]{4,}|\bsk-(?:proj-)?[A-Za-z0-9_-]{20,}|\bgithub_pat_\w{20,}|\bAIza[\w-]{30,}|\b(?:sk|rk|pk)_(?:live|test)_\w{10,}|-----BEGIN [A-Z ]{0,40}PRIVATE KEY-----[\s\S]*?(?:-----END [A-Z ]{0,40}PRIVATE KEY-----|$)|\beyJ[\w-]{8,}\.[\w-]{8,}\.[\w-]{8,}|\b(?:AKIA|ASIA)[0-9A-Z]{16}\b|\bgh[pousr]_[A-Za-z0-9]{30,}|\bxox[abprs]-[\w-]{10,}/g;
+// QA r8 achado 8: chave do Resend ("re_" + 20+ letras/dígitos).
+const CHAVE_API = /\bsk-ant-[\w-]{4,}|\bsk-(?:proj-)?[A-Za-z0-9_-]{20,}|\bgithub_pat_\w{20,}|\bAIza[\w-]{30,}|\b(?:sk|rk|pk)_(?:live|test)_\w{10,}|-----BEGIN [A-Z ]{0,40}PRIVATE KEY-----[\s\S]*?(?:-----END [A-Z ]{0,40}PRIVATE KEY-----|$)|\beyJ[\w-]{8,}\.[\w-]{8,}\.[\w-]{8,}|\b(?:AKIA|ASIA)[0-9A-Z]{16}\b|\bgh[pousr]_[A-Za-z0-9]{30,}|\bxox[abprs]-[\w-]{10,}|\bre_(?=\w*\d)(?=\w*[A-Za-z])\w{20,}/g;
 /** QA r7 A6: "bearer" em qualquer caixa, com ":" opcional ("Bearer: …", "bearer abc…"). */
 const BEARER = /\bbearer\b\s*:?\s*[\w.~+/=-]{8,}/gi;
 /**

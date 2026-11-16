@@ -676,6 +676,31 @@ describe("filtro de dados pessoais em texto livre (M1)", () => {
     }
   });
 
+  it("QA r8 achado 3: o gatilho de credencial não corrompe valor, data, versão, arquivo, código em maiúsculas nem o login", () => {
+    const S = "[senha omitida]";
+    const LIB = { mascararDadosPessoais: false } as const;
+    for (const t of [
+      "portal da prefeitura protocolo AB12345", "usuário João123 criou a tarefa", "Portal da Caixa: valor R$150.000,00 aprovado",
+      "acesso liberado 2026-11-15T10:00", "acesso: processo SEI-12345", "acesso pela Quadra Q12-L05", "acesso da placa ABC1D23",
+      "portal: versão v2.3.1", "Portal\nmatrícula M-12345", "acesso: planta_v2.pdf", "gov.br prata, protocolo 2025ABC123",
+      "user admin123 created", "login: bianca.santos", "usuário bianca.santos abriu o processo SEI-12345", "acesso: fotos_obra.JPG",
+      "portal: R$1.500,00 e 1.234,56", "login joao.silva2 ok",
+    ]) for (const op of [LIB, {}]) expect(sanitizarTexto(t, op), t).toBe(t);
+    // as senhas de verdade continuam saindo (inclusive a que vem DEPOIS do login, e o login com símbolo de senha)
+    const casos: Array<[string, string]> = [
+      ["usuário João123 senha123", "senha123"], ["user joao Abc123x", "Abc123x"], ["login: 52998224725 / Maria@2025", "Maria@2025"],
+      ["usuário Abc#1234", "Abc#1234"], ["portal: ABC@123", "ABC@123"], ["acesso: obra2025", "obra2025"], ["portal: R2d2#x", "R2d2#x"],
+      ["cliente informou: 529.982.247-25 Abc@1234", "Abc@1234"], ["acesso gov: 52998224725 Maria@2025", "Maria@2025"],
+    ];
+    for (const [t, senha] of casos) for (const op of [LIB, {}]) {
+      const r = sanitizarTexto(t, op);
+      expect(r, `${t} → ${r}`).not.toContain(senha);
+      // no modo mascarado, "x@y" sem domínio sai pela fase de e-mail (marcador de dado pessoal)
+      if (op === LIB) expect(r, t).toContain(S);
+      else expect(r, t).toMatch(/\[(?:senha|dado pessoal) omitid[oa]\]/);
+    }
+  });
+
   it("QA r7 A6: segredos disfarçados (pwd/pass/tkn, código de verificação/2FA/segurança, bearer, chaves de API, PEM) saem nos dois modos", () => {
     const S = "[senha omitida]", K = "[chave de acesso omitida]";
     const LIB = { mascararDadosPessoais: false } as const;
@@ -731,7 +756,24 @@ describe("filtro de dados pessoais em texto livre (M1)", () => {
       expect(sanitizarTexto(t, LIB), t).toBe(t);
       expect(sanitizarTexto(t), t).toBe(t);
     }
-    for (const p of ["pix é o cpf ", "conta do Bradesco ", "Itaú 0001 ", "pix -> ", "BB 1234-5 / "]) {
+    // QA r8 achado 8: "chave aleatória" sem a palavra pix e a chave do Resend
+    expect(sanitizarTexto("chave aleatória: 123e4567-e89b-12d3-a456-426614174000", LIB)).toBe(`chave aleatória: ${B}`);
+    expect(sanitizarTexto("chave aleatória 123e4567e89b12d3a456426614174000")).not.toContain("123e4567");
+    expect(sanitizarTexto("RESEND_API_KEY=re_123abcDE_fghijklmnopqrstuvwx", LIB)).not.toContain("re_123abc");
+    expect(sanitizarTexto("chave re_AbCdEf123456_ghIJKLmnopQRstu enviada", LIB)).toBe("chave [chave de acesso omitida] enviada");
+    for (const t of ["chave aleatória ainda não criada", "re_entrega da obra", "pre_venda_2026"]) expect(sanitizarTexto(t, LIB), t).toBe(t);
+    // QA r8 achado 4: intervalos de anos, ano-mês, unidade depois e nome ambíguo sem contexto bancário ficam
+    for (const t of ["safra 2025-2026", "BB 2025-2026", "caixa 1000-2000 litros", "neon 1200-1500 lm", "cc 2026-11", "inter 2025-11",
+      "Caixa 500-1000 L", "safra 2024/2025 de soja", "inter 1200-1500 m²"]) {
+      expect(sanitizarTexto(t, LIB), t).toBe(t);
+      expect(sanitizarTexto(t), t).toBe(t);
+    }
+    for (const [t, esperado] of [["Itaú 0001 12345-6", `Itaú ${B}`], ["conta do Bradesco 12345-6", `conta do Bradesco ${B}`],
+      ["banco Inter ag 0001 cc 123456-7", `banco Inter ag ${B} cc ${B}`], ["Caixa 12345-6", `Caixa ${B}`], ["banco Safra 1234 56789", `banco Safra ${B}`],
+      ["conta no neon 123456", `conta no neon ${B}`], ["conta 2026-1", `conta ${B}`]] as const) {
+      expect(sanitizarTexto(t, LIB), t).toBe(esperado);
+    }
+    for (const p of ["pix é o cpf ", "conta do Bradesco ", "Itaú 0001 ", "pix -> ", "BB 1234-5 / ", "safra 2025-2026 ", "neon 1200-1500 lm "]) {
       const t = p.repeat(Math.ceil(200 * 1024 / p.length));
       const t0 = performance.now();
       sanitizarTexto(t, LIB);

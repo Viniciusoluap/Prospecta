@@ -202,8 +202,10 @@ Endereço, arquivos e links do Drive continuam fora das consultas.
 
 **Links na resposta.** Para que um texto de cliente não consiga fazer a Dolores montar um link com dados dentro, a
 resposta que chega ao seu WhatsApp só leva links do **próprio sistema** (o domínio da variável `PUBLIC_SITE_URL` da
-Vercel) e do **Trello** (`trello.com`), e mesmo esses sem a parte depois de "?" ou "#". Qualquer outro link vira
-"[link removido]". Sem a variável `PUBLIC_SITE_URL`, nenhum link do sistema passa (só o Trello). A mensagem é enviada sem
+Vercel) e do **Trello** (`trello.com`), e mesmo esses em `https://`, sem porta e sem a parte depois de "?" ou "#".
+Qualquer outro link vira "[link removido]" — inclusive endereço sem "http" ("site.com", "site.com/x", "192.168.0.1/x").
+Nomes de arquivo ("contrato.pdf") e abreviações de endereço ("Av.Brasil/120") ficam. Mesmo assim, não toque em endereço
+que não seja do sistema ou do Trello. Sem a variável `PUBLIC_SITE_URL`, nenhum link do sistema passa (só o Trello). A mensagem é enviada sem
 prévia de link (ninguém abre o endereço para montar a prévia).
 
 **O que continua sem dado pessoal**, qualquer que seja a escolha: o registro de ações (`dolores_acoes`), o pedido
@@ -217,6 +219,10 @@ externo realmente precisar):
 1. Na Vercel: criar `DOLORES_PONTE_DADOS_PESSOAIS` com o valor `1` (Production) e fazer um **Redeploy**.
 2. Valores que liberam: `1`, `true`, `sim`, `on` ou `yes`. Ausente ou **qualquer outro valor**: mascarado.
 3. Para voltar a mascarar: apagar a variável e fazer outro Redeploy.
+
+Os dois interruptores são **independentes**: `DOLORES_MASCARAR_DADOS_PESSOAIS` só vale para o WhatsApp e
+`DOLORES_PONTE_DADOS_PESSOAIS` só vale para a ponte. Exemplo: com `DOLORES_MASCARAR_DADOS_PESSOAIS=1` e
+`DOLORES_PONTE_DADOS_PESSOAIS=1`, o WhatsApp mascara e a ponte libera.
 
 **Como voltar atrás (religar o filtro).**
 1. Na Vercel: Settings › Environment Variables → criar `DOLORES_MASCARAR_DADOS_PESSOAIS` com o valor `1` (Production).
