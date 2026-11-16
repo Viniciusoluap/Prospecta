@@ -135,6 +135,9 @@ continua: o CPF nunca vai na lista de engenheiros. CPF de cliente nunca é copia
   tabela `pci_modelos_preenchimento`** (RLS ligado sem políticas: só o dono/superusuário enxerga as linhas — mesmo padrão
   das tabelas da 0087). Conferir o perfil real do Rafael (ativo? CPF gravado?); registrar no ROADMAP o porte para o
   Grupo Santa Fé (em espera por decisão do dono); novo portão de QA.
+- Portão 2 (CONCERNS) corrigido: commits 20a6de3, 004ed9a, 176b981, 39e5263. Testes: `npx vitest run server/pci-
+  server/engenheiro` → 9 arquivos, 107 testes; `server/auth-session.test.ts server/imports-esm.test.ts` → 7 testes; tsc ok.
+  A 0118 ganhou a coluna `substituido` e o índice único parcial do nome — aplicar a versão NOVA no Neon.
 - Próximo passo: @qa revisar de novo; aplicar 0118 no Neon; publicar; abrir a obra do Rafael e escolher RTP/RTE.
 
 ## File List
@@ -155,7 +158,12 @@ continua: o CPF nunca vai na lista de engenheiros. CPF de cliente nunca é copia
   painel do resultado (escolha da pessoa inteira por rádio; campos técnicos por caixa), aviso de mistura com
   "Confirmo que nome e CPF são da mesma pessoa" e botão de gerar bloqueado, procedência "manual" ao digitar, painel de
   modelos.
-- `drizzle/0118_pci_modelos_preenchimento.sql` (novo), `drizzle/schema.ts` (`pciModelosPreenchimento`).
+- `drizzle/0118_pci_modelos_preenchimento.sql` (novo; portão 2: `substituido` + índice único parcial do nome),
+  `drizzle/schema.ts` (`pciModelosPreenchimento`, `substituido`).
+- Portão 2: `shared/pci-gerador.ts` — `provaMesmaPessoaPci`, `divergenciasPessoaPci`, `ORIGEM_CONFIRMADA_PCI`,
+  `marcaPessoaPci`, `confirmacoes`, `registrarConfirmacoesPci`, `conferirProcedenciaPci`, `MisturaPessoaPci.motivo`,
+  `achadosPessoaisNoTextoPci`, `mascararMeioPci`, `avisosEmpresaNoModeloPci`; `server/pci-gerador.ts` —
+  `conferirProcedenciaNoServidor`, `registrarConfirmacoes`, CTE da nova versão, `violacaoUnica`, `avisos` ao salvar modelo.
 - `server/pci-s09.test.ts` (novo), `server/pci-s09-db.test.ts` (novo), `server/pci-gerador.test.ts` (matriz de
   permissões; proponente divergente fica para escolha), `server/pci-gerador-db.test.ts` (coluna `lead_service_id`;
   abertura com escolha do proponente).
@@ -178,8 +186,29 @@ outra na PCI oficial.
 | 8 | LOW | Perfil inativo dito como "sem CPF" | Motivo "perfil … desativado" | "perfil desativado: o motivo diz…"; DB "perfil desativado ou ausente" |
 | 9 | LOW | Dono da tabela no Neon (RLS sem políticas) | Nota no Handoff | — |
 
-Limitações declaradas: rascunho antigo sem procedência não é bloqueado na geração; nome de pessoa em texto livre sem
+Limitações declaradas (portão 1; a do rascunho antigo foi resolvida no portão 2, M2): rascunho antigo sem procedência não é bloqueado na geração; nome de pessoa em texto livre sem
 documento não é detectado; admin com perfil de Engenheiro ativo está na lista (regra existente) e tem o CPF legível.
+
+### Portão 2 — 16/11/2026 — CONCERNS (@qa, sondas `qa-s09b/probe.mts`, `probe2.mts`, `probe3.mts`)
+Os HIGH do portão 1 foram confirmados como corrigidos. Seis itens novos/residuais, corrigidos antes de publicar
+(registro desta seção a pedido do @qa; a decisão final é do próximo portão):
+
+| # | Sev. | Achado | Correção (@dev) | Teste |
+|---|------|--------|-----------------|-------|
+| M1 | MED | Homônimo: bloco sem CPF herdava o CPF de outra fonte só pelo nome (PCI JOSE DA SILVA + CRM José da Silva com CPF, e-mail e telefone diferentes descartados em silêncio; procedência `pci+crm` cegava a guarda). Idem com nome digitado | `provaMesmaPessoaPci` diz COMO se provou; nome sozinho só junta se nenhum campo presente nos dois lados diverge (normalizado) e a junção não acrescenta CPF; senão a pessoa vai para escolha com as duas opções; sem divergência, também a junção rotulada "nome igual nas duas fontes; confira se é a mesma pessoa", que vale como confirmação. Mesma pessoa por CPF/engenheiro com valor diferente → aviso | `pci-s09.test.ts` "portão 2, M1" (4 casos) + "e-mail que não entrou vira aviso"; DB "RTE do rascunho…" |
+| M2 | MED | Rascunho antigo (sem procedência) nunca conferido | `misturaPessoaPci`: nome e CPF sem procedência → `motivo: "legado"`, mensagem "rascunho anterior à conferência de origem", mesmo bloco/botão de confirmação, uma vez por pessoa (a confirmação viaja no rascunho). Também fecha "nome antigo + CPF digitado" e "procedência do CPF omitida" | "portão 2 … M2" |
+| L3 | LOW | Guarda confiava na procedência do navegador | `conferirProcedenciaPci` (puro) + `conferirProcedenciaNoServidor` em `gerar`: "engenheiro:N", "crm", "pci" (e junções) só ficam se o valor for igual ao da fonte hoje; senão (ou origem desconhecida) → `manual`; log `pci.procedencia_rebaixada` só com chaves/ids. Só consulta as fontes quando o formulário cita uma | "portão 2 … L3"; DB "procedência forjada…" |
+| L4 | LOW | Confirmação só como `manual:confirmado` | `FormularioPci.confirmacoes[pessoa] = { por, em, marca }`; o servidor (salvar e gerar) grava usuário e hora e ignora "por" vindo do navegador; a mesma confirmação (mesma marca de nome+CPF) não é registrada de novo; log `pci.pessoa_confirmada` só com ids. Vai no rascunho e no `pci_generated.form_data` | "portão 2 … L4"; DB "confirmação gravada…" |
+| L5 | LOW | Detector de dado pessoal: falsos negativos/positivos; CNPJ bloqueava; mensagem sem trecho | `achadosPessoaisNoTextoPci`: CPF com espaços (só logo após "CPF"), traços; telefone só com sinal (tel/fone/cel/whats, DDD entre parênteses, +55, celular 9+8 com separador, fixo com separadores); "(arroba)", "[at]"; número técnico corrido (ART, lote) não é telefone; CNPJ só aviso (`avisosEmpresaNoModeloPci`, devolvido em `avisos` e mostrado na tela); a recusa cita o trecho com o meio mascarado | "portão 2, L5" (3 casos); DB "texto livre…" (mensagem com trecho, CNPJ salva com aviso) |
+| L6 | LOW | Nome único só no código | 0118: coluna `substituido` + índice único parcial `lower(nome) WHERE deleted_at IS NULL AND NOT substituido` (idempotente); nova versão marca a anterior na MESMA instrução (CTE); violação 23505 → mensagem amigável | DB "portão 2, L6" (corrida real de dois salvamentos cai no índice; nova versão com o mesmo nome passa; excluído libera o nome) |
+
+Comportamento que mudou de propósito (L5): telefone de 10–11 dígitos corrido, sem nenhum sinal de telefone
+("41999990000"), deixa de ser bloqueado — é indistinguível de ART/lote; fixo com separadores ("41 3333 4444") continua.
+Antes/depois das sondas: `qa-s09b/*.before.txt` e `*.after.txt` (pasta do QA).
+
+Limitações que ficam: nome de pessoa em texto livre sem documento não é detectado; a confirmação é uma afirmação de quem
+usa a tela (registrada com autor e hora, não verificável); o merge de procedência no servidor confere só o que as fontes
+de hoje têm (fonte que mudou depois do preenchimento rebaixa para "manual" e pode pedir nova confirmação).
 
 ## Change Log
 | Data | Autor | Mudança |
@@ -188,3 +217,4 @@ documento não é detectado; admin com perfil de Engenheiro ativo está na lista
 | 16/11/2026 | @dev (Dex) | InProgress → InReview: A, B e C implementados; 23 testes novos; tsc e vite build ok; 0118 não aplicada |
 | 16/11/2026 | @qa (Quinn) | Portão 1: FAIL (pessoa misturada; acesso ao CPF; dado pessoal no modelo; dono do modelo) — InReview → InProgress |
 | 16/11/2026 | @dev (Dex) | Correções dos 9 itens do portão; 94 testes; tsc e vite build ok — InProgress → InReview |
+| 16/11/2026 | @dev (Dex) | Correções do portão 2 (M1, M2, L3–L6); 107 testes; tsc, vite build e imports-esm ok; 0118 editada (ainda não aplicada) |
