@@ -1,0 +1,457 @@
+{
+  "etapa": 1,
+  "observacao": "Gerado de server/dolores/funcoes.ts + permissoes.ts (npx tsx scripts/dolores-ferramentas.ts). Não editar à mão.",
+  "chamada": "POST /api/dolores/ponte com Authorization: Bearer <DOLORES_PONTE_TOKEN> e corpo { \"funcao\": <name>, \"argumentos\": { ... }, \"pedidoId\": \"opcional\" }",
+  "ferramentas": [
+    {
+      "name": "listar_processos_regularizacao",
+      "description": "Processos de regularização com cliente, serviço, status, etapa atual, responsável (\"a confirmar\" quando não registrado ou padrão da migração do Trello), prazo, atraso, dias sem movimentação, documentos pendentes, tarefas atrasadas e próxima providência registrada. Traz totais e contagem por responsável. Use para o relatório de atrasados, pendências, responsáveis e próximas providências.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "situacao": {
+            "description": "abertos = não concluídos/cancelados; atrasados = prazo vencido; parados = sem movimentação há `diasParado` dias; com_pendencias = documento pendente ou tarefa atrasada; todos = inclusive encerrados.",
+            "default": "abertos",
+            "type": "string",
+            "enum": [
+              "abertos",
+              "atrasados",
+              "parados",
+              "com_pendencias",
+              "todos"
+            ]
+          },
+          "responsavel": {
+            "description": "Filtra pelo responsável (parte do nome; use \"a confirmar\" para os sem responsável).",
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 120
+          },
+          "busca": {
+            "description": "Parte do nome do cliente ou do serviço.",
+            "type": "string",
+            "minLength": 2,
+            "maxLength": 120
+          },
+          "diasParado": {
+            "description": "Dias sem movimentação para contar como parado.",
+            "default": 15,
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 365
+          },
+          "pagina": {
+            "description": "Página (começa em 1).",
+            "default": 1,
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 500
+          },
+          "limite": {
+            "description": "Itens por página (até 50).",
+            "default": 20,
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 50
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "detalhar_processo_regularizacao",
+      "description": "Um processo de regularização por id: tudo da lista mais as etapas com observações, todas as tarefas, o resumo financeiro (previsto, recebido, saldo em BRL) e as últimas atividades do cliente.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "description": "Id do processo de regularização.",
+            "type": "integer",
+            "exclusiveMinimum": 0,
+            "maximum": 9007199254740991
+          }
+        },
+        "required": [
+          "id"
+        ],
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "consultar_cliente",
+      "description": "Situação de um cliente do CRM (por id ou busca por nome/telefone/CPF): etapa no CRM, responsável, prazo do card, serviços contratados com a situação no módulo operacional, documentos pendentes, tarefas abertas e próxima providência. CPF e telefone mascarados.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "leadId": {
+            "description": "Id do cliente (lead) no CRM.",
+            "type": "integer",
+            "exclusiveMinimum": 0,
+            "maximum": 9007199254740991
+          },
+          "busca": {
+            "description": "Parte do nome, ou os dígitos do telefone (4 ou mais) ou do CPF (11).",
+            "type": "string",
+            "minLength": 2,
+            "maxLength": 120
+          },
+          "limite": {
+            "description": "Máximo de clientes devolvidos (até 10).",
+            "default": 5,
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 10
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "historico_atendimento",
+      "description": "Histórico de atendimento de um cliente: atividades registradas no CRM (mensagens, ligações, anotações, mudanças de etapa) e follow-ups, da mais recente para a mais antiga.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "leadId": {
+            "description": "Id do cliente (lead) no CRM.",
+            "type": "integer",
+            "exclusiveMinimum": 0,
+            "maximum": 9007199254740991
+          },
+          "pagina": {
+            "description": "Página (começa em 1).",
+            "default": 1,
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 500
+          },
+          "limite": {
+            "description": "Itens por página (até 50).",
+            "default": 20,
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 50
+          }
+        },
+        "required": [
+          "leadId"
+        ],
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "conversas_whatsapp",
+      "description": "Com leadId: últimas mensagens de WhatsApp do cliente (texto cortado, mídia só pelo tipo). Sem leadId: conversas mais recentes com mensagens não lidas.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "leadId": {
+            "description": "Id do cliente: devolve as últimas mensagens dele. Sem leadId: as conversas mais recentes (resumo).",
+            "type": "integer",
+            "exclusiveMinimum": 0,
+            "maximum": 9007199254740991
+          },
+          "limite": {
+            "description": "Mensagens (com leadId) ou conversas (sem leadId), até 30.",
+            "default": 15,
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 30
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "listar_tarefas",
+      "description": "Tarefas abertas, atrasadas ou concluídas, com responsável, prazo, prioridade e cliente vinculado; totais por responsável (abertas e atrasadas).",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "situacao": {
+            "description": "abertas = pendentes ou em andamento.",
+            "default": "abertas",
+            "type": "string",
+            "enum": [
+              "abertas",
+              "atrasadas",
+              "concluidas",
+              "todas"
+            ]
+          },
+          "responsavel": {
+            "description": "Parte do nome do responsável.",
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 100
+          },
+          "pagina": {
+            "description": "Página (começa em 1).",
+            "default": 1,
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 500
+          },
+          "limite": {
+            "description": "Itens por página (até 50).",
+            "default": 20,
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 50
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "listar_documentos",
+      "description": "Documentos pendentes ou recebidos (CRM, regularização e checklist do financiamento), de um cliente ou agrupados por cliente. Só nome e situação; nunca o arquivo.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "leadId": {
+            "description": "Id do cliente; sem ele, agrupa por cliente.",
+            "type": "integer",
+            "exclusiveMinimum": 0,
+            "maximum": 9007199254740991
+          },
+          "situacao": {
+            "default": "pendentes",
+            "type": "string",
+            "enum": [
+              "pendentes",
+              "recebidos",
+              "todos"
+            ]
+          },
+          "pagina": {
+            "description": "Página (começa em 1).",
+            "default": 1,
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 500
+          },
+          "limite": {
+            "description": "Itens por página (até 50).",
+            "default": 20,
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 50
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "listar_atrasos",
+      "description": "Lista única de processos atrasados ou parados em todos os módulos (regularizações, obras, financiamentos, prazos de card e de serviço do CRM), com o motivo quando registrado.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "modulo": {
+            "default": "todos",
+            "type": "string",
+            "enum": [
+              "todos",
+              "regularizacoes",
+              "obras",
+              "financiamentos",
+              "crm"
+            ]
+          },
+          "diasParado": {
+            "description": "Dias sem movimentação para contar como parado.",
+            "default": 15,
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 365
+          },
+          "pagina": {
+            "description": "Página (começa em 1).",
+            "default": 1,
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 500
+          },
+          "limite": {
+            "description": "Itens por página (até 50).",
+            "default": 20,
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 50
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "listar_obras",
+      "description": "Obras com cliente, situação, etapa atual, progresso, empreiteiro, previsão de término, atraso, dias sem movimentação, medições aguardando o banco e valores (BRL).",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "situacao": {
+            "description": "ativas = não concluídas, canceladas ou em distrato.",
+            "default": "ativas",
+            "type": "string",
+            "enum": [
+              "ativas",
+              "atrasadas",
+              "paradas",
+              "todas"
+            ]
+          },
+          "busca": {
+            "description": "Parte do nome da obra ou do cliente.",
+            "type": "string",
+            "minLength": 2,
+            "maxLength": 120
+          },
+          "diasParado": {
+            "default": 15,
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 365
+          },
+          "pagina": {
+            "description": "Página (começa em 1).",
+            "default": 1,
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 500
+          },
+          "limite": {
+            "description": "Itens por página (até 50).",
+            "default": 20,
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 50
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "listar_medicoes",
+      "description": "Medições das obras: registradas, aguardando o banco ou recebidas (ciclo da tela de Medições), e as do cadastro antigo.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "obraId": {
+            "description": "Id da obra; sem ele, todas as obras.",
+            "type": "integer",
+            "exclusiveMinimum": 0,
+            "maximum": 9007199254740991
+          },
+          "situacao": {
+            "description": "aguardando_banco = solicitada ao banco e ainda não recebida; recebidas = paga pelo banco.",
+            "default": "todas",
+            "type": "string",
+            "enum": [
+              "aguardando_banco",
+              "recebidas",
+              "todas"
+            ]
+          },
+          "pagina": {
+            "description": "Página (começa em 1).",
+            "default": 1,
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 500
+          },
+          "limite": {
+            "description": "Itens por página (até 50).",
+            "default": 20,
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 50
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "listar_financiamentos",
+      "description": "Financiamentos com cliente (CPF mascarado), situação, tipo, banco, valores (BRL), corretor, dias sem movimentação e pendências do checklist.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "situacao": {
+            "description": "abertos = não concluídos nem cancelados.",
+            "default": "abertos",
+            "type": "string",
+            "enum": [
+              "abertos",
+              "parados",
+              "todos"
+            ]
+          },
+          "diasParado": {
+            "default": 15,
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 365
+          },
+          "pagina": {
+            "description": "Página (começa em 1).",
+            "default": 1,
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 500
+          },
+          "limite": {
+            "description": "Itens por página (até 50).",
+            "default": 20,
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 50
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "listar_recebiveis_pendentes",
+      "description": "Recebíveis em aberto: cobranças do BPO não pagas (vencidas primeiro, com valor, recebido e em aberto em BRL) e saldo a receber da tabela financeira das regularizações.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "situacao": {
+            "description": "em_aberto = todas as não pagas (inclui as vencidas).",
+            "default": "em_aberto",
+            "type": "string",
+            "enum": [
+              "em_aberto",
+              "vencidos"
+            ]
+          },
+          "origem": {
+            "default": "todas",
+            "type": "string",
+            "enum": [
+              "todas",
+              "bpo",
+              "regularizacoes"
+            ]
+          },
+          "pagina": {
+            "description": "Página (começa em 1).",
+            "default": 1,
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 500
+          },
+          "limite": {
+            "description": "Itens por página (até 50).",
+            "default": 20,
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 50
+          }
+        },
+        "additionalProperties": false
+      }
+    }
+  ]
+}
