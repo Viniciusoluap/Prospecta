@@ -103,13 +103,20 @@ export type TipoVista = "planta" | "layout" | "outra";
  */
 const COMECA_OUTRA = /^(?:CORTES?\b|SEC(?:AO|OES)\b|FACHADAS?\b|ELEVAC|VISTAS?\b|PERSPECTIVA|ISOMETRI|DETALHES?\b|AMPLIAC|IMPLANTAC|SITUAC|LOCAC|URBANIS|LOTEAMENTO|COBERTURA\b(?!\s+DUPLEX)|TELHADO|TABELA|QUADRO\b|LEGENDA|DIAGRAMA|ESQUEMA|PAGINAC|LAYOUT\s+(?:DE\s+)?(?:FORRO|ELETRIC|HIDRA|ILUMINAC)|PLANTA\s+(?:D[EOA]S?\s+)?(?:COBERTURA|TELHADO|FORRO|SITUAC|LOCAC|IMPLANTAC|URBANIS|LOTEAMENTO|PAISAGIS|PONTOS|ELETRIC|HIDRA|SANITAR|ESGOTO|ESTRUTUR|FUNDAC|FORMAS?\b|CHAVE|PISO|PAGINAC|ACABAMENT|IMPERMEAB|PREVENC|INCENDIO|MARCAC|TECNICA|DEMOLIC|LAYOUT\s+(?:ELETRIC|HIDRA|DE\s+FORRO)|ILUMINAC|CLIMATIZ|AR\s+CONDICIONADO|GAS\b|SPDA|LOGICA|TELEFON|DRENAGEM))|^(?:FRONTAL|POSTERIOR|FUNDOS|LATERAL(?:\s+(?:DIREITA|ESQUERDA))?|NORTE|SUL|LESTE|OESTE)$/;
 /** Planta de disciplina complementar, mesmo começando por "PLANTA BAIXA": não é pavimento. */
-const DISCIPLINA = /ELETRIC|HIDRA|SANITAR|ESGOTO|ESTRUTUR|\bFORMAS?\b|\bFORRO\b|PAISAGIS|\bPPCI\b|INCENDIO|DEMOLIC|PONTOS|TELHADO|\bDE\s+COBERTURA(?!\s+DUPLEX)|AMPLIAC|DETALHE|PAGINAC|\bPISO\b|ILUMINAC|CLIMATIZ|SPDA|LOGICA|DRENAGEM|IMPERMEAB/;
+const DISCIPLINA = /ELETRIC|HIDRA|SANITAR|ESGOTO|ESTRUTUR|\bFORMAS?\b|\bFORRO\b|PAISAGIS|\bPPCI\b|INCENDIO|DEMOLIC|PONTOS|TELHADO|(?<!TERRACO\s)\bDE\s+COBERTURA(?!\s+DUPLEX)|AMPLIAC|DETALHE|PAGINAC|\bPISO\b|ILUMINAC|CLIMATIZ|SPDA|LOGICA|DRENAGEM|IMPERMEAB/;
 /** Título que se declara planta de pavimento pelo começo ("PLANTA BAIXA…", "PLANTA DO PAVIMENTO…", "PAVIMENTO TIPO", "TÉRREO", "2º PAVIMENTO"). */
-const COMECA_PLANTA = /^(?:PLANTA\s+BAIXA|PLANTA\s+(?:D[OAE]S?\s+)?(?:\d+\s*[ºO°]?\s*)?(?:PAVIMENTO|PAVTO|PAV\b|ANDAR|TERREO|TERREA|SUBSOLO|MEZANINO|ATICO|SOTAO|SUPERIOR|INFERIOR|PILOTIS|TIPO)|PAVIMENTO\b|PAVTO\b|TERREO|TERREA|SUBSOLO|MEZANINO|PILOTIS|\d+\s*[ºO°]\s*(?:PAVIMENTO|PAV\b|ANDAR|SUBSOLO)|(?:PRIMEIRO|SEGUNDO|TERCEIRO|QUARTO|QUINTO)\s+(?:PAVIMENTO|ANDAR)|COBERTURA\s+DUPLEX|PLANTA\s+(?:D[AE]\s+)?COBERTURA\s+DUPLEX|IMPLANTACAO\s+E\s+PLANTA\s+BAIXA)/;
+const COMECA_PLANTA = /^(?:PLANTA\s+BAIXA|PLANTA\s+(?:D[OAE]S?\s+)?(?:\d+\s*[ºO°]?\s*)?(?:PAVIMENTO|PAVTO|PAV\b|ANDAR|TERREO|TERREA|SUBSOLO|MEZANINO|ATICO|SOTAO|SUPERIOR|INFERIOR|PILOTIS|TIPO)|PAVIMENTO\b|PAVTO\b|TERREO|TERREA|SUBSOLO|MEZANINO|PILOTIS|\d+\s*[ºO°]\s*(?:PAVIMENTO|PAV\b|ANDAR|SUBSOLO)|(?:PRIMEIRO|SEGUNDO|TERCEIRO|QUARTO|QUINTO)\s+(?:PAVIMENTO|ANDAR)|COBERTURA\s+DUPLEX|PLANTA\s+(?:D[AE]\s+)?COBERTURA\s+DUPLEX|(?:IMPLANTACAO|SITUACAO|LOCACAO)\s+E\s+PLANTA\s+BAIXA)/;
 const VISTA_LAYOUT = /LAYOUT|LAY-OUT|MOBILIAD|MOBILIARIO|HUMANIZ|DECORAD/;
 const VISTA_PLANTA = /PLANTA|PAVIMENTO|PAVTO|TERREO|TERREA|SUPERIOR|INFERIOR|SUBSOLO|ANDAR|MEZANINO/; // "TIPO" sozinho é campo do carimbo ("Tipo:")
+/**
+ * "Piso" no sentido de andar ("PISO SUPERIOR", "PISO TÉRREO", "1º PISO", "PRIMEIRO PISO") vira "PAVIMENTO"; "PLANTA DE
+ * PISO" e "PAGINAÇÃO DE PISO" (disciplina) ficam como estão.
+ */
+const pisoComoAndar = (t: string) => t
+  .replace(/(\d+\s*[ºO°]\s*|\b(?:PRIMEIRO|SEGUNDO|TERCEIRO|QUARTO|QUINTO|SEXTO|SETIMO|OITAVO|NONO|DECIMO)\s+)PISO\b/g, "$1PAVIMENTO")
+  .replace(/(?<!\bDE\s)\bPISO\s+(?=SUPERIOR\b|INFERIOR\b|TERRE[OA]\b|INTERMEDIARIO\b|\d)/g, "PAVIMENTO ");
 export function tipoDaVista(titulo: string): TipoVista | null {
-  const t = semAcento(titulo).replace(/^\s*(?:\d{1,2}|[A-Z])\s*[-–.:)]\s*/, "").replace(/\s+/g, " ").trim();
+  const t = pisoComoAndar(semAcento(titulo)).replace(/^\s*(?:\d{1,2}|[A-Z])\s*[-–.:)]\s*/, "").replace(/\s+/g, " ").trim();
   if (!t) return null;
   if (COMECA_PLANTA.test(t)) {
     if (DISCIPLINA.test(t)) return "outra";
@@ -307,7 +314,7 @@ function hachuras(retas: Reta[], membros: Set<Reta>) {
 
 /** Relógio da leitura da página: as fases pesadas consultam de tempos em tempos e param quando o prazo passa. */
 /** `cortado`: algum limite de quantidade foi atingido (a leitura é parcial, como no estouro de tempo). */
-const relogio = { prazo: Infinity, estourou: false, cortado: false, n: 0 };
+const relogio = { prazo: Infinity, estourou: false, cortado: false, n: 0, maxCandidatas: MAX_CANDIDATAS };
 function passou(): boolean {
   if (relogio.estourou) return true;
   if (++relogio.n % 64 === 0 && Date.now() > relogio.prazo) relogio.estourou = true;
@@ -328,7 +335,7 @@ function pecasDeParede(retas: Reta[]): Peca[] {
   porAngulo.forEach((lista, ang) => {
     lista.sort((a, b) => a.rho - b.rho);
     for (let i = 0; i < lista.length; i++) for (let j = i + 1; j < lista.length; j++) {
-      if (candidatas.length > MAX_CANDIDATAS) { relogio.cortado = true; return; }
+      if (candidatas.length > relogio.maxCandidatas) { relogio.cortado = true; return; }
       if (passou()) return;
       const d = lista[j].rho - lista[i].rho;
       if (d > 0.36) break;
@@ -1035,7 +1042,7 @@ function plantasNaEscala(pg: Pagina, escala: number, origem: PlantaLida["escalaO
   const linhas = pg.linhas.map(l => ({ ...l, x: l.x * k, y: l.y * k, tam: l.tam * k }));
   const titulos = pg.titulos.map(t => ({ ...t, x: t.x * k, y: t.y * k, tam: t.tam * k }));
 
-  type Grupo = { paredes: Parede[]; total: number; caixa: Caixa; titulo: (typeof titulos)[number] | null };
+  type Grupo = { paredes: Parede[]; total: number; caixa: Caixa; titulo: (typeof titulos)[number] | null; longe?: number };
   const grupos: Grupo[] = [];
   for (const g of agrupar(paredes)) {
     const total = g.reduce((s, w) => s + Math.hypot(w.b.x - w.a.x, w.b.y - w.a.y), 0);
@@ -1055,20 +1062,33 @@ function plantasNaEscala(pg: Pagina, escala: number, origem: PlantaLida["escalaO
     g.titulo = (perto.find(x => x.t.ancorado) ?? perto.find(x => x.t.tipo === "planta" || x.t.tipo === "layout") ?? perto[0])?.t ?? null;
   }
   for (const g of grupos) if (g.titulo && grupos.some(h => h !== g && h.titulo === g.titulo && h.total > g.total)) g.titulo = null;
+  // Título longe do desenho (mais abaixo do que o alcance, ou só no carimbo): se a página tem um título de planta só,
+  // sem desenho, e um desenho só com cara de planta (dois cômodos com nome dentro), sem título, os dois são um do outro.
+  const nomesDentro = (c: Caixa) => linhas.filter(l => l.x >= c.x0 && l.x <= c.x1 && l.y >= c.y0 && l.y <= c.y1 && funcaoDoNome(l.str)).length;
+  const livres = titulos.filter(t => (t.tipo === "planta" || t.tipo === "layout") && !grupos.some(g => g.titulo === t) && !(origem === "texto" && t.escala && Math.abs(t.escala - escala) / escala > 0.08));
+  const semTitulo = grupos.filter(g => !g.titulo);
+  if (livres.length === 1 && semTitulo.length === 1 && nomesDentro(semTitulo[0].caixa) >= 2) { semTitulo[0].titulo = livres[0]; semTitulo[0].longe = distancia(livres[0], semTitulo[0].caixa); }
+  /** Título que começa como planta de pavimento ("PLANTA BAIXA…", "PAVIMENTO…", "PISO…"): recusado, vira aviso com o nome. */
+  const pareceAndar = (t: string) => /^(?:PLANTA\s+BAIXA|PAVIMENTO|PAVTO|PISO)\b/.test(semAcento(t).replace(/^\s*(?:\d{1,2}|[A-Z])\s*[-–.:)]\s*/, "").trim());
+  const recusar = (t: string, porque: string) => {
+    pg.recusas.push(t);
+    if (pareceAndar(t)) pg.avisos.push(`O desenho "${t}" não virou pavimento: ${porque}. Se for a planta de arquitetura de um andar, confira o título na prancha ou desenhe na revisão.`);
+  };
+  const OUTRA = "pelo título, é planta de outra disciplina (elétrica, hidráulica, piso, forro, estrutura…) ou outro tipo de desenho";
 
   const plantas: PlantaLida[] = [];
-  for (const { paredes: grupo, caixa, titulo } of grupos) {
+  for (const { paredes: grupo, caixa, titulo, longe } of grupos) {
     let tit = titulo;
     if (passouAgora()) break;
     let vista = tit?.tipo ?? null;
     // Corte, fachada, cobertura, implantação, tabela com a escala embaixo: é o título do desenho, e ele não é planta.
-    if (vista === "outra" && tit?.ancorado) { pg.recusas.push(tit.str); continue; }
+    if (vista === "outra" && tit?.ancorado) { recusar(tit.str, OUTRA); continue; }
     // Desenho com a própria escala escrita, diferente da escala desta leitura (ampliação 1:25 numa prancha 1:50): é
     // lido na passada da escala dele, não aqui com o tamanho errado.
     if (origem === "texto" && tit?.escala && Math.abs(tit.escala - escala) / escala > 0.08) continue;
     let x0 = caixa.x0, y0 = caixa.y0, largura = caixa.x1 - caixa.x0, comprimento = caixa.y1 - caixa.y0;
-    if (largura < 2.5 || comprimento < 2.5 || largura > 150 || comprimento > 150) continue;
-    if (((largura + 2) / CELULA) * ((comprimento + 2) / CELULA) > MAX_CELULAS) continue;
+    const grande = largura > 150 || comprimento > 150 || ((largura + 2) / CELULA) * ((comprimento + 2) / CELULA) > MAX_CELULAS;
+    if (largura < 2.5 || comprimento < 2.5 || grande) { if (tit) recusar(tit.str, `o desenho mede ${r2(largura)} × ${r2(comprimento)} m na escala 1:${escala}, ${grande ? "grande" : "pequeno"} demais para um pavimento`); continue; }
     const lidos = comodosDaPlanta(grupo, linhas, retas, x0, y0, largura, comprimento);
     let comodos = lidos.comodos;
     const nomeadosAntes = comodos.filter(c => c.nomeado).length;
@@ -1077,7 +1097,7 @@ function plantasNaEscala(pg: Pagina, escala: number, origem: PlantaLida["escalaO
     // pelo arco da folha — que corte e fachada não têm. Na dúvida, o desenho fica de fora, com aviso.
     const temPorta = grupo.some(w => w.vaos.some(v => v.tipo === "porta"));
     if (!vista || vista === "outra") {
-      if (nomeadosAntes < 2) { if (vista === "outra") pg.recusas.push(tit!.str); else pg.semComodos++; continue; }
+      if (nomeadosAntes < 2) { if (vista === "outra") recusar(tit!.str, OUTRA); else pg.semComodos++; continue; }
       if (!temPorta) {
         const nomes = comodos.filter(c => c.nomeado).map(c => c.nome.toUpperCase()).slice(0, 4);
         pg.avisos.push(`Um desenho ${tit ? `marcado "${tit.str}"` : "sem título"} com ${lista(nomes)} não virou pavimento: não tem título de planta nem porta desenhada, e pode ser corte ou elevação. Se for planta baixa, confira o título na prancha ou desenhe na revisão.`);
@@ -1087,9 +1107,14 @@ function plantasNaEscala(pg: Pagina, escala: number, origem: PlantaLida["escalaO
       vista = null; tit = null;
     }
     // Com título de planta, basta um cômodo com nome (ou três ambientes fechados).
-    if (!nomeadosAntes && comodos.length < 3) { pg.semComodos++; continue; }
+    if (!nomeadosAntes && comodos.length < 3) {
+      pg.semComodos++;
+      if (tit && pareceAndar(tit.str)) pg.avisos.push(`O desenho "${tit.str}" não virou pavimento: as paredes lidas não fecham ambientes com o nome do cômodo escrito dentro. Se for a planta de arquitetura de um andar, confira na prancha ou desenhe na revisão.`);
+      continue;
+    }
     const tituloLido = tit?.str ?? "";
     const pendencias: string[] = [];
+    if (longe !== undefined) pendencias.push(`O título "${tituloLido}" está a ${r2(longe)} m do desenho: foi ligado a ele por ser o único título de planta sem desenho e o único desenho sem título da prancha. Confira na revisão.`);
 
     // A construção é onde estão os cômodos com nome — e os ambientes com algum rótulo (piscina coberta, adega, escada)
     // ou ligados a eles por porta ou vão (garagem, closet sem nome). O resto em volta (muro do lote, quintal, calçada,
@@ -1161,8 +1186,9 @@ function plantasNaEscala(pg: Pagina, escala: number, origem: PlantaLida["escalaO
     const candidata = aberturas.filter(a => a.tipo === "porta" && externas.has(a.paredeId))
       .sort((a, b) => b.largura - a.largura || Math.max(externas.get(b.paredeId)!.ay, externas.get(b.paredeId)!.by) - Math.max(externas.get(a.paredeId)!.ay, externas.get(a.paredeId)!.by))[0];
     if (candidata) candidata.entradaPrincipal = true;
+    else if (!aberturas.length) pendencias.push("Nenhuma porta ou abertura lida neste pavimento: marque a entrada (e as portas e janelas) na revisão.");
     // (andar de cima não tem entrada: só o térreo, ou a planta sem andar no título, recebe o aviso)
-    else if (aberturas.length && (nomeDoPavimento(tituloLido, 0).andar ?? 0) <= 0) pendencias.push("Nenhuma porta de abrir em parede externa: a entrada principal não foi marcada (porta de correr aparece na planta igual a uma janela). Marque a entrada na revisão.");
+    else if ((nomeDoPavimento(tituloLido, 0).andar ?? 0) <= 0) pendencias.push("Nenhuma porta de abrir em parede externa: a entrada principal não foi marcada (porta de correr aparece na planta igual a uma janela). Marque a entrada na revisão.");
 
     const escadas: PlantaLida["escadas"] = [];
     for (const d of degraus) {
@@ -1202,6 +1228,68 @@ function plantasNaEscala(pg: Pagina, escala: number, origem: PlantaLida["escalaO
   return plantas;
 }
 
+/** Funções de cômodo de edícula/anexo (churrasqueira, banheiro, depósito, garagem…): nenhuma é de casa morada. */
+const DE_ANEXO = new Set<FuncaoComodo>(["area_gourmet", "banheiro", "lavabo", "deposito", "despensa", "garagem", "area_servico", "area_externa", "varanda"]);
+
+/**
+ * Desenho sem título na mesma prancha de uma planta de andar, sem se sobrepor a ela: menor que ela, ou só com cômodos
+ * de edícula, é anexo no chão (não um andar a mais). Entra no pavimento térreo da prancha, na posição em que está
+ * desenhado; sem um térreo só para recebê-lo, fica de fora com aviso. Do tamanho da planta e com cômodos de casa, ou
+ * dividindo um título no plural ("PLANTAS BAIXAS"), é tomado como outro andar — e isso fica escrito.
+ */
+function juntarAnexos(plantas: PlantaLida[], avisos: string[], caixaPt: (p: PlantaLida) => Caixa, sobrepoe: (a: Caixa, b: Caixa) => boolean): PlantaLida[] {
+  const tituladas = plantas.filter(p => p.titulo && p.vista === "planta");
+  if (!tituladas.length) return plantas;
+  const area = (p: PlantaLida) => p.largura * p.comprimento;
+  const nomes = (p: PlantaLida) => lista(p.comodos.filter(c => c.funcao !== "outro").map(c => c.nome.toUpperCase()).slice(0, 4));
+  const fica: PlantaLida[] = [];
+  for (const p of plantas) {
+    if (p.titulo || tituladas.some(t => sobrepoe(caixaPt(t), caixaPt(p)))) { fica.push(p); continue; }
+    const maior = [...tituladas].sort((a, b) => area(b) - area(a))[0];
+    const funcoes = p.comodos.filter(c => c.funcao !== "outro").map(c => c.funcao);
+    const anexo = !/\bPLANTAS\b/i.test(maior.titulo) && (area(p) < area(maior) * 0.6 || (funcoes.length > 0 && funcoes.every(f => DE_ANEXO.has(f))));
+    if (!anexo) {
+      p.pendencias.push(/\bPLANTAS\b/i.test(maior.titulo)
+        ? `Este desenho não tem título próprio e divide "${maior.titulo}" com outro desenho da prancha: foi tomado como outro andar, acima dos andares com nome. Confira na revisão qual é qual (ou se é edícula no térreo).`
+        : `Este desenho não tem título e está ao lado de "${maior.titulo}" na mesma prancha: pelo tamanho e pelos cômodos, foi tomado como outro andar, acima dos andares com nome. Se for edícula ou anexo no térreo, ajuste na revisão.`);
+      fica.push(p);
+      continue;
+    }
+    const terreos = tituladas.filter(t => t.escala === p.escala && (nomeDoPavimento(t.titulo, 0).andar ?? 0) === 0);
+    if (terreos.length !== 1) {
+      avisos.push(`Edícula/anexo sem título na mesma prancha (${nomes(p)}) não foi incluído — desenhe ou confirme na revisão.`);
+      continue;
+    }
+    juntar(terreos[0], p);
+    terreos[0].pendencias.push(`Edícula/anexo sem título na mesma prancha (${nomes(p)}) entrou neste pavimento, na posição em que está desenhado — confira na revisão.`);
+  }
+  return fica;
+}
+
+/** Põe as paredes, aberturas, cômodos e escadas de `anexo` dentro de `base` (mesma escala), com a distância real entre os dois na página. */
+function juntar(base: PlantaLida, anexo: PlantaLida) {
+  const k = base.metrosPorPonto, bx = base.origemPt.x * k, by = base.origemPt.y * k, ax = anexo.origemPt.x * k, ay = anexo.origemPt.y * k;
+  const x0 = Math.min(bx, ax), y0 = Math.min(by, ay), x1 = Math.max(bx + base.largura, ax + anexo.largura), y1 = Math.max(by + base.comprimento, ay + anexo.comprimento);
+  const mover = (pl: PlantaLida, dx: number, dy: number) => {
+    const p = (q: Ponto) => ({ x: r2(q.x + dx), y: r2(q.y + dy) });
+    pl.paredes.forEach(w => { w.ax = r3(w.ax + dx); w.ay = r3(w.ay + dy); w.bx = r3(w.bx + dx); w.by = r3(w.by + dy); });
+    pl.comodos.forEach(c => { c.pontos = c.pontos.map(p); });
+    pl.escadas.forEach(e => { e.pontos = e.pontos.map(p); e.inicio = p(e.inicio); e.fim = p(e.fim); e.percurso = e.percurso.map(p); });
+  };
+  mover(base, bx - x0, by - y0);
+  mover(anexo, ax - x0, ay - y0);
+  const ids = new Map<string, string>();
+  for (const w of anexo.paredes) { const id = `w${base.paredes.length + 1}`; ids.set(w.id, id); base.paredes.push({ ...w, id }); }
+  const temEntrada = base.aberturas.some(a => a.entradaPrincipal);
+  for (const a of anexo.aberturas) base.aberturas.push({ ...a, id: `a${base.aberturas.length + 1}`, paredeId: ids.get(a.paredeId) ?? a.paredeId, entradaPrincipal: a.entradaPrincipal && !temEntrada });
+  for (const c of anexo.comodos) base.comodos.push({ ...c, id: `c${base.comodos.length + 1}` });
+  for (const e of anexo.escadas) base.escadas.push({ ...e, id: `e${base.escadas.length + 1}` });
+  base.pendencias.push(...anexo.pendencias.map(t => `Edícula/anexo: ${t}`));
+  base.nomeados += anexo.nomeados;
+  base.origemPt = { x: r2(x0 / k), y: r2(y0 / k) };
+  base.largura = r2(x1 - x0); base.comprimento = r2(y1 - y0);
+}
+
 const ESCALAS_COMUNS = [50, 100, 75, 25, 20, 125];
 const nota = (ps: PlantaLida[]) => ps.reduce((s, p) => s + p.nomeados * 3 + p.comodos.length + (p.razaoAreas !== null && Math.abs(Math.log(p.razaoAreas)) < 0.12 ? 10 : 0), 0);
 
@@ -1210,8 +1298,8 @@ const nota = (ps: PlantaLida[]) => ps.reduce((s, p) => s + p.nomeados * 3 + p.co
  * mostrarem que ela está errada (ou se não houver escala escrita), é corrigida/achada pelas áreas.
  * Cortes, fachadas, cobertura, implantação e a planta de layout repetida não viram pavimento.
  */
-/** `prazoMs`: tempo máximo da leitura da página (padrão 3,5 s). */
-export function lerPagina(prim: Primitivas, opcoes: { prazoMs?: number } = {}): { plantas: PlantaLida[]; diagnostico: Diagnostico } {
+/** `prazoMs`: tempo máximo da leitura da página (padrão 3,5 s); `maxCandidatas`: limite de pares candidatos a parede (testes). */
+export function lerPagina(prim: Primitivas, opcoes: { prazoMs?: number; maxCandidatas?: number } = {}): { plantas: PlantaLida[]; diagnostico: Diagnostico } {
   const inicio = Date.now();
   const linhas = linhasDeTexto(prim.textos), escritas = Array.from(new Set(escalasDaPagina(linhas).map(e => e.n)));
   const diagnostico: Diagnostico = { segmentos: prim.segmentos.length, arcos: prim.arcos.length, textos: prim.textos.length, imagens: prim.imagens, escalas: escritas, plantas: 0, motivo: null };
@@ -1230,31 +1318,56 @@ export function lerPagina(prim: Primitivas, opcoes: { prazoMs?: number } = {}): 
     return fim([]);
   }
   relogio.prazo = inicio + (opcoes.prazoMs ?? PRAZO_MS); relogio.estourou = false; relogio.cortado = false; relogio.n = 0;
+  relogio.maxCandidatas = opcoes.maxCandidatas ?? MAX_CANDIDATAS;
   const arcos = [...prim.arcos, ...arcosDePolilinhas(prim.segmentos)];
   diagnostico.arcos = arcos.length;
   const pg: Pagina = { prim, linhas, titulos, arcos, recusas: [], semComodos: 0, avisos: [] };
   // Planta com título de planta e só a escala 1:200 escrita (prédio grande): a escala escrita vale para ela.
   const escalasDoTexto = escalasDePlanta.length ? escalasDePlanta : temPlanta ? escritas : [];
-  let melhor: PlantaLida[] = [];
+  // Cada passada (uma escala) guarda os próprios avisos: os de uma escala que não ganhou não valem para a página.
+  type Passada = { plantas: PlantaLida[]; avisos: string[] };
+  const passadas: Passada[] = [];
+  const naEscala = (escala: number, origem: PlantaLida["escalaOrigem"]): Passada => {
+    pg.avisos = [];
+    const r = { plantas: plantasNaEscala(pg, escala, origem), avisos: pg.avisos };
+    passadas.push(r);
+    return r;
+  };
+  let melhor: PlantaLida[] = [], avisosDoMelhor: string[] = [];
   const tentar = (escala: number, origem: PlantaLida["escalaOrigem"]) => {
     if (passouAgora()) return;
-    let ps = plantasNaEscala(pg, escala, origem);
+    let r = naEscala(escala, origem), ps = r.plantas;
     // As áreas escritas mandam: se a planta desenhada dá, de forma consistente, outra área, a escala é ajustada.
     const razoes = ps.map(p => p.razaoAreas).filter((r): r is number => r !== null);
     if (!passouAgora() && razoes.length && razoes.every(r => Math.abs(Math.log(r / razoes[0])) < 0.1) && Math.abs(Math.log(razoes[0])) > 0.18) {
       const corrigida = Math.round(escala / Math.sqrt(razoes[0]));
       const alvo = ESCALAS_COMUNS.concat(escalasDoTexto).sort((a, b) => Math.abs(a - corrigida) - Math.abs(b - corrigida))[0];
-      const refeitas = plantasNaEscala(pg, Math.abs(alvo - corrigida) / corrigida < 0.08 ? alvo : corrigida, "areas");
-      if (nota(refeitas) > nota(ps)) ps = refeitas;
+      const refeitas = naEscala(Math.abs(alvo - corrigida) / corrigida < 0.08 ? alvo : corrigida, "areas");
+      if (nota(refeitas.plantas) > nota(ps)) { r = refeitas; ps = refeitas.plantas; }
     }
-    if (nota(ps) > nota(melhor)) melhor = ps;
+    if (nota(ps) > nota(melhor)) { melhor = ps; avisosDoMelhor = r.avisos; }
   };
   if (escalasDoTexto.length) for (const e of escalasDoTexto) tentar(e, "texto");
   else for (const e of ESCALAS_COMUNS) tentar(e, "suposta");
   // A planta de layout (a mesma planta com móveis) sai quando há a planta baixa simples do mesmo andar. Planta sem
   // andar no título conta como térreo (é o que a montagem faz com ela).
   const andarDe = (p: PlantaLida) => nomeDoPavimento(p.titulo, 0).andar ?? 0;
-  melhor = melhor.filter(p => p.vista !== "layout" || !melhor.some(q => q.vista !== "layout" && andarDe(q) === andarDe(p)));
+  const avisos: string[] = melhor.length ? [...avisosDoMelhor] : passadas.flatMap(p => p.avisos);
+  melhor = melhor.filter(p => {
+    const simples = p.vista === "layout" ? melhor.find(q => q.vista !== "layout" && andarDe(q) === andarDe(p)) : undefined;
+    if (simples) avisos.push(nomeDoPavimento(p.titulo, 0).andar === null
+      ? `"${p.titulo}" não diz o andar e foi tomada como a planta de layout de "${simples.titulo || "planta sem título"}" (não virou outro pavimento). Se for de outro andar, acrescente-o na revisão.`
+      : `"${p.titulo}" é a planta de layout de "${simples.titulo || "planta sem título"}" e não virou outro pavimento.`);
+    return !simples;
+  });
+  // Desenho com título que só foi lido numa escala que não ganhou (planta 1:100 numa prancha 1:50): não some calado.
+  const caixaPt = (p: PlantaLida) => ({ x0: p.origemPt.x, y0: p.origemPt.y, x1: p.origemPt.x + p.largura / p.metrosPorPonto, y1: p.origemPt.y + p.comprimento / p.metrosPorPonto });
+  const sobrepoe = (a: Caixa, b: Caixa) => a.x0 < b.x1 && b.x0 < a.x1 && a.y0 < b.y1 && b.y0 < a.y1;
+  if (melhor.length) for (const ps of passadas) for (const p of ps.plantas) {
+    if (!p.titulo || melhor.some(q => q.titulo === p.titulo || sobrepoe(caixaPt(q), caixaPt(p)))) continue;
+    avisos.push(`O desenho "${p.titulo}" (lido em 1:${p.escala}) não virou pavimento: a página foi lida em 1:${melhor[0].escala}, a escala dos outros desenhos. Se for a planta de um andar, envie-a numa prancha separada ou desenhe na revisão.`);
+  }
+  melhor = juntarAnexos(melhor, avisos, caixaPt, sobrepoe);
   const estourou = relogio.estourou || relogio.cortado;
   for (const p of melhor) {
     if (p.escalaOrigem === "suposta") p.pendencias.push(`Escala não encontrada na prancha: foi usada 1:${p.escala}${p.razaoAreas !== null ? ", que confere com as áreas escritas" : ""}. Confira uma medida conhecida.`);
@@ -1275,8 +1388,8 @@ export function lerPagina(prim: Primitivas, opcoes: { prazoMs?: number } = {}): 
         : pg.semComodos ? "Nenhuma planta baixa reconhecida nesta página: há paredes, mas elas não fecham ambientes com o nome do cômodo escrito dentro (sala, quarto, cozinha…). Confira se a planta traz os nomes dos ambientes, ou desenhe na revisão."
           : "Nenhuma planta baixa reconhecida nesta página: não foram achadas paredes em linha dupla formando ambientes.";
   }
-  const avisos = Array.from(new Set(pg.avisos));
-  if (avisos.length) diagnostico.avisos = avisos;
+  const unicos = Array.from(new Set(avisos));
+  if (unicos.length) diagnostico.avisos = unicos;
   return fim(melhor);
 }
 
@@ -1292,7 +1405,7 @@ const NIVEL_DUPLEX = 900, NIVEL_COBERTURA = 1000;
  * Mezanino fica entre o térreo e o andar de cima (0,5); duplex e cobertura vão para o alto.
  */
 export function nomeDoPavimento(titulo: string, ordem: number): { nome: string; andar: number | null; numero?: number; tipo?: boolean } {
-  const t = semAcento(titulo).replace(/\s+/g, " ");
+  const t = pisoComoAndar(semAcento(titulo).replace(/\s+/g, " "));
   const sub = /(\d+)\s*[ºO°]?\s*SUBSOLO|SUBSOLO\s*0*(\d+)/.exec(t);
   if (/SUBSOLO/.test(t)) return { nome: sub ? `${sub[1] ?? sub[2]}º subsolo` : "Subsolo", andar: -Number(sub ? sub[1] ?? sub[2] : 1) };
   if (/SEMI-?ENTERRADO/.test(t)) return { nome: "Pavimento semienterrado", andar: -1 };
@@ -1300,7 +1413,7 @@ export function nomeDoPavimento(titulo: string, ordem: number): { nome: string; 
   if (/PILOTIS/.test(t)) return { nome: "Pilotis", andar: 0 };
   if (/MEZANINO/.test(t)) return { nome: "Mezanino", andar: 0.5 };
   if (/SOBRELOJA/.test(t)) return { nome: "Sobreloja", andar: 0.5 };
-  if (/DUPLEX/.test(t)) return /INFERIOR/.test(t) ? { nome: "Duplex inferior", andar: NIVEL_DUPLEX } : { nome: "Duplex superior", andar: NIVEL_DUPLEX + 1 };
+  if (/DUPLEX/.test(t)) return /INFERIOR/.test(t) ? { nome: "Duplex inferior", andar: NIVEL_DUPLEX } : { nome: /COBERTURA/.test(t) ? "Cobertura duplex" : "Duplex superior", andar: NIVEL_DUPLEX + 1 };
   // Pavimento-tipo: o primeiro andar da faixa ("PAVIMENTO TIPO - 2º AO 10º PAVIMENTO"), ou acima dos numerados.
   if (/\bTIPO\b/.test(t)) {
     const faixa = /(\d+)\s*[ºO°]?\s*(?:PAV(?:IMENTO)?\.?\s*)?(?:AO|A|-|ATE)\s*(\d+)\s*[ºO°]?/.exec(t);

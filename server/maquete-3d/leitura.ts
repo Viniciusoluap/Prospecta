@@ -292,7 +292,12 @@ export function parciaisDasPranchas(pranchas: PranchaLida[], nomesDosArquivos: s
   const mesmoTamanho = (a: Candidata, b: Candidata) => Math.abs(a.planta.largura - b.planta.largura) < 0.25 && Math.abs(a.planta.comprimento - b.planta.comprimento) < 0.25;
   for (const c of [...candidatas]) {
     const simples = ehLayout(c) ? candidatas.find(o => !ehLayout(o) && ((o.andar ?? 0) === (c.andar ?? 0) || (c.andar === null && mesmoTamanho(o, c)))) : undefined;
-    if (simples) { candidatas.splice(candidatas.indexOf(c), 1); simples.avisos.push(`${onde(c)} é a planta de layout deste andar e não virou outro pavimento.`); }
+    if (!simples) continue;
+    candidatas.splice(candidatas.indexOf(c), 1);
+    // Sem andar no título, é suposição (a de layout do mesmo andar): dito como suposição.
+    simples.avisos.push(c.andar === null
+      ? `${onde(c)} não diz o andar e foi tomada como a planta de layout deste andar (não virou outro pavimento). Se for de outro andar, acrescente-o na revisão.`
+      : `${onde(c)} é a planta de layout deste andar e não virou outro pavimento.`);
   }
   // Pavimento-tipo sem faixa escrita vai logo acima do maior andar numerado (abaixo de duplex/cobertura).
   const andaresComuns = () => candidatas.filter(c => c.andar !== null && c.andar < 900).map(c => c.andar!);
@@ -317,8 +322,9 @@ export function parciaisDasPranchas(pranchas: PranchaLida[], nomesDosArquivos: s
       // Dois desenhos diferentes para o mesmo andar: os dois ficam (um logo acima do outro) para a pessoa decidir.
       c.andar = (c.andar ?? 0) + 0.01;
       c.avisos.push(`${onde(c)} e ${onde(mesmoAndar)} dizem o mesmo andar, mas os cômodos são diferentes: ficaram como pavimentos separados. Confira na revisão qual é qual.`);
-    } else if (c.semAndar && unicas.some(u => mesmoTamanho(u, c))) {
-      c.avisos.push(`${onde(c)} não diz o andar e tem o mesmo tamanho de outra planta: ficou como pavimento separado, ${c.andar === 0 ? "no térreo" : "acima dos andares com nome"}. Confira na revisão.`);
+    } else if (c.semAndar && (c.andar !== 0 || unicas.some(u => mesmoTamanho(u, c))) && !c.planta.pendencias.some(t => /tomado como outro andar/.test(t))) {
+      // Planta sem andar posta acima dos andares com nome: nunca em silêncio (pode ser edícula ou outra casa no térreo).
+      c.avisos.push(`${onde(c)} não diz o andar${unicas.some(u => mesmoTamanho(u, c)) ? " e tem o mesmo tamanho de outra planta" : ""}: ficou como pavimento separado, ${c.andar === 0 ? "no térreo" : "acima dos andares com nome"}. Se for edícula, anexo ou outra casa no térreo, ajuste na revisão.`);
     }
     unicas.push(c);
   }
@@ -331,17 +337,23 @@ export function parciaisDasPranchas(pranchas: PranchaLida[], nomesDosArquivos: s
   ];
   const parciais: Record<string, unknown> = {};
   const referencias: ReturnType<typeof parciaisDasPranchas>["referencias"] = [];
-  const PE_DIREITO = 2.7, LAJE = 0.15, usados = new Set<string>();
+  // Mezanino e sobreloja: pé-direito menor (estimado); os níveis somam o pé-direito e a laje de cada andar de baixo.
+  const PE_DIREITO = 2.7, PE_MEZANINO = 2.4, LAJE = 0.15, usados = new Set<string>();
+  let nivel = 0;
   const pavimentos = unicas.map((c, j) => {
     let nome = c.nome;
     for (let n = 2; usados.has(nome.toLowerCase()); n++) nome = `${c.nome} (${n})`;
     usados.add(nome.toLowerCase());
     const id = idPavimento(0, j), proximo = unicas[j + 1];
     parciais[`estrutura:${id}`] = { paredes: c.planta.paredes, aberturas: c.planta.aberturas, pendencias: [] } satisfies Estrutura;
+    const meio = /^(?:Mezanino|Sobreloja)/.test(c.nome), peDireito = meio ? PE_MEZANINO : PE_DIREITO;
+    if (meio) c.avisos.push(`Pé-direito estimado em ${PE_MEZANINO.toFixed(2).replace(".", ",")} m, com o piso logo acima do andar de baixo: confira as alturas no corte.`);
     parciais[`ambientes:${id}`] = { comodos: c.planta.comodos, escadas: c.planta.escadas.map(e => ({ ...e, sobePara: "" })), pendencias: [...c.planta.pendencias, ...c.avisos] };
     const k = c.planta.metrosPorPonto;
     referencias.push({ pavimentoId: id, doc: c.doc, pagina: c.pagina, alinhamento: k > 0 ? { x: -c.planta.origemPt.x * k, y: -c.planta.origemPt.y * k, larguraM: c.planta.larguraDaPaginaM } : null });
-    return { nome, nivel: j * (PE_DIREITO + LAJE), peDireito: PE_DIREITO, peDireitoConfirmado: false, repeticoes: 1, doc: c.doc, pagina: c.pagina, temProximo: !!proximo };
+    const r = { nome, nivel: Math.round(nivel * 100) / 100, peDireito, peDireitoConfirmado: false, repeticoes: 1, doc: c.doc, pagina: c.pagina, temProximo: !!proximo };
+    nivel += peDireito + LAJE;
+    return r;
   });
   // A escada de cada pavimento leva ao pavimento de cima.
   pavimentos.forEach((p, j) => {
