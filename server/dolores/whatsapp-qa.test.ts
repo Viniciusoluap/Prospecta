@@ -15,6 +15,8 @@ import { definirDependenciasPonte } from "./ponte.js";
 import { AGORA, CENARIO, criarBanco } from "./testes-banco.js";
 import { MOTIVO_SEM_TEMPO_NO_AVISO, definirDependenciasWhatsapp, segredoWebhookDolores, tratarWebhookDolores } from "./whatsapp.js";
 import { FRASE_OUTRO_PEDIDO } from "../../shared/dolores/whatsapp.js";
+import { LINK_REMOVIDO, tratarLinksDaResposta } from "../../shared/dolores/links.js";
+import { enviarTextoEvolution } from "../_core/evolution.js";
 
 const DONO = "5599991234567";
 const CHAVE = "sk-ant-chave-de-teste-nao-real-123456";
@@ -59,6 +61,7 @@ beforeEach(async () => {
   definirClienteModelo(async p => { chamadas.push(p); return roteiro(p); });
 });
 afterEach(() => {
+  vi.unstubAllEnvs();
   ENV.cookieSecret = segredoAntes;
   definirDependenciasPonte();
   definirDependenciasWhatsapp();
@@ -97,7 +100,8 @@ describe("QA achado 1 — DDI conferido: número estrangeiro com os mesmos 8 fin
 });
 
 describe("QA achado 2 — o filtro de dados pessoais pega dígitos seguidos de pontuação (resposta e comando guardado)", () => {
-  it("a resposta do modelo com CPF e celular no fim da frase sai filtrada; o comando guardado também", async () => {
+  it("com DOLORES_MASCARAR_DADOS_PESSOAIS=1: a resposta do modelo com CPF e celular no fim da frase sai filtrada; o comando guardado também", async () => {
+    vi.stubEnv("DOLORES_MASCARAR_DADOS_PESSOAIS", "1");
     roteiro = () => fim("O CPF é 12345678909. Ligue 99991234567. Ou 5599991234567, ou CPF 123 456 789 09. Valor R$ 1.250.000,00 em 16/11/2026, protocolo 2026001234.");
     await chamar(aviso({ texto: "meu CPF é 12345678909. e o telefone 99991234567." }));
     const t = enviar.mock.calls[0][0].texto as string;
@@ -105,6 +109,25 @@ describe("QA achado 2 — o filtro de dados pessoais pega dígitos seguidos de p
     expect(t).toContain("R$ 1.250.000,00 em 16/11/2026, protocolo 2026001234.");
     const [m] = await q<{ texto: string }>("SELECT texto FROM dolores_mensagens");
     expect(m.texto).not.toMatch(/\d{8}/);
+  });
+
+  it("opção B (padrão, variável ausente ou 0): a resposta ao dono leva CPF e celular inteiros; o comando GRAVADO continua mascarado", async () => {
+    for (const valor of [undefined, "0"]) {
+      if (valor === undefined) vi.unstubAllEnvs(); else vi.stubEnv("DOLORES_MASCARAR_DADOS_PESSOAIS", valor);
+      await banco.pg.exec("DELETE FROM dolores_mensagens");
+      enviar.mockClear();
+      roteiro = () => fim("O CPF é 12345678909. Ligue 99991234567. A senha do portal é abc123.");
+      await chamar(aviso({ id: `B${valor ?? "x"}`, texto: "meu CPF é 12345678909. e o telefone 99991234567." }));
+      const t = enviar.mock.calls[0][0].texto as string;
+      expect(t, String(valor)).toContain("12345678909");
+      expect(t, String(valor)).toContain("99991234567");
+      expect(t, String(valor)).toContain("senha [senha omitida]");
+      const [m] = await q<{ texto: string }>("SELECT texto FROM dolores_mensagens");
+      expect(m.texto, String(valor)).not.toMatch(/\d{8}/);
+      const a = JSON.stringify(await q("SELECT * FROM dolores_acoes"));
+      expect(a).not.toContain("12345678909");
+      expect(a).not.toContain("99991234567");
+    }
   });
 });
 
@@ -422,5 +445,72 @@ describe("QA r2 (informativo) — fixar, enquete e botão do dono: silêncio aud
     const a = (await acoes()).filter(x => x.funcao === "whatsapp_mensagem");
     expect(a).toHaveLength(1);
     expect(a[0].resumo).toMatchObject({ interacoes: 7 });
+  });
+});
+
+describe("QA r7 A2 — links na resposta ao dono: só o domínio do sistema e o Trello, sem consulta; sem prévia de link", () => {
+  it("unidade: os exemplos do QA viram [link removido]; link do sistema e do Trello ficam sem a consulta e o fragmento", () => {
+    const SISTEMA = "https://www.prospectaconstrucoes.com";
+    const L = LINK_REMOVIDO;
+    const casos: Array<[string, string]> = [
+      ["Veja http://evil.example/x?d=52998224725-99981234321 e [aqui](https://evil.example/?e=maria.qa@x.com).", `Veja ${L} e aqui (${L}).`],
+      ["acesse www.evil.example/a?b=1", `acesse ${L}`], ["evil.example/x?cpf=52998224725", L], ["site.com.br?d=1, ok", `${L}, ok`],
+      ["https://trello.com@evil.example/x", L], ["https://evil.example/?u=https://trello.com", L], ["ftp://evil.example/a", L],
+      ["javascript:alert(1)", L], ["[clique](evil)", `clique (${L})`], ["https://prospectaconstrucoes.com.evil.example/a", L],
+      ["Card: https://trello.com/c/AbC123/45-maria?filter=x#comentario.", "Card: https://trello.com/c/AbC123/45-maria."],
+      ["Tela: https://www.prospectaconstrucoes.com/crm/leads/12?cpf=52998224725#x", "Tela: https://www.prospectaconstrucoes.com/crm/leads/12"],
+      ["Tela: https://prospectaconstrucoes.com/obras", "Tela: https://prospectaconstrucoes.com/obras"],
+      ["https://usuario:senha@www.prospectaconstrucoes.com/a", "https://www.prospectaconstrucoes.com/a"],
+    ];
+    for (const [t, esperado] of casos) expect(tratarLinksDaResposta(t, SISTEMA), t).toBe(esperado);
+    // sem PUBLIC_SITE_URL, nenhum link do sistema passa (o Trello continua)
+    expect(tratarLinksDaResposta("https://www.prospectaconstrucoes.com/crm", null)).toBe(L);
+    expect(tratarLinksDaResposta("https://trello.com/c/x?y=1", null)).toBe("https://trello.com/c/x");
+    // o outro lado: texto sem link volta idêntico (valores, datas, e-mail, decimais, "gov.br" sem caminho)
+    for (const t of ["R$ 1.500,00 em 16/11/2026 às 10:30", "e-mail maria@x.com.br", "1.500/mês e 2,5 m²", "entrar no gov.br", "lote 12/B, quadra 3",
+      "Resumo: 3 atrasados. Fim."]) expect(tratarLinksDaResposta(t, SISTEMA), t).toBe(t);
+    const t0 = performance.now();
+    for (const p of ["a.", "http://", "www.a", "[a](", "a.b/", "x".repeat(70) + "."]) tratarLinksDaResposta(p.repeat(Math.ceil(200 * 1024 / p.length)), SISTEMA);
+    expect(performance.now() - t0).toBeLessThan(3000);
+  });
+
+  it("ponta a ponta: o modelo devolve link com CPF/telefone/e-mail na URL → o dono recebe [link removido] nos dois modos; envio sem prévia", async () => {
+    vi.stubEnv("PUBLIC_SITE_URL", "https://www.prospectaconstrucoes.com");
+    for (const valor of [undefined, "1"]) {
+      if (valor !== undefined) vi.stubEnv("DOLORES_MASCARAR_DADOS_PESSOAIS", valor);
+      enviar.mockClear();
+      roteiro = () => fim("Veja http://evil.example/x?d=52998224725-99981234321 e [aqui](https://evil.example/?e=maria.qa@x.com). Card: https://trello.com/c/Ab1/2?x=52998224725. Tela https://www.prospectaconstrucoes.com/crm?q=1");
+      await chamar(aviso({ id: `L${valor ?? "x"}` }));
+      const t = enviar.mock.calls[0][0].texto as string;
+      expect(t, String(valor)).not.toMatch(/evil|52998224725|99981234321|maria\.qa|\?x=|\?q=/);
+      expect(t).toContain(LINK_REMOVIDO);
+      expect(t).toContain("https://trello.com/c/Ab1/2");
+      expect(t).toContain("https://www.prospectaconstrucoes.com/crm");
+    }
+  });
+
+  it("enviarTextoEvolution: linkPreview só vai quando informado (a Central de Vendas não muda)", async () => {
+    const corpos: any[] = [];
+    const f = (async (_u: string, init: RequestInit) => { corpos.push(JSON.parse(String(init.body))); return new Response(JSON.stringify({ key: { id: "1" } }), { status: 200 }); }) as never;
+    const c = { url: "https://evo.exemplo", apiKey: "k" } as never;
+    await enviarTextoEvolution(c, "i", "99991234567", "oi", f);
+    await enviarTextoEvolution(c, "i", "99991234567", "oi", f, { linkPreview: false });
+    expect(corpos[0]).not.toHaveProperty("linkPreview");
+    expect(corpos[1]).toMatchObject({ linkPreview: false, text: "oi" });
+  });
+});
+
+describe("QA r7 A8 — o comando do dono vai ao modelo sem senha nem dado bancário (CPF/telefone ficam para a busca)", () => {
+  it("nos dois modos: senha, código, chave, conta e PIX saem do texto enviado à Anthropic; CPF e telefone ficam", async () => {
+    for (const valor of [undefined, "1"]) {
+      if (valor !== undefined) vi.stubEnv("DOLORES_MASCARAR_DADOS_PESSOAIS", valor);
+      chamadas = [];
+      await chamar(aviso({ id: `C${valor ?? "x"}`, texto: "consulte o CPF 52998224725 e o tel 99991234567; a senha do gov é Maria@2025, acesso INSS: Joao#2024x, token sk-ant-api03-abcdef123456, conta 12345-6, pix -> maria@x.com" }));
+      const enviado = JSON.stringify(chamadas[0].mensagens[0]);
+      for (const s of ["Maria@2025", "Joao#2024x", "sk-ant-api03", "12345-6", "maria@x.com"]) expect(enviado, `${valor} ${s}`).not.toContain(s);
+      expect(enviado).toContain("52998224725");
+      expect(enviado).toContain("99991234567");
+      expect(enviado).toContain("[senha omitida]");
+    }
   });
 });

@@ -8,7 +8,8 @@ import {
   leadActivities, leadDocuments, leadFollowUps, leadServices, leads, regularizacaoDocuments, regularizacaoEtapas,
   regularizacaoItensFinanceiros, regularizacaoRecebimentos, regularizacoes, tasks,
 } from "../../../drizzle/schema.js";
-import { centavosParaReais, diaDoPrazo, diaFortaleza, isoFortaleza, mascararTelefone, paginar, truncar } from "../../../shared/dolores/formato.js";
+import { centavosParaReais, diaDoPrazo, diaFortaleza, isoFortaleza, paginar, truncar } from "../../../shared/dolores/formato.js";
+import { type CanalDolores, campoPessoal } from "../dados-pessoais.js";
 import {
   DIAS_PARADO_PADRAO, STATUS_ENCERRADOS_PROCESSO, etapaAtual, maisRecente, proximaProvidencia, responsavelDaTarefa,
   responsavelDoProcesso, situacaoDoPrazo,
@@ -21,10 +22,10 @@ import {
   idPositivo, nomesDeUsuarios, paginacao, rotuloDocumento, tarefaAberta, type Resultado,
 } from "./comum.js";
 
-type Ctx = { agora: Date };
+type Ctx = { agora: Date; canal: CanalDolores };
 
 /** Lê os processos (todos ou os ids pedidos) com tudo o que a análise precisa. */
-export async function carregarProcessos(ids: number[] | null, agora: Date, diasParado = DIAS_PARADO_PADRAO) {
+export async function carregarProcessos(ids: number[] | null, agora: Date, canal: CanalDolores, diasParado = DIAS_PARADO_PADRAO) {
   const regs = await db().select({
     reg: {
       id: regularizacoes.id, clientName: regularizacoes.clientName, clientPhone: regularizacoes.clientPhone, type: regularizacoes.type,
@@ -127,7 +128,7 @@ export async function carregarProcessos(ids: number[] | null, agora: Date, diasP
     return {
       id: reg.id,
       cliente: reg.clientName,
-      telefone: mascararTelefone(reg.clientPhone),
+      telefone: campoPessoal(reg.clientPhone, "telefone", canal),
       leadId: reg.leadId,
       clienteExcluidoDoCrm: !!lead?.deletedAt,
       servico: truncar(reg.type, 120) ?? (servico?.title ? truncar(servico.title, 120) : null) ?? nomeServico,
@@ -183,8 +184,8 @@ export const entradaListarRegularizacoes = z.object({
   ...paginacao,
 }).strict();
 
-export async function listarProcessosRegularizacao(args: z.infer<typeof entradaListarRegularizacoes>, { agora }: Ctx): Promise<Resultado> {
-  const todos = await carregarProcessos(null, agora, args.diasParado);
+export async function listarProcessosRegularizacao(args: z.infer<typeof entradaListarRegularizacoes>, { agora, canal }: Ctx): Promise<Resultado> {
+  const todos = await carregarProcessos(null, agora, canal, args.diasParado);
   const filtrados = todos.filter(p => {
     if (args.situacao !== "todos" && p.encerrado) return false;
     if (args.situacao === "atrasados" && !p.atrasado) return false;
@@ -234,8 +235,8 @@ export async function listarProcessosRegularizacao(args: z.infer<typeof entradaL
 
 export const entradaDetalharRegularizacao = z.object({ id: idPositivo.describe("Id do processo de regularização.") }).strict();
 
-export async function detalharProcessoRegularizacao(args: z.infer<typeof entradaDetalharRegularizacao>, { agora }: Ctx): Promise<Resultado> {
-  const [p] = await carregarProcessos([args.id], agora);
+export async function detalharProcessoRegularizacao(args: z.infer<typeof entradaDetalharRegularizacao>, { agora, canal }: Ctx): Promise<Resultado> {
+  const [p] = await carregarProcessos([args.id], agora, canal);
   if (!p) return { dados: { encontrado: false, mensagem: `Processo de regularização #${args.id} não existe no sistema.` }, resumo: { encontrado: false } };
   const [itens, recebimentos] = await Promise.all([
     db().select({ id: regularizacaoItensFinanceiros.id, nome: regularizacaoItensFinanceiros.nome, grupo: regularizacaoItensFinanceiros.grupo,

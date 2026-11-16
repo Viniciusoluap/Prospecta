@@ -100,6 +100,20 @@ Claude Console); limites mensais de tokens; ligar o interruptor.
   `whatsapp-regras`, `whatsapp-qa`, `whatsapp`, `router`, `server/integracoes-anthropic.test.ts`.
 - QA r3 (16/11): alterados `shared/dolores/{sanitizar,whatsapp}.ts`, `docs/dolores/como-ligar.md`; testes `regras`,
   `whatsapp-regras`.
+- QA r4 (16/11): alterados `shared/dolores/sanitizar.ts` e `server/dolores/regras.test.ts`.
+- QA r5 (16/11): alterados `shared/dolores/sanitizar.ts` e `server/dolores/regras.test.ts`.
+- QA r6 (16/11): alterados `shared/dolores/sanitizar.ts` e `server/dolores/regras.test.ts` (fuzz "nunca pior que a main").
+- Opção B (16/11): `server/dolores/dados-pessoais.ts` (novo, o interruptor); alterados `shared/dolores/sanitizar.ts`,
+  `server/dolores/{ponte,whatsapp,auditoria,erro-seguro}.ts`, testes `regras`, `ponte`, `whatsapp`, `whatsapp-qa`;
+  `docs/dolores/como-ligar.md`.
+- QA r7 (16/11): `shared/dolores/links.ts` e `server/dolores/dados-pessoais.test.ts` (novos); alterados
+  `shared/dolores/sanitizar.ts`, `server/dolores/{dados-pessoais,ponte,funcoes,whatsapp,cerebro,prompt}.ts`,
+  `server/dolores/leitura/{clientes,financeiro,regularizacoes,atrasos}.ts`, `server/_core/evolution.ts` (`linkPreview`
+  opcional), testes `regras`, `ponte`, `leituras`, `leitura-somente`, `whatsapp`, `whatsapp-qa`; `docs/dolores/como-ligar.md`.
+- Opção B, complemento (16/11): alterados `server/dolores/{dados-pessoais,prompt,cerebro,funcoes}.ts`,
+  `server/dolores/leitura/{clientes,financeiro,regularizacoes}.ts`, `shared/dolores/sanitizar.ts` (BANCO inteiro),
+  `docs/dolores/{ferramentas-etapa1.json,agente-etapa1.md,como-ligar.md}`, `docs/stories/epics/ROADMAP.md`; testes
+  `leituras`, `leitura-somente`, `whatsapp`, `regras`.
 - `docs/dolores/ferramentas-etapa1.json` (regerado: etapa 2, mesmas 12 ferramentas), `docs/dolores/como-ligar.md`
   (seção Etapa 2), `docs/dolores/agente-etapa2.md` (novo), `docs/stories/epics/ROADMAP.md` (paridade em espera),
   `HANDOFF-16-11-CORRECOES-E-DOLORES.md`.
@@ -176,6 +190,174 @@ Tempos (sonda de desempenho do QA, depois das correções): 200 kB só de dígit
 - [AUTO-DECISION] Célula de tabela isolada entre "|" conta como "cadeia inteira" para a regra dos 11 dígitos sem forma.
 - Em aberto (pré-existente, fora do pedido): "código do imóvel 12345" vira "código [senha omitida]" (regra da senha).
 
+## Correções da 4ª rodada do QA (16/11/2026, @dev Dex — QA r4 FAIL de Quinn, HEAD revisado `2dd8ae9`)
+
+Antes de editar, a DECISÃO do filtro (`shared/dolores/sanitizar.ts`) foi reorganizada em duas fases, nesta ordem, e
+escrita no cabeçalho do arquivo:
+1. **Mascarar sem exceção**: CPF com DV válido, CNPJ válido, celular (11 com DDD e 9; 10 com DDD e 6–9; 9 começando por
+   9; 8 começando por 6–9 com forma de telefone) e e-mail — em qualquer separação, com qualquer rótulo antes, sozinho ou
+   dentro de cadeia maior (janela deslizante). Única ressalva, de estrutura e não de rótulo: valor com centavos
+   ("R$ 99991234567,50", "999.123.456,00"), que já era garantido pelo teste R2.
+2. **Preservar por estrutura completa**: (2a) chave de NF-e e linha digitável validadas por inteiro — o trecho fica e a
+   fase 1 não se aplica a ele; (2b) o resto (fixo de 2–5, 11 dígitos sem forma) só onde a fase 1 nada achou, com os
+   rótulos de documento/quantidade decidindo.
+
+| Achado | Correção | Commit | Teste de regressão |
+|---|---|---|---|
+| S1 (bloqueava) chave de NF-e pelo rótulo/DV deixava 4 CPFs/celulares intactos | chave só fica com DV + UF 11–53 + mês 01–12 + CNPJ do emitente válido + modelo 55/65, nunca em 4 blocos de 11; rótulo sozinho não isenta; a cadeia de 44 que não validou sai inteira, mas a lista 4×11 sai item por item | `4ee4a9f` | "QA r4 S1" (11 textos: nota/acesso/DANFE/chave com ponto/NF-e misturado/"nota: ligar"/sem rótulo com DV fechando) |
+| S2 linha digitável mascarada em parte | reconhecida pela forma 5.5 5.6 5.6 1 14 (ou 10 11 11 1 14) com o DV módulo 10 dos três campos; sem validar, vale a fase 1 | `8237b5d` | "QA r4 S2" (Bradesco 237, Sicoob 756, Sicredi 748, sem pontos, Itaú; DV errado continua mascarando; celular colado depois sai) |
+| S3 regra bancária quadrática | o número da conta começa logo depois do rótulo e tem tamanho limitado (sem lookahead que varria a palavra); pré-filtro `formaPossivel` descarta janelas que não podem ser CPF/CNPJ/telefone; célula de tabela não atravessa "\|" | `4c2ac31` | "QA r4 S3" (17 textos de 200 kB, limite 3 s cada) |
+| S4 pares/faixas de 4 dígitos | ver a tabela abaixo | `e1ac6f1` | "QA r4 S4" (15 que ficam, 16 que saem) |
+| S5 pix/conta/código | PIX só com forma de chave (e-mail, uuid, 8–14 dígitos sem centavos depois); conta/agência só com número de conta (3+ dígitos, não ano, não valor com centavos); "código" só com senha/acesso/token/OTP a até 40 caracteres depois ou 30 antes, e sem engolir a oração quando não é senha | `c3cd9b8` | "QA r4 S5" (13 que ficam, 12 que saem) |
+| S6 formatos forçados | ligação aceita "·", "•", ":" e vários espaços; hífen tipográfico com até 3 espaços; "529982247,25" (CPF válido, sem R$); dígitos Adlam; sobrescritos e circulados em sequência de 4+; e-mail "a @ b . com", "a arroba b ponto com", "(at)/(dot)", "[at]/[dot]" com domínio de topo conhecido | `a12ac80`, `6c631c7` | "QA r4 S6" |
+
+**Regra final do par 4-4 e do fixo (S4)** — decide de cima para baixo, a primeira linha que casar vale:
+
+| Situação | Resultado | Exemplos |
+|---|---|---|
+| Palavra de telefone (tel, fone, celular, whats, zap, contato, ligar, recado) nos ~50 caracteres antes | sai sempre | "tel casa 3523-4567", "Recado: ligar na casa 3523-4567", "whats lotes 3201 3202" |
+| Começa por 6–9 (celular antigo) | sai sempre, com qualquer rótulo | "lotes 7001 7002", "R$ 9123 4567", "casa 9123-4567", "itens 6000 7000" |
+| 2–5 com rótulo de documento logo antes (processo, protocolo, matrícula, inscrição [imobiliária/municipal], IPTU, nota fiscal, lote, quadra, R$, boleto, CEP…) ou unidade de medida depois | fica | "protocolo 3523-4567", "quadra 3523 4567", "IPTU 3523 4567 0001" |
+| 2–5 em 4-4 com rótulo de quantidade/valor/faixa (valor, total, preço, custo, orçamento, renda, faixa, quantidade, estoque, itens, parcelas, saldo, lotes, quadras) | fica | "valor 3523 4567", "estoque: 3500 4200", "parcelas de 2500 3000" |
+| 2–5 em 4-4, faixa crescente com hífen e os dois terminando em 00 | fica | "orçamento 2500-3000", "entre 2500-3000 por mês" |
+| Item do meio/fim de uma lista de grupos de 4 cujo rótulo (antes do 1º item) é de quantidade ou documento | fica | "lotes 3201 3202 3203", "valores 3500 4200 5100" |
+| 2–5 sem nada disso (casa, apartamento, unidade, ano, pedido, id…) | sai | "unidade 3523 4567", "apartamento 3523-4567", "ref 3000-2500" |
+
+Por que "faixa crescente" exige os dois terminando em 00: sem isso, "casa 3523-4567" e "apartamento 3523-4567" (4567 >
+3523) seriam faixa e o R1 voltaria a vazar.
+
+Testes existentes alterados (justificativa):
+- "QA r3 R1": "valor: 3523 4567" e "total 3523 4567" saíram da lista do que sai e foram para a do que fica (decisão da
+  S4: rótulo de valor livra o par 4-4 de 2–5 sem palavra de telefone); no lugar, "valor: 9123 4567", "total 9123 4567"
+  (6–9, celular) e "valor: fone 3523 4567" continuam saindo.
+- "QA r3 (informativos)": a chave de acesso do teste tinha CNPJ do emitente inválido (12345678000199) — foi trocada por
+  uma chave com CNPJ válido e DV certo; "chave de acesso"/"DANFE" + chave inválida agora saem inteiras (S1: o rótulo
+  sozinho não isenta). "NF-e" + 44 dígitos colados continua intacto (um grupo só: a fase 1 não acha nada dentro).
+
+- [AUTO-DECISION] "código" vira senha também com "otp" e "token" antes; "pin"/"otp" contam como palavra de senha.
+- [AUTO-DECISION] Código de barras de 44 dígitos COM separadores não é reconhecido (não é barato validar sem abrir
+  vazamento: só o DV geral de módulo 11 fecha 1 em 11 listas). Colado (o normal) já fica.
+- [AUTO-DECISION] "IPTU" e "inscrição municipal" entraram nos rótulos de documento (fase 2b, só livram fixo de 2–5).
+
+Tempos (sonda de desempenho do QA r4, 200 kB cada, depois das correções): "ag-…ag- at" 8 ms (era 20 s); "conta-…conta-
+arroba" 5 ms (era 9,8 s); "1‑" 140 ms (era 946); "٩ " 75–153 ms (era 926); "1 " 38–146 ms (era ~900); o pior caso de todos
+é "1|" com ~200 ms. Sonda de vazamento r4: nenhum caso vaza; só "protocolo 3523-4567 fone" fica (ver "Em aberto") e o caso "Compradores" sai vazio
+(a busca da própria sonda não achou uma lista naquela faixa).
+
+Em aberto (não bloqueia):
+- "protocolo 3523-4567 fone": palavra de telefone DEPOIS do número não conta (a regra olha só ~50 caracteres antes).
+- Estragos que restam por regra: 6–9 com qualquer rótulo ("lotes 7001 7002", "R$ 9123 4567", "matrícula 9123-4567",
+  "protocolo 912345678"); 11 dígitos sem forma ("NIS 12345678901", "ticket 99991234567"); fixo de 10 dígitos com rótulo
+  de valor ("valor 1234567890"); fixo sem rótulo logo antes ("cadastro 3523-4567", "chamado 3523-4567", "lote 25 quadra 7
+  - 3523-4567", "processo administrativo 2026/3523-4567"); a linha digitável do exemplo do relatório
+  ("23793.38128 60000.000003 00000.000400 …") tem os DVs dos campos 2 e 3 errados (o certo seria …000004 …000406),
+  então a fase 1 vale e o 1º campo sai.
+- Boleto de concessionária (48 dígitos, começa com 8) não é reconhecido.
+
+## Correções da 5ª rodada do QA (16/11/2026, @dev Dex — QA r5 FAIL de Quinn, HEAD revisado `a90997d`)
+Princípio mantido: a fase 1 mascara sem exceção; uma isenção da fase 2a só vale quando a FORMA ESCRITA também é a do
+documento — nunca basta os dígitos fecharem.
+
+| Achado | Correção | Commit | Teste |
+|---|---|---|---|
+| F1 (bloqueava) listas de telefones/CPFs passavam como NF-e/boleto quando os DVs fechavam por acaso | NF-e só em 44 colados ou 11×4 com o mesmo separador (" " ou "."); boleto com moeda 9, só em 47 colados, "5.5 5.6 5.6 1 14" com os pontos, ou "10 11 11 1 14" com o DV geral do código de barras remontado E os campos 2/3 sem forma de celular nem CPF válido (a sonda dirigida achava listas que fechavam até o DV geral); travas: palavra de telefone/contato/CPF nos ~50 caracteres antes, "(" ou "+" antes, parênteses/hífen entre os grupos, forma explícita de CPF ou telefone dentro do trecho | `7953fe1`, `61ca1cc` | "QA r5 F1" (os 3 repros, a lista sem rótulo, as 2 listas da sonda B, NF-e 11×4 uniforme fica, misturada/"contato"/"cpf" sai, DV geral errado sai) |
+| F2 guias de arrecadação de 48 dígitos mascaradas em parte | reconhecidas na fase 2a: começam por 8, 3º dígito 6–9, "48", "12 12 12 12" ou "11-1 ×4" com separadores uniformes, DV de CADA bloco (módulo 10 se 6/7, módulo 11 se 8/9), com as travas da F1 | `f9af1c7` | "QA r5 F2" (1.600 guias válidas em 4 formas; DV errado; palavra de telefone antes) |
+| F3 rótulo antes livrava o fixo com palavra de telefone depois | palavra de telefone nos ~25 caracteres depois (na mesma linha) cancela a isenção | `2265793` | "QA r5 F3" (8 que saem, 4 que ficam) |
+| F4 janela que começa antes deixava a cauda | testa as janelas que começam dentro do achado e passam do fim; se a de dentro é fase 1 e a de antes não (ou a de antes começa num ano), fica só a de dentro; senão, sai a união | `db87b73` | "QA r5 F4" ("dia 15/11/2026 9123-4567" → data fica, telefone sai inteiro; CNPJ "12 74677693/2903-31") |
+| F5 "conta 529 982 247 25" deixava 8 dígitos | PIX e banco passaram a rodar DEPOIS da fase 1 (as cadeias); a chave PIX em e-mail/uuid continua antes do filtro de e-mail. O fuzz achou a variante "cc 2026.12/889 767 151 95" (número de conta antes do CPF), também fechada | `8cc36b1`, `5fcfe60` | "QA r5 F5" (5 + 5 textos) e "QA r4 S5" (PIX com CPF/celular agora sai como dado pessoal) |
+| F6 e-mail com nome acentuado | `[\p{L}\p{N}_.+-]` com a flag u (via `new RegExp`, o tsc recusa a flag em literal), mesma âncora (linear) | `83b55a4`, `0016800` | "QA r5 F6/F7" e o teste da âncora (agora "joão.silva+obra@…" sai inteiro) |
+| F7 (barato) | CPF com zeros à esquerda num grupo só (12–14 dígitos, zeros + CPF válido); "(dot)com_" (fim do domínio por `(?![\p{L}\p{N}])`) | `83b55a4` | "QA r5 F6/F7" |
+
+Medições (sondas do QA rodadas contra este código, cópias em `scratchpad/dex-r5`):
+- FUZZ semente 12345 (300 mil): 257 vazamentos, TODOS "R$ …,cc" (exceção prevista); 0 parciais. Semente 777 (400 mil):
+  335, todos "R$ …,cc"; 0 parciais. Zero vazamento de número inteiro fora da exceção.
+- sonda-r5: A (busca dirigida NF-e, 50 mi) 0; A2 0 de 5 mi (celulares e CPFs); A3 0; B (lista de telefones com forma de
+  boleto, 10 mi tentativas) 0 achadas; C NF-e reais ficam em 44, 11×4 com espaço/ponto; H todos saem.
+- sonda-conc: guias geradas com DV válido pelo módulo certo: 0 de 20.000 mascaradas em cada uma das 4 formas. A sonda do
+  QA (DV sempre módulo 10 e 3º dígito qualquer) ainda mascara ~27% — essas guias não são válidas (3º dígito 0–5, ou
+  8/9 com DV módulo 10).
+- Desempenho (126 casos de 200 kB das sondas r3/r4/r5): pior 405 ms; todos abaixo de 1 s.
+
+Em aberto (não bloqueia):
+- "R$ …,cc" com número de celular (exceção por desenho).
+- Estrago novo por desenho: a NF-e em 4×11 ("chave 35261116425 70622…") e a linha digitável "10 11 11 1 14" cujo DV
+  geral não fecha (ou com campo 2/3 com forma de celular) agora podem ter partes mascaradas — os boletos da sonda D sem
+  pontos têm DV geral aleatório (5 de 10 com o 1º campo mascarado); com pontos ficam todos.
+- Guias: o DV geral (4ª posição) não é conferido, só os 4 DVs de bloco.
+- F8 (estragos com rótulo de documento antes de forma de celular) sem mudança.
+- Marcador: CPF/celular depois de "pix" agora sai como "[dado pessoal omitido]" (antes "[dado bancário omitido]").
+
+## Correções da 6ª rodada do QA (16/11/2026, @dev Dex — QA r6 FAIL de Quinn, HEAD revisado `4297b5a`)
+Mudança de ESTRUTURA, não só de casos: a isenção de documento (fase 2a) exige TRÊS coisas ao mesmo tempo — rótulo do
+documento nos ~60 caracteres antes (mesma linha ou a anterior), forma escrita canônica numa linha com separador uniforme,
+e estrutura validada. Faltando uma, valem a fase 1 e a 2b. A rodada foi interrompida pela decisão do dono (opção B,
+abaixo) com o código coerente e os testes passando.
+
+| Achado | Correção | Commit | Teste |
+|---|---|---|---|
+| N1 (bloqueava) fixo antes da janela de dentro ficava à vista | ao passar para a janela forte, o trecho antes é varrido de novo; o pulo por ano só descarta o ano (os grupos pulados são varridos de novo antes de emitir) | `f62a17c`, `90ee516` | "QA r6 N1" (8 listas) e o fuzz |
+| N2 (bloqueava) guia "11 1" aceitava listas de celulares/CPFs | rótulo de guia obrigatório; DV só com hífen ("-" ou " - "); blocos numa linha só; "comprador" é trava | `f62a17c` | "QA r6 N2–N5" e "QA r5 F2" (sem rótulo, espaço, ponto ou quebra de linha: não isenta) |
+| N3 boleto "10 11 11 1 14" com 0+DDD e CNPJ | DV geral exigido em todas as formas; campos 2/3 não podem ser celular, CPF ou 0+DDD+número; campo 5 não pode ser CNPJ nem 000+CPF; "0"+DDD+número em 11 dígitos sai como dúvida (como na main) | `f62a17c`, `90ee516` | "QA r6 N2–N5" |
+| N4 "Vizinhos: …" passava como NF-e | rótulo de NF-e obrigatório; UF da lista do IBGE; ano 06 até o ano que vem | `f62a17c` | "QA r6 N2–N5" |
+| N5 (estrago) | linha digitável pontuada aceita uma quebra de linha no lugar de um espaço; NF-e 11×4 com 1–3 espaços uniformes | `f62a17c` | "QA r6 N2–N5" |
+| F (rede de segurança) | teste de propriedade em `regras.test.ts`: 50 mil listas (semente fixa) de celulares, fixos, CPFs e CNPJs, com e sem rótulos; nenhum celular/CPF/CNPJ inteiro, fixo com palavra de telefone na linha sai, e nada que a main (copiada no teste) mascarava fica à vista. Achados do fuzz, fechados: 8 dígitos colados longe do rótulo (palavra de telefone vale na linha inteira), fixo "20xx" tomado por ano, par de anos e faixa "3800-6600" só quando isolados (faixa só com "entre/de/até" antes) | `90ee516` | "QA r6 F" (50 mil; mais 7 sementes × 200 mil à mão, 0 falhas) |
+
+Estrago aceito (deixou de ser isento): documento SEM rótulo ("ver 3526 …", "pagar 2379…"); boleto com DV geral errado;
+guia com espaço/ponto no lugar do hífen do DV ou com um bloco por linha; NF-e/boleto com separadores misturados.
+Única exceção do fuzz contra a main, por desenho da fase 2b (r3/r4): fixo sem palavra de telefone logo depois de rótulo de
+documento (lote, boleto, guia, IPTU).
+
+## Correções da 7ª rodada do QA (16/11/2026, @dev Dex — QA r7 CONCERNS de Quinn, HEAD revisado `57c3094`)
+Prioridade do dono: "Garanta minha segurança". Um commit por achado, cada um com teste de regressão (nos dois modos do
+interruptor quando cabe). Nenhuma migração alterada.
+
+| Achado | Correção | Commit | Teste |
+|---|---|---|---|
+| A1 (importante) credencial sem "senha" à vista no modo liberado | sempre (os dois modos): gatilhos login/acesso/credencial/usuário/user/gov.br/gov/INSS/meu inss/e-CAC/conecta/portal/pwd/pass — depois deles, na mesma linha (e na seguinte quando o gatilho fecha a linha), a palavra com cara de senha (6+, letra com dígito/símbolo, não é e-mail) sai; "x@y" sem domínio sai como senha no modo liberado; "senha," / "senha:" / "senha —" / "senha é" / "senha\n" levam a palavra seguinte | `8fe9b55` | `regras.test` "QA r7 A1" (15 repros × 2 modos, falsos positivos, 200 kB) |
+| A2 (importante) exfiltração por link | `shared/dolores/links.ts` (novo): na resposta ao dono, URL fora da lista permitida (domínio de `PUBLIC_SITE_URL` + `trello.com`) vira "[link removido]"; permitidas sem consulta, fragmento e usuário; `enviarTextoEvolution(…, { linkPreview: false })` só na Dolores; prompt: "nunca monte nem repita links" | `08a323b` | `whatsapp-qa.test` "QA r7 A2" (unidade, ponta a ponta nos dois modos, `linkPreview` só quando informado) |
+| A3 (importante) ponte HTTP devolve dados pessoais completos | regra por canal: `filtroDaSaida(canal)`, `campoPessoal(valor, tipo, canal)`, `ContextoFuncao.canal`; canal `ponte` mascarado salvo `DOLORES_PONTE_DADOS_PESSOAIS` = 1/true/sim/on/yes | `ba4a53a` | `dados-pessoais.test`, `leituras.test` "QA r7 A3", `ponte.test` "QA r7 A3" |
+| A4 valores estranhos do interruptor | `DOLORES_MASCARAR_DADOS_PESSOAIS` libera só com ausente/vazio/0/false/nao/não/off/no (trim, sem aspas, sem caixa); outro valor mascara e avisa uma vez sem o valor | `5d6391e` | `dados-pessoais.test` "QA r7 A4" |
+| A5 PIX/conta disfarçados | PIX com "é", "é o", "->", "=>", "—", "pra/para", tipo da chave e uuid sem hífens; conta com "é", "conta do <banco>", nome de banco + forma de conta, "cta", rótulo colado, grupos com " / "; data e "Caixa 1000 litros" ficam; como-ligar diz "melhor esforço" | `d508c17` | `regras.test` "QA r7 A5" |
+| A6 segredos disfarçados | pwd/pass/tkn; código de verificação/segurança/confirmação/2FA e "cód."; bearer em qualquer caixa e "Bearer:"; `github_pat_`, `AIza`, `sk_/rk_/pk_ live/test`, `apikey=`/`api_key:`/`client_secret=` (e "apikey <hex longo>"), PEM | `566b588` | `regras.test` "QA r7 A6" |
+| A7 nome de função desconhecida na auditoria | `nomeParaRegistro`: fora de `FUNCOES`/`PREVISTAS` grava "(desconhecida)" + hash de 10 caracteres (nome e motivo) | `e1afff8`, `e1c6717` | `ponte.test` "QA r7 A7", `whatsapp.test` (injeção) |
+| A8 comando do dono ao modelo sem filtro | comando passa por `sanitizarTexto(…, { mascararDadosPessoais: false })` (só segredos e bancários) antes da Anthropic | `3c8e941` | `whatsapp-qa.test` "QA r7 A8" |
+
+Lista permitida de links (A2): o host de `PUBLIC_SITE_URL` (com e sem "www.") — a mesma variável que já monta o endereço
+do aviso (`server/dolores/whatsapp.ts`), lida sem o valor padrão: sem a variável, nenhum link do sistema passa — e
+`trello.com`/`www.trello.com`.
+
+Em aberto (fora da lista pedida, anotados para o QA): grafias soletradas ou erradas de "senha" ("s e n h a", "sênha",
+"senh@") sem cara de senha no valor; chave `re_…`; uuid depois de "chave aleatória" sem a palavra "pix"; senha só com
+dígitos depois de "login"/"acesso" (fica, para não esconder CPF/telefone que segue a regra de dado pessoal).
+
+## Decisão do dono em 16/11: dados pessoais liberados para a Dolores (opção B)
+**O que muda.** CPF, CNPJ, telefone e e-mail no texto livre saem INTACTOS no que vai ao modelo (ponte HTTP da etapa 1 e
+ferramentas do WhatsApp, que passam pela mesma `executarFuncao`) e na resposta ao dono. Com o filtro desligado, nenhuma das
+fases 1/2a/2b roda: boleto, guia, nota, lote e valores também saem intactos; texto sem segredo volta idêntico.
+**Interruptor.** `DOLORES_MASCARAR_DADOS_PESSOAIS`, lido num único ponto (`server/dolores/dados-pessoais.ts`, a cada
+chamada): ausente, vazio ou "0" = liberado; "1" = volta a mascarar com o código completo (`sanitizarTexto(t,
+{ mascararDadosPessoais: true })`, que é também o padrão da função pura — falha fechada).
+**O que não muda.** Sempre mascarados, nos dois modos: senha, token, PIN, OTP, código de acesso, chave de API (`sk-ant-…`,
+`sk-…`, `Bearer …`, JWT, AWS/GitHub/Slack), agência, conta e chave PIX. Sempre filtrados com o mascaramento LIGADO,
+qualquer que seja a variável (`FILTRO_DO_REGISTRO`): `dolores_acoes` (argumentos e motivo), `dolores_mensagens.texto`,
+`erroParaLog` (logs e motivo de erro); `remetente` e `dolores_remetentes_estranhos` seguem com o número mascarado; a tela
+lê só essas colunas. A resposta continua indo só ao número do dono (conferência estrita).
+**Como voltar atrás.** Vercel › Settings › Environment Variables → `DOLORES_MASCARAR_DADOS_PESSOAIS=1` → Redeploy. Para
+liberar de novo: apagar a variável (ou "0") → Redeploy. Guia: `docs/dolores/como-ligar.md`.
+**Complemento (16/11, ordem da coordenação) — a opção B vale também para os campos e para o prompt:**
+- Campos estruturados pela função única `campoPessoal(valor, tipo)` em `server/dolores/dados-pessoais.ts`: liberado devolve
+  o valor completo; ligado, o mascaramento de antes (CPF "***.***.***-01", telefone "(99) *****-4567", e-mail não sai).
+  Seguem o interruptor: `leitura/clientes.ts` (consultar_cliente: telefone, cpf e o novo email; conversas_whatsapp:
+  telefone), `leitura/financeiro.ts` (listar_financiamentos: cpf), `leitura/regularizacoes.ts` (telefone).
+- Prompt montado por `promptSistemaWhatsapp(mascarar)` (`server/dolores/prompt.ts`), chamado em `cerebro.ts` com o estado
+  do interruptor: liberado, o modelo PODE informar CPF, CNPJ, telefone e e-mail quando o dono pedir ou for útil, sem
+  despejar listas; senha, token, chave, código de acesso e dado bancário nunca. Ligado: o texto anterior.
+- Descrições das ferramentas (`funcoes.ts`, `docs/dolores/ferramentas-etapa1.json` regerado) dizem "completo ou mascarado,
+  conforme a configuração"; `docs/dolores/agente-etapa1.md` atualizado.
+- Chave PIX e conta/agência + número saem INTEIRAS como dado bancário nos dois modos ("conta 529 982 247 25", "pix (99)
+  99123-4567", "pix maria@x.com").
+- Paridade: pendência registrada no ROADMAP (EPIC-025, em espera).
+
 ## Dev Notes (implementação, 16/11/2026)
 - IDS: reaproveitados o cliente da Evolution (`server/_core/evolution.ts`: QR, estado, número, webhook, envio), o servidor
   Evolution da Central (`configEvolution`), o padrão de segredo HMAC do webhook da Central (rótulo próprio), o padrão de
@@ -234,6 +416,19 @@ Tempos (sonda de desempenho do QA, depois das correções): 200 kB só de dígit
   server/integracoes-anthropic.test.ts server/whatsapp*.test.ts server/auth-session.test.ts server/imports-esm.test.ts
   server/api-rotas-producao.test.ts` — 18 arquivos, 248 testes passando; `npx vitest run server/central-vendas` — 10
   arquivos, 76 testes passando (28 arquivos / 324 no total, +6 de regressão da r3); `npx vite build` ok.
+- (a5) Automáticos depois da 4ª rodada do QA (16/11): `npx tsc --noEmit` sem erros; `npx vitest run server/dolores
+  server/integracoes-anthropic.test.ts server/auth-session.test.ts server/imports-esm.test.ts server/api-rotas-producao.test.ts`
+  — 12 arquivos, 202 testes passando; `regras.test.ts` 24 testes (+6 de regressão da r4). Sondas do QA r4: vazamento — 0 casos vazam;
+  estrago — 79 de 103 ficam (eram 62); desempenho — todos os 200 kB abaixo de 250 ms.
+- (a6) Automáticos depois da 5ª rodada do QA (16/11): `npx tsc --noEmit` sem erros; `npx vitest run server/dolores
+  server/integracoes-anthropic.test.ts server/auth-session.test.ts server/imports-esm.test.ts server/api-rotas-producao.test.ts`
+  — 12 arquivos, 208 testes passando; `regras.test.ts` 30 testes (+6 de regressão da r5). Fuzz e sondas: ver "Correções da 5ª rodada".
+- (a7) Automáticos depois da 7ª rodada do QA (16/11): `npx tsc --noEmit` sem erros; `npx vitest run server/dolores
+  server/integracoes-anthropic.test.ts server/central-vendas*.test.ts server/whatsapp*.test.ts server/auth-session.test.ts
+  server/imports-esm.test.ts server/api-rotas-producao.test.ts --maxWorkers=2` — 29 arquivos, 361 testes (360 na 1ª
+  passada; o 1 que falhou esperava o nome cru da função desconhecida, corrigido em `e1c6717`; `whatsapp.test` 34/34 de
+  novo); `regras.test` 37 testes; `npx vite build` ok. Sondas do QA r7 (copiadas, sem alterar as originais): e2e nos 3
+  modos passa; credenciais do sonda-govbr saem nos dois modos.
 - (b) Manuais: nenhum (sem Evolution nem Anthropic reais neste ambiente).
 - (c) Pendentes em produção: migração 0124 no Neon; dono cadastra chave/modelo, limites, o número dele e conecta o número
   da Dolores; teste de aceite pelo WhatsApp; conferir os nomes `senderPn`/`remoteJidAlt` do endereço @lid na Evolution real.
@@ -250,3 +445,19 @@ Tempos (sonda de desempenho do QA, depois das correções): 200 kB só de dígit
 - 16/11/2026 — @qa (Quinn): r3 CONCERNS (R1 importante; R2–R5 menores; informativos).
 - 16/11/2026 — @dev (Dex): R1–R5 e os informativos corrigidos, um commit por achado, com teste de regressão; 0124 não
   alterada. Volta ao portão de QA (InReview).
+- 16/11/2026 — @qa (Quinn): r4 FAIL (S1 bloqueia: chave de NF-e pelo rótulo; S2–S6 menores).
+- 16/11/2026 — @dev (Dex): decisão do filtro reorganizada em duas fases; S1–S5 e S6 corrigidos, um commit por achado,
+  com teste de regressão. Volta ao portão de QA (InReview).
+- 16/11/2026 — @qa (Quinn): r5 FAIL (F1 bloqueia: lista que fecha os DVs de NF-e/boleto; F2–F8 menores).
+- 16/11/2026 — @dev (Dex): F1–F6 e F7 (parte barata) corrigidos, um commit por achado, com teste de regressão. Volta ao
+  portão de QA (InReview).
+- 16/11/2026 — @qa (Quinn): r6 FAIL (N1 e N2 bloqueiam; N3–N5 menores).
+- 16/11/2026 — @dev (Dex): N1–N5 corrigidos com mudança de estrutura (rótulo + forma + estrutura) e fuzz de propriedade
+  "nunca pior que a main"; rodada interrompida pela decisão do dono (opção B), código coerente e testes passando.
+- 16/11/2026 — @dev (Dex): opção B do dono — interruptor `DOLORES_MASCARAR_DADOS_PESSOAIS` (padrão liberado); registro e
+  log sempre filtrados. Em aberto: prompt do sistema e campos estruturados ainda mascaram (ver a seção da decisão).
+- 16/11/2026 — @dev (Dex): opção B completa — prompt e campos de CPF/telefone/e-mail das leituras seguem o interruptor
+  (`campoPessoal`); PIX e conta/agência mascarados inteiros; testes da etapa 1 presos ao modo ligado, com o par liberado.
+- 16/11/2026 — @qa (Quinn): r7 CONCERNS (A1, A2, A3 importantes; A4–A8 menores).
+- 16/11/2026 — @dev (Dex): A1–A8 corrigidos, um commit por achado, com teste de regressão; ponte HTTP mascarada por
+  padrão (`DOLORES_PONTE_DADOS_PESSOAIS`). Volta ao portão de QA (InReview).

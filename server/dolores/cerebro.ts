@@ -3,9 +3,11 @@
 // (`executarFuncao`: pausa, usuária, lista, validação, limite, READ ONLY, filtro de dados pessoais, auditoria) e o
 // resultado volta ao modelo só como `tool_result`. Tetos: voltas, tokens por pedido, limite mensal e prazo total (a função
 // da Vercel tem 60 s). Estourando, responde o que tem e diz que parou. Quem decide SE a IA pode rodar é whatsapp.ts.
+import { sanitizarTexto } from "../../shared/dolores/sanitizar.js";
 import type { Limites } from "../../shared/dolores/whatsapp.js";
 import { liberarReserva, registrarConsumo, reservarChamada, type UsoDaChamada } from "./consumo.js";
-import { PEDIDO_DE_FECHAMENTO, PROMPT_SISTEMA_WHATSAPP } from "./prompt.js";
+import { mascararDadosPessoais } from "./dados-pessoais.js";
+import { PEDIDO_DE_FECHAMENTO, promptSistemaWhatsapp } from "./prompt.js";
 import { intencaoDeAcao, pareceColagem, type MotivoContaminacao } from "../../shared/dolores/fila.js";
 import { ACOES, acaoPorNome } from "./acoes/registro.js";
 import { funcaoPorNome } from "./funcoes.js";
@@ -124,7 +126,10 @@ export async function executarComando(p: PedidoComando): Promise<ResultadoComand
   let motivoContaminacao: MotivoContaminacao | null = contaminado ? "colagem" : null;
   const codigosNaFila = new Set<string>();
   // A mensagem do dono é a ÚNICA entrada de texto do usuário; tudo o que vem do sistema entra como tool_result.
-  const mensagens: MensagemModelo[] = [{ role: "user", content: [{ type: "text", text: p.comando }] }];
+  // QA r7 A8: antes de ir à Anthropic, o comando passa só pelo filtro de SEGREDOS e dados bancários (senha, token, código,
+  // chave de API, agência/conta/PIX). CPF, telefone e e-mail que o dono digita de propósito para a busca ficam.
+  const comando = sanitizarTexto(p.comando, { mascararDadosPessoais: false });
+  const mensagens: MensagemModelo[] = [{ role: "user", content: [{ type: "text", text: comando }] }];
   const tokens = { entrada: 0, saida: 0 };
   const consultas: string[] = [];
   let voltas = 0;
@@ -154,7 +159,7 @@ export async function executarComando(p: PedidoComando): Promise<ResultadoComand
     voltas++;
     try {
       const r = await chamar({
-        apiKey: p.apiKey, modelo: p.modelo, sistema: PROMPT_SISTEMA_WHATSAPP, ferramentas, mensagens,
+        apiKey: p.apiKey, modelo: p.modelo, sistema: promptSistemaWhatsapp(mascararDadosPessoais("whatsapp")), ferramentas, mensagens,
         maxTokens: MAX_TOKENS_SAIDA, timeoutMs: Math.max(1000, restante()), semFerramentas,
       });
       const uso = usoDe(r);

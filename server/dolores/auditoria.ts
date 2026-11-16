@@ -5,6 +5,7 @@ import { createHash } from "node:crypto";
 import { doloresAcoes } from "../../drizzle/schema-dolores.js";
 import { sanitizarTexto } from "../../shared/dolores/sanitizar.js";
 import { getDb } from "../db.js";
+import { FILTRO_DO_REGISTRO } from "./dados-pessoais.js";
 import { erroParaLog } from "./erro-seguro.js";
 import { ETAPA_ATUAL } from "./permissoes.js";
 
@@ -30,7 +31,8 @@ export function sanearArgumentos(v: unknown, nivel = 0): unknown {
   if (v === null || v === undefined) return v ?? null;
   if (typeof v === "string") {
     // filtro de dados pessoais + qualquer sequência longa de dígitos restante (só os 2 últimos)
-    const s = sanitizarTexto(v).replace(/\d[\d.,\-/ ]{6,}\d/g, m => {
+    // gravado no banco: sempre com o mascaramento ligado, qualquer que seja DOLORES_MASCARAR_DADOS_PESSOAIS
+    const s = sanitizarTexto(v, FILTRO_DO_REGISTRO).replace(/\d[\d.,\-/ ]{6,}\d/g, m => {
       const d = m.replace(/\D/g, "");
       return d.length >= 8 ? `***${d.slice(-2)}` : m;
     });
@@ -60,7 +62,7 @@ export async function registrarAcao(a: Acao): Promise<boolean> {
       funcao: a.funcao.slice(0, 80) || "(vazia)",
       argumentos: limitado(sanearArgumentos(a.argumentos)),
       resultado: a.resultado,
-      motivo: a.motivo ? sanitizarTexto(a.motivo).slice(0, 300) : null,
+      motivo: a.motivo ? sanitizarTexto(a.motivo, FILTRO_DO_REGISTRO).slice(0, 300) : null,
       resumo: limitado(a.resumo ?? null),
       duracaoMs: a.duracaoMs == null ? null : Math.max(0, Math.round(a.duracaoMs)),
       pedidoId: a.pedidoId ? a.pedidoId.slice(0, 120) : null,

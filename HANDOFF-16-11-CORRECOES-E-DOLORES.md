@@ -150,6 +150,20 @@ migração da etapa antes. Depois lançar S-03 e S-05, e por fim o EPIC-025 (Dol
   vite build ok; 200 kB patológicos < 1 s (antes ~60 s). **(b) manuais:** nenhum. **(c) produção:** igual à r2.
 - **Próximo passo exato:** 4ª rodada do portão de QA da E2; aprovado, publicar (0124 já em aplicação, como está).
 
+
+## Atualização — 16/11 — EPIC-025 E2: correções da 7ª rodada do QA (CONCERNS, opção B) — @dev
+- **Concluído** (ramo `epic025-dolores-etapa2`, cópia em `claude/wip-epic025-dolores-etapa2`): A1 `8fe9b55` (credenciais
+  sem "senha"), A6 `566b588` (segredos disfarçados), A5 `d508c17` (PIX/conta disfarçados), A4 `5d6391e` (interruptor falha
+  fechado), A3 `ba4a53a` (ponte HTTP mascarada por padrão, `DOLORES_PONTE_DADOS_PESSOAIS`), A2 `08a323b` (links só do
+  sistema e do Trello, sem prévia), A7 `e1afff8`+`e1c6717` (nome de função desconhecida com hash), A8 `3c8e941` (comando
+  sem segredos ao modelo). Tabela completa na story E2 ("Correções da 7ª rodada").
+- **Testes:** (a) automáticos — `tsc` ok; lista pedida do vitest 361 testes em 29 arquivos (1 ajustado ao A7 e repassado);
+  `vite build` ok. (b) manuais — nenhum. (c) produção — os mesmos de antes; agora também conferir `PUBLIC_SITE_URL` na
+  Vercel (sem ela, links do sistema saem da resposta) e decidir se a ponte precisa de `DOLORES_PONTE_DADOS_PESSOAIS=1`.
+- **Pendências:** ver "Em aberto" na seção da 7ª rodada (grafias soletradas de "senha", chave `re_…`, "chave aleatória"
+  sem "pix"). Paridade com o Santa Fé: a pendência da Dolores no ROADMAP vale também para estas regras.
+- **Próximo passo exato:** 8ª rodada do portão de QA da E2 sobre o ramo; aprovado, publicar.
+
 ## Atualização — 16/11 — EPIC-025 E3 (Ações) — @dev
 - **Ramo:** `epic025-dolores-etapa3` (base: `epic025-dolores-etapa2` em `bc470d1`, ainda em QA), cópia em
   `claude/wip-epic025-dolores-etapa3`. Story: `docs/stories/epics/epic-025-dolores/E3-acoes.md`.
