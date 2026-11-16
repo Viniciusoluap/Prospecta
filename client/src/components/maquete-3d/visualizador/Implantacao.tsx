@@ -6,11 +6,12 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useFrame } from "@react-three/fiber";
 import * as THREE from "three";
-import { alturaDoRelevo, areaPoligono, type Edificacao, type Implantacao as DadosImplantacao, type Ponto } from "@shared/maquete-3d/modelo";
+import { alturaDoRelevo, areaPoligono, type Edificacao, type Implantacao as DadosImplantacao, type Muro as DadosMuro, type Ponto } from "@shared/maquete-3d/modelo";
 import { contornoDoPavimento, dentroDoPoligono, pavimentosOrdenados, telhado, topoDaEdificacao } from "@shared/maquete-3d/geometria3d";
 import { limites } from "@shared/maquete-3d/modelo";
 import { caixaDoTerreno, limitesDaImplantacao, sistemaViario, LADO_MALHA } from "@shared/maquete-3d/vias";
 import { Casa } from "./Casa";
+import { Muro } from "./Muro";
 import { COR_ASFALTO_PINTADO, COR_LEITO, sorteioDoTerreno, Vias } from "./Vias";
 import type { Materiais } from "./materiais";
 
@@ -115,13 +116,15 @@ const LADO_MAPA = 2048;     // pixels do mapa pintado sobre o terreno
  * Implantação como um terreno só: uma malha que acompanha a topografia do estudo, com o mapa (divisa, ruas e
  * lotes coloridos pela situação) pintado por cima. Assim nada "flutua" nem pisca, em qualquer relevo.
  */
-export function Implantacao({ implantacao: imp, edificacoes, unidades, m, selecionado, onSelecionar, noite = 0, aprimorado = false }: {
+export function Implantacao({ implantacao: imp, edificacoes, unidades, m, selecionado, onSelecionar, noite = 0, aprimorado = false, muro = null }: {
   implantacao: DadosImplantacao; edificacoes: Edificacao[]; unidades: UnidadeVenda[]; m: Materiais;
   selecionado: string | null; onSelecionar: (l: LoteNaCena | null) => void;
   /** 0 (dia) a 1 (noite): acende a iluminação pública. */
   noite?: number;
   /** Botão "Aprimorar": nível máximo de detalhe nas vias. */
   aprimorado?: boolean;
+  /** Muro de divisa que vale (muroDaMaquete): obrigatório no condomínio; nulo = sem muro. */
+  muro?: DadosMuro | null;
 }) {
   const lotes = useMemo(() => lotesDaCena(imp, unidades), [imp, unidades]);
   const caixa = useMemo(() => caixaDoTerreno(imp), [imp]);
@@ -224,6 +227,7 @@ export function Implantacao({ implantacao: imp, edificacoes, unidades, m, seleci
       <mesh geometry={malha} material={mapa.material} receiveShadow onClick={e => { e.stopPropagation(); aoTocar(e.point.x, e.point.z); }} />
       {imp.relevo && <mesh geometry={saia} material={terra} />}
       <Vias implantacao={imp} sistema={viario} noite={noite} aprimorado={aprimorado} />
+      {muro && imp.terreno.length >= 3 && <Muro implantacao={imp} muro={muro} sistema={viario} />}
       {volumes.map(itens => <Volumes key={itens[0].e.id} edificacao={itens[0].e} itens={itens} relevo={imp.relevo} />)}
       {comDetalhe.map(({ p, e }) => (
         // A casa é girada em torno do próprio canto de origem e assentada na cota do terreno naquele ponto.
