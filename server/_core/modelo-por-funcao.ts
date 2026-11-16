@@ -23,7 +23,9 @@ export const leitorModelosPadrao: LeitorModelos = {
 };
 
 const limpo = (v: string | null | undefined) => (v ?? "").trim() || null;
-const ler = async (deps: LeitorModelos, chave: string) => limpo(await deps.lerBanco(chave).catch(() => undefined));
+/** Nunca lança: erro síncrono de `lerBanco` (antes de devolver a promessa) também vira "não escolhido". */
+const ler = async (deps: LeitorModelos, chave: string) =>
+  limpo(await Promise.resolve().then(() => deps.lerBanco(chave)).catch(() => undefined));
 
 /**
  * Modelo que a função usa agora. Nunca lança: banco fora do ar = "não escolhido" (cai para o próximo da ordem).

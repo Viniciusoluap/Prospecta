@@ -5,7 +5,7 @@ import { ADMIN_MODULES } from "../shared/admin-permissions";
 import { FUNCOES_ANTHROPIC } from "../shared/funcoes-anthropic";
 import { createIntegracoesRouter, type IntegracoesDeps } from "./integracoes-router";
 import { CHAVE_MODELO_ANTHROPIC_PAINEL, CHAVE_SEGREDO_ANTHROPIC_PAINEL, type AnthropicPainelDeps, type ClienteModelos } from "./_core/anthropic-painel";
-import { CHAVE_MODELO_PREFERENCIAL, chaveAvisoDaFuncao, chaveModeloDaFuncao, modeloDaFuncao } from "./_core/modelo-por-funcao";
+import { CHAVE_MODELO_PREFERENCIAL, chaveAvisoDaFuncao, chaveModeloDaFuncao, modeloDaFuncao, modelosGravadosDasFuncoes } from "./_core/modelo-por-funcao";
 import { decryptSecret, encryptSecret } from "./_core/secret-vault";
 import { ENV } from "./_core/env";
 import { modeloDaLeitura, resolverCredencialIA } from "./maquete-3d/base";
@@ -78,6 +78,12 @@ describe("modeloDaFuncao — resolução (só nomes de modelo)", () => {
     const fora = { lerBanco: async () => { throw new Error("banco fora"); } };
     expect(await modeloDaFuncao("dolores_whatsapp", { preferencial: "pref" }, fora)).toEqual({ modelo: "pref", origem: "preferencial" });
     expect(await modeloDaFuncao("inventada" as never, {}, l.deps)).toEqual({ modelo: null, origem: null });
+  });
+  it("QA S-11 achado 7: erro SÍNCRONO de lerBanco também não lança (cai para o próximo da ordem)", async () => {
+    const sincrono = { lerBanco: (() => { throw new Error("sync"); }) as unknown as (k: string) => Promise<string | undefined> };
+    expect(await modeloDaFuncao("dolores_whatsapp", { preferencial: "pref" }, sincrono)).toEqual({ modelo: "pref", origem: "preferencial" });
+    expect(await modeloDaFuncao("maquete_leitura", { padrao: "p" }, sincrono)).toEqual({ modelo: "p", origem: "padrao" });
+    expect(await modelosGravadosDasFuncoes(sincrono)).toEqual({ maquete_leitura: { modelo: null, sumiu: null }, dolores_whatsapp: { modelo: null, sumiu: null } });
   });
   it("nunca lê a chave: só as chaves de modelo de dashboard_settings", async () => {
     const l = leitor({});
