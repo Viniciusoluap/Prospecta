@@ -756,6 +756,12 @@ describe("filtro de dados pessoais em texto livre (M1)", () => {
       expect(sanitizarTexto(t, LIB), t).toBe(t);
       expect(sanitizarTexto(t), t).toBe(t);
     }
+    // QA r8 achado 8: "chave aleatória" sem a palavra pix e a chave do Resend
+    expect(sanitizarTexto("chave aleatória: 123e4567-e89b-12d3-a456-426614174000", LIB)).toBe(`chave aleatória: ${B}`);
+    expect(sanitizarTexto("chave aleatória 123e4567e89b12d3a456426614174000")).not.toContain("123e4567");
+    expect(sanitizarTexto("RESEND_API_KEY=re_123abcDE_fghijklmnopqrstuvwx", LIB)).not.toContain("re_123abc");
+    expect(sanitizarTexto("chave re_AbCdEf123456_ghIJKLmnopQRstu enviada", LIB)).toBe("chave [chave de acesso omitida] enviada");
+    for (const t of ["chave aleatória ainda não criada", "re_entrega da obra", "pre_venda_2026"]) expect(sanitizarTexto(t, LIB), t).toBe(t);
     // QA r8 achado 4: intervalos de anos, ano-mês, unidade depois e nome ambíguo sem contexto bancário ficam
     for (const t of ["safra 2025-2026", "BB 2025-2026", "caixa 1000-2000 litros", "neon 1200-1500 lm", "cc 2026-11", "inter 2025-11",
       "Caixa 500-1000 L", "safra 2024/2025 de soja", "inter 1200-1500 m²"]) {

@@ -271,7 +271,8 @@ const BANCO = new RegExp(
 const SEP_PIX = String.raw`((?:\s*(?:=>|->|[:#=–—-]|(?:n[ºo°.]?|é|eh|o|a|pra|para|pro|do|da|no|na|cpf|cnpj|telefone|celular|cel|e-?mail|aleat[oó]ria|chave)(?![\p{L}\p{N}]))){0,5}\s*)`;
 const VALOR_PIX_TEXTO = String.raw`[\p{L}\p{N}_.+-]{1,64}@[\p{L}\p{N}_-]{1,63}(?:\.[\p{L}\p{N}_-]{1,63}){0,6}|[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}|[0-9a-f]{32}(?![0-9a-z])`;
 /** Chave PIX em forma de e-mail ou aleatória (uuid): sai como dado bancário antes do filtro de e-mail. */
-const PIX_EMAIL = new RegExp(String.raw`\b(chave\s+pix|pix)\b${SEP_PIX}(?:${VALOR_PIX_TEXTO})`, "giu");
+// QA r8 achado 8: "chave aleatória: <uuid>" sem a palavra "pix" também é chave PIX.
+const PIX_EMAIL = new RegExp(String.raw`\b(chave\s+pix|pix|chave\s+aleat[oó]ria)(?![\p{L}\p{N}])${SEP_PIX}(?:${VALOR_PIX_TEXTO})`, "giu");
 const PIX = new RegExp(String.raw`\b(chave\s+pix|pix)\b${SEP_PIX}(${VALOR_PIX_TEXTO}|\+?\(?\d[\d.\-/() ]{6,24}\d)`, "giu");
 // E-mail: "a@b.com", "a @ b.com", "a[at]b.com", "a (arroba) b.com" e, colado, sem domínio de topo ("a@b").
 // QA r5 F6: letras e números de qualquer escrita (\p{L}\p{N}, flag u) — "maria.conceição@uol.com.br" sai inteiro.
@@ -749,7 +750,8 @@ function trocarPix(m: string, rotulo: string, sep: string, valor: string, pos: n
 export type OpcoesFiltro = { mascararDadosPessoais?: boolean };
 export const CHAVE_OMITIDA = "[chave de acesso omitida]";
 /** Chave de API ou credencial em forma reconhecível (sempre sai, com ou sem palavra de senha antes). */
-const CHAVE_API = /\bsk-ant-[\w-]{4,}|\bsk-(?:proj-)?[A-Za-z0-9_-]{20,}|\bgithub_pat_\w{20,}|\bAIza[\w-]{30,}|\b(?:sk|rk|pk)_(?:live|test)_\w{10,}|-----BEGIN [A-Z ]{0,40}PRIVATE KEY-----[\s\S]*?(?:-----END [A-Z ]{0,40}PRIVATE KEY-----|$)|\beyJ[\w-]{8,}\.[\w-]{8,}\.[\w-]{8,}|\b(?:AKIA|ASIA)[0-9A-Z]{16}\b|\bgh[pousr]_[A-Za-z0-9]{30,}|\bxox[abprs]-[\w-]{10,}/g;
+// QA r8 achado 8: chave do Resend ("re_" + 20+ letras/dígitos).
+const CHAVE_API = /\bsk-ant-[\w-]{4,}|\bsk-(?:proj-)?[A-Za-z0-9_-]{20,}|\bgithub_pat_\w{20,}|\bAIza[\w-]{30,}|\b(?:sk|rk|pk)_(?:live|test)_\w{10,}|-----BEGIN [A-Z ]{0,40}PRIVATE KEY-----[\s\S]*?(?:-----END [A-Z ]{0,40}PRIVATE KEY-----|$)|\beyJ[\w-]{8,}\.[\w-]{8,}\.[\w-]{8,}|\b(?:AKIA|ASIA)[0-9A-Z]{16}\b|\bgh[pousr]_[A-Za-z0-9]{30,}|\bxox[abprs]-[\w-]{10,}|\bre_(?=\w*\d)(?=\w*[A-Za-z])\w{20,}/g;
 /** QA r7 A6: "bearer" em qualquer caixa, com ":" opcional ("Bearer: …", "bearer abc…"). */
 const BEARER = /\bbearer\b\s*:?\s*[\w.~+/=-]{8,}/gi;
 /**
