@@ -829,7 +829,7 @@ function comodosDaPlanta(paredes: Parede[], linhas: Linha[], retas: Reta[], x0: 
     }
   }
   for (const d of divisoes) nos.push(...d);
-  const comodos: { nome: string; funcao: FuncaoComodo; pontos: Ponto[]; areaInformada: number | null; areaLida: number; nomeado: boolean; marca: number }[] = [];
+  const comodos: { nome: string; funcao: FuncaoComodo; pontos: Ponto[]; areaInformada: number | null; areaLida: number; nomeado: boolean; rotulado: boolean; marca: number }[] = [];
   const usados = new Set<Rotulo>(), juntos: string[][] = [];
   for (const r of regioes) {
     const areaLida = r.celulas * CELULA * CELULA;
@@ -847,7 +847,7 @@ function comodosDaPlanta(paredes: Parede[], linhas: Linha[], retas: Reta[], x0: 
     if (comNome && outrosNomes.length) juntos.push([comNome.nome!, ...outrosNomes]);
     comodos.push({
       nome: rotulo ? rotulo.charAt(0).toUpperCase() + rotulo.slice(1).toLowerCase() : `Ambiente ${comodos.length + 1}`,
-      funcao: (rotulo && funcaoDoNome(rotulo)) || "outro", pontos, areaInformada, areaLida, nomeado: !!comNome, marca: r.marca,
+      funcao: (rotulo && funcaoDoNome(rotulo)) || "outro", pontos, areaInformada, areaLida, nomeado: !!comNome, rotulado: !!rotulo || rots.length > 0, marca: r.marca,
     });
   }
   /** Rótulos com nome que não ficaram dentro de nenhum ambiente fechado pelas paredes. */
@@ -935,6 +935,14 @@ const PRAZO_MS = 3500;
 type Pagina = { prim: Primitivas; linhas: Linha[]; titulos: Titulo[]; arcos: Arco[]; prazo: number; estourou: boolean };
 type Caixa = { x0: number; y0: number; x1: number; y1: number };
 
+/** Centroide de um polígono (pela área; cai na média dos vértices se for degenerado). */
+function centroide(pts: Ponto[]): Ponto {
+  let a = 0, cx = 0, cy = 0;
+  pts.forEach((p, i) => { const q = pts[(i + 1) % pts.length], f = p.x * q.y - q.x * p.y; a += f; cx += (p.x + q.x) * f; cy += (p.y + q.y) * f; });
+  if (Math.abs(a) < 1e-9) return { x: pts.reduce((s, p) => s + p.x, 0) / pts.length, y: pts.reduce((s, p) => s + p.y, 0) / pts.length };
+  return { x: cx / (3 * a), y: cy / (3 * a) };
+}
+
 /** Corta a parede (eixo) na caixa; as aberturas que ficam fora saem. Devolve falso se sobrar menos de 30 cm. */
 function recortar(w: Parede, c: Caixa): boolean {
   const dx = w.b.x - w.a.x, dy = w.b.y - w.a.y;
@@ -1000,17 +1008,37 @@ function plantasNaEscala(pg: Pagina, escala: number, origem: PlantaLida["escalaO
     const titulo = tit?.str ?? "";
     const pendencias: string[] = [];
 
-    // A construção é onde estão os cômodos com nome. Muros do lote, garagem descoberta, quintal e calçada desenhados
-    // em volta ficam de fora do pavimento (com aviso), para não inflar a casa.
+    // A construção é onde estão os cômodos com nome — e os ambientes com algum rótulo (piscina coberta, adega, escada)
+    // ou ligados a eles por porta ou vão (garagem, closet sem nome). O resto em volta (muro do lote, quintal, calçada,
+    // anexo fechado sem porta para a casa) fica de fora do pavimento, com aviso dizendo o que saiu.
     const descartadas = new Set<number>();
     let recorte: Caixa | null = null;
-    const nomeadosC = comodos.filter(c => c.nomeado);
-    if (nomeadosC.length >= 2) {
-      const pts = nomeadosC.flatMap(c => c.pontos.map(p => ({ x: p.x + x0, y: p.y + y0 })));
-      const folga = Math.max(...grupo.map(w => w.esp)) / 2 + 0.15;
+    if (comodos.filter(c => c.nomeado).length >= 2) {
+      const ficamMarcas = new Set(comodos.filter(c => c.rotulado).map(c => c.marca));
+      const ligacoes: [number, number][] = [];
+      for (const w of grupo) {
+        const comp = Math.hypot(w.b.x - w.a.x, w.b.y - w.a.y) || 1, ux = (w.b.x - w.a.x) / comp, uy = (w.b.y - w.a.y) / comp, lado = w.esp / 2 + 0.1;
+        for (const v of w.vaos) {
+          if (v.tipo === "janela") continue;
+          const cx = w.a.x + ux * v.t, cy = w.a.y + uy * v.t;
+          ligacoes.push([lidos.regiao(cx - uy * lado, cy + ux * lado), lidos.regiao(cx + uy * lado, cy - ux * lado)]);
+        }
+      }
+      for (let mudou = true; mudou;) {
+        mudou = false;
+        for (const [p, q] of ligacoes) {
+          if (p >= 3 && q >= 3 && ficamMarcas.has(p) !== ficamMarcas.has(q)) { ficamMarcas.add(p); ficamMarcas.add(q); mudou = true; }
+        }
+      }
+      const pts = comodos.filter(c => ficamMarcas.has(c.marca)).flatMap(c => c.pontos.map(p => ({ x: p.x + x0, y: p.y + y0 })));
+      const folga = Math.max(...grupo.map(w => w.esp)) / 2 + 0.03;
       const c: Caixa = { x0: Math.min(...pts.map(p => p.x)) - folga, y0: Math.min(...pts.map(p => p.y)) - folga, x1: Math.max(...pts.map(p => p.x)) + folga, y1: Math.max(...pts.map(p => p.y)) + folga };
-      const centro = (cm: (typeof comodos)[number]) => ({ x: x0 + cm.pontos.reduce((s, p) => s + p.x, 0) / cm.pontos.length, y: y0 + cm.pontos.reduce((s, p) => s + p.y, 0) / cm.pontos.length });
-      for (const cm of comodos) { const q = centro(cm); if (!cm.nomeado && (q.x < c.x0 || q.x > c.x1 || q.y < c.y0 || q.y > c.y1)) descartadas.add(cm.marca); }
+      let areaFora = 0;
+      for (const cm of comodos) {
+        if (ficamMarcas.has(cm.marca)) continue;
+        const q = centroide(cm.pontos);
+        if (q.x + x0 < c.x0 || q.x + x0 > c.x1 || q.y + y0 < c.y0 || q.y + y0 > c.y1) { descartadas.add(cm.marca); areaFora += cm.areaLida; }
+      }
       const antes = grupo.reduce((s, w) => s + Math.hypot(w.b.x - w.a.x, w.b.y - w.a.y), 0);
       const ficam = grupo.map(w => ({ ...w, a: { ...w.a }, b: { ...w.b }, vaos: w.vaos.map(v => ({ ...v })) })).filter(w => recortar(w, c));
       const depois = ficam.reduce((s, w) => s + Math.hypot(w.b.x - w.a.x, w.b.y - w.a.y), 0);
@@ -1022,7 +1050,8 @@ function plantasNaEscala(pg: Pagina, escala: number, origem: PlantaLida["escalaO
         const nx0 = Math.min(...xs), ny0 = Math.min(...ys);
         comodos = comodos.map(cm => ({ ...cm, pontos: cm.pontos.map(p => ({ x: p.x + x0 - nx0, y: p.y + y0 - ny0 })) }));
         x0 = nx0; y0 = ny0; largura = Math.max(...xs) - x0; comprimento = Math.max(...ys) - y0;
-        pendencias.push(`O desenho tem paredes e áreas sem nome em volta dos cômodos (muro do lote, garagem descoberta, quintal ou calçada: ${r2(antes - depois)} m de paredes e ${descartadas.size} área${descartadas.size === 1 ? "" : "s"}). O pavimento ficou só com a parte dos cômodos com nome (${r2(largura)} × ${r2(comprimento)} m); confira na revisão se a construção é só isso.`);
+        const n = descartadas.size;
+        pendencias.push(`Ficaram fora do pavimento ${n ? `${n} área${n === 1 ? "" : "s"} sem nome e sem porta para os cômodos (${r2(areaFora)} m²) e ` : ""}${r2(antes - depois)} m de paredes em volta (muro do lote, quintal, calçada ou anexo sem ligação com a casa). O pavimento ficou com ${r2(largura)} × ${r2(comprimento)} m; se alguma dessas áreas faz parte da construção, inclua na revisão.`);
       }
     }
     if (lidos.soltos.length) pendencias.push(`Cômodo${lidos.soltos.length > 1 ? "s" : ""} escrito${lidos.soltos.length > 1 ? "s" : ""} na planta sem paredes que o${lidos.soltos.length > 1 ? "s" : ""} fechem: ${lista(lidos.soltos.map(r => `${r.nome}${r.area ? ` (${r.area} m²)` : ""}`))}. Desenhe na revisão.`);
