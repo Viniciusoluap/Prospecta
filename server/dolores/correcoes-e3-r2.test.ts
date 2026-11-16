@@ -141,3 +141,21 @@ describe("R2-N3 invertido — aprovação executa exatamente o que foi mostrado"
     expect(t.description.split("\n\n")[0]).toBe(item.argumentos.descricao);
   });
 });
+
+describe("M4 invertido — identidade do item criar_tarefa na fila", () => {
+  it("mesmo título com outra descrição, prazo ou prioridade é item NOVO; o mesmo pedido repetido devolve o código do que aguarda", async () => {
+    const base = { titulo: "Ligar para o cartório", responsavel: "Bianca Souza" };
+    const pedir = async (extra: Record<string, unknown>) => {
+      const r = await doDono("criar_tarefa", { ...base, ...extra }, { contaminado: true });
+      return (r.body.dados as any).naFila[0];
+    };
+    expect((await pedir({})).jaAguardava).toBe(false);
+    expect((await pedir({ descricao: "Pedir a certidão." })).jaAguardava).toBe(false);
+    expect((await pedir({ prazo: "2026-11-20" })).jaAguardava).toBe(false);
+    expect((await pedir({ prioridade: "alta" })).jaAguardava).toBe(false);
+    expect((await pedir({ responsavel: "bianca" })).jaAguardava).toBe(true); // mesmo conteúdo (responsável conferido)
+    const itens = await fila();
+    expect(itens).toHaveLength(4);
+    expect(new Set(itens.map((i: any) => i.resumo)).size).toBe(4);
+  });
+});

@@ -132,7 +132,9 @@ export async function tarefaParaFila(args: z.infer<typeof entradaCriarTarefa>, c
   const resumo = resumoDaFila(`${avisoDaFila(ctx.motivoContaminacao)} criar a tarefa "${titulo}" ${partes.join(", ")}.`,
     [`criar a tarefa "${titulo}" para ${nome}, `, ...(descricao ? [`, descrição: "${descricao}".`] : [])]);
   const argumentos = { ...args, titulo, responsavel: nome, ...(descricao ? { descricao } : {}) };
-  return { alvo: alvoDoPedido("tarefa", [titulo.toLowerCase(), sem(args.responsavel), args.vinculo?.tipo ?? "", args.vinculo?.id ?? ""]), resumo, argumentos };
+  // QA R2 M4: a identidade do item é TODO o conteúdo — pedido com outra descrição, prazo ou prioridade é item novo (nunca
+  // devolve o antigo como se fosse o novo); o mesmo pedido repetido continua devolvendo o código do que já aguarda
+  return { alvo: alvoDoPedido("tarefa", [titulo.toLowerCase(), sem(nome), args.prazo ?? "", args.prioridade, args.vinculo?.tipo ?? "", args.vinculo?.id ?? "", descricao ?? ""]), resumo, argumentos };
 }
 
 /** Alvo do item (o mesmo pedido não fica duas vezes aguardando): função + resumo do conteúdo. */
