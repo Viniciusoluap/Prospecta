@@ -413,3 +413,16 @@ describe("QA: link publicado antes do muro", () => {
     expect(muroDaMaquete(modeloParaLinkPublico(comMuroGravado(casa)))).toBeNull();
   });
 });
+
+describe("QA: campos numéricos do editor do muro", () => {
+  it("só limitam a faixa ao confirmar: o texto digitado fica como está até sair do campo", async () => {
+    const { numeroConfirmado } = await import("../client/src/components/maquete-3d/EditorMuro.js");
+    // Durante a digitação nada é chamado; ao confirmar "1" (a caminho de "1,2"), aí sim vale o mínimo de 1,8.
+    expect(numeroConfirmado("2,75", 2.5, [1.8, 4])).toBe(2.75);
+    expect(numeroConfirmado("1", 2.5, [1.8, 4])).toBe(1.8);
+    expect(numeroConfirmado("9", 2.5, [1.8, 4])).toBe(4);
+    expect(numeroConfirmado("", 2.5, [1.8, 4])).toBe(2.5);
+    expect(numeroConfirmado("abc", 0.2, [0.1, 0.5])).toBe(0.2);
+    expect(numeroConfirmado("0.123", 0.2, [0.1, 0.5])).toBe(0.12);
+  });
+});
