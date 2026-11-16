@@ -1,6 +1,6 @@
 // EPIC-024 S-07 — filtros combinados da listagem de Incorporação (situação, nome e tipo).
 // Todos valem ao mesmo tempo (E lógico); o nome ignora maiúsculas e acentos.
-import { normalizarTexto } from "../obras-filtro";
+import { normalizarTexto } from "../obras-filtro.js";
 
 export const TIPOS_INCORPORACAO = [
   { value: "desmembramento_simples", label: "Desmembramento Simples" },

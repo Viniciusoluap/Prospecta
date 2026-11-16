@@ -2,7 +2,7 @@
 // mesmos dados + mesma data de emissão = mesmos bytes (data de criação e identificador do PDF fixados pela entrada).
 // Regra do dono: nunca inventar termos — só o que está registrado na negociação; campo vazio é omitido.
 import { jsPDF } from "jspdf";
-import type { Proposta, TipoProposta } from "./negociacao";
+import type { Proposta, TipoProposta } from "./negociacao.js";
 
 export const ROTULO_MODALIDADE: Record<TipoProposta, string> = {
   compra_avista: "Compra à vista",
