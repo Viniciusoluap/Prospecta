@@ -19,6 +19,8 @@ export type ContextoRestauracao = {
   vinculoExiste: (tipo: string, categoriaOperacional: string, id: string) => boolean;
   /** Valores já usados em colunas únicas (ex.: requestKey) por OUTROS lançamentos. */
   unicosEmUso: Record<string, Set<string>>;
+  /** requestKey em uso por um lançamento ARQUIVADO (fora das listas e dos totais). */
+  chavesEmArquivados?: Set<string>;
 };
 
 export type ItemPlano = {
@@ -95,7 +97,10 @@ export function planejarRestauracao(
       const v = texto(dados[coluna]);
       // EPIC-024 S-01: a chave do Conta Azul em uso = a mesma linha foi reimportada; voltar sem a chave a duplicaria.
       if (v && emUso.has(v) && coluna === "requestKey" && v.startsWith(PREFIXO_CHAVE_CONTA_AZUL)) {
-        return { ...base, acao: "ja_existe" as const, avisos: ["Já foi importado de novo do Conta Azul (mesma chave): não será duplicado."], dados: {} };
+        const aviso = ctx.chavesEmArquivados?.has(v)
+          ? "A mesma linha do Conta Azul está em outro lançamento ARQUIVADO (fora das listas): não será duplicada. Restaure aquele arquivamento para vê-la."
+          : "Já foi importado de novo do Conta Azul (mesma chave, lançamento ativo): não será duplicado.";
+        return { ...base, acao: "ja_existe" as const, avisos: [aviso], dados: {} };
       }
       if (v && emUso.has(v)) {
         avisos.push(`A chave única "${coluna}" já está em uso por outro lançamento: volta sem ela.`);

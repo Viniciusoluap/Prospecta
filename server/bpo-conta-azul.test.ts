@@ -10,7 +10,7 @@ vi.mock("./db.js", async orig => ({ ...(await orig<typeof import("./db.js")>()),
 vi.mock("./_core/env.js", () => ({ ENV: { cookieSecret: "segredo-de-teste" } }));
 
 import { getDb } from "./db.js";
-import { bpoRouter } from "./bpo-router.js";
+import { appRouter } from "./routers.js";
 import { gravarMovimentos } from "./bancos.js";
 import { sincronizarCobrancasAsaas } from "./bpo-asaas.js";
 import {
@@ -129,7 +129,11 @@ const ANTES_0075 = `
 
 let pg: PGlite;
 const linhas = async <T = Record<string, unknown>>(q: string) => (await pg.query<T>(q)).rows;
-const admin = () => bpoRouter.createCaller({ user: { id: 1, role: "admin", active: true }, req: {}, res: {} } as never);
+// Pelo appRouter, com o caminho completo ("bpo.contaAzul.…"): é o caminho que a checagem de módulo usa.
+// (bpoRouter.createCaller perde o prefixo "bpo." e o colaborador cairia em "sem módulo" por engano.)
+const caller = (user: Record<string, unknown>) => appRouter.createCaller({ user, req: {}, res: {} } as never).bpo;
+const admin = () => caller({ id: 1, role: "admin", active: true });
+const colaborador = (modulos: string[]) => caller({ id: 2, role: "colaborador", active: true, permissions: JSON.stringify(modulos) });
 
 beforeEach(async () => {
   pg = new PGlite();
@@ -371,8 +375,59 @@ describe("arquivados que bloqueiam a reimportação (EPIC-024 S-01)", () => {
     expect(await contar("bpo_lancamentos WHERE valor = 320.50")).toBe(1);
   });
 
-  it("só o admin libera", async () => {
-    const colaborador = bpoRouter.createCaller({ user: { id: 2, role: "colaborador", active: true, permissions: JSON.stringify(["bpo"]) }, req: {}, res: {} } as never);
-    await expect(colaborador.contaAzul.liberarReimportacao({ arquivos: BACKUP, confirmacao: "LIBERAR" })).rejects.toMatchObject({ code: "FORBIDDEN" });
+  it("só o papel admin libera; colaborador com o módulo BPO é barrado (prévia e importação seguem pelo módulo)", async () => {
+    await admin().contaAzul.importar({ arquivos: BACKUP });
+    await arquivarTudoDoContaAzul();
+    const comBpo = colaborador(["bpo"]);
+    await expect(comBpo.contaAzul.liberarReimportacao({ arquivos: BACKUP, confirmacao: "LIBERAR" })).rejects.toMatchObject({ code: "FORBIDDEN", message: expect.stringMatching(/Só o administrador/) });
+    expect(await contar("bpo_lancamentos")).toBe(4);
+    // permissão atual (módulo BPO) preservada na prévia e na importação
+    expect((await comBpo.contaAzul.previa({ arquivos: BACKUP })).lancamentos.arquivados.bloqueando).toBe(4);
+    expect(await comBpo.contaAzul.importar({ arquivos: BACKUP })).toMatchObject({ lancamentosCriados: 0 });
+    const semBpo = colaborador(["crm"]);
+    await expect(semBpo.contaAzul.previa({ arquivos: BACKUP })).rejects.toMatchObject({ code: "FORBIDDEN" });
+    await expect(semBpo.contaAzul.importar({ arquivos: BACKUP })).rejects.toMatchObject({ code: "FORBIDDEN" });
+    await expect(semBpo.contaAzul.liberarReimportacao({ arquivos: BACKUP, confirmacao: "LIBERAR" })).rejects.toMatchObject({ code: "FORBIDDEN" });
+    expect(await admin().contaAzul.liberarReimportacao({ arquivos: BACKUP, confirmacao: "LIBERAR" })).toMatchObject({ removidos: 4 });
+  });
+
+  it("arquivado de OUTRA origem com a chave do Conta Azul: contado à parte, com o motivo, e nunca removido", async () => {
+    await admin().contaAzul.importar({ arquivos: BACKUP });
+    await arquivarTudoDoContaAzul();
+    const [l] = await linhas<{ id: number }>("SELECT id FROM bpo_lancamentos WHERE valor = 1500");
+    await pg.exec(`UPDATE bpo_lancamentos SET origem_efetiva = 'legado' WHERE id = ${l.id}`);
+    const p = await admin().contaAzul.previa({ arquivos: BACKUP });
+    expect(p.lancamentos.arquivados).toMatchObject({ bloqueando: 4, liberaveis: 3, comVinculo: 0, outraOrigem: 1 });
+    expect(p.lancamentos.arquivados.exemplosComVinculo[0].motivos[0]).toMatch(/origem "legado"/);
+    const r = await admin().contaAzul.liberarReimportacao({ arquivos: BACKUP, confirmacao: "LIBERAR" });
+    expect(r).toMatchObject({ removidos: 3, mantidos: 1 });
+    expect(await linhas("SELECT id, origem_efetiva o FROM bpo_lancamentos")).toEqual([{ id: l.id, o: "legado" }]);
+  });
+
+  it("restaurar limpeza cujos lançamentos foram apagados fora do sistema: mensagem simples e nada recriado (com ou sem a tabela 0122)", async () => {
+    await admin().contaAzul.importar({ arquivos: BACKUP });
+    const backupId = await arquivarTudoDoContaAzul();
+    await pg.exec("DELETE FROM bpo_lancamentos"); // como na produção: apagados direto no banco, sem expurgo
+    const { previaRestauracaoExclusao, restaurarExclusaoEmLote } = await import("./bpo-restauracao.js");
+    const previa = await previaRestauracaoExclusao(backupId, async () => ({}));
+    expect(previa).toMatchObject({ restaurar: 0, jaExistem: 4 });
+    for (const i of previa.itens) expect(i.avisos).toEqual([expect.stringMatching(/não existe mais \(foi apagado em definitivo\)/)]);
+    await pg.exec("DROP TABLE bpo_lancamentos_expurgo"); // produção antes da migração 0122
+    const semTabela = await previaRestauracaoExclusao(backupId, async () => ({}));
+    expect(semTabela.itens.map(i => i.avisos[0])).toEqual(previa.itens.map(i => i.avisos[0]));
+    expect(await restaurarExclusaoEmLote({ backupId, confirmacao: "RESTAURAR" }, 1, async () => ({}))).toMatchObject({ restaurados: 0, jaExistiam: 4 });
+    expect(await contar("bpo_lancamentos")).toBe(0);
+  });
+
+  it("restaurar exclusão JSON cuja chave está num ARQUIVADO avisa que é arquivado (não 'importado de novo')", async () => {
+    await admin().contaAzul.importar({ arquivos: BACKUP });
+    await arquivarTudoDoContaAzul();
+    const [l] = await linhas<Record<string, unknown>>("SELECT descricao, valor::text valor, request_key FROM bpo_lancamentos WHERE valor = 320.50");
+    const snapshot = JSON.stringify([{ id: 9999, tipo: "despesa", descricao: l.descricao, valor: l.valor, vencimento: "2026-04-10T12:00:00.000Z", competencia: "2026-04", requestKey: l.request_key, origemEfetiva: "conta_azul", version: 1 }]);
+    const [b] = await linhas<{ id: number }>(`INSERT INTO bpo_lancamento_exclusoes_backup(modo,aba,quantidade,snapshot_json) VALUES('selecionados','despesas',1,'${snapshot.replace(/'/g, "''")}') RETURNING id`);
+    const { previaRestauracaoExclusao } = await import("./bpo-restauracao.js");
+    const previa = await previaRestauracaoExclusao(b.id, async () => ({}));
+    expect(previa).toMatchObject({ restaurar: 0, jaExistem: 1 });
+    expect(previa.itens[0].avisos[0]).toMatch(/ARQUIVADO/);
   });
 });

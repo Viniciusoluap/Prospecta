@@ -6,6 +6,7 @@ import { unzipSync } from "fflate";
 import { toast } from "sonner";
 import { Upload } from "lucide-react";
 import { trpc } from "@/lib/trpc";
+import { useAuth } from "@/_core/hooks/useAuth";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { formatCurrency } from "@/lib/format";
@@ -44,6 +45,7 @@ export function ImportarContaAzul() {
   const [arquivos, setArquivos] = useState<Record<string, string> | null>(null);
   const [lendo, setLendo] = useState(false);
   const utils = trpc.useUtils();
+  const { user } = useAuth();
   const previa = trpc.bpo.contaAzul.previa.useMutation({ onError: e => toast.error(e.message) });
   const importar = trpc.bpo.contaAzul.importar.useMutation({
     onSuccess: r => {
@@ -102,7 +104,7 @@ export function ImportarContaAzul() {
                 <Resumo titulo="Fornecedores" valor={String(p.pessoas.fornecedores)} detalhe="entram como nome nos lançamentos" />
               </div>
               {p.lancamentos.arquivados.bloqueando > 0 && arquivos && (
-                <LiberarReimportacao arquivos={arquivos} arquivados={p.lancamentos.arquivados}
+                <LiberarReimportacao arquivos={arquivos} arquivados={p.lancamentos.arquivados} podeLiberar={user?.role === "admin"}
                   onLiberado={() => previa.mutate({ arquivos })} />
               )}
               {p.lancamentos.porCategoria.length > 0 && (
@@ -139,7 +141,7 @@ export function ImportarContaAzul() {
 }
 
 type Arquivados = {
-  bloqueando: number; liberaveis: number; comVinculo: number;
+  bloqueando: number; liberaveis: number; comVinculo: number; outraOrigem: number;
   exemplosComVinculo: { id: number; descricao: string; valor: string; motivos: string[] }[];
 };
 
@@ -147,12 +149,12 @@ type Arquivados = {
  * EPIC-024 S-01: lançamentos arquivados seguram a chave do Conta Azul e impedem a reimportação. Só admin; remove em
  * definitivo os sem vínculo (com cópia no servidor) depois de digitar LIBERAR; os com vínculo ficam e são listados.
  */
-function LiberarReimportacao({ arquivos, arquivados, onLiberado }: { arquivos: Record<string, string>; arquivados: Arquivados; onLiberado: () => void }) {
+function LiberarReimportacao({ arquivos, arquivados, podeLiberar, onLiberado }: { arquivos: Record<string, string>; arquivados: Arquivados; podeLiberar: boolean; onLiberado: () => void }) {
   const [confirmando, setConfirmando] = useState(false);
   const [texto, setTexto] = useState("");
   const liberar = trpc.bpo.contaAzul.liberarReimportacao.useMutation({
     onSuccess: r => {
-      toast.success(`${r.removidos} lançamento(s) arquivado(s) removido(s) em definitivo (cópia guardada)${r.mantidos ? `; ${r.mantidos} mantido(s) por ter vínculo` : ""}.`);
+      toast.success(`${r.removidos} lançamento(s) arquivado(s) removido(s) em definitivo (cópia guardada)${r.mantidos ? `; ${r.mantidos} mantido(s) (vínculo ou outra origem)` : ""}.`);
       setConfirmando(false);
       setTexto("");
       onLiberado();
@@ -167,13 +169,15 @@ function LiberarReimportacao({ arquivos, arquivados, onLiberado }: { arquivos: R
       <ul className="list-disc pl-5">
         <li>{arquivados.liberaveis} sem vínculo nenhum — podem ser removidos (uma cópia de cada um fica guardada no servidor).</li>
         {arquivados.comVinculo > 0 && <li>{arquivados.comVinculo} com vínculo (banco, Asaas, baixa, obra, regularização ou combinação) — ficam como estão e não entram.</li>}
+        {arquivados.outraOrigem > 0 && <li>{arquivados.outraOrigem} de outra origem (legado, Asaas, manual…) com a chave do Conta Azul — nunca são removidos por aqui.</li>}
       </ul>
       {arquivados.exemplosComVinculo.length > 0 && (
         <ul className="pl-5 text-amber-200/80">
           {arquivados.exemplosComVinculo.map(a => <li key={a.id}>#{a.id} {a.descricao} ({formatCurrency(Number(a.valor))}): {a.motivos.join("; ")}</li>)}
         </ul>
       )}
-      {arquivados.liberaveis > 0 && (!confirmando
+      {arquivados.liberaveis > 0 && !podeLiberar && <p className="text-amber-200">Só o administrador pode liberar a reimportação (remoção definitiva).</p>}
+      {arquivados.liberaveis > 0 && podeLiberar && (!confirmando
         ? <Button size="sm" variant="outline" className="border-amber-400/50 text-amber-200" onClick={() => setConfirmando(true)}>Liberar reimportação</Button>
         : (
           <form className="space-y-2" onSubmit={e => { e.preventDefault(); liberar.mutate({ arquivos, confirmacao: texto }); }}>
