@@ -98,8 +98,8 @@ const FORMAS_CPF = new Set(["11", "9,2", "3,3,3,2", "3,3,5", "3,8"]);
 const FORMAS_CNPJ = new Set(["14", "12,2", "8,6", "8,4,2", "2,3,3,4,2", "2,3,3,6", "2,6,4,2", "2,3,3,4,1,1"]);
 
 /** Telefone brasileiro plausível nos grupos (já sem barra entre eles). */
-function telefone(gs: Grupo[], ligacoes: string[], maisAntes: boolean, contextoTel: boolean): "celular" | "fixo" | null {
-  if (!contextoTel && ligacoes.some(l => l.includes("/"))) return null;
+function telefone(gs: Grupo[], ligacoes: string[], maisAntes: boolean, contextoTel: () => boolean): "celular" | "fixo" | null {
+  if (ligacoes.some(l => l.includes("/")) && !contextoTel()) return null;
   let g = gs.map(x => x.digitos);
   let ddi = maisAntes;
   // DDI: grupo "55" separado, ou colado num grupo único de 12/13 dígitos
@@ -125,8 +125,8 @@ function telefone(gs: Grupo[], ligacoes: string[], maisAntes: boolean, contextoT
   if (d.length === 8 && /[2-9]/.test(d[0])) {
     // QA r3 R1: 8 dígitos começando com 6–9 é celular antigo (sem o 9 na frente): sai sempre, como celular.
     const tipo = /[6-9]/.test(d[0]) ? "celular" : "fixo";
-    if (n === 1) return contextoTel ? tipo : null; // "fone 35234567"; sem palavra de telefone, 8 dígitos colados ficam
-    if (!contextoTel && g.every(x => ANO.test(x))) return null; // "2024-2026", "anos 2024 2025"
+    if (n === 1) return contextoTel() ? tipo : null; // "fone 35234567"; sem palavra de telefone, 8 dígitos colados ficam
+    if (g.every(x => ANO.test(x)) && !contextoTel()) return null; // "2024-2026", "anos 2024 2025"
     return tamanhos.join(",") === "4,4" || tamanhos.join(",") === "1,3,4" ? tipo : null;
   }
   return null;
@@ -139,11 +139,16 @@ function classificar(gs: Grupo[], ligacoes: string[], texto: string, cadeiaIntei
   if (d.length === 11 && FORMAS_CPF.has(forma) && isValidCPF(d)) return { tipo: "cpf" };
   if (d.length === 14 && FORMAS_CNPJ.has(forma) && cnpjValido(d)) return { tipo: "cnpj" };
   const inicio = gs[0].inicio, fim = gs[gs.length - 1].fim;
-  const depois = texto.slice(fim, fim + 12);
   const antes = texto.slice(Math.max(0, inicio - 50), inicio);
   const maisAntes = /\+\s?\(?\s?$/.test(antes);
-  const contextoTel = CONTEXTO_TELEFONE.test(antes);
-  const tel = telefone(gs, ligacoes, maisAntes, contextoTel);
+  // o contexto só é calculado quando decide (texto patológico com milhares de grupos não paga as regex à toa)
+  let ctx: boolean | undefined;
+  const contextoTelDe = () => (ctx ??= CONTEXTO_TELEFONE.test(antes));
+  const tel = telefone(gs, ligacoes, maisAntes, contextoTelDe);
+  const unicaInteira = cadeiaInteira && gs.length === 1;
+  if (tel === null && !unicaInteira) return null;
+  const contextoTel = contextoTelDe();
+  const depois = texto.slice(fim, fim + 12);
   // Número com centavos ("999.123.456,00", "R$ 99991234567,50"): é valor. QA r3 R2: só vírgula + 1–2 dígitos ("tels
   // 99991234567,99987654321" é lista) e, se a forma é de celular, só quando o número tem cara de dinheiro (milhar com
   // ponto ou "R$" antes) — "tel (99) 99123-4567,1" sai.
@@ -158,7 +163,7 @@ function classificar(gs: Grupo[], ligacoes: string[], texto: string, cadeiaIntei
   if (tel === "celular") return { tipo: "celular" };
   if (tel === "fixo") return !contextoTel && CONTEXTO_NAO_TELEFONE.test(antesLimpo) || medida ? null : { tipo: "fixo" };
   // Sequência única, sem forma conhecida (só quando é a cadeia inteira: um pedaço de número maior não conta)
-  if (cadeiaInteira && gs.length === 1) {
+  if (unicaInteira) {
     if (d.length === 11 && !rotulado) return { tipo: "duvida" }; // CPF digitado errado ou celular: na dúvida, sai
     if ((d.length === 12 || d.length === 13) && d.startsWith("55") && !rotulado) return { tipo: "duvida" }; // telefone com DDI
   }
@@ -174,16 +179,24 @@ function mascararCadeias(texto: string): string {
   for (const g of grupos) {
     const ultima = cadeias[cadeias.length - 1];
     const anterior = ultima?.[ultima.length - 1];
-    if (anterior && LIGACAO.test(texto.slice(anterior.fim, g.inicio)) && ultima.length < 16) ultima.push(g);
+    if (anterior && LIGACAO.test(texto.slice(anterior.fim, g.inicio))) ultima.push(g);
     else cadeias.push([g]);
   }
   const trocas: Array<{ inicio: number; fim: number }> = [];
   for (const c of cadeias) {
     const ligacoes = c.slice(1).map((g, k) => texto.slice(c[k].fim, g.inicio));
+    // soma[k] = dígitos dos grupos 0..k-1
+    const soma = [0];
+    for (const g of c) soma.push(soma[soma.length - 1] + g.digitos.length);
     let i = 0;
     while (i < c.length) {
       let achou = -1;
-      for (let j = c.length - 1; j >= i; j--) {
+      // QA r3 R3: janela deslizante (no máximo 16 grupos a partir de i) sobre a cadeia inteira — antes, a cadeia era
+      // cortada a cada 16 grupos e um CPF que atravessasse o corte ficava. Só sub-cadeias de 8 a 14 dígitos podem ser
+      // telefone, CPF ou CNPJ: as outras nem são classificadas (mantém o tempo linear em textos patológicos).
+      for (let j = Math.min(c.length - 1, i + 15); j >= i; j--) {
+        const total = soma[j + 1] - soma[i];
+        if (total < 8 || total > 14) continue;
         if (classificar(c.slice(i, j + 1), ligacoes.slice(i, j), texto, i === 0 && j === c.length - 1)) { achou = j; break; }
       }
       if (achou < 0) { i++; continue; }

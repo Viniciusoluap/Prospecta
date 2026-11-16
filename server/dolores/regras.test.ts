@@ -170,6 +170,16 @@ describe("filtro de dados pessoais em texto livre (M1)", () => {
     for (const t of ["R$ 999.123.456,00", "R$ 99991234567,50", "total 999.123.456,7", "R$ 3.523.456,78"]) expect(sanitizarTexto(t), t).toBe(t);
   });
 
+  it("QA r3 R3: CPF e celular depois de muitos números soltos na mesma cadeia saem (janela deslizante, sem corte)", () => {
+    for (const n of [14, 15, 16, 17, 31, 40]) {
+      const prefixo = "1 ".repeat(n);
+      expect(sanitizarTexto(`${prefixo}529 982 247 25`), `${n}`).toBe(`${prefixo}${OMITIDO_T}`);
+      expect(sanitizarTexto(`${prefixo}99 99123 4567`), `${n}`).toBe(`${prefixo}${OMITIDO_T}`);
+    }
+    const lista = "1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20";
+    expect(sanitizarTexto(lista)).toBe(lista);
+  });
+
   it("QA r3 R4: 200 kB patológicos (só dígitos, '12.' repetido, 'aaa…a1', '1 ' repetido) filtram em tempo linear", () => {
     const KB = 1024;
     for (const [nome, t] of [
