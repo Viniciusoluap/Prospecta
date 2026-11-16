@@ -34,6 +34,8 @@ import { sendLeadCardDueDigests } from "../server/lead-card-due-digest.js";
 import { sincronizarTodasContas } from "../server/bancos.js";
 import { organizarDriveNoCron } from "../server/drive-organizacao.js";
 import centralVendasRotas from "../server/central-vendas/rotas.js";
+// EPIC-025 (16/11): ponte da Dolores (agente do Claude Console), só leitura na etapa 1, token próprio.
+import doloresPonteRotas from "../server/dolores/ponte.js";
 import { executarRotinaCentralVendas } from "../server/central-vendas/rotina.js";
 
 const app = express();
@@ -198,6 +200,8 @@ app.use("/api", async (req, res, next) => {
     router.use(camadasTerrenoRotas);
     // Central de Vendas (12/11): entrada de leads do site e da Logyca (token próprio).
     router.use(centralVendasRotas);
+    // EPIC-025 (16/11): ponte da Dolores (Bearer DOLORES_PONTE_TOKEN).
+    router.use(doloresPonteRotas);
     router.post("/asaas/webhook", handleAsaasWebhook);
     router.post("/pluggy/webhook", handlePluggyWebhook);
     router.post("/whatsapp/evolution-webhook", handleEvolutionWebhook);
