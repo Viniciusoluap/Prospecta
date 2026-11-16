@@ -21,6 +21,7 @@ import incorporacaoLogoRotas from "../routes/incorporacao-logo.js";
 import { handleAsaasWebhook } from "../asaas-webhook.js";
 import { handlePluggyWebhook } from "../pluggy-webhook.js";
 import centralVendasRotas from "../central-vendas/rotas.js";
+import doloresPonteRotas from "../dolores/ponte.js";
 import { handleEvolutionWebhook } from "../whatsapp-evolution-webhook.js";
 import { handleWhatsappWebhook } from "../whatsapp-webhook.js";
 import { startMcmvRulesReminder } from "../mcmv-rules-reminder.js";
@@ -139,6 +140,8 @@ async function startServer() {
   app.use("/api", incorporacaoLogoRotas); // EPIC-024 S-02
   // Central de Vendas (12/11): entrada de leads do site e da Logyca (token próprio).
   app.use("/api", centralVendasRotas);
+  // EPIC-025 (16/11): ponte da Dolores (Bearer DOLORES_PONTE_TOKEN).
+  app.use("/api", doloresPonteRotas);
   // Asaas webhook
   app.post("/api/asaas/webhook", handleAsaasWebhook);
   app.post("/api/pluggy/webhook", handlePluggyWebhook);
