@@ -7,7 +7,7 @@ import { decryptSecret, encryptSecret, segredoEmTextoPuro } from "./secret-vault
 import * as db from "../db.js";
 import { DESCRICAO_FUNCOES_ANTHROPIC, FUNCOES_ANTHROPIC, type FuncaoAnthropic } from "../../shared/funcoes-anthropic.js";
 import {
-  CHAVE_MODELO_PREFERENCIAL, chaveAvisoDaFuncao, chaveModeloDaFuncao, modeloDaFuncao, modelosGravadosDasFuncoes,
+  CHAVE_MODELO_PREFERENCIAL, chaveAvisoDaFuncao, chaveModeloDaFuncao, modeloDaFuncao, modelosGravadosDasFuncoes, type LeitorModelos,
 } from "./modelo-por-funcao.js";
 
 export const CHAVE_SEGREDO_ANTHROPIC_PAINEL = "segredo.anthropic_painel_api_key";
@@ -181,11 +181,17 @@ export async function salvarModeloPreferencialAnthropic(id: string, deps: Anthro
 // ── EPIC-024 S-11: modelo por função (só nomes de modelo; a resolução fica em ./modelo-por-funcao.ts) ──
 
 /**
+ * QA S-11 achado 2: o módulo de modelos recebe SÓ o leitor do banco — nunca `decrypt`, `criarCliente` nem `encrypt`.
+ * Assim ele não tem com que decifrar a chave, mesmo que alguém tente.
+ */
+const soLeitor = (deps: AnthropicPainelDeps): LeitorModelos => ({ lerBanco: k => deps.lerBanco(k) });
+
+/**
  * Modelo escolhido para uma função que não aparece mais na lista da conta: é limpo (a função cai para o preferencial)
  * e o id fica guardado como aviso para o painel mostrar até o admin escolher de novo.
  */
 export async function conferirModelosDasFuncoes(modelos: ModeloAnthropic[], deps: AnthropicPainelDeps = anthropicPainelDepsPadrao): Promise<Array<{ funcao: FuncaoAnthropic; modelo: string }>> {
-  const gravados = await modelosGravadosDasFuncoes(deps);
+  const gravados = await modelosGravadosDasFuncoes(soLeitor(deps));
   const limpas: Array<{ funcao: FuncaoAnthropic; modelo: string }> = [];
   for (const f of FUNCOES_ANTHROPIC) {
     const id = gravados[f].modelo;
@@ -224,7 +230,7 @@ export async function statusModelosPorFuncao(
   extras: { anteriorDolores?: string | null; padraoMaquete?: string | null } = {},
   deps: AnthropicPainelDeps = anthropicPainelDepsPadrao,
 ) {
-  const [salva, preferencial, gravados] = await Promise.all([lerChaveSalva(deps), lerModelo(deps), modelosGravadosDasFuncoes(deps)]);
+  const [salva, preferencial, gravados] = await Promise.all([lerChaveSalva(deps), lerModelo(deps), modelosGravadosDasFuncoes(soLeitor(deps))]);
   const funcoes = await Promise.all(FUNCOES_ANTHROPIC.map(async f => ({
     ...DESCRICAO_FUNCOES_ANTHROPIC[f],
     modelo: gravados[f].modelo,
@@ -234,7 +240,7 @@ export async function statusModelosPorFuncao(
       preferencial,
       anterior: f === "dolores_whatsapp" ? extras.anteriorDolores ?? null : null,
       padrao: f === "maquete_leitura" ? extras.padraoMaquete ?? null : null,
-    }, deps),
+    }, soLeitor(deps)),
   })));
   return { configurado: Boolean(salva && salva !== "ilegivel"), preferencial, funcoes };
 }

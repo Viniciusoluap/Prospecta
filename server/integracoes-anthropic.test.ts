@@ -54,6 +54,15 @@ function setup(aceitas = [CHAVE, CHAVE_NOVA, CHAVE_RESTRITA], role: "admin" | "c
 
 beforeEach(() => { ENV.cookieSecret = "segredo-de-teste-do-cofre"; });
 
+/** QA S-11 achado 2: o que o módulo de modelos (server/_core/modelo-por-funcao.ts) não pode conter. */
+function problemasDoModuloDeModelos(texto: string): string[] {
+  const p: string[] = [];
+  if (/anthropic-painel|secret-vault|decryptSecret|\bdecrypt\b|criarCliente|configuracaoAnthropicPainel|CHAVE_SEGREDO_ANTHROPIC_PAINEL|anthropic_painel_api_key|api_key|apiKey/.test(texto)) p.push("só nomes de modelo");
+  // o único texto "…anthropic_painel_…" aceito é o do modelo: uma chave montada em pedaços falha
+  if (/anthropic_painel_(?!modelo["'`])/.test(texto)) p.push("texto de chave montado em pedaços");
+  return p;
+}
+
 describe("Anthropic — chave protegida", () => {
   it("testa antes de salvar, grava criptografada e nenhuma rota devolve a chave (só os 4 últimos)", async () => {
     const s = setup();
@@ -171,6 +180,30 @@ describe("Anthropic — acesso e isolamento", () => {
     expect(ENV.incorporacaoIaModelo).toBe(antes.modelo);
   });
 
+  it("QA S-11 achado 2: a guarda do módulo de modelos pega decrypt, criarCliente, nome da chave e chave montada em pedaços", () => {
+    const tentativas = [
+      `const c = (deps as any).decrypt(await deps.lerBanco("segredo.anthropic_painel_" + "api_key"));`,
+      `const k = await deps.lerBanco("segredo.anthropic_painel_" + parte);`,
+      "const k = await deps.lerBanco(`segredo.anthropic_painel_${x}`);",
+      `await (deps as any).criarCliente(k);`,
+      `const apiKey = 1;`,
+      `const nome = "anthropic_painel_" + "api_key";`,
+    ];
+    for (const t of tentativas) expect(problemasDoModuloDeModelos(t), t).not.toEqual([]);
+    const fonte = readFileSync(path.resolve(import.meta.dirname, "_core", "modelo-por-funcao.ts"), "utf8");
+    expect(problemasDoModuloDeModelos(fonte)).toEqual([]);
+    // e o painel só passa o leitor do banco (sem decrypt/criarCliente) ao módulo de modelos
+    const painel = readFileSync(path.resolve(import.meta.dirname, "_core", "anthropic-painel.ts"), "utf8");
+    const chamadas = Array.from(painel.matchAll(/(?:modeloDaFuncao|modelosGravadosDasFuncoes)\(/g));
+    expect(chamadas.length).toBeGreaterThan(0);
+    for (const c of chamadas) {
+      const resto = painel.slice(c.index!);
+      let nivel = 0, fim = 0;
+      for (let i = resto.indexOf("("); i < resto.length; i++) { if (resto[i] === "(") nivel++; if (resto[i] === ")" && --nivel === 0) { fim = i; break; } }
+      expect(resto.slice(0, fim + 1)).toMatch(/soLeitor\(deps\)\)?$/);
+    }
+  });
+
   it("nenhum código operacional usa a chave do painel (nem pelo módulo, nem pela chave do banco), exceto a leitura da maquete e a Dolores, cada uma num ponto único", () => {
     const repo = path.resolve(import.meta.dirname, "..");
     // EPIC-024 S-03: a leitura por IA das pranchas da Maquete 3D (server/maquete-3d/base.ts, resolverCredencialIA) lê a
@@ -202,7 +235,7 @@ describe("Anthropic — acesso e isolamento", () => {
         if (!permitido) { if (marcas.some(m => texto.includes(m))) usam.push(rel); continue; }
         if (permitido === "painel") continue;
         if (permitido === "modelos") {
-          if (/anthropic-painel|secret-vault|decryptSecret|configuracaoAnthropicPainel|CHAVE_SEGREDO_ANTHROPIC_PAINEL|anthropic_painel_api_key|apiKey/.test(texto)) leemAChave.push(`${rel} (só nomes de modelo)`);
+          leemAChave.push(...problemasDoModuloDeModelos(texto).map(p => `${rel} (${p})`));
           continue;
         }
         // só as funções listadas, num único import do módulo
