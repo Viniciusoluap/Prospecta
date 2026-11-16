@@ -174,3 +174,19 @@ migração da etapa antes. Depois lançar S-03 e S-05, e por fim o EPIC-025 (Dol
   **(b) manuais:** nenhum. **(c) produção:** 0124 e 0125 não aplicadas; aceite pelo WhatsApp.
 - **Próximo passo exato:** QA da E2 (4ª rodada) e da E3 sobre este ramo; aprovadas, E2 na `main`, rebase da E3, aplicar
   0125 e publicar.
+
+## Atualização — 16/11 — EPIC-025 E3: correções do portão de QA (FAIL → 9 achados corrigidos) — @dev
+- **Concluído (ramo `epic025-dolores-etapa3`, cópia `claude/wip-epic025-dolores-etapa3`):** achado 5 gatilho `09e0a2c`;
+  1 (bloqueio: regra de contaminação — depois de ler dados no comando, ação direta vai para a fila marcada "pedido surgido
+  durante a leitura de dados"; ações só com intenção do dono) e 8 (código do item repetido) `d6e5466`; 2 e 3 (PCI sem
+  regravar o rascunho; PCI gerada nunca vira "não foi executado") `56647cc`; 4 (orçamento de tempo, 1 PCI por mensagem,
+  Drive com prazo, prazo da porta) `33c961f`; 6 e 7 (cobrança com lista mudada recusada; dado vira uma linha sem
+  colchetes) `66866ad`; 9 (prazo de hoje passado, título, fila em transação) `a0558cb`; docs `6f5134d`. Tabela na story E3,
+  seção "Correções do portão de QA". `shared/dolores/sanitizar.ts` não foi tocado.
+- **0125 editada (ainda NÃO aplicada):** gatilho mais estrito, continua só aditiva e idempotente.
+- **Testes (a) automáticos:** tsc ok; área 26 arquivos / 365 testes; vite build ok; suíte completa 237 arquivos / 2.372
+  testes passando. **(b) manuais:** nenhum. **(c) produção:** 0125 e aceite pelo WhatsApp; uma PCI gerada pela Dolores
+  conferida (rascunho intacto, cópia no Drive).
+- **Próximo passo exato:** nova rodada do portão de QA da E3 sobre `epic025-dolores-etapa3`; aprovada, E2 na `main`,
+  rebase da E3, aplicar 0125 e publicar.
+

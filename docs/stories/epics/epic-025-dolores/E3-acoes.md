@@ -172,7 +172,37 @@ documentos pendentes e prepare as cobranças."
   `central-vendas*`, `whatsapp*`, `admin-workflows`, `pci*`, `auth-session`, `imports-esm`, `api-rotas-producao`) —
   40 arquivos, 471 testes passando; `npx vite build` ok; suíte completa `npx vitest run` — 235 arquivos, 2.350 testes passando.
 
+## Correções do portão de QA (Quinn, 16/11 — FAIL: 1 bloqueio, 3 importantes, 5 menores)
+Cada achado tem teste de regressão = versão INVERTIDA do ataque do QA (`server/dolores/correcoes-e3.test.ts`,
+`server/dolores/correcoes-e3-whatsapp.test.ts`; PCI em `server/pci-gerador-db.test.ts`).
+
+| Achado | Correção | Commit | Teste |
+|---|---|---|---|
+| 1 BLOQUEIA (A8) dado de terceiro induz ação direta | Regra de CONTAMINAÇÃO em código: marca `contamina` por função (todas as leituras; na dúvida, contamina); depois do 1º resultado que contamina, `criar_tarefa`/`registrar_acompanhamento` vão para a FILA com "Pedido surgido durante a leitura de dados; confira antes de aprovar: …"; reforço: ferramentas de ação só com intenção de ação reconhecida por código (`intencaoDeAcao`), senão a porta recusa (403 auditado) | `d6e5466` | A8 invertido; ação antes da leitura (direta); ação depois da leitura (fila → aprovar grava); veneno + intenção para outra coisa (fila marcada, recusar não grava); porta `contaminado`/`semAcoes` |
+| 2 PCI regrava o rascunho | `gerarPciDaObra(..., { regravarRascunho: false })` — a tela continua igual | `56647cc` | `pci-gerador-db`: rascunho intacto (form, autor, data) e a tela ainda regrava; `acoes.test` |
+| 3 (A2) PCI existe e o dono lê "não foi executado" | Depois do gerador, nenhuma falha vira erro: autoria com 2 tentativas; falhou → item "executada" com `pciGeradaId`/`autoriaRegistrada: false` e texto "FOI gerada em …, mas não consegui registrar a autoria; confira"; falha ao gravar o resultado na fila → texto "FEITO, mas não consegui registrar…" | `56647cc` | A2 invertido; falha só na 1ª tentativa |
+| 4 (A3) sem orçamento de tempo | Mínimo por função para começar (PCI 30 s; demais 6 s); 1 PCI por mensagem de decisão; cópias ao Drive com `AbortSignal` (`comPrazoNoDrive`) dentro do orçamento; ação direta/preparo com o prazo da porta (`comPrazo`, `SET LOCAL statement_timeout` e `bancoDaAcao()` que recusa depois do prazo → transação desfeita; 504 honesto); falha no meio da decisão não apaga o que já foi feito | `33c961f` | A3 invertido (7 s: PCI não começa; cobrança sim); 31 s: 1 PCI, a 2ª aguarda, Drive 12,5 s; ação direta lenta → 504, nada gravado |
+| 5 (A1) gatilho | 0125: `vence_em`, `resumo`, `pedido_id`, `autor_user_id` imutáveis; aguardando só → executando/recusada/vencida; decisão gravada uma vez; `resultado`/`executado_em` só ao encerrar a execução | `09e0a2c` | A1 invertido (+ transição legítima continua valendo) |
+| 6 (A4) cobrança registra outra lista | Lista mudou entre pedido e aprovação → recusa "peça de novo" | `66866ad` | A4 invertido; lista igual registra o texto aprovado |
+| 7 (A6) quebra de linha forja "[CÓDIGO]" | `textoDeDado`: uma linha, sem controle/invisíveis, colchetes → parênteses; aplicado ao gravar o resumo, nos quadros, nas frases e no texto da cobrança | `66866ad` | A6 invertido (exatamente 1 linha "- ["); quadro/frases/cobrança com dado forjado |
+| 8 (A9) pedido repetido sem código | A porta devolve ao laço (fora do modelo) os códigos criados/já aguardando; o quadro mostra os dois | `d6e5466` | A9 invertido |
+| 9 bordas (A5) | Prazo "hoje" já passado recusado; título: uma linha, sem controle, até 150 caracteres (HTML fica texto); `porNaFila` numa transação (falhou um item, nenhum fica) | `a0558cb` | A5 invertido; título; falha no 2º item da fila |
+
+Também: `docs/dolores/como-ligar.md` (regra explicada ao dono: depois de ler anotações/históricos, a Dolores sempre pede
+aprovação antes de agir) e `agente-etapa3.md` — `6f5134d`. `shared/dolores/sanitizar.ts` não foi tocado.
+Arquivos: `drizzle/0125_dolores_fila.sql`, `shared/dolores/fila.ts`, `server/dolores/{funcoes,ponte,cerebro,aprovacoes,
+escrita,prompt,whatsapp}.ts`, `server/dolores/acoes/{comum,registro,tarefas,acompanhamentos,cobrancas,documentos}.ts`,
+`server/pci-gerador.ts`, `server/drive-documents.ts`, `server/drive-organizacao.ts`; testes novos `correcoes-e3*.test.ts`.
+
+**Testes (16/11, depois das correções):** (a) automáticos — `npx tsc --noEmit` sem erros; `npx vitest run server/dolores
+server/integracoes-anthropic.test.ts server/admin-workflows*.test.ts server/pci*.test.ts server/auth-session.test.ts
+server/imports-esm.test.ts server/api-rotas-producao.test.ts` — 26 arquivos, 365 testes passando (novos: `correcoes-e3` 16,
+`correcoes-e3-whatsapp` 5, `pci-gerador-db` +1); `npx vite build` ok; suíte completa `npx vitest run` — 237 arquivos,
+2.372 testes passando. Ataques do QA: A1, A2, A3, A4, A5 (prazo), A8 e A9 passam a FALHAR (defeitos corrigidos); as
+garantias (teto, A7, A10) seguem passando. (b) manuais: nenhum. (c) produção: aplicar 0125 (ainda NÃO aplicada) e o aceite.
+
 ## Change Log
 - 16/11/2026 — @dev (Dex): story criada (Draft → InProgress), critérios tirados do prompt mestre (seções 4.3, 5, 6, 7).
 - 16/11/2026 — @dev (Dex): InProgress → InReview (implementação, testes e documentos concluídos; aguarda portão de QA).
 - 16/11/2026 — @dev (Dex): merge da E2 final (2dd8ae9) e ajuste do quadro de pendências ao filtro novo; continua InReview.
+- 16/11/2026 — @dev (Dex): correções do portão de QA (9 achados, um commit por achado) com regressões; volta a InReview para nova rodada do QA.
