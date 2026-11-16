@@ -472,12 +472,11 @@ function mascararCadeias(texto: string): string {
     if (a < n) trechos.push([a, n - 1]);
     const trocasAntes = trocas.length;
     for (const [ini, fimTrecho] of trechos) {
-      let i = ini;
-      while (i <= fimTrecho) {
-        let achou = -1;
-        // QA r3 R3: janela deslizante (no máximo 16 grupos a partir de i) sobre o trecho inteiro. Só sub-cadeias de 8 a
-        // 14 dígitos podem ser telefone, CPF ou CNPJ: as outras nem são classificadas (tempo linear).
-        for (let j = Math.min(fimTrecho, i + 15); j >= i; j--) {
+      // QA r3 R3: janela deslizante (no máximo 16 grupos a partir de i) sobre o trecho inteiro. Só sub-cadeias de 8 a
+      // 14 dígitos podem ser telefone, CPF ou CNPJ: as outras nem são classificadas (tempo linear). `minJ`: a janela tem
+      // de terminar em minJ ou depois (QA r5 F4).
+      const achar = (i: number, minJ: number): { j: number; tipo: Achado["tipo"] } | null => {
+        for (let j = Math.min(fimTrecho, i + 15); j >= Math.max(i, minJ); j--) {
           const total = soma[j + 1] - soma[i];
           if (total < 8 || total > 14) continue;
           // "sozinho": a sub-cadeia é o trecho inteiro, ou uma célula de tabela (entre "|", sem "|" dentro)
@@ -486,9 +485,27 @@ function mascararCadeias(texto: string): string {
             && (j === i || !ligacoes.slice(i, j).some(l => l.includes("|"))));
           if (!sozinho && !formaPossivel(tamanhos, ruins, i, j, total)) continue;
           const lista = i > ini && quatro[i] - quatro[ini] === i - ini ? c[ini].inicio : -1;
-          if (classificar(c.slice(i, j + 1), ligacoes.slice(i, j), texto, sozinho, lista)) { achou = j; break; }
+          const r = classificar(c.slice(i, j + 1), ligacoes.slice(i, j), texto, sozinho, lista);
+          if (r) return { j, tipo: r.tipo };
         }
-        if (achou < 0) { i++; continue; }
+        return null;
+      };
+      const forte = (t: Achado["tipo"]) => t === "cpf" || t === "cnpj" || t === "celular";
+      let i = ini;
+      while (i <= fimTrecho) {
+        const achado = achar(i, i);
+        if (!achado) { i++; continue; }
+        let achou = achado.j, tipo = achado.tipo;
+        // QA r5 F4: a janela que começa antes engolia o grupo anterior ("dia 15/11/2026 9123-4567" → "2026 9123" fixo) e
+        // deixava a cauda à vista. Testa as janelas que começam dentro e passam do fim: se a de dentro é fase 1 e a de
+        // antes não (ou a de antes começa num ano), fica só a de dentro; senão, sai a união.
+        for (let k = i + 1; k <= achou; k++) {
+          const outro = achar(k, achou + 1);
+          if (!outro) continue;
+          if (!forte(tipo) && (forte(outro.tipo) || ANO.test(c[i].digitos))) { i = k; tipo = outro.tipo; }
+          else if (forte(outro.tipo)) tipo = outro.tipo;
+          achou = outro.j;
+        }
         let inicio = c[i].inicio, fim = c[achou].fim;
         // leva junto "+55 (" antes e o ")" de um DDD entre parênteses
         const antes = /(?:\+\s?)?\(\s?$|\+\s?$/.exec(texto.slice(Math.max(0, inicio - 3), inicio));

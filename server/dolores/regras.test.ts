@@ -390,6 +390,18 @@ describe("filtro de dados pessoais em texto livre (M1)", () => {
       expect(sanitizarTexto(t), t).toBe(t);
   });
 
+  it("QA r5 F4: a janela que começa antes não deixa a cauda do número à vista; a data fica e o telefone sai inteiro", () => {
+    expect(sanitizarTexto("dia 15/11/2026 9123-4567")).toBe(`dia 15/11/2026 ${OMITIDO_T}`);
+    expect(sanitizarTexto("em 2026 9123-4567")).toBe(`em 2026 ${OMITIDO_T}`);
+    expect(sanitizarTexto("em 2026 3523-4567")).toBe(`em 2026 ${OMITIDO_T}`);
+    expect(sanitizarTexto("15/11/2026 99123-4567")).toBe(`15/11/2026 ${OMITIDO_T}`);
+    for (const c of ["12 74677693/2903-31", "lote 12 9123-4567", "processo 2026 99123-4567", "n 12 99123 4567", "das 10:30 9123-4567"]) {
+      const r = sanitizarTexto(c);
+      expect(r, c).toContain(OMITIDO_T);
+      expect(r, `${c} → ${r}`).not.toMatch(/4567|2903|74677693/);
+    }
+  });
+
   it("percorre a resposta inteira (listas e objetos), sem tocar números e chaves", () => {
     expect(sanitizarResposta({ a: [{ texto: "cpf 111.222.333-44", n: 11122233344 }], "111.222.333-44": null }))
       .toEqual({ a: [{ texto: "cpf [dado pessoal omitido]", n: 11122233344 }], "111.222.333-44": null });
