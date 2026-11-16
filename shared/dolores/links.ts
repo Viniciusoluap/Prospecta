@@ -88,7 +88,7 @@ function deixarComoEsta(host: string, temPrefixo: boolean, porta: string, resto:
   const tld = rotulos[rotulos.length - 1].toLowerCase();
   const nu = !resto;
   // nome de arquivo: "contrato.pdf", "contrato.pdf/docx", "fotos.zip/rar"
-  if (EXTENSOES.has(tld) && /^(?:\/[a-z0-9]{2,5})*$/i.test(resto) && [...resto.matchAll(/[a-z0-9]+/gi)].every(m => EXTENSOES.has(m[0].toLowerCase()))) return true;
+  if (EXTENSOES.has(tld) && /^(?:\/[a-z0-9]{2,5})*$/i.test(resto) && (resto.match(/[a-z0-9]+/gi) ?? []).every(x => EXTENSOES.has(x.toLowerCase()))) return true;
   if (rotulos.length === 2 && ABREVIACOES.has(rotulos[0].toLowerCase())) {
     // "Av.Brasil/120", "Res.Sol/3": a segunda parte não é TLD de link
     if (!TLDS_CONHECIDOS.has(tld) && tld.length > 2) return true;
@@ -118,7 +118,7 @@ function trocar(m: string, permitidos: Set<string>): string {
 const GUARDA = /\uE000(\d+)\uE001/g;
 // Caractere invisível colado no ponto de um host ("evil\u200B.com/x") sai: o filtro de saída tira os invisíveis depois, e
 // o link voltaria a ser clicável.
-const INVISIVEL_NO_PONTO = /(?<=[\p{L}\p{N}])[\u00AD\u200B-\u200D\u2060\uFEFF]+(?=\.)|(?<=[\p{L}\p{N}]\.)[\u00AD\u200B-\u200D\u2060\uFEFF]+(?=[\p{L}\p{N}])/gu;
+const INVISIVEL_NO_PONTO = new RegExp(String.raw`(?<=[\p{L}\p{N}])[\u00AD\u200B-\u200D\u2060\uFEFF]+(?=\.)|(?<=[\p{L}\p{N}]\.)[\u00AD\u200B-\u200D\u2060\uFEFF]+(?=[\p{L}\p{N}])`, "gu");
 
 /** Resposta ao dono com os links tratados (ver o cabeçalho). Texto sem link volta idêntico. */
 export function tratarLinksDaResposta(texto: string, urlDoSistema: string | null | undefined): string {
