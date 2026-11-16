@@ -16,6 +16,9 @@ import { adminProcedure, router } from "../_core/trpc.js";
 import { getDb } from "../db.js";
 import { lerConfigWhatsapp, lerPausa, usoDoMes } from "./consumo.js";
 import { URL_WEBHOOK_DOLORES, segredoWebhookDolores } from "./whatsapp.js";
+import { doloresFilaConfig } from "../../drizzle/schema-dolores-fila.js";
+import { VALIDADE_MAXIMA_HORAS, VALIDADE_MINIMA_HORAS, codigoValido } from "../../shared/dolores/fila.js";
+import { decidir, lerValidadeHoras, listarFila, situacoesValidas } from "./aprovacoes.js";
 
 /** adminProcedure confere o módulo; aqui vale o PAPEL: só admin. */
 const soAdmin = adminProcedure.use(({ ctx, next }) => {
@@ -77,7 +80,32 @@ async function situacao() {
   };
 }
 
+/**
+ * Etapa 3 — fila de aprovação na tela (só admin por PAPEL). Aprovar aqui executa pela mesma regra do WhatsApp:
+ * reivindicação atômica, revalidação e execução única; a decisão fica com o id de quem decidiu.
+ */
+const codigoEntrada = z.string().trim().toUpperCase().refine(codigoValido, "Código inválido.");
+const filaRouter = router({
+  listar: soAdmin.input(z.object({ situacao: z.enum([...situacoesValidas, "todas"]).default("todas"), limite: z.number().int().min(1).max(200).default(50) }).strict().optional())
+    .query(async ({ input }) => ({ validadeHoras: await lerValidadeHoras(), itens: await listarFila({ situacao: input?.situacao ?? "todas", limite: input?.limite ?? 50 }, new Date()) })),
+  aprovar: soAdmin.input(z.object({ codigo: codigoEntrada }).strict()).mutation(async ({ ctx, input }) => {
+    const [r] = await decidir([input.codigo], "aprovar", { via: "tela", userId: ctx.user.id, agora: new Date() });
+    return r;
+  }),
+  recusar: soAdmin.input(z.object({ codigo: codigoEntrada, motivo: z.string().trim().max(300).optional() }).strict()).mutation(async ({ ctx, input }) => {
+    const [r] = await decidir([input.codigo], "recusar", { via: "tela", userId: ctx.user.id, agora: new Date(), motivo: input.motivo ?? null });
+    return r;
+  }),
+  salvarValidade: soAdmin.input(z.object({ horas: z.number().int().min(VALIDADE_MINIMA_HORAS).max(VALIDADE_MAXIMA_HORAS) }).strict()).mutation(async ({ ctx, input }) => {
+    const r = await getDb().update(doloresFilaConfig).set({ validadeHoras: input.horas, atualizadoEm: new Date(), atualizadoPor: ctx.user.id })
+      .where(eq(doloresFilaConfig.id, 1)).returning({ h: doloresFilaConfig.validadeHoras }).catch(() => []);
+    if (!r.length) throw new TRPCError({ code: "PRECONDITION_FAILED", message: "Configuração da fila ausente: a migração 0125 ainda não foi aplicada." });
+    return { validadeHoras: r[0].h };
+  }),
+});
+
 export const doloresRouter = router({
+  fila: filaRouter,
   status: soAdmin.query(() => situacao()),
 
   /** Cria a instância própria da Dolores (se não existir) e devolve o QR code para escanear com o celular DELA. */
