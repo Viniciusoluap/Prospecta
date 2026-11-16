@@ -46,6 +46,19 @@ describe("autenticação", () => {
     expect(aviso.mock.calls.flat().join(" ")).not.toContain(TOKEN);
   });
 
+  it("token do servidor com menos de 32 caracteres: 503 e nada roda, sem o token no log (L6)", async () => {
+    const curto = "a".repeat(31);
+    process.env.DOLORES_PONTE_TOKEN = curto;
+    const aviso = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const r = await tratarChamada(pedido({ funcao: "listar_tarefas" }, `Bearer ${curto}`));
+    expect(r.status).toBe(503);
+    expect(r.body.erro).toMatch(/fraco demais/);
+    expect((await tratarFerramentas(pedido({}, `Bearer ${curto}`))).status).toBe(503);
+    expect(aviso.mock.calls.flat().join(" ")).toMatch(/mínimo 32 caracteres/);
+    expect(aviso.mock.calls.flat().join(" ")).not.toContain(curto);
+    expect(await acoes()).toEqual([]);
+  });
+
   it("sem token, token errado ou outro esquema: 401, sem gravar na auditoria e sem o token no log", async () => {
     const aviso = vi.spyOn(console, "warn").mockImplementation(() => {});
     for (const auth of ["", "Bearer errado", `Basic ${TOKEN}`, `Bearer ${TOKEN}x`, "Bearer "]) {

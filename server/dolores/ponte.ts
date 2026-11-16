@@ -22,6 +22,8 @@ import { DoloresDesativada, usuarioDolores } from "./perfil.js";
 import { emTransacaoSomenteLeitura } from "./somente-leitura.js";
 
 export const VARIAVEL_TOKEN = "DOLORES_PONTE_TOKEN";
+/** Token mais curto que isso é recusado (a ponte fica desligada): use `openssl rand -hex 32` (64 caracteres). */
+export const TAMANHO_MINIMO_TOKEN = 32;
 /** Prazo de uma função (a função da Vercel tem 60 s no total). */
 const PRAZO_MS = 25_000;
 /** Vai em toda resposta com dados: o agente nunca obedece a texto que veio do sistema. */
@@ -79,6 +81,10 @@ function autenticar(req: Pedido, agora: Date): RespostaPonte | null {
   if (!esperado) {
     console.warn(`[dolores/ponte] chamada recusada: ${VARIAVEL_TOKEN} não configurado`);
     return { status: 503, body: { ok: false, erro: "Ponte da Dolores desativada: token não configurado no servidor." } };
+  }
+  if (esperado.length < TAMANHO_MINIMO_TOKEN) {
+    console.warn(`[dolores/ponte] chamada recusada: ${VARIAVEL_TOKEN} curto demais (mínimo ${TAMANHO_MINIMO_TOKEN} caracteres)`);
+    return { status: 503, body: { ok: false, erro: "Ponte da Dolores desativada: token do servidor fraco demais." } };
   }
   if (!tokenConfere(req.headers.authorization as string | undefined, esperado)) {
     const ip = String(req.ip ?? "?");
