@@ -1,7 +1,7 @@
 import { sincronizarUnidadesCenario } from "./incorporacao-unidades-cenario.js";
 import { referenciasAtendimento, vincularAtendimento } from "../shared/incorporacao/atendimento-clientes.js";
 import { COOKIE_NAME } from "../shared/const.js";
-import { limparLargurasConfirmadas } from "../shared/geo/camadas-terreno.js";
+import { MAX_VERTICES_CONTORNO_APP, limparLargurasConfirmadas } from "../shared/geo/camadas-terreno.js";
 import { getSessionCookieOptions } from "./_core/cookies.js";
 import { systemRouter } from "./_core/systemRouter.js";
 import {
@@ -2837,6 +2837,13 @@ export const appRouter = router({
           areaM2: z.number(),
           larguraM: z.number().nullable(),
           origem: z.string(),
+          // S-I: contorno da APP no terreno (MultiPolygon, [lng, lat]); ausente ou nulo = sem contorno (limpa o anterior)
+          contorno: z.object({
+            type: z.literal("MultiPolygon"),
+            coordinates: z.array(z.array(z.array(z.tuple([z.number().min(-180).max(180), z.number().min(-90).max(90)])).min(4)).min(1)).min(1).max(2000),
+          }).nullable().optional()
+            .refine((g) => !g || g.coordinates.reduce((s, poli) => s + poli.reduce((t, a) => t + a.length, 0), 0) <= MAX_VERTICES_CONTORNO_APP,
+              { message: `Contorno da APP com vértices demais (máximo ${MAX_VERTICES_CONTORNO_APP}).` }),
         })
       )
       .mutation(async ({ input, ctx }) => {
@@ -2845,6 +2852,8 @@ export const appRouter = router({
           appAreaM2: input.areaM2.toString(),
           appWidthM: input.larguraM?.toString(),
           appOrigin: input.origem,
+          // área e contorno andam juntos: gravar a área sem contorno apaga o contorno antigo
+          appGeometryJson: input.contorno && input.areaM2 > 0 ? JSON.stringify(input.contorno) : null,
         });
         return { success: true };
       }),

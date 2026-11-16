@@ -4,7 +4,7 @@ import type { GeoJSONSource, Map as MapaMl } from "maplibre-gl";
 import { area as turfArea, bbox as turfBbox, featureCollection } from "@turf/turf";
 import { uniaoDoTerreno, type GeometriaTerreno } from "@shared/geo/terreno";
 import {
-  IDS_CAMADAS, LARGURA_CONFIRMADA_MAX_M, calcularApp, calcularServidao, calcularVegetacao, carConfere, fmtKm, fmtPct, limparLargurasConfirmadas,
+  IDS_CAMADAS, LARGURA_CONFIRMADA_MAX_M, calcularApp, contornoAppParaGravar, calcularServidao, calcularVegetacao, carConfere, fmtKm, fmtPct, limparLargurasConfirmadas,
   linhasOsmComplementares, resumirFuros, type AppModo, type Contorno, type DadosCamadas, type DadosHidro, type EstadoCamada, type IdCamada,
   type ItemServidao, type LargurasConfirmadas,
 } from "@shared/geo/camadas-terreno";
@@ -207,10 +207,12 @@ export function MapaTerreno({ geojson, center, height = 420, estudoId, largurasJ
   // fonte de hidrografia respondeu (não grava zero por falha de rede) e mudou.
   useEffect(() => {
     if (!estudoId || !app || hidroPendente) return;
-    const chave = `${estudoId}|${Math.round(app.areaM2)}|${app.larguraM}|${appModo}`;
+    // S-I: o contorno da APP no terreno vai junto, para o Estudo de Massa tirar a APP da área loteável pela posição real
+    const contornoApp = app.areaM2 > 0 ? contornoAppParaGravar(app.noTerreno) : null;
+    const chave = `${estudoId}|${Math.round(app.areaM2)}|${app.larguraM}|${appModo}|${contornoApp ? contornoApp.coordinates.length : 0}`;
     if (ultimoSalvo.current === chave) return;
     ultimoSalvo.current = chave;
-    salvarApp(estudoId, { areaM2: app.areaM2, larguraM: app.larguraM, origem: appModo }).catch(() => { /* melhor esforço */ });
+    salvarApp(estudoId, { areaM2: app.areaM2, larguraM: app.larguraM, origem: appModo, contorno: contornoApp }).catch(() => { /* melhor esforço */ });
   }, [estudoId, app, appModo, hidroPendente]);
 
   // ─── Desenho ─────────────────────────────────────────────────────────────

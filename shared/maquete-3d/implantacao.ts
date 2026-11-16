@@ -3,7 +3,7 @@
 // Nada é lido de PDF nem inventado: é a mesma geometria do parcelamento, convertida para metros.
 // Planta: x para leste, y para SUL (o norte fica "para cima" na tela, como no mapa).
 import type { Position } from "geojson";
-import { criarProjecao, type CenarioMassa } from "../incorporacao/massa.js";
+import { criarProjecao, ROTULO_RESTRICAO_GEO, type CenarioMassa } from "../incorporacao/massa.js";
 import { poligonosDoTerreno, type GeometriaTerreno } from "../geo/terreno.js";
 import { implantacaoSchema, type Implantacao, type Ponto, type Relevo } from "./modelo.js";
 
@@ -40,18 +40,23 @@ export function implantacaoDoEstudo(geojson: string | null, centro: [number, num
   const oeste = Math.min(...metros.map(m => m[0])), norte = Math.max(...metros.map(m => m[1]));
   const local = (anel: Position[]): Ponto[] => bruto(anel).map(([x, y]) => ({ x: r2(x - oeste), y: r2(norte - y) }));
 
+  // o contorno da maquete aceita até 4000 pontos (a APP pelo contorno real pode ter mais): reduz por amostragem
+  const reduzir = (pts: Ponto[]): Ponto[] => (pts.length <= 4000 ? pts : pts.filter((_, k) => k % Math.ceil(pts.length / 4000) === 0));
   let descartados = 0;
   // O modelo da maquete aceita UM contorno de terreno: com várias áreas separadas (KML com MultiPolygon), fica a de
   // maior ÁREA (não a de mais vértices); os lotes e ruas de todas as áreas continuam na implantação.
   const areaLocal = (pts: Ponto[]) => Math.abs(pts.reduce((s, p, i) => { const q = pts[(i + 1) % pts.length]; return s + p.x * q.y - q.x * p.y; }, 0) / 2);
   const maior = aneisTerreno.map(local).map((pts) => ({ pts, area: areaLocal(pts) })).sort((a, b) => b.area - a.area)[0]?.pts ?? [];
   const lotes = (cenario?.lotes ?? []).flatMap((l, i) => {
-    const poligono = local(l.anel);
+    const poligono = reduzir(local(l.anel));
     if (poligono.length < 3) { descartados++; return []; }
     const quadra = String(l.quadra ?? ""), nome = String(l.numero ?? "");
+    // S-I: APP desenhada pelo contorno real é vegetação na maquete, qualquer que seja o destino dela nas doações
+    const restricao = l.restricao ? ROTULO_RESTRICAO_GEO[l.restricao] : null;
+    const verdeNatural = l.restricao === "app" || l.restricao === "supressao_vegetal";
     return [{
-      id: `l${i + 1}`, nome: nome.slice(0, 40), quadra: quadra.slice(0, 40), poligono, areaInformada: l.areaM2 > 0 ? r2(l.areaM2) : null, tipo: l.tipo,
-      uso: l.tipo === "area_publica" ? ((l as { uso?: string }).uso === "institucional" ? "institucional" as const : "verde" as const) : null,
+      id: `l${i + 1}`, nome: (restricao ?? nome).slice(0, 40), quadra: quadra.slice(0, 40), poligono, areaInformada: l.areaM2 > 0 ? r2(l.areaM2) : null, tipo: l.tipo,
+      uso: verdeNatural ? "verde" as const : l.tipo === "area_publica" ? ((l as { uso?: string }).uso === "institucional" ? "institucional" as const : "verde" as const) : null,
       unidade: l.tipo === "vendavel" && quadra && nome ? codigoDaUnidade(quadra, nome) : null,
     }];
   });

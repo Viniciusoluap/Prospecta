@@ -32,6 +32,8 @@ export interface EstudoData {
   appAreaM2: number | null;
   appLarguraM: number | null;
   appOrigem: string | null;
+  /** S-I: contorno da APP no terreno (MultiPolygon GeoJSON, lng/lat), gravado pelo mapa do Terreno. */
+  appContornoJson?: string | null;
   /** Larguras de faixa confirmadas no mapa do terreno (JSON {chave: metros}). */
   largurasFaixaJson?: string | null;
   elevacaoJson: string | null;
@@ -104,6 +106,7 @@ export function paraEstudoData(linha: LinhaEstudoProspecta): EstudoData {
     appAreaM2: num(r.appAreaM2),
     appLarguraM: num(r.appWidthM),
     appOrigem: r.appOrigin,
+    appContornoJson: r.appGeometryJson ?? null,
     largurasFaixaJson: r.terrainWidthsJson ?? null,
     elevacaoJson: r.elevationJson,
     levantamentoUrl: r.surveyUrl,
