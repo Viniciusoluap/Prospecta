@@ -175,7 +175,10 @@ describe("Correção 01 — parâmetros respeitados exatamente", () => {
     const r = gerarEstudoMassa(IRREGULAR, CENTRO, { ...BASE, appM2: 5_000, faixaServidaoM2: 1_000 });
     for (const c of r.cenarios) {
       const q = c.quadroAreas!;
-      expect(Math.abs(q.totalNaoParcelavelM2 + q.areaLiquidaVendavelM2 + q.areaPublicaTotalM2 + (q.sobrasM2 ?? 0) - q.areaBrutaM2)).toBeLessThan(1);
+      // A parte da área verde que está em APP/faixa aproveitada (regra de 16/11) já está nas não parceláveis: desconta uma vez.
+      const aproveitada = (q.areaVerdeEmRestricaoM2 ?? 0) + (q.areaInstitucionalEmRestricaoM2 ?? 0);
+      expect(aproveitada).toBeCloseTo(6_000, 0);
+      expect(Math.abs(q.totalNaoParcelavelM2 + q.areaLiquidaVendavelM2 + q.areaPublicaTotalM2 - aproveitada + (q.sobrasM2 ?? 0) - q.areaBrutaM2)).toBeLessThan(1);
       expect(q.sistemaViarioM2).toBeCloseTo(c.sistemaViario!.areaGeometricaM2, 2);
       // área das ruas desenhadas recalculada de forma independente (união dos anéis)
       const pecas = (c.ruas ?? []).map((a) => turfPolygon([metros(a)]));

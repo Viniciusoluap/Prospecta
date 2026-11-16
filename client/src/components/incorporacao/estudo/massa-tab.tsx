@@ -9,7 +9,9 @@ import {
 import { executarMotorMassa } from "./executar-massa";
 import { LADOS_GLEBA, ROTULO_LADO, medirLados, type LadoGleba } from "@shared/incorporacao/lados-gleba";
 import { PlantaTecnica } from "./planta-tecnica";
-import { linhasQuadroAreas, type QuadroAreasMassa } from "@shared/incorporacao/massa-quadro-areas";
+import { DESTINOS_PADRAO, DESTINOS_RESTRICAO, linhasQuadroAreas, type DestinoRestricao, type QuadroAreasMassa } from "@shared/incorporacao/massa-quadro-areas";
+import { aproveitamentoDosParametros } from "@shared/incorporacao/massa";
+import { area as areaGeografica } from "@turf/turf";
 import { AVISO_SEM_POLIGONAL, parseLotesAvulsos, resumoLotesAvulsos } from "@shared/incorporacao/lotes-avulsos";
 import type { EstudoMassaSalvo } from "@shared/incorporacao/estudos-massa";
 import {
@@ -26,7 +28,16 @@ const MapaMassa = dynamic(() => import("./mapa-massa").then((m) => m.MapaMassa),
   loading: () => <div className="bg-gray-100 animate-pulse" style={{ height: 460 }} />,
 });
 
-type CampoNumerico = Exclude<keyof ParametrosMassa, "tipologia" | "modoSistemaViario" | "formatoLote" | "tracadoVia" | "inverterLadoVia" | "ladosVia">;
+type CampoNumerico = Exclude<keyof ParametrosMassa, "tipologia" | "modoSistemaViario" | "formatoLote" | "tracadoVia" | "inverterLadoVia" | "ladosVia" | CampoDestino>;
+type CampoDestino = "destinoApp" | "destinoSupressaoVegetal" | "destinoFaixaTransmissao" | "destinoFaixaServidao" | "destinoOutrasNaoParcelaveis";
+/** Destino de cada área restrita nas doações (regra do dono de 16/11): o seletor fica embaixo do campo da área. */
+const DESTINO_DO_CAMPO: Partial<Record<CampoNumerico, { k: CampoDestino; restricao: keyof typeof DESTINOS_PADRAO }>> = {
+  appM2: { k: "destinoApp", restricao: "appM2" },
+  supressaoVegetalM2: { k: "destinoSupressaoVegetal", restricao: "supressaoVegetalM2" },
+  faixaTransmissaoM2: { k: "destinoFaixaTransmissao", restricao: "faixaTransmissaoM2" },
+  faixaServidaoM2: { k: "destinoFaixaServidao", restricao: "faixaServidaoM2" },
+  outrasNaoParcelaveisM2: { k: "destinoOutrasNaoParcelaveis", restricao: "outrasNaoParcelaveisM2" },
+};
 
 const CAMPOS: { k: CampoNumerico; label: string }[] = [
   { k: "testadaLoteM", label: "Testada do lote (m)" },
@@ -199,6 +210,11 @@ export function MassaTab({ estudo }: { estudo: EstudoData }) {
       return null;
     }
   }, [estudo.geojson]);
+  // Quanto das áreas restritas é aproveitado nas doações (prévia, enquanto se digita).
+  const aproveitamento = useMemo(() => {
+    if (!contorno) return null;
+    try { return aproveitamentoDosParametros(params, areaGeografica(contorno)); } catch { return null; }
+  }, [contorno, params]);
 
   // comprimento de cada lado da gleba (cima/esquerda/direita/baixo), medido no KML
   const ladosMedidos = useMemo(() => {
@@ -439,14 +455,36 @@ export function MassaTab({ estudo }: { estudo: EstudoData }) {
         </div>
         <p className="text-[10px] font-bold text-gray-500 uppercase tracking-widest mt-4 mb-2">Áreas não parceláveis (m²) — informe quando não vierem do KML</p>
         <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
-          {CAMPOS_RESTRICOES.map((c) => (
-            <CampoTexto key={c.k} id={`massa-${c.k}`} label={c.label} valor={camposTexto[c.k]}
-              onChange={(v) => upd(c.k, v)} onBlur={() => reformatarCampo(c.k)} />
-          ))}
+          {CAMPOS_RESTRICOES.map((c) => {
+            const d = DESTINO_DO_CAMPO[c.k];
+            return (
+              <div key={c.k}>
+                <CampoTexto id={`massa-${c.k}`} label={c.label} valor={camposTexto[c.k]}
+                  onChange={(v) => upd(c.k, v)} onBlur={() => reformatarCampo(c.k)} />
+                {d && (
+                  <select aria-label={`Aproveitamento: ${c.label}`} className="mt-1 w-full border border-gray-300 bg-white px-1 py-1 text-[11px] text-gray-700"
+                    value={params[d.k] ?? DESTINOS_PADRAO[d.restricao]}
+                    onChange={(e) => { setParams((p) => ({ ...p, [d.k]: e.target.value as DestinoRestricao })); setErro(null); }}>
+                    {DESTINOS_RESTRICAO.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+                  </select>
+                )}
+              </div>
+            );
+          })}
         </div>
         <p className="text-[10px] text-gray-500 mt-2">
           Cada restrição entra uma única vez no quadro de áreas. A APP vem preenchida com a área calculada no mapa do Terreno, quando houver.
+          A área marcada como &quot;conta como área verde&quot; (ou institucional) é aproveitada para cumprir o mínimo exigido: o motor só tira da área loteável o que faltar.
+          Confirme na legislação do município o que pode ser aproveitado.
         </p>
+        {aproveitamento && aproveitamento.comoVerdeM2 + aproveitamento.comoInstitucionalM2 > 0 && (
+          <p className="text-[11px] text-emerald-800 bg-emerald-50 border border-emerald-200 px-2 py-1.5 mt-2" data-testid="massa-aproveitamento">
+            Área verde exigida: {m2(aproveitamento.exigidoVerdeM2)} — {m2(aproveitamento.comoVerdeM2)} vêm de APP/faixas
+            {aproveitamento.verdeEmAreaLoteavelM2 > 0 ? ` e ${m2(aproveitamento.verdeEmAreaLoteavelM2)} saem da área loteável` : "; nada sai da área loteável"}.
+            {aproveitamento.comoInstitucionalM2 > 0 && ` Institucional exigida: ${m2(aproveitamento.exigidoInstitucionalM2)} — ${m2(aproveitamento.comoInstitucionalM2)} vêm de áreas restritas${aproveitamento.institucionalEmAreaLoteavelM2 > 0 ? ` e ${m2(aproveitamento.institucionalEmAreaLoteavelM2)} saem da área loteável` : ""}.`}
+            {" "}Economia de área loteável: <strong>{m2(aproveitamento.economiaM2)}</strong>.
+          </p>
+        )}
         <p className="text-[10px] font-bold text-gray-500 uppercase tracking-widest mt-4 mb-2">Área do sistema viário (m²)</p>
         <div className="flex flex-wrap items-end gap-3">
           <fieldset className="flex gap-3 text-xs text-gray-700" aria-label="Modo da área do sistema viário">

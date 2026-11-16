@@ -173,8 +173,9 @@ describe("R4 — áreas públicas com geometria própria", () => {
     expect(nota).toMatch(/prefira Grade ou Cul-de-sac/);
   });
 
-  it("restrição informada em m² vira peça não parcelável desenhada, somada no quadro", () => {
-    const r = gerarEstudoMassa(QUAD, CENTRO, { ...BASE, appM2: 2_000 });
+  it("restrição sem aproveitamento nas doações vira peça não parcelável desenhada, somada no quadro", () => {
+    // Desde 16/11 a APP conta como área verde por padrão; aqui ela é marcada como \"não conta\".
+    const r = gerarEstudoMassa(QUAD, CENTRO, { ...BASE, appM2: 2_000, destinoApp: "nenhum" });
     const c = r.cenarios[0];
     const np = c.lotes.filter((l) => l.tipo === "nao_parcelavel").reduce((s, l) => s + l.areaM2, 0);
     expect(np).toBeGreaterThanOrEqual(2_000 - 1);

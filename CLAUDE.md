@@ -94,3 +94,19 @@ Incorporação, viabilidade): a quantidade sugerida nunca pode exigir mais vagas
 - Nunca reduzir em silêncio: mostrar quantas vagas cabem, quantas são necessárias e o que foi ajustado.
 - `shared/incorporacao/urbanismo.ts` (`calcularPotencial`) calcula "unidades máximas" só pelo coeficiente de
   aproveitamento, sem conferir as vagas. Hoje nenhuma tela usa essa função; antes de ligá-la a uma tela, aplicar esta regra.
+
+## Incorporação — áreas restritas entram nas doações (REGRA DE NEGÓCIO — estabelecida pelo usuário em 16/11/2026)
+
+Palavras do dono: "a área de APP, faixas de servidão ou outras áreas que não poderão ser utilizadas para virar lotes,
+essas áreas devem ser incorporadas sempre que permitido nas áreas que devam ser destinadas ao projeto, como área verde
+e área institucional. Essa lógica deve estar dentro do motor na hora de fazer os desenhos".
+
+- Vale para o Estudo de Massa e para qualquer função que calcule ou desenhe área verde, institucional ou doação.
+- A conta fica em `shared/incorporacao/massa-quadro-areas.ts` (`aproveitarRestricoes`, `DESTINOS_PADRAO`) e é usada pelo
+  motor em `shared/incorporacao/massa.ts`: a restrição aproveitada entra no alvo da área verde/institucional e é
+  desenhada como tal; da área loteável sai só o que faltar para o mínimo exigido.
+- Padrão: APP, vegetação a preservar e faixas (transmissão e servidão) contam como área verde; "outras" não contam;
+  nenhuma conta como institucional por padrão (área institucional precisa ser edificável). Cada uma pode ser trocada na tela.
+- "Sempre que permitido": o cenário avisa que o aproveitamento depende da legislação municipal. Nunca contar a mesma
+  área duas vezes no quadro de áreas.
+- Paridade: o Estudo de Massa existe no Grupo Santa Fé — portar junto com as correções 8 e 10 do EPIC-023.

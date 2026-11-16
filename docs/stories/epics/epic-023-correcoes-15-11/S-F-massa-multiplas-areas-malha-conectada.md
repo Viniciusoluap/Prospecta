@@ -130,3 +130,9 @@ O dono pede: nada pode ficar em branco; tudo preenchido, calculado e com lógica
 | 15/11/2026 | @pm (Bob) | Story criada em Draft |
 | 15/11/2026 | @dev (Dex) | Draft → InProgress (modo YOLO, pedido direto do dono) |
 | 15/11/2026 | @dev (Dex) | InProgress → Ready for Review: malha conectada, recorte na divisa, destinação das sobras, vias do entorno, várias áreas, rótulos sem sobreposição |
+
+## Complemento de 16/11 — áreas restritas aproveitadas nas doações (pedido do dono depois da publicação)
+- APP, faixas de servidão e demais áreas que não podem virar lote entram, sempre que permitido, na área verde ou na
+  institucional exigida; a lógica está dentro do motor de desenho.
+- `massa-quadro-areas.ts` (`aproveitarRestricoes`, `DESTINOS_PADRAO`), `massa.ts` (`destino*` nos parâmetros, alvos e notas),
+  `massa-tab.tsx` (seletor por restrição e resumo da economia), `incorporacao-massa-aproveitamento.test.ts` (novo).

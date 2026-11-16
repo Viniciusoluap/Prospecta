@@ -83,6 +83,16 @@
 - Números (mesmo caso de referência): Grade 73 → 70 lotes (58,8% → 57,7%); Cul-de-sac 72 → 68 (58,2% → 56,6%);
   Rua Simples 44 → 43 (35,3% → 36,0%). A queda vem de deixar de aceitar lotes deformados e de não usar migalhas como doação.
 
+### Áreas restritas aproveitadas nas doações (pedido do dono em 16/11, depois da Etapa F)
+- APP, vegetação a preservar e faixas de transmissão/servidão passam a contar, por padrão, como área verde (cada
+  restrição tem um seletor na tela: área verde, área institucional ou não conta). O motor desenha a restrição dentro
+  da área verde/institucional e só tira da área loteável o que faltar para o mínimo; o quadro de áreas mostra a parte
+  aproveitada e a economia, sem contar a área duas vezes. Regra registrada no `CLAUDE.md`.
+- Arquivos: `shared/incorporacao/massa-quadro-areas.ts`, `shared/incorporacao/massa.ts`,
+  `client/src/components/incorporacao/estudo/massa-tab.tsx`, `server/incorporacao-massa-aproveitamento.test.ts` (novo, 11).
+- Limite: as restrições chegam ao motor só em m² (sem a geometria da APP ou da faixa). A área verde desenhada tem o
+  tamanho certo, mas a posição dela não é a posição real da APP: isso vem do levantamento.
+
 ## Pendências
 - **Dono:** abrir o pedido "Polímeros (Morada do Bosque)", clicar em "Gerar maquete (ler o projeto)" e dizer como ficou a
   leitura do "ARQ 01-01-CASA PADRÃO.pdf" (é a primeira medição do leitor num projeto real).
@@ -110,6 +120,8 @@
   `central-vendas-envio.test.ts`); `incorporacao-massa-malha-conectada.test.ts` novo. Manual: desenhos técnicos das três
   tipologias e de duas áreas separadas conferidos em imagem. Não verificado: a aba Estudo de Massa em navegador, a busca
   das vias do entorno de ponta a ponta e os KML reais do dono.
+- Áreas restritas nas doações — automáticos: `incorporacao-massa-aproveitamento.test.ts` (11) e os testes da
+  Incorporação e da maquete (560) aprovados; três testes antigos ajustados à regra nova. A tela não foi aberta em navegador.
 - (c) Pendentes em produção: gerar cenários num estudo real (Polímeros / Morada do Bosque) e num KML com duas áreas; leitura real do PDF da casa padrão pelo leitor próprio; novo pedido por cliente do CRM com PDF avulso real; "Gerar e distribuir nos lotes" no
   Polímeros (Morada do Bosque); mapa operacional com as imagens reais de satélite e os pontos reais; CRM no iPad (rolagem e ausência de tela preta); editar um corretor em "Usuários e acesso"
   e conferir a comissão numa obra; excluir um pedido de maquete pela lista.
