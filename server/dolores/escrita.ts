@@ -6,12 +6,14 @@ import { AsyncLocalStorage } from "node:async_hooks";
 import { sql } from "drizzle-orm";
 import { getDb, type DrizzleDb } from "../db.js";
 
-const atual = new AsyncLocalStorage<DrizzleDb>();
+const atual = new AsyncLocalStorage<{ tx: DrizzleDb; limite: number | null }>();
 
+/** A transação de escrita em curso. Passado o prazo dela, LANÇA: a transação é desfeita (a ação não termina tarde). */
 export function bancoDaAcao(): DrizzleDb {
-  const tx = atual.getStore();
-  if (!tx) throw new Error("Ação da Dolores fora da transação de escrita.");
-  return tx;
+  const a = atual.getStore();
+  if (!a) throw new Error("Ação da Dolores fora da transação de escrita.");
+  if (a.limite !== null && Date.now() > a.limite) throw new Error("Ação da Dolores passou do prazo; a gravação foi desfeita.");
+  return a.tx;
 }
 
 /**
@@ -21,6 +23,6 @@ export function bancoDaAcao(): DrizzleDb {
 export async function emTransacaoDeEscrita<T>(fn: () => Promise<T>, prazoMs?: number): Promise<T> {
   return getDb().transaction(async tx => {
     if (prazoMs && prazoMs > 0) await tx.execute(sql.raw(`SET LOCAL statement_timeout = ${Math.max(1000, Math.floor(prazoMs))}`));
-    return atual.run(tx as unknown as DrizzleDb, fn);
+    return atual.run({ tx: tx as unknown as DrizzleDb, limite: prazoMs && prazoMs > 0 ? Date.now() + prazoMs : null }, fn);
   });
 }

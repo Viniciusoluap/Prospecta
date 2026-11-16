@@ -86,7 +86,16 @@ type Decisor = { via: Via; userId: number | null; agora: Date; motivo?: string |
   /** Prazo (ms do `relogio`) até quando ainda dá para executar mais um item (WhatsApp: 60 s da Vercel). */
   prazoFinal?: number; relogio?: () => number; mensagemId?: number | null };
 
+/** Tempo mínimo restante para COMEÇAR a executar um item (WhatsApp: prazo da Vercel). Ações leves: 6 s. */
 const MINIMO_PARA_EXECUTAR_MS = 6_000;
+/**
+ * Por função, quando precisa de mais: a PCI (planilha + PDF + gravação + duas cópias ao Drive) só começa com 30 s.
+ * Sem esse tempo, o item NÃO começa e continua aguardando.
+ */
+export const MINIMO_POR_FUNCAO_MS: Readonly<Record<string, number>> = { gerar_documento: 30_000 };
+/** Funções pesadas: no máximo uma por mensagem de decisão (as outras continuam aguardando, com aviso). */
+const PESADAS = new Set(["gerar_documento"]);
+export const minimoParaExecutar = (funcao: string | null | undefined) => (funcao ? MINIMO_POR_FUNCAO_MS[funcao] : undefined) ?? MINIMO_PARA_EXECUTAR_MS;
 
 async function explicar(codigo: string, agora: Date): Promise<ResultadoDecisao> {
   const [i] = await getDb().select({ situacao: doloresAprovacoes.situacao, venceEm: doloresAprovacoes.venceEm }).from(doloresAprovacoes).where(eq(doloresAprovacoes.codigo, codigo)).limit(1);
@@ -136,7 +145,9 @@ async function aprovarUm(codigo: string, d: Decisor, autor: number): Promise<Res
     await auditar("recusada", "argumentos guardados inválidos", {});
     return { codigo, ok: false, situacao: "erro", texto: `[${codigo}] tem dados inválidos e não foi executado.` };
   }
-  const ctx: ContextoAcao = { agora: d.agora, autorId: autor, mensagemId: item.mensagemId, pedidoId: `fila:${codigo}`, aprovacaoId: item.id };
+  const relogio = d.relogio ?? Date.now;
+  const ctx: ContextoAcao = { agora: d.agora, autorId: autor, mensagemId: item.mensagemId, pedidoId: `fila:${codigo}`, aprovacaoId: item.id,
+    ...(d.prazoFinal !== undefined ? { tempoRestanteMs: () => d.prazoFinal! - relogio() } : {}) };
   let r: ResultadoAcao;
   try {
     r = await fn.executarAprovado(args.data as never, ctx);
@@ -161,6 +172,13 @@ async function aprovarUm(codigo: string, d: Decisor, autor: number): Promise<Res
   }
   await auditar("ok", null, r.resumo).catch(() => false);
   return { codigo, ok: true, situacao: "executada", texto: `[${codigo}] aprovado e feito: ${feitos.join("; ")}.${extra}` };
+}
+
+/** Função de um item ainda aguardando (null se não existe ou já saiu de "aguardando": aprovarUm explica). */
+async function funcaoAguardando(codigo: string): Promise<string | null> {
+  const [i] = await getDb().select({ funcao: doloresAprovacoes.funcao }).from(doloresAprovacoes)
+    .where(and(eq(doloresAprovacoes.codigo, codigo), eq(doloresAprovacoes.situacao, "aguardando"))).limit(1);
+  return i?.funcao ?? null;
 }
 
 /** Texto extra devolvido ao dono (a cobrança preparada, para ele mesmo encaminhar se quiser). */
@@ -191,12 +209,28 @@ export async function decidir(codigos: readonly string[], decisao: "aprovar" | "
   }
   const relogio = d.relogio ?? Date.now;
   const resultados: ResultadoDecisao[] = [];
+  let pesadas = 0;
   for (const codigo of codigos) {
-    if (decisao === "aprovar" && d.prazoFinal !== undefined && d.prazoFinal - relogio() < MINIMO_PARA_EXECUTAR_MS) {
-      resultados.push({ codigo, ok: false, situacao: "aguardando", texto: `[${codigo}] não deu tempo de executar agora; continua aguardando — mande "aprovar ${codigo}" de novo.` });
-      continue;
+    if (decisao === "aprovar") {
+      // orçamento de tempo por função (achado 4 do QA): sem o mínimo da função, o item NÃO começa
+      const funcao = await funcaoAguardando(codigo);
+      if (funcao && PESADAS.has(funcao) && pesadas >= 1) {
+        resultados.push({ codigo, ok: false, situacao: "aguardando", texto: `[${codigo}] continua aguardando: gero no máximo uma PCI por mensagem (leva tempo). Mande "aprovar ${codigo}" em outra mensagem.` });
+        continue;
+      }
+      if (d.prazoFinal !== undefined && d.prazoFinal - relogio() < minimoParaExecutar(funcao)) {
+        resultados.push({ codigo, ok: false, situacao: "aguardando", texto: `[${codigo}] não deu tempo de executar agora; nada foi feito e continua aguardando — mande "aprovar ${codigo}" de novo.` });
+        continue;
+      }
+      if (funcao && PESADAS.has(funcao)) pesadas++;
     }
-    resultados.push(decisao === "aprovar" ? await aprovarUm(codigo, d, autor!) : await recusarUm(codigo, d, autor));
+    try {
+      resultados.push(decisao === "aprovar" ? await aprovarUm(codigo, d, autor!) : await recusarUm(codigo, d, autor));
+    } catch (e) {
+      // falha do banco no meio: não dá para afirmar o que aconteceu com ESTE item (os anteriores já estão na lista)
+      console.error("[dolores/fila] falha ao decidir um item", erroParaLog(e));
+      resultados.push({ codigo, ok: false, situacao: "erro", texto: `[${codigo}] não consegui confirmar a decisão (falha do sistema); confira na tela Integrações › Dolores antes de mandar de novo.` });
+    }
   }
   return resultados;
 }

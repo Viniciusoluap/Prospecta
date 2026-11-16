@@ -2,7 +2,10 @@
 // INVERTIDA de um ataque do QA (A1–A9) — passa só com o defeito corrigido. Porta da ponte e motor da fila (PGlite).
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-vi.mock("../db.js", async orig => ({ ...(await orig<typeof import("../db.js")>()), getDb: vi.fn() }));
+vi.mock("../db.js", async orig => {
+  const o = await orig<typeof import("../db.js")>();
+  return { ...o, getDb: vi.fn(), getAssignableUsers: vi.fn(o.getAssignableUsers) };
+});
 vi.mock("../pci-gerador.js", () => ({
   modeloAtualPci: vi.fn(async () => ({ id: 1, versao: 3 })),
   gerarPciDaObra: vi.fn(async () => ({ id: 77, avisos: [], pendencias: [] })),
@@ -10,7 +13,7 @@ vi.mock("../pci-gerador.js", () => ({
 vi.mock("../../shared/pci-gerador.js", async orig => ({ ...(await orig<typeof import("../../shared/pci-gerador.js")>()), errosPci: vi.fn(() => []) }));
 
 import { errosPci } from "../../shared/pci-gerador.js";
-import { getDb } from "../db.js";
+import { getAssignableUsers, getDb } from "../db.js";
 import { gerarPciDaObra } from "../pci-gerador.js";
 import { intencaoDeAcao } from "../../shared/dolores/fila.js";
 import { ACOES } from "./acoes/registro.js";
@@ -131,5 +134,48 @@ describe("achados 2 e 3 (A2) — PCI: o rascunho da equipe não é regravado e o
     expect(r).toMatchObject({ ok: true, situacao: "executada" });
     expect(r.texto).toMatch(/gerada \(#77\), sem assinatura/);
     expect(await q("SELECT tabela, registro_id, aprovacao_id FROM dolores_autoria")).toEqual([{ tabela: "pci_generated", registro_id: 77, aprovacao_id: item.id }]);
+  });
+});
+
+describe("achado 4 (A3) — orçamento de tempo das execuções", () => {
+  const RASCUNHOS = `INSERT INTO pci_generator_drafts (project_id, form_data, updated_by, updated_at) VALUES
+    (1, '{"campos": {"x": 1}}', 1, '2026-11-15 12:00'), (2, '{"campos": {"x": 2}}', 1, '2026-11-15 12:00')`;
+  it("A3 invertido: com 7 s restantes a PCI NÃO começa (mínimo 30 s) e continua aguardando; uma cobrança (leve) com 7 s executa", async () => {
+    await banco.pg.exec(RASCUNHOS);
+    await doDono("gerar_documento", { tipo: "pci", obraId: 1 });
+    await doDono("preparar_cobranca", { leadIds: [1] }, 11);
+    const [pci, cobranca] = await fila();
+    const [r1, r2] = await decidir([pci.codigo, cobranca.codigo], "aprovar", { via: "whatsapp", userId: null, agora: AGORA, prazoFinal: 7_000, relogio: () => 0 });
+    expect(gerarPciDaObra).not.toHaveBeenCalled();
+    expect(r1).toMatchObject({ ok: false, situacao: "aguardando" });
+    expect(r1.texto).toMatch(/não deu tempo de executar agora; nada foi feito e continua aguardando — mande "aprovar/);
+    expect(r2).toMatchObject({ ok: true, situacao: "executada" });
+    expect((await fila()).map(i => i.situacao)).toEqual(["aguardando", "executada"]);
+  });
+  it("com tempo: a PCI começa e as cópias ao Drive recebem prazo dentro do orçamento; no máximo 1 PCI por mensagem de decisão", async () => {
+    await banco.pg.exec(RASCUNHOS);
+    await doDono("gerar_documento", { tipo: "pci", obraId: 1 });
+    await doDono("gerar_documento", { tipo: "pci", obraId: 2 }, 11);
+    const [a, b] = await fila();
+    const [ra, rb] = await decidir([a.codigo, b.codigo], "aprovar", { via: "whatsapp", userId: null, agora: AGORA, prazoFinal: 31_000, relogio: () => 0 });
+    expect(ra).toMatchObject({ ok: true, situacao: "executada" });
+    expect(rb).toMatchObject({ ok: false, situacao: "aguardando" });
+    expect(rb.texto).toMatch(/no máximo uma PCI por mensagem/);
+    expect(gerarPciDaObra).toHaveBeenCalledTimes(1);
+    // (31 s − 6 s de folga) / 2 cópias = 12,5 s cada
+    expect(vi.mocked(gerarPciDaObra).mock.calls[0][3]).toEqual({ regravarRascunho: false, prazoDriveMs: 12_500 });
+    expect((await fila()).map(i => i.situacao)).toEqual(["executada", "aguardando"]);
+  });
+  it("ação direta passa pelo prazo da porta: passou do prazo → 504 auditado, texto honesto, e a transação atrasada é desfeita", async () => {
+    definirDependenciasPonte({ agora: () => AGORA, prazoMs: 150 });
+    vi.mocked(getAssignableUsers).mockImplementationOnce(async (...a) => { await new Promise(r => setTimeout(r, 400)); return (await vi.importActual<typeof import("../db.js")>("../db.js")).getAssignableUsers(...a); });
+    const r = await doDono("criar_tarefa", { titulo: "Tarefa lenta", responsavel: "Bianca Souza" });
+    expect(r.status).toBe(504);
+    expect(String(r.body.erro)).toMatch(/passou do prazo.*tudo ou nada: confira no sistema/);
+    await new Promise(res => setTimeout(res, 600));
+    expect((await q("SELECT resultado, motivo FROM dolores_acoes WHERE funcao = 'criar_tarefa'"))[0]).toMatchObject({ resultado: "erro", motivo: "passou do prazo" });
+    // a execução que continuou depois do prazo não grava: a autoria pede a conexão vencida e a transação inteira volta
+    expect((await q("SELECT count(*)::int n FROM tasks WHERE title = 'Tarefa lenta'"))[0].n).toBe(0);
+    expect((await q("SELECT count(*)::int n FROM dolores_autoria"))[0].n).toBe(0);
   });
 });
