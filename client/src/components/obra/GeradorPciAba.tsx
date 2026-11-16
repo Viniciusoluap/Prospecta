@@ -252,6 +252,7 @@ function ModelosPreenchimento({ projectId, form, setForm, mostrar }: { projectId
     try {
       const r = await salvar.mutateAsync({ projectId, nome, formulario: form, novaVersaoDe: novaVersao && atual ? atual.id : null });
       toast.success(`Modelo "${r.nome}" v${r.versao} salvo (só dados técnicos).`);
+      for (const a of r.avisos) toast.warning(a, { duration: 12000 });
       await utils.pciGerador.modelosPreenchimento.invalidate();
       setSelecionado(r.id);
     } catch (e) { toast.error(e instanceof Error ? e.message : String(e)); }

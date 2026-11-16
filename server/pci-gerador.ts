@@ -18,6 +18,7 @@ import {
   MIME_MODELO_PCI,
   formatoModeloPci,
   nomeArquivoPciGerada,
+  avisosEmpresaNoModeloPci,
   compararPreenchimentoPci,
   conferirProcedenciaPci,
   dadosPessoaisNoModeloPci,
@@ -444,8 +445,10 @@ export async function salvarModeloPreenchimentoPci(entrada: { projectId: number;
   const observacao = entrada.observacao?.trim() ? entrada.observacao.trim().slice(0, 500) : null;
   const pessoais = dadosPessoaisNoModeloPci({ nome, observacao, dados });
   if (pessoais.length) {
-    throw new TRPCError({ code: "BAD_REQUEST", message: `O modelo não pode levar dados pessoais. Tire antes de salvar: ${pessoais.map((p) => `${p.campo} (${p.tipos.join(", ")})`).join("; ")}.` });
+    // O trecho (meio mascarado) ajuda a achar o dado num memorial longo.
+    throw new TRPCError({ code: "BAD_REQUEST", message: `O modelo não pode levar dados pessoais. Tire antes de salvar: ${pessoais.map((p) => `${p.campo} (${p.tipos.join(", ")}: ${p.trechos.map((t) => `"${t}"`).join(", ")})`).join("; ")}.` });
   }
+  const avisos = avisosEmpresaNoModeloPci({ nome, observacao, dados });
   const db = getDb();
   let versao = 1;
   let anterior: number | null = null;
@@ -470,7 +473,7 @@ export async function salvarModeloPreenchimentoPci(entrada: { projectId: number;
     if (anterior && /duplicate|unique/i.test(e instanceof Error ? `${e.message} ${String((e as { cause?: unknown }).cause ?? "")}` : "")) throw new TRPCError({ code: "CONFLICT", message: "Outra pessoa salvou uma versão deste modelo agora. Atualize a lista e tente de novo." });
     throw e;
   }
-  return { id, nome, versao };
+  return { id, nome, versao, avisos };
 }
 
 /** Dados técnicos de uma versão (inclusive anterior), para aplicar em outra obra. */
