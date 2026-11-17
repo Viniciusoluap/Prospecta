@@ -84,6 +84,7 @@ Novos:
 - `server/dolores/grupos.test.ts` (24 testes)
 - `server/dolores/grupos-qa.test.ts` (19 testes: regressões do portão de QA de 17/11, versões invertidas dos ataques)
 - `server/dolores/grupos-qa-r2.test.ts` (regressões da 2ª rodada do QA: N0–N6)
+- `server/dolores/grupos-qa-r3.test.ts` (regressões da 3ª rodada do QA: N7, N8 e o resíduo do N6)
 - `drizzle/0130_dolores_fila_guarda.sql` (guarda da fila da E3 aceita o SET NULL de quem decidiu)
 - `docs/dolores/agente-etapa4.md`
 Alterados:
@@ -168,8 +169,28 @@ Alterados:
 - 0126 editada de novo (só dentro do CREATE TABLE e uma tabela nova; continua aditiva; NÃO aplicada): conferir antes
   `SELECT to_regclass('dolores_grupos_contagem')` = NULL. 0130 nova, NÃO aplicada.
 
+## Correções da 3ª rodada do portão de QA (17/11, Quinn → Dex)
+Veredito da 3ª rodada: CONCERNS sem bloqueio (N0–N6 fechados; N7 importante; N8 menor; resíduo menor do N6).
+| # | Achado | Correção | Commit |
+|---|---|---|---|
+| N7 | Falha ao gravar `dolores_grupos_consumo_mes` era engolida: 31 chamadas / 775 mil tokens contra orçamento de 200 mil | falha fechado: `registrarConsumo` e `registrarConsumoDaClassificacao` devolvem se gravaram; se qualquer um falhar, `classificacao_ligada = false` em `dolores_grupos_config` (e, se nem isso gravar, pausa em memória na instância); o desligamento é auditado em `dolores_acoes` (`desligar_classificacao_por_falha`, motivo, tabela que falhou, se gravou no banco); `dolores.grupos.listar` devolve `desligamentoPorFalha` (quando e por quê) e a tela mostra o aviso até o admin religar (religar pela tela limpa a pausa em memória); webhook e tela respeitam a pausa | d87dce6, 36b9d60 |
+| N8 | A exceção da 0130 também aceitava `decidido_por_user_id = NULL` feito à mão | a exceção só vale com `NOT EXISTS (SELECT 1 FROM "users" WHERE "id" = OLD."decidido_por_user_id")` (no ON DELETE SET NULL o usuário já não existe) | d87dce6 |
+| N6 (resíduo) | "documento #3" contava como indicação do cliente 3 | "#N" sem "cliente/card/lead" só conta se não vier logo depois de palavra de outra coisa (documento, item, nota, parcela, lote, quadra, etapa, obra, pedido, protocolo, grupo, arquivo, foto…) | 36b9d60 |
+
+- Testes de regressão: `server/dolores/grupos-qa-r3.test.ts` (6 testes): 40 documentos com a gravação falhando ⇒ 1 chamada à IA, desligada,
+  auditada, tela com o motivo, dono respondido e reserva liberada, religar volta a classificar; falha em `dolores_consumo` também desliga;
+  pausa em memória quando nem o desligamento grava; sem falha, orçamento de 20% (7 chamadas de 25 mil); 0130 2×, NULL manual barrado e
+  exclusão pelo `appRouter` (`configuracoes.deleteUser`) íntegra; regras do "#N".
+- [AUTO-DECISION] Motivo do desligamento → em `dolores_acoes` e não numa coluna nova (reason: a 0126 não pode ganhar ALTER; a tela lê o
+  último desligamento automático posterior à última vez que o admin religou).
+- [AUTO-DECISION] Falha em `dolores_consumo` (limite inteiro) também desliga (reason: sugestão "idem" do QA; sem ela o teto de 80% também
+  ficaria cego). A conversa do dono só registra (comportamento igual ao de antes).
+- Verificação (17/11, depois de 36b9d60): `npx tsc --noEmit` ok; suíte-alvo 47 arquivos / 636 testes ok (2 processos); `npx vite build` ok.
+  `server/integracoes-anthropic.test.ts` sem mudança e verde. 0126 e 0130 NÃO aplicadas.
+
 ## Change Log
 - 16/11/2026 — @dev (Dex): story criada (Draft → InProgress), critérios tirados do prompt mestre (seções 4.4, 5, 6, 7 e 9).
 - 17/11/2026 — @dev (Dex): implementação concluída (InProgress → InReview); tsc, build, suíte-alvo (584) e completa (2568) verdes.
 - 17/11/2026 — @dev (Dex): 8 achados do portão de QA corrigidos, com 19 testes de regressão (`grupos-qa.test.ts`).
 - 17/11/2026 — @dev (Dex): 2ª rodada do QA (N0–N6) corrigida, com testes de regressão em `grupos-qa-r2.test.ts`; migração 0130 nova.
+- 17/11/2026 — @dev (Dex): 3ª rodada do QA (N7, N8, resíduo do N6) corrigida, com regressões em `grupos-qa-r3.test.ts`.
