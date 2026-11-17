@@ -19,8 +19,8 @@ import { hashPassword } from "./_core/auth-utils.js";
 import { adminProcedure, protectedProcedure, router } from "./_core/trpc.js";
 import { getDb, type DrizzleDb } from "./db.js";
 
-/** A partir desta data (17/11/2026 00:00 em Brasília) toda conta nova passa pelo termo ao criar a senha. */
-export const INICIO_DO_TERMO = new Date("2026-11-17T03:00:00Z");
+/** A partir desta data (17/11/2026, 00:00 UTC — 16/11 21:00 em Brasília; a folga só deixa a regra mais rigorosa) toda conta nova passa pelo termo ao criar a senha. */
+export const INICIO_DO_TERMO = new Date("2026-11-17T00:00:00Z");
 /** Validade do link de primeiro acesso/redefinição (a mesma de configuracoes-router.ts). */
 export const VALIDADE_DO_LINK_MS = 7 * 24 * 60 * 60 * 1000;
 /** Folga para reconhecer o convite da criação da conta (link gerado logo depois do cadastro). */
