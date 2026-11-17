@@ -575,4 +575,19 @@ describe("QA-SEG E4b — correções (caminho completo do webhook)", () => {
     expect(ordem).toEqual(["dono", "grupo"]);
   });
 
+  it("achado 5: exceção no meio da resposta não deixa 'processando' nem a reserva presa; a próxima marcação é atendida", async () => {
+    await ligarTudo();
+    const erro = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    try {
+      respostas = [() => ({ stop_reason: "end_turn", content: [], get usage(): never { throw new Error("resposta inesperada"); } }) as RespostaGrupo];
+      const r = await chamar(aviso(item({ id: "EXC-1" })));
+      expect(r.body.r).toMatchObject({ "marcacao-erro": 1 });
+      const [m] = await q<{ situacao: string; motivo: string; reserva_entrada: number; reserva_ate: Date | null }>("SELECT situacao, motivo, reserva_entrada, reserva_ate FROM dolores_marcacoes WHERE external_id = 'EXC-1'");
+      expect(m).toMatchObject({ situacao: "erro", reserva_entrada: 0, reserva_ate: null });
+      expect(m.motivo).toMatch(/^falha inesperada ao responder/);
+      const r2 = await chamar(aviso(item({ id: "EXC-2", de: "5599966665555" })));
+      expect(r2.body.r).toMatchObject({ "marcacao-respondida": 1 });
+    } finally { erro.mockRestore(); }
+  });
+
 });

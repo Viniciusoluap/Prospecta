@@ -456,23 +456,32 @@ export async function tratarMarcacao(cfg: DoloresWhatsappConfig, item: unknown, 
       await gravar(grupo, m, "silencio", "outra resposta em andamento neste grupo");
       return "marcacao-ocupada";
     }
-    // 7) tetos (só depois da vaga "em andamento"): por remetente/hora e por grupo/dia
-    const dia = diaDeImperatriz(agora);
-    const remetente = resumoDoRemetente(m.participanteBruto ?? m.participante ?? "(sem remetente)");
-    if (!(await vagaNoContador(`r:${remetente}:${agora.toISOString().slice(0, 13)}`, conf.tetoRemetenteHora))) {
-      await atualizar(id, { situacao: "silencio", motivo: `teto de ${conf.tetoRemetenteHora} marcações por pessoa por hora`, respondidaEm: deps.agora() });
-      return "marcacao-teto-remetente";
+    // QA-SEG E4b achado 5: o que der errado daqui em diante não deixa a linha "processando" (ocupando o grupo até 3 min) nem a
+    // reserva de tokens presa (até 90 s): a linha vira "erro" e a reserva é solta.
+    try {
+      // 7) tetos (só depois da vaga "em andamento"): por remetente/hora e por grupo/dia
+      const dia = diaDeImperatriz(agora);
+      const remetente = resumoDoRemetente(m.participanteBruto ?? m.participante ?? "(sem remetente)");
+      if (!(await vagaNoContador(`r:${remetente}:${agora.toISOString().slice(0, 13)}`, conf.tetoRemetenteHora))) {
+        await atualizar(id, { situacao: "silencio", motivo: `teto de ${conf.tetoRemetenteHora} marcações por pessoa por hora`, respondidaEm: deps.agora() });
+        return "marcacao-teto-remetente";
+      }
+      if (!(await vagaNoContador(`g:${grupo.id}:${dia}`, conf.tetoGrupoDia))) {
+        // uma frase fixa por grupo por dia, no máximo; depois, silêncio
+        const avisar = await primeiraVez(`aviso:${grupo.id}:${dia}`);
+        const cred = avisar ? await o.obterCredencial().catch((): CredencialGrupo => ({ motivo: "indisponivel" })) : null;
+        const enviou = avisar && cred?.motivo === null && o.prazoFinal - deps.ms() >= MINIMO_PARA_FRASE_MS
+          ? await responderNoGrupo(grupo, m, FRASE_TETO_DO_DIA, { marcacaoId: id, autor: o.autor, prazoFinal: o.prazoFinal, instancia: cfg.instancia }) : false;
+        await atualizar(id, { situacao: "silencio", motivo: `teto de ${conf.tetoGrupoDia} marcações no grupo hoje`, resposta: enviou ? FRASE_TETO_DO_DIA : null, respondidaEm: deps.agora() });
+        return "marcacao-teto-grupo";
+      }
+      return await responder(cfg, grupo, m, id, o);
+    } catch (e) {
+      await atualizar(id, { situacao: "erro", motivo: `falha inesperada ao responder (${erroParaLog(e)}); sem resposta`, respondidaEm: deps.agora() });
+      throw e;
+    } finally {
+      await liberarReservaMarcacao(id);
     }
-    if (!(await vagaNoContador(`g:${grupo.id}:${dia}`, conf.tetoGrupoDia))) {
-      // uma frase fixa por grupo por dia, no máximo; depois, silêncio
-      const avisar = await primeiraVez(`aviso:${grupo.id}:${dia}`);
-      const cred = avisar ? await o.obterCredencial().catch((): CredencialGrupo => ({ motivo: "indisponivel" })) : null;
-      const enviou = avisar && cred?.motivo === null && o.prazoFinal - deps.ms() >= MINIMO_PARA_FRASE_MS
-        ? await responderNoGrupo(grupo, m, FRASE_TETO_DO_DIA, { marcacaoId: id, autor: o.autor, prazoFinal: o.prazoFinal, instancia: cfg.instancia }) : false;
-      await atualizar(id, { situacao: "silencio", motivo: `teto de ${conf.tetoGrupoDia} marcações no grupo hoje`, resposta: enviou ? FRASE_TETO_DO_DIA : null, respondidaEm: deps.agora() });
-      return "marcacao-teto-grupo";
-    }
-    return await responder(cfg, grupo, m, id, o);
   } catch (e) {
     console.error("[dolores/marcacao] falha ao tratar a marcação", erroParaLog(e));
     return "marcacao-erro";
