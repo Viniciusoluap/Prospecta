@@ -253,6 +253,26 @@ describe("classificação (custo e injeção por documento)", () => {
     expect(pedidosIa).toEqual([]);
     expect((await mensagens()).map(m => m.situacao)).toEqual(["a_classificar", "a_classificar", "a_classificar"]);
   });
+  it("Etapa 6 — pausa geral ou conta da Dolores desativada, tudo ligado: webhook e botão da tela não baixam, não contam tokens, não chamam a IA nem enviam nada", async () => {
+    let contou = 0;
+    definirDependenciasClassificacao({ cliente: async p => { pedidosIa.push(JSON.parse(JSON.stringify(p))); return respostaIa(p); }, baixar: baixar as never, contar: async () => { contou++; return 1_000; } });
+    for (const [i, sql] of [
+      "UPDATE dolores_config SET pausada = true",
+      `UPDATE dolores_config SET pausada = false; INSERT INTO users ("openId", name, role, active) VALUES ('sistema:dolores', 'Dolores', 'user', false)`,
+    ].entries()) {
+      await banco.pg.exec(sql);
+      esquecerUsuarioDolores();
+      await chamar(aviso(item({ id: `PAUSA${i}`, message: documento(`p${i}.pdf`) })));
+      await caller("admin").dolores.grupos.classificarPendentes({ maximo: 3 });
+    }
+    expect(baixar).not.toHaveBeenCalled();
+    expect(contou).toBe(0);
+    expect(pedidosIa).toEqual([]);
+    expect(conversa).not.toHaveBeenCalled();
+    expect(enviar).not.toHaveBeenCalled();
+    expect(await q("SELECT * FROM dolores_consumo")).toEqual([]);
+    expect((await mensagens()).map(m => m.situacao)).toEqual(["a_classificar", "a_classificar"]);
+  });
   it("teto por grupo por dia: a segunda classificação é recusada e auditada; o documento fica 'a classificar'", async () => {
     await banco.pg.exec("UPDATE dolores_grupos_config SET teto_classificacoes_grupo_dia = 1");
     await chamar(aviso(item({ message: documento("a.pdf") })));

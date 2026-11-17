@@ -5,7 +5,7 @@
 // apagar lançamento financeiro confirmado; nunca pagar nem autorizar pagamento; nunca mexer em usuários, acessos,
 // credenciais ou dados bancários; nunca assinar ou validar documento técnico/jurídico; nunca inventar dado.
 
-export const ETAPA_ATUAL = 5;
+export const ETAPA_ATUAL = 6;
 
 /** Etapa 1 — Leitura: somente consultas. */
 export const LIBERADAS_ETAPA_1 = [
@@ -49,12 +49,16 @@ export const LIBERADAS_ETAPA_4 = ["listar_grupos", "ler_grupo_cliente", "criar_c
  */
 export const LIBERADAS_ETAPA_5 = ["listar_notas_obra", "conciliar_nota_obra", "salvar_nota_obra"] as const;
 
-const LIBERADAS: Record<number, readonly string[]> = { 1: LIBERADAS_ETAPA_1, 2: LIBERADAS_ETAPA_2, 3: LIBERADAS_ETAPA_3, 4: LIBERADAS_ETAPA_4, 5: LIBERADAS_ETAPA_5 };
+/**
+ * Etapa 6 — Operação contínua: a leitura da última ronda e do último relatório (somente leitura). A ronda e o relatório em si
+ * não são ferramentas: rodam por código (cron, tela ou o comando "relatório" do dono), sem IA.
+ */
+export const LIBERADAS_ETAPA_6 = ["relatorio_diario"] as const;
 
-/** Funções previstas para etapas seguintes (ainda não liberadas): a recusa diz quando chegam. */
-export const PREVISTAS: Record<string, number> = {
-  relatorio_diario: 6,
-};
+const LIBERADAS: Record<number, readonly string[]> = { 1: LIBERADAS_ETAPA_1, 2: LIBERADAS_ETAPA_2, 3: LIBERADAS_ETAPA_3, 4: LIBERADAS_ETAPA_4, 5: LIBERADAS_ETAPA_5, 6: LIBERADAS_ETAPA_6 };
+
+/** Funções previstas para etapas seguintes (ainda não liberadas): a recusa diz quando chegam. Nenhuma depois da etapa 6. */
+export const PREVISTAS: Record<string, number> = {};
 
 /**
  * Funções que NUNCA existem para a Dolores (limites fixos ou dependem de liberação do dono). A recusa diz o porquê; o

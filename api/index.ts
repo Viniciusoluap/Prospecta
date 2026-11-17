@@ -39,6 +39,9 @@ import centralVendasRotas from "../server/central-vendas/rotas.js";
 import doloresPonteRotas from "../server/dolores/ponte.js";
 import doloresWhatsappRotas from "../server/dolores/whatsapp.js";
 import { executarRotinaCentralVendas } from "../server/central-vendas/rotina.js";
+// EPIC-025 E6 (17/11): rondas e relatório diário da Dolores (cron próprio, CRON_SECRET em tempo constante).
+import { tratarCronDolores } from "../server/dolores/rondas.js";
+import { erroParaLog } from "../server/dolores/erro-seguro.js";
 
 const app = express();
 // Pedido de 24/10: webhook do WhatsApp publicado na Vercel. Precisa do corpo bruto (assinatura),
@@ -183,6 +186,20 @@ app.get("/api/cron/lead-card-due", async (req, res) => {
     return res.json({ ok: true, ...avisos, bancos, drive, centralVendas });
   }
   catch (error) { console.error("[cron/lead-card-due]", error); return res.status(500).json({ error: "Falha ao processar avisos" }); }
+});
+
+// ── Cron: rondas e relatório diário da Dolores (EPIC-025 E6) ─
+// Só GET da Vercel com "Authorization: Bearer <CRON_SECRET>" (sem segredo configurado, recusa sempre). Query e corpo são
+// ignorados: a janela, o alvo e o destino (só o número do dono) vêm do servidor. Tudo desligado por padrão; cabe em 45 s.
+app.get("/api/cron/dolores", async (req, res) => {
+  res.setHeader("Cache-Control", "no-store");
+  try {
+    const r = await tratarCronDolores(req);
+    return res.status(r.status).json(r.body);
+  } catch (err) {
+    console.error("[cron/dolores]", erroParaLog(err));
+    return res.status(500).json({ error: "Falha na rotina da Dolores" });
+  }
 });
 
 // ── All other routes (tRPC, uploads, webhooks) ─
