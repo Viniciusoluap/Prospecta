@@ -14,7 +14,7 @@ import { ADMIN_MODULES } from "../shared/admin-permissions.js";
 import { ENDERECO_DA_SEDE } from "../shared/empresa.js";
 import { FRASE_CURTA_DO_TERMO, PENDENCIAS_DO_JURIDICO, SECOES_DO_TERMO, TITULO_DO_TERMO, VERSAO_DO_TERMO } from "../shared/termo-consentimento.js";
 import { verifyPassword } from "./_core/auth-utils.js";
-import { aparelhoDoUserAgent, classificarConta, ehPrimeiroAcesso, INICIO_DO_TERMO, instanteDoBanco, gravarSenhaComAceite, MENSAGEM_SEM_ACEITE, MENSAGEM_VERSAO_ERRADA, pedirAceiteNoLogin } from "./consentimento.js";
+import { aparelhoDoUserAgent, classificarConta, MENSAGEM_FALHA_AO_VERIFICAR, ehPrimeiroAcesso, INICIO_DO_TERMO, instanteDoBanco, gravarSenhaComAceite, MENSAGEM_SEM_ACEITE, MENSAGEM_VERSAO_ERRADA, pedirAceiteNoLogin } from "./consentimento.js";
 import { getDb } from "./db.js";
 import { appRouter } from "./routers.js";
 
@@ -312,6 +312,26 @@ describe("fuso do createdAt (QA S-12, achado 6)", () => {
     const antiga = await contaComFuso("UTC", "2026-11-16T23:59:59Z", "tok-u2");
     expect(await (await sessao(nova.id)).consentimento.minhaSituacao()).toMatchObject({ pedir: true });
     expect(await (await sessao(antiga.id)).consentimento.minhaSituacao()).toMatchObject({ pedir: false });
+  });
+});
+
+describe("falha do banco não vira 'link inválido' (QA S-12, achado 5)", () => {
+  it("sem a tabela consentimentos (0127 não aplicada): validarToken e definirSenha dizem 'não foi possível verificar', a senha não muda", async () => {
+    const id = await contaNova();
+    await pg.exec(`ALTER TABLE consentimentos RENAME TO consentimentos_fora`);
+    const erro = vi.spyOn(console, "error").mockImplementation(() => {});
+    await expect(publico().primeiroAcesso.validarToken({ token: "tok-novo" })).rejects.toMatchObject({ code: "INTERNAL_SERVER_ERROR", message: MENSAGEM_FALHA_AO_VERIFICAR });
+    await expect(publico().primeiroAcesso.definirSenha({ token: "tok-novo", novaSenha: "senha-forte-1", aceitouTermo: true, versaoDoTermo: VERSAO_DO_TERMO }))
+      .rejects.toMatchObject({ code: "INTERNAL_SERVER_ERROR", message: MENSAGEM_FALHA_AO_VERIFICAR });
+    expect(erro).toHaveBeenCalled();
+    erro.mockRestore();
+    expect((await hashDe(id)).passwordHash).toBe("placeholder");
+  });
+  it("link inválido de verdade continua 'Link inválido ou expirado'; aviso do termo continua o mesmo", async () => {
+    await contaNova();
+    expect(await publico().primeiroAcesso.validarToken({ token: "nao-existe" })).toMatchObject({ valido: false });
+    await expect(publico().primeiroAcesso.definirSenha({ token: "nao-existe", novaSenha: "senha-forte-1" })).rejects.toMatchObject({ code: "BAD_REQUEST", message: "Link inválido ou expirado" });
+    await expect(publico().primeiroAcesso.definirSenha({ token: "tok-novo", novaSenha: "senha-forte-1" })).rejects.toMatchObject({ code: "BAD_REQUEST", message: MENSAGEM_SEM_ACEITE });
   });
 });
 

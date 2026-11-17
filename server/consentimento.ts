@@ -89,6 +89,23 @@ export type SituacaoDoTermo = "aceito" | "obrigatorio" | "opcional";
 export const MENSAGEM_SEM_ACEITE = "Para criar a senha, é preciso marcar que você leu e concorda com o termo de consentimento.";
 export const MENSAGEM_VERSAO_ERRADA = "O termo de consentimento foi atualizado. Recarregue a página, leia a versão atual e marque de novo.";
 
+/** Falha do banco nas rotas do link (ex.: tabela `consentimentos` ainda não criada) — não é "link inválido". */
+export const MENSAGEM_FALHA_AO_VERIFICAR = "Não foi possível verificar agora; tente de novo em instantes.";
+
+/**
+ * QA S-12, achado 5: erro de banco nas rotas do link vira uma mensagem própria (e fica no log), para a tela não dizer
+ * "Link inválido ou expirado" quando o link está bom. Erros já tratados (TRPCError) passam como estão.
+ */
+export async function semConfundirFalhaDoBanco<T>(rota: string, fn: () => Promise<T>): Promise<T> {
+  try {
+    return await fn();
+  } catch (erro) {
+    if (erro instanceof TRPCError) throw erro;
+    console.error(`[consentimento] falha do banco em ${rota}:`, erro);
+    throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: MENSAGEM_FALHA_AO_VERIFICAR, cause: erro });
+  }
+}
+
 /** Opção do item 4 (pedir o aceite no próximo login). Desligada, salvo CONSENTIMENTO_PEDIR_NO_LOGIN=1. */
 export function pedirAceiteNoLogin(env: Record<string, string | undefined> = process.env): boolean {
   return env.CONSENTIMENTO_PEDIR_NO_LOGIN === "1";

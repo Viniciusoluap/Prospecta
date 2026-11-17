@@ -22,9 +22,9 @@ export default function DefinirSenha() {
   const [aceitou, setAceitou] = useState(false);
   const [avisoTermo, setAvisoTermo] = useState<string | null>(null);
 
-  const { data: validacao, isLoading } = trpc.primeiroAcesso.validarToken.useQuery(
+  const { data: validacao, isLoading, isError: falhaAoVerificar, refetch, isFetching } = trpc.primeiroAcesso.validarToken.useQuery(
     { token: token ?? "" },
-    { enabled: !!token },
+    { enabled: !!token, retry: 1 },
   );
   const definir = trpc.primeiroAcesso.definirSenha.useMutation({
     onSuccess: () => {
@@ -70,6 +70,15 @@ export default function DefinirSenha() {
             <CardContent className="space-y-3 py-10 text-center">
               <CheckCircle2 size={40} className="mx-auto text-green-400" />
               <p className="text-sm text-gray-300">Senha definida! Redirecionando para o login…</p>
+            </CardContent>
+          ) : falhaAoVerificar ? (
+            // QA S-12, achado 5: falha do servidor/banco não é "link inválido".
+            <CardContent className="space-y-4 py-10 text-center">
+              <AlertCircle size={36} className="mx-auto text-amber-300" />
+              <p role="alert" className="text-sm text-gray-200">Não foi possível verificar agora; tente de novo em instantes.</p>
+              <Button type="button" onClick={() => refetch()} disabled={isFetching} className="bg-[#C9A961] font-bold text-[#1A2332]">
+                {isFetching ? "Verificando…" : "Tentar de novo"}
+              </Button>
             </CardContent>
           ) : !validacao?.valido ? (
             <CardContent className="space-y-3 py-10 text-center">

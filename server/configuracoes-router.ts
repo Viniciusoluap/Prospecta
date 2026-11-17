@@ -13,7 +13,7 @@ import { adminProcedure, publicProcedure, router } from "./_core/trpc.js";
 import { getDb } from "./db.js";
 import { lixeiraDaEntidade } from "./drive-organizacao.js";
 import { VERSAO_DO_TERMO } from "../shared/termo-consentimento.js";
-import { aceitesDoUsuario, aparelhoDoUserAgent, conferirAceite, createdAtEmUtc, ehPrimeiroAcesso, gravarSenhaComAceite, situacaoDoTermo, VALIDADE_DO_LINK_MS } from "./consentimento.js";
+import { aceitesDoUsuario, aparelhoDoUserAgent, conferirAceite, createdAtEmUtc, ehPrimeiroAcesso, gravarSenhaComAceite, semConfundirFalhaDoBanco, situacaoDoTermo, VALIDADE_DO_LINK_MS } from "./consentimento.js";
 
 const managedRole = z.enum(["admin", "corretor", "colaborador", "cliente", "empreiteiro"]);
 // EPIC-023 (S-A): comissão padrão e observações do corretor vieram da antiga tela
@@ -279,7 +279,8 @@ export const configuracoesRouter = router({
 // admin. Mantido junto de configuracoesRouter porque compartilha a lógica de token.
 export const primeiroAcessoRouter = router({
   // EPIC-024 S-12: a tela recebe também a situação do termo de consentimento ("obrigatorio", "opcional" ou "aceito").
-  validarToken: publicProcedure.input(z.object({ token: z.string().min(1) })).query(async ({ input }) => {
+  // Falha do banco → "Não foi possível verificar agora…" (não "Link inválido") — QA S-12, achado 5.
+  validarToken: publicProcedure.input(z.object({ token: z.string().min(1) })).query(({ input }) => semConfundirFalhaDoBanco("validarToken", async () => {
     const db = getDb();
     const [usuario] = await db.select({ id: users.id, name: users.name, expiraEm: users.tokenPrimeiroAcessoExpiraEm, createdAt: createdAtEmUtc })
       .from(users).where(eq(users.tokenPrimeiroAcesso, input.token)).limit(1);
@@ -287,7 +288,7 @@ export const primeiroAcessoRouter = router({
     if (!valido) return { valido, nome: null, termo: null, versaoDoTermo: VERSAO_DO_TERMO };
     const termo = situacaoDoTermo(await aceitesDoUsuario(db, usuario!.id), ehPrimeiroAcesso({ createdAt: usuario!.createdAt, tokenExpiraEm: usuario!.expiraEm }));
     return { valido, nome: usuario!.name, termo, versaoDoTermo: VERSAO_DO_TERMO };
-  }),
+  })),
 
   // EPIC-024 S-12: no primeiro acesso o servidor EXIGE `aceitouTermo: true` com a versão vigente; senha e aceite
   // são gravados na mesma transação (server/consentimento.ts › gravarSenhaComAceite).
@@ -296,7 +297,7 @@ export const primeiroAcessoRouter = router({
     novaSenha: z.string().min(8).max(128),
     aceitouTermo: z.boolean().optional(),
     versaoDoTermo: z.string().max(40).optional(),
-  })).mutation(async ({ ctx, input }) => {
+  })).mutation(({ ctx, input }) => semConfundirFalhaDoBanco("definirSenha", async () => {
     const db = getDb();
     const [usuario] = await db.select({ id: users.id, expiraEm: users.tokenPrimeiroAcessoExpiraEm, createdAt: createdAtEmUtc })
       .from(users).where(eq(users.tokenPrimeiroAcesso, input.token)).limit(1);
@@ -311,5 +312,5 @@ export const primeiroAcessoRouter = router({
     const ok = await gravarSenhaComAceite(db, { userId: usuario.id, token: input.token, novaSenha: input.novaSenha, gravarAceite, aparelho: aparelhoDoUserAgent(ua) });
     if (!ok) throw new TRPCError({ code: "BAD_REQUEST", message: "Link inválido ou expirado" });
     return { success: true } as const;
-  }),
+  })),
 });
