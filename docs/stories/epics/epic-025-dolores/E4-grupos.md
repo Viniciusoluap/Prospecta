@@ -82,6 +82,7 @@ Novos:
   `server/dolores/leitura/grupos.ts` (`listar_grupos`, `ler_grupo_cliente`), `server/dolores/grupos-router.ts` (`dolores.grupos.*`)
 - `client/src/components/admin/DoloresGruposCard.tsx`
 - `server/dolores/grupos.test.ts` (24 testes)
+- `server/dolores/grupos-qa.test.ts` (19 testes: regressões do portão de QA de 17/11, versões invertidas dos ataques)
 - `docs/dolores/agente-etapa4.md`
 Alterados:
 - `drizzle.config.ts`, `shared/funcoes-anthropic.ts` (função `dolores_documentos`), `shared/dolores/whatsapp.ts` (exports)
@@ -121,6 +122,22 @@ Alterados:
 - Verificação (17/11): `npx tsc --noEmit` ok; suíte-alvo 44 arquivos / 584 testes ok; `npx vite build` ok; suíte completa
   248 arquivos / 2568 testes ok (2 processos). Migração 0126 NÃO aplicada.
 
+## Correções do portão de QA (17/11, Quinn → Dex)
+| # | Achado | Correção | Commit |
+|---|---|---|---|
+| 1 | Gatilho da 0126 barrava o `ON DELETE SET NULL` de `lead_document_id` (excluir documento / lead arquivado) | o vínculo pode virar NULL; `salvo` continua final; revisão das FKs achou mais um: a tela gravava o admin em `dolores_acoes.autor_user_id` (RESTRICT) e impedia excluir o usuário — o admin vai no resumo (`porUserId`) | 3901fef |
+| 2 | PDF com /ObjStm furava o teto de 5 páginas | `paginasPdfEstimadas` devolve null ("não sei") com /ObjStm, /XRef em fluxo, escape `#xx` em nome da estrutura, /Kids sem fechar ou nenhuma página → não envia o arquivo; conta pelo maior entre /Type /Page, /Contents, /Kids e /Count; reserva do pior caso 3 mil + 5 × 5 mil = 28 mil; uso real acima da reserva → `excesso_entrada` no total do dia e classificações pausadas até amanhã | 108ffcc |
+| 3 | Download inteiro antes de conferir o tamanho | `fetchComTeto`: Content-Length e leitura em fluxo cortadas em `maxBytes × 4/3 + 64 KB`, com abort | 7c74e8e |
+| 4 | Motivo do modelo com link e "aprovar CÓDIGO" | `motivoDaIaSeguro` (uma linha, ≤ 160, sem link/host, @, barra, 4+ dígitos, verbos de decisão/comando, código da fila ou palavra com letras e dígitos); senão grava `MOTIVO_OMITIDO` | 491972a |
+| 5 | Chamada sem resposta fora da contabilidade | tempo limite/rede/5xx/408 registram a reserva como custo (`parada = estimado_sem_resposta`); 4xx não | 6a48252 |
+| 6 | `criar_card_cliente` só via homônimo exato | `clientesCandidatos` (nome parcial normalizado e telefone mascarado de quem mandou no grupo); o item lista os parecidos; "como o dono indicou" só se o número está na mensagem do dono | 88b13dc |
+| 7 | Id de grupo antigo mostrava o telefone | `jidDeGrupoParaExibir` na lista da Evolution | 2e52133 |
+| 8 | Pendências vencidas na tela | `pendenciasDeClassificacao` filtra pela retenção | e3e99af |
+
+- [AUTO-DECISION] Contagem prévia de tokens da API → não usada (o projeto não tem esse caminho; regra conservadora).
+- [AUTO-DECISION] Coluna `excesso_entrada` entra no CREATE TABLE da 0126 (ainda não aplicada; o teste estático da etapa proíbe ALTER).
+
 ## Change Log
 - 16/11/2026 — @dev (Dex): story criada (Draft → InProgress), critérios tirados do prompt mestre (seções 4.4, 5, 6, 7 e 9).
 - 17/11/2026 — @dev (Dex): implementação concluída (InProgress → InReview); tsc, build, suíte-alvo (584) e completa (2568) verdes.
+- 17/11/2026 — @dev (Dex): 8 achados do portão de QA corrigidos, com 19 testes de regressão (`grupos-qa.test.ts`).

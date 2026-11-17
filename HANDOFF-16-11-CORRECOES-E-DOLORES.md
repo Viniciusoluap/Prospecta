@@ -223,3 +223,13 @@ PR, cada uma com portão de QA. 4. Relatório final ao dono.
   cadastrar um grupo real, conferir a lista de grupos da Evolution (`/group/fetchAllGroups`), uma classificação real e um
   salvamento real no Drive.
 - Próximo passo exato: portão de QA da E4; depois unir com a `main`, aplicar a 0126 e publicar.
+
+## Atualização — 17/11, Dolores etapa 4: correções do portão de QA — @dev
+- O QA (Quinn) reprovou a E4: 2 bloqueios, 1 importante e 5 menores. Os 8 foram corrigidos no ramo `epic025-dolores-etapa4`,
+  um commit por achado (3901fef, 108ffcc, 7c74e8e, 491972a, 6a48252, 88b13dc, 2e52133, e3e99af), com cópia em `claude/wip-epic025-dolores-etapa4`.
+  A tabela está na story (`E4-grupos.md`, seção "Correções do portão de QA").
+- A 0126 foi editada (continua só aditiva e idempotente e ainda **não foi aplicada**): o gatilho aceita `lead_document_id` virando NULL e
+  `dolores_grupos_contagem.excesso_entrada` é uma coluna nova no CREATE.
+- Testes (a) automáticos: tsc ok; `vite build` ok; suíte-alvo 45 arquivos / 603 testes ok (19 novos em `server/dolores/grupos-qa.test.ts`);
+  a suíte completa está registrada na story. (b) manuais: nenhum. (c) pendentes em produção: os mesmos da E4.
+- Próximo passo exato: novo portão de QA, só nos testes QA-A e QA-B e na suíte. Depois: unir com a `main`, aplicar a 0126 e publicar.
