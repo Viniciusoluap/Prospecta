@@ -6,9 +6,12 @@
 //   - conta criada a partir de INICIO_DO_TERMO, ou link que é o convite da criação da conta → "obrigatorio";
 //   - senão (conta antiga redefinindo a senha) → "opcional": a caixa aparece, mas não bloqueia (decisão do dono pendente).
 //
-// Opção "pedir o aceite uma vez no próximo login": DESLIGADA por padrão. Para ligar, defina na Vercel a variável
+// Conta criada já com senha pelo admin (portal.admin.provisionAccess, /api/auth/setup-admin) a partir de INICIO_DO_TERMO:
+// aceita o termo no PRIMEIRO LOGIN (modal ConsentimentoNoLogin), com a opção abaixo desligada (QA S-12, achado 1).
+//
+// Opção "pedir o aceite uma vez no próximo login" (para TODOS): DESLIGADA por padrão. Para ligar, defina na Vercel a variável
 // CONSENTIMENTO_PEDIR_NO_LOGIN=1 e publique de novo. Ligada, quem entrar sem aceite da versão vigente vê o termo uma vez
-// (componente client/src/components/ConsentimentoNoLogin.tsx) e o aceite fica com canal "login".
+// (componente client/src/components/consentimento/ConsentimentoNoLogin.tsx) e o aceite fica com canal "login".
 import { TRPCError } from "@trpc/server";
 import { and, desc, eq, gt, sql } from "drizzle-orm";
 import { z } from "zod";
@@ -64,16 +67,24 @@ export function situacaoDoTermo(aceites: { atual: boolean; algum: boolean }, pri
   return primeiroAcesso ? "obrigatorio" : "opcional";
 }
 
+/** Conta criada a partir de INICIO_DO_TERMO (comparação em memória, com o `createdAt` da sessão). */
+export function contaCriadaNoTermo(createdAt: Date | string | null | undefined, inicio = INICIO_DO_TERMO): boolean {
+  if (!createdAt) return false;
+  return new Date(createdAt).getTime() >= inicio.getTime();
+}
+
+/**
+ * Pedir o aceite no login? Com a opção do item 4 ligada: falta a versão vigente. Desligada (só conta nova): falta
+ * qualquer aceite — trocar a versão do termo não volta a perguntar a quem já aceitou uma versão anterior.
+ */
+export function precisaAceitarNoLogin(aceites: { atual: boolean; algum: boolean }, pedirATodos: boolean): boolean {
+  return pedirATodos ? !aceites.atual : !aceites.algum;
+}
+
 /** Se a conta aceitou a versão vigente e se aceitou alguma versão. */
 export async function aceitesDoUsuario(db: DrizzleDb, userId: number): Promise<{ atual: boolean; algum: boolean }> {
   const linhas = await db.selectDistinct({ versao: consentimentos.versaoTermo }).from(consentimentos).where(eq(consentimentos.userId, userId));
   return { atual: linhas.some(l => l.versao === VERSAO_DO_TERMO), algum: linhas.length > 0 };
-}
-
-export async function aceitouVersaoAtual(db: DrizzleDb, userId: number, versao = VERSAO_DO_TERMO): Promise<boolean> {
-  const [linha] = await db.select({ id: consentimentos.id }).from(consentimentos)
-    .where(and(eq(consentimentos.userId, userId), eq(consentimentos.versaoTermo, versao))).limit(1);
-  return !!linha;
 }
 
 /**
@@ -122,21 +133,34 @@ const soAdmin = adminProcedure.use(({ ctx, next }) => {
 
 export const consentimentoRouter = router({
   /**
-   * Opção do item 4: com a opção desligada, sempre `pedir: false` (sem consultar o banco). Pública de propósito: o
-   * cliente redireciona ao login em qualquer UNAUTHORIZED, e esta consulta roda nas áreas logadas sem esperar o auth.me.
+   * Quem deve ver o termo ao entrar (modal ConsentimentoNoLogin):
+   *   - conta criada a partir de INICIO_DO_TERMO que ainda não tem NENHUM aceite (QA S-12, achado 1: contas que o admin
+   *     cria já com senha — `portal.admin.provisionAccess` e `/api/auth/setup-admin` — não passam pela tela de criar
+   *     senha, então aceitam aqui, no primeiro login). Vale com a opção do item 4 desligada;
+   *   - com a opção do item 4 ligada (CONSENTIMENTO_PEDIR_NO_LOGIN=1), também quem não aceitou a versão vigente.
+   * Conta antiga com a opção desligada: `pedir: false` decidido em memória (sem consultar o banco).
+   * Pública de propósito: o cliente redireciona ao login em qualquer UNAUTHORIZED, e esta consulta roda nas áreas
+   * logadas sem esperar o auth.me.
+   * LIMITAÇÃO (documentada na story): o servidor não bloqueia as demais rotas de quem ainda não aceitou; quem impede o
+   * uso da área logada é o modal no cliente.
    */
   minhaSituacao: publicProcedure.query(async ({ ctx }) => {
-    if (!pedirAceiteNoLogin() || !ctx.user) return { pedir: false, versao: VERSAO_DO_TERMO };
-    const aceitou = await aceitouVersaoAtual(getDb(), ctx.user.id);
-    return { pedir: !aceitou, versao: VERSAO_DO_TERMO };
+    if (!ctx.user) return { pedir: false, versao: VERSAO_DO_TERMO };
+    const todos = pedirAceiteNoLogin();
+    const nova = contaCriadaNoTermo(ctx.user.createdAt);
+    if (!todos && !nova) return { pedir: false, versao: VERSAO_DO_TERMO };
+    const aceites = await aceitesDoUsuario(getDb(), ctx.user.id);
+    return { pedir: precisaAceitarNoLogin(aceites, todos), versao: VERSAO_DO_TERMO };
   }),
 
-  /** Aceite pelo aviso do login — só existe com a opção ligada. */
+  /** Aceite pelo modal do login: conta nova sem aceite, ou qualquer conta com a opção do item 4 ligada. */
   aceitar: protectedProcedure.input(z.object({ aceitouTermo: z.boolean(), versaoDoTermo: z.string().max(40) }))
     .mutation(async ({ ctx, input }) => {
-      if (!pedirAceiteNoLogin()) throw new TRPCError({ code: "PRECONDITION_FAILED", message: "O pedido de aceite no login está desligado." });
+      const todos = pedirAceiteNoLogin();
+      const nova = contaCriadaNoTermo(ctx.user.createdAt);
+      if (!todos && !nova) throw new TRPCError({ code: "PRECONDITION_FAILED", message: "O pedido de aceite no login está desligado." });
       const db = getDb();
-      if (await aceitouVersaoAtual(db, ctx.user.id)) return { ok: true as const, jaAceito: true };
+      if (!precisaAceitarNoLogin(await aceitesDoUsuario(db, ctx.user.id), todos)) return { ok: true as const, jaAceito: true };
       conferirAceite("obrigatorio", input.aceitouTermo, input.versaoDoTermo);
       const ua = (ctx.req as { headers?: Record<string, string | undefined> } | undefined)?.headers?.["user-agent"];
       await registrarAceite(db, ctx.user.id, "login", aparelhoDoUserAgent(ua), false);

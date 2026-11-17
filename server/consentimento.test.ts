@@ -4,6 +4,7 @@ import { readFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { PGlite } from "@electric-sql/pglite";
 import { drizzle } from "drizzle-orm/pglite";
+import { eq } from "drizzle-orm";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("./db.js", async orig => ({ ...(await orig<typeof import("./db.js")>()), getDb: vi.fn() }));
@@ -192,6 +193,66 @@ describe("opção 'pedir o aceite no próximo login' (item 4)", () => {
     process.env.CONSENTIMENTO_PEDIR_NO_LOGIN = "1";
     expect(await publico().consentimento.minhaSituacao()).toMatchObject({ pedir: false });
     await expect(publico().consentimento.aceitar({ aceitouTermo: true, versaoDoTermo: VERSAO_DO_TERMO })).rejects.toMatchObject({ code: "UNAUTHORIZED" });
+  });
+});
+
+describe("conta criada já com senha pelo admin aceita no PRIMEIRO LOGIN (QA S-12, achado 1)", () => {
+  const linhaDe = async (id: number) => (await pg.query<any>(`SELECT * FROM users WHERE id = $1`, [id])).rows[0];
+  /** Contexto como o de produção: `ctx.user` é a linha inteira lida pelo Drizzle (createdAt já é Date). */
+  const logado = async (id: number) => {
+    const [u] = await db.select().from(schema.users).where(eq(schema.users.id, id));
+    return appRouter.createCaller({ user: u, req: { headers: { "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)" } }, res: { clearCookie: () => {} } } as never);
+  };
+
+  it("portal.admin.provisionAccess (conta nova): pede o termo no login com a opção DESLIGADA, grava canal 'login' e para de pedir", async () => {
+    const [lead] = (await pg.query<any>(`INSERT INTO leads (name, phone) VALUES ('Cliente Novo', '9999') RETURNING id`)).rows;
+    const r = await caller(99, "admin").portal.admin.provisionAccess({ leadId: lead.id, email: "cli@x.com", password: "senha-do-admin-1" });
+    expect(pedirAceiteNoLogin()).toBe(false);
+    const c = await logado(r.id);
+    expect(await c.consentimento.minhaSituacao()).toEqual({ pedir: true, versao: VERSAO_DO_TERMO });
+    await expect(c.consentimento.aceitar({ aceitouTermo: false, versaoDoTermo: VERSAO_DO_TERMO })).rejects.toMatchObject({ message: MENSAGEM_SEM_ACEITE });
+    await expect(c.consentimento.aceitar({ aceitouTermo: true, versaoDoTermo: "2020-01-01.1" })).rejects.toMatchObject({ message: MENSAGEM_VERSAO_ERRADA });
+    expect(await aceites()).toEqual([]);
+    expect(await c.consentimento.aceitar({ aceitouTermo: true, versaoDoTermo: VERSAO_DO_TERMO })).toEqual({ ok: true, jaAceito: false });
+    expect(await c.consentimento.minhaSituacao()).toMatchObject({ pedir: false });
+    expect(await c.consentimento.aceitar({ aceitouTermo: true, versaoDoTermo: VERSAO_DO_TERMO })).toEqual({ ok: true, jaAceito: true });
+    expect(await aceites()).toMatchObject([{ user_id: r.id, versao_termo: VERSAO_DO_TERMO, canal: "login", aparelho: "computador", com_senha: false }]);
+  });
+
+  it("conta criada pelo /api/auth/setup-admin (insert direto, createdAt do banco) também é perguntada no login", async () => {
+    await pg.query(`INSERT INTO users ("openId", name, email, role, "passwordHash") VALUES ('admin_1', 'Admin', 'adm@x.com', 'admin', 'h')`);
+    const { id } = (await pg.query<any>(`SELECT id FROM users WHERE email = 'adm@x.com'`)).rows[0];
+    expect(await (await logado(id)).consentimento.minhaSituacao()).toMatchObject({ pedir: true });
+  });
+
+  it("re-provisionar uma conta ANTIGA não muda nada: continua sem pergunta e o aceite pelo login é recusado", async () => {
+    const id = await contaAntiga();
+    const [lead] = (await pg.query<any>(`INSERT INTO leads (name, phone) VALUES ('Beto', '9999') RETURNING id`)).rows;
+    await pg.query(`UPDATE users SET role = 'cliente', lead_id = $1 WHERE id = $2`, [lead.id, id]);
+    await caller(99, "admin").portal.admin.provisionAccess({ leadId: lead.id, email: (await linhaDe(id)).email, password: "senha-do-admin-1" });
+    const c = await logado(id);
+    expect(await c.consentimento.minhaSituacao()).toEqual({ pedir: false, versao: VERSAO_DO_TERMO });
+    await expect(c.consentimento.aceitar({ aceitouTermo: true, versaoDoTermo: VERSAO_DO_TERMO })).rejects.toMatchObject({ code: "PRECONDITION_FAILED" });
+  });
+
+  it("conta nova que já aceitou (ao criar a senha, ou uma versão anterior) não é perguntada no login com a opção desligada", async () => {
+    const id = await contaNova();
+    await publico().primeiroAcesso.definirSenha({ token: "tok-novo", novaSenha: "senha-forte-1", aceitouTermo: true, versaoDoTermo: VERSAO_DO_TERMO });
+    expect(await (await logado(id)).consentimento.minhaSituacao()).toMatchObject({ pedir: false });
+    const outra = await contaNova("tok-outra");
+    await pg.query(`INSERT INTO consentimentos (user_id, versao_termo, canal, com_senha) VALUES ($1, '2026-11-17.1', 'definir_senha', true)`, [outra]);
+    expect(await (await logado(outra)).consentimento.minhaSituacao()).toMatchObject({ pedir: false });
+  });
+
+  it("LIMITAÇÃO registrada: sem o aceite, o servidor ainda atende as outras rotas — a trava é o modal do cliente", async () => {
+    const [lead] = (await pg.query<any>(`INSERT INTO leads (name, phone) VALUES ('Cliente Novo', '9999') RETURNING id`)).rows;
+    const r = await caller(99, "admin").portal.admin.provisionAccess({ leadId: lead.id, email: "cli2@x.com", password: "senha-do-admin-1" });
+    // só as colunas que a rota consulta
+    await pg.exec(`CREATE TABLE construction_projects (id serial PRIMARY KEY, user_id integer, lead_id integer);
+      CREATE TABLE financiamentos (id serial PRIMARY KEY, lead_id integer, status text NOT NULL DEFAULT 'pre_analise');`);
+    const c = await logado(r.id);
+    expect(await c.consentimento.minhaSituacao()).toMatchObject({ pedir: true });
+    expect(await c.portal.navigation()).toMatchObject({ hasWorks: false, hasActiveFinancing: false });
   });
 });
 
