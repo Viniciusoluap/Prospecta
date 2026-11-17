@@ -17,7 +17,7 @@ import { listarGruposEvolution } from "../_core/evolution.js";
 import { adminProcedure, router } from "../_core/trpc.js";
 import { getDb } from "../db.js";
 import { registrarAcao } from "./auditoria.js";
-import { classificarPendentes } from "./classificacao.js";
+import { classificarPendentes, desligamentoPorFalha, limparPausaPorFalhaNoConsumo } from "./classificacao.js";
 import { lerConfigWhatsapp } from "./consumo.js";
 import { CONFIG_GRUPOS_PADRAO, lerConfigGrupos, listarGruposParaTela, pendenciasDeClassificacao } from "./grupos.js";
 import { credencialDaClassificacao } from "./whatsapp.js";
@@ -68,7 +68,10 @@ export const gruposRouter = router({
   listar: soAdmin.query(async () => {
     try {
       const [grupos, config, pendencias] = await Promise.all([listarGruposParaTela(), lerConfigGrupos(), pendenciasDeClassificacao(50)]);
+      // QA r3 N7: se a classificação foi desligada sozinha (uso não registrado), a tela mostra quando e por quê
+      const desligada = await desligamentoPorFalha().catch(() => null);
       return {
+        desligamentoPorFalha: desligada ? { ...desligada, em: desligada.em ? new Date(desligada.em).toISOString() : null } : null,
         grupos, pendencias: pendencias.map(p => ({ ...p, nome: p.nome ? textoDeDado(p.nome, 120) : null, confianca: p.confianca != null ? Number(p.confianca) : null })),
         config: { ...CONFIG_GRUPOS_PADRAO, ...config },
       };
@@ -142,6 +145,8 @@ export const gruposRouter = router({
       .where(eq(doloresGruposConfig.id, 1)).returning({ id: doloresGruposConfig.id }).catch(semMigracao);
     if (!r.length) throw new TRPCError({ code: "PRECONDITION_FAILED", message: SEM_MIGRACAO });
     await auditar(ctx.user.id, "configurar_grupos", null, dados);
+    // QA r3 N7: o admin religou depois de conferir — some a pausa em memória desta instância (se houve)
+    if (input.classificacaoLigada === true) limparPausaPorFalhaNoConsumo();
     return lerConfigGrupos();
   }),
 

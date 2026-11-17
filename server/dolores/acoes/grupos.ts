@@ -123,11 +123,22 @@ export async function clientesCandidatos(conexao: ReturnType<typeof bancoDaLeitu
 /**
  * QA E4 r2, N6 — o dono só "indicou" o cliente se o número vier na forma EXPLÍCITA: "cliente 3", "card 3", "lead 3" (com
  * "nº", "n.", "número" ou "#" opcionais no meio) ou "#3". Número solto ("salve os 3 documentos", "grupo 3") não é indicação.
+ * QA E4 r3 (resíduo do N6): "#3" sem "cliente/card/lead" só conta quando NÃO vem logo depois de palavra que indica outra coisa
+ * ("documento #3", "parcela nº #3", "lote #3", "pedido #3"...).
  */
+const PALAVRA_DE_OUTRA_COISA = new RegExp(String.raw`\b(?:documentos?|docs?|item|itens|notas?|nf|nfe|parcelas?|lotes?|quadras?|etapas?|obras?|pedidos?|protocolos?|` +
+  String.raw`grupos?|arquivos?|fotos?|imagens?|paginas?|boletos?|contratos?|casas?|aptos?|apartamentos?|unidades?|blocos?|torres?|andar|andares|mensage(?:m|ns)|` +
+  String.raw`tarefas?|codigos?|processos?|chamados?|tickets?|ordem|medicao|medicoes|propostas?|recibos?|comprovantes?|anexos?|versao|fase)` +
+  String.raw`\s*(?:(?:n[o.°]?|numero)\s*\.?\s*)?$`);
 export function clienteIndicadoNoTexto(texto: string | null | undefined, leadId: number): boolean {
   if (!Number.isInteger(leadId) || leadId <= 0) return false;
   const t = String(texto ?? "").normalize("NFKC").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
-  return new RegExp(String.raw`(?:(?<![\w#])#\s*|\b(?:cliente|card|lead)\s*(?:(?:n[o.º°]?|numero)\s*\.?\s*)?#?\s*)0*${leadId}(?![\w])`).test(t);
+  if (new RegExp(String.raw`\b(?:cliente|card|lead)\s*(?:(?:n[o.º°]?|numero)\s*\.?\s*)?#?\s*0*${leadId}(?![\w])`).test(t)) return true;
+  const solto = new RegExp(String.raw`(?<![\w#])#\s*0*${leadId}(?![\w])`, "g");
+  for (let m = solto.exec(t); m; m = solto.exec(t)) {
+    if (!PALAVRA_DE_OUTRA_COISA.test(t.slice(0, m.index))) return true;
+  }
+  return false;
 }
 
 async function leadIdNaMensagemDoDono(mensagemId: number | null, leadId: number): Promise<boolean> {
