@@ -10,6 +10,11 @@
   autorizada expressamente pelo dono em 14/11/2026**: "isso será apenas na Prospecta, não será colocado no Grupo
   Santa Fé". Justificativa: produto novo da Prospecta (motor que converte o projeto em PDF em maquete 3D
   navegável, vendido ao cliente do projeto e usado na Incorporação). Não portar ao Santa Fé sem nova ordem dele.
+  Reconfirmada em 17/11/2026: toda a aba/serviço de Maquete (inclusive a implantação 3D da Incorporação e a leitura de
+  PDF-imagem pela IA) fica só na Prospecta.
+- **Dolores** (EPIC-025; tabelas `dolores_*`, WhatsApp próprio, ponte `/api/dolores/ponte`) — **exceção autorizada
+  expressamente pelo dono em 17/11/2026**: "a Dolores e a maquete ficam de fora" do Grupo Santa Fé. Não portar sem
+  nova ordem dele. Funções que dependem dela (ex.: linha "Dolores" no painel Anthropic) também não existem lá.
 
 **Restrição de banco:** tudo continua no Neon (Postgres). Pode criar tabelas novas para módulos que faltam. Não migrar de provedor.
 
@@ -200,13 +205,13 @@ negócio. As correções 5, 6, 7, 11, 12 e 13 são da Maquete 3D (exceção já 
   "fonte fora do ar" × "nada no entorno" (Etapa E)
 - [ ] Correção 10 — Estudo de Massa com malha viária conectada às vias existentes, lotes recortados pela divisa,
   sobras como verde/institucional/via, soma = 100% e rótulos sem sobreposição (Etapa F)
-- **Decisão do dono em 16/11/2026: "deixa arquivado para mais tarde".** O porte desta lista ao Santa Fé fica
+- **17/11/2026: porte AUTORIZADO pelo dono (blocos 1 e 2 da paridade de 17/11).** Histórico — decisão do dono em 16/11/2026: "deixa arquivado para mais tarde". O porte desta lista ao Santa Fé fica
   arquivado até o dono pedir; a lista continua aqui para não se perder. Ao portar, levar também os ajustes da
   rodada de validação de 16/11: `relative` nos contêineres de rolagem do CRM (textos `sr-only` esticavam a página),
   busca do OpenStreetMap em todos os servidores ao mesmo tempo e aviso de "fonte em manutenção".
 - **Áreas restritas nas doações (16/11/2026):** no Estudo de Massa, APP, vegetação e faixas contam como área verde/institucional (`aproveitarRestricoes`); portar junto com as correções 8 e 10.
 
-## Pendência de paridade → Grupo Santa Fé (EPIC-024 — registrada em 16/11/2026, EM ESPERA por decisão do dono)
+## Pendência de paridade → Grupo Santa Fé (EPIC-024 — registrada em 16/11/2026; porte AUTORIZADO pelo dono em 17/11/2026, blocos 2–4)
 
 Decisão do dono em 16/11/2026: "o Grupo Santa Fé vai ficar stand by; depois que eu acabar todas essas mudanças eu vou
 fazer a paridade, mas agora não". Nada foi alterado no Santa Fé. A lista abaixo é o que terá de ser portado quando ele
@@ -230,8 +235,8 @@ mandar (`epic-024-correcoes-16-11/EPIC.md`). As correções 03, 04 e 05 são da 
   termo sem marcadores para o público (pendências do jurídico só no admin) e seção de IA com o atendimento pelo
   WhatsApp. No Santa Fé: o primeiro acesso por link equivalente e o termo com o nome da empresa de lá.
 
-## Pendência de paridade → Grupo Santa Fé (EPIC-025 Dolores — registrada em 16/11/2026, EM ESPERA por decisão do dono)
-A Dolores não está na lista de exceções; quando o dono mandar fazer a paridade, portar (`epic-025-dolores/`):
+## EPIC-025 Dolores — NÃO portar (exceção de paridade decidida pelo dono em 17/11/2026)
+Lista mantida só como histórico; a Dolores ficou fora do Santa Fé por decisão do dono (ver Exceções no topo). Exceção: o S-12 abaixo (termo de consentimento) é portado no bloco 4 de 17/11.
 - [ ] Etapa 1 — ponte, usuária Dolores, leituras e auditoria (`dolores_acoes`)
 - [ ] Etapa 2 — WhatsApp próprio da Dolores (instância separada, webhook com segredo próprio, só o número do dono comanda,
   laço de ferramentas pela mesma porta da ponte, interruptor da IA desligado por padrão, limite mensal de tokens com aviso)
