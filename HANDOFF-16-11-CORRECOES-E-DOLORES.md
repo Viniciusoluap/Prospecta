@@ -282,3 +282,30 @@ a classificação de cada item e o que depende só dele.
 2. Receber a E4b unida; QA de segurança; aplicar a `0129`; publicar.
 3. E6 em cima da `main` com E4b e E5; QA; migração; publicar.
 4. Relatório final ao dono.
+
+## Atualização — 17/11, ~11:40 UTC
+
+### Concluído e publicado
+- **Dolores etapa 5 (notas de obra)** — PR #250, squash `3b197bc`, produção READY. Migração `0128` aplicada no Neon.
+  QA de segurança: CONCERNS sem bloqueio; os 5 achados corrigidos antes de publicar (duplicidade sem limite de 100,
+  gatilho mais estrito, vínculo perdido religável só com nova aprovação, reconferência do fornecedor, grupo desativado).
+- **Dolores etapa 4b (resposta no grupo só quando marcada)** — PR #251, squash `6e4b517`, produção READY. Migração `0129`
+  aplicada. QA de segurança: CONCERNS sem bloqueio; os 5 achados corrigidos (sem etapa comercial nem aprovado/reprovado,
+  texto ditado barrado, frase fixa verdadeira, rajada não cala o grupo, vaga liberada em erro).
+- **Banco de produção:** aplicadas 0117–0130. Próxima: `0131` (etapa 6).
+- `.claude/settings.json`: idioma em português (pedido do dono).
+
+### Em andamento
+- **E6 — operação contínua:** worktree `dolores-e6`, ramo `epic025-dolores-etapa6` (criado da main `3b197bc`), cópia em
+  `claude/wip-epic025-dolores-etapa6`, migração `0131`. @dev construindo; depois QA de segurança.
+
+### Testes
+- (a) automáticos: E5 no ramo de publicação — 38 arquivos / 642 testes; E4b — 31 arquivos / 559 testes; `tsc` e `vite build` ok; prévias READY.
+- (b) manuais: nenhum (tudo desligado em produção).
+- (c) pendentes do dono em produção: conectar o número da Dolores, cadastrar grupo real, marcar a Dolores num grupo de teste
+  (formato real da menção/@lid), enviar uma nota real num grupo de obra.
+
+## Próximo passo exato (17/11, 11:40 UTC)
+1. Receber a E6 do @dev; unir a `origin/main` (tem a 4b); QA de segurança; corrigir; aplicar a `0131`; publicar pela receita do topo
+   (`git diff origin/main...<HEAD>` com três pontos).
+2. Marcar a etapa 6 no EPIC; ROADMAP (paridade com o Santa Fé só anotada); relatório final ao dono.

@@ -211,3 +211,42 @@ export async function listarGruposEvolution(c: EvolutionConfig, instancia: strin
     return [{ id: x.id.slice(0, 80), nome: typeof x.subject === "string" ? x.subject.slice(0, 200) : null, participantes: typeof x.size === "number" ? x.size : null }];
   });
 }
+
+/**
+ * EPIC-025 (Dolores, etapa 4b) — o ÚNICO envio a GRUPO do sistema (POST /message/sendText/{instância} com o id do grupo em
+ * `number`): só quando a Dolores foi marcada num grupo cadastrado e ativo (server/dolores/marcacao.ts confere o destino duas
+ * vezes antes). Sem prévia de link, sem menção a ninguém (`mentioned` vazio, `mentionsEveryOne` false) e citando a mensagem que
+ * a marcou. Id de grupo fora da forma "<dígitos>[-<dígitos>]@g.us" é recusado aqui também (nada é enviado).
+ */
+export async function enviarTextoAoGrupoEvolution(c: EvolutionConfig, instancia: string, grupoJid: string, texto: string,
+  citar: { id: string; participante: string | null; trecho: string }, fetchImpl: Fetch = fetch): Promise<string | null> {
+  if (!/^[0-9]{5,40}(-[0-9]{1,20})?@g\.us$/.test(grupoJid)) return null;
+  const r = await chamar<{ key?: { id?: string } }>(c, `/message/sendText/${encodeURIComponent(instancia)}`, {
+    method: "POST",
+    body: JSON.stringify({
+      number: grupoJid, text: texto, linkPreview: false, mentionsEveryOne: false, mentioned: [],
+      quoted: { key: { id: citar.id, remoteJid: grupoJid, fromMe: false, ...(citar.participante ? { participant: citar.participante } : {}) }, message: { conversation: citar.trecho } },
+    }),
+  }, fetchImpl);
+  return r.ok ? (r.data?.key?.id ?? "enviada") : null;
+}
+
+/**
+ * EPIC-025 (Dolores, etapa 4b) — SÓ LEITURA: participantes de um grupo (GET /group/participants/{instância}?groupJid=…), para
+ * conferir o @lid do número da Dolores (grupos novos do WhatsApp mencionam por @lid). Devolve, por participante, o @lid e o
+ * número quando a Evolution informa (campos variam por versão: id, jid, lid, phoneNumber, pn). No máximo 1.024.
+ */
+export async function participantesDoGrupoEvolution(c: EvolutionConfig, instancia: string, grupoJid: string, fetchImpl: Fetch = fetch): Promise<Array<{ lid: string | null; numero: string | null }>> {
+  if (!/^[0-9]{5,40}(-[0-9]{1,20})?@g\.us$/.test(grupoJid)) return [];
+  const r = await chamar<unknown>(c, `/group/participants/${encodeURIComponent(instancia)}?groupJid=${encodeURIComponent(grupoJid)}`, { signal: AbortSignal.timeout(15_000) }, fetchImpl);
+  if (!r.ok) throw new Error(`A Evolution não listou os participantes (HTTP ${r.status})${motivo(r.data)}.`);
+  const bruto = (r.data as { participants?: unknown } | null)?.participants ?? r.data;
+  const lista = Array.isArray(bruto) ? bruto.slice(0, 1024) : [];
+  return lista.map(p => {
+    const x = (p ?? {}) as Record<string, unknown>;
+    const campos = [x.id, x.jid, x.lid, x.phoneNumber, x.pn].filter((v): v is string => typeof v === "string");
+    const lid = campos.find(v => /^\d{5,25}@lid$/.test(v)) ?? null;
+    const n = campos.map(v => /^(\d{10,15})@s\.whatsapp\.net$/.exec(v)?.[1]).find(Boolean) ?? null;
+    return { lid, numero: n };
+  });
+}
