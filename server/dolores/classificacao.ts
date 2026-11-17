@@ -10,7 +10,7 @@
 //   destino ou link; o motivo é gravado pelo filtro do registro. Este módulo não envia nada a ninguém.
 // Memória e prazo: o arquivo é baixado da Evolution sob demanda, com tamanho máximo e prazo, e não é guardado.
 import { and, eq, inArray, isNull, lt, or, sql } from "drizzle-orm";
-import { doloresGrupoMensagens, doloresGrupos, doloresGruposContagem } from "../../drizzle/schema-dolores-grupos.js";
+import { doloresGrupoMensagens, doloresGrupos, doloresGruposConfig, doloresGruposContagem } from "../../drizzle/schema-dolores-grupos.js";
 import {
   FERRAMENTA_CLASSIFICACAO, LIMIAR_CONFIANCA, ROTULO_TIPO_DOCUMENTO, bytesDoBase64, diaDeImperatriz, formatoPorBytes, lerSaidaClassificacao, motivoDaIaSeguro,
   paginasPdfEstimadas, pendenteVencido,
@@ -230,6 +230,26 @@ async function reservarVagaDoDia(grupoId: number, dia: string, tetoGrupo: number
 }
 
 /** Tokens de entrada usados acima da reserva no dia pelo GRUPO (QA E4 r2, N3: só o grupo que causou). Sem a linha → 0. */
+/**
+ * QA r3 N7 — falha fechada: se o uso de uma classificação não pôde ser somado ao orçamento do mês, a classificação é
+ * DESLIGADA (o admin religa em Integrações › Dolores › Grupos depois de conferir). Se nem isso gravar, o processo guarda a
+ * pausa em memória para não seguir classificando às cegas nesta instância.
+ */
+let pausadaPorFalhaNoConsumo = false;
+export const classificacaoPausadaPorFalha = () => pausadaPorFalhaNoConsumo;
+/** Só para testes. */
+export function limparPausaPorFalhaNoConsumo() { pausadaPorFalhaNoConsumo = false; }
+async function desligarPorFalhaNoConsumo() {
+  pausadaPorFalhaNoConsumo = true;
+  console.error("[dolores/classificacao] o consumo da classificação não foi gravado: classificação desligada até o admin religar");
+  try {
+    await getDb().update(doloresGruposConfig).set({ classificacaoLigada: false }).where(eq(doloresGruposConfig.id, 1));
+    pausadaPorFalhaNoConsumo = false; // a pausa ficou gravada no banco; vale para todas as instâncias
+  } catch (e) {
+    console.error("[dolores/classificacao] nem a pausa pôde ser gravada; classificação pausada só nesta instância", e instanceof Error ? e.name : "erro");
+  }
+}
+
 async function excessoDoDia(grupoId: number, dia: string): Promise<number> {
   const [r] = await getDb().select({ x: doloresGruposContagem.excessoEntrada }).from(doloresGruposContagem)
     .where(and(eq(doloresGruposContagem.grupoId, grupoId), eq(doloresGruposContagem.dia, dia))).limit(1);
@@ -265,7 +285,7 @@ export async function classificarDocumentoDoGrupo(mensagemId: number, o: OpcoesC
   const msg = m.msg;
   if (!["a_classificar", "erro", "classificando"].includes(msg.situacao) || msg.tentativas >= MAX_TENTATIVAS) return "classificacao-nada";
   const config = await lerConfigGrupos();
-  if (!config.classificacaoLigada) return "classificacao-desligada";
+  if (!config.classificacaoLigada || pausadaPorFalhaNoConsumo) return "classificacao-desligada";
   const agora = new Date();
   if (pendenteVencido(msg.criadoEm, agora, config.retencaoDias)) return "classificacao-vencida";
   if (restante() < MINIMO_PARA_CLASSIFICAR_MS) return "classificacao-sem-tempo";
@@ -387,7 +407,7 @@ export async function classificarDocumentoDoGrupo(mensagemId: number, o: OpcoesC
       if (typeof status !== "number" || status >= 500 || status === 408) {
         const estimado = { entrada: RESERVA_ENTRADA_CLASSIFICACAO, saida: MAX_TOKENS_CLASSIFICACAO, cacheEscrita: 0, cacheLeitura: 0 };
         await registrarConsumo({ mes, mensagemId: null, modelo, volta: 1, parada: "estimado_sem_resposta", uso: estimado });
-        await registrarConsumoDaClassificacao(mes, estimado);
+        if (!(await registrarConsumoDaClassificacao(mes, estimado))) await desligarPorFalhaNoConsumo();
       }
       await voltar("erro", "a IA não respondeu");
       await auditar("erro", "a IA não respondeu", { modelo });
@@ -395,7 +415,7 @@ export async function classificarDocumentoDoGrupo(mensagemId: number, o: OpcoesC
     }
     const uso = usoDe(resp);
     await registrarConsumo({ mes, mensagemId: null, modelo, volta: 1, uso, parada: resp.stop_reason });
-    await registrarConsumoDaClassificacao(mes, uso);
+    if (!(await registrarConsumoDaClassificacao(mes, uso))) await desligarPorFalhaNoConsumo();
     // o uso real passou da reserva (não deveria, com a contagem prévia): registra e pausa só ESTE grupo no dia (r2 N3)
     const entradaReal = uso.entrada + uso.cacheEscrita + uso.cacheLeitura;
     if (entradaReal > RESERVA_ENTRADA_CLASSIFICACAO || uso.saida > MAX_TOKENS_CLASSIFICACAO) {

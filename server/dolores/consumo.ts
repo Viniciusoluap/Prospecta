@@ -184,10 +184,10 @@ export async function reservarClassificacao(p: { mes: string; mensagemGrupoId: n
 
 /**
  * QA E4 r2, N0.3 — soma o uso de UMA classificação no consumo do mês da classificação (além de dolores_consumo, que é o do
- * limite inteiro). Entrada conta também o cache. Falha só vai para o log, mas aí o orçamento fica sem esta chamada: por isso
- * a classificação é uma por vez e o limite inteiro (dolores_consumo) continua sendo a trava do dono.
+ * limite inteiro). Entrada conta também o cache. Devolve se gravou: quem chama FALHA FECHADO quando não gravou (QA r3 N7 — sem
+ * o registro o orçamento próprio da classificação estouraria em silêncio).
  */
-export async function registrarConsumoDaClassificacao(mes: string, uso: UsoDaChamada) {
+export async function registrarConsumoDaClassificacao(mes: string, uso: UsoDaChamada): Promise<boolean> {
   const entrada = Math.max(0, Math.round(uso.entrada + uso.cacheEscrita + uso.cacheLeitura));
   const saida = Math.max(0, Math.round(uso.saida));
   try {
@@ -195,8 +195,10 @@ export async function registrarConsumoDaClassificacao(mes: string, uso: UsoDaCha
       .onConflictDoUpdate({ target: doloresGruposConsumoMes.mes, set: {
         tokensEntrada: sql`${doloresGruposConsumoMes.tokensEntrada} + ${entrada}`, tokensSaida: sql`${doloresGruposConsumoMes.tokensSaida} + ${saida}`,
         chamadas: sql`${doloresGruposConsumoMes.chamadas} + 1`, ultimaEm: sql`now()` } });
+    return true;
   } catch (e) {
     console.error("[dolores/consumo] falha ao registrar o consumo da classificação", erroParaLog(e));
+    return false;
   }
 }
 
