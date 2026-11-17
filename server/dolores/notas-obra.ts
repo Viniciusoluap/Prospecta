@@ -364,6 +364,9 @@ export async function lerNotasPendentes(o: ContextoLeitura & { maximo: number })
 
 // ── Resposta do empreiteiro no grupo (DADO, reconhecido por código; não chama a IA) ──
 
+/** Outra resposta chegou antes (a nota já não está "pendente"): a transação é desfeita, nada muda. */
+class NotaJaRespondida extends Error {}
+
 /**
  * Item de TEXTO de grupo já registrado (etapa 4): se for uma resposta inequívoca do empreiteiro cadastrado DAQUELA obra, no MESMO
  * grupo da nota, ligada à nota certa (citando a mensagem da nota ou escrevendo "NOTA <número do sistema>") e dentro do prazo,
@@ -413,9 +416,13 @@ export async function reconhecerRespostaDoEmpreiteiro(cfg: DoloresWhatsappConfig
       if (!r) return false;
       const u = await tx.update(obraNotas).set({ confirmacao: tipo === "confirmacao" ? "confirmada" : "correcao", confirmacaoEm: m.enviadaEm ?? ctx.agora })
         .where(and(eq(obraNotas.id, ligacao.notaId), eq(obraNotas.confirmacao, "pendente"))).returning({ id: obraNotas.id });
-      if (!u.length) throw new Error("nota já respondida");
+      if (!u.length) throw new NotaJaRespondida();
       return true;
-    }).catch(e => { if (!(e instanceof Error && e.message === "nota já respondida")) console.error("[dolores/notas-obra] falha ao registrar a resposta", erroParaLog(e)); return false; });
+    }).catch(e => {
+      const jaRespondida = e instanceof NotaJaRespondida;
+      if (!jaRespondida) console.error("[dolores/notas-obra] falha ao registrar a resposta", erroParaLog(e));
+      return false;
+    });
     if (!gravou) return "resposta-repetida";
     await auditar("ok", tipo === "confirmacao" ? "confirmação do empreiteiro registrada (indício, não autorização)" : "pedido de correção do empreiteiro registrado",
       { notaId: ligacao.notaId, tipo, ligacao: ligacao.ligacao });
