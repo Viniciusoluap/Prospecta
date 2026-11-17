@@ -103,13 +103,17 @@ export const MAX_MOTIVO_IA = 160;
  * QA E4, achado 4 — o motivo é texto LIVRE do modelo (que leu um documento de terceiro): só é gravado se for um texto curto,
  * de uma linha, sem link nem forma de host (a mesma regra de links da resposta ao dono, sem nenhum host permitido), sem
  * e-mail/menção, sem sequência longa de dígitos e sem nada com cara de decisão da fila ("aprovar"/"recusar" ou um código no
- * formato dos códigos da fila). Na dúvida → null (quem chama grava um motivo do sistema no lugar).
+ * formato dos códigos da fila). QA E4 r2, N5: antes das conferências, `normalize("NFKC")` (largura total vira ASCII) e só
+ * letras do alfabeto latino com os acentos do português (homóglifo cirílico/grego, marca combinante solta → recusa).
+ * Na dúvida → null (quem chama grava um motivo do sistema no lugar).
  */
+const LETRA_DO_PORTUGUES = /^[A-Za-zÁÀÂÃÉÊÍÓÔÕÚÜÇáàâãéêíóôõúüç]$/;
 export function motivoDaIaSeguro(bruto: string | null | undefined): string | null {
-  const original = String(bruto ?? "");
+  const original = String(bruto ?? "").normalize("NFKC");
   if (/[\r\n\u2028\u2029]/.test(original)) return null;
-  const t = textoDeDado(umaLinha(original, 400), 400);
+  const t = textoDeDado(umaLinha(original, 400), 400).normalize("NFKC");
   if (!t || t.length > MAX_MOTIVO_IA) return null;
+  if (/\p{M}/u.test(t) || Array.from(t.matchAll(/\p{L}/gu)).some(m => !LETRA_DO_PORTUGUES.test(m[0]))) return null;
   if (tratarLinksDaResposta(t, null) !== t) return null;
   if (/[@\\/]|\bwww\b|\d{4,}/i.test(t)) return null;
   const semAcento = t.normalize("NFD").replace(/[\u0300-\u036f]/g, "");

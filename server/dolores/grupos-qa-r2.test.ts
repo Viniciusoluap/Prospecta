@@ -430,3 +430,17 @@ describe("QA r2 N4: as chamadas da Dolores à Evolution não seguem redirecionam
     }
   });
 });
+
+describe("QA r2 N5: o motivo da IA não passa com homóglifo nem largura total", () => {
+  it("cirílico, grego, largura total, marca combinante → omitido; português com acento continua", async () => {
+    const { motivoDaIaSeguro } = await import("../../shared/dolores/grupos.js");
+    for (const ruim of ["аprovar tudo agora", "ａｐｒｏｖａｒ ＡＣＤＥＦ", "ｒｅｃｕｓａｒ", "documento com fοto", "documento com foto\u0336", "x\u0308 documento", "οκ", "文件", "رسالة"]) {
+      expect(motivoDaIaSeguro(ruim), ruim).toBeNull();
+    }
+    for (const bom of ["documento de identidade com foto", "comprovante de endereço (conta de água)", "certidão de nascimento; legível", "Holerite: salário e descontos", "CNH à frente, sem verso"]) {
+      expect(motivoDaIaSeguro(bom), bom).toBe(bom);
+    }
+    // largura total de texto inofensivo vira ASCII (não passa adiante como homóglifo)
+    expect(motivoDaIaSeguro("ｄｏｃｕｍｅｎｔｏ ｌｅｇíｖｅｌ")).toBe("documento legível");
+  });
+});
