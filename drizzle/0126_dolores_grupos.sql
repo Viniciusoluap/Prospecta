@@ -113,8 +113,11 @@ BEGIN
      OR NEW."midia_tamanho" IS DISTINCT FROM OLD."midia_tamanho" THEN
     RAISE EXCEPTION 'DOLORES_GRUPO_MENSAGENS_IMUTAVEL: o conteúdo registrado da mensagem não muda';
   END IF;
-  -- salvo no card é final: o vínculo com o documento não é desfeito nem trocado
-  IF OLD."situacao" = 'salvo' AND (NEW."situacao" <> 'salvo' OR NEW."lead_document_id" IS DISTINCT FROM OLD."lead_document_id"
+  -- salvo no card é final: a situação e a classificação não mudam e o vínculo com o documento não é trocado.
+  -- Exceção única: o vínculo pode VIRAR NULL — é o ON DELETE SET NULL do Postgres (um UPDATE) quando o CRM exclui o
+  -- documento ou o lead arquivado (exclusões legítimas que já existiam). A linha continua "salvo" (histórico).
+  IF OLD."situacao" = 'salvo' AND (NEW."situacao" <> 'salvo'
+     OR (NEW."lead_document_id" IS DISTINCT FROM OLD."lead_document_id" AND NEW."lead_document_id" IS NOT NULL)
      OR NEW."classificacao" IS DISTINCT FROM OLD."classificacao") THEN
     RAISE EXCEPTION 'DOLORES_GRUPO_MENSAGENS_SALVO: documento já salvo no card não muda';
   END IF;

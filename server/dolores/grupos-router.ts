@@ -58,8 +58,10 @@ async function instanciaDaDolores(): Promise<string> {
   return c?.instancia || INSTANCIA_DOLORES;
 }
 
+// QA E4 (achado 1, FKs): "dolores_acoes.autor_user_id" é RESTRICT (só a usuária Dolores é autora). Gravar ali o admin da tela
+// impediria excluir esse usuário depois (Configurações › Usuários). O admin vai no resumo (sem FK); a autora fica vazia.
 const auditar = (userId: number, funcao: string, grupoId: number | null, resumo: Record<string, unknown>) =>
-  registrarAcao({ funcao, resultado: "ok", motivo: null, autorUserId: userId, canal: "tela", pedidoId: `tela:grupos:${grupoId ?? "novo"}`, resumo: { grupoId, ...resumo } });
+  registrarAcao({ funcao, resultado: "ok", motivo: null, autorUserId: null, canal: "tela", pedidoId: `tela:grupos:${grupoId ?? "novo"}`, resumo: { grupoId, porUserId: userId, ...resumo } });
 
 export const gruposRouter = router({
   /** Grupos cadastrados (com contagens), configuração e pendências de classificação. Sem texto de mensagem. */
