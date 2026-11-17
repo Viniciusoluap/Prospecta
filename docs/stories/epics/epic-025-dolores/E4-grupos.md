@@ -134,6 +134,8 @@ Alterados:
 | 7 | Id de grupo antigo mostrava o telefone | `jidDeGrupoParaExibir` na lista da Evolution | 2e52133 |
 | 8 | Pendências vencidas na tela | `pendenciasDeClassificacao` filtra pela retenção | e3e99af |
 
+- Verificação depois das correções (17/11): tsc ok; suíte-alvo 45 arquivos / 603 testes ok; `vite build` ok; suíte completa
+  249 arquivos / 2587 testes ok (2 processos). `server/integracoes-anthropic.test.ts` sem mudança. Migração 0126 NÃO aplicada.
 - [AUTO-DECISION] Contagem prévia de tokens da API → não usada (o projeto não tem esse caminho; regra conservadora).
 - [AUTO-DECISION] Coluna `excesso_entrada` entra no CREATE TABLE da 0126 (ainda não aplicada; o teste estático da etapa proíbe ALTER).
 

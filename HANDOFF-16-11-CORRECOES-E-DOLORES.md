@@ -231,5 +231,5 @@ PR, cada uma com portão de QA. 4. Relatório final ao dono.
 - A 0126 foi editada (continua só aditiva e idempotente e ainda **não foi aplicada**): o gatilho aceita `lead_document_id` virando NULL e
   `dolores_grupos_contagem.excesso_entrada` é uma coluna nova no CREATE.
 - Testes (a) automáticos: tsc ok; `vite build` ok; suíte-alvo 45 arquivos / 603 testes ok (19 novos em `server/dolores/grupos-qa.test.ts`);
-  a suíte completa está registrada na story. (b) manuais: nenhum. (c) pendentes em produção: os mesmos da E4.
+  suíte completa 249 arquivos / 2587 testes ok (2 processos). (b) manuais: nenhum. (c) pendentes em produção: os mesmos da E4.
 - Próximo passo exato: novo portão de QA, só nos testes QA-A e QA-B e na suíte. Depois: unir com a `main`, aplicar a 0126 e publicar.
