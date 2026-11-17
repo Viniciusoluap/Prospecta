@@ -81,6 +81,9 @@ Alterados:
 - `server/dolores/leitura/grupos.ts` (`marcacoesRecentes` em `ler_grupo_cliente`), `server/dolores/{funcoes,permissoes,prompt,testes-banco}.ts`
 - `drizzle.config.ts`, `docs/dolores/{como-ligar.md,agente-etapa4.md,ferramentas-etapa1.json}`, `docs/stories/epics/epic-025-dolores/E4-grupos.md` (nota)
 - testes: `server/dolores/grupos-qa-r2.test.ts` (`marcacao.ts` na lista do guarda de redirecionamento), `server/dolores/grupos.test.ts` (sem marcação real + interruptor ligado → nada vai ao grupo), `server/integracoes-modelo-por-funcao.test.ts`
+- QA de segurança (17/11): `server/dolores/marcacao-qa-seg.test.ts` (provas do QA, invertidas), `server/dolores/marcacao.test.ts`
+  (bloco "QA-SEG E4b — correções"), `shared/dolores/marcacao.ts`, `server/dolores/marcacao.ts`, `server/dolores/leitura/grupo-marcado.ts`,
+  `server/dolores/whatsapp.ts`, `server/dolores/grupos-router.ts`, `client/src/components/admin/DoloresGruposCard.tsx`, `docs/dolores/como-ligar.md`
 
 ## Dev Notes
 - [AUTO-DECISION] @lid da Dolores → conferido pela Evolution (lista de participantes de um grupo cadastrado, só leitura) e guardado
@@ -123,6 +126,27 @@ Alterados:
   em memória até o admin religar, nenhuma volta a mais e o texto daquela volta não é usado; (5) uso real acima da reserva → para o laço.
 - Envio ao grupo e conferência do @lid passam a recusar redirecionamento (`semRedirecionamento: true`, QA E4 r2 N4); o guarda
   estático de `grupos-qa-r2.test.ts` ganhou `marcacao.ts` na lista (a regra continua: todo `configEvolution(` com a trava).
+- QA de segurança da E4b (Quinn, 17/11) — 5 achados corrigidos (Dex):
+  1. Sai da leitura do grupo a etapa comercial do CRM (`etapaNoCrm`); a situação de regularização, obra, financiamento e serviço vai
+     por lista FECHADA e neutra (`situacaoNeutraDoGrupo`: em análise, em andamento, aguardando dados, concluído, pausado, encerrado;
+     desconhecido → "em andamento", nunca o bruto; "aprovado" do financiamento → "em andamento"). Filtro de saída barra
+     aprovad/reprovad/aprovou/negado/indeferido (sem acento e maiúsculas iguais).
+  2. Entrada: pedido de texto ditado (verbo de dizer/escrever/terminar + dois-pontos ou aspas; repita/copie/cole; "termine a
+     resposta com"; "responda com/exatamente") → motivo `texto_ditado`, frase fixa sem IA. Saída: dia da semana, mês como prazo,
+     "próxima semana", liberou/liberado, retirar, chave → frase fixa; e números/datas da resposta precisam constar nas leituras
+     daquela marcação (`numeroSemFonte`: datas, horas e "dia N" sempre; números soltos acima de 20) — senão frase fixa.
+  3. `FRASE_FORA_DE_ESCOPO` = "Isso a equipe responde por aqui." e `FRASE_SEM_VINCULO` sem "vou confirmar" (ninguém é avisado).
+  4. A vaga "em andamento" do grupo é reivindicada ANTES dos tetos (pessoa/hora e grupo/dia): grupo ocupado não gasta vaga. No
+     webhook, as marcações são tratadas DEPOIS dos itens do dono do mesmo aviso.
+  5. Depois de reivindicar, qualquer exceção vira "erro" na linha (motivo "falha inesperada…") e a reserva é solta (`finally`).
+  - Também: a tela da marcação mostra o desligamento por falha no consumo (`desligamentoDaMarcacaoPorFalha`), inclusive a pausa só
+    em memória, como a classificação.
+- [AUTO-DECISION] Situação "cancelado"/"distrato" → "encerrado" e "paused" → "pausado" (lista fechada continua neutra e verdadeira;
+  reason: dizer "em andamento" de processo cancelado seria inventar dado).
+- [AUTO-DECISION] Números soltos até 20 passam sem estar nas leituras (contagens de documentos/etapas escritas pelo modelo); datas,
+  horas e "dia N" nunca (reason: travar toda contagem fragilizaria respostas legítimas; promessa de data é o risco).
+- Limite conhecido: nome de pessoa da equipe inventado pelo modelo (ex.: "com o Carlos") não é barrado por código — segue a trava do prompt.
+- AC6 cita a frase antiga ("já avisei"); o texto do AC é do @po — a frase em vigor é a do achado 3.
 
 ## Progresso
 - fcf648a story; 7609e15 regras puras + canal grupo + migração 0129; 639aa30 laço, leituras, envio único, porta da chave;
@@ -137,7 +161,13 @@ Alterados:
 - Verificação depois do merge (17/11): `npx tsc --noEmit` ok; `npx vite build` ok; suíte-alvo (server/dolores + integracoes-anthropic,
   modelo-por-funcao, auth-session, imports-esm, api-rotas-producao; 2 processos) 27 arquivos / 475 testes ok.
   `server/integracoes-anthropic.test.ts` sem mudança. Migração 0129 NÃO aplicada.
+- QA de segurança + merge com a `main` (E4 squash, docs, E5 notas de obra) — verificação (17/11): `npx tsc --noEmit` ok;
+  `npx vite build` ok; suíte-alvo (server/dolores + integracoes-anthropic, modelo-por-funcao, auth-session, imports-esm,
+  api-rotas-producao; `--maxWorkers=2 --minWorkers=1`) 31 arquivos / 559 testes ok. `server/integracoes-anthropic.test.ts` sem
+  mudança. Migração 0129 NÃO aplicada (a 0128 da E5 vem da `main`).
 
 ## Change Log
 - 17/11/2026 — @dev (Dex): story criada (InProgress) a partir da decisão do dono de 17/11.
 - 17/11/2026 — @dev (Dex): implementação concluída (InProgress → InReview).
+- 17/11/2026 — @dev (Dex): 5 achados do QA de segurança corrigidos (f85b418, 4dd7db9, df9be1c, da8ddfe, 639db22, f9c1bb3);
+  merge de `origin/main` (E4 squash `44715cb`, docs `902f8e5`, E5 `3b197bc`) em a6b3d24.
