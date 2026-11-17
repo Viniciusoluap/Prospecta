@@ -53,8 +53,9 @@ export default function DefinirSenha() {
     });
   }
 
+  // pt-20: o botão global "Voltar" (fixo, top-4, 40 px) não cobre o cabeçalho no celular (QA S-12, achado 7).
   return (
-    <div className="min-h-screen flex items-center justify-center bg-[#1A2332] px-4 text-gray-100">
+    <div className="min-h-screen flex items-center justify-center bg-[#1A2332] px-4 pb-8 pt-20 text-gray-100">
       <div className="w-full max-w-md space-y-6">
         <div className="text-center space-y-2">
           <h1 className="text-3xl font-bold tracking-tight text-[#C9A961]">Prospecta Empreendimentos</h1>
