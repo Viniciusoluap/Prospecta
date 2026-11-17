@@ -32,16 +32,21 @@ export async function usoDoMes(mes: string): Promise<Uso> {
 
 export type UsoDaChamada = { entrada: number; saida: number; cacheEscrita: number; cacheLeitura: number };
 
-/** Uma linha por chamada ao modelo. Falha ao gravar não derruba a resposta, mas vai para o log. */
-export async function registrarConsumo(c: { mes: string; mensagemId: number | null; modelo: string; volta: number; uso: UsoDaChamada; parada: string | null }) {
+/**
+ * Uma linha por chamada ao modelo. Falha ao gravar não derruba a resposta, mas vai para o log. Devolve se gravou: a
+ * classificação de grupo falha fechado quando não gravou (QA r3 N7); a conversa do dono só registra.
+ */
+export async function registrarConsumo(c: { mes: string; mensagemId: number | null; modelo: string; volta: number; uso: UsoDaChamada; parada: string | null }): Promise<boolean> {
   try {
     await getDb().insert(doloresConsumo).values({
       mes: c.mes, mensagemId: c.mensagemId, modelo: c.modelo.slice(0, 120), volta: c.volta,
       tokensEntrada: c.uso.entrada, tokensSaida: c.uso.saida, tokensCacheEscrita: c.uso.cacheEscrita, tokensCacheLeitura: c.uso.cacheLeitura,
       parada: c.parada?.slice(0, 30) ?? null,
     });
+    return true;
   } catch (e) {
     console.error("[dolores/consumo] falha ao registrar o consumo", erroParaLog(e));
+    return false;
   }
 }
 
@@ -184,10 +189,10 @@ export async function reservarClassificacao(p: { mes: string; mensagemGrupoId: n
 
 /**
  * QA E4 r2, N0.3 — soma o uso de UMA classificação no consumo do mês da classificação (além de dolores_consumo, que é o do
- * limite inteiro). Entrada conta também o cache. Falha só vai para o log, mas aí o orçamento fica sem esta chamada: por isso
- * a classificação é uma por vez e o limite inteiro (dolores_consumo) continua sendo a trava do dono.
+ * limite inteiro). Entrada conta também o cache. Devolve se gravou: quem chama FALHA FECHADO quando não gravou (QA r3 N7 — sem
+ * o registro o orçamento próprio da classificação estouraria em silêncio).
  */
-export async function registrarConsumoDaClassificacao(mes: string, uso: UsoDaChamada) {
+export async function registrarConsumoDaClassificacao(mes: string, uso: UsoDaChamada): Promise<boolean> {
   const entrada = Math.max(0, Math.round(uso.entrada + uso.cacheEscrita + uso.cacheLeitura));
   const saida = Math.max(0, Math.round(uso.saida));
   try {
@@ -195,8 +200,10 @@ export async function registrarConsumoDaClassificacao(mes: string, uso: UsoDaCha
       .onConflictDoUpdate({ target: doloresGruposConsumoMes.mes, set: {
         tokensEntrada: sql`${doloresGruposConsumoMes.tokensEntrada} + ${entrada}`, tokensSaida: sql`${doloresGruposConsumoMes.tokensSaida} + ${saida}`,
         chamadas: sql`${doloresGruposConsumoMes.chamadas} + 1`, ultimaEm: sql`now()` } });
+    return true;
   } catch (e) {
     console.error("[dolores/consumo] falha ao registrar o consumo da classificação", erroParaLog(e));
+    return false;
   }
 }
 

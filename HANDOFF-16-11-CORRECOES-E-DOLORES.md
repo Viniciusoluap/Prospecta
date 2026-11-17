@@ -243,7 +243,8 @@ PR, cada uma com portão de QA. 4. Relatório final ao dono.
 - Migrações NÃO aplicadas: 0126 (editada de novo só dentro dos CREATE TABLE + tabela nova `dolores_grupos_consumo_mes`; antes de
   aplicar, `SELECT to_regclass('dolores_grupos_contagem')` tem de voltar NULL) e 0130 nova (`CREATE OR REPLACE FUNCTION
   dolores_aprovacoes_guarda`, corrige a E3 já em produção: excluir usuário que decidiu item da fila).
-- Testes: ver os números na story e em `qa-dolores-e4-r2/CORRECOES.md` (a) automáticos; (b) manuais: nenhum; (c) pendentes em
+- Testes (a) automáticos: tsc ok; suíte-alvo 46 arquivos / 630 testes (a única falha, guarda de log, corrigida em 14b22ad e
+  reexecutada ok); `vite build` ok; suíte completa 250 arquivos / 2614 testes ok (2 processos). (b) manuais: nenhum; (c) pendentes em
   produção: aplicar 0126 e 0130, excluir um usuário de teste que decidiu item da fila, uma classificação real (confere a contagem
   prévia contra a API de verdade).
 - Paridade: a Dolores não tem gêmeo no Grupo Santa Fé hoje; `server/_core/evolution.ts` (gêmeo do SF) ganhou só um campo opcional,

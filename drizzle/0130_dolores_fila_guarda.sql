@@ -25,7 +25,9 @@ BEGIN
   -- QA r2 N2: o ON DELETE SET NULL de "decidido_por_user_id" (exclusão do usuário que decidiu). Só essa coluna, só para NULL,
   -- e todo o resto da linha igual.
   IF OLD."decidido_por_user_id" IS NOT NULL AND NEW."decidido_por_user_id" IS NULL
-     AND (to_jsonb(NEW) - 'decidido_por_user_id') = (to_jsonb(OLD) - 'decidido_por_user_id') THEN
+     AND (to_jsonb(NEW) - 'decidido_por_user_id') = (to_jsonb(OLD) - 'decidido_por_user_id')
+     -- QA r3 N8: só quando o usuário foi mesmo excluído; um NULL posto à mão (com o usuário ainda existindo) é barrado abaixo
+     AND NOT EXISTS (SELECT 1 FROM "users" WHERE "id" = OLD."decidido_por_user_id") THEN
     RETURN NEW;
   END IF;
   -- o que será feito, o que o dono lê (resumo), a validade e a origem do pedido não mudam depois de entrar na fila

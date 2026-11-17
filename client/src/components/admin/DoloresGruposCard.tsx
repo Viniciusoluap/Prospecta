@@ -130,6 +130,13 @@ export function DoloresGruposCard() {
                   {cfg.classificacaoLigada ? "ligada" : "desligada"}
                 </label>
               </div>
+              {dados.data?.desligamentoPorFalha && (
+                <p role="alert" className="rounded border border-red-400/40 bg-red-500/10 p-2 text-xs text-red-200">
+                  A Dolores desligou a classificação sozinha{dados.data.desligamentoPorFalha.em ? ` em ${quando(dados.data.desligamentoPorFalha.em)}` : ""}
+                  {dados.data.desligamentoPorFalha.soNestaInstancia ? " (só neste servidor: nem o desligamento pôde ser gravado no banco)" : ""}: {dados.data.desligamentoPorFalha.motivo}.
+                  Sem esse registro o orçamento da classificação ficaria sem a conta. Confira o banco e religue quando estiver normal.
+                </p>
+              )}
               <p className="text-xs text-gray-300">
                 Só documentos e fotos são classificados (texto nunca chama a IA), um por vez, com o modelo da função "Dolores — classificação de
                 documentos" (Integrações › Anthropic). Também precisa do interruptor da IA da Dolores ligado e de limite mensal: a classificação
