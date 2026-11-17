@@ -121,7 +121,7 @@ describe("comando do dono — teste de aceite pelo WhatsApp", () => {
     expect(a.map(x => [x.funcao, x.resultado, x.canal])).toEqual([
       ["whatsapp_mensagem", "ok", "whatsapp"], ["listar_processos_regularizacao", "ok", "whatsapp"], ["whatsapp_resposta", "ok", "whatsapp"],
     ]);
-    expect(a.every(x => x.etapa === 2)).toBe(true);
+    expect(a.every(x => x.etapa === 3)).toBe(true); // etapa 3 (ações) em vigor
     expect(a[1].resumo).toMatchObject({ truncado: false });
     expect(JSON.stringify(a)).not.toContain(DONO);
     // consumo por chamada e a mensagem marcada
@@ -235,10 +235,18 @@ describe("a IA não liga sozinha: frase fixa e nenhuma chamada à Anthropic", ()
     expect(pedidosModelo).toEqual([]);
     expect(enviar.mock.calls.map(c => c[0].texto)).toEqual([expect.stringMatching(/falta a chave da Anthropic/), expect.stringMatching(/falta escolher o modelo/)]);
   });
-  it("modelo próprio da Dolores tem precedência sobre o do painel", async () => {
+  it("valor antigo do cartão da Dolores é respeitado (queda) antes do preferencial do painel", async () => {
     await banco.pg.exec("UPDATE dolores_whatsapp_config SET modelo = 'modelo-da-dolores'");
     await chamar(aviso());
     expect(pedidosModelo[0].modelo).toBe("modelo-da-dolores");
+  });
+  it("EPIC-024 S-11: o modelo escolhido para a Dolores em Integrações › Anthropic vence o antigo e o preferencial", async () => {
+    await banco.pg.exec(`UPDATE dolores_whatsapp_config SET modelo = 'modelo-da-dolores';
+      CREATE TABLE IF NOT EXISTS dashboard_settings (id serial PRIMARY KEY, key varchar(100) NOT NULL UNIQUE, value varchar(500) NOT NULL, updated_at timestamp NOT NULL DEFAULT now());
+      INSERT INTO dashboard_settings (key, value) VALUES ('segredo.anthropic_painel_modelo.dolores_whatsapp', 'claude-haiku-da-funcao'),
+        ('segredo.anthropic_painel_modelo.maquete_leitura', 'claude-opus-da-maquete')`);
+    await chamar(aviso());
+    expect(pedidosModelo[0]).toMatchObject({ apiKey: CHAVE, modelo: "claude-haiku-da-funcao" });
   });
   it("sem o WhatsApp configurado (instância vazia), nada é respondido", async () => {
     await banco.pg.exec("UPDATE dolores_whatsapp_config SET instancia = NULL, ia_ligada = false");
@@ -303,7 +311,7 @@ describe("injeção de instruções (dados envenenados)", () => {
     // 2) as ferramentas pedidas pelo "dado" foram recusadas pela lista fechada da ponte (e auditadas)
     const r2 = pedidosModelo[2].mensagens[4].content as any[];
     expect(r2.map(x => [x.tool_use_id, x.is_error])).toEqual([["tu_envio", true], ["tu_sql", true]]);
-    expect(r2[0].content).toMatch(/prevista para a etapa 3; ainda não liberada/);
+    expect(r2[0].content).toMatch(/não permitida: envio de mensagem a cliente ou terceiro não foi liberado pelo dono/);
     expect(r2[1].content).toMatch(/não existe na lista de funções autorizadas/);
     const a = await acoes();
     expect(a.filter(x => x.resultado === "recusada").map(x => x.funcao)).toEqual(["enviar_mensagem_whatsapp", nomeParaRegistro("executar_sql")]); // QA r7 A7: nome fora da lista vai com hash

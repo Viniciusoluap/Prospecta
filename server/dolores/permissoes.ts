@@ -5,7 +5,7 @@
 // apagar lançamento financeiro confirmado; nunca pagar nem autorizar pagamento; nunca mexer em usuários, acessos,
 // credenciais ou dados bancários; nunca assinar ou validar documento técnico/jurídico; nunca inventar dado.
 
-export const ETAPA_ATUAL = 2;
+export const ETAPA_ATUAL = 3;
 
 /** Etapa 1 — Leitura: somente consultas. */
 export const LIBERADAS_ETAPA_1 = [
@@ -29,14 +29,33 @@ export const LIBERADAS_ETAPA_1 = [
  */
 export const LIBERADAS_ETAPA_2 = [] as const;
 
-const LIBERADAS: Record<number, readonly string[]> = { 1: LIBERADAS_ETAPA_1, 2: LIBERADAS_ETAPA_2 };
+/**
+ * Etapa 3 — Ações. O NÍVEL de cada uma (direto ou fila) está em acoes/registro.ts. Ações só executam por comando do dono
+ * no WhatsApp (canal conferido em ponte.ts): a ponte HTTP continua só de leitura.
+ */
+export const LIBERADAS_ETAPA_3 = ["criar_tarefa", "registrar_acompanhamento", "preparar_cobranca", "gerar_documento"] as const;
+
+const LIBERADAS: Record<number, readonly string[]> = { 1: LIBERADAS_ETAPA_1, 2: LIBERADAS_ETAPA_2, 3: LIBERADAS_ETAPA_3 };
 
 /** Funções previstas para etapas seguintes (ainda não liberadas): a recusa diz quando chegam. */
 export const PREVISTAS: Record<string, number> = {
-  criar_tarefa: 3, registrar_acompanhamento: 3, preparar_cobranca: 3, gerar_documento: 3,
-  // mensagem para cliente/terceiro sai com as cobranças (etapa 3); na etapa 2 só o sistema responde ao dono
-  enviar_mensagem_whatsapp: 3,
   ler_grupo_cliente: 4, ler_nota_obra: 5, relatorio_diario: 6,
+};
+
+/**
+ * Funções que NUNCA existem para a Dolores (limites fixos ou dependem de liberação do dono). A recusa diz o porquê; o
+ * modelo nem as recebe como ferramenta. Envio a cliente/terceiro só depois de o dono liberar as categorias.
+ */
+export const PROIBIDAS: Record<string, string> = {
+  enviar_mensagem_whatsapp: "envio de mensagem a cliente ou terceiro não foi liberado pelo dono (a Dolores só responde ao número dele)",
+  enviar_email: "envio de e-mail a cliente ou terceiro não foi liberado pelo dono",
+  enviar_cobranca: "a Dolores só PREPARA cobranças; o envio a cliente não foi liberado pelo dono",
+  aprovar_item: "só o dono aprova itens da fila (resposta \"aprovar CÓDIGO\" no WhatsApp ou a tela do administrador)",
+  excluir_registro: "limite fixo: a Dolores nunca exclui registros",
+  registrar_pagamento: "limite fixo: a Dolores nunca faz, autoriza, baixa ou estorna pagamento",
+  editar_lancamento: "limite fixo: a Dolores nunca edita lançamento financeiro",
+  alterar_usuario: "limite fixo: a Dolores nunca mexe em usuários, acessos, credenciais ou dados bancários",
+  assinar_documento: "limite fixo: a Dolores nunca assina nem valida documento técnico ou jurídico",
 };
 
 export function funcaoLiberada(nome: string, etapa = ETAPA_ATUAL): boolean {
@@ -45,6 +64,7 @@ export function funcaoLiberada(nome: string, etapa = ETAPA_ATUAL): boolean {
 }
 
 export function motivoDaRecusa(nome: string): string {
+  if (Object.hasOwn(PROIBIDAS, nome)) return `Função "${nome}" não permitida: ${PROIBIDAS[nome]}.`;
   const prevista = PREVISTAS[nome];
   return prevista ? `Função "${nome}" prevista para a etapa ${prevista}; ainda não liberada (etapa atual: ${ETAPA_ATUAL}).`
     : `Função "${nome}" não existe na lista de funções autorizadas.`;

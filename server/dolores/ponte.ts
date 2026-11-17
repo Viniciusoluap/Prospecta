@@ -19,9 +19,14 @@ import { type CanalDolores, filtroDaSaida } from "./dados-pessoais.js";
 import { erroParaLog } from "./erro-seguro.js";
 import { registrarAcao } from "./auditoria.js";
 import { FUNCOES, definicaoDaFerramenta, funcaoPorNome } from "./funcoes.js";
-import { ETAPA_ATUAL, PREVISTAS, funcaoLiberada, motivoDaRecusa } from "./permissoes.js";
+import { ETAPA_ATUAL, PREVISTAS, PROIBIDAS, funcaoLiberada, motivoDaRecusa } from "./permissoes.js";
 import { DoloresDesativada, usuarioDolores } from "./perfil.js";
 import { emTransacaoSomenteLeitura } from "./somente-leitura.js";
+import { MAX_ACOES_POR_COMANDO, type MotivoContaminacao } from "../../shared/dolores/fila.js";
+import { ACOES, acaoPorNome } from "./acoes/registro.js";
+import { RecusaAcao, type ContextoAcao, type FuncaoAcao } from "./acoes/comum.js";
+import { acoesDoPedido, porNaFila } from "./aprovacoes.js";
+import { emTransacaoDeEscrita, foiPrazoDaTransacao } from "./escrita.js";
 
 export const VARIAVEL_TOKEN = "DOLORES_PONTE_TOKEN";
 /** Token mais curto que isso é recusado (a ponte fica desligada): use `openssl rand -hex 32` (64 caracteres). */
@@ -42,10 +47,11 @@ export function definirDependenciasPonte(d?: Partial<Dependencias>) { deps = d ?
 const resumoSha = (s: string) => createHash("sha256").update(s).digest();
 /**
  * QA r7 A7: nome da função para a auditoria. O nome vem de quem chama (o agente ou o modelo) e pode carregar dado
- * ("funcao_52998224725"): fora da lista FUNCOES (e das PREVISTAS), grava-se só "(desconhecida)" + hash curto do nome.
+ * ("funcao_52998224725"): fora das listas fixas (FUNCOES, ACOES, PREVISTAS e PROIBIDAS), grava-se só "(desconhecida)" +
+ * hash curto do nome.
  */
 export function nomeParaRegistro(nome: string): string {
-  if (nome === "(sem função)" || funcaoPorNome(nome) || Object.hasOwn(PREVISTAS, nome)) return nome;
+  if (nome === "(sem função)" || funcaoPorNome(nome) || acaoPorNome(nome) || Object.hasOwn(PREVISTAS, nome) || Object.hasOwn(PROIBIDAS, nome)) return nome;
   return `(desconhecida) ${createHash("sha256").update(nome).digest("hex").slice(0, 10)}`;
 }
 /** Bearer confere com o token da variável? Hash dos dois lados: tempo constante e sem vazar o tamanho. */
@@ -66,7 +72,15 @@ function contarFalha(ip: string, agora: Date): boolean {
 }
 const usoLocal = new Map<number, number>();
 
-export type RespostaPonte = { status: number; body: Record<string, unknown> };
+export type RespostaPonte = {
+  status: number; body: Record<string, unknown>;
+  /**
+   * QA R2 N2 — esta resposta leva ao modelo texto vindo do BANCO (de terceiros ou editável pela equipe)? Decidido pela porta,
+   * ok OU erro: leitura com dados, item da fila (o resumo cita nomes), recusa com nomes. Fora do corpo (não vai ao modelo
+   * nem à ponte HTTP); o laço do WhatsApp (cerebro.ts) usa para a regra de contaminação.
+   */
+  contamina?: boolean;
+};
 type Pedido = Pick<Request, "headers" | "body" | "ip">;
 
 const envelope = z.object({
@@ -137,9 +151,12 @@ async function reservarVaga(limite: number, agora: Date): Promise<boolean> {
   }
 }
 
+class PrazoEsgotado extends Error {}
+/** Espera a mais pelo desfecho da transação de uma ação direta (COMMIT ou ROLLBACK) depois do prazo da porta. */
+const GRACA_DO_COMMIT_MS = 2_000;
 function comPrazo<T>(p: Promise<T>, ms: number): Promise<T> {
   let t: ReturnType<typeof setTimeout>;
-  return Promise.race([p, new Promise<T>((_, rej) => { t = setTimeout(() => rej(new Error(`Consulta passou de ${Math.round(ms / 1000)} s.`)), ms); })])
+  return Promise.race([p, new Promise<T>((_, rej) => { t = setTimeout(() => rej(new PrazoEsgotado(`Consulta passou de ${Math.round(ms / 1000)} s.`)), ms); })])
     .finally(() => clearTimeout(t));
 }
 
@@ -150,7 +167,26 @@ export async function tratarChamada(req: Pedido): Promise<RespostaPonte> {
 }
 
 export type { CanalDolores };
-export type OpcoesExecucao = { canal: CanalDolores; prazoMs?: number };
+export type OpcoesExecucao = {
+  canal: CanalDolores; prazoMs?: number;
+  /**
+   * Etapa 3: a mensagem do DONO no WhatsApp (já conferida: número estrito, não encaminhada) que originou o pedido. Sem
+   * ela, nenhuma AÇÃO roda — a ponte HTTP continua só de leitura.
+   */
+  mensagemId?: number | null;
+  /**
+   * Regra de CONTAMINAÇÃO (portão de QA da E3): o comando já trouxe ao laço texto de dados (histórico, anotações, nomes…).
+   * A partir daí nenhuma ação direta roda: o pedido vai para a fila de aprovação do dono, marcado como surgido durante a
+   * leitura. Quem marca é o laço (cerebro.ts), por código — nunca o modelo.
+   */
+  contaminado?: boolean;
+  /** Por que o comando está contaminado (vai no aviso do item da fila). */
+  motivoContaminacao?: MotivoContaminacao | null;
+  /** A mensagem do dono não tem intenção de ação (reconhecida por código): ação nenhuma roda neste comando. */
+  semAcoes?: boolean;
+  /** Recebe os códigos dos itens que este pedido pôs (ou achou) na fila — para o quadro do dono; nunca vai ao modelo. */
+  aoPorNaFila?: (codigos: string[]) => void;
+};
 
 /**
  * A porta única de execução de uma função da Dolores, DEPOIS da autenticação de quem chama (Bearer na ponte HTTP; o
@@ -201,13 +237,26 @@ export async function executarFuncao(corpo: unknown, opcoes: OpcoesExecucao): Pr
     return responder(400, { ok: false, erro: "Pedido inválido: envie { funcao, argumentos?, pedidoId? }.", campos });
   }
   const { funcao, argumentos = {}, pedidoId = null } = env.data;
-  const fn = funcaoPorNome(funcao);
-  if (!fn || !funcaoLiberada(funcao)) {
+  const leitura = funcaoPorNome(funcao);
+  const acao = leitura ? null : acaoPorNome(funcao);
+  if ((!leitura && !acao) || !funcaoLiberada(funcao)) {
     const motivo = motivoDaRecusa(funcao);
     // na auditoria, o motivo cita o nome já tratado (QA r7 A7); quem chamou recebe o nome que mandou
     await registrar("recusada", { funcao, argumentos, motivo: motivoDaRecusa(nomeParaRegistro(funcao)), pedidoId });
     return responder(403, { ok: false, erro: motivo });
   }
+  // Etapa 3: AÇÃO só nasce de comando do dono no WhatsApp (mensagem conferida). A ponte HTTP não executa ação.
+  if (acao && (opcoes.canal !== "whatsapp" || !opcoes.mensagemId)) {
+    const motivo = "Ações só por comando do dono no WhatsApp da Dolores; por este canal, só consultas.";
+    await registrar("recusada", { funcao, argumentos, motivo, pedidoId });
+    return responder(403, { ok: false, erro: motivo });
+  }
+  if (acao && opcoes.semAcoes) {
+    const motivo = "A mensagem do dono não pede ação; neste pedido, só consultas. Nada foi feito.";
+    await registrar("recusada", { funcao, argumentos, motivo, pedidoId });
+    return responder(403, { ok: false, erro: motivo });
+  }
+  const fn = (leitura ?? acao)!;
   const args = fn.entrada.safeParse(argumentos);
   if (!args.success) {
     const problemas = args.error.issues.slice(0, 10).map(i => ({ campo: i.path.join(".") || "(argumentos)", problema: i.message }));
@@ -220,19 +269,105 @@ export async function executarFuncao(corpo: unknown, opcoes: OpcoesExecucao): Pr
     await registrar("recusada", { funcao, argumentos: args.data, motivo, pedidoId });
     return responder(429, { ok: false, erro: motivo });
   }
+  if (acao) return executarAcao(acao, args.data, { agora, autor: autor!, mensagemId: opcoes.mensagemId!, pedidoId, registrar, responder,
+    contaminado: opcoes.contaminado === true, motivoContaminacao: opcoes.motivoContaminacao ?? null, prazoMs, aoPorNaFila: opcoes.aoPorNaFila });
   try {
-    const r = await comPrazo(emTransacaoSomenteLeitura(() => fn.executar(args.data as never, { agora, canal: opcoes.canal })), prazoMs);
+    const r = await comPrazo(emTransacaoSomenteLeitura(() => leitura!.executar(args.data as never, { agora, canal: opcoes.canal })), prazoMs);
     // Toda string da resposta passa pelo filtro (texto livre: anotações, mensagens, títulos): senhas, chaves e dados
     // bancários sempre; dados pessoais conforme o CANAL (QA r7 A3): no WhatsApp, mascarados só com
     // DOLORES_MASCARAR_DADOS_PESSOAIS=1 (opção B do dono, 16/11); na ponte HTTP, mascarados salvo DOLORES_PONTE_DADOS_PESSOAIS=1.
     const { valor, truncado } = limitarResposta(sanitizarResposta(r.dados, filtroDaSaida(opcoes.canal)));
     await registrar("ok", { funcao, argumentos: args.data, resumo: { ...r.resumo, truncado }, pedidoId });
-    return responder(200, { ok: true, avisoSeguranca: AVISO_SEGURANCA, truncado, ...(truncado ? { aviso: "Resposta cortada para caber no contexto: filtre ou peça a próxima página." } : {}), dados: valor });
+    return { ...responder(200, { ok: true, avisoSeguranca: AVISO_SEGURANCA, truncado, ...(truncado ? { aviso: "Resposta cortada para caber no contexto: filtre ou peça a próxima página." } : {}), dados: valor }),
+      contamina: leitura!.contamina !== false };
   } catch (e) {
     const motivo = erroSeguro(e);
     console.error("[dolores/ponte] falha na função", funcao, motivo);
     await registrar("erro", { funcao, argumentos: args.data, motivo, pedidoId });
     return responder(500, { ok: false, erro: "Falha ao consultar o sistema; nada foi alterado. Tente de novo ou informe o responsável." });
+  }
+}
+
+type Registrar = (resultado: "ok" | "recusada" | "erro", extra: { funcao?: string; argumentos?: unknown; motivo?: string; resumo?: Record<string, unknown>; pedidoId?: string | null }) => Promise<boolean>;
+
+/**
+ * Etapa 3 — uma AÇÃO, depois de tudo o que a porta já conferiu (pausa, usuária, lista, zod, vaga do minuto, canal do
+ * dono). Teto de ações por comando; `direto` grava numa transação de ESCRITA mínima (registro + autoria juntos);
+ * `fila` só confere e põe na fila — nada é feito antes da aprovação do dono. Recusa explicada → 422, auditada.
+ */
+async function executarAcao(acao: FuncaoAcao, args: unknown, c: {
+  agora: Date; autor: number; mensagemId: number; pedidoId: string | null; registrar: Registrar;
+  responder: (status: number, corpo: Record<string, unknown>) => RespostaPonte;
+  contaminado: boolean; motivoContaminacao: MotivoContaminacao | null; prazoMs: number; aoPorNaFila?: (codigos: string[]) => void;
+}): Promise<RespostaPonte> {
+  const { funcao, registrar, responder } = { funcao: acao.nome, registrar: c.registrar, responder: c.responder };
+  const ctx: ContextoAcao = { agora: c.agora, autorId: c.autor, mensagemId: c.mensagemId, pedidoId: c.pedidoId, aprovacaoId: null,
+    motivoContaminacao: c.contaminado ? (c.motivoContaminacao ?? "leitura") : null };
+  try {
+    const feitas = await acoesDoPedido(c.mensagemId);
+    if (feitas >= MAX_ACOES_POR_COMANDO) {
+      const motivo = `Limite de ${MAX_ACOES_POR_COMANDO} ações por comando do dono atingido; nada mais foi feito neste pedido.`;
+      await registrar("recusada", { funcao, argumentos: args, motivo, pedidoId: c.pedidoId });
+      return responder(429, { ok: false, erro: motivo });
+    }
+    // Ação direta ANTES de qualquer leitura de dados neste comando: executa na hora (transação mínima, com prazo).
+    if (acao.nivel === "direto" && !c.contaminado) {
+      // QA R2 M6 — desfecho ÚNICO: a transação tem o próprio prazo (metade do da porta: `bancoDaAcao` recusa e o banco
+      // cancela a instrução), e a porta ESPERA ela terminar — ou o COMMIT foi confirmado ("feito"), ou foi desfeita
+      // ("não feito"). Só se o banco não responder nem depois de prazo + 2 s vale o último recurso "confira no sistema".
+      const transacao = emTransacaoDeEscrita(() => acao.executar!(args as never, ctx), Math.max(1, Math.floor(c.prazoMs / 2)));
+      let r: Awaited<ReturnType<NonNullable<FuncaoAcao["executar"]>>>;
+      try {
+        r = await comPrazo(transacao, c.prazoMs + GRACA_DO_COMMIT_MS);
+      } catch (e) {
+        if (e instanceof PrazoEsgotado) {
+          transacao.catch(() => undefined);
+          await registrar("erro", { funcao, argumentos: args, motivo: "sem confirmação do banco (nem gravou nem desfez no prazo)", pedidoId: c.pedidoId });
+          return responder(504, { ok: false, erro: "O banco não confirmou a gravação a tempo (nem gravou nem desfez). Confira no sistema antes de pedir de novo." });
+        }
+        if (foiPrazoDaTransacao(e)) {
+          await registrar("erro", { funcao, argumentos: args, motivo: "passou do prazo; desfeita", pedidoId: c.pedidoId });
+          return responder(504, { ok: false, erro: "A ação passou do prazo e foi desfeita: nada foi gravado. Pode pedir de novo.", nadaFoiFeito: true });
+        }
+        throw e;
+      }
+      await registrar("ok", { funcao, argumentos: args, resumo: { nivel: "direto", ...r.resumo }, pedidoId: c.pedidoId });
+      const { valor } = limitarResposta(sanitizarResposta(r.dados, filtroDaSaida("whatsapp")));
+      // a ação direta devolve só ids/códigos (QA R2 N2); se uma função marcar `contamina`, vale a marca dela
+      return { ...responder(200, { ok: true, nivel: "direto", avisoSeguranca: AVISO_SEGURANCA, dados: valor }), contamina: acao.contamina };
+    }
+    // Ação pedida DEPOIS de o comando ler dados (contaminação), ou de nível fila: nada é feito; vai para a fila do dono.
+    const preparo = acao.nivel === "direto"
+      ? { itens: [await comPrazo(acao.paraFila!(args as never, ctx), c.prazoMs)], recusados: [] }
+      : await comPrazo(acao.preparar!(args as never, ctx), c.prazoMs);
+    const vagas = MAX_ACOES_POR_COMANDO - feitas;
+    const cabem = preparo.itens.slice(0, vagas);
+    const recusados = [...preparo.recusados, ...preparo.itens.slice(vagas).map(i => ({ alvo: i.alvo, motivo: `limite de ${MAX_ACOES_POR_COMANDO} ações por comando` }))];
+    const criados = await porNaFila(funcao, { itens: cabem, recusados }, ctx);
+    c.aoPorNaFila?.(criados.map(x => x.codigo));
+    await registrar("ok", { funcao, argumentos: args, pedidoId: c.pedidoId,
+      resumo: { nivel: "fila", contaminado: acao.nivel === "direto", naFila: criados.filter(x => !x.jaAguardava).length, jaAguardavam: criados.filter(x => x.jaAguardava).length, recusados: recusados.length } });
+    // O modelo NÃO recebe os códigos: quem mostra os itens (com o código) ao dono é o sistema, depois da resposta.
+    const { valor } = limitarResposta(sanitizarResposta({
+      naFila: criados.map(x => ({ resumo: x.resumo, jaAguardava: x.jaAguardava })),
+      naoPreparados: recusados,
+    }, filtroDaSaida("whatsapp")));
+    // o resumo dos itens cita nomes do cadastro: contamina (QA R2 N2)
+    return { contamina: true, ...responder(200, { ok: true, nivel: "fila", avisoSeguranca: AVISO_SEGURANCA,
+      aviso: acao.nivel === "direto"
+        ? "NADA foi feito: como este pedido já leu dados do sistema, a ação foi para a fila de aprovação do dono (regra fixa). O sistema anexa à sua resposta a lista com os códigos; só o dono aprova."
+        : "NADA foi feito ainda: os itens estão na fila de aprovação. O sistema anexa à sua resposta a lista com os códigos; só o dono aprova.", dados: valor }) };
+  } catch (e) {
+    if (e instanceof RecusaAcao) {
+      const motivo = e.message.slice(0, 300);
+      await registrar("recusada", { funcao, argumentos: args, motivo, pedidoId: c.pedidoId });
+      // recusa com texto do banco (ex.: nomes da equipe) contamina o comando (QA R2 N2)
+      return { ...responder(422, { ok: false, erro: motivo, nadaFoiFeito: true }), contamina: e.comDados };
+    }
+    const motivo = erroSeguro(e);
+    console.error("[dolores/ponte] falha na ação", funcao, motivo);
+    await registrar("erro", { funcao, argumentos: args, motivo, pedidoId: c.pedidoId });
+    return responder(500, { ok: false, erro: "Falha ao executar a ação; nada foi gravado (a gravação é tudo ou nada). Informe o responsável." });
   }
 }
 
@@ -261,8 +396,17 @@ export async function tratarFerramentas(req: Pedido): Promise<RespostaPonte> {
   return { status: 200, body: { ...base(agora), ok: true, ferramentas } };
 }
 
-/** Definições das funções liberadas na etapa atual (também gravadas em docs/dolores/ferramentas-etapa1.json). */
+/**
+ * Definições das funções de LEITURA liberadas (ponte HTTP e docs/dolores/ferramentas-etapa1.json). As ações não entram:
+ * pela ponte, só consultas.
+ */
 export const ferramentasLiberadas = () => FUNCOES.filter(f => funcaoLiberada(f.nome)).map(definicaoDaFerramenta);
+
+/** Etapa 3 — ferramentas do laço do WhatsApp (comando do dono): leituras + ações liberadas (lista fechada). */
+export const ferramentasDoWhatsapp = () => [
+  ...ferramentasLiberadas(),
+  ...ACOES.filter(a => funcaoLiberada(a.nome)).map(a => definicaoDaFerramenta({ nome: a.nome, descricao: a.descricao, entrada: a.entrada } as never)),
+];
 
 const router = Router();
 const via = (fn: (req: Pedido) => Promise<RespostaPonte>) => async (req: Request, res: Response) => {

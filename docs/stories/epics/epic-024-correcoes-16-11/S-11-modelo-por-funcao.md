@@ -1,0 +1,181 @@
+# S-11 — Modelo da Anthropic por função (Integrações › Anthropic)
+
+Status: Done (publicada em 16/11/2026, PR #244; QA aprovado).
+Epic: EPIC-024 — pedido complementar do dono (16/11/2026), sobre a correção 10 (S-10)
+Paridade: Admin › Integrações existe nos dois sistemas — porte para o Grupo Santa Fé fica como pendência no ROADMAP
+(Santa Fé em espera por decisão do dono).
+Tamanho estimado: M
+Dependência: S-10 (chave e modelo preferencial no painel), S-03 (leitura por IA da Maquete), EPIC-025 E2 (Dolores no
+WhatsApp). Base: `claude/epic025-dolores-etapa2` (Etapa 2 da Dolores, em QA). Sem migração de banco.
+
+## Pedido do dono (16/11/2026, palavras dele)
+"Quanto ao motor a ser utilizado para ler o PDF vamos estipular diferentes motores para diferentes funções, por exemplo
+na conversa do WhatsApp pode ser o haiku que é mais barato e consegue conversar bem; já para ler as plantas em PDF a
+gente pode escolher outro, já fixo. Coloque isso lá no painel de integração para que cada função em específico escolha
+motores diferentes."
+
+## Problema
+Hoje há um único "modelo preferencial" no painel. A Dolores tem um campo de modelo próprio no cartão dela
+(`dolores_whatsapp_config.modelo`) e a leitura da Maquete usa o preferencial ou o das configurações da maquete. O dono
+quer escolher, num lugar só (Integrações › Anthropic), o modelo de cada função.
+
+## Critérios de aceite
+- [x] AC1: registro único das funções que usam a chave do painel (`shared/funcoes-anthropic.ts`): `maquete_leitura`
+      ("Leitura de plantas em PDF — Maquete 3D") e `dolores_whatsapp` ("Dolores — conversa pelo WhatsApp"), cada uma com
+      rótulo, descrição curta (o que faz e quando gasta) e recomendação em texto.
+- [x] AC2: o modelo de cada função fica em `dashboard_settings["segredo.anthropic_painel_modelo.<funcao>"]` (vazio =
+      usar o preferencial). Uma função única `modeloDaFuncao(funcao)` resolve: modelo da função → (Dolores: modelo antigo
+      do cartão dela) → modelo preferencial do painel → padrão da função (config da maquete). `modeloDaFuncao` não lê a
+      chave.
+- [x] AC3: salvar valida o id contra a lista atual de modelos da conta (`modelosAnthropicPainel`), ou aceita vazio.
+      Nenhum id inventado.
+- [x] AC4: modelo escolhido que deixou de existir na conta (percebido ao listar os modelos ou ao trocar a chave) é
+      limpo — a função cai para o preferencial — e o painel mostra o aviso até o admin escolher de novo.
+- [x] AC5: painel "Modelo por função": uma linha por função (rótulo, descrição, recomendação, seletor com os modelos da
+      conta + "Usar o preferencial (X)", salvar por função, modelo valendo agora). Sem chave: seção desabilitada com
+      explicação. Só admin por PAPEL (colaborador com todos os módulos → FORBIDDEN, testado pelo `appRouter`).
+      Funciona no iPad.
+- [x] AC6: a leitura da Maquete usa `modeloDaFuncao("maquete_leitura")` quando a chave é a do painel; a Dolores usa
+      `modeloDaFuncao("dolores_whatsapp")`. O cartão da Dolores mostra o modelo em uso e o atalho "alterar em
+      Integrações › Anthropic"; o campo de modelo do cartão sai. Valor antigo de `dolores_whatsapp_config.modelo` é
+      respeitado como queda enquanto a função não tiver modelo no painel. Ligar a IA da Dolores continua exigindo um
+      modelo resolvido.
+- [x] AC7: escolher modelo não chama a Anthropic para a função, não liga o interruptor da Dolores e não dispensa a
+      confirmação de custo da Maquete.
+- [x] AC8: a guarda da chave (`server/integracoes-anthropic.test.ts`) continua: a chave só é lida em
+      `resolverCredencialIA` e em `bloqueioAtual`; nenhuma rota devolve a chave; chave e modelo fora de log/erro.
+- [x] AC9: pendência de paridade no ROADMAP (seção EPIC-024, em espera).
+
+## Fora do escopo
+- Outras funções de IA (avaliação, mercado, Central de Vendas, `INCORPORACAO_IA_MODELO`) — usam `ENV.anthropicApiKey`,
+  não a chave do painel; não entram no registro.
+- Migração de banco; apagar a coluna `dolores_whatsapp_config.modelo`.
+
+## Tarefas
+- [x] T1: `shared/funcoes-anthropic.ts` (registro) e `server/_core/modelo-por-funcao.ts` (`modeloDaFuncao`, só nomes
+      de modelo).
+- [x] T2: `server/_core/anthropic-painel.ts` — salvar/validar por função, limpar o que sumiu da conta, status por função.
+- [x] T3: rotas em `integracoes-router.ts` (`modelosPorFuncaoAnthropic`, `salvarModeloFuncaoAnthropic`), só admin por papel.
+- [x] T4: ligações — `server/maquete-3d/base.ts`, `server/dolores/whatsapp.ts`, `server/dolores/router.ts`.
+- [x] T5: telas — `AnthropicCard.tsx` (seção "Modelo por função") e `DoloresCard.tsx` (modelo em uso + atalho).
+- [x] T6: testes, `tsc`, `vite build`, conferência visual (computador e iPad).
+
+## Dev Notes (16/11/2026)
+- Resolução (`server/_core/modelo-por-funcao.ts`, `modeloDaFuncao`): modelo da função → `anterior` (só a Dolores:
+  `dolores_whatsapp_config.modelo`) → preferencial do painel → `padrao` (só a Maquete: `config.modeloIA`). Nunca lança:
+  banco fora = "não escolhido" e cai para o próximo. Devolve `{ modelo, origem }` para a tela dizer de onde veio.
+- O módulo `modelo-por-funcao.ts` lê só nomes de modelo; não importa o acessor do painel nem o cofre. A guarda trata o
+  arquivo como "modelos" (falha se citar o módulo do painel, o cofre, `decryptSecret`, `apiKey` ou a chave do segredo).
+- Maquete: `resolverCredencialIA` (ponto único da chave) passa o preferencial já lido para
+  `modeloDaFuncao("maquete_leitura")`; `modeloDaLeitura` continua síncrona e usa `credencial.modelo` (função →
+  preferencial) ou, sem isso / com a chave do servidor, `config.modeloIA`.
+- Dolores: `bloqueioAtual` (ponto único da chave) chama `modeloDaFuncao("dolores_whatsapp", { anterior: cfg.modelo,
+  preferencial: painel.modelo })`; sem modelo resolvido continua "sem_modelo". `dolores.status` usa a mesma resolução e
+  devolve `origemModelo`.
+- [AUTO-DECISION] Onde guardar "modelo sumiu"? → ao listar os modelos (`modelosAnthropic`) e ao trocar a chave, o modelo
+  da função que a conta não oferece é limpo e o id vai para `segredo.anthropic_painel_modelo_sumiu.<funcao>`; o painel
+  avisa até o admin escolher de novo (reason: em tempo de execução não dá para conferir a conta sem chamar a API; a
+  conferência acontece nos dois momentos em que a lista é consultada, como o preferencial da S-10).
+- [AUTO-DECISION] Dolores: o campo de modelo sai do cartão e da rota `dolores.salvar` (`.strict()` recusa `modelo`); o
+  valor antigo em `dolores_whatsapp_config.modelo` continua valendo como queda. Quando o admin salva a linha "Dolores"
+  no painel (qualquer valor, inclusive "Usar o preferencial"), o campo antigo é zerado (reason: depois disso a fonte é
+  o painel; sem zerar, "Usar o preferencial" seria vencido em silêncio pelo valor antigo). Sem migração; a coluna fica.
+- [AUTO-DECISION] Maquete com a chave do servidor (`ANTHROPIC_API_KEY`) continua com o modelo das configurações da
+  maquete (reason: a lista do painel é da conta da chave do painel; o id pode não existir na outra conta). A linha da
+  função mostra essa nota.
+- [AUTO-DECISION] Remover a chave também limpa os modelos por função (como já limpa o preferencial).
+- [AUTO-DECISION] Rotas novas usam `adminPorPapel` (adminProcedure + papel admin), como o `soAdmin` da Dolores.
+- Escolher modelo não chama a IA da função (só `models.list`, que não consome tokens), não liga o interruptor da Dolores
+  e não toca na confirmação de custo da Maquete.
+
+### Correções do QA (CONCERNS, 8 achados) — 16/11/2026
+- Achado 1 (tela): `haAlgoParaSalvar`/`descartaModeloAntigo` em `shared/funcoes-anthropic.ts`. "Usar o preferencial"
+  habilita o Salvar quando vale o modelo antigo do cartão da Dolores ou há aviso de modelo sumido; a opção diz
+  "— descarta o modelo antigo do cartão" e uma linha abaixo explica o descarte.
+- Achado 2 (guarda): o painel passa ao módulo de modelos só `{ lerBanco }` (`soLeitor`). A guarda do módulo também
+  proíbe `decrypt`, `criarCliente`, `api_key`, `apiKey` e qualquer `anthropic_painel_` que não seja o texto do modelo.
+- Achado 3 (custo): `ConfirmacaoIA.modelo` (dentro do JSON da leitura/importação — sem migração). `novaConfirmacao` grava
+  o modelo que vale na hora (`modeloParaConfirmar`); `bloqueioDaIA` exige o mesmo modelo e diz "O modelo mudou de X
+  para Y". [AUTO-DECISION] Confirmação antiga, sem modelo gravado → não vale (não há como saber o modelo; lado seguro).
+  Efeito na publicação: leituras paradas com confirmação ainda não usada pedem uma nova confirmação uma vez.
+- Achado 4: sem chave utilizável (ausente ou ilegível), "valendo agora" fica vazio e a linha diz "Sem chave utilizável:
+  a função não roda pela chave do painel."; na Maquete, com a chave antiga do servidor, mostra o modelo das
+  configurações da Maquete 3D (origem "servidor"), que é o que a execução usa.
+- Achado 5: ao trocar a chave e ao listar os modelos, o modelo antigo do cartão da Dolores também é conferido. Se a conta
+  não o oferece, o id vai para `segredo.anthropic_painel_modelo_anterior_sumiu.dolores_whatsapp`: `modeloDaFuncao` o
+  ignora como queda (cai para o preferencial), o painel e a mensagem avisam, e o valor NÃO é apagado (só some quando o
+  admin salva a linha da Dolores). Se a conta voltar a oferecê-lo, o aviso sai. Remover a chave não mexe no valor antigo
+  (sem chave a Dolores não roda; a próxima chave confere de novo).
+- Achado 6: salvar o modelo da Dolores é tudo ou nada: valida → descarta o antigo (falha = erro claro, nada gravado) →
+  grava (falha = o antigo volta, via `restaurarAnteriorDolores`, e o erro diz isso). Avisos voltam se a gravação falhar.
+- Achado 7: `modeloDaFuncao` não lança nem com erro síncrono de `lerBanco`.
+- Achado 8: nota sem "ANTHROPIC_API_KEY" ("chave antiga configurada pela equipe técnica no servidor"); recomendações
+  sem repetir o rótulo.
+
+### Correções do QA, 2ª rodada (PASS, 4 achados menores) — 16/11/2026
+- Achado 1 (dados): falha ao ler o modelo antigo do cartão da Dolores vira `undefined` ("não sei") em `salvarAnthropic`
+  e `modelosAnthropic`; `conferirModelosDasFuncoes` só marca ou apaga o aviso "anteriorSumiu" quando o valor é conhecido.
+- Achado 2 (custo): o passo parado na confirmação (ou no teto) guarda `modeloAConfirmar` e a tela o mostra no botão
+  ("— modelo X") e na pergunta de "além do teto". `confirmarIA`/`confirmarIAImportacao` recebem `modeloVisto`
+  (opcional); `modeloDaConfirmacao` recusa com CONFLICT "O modelo mudou de X para Y; confira e confirme de novo. Nada foi
+  confirmado." e atualiza os passos parados para o modelo de agora. [AUTO-DECISION] Sem `modeloVisto` (página aberta
+  antes da atualização) → recusa pedindo para recarregar a página (lado seguro). Testes usam
+  `server/fixtures/maquete-3d/confirmacao-da-tela.ts`, que manda o modelo que a tela mostra.
+- Achado 3 (guarda): a guarda do módulo de modelos proíbe `import(`, `require(` e `createRequire`, e fixa a lista exata
+  dos 4 imports estáticos (fonte e nomes); reexportação, import de efeito ou import a mais falham.
+- Achado 4 (texto): confirmação antiga sem modelo termina só com "Um administrador confirma de novo."
+
+## Testes
+- Automáticos: `server/integracoes-modelo-por-funcao.test.ts` (12): resolução função → anterior → preferencial →
+  padrão; cada função com o seu; banco fora; nunca lê a chave; sem chave a seção lista e recusa salvar; id validado
+  contra a conta; vazio = preferencial; nada liga; Dolores antiga respeitada e limpa ao escolher no painel; modelo
+  sumido (listar e trocar chave) cai para o preferencial com aviso; remover limpa; permissões pelo `appRouter`
+  (colaborador com todos os módulos, corretor, cliente, user, empreiteiro, admin inativo → FORBIDDEN); Maquete usando o
+  modelo da função. `server/integracoes-anthropic.test.ts` (guarda ajustada sem alargar a leitura da chave; Dolores
+  router passa a poder importar só `existeChaveAnthropicPainel`). `server/dolores/router.test.ts` e
+  `server/dolores/whatsapp.test.ts`: modelo da função vence o antigo; antigo respeitado; ligar exige modelo.
+- Manuais (Playwright, harness simulado): Integrações em 1366 px e iPad (810 px), com e sem chave; sem rolagem lateral.
+- Correções do QA: regressões em `server/integracoes-modelo-por-funcao.test.ts` (achados 1, 4, 5, 6, 7, 8),
+  `server/integracoes-anthropic.test.ts` (achado 2: a guarda pega decrypt/criarCliente/chave em pedaços; o painel só
+  passa `soLeitor(deps)`), `server/maquete-3d-qa-s03-s05.test.ts` (achado 3: leitura e importação; confirmação antiga
+  sem modelo). Tela conferida com Playwright (1366 px e iPad 810 px): origem "anterior", modelo sumido, sem chave.
+- QA 2ª rodada: `server/integracoes-modelo-por-funcao.test.ts` (achado 1), `server/maquete-3d-qa-s03-s05.test.ts`
+  (achados 2 e 4: leitura, além do teto, importação, tela antiga sem o modelo, rótulos), `server/integracoes-anthropic.test.ts`
+  (achado 3). Rodada completa: `npx tsc --noEmit` OK; vitest da lista do QA, 22 arquivos e 475 testes, todos passaram
+  (`--maxWorkers=2 --minWorkers=1`); `npx vite build` OK.
+- Pendente em produção: escolher os modelos reais da conta do dono; leituras da Maquete com confirmação antiga pedem
+  nova confirmação uma vez.
+
+## File List
+- `shared/funcoes-anthropic.ts` (novo) — registro das funções (rótulo, descrição, recomendação).
+- `server/_core/modelo-por-funcao.ts` (novo) — `modeloDaFuncao` e leitura dos modelos gravados (sem chave).
+- `server/_core/anthropic-painel.ts` — salvar/validar por função, limpar modelo sumido, status por função, remover.
+- `server/integracoes-router.ts` — `modelosPorFuncaoAnthropic`, `salvarModeloFuncaoAnthropic` (só admin por papel);
+  `modelosAnthropic` confere os modelos das funções.
+- `server/maquete-3d/base.ts` — `resolverCredencialIA` com o modelo da função.
+- `server/dolores/whatsapp.ts`, `server/dolores/router.ts` — modelo da função; campo de modelo sai de `salvar`.
+- `client/src/components/admin/AnthropicCard.tsx` — seção "Modelo por função".
+- `client/src/components/admin/DoloresCard.tsx` — modelo em uso + atalho para Integrações › Anthropic.
+- `docs/dolores/como-ligar.md` — passo do modelo da Dolores.
+- `server/integracoes-modelo-por-funcao.test.ts` (novo), `server/integracoes-anthropic.test.ts`,
+  `server/dolores/router.test.ts`, `server/dolores/whatsapp.test.ts`.
+- `docs/stories/epics/epic-024-correcoes-16-11/EPIC.md`, `docs/stories/epics/ROADMAP.md`.
+- Correções do QA: `shared/maquete-3d/regras.ts` (`ConfirmacaoIA.modelo`, `confirmacaoDoModelo`),
+  `server/maquete-3d/execucao-ia.ts`, `server/maquete-3d/leitura.ts`, `server/maquete-3d/importacao.ts`,
+  `server/maquete-3d-qa-s03-s05.test.ts`.
+- Correções do QA, 2ª rodada: `server/integracoes-router.ts`, `server/_core/anthropic-painel.ts`,
+  `shared/maquete-3d/regras.ts` (`PassoLeitura.modeloAConfirmar`), `server/maquete-3d/execucao-ia.ts`
+  (`modeloDaConfirmacao`, `UNIDADE_MOTOR_IA`), `server/maquete-3d/leitura.ts`, `server/maquete-3d/importacao.ts`,
+  `server/maquete-3d/router.ts`, `client/src/components/maquete-3d/rotulos-leitura.ts`,
+  `client/src/components/maquete-3d/ImportarPlanta.tsx`, `client/src/pages/admin/AdminMaquete3D.tsx`,
+  `server/fixtures/maquete-3d/confirmacao-da-tela.ts` (novo), `server/maquete-3d.test.ts`,
+  `server/maquete-3d-hibrida.test.ts`, `server/maquete-3d-importacao.test.ts`, `server/maquete-3d-qa-s03-s05.test.ts`,
+  `server/integracoes-modelo-por-funcao.test.ts`, `server/integracoes-anthropic.test.ts`.
+
+## Change Log
+| Data | Autor | Mudança |
+|------|-------|---------|
+| 16/11/2026 | @dev (Dex) | Story criada a partir do pedido do dono; Draft → InProgress (YOLO) |
+| 16/11/2026 | @dev (Dex) | InProgress → InReview: registro, resolução única, painel por função, ligações e testes |
+| 16/11/2026 | @dev (Dex) | QA CONCERNS (8 achados) corrigidos com regressão; segue InReview para nova revisão |
+| 16/11/2026 | @dev (Dex) | QA PASS (2ª rodada): 4 achados menores corrigidos com teste; aprovado no QA, aguardando publicação depois da Etapa 2 da Dolores |

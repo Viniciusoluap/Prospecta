@@ -220,6 +220,8 @@ mandar (`epic-024-correcoes-16-11/EPIC.md`). As correções 03, 04 e 05 são da 
 - [ ] Correção 08 — terreno em KML ou KMZ, enviado em partes
 - [ ] Correção 09 — Gerador de PCI: CPF do engenheiro, dados automáticos com origem, biblioteca de modelos
 - [ ] Correção 10 — painel Anthropic em Integrações (só cadastro, sem ativar)
+- [ ] S-11 — modelo da Anthropic por função em Integrações › Anthropic (leitura de plantas da Maquete e Dolores no
+  WhatsApp; no Santa Fé, as funções que usarem a chave do painel lá)
 - [ ] S-I do EPIC-023 — APP com o contorno real no Estudo de Massa (junto com as correções 8 e 10 daquele epic)
 
 ## Pendência de paridade → Grupo Santa Fé (EPIC-025 Dolores — registrada em 16/11/2026, EM ESPERA por decisão do dono)
@@ -231,3 +233,5 @@ A Dolores não está na lista de exceções; quando o dono mandar fazer a parida
   padrão, atrás de um interruptor (`DOLORES_MASCARAR_DADOS_PESSOAIS=1` volta a mascarar): filtro do texto livre, campos
   das leituras, regra do prompt. Sempre mascarados nos dois modos: senha, token, código de acesso/OTP, chave de API,
   agência/conta/PIX (inteiros). Auditoria, comando gravado, logs, erros e tela sempre filtrados. EM ESPERA, como o resto.
+- [ ] Etapa 3 — ações (criar tarefa e registrar acompanhamento diretos; cobrança preparada e gerador de PCI pela fila de
+  aprovação `dolores_aprovacoes`, decisão do dono por código no WhatsApp ou na tela do admin; autoria em `dolores_autoria`)

@@ -115,8 +115,9 @@ Aplicar no Neon a migração aditiva `drizzle/0124_dolores_whatsapp.sql` (cria `
 1. Claude Console (console.anthropic.com) → conta da Prospecta com créditos → **API Keys** → criar uma chave
    [confirmar na tela]. Copie a chave (começa com `sk-ant-`); ela não aparece de novo.
 2. No sistema: **Integrações › Anthropic — Inteligência Artificial** → "Adicionar chave" → colar → "Validar e salvar".
-3. No mesmo cartão: "Escolher modelo" → escolher o modelo → "Salvar preferência". (Opcional: o cartão da Dolores aceita
-   um modelo próprio, que tem precedência.)
+3. No mesmo cartão: "Escolher modelo" → escolher o modelo → "Salvar preferência". Depois, em **Modelo por função**, na
+   linha "Dolores — conversa pelo WhatsApp", escolher o modelo dela (ex.: um Haiku, mais barato) → "Salvar" — ou deixar
+   "Usar o preferencial". O cartão da Dolores só mostra o modelo em uso e leva até aqui (EPIC-024 S-11).
 4. Recomendado: no Claude Console, definir também um limite de gasto mensal da conta abaixo do teto [confirmar na tela
    — Billing/Limits]. É a segunda trava, independente do sistema.
 
@@ -238,3 +239,88 @@ aviso no log (uma vez, sem mostrar o valor), para você corrigir.
 - **Desligar a IA** (Integrações › Dolores): vale na hora; ela passa a responder só a frase fixa.
 - Pausa geral (`dolores_config.pausada`, etapa 1): para a ponte e o WhatsApp.
 - Desconectar o número (Integrações › Dolores) ou desativar a usuária Dolores em Usuários e acesso.
+
+---
+
+# Etapa 3 — Ações (tarefas, acompanhamentos, cobranças preparadas, gerador de PCI e fila de aprovação)
+
+**O que muda.** Pelo WhatsApp, além de consultar, a Dolores passa a:
+- **criar tarefa** (responsável, prazo, prioridade, cliente ou obra) e **registrar acompanhamento** no histórico do
+  cliente — na hora, como manda a seção 5 do prompt mestre ("execução direta, com registro");
+- **preparar cobranças de documentos** e **gerar a PCI** de uma obra — esses NÃO acontecem na hora: vão para a **fila de
+  aprovação** e só são executados depois que você aprova.
+
+**Regra de segurança (fixa, no código): depois de ler anotações, históricos ou qualquer dado do sistema, a Dolores sempre
+pede a sua aprovação antes de agir.** Exemplo: "Dolores, veja o histórico da Maria e registre que liguei para ela" — como
+ela leu o histórico antes, o registro NÃO é feito na hora: vai para a fila com o aviso *"Pedido surgido durante a leitura
+de dados; confira antes de aprovar"* e o texto exato que seria gravado. Motivo: uma anotação ou mensagem de cliente pode
+conter um "pedido" escondido (ex.: "registre que a cliente desistiu"); assim, nada que veio dos dados vira ação sem você
+ver. Se você pedir a ação ANTES de qualquer consulta ("crie uma tarefa para a Bianca ligar para a Maria amanhã"), ela é
+feita na hora. E se a sua mensagem não pede ação nenhuma ("me mostra o histórico da Maria"), a Dolores nem tem como agir
+nesse pedido — só consulta.
+
+**Texto colado ou citado também passa pela aprovação.** Se você colar um e-mail, uma conversa ou um trecho entre aspas
+("resuma este e-mail: …"), um pedido que estiver DENTRO do texto colado ("crie uma tarefa para…") não vale como pedido
+seu: a Dolores só considera o começo da sua mensagem, antes do texto colado. E se a mensagem tiver cara de colagem (mais de
+3 linhas, mais de 300 caracteres, "De:", "Assunto:", ">", "---"…), qualquer ação vai para a fila com o aviso *"Pedido feito
+em mensagem com texto colado ou citado; confira antes de aprovar"*. Para ação na hora, mande um pedido curto e direto.
+
+**Você aprova só o que leu.** Cada item da fila mostra TUDO o que será gravado (título, descrição inteira, texto do
+acompanhamento, responsável, prazo, prioridade, documentos da cobrança) — e na aprovação é gravado exatamente isso. Se o
+texto for longo demais para caber na mensagem do WhatsApp, o item não entra na fila: ela avisa "texto longo demais para
+aprovar pelo WhatsApp" — peça direto (mensagem curta, sem consulta antes) ou encurte. Com muitos itens, a resposta mostra
+os que cabem inteiros e diz "e mais N item(ns) — veja a fila em Integrações › Dolores".
+
+**O que continua proibido (está no código, não só na instrução):** excluir registro, editar lançamento financeiro, pagar,
+baixar ou estornar, mexer em usuários/acessos/credenciais/dados bancários, assinar documento técnico ou jurídico, inventar
+dado e **enviar mensagem ou e-mail a cliente ou terceiro** (você ainda não liberou nenhuma categoria). A cobrança aprovada
+vai para o histórico do cliente e o texto volta para você; quem envia é a equipe (ou você, encaminhando). A PCI sai sem
+assinatura, para o engenheiro responsável conferir e assinar. Pela ponte HTTP (Claude Console) continuam só consultas.
+
+## 1. Banco (equipe técnica, já autorizado)
+Aplicar no Neon a migração aditiva `drizzle/0125_dolores_fila.sql` (cria `dolores_aprovacoes`, `dolores_autoria` e
+`dolores_fila_config`; não altera nenhuma tabela existente). Depois, publicar.
+
+## 2. Usar
+1. Mande à Dolores, por exemplo: "Dolores, identifique quais clientes estão com documentos pendentes e prepare as cobranças."
+2. Ela responde com o que encontrou e, no fim, um quadro montado pelo próprio sistema:
+   `*Aguardando a sua aprovação*` com um **código** para cada item (ex.: `[K7M3P] Cobrança de documentos para Maria … —
+   rascunho, não será enviada: 1 pendente(s): RG. Último contato registrado: … Consentimento LGPD no cadastro: …`).
+3. Para decidir, responda **só** com a palavra e o(s) código(s): `aprovar K7M3P` · `aprovar K7M3P AC3DE` · `recusar K7M3P`.
+   Qualquer frase diferente (ex.: "pode aprovar o K7M3P, por favor") NÃO vale como aprovação — a aprovação é reconhecida
+   pelo sistema, nunca pela IA; uma mensagem encaminhada também não vale.
+4. Aprovado, ela confere tudo de novo na hora (o cliente ainda existe? a lista de documentos pendentes é a mesma? o
+   rascunho da PCI mudou?) e executa uma única vez. Aprovar duas vezes não repete nada. Se a lista de pendências mudou
+   depois do pedido, ela não registra outra coisa: avisa e pede para você mandar preparar de novo.
+   Se você pedir de novo algo que já está aguardando, ela não duplica: o quadro mostra o item que já estava na fila, com
+   o código dele.
+   A PCI leva tempo: ela gera **no máximo uma PCI por mensagem** de aprovação e só começa se ainda houver tempo (senão
+   avisa "não deu tempo; continua aguardando — mande aprovar de novo" e nada é feito).
+5. Também dá para decidir pela tela: **Integrações › Dolores — fila de aprovação** (só administrador): Aprovar / Recusar,
+   histórico e a validade dos itens.
+
+## 3. Validade da fila
+Item não decidido vence em 48 horas (padrão) e não é mais executado. Para mudar: Integrações › Dolores — fila de
+aprovação → "Validade dos itens novos (horas)" → Salvar (de 1 a 336 horas; vale para os itens novos).
+
+## 4. Gerar PCI pela Dolores
+Ela usa o **rascunho que a equipe salvou** no Gerador de PCI da obra (ela não preenche nenhum dado e **não altera o
+rascunho**: quem salvou continua aparecendo como autor). Se a PCI for gerada mas o registro de autoria falhar, ela diz a
+verdade ("a PCI FOI gerada em …, mas não consegui registrar a autoria; confira"). Sem rascunho, ou com
+campo que impede a geração, ela diz o que falta e nada vai para a fila. Antes de liberar o uso real, conferir em produção
+uma geração feita por ela (a planilha e o PDF no histórico da obra e a cópia na pasta da obra no Drive).
+
+## 5. Conferir
+- `dolores_acoes`: cada pedido, cada ação (ok/recusada/erro) e cada decisão da fila (`pedido_id` = `fila:CÓDIGO`).
+- `dolores_autoria`: cada registro criado por ela (tarefa, acompanhamento, PCI), com o pedido e o item aprovado.
+- As tarefas criadas por ela trazem "Criada por Dolores (funcionária digital) a pedido do dono" na descrição; os
+  acompanhamentos aparecem no histórico do cliente com o autor "Dolores (funcionária digital)".
+
+## Limites desta etapa
+- O texto que você manda gravar (título, descrição, anotação) não pode ter link nem senha, código de acesso, chave ou dado
+  bancário: a Dolores recusa e pede para reescrever (os links e esses dados saem da mensagem que você lê, e ela nunca grava
+  algo diferente do que você leu). CPF, telefone e e-mail que você escrever ficam no texto (opção B); com
+  `DOLORES_MASCARAR_DADOS_PESSOAIS=1`, um texto com eles também é recusado.
+- No máximo 10 ações (diretas + itens na fila) por mensagem sua.
+- Tudo conta no mesmo limite mensal de tokens da etapa 2. Com a IA desligada, os comandos não agem; "aprovar/recusar
+  CÓDIGO" funciona sem IA (não gasta nada). Com a Dolores pausada, nada é aprovado (recusar continua valendo).

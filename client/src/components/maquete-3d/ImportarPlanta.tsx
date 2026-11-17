@@ -11,6 +11,7 @@ import { Button } from "@/components/ui/button";
 import { trpc } from "@/lib/trpc";
 import { enviarPartes, LIMITE_DOCUMENTO } from "@/lib/documentos-partes";
 import { EditorPlanta } from "./EditorPlanta";
+import { perguntaAlemDoTeto, rotuloConfirmarIA } from "./rotulos-leitura";
 import { ROTULOS_ORIGEM_REVISAO } from "@shared/maquete-3d/importacao";
 import type { ModeloMaquete } from "@shared/maquete-3d/modelo";
 import { escopoEnvioMaquete } from "@shared/maquete-3d/regras";
@@ -164,14 +165,14 @@ export function ImportarPlanta({ d, admin, sujo, aoMudar }: { d: Detalhe; admin:
               {aguardando.aguardando === "confirmacao" ? (
                 <>
                   <p>{imp.ia.pendentes} prancha(s) deste PDF precisam da leitura por IA (paga). A confirmação vale só para esta importação e para as pranchas autorizadas (esta maquete já usou {imp.ia.lidasNaMaquete} de {imp.ia.teto ?? "—"} pela IA).</p>
-                  {admin ? <Button className={btnOuro} disabled={lendo || emCurso} onClick={() => rodar(async () => { await confirmar.mutateAsync({ id }); return avancar.mutateAsync({ id }); })}><Check className="mr-1 h-4 w-4" />Confirmar e ler pela IA</Button>
+                  {admin ? <Button className={btnOuro} disabled={lendo || emCurso} onClick={() => rodar(async () => { await confirmar.mutateAsync({ id, modeloVisto: aguardando.modeloAConfirmar ?? undefined }); return avancar.mutateAsync({ id }); })}><Check className="mr-1 h-4 w-4" />{rotuloConfirmarIA(aguardando.modeloAConfirmar, "Confirmar e ler pela IA")}</Button>
                     : <p className="text-xs text-gray-400">Só o administrador autoriza a leitura paga pela IA.</p>}
                 </>
               ) : aguardando.aguardando === "teto" ? (
                 <>
                   <p>{aguardando.erro}</p>
                   {admin ? <Button className={btnOuro} disabled={lendo || emCurso}
-                    onClick={() => { if (window.confirm(`Autorizar a leitura paga de mais ${imp.ia.pendentes} prancha(s) pela IA, além do teto de ${imp.ia.teto ?? "—"} desta maquete?`)) void rodar(async () => { await confirmar.mutateAsync({ id, alemDoTeto: true }); return avancar.mutateAsync({ id }); }); }}><Check className="mr-1 h-4 w-4" />Autorizar além do teto</Button>
+                    onClick={() => { if (window.confirm(perguntaAlemDoTeto(imp.ia.pendentes, imp.ia.teto, aguardando.modeloAConfirmar))) void rodar(async () => { await confirmar.mutateAsync({ id, alemDoTeto: true, modeloVisto: aguardando.modeloAConfirmar ?? undefined }); return avancar.mutateAsync({ id }); }); }}><Check className="mr-1 h-4 w-4" />{rotuloConfirmarIA(aguardando.modeloAConfirmar, "Autorizar além do teto")}</Button>
                     : <p className="text-xs text-gray-400">Só o administrador autoriza passar do teto de pranchas pela IA.</p>}
                 </>
               ) : <p>Cadastre a chave em Integrações → Anthropic e continue: a leitura retoma deste passo.</p>}

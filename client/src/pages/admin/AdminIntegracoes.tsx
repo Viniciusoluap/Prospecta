@@ -15,6 +15,7 @@ import { SubPciAtual } from "@/components/admin/SubPciAtual";
 import { MapboxCard } from "@/components/admin/MapboxCard";
 import { AnthropicCard } from "@/components/admin/AnthropicCard";
 import { DoloresCard } from "@/components/admin/DoloresCard";
+import { DoloresFilaCard } from "@/components/admin/DoloresFilaCard";
 
 type Servico = "asaas" | "pluggy" | "whatsapp";
 type Campo = { nome: string; rotulo: string; segredo?: boolean; placeholder?: string; opcional?: boolean };
@@ -197,6 +198,7 @@ export default function AdminIntegracoes() {
           <MapboxCard />
           <AnthropicCard />
           <DoloresCard />
+          <DoloresFilaCard />
           <SubPciAtual />
         </>}
       </main>

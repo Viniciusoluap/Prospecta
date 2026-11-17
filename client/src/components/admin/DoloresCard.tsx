@@ -1,6 +1,7 @@
 // EPIC-025 (Dolores, etapa 2): WhatsApp da Dolores — só admin. Conexão própria por QR code (número dela, separado do
 // da Central de Vendas), número do dono (o único que comanda), limites mensais de tokens e o interruptor da IA,
 // DESLIGADO por padrão. Nenhum número completo, chave ou segredo aparece aqui.
+// EPIC-024 S-11: o modelo da Dolores é escolhido em Integrações › Anthropic › Modelo por função; aqui só aparece o em uso.
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import { Bot, Info, Loader2 } from "lucide-react";
@@ -14,6 +15,16 @@ const botaoSec = "border-[#C9A961]/40 text-[#C9A961] hover:bg-[#C9A961]/10";
 const inputCls = "mt-1 bg-[#1A2332] border-[#C9A961]/30 text-white placeholder:text-gray-500";
 const STATUS: Record<string, string> = { conectado: "conectado", aguardando_qr: "aguardando a leitura do QR code", desconectado: "desconectado" };
 const fmt = (n: number) => n.toLocaleString("pt-BR");
+const ORIGEM_MODELO: Record<string, string> = {
+  funcao: "escolhido para a Dolores em Integrações › Anthropic", anterior: "modelo antigo deste cartão — passe a escolher em Integrações › Anthropic",
+  preferencial: "preferencial do painel", padrao: "padrão",
+};
+function irParaAnthropic(e: React.MouseEvent) {
+  const alvo = document.getElementById("integracao-anthropic");
+  if (!alvo) return;
+  e.preventDefault();
+  alvo.scrollIntoView({ behavior: "smooth", block: "start" });
+}
 
 export function DoloresCard() {
   const utils = trpc.useUtils();
@@ -22,7 +33,6 @@ export function DoloresCard() {
   const [numeroDono, setNumeroDono] = useState("");
   const [limiteEntrada, setLimiteEntrada] = useState("");
   const [limiteSaida, setLimiteSaida] = useState("");
-  const [modelo, setModelo] = useState("");
   const onError = (e: { message: string }) => toast.error(e.message);
   const recarregar = () => utils.dolores.status.invalidate();
   // A consulta só lê a situação; conferir o número e ligar o aviso de mensagens é a mutação confirmarConexao.
@@ -39,7 +49,7 @@ export function DoloresCard() {
   const desconectar = trpc.dolores.desconectar.useMutation({ onSuccess: async () => { toast.success("Número da Dolores desconectado."); setQr(null); await recarregar(); }, onError });
   const avisos = trpc.dolores.ativarAvisos.useMutation({ onSuccess: r => toast.success(r.mensagem), onError });
   const salvar = trpc.dolores.salvar.useMutation({
-    onSuccess: async () => { toast.success("Configuração da Dolores salva."); setNumeroDono(""); setLimiteEntrada(""); setLimiteSaida(""); setModelo(""); await recarregar(); },
+    onSuccess: async () => { toast.success("Configuração da Dolores salva."); setNumeroDono(""); setLimiteEntrada(""); setLimiteSaida(""); await recarregar(); },
     onError,
   });
   const ligar = trpc.dolores.ligarIa.useMutation({ onSuccess: async r => { toast.success(r.iaLigada ? "IA da Dolores ligada." : "IA da Dolores desligada."); await recarregar(); }, onError });
@@ -47,11 +57,10 @@ export function DoloresCard() {
 
   function enviarConfig(e: React.FormEvent) {
     e.preventDefault();
-    const dados: { numeroDono?: string; limiteEntrada?: number; limiteSaida?: number; modelo?: string | null } = {};
+    const dados: { numeroDono?: string; limiteEntrada?: number; limiteSaida?: number } = {};
     if (numeroDono.trim()) dados.numeroDono = numeroDono.trim();
     if (limiteEntrada.trim()) dados.limiteEntrada = Math.max(0, Math.floor(Number(limiteEntrada.replace(/\D/g, ""))));
     if (limiteSaida.trim()) dados.limiteSaida = Math.max(0, Math.floor(Number(limiteSaida.replace(/\D/g, ""))));
-    if (modelo.trim()) dados.modelo = modelo.trim() === "-" ? null : modelo.trim();
     if (!Object.keys(dados).length) { toast.error("Preencha pelo menos um campo."); return; }
     salvar.mutate(dados);
   }
@@ -65,7 +74,8 @@ export function DoloresCard() {
             <p>Número da Dolores: {s.numeroDolores ?? "—"} ({STATUS[s.statusConexao] ?? s.statusConexao})</p>
             <p>Número do dono (único que comanda): {s.numeroDono ?? "não cadastrado"}</p>
             <p>IA da Dolores: <strong className={s.iaLigada ? "text-green-300" : "text-gray-300"}>{s.iaLigada ? "ligada" : "desligada"}</strong>{s.pausada ? " · pausada" : ""}</p>
-            <p>Modelo em uso: {s.modeloEmUso ? <code className="rounded bg-black/30 px-1">{s.modeloEmUso}</code> : "nenhum"}{s.modelo ? " (da Dolores)" : s.modeloEmUso ? " (preferencial do painel)" : ""}</p>
+            <p>Modelo em uso: {s.modeloEmUso ? <code className="rounded bg-black/30 px-1">{s.modeloEmUso}</code> : "nenhum"}{s.origemModelo ? ` (${ORIGEM_MODELO[s.origemModelo] ?? s.origemModelo})` : ""}{" · "}
+              <a href="#integracao-anthropic" onClick={irParaAnthropic} className="text-[#C9A961] underline underline-offset-2 hover:text-[#B8985A]">alterar em Integrações › Anthropic</a></p>
             <p>Uso em {s.mes}: {fmt(s.uso.entrada)} / {s.limites.entrada ? fmt(s.limites.entrada) : "sem limite"} tokens de entrada</p>
             <p>{fmt(s.uso.saida)} / {s.limites.saida ? fmt(s.limites.saida) : "sem limite"} tokens de saída{s.bloqueioDoLimite === "limite_mensal" ? " — limite atingido" : ""}</p>
           </div>
@@ -76,7 +86,7 @@ export function DoloresCard() {
             </div>
           )}
           <p className="flex items-start gap-2 rounded-lg border border-[#C9A961]/30 bg-[#C9A961]/10 p-2 text-xs text-gray-200">
-            <Info className="mt-0.5 h-3 w-3 shrink-0" /> A Dolores só lê o sistema (etapa 2). Ela responde apenas ao número do dono; mensagem de outro número é ignorada e registrada. Com a IA desligada, ela responde só uma frase fixa, sem gastar nada.
+            <Info className="mt-0.5 h-3 w-3 shrink-0" /> Etapa 3: a Dolores lê o sistema, cria tarefas e registra acompanhamentos; cobranças e documentos esperam a aprovação do dono (fila abaixo) e nada é enviado a clientes. Ela responde apenas ao número do dono; mensagem de outro número é ignorada e registrada. Com a IA desligada, ela responde só uma frase fixa, sem gastar nada.
           </p>
 
           <div className="flex flex-wrap gap-2">
@@ -105,10 +115,6 @@ export function DoloresCard() {
             <div>
               <Label className="text-gray-300" htmlFor="dolores-dono">Número do dono (DDD + número)</Label>
               <Input id="dolores-dono" inputMode="tel" autoComplete="off" placeholder={s.numeroDono ?? "99 99123-4567"} value={numeroDono} onChange={e => setNumeroDono(e.target.value)} className={inputCls} />
-            </div>
-            <div>
-              <Label className="text-gray-300" htmlFor="dolores-modelo">Modelo próprio (vazio = preferencial do painel; "-" limpa)</Label>
-              <Input id="dolores-modelo" autoComplete="off" placeholder={s.modelo ?? s.modeloPainel ?? "id do modelo"} value={modelo} onChange={e => setModelo(e.target.value)} className={inputCls} />
             </div>
             <div>
               <Label className="text-gray-300" htmlFor="dolores-entrada">Limite mensal — tokens de entrada</Label>
