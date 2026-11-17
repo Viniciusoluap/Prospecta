@@ -85,7 +85,8 @@ describe("modeloDaFuncao — resolução (só nomes de modelo)", () => {
     const sincrono = { lerBanco: (() => { throw new Error("sync"); }) as unknown as (k: string) => Promise<string | undefined> };
     expect(await modeloDaFuncao("dolores_whatsapp", { preferencial: "pref" }, sincrono)).toEqual({ modelo: "pref", origem: "preferencial" });
     expect(await modeloDaFuncao("maquete_leitura", { padrao: "p" }, sincrono)).toEqual({ modelo: "p", origem: "padrao" });
-    expect(await modelosGravadosDasFuncoes(sincrono)).toEqual({ maquete_leitura: { modelo: null, sumiu: null, anteriorSumiu: null }, dolores_whatsapp: { modelo: null, sumiu: null, anteriorSumiu: null } });
+    expect(await modelosGravadosDasFuncoes(sincrono)).toEqual({ maquete_leitura: { modelo: null, sumiu: null, anteriorSumiu: null }, dolores_whatsapp: { modelo: null, sumiu: null, anteriorSumiu: null },
+      dolores_documentos: { modelo: null, sumiu: null, anteriorSumiu: null } });
   });
   it("nunca lê a chave: só as chaves de modelo de dashboard_settings", async () => {
     const l = leitor({});
