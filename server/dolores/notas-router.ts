@@ -20,7 +20,7 @@ import { acaoPorNome } from "./acoes/registro.js";
 import { RecusaAcao, type ContextoAcao } from "./acoes/comum.js";
 import { porNaFila } from "./aprovacoes.js";
 import { registrarAcao } from "./auditoria.js";
-import { apontarNotas, janelaDaConciliacao, notasDoBanco, pagamentosSemNotaDaObra, paraConciliar, respostasDasNotas } from "./leitura/notas.js";
+import { TEXTO_VINCULO_PERDIDO, apontarNotas, janelaDaConciliacao, notasDoBanco, pagamentosSemNotaDaObra, paraConciliar, respostasDasNotas, vinculoPerdido } from "./leitura/notas.js";
 import { CONFIG_NOTAS_PADRAO, lerConfigNotas, lerNotasPendentes } from "./notas-obra.js";
 import { funcaoLiberada } from "./permissoes.js";
 import { DoloresDesativada, usuarioDolores } from "./perfil.js";
@@ -99,7 +99,7 @@ export const notasRouter = router({
               confirmacao: n.confirmacao, rotuloConfirmacao: CONFIRMACAO[n.confirmacao], respostas: respostas.get(n.id) ?? [],
               conciliacao: ap ? { situacao: ap.situacao, rotulo: ROTULO_APONTAMENTO[ap.situacao], texto: "texto" in ap ? ap.texto : `ligada ao lançamento #${"lancamentoId" in ap ? ap.lancamentoId : ""} do BPO`,
                 podeConciliar: ap.situacao === "ja_lancado" && ap.podeConciliar } : null,
-              conciliadaCom: n.bpoLancamentoId, salvaNoDrive: n.driveFileId !== null,
+              conciliadaCom: n.bpoLancamentoId, vinculoPerdido: vinculoPerdido(n) ? TEXTO_VINCULO_PERDIDO : null, salvaNoDrive: n.driveFileId !== null,
               textoSugerido: n.confirmacao === "pendente" && n.situacao !== "nao_e_nota" ? textoSugeridoAoEmpreiteiro(n) : null,
             };
           }),

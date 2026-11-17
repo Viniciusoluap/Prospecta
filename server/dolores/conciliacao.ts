@@ -31,7 +31,10 @@ export async function executarConciliarAprovado(args: z.infer<typeof entradaConc
     const tx = bancoDaAcao();
     const [n] = await tx.select().from(obraNotas).where(eq(obraNotas.id, args.notaId)).limit(1);
     if (!n) throw new RecusaAcao(`Nota ${args.notaId} não encontrada; nada foi feito.`);
-    if (n.conciliadaEm) throw new RecusaAcao(`A nota ${n.id} já foi ligada a um pagamento depois do pedido; nada foi feito.`);
+    // vínculo perdido (lançamento excluído no BPO) pode ser religado por ESTA nova aprovação; ligada a um lançamento, não
+    if (n.bpoLancamentoId || (n.conciliadaAprovacaoId !== null && n.conciliadaAprovacaoId === ctx.aprovacaoId)) {
+      throw new RecusaAcao(`A nota ${n.id} já foi ligada a um pagamento depois do pedido; nada foi feito.`);
+    }
     if (n.obraId !== args.obraId || n.valorCentavos !== args.valorCentavos || n.duplicadaDe || !n.dataEmissao) {
       throw new RecusaAcao(`A nota ${n.id} mudou depois do pedido (obra, valor ou duplicidade); nada foi feito. Peça de novo.`);
     }
@@ -44,7 +47,7 @@ export async function executarConciliarAprovado(args: z.infer<typeof entradaConc
     if (l.notaLigada) throw new RecusaAcao(`O lançamento #${l.id} já está ligado à nota ${l.notaLigada}; nada foi feito.`);
     if (l.obraId !== null && l.obraId !== n.obraId) throw new RecusaAcao(`O lançamento #${l.id} está ligado a outra obra; nada foi feito.`);
     const r = await tx.update(obraNotas).set({ bpoLancamentoId: l.id, conciliadaEm: ctx.agora, conciliadaAprovacaoId: ctx.aprovacaoId })
-      .where(and(eq(obraNotas.id, n.id), isNull(obraNotas.conciliadaEm))).returning({ id: obraNotas.id });
+      .where(and(eq(obraNotas.id, n.id), isNull(obraNotas.bpoLancamentoId))).returning({ id: obraNotas.id });
     if (!r.length) throw new RecusaAcao(`A nota ${n.id} já foi ligada a um pagamento; nada foi feito.`);
     const frase = `nota ${n.id} ligada ao pagamento do BPO lançamento #${l.id} (o lançamento não foi alterado)`;
     await registrarAutoria(ctx, { tabela: "obra_notas", registroId: n.id, funcao: "conciliar_nota_obra", descricao: frase });

@@ -127,6 +127,7 @@ export function DoloresNotasCard() {
                     {n.respostas.map((r, k) => <span key={k} className="block text-gray-400">{r.tipo === "confirmacao" ? "confirmou" : "pediu correção"} {quando(r.recebidaEm)} ({r.remetente ?? "remetente sem número"}, {r.ligacao}){r.texto ? `: "${r.texto}"` : ""}</span>)}
                   </p>
                   {n.conciliacao && <p className={`text-xs ${COR_APONTAMENTO[n.conciliacao.situacao] ?? ""}`}><span className="text-gray-400">BPO: </span>{n.conciliacao.rotulo} — {n.conciliacao.texto}</p>}
+                  {n.vinculoPerdido && <p role="alert" className="text-xs text-amber-200">⚠ Vínculo perdido: {n.vinculoPerdido}</p>}
                   {n.textoSugerido && (
                     <div className="rounded border border-[#C9A961]/20 p-2 text-xs">
                       <p className="text-gray-400">Texto sugerido para VOCÊ enviar ao empreiteiro no grupo (a Dolores não envia):</p>

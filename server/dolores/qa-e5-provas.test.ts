@@ -176,7 +176,7 @@ describe("QA E5 — gatilho da 0128 (defesa em profundidade)", () => {
 });
 
 describe("QA E5 — conciliação depois que o lançamento do BPO some", () => {
-  it("ACHADO (baixo): lançamento excluído (ex.: reclassificação do extrato) deixa a nota 'conciliada com nada' para sempre", async () => {
+  it("CORRIGIDO: lançamento excluído (ex.: reclassificação do extrato) deixa a nota com 'vínculo perdido', visível e religável SÓ pela fila", async () => {
     await banco.pg.exec(`INSERT INTO bank_accounts (banco, conta) VALUES ('Banco', '1');
       INSERT INTO bank_transactions (account_id, data, descricao, valor, tipo) VALUES (1, '2026-11-16', 'PIX', '-2500.00', 'debito');
       INSERT INTO bpo_lancamentos (tipo, descricao, valor, valor_recebido, vencimento, pago, pago_em, competencia, a_classificar, categoria_operacional, vinculo_operacional_id, tipo_despesa_obra, bank_transaction_id)
@@ -186,15 +186,35 @@ describe("QA E5 — conciliação depois que o lançamento do BPO some", () => {
     await caller("admin").dolores.notas.proporConciliacao({ notaId: n.id });
     const [ap] = await q("SELECT codigo FROM dolores_aprovacoes");
     await decidir([ap.codigo], "aprovar", decisorDaTela(1));
+    const [antes] = await notas();
     await banco.pg.query("DELETE FROM bpo_lancamentos");
     // o mesmo pagamento volta ao BPO (novo id)
     await banco.pg.exec(`INSERT INTO bpo_lancamentos (tipo, descricao, valor, valor_recebido, vencimento, pago, pago_em, competencia, a_classificar, categoria_operacional, vinculo_operacional_id, tipo_despesa_obra, bank_transaction_id)
         VALUES ('despesa', 'PIX', '2500.00', '0', '2026-11-16', true, '2026-11-16 12:00', '2026-11', false, 'obras', '1', 'empreiteiro', 1);`);
-    const [depois] = await notas();
-    expect(depois).toMatchObject({ bpo_lancamento_id: null });
-    expect(depois.conciliada_em).not.toBeNull();
-    await expect(caller("admin").dolores.notas.proporConciliacao({ notaId: n.id })).rejects.toThrow(/já está ligada/);
+    const [novo] = await q("SELECT id FROM bpo_lancamentos");
+    const [perdida] = await notas();
+    expect(perdida).toMatchObject({ bpo_lancamento_id: null });
+    expect(perdida.conciliada_em).not.toBeNull();
+    // aparece nas abertas, com o aviso, na tela
     const lista = await caller("admin").dolores.notas.listar({ situacao: "abertas" });
-    expect(lista.notas.find((x: any) => x.id === n.id)).toBeUndefined();
+    const naTela = lista.notas.find((x: any) => x.id === n.id);
+    expect(naTela?.vinculoPerdido).toMatch(/excluído no BPO/);
+    expect(naTela?.conciliacao?.podeConciliar).toBe(true);
+    // o gatilho: religar direto (sem nova aprovação) é recusado
+    await expect(banco.pg.query(`UPDATE obra_notas SET bpo_lancamento_id = ${novo.id} WHERE id = ${n.id}`)).rejects.toThrow(/nova aprovação/);
+    // pela fila: proposta → aprovação → religada ao novo lançamento, com a nova aprovação
+    const proposta = await caller("admin").dolores.notas.proporConciliacao({ notaId: n.id });
+    expect(proposta.itens[0].resumo).toMatch(/vínculo perdido/);
+    expect(await notas()).toMatchObject([{ bpo_lancamento_id: null }]); // propor não grava nada
+    const pend = await q("SELECT codigo, id FROM dolores_aprovacoes WHERE situacao = 'aguardando'");
+    expect(pend).toHaveLength(1);
+    await decidir([pend[0].codigo], "aprovar", decisorDaTela(1));
+    const [religada] = await notas();
+    expect(religada.bpo_lancamento_id).toBe(novo.id);
+    expect(religada.conciliada_aprovacao_id).toBe(pend[0].id);
+    expect(religada.conciliada_aprovacao_id).not.toBe(antes.conciliada_aprovacao_id);
+    // e depois de religada, não troca mais
+    await expect(banco.pg.query(`UPDATE obra_notas SET bpo_lancamento_id = NULL, conciliada_aprovacao_id = ${antes.conciliada_aprovacao_id} WHERE id = ${n.id}`)).rejects.toThrow(/OBRA_NOTAS_CONCILIADA/);
+    expect((await caller("admin").dolores.notas.listar({ situacao: "abertas" })).notas.find((x: any) => x.id === n.id)).toBeUndefined();
   });
 });

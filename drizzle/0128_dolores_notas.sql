@@ -4,8 +4,10 @@
 --   o rascunho do pagamento da obra (nunca um lançamento). Guarda só os dados lidos (texto pelo filtro do registro: dados
 --   bancários nunca), as conferências do sistema, as dúvidas e os alertas — nunca o arquivo (só o SHA-256 e, depois da
 --   aprovação do dono, o id do arquivo no Drive). O que foi lido não muda depois de gravado. Nunca é apagada.
---   Mudanças possíveis: a confirmação do empreiteiro (pendente → confirmada/correção), o vínculo com o BPO (vazio → um
---   lançamento, uma vez só, pela fila de aprovação), o arquivo no Drive (vazio → id, uma vez só) e os vínculos que o Postgres
+--   Mudanças possíveis: a confirmação do empreiteiro (pendente → confirmada/correção, com a data, uma vez só), o vínculo com
+--   o BPO (vazio → um lançamento, uma vez só, sempre com a aprovação do dono pela fila; se o lançamento for excluído no BPO,
+--   o vínculo fica "perdido" e pode ser religado SÓ por uma nova aprovação), o arquivo no Drive (vazio → id com a data e a
+--   aprovação, uma vez só) e os vínculos que o Postgres
 --   esvazia sozinho (ON DELETE SET NULL de obra, usuário, lançamento do BPO e nota original): esses PODEM virar NULL, para
 --   não barrar exclusões legítimas que o sistema já fazia (lição da etapa 4).
 -- "obra_notas_respostas": cada resposta do empreiteiro no grupo reconhecida POR CÓDIGO como confirmação ou pedido de correção
@@ -114,6 +116,12 @@ BEGIN
       END IF;
     ELSIF NEW."bpo_lancamento_id" IS NULL OR NEW."conciliada_aprovacao_id" IS NULL THEN
       RAISE EXCEPTION 'OBRA_NOTAS_CONCILIADA: a conciliação grava o lançamento e a aprovação do dono juntos';
+    END IF;
+  ELSIF OLD."bpo_lancamento_id" IS NULL AND NEW."bpo_lancamento_id" IS NOT NULL THEN
+    -- vínculo PERDIDO (o lançamento foi excluído no BPO e o SET NULL esvaziou o vínculo): religar só com uma NOVA aprovação
+    IF NEW."conciliada_em" IS NULL OR NEW."conciliada_aprovacao_id" IS NULL
+       OR NEW."conciliada_aprovacao_id" IS NOT DISTINCT FROM OLD."conciliada_aprovacao_id" THEN
+      RAISE EXCEPTION 'OBRA_NOTAS_CONCILIADA: religar a nota ao BPO só por uma nova aprovação do dono';
     END IF;
   ELSIF NEW."conciliada_em" IS DISTINCT FROM OLD."conciliada_em"
      OR NEW."conciliada_aprovacao_id" IS DISTINCT FROM OLD."conciliada_aprovacao_id"

@@ -9,7 +9,7 @@ import { z } from "zod";
 import { textoDeDado } from "../../../shared/dolores/fila.js";
 import { AVISO_CONFIRMACAO, dataBr, nomeArquivoNota, reais } from "../../../shared/dolores/notas.js";
 import { PASTA_NOTAS_OBRA } from "../../../shared/drive-estrutura.js";
-import { apontarNotas, janelaDaConciliacao, notasDoBanco, paraConciliar } from "../leitura/notas.js";
+import { apontarNotas, janelaDaConciliacao, notasDoBanco, paraConciliar, vinculoPerdido } from "../leitura/notas.js";
 import { bancoDaLeitura, emTransacaoSomenteLeitura } from "../somente-leitura.js";
 import { RecusaAcao, comoMostrado, resumoDaFila, textoAlteradoNaSaida, type ContextoAcao, type Preparo } from "./comum.js";
 
@@ -44,7 +44,8 @@ async function lerNota(notaId: number) {
 export async function prepararConciliarNota(args: z.infer<typeof entradaConciliarNota>, _ctx: ContextoAcao): Promise<Preparo> {
   return emTransacaoSomenteLeitura(async () => {
     const { n, obra } = await lerNota(args.notaId);
-    if (n.conciliadaEm) throw new RecusaAcao(`A nota ${n.id} já está ligada a um pagamento do BPO; nada a fazer.`);
+    // vínculo perdido (o lançamento foi excluído no BPO): pode ser religada, sempre por um NOVO item na fila
+    if (n.bpoLancamentoId) throw new RecusaAcao(`A nota ${n.id} já está ligada a um pagamento do BPO; nada a fazer.`);
     if (n.duplicadaDe) throw new RecusaAcao(`A nota ${n.id} repete a nota ${n.duplicadaDe} (duplicada): não é conciliada. Nada foi posto na fila.`);
     if (n.situacao === "nao_e_nota" || n.situacao === "nao_lida" || n.situacao === "ilegivel") throw new RecusaAcao(`A nota ${n.id} não foi lida com segurança (${n.situacao}); confira o original. Nada foi posto na fila.`);
     if (!n.valorCentavos || !n.dataEmissao) throw new RecusaAcao(`A nota ${n.id} não tem valor ou data lidos com segurança; a conciliação depende da sua conferência. Nada foi posto na fila.`);
@@ -65,6 +66,7 @@ export async function prepararConciliarNota(args: z.infer<typeof entradaConcilia
     const emitente = mostrar(n.emitenteNome, 80, "emitente não lido");
     const resumo = resumoDaFila(`Ligar a nota ${n.id} (obra "${mostrar(obra, 80, `obra ${n.obraId}`)}", obra ${n.obraId}; emitente "${emitente}"; nº ${mostrar(n.numero, 30, "sem número")}; `
       + `${reais(n.valorCentavos)} de ${dataBr(n.dataEmissao)}) ao pagamento do BPO lançamento #${l.id} (${reais(l.valorCentavos)}, ${dataBr(l.data)}, pago e vindo do extrato do banco). `
+      + (vinculoPerdido(n) ? `ATENÇÃO: esta nota já foi ligada antes a um pagamento que depois foi EXCLUÍDO no BPO (vínculo perdido); isto a religa. ` : "")
       + `Só grava o vínculo NA NOTA (registro da Dolores): o lançamento do BPO NÃO é alterado, nada é pago nem baixado. ${CONFIRMACAO[n.confirmacao] ?? ""}. ${AVISO_CONFIRMACAO}`);
     return { itens: [{ alvo: `nota:${n.id}:conciliar`, resumo, argumentos: { notaId: n.id, lancamentoId: l.id, valorCentavos: n.valorCentavos, obraId: n.obraId } }], recusados: [] };
   });

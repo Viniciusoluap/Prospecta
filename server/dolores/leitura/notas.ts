@@ -85,7 +85,8 @@ export async function apontarNotas(conexao: Conexao, notas: readonly NotaParaCon
 export async function notasDoBanco(conexao: Conexao, filtro: { obraId?: number; abertas?: boolean; ids?: number[]; limite?: number }) {
   const onde = and(
     filtro.obraId ? eq(obraNotas.obraId, filtro.obraId) : undefined,
-    filtro.abertas ? isNull(obraNotas.conciliadaEm) : undefined,
+    // "abertas": sem vínculo com o BPO — inclui a conciliada cujo lançamento foi excluído no BPO (vínculo perdido; QA E5 achado 3)
+    filtro.abertas ? isNull(obraNotas.bpoLancamentoId) : undefined,
     filtro.ids ? inArray(obraNotas.id, filtro.ids.length ? filtro.ids : [-1]) : undefined,
   );
   return conexao.select({ n: obraNotas, obra: constructionProjects.title, enviadaEm: doloresGrupoMensagens.enviadaEm, remetente: doloresGrupoMensagens.remetente })
@@ -93,6 +94,10 @@ export async function notasDoBanco(conexao: Conexao, filtro: { obraId?: number; 
     .innerJoin(doloresGrupoMensagens, eq(doloresGrupoMensagens.id, obraNotas.mensagemId))
     .where(onde).orderBy(desc(obraNotas.id)).limit(Math.min(500, filtro.limite ?? 200));
 }
+
+/** Conciliada antes, mas o lançamento do BPO foi excluído (o SET NULL esvaziou o vínculo): pode ser religada pela fila. */
+export const vinculoPerdido = (n: Pick<typeof obraNotas.$inferSelect, "conciliadaEm" | "bpoLancamentoId">) => n.conciliadaEm !== null && n.bpoLancamentoId === null;
+export const TEXTO_VINCULO_PERDIDO = "o pagamento do BPO ligado a esta nota foi excluído no BPO (ex.: reclassificação do extrato): o vínculo se perdeu; pode ser religada pela fila de aprovação";
 
 export const paraConciliar = (n: typeof obraNotas.$inferSelect): NotaParaConciliar => ({
   id: n.id, obraId: n.obraId, valorCentavos: n.valorCentavos, dataEmissao: n.dataEmissao, emitenteDocumento: n.emitenteDocumento,
@@ -136,6 +141,7 @@ export async function listarNotasObra(args: z.infer<typeof entradaListarNotasObr
       empreiteiroDaObraConfere: n.empreiteiroUserId !== null, duvidas: n.duvidas, alertas: n.alertas, duplicadaDe: n.duplicadaDe,
       confirmacao: CONFIRMACAO[n.confirmacao] ?? n.confirmacao, respostasDoEmpreiteiro: respostas.get(n.id) ?? [],
       conciliacao: ap ? { situacao: ROTULO_APONTAMENTO[ap.situacao], detalhe: "texto" in ap ? ap.texto : `ligada ao lançamento #${ap.situacao === "conciliada" ? ap.lancamentoId : ""} do BPO` } : null,
+      vinculoPerdido: vinculoPerdido(n) ? TEXTO_VINCULO_PERDIDO : null,
       salvaNoDrive: n.driveFileId !== null,
       textoSugeridoParaODonoEnviar: n.confirmacao === "pendente" && n.situacao !== "nao_e_nota" ? textoSugeridoAoEmpreiteiro(n) : null,
     };
