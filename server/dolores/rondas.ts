@@ -2,7 +2,8 @@
 // processos e relatório diário)"). Regras fixas deste arquivo:
 // - A ronda é uma varredura POR CÓDIGO (sem IA, sem custo): reaproveita as leituras da etapa 1 (mesmos critérios das telas) e
 //   conta o que espera a Dolores (fila, documentos dos grupos, notas de obra, banco). Cada seção roda numa transação SOMENTE
-//   LEITURA própria (uma seção que falha não derruba as outras e o relatório diz que faltou).
+//   LEITURA própria, com SET LOCAL statement_timeout do tempo que resta (piso/teto): a seção que falha ou estoura o tempo
+//   vira "falha" registrada na ronda, não derruba as outras e o relatório diz que faltou.
 // - O resultado vai para dolores_rondas (só inserção) DEPOIS de montado, com INSERT ... ON CONFLICT (janela) DO NOTHING: a mesma
 //   janela não roda duas vezes e a reentrega do cron não duplica (se a janela já existe, nem lê de novo).
 // - O relatório é MODELO FIXO (shared/dolores/operacao.ts), montado só com a ronda; gravado em dolores_relatorios (só inserção,
@@ -45,6 +46,15 @@ import { DIAS_PARADO_PADRAO } from "../../shared/dolores/regras.js";
 export const PRAZO_CRON_MS = 45_000;
 /** Seção nova só começa com pelo menos isto de folga. */
 const MINIMO_POR_SECAO_MS = 3_000;
+/** Teto do tempo de cada consulta de uma seção (SET LOCAL statement_timeout): uma seção lenta não come o prazo das outras. */
+export const TETO_CONSULTA_SECAO_MS = 15_000;
+/** Piso do statement_timeout (abaixo disso a seção nem começa: ver MINIMO_POR_SECAO_MS). */
+export const PISO_CONSULTA_SECAO_MS = 1_000;
+/** Folga guardada para gravar a ronda depois da última seção. */
+const FOLGA_GRAVAR_MS = 1_000;
+/** Tempo-limite da consulta de uma seção: o que resta do prazo (menos a folga), entre o piso e o teto. */
+export const tempoLimiteDaSecao = (restanteMs: number) =>
+  Math.min(TETO_CONSULTA_SECAO_MS, Math.max(PISO_CONSULTA_SECAO_MS, Math.floor(restanteMs - FOLGA_GRAVAR_MS)));
 /** Para enviar o relatório depois da ronda. */
 const MINIMO_PARA_RELATORIO_MS = 6_000;
 
@@ -56,9 +66,9 @@ const contar = (v: unknown) => Number(v ?? 0) || 0;
 const reais = (v: unknown) => Math.round((Number(v ?? 0) || 0) * 100) / 100;
 
 type Secao = { totais: Partial<TotaisRonda>; destaques?: Partial<DestaquesRonda>; prazosVencidos?: Array<{ modulo: string; id: number; prazo: string | null }> };
-type Ctx = { agora: Date };
+type Ctx = { agora: Date; tempoLimiteMs: number };
 
-const lerSecao = (fn: (c: Ctx) => Promise<Secao>) => (c: Ctx) => emTransacaoSomenteLeitura(() => fn(c));
+const lerSecao = (fn: (c: Ctx) => Promise<Secao>) => (c: Ctx) => emTransacaoSomenteLeitura(() => fn(c), { tempoLimiteMs: c.tempoLimiteMs });
 
 /** As seções da ronda, na ordem do relatório. Cada uma é uma leitura só. */
 const SECOES: Array<[SecaoRonda, (c: Ctx) => Promise<Secao>]> = [
@@ -200,7 +210,7 @@ export async function executarRonda(p: { janela: string; origem: OrigemOperacao;
   for (const [nome, ler] of SECOES) {
     if (p.prazoFinal - p.relogio() < MINIMO_POR_SECAO_MS) { falhas.push(nome); continue; }
     try {
-      const r = await ler({ agora: p.agora });
+      const r = await ler({ agora: p.agora, tempoLimiteMs: tempoLimiteDaSecao(p.prazoFinal - p.relogio()) });
       Object.assign(totais, r.totais);
       Object.assign(destaques, r.destaques ?? {});
       if (r.prazosVencidos) prazos = r.prazosVencidos;

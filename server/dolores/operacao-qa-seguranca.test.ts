@@ -15,7 +15,7 @@ import { definirClienteModelo } from "./cerebro.js";
 import { funcaoPorNome } from "./funcoes.js";
 import { esquecerUsuarioDolores } from "./perfil.js";
 import { definirDependenciasPonte } from "./ponte.js";
-import { definirRelogioCron, tratarCronDolores } from "./rondas.js";
+import { PISO_CONSULTA_SECAO_MS, TETO_CONSULTA_SECAO_MS, definirRelogioCron, tempoLimiteDaSecao, tratarCronDolores } from "./rondas.js";
 import { MAX_NOME_TERCEIRO, limparNomeDeTerceiro, montarRelatorio } from "../../shared/dolores/operacao.js";
 import { AGORA, CENARIO, criarBanco } from "./testes-banco.js";
 import { definirDependenciasWhatsapp, segredoWebhookDolores, tratarWebhookDolores } from "./whatsapp.js";
@@ -149,5 +149,40 @@ describe("QA E6 — conteúdo de terceiro no texto do relatório (nome de lead v
     expect(texto).toContain(`- «${"a".repeat(MAX_NOME_TERCEIRO - 1)}…»: 1`);
     expect(limparNomeDeTerceiro("Maria D'Ávila-Souza Jr.")).toBe("Maria D'Ávila-Souza Jr.");
     expect(limparNomeDeTerceiro("João Silva aprovar ABC")).toBe("João Silva");
+  });
+});
+
+describe("QA E6 — achado 2: tempo-limite por seção da ronda", () => {
+  it("cada seção lida no banco emite SET LOCAL statement_timeout (entre piso e teto); a seção que estoura vira falha e as outras seguem", async () => {
+    await ligarTudo();
+    const comandos: string[] = [];
+    const original = banco.pg.transaction.bind(banco.pg);
+    vi.spyOn(banco.pg, "transaction").mockImplementation((async (cb: (tx: any) => Promise<unknown>) => original(async (tx: any) => {
+      const consultar = tx.query.bind(tx);
+      tx.query = async (texto: string, ...resto: unknown[]) => {
+        comandos.push(texto);
+        // simula o banco cancelando a consulta da seção "grupos" por tempo (erro 57014 do Postgres)
+        if (/from "dolores_grupo_mensagens"/i.test(texto) && /^select/i.test(texto.trim())) {
+          throw Object.assign(new Error("canceling statement due to statement timeout"), { code: "57014" });
+        }
+        return consultar(texto, ...resto);
+      };
+      return cb(tx);
+    })) as never);
+    const r = await tratarCronDolores({ headers: { authorization: `Bearer ${SEGREDO_CRON}` } } as never);
+    expect(r.body).toMatchObject({ ok: true, ronda: "feita" });
+    const limites = comandos.filter(c => /SET LOCAL statement_timeout/.test(c)).map(c => Number(/= (\d+)/.exec(c)?.[1]));
+    expect(limites.length).toBeGreaterThanOrEqual(10); // uma por seção lida em transação (todas menos "consumo")
+    for (const ms of limites) { expect(ms).toBeGreaterThanOrEqual(PISO_CONSULTA_SECAO_MS); expect(ms).toBeLessThanOrEqual(TETO_CONSULTA_SECAO_MS); }
+    const [ronda] = await q<{ falhas: string[]; totais: Record<string, unknown> }>(`SELECT falhas, totais FROM dolores_rondas ORDER BY id DESC LIMIT 1`);
+    expect(ronda.falhas).toEqual(["grupos"]);
+    expect(ronda.totais).toHaveProperty("notas");
+    expect(ronda.totais).toHaveProperty("fila");
+    expect(String(enviar.mock.calls[0]?.[0]?.texto ?? "")).toMatch(/Não consegui ler agora: documentos dos grupos\./);
+  });
+  it("o tempo-limite acompanha o prazo que resta, com piso e teto", () => {
+    expect(tempoLimiteDaSecao(60_000)).toBe(TETO_CONSULTA_SECAO_MS);
+    expect(tempoLimiteDaSecao(5_000)).toBe(4_000);
+    expect(tempoLimiteDaSecao(500)).toBe(PISO_CONSULTA_SECAO_MS);
   });
 });
