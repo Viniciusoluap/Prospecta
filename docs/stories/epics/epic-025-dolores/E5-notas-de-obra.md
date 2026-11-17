@@ -167,6 +167,9 @@ Em aberto (não bloqueia a etapa):
 - merge da `epic025-dolores-etapa4` (3ª rodada: falha fechada do consumo) sem conflito; 6cd0001 a leitura de nota adota a mesma
   falha fechada (+1 teste).
 - docs: `como-ligar.md` (Etapa 5) e `agente-etapa5.md`.
+- Verificação (17/11, 2 processos): `npx tsc --noEmit` ok; lista-alvo (server/dolores, integracoes-anthropic,
+  integracoes-modelo-por-funcao, bpo*, whatsapp*, drive*, auth-session, imports-esm, api-rotas-producao) 48 arquivos / 753
+  testes ok; `npx vite build` ok; suíte completa 254 arquivos / 2719 testes ok. Novos: notas-regras (23) e notas-obra (41).
 
 ## Change Log
 - 17/11/2026 — @dev (Dex): story criada (Draft → InProgress), critérios tirados do prompt mestre (seções 2, 4.5, 4.6, 5, 6, 7 e 9).
