@@ -35,6 +35,7 @@ import {
 import { liberarReservaClassificacao, registrarConsumo, registrarConsumoDaClassificacao, reservarClassificacao } from "./consumo.js";
 import { erroParaLog } from "./erro-seguro.js";
 import { grupoAtivo, lerConfigGrupos, textoDeGrupoParaGravar } from "./grupos.js";
+import { bloqueioDaOperacao } from "./operacao.js";
 
 export const CONFIG_NOTAS_PADRAO: Omit<ObraNotasConfig, "atualizadoEm" | "atualizadoPor"> = {
   id: 1, leituraLigada: false, prazoConfirmacaoDias: 7, janelaConciliacaoDias: 30,
@@ -390,6 +391,8 @@ export async function reconhecerRespostaDoEmpreiteiro(cfg: DoloresWhatsappConfig
   if (!m || m.tipo !== "grupo" || m.midia) return "resposta-nada";
   const resposta = lerRespostaDoEmpreiteiro(m.texto);
   if (!resposta) return "resposta-nada";
+  // Etapa 6 — pausa geral: a resposta do empreiteiro não é reconhecida nem registrada (a mensagem do grupo continua registrada).
+  if (await bloqueioDaOperacao()) return "resposta-pausada";
   let grupo: Awaited<ReturnType<typeof grupoAtivo>> | null;
   try { grupo = cfg.instancia ? await grupoAtivo(cfg.instancia, m.grupoJid) : null; } catch { return "resposta-nada"; }
   if (!grupo || grupo.obraId === null) return "resposta-nada";

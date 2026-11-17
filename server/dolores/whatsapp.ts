@@ -32,6 +32,9 @@ import { lerConfigWhatsapp, lerPausa, marcarAvisoDoMes, usoDoMes } from "./consu
 import { DoloresDesativada, idDaDoloresSemCriar, usuarioDolores } from "./perfil.js";
 import { MAX_CARACTERES_WHATSAPP } from "../../shared/dolores/whatsapp.js";
 import { lerDecisaoDoDono, quadroDePendencias, quadroDoQueFoiFeito } from "../../shared/dolores/fila.js";
+import { ehComandoRelatorio } from "../../shared/dolores/operacao.js";
+import { obraNotas } from "../../drizzle/schema-dolores-notas.js";
+import { registrarEvento } from "./operacao.js";
 import { decidir, feitosDoPedido, itensAguardandoDoPedido } from "./aprovacoes.js";
 import { tratarMensagemDeGrupo } from "./grupos.js";
 import { MINIMO_PARA_CLASSIFICAR_MS } from "./classificacao.js";
@@ -146,6 +149,37 @@ async function responderAoDono(cfg: DoloresWhatsappConfig, numero: string, texto
 }
 
 /**
+ * Etapa 6 — envio que NÃO responde a uma mensagem (relatório diário ou sob demanda). O destino é SEMPRE o número do dono da
+ * configuração (nenhum texto, parâmetro ou chamador escolhe para quem vai). Sem número do dono, sem instância, Dolores
+ * desconectada ou pausa geral → nada é enviado (auditado). Mesmos filtros de saída da resposta ao dono: links fora da lista
+ * viram "[link removido]", dados pessoais seguem o interruptor do canal do dono, segredos e dados bancários saem sempre, e o
+ * tamanho é cortado para o WhatsApp.
+ */
+export async function enviarAvisoAoDono(texto: string, ctx: { funcao: string; pedidoId: string; autor: number | null; prazoFinal: number; canal: "whatsapp" | "tela" | "cron"; resumo: Record<string, unknown> }): Promise<{ ok: boolean; motivo: string | null }> {
+  const auditar = (resultado: "ok" | "recusada" | "erro", motivo: string | null, extra: Record<string, unknown> = {}, duracaoMs?: number) =>
+    registrarAcao({ funcao: ctx.funcao, resultado, motivo, autorUserId: ctx.autor, canal: ctx.canal, pedidoId: ctx.pedidoId, resumo: { ...ctx.resumo, ...extra }, duracaoMs });
+  let cfg: DoloresWhatsappConfig | null = null;
+  try { cfg = await lerConfigWhatsapp(); } catch { cfg = null; }
+  const pausa = await lerPausa().catch(() => null);
+  const recusa = !cfg ? "configuração do WhatsApp da Dolores indisponível"
+    : !pausa ? "não consegui ler a pausa geral" : pausa.pausada ? "Dolores pausada (pausa geral)"
+    : !cfg.numeroDono ? "número do dono não cadastrado" : !cfg.instancia || cfg.statusConexao !== "conectado" ? "Dolores desconectada" : null;
+  if (recusa || !cfg?.numeroDono || !cfg.instancia) { await auditar("recusada", `${recusa ?? "sem destino"}; nada foi enviado`); return { ok: false, motivo: recusa }; }
+  const numero = cfg.numeroDono;
+  if (!ehNumeroDoDono(numero, cfg.numeroDono)) { await auditar("recusada", "destino não é o número do dono; nada foi enviado"); return { ok: false, motivo: "destino inválido" }; }
+  const final = cortarResposta(sanitizarTexto(tratarLinksDaResposta(texto, urlDoSistemaParaLinks()), filtroDaSaida("whatsapp")));
+  const restante = ctx.prazoFinal - deps.ms();
+  if (restante < MINIMO_PARA_ENVIAR_MS) { await auditar("erro", "sem tempo para enviar dentro do prazo", { caracteres: final.length }); return { ok: false, motivo: "sem tempo para enviar" }; }
+  const inicio = deps.ms();
+  let ok = false;
+  let motivo: string | null = null;
+  try { ok = await deps.enviar({ instancia: cfg.instancia, numero: numero.replace(/\D/g, ""), texto: final, prazoMs: Math.min(PRAZO_ENVIO_MS, restante) }); if (!ok) motivo = "a Evolution não aceitou a mensagem (ou o servidor não está configurado)"; }
+  catch (e) { motivo = `falha no envio: ${erroCurto(e)}`; }
+  await auditar(ok ? "ok" : "erro", motivo, { caracteres: final.length, destino: mascararNumero(numero) }, deps.ms() - inicio);
+  return { ok, motivo };
+}
+
+/**
  * Por que a IA não pode rodar agora (ordem: pausa antes de tudo; nada aqui chama a Anthropic). É o ÚNICO ponto do sistema
  * que lê a chave da Anthropic do painel (o nome da função aparece só no import e na chamada abaixo), e só depois da pausa e do interruptor da IA.
  */
@@ -226,6 +260,22 @@ async function tratarComando(cfg: DoloresWhatsappConfig, msg: { id: number; nume
     await atualizarMensagem(msg.id, { situacao: "respondida", motivo: `decisão da fila: ${decisao.decisao}`, respondidaEm: deps.agora() });
     return `decisao:${decisao.decisao}`;
   }
+  // Etapa 6 — "relatório" (a mensagem inteira), reconhecido por CÓDIGO: ronda + relatório de modelo fixo, sem IA (nem gasto).
+  // Mesma porta da pausa geral e do interruptor do relatório; o texto vai ao número do dono pelo envio do sistema.
+  if (!msg.temMidia && ehComandoRelatorio(msg.texto)) {
+    let r: { ok: boolean; situacao: string; motivo: string | null };
+    try {
+      const { relatorioSobDemanda } = await import("./rondas.js");
+      r = await relatorioSobDemanda({ origem: "whatsapp", agora: deps.agora(), prazoFinal: prazoFinal - FOLGA_FINAL_MS, relogio: deps.ms });
+    } catch (e) {
+      console.error("[dolores/whatsapp] falha no relatório sob demanda", erroCurto(e));
+      r = { ok: false, situacao: "nao_enviado", motivo: "falha ao montar o relatório" };
+    }
+    if (!r.ok) await responderAoDono(cfg, msg.numero, `Dolores: não enviei o relatório — ${r.motivo ?? "não foi possível agora"}. Nada foi alterado no sistema.`,
+      { mensagemId: msg.id, autor, resumo: { relatorio: r.situacao }, prazoFinal });
+    await atualizarMensagem(msg.id, { situacao: r.ok ? "respondida" : "bloqueada", motivo: `relatório sob demanda: ${r.situacao}`, respondidaEm: deps.agora() });
+    return `relatorio:${r.situacao}`;
+  }
   let estado: Awaited<ReturnType<typeof bloqueioAtual>>;
   try { estado = await bloqueioAtual(cfg, mes); }
   catch (e) { console.error("[dolores/whatsapp] falha ao conferir a configuração", erroCurto(e)); estado = { motivo: "indisponivel" }; }
@@ -261,6 +311,14 @@ async function tratarComando(cfg: DoloresWhatsappConfig, msg: { id: number; nume
     await atualizarMensagem(msg.id, { situacao: "erro", motivo: erroCurto(e), respondidaEm: deps.agora() });
     return "erro";
   }
+}
+
+/** Etapa 6 — registra o evento "nota lida" se a mensagem do grupo virou nota lida pela IA. Falha só vai para o log. */
+async function eventoDeNotaLida(grupoMensagemId: number) {
+  try {
+    const [n] = await getDb().select({ id: obraNotas.id, lidaEm: obraNotas.lidaEm }).from(obraNotas).where(eq(obraNotas.mensagemId, grupoMensagemId)).limit(1);
+    if (n?.lidaEm) await registrarEvento({ tipo: "nota_lida", chave: `nota:${n.id}`, origemTabela: "obra_notas", origemId: n.id });
+  } catch (e) { console.error("[dolores/whatsapp] falha ao registrar o evento da nota", erroCurto(e)); }
 }
 
 /** "16/11 09:05" no horário de Imperatriz (UTC−3 fixo). */
@@ -407,6 +465,8 @@ export async function tratarWebhookDolores(req: Pedido): Promise<RespostaWebhook
     if (ehDeGrupo(item)) {
       const g = await tratarMensagemDeGrupo(cfg, item, { agora: deps.agora(), autor });
       contar(g.resultado);
+      // Etapa 6 — evento (só registro; nunca ação): documento recebido em grupo cadastrado. Desligado por padrão.
+      if (g.aClassificar && g.mensagemId) await registrarEvento({ tipo: "documento_grupo", chave: `grupo-msg:${g.mensagemId}`, origemTabela: "dolores_grupo_mensagens", origemId: g.mensagemId });
       // no máximo UMA classificação por aviso, e só com tempo de sobra; o resto fica "a classificar" (a tela e o próximo
       // pedido do dono tratam). Quem decide se a IA pode rodar (interruptores, teto, limite) é a classificação.
       // Etapa 5: documento de grupo de OBRA vai para a leitura de nota (mesmas travas; no máximo UMA chamada de IA por aviso,
@@ -416,6 +476,8 @@ export async function tratarWebhookDolores(req: Pedido): Promise<RespostaWebhook
         const r = await tratarDocumentoDoGrupo(g.mensagemId, { prazoFinal, relogio: deps.ms, obterCredencial: credencialDaClassificacao, credencialDaNota: credencialDaLeituraDeNota, canal: "whatsapp" })
           .catch(e => { console.error("[dolores/whatsapp] falha ao classificar documento do grupo", erroCurto(e)); return "classificacao-erro"; });
         contar(r);
+        // Etapa 6 — evento: nota de obra lida (só registro). Confere no banco, não pelo texto do resultado.
+        await eventoDeNotaLida(g.mensagemId);
       } else if (g.resultado === "grupo-registrada" && g.mensagemId && !g.aClassificar) {
         const r = await reconhecerRespostaDoEmpreiteiro(cfg, item, g.mensagemId, { agora: deps.agora(), autor })
           .catch(e => { console.error("[dolores/whatsapp] falha ao conferir resposta de empreiteiro", erroCurto(e)); return "resposta-erro"; });
