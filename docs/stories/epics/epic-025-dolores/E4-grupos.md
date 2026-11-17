@@ -162,6 +162,9 @@ Alterados:
   uma-por-vez já limitam o dano a uma chamada).
 - [AUTO-DECISION] Redirecionamento recusado só na Dolores (reason: `evolution.ts` é compartilhado com a Central de Vendas e é gêmeo do
   Grupo Santa Fé; sem prova de que nenhuma instalação dependa do redirecionamento, o padrão não muda lá).
+- Verificação (17/11, depois de 14b22ad): `npx tsc --noEmit` ok; suíte-alvo 46 arquivos / 630 testes (1 falha do guarda de log
+  `whatsapp-qa.test.ts` corrigida em 14b22ad e reexecutada: ok); `npx vite build` ok; suíte completa 250 arquivos / 2614 testes ok
+  (2 processos). `server/integracoes-anthropic.test.ts` sem mudança e verde.
 - 0126 editada de novo (só dentro do CREATE TABLE e uma tabela nova; continua aditiva; NÃO aplicada): conferir antes
   `SELECT to_regclass('dolores_grupos_contagem')` = NULL. 0130 nova, NÃO aplicada.
 
