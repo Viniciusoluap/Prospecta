@@ -5,8 +5,8 @@
 //   ela; a IA (bloqueioAtual), a ponte e a aprovação da fila já conferiam a mesma pausa.
 // - Evento é só um REGISTRO (dolores_eventos, só inserção, chave única): nunca dispara ação de escrita, mensagem ou IA. No
 //   máximo entra na ronda e no relatório. Desligado por padrão.
-// - `podeFalarNoGrupo` é o GANCHO da resposta nos grupos (etapa 4b, ainda não existe neste ramo): quem for responder no grupo
-//   tem de chamar esta porta antes (pausa geral → silêncio).
+// - `podeFalarNoGrupo` é a porta da resposta nos grupos (etapa 4b, server/dolores/marcacao.ts): chamada antes da vaga, da
+//   chave, da IA e de qualquer envio, e de novo no envio (pausa geral ou conta desativada → silêncio, só registrada).
 import { eq } from "drizzle-orm";
 import { doloresEventos, doloresOperacaoConfig, type TipoEventoDolores } from "../../drizzle/schema-dolores-operacao.js";
 import { users } from "../../drizzle/schema.js";
@@ -53,7 +53,7 @@ export async function bloqueioDaOperacao(): Promise<BloqueioOperacao | null> {
   return null;
 }
 
-/** GANCHO da etapa 4b (resposta no grupo quando marcada): pausa geral → a Dolores não fala no grupo. */
+/** Porta da etapa 4b (resposta no grupo quando marcada, marcacao.ts): pausa geral ou conta desativada → a Dolores não fala no grupo. */
 export async function podeFalarNoGrupo(): Promise<boolean> {
   return (await bloqueioDaOperacao()) === null;
 }
