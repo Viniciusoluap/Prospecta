@@ -14,7 +14,7 @@ import { ADMIN_MODULES } from "../shared/admin-permissions.js";
 import { ENDERECO_DA_SEDE } from "../shared/empresa.js";
 import { FRASE_CURTA_DO_TERMO, PENDENCIAS_DO_JURIDICO, SECOES_DO_TERMO, TITULO_DO_TERMO, VERSAO_DO_TERMO } from "../shared/termo-consentimento.js";
 import { verifyPassword } from "./_core/auth-utils.js";
-import { aparelhoDoUserAgent, ehPrimeiroAcesso, gravarSenhaComAceite, MENSAGEM_SEM_ACEITE, MENSAGEM_VERSAO_ERRADA, pedirAceiteNoLogin } from "./consentimento.js";
+import { aparelhoDoUserAgent, classificarConta, ehPrimeiroAcesso, INICIO_DO_TERMO, instanteDoBanco, gravarSenhaComAceite, MENSAGEM_SEM_ACEITE, MENSAGEM_VERSAO_ERRADA, pedirAceiteNoLogin } from "./consentimento.js";
 import { getDb } from "./db.js";
 import { appRouter } from "./routers.js";
 
@@ -254,6 +254,64 @@ describe("conta criada já com senha pelo admin aceita no PRIMEIRO LOGIN (QA S-1
     const c = await logado(r.id);
     expect(await c.consentimento.minhaSituacao()).toMatchObject({ pedir: true });
     expect(await c.portal.navigation()).toMatchObject({ hasWorks: false, hasActiveFinancing: false });
+  });
+});
+
+describe("fuso do createdAt (QA S-12, achado 6)", () => {
+  it("valor como vem do driver (texto sem fuso) é lido como UTC, não no fuso do servidor Node", () => {
+    expect(instanteDoBanco("2026-11-17 00:00:00")!.getTime()).toBe(INICIO_DO_TERMO.getTime());
+    expect(instanteDoBanco("2026-11-16 23:59:59.999")!.getTime()).toBe(INICIO_DO_TERMO.getTime() - 1);
+    expect(instanteDoBanco("2026-11-17 00:00:00.123456")!.toISOString()).toBe("2026-11-17T00:00:00.123Z");
+    expect(instanteDoBanco("2026-11-17 00:00:00+00")!.getTime()).toBe(INICIO_DO_TERMO.getTime());
+    expect(instanteDoBanco("2026-11-16 21:00:00-03")!.getTime()).toBe(INICIO_DO_TERMO.getTime());
+    expect(instanteDoBanco(new Date("2026-11-17T00:00:00Z"))!.getTime()).toBe(INICIO_DO_TERMO.getTime());
+    expect(instanteDoBanco(null)).toBeNull();
+    expect(instanteDoBanco("lixo")).toBeNull();
+    expect(ehPrimeiroAcesso({ createdAt: "2026-11-17 00:00:00", tokenExpiraEm: null })).toBe(true);
+    expect(ehPrimeiroAcesso({ createdAt: "2026-11-16 23:59:59", tokenExpiraEm: null })).toBe(false);
+  });
+
+  it("em memória só decide longe do início (mais de 14 h); perto dele vai ao banco", () => {
+    expect(classificarConta(new Date("2026-11-17T14:00:00Z"))).toBe("nova");
+    expect(classificarConta(new Date("2026-11-16T09:59:59Z"))).toBe("antiga");
+    expect(classificarConta(new Date("2025-03-01T00:00:00Z"))).toBe("antiga");
+    expect(classificarConta(new Date("2026-11-17T01:00:00Z"))).toBe("na_borda");
+    expect(classificarConta(new Date("2026-11-16T23:00:00Z"))).toBe("na_borda");
+    expect(classificarConta(undefined)).toBe("antiga");
+  });
+
+  /** Simula o now() do banco num instante exato, com a sessão no fuso dado (o valor gravado é o relógio local). */
+  async function contaComFuso(fuso: string, instanteUtc: string, token: string) {
+    await pg.exec(`SET TimeZone = '${fuso}'`);
+    await pg.query(`INSERT INTO users ("openId", name, email, role, "passwordHash", "tokenPrimeiroAcesso", "tokenPrimeiroAcessoExpiraEm", "createdAt")
+      VALUES ($1, 'Fuso', $2, 'cliente', 'p', $3, $4, ($5::timestamptz)::timestamp)`, [`o-${token}`, `${token}@x.com`, token, futuro(), instanteUtc]);
+    return (await pg.query<{ id: number; bruto: string }>(`SELECT id, "createdAt"::text AS bruto FROM users WHERE "tokenPrimeiroAcesso" = $1`, [token])).rows[0];
+  }
+  const sessao = async (id: number) => {
+    const [u] = await db.select().from(schema.users).where(eq(schema.users.id, id));
+    return appRouter.createCaller({ user: u, req: { headers: {} }, res: {} } as never);
+  };
+
+  it("sessão do banco em Brasília (-03): conta criada 01:00 UTC de 17/11 (gravada '16/11 22:00') é conta nova no link e no login", async () => {
+    const { id, bruto } = await contaComFuso("America/Sao_Paulo", "2026-11-17T01:00:00Z", "tok-sp");
+    expect(bruto).toBe("2026-11-16 22:00:00");
+    expect(await publico().primeiroAcesso.validarToken({ token: "tok-sp" })).toMatchObject({ termo: "obrigatorio" });
+    await expect(publico().primeiroAcesso.definirSenha({ token: "tok-sp", novaSenha: "senha-forte-1" })).rejects.toMatchObject({ message: MENSAGEM_SEM_ACEITE });
+    expect(await (await sessao(id)).consentimento.minhaSituacao()).toMatchObject({ pedir: true });
+  });
+
+  it("sessão do banco em Tóquio (+09): conta criada 20:00 UTC de 16/11 (gravada '17/11 05:00') continua conta antiga", async () => {
+    const { id, bruto } = await contaComFuso("Asia/Tokyo", "2026-11-16T20:00:00Z", "tok-tk");
+    expect(bruto).toBe("2026-11-17 05:00:00");
+    expect(await publico().primeiroAcesso.validarToken({ token: "tok-tk" })).toMatchObject({ termo: "opcional" });
+    expect(await (await sessao(id)).consentimento.minhaSituacao()).toEqual({ pedir: false, versao: VERSAO_DO_TERMO });
+  });
+
+  it("sessão em UTC (padrão do Neon): borda exata 00:00 UTC é conta nova; um segundo antes é antiga", async () => {
+    const nova = await contaComFuso("UTC", "2026-11-17T00:00:00Z", "tok-u1");
+    const antiga = await contaComFuso("UTC", "2026-11-16T23:59:59Z", "tok-u2");
+    expect(await (await sessao(nova.id)).consentimento.minhaSituacao()).toMatchObject({ pedir: true });
+    expect(await (await sessao(antiga.id)).consentimento.minhaSituacao()).toMatchObject({ pedir: false });
   });
 });
 

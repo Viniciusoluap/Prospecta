@@ -29,6 +29,61 @@ export const VALIDADE_DO_LINK_MS = 7 * 24 * 60 * 60 * 1000;
 /** Folga para reconhecer o convite da criação da conta (link gerado logo depois do cadastro). */
 const FOLGA_DO_CONVITE_MS = 10 * 60 * 1000;
 
+/**
+ * FUSO (QA S-12, achado 6). `users.createdAt` é `timestamp` SEM fuso, preenchido pelo `now()` do banco: o valor gravado
+ * é o relógio de parede no fuso da SESSÃO do banco (Neon: "GMT" por padrão). O Drizzle lê esse texto como se fosse UTC
+ * (acrescenta "+0000"). Suposição documentada: as sessões que gravam e as que leem usam o mesmo fuso (o do banco/papel).
+ * Para não depender de qual fuso é esse:
+ *   - nas rotas do link (`validarToken`/`definirSenha`), o banco devolve o `createdAt` já convertido para UTC
+ *     (`createdAtEmUtc`, abaixo), na mesma consulta;
+ *   - na sessão (`ctx.user.createdAt`, sem consulta extra), a conta só é decidida em memória quando está a mais de 14 h
+ *     (a maior diferença de fuso que existe) do início do termo; na faixa de dúvida, pergunta ao banco.
+ * Os textos que chegam do driver sem fuso ("2026-11-17 00:00:00") são lidos como UTC, nunca no fuso do servidor Node.
+ */
+export const MAIOR_DIFERENCA_DE_FUSO_MS = 14 * 60 * 60 * 1000;
+
+/** `createdAt` convertido para UTC pelo próprio banco, seja qual for o fuso da sessão. */
+export const createdAtEmUtc = sql<string>`((${users.createdAt} AT TIME ZONE current_setting('TimeZone')) AT TIME ZONE 'UTC')`;
+
+/** Instante de um valor de `timestamp` sem fuso: Date do Drizzle, ou texto cru do driver (lido como UTC). */
+export function instanteDoBanco(valor: Date | string | null | undefined): Date | null {
+  if (valor == null) return null;
+  if (valor instanceof Date) return Number.isNaN(valor.getTime()) ? null : valor;
+  const texto = valor.trim().replace(" ", "T");
+  const fuso = /([+-])(\d{2}):?(\d{2})?$/.exec(texto.slice(10));
+  const iso = /Z$/i.test(texto) ? texto
+    : fuso ? `${texto.slice(0, texto.length - fuso[0].length)}${fuso[1]}${fuso[2]}:${fuso[3] ?? "00"}`
+      : `${texto}Z`;
+  const d = new Date(iso);
+  return Number.isNaN(d.getTime()) ? null : d;
+}
+
+export type ContaNoTermo = "nova" | "antiga" | "na_borda";
+
+/** Classificação em memória pelo `createdAt` da sessão; "na_borda" = a menos de 14 h do início (depende do fuso). */
+export function classificarConta(createdAt: Date | string | null | undefined, inicio = INICIO_DO_TERMO): ContaNoTermo {
+  const d = instanteDoBanco(createdAt);
+  if (!d) return "antiga";
+  const diferenca = d.getTime() - inicio.getTime();
+  if (diferenca >= MAIOR_DIFERENCA_DE_FUSO_MS) return "nova";
+  if (diferenca < -MAIOR_DIFERENCA_DE_FUSO_MS) return "antiga";
+  return "na_borda";
+}
+
+/** Conta criada a partir do início do termo, decidida pelo banco (independe do fuso da sessão). */
+export async function contaCriadaNoTermoPeloBanco(db: DrizzleDb, userId: number, inicio = INICIO_DO_TERMO): Promise<boolean> {
+  const [linha] = await db.select({ criada: createdAtEmUtc }).from(users).where(eq(users.id, userId)).limit(1);
+  const d = instanteDoBanco(linha?.criada);
+  return !!d && d.getTime() >= inicio.getTime();
+}
+
+/** Conta nova? Em memória fora da faixa de dúvida; dentro dela, uma consulta ao banco. */
+export async function contaCriadaNoTermo(db: DrizzleDb, user: { id: number; createdAt: Date | string | null }): Promise<boolean> {
+  const c = classificarConta(user.createdAt);
+  if (c !== "na_borda") return c === "nova";
+  return contaCriadaNoTermoPeloBanco(db, user.id);
+}
+
 export type SituacaoDoTermo = "aceito" | "obrigatorio" | "opcional";
 
 export const MENSAGEM_SEM_ACEITE = "Para criar a senha, é preciso marcar que você leu e concorda com o termo de consentimento.";
@@ -49,12 +104,14 @@ export function aparelhoDoUserAgent(ua: string | undefined | null): AparelhoDoCo
 }
 
 /** Primeiro acesso = conta nova (depois do início do termo) ou link que é o convite enviado no cadastro. */
-export function ehPrimeiroAcesso(conta: { createdAt: Date | null; tokenExpiraEm: Date | null }, inicio = INICIO_DO_TERMO): boolean {
-  if (!conta.createdAt) return true;
-  if (conta.createdAt.getTime() >= inicio.getTime()) return true;
-  if (!conta.tokenExpiraEm) return false;
-  const emitidoEm = conta.tokenExpiraEm.getTime() - VALIDADE_DO_LINK_MS;
-  return Math.abs(emitidoEm - conta.createdAt.getTime()) <= FOLGA_DO_CONVITE_MS;
+export function ehPrimeiroAcesso(conta: { createdAt: Date | string | null; tokenExpiraEm: Date | string | null }, inicio = INICIO_DO_TERMO): boolean {
+  const criada = instanteDoBanco(conta.createdAt);
+  if (!criada) return true;
+  if (criada.getTime() >= inicio.getTime()) return true;
+  const expira = instanteDoBanco(conta.tokenExpiraEm);
+  if (!expira) return false;
+  const emitidoEm = expira.getTime() - VALIDADE_DO_LINK_MS;
+  return Math.abs(emitidoEm - criada.getTime()) <= FOLGA_DO_CONVITE_MS;
 }
 
 /**
@@ -65,12 +122,6 @@ export function situacaoDoTermo(aceites: { atual: boolean; algum: boolean }, pri
   if (aceites.atual) return "aceito";
   if (aceites.algum) return "opcional";
   return primeiroAcesso ? "obrigatorio" : "opcional";
-}
-
-/** Conta criada a partir de INICIO_DO_TERMO (comparação em memória, com o `createdAt` da sessão). */
-export function contaCriadaNoTermo(createdAt: Date | string | null | undefined, inicio = INICIO_DO_TERMO): boolean {
-  if (!createdAt) return false;
-  return new Date(createdAt).getTime() >= inicio.getTime();
 }
 
 /**
@@ -138,7 +189,7 @@ export const consentimentoRouter = router({
    *     cria já com senha — `portal.admin.provisionAccess` e `/api/auth/setup-admin` — não passam pela tela de criar
    *     senha, então aceitam aqui, no primeiro login). Vale com a opção do item 4 desligada;
    *   - com a opção do item 4 ligada (CONSENTIMENTO_PEDIR_NO_LOGIN=1), também quem não aceitou a versão vigente.
-   * Conta antiga com a opção desligada: `pedir: false` decidido em memória (sem consultar o banco).
+   * Conta antiga com a opção desligada: `pedir: false` decidido em memória (sem consultar o banco); ver FUSO acima.
    * Pública de propósito: o cliente redireciona ao login em qualquer UNAUTHORIZED, e esta consulta roda nas áreas
    * logadas sem esperar o auth.me.
    * LIMITAÇÃO (documentada na story): o servidor não bloqueia as demais rotas de quem ainda não aceitou; quem impede o
@@ -147,9 +198,10 @@ export const consentimentoRouter = router({
   minhaSituacao: publicProcedure.query(async ({ ctx }) => {
     if (!ctx.user) return { pedir: false, versao: VERSAO_DO_TERMO };
     const todos = pedirAceiteNoLogin();
-    const nova = contaCriadaNoTermo(ctx.user.createdAt);
-    if (!todos && !nova) return { pedir: false, versao: VERSAO_DO_TERMO };
-    const aceites = await aceitesDoUsuario(getDb(), ctx.user.id);
+    if (!todos && classificarConta(ctx.user.createdAt) === "antiga") return { pedir: false, versao: VERSAO_DO_TERMO };
+    const db = getDb();
+    if (!todos && !(await contaCriadaNoTermo(db, ctx.user))) return { pedir: false, versao: VERSAO_DO_TERMO };
+    const aceites = await aceitesDoUsuario(db, ctx.user.id);
     return { pedir: precisaAceitarNoLogin(aceites, todos), versao: VERSAO_DO_TERMO };
   }),
 
@@ -157,9 +209,10 @@ export const consentimentoRouter = router({
   aceitar: protectedProcedure.input(z.object({ aceitouTermo: z.boolean(), versaoDoTermo: z.string().max(40) }))
     .mutation(async ({ ctx, input }) => {
       const todos = pedirAceiteNoLogin();
-      const nova = contaCriadaNoTermo(ctx.user.createdAt);
-      if (!todos && !nova) throw new TRPCError({ code: "PRECONDITION_FAILED", message: "O pedido de aceite no login está desligado." });
       const db = getDb();
+      if (!todos && !(await contaCriadaNoTermo(db, ctx.user))) {
+        throw new TRPCError({ code: "PRECONDITION_FAILED", message: "O pedido de aceite no login está desligado." });
+      }
       if (!precisaAceitarNoLogin(await aceitesDoUsuario(db, ctx.user.id), todos)) return { ok: true as const, jaAceito: true };
       conferirAceite("obrigatorio", input.aceitouTermo, input.versaoDoTermo);
       const ua = (ctx.req as { headers?: Record<string, string | undefined> } | undefined)?.headers?.["user-agent"];

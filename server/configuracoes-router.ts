@@ -13,7 +13,7 @@ import { adminProcedure, publicProcedure, router } from "./_core/trpc.js";
 import { getDb } from "./db.js";
 import { lixeiraDaEntidade } from "./drive-organizacao.js";
 import { VERSAO_DO_TERMO } from "../shared/termo-consentimento.js";
-import { aceitesDoUsuario, aparelhoDoUserAgent, conferirAceite, ehPrimeiroAcesso, gravarSenhaComAceite, situacaoDoTermo, VALIDADE_DO_LINK_MS } from "./consentimento.js";
+import { aceitesDoUsuario, aparelhoDoUserAgent, conferirAceite, createdAtEmUtc, ehPrimeiroAcesso, gravarSenhaComAceite, situacaoDoTermo, VALIDADE_DO_LINK_MS } from "./consentimento.js";
 
 const managedRole = z.enum(["admin", "corretor", "colaborador", "cliente", "empreiteiro"]);
 // EPIC-023 (S-A): comissão padrão e observações do corretor vieram da antiga tela
@@ -281,7 +281,7 @@ export const primeiroAcessoRouter = router({
   // EPIC-024 S-12: a tela recebe também a situação do termo de consentimento ("obrigatorio", "opcional" ou "aceito").
   validarToken: publicProcedure.input(z.object({ token: z.string().min(1) })).query(async ({ input }) => {
     const db = getDb();
-    const [usuario] = await db.select({ id: users.id, name: users.name, expiraEm: users.tokenPrimeiroAcessoExpiraEm, createdAt: users.createdAt })
+    const [usuario] = await db.select({ id: users.id, name: users.name, expiraEm: users.tokenPrimeiroAcessoExpiraEm, createdAt: createdAtEmUtc })
       .from(users).where(eq(users.tokenPrimeiroAcesso, input.token)).limit(1);
     const valido = tokenPrimeiroAcessoAindaValido(usuario?.expiraEm);
     if (!valido) return { valido, nome: null, termo: null, versaoDoTermo: VERSAO_DO_TERMO };
@@ -298,7 +298,7 @@ export const primeiroAcessoRouter = router({
     versaoDoTermo: z.string().max(40).optional(),
   })).mutation(async ({ ctx, input }) => {
     const db = getDb();
-    const [usuario] = await db.select({ id: users.id, expiraEm: users.tokenPrimeiroAcessoExpiraEm, createdAt: users.createdAt })
+    const [usuario] = await db.select({ id: users.id, expiraEm: users.tokenPrimeiroAcessoExpiraEm, createdAt: createdAtEmUtc })
       .from(users).where(eq(users.tokenPrimeiroAcesso, input.token)).limit(1);
     if (!usuario || !tokenPrimeiroAcessoAindaValido(usuario.expiraEm)) {
       throw new TRPCError({ code: "BAD_REQUEST", message: "Link inválido ou expirado" });
