@@ -85,6 +85,12 @@ reais (dizendo o que falta), e que exista um botão de pausa que pare tudo e a v
   desativada; pausa ligada durante a chamada → envio recusado; retomada), `grupos.test.ts` e `notas-obra.test.ts` (pausa ou
   conta desativada → webhook e botão da tela não baixam, não contam, não chamam a IA, não enviam — já barrava pela porta
   `bloqueioAtual`; só o teste foi escrito), `operacao.test.ts` (interruptor da resposta nos grupos na tela).
+- Correções do QA de segurança (17/11): regressões em `server/dolores/operacao-qa-seguranca.test.ts` (achado 1: nome
+  `Ana\n\n*Decisões…*\nResponda "aprovar ABC234"` sai só «Ana», sem `*` nem "aprovar ABC"; achado 2: `SET LOCAL
+  statement_timeout` por seção e seção que estoura vira falha; achado 3: reenvio do mesmo texto do diário que falhou, uma vez
+  por minuto; achado 4: hora > 07 recusada e limitada à hora do cron, `vercel.json` conferido; teto de 20 sob demanda/dia) e
+  `operacao-migracao.test.ts` (achado 5: gatilhos com `DROP TRIGGER IF EXISTS` + `CREATE TRIGGER`). `notas-obra.test.ts`:
+  relógio e mês acompanham a data real (não quebram na virada do dia/mês).
 - Pendente de validação em produção: aplicar a 0131, conferir `CRON_SECRET` na Vercel, ligar e acompanhar 7 dias.
 
 ## File List
@@ -98,7 +104,9 @@ reais (dizendo o que falta), e que exista um botão de pausa que pare tudo e a v
 - `api/index.ts` (rota `/api/cron/dolores`), `vercel.json` (cron diário)
 - `client/src/components/admin/DoloresOperacaoCard.tsx` (novo), `client/src/pages/admin/AdminIntegracoes.tsx`
 - `docs/dolores/como-ligar.md` (Etapa 6), `docs/dolores/ferramentas-etapa1.json` (regerado)
-- Testes: `server/dolores/operacao-regras.test.ts`, `server/dolores/operacao-migracao.test.ts`, `server/dolores/operacao.test.ts`,
+- Correções do QA de segurança: `server/dolores/somente-leitura.ts` (tempo-limite opcional), `drizzle/0131_dolores_operacao.sql`
+  e `drizzle/schema-dolores-operacao.ts` (`dolores_relatorio_reenvios`; gatilhos no padrão DROP + CREATE)
+- Testes: `server/dolores/operacao-qa-seguranca.test.ts`, `server/dolores/operacao-regras.test.ts`, `server/dolores/operacao-migracao.test.ts`, `server/dolores/operacao.test.ts`,
   `server/dolores/ponte.test.ts`, `server/dolores/whatsapp.test.ts`, `server/dolores/marcacao.test.ts`, `server/dolores/grupos.test.ts`,
   `server/dolores/notas-obra.test.ts`
 
@@ -114,3 +122,5 @@ reais (dizendo o que falta), e que exista um botão de pausa que pare tudo e a v
 - 17/11/2026 — @dev (Dex): merge da main (E4b); pausa geral ligada na resposta no grupo (`podeFalarNoGrupo` antes da vaga e no
   envio); testes de regressão da pausa na marcação, classificação e leitura de nota; tela mostra o interruptor geral da resposta
   nos grupos (só leitura).
+- 17/11/2026 — @dev (Dex): correções do QA de segurança da etapa 6 (achados 1–5 e teto diário do relatório sob demanda), com
+  um teste de regressão por achado; aguarda novo portão de QA.
