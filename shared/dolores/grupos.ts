@@ -108,12 +108,15 @@ export const MAX_MOTIVO_IA = 160;
  * Na dúvida → null (quem chama grava um motivo do sistema no lugar).
  */
 const LETRA_DO_PORTUGUES = /^[A-Za-zÁÀÂÃÉÊÍÓÔÕÚÜÇáàâãéêíóôõúüç]$/;
+// (pelo construtor: o alvo do tsconfig não aceita a flag "u" em literal)
+const MARCA_COMBINANTE = new RegExp(String.raw`\p{M}`, "u");
+const QUALQUER_LETRA = new RegExp(String.raw`\p{L}`, "gu");
 export function motivoDaIaSeguro(bruto: string | null | undefined): string | null {
   const original = String(bruto ?? "").normalize("NFKC");
   if (/[\r\n\u2028\u2029]/.test(original)) return null;
   const t = textoDeDado(umaLinha(original, 400), 400).normalize("NFKC");
   if (!t || t.length > MAX_MOTIVO_IA) return null;
-  if (/\p{M}/u.test(t) || Array.from(t.matchAll(/\p{L}/gu)).some(m => !LETRA_DO_PORTUGUES.test(m[0]))) return null;
+  if (MARCA_COMBINANTE.test(t) || Array.from(t.matchAll(QUALQUER_LETRA)).some(m => !LETRA_DO_PORTUGUES.test(m[0]))) return null;
   if (tratarLinksDaResposta(t, null) !== t) return null;
   if (/[@\\/]|\bwww\b|\d{4,}/i.test(t)) return null;
   const semAcento = t.normalize("NFD").replace(/[\u0300-\u036f]/g, "");
