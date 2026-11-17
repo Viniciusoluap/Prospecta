@@ -1,7 +1,7 @@
 // 16/11/2026 — EPIC-025 (etapa 4): grupos de WhatsApp cadastrados, mensagens desses grupos, contagens diárias e configuração
 // da classificação (migração 0126_dolores_grupos.sql). Tabelas novas, em arquivo próprio: nenhuma tabela anterior foi alterada.
 import { sql } from "drizzle-orm";
-import { boolean, index, integer, numeric, pgTable, primaryKey, serial, smallint, timestamp, uniqueIndex, varchar } from "drizzle-orm/pg-core";
+import { bigint, boolean, index, integer, numeric, pgTable, primaryKey, serial, smallint, timestamp, uniqueIndex, varchar } from "drizzle-orm/pg-core";
 import type { SituacaoDocumentoGrupo, TipoDocumentoGrupo, TipoMensagemGrupo } from "../shared/dolores/grupos.js";
 import { constructionProjects, leadDocuments, leads, users } from "./schema.js";
 
@@ -62,7 +62,7 @@ export const doloresGruposContagem = pgTable("dolores_grupos_contagem", {
   mensagens: integer("mensagens").default(0).notNull(),
   ignoradas: integer("ignoradas").default(0).notNull(),
   classificacoes: integer("classificacoes").default(0).notNull(),
-  /** Linha do total (grupo 0): tokens de entrada usados ACIMA da reserva no dia; > 0 pausa as classificações até o dia seguinte. */
+  /** Linha do GRUPO: tokens de entrada usados ACIMA da reserva no dia; > 0 pausa a classificação desse grupo até o dia seguinte. */
   excessoEntrada: integer("excesso_entrada").default(0).notNull(),
   ultimaEm: timestamp("ultima_em", { withTimezone: true }).defaultNow().notNull(),
 }, t => [primaryKey({ columns: [t.grupoId, t.dia] })]);
@@ -75,8 +75,19 @@ export const doloresGruposConfig = pgTable("dolores_grupos_config", {
   maxMensagensGrupoDia: integer("max_mensagens_grupo_dia").default(300).notNull(),
   tamanhoMaximoBytes: integer("tamanho_maximo_bytes").default(10_485_760).notNull(),
   retencaoDias: integer("retencao_dias").default(30).notNull(),
+  /** Orçamento próprio da classificação: % do limite mensal (uso real da classificação + reservas). QA E4 r2, N0. */
+  orcamentoClassificacaoPct: integer("orcamento_classificacao_pct").default(20).notNull(),
   atualizadoEm: timestamp("atualizado_em", { withTimezone: true }).defaultNow().notNull(),
   atualizadoPor: integer("atualizado_por").references(() => users.id, { onDelete: "set null" }),
+});
+
+/** Consumo da classificação por mês (AAAA-MM), base do orçamento próprio da classificação (QA E4 r2, N0). */
+export const doloresGruposConsumoMes = pgTable("dolores_grupos_consumo_mes", {
+  mes: varchar("mes", { length: 7 }).primaryKey(),
+  tokensEntrada: bigint("tokens_entrada", { mode: "number" }).default(0).notNull(),
+  tokensSaida: bigint("tokens_saida", { mode: "number" }).default(0).notNull(),
+  chamadas: integer("chamadas").default(0).notNull(),
+  ultimaEm: timestamp("ultima_em", { withTimezone: true }).defaultNow().notNull(),
 });
 
 export type DoloresGrupo = typeof doloresGrupos.$inferSelect;

@@ -40,7 +40,8 @@ async function exigirEvolution() {
   const { configEvolution } = await import("../whatsapp-router.js");
   const c = await configEvolution();
   if (!c) throw new TRPCError({ code: "BAD_REQUEST", message: "Servidor do WhatsApp (Evolution) não configurado: Integrações › WhatsApp." });
-  return c;
+  // QA E4 r2 N4: a chave da Evolution nunca segue redirecionamento para outro host
+  return { ...c, semRedirecionamento: true };
 }
 const gravar = (dados: Partial<typeof doloresWhatsappConfig.$inferInsert>, userId: number) =>
   getDb().update(doloresWhatsappConfig).set({ ...dados, atualizadoEm: new Date(), atualizadoPor: userId }).where(eq(doloresWhatsappConfig.id, 1));

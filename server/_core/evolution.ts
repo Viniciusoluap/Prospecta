@@ -1,7 +1,12 @@
 // Pedido de 25/10: WhatsApp por QR code via Evolution API (Baileys) hospedada pelo dono (Railway),
 // até a integração da Lógyca. Gêmeo de Grupo-Santa-Fe/web/src/lib/evolution.ts.
 import { chaveTelefone } from "../../shared/whatsapp/conversas.js";
-export type EvolutionConfig = { url: string; apiKey: string };
+/**
+ * `semRedirecionamento` (EPIC-025, QA E4 r2 N4): recusa redirecionamento (`redirect: "error"`), para o `apikey` nunca ir a
+ * outro host. Ligado só nas chamadas da Dolores; a Central de Vendas segue como antes (o padrão do fetch, "follow"), porque
+ * a URL já é normalizada para https e não há prova de que nenhuma instalação dependa de um redirecionamento.
+ */
+export type EvolutionConfig = { url: string; apiKey: string; semRedirecionamento?: boolean };
 type Fetch = typeof fetch;
 
 /** Pedido de 25/10: o Railway só aceita https (http redireciona e o POST vira GET → 404) e /manager é o painel. */
@@ -22,7 +27,7 @@ function motivo(data: unknown): string {
 const headers = (c: EvolutionConfig) => ({ "Content-Type": "application/json", apikey: c.apiKey.trim() });
 
 async function chamar<T>(c: EvolutionConfig, caminho: string, init: RequestInit = {}, fetchImpl: Fetch = fetch): Promise<{ ok: boolean; status: number; data: T | null }> {
-  const res = await fetchImpl(`${base(c)}${caminho}`, { ...init, headers: { ...headers(c), ...(init.headers ?? {}) } });
+  const res = await fetchImpl(`${base(c)}${caminho}`, { ...init, ...(c.semRedirecionamento ? { redirect: "error" as const } : {}), headers: { ...headers(c), ...(init.headers ?? {}) } });
   let data: T | null = null;
   try { data = (await res.json()) as T; } catch { /* corpo vazio */ }
   return { ok: res.ok, status: res.status, data };

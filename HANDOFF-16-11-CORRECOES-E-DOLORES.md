@@ -233,3 +233,21 @@ PR, cada uma com portão de QA. 4. Relatório final ao dono.
 - Testes (a) automáticos: tsc ok; `vite build` ok; suíte-alvo 45 arquivos / 603 testes ok (19 novos em `server/dolores/grupos-qa.test.ts`);
   suíte completa 249 arquivos / 2587 testes ok (2 processos). (b) manuais: nenhum. (c) pendentes em produção: os mesmos da E4.
 - Próximo passo exato: novo portão de QA, só nos testes QA-A e QA-B e na suíte. Depois: unir com a `main`, aplicar a 0126 e publicar.
+
+## Atualização — 17/11, Dolores etapa 4: 2ª rodada do portão de QA (N0–N6) — @dev
+- O QA reprovou de novo (1 bloqueio N0 e N1–N6). Todos corrigidos no ramo `epic025-dolores-etapa4`, um commit por achado
+  (6570e83 N0+N3, f8c93a6 N1, b7826a3 0126 sem ALTER, 5d4f993 N2, 09ce2d6 N4, ef299a4 + 3730490 N5, 2efc6c2 N6, ea8b2ad teste),
+  cópia em `claude/wip-epic025-dolores-etapa4`. Tabela na story (`E4-grupos.md`, "Correções da 2ª rodada").
+- Custo (N0): contagem prévia `messages.countTokens` do SDK antes de mandar o arquivo; uma classificação por vez; orçamento
+  próprio da classificação (20% do limite, ajustável) sobre o uso real da classificação (`dolores_grupos_consumo_mes`).
+- Migrações NÃO aplicadas: 0126 (editada de novo só dentro dos CREATE TABLE + tabela nova `dolores_grupos_consumo_mes`; antes de
+  aplicar, `SELECT to_regclass('dolores_grupos_contagem')` tem de voltar NULL) e 0130 nova (`CREATE OR REPLACE FUNCTION
+  dolores_aprovacoes_guarda`, corrige a E3 já em produção: excluir usuário que decidiu item da fila).
+- Testes (a) automáticos: tsc ok; suíte-alvo 46 arquivos / 630 testes (a única falha, guarda de log, corrigida em 14b22ad e
+  reexecutada ok); `vite build` ok; suíte completa 250 arquivos / 2614 testes ok (2 processos). (b) manuais: nenhum; (c) pendentes em
+  produção: aplicar 0126 e 0130, excluir um usuário de teste que decidiu item da fila, uma classificação real (confere a contagem
+  prévia contra a API de verdade).
+- Paridade: a Dolores não tem gêmeo no Grupo Santa Fé hoje; `server/_core/evolution.ts` (gêmeo do SF) ganhou só um campo opcional,
+  sem mudar o comportamento padrão — nada a portar.
+- Próximo passo exato: novo portão de QA (rodada 3) nos testes de `grupos-qa-r2.test.ts`; depois unir com a `main`, aplicar 0126 e
+  0130 e publicar.
