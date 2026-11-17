@@ -41,7 +41,10 @@ import { definirDependenciasClassificacao, limparPausaPorFalhaNoConsumo, type Pe
 import { RESERVA_ENTRADA_NOTA } from "./notas-obra.js";
 import { esquecerUsuarioDolores } from "./perfil.js";
 import { definirDependenciasPonte, executarFuncao } from "./ponte.js";
-import { AGORA, CENARIO, criarBanco } from "./testes-banco.js";
+import { AGORA as AGORA_DO_CENARIO, CENARIO, criarBanco } from "./testes-banco.js";
+// As notas nascem com o now() real do banco; o relógio do teste acompanha a data real para a confirmação do
+// empreiteiro não cair "fora do prazo" quando o calendário passa do dia fixo do cenário.
+const AGORA = new Date(Math.max(Date.now(), AGORA_DO_CENARIO.getTime()));
 import { definirDependenciasWhatsapp, segredoWebhookDolores, tratarWebhookDolores } from "./whatsapp.js";
 
 const DONO = "5599991234567";
