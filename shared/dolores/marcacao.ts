@@ -192,7 +192,7 @@ const REGRAS_FORA: Array<[MotivoForaDeEscopo, RegExp]> = [
   ["contrato", /\b(contrat|juridic|advog|judicial|justica|procon|multa|indeniz|distrato|garantia|clausula|escritura)/],
   ["prazo", /\b(prazo|ate quando|que dia|qual dia|data (de|da|pra|para) (entrega|conclus|termin)|previs|vai demorar|quanto tempo|demora|quando (fica|vai|termina|sai|entrega|libera|fica pronto|e que|acaba|comeca|vou)|semana que vem|mes que vem|amanha)/],
   ["reclamacao", /\b(reclam|absurd|insatisf|descaso|vergonha|denunci|process(ar|o voces)|enganad|golpe|palhacad|lament|pessim|horrivel|ridicul)/],
-  ["outro_cliente", /\b(outr[oa]s? (client|pessoa|obra|processo|grupo)|dos clientes|de outr[oa]|vizinh|fulan|beltran|sicran|todos os clientes|lista de clientes|quem mais)/],
+  ["outro_cliente", /\b(client[ea]s?|outr[oa]s? (pessoa|obra|processo|grupo)|dos clientes|de outr[oa]|vizinh|fulan|beltran|sicran|todos os clientes|lista de clientes|quem mais)/],
 ];
 
 /**

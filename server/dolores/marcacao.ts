@@ -212,12 +212,16 @@ async function gravar(grupo: DoloresGrupo, m: Marcada, situacao: SituacaoMarcaca
   const [linha] = await getDb().insert(doloresMarcacoes).values({
     grupoId: grupo.id, instancia: grupo.instancia, externalId: m.externalId, enviadaEm: m.enviadaEm,
     remetente: m.participante ? mascararNumero(m.participante) : "participante",
-    pergunta: sanitizarTexto(m.pergunta, FILTRO_DO_REGISTRO).slice(0, 500) || null,
+    pergunta: perguntaParaGravar(m.pergunta),
     situacao, motivo: motivo?.slice(0, 200) ?? null, foraDeEscopo: extra.foraDeEscopo ?? false,
     ...(situacao === "processando" ? {} : { respondidaEm: deps.agora() }),
   }).onConflictDoNothing().returning({ id: doloresMarcacoes.id });
   return linha?.id ?? null;
 }
+
+/** Pergunta gravada (tela, ler_grupo_cliente): links fora, filtro do registro e qualquer sequência longa de dígitos cortada. */
+export const perguntaParaGravar = (p: string) =>
+  sanitizarTexto(tratarLinksDaResposta(p, null), FILTRO_DO_REGISTRO).replace(/\d[\d .\-/]{5,}\d/g, m => `***${m.replace(/\D/g, "").slice(-2)}`).slice(0, 500) || null;
 
 const jaRegistrada = async (instancia: string, externalId: string) =>
   (await getDb().select({ id: doloresMarcacoes.id }).from(doloresMarcacoes).where(and(eq(doloresMarcacoes.instancia, instancia), eq(doloresMarcacoes.externalId, externalId))).limit(1)).length > 0;
