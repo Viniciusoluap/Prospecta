@@ -18,6 +18,7 @@ import { DoloresCard } from "@/components/admin/DoloresCard";
 import { DoloresFilaCard } from "@/components/admin/DoloresFilaCard";
 import { DoloresGruposCard } from "@/components/admin/DoloresGruposCard";
 import { DoloresNotasCard } from "@/components/admin/DoloresNotasCard";
+import { DoloresOperacaoCard } from "@/components/admin/DoloresOperacaoCard";
 
 type Servico = "asaas" | "pluggy" | "whatsapp";
 type Campo = { nome: string; rotulo: string; segredo?: boolean; placeholder?: string; opcional?: boolean };
@@ -200,6 +201,7 @@ export default function AdminIntegracoes() {
           <MapboxCard />
           <AnthropicCard />
           <DoloresCard />
+          <DoloresOperacaoCard />
           <DoloresFilaCard />
           <DoloresGruposCard />
           <DoloresNotasCard />
