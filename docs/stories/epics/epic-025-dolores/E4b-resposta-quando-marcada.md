@@ -118,8 +118,10 @@ Alterados:
 - fcf648a story; 7609e15 regras puras + canal grupo + migração 0129; 639aa30 laço, leituras, envio único, porta da chave;
   14d61b2 rotas e tela; 4241a91 27 testes; aac8e90 docs; 07e0400 testes antigos da etapa 4 + guarda do envio único;
   b9866d1 @lid pela Evolution.
-- Verificação (17/11): `npx tsc --noEmit` ok; `npx vite build` ok; suíte-alvo 41 arquivos / 563 testes (2 falhas esperadas do modelo
-  por função, corrigidas: a lista ganhou "dolores_grupo"); marcacao.test.ts 30/30. Migração 0129 NÃO aplicada.
+- a04dcce: acima do teto diário de mensagens do grupo (spam), a marcação nem é tratada.
+- Verificação final (17/11): `npx tsc --noEmit` ok; `npx vite build` ok; suíte-alvo 41 arquivos / 566 testes ok (2 processos);
+  suíte completa 250 arquivos / 2617 testes — 2616 ok e 1 falha (o teste novo de spam rodou antes do commit a04dcce; reexecutado
+  depois: `marcacao.test.ts` 30/30 ok). `server/integracoes-anthropic.test.ts` sem mudança. Migração 0129 NÃO aplicada.
 
 ## Change Log
 - 17/11/2026 — @dev (Dex): story criada (InProgress) a partir da decisão do dono de 17/11.
