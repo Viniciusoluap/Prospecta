@@ -11,10 +11,9 @@
 import { and, eq, inArray, isNull, lt, or, sql } from "drizzle-orm";
 import { doloresGrupoMensagens, doloresGrupos, doloresGruposContagem } from "../../drizzle/schema-dolores-grupos.js";
 import {
-  FERRAMENTA_CLASSIFICACAO, LIMIAR_CONFIANCA, ROTULO_TIPO_DOCUMENTO, bytesDoBase64, diaDeImperatriz, formatoPorBytes, lerSaidaClassificacao,
+  FERRAMENTA_CLASSIFICACAO, LIMIAR_CONFIANCA, ROTULO_TIPO_DOCUMENTO, bytesDoBase64, diaDeImperatriz, formatoPorBytes, lerSaidaClassificacao, motivoDaIaSeguro,
   paginasPdfEstimadas, pendenteVencido,
 } from "../../shared/dolores/grupos.js";
-import { textoDeDado } from "../../shared/dolores/fila.js";
 import { sanitizarTexto } from "../../shared/dolores/sanitizar.js";
 import { getDb } from "../db.js";
 import { registrarAcao } from "./auditoria.js";
@@ -44,6 +43,8 @@ export const MAX_BYTES_IMAGEM_IA = 3_750_000;
 export const RESERVA_BASE_CLASSIFICACAO = 3_000;
 export const RESERVA_POR_PAGINA_PDF = 5_000;
 export const RESERVA_ENTRADA_CLASSIFICACAO = RESERVA_BASE_CLASSIFICACAO + MAX_PAGINAS_PDF_IA * RESERVA_POR_PAGINA_PDF;
+/** No lugar do motivo do modelo que não passou na conferência (link, código, comando, quebra de linha): texto do sistema. */
+export const MOTIVO_OMITIDO = "motivo da IA omitido (o texto não passou na conferência de segurança)";
 /** Sem o arquivo, a confiança é limitada a isto (vira "confira"). */
 const CONFIANCA_SEM_ARQUIVO = 0.6;
 /** Tentativas por documento (falha de rede, modelo fora do ar). */
@@ -327,7 +328,7 @@ export async function classificarDocumentoDoGrupo(mensagemId: number, o: OpcoesC
     const tipo = saida?.tipo ?? "outro";
     const situacao = saida && confianca >= LIMIAR_CONFIANCA ? "classificado" : "confira";
     const motivo = !saida ? "a IA não devolveu uma classificação válida; confira"
-      : `${bloco ? "" : "classificado só pelo nome e pela legenda (arquivo fora do limite da IA, páginas que não consegui contar ou formato sem leitura); "}${textoDeDado(sanitizarTexto(saida.motivo, FILTRO_DO_REGISTRO), 160)}`;
+      : `${bloco ? "" : "classificado só pelo nome e pela legenda (arquivo fora do limite da IA, páginas que não consegui contar ou formato sem leitura); "}${motivoDaIaSeguro(sanitizarTexto(saida.motivo, FILTRO_DO_REGISTRO)) ?? MOTIVO_OMITIDO}`;
     await db.update(doloresGrupoMensagens).set({
       situacao, classificacao: tipo, confianca: confianca.toFixed(3), motivo: motivo.slice(0, 200), classificadoEm: new Date(), modelo: modelo.slice(0, 120),
     }).where(and(eq(doloresGrupoMensagens.id, mensagemId), eq(doloresGrupoMensagens.situacao, "classificando")));

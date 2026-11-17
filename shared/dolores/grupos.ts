@@ -2,7 +2,8 @@
 // comando), o enum FECHADO de tipos de documento, a saída validada da classificação pela IA, a sanitização de nome de
 // arquivo e legenda, o formato real do arquivo pelos bytes e a forma do id do grupo. Sem banco nem rede.
 import { z } from "zod";
-import { textoDeDado, umaLinha } from "./fila.js";
+import { codigoValido, textoDeDado, umaLinha } from "./fila.js";
+import { tratarLinksDaResposta } from "./links.js";
 import { INTERACOES, desembrulhar, foiEncaminhada, segundos } from "./whatsapp.js";
 
 /** Id de grupo do WhatsApp: "<dígitos>[-<dígitos>]@g.us" (o mesmo CHECK da migração 0126). */
@@ -83,6 +84,29 @@ export const FERRAMENTA_CLASSIFICACAO = {
 export function lerSaidaClassificacao(bruta: unknown): SaidaClassificacao | null {
   const r = saidaClassificacao.safeParse(bruta);
   return r.success ? r.data : null;
+}
+
+/** Tamanho máximo do motivo da classificação gravado (texto curto do modelo). */
+export const MAX_MOTIVO_IA = 160;
+
+/**
+ * QA E4, achado 4 — o motivo é texto LIVRE do modelo (que leu um documento de terceiro): só é gravado se for um texto curto,
+ * de uma linha, sem link nem forma de host (a mesma regra de links da resposta ao dono, sem nenhum host permitido), sem
+ * e-mail/menção, sem sequência longa de dígitos e sem nada com cara de decisão da fila ("aprovar"/"recusar" ou um código no
+ * formato dos códigos da fila). Na dúvida → null (quem chama grava um motivo do sistema no lugar).
+ */
+export function motivoDaIaSeguro(bruto: string | null | undefined): string | null {
+  const original = String(bruto ?? "");
+  if (/[\r\n\u2028\u2029]/.test(original)) return null;
+  const t = textoDeDado(umaLinha(original, 400), 400);
+  if (!t || t.length > MAX_MOTIVO_IA) return null;
+  if (tratarLinksDaResposta(t, null) !== t) return null;
+  if (/[@\\/]|\bwww\b|\d{4,}/i.test(t)) return null;
+  const semAcento = t.normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+  if (/\b(aprov|recus|ignor|instru|comando)\w*/i.test(semAcento)) return null;
+  // código da fila (5 do alfabeto, em maiúsculas) ou qualquer "palavra" com letras e dígitos (cara de código ou de id)
+  if (semAcento.split(/[^A-Za-z0-9]+/).some(p => codigoValido(p) || (p.length >= 4 && /[A-Za-z]/.test(p) && /\d/.test(p)))) return null;
+  return t;
 }
 
 /**
