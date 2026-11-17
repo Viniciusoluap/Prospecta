@@ -114,7 +114,9 @@ describe("ronda e relatório diário — idempotência", () => {
 
   it("antes da hora configurada: faz a ronda, não manda o relatório", async () => {
     await ligarTudo();
-    await banco.pg.exec("UPDATE dolores_operacao_config SET relatorio_hora = 18");
+    // a hora vai até a do cron diário (07h, achado 4 do QA); antes dela (execução às 06:30 de Brasília) não manda
+    await banco.pg.exec("UPDATE dolores_operacao_config SET relatorio_hora = 7");
+    definirRelogioCron({ agora: () => new Date("2026-11-17T09:30:00Z") });
     expect((await cron(`Bearer ${SEGREDO_CRON}`)).body).toMatchObject({ ronda: "feita", relatorio: "fora-da-hora" });
     expect(enviar).not.toHaveBeenCalled();
   });
@@ -286,10 +288,11 @@ describe("permissões (caminho completo pelo appRouter)", () => {
     expect(JSON.stringify(s)).not.toContain(DONO);
     expect(JSON.stringify(s)).not.toMatch(/sk-ant/);
     await expect(admin.dolores.operacao.salvar({ relatorioLigado: true })).rejects.toMatchObject({ code: "BAD_REQUEST" });
-    const ligado = await admin.dolores.operacao.salvar({ rondasLigadas: true, relatorioLigado: true, relatorioHora: 8, precoEntradaMilhao: 15, precoSaidaMilhao: 75 });
-    expect(ligado.config).toMatchObject({ rondasLigadas: true, relatorioLigado: true, relatorioHora: 8 });
+    const ligado = await admin.dolores.operacao.salvar({ rondasLigadas: true, relatorioLigado: true, relatorioHora: 6, precoEntradaMilhao: 15, precoSaidaMilhao: 75 });
+    expect(ligado.config).toMatchObject({ rondasLigadas: true, relatorioLigado: true, relatorioHora: 6 });
     expect(ligado.gasto.reaisEstimados).toBe(0);
     await expect(admin.dolores.operacao.salvar({ relatorioHora: 24 })).rejects.toMatchObject({ code: "BAD_REQUEST" });
+    await expect(admin.dolores.operacao.salvar({ relatorioHora: 8 })).rejects.toMatchObject({ code: "BAD_REQUEST" }); // depois do cron diário
     expect((await admin.dolores.operacao.pausar({ pausada: true, motivo: "viagem" })).pausa).toEqual({ pausada: true, motivo: "viagem" });
     expect(await n("dolores_acoes", "funcao IN ('pausa_geral', 'operacao_config') AND canal = 'tela'")).toBe(2);
   });
