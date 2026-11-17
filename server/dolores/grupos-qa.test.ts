@@ -252,7 +252,8 @@ describe("QA-A (achado 2): teto de páginas do PDF e reserva do pior caso", () =
     await chamar(aviso(item({ message: documento("a.pdf", "a") })));
     expect(pedidosIa).toHaveLength(1);
     expect((await q("SELECT sum(tokens_entrada)::int n FROM dolores_consumo"))[0].n).toBe(90_000);
-    const contagem = await q("SELECT grupo_id, excesso_entrada FROM dolores_grupos_contagem ORDER BY grupo_id");
+    // (a contagem de mensagens usa o relógio do teste e a classificação o do sistema: pode haver duas linhas por grupo)
+    const contagem = await q("SELECT grupo_id, sum(excesso_entrada)::int excesso_entrada FROM dolores_grupos_contagem GROUP BY grupo_id ORDER BY grupo_id");
     expect(contagem.find(c => c.grupo_id === 1)!.excesso_entrada).toBeGreaterThan(0);
     expect(contagem.find(c => c.grupo_id === 0)!.excesso_entrada).toBe(0); // o total NÃO é pausado
     expect((await q("SELECT motivo FROM dolores_acoes WHERE funcao = 'classificar_documento' ORDER BY id")).map(a => a.motivo)).toContain("uso real passou da reserva: classificação do grupo pausada até amanhã");
