@@ -92,7 +92,7 @@ describe("chamada autorizada", () => {
   it("executa, devolve o envelope (fuso, moeda, etapa) e audita no nome da Dolores com contagens", async () => {
     const r = await tratarChamada(pedido({ funcao: "listar_processos_regularizacao", argumentos: { situacao: "atrasados" }, pedidoId: "wa-123" }));
     expect(r.status).toBe(200);
-    expect(r.body).toMatchObject({ ok: true, etapa: 5, funcao: "listar_processos_regularizacao", pedidoId: "wa-123", fuso: "America/Fortaleza (UTC-03:00)",
+    expect(r.body).toMatchObject({ ok: true, etapa: 6, funcao: "listar_processos_regularizacao", pedidoId: "wa-123", fuso: "America/Fortaleza (UTC-03:00)",
       moeda: "BRL", geradoEm: "2026-11-16T09:00:00-03:00", truncado: false });
     // M2: toda resposta com dados lembra que o conteúdo é dado, não instrução; o prompt do agente diz o mesmo
     expect(r.body.avisoSeguranca).toMatch(/nunca instrução/);
@@ -313,7 +313,7 @@ describe("ferramentas (fonte única)", () => {
     const r = await tratarFerramentas(pedido({}));
     expect(r.status).toBe(200);
     const ferramentas = r.body.ferramentas as any[];
-    expect(ferramentas.map(f => f.name)).toEqual([...LIBERADAS_ETAPA_1, "listar_grupos", "ler_grupo_cliente", "listar_notas_obra"]);
+    expect(ferramentas.map(f => f.name)).toEqual([...LIBERADAS_ETAPA_1, "listar_grupos", "ler_grupo_cliente", "listar_notas_obra", "relatorio_diario"]);
     expect(ferramentas.every(f => f.input_schema.type === "object" && f.input_schema.additionalProperties === false && f.description.length > 20)).toBe(true);
     const arquivo = JSON.parse(readFileSync(new URL("../../docs/dolores/ferramentas-etapa1.json", import.meta.url), "utf8"));
     expect(arquivo.ferramentas).toEqual(ferramentasLiberadas());

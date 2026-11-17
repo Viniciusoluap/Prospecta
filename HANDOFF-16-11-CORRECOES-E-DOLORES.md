@@ -309,3 +309,40 @@ a classificação de cada item e o que depende só dele.
 1. Receber a E6 do @dev; unir a `origin/main` (tem a 4b); QA de segurança; corrigir; aplicar a `0131`; publicar pela receita do topo
    (`git diff origin/main...<HEAD>` com três pontos).
 2. Marcar a etapa 6 no EPIC; ROADMAP (paridade com o Santa Fé só anotada); relatório final ao dono.
+
+## Atualização — 17/11, ~14:20 UTC — EPIC-025 COMPLETO NA MAIN
+
+### Concluído e publicado
+- **Dolores etapa 6 (operação contínua)** — PR #252, squash `f33393f`. Migração `0131` aplicada no Neon
+  (`dolores_operacao_config`, `dolores_rondas`, `dolores_relatorios`, `dolores_relatorio_reenvios`, `dolores_eventos`).
+  Arquivos principais: `shared/dolores/operacao.ts`, `server/dolores/{operacao,rondas,operacao-router}.ts`,
+  `server/dolores/leitura/relatorio.ts`, `DoloresOperacaoCard.tsx`, rota `/api/cron/dolores` (cron `0 10 * * *`).
+  QA de segurança: CONCERNS sem bloqueio; os 5 achados baixos corrigidos com teste de regressão.
+- A pausa geral agora cala também a resposta nos grupos (`podeFalarNoGrupo`).
+- Testes das notas de obra deixaram de depender da data do calendário.
+- **Todas as etapas do EPIC-025 (1, 2, 3, 4, 4b, 5, 6) estão na `main`. Banco de produção: 0117–0131 aplicadas.**
+- **Tudo da Dolores está DESLIGADO em produção** até o dono ligar.
+
+### Testes
+- (a) automáticos: ramo de publicação da E6 — `tsc` limpo, 35 arquivos / 624 testes, `vite build` ok; prévia READY.
+- (b) manuais: nenhum.
+- (c) pendentes de validação em produção, só o dono consegue fazer:
+  1. Integrações › Anthropic: escolher o modelo de cada função (conversa, plantas da maquete, documentos dos grupos,
+     notas de obra, resposta nos grupos).
+  2. Maquete 3D: reler o PDF da maquete 8 com um modelo mais forte.
+  3. Dolores: conectar o número (QR code), cadastrar o número do dono e os limites, ligar a IA; mandar "relatório".
+  4. Grupos: incluir o número da Dolores num grupo real, cadastrar o grupo, marcar a Dolores (formato real da menção/@lid),
+     enviar um documento e, em grupo de obra, uma nota.
+  5. Vercel: conferir que existem `PUBLIC_SITE_URL` e `CRON_SECRET` (sem o segredo o cron da Dolores recusa sempre).
+  6. Operação: informar o preço por milhão de tokens na tela para o gasto aparecer em R$; ligar rondas e relatório.
+
+### Pendências (não travam)
+- Decisões do dono em aberto: pedir o aceite do termo a quem já tem senha (`CONSENTIMENTO_PEDIR_NO_LOGIN`, desligado);
+  criar lançamento/pagamento a partir da nota (hoje a nota só aponta); revisão do termo pelo jurídico (5 marcadores) e
+  consentimento dos clientes do CRM sem login; provedor de imagem para a IA de logos.
+- Ganchos prontos, não ligados: evento de pagamento do banco no momento da sincronização (`server/bancos.ts`);
+  organizador do Drive ainda não conhece a pasta "Notas fiscais".
+- Paridade com o Grupo Santa Fé: em espera por ordem do dono; lista no ROADMAP.
+
+## Próximo passo exato
+Nada pendente de código. Acompanhar a validação do dono em produção (lista (c) acima) e corrigir o que ele apontar.

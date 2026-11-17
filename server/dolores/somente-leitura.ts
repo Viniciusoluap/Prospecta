@@ -11,9 +11,15 @@ const atual = new AsyncLocalStorage<Banco>();
 /** Conexão das leituras: a transação somente leitura aberta pela ponte (fora dela, a conexão comum — só nos testes). */
 export const bancoDaLeitura = (): Banco => atual.getStore() ?? getDb();
 
-export async function emTransacaoSomenteLeitura<T>(fn: () => Promise<T>): Promise<T> {
+/**
+ * `opcoes.tempoLimiteMs`: o próprio banco cancela a consulta que passar disso (SET LOCAL statement_timeout, só nesta
+ * transação; erro 57014). Sem o parâmetro, vale o tempo padrão da conexão.
+ */
+export async function emTransacaoSomenteLeitura<T>(fn: () => Promise<T>, opcoes?: { tempoLimiteMs?: number }): Promise<T> {
   return getDb().transaction(async tx => {
     await tx.execute(sql`SET TRANSACTION READ ONLY`);
+    const limite = opcoes?.tempoLimiteMs;
+    if (limite !== undefined && Number.isFinite(limite) && limite > 0) await tx.execute(sql.raw(`SET LOCAL statement_timeout = ${Math.max(1, Math.floor(limite))}`));
     return atual.run(tx as unknown as Banco, fn);
   });
 }

@@ -13,6 +13,9 @@
 // - Envio: o ÚNICO ponto que escreve em grupo (`responderNoGrupo`), com o destino conferido duas vezes (o JID do grupo cadastrado
 //   e ativo da mensagem; nunca do modelo nem do texto), sem prévia de link e sem mencionar ninguém.
 // - Cada marcação vira uma linha em dolores_marcacoes (tela e `ler_grupo_cliente`); nada é enviado ao dono por marcação.
+// - Etapa 6 — pausa geral (ou conta da Dolores desativada): `podeFalarNoGrupo()` (operacao.ts) ANTES de reservar a vaga, de
+//   pedir a chave, de chamar a IA ou de enviar qualquer coisa (inclusive as frases fixas), e de novo no envio. Bloqueada: a
+//   marcação só é registrada ("silencio"), a Dolores fica muda no grupo.
 import { createHmac } from "node:crypto";
 import { and, desc, eq, lt, sql } from "drizzle-orm";
 import { doloresAcoes } from "../../drizzle/schema-dolores.js";
@@ -39,6 +42,7 @@ import { liberarReservaMarcacao, registrarConsumo, reservarMarcacao, type UsoDaC
 import { FILTRO_DO_REGISTRO, filtroDaSaida } from "./dados-pessoais.js";
 import { erroParaLog } from "./erro-seguro.js";
 import { grupoAtivo } from "./grupos.js";
+import { podeFalarNoGrupo } from "./operacao.js";
 import {
   andamentoDoGrupo, documentosPendentesDoGrupo, entradaSemArgumentos, proximosPassosDoGrupo, type ContextoDoGrupo,
 } from "./leitura/grupo-marcado.js";
@@ -309,6 +313,8 @@ async function responderNoGrupo(grupo: DoloresGrupo, m: Marcada, texto: string, 
   if (!atual || !atual.ativo || atual.instancia !== ctx.instancia || atual.grupoJid !== m.grupoJid || atual.grupoJid !== grupo.grupoJid) return recusar("destino não confere com o grupo cadastrado e ativo da mensagem");
   const ligados = await Promise.all([lerConfigMarcacoes().then(c => c.responderLigado).catch(() => false), grupoLigado(grupo.id).catch(() => false)]);
   if (pausadaPorFalhaNoConsumo || !ligados[0] || !ligados[1]) return recusar("interruptor de responder quando marcada desligado no momento do envio");
+  // Etapa 6 — a pausa geral confere de novo no envio (pode ter sido ligada durante a chamada à IA)
+  if (!(await podeFalarNoGrupo())) return recusar("Dolores pausada (pausa geral ou conta desativada) no momento do envio");
   const final = respostaSeguraDoGrupo(texto, urlDoSistemaParaLinks()).texto;
   const restante = ctx.prazoFinal - deps.ms();
   if (restante < 1_500) {
@@ -460,6 +466,12 @@ export async function tratarMarcacao(cfg: DoloresWhatsappConfig, item: unknown, 
   try {
     // 4) idempotência (reentrega do mesmo id)
     if (await jaRegistrada(grupo.instancia, m.externalId)) return "marcacao-repetida";
+    // 4b) Etapa 6 — pausa geral / conta da Dolores desativada (falha fechada): muda no grupo, só registrada. Antes da vaga,
+    //     dos tetos, da chave, da IA e de qualquer envio (inclusive as frases fixas).
+    if (!(await podeFalarNoGrupo())) {
+      await gravar(grupo, m, "silencio", "Dolores pausada (pausa geral ou conta desativada): muda no grupo");
+      return "marcacao-pausada";
+    }
     // 5) interruptores (geral e do grupo; os dois nascem desligados): silêncio, registrado
     const doGrupo = await grupoLigado(grupo.id);
     if (pausadaPorFalhaNoConsumo || !conf.responderLigado || !doGrupo) {
