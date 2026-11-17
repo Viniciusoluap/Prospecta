@@ -18,9 +18,15 @@ describe("migração 0131 (operação contínua)", () => {
     await expect(pg.exec("UPDATE dolores_operacao_config SET relatorio_hora = 24")).rejects.toThrow();
   });
 
-  it("só aditiva: nenhum ALTER, DROP, DELETE, TRUNCATE nem UPDATE no texto", () => {
+  it("só aditiva: nenhum ALTER, DROP (fora o DROP TRIGGER IF EXISTS dos próprios gatilhos), DELETE, TRUNCATE nem UPDATE no texto", () => {
     const semComentarios = SQL.split("\n").filter(l => !l.trim().startsWith("--")).join("\n");
-    expect(semComentarios).not.toMatch(/\b(ALTER|DROP|DELETE\s+FROM|TRUNCATE\s+(TABLE\s+)?"|UPDATE\s+")\b/i);
+    // padrão das migrações da Dolores (achado 5 do QA): cada gatilho é recriado com DROP TRIGGER IF EXISTS + CREATE TRIGGER
+    expect(semComentarios).not.toMatch(/CREATE\s+OR\s+REPLACE\s+TRIGGER/i);
+    const drops = semComentarios.match(/DROP TRIGGER IF EXISTS (\w+) ON "(\w+)";\nCREATE TRIGGER \1 BEFORE/g) ?? [];
+    expect(drops.length).toBeGreaterThanOrEqual(6);
+    for (const d of drops) expect(d).toMatch(/ON "dolores_(rondas|relatorios|eventos|relatorio_reenvios)";/);
+    const semDropDeGatilho = semComentarios.replace(/DROP TRIGGER IF EXISTS \w+ ON "\w+";/g, "");
+    expect(semDropDeGatilho).not.toMatch(/\b(ALTER|DROP|DELETE\s+FROM|TRUNCATE\s+(TABLE\s+)?"|UPDATE\s+")\b/i);
   });
 
   it("rondas, relatórios e eventos: só inserção, janela e chave únicas", async () => {

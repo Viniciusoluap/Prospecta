@@ -15,7 +15,8 @@
 -- Nenhuma destas tabelas tem chave estrangeira para "users" (quem pediu fica como número, sem FK): a exclusão de um usuário
 -- nunca esbarra nos gatilhos de só inserção (um ON DELETE SET NULL viraria UPDATE). A única FK (relatório → ronda) é
 -- RESTRICT, e a ronda não se apaga.
--- Somente aditiva e idempotente: CREATE TABLE/INDEX IF NOT EXISTS, CREATE OR REPLACE FUNCTION/TRIGGER e a linha de
+-- Somente aditiva e idempotente: CREATE TABLE/INDEX IF NOT EXISTS, CREATE OR REPLACE FUNCTION, gatilhos no padrão das outras
+-- migrações da Dolores (DROP TRIGGER IF EXISTS + CREATE TRIGGER, só dos gatilhos desta migração) e a linha de
 -- configuração com ON CONFLICT DO NOTHING. Nenhuma tabela existente é alterada.
 -- Reversão: DROP TABLE "dolores_relatorios", "dolores_rondas", "dolores_eventos", "dolores_operacao_config";
 -- DROP FUNCTION dolores_operacao_somente_insercao() (nada fora da etapa 6 depende delas).
@@ -91,15 +92,21 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
-CREATE OR REPLACE TRIGGER dolores_rondas_guarda BEFORE UPDATE OR DELETE ON "dolores_rondas"
+DROP TRIGGER IF EXISTS dolores_rondas_guarda ON "dolores_rondas";
+CREATE TRIGGER dolores_rondas_guarda BEFORE UPDATE OR DELETE ON "dolores_rondas"
   FOR EACH ROW EXECUTE FUNCTION dolores_operacao_somente_insercao();
-CREATE OR REPLACE TRIGGER dolores_rondas_sem_truncate BEFORE TRUNCATE ON "dolores_rondas"
+DROP TRIGGER IF EXISTS dolores_rondas_sem_truncate ON "dolores_rondas";
+CREATE TRIGGER dolores_rondas_sem_truncate BEFORE TRUNCATE ON "dolores_rondas"
   FOR EACH STATEMENT EXECUTE FUNCTION dolores_operacao_somente_insercao();
-CREATE OR REPLACE TRIGGER dolores_relatorios_guarda BEFORE UPDATE OR DELETE ON "dolores_relatorios"
+DROP TRIGGER IF EXISTS dolores_relatorios_guarda ON "dolores_relatorios";
+CREATE TRIGGER dolores_relatorios_guarda BEFORE UPDATE OR DELETE ON "dolores_relatorios"
   FOR EACH ROW EXECUTE FUNCTION dolores_operacao_somente_insercao();
-CREATE OR REPLACE TRIGGER dolores_relatorios_sem_truncate BEFORE TRUNCATE ON "dolores_relatorios"
+DROP TRIGGER IF EXISTS dolores_relatorios_sem_truncate ON "dolores_relatorios";
+CREATE TRIGGER dolores_relatorios_sem_truncate BEFORE TRUNCATE ON "dolores_relatorios"
   FOR EACH STATEMENT EXECUTE FUNCTION dolores_operacao_somente_insercao();
-CREATE OR REPLACE TRIGGER dolores_eventos_guarda BEFORE UPDATE OR DELETE ON "dolores_eventos"
+DROP TRIGGER IF EXISTS dolores_eventos_guarda ON "dolores_eventos";
+CREATE TRIGGER dolores_eventos_guarda BEFORE UPDATE OR DELETE ON "dolores_eventos"
   FOR EACH ROW EXECUTE FUNCTION dolores_operacao_somente_insercao();
-CREATE OR REPLACE TRIGGER dolores_eventos_sem_truncate BEFORE TRUNCATE ON "dolores_eventos"
+DROP TRIGGER IF EXISTS dolores_eventos_sem_truncate ON "dolores_eventos";
+CREATE TRIGGER dolores_eventos_sem_truncate BEFORE TRUNCATE ON "dolores_eventos"
   FOR EACH STATEMENT EXECUTE FUNCTION dolores_operacao_somente_insercao();
