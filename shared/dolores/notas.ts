@@ -409,7 +409,8 @@ export function ligarRespostaANota(p: {
   if (nota.grupoId !== p.grupoId) return { ok: false, motivo: "a nota é de outro grupo" };
   if (nota.confirmacao !== "pendente") return { ok: false, motivo: `a nota ${nota.id} já tem resposta registrada` };
   const idadeDias = (p.agora.getTime() - nota.criadoEm.getTime()) / 86_400_000;
-  if (idadeDias > p.prazoDias || idadeDias < -0.01) return { ok: false, motivo: `fora do prazo de ${p.prazoDias} dias para confirmar a nota ${nota.id}` };
+  // folga de 1 dia para relógios diferentes (servidor × banco); resposta "antes" da nota além disso não vale
+  if (idadeDias > p.prazoDias || idadeDias < -1) return { ok: false, motivo: `fora do prazo de ${p.prazoDias} dias para confirmar a nota ${nota.id}` };
   return { ok: true, notaId: nota.id, ligacao: p.porCitacao ? "citacao" : "referencia" };
 }
 

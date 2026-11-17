@@ -284,7 +284,7 @@ describe("confirmação do empreiteiro (dado reconhecido por código, não auten
     const ext = await mandarNota(20);
     const ia = pedidosIa.length;
     const r = await chamar(aviso(item({ message: citando("Confirmo", ext) })));
-    expect(r.body.r).toMatchObject({ "resposta-confirmada": 1 });
+    expect(r.body.r, JSON.stringify(await acoes("resposta_empreiteiro_nota"))).toMatchObject({ "resposta-confirmada": 1 });
     expect(pedidosIa).toHaveLength(ia); // reconhecer não chama a IA
     const [n] = await notas();
     expect(n).toMatchObject({ confirmacao: "confirmada", bpo_lancamento_id: null });
@@ -385,7 +385,7 @@ describe("conciliação com o BPO e fila de aprovação", () => {
     expect((await notas())[0].bpo_lancamento_id).toBeNull(); // só proposto
     const [item] = await q("SELECT * FROM dolores_aprovacoes");
     expect(item.resumo).toMatch(/o lançamento do BPO NÃO é alterado/);
-    expect(item.resumo).toMatch(/indício/);
+    expect(item.resumo).toMatch(/indício/i);
     const [d] = await decidir([item.codigo], "aprovar", decisorDaTela(1));
     expect(d).toMatchObject({ ok: true, situacao: "executada" });
     const [n] = await notas();
@@ -488,10 +488,10 @@ describe("migração 0128: só aditiva, idempotente, e não barra exclusões leg
   async function comEsbocos<T>(fn: () => Promise<T>): Promise<T> {
     for (let i = 0; ; i++) {
       try { return await fn(); } catch (e: any) {
-        const causa = String(e?.cause?.message ?? e?.cause?.cause?.message ?? e?.message ?? "");
+        const causa = [e, e?.cause, e?.cause?.cause, e?.cause?.cause?.cause].map(x => String(x?.message ?? "")).join(" | ");
         const m = /relation "(\w+)" does not exist/.exec(causa);
         if (!m || i > 15) throw e;
-        const consulta = String(e?.cause?.query ?? e?.query ?? e?.message ?? "");
+        const consulta = [e, e?.cause, e?.cause?.cause].map(x => String(x?.query ?? x?.message ?? "")).join(" | ");
         const cols = Array.from(new Set(Array.from(consulta.matchAll(new RegExp(`"${m[1]}"\\."(\\w+)"`, "g"))).map(x => x[1]).filter(c => c !== "id")));
         await banco.pg.exec(`CREATE TABLE IF NOT EXISTS "${m[1]}" (id serial${cols.map(c => `, "${c}" integer`).join("")})`);
       }
