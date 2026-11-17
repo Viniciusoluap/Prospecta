@@ -71,7 +71,7 @@ Novos:
 - `drizzle/0129_dolores_marcacoes.sql`, `drizzle/schema-dolores-marcacoes.ts`
 - `server/dolores/marcacao.ts` (laço do grupo, tetos, idempotência, porta das 3 leituras, envio único a grupo, lista da tela)
 - `server/dolores/leitura/grupo-marcado.ts` (`andamento_do_grupo`, `documentos_pendentes_do_grupo`, `proximos_passos_do_grupo`)
-- `server/dolores/marcacao.test.ts` (30 testes)
+- `server/dolores/marcacao.test.ts` (34 testes)
 Alterados:
 - `server/dolores/dados-pessoais.ts` (canal `grupo`: sempre mascarado), `server/dolores/consumo.ts` (`reservarMarcacao`, reservas das
   marcações somadas às do dono e da classificação), `server/dolores/whatsapp.ts` (`credencialDaMarcacao`, `bloqueioAtual` aceita
@@ -80,7 +80,7 @@ Alterados:
   `ligarMarcacaoGrupo`, `conferirLidDolores`), `client/src/components/admin/DoloresGruposCard.tsx` (seção "Responder no grupo quando marcada")
 - `server/dolores/leitura/grupos.ts` (`marcacoesRecentes` em `ler_grupo_cliente`), `server/dolores/{funcoes,permissoes,prompt,testes-banco}.ts`
 - `drizzle.config.ts`, `docs/dolores/{como-ligar.md,agente-etapa4.md,ferramentas-etapa1.json}`, `docs/stories/epics/epic-025-dolores/E4-grupos.md` (nota)
-- testes: `server/dolores/grupos.test.ts` (sem marcação real + interruptor ligado → nada vai ao grupo), `server/integracoes-modelo-por-funcao.test.ts`
+- testes: `server/dolores/grupos-qa-r2.test.ts` (`marcacao.ts` na lista do guarda de redirecionamento), `server/dolores/grupos.test.ts` (sem marcação real + interruptor ligado → nada vai ao grupo), `server/integracoes-modelo-por-funcao.test.ts`
 
 ## Dev Notes
 - [AUTO-DECISION] @lid da Dolores → conferido pela Evolution (lista de participantes de um grupo cadastrado, só leitura) e guardado
@@ -113,6 +113,16 @@ Alterados:
 - [AUTO-DECISION] Auditoria em `dolores_acoes` com canal "whatsapp" (o CHECK antigo não tem "grupo"; não se altera tabela antiga) e
   funções `grupo_marcacao`, `grupo_leitura`, `grupo_resposta`.
 - [AUTO-DECISION] Idempotência: reentrega com o mesmo id antes da reivindicação pode somar 1 nos contadores (não responde duas vezes).
+- [AUTO-DECISION] Travas da 3ª rodada da E4 na resposta em grupo (merge com a E4 final `bd8c91d` e a `main` `537d687`):
+  (1) uma chamada de IA dos GRUPOS por vez (global): com reserva válida de uma classificação ou de outra marcação,
+  `reservarMarcacao` devolve `outra_chamada` (silêncio/frase fixa) e `reservarClassificacao` devolve `outra_classificacao`;
+  (2) orçamento PRÓPRIO das respostas em grupo, `ORCAMENTO_MARCACAO_PCT` = 10% do limite mensal, medido em `dolores_consumo`
+  pelas linhas com `parada` "grupo…" (sem coluna/tabela nova; reason: não mexer na 0129 nem na 0126) — além da folga do dono de 80%;
+  (3) contagem prévia (`messages.countTokens`, mesmo pedido) antes de cada volta: erro, prazo ou acima de 6.000 → a chamada não vai;
+  (4) falha fechada: `registrarConsumo` não gravou → desliga o interruptor GERAL no banco (auditado `grupo_marcacao_desligada`), pausa
+  em memória até o admin religar, nenhuma volta a mais e o texto daquela volta não é usado; (5) uso real acima da reserva → para o laço.
+- Envio ao grupo e conferência do @lid passam a recusar redirecionamento (`semRedirecionamento: true`, QA E4 r2 N4); o guarda
+  estático de `grupos-qa-r2.test.ts` ganhou `marcacao.ts` na lista (a regra continua: todo `configEvolution(` com a trava).
 
 ## Progresso
 - fcf648a story; 7609e15 regras puras + canal grupo + migração 0129; 639aa30 laço, leituras, envio único, porta da chave;
@@ -122,6 +132,8 @@ Alterados:
 - Verificação final (17/11): `npx tsc --noEmit` ok; `npx vite build` ok; suíte-alvo 41 arquivos / 566 testes ok (2 processos);
   suíte completa 250 arquivos / 2617 testes — 2616 ok e 1 falha (o teste novo de spam rodou antes do commit a04dcce; reexecutado
   depois: `marcacao.test.ts` 30/30 ok). `server/integracoes-anthropic.test.ts` sem mudança. Migração 0129 NÃO aplicada.
+- Merge `bd8c91d` (E4 final) + `origin/main` `537d687`; travas da E4 r3 na resposta em grupo; 4 regressões novas em
+  `marcacao.test.ts` ("travas da 3ª rodada da E4 também na resposta em grupo").
 
 ## Change Log
 - 17/11/2026 — @dev (Dex): story criada (InProgress) a partir da decisão do dono de 17/11.
