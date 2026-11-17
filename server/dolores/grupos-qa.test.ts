@@ -246,19 +246,25 @@ describe("QA-A (achado 2): teto de páginas do PDF e reserva do pior caso", () =
     expect(durante).toBe(RESERVA_ENTRADA_CLASSIFICACAO);
   });
 
-  it("uso real acima da reserva: registra o consumo real e pausa as classificações do dia (o próximo documento nem chama a IA)", async () => {
+  it("uso real acima da reserva (r2 N3): registra o consumo real e pausa só o GRUPO que causou; outro grupo segue", async () => {
+    await banco.pg.exec("INSERT INTO dolores_grupos (instancia, grupo_jid, nome, ativo) VALUES ('prospecta-dolores', '120363777777777777@g.us', 'Outro grupo', true)");
     respostaIa = () => ehToolUse({ tipo: "rg", confianca: 0.9, motivo: "documento com foto" }, 90_000);
     await chamar(aviso(item({ message: documento("a.pdf", "a") })));
     expect(pedidosIa).toHaveLength(1);
     expect((await q("SELECT sum(tokens_entrada)::int n FROM dolores_consumo"))[0].n).toBe(90_000);
-    const [total] = await q("SELECT excesso_entrada FROM dolores_grupos_contagem WHERE grupo_id = 0");
-    expect(total.excesso_entrada).toBeGreaterThan(0);
-    expect((await q("SELECT motivo FROM dolores_acoes WHERE funcao = 'classificar_documento' ORDER BY id")).map(a => a.motivo)).toContain("uso real passou da reserva: classificações pausadas até amanhã");
+    const contagem = await q("SELECT grupo_id, excesso_entrada FROM dolores_grupos_contagem ORDER BY grupo_id");
+    expect(contagem.find(c => c.grupo_id === 1)!.excesso_entrada).toBeGreaterThan(0);
+    expect(contagem.find(c => c.grupo_id === 0)!.excesso_entrada).toBe(0); // o total NÃO é pausado
+    expect((await q("SELECT motivo FROM dolores_acoes WHERE funcao = 'classificar_documento' ORDER BY id")).map(a => a.motivo)).toContain("uso real passou da reserva: classificação do grupo pausada até amanhã");
+    respostaIa = () => ehToolUse({ tipo: "rg", confianca: 0.9, motivo: "documento com foto" });
     await chamar(aviso(item({ message: documento("b.pdf", "b") })));
-    expect(pedidosIa).toHaveLength(1); // pausada: nenhuma chamada nova
+    expect(pedidosIa).toHaveLength(1); // o mesmo grupo: pausado, nenhuma chamada nova
     const ms = await mensagens();
     expect(ms[1]).toMatchObject({ situacao: "a_classificar" });
-    expect(ms[1].motivo).toMatch(/pausadas até amanhã/);
+    expect(ms[1].motivo).toMatch(/pausada até amanhã/);
+    await chamar(aviso(item({ jid: "120363777777777777@g.us", message: documento("c.pdf", "c") })));
+    expect(pedidosIa).toHaveLength(2); // outro grupo: classifica normalmente
+    expect((await mensagens())[2]).toMatchObject({ situacao: "classificado" });
   });
 });
 

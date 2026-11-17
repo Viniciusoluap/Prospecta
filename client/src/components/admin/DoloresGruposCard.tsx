@@ -48,6 +48,7 @@ export function DoloresGruposCard() {
     const n = (k: string) => (tetos[k] !== undefined && tetos[k] !== "" ? Number(tetos[k]) : undefined);
     salvarConfig.mutate({
       tetoClassificacoesDia: n("dia"), tetoClassificacoesGrupoDia: n("grupo"), maxMensagensGrupoDia: n("mensagens"), tamanhoMaximoMb: n("mb"), retencaoDias: n("retencao"),
+      orcamentoClassificacaoPct: n("orcamento"),
     });
   };
 
@@ -132,12 +133,15 @@ export function DoloresGruposCard() {
               <p className="text-xs text-gray-300">
                 Só documentos e fotos são classificados (texto nunca chama a IA), um por vez, com o modelo da função "Dolores — classificação de
                 documentos" (Integrações › Anthropic). Também precisa do interruptor da IA da Dolores ligado e de limite mensal: a classificação
-                usa no máximo 80% do limite, para sobrar para os comandos do dono. Desligada, o documento fica "a classificar".
+                tem orçamento próprio (uma parte do limite mensal, 20% se você não mudar) e nunca passa de 80% do limite somando tudo, para
+                sobrar para os comandos do dono. Uma classificação por vez; antes de mandar o arquivo, a Dolores pede à Anthropic a contagem
+                de tokens e, se passar da reserva, classifica só pelo nome e pela legenda (com "confira"). Desligada, o documento fica
+                "a classificar".
               </p>
-              <div className="grid grid-cols-2 gap-2 sm:grid-cols-5">
+              <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-6">
                 {([["dia", "Classificações por dia", cfg.tetoClassificacoesDia], ["grupo", "Por grupo por dia", cfg.tetoClassificacoesGrupoDia],
                   ["mensagens", "Mensagens por grupo/dia", cfg.maxMensagensGrupoDia], ["mb", "Tamanho máximo (MB)", Math.round(cfg.tamanhoMaximoBytes / 1_048_576)],
-                  ["retencao", "Pendente vale (dias)", cfg.retencaoDias]] as const).map(([k, rot, atual]) => (
+                  ["retencao", "Pendente vale (dias)", cfg.retencaoDias], ["orcamento", "Orçamento da classificação (% do limite, 1 a 50)", cfg.orcamentoClassificacaoPct]] as const).map(([k, rot, atual]) => (
                   <div key={k}><Label htmlFor={`grupos-${k}`} className="text-xs text-gray-300">{rot} (hoje {atual})</Label>
                     <Input id={`grupos-${k}`} inputMode="numeric" value={tetos[k] ?? ""} onChange={e => setTetos({ ...tetos, [k]: e.target.value.replace(/\D/g, "") })} className={campo} /></div>
                 ))}

@@ -131,6 +131,8 @@ export const gruposRouter = router({
     maxMensagensGrupoDia: z.number().int().min(1).max(5000).optional(),
     tamanhoMaximoMb: z.number().int().min(1).max(20).optional(),
     retencaoDias: z.number().int().min(1).max(365).optional(),
+    // QA E4 r2, N0.3: orçamento próprio da classificação (% do limite mensal)
+    orcamentoClassificacaoPct: z.number().int().min(1).max(50).optional(),
   }).strict()).mutation(async ({ ctx, input }) => {
     const { tamanhoMaximoMb, ...resto } = input;
     const dados = { ...resto, ...(tamanhoMaximoMb !== undefined ? { tamanhoMaximoBytes: tamanhoMaximoMb * 1_048_576 } : {}) };
