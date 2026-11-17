@@ -18,7 +18,7 @@ import { doloresGrupoMensagens, doloresGrupos, doloresGruposContagem } from "../
 import { obraNotas, obraNotasConfig, obraNotasRespostas, type ObraNotasConfig } from "../../drizzle/schema-dolores-notas.js";
 import { bytesDoBase64, diaDeImperatriz, formatoPorBytes, lerMensagemDeGrupo, paginasPdfEstimadas, pendenteVencido } from "../../shared/dolores/grupos.js";
 import {
-  FERRAMENTA_NOTA, conferirLeitura, lerRespostaDoEmpreiteiro, lerSaidaNota, ligarRespostaANota, mensagemCitada, motivoDuplicidade,
+  FERRAMENTA_NOTA, conferirLeitura, lerRespostaDoEmpreiteiro, lerSaidaNota, ligarRespostaANota, mensagemCitada, motivoDuplicidade, numeroComparavel,
   type CandidataConfirmacao, type LeituraConferida,
 } from "../../shared/dolores/notas.js";
 import { mascararNumero } from "../../shared/dolores/whatsapp.js";
@@ -91,13 +91,17 @@ async function gravarNota(p: {
   return getDb().transaction(async tx => {
     await tx.execute(sql`SELECT pg_advisory_xact_lock(250005)`);
     const l = p.leitura;
-    const candidatas = await tx.select({ id: obraNotas.id, arquivoSha256: obraNotas.arquivoSha256, chaveAcesso: obraNotas.chaveAcesso,
-      emitenteDocumento: obraNotas.emitenteDocumento, numero: obraNotas.numero }).from(obraNotas)
-      .where(or(
-        p.sha256 ? eq(obraNotas.arquivoSha256, p.sha256) : sql`false`,
-        l.chaveAcesso ? eq(obraNotas.chaveAcesso, l.chaveAcesso) : sql`false`,
-        l.emitenteDocumento && l.numero ? eq(obraNotas.emitenteDocumento, l.emitenteDocumento) : sql`false`,
-      )).orderBy(asc(obraNotas.id)).limit(100);
+    // QA E5 (achado 1): uma consulta por critério, cada uma já filtrada no SQL (o número normalizado como numeroComparavel:
+    // só dígitos, sem zeros à esquerda), pegando a nota MAIS ANTIGA que repete — nenhum corte de quantidade deixa candidata de fora
+    const campos = { id: obraNotas.id, arquivoSha256: obraNotas.arquivoSha256, chaveAcesso: obraNotas.chaveAcesso,
+      emitenteDocumento: obraNotas.emitenteDocumento, numero: obraNotas.numero };
+    const maisAntiga = (onde: ReturnType<typeof eq>) => tx.select(campos).from(obraNotas).where(onde).orderBy(asc(obraNotas.id)).limit(1);
+    const numero = numeroComparavel(l.numero);
+    const porSha = p.sha256 ? await maisAntiga(eq(obraNotas.arquivoSha256, p.sha256)) : [];
+    const porChave = l.chaveAcesso ? await maisAntiga(eq(obraNotas.chaveAcesso, l.chaveAcesso)) : [];
+    const porNumero = l.emitenteDocumento && numero ? await maisAntiga(and(eq(obraNotas.emitenteDocumento, l.emitenteDocumento),
+      sql`regexp_replace(regexp_replace(coalesce(${obraNotas.numero}, ''), '[^0-9]', '', 'g'), '^0+([0-9])', '\\1') = ${numero}`) as never) : [];
+    const candidatas = [...porSha, ...porChave, ...porNumero].sort((a, b) => a.id - b.id);
     let duplicadaDe: number | null = null;
     let motivo: string | null = null;
     for (const c of candidatas) {

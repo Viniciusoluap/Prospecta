@@ -1,5 +1,5 @@
 // QA (Quinn) — provas do gate de segurança da etapa 5 (EPIC-025, notas de obra). Somente leitura do código de produção:
-// cada teste documenta um achado do gate; os que dizem "ACHADO" passam enquanto o comportamento continuar como está.
+// cada teste documentava um achado do gate; depois da correção (Dex), cada um prova que o defeito SUMIU (regressão).
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.setConfig({ testTimeout: 60_000 });
@@ -118,14 +118,33 @@ async function cemNotasDoMesmoEmitente() {
 }
 
 describe("QA E5 — duplicidade por número + emitente", () => {
-  it("ACHADO: com 100+ notas do mesmo emitente, a nota repetida (mesmo nº e CPF, outro arquivo) NÃO é marcada duplicada", async () => {
+  it("CORRIGIDO: com 100+ notas do mesmo emitente, a nota repetida (mesmo nº e CPF, outro arquivo) é marcada duplicada", async () => {
     await cemNotasDoMesmoEmitente();
     await mandarNota(1); // nº 45 do CPF do empreiteiro — a 101ª nota deste emitente
-    await mandarNota(2); // outro arquivo, MESMO nº 45 e MESMO CPF → deveria ser "duplicada"
+    await mandarNota(2); // outro arquivo, MESMO nº 45 e MESMO CPF → "duplicada"
     const lidas = (await notas()).filter(n => n.numero === "45");
     expect(lidas).toHaveLength(2);
-    // o candidato fica fora do LIMIT 100 (ordenado pelo id mais antigo) e a duplicidade não é vista
-    expect(lidas[1].duplicada_de).toBeNull();
+    expect(lidas[1].duplicada_de).toBe(lidas[0].id);
+    expect(lidas[1].situacao).toBe("confira");
+  });
+
+  it("CORRIGIDO: o número é comparado normalizado NO SQL (zeros à esquerda e pontuação), mesmo atrás de 100+ notas do emitente", async () => {
+    await cemNotasDoMesmoEmitente();
+    // a nota antiga foi lida como "000.045" — a mesma 45 para numeroComparavel
+    await banco.pg.exec(`INSERT INTO dolores_grupo_mensagens (grupo_id, instancia, external_id, tipo, situacao)
+        SELECT id, 'prospecta-dolores', 'ANTIGA-45', 'documento', 'classificado' FROM dolores_grupos WHERE grupo_jid = '${GRUPO_OBRA}';
+      INSERT INTO obra_notas (grupo_id, mensagem_id, obra_id, situacao, emitente_documento, numero)
+        SELECT grupo_id, id, 1, 'rascunho', '52998224725', '000.045' FROM dolores_grupo_mensagens WHERE external_id = 'ANTIGA-45';`);
+    const [antiga] = await q("SELECT id FROM obra_notas WHERE numero = '000.045'");
+    await mandarNota(5); // nº 45 lido agora
+    const [nova] = await q("SELECT * FROM obra_notas WHERE numero = '45'");
+    expect(nova.duplicada_de).toBe(antiga.id);
+    // outro emitente com o mesmo número NÃO é duplicada
+    definirDependenciasClassificacao({ cliente: async () => respostaNota(saidaBoa({ emitenteDocumento: "11.222.333/0001-81", numero: "45" })), baixar: baixar as never });
+    await mandarNota(6);
+    const outras = await q("SELECT * FROM obra_notas WHERE numero = '45' ORDER BY id");
+    expect(outras).toHaveLength(2);
+    expect(outras[1].duplicada_de).toBeNull();
   });
 });
 
