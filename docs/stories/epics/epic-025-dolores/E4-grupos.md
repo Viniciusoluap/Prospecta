@@ -118,7 +118,9 @@ Alterados:
 ## Progresso
 - 877a0e8 story; 80f5fe7 wip (migração, regras, webhook, classificação, ações, leituras); 4a9bad3 merge da E3 (`f8232ca`);
   3787c1e rotas; tela; prompt; testes antigos ajustados; 3ef63db correções + 24 testes novos; docs.
-- Verificação: ver Change Log.
+- Verificação (17/11): `npx tsc --noEmit` ok; suíte-alvo 44 arquivos / 584 testes ok; `npx vite build` ok; suíte completa
+  248 arquivos / 2568 testes ok (2 processos). Migração 0126 NÃO aplicada.
 
 ## Change Log
 - 16/11/2026 — @dev (Dex): story criada (Draft → InProgress), critérios tirados do prompt mestre (seções 4.4, 5, 6, 7 e 9).
+- 17/11/2026 — @dev (Dex): implementação concluída (InProgress → InReview); tsc, build, suíte-alvo (584) e completa (2568) verdes.

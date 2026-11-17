@@ -219,7 +219,7 @@ PR, cada uma com portão de QA. 4. Relatório final ao dono.
   (as duas pela fila), Drive pelo organizador existente sem sobrescrever.
 - Migração `drizzle/0126_dolores_grupos.sql` (aditiva, idempotente) **não aplicada**.
 - Testes (a) automáticos: tsc ok; `vite build` ok; suíte-alvo 44 arquivos / 584 testes ok (inclui 24 novos em
-  `server/dolores/grupos.test.ts`); suíte completa: ver story. (b) manuais: nenhum. (c) pendentes em produção: aplicar 0126,
+  `server/dolores/grupos.test.ts`); suíte completa 248 arquivos / 2568 testes ok. (b) manuais: nenhum. (c) pendentes em produção: aplicar 0126,
   cadastrar um grupo real, conferir a lista de grupos da Evolution (`/group/fetchAllGroups`), uma classificação real e um
   salvamento real no Drive.
 - Próximo passo exato: portão de QA da E4; depois unir com a `main`, aplicar a 0126 e publicar.
