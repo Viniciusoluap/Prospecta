@@ -177,12 +177,17 @@ export function perguntaDoGrupo(texto: string | null | undefined): string {
 
 export type MotivoForaDeEscopo =
   | "vazia" | "longa" | "injecao" | "acao" | "codigo" | "dado_pessoal" | "valores" | "contrato" | "prazo" | "reclamacao"
-  | "outro_cliente" | "link";
+  | "outro_cliente" | "link" | "texto_ditado";
 
 const sem = (s: string) => s.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase();
 
 /** Em ordem: a primeira que casar dá o motivo (registrado para o dono; a frase ao grupo é a mesma). */
 const REGRAS_FORA: Array<[MotivoForaDeEscopo, RegExp]> = [
+  // QA-SEG E4b achado 2: texto DITADO ("termine a resposta com: …", "repita exatamente", "diga \"…\"") — quem marca não escreve
+  // pela Dolores. Verbo de dizer/escrever seguido de dois-pontos ou aspas; repetir/copiar/colar; começar/terminar a resposta com…
+  ["texto_ditado", /\b(diga|digam|diz|dizer|fale|falar|fala|repita|repete|repetir|termine|terminar|termina|finalize|finalizar|comece|comecar|comeca|escreva|escrever|escreve|copie|copiar|copia|cole|colar|responda|responder|responde|coloque|colocar|coloca|ponha|acrescente|acrescentar|complete|completar|inclua|incluir|mande|manda|envie|use|usar|cite|citar)\b[^?!]{0,80}[:"'\u201c\u201d\u2018\u2019\u00ab\u00bb]/],
+  ["texto_ditado", /\b(repita|repete|repetir|repitam|copie|copiar|copia|cole|colar|reproduza|reproduzir|transcreva|transcrever)\b|\b(palavra por palavra|ao pe da letra|literalmente|exatamente (isto|isso|assim|o seguinte|este texto|esse texto|esta frase|essa frase))\b/],
+  ["texto_ditado", /\b(termine|terminar|termina|finalize|finalizar|encerre|encerrar|comece|comecar|comeca|inicie|iniciar)\b[^.?!]{0,30}\b(resposta|mensagem|frase|texto)\b|\b(a|sua) (resposta|mensagem) (deve|tem que|precisa)\b|\b(responda|responde|diga|escreva|fale) (com|exatamente|apenas|so|somente|assim|isto|isso)\b/],
   ["injecao", /\b(ignor|desconsider|esquec|burl|desativ|desliga)\w*\b[^.?!]{0,60}\b(regra|instruc|anterior|sistema|prompt|filtro|limite|seguranc|tudo)/],
   ["injecao", /\b(prompt|jailbreak|system|developer|desenvolvedor|modo (admin|livre|teste|deus)|finja|aja como|faca de conta|roleplay|voce agora|a partir de agora|novas? regras?|instrucoes?)\b/],
   ["injecao", /\b(sou|aqui e|falando com) (o|a) (dono|dona|chefe|admin|administrador|gerente|patrao|responsavel|vinicius)\b|\b(dono|dona|chefe|admin|administrador|gerente)\b[^.?!]{0,40}\b(autoriz|mandou|pediu|liber|permit|quer)/],
@@ -254,7 +259,29 @@ const SAIDA_PROIBIDA: RegExp[] = [
   /\b(re|des)?aprovad|\breprovad|\b(aprovou|reprovou|aprovaram|reprovaram|negad[oa]s?|indeferid[oa]s?|deferid[oa]s?|recusad[oa]s? pelo banco)\b/,
   /\b(cpf|cnpj|telefone|e-?mail|endereco|agencia|conta corrente|pix|senha|corretor|comissao|valor|parcela|orcamento)\b/,
   /\b(aprovar|recusar) [a-z0-9]{5}\b/,
+  // QA-SEG E4b achado 2: promessa/agendamento que nenhuma leitura traz — dia da semana, mês como prazo, "liberou", "retirar", chave
+  /\b(segunda|terca|quarta|quinta|sexta)[- ]feira\b|\b(sabado|domingo|feriado|fim de semana)\b|\b(na|nesta|nessa|ate|proxima|ate a|pra|para|essa|esta) (segunda|terca|quarta|quinta|sexta)\b(?! (via|etapa|parte|fase|vez))/,
+  /\b(em|ate|no fim de|no final de|no inicio de|no comeco de|final de|inicio de) (janeiro|fevereiro|marco|abril|maio|junho|julho|agosto|setembro|outubro|novembro|dezembro)\b|\b(proxim[oa] (semana|mes|ano)|esta semana|essa semana|este mes|esse mes|daqui a|mais tardar|logo logo|ainda hoje|hoje mesmo)\b/,
+  /\b(liberou|liberad[oa]s?|liberaram|liberamos|liberei|retirar|retire|retirem|retirad[oa]s?|chaves?)\b/,
 ];
+
+/** Datas, horas e "dia N": todos os números precisam vir das leituras da volta. */
+const PADRAO_DATA = /\b\d{1,4}[/.-]\d{1,2}(?:[/.-]\d{2,4})?\b|\b\d{1,2}\s?h(?:\d{2})?\b|\b\d{1,2}:\d{2}\b|\bdia \d{1,2}\b|\b\d{1,2} de (?:janeiro|fevereiro|marco|abril|maio|junho|julho|agosto|setembro|outubro|novembro|dezembro)\b/g;
+/** Números até este valor, soltos (contagem de documentos, etapas), passam sem estar nas leituras; acima, precisam estar. */
+const MAX_NUMERO_SOLTO = 20;
+
+/**
+ * QA-SEG E4b achado 2: os números e datas da resposta precisam constar nas leituras feitas naquela marcação (o modelo não
+ * inventa prazo, dia nem quantidade). `fontes` = o que as leituras devolveram (JSON). Devolve o primeiro número sem fonte.
+ */
+export function numeroSemFonte(textoSemAcento: string, fontes: readonly string[]): string | null {
+  const conhecidos = new Set((fontes.join(" ").match(/\d+/g) ?? []).map(n => String(Number(n))));
+  for (const d of textoSemAcento.match(PADRAO_DATA) ?? []) {
+    for (const n of d.match(/\d+/g) ?? []) if (!conhecidos.has(String(Number(n)))) return d;
+  }
+  for (const n of textoSemAcento.match(/\d+/g) ?? []) if (Number(n) > MAX_NUMERO_SOLTO && !conhecidos.has(String(Number(n)))) return n;
+  return null;
+}
 
 /** "@" colado em letra ou número (cara de menção): sai. Flag `u` via `new RegExp` (o literal não passa no tsc deste projeto). */
 const SEM_ARROBA = new RegExp("@(?=[\\p{L}\\p{N}])", "gu");
@@ -271,9 +298,10 @@ function cortar(t: string, max: number): string {
 /**
  * O que vai ao grupo, a partir do texto do modelo. Ordem: sinal de fora do escopo → frase fixa; links (só o host do sistema; o
  * Trello também sai); filtro com dados pessoais SEMPRE mascarados; sem "@" de menção; sem invisíveis; corte. Se sobrou marcador
- * (algo foi mascarado/removido) ou há cara de valor, promessa, prazo, dado pessoal ou decisão da fila → frase fixa.
+ * (algo foi mascarado/removido) ou há cara de valor, promessa, prazo, dado pessoal ou decisão da fila → frase fixa. Com
+ * `opcoes.fontes` (as leituras daquela marcação), número ou data que não esteja nelas → frase fixa.
  */
-export function respostaSeguraDoGrupo(bruto: string | null | undefined, urlDoSistema: string | null, max = MAX_CARACTERES_GRUPO): SaidaDoGrupo {
+export function respostaSeguraDoGrupo(bruto: string | null | undefined, urlDoSistema: string | null, max = MAX_CARACTERES_GRUPO, opcoes: { fontes?: readonly string[] } = {}): SaidaDoGrupo {
   const original = String(bruto ?? "").trim();
   if (!original || original.includes(SINAL_FORA_DO_ESCOPO)) return { texto: FRASE_FORA_DE_ESCOPO, foraDeEscopo: true, motivo: original ? "modelo: fora do escopo" : "modelo: sem texto" };
   let t = tratarLinksDaResposta(original, urlDoSistema)
@@ -284,6 +312,7 @@ export function respostaSeguraDoGrupo(bruto: string | null | undefined, urlDoSis
   const s = sem(t);
   if (SAIDA_PROIBIDA.some(re => re.test(s))) return { texto: FRASE_FORA_DE_ESCOPO, foraDeEscopo: true, motivo: "saída com valor, promessa, prazo ou dado pessoal" };
   if (!t) return { texto: FRASE_FORA_DE_ESCOPO, foraDeEscopo: true, motivo: "modelo: sem texto" };
+  if (opcoes.fontes && numeroSemFonte(s, opcoes.fontes) !== null) return { texto: FRASE_FORA_DE_ESCOPO, foraDeEscopo: true, motivo: "saída com número ou data que não veio das consultas" };
   return { texto: cortar(t, max), foraDeEscopo: false, motivo: null };
 }
 

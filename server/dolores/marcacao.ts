@@ -336,6 +336,8 @@ async function contarComPrazo(p: Omit<PedidoGrupo, "maxTokens">): Promise<number
 
 async function laco(p: { pergunta: string; cred: Extract<CredencialGrupo, { motivo: null }>; marcacaoId: number; grupoId: number; ctx: ContextoDoGrupo; prazoFinal: number }) {
   const tokens = { entrada: 0, saida: 0 };
+  // QA-SEG E4b achado 2: o que as leituras devolveram nesta marcação (números e datas da resposta precisam constar aqui)
+  const fontes: string[] = [];
   let voltas = 0;
   let parou: string | null = null;
   let final = "";
@@ -396,12 +398,14 @@ async function laco(p: { pergunta: string; cred: Extract<CredencialGrupo, { moti
     const resultados: unknown[] = [];
     for (const u of pedidos) {
       const resp = await executarLeituraDoGrupo(u.name, u.input, { ...p.ctx, marcacaoId: p.marcacaoId, autor: p.cred.autor });
-      resultados.push({ type: "tool_result", tool_use_id: u.id, content: JSON.stringify(resp.corpo), ...(resp.ok ? {} : { is_error: true }) });
+      const conteudo = JSON.stringify(resp.corpo);
+      if (resp.ok) fontes.push(conteudo);
+      resultados.push({ type: "tool_result", tool_use_id: u.id, content: conteudo, ...(resp.ok ? {} : { is_error: true }) });
     }
     mensagens.push({ role: "user", content: resultados });
   }
   if (!final && !parou) parou = "voltas";
-  return { final, parou, voltas, tokens };
+  return { final, parou, voltas, tokens, fontes };
 }
 
 export type ResultadoMarcacaoWebhook = string | null;
@@ -510,7 +514,7 @@ async function responder(cfg: DoloresWhatsappConfig, grupo: DoloresGrupo, m: Mar
   }
   const r = await laco({ pergunta: m.pergunta, cred, marcacaoId: id, grupoId: grupo.id, prazoFinal: o.prazoFinal,
     ctx: { agora: deps.agora(), grupoId: grupo.id, leadId: grupo.leadId, obraId: grupo.obraId } });
-  const saida = r.parou && !r.final ? { texto: FRASE_FORA_DE_ESCOPO, foraDeEscopo: true, motivo: `laço parou: ${r.parou}` } : respostaSeguraDoGrupo(r.final, urlDoSistemaParaLinks());
+  const saida = r.parou && !r.final ? { texto: FRASE_FORA_DE_ESCOPO, foraDeEscopo: true, motivo: `laço parou: ${r.parou}` } : respostaSeguraDoGrupo(r.final, urlDoSistemaParaLinks(), MAX_CARACTERES_GRUPO, { fontes: r.fontes });
   const enviou = o.prazoFinal - deps.ms() >= 1_500
     ? await responderNoGrupo(grupo, m, saida.texto, { marcacaoId: id, autor, prazoFinal: o.prazoFinal, instancia: cfg.instancia! }) : false;
   await atualizar(id, {
