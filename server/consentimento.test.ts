@@ -299,6 +299,20 @@ describe("texto público do termo (QA S-12, achado 2)", () => {
   });
 });
 
+describe("textos que só dizem o que é verdade (QA S-12, achado 9)", () => {
+  const todo = SECOES_DO_TERMO.flatMap(sec => sec.paragrafos).join(" ");
+  it("não diz que registra a hora de acesso (o login por senha não grava isso); diz o que o aceite grava", () => {
+    expect(todo).not.toMatch(/hora de acesso/);
+    expect(todo).toMatch(/data e a hora em que você aceita este termo/);
+  });
+  it("retirada do consentimento pelos contatos, sem prometer botão ou tela", () => {
+    const direitos = SECOES_DO_TERMO.find(sec => sec.titulo.startsWith("7."))!.paragrafos.join(" ");
+    expect(direitos).toMatch(/Para retirar este consentimento, use esses mesmos contatos/);
+    expect(direitos).not.toMatch(/botão|no sistema você|pelo aplicativo|na sua conta/i);
+    expect(PENDENCIAS_DO_JURIDICO.some(p => /retirada/.test(p))).toBe(true);
+  });
+});
+
 describe("seção de inteligência artificial (QA S-12, achado 3)", () => {
   const ia = SECOES_DO_TERMO.find(sec => /Inteligência artificial/.test(sec.titulo))!.paragrafos.join(" ");
   it("diz a verdade: atendimento automático no WhatsApp com passagem para pessoa, leitura de documentos, apoio à equipe, Anthropic fora do Brasil", () => {

@@ -41,7 +41,7 @@ export const SECOES_DO_TERMO: readonly SecaoDoTermo[] = [
     titulo: "2. Quais dados",
     paragrafos: [
       "Os dados que você ou a equipe informam no sistema: nome, CPF ou CNPJ, telefone, e-mail, endereço, documentos enviados, dados do imóvel, da obra, do financiamento e dos pagamentos, e as mensagens trocadas com a Prospecta (inclusive pelo WhatsApp).",
-      "Também registramos dados de uso do sistema, como data e hora de acesso.",
+      "Também registramos a data e a hora em que você aceita este termo, a versão aceita e o tipo de aparelho usado (celular, tablet ou computador).",
     ],
   },
   {
@@ -78,6 +78,7 @@ export const SECOES_DO_TERMO: readonly SecaoDoTermo[] = [
     paragrafos: [
       "Você pode pedir: acesso aos seus dados, correção, informações sobre com quem foram compartilhados, e a retirada deste consentimento (a retirada não desfaz o que já foi feito antes dela e pode impedir parte do atendimento pelo sistema).",
       "Para pedir, escreva para atendimento@prospectaconstrucoes.com ou fale com a equipe pelo telefone (99) 98139-2210. Responderemos no prazo previsto em lei.",
+      "Para retirar este consentimento, use esses mesmos contatos (e-mail ou telefone) e diga que quer retirá-lo; a equipe da Prospecta cuida do pedido.",
     ],
   },
   {
@@ -97,6 +98,7 @@ export const PENDENCIAS_DO_JURIDICO: readonly string[] = [
   "Item 1 — encarregado pelos dados pessoais: definir nome e contato (hoje o texto manda usar os contatos do item 7).",
   "Item 6 — prazo de guarda dos dados depois do fim da relação (hoje: \"pelo tempo exigido por lei\").",
   "Item 7 — prazo de resposta aos pedidos do titular (hoje: \"no prazo previsto em lei\").",
+  "Item 7 — retirada do consentimento: hoje é só pelos contatos (e-mail ou telefone); o sistema não registra a retirada nem tem botão para isso.",
 ];
 
 /** Canais (telas) em que o aceite pode ser registrado. */
