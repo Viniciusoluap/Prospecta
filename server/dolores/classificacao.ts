@@ -246,7 +246,7 @@ let pausadaPorFalhaNoConsumo = false;
 export const classificacaoPausadaPorFalha = () => pausadaPorFalhaNoConsumo;
 /** O admin religou a classificação (ou teste): limpa a pausa em memória desta instância. */
 export function limparPausaPorFalhaNoConsumo() { pausadaPorFalhaNoConsumo = false; }
-async function desligarPorFalhaNoConsumo(d: { autor: number | null; canal: OpcoesClassificacao["canal"]; grupoId: number; mensagemId: number; registro: string[] }) {
+export async function desligarPorFalhaNoConsumo(d: { autor: number | null; canal: OpcoesClassificacao["canal"]; grupoId: number; mensagemId: number; registro: string[] }) {
   pausadaPorFalhaNoConsumo = true;
   console.error("[dolores/classificacao] o consumo da classificação não foi gravado: classificação desligada até o admin religar");
   let gravado = false;

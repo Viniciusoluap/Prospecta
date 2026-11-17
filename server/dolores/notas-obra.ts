@@ -28,7 +28,8 @@ import { getDb } from "../db.js";
 import { registrarAcao } from "./auditoria.js";
 import {
   ArquivoGrandeDemais, MAX_BYTES_IMAGEM_IA, MAX_BYTES_PDF_IA, MAX_PAGINAS_PDF_IA, MAX_TENTATIVAS, RESERVA_ENTRADA_CLASSIFICACAO, baixarArquivo,
-  chamarModeloDocumento, classificarDocumentoDoGrupo, contarComPrazo, excessoDoDia, marcarExcessoDoDia, reservarVagaDoDia, usoDe,
+  chamarModeloDocumento, classificacaoPausadaPorFalha, classificarDocumentoDoGrupo, contarComPrazo, desligarPorFalhaNoConsumo, excessoDoDia, marcarExcessoDoDia,
+  reservarVagaDoDia, usoDe,
   MINIMO_PARA_CLASSIFICAR_MS, type BlocoConteudo, type OpcoesClassificacao, type RespostaClassificacao,
 } from "./classificacao.js";
 import { liberarReservaClassificacao, registrarConsumo, registrarConsumoDaClassificacao, reservarClassificacao } from "./consumo.js";
@@ -144,7 +145,7 @@ export async function lerNotaDoGrupo(mensagemId: number, o: ContextoLeitura): Pr
   if (!["a_classificar", "erro", "classificando"].includes(msg.situacao) || msg.tentativas >= MAX_TENTATIVAS) return "nota-nada";
   const [configGrupos, config] = await Promise.all([lerConfigGrupos(), lerConfigNotas()]);
   // os dois interruptores: IA nos documentos dos grupos (etapa 4) E a leitura de notas (etapa 5) — os dois nascem desligados
-  if (!configGrupos.classificacaoLigada || !config.leituraLigada) return "nota-desligada";
+  if (!configGrupos.classificacaoLigada || !config.leituraLigada || classificacaoPausadaPorFalha()) return "nota-desligada";
   const agora = new Date();
   if (pendenteVencido(msg.criadoEm, agora, configGrupos.retencaoDias)) return "nota-vencida";
   if (restante() < MINIMO_PARA_LER_NOTA_MS) return "nota-sem-tempo";
@@ -171,6 +172,12 @@ export async function lerNotaDoGrupo(mensagemId: number, o: ContextoLeitura): Pr
   const auditar = (resultado: "ok" | "recusada" | "erro", motivo: string | null, resumo: Record<string, unknown>) =>
     registrarAcao({ funcao: "ler_nota_obra", resultado, motivo, autorUserId: autor, canal: o.canal, pedidoId: `grupo:${msg.grupoId}:nota:${mensagemId}`,
       resumo: { grupoId: msg.grupoId, mensagemId, obraId: m.obraId, ...resumo } });
+  // a mesma falha fechada da classificação (QA E4 r3 N7): uso não registrado → IA dos documentos desligada até o admin religar
+  const conferirRegistro = async (doLimite: boolean, doOrcamento: boolean) => {
+    if (doLimite && doOrcamento) return;
+    await desligarPorFalhaNoConsumo({ autor, canal: o.canal, grupoId: msg.grupoId, mensagemId,
+      registro: [...(doLimite ? [] : ["dolores_consumo"]), ...(doOrcamento ? [] : ["dolores_grupos_consumo_mes"])] });
+  };
 
   if (await excessoDoDia(msg.grupoId, dia) > 0) {
     await voltar("a_classificar", "um documento deste grupo usou hoje mais que a reserva: a leitura do grupo fica pausada até amanhã");
@@ -291,16 +298,18 @@ export async function lerNotaDoGrupo(mensagemId: number, o: ContextoLeitura): Pr
       console.error("[dolores/notas-obra] falha na chamada ao modelo", typeof status === "number" ? status : (e instanceof Error ? e.name : "erro"));
       if (typeof status !== "number" || status >= 500 || status === 408) {
         const estimado = { entrada: RESERVA_ENTRADA_NOTA, saida: MAX_TOKENS_NOTA, cacheEscrita: 0, cacheLeitura: 0 };
-        await registrarConsumo({ mes, mensagemId: null, modelo, volta: 1, parada: "estimado_sem_resposta", uso: estimado });
-        await registrarConsumoDaClassificacao(mes, estimado);
+        await conferirRegistro(
+          await registrarConsumo({ mes, mensagemId: null, modelo, volta: 1, parada: "estimado_sem_resposta", uso: estimado }),
+          await registrarConsumoDaClassificacao(mes, estimado));
       }
       await voltar("erro", "a IA não respondeu à leitura da nota");
       await auditar("erro", "a IA não respondeu", { modelo });
       return "nota-erro";
     }
     const uso = usoDe(resp);
-    await registrarConsumo({ mes, mensagemId: null, modelo, volta: 1, uso, parada: resp.stop_reason });
-    await registrarConsumoDaClassificacao(mes, uso);
+    await conferirRegistro(
+      await registrarConsumo({ mes, mensagemId: null, modelo, volta: 1, uso, parada: resp.stop_reason }),
+      await registrarConsumoDaClassificacao(mes, uso));
     const entradaReal = uso.entrada + uso.cacheEscrita + uso.cacheLeitura;
     if (entradaReal > RESERVA_ENTRADA_NOTA || uso.saida > MAX_TOKENS_NOTA) {
       await marcarExcessoDoDia(msg.grupoId, dia, Math.max(1, entradaReal - RESERVA_ENTRADA_NOTA));

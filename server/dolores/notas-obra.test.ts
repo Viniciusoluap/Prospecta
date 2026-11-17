@@ -37,7 +37,7 @@ import { uploadArquivoNoCaminho } from "../drive-documents.js";
 import { appRouter } from "../routers.js";
 import { decidir, decisorDaTela, definirSorteioCodigo } from "./aprovacoes.js";
 import { definirClienteModelo } from "./cerebro.js";
-import { definirDependenciasClassificacao, type PedidoClassificacao, type RespostaClassificacao } from "./classificacao.js";
+import { definirDependenciasClassificacao, limparPausaPorFalhaNoConsumo, type PedidoClassificacao, type RespostaClassificacao } from "./classificacao.js";
 import { RESERVA_ENTRADA_NOTA } from "./notas-obra.js";
 import { esquecerUsuarioDolores } from "./perfil.js";
 import { definirDependenciasPonte, executarFuncao } from "./ponte.js";
@@ -143,6 +143,7 @@ beforeEach(async () => {
 afterEach(() => {
   ENV.cookieSecret = segredoAntes;
   definirDependenciasPonte(); definirDependenciasWhatsapp(); definirClienteModelo(); definirDependenciasClassificacao(); definirSorteioCodigo();
+  limparPausaPorFalhaNoConsumo();
   vi.clearAllMocks();
 });
 
@@ -264,6 +265,15 @@ describe("leitura da nota no grupo da obra", () => {
     await mandarNota(11);
     expect(pedidosIa).toHaveLength(0);
     expect((await q("SELECT situacao, motivo FROM dolores_grupo_mensagens"))[0]).toMatchObject({ situacao: "a_classificar", motivo: expect.stringMatching(/orçamento mensal dos documentos/) });
+  });
+
+  it("falha fechada: o uso da leitura não pôde ser registrado → IA dos documentos desligada e auditada", async () => {
+    await banco.pg.exec("ALTER TABLE dolores_grupos_consumo_mes ADD CONSTRAINT teste_falha CHECK (tokens_entrada < 0) NOT VALID");
+    await mandarNota(12);
+    expect((await q("SELECT classificacao_ligada FROM dolores_grupos_config"))[0].classificacao_ligada).toBe(false);
+    expect((await acoes("desligar_classificacao_por_falha"))[0]).toMatchObject({ resultado: "erro" });
+    await mandarNota(13);
+    expect(pedidosIa).toHaveLength(1); // a segunda não vai à IA
   });
 
   it("rajada: 6 notas simultâneas → no máximo UMA chamada ao modelo por vez; as outras esperam (nada perdido, nada duplicado)", async () => {
