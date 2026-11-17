@@ -262,3 +262,51 @@ describe("QA r2 N0: rajada de PDFs densos não estoura o limite nem bloqueia o d
     expect(r).toEqual({ classificado: 1 });
   });
 });
+
+describe("QA r2 N1: a estimativa de páginas não é furada por NUL, \\f, comentário nos /Kids, /Count com sinal ou página sem /Type", () => {
+  /** PDF clássico com xref correta; `sep` separa as palavras, `ref` escreve cada filho, `count` o /Count, `pagina` cada página. */
+  function pdfVariante(n: number, o: { sep?: string; ref?: (k: number) => string; count?: string; pagina?: (i: number) => string } = {}): Buffer {
+    const sep = o.sep ?? " ";
+    const ref = o.ref ?? (k => `${k}${sep}0${sep}R`);
+    const objs = [`<< /Type /Catalog /Pages 2 0 R >>`, `<< /Type${sep}/Pages /Kids [${Array.from({ length: n }, (_, i) => ref(i + 3)).join(sep)}] /Count${sep}${o.count ?? String(n)} >>`];
+    for (let i = 0; i < n; i++) objs.push(o.pagina ? o.pagina(i) : `<< /Type${i === 0 ? " " : sep}/Page /Parent 2 0 R /MediaBox [0 0 612 792] >>`);
+    let c = "%PDF-1.4\n"; const offs: number[] = [];
+    objs.forEach((x, i) => { offs.push(Buffer.byteLength(c, "latin1")); c += `${i + 1} 0 obj\n${x}\nendobj\n`; });
+    const xref = Buffer.byteLength(c, "latin1");
+    c += `xref\n0 ${objs.length + 1}\n0000000000 65535 f \n` + offs.map(x => `${String(x).padStart(10, "0")} 00000 n \n`).join("") + `trailer\n<< /Size ${objs.length + 1} /Root 1 0 R >>\nstartxref\n${xref}\n%%EOF\n`;
+    return Buffer.from(c, "latin1");
+  }
+  const semTipoNemPai = (i: number) => (i === 0 ? "<< /Type /Page /MediaBox [0 0 612 792] >>" : "<< /MediaBox [0 0 612 792] >>");
+  const variantes: Array<[string, Buffer]> = [
+    ["NUL como espaço", pdfVariante(60, { sep: "\u0000" })],
+    ["\\f como espaço", pdfVariante(60, { sep: "\f" })],
+    ["comentário dentro das referências dos /Kids, /Count +60, páginas sem /Type", pdfVariante(60, { ref: k => `${k} 0%c\nR`, count: "+60",
+      pagina: i => (i === 0 ? "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] >>" : "<< /Parent 2 0 R /MediaBox [0 0 612 792] >>") })],
+    ["comentário com ']' nos /Kids e páginas sem /Type nem /Parent", pdfVariante(60, { ref: k => `${k} 0 R %]\n`, count: "60", pagina: semTipoNemPai })],
+    ["/Count +60 e páginas sem /Type nem /Parent", pdfVariante(60, { count: "+60", pagina: semTipoNemPai })],
+    ["/Count 60.0", pdfVariante(60, { count: "60.0", pagina: semTipoNemPai })],
+    ["NUL nos /Kids e páginas sem /Type nem /Parent", pdfVariante(60, { sep: "\u0000", count: "60", pagina: semTipoNemPai })],
+  ];
+
+  // o pdf.js conta 60 páginas em todas as variantes (conferido fora da suíte com qa-dolores-e4-r2/pdfcheck/conta.mjs: aqui o
+  // pdf.js recusa rodar por causa de um Array.prototype.random do projeto)
+  it.each(variantes)("%s: 'não sei' ou pelo menos as 60 páginas que o pdf.js conta (nunca 1)", async (_nome, pdf) => {
+    const { paginasPdfEstimadas } = await import("../../shared/dolores/grupos.js");
+    const estimativa = paginasPdfEstimadas(pdf);
+    expect(estimativa === null || estimativa >= 60).toBe(true);
+    if (process.env.QA_SALVAR_PDFS) (await import("node:fs")).writeFileSync(`${process.env.QA_SALVAR_PDFS}/${_nome.replace(/[^a-z0-9]+/gi, "-")}.pdf`, pdf);
+  });
+
+  it("no fluxo: o PDF de 60 páginas com NUL não vai à IA como arquivo", async () => {
+    baixar.mockResolvedValue({ base64: pdfVariante(60, { sep: "\u0000" }).toString("base64") });
+    await chamar(aviso(item({ message: documento("extrato.pdf", "extrato") })));
+    expect(pedidosIa.map(p => p.conteudo.map(c => c.type))).toEqual([["text"]]);
+  });
+
+  it("PDFs legítimos continuam contados: 1 e 5 páginas", async () => {
+    const { paginasPdfEstimadas } = await import("../../shared/dolores/grupos.js");
+    expect(paginasPdfEstimadas(pdfClassico(1))).toBe(1);
+    expect(paginasPdfEstimadas(pdfClassico(5))).toBe(5);
+    expect(paginasPdfEstimadas(pdfVariante(3))).toBe(3);
+  });
+});
