@@ -164,12 +164,6 @@ CREATE TABLE IF NOT EXISTS "dolores_grupos_config" (
   "atualizado_por" integer REFERENCES "users"("id") ON DELETE SET NULL
 );
 
--- colunas que entraram no CREATE TABLE depois da primeira versão desta migração (QA E4): se a tabela já existir sem elas, entram
--- aqui (ADD COLUMN IF NOT EXISTS; nada muda se já existirem)
-ALTER TABLE "dolores_grupos_contagem" ADD COLUMN IF NOT EXISTS "excesso_entrada" integer NOT NULL DEFAULT 0;
-ALTER TABLE "dolores_grupos_config" ADD COLUMN IF NOT EXISTS "orcamento_classificacao_pct" integer NOT NULL DEFAULT 20
-  CHECK ("orcamento_classificacao_pct" BETWEEN 1 AND 50);
-
 INSERT INTO "dolores_grupos_config" ("id") VALUES (1) ON CONFLICT ("id") DO NOTHING;
 
 -- QA E4 r2, N0: consumo da CLASSIFICAÇÃO por mês (AAAA-MM de Imperatriz), o mesmo que também entra em "dolores_consumo".
