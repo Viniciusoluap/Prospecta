@@ -7,7 +7,7 @@
 //   cliente, pedido de ação, "ignore as regras", "sou o dono") recebe a frase fixa, sem chamar a IA.
 // - A saída ao grupo passa sempre por `respostaSeguraDoGrupo`: dados pessoais mascarados, links fora, sem "@", curta; cara de
 //   promessa, valor ou dado pessoal → frase fixa.
-import { codigoValido, umaLinha } from "./fila.js";
+import { codigoValido, textoDeDado, umaLinha } from "./fila.js";
 import { LINK_REMOVIDO, tratarLinksDaResposta } from "./links.js";
 import { BANCARIO_OMITIDO, CHAVE_OMITIDA, OMITIDO, SENHA_OMITIDA, sanitizarTexto } from "./sanitizar.js";
 import { INTERACOES, ehNumeroDoDono } from "./whatsapp.js";
@@ -210,6 +210,18 @@ export function foraDeEscopo(pergunta: string): MotivoForaDeEscopo | null {
   const s = sem(t).replace(/\bcomprovante de (endereco|renda|residencia)\b/g, "comprovante").replace(/\bconta de (luz|agua|energia)\b/g, "comprovante");
   for (const [motivo, re] of REGRAS_FORA) if (re.test(s)) return motivo;
   return null;
+}
+
+/**
+ * Texto livre do cadastro (nome de documento do cadastro antigo, item do checklist, nome de etapa) antes de ir ao laço do grupo:
+ * uma linha, até 60 caracteres, sem dígitos em sequência, link, "@", barra, símbolos de código, nada que o filtro mascare e nada
+ * que seria fora do escopo numa pergunta (valor, ação, dado pessoal, "ignore as regras"…). Senão, o rótulo genérico.
+ */
+export function rotuloSeguroParaGrupo(bruto: string | null | undefined, generico: string): string {
+  const t = textoDeDado(bruto, 200).trim();
+  if (!t || t.length > 60 || /\d{3,}|[@\\/<>{}|`$#*_~=]/.test(t)) return generico;
+  if (sanitizarTexto(t, { mascararDadosPessoais: true }) !== t) return generico;
+  return foraDeEscopo(t) === null ? t : generico;
 }
 
 // ── 3) A saída ao grupo ──

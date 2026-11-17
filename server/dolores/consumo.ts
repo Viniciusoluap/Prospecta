@@ -5,6 +5,7 @@ import { and, eq, gt, isNull, ne, or, sql } from "drizzle-orm";
 import { doloresConfig } from "../../drizzle/schema-dolores.js";
 import { doloresConsumo, doloresMensagens, doloresWhatsappConfig, type DoloresWhatsappConfig } from "../../drizzle/schema-dolores-whatsapp.js";
 import { doloresGrupoMensagens } from "../../drizzle/schema-dolores-grupos.js";
+import { doloresMarcacoes } from "../../drizzle/schema-dolores-marcacoes.js";
 import { bloqueioDoLimite, type Limites, type Uso } from "../../shared/dolores/whatsapp.js";
 import { getDb } from "../db.js";
 import { erroParaLog } from "./erro-seguro.js";
@@ -74,7 +75,12 @@ export async function reservarChamada(p: { mes: string; mensagemId: number; limi
     }).from(doloresMensagens).where(and(gt(doloresMensagens.reservaAte, agora), ne(doloresMensagens.id, p.mensagemId)));
     // Etapa 4: as reservas das classificações de documentos em andamento também ocupam o limite
     const grupos = await reservasDasClassificacoes(tx, agora, null);
-    if (reservado) { reservado.entrada = Number(reservado.entrada ?? 0) + grupos.entrada; reservado.saida = Number(reservado.saida ?? 0) + grupos.saida; }
+    // Etapa 4b: e as das respostas em grupo (quando marcada) em andamento
+    const marcacoes = await reservasDasMarcacoes(tx, agora, null);
+    if (reservado) {
+      reservado.entrada = Number(reservado.entrada ?? 0) + grupos.entrada + marcacoes.entrada;
+      reservado.saida = Number(reservado.saida ?? 0) + grupos.saida + marcacoes.saida;
+    }
     // QA r2 N3: só o uso REAL decide "limite atingido". Se o que bloqueia é a reserva de OUTRO pedido em andamento, o motivo
     // é próprio ("outro_pedido": tente de novo em um minuto) e o aviso único do mês não é gasto.
     const real = bloqueioDoLimite({ entrada: Number(usado?.entrada ?? 0), saida: Number(usado?.saida ?? 0) }, p.limites);
@@ -143,7 +149,9 @@ export async function reservarClassificacao(p: { mes: string; mensagemGrupoId: n
       entrada: sql<number>`coalesce(sum(${doloresMensagens.reservaEntrada}), 0)`.mapWith(Number),
       saida: sql<number>`coalesce(sum(${doloresMensagens.reservaSaida}), 0)`.mapWith(Number),
     }).from(doloresMensagens).where(gt(doloresMensagens.reservaAte, agora));
-    const outras = await reservasDasClassificacoes(tx, agora, p.mensagemGrupoId);
+    const classificacoes = await reservasDasClassificacoes(tx, agora, p.mensagemGrupoId);
+    const respostas = await reservasDasMarcacoes(tx, agora, null);
+    const outras = { entrada: classificacoes.entrada + respostas.entrada, saida: classificacoes.saida + respostas.saida };
     const teto = { entrada: Math.floor(p.limites.entrada * FRACAO_DO_LIMITE_PARA_CLASSIFICACAO), saida: Math.floor(p.limites.saida * FRACAO_DO_LIMITE_PARA_CLASSIFICACAO) };
     const total = {
       entrada: Number(usado?.entrada ?? 0) + Number(comandos?.entrada ?? 0) + outras.entrada + p.reserva.entrada,
@@ -164,5 +172,65 @@ export async function liberarReservaClassificacao(mensagemGrupoId: number) {
     await getDb().update(doloresGrupoMensagens).set({ reservaEntrada: 0, reservaSaida: 0, reservaAte: null }).where(eq(doloresGrupoMensagens.id, mensagemGrupoId));
   } catch (e) {
     console.error("[dolores/consumo] falha ao liberar a reserva da classificação", e instanceof Error ? e.name : "erro");
+  }
+}
+
+/**
+ * Etapa 4b — reservas ainda válidas das respostas em grupo quando a Dolores é marcada (dolores_marcacoes), menos a da própria
+ * marcação. Sem a migração 0129, zero (as etapas anteriores continuam iguais).
+ */
+async function reservasDasMarcacoes(tx: Transacao, agora: Date, excetoId: number | null): Promise<Uso> {
+  const existe = await tx.execute(sql`SELECT to_regclass('public.dolores_marcacoes') IS NOT NULL AS existe`);
+  if (!(existe as unknown as { rows: Array<{ existe: boolean }> }).rows[0]?.existe) return { entrada: 0, saida: 0 };
+  const [r] = await tx.select({
+    entrada: sql<number>`coalesce(sum(${doloresMarcacoes.reservaEntrada}), 0)`.mapWith(Number),
+    saida: sql<number>`coalesce(sum(${doloresMarcacoes.reservaSaida}), 0)`.mapWith(Number),
+  }).from(doloresMarcacoes).where(excetoId === null ? gt(doloresMarcacoes.reservaAte, agora)
+    : and(gt(doloresMarcacoes.reservaAte, agora), ne(doloresMarcacoes.id, excetoId)));
+  return { entrada: Number(r?.entrada ?? 0), saida: Number(r?.saida ?? 0) };
+}
+
+/**
+ * Etapa 4b — reserva do limite mensal para UMA chamada do laço do grupo, com a mesma trava (linha da configuração em FOR UPDATE)
+ * e a mesma folga do dono da classificação: uso real + reservas dos comandos do dono + das classificações + das outras respostas
+ * em grupo + esta reserva cabem em FRACAO_DO_LIMITE_PARA_CLASSIFICACAO do limite. A reserva fica na própria marcação e vence
+ * sozinha. Devolve o motivo do bloqueio ou null (reservado).
+ */
+export async function reservarMarcacao(p: { mes: string; marcacaoId: number; limites: Limites; reserva: Uso; validadeMs: number }) {
+  return getDb().transaction(async tx => {
+    await tx.execute(sql`SELECT ${doloresWhatsappConfig.id} FROM ${doloresWhatsappConfig} WHERE ${doloresWhatsappConfig.id} = 1 FOR UPDATE`);
+    const agora = new Date();
+    const [usado] = await tx.select({
+      entrada: sql<number>`coalesce(sum(${doloresConsumo.tokensEntrada} + ${doloresConsumo.tokensCacheEscrita} + ${doloresConsumo.tokensCacheLeitura}), 0)`.mapWith(Number),
+      saida: sql<number>`coalesce(sum(${doloresConsumo.tokensSaida}), 0)`.mapWith(Number),
+    }).from(doloresConsumo).where(eq(doloresConsumo.mes, p.mes));
+    const real = bloqueioDoLimite({ entrada: Number(usado?.entrada ?? 0), saida: Number(usado?.saida ?? 0) }, p.limites);
+    if (real) return real;
+    const [comandos] = await tx.select({
+      entrada: sql<number>`coalesce(sum(${doloresMensagens.reservaEntrada}), 0)`.mapWith(Number),
+      saida: sql<number>`coalesce(sum(${doloresMensagens.reservaSaida}), 0)`.mapWith(Number),
+    }).from(doloresMensagens).where(gt(doloresMensagens.reservaAte, agora));
+    const classificacoes = await reservasDasClassificacoes(tx, agora, null);
+    const outras = await reservasDasMarcacoes(tx, agora, p.marcacaoId);
+    const teto = { entrada: Math.floor(p.limites.entrada * FRACAO_DO_LIMITE_PARA_CLASSIFICACAO), saida: Math.floor(p.limites.saida * FRACAO_DO_LIMITE_PARA_CLASSIFICACAO) };
+    const total = {
+      entrada: Number(usado?.entrada ?? 0) + Number(comandos?.entrada ?? 0) + classificacoes.entrada + outras.entrada + p.reserva.entrada,
+      saida: Number(usado?.saida ?? 0) + Number(comandos?.saida ?? 0) + classificacoes.saida + outras.saida + p.reserva.saida,
+    };
+    if (total.entrada > teto.entrada || total.saida > teto.saida) return "folga_do_dono" as const;
+    await tx.update(doloresMarcacoes).set({
+      reservaEntrada: Math.max(0, Math.round(p.reserva.entrada)), reservaSaida: Math.max(0, Math.round(p.reserva.saida)),
+      reservaAte: new Date(agora.getTime() + p.validadeMs),
+    }).where(eq(doloresMarcacoes.id, p.marcacaoId));
+    return null;
+  });
+}
+
+/** Solta a reserva da resposta em grupo. Falha só vai para o log: a reserva vence sozinha. */
+export async function liberarReservaMarcacao(marcacaoId: number) {
+  try {
+    await getDb().update(doloresMarcacoes).set({ reservaEntrada: 0, reservaSaida: 0, reservaAte: null }).where(eq(doloresMarcacoes.id, marcacaoId));
+  } catch (e) {
+    console.error("[dolores/consumo] falha ao liberar a reserva da resposta em grupo", e instanceof Error ? e.name : "erro");
   }
 }

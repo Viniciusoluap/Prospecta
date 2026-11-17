@@ -3,7 +3,7 @@
 // aceita estas. Só nomes e textos — nenhuma chave nem acesso a banco aqui.
 // Outras IAs do sistema (avaliação, mercado, Central de Vendas) usam a variável de ambiente e não entram nesta lista.
 
-export const FUNCOES_ANTHROPIC = ["maquete_leitura", "dolores_whatsapp", "dolores_documentos"] as const;
+export const FUNCOES_ANTHROPIC = ["maquete_leitura", "dolores_whatsapp", "dolores_documentos", "dolores_grupo"] as const;
 export type FuncaoAnthropic = (typeof FUNCOES_ANTHROPIC)[number];
 
 export type DescricaoFuncaoAnthropic = {
@@ -32,6 +32,12 @@ export const DESCRICAO_FUNCOES_ANTHROPIC: Record<FuncaoAnthropic, DescricaoFunca
     rotulo: "Dolores — classificação de documentos",
     descricao: "Classifica os documentos e fotos que chegam nos grupos de clientes cadastrados (RG, CNH, comprovante…). Só gasta com o interruptor da IA da Dolores e a classificação ligados, um documento por vez, até os tetos diários e dentro do limite mensal do cartão da Dolores.",
     recomendacao: "Um modelo que leia imagem e PDF; o mais barato (ex.: Haiku) costuma bastar. Confiança baixa vira \"confira\".",
+  },
+  dolores_grupo: {
+    id: "dolores_grupo",
+    rotulo: "Dolores — resposta em grupo quando marcada",
+    descricao: "Responde no grupo de cliente cadastrado só quando alguém marca o número da Dolores, e só sobre o andamento e os documentos daquele cliente. Só gasta com o interruptor da IA e o \"responder quando marcada\" (geral e do grupo) ligados, até os tetos por grupo e por pessoa e dentro do limite mensal do cartão da Dolores.",
+    recomendacao: "Um modelo mais barato (ex.: Haiku) costuma bastar: a resposta é curta e as consultas já vêm prontas.",
   },
 };
 

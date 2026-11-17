@@ -35,6 +35,7 @@ import { lerDecisaoDoDono, quadroDePendencias, quadroDoQueFoiFeito } from "../..
 import { decidir, feitosDoPedido, itensAguardandoDoPedido } from "./aprovacoes.js";
 import { tratarMensagemDeGrupo } from "./grupos.js";
 import { MINIMO_PARA_CLASSIFICAR_MS, classificarDocumentoDoGrupo } from "./classificacao.js";
+import { tratarMarcacao, type CredencialGrupo } from "./marcacao.js";
 
 /** O item do aviso é de grupo (remoteJid termina em @g.us)? */
 const ehDeGrupo = (item: unknown) => String((item as { key?: { remoteJid?: unknown } } | null)?.key?.remoteJid ?? "").endsWith("@g.us");
@@ -147,7 +148,7 @@ async function responderAoDono(cfg: DoloresWhatsappConfig, numero: string, texto
  * Por que a IA não pode rodar agora (ordem: pausa antes de tudo; nada aqui chama a Anthropic). É o ÚNICO ponto do sistema
  * que lê a chave da Anthropic do painel (o nome da função aparece só no import e na chamada abaixo), e só depois da pausa e do interruptor da IA.
  */
-async function bloqueioAtual(cfg: DoloresWhatsappConfig, mes: string, funcao: "dolores_whatsapp" | "dolores_documentos" = "dolores_whatsapp"): Promise<
+async function bloqueioAtual(cfg: DoloresWhatsappConfig, mes: string, funcao: "dolores_whatsapp" | "dolores_documentos" | "dolores_grupo" = "dolores_whatsapp"): Promise<
   { motivo: MotivoBloqueio; detalhe?: string | null } | { motivo: null; apiKey: string; modelo: string; autor: number }> {
   const pausa = await lerPausa();
   if (!pausa) return { motivo: "indisponivel" };
@@ -181,6 +182,21 @@ export async function credencialDaClassificacao(): Promise<
   if (!cfg) return { motivo: "indisponivel" };
   const mes = mesFortaleza(deps.agora());
   const estado = await bloqueioAtual(cfg, mes, "dolores_documentos");
+  if (estado.motivo !== null) return estado;
+  return { ...estado, mes, limites: { entrada: cfg.limiteMensalTokensEntrada, saida: cfg.limiteMensalTokensSaida } };
+}
+
+/**
+ * Etapa 4b — a resposta no grupo quando a Dolores é marcada usa a MESMA porta da chave (bloqueioAtual, na mesma ordem: pausa,
+ * interruptor da IA, chave, modelo da função "dolores_grupo", limite mensal, usuária ativa). A chave só sai daqui como `apiKey`
+ * do pedido ao modelo (server/dolores/marcacao.ts); nunca vai para log, auditoria ou tela.
+ */
+export async function credencialDaMarcacao(): Promise<CredencialGrupo> {
+  let cfg: DoloresWhatsappConfig | null;
+  try { cfg = await lerConfigWhatsapp(); } catch { return { motivo: "indisponivel" }; }
+  if (!cfg) return { motivo: "indisponivel" };
+  const mes = mesFortaleza(deps.agora());
+  const estado = await bloqueioAtual(cfg, mes, "dolores_grupo");
   if (estado.motivo !== null) return estado;
   return { ...estado, mes, limites: { entrada: cfg.limiteMensalTokensEntrada, saida: cfg.limiteMensalTokensSaida } };
 }
@@ -394,11 +410,19 @@ export async function tratarWebhookDolores(req: Pedido): Promise<RespostaWebhook
   if (interrompidos) contagem.interrompida = interrompidos;
   let classificouNesteAviso = false;
   for (const item of itens) {
-    // Etapa 4 — GRUPO: só registrado (se cadastrado e ativo); nunca vira comando, resposta, aprovação nem ação — nem
-    // quando quem escreveu no grupo é o dono. Grupo não cadastrado continua ignorado como antes ("grupo").
+    // Etapa 4 — GRUPO: registrado (se cadastrado e ativo); nunca vira comando, aprovação nem ação — nem quando quem escreveu
+    // no grupo é o dono. Grupo não cadastrado continua ignorado como antes ("grupo").
+    // Etapa 4b — a ÚNICA fala no grupo: quando a Dolores é MARCADA (menção real, por código), em grupo cadastrado e ativo e com
+    // os interruptores ligados, ela responde só sobre aquele cliente (marcacao.ts). Cada uma confere o prazo do aviso.
     if (ehDeGrupo(item)) {
       const g = await tratarMensagemDeGrupo(cfg, item, { agora: deps.agora(), autor });
       contar(g.resultado);
+      if (g.resultado !== "grupo") {
+        // cada marcação confere o próprio prazo (a IA só com tempo de sobra; a frase fixa, com o mínimo do envio)
+        const r = await tratarMarcacao(cfg, item, { autor, prazoFinal, obterCredencial: credencialDaMarcacao })
+          .catch(e => { console.error("[dolores/whatsapp] falha ao tratar a marcação no grupo", erroCurto(e)); return "marcacao-erro"; });
+        if (r) contar(r);
+      }
       // no máximo UMA classificação por aviso, e só com tempo de sobra; o resto fica "a classificar" (a tela e o próximo
       // pedido do dono tratam). Quem decide se a IA pode rodar (interruptores, teto, limite) é a classificação.
       if (g.aClassificar && g.mensagemId && !classificouNesteAviso && prazoFinal - deps.ms() >= MINIMO_PARA_CLASSIFICAR_MS) {
