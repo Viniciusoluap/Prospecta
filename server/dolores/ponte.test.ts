@@ -313,7 +313,7 @@ describe("ferramentas (fonte única)", () => {
     const r = await tratarFerramentas(pedido({}));
     expect(r.status).toBe(200);
     const ferramentas = r.body.ferramentas as any[];
-    expect(ferramentas.map(f => f.name)).toEqual([...LIBERADAS_ETAPA_1, "listar_grupos", "ler_grupo_cliente", "listar_notas_obra"]);
+    expect(ferramentas.map(f => f.name)).toEqual([...LIBERADAS_ETAPA_1, "listar_grupos", "ler_grupo_cliente", "listar_notas_obra", "relatorio_diario"]);
     expect(ferramentas.every(f => f.input_schema.type === "object" && f.input_schema.additionalProperties === false && f.description.length > 20)).toBe(true);
     const arquivo = JSON.parse(readFileSync(new URL("../../docs/dolores/ferramentas-etapa1.json", import.meta.url), "utf8"));
     expect(arquivo.ferramentas).toEqual(ferramentasLiberadas());

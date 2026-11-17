@@ -9,7 +9,6 @@ import { doloresConfig } from "../../drizzle/schema-dolores.js";
 import { doloresEventos, doloresOperacaoConfig } from "../../drizzle/schema-dolores-operacao.js";
 import { TETO_DONO_REAIS, estimarReais, janelaSobDemanda, relogioBrasilia } from "../../shared/dolores/operacao.js";
 import { bloqueioDoLimite, mascararNumero, mesFortaleza } from "../../shared/dolores/whatsapp.js";
-import { existeChaveAnthropicPainel } from "../_core/anthropic-painel.js";
 import { adminProcedure, router } from "../_core/trpc.js";
 import { getDb } from "../db.js";
 import { registrarAcao } from "./auditoria.js";
@@ -39,9 +38,9 @@ async function situacao() {
   const config = await exigirConfig();
   const agora = new Date();
   const mes = mesFortaleza(agora);
-  const [pausa, wa, uso, chave, grupos, notas, historico] = await Promise.all([
+  const [pausa, wa, uso, grupos, notas, historico] = await Promise.all([
     lerPausa().catch(() => null), lerConfigWhatsapp().catch(() => null), usoDoMes(mes).catch(() => ({ entrada: 0, saida: 0 })),
-    existeChaveAnthropicPainel().catch(() => null), lerConfigGrupos().catch(() => null), lerConfigNotas(), historicoParaTela(5).catch(() => ({ rondas: [], ultimoRelatorio: null })),
+    lerConfigGrupos().catch(() => null), lerConfigNotas(), historicoParaTela(5).catch(() => ({ rondas: [], ultimoRelatorio: null })),
   ]);
   const desde = new Date(agora.getTime() - 24 * 3_600_000);
   const eventos = await getDb().select({ tipo: doloresEventos.tipo, n: sql<number>`count(*)`.mapWith(Number) }).from(doloresEventos)
@@ -57,7 +56,7 @@ async function situacao() {
     config: { rondasLigadas: config.rondasLigadas, relatorioLigado: config.relatorioLigado, relatorioHora: config.relatorioHora, eventosLigados: config.eventosLigados },
     interruptores: {
       iaLigada: wa?.iaLigada ?? false, conexao: wa?.statusConexao ?? "desconectado", numeroDono: mascararNumero(wa?.numeroDono ?? null),
-      chaveAnthropic: Boolean(chave?.existe), classificacaoLigada: grupos?.classificacaoLigada ?? false, leituraNotasLigada: notas.leituraLigada,
+      classificacaoLigada: grupos?.classificacaoLigada ?? false, leituraNotasLigada: notas.leituraLigada,
       rondasLigadas: config.rondasLigadas, relatorioLigado: config.relatorioLigado, eventosLigados: config.eventosLigados,
     },
     agendamento: { cron: "/api/cron/dolores", horarioUtc: "10:00", horarioBrasilia: "07:00", agoraBrasilia: relogioBrasilia(agora).hhmm },

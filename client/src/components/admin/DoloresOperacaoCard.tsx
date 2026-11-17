@@ -86,7 +86,7 @@ export function DoloresOperacaoCard() {
             {/* Interruptores */}
             <section className="space-y-1 rounded-lg border border-[#C9A961]/20 bg-[#1A2332] p-3 text-sm">
               <h3 className="text-sm font-semibold text-[#C9A961]">Estado dos interruptores</h3>
-              <p>IA da conversa: {ligado(d.interruptores.iaLigada)} · chave da Anthropic: {d.interruptores.chaveAnthropic ? "cadastrada" : "falta"}</p>
+              <p>IA da conversa: {ligado(d.interruptores.iaLigada)} (chave e modelo: cartão "Dolores" acima)</p>
               <p>Conexão da Dolores: <strong>{d.interruptores.conexao}</strong> · número do dono: {d.interruptores.numeroDono ?? "não cadastrado"}</p>
               <p>Classificação dos documentos dos grupos: {ligado(d.interruptores.classificacaoLigada)}</p>
               <p>Leitura das notas de obra: {ligado(d.interruptores.leituraNotasLigada)}</p>

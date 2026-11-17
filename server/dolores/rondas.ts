@@ -160,7 +160,8 @@ const SECOES: Array<[SecaoRonda, (c: Ctx) => Promise<Secao>]> = [
     }).from(doloresEventos).where(gte(doloresEventos.criadoEm, desde));
     return { totais: { eventos: { prazosNovos: 0, documentosGrupo24h: contar(r?.documentos), notasLidas24h: contar(r?.notas) } } };
   })],
-  ["consumo", lerSecao(async ({ agora }) => {
+  // fora da transação de leitura: usa as funções de consumo (getDb), que não gravam
+  ["consumo", (async ({ agora }: Ctx): Promise<Secao> => {
     const mes = mesFortaleza(agora);
     const cfg = await lerConfigWhatsapp();
     const uso = await usoDoMes(mes);
