@@ -224,6 +224,25 @@ export function rotuloSeguroParaGrupo(bruto: string | null | undefined, generico
   return foraDeEscopo(t) === null ? t : generico;
 }
 
+/**
+ * QA-SEG E4b achado 1: a situação de um processo (regularização, obra, financiamento, serviço) vai ao grupo por uma lista
+ * FECHADA e neutra — nunca o status bruto nem o rótulo interno ("Aprovado", "Análise do banco", "Reavaliar", "Distrato"…), que
+ * revelaria resultado de aprovação de crédito ou etapa comercial. Valor desconhecido → "em andamento".
+ */
+export type SituacaoNeutra = "em análise" | "em andamento" | "aguardando dados" | "concluído" | "pausado" | "encerrado";
+const SITUACOES_NEUTRAS: Record<string, SituacaoNeutra> = {
+  // regularização (Status do Processo)
+  em_analise: "em análise", em_andamento: "em andamento", concluido: "concluído", cancelado: "encerrado",
+  // financiamento (pré-análise e análise do banco = "em análise"; "aprovado" não sai como resultado: segue "em andamento")
+  pre_analise: "em análise", analise_banco: "em análise", documentacao: "em andamento", aprovado: "em andamento", contrato: "em andamento",
+  registro: "em andamento", liberado: "concluído",
+  // obra e serviço contratado
+  completed: "concluído", cancelled: "encerrado", distrato: "encerrado", paused: "pausado", active: "em andamento", awaiting_data: "aguardando dados",
+};
+export function situacaoNeutraDoGrupo(status: string | null | undefined): SituacaoNeutra {
+  return (typeof status === "string" && Object.prototype.hasOwnProperty.call(SITUACOES_NEUTRAS, status) ? SITUACOES_NEUTRAS[status] : undefined) ?? "em andamento";
+}
+
 // ── 3) A saída ao grupo ──
 
 const MARCADORES = [OMITIDO, SENHA_OMITIDA, BANCARIO_OMITIDO, CHAVE_OMITIDA, LINK_REMOVIDO];
@@ -231,6 +250,8 @@ const SAIDA_PROIBIDA: RegExp[] = [
   /r\$|\breais\b|\d+,\d{2}\b/, // valores
   /\d{6,}/, // sequência longa de dígitos (documento, telefone, conta)
   /\b(prometo|garanto|garantid|com certeza|sem duvida|certeza de que|pode ficar tranquil|vai ser aprovad|sera aprovad|esta aprovad|foi aprovad|aprovamos|fica pronto (em|ate|no)|ate (o )?dia \d|em \d+ dias|na semana que vem|no mes que vem|amanha)/,
+  // QA-SEG E4b achado 1: resultado de aprovação (crédito, banco, órgão) em qualquer forma — "Aprovado", "reprovada", "aprovou"
+  /\b(re|des)?aprovad|\breprovad|\b(aprovou|reprovou|aprovaram|reprovaram|negad[oa]s?|indeferid[oa]s?|deferid[oa]s?|recusad[oa]s? pelo banco)\b/,
   /\b(cpf|cnpj|telefone|e-?mail|endereco|agencia|conta corrente|pix|senha|corretor|comissao|valor|parcela|orcamento)\b/,
   /\b(aprovar|recusar) [a-z0-9]{5}\b/,
 ];

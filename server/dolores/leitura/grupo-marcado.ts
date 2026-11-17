@@ -2,13 +2,15 @@
 // Regras fixas deste arquivo:
 // - O cliente/obra vem do CONTEXTO do servidor (o vínculo do grupo cadastrado daquela mensagem), nunca de argumento: as
 //   funções não têm argumento nenhum. Não há como pedir outro cliente, listar clientes nem buscar por nome.
-// - LISTA DE CAMPOS PERMITIDOS (montada aqui, campo a campo; o resto do banco não sai): primeiro nome do cliente do grupo, etapa
-//   no CRM (rótulo), por serviço o tipo e a situação (rótulos), o módulo e a situação nele (rótulo), a etapa atual e a próxima
+// - LISTA DE CAMPOS PERMITIDOS (montada aqui, campo a campo; o resto do banco não sai): primeiro nome do cliente do grupo, por
+//   serviço o tipo e a situação NEUTRA, o módulo e a situação neutra nele (lista fechada `situacaoNeutraDoGrupo`: em análise, em
+//   andamento, concluído, pausado, encerrado — QA-SEG E4b achado 1: nunca "Aprovado"/"Análise do banco"), a etapa atual e a próxima
 //   (nome passado pelo filtro de rótulo), etapas concluídas/total, progresso (%), a data da última movimentação; documentos
 //   pendentes (nome + "pendente"/"recusado — enviar de novo") e quantos já foram recebidos; quantos arquivos chegaram no grupo e
 //   aguardam a conferência da equipe; próximos passos montados pelo sistema.
 // - NUNCA saem: CPF/CNPJ, telefone, e-mail, endereço, cidade, valores (preço, parcela, custo, medição em R$, lançamento),
-//   dados bancários, banco, corretor/comissão, responsável da equipe, anotações/observações, histórico de atendimento,
+//   dados bancários, banco, corretor/comissão, responsável da equipe, anotações/observações, histórico de atendimento, etapa
+//   comercial do CRM ("Lead Novo", "Reprovado", "Em Aprovação"…), status bruto ou rótulo interno de processo, resultado de aprovação,
 //   conversas, títulos livres de serviço ou obra, tarefas, prazos previstos (promessa), ids internos, outros clientes.
 // - Texto livre que sobra (nome de documento do cadastro antigo, item do checklist, nome de etapa) passa por
 //   `rotuloSeguroParaGrupo`: com dígitos, link, "@", marcador de dado mascarado ou palavra fora do escopo, vira um rótulo
@@ -22,13 +24,9 @@ import {
 import { doloresGrupoMensagens } from "../../../drizzle/schema-dolores-grupos.js";
 import { diaFortaleza } from "../../../shared/dolores/formato.js";
 import { primeiroNome } from "../../../shared/dolores/fila.js";
-import { rotuloSeguroParaGrupo } from "../../../shared/dolores/marcacao.js";
+import { rotuloSeguroParaGrupo, situacaoNeutraDoGrupo } from "../../../shared/dolores/marcacao.js";
 import { STATUS_ENCERRADOS_PROCESSO, etapaAtual, maisRecente } from "../../../shared/dolores/regras.js";
-import { FINANCIAMENTO_STATUS_LABELS } from "../../../shared/financiamento.js";
-import { rotuloStatusProcesso } from "../../../shared/financeiro/regularizacao.js";
 import { LEAD_SERVICE_LABELS, type LeadServiceType } from "../../../shared/lead-services.js";
-import { obraStatusLabel } from "../../../shared/obra-status.js";
-import { rotuloEtapaCrm } from "./clientes.js";
 import { SITUACAO_DOC_CLIENTE, db, docClientePendente, docRegularizacaoRecebido, rotuloDocumento, type Resultado } from "./comum.js";
 
 /** Contexto do SERVIDOR: o vínculo do grupo cadastrado e ativo da mensagem que marcou a Dolores. */
@@ -37,7 +35,6 @@ export type ContextoDoGrupo = { agora: Date; grupoId: number; leadId: number | n
 /** As funções do grupo não recebem argumento (objeto vazio, estrito). */
 export const entradaSemArgumentos = z.object({}).strict();
 
-const SITUACAO_SERVICO: Record<string, string> = { awaiting_data: "aguardando dados", active: "em andamento", paused: "pausado", completed: "concluído", cancelled: "cancelado" };
 const STATUS_OBRA_ENCERRADA = new Set(["completed", "cancelled", "distrato"]);
 const rotuloServico = (t: string) => LEAD_SERVICE_LABELS[t as LeadServiceType] ?? "serviço";
 const pct = (v: unknown) => { const n = Number(v); return Number.isFinite(n) ? Math.max(0, Math.min(100, Math.round(n))) : null; };
@@ -45,7 +42,7 @@ const pct = (v: unknown) => { const n = Number(v); return Number.isFinite(n) ? M
 /** Cliente do grupo (não excluído do CRM). */
 async function clienteDoGrupo(ctx: ContextoDoGrupo) {
   if (!ctx.leadId) return null;
-  const [l] = await db().select({ id: leads.id, name: leads.name, stage: leads.stage }).from(leads)
+  const [l] = await db().select({ id: leads.id, name: leads.name }).from(leads)
     .where(and(eq(leads.id, ctx.leadId), isNull(leads.deletedAt))).limit(1);
   return l ?? null;
 }
@@ -92,7 +89,7 @@ async function andamento(ctx: ContextoDoGrupo) {
     const etapas = etapasReg.filter(e => e.dono === r.id);
     const atual = etapaAtual(etapas.map(e => ({ nome: e.nome ?? "", ordem: e.ordem, progresso: e.progresso })));
     processos.push({
-      modulo: "Regularização", situacao: rotuloStatusProcesso(r.status), encerrado: STATUS_ENCERRADOS_PROCESSO.has(r.status),
+      modulo: "Regularização", situacao: situacaoNeutraDoGrupo(r.status), encerrado: STATUS_ENCERRADOS_PROCESSO.has(r.status),
       ...resumoDasEtapas(etapas.map(e => ({ nome: e.nome, ordem: e.ordem, concluida: e.progresso >= 100, updatedAt: e.updatedAt }))),
       progressoDaEtapaAtualPct: atual && !atual.todasConcluidas ? pct(atual.progresso) : null,
       ultimaMovimentacao: diaFortaleza(maisRecente([r.updatedAt, ...etapas.map(e => e.updatedAt)])),
@@ -102,7 +99,7 @@ async function andamento(ctx: ContextoDoGrupo) {
   for (const o of obras) {
     const etapas = etapasObra.filter(e => e.dono === o.id);
     processos.push({
-      modulo: "Obra", situacao: obraStatusLabel(o.status), encerrado: STATUS_OBRA_ENCERRADA.has(o.status),
+      modulo: "Obra", situacao: situacaoNeutraDoGrupo(o.status), encerrado: STATUS_OBRA_ENCERRADA.has(o.status),
       ...resumoDasEtapas(etapas.map(e => ({ nome: e.nome, ordem: e.ordem, concluida: e.status === "completed", updatedAt: e.updatedAt }))),
       progressoDaObraPct: o.medido !== null && o.medido !== undefined ? pct(o.medido) : pct(o.progress),
       ultimaMovimentacao: diaFortaleza(maisRecente([o.updatedAt, ...etapas.map(e => e.updatedAt)])),
@@ -111,13 +108,13 @@ async function andamento(ctx: ContextoDoGrupo) {
   }
   for (const f of fins) {
     processos.push({
-      modulo: "Financiamento", situacao: FINANCIAMENTO_STATUS_LABELS[f.status as keyof typeof FINANCIAMENTO_STATUS_LABELS] ?? "em andamento",
+      modulo: "Financiamento", situacao: situacaoNeutraDoGrupo(f.status),
       ultimaMovimentacao: diaFortaleza(f.updatedAt),
     });
     if (f.servico) usados.add(f.servico);
   }
   // serviços contratados sem registro no módulo operacional: só o tipo e a situação
-  for (const s of servicos) if (!usados.has(s.id)) processos.push({ modulo: rotuloServico(s.tipo), situacao: SITUACAO_SERVICO[s.status] ?? "em andamento", ultimaMovimentacao: diaFortaleza(s.updatedAt) });
+  for (const s of servicos) if (!usados.has(s.id)) processos.push({ modulo: rotuloServico(s.tipo), situacao: situacaoNeutraDoGrupo(s.status), ultimaMovimentacao: diaFortaleza(s.updatedAt) });
   return { cliente, servicos: ids.length, processos };
 }
 
@@ -161,9 +158,9 @@ export async function andamentoDoGrupo(_args: z.infer<typeof entradaSemArgumento
   const vinculado = !!a.cliente || !!ctx.obraId;
   return {
     dados: vinculado ? {
-      cliente: a.cliente ? { primeiroNome: primeiroNome(a.cliente.name) || null, etapaNoCrm: rotuloEtapaCrm(a.cliente.stage) } : null,
+      cliente: a.cliente ? { primeiroNome: primeiroNome(a.cliente.name) || null } : null,
       processos: a.processos,
-      observacao: a.processos.length ? "Só situação, etapas e datas de movimento deste grupo. Prazos previstos e valores não são informados no grupo." : "Nenhum processo registrado para este cliente.",
+      observacao: a.processos.length ? "Só situação (em análise, em andamento, aguardando dados, concluído, pausado ou encerrado), etapas e datas de movimento deste grupo. Prazos previstos, valores e resultado de aprovação não são informados no grupo." : "Nenhum processo registrado para este cliente.",
     } : { semVinculo: true, observacao: "Grupo ainda sem cliente ligado no sistema." },
     resumo: { vinculado, processos: a.processos.length },
   };
