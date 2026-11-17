@@ -90,9 +90,28 @@ const NOME_FUNCAO_FILA: Record<string, string> = {
 
 const n = (x: number) => x.toLocaleString("pt-BR");
 const brl = (x: number) => x.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
-const curto = (s: string | null | undefined, max = 60) => {
-  const t = String(s ?? "").replace(/\s+/g, " ").trim();
-  return t.length > max ? `${t.slice(0, max - 1)}…` : t || "(sem nome)";
+/** Teto de caracteres de um nome de terceiro (cliente, responsável, grupo) no relatório. */
+export const MAX_NOME_TERCEIRO = 40;
+// palavra de comando da fila e o que vem logo depois (o "código"): some tudo
+const PALAVRA_DE_COMANDO = new RegExp("(^|[^\\p{L}])(aprovar|aprova|aprovo|recusar|recusa|recuso)(?=$|[^\\p{L}])(\\s+[^\\s]+)?", "giu");
+const FORA_DO_NOME = new RegExp("[^\\p{L}\\p{M} .'’-]", "u");
+/**
+ * Nome vindo de cadastro de terceiro, limpo para o relatório (achado 1 do QA de segurança da etapa 6): espaços colapsados
+ * (sem quebra de linha), corte no primeiro caractere que não seja letra, espaço, hífen, apóstrofo ou ponto (some negrito
+ * `*`, `_`, `~`, crase, aspas, dígitos de código…), palavras de comando da fila ("aprovar", "recusar") retiradas junto com a palavra seguinte (o código) e no máximo
+ * {@link MAX_NOME_TERCEIRO} caracteres. Nunca vira título de seção nem pedido de aprovação.
+ */
+export function limparNomeDeTerceiro(s: string | null | undefined, max = MAX_NOME_TERCEIRO): string {
+  let t = String(s ?? "").normalize("NFC").replace(/\s+/g, " ").trim();
+  const corte = t.search(FORA_DO_NOME);
+  if (corte >= 0) t = t.slice(0, corte);
+  t = t.replace(/[*_~`"“”«»]/g, "").replace(PALAVRA_DE_COMANDO, "$1").replace(/\s+/g, " ").replace(/^[\s.'’-]+|[\s'’-]+$/g, "").trim();
+  return t.length > max ? `${t.slice(0, max - 1).trimEnd()}…` : t;
+}
+/** Nome de terceiro como aparece no relatório: entre aspas angulares (é nome cadastrado, não texto da Dolores). */
+const curto = (s: string | null | undefined) => {
+  const t = limparNomeDeTerceiro(s);
+  return t ? `«${t}»` : "(sem nome)";
 };
 /** "17/11 09:05" a partir de ISO. */
 const diaHora = (iso: string) => {
@@ -131,7 +150,7 @@ export function montarRelatorio(p: {
   }
   if (t.tarefas) {
     const c = [`${n(t.tarefas.atrasadas)} tarefa(s) vencida(s) de ${n(t.tarefas.abertas)} aberta(s); ${n(t.tarefas.semPrazo)} sem prazo.`];
-    for (const i of d.tarefas ?? []) if (i.atrasadas) c.push(`- ${curto(i.responsavel, 40)}: ${n(i.atrasadas)} vencida(s)`);
+    for (const i of d.tarefas ?? []) if (i.atrasadas) c.push(`- ${curto(i.responsavel)}: ${n(i.atrasadas)} vencida(s)`);
     sec("Tarefas", c);
   }
   if (t.documentos) {

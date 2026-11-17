@@ -20,7 +20,7 @@ import { doloresGrupoMensagens } from "../../drizzle/schema-dolores-grupos.js";
 import { obraNotas } from "../../drizzle/schema-dolores-notas.js";
 import { doloresEventos, doloresRelatorios, doloresRondas, type DoloresRonda, type OrigemOperacao } from "../../drizzle/schema-dolores-operacao.js";
 import {
-  HORAS_AVISO_FILA, MAX_DESTAQUES, MAX_EVENTOS_PRAZO_POR_RONDA, janelaDiaria, janelaRelatorioDiario, janelaSobDemanda, montarRelatorio, relatorioDiarioNaHora,
+  HORAS_AVISO_FILA, MAX_DESTAQUES, MAX_EVENTOS_PRAZO_POR_RONDA, janelaDiaria, janelaRelatorioDiario, janelaSobDemanda, limparNomeDeTerceiro, montarRelatorio, relatorioDiarioNaHora,
   type DestaquesRonda, type SecaoRonda, type TotaisRonda,
 } from "../../shared/dolores/operacao.js";
 import { LEAD_FINALIZED_STAGE } from "../../shared/lead-pipeline.js";
@@ -50,10 +50,8 @@ const MINIMO_PARA_RELATORIO_MS = 6_000;
 
 const motivoDoBloqueio = (m: "pausada" | "indisponivel" | "usuaria_desativada") =>
   m === "pausada" ? "Dolores pausada (pausa geral)" : m === "usuaria_desativada" ? "usuária Dolores desativada em Usuários e acesso" : "configuração indisponível";
-const limpo = (s: string | null | undefined, max = 80) => {
-  const t = sanitizarTexto(String(s ?? ""), FILTRO_DO_REGISTRO).replace(/\s+/g, " ").trim();
-  return t.length > max ? `${t.slice(0, max - 1)}…` : t;
-};
+/** Nome de terceiro (cliente, responsável) guardado nos destaques: filtro do registro + limpeza de nome (sem formatação nem comando). */
+const limpo = (s: string | null | undefined) => limparNomeDeTerceiro(sanitizarTexto(String(s ?? ""), FILTRO_DO_REGISTRO));
 const contar = (v: unknown) => Number(v ?? 0) || 0;
 const reais = (v: unknown) => Math.round((Number(v ?? 0) || 0) * 100) / 100;
 
@@ -98,7 +96,7 @@ const SECOES: Array<[SecaoRonda, (c: Ctx) => Promise<Secao>]> = [
   ["tarefas", lerSecao(async ({ agora }) => {
     const r = await listarTarefas({ situacao: "atrasadas", pagina: 1, limite: 1 }, { agora });
     const d = r.dados as { totais: { abertas: number; atrasadas: number; semPrazo: number }; porResponsavel: Array<{ responsavel: string; atrasadas: number }> };
-    return { totais: { tarefas: d.totais }, destaques: { tarefas: d.porResponsavel.filter(p => p.atrasadas > 0).slice(0, MAX_DESTAQUES).map(p => ({ responsavel: limpo(p.responsavel, 40), atrasadas: p.atrasadas })) } };
+    return { totais: { tarefas: d.totais }, destaques: { tarefas: d.porResponsavel.filter(p => p.atrasadas > 0).slice(0, MAX_DESTAQUES).map(p => ({ responsavel: limpo(p.responsavel), atrasadas: p.atrasadas })) } };
   })],
   ["documentos", lerSecao(async () => {
     const r = await listarDocumentos({ situacao: "pendentes", pagina: 1, limite: MAX_DESTAQUES });

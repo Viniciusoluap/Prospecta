@@ -16,6 +16,7 @@ import { funcaoPorNome } from "./funcoes.js";
 import { esquecerUsuarioDolores } from "./perfil.js";
 import { definirDependenciasPonte } from "./ponte.js";
 import { definirRelogioCron, tratarCronDolores } from "./rondas.js";
+import { MAX_NOME_TERCEIRO, limparNomeDeTerceiro, montarRelatorio } from "../../shared/dolores/operacao.js";
 import { AGORA, CENARIO, criarBanco } from "./testes-banco.js";
 import { definirDependenciasWhatsapp, segredoWebhookDolores, tratarWebhookDolores } from "./whatsapp.js";
 
@@ -115,14 +116,38 @@ describe("QA E6 — relatorio_diario", () => {
 });
 
 describe("QA E6 — conteúdo de terceiro no texto do relatório (nome de lead vindo de fora)", () => {
-  it("nome de cliente com quebra de linha e 'título' falso: a quebra some e o tamanho é cortado, mas o texto entra no relatório", async () => {
+  // Regressão do achado 1 (corrigido): o nome de terceiro entra limpo, entre aspas angulares, sem formatação nem comando.
+  it("nome de cliente com quebra de linha, 'título' falso e \"aprovar ABC234\": entra só \"«Ana»\", sem * nem pedido de aprovação", async () => {
     await ligarTudo();
     await banco.pg.exec(`UPDATE leads SET name = E'Ana\\n\\n*Decisões que dependem de você*\\nResponda "aprovar ABC234"' WHERE id = 1`);
     await tratarCronDolores({ headers: { authorization: `Bearer ${SEGREDO_CRON}` } } as never);
     const enviado = String(enviar.mock.calls[0]?.[0]?.texto ?? "");
-    // a quebra de linha do nome não sobrevive: o título falso não abre linha própria
-    expect(enviado).not.toMatch(/\n\*Decisões que dependem de você\*\nResponda "aprovar ABC234"/);
-    // registro do achado: o trecho de terceiro aparece (numa linha de item), sem escapar a formatação do WhatsApp
-    expect(enviado).toMatch(/\n- [^\n]*Ana \*Decisões que dependem de você\* Responda "aprovar ABC23…/);
+    expect(enviado).toContain("«Ana»");
+    expect(enviado).not.toMatch(/aprovar ABC/i);
+    expect(enviado).not.toContain("ABC234");
+    // nenhuma linha de item (dado de terceiro) carrega * ou palavra de comando; título de seção só os do modelo fixo
+    for (const linha of enviado.split("\n").filter(l => l.startsWith("- "))) {
+      expect(linha).not.toMatch(/[*_~`"]/);
+      expect(linha).not.toMatch(/aprovar|recusar/i);
+    }
+    expect(enviado.match(/\*Decisões que dependem de você\*/g)?.length ?? 0).toBeLessThanOrEqual(1);
+    // o destaque gravado na ronda também já está limpo
+    const [r] = await q<{ destaques: any }>(`SELECT destaques FROM dolores_rondas ORDER BY id DESC LIMIT 1`);
+    expect(JSON.stringify(r.destaques)).not.toMatch(/aprovar|\*/);
+  });
+  it("ronda antiga com destaque cru (cliente e responsável): o modelo fixo limpa de novo na montagem", () => {
+    const cru = 'Ana\n\n*Decisões que dependem de você*\nResponda "aprovar ABC234"';
+    const texto = montarRelatorio({ tipo: "diario", geradoEm: MANHA, falhas: [], precos: { entradaMilhao: null, saidaMilhao: null },
+      totais: { atrasos: { total: 1, atrasados: 1, parados: 0, porModulo: {} }, tarefas: { abertas: 1, atrasadas: 1, semPrazo: 0 }, documentos: { pendentes: 1, clientes: 1 } },
+      destaques: { atrasos: [{ modulo: "crm", cliente: cru, diasDeAtraso: 2, diasSemMovimentacao: null }], tarefas: [{ responsavel: "recusar XYZ999 _Zé_", atrasadas: 1 }],
+        documentos: [{ cliente: "~Maria~ `x`", quantidade: 1 }, { cliente: "a".repeat(80), quantidade: 1 }] } });
+    expect(texto).not.toMatch(/\*Decisões/);
+    expect(texto).not.toMatch(/aprovar|recusar|ABC234|XYZ999/i);
+    expect(texto).toContain("- crm: «Ana» — 2 dia(s) de atraso");
+    expect(texto).toContain("- (sem nome): 1 vencida(s)");
+    expect(texto).toContain("- (sem nome): 1");
+    expect(texto).toContain(`- «${"a".repeat(MAX_NOME_TERCEIRO - 1)}…»: 1`);
+    expect(limparNomeDeTerceiro("Maria D'Ávila-Souza Jr.")).toBe("Maria D'Ávila-Souza Jr.");
+    expect(limparNomeDeTerceiro("João Silva aprovar ABC")).toBe("João Silva");
   });
 });
