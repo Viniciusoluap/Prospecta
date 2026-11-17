@@ -134,6 +134,9 @@ Alterados:
   depois: `marcacao.test.ts` 30/30 ok). `server/integracoes-anthropic.test.ts` sem mudança. Migração 0129 NÃO aplicada.
 - Merge `bd8c91d` (E4 final) + `origin/main` `537d687`; travas da E4 r3 na resposta em grupo; 4 regressões novas em
   `marcacao.test.ts` ("travas da 3ª rodada da E4 também na resposta em grupo").
+- Verificação depois do merge (17/11): `npx tsc --noEmit` ok; `npx vite build` ok; suíte-alvo (server/dolores + integracoes-anthropic,
+  modelo-por-funcao, auth-session, imports-esm, api-rotas-producao; 2 processos) 27 arquivos / 475 testes ok.
+  `server/integracoes-anthropic.test.ts` sem mudança. Migração 0129 NÃO aplicada.
 
 ## Change Log
 - 17/11/2026 — @dev (Dex): story criada (InProgress) a partir da decisão do dono de 17/11.
